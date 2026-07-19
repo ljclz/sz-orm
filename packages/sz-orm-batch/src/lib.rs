@@ -1,0 +1,678 @@
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+
+/// 批量操作结果。generated_sqls 持有实际生成的 SQL 语句，供调用方执行与审计。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BatchResult {
+    pub inserted: usize,
+    pub updated: usize,
+    pub failed: usize,
+    pub generated_sqls: Vec<String>,
+}
+
+impl BatchResult {
+    pub fn new() -> Self {
+        Self {
+            inserted: 0,
+            updated: 0,
+            failed: 0,
+            generated_sqls: Vec::new(),
+        }
+    }
+}
+
+impl Default for BatchResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+pub trait BatchOperations: Send + Sync {
+    fn batch_insert(&self, table: &str, rows: Vec<Value>) -> BatchResult;
+    fn batch_update(&self, table: &str, rows: Vec<Value>) -> BatchResult;
+    fn batch_upsert(&self, table: &str, rows: Vec<Value>) -> BatchResult;
+}
+
+/// Upsert 语法模式：MySQL 风格（ON DUPLICATE KEY UPDATE）或 PostgreSQL 风格（ON CONFLICT DO UPDATE）。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UpsertMode {
+    MysqlOnDuplicate,
+    PostgresOnConflict,
+}
+
+/// 默认批量操作实现。生成多值 INSERT、CASE WHEN UPDATE、ON CONFLICT/ON DUPLICATE UPSERT。
+#[derive(Debug, Clone)]
+pub struct DefaultBatchOps {
+    pub primary_key: String,
+    pub upsert_mode: UpsertMode,
+}
+
+impl Default for DefaultBatchOps {
+    fn default() -> Self {
+        Self {
+            primary_key: "id".to_string(),
+            upsert_mode: UpsertMode::MysqlOnDuplicate,
+        }
+    }
+}
+
+impl DefaultBatchOps {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn with_primary_key(primary_key: impl Into<String>) -> Self {
+        Self {
+            primary_key: primary_key.into(),
+            upsert_mode: UpsertMode::MysqlOnDuplicate,
+        }
+    }
+
+    pub fn with_upsert_mode(mut self, mode: UpsertMode) -> Self {
+        self.upsert_mode = mode;
+        self
+    }
+
+    /// 用反引号包裹标识符（MySQL 风格）。
+    fn quote(name: &str) -> String {
+        format!("`{}`", name)
+    }
+
+    /// 从 JSON 对象提取字段名，按 serde_json 内部 BTreeMap 顺序（字典序）。
+    fn extract_columns(row: &Value) -> Option<Vec<String>> {
+        match row {
+            Value::Object(map) => Some(map.keys().map(|k| k.to_string()).collect()),
+            _ => None,
+        }
+    }
+
+    /// 返回非主键列。
+    fn non_pk_columns(&self, columns: &[String]) -> Vec<String> {
+        columns
+            .iter()
+            .filter(|c| **c != self.primary_key)
+            .cloned()
+            .collect()
+    }
+
+    /// 校验 row 是否拥有所有指定列。
+    fn row_has_all_columns(row: &Value, columns: &[String]) -> bool {
+        match row {
+            Value::Object(map) => columns.iter().all(|c| map.contains_key(c)),
+            _ => false,
+        }
+    }
+
+    /// 生成单行占位符："(?, ?, ?)"。
+    fn placeholder_row(col_count: usize) -> String {
+        let placeholders = vec!["?"; col_count].join(", ");
+        format!("({})", placeholders)
+    }
+
+    /// 提取列定义并校验首行合法；失败时返回 None 并将所有 rows 计入 failed。
+    fn validate_and_extract(&self, rows: &[Value]) -> Option<Vec<String>> {
+        let first = rows.first()?;
+        match Self::extract_columns(first) {
+            Some(c) if !c.is_empty() => Some(c),
+            _ => None,
+        }
+    }
+
+    /// 过滤出字段齐全的有效行，返回 (valid_refs, failed_count)。
+    fn filter_valid_rows<'a>(&self, rows: &'a [Value], columns: &[String]) -> Vec<&'a Value> {
+        rows.iter()
+            .filter(|r| Self::row_has_all_columns(r, columns))
+            .collect()
+    }
+
+    /// 共用：生成 INSERT 头部与多值占位符部分。
+    fn build_insert_clause(
+        &self,
+        table: &str,
+        columns: &[String],
+        valid_rows: &[&Value],
+    ) -> String {
+        let cols_str = columns
+            .iter()
+            .map(|c| Self::quote(c))
+            .collect::<Vec<_>>()
+            .join(", ");
+        let row_ph = Self::placeholder_row(columns.len());
+        let all_ph = valid_rows
+            .iter()
+            .map(|_| row_ph.as_str())
+            .collect::<Vec<_>>()
+            .join(", ");
+        format!(
+            "INSERT INTO {} ({}) VALUES {}",
+            Self::quote(table),
+            cols_str,
+            all_ph
+        )
+    }
+}
+
+impl BatchOperations for DefaultBatchOps {
+    fn batch_insert(&self, table: &str, rows: Vec<Value>) -> BatchResult {
+        let mut result = BatchResult::new();
+        if rows.is_empty() {
+            return result;
+        }
+
+        let columns = match self.validate_and_extract(&rows) {
+            Some(c) => c,
+            None => {
+                result.failed = rows.len();
+                return result;
+            }
+        };
+
+        let valid_rows = self.filter_valid_rows(&rows, &columns);
+        result.failed = rows.len() - valid_rows.len();
+        if valid_rows.is_empty() {
+            return result;
+        }
+
+        let sql = self.build_insert_clause(table, &columns, &valid_rows);
+        result.generated_sqls.push(sql);
+        result.inserted = valid_rows.len();
+        result
+    }
+
+    fn batch_update(&self, table: &str, rows: Vec<Value>) -> BatchResult {
+        let mut result = BatchResult::new();
+        if rows.is_empty() {
+            return result;
+        }
+
+        let columns = match self.validate_and_extract(&rows) {
+            Some(c) => c,
+            None => {
+                result.failed = rows.len();
+                return result;
+            }
+        };
+
+        if !columns.contains(&self.primary_key) {
+            result.failed = rows.len();
+            return result;
+        }
+
+        let valid_rows = self.filter_valid_rows(&rows, &columns);
+        result.failed = rows.len() - valid_rows.len();
+        if valid_rows.is_empty() {
+            return result;
+        }
+
+        let non_pk = self.non_pk_columns(&columns);
+        if non_pk.is_empty() {
+            // 没有可更新列
+            result.failed += valid_rows.len();
+            return result;
+        }
+
+        // 为每个非主键列生成 CASE WHEN 子句
+        let pk_quoted = Self::quote(&self.primary_key);
+        let case_clauses: Vec<String> = non_pk
+            .iter()
+            .map(|col| {
+                let col_quoted = Self::quote(col);
+                let when_clauses: Vec<String> = valid_rows
+                    .iter()
+                    .map(|_| format!("{} = ? THEN ?", pk_quoted))
+                    .collect();
+                format!(
+                    "{} = CASE WHEN {} ELSE {} END",
+                    col_quoted,
+                    when_clauses.join(" WHEN "),
+                    col_quoted
+                )
+            })
+            .collect();
+
+        // WHERE IN 子句
+        let pk_placeholders = vec!["?"; valid_rows.len()].join(", ");
+        let where_clause = format!("{} IN ({})", pk_quoted, pk_placeholders);
+
+        let sql = format!(
+            "UPDATE {} SET {} WHERE {}",
+            Self::quote(table),
+            case_clauses.join(", "),
+            where_clause
+        );
+
+        result.generated_sqls.push(sql);
+        result.updated = valid_rows.len();
+        result
+    }
+
+    fn batch_upsert(&self, table: &str, rows: Vec<Value>) -> BatchResult {
+        let mut result = BatchResult::new();
+        if rows.is_empty() {
+            return result;
+        }
+
+        let columns = match self.validate_and_extract(&rows) {
+            Some(c) => c,
+            None => {
+                result.failed = rows.len();
+                return result;
+            }
+        };
+
+        if !columns.contains(&self.primary_key) {
+            result.failed = rows.len();
+            return result;
+        }
+
+        let valid_rows = self.filter_valid_rows(&rows, &columns);
+        result.failed = rows.len() - valid_rows.len();
+        if valid_rows.is_empty() {
+            return result;
+        }
+
+        let non_pk = self.non_pk_columns(&columns);
+        let insert_part = self.build_insert_clause(table, &columns, &valid_rows);
+
+        let conflict_part = match self.upsert_mode {
+            UpsertMode::MysqlOnDuplicate if !non_pk.is_empty() => {
+                let updates: Vec<String> = non_pk
+                    .iter()
+                    .map(|col| {
+                        let q = Self::quote(col);
+                        format!("{} = VALUES({})", q, q)
+                    })
+                    .collect();
+                format!(" ON DUPLICATE KEY UPDATE {}", updates.join(", "))
+            }
+            UpsertMode::PostgresOnConflict if !non_pk.is_empty() => {
+                let updates: Vec<String> = non_pk
+                    .iter()
+                    .map(|col| {
+                        let q = Self::quote(col);
+                        format!("{} = EXCLUDED.{}", q, q)
+                    })
+                    .collect();
+                format!(
+                    " ON CONFLICT ({}) DO UPDATE SET {}",
+                    Self::quote(&self.primary_key),
+                    updates.join(", ")
+                )
+            }
+            _ => String::new(),
+        };
+
+        let sql = format!("{}{}", insert_part, conflict_part);
+        result.generated_sqls.push(sql);
+        result.inserted = valid_rows.len();
+        result
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use serde_json::json;
+
+    // ============ BatchResult / DefaultBatchOps 基础 ============
+
+    #[test]
+    fn test_batch_result_default() {
+        let r = BatchResult::default();
+        assert_eq!(r.inserted, 0);
+        assert_eq!(r.updated, 0);
+        assert_eq!(r.failed, 0);
+        assert!(r.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_default_batch_ops_default() {
+        let ops = DefaultBatchOps::default();
+        assert_eq!(ops.primary_key, "id");
+        assert_eq!(ops.upsert_mode, UpsertMode::MysqlOnDuplicate);
+    }
+
+    #[test]
+    fn test_with_primary_key_custom() {
+        let ops = DefaultBatchOps::with_primary_key("user_id");
+        assert_eq!(ops.primary_key, "user_id");
+        assert_eq!(ops.upsert_mode, UpsertMode::MysqlOnDuplicate);
+    }
+
+    #[test]
+    fn test_with_upsert_mode_builder() {
+        let ops = DefaultBatchOps::new().with_upsert_mode(UpsertMode::PostgresOnConflict);
+        assert_eq!(ops.upsert_mode, UpsertMode::PostgresOnConflict);
+    }
+
+    // ============ batch_insert ============
+
+    #[test]
+    fn test_batch_insert_empty_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert("users", vec![]);
+        assert_eq!(result.inserted, 0);
+        assert_eq!(result.failed, 0);
+        assert!(result.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_batch_insert_single_row() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert("users", vec![json!({"id": 1, "name": "Alice"})]);
+        assert_eq!(result.inserted, 1);
+        assert_eq!(result.failed, 0);
+        assert_eq!(result.generated_sqls.len(), 1);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.starts_with("INSERT INTO `users`"));
+        assert!(sql.contains("`id`, `name`"));
+        assert!(sql.contains("VALUES (?, ?)"));
+        // 单行不应有逗号分隔的多值
+        assert!(!sql.contains("), ("));
+    }
+
+    #[test]
+    fn test_batch_insert_multiple_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!({"id": 2, "name": "Bob"}),
+                json!({"id": 3, "name": "Carol"}),
+            ],
+        );
+        assert_eq!(result.inserted, 3);
+        assert_eq!(result.failed, 0);
+        assert_eq!(result.generated_sqls.len(), 1);
+        let sql = &result.generated_sqls[0];
+        // 应有 3 个 (?, ?)
+        assert_eq!(sql.matches("(?, ?)").count(), 3);
+        assert!(sql.contains("(?, ?), (?, ?), (?, ?)"));
+    }
+
+    #[test]
+    fn test_batch_insert_single_column() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert("logs", vec![json!({"msg": "hello"})]);
+        assert_eq!(result.inserted, 1);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.contains("`msg`"));
+        assert!(sql.contains("VALUES (?)"));
+    }
+
+    #[test]
+    fn test_batch_insert_filters_non_object_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!("not an object"),
+                json!(42),
+            ],
+        );
+        assert_eq!(result.inserted, 1);
+        assert_eq!(result.failed, 2);
+        let sql = &result.generated_sqls[0];
+        assert_eq!(sql.matches("(?, ?)").count(), 1);
+    }
+
+    #[test]
+    fn test_batch_insert_filters_rows_missing_fields() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!({"id": 2}), // 缺 name
+            ],
+        );
+        assert_eq!(result.inserted, 1);
+        assert_eq!(result.failed, 1);
+    }
+
+    #[test]
+    fn test_batch_insert_all_invalid() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert(
+            "users",
+            vec![json!("not an object"), json!("another invalid")],
+        );
+        assert_eq!(result.inserted, 0);
+        assert_eq!(result.failed, 2);
+        assert!(result.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_batch_insert_preserves_column_order_from_btreemap() {
+        // serde_json 默认 BTreeMap，按字典序：age, id, name
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_insert("users", vec![json!({"name": "Alice", "id": 1, "age": 30})]);
+        assert_eq!(result.inserted, 1);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.contains("`age`, `id`, `name`"));
+    }
+
+    // ============ batch_update ============
+
+    #[test]
+    fn test_batch_update_empty_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_update("users", vec![]);
+        assert_eq!(result.updated, 0);
+        assert_eq!(result.failed, 0);
+        assert!(result.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_batch_update_single_row_single_col() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_update("users", vec![json!({"id": 1, "name": "Alice"})]);
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.failed, 0);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.starts_with("UPDATE `users` SET"));
+        assert!(sql.contains("`name` = CASE WHEN `id` = ? THEN ?"));
+        assert!(sql.contains("ELSE `name` END"));
+        assert!(sql.contains("WHERE `id` IN (?)"));
+    }
+
+    #[test]
+    fn test_batch_update_multiple_rows_multiple_cols() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_update(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice", "age": 30}),
+                json!({"id": 2, "name": "Bob", "age": 25}),
+            ],
+        );
+        assert_eq!(result.updated, 2);
+        let sql = &result.generated_sqls[0];
+        // 应有 2 个 CASE 子句（name 和 age）
+        assert_eq!(sql.matches("CASE").count(), 2);
+        // WHERE IN 应有 2 个 ?
+        assert!(sql.contains("WHERE `id` IN (?, ?)"));
+        // 每个 CASE 内部应有 2 个 WHEN 子句
+        assert_eq!(sql.matches("WHEN").count(), 4);
+    }
+
+    #[test]
+    fn test_batch_update_requires_primary_key() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_update("users", vec![json!({"name": "Alice"})]);
+        assert_eq!(result.updated, 0);
+        assert_eq!(result.failed, 1);
+        assert!(result.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_batch_update_custom_primary_key() {
+        let ops = DefaultBatchOps::with_primary_key("user_id");
+        let result = ops.batch_update("users", vec![json!({"user_id": 1, "name": "Alice"})]);
+        assert_eq!(result.updated, 1);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.contains("`user_id` = ? THEN ?"));
+        assert!(sql.contains("WHERE `user_id` IN"));
+    }
+
+    #[test]
+    fn test_batch_update_only_pk_no_other_cols() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_update("users", vec![json!({"id": 1})]);
+        assert_eq!(result.updated, 0);
+        assert_eq!(result.failed, 1);
+        assert!(result.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_batch_update_filters_invalid_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_update(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!({"id": 2}), // 缺 name
+                json!("invalid"), // 非 object
+            ],
+        );
+        assert_eq!(result.updated, 1);
+        assert_eq!(result.failed, 2);
+    }
+
+    #[test]
+    fn test_batch_update_case_when_structure_correct() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_update(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!({"id": 2, "name": "Bob"}),
+            ],
+        );
+        let sql = &result.generated_sqls[0];
+        // 期望形如：name = CASE WHEN id = ? THEN ? WHEN id = ? THEN ? ELSE name END
+        assert!(sql.contains("CASE WHEN `id` = ? THEN ? WHEN `id` = ? THEN ? ELSE `name` END"));
+    }
+
+    // ============ batch_upsert ============
+
+    #[test]
+    fn test_batch_upsert_empty_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_upsert("users", vec![]);
+        assert_eq!(result.inserted, 0);
+        assert!(result.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_batch_upsert_mysql_mode_single_row() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_upsert("users", vec![json!({"id": 1, "name": "Alice"})]);
+        assert_eq!(result.inserted, 1);
+        assert_eq!(result.failed, 0);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.starts_with("INSERT INTO `users`"));
+        assert!(sql.contains("ON DUPLICATE KEY UPDATE"));
+        assert!(sql.contains("`name` = VALUES(`name`)"));
+        assert!(!sql.contains("ON CONFLICT"));
+    }
+
+    #[test]
+    fn test_batch_upsert_mysql_mode_multiple_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_upsert(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!({"id": 2, "name": "Bob"}),
+            ],
+        );
+        assert_eq!(result.inserted, 2);
+        let sql = &result.generated_sqls[0];
+        // 应有 2 个值组
+        assert_eq!(sql.matches("(?, ?)").count(), 2);
+        assert!(sql.contains("ON DUPLICATE KEY UPDATE"));
+    }
+
+    #[test]
+    fn test_batch_upsert_postgres_mode() {
+        let ops = DefaultBatchOps::new().with_upsert_mode(UpsertMode::PostgresOnConflict);
+        let result = ops.batch_upsert("users", vec![json!({"id": 1, "name": "Alice"})]);
+        assert_eq!(result.inserted, 1);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.contains("ON CONFLICT (`id`) DO UPDATE SET"));
+        assert!(sql.contains("`name` = EXCLUDED.`name`"));
+        assert!(!sql.contains("ON DUPLICATE KEY"));
+    }
+
+    #[test]
+    fn test_batch_upsert_multiple_cols_does_not_update_pk() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_upsert("users", vec![json!({"id": 1, "name": "Alice", "age": 30})]);
+        assert_eq!(result.inserted, 1);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.contains("`name` = VALUES(`name`)"));
+        assert!(sql.contains("`age` = VALUES(`age`)"));
+        // 不应更新主键
+        assert!(!sql.contains("`id` = VALUES"));
+    }
+
+    #[test]
+    fn test_batch_upsert_postgres_does_not_update_pk() {
+        let ops = DefaultBatchOps::new().with_upsert_mode(UpsertMode::PostgresOnConflict);
+        let result = ops.batch_upsert("users", vec![json!({"id": 1, "name": "Alice", "age": 30})]);
+        let sql = &result.generated_sqls[0];
+        assert!(sql.contains("`name` = EXCLUDED.`name`"));
+        assert!(sql.contains("`age` = EXCLUDED.`age`"));
+        assert!(!sql.contains("`id` = EXCLUDED"));
+    }
+
+    #[test]
+    fn test_batch_upsert_requires_primary_key() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_upsert("users", vec![json!({"name": "Alice"})]);
+        assert_eq!(result.inserted, 0);
+        assert_eq!(result.failed, 1);
+        assert!(result.generated_sqls.is_empty());
+    }
+
+    #[test]
+    fn test_batch_upsert_only_pk_no_other_cols() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_upsert("users", vec![json!({"id": 1})]);
+        assert_eq!(result.inserted, 1);
+        let sql = &result.generated_sqls[0];
+        // 应有 INSERT 但无 ON DUPLICATE KEY（无列可更新）
+        assert!(sql.starts_with("INSERT INTO"));
+        assert!(!sql.contains("ON DUPLICATE KEY"));
+        assert!(!sql.contains("ON CONFLICT"));
+    }
+
+    #[test]
+    fn test_batch_upsert_filters_invalid_rows() {
+        let ops = DefaultBatchOps::new();
+        let result = ops.batch_upsert(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!("invalid"),
+                json!({"name": "Bob"}), // 无 id
+            ],
+        );
+        assert_eq!(result.inserted, 1);
+        assert_eq!(result.failed, 2);
+    }
+
+    #[test]
+    fn test_batch_upsert_custom_pk_mysql() {
+        let ops = DefaultBatchOps::with_primary_key("email");
+        let result = ops.batch_upsert("users", vec![json!({"email": "a@b.com", "name": "Alice"})]);
+        assert_eq!(result.inserted, 1);
+        let sql = &result.generated_sqls[0];
+        // 主键 email 不应在 VALUES(...) 更新列表中
+        assert!(sql.contains("`name` = VALUES(`name`)"));
+        assert!(!sql.contains("`email` = VALUES"));
+    }
+}

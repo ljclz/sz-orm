@@ -1,0 +1,398 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master, develop]
+  pull_request:
+    branches: [main, master, develop]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUSTFLAGS: "-D warnings"
+
+jobs:
+  # ============================================================================
+  # Job 1: 代码格式检查 + clippy 静态分析
+  # ============================================================================
+  lint:
+    name: Lint & Format Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-lint-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-lint-
+
+      - name: Check formatting
+        working-directory: rust/sz-orm
+        run: cargo fmt --all -- --check
+
+      - name: Run clippy
+        working-directory: rust/sz-orm
+        run: cargo clippy --workspace --all-targets -- -D warnings
+
+  # ============================================================================
+  # Job 2: 工作空间编译验证
+  # ============================================================================
+  build:
+    name: Build (${{ matrix.os }}, Rust ${{ matrix.rust }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        rust: [stable, beta]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: ${{ matrix.rust }}
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-build-${{ matrix.rust }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-build-${{ matrix.rust }}-
+
+      - name: Build workspace
+        working-directory: rust/sz-orm
+        run: cargo build --workspace --all-targets --verbose
+
+      - name: Build documentation
+        working-directory: rust/sz-orm
+        run: cargo doc --workspace --no-deps --all-features
+
+  # ============================================================================
+  # Job 3: 工作空间单元/集成测试（无外部数据库）
+  # ============================================================================
+  test:
+    name: Test Suite (no external DB)
+    runs-on: ubuntu-latest
+    needs: [lint, build]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-test-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-test-
+
+      - name: Run workspace tests (excludes #[ignore] integration tests)
+        working-directory: rust/sz-orm
+        run: cargo test --workspace --verbose
+
+      - name: Run SQLite integration tests
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-core --test integration_sqlite --verbose
+
+  # ============================================================================
+  # Job 4: 真实数据库集成测试（MySQL + PostgreSQL + SQLite）
+  # ============================================================================
+  integration-test:
+    name: Integration Tests (MySQL ${{ matrix.mysql }}, PG ${{ matrix.pg }})
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - mysql: "8.0"
+            pg: "14"
+          - mysql: "8.4"
+            pg: "16"
+          - mysql: "9.6"
+            pg: "18"
+    services:
+      mysql:
+        image: mysql:${{ matrix.mysql }}
+        env:
+          MYSQL_ROOT_PASSWORD: <your-password>
+          MYSQL_DATABASE: sz_orm_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p<your-password>"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: <your-password>
+          POSTGRES_DB: sz_orm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      MYSQL_URL: mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test
+      PG_URL: postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-int-${{ matrix.mysql }}-${{ matrix.pg }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-int-
+
+      - name: Run MySQL integration tests (10 万条 + 8 任务并发)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-core --test integration_mysql -- --ignored --nocapture --test-threads=1
+
+      - name: Run PostgreSQL integration tests (10 万条 + 8 任务并发)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-core --test integration_pg -- --ignored --nocapture --test-threads=1
+
+  # ============================================================================
+  # Job 5: 真实服务集成测试（真实 DB + 云服务，全部 #[ignore] 用例）
+  # ============================================================================
+  integration:
+    name: Real Service Integration (MySQL ${{ matrix.mysql }}, PG ${{ matrix.pg }})
+    runs-on: ubuntu-latest
+    needs: [test]
+    strategy:
+      fail-fast: false
+      matrix:
+        mysql: ["8.0", "9.6"]
+        pg: ["14", "16", "18"]
+    services:
+      mysql:
+        image: mysql:${{ matrix.mysql }}
+        env:
+          MYSQL_ROOT_PASSWORD: <your-password>
+          MYSQL_DATABASE: sz_orm_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p<your-password>"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      postgres:
+        image: postgres:${{ matrix.pg }}
+        env:
+          POSTGRES_PASSWORD: <your-password>
+          POSTGRES_DB: sz_orm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -U postgres"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      rabbitmq:
+        image: rabbitmq:3.13
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+      mosquitto:
+        image: eclipse-mosquitto:2.0
+        ports:
+          - 1883:1883
+      minio:
+        image: minio/minio:latest
+        env:
+          MINIO_ROOT_USER: minioadmin
+          MINIO_ROOT_PASSWORD: minioadmin
+        ports:
+          - 9000:9000
+        options: >-
+          --health-cmd="curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+    env:
+      MYSQL_URL: mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test
+      PG_URL: postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test
+      S3_TEST_ENDPOINT: http://127.0.0.1:9000
+      S3_TEST_BUCKET: test-bucket
+      S3_TEST_REGION: us-east-1
+      S3_TEST_ACCESS_KEY: minioadmin
+      S3_TEST_SECRET_KEY: minioadmin
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-integration-${{ matrix.mysql }}-${{ matrix.pg }}-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-integration-
+
+      - name: Wait for MQTT broker (port 1883)
+        run: |
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/1883) 2>/dev/null; then
+              echo "MQTT broker is ready"
+              exit 0
+            fi
+            echo "waiting for MQTT broker... ($i)"
+            sleep 1
+          done
+          echo "MQTT broker did not become ready in time"
+          exit 1
+
+      - name: Create MinIO test bucket (test-bucket)
+        run: |
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
+            until mc alias set local http://127.0.0.1:9000 minioadmin minioadmin; do
+              echo 'waiting for MinIO...' && sleep 2
+            done &&
+            mc mb --ignore-existing local/test-bucket
+          "
+
+      - name: Run real DB pool/transaction tests (sz-orm-sqlx, MySQL + PG)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-sqlx --test real_db_pool_tests -- --ignored --nocapture --test-threads=1
+
+      - name: Run real MQTT broker tests (sz-orm-mqtt, real-broker)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-mqtt --features real-broker -- --ignored --nocapture
+
+      - name: Run real RabbitMQ tests (sz-orm-queue, rabbitmq)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-queue --features rabbitmq -- --ignored --nocapture
+
+      - name: Run real S3/MinIO tests (sz-orm-storage, s3-sdk)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-storage --features s3-sdk -- --ignored --nocapture
+
+      - name: Run real WebSocket server tests (sz-orm-websocket, server)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-websocket --features server -- --ignored --nocapture
+
+  # ============================================================================
+  # Job 6: 性能基准测试（criterion，结果对比）
+  # ============================================================================
+  benchmark:
+    name: Performance Benchmarks
+    runs-on: ubuntu-latest
+    needs: [test]
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-bench-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-bench-
+
+      - name: Run criterion benchmarks
+        working-directory: rust/sz-orm
+        run: cargo bench --package sz-orm-core --bench core_bench -- --warm-up-time 1 --measurement-time 3 --sample-size 30
+
+      - name: Upload benchmark results
+        uses: actions/upload-artifact@v4
+        with:
+          name: criterion-results-${{ github.sha }}
+          path: rust/sz-orm/target/criterion/
+          retention-days: 30
+
+  # ============================================================================
+  # Job 7: 安全审计
+  # ============================================================================
+  security:
+    name: Security Audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Run security audit
+        working-directory: rust/sz-orm
+        run: cargo audit
+
+  # ============================================================================
+  # Job 8: 覆盖率报告
+  # ============================================================================
+  coverage:
+    name: Code Coverage
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-tarpaulin
+        run: cargo install cargo-tarpaulin --locked
+
+      - name: Run coverage
+        working-directory: rust/sz-orm
+        run: cargo tarpaulin --workspace --out Xml --output-dir coverage/
+
+      - name: Upload coverage to Codecov
+        uses: codecov/codecov-action@v4
+        with:
+          files: coverage/cobertura.xml
+          fail_ci_if_error: false

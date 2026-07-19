@@ -1,0 +1,55 @@
+[package]
+name = "sz-orm-core"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[features]
+default = []
+testing = ["tokio/full"]
+
+[dependencies]
+async-trait.workspace = true
+thiserror.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+chrono.workspace = true
+bytes.workspace = true
+tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
+sz-orm-sql-validator = { path = "../sz-orm-sql-validator" }
+sz-orm-macros = { path = "../sz-orm-macros" }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
+rusqlite = { version = "0.32", features = ["bundled"] }
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+
+[lib]
+name = "sz_orm_core"
+path = "src/lib.rs"
+
+[[test]]
+name = "core_tests"
+path = "tests/core.rs"
+
+[[test]]
+name = "integration_sqlite"
+path = "tests/integration_sqlite.rs"
+
+[[test]]
+name = "integration_mysql"
+path = "tests/integration_mysql.rs"
+
+[[test]]
+name = "integration_pg"
+path = "tests/integration_pg.rs"
+
+[[bench]]
+name = "core_bench"
+path = "benches/core_bench.rs"
+harness = false
+
+[package.metadata.docs.rs]
+all-features = true

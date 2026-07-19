@@ -1,0 +1,13 @@
+[package]
+name = "sz-orm-sql-validator"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+thiserror.workspace = true
+
+[lib]
+name = "sz_orm_sql_validator"
+path = "src/lib.rs"

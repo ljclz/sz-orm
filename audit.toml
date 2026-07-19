@@ -1,0 +1,66 @@
+# =============================================================================
+# cargo-audit 配置 file
+# 文档: https://github.com/rustsec/rustsec/tree/main/cargo-audit
+# 用途: 对 SZ-ORM 工作空间的 Cargo.lock 进行 RUSTSEC 漏洞公告扫描
+# 运行: cargo audit
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# [advisories] 忽略的公告列表
+# -----------------------------------------------------------------------------
+[advisories]
+# 忽略的公告列表
+# 仅在"上游暂无可用修复版本"且"漏洞影响可控"时才忽略，并必须写明原因
+ignore = [
+    # rsa 0.9.10: Marvin Attack (timing sidechannels, RUSTSEC-2023-0071, severity 5.9 medium)
+    # 来源: sqlx-mysql 0.8.6 → rsa 0.9.10 (MySQL SHA256/RSA 认证所需)
+    # 影响: 时序侧信道攻击需在同一主机执行恶意代码，服务端场景影响有限
+    # 跟踪: 待 sqlx 0.9+ 升级 rsa 依赖后自动移除此忽略项
+    { id = "RUSTSEC-2023-0071", reason = "sqlx-mysql 0.8.6 传递依赖 rsa 0.9.10，上游 sqlx 尚无修复版本；影响为同主机时序侧信道，服务端场景可控" },
+    # rustls-webpki 0.102.8: CRL distributionPoint 解析漏洞 (RUSTSEC-2026-0049)
+    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-webpki 0.102.8
+    # 影响: 仅在启用 real-broker feature 时引入；CRL 验证在默认编译中不参与；上游 rustls-webpki 0.103 为不兼容大版本
+    # 跟踪: 待 rumqttc 升级至依赖 rustls-webpki 0.103+ 后自动移除
+    { id = "RUSTSEC-2026-0049", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # rustls-webpki 0.102.8: URI name constraints 漏洞 (RUSTSEC-2026-0098)
+    { id = "RUSTSEC-2026-0098", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # rustls-webpki 0.102.8: wildcard name constraints 漏洞 (RUSTSEC-2026-0099)
+    { id = "RUSTSEC-2026-0099", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # rustls-webpki 0.102.8: CRL parsing panic 漏洞 (RUSTSEC-2026-0104)
+    { id = "RUSTSEC-2026-0104", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # quick-xml 0.38.4: 二次时间复杂度解析漏洞 (RUSTSEC-2026-0194)
+    # 来源: sz-orm-queue (rabbitmq feature) → lapin 4.10 → quick-xml 0.38.4
+    # 影响: 仅在启用 rabbitmq feature 时引入；服务端可控输入；上游 lapin 尚未升级
+    # 跟踪: 待 lapin 升级 quick-xml 依赖后自动移除
+    { id = "RUSTSEC-2026-0194", reason = "lapin 4.10 传递依赖 quick-xml 0.38.4，上游 lapin 尚无修复版本；仅影响 rabbitmq feature；服务端可控输入" },
+    # quick-xml 0.38.4: 内存耗尽漏洞 (RUSTSEC-2026-0195)
+    { id = "RUSTSEC-2026-0195", reason = "lapin 4.10 传递依赖 quick-xml 0.38.4，上游 lapin 尚无修复版本；仅影响 rabbitmq feature；服务端可控输入" },
+    # rustls-pemfile 2.2.0: 未维护 (RUSTSEC-2025-0134)
+    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-pemfile 2.2.0
+    # 影响: 仅在启用 real-broker feature 时引入；功能已被 rustls 0.23 内置功能替代
+    # 跟踪: 待 rumqttc 升级至不依赖 rustls-pemfile 后自动移除
+    { id = "RUSTSEC-2025-0134", reason = "rumqttc 0.25 传递依赖 rustls-pemfile 2.2.0 unmaintained；仅影响 real-broker feature；功能已被 rustls 0.23 内置替代" },
+]
+
+# -----------------------------------------------------------------------------
+# [output] 输出配置
+# -----------------------------------------------------------------------------
+[output]
+# 输出格式: terminal (默认) | json | summary
+format = "terminal"
+# 显示树形依赖路径，便于定位受影响的传递依赖
+dependency-tree = true
+# 显示告警的修复建议 (advisory.versions.patched)
+quiet = false
+
+# -----------------------------------------------------------------------------
+# [audit] 审计行为
+# -----------------------------------------------------------------------------
+[audit]
+# 仅检查 0day 公告，不检查未维护依赖
+# 设为 false 时同时报告 unmaintained 公告 (推荐 false)
+unmaintained = true
+# 检查时包含 yanked crate
+yanked = true
+# 检查私有源 (如 git 依赖) 是否存在已知漏洞 (需要相应数据源)
+private-audits = false

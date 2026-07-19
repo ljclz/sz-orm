@@ -1,0 +1,91 @@
+# =============================================================================
+# 安全审计 CI 工作流
+# 触发: 推送 / PR 到 main/master 分支
+# 内容: cargo-audit (漏洞公告) + cargo-deny (公告 / 禁用 / 许可证 / 来源)
+# =============================================================================
+name: Security
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+    branches: [main, master]
+
+env:
+  CARGO_TERM_COLOR: always
+  RUST_BACKTRACE: 1
+
+jobs:
+  # ============================================================================
+  # Job 1: cargo-audit 漏洞公告扫描
+  # ============================================================================
+  cargo-audit:
+    name: cargo-audit
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/sz-orm/target
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('rust/sz-orm/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-audit-
+
+      - name: Run cargo-audit
+        working-directory: rust/sz-orm
+        run: |
+          cargo audit \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2026-0049 \
+            --ignore RUSTSEC-2026-0098 \
+            --ignore RUSTSEC-2026-0099 \
+            --ignore RUSTSEC-2026-0104 \
+            --ignore RUSTSEC-2026-0194 \
+            --ignore RUSTSEC-2026-0195 \
+            --ignore RUSTSEC-2025-0134
+
+  # ============================================================================
+  # Job 2: cargo-deny 综合检查 (advisories / bans / licenses / sources)
+  # ============================================================================
+  cargo-deny:
+    name: cargo-deny
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        checks:
+          - advisories
+          - bans
+          - licenses
+          - sources
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            rust/sz-orm/target
+          key: ${{ runner.os }}-cargo-deny-${{ matrix.checks }}-${{ hashFiles('rust/sz-orm/**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-deny-
+
+      - name: Run cargo-deny
+        working-directory: rust/sz-orm
+        run: cargo deny check --file deny.toml ${{ matrix.checks }}

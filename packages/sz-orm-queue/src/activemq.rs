@@ -1,0 +1,86 @@
+use crate::error::MqError;
+use crate::queue::{InMemoryQueue, Message, MessageQueue};
+use async_trait::async_trait;
+
+pub struct InMemoryActivemqQueue {
+    inner: InMemoryQueue,
+}
+
+impl InMemoryActivemqQueue {
+    pub fn new() -> Self {
+        Self {
+            inner: InMemoryQueue::new(),
+        }
+    }
+
+    pub async fn message_count(&self, topic: &str) -> usize {
+        self.inner.message_count(topic).await
+    }
+
+    pub async fn subscriber_count(&self, topic: &str) -> usize {
+        self.inner.subscriber_count(topic).await
+    }
+
+    pub async fn in_flight_count(&self) -> usize {
+        self.inner.in_flight_count().await
+    }
+}
+
+impl Default for InMemoryActivemqQueue {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl MessageQueue for InMemoryActivemqQueue {
+    async fn publish(&self, topic: &str, message: &[u8]) -> Result<(), MqError> {
+        self.inner.publish(topic, message).await
+    }
+
+    async fn consume(&self, topic: &str) -> Result<Option<Message>, MqError> {
+        self.inner.consume(topic).await
+    }
+
+    async fn ack(&self, message_id: &str) -> Result<(), MqError> {
+        self.inner.ack(message_id).await
+    }
+
+    async fn subscribe(&self, topic: &str) -> Result<(), MqError> {
+        self.inner.subscribe(topic).await
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_activemq_publish_and_consume() {
+        let queue = InMemoryActivemqQueue::new();
+        queue
+            .publish("active-topic", b"hello active")
+            .await
+            .unwrap();
+        let msg = queue
+            .consume("active-topic")
+            .await
+            .unwrap()
+            .expect("message should exist");
+        assert_eq!(msg.payload, b"hello active");
+        queue.ack(&msg.id).await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_activemq_consume_empty() {
+        let queue = InMemoryActivemqQueue::new();
+        assert!(queue.consume("empty").await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn test_activemq_subscribe() {
+        let queue = InMemoryActivemqQueue::new();
+        queue.subscribe("active-topic").await.unwrap();
+        assert_eq!(queue.subscriber_count("active-topic").await, 1);
+    }
+}
