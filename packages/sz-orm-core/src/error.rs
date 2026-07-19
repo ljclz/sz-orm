@@ -1,66 +1,66 @@
-//! Error types and handling
+//! 错误类型与处理
 //!
-//! Centralized error types for all operations
+//! 全操作的集中错误类型定义
 
 use std::error::Error;
 use std::fmt;
 use std::io;
 
-/// Database error type
+/// 数据库错误类型
 #[derive(Debug)]
 pub enum DbError {
-    /// Query execution failed
+    /// 查询执行失败
     QueryError(String),
 
-    /// Connection failed
+    /// 连接失败
     ConnectionError(String),
 
-    /// Connection refused
+    /// 连接被拒绝
     ConnectionRefused(String),
 
-    /// Connection timeout
+    /// 连接超时
     ConnectionTimeout(String),
 
-    /// Pool error
+    /// 连接池错误
     PoolError(PoolError),
 
-    /// Cache error
+    /// 缓存错误
     CacheError(CacheError),
 
-    /// Transaction error
+    /// 事务错误
     TxError(TxError),
 
-    /// Migration error
+    /// 迁移错误
     MigrationError(String),
 
-    /// Dialect not supported
+    /// 方言不支持
     Unsupported(String),
 
-    /// Configuration error
+    /// 配置错误
     ConfigError(String),
 
-    /// Serialization/Deserialization error
+    /// 序列化/反序列化错误
     SerdeError(String),
 
-    /// Not found
+    /// 未找到
     NotFound(String),
 
-    /// Already exists
+    /// 已存在
     AlreadyExists(String),
 
-    /// Constraint violation
+    /// 约束冲突
     ConstraintViolation(String),
 
-    /// Null value in non-nullable field
+    /// 非空字段出现 null 值
     NullValue(String),
 
-    /// Invalid input
+    /// 输入非法
     InvalidInput(String),
 
-    /// Internal error
+    /// 内部错误
     Internal(String),
 
-    /// Io error
+    /// IO 错误
     IoError(String),
 
     /// 钩子执行失败
@@ -68,25 +68,28 @@ pub enum DbError {
 
     /// 多租户错误（如租户 ID 缺失、跨租户访问）
     TenantError(String),
+
+    /// 数据验证失败（业务规则校验未通过，由 before_validate 钩子触发）
+    Validation(String),
 }
 
 impl DbError {
-    /// Create a new query error
+    /// 新建查询错误
     pub fn query(s: impl Into<String>) -> Self {
         DbError::QueryError(s.into())
     }
 
-    /// Create a new connection error
+    /// 新建连接错误
     pub fn connection(s: impl Into<String>) -> Self {
         DbError::ConnectionError(s.into())
     }
 
-    /// Create a new not found error
+    /// 新建未找到错误
     pub fn not_found(s: impl Into<String>) -> Self {
         DbError::NotFound(s.into())
     }
 
-    /// Check if error is retryable
+    /// 该错误是否可重试
     pub fn is_retryable(&self) -> bool {
         matches!(
             self,
@@ -96,7 +99,7 @@ impl DbError {
         )
     }
 
-    /// Get the error code (for logging/monitoring)
+    /// 获取错误码（用于日志/监控）
     pub fn error_code(&self) -> &'static str {
         match self {
             DbError::QueryError(_) => "DB001",
@@ -119,6 +122,7 @@ impl DbError {
             DbError::IoError(_) => "DB018",
             DbError::Hook(_) => "DB019",
             DbError::TenantError(_) => "DB020",
+            DbError::Validation(_) => "DB021",
         }
     }
 }
@@ -146,6 +150,7 @@ impl fmt::Display for DbError {
             DbError::IoError(s) => write!(f, "IO error: {}", s),
             DbError::Hook(s) => write!(f, "Hook error: {}", s),
             DbError::TenantError(s) => write!(f, "Tenant error: {}", s),
+            DbError::Validation(s) => write!(f, "Validation error: {}", s),
         }
     }
 }
@@ -184,26 +189,32 @@ impl From<std::string::FromUtf8Error> for DbError {
     }
 }
 
-/// Pool specific errors
+/// 连接池特有错误
 #[derive(Debug)]
 pub enum PoolError {
-    /// Connection pool exhausted
+    /// 连接池耗尽
     Exhausted,
 
-    /// Connection acquire timeout
+    /// 获取连接超时
     Timeout,
 
-    /// Connection already acquired
+    /// 连接已被获取
     AlreadyAcquired,
 
-    /// Connection not acquired
+    /// 连接未被获取
     NotAcquired,
 
-    /// Invalid configuration
+    /// 配置非法
     InvalidConfig(String),
 
-    /// Internal error
+    /// 内部错误
     Internal(String),
+
+    /// 连接池已关闭（close_all 后拒绝新 acquire）
+    Closed,
+
+    /// 连接创建失败（保留原始错误信息）
+    ConnectionFailed(String),
 }
 
 impl PoolError {
@@ -215,6 +226,8 @@ impl PoolError {
             PoolError::NotAcquired => "PL004",
             PoolError::InvalidConfig(_) => "PL005",
             PoolError::Internal(_) => "PL006",
+            PoolError::Closed => "PL007",
+            PoolError::ConnectionFailed(_) => "PL008",
         }
     }
 }
@@ -228,31 +241,33 @@ impl fmt::Display for PoolError {
             PoolError::NotAcquired => write!(f, "Connection not acquired"),
             PoolError::InvalidConfig(s) => write!(f, "Invalid pool config: {}", s),
             PoolError::Internal(s) => write!(f, "Internal pool error: {}", s),
+            PoolError::Closed => write!(f, "Connection pool closed"),
+            PoolError::ConnectionFailed(s) => write!(f, "Connection failed: {}", s),
         }
     }
 }
 
 impl Error for PoolError {}
 
-/// Cache specific errors
+/// 缓存特有错误
 #[derive(Debug)]
 pub enum CacheError {
-    /// Key not found
+    /// 键不存在
     NotFound(String),
 
-    /// Serialization error
+    /// 序列化错误
     SerializationError(String),
 
-    /// Deserialization error
+    /// 反序列化错误
     DeserializationError(String),
 
-    /// Connection error
+    /// 连接错误
     ConnectionError(String),
 
-    /// Timeout
+    /// 超时
     Timeout(String),
 
-    /// Internal error
+    /// 内部错误
     Internal(String),
 }
 
@@ -290,26 +305,57 @@ impl<T> From<std::sync::PoisonError<T>> for CacheError {
     }
 }
 
-/// Transaction specific errors
+/// 事务状态
+///
+/// 定义在 `error` 模块以避免 `transaction` ↔ `error` 循环依赖，
+/// `transaction` 模块通过 `pub use` 重导出本类型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TransactionState {
+    #[default]
+    Active,
+    Committed,
+    RolledBack,
+}
+
+impl fmt::Display for TransactionState {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            TransactionState::Active => write!(f, "Active"),
+            TransactionState::Committed => write!(f, "Committed"),
+            TransactionState::RolledBack => write!(f, "RolledBack"),
+        }
+    }
+}
+
+/// 事务特有错误
 #[derive(Debug)]
 pub enum TxError {
-    /// Transaction not started
+    /// 事务未开始
     NotStarted,
 
-    /// Transaction already started
+    /// 事务已开始
     AlreadyStarted,
 
-    /// Transaction commit failed
+    /// 事务提交失败
     CommitFailed(String),
 
-    /// Transaction rollback failed
+    /// 事务回滚失败
     RollbackFailed(String),
 
-    /// Savepoint error
+    /// 保存点错误
     SavepointError(String),
 
-    /// Nested transaction not supported
+    /// 不支持嵌套事务
     NestedNotSupported,
+
+    /// 事务不在 Active 状态（用于 execute/query 等操作前置校验）
+    NotActive(TransactionState),
+
+    /// 保存点名称非法（包含不支持的字符或以数字开头）
+    InvalidSavepointName(String),
+
+    /// 连接已被取走（take_connection 重复调用，或操作时连接已释放）
+    ConnectionTaken,
 }
 
 impl fmt::Display for TxError {
@@ -321,11 +367,27 @@ impl fmt::Display for TxError {
             TxError::RollbackFailed(s) => write!(f, "Transaction rollback failed: {}", s),
             TxError::SavepointError(s) => write!(f, "Savepoint error: {}", s),
             TxError::NestedNotSupported => write!(f, "Nested transactions not supported"),
+            TxError::NotActive(state) => {
+                write!(f, "Transaction not active (current state: {})", state)
+            }
+            TxError::InvalidSavepointName(name) => {
+                write!(
+                    f,
+                    "Invalid savepoint name '{}': must be non-empty, start with a letter or underscore, and contain only ASCII alphanumeric or underscore",
+                    name
+                )
+            }
+            TxError::ConnectionTaken => write!(f, "Transaction connection already taken"),
         }
     }
 }
 
-impl Error for TxError {}
+impl Error for TxError {
+    fn source(&self) -> Option<&(dyn Error + 'static)> {
+        // TxError 各变体仅承载 String 描述或状态枚举（无嵌套 Error 对象），故无 source 可委托
+        None
+    }
+}
 
 #[cfg(test)]
 mod tests {

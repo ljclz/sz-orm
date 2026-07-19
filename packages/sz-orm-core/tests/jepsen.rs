@@ -135,7 +135,7 @@ async fn jepsen_savepoint_after_commit() {
 
     let result = tx.savepoint().await;
     assert!(result.is_err(), "savepoint after commit should fail");
-    assert!(matches!(result, Err(TxError::SavepointError(_))));
+    assert!(matches!(result, Err(TxError::NotActive(_))));
 }
 
 #[tokio::test]
@@ -410,7 +410,7 @@ async fn jepsen_pool_factory_fault() {
 }
 
 /// Jepsen 13：close_all 后新 acquire 的行为
-/// 验证：close_all 后池仍可使用（当前实现不阻止 acquire）
+/// 验证：close_all 后池被标记为已关闭，acquire 返回 PoolError::Closed
 #[tokio::test]
 async fn jepsen_pool_close_all_then_acquire() {
     let db = Arc::new(Mutex::new(common::InMemoryDb::new()));
@@ -435,15 +435,12 @@ async fn jepsen_pool_close_all_then_acquire() {
     assert_eq!(status.idle, 0);
     assert_eq!(status.active, 0);
 
-    // close_all 后 acquire：当前实现不阻止 acquire
-    // 验证 acquire 仍可创建新连接
+    // close_all 后 acquire 被拒绝（池已关闭）
     let result = pool.acquire().await;
-    assert!(result.is_ok(), "acquire after close_all should still work");
-
-    // release 后连接被直接关闭（池已关闭）
-    pool.release(result.unwrap()).await;
-    let status = pool.status().await;
-    assert_eq!(status.idle, 0, "released conn should be closed");
+    assert!(
+        result.is_err(),
+        "acquire after close_all should be rejected"
+    );
 }
 
 /// Jepsen 14：连接池在并发故障下的一致性

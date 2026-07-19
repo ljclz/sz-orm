@@ -23,7 +23,7 @@ use std::sync::Arc;
 use std::time::Duration;
 use sz_orm_core::TransactOptions;
 use sz_orm_core::Transaction;
-use sz_orm_core::{Connection, Pool, PoolConfigBuilder};
+use sz_orm_core::{Pool, PoolConfigBuilder};
 use tokio::sync::Mutex;
 
 // ===================== 形式化模型定义 =====================
@@ -510,8 +510,8 @@ async fn formal_pool_close_all_invariant() {
     assert_eq!(status.idle, 0, "idle should be 0");
 }
 
-/// Formal 10：close_all 后无法再 acquire 成功（因为新 release 会被关闭，
-/// 但 acquire 仍可创建新连接 —— 验证此行为）
+/// Formal 10：close_all 后 acquire 被拒绝（池已关闭）
+/// 验证：close_all 后 acquire 返回 PoolError::Closed
 #[tokio::test]
 async fn formal_pool_close_all_then_acquire_creates_new() {
     let db = Arc::new(Mutex::new(common::InMemoryDb::new()));
@@ -530,22 +530,18 @@ async fn formal_pool_close_all_then_acquire_creates_new() {
     let status = pool.status().await;
     assert_eq!(status.idle, 1);
 
-    // close_all 清空 idle
+    // close_all 清空 idle 并标记池为已关闭
     pool.close_all().await;
     let status = pool.status().await;
     assert_eq!(status.idle, 0);
     assert_eq!(status.active, 0);
 
-    // acquire 应仍能创建新连接（closed 标志不阻止 acquire，只阻止 release 放回 idle）
+    // close_all 后 acquire 应被拒绝（池已关闭）
     let conn = pool.acquire().await;
     assert!(
-        conn.is_ok(),
-        "acquire should create new connection after close_all"
+        conn.is_err(),
+        "acquire after close_all should be rejected (pool closed)"
     );
-
-    let status = pool.status().await;
-    assert_eq!(status.active, 1, "active should be 1 (newly created)");
-    assert_eq!(status.idle, 0, "idle should be 0");
 }
 
 // ===================== 综合属性测试 =====================
@@ -572,7 +568,7 @@ async fn formal_pool_conservation_under_random_ops() {
         let seed = rng.next_u64();
         handles.push(tokio::spawn(async move {
             let mut local_rng = common::Rng::new(seed);
-            let mut held: Vec<Box<dyn Connection>> = Vec::new();
+            let mut held: Vec<sz_orm_core::PooledConnection> = Vec::new();
 
             for _ in 0..40 {
                 let action = local_rng.next_usize(3);

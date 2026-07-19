@@ -211,9 +211,9 @@ impl RealGrpcClient {
             ));
         }
         let endpoint = format!("http://{}", addr_str);
-        let client = UserServiceClient::connect(endpoint).await.map_err(|e| {
-            GrpcError::ConnectionFailed(format!("connect {addr_str} failed: {e}"))
-        })?;
+        let client = UserServiceClient::connect(endpoint)
+            .await
+            .map_err(|e| GrpcError::ConnectionFailed(format!("connect {addr_str} failed: {e}")))?;
         Ok(Self { inner: client })
     }
 

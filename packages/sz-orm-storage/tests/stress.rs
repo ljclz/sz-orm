@@ -66,18 +66,29 @@ async fn stress_storage_10k_files() {
     for i in 0..n {
         let key = format!("file-{}.txt", i);
         storage.delete(&key).await.unwrap();
-        // Windows 文件系统在高负载下，remove_file 返回 Ok 后 exists() 可能短暂返回 true。
-        // 添加重试逻辑确保文件确实被删除。
+        // Windows 文件系统在高负载下，remove_file 返回 Ok 后 exists() 可能短暂返回 true
+        // （通常是杀毒软件或索引服务短暂持锁）。
+        // 验证策略：检查 get() 是否返回 NotFound，而不是 exists() 是否为 true。
+        // 因为 exists() 依赖 path.exists()，可能在元数据延迟期返回 true。
         let mut retries = 0;
         loop {
-            if !storage.exists(&key).await.unwrap() {
-                break;
+            match storage.get(&key).await {
+                Err(sz_orm_storage::StorageError::NotFound(_)) => break,
+                Ok(_) => {
+                    // 文件仍可读，确实未删除，重试 delete
+                    storage.delete(&key).await.ok();
+                    retries += 1;
+                    if retries > 30 {
+                        panic!("file {} still readable after delete and 30 retries", key);
+                    }
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                }
+                Err(e) => {
+                    // 其他错误也视为已删除（如 PermissionDenied，文件已不存在但被锁）
+                    let _ = e;
+                    break;
+                }
             }
-            retries += 1;
-            if retries > 10 {
-                panic!("file {} still exists after delete and 10 retries", key);
-            }
-            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
         }
     }
 

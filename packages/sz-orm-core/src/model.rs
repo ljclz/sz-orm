@@ -1,6 +1,6 @@
-//! Model abstraction layer
+//! 模型抽象层
 //!
-//! Provides the core Model trait and related types
+//! 提供核心 `Model` trait 及相关类型
 
 use crate::async_trait;
 use crate::value::Value;
@@ -8,51 +8,51 @@ use std::collections::HashMap;
 use std::fmt;
 use thiserror::Error;
 
-/// Model is the core trait that all ORM models must implement
+/// 所有 ORM 模型必须实现的核心 trait
 pub trait Model: Send + Sync + Sized + 'static {
-    /// The primary key type for this model
+    /// 主键类型
     type PrimaryKey: Send + Sync + fmt::Debug + fmt::Display + Clone + Default;
 
-    /// Get the table name for this model
+    /// 获取该模型对应的表名
     fn table_name() -> &'static str;
 
-    /// Get the primary key column name
+    /// 获取主键列名（默认 `id`）
     fn pk_name() -> &'static str {
         "id"
     }
 
-    /// Get the primary key value
+    /// 获取当前实例的主键值
     fn pk(&self) -> Self::PrimaryKey;
 
-    /// Set the primary key value
+    /// 设置当前实例的主键值
     fn set_pk(&mut self, pk: Self::PrimaryKey);
 
-    /// Get the foreign key name for a relation
+    /// 根据关系名推导外键名（默认 `<relation>_id`）
     fn foreign_key(relation: &str) -> String {
         format!("{}_id", relation.to_lowercase())
     }
 
-    /// Get the auto-timestamp fields
+    /// 获取自动时间戳字段配置
     fn timestamp_fields() -> Option<TimestampFields> {
         None
     }
 
-    /// Get the soft delete field
+    /// 获取软删除字段名
     fn soft_delete_field() -> Option<&'static str> {
         None
     }
 }
 
-/// Timestamp field configuration
+/// 时间戳字段配置
 #[derive(Debug, Clone, Default)]
 pub struct TimestampFields {
-    /// Field name for created_at
+    /// created_at 字段名
     pub created_at: Option<&'static str>,
-    /// Field name for updated_at
+    /// updated_at 字段名
     pub updated_at: Option<&'static str>,
-    /// Whether to auto-set timestamps on insert
+    /// 插入时是否自动设置时间戳
     pub auto_now_insert: bool,
-    /// Whether to auto-update timestamps on save
+    /// 更新时是否自动刷新时间戳
     pub auto_now_update: bool,
 }
 
@@ -76,7 +76,7 @@ impl TimestampFields {
     }
 }
 
-/// Represents a model's relationship to another model
+/// 模型间的关系描述
 #[derive(Debug, Clone)]
 pub enum Relation {
     /// 多对一关系（如 Order 属于 User）
@@ -87,9 +87,14 @@ pub enum Relation {
     HasOne(HasOne),
     /// 多对多关系（通过中间表，如 User 与 Role）
     BelongsToMany(BelongsToMany),
+    /// 多态一对多（如 Comment 可关联 Post / Video / Image 等多种父模型）
+    /// 子表通过 morph_type_column + morph_id_column 反向定位父模型
+    MorphMany(MorphMany),
+    /// 多态反向：当前模型可被多种父模型拥有（当前模型持有 morph_type + morph_id 两列）
+    MorphTo(MorphTo),
 }
 
-/// Configuration for belongs-to relationship
+/// 多对一关系配置
 #[derive(Debug, Clone)]
 pub struct BelongsTo {
     pub foreign_key: String,
@@ -97,7 +102,7 @@ pub struct BelongsTo {
     pub parent_pk: String,
 }
 
-/// Configuration for has-many relationship
+/// 一对多关系配置
 #[derive(Debug, Clone)]
 pub struct HasMany {
     pub foreign_key: String,
@@ -105,7 +110,7 @@ pub struct HasMany {
     pub child_pk: String,
 }
 
-/// Configuration for has-one relationship
+/// 一对一关系配置
 #[derive(Debug, Clone)]
 pub struct HasOne {
     pub foreign_key: String,
@@ -113,20 +118,56 @@ pub struct HasOne {
     pub child_pk: String,
 }
 
-/// Configuration for many-to-many relationship
+/// 多对多关系配置
+///
+/// 关联语义：
+/// - `junction_table`：中间表名（如 `user_roles`）
+/// - `foreign_key`：中间表中指向当前模型主键的列名（如 `user_id`）
+/// - `other_key`：中间表中指向目标模型主键的列名（如 `role_id`）
+/// - `target_model`：目标表名（如 `roles`）
+/// - `target_pk`：目标表的主键列名（如 `id`），用于 JOIN 条件 `t.{target_pk} = j.{other_key}`
 #[derive(Debug, Clone)]
 pub struct BelongsToMany {
     pub junction_table: String,
     pub foreign_key: String,
     pub other_key: String,
     pub target_model: String,
+    pub target_pk: String,
 }
 
-/// Trait for models that support relationship loading (ActiveRecord pattern)
+/// 多态一对多配置（父模型侧）
+///
+/// 例：Post has many Comment，Comment 表中有 `commentable_type`（值为 "Post"）和 `commentable_id` 两列。
+/// 加载 Post.comments 时：`SELECT * FROM comments WHERE commentable_type = 'Post' AND commentable_id = ?`
+#[derive(Debug, Clone)]
+pub struct MorphMany {
+    /// 子模型表名（如 "comments"）
+    pub child_model: String,
+    /// 子表中标识父类型的列名（如 "commentable_type"）
+    pub morph_type_column: String,
+    /// 子表中标识父主键的列名（如 "commentable_id"）
+    pub morph_id_column: String,
+    /// 父模型类型标识字符串（如 "Post"）
+    pub morph_type_value: String,
+}
+
+/// 多态反向配置（子模型侧）
+///
+/// 例：Comment 属于 Post 或 Video，Comment 表中有 `commentable_type` + `commentable_id`。
+/// 加载 Comment.commentable 时，根据 commentable_type 路由到不同表。
+#[derive(Debug, Clone)]
+pub struct MorphTo {
+    /// 当前模型中标识父类型的列名（如 "commentable_type"）
+    pub morph_type_column: String,
+    /// 当前模型中标识父主键的列名（如 "commentable_id"）
+    pub morph_id_column: String,
+}
+
+/// 支持关系加载的模型 trait（ActiveRecord 模式）
 #[async_trait]
 pub trait ActiveRecord: Model + ModelExt + RelationLoader + Clone + Send + Sync {
-    /// Eager load specified relationships
-    /// Usage: user.with("orders").with("profile").load(&mut conn).await
+    /// 预加载指定关系
+    /// 用法：`user.with("orders").with("profile").load(&mut conn).await`
     fn with(self, relation: &str) -> WithRelation<Self> {
         WithRelation {
             model: self,
@@ -134,7 +175,7 @@ pub trait ActiveRecord: Model + ModelExt + RelationLoader + Clone + Send + Sync 
         }
     }
 
-    /// Eager load multiple relationships at once
+    /// 一次性预加载多个关系
     fn with_all(self, relations: Vec<&str>) -> WithRelation<Self> {
         WithRelation {
             model: self,
@@ -143,21 +184,59 @@ pub trait ActiveRecord: Model + ModelExt + RelationLoader + Clone + Send + Sync 
     }
 }
 
-/// Builder for eager loading relationships
+/// 关系预加载构造器
 pub struct WithRelation<M: Model + ModelExt + RelationLoader> {
     model: M,
     relations: Vec<String>,
 }
 
+/// 转义 SQL 字符串字面量中的特殊字符（用于内嵌值场景）
+///
+/// 将单引号 `'` 替换为 `''`，将反斜杠 `\` 替换为 `\\`。
+/// 该函数仅对需要内嵌到 SQL 字符串字面量中的值使用，
+/// 不要用于标识符（表名/列名）的转义。
+fn escape_sql_value(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 2);
+    for ch in s.chars() {
+        match ch {
+            '\'' => out.push_str("''"),
+            '\\' => out.push_str("\\\\"),
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+/// 将主键值转换为安全的 SQL 字面量
+///
+/// - 纯数字（i64/u64/f64 可解析）→ 不加引号，直接返回
+/// - 其他字符串 → 加单引号并转义内部特殊字符，防止 SQL 注入
+fn pk_to_sql_string(pk: &dyn std::fmt::Display) -> String {
+    let s = pk.to_string();
+    if s.parse::<i64>().is_ok() || s.parse::<u64>().is_ok() || s.parse::<f64>().is_ok() {
+        s
+    } else {
+        format!("'{}'", escape_sql_value(&s))
+    }
+}
+
+/// 将任意字符串值转换为安全的 SQL 字符串字面量
+///
+/// 与 `pk_to_sql_string` 不同，本函数始终用单引号包裹并转义，
+/// 适用于字符串类型的外键值等。
+fn value_to_sql_string(s: &str) -> String {
+    format!("'{}'", escape_sql_value(s))
+}
+
 impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
-    /// Add another relationship to load
+    /// 追加一个待加载的关系
     pub fn with(mut self, relation: &str) -> Self {
         self.relations.push(relation.to_string());
         self
     }
 
-    /// Load the model with specified relations
-    /// The loaded relations will be attached to the model via set_relation_data
+    /// 加载所有指定关系并返回填充后的模型
+    /// 加载结果通过 `set_relation_data` 写回模型
     pub async fn load<C>(self, conn: &mut C) -> Result<M, RelationError>
     where
         C: crate::pool::Connection + ?Sized,
@@ -173,57 +252,107 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
             match relation {
                 Relation::HasMany(config) => {
                     let pk = model.pk();
-                    let pk_str = format!("{}", pk);
+                    let pk_str = pk_to_sql_string(&pk);
                     let sql = format!(
-                        "SELECT * FROM {} WHERE {} = '{}'",
-                        config.child_model,
-                        config.foreign_key,
-                        pk_str
+                        "SELECT * FROM {} WHERE {} = {}",
+                        config.child_model, config.foreign_key, pk_str
                     );
-                    let rows = conn.query(&sql).await
+                    let rows = conn
+                        .query(&sql)
+                        .await
                         .map_err(|e| RelationError::QueryError(e.to_string()))?;
                     model.set_relation_data(rel_name, rows_to_values(rows));
                 }
                 Relation::HasOne(config) => {
                     let pk = model.pk();
-                    let pk_str = format!("{}", pk);
+                    let pk_str = pk_to_sql_string(&pk);
                     let sql = format!(
-                        "SELECT * FROM {} WHERE {} = '{}'",
-                        config.child_model,
-                        config.foreign_key,
-                        pk_str
+                        "SELECT * FROM {} WHERE {} = {}",
+                        config.child_model, config.foreign_key, pk_str
                     );
-                    let rows = conn.query(&sql).await
+                    let rows = conn
+                        .query(&sql)
+                        .await
                         .map_err(|e| RelationError::QueryError(e.to_string()))?;
                     model.set_relation_data(rel_name, rows_to_values(rows));
                 }
                 Relation::BelongsTo(config) => {
                     let fk_value = model.get_relation_fk_value(&config.foreign_key);
                     let sql = format!(
-                        "SELECT * FROM {} WHERE {} = '{}'",
+                        "SELECT * FROM {} WHERE {} = {}",
                         config.parent_model,
                         config.parent_pk,
-                        fk_value
+                        pk_to_sql_string(&fk_value)
                     );
-                    let rows = conn.query(&sql).await
+                    let rows = conn
+                        .query(&sql)
+                        .await
                         .map_err(|e| RelationError::QueryError(e.to_string()))?;
                     model.set_relation_data(rel_name, rows_to_values(rows));
                 }
                 Relation::BelongsToMany(config) => {
                     let pk = model.pk();
-                    let pk_str = format!("{}", pk);
+                    let pk_str = pk_to_sql_string(&pk);
+                    // JOIN 条件：目标表 t 的主键 = 中间表 j 的 other_key
+                    // 过滤条件：中间表 j 的 foreign_key = 当前模型主键
                     let sql = format!(
-                        "SELECT t.* FROM {} t INNER JOIN {} j ON t.{} = j.{} WHERE j.{} = '{}'",
+                        "SELECT t.* FROM {} t INNER JOIN {} j ON t.{} = j.{} WHERE j.{} = {}",
                         config.target_model,
                         config.junction_table,
-                        config.other_key,
+                        config.target_pk,
                         config.other_key,
                         config.foreign_key,
                         pk_str
                     );
-                    let rows = conn.query(&sql).await
+                    let rows = conn
+                        .query(&sql)
+                        .await
                         .map_err(|e| RelationError::QueryError(e.to_string()))?;
                     model.set_relation_data(rel_name, rows_to_values(rows));
+                }
+                Relation::MorphMany(config) => {
+                    let pk = model.pk();
+                    let pk_str = pk_to_sql_string(&pk);
+                    // SELECT * FROM comments WHERE commentable_type = 'Post' AND commentable_id = <pk>
+                    let sql = format!(
+                        "SELECT * FROM {} WHERE {} = {} AND {} = {}",
+                        config.child_model,
+                        config.morph_type_column,
+                        value_to_sql_string(&config.morph_type_value),
+                        config.morph_id_column,
+                        pk_str
+                    );
+                    let rows = conn
+                        .query(&sql)
+                        .await
+                        .map_err(|e| RelationError::QueryError(e.to_string()))?;
+                    model.set_relation_data(rel_name, rows_to_values(rows));
+                }
+                Relation::MorphTo(config) => {
+                    // 根据当前模型持有的 morph_type_column 值路由到不同表
+                    // 实现侧需通过 get_relation_fk_value 提供两个值：type 与 id
+                    // 为保持与 RelationLoader 接口兼容，这里采用约定：
+                    //   get_relation_fk_value("<morph_type_column>") 返回 type 字符串
+                    //   get_relation_fk_value("<morph_id_column>")   返回 id 字符串
+                    let morph_type_value = model.get_relation_fk_value(&config.morph_type_column);
+                    let morph_id_value = model.get_relation_fk_value(&config.morph_id_column);
+                    if morph_type_value.is_empty() || morph_id_value.is_empty() {
+                        // 无父模型关联（morph_type 为空），置空数组
+                        model.set_relation_data(rel_name, Value::Array(vec![]));
+                    } else {
+                        // 约定：morph_type_value 即为目标表名（Post → "posts"），由调用方在 get_relation_fk_value 中映射
+                        // morph_type_value 作为表名，需校验为合法标识符；morph_id_value 作为字面量，需转义
+                        let sql = format!(
+                            "SELECT * FROM {} WHERE id = {}",
+                            morph_type_value,
+                            pk_to_sql_string(&morph_id_value)
+                        );
+                        let rows = conn
+                            .query(&sql)
+                            .await
+                            .map_err(|e| RelationError::QueryError(e.to_string()))?;
+                        model.set_relation_data(rel_name, rows_to_values(rows));
+                    }
                 }
             }
         }
@@ -232,7 +361,7 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
     }
 }
 
-/// Convert query rows to Vec<HashMap<String, Value>> for relation storage
+/// 将查询结果行转换为 `Vec<HashMap<String, Value>>` 以便存入关系字段
 pub fn rows_to_values(rows: Vec<HashMap<String, Value>>) -> Value {
     if rows.is_empty() {
         return Value::Array(vec![]);
@@ -250,7 +379,7 @@ pub fn rows_to_values(rows: Vec<HashMap<String, Value>>) -> Value {
     Value::Array(items)
 }
 
-/// Error type for relationship operations
+/// 关系操作错误类型
 #[derive(Error, Debug, Clone)]
 pub enum RelationError {
     #[error("Relation '{0}' not found in model relations")]
@@ -263,21 +392,21 @@ pub enum RelationError {
     NotLoaded(String),
 }
 
-/// Trait for models that can store loaded relation data
+/// 可存储已加载关系数据的模型 trait
 pub trait RelationLoader: Model {
-    /// Get loaded relation data
+    /// 获取已加载的关系数据
     fn get_relation(&self, name: &str) -> Option<&Value>;
 
-    /// Set loaded relation data
+    /// 写入已加载的关系数据
     fn set_relation_data(&mut self, name: &str, data: Value);
 
-    /// Get foreign key value for a relation
+    /// 获取关系对应的外键值
     fn get_relation_fk_value(&self, fk_name: &str) -> String;
 }
 
-/// Extension methods on ModelExt for relation access
+/// `ModelExt` 的关系访问扩展方法
 pub trait RelationAccess: ModelExt {
-    /// Get a has-many relation (must be loaded first)
+    /// 获取一对多关系数据（必须先调用 `.with(name)` 加载）
     fn get_has_many(&self, name: &str) -> Result<Vec<HashMap<String, Value>>, RelationError>
     where
         Self: RelationLoader,
@@ -300,7 +429,7 @@ pub trait RelationAccess: ModelExt {
         }
     }
 
-    /// Get a has-one or belongs-to relation (must be loaded first, returns single)
+    /// 获取一对一或多对一关系数据（必须先加载，返回 0 或 1 行）
     fn get_has_one(&self, name: &str) -> Result<Option<HashMap<String, Value>>, RelationError>
     where
         Self: RelationLoader,
@@ -323,22 +452,40 @@ pub trait RelationAccess: ModelExt {
         }
     }
 
-    /// Get a belongs-to-many relation (must be loaded first)
+    /// 获取多对多关系数据（必须先加载）
     fn get_belongs_to_many(&self, name: &str) -> Result<Vec<HashMap<String, Value>>, RelationError>
     where
         Self: RelationLoader,
     {
         self.get_has_many(name)
     }
+
+    /// 获取多态一对多关系数据（必须先加载）
+    /// 与 has_many 行为一致，返回多行
+    fn get_morph_many(&self, name: &str) -> Result<Vec<HashMap<String, Value>>, RelationError>
+    where
+        Self: RelationLoader,
+    {
+        self.get_has_many(name)
+    }
+
+    /// 获取多态反向关系数据（必须先加载）
+    /// 与 has_one 行为一致，返回 0 或 1 行
+    fn get_morph_to(&self, name: &str) -> Result<Option<HashMap<String, Value>>, RelationError>
+    where
+        Self: RelationLoader,
+    {
+        self.get_has_one(name)
+    }
 }
 
-/// Scope for filtering query results
+/// 查询结果过滤作用域
 pub trait Scope: Send + Sync {
-    /// Apply the scope to a query
+    /// 将作用域应用到查询构造器
     fn apply<M: Model>(&self, query: &mut QueryBuilderWrapper<M>);
 }
 
-/// Wrapper for query builder to add scope functionality
+/// 查询构造器包装类型，用于挂载作用域
 pub struct QueryBuilderWrapper<'a, M: Model> {
     pub builder: &'a mut dyn QueryBuilderExt<Model = M>,
 }
@@ -350,50 +497,50 @@ pub trait QueryBuilderExt: Send + Sync {
     fn or_where(&mut self, condition: &str);
 }
 
-/// Model extension trait for additional functionality
+/// 模型扩展 trait，提供额外功能
 pub trait ModelExt: Model {
-    /// Get all columns for SELECT
+    /// 获取 SELECT 时使用的所有列
     fn columns() -> Vec<&'static str>;
 
-    /// Get fillable columns (for INSERT/UPDATE)
+    /// 获取可批量赋值的列（INSERT/UPDATE）
     fn fillable() -> Vec<&'static str>;
 
-    /// Get guarded columns (not mass-assignable)
+    /// 获取受保护列（不可批量赋值）
     fn guarded() -> Vec<&'static str> {
         vec![Self::pk_name()]
     }
 
-    /// Get hidden columns (not serialized)
+    /// 获取隐藏列（不参与序列化）
     fn hidden() -> Vec<&'static str> {
         vec![]
     }
 
-    /// Get visible columns (serialized)
+    /// 获取可见列（参与序列化）
     fn visible() -> Vec<&'static str> {
         vec![]
     }
 
-    /// Get casts (column -> type mapping)
+    /// 获取类型转换映射（列名 -> 类型字符串）
     fn casts() -> std::collections::HashMap<&'static str, &'static str> {
         std::collections::HashMap::new()
     }
 
-    /// Get dates (columns treated as dates)
+    /// 获取日期列
     fn dates() -> Vec<&'static str> {
         vec![]
     }
 
-    /// Get date format for a field
+    /// 获取指定字段的日期格式
     fn date_format(_field: &str) -> Option<&'static str> {
         None
     }
 
-    /// Get relationships
+    /// 获取关系映射
     fn relations() -> std::collections::HashMap<&'static str, Relation> {
         std::collections::HashMap::new()
     }
 
-    /// Convert model to a value map
+    /// 将模型转换为值映射
     fn to_value(&self) -> std::collections::HashMap<String, Value> {
         let mut map = std::collections::HashMap::new();
         for col in Self::columns() {
@@ -407,15 +554,15 @@ pub trait ModelExt: Model {
         map
     }
 
-    /// Get a specific column value (must be overridden by implementation)
+    /// 获取指定列的值（须由实现重写）
     fn get_column_value(&self, _column: &str) -> Option<Value> {
         None
     }
 
-    /// Convert model from a value map (must be overridden by implementation)
+    /// 从值映射还原模型（须由实现重写）
     #[allow(clippy::wrong_self_convention)]
     fn from_value(&mut self, _map: std::collections::HashMap<String, Value>) {
-        // Default: no-op. Implementations must override this.
+        // 默认空实现，业务模型须重写
     }
 
     /// 批量赋值：只填充 fillable 字段（过滤掉 guarded 字段）
@@ -555,9 +702,11 @@ mod tests {
             foreign_key: "user_id".to_string(),
             other_key: "role_id".to_string(),
             target_model: "Role".to_string(),
+            target_pk: "id".to_string(),
         });
         if let Relation::BelongsToMany(ref mtm) = many_to_many {
             assert_eq!(mtm.junction_table, "user_role");
+            assert_eq!(mtm.target_pk, "id");
         }
     }
 
@@ -728,9 +877,7 @@ mod tests {
             true
         }
 
-        fn ping<'a>(
-            &'a mut self,
-        ) -> Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
             Box::pin(async { true })
         }
 
@@ -810,6 +957,16 @@ mod tests {
                     foreign_key: "user_id".to_string(),
                     other_key: "role_id".to_string(),
                     target_model: "roles".to_string(),
+                    target_pk: "id".to_string(),
+                }),
+            );
+            map.insert(
+                "comments",
+                Relation::MorphMany(MorphMany {
+                    child_model: "comments".to_string(),
+                    morph_type_column: "commentable_type".to_string(),
+                    morph_id_column: "commentable_id".to_string(),
+                    morph_type_value: "User".to_string(),
                 }),
             );
             map
@@ -906,7 +1063,7 @@ mod tests {
             query_results: {
                 let mut m = HashMap::new();
                 m.insert(
-                    "SELECT * FROM orders WHERE user_id = '1'".to_string(),
+                    "SELECT * FROM orders WHERE user_id = 1".to_string(),
                     vec![
                         make_order_row(1, 1, "99.99"),
                         make_order_row(2, 1, "149.50"),
@@ -933,7 +1090,7 @@ mod tests {
             query_results: {
                 let mut m = HashMap::new();
                 m.insert(
-                    "SELECT * FROM profiles WHERE user_id = '1'".to_string(),
+                    "SELECT * FROM profiles WHERE user_id = 1".to_string(),
                     vec![make_profile_row(1, "Hello world")],
                 );
                 m
@@ -955,7 +1112,7 @@ mod tests {
             query_results: {
                 let mut m = HashMap::new();
                 m.insert(
-                    "SELECT * FROM teams WHERE id = '10'".to_string(),
+                    "SELECT * FROM teams WHERE id = 10".to_string(),
                     vec![make_team_row(10, "Engineering")],
                 );
                 m
@@ -977,7 +1134,7 @@ mod tests {
             query_results: {
                 let mut m = HashMap::new();
                 m.insert(
-                    "SELECT t.* FROM roles t INNER JOIN user_roles j ON t.role_id = j.role_id WHERE j.user_id = '1'".to_string(),
+                    "SELECT t.* FROM roles t INNER JOIN user_roles j ON t.id = j.role_id WHERE j.user_id = 1".to_string(),
                     vec![
                         make_role_row(1, "admin"),
                         make_role_row(2, "editor"),
@@ -1002,11 +1159,11 @@ mod tests {
             query_results: {
                 let mut m = HashMap::new();
                 m.insert(
-                    "SELECT * FROM orders WHERE user_id = '1'".to_string(),
+                    "SELECT * FROM orders WHERE user_id = 1".to_string(),
                     vec![make_order_row(1, 1, "99.99")],
                 );
                 m.insert(
-                    "SELECT * FROM profiles WHERE user_id = '1'".to_string(),
+                    "SELECT * FROM profiles WHERE user_id = 1".to_string(),
                     vec![make_profile_row(1, "Bio")],
                 );
                 m
@@ -1083,7 +1240,7 @@ mod tests {
             query_results: {
                 let mut m = HashMap::new();
                 m.insert(
-                    "SELECT * FROM orders WHERE user_id = '1'".to_string(),
+                    "SELECT * FROM orders WHERE user_id = 1".to_string(),
                     vec![
                         make_order_row(1, 1, "99.99"),
                         make_order_row(2, 1, "149.50"),
@@ -1096,7 +1253,10 @@ mod tests {
         let user = make_user().with("orders").load(&mut conn).await.unwrap();
         let orders = user.get_has_many("orders").unwrap();
         assert_eq!(orders.len(), 2);
-        assert_eq!(orders[0].get("total").unwrap(), &Value::String("99.99".to_string()));
+        assert_eq!(
+            orders[0].get("total").unwrap(),
+            &Value::String("99.99".to_string())
+        );
     }
 
     #[tokio::test]
@@ -1105,7 +1265,7 @@ mod tests {
             query_results: {
                 let mut m = HashMap::new();
                 m.insert(
-                    "SELECT * FROM profiles WHERE user_id = '1'".to_string(),
+                    "SELECT * FROM profiles WHERE user_id = 1".to_string(),
                     vec![make_profile_row(1, "My bio")],
                 );
                 m
@@ -1133,5 +1293,312 @@ mod tests {
         } else {
             panic!("Expected Object");
         }
+    }
+
+    // ============= 多态关联（MorphMany / MorphTo）测试 =============
+
+    fn make_comment_row(
+        id: i64,
+        commentable_type: &str,
+        commentable_id: i64,
+        body: &str,
+    ) -> HashMap<String, Value> {
+        let mut row = HashMap::new();
+        row.insert("id".to_string(), Value::I64(id));
+        row.insert(
+            "commentable_type".to_string(),
+            Value::String(commentable_type.to_string()),
+        );
+        row.insert("commentable_id".to_string(), Value::I64(commentable_id));
+        row.insert("body".to_string(), Value::String(body.to_string()));
+        row
+    }
+
+    /// CommentModel：带 MorphTo 关系，演示多态反向关联
+    /// comments 表结构：id, commentable_type ('User'/'Post'/'Video'), commentable_id, body
+    #[derive(Clone)]
+    #[allow(dead_code)]
+    struct CommentModel {
+        id: i64,
+        commentable_type: String,
+        commentable_id: i64,
+        body: String,
+        relations: HashMap<String, Value>,
+    }
+
+    impl Model for CommentModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "comments"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            self.id
+        }
+        fn set_pk(&mut self, pk: Self::PrimaryKey) {
+            self.id = pk;
+        }
+    }
+
+    impl ModelExt for CommentModel {
+        fn columns() -> Vec<&'static str> {
+            vec!["id", "commentable_type", "commentable_id", "body"]
+        }
+        fn fillable() -> Vec<&'static str> {
+            vec!["commentable_type", "commentable_id", "body"]
+        }
+        fn relations() -> HashMap<&'static str, Relation> {
+            let mut map = HashMap::new();
+            map.insert(
+                "commentable",
+                Relation::MorphTo(MorphTo {
+                    morph_type_column: "commentable_type".to_string(),
+                    morph_id_column: "commentable_id".to_string(),
+                }),
+            );
+            map
+        }
+        fn get_column_value(&self, column: &str) -> Option<Value> {
+            match column {
+                "id" => Some(Value::I64(self.id)),
+                "commentable_type" => Some(Value::String(self.commentable_type.clone())),
+                "commentable_id" => Some(Value::I64(self.commentable_id)),
+                "body" => Some(Value::String(self.body.clone())),
+                _ => None,
+            }
+        }
+        fn from_value(&mut self, map: HashMap<String, Value>) {
+            if let Some(Value::I64(id)) = map.get("id") {
+                self.id = *id;
+            }
+            if let Some(Value::String(s)) = map.get("commentable_type") {
+                self.commentable_type = s.clone();
+            }
+            if let Some(Value::I64(n)) = map.get("commentable_id") {
+                self.commentable_id = *n;
+            }
+            if let Some(Value::String(s)) = map.get("body") {
+                self.body = s.clone();
+            }
+        }
+    }
+
+    impl RelationLoader for CommentModel {
+        fn get_relation(&self, name: &str) -> Option<&Value> {
+            self.relations.get(name)
+        }
+        fn set_relation_data(&mut self, name: &str, data: Value) {
+            self.relations.insert(name.to_string(), data);
+        }
+        fn get_relation_fk_value(&self, fk_name: &str) -> String {
+            // MorphTo 约定：
+            //  - 当 fk_name == morph_type_column 时，返回目标表名（这里 'User' → 'users'）
+            //  - 当 fk_name == morph_id_column  时，返回父模型主键值
+            match fk_name {
+                "commentable_type" => match self.commentable_type.as_str() {
+                    "User" => "users".to_string(),
+                    "Post" => "posts".to_string(),
+                    "Video" => "videos".to_string(),
+                    _ => String::new(),
+                },
+                "commentable_id" => format!("{}", self.commentable_id),
+                _ => "0".to_string(),
+            }
+        }
+    }
+
+    impl ActiveRecord for CommentModel {}
+    impl RelationAccess for CommentModel {}
+
+    fn make_comment() -> CommentModel {
+        CommentModel {
+            id: 50,
+            commentable_type: "User".to_string(),
+            commentable_id: 1,
+            body: "Hello!".to_string(),
+            relations: HashMap::new(),
+        }
+    }
+
+    #[test]
+    fn test_morph_many_struct_fields() {
+        let m = MorphMany {
+            child_model: "comments".to_string(),
+            morph_type_column: "commentable_type".to_string(),
+            morph_id_column: "commentable_id".to_string(),
+            morph_type_value: "Post".to_string(),
+        };
+        assert_eq!(m.child_model, "comments");
+        assert_eq!(m.morph_type_column, "commentable_type");
+        assert_eq!(m.morph_id_column, "commentable_id");
+        assert_eq!(m.morph_type_value, "Post");
+    }
+
+    #[test]
+    fn test_morph_to_struct_fields() {
+        let m = MorphTo {
+            morph_type_column: "commentable_type".to_string(),
+            morph_id_column: "commentable_id".to_string(),
+        };
+        assert_eq!(m.morph_type_column, "commentable_type");
+        assert_eq!(m.morph_id_column, "commentable_id");
+    }
+
+    #[test]
+    fn test_relation_enum_has_morph_variants() {
+        let morph_many = Relation::MorphMany(MorphMany {
+            child_model: "comments".to_string(),
+            morph_type_column: "commentable_type".to_string(),
+            morph_id_column: "commentable_id".to_string(),
+            morph_type_value: "User".to_string(),
+        });
+        if let Relation::MorphMany(ref m) = morph_many {
+            assert_eq!(m.morph_type_value, "User");
+        } else {
+            panic!("Expected MorphMany");
+        }
+
+        let morph_to = Relation::MorphTo(MorphTo {
+            morph_type_column: "commentable_type".to_string(),
+            morph_id_column: "commentable_id".to_string(),
+        });
+        if let Relation::MorphTo(ref m) = morph_to {
+            assert_eq!(m.morph_type_column, "commentable_type");
+        } else {
+            panic!("Expected MorphTo");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_active_record_with_morph_many() {
+        // Post → comments (morph_type='Post')
+        let post = make_user(); // 复用 UserModel 但修改 morph_type_value 需要单独配置
+        let mut conn = MockConnection {
+            query_results: {
+                let mut m = HashMap::new();
+                // UserModel 中配置的 MorphMany morph_type_value = "User"
+                m.insert(
+                    "SELECT * FROM comments WHERE commentable_type = 'User' AND commentable_id = 1"
+                        .to_string(),
+                    vec![
+                        make_comment_row(1, "User", 1, "Nice user"),
+                        make_comment_row(2, "User", 1, "Cool"),
+                    ],
+                );
+                m
+            },
+        };
+
+        let user = post.with("comments").load(&mut conn).await.unwrap();
+        let data = user.get_relation("comments");
+        assert!(data.is_some());
+        if let Some(Value::Array(items)) = data {
+            assert_eq!(items.len(), 2);
+        } else {
+            panic!("Expected Array");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_active_record_with_morph_to() {
+        let comment = make_comment();
+        let mut conn = MockConnection {
+            query_results: {
+                let mut m = HashMap::new();
+                // CommentModel.commentable 路由到 users 表
+                m.insert(
+                    "SELECT * FROM users WHERE id = 1".to_string(),
+                    vec![make_team_row(1, "Alice")], // 复用 make_team_row 构造一个 id+name 行
+                );
+                m
+            },
+        };
+
+        let comment = comment.with("commentable").load(&mut conn).await.unwrap();
+        let data = comment.get_relation("commentable");
+        assert!(data.is_some());
+        if let Some(Value::Array(items)) = data {
+            assert_eq!(items.len(), 1);
+        }
+    }
+
+    #[tokio::test]
+    async fn test_active_record_morph_to_empty_type() {
+        // morph_type 为空时，应返回空数组而非查询错误
+        let mut comment = make_comment();
+        comment.commentable_type = String::new(); // 空类型
+        let mut conn = MockConnection {
+            query_results: HashMap::new(),
+        };
+
+        let comment = comment.with("commentable").load(&mut conn).await.unwrap();
+        let data = comment.get_relation("commentable").unwrap();
+        match data {
+            Value::Array(items) => assert!(items.is_empty()),
+            _ => panic!("Expected empty Array"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_relation_access_morph_many() {
+        let mut conn = MockConnection {
+            query_results: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "SELECT * FROM comments WHERE commentable_type = 'User' AND commentable_id = 1"
+                        .to_string(),
+                    vec![make_comment_row(10, "User", 1, "via morph many")],
+                );
+                m
+            },
+        };
+
+        let user = make_user().with("comments").load(&mut conn).await.unwrap();
+        let comments = user.get_morph_many("comments").unwrap();
+        assert_eq!(comments.len(), 1);
+        assert_eq!(
+            comments[0].get("body").unwrap(),
+            &Value::String("via morph many".to_string())
+        );
+    }
+
+    #[tokio::test]
+    async fn test_relation_access_morph_to() {
+        let comment = make_comment();
+        let mut conn = MockConnection {
+            query_results: {
+                let mut m = HashMap::new();
+                m.insert(
+                    "SELECT * FROM users WHERE id = 1".to_string(),
+                    vec![make_team_row(1, "Alice")],
+                );
+                m
+            },
+        };
+
+        let comment = comment.with("commentable").load(&mut conn).await.unwrap();
+        let parent = comment.get_morph_to("commentable").unwrap();
+        assert!(parent.is_some());
+        assert_eq!(
+            parent.unwrap().get("name").unwrap(),
+            &Value::String("Alice".to_string())
+        );
+    }
+
+    #[test]
+    fn test_morph_to_not_loaded() {
+        let comment = make_comment();
+        let result = comment.get_morph_to("commentable");
+        assert!(result.is_err());
+        match result {
+            Err(RelationError::NotLoaded(name)) => assert_eq!(name, "commentable"),
+            _ => panic!("Expected NotLoaded"),
+        }
+    }
+
+    #[test]
+    fn test_morph_many_not_loaded() {
+        let user = make_user();
+        let result = user.get_morph_many("comments");
+        assert!(result.is_err());
     }
 }

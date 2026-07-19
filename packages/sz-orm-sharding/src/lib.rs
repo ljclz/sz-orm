@@ -1,8 +1,33 @@
 use serde::{Deserialize, Serialize};
-use std::collections::hash_map::DefaultHasher;
 use std::error::Error;
 use std::fmt;
-use std::hash::{Hash, Hasher};
+
+pub mod enhanced;
+
+/// FNV-1a 64-bit 确定性哈希函数（带 MurmurHash3 fmix64 终结化）
+///
+/// 用于分片路由，保证跨进程/重启后同一 key 的哈希结果一致。
+/// 不依赖任何随机种子，避免 `DefaultHasher`（基于 `RandomState`）的不确定性。
+///
+/// 注意：纯 FNV-1a 对短字符串的雪崩特性较弱，相似前缀的 key（如 `key_0`、`key_1`）
+/// 哈希值高度相关，会导致一致性哈希环上分布严重不均。追加 fmix64 终结化步骤
+/// 打破这种结构相关性，使哈希值在 64-bit 空间中近似均匀分布。
+fn fnv1a_hash(data: &str) -> u64 {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
+    const FNV_PRIME: u64 = 0x100000001b3;
+    let mut hash = FNV_OFFSET_BASIS;
+    for &byte in data.as_bytes() {
+        hash ^= byte as u64;
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    // MurmurHash3 fmix64 终结化：保证良好雪崩特性，避免相似 key 聚集
+    hash ^= hash >> 33;
+    hash = hash.wrapping_mul(0xff51afd7ed558ccd);
+    hash ^= hash >> 33;
+    hash = hash.wrapping_mul(0xc4ceb9fe1a85ec53);
+    hash ^= hash >> 33;
+    hash
+}
 
 /// 分片策略
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,9 +108,7 @@ impl ShardingRouter {
     }
 
     fn route_hash(&self, key: &str) -> &str {
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let hash = hasher.finish();
+        let hash = fnv1a_hash(key);
         let idx = (hash as usize) % self.shards.len();
         &self.shards[idx]
     }
@@ -107,15 +130,13 @@ impl ShardingRouter {
                 }
             }
             // 日期解析失败，回退到日期字符串的哈希
-            let mut hasher = DefaultHasher::new();
-            date.hash(&mut hasher);
-            let idx = (hasher.finish() as usize) % self.shards.len();
+            let hash = fnv1a_hash(&date);
+            let idx = (hash as usize) % self.shards.len();
             return &self.shards[idx];
         }
         // 没有日期信息，回退到 key 整体哈希
-        let mut hasher = DefaultHasher::new();
-        key.hash(&mut hasher);
-        let idx = (hasher.finish() as usize) % self.shards.len();
+        let hash = fnv1a_hash(key);
+        let idx = (hash as usize) % self.shards.len();
         &self.shards[idx]
     }
 }

@@ -240,26 +240,18 @@ impl Migrator {
     /// 执行所有待迁移（batch=0）的 up SQL
     pub async fn migrate(&mut self) -> Result<Vec<String>, DbError> {
         let mut applied = Vec::new();
-        let mut current_batch = self.migrations.iter().map(|m| m.batch).max().unwrap_or(0) + 1;
+        let current_batch = self.migrations.iter().map(|m| m.batch).max().unwrap_or(0) + 1;
 
-        // 收集需要执行的迁移（避免借用问题）
-        let pending_versions: Vec<String> = self
+        // 收集待迁移的索引（避免在循环中再次 position()，消除 O(n²) 复杂度）
+        let pending_indices: Vec<usize> = self
             .migrations
             .iter()
-            .filter(|m| m.batch == 0)
-            .map(|m| m.version.clone())
+            .enumerate()
+            .filter(|(_, m)| m.batch == 0)
+            .map(|(idx, _)| idx)
             .collect();
 
-        for version in pending_versions {
-            // 找到迁移
-            let migration_idx = self
-                .migrations
-                .iter()
-                .position(|m| m.version == version)
-                .ok_or_else(|| {
-                    DbError::MigrationError(format!("migration version not found: {}", version))
-                })?;
-
+        for migration_idx in pending_indices {
             let sql_up = self.migrations[migration_idx].sql_up.clone();
 
             // 如果有连接，执行 SQL
@@ -274,11 +266,9 @@ impl Migrator {
             self.migrations[migration_idx].batch = current_batch;
             self.migrations[migration_idx].executed_at = Some(now);
 
-            applied.push(version);
+            applied.push(self.migrations[migration_idx].version.clone());
         }
 
-        // 同一 batch 的所有迁移共享同一个 batch 号
-        let _ = &mut current_batch;
         Ok(applied)
     }
 

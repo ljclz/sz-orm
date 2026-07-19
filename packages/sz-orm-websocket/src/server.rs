@@ -1,5 +1,3 @@
-#![cfg(feature = "server")]
-
 use crate::error::WsError;
 use crate::handler::{MessageType, WebSocketConnection, WebSocketHandler, WebSocketMessage};
 use futures_util::{SinkExt, StreamExt};

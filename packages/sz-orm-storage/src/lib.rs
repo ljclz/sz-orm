@@ -296,6 +296,29 @@ mod tests {
         assert_eq!(config.region, "us-east-1");
     }
 
+    #[test]
+    fn test_storage_config_debug_masks_secrets() {
+        let config = StorageConfig {
+            bucket: "my-bucket".to_string(),
+            region: "us-east-1".to_string(),
+            endpoint: Some("https://example.com".to_string()),
+            access_key: Some("AKIAIOSFODNN7EXAMPLE".to_string()),
+            secret_key: Some("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string()),
+            path_prefix: Some("prefix/".to_string()),
+            base_path: Some("/tmp".to_string()),
+        };
+
+        let debug_output = format!("{:?}", config);
+
+        // 非敏感字段应正常输出
+        assert!(debug_output.contains("my-bucket"));
+        assert!(debug_output.contains("us-east-1"));
+        // 敏感字段必须被遮掩
+        assert!(debug_output.contains("\"***\""));
+        assert!(!debug_output.contains("AKIAIOSFODNN7EXAMPLE"));
+        assert!(!debug_output.contains("wJalrXUtnFEMI"));
+    }
+
     fn uuid_simple() -> String {
         use std::time::{SystemTime, UNIX_EPOCH};
         let now = SystemTime::now()

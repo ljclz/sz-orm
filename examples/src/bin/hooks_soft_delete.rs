@@ -28,16 +28,30 @@ struct Product {
 
 impl Model for Product {
     type PrimaryKey = i64;
-    fn table_name() -> &'static str { "products" }
-    fn pk(&self) -> Self::PrimaryKey { self.id }
-    fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
-    fn timestamp_fields() -> Option<TimestampFields> { None }
-    fn soft_delete_field() -> Option<&'static str> { Some("deleted_at") }
+    fn table_name() -> &'static str {
+        "products"
+    }
+    fn pk(&self) -> Self::PrimaryKey {
+        self.id
+    }
+    fn set_pk(&mut self, pk: Self::PrimaryKey) {
+        self.id = pk;
+    }
+    fn timestamp_fields() -> Option<TimestampFields> {
+        None
+    }
+    fn soft_delete_field() -> Option<&'static str> {
+        Some("deleted_at")
+    }
 }
 
 impl SoftDelete for Product {
-    fn soft_delete_field() -> &'static str { "deleted_at" }
-    fn is_deleted(&self) -> bool { self.deleted_at.is_some() }
+    fn soft_delete_field() -> &'static str {
+        "deleted_at"
+    }
+    fn is_deleted(&self) -> bool {
+        self.deleted_at.is_some()
+    }
 }
 
 impl Hookable for Product {
@@ -90,10 +104,16 @@ fn main() {
         }),
     );
 
-    println!("初始调用次数: {}", call_count.load(std::sync::atomic::Ordering::SeqCst));
+    println!(
+        "初始调用次数: {}",
+        call_count.load(std::sync::atomic::Ordering::SeqCst)
+    );
     registry.dispatch(HookEvent::BeforeInsert, &ctx).unwrap();
     registry.dispatch(HookEvent::BeforeInsert, &ctx).unwrap();
-    println!("dispatch 后:  {}", call_count.load(std::sync::atomic::Ordering::SeqCst));
+    println!(
+        "dispatch 后:  {}",
+        call_count.load(std::sync::atomic::Ordering::SeqCst)
+    );
 
     println!("\n=== ScopeRegistry 作用域控制 ===");
     let scope_reg = ScopeRegistry::new();

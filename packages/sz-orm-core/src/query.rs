@@ -1,13 +1,13 @@
-//! Query Builder
+//! 查询构造器
 //!
-//! Provides a fluent chain-style query builder similar to ThinkORM
+//! 提供类似 ThinkORM 的链式查询构造 API
 
 use crate::dialect::Dialect;
 use crate::model::Model;
 use crate::value::Value;
 use std::fmt;
 
-/// Query Builder for constructing SQL queries
+/// 用于构造 SQL 查询的查询构造器
 pub struct QueryBuilder<M: Model> {
     table: Option<String>,
     select_columns: Vec<String>,
@@ -550,7 +550,8 @@ impl<M: Model> QueryBuilder<M> {
         sql
     }
 
-    /// Validate the generated SELECT SQL statement
+    /// 校验生成的 SELECT SQL 语句
+    /// 检查 SQL 语法、JOIN 列名、表名合法性
     pub fn validate(&self) -> Result<(), Vec<sz_orm_sql_validator::SqlValidationError>> {
         let sql = self.build_select();
         let mut errors = Vec::new();
@@ -559,7 +560,7 @@ impl<M: Model> QueryBuilder<M> {
             errors.push(e);
         }
 
-        // Validate joins produce valid SQL
+        // 校验 JOIN 子句产生的 SQL 是否合法
         if !self.joins.is_empty() {
             for join in &self.joins {
                 match join {
@@ -578,7 +579,7 @@ impl<M: Model> QueryBuilder<M> {
             }
         }
 
-        // Validate table name
+        // 校验表名合法性
         let table = self
             .table
             .clone()
@@ -594,7 +595,8 @@ impl<M: Model> QueryBuilder<M> {
         }
     }
 
-    /// Validate the generated INSERT SQL
+    /// 校验生成的 INSERT SQL 语句
+    /// 含空数据检测（EmptyInsertData 错误）
     pub fn validate_insert(
         &self,
         data: &std::collections::HashMap<String, Value>,
@@ -618,7 +620,8 @@ impl<M: Model> QueryBuilder<M> {
         }
     }
 
-    /// Validate the generated UPDATE SQL
+    /// 校验生成的 UPDATE SQL 语句
+    /// 含空数据检测（EmptyUpdateData 错误）
     pub fn validate_update(
         &self,
         data: &std::collections::HashMap<String, Value>,
@@ -642,10 +645,8 @@ impl<M: Model> QueryBuilder<M> {
         }
     }
 
-    /// Validate the generated DELETE SQL
-    pub fn validate_delete(
-        &self,
-    ) -> Result<(), Vec<sz_orm_sql_validator::SqlValidationError>> {
+    /// 校验生成的 DELETE SQL 语句
+    pub fn validate_delete(&self) -> Result<(), Vec<sz_orm_sql_validator::SqlValidationError>> {
         let sql = self.build_delete();
         let mut errors = Vec::new();
 

@@ -1,5 +1,3 @@
-#![cfg(feature = "real-broker")]
-
 use crate::broker::MqttConfig;
 use crate::error::MqttError;
 use crate::qos::QoS;

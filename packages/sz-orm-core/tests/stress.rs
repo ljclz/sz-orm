@@ -202,7 +202,7 @@ async fn stress_long_transaction() {
 
     // 启动一个长事务
     let conn = pool.acquire().await.unwrap();
-    let mut tx = Transaction::new(conn, TransactOptions::default());
+    let mut tx = Transaction::new(conn.into_inner(), TransactOptions::default());
     tx.execute("INSERT INTO t VALUES (1)").await.unwrap();
     tx.execute("INSERT INTO t VALUES (2)").await.unwrap();
 
@@ -260,7 +260,8 @@ async fn stress_mixed_workload() {
                 1 => {
                     // 长事务
                     if let Ok(conn) = pool.acquire().await {
-                        let mut tx = Transaction::new(conn, TransactOptions::default());
+                        let mut tx =
+                            Transaction::new(conn.into_inner(), TransactOptions::default());
                         let _ = tx.execute("INSERT").await;
                         let _ = tx.commit().await;
                         drop(tx);

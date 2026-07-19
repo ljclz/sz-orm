@@ -23,13 +23,21 @@ struct Article {
 impl Model for Article {
     type PrimaryKey = i64;
 
-    fn table_name() -> &'static str { "articles" }
+    fn table_name() -> &'static str {
+        "articles"
+    }
 
-    fn pk_name() -> &'static str { "id" }
+    fn pk_name() -> &'static str {
+        "id"
+    }
 
-    fn pk(&self) -> Self::PrimaryKey { self.id }
+    fn pk(&self) -> Self::PrimaryKey {
+        self.id
+    }
 
-    fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+    fn set_pk(&mut self, pk: Self::PrimaryKey) {
+        self.id = pk;
+    }
 
     fn foreign_key(relation: &str) -> String {
         match relation {
@@ -49,8 +57,16 @@ impl Model for Article {
 
 impl ModelExt for Article {
     fn columns() -> Vec<&'static str> {
-        vec!["id", "title", "content", "author_id", "views",
-             "deleted_at", "created_at", "updated_at"]
+        vec![
+            "id",
+            "title",
+            "content",
+            "author_id",
+            "views",
+            "deleted_at",
+            "created_at",
+            "updated_at",
+        ]
     }
 
     fn fillable() -> Vec<&'static str> {
@@ -105,11 +121,31 @@ impl ModelExt for Article {
     fn from_value(&mut self, map: HashMap<String, Value>) {
         for (k, v) in map {
             match k.as_str() {
-                "id" => { if let Some(i) = v.as_i64() { self.id = i; } },
-                "title" => { if let Some(s) = v.as_str() { self.title = s.to_string(); } },
-                "content" => { if let Some(s) = v.as_str() { self.content = s.to_string(); } },
-                "author_id" => { if let Some(i) = v.as_i64() { self.author_id = i; } },
-                "views" => { if let Some(i) = v.as_i64() { self.views = i; } },
+                "id" => {
+                    if let Some(i) = v.as_i64() {
+                        self.id = i;
+                    }
+                }
+                "title" => {
+                    if let Some(s) = v.as_str() {
+                        self.title = s.to_string();
+                    }
+                }
+                "content" => {
+                    if let Some(s) = v.as_str() {
+                        self.content = s.to_string();
+                    }
+                }
+                "author_id" => {
+                    if let Some(i) = v.as_i64() {
+                        self.author_id = i;
+                    }
+                }
+                "views" => {
+                    if let Some(i) = v.as_i64() {
+                        self.views = i;
+                    }
+                }
                 _ => {}
             }
         }
@@ -138,7 +174,10 @@ fn main() {
     println!("可填充:   {:?}", Article::fillable());
     println!("保护列:   {:?}", Article::guarded());
     println!("隐藏列:   {:?}", Article::hidden());
-    println!("关联:     {:?}", Article::relations().keys().collect::<Vec<_>>());
+    println!(
+        "关联:     {:?}",
+        Article::relations().keys().collect::<Vec<_>>()
+    );
 
     println!("\n=== 序列化为 JSON（to_json 自动隐藏 hidden 列）===");
     let json = article.to_json();

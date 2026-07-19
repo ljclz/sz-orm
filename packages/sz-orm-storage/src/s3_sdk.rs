@@ -1,5 +1,3 @@
-#![cfg(feature = "s3-sdk")]
-
 use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -53,7 +51,7 @@ impl S3SdkStorage {
         Ok(Self {
             bucket: bucket_name,
             region: region_str,
-            endpoint: endpoint,
+            endpoint,
             bucket_handle: bucket_handle.with_path_style(),
         })
     }
@@ -80,7 +78,7 @@ impl Storage for S3SdkStorage {
             .await
             .map_err(|e| StorageError::Put(format!("s3 put: {}", e)))?;
 
-        if resp.status_code() >= 200 && resp.status_code() < 300 {
+        if (200..300).contains(&resp.status_code()) {
             Ok(self.url_for(key))
         } else {
             Err(StorageError::Put(format!(
@@ -105,7 +103,7 @@ impl Storage for S3SdkStorage {
             return Err(StorageError::NotFound(key.to_string()));
         }
 
-        if resp.status_code() >= 200 && resp.status_code() < 300 {
+        if (200..300).contains(&resp.status_code()) {
             Ok(resp.to_vec())
         } else {
             Err(StorageError::Get(format!(
@@ -123,7 +121,7 @@ impl Storage for S3SdkStorage {
             .await
             .map_err(|e| StorageError::Delete(format!("s3 delete: {}", e)))?;
 
-        if resp.status_code() >= 200 && resp.status_code() < 300 {
+        if (200..300).contains(&resp.status_code()) {
             Ok(())
         } else {
             Err(StorageError::Delete(format!(
@@ -136,7 +134,7 @@ impl Storage for S3SdkStorage {
 
     async fn exists(&self, key: &str) -> Result<bool, StorageError> {
         match self.bucket_handle.head_object(key).await {
-            Ok((_, status)) => Ok(status >= 200 && status < 300),
+            Ok((_, status)) => Ok((200..300).contains(&status)),
             Err(e) => {
                 let msg = e.to_string();
                 if msg.contains("404") || msg.to_lowercase().contains("not found") {

@@ -291,8 +291,7 @@ pub fn detect_statement_type(sql: &str) -> SqlStatementType {
 
 /// Validate parameter count in prepared statements
 pub fn validate_parameter_count(sql: &str, expected_params: usize) -> ValidationResult {
-    let param_count = sql.chars().filter(|&c| c == '?').count()
-        + sql.matches('$').count(); // PostgreSQL style
+    let param_count = sql.chars().filter(|&c| c == '?').count() + sql.matches('$').count(); // PostgreSQL style
     if param_count != expected_params {
         return Err(SqlValidationError::ParameterCountMismatch {
             expected: expected_params,
@@ -312,10 +311,7 @@ pub fn validate_table_name(name: &str) -> ValidationResult {
 
     // Table names should only contain alphanumeric, underscore
     // Allow backtick-quoted identifiers
-    let cleaned = name
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'');
+    let cleaned = name.trim_matches('`').trim_matches('"').trim_matches('\'');
     if cleaned.is_empty() {
         return Err(SqlValidationError::InvalidTableName(name.to_string()));
     }
@@ -338,10 +334,7 @@ pub fn validate_column_name(name: &str) -> ValidationResult {
         return Ok(()); // * is valid for SELECT
     }
 
-    let cleaned = name
-        .trim_matches('`')
-        .trim_matches('"')
-        .trim_matches('\'');
+    let cleaned = name.trim_matches('`').trim_matches('"').trim_matches('\'');
     if cleaned.is_empty() {
         return Err(SqlValidationError::InvalidIdentifier(name.to_string()));
     }
@@ -383,12 +376,10 @@ mod tests {
     fn test_validate_select_basic() {
         assert!(validate_select("SELECT * FROM users").is_ok());
         assert!(validate_select("SELECT id, name FROM users WHERE id = 1").is_ok());
-        assert!(
-            validate_select(
-                "SELECT u.id, u.name FROM users u INNER JOIN orders o ON u.id = o.user_id"
-            )
-            .is_ok()
-        );
+        assert!(validate_select(
+            "SELECT u.id, u.name FROM users u INNER JOIN orders o ON u.id = o.user_id"
+        )
+        .is_ok());
     }
 
     #[test]
@@ -400,9 +391,7 @@ mod tests {
     #[test]
     fn test_validate_insert_basic() {
         assert!(validate_insert("INSERT INTO users (name) VALUES ('alice')").is_ok());
-        assert!(
-            validate_insert("INSERT INTO users (name, age) VALUES ('bob', 25)").is_ok()
-        );
+        assert!(validate_insert("INSERT INTO users (name, age) VALUES ('bob', 25)").is_ok());
     }
 
     #[test]
@@ -438,55 +427,37 @@ mod tests {
         assert!(validate_balanced_parentheses("SELECT * FROM (SELECT * FROM users) t").is_ok());
         assert!(validate_balanced_parentheses("FUNC(a, b, c)").is_ok());
         assert!(
-            validate_balanced_parentheses(
-                "SELECT * FROM users WHERE (a=1 AND (b=2 OR c=3))"
-            )
-            .is_ok()
+            validate_balanced_parentheses("SELECT * FROM users WHERE (a=1 AND (b=2 OR c=3))")
+                .is_ok()
         );
     }
 
     #[test]
     fn test_unbalanced_parentheses() {
-        assert!(
-            validate_balanced_parentheses("SELECT * FROM (SELECT * FROM users").is_err()
-        );
+        assert!(validate_balanced_parentheses("SELECT * FROM (SELECT * FROM users").is_err());
         assert!(validate_balanced_parentheses("SELECT * FROM users)").is_err());
     }
 
     #[test]
     fn test_string_literals_closed() {
-        assert!(
-            validate_string_literals("SELECT * FROM users WHERE name = 'alice'").is_ok()
-        );
-        assert!(
-            validate_string_literals("INSERT INTO users (name) VALUES ('bob')").is_ok()
-        );
+        assert!(validate_string_literals("SELECT * FROM users WHERE name = 'alice'").is_ok());
+        assert!(validate_string_literals("INSERT INTO users (name) VALUES ('bob')").is_ok());
     }
 
     #[test]
     fn test_unclosed_string_literal() {
-        assert!(
-            validate_string_literals("SELECT * FROM users WHERE name = 'alice").is_err()
-        );
+        assert!(validate_string_literals("SELECT * FROM users WHERE name = 'alice").is_err());
     }
 
     #[test]
     fn test_injection_detection() {
-        assert!(
-            validate_no_injection_patterns("SELECT * FROM users WHERE name = 'alice'").is_ok()
-        );
-        assert!(
-            validate_no_injection_patterns(
-                "SELECT * FROM users WHERE name = 'alice' OR '1'='1'"
-            )
-            .is_err()
-        );
-        assert!(
-            validate_no_injection_patterns("'; DROP TABLE users; --").is_err()
-        );
-        assert!(
-            validate_no_injection_patterns("1 UNION SELECT * FROM users").is_err()
-        );
+        assert!(validate_no_injection_patterns("SELECT * FROM users WHERE name = 'alice'").is_ok());
+        assert!(validate_no_injection_patterns(
+            "SELECT * FROM users WHERE name = 'alice' OR '1'='1'"
+        )
+        .is_err());
+        assert!(validate_no_injection_patterns("'; DROP TABLE users; --").is_err());
+        assert!(validate_no_injection_patterns("1 UNION SELECT * FROM users").is_err());
     }
 
     #[test]
@@ -532,18 +503,10 @@ mod tests {
     #[test]
     fn test_parameter_count() {
         assert!(
-            validate_parameter_count(
-                "SELECT * FROM users WHERE id = ? AND name = ?",
-                2
-            )
-            .is_ok()
+            validate_parameter_count("SELECT * FROM users WHERE id = ? AND name = ?", 2).is_ok()
         );
-        assert!(
-            validate_parameter_count("SELECT * FROM users WHERE id = ?", 1).is_ok()
-        );
-        assert!(
-            validate_parameter_count("SELECT * FROM users WHERE id = ?", 2).is_err()
-        );
+        assert!(validate_parameter_count("SELECT * FROM users WHERE id = ?", 1).is_ok());
+        assert!(validate_parameter_count("SELECT * FROM users WHERE id = ?", 2).is_err());
     }
 
     #[test]
@@ -581,28 +544,21 @@ mod tests {
 
     #[test]
     fn test_create_table_validation() {
-        assert!(
-            validate_sql("CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100))").is_ok()
-        );
+        assert!(validate_sql("CREATE TABLE users (id INT PRIMARY KEY, name VARCHAR(100))").is_ok());
     }
 
     #[test]
     fn test_double_quoted_identifiers() {
         assert!(
-            validate_string_literals(
-                "SELECT * FROM \"users\" WHERE \"name\" = 'alice'"
-            )
-            .is_ok()
+            validate_string_literals("SELECT * FROM \"users\" WHERE \"name\" = 'alice'").is_ok()
         );
     }
 
     #[test]
     fn test_nested_function_calls() {
-        assert!(
-            validate_balanced_parentheses(
-                "SELECT MAX(COUNT(*)) FROM (SELECT COUNT(*) FROM users GROUP BY status) t"
-            )
-            .is_ok()
-        );
+        assert!(validate_balanced_parentheses(
+            "SELECT MAX(COUNT(*)) FROM (SELECT COUNT(*) FROM users GROUP BY status) t"
+        )
+        .is_ok());
     }
 }
