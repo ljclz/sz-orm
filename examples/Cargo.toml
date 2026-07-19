@@ -1,0 +1,37 @@
+[package]
+name = "sz-orm-examples"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SZ-ORM 使用示例集"
+publish = false
+
+[dependencies]
+sz-orm-core = { path = "../packages/sz-orm-core" }
+tokio = { workspace = true, features = ["full"] }
+serde_json = { workspace = true }
+
+[[bin]]
+name = "quick_start"
+path = "src/bin/quick_start.rs"
+
+[[bin]]
+name = "model_definition"
+path = "src/bin/model_definition.rs"
+
+[[bin]]
+name = "transaction"
+path = "src/bin/transaction.rs"
+
+[[bin]]
+name = "migration"
+path = "src/bin/migration.rs"
+
+[[bin]]
+name = "hooks_soft_delete"
+path = "src/bin/hooks_soft_delete.rs"
+
+[[bin]]
+name = "multi_tenant"
+path = "src/bin/multi_tenant.rs"

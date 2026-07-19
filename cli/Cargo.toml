@@ -1,0 +1,20 @@
+[package]
+name = "sz-orm-cli"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SZ-ORM 命令行工具 — 迁移管理、模型/迁移代码生成、SQL 执行"
+
+[[bin]]
+name = "sz-orm"
+path = "src/main.rs"
+
+[dependencies]
+sz-orm-core = { path = "../packages/sz-orm-core" }
+sz-orm-sql-validator = { path = "../packages/sz-orm-sql-validator" }
+tokio = { workspace = true, features = ["full"] }
+chrono = { workspace = true }
+
+[features]
+default = []
