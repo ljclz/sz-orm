@@ -4,7 +4,7 @@
 //!
 //! ## 架构概览
 //!
-//! SZ-ORM 工作空间由 **30 个包** 组成：
+//! SZ-ORM 工作空间由 **31 个包** 组成：
 //!
 //! ### 核心引擎 (sz-orm-core)
 //! | 模块 | 功能 |
@@ -18,7 +18,7 @@
 //! | `cache` | 多级缓存 — `MemoryCache`、`MultiLevelCache`，支持 TTL |
 //! | `value` | 统一值类型 — 20 种变体 (整数/浮点/字符串/字节/UUID/日期/JSON/数组) |
 //! | `db_type` | 数据库类型枚举 — MySQL、PostgreSQL、SQLite、Oracle、Redis、MongoDB 等 11 种 |
-//! | `error` | 错误类型体系 — `DbError`(18 变体)、`PoolError`、`CacheError`、`TxError` |
+//! | `error` | 错误类型体系 — `DbError`(20 变体)、`PoolError`、`CacheError`、`TxError` |
 //!
 //! ### 数据库适配器
 //! - **sz-orm-sqlx** — sqlx 适配器，连接真实 MySQL/PostgreSQL/SQLite/Oracle
@@ -326,7 +326,7 @@
 //! 统一错误类型体系，每种错误携带唯一错误码：
 //!
 //! ```rust,ignore
-//! // DbError — 18 种变体，错误码 DB001-DB018
+//! // DbError — 20 种变体，错误码 DB001-DB020
 //! DbError::QueryError("...")
 //! DbError::ConnectionRefused("...")
 //! DbError::ConnectionTimeout("...")
@@ -414,7 +414,8 @@ mod cache;
 mod db_type;
 pub mod dialect;
 mod error;
-mod migration;
+pub mod hooks;
+pub mod migration;
 mod model;
 mod pool;
 mod query;

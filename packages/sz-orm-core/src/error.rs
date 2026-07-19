@@ -62,6 +62,12 @@ pub enum DbError {
 
     /// Io error
     IoError(String),
+
+    /// 钩子执行失败
+    Hook(String),
+
+    /// 多租户错误（如租户 ID 缺失、跨租户访问）
+    TenantError(String),
 }
 
 impl DbError {
@@ -111,6 +117,8 @@ impl DbError {
             DbError::InvalidInput(_) => "DB016",
             DbError::Internal(_) => "DB017",
             DbError::IoError(_) => "DB018",
+            DbError::Hook(_) => "DB019",
+            DbError::TenantError(_) => "DB020",
         }
     }
 }
@@ -136,6 +144,8 @@ impl fmt::Display for DbError {
             DbError::InvalidInput(s) => write!(f, "Invalid input: {}", s),
             DbError::Internal(s) => write!(f, "Internal error: {}", s),
             DbError::IoError(s) => write!(f, "IO error: {}", s),
+            DbError::Hook(s) => write!(f, "Hook error: {}", s),
+            DbError::TenantError(s) => write!(f, "Tenant error: {}", s),
         }
     }
 }
