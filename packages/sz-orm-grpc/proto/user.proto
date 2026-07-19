@@ -1,0 +1,29 @@
+syntax = "proto3";
+
+package szorm.grpc;
+
+// User lookup / creation request.
+message UserRequest {
+    int64 id = 1;
+    string username = 2;
+}
+
+// User record returned by the service.
+message UserResponse {
+    int64 id = 1;
+    string username = 2;
+    string email = 3;
+}
+
+// Request carrying no payload (ListUsers).
+message Empty {}
+
+// User service mirroring the in-process `UserGrpcService` trait.
+service UserService {
+    rpc GetUser(UserRequest) returns (UserResponse);
+    rpc ListUsers(Empty) returns (UserListResponse);
+}
+
+message UserListResponse {
+    repeated UserResponse users = 1;
+}

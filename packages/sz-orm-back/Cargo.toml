@@ -1,0 +1,20 @@
+[package]
+name = "sz-orm-back"
+version = "0.1.0"
+edition = "2021"
+authors = ["SZ-ORM Team"]
+license = "MIT"
+description = "SZ-ORM Backup & Restore Extension"
+
+[dependencies]
+async-trait = "0.1"
+tokio = { version = "1.40", features = ["full"] }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { workspace = true }
+flate2 = "1.0"
+sha2 = "0.10"
+
+[dev-dependencies]
+tokio-test = "0.4"

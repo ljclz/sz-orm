@@ -1,0 +1,32 @@
+[package]
+name = "sz-orm-sqlx"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+
+[dependencies]
+sz-orm-core = { version = "0.1.0", path = "../sz-orm-core" }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal"] }
+rust_decimal = "1.36"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lib]
+name = "sz_orm_sqlx"
+path = "src/lib.rs"
+
+[[test]]
+name = "sqlx_adapter_tests"
+path = "tests/sqlx_adapter_tests.rs"
+
+[[test]]
+name = "real_db_pool_tests"
+path = "tests/real_db_pool_tests.rs"
+
+[[test]]
+name = "real_db_jepsen"
+path = "tests/real_db_jepsen.rs"

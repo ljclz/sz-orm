@@ -1,0 +1,37 @@
+[package]
+name = "sz-orm-grpc"
+version = "0.1.0"
+edition = "2021"
+description = "SZ-ORM gRPC Extension - gRPC microservice client and server"
+authors = ["SZ-ORM Team"]
+license = "MIT"
+repository = "https://github.com/sz-orm/sz-orm"
+build = "build.rs"
+
+[features]
+# Enable the real tokio + tonic based gRPC transport.
+# Disabled by default so consumers only pay for the in-memory mock.
+real = [
+    "dep:tonic",
+    "dep:prost",
+    "dep:tokio",
+    "dep:tokio-stream",
+    "dep:tonic-build",
+    "dep:protoc-bin-vendored",
+]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tonic = { version = "0.14", optional = true }
+prost = { version = "0.14", optional = true }
+tokio = { workspace = true, optional = true }
+tokio-stream = { version = "0.1", optional = true }
+
+[build-dependencies]
+tonic-build = { version = "0.14", optional = true }
+protoc-bin-vendored = { version = "3", optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
+

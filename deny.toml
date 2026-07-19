@@ -1,0 +1,133 @@
+# =============================================================================
+# cargo-deny 配置文件
+# 文档: https://embarkstudios.github.io/cargo-deny/
+# 用途: 对 SZ-ORM 工作空间进行安全审计、许可证合规、依赖来源与重复依赖检查
+# 运行: cargo deny check
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# [graph] 控制依赖图的解析范围
+# -----------------------------------------------------------------------------
+[graph]
+# 检查所有目标 (default, host, build)
+# - default: 平台默认 target 的依赖
+# - host:    构建主机工具链使用的依赖 (如 proc-macro、build script)
+# - build:   build.rs 中使用的依赖
+all-features = true
+no-default-features = false
+# 同时检查开发依赖、构建依赖与主机依赖
+targets = [
+    { triple = "x86_64-unknown-linux-gnu" },
+    { triple = "aarch64-unknown-linux-gnu" },
+    { triple = "x86_64-pc-windows-msvc" },
+    { triple = "x86_64-apple-darwin" },
+    { triple = "aarch64-apple-darwin" },
+    { triple = "wasm32-unknown-unknown" },
+]
+
+# -----------------------------------------------------------------------------
+# [advisories] 安全公告处理
+# -----------------------------------------------------------------------------
+[advisories]
+# 已被 RUSTSEC 标记为废弃的公告仅警告，不阻断 CI
+version = 2
+db-path = "$CARGO_HOME/advisory-dbs"
+db-urls = ["https://github.com/rustsec/advisory-db"]
+ignore = [
+    # rsa 0.9.10: Marvin Attack (timing sidechannels, RUSTSEC-2023-0071, severity 5.9 medium)
+    # 来源: sqlx-mysql 0.8.6 → rsa 0.9.10 (MySQL SHA256/RSA 认证所需)
+    # 影响: 时序侧信道攻击需在同一主机执行恶意代码，服务端场景影响有限
+    # 跟踪: 待 sqlx 0.9+ 升级 rsa 依赖后自动移除此忽略项
+    { id = "RUSTSEC-2023-0071", reason = "sqlx-mysql 0.8.6 传递依赖 rsa 0.9.10，上游 sqlx 尚无修复版本；影响为同主机时序侧信道，服务端场景可控" },
+    # rustls-webpki 0.102.8: CRL distributionPoint 解析漏洞 (RUSTSEC-2026-0049)
+    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-webpki 0.102.8
+    # 影响: 仅在启用 real-broker feature 时引入；CRL 验证在默认编译中不参与；上游 rustls-webpki 0.103 为不兼容大版本
+    # 跟踪: 待 rumqttc 升级至依赖 rustls-webpki 0.103+ 后自动移除
+    { id = "RUSTSEC-2026-0049", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # rustls-webpki 0.102.8: URI name constraints 漏洞 (RUSTSEC-2026-0098)
+    { id = "RUSTSEC-2026-0098", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # rustls-webpki 0.102.8: wildcard name constraints 漏洞 (RUSTSEC-2026-0099)
+    { id = "RUSTSEC-2026-0099", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # rustls-webpki 0.102.8: CRL parsing panic 漏洞 (RUSTSEC-2026-0104)
+    { id = "RUSTSEC-2026-0104", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # quick-xml 0.38.4: 二次时间复杂度解析漏洞 (RUSTSEC-2026-0194)
+    # 来源: sz-orm-queue (rabbitmq feature) → lapin 4.10 → quick-xml 0.38.4
+    # 影响: 仅在启用 rabbitmq feature 时引入；服务端可控输入；上游 lapin 尚未升级
+    # 跟踪: 待 lapin 升级 quick-xml 依赖后自动移除
+    { id = "RUSTSEC-2026-0194", reason = "lapin 4.10 传递依赖 quick-xml 0.38.4，上游 lapin 尚无修复版本；仅影响 rabbitmq feature；服务端可控输入" },
+    # quick-xml 0.38.4: 内存耗尽漏洞 (RUSTSEC-2026-0195)
+    { id = "RUSTSEC-2026-0195", reason = "lapin 4.10 传递依赖 quick-xml 0.38.4，上游 lapin 尚无修复版本；仅影响 rabbitmq feature；服务端可控输入" },
+    # rustls-pemfile 2.2.0: 未维护 (RUSTSEC-2025-0134)
+    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-pemfile 2.2.0
+    # 影响: 仅在启用 real-broker feature 时引入；功能已被 rustls 0.23 内置功能替代
+    # 跟踪: 待 rumqttc 升级至不依赖 rustls-pemfile 后自动移除
+    { id = "RUSTSEC-2025-0134", reason = "rumqttc 0.25 传递依赖 rustls-pemfile 2.2.0 unmaintained；仅影响 real-broker feature；功能已被 rustls 0.23 内置替代" },
+]
+# 未维护的依赖仅给出警告
+unmaintained = "workspace"
+# 已被 yanked 的 crate 视为告警
+yanked = "warn"
+# 漏洞类公告直接拒绝 (deny) 导致 CI 失败
+# 默认情况下所有未被忽略的公告都会让 `cargo deny check advisories` 返回非零退出码
+
+# -----------------------------------------------------------------------------
+# [licenses] 许可证合规
+# -----------------------------------------------------------------------------
+[licenses]
+version = 2
+# 仅允许以下宽松许可证
+allow = [
+    "MIT",
+    "Apache-2.0",
+    "Apache-2.0 WITH LLVM-exception",
+    "BSD-2-Clause",
+    "BSD-3-Clause",
+    "ISC",
+    "Unicode-DFS-2016",
+    "Unicode-3.0",
+    "Zlib",
+    "CC0-1.0",
+    "0BSD",
+    "Unlicense",
+    "MPL-2.0",
+    # webpki-roots 使用 CDLA-Permissive-2.0（数据许可，非代码许可）
+    # 来源: sqlx-core 0.8.6 → webpki-roots 0.26/1.0（TLS 根证书数据）
+    "CDLA-Permissive-2.0",
+]
+# 禁止任何 copyleft 许可证 (拒绝 GPL/AGPL/LGPL)
+# 注意: deny 是通过 `exceptions` 显式 allow + 默认 deny 来实现的
+# 未出现在 allow 列表中的许可证都会被拒绝
+confidence-threshold = 0.8
+# 启用对许可证文本的检查 (要求每个 crate 都有明确的 SPDX 许可证)
+exceptions = []
+# 明确拒绝的 copyleft 许可证 (在 allow 列表里没列出时本身就拒绝，这里再写一遍是为了 fail message 清晰)
+# cargo-deny 通过 `allow` 列表机制实现 deny-by-default：未在 allow 中的许可证都会失败
+
+# -----------------------------------------------------------------------------
+# [bans] 依赖禁用与重复检测
+# -----------------------------------------------------------------------------
+[bans]
+# 重复依赖仅警告 (避免 CI 过度阻塞，但暴露潜在的版本碎片化问题)
+multiple-versions = "warn"
+# 同一 crate 的不同来源仅警告
+wildcards = "warn"
+# 强调 (highlight) 多版本依赖，便于日志阅读
+highlight = "all"
+# 允许特定的重复依赖 (示例：常见 transitive 冲突)
+# 通常底层 crate (windows-sys, windows 等系统绑定) 会出现多版本共存
+allow = []
+deny = []
+skip = []
+skip-tree = []
+
+# -----------------------------------------------------------------------------
+# [sources] 依赖来源限制
+# -----------------------------------------------------------------------------
+[sources]
+# 不允许任何未知 registry
+unknown-registry = "deny"
+# 不允许任何 git 来源 (除非在 allow-git 中显式列出)
+unknown-git = "deny"
+# 不允许任何本地 path 来源 (除非在 allow-path 中显式列出)
+allow-registry = ["https://github.com/rust-lang/crates.io-index"]
+allow-git = []

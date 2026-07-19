@@ -1,0 +1,15 @@
+[package]
+name = "sz-orm-es"
+version = "0.1.0"
+edition = "2021"
+description = "SZ-ORM Elasticsearch Extension - Full-text search and sync with ES"
+authors = ["SZ-ORM Team"]
+license = "MIT"
+repository = "https://github.com/sz-orm/sz-orm"
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+chrono = { version = "0.4", features = ["serde"] }
+
+[dev-dependencies]
