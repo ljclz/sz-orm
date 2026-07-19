@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "0.1.0"
+version = "0.2.0"
 edition = "2021"
 authors = ["SZ-ORM Team"]
 license = "MIT"
@@ -16,3 +16,4 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 bytes = "1"
+sz-orm-core = { version = "0.2.0", path = "packages/sz-orm-core" }

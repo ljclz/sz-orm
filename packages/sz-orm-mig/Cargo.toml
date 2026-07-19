@@ -1,9 +1,9 @@
 [package]
 name = "sz-orm-mig"
-version = "0.1.0"
-edition = "2021"
-authors = ["SZ-ORM Team"]
-license = "MIT"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
 description = "SZ-ORM Migration Extension - Cross-database migration"
 
 [dependencies]

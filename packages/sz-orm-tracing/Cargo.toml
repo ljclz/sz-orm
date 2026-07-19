@@ -1,10 +1,10 @@
 [package]
 name = "sz-orm-tracing"
-version = "0.1.0"
-edition = "2021"
+version.workspace = true
+edition.workspace = true
 description = "SZ-ORM Tracing Extension - Distributed tracing with OpenTelemetry support"
-authors = ["SZ-ORM Team"]
-license = "MIT"
+authors.workspace = true
+license.workspace = true
 repository = "https://github.com/sz-orm/sz-orm"
 
 [dependencies]
