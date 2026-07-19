@@ -1,5 +1,3 @@
-#![cfg(feature = "rabbitmq")]
-
 use crate::error::MqError;
 use crate::queue::{Message, MessageQueue};
 use async_trait::async_trait;

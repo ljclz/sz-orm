@@ -1,0 +1,26 @@
+# 编译产物（在容器内重新构建以匹配目标平台）
+target/
+
+# Git 元数据
+.git/
+.gitignore
+
+# IDE 文件
+.vscode/
+.idea/
+*.iml
+
+# 文档（不需要打入镜像）
+*.md
+docs/
+
+# CI 配置
+.github/
+
+# 本地测试数据库卷
+mysql-data/
+postgres-data/
+
+# 环境变量文件（可能含密钥）
+.env
+.env.local

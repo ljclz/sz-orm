@@ -149,15 +149,13 @@ impl Default for MultiLevelCache {
 impl Cache for MultiLevelCache {
     fn get(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
         for (i, cache) in self.caches.iter().enumerate() {
-            if let Ok(value) = cache.get(key) {
-                if value.is_some() {
-                    for j in 0..i {
-                        if let Some(ref v) = value {
-                            let _ = self.caches[j].set(key, v.clone(), None);
-                        }
-                    }
-                    return Ok(value);
+            if let Ok(Some(value)) = cache.get(key) {
+                // 保留原始 TTL 信息：从命中的缓存层查询剩余 TTL，写回低层时使用
+                let ttl = cache.ttl(key).ok().flatten();
+                for j in 0..i {
+                    let _ = self.caches[j].set(key, value.clone(), ttl);
                 }
+                return Ok(Some(value));
             }
         }
         Ok(None)

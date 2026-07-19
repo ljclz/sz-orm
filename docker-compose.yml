@@ -1,0 +1,84 @@
+# SZ-ORM 部署编排
+#
+# 用途：
+#   1. 启动 SZ-ORM 示例应用
+#   2. 提供可选的 MySQL/PostgreSQL 后端（用于真实 DB 测试）
+#
+# 启动：docker compose up -d
+# 查看日志：docker compose logs -f szorm-app
+# 停止：docker compose down
+
+services:
+  # SZ-ORM 应用容器
+  szorm-app:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    image: sz-orm:0.2.0
+    container_name: szorm-app
+    # 默认运行跨分片分布式订单 demo
+    command: ["/app/bin/production_dtx"]
+    environment:
+      - RUST_LOG=info
+      - TZ=Asia/Shanghai
+    restart: unless-stopped
+    depends_on:
+      - mysql
+      - postgres
+    networks:
+      - szorm-net
+
+  # MySQL 后端（可选，用于真实 DB 集成测试）
+  mysql:
+    image: mysql:8.0
+    container_name: szorm-mysql
+    environment:
+      MYSQL_ROOT_PASSWORD: szorm_root_pwd
+      MYSQL_DATABASE: shop
+      MYSQL_USER: shop
+      MYSQL_PASSWORD: shop_pwd
+      TZ: Asia/Shanghai
+    ports:
+      - "8802:3306"
+    volumes:
+      - mysql-data:/var/lib/mysql
+    command:
+      - --default-authentication-plugin=mysql_native_password
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_unicode_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-u", "shop", "-pshop_pwd"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - szorm-net
+
+  # PostgreSQL 后端（可选，用于真实 DB 集成测试）
+  postgres:
+    image: postgres:16
+    container_name: szorm-postgres
+    environment:
+      POSTGRES_DB: lewuli
+      POSTGRES_USER: lewuli
+      POSTGRES_PASSWORD: lewuli_pwd
+      TZ: Asia/Shanghai
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U lewuli -d lewuli"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - szorm-net
+
+volumes:
+  mysql-data:
+  postgres-data:
+
+networks:
+  szorm-net:
+    driver: bridge

@@ -5,28 +5,18 @@
 //!
 //! 运行：`cargo run -p sz-orm-examples --bin migration`
 
-use sz_orm_core::migration::{ColumnDef, ForeignKeyDef, IndexDef, MigrationContext, Migrator, SchemaBuilder};
+use sz_orm_core::migration::{
+    ColumnDef, ForeignKeyDef, IndexDef, MigrationContext, Migrator, SchemaBuilder,
+};
 use sz_orm_core::DbType;
 
 fn main() {
     // ===== 1. SchemaBuilder 程序化建表 =====
     println!("=== SchemaBuilder: users 表 (MySQL) ===");
     let users_sql = SchemaBuilder::new("users")
-        .add_column(
-            ColumnDef::new("id", "BIGINT")
-                .not_null()
-                .auto_increment(),
-        )
-        .add_column(
-            ColumnDef::new("name", "VARCHAR")
-                .length(255)
-                .not_null(),
-        )
-        .add_column(
-            ColumnDef::new("email", "VARCHAR")
-                .length(255)
-                .not_null(),
-        )
+        .add_column(ColumnDef::new("id", "BIGINT").not_null().auto_increment())
+        .add_column(ColumnDef::new("name", "VARCHAR").length(255).not_null())
+        .add_column(ColumnDef::new("email", "VARCHAR").length(255).not_null())
         .add_column(ColumnDef::new("age", "INT").default("0"))
         .add_column(ColumnDef::new("created_at", "TIMESTAMP").default("CURRENT_TIMESTAMP"))
         .add_column(ColumnDef::new("updated_at", "TIMESTAMP").default("CURRENT_TIMESTAMP"))
@@ -37,16 +27,8 @@ fn main() {
 
     println!("=== SchemaBuilder: posts 表 (PostgreSQL) ===");
     let posts_sql = SchemaBuilder::new("posts")
-        .add_column(
-            ColumnDef::new("id", "BIGINT")
-                .not_null()
-                .auto_increment(),
-        )
-        .add_column(
-            ColumnDef::new("title", "VARCHAR")
-                .length(255)
-                .not_null(),
-        )
+        .add_column(ColumnDef::new("id", "BIGINT").not_null().auto_increment())
+        .add_column(ColumnDef::new("title", "VARCHAR").length(255).not_null())
         .add_column(ColumnDef::new("content", "TEXT"))
         .add_column(ColumnDef::new("author_id", "BIGINT").not_null())
         .add_column(ColumnDef::new("created_at", "TIMESTAMP").default("CURRENT_TIMESTAMP"))
@@ -63,8 +45,10 @@ fn main() {
     println!("=== Migrator: 空迁移上下文 ===");
     let migrator = Migrator::new(MigrationContext::default());
     let progress = migrator.progress();
-    println!("总计: {}  已应用: {}  待执行: {}",
-             progress.total, progress.applied, progress.pending);
+    println!(
+        "总计: {}  已应用: {}  待执行: {}",
+        progress.total, progress.applied, progress.pending
+    );
     println!("完成度: {:.1}%", progress.percent_complete());
 
     println!("\n=== 文件迁移约定 ===");

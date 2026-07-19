@@ -113,7 +113,7 @@ impl StorageBuilder {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Clone)]
 pub struct StorageConfig {
     pub bucket: String,
     pub region: String,
@@ -122,6 +122,20 @@ pub struct StorageConfig {
     pub secret_key: Option<String>,
     pub path_prefix: Option<String>,
     pub base_path: Option<String>,
+}
+
+impl std::fmt::Debug for StorageConfig {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("StorageConfig")
+            .field("bucket", &self.bucket)
+            .field("region", &self.region)
+            .field("endpoint", &self.endpoint)
+            .field("access_key", &"***")
+            .field("secret_key", &"***")
+            .field("path_prefix", &self.path_prefix)
+            .field("base_path", &self.base_path)
+            .finish()
+    }
 }
 
 impl Default for StorageConfig {

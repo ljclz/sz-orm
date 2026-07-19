@@ -20,9 +20,15 @@ struct User {
 
 impl Model for User {
     type PrimaryKey = i64;
-    fn table_name() -> &'static str { "users" }
-    fn pk(&self) -> Self::PrimaryKey { self.id }
-    fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+    fn table_name() -> &'static str {
+        "users"
+    }
+    fn pk(&self) -> Self::PrimaryKey {
+        self.id
+    }
+    fn set_pk(&mut self, pk: Self::PrimaryKey) {
+        self.id = pk;
+    }
     fn timestamp_fields() -> Option<TimestampFields> {
         Some(TimestampFields::with_both("created_at", "updated_at"))
     }
@@ -75,7 +81,10 @@ fn main() {
     // ===== INSERT =====
     let mut data = HashMap::new();
     data.insert("name".to_string(), Value::String("Alice".to_string()));
-    data.insert("email".to_string(), Value::String("alice@example.com".to_string()));
+    data.insert(
+        "email".to_string(),
+        Value::String("alice@example.com".to_string()),
+    );
     data.insert("age".to_string(), Value::I64(25));
 
     let insert_sql = QueryBuilder::<User>::new(make_dialect())

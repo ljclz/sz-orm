@@ -1,123 +1,123 @@
-//! Value type definitions
+//! Value 类型定义
 //!
-//! Unified value representation for database operations
+//! 数据库操作的统一值表示
 
 use std::borrow::Cow;
 use std::fmt;
 
 use serde::{Deserialize, Serialize};
 
-/// Represents a database value
+/// 数据库值类型
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
 #[non_exhaustive]
 pub enum Value {
-    /// Null value
+    /// Null 值
     #[default]
     Null,
 
-    /// Boolean value
+    /// 布尔值
     Bool(bool),
 
-    /// 8-bit signed integer
+    /// 8 位有符号整数
     I8(i8),
 
-    /// 16-bit signed integer
+    /// 16 位有符号整数
     I16(i16),
 
-    /// 32-bit signed integer
+    /// 32 位有符号整数
     I32(i32),
 
-    /// 64-bit signed integer
+    /// 64 位有符号整数
     I64(i64),
 
-    /// 8-bit unsigned integer
+    /// 8 位无符号整数
     U8(u8),
 
-    /// 16-bit unsigned integer
+    /// 16 位无符号整数
     U16(u16),
 
-    /// 32-bit unsigned integer
+    /// 32 位无符号整数
     U32(u32),
 
-    /// 64-bit unsigned integer
+    /// 64 位无符号整数
     U64(u64),
 
-    /// 32-bit floating point
+    /// 32 位浮点数
     F32(f32),
 
-    /// 64-bit floating point
+    /// 64 位浮点数
     F64(f64),
 
-    /// String value
+    /// 字符串值
     String(String),
 
-    /// Bytes value
+    /// 字节值
     Bytes(Vec<u8>),
 
-    /// UUID value (stored as string)
+    /// UUID 值（以字符串形式存储）
     Uuid(String),
 
-    /// Date value (ISO 8601 format)
+    /// 日期值（ISO 8601 格式）
     Date(String),
 
-    /// DateTime value (ISO 8601 format)
+    /// 日期时间值（ISO 8601 格式）
     DateTime(String),
 
-    /// Time value
+    /// 时间值
     Time(String),
 
-    /// JSON value
+    /// JSON 值
     Json(String),
 
-    /// Array of values
+    /// 值数组
     Array(Vec<Value>),
 
-    /// HashMap-based object value for storing relation data
+    /// 基于 HashMap 的对象值，用于存储关系数据
     Object(std::collections::HashMap<String, Value>),
 }
 
 impl Value {
-    /// Check if the value is null
+    /// 判断是否为 null
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)
     }
 
-    /// Check if the value is a boolean
+    /// 判断是否为布尔值
     pub fn is_bool(&self) -> bool {
         matches!(self, Value::Bool(_))
     }
 
-    /// Check if the value is an integer
+    /// 判断是否为整数
     pub fn is_i64(&self) -> bool {
         matches!(self, Value::I64(_))
     }
 
-    /// Check if the value is a float
+    /// 判断是否为浮点数
     pub fn is_f64(&self) -> bool {
         matches!(self, Value::F64(_))
     }
 
-    /// Check if the value is a string
+    /// 判断是否为字符串
     pub fn is_string(&self) -> bool {
         matches!(self, Value::String(_))
     }
 
-    /// Check if the value is bytes
+    /// 判断是否为字节
     pub fn is_bytes(&self) -> bool {
         matches!(self, Value::Bytes(_))
     }
 
-    /// Check if this value is an Object
+    /// 判断是否为对象
     pub fn is_object(&self) -> bool {
         matches!(self, Value::Object(_))
     }
 
-    /// Create a Value from a HashMap
+    /// 从 HashMap 构造 Value
     pub fn from_map(map: std::collections::HashMap<String, Value>) -> Self {
         Value::Object(map)
     }
 
-    /// Get the value as &str if possible
+    /// 若可能，返回 &str 形式的值
     pub fn as_str(&self) -> Option<&str> {
         match self {
             Value::String(s) => Some(s),
@@ -125,8 +125,9 @@ impl Value {
         }
     }
 
-    /// Get the value as i64 if possible
+    /// 若可能，返回 i64 形式的值
     /// 支持 F32/F64 → i64 的有损转换（数据库 SUM/AVG 等聚合函数常返回浮点类型）
+    /// U64 → i64 使用 `try_from`，超过 `i64::MAX` 时返回 `None`（避免静默截断为负数）
     pub fn as_i64(&self) -> Option<i64> {
         match self {
             Value::I8(v) => Some(*v as i64),
@@ -136,7 +137,7 @@ impl Value {
             Value::U8(v) => Some(*v as i64),
             Value::U16(v) => Some(*v as i64),
             Value::U32(v) => Some(*v as i64),
-            Value::U64(v) => Some(*v as i64),
+            Value::U64(v) => i64::try_from(*v).ok(),
             Value::F32(v) => Some(*v as i64),
             Value::F64(v) => Some(*v as i64),
             Value::Bool(v) => Some(if *v { 1 } else { 0 }),
@@ -145,7 +146,8 @@ impl Value {
         }
     }
 
-    /// Get the value as f64 if possible
+    /// 若可能，返回 f64 形式的值
+    /// 支持整数类型 → f64 的转换
     pub fn as_f64(&self) -> Option<f64> {
         match self {
             Value::F32(v) => Some(*v as f64),
@@ -163,7 +165,8 @@ impl Value {
         }
     }
 
-    /// Get the value as bool if possible
+    /// 若可能，返回 bool 形式的值
+    /// 支持整数（非 0 即真）、浮点（非 0.0 即真）、字符串（"1"/"true"/"yes"/"on" 为真）的转换
     pub fn as_bool(&self) -> Option<bool> {
         match self {
             Value::Bool(v) => Some(*v),
@@ -187,7 +190,8 @@ impl Value {
         }
     }
 
-    /// Get the value as bytes if possible
+    /// 若可能，返回字节切片形式（&[u8]）的值
+    /// 字符串类型会返回其 UTF-8 字节
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
             Value::Bytes(v) => Some(v),
@@ -196,7 +200,8 @@ impl Value {
         }
     }
 
-    /// Convert to SQL parameter string
+    /// 转换为 SQL 参数字符串（用于直接拼接 SQL 语句）
+    /// 字符串类型会进行转义并加引号；字节类型转换为 X'..' 形式
     pub fn to_param(&self) -> Cow<'_, str> {
         match self {
             Value::Null => Cow::Borrowed("NULL"),
@@ -226,7 +231,7 @@ impl Value {
         }
     }
 
-    /// Create from any type that implements Into<Value>
+    /// 从任何实现了 `Into<Value>` 的类型构造 Value
     pub fn from<T: Into<Value>>(v: T) -> Self {
         v.into()
     }
@@ -259,10 +264,7 @@ impl fmt::Display for Value {
                 write!(f, "({})", items.join(", "))
             }
             Value::Object(map) => {
-                let items: Vec<String> = map
-                    .iter()
-                    .map(|(k, v)| format!("{}: {}", k, v))
-                    .collect();
+                let items: Vec<String> = map.iter().map(|(k, v)| format!("{}: {}", k, v)).collect();
                 write!(f, "{{{}}}", items.join(", "))
             }
         }

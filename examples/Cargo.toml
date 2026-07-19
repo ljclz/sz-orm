@@ -9,6 +9,13 @@ publish = false
 
 [dependencies]
 sz-orm-core = { path = "../packages/sz-orm-core" }
+sz-orm-crypto = { path = "../packages/sz-orm-crypto" }
+sz-orm-auth = { path = "../packages/sz-orm-auth" }
+sz-orm-limit = { path = "../packages/sz-orm-limit" }
+sz-orm-scheduler = { path = "../packages/sz-orm-scheduler" }
+sz-orm-audit = { path = "../packages/sz-orm-audit" }
+sz-orm-dtx = { path = "../packages/sz-orm-dtx" }
+sz-orm-sharding = { path = "../packages/sz-orm-sharding" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 
@@ -35,3 +42,11 @@ path = "src/bin/hooks_soft_delete.rs"
 [[bin]]
 name = "multi_tenant"
 path = "src/bin/multi_tenant.rs"
+
+[[bin]]
+name = "production_app"
+path = "src/bin/production_app.rs"
+
+[[bin]]
+name = "production_dtx"
+path = "src/bin/production_dtx.rs"

@@ -10,7 +10,7 @@
 //!
 //! 超大数据量场景：10 万条记录批量插入性能基线。
 
-use oracle::{Connector, Connection as OracleConn, Privilege};
+use oracle::{Connection as OracleConn, Connector, Privilege};
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
@@ -37,14 +37,10 @@ fn oracle_connect_string() -> String {
 
 fn open_conn() -> OracleConn {
     // sys 用户需要 SYSDBA 特权
-    Connector::new(
-        oracle_user(),
-        oracle_password(),
-        oracle_connect_string(),
-    )
-    .privilege(Privilege::Sysdba)
-    .connect()
-    .expect("oracle connect failed - is Oracle 23ai running on 127.0.0.1:1521?")
+    Connector::new(oracle_user(), oracle_password(), oracle_connect_string())
+        .privilege(Privilege::Sysdba)
+        .connect()
+        .expect("oracle connect failed - is Oracle 23ai running on 127.0.0.1:1521?")
 }
 
 static TABLE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -58,7 +54,12 @@ fn unique_table(prefix: &str) -> String {
         .as_nanos();
     let counter = TABLE_COUNTER.fetch_add(1, Ordering::Relaxed);
     // 全部小写避免 Oracle 自动大写化导致 quote 不一致
-    format!("t_{}_{}_{}", prefix, pid % 1000, (nanos % 100000) as u64 * 1000 + counter)
+    format!(
+        "t_{}_{}_{}",
+        prefix,
+        pid % 1000,
+        (nanos % 100000) as u64 * 1000 + counter
+    )
 }
 
 /// 使用 OracleDialect 生成 CREATE TABLE 并执行
@@ -201,9 +202,7 @@ fn test_oracle_create_insert_select() {
 
     // 验证总数
     let count_sql = format!("SELECT COUNT(*) FROM {}", dialect.quote(&table));
-    let count: i64 = conn
-        .query_row_as::<i64>(&count_sql, &[])
-        .expect("count");
+    let count: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count");
     assert_eq!(count, 3);
 
     // 清理
@@ -232,8 +231,12 @@ fn test_oracle_bulk_insert_100k() {
     );
     let mut stmt = conn.statement(&sql).build().expect("build statement");
     for i in 0..total {
-        stmt.execute(&[&format!("user_{}", i), &(i as i64), &format!("data_{}", i % 1000)])
-            .expect("insert");
+        stmt.execute(&[
+            &format!("user_{}", i),
+            &(i as i64),
+            &format!("data_{}", i % 1000),
+        ])
+        .expect("insert");
     }
     conn.commit().expect("commit");
     let elapsed = start.elapsed();
@@ -246,9 +249,7 @@ fn test_oracle_bulk_insert_100k() {
 
     // 验证总数
     let count_sql = format!("SELECT COUNT(*) FROM {}", dialect.quote(&table));
-    let count: i64 = conn
-        .query_row_as::<i64>(&count_sql, &[])
-        .expect("count");
+    let count: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count");
     assert_eq!(count as usize, total);
 
     // 验证末尾数据
@@ -295,9 +296,7 @@ fn test_oracle_transaction_rollback() {
 
     // 只应该看到 alice
     let count_sql = format!("SELECT COUNT(*) FROM {}", dialect.quote(&table));
-    let count: i64 = conn
-        .query_row_as::<i64>(&count_sql, &[])
-        .expect("count");
+    let count: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count");
     assert_eq!(count, 1);
 
     // 清理

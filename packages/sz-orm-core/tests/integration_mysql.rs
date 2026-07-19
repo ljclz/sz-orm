@@ -116,7 +116,7 @@ async fn test_mysql_dialect_basics() {
     assert_eq!(dialect.escape_string("back\\slash"), "back\\\\slash");
     assert!(!dialect.supports_returning());
     assert_eq!(dialect.auto_increment_keyword(), "AUTO_INCREMENT");
-    assert_eq!(dialect.last_insert_id_sql(), "LAST_INSERT_ID()");
+    assert_eq!(dialect.last_insert_id_sql(), Some("LAST_INSERT_ID()"));
     assert_eq!(dialect.json_type(), "JSON");
 }
 

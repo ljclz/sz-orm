@@ -413,17 +413,28 @@ pub use serde::{Deserialize, Serialize};
 mod cache;
 mod db_type;
 pub mod dialect;
+pub mod dynamic_sql;
 mod error;
+pub mod find_with_related;
 pub mod hooks;
+pub mod join_dsl;
+pub mod json_query;
 pub mod migration;
 mod model;
+pub mod phinx_migration;
 mod pool;
 mod query;
+pub mod queryable;
+pub mod quick_query;
+pub mod schema_gen;
 mod transaction;
+pub mod typed;
+pub mod typed_ast;
 mod value;
 
 // Re-export proc macros
 pub use sz_orm_macros::sql_string;
+pub use sz_orm_macros::typed_query;
 
 pub use cache::*;
 pub use db_type::*;
@@ -438,10 +449,10 @@ pub use query::*;
 pub use transaction::*;
 pub use value::*;
 
-/// Alias for Arc<T>
+/// Alias for `Arc<T>`
 pub type Shared<T> = Arc<T>;
 
-/// Alias for Box<T>
+/// Alias for `Box<T>`
 pub type Boxed<T> = Box<T>;
 
 /// Alias for Result<T, DbError>

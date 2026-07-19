@@ -539,7 +539,7 @@ async fn chaos_disk_full_pool_recovers() {
 
     // 获取连接，模拟磁盘满
     let conn1 = pool.acquire().await.unwrap();
-    let mut tx = Transaction::new(conn1, TransactOptions::default());
+    let mut tx = Transaction::new(conn1.into_inner(), TransactOptions::default());
     tx.execute("INSERT 1").await.unwrap();
     let _ = tx.execute("INSERT 2").await; // 这次会失败但不影响后续
     let _ = tx.rollback().await;

@@ -8,6 +8,8 @@ license.workspace = true
 [features]
 default = []
 testing = ["tokio/full"]
+# 启用 query! 宏的编译期连真实 DB 验证能力（转发至 sz-orm-macros/db-verify）
+db-verify = ["sz-orm-macros/db-verify"]
 
 [dependencies]
 async-trait.workspace = true
@@ -50,6 +52,10 @@ path = "tests/integration_pg.rs"
 [[test]]
 name = "integration_oracle"
 path = "tests/integration_oracle.rs"
+
+[[test]]
+name = "contracts"
+path = "tests/contracts.rs"
 
 [[bench]]
 name = "core_bench"

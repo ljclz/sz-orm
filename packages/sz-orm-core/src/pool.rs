@@ -5,7 +5,9 @@
 use async_trait::async_trait;
 use std::collections::VecDeque;
 use std::future::Future;
+use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::{Mutex, Notify};
@@ -47,7 +49,11 @@ pub trait Connection: Send + Sync {
 }
 
 /// 连接池中的连接条目，记录创建时间和最后使用时间
-struct PooledConnection {
+///
+/// - `created_at`：连接的原始创建时间，**不**随 acquire/release 重置，
+///   用于 `max_lifetime` 过期判定。
+/// - `last_used_at`：上次归还到池的时间，用于 `idle_timeout` 空闲超时判定。
+pub struct PooledConnection {
     conn: Box<dyn Connection>,
     created_at: Instant,
     last_used_at: Instant,
@@ -69,6 +75,33 @@ impl PooledConnection {
 
     fn is_idle_too_long(&self, idle_timeout: Duration) -> bool {
         self.last_used_at.elapsed() >= idle_timeout
+    }
+
+    /// 连接的原始创建时间（不随 acquire/release 重置）
+    pub fn created_at(&self) -> Instant {
+        self.created_at
+    }
+
+    /// 提取内部连接（消费 PooledConnection）
+    ///
+    /// 用于将连接传递给 `Transaction::new` 等消费连接的 API。
+    /// 调用此方法后，连接不再属于池，调用方需自行管理其生命周期。
+    pub fn into_inner(self) -> Box<dyn Connection> {
+        self.conn
+    }
+}
+
+impl Deref for PooledConnection {
+    type Target = dyn Connection;
+
+    fn deref(&self) -> &Self::Target {
+        self.conn.as_ref()
+    }
+}
+
+impl DerefMut for PooledConnection {
+    fn deref_mut(&mut self) -> &mut Self::Target {
+        self.conn.as_mut()
     }
 }
 
@@ -199,9 +232,10 @@ pub struct Pool {
     config: PoolConfig,
     factory: Arc<dyn ConnectionFactory>,
     idle: Arc<Mutex<VecDeque<PooledConnection>>>,
-    active_count: Arc<Mutex<u32>>,
-    /// 池是否已关闭（close_all 后设为 true，拒绝新 release）
-    closed: Arc<Mutex<bool>>,
+    /// 池中总连接数（idle + borrowed）
+    total_count: Arc<Mutex<u32>>,
+    /// 池是否已关闭（close_all 后设为 true，拒绝新 acquire/release）
+    closed: Arc<AtomicBool>,
     notify: Notify,
 }
 
@@ -213,8 +247,8 @@ impl Pool {
             config,
             factory,
             idle: Arc::new(Mutex::new(VecDeque::new())),
-            active_count: Arc::new(Mutex::new(0)),
-            closed: Arc::new(Mutex::new(false)),
+            total_count: Arc::new(Mutex::new(0)),
+            closed: Arc::new(AtomicBool::new(false)),
             notify: Notify::new(),
         })
     }
@@ -225,7 +259,12 @@ impl Pool {
     }
 
     /// 从池中获取连接（带超时）
-    pub async fn acquire(&self) -> Result<Box<dyn Connection>, PoolError> {
+    pub async fn acquire(&self) -> Result<PooledConnection, PoolError> {
+        // close_all 后拒绝新 acquire
+        if self.closed.load(Ordering::Acquire) {
+            return Err(PoolError::Closed);
+        }
+
         let deadline = Instant::now() + self.config.acquire_timeout;
 
         loop {
@@ -236,45 +275,51 @@ impl Pool {
                     // 检查连接是否过期
                     if pooled.is_expired(self.config.max_lifetime) {
                         let _ = pooled.conn.close().await;
-                        let mut active = self.active_count.lock().await;
-                        *active = active.saturating_sub(1);
+                        let mut total = self.total_count.lock().await;
+                        *total = total.saturating_sub(1);
                         continue;
                     }
                     // 检查连接是否空闲过久
                     if pooled.is_idle_too_long(self.config.idle_timeout) {
                         let _ = pooled.conn.close().await;
-                        let mut active = self.active_count.lock().await;
-                        *active = active.saturating_sub(1);
+                        let mut total = self.total_count.lock().await;
+                        *total = total.saturating_sub(1);
                         continue;
                     }
                     // 检查连接是否仍然连接
                     if !pooled.conn.is_connected() {
                         let _ = pooled.conn.close().await;
-                        let mut active = self.active_count.lock().await;
-                        *active = active.saturating_sub(1);
+                        let mut total = self.total_count.lock().await;
+                        *total = total.saturating_sub(1);
                         continue;
                     }
-                    return Ok(pooled.conn);
+                    return Ok(pooled);
                 }
             }
 
             // 尝试创建新连接
             {
-                let mut active = self.active_count.lock().await;
-                if *active < self.config.max_size {
-                    *active += 1;
-                    drop(active);
+                let mut total = self.total_count.lock().await;
+                if *total < self.config.max_size {
+                    *total += 1;
+                    drop(total);
                     match tokio::time::timeout(
                         self.config.connection_timeout,
                         self.factory.create(),
                     )
                     .await
                     {
-                        Ok(Ok(conn)) => return Ok(conn),
-                        Ok(Err(_)) | Err(_) => {
-                            let mut active = self.active_count.lock().await;
-                            *active = active.saturating_sub(1);
-                            return Err(PoolError::Internal("Connection failed".to_string()));
+                        Ok(Ok(conn)) => return Ok(PooledConnection::new(conn)),
+                        Ok(Err(e)) => {
+                            let mut total = self.total_count.lock().await;
+                            *total = total.saturating_sub(1);
+                            return Err(PoolError::ConnectionFailed(e.to_string()));
+                        }
+                        Err(_) => {
+                            // tokio::time::timeout 的 Err 必为超时
+                            let mut total = self.total_count.lock().await;
+                            *total = total.saturating_sub(1);
+                            return Err(PoolError::Timeout);
                         }
                     }
                 }
@@ -290,32 +335,30 @@ impl Pool {
     }
 
     /// 释放连接回池中
-    /// 如果池已关闭或连接已断开，则直接关闭连接而不是放回池中
-    pub async fn release(&self, conn: Box<dyn Connection>) {
+    /// 如果池已关闭或连接已断开，则直接关闭连接而不是放回池中。
+    ///
+    /// 接收 `PooledConnection` 以保留原始 `created_at`，避免 `max_lifetime`
+    /// 在每次归还后被重置（Critical bug fix）。
+    pub async fn release(&self, mut pooled: PooledConnection) {
         // 检查池是否已关闭
-        {
-            let closed = self.closed.lock().await;
-            if *closed {
-                drop(closed);
-                let mut conn = conn;
-                let _ = conn.close().await;
-                // 池已关闭：连接被直接关闭，需要减少 active_count
-                let mut active = self.active_count.lock().await;
-                *active = active.saturating_sub(1);
-                return;
-            }
-        }
-
-        // 检查连接是否仍然有效
-        if !conn.is_connected() {
-            let mut conn = conn;
-            let _ = conn.close().await;
-            let mut active = self.active_count.lock().await;
-            *active = active.saturating_sub(1);
+        if self.closed.load(Ordering::Acquire) {
+            let _ = pooled.conn.close().await;
+            let mut total = self.total_count.lock().await;
+            *total = total.saturating_sub(1);
             return;
         }
 
-        let pooled = PooledConnection::new(conn);
+        // 检查连接是否仍然有效
+        if !pooled.conn.is_connected() {
+            let _ = pooled.conn.close().await;
+            let mut total = self.total_count.lock().await;
+            *total = total.saturating_sub(1);
+            return;
+        }
+
+        // 更新 last_used_at（归还时间），但保留 created_at（原始创建时间）
+        pooled.last_used_at = Instant::now();
+
         {
             let mut idle = self.idle.lock().await;
             idle.push_back(pooled);
@@ -326,7 +369,7 @@ impl Pool {
     /// 获取池状态
     pub async fn status(&self) -> PoolStatus {
         let idle_count = self.idle.lock().await.len() as u32;
-        let active = *self.active_count.lock().await;
+        let active = *self.total_count.lock().await;
         PoolStatus {
             idle: idle_count,
             active,
@@ -353,19 +396,17 @@ impl Pool {
         drop(idle);
         for mut pooled in to_close {
             let _ = pooled.conn.close().await;
-            let mut active = self.active_count.lock().await;
-            *active = active.saturating_sub(1);
+            let mut total = self.total_count.lock().await;
+            *total = total.saturating_sub(1);
         }
     }
 
     /// 关闭所有空闲连接，并标记池为已关闭
-    /// 注意：已借出未归还的连接不受影响，但归还时会被直接关闭
+    /// 注意：已借出未归还的连接不受影响，但归还时会被直接关闭；
+    /// 同时 close_all 后的新 acquire 也会被拒绝。
     pub async fn close_all(&self) {
-        // 标记为已关闭，阻止新连接放入 idle
-        {
-            let mut closed = self.closed.lock().await;
-            *closed = true;
-        }
+        // 标记为已关闭，阻止新 acquire/release
+        self.closed.store(true, Ordering::Release);
         // 关闭所有空闲连接
         let mut idle = self.idle.lock().await;
         let mut closed_count: u32 = 0;
@@ -374,9 +415,9 @@ impl Pool {
             closed_count = closed_count.saturating_add(1);
         }
         drop(idle);
-        // 减少活跃计数（只减去已关闭的空闲连接数）
-        let mut active = self.active_count.lock().await;
-        *active = active.saturating_sub(closed_count);
+        // 减少总连接计数（只减去已关闭的空闲连接数）
+        let mut total = self.total_count.lock().await;
+        *total = total.saturating_sub(closed_count);
     }
 }
 

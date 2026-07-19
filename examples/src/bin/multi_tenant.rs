@@ -21,15 +21,27 @@ struct Order {
 
 impl Model for Order {
     type PrimaryKey = i64;
-    fn table_name() -> &'static str { "orders" }
-    fn pk(&self) -> Self::PrimaryKey { self.id }
-    fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+    fn table_name() -> &'static str {
+        "orders"
+    }
+    fn pk(&self) -> Self::PrimaryKey {
+        self.id
+    }
+    fn set_pk(&mut self, pk: Self::PrimaryKey) {
+        self.id = pk;
+    }
 }
 
 impl TenantModel for Order {
-    fn tenant_field() -> &'static str { "tenant_id" }
-    fn tenant_id(&self) -> i64 { self.tenant_id }
-    fn set_tenant_id(&mut self, tenant_id: i64) { self.tenant_id = tenant_id; }
+    fn tenant_field() -> &'static str {
+        "tenant_id"
+    }
+    fn tenant_id(&self) -> i64 {
+        self.tenant_id
+    }
+    fn set_tenant_id(&mut self, tenant_id: i64) {
+        self.tenant_id = tenant_id;
+    }
 }
 
 fn main() {
@@ -82,7 +94,9 @@ order.amount = 100.0;
     );
 
     println!("=== Value 类型验证 ===");
-    if let Some((sql, params)) = <(TenantScope, Order) as GlobalScope>::apply_scope(&ctx_with_tenant) {
+    if let Some((sql, params)) =
+        <(TenantScope, Order) as GlobalScope>::apply_scope(&ctx_with_tenant)
+    {
         println!("SQL 片段:  {}", sql);
         println!("参数数量:  {}", params.len());
         for (i, p) in params.iter().enumerate() {
