@@ -689,6 +689,73 @@ mod tests {
         assert!(rendered.is_none());
     }
 
+    /// 验证 render_condition 对抗 SQL 注入：
+    /// 用户输入 `' OR 1=1 --` 经过 escape_string + to_param 后，
+    /// 应被包成一个完整的字符串字面量，不会被解析为 SQL 代码。
+    #[test]
+    fn test_render_condition_defends_against_sql_injection() {
+        let mut params = HashMap::new();
+        // 模拟恶意用户输入
+        params.insert("name".to_string(), Value::String("' OR 1=1 --".to_string()));
+
+        let rendered = render_condition("name = :name", &params).unwrap();
+        // 整个值应是一个字符串字面量，不包含未转义的 SQL 代码
+        // 验证：原 `'` 被转义为 `''`，整个值被包在 `'...'` 中
+        assert_eq!(rendered, "name = ''' OR 1=1 --'");
+        // 关键：渲染结果中不应出现"裸露的 OR 1=1"作为 SQL 代码
+        // （即 OR 1=1 应在字符串字面量内部，而非 SQL 操作符）
+        // 通过查找第一个 `=` 后的内容来验证（值部分）
+        // 注意：不能用 split('=').nth(1) 因为值中可能包含 `=`（如 1=1）
+        let eq_pos = rendered.find('=').unwrap();
+        let after_eq = rendered[eq_pos + 1..].trim();
+        assert!(
+            after_eq.starts_with('\''),
+            "value should start with quote, got: {}",
+            after_eq
+        );
+        assert!(
+            after_eq.ends_with('\''),
+            "value should end with quote, got: {}",
+            after_eq
+        );
+        // 验证引号配对：开头的 ''' 中第 1 个 ' 是字面量开始，第 2-3 个 '' 是转义的 '
+        // 最后的 ' 是字面量结束。共 4 个 ' = 1 (start) + 2 (escaped) + 1 (end)
+        let quote_count = after_eq.matches('\'').count();
+        assert_eq!(
+            quote_count, 4,
+            "expected 4 quotes (1 start + 2 escaped + 1 end), got {}",
+            quote_count
+        );
+    }
+
+    /// 验证 escape_string 对抗 DROP TABLE 注入
+    #[test]
+    fn test_render_condition_defends_against_drop_table_injection() {
+        let mut params = HashMap::new();
+        params.insert(
+            "name".to_string(),
+            Value::String("'; DROP TABLE users; --".to_string()),
+        );
+
+        let rendered = render_condition("name = :name", &params).unwrap();
+        // 整个 DROP TABLE 应在字符串字面量内部
+        assert_eq!(rendered, "name = '''; DROP TABLE users; --'");
+        // 不应出现裸露的 DROP TABLE 作为 SQL 语句
+        // （应在字符串字面量内部）
+        let eq_pos = rendered.find('=').unwrap();
+        let after_eq = rendered[eq_pos + 1..].trim();
+        assert!(
+            after_eq.starts_with('\''),
+            "value should start with quote, got: {}",
+            after_eq
+        );
+        assert!(
+            after_eq.ends_with('\''),
+            "value should end with quote, got: {}",
+            after_eq
+        );
+    }
+
     #[test]
     fn test_render_condition_partial_unknown_param() {
         let mut params = HashMap::new();

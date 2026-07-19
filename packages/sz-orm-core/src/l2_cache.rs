@@ -192,10 +192,16 @@ struct CacheEntry {
 
 impl CacheEntry {
     fn new(value: Value, ttl: Option<Duration>) -> Self {
-        Self {
-            value,
-            expires_at: ttl.map(|d| Instant::now() + d),
-        }
+        // Duration::MAX 会导致 Instant::now() + Duration::MAX 溢出
+        // 将其视为永不过期（expires_at = None），与 None 语义一致
+        let expires_at = ttl.and_then(|d| {
+            if d == Duration::MAX {
+                None
+            } else {
+                Some(Instant::now() + d)
+            }
+        });
+        Self { value, expires_at }
     }
 
     fn is_expired(&self) -> bool {
@@ -236,11 +242,18 @@ impl CacheEntry {
 pub struct L2Cache {
     /// 缓存数据
     data: RwLock<HashMap<String, CacheEntry>>,
-    /// 表名索引（用于表级失效）— table -> Vec<key_string>
+    /// 表名索引（用于表级失效）— table -> Vec<key_string>（去重）
     table_index: RwLock<HashMap<String, Vec<String>>>,
+    /// LRU 访问顺序（尾部为最近访问，头部为最久未访问）
+    ///
+    /// # 锁顺序约定
+    ///
+    /// 跨字段持锁时遵循：`data` → `access_order` → `table_index` → `stats`，
+    /// 避免死锁。本字段不允许在持 `data` 写锁时获取其他写锁。
+    access_order: RwLock<Vec<String>>,
     /// 统计信息
     stats: RwLock<L2CacheStats>,
-    /// 默认 TTL
+    /// 默认 TTL（`put` 传 `None` 时使用，要"永不失效"请传 `Some(Duration::MAX)`）
     default_ttl: Option<Duration>,
     /// 最大容量（LRU 淘汰）
     max_size: usize,
@@ -258,6 +271,7 @@ impl L2Cache {
         Self {
             data: RwLock::new(HashMap::new()),
             table_index: RwLock::new(HashMap::new()),
+            access_order: RwLock::new(Vec::new()),
             stats: RwLock::new(L2CacheStats::default()),
             default_ttl: None,
             max_size: 10_000,
@@ -277,42 +291,75 @@ impl L2Cache {
     }
 
     /// 存入缓存项
+    ///
+    /// # TTL 语义
+    ///
+    /// - `ttl = Some(d)`：使用 `d` 作为过期时间
+    /// - `ttl = None`：使用 `default_ttl`（若未设置则永不过期）
+    /// - 要显式表示"永不失效"，请传 `Some(Duration::MAX)`
     pub fn put(&self, key: &CacheKey, value: Value, ttl: Option<Duration>) {
         let actual_ttl = ttl.or(self.default_ttl);
         let entry = CacheEntry::new(value, actual_ttl);
         let key_str = key.to_string_key();
 
-        // 更新表索引
-        if let Ok(mut idx) = self.table_index.write() {
-            idx.entry(key.table.clone())
-                .or_default()
-                .push(key_str.clone());
-        }
-
-        // LRU 淘汰
-        if let Ok(mut data) = self.data.write() {
-            if data.len() >= self.max_size && !data.contains_key(&key_str) {
-                // 简单 LRU：移除最早的一个（HashMap 无序，这里移除首个遇到的过期项或任意项）
-                let key_to_remove = data
-                    .iter()
-                    .find(|(_, e)| e.is_expired())
-                    .map(|(k, _)| k.clone())
-                    .or_else(|| data.keys().next().cloned());
-                if let Some(k) = key_to_remove {
-                    data.remove(&k);
+        // 1. 写入数据 + LRU 淘汰
+        let is_new_key = {
+            let mut data = self.data.write().unwrap();
+            let exists = data.contains_key(&key_str);
+            if !exists && data.len() >= self.max_size {
+                // LRU 淘汰：优先淘汰已过期的 key，否则淘汰 access_order 头部
+                let victim = {
+                    // 不在持 data 写锁时获取 access_order 写锁，先读 access_order
+                    let order = self.access_order.read().unwrap();
+                    // 优先找已过期的 key
+                    order
+                        .iter()
+                        .find(|k| data.get(*k).map(|e| e.is_expired()).unwrap_or(false))
+                        .cloned()
+                        .or_else(|| order.first().cloned())
+                };
+                if let Some(victim) = victim {
+                    data.remove(&victim);
+                    // 同步清理 access_order
+                    let mut order = self.access_order.write().unwrap();
+                    order.retain(|k| k != &victim);
                 }
             }
-            data.insert(key_str, entry);
+            data.insert(key_str.clone(), entry);
+            !exists
+        };
+
+        // 2. 更新 LRU 访问顺序（key 移到尾部）
+        {
+            let mut order = self.access_order.write().unwrap();
+            if is_new_key {
+                order.push(key_str.clone());
+            } else {
+                // 已存在的 key：移到尾部
+                order.retain(|k| k != &key_str);
+                order.push(key_str.clone());
+            }
         }
 
-        // 更新统计
-        if let Ok(mut stats) = self.stats.write() {
+        // 3. 更新表索引（去重，避免重复 push 导致 invalidate_table 统计错误）
+        {
+            let mut idx = self.table_index.write().unwrap();
+            let keys = idx.entry(key.table.clone()).or_default();
+            if !keys.contains(&key_str) {
+                keys.push(key_str);
+            }
+        }
+
+        // 4. 更新统计（不在此处读取 data.len()，避免锁顺序敏感）
+        {
+            let mut stats = self.stats.write().unwrap();
             stats.sets += 1;
-            stats.size = self.data.read().map(|d| d.len()).unwrap_or(0);
         }
     }
 
     /// 读取缓存项（不存在或已过期返回 None）
+    ///
+    /// 命中时会更新 LRU 访问顺序（移到尾部）。
     pub fn get(&self, key: &CacheKey) -> Option<Value> {
         let key_str = key.to_string_key();
         let result = {
@@ -327,6 +374,13 @@ impl L2Cache {
                 None
             }
         };
+
+        // 命中时更新 LRU 顺序（移到尾部）
+        if result.is_some() {
+            let mut order = self.access_order.write().unwrap();
+            order.retain(|k| k != &key_str);
+            order.push(key_str);
+        }
 
         // 更新统计
         if let Ok(mut stats) = self.stats.write() {
@@ -343,16 +397,23 @@ impl L2Cache {
     /// 失效单个缓存项
     pub fn invalidate(&self, key: &CacheKey) {
         let key_str = key.to_string_key();
-        if let Ok(mut data) = self.data.write() {
-            data.remove(&key_str);
+        let removed = {
+            let mut data = self.data.write().unwrap();
+            data.remove(&key_str).is_some()
+        };
+        if removed {
+            let mut order = self.access_order.write().unwrap();
+            order.retain(|k| k != &key_str);
         }
-        if let Ok(mut stats) = self.stats.write() {
+        if removed {
+            let mut stats = self.stats.write().unwrap();
             stats.evictions += 1;
-            stats.size = self.data.read().map(|d| d.len()).unwrap_or(0);
         }
     }
 
     /// 失效整张表的所有缓存项
+    ///
+    /// 仅统计实际从缓存中删除的 key 数量，避免 evictions 偏大。
     pub fn invalidate_table(&self, table: &str) {
         let keys_to_remove: Vec<String> = {
             let idx = match self.table_index.read() {
@@ -362,32 +423,48 @@ impl L2Cache {
             idx.get(table).cloned().unwrap_or_default()
         };
 
-        if let Ok(mut data) = self.data.write() {
+        let mut actually_removed: usize = 0;
+        {
+            let mut data = self.data.write().unwrap();
             for k in &keys_to_remove {
-                data.remove(k);
+                if data.remove(k).is_some() {
+                    actually_removed += 1;
+                }
             }
         }
+
+        if actually_removed > 0 {
+            let mut order = self.access_order.write().unwrap();
+            order.retain(|k| !keys_to_remove.contains(k));
+        }
+
         if let Ok(mut idx) = self.table_index.write() {
             idx.remove(table);
         }
-        if let Ok(mut stats) = self.stats.write() {
-            stats.evictions += keys_to_remove.len() as u64;
-            stats.size = self.data.read().map(|d| d.len()).unwrap_or(0);
+        if actually_removed > 0 {
+            let mut stats = self.stats.write().unwrap();
+            stats.evictions += actually_removed as u64;
         }
     }
 
     /// 清空所有缓存
     pub fn clear(&self) {
-        if let Ok(mut data) = self.data.write() {
-            let removed = data.len();
+        let removed = {
+            let mut data = self.data.write().unwrap();
+            let n = data.len();
             data.clear();
-            if let Ok(mut stats) = self.stats.write() {
-                stats.evictions += removed as u64;
-                stats.size = 0;
-            }
+            n
+        };
+        if let Ok(mut order) = self.access_order.write() {
+            order.clear();
         }
         if let Ok(mut idx) = self.table_index.write() {
             idx.clear();
+        }
+        if removed > 0 {
+            let mut stats = self.stats.write().unwrap();
+            stats.evictions += removed as u64;
+            stats.size = 0;
         }
     }
 
@@ -398,18 +475,20 @@ impl L2Cache {
 
     /// 获取统计信息
     pub fn stats(&self) -> L2CacheStats {
-        self.stats.read().map(|s| s.clone()).unwrap_or_default()
+        let mut s = self.stats.read().map(|s| s.clone()).unwrap_or_default();
+        // 实时同步 size 字段（不写入 stats，避免持锁读 data）
+        s.size = self.size();
+        s
     }
 
     /// 重置统计信息
     pub fn reset_stats(&self) {
         if let Ok(mut stats) = self.stats.write() {
             *stats = L2CacheStats::default();
-            stats.size = self.data.read().map(|d| d.len()).unwrap_or(0);
         }
     }
 
-    /// 检查缓存项是否存在（不更新统计）
+    /// 检查缓存项是否存在（不更新统计与 LRU 顺序）
     pub fn contains(&self, key: &CacheKey) -> bool {
         let key_str = key.to_string_key();
         self.data
@@ -420,23 +499,29 @@ impl L2Cache {
 
     /// 手动清理所有过期项
     pub fn evict_expired(&self) -> usize {
-        let mut removed = 0;
-        if let Ok(mut data) = self.data.write() {
-            let expired_keys: Vec<String> = data
-                .iter()
+        let expired_keys: Vec<String> = {
+            let data = self.data.read().unwrap();
+            data.iter()
                 .filter(|(_, e)| e.is_expired())
                 .map(|(k, _)| k.clone())
-                .collect();
+                .collect()
+        };
+
+        let mut removed = 0;
+        if !expired_keys.is_empty() {
+            let mut data = self.data.write().unwrap();
             for k in &expired_keys {
-                data.remove(k);
-                removed += 1;
+                if data.remove(k).is_some() {
+                    removed += 1;
+                }
             }
         }
+
         if removed > 0 {
-            if let Ok(mut stats) = self.stats.write() {
-                stats.evictions += removed as u64;
-                stats.size = self.data.read().map(|d| d.len()).unwrap_or(0);
-            }
+            let mut order = self.access_order.write().unwrap();
+            order.retain(|k| !expired_keys.contains(k));
+            let mut stats = self.stats.write().unwrap();
+            stats.evictions += removed as u64;
         }
         removed
     }
@@ -644,17 +729,31 @@ mod tests {
 
     #[test]
     fn test_explicit_ttl_overrides_default() {
+        // 语义验证：ttl=Some(Duration::MAX) 表示永不失效，覆盖默认 TTL
         let cache = L2Cache::new().with_default_ttl(Duration::from_millis(50));
         let key = CacheKey::by_pk("users", 1);
 
-        // 显式传 None 应覆盖默认 TTL（永不失效）
-        cache.put(&key, Value::I64(42), None);
+        // 显式传 Some(Duration::MAX) 覆盖默认 TTL（永不失效）
+        cache.put(&key, Value::I64(42), Some(Duration::MAX));
 
-        // 等待，默认 TTL 已被覆盖
+        // 等待默认 TTL 已过期的时间
         thread::sleep(Duration::from_millis(100));
-        // 由于显式 None 覆盖默认，这里应该仍然有效
-        // 注：实际逻辑是 ttl.or(default_ttl)，所以 None 会使用 default_ttl
-        // 如果要"永不失效"，需要传 Some(Duration::MAX) 或修改逻辑
+        // 由于显式传 Some(Duration::MAX)，应仍然有效
+        assert!(cache.get(&key).is_some());
+    }
+
+    #[test]
+    fn test_none_ttl_uses_default_ttl() {
+        // 语义验证：ttl=None 时使用 default_ttl
+        let cache = L2Cache::new().with_default_ttl(Duration::from_millis(50));
+        let key = CacheKey::by_pk("users", 1);
+
+        cache.put(&key, Value::I64(42), None);
+        assert!(cache.get(&key).is_some());
+
+        thread::sleep(Duration::from_millis(100));
+        // None 使用了 default_ttl，应已过期
+        assert!(cache.get(&key).is_none());
     }
 
     // ===== 命中率统计 =====
@@ -689,13 +788,12 @@ mod tests {
         cache.put(&k1, Value::I64(1), None);
         cache.put(&k2, Value::I64(2), None);
 
-        cache.invalidate(&k1);
-        cache.invalidate_table("users");
+        cache.invalidate(&k1); // evictions = 1
+        cache.invalidate_table("users"); // 仅 k2 实际被删除，evictions = 2
 
         let stats = cache.stats();
-        // k1 失效 1 次，invalidate_table("users") 失效 k2 + k1 已不在缓存中
-        // 注：invalidate_table 也会统计已不存在的 key
-        assert!(stats.evictions >= 1);
+        // invalidate(k1) 删除 1 项；invalidate_table("users") 仅删除 k2（k1 已不存在）
+        assert_eq!(stats.evictions, 2);
     }
 
     #[test]
@@ -728,12 +826,47 @@ mod tests {
             cache.put(&k, Value::I64(i), None);
         }
 
-        // 容量不应超过 max_size + 1（LRU 淘汰策略）
+        // 真正的 LRU：容量严格不超过 max_size
         let size = cache.size();
-        assert!(
-            size <= 4,
-            "size should be at most max_size + 1, got {}",
+        assert_eq!(
+            size, 3,
+            "size should be exactly max_size after LRU eviction, got {}",
             size
+        );
+    }
+
+    #[test]
+    fn test_lru_eviction_order() {
+        // 验证 LRU 顺序：访问 k0 后，下次淘汰应跳过 k0 而淘汰 k1
+        let cache = L2Cache::new().with_max_size(3);
+
+        let k0 = CacheKey::by_pk("users", 0);
+        let k1 = CacheKey::by_pk("users", 1);
+        let k2 = CacheKey::by_pk("users", 2);
+        let k3 = CacheKey::by_pk("users", 3);
+
+        cache.put(&k0, Value::I64(0), None);
+        cache.put(&k1, Value::I64(1), None);
+        cache.put(&k2, Value::I64(2), None);
+
+        // 访问 k0，使其成为最近使用
+        let _ = cache.get(&k0);
+
+        // 插入 k3，应淘汰 k1（最久未访问）
+        cache.put(&k3, Value::I64(3), None);
+
+        assert!(
+            cache.get(&k0).is_some(),
+            "k0 should survive (recently accessed)"
+        );
+        assert!(
+            cache.get(&k1).is_none(),
+            "k1 should be evicted (LRU victim)"
+        );
+        assert!(cache.get(&k2).is_some(), "k2 should survive");
+        assert!(
+            cache.get(&k3).is_some(),
+            "k3 should survive (just inserted)"
         );
     }
 

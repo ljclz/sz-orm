@@ -69,6 +69,8 @@ pub enum TypeHandlerError {
         expected: TypeId,
         /// 实际的 Rust 类型 ID
         actual: TypeId,
+        /// 实际类型名（用于错误信息）
+        actual_type_name: String,
     },
     /// 值转换失败（如格式错误、解析错误）
     ConversionFailed {
@@ -86,11 +88,15 @@ impl std::fmt::Display for TypeHandlerError {
             TypeHandlerError::FieldNotBound { field } => {
                 write!(f, "Field `{}` is not bound to any TypeHandler", field)
             }
-            TypeHandlerError::TypeMismatch { expected, actual } => {
+            TypeHandlerError::TypeMismatch {
+                expected,
+                actual,
+                actual_type_name,
+            } => {
                 write!(
                     f,
-                    "Type mismatch: expected {:?}, got {:?}",
-                    expected, actual
+                    "Type mismatch: expected {:?}, got {:?} ({})",
+                    expected, actual, actual_type_name
                 )
             }
             TypeHandlerError::ConversionFailed { reason } => {
@@ -104,6 +110,39 @@ impl std::error::Error for TypeHandlerError {}
 
 /// TypeHandler 结果类型
 pub type TypeHandlerResult<T> = Result<T, TypeHandlerError>;
+
+// ============================================================================
+// ErasedTypeHandler — 类型擦除的 TypeHandler（用于注册中心存储）
+// ============================================================================
+
+/// 类型擦除的 TypeHandler trait（用于注册中心存储 `Box<dyn ErasedTypeHandler>`）
+///
+/// 提供获取 `TypeId` 和类型名的能力，使注册中心能在运行时
+/// 正确报告 `TypeMismatch` 错误（包含实际的 TypeId 而非硬编码 `()`）。
+pub trait ErasedTypeHandler: Send + Sync {
+    /// 返回注册时的 T 的 TypeId
+    fn erased_type_id(&self) -> TypeId;
+
+    /// 返回注册时的 T 的类型名（用于错误信息）
+    fn erased_type_name(&self) -> &'static str;
+
+    /// 提供到 `Any` 的向下转换入口
+    fn as_any(&self) -> &dyn Any;
+}
+
+impl<T: 'static + Send + Sync> ErasedTypeHandler for Box<dyn TypeHandler<T>> {
+    fn erased_type_id(&self) -> TypeId {
+        TypeId::of::<T>()
+    }
+
+    fn erased_type_name(&self) -> &'static str {
+        std::any::type_name::<T>()
+    }
+
+    fn as_any(&self) -> &dyn Any {
+        self
+    }
+}
 
 // ============================================================================
 // TypeHandler trait — 类型处理器接口
@@ -182,7 +221,7 @@ pub trait TypeHandler<T: 'static>: Send + Sync {
 /// 内部使用 `RwLock<HashMap<...>>`，支持多线程并发读取。
 pub struct TypeHandlerRegistry {
     /// handler 名称 → 类型擦除的 handler 实例
-    handlers: RwLock<HashMap<String, Box<dyn Any + Send + Sync>>>,
+    handlers: RwLock<HashMap<String, Box<dyn ErasedTypeHandler>>>,
     /// 字段名 → handler 名称
     field_bindings: RwLock<HashMap<String, String>>,
 }
@@ -201,7 +240,11 @@ impl TypeHandlerRegistry {
     /// # 参数
     /// - `name`：处理器名称（如 "datetime"、"uuid"、"json"）
     /// - `handler`：实现 `TypeHandler<T>` 的实例
-    pub fn register<T: 'static>(&self, name: impl Into<String>, handler: Box<dyn TypeHandler<T>>) {
+    pub fn register<T: 'static + Send + Sync>(
+        &self,
+        name: impl Into<String>,
+        handler: Box<dyn TypeHandler<T>>,
+    ) {
         let mut handlers = self.handlers.write().unwrap();
         handlers.insert(name.into(), Box::new(handler));
     }
@@ -252,6 +295,8 @@ impl TypeHandlerRegistry {
     /// # 类型安全
     ///
     /// 内部通过 `TypeId` 断言确保调用方传入的 T 与 handler 注册时的 T 一致。
+    /// 若类型不匹配，返回 `TypeMismatch` 错误，包含**实际的** TypeId 和类型名
+    /// （而非硬编码 `()`），便于调试。
     pub fn handle<T: 'static>(&self, field: &str, value: &Value) -> TypeHandlerResult<T> {
         let handler_name = {
             let bindings = self.field_bindings.read().unwrap();
@@ -264,19 +309,28 @@ impl TypeHandlerRegistry {
         };
 
         let handlers = self.handlers.read().unwrap();
-        let boxed =
+        let erased =
             handlers
                 .get(&handler_name)
                 .ok_or_else(|| TypeHandlerError::HandlerNotFound {
                     name: handler_name.clone(),
                 })?;
 
-        let handler = boxed
-            .downcast_ref::<Box<dyn TypeHandler<T>>>()
-            .ok_or_else(|| TypeHandlerError::TypeMismatch {
+        // 通过 erased_type_id 比较 TypeId，提前识别类型不匹配
+        let actual_id = erased.erased_type_id();
+        if actual_id != TypeId::of::<T>() {
+            return Err(TypeHandlerError::TypeMismatch {
                 expected: TypeId::of::<T>(),
-                actual: TypeId::of::<()>(),
-            })?;
+                actual: actual_id,
+                actual_type_name: erased.erased_type_name().to_string(),
+            });
+        }
+
+        // 类型匹配，downcast 到具体的 Box<dyn TypeHandler<T>>
+        let handler = erased
+            .as_any()
+            .downcast_ref::<Box<dyn TypeHandler<T>>>()
+            .expect("TypeId 已校验匹配，downcast 必然成功");
         handler.from_value(value)
     }
 
@@ -293,19 +347,27 @@ impl TypeHandlerRegistry {
         };
 
         let handlers = self.handlers.read().unwrap();
-        let boxed =
+        let erased =
             handlers
                 .get(&handler_name)
                 .ok_or_else(|| TypeHandlerError::HandlerNotFound {
                     name: handler_name.clone(),
                 })?;
 
-        let handler = boxed
-            .downcast_ref::<Box<dyn TypeHandler<T>>>()
-            .ok_or_else(|| TypeHandlerError::TypeMismatch {
+        // 通过 erased_type_id 比较 TypeId，提前识别类型不匹配
+        let actual_id = erased.erased_type_id();
+        if actual_id != TypeId::of::<T>() {
+            return Err(TypeHandlerError::TypeMismatch {
                 expected: TypeId::of::<T>(),
-                actual: TypeId::of::<()>(),
-            })?;
+                actual: actual_id,
+                actual_type_name: erased.erased_type_name().to_string(),
+            });
+        }
+
+        let handler = erased
+            .as_any()
+            .downcast_ref::<Box<dyn TypeHandler<T>>>()
+            .expect("TypeId 已校验匹配，downcast 必然成功");
         Ok(handler.to_value(value))
     }
 
@@ -889,6 +951,58 @@ mod tests {
         // 调用方尝试用 i64 接收 — 应返回 TypeMismatch
         let result: TypeHandlerResult<i64> = registry.handle("created_at", &Value::Null);
         assert!(matches!(result, Err(TypeHandlerError::TypeMismatch { .. })));
+    }
+
+    #[test]
+    fn test_type_mismatch_contains_actual_type_info() {
+        // C10 修复回归测试：TypeMismatch 错误应包含**实际的** TypeId 和类型名
+        // 而非硬编码的 TypeId::of::<()>()
+        let registry = TypeHandlerRegistry::new();
+        registry.register("datetime", Box::new(DateTimeHandler));
+        registry.bind("created_at", "datetime");
+
+        let result: TypeHandlerResult<i64> = registry.handle("created_at", &Value::Null);
+        match result {
+            Err(TypeHandlerError::TypeMismatch {
+                expected,
+                actual,
+                actual_type_name,
+            }) => {
+                // expected 应该是 i64 的 TypeId
+                assert_eq!(expected, TypeId::of::<i64>());
+                // actual 应该是 String 的 TypeId（DateTimeHandler 注册的是 String）
+                assert_eq!(actual, TypeId::of::<String>());
+                // actual **不应该**是 () 的 TypeId（这是修复前的 bug）
+                assert_ne!(actual, TypeId::of::<()>());
+                // actual_type_name 应该包含 "String"
+                assert!(actual_type_name.contains("String"));
+            }
+            other => panic!("expected TypeMismatch, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_type_mismatch_to_value_contains_actual_type_info() {
+        // to_value 也应该返回包含实际类型信息的 TypeMismatch
+        let registry = TypeHandlerRegistry::new();
+        registry.register("decimal", Box::new(DecimalHandler));
+        registry.bind("price", "decimal");
+
+        // 调用方尝试用 String 写入，但 handler 注册的是 i64
+        let result: TypeHandlerResult<Value> = registry.to_value("price", &String::from("99"));
+        match result {
+            Err(TypeHandlerError::TypeMismatch {
+                expected,
+                actual,
+                actual_type_name,
+            }) => {
+                assert_eq!(expected, TypeId::of::<String>());
+                assert_eq!(actual, TypeId::of::<i64>());
+                assert_ne!(actual, TypeId::of::<()>());
+                assert!(actual_type_name.contains("i64"));
+            }
+            other => panic!("expected TypeMismatch, got {:?}", other),
+        }
     }
 
     // ===== 自定义 TypeHandler 测试 =====

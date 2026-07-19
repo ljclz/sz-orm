@@ -358,6 +358,12 @@ impl<M> LambdaWrapper<M> {
     }
 
     /// 追加原始 SQL WHERE 条件（用于 OR 等复杂场景）
+    ///
+    /// # 安全警告
+    ///
+    /// 此方法是 escape hatch，传入的 SQL 会**原样拼接**到最终 SQL 中。
+    /// **严禁将用户输入直接拼接**到 `sql` 参数中（会引入 SQL 注入风险）。
+    /// 若需使用用户输入，请改用 `eq` / `ne` / `lt` 等参数化方法。
     pub fn raw_where(&mut self, sql: impl Into<String>) -> &mut Self {
         self.wheres.push(WhereClause::Raw(sql.into()));
         self

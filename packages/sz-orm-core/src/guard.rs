@@ -174,6 +174,16 @@ impl Default for SafeSqlGuard {
 // ============================================================================
 
 /// 严格模式检查 SQL：检测无 WHERE 子句的 UPDATE/DELETE
+///
+/// # 已知局限
+///
+/// 本守卫使用简化的字符串匹配，**不能**完全防御以下绕过场景：
+/// - 子查询中的 WHERE 被误认为外层 UPDATE/DELETE 的 WHERE
+///   （如 `UPDATE users SET name = (SELECT name FROM other WHERE id = 1)`）
+/// - 字符串字面量中的 WHERE 关键字
+///
+/// 完全防御需要 SQL 解析器（如 `sqlparser` crate）。
+/// 本守卫的目标是拦截**明显的**全表 UPDATE/DELETE（无 WHERE 子句）。
 fn check_sql_strict(sql: &str) -> GuardResult<()> {
     let normalized = normalize_sql(sql);
     let upper = normalized.to_uppercase();
@@ -181,7 +191,8 @@ fn check_sql_strict(sql: &str) -> GuardResult<()> {
     // 检测是否为 UPDATE 语句（UPDATE 关键字开头）
     if upper.starts_with("UPDATE") {
         let table = extract_update_table(&normalized, &upper);
-        if !has_where_clause(&upper) {
+        // WHERE 必须在 SET 之后（避免 SET 之前的 WHERE 被误判）
+        if !has_where_after_keyword(&upper, "SET") {
             return Err(GuardError::FullTableUpdate {
                 table: table.unwrap_or_else(|| "unknown".to_string()),
             });
@@ -191,7 +202,8 @@ fn check_sql_strict(sql: &str) -> GuardResult<()> {
     // 检测是否为 DELETE 语句
     if upper.starts_with("DELETE") {
         let table = extract_delete_table(&normalized, &upper);
-        if !has_where_clause(&upper) {
+        // WHERE 必须在 FROM 之后
+        if !has_where_after_keyword(&upper, "FROM") {
             return Err(GuardError::FullTableDelete {
                 table: table.unwrap_or_else(|| "unknown".to_string()),
             });
@@ -253,69 +265,113 @@ fn normalize_sql(sql: &str) -> String {
     result.trim().to_string()
 }
 
-/// 检测 SQL 是否包含 WHERE 子句
+/// 检测 SQL 在指定关键字（如 "SET" 或 "FROM"）之后是否包含 WHERE 子句
 ///
 /// 规则：
-/// - 必须包含 `WHERE` 关键字（独立词）
-/// - WHERE 子句后必须有非空内容（不只是 `WHERE` 后什么都没有）
-/// - 不允许 `WHERE 1=1` 这种"伪 WHERE"（被认为是绕过守卫）
-///   注：此项可选，目前暂不检查 1=1（避免误伤合法用法）
-fn has_where_clause(upper_sql: &str) -> bool {
-    // 用单词边界查找 WHERE 关键字
-    let mut found_where = false;
-    for (i, _) in upper_sql.match_indices("WHERE") {
-        // 检查前一个字符是否为单词边界
-        let prev_ok = i == 0
-            || !upper_sql
-                .as_bytes()
-                .get(i - 1)
-                .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
-                .unwrap_or(false);
-        // 检查后一个字符是否为单词边界
-        let next_idx = i + 5;
-        let next_ok = next_idx >= upper_sql.len()
-            || !upper_sql
-                .as_bytes()
-                .get(next_idx)
-                .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
-                .unwrap_or(false);
-        if prev_ok && next_ok {
-            found_where = true;
-            break;
-        }
-    }
-    if !found_where {
-        return false;
-    }
-
-    // 提取 WHERE 之后的内容
-    let where_idx = match find_where_keyword(upper_sql) {
+/// - 必须找到 `keyword` 关键字（作为独立词）
+/// - 在 `keyword` 之后必须包含 `WHERE` 关键字（独立词，且**括号深度为 0**）
+/// - WHERE 子句后必须有非空内容
+///
+/// 此函数防御以下绕过：
+/// - "SET 之前的 WHERE 被误认为 UPDATE 的 WHERE"
+/// - "子查询中的 WHERE 被误认为外层 UPDATE/DELETE 的 WHERE"
+///
+/// 通过括号深度跟踪识别子查询：只有 depth=0 时的 WHERE 才算外层 WHERE。
+fn has_where_after_keyword(upper_sql: &str, keyword: &str) -> bool {
+    // 找到 keyword 的位置（首次出现，独立词匹配）
+    let kw_pos = match find_keyword_independent(upper_sql, keyword) {
         Some(idx) => idx,
         None => return false,
     };
-    let after_where = upper_sql[where_idx + 5..].trim();
+
+    // 在 keyword 之后查找 WHERE 关键字（独立词，且括号深度为 0）
+    let after_kw = &upper_sql[kw_pos + keyword.len()..];
+    let where_idx = match find_where_at_depth_zero(after_kw) {
+        Some(idx) => idx,
+        None => return false,
+    };
+
+    // WHERE 之后必须有非空内容
+    let after_where = after_kw[where_idx + 5..].trim();
     !after_where.is_empty()
 }
 
-/// 找到 WHERE 关键字的位置（独立词）
-fn find_where_keyword(upper_sql: &str) -> Option<usize> {
-    for (i, _) in upper_sql.match_indices("WHERE") {
-        let prev_ok = i == 0
-            || !upper_sql
-                .as_bytes()
-                .get(i - 1)
-                .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
-                .unwrap_or(false);
-        let next_idx = i + 5;
-        let next_ok = next_idx >= upper_sql.len()
-            || !upper_sql
-                .as_bytes()
-                .get(next_idx)
-                .map(|b| b.is_ascii_alphanumeric() || *b == b'_')
-                .unwrap_or(false);
-        if prev_ok && next_ok {
-            return Some(i);
+/// 在 SQL 中查找 WHERE 关键字的位置（独立词，且括号深度为 0）
+///
+/// 扫描字符串，跟踪括号深度（`(` +1, `)` -1），仅返回深度为 0 时的 WHERE 位置。
+/// 这样可以正确区分外层 WHERE 和子查询中的 WHERE。
+///
+/// 注意：这是简化的实现，不处理字符串字面量中的括号（如 `WHERE name = '('`）。
+/// 完全处理需要 SQL 词法分析器。
+fn find_where_at_depth_zero(sql: &str) -> Option<usize> {
+    let bytes = sql.as_bytes();
+    let mut depth: i32 = 0;
+    let mut i = 0;
+
+    while i + 5 <= bytes.len() {
+        let c = bytes[i];
+
+        // 跟踪括号深度
+        if c == b'(' {
+            depth += 1;
+            i += 1;
+            continue;
         }
+        if c == b')' {
+            depth -= 1;
+            if depth < 0 {
+                depth = 0;
+            }
+            i += 1;
+            continue;
+        }
+
+        // 仅在深度为 0 时查找 WHERE
+        if depth == 0 && &bytes[i..i + 5] == b"WHERE" {
+            // 检查前一个字符是否为单词边界
+            let prev_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+            // 检查后一个字符是否为单词边界
+            let next_idx = i + 5;
+            let next_ok = next_idx >= bytes.len()
+                || !bytes[next_idx].is_ascii_alphanumeric() && bytes[next_idx] != b'_';
+            if prev_ok && next_ok {
+                return Some(i);
+            }
+        }
+
+        i += 1;
+    }
+
+    None
+}
+
+/// 在 SQL 中查找指定关键字的位置（独立词匹配，大小写敏感——已 to_uppercase）
+///
+/// 关键字必须是纯单词（如 "SET"、"FROM"、"WHERE"），**不应包含空格**。
+/// 函数会检查关键字前后是否为单词边界（非字母数字下划线）。
+fn find_keyword_independent(sql: &str, keyword: &str) -> Option<usize> {
+    let kw_len = keyword.len();
+    if kw_len == 0 || sql.len() < kw_len {
+        return None;
+    }
+
+    let bytes = sql.as_bytes();
+    let kw_bytes = keyword.as_bytes();
+
+    let mut i = 0;
+    while i + kw_len <= bytes.len() {
+        if &bytes[i..i + kw_len] == kw_bytes {
+            // 检查前一个字符是否为单词边界
+            let prev_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
+            // 检查后一个字符是否为单词边界
+            let next_idx = i + kw_len;
+            let next_ok = next_idx >= bytes.len()
+                || !bytes[next_idx].is_ascii_alphanumeric() && bytes[next_idx] != b'_';
+            if prev_ok && next_ok {
+                return Some(i);
+            }
+        }
+        i += 1;
     }
     None
 }
@@ -740,5 +796,56 @@ mod tests {
         assert!(!normalized.contains("block comment"));
         assert!(normalized.contains("UPDATE users"));
         assert!(normalized.contains("SET name = 'a'"));
+    }
+
+    // ===== 子查询 WHERE 绕过防御（C2 修复回归测试） =====
+
+    #[test]
+    fn test_blocks_update_with_where_only_in_subquery() {
+        // 子查询中的 WHERE 不应被误判为外层 UPDATE 的 WHERE
+        // 这是 C2 修复的核心回归测试
+        let guard = SafeSqlGuard::strict();
+        let sql = "UPDATE users SET name = (SELECT name FROM other WHERE id = 1)";
+        let result = guard.check(sql);
+        assert!(
+            matches!(result, Err(GuardError::FullTableUpdate { table }) if table == "users"),
+            "子查询中的 WHERE 不应被误认为外层 UPDATE 的 WHERE，应拦截"
+        );
+    }
+
+    #[test]
+    fn test_blocks_delete_with_where_only_in_subquery() {
+        // 子查询中的 WHERE 不应被误判为外层 DELETE 的 WHERE
+        let guard = SafeSqlGuard::strict();
+        let sql = "DELETE FROM users WHERE id IN (SELECT id FROM other)";
+        // 上面的 WHERE 是真正的外层 WHERE，应该通过
+        let result = guard.check(sql);
+        assert!(result.is_ok(), "外层 WHERE 应被识别");
+
+        // 但这个 SQL 外层没有 WHERE，子查询里有 WHERE，应该被拦截
+        let sql2 = "DELETE FROM users RETURNING (SELECT id FROM other WHERE x = 1)";
+        let result2 = guard.check(sql2);
+        assert!(
+            matches!(result2, Err(GuardError::FullTableDelete { table }) if table == "users"),
+            "子查询中的 WHERE 不应被误认为外层 DELETE 的 WHERE，应拦截"
+        );
+    }
+
+    #[test]
+    fn test_allows_update_with_real_where_and_subquery_where() {
+        // 外层有 WHERE + 子查询也有 WHERE，应该通过
+        let guard = SafeSqlGuard::strict();
+        let sql = "UPDATE users SET name = 'a' WHERE id IN (SELECT id FROM other WHERE active = 1)";
+        let result = guard.check(sql);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_blocks_update_with_field_named_where() {
+        // 字段名包含 WHERE 子串，不应被误判
+        let guard = SafeSqlGuard::strict();
+        let sql = "UPDATE my_table SET somewhere = 'x'";
+        let result = guard.check(sql);
+        assert!(matches!(result, Err(GuardError::FullTableUpdate { .. })));
     }
 }
