@@ -13,23 +13,26 @@ build = "build.rs"
 # Disabled by default so consumers only pay for the in-memory mock.
 real = [
     "dep:tonic",
+    "dep:tonic-prost",
     "dep:prost",
     "dep:tokio",
     "dep:tokio-stream",
-    "dep:tonic-build",
+    "dep:tonic-prost-build",
     "dep:protoc-bin-vendored",
 ]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+thiserror = "2"
 tonic = { version = "0.14", optional = true }
+tonic-prost = { version = "0.14", optional = true }
 prost = { version = "0.14", optional = true }
 tokio = { workspace = true, optional = true }
 tokio-stream = { version = "0.1", optional = true }
 
 [build-dependencies]
-tonic-build = { version = "0.14", optional = true }
+tonic-prost-build = { version = "0.14", optional = true }
 protoc-bin-vendored = { version = "3", optional = true }
 
 [dev-dependencies]

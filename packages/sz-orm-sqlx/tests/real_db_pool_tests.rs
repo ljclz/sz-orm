@@ -10,8 +10,18 @@ use sz_orm_sqlx::{
     MySqlPoolHandle, PgPoolHandle, SqlxMySqlConnectionFactory, SqlxPgConnectionFactory,
 };
 
-const MYSQL_URL: &str = "mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test";
-const PG_URL: &str = "postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test";
+/// 默认 MySQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_MYSQL_URL` 覆盖以指向真实云数据库。
+const MYSQL_URL_DEFAULT: &str = "mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test";
+/// 默认 PostgreSQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_PG_URL` 覆盖以指向真实云数据库。
+const PG_URL_DEFAULT: &str = "postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test";
+
+fn mysql_url() -> String {
+    std::env::var("SZ_ORM_MYSQL_URL").unwrap_or_else(|_| MYSQL_URL_DEFAULT.to_string())
+}
+
+fn pg_url() -> String {
+    std::env::var("SZ_ORM_PG_URL").unwrap_or_else(|_| PG_URL_DEFAULT.to_string())
+}
 
 fn unique_table(prefix: &str) -> String {
     let pid = std::process::id();
@@ -27,7 +37,7 @@ fn unique_table(prefix: &str) -> String {
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
 async fn mysql_pool_acquire_release_roundtrip() {
-    let pool_handle = Arc::new(MySqlPoolHandle::connect(MYSQL_URL).await.unwrap());
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
     let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle));
     let config = PoolConfigBuilder::new()
         .max_size(5)
@@ -57,7 +67,7 @@ async fn mysql_pool_acquire_release_roundtrip() {
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
 async fn mysql_pool_concurrent_8_tasks() {
-    let pool_handle = Arc::new(MySqlPoolHandle::connect(MYSQL_URL).await.unwrap());
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
     let table = unique_table("mysql_conc");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
@@ -115,7 +125,7 @@ async fn mysql_pool_concurrent_8_tasks() {
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
 async fn mysql_transaction_commit_rollback() {
-    let pool_handle = Arc::new(MySqlPoolHandle::connect(MYSQL_URL).await.unwrap());
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
     let table = unique_table("mysql_tx");
     let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle.clone()));
     let config = PoolConfigBuilder::new().max_size(3).build().unwrap();
@@ -162,7 +172,7 @@ async fn mysql_transaction_commit_rollback() {
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
 async fn mysql_savepoint_nested() {
-    let pool_handle = Arc::new(MySqlPoolHandle::connect(MYSQL_URL).await.unwrap());
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
     let table = unique_table("mysql_sp");
     let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle.clone()));
     let config = PoolConfigBuilder::new().max_size(3).build().unwrap();
@@ -211,7 +221,7 @@ async fn mysql_savepoint_nested() {
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
 async fn mysql_pool_stress_10k_ops() {
-    let pool_handle = Arc::new(MySqlPoolHandle::connect(MYSQL_URL).await.unwrap());
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
     let table = unique_table("mysql_stress");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
@@ -271,7 +281,7 @@ async fn mysql_pool_stress_10k_ops() {
 #[tokio::test]
 #[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
 async fn pg_pool_acquire_release_roundtrip() {
-    let pool_handle = Arc::new(PgPoolHandle::connect(PG_URL).await.unwrap());
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
     let factory = Arc::new(SqlxPgConnectionFactory::new(pool_handle));
     let config = PoolConfigBuilder::new()
         .max_size(5)
@@ -295,7 +305,7 @@ async fn pg_pool_acquire_release_roundtrip() {
 #[tokio::test]
 #[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
 async fn pg_pool_concurrent_8_tasks() {
-    let pool_handle = Arc::new(PgPoolHandle::connect(PG_URL).await.unwrap());
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
     let table = unique_table("pg_conc");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
@@ -352,7 +362,7 @@ async fn pg_pool_concurrent_8_tasks() {
 #[tokio::test]
 #[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
 async fn pg_transaction_commit_rollback() {
-    let pool_handle = Arc::new(PgPoolHandle::connect(PG_URL).await.unwrap());
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
     let table = unique_table("pg_tx");
     let factory = Arc::new(SqlxPgConnectionFactory::new(pool_handle.clone()));
     let config = PoolConfigBuilder::new().max_size(3).build().unwrap();
@@ -397,7 +407,7 @@ async fn pg_transaction_commit_rollback() {
 #[tokio::test]
 #[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
 async fn pg_savepoint_nested() {
-    let pool_handle = Arc::new(PgPoolHandle::connect(PG_URL).await.unwrap());
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
     let table = unique_table("pg_sp");
     let factory = Arc::new(SqlxPgConnectionFactory::new(pool_handle.clone()));
     let config = PoolConfigBuilder::new().max_size(3).build().unwrap();
@@ -442,7 +452,7 @@ async fn pg_savepoint_nested() {
 #[tokio::test]
 #[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
 async fn pg_pool_stress_10k_ops() {
-    let pool_handle = Arc::new(PgPoolHandle::connect(PG_URL).await.unwrap());
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
     let table = unique_table("pg_stress");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
@@ -501,7 +511,7 @@ async fn pg_pool_stress_10k_ops() {
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0，10万行批量插入"]
 async fn mysql_bulk_insert_100k_via_pool() {
-    let pool_handle = Arc::new(MySqlPoolHandle::connect(MYSQL_URL).await.unwrap());
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
     let table = unique_table("mysql_bulk");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
@@ -547,7 +557,7 @@ async fn mysql_bulk_insert_100k_via_pool() {
 #[tokio::test]
 #[ignore = "需要 PostgreSQL 18，10万行批量插入"]
 async fn pg_bulk_insert_100k_via_pool() {
-    let pool_handle = Arc::new(PgPoolHandle::connect(PG_URL).await.unwrap());
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
     let table = unique_table("pg_bulk");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();

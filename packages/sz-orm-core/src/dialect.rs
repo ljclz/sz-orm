@@ -773,7 +773,8 @@ impl Dialect for OracleDialect {
             .map(|col| {
                 let oracle_type = map_to_oracle_type(&col.sql_type);
                 let mut sql = format!("{} {}", self.quote(&col.name), oracle_type);
-                if !col.nullable {
+                // Oracle IDENTITY 列隐式 NOT NULL，不允许显式 NOT NULL（ORA-03076）
+                if !col.nullable && !col.auto_increment {
                     sql.push_str(" NOT NULL");
                 }
                 if let Some(default) = &col.default {
