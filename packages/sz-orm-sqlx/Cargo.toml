@@ -6,7 +6,7 @@ authors.workspace = true
 license.workspace = true
 
 [dependencies]
-sz-orm-core = { version = "0.1.0", path = "../sz-orm-core" }
+sz-orm-core = { workspace = true }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal"] }
