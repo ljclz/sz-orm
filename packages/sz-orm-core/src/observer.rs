@@ -354,7 +354,15 @@ pub struct EventDispatcher {
     subscribers: RwLock<Vec<Box<dyn EventSubscriber>>>,
     /// 错误收集（非致命错误，不影响流程）
     errors: RwLock<Vec<SubscriberError>>,
+    /// 错误缓冲区最大容量（防止内存无限增长）
+    ///
+    /// 当 errors 长度达到此上限时，新增错误会以 FIFO 方式淘汰最早错误。
+    /// 默认 1024，可通过 `with_max_errors` 调整。
+    max_errors: usize,
 }
+
+/// 默认错误缓冲区容量
+const DEFAULT_MAX_ERRORS: usize = 1024;
 
 impl EventDispatcher {
     /// 创建空的事件分发器
@@ -363,7 +371,17 @@ impl EventDispatcher {
             observers: RwLock::new(Vec::new()),
             subscribers: RwLock::new(Vec::new()),
             errors: RwLock::new(Vec::new()),
+            max_errors: DEFAULT_MAX_ERRORS,
         }
+    }
+
+    /// 设置错误缓冲区最大容量
+    ///
+    /// 当 errors 达到此容量时，新增错误会淘汰最早错误（FIFO）。
+    /// 设置为 0 表示无限制（不推荐，可能导致内存泄漏）。
+    pub fn with_max_errors(mut self, max_errors: usize) -> Self {
+        self.max_errors = max_errors;
+        self
     }
 
     /// 注册 Observer
@@ -398,107 +416,178 @@ impl EventDispatcher {
         std::mem::take(&mut *self.errors.write().unwrap())
     }
 
+    /// 返回当前错误缓冲区中的错误数量
+    pub fn error_count(&self) -> usize {
+        self.errors.read().unwrap().len()
+    }
+
+    /// 将本地错误批量写入 errors 缓冲区，遵循 max_errors 限制（FIFO 淘汰）
+    ///
+    /// - `max_errors = 0` 表示无限制
+    /// - 否则当 errors 达到上限时，淘汰最早错误以腾出空间
+    fn push_errors(&self, new_errors: Vec<SubscriberError>) {
+        if new_errors.is_empty() {
+            return;
+        }
+        let mut errors = self.errors.write().unwrap();
+        if self.max_errors == 0 {
+            errors.extend(new_errors);
+            return;
+        }
+        for e in new_errors {
+            if errors.len() >= self.max_errors {
+                // FIFO 淘汰最早错误
+                errors.remove(0);
+            }
+            errors.push(e);
+        }
+    }
+
     /// 分发事件（after_* 事件，attrs 不可变）
     ///
     /// 错误仅记录，不影响后续订阅者执行。
+    ///
+    /// # 实现要点
+    ///
+    /// - 错误先收集到本地 `Vec`，循环结束后一次性批量写入 `self.errors`，
+    ///   避免在持读锁期间获取写锁造成的死锁风险与锁竞争。
     pub fn dispatch(&self, event: Event, ctx: &HookContext, attrs: &HashMap<String, Value>) {
+        let mut local_errors: Vec<SubscriberError> = Vec::new();
+
         // 1. 调用 Observers
-        let observers = self.observers.read().unwrap();
-        for observer in observers.iter() {
-            let result = match event {
-                Event::AfterInsert => observer.after_insert(ctx, attrs),
-                Event::AfterUpdate => observer.after_update(ctx, attrs),
-                Event::AfterDelete => observer.after_delete(ctx, attrs),
-                _ => Ok(()),
-            };
-            if let Err(e) = result {
-                self.errors.write().unwrap().push(e);
+        {
+            let observers = self.observers.read().unwrap();
+            for observer in observers.iter() {
+                let result = match event {
+                    Event::AfterInsert => observer.after_insert(ctx, attrs),
+                    Event::AfterUpdate => observer.after_update(ctx, attrs),
+                    Event::AfterDelete => observer.after_delete(ctx, attrs),
+                    _ => Ok(()),
+                };
+                if let Err(e) = result {
+                    local_errors.push(e);
+                }
             }
         }
-        drop(observers);
 
         // 2. 调用 EventSubscribers
-        let subscribers = self.subscribers.read().unwrap();
-        for subscriber in subscribers.iter() {
-            if !subscriber.subscribed_events().contains(&event) {
-                continue;
+        {
+            let subscribers = self.subscribers.read().unwrap();
+            for subscriber in subscribers.iter() {
+                if !subscriber.subscribed_events().contains(&event) {
+                    continue;
+                }
+                if let Err(e) = subscriber.on_event(event, ctx, attrs) {
+                    local_errors.push(e);
+                }
             }
-            if let Err(e) = subscriber.on_event(event, ctx, attrs) {
-                self.errors.write().unwrap().push(e);
-            }
+        }
+
+        if !local_errors.is_empty() {
+            self.push_errors(local_errors);
         }
     }
 
     /// 分发 before 事件（attrs 可变）
     ///
     /// 任何订阅者返回 `Err(Vetoed)` 会立即中止并返回错误。
+    ///
+    /// # 实现要点
+    ///
+    /// - Vetoed 时直接返回该错误，**不会再次调用 `on_event`**（避免订阅者副作用翻倍）
+    /// - 错误先收集到本地 `Vec`，避免持读锁时获取写锁造成死锁
     pub fn dispatch_before_mut(
         &self,
         event: Event,
         ctx: &HookContext,
         attrs: &mut HashMap<String, Value>,
     ) -> SubscriberResult<()> {
+        let mut local_errors: Vec<SubscriberError> = Vec::new();
+        let mut vetoed: Option<SubscriberError> = None;
+
         // 1. 调用 Observers
-        let observers = self.observers.read().unwrap();
-        for observer in observers.iter() {
-            let result = match event {
-                Event::BeforeInsert => observer.before_insert(ctx, attrs),
-                Event::BeforeUpdate => observer.before_update(ctx, attrs),
-                _ => Ok(()),
-            };
-            match result {
-                Ok(()) => {}
-                Err(SubscriberError::Vetoed { .. }) => return Err(result.unwrap_err()),
-                Err(e) => {
-                    self.errors.write().unwrap().push(e);
+        {
+            let observers = self.observers.read().unwrap();
+            for observer in observers.iter() {
+                let result = match event {
+                    Event::BeforeInsert => observer.before_insert(ctx, attrs),
+                    Event::BeforeUpdate => observer.before_update(ctx, attrs),
+                    _ => Ok(()),
+                };
+                match result {
+                    Ok(()) => {}
+                    Err(e @ SubscriberError::Vetoed { .. }) => {
+                        vetoed = Some(e);
+                        break;
+                    }
+                    Err(e) => local_errors.push(e),
                 }
             }
         }
-        drop(observers);
 
-        // 2. 调用 EventSubscribers
-        let subscribers = self.subscribers.read().unwrap();
-        for subscriber in subscribers.iter() {
-            if !subscriber.subscribed_events().contains(&event) {
-                continue;
-            }
-            match subscriber.on_event(event, ctx, attrs) {
-                Ok(()) => {}
-                Err(SubscriberError::Vetoed { .. }) => {
-                    return Err(subscriber.on_event(event, ctx, attrs).unwrap_err())
+        // 2. 调用 EventSubscribers（仅当未被 vetoed）
+        if vetoed.is_none() {
+            let subscribers = self.subscribers.read().unwrap();
+            for subscriber in subscribers.iter() {
+                if !subscriber.subscribed_events().contains(&event) {
+                    continue;
                 }
-                Err(e) => {
-                    self.errors.write().unwrap().push(e);
+                match subscriber.on_event(event, ctx, attrs) {
+                    Ok(()) => {}
+                    Err(e @ SubscriberError::Vetoed { .. }) => {
+                        vetoed = Some(e);
+                        break;
+                    }
+                    Err(e) => local_errors.push(e),
                 }
             }
         }
-        drop(subscribers);
 
+        if !local_errors.is_empty() {
+            self.push_errors(local_errors);
+        }
+
+        if let Some(e) = vetoed {
+            return Err(e);
+        }
         Ok(())
     }
 
     /// 分发 after_find 事件（attrs 可变，用于修改读出的数据）
+    ///
+    /// # 实现要点
+    ///
+    /// - 错误先收集到本地 `Vec`，避免持读锁时获取写锁造成死锁
     pub fn dispatch_after_find(
         &self,
         ctx: &HookContext,
         attrs: &mut HashMap<String, Value>,
     ) -> SubscriberResult<()> {
-        let observers = self.observers.read().unwrap();
-        for observer in observers.iter() {
-            if let Err(e) = observer.after_find(ctx, attrs) {
-                self.errors.write().unwrap().push(e);
+        let mut local_errors: Vec<SubscriberError> = Vec::new();
+
+        {
+            let observers = self.observers.read().unwrap();
+            for observer in observers.iter() {
+                if let Err(e) = observer.after_find(ctx, attrs) {
+                    local_errors.push(e);
+                }
             }
         }
-        drop(observers);
 
-        let subscribers = self.subscribers.read().unwrap();
-        for subscriber in subscribers.iter() {
-            if !subscriber.subscribed_events().contains(&Event::AfterFind) {
-                continue;
+        {
+            let subscribers = self.subscribers.read().unwrap();
+            for subscriber in subscribers.iter() {
+                if !subscriber.subscribed_events().contains(&Event::AfterFind) {
+                    continue;
+                }
+                if let Err(e) = subscriber.on_event(Event::AfterFind, ctx, attrs) {
+                    local_errors.push(e);
+                }
             }
-            if let Err(e) = subscriber.on_event(Event::AfterFind, ctx, attrs) {
-                self.errors.write().unwrap().push(e);
-            }
+        }
+
+        if !local_errors.is_empty() {
+            self.push_errors(local_errors);
         }
 
         Ok(())
@@ -1066,6 +1155,130 @@ mod tests {
         // drain 后内部应为空
         let errors = d.drain_errors();
         assert!(errors.is_empty());
+    }
+
+    // ===== max_errors 限制测试（防内存无限增长） =====
+
+    #[test]
+    fn test_max_errors_limits_buffer_size() {
+        struct ErrSub;
+        impl EventSubscriber for ErrSub {
+            fn name(&self) -> &str {
+                "err"
+            }
+            fn subscribed_events(&self) -> Vec<Event> {
+                vec![Event::AfterInsert]
+            }
+            fn on_event(
+                &self,
+                _e: Event,
+                _c: &HookContext,
+                _a: &HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Failed {
+                    subscriber: "err".to_string(),
+                    reason: "test".to_string(),
+                })
+            }
+        }
+
+        // 设置 max_errors = 3，触发 5 次错误，应只保留最新 3 个
+        let d = EventDispatcher::new().with_max_errors(3);
+        d.subscribe(Box::new(ErrSub));
+
+        let ctx = HookContext::default();
+        let attrs = HashMap::new();
+        for _ in 0..5 {
+            d.dispatch(Event::AfterInsert, &ctx, &attrs);
+        }
+
+        assert_eq!(d.error_count(), 3);
+        let errors = d.drain_errors();
+        assert_eq!(errors.len(), 3);
+    }
+
+    #[test]
+    fn test_max_errors_zero_means_unlimited() {
+        struct ErrSub;
+        impl EventSubscriber for ErrSub {
+            fn name(&self) -> &str {
+                "err"
+            }
+            fn subscribed_events(&self) -> Vec<Event> {
+                vec![Event::AfterInsert]
+            }
+            fn on_event(
+                &self,
+                _e: Event,
+                _c: &HookContext,
+                _a: &HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Failed {
+                    subscriber: "err".to_string(),
+                    reason: "test".to_string(),
+                })
+            }
+        }
+
+        let d = EventDispatcher::new().with_max_errors(0);
+        d.subscribe(Box::new(ErrSub));
+
+        let ctx = HookContext::default();
+        let attrs = HashMap::new();
+        for _ in 0..10 {
+            d.dispatch(Event::AfterInsert, &ctx, &attrs);
+        }
+
+        assert_eq!(d.error_count(), 10);
+    }
+
+    #[test]
+    fn test_max_errors_fifo_eviction_order() {
+        // 验证 FIFO 淘汰：保留的是最新错误
+        struct CounterSub(Arc<Mutex<u32>>);
+        impl EventSubscriber for CounterSub {
+            fn name(&self) -> &str {
+                "counter"
+            }
+            fn subscribed_events(&self) -> Vec<Event> {
+                vec![Event::AfterInsert]
+            }
+            fn on_event(
+                &self,
+                _e: Event,
+                _c: &HookContext,
+                _a: &HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                let mut n = self.0.lock().unwrap();
+                *n += 1;
+                Err(SubscriberError::Failed {
+                    subscriber: "counter".to_string(),
+                    reason: format!("call-{}", *n),
+                })
+            }
+        }
+
+        let counter = Arc::new(Mutex::new(0u32));
+        let d = EventDispatcher::new().with_max_errors(2);
+        d.subscribe(Box::new(CounterSub(counter.clone())));
+
+        let ctx = HookContext::default();
+        let attrs = HashMap::new();
+        for _ in 0..4 {
+            d.dispatch(Event::AfterInsert, &ctx, &attrs);
+        }
+
+        let errors = d.drain_errors();
+        assert_eq!(errors.len(), 2);
+        // 应保留最新的两个（call-3, call-4）
+        match &errors[0] {
+            SubscriberError::Failed { reason, .. } => assert_eq!(reason, "call-3"),
+            other => panic!("expected Failed, got {:?}", other),
+        }
+        match &errors[1] {
+            SubscriberError::Failed { reason, .. } => assert_eq!(reason, "call-4"),
+            other => panic!("expected Failed, got {:?}", other),
+        }
     }
 
     // ===== before 事件 Veto 测试 =====

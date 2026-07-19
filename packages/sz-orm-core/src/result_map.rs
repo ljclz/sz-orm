@@ -559,20 +559,12 @@ pub fn apply_result_map(
             }
         }
 
-        let nested = apply_result_map(registry, &assoc.result_map, row).map_err(|e| {
-            ResultMapError::NestedMappingFailed {
-                property: assoc.property.clone(),
-                reason: e.to_string(),
-            }
-        })?;
-
-        // column_prefix 处理：重新映射列
-        let nested_value = if let Some(_prefix) = &assoc.column_prefix {
-            // prefix 模式下，apply_result_map 已经使用原始列名
-            // 这里需要构造带前缀的 RowData 再调用
+        // 根据 column_prefix 决定传入的 RowData（只调用一次 apply_result_map）
+        let nested_value = if let Some(prefix) = &assoc.column_prefix {
+            // prefix 模式：构造去除前缀的 RowData 后递归
             let mut prefixed_row = RowData::empty();
             for (col, v) in &row.columns {
-                if let Some(stripped) = col.strip_prefix(_prefix) {
+                if let Some(stripped) = col.strip_prefix(prefix) {
                     prefixed_row.set(stripped.to_string(), v.clone());
                 }
             }
@@ -583,7 +575,13 @@ pub fn apply_result_map(
                 }
             })?
         } else {
-            nested
+            // 无 prefix：直接用原始 row 递归
+            apply_result_map(registry, &assoc.result_map, row).map_err(|e| {
+                ResultMapError::NestedMappingFailed {
+                    property: assoc.property.clone(),
+                    reason: e.to_string(),
+                }
+            })?
         };
 
         // 将嵌套 HashMap 转为 Value::Object 存储
