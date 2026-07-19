@@ -279,28 +279,21 @@ impl GrpcChannel {
     }
 }
 
-#[derive(Debug)]
+#[derive(Debug, thiserror::Error)]
 pub enum GrpcError {
+    #[error("Connection failed: {0}")]
     ConnectionFailed(String),
+    #[error("Service not found: {0}")]
     ServiceNotFound(String),
+    #[error("Method not found: {0}")]
     MethodNotFound(String),
+    #[error("No services: {0}")]
     NoServices(String),
+    #[error("Timeout: {0}")]
     Timeout(String),
+    #[error("Transport error: {0}")]
+    Transport(String),
 }
-
-impl std::fmt::Display for GrpcError {
-    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        match self {
-            GrpcError::ConnectionFailed(msg) => write!(f, "Connection failed: {}", msg),
-            GrpcError::ServiceNotFound(name) => write!(f, "Service not found: {}", name),
-            GrpcError::MethodNotFound(name) => write!(f, "Method not found: {}", name),
-            GrpcError::NoServices(msg) => write!(f, "No services: {}", msg),
-            GrpcError::Timeout(msg) => write!(f, "Timeout: {}", msg),
-        }
-    }
-}
-
-impl std::error::Error for GrpcError {}
 
 impl serde::Serialize for GrpcError {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
@@ -310,6 +303,12 @@ impl serde::Serialize for GrpcError {
         serializer.serialize_str(&self.to_string())
     }
 }
+
+#[cfg(feature = "real")]
+mod real_grpc;
+
+#[cfg(feature = "real")]
+pub use real_grpc::{RealGrpcClient, RealGrpcServer, RealGrpcServerHandle};
 
 #[cfg(test)]
 mod tests {
@@ -583,5 +582,128 @@ mod tests {
             .nth(1)
             .and_then(|p| p.parse().ok())
             .unwrap_or(0)
+    }
+
+    // ---- 真实 tonic gRPC 集成测试 ----
+    // 仅在启用 `real` feature 时编译；标记为 #[ignore] 因为它们会真实绑定 TCP 端口
+    // 并在后台运行 tokio task。通过 `cargo test --features real -- --ignored` 运行。
+
+    #[cfg(feature = "real")]
+    fn bind_addr() -> std::net::SocketAddr {
+        // 0 端口让操作系统随机分配，避免并行测试时的端口冲突。
+        "127.0.0.1:0".parse().expect("valid socket addr")
+    }
+
+    #[cfg(feature = "real")]
+    #[tokio::test]
+    #[ignore = "requires the real gRPC server (feature `real`)"]
+    async fn test_real_grpc_get_user() {
+        use crate::real_grpc::{RealGrpcClient, RealGrpcServer};
+
+        let server = RealGrpcServer::new();
+        server
+            .backend()
+            .add_user(build_user(42, "alice", "alice@example.com"));
+        let mut handle = server.start(bind_addr()).await.expect("server start");
+        let addr = handle.local_addr();
+
+        let mut client = RealGrpcClient::connect(addr.to_string())
+            .await
+            .expect("connect");
+        let user = client.get_user(42).await.expect("get_user");
+        assert_eq!(user.id, 42);
+        assert_eq!(user.username, "alice");
+        assert_eq!(user.email, "alice@example.com");
+
+        handle.stop().await.expect("stop");
+    }
+
+    #[cfg(feature = "real")]
+    #[tokio::test]
+    #[ignore = "requires the real gRPC server (feature `real`)"]
+    async fn test_real_grpc_list_users() {
+        use crate::real_grpc::{RealGrpcClient, RealGrpcServer};
+
+        let server = RealGrpcServer::new();
+        // 故意乱序插入，验证 list_users 返回按 id 升序。
+        server.backend().add_user(build_user(3, "c", "c@x"));
+        server.backend().add_user(build_user(1, "a", "a@x"));
+        server.backend().add_user(build_user(2, "b", "b@x"));
+        let mut handle = server.start(bind_addr()).await.expect("server start");
+        let addr = handle.local_addr();
+
+        let mut client = RealGrpcClient::connect(addr.to_string())
+            .await
+            .expect("connect");
+        let users = client.list_users().await.expect("list_users");
+        assert_eq!(users.len(), 3);
+        assert_eq!(users[0].id, 1);
+        assert_eq!(users[0].username, "a");
+        assert_eq!(users[1].id, 2);
+        assert_eq!(users[2].id, 3);
+
+        handle.stop().await.expect("stop");
+    }
+
+    #[cfg(feature = "real")]
+    #[tokio::test]
+    #[ignore = "requires the real gRPC server (feature `real`)"]
+    async fn test_real_grpc_user_not_found() {
+        use crate::real_grpc::{RealGrpcClient, RealGrpcServer};
+
+        let server = RealGrpcServer::new();
+        server.backend().add_user(build_user(1, "a", "a@x"));
+        let mut handle = server.start(bind_addr()).await.expect("server start");
+        let addr = handle.local_addr();
+
+        let mut client = RealGrpcClient::connect(addr.to_string())
+            .await
+            .expect("connect");
+        let result = client.get_user(999).await;
+        // 服务器把 GrpcError::MethodNotFound 映射为 tonic::Status::not_found，
+        // 客户端再还原为 GrpcError::MethodNotFound。
+        assert!(
+            matches!(result, Err(GrpcError::MethodNotFound(_))),
+            "expected MethodNotFound, got {:?}",
+            result
+        );
+
+        handle.stop().await.expect("stop");
+    }
+
+    #[cfg(feature = "real")]
+    #[tokio::test]
+    #[ignore = "requires the real gRPC server (feature `real`)"]
+    async fn test_real_grpc_multiple_clients() {
+        use crate::real_grpc::{RealGrpcClient, RealGrpcServer};
+
+        let server = RealGrpcServer::new();
+        server
+            .backend()
+            .add_user(build_user(42, "shared", "shared@example.com"));
+        let mut handle = server.start(bind_addr()).await.expect("server start");
+        let addr = handle.local_addr();
+        let addr_str = addr.to_string();
+
+        // 同一服务器应支持多个并发客户端。
+        let mut client1 = RealGrpcClient::connect(addr_str.clone())
+            .await
+            .expect("connect1");
+        let mut client2 = RealGrpcClient::connect(addr_str).await.expect("connect2");
+
+        let u1 = client1.get_user(42).await.expect("get_user via client1");
+        let u2 = client2.get_user(42).await.expect("get_user via client2");
+        assert_eq!(u1.id, 42);
+        assert_eq!(u1.username, "shared");
+        assert_eq!(u1.email, "shared@example.com");
+        assert_eq!(u2.id, 42);
+        assert_eq!(u2.username, "shared");
+
+        // 第二个客户端应也能正确感知后端数据。
+        let list = client2.list_users().await.expect("list_users via client2");
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, 42);
+
+        handle.stop().await.expect("stop");
     }
 }

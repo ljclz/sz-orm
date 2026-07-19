@@ -16,7 +16,12 @@ use sz_orm_core::dialect::{get_dialect, ColumnDef};
 use sz_orm_core::DbType;
 use sz_orm_core::Value;
 
-const PG_URL: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
+/// 默认 PostgreSQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_PG_URL` 覆盖以指向真实云数据库。
+const PG_URL_DEFAULT: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
+
+fn pg_url() -> String {
+    std::env::var("SZ_ORM_PG_URL").unwrap_or_else(|_| PG_URL_DEFAULT.to_string())
+}
 
 /// 全局唯一表名计数器
 static TABLE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -35,9 +40,9 @@ async fn setup_pool() -> PgPool {
     PgPoolOptions::new()
         .max_connections(8)
         .acquire_timeout(Duration::from_secs(30))
-        .connect(PG_URL)
+        .connect(&pg_url())
         .await
-        .expect("pg connect failed - is PostgreSQL 18 running on 127.0.0.1:5432?")
+        .expect("pg connect failed - is PostgreSQL 18 running?")
 }
 
 /// 用方言生成 CREATE TABLE 并执行（PG 使用 SERIAL/BIGSERIAL 自动递增）

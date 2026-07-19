@@ -16,7 +16,12 @@ use sz_orm_core::dialect::{get_dialect, ColumnDef};
 use sz_orm_core::DbType;
 use sz_orm_core::Value;
 
-const MYSQL_URL: &str = "mysql://root:test123@127.0.0.1:3306/sz_orm_test";
+/// 默认 MySQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_MYSQL_URL` 覆盖以指向真实云数据库。
+const MYSQL_URL_DEFAULT: &str = "mysql://root:test123@127.0.0.1:3306/sz_orm_test";
+
+fn mysql_url() -> String {
+    std::env::var("SZ_ORM_MYSQL_URL").unwrap_or_else(|_| MYSQL_URL_DEFAULT.to_string())
+}
 
 /// 全局唯一表名计数器（避免并行测试冲突）
 static TABLE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -37,7 +42,7 @@ async fn setup_pool() -> MySqlPool {
     let pool = MySqlPoolOptions::new()
         .max_connections(8)
         .acquire_timeout(Duration::from_secs(30))
-        .connect(MYSQL_URL)
+        .connect(&mysql_url())
         .await
         .expect("mysql connect failed - is MySQL 9.6.0 running on 127.0.0.1:3306?");
     pool

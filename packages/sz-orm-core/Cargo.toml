@@ -24,6 +24,7 @@ sz-orm-macros = { path = "../sz-orm-macros" }
 tokio = { workspace = true, features = ["full", "test-util"] }
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+oracle = { version = "0.6", default-features = false, features = ["chrono"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 
 [lib]
@@ -45,6 +46,10 @@ path = "tests/integration_mysql.rs"
 [[test]]
 name = "integration_pg"
 path = "tests/integration_pg.rs"
+
+[[test]]
+name = "integration_oracle"
+path = "tests/integration_oracle.rs"
 
 [[bench]]
 name = "core_bench"
