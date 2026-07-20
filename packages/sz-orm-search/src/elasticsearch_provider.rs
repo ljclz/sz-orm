@@ -6,30 +6,37 @@ use crate::error::SearchError;
 use crate::search::{ElasticsearchConfig, SearchExt};
 use crate::types::{SearchHit, SearchQuery, SearchResult};
 use async_trait::async_trait;
-use elasticsearch::{auth::Credentials, http::transport::Transport, ElasticSearch};
+use elasticsearch::{
+    auth::Credentials,
+    http::{
+        transport::{SingleNodeConnectionPool, TransportBuilder},
+        Url,
+    },
+    Elasticsearch,
+};
 use serde_json::Value;
 
 /// Elasticsearch 真实实现
 pub struct ElasticsearchProvider {
-    client: ElasticSearch,
+    client: Elasticsearch,
 }
 
 impl ElasticsearchProvider {
     pub fn new(config: ElasticsearchConfig) -> Result<Self, SearchError> {
-        let transport = if let (Some(user), Some(pass)) = (&config.username, &config.password) {
-            let credentials = Credentials::Basic(user.clone(), pass.clone());
-            let transport_builder = Transport::single_node(&config.url);
-            let mut transport_builder = transport_builder;
-            transport_builder = transport_builder.auth(credentials);
-            transport_builder
-                .build()
-                .map_err(|e| SearchError::Connection(e.to_string()))?
-        } else {
-            Transport::single_node(&config.url)
-                .build()
-                .map_err(|e| SearchError::Connection(e.to_string()))?
-        };
-        let client = ElasticSearch::new(transport);
+        // v0.2.2 修复 V-4：elasticsearch 8.5.0-alpha.1 的 Transport::single_node
+        // 直接返回 Result<Transport, Error>（已构建），无法再设置 auth。
+        // 改为手动构建：Url → SingleNodeConnectionPool → TransportBuilder → auth → build。
+        let url = Url::parse(&config.url)
+            .map_err(|e| SearchError::Connection(format!("invalid url: {}", e)))?;
+        let conn_pool = SingleNodeConnectionPool::new(url);
+        let mut builder = TransportBuilder::new(conn_pool);
+        if let (Some(user), Some(pass)) = (&config.username, &config.password) {
+            builder = builder.auth(Credentials::Basic(user.clone(), pass.clone()));
+        }
+        let transport = builder
+            .build()
+            .map_err(|e| SearchError::Connection(e.to_string()))?;
+        let client = Elasticsearch::new(transport);
         Ok(Self { client })
     }
 }
@@ -112,7 +119,8 @@ impl SearchExt for ElasticsearchProvider {
             .json()
             .await
             .map_err(|e| SearchError::Query(e.to_string()))?;
-        Ok(response_body.get("source").cloned())
+        // v0.2.2 修复 V-3：ES Get API 返回的文档源字段名是 `_source`（带下划线前缀），不是 `source`
+        Ok(response_body.get("_source").cloned())
     }
 
     async fn delete_doc(&self, index: &str, id: &str) -> Result<(), SearchError> {

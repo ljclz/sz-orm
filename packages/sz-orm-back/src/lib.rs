@@ -676,9 +676,9 @@ mod tests {
             .await
             .unwrap();
         assert!(content.contains("-- SZ-ORM export for pool: prod"));
-        assert!(content.contains("INSERT INTO users VALUES"));
+        assert!(content.contains("INSERT INTO \"users\" VALUES"));
         // Two INSERT statements should be present.
-        assert_eq!(content.matches("INSERT INTO users VALUES").count(), 2);
+        assert_eq!(content.matches("INSERT INTO \"users\" VALUES").count(), 2);
 
         let _ = std::fs::remove_file(&result.output_path);
         let _ = std::fs::remove_dir(&temp_dir);

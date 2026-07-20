@@ -110,23 +110,27 @@ impl LowCodeEngine {
     }
 
     /// Generate real SQL CRUD statements (INSERT/SELECT/UPDATE/DELETE) for the model.
+    ///
+    /// # 安全性（门禁 9 修复）
+    ///
+    /// 表名用双引号包裹（PostgreSQL 标准），防止含特殊字符或 SQL 关键字的表名逃逸注入。
     pub fn generate_crud(&self, model: &ModelDefinition) -> String {
         let table = &model.name;
         let mut sql = String::new();
         sql.push_str(&format!("-- CRUD for table {}\n", table));
         sql.push_str(&format!(
-            "INSERT INTO {} (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4);\n",
+            "INSERT INTO \"{}\" (id, name, created_at, updated_at) VALUES ($1, $2, $3, $4);\n",
             table
         ));
         sql.push_str(&format!(
-            "SELECT id, name, created_at, updated_at FROM {} WHERE id = $1;\n",
+            "SELECT id, name, created_at, updated_at FROM \"{}\" WHERE id = $1;\n",
             table
         ));
         sql.push_str(&format!(
-            "UPDATE {} SET name = $1, updated_at = $2 WHERE id = $3;\n",
+            "UPDATE \"{}\" SET name = $1, updated_at = $2 WHERE id = $3;\n",
             table
         ));
-        sql.push_str(&format!("DELETE FROM {} WHERE id = $1;\n", table));
+        sql.push_str(&format!("DELETE FROM \"{}\" WHERE id = $1;\n", table));
         sql
     }
 
@@ -255,10 +259,10 @@ mod tests {
         let e = LowCodeEngine;
         let m = ModelDefinition::new("users");
         let sql = e.generate_crud(&m);
-        assert!(sql.contains("INSERT INTO users"));
-        assert!(sql.contains("SELECT id, name, created_at, updated_at FROM users"));
-        assert!(sql.contains("UPDATE users SET name"));
-        assert!(sql.contains("DELETE FROM users"));
+        assert!(sql.contains("INSERT INTO \"users\""));
+        assert!(sql.contains("SELECT id, name, created_at, updated_at FROM \"users\""));
+        assert!(sql.contains("UPDATE \"users\" SET name"));
+        assert!(sql.contains("DELETE FROM \"users\""));
         // Verify placeholder absence
         assert!(!sql.starts_with("CRUD for "));
     }

@@ -526,12 +526,28 @@ impl<'a> WithRelation<'a> {
 
     /// 获取指定关联表的 SQL（默认占位符 `?`）
     pub fn related_sql(&self, name: &str) -> Option<String> {
-        self.related_sql_with_ids(name, ["?"])
+        let (_, item) = self.relations.iter().find(|(n, _)| *n == name)?;
+        let foreign_key = match &item.kind {
+            WithRelationKind::HasMany { foreign_key, .. }
+            | WithRelationKind::HasOne { foreign_key, .. }
+            | WithRelationKind::BelongsTo { foreign_key, .. } => foreign_key.clone(),
+        };
+        // 默认使用 ? 占位符，调用方应在执行时绑定具体 ID
+        Some(format!(
+            "SELECT * FROM {} WHERE {} IN (?)",
+            self.dialect.quote(&item.related_table),
+            self.dialect.quote(&foreign_key),
+        ))
     }
 
     /// 获取指定关联表 SQL，使用具体的 ID 列表
     ///
     /// 接受任意可迭代且元素可 `ToString` 的输入（`&[i64]`、`Vec<String>`、`["a", "b"]` 等）。
+    ///
+    /// # 安全性（v0.2.2 修复 C-5）
+    ///
+    /// 每个 id 经 `sql_safety::validate_id_value` 严格校验，仅允许字母数字+下划线+减号，
+    /// 杜绝通过 id 拼接 SQL 注入。
     pub fn related_sql_with_ids(
         &self,
         name: &str,
@@ -543,9 +559,15 @@ impl<'a> WithRelation<'a> {
             | WithRelationKind::HasOne { foreign_key, .. }
             | WithRelationKind::BelongsTo { foreign_key, .. } => foreign_key.clone(),
         };
+        // v0.2.2 修复 C-5：每个 id 必须通过严格校验，拒绝 SQL 注入
         let ids_str = ids
             .into_iter()
-            .map(|v| v.to_string())
+            .map(|v| {
+                let s = v.to_string();
+                crate::sql_safety::validate_id_value(&s)
+                    .expect("invalid id value in related_sql_with_ids");
+                s
+            })
             .collect::<Vec<_>>()
             .join(", ");
         Some(format!(
@@ -937,5 +959,57 @@ mod tests {
             .with_has_one("profiles", "user_id", "id")
             .load_join(None);
         assert!(sql.contains("LEFT JOIN \"profiles\""));
+    }
+
+    // v0.2.2 修复 C-5：SQL 注入测试套件
+
+    #[test]
+    #[should_panic(expected = "invalid id value")]
+    fn with_relation_rejects_sql_injection_in_id_semicolon() {
+        let d = mysql_dialect();
+        let loader = WithRelation::new(&*d, "users")
+            .with_has_many("orders", "user_id", "id")
+            .load_eager(None);
+        let _ = loader.related_sql_with_ids("orders", ["1; DROP TABLE users"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid id value")]
+    fn with_relation_rejects_sql_injection_in_id_or() {
+        let d = mysql_dialect();
+        let loader = WithRelation::new(&*d, "users")
+            .with_has_many("orders", "user_id", "id")
+            .load_eager(None);
+        let _ = loader.related_sql_with_ids("orders", ["1) OR 1=1"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid id value")]
+    fn with_relation_rejects_sql_injection_in_id_quote() {
+        let d = mysql_dialect();
+        let loader = WithRelation::new(&*d, "users")
+            .with_has_many("orders", "user_id", "id")
+            .load_eager(None);
+        let _ = loader.related_sql_with_ids("orders", ["' OR '1'='1"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid id value")]
+    fn with_relation_rejects_sql_injection_in_id_comment() {
+        let d = mysql_dialect();
+        let loader = WithRelation::new(&*d, "users")
+            .with_has_many("orders", "user_id", "id")
+            .load_eager(None);
+        let _ = loader.related_sql_with_ids("orders", ["1--"]);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid id value")]
+    fn with_relation_rejects_sql_injection_in_id_with_space() {
+        let d = mysql_dialect();
+        let loader = WithRelation::new(&*d, "users")
+            .with_has_many("orders", "user_id", "id")
+            .load_eager(None);
+        let _ = loader.related_sql_with_ids("orders", ["1 2"]);
     }
 }

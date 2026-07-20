@@ -59,7 +59,7 @@ pub trait SearchExt: Send + Sync {
 /// Provider 类型
 #[derive(Debug, Clone)]
 pub enum SearchProvider {
-    /// 内存实现（简易倒排索引）
+    /// 内存实现（线性扫描 + 子串匹配，无倒排索引）
     Memory,
     /// Stub 实现（生成查询 JSON 但不执行）
     Stub,

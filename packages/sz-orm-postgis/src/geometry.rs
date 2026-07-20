@@ -262,6 +262,64 @@ impl Geometry {
         }
     }
 
+    /// 从 EWKT 字符串解析几何体
+    ///
+    /// 支持格式：`SRID=4326;POINT(x y)` / `SRID=4326;LINESTRING(...)` / `SRID=4326;POLYGON(...)`
+    /// 也支持无 SRID 前缀的 WKT（使用 DEFAULT_SRID）
+    ///
+    /// v0.2.2 新增：用于 real_postgis.rs 解析 ST_AsEWKT 返回值
+    pub fn from_ewkt(ewkt: &str) -> Result<Self, PostgisError> {
+        let (srid, wkt) = if let Some(semi) = ewkt.find(';') {
+            let srid_str = &ewkt[..semi];
+            let wkt = &ewkt[semi + 1..];
+            if !srid_str.starts_with("SRID=") {
+                return Err(PostgisError::Query(format!(
+                    "invalid EWKT SRID prefix: {}",
+                    srid_str
+                )));
+            }
+            let srid: i32 = srid_str[5..]
+                .parse()
+                .map_err(|e| PostgisError::Query(format!("invalid SRID: {}", e)))?;
+            (srid, wkt)
+        } else {
+            (DEFAULT_SRID, ewkt)
+        };
+
+        let wkt = wkt.trim();
+        let upper = wkt.to_uppercase();
+
+        if upper.starts_with("POINT") {
+            let coords = extract_paren_content(&upper, "POINT")?;
+            let nums = parse_coord_pair(&coords)?;
+            Ok(Geometry::Point(Point::with_srid(nums.0, nums.1, srid)))
+        } else if upper.starts_with("LINESTRING") {
+            let coords = extract_paren_content(&upper, "LINESTRING")?;
+            let points = parse_coord_list(&coords)?
+                .into_iter()
+                .map(|(x, y)| Point::with_srid(x, y, srid))
+                .collect();
+            Ok(Geometry::LineString(LineString { points, srid }))
+        } else if upper.starts_with("POLYGON") {
+            let rings_str = extract_paren_content(&upper, "POLYGON")?;
+            // rings_str 形如 (x1 y1, x2 y2, ...), (x3 y3, ...)
+            let rings = parse_polygon_rings(&rings_str, srid)?;
+            Ok(Geometry::Polygon(Polygon { rings, srid }))
+        } else if upper.starts_with("MULTIPOINT") {
+            let coords = extract_paren_content(&upper, "MULTIPOINT")?;
+            let points = parse_coord_list(&coords)?
+                .into_iter()
+                .map(|(x, y)| Point::with_srid(x, y, srid))
+                .collect();
+            Ok(Geometry::MultiPoint(points))
+        } else {
+            Err(PostgisError::Query(format!(
+                "unsupported WKT type in: {}",
+                wkt
+            )))
+        }
+    }
+
     /// 转 EWKT 字符串
     pub fn to_ewkt(&self) -> String {
         match self {
@@ -309,6 +367,110 @@ impl Geometry {
             }
         }
     }
+}
+
+/// 从 WKT 中提取括号内容：`POINT(x y)` → `x y`
+fn extract_paren_content(upper_wkt: &str, type_name: &str) -> Result<String, PostgisError> {
+    let start = upper_wkt
+        .find(type_name)
+        .ok_or_else(|| PostgisError::Query(format!("missing type name {}", type_name)))?
+        + type_name.len();
+    let rest = &upper_wkt[start..];
+    let rest = rest.trim_start();
+    if !rest.starts_with('(') {
+        return Err(PostgisError::Query(format!(
+            "missing opening paren after {}: {}",
+            type_name, rest
+        )));
+    }
+    // 找到匹配的右括号（处理嵌套，如 POLYGON((...)(...))）
+    let mut depth = 0i32;
+    let mut end = 0usize;
+    for (i, c) in rest.chars().enumerate() {
+        match c {
+            '(' => depth += 1,
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    end = i;
+                    break;
+                }
+            }
+            _ => {}
+        }
+    }
+    if depth != 0 {
+        return Err(PostgisError::Query(format!(
+            "unbalanced parens in {}: {}",
+            type_name, rest
+        )));
+    }
+    Ok(rest[1..end].to_string())
+}
+
+/// 解析坐标对：`x y` → (f64, f64)
+fn parse_coord_pair(s: &str) -> Result<(f64, f64), PostgisError> {
+    let parts: Vec<&str> = s.split_whitespace().collect();
+    if parts.len() < 2 {
+        return Err(PostgisError::Query(format!(
+            "expected 2 coords, got {}: {}",
+            parts.len(),
+            s
+        )));
+    }
+    let x: f64 = parts[0]
+        .parse()
+        .map_err(|e| PostgisError::Query(format!("invalid x coord: {}", e)))?;
+    let y: f64 = parts[1]
+        .parse()
+        .map_err(|e| PostgisError::Query(format!("invalid y coord: {}", e)))?;
+    Ok((x, y))
+}
+
+/// 解析坐标列表：`x1 y1, x2 y2, ...` → Vec<(x, y)>
+fn parse_coord_list(s: &str) -> Result<Vec<(f64, f64)>, PostgisError> {
+    s.split(',')
+        .map(|pair| parse_coord_pair(pair.trim()))
+        .collect()
+}
+
+/// 解析多边形环：`(x1 y1, x2 y2, ...), (x3 y3, ...)` → Vec<Vec<Point>>
+fn parse_polygon_rings(s: &str, srid: i32) -> Result<Vec<Vec<Point>>, PostgisError> {
+    let mut rings = Vec::new();
+    let mut depth = 0i32;
+    let mut current = String::new();
+    for c in s.chars() {
+        match c {
+            '(' => {
+                depth += 1;
+                if depth == 1 {
+                    current.clear();
+                } else {
+                    current.push(c);
+                }
+            }
+            ')' => {
+                depth -= 1;
+                if depth == 0 {
+                    let ring: Vec<Point> = parse_coord_list(&current)?
+                        .into_iter()
+                        .map(|(x, y)| Point::with_srid(x, y, srid))
+                        .collect();
+                    rings.push(ring);
+                } else {
+                    current.push(c);
+                }
+            }
+            _ if depth >= 1 => {
+                current.push(c);
+            }
+            _ => {} // 顶层（depth==0）的空格/逗号是分隔符
+        }
+    }
+    if rings.is_empty() {
+        return Err(PostgisError::Query(format!("no rings parsed from: {}", s)));
+    }
+    Ok(rings)
 }
 
 #[cfg(test)]

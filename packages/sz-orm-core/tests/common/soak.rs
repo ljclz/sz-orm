@@ -11,7 +11,7 @@
 //! - `pool_idle / pool_active / pool_max`：连接池状态
 //! - `rss_bytes`：进程 RSS（Linux 读 /proc/self/status；其他平台用占位实现）
 //! - `fd_count`：文件句柄数（Linux 读 /proc/self/fd）
-//! - `thread_count`：tokio 工作线程数
+//! - `thread_count`：进程线程数（Linux 读 /proc/self/status 的 Threads 行；其他平台返回 0，占位实现）
 //! - `p99_latency_us`：P99 延迟（基于滑动窗口）
 //! - `error_count`：累计错误数
 //!
@@ -42,6 +42,8 @@ pub struct SoakSnapshot {
     pub pool_max: u32,
     pub rss_bytes: u64,
     pub fd_count: u32,
+    /// v0.2.2 修复 V-7：进程线程数（Linux 读 /proc/self/status 的 Threads 行，其他平台为 0）
+    pub thread_count: u32,
     pub p99_latency_us: u64,
     pub error_count: u64,
 }
@@ -50,7 +52,7 @@ impl SoakSnapshot {
     /// 写入 CSV 一行
     pub fn to_csv_line(&self) -> String {
         format!(
-            "{},{},{},{:.2},{},{},{},{},{},{},{}\n",
+            "{},{},{},{:.2},{},{},{},{},{},{},{},{}\n",
             self.elapsed_secs,
             self.ops_completed,
             self.ops_per_sec,
@@ -59,6 +61,7 @@ impl SoakSnapshot {
             self.pool_max,
             self.rss_bytes,
             self.fd_count,
+            self.thread_count,
             self.p99_latency_us,
             self.error_count,
             chrono::Utc::now().to_rfc3339()
@@ -67,7 +70,7 @@ impl SoakSnapshot {
 
     /// CSV 表头
     pub fn csv_header() -> &'static str {
-        "elapsed_secs,ops_completed,ops_per_sec,pool_idle,pool_active,pool_max,rss_bytes,fd_count,p99_latency_us,error_count,timestamp\n"
+        "elapsed_secs,ops_completed,ops_per_sec,pool_idle,pool_active,pool_max,rss_bytes,fd_count,thread_count,p99_latency_us,error_count,timestamp\n"
     }
 }
 
@@ -187,6 +190,7 @@ impl SoakMonitor {
             pool_max: pool_status.2,
             rss_bytes: read_rss_bytes(),
             fd_count: read_fd_count(),
+            thread_count: read_thread_count(),
             p99_latency_us,
             error_count,
         };
@@ -420,6 +424,34 @@ fn read_fd_count() -> u32 {
     }
 }
 
+/// v0.2.2 修复 V-7：读取进程线程数
+///
+/// Linux: 读 /proc/self/status 的 `Threads:` 行
+/// 其他平台：返回 0（仅 Linux 支持精确线程数读取）
+///
+/// 该字段用于 Soak Test 检测线程泄漏（线程数不可逆上升）。
+fn read_thread_count() -> u32 {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(content) = fs::read_to_string("/proc/self/status") {
+            for line in content.lines() {
+                if let Some(rest) = line.strip_prefix("Threads:") {
+                    // 格式："Threads:\t123"
+                    let parts: Vec<&str> = rest.split_whitespace().collect();
+                    if let Ok(n) = parts[0].parse::<u32>() {
+                        return n;
+                    }
+                }
+            }
+        }
+        0
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        0
+    }
+}
+
 /// 记录单次操作延迟到滑动窗口
 pub fn record_latency(window: &Arc<std::sync::Mutex<VecDeque<u64>>>, latency_us: u64) {
     let mut w = window.lock().unwrap();
@@ -512,12 +544,16 @@ mod tests {
             pool_max: 20,
             rss_bytes: 10 * 1024 * 1024,
             fd_count: 10,
+            thread_count: 8,
             p99_latency_us: 500,
             error_count: 0,
         };
         let line = snap.to_csv_line();
         assert!(line.starts_with("60,1000,"));
         assert!(line.ends_with('\n'));
+        // v0.2.2 修复 V-7：CSV 必须包含 thread_count 列
+        assert_eq!(SoakSnapshot::csv_header().matches(',').count(), 11);
+        assert_eq!(line.matches(',').count(), 11);
     }
 
     #[test]
@@ -538,6 +574,7 @@ mod tests {
             pool_max: 20,
             rss_bytes: 10 * 1024 * 1024,
             fd_count: 5,
+            thread_count: 4,
             p99_latency_us: 100,
             error_count: 0,
         });
@@ -550,6 +587,7 @@ mod tests {
             pool_max: 20,
             rss_bytes: 30 * 1024 * 1024,
             fd_count: 8,
+            thread_count: 4,
             p99_latency_us: 150,
             error_count: 0,
         });
@@ -562,7 +600,8 @@ mod tests {
             pool_max: 20,
             rss_bytes: 80 * 1024 * 1024, // 增长 > 50MB
             fd_count: 20,                // 增长 > 10
-            p99_latency_us: 300,         // 增长 > 2x
+            thread_count: 4,
+            p99_latency_us: 300, // 增长 > 2x
             error_count: 3,
         });
 
@@ -586,5 +625,54 @@ mod tests {
         assert!(issues
             .iter()
             .any(|i| matches!(i, SoakRegression::ErrorsObserved { .. })));
+    }
+
+    // v0.2.2 修复 V-7：thread_count 字段单元测试
+
+    #[test]
+    fn test_read_thread_count_returns_nonzero_on_linux() {
+        // 在 Linux 上应返回非零值（至少 1 个主线程）
+        // 在非 Linux 平台上返回 0，测试不强制断言
+        let count = read_thread_count();
+        #[cfg(target_os = "linux")]
+        {
+            assert!(count >= 1, "Linux thread_count should be >= 1");
+        }
+        #[cfg(not(target_os = "linux"))]
+        {
+            assert_eq!(count, 0, "Non-Linux thread_count should be 0");
+            // 避免未使用变量警告
+            let _ = count;
+        }
+    }
+
+    #[test]
+    fn test_snapshot_includes_thread_count_field() {
+        let snap = SoakSnapshot {
+            elapsed_secs: 1,
+            ops_completed: 1,
+            ops_per_sec: 1.0,
+            pool_idle: 1,
+            pool_active: 1,
+            pool_max: 1,
+            rss_bytes: 0,
+            fd_count: 0,
+            thread_count: 42,
+            p99_latency_us: 100,
+            error_count: 0,
+        };
+        // 字段必须可读
+        assert_eq!(snap.thread_count, 42);
+        // CSV 行必须包含 42
+        let line = snap.to_csv_line();
+        assert!(line.contains(",42,"));
+    }
+
+    #[test]
+    fn test_csv_header_includes_thread_count() {
+        let header = SoakSnapshot::csv_header();
+        assert!(header.contains("thread_count"));
+        // 11 个逗号分隔 12 列
+        assert_eq!(header.matches(',').count(), 11);
     }
 }

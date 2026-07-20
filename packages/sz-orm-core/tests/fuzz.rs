@@ -257,10 +257,11 @@ fn fuzz_json_extract() {
 #[test]
 fn fuzz_query_builder() {
     let mut rng = Rng::new(303);
-    let dialect = get_dialect(DbType::MySQL).unwrap();
+    let db_type = DbType::MySQL;
+    let style = EscapeStyle::from_db_type(db_type);
 
     for i in 0..FUZZ_ITERATIONS {
-        let mut builder = QueryBuilder::<FuzzModel>::new(get_dialect(DbType::MySQL).unwrap());
+        let mut builder = QueryBuilder::<FuzzModel>::new(get_dialect(db_type).unwrap());
         builder = builder.table("users");
 
         // 随机选择列
@@ -315,23 +316,19 @@ fn fuzz_query_builder() {
 
         // 验证：SQL 不为空
         assert!(!sql.is_empty(), "Empty SQL generated");
-        // 验证：括号平衡
-        // v0.2.1 修复 D-1：Value::to_param 只用 '' 转义，不再使用反斜杠转义，
-        // 所以用 DoubleQuote 风格检查（反斜杠视为普通字符）
+        // 验证：括号平衡 — 用方言对应的 EscapeStyle
         assert!(
-            is_balanced(&sql, '(', ')', EscapeStyle::DoubleQuote),
+            is_balanced(&sql, '(', ')', style),
             "Unbalanced parens: {}",
             sql
         );
         // 验证：字符串字面量正确闭合
         assert!(
-            is_string_closed(&sql, EscapeStyle::DoubleQuote),
+            is_string_closed(&sql, style),
             "Unclosed string literal: {}",
             sql
         );
     }
-
-    let _ = dialect; // 避免未使用警告
 }
 
 /// Fuzz build_alter_table：随机生成 ALTER TABLE 语句

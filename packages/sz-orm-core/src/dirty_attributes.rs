@@ -256,7 +256,13 @@ pub fn build_dynamic_update(
 
     let sets: Vec<String> = fields
         .iter()
-        .map(|k| format!("{} = {}", dialect.quote(k), dirty[*k].to_param()))
+        .map(|k| {
+            format!(
+                "{} = {}",
+                dialect.quote(k),
+                dirty[*k].to_param_with_dialect(dialect)
+            )
+        })
         .collect();
     let sets_sql = sets.join(", ");
 
@@ -265,7 +271,7 @@ pub fn build_dynamic_update(
         quoted_table,
         sets_sql,
         quoted_pk,
-        pk_value.to_param(),
+        pk_value.to_param_with_dialect(dialect),
     ))
 }
 
@@ -333,7 +339,7 @@ pub fn build_dynamic_insert(
     let columns: Vec<String> = sorted.iter().map(|(k, _)| dialect.quote(k)).collect();
     let values: Vec<String> = sorted
         .iter()
-        .map(|(_, v)| v.to_param().to_string())
+        .map(|(_, v)| v.to_param_with_dialect(dialect).to_string())
         .collect();
 
     Some(format!(

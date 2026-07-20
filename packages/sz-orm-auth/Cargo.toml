@@ -17,6 +17,8 @@ sha2 = "0.10"
 hmac = "0.12"
 # base64 URL-safe (no padding) 编解码，替代手写实现
 base64 = "0.22"
+# v0.2.2 修复 H-3：常量时间比较，防止 JWT 签名校验的时序攻击
+subtle = "2.5"
 
 [dev-dependencies]
 tokio-test = "0.4"

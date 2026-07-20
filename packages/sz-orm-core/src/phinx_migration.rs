@@ -380,6 +380,15 @@ impl PhinxTable {
 
     /// 生成 CREATE TABLE SQL（Phinx `create()` 等价物）
     pub fn create(&self, db_type: DbType) -> String {
+        // v0.2.2 修复 C-2：表名/主键列名严格校验
+        crate::sql_safety::validate_identifier(&self.table_name, "table")
+            .expect("invalid table name");
+        if let Some(pk) = &self.primary_key {
+            for col in pk {
+                crate::sql_safety::validate_identifier(col, "primary key column")
+                    .expect("invalid primary key column name");
+            }
+        }
         let mut sql = String::new();
         sql.push_str("CREATE TABLE ");
         if self.if_not_exists {
@@ -408,7 +417,28 @@ impl PhinxTable {
         }
 
         // 外键（约束名含引用表，避免多表指向同一引用表时冲突）
+        // v0.2.2 修复 C-2：FOREIGN KEY 标识符与 ON DELETE/ON UPDATE 动作严格校验，杜绝 SQL 注入
         for fk in &self.foreign_keys {
+            crate::sql_safety::validate_identifier(&fk.column, "foreign key column")
+                .expect("invalid foreign key column name");
+            crate::sql_safety::validate_identifier(
+                &fk.referenced_table,
+                "foreign key referenced table",
+            )
+            .expect("invalid foreign key referenced table name");
+            crate::sql_safety::validate_identifier(
+                &fk.referenced_column,
+                "foreign key referenced column",
+            )
+            .expect("invalid foreign key referenced column name");
+            if let Some(on_delete) = &fk.options.on_delete {
+                crate::sql_safety::validate_fk_action(on_delete).expect("invalid ON DELETE action");
+            }
+            if let Some(on_update) = &fk.options.on_update {
+                crate::sql_safety::validate_fk_action(on_update).expect("invalid ON UPDATE action");
+            }
+            // 约束名 fk_{table}_{column}_{ref_table} 由 table/column/ref_table 拼接而成，
+            // 此三者均已校验为合法标识符，故约束名也必然合法（仅含字母数字下划线）
             sql.push_str(&format!(
                 ", CONSTRAINT fk_{}_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
                 self.table_name,
@@ -419,10 +449,10 @@ impl PhinxTable {
                 fk.referenced_column
             ));
             if let Some(on_delete) = &fk.options.on_delete {
-                sql.push_str(&format!(" ON DELETE {}", on_delete));
+                sql.push_str(&format!(" ON DELETE {}", on_delete.trim().to_uppercase()));
             }
             if let Some(on_update) = &fk.options.on_update {
-                sql.push_str(&format!(" ON UPDATE {}", on_update));
+                sql.push_str(&format!(" ON UPDATE {}", on_update.trim().to_uppercase()));
             }
         }
 
@@ -667,6 +697,54 @@ mod tests {
             "CONSTRAINT fk_orders_user_id_users FOREIGN KEY (user_id) REFERENCES users (id)"
         ));
         assert!(sql.contains("ON DELETE CASCADE"));
+    }
+
+    #[test]
+    fn test_phinx_table_foreign_key_normalizes_action_case() {
+        // v0.2.2 修复 C-2：ON DELETE 大小写不敏感，输出统一为大写
+        let sql = PhinxTable::new("orders")
+            .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
+            .add_column("user_id", ColumnType::BigIntermediate, |c| c.not_null())
+            .add_foreign_key("user_id", "users", "id", |fk| fk.on_delete("cascade"))
+            .create(DbType::MySQL);
+        assert!(sql.contains("ON DELETE CASCADE"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid foreign key column name")]
+    fn test_phinx_table_rejects_sql_injection_in_fk_column() {
+        let _ = PhinxTable::new("orders")
+            .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
+            .add_foreign_key("user_id; DROP TABLE", "users", "id", |fk| fk)
+            .create(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid foreign key referenced table name")]
+    fn test_phinx_table_rejects_sql_injection_in_fk_ref_table() {
+        let _ = PhinxTable::new("orders")
+            .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
+            .add_foreign_key("user_id", "users; DROP TABLE users", "id", |fk| fk)
+            .create(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid ON DELETE action")]
+    fn test_phinx_table_rejects_sql_injection_in_on_delete() {
+        let _ = PhinxTable::new("orders")
+            .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
+            .add_foreign_key("user_id", "users", "id", |fk| {
+                fk.on_delete("CASCADE; DROP TABLE users")
+            })
+            .create(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid table name")]
+    fn test_phinx_table_rejects_sql_injection_in_table_name() {
+        let _ = PhinxTable::new("orders; DROP TABLE orders")
+            .add_column("id", ColumnType::Integer, |c| c.not_null())
+            .create(DbType::MySQL);
     }
 
     #[test]

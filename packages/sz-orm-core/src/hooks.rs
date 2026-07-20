@@ -997,8 +997,12 @@ mod tests {
         }
     }
 
+    // 串行化锁：全局静态计数器是共享的，并行测试会互相干扰
+    static HOOK_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
     #[test]
     fn hook_dispatcher_insert_full_sequence() {
+        let _guard = HOOK_TEST_LOCK.lock().unwrap();
         dispatch_calls().store(0, std::sync::atomic::Ordering::SeqCst);
         reset_after_calls();
         let mut ctx = HookContext::new();
@@ -1086,6 +1090,7 @@ mod tests {
 
     #[test]
     fn hook_dispatcher_update_full_sequence() {
+        let _guard = HOOK_TEST_LOCK.lock().unwrap();
         dispatch_calls().store(0, std::sync::atomic::Ordering::SeqCst);
         reset_after_calls();
         let mut ctx = HookContext::new();

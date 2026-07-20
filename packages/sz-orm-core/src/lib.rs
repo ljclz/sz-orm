@@ -441,6 +441,7 @@ pub mod quick_query;
 pub mod repository;
 pub mod result_map;
 pub mod schema_gen;
+pub mod sql_safety;
 mod transaction;
 pub mod type_handler;
 pub mod typed;

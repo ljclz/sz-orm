@@ -202,6 +202,13 @@ impl Value {
 
     /// 转换为 SQL 参数字符串（用于直接拼接 SQL 语句）
     /// 字符串类型会进行转义并加引号；字节类型转换为 X'..' 形式
+    ///
+    /// # 安全性警告
+    ///
+    /// 本方法使用简单的 `'` → `''` 转义，对 PostgreSQL/SQLite 默认配置安全，
+    /// 但对 MySQL 默认配置（backslash 是转义字符）不安全：含 `\` 的字符串
+    /// 可能被 MySQL 误解。**生产环境请使用 [`Value::to_param_with_dialect`]**
+    /// 以获得方言感知的转义。
     pub fn to_param(&self) -> Cow<'_, str> {
         match self {
             Value::Null => Cow::Borrowed("NULL"),
@@ -225,6 +232,55 @@ impl Value {
             Value::Json(s) => Cow::Owned(format!("'{}'", escape_string(s))),
             Value::Array(arr) => {
                 let params: Vec<String> = arr.iter().map(|v| v.to_param().into_owned()).collect();
+                Cow::Owned(format!("({})", params.join(", ")))
+            }
+            Value::Object(_) => Cow::Borrowed("NULL"),
+        }
+    }
+
+    /// v0.2.2 修复 H-1：方言感知的 SQL 参数转换
+    ///
+    /// 与 [`to_param`](Self::to_param) 的区别：字符串类型使用 `dialect.escape_string()`
+    /// 而非简单的 `'` → `''` 转义，确保在所有方言下都安全：
+    ///
+    /// - **MySQL**：转义 `\`、`'`、`\0`、`\n`、`\r`、`\t`、`\x1a`
+    /// - **PostgreSQL**：仅转义 `'`（依赖 `standard_conforming_strings=on` 默认配置）
+    /// - **SQLite**：仅转义 `'`
+    ///
+    /// # 推荐用法
+    ///
+    /// ```ignore
+    /// use sz_orm_core::{DbType, get_dialect};
+    /// let dialect = get_dialect(DbType::MySQL)?;
+    /// let v = Value::String("hello\\nworld".to_string());
+    /// let param = v.to_param_with_dialect(&**dialect);
+    /// ```
+    pub fn to_param_with_dialect(&self, dialect: &dyn crate::dialect::Dialect) -> Cow<'_, str> {
+        match self {
+            Value::Null => Cow::Borrowed("NULL"),
+            Value::Bool(b) => Cow::Owned(if *b { "TRUE" } else { "FALSE" }.to_string()),
+            Value::I8(v) => Cow::Owned(v.to_string()),
+            Value::I16(v) => Cow::Owned(v.to_string()),
+            Value::I32(v) => Cow::Owned(v.to_string()),
+            Value::I64(v) => Cow::Owned(v.to_string()),
+            Value::U8(v) => Cow::Owned(v.to_string()),
+            Value::U16(v) => Cow::Owned(v.to_string()),
+            Value::U32(v) => Cow::Owned(v.to_string()),
+            Value::U64(v) => Cow::Owned(v.to_string()),
+            Value::F32(v) => Cow::Owned(v.to_string()),
+            Value::F64(v) => Cow::Owned(v.to_string()),
+            Value::String(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
+            Value::Bytes(b) => Cow::Owned(format!("X'{}'", hex_encode(b))),
+            Value::Uuid(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
+            Value::Date(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
+            Value::DateTime(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
+            Value::Time(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
+            Value::Json(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
+            Value::Array(arr) => {
+                let params: Vec<String> = arr
+                    .iter()
+                    .map(|v| v.to_param_with_dialect(dialect).into_owned())
+                    .collect();
                 Cow::Owned(format!("({})", params.join(", ")))
             }
             Value::Object(_) => Cow::Borrowed("NULL"),
