@@ -67,9 +67,11 @@ impl MeilisearchProvider {
 #[async_trait]
 impl SearchExt for MeilisearchProvider {
     async fn create_index(&self, index: &str, _mappings: &Value) -> Result<(), SearchError> {
+        // v0.2.2 修复 P1-4（第二次审查补全）：显式设置 primary_key = "id"
+        // 确保即使仅调用 create_index + search（不先 index_doc）时也有正确的主键
         let task_info = self
             .client
-            .create_index(index, None)
+            .create_index(index, Some("id"))
             .await
             .map_err(|e| SearchError::Query(e.to_string()))?;
         self.wait_task(task_info).await
@@ -84,10 +86,19 @@ impl SearchExt for MeilisearchProvider {
         self.wait_task(task_info).await
     }
 
-    async fn index_doc(&self, index: &str, _id: &str, doc: &Value) -> Result<(), SearchError> {
+    async fn index_doc(&self, index: &str, id: &str, doc: &Value) -> Result<(), SearchError> {
+        // v0.2.2 修复 V-5：原实现忽略 id 参数，导致 Meilisearch 自动生成 id
+        // 现在：将 id 注入文档作为 primary key 字段，并显式指定 "id" 为主键
+        let mut doc_with_id = doc.clone();
+        if let Value::Object(ref mut map) = doc_with_id {
+            // 仅在文档尚未包含 id 字段时注入，避免覆盖用户提供的 id
+            if !map.contains_key("id") {
+                map.insert("id".to_string(), Value::String(id.to_string()));
+            }
+        }
         let idx = self.index(index);
         let task_info = idx
-            .add_documents(&[doc], None)
+            .add_documents(&[doc_with_id], Some("id"))
             .await
             .map_err(|e| SearchError::Query(e.to_string()))?;
         self.wait_task(task_info).await
@@ -129,27 +140,31 @@ impl SearchExt for MeilisearchProvider {
         let limit = params.get("limit").and_then(|v| v.as_u64()).unwrap_or(10) as usize;
         let offset = params.get("offset").and_then(|v| v.as_u64()).unwrap_or(0) as usize;
 
-        let mut sq = MeiliSearchQuery::new(&idx).with_query(&q_str);
+        let mut sq = MeiliSearchQuery::new(&idx);
+        sq.with_query(&q_str);
         if limit > 0 {
-            sq = sq.with_limit(limit);
+            sq.with_limit(limit);
         }
         if offset > 0 {
-            sq = sq.with_offset(offset);
+            sq.with_offset(offset);
         }
         let filter_str = params.get("filter").and_then(|v| v.as_str());
         if let Some(filter) = filter_str {
-            sq = sq.with_filter(filter);
+            sq.with_filter(filter);
         }
-        let sort_arr = params.get("sort").and_then(|v| v.as_array());
-        if let Some(sort) = sort_arr {
-            let sort_strs: Vec<String> = sort
-                .iter()
-                .filter_map(|v| v.as_str().map(|s| s.to_string()))
-                .collect();
-            let sort_refs: Vec<&str> = sort_strs.iter().map(|s| s.as_str()).collect();
-            if !sort_refs.is_empty() {
-                sq = sq.with_sort(&sort_refs);
-            }
+        // v0.2.2：将 sort_strs 提升到外部作用域，避免 with_sort 的 &'a 生命周期借用早释
+        let sort_strs: Vec<String> = params
+            .get("sort")
+            .and_then(|v| v.as_array())
+            .map(|arr| {
+                arr.iter()
+                    .filter_map(|v| v.as_str().map(|s| s.to_string()))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let sort_refs: Vec<&str> = sort_strs.iter().map(|s| s.as_str()).collect();
+        if !sort_refs.is_empty() {
+            sq.with_sort(&sort_refs);
         }
 
         let start = Instant::now();

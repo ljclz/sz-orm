@@ -46,6 +46,7 @@ pub mod timeseries;
 pub mod types;
 
 pub mod memory;
+mod safety;
 pub mod stub;
 
 #[cfg(feature = "real-timescale")]

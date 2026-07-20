@@ -580,6 +580,12 @@ pub fn append_where_clauses(sql: &str, clauses: &[String]) -> String {
 }
 
 /// 在 SQL 中查找指定关键字的位置（独立词匹配，大小写不敏感）
+///
+/// v0.2.2 修复 H-2：增加括号深度跟踪，仅在 depth=0（顶层）匹配关键字，
+/// 避免误匹配子查询中的 WHERE/LIMIT/GROUP BY 等关键字。
+///
+/// 例如 `SELECT * FROM users WHERE id IN (SELECT id FROM logs LIMIT 5)`
+/// 中，外层 SELECT 的 LIMIT 应被忽略，只匹配 depth=0 处的关键字。
 fn find_keyword(sql: &str, keyword: &str) -> Option<usize> {
     let upper_sql = sql.to_uppercase();
     let kw_upper = keyword.to_uppercase();
@@ -592,8 +598,24 @@ fn find_keyword(sql: &str, keyword: &str) -> Option<usize> {
     let kw_bytes = kw_upper.as_bytes();
 
     let mut i = 0;
+    let mut depth: i32 = 0; // 括号深度跟踪
     while i + kw_len <= bytes.len() {
-        if &bytes[i..i + kw_len] == kw_bytes {
+        let b = bytes[i];
+        // 跟踪括号深度
+        if b == b'(' {
+            depth += 1;
+            i += 1;
+            continue;
+        }
+        if b == b')' {
+            if depth > 0 {
+                depth -= 1;
+            }
+            i += 1;
+            continue;
+        }
+        // 仅在 depth=0 时匹配关键字
+        if depth == 0 && &bytes[i..i + kw_len] == kw_bytes {
             // 检查前一个字符是否为单词边界
             let prev_ok = i == 0 || !bytes[i - 1].is_ascii_alphanumeric() && bytes[i - 1] != b'_';
             // 检查后一个字符是否为单词边界
@@ -1001,6 +1023,56 @@ mod tests {
             find_keyword("select * from t where id = 1", "WHERE"),
             Some(16)
         );
+    }
+
+    // ===== v0.2.2 修复 H-2：括号深度跟踪测试 =====
+
+    #[test]
+    fn test_find_keyword_skips_subquery_where() {
+        // 子查询中的 WHERE 不应被匹配（外层 WHERE 在位置 20）
+        let sql = "SELECT * FROM users WHERE id IN (SELECT id FROM logs WHERE level = 1)";
+        let pos = find_keyword(sql, "WHERE").unwrap();
+        // 应该匹配外层 WHERE（位置 20），而不是子查询中的 WHERE
+        assert_eq!(pos, 20);
+        // 验证返回的位置确实是外层 WHERE
+        assert_eq!(&sql[pos..pos + 5], "WHERE");
+    }
+
+    #[test]
+    fn test_find_keyword_skips_subquery_limit() {
+        // 子查询中的 LIMIT 不应被匹配
+        let sql = "SELECT * FROM users WHERE id IN (SELECT id FROM logs LIMIT 5)";
+        // 外层没有 LIMIT，应返回 None
+        assert_eq!(find_keyword(sql, "LIMIT"), None);
+    }
+
+    #[test]
+    fn test_find_keyword_finds_outer_limit() {
+        // 外层 LIMIT 应被匹配，子查询中的 LIMIT 应被忽略
+        let sql = "SELECT * FROM users WHERE id IN (SELECT id FROM logs LIMIT 5) LIMIT 10";
+        let pos = find_keyword(sql, "LIMIT").unwrap();
+        // 应该匹配外层 LIMIT（位置 60），而不是子查询中的 LIMIT（位置 47）
+        assert_eq!(&sql[pos..pos + 5], "LIMIT");
+        // 确保不是子查询的 LIMIT
+        assert!(pos > 50, "should match outer LIMIT, got pos={}", pos);
+    }
+
+    #[test]
+    fn test_find_keyword_skips_nested_parentheses() {
+        // 多层嵌套括号
+        let sql = "SELECT * FROM t WHERE id IN (SELECT id FROM (SELECT * FROM t2 WHERE x = 1) sub)";
+        let pos = find_keyword(sql, "WHERE").unwrap();
+        // 应该匹配外层 WHERE（位置 16）
+        assert_eq!(&sql[pos..pos + 5], "WHERE");
+        assert_eq!(pos, 16);
+    }
+
+    #[test]
+    fn test_find_keyword_unbalanced_parentheses_safe() {
+        // 不平衡括号不应导致 panic（depth > 0 时继续，但不影响安全性）
+        let sql = "SELECT * FROM t WHERE id = 1)";
+        // 应仍能匹配 WHERE
+        assert!(find_keyword(sql, "WHERE").is_some());
     }
 
     // ===== 默认 Default 测试 =====

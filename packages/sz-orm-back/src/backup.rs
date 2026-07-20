@@ -295,7 +295,10 @@ impl BackupManager {
                 for row in &registered.rows {
                     let json_str =
                         serde_json::to_string(row).map_err(|e| BkError::Export(e.to_string()))?;
-                    sql.push_str(&format!("INSERT INTO {} VALUES ({});\n", name, json_str));
+                    sql.push_str(&format!(
+                        "INSERT INTO \"{}\" VALUES ({});\n",
+                        name, json_str
+                    ));
                     rows_count += 1;
                 }
                 sql.push('\n');

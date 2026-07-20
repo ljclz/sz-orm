@@ -632,15 +632,36 @@ impl ForeignKeyDef {
     }
 
     fn build(&self, _db_type: DbType) -> String {
+        // v0.2.2 修复 C-3：FOREIGN KEY 标识符与 ON DELETE/ON UPDATE 动作严格校验
+        crate::sql_safety::validate_identifier(&self.name, "foreign key constraint name")
+            .expect("invalid foreign key constraint name");
+        crate::sql_safety::validate_identifier(&self.column, "foreign key column")
+            .expect("invalid foreign key column name");
+        crate::sql_safety::validate_identifier(
+            &self.referenced_table,
+            "foreign key referenced table",
+        )
+        .expect("invalid foreign key referenced table name");
+        crate::sql_safety::validate_identifier(
+            &self.referenced_column,
+            "foreign key referenced column",
+        )
+        .expect("invalid foreign key referenced column name");
+        if let Some(ref on_delete) = self.on_delete {
+            crate::sql_safety::validate_fk_action(on_delete).expect("invalid ON DELETE action");
+        }
+        if let Some(ref on_update) = self.on_update {
+            crate::sql_safety::validate_fk_action(on_update).expect("invalid ON UPDATE action");
+        }
         let mut sql = format!(
             "CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
             self.name, self.column, self.referenced_table, self.referenced_column
         );
         if let Some(ref on_delete) = self.on_delete {
-            sql.push_str(&format!(" ON DELETE {}", on_delete));
+            sql.push_str(&format!(" ON DELETE {}", on_delete.trim().to_uppercase()));
         }
         if let Some(ref on_update) = self.on_update {
-            sql.push_str(&format!(" ON UPDATE {}", on_update));
+            sql.push_str(&format!(" ON UPDATE {}", on_update.trim().to_uppercase()));
         }
         sql
     }
@@ -711,6 +732,43 @@ mod tests {
         let sql = fk.build(DbType::MySQL);
         assert!(sql.contains("FOREIGN KEY"));
         assert!(sql.contains("ON DELETE CASCADE"));
+    }
+
+    #[test]
+    fn test_foreign_key_build_normalizes_action_case() {
+        // v0.2.2 修复 C-3：动作大小写不敏感，输出统一为大写
+        let fk = ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_delete("cascade");
+        let sql = fk.build(DbType::MySQL);
+        assert!(sql.contains("ON DELETE CASCADE"));
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid foreign key column name")]
+    fn test_foreign_key_rejects_sql_injection_in_column() {
+        let fk = ForeignKeyDef::new("fk_user", "user_id; DROP TABLE users", "users", "id");
+        let _ = fk.build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid foreign key referenced table name")]
+    fn test_foreign_key_rejects_sql_injection_in_ref_table() {
+        let fk = ForeignKeyDef::new("fk_user", "user_id", "users; DROP TABLE users", "id");
+        let _ = fk.build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid ON DELETE action")]
+    fn test_foreign_key_rejects_sql_injection_in_on_delete() {
+        let fk = ForeignKeyDef::new("fk_user", "user_id", "users", "id")
+            .on_delete("CASCADE; DROP TABLE users");
+        let _ = fk.build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid ON UPDATE action")]
+    fn test_foreign_key_rejects_invalid_on_update_action() {
+        let fk = ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_update("EVIL_ACTION");
+        let _ = fk.build(DbType::MySQL);
     }
 
     #[test]

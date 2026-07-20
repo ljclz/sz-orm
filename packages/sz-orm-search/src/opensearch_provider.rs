@@ -114,7 +114,8 @@ impl SearchExt for OpensearchProvider {
             .json()
             .await
             .map_err(|e| SearchError::Query(e.to_string()))?;
-        Ok(response_body.get("source").cloned())
+        // v0.2.2 修复 V-3：OpenSearch Get API 返回的文档源字段名是 `_source`（带下划线前缀），不是 `source`
+        Ok(response_body.get("_source").cloned())
     }
 
     async fn delete_doc(&self, index: &str, id: &str) -> Result<(), SearchError> {

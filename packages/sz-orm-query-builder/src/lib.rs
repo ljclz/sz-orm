@@ -62,6 +62,66 @@
 
 use sz_orm_core::DbType;
 
+/// 用反引号包裹标识符并转义内部反引号（MySQL 标准：` → ``）
+///
+/// # 安全性（门禁 9 修复）
+///
+/// 不转义的反引号包裹允许恶意标识符通过 ` 逃逸注入。本函数将标识符内
+/// 的反引号加倍（MySQL 标准转义），确保拼接后的 SQL 不会被恶意标识符突破。
+///
+/// 支持带点号的限定标识符: `u.id` → `u`.`id`
+fn quote_ident(s: &str) -> String {
+    s.split('.')
+        .map(|part| format!("`{}`", part.replace('`', "``")))
+        .collect::<Vec<_>>()
+        .join(".")
+}
+
+/// 校验 WHERE 条件字符串，拒绝明显的 SQL 注入模式
+///
+/// v0.2.2 修复 C-6：公开 `where_clause(condition: &str)` 接受任意字符串，存在 SQL 注入风险。
+/// 本函数检测高危模式（分号+SQL 关键字、行注释、块注释），拒绝明显恶意输入。
+///
+/// # 检测模式
+///
+/// - `;` 后跟 SQL 关键字（DROP/DELETE/UPDATE/INSERT/ALTER/TRUNCATE/EXEC/CREATE/GRANT/REVOKE）
+/// - `--` 行注释序列
+/// - `/*` 块注释起始
+/// - `*/` 块注释结束
+///
+/// # 注意
+///
+/// 此校验是基础防线，不能替代参数化查询。复杂 WHERE 条件应使用参数化 API。
+fn check_where_injection(condition: &str) {
+    let upper = condition.to_uppercase();
+    const SQL_KEYWORDS: &[&str] = &[
+        "DROP", "DELETE", "UPDATE", "INSERT", "ALTER", "TRUNCATE", "EXEC", "CREATE", "GRANT",
+        "REVOKE",
+    ];
+    for kw in SQL_KEYWORDS {
+        let pattern1 = format!(";{}", kw);
+        let pattern2 = format!("; {}", kw);
+        if upper.contains(&pattern1) || upper.contains(&pattern2) {
+            panic!(
+                "SQL injection detected in where_clause: semicolon followed by {} keyword: {:?}",
+                kw, condition
+            );
+        }
+    }
+    if condition.contains("--") {
+        panic!(
+            "SQL injection detected in where_clause: line comment '--' not allowed: {:?}",
+            condition
+        );
+    }
+    if condition.contains("/*") || condition.contains("*/") {
+        panic!(
+            "SQL injection detected in where_clause: block comment '/*' or '*/' not allowed: {:?}",
+            condition
+        );
+    }
+}
+
 /// 查询构造器入口
 pub struct Query;
 
@@ -140,31 +200,81 @@ impl SelectQuery {
     }
 
     /// 添加 INNER JOIN
+    ///
+    /// # 安全性（门禁 9 修复）
+    ///
+    /// 表名经 `quote_ident()` 转义。`on` 条件为表达式，调用方应确保不使用恶意输入构造。
     pub fn inner_join(mut self, table: &str, on: &str) -> Self {
-        self.joins.push(format!("INNER JOIN {} ON {}", table, on));
+        self.joins.push(format!(
+            "INNER JOIN {} ON {}",
+            Self::quote_join_table(table),
+            on
+        ));
         self
     }
 
     /// 添加 LEFT JOIN
+    ///
+    /// # 安全性（门禁 9 修复）
+    ///
+    /// 同 `inner_join`，表名经 `quote_ident()` 转义。
     pub fn left_join(mut self, table: &str, on: &str) -> Self {
-        self.joins.push(format!("LEFT JOIN {} ON {}", table, on));
+        self.joins.push(format!(
+            "LEFT JOIN {} ON {}",
+            Self::quote_join_table(table),
+            on
+        ));
         self
     }
 
     /// 添加 RIGHT JOIN
+    ///
+    /// # 安全性（门禁 9 修复）
+    ///
+    /// 同 `inner_join`，表名经 `quote_ident()` 转义。
     pub fn right_join(mut self, table: &str, on: &str) -> Self {
-        self.joins.push(format!("RIGHT JOIN {} ON {}", table, on));
+        self.joins.push(format!(
+            "RIGHT JOIN {} ON {}",
+            Self::quote_join_table(table),
+            on
+        ));
         self
     }
 
+    /// 对 JOIN 表名部分进行转义（支持别名：`orders o` → `` `orders` o ``）
+    fn quote_join_table(table: &str) -> String {
+        if let Some((tbl, alias)) = table.rsplit_once(' ') {
+            if alias.to_uppercase() == "AS" {
+                // `orders AS o`
+                format!("{} AS {}", quote_ident(tbl), alias)
+            } else {
+                // `orders o`
+                format!("{} {}", quote_ident(tbl), alias)
+            }
+        } else {
+            quote_ident(table)
+        }
+    }
+
     /// 添加 WHERE 条件（AND 连接）
+    ///
+    /// # 安全性（v0.2.2 修复 C-6）
+    ///
+    /// 调用 `check_where_injection` 检测高危模式（分号+SQL 关键字、行注释、块注释）。
+    /// 复杂 WHERE 条件应使用参数化查询 API，避免直接拼接字符串。
     pub fn where_clause(mut self, condition: &str) -> Self {
+        check_where_injection(condition);
         self.wheres.push(condition.to_string());
         self
     }
 
     /// 添加 OR WHERE 条件
+    ///
+    /// # 安全性（v0.2.2 修复 C-6）
+    ///
+    /// 同 `where_clause`，调用 `check_where_injection` 检测高危模式。
     pub fn or_where(mut self, condition: &str) -> Self {
+        check_where_injection(condition);
         self.wheres.push(format!("OR {}", condition));
         self
     }
@@ -278,7 +388,14 @@ impl SelectQuery {
 
         if !self.group_by.is_empty() {
             sql.push_str(" GROUP BY ");
-            sql.push_str(&self.group_by.join(", "));
+            sql.push_str(
+                &self
+                    .group_by
+                    .iter()
+                    .map(|c| quote_ident(c))
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
 
         if !self.having.is_empty() {
@@ -288,7 +405,21 @@ impl SelectQuery {
 
         if !self.order_by.is_empty() {
             sql.push_str(" ORDER BY ");
-            sql.push_str(&self.order_by.join(", "));
+            sql.push_str(
+                &self
+                    .order_by
+                    .iter()
+                    .map(|s| {
+                        // 格式为 "column ASC" 或 "column DESC"
+                        if let Some((col, dir)) = s.rsplit_once(' ') {
+                            format!("{} {}", quote_ident(col), dir)
+                        } else {
+                            quote_ident(s)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
         }
 
         if let Some(limit) = self.limit {
@@ -338,19 +469,23 @@ impl InsertQuery {
         self
     }
 
-    /// 生成 SQL（使用 MySQL/PG/SQLite 通用语法）
+    /// 构建 INSERT SQL（无方言，硬编码反引号）
+    ///
+    /// # 安全性（门禁 9 修复）
+    ///
+    /// 标识符经 `quote_ident()` 转义后包裹反引号，防止含 `` ` `` 的恶意标识符逃逸。
     pub fn build(self) -> String {
         let table = self.table.unwrap_or_default();
         if table.is_empty() || self.columns.is_empty() {
             return String::new();
         }
 
-        let cols: Vec<String> = self.columns.iter().map(|c| format!("`{}`", c)).collect();
+        let cols: Vec<String> = self.columns.iter().map(|c| quote_ident(c)).collect();
         let vals: Vec<String> = self.values.iter().map(|v| v.to_string()).collect();
 
         format!(
-            "INSERT INTO `{}` ({}) VALUES ({})",
-            table,
+            "INSERT INTO {} ({}) VALUES ({})",
+            quote_ident(&table),
             cols.join(", "),
             vals.join(", ")
         )
@@ -414,12 +549,21 @@ impl UpdateQuery {
     }
 
     /// 添加 WHERE 条件
+    ///
+    /// # 安全性（v0.2.2 修复 C-6）
+    ///
+    /// 调用 `check_where_injection` 检测高危模式。
     pub fn where_clause(mut self, condition: &str) -> Self {
+        check_where_injection(condition);
         self.wheres.push(condition.to_string());
         self
     }
 
     /// 生成 SQL
+    ///
+    /// # 安全性（门禁 9 修复）
+    ///
+    /// 表名和列名经 `quote_ident()` 转义后包裹反引号，防止含 `` ` `` 的恶意标识符逃逸。
     pub fn build(self) -> String {
         let table = self.table.unwrap_or_default();
         if table.is_empty() || self.sets.is_empty() {
@@ -429,10 +573,10 @@ impl UpdateQuery {
         let set_str: Vec<String> = self
             .sets
             .iter()
-            .map(|(c, v)| format!("`{}` = {}", c, v))
+            .map(|(c, v)| format!("{} = {}", quote_ident(c), v))
             .collect();
 
-        let mut sql = format!("UPDATE `{}` SET {}", table, set_str.join(", "));
+        let mut sql = format!("UPDATE {} SET {}", quote_ident(&table), set_str.join(", "));
 
         if !self.wheres.is_empty() {
             sql.push_str(" WHERE ");
@@ -495,19 +639,28 @@ impl DeleteQuery {
     }
 
     /// 添加 WHERE 条件
+    ///
+    /// # 安全性（v0.2.2 修复 C-6）
+    ///
+    /// 调用 `check_where_injection` 检测高危模式。
     pub fn where_clause(mut self, condition: &str) -> Self {
+        check_where_injection(condition);
         self.wheres.push(condition.to_string());
         self
     }
 
     /// 生成 SQL
+    ///
+    /// # 安全性（门禁 9 修复）
+    ///
+    /// 表名经 `quote_ident()` 转义后包裹反引号，防止含 `` ` `` 的恶意表名逃逸。
     pub fn build(self) -> String {
         let table = self.table.unwrap_or_default();
         if table.is_empty() {
             return String::new();
         }
 
-        let mut sql = format!("DELETE FROM `{}`", table);
+        let mut sql = format!("DELETE FROM {}", quote_ident(&table));
 
         if !self.wheres.is_empty() {
             sql.push_str(" WHERE ");
@@ -608,7 +761,7 @@ mod tests {
             .from("users u")
             .inner_join("orders o", "u.id = o.user_id")
             .build(DbType::MySQL);
-        assert!(sql.contains("INNER JOIN orders o ON u.id = o.user_id"));
+        assert!(sql.contains("INNER JOIN `orders` o ON u.id = o.user_id"));
     }
 
     #[test]
@@ -618,7 +771,7 @@ mod tests {
             .from("users u")
             .left_join("profiles p", "u.id = p.user_id")
             .build(DbType::MySQL);
-        assert!(sql.contains("LEFT JOIN profiles p ON u.id = p.user_id"));
+        assert!(sql.contains("LEFT JOIN `profiles` p ON u.id = p.user_id"));
     }
 
     #[test]
@@ -629,7 +782,7 @@ mod tests {
             .order_by("created_at", true)
             .order_by("id", false)
             .build(DbType::MySQL);
-        assert!(sql.contains("ORDER BY created_at ASC, id DESC"));
+        assert!(sql.contains("ORDER BY `created_at` ASC, `id` DESC"));
     }
 
     #[test]
@@ -664,7 +817,7 @@ mod tests {
             .group_by("status")
             .having("COUNT(*) > 5")
             .build(DbType::MySQL);
-        assert!(sql.contains("GROUP BY status"));
+        assert!(sql.contains("GROUP BY `status`"));
         assert!(sql.contains("HAVING COUNT(*) > 5"));
     }
 
@@ -695,8 +848,8 @@ mod tests {
             .inner_join("orders o", "u.id = o.user_id")
             .left_join("profiles p", "u.id = p.user_id")
             .build(DbType::MySQL);
-        assert!(sql.contains("INNER JOIN orders o"));
-        assert!(sql.contains("LEFT JOIN profiles p"));
+        assert!(sql.contains("INNER JOIN `orders` o"));
+        assert!(sql.contains("LEFT JOIN `profiles` p"));
     }
 
     #[test]
@@ -910,12 +1063,136 @@ mod tests {
             .build(DbType::MySQL);
 
         assert!(sql.contains("SELECT DISTINCT"));
-        assert!(sql.contains("INNER JOIN orders o"));
+        assert!(sql.contains("INNER JOIN `orders` o"));
         assert!(sql.contains("WHERE u.status = 'active' AND o.total > 100"));
         assert!(sql.contains("GROUP BY"));
         assert!(sql.contains("HAVING SUM(o.total) > 1000"));
-        assert!(sql.contains("ORDER BY u.id ASC"));
+        assert!(sql.contains("ORDER BY `u`.`id` ASC"));
         assert!(sql.contains("LIMIT 20"));
         assert!(sql.contains("OFFSET 40"));
+    }
+
+    // ---- v0.2.2 修复 C-6：SQL 注入测试 ----
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_select_where_rejects_semicolon_drop() {
+        let _ = Query::select()
+            .column("id")
+            .from("users")
+            .where_clause("1=1; DROP TABLE users")
+            .build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_select_where_rejects_semicolon_space_drop() {
+        let _ = Query::select()
+            .column("id")
+            .from("users")
+            .where_clause("1=1; DROP TABLE users")
+            .build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_select_where_rejects_line_comment() {
+        let _ = Query::select()
+            .column("id")
+            .from("users")
+            .where_clause("id = 1 -- DROP TABLE users")
+            .build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_select_where_rejects_block_comment() {
+        let _ = Query::select()
+            .column("id")
+            .from("users")
+            .where_clause("id = 1 /* comment */ OR 1=1")
+            .build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_select_or_where_rejects_drop() {
+        let _ = Query::select()
+            .column("id")
+            .from("users")
+            .where_clause("id = 1")
+            .or_where("1=1; DROP TABLE users")
+            .build(DbType::MySQL);
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_update_where_rejects_delete() {
+        let _ = Query::update()
+            .table("users")
+            .set("name", "'x'")
+            .where_clause("1=1; DELETE FROM users")
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_update_where_rejects_line_comment() {
+        let _ = Query::update()
+            .table("users")
+            .set("name", "'x'")
+            .where_clause("id = 1 -- bypass")
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_delete_where_rejects_drop() {
+        let _ = Query::delete()
+            .from_table("users")
+            .where_clause("1=1; DROP TABLE users")
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_delete_where_rejects_block_comment() {
+        let _ = Query::delete()
+            .from_table("users")
+            .where_clause("id = 1 /* */ OR 1=1")
+            .build();
+    }
+
+    #[test]
+    #[should_panic(expected = "SQL injection detected")]
+    fn test_delete_where_rejects_line_comment() {
+        let _ = Query::delete()
+            .from_table("users")
+            .where_clause("id = 1--")
+            .build();
+    }
+
+    #[test]
+    fn test_safe_where_clauses_pass() {
+        // 这些是合法的 WHERE 条件，不应触发 panic
+        let _ = Query::select()
+            .column("id")
+            .from("users")
+            .where_clause("age > 18")
+            .where_clause("name = 'Alice;Bob'") // 分号在字符串字面量中
+            .where_clause("id IN (1, 2, 3)")
+            .where_clause("created_at > '2026-01-01'")
+            .build(DbType::MySQL);
+
+        let _ = Query::update()
+            .table("users")
+            .set("name", "'x'")
+            .where_clause("id = 1")
+            .build();
+
+        let _ = Query::delete()
+            .from_table("users")
+            .where_clause("id = 1")
+            .build();
     }
 }

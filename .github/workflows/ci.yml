@@ -115,6 +115,57 @@ jobs:
         run: cargo test --package sz-orm-core --test integration_sqlite --verbose
 
   # ============================================================================
+  # Job 3.5: v0.2.2 修复 P1-5：real-* feature 编译验证
+  #
+  # 确保 sz-orm-postgis / sz-orm-timeseries / sz-orm-search 三个生态包的
+  # real-* feature 在 CI 上能正确编译（防止伪实现/编译错误逃逸到 main）。
+  # ============================================================================
+  real-features-compile:
+    name: Real-* Features Compile Check
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-real-features-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-real-features-
+
+      - name: Check sz-orm-postgis (real-postgis)
+        working-directory: rust/sz-orm
+        run: cargo check --package sz-orm-postgis --features real-postgis --verbose
+
+      - name: Check sz-orm-timeseries (real-timescale)
+        working-directory: rust/sz-orm
+        run: cargo check --package sz-orm-timeseries --features real-timescale --verbose
+
+      - name: Check sz-orm-search (real-es)
+        working-directory: rust/sz-orm
+        run: cargo check --package sz-orm-search --features real-es --verbose
+
+      - name: Check sz-orm-search (real-opensearch)
+        working-directory: rust/sz-orm
+        run: cargo check --package sz-orm-search --features real-opensearch --verbose
+
+      - name: Check sz-orm-search (real-meilisearch)
+        working-directory: rust/sz-orm
+        run: cargo check --package sz-orm-search --features real-meilisearch --verbose
+
+      - name: Check sz-orm-search (all real-* features)
+        working-directory: rust/sz-orm
+        run: cargo check --package sz-orm-search --features "real-es,real-opensearch,real-meilisearch" --verbose
+
+  # ============================================================================
   # Job 4: 真实数据库集成测试（MySQL + PostgreSQL + SQLite）
   # ============================================================================
   integration-test:
@@ -351,6 +402,49 @@ jobs:
           name: criterion-results-${{ github.sha }}
           path: rust/sz-orm/target/criterion/
           retention-days: 30
+
+  # ============================================================================
+  # Job 6.5: v0.2.2 修复 P2-4：Soak Test 冒烟验证（Linux 平台）
+  #
+  # 每次 push/PR 在 Linux 上运行 10 秒 Soak 冒烟测试，验证：
+  # - Soak 框架自身正确性（不退化、不 panic）
+  # - CSV 报告生成正常
+  # - thread_count/RSS/fd_count 字段可读
+  # 周末长时 24h Soak 由 soak.yml 周期触发。
+  # ============================================================================
+  soak-smoke:
+    name: Soak Smoke Test (Linux, 10s)
+    runs-on: ubuntu-latest
+    needs: [test]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-soak-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-soak-
+
+      - name: Run soak smoke test (10s, non-ignored)
+        working-directory: rust/sz-orm
+        run: cargo test --package sz-orm-core --test soak soak_smoke_10s -- --nocapture --test-threads=1
+
+      - name: Upload soak smoke CSV report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-smoke-${{ github.sha }}
+          path: rust/sz-orm/target/soak-report.csv
+          if-no-files-found: warn
+          retention-days: 7
 
   # ============================================================================
   # Job 7: 安全审计

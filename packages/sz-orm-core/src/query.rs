@@ -337,29 +337,34 @@ impl<M: Model> QueryBuilder<M> {
                 WhereCondition::And(c) => c.clone(),
                 WhereCondition::Or(c) => format!("OR {}", c),
                 WhereCondition::In(f, vals) => {
-                    let vals_str: Vec<String> =
-                        vals.iter().map(|v| v.to_param().to_string()).collect();
+                    // v0.2.2 修复 H-1：使用方言感知的转义
+                    let vals_str: Vec<String> = vals
+                        .iter()
+                        .map(|v| v.to_param_with_dialect(&*self.dialect).to_string())
+                        .collect();
                     format!("{} IN ({})", self.dialect.quote(f), vals_str.join(", "))
                 }
                 WhereCondition::NotIn(f, vals) => {
-                    let vals_str: Vec<String> =
-                        vals.iter().map(|v| v.to_param().to_string()).collect();
+                    let vals_str: Vec<String> = vals
+                        .iter()
+                        .map(|v| v.to_param_with_dialect(&*self.dialect).to_string())
+                        .collect();
                     format!("{} NOT IN ({})", self.dialect.quote(f), vals_str.join(", "))
                 }
                 WhereCondition::Between(f, start, end) => {
                     format!(
                         "{} BETWEEN {} AND {}",
                         self.dialect.quote(f),
-                        start.to_param(),
-                        end.to_param()
+                        start.to_param_with_dialect(&*self.dialect),
+                        end.to_param_with_dialect(&*self.dialect)
                     )
                 }
                 WhereCondition::NotBetween(f, start, end) => {
                     format!(
                         "{} NOT BETWEEN {} AND {}",
                         self.dialect.quote(f),
-                        start.to_param(),
-                        end.to_param()
+                        start.to_param_with_dialect(&*self.dialect),
+                        end.to_param_with_dialect(&*self.dialect)
                     )
                 }
                 WhereCondition::Null(f) => format!("{} IS NULL", self.dialect.quote(f)),
@@ -418,7 +423,11 @@ impl<M: Model> QueryBuilder<M> {
         }
 
         let columns: Vec<String> = data.keys().map(|k| self.dialect.quote(k)).collect();
-        let values: Vec<String> = data.values().map(|v| v.to_param().to_string()).collect();
+        // v0.2.2 修复 H-1：使用方言感知的转义
+        let values: Vec<String> = data
+            .values()
+            .map(|v| v.to_param_with_dialect(&*self.dialect).to_string())
+            .collect();
 
         format!(
             "INSERT INTO {} ({}) VALUES ({})",
@@ -440,7 +449,13 @@ impl<M: Model> QueryBuilder<M> {
 
         let set_clauses: Vec<String> = data
             .iter()
-            .map(|(k, v)| format!("{} = {}", self.dialect.quote(k), v.to_param()))
+            .map(|(k, v)| {
+                format!(
+                    "{} = {}",
+                    self.dialect.quote(k),
+                    v.to_param_with_dialect(&*self.dialect)
+                )
+            })
             .collect();
 
         let mut sql = format!(

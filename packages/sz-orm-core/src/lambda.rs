@@ -121,28 +121,63 @@ impl WhereClause {
     /// 渲染为 SQL 片段（不带前缀 AND/OR）
     fn render(&self, dialect: &dyn Dialect) -> String {
         match self {
-            WhereClause::Eq(col, v) => format!("{} = {}", dialect.quote(col), v.to_param()),
-            WhereClause::Ne(col, v) => format!("{} != {}", dialect.quote(col), v.to_param()),
-            WhereClause::Gt(col, v) => format!("{} > {}", dialect.quote(col), v.to_param()),
-            WhereClause::Ge(col, v) => format!("{} >= {}", dialect.quote(col), v.to_param()),
-            WhereClause::Lt(col, v) => format!("{} < {}", dialect.quote(col), v.to_param()),
-            WhereClause::Le(col, v) => format!("{} <= {}", dialect.quote(col), v.to_param()),
-            WhereClause::Like(col, v) => format!("{} LIKE {}", dialect.quote(col), v.to_param()),
+            // v0.2.2 修复 H-1：使用方言感知的转义
+            WhereClause::Eq(col, v) => format!(
+                "{} = {}",
+                dialect.quote(col),
+                v.to_param_with_dialect(dialect)
+            ),
+            WhereClause::Ne(col, v) => format!(
+                "{} != {}",
+                dialect.quote(col),
+                v.to_param_with_dialect(dialect)
+            ),
+            WhereClause::Gt(col, v) => format!(
+                "{} > {}",
+                dialect.quote(col),
+                v.to_param_with_dialect(dialect)
+            ),
+            WhereClause::Ge(col, v) => format!(
+                "{} >= {}",
+                dialect.quote(col),
+                v.to_param_with_dialect(dialect)
+            ),
+            WhereClause::Lt(col, v) => format!(
+                "{} < {}",
+                dialect.quote(col),
+                v.to_param_with_dialect(dialect)
+            ),
+            WhereClause::Le(col, v) => format!(
+                "{} <= {}",
+                dialect.quote(col),
+                v.to_param_with_dialect(dialect)
+            ),
+            WhereClause::Like(col, v) => format!(
+                "{} LIKE {}",
+                dialect.quote(col),
+                v.to_param_with_dialect(dialect)
+            ),
             WhereClause::IsNull(col) => format!("{} IS NULL", dialect.quote(col)),
             WhereClause::IsNotNull(col) => format!("{} IS NOT NULL", dialect.quote(col)),
             WhereClause::In(col, vs) => {
-                let values: Vec<String> = vs.iter().map(|v| v.to_param().to_string()).collect();
+                let values: Vec<String> = vs
+                    .iter()
+                    .map(|v| v.to_param_with_dialect(dialect).to_string())
+                    .collect();
                 format!("{} IN ({})", dialect.quote(col), values.join(", "))
             }
             WhereClause::NotIn(col, vs) => {
-                let values: Vec<String> = vs.iter().map(|v| v.to_param().to_string()).collect();
+                let values: Vec<String> = vs
+                    .iter()
+                    .map(|v| v.to_param_with_dialect(dialect).to_string())
+                    .collect();
                 format!("{} NOT IN ({})", dialect.quote(col), values.join(", "))
             }
             WhereClause::Between(col, a, b) => format!(
                 "{} BETWEEN {} AND {}",
                 dialect.quote(col),
-                a.to_param(),
-                b.to_param()
+                a.to_param_with_dialect(dialect),
+                b.to_param_with_dialect(dialect)
             ),
             WhereClause::Raw(sql) => sql.clone(),
         }
@@ -1040,11 +1075,19 @@ mod tests {
 
     #[test]
     fn test_string_value_escape() {
+        // v0.2.2 修复 H-1：默认使用 MySqlDialect，单引号转义为 \'
         let mut w = LambdaWrapper::<User>::new("users");
         w.eq(UserColumns::Name, Value::String("O'Brien".to_string()));
         let sql = w.build_select();
-        // 字符串中的单引号应被转义为 ''
-        assert!(sql.contains("'O''Brien'"));
+        // MySQL 方言下字符串中的单引号应被转义为 \'
+        assert!(sql.contains("'O\\'Brien'"));
+
+        // 使用 PostgreSQL 方言时，单引号转义为 ''
+        let pg_dialect: Box<dyn Dialect> = get_dialect(DbType::PostgreSQL).unwrap();
+        let mut w_pg = LambdaWrapper::<User>::with_dialect("users", pg_dialect);
+        w_pg.eq(UserColumns::Name, Value::String("O'Brien".to_string()));
+        let sql_pg = w_pg.build_select();
+        assert!(sql_pg.contains("'O''Brien'"));
     }
 
     // ===== 使用真实方言验证集成 =====

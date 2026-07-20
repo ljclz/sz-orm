@@ -204,7 +204,13 @@ pub fn build_update_with_lock(
 
     let mut sets: Vec<String> = data
         .iter()
-        .map(|(k, v)| format!("{} = {}", dialect.quote(k), v.to_param()))
+        .map(|(k, v)| {
+            format!(
+                "{} = {}",
+                dialect.quote(k),
+                v.to_param_with_dialect(dialect)
+            )
+        })
         .collect();
     // version 字段自增（与数据中是否含 version 无关，强制使用 version = version + 1）
     sets.push(format!("{} = {} + 1", quoted_version, quoted_version));
@@ -216,9 +222,9 @@ pub fn build_update_with_lock(
         quoted_table,
         sets_sql,
         quoted_pk,
-        pk_value.to_param(),
+        pk_value.to_param_with_dialect(dialect),
         quoted_version,
-        current_version.to_param(),
+        current_version.to_param_with_dialect(dialect),
     )
 }
 
@@ -248,9 +254,9 @@ pub fn build_delete_with_lock(
         "DELETE FROM {} WHERE {} = {} AND {} = {}",
         quoted_table,
         quoted_pk,
-        pk_value.to_param(),
+        pk_value.to_param_with_dialect(dialect),
         quoted_version,
-        current_version.to_param(),
+        current_version.to_param_with_dialect(dialect),
     )
 }
 

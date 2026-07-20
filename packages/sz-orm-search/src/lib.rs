@@ -2,7 +2,7 @@
 //!
 //! 提供多 provider 全文搜索能力，支持三种实现：
 //!
-//! - **内存实现**（`Memory`）：简易倒排索引，不连接真实搜索引擎
+//! - **内存实现**（`Memory`）：线性扫描 + 子串匹配（无倒排索引），不连接真实搜索引擎
 //! - **Stub 实现**（`Stub`）：生成查询 JSON 但不执行
 //! - **真实 Elasticsearch**（需启用 `real-es` feature）：通过 elasticsearch crate 连接 ES
 //! - **真实 OpenSearch**（需启用 `real-opensearch` feature）：通过 opensearch crate 连接 OpenSearch

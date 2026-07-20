@@ -406,16 +406,33 @@ impl FilterRegistry {
     /// 将所有已启用的 Filter 应用到 SQL
     ///
     /// 按启用顺序依次追加 WHERE 子句（用 AND 连接）。
+    ///
+    /// # 安全性
+    ///
+    /// 本方法使用 PostgreSQL 方言的转义规则作为默认行为。
+    /// **生产环境请使用 [`apply_with_dialect`]** 以获得方言感知的转义。
     pub fn apply(&self, sql: &str) -> String {
-        let (clauses, has_error) = self.collect_clauses();
+        // v0.2.2 修复 H-1：默认使用 PostgreSQL 方言（保持向后兼容）
+        self.apply_with_dialect(sql, &crate::dialect::PostgreSqlDialect)
+    }
+
+    /// v0.2.2 修复 H-1：方言感知的 Filter 应用
+    ///
+    /// 与 [`apply`] 的区别：使用 `dialect.escape_string()` 转义参数值，
+    /// 确保在所有方言下都安全（特别是 MySQL 默认配置下 backslash 转义）。
+    pub fn apply_with_dialect(&self, sql: &str, dialect: &dyn crate::dialect::Dialect) -> String {
+        let (clauses, has_error) = self.collect_clauses_with_dialect(dialect);
         if has_error || clauses.is_empty() {
             return sql.to_string();
         }
         append_filter_clauses(sql, &clauses)
     }
 
-    /// 收集所有已启用 Filter 的 WHERE 子句（按启用顺序）
-    fn collect_clauses(&self) -> (Vec<String>, bool) {
+    /// 方言感知的子句收集
+    fn collect_clauses_with_dialect(
+        &self,
+        dialect: &dyn crate::dialect::Dialect,
+    ) -> (Vec<String>, bool) {
         let mut clauses = Vec::new();
         let mut has_error = false;
 
@@ -430,7 +447,7 @@ impl FilterRegistry {
 
         for ef in enabled.iter() {
             if let Some(def) = defs.get(&ef.name) {
-                let rendered = render_condition(&def.condition, &ef.params);
+                let rendered = render_condition_with_dialect(&def.condition, &ef.params, dialect);
                 if let Some(rendered) = rendered {
                     if !rendered.trim().is_empty() {
                         clauses.push(rendered);
@@ -454,6 +471,13 @@ impl FilterRegistry {
 /// - `:param_name` → 替换为参数值的 SQL 字面量
 /// - 未知参数 → 返回 None（表示渲染失败）
 ///
+/// # 安全性
+///
+/// 本函数使用 PostgreSQL 方言的转义规则（`'` → `''`）作为默认行为。
+/// 对 PostgreSQL/SQLite/Oracle/SQL Server 默认配置安全，
+/// 但对 MySQL 默认配置（backslash 是转义字符）不安全。
+/// **生产环境请使用 [`render_condition_with_dialect`]** 以获得方言感知的转义。
+///
 /// # 示例
 ///
 /// ```
@@ -469,6 +493,35 @@ impl FilterRegistry {
 /// assert_eq!(rendered.unwrap(), "status = 'active' AND age >= 18");
 /// ```
 pub fn render_condition(template: &str, params: &HashMap<String, crate::Value>) -> Option<String> {
+    // v0.2.2 修复 H-1：默认使用 PostgreSQL 方言（保持向后兼容）
+    render_condition_with_dialect(template, params, &crate::dialect::PostgreSqlDialect)
+}
+
+/// v0.2.2 修复 H-1：方言感知的 WHERE 子句模板渲染
+///
+/// 与 [`render_condition`] 的区别：使用 `dialect.escape_string()` 转义字符串参数，
+/// 确保在所有方言下都安全（特别是 MySQL 默认配置下 backslash 转义）。
+///
+/// # 示例
+///
+/// ```
+/// use sz_orm_core::dynamic_filter::render_condition_with_dialect;
+/// use sz_orm_core::dialect::MySqlDialect;
+/// use sz_orm_core::Value;
+/// use std::collections::HashMap;
+///
+/// let mut params = HashMap::new();
+/// params.insert("name".to_string(), Value::String("hello\\nworld".to_string()));
+///
+/// let rendered = render_condition_with_dialect("name = :name", &params, &MySqlDialect);
+/// // MySQL 方言下反斜杠会被转义为 \\\\
+/// assert!(rendered.unwrap().contains("hello\\\\nworld"));
+/// ```
+pub fn render_condition_with_dialect(
+    template: &str,
+    params: &HashMap<String, crate::Value>,
+    dialect: &dyn crate::dialect::Dialect,
+) -> Option<String> {
     let mut result = String::with_capacity(template.len() + 32);
     let bytes = template.as_bytes();
     let mut i = 0;
@@ -483,7 +536,7 @@ pub fn render_condition(template: &str, params: &HashMap<String, crate::Value>) 
             if j > i + 1 {
                 let param_name = &template[i + 1..j];
                 if let Some(value) = params.get(param_name) {
-                    result.push_str(&value.to_param());
+                    result.push_str(&value.to_param_with_dialect(dialect));
                     i = j;
                     continue;
                 } else {

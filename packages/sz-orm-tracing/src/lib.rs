@@ -172,7 +172,132 @@ impl Tracer for SzTracer {
         }
     }
 
+    /// 注入 W3C TraceContext `traceparent` header
+    ///
+    /// v0.2.2 修复 P2-2：从自定义 `trace-id`/`span-id`/`parent-span-id` header
+    /// 升级为 W3C TraceContext 标准的 `traceparent` header。
+    ///
+    /// 格式：`00-<trace_id>-<span_id>-<trace_flags>`
+    /// - `00`：版本号（W3C 规范固定为 `00`）
+    /// - `trace_id`：32 字符 hex（16 字节）
+    /// - `span_id`：16 字符 hex（8 字节）
+    /// - `trace_flags`：2 字符 hex（`01` 表示 sampled，`00` 表示未采样）
+    ///
+    /// 同时保留 `parent-span-id` header 以向后兼容旧版本的 extract。
     fn inject(&self, span: &Span) -> HashMap<String, String> {
+        let mut headers = HashMap::new();
+
+        // W3C TraceContext: traceparent = version-trace_id-span_id-flags
+        let traceparent = format!("00-{}-{}-01", span.trace_id, span.span_id);
+        headers.insert("traceparent".to_string(), traceparent);
+
+        if let Some(ref parent_id) = span.parent_id {
+            headers.insert("parent-span-id".to_string(), parent_id.clone());
+        }
+
+        headers
+    }
+
+    /// 从 headers 中提取 Span
+    ///
+    /// v0.2.2 修复 P2-2：优先解析 W3C TraceContext `traceparent` header，
+    /// 若不存在则回退到 legacy 自定义 header（`trace-id`/`span-id`）。
+    ///
+    /// W3C `traceparent` 格式：`00-<trace_id>-<span_id>-<trace_flags>`
+    /// - 版本号必须为 `00`
+    /// - trace_id 必须为 32 字符 hex
+    /// - span_id 必须为 16 字符 hex
+    /// - trace_flags 必须为 2 字符 hex
+    fn extract(&self, headers: &HashMap<String, String>) -> Option<Span> {
+        // 优先尝试 W3C traceparent
+        if let Some(traceparent) = headers.get("traceparent") {
+            if let Some(span) = Self::parse_traceparent(traceparent) {
+                let mut span = span.with_service(&self.service_name);
+
+                // 同时检查 legacy parent-span-id header
+                if let Some(parent_id) = headers.get("parent-span-id") {
+                    span = span.with_parent(parent_id.clone());
+                }
+
+                return Some(span);
+            }
+        }
+
+        // 回退到 legacy header（向后兼容）
+        let trace_id = headers.get("trace-id")?;
+        let span_id = headers.get("span-id")?;
+
+        let mut span = Span::new(trace_id.clone(), span_id.clone(), "extracted");
+
+        if let Some(parent_id) = headers.get("parent-span-id") {
+            span = span.with_parent(parent_id.clone());
+        }
+
+        span = span.with_service(&self.service_name);
+
+        Some(span)
+    }
+}
+
+impl SzTracer {
+    /// 解析 W3C TraceContext `traceparent` header
+    ///
+    /// 格式：`00-<trace_id>-<span_id>-<trace_flags>`
+    /// - 版本号必须为 `00`
+    /// - trace_id 必须为 32 字符 hex（不能全为 0）
+    /// - span_id 必须为 16 字符 hex（不能全为 0）
+    /// - trace_flags 必须为 2 字符 hex
+    ///
+    /// 返回 `Some(Span)` 表示解析成功，`None` 表示格式不合法。
+    fn parse_traceparent(traceparent: &str) -> Option<Span> {
+        let parts: Vec<&str> = traceparent.split('-').collect();
+        if parts.len() != 4 {
+            return None;
+        }
+
+        let version = parts[0];
+        let trace_id = parts[1];
+        let span_id = parts[2];
+        let trace_flags = parts[3];
+
+        // 版本号必须是 2 字符 hex，且 W3C 规范当前固定为 "00"
+        if version.len() != 2 || !version.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+
+        // trace_id 必须是 32 字符 hex，且不能全为 0
+        if trace_id.len() != 32
+            || !trace_id.chars().all(|c| c.is_ascii_hexdigit())
+            || trace_id.chars().all(|c| c == '0')
+        {
+            return None;
+        }
+
+        // span_id 必须是 16 字符 hex，且不能全为 0
+        if span_id.len() != 16
+            || !span_id.chars().all(|c| c.is_ascii_hexdigit())
+            || span_id.chars().all(|c| c == '0')
+        {
+            return None;
+        }
+
+        // trace_flags 必须是 2 字符 hex
+        if trace_flags.len() != 2 || !trace_flags.chars().all(|c| c.is_ascii_hexdigit()) {
+            return None;
+        }
+
+        Some(Span::new(
+            trace_id.to_string(),
+            span_id.to_string(),
+            "extracted",
+        ))
+    }
+
+    /// 注入 legacy 自定义 header（向后兼容）
+    ///
+    /// v0.2.2 修复 P2-2：保留旧版 header 格式以兼容旧客户端。
+    /// 新代码应使用 [`Tracer::inject`]（W3C TraceContext）。
+    pub fn inject_legacy(&self, span: &Span) -> HashMap<String, String> {
         let mut headers = HashMap::new();
         headers.insert("trace-id".to_string(), span.trace_id.to_string());
         headers.insert("span-id".to_string(), span.span_id.to_string());
@@ -184,7 +309,11 @@ impl Tracer for SzTracer {
         headers
     }
 
-    fn extract(&self, headers: &HashMap<String, String>) -> Option<Span> {
+    /// 仅从 legacy header 中提取 Span（向后兼容）
+    ///
+    /// v0.2.2 修复 P2-2：保留旧版 header 解析以兼容旧客户端。
+    /// 新代码应使用 [`Tracer::extract`]（自动优先 W3C，回退 legacy）。
+    pub fn extract_legacy(&self, headers: &HashMap<String, String>) -> Option<Span> {
         let trace_id = headers.get("trace-id")?;
         let span_id = headers.get("span-id")?;
 
@@ -211,9 +340,9 @@ impl Tracer for SzTracer {
 /// crate as a dependency. It is **not** a real OpenTelemetry implementation:
 ///
 /// - It does **not** export spans to an OTLP / Jaeger / Zipkin collector.
-/// - It does **not** implement W3C TraceContext (`traceparent` /
-///   `tracestate`) propagation. The headers emitted by [`Tracer::inject`]
-///   are SzTracer-specific (`trace-id`, `span-id`, `parent-span-id`).
+/// - v0.2.2 修复 P2-2：**现已实现 W3C TraceContext `traceparent` header 传播**
+///   （`00-<trace_id>-<span_id>-<trace_flags>`），同时保留 `parent-span-id`
+///   header 以传递父 span 关系。`extract` 优先解析 W3C，回退到 legacy。
 /// - It does **not** perform sampling, baggage propagation, or context
 ///   extraction across `async` boundaries.
 /// - Span IDs are generated from `std::collections::hash_map::RandomState`
@@ -222,8 +351,8 @@ impl Tracer for SzTracer {
 ///
 /// # When to use which
 ///
-/// - Use [`SzTracer`] directly for in-process span collection and the
-///   default SzTracer header format.
+/// - Use [`SzTracer`] directly for in-process span collection and W3C
+///   TraceContext header propagation.
 /// - Use `OtelTracer` when an existing code base expects a tracer whose name
 ///   signals OpenTelemetry-compatibility, but you have already decided to back
 ///   it with SzTracer semantics.
@@ -819,12 +948,41 @@ mod tests {
         let span = tracer.start_span("test");
         let headers = tracer.inject(&span);
 
-        assert!(headers.contains_key("trace-id"));
-        assert!(headers.contains_key("span-id"));
+        // v0.2.2 修复 P2-2：默认使用 W3C traceparent header
+        let tp = headers
+            .get("traceparent")
+            .expect("traceparent header must be present");
+        // 格式：00-<trace_id>-<span_id>-01
+        let parts: Vec<&str> = tp.split('-').collect();
+        assert_eq!(parts.len(), 4);
+        assert_eq!(parts[0], "00"); // 版本号
+        assert_eq!(parts[1], span.trace_id);
+        assert_eq!(parts[2], span.span_id);
+        assert_eq!(parts[3], "01"); // sampled
     }
 
     #[test]
     fn test_tracer_extract() {
+        let tracer = SzTracer::new("test-service");
+        let mut headers = HashMap::new();
+        // W3C traceparent 格式
+        let trace_id = "0af7651916cd43dd8448eb211c80319c";
+        let span_id = "b7ad6b7169203331";
+        headers.insert(
+            "traceparent".to_string(),
+            format!("00-{}-{}-01", trace_id, span_id),
+        );
+
+        let span = tracer.extract(&headers);
+        assert!(span.is_some());
+        let span = span.unwrap();
+        assert_eq!(span.trace_id, trace_id);
+        assert_eq!(span.span_id, span_id);
+    }
+
+    #[test]
+    fn test_tracer_extract_legacy_headers() {
+        // v0.2.2 修复 P2-2：向后兼容 legacy header
         let tracer = SzTracer::new("test-service");
         let mut headers = HashMap::new();
         headers.insert("trace-id".to_string(), "trace123".to_string());
@@ -832,6 +990,9 @@ mod tests {
 
         let span = tracer.extract(&headers);
         assert!(span.is_some());
+        let span = span.unwrap();
+        assert_eq!(span.trace_id, "trace123");
+        assert_eq!(span.span_id, "span456");
     }
 
     #[test]
@@ -840,6 +1001,149 @@ mod tests {
         let headers = HashMap::new();
         let span = tracer.extract(&headers);
         assert!(span.is_none());
+    }
+
+    // ===================== v0.2.2 修复 P2-2：W3C TraceContext 测试 =====================
+
+    #[test]
+    fn test_parse_traceparent_valid() {
+        let valid = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+        let span = SzTracer::parse_traceparent(valid).expect("valid traceparent must parse");
+        assert_eq!(span.trace_id, "0af7651916cd43dd8448eb211c80319c");
+        assert_eq!(span.span_id, "b7ad6b7169203331");
+    }
+
+    #[test]
+    fn test_parse_traceparent_invalid_version() {
+        // 版本号不是 2 字符 hex
+        assert!(SzTracer::parse_traceparent(
+            "0-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        )
+        .is_none());
+        // 版本号不是 hex
+        assert!(SzTracer::parse_traceparent(
+            "xy-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_parse_traceparent_invalid_trace_id_length() {
+        // trace_id 不是 32 字符
+        assert!(SzTracer::parse_traceparent("00-short-b7ad6b7169203331-01").is_none());
+    }
+
+    #[test]
+    fn test_parse_traceparent_invalid_span_id_length() {
+        // span_id 不是 16 字符
+        assert!(
+            SzTracer::parse_traceparent("00-0af7651916cd43dd8448eb211c80319c-short-01").is_none()
+        );
+    }
+
+    #[test]
+    fn test_parse_traceparent_all_zeros_trace_id_rejected() {
+        // W3C 规范：trace_id 不能全为 0
+        let all_zero = "00-00000000000000000000000000000000-b7ad6b7169203331-01";
+        assert!(SzTracer::parse_traceparent(all_zero).is_none());
+    }
+
+    #[test]
+    fn test_parse_traceparent_all_zeros_span_id_rejected() {
+        // W3C 规范：span_id 不能全为 0
+        let all_zero = "00-0af7651916cd43dd8448eb211c80319c-0000000000000000-01";
+        assert!(SzTracer::parse_traceparent(all_zero).is_none());
+    }
+
+    #[test]
+    fn test_parse_traceparent_invalid_flags() {
+        // trace_flags 不是 2 字符 hex
+        assert!(SzTracer::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-xyz"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_parse_traceparent_wrong_part_count() {
+        // 不是 4 个部分
+        assert!(SzTracer::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331"
+        )
+        .is_none());
+        assert!(SzTracer::parse_traceparent(
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01-extra"
+        )
+        .is_none());
+    }
+
+    #[test]
+    fn test_inject_legacy_preserves_old_format() {
+        let tracer = SzTracer::new("svc");
+        let span = tracer.start_span("op");
+        let headers = tracer.inject_legacy(&span);
+
+        assert_eq!(headers.get("trace-id"), Some(&span.trace_id.to_string()));
+        assert_eq!(headers.get("span-id"), Some(&span.span_id.to_string()));
+        assert!(!headers.contains_key("parent-span-id"));
+    }
+
+    #[test]
+    fn test_extract_legacy_preserves_old_format() {
+        let tracer = SzTracer::new("svc");
+        let mut headers = HashMap::new();
+        headers.insert("trace-id".to_string(), "abc".to_string());
+        headers.insert("span-id".to_string(), "def".to_string());
+
+        let span = tracer.extract_legacy(&headers).expect("legacy extract");
+        assert_eq!(span.trace_id, "abc");
+        assert_eq!(span.span_id, "def");
+    }
+
+    #[test]
+    fn test_w3c_traceparent_roundtrip_preserves_ids() {
+        // inject → extract 必须保留 trace_id 和 span_id
+        let tracer = SzTracer::new("svc");
+        let original = tracer.start_span("roundtrip");
+        let headers = tracer.inject(&original);
+
+        let extracted = tracer.extract(&headers).expect("roundtrip extract");
+        assert_eq!(extracted.trace_id(), original.trace_id());
+        assert_eq!(extracted.span_id(), original.span_id());
+        assert!(extracted.parent_id().is_none());
+    }
+
+    #[test]
+    fn test_w3c_prefers_traceparent_over_legacy() {
+        // 同时存在 traceparent 和 legacy header 时，优先 W3C
+        let tracer = SzTracer::new("svc");
+        let mut headers = HashMap::new();
+        headers.insert(
+            "traceparent".to_string(),
+            "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01".to_string(),
+        );
+        headers.insert("trace-id".to_string(), "legacy-trace".to_string());
+        headers.insert("span-id".to_string(), "legacy-span".to_string());
+
+        let span = tracer.extract(&headers).expect("extract");
+        assert_eq!(span.trace_id, "0af7651916cd43dd8448eb211c80319c");
+        assert_eq!(span.span_id, "b7ad6b7169203331");
+    }
+
+    #[test]
+    fn test_w3c_falls_back_to_legacy_on_invalid_traceparent() {
+        // traceparent 格式不合法时回退到 legacy
+        let tracer = SzTracer::new("svc");
+        let mut headers = HashMap::new();
+        headers.insert("traceparent".to_string(), "invalid-format".to_string());
+        headers.insert("trace-id".to_string(), "legacy-trace".to_string());
+        headers.insert("span-id".to_string(), "legacy-span".to_string());
+
+        let span = tracer
+            .extract(&headers)
+            .expect("should fall back to legacy");
+        assert_eq!(span.trace_id, "legacy-trace");
+        assert_eq!(span.span_id, "legacy-span");
     }
 
     #[test]
@@ -869,21 +1173,17 @@ mod tests {
 
     #[test]
     fn test_otel_tracer_inject_extract_roundtrip_preserves_ids() {
-        // The inject/extract format is *not* W3C TraceContext (this is
-        // documented on `OtelTracer`), but it must round-trip within itself.
+        // v0.2.2 修复 P2-2：现在使用 W3C traceparent header
         let tracer = OtelTracer::new("svc");
         let original = tracer.start_span("roundtrip");
         let headers = tracer.inject(&original);
 
-        // Documented header keys (SzTracer-specific, not W3C).
-        assert_eq!(
-            headers.get("trace-id"),
-            Some(&original.trace_id().to_string())
-        );
-        assert_eq!(
-            headers.get("span-id"),
-            Some(&original.span_id().to_string())
-        );
+        // W3C traceparent 必须存在并包含原始 ID
+        let tp = headers
+            .get("traceparent")
+            .expect("traceparent must be present");
+        assert!(tp.contains(original.trace_id()));
+        assert!(tp.contains(original.span_id()));
         assert!(!headers.contains_key("parent-span-id"));
 
         let extracted = tracer.extract(&headers).expect("extract should round-trip");
@@ -901,6 +1201,7 @@ mod tests {
             .with_parent(parent.span_id().to_string());
         let headers = tracer.inject(&child);
 
+        // parent-span-id 仍然通过独立 header 传递（向后兼容）
         assert_eq!(
             headers.get("parent-span-id"),
             Some(&parent.span_id().to_string())
@@ -916,10 +1217,16 @@ mod tests {
         let headers: HashMap<String, String> = HashMap::new();
         assert!(tracer.extract(&headers).is_none());
 
+        // 仅 legacy trace-id 缺失 span-id 时也必须失败
         let mut partial = HashMap::new();
         partial.insert("trace-id".to_string(), "abc".to_string());
         // Missing span-id - extract must fail.
         assert!(tracer.extract(&partial).is_none());
+
+        // 仅 W3C traceparent 格式错误时（且无 legacy 回退）必须失败
+        let mut bad_w3c = HashMap::new();
+        bad_w3c.insert("traceparent".to_string(), "garbage".to_string());
+        assert!(tracer.extract(&bad_w3c).is_none());
     }
 
     #[test]
@@ -1727,8 +2034,8 @@ impl Default for OtlpConfig {
 /// ```
 #[cfg(feature = "otlp")]
 pub async fn init_otlp_exporter(config: OtlpConfig) -> Result<OtlpGuard, TracingError> {
-    use opentelemetry::trace::TracerProvider as _;
     use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+    use opentelemetry_sdk::resource::Resource;
     use opentelemetry_sdk::runtime::Tokio;
     use opentelemetry_sdk::trace::TracerProvider;
     use std::time::Duration;
@@ -1742,11 +2049,10 @@ pub async fn init_otlp_exporter(config: OtlpConfig) -> Result<OtlpGuard, Tracing
 
     let provider = TracerProvider::builder()
         .with_batch_exporter(exporter, Tokio)
-        .with_resource(
-            opentelemetry_sdk::Resource::builder()
-                .with_service_name(config.service_name.clone())
-                .build(),
-        )
+        .with_resource(Resource::new_with_defaults([opentelemetry::KeyValue::new(
+            "service.name",
+            config.service_name.clone(),
+        )]))
         .build();
 
     // 设置为全局 provider
