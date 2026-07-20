@@ -64,6 +64,11 @@ path = "tests/contracts.rs"
 name = "property"
 path = "tests/property.rs"
 
+# v0.2.1 阶段十五：Soak Test 入口（默认 ignored，CI 周末任务运行）
+[[test]]
+name = "soak"
+path = "tests/soak.rs"
+
 [[bench]]
 name = "core_bench"
 path = "benches/core_bench.rs"

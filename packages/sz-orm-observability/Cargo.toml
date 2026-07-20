@@ -1,0 +1,39 @@
+[package]
+name = "sz-orm-observability"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SZ-ORM 可观测性模块：Prometheus exporter + OTLP exporter + SLO 燃烧率 + Grafana 仪表盘模板"
+
+[features]
+default = []
+# 启用 Prometheus exporter（暴露 /metrics HTTP 端点）
+prometheus = ["dep:hyper", "dep:http-body-util"]
+# 启用 OTLP exporter（导出 traces 到 OpenTelemetry Collector）
+otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
+
+[dependencies]
+sz-orm-core = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+thiserror = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+chrono = { workspace = true }
+parking_lot = { workspace = true }
+tracing = { workspace = true }
+# Prometheus exporter 依赖（可选）
+hyper = { version = "1.4", optional = true, features = ["server", "http1"] }
+http-body-util = { version = "0.1", optional = true }
+# OTLP exporter 依赖（可选）
+opentelemetry = { version = "0.27", optional = true }
+opentelemetry-otlp = { version = "0.27", optional = true, features = ["tokio"] }
+opentelemetry_sdk = { version = "0.27", optional = true, features = ["rt-tokio"] }
+
+[dev-dependencies]
+tokio = { workspace = true }
+
+[lib]
+name = "sz_orm_observability"
+path = "src/lib.rs"

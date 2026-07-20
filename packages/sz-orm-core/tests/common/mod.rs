@@ -1,8 +1,10 @@
 //! 共享测试工具：模拟连接、连接工厂、数据库状态
 //!
-//! 供 fuzz/stress/jepsen 集成测试使用
+//! 供 fuzz/stress/jepsen/soak 集成测试使用
 
 #![allow(dead_code)]
+
+pub mod soak;
 
 use async_trait::async_trait;
 use std::future::Future;
