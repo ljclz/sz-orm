@@ -2,6 +2,12 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+/// 默认最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+///
+/// 当 entries.len() 超过此值时，会强制淘汰一个 entry。
+/// 调用方可通过 `with_max_keys()` 调整。
+pub const DEFAULT_MAX_KEYS: usize = 10_000;
+
 pub trait RateLimiter: Send + Sync {
     fn acquire(&self, key: &str) -> Result<RateLimitResult, RateLimitError>;
     fn try_acquire(&self, key: &str) -> Result<RateLimitResult, RateLimitError>;
@@ -37,6 +43,8 @@ pub struct SlidingWindowRateLimiter {
     max_requests: u64,
     window_size: Duration,
     entries: Arc<RwLock<HashMap<String, SlidingWindowEntry>>>,
+    /// 最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    max_keys: usize,
 }
 
 #[derive(Clone)]
@@ -50,7 +58,17 @@ impl SlidingWindowRateLimiter {
             max_requests,
             window_size,
             entries: Arc::new(RwLock::new(HashMap::new())),
+            max_keys: DEFAULT_MAX_KEYS,
         }
+    }
+
+    /// 配置最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    ///
+    /// 当 entries.len() 超过 `max_keys` 时，会强制淘汰一个最旧的 entry。
+    /// 默认值为 `DEFAULT_MAX_KEYS`（10000）。
+    pub fn with_max_keys(mut self, max_keys: usize) -> Self {
+        self.max_keys = max_keys;
+        self
     }
 
     fn cleanup_old_requests(&self, entry: &mut SlidingWindowEntry) {
@@ -58,6 +76,27 @@ impl SlidingWindowRateLimiter {
         entry
             .requests
             .retain(|&time| now.duration_since(time) < self.window_size);
+    }
+
+    /// 强制淘汰超出 `max_keys` 的最旧 entry（v0.2.1 新增，修复 Critical S-3）
+    ///
+    /// 策略：遍历所有 entry，找到 `requests[0]`（窗口内最早请求时间）最小的那个并删除。
+    /// 复杂度 O(n)，但仅在 `entries.len() > max_keys` 时触发。
+    fn enforce_max_keys(&self, entries: &mut HashMap<String, SlidingWindowEntry>) {
+        while entries.len() > self.max_keys {
+            // 找到最旧的 entry（requests.first() 时间最早）
+            let now = Instant::now();
+            let oldest_key = entries
+                .iter()
+                .min_by_key(|(_, e)| e.requests.first().copied().unwrap_or(now))
+                .map(|(k, _)| k.clone());
+            match oldest_key {
+                Some(k) => {
+                    entries.remove(&k);
+                }
+                None => break,
+            }
+        }
     }
 }
 
@@ -67,6 +106,11 @@ impl RateLimiter for SlidingWindowRateLimiter {
             .entries
             .write()
             .map_err(|e| RateLimitError::Internal(e.to_string()))?;
+
+        // v0.2.1 修复 Critical S-3：写入前强制淘汰超出 max_keys 的 entry
+        if entries.len() >= self.max_keys && !entries.contains_key(key) {
+            self.enforce_max_keys(&mut entries);
+        }
 
         let entry = entries
             .entry(key.to_string())
@@ -115,6 +159,8 @@ pub struct TokenBucketRateLimiter {
     capacity: f64,
     refill_rate: f64,
     entries: Arc<RwLock<HashMap<String, TokenBucketEntry>>>,
+    /// 最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    max_keys: usize,
 }
 
 #[derive(Clone)]
@@ -129,7 +175,14 @@ impl TokenBucketRateLimiter {
             capacity: capacity as f64,
             refill_rate: refill_per_second,
             entries: Arc::new(RwLock::new(HashMap::new())),
+            max_keys: DEFAULT_MAX_KEYS,
         }
+    }
+
+    /// 配置最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    pub fn with_max_keys(mut self, max_keys: usize) -> Self {
+        self.max_keys = max_keys;
+        self
     }
 
     fn refill(&self, entry: &mut TokenBucketEntry) {
@@ -146,6 +199,25 @@ impl TokenBucketRateLimiter {
         entry.tokens = (entry.tokens + tokens_to_add).min(self.capacity);
         entry.last_refill = now;
     }
+
+    /// 强制淘汰超出 `max_keys` 的最旧 entry（v0.2.1 新增，修复 Critical S-3）
+    ///
+    /// 策略：找到 `last_refill` 最早的 entry（即最久未访问的）并删除。
+    /// 复杂度 O(n)，但仅在 `entries.len() > max_keys` 时触发。
+    fn enforce_max_keys(&self, entries: &mut HashMap<String, TokenBucketEntry>) {
+        while entries.len() > self.max_keys {
+            let oldest_key = entries
+                .iter()
+                .min_by_key(|(_, e)| e.last_refill)
+                .map(|(k, _)| k.clone());
+            match oldest_key {
+                Some(k) => {
+                    entries.remove(&k);
+                }
+                None => break,
+            }
+        }
+    }
 }
 
 impl RateLimiter for TokenBucketRateLimiter {
@@ -154,6 +226,11 @@ impl RateLimiter for TokenBucketRateLimiter {
             .entries
             .write()
             .map_err(|e| RateLimitError::Internal(e.to_string()))?;
+
+        // v0.2.1 修复 Critical S-3：写入前强制淘汰超出 max_keys 的 entry
+        if entries.len() >= self.max_keys && !entries.contains_key(key) {
+            self.enforce_max_keys(&mut entries);
+        }
 
         let entry = entries
             .entry(key.to_string())

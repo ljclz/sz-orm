@@ -511,11 +511,21 @@ impl TccCoordinator {
     ///
     /// 返回 `(resource_id, error)` 列表，记录哪些分支 cancel 失败及其原因。
     /// 失败的分支仍会被标记为 Failed，但不会短路——继续尝试 cancel 其他分支（best-effort）。
+    ///
+    /// # 跳过条件（v0.2.1 修复 Critical C-2）
+    ///
+    /// - `state == Cancelled`：已经 cancel 过，不重复
+    /// - `state == Confirmed`：已 confirm 的分支**绝不能**被 cancel
+    ///   （原 bug：`is_tried()` 包含 Confirmed，但 cancel 时只跳过 Cancelled，
+    ///   导致已确认分支被回滚，破坏分布式事务一致性）
     fn cancel_tried_participants(&mut self, tried_count: usize) -> Vec<(String, String)> {
         let mut failures = Vec::new();
         for i in 0..tried_count {
+            // 跳过已 Cancelled 和已 Confirmed 的分支
+            // 注意：is_tried() 包含 Confirmed，所以必须显式排除 Confirmed
             if self.participants[i].is_tried()
                 && self.participants[i].state != TccParticipantState::Cancelled
+                && self.participants[i].state != TccParticipantState::Confirmed
             {
                 if let Err(e) = self.participants[i].cancel_phase() {
                     self.participants[i].fail();

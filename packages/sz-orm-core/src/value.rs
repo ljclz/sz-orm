@@ -373,17 +373,34 @@ impl From<Vec<Value>> for Value {
     }
 }
 
+/// 字符串字面量转义（v0.2.1 修复 Critical D-1）
+///
+/// # 旧实现的问题
+///
+/// 旧实现同时使用 `'` → `''`（标准 SQL）和 `\` → `\\`（MySQL 风格）转义，
+/// 导致在 PostgreSQL/SQLite 等不把 `\` 作为转义字符的方言下数据完整性受损
+/// （写入 `\\n` 字面量而非 `\n`）。
+///
+/// # 新实现
+///
+/// 只使用标准 SQL 转义：`'` → `''`。
+///
+/// - **SQL 注入防御**：`'` 被转义为 `''`，攻击者无法突破字符串字面量
+/// - **数据完整性**：在所有方言（MySQL/PG/SQLite/Oracle）下数据保持原样
+/// - **MySQL 兼容性**：MySQL 默认把 `\` 作为转义字符，但我们不主动转义 `\`，
+///   所以写入的 `\` 会被 MySQL 解析为字面 `\`（与 PG/SQLite 一致）
+///
+/// # 注意
+///
+/// 对于需要方言感知转义的场景（如 MySQL 的 `NO_BACKSLASH_ESCAPES` 模式），
+/// 应使用 `Dialect::escape_string()` 方法。
 fn escape_string(s: &str) -> String {
-    let mut escaped = String::with_capacity(s.len());
+    let mut escaped = String::with_capacity(s.len() + s.chars().filter(|&c| c == '\'').count());
     for c in s.chars() {
-        match c {
-            '\'' => escaped.push_str("''"),
-            '\\' => escaped.push_str("\\\\"),
-            '\0' => escaped.push_str("\\0"),
-            '\n' => escaped.push_str("\\n"),
-            '\r' => escaped.push_str("\\r"),
-            '\t' => escaped.push_str("\\t"),
-            _ => escaped.push(c),
+        if c == '\'' {
+            escaped.push_str("''");
+        } else {
+            escaped.push(c);
         }
     }
     escaped

@@ -57,7 +57,7 @@ fn fuzz_value_to_param_safety() {
                 // 提取内容部分（去掉外层引号）
                 let content = &param[1..param.len() - 1];
                 // 验证内容中不包含未转义的单引号
-                // 转义方式：'' 或 \'
+                // v0.2.1 修复 D-1：escape_string 只用 '' 转义，不再使用反斜杠转义
                 let mut i = 0;
                 let chars: Vec<char> = content.chars().collect();
                 while i < chars.len() {
@@ -72,11 +72,8 @@ fn fuzz_value_to_param_safety() {
                             param, s
                         );
                     }
-                    if chars[i] == '\\' && i + 1 < chars.len() {
-                        i += 2; // 跳过转义字符
-                    } else {
-                        i += 1;
-                    }
+                    // v0.2.1 修复 D-1：反斜杠不再被视为转义字符，按普通字符处理
+                    i += 1;
                 }
             }
             _ => {}
@@ -318,15 +315,17 @@ fn fuzz_query_builder() {
 
         // 验证：SQL 不为空
         assert!(!sql.is_empty(), "Empty SQL generated");
-        // 验证：括号平衡（识别字符串字面量，MySQL 使用反斜杠转义）
+        // 验证：括号平衡
+        // v0.2.1 修复 D-1：Value::to_param 只用 '' 转义，不再使用反斜杠转义，
+        // 所以用 DoubleQuote 风格检查（反斜杠视为普通字符）
         assert!(
-            is_balanced(&sql, '(', ')', EscapeStyle::Backslash),
+            is_balanced(&sql, '(', ')', EscapeStyle::DoubleQuote),
             "Unbalanced parens: {}",
             sql
         );
         // 验证：字符串字面量正确闭合
         assert!(
-            is_string_closed(&sql, EscapeStyle::Backslash),
+            is_string_closed(&sql, EscapeStyle::DoubleQuote),
             "Unclosed string literal: {}",
             sql
         );
@@ -611,17 +610,17 @@ fn generate_random_table_changes(rng: &mut Rng) -> Vec<TableChange> {
 }
 
 fn count_unescaped_quotes(s: &str) -> usize {
+    // v0.2.1 修复 D-1：escape_string 只用 '' 转义，不再使用反斜杠转义
+    // 所以只检查 '' 转义模式，不跳过反斜杠后的字符
     let mut count = 0;
-    let mut escaped = false;
-    for c in s.chars() {
-        if escaped {
-            escaped = false;
-            continue;
-        }
-        if c == '\\' {
-            escaped = true;
-        } else if c == '\'' {
-            count += 1;
+    let mut chars = s.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\'' {
+            if chars.peek() == Some(&'\'') {
+                chars.next(); // 跳过 '' 转义
+            } else {
+                count += 1; // 未转义的 '
+            }
         }
     }
     count

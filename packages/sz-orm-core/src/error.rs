@@ -189,6 +189,12 @@ impl From<std::string::FromUtf8Error> for DbError {
     }
 }
 
+impl<T> From<std::sync::PoisonError<T>> for DbError {
+    fn from(err: std::sync::PoisonError<T>) -> Self {
+        DbError::Internal(format!("RwLock/Mutex poisoned: {}", err))
+    }
+}
+
 /// 连接池特有错误
 #[derive(Debug)]
 pub enum PoolError {

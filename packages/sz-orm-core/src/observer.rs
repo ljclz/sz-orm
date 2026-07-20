@@ -83,7 +83,7 @@
 use crate::hooks::HookContext;
 use crate::Value;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 // ============================================================================
 // Event — 事件类型
@@ -348,10 +348,16 @@ pub trait EventSubscriber: Send + Sync {
 ///
 /// # 线程安全
 ///
-/// 内部使用 `RwLock<Vec<...>>`，支持多线程并发。
+/// 内部使用 `RwLock<Vec<Arc<...>>>`，支持多线程并发。
+///
+/// # 死锁防护（v0.2.1 修复 Critical C-3）
+///
+/// `dispatch` / `dispatch_before_mut` 在调用用户回调前会先 clone 一份
+/// `Vec<Arc<dyn ...>>` 快照并释放读锁，避免持读锁调用用户代码——
+/// 否则用户回调中若尝试注册新订阅者（需要写锁）会自我死锁。
 pub struct EventDispatcher {
-    observers: RwLock<Vec<Box<dyn Observer>>>,
-    subscribers: RwLock<Vec<Box<dyn EventSubscriber>>>,
+    observers: RwLock<Vec<Arc<dyn Observer>>>,
+    subscribers: RwLock<Vec<Arc<dyn EventSubscriber>>>,
     /// 错误收集（非致命错误，不影响流程）
     errors: RwLock<Vec<SubscriberError>>,
     /// 错误缓冲区最大容量（防止内存无限增长）
@@ -385,13 +391,20 @@ impl EventDispatcher {
     }
 
     /// 注册 Observer
+    ///
+    /// 接收 `Box<dyn Observer>`（向后兼容），内部转 `Arc<dyn Observer>` 存储，
+    /// 以便 dispatch 时可以 cheap clone 快照后释放读锁。
     pub fn add_observer(&self, observer: Box<dyn Observer>) {
-        self.observers.write().unwrap().push(observer);
+        let arc: Arc<dyn Observer> = Arc::from(observer);
+        self.observers.write().unwrap().push(arc);
     }
 
     /// 注册 EventSubscriber
+    ///
+    /// 接收 `Box<dyn EventSubscriber>`（向后兼容），内部转 `Arc<dyn EventSubscriber>` 存储。
     pub fn subscribe(&self, subscriber: Box<dyn EventSubscriber>) {
-        self.subscribers.write().unwrap().push(subscriber);
+        let arc: Arc<dyn EventSubscriber> = Arc::from(subscriber);
+        self.subscribers.write().unwrap().push(arc);
     }
 
     /// 清空所有注册
@@ -449,37 +462,41 @@ impl EventDispatcher {
     ///
     /// # 实现要点
     ///
-    /// - 错误先收集到本地 `Vec`，循环结束后一次性批量写入 `self.errors`，
-    ///   避免在持读锁期间获取写锁造成的死锁风险与锁竞争。
+    /// - **v0.2.1 修复 Critical C-3**：调用用户回调前先 clone `Vec<Arc<...>>` 快照
+    ///   并释放读锁，避免持读锁调用用户代码（防止死锁）
+    /// - 错误先收集到本地 `Vec`，循环结束后一次性批量写入 `self.errors`
     pub fn dispatch(&self, event: Event, ctx: &HookContext, attrs: &HashMap<String, Value>) {
         let mut local_errors: Vec<SubscriberError> = Vec::new();
 
-        // 1. 调用 Observers
-        {
+        // 1. 调用 Observers — 持读锁仅 clone 快照，立即释放
+        let observers_snapshot: Vec<Arc<dyn Observer>> = {
             let observers = self.observers.read().unwrap();
-            for observer in observers.iter() {
-                let result = match event {
-                    Event::AfterInsert => observer.after_insert(ctx, attrs),
-                    Event::AfterUpdate => observer.after_update(ctx, attrs),
-                    Event::AfterDelete => observer.after_delete(ctx, attrs),
-                    _ => Ok(()),
-                };
-                if let Err(e) = result {
-                    local_errors.push(e);
-                }
+            observers.clone()
+        };
+        // 释放读锁后调用用户代码
+        for observer in observers_snapshot.iter() {
+            let result = match event {
+                Event::AfterInsert => observer.after_insert(ctx, attrs),
+                Event::AfterUpdate => observer.after_update(ctx, attrs),
+                Event::AfterDelete => observer.after_delete(ctx, attrs),
+                _ => Ok(()),
+            };
+            if let Err(e) = result {
+                local_errors.push(e);
             }
         }
 
-        // 2. 调用 EventSubscribers
-        {
+        // 2. 调用 EventSubscribers — 持读锁仅 clone 快照，立即释放
+        let subscribers_snapshot: Vec<Arc<dyn EventSubscriber>> = {
             let subscribers = self.subscribers.read().unwrap();
-            for subscriber in subscribers.iter() {
-                if !subscriber.subscribed_events().contains(&event) {
-                    continue;
-                }
-                if let Err(e) = subscriber.on_event(event, ctx, attrs) {
-                    local_errors.push(e);
-                }
+            subscribers.clone()
+        };
+        for subscriber in subscribers_snapshot.iter() {
+            if !subscriber.subscribed_events().contains(&event) {
+                continue;
+            }
+            if let Err(e) = subscriber.on_event(event, ctx, attrs) {
+                local_errors.push(e);
             }
         }
 
@@ -495,6 +512,7 @@ impl EventDispatcher {
     /// # 实现要点
     ///
     /// - Vetoed 时直接返回该错误，**不会再次调用 `on_event`**（避免订阅者副作用翻倍）
+    /// - **v0.2.1 修复 Critical C-3**：调用用户回调前先 clone 快照并释放读锁
     /// - 错误先收集到本地 `Vec`，避免持读锁时获取写锁造成死锁
     pub fn dispatch_before_mut(
         &self,
@@ -505,30 +523,34 @@ impl EventDispatcher {
         let mut local_errors: Vec<SubscriberError> = Vec::new();
         let mut vetoed: Option<SubscriberError> = None;
 
-        // 1. 调用 Observers
-        {
+        // 1. 调用 Observers — 持读锁仅 clone 快照，立即释放
+        let observers_snapshot: Vec<Arc<dyn Observer>> = {
             let observers = self.observers.read().unwrap();
-            for observer in observers.iter() {
-                let result = match event {
-                    Event::BeforeInsert => observer.before_insert(ctx, attrs),
-                    Event::BeforeUpdate => observer.before_update(ctx, attrs),
-                    _ => Ok(()),
-                };
-                match result {
-                    Ok(()) => {}
-                    Err(e @ SubscriberError::Vetoed { .. }) => {
-                        vetoed = Some(e);
-                        break;
-                    }
-                    Err(e) => local_errors.push(e),
+            observers.clone()
+        };
+        for observer in observers_snapshot.iter() {
+            let result = match event {
+                Event::BeforeInsert => observer.before_insert(ctx, attrs),
+                Event::BeforeUpdate => observer.before_update(ctx, attrs),
+                _ => Ok(()),
+            };
+            match result {
+                Ok(()) => {}
+                Err(e @ SubscriberError::Vetoed { .. }) => {
+                    vetoed = Some(e);
+                    break;
                 }
+                Err(e) => local_errors.push(e),
             }
         }
 
-        // 2. 调用 EventSubscribers（仅当未被 vetoed）
+        // 2. 调用 EventSubscribers（仅当未被 vetoed）— 持读锁仅 clone 快照，立即释放
         if vetoed.is_none() {
-            let subscribers = self.subscribers.read().unwrap();
-            for subscriber in subscribers.iter() {
+            let subscribers_snapshot: Vec<Arc<dyn EventSubscriber>> = {
+                let subscribers = self.subscribers.read().unwrap();
+                subscribers.clone()
+            };
+            for subscriber in subscribers_snapshot.iter() {
                 if !subscriber.subscribed_events().contains(&event) {
                     continue;
                 }
@@ -557,6 +579,7 @@ impl EventDispatcher {
     ///
     /// # 实现要点
     ///
+    /// - **v0.2.1 修复 Critical C-3**：调用用户回调前先 clone 快照并释放读锁
     /// - 错误先收集到本地 `Vec`，避免持读锁时获取写锁造成死锁
     pub fn dispatch_after_find(
         &self,
@@ -565,24 +588,26 @@ impl EventDispatcher {
     ) -> SubscriberResult<()> {
         let mut local_errors: Vec<SubscriberError> = Vec::new();
 
-        {
+        let observers_snapshot: Vec<Arc<dyn Observer>> = {
             let observers = self.observers.read().unwrap();
-            for observer in observers.iter() {
-                if let Err(e) = observer.after_find(ctx, attrs) {
-                    local_errors.push(e);
-                }
+            observers.clone()
+        };
+        for observer in observers_snapshot.iter() {
+            if let Err(e) = observer.after_find(ctx, attrs) {
+                local_errors.push(e);
             }
         }
 
-        {
+        let subscribers_snapshot: Vec<Arc<dyn EventSubscriber>> = {
             let subscribers = self.subscribers.read().unwrap();
-            for subscriber in subscribers.iter() {
-                if !subscriber.subscribed_events().contains(&Event::AfterFind) {
-                    continue;
-                }
-                if let Err(e) = subscriber.on_event(Event::AfterFind, ctx, attrs) {
-                    local_errors.push(e);
-                }
+            subscribers.clone()
+        };
+        for subscriber in subscribers_snapshot.iter() {
+            if !subscriber.subscribed_events().contains(&Event::AfterFind) {
+                continue;
+            }
+            if let Err(e) = subscriber.on_event(Event::AfterFind, ctx, attrs) {
+                local_errors.push(e);
             }
         }
 
