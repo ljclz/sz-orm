@@ -6,19 +6,21 @@
 //!
 //! ## CI 快速验证（默认 60s）
 //! ```bash
-//! cargo test --test soak -- --ignored
+//! cargo test --test soak -- --ignored --nocapture
 //! ```
 //!
 //! ## 周末长时验证（24h）
 //! ```bash
-//! cargo test --test soak -- --ignored --soak-duration 24h
+//! SOAK_DURATION=24h cargo test --test soak -- --ignored --nocapture
 //! ```
 //!
 //! ## 自定义时长
 //! ```bash
-//! cargo test --test soak -- --ignored --soak-duration 5m
-//! cargo test --test soak -- --ignored --soak-duration 2h
+//! SOAK_DURATION=5m cargo test --test soak -- --ignored --nocapture
+//! SOAK_DURATION=2h cargo test --test soak -- --ignored --nocapture
 //! ```
+//!
+//! 说明：Rust test harness 会拦截自定义参数，因此通过 `SOAK_DURATION` 环境变量传递时长。
 //!
 //! # 监控指标
 //!
@@ -159,11 +161,17 @@ async fn soak_pool_long_running_steady_state() {
     );
 
     // 导出 CSV 报告
-    let csv_path = "target/soak-report.csv";
-    if let Err(e) = monitor.export_csv(csv_path) {
+    // cargo test 工作目录是包目录（packages/sz-orm-core），target 在 workspace 根
+    let csv_path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("..")
+        .join("..")
+        .join("target")
+        .join("soak-report.csv");
+    let csv_path_str = csv_path.to_str().expect("CSV path not UTF-8");
+    if let Err(e) = monitor.export_csv(csv_path_str) {
         eprintln!("[soak] CSV 导出失败: {}", e);
     } else {
-        eprintln!("[soak] CSV 报告已导出: {}", csv_path);
+        eprintln!("[soak] CSV 报告已导出: {}", csv_path_str);
     }
 
     // 退化检测
