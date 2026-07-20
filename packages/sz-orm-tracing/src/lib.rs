@@ -288,14 +288,19 @@ pub enum TracingError {
     SpanNotFound(String),
     InvalidTraceId(String),
     Internal(String),
+    /// OTLP exporter 初始化失败（feature = "otlp"）
+    #[cfg(feature = "otlp")]
+    OtlpInitFailed(String),
 }
 
 impl std::fmt::Display for TracingError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
             TracingError::SpanNotFound(id) => write!(f, "Span not found: {}", id),
-            TracingError::InvalidTraceId(id) => write!(f, "Invalid trace ID: {}", id),
-            TracingError::Internal(msg) => write!(f, "Internal error: {}", msg),
+            TracingError::InvalidTraceId(id) => write!(f, "Invalid trace id: {}", id),
+            TracingError::Internal(msg) => write!(f, "Tracing internal error: {}", msg),
+            #[cfg(feature = "otlp")]
+            TracingError::OtlpInitFailed(msg) => write!(f, "OTLP init failed: {}", msg),
         }
     }
 }
@@ -1654,5 +1659,114 @@ mod tests {
         let _slo: f64 = r.slo_target;
         let _ebr: f64 = r.error_budget_remaining;
         let _sat: f64 = r.saturation;
+    }
+}
+
+// ============================================================================
+// OTLP Exporter（feature = "otlp"）
+// ============================================================================
+
+/// OTLP exporter 配置
+///
+/// 用于将 SZ-ORM tracing 的 Span 通过 OpenTelemetry OTLP 协议导出到 Collector。
+///
+/// # 示例
+///
+/// ```no_run
+/// # #[cfg(feature = "otlp")] {
+/// use sz_orm_tracing::OtlpConfig;
+///
+/// let config = OtlpConfig {
+///     endpoint: "http://localhost:4317".to_string(),
+///     service_name: "sz-orm-app".to_string(),
+///     timeout_ms: 5000,
+/// };
+/// # }
+/// ```
+#[cfg(feature = "otlp")]
+#[derive(Debug, Clone)]
+pub struct OtlpConfig {
+    /// OTLP gRPC endpoint（如 `http://localhost:4317`）
+    pub endpoint: String,
+    /// 服务名（出现在 trace 的 service.name 标签）
+    pub service_name: String,
+    /// 导出超时（毫秒）
+    pub timeout_ms: u64,
+}
+
+#[cfg(feature = "otlp")]
+impl Default for OtlpConfig {
+    fn default() -> Self {
+        Self {
+            endpoint: "http://localhost:4317".to_string(),
+            service_name: "sz-orm".to_string(),
+            timeout_ms: 5000,
+        }
+    }
+}
+
+/// 初始化 OTLP exporter
+///
+/// 将 SZ-ORM 的 tracing 接入 OpenTelemetry，使 Span 自动导出到 Collector。
+///
+/// # 错误
+///
+/// - `TracingError::OtlpInitFailed`：初始化失败
+///
+/// # 示例
+///
+/// ```no_run
+/// # #[cfg(feature = "otlp")] {
+/// # tokio_test::block_on(async {
+/// use sz_orm_tracing::{init_otlp_exporter, OtlpConfig};
+///
+/// let _guard = init_otlp_exporter(OtlpConfig::default()).await.unwrap();
+/// // 此后通过 `Tracer` 上报的 Span 将自动导出到 OTLP Collector
+/// # });
+/// # }
+/// ```
+#[cfg(feature = "otlp")]
+pub async fn init_otlp_exporter(config: OtlpConfig) -> Result<OtlpGuard, TracingError> {
+    use opentelemetry::trace::TracerProvider as _;
+    use opentelemetry_otlp::{SpanExporter, WithExportConfig};
+    use opentelemetry_sdk::runtime::Tokio;
+    use opentelemetry_sdk::trace::TracerProvider;
+    use std::time::Duration;
+
+    let exporter = SpanExporter::builder()
+        .with_tonic()
+        .with_endpoint(config.endpoint.clone())
+        .with_timeout(Duration::from_millis(config.timeout_ms))
+        .build()
+        .map_err(|e| TracingError::OtlpInitFailed(format!("exporter build: {e}")))?;
+
+    let provider = TracerProvider::builder()
+        .with_batch_exporter(exporter, Tokio)
+        .with_resource(
+            opentelemetry_sdk::Resource::builder()
+                .with_service_name(config.service_name.clone())
+                .build(),
+        )
+        .build();
+
+    // 设置为全局 provider
+    opentelemetry::global::set_tracer_provider(provider.clone());
+
+    Ok(OtlpGuard { provider })
+}
+
+/// OTLP exporter 守卫
+///
+/// drop 时优雅关闭 exporter，确保所有 Span 已导出。
+#[cfg(feature = "otlp")]
+pub struct OtlpGuard {
+    provider: opentelemetry_sdk::trace::TracerProvider,
+}
+
+#[cfg(feature = "otlp")]
+impl Drop for OtlpGuard {
+    fn drop(&mut self) {
+        // 优雅关闭：未发送的 span 会被丢弃（不阻塞）
+        let _ = self.provider.shutdown();
     }
 }

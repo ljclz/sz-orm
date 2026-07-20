@@ -1,0 +1,86 @@
+name: Soak Test (Weekly)
+
+# 周末长时 Soak Test：每周日凌晨 00:00 UTC 自动运行
+# 也可手动触发（workflow_dispatch），支持自定义时长
+#
+# 目的：
+# - 检测内存泄漏（RSS 线性增长）
+# - 检测文件句柄泄漏（fd_count 单调上升）
+# - 检测连接池泄漏（pool_active != pool_idle）
+# - 检测性能退化（ops_per_sec 衰减 > 10%）
+# - 检测慢退化（p99_latency 增长 > 2x）
+# - 检测偶发错误（error_count > 0）
+#
+# 报告：
+# - 控制台日志（实时指标采样）
+# - CSV 报告（target/soak-report.csv，作为 artifact 上传）
+# - 退化检测结果（如发现则失败）
+
+on:
+  schedule:
+    - cron: '0 0 * * 0'  # 每周日 00:00 UTC（北京时间 08:00）
+  workflow_dispatch:
+    inputs:
+      soak_duration:
+        description: 'Soak 时长（如 1h, 6h, 24h）'
+        required: false
+        default: '1h'
+        type: string
+
+# 防止并发运行（避免多个 soak 任务竞争资源）
+concurrency:
+  group: soak-test
+  cancel-in-progress: false
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    timeout-minutes: 1500  # 25 小时（24h soak + 1h 缓冲）
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Install Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: rust/sz-orm
+
+      - name: Determine soak duration
+        id: duration
+        run: |
+          if [ -n "${{ github.event.inputs.soak_duration }}" ]; then
+            echo "value=${{ github.event.inputs.soak_duration }}" >> $GITHUB_OUTPUT
+          else
+            # 周末任务默认 24h
+            echo "value=24h" >> $GITHUB_OUTPUT
+          fi
+
+      - name: Run Soak Test
+        working-directory: rust/sz-orm
+        run: |
+          cargo test -p sz-orm-core --test soak -- --ignored --soak-duration=${{ steps.duration.outputs.value }}
+
+      - name: Upload soak report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-report-${{ steps.duration.outputs.value }}
+          path: rust/sz-orm/target/soak-report.csv
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: Notify on failure
+        if: failure()
+        run: |
+          echo "::warning::Soak test failed. Check the CSV report and console logs for regression details."
+          echo "退化检测标准："
+          echo "- RSS 增长 > 50MB → 内存泄漏"
+          echo "- fd_count 增长 > 10 → 句柄泄漏"
+          echo "- pool_active != pool_idle → 连接池泄漏"
+          echo "- ops_per_sec 衰减 > 10% → 性能退化"
+          echo "- p99_latency 增长 > 2x → 慢退化"
+          echo "- error_count > 0 → 偶发错误"
+          exit 1
