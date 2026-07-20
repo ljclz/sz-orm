@@ -16,4 +16,7 @@ serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 chrono = { version = "0.4", features = ["serde"] }
 bytes = "1"
+# v0.2.1 修复 T-1：添加 Property-Based Testing 支持
+# 集中管理 proptest 版本，子包通过 { workspace = true } 继承
+proptest = "1.5"
 sz-orm-core = { version = "0.2.0", path = "packages/sz-orm-core" }

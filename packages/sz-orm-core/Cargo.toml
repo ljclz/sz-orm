@@ -28,6 +28,8 @@ sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio",
 rusqlite = { version = "0.32", features = ["bundled"] }
 oracle = { version = "0.6", default-features = false, features = ["chrono"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+# v0.2.1 修复 T-1：Property-Based Testing
+proptest = { workspace = true }
 
 [lib]
 name = "sz_orm_core"
@@ -56,6 +58,11 @@ path = "tests/integration_oracle.rs"
 [[test]]
 name = "contracts"
 path = "tests/contracts.rs"
+
+# v0.2.1 修复 T-1：Property-Based Testing 入口
+[[test]]
+name = "property"
+path = "tests/property.rs"
 
 [[bench]]
 name = "core_bench"

@@ -271,19 +271,30 @@ impl InMemoryTableStore {
 
     /// Pre-populates the store with a table containing the given columns and
     /// rows. Overwrites any existing table with the same name.
+    ///
+    /// # Error handling
+    ///
+    /// If the internal RwLock is poisoned (due to a panic in another thread),
+    /// the table is **not inserted** and a warning is logged via `eprintln!`.
+    /// This avoids panicking the caller — `PoisonError` indicates the lock is
+    /// already in a corrupted state, so the data loss is acceptable.
     pub fn with_table(
         self,
         name: impl Into<String>,
         columns: Vec<ColumnInfo>,
         rows: Vec<RowData>,
     ) -> Self {
-        {
-            let mut tables = self
-                .tables
-                .write()
-                .map_err(|e| MigError::Migration(e.to_string()))
-                .expect("lock poisoned");
-            tables.insert(name.into(), InMemoryTable { columns, rows });
+        let table_name: String = name.into();
+        match self.tables.write() {
+            Ok(mut tables) => {
+                tables.insert(table_name, InMemoryTable { columns, rows });
+            }
+            Err(poisoned) => {
+                eprintln!(
+                    "[warn] with_table: RwLock poisoned, table '{}' not inserted: {}",
+                    table_name, poisoned
+                );
+            }
         }
         self
     }

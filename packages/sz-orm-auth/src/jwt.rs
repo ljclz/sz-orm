@@ -32,6 +32,12 @@ pub struct JwtClaims {
     pub roles: Vec<String>,
     #[serde(default)]
     pub permissions: Vec<String>,
+    /// 用户 ID（v0.2.1 新增，修复 Critical S-2）
+    ///
+    /// - `Some(id)`：携带用户 ID，verify_token 可恢复正确 user.id
+    /// - `None`：兼容旧 token；verify_token 会回退为 0 并通过 tracing 警告
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub user_id: Option<i64>,
 }
 
 impl JwtClaims {
@@ -43,6 +49,7 @@ impl JwtClaims {
             iss: None,
             roles: Vec::new(),
             permissions: Vec::new(),
+            user_id: None,
         }
     }
 
@@ -58,6 +65,12 @@ impl JwtClaims {
 
     pub fn with_permissions(mut self, permissions: Vec<String>) -> Self {
         self.permissions = permissions;
+        self
+    }
+
+    /// 设置用户 ID（v0.2.1 新增）
+    pub fn with_user_id(mut self, user_id: i64) -> Self {
+        self.user_id = Some(user_id);
         self
     }
 

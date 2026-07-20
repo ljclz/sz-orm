@@ -2,6 +2,37 @@ use crate::error::AuthError;
 use crate::jwt::{JwtClaims, JwtEncoder};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::sync::Arc;
+
+/// 密码验证器 trait（v0.2.1 新增，修复 Critical S-1）
+///
+/// `JwtAuthenticator::authenticate` 调用此 trait 验证密码并获取 user_id。
+/// 调用方负责实现真实的密码哈希校验（如 bcrypt/argon2）和用户查询。
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_auth::{PasswordVerifier, AuthError};
+///
+/// struct DbPasswordVerifier;
+///
+/// impl PasswordVerifier for DbPasswordVerifier {
+///     fn verify_password(&self, username: &str, password: &str) -> Result<i64, AuthError> {
+///         // 1. 查询数据库获取 stored_hash 和 user_id
+///         // 2. 用 bcrypt::verify(password, &stored_hash) 校验
+///         // 3. 校验通过返回 Ok(user_id)，否则 Err(AuthError::InvalidCredentials(...))
+///         # unimplemented!()
+///     }
+/// }
+/// ```
+pub trait PasswordVerifier: Send + Sync {
+    /// 验证密码并返回 user_id
+    ///
+    /// # 返回
+    /// - `Ok(user_id)`：密码正确，返回用户 ID
+    /// - `Err(AuthError::InvalidCredentials(_))`：密码错误或用户不存在
+    fn verify_password(&self, username: &str, password: &str) -> Result<i64, AuthError>;
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Credentials {
@@ -120,6 +151,11 @@ pub struct JwtAuthenticator {
     encoder: JwtEncoder,
     issuer: String,
     expiration: u64,
+    /// 可选密码验证器（v0.2.1 新增，修复 Critical S-1）
+    ///
+    /// - `Some(verifier)`：`authenticate` 调用 `verifier.verify_password` 获取 user_id
+    /// - `None`：保留旧行为（不验证密码），但 `eprintln!` 警告生产环境必须配置
+    password_verifier: Option<Arc<dyn PasswordVerifier>>,
 }
 
 impl JwtAuthenticator {
@@ -128,7 +164,17 @@ impl JwtAuthenticator {
             encoder: JwtEncoder::new(secret),
             issuer: issuer.into(),
             expiration,
+            password_verifier: None,
         }
+    }
+
+    /// 配置密码验证器（v0.2.1 新增，修复 Critical S-1）
+    ///
+    /// 配置后，`authenticate` 会调用 `verifier.verify_password` 验证密码并获取 user_id。
+    /// **生产环境必须调用此方法**，否则 `authenticate` 不验证密码（Critical S-1）。
+    pub fn with_password_verifier(mut self, verifier: Arc<dyn PasswordVerifier>) -> Self {
+        self.password_verifier = Some(verifier);
+        self
     }
 
     pub fn authenticate(&self, credentials: &Credentials) -> Result<Token, AuthError> {
@@ -138,14 +184,29 @@ impl JwtAuthenticator {
             ));
         }
 
+        // v0.2.1 修复 Critical S-1：必须通过 PasswordVerifier 验证密码
+        let user_id: i64 = if let Some(verifier) = &self.password_verifier {
+            verifier.verify_password(&credentials.username, &credentials.password)?
+        } else {
+            // 未配置 verifier：保留旧行为（向后兼容）但警告
+            // 生产环境必须通过 with_password_verifier() 配置 verifier
+            eprintln!(
+                "[warn] JwtAuthenticator::authenticate: password_verifier not configured; \
+                 accepting credentials without password verification (Critical S-1)"
+            );
+            0
+        };
+
         let exp = current_timestamp_secs() + (self.expiration as i64);
         let claims = JwtClaims::new(credentials.username.clone(), exp)
             .with_issuer(self.issuer.clone())
-            .with_roles(vec!["user".to_string()]);
+            .with_roles(vec!["user".to_string()])
+            .with_user_id(user_id);
 
         let access_token = self.encoder.encode(&claims)?;
         let refresh_claims = JwtClaims::new(credentials.username.clone(), exp + 86400)
-            .with_issuer(self.issuer.clone());
+            .with_issuer(self.issuer.clone())
+            .with_user_id(user_id);
         let refresh_token = self.encoder.encode(&refresh_claims)?;
 
         Ok(Token::new(access_token, self.expiration).with_refresh(refresh_token))
@@ -157,7 +218,15 @@ impl JwtAuthenticator {
         }
 
         let claims = self.encoder.decode(token)?;
-        let user = User::new(0, claims.sub.clone())
+        // v0.2.1 修复 Critical S-2：从 claims.user_id 恢复正确的 user.id
+        let user_id = claims.user_id.unwrap_or_else(|| {
+            eprintln!(
+                "[warn] JwtAuthenticator::verify_token: token has no user_id claim \
+                 (legacy token); falling back to user.id=0 (Critical S-2)"
+            );
+            0
+        });
+        let user = User::new(user_id, claims.sub.clone())
             .with_roles(claims.roles.clone())
             .with_permissions(claims.permissions.clone());
         Ok(user)
@@ -176,7 +245,8 @@ impl JwtAuthenticator {
         let new_claims = JwtClaims::new(claims.sub, new_exp)
             .with_issuer(self.issuer.clone())
             .with_roles(claims.roles)
-            .with_permissions(claims.permissions);
+            .with_permissions(claims.permissions)
+            .with_user_id(claims.user_id.unwrap_or(0));
         let new_access_token = self.encoder.encode(&new_claims)?;
 
         Ok(Token::new(new_access_token, self.expiration))

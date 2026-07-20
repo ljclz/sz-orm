@@ -8,3 +8,11 @@ license.workspace = true
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[dev-dependencies]
+# v0.2.1 修复 T-1：Property-Based Testing
+proptest = { workspace = true }
+
+[[test]]
+name = "property"
+path = "tests/property.rs"
