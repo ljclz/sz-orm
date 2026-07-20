@@ -60,8 +60,10 @@ jobs:
 
       - name: Run Soak Test
         working-directory: rust/sz-orm
+        env:
+          SOAK_DURATION: ${{ steps.duration.outputs.value }}
         run: |
-          cargo test -p sz-orm-core --test soak -- --ignored --soak-duration=${{ steps.duration.outputs.value }}
+          cargo test -p sz-orm-core --test soak -- --ignored --nocapture
 
       - name: Upload soak report
         if: always()

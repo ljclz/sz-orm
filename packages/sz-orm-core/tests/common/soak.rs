@@ -212,7 +212,14 @@ impl SoakMonitor {
     }
 
     /// 导出 CSV 报告
+    ///
+    /// 自动创建父目录（如 target/ 不存在时）。
     pub fn export_csv(&self, path: &str) -> std::io::Result<()> {
+        let path = std::path::Path::new(path);
+        // 自动创建父目录（cargo test 工作目录可能是包目录，target/ 可能在 workspace 根）
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)?;
+        }
         let mut content = String::from(SoakSnapshot::csv_header());
         for snap in &self.snapshots {
             content.push_str(&snap.to_csv_line());
@@ -261,10 +268,15 @@ impl SoakMonitor {
         }
 
         // 4. ops_per_sec 衰减（> 10%）
-        // 注意：first.ops_per_sec 在测试中可能是预设值而非真实计算，
-        // 只要 last < first * 0.9 即判定衰减（不要求 first.elapsed_secs > 0）
+        // 注意：最终快照在 worker 停止后采集，ops/s 可能为 0（虚假衰减）
+        // 如最终快照 ops/s < 1.0，使用倒数第二个快照（最后一个有真实吞吐的快照）
+        let throughput_last = if last.ops_per_sec < 1.0 && self.snapshots.len() >= 2 {
+            &self.snapshots[self.snapshots.len() - 2]
+        } else {
+            last
+        };
         let first_ops = first.ops_per_sec.max(1.0);
-        let last_ops = last.ops_per_sec;
+        let last_ops = throughput_last.ops_per_sec;
         if last_ops < first_ops * 0.9 {
             issues.push(SoakRegression::ThroughputDecay {
                 initial: first_ops,
@@ -417,11 +429,22 @@ pub fn record_latency(window: &Arc<std::sync::Mutex<VecDeque<u64>>>, latency_us:
     w.push_back(latency_us);
 }
 
-/// 从环境变量解析 Soak 时长
+/// 从环境变量或命令行参数解析 Soak 时长
 ///
-/// 用法：`cargo test --test soak -- --ignored --soak-duration 24h`
+/// # 用法
 ///
-/// 支持格式：
+/// ## 方式一：环境变量（推荐，绕过 Rust test harness 参数限制）
+/// ```bash
+/// SOAK_DURATION=24h cargo test --test soak -- --ignored --nocapture
+/// ```
+///
+/// ## 方式二：命令行参数（需在 `--` 之后传递，部分 test harness 可能拦截）
+/// ```bash
+/// cargo test --test soak -- --ignored --nocapture --soak-duration=24h
+/// ```
+///
+/// # 支持格式
+///
 /// - `60s` / `60sec` → 60 秒
 /// - `5m` / `5min` → 5 分钟
 /// - `2h` → 2 小时
@@ -429,13 +452,21 @@ pub fn record_latency(window: &Arc<std::sync::Mutex<VecDeque<u64>>>, latency_us:
 ///
 /// 默认值：60 秒（CI 快速验证）
 pub fn parse_duration_from_args() -> Duration {
+    // 优先读取环境变量 SOAK_DURATION（绕过 Rust test harness 参数限制）
+    if let Ok(val) = std::env::var("SOAK_DURATION") {
+        if let Some(d) = parse_duration_str(&val) {
+            return d;
+        }
+        eprintln!("[soak] 警告：SOAK_DURATION={} 无法解析，使用默认 60s", val);
+    }
+    // 兼容命令行参数：在 -- 之后传递
     let args: Vec<String> = std::env::args().collect();
     for arg in &args {
         if let Some(rest) = arg.strip_prefix("--soak-duration=") {
             return parse_duration_str(rest).unwrap_or(Duration::from_secs(60));
         }
     }
-    // 默认 60 秒（便于 CI 快速验证；周末任务用 --soak-duration=24h）
+    // 默认 60 秒（便于 CI 快速验证；周末任务用 SOAK_DURATION=24h）
     Duration::from_secs(60)
 }
 
