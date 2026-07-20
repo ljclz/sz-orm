@@ -1,0 +1,27 @@
+[package]
+name = "sz-orm-vector"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+description = "SZ-ORM pgvector Extension - Vector similarity search with pgvector"
+
+[features]
+default = []
+real-pg = ["dep:tokio-postgres"]
+
+[dependencies]
+async-trait = "0.1"
+tokio = { version = "1.40", features = ["full"] }
+thiserror = "2.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sz-orm-ai = { workspace = true }
+tokio-postgres = { version = "0.7", optional = true }
+
+[dev-dependencies]
+tokio-test = "0.4"
+
+[[test]]
+name = "vector_tests"
+path = "tests/vector_tests.rs"

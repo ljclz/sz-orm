@@ -1,5 +1,5 @@
 [workspace]
-members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", "packages/sz-orm-back", "packages/sz-orm-websocket", "packages/sz-orm-mqtt", "packages/sz-orm-storage", "packages/sz-orm-queue", "packages/sz-orm-auth", "packages/sz-orm-scheduler", "packages/sz-orm-tracing", "packages/sz-orm-es", "packages/sz-orm-limit", "packages/sz-orm-crypto", "packages/sz-orm-grpc", "packages/sz-orm-graphql", "packages/sz-orm-dtx", "packages/sz-orm-rw", "packages/sz-orm-sharding", "packages/sz-orm-logger", "packages/sz-orm-swagger", "packages/sz-orm-masking", "packages/sz-orm-config", "packages/sz-orm-health", "packages/sz-orm-audit", "packages/sz-orm-batch", "packages/sz-orm-wasm", "packages/sz-orm-lc", "packages/sz-orm-sqlx", "packages/sz-orm-sql-validator", "packages/sz-orm-macros", "packages/sz-orm-query-builder", "packages/sz-orm-observability", "packages/sz-orm-postgis", "packages/sz-orm-timeseries", "packages/sz-orm-search", "cli", "examples"]
+members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", "packages/sz-orm-back", "packages/sz-orm-websocket", "packages/sz-orm-mqtt", "packages/sz-orm-storage", "packages/sz-orm-queue", "packages/sz-orm-auth", "packages/sz-orm-scheduler", "packages/sz-orm-tracing", "packages/sz-orm-es", "packages/sz-orm-limit", "packages/sz-orm-crypto", "packages/sz-orm-grpc", "packages/sz-orm-graphql", "packages/sz-orm-dtx", "packages/sz-orm-rw", "packages/sz-orm-sharding", "packages/sz-orm-logger", "packages/sz-orm-swagger", "packages/sz-orm-masking", "packages/sz-orm-config", "packages/sz-orm-health", "packages/sz-orm-audit", "packages/sz-orm-batch", "packages/sz-orm-wasm", "packages/sz-orm-lc", "packages/sz-orm-sqlx", "packages/sz-orm-sql-validator", "packages/sz-orm-macros", "packages/sz-orm-query-builder", "packages/sz-orm-observability", "packages/sz-orm-postgis", "packages/sz-orm-timeseries", "packages/sz-orm-search", "packages/sz-orm-vector", "cli", "examples"]
 resolver = "2"
 
 [workspace.package]
@@ -22,3 +22,4 @@ tracing = "0.1"
 # 集中管理 proptest 版本，子包通过 { workspace = true } 继承
 proptest = "1.5"
 sz-orm-core = { version = "0.2.0", path = "packages/sz-orm-core" }
+sz-orm-ai = { version = "0.2.0", path = "packages/sz-orm-ai" }
