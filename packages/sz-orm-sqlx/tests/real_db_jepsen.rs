@@ -47,24 +47,24 @@ async fn mysql_jepsen_concurrent_transfer_isolation() {
     let table = unique_table("jepsen_xfer");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id INT PRIMARY KEY, balance INT NOT NULL)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "INSERT INTO {} (id, balance) VALUES (1, 1000)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "INSERT INTO {} (id, balance) VALUES (2, 1000)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -233,10 +233,10 @@ async fn mysql_jepsen_long_transaction_100_ops() {
     let table = unique_table("jepsen_long");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id INT PRIMARY KEY, value INT)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -335,24 +335,24 @@ async fn pg_jepsen_concurrent_transfer_isolation() {
     let table = unique_table("pg_jepsen_xfer");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id BIGINT PRIMARY KEY, balance BIGINT NOT NULL)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "INSERT INTO {} (id, balance) VALUES (1, 1000)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "INSERT INTO {} (id, balance) VALUES (2, 1000)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -508,10 +508,10 @@ async fn pg_jepsen_long_transaction_100_ops() {
     let table = unique_table("pg_jepsen_long");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id BIGINT PRIMARY KEY, value BIGINT)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();

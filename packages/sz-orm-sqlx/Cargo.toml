@@ -9,7 +9,7 @@ license.workspace = true
 sz-orm-core = { workspace = true }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal"] }
 rust_decimal = "1.36"
 
 [dev-dependencies]

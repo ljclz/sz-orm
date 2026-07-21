@@ -11,34 +11,32 @@
 [advisories]
 # 忽略的公告列表 (字符串数组格式，cargo-audit 0.22+ 兼容)
 # 仅在"上游暂无可用修复版本"且"漏洞影响可控"时才忽略，原因记录在下方注释中
+# 最后更新: 2026-07-21 (sqlx 0.9.0 升级后，rsa Marvin Attack 已消除)
 ignore = [
-    # rsa 0.9.10: Marvin Attack (timing sidechannels, RUSTSEC-2023-0071, severity 5.9 medium)
-    # 来源: sqlx-mysql 0.8.6 → rsa 0.9.10 (MySQL SHA256/RSA 认证所需)
-    # 影响: 时序侧信道攻击需在同一主机执行恶意代码，服务端场景影响有限
-    # 跟踪: 待 sqlx 0.9+ 升级 rsa 依赖后自动移除此忽略项
-    "RUSTSEC-2023-0071",
-    # rustls-webpki 0.102.8: CRL distributionPoint 解析漏洞 (RUSTSEC-2026-0049)
-    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-webpki 0.102.8
-    # 影响: 仅在启用 real-broker feature 时引入；CRL 验证在默认编译中不参与；上游 rustls-webpki 0.103 为不兼容大版本
-    # 跟踪: 待 rumqttc 升级至依赖 rustls-webpki 0.103+ 后自动移除
+    # rustls-webpki 0.101.7 / 0.102.8: CRL distributionPoint 解析漏洞 (RUSTSEC-2026-0049)
+    # 来源 1: sz-orm-search (real-es feature) → elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21 → rustls-webpki 0.101.7
+    # 来源 2: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-webpki 0.102.8
+    # 影响: 仅在启用 real-es / real-broker feature 时引入；上游 rustls-webpki 0.103+ 为不兼容大版本
+    # 跟踪: 待 rumqttc / elasticsearch 升级至依赖 rustls-webpki 0.103+ 后自动移除
     "RUSTSEC-2026-0049",
-    # rustls-webpki 0.102.8: URI name constraints 漏洞 (RUSTSEC-2026-0098)
+    # rustls-webpki: URI name constraints 漏洞 (RUSTSEC-2026-0098)
     "RUSTSEC-2026-0098",
-    # rustls-webpki 0.102.8: wildcard name constraints 漏洞 (RUSTSEC-2026-0099)
+    # rustls-webpki: wildcard name constraints 漏洞 (RUSTSEC-2026-0099)
     "RUSTSEC-2026-0099",
-    # rustls-webpki 0.102.8: CRL parsing panic 漏洞 (RUSTSEC-2026-0104)
+    # rustls-webpki: CRL parsing panic 漏洞 (RUSTSEC-2026-0104)
     "RUSTSEC-2026-0104",
     # quick-xml 0.38.4: 二次时间复杂度解析漏洞 (RUSTSEC-2026-0194)
-    # 来源: sz-orm-queue (rabbitmq feature) → lapin 4.10 → quick-xml 0.38.4
-    # 影响: 仅在启用 rabbitmq feature 时引入；服务端可控输入；上游 lapin 尚未升级
-    # 跟踪: 待 lapin 升级 quick-xml 依赖后自动移除
+    # 来源: sz-orm-storage (s3-sdk feature) → rust-s3 0.37.2 → aws-creds 0.39.1 → quick-xml 0.38.4
+    # 影响: 仅在启用 s3-sdk feature 时引入；服务端可控输入；上游 rust-s3 0.37.2 / aws-creds 0.39.1 均为最新版，尚未升级 quick-xml
+    # 跟踪: 待 rust-s3 升级 quick-xml 依赖至 0.41+ 后自动移除
     "RUSTSEC-2026-0194",
     # quick-xml 0.38.4: 内存耗尽漏洞 (RUSTSEC-2026-0195)
     "RUSTSEC-2026-0195",
-    # rustls-pemfile 2.2.0: 未维护 (RUSTSEC-2025-0134)
-    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-pemfile 2.2.0
-    # 影响: 仅在启用 real-broker feature 时引入；功能已被 rustls 0.23 内置功能替代
-    # 跟踪: 待 rumqttc 升级至不依赖 rustls-pemfile 后自动移除
+    # rustls-pemfile 1.0.4 / 2.2.0: 未维护 (RUSTSEC-2025-0134)
+    # 来源 1: sz-orm-search (real-es feature) → elasticsearch → reqwest 0.11 → rustls-pemfile 1.0.4
+    # 来源 2: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-pemfile 2.2.0
+    # 影响: 仅在启用 real-es / real-broker feature 时引入；功能已被 rustls 0.23 内置功能替代
+    # 跟踪: 待 rumqttc / elasticsearch 升级至不依赖 rustls-pemfile 后自动移除
     "RUSTSEC-2025-0134",
 ]
 # 未维护的依赖仅给出警告

@@ -36,31 +36,9 @@ fn needs_raw_sql(sql: &str) -> bool {
 
 // ===================== SQLite 适配器 =====================
 
-/// 在 owned PoolConnection 上执行 SQL
-/// 关键：直接调用 Executor::execute trait 方法（而非 Query::execute），
-/// 用 &'a str 作为参数，让 'c = 'q = 'a 统一，避免 HRTB。
-fn execute_sqlite_boxed<'a>(
-    pool_conn: &'a mut sqlx::pool::PoolConnection<sqlx::Sqlite>,
-    sql: &'a str,
-) -> Pin<Box<dyn Future<Output = Result<sqlx::sqlite::SqliteQueryResult, sqlx::Error>> + Send + 'a>>
-{
-    let conn_ref: &'a mut sqlx::SqliteConnection = &mut *pool_conn;
-    Box::pin(async move {
-        if needs_raw_sql(sql) {
-            conn_ref.execute(sqlx::raw_sql(sql)).await
-        } else {
-            conn_ref.execute(sql).await
-        }
-    })
-}
-
-fn query_sqlite_boxed<'a>(
-    pool_conn: &'a mut sqlx::pool::PoolConnection<sqlx::Sqlite>,
-    sql: &'a str,
-) -> Pin<Box<dyn Future<Output = Result<Vec<sqlx::sqlite::SqliteRow>, sqlx::Error>> + Send + 'a>> {
-    let conn_ref: &'a mut sqlx::SqliteConnection = &mut *pool_conn;
-    Box::pin(async move { conn_ref.fetch_all(sql).await })
-}
+// 注：sqlx 0.9 起 Executor trait 要求 'static lifetime，
+// 原先的 execute_sqlite_boxed / query_sqlite_boxed 已内联到调用点。
+// 见 SqlxSqliteConnection::execute / query 实现。
 
 /// 将 SqliteRow 转换为 Value（按列序号）
 /// 使用列类型信息决定解码类型，避免 bool/int 混淆
@@ -177,7 +155,15 @@ impl Connection for SqlxSqliteConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let result = execute_sqlite_boxed(&mut pool_conn, sql).await;
+            // sqlx 0.9: PoolConnection 不再实现 Executor，需通过 DerefMut 解引用到内部连接
+            // sqlx 0.9: SqlSafeStr 只对 &'static str 直接实现，非 'static 的 &str 需用 AssertSqlSafe 包装
+            let result = if needs_raw_sql(sql) {
+                (&mut *pool_conn)
+                    .execute(sqlx::raw_sql(sqlx::AssertSqlSafe(sql)))
+                    .await
+            } else {
+                (&mut *pool_conn).execute(sqlx::AssertSqlSafe(sql)).await
+            };
             self.conn = Some(pool_conn);
 
             match result {
@@ -203,7 +189,9 @@ impl Connection for SqlxSqliteConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let rows_result = query_sqlite_boxed(&mut pool_conn, sql).await;
+            // sqlx 0.9: PoolConnection 不再实现 Executor，需通过 DerefMut 解引用到内部连接
+            // sqlx 0.9: SqlSafeStr 只对 &'static str 直接实现，非 'static 的 &str 需用 AssertSqlSafe 包装
+            let rows_result = (&mut *pool_conn).fetch_all(sqlx::AssertSqlSafe(sql)).await;
             self.conn = Some(pool_conn);
 
             let rows = rows_result.map_err(map_sqlx_error)?;
@@ -297,28 +285,8 @@ impl Drop for SqlxSqliteConnection {
 
 // ===================== MySQL 适配器 =====================
 
-/// 在 owned PoolConnection 上执行 SQL（直接调用 Executor::execute 避免 HRTB）
-fn execute_mysql_boxed<'a>(
-    pool_conn: &'a mut sqlx::pool::PoolConnection<sqlx::MySql>,
-    sql: &'a str,
-) -> Pin<Box<dyn Future<Output = Result<sqlx::mysql::MySqlQueryResult, sqlx::Error>> + Send + 'a>> {
-    let conn_ref: &'a mut sqlx::MySqlConnection = &mut *pool_conn;
-    Box::pin(async move {
-        if needs_raw_sql(sql) {
-            conn_ref.execute(sqlx::raw_sql(sql)).await
-        } else {
-            conn_ref.execute(sql).await
-        }
-    })
-}
-
-fn query_mysql_boxed<'a>(
-    pool_conn: &'a mut sqlx::pool::PoolConnection<sqlx::MySql>,
-    sql: &'a str,
-) -> Pin<Box<dyn Future<Output = Result<Vec<sqlx::mysql::MySqlRow>, sqlx::Error>> + Send + 'a>> {
-    let conn_ref: &'a mut sqlx::MySqlConnection = &mut *pool_conn;
-    Box::pin(async move { conn_ref.fetch_all(sql).await })
-}
+// 注：sqlx 0.9 起 Executor trait 要求 'static lifetime，
+// 原先的 execute_mysql_boxed / query_mysql_boxed 已内联到调用点。
 
 fn row_to_value_mysql(row: &sqlx::mysql::MySqlRow, ordinal: usize) -> Value {
     use sqlx::TypeInfo;
@@ -472,7 +440,15 @@ impl Connection for SqlxMySqlConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let result = execute_mysql_boxed(&mut pool_conn, sql).await;
+            // sqlx 0.9: PoolConnection 不再实现 Executor，需通过 DerefMut 解引用到内部连接
+            // sqlx 0.9: SqlSafeStr 只对 &'static str 直接实现，非 'static 的 &str 需用 AssertSqlSafe 包装
+            let result = if needs_raw_sql(sql) {
+                (&mut *pool_conn)
+                    .execute(sqlx::raw_sql(sqlx::AssertSqlSafe(sql)))
+                    .await
+            } else {
+                (&mut *pool_conn).execute(sqlx::AssertSqlSafe(sql)).await
+            };
             self.conn = Some(pool_conn);
 
             match result {
@@ -498,7 +474,9 @@ impl Connection for SqlxMySqlConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let rows_result = query_mysql_boxed(&mut pool_conn, sql).await;
+            // sqlx 0.9: PoolConnection 不再实现 Executor，需通过 DerefMut 解引用到内部连接
+            // sqlx 0.9: SqlSafeStr 只对 &'static str 直接实现，非 'static 的 &str 需用 AssertSqlSafe 包装
+            let rows_result = (&mut *pool_conn).fetch_all(sqlx::AssertSqlSafe(sql)).await;
             self.conn = Some(pool_conn);
 
             let rows = rows_result.map_err(map_sqlx_error)?;
@@ -592,28 +570,8 @@ impl Drop for SqlxMySqlConnection {
 
 // ===================== PostgreSQL 适配器 =====================
 
-/// 在 owned PoolConnection 上执行 SQL（直接调用 Executor::execute 避免 HRTB）
-fn execute_pg_boxed<'a>(
-    pool_conn: &'a mut sqlx::pool::PoolConnection<sqlx::Postgres>,
-    sql: &'a str,
-) -> Pin<Box<dyn Future<Output = Result<sqlx::postgres::PgQueryResult, sqlx::Error>> + Send + 'a>> {
-    let conn_ref: &'a mut sqlx::PgConnection = &mut *pool_conn;
-    Box::pin(async move {
-        if needs_raw_sql(sql) {
-            conn_ref.execute(sqlx::raw_sql(sql)).await
-        } else {
-            conn_ref.execute(sql).await
-        }
-    })
-}
-
-fn query_pg_boxed<'a>(
-    pool_conn: &'a mut sqlx::pool::PoolConnection<sqlx::Postgres>,
-    sql: &'a str,
-) -> Pin<Box<dyn Future<Output = Result<Vec<sqlx::postgres::PgRow>, sqlx::Error>> + Send + 'a>> {
-    let conn_ref: &'a mut sqlx::PgConnection = &mut *pool_conn;
-    Box::pin(async move { conn_ref.fetch_all(sql).await })
-}
+// 注：sqlx 0.9 起 Executor trait 要求 'static lifetime，
+// 原先的 execute_pg_boxed / query_pg_boxed 已内联到调用点。
 
 fn row_to_value_pg(row: &sqlx::postgres::PgRow, ordinal: usize) -> Value {
     use sqlx::TypeInfo;
@@ -743,7 +701,15 @@ impl Connection for SqlxPgConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let result = execute_pg_boxed(&mut pool_conn, sql).await;
+            // sqlx 0.9: PoolConnection 不再实现 Executor，需通过 DerefMut 解引用到内部连接
+            // sqlx 0.9: SqlSafeStr 只对 &'static str 直接实现，非 'static 的 &str 需用 AssertSqlSafe 包装
+            let result = if needs_raw_sql(sql) {
+                (&mut *pool_conn)
+                    .execute(sqlx::raw_sql(sqlx::AssertSqlSafe(sql)))
+                    .await
+            } else {
+                (&mut *pool_conn).execute(sqlx::AssertSqlSafe(sql)).await
+            };
             self.conn = Some(pool_conn);
 
             match result {
@@ -769,7 +735,9 @@ impl Connection for SqlxPgConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let rows_result = query_pg_boxed(&mut pool_conn, sql).await;
+            // sqlx 0.9: PoolConnection 不再实现 Executor，需通过 DerefMut 解引用到内部连接
+            // sqlx 0.9: SqlSafeStr 只对 &'static str 直接实现，非 'static 的 &str 需用 AssertSqlSafe 包装
+            let rows_result = (&mut *pool_conn).fetch_all(sqlx::AssertSqlSafe(sql)).await;
             self.conn = Some(pool_conn);
 
             let rows = rows_result.map_err(map_sqlx_error)?;

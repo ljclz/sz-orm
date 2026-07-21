@@ -16,7 +16,7 @@ sz-orm-sql-validator = { path = "../packages/sz-orm-sql-validator" }
 sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
 tokio = { workspace = true, features = ["full"] }
 chrono = { workspace = true }
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 
 [features]
 default = []

@@ -91,13 +91,18 @@ async fn create_test_table(pool: &PgPool, table: &str) {
         },
     ];
     let sql = dialect.build_create_table(table, &columns);
-    sqlx::query(&sql).execute(pool).await.expect("create table");
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .execute(pool)
+        .await
+        .expect("create table");
 }
 
 async fn drop_table(pool: &PgPool, table: &str) {
     let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
     let sql = dialect.build_drop_table(table, true);
-    let _ = sqlx::query(&sql).execute(pool).await;
+    let _ = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .execute(pool)
+        .await;
 }
 
 #[tokio::test]
@@ -129,21 +134,21 @@ async fn test_pg_create_insert_select() {
         "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3)",
         table
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("alice")
         .bind(100i64)
         .bind("data1")
         .execute(&pool)
         .await
         .expect("insert 1");
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("bob")
         .bind(200i64)
         .bind("data2")
         .execute(&pool)
         .await
         .expect("insert 2");
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("carol")
         .bind(300i64)
         .bind("data3")
@@ -152,7 +157,7 @@ async fn test_pg_create_insert_select() {
         .expect("insert 3");
 
     let select_sql = format!("SELECT name, value FROM \"{}\" ORDER BY id", table);
-    let rows: Vec<(String, i64)> = sqlx::query_as(&select_sql)
+    let rows: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(select_sql.as_str()))
         .fetch_all(&pool)
         .await
         .expect("select");
@@ -165,7 +170,7 @@ async fn test_pg_create_insert_select() {
     let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
     let escaped = dialect.escape_string(v.as_str().unwrap());
     let sql = format!("SELECT value FROM \"{}\" WHERE name = '{}'", table, escaped);
-    let row: (i64,) = sqlx::query_as(&sql)
+    let row: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str()))
         .fetch_one(&pool)
         .await
         .expect("query row");
@@ -202,7 +207,7 @@ async fn test_pg_bulk_insert_100k() {
             table,
             placeholders.join(", ")
         );
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for i in batch_start..batch_end {
             q = q
                 .bind(format!("user_{}", i))
@@ -223,14 +228,14 @@ async fn test_pg_bulk_insert_100k() {
     assert_eq!(total_inserted, total);
 
     let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table);
-    let (count,): (i64,) = sqlx::query_as(&count_sql)
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
         .fetch_one(&pool)
         .await
         .expect("count");
     assert_eq!(count as usize, total);
 
     let last_sql = format!("SELECT name FROM \"{}\" WHERE value = $1", table);
-    let (last_name,): (String,) = sqlx::query_as(&last_sql)
+    let (last_name,): (String,) = sqlx::query_as(sqlx::AssertSqlSafe(last_sql.as_str()))
         .bind((total - 1) as i64)
         .fetch_one(&pool)
         .await
@@ -253,7 +258,7 @@ async fn test_pg_update_delete() {
             "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3)",
             table
         );
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(format!("n_{}", i))
             .bind(i)
             .bind("x")
@@ -267,15 +272,24 @@ async fn test_pg_update_delete() {
         "UPDATE \"{}\" SET value = value + 1000 WHERE value < 100",
         table
     );
-    let result = sqlx::query(&upd).execute(&pool).await.expect("update");
+    let result = sqlx::query(sqlx::AssertSqlSafe(upd.as_str()))
+        .execute(&pool)
+        .await
+        .expect("update");
     assert_eq!(result.rows_affected(), 100);
 
     let del = format!("DELETE FROM \"{}\" WHERE value >= 1000", table);
-    let result = sqlx::query(&del).execute(&pool).await.expect("delete");
+    let result = sqlx::query(sqlx::AssertSqlSafe(del.as_str()))
+        .execute(&pool)
+        .await
+        .expect("delete");
     assert_eq!(result.rows_affected(), 100);
 
     let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table);
-    let (count,): (i64,) = sqlx::query_as(&count_sql).fetch_one(&pool).await.unwrap();
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 900);
 
     drop_table(&pool, &table).await;
@@ -293,7 +307,7 @@ async fn test_pg_transaction_commit() {
         "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3)",
         table
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("commit_row")
         .bind(1i64)
         .bind("c")
@@ -303,7 +317,10 @@ async fn test_pg_transaction_commit() {
     tx.commit().await.expect("commit");
 
     let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table);
-    let (count,): (i64,) = sqlx::query_as(&count_sql).fetch_one(&pool).await.unwrap();
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 1);
 
     drop_table(&pool, &table).await;
@@ -321,7 +338,7 @@ async fn test_pg_transaction_rollback() {
         "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3)",
         table
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("rollback_row")
         .bind(1i64)
         .bind("r")
@@ -331,7 +348,10 @@ async fn test_pg_transaction_rollback() {
     tx.rollback().await.expect("rollback");
 
     let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table);
-    let (count,): (i64,) = sqlx::query_as(&count_sql).fetch_one(&pool).await.unwrap();
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 0, "rollback should leave table empty");
 
     drop_table(&pool, &table).await;
@@ -350,7 +370,7 @@ async fn test_pg_pagination() {
             "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3)",
             table
         );
-        sqlx::query(&sql)
+        sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
             .bind(format!("p_{}", i))
             .bind(i)
             .bind("p")
@@ -370,7 +390,7 @@ async fn test_pg_pagination() {
             page,
             page_size,
         );
-        let rows: Vec<(i64,)> = sqlx::query_as(&sql)
+        let rows: Vec<(i64,)> = sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str()))
             .fetch_all(&pool)
             .await
             .expect("page query");
@@ -402,7 +422,7 @@ async fn test_pg_sql_injection_protection() {
         "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3)",
         table
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("alice")
         .bind(1i64)
         .bind("x")
@@ -418,14 +438,17 @@ async fn test_pg_sql_injection_protection() {
         "SELECT COUNT(*) FROM \"{}\" WHERE name = '{}'",
         table, escaped
     );
-    let (count,): (i64,) = sqlx::query_as(&sql).fetch_one(&pool).await.unwrap();
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 0, "escaped malicious input should match nothing");
 
     let unescaped_sql = format!(
         "SELECT COUNT(*) FROM \"{}\" WHERE name = '{}'",
         table, malicious
     );
-    let (count_unescaped,): (i64,) = sqlx::query_as(&unescaped_sql)
+    let (count_unescaped,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(unescaped_sql.as_str()))
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -445,7 +468,7 @@ async fn test_pg_json_operations() {
         "INSERT INTO \"{}\" (name, value, data, meta) VALUES ($1, $2, $3, $4)",
         table
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("alice")
         .bind(1i64)
         .bind("d1")
@@ -453,7 +476,7 @@ async fn test_pg_json_operations() {
         .execute(&pool)
         .await
         .expect("insert 1");
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("bob")
         .bind(2i64)
         .bind("d2")
@@ -468,7 +491,7 @@ async fn test_pg_json_operations() {
         "SELECT name FROM \"{}\" WHERE ({})::int > 26 ORDER BY name",
         table, extract_expr
     );
-    let rows: Vec<(String,)> = sqlx::query_as(&sql)
+    let rows: Vec<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str()))
         .fetch_all(&pool)
         .await
         .expect("json query");
@@ -502,7 +525,7 @@ async fn test_pg_concurrent_8tasks_10k_ops() {
             table,
             placeholders.join(", ")
         );
-        let mut q = sqlx::query(&sql);
+        let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
         for i in batch_start..batch_end {
             q = q.bind(format!("u_{}", i)).bind(i as i64).bind("init");
         }
@@ -524,7 +547,7 @@ async fn test_pg_concurrent_8tasks_10k_ops() {
             for op in 0..ops_per_task {
                 let key = (task_id * ops_per_task + op) as i64;
                 let sql = format!("UPDATE \"{}\" SET data = $1 WHERE value = $2", table_clone);
-                let res = sqlx::query(&sql)
+                let res = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
                     .bind(format!("task_{}_op_{}", task_id, op))
                     .bind(key)
                     .execute(&*pool_clone)
@@ -571,7 +594,7 @@ async fn test_pg_savepoint_nested() {
         "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3)",
         table
     );
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("outer")
         .bind(1i64)
         .bind("o")
@@ -579,38 +602,38 @@ async fn test_pg_savepoint_nested() {
         .await
         .expect("outer insert");
 
-    sqlx::query("SAVEPOINT sp1")
+    sqlx::query(sqlx::AssertSqlSafe("SAVEPOINT sp1"))
         .execute(&mut *tx)
         .await
         .expect("sp1");
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("inner1")
         .bind(2i64)
         .bind("i1")
         .execute(&mut *tx)
         .await
         .expect("inner1 insert");
-    sqlx::query("ROLLBACK TO SAVEPOINT sp1")
+    sqlx::query(sqlx::AssertSqlSafe("ROLLBACK TO SAVEPOINT sp1"))
         .execute(&mut *tx)
         .await
         .expect("rollback sp1");
-    sqlx::query("RELEASE SAVEPOINT sp1")
+    sqlx::query(sqlx::AssertSqlSafe("RELEASE SAVEPOINT sp1"))
         .execute(&mut *tx)
         .await
         .expect("release sp1");
 
-    sqlx::query("SAVEPOINT sp2")
+    sqlx::query(sqlx::AssertSqlSafe("SAVEPOINT sp2"))
         .execute(&mut *tx)
         .await
         .expect("sp2");
-    sqlx::query(&sql)
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("inner2")
         .bind(3i64)
         .bind("i2")
         .execute(&mut *tx)
         .await
         .expect("inner2 insert");
-    sqlx::query("RELEASE SAVEPOINT sp2")
+    sqlx::query(sqlx::AssertSqlSafe("RELEASE SAVEPOINT sp2"))
         .execute(&mut *tx)
         .await
         .expect("release sp2");
@@ -618,11 +641,17 @@ async fn test_pg_savepoint_nested() {
     tx.commit().await.expect("commit");
 
     let count_sql = format!("SELECT COUNT(*) FROM \"{}\"", table);
-    let (count,): (i64,) = sqlx::query_as(&count_sql).fetch_one(&pool).await.unwrap();
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     assert_eq!(count, 2, "should have outer + inner2 (inner1 rolled back)");
 
     let names_sql = format!("SELECT name FROM \"{}\" ORDER BY id", table);
-    let names: Vec<(String,)> = sqlx::query_as(&names_sql).fetch_all(&pool).await.unwrap();
+    let names: Vec<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(names_sql.as_str()))
+        .fetch_all(&pool)
+        .await
+        .unwrap();
     let names: Vec<String> = names.into_iter().map(|(n,)| n).collect();
     assert_eq!(names, vec!["outer".to_string(), "inner2".to_string()]);
 
@@ -644,7 +673,7 @@ async fn test_pg_returning_clause() {
         "INSERT INTO \"{}\" (name, value, data) VALUES ($1, $2, $3) RETURNING id",
         table
     );
-    let row: (i64,) = sqlx::query_as(&sql)
+    let row: (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sql.as_str()))
         .bind("returning_test")
         .bind(1i64)
         .bind("rt")
