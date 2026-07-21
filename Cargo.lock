@@ -5938,7 +5938,7 @@ dependencies = [
  "aes-gcm",
  "hmac 0.12.1",
  "pbkdf2",
- "rand 0.8.7",
+ "rand 0.10.2",
  "serde",
  "serde_json",
  "sha2 0.10.9",
