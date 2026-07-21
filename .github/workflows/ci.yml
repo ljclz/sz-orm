@@ -416,6 +416,167 @@ jobs:
         run: cargo test --package sz-orm-websocket --features server -- --ignored --nocapture
 
   # ============================================================================
+  # Job 5.5: 真实 MQ 集成测试（RabbitMQ + NATS + Kafka + ActiveMQ + Pulsar）
+  #
+  # 使用 service container 启动 5 种 MQ broker，运行 sz-orm-queue 的真实客户端测试。
+  # 覆盖 publish/consume/ack/subscribe 全流程。
+  # Pulsar 需 protoc，Kafka 需 cmake（Linux 已预装）。
+  # ============================================================================
+  mq-integration:
+    name: Real MQ Integration (RabbitMQ + NATS + Kafka + ActiveMQ + Pulsar)
+    runs-on: ubuntu-latest
+    needs: [test]
+    services:
+      # RabbitMQ: AMQP 0.9.1（lapin 客户端）
+      rabbitmq:
+        image: rabbitmq:3.13
+        ports:
+          - 5672:5672
+        options: >-
+          --health-cmd="rabbitmq-diagnostics -q ping"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+          --health-start-period=30s
+      # NATS: 纯 Rust 客户端
+      nats:
+        image: nats:2.10
+        ports:
+          - 4222:4222
+        options: >-
+          --health-cmd="wget -qO- http://localhost:8222/healthz || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      # Kafka: rdkafka 客户端（需 cmake，Linux 已预装）
+      kafka:
+        image: bitnami/kafka:3.7
+        ports:
+          - 9092:9092
+        env:
+          KAFKA_CFG_NODE_ID: 1
+          KAFKA_CFG_PROCESS_ROLES: controller,broker
+          KAFKA_CFG_LISTENERS: PLAINTEXT://:9092,CONTROLLER://:9093
+          KAFKA_CFG_ADVERTISED_LISTENERS: PLAINTEXT://127.0.0.1:9092
+          KAFKA_CFG_LISTENER_SECURITY_PROTOCOL_MAP: CONTROLLER:PLAINTEXT,PLAINTEXT:PLAINTEXT
+          KAFKA_CFG_CONTROLLER_QUORUM_VOTERS: 1@127.0.0.1:9093
+          KAFKA_CFG_CONTROLLER_LISTENER_NAMES: CONTROLLER
+        options: >-
+          --health-cmd="kafka-topics.sh --bootstrap-server 127.0.0.1:9092 --list"
+          --health-interval=10s
+          --health-timeout=10s
+          --health-retries=15
+          --health-start-period=30s
+      # ActiveMQ Artemis: AMQP 1.0（lapin 客户端）
+      activemq:
+        image: vromero/activemq-artemis:2.33-alpine
+        ports:
+          - 61616:61616
+        env:
+          ARTEMIS_USER: artemis
+          ARTEMIS_PASSWORD: artemis
+        options: >-
+          --health-cmd="/opt/activemq-artemis/bin/artemis check queue || exit 1"
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=15
+          --health-start-period=60s
+      # Pulsar: pulsar crate（需 protoc，Linux 已预装）
+      pulsar:
+        image: apachepulsar/pulsar:3.2.0
+        ports:
+          - 6650:6650
+        options: >-
+          --health-cmd="curl -f http://localhost:8080/admin/v2/clusters/local || exit 1"
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=20
+          --health-start-period=60s
+    env:
+      RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672//
+      NATS_URL: nats://127.0.0.1:4222
+      KAFKA_BROKERS: 127.0.0.1:9092
+      ACTIVEMQ_URL: amqp://artemis:artemis@127.0.0.1:61616
+      PULSAR_URL: pulsar://127.0.0.1:6650
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install protoc (for pulsar crate)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-mq-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-mq-
+
+      - name: Verify MQ brokers are ready
+        run: |
+          echo "Waiting for all MQ brokers to be ready..."
+          # RabbitMQ
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/5672) 2>/dev/null; then echo "RabbitMQ ready"; break; fi
+            echo "waiting RabbitMQ... ($i)"; sleep 2
+          done
+          # NATS
+          for i in $(seq 1 30); do
+            if (exec 3<>/dev/tcp/127.0.0.1/4222) 2>/dev/null; then echo "NATS ready"; break; fi
+            echo "waiting NATS... ($i)"; sleep 2
+          done
+          # Kafka
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/9092) 2>/dev/null; then echo "Kafka ready"; break; fi
+            echo "waiting Kafka... ($i)"; sleep 2
+          done
+          # ActiveMQ
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/61616) 2>/dev/null; then echo "ActiveMQ ready"; break; fi
+            echo "waiting ActiveMQ... ($i)"; sleep 2
+          done
+          # Pulsar
+          for i in $(seq 1 60); do
+            if (exec 3<>/dev/tcp/127.0.0.1/6650) 2>/dev/null; then echo "Pulsar ready"; break; fi
+            echo "waiting Pulsar... ($i)"; sleep 2
+          done
+
+      - name: RabbitMQ real tests (lapin, AMQP 0.9.1)
+        env:
+          RABBITMQ_URL: amqp://guest:guest@127.0.0.1:5672//
+        run: cargo test --package sz-orm-queue --features rabbitmq -- --ignored --nocapture --test-threads=1
+
+      - name: NATS real tests (async-nats)
+        env:
+          NATS_URL: nats://127.0.0.1:4222
+        run: cargo test --package sz-orm-queue --features nats -- --ignored --nocapture --test-threads=1
+
+      - name: ActiveMQ real tests (lapin, AMQP 1.0)
+        env:
+          ACTIVEMQ_URL: amqp://artemis:artemis@127.0.0.1:61616
+        run: cargo test --package sz-orm-queue --features activemq -- --ignored --nocapture --test-threads=1
+
+      - name: Pulsar real tests (pulsar crate)
+        env:
+          PULSAR_URL: pulsar://127.0.0.1:6650
+        run: cargo test --package sz-orm-queue --features pulsar -- --ignored --nocapture --test-threads=1
+
+      - name: Kafka real tests (rdkafka)
+        env:
+          KAFKA_BROKERS: 127.0.0.1:9092
+        run: cargo test --package sz-orm-queue --features kafka -- --ignored --nocapture --test-threads=1
+
+      - name: All-real features compile check
+        run: cargo check --package sz-orm-queue --features "all-real" --verbose
+
+  # ============================================================================
   # Job 6: 性能基准测试（criterion，结果对比）
   # ============================================================================
   benchmark:
