@@ -1,17 +1,13 @@
 # =============================================================================
 # 真实服务集成测试工作流
-# 触发: 推送 / PR 到 main/master/develop 分支、手动触发、每日定时
-# 内容: 通过 services 启动全部依赖服务（MySQL 9.6 / PostgreSQL 18 /
+# 触发: 手动触发、每日定时 (02:00 UTC+8)
+# 内容: 通过 services 启动全部依赖服务（MySQL 9.7 / PostgreSQL 18 /
 #       RabbitMQ 3.13 / Mosquitto 2.0 / MinIO），运行工作空间中所有
 #       #[ignore] 标注的真实 DB / 云服务集成测试
 # =============================================================================
 name: Integration
 
 on:
-  push:
-    branches: [main, master, develop]
-  pull_request:
-    branches: [main, master, develop]
   workflow_dispatch:
   schedule:
     # 每日 02:00 (Asia/Shanghai, UTC+8) 运行完整真实服务集成测试
@@ -64,15 +60,17 @@ jobs:
         ports:
           - 1883:1883
       minio:
-        image: minio/minio:RELEASE.2024-12-18T13-15-44Z
+        image: minio/minio:latest
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
         ports:
           - 9000:9000
         options: >-
-          --entrypoint=minio
-          server /data
+          --health-cmd="curl -f http://localhost:9000/minio/health/live || exit 1"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
     env:
       MYSQL_URL: mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test
       PG_URL: postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test
