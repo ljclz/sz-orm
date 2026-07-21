@@ -71,10 +71,10 @@ async fn mysql_pool_concurrent_8_tasks() {
     let table = unique_table("mysql_conc");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id INT PRIMARY KEY, value INT)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -225,10 +225,10 @@ async fn mysql_pool_stress_10k_ops() {
     let table = unique_table("mysql_stress");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id INT PRIMARY KEY, value INT)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -309,10 +309,10 @@ async fn pg_pool_concurrent_8_tasks() {
     let table = unique_table("pg_conc");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id BIGINT PRIMARY KEY, value BIGINT)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -456,10 +456,10 @@ async fn pg_pool_stress_10k_ops() {
     let table = unique_table("pg_stress");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id BIGINT PRIMARY KEY, value BIGINT)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -515,10 +515,10 @@ async fn mysql_bulk_insert_100k_via_pool() {
     let table = unique_table("mysql_bulk");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id BIGINT PRIMARY KEY, value BIGINT, name VARCHAR(50))",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();
@@ -561,10 +561,10 @@ async fn pg_bulk_insert_100k_via_pool() {
     let table = unique_table("pg_bulk");
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
-        sqlx::query(&format!(
+        sqlx::query(sqlx::AssertSqlSafe(&*format!(
             "CREATE TABLE {} (id BIGINT PRIMARY KEY, value BIGINT, name TEXT)",
             table
-        ))
+        )))
         .execute(&mut *conn)
         .await
         .unwrap();

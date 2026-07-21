@@ -13,7 +13,7 @@ proc-macro = true
 quote = { version = "1.0", default-features = false }
 proc-macro2 = { version = "1.0", default-features = false, features = ["proc-macro"] }
 # query! 宏可选连真实 DB 验证（通过 SZ_ORM_QUERY_VERIFY=1 + DATABASE_URL 启用）
-sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite"], optional = true }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite"], optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
 
 [features]

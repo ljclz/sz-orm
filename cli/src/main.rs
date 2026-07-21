@@ -814,7 +814,7 @@ async fn fetch_columns(dsn: &str, kind: DbKind, table: &str) -> Result<Vec<Colum
             let pool = sqlx::SqlitePool::connect(dsn)
                 .await
                 .map_err(|e| format!("SQLite 连接失败: {}", e))?;
-            let rows = sqlx::query(&format!("PRAGMA table_info({})", table))
+            let rows = sqlx::query(sqlx::AssertSqlSafe(&*format!("PRAGMA table_info({})", table)))
                 .fetch_all(&pool)
                 .await
                 .map_err(|e| format!("PRAGMA table_info 失败: {}", e))?;
