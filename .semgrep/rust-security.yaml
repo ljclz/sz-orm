@@ -1,0 +1,82 @@
+rules:
+- id: rust-sql-string-concat
+  patterns:
+    - pattern-either:
+      - pattern: format!("...{}...{}...", ...)
+      - pattern: format!("...{}...{}", ...)
+    - metavariable-pattern:
+        metavariable: $FMT
+        pattern-either:
+          - pattern: "SELECT ..."
+          - pattern: "INSERT ..."
+          - pattern: "UPDATE ..."
+          - pattern: "DELETE ..."
+          - pattern: "CREATE ..."
+          - pattern: "DROP ..."
+          - pattern: "ALTER ..."
+    message: "Potential SQL injection: SQL string built with format!() using user-controlled variables. Use parameterized queries or quote_checked() instead."
+    severity: WARNING
+    languages: [rust]
+    paths:
+      exclude:
+        - "**/tests/**"
+        - "**/*_test.rs"
+
+- id: rust-quote-not-quote-checked
+  pattern: |
+    $DIALECT.quote($IDENT)
+  languages: [rust]
+  severity: INFO
+  message: "Consider using quote_checked() instead of quote() when the identifier comes from an untrusted source. quote() does not validate identifier length or SQL metacharacters."
+  paths:
+    include:
+      - "**/dialect.rs"
+      - "**/dynamic_sql.rs"
+
+- id: rust-path-join-traversal
+  pattern: |
+    $BASE.join($KEY)
+  languages: [rust]
+  severity: WARNING
+  message: "Path traversal risk: PathBuf::join() with user-controlled key. Validate or canonicalize the path before use."
+  paths:
+    include:
+      - "**/storage/**"
+      - "**/backup/**"
+
+- id: rust-unwrap-poison-risk
+  patterns:
+    - pattern: |
+        $LOCK.lock().unwrap()
+    - metavariable-pattern:
+        metavariable: $LOCK
+        pattern-either:
+          - pattern: $X.$Y
+    - pattern-not-inside: |
+        if let Ok($GUARD) = $LOCK.lock() { ... }
+  message: "Mutex/RwLock unwrap() risks panic on lock poisoning. Use 'if let Ok(guard) = lock()' pattern instead."
+  severity: INFO
+  languages: [rust]
+
+- id: rust-format-crypto-sensitive
+  patterns:
+    - pattern-either:
+      - pattern: |
+          println!("... password ...", ...)
+      - pattern: |
+          log::info!("... password ...", ...)
+  message: "Potential sensitive data leak: password/credential in log output."
+  severity: WARNING
+  languages: [rust]
+
+- id: rust-checked-add
+  patterns:
+    - pattern: $VAR += 1
+    - metavariable-pattern:
+        metavariable: $VAR
+        pattern: $X
+    - pattern-not-inside: |
+        if ... { ... }
+  message: "Unchecked integer addition. Consider using checked_add() or saturating_add() for counter variables, especially in production paths."
+  severity: INFO
+  languages: [rust]

@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-dtx"
+description = "Distributed tx: 2PC coordinator, Saga orchestration, TCC compensation"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

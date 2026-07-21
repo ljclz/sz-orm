@@ -1,8 +1,8 @@
 [package]
 name = "sz-orm-limit"
+description = "Rate limiting: token bucket, sliding window, per-user/IP/endpoint quotas"
 version.workspace = true
 edition.workspace = true
-description = "SZ-ORM Rate Limiting Extension - Token bucket and sliding window limiters"
 authors.workspace = true
 license.workspace = true
 repository = "https://github.com/sz-orm/sz-orm"

@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-core"
+description = "Core ORM engine: Model trait, ActiveRecord, QueryBuilder, Pool, Transaction, migration, and SQL dialect abstraction"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

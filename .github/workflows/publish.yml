@@ -1,0 +1,74 @@
+name: Publish to crates.io
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: "Dry run (no actual publish)"
+        type: boolean
+        default: true
+
+jobs:
+  publish:
+    name: Publish ${{ matrix.package }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        package:
+          - sz-orm-macros
+          - sz-orm-core
+          - sz-orm-sqlx
+          - sz-orm-sql-validator
+          - sz-orm-query-builder
+          - sz-orm-batch
+          - sz-orm-postgis
+          - sz-orm-timeseries
+          - sz-orm-vector
+          - sz-orm-search
+          - sz-orm-es
+          - sz-orm-queue
+          - sz-orm-mqtt
+          - sz-orm-websocket
+          - sz-orm-observability
+          - sz-orm-tracing
+          - sz-orm-logger
+          - sz-orm-health
+          - sz-orm-audit
+          - sz-orm-masking
+          - sz-orm-swagger
+          - sz-orm-crypto
+          - sz-orm-auth
+          - sz-orm-limit
+          - sz-orm-scheduler
+          - sz-orm-config
+          - sz-orm-storage
+          - sz-orm-grpc
+          - sz-orm-graphql
+          - sz-orm-dtx
+          - sz-orm-rw
+          - sz-orm-sharding
+          - sz-orm-ai
+          - sz-orm-lc
+          - sz-orm-wasm
+          - sz-orm-mig
+          - sz-orm-back
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Verify
+        run: |
+          cargo verify-project
+          cargo package -p ${{ matrix.package }} --no-verify
+
+      - name: Publish
+        if: ${{ !inputs.dry_run }}
+        env:
+          CARGO_REGISTRY_TOKEN: ${{ secrets.CARGO_REGISTRY_TOKEN }}
+        run: cargo publish -p ${{ matrix.package }}

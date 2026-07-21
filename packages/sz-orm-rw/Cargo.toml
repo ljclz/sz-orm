@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-rw"
+description = "Read-write splitting: query routing, replica health, load balancing"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

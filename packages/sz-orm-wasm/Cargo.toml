@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-wasm"
+description = "WebAssembly: run Rust ORM code in browser via WASM targets"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-lc"
+description = "Low-code: visual CRUD generation, form definitions, workflow automation"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,10 +1,10 @@
 [package]
 name = "sz-orm-mig"
+description = "DB migration: versioned schema migrations, up/down scripts, status tracking"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "SZ-ORM Migration Extension - Cross-database migration"
 
 [dependencies]
 async-trait = "0.1"

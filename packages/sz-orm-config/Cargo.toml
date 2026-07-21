@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-config"
+description = "Config management: multi-source (file/env/etcd/consul) with hot-reload"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
