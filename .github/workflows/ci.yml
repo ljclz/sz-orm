@@ -52,7 +52,7 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
-        rust: [stable, beta]
+        rust: [stable]
     steps:
       - uses: actions/checkout@v4
 
@@ -235,7 +235,7 @@ jobs:
             pg: "14"
           - mysql: "8.4"
             pg: "16"
-          - mysql: "9.6"
+          - mysql: "9.7"
             pg: "18"
     services:
       mysql:
@@ -299,7 +299,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        mysql: ["8.0", "9.6"]
+        mysql: ["8.0", "9.7"]
         pg: ["14", "16", "18"]
     services:
       mysql:
