@@ -48,9 +48,9 @@ use sz_orm_core::{Pool, PoolConfigBuilder};
 
 /// 主 Soak Test：长时间运行 Pool acquire/release + Mock 查询
 ///
-/// 默认 60 秒（CI 验证），可通过 `--soak-duration` 参数延长至 24h（周末任务）。
+/// 默认 60 秒（CI 验证），可通过 `--soak-duration` 参数延长至 24h（24h 任务）。
 #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
-#[ignore = "soak test 需显式 --ignored 启动；默认 60s，周末任务 --soak-duration=24h"]
+#[ignore = "soak test 需显式 --ignored 启动；默认 60s，24h 任务 --soak-duration=24h"]
 async fn soak_pool_long_running_steady_state() {
     let duration = parse_duration_from_args();
     let sample_interval = Duration::from_secs(if duration.as_secs() >= 3600 {
@@ -189,7 +189,7 @@ async fn soak_pool_long_running_steady_state() {
     pool.close_all().await;
 
     // 断言：无任何退化（CI 验证标准）
-    // 周末任务若发现退化，应在此失败并打印详细信息
+    // 24h 任务若发现退化，应在此失败并打印详细信息
     assert!(
         regressions.is_empty(),
         "Soak test 检测到退化：{}",

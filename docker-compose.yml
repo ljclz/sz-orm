@@ -59,16 +59,16 @@ services:
     image: postgres:16
     container_name: szorm-postgres
     environment:
-      POSTGRES_DB: lewuli
-      POSTGRES_USER: lewuli
-      POSTGRES_PASSWORD: ***REMOVED***
+      POSTGRES_DB: szorm
+      POSTGRES_USER: szorm
+      POSTGRES_PASSWORD: szorm_pwd
       TZ: Asia/Shanghai
     ports:
       - "5432:5432"
     volumes:
       - postgres-data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U lewuli -d lewuli"]
+      test: ["CMD-SHELL", "pg_isready -U szorm -d szorm"]
       interval: 10s
       timeout: 5s
       retries: 5
