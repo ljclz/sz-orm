@@ -5,7 +5,7 @@
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-2950-green.svg)](#testing)
-[![Dialects](https://img.shields.io/badge/dialects-11-red.svg)]#supported-databases)
+[![Dialects](https://img.shields.io/badge/dialects-11-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-L4%20financial-brightgreen.svg)](docs/sz-orm项目成熟度评估报告.md)

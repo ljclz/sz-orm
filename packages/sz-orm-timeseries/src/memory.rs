@@ -10,7 +10,7 @@ use std::sync::Mutex;
 
 /// 内存 TimescaleDB 实现
 pub struct MemoryTimeseries {
-    /// 指标存储：metric_name -> Vec<Metric>
+    /// 指标存储：metric_name -> `Vec<Metric>`
     storage: Mutex<HashMap<String, Vec<Metric>>>,
     /// hypertable 注册表
     hypertables: Mutex<Vec<(String, String)>>,

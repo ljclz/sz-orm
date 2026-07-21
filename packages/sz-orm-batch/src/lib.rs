@@ -78,7 +78,15 @@ impl DefaultBatchOps {
         format!("`{}`", name)
     }
 
-    /// 从 JSON 对象提取字段名，按 serde_json 内部 BTreeMap 顺序（字典序）。
+    /// 从 JSON 对象提取字段名。
+    ///
+    /// 列顺序取决于 serde_json 的 feature 配置：
+    /// - 默认（无 `preserve_order`）：使用 BTreeMap，按字典序
+    /// - 启用 `preserve_order`：使用 IndexMap，按插入序
+    ///
+    /// 在 workspace `--all-features` 编译下，其他包可能启用 `preserve_order`，
+    /// 通过 feature unification 传导到本包，导致列顺序变化。
+    /// 调用方不应假设特定的列顺序。
     fn extract_columns(row: &Value) -> Option<Vec<String>> {
         match row {
             Value::Object(map) => Some(map.keys().map(|k| k.to_string()).collect()),
@@ -446,12 +454,24 @@ mod tests {
 
     #[test]
     fn test_batch_insert_preserves_column_order_from_btreemap() {
-        // serde_json 默认 BTreeMap，按字典序：age, id, name
+        // 列顺序取决于 serde_json feature：
+        // - 默认 BTreeMap，按字典序：age, id, name
+        // - preserve_order 启用 IndexMap，按插入序：name, id, age
+        // 两种顺序均为合法行为，测试应兼容两者。
         let ops = DefaultBatchOps::new();
         let result = ops.batch_insert("users", vec![json!({"name": "Alice", "id": 1, "age": 30})]);
         assert_eq!(result.inserted, 1);
         let sql = &result.generated_sqls[0];
-        assert!(sql.contains("`age`, `id`, `name`"));
+        let is_btree_order = sql.contains("`age`, `id`, `name`");
+        let is_index_order = sql.contains("`name`, `id`, `age`");
+        assert!(
+            is_btree_order || is_index_order,
+            "列顺序应为 BTreeMap 字典序或 IndexMap 插入序，实际 SQL: {sql}"
+        );
+        // 三列必须全部出现
+        assert!(sql.contains("`age`"));
+        assert!(sql.contains("`id`"));
+        assert!(sql.contains("`name`"));
     }
 
     // ============ batch_update ============

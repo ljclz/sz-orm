@@ -1048,7 +1048,13 @@ fn clean_llm_sql_output(raw: &str) -> String {
     if trimmed.starts_with("```") {
         let content = trimmed.trim_start_matches('`');
         if let Some(end) = content.rfind("```") {
-            return content[..end].trim().to_string();
+            let inner = content[..end].trim();
+            // 移除 "sql" 语言标记（如 ```sql\n...）
+            return inner
+                .strip_prefix("sql")
+                .unwrap_or(inner)
+                .trim()
+                .to_string();
         }
         return content.trim().to_string();
     }
