@@ -410,7 +410,7 @@ impl FilterRegistry {
     /// # 安全性
     ///
     /// 本方法使用 PostgreSQL 方言的转义规则作为默认行为。
-    /// **生产环境请使用 [`apply_with_dialect`]** 以获得方言感知的转义。
+    /// **生产环境请使用 [`FilterRegistry::apply_with_dialect`]** 以获得方言感知的转义。
     pub fn apply(&self, sql: &str) -> String {
         // v0.2.2 修复 H-1：默认使用 PostgreSQL 方言（保持向后兼容）
         self.apply_with_dialect(sql, &crate::dialect::PostgreSqlDialect)
@@ -418,7 +418,7 @@ impl FilterRegistry {
 
     /// v0.2.2 修复 H-1：方言感知的 Filter 应用
     ///
-    /// 与 [`apply`] 的区别：使用 `dialect.escape_string()` 转义参数值，
+    /// 与 [`FilterRegistry::apply`] 的区别：使用 `dialect.escape_string()` 转义参数值，
     /// 确保在所有方言下都安全（特别是 MySQL 默认配置下 backslash 转义）。
     pub fn apply_with_dialect(&self, sql: &str, dialect: &dyn crate::dialect::Dialect) -> String {
         let (clauses, has_error) = self.collect_clauses_with_dialect(dialect);

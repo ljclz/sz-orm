@@ -2024,7 +2024,8 @@ impl Default for OtlpConfig {
 ///
 /// ```no_run
 /// # #[cfg(feature = "otlp")] {
-/// # tokio_test::block_on(async {
+/// # let rt = tokio::runtime::Runtime::new().unwrap();
+/// # rt.block_on(async {
 /// use sz_orm_tracing::{init_otlp_exporter, OtlpConfig};
 ///
 /// let _guard = init_otlp_exporter(OtlpConfig::default()).await.unwrap();
