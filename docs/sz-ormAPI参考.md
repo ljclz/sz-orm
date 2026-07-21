@@ -1,13 +1,14 @@
 # SZ-ORM API 参考手册
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v4.0（新增 sz-orm-vector + NL→SQL API + 生态扩展包）
-> 适用版本：SZ-ORM v0.2.1（工作空间 39 个成员：37 个 lib + cli + examples）
+> 文档版本：v5.0（v1.0.0 正式发布：补全 sz-orm-core 全部 21 个高级模块的 API 速查）
+> 适用版本：SZ-ORM **v1.0.0**（工作空间 39 个成员：37 个 lib + cli + examples）
 > 测试：1970+ passed / 0 failed（112 个测试套件）
 > 代码规模：85,834 LOC（src/ 18,430 + tests/ 67,404）
 > 成熟度：L4 金融级（评分 4.98/5，CMMI Level 5 - 持续优化级，已知 Bug 0）
-> 更新日期：2026-07-20
+> 更新日期：2026-07-21
 > 文档定位：核心 trait/结构体说明 + 各包公开 API 速查 + 错误处理指南
+> **配套使用文档**：场景示例与端到端串联请查阅 [SZ-ORM 使用指南](sz-orm使用指南.md)；本文聚焦于类型签名与参数说明
 
 ---
 
@@ -1069,6 +1070,233 @@ let sql = parser.build("find_users", &params).unwrap();
 let (sql, binds) = parser.build_with_binds("find_users", &params).unwrap();
 // binds == vec![ParamValue::String("Alice".into())]
 ```
+
+### 2.22 sz-orm-core 高级特性模块（21 个）
+
+以下 21 个模块位于 `sz_orm_core::` 命名空间下，提供访问器、行为、权限、脏字段、动态过滤、实体图、SQL 守卫、Hydration、JOIN DSL、二级缓存、Lambda 查询、观察者、乐观锁、Phinx 迁移、Queryable、快速查询、仓储、ResultMap、Schema 生成、SQL 安全、TypeHandler 等高级能力。**使用示例见 [使用指南 §3.7](sz-orm使用指南.md#37-sz-orm-core-高级特性模块21-个)**。
+
+#### 2.22.1 `sz_orm_core::accessors` — 字段访问器/修改器 + 类型转换
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `CastType` | `enum { Integer, Float, Boolean, String, Json, DateTime, Date, Time, Bytes, Array }` | 支持的字段类型转换种类 |
+| `Accessor` | `trait { fn field(&self) -> &str; fn read(&self, value: Value) -> Value; }` | 字段读取器接口 |
+| `Mutator` | `trait { fn field(&self) -> &str; fn write(&self, value: Value) -> Value; }` | 字段修改器接口 |
+| `ClosureAccessor` / `ClosureMutator` | `new(field, FnMut(Value) -> Value) -> Self` | 闭包风格实现 |
+| `AttributeCaster` | `cast_read(value, target) -> Value` / `cast_write(value, target) -> Value` | 双向类型转换 |
+| `AccessorRegistry` | `new()` / `register_accessor()` / `register_mutator()` / `register_cast()` / `read(field, value)` / `write(field, value)` / `cast_read()` / `cast_write()` | 统一注册中心 |
+
+#### 2.22.2 `sz_orm_core::behaviors` — 可插拔行为系统
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `Behavior` | `trait { fn name(&self) -> &'static str; fn before_insert/.../after_find(&self, entity: &mut T) -> BehaviorResult<()>; }` | 行为生命周期钩子（默认空实现） |
+| `TimestampBehavior` | `new(created_field, updated_field) -> Self` / `default_fields() -> Self` | 自动填充 created_at/updated_at |
+| `BlameableBehavior` | `new(created_field, updated_field) -> Self` / `default_fields() -> Self` | 自动填充 created_by/updated_by |
+| `AttributeBehavior` | `new(name, event, target_field, generator) -> Self` | 通用属性自动设置 |
+| `BehaviorRegistry` | `register()` / `unregister()` / `count()` / `names()` / `before_insert()` / `before_update()` / `before_delete()` / `after_find()` / `clear()` | 线程安全（RwLock） |
+| `BehaviorResult<T>` | `type = Result<T, DbError>` | — |
+
+#### 2.22.3 `sz_orm_core::data_permission` — 数据权限拦截器
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `PermissionContext` | `new() / with_user_id() / with_tenant_id() / with_dept_id() / with_roles() / with_permissions() / has_role() / has_permission() / is_admin()` | 权限上下文 |
+| `PermissionRule` | `trait { fn name(&self) -> &'static str; fn apply(&self, ctx: &PermissionContext) -> Result<Option<String>, PermissionError>; }` | 权限规则接口 |
+| `PermissionError` | `enum { MissingContext { field }, ConfigError(String), Forbidden(String) }` | 错误类型 |
+| `TenantIsolation` | `new(field) -> Self` / `default_field() -> Self` | 租户隔离 `tenant_id = ?` |
+| `OwnerOnly` | `new(field) -> Self` / `default_field() -> Self` | 仅所有者 `user_id = ?` |
+| `DepartmentScope` | `new(field) -> Self` / `default_field() -> Self` / `with_sub_depts()` | 部门范围 `dept_id IN (...)` |
+| `CustomCondition` | `new(name, generator) -> Self` | 自定义闭包条件 |
+| `DataPermissionInterceptor` | `new() / register() / count() / names() / collect_clauses() / apply_to_select() / apply_to_update() / apply_to_delete()` | 拦截器主体 |
+| `append_where_clauses` | `fn(sql, clauses) -> String` | 括号深度跟踪防子查询误匹配 |
+
+#### 2.22.4 `sz_orm_core::dirty_attributes` — 脏字段追踪
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `DirtyTracker` | `new(initial) / empty() / set(field, value) / set_many() / get() / get_original() / current() / original() / is_dirty() / is_field_dirty() / get_dirty_fields() / get_dirty_attributes() / mark_clean() / rollback() / clear()` | 脏字段追踪器 |
+| `build_dynamic_update` | `fn(dialect, table, pk_column, pk_value, tracker) -> Option<String>` | 仅脏字段 UPDATE |
+| `build_dynamic_insert` | `fn(dialect, table, data) -> Option<String>` | 仅非 null 字段 INSERT |
+
+#### 2.22.5 `sz_orm_core::dynamic_filter` — 运行时动态 Filter
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `FilterParam` | `new() / required() / with_description()` | Filter 参数定义 |
+| `FilterDef` | `new() / with_condition() / with_param() / with_description() / with_table() / find_param()` | Filter 定义 |
+| `FilterError` | `enum { NotRegistered, MissingParam, ParamTypeMismatch, AlreadyEnabled, NotEnabled, TemplateError }` | 错误类型 |
+| `EnabledFilter` | `pub name / pub params: HashMap<String, Value>` | 已启用的 Filter |
+| `FilterRegistry` | `new() / register() / unregister() / enable() / disable() / is_enabled() / enabled_count() / registered_count() / registered_names() / enabled_names() / clear_enabled() / apply(sql) / apply_with_dialect(sql, dialect)` | 线程安全注册中心 |
+| `render_condition` | `fn(template, params) -> Option<String>` | PostgreSQL 方言转义 |
+| `render_condition_with_dialect` | `fn(template, params, dialect) -> Option<String>` | 方言感知渲染 |
+
+#### 2.22.6 `sz_orm_core::entity_graph` — 实体图与批量加载（解决 N+1）
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `EntityGraph` | `new() / edge(from, to, loader) / load_batch(from, to, keys)` | 实体图定义（节点+边） |
+| `GraphEdge` | `pub from / pub to / pub loader` | 图边定义 |
+| `BatchStrategy` | `enum` | 批量加载策略 |
+| `BatchSizeConfig` | `struct` | 批量大小配置 |
+| `BatchLoader<K, V>` | `trait { fn load(&self, keys: &[K]) -> HashMap<K, V>; }` | 批量加载器接口 |
+| `BatchLoaderFn<K, V>` | `new(Fn(&[K]) -> HashMap<K, V>) -> Self` | 闭包风格批量加载器 |
+
+#### 2.22.7 `sz_orm_core::guard` — SQL 安全守卫
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `GuardError` | `enum` | 守卫错误类型 |
+| `GuardPolicy` | `enum { Strict, Permissive, Disabled }` | 守卫策略 |
+| `SafeSqlGuard` | `new(policy) -> Self / check(sql) -> GuardResult<()>` | 全表 UPDATE/DELETE 拦截器主体 |
+| `GuardResult<T>` | `type = Result<T, GuardError>` | 守卫操作结果 |
+
+#### 2.22.8 `sz_orm_core::hydration_plugin` — Hydration 模式 + Plugin 拦截链
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `HydrationMode` | `enum { Object, Array, Scalar, SingleScalar, Column }` | 结果 hydration 模式 |
+| `Plugin` | `trait { fn before_query(&self, sql, params) / fn after_query(&self, sql, params, rows); }` | MyBatis 风格插件接口 |
+| `PluginChain` | `new() / add(plugin) / before_query() / after_query()` | 插件链（按序调用） |
+| `SqlLogPlugin` | `default() -> Self` | SQL 日志插件 |
+| `SlowQueryPlugin` | `new(threshold: Duration) -> Self` | 慢查询检测插件 |
+| `AuditPlugin` | `default() -> Self` | 审计日志插件 |
+| `SqlRewritePlugin` | `new(rewriter) -> Self` | SQL 重写插件 |
+| `BlockPlugin` | `new(pattern) -> Self` | 阻断插件 |
+
+#### 2.22.9 `sz_orm_core::join_dsl` — 类型安全 JOIN 语法
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `JoinKind` | `enum { Inner, Left, Right, Full, Cross }` | JOIN 类型 |
+| `JoinBuilder` | `new(kind, table) -> Self / on(left, op, right) -> Self / build() -> JoinBuilt` | JOIN 构造器 |
+| `JoinOn` | `pub left / pub op / pub right` | JOIN ON 条件 |
+| `JoinBuilt` | `to_sql() -> String` | 已构建的 JOIN 表达式 |
+
+#### 2.22.10 `sz_orm_core::l2_cache` — 二级缓存
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `CacheKey` | `pub struct { kind, table, value }` | 缓存键 |
+| `CacheKeyKind` | `enum { ByPk, ByQuery, ByRelation }` | 缓存键种类 |
+| `L2CacheStats` | `pub hits / pub misses / pub evictions / ...` | 缓存统计 |
+| `CacheEntry` | `pub value / pub created_at / pub ttl` | 缓存条目 |
+| `L2Cache` | `new(max_size, ttl) / put(key, value) / get(key) / invalidate_table(table) / stats() / clear()` | 跨 Session 共享的 L2 缓存（LRU + TTL + 表级失效） |
+
+#### 2.22.11 `sz_orm_core::lambda` — Lambda 类型安全查询构造器
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `Column<M>` | `trait { fn name() -> &'static str; }` | 模型列定义 trait |
+| `WhereClause` | `pub field / pub op / pub value` | WHERE 子句 |
+| `OrderBy` | `pub field / pub desc` | ORDER BY 子句 |
+| `LambdaWrapper<M>` | `new() / eq(col, v) / ne / gt / ge / lt / le / like / in_ / not_in / is_null / is_not_null / between / order_by / order_desc / page / build_where() -> String` | MyBatis-Plus 风格 Lambda 查询包装器 |
+| `define_columns!` | `macro { Model { col1, col2, ... } }` | 声明模型列 |
+
+#### 2.22.12 `sz_orm_core::observer` — 模型生命周期观察者
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `Event` | `enum { BeforeInsert, AfterInsert, BeforeUpdate, AfterUpdate, BeforeDelete, AfterDelete, AfterFind, BeforeSave, AfterSave }` | 9 个生命周期事件 |
+| `Observer` | `trait { fn name(&self) -> &'static str; fn handle(&self, event: &Event, entity: &dyn Any) -> Result<(), Box<dyn Error>>; }` | 观察者接口 |
+| `EventSubscriber` | `trait` | 事件订阅者接口 |
+| `EventDispatcher` | `new() / subscribe(observer) / dispatch(event, entity)` | 事件分发器 |
+| `AuditLogSubscriber` | `new() -> Self` | 审计日志订阅者 |
+
+#### 2.22.13 `sz_orm_core::optimistic_lock` — 乐观锁
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `OptimisticLock` | `trait { fn version_field() -> &'static str; fn current_version(&self) -> i64; fn bump_version(&mut self); }` | 乐观锁接口 |
+| `LockError` | `enum { ConcurrentModification, VersionMismatch, StaleData, ... }` | 锁错误 |
+| `LockResult<T>` | `type = Result<T, LockError>` | 锁操作结果 |
+| `retry` | `fn<F: FnMut() -> LockResult<T>>(op: F, max_attempts: usize) -> LockResult<T>` | 自动冲突重试 |
+
+#### 2.22.14 `sz_orm_core::phinx_migration` — Phinx 风格 migration API
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `ColumnType` | `enum { Integer, Bigint, String, Text, Boolean, DateTime, Date, Time, Float, Decimal, Binary, Json, Uuid, Enum }` | 14 种列类型 |
+| `ColumnOptions` | `new() / primary() / auto_increment() / length(n) / not_null() / default(v) / unique() / comment(s)` | 列选项 |
+| `IndexOptions` | `new() / columns(cols) / unique() / name(n)` | 索引选项 |
+| `ForeignKeyOptions` | `new(column) / references(table, column) / on_delete_cascade() / on_delete_set_null() / on_update_cascade()` | 外键选项 |
+| `PhinxTable` | `new(name) / add_column(name, type, opts) / add_index(opts) / add_foreign_key(opts) / create_sql(dialect) -> String` | Phinx 风格表定义（链式 API） |
+
+#### 2.22.15 `sz_orm_core::queryable` — Diesel 风格 Queryable trait
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `QueryError` | `enum { ColumnNotFound, TypeMismatch, ... }` | 查询错误 |
+| `RowDesc` | `pub columns: Vec<(String, String)>` | 行描述（列名 + 类型） |
+| `Queryable` | `trait { fn row_desc() -> RowDesc; fn from_row(row: &Row) -> Result<Self, QueryError>; }` | Diesel 风格 derive(Queryable) trait |
+| `FromRow` | `trait { fn from_row(row: &Row) -> Result<Self, QueryError>; }` | 从行构造实体的辅助 trait |
+
+#### 2.22.16 `sz_orm_core::quick_query` — 快捷查询 Db::name()
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `Db` | `new(db_type) / name(table) / select(cols) / where_cond(col, op, v) / or_where / where_in / where_not_in / where_between / where_null / where_not_null / order_by / order_desc / group_by / having / limit / offset / page(page, size) / join_inner / join_left / join_right / build_select() -> (String, Vec<Value>) / build_insert() / build_update() / build_delete() / build_count() / build_exists() / build_max(f) / build_min(f) / build_sum(f) / build_avg(f)` | 无需 Model 的快捷查询构造器 |
+
+#### 2.22.17 `sz_orm_core::repository` — DDD 仓储模式
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `WhereOp` | `enum { Eq, Ne, Gt, Ge, Lt, Le, Like, In, NotIn, IsNull, IsNotNull, Between }` + `name()` | 操作符 |
+| `WhereCondition` | `new(field, op, value) / null_check() / in_op() / between()` | 查询条件 |
+| `PageResult<T>` | `pub items / pub total / pub page / pub page_size / new() / total_pages() / has_next() / has_prev() / is_empty() / len() / map()` | 分页结果 |
+| `RepositoryError` | `enum { NotFound, DatabaseError, InvalidEntity, Other }` | 仓储错误 |
+| `Repository<E>` | `trait { type Key; fn key_of() / find_by_id() / find_all() / find_by() / find_one_by() / save() / save_many() / delete() / delete_by() / count() / count_by() / exists() / paginate() / paginate_by() }` | 仓储接口 |
+| `InMemoryRepository<E>` | `new() / from_vec() / len() / is_empty() / clear()` | 线程安全（RwLock）内存仓储实现 |
+| `EntityAttributes` | `trait { fn get_attribute(field) -> Option<Value> }` | 实体属性 trait |
+| `EntityKey<K>` | `trait { fn key() -> K }` | 实体键 trait |
+| `GenericKeyRepository<E, K>` | — | 支持任意 Key 类型的内存仓储 |
+
+#### 2.22.18 `sz_orm_core::result_map` — MyBatis ResultMap + Hibernate Native Query
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `Mapping` | `new(property, column) / with_handler()` | 单字段映射规则 |
+| `NestedAssociation` | `new(property, result_map) / with_prefix() / with_not_null_column()` | 一对一嵌套关联 |
+| `NestedCollection` | 同 NestedAssociation | 一对多嵌套集合 |
+| `DiscriminatorCase` | `new(value, result_map)` | 多态鉴别器 case |
+| `Discriminator` | `new(column, cases) / add_case() / resolve()` | 多态鉴别器 |
+| `ResultMap` | `new(id, type_name) / add_id_mapping() / add_result_mapping() / add_association() / add_collection() / set_discriminator() / sub_map_ids()` | ResultMap 主体 |
+| `ResultMapRegistry` | `new() / register() / get() / contains() / len() / is_empty() / list_ids() / clear()` | 线程安全注册中心 |
+| `RowData` | `new() / empty() / set() / get() / get_with_prefix() / is_not_null() / len() / is_empty() / column_names() / sorted_columns() / iter()` | 行数据 |
+| `ResultMapError` | `enum { MapNotFound, RequiredColumnMissing, NestedMappingFailed }` | 错误类型 |
+| `apply_result_map` | `fn(registry, map_id, row) -> Result<Value, ResultMapError>` | 单行映射 |
+| `apply_result_map_many` | `fn(registry, map_id, rows) -> Result<Vec<Value>, ResultMapError>` | 多行映射 + collection 聚合 |
+| `ScalarResult` / `FieldResult` / `EntityResult` / `ResultSetMapping` / `ResultSetMappingRegistry` | — | Hibernate `@SqlResultSetMapping` 风格 |
+| `NativeQuery` | `new(sql, result_set_mapping) / bind(v) / bind_many(vs)` | 原生 SQL 查询 |
+| `apply_result_set_mapping` / `apply_result_set_mapping_many` | `fn` | ResultSetMapping 应用 |
+
+#### 2.22.19 `sz_orm_core::schema_gen` — Diesel 风格 schema.rs 自动生成
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `ColumnSchema` | `pub name / pub rust_type` | 单列元数据 |
+| `TableSchema` | `pub name / pub columns: Vec<ColumnSchema>` | 单表元数据 |
+| `SchemaGenerator` | `new() / with_header(s) / emit_use(b) / generate(tables) -> String / render_table(t) -> String` | schema.rs 生成器 |
+| `sql_type_to_rust` | `fn(sql_type, nullable) -> String` | SQL 类型到 Rust 类型映射 |
+
+#### 2.22.20 `sz_orm_core::sql_safety` — SQL 注入防护原语
+
+| 函数 | 签名 | 说明 |
+|------|------|------|
+| `validate_identifier` | `fn(name: &str, kind: &str) -> Result<(), DbError>` | 校验 SQL 标识符（字母数字+下划线，不以数字开头，1-63 字符） |
+| `validate_fk_action` | `fn(action: &str) -> Result<(), DbError>` | 校验外键动作（CASCADE / SET NULL / SET DEFAULT / RESTRICT / NO ACTION） |
+| `validate_id_value` | `fn(id: &str) -> Result<(), DbError>` | 校验 IN 子句 id 值（拒绝 `--` 注释序列） |
+
+#### 2.22.21 `sz_orm_core::type_handler` — MyBatis 风格 TypeHandler SPI
+
+| 类型 | 签名 | 说明 |
+|------|------|------|
+| `TypeHandlerError` | `enum { HandlerNotFound { name }, FieldNotBound { field }, TypeMismatch { expected, actual, actual_type_name }, ConversionFailed { reason } }` | 错误类型 |
+| `TypeHandlerResult<T>` | `type = Result<T, TypeHandlerError>` | — |
+| `ErasedTypeHandler` | `trait { fn erased_type_id() / fn erased_type_name() / fn as_any() }` | 类型擦除用于注册中心存储 |
+| `TypeHandler<T>` | `trait { fn to_value(&self, value: &T) -> Value; fn from_value(&self, value: &Value) -> TypeHandlerResult<T>; fn type_id() / fn type_name() }` | Rust 类型 T 与 ORM Value 双向转换接口 |
+| `TypeHandlerRegistry` | `new() / register(name, handler) / bind(field, name) / unbind(field) / unregister(name) / has_handler(name) / is_bound(field) / handler_name_of(field) / handle<T>(field, value) / to_value<T>(field, value) / list_handlers() / list_bound_fields() / clear()` | 线程安全（RwLock）注册中心 |
+| `DateTimeHandler` / `UuidHandler` / `JsonHandler` / `DecimalHandler` / `BoolHandler` | — | 内置处理器 |
 
 ---
 
