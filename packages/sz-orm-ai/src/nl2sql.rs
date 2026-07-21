@@ -283,7 +283,7 @@ impl SimpleNl2SqlEngine {
             let col_lower = col.name.to_lowercase();
             // 避免匹配短列名导致误匹配（如 "id"）
             if col_lower.len() >= 2
-                && (lower.contains(&col_lower) || lower.contains(&format!(" {} ", &col_lower)))
+                && (lower.contains(&col_lower) || lower.contains(&format!(" {} ", col_lower)))
             {
                 // 确认不是 from 子句后的表名列
                 if !columns.contains(&col.name) {

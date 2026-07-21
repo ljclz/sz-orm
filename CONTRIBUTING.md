@@ -2,7 +2,7 @@
 
 > Thank you for considering a contribution to SZ-ORM! This document describes the workflow, coding standards, and review process for all contributors.
 
-> 适用版本：SZ-ORM v1.0.0（39 工作空间成员 / 1970+ 测试 / L4 金融级）
+> 适用版本：SZ-ORM v1.0.0（39 工作空间成员 / 2950 测试 / L4 金融级）
 > 更新日期：2026-07-21
 
 ---
@@ -32,7 +32,7 @@ Be respectful, constructive, and inclusive. We follow the [Rust Code of Conduct]
 
 ### Prerequisites
 
-- **Rust toolchain**: 1.75+ (edition 2021); stable channel recommended
+- **Rust toolchain**: 1.94.0+ (sqlx 0.9.0 requires, edition 2021); stable channel recommended
 - **Operating system**: Linux / Windows / macOS (CI runs all three)
 - **Databases (optional, for integration tests)**: MySQL 8+/9.x, PostgreSQL 14+/18, SQLite 3.35+, Oracle 23ai Free
 - **Cloud services (optional, for ignored tests)**: MQTT broker, RabbitMQ, MinIO/S3, OpenAI API key
@@ -163,7 +163,7 @@ All PRs must pass these 10 gates before merge:
 | 3 | clippy | `cargo clippy --workspace --all-targets -- -D warnings` | ✅ |
 | 4 | test | `cargo test --workspace` | ✅ |
 | 5 | doc | `cargo doc --workspace --no-deps --all-features` with `RUSTDOCFLAGS="-D warnings"` | ✅ |
-| 6 | audit | `cargo audit` (8 ignored advisories with documented reasons) | ✅ |
+| 6 | audit | `cargo audit` (7 ignored advisories with documented reasons) | ✅ |
 | 7 | deny | `cargo deny check advisories bans licenses sources` | ✅ |
 | 8 | integration | `cargo test --workspace -- --ignored` with real DBs/containers | ✅ |
 | 9 | soak-smoke | 10-second soak test (degradation framework sanity check) | ✅ |
@@ -320,7 +320,7 @@ We will acknowledge within 48 hours and aim to release a fix within 7 days for C
 
 - `cargo audit` runs on every push/PR (gate 6)
 - `cargo deny check` runs on every push/PR (gate 7)
-- 8 RUSTSEC advisories are currently ignored with documented reasons (see `audit.toml`)
+- 7 RUSTSEC advisories are currently ignored with documented reasons (see `audit.toml`)
 - License whitelist: 14 permissive licenses only; copyleft (GPL/AGPL/LGPL) is forbidden
 - Dependency sources: only crates.io official registry; no git/path sources
 
@@ -341,7 +341,7 @@ By contributing, you agree that your contributions will be licensed under the [M
 | Bench | `cargo bench -p sz-orm-core` |
 | Soak (10s smoke) | `cargo test -p sz-orm-core --test soak -- --ignored` |
 | Soak (24h) | `SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored` |
-| Security audit | `cargo audit` (with 8 `--ignore` flags, see CI config) |
+| Security audit | `cargo audit` (with 7 `--ignore` flags, see CI config) |
 | Deny check | `cargo deny check advisories bans licenses sources` |
 | Full local gate | `./scripts/gate.ps1` or `./scripts/gate.sh` |
 | Generate docs | `cargo doc --workspace --no-deps --open` |

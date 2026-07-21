@@ -535,14 +535,11 @@ pub fn render_condition_with_dialect(
             }
             if j > i + 1 {
                 let param_name = &template[i + 1..j];
-                if let Some(value) = params.get(param_name) {
-                    result.push_str(&value.to_param_with_dialect(dialect));
-                    i = j;
-                    continue;
-                } else {
-                    // 未知参数
-                    return None;
-                }
+                // 未知参数时返回 None
+                let value = params.get(param_name)?;
+                result.push_str(&value.to_param_with_dialect(dialect));
+                i = j;
+                continue;
             }
         }
         result.push(bytes[i] as char);

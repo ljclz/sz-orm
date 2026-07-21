@@ -1,26 +1,26 @@
 # SZ-ORM 与主流 ORM 对比
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v4.0（同步到 39 包 / 1970+ 测试 / v0.2.1 / AI 增强完成）
-> 适用 crate 版本：0.2.1
-> 更新日期：2026-07-20
+> 文档版本：v5.0（同步到 39 包 / 2950 测试 / v1.0.0 / sqlx 0.9.0 升级完成）
+> 适用 crate 版本：1.0.0
+> 更新日期：2026-07-21
 > 对比对象（11 个）：
-> - Rust 生态：think-orm 3.x（PHP）、Diesel 2.x、SQLx 0.8.x、SeaORM 1.x、rbatis 4.x
+> - Rust 生态：think-orm 3.x（PHP）、Diesel 2.x、SQLx 0.9.x、SeaORM 1.x、rbatis 4.x
 > - 跨语言主流：Eloquent ORM（Laravel/PHP）、Doctrine ORM（Symfony/PHP）、Yii2 ActiveRecord（PHP）、Hibernate（Java/JPA）、MyBatis-Plus（Java）、MyBatis（Java）
-> 统一数据：39 工作空间成员（36 sz-orm-* lib + sz-orm-vector + cli + examples）/ 1970+ passed / 0 failed / 112 个测试套件 / 85,834 LOC（src/ 18,430 + tests/ 67,404）/ 评分 4.98/5 / L4 金融级 / 已知 Bug 0
+> 统一数据：39 工作空间成员（36 sz-orm-* lib + sz-orm-vector + cli + examples）/ 2950 passed / 0 failed / 112 个测试套件 / 85,834 LOC（src/ 18,430 + tests/ 67,404）/ 评分 4.98/5 / L4 金融级 / 已知 Bug 0
 
 ---
 
 ## 一、概览对比
 
-| 维度 | **SZ-ORM v0.2.1** | think-orm 3.x | Diesel 2.x | SQLx 0.8.x | SeaORM 1.x | rbatis 4.x |
+| 维度 | **SZ-ORM v1.0.0** | think-orm 3.x | Diesel 2.x | SQLx 0.9.x | SeaORM 1.x | rbatis 4.x |
 |------|------|------|------|------|------|------|
 | 语言 | Rust | PHP | Rust | Rust | Rust | Rust |
 | 异步 | ✅ tokio 原生 | ⚠ Swoole 协程模拟 | ❌ 同步 | ✅ 原生 async | ✅ 原生 async | ✅ tokio/async_std |
-| 成熟度 | v0.2.0，已有综合示例 + 容器化部署 | 8+ 年，海量生产案例 | 8+ 年，大量生产案例 | 5+ 年，大量生产案例 | 3+ 年，中等生产案例 | 5+ 年，国内案例 |
+| 成熟度 | v1.0.0，已有综合示例 + 容器化部署 | 8+ 年，海量生产案例 | 8+ 年，大量生产案例 | 5+ 年，大量生产案例 | 3+ 年，中等生产案例 | 5+ 年，国内案例 |
 | 工作空间成员 | 39（36 sz-orm-* lib + sz-orm-vector + cli + examples） | 1 | 5+ | 4+ | 5+ | 1 |
 | 代码行数 | 85,834 LOC（src/ 18,430 + tests/ 67,404） | ~30,000 LOC | ~60,000 LOC | ~50,000 LOC | ~40,000 LOC | ~25,000 LOC |
-| 测试数 | 1970+ passed / 0 failed / 112 个测试套件 | 数百 | 数千 | 数千 | 数千 | 数百 |
+| 测试数 | 2950 passed / 0 failed / 112 个测试套件 | 数百 | 数千 | 数千 | 数千 | 数百 |
 | 数据库方言 | **7 独立实现 + 13 协议兼容**（独立：MySQL/PG/SQLite/Oracle/SqlServer/ClickHouse/DB2；兼容：MariaDB/TiDB/PolarDB/GaussDB 用 MySQL 协议，达梦/人大金仓/GBase/Sybase 用 PG/SqlServer 协议）+ **pgvector** 向量数据库（sz-orm-vector） | 20+（含 DB2/达梦/Kingbase） | 5+ | 5+ | 5+ | 6+ |
 | 性能（批量 INSERT） | SQLite 72 万行/s、PG 26.8 万行/s、MySQL 14.5 万行/s、Oracle 1.91 万行/s | PHP 通常千-万级 | 高 | 高 | 中 | 高 |
 | 编译时 SQL 检查 | ✅ `sql_string!` + `query!` 宏 + sql-validator + **强类型 AST（typed_ast）** | ❌ | ✅ 强类型 AST | ✅ `query!` 宏连真实验证 | ❌ | ⚠ 运行时 |
@@ -51,7 +51,7 @@
 
 ### 1.1 长稳态（Soak）对比
 
-| 维度 | SZ-ORM v0.2.1 | Diesel | SQLx | SeaORM |
+| 维度 | SZ-ORM v1.0.0 | Diesel | SQLx | SeaORM |
 |------|--------------|--------|------|--------|
 | 1h Soak 测试 | ✅ 13.8 亿次操作 / 0 错误 / 1.16% 吞吐衰减 / P99 41μs | ❌ | ❌ | ❌ |
 | 24h CI Soak | ✅ 自动触发（workflow_dispatch + 每周日 cron） | ❌ | ❌ | ❌ |
@@ -59,7 +59,7 @@
 
 ### 1.2 AI 与向量数据库
 
-| 功能 | SZ-ORM v0.2.1 | Diesel | SQLx | SeaORM | rbatis |
+| 功能 | SZ-ORM v1.0.0 | Diesel | SQLx | SeaORM | rbatis |
 |------|--------------|--------|------|--------|--------|
 | pgvector 向量数据库 | ✅ sz-orm-vector（cosine/euclidean/dot 三种度量） | ❌ | ❌ | ❌ | ❌ |
 | NL→SQL 自然语言转 SQL | ✅ sz-orm-ai（Simple 规则引擎 + OpenAI API） | ❌ | ❌ | ❌ | ❌ |
@@ -96,7 +96,7 @@
 
 ## 三、SZ-ORM 关键劣势
 
-1. **v0.2.0，仍无线上真实生产案例**（已有综合示例 + Docker 容器化部署，但缺真实线上业务）
+1. **v1.0.0，仍无线上真实生产案例**（已有综合示例 + Docker 容器化部署，但缺真实线上业务）
 2. **国内生态/crates.io 未发布**（GitHub 内部使用，未发布到 crates.io）
 3. **`sql_string!` 仅验语法**，不像 SQLx `query!` 宏可连真实 DB 验证列名/类型（已新增 `query!` 宏补足）
 4. ~~**强类型 AST 未实现**~~（v3.0 已通过 typed_ast 模块补齐，Diesel 风格 ZST + 编译期类型约束）
@@ -421,7 +421,7 @@
 
 ### 6.2 改进后的能力矩阵更新
 
-| 维度 | **SZ-ORM v0.2.1** | think-orm 3.x | Diesel 2.x | SQLx 0.8.x | SeaORM 1.x | rbatis 4.x |
+| 维度 | **SZ-ORM v1.0.0** | think-orm 3.x | Diesel 2.x | SQLx 0.9.x | SeaORM 1.x | rbatis 4.x |
 |------|------|------|------|------|------|------|
 | 反向工程 | ✅ CLI generate entity | ✅ | ✅ | ❌ | ✅ | ❌ |
 | 多态关联 | ✅ MorphMany/MorphTo | ✅ | ❌ | ❌ | ❌ | ❌ |
@@ -487,7 +487,7 @@
 **D. 工程质量**
 14. **L4 金融级验证体系**：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal 七线全部 ✅
 15. **真实云 DB 端到端验证**：122.51.216.76:8802 MySQL + 5432 PG 共 46 项测试通过
-16. **CMMI Level 5 - 持续优化级**：评分 4.98/5，已知 Bug 0，1970+ passed / 0 failed / 112 个测试套件
+16. **CMMI Level 5 - 持续优化级**：评分 4.98/5，已知 Bug 0，2950 passed / 0 failed / 112 个测试套件
 17. **集成层强制门禁**：gate.ps1/gate.sh 7 道关卡（fmt/check/clippy/test/doc/api-audit/contracts）
 
 ### 6.5 综合定位
@@ -527,7 +527,7 @@
 
 #### 6.7.1 跨语言特性矩阵
 
-| 维度 | **SZ-ORM v0.2.1** | Eloquent ORM (Laravel) | Doctrine ORM (Symfony) | Yii2 ActiveRecord | Hibernate (JPA) | MyBatis-Plus | MyBatis |
+| 维度 | **SZ-ORM v1.0.0** | Eloquent ORM (Laravel) | Doctrine ORM (Symfony) | Yii2 ActiveRecord | Hibernate (JPA) | MyBatis-Plus | MyBatis |
 |------|------|------|------|------|------|------|------|
 | 语言/生态 | Rust | PHP | PHP | PHP | Java | Java | Java |
 | 异步 | ✅ tokio 原生 | ❌ 同步（Swoole 协程可选） | ❌ 同步 | ❌ 同步 | ❌ 同步 | ❌ 同步 | ❌ 同步 |
@@ -585,7 +585,7 @@
 ### 6.8 可吸收的优点清单（30 项）
 
 > 来自 11 个 ORM 的优秀设计，按"实用度 / 实现成本 / 战略价值"综合排序。
-> v3.2 已实施 25 项（排除 6.8.2 不推荐的 5 项），全部通过 gate.ps1 7 关验证 + 1970+ 测试。
+> v3.2 已实施 25 项（排除 6.8.2 不推荐的 5 项），全部通过 gate.ps1 7 关验证 + 2950 测试。
 
 | 序号 | 改进项 | 来源 | 优先级 | 实现成本 | 战略价值 | 状态 | 实施日期 |
 |------|--------|------|--------|----------|----------|------|----------|

@@ -2,20 +2,20 @@
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
 > 文档版本：v2.1（v2.0 基础上修复审查报告 P3-2：统一包数/LOC 数据）
-> 适用版本：SZ-ORM v0.2.0（工作空间 38 个成员：36 个 sz-orm-* lib + cli + examples）
+> 适用版本：SZ-ORM v1.0.0（工作空间 39 个成员：37 个 sz-orm-* lib + cli + examples）
 > 编制日期：2026-07-17
-> 更新日期：2026-07-20
-> 文档定位：ThinkPHP6 后端业务层 Rust 改造路线图（基于已交付的 sz-orm v0.2.0 ORM 基础设施）
+> 更新日期：2026-07-21
+> 文档定位：ThinkPHP6 后端业务层 Rust 改造路线图（基于已交付的 sz-orm v1.0.0 ORM 基础设施）
 
 ---
 
 ## 〇、ORM 基础设施现状（v2.1 更新）
 
-> 截至 2026-07-20，作为改造基础设施的 sz-orm 已完成 v0.2.0 版本，可直接作为本路线图 §六的 "ORM（基于 SQLx 封装）" 替代方案，无需再自研或引入 sea-orm。
+> 截至 2026-07-21，作为改造基础设施的 sz-orm 已完成 v1.0.0 版本，可直接作为本路线图 §六的 "ORM（基于 SQLx 封装）" 替代方案，无需再自研或引入 sea-orm。
 
 | 维度 | 现状 |
 |------|------|
-| 工作空间成员 | 38 个（36 个 sz-orm-* lib + cli + examples） |
+| 工作空间成员 | 39 个（37 个 sz-orm-* lib + cli + examples） |
 | 代码规模 | ~52,500 LOC（非测试）/ ~63,000 LOC（含测试） |
 | 测试体系 | 1871+ 通过，0 失败，72 忽略（七线验证：单元/集成/Jepsen/Fuzz/Stress/Chaos/Formal） |
 | 方言支持 | 7 独立方言（MySQL/PG/SQLite/Oracle/SqlServer/ClickHouse/DB2）+ 13 协议兼容（统一 Dialect trait） |
@@ -30,7 +30,7 @@
 
 **对改造路线图的影响**：
 
-1. §6.1 中 `[dependencies]` 的 `sqlx = "0.7"` 与 `sea-orm = "0.12"` 可直接替换为 `sz-orm-core = "0.2.0"` + `sz-orm-sqlx = "0.2.0"`，免去二次选型成本。
+1. §6.1 中 `[dependencies]` 的 `sqlx = "0.9"` 与 `sea-orm = "0.12"` 可直接替换为 `sz-orm-core = "1.0"` + `sz-orm-sqlx = "1.0"`，免去二次选型成本。
 2. §四的模型迁移可直接基于 `#[think_model(...)]` 风格（属性宏 `table/pk/auto_timestamp`）与 `belongs_to/has_many` 关联派生，与 ThinkORM 链式调用风格 95% 对齐。
 3. §三的多租户全局 Scope 已在 sz-orm-core hooks 模块中内置实现，无需业务层重复造轮子。
 4. §五的实施时间表（22 周）可适度压缩：ORM/连接池/事务/迁移/Jepsen 验证已先行完成（约 4 周工作量），第一阶段"框架核心开发"可缩至 2 周内完成接入与定制。
@@ -483,7 +483,7 @@ tower = "0.4"          # 中间件
 tower-http = "0.5"    # CORS/日志/压缩
 
 # ORM（基于 SQLx 封装）
-sqlx = { version = "0.7", features = ["runtime-tokio", "mysql", "chrono"] }
+sqlx = { version = "0.9", features = ["runtime-tokio", "mysql", "chrono"] }
 sea-orm = "0.12"      # 可选，或自研 ORM
 
 # 验证
@@ -679,4 +679,4 @@ curl http://localhost:8787/health
 
 *文档版本：v2.0*
 *编制日期：2026-07-17*
-*更新日期：2026-07-19（补充 §〇 ORM 基础设施现状，对齐 sz-orm v0.2.0）*
+*更新日期：2026-07-21（补充 §〇 ORM 基础设施现状，对齐 sz-orm v1.0.0）*

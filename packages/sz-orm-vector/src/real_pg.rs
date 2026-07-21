@@ -521,7 +521,7 @@ mod tests {
 
     #[test]
     fn test_format_parse_vec_f32_roundtrip() {
-        let v = vec![1.0, -2.5, 3.1415, 0.0];
+        let v = vec![1.0, -2.5, 3.5, 0.0];
         let formatted = format_vec_f32(&v);
         let parsed = parse_vec_f32(&formatted);
         assert_eq!(v.len(), parsed.len());

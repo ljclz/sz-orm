@@ -106,7 +106,7 @@ impl RealtimePusher {
         drop(connections);
 
         let mut rooms = self.rooms.write().await;
-        for (_, ids) in rooms.iter_mut() {
+        for ids in rooms.values_mut() {
             ids.retain(|id| id != connection_id);
         }
         drop(rooms);

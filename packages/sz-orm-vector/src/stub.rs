@@ -142,7 +142,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_stub_default() {
-        let stub = StubVectorStore::default();
+        let stub = StubVectorStore;
         let result = stub.count("any").await;
         assert!(matches!(result, Err(VectorError::Unsupported(_))));
     }

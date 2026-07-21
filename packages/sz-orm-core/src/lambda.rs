@@ -676,8 +676,6 @@ mod tests {
     use crate::dialect::PostgreSqlDialect;
     use crate::get_dialect;
     use crate::DbType;
-    // 引入宏（#[macro_export] 将宏挂到 crate root，本地模块需显式导入）
-    use crate::define_columns;
 
     // 测试用 Model
     struct User;

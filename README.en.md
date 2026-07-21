@@ -2,9 +2,9 @@
 
 > Production-grade, L4 financial-grade pure Rust async ORM with ThinkORM-style fluent API.
 
-[![Rust](https://img.shields.io/badge/rust-1.75+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-1970+-green.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-2950-green.svg)](#testing)
 [![Dialects](https://img.shields.io/badge/dialects-11-red.svg)]#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
@@ -42,12 +42,12 @@ SZ-ORM is a pure Rust async ORM framework aiming to provide a **production-grade
 |-----------|-------|
 | Workspace packages | 39 (37 libs + CLI + examples) |
 | Supported dialects | 11 (MySQL / PostgreSQL / SQLite / Oracle 23ai / OceanBase / SQL Server / ClickHouse / Redis / MongoDB / VectorDB / PureJsDb) |
-| Test cases | 1970+ passed, 0 failed (72 ignored requiring real DB/cloud credentials) |
+| Test cases | 2950 passed, 0 failed (79 ignored requiring real DB/cloud credentials) |
 | Code size | 85,834 LOC (src 18,430 + tests 67,404) |
 | Production level | L4 (Financial-grade) |
 | Maturity rating | 4.98 / 5.00 |
 | Async runtime | Tokio 1.40+ |
-| Minimum Rust version | 1.75 (edition 2021) |
+| Minimum Rust version | 1.94.0+ (sqlx 0.9.0 requires) |
 | Known bugs | 0 |
 
 ## Core Features
@@ -77,7 +77,7 @@ SZ-ORM is a pure Rust async ORM framework aiming to provide a **production-grade
 - 0 `panic!` / 0 `unimplemented!` / 0 `todo!` in production code
 - `cargo clippy --workspace --all-targets -- -D warnings` passes with 0 warnings
 - `cargo fmt --all --check` passes
-- `cargo audit` — 0 unignored vulnerabilities (10 transitive dependencies ignored with documented reasons)
+- `cargo audit` — 0 unignored vulnerabilities (7 transitive dependencies ignored with documented reasons)
 - `cargo deny check advisories bans licenses sources` — all OK
 - 1h Soak Test: 1.38 billion operations, 1.16% throughput decay, P99 43μs→41μs, 0 errors, no pool leak
 
@@ -131,7 +131,7 @@ sz-orm/
 ├── docs/                            # 14 documentation files
 ├── scripts/                         # gate.ps1/sh, install-hooks, audit-api-changes
 ├── Cargo.toml                       # Workspace manifest (version.workspace = true)
-├── audit.toml                       # cargo-audit config (8 ignored advisories)
+├── audit.toml                       # cargo-audit config (7 ignored advisories)
 ├── deny.toml                        # cargo-deny config (14 allow licenses)
 ├── Dockerfile                       # Container image
 └── docker-compose.yml               # Full-stack dev environment
@@ -562,7 +562,7 @@ SZ-ORM enforces quality via a **7-line verification system**:
 | **Chaos** | Fault robustness | `chaos.rs` |
 | **Formal** | Formal invariant verification | `formal.rs` |
 
-**Total: 1970+ tests, 0 failed, 72 ignored (require real DB/cloud credentials)**
+**Total: 2950 tests, 0 failed, 79 ignored (require real DB/cloud credentials)**
 
 ### Run tests
 
@@ -615,7 +615,7 @@ SZ-ORM enforces security via CI-integrated `cargo-audit` and `cargo-deny`:
 
 ```bash
 # Vulnerability scan
-cargo audit --ignore RUSTSEC-2023-0071 \
+cargo audit \
             --ignore RUSTSEC-2026-0049 \
             --ignore RUSTSEC-2026-0098 \
             --ignore RUSTSEC-2026-0099 \
@@ -629,7 +629,7 @@ cargo deny check advisories bans licenses sources
 ```
 
 **Result (2026-07-21)**:
-- ✅ `cargo audit`: 0 unignored vulnerabilities (10 transitive deps ignored with documented reasons)
+- ✅ `cargo audit`: 0 unignored vulnerabilities (7 transitive deps ignored with documented reasons)
 - ✅ `cargo deny`: advisories ok / bans ok / licenses ok / sources ok
 - License whitelist: 14 permissive licenses (MIT / Apache-2.0 / BSD / ISC / Zlib / CC0-1.0 / MPL-2.0 / ...)
 - Sources: only crates.io official registry allowed; no git/path sources

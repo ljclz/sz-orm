@@ -469,7 +469,7 @@ async fn verify_mysql(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let pool = sqlx::MySqlPool::connect(dsn)
         .await
         .map_err(|e| format!("MySQL connect failed: {}", e))?;
-    sqlx::query(explain_sql)
+    sqlx::query(sqlx::AssertSqlSafe(explain_sql))
         .execute(&pool)
         .await
         .map_err(|e| format!("MySQL EXPLAIN failed: {}", e))?;
@@ -481,7 +481,7 @@ async fn verify_postgres(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let pool = sqlx::PgPool::connect(dsn)
         .await
         .map_err(|e| format!("PostgreSQL connect failed: {}", e))?;
-    sqlx::query(explain_sql)
+    sqlx::query(sqlx::AssertSqlSafe(explain_sql))
         .execute(&pool)
         .await
         .map_err(|e| format!("PostgreSQL EXPLAIN failed: {}", e))?;
@@ -493,7 +493,7 @@ async fn verify_sqlite(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let pool = sqlx::SqlitePool::connect(dsn)
         .await
         .map_err(|e| format!("SQLite connect failed: {}", e))?;
-    sqlx::query(explain_sql)
+    sqlx::query(sqlx::AssertSqlSafe(explain_sql))
         .execute(&pool)
         .await
         .map_err(|e| format!("SQLite EXPLAIN failed: {}", e))?;
