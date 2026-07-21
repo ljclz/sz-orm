@@ -1,3 +1,12 @@
+//! # SZ-ORM Sharding — 分片路由
+//!
+//! 提供基于 FNV-1a + fmix64 终结化的确定性哈希与一致性哈希环分片路由，
+//! 保证跨进程/重启后同一 key 的路由结果一致，避免相似 key 聚集。
+//!
+//! ## 主要模块
+//!
+//! - [`enhanced`] — 增强分片能力（虚拟节点等）
+
 use serde::{Deserialize, Serialize};
 use std::error::Error;
 use std::fmt;

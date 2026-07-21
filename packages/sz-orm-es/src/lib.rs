@@ -1,3 +1,13 @@
+//! # SZ-ORM ES — Elasticsearch 文档存储
+//!
+//! 提供 Elasticsearch 风格的文档存储与检索抽象，支持索引、文档 CRUD 与搜索请求，
+//! 内置内存实现便于测试。
+//!
+//! ## 主要类型
+//!
+//! - [`EsDocument`] — 文档模型
+//! - [`EsSearchRequest`] — 搜索请求
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;

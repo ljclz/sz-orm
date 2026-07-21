@@ -20,6 +20,7 @@
 - [Pull Request Process](#pull-request-process)
 - [Release Process](#release-process)
 - [Security Vulnerability Reporting](#security-vulnerability-reporting)
+- [Production Incident Runbook](#production-incident-runbook)
 - [License](#license)
 
 ---
@@ -323,6 +324,90 @@ We will acknowledge within 48 hours and aim to release a fix within 7 days for C
 - 7 RUSTSEC advisories are currently ignored with documented reasons (see `audit.toml`)
 - License whitelist: 14 permissive licenses only; copyleft (GPL/AGPL/LGPL) is forbidden
 - Dependency sources: only crates.io official registry; no git/path sources
+
+## Production Incident Runbook
+
+> 本节为生产环境 bug 应急流程。当生产环境出现异常时，按此流程操作，避免盲目修改。
+
+### 1. 复现
+
+```bash
+# 用 soak test 的 SoakMonitor 复现高并发/资源泄漏类问题
+SOAK_DURATION=60s cargo test -p sz-orm-core --test soak -- --ignored
+
+# 用 property test 复现边界条件类问题
+cargo test -p sz-orm-core --test property -- --ignored
+
+# 用 fuzz test 复现随机输入类问题
+cargo test -p sz-orm-core --test fuzz -- --ignored
+```
+
+### 2. 定位
+
+**指标定位法**（依赖可观测性）：
+
+| 指标 | 异常表现 | 可能原因 |
+|------|---------|---------|
+| `pool_active` 持续上升不回落 | 连接泄漏 | 未 release / RAII guard 丢失 |
+| `p99_latency` 突增 | 慢查询或锁竞争 | SQL 缺索引 / 事务持有锁过久 |
+| `error_rate` > 0.1% | 批量错误 | 连接池耗尽 / 数据库故障 |
+| `rss_bytes` 持续增长 | 内存泄漏 | 未释放的 Vec / 缓存无淘汰 |
+| `fd_count` 持续增长 | 句柄泄漏 | 连接未关闭 / 文件未关闭 |
+
+**代码定位法**：
+
+```bash
+# git bisect 找到回归 commit
+git bisect start
+git bisect bad <bad-commit>
+git bisect good <last-known-good-commit>
+# 每步运行测试验证
+cargo test -p sz-orm-core
+git bisect run cargo test -p sz-orm-core
+```
+
+**ADR 查阅**：修改前先读 `docs/adr/` 中的相关决策记录，理解"为什么这么写"，避免误改。
+
+### 3. 隔离
+
+- 如果是连接池问题：降低 `max_size`，重启服务
+- 如果是慢查询：添加查询超时 `with_timeout()`
+- 如果是内存泄漏：重启服务（临时），同时排查根因
+- 如果是分片问题：调整 `chunk_size`
+
+### 4. 修复
+
+1. **先写失败测试**（RED）：构造一个能复现 bug 的测试
+2. **再改代码**（GREEN）：最小改动让测试通过
+3. **重构**（REFACTOR）：清理代码，保持测试绿色
+4. **五维审查**：正确性 / 可读性 / 架构 / 安全性 / 性能
+
+### 5. 验证
+
+```bash
+# 基础门禁
+cargo fmt --all --check
+cargo clippy --workspace --all-targets -- -D warnings
+cargo test --workspace
+
+# 1 小时 soak test（验证资源泄漏已修复）
+SOAK_DURATION=1h cargo test -p sz-orm-core --test soak -- --ignored
+```
+
+### 6. 上线后观察
+
+- 观察 Prometheus 指标至少 30 分钟
+- 确认 `error_rate` 回归 0
+- 确认 `p99_latency` 回归正常水位
+- 确认 `pool_active` 能正常回落到 `pool_idle`
+
+### 7. 记录
+
+- 在 `CHANGELOG.md` 记录修复内容
+- 如果是架构层面的问题，在 `docs/adr/` 新增 ADR
+- 在 `project_memory.md` 记录教训（AI 维护项目的"长期记忆"）
+
+---
 
 ## License
 

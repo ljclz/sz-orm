@@ -1,3 +1,13 @@
+//! # SZ-ORM Health — 健康检查
+//!
+//! 提供资源健康状态聚合与运行时指标上报，包含连接数、慢查询、错误率与 p50/p95
+//! 延迟等 SLA 指标，用于探活与可观测性。
+//!
+//! ## 主要类型
+//!
+//! - [`HealthStatus`] — 健康/不健康/未知
+//! - [`HealthReport`] — 单资源健康报告
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

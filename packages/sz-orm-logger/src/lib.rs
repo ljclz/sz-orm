@@ -1,3 +1,14 @@
+//! # SZ-ORM Logger — 结构化日志
+//!
+//! 提供多级别（Debug/Info/Warn/Error）、多输出目标的日志记录，支持异步写入与
+//! 结构化字段，可组合多个 Logger 实现输出到不同后端。
+//!
+//! ## 主要类型
+//!
+//! - [`Logger`] trait — 日志器接口
+//! - [`LogLevel`] — 日志级别
+//! - [`LogEntry`] — 日志条目
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

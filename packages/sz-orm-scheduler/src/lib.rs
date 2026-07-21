@@ -1,3 +1,11 @@
+//! # SZ-ORM Scheduler — 定时任务调度器
+//!
+//! 提供基于 cron 表达式的定时任务调度，支持任务启停、状态管理与回调执行。
+//!
+//! ## 主要模块
+//!
+//! - [`scheduler`] — 任务处理器 trait 与测试辅助实现
+
 use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

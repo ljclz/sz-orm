@@ -1,3 +1,14 @@
+//! # SZ-ORM MQTT — MQTT 协议支持
+//!
+//! 提供 MQTT 消息中间件抽象，包含 broker 客户端、QoS 级别与主题通配符匹配，
+//! 启用 `real-broker` feature 后接入真实 MQTT broker。
+//!
+//! ## 主要模块
+//!
+//! - [`broker`] — 客户端配置与插件入口
+//! - [`qos`] — 服务质量等级（0/1/2）
+//! - [`topics`] — 主题通配符匹配
+
 pub mod broker;
 pub mod error;
 pub mod qos;

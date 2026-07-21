@@ -1,3 +1,13 @@
+//! # SZ-ORM gRPC — gRPC 服务定义与调用
+//!
+//! 提供 gRPC 服务描述、方法注册与基于地址的全局服务注册表，
+//! 支持客户端调用与服务端实现绑定。
+//!
+//! ## 主要类型
+//!
+//! - [`GrpcServiceDef`] / [`GrpcMethod`] — 服务与方法定义
+//! - `UserGrpcService` — 用户服务实现 trait
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, OnceLock, RwLock};

@@ -1,3 +1,12 @@
+//! # SZ-ORM Mig — 数据库迁移工具
+//!
+//! 提供数据库 schema 迁移与版本管理，支持多数据库类型的结构转换。
+//!
+//! ## 主要模块
+//!
+//! - [`migrator`] — 迁移执行器与数据库配置
+//! - [`transformer`] — SQL 方言/结构转换器
+
 pub mod error;
 pub mod migrator;
 pub mod transformer;

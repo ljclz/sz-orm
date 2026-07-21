@@ -1,3 +1,13 @@
+//! # SZ-ORM GraphQL — GraphQL Schema 解析与查询
+//!
+//! 提供 GraphQL Schema 定义、类型/字段/查询/变更构建与查询执行，
+//! 启用 `real` feature 后接入真实 GraphQL 引擎。
+//!
+//! ## 主要类型
+//!
+//! - [`GraphQLSchema`] — Schema 容器
+//! - [`GraphQLType`] / [`GraphQLField`] — 类型与字段定义
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "real")]

@@ -1,3 +1,14 @@
+//! # SZ-ORM WebSocket — 实时推送
+//!
+//! 提供 WebSocket 长连接管理、消息推送与认证支持，可选启用 `server` feature
+//! 启动独立 WebSocket 服务。
+//!
+//! ## 主要模块
+//!
+//! - [`handler`] — 连接处理与会话管理
+//! - [`pusher`] — 消息推送器
+//! - [`server`] — WebSocket 服务端（feature = "server"）
+
 pub mod error;
 pub mod handler;
 pub mod pusher;

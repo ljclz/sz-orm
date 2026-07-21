@@ -1,3 +1,13 @@
+//! # SZ-ORM RW — 读写分离
+//!
+//! 提供 master/slave 读写分离路由，支持轮询、随机、最少连接三种负载均衡策略，
+//! 写请求路由至 master，读请求在 slave 集群间分配。
+//!
+//! ## 主要类型
+//!
+//! - [`ReadWriteRouter`] — 读写分离路由器
+//! - [`LoadBalanceStrategy`] — 负载均衡策略
+
 use serde::{Deserialize, Serialize};
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Mutex;

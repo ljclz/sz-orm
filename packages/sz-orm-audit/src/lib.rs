@@ -1,3 +1,13 @@
+//! # SZ-ORM Audit — SQL 审计日志
+//!
+//! 提供 SQL 执行审计记录，对 password/token/credit_card 等敏感关键词进行
+//! 大小写不敏感脱敏，确保审计日志不泄露敏感信息。
+//!
+//! ## 主要类型
+//!
+//! - [`SqlAuditContext`] — 审计上下文（SQL/用户/时间戳）
+//! - [`SqlAuditor`] — 审计执行器
+
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
