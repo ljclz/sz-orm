@@ -1,3 +1,14 @@
+//! # SZ-ORM LC — 低代码模型定义
+//!
+//! 提供低代码场景下的模型声明式定义，包含字段、索引与关联关系，
+//! 可自动推导 PascalCase 模型名与单数表名。
+//!
+//! ## 主要类型
+//!
+//! - [`ModelDefinition`] — 模型定义
+//! - [`FieldDef`] — 字段定义
+//! - [`RelationDefinition`] — 关联关系定义
+
 use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

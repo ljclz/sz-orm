@@ -1,3 +1,13 @@
+//! # SZ-ORM Tracing — 链路追踪
+//!
+//! 提供分布式链路追踪的 Span/Tracer 抽象，支持 OTLP exporter 上报，
+//! 用于跨服务调用链的采集与可视化。
+//!
+//! ## 主要类型
+//!
+//! - [`Span`] — 单个追踪片段
+//! - `Tracer` — 追踪器与导出器
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

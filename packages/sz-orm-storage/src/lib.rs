@@ -1,3 +1,13 @@
+//! # SZ-ORM Storage — 对象存储
+//!
+//! 提供统一的对象存储抽象，支持 S3、阿里云 OSS、七牛 Kodo、华为 OBS、
+//! 腾讯 COS、又拍云以及本地文件系统，可通过 `StorageBuilder` 配置多 provider。
+//!
+//! ## 主要模块
+//!
+//! - [`storage`] — 统一 trait 与构建器
+//! - [`s3`] / [`aliyun`] / [`huawei`] / [`tencent`] / [`qiniu`] / [`upyun`] / [`local`] — 各 provider 实现
+
 pub mod error;
 pub mod storage;
 

@@ -1,3 +1,13 @@
+//! # SZ-ORM Swagger — OpenAPI/Swagger 规范生成
+//!
+//! 提供 OpenAPI 3.0 规范的构建与序列化，支持路径、方法、参数与响应定义，
+//! 输出可被 Swagger UI 等工具直接消费。
+//!
+//! ## 主要类型
+//!
+//! - [`OpenAPISpec`] — 规范根对象
+//! - [`PathInfo`] — 单个 (path, method) 操作描述
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 

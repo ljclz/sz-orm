@@ -1,3 +1,13 @@
+//! # SZ-ORM Batch — 批量操作
+//!
+//! 提供批量插入、更新与 UPSERT 能力，支持多值 INSERT、CASE WHEN UPDATE
+//! 与分片感知的批量执行，并返回生成的 SQL 供审计。
+//!
+//! ## 主要类型
+//!
+//! - [`BatchResult`] — 批量操作结果
+//! - [`BatchOperations`] trait — 批量操作接口
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

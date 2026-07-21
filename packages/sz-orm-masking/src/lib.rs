@@ -1,3 +1,13 @@
+//! # SZ-ORM Masking — 数据脱敏
+//!
+//! 提供手机号、邮箱、身份证、银行卡、姓名、地址等敏感字段脱敏，并支持自定义
+//! 前缀/后缀保留规则。实现 Unicode 安全，对短输入有合理兜底，不会 panic。
+//!
+//! ## 主要类型
+//!
+//! - [`MaskingRule`] — 脱敏规则枚举
+//! - [`DataMasker`] — 脱敏执行器
+
 use serde::{Deserialize, Serialize};
 
 /// Masking rules supported by [`DataMasker`].

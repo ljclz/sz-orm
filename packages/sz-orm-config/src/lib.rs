@@ -1,3 +1,13 @@
+//! # SZ-ORM Config — 配置中心
+//!
+//! 提供配置中心抽象（Consul/Nacos 等），支持 get/set/delete/list/watch，
+//! 并可在配置变更时通过回调通知订阅者。
+//!
+//! ## 主要类型
+//!
+//! - [`ConfigCenter`] trait — 配置中心接口
+//! - [`ConfigChangeEvent`] — 配置变更事件
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

@@ -1,3 +1,14 @@
+//! # SZ-ORM Auth — 认证授权
+//!
+//! 提供 JWT 令牌签发/校验与基于 RBAC 的权限控制（`Authorizer`/`RbacAuthorizer`），
+//! 涵盖用户、凭证与角色权限模型。
+//!
+//! ## 主要模块
+//!
+//! - [`auth`] — 用户、凭证等基础模型
+//! - [`jwt`] — JSON Web Token 签发与校验
+//! - [`authorizer`] — RBAC 授权器
+
 pub mod auth;
 pub mod authorizer;
 pub mod error;

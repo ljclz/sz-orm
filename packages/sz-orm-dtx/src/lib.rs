@@ -1,3 +1,14 @@
+//! # SZ-ORM DTX — 分布式事务
+//!
+//! 提供跨服务分布式事务协调能力，包含 Saga、TCC 与跨分片事务模式，
+//! 支持参与者状态机与回滚回调。
+//!
+//! ## 主要模块
+//!
+//! - [`saga`] — Saga 长事务编排
+//! - [`tcc`] — Try-Confirm-Cancel 三阶段提交
+//! - [`cross_shard`] — 跨分片事务协调
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};

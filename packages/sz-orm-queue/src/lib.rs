@@ -1,3 +1,13 @@
+//! # SZ-ORM Queue — 消息队列
+//!
+//! 提供统一的消息队列抽象，内置 InMemory 实现，并支持 RabbitMQ、Kafka、NATS、
+//! ActiveMQ、Pulsar、RocketMQ 等多种消息中间件 provider。
+//!
+//! ## 主要模块
+//!
+//! - [`queue`] — 核心 trait 与统一封装
+//! - [`rabbitmq`] / [`kafka`] / [`nats`] / [`activemq`] / [`pulsar`] / [`rocketmq`] — 各 provider 实现
+
 pub mod error;
 pub mod queue;
 

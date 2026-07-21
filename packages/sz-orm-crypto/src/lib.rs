@@ -1,3 +1,14 @@
+//! # SZ-ORM Crypto — 加密工具
+//!
+//! 提供常用密码学原语：AES-256-GCM 对称加密、HMAC-SHA256 消息认证码、
+//! PBKDF2 密钥派生与 SHA-256 哈希，所有实现基于 RustCrypto，保证常数时间比较。
+//!
+//! ## 主要函数
+//!
+//! - [`sha256`] / [`sha256_hex`] — SHA-256 哈希
+//! - AES-256-GCM 加解密
+//! - HMAC-SHA256 与 PBKDF2
+
 use std::collections::HashMap;
 
 use aes_gcm::aead::{Aead, KeyInit};

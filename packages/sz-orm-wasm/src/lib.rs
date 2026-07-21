@@ -1,3 +1,13 @@
+//! # SZ-ORM WASM — WASM 查询接口
+//!
+//! 提供面向浏览器端的轻量查询能力，内置内存数据库与 SQL 子集解析，
+//! 适合在不依赖后端的环境下做本地查询与演示。
+//!
+//! ## 主要类型
+//!
+//! - [`WasmQuery`] — 查询请求（SQL + 参数）
+//! - 内存数据库 — 支持 SQL 子集的本地执行
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;

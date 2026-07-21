@@ -1,3 +1,15 @@
+//! # SZ-ORM Limit — 限流器
+//!
+//! 提供令牌桶与滑动窗口限流，内置 OOM 防护（默认 max_keys=10000）。
+//!
+//! ## 主要类型
+//!
+//! - [`RateLimiter`] trait — 限流器接口
+//! - `TokenBucketLimiter` — 令牌桶实现
+//! - `SlidingWindowLimiter` — 滑动窗口实现
+//!
+//! v0.2.1 修复 Critical S-3：引入 `DEFAULT_MAX_KEYS` 防止无限 key 导致 OOM。
+
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
