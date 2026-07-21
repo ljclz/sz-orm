@@ -45,8 +45,6 @@ jobs:
 
       - name: Cache cargo registry
         uses: Swatinem/rust-cache@v2
-        with:
-          workspaces: rust/sz-orm
 
       - name: Determine soak duration
         id: duration
@@ -59,7 +57,6 @@ jobs:
           fi
 
       - name: Run Soak Test
-        working-directory: rust/sz-orm
         env:
           SOAK_DURATION: ${{ steps.duration.outputs.value }}
         run: |
@@ -70,7 +67,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soak-report-${{ steps.duration.outputs.value }}
-          path: rust/sz-orm/target/soak-report.csv
+          path: target/soak-report.csv
           if-no-files-found: warn
           retention-days: 30
 
