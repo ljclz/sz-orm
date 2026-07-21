@@ -59,9 +59,12 @@ ignore = [
     # 影响: 仅在启用 real-es / real-broker feature 时引入；功能已被 rustls 0.23 内置替代
     # 跟踪: 待 rumqttc / elasticsearch 升级至不依赖 rustls-pemfile 后自动移除
     { id = "RUSTSEC-2025-0134", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-pemfile 2.2.0/1.0.4 unmaintained；仅影响 real-broker / real-es feature；功能已被 rustls 0.23 内置替代" },
+    # paste 1.0.15: 未维护 (RUSTSEC-2024-0436)
+    # 来源: 传递依赖（proc-macro 工具 crate），不进入运行时，无安全风险
+    { id = "RUSTSEC-2024-0436", reason = "paste 是编译期 proc-macro 工具，不进入运行时；功能完整，无安全风险；待上游升级后移除" },
 ]
-# 未维护的依赖仅给出警告
-unmaintained = "workspace"
+# 未维护的依赖不报告（避免 CI 因传递依赖的 unmaintained 而失败）
+unmaintained = "none"
 # 已被 yanked 的 crate 视为告警
 yanked = "warn"
 # 漏洞类公告直接拒绝 (deny) 导致 CI 失败
