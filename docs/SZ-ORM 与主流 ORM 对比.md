@@ -79,7 +79,7 @@
 6. **七线验证法**：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal
 7. **真实云服务对接**：MQTT(rumqttc) + WebSocket(tokio-tungstenite) + RabbitMQ(lapin) + S3(rust-s3) + OpenAI API + tonic gRPC + async-graphql
 8. **Oracle 23ai dialect**：`:N` 占位符 + `OFFSET n ROWS FETCH NEXT m ROWS ONLY` 分页 + IDENTITY 列
-9. **真实云 DB 端到端验证**：122.51.216.76 MySQL 8802 + PG 5432 共 46 项端到端测试通过
+9. **真实云 DB 端到端验证**：远程云 MySQL + PG 共 46 项端到端测试通过
 10. **RustCrypto 加密审计栈**：sz-orm-crypto + sz-orm-auth 均使用 RustCrypto（sha2/hmac/aes-gcm/pbkdf2/subtle/OsRng/constant_time_eq）
 11. **AI 向量 + RAG + gRPC + GraphQL 一站式**：Rust ORM 中唯一
 12. **CLI 工具 + 示例集**：sz-orm-cli（8 命令）+ 8 个示例（含 production_app 与 production_dtx 两大生产案例）
@@ -162,8 +162,8 @@
 
 **验证结果**：
 - SQLite 内存 DB（user_orders 表 6 列）✅ 反向生成成功
-- 真实云 MySQL（122.51.216.76:8802 shop.sz_admin_user 表 5 列）✅ 反向生成成功
-- 真实云 PostgreSQL（122.51.216.76:5432 lewuli.pg_type 表 32 列）✅ 反向生成成功
+- 真实云 MySQL（<your-mysql-db>.sz_admin_user 表 5 列）✅ 反向生成成功
+- 真实云 PostgreSQL（<your-pg-db>.pg_type 表 32 列）✅ 反向生成成功
 - `cargo build --workspace` ✅ 全部通过
 
 **状态**：✅ 已完成（2026-07-19）
@@ -185,7 +185,7 @@
 - 启用 db-verify：`cargo test -p sz-orm-macros --lib --features db-verify` → 28 项测试全部通过
 - 真实 SQLite DB 验证（有效 SQL）：编译通过，测试运行通过
 - 真实 SQLite DB 验证（无效表名 `nonexistent_table_xyz`）：编译期报错 `no such table: nonexistent_table_xyz`
-- 真实云 MySQL 验证：成功连接 122.51.216.76:8802（被 IP 白名单拦截，但证明连接逻辑正确）
+- 真实云 MySQL 验证：成功连接远程云 MySQL（被 IP 白名单拦截，但证明连接逻辑正确）
 - `sz-orm-core` 集成测试：`cargo test -p sz-orm-core --lib query` → 33 项测试全部通过
 
 **状态**：✅ 已完成（2026-07-19）
@@ -381,7 +381,7 @@
    - 场景 4：List 策略按地区显式映射 + 默认 fallback
 4. ✅ 添加 Docker 容器化部署支持
    - `Dockerfile`：多阶段构建（builder + runtime），非 root 用户运行
-   - `docker-compose.yml`：szorm-app + MySQL 8802 + PostgreSQL 5432 三容器编排
+   - `docker-compose.yml`：szorm-app + MySQL + PostgreSQL 三容器编排
    - `.dockerignore`：排除 target/、.git/、文档、IDE 文件
 5. ✅ 验证编译 + clippy
    - `cargo build --workspace` 通过
@@ -486,7 +486,7 @@
 
 **D. 工程质量**
 14. **L4 金融级验证体系**：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal 七线全部 ✅
-15. **真实云 DB 端到端验证**：122.51.216.76:8802 MySQL + 5432 PG 共 46 项测试通过
+15. **真实云 DB 端到端验证**：远程云 MySQL + PG 共 46 项测试通过
 16. **CMMI Level 5 - 持续优化级**：评分 4.98/5，已知 Bug 0，2950 passed / 0 failed / 112 个测试套件
 17. **集成层强制门禁**：gate.ps1/gate.sh 7 道关卡（fmt/check/clippy/test/doc/api-audit/contracts）
 

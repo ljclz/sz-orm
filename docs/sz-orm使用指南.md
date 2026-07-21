@@ -1643,7 +1643,7 @@ use std::sync::Arc;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let handle = MySqlPoolHandle::connect(
-        "mysql://root:test123@127.0.0.1:3306/sz_orm_test"
+        "mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test"
     ).await?;
     let factory = Arc::new(SqlxMySqlConnectionFactory::new(Arc::new(handle)));
     let pool = Pool::new(PoolConfigBuilder::new().max_size(20).build()?, factory)?;

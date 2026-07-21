@@ -60,7 +60,7 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     sz-orm dialect show mysql
     sz-orm make:migration create_users --output ./migrations
     sz-orm make:model User --output ./src/models
-    sz-orm generate entity users --dsn mysql://root:test123@127.0.0.1:3306/sz_orm_test --output ./src/models
+    sz-orm generate entity users --dsn mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test --output ./src/models
     sz-orm sql:validate "SELECT * FROM users"
 "#;
 

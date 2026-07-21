@@ -498,7 +498,7 @@ pub fn parse_duration_from_args() -> Duration {
             return parse_duration_str(rest).unwrap_or(Duration::from_secs(60));
         }
     }
-    // 默认 60 秒（便于 CI 快速验证；周末任务用 SOAK_DURATION=24h）
+    // 默认 60 秒（便于 CI 快速验证；24h 任务用 SOAK_DURATION=24h）
     Duration::from_secs(60)
 }
 

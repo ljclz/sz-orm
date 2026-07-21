@@ -52,7 +52,7 @@ jobs:
           if [ -n "${{ github.event.inputs.soak_duration }}" ]; then
             echo "value=${{ github.event.inputs.soak_duration }}" >> $GITHUB_OUTPUT
           else
-            # 周末任务默认 24h
+            # 24h 任务默认 24h
             echo "value=24h" >> $GITHUB_OUTPUT
           fi
 

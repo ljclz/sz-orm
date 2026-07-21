@@ -4,7 +4,7 @@
 > 评估日期：2026-07-21
 > 适用版本：SZ-ORM v1.0.0（工作空间 39 个成员：37 个 lib + cli + examples）
 > 评估范围：SZ-ORM 工作空间全部包
-> 评估方法：代码静态分析 + 七线测试验证（TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal）+ 真实 DB 端到端测试（本机 + 远程云 122.51.216.76）+ 真实云服务对接 + 性能基准 + cargo-audit/cargo-deny 安全审计 + 1h Soak Test + 工程化审计三门禁
+> 评估方法：代码静态分析 + 七线测试验证（TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal）+ 真实 DB 端到端测试（本机 + 远程云）+ 真实云服务对接 + 性能基准 + cargo-audit/cargo-deny 安全审计 + 1h Soak Test + 工程化审计三门禁
 
 ---
 
@@ -119,8 +119,8 @@
 | SQLite | 10 万行批量 INSERT | 72 万行/s | 本机 |
 | MySQL 9.6 | 10 万行批量 INSERT | 14.5 万行/s | 本机 |
 | PostgreSQL 18 | 10 万行批量 INSERT | 26.8 万行/s | 本机 |
-| MySQL 8.x | 10 万行批量 INSERT | 2.57 万行/s | 远程云（122.51.216.76:8802） |
-| PostgreSQL | 10 万行批量 INSERT | 4.11 万行/s | 远程云（122.51.216.76:5432） |
+| MySQL 8.x | 10 万行批量 INSERT | 2.57 万行/s | 远程云 |
+| PostgreSQL | 10 万行批量 INSERT | 4.11 万行/s | 远程云 |
 
 并发压测：8 任务 × 1 万次连接池 acquire/release，无泄漏、无死锁。
 
@@ -317,7 +317,7 @@
 ### 4.3 残留风险
 
 1. ⚠ v1.0.0 版本，无生产案例（唯一非环境依赖项短板）
-2. ⚠ 11 个 `#[ignore]` 测试需 OpenAI API 凭证或外部 broker 环境，CI 默认不运行（46 项真实云 DB 测试已通过 122.51.216.76 实测）
+2. ⚠ 11 个 `#[ignore]` 测试需 OpenAI API 凭证或外部 broker 环境，CI 默认不运行（46 项真实云 DB 测试已通过远程云实测）
 3. ✅ **0 个已知 Bug**（v3.0 新增 9 项 P3+ 改进均通过单元测试 + doctest 覆盖：TCC 32 + Saga 20+ + 跨分片 22 + hooks 25+ + json_query 15+ + dynamic_sql 30+ + typed_ast 15+ + find_with_related 15+ ≈ 175+ 新增测试）
 
 ### 4.4 工程化审计（2026-07-20 新增）

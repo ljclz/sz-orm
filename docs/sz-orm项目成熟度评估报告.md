@@ -4,7 +4,7 @@
 > 评估版本：v1.0.0（当前最新发布版本）
 > 适用 crate 版本：1.0.0
 > 评估日期：2026-07-21
-> 评估方法：基于代码搜索、cargo test --workspace、cargo clippy、文件统计、依赖分析、真实云 DB（122.51.216.76 MySQL 8802 + PG 5432）集成的真实测量结果 + 1h Soak Test 真实运行数据（13.8 亿次操作，0 错误，0 退化）
+> 评估方法：基于代码搜索、cargo test --workspace、cargo clippy、文件统计、依赖分析、真实云 DB（<your-server-ip>）集成的真实测量结果 + 1h Soak Test 真实运行数据（13.8 亿次操作，0 错误，0 退化）
 > 目标：所有项达到 100% 完成度，达到生产环境上线标准 ✅ 已达成
 
 ---
@@ -45,7 +45,7 @@
 | **TCC 分布式事务（P3+ 新增）** | ✅ | sz-orm-dtx/tcc.rs（Try-Confirm-Cancel + TccCoordinator） |
 | **跨分片 ACID 协调（P3+ 新增）** | ✅ | sz-orm-dtx/cross_shard.rs（基于 2PC 的跨分片协调器） |
 | **分片策略增强（P3+ 新增）** | ✅ | sz-orm-sharding/enhanced.rs（一致性哈希 + 复合分片 + List + 范围配置） |
-| **Soak Test 体系（v0.2.1+ 新增）** | ✅ | sz-orm-core/tests/common/soak.rs（SoakMonitor + 6 类退化检测 + CSV 导出）+ tests/soak.rs（24h 长稳态 + 10s 冒烟）+ .github/workflows/soak.yml（CI 周末任务） |
+| **Soak Test 体系（v0.2.1+ 新增）** | ✅ | sz-orm-core/tests/common/soak.rs（SoakMonitor + 6 类退化检测 + CSV 导出）+ tests/soak.rs（24h 长稳态 + 10s 冒烟）+ .github/workflows/soak.yml（24h 定时 + workflow_dispatch 立即触发） |
 | **可观测性闭环（v0.2.1+ 新增）** | ✅ | sz-orm-observability 新包（MetricsRegistry + Counter/Gauge/Histogram + Prometheus 文本格式 + SloMonitor Google SRE 多窗口燃烧率）+ sz-orm-tracing OTLP exporter（feature=otlp）+ grafana/sz-orm-dashboard.json（4 Row 13 Panel） |
 | **PostGIS 空间扩展（v0.2.1+++ 新增）** | ✅ | sz-orm-postgis 新包（Point/LineString/Polygon + haversine 距离 + ST_Distance/ST_Contains/ST_Area/ST_Length/ST_Buffer/ST_Union + Memory/Stub/RealPg 三实现 + EWKT 序列化） |
 | **TimescaleDB 时序扩展（v0.2.1+++ 新增）** | ✅ | sz-orm-timeseries 新包（hypertable + continuous_aggregate + time_bucket + downsample + Aggregation Sum/Min/Max/Avg/Count + Memory/Stub/RealTimescale 三实现） |
@@ -68,7 +68,7 @@
 
 - **单元测试**：核心包 146+ + 各扩展包单元测试 + P3+ 新增（typed_ast/dynamic_sql/find_with_related/json_query/hooks 16 事件/saga/tcc/cross_shard/enhanced 共 ~280+）
 - **集成测试**：fuzz 11 + jepsen 29 + stress 12 + chaos 16 + formal 14 + core 13
-- **真实云 DB 集成**：SQLite 11 + MySQL 12（已通过 122.51.216.76:8802）+ PG 12（已通过 122.51.216.76:5432）+ sqlx 适配器 SQLite 16（通过）
+- **真实云 DB 集成**：SQLite 11 + MySQL 12（已通过 <your-server-ip>:<your-mysql-port>）+ PG 12（已通过 <your-server-ip>:<your-pg-port>）+ sqlx 适配器 SQLite 16（通过）
 - **真实云 DB Jepsen**：10（MySQL 5 + PG 5，已通过云端实测）
 - **真实云 DB Pool/Tx**：12（MySQL 5 + PG 5 + SQLite 2，已通过云端实测）
 - **真实云服务测试**：MQTT 4 + WebSocket 3 + RabbitMQ 4 + S3 5（共 16 可运行 + 9 ignored）
@@ -86,7 +86,7 @@
 - **文档测试**：12
 - **Soak Test（v0.2.1+ 新增）**：
   - `tests/common/soak.rs`：3 个单元测试（parse_duration_str / snapshot_csv / regression_detection 6 类退化）
-  - `tests/soak.rs::soak_pool_long_running_steady_state`：1 个 `#[ignore]` 主 soak（默认 60s，支持 `--soak-duration=24h`，CI 周末任务）
+  - `tests/soak.rs::soak_pool_long_running_steady_state`：1 个 `#[ignore]` 主 soak（默认 60s，支持 `--soak-duration=24h`，CI 24h 任务）
   - `tests/soak.rs::soak_smoke_10s`：1 个默认运行的 10s 冒烟测试
 - **可观测性测试（v0.2.1+ 新增）**：
   - `sz-orm-observability/src/lib.rs`：5 个单元测试（counter_basic / gauge_basic / histogram_basic / render_prometheus_format / counter_with_labels）
@@ -209,7 +209,7 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 | 6 | 混沌工程 | ✅ 完成 | Chaos 16 项 |
 | 7 | 灾备方案 | ✅ 完成 | sz-orm-back 备份恢复演练 + 降级预案 |
 | 8 | SLA 监控 | ✅ 完成 | sz-orm-tracing SLO 燃烧率 + 83 测试 + **v0.2.1+ 新增 SloMonitor Google SRE 多窗口多燃烧率（5 分钟 + 1 小时双窗口）+ Alertmanager 告警规则模板** |
-| 9 | Soak Test（长稳态） | ✅ 完成 | **v0.2.1+ 新增** SoakMonitor + 6 类退化检测 + CSV 导出 + CI 周末 24h 任务 |
+| 9 | Soak Test（长稳态） | ✅ 完成 | **v0.2.1+ 新增** SoakMonitor + 6 类退化检测 + CSV 导出 + CI 24h 任务（已立即触发） |
 
 **完成度**：9 项全部完成（**100%**，v0.2.1+ 新增第 9 项 Soak Test）
 
@@ -243,7 +243,7 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 | sz-orm-ai | 100% | embedding + vector + RAG + 42 测试 + OpenAI 兼容 API 真实客户端（real feature，reqwest+rustls-tls） |
 | sz-orm-grpc | 100% | 真实 tonic 0.14 gRPC 服务端/客户端（real feature，tonic-prost-build 编译 proto） |
 | sz-orm-graphql | 100% | 真实 async-graphql + axum HTTP 服务端（real feature，dynamic schema） |
-| sz-orm-sqlx | 100% | sqlx 适配器 + 16 单元 + 22 真实云 DB 测试（MySQL 8802 + PG 5432） |
+| sz-orm-sqlx | 100% | sqlx 适配器 + 16 单元 + 22 真实云 DB 测试（MySQL + PG） |
 | sz-orm-sharding | 100% | panic 改为 Result（健壮性提升）+ **P3+ enhanced 模块（一致性哈希/复合分片/List/范围配置）+ 66 单元 + 1 doctest** |
 | sz-orm-sql-validator | 100% | SQL 校验 + 12 种注入模式 + 23 测试 |
 | sz-orm-macros | 100% | `sql_string!` + `query!` 编译时 SQL 检查 |
@@ -344,7 +344,7 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 | 维度 | 评分 | 说明 |
 |------|------|------|
 | 代码质量 | 5.0/5 | clippy 0 警告 + fmt + 0 panic + 0 expect + RustCrypto + SQL 编译时检查 + ActiveRecord + hooks 16 事件 + 强类型 AST + **v0.2.1 五维审查修复 11 个 Critical** |
-| 测试覆盖 | 4.97/5 | 2950 测试（含单元/集成/Jepsen/Fuzz/Stress/Chaos/Contract/真实云 DB/1h Soak/Property-Based 22 个），112 个测试套件全部通过。扣分：7×24h soak test 待跑，且 24h CI soak test 首次运行待 2026-07-26（周日）自动触发验证 |
+| 测试覆盖 | 4.97/5 | 2950 测试（含单元/集成/Jepsen/Fuzz/Stress/Chaos/Contract/真实云 DB/1h Soak/Property-Based 22 个），112 个测试套件全部通过。扣分：7×24h soak test 待跑，且 24h CI soak test 已于 2026-07-21 通过 workflow_dispatch 立即触发，正在运行中（run #3，预计 2026-07-22 13:24 北京时间完成） |
 | 功能完成度 | 5.0/5 | 39 workspace 成员（含 cli + examples + sz-orm-observability + sz-orm-postgis + sz-orm-timeseries + sz-orm-search + sz-orm-vector）全部 100% + sqlx + SQL 验证 + 4 云服务 + Oracle + ActiveRecord + hooks 16 事件 + AI/gRPC/GraphQL real 实现 + 强类型 AST + 动态 SQL + Saga/TCC/跨分片 + JSON 查询 + find_with_related + 分片增强 + **v0.2.1+ SoakMonitor + MetricsRegistry + SloMonitor + OTLP + Grafana 仪表盘** + **v0.2.1+++ PostGIS + TimescaleDB + 多 provider Search** + **阶段十八 sz-orm-vector（pgvector 向量数据库 + NL→SQL + SQL 安全验证）** |
 | 生产就绪度 | 4.98/5 | L4 金融级 + cargo-audit/deny + 0 panic + SQL 验证 + 真实云服务 + 灾备 + SLA + 0 known bugs + **v0.2.1 修复 3 安全 Critical（JWT 密码验证/RateLimiter OOM/TCC 数据一致性）+ v0.2.1+ Soak Test 体系建立 + 1h Soak 已通过（13.8 亿操作 0 错误 0 退化）+ 可观测性闭环（Prometheus + Grafana + Alertmanager + OTLP）** |
 | 安全性 | 4.97/5 | RustCrypto + constant_time_eq + SQL 注入检测（12 种模式）+ cargo-audit/deny + **v0.2.1 修复 S-1/S-2/S-3 三个安全 Critical** + **门禁 9 修复 8 处 SQL 注入（工程化审计）** + **v1.0.0 阶段十九 sqlx 0.8.6 → 0.9.0 升级，rsa Marvin Attack (RUSTSEC-2023-0071) 已彻底消除（rsa 从依赖树中完全移除），剩余 9 个漏洞均来自可选 feature（s3-sdk/real-broker/real-es），默认编译不受影响** |
@@ -355,16 +355,16 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 **综合成熟度：4.98 / 5（CMMI Level 5 — 持续优化级 / L4 金融级 / 0 known bugs）**
 
 扣分项：
-- -0.01 无生产案例（唯一非环境依赖项短板）：当前所有验证均基于真实云 DB（MySQL 8802 + PG 5432）+ 模拟生产场景（production_app/production_dtx 示例），但缺乏第三方社区采纳与真实业务流量验证。需社区采纳 + 实际业务上线运行后恢复。
-- -0.005 Soak Test 1h 实际运行已通过（13.8 亿次操作，0 错误，0 退化），但 24h 长稳态 CI 周末任务尚未自动触发（待 2026-07-26 周日 00:00 UTC）+ 7×24h 长期验证数据尚需积累：1h 通过已验证 Soak 体系有效性（监控/退化检测/CSV 导出均工作正常），但 24h 才能覆盖完整业务周期，7×24h 才能覆盖周/月级慢退化。1h 部分恢复（0.005 分），24h 自动运行通过后再恢复 0.005 分。
+- -0.01 无生产案例（唯一非环境依赖项短板）：当前所有验证均基于真实云 DB（MySQL + PG）+ 模拟生产场景（production_app/production_dtx 示例），但缺乏第三方社区采纳与真实业务流量验证。需社区采纳 + 实际业务上线运行后恢复。
+- -0.005 Soak Test 1h 实际运行已通过（13.8 亿次操作，0 错误，0 退化），24h 长稳态 CI 任务已于 2026-07-21 通过 workflow_dispatch 立即触发运行（不再等周日定时任务），预计 2026-07-22 13:24 北京时间完成 + 7×24h 长期验证数据尚需积累：1h 通过已验证 Soak 体系有效性（监控/退化检测/CSV 导出均工作正常），但 24h 才能覆盖完整业务周期，7×24h 才能覆盖周/月级慢退化。1h 部分恢复（0.005 分），24h 自动运行通过后再恢复 0.005 分。
 - -0.0025 v0.2.1 修复的 11 个 Critical 中，3 个安全 Critical（JWT 密码验证时序攻击 / RateLimiter OOM / TCC 数据一致性）需在生产环境持续验证：单元测试 + Property-Based Testing + Fuzz Testing 已覆盖代码路径，但真实生产流量下的长期稳定性（如高并发下 JWT 时序泄漏 / 极端负载下 RateLimiter 内存增长 / TCC 跨服务网络分区下的最终一致性）尚需积累。代码层面已修复且测试覆盖充分，扣除 0.0025 分用于生产持续验证。**v1.0.0 阶段十九 sqlx 0.9.0 升级已彻底消除 rsa Marvin Attack (RUSTSEC-2023-0071)，rsa 从依赖树中完全移除，剩余 9 个漏洞均来自可选 feature（s3-sdk/real-broker/real-es）且上游无可用修复，安全扣分项从 -0.005 减半至 -0.0025**。
 
 距离 5.0 的最后 0.0175 分差距（向上取整为 0.02，保持总分 4.98/5）：
 - 0.01 为非代码问题（需真实生产运行数据 + 社区采纳案例）
-- 0.005 为 Soak 24h 实际运行验证（CI 周末任务已就绪，1h 已通过证明体系有效）
+- 0.005 为 Soak 24h 实际运行验证（24h CI 任务已立即触发，1h 已通过证明体系有效，待 24h 完成后恢复）
 - 0.0025 为安全 Critical 生产持续验证（代码层面已修复 + 测试覆盖充分，需生产流量验证；**v1.0.0 rsa Marvin Attack 已消除，扣分项从 0.005 减半至 0.0025**）
 
-建议经过 7×24h soak test 实际运行（2026-07-26 周日开始）+ 生产案例验证（社区采纳 + 真实业务上线）后恢复 5.0/5。
+建议经过 7×24h soak test 实际运行（24h 已于 2026-07-21 立即触发运行，未来每周日 00:00 UTC 自动运行）+ 生产案例验证（社区采纳 + 真实业务上线）后恢复 5.0/5。
 
 ### 1h Soak Test 实际运行结果（2026-07-20）
 
@@ -374,7 +374,7 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 >
 > 本次 1h Soak Test 在 Windows 平台运行，受限于 `sysinfo` crate 在 Windows 上的能力：
 >
-> | 指标 | Windows 本地运行 | Linux CI 运行（待 2026-07-26 周日） |
+> | 指标 | Windows 本地运行 | Linux CI 运行（24h 任务已立即触发，每周日 00:00 UTC 自动运行） |
 > |------|-----------------|------------------------------------|
 > | RSS（进程内存） | **占位实现**，返回 0 | ✅ 精确数据（/proc/self/status VmRSS） |
 > | fd_count（文件描述符） | **占位实现**，返回 0 | ✅ 精确数据（/proc/self/fd count） |
@@ -383,7 +383,7 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 >
 > 因此本次 1h 运行的 **RSS 退化检测和 fd_count 退化检测均为 N/A**，仅吞吐量、P99 延迟、连接池泄漏、错误数 4 项退化检测生效。
 >
-> 2026-07-26 周日 00:00 UTC 触发的 24h CI 任务将运行在 Linux runner 上，届时 RSS 和 fd_count 指标将提供精确数据，6 类退化检测全部生效。
+> 2026-07-21 通过 workflow_dispatch 立即触发的 24h CI 任务（run #3）运行在 Linux runner 上，届时 RSS 和 fd_count 指标将提供精确数据，6 类退化检测全部生效。未来每周日 00:00 UTC 自动运行。
 
 **关键指标**：
 - 总运行时长：3600s（1h）
@@ -407,7 +407,7 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 - thread_count：⚠️ Windows 平台占位实现（返回 0），无法检测线程泄漏，待 24h Linux CI 任务提供精确数据
 - 连接池终态：pool(idle=8, active=8) — ✅ 无泄漏（active 等于 idle 等于 max，跨平台精确数据）
 
-**CSV 报告**：60 行采样数据已导出到 `target/soak-report.csv`，作为 artifact 待 CI 周末任务上传对比。
+**CSV 报告**：60 行采样数据已导出到 `target/soak-report.csv`，作为 artifact 待 24h CI 任务（已立即触发）上传对比。
 
 ### 是否可上生产环境？
 
@@ -415,7 +415,7 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 
 依据：
 - ✅ L4 金融级能力（灾备 + SLA + Chaos + Formal + Soak，全部 9 项必做项 100% 完成 + 1h Soak 实测通过）
-- ✅ 真实云 DB 端到端验证（122.51.216.76 MySQL 8802 + PG 5432 + 本机 SQLite + Oracle 23ai dialect）
+- ✅ 真实云 DB 端到端验证（<your-server-ip> + 本机 SQLite + Oracle 23ai dialect）
 - ✅ 七线验证法全部通过（TDD/集成/Jepsen/Fuzz/Stress/Chaos/Formal）
 - ✅ RustCrypto 加密审计栈（sz-orm-crypto + sz-orm-auth）
 - ✅ 真实云服务对接（MQTT + WebSocket + RabbitMQ + S3 + OpenAI API + tonic gRPC + async-graphql）
@@ -446,27 +446,27 @@ ScopeRegistry   ───► Runtime scopes (disable/enable/without_scope)
 
 | 数据库 | 版本 | 端口 | 部署位置 | 配置 |
 |--------|------|------|----------|------|
-| PostgreSQL | 18 (PG18) | 5432 | `E:\db\pgsql\` (bin) / `E:\db\pgsql18-data` (datadir) | 密码 test123 |
-| MySQL | 9.6.0 | 3306 | `E:\db\mysql\` (chocolatey → 迁移) / `E:\db\mysql-data` (datadir) | root 密码 test123 |
-| Oracle | 23ai Free | 1521 | `C:\app\Administrator\product\23ai\dbhomeFree` | sys 密码 test123 |
+| PostgreSQL | 18 (PG18) | 5432 | `<your-pg-install-path>` (bin) / `<your-pg-data-dir>` (datadir) | 密码 <your-password> |
+| MySQL | 9.6.0 | 3306 | `<your-mysql-install-path>` (chocolatey → 迁移) / `<your-mysql-data-dir>` (datadir) | root 密码 <your-password> |
+| Oracle | 23ai Free | 1521 | `<your-oracle-install-path>` | sys 密码 <your-password> |
 
-### 真实云 DB 环境（122.51.216.76）
+### 真实云 DB 环境
 
 | 数据库 | 端口 | 用户 | 数据库 | Schema | 用途 |
 |--------|------|------|--------|--------|------|
-| MySQL | 8802 | root | shop | - | 真实云 MySQL 集成测试 |
-| PostgreSQL | 5432 | lewuli | lewuli | public | 真实云 PG 集成测试 |
+| MySQL | <your-mysql-port> | root | <your-mysql-db> | - | 真实云 MySQL 集成测试 |
+| PostgreSQL | 5432 | <your-pg-user> | <your-pg-db> | public | 真实云 PG 集成测试 |
 
 ### 真实 DB 连接 URL
 
 本机：
-- MySQL: `mysql://root:test123@127.0.0.1:3306/sz_orm_test`
-- PostgreSQL: `postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`
-- Oracle: `oracle://sys:test123@127.0.0.1:1521/FREEPDB`
+- MySQL: `mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test`
+- PostgreSQL: `postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test`
+- Oracle: `oracle://sys:<your-password>@127.0.0.1:1521/FREEPDB`
 
 云端（通过环境变量覆盖）：
-- MySQL: `SZ_ORM_MYSQL_URL=mysql://root:0167df3598924d19@122.51.216.76:8802/shop`
-- PostgreSQL: `SZ_ORM_PG_URL=postgres://lewuli:JkbC2jsaWAYDe2Gz@122.51.216.76:5432/lewuli`
+- MySQL: `SZ_ORM_MYSQL_URL=mysql://root:<your-mysql-password>@<your-server-ip>:<your-mysql-port>/<your-mysql-db>`
+- PostgreSQL: `SZ_ORM_PG_URL=postgres://<your-pg-user>:<your-pg-password>@<your-server-ip>:<your-pg-port>/<your-pg-db>`
 
 ### 真实云服务测试运行方式
 
@@ -499,10 +499,10 @@ cargo test -p sz-orm-storage --features s3-sdk -- --ignored
 | v0.2.0-γ | 2026-07-18 | 第 3 轮（P0 完成） | 编译时 SQL 检查（`sql_string!` 宏）+ 文档 100%。5.0/5，全部 7 维度满分 |
 | v0.2.0-δ | 2026-07-19 | 第 4 轮（代码审查） | 13 处 lock poisoned expect 降级 + 19 个 Cargo.toml 误配置修复。四维审查通过 |
 | v0.2.0-ε | 2026-07-19 | 第 5 轮（设计补齐） | hooks 模块 + cli + examples + README + 工作空间版本统一为 0.2.0 + workspace 继承。全文档 v2.0 |
-| v0.2.0-ζ | 2026-07-19 | 第 6 轮（real feature） | grpc/ai/graphql 真实实现 + 真实云 DB 集成测试（MySQL 8802 + PG 5432）+ Oracle 23ai 性能基准。33 包 100%，4.99/5 |
+| v0.2.0-ζ | 2026-07-19 | 第 6 轮（real feature） | grpc/ai/graphql 真实实现 + 真实云 DB 集成测试（MySQL + PG）+ Oracle 23ai 性能基准。33 包 100%，4.99/5 |
 | v0.2.0-η | 2026-07-19 | 第 7 轮（P3+ 改进） | **9 项 P3+ 改进**：strong typed AST（typed_ast）+ Saga + TCC + 跨分片 ACID + 分片增强（一致性哈希/复合分片/List/范围）+ find_with_related + dynamic_sql（XML 模板）+ 16 事件钩子 + JSON 查询增强。33 包 100%，1749 测试，~47,500 LOC。5.0/5 |
 | v0.2.1 | 2026-07-20 | 第 8 轮（五维审查） | **11 个 Critical 修复**：3 安全 Critical（JWT 时序攻击/RateLimiter OOM/TCC 数据一致性）+ 2 性能 Critical（AtomicU32 替代 Mutex/哈希环缓存）+ 2 正确性 Critical（重复事件通知/LRU 随机驱逐）+ 1 类型安全 Critical + 1 健壮性 Critical + 1 测试 Critical + 1 SQL 注入重构。新增 22 个 Property-Based Testing。评分 5.0→4.95/5 |
-| v0.2.1 | 2026-07-20 | 第 9 轮（Soak+可观测性） | **阶段十五**：sz-orm-observability 新包（MetricsRegistry + Counter/Gauge/Histogram + SloMonitor）+ OTLP exporter + SoakMonitor（6 类退化检测 + CSV 导出）+ 24h 长稳态 + 10s 冒烟 + CI 周末任务 + Grafana 13 Panel。workspace 34 包，1762 测试。4.95→4.97/5 |
+| v0.2.1 | 2026-07-20 | 第 9 轮（Soak+可观测性） | **阶段十五**：sz-orm-observability 新包（MetricsRegistry + Counter/Gauge/Histogram + SloMonitor）+ OTLP exporter + SoakMonitor（6 类退化检测 + CSV 导出）+ 24h 长稳态 + 10s 冒烟 + CI 24h 任务 + Grafana 13 Panel。workspace 34 包，1762 测试。4.95→4.97/5 |
 | v0.2.1 | 2026-07-20 | 第 10 轮（Soak 实测） | **1h Soak Test 实际运行**：13.8 亿操作 / 0 错误 / 0 退化 / 吞吐衰减 1.16%。修复 3 个 soak bug（环境变量拦截/CSV 路径/假阳性衰减检测）。4.97→4.98/5 |
 | v0.2.1 | 2026-07-20 | 第 11 轮（生态扩展） | **阶段十七**：sz-orm-postgis（PostGIS 空间扩展）+ sz-orm-timeseries（TimescaleDB 时序）+ sz-orm-search（ES/OS/Meilisearch 全文搜索）。workspace 38 包，1871 测试，~52,500 LOC。评分维持 4.98/5 |
 | v0.2.1 | 2026-07-20 | 第 12 轮（工程化门禁） | **三门禁全部通过**：门禁 8（占位检查 0 处违规）+ 门禁 9（SQL 注入扫描 8 处已修复）+ 门禁 10（--all-features 全组合编译零错误）。工程化规范文档状态从「待实施」更新为「已通过」 |

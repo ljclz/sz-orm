@@ -261,7 +261,7 @@
 | P3-1 | 对比文档 SeaORM 错误 | P3 | ✅ 已解决 | 2026-07-20 | 对比文档升级为 v3.3：(1) SeaORM 钩子标注由 ❌ 改为 ✅（`ActiveModelBehavior` trait 提供 before_save/after_save/before_delete/after_delete）；(2) SeaORM GraphQL 标注由 ❌ 改为 ✅（独立 crate `seaography`）；(3) "20 方言"分类说明：7 独立 Dialect（MySQL/PG/SQLite/Oracle/SqlServer/ClickHouse/DB2）+ 13 协议兼容（MariaDB/TiDB/PolarDB/GaussDB 用 MySQL 协议；达梦/人大金仓/GBase/Sybase 用 PG/SqlServer 协议）；全文 6 处 "20 方言" 同步更新；文档头部添加勘误说明 |
 | P3-2 | 统一包数/LOC 数据 | P3 | ✅ 已解决 | 2026-07-20 | 通过 `cargo metadata` 验证实际工作空间成员为 38（36 sz-orm-* lib + cli + examples）；统一 7 份文档（对比文档 v3.3/使用指南 v3.1/改造实施文档 v2.1/生产就绪报告/Security v2.1/架构设计 v3.1/成熟度评估报告）的包数（38）、LOC（~52,500 非测试 / ~63,000 含测试）、测试数（1871+）、评分（4.98/5）、方言数（7 独立 + 13 协议兼容）数据；修正 Security.md 中 "31 个扩展包" → "36 个扩展包" |
 | P3-3 | lib.rs 倒排索引注释 | P3 | ✅ 已解决 | 2026-07-20 | 修正 sz-orm-search 中 3 处错误注释（`lib.rs` L5、`memory.rs` L1、`search.rs` L62）。实际实现是 `doc.to_string().contains(&query)` 线性扫描 + 子串匹配，没有 tokenization/posting list/term-dictionary 等倒排索引核心组件。注释统一改为"线性扫描 + 子串匹配（无倒排索引）"，并在 memory.rs 顶部添加详细说明（O(n) 扫描 + 适用小数据量测试 + 生产环境启用 real-* feature）。24 单元 + 25 集成 + 1 doctest = 50 tests 全部通过 |
-| P3-4 | 评估报告 Soak 平台限制 | P3 | ✅ 已解决 | 2026-07-20 | 在评估报告 "1h Soak Test 实际运行结果" 章节添加明显的"⚠️ 平台限制说明（P3-4 补充）"块：(1) 明确本次 1h 运行在 Windows 平台；(2) 列出 Windows vs Linux CI 的指标对比表（RSS 和 fd_count 在 Windows 上是占位实现返回 0，Linux CI 上通过 /proc/self/status 和 /proc/self/fd 提供精确数据）；(3) 说明本次 1h 运行仅 4 项退化检测生效（吞吐量/P99/连接池/错误数），2 项 N/A（RSS/fd_count），待 2026-07-26 周日 Linux CI 24h 任务补齐；(4) 同步更新"退化检测"和"资源占用"行的说明 |
+| P3-4 | 评估报告 Soak 平台限制 | P3 | ✅ 已解决 | 2026-07-20 | 在评估报告 "1h Soak Test 实际运行结果" 章节添加明显的"⚠️ 平台限制说明（P3-4 补充）"块：(1) 明确本次 1h 运行在 Windows 平台；(2) 列出 Windows vs Linux CI 的指标对比表（RSS 和 fd_count 在 Windows 上是占位实现返回 0，Linux CI 上通过 /proc/self/status 和 /proc/self/fd 提供精确数据）；(3) 说明本次 1h 运行仅 4 项退化检测生效（吞吐量/P99/连接池/错误数），2 项 N/A（RSS/fd_count），待 Linux CI 24h 任务补齐（已于 2026-07-21 通过 workflow_dispatch 立即触发运行，run #3）；(4) 同步更新"退化检测"和"资源占用"行的说明 |
 
 ---
 
@@ -418,7 +418,7 @@
 
 ### 7.4 后续建议
 
-1. **2026-07-26 周日 24h Linux CI Soak Test**：完成后 Soak Test 扣分项 -0.005 → -0.0025，评分升至 4.985/5
+1. **24h Linux CI Soak Test 已立即触发**：已于 2026-07-21 通过 workflow_dispatch 立即触发运行（run #3），完成后 Soak Test 扣分项 -0.005 → -0.0025，评分升至 4.985/5；未来每周日 00:00 UTC 自动运行
 2. **7×24h Soak 累积 + 生产案例采纳 + 安全 Critical 生产验证**：完成后恢复 5.0/5
 3. **建议每完成一轮修复后启动第二轮 5 路并行审查**，直至连续两轮审查 0 新发现 Critical/High 问题
 
