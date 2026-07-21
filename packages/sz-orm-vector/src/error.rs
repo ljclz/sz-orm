@@ -19,6 +19,8 @@ pub enum VectorError {
     InvalidConfig(String),
     /// 标识符校验失败
     InvalidIdentifier(String),
+    /// M-16 修复：top_k 超过最大限制
+    TopKExceeded { requested: usize, max: usize },
 }
 
 impl fmt::Display for VectorError {
@@ -41,6 +43,9 @@ impl fmt::Display for VectorError {
             VectorError::Connection(msg) => write!(f, "connection error: {}", msg),
             VectorError::InvalidConfig(msg) => write!(f, "invalid config: {}", msg),
             VectorError::InvalidIdentifier(msg) => write!(f, "invalid identifier: {}", msg),
+            VectorError::TopKExceeded { requested, max } => {
+                write!(f, "top_k {} exceeds maximum allowed {}", requested, max)
+            }
         }
     }
 }

@@ -249,6 +249,28 @@ pub struct Pool {
 
 impl Pool {
     /// 创建连接池
+    ///
+    /// L-5 修复：补充示例文档
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::pool::{Pool, PoolConfig, PoolConfigBuilder, ConnectionFactory};
+    /// use std::sync::Arc;
+    ///
+    /// struct MyFactory;
+    /// impl ConnectionFactory for MyFactory {
+    ///     // ...
+    ///     # async fn create(&self) -> Result<Box<dyn Connection>, PoolError> { unimplemented!() }
+    /// }
+    ///
+    /// let config = PoolConfigBuilder::new()
+    ///     .max_size(10)
+    ///     .acquire_timeout(std::time::Duration::from_secs(30))
+    ///     .build();
+    /// let pool = Pool::new(config, Arc::new(MyFactory))?;
+    /// # Ok::<(), sz_orm_core::pool::PoolError>(())
+    /// ```
     pub fn new(config: PoolConfig, factory: Arc<dyn ConnectionFactory>) -> Result<Self, PoolError> {
         config.validate()?;
         Ok(Self {
@@ -267,6 +289,24 @@ impl Pool {
     }
 
     /// 从池中获取连接（带超时）
+    ///
+    /// L-5 修复：补充示例文档
+    ///
+    /// 超时时间由 `PoolConfig::acquire_timeout` 控制，默认 30 秒。
+    /// 若超时则返回 `PoolError::AcquireTimeout`。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// # use sz_orm_core::pool::Pool;
+    /// # async fn example(pool: &Pool) -> Result<(), Box<dyn std::error::Error>> {
+    /// // 从池中获取连接
+    /// let conn = pool.acquire().await?;
+    /// // 使用连接执行查询...
+    /// // conn.query("SELECT 1").await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn acquire(&self) -> Result<PooledConnection, PoolError> {
         // close_all 后拒绝新 acquire
         if self.closed.load(Ordering::Acquire) {
@@ -457,6 +497,79 @@ impl Pool {
         // 减少总连接计数（只减去已关闭的空闲连接数）
         // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
         self.total_count.fetch_sub(closed_count, Ordering::SeqCst);
+    }
+
+    /// M-7 修复：连接池健康检查（heartbeat）
+    ///
+    /// 对所有空闲连接执行 `ping()`，移除已断开或 ping 失败的连接。
+    /// 调用方应定期调用此方法（如每 60 秒），以清理失效连接。
+    ///
+    /// # 返回值
+    ///
+    /// 返回被移除的连接数。
+    ///
+    /// # 注意
+    ///
+    /// - 此方法会持锁等待所有 ping 完成，可能阻塞 acquire/release
+    /// - 仅检查空闲连接，不影响已借出的连接
+    /// - 对于大量空闲连接，可能产生较多并发 ping，建议在低峰期执行
+    pub async fn health_check(&self) -> u32 {
+        // 收集所有空闲连接，释放锁后逐个 ping
+        let mut to_check: Vec<PooledConnection> = {
+            let mut idle = self.idle.lock().await;
+            let mut collected = Vec::with_capacity(idle.len());
+            while let Some(pooled) = idle.pop_front() {
+                collected.push(pooled);
+            }
+            collected
+        };
+
+        let mut removed: u32 = 0;
+        let mut alive: Vec<PooledConnection> = Vec::with_capacity(to_check.len());
+        for mut pooled in to_check.drain(..) {
+            // 先检查 is_connected（同步内存检查），再 ping（异步网络检查）
+            if !pooled.conn.is_connected() {
+                let _ = pooled.conn.close().await;
+                removed += 1;
+                continue;
+            }
+            // ping 超时设置为 connection_timeout 的一半，避免长时间阻塞
+            let ping_timeout = self.config.connection_timeout / 2;
+            match tokio::time::timeout(ping_timeout, pooled.conn.ping()).await {
+                Ok(true) => alive.push(pooled),
+                Ok(false) => {
+                    // ping 返回 false，连接失效
+                    let _ = pooled.conn.close().await;
+                    removed += 1;
+                }
+                Err(_) => {
+                    // ping 超时，连接可能卡住
+                    let _ = pooled.conn.close().await;
+                    removed += 1;
+                }
+            }
+        }
+
+        // 将存活连接放回池中
+        let alive_count: u32 = alive.len() as u32;
+        {
+            let mut idle = self.idle.lock().await;
+            for pooled in alive {
+                idle.push_back(pooled);
+            }
+        }
+
+        // 更新总连接计数
+        if removed > 0 {
+            self.total_count.fetch_sub(removed, Ordering::SeqCst);
+        }
+
+        // 通知等待的 acquire 有连接可用
+        if alive_count > 0 {
+            self.notify.notify_one();
+        }
+
+        removed
     }
 }
 
@@ -683,5 +796,87 @@ mod tests {
         pool.reap_idle().await;
         let status = pool.status().await;
         assert_eq!(status.idle, 0);
+    }
+
+    /// H-7 验证：acquire_timeout 默认 30s
+    ///
+    /// PoolConfig::default().acquire_timeout == 30s
+    /// Pool::acquire() 内部使用 `deadline = Instant::now() + acquire_timeout`
+    /// 超时后返回 `PoolError::Timeout`。
+    #[tokio::test]
+    async fn test_h7_acquire_timeout_default_30s() {
+        let config = PoolConfig::default();
+        assert_eq!(
+            config.acquire_timeout,
+            Duration::from_secs(30),
+            "H-7: acquire_timeout 默认应为 30s"
+        );
+    }
+
+    /// H-7 验证：acquire_timeout 可通过 builder 配置
+    #[tokio::test]
+    async fn test_h7_acquire_timeout_configurable() {
+        let config = PoolConfigBuilder::new()
+            .max_size(1)
+            .acquire_timeout(5) // 5s
+            .build()
+            .unwrap();
+        assert_eq!(config.acquire_timeout, Duration::from_secs(5));
+
+        // 创建 max_size=1 的池，acquire 一个连接（占满），第二次 acquire 应超时
+        let factory = Arc::new(MockConnectionFactory);
+        let pool = Pool::new(config, factory).unwrap();
+        let _conn1 = pool.acquire().await.unwrap();
+
+        // 第二次 acquire 应在 5s 后超时（这里用 1ms 超时配置加速测试）
+        let fast_config = PoolConfigBuilder::new()
+            .max_size(1)
+            .acquire_timeout(0) // 立即超时（0s 超时；deadline 为 now）
+            .build()
+            .unwrap();
+        // 注意：acquire_timeout(0) 是合法值，表示 deadline 为 now
+        // 实际行为：第一次循环即检查 deadline，返回 Timeout
+        let fast_pool = Pool::new(fast_config, Arc::new(MockConnectionFactory)).unwrap();
+        let _fast_conn = fast_pool.acquire().await.unwrap(); // 占满 max_size=1
+        let result = fast_pool.acquire().await;
+        assert!(
+            matches!(result, Err(PoolError::Timeout)),
+            "H-7: 应返回 Timeout"
+        );
+    }
+
+    // ==================== M-7 健康检查测试 ====================
+
+    #[tokio::test]
+    async fn test_m7_health_check_removes_nothing_when_all_healthy() {
+        // 所有连接健康时，health_check 应返回 0
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let factory = Arc::new(MockConnectionFactory);
+        let pool = Pool::new(config, factory).unwrap();
+
+        // 创建 3 个连接并归还到池中
+        let conn1 = pool.acquire().await.unwrap();
+        let conn2 = pool.acquire().await.unwrap();
+        let conn3 = pool.acquire().await.unwrap();
+        pool.release(conn1).await;
+        pool.release(conn2).await;
+        pool.release(conn3).await;
+
+        let removed = pool.health_check().await;
+        assert_eq!(removed, 0, "Healthy connections should not be removed");
+
+        let status = pool.status().await;
+        assert_eq!(status.idle, 3);
+        assert_eq!(status.active, 3);
+    }
+
+    #[tokio::test]
+    async fn test_m7_health_check_returns_zero_for_empty_pool() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let factory = Arc::new(MockConnectionFactory);
+        let pool = Pool::new(config, factory).unwrap();
+
+        let removed = pool.health_check().await;
+        assert_eq!(removed, 0);
     }
 }

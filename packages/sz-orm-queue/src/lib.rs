@@ -325,4 +325,62 @@ mod tests {
             wrapper.ack(&msg.id).await.unwrap();
         }
     }
+
+    // ========================================================================
+    // H-3 修复测试：InMemoryQueue 消息大小限制
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_h3_in_memory_queue_max_messages_limit() {
+        // 设置每 topic 最大 5 条消息
+        let queue = InMemoryQueue::with_max_messages_per_topic(5);
+
+        // 前 5 条成功
+        for i in 0..5 {
+            queue
+                .publish("limited", format!("msg-{i}").as_bytes())
+                .await
+                .unwrap();
+        }
+        assert_eq!(queue.message_count("limited").await, 5);
+
+        // 第 6 条应失败
+        let result = queue.publish("limited", b"overflow").await;
+        assert!(result.is_err());
+        let err_msg = result.unwrap_err().to_string();
+        assert!(err_msg.contains("H-3 protection"), "err: {err_msg}");
+        assert!(err_msg.contains("limited"), "err: {err_msg}");
+
+        // 消费后可继续发布
+        let _ = queue.consume("limited").await.unwrap().unwrap();
+        queue.publish("limited", b"after-consume").await.unwrap();
+        assert_eq!(queue.message_count("limited").await, 5);
+    }
+
+    #[tokio::test]
+    async fn test_h3_in_memory_queue_default_limit_accepts_normal_usage() {
+        // 默认 100,000 限制，正常使用不应触发
+        let queue = InMemoryQueue::new();
+        for i in 0..1000 {
+            queue
+                .publish("normal", format!("msg-{i}").as_bytes())
+                .await
+                .unwrap();
+        }
+        assert_eq!(queue.message_count("normal").await, 1000);
+    }
+
+    #[tokio::test]
+    async fn test_h3_in_memory_queue_limit_isolated_per_topic() {
+        // 不同 topic 独立计数
+        let queue = InMemoryQueue::with_max_messages_per_topic(2);
+        queue.publish("topic-a", b"a1").await.unwrap();
+        queue.publish("topic-a", b"a2").await.unwrap();
+        // topic-a 满了
+        assert!(queue.publish("topic-a", b"a3").await.is_err());
+        // topic-b 不受影响
+        queue.publish("topic-b", b"b1").await.unwrap();
+        queue.publish("topic-b", b"b2").await.unwrap();
+        assert!(queue.publish("topic-b", b"b3").await.is_err());
+    }
 }

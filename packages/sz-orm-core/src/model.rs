@@ -9,6 +9,31 @@ use std::fmt;
 use thiserror::Error;
 
 /// 所有 ORM 模型必须实现的核心 trait
+///
+/// L-5 修复：补充示例文档
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::model::Model;
+///
+/// #[derive(Debug, Clone, Default)]
+/// struct User {
+///     id: i64,
+///     name: String,
+/// }
+///
+/// impl Model for User {
+///     type PrimaryKey = i64;
+///     fn table_name() -> &'static str { "users" }
+///     fn pk(&self) -> Self::PrimaryKey { self.id }
+///     fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+/// }
+///
+/// assert_eq!(User::table_name(), "users");
+/// assert_eq!(User::pk_name(), "id");
+/// assert_eq!(User::foreign_key("orders"), "orders_id");
+/// ```
 pub trait Model: Send + Sync + Sized + 'static {
     /// 主键类型
     type PrimaryKey: Send + Sync + fmt::Debug + fmt::Display + Clone + Default;
@@ -28,6 +53,9 @@ pub trait Model: Send + Sync + Sized + 'static {
     fn set_pk(&mut self, pk: Self::PrimaryKey);
 
     /// 根据关系名推导外键名（默认 `<relation>_id`）
+    ///
+    /// M-9 说明：默认将 `relation` 转为小写后拼接 `_id`。
+    /// 对于大小写敏感的列名（如 PostgreSQL 的 `User_ID`），业务模型应重写此方法。
     fn foreign_key(relation: &str) -> String {
         format!("{}_id", relation.to_lowercase())
     }
@@ -164,6 +192,32 @@ pub struct MorphTo {
 }
 
 /// 支持关系加载的模型 trait（ActiveRecord 模式）
+///
+/// L-5 修复：补充示例文档
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::model::{Model, ActiveRecord};
+///
+/// #[derive(Debug, Clone, Default)]
+/// struct User { id: i64, name: String }
+///
+/// impl Model for User {
+///     type PrimaryKey = i64;
+///     fn table_name() -> &'static str { "users" }
+///     fn pk(&self) -> Self::PrimaryKey { self.id }
+///     fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+/// }
+///
+/// // 假设已实现 ModelExt + RelationLoader
+/// impl ActiveRecord for User {}
+///
+/// // 通过 with() 链式预加载多个关系
+/// let user = User { id: 1, name: "Alice".into() }
+///     .with("orders")
+///     .with("profile");
+/// ```
 #[async_trait]
 pub trait ActiveRecord: Model + ModelExt + RelationLoader + Clone + Send + Sync {
     /// 预加载指定关系
@@ -195,12 +249,29 @@ pub struct WithRelation<M: Model + ModelExt + RelationLoader> {
 /// 将单引号 `'` 替换为 `''`，将反斜杠 `\` 替换为 `\\`。
 /// 该函数仅对需要内嵌到 SQL 字符串字面量中的值使用，
 /// 不要用于标识符（表名/列名）的转义。
+///
+/// L-1 修复：补全转义字符集，覆盖 MySQL/PostgreSQL/SQLite/Oracle/SQL Server
+/// 标准字符串字面量中的特殊字符：
+/// - `'` → `''`（标准 SQL 转义）
+/// - `\` → `\\`（MySQL/SQLite 反斜杠转义）
+/// - `\0` → `\0`（NUL 字符，MySQL/PostgreSQL 危险）
+/// - `\n` → `\n`（换行）
+/// - `\r` → `\r`（回车）
+/// - `\x1a` → `\Z`（Ctrl+Z，Windows EOF，MySQL 危险）
+/// - `"` → `\"`（双引号转义，防止误闭合标识符）
+/// - `\x08` → `\b`（退格）
 fn escape_sql_value(s: &str) -> String {
     let mut out = String::with_capacity(s.len() + 2);
     for ch in s.chars() {
         match ch {
             '\'' => out.push_str("''"),
             '\\' => out.push_str("\\\\"),
+            '\0' => out.push_str("\\0"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\x1a' => out.push_str("\\Z"),
+            '"' => out.push_str("\\\""),
+            '\x08' => out.push_str("\\b"),
             _ => out.push(ch),
         }
     }
@@ -249,6 +320,22 @@ fn is_valid_sql_identifier(s: &str) -> bool {
     chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
 }
 
+/// 批量校验关系加载中的所有 SQL 标识符
+///
+/// H-1 修复：所有关系加载（HasMany/HasOne/BelongsTo/BelongsToMany/MorphMany）在拼接 SQL 前
+/// 必须校验表名、列名为合法标识符，防止 SQL 注入。
+fn validate_relation_identifiers(idents: &[&str]) -> Result<(), RelationError> {
+    for ident in idents {
+        if !is_valid_sql_identifier(ident) {
+            return Err(RelationError::QueryError(format!(
+                "invalid SQL identifier in relation config (potential SQL injection): {}",
+                ident
+            )));
+        }
+    }
+    Ok(())
+}
+
 impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
     /// 追加一个待加载的关系
     pub fn with(mut self, relation: &str) -> Self {
@@ -274,6 +361,8 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
                 Relation::HasMany(config) => {
                     let pk = model.pk();
                     let pk_str = pk_to_sql_string(&pk);
+                    // H-1 修复：校验所有标识符，防止 SQL 注入
+                    validate_relation_identifiers(&[&config.child_model, &config.foreign_key])?;
                     let sql = format!(
                         "SELECT * FROM {} WHERE {} = {}",
                         config.child_model, config.foreign_key, pk_str
@@ -287,6 +376,8 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
                 Relation::HasOne(config) => {
                     let pk = model.pk();
                     let pk_str = pk_to_sql_string(&pk);
+                    // H-1 修复：校验所有标识符
+                    validate_relation_identifiers(&[&config.child_model, &config.foreign_key])?;
                     let sql = format!(
                         "SELECT * FROM {} WHERE {} = {}",
                         config.child_model, config.foreign_key, pk_str
@@ -299,6 +390,12 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
                 }
                 Relation::BelongsTo(config) => {
                     let fk_value = model.get_relation_fk_value(&config.foreign_key);
+                    // H-1 修复：校验所有标识符
+                    validate_relation_identifiers(&[
+                        &config.parent_model,
+                        &config.parent_pk,
+                        &config.foreign_key,
+                    ])?;
                     let sql = format!(
                         "SELECT * FROM {} WHERE {} = {}",
                         config.parent_model,
@@ -314,6 +411,14 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
                 Relation::BelongsToMany(config) => {
                     let pk = model.pk();
                     let pk_str = pk_to_sql_string(&pk);
+                    // H-1 修复：校验所有标识符
+                    validate_relation_identifiers(&[
+                        &config.target_model,
+                        &config.junction_table,
+                        &config.target_pk,
+                        &config.other_key,
+                        &config.foreign_key,
+                    ])?;
                     // JOIN 条件：目标表 t 的主键 = 中间表 j 的 other_key
                     // 过滤条件：中间表 j 的 foreign_key = 当前模型主键
                     let sql = format!(
@@ -334,6 +439,12 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
                 Relation::MorphMany(config) => {
                     let pk = model.pk();
                     let pk_str = pk_to_sql_string(&pk);
+                    // H-1 修复：校验所有标识符（morph_type_value 为字面量，已转义）
+                    validate_relation_identifiers(&[
+                        &config.child_model,
+                        &config.morph_type_column,
+                        &config.morph_id_column,
+                    ])?;
                     // SELECT * FROM comments WHERE commentable_type = 'Post' AND commentable_id = <pk>
                     let sql = format!(
                         "SELECT * FROM {} WHERE {} = {} AND {} = {}",
@@ -639,7 +750,14 @@ pub fn value_to_json(v: Value) -> serde_json::Value {
             .unwrap_or(serde_json::Value::Null),
         Value::String(s) => serde_json::Value::String(s),
         Value::Bytes(b) => {
-            serde_json::Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+            // M-1 修复：使用查表法替代 format!("{:02x}", byte) 提升性能
+            const HEX_LOWER: &[u8; 16] = b"0123456789abcdef";
+            let mut s = String::with_capacity(b.len() * 2);
+            for byte in b {
+                s.push(HEX_LOWER[(byte >> 4) as usize] as char);
+                s.push(HEX_LOWER[(byte & 0x0f) as usize] as char);
+            }
+            serde_json::Value::String(s)
         }
         Value::Uuid(s) | Value::Date(s) | Value::DateTime(s) | Value::Time(s) | Value::Json(s) => {
             serde_json::Value::String(s)
@@ -1670,5 +1788,53 @@ mod tests {
         let user = make_user();
         let result = user.get_morph_many("comments");
         assert!(result.is_err());
+    }
+
+    /// L-1 测试：escape_sql_value 转义完整性
+    #[test]
+    fn test_l1_escape_sql_value_special_chars() {
+        // 单引号 → ''
+        assert_eq!(escape_sql_value("it's"), "it''s");
+        // 反斜杠 → \\
+        assert_eq!(escape_sql_value("a\\b"), "a\\\\b");
+        // NUL → \0
+        assert_eq!(escape_sql_value("a\0b"), "a\\0b");
+        // 换行 → \n
+        assert_eq!(escape_sql_value("a\nb"), "a\\nb");
+        // 回车 → \r
+        assert_eq!(escape_sql_value("a\rb"), "a\\rb");
+        // Ctrl+Z (0x1a) → \Z
+        assert_eq!(escape_sql_value("a\x1ab"), "a\\Zb");
+        // 双引号 → \"
+        assert_eq!(escape_sql_value("a\"b"), "a\\\"b");
+        // 退格 (0x08) → \b
+        assert_eq!(escape_sql_value("a\x08b"), "a\\bb");
+        // 无特殊字符：保持原样
+        assert_eq!(escape_sql_value("hello world"), "hello world");
+        // 混合
+        assert_eq!(
+            escape_sql_value("it's a \\test\0\n\r\""),
+            "it''s a \\\\test\\0\\n\\r\\\""
+        );
+    }
+
+    /// L-1 测试：pk_to_sql_string 字符串值安全转义
+    #[test]
+    fn test_l1_pk_to_sql_string_with_special_chars() {
+        // 数字主键：不加引号
+        let pk_i64 = 42i64;
+        assert_eq!(pk_to_sql_string(&pk_i64), "42");
+        // 字符串主键：加引号 + 转义
+        let pk_str = "it's a \"test\\";
+        let result = pk_to_sql_string(&pk_str);
+        assert_eq!(result, "'it''s a \\\"test\\\\'");
+    }
+
+    /// L-1 测试：value_to_sql_string 始终加引号并转义
+    #[test]
+    fn test_l1_value_to_sql_string_with_special_chars() {
+        assert_eq!(value_to_sql_string("hello'world"), "'hello''world'");
+        assert_eq!(value_to_sql_string("back\\slash"), "'back\\\\slash'");
+        assert_eq!(value_to_sql_string("nul\0byte"), "'nul\\0byte'");
     }
 }

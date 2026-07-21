@@ -362,6 +362,17 @@ pub enum TxError {
 
     /// 连接已被取走（take_connection 重复调用，或操作时连接已释放）
     ConnectionTaken,
+
+    /// H-8 修复：嵌套事务深度超过限制
+    ///
+    /// `current_depth` 为当前已嵌套深度（含本次），`max_depth` 为配置的最大深度。
+    MaxNestingDepthExceeded { current_depth: u32, max_depth: u32 },
+
+    /// M-8 修复：死锁检测
+    ///
+    /// 当事务执行过程中检测到死锁（数据库返回死锁错误码）时返回。
+    /// 调用方可使用 `retry_on_deadlock` 包装器自动重试。
+    DeadlockDetected { attempt: u32, max_attempts: u32 },
 }
 
 impl fmt::Display for TxError {
@@ -384,6 +395,22 @@ impl fmt::Display for TxError {
                 )
             }
             TxError::ConnectionTaken => write!(f, "Transaction connection already taken"),
+            TxError::MaxNestingDepthExceeded {
+                current_depth,
+                max_depth,
+            } => write!(
+                f,
+                "Transaction nesting depth {} exceeds maximum allowed {}",
+                current_depth, max_depth
+            ),
+            TxError::DeadlockDetected {
+                attempt,
+                max_attempts,
+            } => write!(
+                f,
+                "Deadlock detected on attempt {} of {}",
+                attempt, max_attempts
+            ),
         }
     }
 }

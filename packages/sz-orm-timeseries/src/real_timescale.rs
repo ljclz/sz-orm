@@ -129,6 +129,8 @@ impl TimeseriesExt for RealTimescale {
     ) -> Result<Vec<Metric>, TimescaleError> {
         // v0.2.2 修复 C-4：metric 严格校验
         validate_identifier(metric, "metric")?;
+        // M-17 修复：校验时间范围（start < end 且跨度 <= MAX_QUERY_RANGE_SECS）
+        crate::validate_time_range(start, end)?;
         let client = self.client().await?;
         let sql = format!(
             "SELECT timestamp, value, tags FROM {} WHERE timestamp >= $1 AND timestamp < $2 ORDER BY timestamp",
@@ -167,6 +169,8 @@ impl TimeseriesExt for RealTimescale {
         // v0.2.2 修复 C-4：metric 与 bucket 严格校验
         validate_identifier(metric, "metric")?;
         validate_time_bucket(bucket)?;
+        // M-17 修复：校验时间范围（start < end 且跨度 <= MAX_QUERY_RANGE_SECS）
+        crate::validate_time_range(start, end)?;
         let client = self.client().await?;
         // 一次性返回所有聚合（COUNT/SUM/MIN/MAX/AVG），调用方按需选用
         let sql = format!(

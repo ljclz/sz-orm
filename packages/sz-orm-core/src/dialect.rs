@@ -6,6 +6,17 @@ use crate::db_type::DbType;
 use crate::error::DbError;
 use std::fmt;
 
+/// L-4 修复：SQL 标识符最大长度（取所有主流数据库最严格值）
+///
+/// - PostgreSQL: 63 chars (NAMEDATALEN default 64, minus 1)
+/// - MySQL: 64 chars
+/// - Oracle: 30 chars (12.2R2 之前) / 128 chars (12.2R2+)
+/// - SQL Server: 128 chars
+/// - SQLite: 实际无限制（但建议遵守 63）
+///
+/// 取 63 作为最严格值，覆盖所有主流数据库。
+pub const MAX_IDENTIFIER_LEN: usize = 63;
+
 /// 数据库方言 trait
 ///
 /// 实现者负责处理各数据库特有的 SQL 语法差异
@@ -15,6 +26,21 @@ pub trait Dialect: Send + Sync {
 
     /// 引用标识符（表名、列名等）
     fn quote(&self, identifier: &str) -> String;
+
+    /// L-4 修复：带校验的引用标识符
+    ///
+    /// 与 `quote()` 不同，此方法会先校验标识符：
+    /// - 非空
+    /// - 长度 ≤ `MAX_IDENTIFIER_LEN` (63 chars)
+    /// - 不含 SQL 元字符（引号、分号、空格、注释等）
+    ///
+    /// 校验失败时返回 `DbError::InvalidInput`。
+    ///
+    /// 建议在调用方不可信的场景（如用户输入的表名/列名）使用此方法替代 `quote()`。
+    fn quote_checked(&self, identifier: &str) -> Result<String, DbError> {
+        crate::sql_safety::validate_identifier(identifier, "identifier")?;
+        Ok(self.quote(identifier))
+    }
 
     /// 转义字符串字面量，确保可安全嵌入 SQL
     fn escape_string(&self, s: &str) -> String;
@@ -135,6 +161,13 @@ impl Dialect for MySqlDialect {
     }
 
     fn build_pagination(&self, sql: &str, page: u64, limit: u64) -> String {
+        // M-2 修复说明：
+        //
+        // 历史上 MySQL 支持 `SQL_CALC_FOUND_ROWS` 提示配合 `FOUND_ROWS()` 函数
+        // 在不分页情况下获取总行数，但该特性在 MySQL 8.0.17 中被弃用并在后续版本移除。
+        // 官方推荐使用独立的 `COUNT(*)` 查询。
+        //
+        // 因此本实现不使用 `SQL_CALC_FOUND_ROWS`，调用方如需总数应单独执行 COUNT 查询。
         let offset = page.saturating_sub(1).saturating_mul(limit);
         format!("{} LIMIT {} OFFSET {}", sql, limit, offset)
     }
@@ -1695,6 +1728,27 @@ fn map_to_db2_type(sql_type: &str) -> String {
 }
 
 /// 根据数据库类型获取对应的方言实例
+///
+/// L-5 修复：补充示例文档
+///
+/// 返回 `Box<dyn Dialect>`，可用于与 `QueryBuilder`、`Schema` 等组件配合。
+/// 对于不支持 SQL 方言的数据库类型（如 Redis、MongoDB、向量库），返回
+/// `DbError::Unsupported`。
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::db_type::DbType;
+/// use sz_orm_core::dialect::{get_dialect, Dialect};
+///
+/// let dialect = get_dialect(DbType::MySQL).unwrap();
+/// assert_eq!(dialect.quote("user"), "`user`");
+/// assert_eq!(dialect.db_type(), DbType::MySQL);
+///
+/// // 不支持的类型返回错误
+/// let err = get_dialect(DbType::Redis).unwrap_err();
+/// assert!(matches!(err, sz_orm_core::DbError::Unsupported(_)));
+/// ```
 pub fn get_dialect(db_type: DbType) -> Result<Box<dyn Dialect>, DbError> {
     match db_type {
         DbType::MySQL => Ok(Box::new(MySqlDialect)),
@@ -2789,5 +2843,91 @@ mod tests {
         assert!(DbType::GaussDB.supports_stored_procedure());
         assert!(DbType::GBase.supports_stored_procedure());
         assert!(DbType::Sybase.supports_stored_procedure());
+    }
+
+    // ===== L-4 修复：表名/列名长度校验 =====
+
+    #[test]
+    fn test_l4_max_identifier_len_constant() {
+        // MAX_IDENTIFIER_LEN 应为 63（PostgreSQL 最严格值）
+        assert_eq!(MAX_IDENTIFIER_LEN, 63);
+    }
+
+    #[test]
+    fn test_l4_quote_checked_valid_identifier() {
+        let dialect = MySqlDialect;
+        assert_eq!(dialect.quote_checked("users").unwrap(), "`users`");
+        assert_eq!(dialect.quote_checked("user_id").unwrap(), "`user_id`");
+        // 边界：恰好 63 字符
+        let name_63 = "a".repeat(63);
+        assert!(dialect.quote_checked(&name_63).is_ok());
+    }
+
+    #[test]
+    fn test_l4_quote_checked_rejects_too_long() {
+        let dialect = MySqlDialect;
+        let long_name = "a".repeat(64); // 64 > 63
+        let result = dialect.quote_checked(&long_name);
+        assert!(result.is_err());
+        match result {
+            Err(DbError::InvalidInput(msg)) => {
+                assert!(
+                    msg.contains("too long"),
+                    "expected 'too long' error, got: {}",
+                    msg
+                );
+            }
+            _ => panic!("Expected DbError::InvalidInput"),
+        }
+    }
+
+    #[test]
+    fn test_l4_quote_checked_rejects_empty() {
+        let dialect = MySqlDialect;
+        let result = dialect.quote_checked("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_l4_quote_checked_rejects_sql_injection() {
+        let dialect = MySqlDialect;
+        // 含分号
+        assert!(dialect.quote_checked("users; DROP TABLE users").is_err());
+        // 含引号
+        assert!(dialect.quote_checked("user'name").is_err());
+        // 含空格
+        assert!(dialect.quote_checked("user name").is_err());
+        // 数字开头
+        assert!(dialect.quote_checked("1users").is_err());
+        // 含点号
+        assert!(dialect.quote_checked("schema.table").is_err());
+    }
+
+    #[test]
+    fn test_l4_quote_checked_postgres() {
+        let dialect = PostgreSqlDialect;
+        assert_eq!(dialect.quote_checked("users").unwrap(), "\"users\"");
+        assert!(dialect.quote_checked(&"a".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn test_l4_quote_checked_sqlite() {
+        let dialect = SqliteDialect;
+        assert_eq!(dialect.quote_checked("users").unwrap(), "\"users\"");
+        assert!(dialect.quote_checked(&"a".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn test_l4_quote_checked_oracle() {
+        let dialect = OracleDialect;
+        assert_eq!(dialect.quote_checked("users").unwrap(), "\"users\"");
+        assert!(dialect.quote_checked(&"a".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn test_l4_quote_checked_sql_server() {
+        let dialect = SqlServerDialect;
+        assert_eq!(dialect.quote_checked("users").unwrap(), "[users]");
+        assert!(dialect.quote_checked(&"a".repeat(64)).is_err());
     }
 }

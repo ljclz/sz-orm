@@ -43,6 +43,35 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::str::FromStr;
 
+/// M-16 修复：top_k 最大限制
+///
+/// 限制 top_k 上限以防止：
+/// - 大 k 值导致内存爆炸（每个 SearchResult 包含完整向量）
+/// - 数据库/向量引擎执行超大 k 查询的性能问题
+/// - 恶意调用方通过 top_k=usize::MAX 触发 OOM
+pub const MAX_TOP_K: usize = 10_000;
+
+/// M-16 修复：校验 top_k 是否在合理范围内
+///
+/// - `top_k = 0`：返回 `TopKExceeded` 错误（无意义的查询）
+/// - `top_k > MAX_TOP_K`：返回 `TopKExceeded` 错误
+/// - `1 <= top_k <= MAX_TOP_K`：返回 Ok
+pub fn validate_top_k(top_k: usize) -> Result<usize, VectorError> {
+    if top_k == 0 {
+        return Err(VectorError::TopKExceeded {
+            requested: top_k,
+            max: MAX_TOP_K,
+        });
+    }
+    if top_k > MAX_TOP_K {
+        return Err(VectorError::TopKExceeded {
+            requested: top_k,
+            max: MAX_TOP_K,
+        });
+    }
+    Ok(top_k)
+}
+
 /// 向量记录
 #[derive(Debug, Clone)]
 pub struct VectorRecord {
@@ -168,6 +197,9 @@ pub trait PgVectorStore: Send + Sync {
         -> Result<(), VectorError>;
 
     /// 相似度搜索
+    ///
+    /// M-16 修复：`top_k` 必须在 `[1, MAX_TOP_K]` 范围内。
+    /// 实现方应在执行搜索前调用 `validate_top_k(top_k)?` 进行校验。
     async fn search(
         &self,
         collection: &str,

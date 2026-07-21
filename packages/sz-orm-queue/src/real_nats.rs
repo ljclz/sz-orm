@@ -44,6 +44,24 @@ impl RealNatsQueue {
         self.client = Some(Arc::new(client));
         Ok(())
     }
+
+    /// M-13 修复：重新连接 NATS 服务器
+    ///
+    /// 当连接断开或长时间出错时，调用方应调用此方法重建连接。
+    ///
+    /// # 说明
+    ///
+    /// - async-nats 内部已有自动重连机制（通过 `connect_options::retry_on_error`）
+    /// - 但在某些场景（如 DNS 解析失败）下，内部重连可能失效
+    /// - 此方法会清除旧连接和订阅者，然后重新建立连接
+    /// - 重连后需要重新订阅所有 topic
+    pub async fn reconnect(&mut self) -> Result<(), MqError> {
+        // 清除旧状态
+        self.client = None;
+        self.subscribers.write().await.clear();
+        // 重建连接
+        self.connect().await
+    }
 }
 
 impl Default for RealNatsQueue {
@@ -115,6 +133,22 @@ impl MessageQueue for RealNatsQueue {
         }
     }
 
+    /// H-6 文档说明：NATS Core 的 ack() 为 no-op
+    ///
+    /// # 语义
+    /// - **NATS Core**：at-most-once（最多一次），消息一旦投递即视为确认，无 ACK 概念
+    /// - **NATS JetStream**：at-least-once（至少一次），需要显式 ACK
+    ///
+    /// # 当前实现
+    /// 本实现针对 NATS Core，ack() 为 no-op，返回 Ok(())。
+    /// 若需 at-least-once 语义，请使用：
+    /// - `RealKafkaQueue`（手动提交 offset）
+    /// - `RealPulsarQueue`（consumer.ack_with）
+    /// - `LapinRabbitmqQueue`（basic_ack）
+    /// - `RealActivemqQueue`（basic_ack）
+    ///
+    /// # 风险
+    /// 消费者崩溃时可能丢失未处理的消息（NATS Core 不会重新投递）。
     async fn ack(&self, _message_id: &str) -> Result<(), MqError> {
         // NATS Core 无 ACK 概念，消费即确认
         // JetStream 才有 ACK，此处为 no-op

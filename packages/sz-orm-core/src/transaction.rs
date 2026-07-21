@@ -40,11 +40,29 @@ pub enum AutoCommit {
     Off,
 }
 
-#[derive(Default)]
 pub struct TransactOptions {
     pub isolation_level: Option<IsolationLevel>,
     pub read_only: bool,
     pub timeout: Option<Duration>,
+    /// H-8 修复：嵌套事务（保存点）最大深度限制
+    ///
+    /// 默认 `DEFAULT_MAX_NESTING_DEPTH`（8），防止递归事务导致数据库连接耗尽或
+    /// 保存点栈溢出。设为 0 表示禁用嵌套事务（首次 `savepoint()` 即报错）。
+    pub max_nesting_depth: u32,
+}
+
+/// H-8 默认最大嵌套深度
+pub const DEFAULT_MAX_NESTING_DEPTH: u32 = 8;
+
+impl Default for TransactOptions {
+    fn default() -> Self {
+        Self {
+            isolation_level: None,
+            read_only: false,
+            timeout: None,
+            max_nesting_depth: DEFAULT_MAX_NESTING_DEPTH,
+        }
+    }
 }
 
 impl TransactOptions {
@@ -60,6 +78,12 @@ impl TransactOptions {
 
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
+        self
+    }
+
+    /// H-8 修复：设置最大嵌套深度
+    pub fn with_max_nesting_depth(mut self, max_depth: u32) -> Self {
+        self.max_nesting_depth = max_depth;
         self
     }
 }
@@ -98,6 +122,22 @@ pub struct Transaction {
 
 impl Transaction {
     /// 创建新事务（调用方应先通过 connection.begin_transaction() 启动事务）
+    ///
+    /// L-5 修复：补充示例文档
+    ///
+    /// 通常通过 `Connection::begin_transaction()` 创建，而不是直接调用此方法。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::transaction::{Transaction, TransactOptions};
+    ///
+    /// # async fn example(conn: Box<dyn sz_orm_core::pool::Connection>) {
+    /// // 通常通过 Connection::begin_transaction 创建
+    /// let tx = Transaction::new(conn, TransactOptions::default());
+    /// assert!(tx.is_active());
+    /// # }
+    /// ```
     pub fn new(conn: Box<dyn Connection>, options: TransactOptions) -> Self {
         Self {
             conn: Arc::new(Mutex::new(Some(conn))),
@@ -118,6 +158,23 @@ impl Transaction {
     }
 
     /// 提交事务
+    ///
+    /// L-5 修复：补充示例文档
+    ///
+    /// 提交后事务状态变为 `Committed`，不可再次 commit/rollback。
+    /// 若未提交就 drop，会自动 rollback。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// # use sz_orm_core::transaction::TransactOptions;
+    /// # async fn example(mut tx: sz_orm_core::transaction::Transaction) -> Result<(), Box<dyn std::error::Error>> {
+    /// tx.execute("INSERT INTO users (name) VALUES ('Alice')").await?;
+    /// tx.execute("INSERT INTO users (name) VALUES ('Bob')").await?;
+    /// tx.commit().await?; // 提交两条 INSERT
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn commit(&mut self) -> Result<(), TxError> {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
@@ -179,9 +236,39 @@ impl Transaction {
     /// 创建保存点（用于嵌套事务）
     ///
     /// 返回自动生成的保存点名（格式 `sp_<N>`，N 单调递增）。
+    ///
+    /// H-8 修复：检查嵌套深度，超过 `options.max_nesting_depth` 时返回
+    /// `TxError::MaxNestingDepthExceeded`。
+    ///
+    /// L-5 修复：补充示例文档
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// # async fn example(mut tx: sz_orm_core::transaction::Transaction) -> Result<(), Box<dyn std::error::Error>> {
+    /// // 在外层事务中创建保存点
+    /// let sp = tx.savepoint().await?;
+    /// // 执行一些操作
+    /// tx.execute("INSERT INTO orders (id) VALUES (1)").await?;
+    /// // 出错时回滚到保存点（不影响外层事务的其他操作）
+    /// tx.rollback_to_savepoint(&sp).await?;
+    /// // 不再需要保存点时释放
+    /// tx.release_savepoint(&sp).await?;
+    /// # Ok(())
+    /// # }
+    /// ```
     pub async fn savepoint(&mut self) -> Result<String, TxError> {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
+        }
+        // H-8 修复：嵌套深度检查
+        // savepoint_counter 表示已创建的保存点数；新保存点的深度为 counter + 1
+        let next_depth = self.savepoint_counter + 1;
+        if next_depth > self.options.max_nesting_depth {
+            return Err(TxError::MaxNestingDepthExceeded {
+                current_depth: next_depth,
+                max_depth: self.options.max_nesting_depth,
+            });
         }
         self.savepoint_counter += 1;
         let name = format!("sp_{}", self.savepoint_counter);
@@ -255,6 +342,106 @@ impl Transaction {
     pub fn options(&self) -> &TransactOptions {
         &self.options
     }
+}
+
+/// M-8 修复：检测错误字符串是否表示死锁
+///
+/// 各数据库死锁错误码：
+/// - MySQL: 1213 (ER_LOCK_DEADLOCK)
+/// - PostgreSQL: 40P01 (deadlock_detected)
+/// - SQLite: "database is locked" / "database table is locked"
+/// - Oracle: ORA-00060
+/// - SQL Server: 1205 (Transaction was deadlocked)
+pub fn is_deadlock_error(err_msg: &str) -> bool {
+    let lower = err_msg.to_lowercase();
+    // MySQL: "Deadlock found when trying to get lock" (error 1213)
+    if lower.contains("deadlock found when trying to get lock") {
+        return true;
+    }
+    // MySQL error code 1213
+    if lower.contains("error 1213") || lower.contains("(1213)") {
+        return true;
+    }
+    // PostgreSQL: "deadlock detected" (SQLSTATE 40P01)
+    if lower.contains("deadlock detected") || lower.contains("40p01") {
+        return true;
+    }
+    // SQLite: "database is locked"
+    if lower.contains("database is locked") || lower.contains("database table is locked") {
+        return true;
+    }
+    // Oracle: ORA-00060: deadlock detected while waiting for resource
+    if lower.contains("ora-00060") {
+        return true;
+    }
+    // SQL Server: 1205 (Transaction was deadlocked on lock resources)
+    if lower.contains("transaction (process id") && lower.contains("was deadlocked") {
+        return true;
+    }
+    if lower.contains("error 1205") || lower.contains("(1205)") {
+        return true;
+    }
+    false
+}
+
+/// M-8 修复：在死锁时自动重试事务
+///
+/// `operation` 是一个异步闭包，返回 `Result<T, TxError>`。如果返回的错误包含
+/// 死锁信息（通过 `is_deadlock_error` 判断），则等待 `backoff` 后重试。
+///
+/// # 参数
+///
+/// - `max_attempts`: 最大重试次数（含首次执行），默认 3
+/// - `backoff`: 每次重试前的等待时间，默认 50ms
+/// - `operation`: 异步闭包，接受当前尝试次数（从 1 开始），返回 `Result<T, TxError>`
+///
+/// # 返回值
+///
+/// - 成功时返回 `Ok(T)`
+/// - 所有重试都失败时返回最后一次的 `Err(TxError::DeadlockDetected)`
+///
+/// # 示例
+///
+/// ```ignore
+/// let result = retry_on_deadlock(3, Duration::from_millis(50), |attempt| async move {
+///     // 执行事务操作
+///     tx.execute("UPDATE accounts SET balance = balance - 100 WHERE id = 1").await
+/// }).await;
+/// ```
+pub async fn retry_on_deadlock<F, Fut, T>(
+    max_attempts: u32,
+    backoff: Duration,
+    operation: F,
+) -> Result<T, TxError>
+where
+    F: Fn(u32) -> Fut,
+    Fut: std::future::Future<Output = Result<T, TxError>>,
+{
+    let mut last_err: Option<TxError> = None;
+    for attempt in 1..=max_attempts {
+        match operation(attempt).await {
+            Ok(v) => return Ok(v),
+            Err(e) => {
+                // 检查是否为死锁错误
+                let err_msg = format!("{}", e);
+                if is_deadlock_error(&err_msg) && attempt < max_attempts {
+                    tokio::time::sleep(backoff).await;
+                    last_err = Some(TxError::DeadlockDetected {
+                        attempt,
+                        max_attempts,
+                    });
+                    continue;
+                }
+                // 非死锁错误或已达最大重试次数，直接返回
+                return Err(e);
+            }
+        }
+    }
+    // 理论上不会到达（循环内所有路径都会 return），但为类型安全保留
+    Err(last_err.unwrap_or(TxError::DeadlockDetected {
+        attempt: max_attempts,
+        max_attempts,
+    }))
 }
 
 impl Drop for Transaction {
@@ -466,6 +653,7 @@ mod tests {
             isolation_level: Some(IsolationLevel::Serializable),
             read_only: true,
             timeout: Some(Duration::from_secs(30)),
+            max_nesting_depth: DEFAULT_MAX_NESTING_DEPTH,
         };
 
         assert_eq!(opts.isolation_level, Some(IsolationLevel::Serializable));
@@ -778,5 +966,298 @@ mod tests {
             rollback_flag.load(Ordering::SeqCst),
             "Drop should have triggered rollback"
         );
+    }
+
+    // ==================== H-8 事务嵌套深度限制测试 ====================
+
+    #[test]
+    fn test_h8_default_max_nesting_depth_is_8() {
+        let opts = TransactOptions::default();
+        assert_eq!(opts.max_nesting_depth, DEFAULT_MAX_NESTING_DEPTH);
+        assert_eq!(opts.max_nesting_depth, 8);
+    }
+
+    #[test]
+    fn test_h8_with_max_nesting_depth_builder() {
+        let opts = TransactOptions::default().with_max_nesting_depth(3);
+        assert_eq!(opts.max_nesting_depth, 3);
+    }
+
+    #[tokio::test]
+    async fn test_h8_savepoint_within_default_depth_succeeds() {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+
+        // 默认深度 8，创建 8 个保存点应全部成功
+        for i in 1..=8 {
+            let sp = tx.savepoint().await.unwrap();
+            assert_eq!(sp, format!("sp_{}", i));
+        }
+    }
+
+    #[tokio::test]
+    async fn test_h8_savepoint_exceeding_default_depth_fails() {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+
+        // 创建 8 个保存点（达到上限）
+        for _ in 0..8 {
+            tx.savepoint().await.unwrap();
+        }
+
+        // 第 9 个保存点应失败
+        let result = tx.savepoint().await;
+        assert!(result.is_err());
+        match result {
+            Err(TxError::MaxNestingDepthExceeded {
+                current_depth,
+                max_depth,
+            }) => {
+                assert_eq!(current_depth, 9);
+                assert_eq!(max_depth, 8);
+            }
+            _ => panic!("Expected MaxNestingDepthExceeded error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_h8_savepoint_with_custom_depth_3() {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default().with_max_nesting_depth(3));
+
+        // 3 个保存点应成功
+        for i in 1..=3 {
+            let sp = tx.savepoint().await.unwrap();
+            assert_eq!(sp, format!("sp_{}", i));
+        }
+
+        // 第 4 个应失败
+        let result = tx.savepoint().await;
+        assert!(result.is_err());
+        match result {
+            Err(TxError::MaxNestingDepthExceeded {
+                current_depth,
+                max_depth,
+            }) => {
+                assert_eq!(current_depth, 4);
+                assert_eq!(max_depth, 3);
+            }
+            _ => panic!("Expected MaxNestingDepthExceeded error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_h8_savepoint_depth_zero_disables_nesting() {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default().with_max_nesting_depth(0));
+
+        // 深度 0 表示禁用嵌套，首次 savepoint 即失败
+        let result = tx.savepoint().await;
+        assert!(result.is_err());
+        match result {
+            Err(TxError::MaxNestingDepthExceeded {
+                current_depth,
+                max_depth,
+            }) => {
+                assert_eq!(current_depth, 1);
+                assert_eq!(max_depth, 0);
+            }
+            _ => panic!("Expected MaxNestingDepthExceeded error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_h8_savepoint_after_rollback_to_still_respects_depth() {
+        // 即使回滚到保存点，savepoint_counter 不减少（保存点栈可能仍存在），
+        // 因此深度检查仍以 savepoint_counter 为准
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default().with_max_nesting_depth(2));
+
+        let sp1 = tx.savepoint().await.unwrap();
+        let sp2 = tx.savepoint().await.unwrap();
+
+        // 回滚到 sp1（不重置计数器）
+        tx.rollback_to_savepoint(&sp1).await.unwrap();
+        tx.release_savepoint(&sp2).await.unwrap();
+
+        // 第 3 个保存点仍应失败（计数器不回退）
+        let result = tx.savepoint().await;
+        assert!(result.is_err());
+        match result {
+            Err(TxError::MaxNestingDepthExceeded {
+                current_depth,
+                max_depth,
+            }) => {
+                assert_eq!(current_depth, 3);
+                assert_eq!(max_depth, 2);
+            }
+            _ => panic!("Expected MaxNestingDepthExceeded error"),
+        }
+    }
+
+    #[tokio::test]
+    async fn test_h8_max_nesting_depth_error_display() {
+        let err = TxError::MaxNestingDepthExceeded {
+            current_depth: 10,
+            max_depth: 8,
+        };
+        let msg = format!("{}", err);
+        assert!(msg.contains("10"));
+        assert!(msg.contains("8"));
+        assert!(msg.contains("exceeds"));
+    }
+
+    // ==================== M-8 死锁检测重试测试 ====================
+
+    #[test]
+    fn test_m8_is_deadlock_error_mysql() {
+        assert!(is_deadlock_error(
+            "Deadlock found when trying to get lock; try restarting transaction"
+        ));
+        assert!(is_deadlock_error("Error 1213: Deadlock found"));
+        assert!(is_deadlock_error("MySQL error (1213)"));
+    }
+
+    #[test]
+    fn test_m8_is_deadlock_error_postgresql() {
+        assert!(is_deadlock_error("deadlock detected"));
+        assert!(is_deadlock_error("ERROR: deadlock detected (40P01)"));
+        assert!(is_deadlock_error("SQLSTATE 40P01"));
+    }
+
+    #[test]
+    fn test_m8_is_deadlock_error_sqlite() {
+        assert!(is_deadlock_error("database is locked"));
+        assert!(is_deadlock_error("database table is locked"));
+    }
+
+    #[test]
+    fn test_m8_is_deadlock_error_oracle() {
+        assert!(is_deadlock_error(
+            "ORA-00060: deadlock detected while waiting for resource"
+        ));
+    }
+
+    #[test]
+    fn test_m8_is_deadlock_error_sql_server() {
+        assert!(is_deadlock_error(
+            "Transaction (Process ID 52) was deadlocked on lock resources"
+        ));
+        assert!(is_deadlock_error("Error 1205: Transaction was deadlocked"));
+    }
+
+    #[test]
+    fn test_m8_is_deadlock_error_non_deadlock() {
+        assert!(!is_deadlock_error("connection refused"));
+        assert!(!is_deadlock_error("syntax error near SELECT"));
+        assert!(!is_deadlock_error("permission denied for table users"));
+        assert!(!is_deadlock_error(""));
+    }
+
+    #[tokio::test]
+    async fn test_m8_retry_on_deadlock_succeeds_first_attempt() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result: Result<u32, TxError> =
+            retry_on_deadlock(3, Duration::from_millis(1), |_attempt| {
+                let c = counter_clone.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    Ok(42u32)
+                }
+            })
+            .await;
+
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[tokio::test]
+    async fn test_m8_retry_on_deadlock_retries_on_deadlock_error() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result: Result<u32, TxError> =
+            retry_on_deadlock(3, Duration::from_millis(1), |_attempt| {
+                let c = counter_clone.clone();
+                async move {
+                    let n = c.fetch_add(1, Ordering::SeqCst);
+                    if n < 2 {
+                        // 前两次返回死锁错误
+                        Err(TxError::CommitFailed(
+                            "Deadlock found when trying to get lock".to_string(),
+                        ))
+                    } else {
+                        Ok(42u32)
+                    }
+                }
+            })
+            .await;
+
+        assert_eq!(result.unwrap(), 42);
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+    }
+
+    #[tokio::test]
+    async fn test_m8_retry_on_deadlock_returns_error_after_max_attempts() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result: Result<u32, TxError> =
+            retry_on_deadlock(2, Duration::from_millis(1), |_attempt| {
+                let c = counter_clone.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    Err(TxError::CommitFailed(
+                        "Deadlock found when trying to get lock".to_string(),
+                    ))
+                }
+            })
+            .await;
+
+        // 应返回最后一次的死锁错误
+        assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 2);
+    }
+
+    #[tokio::test]
+    async fn test_m8_retry_on_deadlock_does_not_retry_non_deadlock_errors() {
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+
+        let result: Result<u32, TxError> =
+            retry_on_deadlock(3, Duration::from_millis(1), |_attempt| {
+                let c = counter_clone.clone();
+                async move {
+                    c.fetch_add(1, Ordering::SeqCst);
+                    Err(TxError::CommitFailed("syntax error".to_string()))
+                }
+            })
+            .await;
+
+        // 非死锁错误应立即返回，不重试
+        assert!(result.is_err());
+        assert_eq!(counter.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn test_m8_deadlock_error_display() {
+        let err = TxError::DeadlockDetected {
+            attempt: 2,
+            max_attempts: 3,
+        };
+        let msg = format!("{}", err);
+        assert!(msg.contains("2"));
+        assert!(msg.contains("3"));
+        assert!(msg.contains("Deadlock"));
     }
 }

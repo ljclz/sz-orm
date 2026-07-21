@@ -41,17 +41,54 @@ pub enum UpsertMode {
 }
 
 /// 默认批量操作实现。生成多值 INSERT、CASE WHEN UPDATE、ON CONFLICT/ON DUPLICATE UPSERT。
+///
+/// L-5 修复：补充示例文档
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_batch::{DefaultBatchOps, UpsertMode};
+/// use serde_json::json;
+///
+/// // 创建默认配置（主键 "id", MySQL ON DUPLICATE 模式, 分片 1000）
+/// let ops = DefaultBatchOps::new();
+///
+/// // 自定义主键和分片大小
+/// let ops = DefaultBatchOps::with_primary_key("user_id")
+///     .with_chunk_size(500)
+///     .with_upsert_mode(UpsertMode::PostgresOnConflict);
+///
+/// let rows = vec![
+///     json!({ "user_id": 1, "name": "Alice" }),
+///     json!({ "user_id": 2, "name": "Bob" }),
+/// ];
+///
+/// // 生成批量插入 SQL（实际调用需通过 BatchOperations trait）
+/// // let sql = ops.batch_insert("users", &rows).unwrap();
+/// ```
 #[derive(Debug, Clone)]
 pub struct DefaultBatchOps {
     pub primary_key: String,
     pub upsert_mode: UpsertMode,
+    /// H-9 修复：批量插入分片大小
+    ///
+    /// 当 `rows.len() > chunk_size` 时，`batch_insert` / `batch_upsert` 会将数据
+    /// 按 `chunk_size` 分片，每片生成独立的 SQL 语句。这避免了超大批量插入触发
+    /// 数据库参数限制（如 MySQL `max_allowed_packet`、PostgreSQL 参数占位符上限 65535）。
+    ///
+    /// 默认 `DEFAULT_CHUNK_SIZE`（1000）。设为 0 等价于 1（每行一条 SQL）。
+    pub chunk_size: usize,
 }
+
+/// H-9 默认分片大小
+pub const DEFAULT_CHUNK_SIZE: usize = 1000;
 
 impl Default for DefaultBatchOps {
     fn default() -> Self {
         Self {
             primary_key: "id".to_string(),
             upsert_mode: UpsertMode::MysqlOnDuplicate,
+            chunk_size: DEFAULT_CHUNK_SIZE,
         }
     }
 }
@@ -65,12 +102,30 @@ impl DefaultBatchOps {
         Self {
             primary_key: primary_key.into(),
             upsert_mode: UpsertMode::MysqlOnDuplicate,
+            chunk_size: DEFAULT_CHUNK_SIZE,
         }
     }
 
     pub fn with_upsert_mode(mut self, mode: UpsertMode) -> Self {
         self.upsert_mode = mode;
         self
+    }
+
+    /// H-9 修复：设置批量插入分片大小
+    pub fn with_chunk_size(mut self, chunk_size: usize) -> Self {
+        self.chunk_size = chunk_size.max(1);
+        self
+    }
+
+    /// H-9 修复：将切片按 chunk_size 分片
+    ///
+    /// 返回索引迭代器，每个元素是 (start, end) 半开区间。
+    fn chunk_indices(&self, total: usize) -> impl Iterator<Item = (usize, usize)> {
+        let chunk_size = self.chunk_size.max(1);
+        (0..total).step_by(chunk_size).map(move |start| {
+            let end = (start + chunk_size).min(total);
+            (start, end)
+        })
     }
 
     /// 用反引号包裹标识符（MySQL 风格）。
@@ -181,9 +236,14 @@ impl BatchOperations for DefaultBatchOps {
             return result;
         }
 
-        let sql = self.build_insert_clause(table, &columns, &valid_rows);
-        result.generated_sqls.push(sql);
-        result.inserted = valid_rows.len();
+        // H-9 修复：按 chunk_size 分片生成多条 INSERT
+        let total = valid_rows.len();
+        for (start, end) in self.chunk_indices(total) {
+            let chunk = &valid_rows[start..end];
+            let sql = self.build_insert_clause(table, &columns, chunk);
+            result.generated_sqls.push(sql);
+            result.inserted += chunk.len();
+        }
         result
     }
 
@@ -280,39 +340,45 @@ impl BatchOperations for DefaultBatchOps {
         }
 
         let non_pk = self.non_pk_columns(&columns);
-        let insert_part = self.build_insert_clause(table, &columns, &valid_rows);
 
-        let conflict_part = match self.upsert_mode {
-            UpsertMode::MysqlOnDuplicate if !non_pk.is_empty() => {
-                let updates: Vec<String> = non_pk
-                    .iter()
-                    .map(|col| {
-                        let q = Self::quote(col);
-                        format!("{} = VALUES({})", q, q)
-                    })
-                    .collect();
-                format!(" ON DUPLICATE KEY UPDATE {}", updates.join(", "))
-            }
-            UpsertMode::PostgresOnConflict if !non_pk.is_empty() => {
-                let updates: Vec<String> = non_pk
-                    .iter()
-                    .map(|col| {
-                        let q = Self::quote(col);
-                        format!("{} = EXCLUDED.{}", q, q)
-                    })
-                    .collect();
-                format!(
-                    " ON CONFLICT ({}) DO UPDATE SET {}",
-                    Self::quote(&self.primary_key),
-                    updates.join(", ")
-                )
-            }
-            _ => String::new(),
-        };
+        // H-9 修复：按 chunk_size 分片生成多条 UPSERT
+        let total = valid_rows.len();
+        for (start, end) in self.chunk_indices(total) {
+            let chunk = &valid_rows[start..end];
+            let insert_part = self.build_insert_clause(table, &columns, chunk);
 
-        let sql = format!("{}{}", insert_part, conflict_part);
-        result.generated_sqls.push(sql);
-        result.inserted = valid_rows.len();
+            let conflict_part = match self.upsert_mode {
+                UpsertMode::MysqlOnDuplicate if !non_pk.is_empty() => {
+                    let updates: Vec<String> = non_pk
+                        .iter()
+                        .map(|col| {
+                            let q = Self::quote(col);
+                            format!("{} = VALUES({})", q, q)
+                        })
+                        .collect();
+                    format!(" ON DUPLICATE KEY UPDATE {}", updates.join(", "))
+                }
+                UpsertMode::PostgresOnConflict if !non_pk.is_empty() => {
+                    let updates: Vec<String> = non_pk
+                        .iter()
+                        .map(|col| {
+                            let q = Self::quote(col);
+                            format!("{} = EXCLUDED.{}", q, q)
+                        })
+                        .collect();
+                    format!(
+                        " ON CONFLICT ({}) DO UPDATE SET {}",
+                        Self::quote(&self.primary_key),
+                        updates.join(", ")
+                    )
+                }
+                _ => String::new(),
+            };
+
+            let sql = format!("{}{}", insert_part, conflict_part);
+            result.generated_sqls.push(sql);
+            result.inserted += chunk.len();
+        }
         result
     }
 }
@@ -694,5 +760,162 @@ mod tests {
         // 主键 email 不应在 VALUES(...) 更新列表中
         assert!(sql.contains("`name` = VALUES(`name`)"));
         assert!(!sql.contains("`email` = VALUES"));
+    }
+
+    // ==================== H-9 批量插入分片测试 ====================
+
+    #[test]
+    fn test_h9_default_chunk_size_is_1000() {
+        let ops = DefaultBatchOps::default();
+        assert_eq!(ops.chunk_size, DEFAULT_CHUNK_SIZE);
+        assert_eq!(ops.chunk_size, 1000);
+    }
+
+    #[test]
+    fn test_h9_with_chunk_size_builder() {
+        let ops = DefaultBatchOps::new().with_chunk_size(50);
+        assert_eq!(ops.chunk_size, 50);
+    }
+
+    #[test]
+    fn test_h9_with_chunk_size_zero_clamps_to_one() {
+        let ops = DefaultBatchOps::new().with_chunk_size(0);
+        assert_eq!(ops.chunk_size, 1);
+    }
+
+    #[test]
+    fn test_h9_batch_insert_single_chunk_when_below_threshold() {
+        // 默认 chunk_size=1000，3 行应只生成 1 条 SQL
+        let ops = DefaultBatchOps::new();
+        let rows: Vec<Value> = (1..=3)
+            .map(|i| json!({"id": i, "name": format!("user{}", i)}))
+            .collect();
+        let result = ops.batch_insert("users", rows);
+        assert_eq!(result.inserted, 3);
+        assert_eq!(result.failed, 0);
+        assert_eq!(result.generated_sqls.len(), 1);
+    }
+
+    #[test]
+    fn test_h9_batch_insert_chunks_when_above_threshold() {
+        // chunk_size=2，5 行应生成 3 条 SQL（2+2+1）
+        let ops = DefaultBatchOps::new().with_chunk_size(2);
+        let rows: Vec<Value> = (1..=5)
+            .map(|i| json!({"id": i, "name": format!("user{}", i)}))
+            .collect();
+        let result = ops.batch_insert("users", rows);
+        assert_eq!(result.inserted, 5);
+        assert_eq!(result.failed, 0);
+        assert_eq!(result.generated_sqls.len(), 3);
+
+        // 验证每片 SQL 的行数：第 1 片 2 行、第 2 片 2 行、第 3 片 1 行
+        let counts: Vec<usize> = result
+            .generated_sqls
+            .iter()
+            .map(|sql| sql.matches("(?, ?)").count())
+            .collect();
+        assert_eq!(counts, vec![2, 2, 1]);
+    }
+
+    #[test]
+    fn test_h9_batch_insert_chunk_size_one_generates_one_sql_per_row() {
+        // chunk_size=1，3 行应生成 3 条 SQL，每条 1 行
+        let ops = DefaultBatchOps::new().with_chunk_size(1);
+        let rows: Vec<Value> = (1..=3)
+            .map(|i| json!({"id": i, "name": format!("user{}", i)}))
+            .collect();
+        let result = ops.batch_insert("users", rows);
+        assert_eq!(result.inserted, 3);
+        assert_eq!(result.generated_sqls.len(), 3);
+        for sql in &result.generated_sqls {
+            assert_eq!(sql.matches("(?, ?)").count(), 1);
+        }
+    }
+
+    #[test]
+    fn test_h9_batch_insert_chunks_preserve_failed_count() {
+        // chunk_size=2，5 行中有 2 行无效，应正确统计
+        let ops = DefaultBatchOps::new().with_chunk_size(2);
+        let result = ops.batch_insert(
+            "users",
+            vec![
+                json!({"id": 1, "name": "Alice"}),
+                json!("invalid"),
+                json!({"id": 3, "name": "Carol"}),
+                json!(42),
+                json!({"id": 5, "name": "Eve"}),
+            ],
+        );
+        // 3 行有效，2 行无效
+        assert_eq!(result.inserted, 3);
+        assert_eq!(result.failed, 2);
+        // 3 行有效，chunk_size=2 → 2 片（2+1）
+        assert_eq!(result.generated_sqls.len(), 2);
+    }
+
+    #[test]
+    fn test_h9_batch_upsert_chunks_when_above_threshold() {
+        // chunk_size=2，4 行应生成 2 条 SQL（2+2）
+        let ops = DefaultBatchOps::new().with_chunk_size(2);
+        let rows: Vec<Value> = (1..=4)
+            .map(|i| json!({"id": i, "name": format!("user{}", i)}))
+            .collect();
+        let result = ops.batch_upsert("users", rows);
+        assert_eq!(result.inserted, 4);
+        assert_eq!(result.failed, 0);
+        assert_eq!(result.generated_sqls.len(), 2);
+
+        // 验证每片都包含 ON DUPLICATE KEY UPDATE
+        for sql in &result.generated_sqls {
+            assert!(sql.contains("ON DUPLICATE KEY UPDATE"));
+            assert_eq!(sql.matches("(?, ?)").count(), 2);
+        }
+    }
+
+    #[test]
+    fn test_h9_batch_upsert_postgres_mode_chunks() {
+        let ops = DefaultBatchOps::new()
+            .with_chunk_size(2)
+            .with_upsert_mode(UpsertMode::PostgresOnConflict);
+        let rows: Vec<Value> = (1..=5)
+            .map(|i| json!({"id": i, "name": format!("user{}", i)}))
+            .collect();
+        let result = ops.batch_upsert("users", rows);
+        assert_eq!(result.inserted, 5);
+        assert_eq!(result.generated_sqls.len(), 3); // 2+2+1
+
+        for sql in &result.generated_sqls {
+            assert!(sql.contains("ON CONFLICT (`id`) DO UPDATE SET"));
+        }
+    }
+
+    #[test]
+    fn test_h9_batch_update_does_not_chunk() {
+        // batch_update 是单条 UPDATE 语句，不参与分片
+        let ops = DefaultBatchOps::new().with_chunk_size(1);
+        let rows: Vec<Value> = (1..=3)
+            .map(|i| json!({"id": i, "name": format!("user{}", i)}))
+            .collect();
+        let result = ops.batch_update("users", rows);
+        assert_eq!(result.updated, 3);
+        assert_eq!(result.generated_sqls.len(), 1);
+    }
+
+    #[test]
+    fn test_h9_batch_insert_large_batch_100_rows_with_chunk_10() {
+        // 验证大批量分片
+        let ops = DefaultBatchOps::new().with_chunk_size(10);
+        let rows: Vec<Value> = (1..=100)
+            .map(|i| json!({"id": i, "name": format!("user{}", i)}))
+            .collect();
+        let result = ops.batch_insert("users", rows);
+        assert_eq!(result.inserted, 100);
+        assert_eq!(result.failed, 0);
+        assert_eq!(result.generated_sqls.len(), 10);
+
+        // 每片 10 行
+        for sql in &result.generated_sqls {
+            assert_eq!(sql.matches("(?, ?)").count(), 10);
+        }
     }
 }

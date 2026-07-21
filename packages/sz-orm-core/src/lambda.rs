@@ -287,15 +287,28 @@ impl<M> LambdaWrapper<M> {
     // -------------------- SELECT 字段 --------------------
 
     /// 添加 SELECT 字段（类型安全）
+    ///
+    /// M-4 修复：对列名进行 `validate_identifier` 校验，防止恶意实现 `Column` trait
+    /// 注入非法标识符。
     pub fn select<C: Column<M>>(&mut self, col: C) -> &mut Self {
-        self.selects.push(col.name().to_string());
+        let name = col.name();
+        // 校验列名为合法 SQL 标识符（非空、仅 ASCII 字母数字+下划线、不以数字开头）
+        // 校验失败时跳过该列（保留向后兼容，不中断调用链）
+        if crate::sql_safety::validate_identifier(name, "lambda select column").is_ok() {
+            self.selects.push(name.to_string());
+        }
         self
     }
 
     /// 批量添加 SELECT 字段
+    ///
+    /// M-4 修复：同 `select`，对每个列名校验。
     pub fn select_many<C: Column<M>>(&mut self, cols: &[C]) -> &mut Self {
         for c in cols {
-            self.selects.push(c.name().to_string());
+            let name = c.name();
+            if crate::sql_safety::validate_identifier(name, "lambda select column").is_ok() {
+                self.selects.push(name.to_string());
+            }
         }
         self
     }
