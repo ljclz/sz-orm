@@ -1,10 +1,12 @@
 # SZ-ORM 使用指南
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v4.0（新增 sz-orm-vector + NL→SQL，数据同步到 39 包 / 1970+ 测试）
-> 适用版本：SZ-ORM v0.2.1（工作空间 39 个成员：37 个 sz-orm-* lib + cli + examples）
-> 更新日期：2026-07-20
-> 文档定位：面向使用者的完整上手指南，与《项目成熟度评估报告.md》《项目实施进度表.md》配套
+> 文档版本：v5.0（v1.0.0 正式发布：补全 sz-orm-core 全部 21 个高级模块文档 + API 参考手册交叉引用）
+> 适用版本：SZ-ORM **v1.0.0**（工作空间 39 个成员：37 个 sz-orm-* lib + cli + examples）
+> 更新日期：2026-07-21
+> 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"，与《项目成熟度评估报告.md》《项目实施进度表.md》配套
+
+> **导读**：本文 §3 按包/模块逐一展开使用示例，所有"详见 [API 参考手册]"链接均指向 `sz-ormAPI参考.md` 对应章节。若只需查阅类型签名与参数说明，直接打开 API 参考手册；若需端到端场景串联（CRUD/事务/连接池/迁移/分布式事务/向量搜索），按本指南章节顺序阅读。
 
 ---
 
@@ -988,6 +990,519 @@ let sql = Query::delete()
 
 **支持的 SQL 语句**：SELECT（含 JOIN/GROUP BY/HAVING/ORDER BY/LIMIT）、INSERT、UPDATE、DELETE。详见 [API 参考手册](sz-ormAPI参考.md) §2.14。
 
+### 3.7 sz-orm-core 高级特性模块（21 个）
+
+sz-orm-core 除 §3.1 列出的基础模块外，还提供 21 个高级特性模块，覆盖访问器、行为、权限、脏字段、动态过滤、实体图、SQL 守卫、Hydration、JOIN DSL、二级缓存、Lambda 查询、观察者、乐观锁、Phinx 迁移、Queryable、快速查询、仓储、ResultMap、Schema 生成、SQL 安全、TypeHandler。以下逐个介绍使用方式；类型签名详见 [API 参考手册](sz-ormAPI参考.md)。
+
+#### 3.7.1 accessors — 字段访问器/修改器 + 类型转换
+
+字段读取/写入的统一拦截点，支持自定义访问器、修改器和类型转换。对应 PHP ThinkORM 的 `getAttr/setAttr/getData/__isset`。
+
+```rust
+use sz_orm_core::accessors::{AccessorRegistry, CastType};
+use sz_orm_core::Value;
+
+let mut reg = AccessorRegistry::new();
+// 注册类型转换：DB 字段 status 是字符串 "1"，读取时自动转 I64
+reg.register_cast("status", CastType::Integer);
+
+let v = reg.cast_read("status", Value::String("1".into()));
+assert_eq!(v, Value::I64(1));
+
+// 也可注册闭包风格的 accessor / mutator
+use sz_orm_core::accessors::{ClosureAccessor, ClosureMutator};
+reg.register_accessor(Box::new(ClosureAccessor::new("email", |v| {
+    // 读取时统一小写
+    if let Value::String(s) = v { Value::String(s.to_lowercase()) } else { v }
+})));
+reg.register_mutator(Box::new(ClosureMutator::new("email", |v| {
+    // 写入时去空格
+    if let Value::String(s) = v { Value::String(s.trim().to_string()) } else { v }
+})));
+```
+
+#### 3.7.2 behaviors — 可插拔行为系统
+
+Model 行为插件，类似 Yii Framework 的 Behavior。内置 `TimestampBehavior`（自动时间戳）和 `BlameableBehavior`（自动操作人）。
+
+```rust
+use sz_orm_core::behaviors::{BehaviorRegistry, TimestampBehavior, BlameableBehavior};
+
+let mut reg = BehaviorRegistry::new();
+// 自动填充 created_at / updated_at
+reg.register(Box::new(TimestampBehavior::default_fields()));
+// 自动填充 created_by / updated_by（需配合 PermissionContext）
+reg.register(Box::new(BlameableBehavior::default_fields()));
+
+// 在 INSERT 前自动设置时间字段
+reg.before_insert(&mut entity);
+// 在 UPDATE 前自动更新时间字段
+reg.before_update(&mut entity);
+// 在 FIND 后自动 hydration
+reg.after_find(&mut entity);
+```
+
+#### 3.7.3 data_permission — 数据权限拦截器
+
+行级数据权限控制，支持租户隔离、所有者隔离、部门范围、自定义条件。可拦截 SELECT/UPDATE/DELETE。
+
+```rust
+use sz_orm_core::data_permission::{
+    DataPermissionInterceptor, PermissionContext, TenantIsolation, OwnerOnly, DepartmentScope,
+};
+
+let mut interceptor = DataPermissionInterceptor::new();
+interceptor.register(Box::new(TenantIsolation::default_field()));   // tenant_id = ?
+interceptor.register(Box::new(OwnerOnly::default_field()));          // user_id = ?
+interceptor.register(Box::new(DepartmentScope::default_field()));    // dept_id IN (...)
+
+let ctx = PermissionContext::new()
+    .with_user_id(42)
+    .with_tenant_id(1)
+    .with_dept_id(10);
+
+// 自动追加 WHERE 子句
+let sql = interceptor.apply_to_select("SELECT * FROM orders", &ctx)?;
+// → SELECT * FROM orders WHERE tenant_id = 1 AND user_id = 42 AND dept_id IN (10, ...)
+```
+
+#### 3.7.4 dirty_attributes — 脏字段追踪
+
+追踪实体字段变更，仅 UPDATE 变更字段，避免整行写入。对应 PHP ThinkORM 的 `getDirty`。
+
+```rust
+use sz_orm_core::dirty_attributes::{DirtyTracker, build_dynamic_update};
+use sz_orm_core::{Value, DbType, get_dialect};
+
+let initial = std::collections::HashMap::from([
+    ("name".to_string(), Value::String("Alice".into())),
+    ("age".to_string(), Value::I64(25)),
+]);
+let mut tracker = DirtyTracker::new(initial);
+tracker.set("name", Value::String("Bob".into()));
+
+assert!(tracker.is_field_dirty("name"));
+assert!(!tracker.is_field_dirty("age"));
+
+// 仅 UPDATE 脏字段
+let dialect = get_dialect(DbType::PostgreSQL).unwrap();
+let sql = build_dynamic_update(&**dialect, "users", "id", Value::I64(1), &tracker).unwrap();
+// → UPDATE "users" SET "name" = 'Bob' WHERE "id" = 1
+```
+
+#### 3.7.5 dynamic_filter — 运行时动态 Filter
+
+运行时注册/启用/禁用全局 Filter（类似 MyBatis-Plus 的 TableLogic 全局过滤）。
+
+```rust
+use sz_orm_core::dynamic_filter::{FilterDef, FilterParam, FilterRegistry};
+use std::collections::HashMap;
+
+let mut reg = FilterRegistry::new();
+reg.register(
+    FilterDef::new("active")
+        .with_condition("status = :status")
+        .with_param(FilterParam::new("status"))
+);
+reg.register(
+    FilterDef::new("soft_delete")
+        .with_condition("deleted_at IS NULL")
+);
+
+// 启用 Filter 并传参
+let mut params = HashMap::new();
+params.insert("status".to_string(), Value::String("active".into()));
+reg.enable("active", params)?;
+reg.enable("soft_delete", HashMap::new())?;
+
+// 自动追加到 SELECT
+let sql = reg.apply("SELECT * FROM users")?;
+// → SELECT * FROM users WHERE status = 'active' AND deleted_at IS NULL
+
+// 临时禁用某个 Filter
+reg.disable("active")?;
+```
+
+#### 3.7.6 entity_graph — 实体图与批量加载（解决 N+1）
+
+定义实体关联图，通过 BatchLoader 批量加载关联数据，避免 N+1 查询。
+
+```rust
+use sz_orm_core::entity_graph::{EntityGraph, BatchLoaderFn};
+
+// 闭包风格的批量加载器：根据 user_id 列表一次性加载部门信息
+let dept_loader = BatchLoaderFn::new(|keys: &[i64]| -> std::collections::HashMap<i64, String> {
+    // SELECT dept_id, dept_name FROM depts WHERE dept_id IN (?, ?, ?)
+    keys.iter().map(|&k| (k, format!("dept_{}", k))).collect()
+});
+
+let graph = EntityGraph::new()
+    .edge("user", "dept", dept_loader);
+
+// 一次性加载 100 个用户的部门，避免 100 次 SQL
+let user_ids: Vec<i64> = vec![1, 2, 3, 4, 5];
+let depts = graph.load_batch("user", "dept", &user_ids);
+```
+
+#### 3.7.7 guard — SQL 安全守卫
+
+拦截危险 SQL（无 WHERE 的全表 UPDATE/DELETE），避免生产事故。
+
+```rust
+use sz_orm_core::guard::{SafeSqlGuard, GuardPolicy};
+
+let guard = SafeSqlGuard::new(GuardPolicy::Strict);
+
+// ✅ 安全：有 WHERE
+guard.check("DELETE FROM users WHERE id = 1")?;
+guard.check("UPDATE users SET name = 'Bob' WHERE id = 1")?;
+
+// ❌ 危险：无 WHERE 的全表操作被拦截
+guard.check("DELETE FROM users").unwrap_err();
+guard.check("UPDATE users SET name = 'Bob'").unwrap_err();
+
+// Permissive 策略下仅记录警告不阻断
+let permissive = SafeSqlGuard::new(GuardPolicy::Permissive);
+```
+
+#### 3.7.8 hydration_plugin — Hydration 模式 + Plugin 拦截链
+
+MyBatis 风格的插件链，可在 SQL 执行前后插入日志、慢查询、审计、重写、阻断等逻辑。
+
+```rust
+use sz_orm_core::hydration_plugin::{PluginChain, SqlLogPlugin, SlowQueryPlugin, AuditPlugin};
+use std::time::Duration;
+
+let mut chain = PluginChain::new();
+chain.add(Box::new(SqlLogPlugin::default()));                       // SQL 日志
+chain.add(Box::new(SlowQueryPlugin::new(Duration::from_millis(500)))); // 慢查询检测
+chain.add(Box::new(AuditPlugin::default()));                         // 审计日志
+
+// 查询前拦截
+let mut sql = "SELECT * FROM users".to_string();
+let mut params = vec![];
+chain.before_query(&mut sql, &mut params)?;
+// 查询后拦截
+chain.after_query(&sql, &params, &rows)?;
+```
+
+#### 3.7.9 join_dsl — 类型安全 JOIN 语法
+
+链式构造 JOIN 表达式，支持 INNER/LEFT/RIGHT/FULL/CROSS 五种 JOIN。
+
+```rust
+use sz_orm_core::join_dsl::{JoinBuilder, JoinKind};
+
+let join = JoinBuilder::new(JoinKind::Left, "orders")
+    .on("users.id", "=", "orders.user_id")
+    .on("users.tenant_id", "=", "orders.tenant_id")  // 多个 ON 条件
+    .build();
+
+let sql = format!("SELECT * FROM users {}", join.to_sql());
+// → SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id AND users.tenant_id = orders.tenant_id
+```
+
+#### 3.7.10 l2_cache — 二级缓存
+
+跨 Session 共享的二级缓存，LRU 淘汰 + TTL 过期 + 表级失效。
+
+```rust
+use sz_orm_core::l2_cache::{L2Cache, CacheKey};
+use sz_orm_core::Value;
+use std::time::Duration;
+
+let cache = L2Cache::new(1000, Duration::from_secs(300)); // 最多 1000 条目，TTL 5 分钟
+
+let key = CacheKey::by_pk("users", Value::I64(42));
+cache.put(&key, Value::String("Alice".into()));
+
+if let Some(v) = cache.get(&key) {
+    println!("cache hit: {:?}", v);
+}
+
+// 写入 users 表后失效该表所有缓存
+cache.invalidate_table("users");
+```
+
+#### 3.7.11 lambda — Lambda 类型安全查询构造器
+
+MyBatis-Plus 风格 Lambda 查询包装器，通过 `User::age` 形式引用列名，编译期检查列名错误。
+
+```rust
+use sz_orm_core::lambda::{LambdaWrapper, define_columns};
+
+define_columns! { User { id, name, age } }
+
+let wrapper = LambdaWrapper::<User>::new()
+    .eq(User::age, 18)
+    .like(User::name, "Ali%")
+    .order_desc(User::id)
+    .page(1, 20);
+
+let where_sql = wrapper.build_where();
+// → WHERE age = ? AND name LIKE ? ORDER BY id DESC LIMIT 20 OFFSET 0
+```
+
+#### 3.7.12 observer — 模型生命周期观察者
+
+观察者模式，监听 Model 9 种生命周期事件（BeforeInsert / AfterInsert / BeforeUpdate / AfterUpdate / BeforeDelete / AfterDelete / AfterFind / BeforeSave / AfterSave）。
+
+```rust
+use sz_orm_core::observer::{EventDispatcher, Event, AuditLogSubscriber, Observer};
+
+struct CacheInvalidationObserver;
+impl Observer for CacheInvalidationObserver {
+    fn name(&self) -> &'static str { "cache_invalidation" }
+    fn handle(&self, event: &Event, entity: &dyn std::any::Any) -> Result<(), Box<dyn std::error::Error>> {
+        match event {
+            Event::AfterUpdate | Event::AfterDelete => {
+                // 清除该实体的缓存
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+}
+
+let mut dispatcher = EventDispatcher::new();
+dispatcher.subscribe(Box::new(AuditLogSubscriber::new()));
+dispatcher.subscribe(Box::new(CacheInvalidationObserver));
+
+// Model 操作时自动分发事件
+dispatcher.dispatch(&Event::AfterInsert, &user)?;
+```
+
+#### 3.7.13 optimistic_lock — 乐观锁
+
+基于版本号的乐观锁，自动冲突重试。
+
+```rust
+use sz_orm_core::optimistic_lock::{OptimisticLock, retry};
+
+impl OptimisticLock for User {
+    fn version_field() -> &'static str { "version" }
+    fn current_version(&self) -> i64 { self.version }
+    fn bump_version(&mut self) { self.version += 1; }
+}
+
+// 自动重试 3 次：find → modify → save（含 version 检查）
+let result = retry(|| {
+    let mut user = repo.find_by_id(42)?;
+    user.name = "new_name".into();
+    repo.save(user)  // UPDATE users SET name = ?, version = version + 1 WHERE id = ? AND version = ?
+}, 3)?;
+```
+
+#### 3.7.14 phinx_migration — Phinx 风格 migration API
+
+Phinx 风格的链式建表 API，14 种列类型 + 索引 + 外键。
+
+```rust
+use sz_orm_core::phinx_migration::{PhinxTable, ColumnType, ColumnOptions, IndexOptions, ForeignKeyOptions};
+
+let table = PhinxTable::new("users")
+    .add_column("id", ColumnType::Bigint, ColumnOptions::new().primary().auto_increment())
+    .add_column("name", ColumnType::String, ColumnOptions::new().length(255).not_null())
+    .add_column("email", ColumnType::String, ColumnOptions::new().length(255).unique())
+    .add_column("dept_id", ColumnType::Bigint, ColumnOptions::new().not_null())
+    .add_column("created_at", ColumnType::DateTime, ColumnOptions::new().default_current_timestamp())
+    .add_index(IndexOptions::new().columns(&["email"]).unique())
+    .add_foreign_key(
+        ForeignKeyOptions::new("dept_id")
+            .references("depts", "id")
+            .on_delete_cascade()
+    );
+
+let sql = table.create_sql(&*dialect);
+// → CREATE TABLE users (...) + CREATE INDEX + ALTER TABLE ADD CONSTRAINT
+```
+
+#### 3.7.15 queryable — Diesel 风格 Queryable trait
+
+Diesel 风格的从数据库行构造实体的 trait，配合 `#[derive(Queryable)]` 使用。
+
+```rust
+use sz_orm_core::queryable::{Queryable, RowDesc, Row};
+
+#[derive(Queryable, Debug)]
+struct User {
+    id: i64,
+    name: String,
+    email: String,
+}
+
+// 从查询结果行自动构造 User
+let row = Row::new(vec![
+    ("id".to_string(), Value::I64(42)),
+    ("name".to_string(), Value::String("Alice".into())),
+    ("email".to_string(), Value::String("a@b.com".into())),
+]);
+let user: User = User::from_row(&row)?;
+```
+
+#### 3.7.16 quick_query — 快捷查询 Db::name()
+
+无需定义 Model 即可构造查询，类似 ThinkPHP 的 `Db::name('users')->where(...)->select()`。
+
+```rust
+use sz_orm_core::quick_query::Db;
+use sz_orm_core::DbType;
+
+let (sql, params) = Db::new(DbType::PostgreSQL)
+    .name("users")
+    .select(&["id", "name", "email"])
+    .where_cond("age", ">=", 18)
+    .where_in("status", &["active", "verified"])
+    .order_desc("created_at")
+    .page(1, 20)
+    .build_select();
+// → SELECT id, name, email FROM users WHERE age >= 18 AND status IN (?, ?) ORDER BY created_at DESC LIMIT 20 OFFSET 0
+// params = [18, "active", "verified"]
+```
+
+#### 3.7.17 repository — DDD 仓储模式
+
+领域驱动设计（DDD）仓储模式抽象，支持任意 Key 类型、分页、批量操作。
+
+```rust
+use sz_orm_core::repository::{Repository, InMemoryRepository, WhereCondition, WhereOp};
+
+let repo = InMemoryRepository::<User>::new();
+repo.save(User { id: 1, name: "Alice".into(), age: 25 })?;
+repo.save(User { id: 2, name: "Bob".into(), age: 30 })?;
+
+// 条件查询 + 分页
+let page = repo.paginate_by(
+    &[WhereCondition::new("age", WhereOp::Ge, 18)],
+    1, 20,
+)?;
+// PageResult { items: [User { id: 1, ... }, User { id: 2, ... }], total: 2, page: 1, page_size: 20 }
+
+// 单个查询
+let user = repo.find_one_by(&[WhereCondition::new("name", WhereOp::Eq, "Alice")])?;
+```
+
+#### 3.7.18 result_map — MyBatis ResultMap + Hibernate Native Query
+
+MyBatis 风格的 ResultMap，支持嵌套关联、嵌套集合、多态鉴别器；以及 Hibernate `@SqlResultSetMapping` 风格的原生 SQL 映射。
+
+```rust
+use sz_orm_core::result_map::{
+    ResultMapRegistry, ResultMap, Mapping, NestedAssociation, apply_result_map,
+};
+
+let mut registry = ResultMapRegistry::new();
+
+let mut user_map = ResultMap::new("userMap", "User");
+user_map.add_id_mapping(Mapping::new("id", "user_id"));
+user_map.add_result_mapping(Mapping::new("name", "user_name"));
+user_map.add_association(
+    NestedAssociation::new("dept", "deptMap")
+        .with_prefix("dept_")
+);
+registry.register(user_map);
+
+let mut dept_map = ResultMap::new("deptMap", "Dept");
+dept_map.add_id_mapping(Mapping::new("id", "dept_id"));
+dept_map.add_result_mapping(Mapping::new("name", "dept_name"));
+registry.register(dept_map);
+
+// 应用 ResultMap 到查询结果行
+let result = apply_result_map(&registry, "userMap", &row)?;
+// → 自动构造 User { id, name, dept: Dept { id, name } }
+```
+
+#### 3.7.19 schema_gen — Diesel 风格 schema.rs 自动生成
+
+从数据库 schema 生成 Diesel 风格的 `schema.rs`（`typed_query!` 宏声明）。
+
+```rust
+use sz_orm_core::schema_gen::{SchemaGenerator, TableSchema, ColumnSchema};
+
+let gen = SchemaGenerator::new().emit_use(true);
+let tables = vec![
+    TableSchema {
+        name: "users".into(),
+        columns: vec![
+            ColumnSchema { name: "id".into(), rust_type: "i64".into() },
+            ColumnSchema { name: "name".into(), rust_type: "String".into() },
+            ColumnSchema { name: "age".into(), rust_type: "i32".into() },
+        ],
+    },
+];
+
+let schema_rs = gen.generate(&tables);
+// 输出：
+// use sz_orm_core::typed::{TypedTable, TypedColumn};
+// typed_query! {
+//     pub struct users { id: i64, name: String, age: i32 }
+// }
+```
+
+#### 3.7.20 sql_safety — SQL 注入防护原语
+
+提供标识符、外键动作、IN 子句 id 值的校验原语，被多个模块复用。
+
+```rust
+use sz_orm_core::sql_safety::{validate_identifier, validate_fk_action, validate_id_value};
+
+// ✅ 合法标识符
+validate_identifier("users", "table")?;
+validate_identifier("user_name", "column")?;
+
+// ❌ 拒绝包含 SQL 注入的标识符
+validate_identifier("users; DROP TABLE users", "table").unwrap_err();
+validate_identifier("1abc", "column").unwrap_err();  // 数字开头非法
+
+// ✅ 合法外键动作
+validate_fk_action("CASCADE")?;
+validate_fk_action("SET NULL")?;
+
+// ❌ IN 子句注入防护
+validate_id_value("1").unwrap_err();      // 不允许 -- 注释
+validate_id_value("1; DROP").unwrap_err();
+```
+
+#### 3.7.21 type_handler — MyBatis 风格 TypeHandler SPI
+
+MyBatis 风格的 TypeHandler SPI，Rust 类型与 ORM `Value` 之间的双向转换注册中心。
+
+```rust
+use sz_orm_core::type_handler::{TypeHandlerRegistry, DateTimeHandler, UuidHandler};
+use sz_orm_core::Value;
+
+let mut registry = TypeHandlerRegistry::new();
+registry.register("datetime", Box::new(DateTimeHandler));
+registry.register("uuid", Box::new(UuidHandler));
+
+// 将字段绑定到指定 TypeHandler
+registry.bind("created_at", "datetime");
+registry.bind("user_uuid", "uuid");
+
+// 读取：Value → Rust 类型
+let parsed: String = registry.handle("created_at", &Value::DateTime("2026-07-19T10:00:00Z".into()))?;
+// 写入：Rust 类型 → Value
+let value = registry.to_value("user_uuid", &String::from("550e8400-e29b-41d4-a716-446655440000"))?;
+// → Value::Uuid("550e8400-e29b-41d4-a716-446655440000")
+```
+
+#### 3.7.22 模块间协作矩阵
+
+各模块可组合使用，典型协作关系：
+
+| 场景 | 涉及模块 | 说明 |
+|------|---------|------|
+| 写入路径 | hooks + behaviors + dirty_attributes + accessors | 钩子→行为→脏字段→访问器/修改器→SQL |
+| 读取路径 | queryable + result_map + type_handler + l2_cache | 行构造→ResultMap→TypeHandler→缓存 |
+| 权限控制 | data_permission + guard + sql_safety | 拦截器→守卫→原语校验 |
+| 关联加载 | entity_graph + find_with_related + join_dsl | 批量加载→JOIN→eager load |
+| 缓存层 | l2_cache + cache + dirty_attributes | L2→L1→脏字段失效 |
+| 迁移建表 | phinx_migration + migration + schema_gen | Phinx API→文件迁移→schema 生成 |
+| 观察者 | observer + hooks + behaviors | 多套生命周期钩子协同 |
+| 乐观锁 | optimistic_lock + dirty_attributes | 版本检查→仅更新脏字段 |
+| 动态过滤 | dynamic_filter + data_permission | 全局 Filter+权限规则 |
+| Plugin 链 | hydration_plugin + audit + observer | MyBatis 风格拦截器链 |
+
 ---
 
 ## 四、常见场景示例
@@ -1279,12 +1794,39 @@ SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored
 
 ## 九、相关文档
 
-| 文档 | 说明 |
-|------|------|
-| 《API参考.md》 | 核心 trait/结构体与各包公开 API 手册 |
-| 《架构设计.md》 | 整体架构、依赖关系、设计决策、扩展开发指南 |
-| 《性能基准.md》 | 性能数据与基准测试运行方式 |
-| 《项目成熟度评估报告.md》 | 成熟度评分与测试规模实测 |
-| 《项目实施进度表.md》 | 分阶段实施进度 |
-| 《sz-orm生产就绪报告.md》 | L4 金融级生产就绪度评估与签发 |
-| 《sz-orm-engineering-practices.md》 | 工程化规范（门禁 1-10 + 测试金字塔 + Soak Test） |
+| 文档 | 说明 | 何时查阅 |
+|------|------|---------|
+| **[API 参考手册](sz-ormAPI参考.md)** | **核心 trait/结构体与各包公开 API 手册**（v5.0，覆盖 §2.1-§2.22 共 22 个章节） | 需查阅类型签名、参数说明、错误码时 |
+| 《架构设计.md》 | 整体架构、依赖关系、设计决策、扩展开发指南 | 需理解整体架构与设计决策时 |
+| 《性能基准.md》 | 性能数据与基准测试运行方式 | 需了解吞吐/延迟/对比数据时 |
+| 《项目成熟度评估报告.md》 | 成熟度评分与测试规模实测 | 需评估生产就绪度时 |
+| 《项目实施进度表.md》 | 分阶段实施进度 | 需了解功能完成进度时 |
+| 《sz-orm生产就绪报告.md》 | L4 金融级生产就绪度评估与签发 | 生产上线前评审 |
+| 《sz-orm-engineering-practices.md》 | 工程化规范（门禁 1-10 + 测试金字塔 + Soak Test） | 贡献代码前需了解工程规范 |
+| 《SZ-ORM 与主流 ORM 对比.md》 | 与 Diesel/SeaORM/SQLx 的深度对比 | 选型决策时 |
+| 《sz-orm技术实现深度评估.md》 | 技术实现深度评估 | 深度技术评估 |
+| 《sz-orm全面审查报告v1.md》 | 全面代码审查报告 | 代码质量审查 |
+| 《Security.md》 | 安全设计文档 | 安全评估 |
+| 《api-contracts.md》 | API 契约文档 | 契约测试 |
+| 《sz-orm改造实施文档.md》 | 改造实施文档 | 历史决策追溯 |
+
+### 9.1 文档分工
+
+| 文档类型 | 本指南（使用指南） | API 参考手册 |
+|---------|------------------|-------------|
+| 定位 | 场景驱动：什么场景用什么模块、怎么用 | 类型驱动：每个 trait/结构体/函数的签名 |
+| 内容 | 端到端示例 + 模块间协作矩阵 | 速查表 + 错误码 + 类型签名 |
+| 适用 | 初学者入门、快速上手、最佳实践 | API 速查、IDE 配合查阅、深度集成 |
+| 阅读方式 | 顺序阅读 | 按需查阅 |
+
+### 9.2 文档与代码的对应关系
+
+| sz-orm-core 模块 | 本指南章节 | API 手册章节 |
+|----------------|----------|------------|
+| model / query / dialect / pool / transaction / migration / cache / value / db_type / error / hooks / json_query / dynamic_sql / typed_ast / find_with_related | §3.1 / §3.6 | §1 / §2.16-§2.19 |
+| accessors / behaviors / data_permission / dirty_attributes / dynamic_filter / entity_graph / guard / hydration_plugin / join_dsl / l2_cache / lambda / observer / optimistic_lock / phinx_migration / queryable / quick_query / repository / result_map / schema_gen / sql_safety / type_handler | §3.7 | §2.22 |
+| sqlx / sql-validator / macros | §3.2 | §2.1-§2.3 |
+| 27 个扩展包 | §3.3-§3.5 | §2.4-§2.15 / §2.20-§2.21 |
+| 错误码体系 | §7 故障排除 | §3 错误处理指南 |
+| 钩子系统 | §3.1.1 | §4 钩子系统 |
+| 工程化门禁 | §8 | 《sz-orm-engineering-practices.md》 |
