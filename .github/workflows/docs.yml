@@ -1,0 +1,65 @@
+# SZ-ORM API 文档发布到 GitHub Pages
+#
+# cargo doc 只生成 Rust 源码中的 doc comment（/// 和 //!），
+# docs/adr/ 等开发过程文档不会被发布。
+#
+# 触发条件：
+# - push 到 main 分支（仅更改 src/ 或 Cargo.toml 时）
+# - 手动触发（workflow_dispatch）
+
+name: Docs to GitHub Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "packages/**/src/**"
+      - "packages/**/Cargo.toml"
+      - "Cargo.toml"
+      - "Cargo.lock"
+  workflow_dispatch:
+
+# 并发控制：同一时间只有一个 doc build 在运行
+concurrency:
+  group: "pages"
+  cancel-in-progress: false
+
+jobs:
+  build-and-deploy:
+    name: Build & Deploy API Docs
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Build API docs
+        run: |
+          cargo doc --workspace --no-deps --all-features
+          echo "cargo doc done"
+
+      # 创建入口页面：跳转到 sz-orm-core（核心包文档）
+      - name: Create landing page
+        run: |
+          cat > target/doc/index.html << 'INDEXEOF'
+          <!DOCTYPE html>
+          <meta charset="utf-8">
+          <meta http-equiv="refresh" content="0;url=sz_orm_core/index.html">
+          <title>SZ-ORM API Reference</title>
+          <link rel="canonical" href="sz_orm_core/index.html">
+          <h1>SZ-ORM — API Reference</h1>
+          <p>Redirecting to <a href="sz_orm_core/index.html">sz-orm-core</a>...</p>
+          INDEXEOF
+
+      - name: Deploy to gh-pages
+        uses: peaceiris/actions-gh-pages@v4
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./target/doc
+          publish_branch: gh-pages
+          force_orphan: true
+          user_name: "github-actions[bot]"
+          user_email: "github-actions[bot]@users.noreply.github.com"

@@ -15,6 +15,7 @@ credentials.json
 
 # 开发过程文档（不发布到 GitHub）
 docs/audit/
+docs/benchmarks/
 docs/*审查报告*.md
 docs/*改造实施*.md
 docs/*技术实现*.md

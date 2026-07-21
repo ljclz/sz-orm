@@ -1,0 +1,46 @@
+# SZ-ORM 自动依赖升级
+#
+# Dependabot 每周一检查依赖更新，自动提 PR。
+# 无需手动定期检查依赖版本。
+#
+# 配置说明：
+# - schedule.interval: weekly → 每周一 UTC 自动检查
+# - open-pull-requests-limit: 5 → 同时最多 5 个升级 PR，避免淹没
+# - allow: 仅允许直接依赖的 minor/patch 升级（自动合并则需配置 auto-merge）
+
+version: 2
+updates:
+  - package-ecosystem: "cargo"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 5
+    labels:
+      - "dependencies"
+      - "automated"
+    commit-message:
+      prefix: "build"
+      prefix-development: "build"
+      include: "scope"
+    # 不自动升级 semver incompatible 的依赖（需要手动评估 break change）
+    pull-request-branch-name:
+      separator: "-"
+
+  # GitHub Actions 自身的 action 版本也自动更新
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+      day: "monday"
+      time: "02:00"
+      timezone: "Asia/Shanghai"
+    open-pull-requests-limit: 3
+    labels:
+      - "dependencies"
+      - "github-actions"
+    commit-message:
+      prefix: "ci"
+      include: "scope"

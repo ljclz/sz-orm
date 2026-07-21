@@ -17,6 +17,7 @@ pub trait Cache: Send + Sync {
     fn ttl(&self, key: &str) -> Result<Option<Duration>, CacheError>;
 }
 
+#[derive(Clone)]
 pub struct MemoryCache {
     data: Arc<RwLock<HashMap<String, CacheEntry>>>,
     default_ttl: Option<Duration>,

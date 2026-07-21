@@ -879,4 +879,74 @@ mod tests {
         let removed = pool.health_check().await;
         assert_eq!(removed, 0);
     }
+
+    // ==================== 生产 Bug 复现测试 ====================
+
+    /// 可追踪创建次数的连接工厂
+    struct CountingFactory {
+        count: AtomicU32,
+    }
+
+    impl CountingFactory {
+        fn new() -> Self {
+            Self {
+                count: AtomicU32::new(0),
+            }
+        }
+        fn created_count(&self) -> u32 {
+            self.count.load(Ordering::SeqCst)
+        }
+    }
+
+    #[async_trait]
+    impl ConnectionFactory for CountingFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            self.count.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(MockConnection::new()))
+        }
+    }
+
+    /// 生产 Bug 复现：release() 重置 created_at 导致连接永不过期
+    ///
+    /// 症状：生产环境运行 30 分钟后间歇性 "connection timeout"
+    /// 根因：release() 中 created_at 被重置为 now()，max_lifetime 检查永远不触发
+    /// 期望：超过 max_lifetime 的连接应被回收并创建新连接
+    #[tokio::test]
+    async fn test_production_bug_max_lifetime_never_expires() {
+        // 注意：PoolConfigBuilder::max_lifetime() 接受秒，这里需要毫秒级精度
+        // 所以直接构造 PoolConfig
+        let config = PoolConfig {
+            max_size: 5,
+            min_idle: 0,
+            acquire_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(600),
+            max_lifetime: Duration::from_millis(100), // 100ms
+            connection_timeout: Duration::from_secs(10),
+        };
+        let factory = Arc::new(CountingFactory::new());
+        let pool = Pool::new(config, factory.clone()).unwrap();
+
+        // 1. 创建连接
+        let conn = pool.acquire().await.unwrap();
+        assert_eq!(factory.created_count(), 1, "应创建 1 个连接");
+
+        // 2. 归还连接（bug：重置 created_at）
+        pool.release(conn).await;
+
+        // 3. 等待超过 max_lifetime
+        tokio::time::sleep(Duration::from_millis(150)).await;
+
+        // 4. 再次获取 — 应检测到连接过期，创建新连接
+        let conn2 = pool.acquire().await.unwrap();
+
+        // 5. 验证：如果 bug 存在，factory.created_count() 仍为 1（连接被复用，未过期）
+        //         如果修复，factory.created_count() 应为 2（旧连接过期，创建新连接）
+        assert_eq!(
+            factory.created_count(),
+            2,
+            "超过 max_lifetime 后应创建新连接（旧连接应被回收）"
+        );
+
+        pool.release(conn2).await;
+    }
 }
