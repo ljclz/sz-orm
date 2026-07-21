@@ -57,11 +57,10 @@ ignore = [
     { id = "RUSTSEC-2026-0194", reason = "lapin 4.10 传递依赖 quick-xml 0.38.4，上游 lapin 尚无修复版本；仅影响 rabbitmq feature；服务端可控输入" },
     # quick-xml 0.38.4: 内存耗尽漏洞 (RUSTSEC-2026-0195)
     { id = "RUSTSEC-2026-0195", reason = "lapin 4.10 传递依赖 quick-xml 0.38.4，上游 lapin 尚无修复版本；仅影响 rabbitmq feature；服务端可控输入" },
-    # rustls-pemfile 2.2.0: 未维护 (RUSTSEC-2025-0134)
-    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-pemfile 2.2.0
-    # 影响: 仅在启用 real-broker feature 时引入；功能已被 rustls 0.23 内置功能替代
-    # 跟踪: 待 rumqttc 升级至不依赖 rustls-pemfile 后自动移除
-    { id = "RUSTSEC-2025-0134", reason = "rumqttc 0.25 传递依赖 rustls-pemfile 2.2.0 unmaintained；仅影响 real-broker feature；功能已被 rustls 0.23 内置替代" },
+    # 注: RUSTSEC-2025-0134 (rustls-pemfile 2.2.0 unmaintained) 在默认 feature 下不会被检测到
+    # 仅在启用 sz-orm-mqtt 的 real-broker feature 时引入；功能已被 rustls 0.23 内置替代
+    # 如启用 real-broker feature，需取消下方注释
+    # { id = "RUSTSEC-2025-0134", reason = "rumqttc 0.25 传递依赖 rustls-pemfile 2.2.0 unmaintained；仅影响 real-broker feature；功能已被 rustls 0.23 内置替代" },
 ]
 # 未维护的依赖仅给出警告
 unmaintained = "workspace"
