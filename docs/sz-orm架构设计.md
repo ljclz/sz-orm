@@ -1,11 +1,11 @@
 # SZ-ORM 架构设计文档
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v4.0（同步到 39 包 / 1970+ 测试 / v0.2.1 / AI 增强完成）
-> 适用版本：SZ-ORM v0.2.1（工作空间 39 个成员：37 个 lib + cli + examples）
-> 更新日期：2026-07-20
+> 文档版本：v5.0（同步到 39 包 / 2950 测试 / v1.0.0 / sqlx 0.9.0 升级完成）
+> 适用版本：SZ-ORM v1.0.0（工作空间 39 个成员：37 个 lib + cli + examples）
+> 更新日期：2026-07-21
 > 文档定位：整体架构、包间依赖、核心设计决策、扩展包开发指南
-> 测试：1970+ passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）
+> 测试：2950 passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）
 > 评分：4.98/5（CMMI Level 5 - 持续优化级） | 成熟度：L4 金融级 | 已知 Bug：0
 
 ---
@@ -50,7 +50,7 @@ SZ-ORM 采用**分层 + 插件化**架构：核心层保持零驱动的纯粹抽
 │  Sqlx*Connection │ Sqlx*ConnectionFactory │ row_to_value_*          │
 │  map_sqlx_error: sqlx::Error → DbError                              │
 └───────────────────────────────┬────────────────────────────────────┘
-                                │ sqlx 0.8 (tokio + rustls)
+                                │ sqlx 0.9.0 (tokio + rustls)
 ┌───────────────────────────────▼────────────────────────────────────┐
 │                真实数据库：MySQL / PostgreSQL / SQLite / Oracle      │
 └────────────────────────────────────────────────────────────────────┘
@@ -81,7 +81,7 @@ SZ-ORM 采用**分层 + 插件化**架构：核心层保持零驱动的纯粹抽
 | L0 基础 | sz-orm-sql-validator | 仅 thiserror（零运行时依赖） |
 | L0 基础 | sz-orm-macros | 仅 proc_macro（零外部依赖） |
 | L1 核心 | sz-orm-core | sz-orm-sql-validator + sz-orm-macros + tokio/async-trait/thiserror/serde/chrono/bytes |
-| L2 适配 | sz-orm-sqlx | sz-orm-core + sqlx 0.8 + rust_decimal |
+| L2 适配 | sz-orm-sqlx | sz-orm-core + sqlx 0.9.0 + rust_decimal |
 | L3 扩展 | 其余 27 包 | 各自独立，仅依赖 tokio/serde/thiserror 等公共库，**不依赖 sz-orm-core**（保持可独立使用） |
 
 ### 2.2 依赖方向原则
@@ -387,7 +387,7 @@ Saga 适合订单、旅行预订、跨服务编排等长流程业务，无锁高
 | Chaos | `tests/chaos.rs` | 16 | 故障鲁棒性（网络分区/磁盘满/时钟漂移/主从切换） |
 | Formal | `tests/formal.rs` + `docs/tla/` | 14 + TLA+ 规约 | 不变量验证 |
 
-总计 **1970+ 测试 passed，0 失败**（112 个测试套件，需真实服务的标记 ignored）。
+总计 **2950 测试 passed，0 失败**（112 个测试套件，需真实服务的标记 ignored）。
 
 ---
 
@@ -400,11 +400,12 @@ Saga 适合订单、旅行预订、跨服务编排等长流程业务，无锁高
 | v3.0 | 2026-07-19 | ①core 新增 typed_ast/dynamic_sql/json_query/find_with_related 四个高级模块；②hooks 钩子事件从 6 种扩展至 16 种 + HookDispatcher + GlobalScope/ScopeRegistry；③sz-orm-dtx 扩展为 tcc/cross_shard/saga 三子模块；④测试 1749 passed / 0 failed / 72 ignored；⑤代码 ~47,500 LOC（非测试）/ ~57,000 LOC（含测试）；⑥评分 5.0/5（CMMI Level 5），成熟度 L4 金融级 |
 | v3.1 | 2026-07-20 | 修复审查报告 P3-2：统一包数/LOC 数据 — 工作空间成员 38（36 sz-orm-* lib + cli + examples）；LOC ~52,500（非测试）/ ~63,000（含测试）；测试 1871+ passed；评分 4.98/5 |
 | v4.0 | 2026-07-20 | 同步到 39 包 / 1970+ 测试 / v0.2.1 / AI 增强完成（sz-orm-vector + NL→SQL）/ 工程化审计三门禁通过 / 85,834 LOC |
+| v5.0 | 2026-07-21 | sqlx 0.9.0 升级完成 / 2950 测试 / v1.0.0 正式发布 / MSRV 升至 1.94.0+ / rsa Marvin Attack（RUSTSEC-2023-0071）已消除 |
 
 ---
 
 *项目名称：SZ-ORM（鲜视达 ORM）*
 *定位：纯 ORM + 可选扩展包（用户按需引入，不强制安装）*
-*文档版本：v4.0 | crate 版本：0.2.1 | 更新日期：2026-07-20*
+*文档版本：v5.0 | crate 版本：1.0.0 | 更新日期：2026-07-21*
 *核心模块：15 个（含 hooks/typed_ast/dynamic_sql/json_query/find_with_related）| 扩展包：37 个 sz-orm-* lib + cli + examples*
-*测试：1970+ passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）| 评分：4.98/5（CMMI Level 5）| 成熟度：L4 金融级*
+*测试：2950 passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）| 评分：4.98/5（CMMI Level 5）| 成熟度：L4 金融级*

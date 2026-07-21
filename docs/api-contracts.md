@@ -1,7 +1,7 @@
 # SZ-ORM 公共 API 行为契约清单
 
-> **版本**: v0.2.0
-> **更新日期**: 2026-07-19
+> **版本**: v1.0.0
+> **更新日期**: 2026-07-21
 > **维护规则**: 任何修改公共 API 行为的 PR 必须同步更新本文档
 > **关联测试**: [packages/sz-orm-core/tests/contracts/](../packages/sz-orm-core/tests/contracts/)
 > **关联审计**: [scripts/audit-api-changes.ps1](../scripts/audit-api-changes.ps1) / [.sh](../scripts/audit-api-changes.sh)

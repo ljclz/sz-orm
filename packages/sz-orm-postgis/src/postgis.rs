@@ -98,7 +98,7 @@ pub enum PostgisWrapper {
     Memory(crate::memory::MemoryPostgis),
     Stub(crate::stub::StubPostgis),
     #[cfg(feature = "real-postgis")]
-    RealPg(crate::real_postgis::RealPostgis),
+    RealPg(Box<crate::real_postgis::RealPostgis>),
 }
 
 #[async_trait]
@@ -229,7 +229,7 @@ impl PostgisBuilder {
             #[cfg(feature = "real-postgis")]
             PostgisProvider::RealPg(config) => {
                 let real = crate::real_postgis::RealPostgis::new(config)?;
-                Ok(PostgisWrapper::RealPg(real))
+                Ok(PostgisWrapper::RealPg(Box::new(real)))
             }
         }
     }

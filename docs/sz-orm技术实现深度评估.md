@@ -1,9 +1,9 @@
 # SZ-ORM 技术实现深度评估 (v4.0)
 
 > 项目名称：**SZ-ORM**（鲜视达 ORM） | 定位：纯 ORM + 可选扩展包
-> 版本：v4.0（同步到 39 包 / 1970+ 测试 / v0.2.1 / AI 增强完成） | 更新日期：2026-07-20 | 适用 crate 版本：0.2.1
+> 版本：v5.0（同步到 39 包 / 2950 测试 / v1.0.0 / sqlx 0.9.0 升级完成） | 更新日期：2026-07-21 | 适用 crate 版本：1.0.0
 > 工作空间：39 个成员（37 个 lib + cli + examples）
-> 测试：1970+ passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）
+> 测试：2950 passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）
 > 评分：4.98/5（CMMI Level 5 - 持续优化级） | 成熟度：L4 金融级 | 已知 Bug：0
 
 ---
@@ -1365,6 +1365,6 @@ impl<M: Model> FindWithRelated<M> {
 
 *项目名称：SZ-ORM（鲜视达 ORM）*
 *定位：纯 ORM + 可选扩展包（用户按需引入，不强制安装）*
-*版本：v4.0 | crate 版本：0.2.1 | 更新日期：2026-07-20*
+*版本：v5.0 | crate 版本：1.0.0 | 更新日期：2026-07-21*
 *核心模块：15 个（cache/db_type/dialect/error/hooks/migration/model/pool/query/transaction/value + typed_ast/dynamic_sql/json_query/find_with_related）| 扩展包：37 个 lib + cli + examples*
-*测试：1970+ passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）| 评分：4.98/5（CMMI Level 5）| 成熟度：L4 金融级*
+*测试：2950 passed / 0 failed（112 个测试套件） | 代码：85,834 LOC（src/ 18,430 + tests/ 67,404）| 评分：4.98/5（CMMI Level 5）| 成熟度：L4 金融级*

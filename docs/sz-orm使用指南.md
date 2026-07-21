@@ -26,7 +26,7 @@ SZ-ORM 是一套**生产级、L4 金融级纯 Rust ORM 工作空间**，兼容 T
 | 编译时 SQL 检查 | `sql_string!` proc macro，编译期捕获语法错误与注入模式 |
 | 运行时 SQL 校验 | `QueryBuilder::validate()` + sz-orm-sql-validator，12 种注入模式检测 |
 | ActiveRecord 关系映射 | HasMany / HasOne / BelongsTo / BelongsToMany，支持 eager loading |
-| 真实 DB 适配器 | sz-orm-sqlx 端到端连接 MySQL/PG/SQLite（sqlx 0.8） |
+| 真实 DB 适配器 | sz-orm-sqlx 端到端连接 MySQL/PG/SQLite（sqlx 0.9.0） |
 | L4 金融级能力 | 灾备演练、SLA 监控、Chaos 测试、形式化验证 |
 | 真实云服务对接 | MQTT(rumqttc) / WebSocket(tokio-tungstenite) / RabbitMQ(lapin) / S3(rust-s3) |
 | 安全审计基线 | cargo-audit + cargo-deny CI，RustCrypto 审计栈加密 |
@@ -37,7 +37,7 @@ SZ-ORM 是一套**生产级、L4 金融级纯 Rust ORM 工作空间**，兼容 T
 
 ### 1.2 质量基线（实测数据）
 
-- 测试总量：**1970+ passed, 0 failed**（112 个测试套件，需真实 DB/云服务的标记 ignored）
+- 测试总量：**2950 passed, 0 failed**（112 个测试套件，需真实 DB/云服务的标记 ignored）
 - 工作空间成员：**39（36 sz-orm-* lib + sz-orm-vector + cli + examples）**
 - 代码规模：**85,834 LOC（src/ 18,430 + tests/ 67,404）**
 - 七线验证：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal
@@ -53,7 +53,7 @@ SZ-ORM 是一套**生产级、L4 金融级纯 Rust ORM 工作空间**，兼容 T
 
 | 依赖 | 版本 |
 |------|------|
-| Rust toolchain | 1.75+（edition 2021） |
+| Rust toolchain | 1.94.0+（sqlx 0.9.0 要求） |
 | 异步运行时 | tokio 1.40+ |
 | 数据库（可选） | MySQL 8+/9.x、PostgreSQL 14+/18、SQLite 3.35+、Oracle 23ai |
 

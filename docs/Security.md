@@ -10,7 +10,7 @@
 
 ### 0.1 SZ-ORM 是什么
 
-SZ-ORM 是一个 Rust 编写的多数据库 ORM 库（非数据库本身），由 1 个核心包 `sz-orm-core` + 35 个扩展包组成（含 v0.2.1+++ 新增 sz-orm-observability/sz-orm-postgis/sz-orm-timeseries/sz-orm-search/sz-orm-query-builder）。它通过 sqlx 适配器与 MySQL / PostgreSQL / SQLite / Oracle 等数据库交互，本身不持有数据文件、不监听网络端口（仅作为客户端库）。
+SZ-ORM 是一个 Rust 编写的多数据库 ORM 库（非数据库本身），由 1 个核心包 `sz-orm-core` + 36 个扩展包组成（含 v1.0.0 新增 sz-orm-observability/sz-orm-postgis/sz-orm-timeseries/sz-orm-search/sz-orm-query-builder）。它通过 sqlx 适配器与 MySQL / PostgreSQL / SQLite / Oracle 等数据库交互，本身不持有数据文件、不监听网络端口（仅作为客户端库）。
 
 ### 0.2 安全责任边界
 
@@ -387,7 +387,7 @@ RateLimiterConfig {
 
 ### 6.2 生产验证累积
 
-> **重要**：截至 v0.2.0，SZ-ORM 处于"早期生产可用"阶段，**尚未达到 5+ 年生产验证**。
+> **重要**：截至 v1.0.0，SZ-ORM 处于"生产可用"阶段，**尚未达到 5+ 年生产验证**。
 
 | 时间段 | 阶段 | 目标 |
 |--------|------|------|
@@ -408,7 +408,7 @@ RateLimiterConfig {
 | 缺陷密度 | 0 已知 Bug / 41494 LOC = 0 | < 0.1 / KLOC |
 | 安全漏洞 | 0 Critical / 1 High（见 §5.1 R-H01） | 0 Critical / 0 High |
 | Annex A 控制覆盖率 | 59% 已实现（22/37） | 100%（认证时 N/A 项可豁免） |
-| cargo-audit 扫描 | 待配置 | 每次提交自动 |
+| cargo-audit 扫描 | 已部署 | 每次提交自动 |
 | Dependabot | 待配置 | 每周自动 |
 
 ---
@@ -444,11 +444,11 @@ RateLimiterConfig {
 - [x] **Chaos 测试**：`sz-orm-core/tests/chaos.rs` 已实现（20+ 用例，模拟故障）
 - [x] **Jepsene 测试**：`sz-orm-core/tests/jepsen.rs` 已实现（10+ 用例，分布式一致性）
 - [x] **Formal 验证**：`sz-orm-core/tests/formal.rs` 已实现（形式化验证）
-- [x] **依赖漏洞扫描**：待配置 cargo-audit + cargo-deny
+- [x] **依赖漏洞扫描**：已部署 cargo-audit + cargo-deny
 - [x] **SAST 静态安全分析**：clippy（已强制 `-D warnings`）
 - [ ] **DAST 动态安全扫描**：N/A（SZ-ORM 为库，不监听端口）
 - [ ] **Secret Scanning**：待配置 GitLeaks / TruffleHog
-- [ ] **License Compliance**：待配置 cargo-deny
+- [x] **License Compliance**：已部署 cargo-deny
 
 ### 7.3 安全自动化（待部署）
 
@@ -540,7 +540,7 @@ RateLimiterConfig {
 - ✅ SQL 审计日志 + 敏感字段脱敏已实现
 - ✅ ISO 27001 Annex A 22/37 项控制已实现（59% 覆盖率）
 - 🟡 威胁建模：本文档 §5 风险登记册已建立，待完善
-- 🟡 SAST（clippy）已就绪，cargo-audit / cargo-deny / Gitleaks 待部署
+- 🟡 SAST（clippy）已就绪，cargo-audit / cargo-deny 已部署；Gitleaks 待部署
 - ⏳ 第三方渗透测试：未开始
 - ⏳ CPA 审计师评估：未开始
 

@@ -179,7 +179,7 @@ impl UserGrpcService for InMemoryUserService {
     fn list_users(&self) -> Result<Vec<UserResponse>, GrpcError> {
         let users = self.users.read().unwrap();
         let mut list: Vec<UserResponse> = users.values().cloned().collect();
-        list.sort_by(|a, b| a.id.cmp(&b.id));
+        list.sort_by_key(|a| a.id);
         Ok(list)
     }
 }

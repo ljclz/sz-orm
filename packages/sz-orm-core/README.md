@@ -18,7 +18,7 @@ Add to your `Cargo.toml`:
 
 ```toml
 [dependencies]
-sz-orm-core = "0.1"
+sz-orm-core = "1.0"
 ```
 
 ## License
