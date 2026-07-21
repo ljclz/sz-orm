@@ -400,6 +400,11 @@
 //! - `transaction::*` — `Transaction`, `TransactionManager`, `TransactOptions`, `IsolationLevel`
 //! - `value::*` — `Value` 枚举 (20 种变体)
 
+// 文档完整性：docs.rs 构建文档时启用 missing_docs lint
+// 本地和 CI clippy 不触发，避免 313 个 pub API 缺文档阻塞开发
+// 待文档逐步补齐后再改为全局 #![warn(missing_docs)]
+#![cfg_attr(docsrs, warn(missing_docs))]
+
 use std::sync::Arc;
 
 /// Re-export async traits
@@ -425,6 +430,7 @@ pub mod find_with_related;
 pub mod guard;
 pub mod hooks;
 pub mod hydration_plugin;
+pub mod i18n;
 pub mod join_dsl;
 pub mod json_query;
 pub mod l2_cache;
