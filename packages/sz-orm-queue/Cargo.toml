@@ -30,7 +30,7 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 futures = "0.3"
 lapin = { version = "4", optional = true }
-async-nats = { version = "0.38", optional = true }
+async-nats = { version = "0.50", optional = true }
 pulsar = { version = "6", optional = true, default-features = false, features = ["tokio-rustls-runtime"] }
 rdkafka = { version = "0.36", optional = true, default-features = false, features = ["cmake-build"] }
 
