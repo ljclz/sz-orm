@@ -151,8 +151,14 @@ sz-orm/
 
 ```toml
 [dependencies]
-sz-orm-core = { version = "1.0", path = "packages/sz-orm-core" }
-sz-orm-sqlx = { version = "1.0", path = "packages/sz-orm-sqlx" }   # 真实数据库
+# 从 crates.io 安装（推荐，发布后适用）
+sz-orm-core = "1.0"
+sz-orm-sqlx = "1.0"
+
+# 本地开发（path 依赖）
+# sz-orm-core = { version = "1.0", path = "packages/sz-orm-core" }
+# sz-orm-sqlx = { version = "1.0", path = "packages/sz-orm-sqlx" }
+
 tokio = { version = "1.40", features = ["full"] }
 ```
 

@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-macros"
+description = "Procedural macros: Model derive, sql_string!, query! and code gen helpers"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

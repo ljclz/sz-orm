@@ -1,10 +1,10 @@
 [package]
 name = "sz-orm-query-builder"
+description = "Type-safe query builder AST with dialect-aware SQL rendering"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "SZ-ORM 独立 QueryBuilder — sea-query 风格的纯 SQL 构造器，不绑定 Model，可独立发布"
 
 [dependencies]
 sz-orm-core = { workspace = true }

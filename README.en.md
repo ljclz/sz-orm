@@ -143,8 +143,14 @@ sz-orm/
 
 ```toml
 [dependencies]
-sz-orm-core = { version = "1.0", path = "packages/sz-orm-core" }
-sz-orm-sqlx = { version = "1.0", path = "packages/sz-orm-sqlx" }   # for real DB
+# From crates.io (recommended, after publish)
+sz-orm-core = "1.0"
+sz-orm-sqlx = "1.0"
+
+# Local development (path)
+# sz-orm-core = { version = "1.0", path = "packages/sz-orm-core" }
+# sz-orm-sqlx = { version = "1.0", path = "packages/sz-orm-sqlx" }
+
 tokio = { version = "1.40", features = ["full"] }
 ```
 

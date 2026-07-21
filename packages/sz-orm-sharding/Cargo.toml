@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-sharding"
+description = "Sharding: Hash/Range/Date/List/Composite with consistent hashing"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

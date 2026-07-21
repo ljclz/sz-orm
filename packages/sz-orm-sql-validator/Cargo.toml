@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-sql-validator"
+description = "Runtime SQL validation: SELECT-only, injection detection, type checking"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

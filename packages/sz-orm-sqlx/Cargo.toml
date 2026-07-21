@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-sqlx"
+description = "sqlx adapter: MySQL, PostgreSQL, SQLite backend via sqlx crate"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

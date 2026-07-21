@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-batch"
+description = "Batch: multi-value INSERT, CASE WHEN UPDATE, ON CONFLICT upsert with chunking"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
