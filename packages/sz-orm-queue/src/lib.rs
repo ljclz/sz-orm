@@ -30,11 +30,47 @@ pub use pulsar::InMemoryPulsarQueue;
 pub use rabbitmq::InMemoryRabbitmqQueue;
 pub use rocketmq::InMemoryRocketmqQueue;
 
+// ============================================================================
+// 真实实现（通过 feature flag 启用）
+// ============================================================================
+
+// RabbitMQ: lapin (AMQP 0.9.1) — 真实实现
 #[cfg(feature = "rabbitmq")]
 pub mod lapin_rabbitmq;
 
 #[cfg(feature = "rabbitmq")]
 pub use lapin_rabbitmq::LapinRabbitmqQueue;
+
+// ActiveMQ: lapin (AMQP 1.0，ActiveMQ Artemis) — 真实实现
+#[cfg(feature = "activemq")]
+pub mod real_activemq;
+
+#[cfg(feature = "activemq")]
+pub use real_activemq::RealActivemqQueue;
+
+// NATS: async-nats — 真实实现
+#[cfg(feature = "nats")]
+pub mod real_nats;
+
+#[cfg(feature = "nats")]
+pub use real_nats::RealNatsQueue;
+
+// Pulsar: pulsar crate — 真实实现
+#[cfg(feature = "pulsar")]
+pub mod real_pulsar;
+
+#[cfg(feature = "pulsar")]
+pub use real_pulsar::RealPulsarQueue;
+
+// Kafka: rdkafka — 真实实现
+#[cfg(feature = "kafka")]
+pub mod real_kafka;
+
+#[cfg(feature = "kafka")]
+pub use real_kafka::RealKafkaQueue;
+
+// RocketMQ: 无成熟 Rust 客户端，保持 stub
+// 跟踪项：https://github.com/mxsm/rocketmq-rust （未来可能可用）
 
 #[cfg(test)]
 mod tests {
