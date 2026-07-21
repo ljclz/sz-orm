@@ -37,13 +37,12 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust/sz-orm/target
-          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('rust/sz-orm/**/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-audit-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-audit-
 
       - name: Run cargo-audit
-        working-directory: rust/sz-orm
         run: |
           cargo audit \
             --ignore RUSTSEC-2023-0071 \
@@ -81,11 +80,10 @@ jobs:
           path: |
             ~/.cargo/registry
             ~/.cargo/git
-            rust/sz-orm/target
-          key: ${{ runner.os }}-cargo-deny-${{ matrix.checks }}-${{ hashFiles('rust/sz-orm/**/Cargo.lock') }}
+            target
+          key: ${{ runner.os }}-cargo-deny-${{ matrix.checks }}-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-deny-
 
       - name: Run cargo-deny
-        working-directory: rust/sz-orm
         run: cargo deny check --file deny.toml ${{ matrix.checks }}

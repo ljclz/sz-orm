@@ -37,11 +37,9 @@ jobs:
             ${{ runner.os }}-cargo-lint-
 
       - name: Check formatting
-        working-directory: rust/sz-orm
         run: cargo fmt --all -- --check
 
       - name: Run clippy
-        working-directory: rust/sz-orm
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ============================================================================
@@ -75,11 +73,9 @@ jobs:
             ${{ runner.os }}-cargo-build-${{ matrix.rust }}-
 
       - name: Build workspace
-        working-directory: rust/sz-orm
         run: cargo build --workspace --all-targets --verbose
 
       - name: Build documentation
-        working-directory: rust/sz-orm
         run: cargo doc --workspace --no-deps --all-features
 
   # ============================================================================
@@ -107,11 +103,9 @@ jobs:
             ${{ runner.os }}-cargo-test-
 
       - name: Run workspace tests (excludes #[ignore] integration tests)
-        working-directory: rust/sz-orm
         run: cargo test --workspace --verbose
 
       - name: Run SQLite integration tests
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-core --test integration_sqlite --verbose
 
   # ============================================================================
@@ -142,27 +136,21 @@ jobs:
             ${{ runner.os }}-cargo-real-features-
 
       - name: Check sz-orm-postgis (real-postgis)
-        working-directory: rust/sz-orm
         run: cargo check --package sz-orm-postgis --features real-postgis --verbose
 
       - name: Check sz-orm-timeseries (real-timescale)
-        working-directory: rust/sz-orm
         run: cargo check --package sz-orm-timeseries --features real-timescale --verbose
 
       - name: Check sz-orm-search (real-es)
-        working-directory: rust/sz-orm
         run: cargo check --package sz-orm-search --features real-es --verbose
 
       - name: Check sz-orm-search (real-opensearch)
-        working-directory: rust/sz-orm
         run: cargo check --package sz-orm-search --features real-opensearch --verbose
 
       - name: Check sz-orm-search (real-meilisearch)
-        working-directory: rust/sz-orm
         run: cargo check --package sz-orm-search --features real-meilisearch --verbose
 
       - name: Check sz-orm-search (all real-* features)
-        working-directory: rust/sz-orm
         run: cargo check --package sz-orm-search --features "real-es,real-opensearch,real-meilisearch" --verbose
 
   # ============================================================================
@@ -229,11 +217,9 @@ jobs:
             ${{ runner.os }}-cargo-int-
 
       - name: Run MySQL integration tests (10 万条 + 8 任务并发)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-core --test integration_mysql -- --ignored --nocapture --test-threads=1
 
       - name: Run PostgreSQL integration tests (10 万条 + 8 任务并发)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-core --test integration_pg -- --ignored --nocapture --test-threads=1
 
   # ============================================================================
@@ -348,23 +334,18 @@ jobs:
           "
 
       - name: Run real DB pool/transaction tests (sz-orm-sqlx, MySQL + PG)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-sqlx --test real_db_pool_tests -- --ignored --nocapture --test-threads=1
 
       - name: Run real MQTT broker tests (sz-orm-mqtt, real-broker)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-mqtt --features real-broker -- --ignored --nocapture
 
       - name: Run real RabbitMQ tests (sz-orm-queue, rabbitmq)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-queue --features rabbitmq -- --ignored --nocapture
 
       - name: Run real S3/MinIO tests (sz-orm-storage, s3-sdk)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-storage --features s3-sdk -- --ignored --nocapture
 
       - name: Run real WebSocket server tests (sz-orm-websocket, server)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-websocket --features server -- --ignored --nocapture
 
   # ============================================================================
@@ -393,14 +374,13 @@ jobs:
             ${{ runner.os }}-cargo-bench-
 
       - name: Run criterion benchmarks
-        working-directory: rust/sz-orm
         run: cargo bench --package sz-orm-core --bench core_bench -- --warm-up-time 1 --measurement-time 3 --sample-size 30
 
       - name: Upload benchmark results
         uses: actions/upload-artifact@v4
         with:
           name: criterion-results-${{ github.sha }}
-          path: rust/sz-orm/target/criterion/
+          path: target/criterion/
           retention-days: 30
 
   # ============================================================================
@@ -434,7 +414,6 @@ jobs:
             ${{ runner.os }}-cargo-soak-
 
       - name: Run soak smoke test (10s, non-ignored)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-core --test soak soak_smoke_10s -- --nocapture --test-threads=1
 
       - name: Upload soak smoke CSV report
@@ -442,7 +421,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: soak-smoke-${{ github.sha }}
-          path: rust/sz-orm/target/soak-report.csv
+          path: target/soak-report.csv
           if-no-files-found: warn
           retention-days: 7
 
@@ -462,7 +441,6 @@ jobs:
         run: cargo install cargo-audit --locked
 
       - name: Run security audit
-        working-directory: rust/sz-orm
         run: cargo audit
 
   # ============================================================================
@@ -482,7 +460,6 @@ jobs:
         run: cargo install cargo-tarpaulin --locked
 
       - name: Run coverage
-        working-directory: rust/sz-orm
         run: cargo tarpaulin --workspace --out Xml --output-dir coverage/
 
       - name: Upload coverage to Codecov

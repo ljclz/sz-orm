@@ -124,33 +124,25 @@ jobs:
           "
 
       - name: Run sz-orm-core MySQL integration tests (10 万条 + 8 任务并发)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-core --test integration_mysql -- --ignored --nocapture --test-threads=1
 
       - name: Run sz-orm-core PostgreSQL integration tests (10 万条 + 8 任务并发)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-core --test integration_pg -- --ignored --nocapture --test-threads=1
 
       - name: Run real DB pool/transaction tests (sz-orm-sqlx)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-sqlx --test real_db_pool_tests -- --ignored --nocapture --test-threads=1
 
       - name: Run real DB jepsen-style tests (sz-orm-sqlx)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-sqlx --test real_db_jepsen -- --ignored --nocapture --test-threads=1
 
       - name: Run real MQTT broker tests (sz-orm-mqtt, real-broker)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-mqtt --features real-broker -- --ignored --nocapture
 
       - name: Run real RabbitMQ tests (sz-orm-queue, rabbitmq)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-queue --features rabbitmq -- --ignored --nocapture
 
       - name: Run real S3/MinIO tests (sz-orm-storage, s3-sdk)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-storage --features s3-sdk -- --ignored --nocapture
 
       - name: Run real WebSocket server tests (sz-orm-websocket, server)
-        working-directory: rust/sz-orm
         run: cargo test --package sz-orm-websocket --features server -- --ignored --nocapture
