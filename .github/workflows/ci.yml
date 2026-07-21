@@ -79,6 +79,73 @@ jobs:
         run: cargo doc --workspace --no-deps --all-features
 
   # ============================================================================
+  # Job 2.5: cargo-hack — 每个 feature 独立编译验证
+  #
+  # 改进2：安装 cargo-hack 并加入 CI
+  # 验证每个 feature 在单独启用时能正确编译，避免 feature 间隐藏依赖
+  # ============================================================================
+  feature-matrix:
+    name: Feature Matrix (cargo-hack)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-hack-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-hack-
+
+      - name: Install cargo-hack
+        run: cargo install cargo-hack --locked
+
+      - name: Check each feature compiles independently
+        run: cargo hack check --workspace --each-feature --no-dev-deps
+
+  # ============================================================================
+  # Job 2.6: cargo-udeps — 未使用依赖检测
+  #
+  # 改进3：安装 cargo-udeps 并加入 CI
+  # 检测 Cargo.toml 中声明但代码未使用的依赖，避免依赖膨胀
+  # 需要 nightly 工具链
+  # ============================================================================
+  unused-deps:
+    name: Unused Dependencies (cargo-udeps)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-udeps-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-udeps-
+
+      - name: Install cargo-udeps
+        run: cargo install cargo-udeps --locked
+
+      - name: Detect unused dependencies
+        run: cargo +nightly udeps --workspace --all-targets
+
+  # ============================================================================
   # Job 3: 工作空间单元/集成测试（无外部数据库）
   # ============================================================================
   test:

@@ -63,7 +63,16 @@ pub trait Dialect: Send + Sync {
     fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String;
 
     /// 生成 DROP TABLE 语句
-    fn build_drop_table(&self, table: &str, if_exists: bool) -> String;
+    ///
+    /// 默认实现生成标准 `DROP TABLE [IF EXISTS] <table>` 语法。
+    /// 不支持 `IF EXISTS` 的方言（如 DB2）应覆盖此方法。
+    fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
+        if if_exists && self.supports_if_exists() {
+            format!("DROP TABLE IF EXISTS {}", self.quote(table))
+        } else {
+            format!("DROP TABLE {}", self.quote(table))
+        }
+    }
 }
 
 /// 建表时的列定义
@@ -261,14 +270,6 @@ impl Dialect for MySqlDialect {
 
         stmts.join("; ")
     }
-
-    fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
-        if if_exists {
-            format!("DROP TABLE IF EXISTS {}", self.quote(table))
-        } else {
-            format!("DROP TABLE {}", self.quote(table))
-        }
-    }
 }
 
 /// PostgreSQL 方言实现
@@ -439,14 +440,6 @@ impl Dialect for PostgreSqlDialect {
         }).collect();
 
         stmts.join("; ")
-    }
-
-    fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
-        if if_exists {
-            format!("DROP TABLE IF EXISTS {}", self.quote(table))
-        } else {
-            format!("DROP TABLE {}", self.quote(table))
-        }
     }
 }
 
@@ -637,14 +630,6 @@ impl Dialect for SqliteDialect {
             .collect();
 
         stmts.join("; ")
-    }
-
-    fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
-        if if_exists {
-            format!("DROP TABLE IF EXISTS {}", self.quote(table))
-        } else {
-            format!("DROP TABLE {}", self.quote(table))
-        }
     }
 }
 
@@ -889,14 +874,6 @@ impl Dialect for OracleDialect {
 
         stmts.join("; ")
     }
-
-    fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
-        if if_exists {
-            format!("DROP TABLE IF EXISTS {}", self.quote(table))
-        } else {
-            format!("DROP TABLE {}", self.quote(table))
-        }
-    }
 }
 
 /// 将通用 SQL 类型映射为 SQL Server 类型
@@ -1128,14 +1105,6 @@ impl Dialect for SqlServerDialect {
             .collect();
 
         stmts.join("; ")
-    }
-
-    fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
-        if if_exists {
-            format!("DROP TABLE IF EXISTS {}", self.quote(table))
-        } else {
-            format!("DROP TABLE {}", self.quote(table))
-        }
     }
 }
 
@@ -1427,14 +1396,6 @@ impl Dialect for ClickHouseDialect {
             .collect();
 
         stmts.join("; ")
-    }
-
-    fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
-        if if_exists {
-            format!("DROP TABLE IF EXISTS {}", self.quote(table))
-        } else {
-            format!("DROP TABLE {}", self.quote(table))
-        }
     }
 }
 
