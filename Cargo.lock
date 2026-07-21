@@ -5858,7 +5858,7 @@ version = "1.0.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "serde",
  "serde_json",
  "sha2 0.10.9",
@@ -5936,7 +5936,7 @@ name = "sz-orm-crypto"
 version = "1.0.0"
 dependencies = [
  "aes-gcm",
- "hmac 0.12.1",
+ "hmac 0.13.0",
  "pbkdf2",
  "rand 0.8.7",
  "serde",
