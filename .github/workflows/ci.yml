@@ -605,7 +605,7 @@ jobs:
         run: cargo bench --package sz-orm-core --bench core_bench -- --warm-up-time 1 --measurement-time 3 --sample-size 30
 
       - name: Upload benchmark results
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: criterion-results-${{ github.sha }}
           path: target/criterion/
@@ -646,7 +646,7 @@ jobs:
 
       - name: Upload soak smoke CSV report
         if: always()
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: soak-smoke-${{ github.sha }}
           path: target/soak-report.csv
