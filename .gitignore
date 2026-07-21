@@ -12,3 +12,16 @@ test_output.txt
 *.pfx
 secrets.json
 credentials.json
+
+# 开发过程文档（不发布到 GitHub）
+docs/audit/
+docs/*审查报告*.md
+docs/*改造实施*.md
+docs/*技术实现*.md
+docs/*生产就绪*.md
+docs/*成熟度评估*.md
+docs/*性能基准*.md
+docs/*项目实施*.md
+docs/*对比*.md
+docs/*审计清单*.md
+docs/Security.md
