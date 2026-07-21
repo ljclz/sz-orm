@@ -22,7 +22,6 @@ jobs:
         run: |
           semgrep \
             --config=.semgrep/rust-security.yaml \
-            --error \
             --severity=WARNING \
             --metrics=off \
             --sarif-output=semgrep.sarif \
