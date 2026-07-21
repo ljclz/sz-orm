@@ -1,15 +1,15 @@
 # SZ-ORM — 鲜视达 ORM
 
-> **生产级、L4 金融级纯 Rust 异步 ORM**，兼容 ThinkORM 风格 API
-> v1.0.0 正式发布 · 39 工作空间成员 · 2950 测试 · L4 金融级成熟度
+> **生产级纯 Rust 异步 ORM**，兼容 ThinkORM 风格 API
+> v1.0.0 正式发布 · 39 工作空间成员 · 2368 测试 · 自评 L4 金融级（待生产验证）
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-2950-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-2368-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-11-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#工作空间结构)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
-[![Maturity](https://img.shields.io/badge/maturity-L4金融级-gold.svg)](#概览)
+[![Maturity](https://img.shields.io/badge/maturity-自评L4-gold.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 
 [English Documentation](README.en.md) · [使用指南](docs/sz-orm使用指南.md) · [API 参考手册](docs/sz-ormAPI参考.md)
@@ -40,15 +40,17 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个**生产级**、**金融级**的数据库访问层。v1.0.0 正式发布版本包含 39 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个**生产级**的数据库访问层。v1.0.0 正式发布版本包含 39 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
+
+> **⚠️ 诚实声明**：本项目为单作者工程实践项目，自评 L4 金融级成熟度，但**尚无生产案例、无第三方审计、无社区采用**。L4 评级为自评，需通过 SOC 2 Type II 审计和真实生产运行后方可认证。
 
 | 维度 | 数据 |
 |------|------|
 | 工作空间成员 | **39**（37 个 sz-orm-* lib + sz-orm-vector + cli + examples） |
 | 支持数据库方言 | 11 种（MySQL/PostgreSQL/SQLite/Oracle 23ai/OceanBase/SQL Server/ClickHouse/Redis/MongoDB/VectorDB/PureJsDb） |
-| 测试用例 | **2950 passed, 0 failed**（79 ignored，需真实 DB/云凭证；112 个测试套件） |
-| 代码规模 | **85,834 LOC**（src/ 18,430 + tests/ 67,404） |
-| 生产等级 | **L4（金融级）** — 9 项必做项 100% 完成 |
+| 测试用例 | **2368 passed, 0 failed**（79 ignored，需真实 DB/云凭证；112 个测试套件） |
+| 代码规模 | **87,003 LOC**（src/ 73,076 + tests/ 13,927） |
+| 生产等级 | **自评 L4（金融级）** — 9 项必做项 100% 完成（待生产验证） |
 | 成熟度评分 | **4.98 / 5.0** |
 | 异步运行时 | Tokio 1.40+ |
 | Rust 最低版本 | 1.94.0+（sqlx 0.9.0 要求） |
@@ -568,7 +570,7 @@ SZ-ORM 通过 **7 线验证体系**保障质量：
 | **Chaos** | 故障鲁棒性 | `chaos.rs` |
 | **Formal** | 形式化不变量验证 | `formal.rs` |
 
-**总计：2950 tests, 0 failed, 79 ignored（需真实 DB/云凭证）**
+**总计：2368 tests, 0 failed, 79 ignored（需真实 DB/云凭证）**
 
 ### 运行测试
 
