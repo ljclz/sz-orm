@@ -86,5 +86,8 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-deny-
 
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+
       - name: Run cargo-deny
         run: cargo deny check ${{ matrix.checks }}
