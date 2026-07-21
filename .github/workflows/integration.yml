@@ -64,17 +64,15 @@ jobs:
         ports:
           - 1883:1883
       minio:
-        image: minio/minio:latest
+        image: minio/minio:RELEASE.2024-12-18T13-15-44Z
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin
         ports:
           - 9000:9000
         options: >-
-          --health-cmd="curl -f http://localhost:9000/minio/health/live || exit 1"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
+          --entrypoint=minio
+          server /data
     env:
       MYSQL_URL: mysql://root:test123@127.0.0.1:3306/sz_orm_test
       PG_URL: postgres://postgres:test123@127.0.0.1:5432/sz_orm_test
