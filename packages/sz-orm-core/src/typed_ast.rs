@@ -483,7 +483,10 @@ impl<T: TypedTable> TypedSelectQuery<T> {
 
     /// 构建 SELECT SQL
     ///
-    /// 生成形如 `SELECT * FROM <table> WHERE <conds> LIMIT <n> OFFSET <n>` 的 SQL。
+    /// 生成形如 `SELECT * FROM <table> WHERE <conds> <pagination>` 的 SQL。
+    ///
+    /// C-4 修复：分页部分通过 `dialect.build_pagination()` 生成，
+    /// 不再硬编码 `LIMIT/OFFSET`，以兼容 Oracle/SQL Server/DB2/ClickHouse 等方言。
     pub fn build(&self, dialect: &dyn Dialect) -> (String, Vec<String>) {
         let table_sql = dialect.quote(T::NAME);
         let mut sql = format!("SELECT * FROM {}", table_sql);
@@ -500,11 +503,14 @@ impl<T: TypedTable> TypedSelectQuery<T> {
             sql.push_str(&cond_strs.join(" AND "));
         }
 
-        if let Some(n) = self.limit_n {
-            sql.push_str(&format!(" LIMIT {}", n));
-        }
-        if let Some(n) = self.offset_n {
-            sql.push_str(&format!(" OFFSET {}", n));
+        // C-4 修复：使用方言感知的分页，而非硬编码 LIMIT/OFFSET
+        // 当只设置 limit（无 offset）时，page=1；当同时设置 offset 时，page = offset/limit + 1
+        if let Some(limit) = self.limit_n {
+            let page = match self.offset_n {
+                Some(offset) if limit > 0 => (offset / limit) as u64 + 1,
+                _ => 1,
+            };
+            sql = dialect.build_pagination(&sql, page, limit as u64);
         }
 
         (sql, all_params)

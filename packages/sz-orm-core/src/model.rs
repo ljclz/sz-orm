@@ -228,6 +228,27 @@ fn value_to_sql_string(s: &str) -> String {
     format!("'{}'", escape_sql_value(s))
 }
 
+/// 校验 SQL 标识符（表名/列名）是否合法
+///
+/// 合法标识符规则：
+/// - 非空
+/// - 仅包含字母、数字、下划线
+/// - 首字符为字母或下划线
+/// - 长度 ≤ 64（与大多数数据库一致）
+///
+/// 用于防止 MorphTo 关系加载中 morph_type_value 作为表名拼接时的 SQL 注入。
+fn is_valid_sql_identifier(s: &str) -> bool {
+    if s.is_empty() || s.len() > 64 {
+        return false;
+    }
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
 impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
     /// 追加一个待加载的关系
     pub fn with(mut self, relation: &str) -> Self {
@@ -341,7 +362,13 @@ impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
                         model.set_relation_data(rel_name, Value::Array(vec![]));
                     } else {
                         // 约定：morph_type_value 即为目标表名（Post → "posts"），由调用方在 get_relation_fk_value 中映射
-                        // morph_type_value 作为表名，需校验为合法标识符；morph_id_value 作为字面量，需转义
+                        // C-2 修复：morph_type_value 作为表名拼接前必须校验为合法标识符，防止 SQL 注入
+                        if !is_valid_sql_identifier(&morph_type_value) {
+                            return Err(RelationError::QueryError(format!(
+                                "invalid morph_type_value (not a valid SQL identifier): {}",
+                                morph_type_value
+                            )));
+                        }
                         let sql = format!(
                             "SELECT * FROM {} WHERE id = {}",
                             morph_type_value,
@@ -1441,6 +1468,49 @@ mod tests {
         };
         assert_eq!(m.morph_type_column, "commentable_type");
         assert_eq!(m.morph_id_column, "commentable_id");
+    }
+
+    #[test]
+    fn test_is_valid_sql_identifier_accepts_valid() {
+        // 合法标识符
+        assert!(is_valid_sql_identifier("users"));
+        assert!(is_valid_sql_identifier("UserProfiles"));
+        assert!(is_valid_sql_identifier("_private"));
+        assert!(is_valid_sql_identifier("table_123"));
+        assert!(is_valid_sql_identifier("a"));
+    }
+
+    #[test]
+    fn test_is_valid_sql_identifier_rejects_invalid() {
+        // 空
+        assert!(!is_valid_sql_identifier(""));
+        // 数字开头
+        assert!(!is_valid_sql_identifier("1table"));
+        // 包含特殊字符（SQL 注入尝试）
+        assert!(!is_valid_sql_identifier("users; DROP TABLE users;--"));
+        assert!(!is_valid_sql_identifier("users' OR '1'='1"));
+        assert!(!is_valid_sql_identifier("users--"));
+        assert!(!is_valid_sql_identifier("users /* comment */"));
+        // 包含空格
+        assert!(!is_valid_sql_identifier("users table"));
+        // 包含点（schema.table 形式）
+        assert!(!is_valid_sql_identifier("public.users"));
+        // 超长（>64 字符）
+        assert!(!is_valid_sql_identifier(&"a".repeat(65)));
+        // 中文字符
+        assert!(!is_valid_sql_identifier("用户表"));
+    }
+
+    #[test]
+    fn test_is_valid_sql_identifier_boundary() {
+        // 恰好 64 字符（合法）
+        assert!(is_valid_sql_identifier(&"a".repeat(64)));
+        // 恰好 65 字符（非法）
+        assert!(!is_valid_sql_identifier(&"a".repeat(65)));
+        // 单个下划线
+        assert!(is_valid_sql_identifier("_"));
+        // 单个字母
+        assert!(is_valid_sql_identifier("x"));
     }
 
     #[test]
