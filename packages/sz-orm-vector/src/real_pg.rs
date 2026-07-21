@@ -305,6 +305,9 @@ impl PgVectorStore for RealPgVectorStore {
         query: &[f32],
         top_k: usize,
     ) -> Result<Vec<SearchResult>, VectorError> {
+        // M-16 修复：校验 top_k 范围（必须在 [1, MAX_TOP_K] 内）
+        let top_k = crate::validate_top_k(top_k)?;
+
         validate_identifier(collection, "collection name")?;
         let tables_name = Self::vectors_table_name(collection);
 

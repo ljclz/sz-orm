@@ -668,7 +668,12 @@ async fn jepsen_concurrent_tx_partial_failure() {
 /// Jepsen 23：深层嵌套 savepoint
 #[tokio::test]
 async fn jepsen_deep_savepoint_nesting() {
-    let mut tx = make_tx();
+    // H-8 修复适配：默认 max_nesting_depth=8，循环 20 次会触发 MaxNestingDepthExceeded。
+    // 此处显式提升上限以保留原始契约意图（验证深层嵌套 + 部分回滚）。
+    let db = Arc::new(Mutex::new(common::InMemoryDb::new()));
+    let conn = MockConnection::new(db);
+    let opts = TransactOptions::default().with_max_nesting_depth(30);
+    let mut tx = Transaction::new(Box::new(conn), opts);
 
     let mut savepoints = Vec::new();
     for _ in 0..20 {

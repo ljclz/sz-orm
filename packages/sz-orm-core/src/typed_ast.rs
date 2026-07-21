@@ -469,15 +469,33 @@ impl<T: TypedTable> TypedSelectQuery<T> {
         self
     }
 
+    /// L-3 修复：LIMIT 最大值限制
+    ///
+    /// 防止调用方误用（如 `usize::MAX`）导致数据库执行超大结果集，
+    /// 引发 OOM 或长时间阻塞。1,000,000 行足以覆盖常规分页场景。
+    pub const MAX_LIMIT: usize = 1_000_000;
+
+    /// L-3 修复：OFFSET 最大值限制
+    ///
+    /// 防止调用方误用超大 OFFSET（如 `usize::MAX`），导致数据库
+    /// 扫描全部行后才丢弃，引发性能问题。1,000,000,000 行足以覆盖常规分页场景。
+    pub const MAX_OFFSET: usize = 1_000_000_000;
+
     /// 设置 LIMIT
+    ///
+    /// L-3 修复：超过 `MAX_LIMIT` 的值会被自动 clamp 到 `MAX_LIMIT`，
+    /// 防止误用导致数据库 OOM。
     pub fn limit(mut self, n: usize) -> Self {
-        self.limit_n = Some(n);
+        self.limit_n = Some(n.min(Self::MAX_LIMIT));
         self
     }
 
     /// 设置 OFFSET
+    ///
+    /// L-3 修复：超过 `MAX_OFFSET` 的值会被自动 clamp 到 `MAX_OFFSET`，
+    /// 防止误用导致数据库全表扫描性能问题。
     pub fn offset(mut self, n: usize) -> Self {
-        self.offset_n = Some(n);
+        self.offset_n = Some(n.min(Self::MAX_OFFSET));
         self
     }
 
@@ -759,6 +777,55 @@ mod tests {
             "SELECT * FROM `users` WHERE `age` >= ? LIMIT 10 OFFSET 20"
         );
         assert_eq!(params, vec!["18"]);
+    }
+
+    /// L-3 测试：LIMIT 超过 MAX_LIMIT 应被 clamp
+    #[test]
+    fn test_l3_limit_clamp_to_max() {
+        let dialect = MySqlDialect;
+        // usize::MAX 应被 clamp 到 MAX_LIMIT (1,000,000)
+        let q = TypedSelectQuery::<UsersTable>::new().limit(usize::MAX);
+        assert_eq!(q.limit_n, Some(TypedSelectQuery::<UsersTable>::MAX_LIMIT));
+        let (sql, _) = q.build(&dialect);
+        assert!(sql.contains(&format!(
+            "LIMIT {}",
+            TypedSelectQuery::<UsersTable>::MAX_LIMIT
+        )));
+    }
+
+    /// L-3 测试：OFFSET 超过 MAX_OFFSET 应被 clamp
+    #[test]
+    fn test_l3_offset_clamp_to_max() {
+        let dialect = MySqlDialect;
+        // usize::MAX 应被 clamp 到 MAX_OFFSET (1,000,000,000)
+        let q = TypedSelectQuery::<UsersTable>::new()
+            .limit(10)
+            .offset(usize::MAX);
+        assert_eq!(q.offset_n, Some(TypedSelectQuery::<UsersTable>::MAX_OFFSET));
+        // page = MAX_OFFSET / 10 + 1 = 100,000,001
+        // MySQL pagination: LIMIT 10 OFFSET <(page-1)*10> = 1,000,000,000
+        let (sql, _) = q.build(&dialect);
+        // 验证 OFFSET 在合理范围内（不会出现 usize::MAX）
+        assert!(sql.contains("LIMIT 10"));
+    }
+
+    /// L-3 测试：正常值不受影响
+    #[test]
+    fn test_l3_normal_limit_offset_not_clamped() {
+        let q1 = TypedSelectQuery::<UsersTable>::new().limit(100);
+        assert_eq!(q1.limit_n, Some(100));
+        let q2 = TypedSelectQuery::<UsersTable>::new().offset(1000);
+        assert_eq!(q2.offset_n, Some(1000));
+        // 边界值：恰好等于 MAX_LIMIT / MAX_OFFSET
+        let q3 =
+            TypedSelectQuery::<UsersTable>::new().limit(TypedSelectQuery::<UsersTable>::MAX_LIMIT);
+        assert_eq!(q3.limit_n, Some(TypedSelectQuery::<UsersTable>::MAX_LIMIT));
+        let q4 = TypedSelectQuery::<UsersTable>::new()
+            .offset(TypedSelectQuery::<UsersTable>::MAX_OFFSET);
+        assert_eq!(
+            q4.offset_n,
+            Some(TypedSelectQuery::<UsersTable>::MAX_OFFSET)
+        );
     }
 
     #[test]

@@ -46,6 +46,26 @@ impl LapinRabbitmqQueue {
     pub fn is_connected(&self) -> bool {
         self.connection.is_some()
     }
+
+    /// M-12 修复：重新连接 RabbitMQ
+    ///
+    /// 当连接断开或长时间出错时，调用方应调用此方法重建连接和 channel。
+    ///
+    /// # 说明
+    ///
+    /// - lapin 内部通过 heartbeat 检测连接状态，但不会自动重连
+    /// - 此方法会清除旧连接、channel 和消费者，然后重新建立连接
+    /// - 重连后需要重新订阅所有 topic（subscribe）
+    /// - 调用方应在捕获到 `MqError::Connection` 后调用此方法
+    pub async fn reconnect(&mut self) -> Result<(), MqError> {
+        // 清除旧状态
+        self.channel = None;
+        self.connection = None;
+        self.consumers.write().await.clear();
+        self.in_flight.write().await.clear();
+        // 重建连接
+        self.connect().await
+    }
 }
 
 fn current_timestamp_millis() -> i64 {

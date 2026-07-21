@@ -81,9 +81,34 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 设置 SELECT 列。
+    ///
+    /// **M-3 安全警告**：本方法直接拼接 `columns` 到 SQL，**不**进行标识符校验或 quote。
+    /// 调用方必须确保 `columns` 来自可信来源（硬编码或经 `sql_safety::validate_identifier`
+    /// 校验）。若列名可能来自不可信输入，请使用 [`QueryBuilder::select_quoted`]。
+    ///
+    /// 本方法保留原行为以兼容复杂表达式（如 `COUNT(*)`、`users.id AS uid`）。
     pub fn select(mut self, columns: Vec<&str>) -> Self {
         self.select_columns = columns.into_iter().map(|s| s.to_string()).collect();
         self
+    }
+
+    /// M-3 修复：安全的 SELECT 列设置，自动校验每个列名并 quote。
+    ///
+    /// 每个 `column` 必须通过 `sql_safety::validate_identifier` 校验
+    /// （仅允许 ASCII 字母数字 + 下划线，不以数字开头，长度 1-63）。
+    /// 校验失败时返回 `DbError::InvalidInput`。
+    ///
+    /// 对于复杂表达式（如 `COUNT(*)`、`users.id AS uid`），请使用 [`QueryBuilder::select`]
+    /// 并自行确保安全。
+    pub fn select_quoted(mut self, columns: Vec<&str>) -> Result<Self, crate::DbError> {
+        let mut quoted = Vec::with_capacity(columns.len());
+        for col in columns {
+            crate::sql_safety::validate_identifier(col, "select column")?;
+            quoted.push(self.dialect.quote(col));
+        }
+        self.select_columns = quoted;
+        Ok(self)
     }
 
     pub fn where_cond(mut self, condition: impl Into<String>) -> Self {
@@ -219,6 +244,38 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 构建 SELECT SQL 语句
+    ///
+    /// L-5 修复：补充示例文档
+    ///
+    /// 根据 `table`、`select_columns`、`where_conditions`、`joins`、`order_by`、
+    /// `group_by`、`having`、`limit`、`offset` 等条件拼装最终 SQL。
+    /// 若未通过 `table()` 指定表名，则使用 `M::table_name()`。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::query::QueryBuilder;
+    /// use sz_orm_core::dialect::MySqlDialect;
+    /// use sz_orm_core::model::Model;
+    ///
+    /// #[derive(Default)]
+    /// struct User;
+    /// impl Model for User {
+    ///     type PrimaryKey = i64;
+    ///     fn table_name() -> &'static str { "users" }
+    ///     fn pk(&self) -> Self::PrimaryKey { 0 }
+    ///     fn set_pk(&mut self, _: Self::PrimaryKey) {}
+    /// }
+    ///
+    /// let sql = QueryBuilder::<User>::new(Box::new(MySqlDialect))
+    ///     .select(vec!["id", "name"])
+    ///     .where_cond("age > 18")
+    ///     .order_by("id DESC")
+    ///     .limit(10)
+    ///     .build_select();
+    /// // sql => "SELECT id, name FROM `users` WHERE age > 18 ORDER BY id DESC LIMIT 10"
+    /// ```
     pub fn build_select(&self) -> String {
         let table = self
             .table
@@ -1025,5 +1082,65 @@ mod tests {
         // DELETE without WHERE still produces valid SQL (just no filter)
         let result = builder.table("users").validate_delete();
         assert!(result.is_ok());
+    }
+
+    // ==================== M-3 select_quoted 测试 ====================
+
+    #[test]
+    fn test_m3_select_quoted_valid_columns() {
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let builder = QueryBuilder::<TestModel>::new(dialect);
+        let builder = builder
+            .table("users")
+            .select_quoted(vec!["id", "name"])
+            .expect("valid columns should succeed");
+        let sql = builder.build_select();
+        // 应自动 quote 列名
+        assert!(sql.contains("SELECT `id`, `name` FROM"));
+        assert!(sql.contains("`users`"));
+    }
+
+    #[test]
+    fn test_m3_select_quoted_rejects_sql_injection() {
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let builder = QueryBuilder::<TestModel>::new(dialect);
+
+        // SQL 注入尝试：分号 + DROP TABLE
+        let result = builder
+            .table("users")
+            .select_quoted(vec!["id; DROP TABLE users"]);
+        assert!(result.is_err());
+
+        // 含引号
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let builder = QueryBuilder::<TestModel>::new(dialect);
+        let result = builder.table("users").select_quoted(vec!["name'"]);
+        assert!(result.is_err());
+
+        // 数字开头
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let builder = QueryBuilder::<TestModel>::new(dialect);
+        let result = builder.table("users").select_quoted(vec!["1col"]);
+        assert!(result.is_err());
+
+        // 含空格
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let builder = QueryBuilder::<TestModel>::new(dialect);
+        let result = builder.table("users").select_quoted(vec!["col name"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_m3_select_quoted_postgresql_dialect() {
+        let dialect = get_dialect(DbType::PostgreSQL).unwrap();
+        let builder = QueryBuilder::<TestModel>::new(dialect);
+        let builder = builder
+            .table("users")
+            .select_quoted(vec!["id", "name"])
+            .expect("valid columns should succeed");
+        let sql = builder.build_select();
+        // PostgreSQL 使用双引号
+        assert!(sql.contains("SELECT \"id\", \"name\" FROM"));
+        assert!(sql.contains("\"users\""));
     }
 }

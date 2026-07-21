@@ -73,12 +73,19 @@ impl<'a> FindWithRelated<'a> {
         primary_key: impl Into<String>,
         left_join: bool,
     ) -> Self {
+        let main_table = main_table.into();
+        let related_table = related_table.into();
+        let foreign_key = foreign_key.into();
+        let primary_key = primary_key.into();
+        // H-2 修复：构造时校验所有标识符
+        validate_find_identifiers(&[&main_table, &related_table, &foreign_key, &primary_key])
+            .expect("invalid SQL identifier in FindWithRelated::new");
         Self {
             dialect,
-            main_table: main_table.into(),
-            related_table: related_table.into(),
-            foreign_key: foreign_key.into(),
-            primary_key: primary_key.into(),
+            main_table,
+            related_table,
+            foreign_key,
+            primary_key,
             left_join,
             where_conds: Vec::new(),
             order_by: Vec::new(),
@@ -257,6 +264,11 @@ pub fn find_with_related_join<'a>(
 /// - `main_table` / `related_table`：表名
 /// - `foreign_key`：关联表中的外键列
 /// - `main_where`：主表 WHERE 条件（可为空）
+///
+/// # 安全
+/// - `main_table` / `related_table` / `foreign_key` 会校验为合法 SQL 标识符
+/// - **`main_where` 由调用方负责安全**：调用方必须使用参数化查询或 `WhereBuilder` 构造，
+///   严禁直接拼接用户输入（H-2 风险点）
 pub fn find_with_related_eager_sql(
     dialect: &dyn Dialect,
     main_table: &str,
@@ -264,6 +276,10 @@ pub fn find_with_related_eager_sql(
     foreign_key: &str,
     main_where: Option<&str>,
 ) -> (String, String) {
+    // H-2 修复：校验表名/列名为合法标识符
+    validate_find_identifiers(&[main_table, related_table, foreign_key])
+        .expect("invalid SQL identifier in find_with_related_eager_sql");
+
     let main_sql = if let Some(w) = main_where {
         format!("SELECT * FROM {} WHERE {}", dialect.quote(main_table), w)
     } else {
@@ -297,6 +313,10 @@ pub fn find_with_related_subquery(
     primary_key: &str,
     related_where: Option<&str>,
 ) -> String {
+    // H-2 修复：校验表名/列名为合法标识符
+    validate_find_identifiers(&[main_table, related_table, foreign_key, primary_key])
+        .expect("invalid SQL identifier in find_with_related_subquery");
+
     let inner = if let Some(w) = related_where {
         format!(
             "SELECT {} FROM {} WHERE {}",
@@ -378,9 +398,13 @@ pub struct WithRelation<'a> {
 impl<'a> WithRelation<'a> {
     /// 创建关联加载器
     pub fn new(dialect: &'a dyn Dialect, main_table: impl Into<String>) -> Self {
+        let main_table = main_table.into();
+        // H-2 修复：校验主表名
+        validate_find_identifiers(&[&main_table])
+            .expect("invalid SQL identifier in WithRelation::new");
         Self {
             dialect,
-            main_table: main_table.into(),
+            main_table,
             relations: Vec::new(),
             main_where: None,
         }
@@ -393,13 +417,18 @@ impl<'a> WithRelation<'a> {
         foreign_key: impl Into<String>,
         primary_key: impl Into<String>,
     ) -> Self {
+        let foreign_key = foreign_key.into();
+        let primary_key = primary_key.into();
+        // H-2 修复：校验关联表名/列名
+        validate_find_identifiers(&[related, &foreign_key, &primary_key])
+            .expect("invalid SQL identifier in with_has_many");
         self.relations.push((
             related,
             WithRelationItem {
                 related_table: related.to_string(),
                 kind: WithRelationKind::HasMany {
-                    foreign_key: foreign_key.into(),
-                    primary_key: primary_key.into(),
+                    foreign_key,
+                    primary_key,
                 },
             },
         ));
@@ -413,13 +442,18 @@ impl<'a> WithRelation<'a> {
         foreign_key: impl Into<String>,
         primary_key: impl Into<String>,
     ) -> Self {
+        let foreign_key = foreign_key.into();
+        let primary_key = primary_key.into();
+        // H-2 修复：校验关联表名/列名
+        validate_find_identifiers(&[related, &foreign_key, &primary_key])
+            .expect("invalid SQL identifier in with_has_one");
         self.relations.push((
             related,
             WithRelationItem {
                 related_table: related.to_string(),
                 kind: WithRelationKind::HasOne {
-                    foreign_key: foreign_key.into(),
-                    primary_key: primary_key.into(),
+                    foreign_key,
+                    primary_key,
                 },
             },
         ));
@@ -433,13 +467,18 @@ impl<'a> WithRelation<'a> {
         foreign_key: impl Into<String>,
         primary_key: impl Into<String>,
     ) -> Self {
+        let foreign_key = foreign_key.into();
+        let primary_key = primary_key.into();
+        // H-2 修复：校验关联表名/列名
+        validate_find_identifiers(&[related, &foreign_key, &primary_key])
+            .expect("invalid SQL identifier in with_belongs_to");
         self.relations.push((
             related,
             WithRelationItem {
                 related_table: related.to_string(),
                 kind: WithRelationKind::BelongsTo {
-                    foreign_key: foreign_key.into(),
-                    primary_key: primary_key.into(),
+                    foreign_key,
+                    primary_key,
                 },
             },
         ));
@@ -590,6 +629,35 @@ fn split_qualified(s: &str) -> (&str, &str) {
         Some(idx) => (&s[..idx], &s[idx + 1..]),
         None => (s, ""),
     }
+}
+
+/// 校验 SQL 标识符（表名/列名）是否合法
+///
+/// H-2 修复：find_with_related 中的所有表名/列名拼接前必须校验，防止 SQL 注入。
+/// 校验规则与 `crate::model::is_valid_sql_identifier` 一致。
+fn is_valid_sql_identifier(s: &str) -> bool {
+    if s.is_empty() || s.len() > 64 {
+        return false;
+    }
+    let mut chars = s.chars();
+    match chars.next() {
+        Some(c) if c.is_ascii_alphabetic() || c == '_' => {}
+        _ => return false,
+    }
+    chars.all(|c| c.is_ascii_alphanumeric() || c == '_')
+}
+
+/// 批量校验 find_with_related 中的 SQL 标识符
+fn validate_find_identifiers(idents: &[&str]) -> Result<(), String> {
+    for ident in idents {
+        if !is_valid_sql_identifier(ident) {
+            return Err(format!(
+                "invalid SQL identifier in find_with_related (potential SQL injection): {}",
+                ident
+            ));
+        }
+    }
+    Ok(())
 }
 
 #[cfg(test)]

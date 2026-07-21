@@ -307,7 +307,12 @@ async fn formal_state_machine_matches_specification() {
 /// 验证：连续创建 savepoint，名称中的数字单调递增
 #[tokio::test]
 async fn formal_savepoint_counter_monotonic() {
-    let mut tx = make_tx();
+    // H-8 修复适配：默认 max_nesting_depth=8，循环 10 次会触发 MaxNestingDepthExceeded。
+    // 此处显式提升上限以保留原始契约意图（验证 counter 单调递增）。
+    let db = Arc::new(Mutex::new(common::InMemoryDb::new()));
+    let conn = common::MockConnection::new(db);
+    let opts = TransactOptions::default().with_max_nesting_depth(20);
+    let mut tx = Transaction::new(Box::new(conn), opts);
     let mut prev_n: u32 = 0;
 
     for _ in 0..10 {

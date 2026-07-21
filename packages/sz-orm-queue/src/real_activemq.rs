@@ -57,6 +57,26 @@ impl RealActivemqQueue {
         self.channel = Some(channel);
         Ok(())
     }
+
+    /// M-15 修复：重新连接 ActiveMQ 服务器
+    ///
+    /// 当连接断开或长时间出错时，调用方应调用此方法重建连接和 channel。
+    ///
+    /// # 说明
+    ///
+    /// - ActiveMQ 使用 AMQP 协议（通过 lapin），与 RabbitMQ 类似
+    /// - lapin 内部通过 heartbeat 检测连接状态，但不会自动重连
+    /// - 此方法会清除旧连接、channel、consumers 和 in_flight，然后重新建立连接
+    /// - 重连后需要重新订阅所有 topic
+    pub async fn reconnect(&mut self) -> Result<(), MqError> {
+        // 清除旧状态
+        self.channel = None;
+        self.connection = None;
+        self.consumers.write().await.clear();
+        self.in_flight.write().await.clear();
+        // 重建连接
+        self.connect().await
+    }
 }
 
 impl Default for RealActivemqQueue {

@@ -4,7 +4,7 @@
 //! - 连接 Pulsar broker（pulsar:// 或 pulsar+ssl://）
 //! - 生产消息（Producer）
 //! - 消费消息（Consumer）
-//! - ACK（consumer.ack()）
+//! - ACK（consumer.ack_with()，H-5 修复：真实 ack 而非 no-op）
 //!
 //! 限制：
 //! - 当前实现为单条消费模式（非流式）
@@ -13,7 +13,7 @@
 use crate::error::MqError;
 use crate::queue::{Message, MessageQueue};
 use async_trait::async_trait;
-use pulsar::{producer, Consumer, ConsumerBuilder, DeserializeMessage, Pulsar, TokioExecutor};
+use pulsar::{producer, Consumer, DeserializeMessage, MessageId, Pulsar, SubType, TokioExecutor};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -24,6 +24,8 @@ pub struct RealPulsarQueue {
     pulsar: Option<Arc<Pulsar<TokioExecutor>>>,
     producer: Option<Arc<producer::Producer<TokioExecutor>>>,
     consumers: Arc<RwLock<HashMap<String, Arc<Mutex<Consumer<BytesMessage, TokioExecutor>>>>>>,
+    /// H-5 修复：message_id → (topic, MessageId) 映射，用于 ack 时定位 consumer
+    pending_acks: Arc<RwLock<HashMap<String, (String, MessageId)>>>,
 }
 
 impl RealPulsarQueue {
@@ -34,6 +36,7 @@ impl RealPulsarQueue {
             pulsar: None,
             producer: None,
             consumers: Arc::new(RwLock::new(HashMap::new())),
+            pending_acks: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
@@ -45,6 +48,26 @@ impl RealPulsarQueue {
             .map_err(|e| MqError::Connection(format!("Pulsar connect failed: {e}")))?;
         self.pulsar = Some(Arc::new(pulsar));
         Ok(())
+    }
+
+    /// M-14 修复：重新连接 Pulsar broker
+    ///
+    /// 当连接断开或长时间出错时，调用方应调用此方法重建连接。
+    ///
+    /// # 说明
+    ///
+    /// - pulsar crate 内部有一定重连能力，但 broker 完全不可达时需要外部重建
+    /// - 此方法会清除旧连接、producer、consumers 和 pending_acks
+    /// - 重连后需要重新订阅所有 topic
+    /// - pending_acks 中的未 ack 消息会丢失（Pulsar 会重新投递）
+    pub async fn reconnect(&mut self) -> Result<(), MqError> {
+        // 清除旧状态
+        self.pulsar = None;
+        self.producer = None;
+        self.consumers.write().await.clear();
+        self.pending_acks.write().await.clear();
+        // 重建连接
+        self.connect().await
     }
 }
 
@@ -113,7 +136,7 @@ impl MessageQueue for RealPulsarQueue {
                     .consumer()
                     .with_topic(topic)
                     .with_consumer_name("sz-orm-queue")
-                    .with_subscription_type(pulsar::SubType::Exclusive)
+                    .with_subscription_type(SubType::Exclusive)
                     .with_subscription("sz-orm-subscription")
                     .build()
                     .await
@@ -134,15 +157,20 @@ impl MessageQueue for RealPulsarQueue {
         match tokio::time::timeout(std::time::Duration::from_millis(100), consumer.next()).await {
             Ok(Some(Ok(msg))) => {
                 let payload = msg.payload.0.clone();
-                let msg_id = format!("{:?}", msg.message_id());
-                // 暂存 message_id 用于后续 ack
+                let pulsar_msg_id = msg.message_id();
+                let msg_id_str = format!("{:?}", pulsar_msg_id);
+                // H-5 修复：暂存 message_id 用于后续 ack
+                self.pending_acks
+                    .write()
+                    .await
+                    .insert(msg_id_str.clone(), (topic.to_string(), pulsar_msg_id));
                 let message = Message {
                     topic: topic.to_string(),
                     payload,
                     key: None,
                     timestamp: current_timestamp_millis(),
                     headers: HashMap::new(),
-                    id: msg_id,
+                    id: msg_id_str,
                 };
                 Ok(Some(message))
             }
@@ -151,11 +179,35 @@ impl MessageQueue for RealPulsarQueue {
         }
     }
 
+    /// H-5 修复：真实 ack，调用 consumer.ack_with()
+    ///
+    /// 通过 pending_acks 映射查找 message_id 对应的 topic 和 Pulsar MessageId，
+    /// 然后从 consumers 中获取对应 consumer 调用 ack_with。
     async fn ack(&self, message_id: &str) -> Result<(), MqError> {
-        // Pulsar 的 ack 需要 consumer 引用，当前简化实现
-        // 完整实现需要在 consume 时暂存 message_id → consumer 映射
-        // 此处标注为"需扩展"
-        let _ = message_id;
+        // 从 pending_acks 中取出 (topic, MessageId)
+        let (topic, pulsar_msg_id) = {
+            let mut pending = self.pending_acks.write().await;
+            pending.remove(message_id).ok_or_else(|| {
+                MqError::NotSupported(format!(
+                    "Pulsar message_id not found for ack: {}",
+                    message_id
+                ))
+            })?
+        };
+
+        // 从 consumers 中获取对应 consumer
+        let consumer_arc = {
+            let subs = self.consumers.read().await;
+            subs.get(&topic).cloned().ok_or_else(|| {
+                MqError::Connection(format!("Pulsar consumer not found for topic: {}", topic))
+            })?
+        };
+
+        let mut consumer = consumer_arc.lock().await;
+        consumer
+            .ack_with(pulsar_msg_id)
+            .await
+            .map_err(|e| MqError::Publish(format!("Pulsar ack failed: {e}")))?;
         Ok(())
     }
 
@@ -169,7 +221,7 @@ impl MessageQueue for RealPulsarQueue {
             .consumer()
             .with_topic(topic)
             .with_consumer_name("sz-orm-queue")
-            .with_subscription_type(pulsar::SubType::Exclusive)
+            .with_subscription_type(SubType::Exclusive)
             .with_subscription("sz-orm-subscription")
             .build()
             .await
@@ -222,6 +274,16 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[tokio::test]
+    async fn test_h5_pulsar_ack_unknown_message_id_fails() {
+        // H-5 修复：未在 pending_acks 中的 message_id 应失败
+        let queue = RealPulsarQueue::new("pulsar://localhost:6650");
+        let result = queue.ack("unknown-msg-id").await;
+        assert!(result.is_err());
+        let err = result.unwrap_err().to_string();
+        assert!(err.contains("not found"), "err: {err}");
+    }
+
     /// 真实 Pulsar 集成测试（需启动 Pulsar Standalone）
     /// 启动方式：docker run -p 6650:6650 apachepulsar/pulsar:latest bin/pulsar standalone
     #[tokio::test]
@@ -244,5 +306,8 @@ mod tests {
             .expect("message should exist");
         assert_eq!(msg.payload, b"hello pulsar");
         assert_eq!(msg.topic, "test-topic");
+
+        // H-5 修复验证：真实 ack
+        queue.ack(&msg.id).await.unwrap();
     }
 }

@@ -63,3 +63,37 @@ pub use timeseries::RealTimescaleConfig;
 
 #[cfg(feature = "real-timescale")]
 pub use real_timescale::RealTimescale;
+
+/// M-17 修复：查询时间范围最大跨度（秒）
+///
+/// 限制单次 `query_range` / `time_bucket_aggregate` 的时间范围不能超过 366 天，
+/// 防止调用方误用（如查询 100 年的数据）导致 OOM 或数据库性能问题。
+///
+/// - 366 天 ≈ 1 年（含闰年），足以覆盖常见的监控/分析场景
+/// - 366 * 86400 = 31,622,400 秒
+pub const MAX_QUERY_RANGE_SECS: i64 = 366 * 86400;
+
+/// M-17 修复：校验时间范围是否在合理跨度内
+///
+/// - `start >= end`：返回 `InvalidTimeRange` 错误
+/// - `(end - start) > MAX_QUERY_RANGE_SECS`：返回 `InvalidTimeRange` 错误
+/// - 其他情况：返回 Ok
+pub fn validate_time_range(
+    start: chrono::DateTime<chrono::Utc>,
+    end: chrono::DateTime<chrono::Utc>,
+) -> Result<(), TimescaleError> {
+    if start >= end {
+        return Err(TimescaleError::InvalidTimeRange {
+            start: start.to_rfc3339(),
+            end: end.to_rfc3339(),
+        });
+    }
+    let duration_secs = (end - start).num_seconds();
+    if duration_secs > MAX_QUERY_RANGE_SECS {
+        return Err(TimescaleError::InvalidTimeRange {
+            start: start.to_rfc3339(),
+            end: end.to_rfc3339(),
+        });
+    }
+    Ok(())
+}

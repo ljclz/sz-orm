@@ -95,12 +95,8 @@ impl TimeseriesExt for MemoryTimeseries {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<Metric>, TimescaleError> {
-        if start >= end {
-            return Err(TimescaleError::InvalidTimeRange {
-                start: start.to_rfc3339(),
-                end: end.to_rfc3339(),
-            });
-        }
+        // M-17 修复：校验时间范围（start < end 且跨度 <= MAX_QUERY_RANGE_SECS）
+        crate::validate_time_range(start, end)?;
         let storage = self.storage.lock().unwrap();
         let data = storage.get(metric).cloned().unwrap_or_default();
         Ok(data
@@ -117,12 +113,8 @@ impl TimeseriesExt for MemoryTimeseries {
         start: DateTime<Utc>,
         end: DateTime<Utc>,
     ) -> Result<Vec<TimeBucket>, TimescaleError> {
-        if start >= end {
-            return Err(TimescaleError::InvalidTimeRange {
-                start: start.to_rfc3339(),
-                end: end.to_rfc3339(),
-            });
-        }
+        // M-17 修复：校验时间范围（start < end 且跨度 <= MAX_QUERY_RANGE_SECS）
+        crate::validate_time_range(start, end)?;
         let bucket_secs = Self::parse_bucket(bucket)?;
         let bucket_duration = chrono::Duration::seconds(bucket_secs);
 
@@ -274,6 +266,80 @@ mod tests {
             result,
             Err(TimescaleError::InvalidTimeRange { .. })
         ));
+    }
+
+    /// M-17 测试：时间范围超过 366 天应被拒绝
+    #[tokio::test]
+    async fn test_m17_query_range_exceeds_max() {
+        let ts = MemoryTimeseries::new();
+        let start = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        // 400 天 > 366 天上限
+        let end = start + chrono::Duration::days(400);
+        let result = ts.query_range("cpu", start, end).await;
+        assert!(matches!(
+            result,
+            Err(TimescaleError::InvalidTimeRange { .. })
+        ));
+    }
+
+    /// M-17 测试：time_bucket_aggregate 时间范围超过 366 天应被拒绝
+    #[tokio::test]
+    async fn test_m17_time_bucket_range_exceeds_max() {
+        let ts = MemoryTimeseries::new();
+        let start = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        // 400 天 > 366 天上限
+        let end = start + chrono::Duration::days(400);
+        let result = ts
+            .time_bucket_aggregate("cpu", "1d", Aggregation::Avg, start, end)
+            .await;
+        assert!(matches!(
+            result,
+            Err(TimescaleError::InvalidTimeRange { .. })
+        ));
+    }
+
+    /// M-17 测试：366 天的边界（应允许）
+    #[tokio::test]
+    async fn test_m17_range_boundary_366_days_allowed() {
+        let ts = MemoryTimeseries::new();
+        let start = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let end = start + chrono::Duration::seconds(crate::MAX_QUERY_RANGE_SECS);
+        // 应允许（恰好 366 天）
+        let result = ts.query_range("cpu", start, end).await;
+        assert!(result.is_ok());
+    }
+
+    /// M-17 测试：366 天 + 1 秒的边界（应拒绝）
+    #[tokio::test]
+    async fn test_m17_range_boundary_366_days_plus_one_sec_rejected() {
+        let ts = MemoryTimeseries::new();
+        let start = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        let end = start + chrono::Duration::seconds(crate::MAX_QUERY_RANGE_SECS + 1);
+        let result = ts.query_range("cpu", start, end).await;
+        assert!(matches!(
+            result,
+            Err(TimescaleError::InvalidTimeRange { .. })
+        ));
+    }
+
+    /// M-17 测试：validate_time_range 函数单元测试
+    #[test]
+    fn test_m17_validate_time_range_function() {
+        let start = Utc.with_ymd_and_hms(2026, 1, 1, 0, 0, 0).unwrap();
+        // start == end：拒绝
+        assert!(crate::validate_time_range(start, start).is_err());
+        // start > end：拒绝
+        let end = start - chrono::Duration::seconds(1);
+        assert!(crate::validate_time_range(start, end).is_err());
+        // 正常范围：允许
+        let end = start + chrono::Duration::days(30);
+        assert!(crate::validate_time_range(start, end).is_ok());
+        // 366 天：允许
+        let end = start + chrono::Duration::seconds(crate::MAX_QUERY_RANGE_SECS);
+        assert!(crate::validate_time_range(start, end).is_ok());
+        // 366 天 + 1 秒：拒绝
+        let end = start + chrono::Duration::seconds(crate::MAX_QUERY_RANGE_SECS + 1);
+        assert!(crate::validate_time_range(start, end).is_err());
     }
 
     #[tokio::test]

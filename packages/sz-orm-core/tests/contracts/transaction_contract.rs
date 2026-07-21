@@ -146,7 +146,12 @@ async fn test_savepoint_name_format_contract() {
 
 #[tokio::test]
 async fn test_savepoint_name_monotonic_increment_contract() {
-    let mut tx = make_tx();
+    // H-8 修复适配：默认 max_nesting_depth=8，循环 10 次会触发 MaxNestingDepthExceeded。
+    // 此处显式提升上限以保留原始契约意图（验证名称单调递增）。
+    let db = Arc::new(Mutex::new(InMemoryDb::new()));
+    let conn = MockConnection::new(db);
+    let opts = TransactOptions::default().with_max_nesting_depth(20);
+    let mut tx = Transaction::new(Box::new(conn), opts);
     let mut names = Vec::new();
     for _ in 0..10 {
         names.push(tx.savepoint().await.unwrap());

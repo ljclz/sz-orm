@@ -151,6 +151,9 @@ impl PgVectorStore for InMemoryVectorStore {
         query: &[f32],
         top_k: usize,
     ) -> Result<Vec<SearchResult>, VectorError> {
+        // M-16 修复：校验 top_k 范围
+        let top_k = crate::validate_top_k(top_k)?;
+
         let collections = self
             .collections
             .read()
@@ -406,5 +409,73 @@ mod tests {
         assert_eq!(cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]), 1.0);
         assert!((cosine_similarity(&[1.0, 0.0], &[0.0, 1.0])).abs() < 1e-6);
         assert_eq!(cosine_similarity(&[], &[]), 0.0);
+    }
+
+    /// M-16 测试：top_k = 0 应被拒绝
+    #[tokio::test]
+    async fn test_m16_top_k_zero_rejected() {
+        let store = InMemoryVectorStore::new();
+        store.create_collection("docs", 2, None).await.unwrap();
+        store
+            .insert("docs", vec![VectorRecord::new("a", vec![1.0, 0.0])])
+            .await
+            .unwrap();
+        let err = store.search("docs", &[1.0, 0.0], 0).await;
+        assert!(matches!(
+            err,
+            Err(VectorError::TopKExceeded {
+                requested: 0,
+                max: crate::MAX_TOP_K
+            })
+        ));
+    }
+
+    /// M-16 测试：top_k 超过 MAX_TOP_K 应被拒绝
+    #[tokio::test]
+    async fn test_m16_top_k_exceeded_rejected() {
+        let store = InMemoryVectorStore::new();
+        store.create_collection("docs", 2, None).await.unwrap();
+        store
+            .insert("docs", vec![VectorRecord::new("a", vec![1.0, 0.0])])
+            .await
+            .unwrap();
+        let err = store
+            .search("docs", &[1.0, 0.0], crate::MAX_TOP_K + 1)
+            .await;
+        assert!(matches!(
+            err,
+            Err(VectorError::TopKExceeded { requested, max }) if requested == crate::MAX_TOP_K + 1 && max == crate::MAX_TOP_K
+        ));
+    }
+
+    /// M-16 测试：top_k = MAX_TOP_K 应允许
+    #[tokio::test]
+    async fn test_m16_top_k_max_allowed() {
+        let store = InMemoryVectorStore::new();
+        store.create_collection("docs", 2, None).await.unwrap();
+        store
+            .insert("docs", vec![VectorRecord::new("a", vec![1.0, 0.0])])
+            .await
+            .unwrap();
+        // top_k = MAX_TOP_K 不应触发错误（即使记录数远少于 MAX_TOP_K）
+        let results = store
+            .search("docs", &[1.0, 0.0], crate::MAX_TOP_K)
+            .await
+            .unwrap();
+        assert_eq!(results.len(), 1);
+    }
+
+    /// M-16 测试：validate_top_k 函数单元测试
+    #[test]
+    fn test_m16_validate_top_k_function() {
+        use crate::validate_top_k;
+        // 有效值
+        assert_eq!(validate_top_k(1).unwrap(), 1);
+        assert_eq!(validate_top_k(100).unwrap(), 100);
+        assert_eq!(validate_top_k(crate::MAX_TOP_K).unwrap(), crate::MAX_TOP_K);
+        // 无效值
+        assert!(validate_top_k(0).is_err());
+        assert!(validate_top_k(crate::MAX_TOP_K + 1).is_err());
+        assert!(validate_top_k(usize::MAX).is_err());
     }
 }
