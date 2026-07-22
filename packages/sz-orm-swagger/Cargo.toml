@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-swagger"
+description = "OpenAPI/Swagger spec generator: path/method/parameter/response builder, self-contained Swagger UI HTML rendering"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

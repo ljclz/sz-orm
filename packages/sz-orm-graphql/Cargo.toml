@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-graphql"
+description = "GraphQL schema generator and server: SDL generation, model-driven Query/Mutation, optional async-graphql runtime"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
