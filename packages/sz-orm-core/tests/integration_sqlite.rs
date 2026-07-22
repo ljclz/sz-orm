@@ -23,21 +23,17 @@ fn temp_sqlite_path() -> String {
         .unwrap_or_default()
         .as_nanos();
     let counter = SQLITE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    let path = std::env::temp_dir().join(format!(
-        "sz_orm_int_sqlite_{}_{}_{}.db",
-        pid, nanos, counter
-    ));
-    path.to_string_lossy().to_string()
+    std::env::temp_dir()
+        .join(format!("sz_orm_int_sqlite_{}_{}_{}.db", pid, nanos, counter))
+        .to_string_lossy()
+        .to_string()
 }
 
-/// 打开一个新的 SQLite 连接（文件模式，用于测试持久化）
+/// 打开一个新的 SQLite 连接（内存模式，避免 CI 磁盘 I/O 问题）
 fn open_conn() -> RusqliteConn {
-    let path = temp_sqlite_path();
-    let conn = RusqliteConn::open(&path).expect("open sqlite");
+    let conn = RusqliteConn::open_in_memory().expect("open sqlite in-memory");
     conn.pragma_update(None, "journal_mode", "WAL").ok();
     conn.pragma_update(None, "synchronous", "NORMAL").ok();
-    // 测试结束时自动删除文件
-    let _ = std::fs::remove_file(&path);
     conn
 }
 
