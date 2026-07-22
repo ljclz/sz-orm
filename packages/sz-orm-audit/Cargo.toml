@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-audit"
+description = "SQL audit log: execution audit trail with case-insensitive sensitive-keyword masking (password/token/credit_card) and JSON flush"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

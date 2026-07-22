@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-health"
+description = "Health check & SLO alerting: pool status aggregation, p50/p95/p99 latency, failover policy, circuit breaker, multi-region view, alert channels (log/webhook/IM)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

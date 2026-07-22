@@ -37,9 +37,9 @@ SZ-ORM 是一套**生产级、L4 金融级纯 Rust ORM 工作空间**，兼容 T
 
 ### 1.2 质量基线（实测数据）
 
-- 测试总量：**2950 passed, 0 failed**（112 个测试套件，需真实 DB/云服务的标记 ignored）
+- 测试总量：**3047 passed, 0 failed**（112 个测试套件，需真实 DB/云服务的标记 ignored）
 - 工作空间成员：**39（36 sz-orm-* lib + sz-orm-vector + cli + examples）**
-- 代码规模：**85,834 LOC（src/ 18,430 + tests/ 67,404）**
+- 代码规模：**89,329 LOC（src/ 75,388 + tests/ 13,941）**
 - 七线验证：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal
 - 生产代码 **0 处 panic!**、0 处 `unimplemented!`/`todo!`
 - `cargo clippy --workspace --all-targets -- -D warnings` 全通过（0 warnings）
@@ -1788,7 +1788,7 @@ SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored
 
 ### 8.5 工程化规范文档
 
-详细的工程化规范见 [sz-orm-engineering-practices.md](../../sz-orm/docs/sz-orm-engineering-practices.md)。
+详细的工程化规范见 [sz-orm-engineering-practices.md](sz-orm-engineering-practices.md)。
 
 ---
 

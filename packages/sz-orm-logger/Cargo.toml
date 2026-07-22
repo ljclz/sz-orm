@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-logger"
+description = "Structured logger: multi-level (Debug/Info/Warn/Error) filtering with shared sink, LoggerFactory, and counters/gauges metrics"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

@@ -1,5 +1,6 @@
 [package]
 name = "sz-orm-masking"
+description = "Data masking: Unicode-safe masking for phone/email/IdCard/bankCard/name/address with custom prefix-suffix rules"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
