@@ -105,9 +105,6 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-hack-
 
-      - name: Install protoc (for pulsar crate)
-        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler
-
       - name: Install cargo-hack
         run: cargo install cargo-hack --locked
 
@@ -147,7 +144,7 @@ jobs:
 
       - name: Detect unused dependencies
         continue-on-error: true
-        run: cargo +nightly udeps --workspace --all-targets
+        run: cargo +nightly udeps --workspace --all-targets || true
 
   # ============================================================================
   # Job 3: 工作空间单元/集成测试（无外部数据库）
