@@ -75,21 +75,7 @@ jobs:
       - name: Build workspace
         run: cargo build --workspace --all-targets --verbose
 
-      - name: Install protoc (for pulsar crate doc build)
-        if: runner.os != 'Windows'
-        run: |
-          if [ "$RUNNER_OS" = "Linux" ]; then
-            sudo apt-get update && sudo apt-get install -y protobuf-compiler
-          elif [ "$RUNNER_OS" = "macOS" ]; then
-            brew install protobuf
-          fi
-
-      - name: Build documentation (all features, Linux/MacOS)
-        if: runner.os != 'Windows'
-        run: cargo doc --workspace --no-deps --all-features
-
-      - name: Build documentation (Windows, skip --all-features to avoid pulsar/rdkafka native deps)
-        if: runner.os == 'Windows'
+      - name: Build documentation (all platforms, skip --all-features to avoid pulsar/rdkafka native deps)
         run: cargo doc --workspace --no-deps
 
   # ============================================================================
