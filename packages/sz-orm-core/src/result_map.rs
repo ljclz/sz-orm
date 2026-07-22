@@ -510,6 +510,7 @@ impl std::error::Error for ResultMapError {}
 /// 2. 应用 id_mappings 和 result_mappings，将列值填入属性
 /// 3. 递归处理 associations（一对一）
 /// 4. 单行模式下 collections 仅返回当前行解析出的单个子实体（多次行合并需用 `apply_result_map_many`）
+#[tracing::instrument(skip(registry, row), fields(map_id = map_id))]
 pub fn apply_result_map(
     registry: &ResultMapRegistry,
     map_id: &str,
@@ -636,6 +637,7 @@ pub fn apply_result_map(
 /// 1. 按主键（id_mappings 的属性值）分组：同一主键的多行合并为一个实体
 /// 2. associations 取第一行解析结果
 /// 3. collections 跨行聚合：每行解析出的子实体追加到数组
+#[tracing::instrument(skip(registry, rows), fields(map_id = map_id, row_count = rows.len()))]
 pub fn apply_result_map_many(
     registry: &ResultMapRegistry,
     map_id: &str,

@@ -61,6 +61,8 @@
 - **学习路线图**：新增 `docs/sz-orm学习路线图.md`，L1-L4 分阶段学习指南（含按角色推荐路线和验收标准）
 - **学习教程重写**：将学习路线图重写为**面向 PHP/ThinkPHP 工程师的具体学习教程**（17 章 + 3 附录），包含 Rust 速通（对照 PHP）、ThinkPHP ↔ sz-orm 逐概念对照、可运行代码示例、AI 协作开发姿势（提问模板/验证 5 步法/常见陷阱），修复失效文档链接（`sz-orm性能基准.md`、`docs/Security.md` 路径错误）
 - **Benchmark 扩展**：新增 3 组 criterion 基准测试 — `query_builder_select`（3 种复杂度 SELECT 构建）、`query_builder_insert_update`（INSERT/UPDATE/DELETE 4 种操作）、`value_batch_to_param`（10/100/1000 批量转换），共 10 组
+- **ADR 覆盖率扩展**：新增 4 个 ADR（0006-0009）覆盖关联关系加载三策略、ResultMap 分组聚合、连接池持锁不 await close、QueryBuilder 只生成 SQL 不执行，每个 ADR 含 Bug 定位提示，将 ADR 从决策记忆扩展到 bug 定位辅助
+- **core 包 tracing 可观测性**：为 sz-orm-core 关键路径添加 `#[tracing::instrument]` 注解 — 连接池（acquire/release/close_all/reap_idle）、QueryBuilder（build_select/build_insert/build_update/build_delete）、关联加载（load_eager/load_join/find_with_related_eager_sql/find_with_related_subquery）、结果映射（apply_result_map/apply_result_map_many），生产 bug 可通过 tracing span 定位
 
 ### Changed
 

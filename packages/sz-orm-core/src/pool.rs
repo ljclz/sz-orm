@@ -307,6 +307,7 @@ impl Pool {
     /// # Ok(())
     /// # }
     /// ```
+    #[tracing::instrument(skip(self), fields(max_size = self.config.max_size, acquire_timeout = ?self.config.acquire_timeout))]
     pub async fn acquire(&self) -> Result<PooledConnection, PoolError> {
         // close_all 后拒绝新 acquire
         if self.closed.load(Ordering::Acquire) {
@@ -411,6 +412,7 @@ impl Pool {
     ///
     /// 接收 `PooledConnection` 以保留原始 `created_at`，避免 `max_lifetime`
     /// 在每次归还后被重置（Critical bug fix）。
+    #[tracing::instrument(skip(self, pooled))]
     pub async fn release(&self, mut pooled: PooledConnection) {
         // 检查池是否已关闭
         if self.closed.load(Ordering::Acquire) {
@@ -451,6 +453,7 @@ impl Pool {
     }
 
     /// 回收空闲过久的连接
+    #[tracing::instrument(skip(self))]
     pub async fn reap_idle(&self) {
         let mut idle = self.idle.lock().await;
         let mut to_close = Vec::new();

@@ -276,6 +276,7 @@ impl<M: Model> QueryBuilder<M> {
     ///     .build_select();
     /// // sql => "SELECT id, name FROM `users` WHERE age > 18 ORDER BY id DESC LIMIT 10"
     /// ```
+    #[tracing::instrument(skip(self), fields(op = "select"))]
     pub fn build_select(&self) -> String {
         let table = self
             .table
@@ -469,6 +470,7 @@ impl<M: Model> QueryBuilder<M> {
         format!(" WHERE {}", group_strs.join(" AND "))
     }
 
+    #[tracing::instrument(skip(self, data), fields(op = "insert"))]
     pub fn build_insert(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
@@ -494,6 +496,7 @@ impl<M: Model> QueryBuilder<M> {
         )
     }
 
+    #[tracing::instrument(skip(self, data), fields(op = "update"))]
     pub fn build_update(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
@@ -525,6 +528,7 @@ impl<M: Model> QueryBuilder<M> {
         sql
     }
 
+    #[tracing::instrument(skip(self), fields(op = "delete"))]
     pub fn build_delete(&self) -> String {
         let table = self
             .table

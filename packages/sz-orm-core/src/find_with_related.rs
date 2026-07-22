@@ -269,6 +269,7 @@ pub fn find_with_related_join<'a>(
 /// - `main_table` / `related_table` / `foreign_key` 会校验为合法 SQL 标识符
 /// - **`main_where` 由调用方负责安全**：调用方必须使用参数化查询或 `WhereBuilder` 构造，
 ///   严禁直接拼接用户输入（H-2 风险点）
+#[tracing::instrument(skip(dialect), fields(main_table = main_table, related_table = related_table, strategy = "eager_sql"))]
 pub fn find_with_related_eager_sql(
     dialect: &dyn Dialect,
     main_table: &str,
@@ -305,6 +306,7 @@ pub fn find_with_related_eager_sql(
 ///   SELECT `fk` FROM `related` WHERE <related_where>
 /// )
 /// ```
+#[tracing::instrument(skip(dialect), fields(main_table = main_table, related_table = related_table, strategy = "subquery"))]
 pub fn find_with_related_subquery(
     dialect: &dyn Dialect,
     main_table: &str,
@@ -491,6 +493,7 @@ impl<'a> WithRelation<'a> {
     ///
     /// 返回 `self` 后通过 [`main_sql`](Self::main_sql) 和
     /// [`related_sql`](Self::related_sql) 获取生成的 SQL。
+    #[tracing::instrument(skip(self), fields(strategy = "eager", main_table = &self.main_table))]
     pub fn load_eager(mut self, main_where: Option<&str>) -> Self {
         self.main_where = main_where.map(String::from);
         self
@@ -500,6 +503,7 @@ impl<'a> WithRelation<'a> {
     ///
     /// HasMany / HasOne → LEFT JOIN
     /// BelongsTo → INNER JOIN
+    #[tracing::instrument(skip(self), fields(strategy = "join", main_table = &self.main_table))]
     pub fn load_join(&self, main_where: Option<&str>) -> String {
         let mut sql = format!("SELECT {}.*", self.dialect.quote(&self.main_table));
         // 添加所有关联表的列
