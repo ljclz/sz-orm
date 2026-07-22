@@ -1125,6 +1125,8 @@ mod tests {
 
     #[test]
     fn hook_dispatcher_find_full_sequence() {
+        let _guard = HOOK_TEST_LOCK.lock().unwrap();
+        dispatch_calls().store(0, std::sync::atomic::Ordering::SeqCst);
         reset_after_calls();
         let mut ctx = HookContext::new();
         let called = Arc::new(std::sync::atomic::AtomicU32::new(0));
