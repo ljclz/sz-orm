@@ -81,7 +81,7 @@ jobs:
       S3_TEST_SECRET_KEY: minioadmin
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
