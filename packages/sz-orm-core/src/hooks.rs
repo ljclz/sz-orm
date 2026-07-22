@@ -970,31 +970,34 @@ mod tests {
     }
 
     // after_* 钩子接收 &HookContext（不可变），无法直接 set_meta
-    // 通过 OnceLock 持有的 RwLock<HashMap> 记录 after_* 的调用
-    static AFTER_CALLS: std::sync::OnceLock<std::sync::RwLock<std::collections::HashSet<String>>> =
-        std::sync::OnceLock::new();
+    // 使用 AtomicU32 计数器记录 after_* 调用次数（无锁，无线程安全问题）
+    static AFTER_VALIDATE_COUNT: std::sync::atomic::AtomicU32 =
+        std::sync::atomic::AtomicU32::new(0);
+    static AFTER_FIND_COUNT: std::sync::atomic::AtomicU32 = std::sync::atomic::AtomicU32::new(0);
 
-    fn after_calls() -> &'static std::sync::RwLock<std::collections::HashSet<String>> {
-        AFTER_CALLS.get_or_init(|| std::sync::RwLock::new(std::collections::HashSet::new()))
-    }
-
-    fn ctx_set_meta_for_after(_ctx: &HookContext, key: &str, value: &str) {
-        if let Ok(mut set) = after_calls().write() {
-            set.insert(format!("{}={}", key, value));
+    fn ctx_set_meta_for_after(_ctx: &HookContext, key: &str, _value: &str) {
+        match key {
+            "after_validate" => {
+                AFTER_VALIDATE_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            "after_find" => {
+                AFTER_FIND_COUNT.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            }
+            _ => {}
         }
     }
 
     fn after_call_was(key: &str) -> bool {
-        after_calls()
-            .read()
-            .map(|s| s.contains(&format!("{}=1", key)))
-            .unwrap_or(false)
+        match key {
+            "after_validate" => AFTER_VALIDATE_COUNT.load(std::sync::atomic::Ordering::SeqCst) > 0,
+            "after_find" => AFTER_FIND_COUNT.load(std::sync::atomic::Ordering::SeqCst) > 0,
+            _ => false,
+        }
     }
 
     fn reset_after_calls() {
-        if let Ok(mut s) = after_calls().write() {
-            s.clear();
-        }
+        AFTER_VALIDATE_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
+        AFTER_FIND_COUNT.store(0, std::sync::atomic::Ordering::SeqCst);
     }
 
     // 串行化锁：全局静态计数器是共享的，并行测试会互相干扰

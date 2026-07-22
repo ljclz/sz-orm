@@ -108,6 +108,9 @@ jobs:
       - name: Install cargo-hack
         run: cargo install cargo-hack --locked
 
+      - name: Install native deps (protoc + cmake for pulsar/rdkafka features)
+        run: sudo apt-get update && sudo apt-get install -y protobuf-compiler cmake
+
       - name: Check each feature compiles independently
         run: cargo hack check --workspace --each-feature --no-dev-deps
 
