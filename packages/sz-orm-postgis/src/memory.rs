@@ -125,15 +125,10 @@ impl PostgisExt for MemoryPostgis {
 
     async fn st_union(&self, g1: &Geometry, g2: &Geometry) -> Result<Geometry, PostgisError> {
         match (g1, g2) {
-            (Geometry::Point(_), Geometry::Point(_)) => {
+            (Geometry::Point(p1), Geometry::Point(p2)) => {
                 // 简化：返回 MultiPoint
-                match (g1, g2) {
-                    (Geometry::Point(p1), Geometry::Point(p2)) => {
-                        check_srid(p1.srid, p2.srid)?;
-                        Ok(Geometry::MultiPoint(vec![*p1, *p2]))
-                    }
-                    _ => unreachable!(),
-                }
+                check_srid(p1.srid, p2.srid)?;
+                Ok(Geometry::MultiPoint(vec![*p1, *p2]))
             }
             _ => Err(PostgisError::Unsupported(format!(
                 "st_union only supports Point-Point in memory impl, got {}-{}",

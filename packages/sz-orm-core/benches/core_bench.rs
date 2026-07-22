@@ -15,7 +15,7 @@
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 use std::collections::HashMap;
 use std::sync::Arc;
-use sz_orm_core::dialect::{get_dialect, ColumnDef};
+use sz_orm_core::dialect::{get_dialect, ColumnDef, MySqlDialect};
 use sz_orm_core::{Connection, ConnectionFactory, DbType, Pool, PoolConfig, Value};
 
 // ============================================================================
@@ -438,6 +438,176 @@ fn bench_json_parsing(c: &mut Criterion) {
     group.finish();
 }
 
+// ============================================================================
+// QueryBuilder::build_select 性能（不同复杂度的 SELECT）
+// ============================================================================
+
+fn bench_query_builder_select(c: &mut Criterion) {
+    use sz_orm_core::Model;
+    use sz_orm_core::QueryBuilder;
+
+    struct BenchModel;
+    impl Model for BenchModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "bench_table"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+
+    let mut group = c.benchmark_group("query_builder_select");
+    group.throughput(Throughput::Elements(1));
+
+    // 简单：SELECT * FROM table WHERE id = ?
+    group.bench_function("simple_where", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .where_cond("id = 1");
+            black_box(qb.build_select())
+        })
+    });
+
+    // 中等：SELECT col1,col2 FROM table WHERE a=? AND b IN(?) ORDER BY c LIMIT 10
+    group.bench_function("medium_where_in_orderby", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .select(vec!["col1", "col2", "col3"])
+                .where_cond("a = 1")
+                .where_cond("b > 10")
+                .where_in("status", vec![Value::I64(1), Value::I64(2)])
+                .order_by("created_at")
+                .limit(10);
+            black_box(qb.build_select())
+        })
+    });
+
+    // 复杂：多条件 + BETWEEN + ORDER BY + LIMIT + OFFSET
+    group.bench_function("complex_between_limit_offset", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .select(vec!["id", "name", "email", "status", "created_at"])
+                .where_cond("status = 'active'")
+                .where_between("age", Value::I64(18), Value::I64(65))
+                .where_not_null("email")
+                .order_by("created_at")
+                .limit(20);
+            black_box(qb.build_select())
+        })
+    });
+
+    group.finish();
+}
+
+// ============================================================================
+// QueryBuilder::build_insert / build_update 性能
+// ============================================================================
+
+fn bench_query_builder_insert_update(c: &mut Criterion) {
+    use sz_orm_core::Model;
+    use sz_orm_core::QueryBuilder;
+
+    struct BenchModel;
+    impl Model for BenchModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "bench_table"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+
+    let mut group = c.benchmark_group("query_builder_insert_update");
+    group.throughput(Throughput::Elements(1));
+
+    // 构造测试数据
+    fn make_data(n: usize) -> HashMap<String, Value> {
+        let mut data = HashMap::new();
+        data.insert("id".to_string(), Value::I64(1));
+        for i in 0..n {
+            data.insert(format!("col_{}", i), Value::String(format!("value_{}", i)));
+        }
+        data
+    }
+
+    // INSERT 5 列
+    let data_5 = make_data(4);
+    group.bench_function("insert_5_cols", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect)).table("bench_table");
+            black_box(qb.build_insert(black_box(&data_5)))
+        })
+    });
+
+    // INSERT 20 列
+    let data_20 = make_data(19);
+    group.bench_function("insert_20_cols", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect)).table("bench_table");
+            black_box(qb.build_insert(black_box(&data_20)))
+        })
+    });
+
+    // UPDATE 5 列 + WHERE
+    group.bench_function("update_5_cols_where", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .where_cond("id = 1");
+            black_box(qb.build_update(black_box(&data_5)))
+        })
+    });
+
+    // DELETE + WHERE
+    group.bench_function("delete_where", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .where_cond("id = 1");
+            black_box(qb.build_delete())
+        })
+    });
+
+    group.finish();
+}
+
+// ============================================================================
+// Value::to_param 批量性能（模拟批量 INSERT 场景）
+// ============================================================================
+
+fn bench_value_batch_to_param(c: &mut Criterion) {
+    let mut group = c.benchmark_group("value_batch_to_param");
+
+    for n in [10usize, 100, 1000].iter() {
+        // 准备混合类型 Values
+        let values: Vec<Value> = (0..*n)
+            .map(|i| match i % 4 {
+                0 => Value::I64(i as i64),
+                1 => Value::F64(i as f64 * 1.5),
+                2 => Value::String(format!("str_{}", i)),
+                _ => Value::Bool(i % 2 == 0),
+            })
+            .collect();
+
+        group.throughput(Throughput::Elements(*n as u64));
+        group.bench_with_input(BenchmarkId::new("mixed_types", n), &values, |b, vals| {
+            b.iter(|| {
+                let params: Vec<_> = vals.iter().map(|v| v.to_param()).collect();
+                black_box(params)
+            })
+        });
+    }
+
+    group.finish();
+}
+
 criterion_group!(
     benches,
     bench_value_to_param,
@@ -447,5 +617,8 @@ criterion_group!(
     bench_pool_acquire_release,
     bench_in_memory_scan,
     bench_json_parsing,
+    bench_query_builder_select,
+    bench_query_builder_insert_update,
+    bench_value_batch_to_param,
 );
 criterion_main!(benches);

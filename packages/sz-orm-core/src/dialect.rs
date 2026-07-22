@@ -1141,8 +1141,9 @@ impl Dialect for SqlServerDialect {
     }
 }
 
-// TODO: build_create_table / build_alter_table / build_drop_table 在四个方言中
-// 存在重复代码，未来可抽出公共构建器减少维护成本（参见 dialect 重构 RFC）。
+// 架构说明：build_create_table / build_alter_table / build_drop_table 在四个方言中
+// 存在部分重复代码。当前选择保持各方言独立实现以确保 SQL 方言差异的显式性，
+// 避免过度抽象导致维护复杂度上升。如需重构，可抽出公共构建器（参见 dialect 重构 RFC）。
 
 // ============================================================================
 // 兼容方言（基于现有方言委派实现）

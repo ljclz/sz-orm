@@ -139,9 +139,8 @@ impl<C: TypedColumn> TypedExpression for ColumnExpr<C> {
 ///
 /// 将 Rust 值包装为 SQL 字面量（参数化）。
 ///
-/// 注：当前所有字面量的 SqlType 统一标记为 `Text`。
-/// 完整实现需根据值类型（i64/String/bool）派生 SqlType，
-/// 可通过为 `Literal<i64>`/`Literal<String>`/`Literal<bool>` 分别实现 `TypedExpression` 完成。
+/// `SqlType` 由值类型派生：`i64`→`Integer`、`String`→`Text`、`bool`→`Bool`。
+/// 其他类型需显式实现 `TypedExpression` 或包装为 `Literal<String>`。
 pub struct Literal<T: ToString + Clone> {
     value: T,
 }
@@ -153,10 +152,27 @@ impl<T: ToString + Clone> Literal<T> {
     }
 }
 
-impl<T: ToString + Clone> TypedExpression for Literal<T> {
-    // 字面量最常见的是字符串值，统一标记为 Text。
-    // TODO: 完整实现需为 Literal<i64>/Literal<String>/Literal<bool> 分别派生 SqlType。
+/// `Literal<i64>` → SQL Integer 类型
+impl TypedExpression for Literal<i64> {
+    type SqlType = Integer;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<String>` → SQL Text 类型
+impl TypedExpression for Literal<String> {
     type SqlType = Text;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<bool>` → SQL Bool 类型
+impl TypedExpression for Literal<bool> {
+    type SqlType = Bool;
 
     fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
         (String::from("?"), vec![self.value.to_string()])
@@ -987,12 +1003,17 @@ mod tests {
     }
 
     #[test]
-    fn test_literal_sql_type_is_text() {
-        // Literal<T>::SqlType 应为 Text（统一标记）
+    fn test_literal_sql_type_specialized() {
+        // Literal<i64>::SqlType 应为 Integer
+        fn _assert_integer<E: TypedExpression<SqlType = Integer>>(_: E) {}
+        // Literal<String>::SqlType 应为 Text
         fn _assert_text<E: TypedExpression<SqlType = Text>>(_: E) {}
-        _assert_text(Literal::new(42i64));
+        // Literal<bool>::SqlType 应为 Bool
+        fn _assert_bool<E: TypedExpression<SqlType = Bool>>(_: E) {}
+
+        _assert_integer(Literal::new(42i64));
         _assert_text(Literal::new("hello".to_string()));
-        _assert_text(Literal::new(true));
+        _assert_bool(Literal::new(true));
     }
 
     #[test]
