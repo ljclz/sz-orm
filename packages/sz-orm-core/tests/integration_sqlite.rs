@@ -24,7 +24,10 @@ fn temp_sqlite_path() -> String {
         .as_nanos();
     let counter = SQLITE_COUNTER.fetch_add(1, Ordering::Relaxed);
     std::env::temp_dir()
-        .join(format!("sz_orm_int_sqlite_{}_{}_{}.db", pid, nanos, counter))
+        .join(format!(
+            "sz_orm_int_sqlite_{}_{}_{}.db",
+            pid, nanos, counter
+        ))
         .to_string_lossy()
         .to_string()
 }
