@@ -59,6 +59,7 @@
 - **Dependabot 自动升级**：新增 Dependabot 配置，自动升级 GitHub Actions 依赖
 - **GitHub Pages 文档**：自动构建并部署 API 文档到 GitHub Pages
 - **学习路线图**：新增 `docs/sz-orm学习路线图.md`，L1-L4 分阶段学习指南（含按角色推荐路线和验收标准）
+- **学习教程重写**：将学习路线图重写为**面向 PHP/ThinkPHP 工程师的具体学习教程**（17 章 + 3 附录），包含 Rust 速通（对照 PHP）、ThinkPHP ↔ sz-orm 逐概念对照、可运行代码示例、AI 协作开发姿势（提问模板/验证 5 步法/常见陷阱），修复失效文档链接（`sz-orm性能基准.md`、`docs/Security.md` 路径错误）
 - **Benchmark 扩展**：新增 3 组 criterion 基准测试 — `query_builder_select`（3 种复杂度 SELECT 构建）、`query_builder_insert_update`（INSERT/UPDATE/DELETE 4 种操作）、`value_batch_to_param`（10/100/1000 批量转换），共 10 组
 
 ### Changed
