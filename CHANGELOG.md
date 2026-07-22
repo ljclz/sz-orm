@@ -63,6 +63,7 @@
 - **Benchmark 扩展**：新增 3 组 criterion 基准测试 — `query_builder_select`（3 种复杂度 SELECT 构建）、`query_builder_insert_update`（INSERT/UPDATE/DELETE 4 种操作）、`value_batch_to_param`（10/100/1000 批量转换），共 10 组
 - **ADR 覆盖率扩展**：新增 4 个 ADR（0006-0009）覆盖关联关系加载三策略、ResultMap 分组聚合、连接池持锁不 await close、QueryBuilder 只生成 SQL 不执行，每个 ADR 含 Bug 定位提示，将 ADR 从决策记忆扩展到 bug 定位辅助
 - **core 包 tracing 可观测性**：为 sz-orm-core 关键路径添加 `#[tracing::instrument]` 注解 — 连接池（acquire/release/close_all/reap_idle）、QueryBuilder（build_select/build_insert/build_update/build_delete）、关联加载（load_eager/load_join/find_with_related_eager_sql/find_with_related_subquery）、结果映射（apply_result_map/apply_result_map_many），生产 bug 可通过 tracing span 定位
+- **可复用规范提炼**：新增 `docs/ADR与生产Bug定位规范.md`（v1.0），从 SZ-ORM 实测经验提炼 — ADR 写作四段式（含 Bug 定位提示段必填）、ADR 覆盖率标准（密度 ≥ 0.15）、运行时可观测性规范（关键路径必须加 tracing）、四层 bug 定位流程（决策层→运行时层→指标层→代码层）、ADR 有效性验证流程（零上下文子代理测试 + bug 定位命中率测试）、工程化门禁（PR 检查清单 + CI 门禁），含 ADR 模板/Bug 定位报告模板/新项目落地清单 3 个附录
 
 ### Changed
 
