@@ -64,6 +64,11 @@
 - **ADR 覆盖率扩展**：新增 4 个 ADR（0006-0009）覆盖关联关系加载三策略、ResultMap 分组聚合、连接池持锁不 await close、QueryBuilder 只生成 SQL 不执行，每个 ADR 含 Bug 定位提示，将 ADR 从决策记忆扩展到 bug 定位辅助
 - **core 包 tracing 可观测性**：为 sz-orm-core 关键路径添加 `#[tracing::instrument]` 注解 — 连接池（acquire/release/close_all/reap_idle）、QueryBuilder（build_select/build_insert/build_update/build_delete）、关联加载（load_eager/load_join/find_with_related_eager_sql/find_with_related_subquery）、结果映射（apply_result_map/apply_result_map_many），生产 bug 可通过 tracing span 定位
 - **可复用规范提炼**：新增 `docs/ADR与生产Bug定位规范.md`（v1.0），从 SZ-ORM 实测经验提炼 — ADR 写作四段式（含 Bug 定位提示段必填）、ADR 覆盖率标准（密度 ≥ 0.15）、运行时可观测性规范（关键路径必须加 tracing）、四层 bug 定位流程（决策层→运行时层→指标层→代码层）、ADR 有效性验证流程（零上下文子代理测试 + bug 定位命中率测试）、工程化门禁（PR 检查清单 + CI 门禁），含 ADR 模板/Bug 定位报告模板/新项目落地清单 3 个附录
+- **PooledConnection Drop 修复**：为 `PooledConnection` 实现 `Drop` trait，连接在 drop 时自动归还池中，修复严重池耗尽 bug（commit 01f5465）
+- **Fuzz Testing 基础设施**：新增 3 个 fuzz target（query_builder/value_escape/pool_config）via `cargo-fuzz` + libfuzzer，CI 中每个 target 运行 60s（commit 361e41f）
+- **ORM 对比 Benchmark**：新增 v0.4 SQLite in-memory benchmark（100K rows），SZ-ORM 在 INSERT/DELETE 场景排名第一，UPDATE 排名第二
+- **SeaORM 迁移指南**：新增 `docs/sea-orm迁移指南.md`（547 行，10 章 + 检查清单），覆盖架构差异/连接池/Model/查询/事务/关联/Migration/ActiveModel 替代方案/陷阱/检查清单
+- **编译时 SQL schema 生成（`schema!` 宏）**：新增 `schema!` proc-macro，接受 SQL `CREATE TABLE` 语句，编译期解析列名/类型/约束，自动生成与 `typed_query! { table ... }` 等价的代码（pub mod + table 标记类型 + col_\<name\> TypedColumn 实现），支持 IF NOT EXISTS、反引号/双引号标识符、NOT NULL/PRIMARY KEY 隐含非空判定、嵌套括号类型（如 DECIMAL(10,2)），零外部依赖纯字符串解析，8 个单元测试
 
 ### Changed
 

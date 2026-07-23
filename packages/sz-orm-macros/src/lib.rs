@@ -885,6 +885,332 @@ fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
 }
 
 // ---------------------------------------------------------------------------
+// schema! — Compile-time SQL schema generator
+// ---------------------------------------------------------------------------
+
+/// Compile-time SQL schema generator.
+///
+/// Parses a SQL `CREATE TABLE` statement and generates typed table declarations
+/// equivalent to `typed_query! { table ... }`.
+///
+/// # Syntax
+///
+/// ```ignore
+/// use sz_orm_macros::schema;
+///
+/// schema! {
+///     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL, email TEXT)"
+/// }
+/// ```
+///
+/// 生成与以下手动声明等价的代码：
+/// ```ignore
+/// typed_query! {
+///     table users {
+///         id: i64,
+///         name: String,
+///         email: Option<String>,
+///     }
+/// }
+/// ```
+#[proc_macro]
+pub fn schema(input: TokenStream) -> TokenStream {
+    let mut tokens = input.into_iter().peekable();
+
+    // 解析 SQL 字符串字面量
+    let sql_raw = match tokens.next() {
+        Some(TokenTree::Literal(lit)) => lit.to_string(),
+        Some(other) => {
+            return compile_error(
+                other.span(),
+                "Expected a string literal as the argument to schema!",
+            );
+        }
+        None => {
+            return compile_error(
+                Span::call_site(),
+                "Expected a string literal argument to schema!",
+            );
+        }
+    };
+
+    let sql = match strip_string_literal(&sql_raw) {
+        Some(s) => s,
+        None => {
+            return compile_error(
+                Span::call_site(),
+                "schema! requires a string literal argument",
+            );
+        }
+    };
+
+    // 解析 CREATE TABLE
+    let (table_name, columns) = match parse_create_table(sql) {
+        Ok(v) => v,
+        Err(e) => return compile_error(Span::call_site(), &e),
+    };
+
+    // 生成代码（与 parse_table_decl 一致）
+    let table_ident = proc_macro2::Ident::new(&table_name, Span::call_site().into());
+    let table_name_lit = table_name.as_str();
+
+    let col_impls: Vec<TokenStream2> = columns
+        .iter()
+        .map(|(col_name, col_type)| {
+            let col_ident =
+                proc_macro2::Ident::new(&format!("col_{}", col_name), Span::call_site().into());
+            let col_name_lit = col_name.as_str();
+            let rust_type: TokenStream2 = col_type.parse().unwrap_or_else(|_| quote! { () });
+            quote! {
+                #[derive(Debug, Clone, Copy)]
+                pub struct #col_ident;
+                impl ::sz_orm_core::typed::TypedColumn for #col_ident {
+                    const NAME: &'static str = #col_name_lit;
+                    type Table = table;
+                    type RustType = #rust_type;
+                    type SqlType = ::sz_orm_core::typed_ast::Untyped;
+                }
+            }
+        })
+        .collect();
+
+    let schema_entries: Vec<TokenStream2> = columns
+        .iter()
+        .map(|(n, t)| {
+            let n_lit = n.as_str();
+            let t_lit = t.as_str();
+            quote! { (#n_lit, #t_lit) }
+        })
+        .collect();
+
+    let schema_const_ident = proc_macro2::Ident::new(
+        &format!("__SZ_ORM_TYPED_SCHEMA_{}", table_name.to_uppercase()),
+        Span::call_site().into(),
+    );
+
+    let expanded = quote! {
+        pub mod #table_ident {
+            use super::*;
+            pub struct table;
+            impl ::sz_orm_core::typed::TypedTable for table {
+                const NAME: &'static str = #table_name_lit;
+            }
+            #(#col_impls)*
+        }
+        const #schema_const_ident: &[(&str, &str)] = &[#(#schema_entries),*];
+    };
+
+    expanded.into()
+}
+
+/// 解析 SQL `CREATE TABLE` 语句，返回 (表名, Vec<(列名, Rust 类型字符串)>)。
+///
+/// 支持以下语法：
+/// - `CREATE TABLE [IF NOT EXISTS] <name> ( ... )`
+/// - 表名/列名可带反引号、双引号或无引号
+/// - 跳过 PRIMARY KEY / FOREIGN KEY / CONSTRAINT / UNIQUE / INDEX / KEY 约束行
+/// - 列定义按顶层逗号分隔（嵌套括号如 DECIMAL(10,2) 不拆分）
+fn parse_create_table(sql: &str) -> Result<(String, Vec<(String, String)>), String> {
+    let trimmed = sql.trim();
+    let upper = trimmed.to_uppercase();
+
+    // 必须以 CREATE TABLE 开头
+    if !upper.starts_with("CREATE TABLE") {
+        return Err("schema! expects a CREATE TABLE statement".to_string());
+    }
+
+    // 跳过 "CREATE TABLE"
+    let mut rest = &trimmed["CREATE TABLE".len()..];
+
+    // 跳过可选的 "IF NOT EXISTS"
+    let rest_upper = rest.trim_start().to_uppercase();
+    if rest_upper.starts_with("IF NOT EXISTS") {
+        rest = &rest.trim_start()["IF NOT EXISTS".len()..];
+    }
+
+    rest = rest.trim_start();
+
+    // 解析表名（可能带反引号、双引号或无引号）
+    let (table_name, after_name) = parse_identifier(rest)?;
+    let rest = after_name.trim_start();
+
+    // 找到列定义起始的 '(' 与匹配的最后一个 ')'
+    let paren_start = rest
+        .find('(')
+        .ok_or_else(|| "CREATE TABLE missing '(' for column definitions".to_string())?;
+    let paren_end = rest
+        .rfind(')')
+        .ok_or_else(|| "CREATE TABLE missing ')' for column definitions".to_string())?;
+    if paren_end <= paren_start {
+        return Err("CREATE TABLE has malformed parentheses".to_string());
+    }
+
+    let cols_str = &rest[paren_start + 1..paren_end];
+
+    // 按顶层逗号分隔列定义（注意嵌套括号，如 DECIMAL(10,2)）
+    let col_defs = split_top_level_commas(cols_str);
+
+    let mut columns = Vec::new();
+    for def in col_defs {
+        let def = def.trim();
+        if def.is_empty() {
+            continue;
+        }
+
+        // 跳过约束定义行
+        let def_upper = def.to_uppercase();
+        if def_upper.starts_with("PRIMARY KEY")
+            || def_upper.starts_with("FOREIGN KEY")
+            || def_upper.starts_with("CONSTRAINT")
+            || def_upper.starts_with("UNIQUE")
+            || def_upper.starts_with("INDEX")
+            || def_upper.starts_with("KEY")
+        {
+            continue;
+        }
+
+        // 解析列名
+        let (col_name, after_col) = parse_identifier(def)?;
+        let rest = after_col.trim_start();
+
+        // 解析类型（取第一个 token，去掉括号参数）
+        let (sql_type, after_type) = parse_type_token(rest)?;
+        let rest = after_type.trim();
+
+        // 判断 nullability：NOT NULL 或 PRIMARY KEY 隐含 NOT NULL
+        let rest_upper = rest.to_uppercase();
+        let not_null = rest_upper.contains("NOT NULL") || rest_upper.contains("PRIMARY KEY");
+        let rust_type = sql_type_to_rust(&sql_type, !not_null);
+
+        columns.push((col_name, rust_type));
+    }
+
+    Ok((table_name, columns))
+}
+
+/// 解析标识符：支持反引号、双引号或无引号。
+/// 返回 (标识符, 剩余字符串)。
+fn parse_identifier(s: &str) -> Result<(String, &str), String> {
+    let s = s.trim_start();
+    if s.is_empty() {
+        return Err("expected identifier".to_string());
+    }
+
+    let bytes = s.as_bytes();
+    match bytes[0] {
+        b'`' => {
+            let end = s[1..]
+                .find('`')
+                .ok_or_else(|| "unterminated backtick-quoted identifier".to_string())?;
+            let ident = s[1..1 + end].to_string();
+            Ok((ident, &s[1 + end + 1..]))
+        }
+        b'"' => {
+            let end = s[1..]
+                .find('"')
+                .ok_or_else(|| "unterminated double-quoted identifier".to_string())?;
+            let ident = s[1..1 + end].to_string();
+            Ok((ident, &s[1 + end + 1..]))
+        }
+        _ => {
+            let end = s
+                .find(|c: char| !c.is_alphanumeric() && c != '_')
+                .unwrap_or(s.len());
+            if end == 0 {
+                return Err(format!("invalid identifier: '{}'", s));
+            }
+            let ident = s[..end].to_string();
+            Ok((ident, &s[end..]))
+        }
+    }
+}
+
+/// 解析类型 token：取第一个标识符，可选跟随括号参数（如 VARCHAR(255) → VARCHAR）。
+/// 返回 (类型名, 剩余字符串)。
+fn parse_type_token(s: &str) -> Result<(String, &str), String> {
+    let s = s.trim_start();
+    if s.is_empty() {
+        return Err("expected column type".to_string());
+    }
+
+    let end = s.find(|c: char| !c.is_alphabetic()).unwrap_or(s.len());
+    if end == 0 {
+        return Err(format!("invalid type: '{}'", s));
+    }
+    let type_name = s[..end].to_string();
+    let mut rest = &s[end..];
+
+    // 跳过可选的括号参数，如 (255) 或 (10,2)
+    rest = rest.trim_start();
+    if rest.starts_with('(') {
+        let close = rest
+            .find(')')
+            .ok_or_else(|| "unterminated type parameter list".to_string())?;
+        rest = &rest[close + 1..];
+    }
+
+    Ok((type_name, rest))
+}
+
+/// 按顶层逗号分隔字符串（不进入嵌套括号）。
+fn split_top_level_commas(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut depth: i32 = 0;
+    let mut current = String::new();
+
+    for ch in s.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ',' if depth == 0 => {
+                parts.push(std::mem::take(&mut current));
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+
+    if !current.trim().is_empty() {
+        parts.push(current);
+    }
+
+    parts
+}
+
+/// 将 SQL 类型映射为 Rust 类型字符串。
+///
+/// 匹配规则：取类型名第一个 token（去掉括号参数），不区分大小写匹配。
+/// 未识别的类型默认映射为 `String`。若 `nullable == true`，用 `Option<T>` 包裹。
+fn sql_type_to_rust(sql_type: &str, nullable: bool) -> String {
+    let upper = sql_type.to_uppercase();
+    let rust = match upper.as_str() {
+        "INT" | "INTEGER" | "BIGINT" | "INT8" => "i64",
+        "SMALLINT" | "INT2" | "INT4" => "i32",
+        "TINYINT" => "i8",
+        "FLOAT" | "REAL" | "FLOAT4" => "f32",
+        "DOUBLE" | "DOUBLE PRECISION" | "FLOAT8" | "DECIMAL" | "NUMERIC" => "f64",
+        "BOOLEAN" | "BOOL" => "bool",
+        "VARCHAR" | "TEXT" | "CHAR" | "CHARACTER" | "CLOB" | "UUID" | "DATE" | "TIME"
+        | "DATETIME" | "TIMESTAMP" | "JSON" | "JSONB" | "BLOB" => "String",
+        "BYTEA" | "BINARY" | "VARBINARY" => "Vec<u8>",
+        _ => "String",
+    };
+
+    if nullable {
+        format!("Option<{}>", rust)
+    } else {
+        rust.to_string()
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests — cover helper functions used by both macros
 // ---------------------------------------------------------------------------
 
@@ -1096,5 +1422,92 @@ mod tests {
     fn test_detect_db_kind_unsupported() {
         assert!(detect_db_kind("oracle://user:pass@host/db").is_err());
         assert!(detect_db_kind("not-a-url").is_err());
+    }
+
+    // ---- schema! 宏 parse_create_table 测试 ----
+
+    #[test]
+    fn test_parse_create_table_basic() {
+        let sql = "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)";
+        let (table, cols) = parse_create_table(sql).unwrap();
+        assert_eq!(table, "users");
+        assert_eq!(
+            cols,
+            vec![
+                ("id".to_string(), "i64".to_string()),
+                ("name".to_string(), "String".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_create_table_with_if_not_exists() {
+        let sql = "CREATE TABLE IF NOT EXISTS `orders` (`id` BIGINT PRIMARY KEY, `total` DECIMAL(10,2) NOT NULL)";
+        let (table, cols) = parse_create_table(sql).unwrap();
+        assert_eq!(table, "orders");
+        assert_eq!(
+            cols,
+            vec![
+                ("id".to_string(), "i64".to_string()),
+                ("total".to_string(), "f64".to_string())
+            ]
+        );
+    }
+
+    #[test]
+    fn test_parse_create_table_nullable() {
+        let sql = "CREATE TABLE t (a INT NOT NULL, b INT)";
+        let (_, cols) = parse_create_table(sql).unwrap();
+        assert_eq!(cols[0], ("a".to_string(), "i64".to_string()));
+        assert_eq!(cols[1], ("b".to_string(), "Option<i64>".to_string()));
+    }
+
+    #[test]
+    fn test_parse_create_table_skip_constraints() {
+        let sql = "CREATE TABLE t (id INT PRIMARY KEY, name TEXT, PRIMARY KEY (id), CONSTRAINT fk1 FOREIGN KEY (x) REFERENCES y(id))";
+        let (_, cols) = parse_create_table(sql).unwrap();
+        assert_eq!(cols.len(), 2);
+        assert_eq!(cols[0].0, "id");
+        assert_eq!(cols[1].0, "name");
+    }
+
+    #[test]
+    fn test_parse_create_table_varchar_with_len() {
+        let sql = "CREATE TABLE t (name VARCHAR(255) NOT NULL, code CHAR(10))";
+        let (_, cols) = parse_create_table(sql).unwrap();
+        assert_eq!(cols[0], ("name".to_string(), "String".to_string()));
+        assert_eq!(cols[1], ("code".to_string(), "Option<String>".to_string()));
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_mappings() {
+        assert_eq!(sql_type_to_rust("INT", false), "i64");
+        assert_eq!(sql_type_to_rust("BIGINT", false), "i64");
+        assert_eq!(sql_type_to_rust("SMALLINT", false), "i32");
+        assert_eq!(sql_type_to_rust("TINYINT", false), "i8");
+        assert_eq!(sql_type_to_rust("FLOAT", false), "f32");
+        assert_eq!(sql_type_to_rust("DOUBLE", false), "f64");
+        assert_eq!(sql_type_to_rust("DECIMAL", false), "f64");
+        assert_eq!(sql_type_to_rust("NUMERIC", false), "f64");
+        assert_eq!(sql_type_to_rust("BOOLEAN", false), "bool");
+        assert_eq!(sql_type_to_rust("VARCHAR", false), "String");
+        assert_eq!(sql_type_to_rust("TEXT", false), "String");
+        assert_eq!(sql_type_to_rust("BLOB", false), "String");
+        assert_eq!(sql_type_to_rust("BYTEA", false), "Vec<u8>");
+        // nullable
+        assert_eq!(sql_type_to_rust("INT", true), "Option<i64>");
+        assert_eq!(sql_type_to_rust("VARCHAR", true), "Option<String>");
+        // unknown
+        assert_eq!(sql_type_to_rust("UNKNOWNTYPE", false), "String");
+    }
+
+    #[test]
+    fn test_parse_create_table_error_no_create() {
+        assert!(parse_create_table("SELECT * FROM users").is_err());
+    }
+
+    #[test]
+    fn test_parse_create_table_error_no_parens() {
+        assert!(parse_create_table("CREATE TABLE foo").is_err());
     }
 }
