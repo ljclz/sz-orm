@@ -21,16 +21,20 @@ pub mod rocketmq;
 pub use error::MqError;
 
 pub use queue::ActiveConfig;
+pub use queue::BackpressurePolicy;
 pub use queue::InMemoryQueue;
 pub use queue::KafkaConfig;
 pub use queue::Message;
 pub use queue::MessageQueue;
 pub use queue::MqProvider;
 pub use queue::NatsConfig;
+pub use queue::OverflowStrategy;
 pub use queue::PulsarConfig;
 pub use queue::QueueConfig;
 pub use queue::QueueWrapper;
 pub use queue::RabbitConfig;
+pub use queue::ReconnectPolicy;
+pub use queue::ReconnectState;
 pub use queue::RocketConfig;
 
 pub use activemq::InMemoryActivemqQueue;

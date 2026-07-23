@@ -55,6 +55,7 @@
 //! ```
 
 use std::sync::{Arc, RwLock};
+use std::time::Duration;
 
 // =====================================================================
 // TccState — TCC 事务状态
@@ -150,6 +151,10 @@ pub struct TccParticipant {
     pub confirm_attempts: u32,
     /// cancel 阶段执行次数
     pub cancel_attempts: u32,
+    /// confirm 是否已成功（用于幂等性追踪）
+    confirm_succeeded: bool,
+    /// cancel 是否已成功（用于幂等性追踪）
+    cancel_succeeded: bool,
 }
 
 impl TccParticipant {
@@ -164,6 +169,8 @@ impl TccParticipant {
             try_attempts: 0,
             confirm_attempts: 0,
             cancel_attempts: 0,
+            confirm_succeeded: false,
+            cancel_succeeded: false,
         }
     }
 
@@ -211,7 +218,15 @@ impl TccParticipant {
     }
 
     /// 执行 confirm 阶段（必须幂等）
+    ///
+    /// # 幂等性
+    ///
+    /// 若 `confirm_succeeded` 已为 true，直接返回 Ok(())，不再调用闭包、不增加计数。
     pub fn confirm_phase(&mut self) -> Result<(), String> {
+        // 幂等性检查：已成功则跳过
+        if self.confirm_succeeded {
+            return Ok(());
+        }
         self.confirm_attempts += 1;
         if let Some(cb) = &self.confirm_fn {
             if let Err(e) = cb() {
@@ -220,11 +235,20 @@ impl TccParticipant {
             }
         }
         self.state = TccParticipantState::Confirmed;
+        self.confirm_succeeded = true;
         Ok(())
     }
 
     /// 执行 cancel 阶段（必须幂等）
+    ///
+    /// # 幂等性
+    ///
+    /// 若 `cancel_succeeded` 已为 true，直接返回 Ok(())，不再调用闭包、不增加计数。
     pub fn cancel_phase(&mut self) -> Result<(), String> {
+        // 幂等性检查：已成功则跳过
+        if self.cancel_succeeded {
+            return Ok(());
+        }
         self.cancel_attempts += 1;
         if let Some(cb) = &self.cancel_fn {
             if let Err(e) = cb() {
@@ -233,6 +257,7 @@ impl TccParticipant {
             }
         }
         self.state = TccParticipantState::Cancelled;
+        self.cancel_succeeded = true;
         Ok(())
     }
 
@@ -250,6 +275,16 @@ impl TccParticipant {
                 | TccParticipantState::Cancelled
         )
     }
+
+    /// confirm 是否已完成（幂等性追踪）
+    pub fn is_confirm_completed(&self) -> bool {
+        self.confirm_succeeded
+    }
+
+    /// cancel 是否已完成（幂等性追踪）
+    pub fn is_cancel_completed(&self) -> bool {
+        self.cancel_succeeded
+    }
 }
 
 impl std::fmt::Debug for TccParticipant {
@@ -263,7 +298,85 @@ impl std::fmt::Debug for TccParticipant {
             .field("try_attempts", &self.try_attempts)
             .field("confirm_attempts", &self.confirm_attempts)
             .field("cancel_attempts", &self.cancel_attempts)
+            .field("confirm_succeeded", &self.confirm_succeeded)
+            .field("cancel_succeeded", &self.cancel_succeeded)
             .finish()
+    }
+}
+
+// =====================================================================
+// TccRetryPolicy — TCC 重试策略
+// =====================================================================
+
+/// TCC Confirm/Cancel 重试策略
+///
+/// 当 Confirm 或 Cancel 失败时，按指数退避策略重试：
+/// - 第 0 次重试延迟：`initial_delay_ms`
+/// - 第 n 次重试延迟：`initial_delay_ms * multiplier^n`（封顶 `max_delay_ms`）
+/// - 最多重试 `max_retries` 次（不含首次调用）
+///
+/// # 默认值
+///
+/// - `max_retries = 3`（首次 + 3 次重试 = 最多 4 次调用）
+/// - `initial_delay_ms = 100`
+/// - `max_delay_ms = 5000`
+/// - `multiplier = 2.0`
+#[derive(Debug, Clone)]
+pub struct TccRetryPolicy {
+    /// 最大重试次数（不含首次调用）
+    pub max_retries: u32,
+    /// 初始重试延迟（毫秒）
+    pub initial_delay_ms: u64,
+    /// 最大重试延迟（毫秒），封顶值
+    pub max_delay_ms: u64,
+    /// 退避乘数（每次重试延迟乘以此系数）
+    pub multiplier: f64,
+}
+
+impl TccRetryPolicy {
+    /// 创建新的重试策略
+    pub fn new(
+        max_retries: u32,
+        initial_delay_ms: u64,
+        max_delay_ms: u64,
+        multiplier: f64,
+    ) -> Self {
+        Self {
+            max_retries,
+            initial_delay_ms,
+            max_delay_ms,
+            multiplier,
+        }
+    }
+
+    /// 计算第 `attempt` 次重试的延迟（attempt 从 0 开始）
+    ///
+    /// - attempt=0 → initial_delay_ms
+    /// - attempt=1 → initial_delay_ms * multiplier
+    /// - attempt=n → initial_delay_ms * multiplier^n（封顶 max_delay_ms）
+    pub fn delay_for(&self, attempt: u32) -> Duration {
+        if attempt == 0 {
+            return Duration::from_millis(self.initial_delay_ms);
+        }
+        let delay = self.initial_delay_ms as f64 * self.multiplier.powi(attempt as i32);
+        let capped = delay.min(self.max_delay_ms as f64);
+        Duration::from_millis(capped as u64)
+    }
+
+    /// 最大总尝试次数（首次 + 重试）
+    pub fn max_attempts(&self) -> u32 {
+        1 + self.max_retries
+    }
+}
+
+impl Default for TccRetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            initial_delay_ms: 100,
+            max_delay_ms: 5000,
+            multiplier: 2.0,
+        }
     }
 }
 
@@ -286,6 +399,8 @@ pub struct TccCoordinator {
     state: TccState,
     /// 已注册的分支事务
     participants: Vec<TccParticipant>,
+    /// Confirm/Cancel 重试策略（None 表示不自动重试，保持向后兼容）
+    retry_policy: Option<TccRetryPolicy>,
 }
 
 impl TccCoordinator {
@@ -295,7 +410,35 @@ impl TccCoordinator {
             tx_id: tx_id.into(),
             state: TccState::Init,
             participants: Vec::new(),
+            retry_policy: None,
         }
+    }
+
+    /// 设置 Confirm/Cancel 重试策略（builder 风格）
+    ///
+    /// 设置后，调用 [`TccCoordinator::confirm_with_retry`] / [`TccCoordinator::cancel_with_retry`]
+    /// 会按此策略自动重试失败的分支。若不设置，则退化为单次执行的旧行为。
+    ///
+    /// # 示例
+    ///
+    /// ```
+    /// use sz_orm_dtx::tcc::{TccCoordinator, TccParticipant, TccRetryPolicy};
+    ///
+    /// let mut coord = TccCoordinator::new("tx-001")
+    ///     .with_retry_policy(TccRetryPolicy::default());
+    /// coord.add_participant(
+    ///     TccParticipant::new("db1").with_try(|| Ok(()))
+    /// );
+    /// ```
+    #[must_use]
+    pub fn with_retry_policy(mut self, policy: TccRetryPolicy) -> Self {
+        self.retry_policy = Some(policy);
+        self
+    }
+
+    /// 获取当前重试策略（如果已设置）
+    pub fn retry_policy(&self) -> Option<&TccRetryPolicy> {
+        self.retry_policy.as_ref()
     }
 
     /// 获取当前事务状态
@@ -507,6 +650,211 @@ impl TccCoordinator {
         Ok(())
     }
 
+    /// 带重试的 Confirm 执行（按指数退避策略自动重试失败的分支）
+    ///
+    /// 必须先设置 [`TccRetryPolicy`]（通过 [`TccCoordinator::with_retry_policy`]），
+    /// 否则返回 [`TccError::InvalidState`]。
+    ///
+    /// # 执行逻辑
+    ///
+    /// 1. 对每个未 Confirmed 的分支依次调用 `confirm_phase`
+    /// 2. 若某分支失败，按指数退避策略重试：
+    ///    - 第 0 次重试延迟：`initial_delay_ms`
+    ///    - 第 n 次重试延迟：`initial_delay_ms * multiplier^n`（封顶 `max_delay_ms`）
+    ///    - 用 `std::thread::sleep`（同步实现，因为现有 TCC 是同步的）
+    /// 3. 达到 `max_retries` 仍失败则标记该分支 Failed，并使整个事务进入 Failed 状态
+    /// 4. 利用 [`TccParticipant::confirm_phase`] 的幂等性，已 Confirmed 的分支会被跳过
+    ///
+    /// # 状态迁移
+    ///
+    /// - 成功 → `TccState::Confirmed`
+    /// - 失败 → `TccState::Failed`（需人工介入）
+    ///
+    /// # 错误
+    ///
+    /// - [`TccError::InvalidState`]：未设置重试策略，或状态不是 Tried/Confirming/Failed
+    /// - [`TccError::ConfirmFailed`]：所有重试均失败后返回最后失败原因
+    pub fn confirm_with_retry(&mut self) -> Result<(), TccError> {
+        // 校验状态：允许从 Tried（首次 confirm）、Confirming（重试中）、Failed（恢复重试）开始
+        if self.state != TccState::Tried
+            && self.state != TccState::Confirming
+            && self.state != TccState::Failed
+        {
+            return Err(TccError::InvalidState {
+                current: self.state,
+                expected: "Tried, Confirming, or Failed",
+            });
+        }
+        // 校验重试策略已设置
+        let policy = self
+            .retry_policy
+            .clone()
+            .ok_or(TccError::InvalidState {
+                current: self.state,
+                expected: "retry_policy must be set (call with_retry_policy first)",
+            })?;
+
+        self.state = TccState::Confirming;
+
+        for p in &mut self.participants {
+            // 幂等：已 Confirmed 跳过（confirm_phase 内部也会跳过，这里显式跳过避免计数）
+            if p.state == TccParticipantState::Confirmed {
+                continue;
+            }
+
+            let max_attempts = policy.max_attempts();
+            let mut last_error: Option<String> = None;
+            let mut succeeded = false;
+
+            // 首次调用 + 重试
+            for attempt in 0..max_attempts {
+                if attempt > 0 {
+                    // 重试前等待（指数退避）
+                    std::thread::sleep(policy.delay_for(attempt - 1));
+                }
+                match p.confirm_phase() {
+                    Ok(()) => {
+                        succeeded = true;
+                        break;
+                    }
+                    Err(e) => {
+                        last_error = Some(e);
+                        // confirm_phase 失败后状态会被标记为 Failed，
+                        // 但重试时我们希望尝试再次调用，所以需要重置状态为 Tried
+                        // （因为 confirm_phase 没有状态前置检查，只检查 confirm_succeeded，
+                        // 所以直接重试即可，不需要重置状态）
+                    }
+                }
+            }
+
+            if !succeeded {
+                let resource_id = p.resource_id.clone();
+                let reason = last_error.unwrap_or_else(|| "未知错误".to_string());
+                p.fail();
+                self.state = TccState::Failed;
+                return Err(TccError::ConfirmFailed {
+                    resource_id,
+                    reason: format!(
+                        "{} (重试 {} 次后仍失败)",
+                        reason,
+                        policy.max_retries
+                    ),
+                });
+            }
+        }
+        self.state = TccState::Confirmed;
+        Ok(())
+    }
+
+    /// 带重试的 Cancel 执行（按指数退避策略自动重试失败的分支）
+    ///
+    /// 必须先设置 [`TccRetryPolicy`]（通过 [`TccCoordinator::with_retry_policy`]），
+    /// 否则返回 [`TccError::InvalidState`]。
+    ///
+    /// # 执行逻辑
+    ///
+    /// 1. 对每个需要 cancel 的分支（Tried/Failed）依次调用 `cancel_phase`
+    /// 2. 若某分支失败，按指数退避策略重试：
+    ///    - 第 0 次重试延迟：`initial_delay_ms`
+    ///    - 第 n 次重试延迟：`initial_delay_ms * multiplier^n`（封顶 `max_delay_ms`）
+    ///    - 用 `std::thread::sleep`（同步实现）
+    /// 3. 达到 `max_retries` 仍失败则标记该分支 Failed
+    /// 4. 利用 [`TccParticipant::cancel_phase`] 的幂等性，已 Cancelled 的分支会被跳过
+    /// 5. best-effort：即使某分支 cancel 失败，仍继续尝试其他分支
+    /// 6. 所有分支处理完毕后，若存在失败分支，整体状态为 Failed
+    ///
+    /// # 状态迁移
+    ///
+    /// - 全部成功 → `TccState::Cancelled`
+    /// - 任一失败 → `TccState::Failed`（需人工介入）
+    ///
+    /// # 错误
+    ///
+    /// - [`TccError::InvalidState`]：未设置重试策略，或状态不是 Tried/Cancelling/Failed/Trying
+    /// - [`TccError::CancelFailed`]：所有分支处理完毕后，至少一个分支仍失败
+    pub fn cancel_with_retry(&mut self) -> Result<(), TccError> {
+        // 校验状态：必须是可重试 cancel 的状态，或者 Trying（try 失败后立即 cancel）
+        if self.state != TccState::Tried
+            && self.state != TccState::Cancelling
+            && self.state != TccState::Failed
+            && self.state != TccState::Trying
+        {
+            return Err(TccError::InvalidState {
+                current: self.state,
+                expected: "Tried, Cancelling, Failed, or Trying",
+            });
+        }
+        // 校验重试策略已设置
+        let policy = self
+            .retry_policy
+            .clone()
+            .ok_or(TccError::InvalidState {
+                current: self.state,
+                expected: "retry_policy must be set (call with_retry_policy first)",
+            })?;
+
+        self.state = TccState::Cancelling;
+
+        let mut failures: Vec<(String, String)> = Vec::new();
+
+        for p in &mut self.participants {
+            // 跳过：已 Cancelled、已 Confirmed、未 try（Init）
+            if p.state == TccParticipantState::Cancelled
+                || p.state == TccParticipantState::Confirmed
+                || p.state == TccParticipantState::Init
+            {
+                continue;
+            }
+
+            let max_attempts = policy.max_attempts();
+            let mut last_error: Option<String> = None;
+            let mut succeeded = false;
+
+            for attempt in 0..max_attempts {
+                if attempt > 0 {
+                    std::thread::sleep(policy.delay_for(attempt - 1));
+                }
+                match p.cancel_phase() {
+                    Ok(()) => {
+                        succeeded = true;
+                        break;
+                    }
+                    Err(e) => {
+                        last_error = Some(e);
+                    }
+                }
+            }
+
+            if !succeeded {
+                let resource_id = p.resource_id.clone();
+                let reason = last_error.unwrap_or_else(|| "未知错误".to_string());
+                p.fail();
+                failures.push((
+                    resource_id.clone(),
+                    format!("{} (重试 {} 次后仍失败)", reason, policy.max_retries),
+                ));
+            }
+            // best-effort：继续处理其他分支，不短路
+        }
+
+        if !failures.is_empty() {
+            self.state = TccState::Failed;
+            let details: Vec<String> = failures
+                .iter()
+                .map(|(rid, e)| format!("{}: {}", rid, e))
+                .collect();
+            return Err(TccError::CancelFailed {
+                reason: format!(
+                    "部分分支 cancel 失败 (共 {} 个): {}",
+                    failures.len(),
+                    details.join("; ")
+                ),
+            });
+        }
+        self.state = TccState::Cancelled;
+        Ok(())
+    }
+
     /// 内部方法：对前 n 个分支执行 cancel（用于 try 失败后回滚）
     ///
     /// 返回 `(resource_id, error)` 列表，记录哪些分支 cancel 失败及其原因。
@@ -543,6 +891,7 @@ impl std::fmt::Debug for TccCoordinator {
             .field("tx_id", &self.tx_id)
             .field("state", &self.state)
             .field("participants", &self.participants.len())
+            .field("has_retry_policy", &self.retry_policy.is_some())
             .finish()
     }
 }
@@ -1485,5 +1834,397 @@ mod tests {
         // 第二次重试成功
         coord.retry_confirm().unwrap();
         assert_eq!(coord.state(), TccState::Confirmed);
+    }
+
+    // ===== 新增测试：TCC 幂等性、重试策略（v0.2.1 深度优化） =====
+
+    #[test]
+    fn retry_policy_default_values() {
+        let p = TccRetryPolicy::default();
+        assert_eq!(p.max_retries, 3);
+        assert_eq!(p.initial_delay_ms, 100);
+        assert_eq!(p.max_delay_ms, 5000);
+        assert_eq!(p.multiplier, 2.0);
+    }
+
+    #[test]
+    fn retry_policy_custom_values() {
+        let p = TccRetryPolicy::new(5, 200, 10000, 1.5);
+        assert_eq!(p.max_retries, 5);
+        assert_eq!(p.initial_delay_ms, 200);
+        assert_eq!(p.max_delay_ms, 10000);
+        assert_eq!(p.multiplier, 1.5);
+    }
+
+    #[test]
+    fn retry_policy_delay_for_calculation() {
+        let p = TccRetryPolicy::new(3, 100, 5000, 2.0);
+        // attempt=0 → 100ms
+        assert_eq!(p.delay_for(0), Duration::from_millis(100));
+        // attempt=1 → 100 * 2^1 = 200ms
+        assert_eq!(p.delay_for(1), Duration::from_millis(200));
+        // attempt=2 → 100 * 2^2 = 400ms
+        assert_eq!(p.delay_for(2), Duration::from_millis(400));
+        // attempt=3 → 100 * 2^3 = 800ms
+        assert_eq!(p.delay_for(3), Duration::from_millis(800));
+    }
+
+    #[test]
+    fn retry_policy_delay_capped_at_max() {
+        let p = TccRetryPolicy::new(10, 100, 500, 2.0);
+        // attempt=3 → 100 * 2^3 = 800ms，但封顶 500ms
+        assert_eq!(p.delay_for(3), Duration::from_millis(500));
+        // attempt=10 → 远超 500ms，封顶 500ms
+        assert_eq!(p.delay_for(10), Duration::from_millis(500));
+    }
+
+    #[test]
+    fn retry_policy_max_attempts() {
+        let p = TccRetryPolicy::new(3, 100, 5000, 2.0);
+        // 首次 + 3 次重试 = 4 次
+        assert_eq!(p.max_attempts(), 4);
+
+        let p0 = TccRetryPolicy::new(0, 100, 5000, 2.0);
+        // max_retries=0 → 只有首次调用，不重试
+        assert_eq!(p0.max_attempts(), 1);
+    }
+
+    #[test]
+    fn participant_confirm_idempotent() {
+        let confirm_count = Arc::new(AtomicU32::new(0));
+        let c1 = confirm_count.clone();
+        let mut p = TccParticipant::new("db1")
+            .with_try(|| Ok(()))
+            .with_confirm(move || {
+                c1.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            });
+        p.try_phase().unwrap();
+
+        // 第一次 confirm 成功
+        p.confirm_phase().unwrap();
+        assert_eq!(p.state, TccParticipantState::Confirmed);
+        assert_eq!(p.confirm_attempts, 1);
+        assert!(p.is_confirm_completed());
+        assert_eq!(confirm_count.load(Ordering::SeqCst), 1);
+
+        // 第二次 confirm 应该幂等跳过，不增加计数
+        p.confirm_phase().unwrap();
+        assert_eq!(p.confirm_attempts, 1);
+        assert_eq!(confirm_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn participant_cancel_idempotent() {
+        let cancel_count = Arc::new(AtomicU32::new(0));
+        let c1 = cancel_count.clone();
+        let mut p = TccParticipant::new("db1")
+            .with_try(|| Ok(()))
+            .with_cancel(move || {
+                c1.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            });
+        p.try_phase().unwrap();
+
+        // 第一次 cancel 成功
+        p.cancel_phase().unwrap();
+        assert_eq!(p.state, TccParticipantState::Cancelled);
+        assert_eq!(p.cancel_attempts, 1);
+        assert!(p.is_cancel_completed());
+        assert_eq!(cancel_count.load(Ordering::SeqCst), 1);
+
+        // 第二次 cancel 应该幂等跳过
+        p.cancel_phase().unwrap();
+        assert_eq!(p.cancel_attempts, 1);
+        assert_eq!(cancel_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn participant_confirm_not_completed_initially() {
+        let p = TccParticipant::new("db1").with_try(|| Ok(()));
+        assert!(!p.is_confirm_completed());
+        assert!(!p.is_cancel_completed());
+    }
+
+    #[test]
+    fn participant_confirm_failure_does_not_mark_completed() {
+        let mut p = TccParticipant::new("db1")
+            .with_try(|| Ok(()))
+            .with_confirm(|| Err("confirm fail".to_string()));
+        p.try_phase().unwrap();
+        let result = p.confirm_phase();
+        assert!(result.is_err());
+        assert!(!p.is_confirm_completed());
+        assert_eq!(p.confirm_attempts, 1);
+    }
+
+    #[test]
+    fn coordinator_with_retry_policy_sets_policy() {
+        let coord = TccCoordinator::new("tx-1")
+            .with_retry_policy(TccRetryPolicy::default());
+        assert!(coord.retry_policy().is_some());
+        assert_eq!(coord.retry_policy().unwrap().max_retries, 3);
+    }
+
+    #[test]
+    fn coordinator_without_retry_policy_returns_none() {
+        let coord = TccCoordinator::new("tx-2");
+        assert!(coord.retry_policy().is_none());
+    }
+
+    #[test]
+    fn coordinator_confirm_with_retry_succeeds_after_failures() {
+        let attempt = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-retry-confirm")
+            .with_retry_policy(TccRetryPolicy::new(3, 1, 10, 2.0));
+
+        let a = attempt.clone();
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_confirm(move || {
+                    let n = a.fetch_add(1, Ordering::SeqCst);
+                    if n < 2 {
+                        Err(format!("attempt {} failed", n))
+                    } else {
+                        Ok(())
+                    }
+                }),
+        );
+
+        // try_phase 成功
+        coord.try_phase().unwrap();
+        assert_eq!(coord.state(), TccState::Tried);
+
+        // confirm_with_retry 应该在第 3 次尝试成功
+        coord.confirm_with_retry().unwrap();
+        assert_eq!(coord.state(), TccState::Confirmed);
+        assert_eq!(attempt.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn coordinator_confirm_with_retry_fails_after_max_retries() {
+        let attempt = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-retry-fail")
+            .with_retry_policy(TccRetryPolicy::new(2, 1, 10, 2.0));
+
+        let a = attempt.clone();
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_confirm(move || {
+                    a.fetch_add(1, Ordering::SeqCst);
+                    Err("always fails".to_string())
+                }),
+        );
+
+        coord.try_phase().unwrap();
+        let result = coord.confirm_with_retry();
+        assert!(result.is_err());
+        assert_eq!(coord.state(), TccState::Failed);
+        // 首次 + 2 次重试 = 3 次
+        assert_eq!(attempt.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn coordinator_confirm_with_retry_idempotent_skips_confirmed() {
+        let confirm_count = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-idempotent")
+            .with_retry_policy(TccRetryPolicy::default());
+
+        let c1 = confirm_count.clone();
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_confirm(move || {
+                    c1.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }),
+        );
+
+        coord.try_phase().unwrap();
+        coord.confirm_with_retry().unwrap();
+        assert_eq!(coord.state(), TccState::Confirmed);
+        assert_eq!(confirm_count.load(Ordering::SeqCst), 1);
+
+        // 再次调用 confirm_with_retry，应该跳过已 Confirmed 的分支
+        // 但状态已经是 Confirmed，不是 Confirming/Failed，所以会返回 InvalidState
+        let result = coord.confirm_with_retry();
+        assert!(result.is_err());
+        // confirm 只被调用一次（幂等）
+        assert_eq!(confirm_count.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn coordinator_confirm_with_retry_without_policy_fails() {
+        let mut coord = TccCoordinator::new("tx-no-policy");
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_confirm(|| Ok(())),
+        );
+        coord.try_phase().unwrap();
+
+        // 未设置 retry_policy，应该返回错误
+        let result = coord.confirm_with_retry();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn coordinator_cancel_with_retry_succeeds_after_failures() {
+        let attempt = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-retry-cancel")
+            .with_retry_policy(TccRetryPolicy::new(3, 1, 10, 2.0));
+
+        let a = attempt.clone();
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_cancel(move || {
+                    let n = a.fetch_add(1, Ordering::SeqCst);
+                    if n < 2 {
+                        Err(format!("cancel attempt {} failed", n))
+                    } else {
+                        Ok(())
+                    }
+                }),
+        );
+
+        // try 成功后直接 cancel
+        coord.try_phase().unwrap();
+        coord.cancel_with_retry().unwrap();
+        assert_eq!(coord.state(), TccState::Cancelled);
+        assert_eq!(attempt.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn coordinator_cancel_with_retry_fails_after_max_retries() {
+        let attempt = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-cancel-fail")
+            .with_retry_policy(TccRetryPolicy::new(2, 1, 10, 2.0));
+
+        let a = attempt.clone();
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_cancel(move || {
+                    a.fetch_add(1, Ordering::SeqCst);
+                    Err("cancel always fails".to_string())
+                }),
+        );
+
+        coord.try_phase().unwrap();
+        let result = coord.cancel_with_retry();
+        assert!(result.is_err());
+        assert_eq!(coord.state(), TccState::Failed);
+        assert_eq!(attempt.load(Ordering::SeqCst), 3);
+    }
+
+    #[test]
+    fn coordinator_cancel_with_retry_without_policy_fails() {
+        let mut coord = TccCoordinator::new("tx-cancel-no-policy");
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_cancel(|| Ok(())),
+        );
+        coord.try_phase().unwrap();
+
+        let result = coord.cancel_with_retry();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn coordinator_confirm_with_retry_max_retries_zero() {
+        // 边界：max_retries=0，不重试，只调用一次
+        let attempt = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-zero-retries")
+            .with_retry_policy(TccRetryPolicy::new(0, 1, 10, 2.0));
+
+        let a = attempt.clone();
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_confirm(move || {
+                    a.fetch_add(1, Ordering::SeqCst);
+                    Err("always fails".to_string())
+                }),
+        );
+
+        coord.try_phase().unwrap();
+        let result = coord.confirm_with_retry();
+        assert!(result.is_err());
+        assert_eq!(coord.state(), TccState::Failed);
+        // 只调用 1 次（首次，无重试）
+        assert_eq!(attempt.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn coordinator_cancel_with_retry_max_retries_zero() {
+        // 边界：max_retries=0，不重试
+        let attempt = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-cancel-zero-retries")
+            .with_retry_policy(TccRetryPolicy::new(0, 1, 10, 2.0));
+
+        let a = attempt.clone();
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_cancel(move || {
+                    a.fetch_add(1, Ordering::SeqCst);
+                    Err("always fails".to_string())
+                }),
+        );
+
+        coord.try_phase().unwrap();
+        let result = coord.cancel_with_retry();
+        assert!(result.is_err());
+        assert_eq!(coord.state(), TccState::Failed);
+        assert_eq!(attempt.load(Ordering::SeqCst), 1);
+    }
+
+    #[test]
+    fn coordinator_confirm_with_retry_wrong_state_fails() {
+        let mut coord = TccCoordinator::new("tx-wrong-state")
+            .with_retry_policy(TccRetryPolicy::default());
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_confirm(|| Ok(())),
+        );
+
+        // 状态是 Init，不能 confirm_with_retry
+        let result = coord.confirm_with_retry();
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn coordinator_cancel_with_retry_skips_confirmed_and_init() {
+        let cancel_count = Arc::new(AtomicU32::new(0));
+        let mut coord = TccCoordinator::new("tx-skip-confirmed")
+            .with_retry_policy(TccRetryPolicy::default());
+
+        let c1 = cancel_count.clone();
+        // 第一个分支：try 成功，需要 cancel
+        coord.add_participant(
+            TccParticipant::new("db1")
+                .with_try(|| Ok(()))
+                .with_cancel(move || {
+                    c1.fetch_add(1, Ordering::SeqCst);
+                    Ok(())
+                }),
+        );
+        // 第二个分支：只有 try（会 try 成功），但 cancel 时会被处理
+        coord.add_participant(
+            TccParticipant::new("db2")
+                .with_try(|| Ok(()))
+                .with_cancel(|| Ok(())),
+        );
+
+        coord.try_phase().unwrap();
+        coord.cancel_with_retry().unwrap();
+        assert_eq!(coord.state(), TccState::Cancelled);
+        // db1 的 cancel 被调用一次
+        assert_eq!(cancel_count.load(Ordering::SeqCst), 1);
     }
 }

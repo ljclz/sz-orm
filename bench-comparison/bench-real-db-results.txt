@@ -1,0 +1,139 @@
+# SZ-ORM Benchmark Results (Real DBs)
+
+Generated: 2026-07-23 20:30:00
+
+Scenarios (per DB, 3 ORMs: SZ-ORM / SQLx / SeaORM):
+- INSERT 1K          (逐行插入 1000 行)
+- SELECT BY ID       (预插入 1K 行，100 次单行查询)
+- SELECT ALL 1K      (预插入 1K 行，全表查询)
+- UPDATE             (预插入 1K 行，100 次单行更新)
+- DELETE 1K          (预插入 1K 行，逐行删除)
+
+Connection pool: max_connections=10 (与 SQLite benchmark 一致)
+
+
+--- MySQL benchmark (远程云服务器 122.51.216.76:8802) ---
+
+## MySQL Benchmark
+
+Connection: `mysql://root:***@122.51.216.76:8802/lewuli`
+Trials per scenario: 3
+
+[setup] MySQL database 'lewuli' ensured
+### INSERT 1000 (MySQL)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 20.36 s | 19.60 s | 18.51 s | 19.60 s |
+| sqlx | 35.15 s | 34.09 s | 33.69 s | 34.09 s |
+| sea-orm | 34.94 s | 31.97 s | 33.86 s | 33.86 s |
+
+### SELECT BY ID (MySQL, pre-insert 1000 rows, 100 queries)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 1.64 s | 1.60 s | 1.52 s | 1.60 s |
+| sqlx | 2.99 s | 2.92 s | 3.04 s | 2.99 s |
+| sea-orm | 2.71 s | 2.75 s | 2.66 s | 2.71 s |
+
+### SELECT ALL (MySQL, 1000 rows)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 28.22 ms | 35.25 ms | 16.74 ms | 28.22 ms |
+| sqlx | 66.20 ms | 75.34 ms | 1.96 s | 75.34 ms |
+| sea-orm | 85.34 ms | 71.40 ms | 57.20 ms | 71.40 ms |
+
+### UPDATE (MySQL, pre-insert 1000 rows, 100 updates)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 1.96 s | 1.99 s | 1.88 s | 1.96 s |
+| sqlx | 3.19 s | 3.08 s | 3.06 s | 3.08 s |
+| sea-orm | 2.91 s | 2.78 s | 3.10 s | 2.91 s |
+
+### DELETE (MySQL, delete 1000 rows one-by-one)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 18.83 s | 19.62 s | 19.43 s | 19.43 s |
+| sqlx | 32.87 s | 30.76 s | 30.43 s | 30.76 s |
+| sea-orm | 27.73 s | 30.31 s | 29.86 s | 29.86 s |
+
+--- MySQL benchmark end ---
+
+
+--- PostgreSQL benchmark (本机 Windows PostgreSQL 18.2, localhost:5432) ---
+
+## PostgreSQL Benchmark
+
+Connection: `postgres://postgres:***@localhost:5432/bench`
+Trials per scenario: 3
+
+[setup] PostgreSQL database 'bench' exists
+### INSERT 1000 (PostgreSQL)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 200.78 ms | 147.32 ms | 127.19 ms | 147.32 ms |
+| sqlx | 295.43 ms | 164.11 ms | 166.51 ms | 166.51 ms |
+| sea-orm | 207.51 ms | 167.62 ms | 162.42 ms | 167.62 ms |
+
+### SELECT BY ID (PostgreSQL, pre-insert 1000 rows, 100 queries)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 31.82 ms | 7.64 ms | 8.28 ms | 8.28 ms |
+| sqlx | 12.76 ms | 8.91 ms | 7.75 ms | 8.91 ms |
+| sea-orm | 9.70 ms | 6.77 ms | 6.57 ms | 6.77 ms |
+
+### SELECT ALL (PostgreSQL, 1000 rows)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 2.34 ms | 2.36 ms | 1.38 ms | 2.34 ms |
+| sqlx | 607.40 µs | 544.50 µs | 445.30 µs | 544.50 µs |
+| sea-orm | 736.40 µs | 599.60 µs | 568.70 µs | 599.60 µs |
+
+### UPDATE (PostgreSQL, pre-insert 1000 rows, 100 updates)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 17.51 ms | 14.32 ms | 19.83 ms | 17.51 ms |
+| sqlx | 19.77 ms | 19.39 ms | 14.65 ms | 19.39 ms |
+| sea-orm | 15.90 ms | 15.91 ms | 15.23 ms | 15.90 ms |
+
+### DELETE (PostgreSQL, delete 1000 rows one-by-one)
+
+| ORM | Trial 1 | Trial 2 | Trial 3 | Median |
+|-----|------|------|------|--------|
+| sz-orm | 137.49 ms | 148.09 ms | 137.14 ms | 137.49 ms |
+| sqlx | 150.17 ms | 152.23 ms | 154.85 ms | 152.23 ms |
+| sea-orm | 149.40 ms | 149.58 ms | 167.18 ms | 149.58 ms |
+
+--- PostgreSQL benchmark end ---
+
+
+=== 综合排名总结 ===
+
+MySQL 远程（5 场景）：
+- INSERT 1K:        sz-orm 第一（19.60s）vs sqlx 34.09s, sea-orm 33.86s
+- SELECT BY ID:     sz-orm 第一（1.60s） vs sqlx 2.99s, sea-orm 2.71s
+- SELECT ALL 1K:    sz-orm 第一（28.22ms） vs sqlx 75.34ms, sea-orm 71.40ms
+- UPDATE:           sz-orm 第一（1.96s） vs sqlx 3.08s, sea-orm 2.91s
+- DELETE 1K:        sz-orm 第一（19.43s） vs sqlx 30.76s, sea-orm 29.86s
+SZ-ORM 在 MySQL 全部 5 场景排名第一
+
+PostgreSQL 本地（5 场景）：
+- INSERT 1K:        sz-orm 第一（147.32ms）vs sqlx 166.51ms, sea-orm 167.62ms
+- SELECT BY ID:     sea-orm 第一（6.77ms） vs sz-orm 8.28ms, sqlx 8.91ms — SZ-ORM 第二
+- SELECT ALL 1K:    sqlx 第一（544.50µs） vs sea-orm 599.60µs, sz-orm 2.34ms — SZ-ORM 第三
+- UPDATE:           sea-orm 第一（15.90ms）vs sz-orm 17.51ms, sqlx 19.39ms — SZ-ORM 第二
+- DELETE 1K:        sz-orm 第一（137.49ms）vs sea-orm 149.58ms, sqlx 152.23ms
+SZ-ORM 在 PG 拿下 INSERT/DELETE 两项第一，SELECT ALL 最弱
+
+环境差异说明：
+- MySQL：远程 WAN，网络 RTT ~19ms 主导，轻抽象层优势显现
+- PostgreSQL：本机 localhost，网络 RTT ≈ 0，纯抽象层开销对比
+- 在无网络干扰的本地公平环境下，SZ-ORM 在 SELECT ALL 落后（format! SQL 构造开销），
+  但在 INSERT/DELETE 写场景仍领先
