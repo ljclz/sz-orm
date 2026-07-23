@@ -7,12 +7,20 @@
 //!
 //! - [`broker`] — 客户端配置与插件入口
 //! - [`qos`] — 服务质量等级（0/1/2）
+//! - [`qos2`] — QoS 2 四次握手状态机
 //! - [`topics`] — 主题通配符匹配
+//! - [`will`] — 遗嘱消息（Last Will & Testament）
+//! - [`retained`] — 保留消息存储与匹配
+//! - [`shared`] — 共享订阅（Shared Subscriptions）
 
 pub mod broker;
 pub mod error;
 pub mod qos;
+pub mod qos2;
 pub mod topics;
+pub mod will;
+pub mod retained;
+pub mod shared;
 
 pub use error::MqttError;
 

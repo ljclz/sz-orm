@@ -7,16 +7,25 @@
 //!
 //! - [`auth`] — 用户、凭证等基础模型
 //! - [`jwt`] — JSON Web Token 签发与校验
-//! - [`authorizer`] — RBAC 授权器
+//! - [`authorizer`] — RBAC 授权器（含角色层级）
+//! - [`oauth2`] — OAuth2 授权码流程（RFC 6749）
+//! - [`mfa`] — 多因素认证（TOTP, RFC 6238）
+//! - [`token_store`] — 刷新令牌存储（轮换 + 撤销 + 重放检测）
 
 pub mod auth;
 pub mod authorizer;
 pub mod error;
 pub mod jwt;
+pub mod mfa;
+pub mod oauth2;
+pub mod token_store;
 
 pub use auth::*;
 pub use authorizer::{Authorizer, RbacAuthorizer};
 pub use error::AuthError;
+pub use mfa::{MfaManager, MfaSecret, TotpVerifier};
+pub use oauth2::{AuthorizationCode, AuthorizationRequest, OAuth2Server, TokenRequest};
+pub use token_store::{TokenStore, StoredToken, TokenFamilyError};
 
 #[cfg(test)]
 mod tests {

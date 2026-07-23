@@ -1,7 +1,10 @@
-//! SZ-ORM Procedural Macros - compile-time SQL validation
+//! SZ-ORM Procedural Macros - compile-time SQL validation & derive macros
 //!
-//! Provides the `sql_string!` macro that validates SQL string literals at compile time.
-//! Errors like `SELECT * FORM users` or `'; DROP TABLE` are caught before the binary is built.
+//! Provides:
+//! - `sql_string!` macro that validates SQL string literals at compile time.
+//!   Errors like `SELECT * FORM users` or `'; DROP TABLE` are caught before the binary is built.
+//! - `#[derive(Schema)]` — auto-generate table structure info from a struct.
+//! - `#[derive(Builder)]` — auto-generate builder pattern code for a struct.
 //!
 //! # Usage
 //!
@@ -12,7 +15,7 @@
 //! let sql = sql_string!("SELECT * FROM users WHERE id = 1"); // ✅ compiles
 //!
 //! // With parameter count check
-//! let sql = sql_string!("SELECT * FROM users WHERE id = ?";
+//! let sql = sql_string!("SELECT * FROM users WHERE id = ?");
 //!                      params: 1);                          // ✅ compiles
 //!
 //! // ❌ compile error: missing FROM
@@ -22,8 +25,28 @@
 //! let sql = sql_string!("SELECT * FROM users WHERE name = 'x' OR '1'='1'");
 //!
 //! // ❌ compile error: parameter count mismatch
-//! let sql = sql_string!("SELECT * FROM users WHERE id = ?";
+//! let sql = sql_string!("SELECT * FROM users WHERE id = ?");
 //!                      params: 2);
+//! ```
+//!
+//! # Derive macros
+//!
+//! ```ignore
+//! use sz_orm_macros::{Schema, Builder};
+//!
+//! #[derive(Schema)]
+//! #[table(name = "users")]
+//! struct User {
+//!     #[column(primary_key)]
+//!     id: i64,
+//!     name: String,
+//! }
+//!
+//! #[derive(Builder)]
+//! struct Order {
+//!     id: i64,
+//!     total: f64,
+//! }
 //! ```
 
 extern crate proc_macro;
@@ -33,6 +56,10 @@ use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenSt
 // 引入 quote! 宏，用于类型安全地构建 TokenStream
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
+use syn::parse_macro_input;
+
+// 派生宏模块
+mod derive;
 
 /// Compile-time SQL validation macro.
 ///
@@ -1208,6 +1235,80 @@ fn sql_type_to_rust(sql_type: &str, nullable: bool) -> String {
     } else {
         rust.to_string()
     }
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(Schema)]` — auto-generate table structure from a struct
+// ---------------------------------------------------------------------------
+
+/// 派生宏：自动从 Rust 结构体生成表结构信息。
+///
+/// 解析 `#[table(name = "...")]` 和 `#[column(...)]` 属性，
+/// 生成 `Schema` trait 实现，便于在运行时反射表名与列信息。
+///
+/// # 支持的属性
+///
+/// - `#[table(name = "users")]` — 指定表名（默认使用结构体名的蛇形形式）
+/// - `#[column(name = "user_id")]` — 指定列名（默认使用字段名）
+/// - `#[column(type = "VARCHAR(255)")]` — 指定 SQL 类型
+/// - `#[column(primary_key)]` — 标记主键
+/// - `#[column(nullable)]` — 显式标记允许 NULL
+/// - `#[column(skip)]` — 跳过此字段，不生成 schema 条目
+/// - `#[column(default = "0")]` — 标记字段有默认值
+///
+/// # 类型推断
+///
+/// 字段的 Rust 类型会自动映射为 SQL 类型：
+/// - `i64`/`u64` → `BIGINT`
+/// - `i32`/`u32` → `INTEGER`
+/// - `String` → `TEXT`
+/// - `f64` → `DOUBLE`
+/// - `bool` → `BOOLEAN`
+/// - `Vec<u8>` → `BLOB`
+/// - `Option<T>` → 与 `T` 相同，但标记为 nullable
+#[proc_macro_derive(Schema, attributes(table, column))]
+pub fn derive_schema(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_schema_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(Builder)]` — auto-generate builder pattern code
+// ---------------------------------------------------------------------------
+
+/// 派生宏：自动生成构造器模式代码。
+///
+/// 为目标结构体生成一个 `XxxBuilder` 类型，包含：
+/// - `new()` 构造空 builder
+/// - 每个字段的 setter 方法
+/// - `build()` 方法返回 `Result<T, String>`
+///
+/// # 支持的属性
+///
+/// - `#[builder(skip)]` — 跳过此字段（不生成 setter，使用 Default）
+/// - `#[builder(default = expr)]` — 指定默认值表达式
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::Builder;
+///
+/// #[derive(Builder)]
+/// struct User {
+///     id: i64,
+///     name: String,
+/// }
+///
+/// let user = User::builder()
+///     .id(1)
+///     .name("Alice".to_string())
+///     .build()
+///     .unwrap();
+/// ```
+#[proc_macro_derive(Builder, attributes(builder))]
+pub fn derive_builder(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_builder_impl(input).into()
 }
 
 // ---------------------------------------------------------------------------

@@ -14,6 +14,7 @@ use std::sync::{Arc, RwLock};
 use std::thread::JoinHandle;
 use std::time::Duration;
 
+pub mod advanced;
 pub mod scheduler;
 
 pub use scheduler::{CounterJobHandler, JobHandler, RecordingJobHandler};

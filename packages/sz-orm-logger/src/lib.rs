@@ -8,6 +8,15 @@
 //! - [`Logger`] trait — 日志器接口
 //! - [`LogLevel`] — 日志级别
 //! - [`LogEntry`] — 日志条目
+//!
+//! ## 高级日志功能（`advanced` 模块）
+//!
+//! - [`advanced::LogRotator`] — 日志轮转（按大小/时间）
+//! - [`advanced::MultiOutputLogger`] / [`advanced::LogSink`] — 多输出扇出
+//! - [`advanced::LevelFilter`] — 按 target 细粒度级别过滤
+//! - [`advanced::StructuredLogEntry`] / [`advanced::StructuredLogWriter`] — 结构化字段
+
+pub mod advanced;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

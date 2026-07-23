@@ -179,6 +179,10 @@ impl PgVectorStore for InMemoryVectorStore {
             if let Some(ref text) = record.text {
                 result = result.with_text(text.clone());
             }
+            // 将存储的 metadata 填充到搜索结果中（用于后续过滤）
+            if let Some(ref metadata) = record.metadata {
+                result = result.with_metadata(metadata.clone());
+            }
             results.push(result);
         }
         Ok(results)

@@ -29,6 +29,7 @@
 mod any;
 pub mod any_driver;
 mod error;
+pub mod enhanced;
 
 pub use any::{
     MySqlPoolHandle, PgPoolHandle, SqlitePoolHandle, SqlxMySqlConnection,
@@ -36,6 +37,10 @@ pub use any::{
     SqlxSqliteConnectionFactory,
 };
 pub use any_driver::{AnyBackend, AnyConnection, AnyPool};
+pub use enhanced::{
+    CacheStats, EnhancedPoolConfig, EnhancedPoolConfigBuilder, PreparedStatementCache,
+    TransactionIsolation,
+};
 pub use error::map_sqlx_error;
 
 pub use sz_orm_core;

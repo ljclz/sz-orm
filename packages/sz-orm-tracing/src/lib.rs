@@ -7,12 +7,25 @@
 //!
 //! - [`Span`] — 单个追踪片段
 //! - `Tracer` — 追踪器与导出器
+//!
+//! ## 采样与上下文传播（`sampling` 模块）
+//!
+//! - [`sampling::Sampler`] / [`sampling::TraceIdRatioSampler`] — 采样策略
+//! - [`sampling::Baggage`] / [`sampling::BaggagePropagator`] — W3C Baggage 传播
+//! - [`sampling::BatchSpanExporter`] — 批量 Span 导出
+
+pub mod sampling;
 
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::Duration;
+
+pub use sampling::{
+    AlwaysOffSampler, AlwaysOnSampler, Baggage, BaggagePropagator, BatchConfig, BatchSpanExporter,
+    ParentBasedSampler, SamplingDecision, Sampler, TraceIdRatioSampler,
+};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Span {

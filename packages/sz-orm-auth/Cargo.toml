@@ -18,6 +18,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # RustCrypto 加密原语：替代手写 SHA-256 / HMAC-SHA256
 sha2 = "0.10"
+# SHA-1 用于 TOTP/HOTP (RFC 4226/6238) 的 HMAC-SHA1
+sha1 = "0.10"
 hmac = "0.12"
 # base64 URL-safe (no padding) 编解码，替代手写实现
 base64 = "0.22"

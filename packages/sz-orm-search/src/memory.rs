@@ -65,6 +65,18 @@ impl MemorySearch {
     fn extract_sort_key(doc: &Value, field: &str) -> Option<f64> {
         doc.get(field)?.as_f64()
     }
+
+    /// 获取索引内所有文档的快照（用于分面计算等扩展功能）
+    pub fn get_all_docs(
+        &self,
+        index: &str,
+    ) -> Result<HashMap<String, Value>, SearchError> {
+        let indices = self.indices.lock().unwrap();
+        let idx = indices
+            .get(index)
+            .ok_or_else(|| SearchError::NotFound(format!("index: {}", index)))?;
+        Ok(idx.clone())
+    }
 }
 
 impl Default for MemorySearch {

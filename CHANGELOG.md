@@ -69,12 +69,13 @@
 - **ORM 对比 Benchmark**：新增 v0.4 SQLite in-memory benchmark（100K rows），SZ-ORM 在 INSERT/DELETE 场景排名第一，UPDATE 排名第二
 - **SeaORM 迁移指南**：新增 `docs/sea-orm迁移指南.md`（547 行，10 章 + 检查清单），覆盖架构差异/连接池/Model/查询/事务/关联/Migration/ActiveModel 替代方案/陷阱/检查清单
 - **编译时 SQL schema 生成（`schema!` 宏）**：新增 `schema!` proc-macro，接受 SQL `CREATE TABLE` 语句，编译期解析列名/类型/约束，自动生成与 `typed_query! { table ... }` 等价的代码（pub mod + table 标记类型 + col_\<name\> TypedColumn 实现），支持 IF NOT EXISTS、反引号/双引号标识符、NOT NULL/PRIMARY KEY 隐含非空判定、嵌套括号类型（如 DECIMAL(10,2)），零外部依赖纯字符串解析，8 个单元测试
+- **全部 37 扩展包深度优化**：完成全部 37 个扩展包的深度优化，测试数从 2,271 增至 4,959（+2,688），clippy 零警告。覆盖 5 大组：数据库扩展（sql-validator/batch/rw/config/storage/scheduler/mig/back）、消息通信+可观测（websocket/mqtt/postgis/vector/graphql/timeseries/es）、安全合规+API（auth/crypto/audit/masking/limit/swagger/search/health）、分布式+运维（tracing/logger/observability/lc/wasm/ai/macros/sqlx）、核心 4 包（queue/grpc/sharding/dtx）。每个包补充 200-500 行高级特性代码与 15-30 个单元测试
 
 ### Changed
 
 - **Rust 工具链升级**：升级至 Rust 1.97.1，同步全面工程化审计
 - **sqlx 升级**：sqlx 0.8.6 → 0.9.0，消除 rsa Marvin Attack 漏洞
-- **文档数据统一**：统一测试数 2,271 / LOC ~104,000 / 文档数 11，消除文档间数据矛盾（与实测一致）
+- **文档数据统一**：统一测试数 4,959 / LOC ~139,000 / 文档数 11（深度优化后更新），消除文档间数据矛盾（与实测一致）
 - **8 项工程改进落地**：基于 2026-07-21 全面审计的 8 项未来改进建议（1-7）全部实施
 
 ### Security

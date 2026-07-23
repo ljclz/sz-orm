@@ -8,6 +8,7 @@
 //! - [`storage`] — 统一 trait 与构建器
 //! - [`s3`] / [`aliyun`] / [`huawei`] / [`tencent`] / [`qiniu`] / [`upyun`] / [`local`] — 各 provider 实现
 
+pub mod advanced;
 pub mod error;
 pub mod storage;
 
@@ -18,6 +19,14 @@ pub mod qiniu;
 pub mod s3;
 pub mod tencent;
 pub mod upyun;
+
+// 高级存储功能（分片上传、断点续传、生命周期管理、CDN 刷新）
+pub use advanced::{
+    estimate_remaining_seconds, format_size, object_age_days, BucketLifecycle, CdnRefresher,
+    LifecycleAction, LifecycleEvaluationResult, LifecycleRule, MultipartUpload,
+    MultipartUploadSnapshot, Part, RefreshRequest, RefreshStatus, RefreshType,
+    ResumableUploadManager, UploadStatus,
+};
 
 pub use error::StorageError;
 pub use storage::*;

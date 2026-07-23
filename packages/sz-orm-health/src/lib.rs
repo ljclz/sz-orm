@@ -7,6 +7,15 @@
 //!
 //! - [`HealthStatus`] — 健康/不健康/未知
 //! - [`HealthReport`] — 单资源健康报告
+//!
+//! ## 高级健康检查功能（`advanced` 模块）
+//!
+//! - [`advanced::HealthCheckCache`] — 带 TTL 的健康检查缓存
+//! - [`advanced::CascadingHealthChecker`] — 级联健康检查（依赖链）
+//! - [`advanced::ProbeManager`] — Readiness / Liveness 探针管理
+//! - [`advanced::TimeoutHealthChecker`] — 带超时的健康检查
+
+pub mod advanced;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

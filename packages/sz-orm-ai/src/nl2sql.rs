@@ -1061,6 +1061,591 @@ fn clean_llm_sql_output(raw: &str) -> String {
     trimmed.to_string()
 }
 
+// ==================== 查询优化提示 ====================
+
+/// 优化建议的严重级别
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HintSeverity {
+    /// 信息级：可选的优化建议
+    Info,
+    /// 警告级：可能影响性能
+    Warning,
+    /// 严重级：强烈建议修改
+    Critical,
+}
+
+impl HintSeverity {
+    /// 转换为字符串
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            HintSeverity::Info => "INFO",
+            HintSeverity::Warning => "WARNING",
+            HintSeverity::Critical => "CRITICAL",
+        }
+    }
+}
+
+/// 单条查询优化建议
+#[derive(Debug, Clone)]
+pub struct QueryOptimizationHint {
+    /// 建议标题
+    pub title: String,
+    /// 详细描述
+    pub description: String,
+    /// 严重级别
+    pub severity: HintSeverity,
+    /// 优化后的 SQL 建议（可选）
+    pub suggested_sql: Option<String>,
+}
+
+impl QueryOptimizationHint {
+    /// 创建一条信息级建议
+    pub fn info(title: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            description: description.into(),
+            severity: HintSeverity::Info,
+            suggested_sql: None,
+        }
+    }
+
+    /// 创建一条警告级建议
+    pub fn warning(title: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            description: description.into(),
+            severity: HintSeverity::Warning,
+            suggested_sql: None,
+        }
+    }
+
+    /// 创建一条严重级建议
+    pub fn critical(title: impl Into<String>, description: impl Into<String>) -> Self {
+        Self {
+            title: title.into(),
+            description: description.into(),
+            severity: HintSeverity::Critical,
+            suggested_sql: None,
+        }
+    }
+
+    /// 附加优化后的 SQL 建议
+    pub fn with_suggested_sql(mut self, sql: impl Into<String>) -> Self {
+        self.suggested_sql = Some(sql.into());
+        self
+    }
+}
+
+/// 查询分析结果
+#[derive(Debug, Clone)]
+pub struct QueryAnalysis {
+    /// 原始 SQL
+    pub original_sql: String,
+    /// 所有优化建议
+    pub hints: Vec<QueryOptimizationHint>,
+    /// 预估的 SQL 复杂度评分（0-100，越高越复杂）
+    pub complexity_score: u32,
+    /// 检测到的表名列表
+    pub detected_tables: Vec<String>,
+    /// 是否包含 WHERE 子句
+    pub has_where: bool,
+    /// 是否包含 LIMIT 子句
+    pub has_limit: bool,
+    /// 是否包含 JOIN
+    pub has_join: bool,
+    /// 是否包含子查询
+    pub has_subquery: bool,
+    /// 是否使用了 SELECT *
+    pub uses_select_star: bool,
+}
+
+impl QueryAnalysis {
+    /// 返回严重级别为 Critical 的建议数量
+    pub fn critical_count(&self) -> usize {
+        self.hints
+            .iter()
+            .filter(|h| h.severity == HintSeverity::Critical)
+            .count()
+    }
+
+    /// 返回严重级别为 Warning 的建议数量
+    pub fn warning_count(&self) -> usize {
+        self.hints
+            .iter()
+            .filter(|h| h.severity == HintSeverity::Warning)
+            .count()
+    }
+
+    /// 是否存在任何建议
+    pub fn has_hints(&self) -> bool {
+        !self.hints.is_empty()
+    }
+}
+
+/// SQL 查询优化分析器
+///
+/// 基于规则分析 SQL 查询，生成优化建议。
+/// 不依赖外部 LLM API，纯规则匹配，适用于离线场景。
+pub struct QueryOptimizer {
+    /// 是否检测 SELECT *
+    pub check_select_star: bool,
+    /// 是否检测缺失的 LIMIT
+    pub check_missing_limit: bool,
+    /// 是否检测缺失的 WHERE
+    pub check_missing_where: bool,
+    /// LIMIT 建议的默认行数
+    pub default_limit: usize,
+    /// 复杂度评分中 JOIN 的权重
+    pub join_weight: u32,
+    /// 复杂度评分中子查询的权重
+    pub subquery_weight: u32,
+    /// 复杂度评分中 WHERE 条件的权重
+    pub where_weight: u32,
+}
+
+impl Default for QueryOptimizer {
+    fn default() -> Self {
+        Self {
+            check_select_star: true,
+            check_missing_limit: true,
+            check_missing_where: true,
+            default_limit: 100,
+            join_weight: 15,
+            subquery_weight: 20,
+            where_weight: 5,
+        }
+    }
+}
+
+impl QueryOptimizer {
+    /// 创建新的查询优化分析器
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置默认 LIMIT 行数
+    pub fn with_default_limit(mut self, limit: usize) -> Self {
+        self.default_limit = limit;
+        self
+    }
+
+    /// 禁用 SELECT * 检测
+    pub fn disable_select_star_check(mut self) -> Self {
+        self.check_select_star = false;
+        self
+    }
+
+    /// 禁用缺失 LIMIT 检测
+    pub fn disable_missing_limit_check(mut self) -> Self {
+        self.check_missing_limit = false;
+        self
+    }
+
+    /// 禁用缺失 WHERE 检测
+    pub fn disable_missing_where_check(mut self) -> Self {
+        self.check_missing_where = false;
+        self
+    }
+
+    /// 分析 SQL 查询并生成优化建议
+    ///
+    /// # 参数
+    /// - `sql`: 要分析的 SQL 查询语句
+    /// - `schema`: 数据库 schema 上下文（用于检测表名和索引）
+    pub fn analyze(&self, sql: &str, schema: &SchemaContext) -> QueryAnalysis {
+        let normalized = Self::normalize_sql(sql);
+        let lower = normalized.to_lowercase();
+
+        let uses_select_star = self.detect_select_star(&lower);
+        let has_where = self.detect_where(&lower);
+        let has_limit = self.detect_limit(&lower);
+        let has_join = self.detect_join(&lower);
+        let has_subquery = self.detect_subquery(&lower);
+        let detected_tables = self.extract_tables(&lower, schema);
+
+        let mut hints = Vec::new();
+
+        // 检测 SELECT *
+        if self.check_select_star && uses_select_star {
+            let columns_hint = self.suggest_columns(&detected_tables, schema);
+            let mut hint = QueryOptimizationHint::warning(
+                "避免使用 SELECT *",
+                "SELECT * 会返回所有列，可能导致不必要的数据传输和内存消耗。建议显式指定所需列。",
+            );
+            if !columns_hint.is_empty() {
+                hint = hint.with_suggested_sql(columns_hint);
+            }
+            hints.push(hint);
+        }
+
+        // 检测缺失的 WHERE
+        if self.check_missing_where && !has_where {
+            hints.push(QueryOptimizationHint::critical(
+                "缺少 WHERE 子句",
+                "查询没有 WHERE 条件，将扫描全表。对于大表这会导致严重的性能问题。",
+            ));
+        }
+
+        // 检测缺失的 LIMIT
+        if self.check_missing_limit && !has_limit {
+            let suggested = self.add_limit_suggestion(&normalized, self.default_limit);
+            hints.push(
+                QueryOptimizationHint::warning(
+                    "缺少 LIMIT 子句",
+                    format!("查询没有 LIMIT 限制，可能返回大量数据。建议添加 LIMIT {}。", self.default_limit),
+                )
+                .with_suggested_sql(suggested),
+            );
+        }
+
+        // 检测多表 JOIN 无索引建议
+        if has_join {
+            let join_count = Self::count_joins(&lower);
+            if join_count >= 3 {
+                hints.push(QueryOptimizationHint::critical(
+                    "JOIN 数量过多",
+                    format!(
+                        "查询包含 {} 个 JOIN，可能导致性能下降。建议拆分为多个查询或使用临时表。",
+                        join_count
+                    ),
+                ));
+            } else if join_count >= 1 {
+                hints.push(QueryOptimizationHint::info(
+                    "JOIN 查询建议",
+                    "确保 JOIN 条件涉及的列已建立索引，避免嵌套循环扫描。",
+                ));
+            }
+        }
+
+        // 检测子查询
+        if has_subquery {
+            let subquery_count = Self::count_subqueries(&lower);
+            if subquery_count >= 2 {
+                hints.push(QueryOptimizationHint::warning(
+                    "子查询嵌套过深",
+                    format!(
+                        "查询包含 {} 个子查询，建议考虑使用 JOIN 重写以提高性能。",
+                        subquery_count
+                    ),
+                ));
+            }
+        }
+
+        // 检测 LIKE '%...' 前缀通配符
+        if Self::has_leading_wildcard_like(&lower) {
+            hints.push(QueryOptimizationHint::warning(
+                "LIKE 使用前缀通配符",
+                "LIKE '%keyword' 无法使用索引，会导致全表扫描。如可能，使用 LIKE 'keyword%' 或全文索引。",
+            ));
+        }
+
+        // 检测 OR 条件（可能导致无法使用索引）
+        if Self::count_or_conditions(&lower) >= 3 {
+            hints.push(QueryOptimizationHint::info(
+                "多个 OR 条件",
+                "多个 OR 条件可能导致无法有效使用索引。考虑使用 UNION ALL 重写。",
+            ));
+        }
+
+        // 检测 ORDER BY 无 LIMIT
+        if Self::has_order_by_without_limit(&lower) {
+            hints.push(QueryOptimizationHint::warning(
+                "ORDER BY 无 LIMIT",
+                "ORDER BY 无 LIMIT 时需要排序全部数据，可能消耗大量内存。建议添加 LIMIT。",
+            ));
+        }
+
+        // 检测 COUNT(*) 建议使用 COUNT(1)
+        if lower.contains("count(*)") {
+            hints.push(QueryOptimizationHint::info(
+                "考虑使用 COUNT(1)",
+                "某些数据库中 COUNT(1) 比 COUNT(*) 略快（虽然现代优化器通常已优化）。",
+            ));
+        }
+
+        // 检测缺失索引建议（基于 WHERE 条件）
+        if has_where {
+            let where_columns = self.extract_where_columns(&lower, schema);
+            for col in &where_columns {
+                if !self.column_has_index(col, schema) {
+                    hints.push(QueryOptimizationHint::info(
+                        format!("建议为列 {} 添加索引", col),
+                        format!(
+                            "WHERE 条件中使用了列 {}，但该列似乎没有索引。添加索引可提高查询速度。",
+                            col
+                        ),
+                    ));
+                }
+            }
+        }
+
+        // 计算复杂度评分
+        let complexity_score = self.calculate_complexity(
+            has_join,
+            has_subquery,
+            has_where,
+            &detected_tables,
+            &lower,
+        );
+
+        QueryAnalysis {
+            original_sql: sql.to_string(),
+            hints,
+            complexity_score,
+            detected_tables,
+            has_where,
+            has_limit,
+            has_join,
+            has_subquery,
+            uses_select_star,
+        }
+    }
+
+    /// 生成优化报告文本
+    pub fn format_report(analysis: &QueryAnalysis) -> String {
+        let mut report = String::new();
+        report.push_str("=== SQL 查询优化分析报告 ===\n\n");
+        report.push_str(&format!("原始 SQL: {}\n", analysis.original_sql));
+        report.push_str(&format!("复杂度评分: {}/100\n", analysis.complexity_score));
+        report.push_str(&format!(
+            "检测到的表: {}\n",
+            if analysis.detected_tables.is_empty() {
+                "无".to_string()
+            } else {
+                analysis.detected_tables.join(", ")
+            }
+        ));
+        report.push_str(&format!("包含 WHERE: {}\n", analysis.has_where));
+        report.push_str(&format!("包含 LIMIT: {}\n", analysis.has_limit));
+        report.push_str(&format!("包含 JOIN: {}\n", analysis.has_join));
+        report.push_str(&format!("包含子查询: {}\n", analysis.has_subquery));
+        report.push_str(&format!("使用 SELECT *: {}\n\n", analysis.uses_select_star));
+
+        if analysis.hints.is_empty() {
+            report.push_str("✓ 未发现优化建议，查询看起来良好。\n");
+        } else {
+            report.push_str(&format!(
+                "共 {} 条优化建议（{} 严重，{} 警告）：\n\n",
+                analysis.hints.len(),
+                analysis.critical_count(),
+                analysis.warning_count()
+            ));
+            for (i, hint) in analysis.hints.iter().enumerate() {
+                report.push_str(&format!(
+                    "{}. [{}] {}\n   {}\n",
+                    i + 1,
+                    hint.severity.as_str(),
+                    hint.title,
+                    hint.description
+                ));
+                if let Some(ref sql) = hint.suggested_sql {
+                    report.push_str(&format!("   建议SQL: {}\n", sql));
+                }
+                report.push('\n');
+            }
+        }
+
+        report
+    }
+
+    // ---- 内部辅助方法 ----
+
+    /// 规范化 SQL（去除多余空白、换行）
+    fn normalize_sql(sql: &str) -> String {
+        sql.split_whitespace().collect::<Vec<_>>().join(" ")
+    }
+
+    /// 检测 SELECT *
+    fn detect_select_star(&self, lower: &str) -> bool {
+        lower.contains("select *") || lower.contains("select  *")
+    }
+
+    /// 检测 WHERE 子句
+    fn detect_where(&self, lower: &str) -> bool {
+        lower.contains(" where ")
+    }
+
+    /// 检测 LIMIT 子句
+    fn detect_limit(&self, lower: &str) -> bool {
+        lower.contains(" limit ")
+    }
+
+    /// 检测 JOIN
+    fn detect_join(&self, lower: &str) -> bool {
+        lower.contains(" join ")
+            || lower.contains(" inner join ")
+            || lower.contains(" left join ")
+            || lower.contains(" right join ")
+            || lower.contains(" full join ")
+            || lower.contains(" cross join ")
+    }
+
+    /// 检测子查询（括号内的 SELECT）
+    fn detect_subquery(&self, lower: &str) -> bool {
+        if let Some(paren_pos) = lower.find('(') {
+            let after = &lower[paren_pos..];
+            after.contains("select")
+        } else {
+            false
+        }
+    }
+
+    /// 统计 JOIN 数量
+    fn count_joins(lower: &str) -> usize {
+        lower.matches(" join ").count()
+    }
+
+    /// 统计子查询数量
+    fn count_subqueries(lower: &str) -> usize {
+        lower.matches("(select").count() + lower.matches("( select").count()
+    }
+
+    /// 检测前缀通配符 LIKE
+    fn has_leading_wildcard_like(lower: &str) -> bool {
+        lower.contains("like '%") || lower.contains("like \"%")
+    }
+
+    /// 统计 OR 条件数量
+    fn count_or_conditions(lower: &str) -> usize {
+        lower.matches(" or ").count()
+    }
+
+    /// 检测 ORDER BY 无 LIMIT
+    fn has_order_by_without_limit(lower: &str) -> bool {
+        lower.contains(" order by ") && !lower.contains(" limit ")
+    }
+
+    /// 从 SQL 中提取表名（基于 schema）
+    fn extract_tables(&self, lower: &str, schema: &SchemaContext) -> Vec<String> {
+        let mut tables = Vec::new();
+        for table in &schema.tables {
+            let name_lower = table.name.to_lowercase();
+            if lower.contains(&name_lower) {
+                tables.push(table.name.clone());
+            }
+        }
+        tables
+    }
+
+    /// 生成列建议 SQL
+    fn suggest_columns(&self, tables: &[String], schema: &SchemaContext) -> String {
+        if tables.is_empty() {
+            return String::new();
+        }
+        let mut cols = Vec::new();
+        for table_name in tables {
+            if let Some(table) = schema.tables.iter().find(|t| t.name == *table_name) {
+                for col in &table.columns {
+                    cols.push(format!("{}.{}", table_name, col.name));
+                }
+            }
+        }
+        if cols.is_empty() {
+            String::new()
+        } else {
+            format!("SELECT {} FROM {}", cols.join(", "), tables.join(", "))
+        }
+    }
+
+    /// 为 SQL 添加 LIMIT 建议
+    fn add_limit_suggestion(&self, sql: &str, limit: usize) -> String {
+        let trimmed = sql.trim_end_matches(';');
+        format!("{} LIMIT {}", trimmed, limit)
+    }
+
+    /// 从 WHERE 子句中提取列名
+    fn extract_where_columns(&self, lower: &str, schema: &SchemaContext) -> Vec<String> {
+        let mut columns = Vec::new();
+        if let Some(where_pos) = lower.find(" where ") {
+            let after_where = &lower[where_pos + 7..];
+            // 截取到 GROUP BY / ORDER BY / LIMIT 之前
+            let where_clause = after_where
+                .split(" group by ")
+                .next()
+                .unwrap_or(after_where)
+                .split(" order by ")
+                .next()
+                .unwrap_or(after_where)
+                .split(" limit ")
+                .next()
+                .unwrap_or(after_where);
+
+            for table in &schema.tables {
+                for col in &table.columns {
+                    let col_lower = col.name.to_lowercase();
+                    if col_lower.len() >= 2 && where_clause.contains(&col_lower)
+                        && !columns.contains(&col.name)
+                    {
+                        columns.push(col.name.clone());
+                    }
+                }
+            }
+        }
+        columns
+    }
+
+    /// 检查列是否有索引（简化版：主键视为有索引）
+    fn column_has_index(&self, col: &str, schema: &SchemaContext) -> bool {
+        for table in &schema.tables {
+            for c in &table.columns {
+                if c.name.eq_ignore_ascii_case(col) && c.is_primary_key {
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// 计算 SQL 复杂度评分
+    fn calculate_complexity(
+        &self,
+        has_join: bool,
+        has_subquery: bool,
+        has_where: bool,
+        tables: &[String],
+        lower: &str,
+    ) -> u32 {
+        let mut score: u32 = 10; // 基础分
+
+        if has_join {
+            let join_count = Self::count_joins(lower) as u32;
+            score += join_count * self.join_weight;
+        }
+
+        if has_subquery {
+            let sub_count = Self::count_subqueries(lower) as u32;
+            score += sub_count * self.subquery_weight;
+        }
+
+        if has_where {
+            let or_count = Self::count_or_conditions(lower) as u32;
+            score += self.where_weight + or_count * 3;
+        }
+
+        // 表数量影响
+        if tables.len() > 1 {
+            score += (tables.len() as u32 - 1) * 10;
+        }
+
+        // ORDER BY 影响
+        if lower.contains(" order by ") {
+            score += 5;
+        }
+
+        // GROUP BY 影响
+        if lower.contains(" group by ") {
+            score += 10;
+        }
+
+        // DISTINCT 影响
+        if lower.contains(" distinct ") {
+            score += 5;
+        }
+
+        score.min(100)
+    }
+}
+
 // ==================== 单元测试 ====================
 
 #[cfg(test)]
@@ -1441,5 +2026,537 @@ mod tests {
             clean_llm_sql_output("\n  SELECT * FROM users  \n"),
             "SELECT * FROM users"
         );
+    }
+
+    // ============ 查询优化提示测试 ============
+
+    fn optimizer_test_schema() -> SchemaContext {
+        SchemaContext {
+            tables: vec![
+                TableInfo {
+                    name: "users".into(),
+                    columns: vec![
+                        ColumnInfo {
+                            name: "id".into(),
+                            data_type: "INTEGER".into(),
+                            nullable: false,
+                            is_primary_key: true,
+                        },
+                        ColumnInfo {
+                            name: "name".into(),
+                            data_type: "TEXT".into(),
+                            nullable: true,
+                            is_primary_key: false,
+                        },
+                        ColumnInfo {
+                            name: "email".into(),
+                            data_type: "TEXT".into(),
+                            nullable: true,
+                            is_primary_key: false,
+                        },
+                        ColumnInfo {
+                            name: "age".into(),
+                            data_type: "INTEGER".into(),
+                            nullable: true,
+                            is_primary_key: false,
+                        },
+                    ],
+                },
+                TableInfo {
+                    name: "orders".into(),
+                    columns: vec![
+                        ColumnInfo {
+                            name: "id".into(),
+                            data_type: "INTEGER".into(),
+                            nullable: false,
+                            is_primary_key: true,
+                        },
+                        ColumnInfo {
+                            name: "user_id".into(),
+                            data_type: "INTEGER".into(),
+                            nullable: false,
+                            is_primary_key: false,
+                        },
+                        ColumnInfo {
+                            name: "amount".into(),
+                            data_type: "DECIMAL".into(),
+                            nullable: true,
+                            is_primary_key: false,
+                        },
+                    ],
+                },
+            ],
+        }
+    }
+
+    #[test]
+    fn test_hint_severity_as_str() {
+        assert_eq!(HintSeverity::Info.as_str(), "INFO");
+        assert_eq!(HintSeverity::Warning.as_str(), "WARNING");
+        assert_eq!(HintSeverity::Critical.as_str(), "CRITICAL");
+    }
+
+    #[test]
+    fn test_query_optimization_hint_info() {
+        let hint = QueryOptimizationHint::info("标题", "描述");
+        assert_eq!(hint.title, "标题");
+        assert_eq!(hint.description, "描述");
+        assert_eq!(hint.severity, HintSeverity::Info);
+        assert!(hint.suggested_sql.is_none());
+    }
+
+    #[test]
+    fn test_query_optimization_hint_warning() {
+        let hint = QueryOptimizationHint::warning("警告", "警告描述");
+        assert_eq!(hint.severity, HintSeverity::Warning);
+    }
+
+    #[test]
+    fn test_query_optimization_hint_critical() {
+        let hint = QueryOptimizationHint::critical("严重", "严重描述");
+        assert_eq!(hint.severity, HintSeverity::Critical);
+    }
+
+    #[test]
+    fn test_query_optimization_hint_with_suggested_sql() {
+        let hint = QueryOptimizationHint::info("建议", "描述")
+            .with_suggested_sql("SELECT id FROM users");
+        assert_eq!(hint.suggested_sql.as_deref(), Some("SELECT id FROM users"));
+    }
+
+    #[test]
+    fn test_query_optimizer_default() {
+        let opt = QueryOptimizer::default();
+        assert!(opt.check_select_star);
+        assert!(opt.check_missing_limit);
+        assert!(opt.check_missing_where);
+        assert_eq!(opt.default_limit, 100);
+    }
+
+    #[test]
+    fn test_query_optimizer_new() {
+        let opt = QueryOptimizer::new();
+        assert!(opt.check_select_star);
+    }
+
+    #[test]
+    fn test_query_optimizer_with_default_limit() {
+        let opt = QueryOptimizer::new().with_default_limit(50);
+        assert_eq!(opt.default_limit, 50);
+    }
+
+    #[test]
+    fn test_query_optimizer_disable_checks() {
+        let opt = QueryOptimizer::new()
+            .disable_select_star_check()
+            .disable_missing_limit_check()
+            .disable_missing_where_check();
+        assert!(!opt.check_select_star);
+        assert!(!opt.check_missing_limit);
+        assert!(!opt.check_missing_where);
+    }
+
+    #[test]
+    fn test_analyze_select_star() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT * FROM users", &schema);
+
+        assert!(analysis.uses_select_star);
+        assert!(!analysis.has_where);
+        assert!(!analysis.has_limit);
+        // 应该有 SELECT * 建议、缺失 WHERE 建议、缺失 LIMIT 建议
+        assert!(analysis.has_hints());
+        assert!(analysis.critical_count() >= 1); // 缺失 WHERE 是 critical
+    }
+
+    #[test]
+    fn test_analyze_select_star_with_suggested_columns() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT * FROM users", &schema);
+
+        // 应包含 SELECT * 警告，且附带建议 SQL
+        let select_star_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "避免使用 SELECT *");
+        assert!(select_star_hint.is_some());
+        let hint = select_star_hint.unwrap();
+        assert!(hint.suggested_sql.is_some());
+        let suggested = hint.suggested_sql.as_ref().unwrap();
+        assert!(suggested.contains("users.id"));
+        assert!(suggested.contains("users.name"));
+    }
+
+    #[test]
+    fn test_analyze_missing_where_critical() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT id FROM users LIMIT 10", &schema);
+
+        // 没有 WHERE 应产生 critical 建议
+        assert!(analysis.critical_count() >= 1);
+        let where_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "缺少 WHERE 子句");
+        assert!(where_hint.is_some());
+        assert_eq!(where_hint.unwrap().severity, HintSeverity::Critical);
+    }
+
+    #[test]
+    fn test_analyze_missing_limit_warning() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT id FROM users WHERE age > 18", &schema);
+
+        // 没有 LIMIT 应产生 warning 建议
+        assert!(analysis.warning_count() >= 1);
+        let limit_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "缺少 LIMIT 子句");
+        assert!(limit_hint.is_some());
+        let hint = limit_hint.unwrap();
+        assert!(hint.suggested_sql.is_some());
+        assert!(hint.suggested_sql.as_ref().unwrap().contains("LIMIT 100"));
+    }
+
+    #[test]
+    fn test_analyze_with_limit_no_limit_hint() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT id FROM users WHERE age > 18 LIMIT 10", &schema);
+
+        let limit_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "缺少 LIMIT 子句");
+        assert!(limit_hint.is_none());
+    }
+
+    #[test]
+    fn test_analyze_join_detection() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id WHERE u.age > 18 LIMIT 10",
+            &schema,
+        );
+
+        assert!(analysis.has_join);
+        assert!(analysis.detected_tables.contains(&"users".to_string()));
+        assert!(analysis.detected_tables.contains(&"orders".to_string()));
+    }
+
+    #[test]
+    fn test_analyze_multiple_joins_critical() {
+        let opt = QueryOptimizer::new();
+        let schema = SchemaContext {
+            tables: vec![
+                TableInfo {
+                    name: "t1".into(),
+                    columns: vec![ColumnInfo {
+                        name: "id".into(),
+                        data_type: "INT".into(),
+                        nullable: false,
+                        is_primary_key: true,
+                    }],
+                },
+                TableInfo {
+                    name: "t2".into(),
+                    columns: vec![ColumnInfo {
+                        name: "id".into(),
+                        data_type: "INT".into(),
+                        nullable: false,
+                        is_primary_key: true,
+                    }],
+                },
+                TableInfo {
+                    name: "t3".into(),
+                    columns: vec![ColumnInfo {
+                        name: "id".into(),
+                        data_type: "INT".into(),
+                        nullable: false,
+                        is_primary_key: true,
+                    }],
+                },
+                TableInfo {
+                    name: "t4".into(),
+                    columns: vec![ColumnInfo {
+                        name: "id".into(),
+                        data_type: "INT".into(),
+                        nullable: false,
+                        is_primary_key: true,
+                    }],
+                },
+            ],
+        };
+        let analysis = opt.analyze(
+            "SELECT * FROM t1 JOIN t2 ON t1.id = t2.id JOIN t3 ON t2.id = t3.id JOIN t4 ON t3.id = t4.id LIMIT 10",
+            &schema,
+        );
+        // 4 个 JOIN 应触发 critical
+        let join_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "JOIN 数量过多");
+        assert!(join_hint.is_some());
+        assert_eq!(join_hint.unwrap().severity, HintSeverity::Critical);
+    }
+
+    #[test]
+    fn test_analyze_subquery_detection() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE id IN (SELECT user_id FROM orders) LIMIT 10",
+            &schema,
+        );
+
+        assert!(analysis.has_subquery);
+    }
+
+    #[test]
+    fn test_analyze_leading_wildcard_like() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE name LIKE '%john' LIMIT 10",
+            &schema,
+        );
+
+        let like_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "LIKE 使用前缀通配符");
+        assert!(like_hint.is_some());
+    }
+
+    #[test]
+    fn test_analyze_order_by_without_limit() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE age > 18 ORDER BY id",
+            &schema,
+        );
+
+        let order_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "ORDER BY 无 LIMIT");
+        assert!(order_hint.is_some());
+    }
+
+    #[test]
+    fn test_analyze_count_star_hint() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT COUNT(*) FROM users LIMIT 1", &schema);
+
+        let count_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "考虑使用 COUNT(1)");
+        assert!(count_hint.is_some());
+    }
+
+    #[test]
+    fn test_analyze_missing_index_hint() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        // age 列不是主键，应建议添加索引
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE age > 18 LIMIT 10",
+            &schema,
+        );
+
+        let index_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title.contains("添加索引"));
+        assert!(index_hint.is_some());
+        assert!(index_hint.unwrap().title.contains("age"));
+    }
+
+    #[test]
+    fn test_analyze_primary_key_no_index_hint() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        // id 列是主键，不应建议添加索引
+        let analysis = opt.analyze(
+            "SELECT name FROM users WHERE id = 1 LIMIT 10",
+            &schema,
+        );
+
+        let index_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title.contains("添加索引") && h.title.contains("id"));
+        // id 是主键，不应有索引建议
+        assert!(index_hint.is_none());
+    }
+
+    #[test]
+    fn test_analyze_complexity_score_simple() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE id = 1 LIMIT 10",
+            &schema,
+        );
+        // 简单查询应该低分
+        assert!(analysis.complexity_score < 30);
+    }
+
+    #[test]
+    fn test_analyze_complexity_score_complex() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT u.id, o.amount FROM users u JOIN orders o ON u.id = o.user_id WHERE u.age > 18 OR u.name LIKE '%a%' GROUP BY u.id ORDER BY o.amount DESC",
+            &schema,
+        );
+        // 复杂查询应该高分
+        assert!(analysis.complexity_score > 30);
+    }
+
+    #[test]
+    fn test_analyze_well_optimized_query() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT id, name FROM users WHERE id = 1 LIMIT 10",
+            &schema,
+        );
+
+        // 这个查询写得很好，不应该有 critical 或 warning 建议
+        assert_eq!(analysis.critical_count(), 0);
+        // id 是主键，不应有索引建议
+        // 有 LIMIT，不应有 LIMIT 建议
+        // 有 WHERE，不应有 WHERE 建议
+        // 没有 SELECT *，不应有 SELECT * 建议
+    }
+
+    #[test]
+    fn test_query_analysis_has_hints() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT * FROM users", &schema);
+        assert!(analysis.has_hints());
+
+        let good_analysis = opt.analyze(
+            "SELECT id FROM users WHERE id = 1 LIMIT 1",
+            &schema,
+        );
+        // 可能仍有 info 级建议，但不应有 critical
+        assert_eq!(good_analysis.critical_count(), 0);
+    }
+
+    #[test]
+    fn test_format_report_contains_key_info() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT * FROM users", &schema);
+        let report = QueryOptimizer::format_report(&analysis);
+
+        assert!(report.contains("SQL 查询优化分析报告"));
+        assert!(report.contains("原始 SQL"));
+        assert!(report.contains("复杂度评分"));
+        assert!(report.contains("SELECT *"));
+    }
+
+    #[test]
+    fn test_format_report_no_hints() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE id = 1 LIMIT 1",
+            &schema,
+        );
+        let report = QueryOptimizer::format_report(&analysis);
+        // 即使没有建议，报告也应包含基本字段
+        assert!(report.contains("复杂度评分"));
+    }
+
+    #[test]
+    fn test_analyze_disable_select_star() {
+        let opt = QueryOptimizer::new().disable_select_star_check();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT * FROM users WHERE id = 1 LIMIT 10", &schema);
+
+        let star_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "避免使用 SELECT *");
+        assert!(star_hint.is_none());
+    }
+
+    #[test]
+    fn test_analyze_disable_missing_where() {
+        let opt = QueryOptimizer::new().disable_missing_where_check();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT id FROM users LIMIT 10", &schema);
+
+        let where_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "缺少 WHERE 子句");
+        assert!(where_hint.is_none());
+    }
+
+    #[test]
+    fn test_analyze_disable_missing_limit() {
+        let opt = QueryOptimizer::new().disable_missing_limit_check();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT id FROM users WHERE id = 1", &schema);
+
+        let limit_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "缺少 LIMIT 子句");
+        assert!(limit_hint.is_none());
+    }
+
+    #[test]
+    fn test_analyze_multiple_or_conditions() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE age = 1 OR age = 2 OR age = 3 OR age = 4 LIMIT 10",
+            &schema,
+        );
+
+        let or_hint = analysis
+            .hints
+            .iter()
+            .find(|h| h.title == "多个 OR 条件");
+        assert!(or_hint.is_some());
+    }
+
+    #[test]
+    fn test_analyze_detected_tables() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT id FROM users LIMIT 10", &schema);
+
+        assert_eq!(analysis.detected_tables, vec!["users".to_string()]);
+    }
+
+    #[test]
+    fn test_analyze_no_detected_tables() {
+        let opt = QueryOptimizer::new();
+        let schema = optimizer_test_schema();
+        let analysis = opt.analyze("SELECT 1 LIMIT 10", &schema);
+
+        assert!(analysis.detected_tables.is_empty());
+    }
+
+    #[test]
+    fn test_normalize_sql() {
+        let normalized = QueryOptimizer::normalize_sql("SELECT  id\nFROM   users");
+        assert_eq!(normalized, "SELECT id FROM users");
     }
 }

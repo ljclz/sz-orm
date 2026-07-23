@@ -28,3 +28,11 @@ docs/*项目实施*.md
 docs/*对比*.md
 docs/*审计清单*.md
 docs/Security.md
+
+# Benchmark/build artifacts
+bench-comparison/target/
+bench-comparison/build-log.txt
+bench-comparison/bench-*.txt
+
+# Publish logs
+scripts/publish-log*.txt

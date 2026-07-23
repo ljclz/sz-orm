@@ -7,11 +7,19 @@
 //!
 //! - [`handler`] — 连接处理与会话管理
 //! - [`pusher`] — 消息推送器
+//! - [`heartbeat`] — 心跳机制（Ping/Pong）与连接保活
+//! - [`pool`] — 连接池管理（LRU 淘汰、容量限制）
+//! - [`compression`] — 消息压缩（permessage-deflate 模拟）
+//! - [`subprotocol`] — 子协议协商
 //! - [`server`] — WebSocket 服务端（feature = "server"）
 
 pub mod error;
 pub mod handler;
 pub mod pusher;
+pub mod heartbeat;
+pub mod pool;
+pub mod compression;
+pub mod subprotocol;
 
 pub use error::WsError;
 pub use handler::*;

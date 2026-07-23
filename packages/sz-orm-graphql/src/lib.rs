@@ -8,6 +8,8 @@
 //! - [`GraphQLSchema`] — Schema 容器
 //! - [`GraphQLType`] / [`GraphQLField`] — 类型与字段定义
 
+pub mod extensions;
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "real")]

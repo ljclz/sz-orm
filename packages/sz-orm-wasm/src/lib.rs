@@ -7,10 +7,19 @@
 //!
 //! - [`WasmQuery`] — 查询请求（SQL + 参数）
 //! - 内存数据库 — 支持 SQL 子集的本地执行
+//! - [`advanced`] — 内存限制、WASI 沙箱、异步调度、模块缓存
+
+pub mod advanced;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
+
+pub use advanced::{
+    AsyncTask, AsyncTaskScheduler, CacheEntry, CacheStats, LimitedWasmDatabase, MemoryConfig,
+    MemoryLimitError, MemoryUsage, ModuleCache, PathAccess, SandboxConfig, SandboxError,
+    SandboxedFs, TaskResult, TaskStatus,
+};
 
 /// WASM 查询请求
 #[derive(Debug, Clone, Serialize, Deserialize)]

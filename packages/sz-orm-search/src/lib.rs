@@ -41,6 +41,7 @@
 //! ```
 
 pub mod error;
+pub mod extensions;
 pub mod memory;
 pub mod search;
 pub mod stub;
@@ -56,6 +57,11 @@ pub mod opensearch_provider;
 pub mod meilisearch_provider;
 
 pub use error::SearchError;
+pub use extensions::{
+    BoostScorer, FacetField, FacetResult, FacetedSearchExt, FacetedSearchResult, FacetValue,
+    FieldBoost, HighlightConfig, HighlightFormat, Highlighter, MemoryFacetedSearch, Tokenizer,
+    TokenizerConfig, TokenizerType,
+};
 pub use memory::MemorySearch;
 pub use search::{SearchBuilder, SearchExt, SearchProvider, SearchWrapper};
 pub use stub::StubSearch;

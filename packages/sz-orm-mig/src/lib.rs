@@ -7,10 +7,12 @@
 //! - [`migrator`] — 迁移执行器与数据库配置
 //! - [`transformer`] — SQL 方言/结构转换器
 
+pub mod advanced;
 pub mod error;
 pub mod migrator;
 pub mod transformer;
 
+pub use advanced::*;
 pub use error::MigError;
 pub use migrator::*;
 pub use transformer::*;

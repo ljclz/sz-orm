@@ -160,6 +160,14 @@ pub struct SelectQuery {
     limit: Option<u64>,
     offset: Option<u64>,
     distinct: bool,
+    /// CTE（Common Table Expression）子句列表：(名称, 子查询 SQL, 是否递归)
+    ctes: Vec<(String, String, bool)>,
+    /// 窗口函数列：原始表达式（如 `ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)`）
+    window_columns: Vec<String>,
+    /// FOR UPDATE 锁提示
+    for_update: bool,
+    /// FOR UPDATE 的列限定（NOWAIT / SKIP LOCKED 等）
+    for_update_options: Option<String>,
 }
 
 impl SelectQuery {
@@ -326,6 +334,149 @@ impl SelectQuery {
         self.limit(size).offset(offset)
     }
 
+    /// 添加 CTE（Common Table Expression / WITH 子句）。
+    ///
+    /// 生成形如 `WITH name AS (subquery) SELECT ...` 的 SQL。
+    ///
+    /// # 参数
+    ///
+    /// - `name`: CTE 名称
+    /// - `subquery`: 子查询 SQL（完整的 SELECT 语句）
+    pub fn with_cte(mut self, name: &str, subquery: &str) -> Self {
+        self.ctes
+            .push((name.to_string(), subquery.to_string(), false));
+        self
+    }
+
+    /// 添加递归 CTE（`WITH RECURSIVE name AS (...) SELECT ...`）。
+    ///
+    /// # 参数
+    ///
+    /// - `name`: CTE 名称
+    /// - `subquery`: 递归子查询 SQL
+    pub fn with_recursive_cte(mut self, name: &str, subquery: &str) -> Self {
+        self.ctes
+            .push((name.to_string(), subquery.to_string(), true));
+        self
+    }
+
+    /// 添加窗口函数列（作为 SELECT 列表的原始表达式）。
+    ///
+    /// 调用方负责构造完整的窗口函数表达式，例如：
+    /// - `ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)`
+    /// - `RANK() OVER (ORDER BY score DESC)`
+    /// - `SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at)`
+    ///
+    /// # 参数
+    ///
+    /// - `expr`: 完整的窗口函数表达式
+    pub fn window_function(mut self, expr: &str) -> Self {
+        self.window_columns.push(expr.to_string());
+        self
+    }
+
+    /// 添加 `ROW_NUMBER()` 窗口函数列。
+    ///
+    /// # 参数
+    ///
+    /// - `partition_by`: PARTITION BY 列（可为空）
+    /// - `order_by`: ORDER BY 列（如 `salary DESC`）
+    /// - `alias`: 结果列别名（如 `row_num`）
+    pub fn row_number(self, partition_by: &str, order_by: &str, alias: &str) -> Self {
+        let partition_clause = if partition_by.is_empty() {
+            String::new()
+        } else {
+            format!("PARTITION BY {} ", partition_by)
+        };
+        let expr = format!(
+            "ROW_NUMBER() OVER ({}ORDER BY {}) AS {}",
+            partition_clause, order_by, alias
+        );
+        self.window_function(&expr)
+    }
+
+    /// 添加 `RANK()` 窗口函数列。
+    ///
+    /// # 参数
+    ///
+    /// - `partition_by`: PARTITION BY 列（可为空）
+    /// - `order_by`: ORDER BY 列
+    /// - `alias`: 结果列别名
+    pub fn rank(self, partition_by: &str, order_by: &str, alias: &str) -> Self {
+        let partition_clause = if partition_by.is_empty() {
+            String::new()
+        } else {
+            format!("PARTITION BY {} ", partition_by)
+        };
+        let expr = format!(
+            "RANK() OVER ({}ORDER BY {}) AS {}",
+            partition_clause, order_by, alias
+        );
+        self.window_function(&expr)
+    }
+
+    /// 添加 `DENSE_RANK()` 窗口函数列。
+    ///
+    /// # 参数
+    ///
+    /// - `partition_by`: PARTITION BY 列（可为空）
+    /// - `order_by`: ORDER BY 列
+    /// - `alias`: 结果列别名
+    pub fn dense_rank(self, partition_by: &str, order_by: &str, alias: &str) -> Self {
+        let partition_clause = if partition_by.is_empty() {
+            String::new()
+        } else {
+            format!("PARTITION BY {} ", partition_by)
+        };
+        let expr = format!(
+            "DENSE_RANK() OVER ({}ORDER BY {}) AS {}",
+            partition_clause, order_by, alias
+        );
+        self.window_function(&expr)
+    }
+
+    /// 设置 FOR UPDATE 行锁。
+    ///
+    /// 在生成的 SQL 末尾追加 `FOR UPDATE`，用于悲观锁。
+    pub fn for_update(mut self) -> Self {
+        self.for_update = true;
+        self.for_update_options = None;
+        self
+    }
+
+    /// 设置 FOR UPDATE 并附带选项（如 `NOWAIT`、`SKIP LOCKED`）。
+    ///
+    /// # 参数
+    ///
+    /// - `options`: 选项字符串，如 `"NOWAIT"` 或 `"SKIP LOCKED"`
+    pub fn for_update_with_options(mut self, options: &str) -> Self {
+        self.for_update = true;
+        self.for_update_options = Some(options.to_string());
+        self
+    }
+
+    /// 将当前查询与另一个查询进行 UNION 集合运算。
+    ///
+    /// 返回一个 [`SetQuery`]，可通过 `build()` 生成最终 SQL。
+    pub fn union(self, other: SelectQuery) -> SetQuery {
+        SetQuery::new(self, SetOperator::Union, other)
+    }
+
+    /// 将当前查询与另一个查询进行 UNION ALL 集合运算。
+    pub fn union_all(self, other: SelectQuery) -> SetQuery {
+        SetQuery::new(self, SetOperator::UnionAll, other)
+    }
+
+    /// 将当前查询与另一个查询进行 INTERSECT 集合运算。
+    pub fn intersect(self, other: SelectQuery) -> SetQuery {
+        SetQuery::new(self, SetOperator::Intersect, other)
+    }
+
+    /// 将当前查询与另一个查询进行 EXCEPT 集合运算。
+    pub fn except(self, other: SelectQuery) -> SetQuery {
+        SetQuery::new(self, SetOperator::Except, other)
+    }
+
     /// 生成 SQL
     ///
     /// # 参数
@@ -338,27 +489,48 @@ impl SelectQuery {
         };
 
         let mut sql = String::new();
+
+        // CTE（WITH 子句）
+        if !self.ctes.is_empty() {
+            let has_recursive = self.ctes.iter().any(|(_, _, r)| *r);
+            if has_recursive {
+                sql.push_str("WITH RECURSIVE ");
+            } else {
+                sql.push_str("WITH ");
+            }
+            let cte_strs: Vec<String> = self
+                .ctes
+                .iter()
+                .map(|(name, subquery, _)| format!("{} AS ({})", name, subquery))
+                .collect();
+            sql.push_str(&cte_strs.join(", "));
+            sql.push(' ');
+        }
+
         sql.push_str("SELECT ");
 
         if self.distinct {
             sql.push_str("DISTINCT ");
         }
 
-        if self.columns.is_empty() {
+        // 合并普通列与窗口函数列
+        let mut all_columns: Vec<String> = self
+            .columns
+            .iter()
+            .map(|c| {
+                if c == "*" {
+                    c.clone()
+                } else {
+                    dialect.quote(c)
+                }
+            })
+            .collect();
+        all_columns.extend(self.window_columns.iter().cloned());
+
+        if all_columns.is_empty() {
             sql.push('*');
         } else {
-            let cols: Vec<String> = self
-                .columns
-                .iter()
-                .map(|c| {
-                    if c == "*" {
-                        c.clone()
-                    } else {
-                        dialect.quote(c)
-                    }
-                })
-                .collect();
-            sql.push_str(&cols.join(", "));
+            sql.push_str(&all_columns.join(", "));
         }
 
         if let Some(table) = self.from_table {
@@ -429,6 +601,164 @@ impl SelectQuery {
             sql.push_str(&format!(" OFFSET {}", offset));
         }
 
+        // FOR UPDATE 行锁
+        if self.for_update {
+            sql.push_str(" FOR UPDATE");
+            if let Some(ref opts) = self.for_update_options {
+                sql.push(' ');
+                sql.push_str(opts);
+            }
+        }
+
+        sql
+    }
+}
+
+// ============================================================================
+// 深度扩展：集合运算（UNION / INTERSECT / EXCEPT）
+// ============================================================================
+
+/// SQL 集合运算符类型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SetOperator {
+    /// `UNION`：合并去重
+    Union,
+    /// `UNION ALL`：合并不去重
+    UnionAll,
+    /// `INTERSECT`：交集
+    Intersect,
+    /// `EXCEPT`：差集（MySQL 8.0+ 称 `EXCEPT`，部分方言为 `MINUS`）
+    Except,
+}
+
+impl SetOperator {
+    /// 返回运算符对应的 SQL 关键字。
+    pub fn as_sql(&self) -> &'static str {
+        match self {
+            SetOperator::Union => "UNION",
+            SetOperator::UnionAll => "UNION ALL",
+            SetOperator::Intersect => "INTERSECT",
+            SetOperator::Except => "EXCEPT",
+        }
+    }
+}
+
+/// 集合运算查询，支持链式追加多个 SELECT 并以 UNION/INTERSECT/EXCEPT 连接。
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::DbType;
+/// use sz_orm_query_builder::Query;
+///
+/// let q1 = Query::select().column("id").from("active_users");
+/// let q2 = Query::select().column("id").from("pending_users");
+/// let sql = q1.union(q2).build(DbType::MySQL);
+/// // SELECT `id` FROM `active_users` UNION SELECT `id` FROM `pending_users`
+/// ```
+#[derive(Debug, Clone)]
+pub struct SetQuery {
+    /// 第一个 SELECT 查询
+    first: SelectQuery,
+    /// 后续的 (运算符, 查询) 对
+    rest: Vec<(SetOperator, SelectQuery)>,
+    /// 全局 ORDER BY（作用于整个集合运算结果）
+    order_by: Vec<String>,
+    /// 全局 LIMIT
+    limit: Option<u64>,
+    /// 全局 OFFSET
+    offset: Option<u64>,
+}
+
+impl SetQuery {
+    /// 创建一个集合运算查询。
+    pub fn new(first: SelectQuery, op: SetOperator, second: SelectQuery) -> Self {
+        Self {
+            first,
+            rest: vec![(op, second)],
+            order_by: Vec::new(),
+            limit: None,
+            offset: None,
+        }
+    }
+
+    /// 追加 UNION 查询。
+    pub fn union(mut self, other: SelectQuery) -> Self {
+        self.rest.push((SetOperator::Union, other));
+        self
+    }
+
+    /// 追加 UNION ALL 查询。
+    pub fn union_all(mut self, other: SelectQuery) -> Self {
+        self.rest.push((SetOperator::UnionAll, other));
+        self
+    }
+
+    /// 追加 INTERSECT 查询。
+    pub fn intersect(mut self, other: SelectQuery) -> Self {
+        self.rest.push((SetOperator::Intersect, other));
+        self
+    }
+
+    /// 追加 EXCEPT 查询。
+    pub fn except(mut self, other: SelectQuery) -> Self {
+        self.rest.push((SetOperator::Except, other));
+        self
+    }
+
+    /// 设置全局 ORDER BY（作用于整个集合运算结果）。
+    pub fn order_by(mut self, column: &str, asc: bool) -> Self {
+        let dir = if asc { "ASC" } else { "DESC" };
+        self.order_by.push(format!("{} {}", column, dir));
+        self
+    }
+
+    /// 设置全局 LIMIT。
+    pub fn limit(mut self, n: u64) -> Self {
+        self.limit = Some(n);
+        self
+    }
+
+    /// 设置全局 OFFSET。
+    pub fn offset(mut self, n: u64) -> Self {
+        self.offset = Some(n);
+        self
+    }
+
+    /// 生成 SQL。
+    ///
+    /// 将所有子查询用对应的集合运算符连接，并在末尾追加全局 ORDER BY / LIMIT / OFFSET。
+    pub fn build(self, db_type: DbType) -> String {
+        let mut sql = self.first.build(db_type);
+        for (op, query) in &self.rest {
+            sql.push(' ');
+            sql.push_str(op.as_sql());
+            sql.push(' ');
+            sql.push_str(&query.clone().build(db_type));
+        }
+        if !self.order_by.is_empty() {
+            sql.push_str(" ORDER BY ");
+            sql.push_str(
+                &self
+                    .order_by
+                    .iter()
+                    .map(|s| {
+                        if let Some((col, dir)) = s.rsplit_once(' ') {
+                            format!("{} {}", quote_ident(col), dir)
+                        } else {
+                            quote_ident(s)
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join(", "),
+            );
+        }
+        if let Some(limit) = self.limit {
+            sql.push_str(&format!(" LIMIT {}", limit));
+        }
+        if let Some(offset) = self.offset {
+            sql.push_str(&format!(" OFFSET {}", offset));
+        }
         sql
     }
 }
@@ -1194,5 +1524,342 @@ mod tests {
             .from_table("users")
             .where_clause("id = 1")
             .build();
+    }
+
+    // ==================== 深度扩展：CTE / 窗口函数 / 集合运算 / FOR UPDATE 测试 ====================
+
+    // ---- CTE 测试 ----
+
+    #[test]
+    fn test_cte_single_with_clause() {
+        let sql = Query::select()
+            .column("id")
+            .column("name")
+            .from("active_users")
+            .with_cte("active_users", "SELECT * FROM users WHERE status = 'active'")
+            .build(DbType::MySQL);
+        assert!(sql.starts_with("WITH active_users AS ("));
+        assert!(sql.contains("SELECT * FROM users WHERE status = 'active'"));
+        assert!(sql.contains("SELECT `id`, `name` FROM `active_users`"));
+    }
+
+    #[test]
+    fn test_cte_multiple_with_clauses() {
+        let sql = Query::select()
+            .column("id")
+            .from("combined")
+            .with_cte("a", "SELECT id FROM table_a")
+            .with_cte("b", "SELECT id FROM table_b")
+            .with_cte("combined", "SELECT id FROM a UNION SELECT id FROM b")
+            .build(DbType::MySQL);
+        assert!(sql.starts_with("WITH a AS (SELECT id FROM table_a), b AS (SELECT id FROM table_b), combined AS ("));
+    }
+
+    #[test]
+    fn test_cte_recursive_with_clause() {
+        let sql = Query::select()
+            .column("id")
+            .column("parent_id")
+            .from("tree")
+            .with_recursive_cte("tree", "SELECT id, parent_id FROM nodes WHERE id = 1")
+            .build(DbType::MySQL);
+        assert!(sql.starts_with("WITH RECURSIVE tree AS ("));
+    }
+
+    #[test]
+    fn test_cte_no_cte_no_with_prefix() {
+        let sql = Query::select()
+            .column("id")
+            .from("users")
+            .build(DbType::MySQL);
+        assert!(!sql.contains("WITH"));
+        assert!(sql.starts_with("SELECT"));
+    }
+
+    // ---- 窗口函数测试 ----
+
+    #[test]
+    fn test_window_function_raw_expr() {
+        let sql = Query::select()
+            .column("id")
+            .column("salary")
+            .from("employees")
+            .window_function("ROW_NUMBER() OVER (ORDER BY salary DESC) AS rn")
+            .build(DbType::MySQL);
+        assert!(sql.contains("ROW_NUMBER() OVER (ORDER BY salary DESC) AS rn"));
+    }
+
+    #[test]
+    fn test_row_number_helper_with_partition() {
+        let sql = Query::select()
+            .column("name")
+            .column("dept")
+            .from("employees")
+            .row_number("dept", "salary DESC", "row_num")
+            .build(DbType::MySQL);
+        assert!(sql.contains(
+            "ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) AS row_num"
+        ));
+    }
+
+    #[test]
+    fn test_row_number_helper_without_partition() {
+        let sql = Query::select()
+            .column("name")
+            .from("employees")
+            .row_number("", "salary DESC", "rn")
+            .build(DbType::MySQL);
+        assert!(sql.contains("ROW_NUMBER() OVER (ORDER BY salary DESC) AS rn"));
+        assert!(!sql.contains("PARTITION BY"));
+    }
+
+    #[test]
+    fn test_rank_helper() {
+        let sql = Query::select()
+            .column("name")
+            .from("scores")
+            .rank("", "score DESC", "rank_num")
+            .build(DbType::MySQL);
+        assert!(sql.contains("RANK() OVER (ORDER BY score DESC) AS rank_num"));
+    }
+
+    #[test]
+    fn test_dense_rank_helper_with_partition() {
+        let sql = Query::select()
+            .column("name")
+            .from("scores")
+            .dense_rank("class", "score DESC", "dr")
+            .build(DbType::MySQL);
+        assert!(sql.contains(
+            "DENSE_RANK() OVER (PARTITION BY class ORDER BY score DESC) AS dr"
+        ));
+    }
+
+    #[test]
+    fn test_multiple_window_functions() {
+        let sql = Query::select()
+            .column("name")
+            .column("salary")
+            .from("employees")
+            .row_number("dept", "salary DESC", "rn")
+            .rank("dept", "salary DESC", "rk")
+            .dense_rank("dept", "salary DESC", "dr")
+            .build(DbType::MySQL);
+        assert!(sql.contains("ROW_NUMBER()"));
+        assert!(sql.contains("RANK()"));
+        assert!(sql.contains("DENSE_RANK()"));
+    }
+
+    #[test]
+    fn test_window_function_with_cte_combined() {
+        let sql = Query::select()
+            .column("name")
+            .from("ranked")
+            .with_cte(
+                "ranked",
+                "SELECT name, ROW_NUMBER() OVER (ORDER BY salary) AS rn FROM employees",
+            )
+            .where_clause("rn <= 10")
+            .build(DbType::MySQL);
+        assert!(sql.starts_with("WITH ranked AS ("));
+        assert!(sql.contains("FROM `ranked`"));
+        assert!(sql.contains("WHERE rn <= 10"));
+    }
+
+    // ---- FOR UPDATE 测试 ----
+
+    #[test]
+    fn test_for_update_basic() {
+        let sql = Query::select()
+            .column("id")
+            .column("balance")
+            .from("accounts")
+            .where_clause("id = 1")
+            .for_update()
+            .build(DbType::MySQL);
+        assert!(sql.ends_with(" FOR UPDATE"));
+        assert!(sql.contains("WHERE id = 1"));
+    }
+
+    #[test]
+    fn test_for_update_with_nowait() {
+        let sql = Query::select()
+            .column("id")
+            .from("accounts")
+            .where_clause("id = 1")
+            .for_update_with_options("NOWAIT")
+            .build(DbType::MySQL);
+        assert!(sql.ends_with(" FOR UPDATE NOWAIT"));
+    }
+
+    #[test]
+    fn test_for_update_with_skip_locked() {
+        let sql = Query::select()
+            .column("id")
+            .from("accounts")
+            .where_clause("id = 1")
+            .for_update_with_options("SKIP LOCKED")
+            .build(DbType::MySQL);
+        assert!(sql.ends_with(" FOR UPDATE SKIP LOCKED"));
+    }
+
+    #[test]
+    fn test_for_update_with_limit_and_order() {
+        let sql = Query::select()
+            .column("id")
+            .from("jobs")
+            .order_by("priority", false)
+            .limit(1)
+            .for_update_with_options("SKIP LOCKED")
+            .build(DbType::MySQL);
+        assert!(sql.contains("ORDER BY `priority` DESC"));
+        assert!(sql.contains("LIMIT 1"));
+        assert!(sql.ends_with(" FOR UPDATE SKIP LOCKED"));
+    }
+
+    #[test]
+    fn test_no_for_update_by_default() {
+        let sql = Query::select()
+            .column("id")
+            .from("users")
+            .build(DbType::MySQL);
+        assert!(!sql.contains("FOR UPDATE"));
+    }
+
+    // ---- 集合运算（UNION / INTERSECT / EXCEPT）测试 ----
+
+    #[test]
+    fn test_set_operator_as_sql() {
+        assert_eq!(SetOperator::Union.as_sql(), "UNION");
+        assert_eq!(SetOperator::UnionAll.as_sql(), "UNION ALL");
+        assert_eq!(SetOperator::Intersect.as_sql(), "INTERSECT");
+        assert_eq!(SetOperator::Except.as_sql(), "EXCEPT");
+    }
+
+    #[test]
+    fn test_union_basic() {
+        let q1 = Query::select().column("id").from("active_users");
+        let q2 = Query::select().column("id").from("pending_users");
+        let sql = q1.union(q2).build(DbType::MySQL);
+        assert!(sql.contains("SELECT `id` FROM `active_users`"));
+        assert!(sql.contains(" UNION "));
+        assert!(sql.contains("SELECT `id` FROM `pending_users`"));
+    }
+
+    #[test]
+    fn test_union_all_basic() {
+        let q1 = Query::select().column("id").from("table_a");
+        let q2 = Query::select().column("id").from("table_b");
+        let sql = q1.union_all(q2).build(DbType::MySQL);
+        assert!(sql.contains(" UNION ALL "));
+    }
+
+    #[test]
+    fn test_intersect_basic() {
+        let q1 = Query::select().column("id").from("table_a");
+        let q2 = Query::select().column("id").from("table_b");
+        let sql = q1.intersect(q2).build(DbType::MySQL);
+        assert!(sql.contains(" INTERSECT "));
+    }
+
+    #[test]
+    fn test_except_basic() {
+        let q1 = Query::select().column("id").from("table_a");
+        let q2 = Query::select().column("id").from("table_b");
+        let sql = q1.except(q2).build(DbType::MySQL);
+        assert!(sql.contains(" EXCEPT "));
+    }
+
+    #[test]
+    fn test_union_chained_multiple() {
+        let q1 = Query::select().column("id").from("t1");
+        let q2 = Query::select().column("id").from("t2");
+        let q3 = Query::select().column("id").from("t3");
+        let sql = q1.union(q2).union(q3).build(DbType::MySQL);
+        assert_eq!(sql.matches("UNION").count(), 2);
+    }
+
+    #[test]
+    fn test_union_mixed_operators() {
+        let q1 = Query::select().column("id").from("t1");
+        let q2 = Query::select().column("id").from("t2");
+        let q3 = Query::select().column("id").from("t3");
+        let sql = q1.union(q2).intersect(q3).build(DbType::MySQL);
+        assert!(sql.contains(" UNION "));
+        assert!(sql.contains(" INTERSECT "));
+    }
+
+    #[test]
+    fn test_union_with_order_by_limit() {
+        let q1 = Query::select().column("id").from("t1");
+        let q2 = Query::select().column("id").from("t2");
+        let sql = q1
+            .union(q2)
+            .order_by("id", true)
+            .limit(10)
+            .offset(5)
+            .build(DbType::MySQL);
+        assert!(sql.contains("ORDER BY `id` ASC"));
+        assert!(sql.contains("LIMIT 10"));
+        assert!(sql.contains("OFFSET 5"));
+    }
+
+    #[test]
+    fn test_union_postgres_dialect() {
+        let q1 = Query::select().column("id").from("t1");
+        let q2 = Query::select().column("id").from("t2");
+        let sql = q1.union(q2).build(DbType::PostgreSQL);
+        assert!(sql.contains("\"id\""));
+        assert!(sql.contains(" UNION "));
+    }
+
+    #[test]
+    fn test_union_with_where_clauses() {
+        let q1 = Query::select()
+            .column("id")
+            .from("active_users")
+            .where_clause("age > 18");
+        let q2 = Query::select()
+            .column("id")
+            .from("pending_users")
+            .where_clause("age > 18");
+        let sql = q1.union(q2).build(DbType::MySQL);
+        assert!(sql.contains("WHERE age > 18"));
+        assert!(sql.contains(" UNION "));
+    }
+
+    // ---- 综合场景测试 ----
+
+    #[test]
+    fn test_cte_window_for_update_combined() {
+        // 复杂查询：CTE + 窗口函数 + FOR UPDATE
+        let sql = Query::select()
+            .column("id")
+            .column("salary")
+            .from("ranked_salaries")
+            .with_cte(
+                "ranked_salaries",
+                "SELECT id, salary, ROW_NUMBER() OVER (ORDER BY salary DESC) AS rn FROM employees",
+            )
+            .where_clause("rn = 1")
+            .for_update()
+            .build(DbType::MySQL);
+        assert!(sql.starts_with("WITH ranked_salaries AS ("));
+        assert!(sql.contains("FOR UPDATE"));
+        assert!(sql.contains("WHERE rn = 1"));
+    }
+
+    #[test]
+    fn test_complex_window_aggregation() {
+        // 运行总和 + 排名
+        let sql = Query::select()
+            .column("user_id")
+            .column("amount")
+            .from("transactions")
+            .window_function("SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at) AS running_total")
+            .rank("user_id", "created_at", "tx_rank")
+            .build(DbType::MySQL);
+        assert!(sql.contains("SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at) AS running_total"));
+        assert!(sql.contains("RANK() OVER (PARTITION BY user_id ORDER BY created_at) AS tx_rank"));
     }
 }

@@ -4,6 +4,9 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::RwLock;
 
+// HNSW 向量索引子模块（近似最近邻搜索）
+pub mod hnsw;
+
 #[derive(Debug, Clone)]
 pub struct VectorError {
     pub message: String,
@@ -178,7 +181,7 @@ pub trait VectorStore: Send + Sync {
     async fn count(&self, collection: &str) -> Result<usize, AiError>;
 }
 
-#[derive(Debug, Clone, Copy, Default)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum VectorMetric {
     #[default]
     Cosine,

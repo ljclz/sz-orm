@@ -42,6 +42,7 @@
 //! ```
 
 pub mod error;
+pub mod extensions;
 pub mod timeseries;
 pub mod types;
 
@@ -53,6 +54,12 @@ pub mod stub;
 pub mod real_timescale;
 
 pub use error::TimescaleError;
+pub use extensions::{
+    parse_bucket_to_secs, secs_to_bucket_string, CompressionConfig, CompressionPolicyRegistry,
+    CompressionStats, CompressionStatus, ContinuousAggregateDef, ContinuousAggregateRegistry,
+    GapfillFiller, GapfillStrategy, RefreshPolicy, RetentionPolicy, RetentionPolicyRegistry,
+    TimeBucketAligner,
+};
 pub use memory::MemoryTimeseries;
 pub use stub::StubTimeseries;
 pub use timeseries::{TimeseriesBuilder, TimeseriesExt, TimeseriesProvider, TimeseriesWrapper};

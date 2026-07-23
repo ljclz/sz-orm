@@ -17,6 +17,8 @@ proc-macro = true
 # 用于构建类型安全的 TokenStream（避免字符串解析失败）
 quote = { version = "1.0", default-features = false }
 proc-macro2 = { version = "1.0", default-features = false, features = ["proc-macro"] }
+# syn 用于解析 derive 宏输入（#[derive(Schema)]、#[derive(Builder)] 等需要它）
+syn = { version = "2.0", features = ["full", "parsing", "derive", "extra-traits"] }
 # query! 宏可选连真实 DB 验证（通过 SZ_ORM_QUERY_VERIFY=1 + DATABASE_URL 启用）
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite"], optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }

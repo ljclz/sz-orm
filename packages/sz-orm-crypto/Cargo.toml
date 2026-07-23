@@ -19,5 +19,7 @@ aes-gcm = "0.10"
 pbkdf2 = { version = "0.12", features = ["simple"] }
 rand = "0.8"
 subtle = "2.5"
+# RSA-OAEP 非对称加密（任务要求，RustCrypto audited crate）
+rsa = "0.9"
 
 [dev-dependencies]

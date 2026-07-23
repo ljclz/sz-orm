@@ -9,6 +9,8 @@ pub enum BkError {
     FileNotFound(String),
     PermissionDenied(String),
     Compression(String),
+    /// 加密/解密失败
+    Encryption(String),
 }
 
 impl fmt::Display for BkError {
@@ -21,6 +23,7 @@ impl fmt::Display for BkError {
             BkError::FileNotFound(path) => write!(f, "File not found: {}", path),
             BkError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             BkError::Compression(msg) => write!(f, "Compression error: {}", msg),
+            BkError::Encryption(msg) => write!(f, "Encryption error: {}", msg),
         }
     }
 }
@@ -36,5 +39,12 @@ impl From<std::io::Error> for BkError {
         } else {
             BkError::Backup(err.to_string())
         }
+    }
+}
+
+/// 从 sz-orm-crypto 的 CryptoError 转换为 BkError
+impl From<sz_orm_crypto::CryptoError> for BkError {
+    fn from(err: sz_orm_crypto::CryptoError) -> Self {
+        BkError::Encryption(err.to_string())
     }
 }

@@ -9,10 +9,12 @@
 //! - [`restore`] — 恢复执行
 //! - [`DrillScenario`] — 灾难演练场景（全量恢复/增量合并/损坏文件）
 
+pub mod advanced;
 pub mod backup;
 pub mod error;
 pub mod restore;
 
+pub use advanced::*;
 pub use backup::*;
 pub use error::BkError;
 pub use restore::*;

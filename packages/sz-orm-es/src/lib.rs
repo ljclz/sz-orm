@@ -8,6 +8,8 @@
 //! - [`EsDocument`] — 文档模型
 //! - [`EsSearchRequest`] — 搜索请求
 
+pub mod extensions;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::RwLock;

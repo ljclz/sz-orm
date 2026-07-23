@@ -114,11 +114,27 @@ impl AesGcmCrypter {
 
 impl Crypter for AesGcmCrypter {
     fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        self.encrypt_with_aad(plaintext, &[])
+    }
+
+    fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        self.decrypt_with_aad(ciphertext, &[])
+    }
+}
+
+impl AesGcmCrypter {
+    /// AES-GCM 认证加密（带附加认证数据 AAD）
+    ///
+    /// 密文格式：`nonce(12) || ciphertext || tag(16)`
+    /// AAD（Additional Authenticated Data）不包含在密文中，但参与认证标签计算，
+    /// 解密时必须提供相同的 AAD 才能成功。
+    pub fn encrypt_with_aad(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce_bytes = Self::random_nonce();
         let nonce = Nonce::from_slice(&nonce_bytes);
+        let payload = aes_gcm::aead::Payload { msg: plaintext, aad };
         let ciphertext = self
             .cipher
-            .encrypt(nonce, plaintext)
+            .encrypt(nonce, payload)
             .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))?;
         let mut result = Vec::with_capacity(12 + ciphertext.len());
         result.extend_from_slice(&nonce_bytes);
@@ -126,7 +142,10 @@ impl Crypter for AesGcmCrypter {
         Ok(result)
     }
 
-    fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+    /// AES-GCM 认证解密（带附加认证数据 AAD）
+    ///
+    /// 必须提供与加密时相同的 AAD，否则认证标签校验失败。
+    pub fn decrypt_with_aad(&self, ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
         if ciphertext.len() < 12 {
             return Err(CryptoError::DecryptionFailed(
                 "Ciphertext too short".to_string(),
@@ -134,8 +153,12 @@ impl Crypter for AesGcmCrypter {
         }
         let nonce = Nonce::from_slice(&ciphertext[..12]);
         let encrypted = &ciphertext[12..];
+        let payload = aes_gcm::aead::Payload {
+            msg: encrypted,
+            aad,
+        };
         self.cipher
-            .decrypt(nonce, encrypted)
+            .decrypt(nonce, payload)
             .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
     }
 }
@@ -272,6 +295,237 @@ impl ApiSigner for HmacSigner {
         let computed = Self::compute_signature(params, secret);
         constant_time_eq(computed.as_bytes(), signature.as_bytes())
     }
+}
+
+// ============================================================================
+// RSA-OAEP 非对称加密
+// ============================================================================
+
+use rsa::oaep::Oaep;
+use rsa::{RsaPrivateKey, RsaPublicKey};
+use sha2::Sha256 as RsaSha256;
+
+/// RSA-OAEP 非对称加密器（基于 RustCrypto `rsa` crate）
+///
+/// 使用 RSA-OAEP with SHA-256 和 MGF1-SHA256 填充方案。
+/// 公钥加密，私钥解密，适用于小数据（如密钥交换、短消息加密）。
+pub struct RsaOaepCrypter {
+    public_key: RsaPublicKey,
+    private_key: RsaPrivateKey,
+}
+
+impl RsaOaepCrypter {
+    /// 生成新的 RSA 密钥对（指定位数，推荐 2048 或 3072）
+    pub fn generate(key_bits: usize) -> Result<Self, CryptoError> {
+        let mut rng = OsRng;
+        let private_key =
+            RsaPrivateKey::new(&mut rng, key_bits).map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
+        let public_key = RsaPublicKey::from(&private_key);
+        Ok(Self {
+            public_key,
+            private_key,
+        })
+    }
+
+    /// 从已有密钥对创建
+    pub fn from_keys(public_key: RsaPublicKey, private_key: RsaPrivateKey) -> Self {
+        Self {
+            public_key,
+            private_key,
+        }
+    }
+
+    /// 返回公钥引用
+    pub fn public_key(&self) -> &RsaPublicKey {
+        &self.public_key
+    }
+
+    /// 返回私钥引用
+    pub fn private_key(&self) -> &RsaPrivateKey {
+        &self.private_key
+    }
+
+    /// 使用公钥加密数据（RSA-OAEP with SHA-256）
+    pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let mut rng = OsRng;
+        let padding = Oaep::new::<RsaSha256>();
+        self.public_key
+            .encrypt(&mut rng, padding, plaintext)
+            .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
+    }
+
+    /// 使用私钥解密数据（RSA-OAEP with SHA-256）
+    pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        let padding = Oaep::new::<RsaSha256>();
+        self.private_key
+            .decrypt(padding, ciphertext)
+            .map_err(|e| CryptoError::DecryptionFailed(e.to_string()))
+    }
+}
+
+impl Crypter for RsaOaepCrypter {
+    fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        self.encrypt(plaintext)
+    }
+
+    fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
+        self.decrypt(ciphertext)
+    }
+}
+
+// ============================================================================
+// HMAC-SHA256 签名验证器
+// ============================================================================
+
+/// 签名验证器 trait：提供消息签名与验证接口
+pub trait SignatureVerifier: Send + Sync {
+    /// 对消息生成签名
+    fn sign(&self, message: &[u8]) -> Vec<u8>;
+    /// 验证消息签名（常量时间比较）
+    fn verify(&self, message: &[u8], signature: &[u8]) -> bool;
+}
+
+/// HMAC-SHA256 签名验证器
+///
+/// 使用 HMAC-SHA256 算法对消息签名，验证时采用常量时间比较防止时序攻击。
+pub struct HmacSignatureVerifier {
+    key: Vec<u8>,
+}
+
+impl HmacSignatureVerifier {
+    /// 创建签名验证器，从任意长度密钥派生
+    pub fn new(key: &[u8]) -> Self {
+        Self {
+            key: key.to_vec(),
+        }
+    }
+
+    /// 从字符串密钥创建
+    pub fn from_key_str(key: &str) -> Self {
+        Self::new(key.as_bytes())
+    }
+}
+
+impl SignatureVerifier for HmacSignatureVerifier {
+    fn sign(&self, message: &[u8]) -> Vec<u8> {
+        hmac_sha256(&self.key, message).to_vec()
+    }
+
+    fn verify(&self, message: &[u8], signature: &[u8]) -> bool {
+        let expected = self.sign(message);
+        constant_time_eq(&expected, signature)
+    }
+}
+
+// ============================================================================
+// 密钥轮换（Key Rotation）
+// ============================================================================
+
+/// 密钥版本：保存密钥及其版本号和创建时间
+#[derive(Clone)]
+struct KeyVersion {
+    version: u32,
+    key: Vec<u8>,
+    created_at: u64,
+}
+
+/// 密钥轮换管理器
+///
+/// 管理多个版本的密钥，支持：
+/// - 轮换生成新版本密钥
+/// - 用最新密钥签名
+/// - 用任意历史密钥验证（向后兼容）
+/// - 自动淘汰过期密钥
+pub struct KeyRotationManager {
+    keys: Vec<KeyVersion>,
+    current_version: u32,
+    max_versions: usize,
+}
+
+impl KeyRotationManager {
+    /// 创建密钥轮换管理器，指定最大保留版本数
+    pub fn new(max_versions: usize) -> Self {
+        Self {
+            keys: vec![],
+            current_version: 0,
+            max_versions: max_versions.max(1),
+        }
+    }
+
+    /// 初始化首个密钥版本
+    pub fn with_initial_key(key: Vec<u8>) -> Self {
+        let mut mgr = Self::new(3);
+        mgr.rotate_key(key);
+        mgr
+    }
+
+    /// 轮换到新密钥，返回新版本号
+    pub fn rotate_key(&mut self, new_key: Vec<u8>) -> u32 {
+        self.current_version += 1;
+        let now = current_timestamp_secs();
+        self.keys.push(KeyVersion {
+            version: self.current_version,
+            key: new_key,
+            created_at: now,
+        });
+        // 淘汰过期版本
+        while self.keys.len() > self.max_versions {
+            self.keys.remove(0);
+        }
+        self.current_version
+    }
+
+    /// 使用当前（最新）密钥签名
+    pub fn sign(&self, message: &[u8]) -> (u32, Vec<u8>) {
+        if let Some(kv) = self.keys.last() {
+            let sig = hmac_sha256(&kv.key, message).to_vec();
+            (kv.version, sig)
+        } else {
+            (0, vec![])
+        }
+    }
+
+    /// 验证签名（尝试所有保留的密钥版本）
+    pub fn verify(&self, message: &[u8], version: u32, signature: &[u8]) -> bool {
+        for kv in &self.keys {
+            if kv.version == version {
+                let expected = hmac_sha256(&kv.key, message);
+                return constant_time_eq(&expected, signature);
+            }
+        }
+        false
+    }
+
+    /// 返回当前密钥版本号
+    pub fn current_version(&self) -> u32 {
+        self.current_version
+    }
+
+    /// 返回保留的密钥版本数量
+    pub fn version_count(&self) -> usize {
+        self.keys.len()
+    }
+
+    /// 返回所有保留的版本号
+    pub fn versions(&self) -> Vec<u32> {
+        self.keys.iter().map(|kv| kv.version).collect()
+    }
+
+    /// 返回指定版本密钥的创建时间（Unix 秒），不存在返回 None
+    pub fn key_created_at(&self, version: u32) -> Option<u64> {
+        self.keys
+            .iter()
+            .find(|kv| kv.version == version)
+            .map(|kv| kv.created_at)
+    }
+}
+
+fn current_timestamp_secs() -> u64 {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_secs()
 }
 
 // ============================================================================
@@ -674,5 +928,318 @@ mod tests {
     fn test_hex_decode_invalid() {
         assert!(hex_decode("abc").is_err());
         assert!(hex_decode("xy").is_err());
+    }
+
+    // ===== AES-GCM AAD 测试 =====
+
+    #[test]
+    fn test_aes_gcm_aad_roundtrip() {
+        let key = [0x42u8; 32];
+        let crypter = AesGcmCrypter::new(&key);
+        let plaintext = b"sensitive data";
+        let aad = b"associated metadata";
+        let encrypted = crypter.encrypt_with_aad(plaintext, aad).unwrap();
+        let decrypted = crypter.decrypt_with_aad(&encrypted, aad).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_aes_gcm_aad_wrong_aad_fails() {
+        let key = [0x42u8; 32];
+        let crypter = AesGcmCrypter::new(&key);
+        let plaintext = b"sensitive data";
+        let aad = b"correct aad";
+        let encrypted = crypter.encrypt_with_aad(plaintext, aad).unwrap();
+        // 使用错误的 AAD 解密应失败
+        let result = crypter.decrypt_with_aad(&encrypted, b"wrong aad");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_aes_gcm_aad_empty_aad_equivalent_to_no_aad() {
+        let key = [0x42u8; 32];
+        let crypter = AesGcmCrypter::new(&key);
+        let plaintext = b"test data";
+        // 空 AAD 等价于无 AAD
+        let encrypted_no_aad = crypter.encrypt(plaintext).unwrap();
+        let encrypted_empty_aad = crypter.encrypt_with_aad(plaintext, b"").unwrap();
+        // 两者都应能解密
+        assert_eq!(crypter.decrypt(&encrypted_no_aad).unwrap(), plaintext);
+        assert_eq!(
+            crypter.decrypt_with_aad(&encrypted_empty_aad, b"").unwrap(),
+            plaintext
+        );
+    }
+
+    #[test]
+    fn test_aes_gcm_aad_tampered_ciphertext_fails() {
+        let key = [0x42u8; 32];
+        let crypter = AesGcmCrypter::new(&key);
+        let encrypted = crypter.encrypt_with_aad(b"data", b"aad").unwrap();
+        let mut tampered = encrypted.clone();
+        tampered[15] ^= 0x01;
+        assert!(crypter.decrypt_with_aad(&tampered, b"aad").is_err());
+    }
+
+    #[test]
+    fn test_aes_gcm_aad_empty_plaintext() {
+        let key = [0x42u8; 32];
+        let crypter = AesGcmCrypter::new(&key);
+        let encrypted = crypter.encrypt_with_aad(b"", b"aad").unwrap();
+        // nonce(12) + tag(16) = 28
+        assert_eq!(encrypted.len(), 28);
+        let decrypted = crypter.decrypt_with_aad(&encrypted, b"aad").unwrap();
+        assert_eq!(decrypted, b"");
+    }
+
+    // ===== RSA-OAEP 测试 =====
+
+    #[test]
+    fn test_rsa_oaep_roundtrip() {
+        let crypter = RsaOaepCrypter::generate(2048).expect("RSA key generation");
+        let plaintext = b"Hello, RSA-OAEP!";
+        let encrypted = crypter.encrypt(plaintext).unwrap();
+        let decrypted = crypter.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_rsa_oaep_different_ciphertexts_same_plaintext() {
+        let crypter = RsaOaepCrypter::generate(2048).unwrap();
+        let plaintext = b"same message";
+        let enc1 = crypter.encrypt(plaintext).unwrap();
+        let enc2 = crypter.encrypt(plaintext).unwrap();
+        // OAEP 使用随机填充，相同明文应产生不同密文
+        assert_ne!(enc1, enc2);
+        // 但两者都能正确解密
+        assert_eq!(crypter.decrypt(&enc1).unwrap(), plaintext);
+        assert_eq!(crypter.decrypt(&enc2).unwrap(), plaintext);
+    }
+
+    #[test]
+    fn test_rsa_oaep_empty_plaintext() {
+        let crypter = RsaOaepCrypter::generate(2048).unwrap();
+        let encrypted = crypter.encrypt(b"").unwrap();
+        let decrypted = crypter.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, b"");
+    }
+
+    #[test]
+    fn test_rsa_oaep_tampered_ciphertext_fails() {
+        let crypter = RsaOaepCrypter::generate(2048).unwrap();
+        let encrypted = crypter.encrypt(b"secret").unwrap();
+        let mut tampered = encrypted.clone();
+        tampered[0] ^= 0x01;
+        assert!(crypter.decrypt(&tampered).is_err());
+    }
+
+    #[test]
+    fn test_rsa_oaep_max_message_length() {
+        // 2048-bit RSA-OAEP with SHA-256: max message = 2048/8 - 2*32 - 2 = 190 bytes
+        let crypter = RsaOaepCrypter::generate(2048).unwrap();
+        let plaintext = vec![0xABu8; 190];
+        let encrypted = crypter.encrypt(&plaintext).unwrap();
+        let decrypted = crypter.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_rsa_oaep_oversized_message_fails() {
+        let crypter = RsaOaepCrypter::generate(2048).unwrap();
+        // 超过最大消息长度（190 字节 + 1）
+        let plaintext = vec![0xABu8; 191];
+        assert!(crypter.encrypt(&plaintext).is_err());
+    }
+
+    #[test]
+    fn test_rsa_oaep_from_keys() {
+        let crypter1 = RsaOaepCrypter::generate(2048).unwrap();
+        let crypter2 = RsaOaepCrypter::from_keys(
+            crypter1.public_key().clone(),
+            crypter1.private_key().clone(),
+        );
+        let plaintext = b"test from_keys";
+        let encrypted = crypter2.encrypt(plaintext).unwrap();
+        let decrypted = crypter2.decrypt(&encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    #[test]
+    fn test_rsa_oaep_crypter_trait() {
+        let crypter = RsaOaepCrypter::generate(2048).unwrap();
+        let plaintext = b"trait test";
+        let encrypted = Crypter::encrypt(&crypter, plaintext).unwrap();
+        let decrypted = Crypter::decrypt(&crypter, &encrypted).unwrap();
+        assert_eq!(decrypted, plaintext);
+    }
+
+    // ===== HMAC 签名验证器测试 =====
+
+    #[test]
+    fn test_hmac_signature_verifier_sign_verify() {
+        let verifier = HmacSignatureVerifier::new(b"my-secret-key");
+        let message = b"important message";
+        let signature = verifier.sign(message);
+        assert_eq!(signature.len(), 32);
+        assert!(verifier.verify(message, &signature));
+    }
+
+    #[test]
+    fn test_hmac_signature_verifier_wrong_message() {
+        let verifier = HmacSignatureVerifier::new(b"key");
+        let signature = verifier.sign(b"message1");
+        assert!(!verifier.verify(b"message2", &signature));
+    }
+
+    #[test]
+    fn test_hmac_signature_verifier_wrong_signature() {
+        let verifier = HmacSignatureVerifier::new(b"key");
+        let signature = verifier.sign(b"message");
+        let mut tampered = signature.clone();
+        tampered[0] ^= 0x01;
+        assert!(!verifier.verify(b"message", &tampered));
+    }
+
+    #[test]
+    fn test_hmac_signature_verifier_from_key_str() {
+        let verifier = HmacSignatureVerifier::from_key_str("string-key");
+        let message = b"test";
+        let sig = verifier.sign(message);
+        assert!(verifier.verify(message, &sig));
+    }
+
+    #[test]
+    fn test_hmac_signature_verifier_different_keys_different_signatures() {
+        let v1 = HmacSignatureVerifier::new(b"key1");
+        let v2 = HmacSignatureVerifier::new(b"key2");
+        let message = b"same message";
+        let sig1 = v1.sign(message);
+        let sig2 = v2.sign(message);
+        assert_ne!(sig1, sig2);
+    }
+
+    #[test]
+    fn test_hmac_signature_verifier_empty_message() {
+        let verifier = HmacSignatureVerifier::new(b"key");
+        let sig = verifier.sign(b"");
+        assert_eq!(sig.len(), 32);
+        assert!(verifier.verify(b"", &sig));
+    }
+
+    #[test]
+    fn test_hmac_signature_verifier_wrong_length_signature() {
+        let verifier = HmacSignatureVerifier::new(b"key");
+        // 长度不对的签名应验证失败
+        assert!(!verifier.verify(b"message", b"short"));
+        assert!(!verifier.verify(b"message", &[]));
+    }
+
+    // ===== 密钥轮换测试 =====
+
+    #[test]
+    fn test_key_rotation_initial_key() {
+        let mgr = KeyRotationManager::with_initial_key(b"key-v1".to_vec());
+        assert_eq!(mgr.current_version(), 1);
+        assert_eq!(mgr.version_count(), 1);
+        assert_eq!(mgr.versions(), vec![1]);
+    }
+
+    #[test]
+    fn test_key_rotation_sign_verify_current() {
+        let mgr = KeyRotationManager::with_initial_key(b"secret-key".to_vec());
+        let message = b"test message";
+        let (version, signature) = mgr.sign(message);
+        assert_eq!(version, 1);
+        assert!(mgr.verify(message, version, &signature));
+    }
+
+    #[test]
+    fn test_key_rotation_old_version_still_valid() {
+        let mut mgr = KeyRotationManager::with_initial_key(b"key-v1".to_vec());
+        let message = b"persistent message";
+        let (v1, sig1) = mgr.sign(message);
+        // 轮换到新密钥
+        mgr.rotate_key(b"key-v2".to_vec());
+        let (v2, sig2) = mgr.sign(message);
+        assert_eq!(v1, 1);
+        assert_eq!(v2, 2);
+        // 旧版本签名仍应验证通过
+        assert!(mgr.verify(message, v1, &sig1));
+        // 新版本签名也应验证通过
+        assert!(mgr.verify(message, v2, &sig2));
+    }
+
+    #[test]
+    fn test_key_rotation_max_versions_evicts_oldest() {
+        let mut mgr = KeyRotationManager::new(2);
+        mgr.rotate_key(b"key-v1".to_vec());
+        mgr.rotate_key(b"key-v2".to_vec());
+        assert_eq!(mgr.version_count(), 2);
+        // 第三次轮换应淘汰 v1
+        mgr.rotate_key(b"key-v3".to_vec());
+        assert_eq!(mgr.version_count(), 2);
+        assert_eq!(mgr.versions(), vec![2, 3]);
+        assert!(!mgr.versions().contains(&1));
+    }
+
+    #[test]
+    fn test_key_rotation_old_version_evicted_fails_verify() {
+        let mut mgr = KeyRotationManager::new(2);
+        mgr.rotate_key(b"key-v1".to_vec());
+        let message = b"test";
+        let (v1, sig1) = mgr.sign(message);
+        mgr.rotate_key(b"key-v2".to_vec());
+        mgr.rotate_key(b"key-v3".to_vec());
+        // v1 已被淘汰，验证应失败
+        assert!(!mgr.verify(message, v1, &sig1));
+    }
+
+    #[test]
+    fn test_key_rotation_wrong_version_fails() {
+        let mgr = KeyRotationManager::with_initial_key(b"key".to_vec());
+        let message = b"test";
+        let (_, signature) = mgr.sign(message);
+        // 使用不存在的版本号验证应失败
+        assert!(!mgr.verify(message, 999, &signature));
+    }
+
+    #[test]
+    fn test_key_rotation_multiple_rotations() {
+        let mut mgr = KeyRotationManager::new(5);
+        for i in 1..=4 {
+            let key = format!("key-v{}", i);
+            let version = mgr.rotate_key(key.as_bytes().to_vec());
+            assert_eq!(version, i as u32);
+        }
+        assert_eq!(mgr.current_version(), 4);
+        assert_eq!(mgr.version_count(), 4);
+        assert_eq!(mgr.versions(), vec![1, 2, 3, 4]);
+    }
+
+    #[test]
+    fn test_key_rotation_empty_manager_sign_returns_zero() {
+        let mgr = KeyRotationManager::new(3);
+        let (version, sig) = mgr.sign(b"message");
+        assert_eq!(version, 0);
+        assert!(sig.is_empty());
+    }
+
+    #[test]
+    fn test_key_rotation_verify_with_wrong_signature() {
+        let mgr = KeyRotationManager::with_initial_key(b"key".to_vec());
+        let message = b"test";
+        let (version, _) = mgr.sign(message);
+        let wrong_sig = vec![0u8; 32];
+        assert!(!mgr.verify(message, version, &wrong_sig));
+    }
+
+    #[test]
+    fn test_key_rotation_max_versions_min_one() {
+        // max_versions = 0 应被提升为 1
+        let mut mgr = KeyRotationManager::new(0);
+        mgr.rotate_key(b"k1".to_vec());
+        mgr.rotate_key(b"k2".to_vec());
+        assert_eq!(mgr.version_count(), 1);
+        assert_eq!(mgr.versions(), vec![2]);
     }
 }

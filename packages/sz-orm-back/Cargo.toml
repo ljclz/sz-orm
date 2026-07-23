@@ -19,6 +19,9 @@ serde_json = "1.0"
 chrono = { workspace = true }
 flate2 = "1.0"
 sha2 = "0.10"
+# 高级备份功能所需：zstd 压缩与 AES-GCM 加密（复用 sz-orm-crypto）
+zstd = "0.13"
+sz-orm-crypto = { version = "1.0.0", path = "../sz-orm-crypto" }
 
 [dev-dependencies]
 tokio-test = "0.4"
