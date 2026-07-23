@@ -455,6 +455,7 @@ pub mod typed_ast;
 mod value;
 
 // Re-export proc macros
+pub use sz_orm_macros::schema;
 pub use sz_orm_macros::sql_string;
 pub use sz_orm_macros::typed_query;
 

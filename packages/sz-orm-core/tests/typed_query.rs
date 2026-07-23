@@ -3,6 +3,7 @@
 //! 这些测试在 `tests/` 目录下，将 `sz-orm-core` 视为外部依赖，
 //! 因此宏生成的 `::sz_orm_core::typed::...` 路径可以正确解析。
 
+use sz_orm_core::schema;
 use sz_orm_core::typed::{TypedColumn, TypedTable};
 use sz_orm_core::typed_query;
 
@@ -147,4 +148,105 @@ fn test_typed_query_select_multiple_where() {
     assert!(sql.contains("AND"));
     assert!(sql.contains("OR"));
     assert_eq!(sql.matches('?').count(), 3);
+}
+
+// ============================================================================
+// schema! 宏集成测试 — 从 SQL CREATE TABLE 自动生成 typed_query! 声明
+// ============================================================================
+
+/// 基础 CREATE TABLE 应生成与 typed_query! 等价的表声明
+#[test]
+fn test_schema_macro_basic() {
+    schema! {
+        "CREATE TABLE schema_users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
+    }
+
+    // 验证表名
+    assert_eq!(<schema_users::table as TypedTable>::NAME, "schema_users");
+
+    // 验证列名
+    assert_eq!(<schema_users::col_id as TypedColumn>::NAME, "id");
+    assert_eq!(<schema_users::col_name as TypedColumn>::NAME, "name");
+
+    // 验证 RustType：PRIMARY KEY 隐含 NOT NULL → i64（非 Option）
+    fn _check_i64<T: TypedColumn<RustType = i64>>(_: T) {}
+    _check_i64(schema_users::col_id);
+
+    // name 有 NOT NULL → String（非 Option）
+    fn _check_string<T: TypedColumn<RustType = String>>(_: T) {}
+    _check_string(schema_users::col_name);
+}
+
+/// IF NOT EXISTS + 反引号标识符
+#[test]
+fn test_schema_macro_if_not_exists_backtick() {
+    schema! {
+        "CREATE TABLE IF NOT EXISTS `schema_orders` (`id` BIGINT PRIMARY KEY, `total` DECIMAL(10,2) NOT NULL)"
+    }
+
+    assert_eq!(<schema_orders::table as TypedTable>::NAME, "schema_orders");
+    assert_eq!(<schema_orders::col_id as TypedColumn>::NAME, "id");
+    assert_eq!(<schema_orders::col_total as TypedColumn>::NAME, "total");
+
+    // BIGINT → i64, PRIMARY KEY → 非空
+    fn _check_i64<T: TypedColumn<RustType = i64>>(_: T) {}
+    _check_i64(schema_orders::col_id);
+
+    // DECIMAL → f64, NOT NULL → 非空
+    fn _check_f64<T: TypedColumn<RustType = f64>>(_: T) {}
+    _check_f64(schema_orders::col_total);
+}
+
+/// nullable 列应生成 Option<T>
+#[test]
+fn test_schema_macro_nullable() {
+    schema! {
+        "CREATE TABLE schema_nullable (a INT NOT NULL, b INT)"
+    }
+
+    fn _check_i64<T: TypedColumn<RustType = i64>>(_: T) {}
+    _check_i64(schema_nullable::col_a);
+
+    fn _check_option_i64<T: TypedColumn<RustType = Option<i64>>>(_: T) {}
+    _check_option_i64(schema_nullable::col_b);
+}
+
+/// 跳过约束行（PRIMARY KEY/FOREIGN KEY/CONSTRAINT/UNIQUE/INDEX）
+#[test]
+fn test_schema_macro_skip_constraints() {
+    schema! {
+        "CREATE TABLE schema_constrained (id INT PRIMARY KEY, name TEXT, PRIMARY KEY (id), CONSTRAINT fk1 FOREIGN KEY (x) REFERENCES y(id), UNIQUE (name))"
+    }
+
+    // 只有 2 列，约束行被跳过
+    assert_eq!(<schema_constrained::col_id as TypedColumn>::NAME, "id");
+    assert_eq!(<schema_constrained::col_name as TypedColumn>::NAME, "name");
+}
+
+/// VARCHAR(255) 带长度参数
+#[test]
+fn test_schema_macro_varchar_with_len() {
+    schema! {
+        "CREATE TABLE schema_varchar (name VARCHAR(255) NOT NULL, code CHAR(10))"
+    }
+
+    fn _check_string<T: TypedColumn<RustType = String>>(_: T) {}
+    _check_string(schema_varchar::col_name);
+
+    fn _check_option_string<T: TypedColumn<RustType = Option<String>>>(_: T) {}
+    _check_option_string(schema_varchar::col_code);
+}
+
+/// schema! 生成的表可与 typed_query! SELECT 一起使用
+#[test]
+fn test_schema_macro_compatible_with_typed_query_select() {
+    schema! {
+        "CREATE TABLE schema_compat (id INTEGER PRIMARY KEY, name TEXT NOT NULL)"
+    }
+
+    // schema! 生成的表声明可用于 typed_query! SELECT
+    let sql = typed_query!(SELECT id, name FROM schema_compat WHERE id = ?);
+    assert!(sql.contains("schema_compat"));
+    assert!(sql.contains("id"));
+    assert!(sql.contains("name"));
 }
