@@ -713,3 +713,63 @@ jobs:
         with:
           files: coverage/cobertura.xml
           fail_ci_if_error: false
+
+  # ============================================================================
+  # Job 9: Fuzz Testing（P2-3）
+  #
+  # 使用 cargo-fuzz + libfuzzer 对核心模块进行短时间模糊测试。
+  # nightly 工具链（sanitizer 需要 -Zsanitizer=address）。
+  # 每个 target 运行 60 秒，发现 panic/crash 即失败。
+  # 目标：至少 3 个 fuzz target（query_builder / value_escape / pool_config）。
+  # ============================================================================
+  fuzz:
+    name: Fuzz Testing (60s per target)
+    runs-on: ubuntu-latest
+    needs: [test]
+    continue-on-error: true
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (nightly)
+        uses: dtolnay/rust-toolchain@nightly
+        with:
+          components: rust-src
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-fuzz-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-fuzz-
+
+      - name: Install cargo-fuzz
+        run: cargo install cargo-fuzz --locked
+
+      - name: Run fuzz target: query_builder (60s)
+        run: |
+          cd fuzz
+          cargo +nightly fuzz run query_builder -- -max_total_time=60 -max_len=4096
+
+      - name: Run fuzz target: value_escape (60s)
+        run: |
+          cd fuzz
+          cargo +nightly fuzz run value_escape -- -max_total_time=60 -max_len=4096
+
+      - name: Run fuzz target: pool_config (60s)
+        run: |
+          cd fuzz
+          cargo +nightly fuzz run pool_config -- -max_total_time=60 -max_len=256
+
+      - name: Upload fuzz artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fuzz-artifacts-${{ github.sha }}
+          path: fuzz/fuzz/artifacts/
+          if-no-files-found: ignore
+          retention-days: 7
+

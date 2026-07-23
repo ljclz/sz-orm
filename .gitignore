@@ -1,4 +1,6 @@
 /target
+fuzz/target
+fuzz/Cargo.lock
 *.log
 *.tmp
 test_output.txt

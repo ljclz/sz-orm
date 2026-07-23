@@ -1,0 +1,32 @@
+[package]
+name = "sz-orm-fuzz"
+version = "0.1.0"
+edition = "2021"
+authors = ["SZ-ORM Team"]
+license = "MIT"
+publish = false
+
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+
+# 依赖主 workspace 的包（通过 path 引用）
+sz-orm-core = { path = "../packages/sz-orm-core" }
+sz-orm-query-builder = { path = "../packages/sz-orm-query-builder" }
+
+# fuzz target 二进制
+[[bin]]
+name = "query_builder"
+path = "fuzz_targets/query_builder.rs"
+
+[[bin]]
+name = "value_escape"
+path = "fuzz_targets/value_escape.rs"
+
+[[bin]]
+name = "pool_config"
+path = "fuzz_targets/pool_config.rs"
+
+[workspace]
