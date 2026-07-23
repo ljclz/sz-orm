@@ -47,7 +47,7 @@ SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete d
 | Supported dialects | 16 SQL dialects (7 native + 9 delegated, incl. 6 domestic Xinchuang DBs) |
 | Test cases | 2,271 passed, 0 failed (1,635 `#[test]` + 636 `#[tokio::test]`) |
 | Code size | ~104,000 LOC (src ~84,670 + tests ~15,767 + cli/examples/benches ~3,800) |
-| Project maturity | Prototype (not published to crates.io, zero community validation) |
+| Project maturity | Prototype (22/37 packages published to crates.io, zero community validation) |
 | Async runtime | Tokio 1.40+ |
 | Minimum Rust version | 1.94.0+ (sqlx 0.9.0 requires) |
 | Known bugs | 0 |
@@ -82,6 +82,9 @@ SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete d
 - `cargo audit` — 0 unignored vulnerabilities (7 transitive dependencies ignored with documented reasons)
 - `cargo deny check advisories bans licenses sources` — all OK
 - 1h Soak Test: 1.38 billion operations, 1.16% throughput decay, P99 43μs→41μs, 0 errors, no pool leak
+- **PooledConnection Drop fix**: Pool now implements `Drop for PooledConnection` — connections auto-return to pool on drop (fixed critical pool exhaustion bug)
+- **Fuzz Testing**: 3 targets (query_builder/value_escape/pool_config) via `cargo-fuzz` + libfuzzer, 60s per target in CI
+- **ORM Comparison**: v0.4 benchmark vs Diesel/SeaORM/SQLx — SZ-ORM wins INSERT/DELETE, UPDATE ranks #2
 
 ## Workspace Structure
 
@@ -670,7 +673,23 @@ cargo deny check advisories bans licenses sources
 
 **1h Soak Test**: 1.38B operations, 1.16% throughput decay, P99 43μs→41μs, 0 errors.
 
-See [Performance Benchmark Report](docs/sz-orm性能基准.md) for full details.
+**ORM Comparison Benchmark** (v0.4, SQLite in-memory, cache=shared, 100K rows):
+
+| Scenario | SZ-ORM | SeaORM | SQLx | Winner |
+|----------|--------|--------|------|--------|
+| INSERT 1K | 20.84 ms | 21.75 ms | 22.60 ms | **SZ-ORM** |
+| INSERT 10K | 200.88 ms | 237.31 ms | 213.49 ms | **SZ-ORM** |
+| INSERT 100K | 2.07 s | 2.13 s | 2.19 s | **SZ-ORM** |
+| SELECT BY ID | 25.48 µs | 18.19 µs | 17.05 µs | SQLx |
+| SELECT ALL 100K | 192.60 ms | 129.83 ms | 128.28 ms | SQLx |
+| UPDATE | 23.21 µs | 19.87 µs | 25.56 µs | SeaORM |
+| DELETE 100K | 4.83 s | 5.22 s | 5.19 s | **SZ-ORM** |
+
+SZ-ORM wins INSERT/DELETE; SELECT lags due to `format!()` SQL construction (Connection trait only supports `&str`).
+
+**Fuzz Testing**: 3 targets (query_builder SQL injection, value_escape, pool_config overflow) via `cargo-fuzz` + libfuzzer, 60s per target in CI.
+
+See [Performance Benchmark Report](docs/sz-orm性能基准.md) for full details, and [ORM Comparison Report](bench-comparison/BENCHMARK_REPORT.md) for v0.4 comparison.
 
 ## Project Documentation
 
