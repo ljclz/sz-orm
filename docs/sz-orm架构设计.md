@@ -6,7 +6,7 @@
 > 更新日期：2026-07-22
 > 文档定位：整体架构、包间依赖、核心设计决策、扩展包开发指南
 > 测试：3047 passed / 0 failed（112 个测试套件） | 代码：89,329 LOC（src/ 75,388 + tests/ 13,941）
-> 评分：4.98/5（CMMI Level 5 - 持续优化级） | 成熟度：L4 金融级 | 已知 Bug：0
+> 成熟度：原型阶段（未发布 crates.io） | 已知 Bug：0
 
 ---
 
@@ -397,7 +397,7 @@ Saga 适合订单、旅行预订、跨服务编排等长流程业务，无锁高
 |------|------|----------|
 | v1.0 | 2026-07-18 | SZ-ORM：核心 ORM + 27 个可选扩展包 |
 | v2.0 | 2026-07-19 | ①hooks/ 钩子模块；②cli/ 命令行工具；③examples/；④版本号升至 0.2.0；⑤工作空间成员 33 |
-| v3.0 | 2026-07-19 | ①core 新增 typed_ast/dynamic_sql/json_query/find_with_related 四个高级模块；②hooks 钩子事件从 6 种扩展至 16 种 + HookDispatcher + GlobalScope/ScopeRegistry；③sz-orm-dtx 扩展为 tcc/cross_shard/saga 三子模块；④测试 1749 passed / 0 failed / 72 ignored；⑤代码 ~47,500 LOC（非测试）/ ~57,000 LOC（含测试）；⑥评分 5.0/5（CMMI Level 5），成熟度 L4 金融级 |
+| v3.0 | 2026-07-19 | ①core 新增 typed_ast/dynamic_sql/json_query/find_with_related 四个高级模块；②hooks 钩子事件从 6 种扩展至 16 种 + HookDispatcher + GlobalScope/ScopeRegistry；③sz-orm-dtx 扩展为 tcc/cross_shard/saga 三子模块；④测试 1749 passed / 0 failed / 72 ignored；⑤代码 ~47,500 LOC（非测试）/ ~57,000 LOC（含测试）；⑥成熟度 原型阶段 |
 | v3.1 | 2026-07-20 | 修复审查报告 P3-2：统一包数/LOC 数据 — 工作空间成员 38（36 sz-orm-* lib + cli + examples）；LOC ~52,500（非测试）/ ~63,000（含测试）；测试 1871+ passed；评分 4.98/5 |
 | v4.0 | 2026-07-20 | 同步到 39 包 / 1970+ 测试 / v0.2.1 / AI 增强完成（sz-orm-vector + NL→SQL）/ 工程化审计三门禁通过 / 85,834 LOC |
 | v5.0 | 2026-07-21 | sqlx 0.9.0 升级完成 / 3047 测试 / v1.0.0 正式发布 / MSRV 升至 1.94.0+ / rsa Marvin Attack（RUSTSEC-2023-0071）已消除 |
@@ -408,4 +408,4 @@ Saga 适合订单、旅行预订、跨服务编排等长流程业务，无锁高
 *定位：纯 ORM + 可选扩展包（用户按需引入，不强制安装）*
 *文档版本：v5.0 | crate 版本：1.0.0 | 更新日期：2026-07-21*
 *核心模块：15 个（含 hooks/typed_ast/dynamic_sql/json_query/find_with_related）| 扩展包：37 个 sz-orm-* lib + cli + examples*
-*测试：3047 passed / 0 failed（112 个测试套件） | 代码：89,329 LOC（src/ 75,388 + tests/ 13,941）| 评分：4.98/5（CMMI Level 5）| 成熟度：L4 金融级*
+*测试：2,271 passed / 0 failed | 代码：~104,000 LOC | 成熟度：原型阶段*

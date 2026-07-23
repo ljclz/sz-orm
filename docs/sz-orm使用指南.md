@@ -12,7 +12,7 @@
 
 ## 一、项目概述
 
-SZ-ORM 是一套**生产级、L4 金融级纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 39 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、27 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。
+SZ-ORM 是一套**原型阶段纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 39 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、27 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。
 
 ### 1.1 核心特性
 
@@ -27,7 +27,7 @@ SZ-ORM 是一套**生产级、L4 金融级纯 Rust ORM 工作空间**，兼容 T
 | 运行时 SQL 校验 | `QueryBuilder::validate()` + sz-orm-sql-validator，12 种注入模式检测 |
 | ActiveRecord 关系映射 | HasMany / HasOne / BelongsTo / BelongsToMany，支持 eager loading |
 | 真实 DB 适配器 | sz-orm-sqlx 端到端连接 MySQL/PG/SQLite（sqlx 0.9.0） |
-| L4 金融级能力 | 灾备演练、SLA 监控、Chaos 测试、形式化验证 |
+| 扩展能力模块 | 灾备演练、SLA 监控、Chaos 测试、形式化验证（未生产验证） |
 | 真实云服务对接 | MQTT(rumqttc) / WebSocket(tokio-tungstenite) / RabbitMQ(lapin) / S3(rust-s3) |
 | 安全审计基线 | cargo-audit + cargo-deny CI，RustCrypto 审计栈加密 |
 | 钩子系统 | 16 种 HookEvent + HookDispatcher + 软删除 + 多租户 + 全局作用域 |
@@ -1801,7 +1801,7 @@ SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored
 | 《性能基准.md》 | 性能数据与基准测试运行方式 | 需了解吞吐/延迟/对比数据时 |
 | 《项目成熟度评估报告.md》 | 成熟度评分与测试规模实测 | 需评估生产就绪度时 |
 | 《项目实施进度表.md》 | 分阶段实施进度 | 需了解功能完成进度时 |
-| 《sz-orm生产就绪报告.md》 | L4 金融级生产就绪度评估与签发 | 生产上线前评审 |
+| 《sz-orm生产就绪报告.md》 | 扩展能力模块评估 | 生产上线前评审 |
 | 《sz-orm-engineering-practices.md》 | 工程化规范（门禁 1-10 + 测试金字塔 + Soak Test） | 贡献代码前需了解工程规范 |
 | 《SZ-ORM 与主流 ORM 对比.md》 | 与 Diesel/SeaORM/SQLx 的深度对比 | 选型决策时 |
 | 《sz-orm技术实现深度评估.md》 | 技术实现深度评估 | 深度技术评估 |
