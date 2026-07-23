@@ -1,14 +1,14 @@
 # SZ-ORM — Xian Shi Da ORM
 
-> Production-grade, L4 financial-grade pure Rust async ORM with ThinkORM-style fluent API.
+> Rust async ORM workspace (prototype stage) with ThinkORM-style fluent API.
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-2950-green.svg)](#testing)
-[![Dialects](https://img.shields.io/badge/dialects-11-red.svg)](#supported-databases)
+[![Tests](https://img.shields.io/badge/tests-2271-green.svg)](#testing)
+[![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
-[![Maturity](https://img.shields.io/badge/maturity-L4%20financial-brightgreen.svg)](docs/sz-orm项目成熟度评估报告.md)
+[![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#overview)
 
 ---
 
@@ -36,16 +36,17 @@
 
 ## Overview
 
-SZ-ORM is a pure Rust async ORM framework aiming to provide a **production-grade**, **financial-grade** data access layer for the Rust ecosystem. It is compatible with ThinkORM-style fluent chainable API, supports 11 database dialects, and ships as a 39-member Cargo workspace.
+SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete data access layer for the Rust ecosystem. It is compatible with ThinkORM-style fluent chainable API, supports 16 SQL dialects, and ships as a 39-member Cargo workspace.
+
+> **⚠️ Honest disclaimer**: This is a single-author engineering practice project, currently in **prototype stage**. No production cases, no third-party audit, no community adoption yet. Feature list covers mainstream ORM capabilities but is not production-verified. See [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md) for deep comparison with Diesel/SeaORM/SQLx.
 
 | Dimension | Value |
 |-----------|-------|
 | Workspace packages | 39 (37 libs + CLI + examples) |
-| Supported dialects | 11 (MySQL / PostgreSQL / SQLite / Oracle 23ai / OceanBase / SQL Server / ClickHouse / Redis / MongoDB / VectorDB / PureJsDb) |
-| Test cases | 2950 passed, 0 failed (79 ignored requiring real DB/cloud credentials) |
-| Code size | 85,834 LOC (src 18,430 + tests 67,404) |
-| Production level | L4 (Financial-grade) |
-| Maturity rating | 4.98 / 5.00 |
+| Supported dialects | 16 SQL dialects (7 native + 9 delegated, incl. 6 domestic Xinchuang DBs) |
+| Test cases | 2,271 passed, 0 failed (1,635 `#[test]` + 636 `#[tokio::test]`) |
+| Code size | ~104,000 LOC (src ~84,670 + tests ~15,767 + cli/examples/benches ~3,800) |
+| Project maturity | Prototype (not published to crates.io, zero community validation) |
 | Async runtime | Tokio 1.40+ |
 | Minimum Rust version | 1.94.0+ (sqlx 0.9.0 requires) |
 | Known bugs | 0 |
@@ -53,7 +54,7 @@ SZ-ORM is a pure Rust async ORM framework aiming to provide a **production-grade
 ## Core Features
 
 - **Async**: Built on Tokio, fully `async/await` end-to-end
-- **Multi-dialect**: MySQL / PostgreSQL / SQLite / Oracle 23ai / OceanBase / SQL Server / ClickHouse / Redis / MongoDB / VectorDB / PureJsDb
+- **Multi-dialect**: 16 SQL dialects (7 native: MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2 + 9 delegated: MariaDB/TiDB/OceanBase/Dameng/Kingbase/PolarDB/GaussDB/GBase/Sybase)
 - **Chainable QueryBuilder**: ThinkORM-style fluent API
 - **ACID transactions**: Isolation levels, savepoints (nested transactions), `TransactionManager` for multi-tx management
 - **Connection pool**: Configurable size, timeout, idle reaping, health check, max lifetime
@@ -568,7 +569,7 @@ SZ-ORM enforces quality via a **7-line verification system**:
 | **Chaos** | Fault robustness | `chaos.rs` |
 | **Formal** | Formal invariant verification | `formal.rs` |
 
-**Total: 2950 tests, 0 failed, 79 ignored (require real DB/cloud credentials)**
+**Total: 2,271 tests, 0 failed** (1,635 `#[test]` + 636 `#[tokio::test]`; some tests require real DB/cloud credentials)
 
 ### Run tests
 

@@ -33,7 +33,7 @@
   - sz-orm-tracing：分布式追踪（W3C TraceContext）
 - **CLI (sz-orm-cli)**：命令行工具
 - **DevTools**：sz-orm-swagger（OpenAPI）、sz-orm-health（健康检查）
-- **测试体系**：3003 个单元/集成测试、proptest 属性测试、fuzz 模糊测试、chaos 混沌测试（16 项）、24h soak test
+- **测试体系**：2,271 个单元/集成测试（1,635 `#[test]` + 636 `#[tokio::test]`）、proptest 属性测试、fuzz 模糊测试、chaos 混沌测试（16 项）、24h soak test
 - **CI/CD**：GitHub Actions 多 workflow（CI/安全/soak test/依赖更新）
 - **文档**：15 份中文文档 + README.en.md 英文文档 + CONTRIBUTING.md 贡献指南
 
@@ -69,7 +69,7 @@
 
 - **Rust 工具链升级**：升级至 Rust 1.97.1，同步全面工程化审计
 - **sqlx 升级**：sqlx 0.8.6 → 0.9.0，消除 rsa Marvin Attack 漏洞
-- **文档数据统一**：统一测试数 3047 / LOC 89329 / 文档数 11，消除文档间数据矛盾
+- **文档数据统一**：统一测试数 2,271 / LOC ~104,000 / 文档数 11，消除文档间数据矛盾（与实测一致）
 - **8 项工程改进落地**：基于 2026-07-21 全面审计的 8 项未来改进建议（1-7）全部实施
 
 ### Security
