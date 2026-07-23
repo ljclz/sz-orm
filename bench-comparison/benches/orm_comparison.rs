@@ -4,6 +4,14 @@
 //! 测试场景：CRUD（INSERT / SELECT / UPDATE / DELETE）
 //! 运行：cargo bench --bench orm_comparison
 //! 报告：target/criterion/index.html
+//!
+//! v0.4 修复：
+//! 1. select_by_id/select_all/update：异步 ORM 改为 setup 在外（rt.block_on），
+//!    b.to_async().iter() 每次迭代只做单次操作，与同步 ORM 结构一致
+//! 2. 所有异步 ORM 使用 cache=shared + max_connections(10)，确保多连接共享
+//!    同一 in-memory 数据库（SQLite :memory: 默认每连接独立）
+//! 3. SZ-ORM SzOrmCtx 实现 Clone，支持在闭包中 clone 传递
+//! 4. 数据量：BENCH_SIZES=[1000,10000,100000]，PREPARE_SIZE=100000
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
 
@@ -96,11 +104,16 @@ mod baseline_rusqlite {
 
 mod async_sqlx {
     use super::*;
-    use sqlx::sqlite::SqlitePool;
+    use sqlx::sqlite::{SqlitePool, SqlitePoolOptions};
     use sqlx::Row;
 
     pub async fn setup() -> SqlitePool {
-        let pool = SqlitePool::connect(":memory:").await.expect("connect sqlite");
+        // cache=shared 确保多连接共享同一 in-memory 数据库
+        let pool = SqlitePoolOptions::new()
+            .max_connections(10)
+            .connect("sqlite::memory:?cache=shared")
+            .await
+            .expect("connect sqlite");
         sqlx::query(CREATE_TABLE_SQL)
             .execute(&pool)
             .await
@@ -184,35 +197,36 @@ mod async_sqlx {
 mod sz_orm {
     use super::*;
     use sz_orm_core::{Pool, PoolConfigBuilder, Value};
-    // Connection trait 通过 PooledConnection 的 DerefMut 提供 execute/query 方法
     use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
     use std::sync::Arc;
 
+    #[derive(Clone)]
     pub struct SzOrmCtx {
         pub pool: Pool,
         _handle: Arc<SqlitePoolHandle>,
     }
 
     pub async fn setup() -> SzOrmCtx {
-        let handle = Arc::new(SqlitePoolHandle::connect("sqlite::memory:").await.expect("connect"));
+        // cache=shared 确保多连接共享同一 in-memory 数据库
+        let handle = Arc::new(SqlitePoolHandle::connect("sqlite::memory:?cache=shared").await.expect("connect"));
         let factory = Arc::new(SqlxSqliteConnectionFactory::new(handle.clone()));
-        // PooledConnection 无 Drop 自动归还，max_size 设大避免耗尽
-        let config = PoolConfigBuilder::new().max_size(200).build().expect("config");
+        let config = PoolConfigBuilder::new().max_size(10).build().expect("config");
         let pool = Pool::new(config, factory).expect("pool");
         let mut conn = pool.acquire().await.expect("acquire");
         conn.execute(CREATE_TABLE_SQL).await.expect("create table");
-        pool.release(conn).await;
+        // conn drop 时自动归还（无需显式 release）
         SzOrmCtx { pool, _handle: handle }
     }
 
     pub async fn teardown(ctx: SzOrmCtx) {
         let mut conn = ctx.pool.acquire().await.expect("acquire");
         conn.execute(DROP_TABLE_SQL).await.ok();
-        ctx.pool.release(conn).await;
+        // conn drop 时自动归还
         ctx.pool.close_all().await;
     }
 
-    /// 使用参数化 SQL 避免 SQL 注入，同时展示 SZ-ORM Connection 的原生 SQL 执行能力。
+    /// SZ-ORM Connection trait 当前仅支持 &str SQL（不支持参数绑定），
+    /// 使用 format!() + 手动转义构造 SQL。这是 SZ-ORM API 的已知限制。
     pub async fn insert_one(ctx: &SzOrmCtx, name: &str, email: &str, age: i64) {
         let sql = format!(
             "INSERT INTO bench_users (name, email, age) VALUES ('{}', '{}', {})",
@@ -222,14 +236,14 @@ mod sz_orm {
         );
         let mut conn = ctx.pool.acquire().await.expect("acquire");
         conn.execute(&sql).await.expect("insert");
-        ctx.pool.release(conn).await;
+        // conn drop 时自动归还
     }
 
     pub async fn select_by_id(ctx: &SzOrmCtx, id: i64) -> (String, String, i64) {
         let sql = format!("SELECT name, email, age FROM bench_users WHERE id = {}", id);
         let mut conn = ctx.pool.acquire().await.expect("acquire");
         let rows = conn.query(&sql).await.expect("query");
-        ctx.pool.release(conn).await;
+        // conn drop 时自动归还
         if let Some(row) = rows.first() {
             let name = match row.get("name") {
                 Some(Value::String(s)) => s.clone(),
@@ -256,7 +270,7 @@ mod sz_orm {
             .query("SELECT id, name, email, age FROM bench_users")
             .await
             .expect("query");
-        ctx.pool.release(conn).await;
+        // conn drop 时自动归还
         rows.iter()
             .map(|row| {
                 let id = match row.get("id") {
@@ -290,14 +304,14 @@ mod sz_orm {
         );
         let mut conn = ctx.pool.acquire().await.expect("acquire");
         conn.execute(&sql).await.expect("update");
-        ctx.pool.release(conn).await;
+        // conn drop 时自动归还
     }
 
     pub async fn delete_by_id(ctx: &SzOrmCtx, id: i64) {
         let sql = format!("DELETE FROM bench_users WHERE id = {}", id);
         let mut conn = ctx.pool.acquire().await.expect("acquire");
         conn.execute(&sql).await.expect("delete");
-        ctx.pool.release(conn).await;
+        // conn drop 时自动归还
     }
 }
 
@@ -401,10 +415,13 @@ mod diesel_orm {
 
 mod sea_orm_async {
     use super::*;
-    use sea_orm::{ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
+    use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
 
     pub async fn setup() -> DatabaseConnection {
-        let db = Database::connect("sqlite::memory:").await.expect("connect");
+        // cache=shared 确保多连接共享同一 in-memory 数据库
+        let mut opt = ConnectOptions::new("sqlite::memory:?cache=shared");
+        opt.max_connections(10);
+        let db = Database::connect(opt).await.expect("connect");
         db.execute(Statement::from_sql_and_values(
             DatabaseBackend::Sqlite,
             CREATE_TABLE_SQL,
@@ -498,7 +515,7 @@ mod sea_orm_async {
 // Benchmark 定义
 // ============================================================================
 
-const BENCH_SIZES: &[usize] = &[1, 10, 100];
+const BENCH_SIZES: &[usize] = &[1000, 10000, 100000];
 
 fn bench_insert(c: &mut Criterion) {
     let mut group = c.benchmark_group("insert");
@@ -610,7 +627,7 @@ fn bench_select_by_id(c: &mut Criterion) {
     let mut group = c.benchmark_group("select_by_id");
     group.throughput(Throughput::Elements(1));
 
-    const PREPARE_SIZE: usize = 100;
+    const PREPARE_SIZE: usize = 100000;
 
     // rusqlite baseline
     group.bench_function("rusqlite", |b| {
@@ -654,94 +671,101 @@ fn bench_select_by_id(c: &mut Criterion) {
         diesel_orm::teardown(&mut conn);
     });
 
-    // Async (sqlx + sea-orm + sz-orm)
+    // Async (sqlx + sea-orm + sz-orm)：setup 在外，每次迭代只做单次查询
     let rt = tokio::runtime::Runtime::new().expect("rt");
 
+    // SQLx：setup + 插入数据在 b.iter 外
     group.bench_function("sqlx", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                // Setup done once outside, but criterion requires fresh state per iter.
-                // Simplified: setup once, query multiple times.
-                let pool = async_sqlx::setup().await;
-                for i in 0..PREPARE_SIZE {
-                    async_sqlx::insert_one(
-                        &pool,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
-                let mut results = Vec::new();
-                for id in 1..=(PREPARE_SIZE as i64) {
-                    results.push(async_sqlx::select_by_id(&pool, id).await);
-                }
-                async_sqlx::teardown(&pool).await;
-                black_box(results);
-            },
-            criterion::BatchSize::PerIteration,
-        );
+        let pool = rt.block_on(async {
+            let pool = async_sqlx::setup().await;
+            for i in 0..PREPARE_SIZE {
+                async_sqlx::insert_one(
+                    &pool,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            pool
+        });
+        let mut idx = 0i64;
+        b.to_async(&rt).iter(|| {
+            let id = (idx % PREPARE_SIZE as i64) + 1;
+            idx += 1;
+            let pool = pool.clone();
+            async move {
+                let r = async_sqlx::select_by_id(&pool, id).await;
+                black_box(r);
+            }
+        });
+        rt.block_on(async { async_sqlx::teardown(&pool).await; });
     });
 
+    // SeaORM：setup + 插入数据在 b.iter 外
     group.bench_function("sea-orm", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let db = sea_orm_async::setup().await;
-                for i in 0..PREPARE_SIZE {
-                    sea_orm_async::insert_one(
-                        &db,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
-                let mut results = Vec::new();
-                for id in 1..=(PREPARE_SIZE as i64) {
-                    results.push(sea_orm_async::select_by_id(&db, id).await);
-                }
-                sea_orm_async::teardown(&db).await;
-                black_box(results);
-            },
-            criterion::BatchSize::PerIteration,
-        );
+        let db = rt.block_on(async {
+            let db = sea_orm_async::setup().await;
+            for i in 0..PREPARE_SIZE {
+                sea_orm_async::insert_one(
+                    &db,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            db
+        });
+        let mut idx = 0i64;
+        b.to_async(&rt).iter(|| {
+            let id = (idx % PREPARE_SIZE as i64) + 1;
+            idx += 1;
+            let db = db.clone();
+            async move {
+                let r = sea_orm_async::select_by_id(&db, id).await;
+                black_box(r);
+            }
+        });
+        rt.block_on(async { sea_orm_async::teardown(&db).await; });
     });
 
+    // SZ-ORM：setup + 插入数据在 b.iter 外
     group.bench_function("sz-orm", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let ctx = sz_orm::setup().await;
-                for i in 0..PREPARE_SIZE {
-                    sz_orm::insert_one(
-                        &ctx,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
-                let mut results = Vec::new();
-                for id in 1..=(PREPARE_SIZE as i64) {
-                    results.push(sz_orm::select_by_id(&ctx, id).await);
-                }
-                sz_orm::teardown(ctx).await;
-                black_box(results);
-            },
-            criterion::BatchSize::PerIteration,
-        );
+        let ctx = rt.block_on(async {
+            let ctx = sz_orm::setup().await;
+            for i in 0..PREPARE_SIZE {
+                sz_orm::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        let mut idx = 0i64;
+        b.to_async(&rt).iter(|| {
+            let id = (idx % PREPARE_SIZE as i64) + 1;
+            idx += 1;
+            let ctx = ctx.clone();
+            async move {
+                let r = sz_orm::select_by_id(&ctx, id).await;
+                black_box(r);
+            }
+        });
+        rt.block_on(async { sz_orm::teardown(ctx).await; });
     });
 
     group.finish();
 }
 
 fn bench_select_all(c: &mut Criterion) {
-    let mut group = c.benchmark_group("select_all_100");
-    group.throughput(Throughput::Elements(100));
+    let mut group = c.benchmark_group("select_all_100000");
+    group.throughput(Throughput::Elements(100000));
 
-    const N: usize = 100;
+    const N: usize = 100000;
 
     // rusqlite
     group.bench_function("rusqlite", |b| {
@@ -779,73 +803,82 @@ fn bench_select_all(c: &mut Criterion) {
         diesel_orm::teardown(&mut conn);
     });
 
-    // Async
+    // Async：setup + 插入数据在 b.iter 外，每次迭代只做 select_all
     let rt = tokio::runtime::Runtime::new().expect("rt");
 
+    // SQLx
     group.bench_function("sqlx", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let pool = async_sqlx::setup().await;
-                for i in 0..N {
-                    async_sqlx::insert_one(
-                        &pool,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
+        let pool = rt.block_on(async {
+            let pool = async_sqlx::setup().await;
+            for i in 0..N {
+                async_sqlx::insert_one(
+                    &pool,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            pool
+        });
+        b.to_async(&rt).iter(|| {
+            let pool = pool.clone();
+            async move {
                 let rows = async_sqlx::select_all(&pool).await;
-                async_sqlx::teardown(&pool).await;
                 black_box(rows);
-            },
-            criterion::BatchSize::PerIteration,
-        );
+            }
+        });
+        rt.block_on(async { async_sqlx::teardown(&pool).await; });
     });
 
+    // SeaORM
     group.bench_function("sea-orm", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let db = sea_orm_async::setup().await;
-                for i in 0..N {
-                    sea_orm_async::insert_one(
-                        &db,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
+        let db = rt.block_on(async {
+            let db = sea_orm_async::setup().await;
+            for i in 0..N {
+                sea_orm_async::insert_one(
+                    &db,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            db
+        });
+        b.to_async(&rt).iter(|| {
+            let db = db.clone();
+            async move {
                 let rows = sea_orm_async::select_all(&db).await;
-                sea_orm_async::teardown(&db).await;
                 black_box(rows);
-            },
-            criterion::BatchSize::PerIteration,
-        );
+            }
+        });
+        rt.block_on(async { sea_orm_async::teardown(&db).await; });
     });
 
+    // SZ-ORM
     group.bench_function("sz-orm", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let ctx = sz_orm::setup().await;
-                for i in 0..N {
-                    sz_orm::insert_one(
-                        &ctx,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
+        let ctx = rt.block_on(async {
+            let ctx = sz_orm::setup().await;
+            for i in 0..N {
+                sz_orm::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        b.to_async(&rt).iter(|| {
+            let ctx = ctx.clone();
+            async move {
                 let rows = sz_orm::select_all(&ctx).await;
-                sz_orm::teardown(ctx).await;
                 black_box(rows);
-            },
-            criterion::BatchSize::PerIteration,
-        );
+            }
+        });
+        rt.block_on(async { sz_orm::teardown(ctx).await; });
     });
 
     group.finish();
@@ -855,7 +888,7 @@ fn bench_update(c: &mut Criterion) {
     let mut group = c.benchmark_group("update");
     group.throughput(Throughput::Elements(1));
 
-    const N: usize = 100;
+    const N: usize = 100000;
 
     // rusqlite
     group.bench_function("rusqlite", |b| {
@@ -897,76 +930,88 @@ fn bench_update(c: &mut Criterion) {
         diesel_orm::teardown(&mut conn);
     });
 
-    // Async
+    // Async：setup + 插入数据在 b.iter 外，每次迭代只做单次 update
     let rt = tokio::runtime::Runtime::new().expect("rt");
 
+    // SQLx
     group.bench_function("sqlx", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let pool = async_sqlx::setup().await;
-                for i in 0..N {
-                    async_sqlx::insert_one(
-                        &pool,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
-                for id in 1..=(N as i64) {
-                    async_sqlx::update_by_id(&pool, id, "updated_name").await;
-                }
-                async_sqlx::teardown(&pool).await;
-            },
-            criterion::BatchSize::PerIteration,
-        );
+        let pool = rt.block_on(async {
+            let pool = async_sqlx::setup().await;
+            for i in 0..N {
+                async_sqlx::insert_one(
+                    &pool,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            pool
+        });
+        let mut idx = 0i64;
+        b.to_async(&rt).iter(|| {
+            let id = (idx % N as i64) + 1;
+            idx += 1;
+            let pool = pool.clone();
+            async move {
+                async_sqlx::update_by_id(&pool, id, "updated_name").await;
+            }
+        });
+        rt.block_on(async { async_sqlx::teardown(&pool).await; });
     });
 
+    // SeaORM
     group.bench_function("sea-orm", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let db = sea_orm_async::setup().await;
-                for i in 0..N {
-                    sea_orm_async::insert_one(
-                        &db,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
-                for id in 1..=(N as i64) {
-                    sea_orm_async::update_by_id(&db, id, "updated_name").await;
-                }
-                sea_orm_async::teardown(&db).await;
-            },
-            criterion::BatchSize::PerIteration,
-        );
+        let db = rt.block_on(async {
+            let db = sea_orm_async::setup().await;
+            for i in 0..N {
+                sea_orm_async::insert_one(
+                    &db,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            db
+        });
+        let mut idx = 0i64;
+        b.to_async(&rt).iter(|| {
+            let id = (idx % N as i64) + 1;
+            idx += 1;
+            let db = db.clone();
+            async move {
+                sea_orm_async::update_by_id(&db, id, "updated_name").await;
+            }
+        });
+        rt.block_on(async { sea_orm_async::teardown(&db).await; });
     });
 
+    // SZ-ORM
     group.bench_function("sz-orm", |b| {
-        b.to_async(&rt).iter_batched(
-            || (),
-            |_| async move {
-                let ctx = sz_orm::setup().await;
-                for i in 0..N {
-                    sz_orm::insert_one(
-                        &ctx,
-                        &format!("user_{}", i),
-                        &format!("user_{}@test.com", i),
-                        i as i64,
-                    )
-                    .await;
-                }
-                for id in 1..=(N as i64) {
-                    sz_orm::update_by_id(&ctx, id, "updated_name").await;
-                }
-                sz_orm::teardown(ctx).await;
-            },
-            criterion::BatchSize::PerIteration,
-        );
+        let ctx = rt.block_on(async {
+            let ctx = sz_orm::setup().await;
+            for i in 0..N {
+                sz_orm::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        let mut idx = 0i64;
+        b.to_async(&rt).iter(|| {
+            let id = (idx % N as i64) + 1;
+            idx += 1;
+            let ctx = ctx.clone();
+            async move {
+                sz_orm::update_by_id(&ctx, id, "updated_name").await;
+            }
+        });
+        rt.block_on(async { sz_orm::teardown(ctx).await; });
     });
 
     group.finish();
@@ -976,7 +1021,7 @@ fn bench_delete(c: &mut Criterion) {
     let mut group = c.benchmark_group("delete");
     group.throughput(Throughput::Elements(1));
 
-    const N: usize = 100;
+    const N: usize = 100000;
 
     // rusqlite
     group.bench_function("rusqlite", |b| {

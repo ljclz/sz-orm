@@ -53,19 +53,23 @@ pub trait Connection: Send + Sync {
 /// - `created_at`：连接的原始创建时间，**不**随 acquire/release 重置，
 ///   用于 `max_lifetime` 过期判定。
 /// - `last_used_at`：上次归还到池的时间，用于 `idle_timeout` 空闲超时判定。
+/// - `pool`：归属的连接池引用，Drop 时自动归还。`None` 表示无需归还
+///   （已通过 `release()`/`into_inner()` 显式处理）。
 pub struct PooledConnection {
     conn: Box<dyn Connection>,
     created_at: Instant,
     last_used_at: Instant,
+    pool: Option<Pool>,
 }
 
 impl PooledConnection {
-    fn new(conn: Box<dyn Connection>) -> Self {
+    fn new(conn: Box<dyn Connection>, pool: Pool) -> Self {
         let now = Instant::now();
         Self {
             conn,
             created_at: now,
             last_used_at: now,
+            pool: Some(pool),
         }
     }
 
@@ -86,8 +90,109 @@ impl PooledConnection {
     ///
     /// 用于将连接传递给 `Transaction::new` 等消费连接的 API。
     /// 调用此方法后，连接不再属于池，调用方需自行管理其生命周期。
-    pub fn into_inner(self) -> Box<dyn Connection> {
-        self.conn
+    pub fn into_inner(mut self) -> Box<dyn Connection> {
+        self.pool = None; // 标记无需归还
+        // PooledConnection 实现了 Drop，不能直接 move conn，
+        // 用 mem::replace 取出连接，放入 ClosedConnection 占位符
+        std::mem::replace(&mut self.conn, Box::new(ClosedConnection))
+    }
+}
+
+/// PooledConnection 的 Drop 实现：自动归还连接到池中
+///
+/// 修复 Critical Bug：之前 PooledConnection 未实现 Drop，连接在 drop 时
+/// 丢失，不归还池中，导致池耗尽。
+///
+/// 实现策略：
+/// 1. 如果 `pool` 为 `Some`（未显式 release/into_inner），取出连接并放入
+///    `ClosedConnection` 占位符
+/// 2. 在 tokio runtime 中 spawn 异步 release（Drop 不能 await）
+/// 3. 如果不在 tokio runtime 中，连接随占位符 drop 而丢弃（调用方需确保
+///    在 runtime 中 drop PooledConnection）
+impl Drop for PooledConnection {
+    fn drop(&mut self) {
+        if let Some(pool) = self.pool.take() {
+            // 取出原始连接，放入占位符（避免重复 close）
+            let conn = std::mem::replace(&mut self.conn, Box::new(ClosedConnection));
+            let pooled = PooledConnection {
+                conn,
+                created_at: self.created_at,
+                last_used_at: self.last_used_at,
+                pool: None,
+            };
+            // 尝试在 tokio runtime 中异步归还
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    pool.release(pooled).await;
+                });
+            }
+            // 不在 tokio runtime 中则直接丢弃（连接随 ClosedConnection drop）
+        }
+    }
+}
+
+/// 占位连接，用于 PooledConnection::Drop 替换原始连接
+///
+/// 所有操作返回错误或默认值，`is_connected()` 返回 false。
+struct ClosedConnection;
+
+impl Connection for ClosedConnection {
+    fn execute<'a>(
+        &'a mut self,
+        _sql: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(crate::DbError::ConnectionError(
+                "connection already returned to pool".to_string(),
+            ))
+        })
+    }
+
+    fn query<'a>(
+        &'a mut self,
+        _sql: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(crate::DbError::ConnectionError(
+                "connection already returned to pool".to_string(),
+            ))
+        })
+    }
+
+    fn begin_transaction<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+        Box::pin(async {
+            Err(crate::DbError::ConnectionError(
+                "connection already returned to pool".to_string(),
+            ))
+        })
+    }
+
+    fn commit<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn rollback<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
+    }
+
+    fn is_connected(&self) -> bool {
+        false
+    }
+
+    fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+        Box::pin(async { false })
+    }
+
+    fn close<'a>(
+        &'a mut self,
+    ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+        Box::pin(async { Ok(()) })
     }
 }
 
@@ -228,6 +333,10 @@ pub trait ConnectionFactory: Send + Sync {
 }
 
 /// 连接池核心实现
+///
+/// 所有字段均为 `Arc` 或内部含 `Arc`（`Notify`、`PoolConfig` 可 clone），
+/// 因此 `Pool` 可低成本 clone（仅增加引用计数）。`PooledConnection` 持有
+/// `Pool` 的 clone 以实现 Drop 自动归还。
 pub struct Pool {
     config: PoolConfig,
     factory: Arc<dyn ConnectionFactory>,
@@ -244,7 +353,23 @@ pub struct Pool {
     total_count: Arc<AtomicU32>,
     /// 池是否已关闭（close_all 后设为 true，拒绝新 acquire/release）
     closed: Arc<AtomicBool>,
-    notify: Notify,
+    notify: Arc<Notify>,
+}
+
+/// Pool 克隆：仅增加 Arc 引用计数，成本极低
+///
+/// 克隆后的 Pool 与原 Pool 共享同一组连接池状态（idle 队列、计数器等）。
+impl Clone for Pool {
+    fn clone(&self) -> Self {
+        Self {
+            config: self.config.clone(),
+            factory: self.factory.clone(),
+            idle: self.idle.clone(),
+            total_count: self.total_count.clone(),
+            closed: self.closed.clone(),
+            notify: Arc::clone(&self.notify),
+        }
+    }
 }
 
 impl Pool {
@@ -279,7 +404,7 @@ impl Pool {
             idle: Arc::new(Mutex::new(VecDeque::new())),
             total_count: Arc::new(AtomicU32::new(0)),
             closed: Arc::new(AtomicBool::new(false)),
-            notify: Notify::new(),
+            notify: Arc::new(Notify::new()),
         })
     }
 
@@ -357,7 +482,10 @@ impl Pool {
                 self.total_count.fetch_sub(1, Ordering::SeqCst);
             }
 
-            if let Some(pooled) = acquired {
+            if let Some(mut pooled) = acquired {
+                // 从 idle 获取的连接 pool 字段为 None（release 时清除），
+                // 重新设置 pool 引用以支持 Drop 自动归还
+                pooled.pool = Some(self.clone());
                 return Ok(pooled);
             }
 
@@ -384,7 +512,7 @@ impl Pool {
                 match tokio::time::timeout(self.config.connection_timeout, self.factory.create())
                     .await
                 {
-                    Ok(Ok(conn)) => return Ok(PooledConnection::new(conn)),
+                    Ok(Ok(conn)) => return Ok(PooledConnection::new(conn, self.clone())),
                     Ok(Err(e)) => {
                         // 创建失败，回退计数
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
@@ -412,8 +540,13 @@ impl Pool {
     ///
     /// 接收 `PooledConnection` 以保留原始 `created_at`，避免 `max_lifetime`
     /// 在每次归还后被重置（Critical bug fix）。
+    ///
+    /// 显式调用 release 后，`pooled.pool` 设为 None，避免 Drop 重复归还。
     #[tracing::instrument(skip(self, pooled))]
     pub async fn release(&self, mut pooled: PooledConnection) {
+        // 标记已显式归还，避免 Drop 重复归还
+        pooled.pool = None;
+
         // 检查池是否已关闭
         if self.closed.load(Ordering::Acquire) {
             let _ = pooled.conn.close().await;
@@ -951,5 +1084,110 @@ mod tests {
         );
 
         pool.release(conn2).await;
+    }
+
+    // ==================== PooledConnection::Drop 自动归还测试 ====================
+
+    /// 验证 PooledConnection drop 时自动归还连接到池
+    ///
+    /// 修复前：PooledConnection 未实现 Drop，drop 时连接丢失，池耗尽
+    /// 修复后：Drop 时 spawn 异步 release，连接自动归还
+    #[tokio::test]
+    async fn test_drop_auto_release_connection() {
+        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+        let factory = Arc::new(CountingFactory::new());
+        let pool = Pool::new(config, factory.clone()).unwrap();
+
+        // 1. acquire 一个连接（不显式 release）
+        {
+            let _conn = pool.acquire().await.unwrap();
+            assert_eq!(factory.created_count(), 1, "应创建 1 个连接");
+            let status = pool.status().await;
+            assert_eq!(status.active, 1, "active 应为 1");
+            assert_eq!(status.idle, 0, "idle 应为 0");
+            // _conn 在此 drop
+        }
+
+        // 2. 等待 Drop spawn 的异步 release 完成
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // 3. 验证连接已自动归还到 idle 队列
+        let status = pool.status().await;
+        assert_eq!(status.idle, 1, "Drop 后连接应自动归还，idle 应为 1");
+        assert_eq!(status.active, 1, "total_count 应为 1");
+        assert_eq!(
+            factory.created_count(),
+            1,
+            "应复用归还的连接，不创建新连接"
+        );
+    }
+
+    /// 验证 Drop 自动归还后，连接可被再次 acquire 复用
+    #[tokio::test]
+    async fn test_drop_auto_release_then_reuse() {
+        let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+        let factory = Arc::new(CountingFactory::new());
+        let pool = Pool::new(config, factory.clone()).unwrap();
+
+        // max_size=1，如果 Drop 不归还，第二次 acquire 会超时
+        {
+            let _conn = pool.acquire().await.unwrap();
+        }
+
+        // 等待 Drop spawn 的 release 完成
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        // 再次 acquire 应复用归还的连接，不创建新连接
+        let conn = pool.acquire().await.expect("应能复用 Drop 归还的连接");
+        assert_eq!(
+            factory.created_count(),
+            1,
+            "应复用归还的连接，不创建新连接"
+        );
+
+        pool.release(conn).await;
+    }
+
+    /// 验证 into_inner 后 Drop 不归还（连接被消费）
+    #[tokio::test]
+    async fn test_into_inner_does_not_return_to_pool() {
+        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+        let factory = Arc::new(CountingFactory::new());
+        let pool = Pool::new(config, factory.clone()).unwrap();
+
+        let conn = pool.acquire().await.unwrap();
+        assert_eq!(factory.created_count(), 1);
+
+        // into_inner 消费连接，pool 字段设为 None
+        let _raw_conn = conn.into_inner();
+
+        // 等待一段时间，确保不会有 Drop spawn
+        tokio::time::sleep(Duration::from_millis(50)).await;
+
+        let status = pool.status().await;
+        assert_eq!(status.idle, 0, "into_inner 后连接不应归还");
+        assert_eq!(status.active, 1, "total_count 仍为 1（连接被外部持有）");
+    }
+
+    /// 验证显式 release 后 Drop 不会重复归还
+    #[tokio::test]
+    async fn test_explicit_release_no_double_return() {
+        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+        let factory = Arc::new(CountingFactory::new());
+        let pool = Pool::new(config, factory.clone()).unwrap();
+
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+
+        let status = pool.status().await;
+        assert_eq!(status.idle, 1, "release 后 idle 应为 1");
+
+        // 再次 acquire + release 验证不会重复
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+
+        let status = pool.status().await;
+        assert_eq!(status.idle, 1, "再次 release 后 idle 仍应为 1（不重复）");
+        assert_eq!(status.active, 1, "total_count 应为 1");
     }
 }
