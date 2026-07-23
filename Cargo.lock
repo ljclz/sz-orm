@@ -5929,6 +5929,7 @@ dependencies = [
  "sz-orm-sql-validator",
  "thiserror 2.0.19",
  "tokio",
+ "tracing",
 ]
 
 [[package]]

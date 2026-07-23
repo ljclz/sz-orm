@@ -5,7 +5,10 @@ edition.workspace = true
 description = "SZ-ORM Tracing Extension - Distributed tracing with OpenTelemetry support"
 authors.workspace = true
 license.workspace = true
-repository = "https://github.com/sz-orm/sz-orm"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = []

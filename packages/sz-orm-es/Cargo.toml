@@ -5,7 +5,10 @@ edition.workspace = true
 description = "SZ-ORM Elasticsearch Extension - Full-text search and sync with ES"
 authors.workspace = true
 license.workspace = true
-repository = "https://github.com/sz-orm/sz-orm"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

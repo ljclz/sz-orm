@@ -5,7 +5,10 @@ edition.workspace = true
 description = "SZ-ORM Scheduler Extension - Task scheduling with cron support"
 authors.workspace = true
 license.workspace = true
-repository = "https://github.com/sz-orm/sz-orm"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [dependencies]
 tokio = { version = "1.40", features = ["full"] }

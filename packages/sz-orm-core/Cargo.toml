@@ -5,6 +5,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 [features]
 default = []
@@ -21,8 +25,8 @@ serde_json.workspace = true
 chrono.workspace = true
 bytes.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
-sz-orm-sql-validator = { path = "../sz-orm-sql-validator" }
-sz-orm-macros = { path = "../sz-orm-macros" }
+sz-orm-sql-validator = { version = "1.0.0", path = "../sz-orm-sql-validator" }
+sz-orm-macros = { version = "1.0.0", path = "../sz-orm-macros" }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

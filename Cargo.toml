@@ -7,6 +7,10 @@ version = "1.0.0"
 edition = "2021"
 authors = ["SZ-ORM Team"]
 license = "MIT"
+repository = "https://github.com/ljclz/sz-orm"
+homepage = "https://github.com/ljclz/sz-orm"
+keywords = ["orm", "database", "async", "sql", "tokio"]
+categories = ["database", "asynchronous"]
 
 [workspace.dependencies]
 tokio = { version = "1.40", features = ["full"] }

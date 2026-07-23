@@ -5,7 +5,10 @@ edition.workspace = true
 description = "SZ-ORM gRPC Extension - gRPC microservice client and server"
 authors.workspace = true
 license.workspace = true
-repository = "https://github.com/sz-orm/sz-orm"
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 build = "build.rs"
 
 [features]

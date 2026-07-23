@@ -4,6 +4,10 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 description = "SZ-ORM Message Queue Extension - 6 MQ Providers (RabbitMQ/NATS/Pulsar/Kafka/ActiveMQ real, RocketMQ stub)"
 
 [features]
