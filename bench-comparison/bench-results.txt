@@ -1,0 +1,366 @@
+﻿cargo : [1m[93mwarning[0m[1m[97m: linker stdout: 正在创建库 E:\vue\test\鲜视达\rust\sz-orm\bench-comparison\target\release
+\deps\sz_orm_macros-7025b55d065e76d4.dll.lib 和对象 E:\vue\test\鲜视达\rust\sz-orm\bench-comparison\target\release\deps\sz_or
+m_macros-7025b55d065e76d4.dll.exp[0m
+At line:15 char:8859
++ ... comparison; cargo bench --bench orm_comparison -- --sample-size 20 -- ...
++                 ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: ([1m[93mwarnin...6d4.dll.exp[0m:String) [], RemoteException
+    + FullyQualifiedErrorId : NativeCommandError
+ 
+  [1m[96m|[0m
+  [1m[96m= [0m[1m[97mnote[0m: `#[warn(linker_messages)]` on by default
+
+[1m[93mwarning[0m: `sz-orm-macros` (lib) generated 1 warning
+[1m[92m   Compiling[0m bench-comparison v0.1.0 (E:\vue\test\鲜视达\rust\sz-orm\bench-comparison)
+[1m[93mwarning[0m[1m[97m: unused import: `Connection`[0m
+   [1m[96m--> [0mbenches\orm_comparison.rs:186:23
+    [1m[96m|[0m
+[1m[96m186[0m [1m[96m|[0m     use sz_orm_core::{Connection, Pool, PoolConfigBuilder, Value};
+    [1m[96m|[0m                       [1m[93m^^^^^^^^^^[0m
+    [1m[96m|[0m
+    [1m[96m= [0m[1m[97mnote[0m: `#[warn(unused_imports)]` (part of `#[warn(unused)]`) on by default
+
+[1m[93mwarning[0m: `bench-comparison` (bench "orm_comparison") generated 1 warning
+[1m[92m    Finished[0m `bench` profile [optimized] target(s) in 23.99s
+[1m[92m     Running[0m benches\orm_comparison.rs (target\release\deps\orm_comparison-38fb95bbd090e6ee.exe)
+Gnuplot not found, using plotters backend
+Benchmarking insert/rusqlite/1
+Benchmarking insert/rusqlite/1: Warming up for 1.0000 s
+Benchmarking insert/rusqlite/1: Collecting 20 samples in estimated 2.0041 s (31k iterations)
+Benchmarking insert/rusqlite/1: Analyzing
+insert/rusqlite/1       time:   [62.939 µs 63.389 µs 64.086 µs]
+                        thrpt:  [15.604 Kelem/s 15.776 Kelem/s 15.888 Kelem/s]
+                 change:
+                        time:   [-5.1519% -1.6219% +2.5690%] (p = 0.44 > 0.05)
+                        thrpt:  [-2.5047% +1.6487% +5.4318%]
+                        No change in performance detected.
+Found 3 outliers among 20 measurements (15.00%)
+  3 (15.00%) high severe
+Benchmarking insert/rusqlite/10
+Benchmarking insert/rusqlite/10: Warming up for 1.0000 s
+Benchmarking insert/rusqlite/10: Collecting 20 samples in estimated 2.0043 s (21k iterations)
+Benchmarking insert/rusqlite/10: Analyzing
+insert/rusqlite/10      time:   [92.711 µs 97.512 µs 103.96 µs]
+                        thrpt:  [9.6187 Kelem/s 10.255 Kelem/s 10.786 Kelem/s]
+                 change:
+                        time:   [-5.1400% +0.3914% +5.8952%] (p = 0.90 > 0.05)
+                        thrpt:  [-5.5670% -0.3899% +5.4185%]
+                        No change in performance detected.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+Benchmarking insert/rusqlite/100
+Benchmarking insert/rusqlite/100: Warming up for 1.0000 s
+Benchmarking insert/rusqlite/100: Collecting 20 samples in estimated 2.0020 s (5460 iterations)
+Benchmarking insert/rusqlite/100: Analyzing
+insert/rusqlite/100     time:   [356.00 µs 370.29 µs 387.47 µs]
+                        thrpt:  [2.5808 Kelem/s 2.7006 Kelem/s 2.8090 Kelem/s]
+                 change:
+                        time:   [-15.077% -12.489% -8.9612%] (p = 0.00 < 0.05)
+                        thrpt:  [+9.8432% +14.272% +17.754%]
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+Benchmarking insert/diesel/1
+Benchmarking insert/diesel/1: Warming up for 1.0000 s
+Benchmarking insert/diesel/1: Collecting 20 samples in estimated 2.0041 s (29k iterations)
+Benchmarking insert/diesel/1: Analyzing
+insert/diesel/1         time:   [64.385 µs 65.105 µs 65.841 µs]
+                        thrpt:  [15.188 Kelem/s 15.360 Kelem/s 15.532 Kelem/s]
+                 change:
+                        time:   [-9.4265% -6.5484% -3.9133%] (p = 0.00 < 0.05)
+                        thrpt:  [+4.0727% +7.0072% +10.408%]
+                        Performance has improved.
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) high mild
+  2 (10.00%) high severe
+Benchmarking insert/diesel/10
+Benchmarking insert/diesel/10: Warming up for 1.0000 s
+Benchmarking insert/diesel/10: Collecting 20 samples in estimated 2.0133 s (20k iterations)
+Benchmarking insert/diesel/10: Analyzing
+insert/diesel/10        time:   [90.651 µs 94.754 µs 98.968 µs]
+                        thrpt:  [10.104 Kelem/s 10.554 Kelem/s 11.031 Kelem/s]
+                 change:
+                        time:   [-14.833% -12.994% -10.588%] (p = 0.00 < 0.05)
+                        thrpt:  [+11.842% +14.934% +17.417%]
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+Benchmarking insert/diesel/100
+Benchmarking insert/diesel/100: Warming up for 1.0000 s
+Benchmarking insert/diesel/100: Collecting 20 samples in estimated 2.0469 s (5460 iterations)
+Benchmarking insert/diesel/100: Analyzing
+insert/diesel/100       time:   [356.09 µs 357.35 µs 358.80 µs]
+                        thrpt:  [2.7871 Kelem/s 2.7984 Kelem/s 2.8082 Kelem/s]
+                 change:
+                        time:   [-26.763% -25.105% -23.665%] (p = 0.00 < 0.05)
+                        thrpt:  [+31.001% +33.520% +36.542%]
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) low mild
+Benchmarking insert/sqlx/1
+Benchmarking insert/sqlx/1: Warming up for 1.0000 s
+Benchmarking insert/sqlx/1: Collecting 20 samples in estimated 2.0585 s (4410 iterations)
+Benchmarking insert/sqlx/1: Analyzing
+insert/sqlx/1           time:   [464.60 µs 478.99 µs 504.35 µs]
+                        thrpt:  [1.9828 Kelem/s 2.0877 Kelem/s 2.1524 Kelem/s]
+                 change:
+                        time:   [-9.6938% -5.5389% -0.6311%] (p = 0.02 < 0.05)
+                        thrpt:  [+0.6351% +5.8637% +10.734%]
+                        Change within noise threshold.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking insert/sqlx/10
+Benchmarking insert/sqlx/10: Warming up for 1.0000 s
+Benchmarking insert/sqlx/10: Collecting 20 samples in estimated 2.1680 s (2520 iterations)
+Benchmarking insert/sqlx/10: Analyzing
+insert/sqlx/10          time:   [832.52 µs 870.66 µs 928.57 µs]
+                        thrpt:  [1.0769 Kelem/s 1.1485 Kelem/s 1.2012 Kelem/s]
+                 change:
+                        time:   [-21.469% -15.816% -9.5289%] (p = 0.00 < 0.05)
+                        thrpt:  [+10.533% +18.787% +27.339%]
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking insert/sqlx/100
+Benchmarking insert/sqlx/100: Warming up for 1.0000 s
+Benchmarking insert/sqlx/100: Collecting 20 samples in estimated 2.2191 s (840 iterations)
+Benchmarking insert/sqlx/100: Analyzing
+insert/sqlx/100         time:   [2.5764 ms 2.7453 ms 2.9797 ms]
+                        thrpt:  [335.61  elem/s 364.26  elem/s 388.14  elem/s]
+                 change:
+                        time:   [-38.713% -34.094% -29.265%] (p = 0.00 < 0.05)
+                        thrpt:  [+41.373% +51.732% +63.167%]
+                        Performance has improved.
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) high mild
+  2 (10.00%) high severe
+Benchmarking insert/sea-orm/1
+Benchmarking insert/sea-orm/1: Warming up for 1.0000 s
+Benchmarking insert/sea-orm/1: Collecting 20 samples in estimated 2.0218 s (5880 iterations)
+Benchmarking insert/sea-orm/1: Analyzing
+insert/sea-orm/1        time:   [287.16 µs 290.11 µs 294.35 µs]
+                        thrpt:  [3.3973 Kelem/s 3.4470 Kelem/s 3.4824 Kelem/s]
+                 change:
+                        time:   [-19.595% -15.863% -10.452%] (p = 0.00 < 0.05)
+                        thrpt:  [+11.672% +18.854% +24.371%]
+                        Performance has improved.
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking insert/sea-orm/10
+Benchmarking insert/sea-orm/10: Warming up for 1.0000 s
+Benchmarking insert/sea-orm/10: Collecting 20 samples in estimated 2.1122 s (3150 iterations)
+Benchmarking insert/sea-orm/10: Analyzing
+insert/sea-orm/10       time:   [704.98 µs 739.26 µs 782.92 µs]
+                        thrpt:  [1.2773 Kelem/s 1.3527 Kelem/s 1.4185 Kelem/s]
+                 change:
+                        time:   [-29.960% -24.162% -17.800%] (p = 0.00 < 0.05)
+                        thrpt:  [+21.655% +31.860% +42.775%]
+                        Performance has improved.
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high severe
+Benchmarking insert/sea-orm/100
+Benchmarking insert/sea-orm/100: Warming up for 1.0000 s
+Benchmarking insert/sea-orm/100: Collecting 20 samples in estimated 2.9874 s (630 iterations)
+Benchmarking insert/sea-orm/100: Analyzing
+insert/sea-orm/100      time:   [4.4452 ms 4.6784 ms 4.9612 ms]
+                        thrpt:  [201.56  elem/s 213.75  elem/s 224.96  elem/s]
+                 change:
+                        time:   [-37.282% -30.710% -23.441%] (p = 0.00 < 0.05)
+                        thrpt:  [+30.618% +44.322% +59.445%]
+                        Performance has improved.
+Found 3 outliers among 20 measurements (15.00%)
+  3 (15.00%) high mild
+Benchmarking insert/sz-orm/1
+Benchmarking insert/sz-orm/1: Warming up for 1.0000 s
+Benchmarking insert/sz-orm/1: Collecting 20 samples in estimated 2.0058 s (7350 iterations)
+Benchmarking insert/sz-orm/1: Analyzing
+insert/sz-orm/1         time:   [264.25 µs 275.50 µs 297.46 µs]
+                        thrpt:  [3.3618 Kelem/s 3.6298 Kelem/s 3.7844 Kelem/s]
+                 change:
+                        time:   [-42.492% -39.438% -35.230%] (p = 0.00 < 0.05)
+                        thrpt:  [+54.392% +65.119% +73.887%]
+                        Performance has improved.
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) low severe
+  1 (5.00%) low mild
+  1 (5.00%) high severe
+Benchmarking insert/sz-orm/10
+Benchmarking insert/sz-orm/10: Warming up for 1.0000 s
+Benchmarking insert/sz-orm/10: Collecting 20 samples in estimated 2.0721 s (4410 iterations)
+Benchmarking insert/sz-orm/10: Analyzing
+insert/sz-orm/10        time:   [480.99 µs 502.25 µs 525.19 µs]
+                        thrpt:  [1.9041 Kelem/s 1.9910 Kelem/s 2.0790 Kelem/s]
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+Benchmarking insert/sz-orm/100
+Benchmarking insert/sz-orm/100: Warming up for 1.0000 s
+Benchmarking insert/sz-orm/100: Collecting 20 samples in estimated 2.1353 s (840 iterations)
+Benchmarking insert/sz-orm/100: Analyzing
+insert/sz-orm/100       time:   [2.1995 ms 2.3229 ms 2.4411 ms]
+                        thrpt:  [409.65  elem/s 430.49  elem/s 454.65  elem/s]
+
+Benchmarking select_by_id/rusqlite
+Benchmarking select_by_id/rusqlite: Warming up for 1.0000 s
+Benchmarking select_by_id/rusqlite: Collecting 20 samples in estimated 2.0001 s (1.1M iterations)
+Benchmarking select_by_id/rusqlite: Analyzing
+select_by_id/rusqlite   time:   [1.9605 µs 2.0324 µs 2.1420 µs]
+                        thrpt:  [466.86 Kelem/s 492.02 Kelem/s 510.08 Kelem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking select_by_id/diesel
+Benchmarking select_by_id/diesel: Warming up for 1.0000 s
+Benchmarking select_by_id/diesel: Collecting 20 samples in estimated 2.0004 s (816k iterations)
+Benchmarking select_by_id/diesel: Analyzing
+select_by_id/diesel     time:   [2.3464 µs 2.3953 µs 2.4718 µs]
+                        thrpt:  [404.56 Kelem/s 417.49 Kelem/s 426.18 Kelem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking select_by_id/sqlx
+Benchmarking select_by_id/sqlx: Warming up for 1.0000 s
+Benchmarking select_by_id/sqlx: Collecting 20 samples in estimated 2.1668 s (420 iterations)
+Benchmarking select_by_id/sqlx: Analyzing
+select_by_id/sqlx       time:   [5.7892 ms 6.9173 ms 7.9968 ms]
+                        thrpt:  [125.05  elem/s 144.57  elem/s 172.74  elem/s]
+Found 2 outliers among 20 measurements (10.00%)
+  2 (10.00%) high mild
+Benchmarking select_by_id/sea-orm
+Benchmarking select_by_id/sea-orm: Warming up for 1.0000 s
+Benchmarking select_by_id/sea-orm: Collecting 20 samples in estimated 3.9425 s (420 iterations)
+Benchmarking select_by_id/sea-orm: Analyzing
+select_by_id/sea-orm    time:   [8.4272 ms 9.1290 ms 9.8037 ms]
+                        thrpt:  [102.00  elem/s 109.54  elem/s 118.66  elem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+Benchmarking select_by_id/sz-orm
+Benchmarking select_by_id/sz-orm: Warming up for 1.0000 s
+Benchmarking select_by_id/sz-orm: Collecting 20 samples in estimated 2.5335 s (630 iterations)
+Benchmarking select_by_id/sz-orm: Analyzing
+select_by_id/sz-orm     time:   [3.9507 ms 4.0703 ms 4.2004 ms]
+                        thrpt:  [238.08  elem/s 245.68  elem/s 253.12  elem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+
+Benchmarking select_all_100/rusqlite
+Benchmarking select_all_100/rusqlite: Warming up for 1.0000 s
+Benchmarking select_all_100/rusqlite: Collecting 20 samples in estimated 2.0021 s (79k iterations)
+Benchmarking select_all_100/rusqlite: Analyzing
+select_all_100/rusqlite time:   [25.970 µs 26.484 µs 27.235 µs]
+                        thrpt:  [3.6717 Melem/s 3.7758 Melem/s 3.8506 Melem/s]
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+Benchmarking select_all_100/diesel
+Benchmarking select_all_100/diesel: Warming up for 1.0000 s
+Benchmarking select_all_100/diesel: Collecting 20 samples in estimated 2.0047 s (65k iterations)
+Benchmarking select_all_100/diesel: Analyzing
+select_all_100/diesel   time:   [30.338 µs 31.097 µs 31.878 µs]
+                        thrpt:  [3.1370 Melem/s 3.2158 Melem/s 3.2962 Melem/s]
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) low mild
+  2 (10.00%) high mild
+Benchmarking select_all_100/sqlx
+Benchmarking select_all_100/sqlx: Warming up for 1.0000 s
+Benchmarking select_all_100/sqlx: Collecting 20 samples in estimated 2.0550 s (630 iterations)
+Benchmarking select_all_100/sqlx: Analyzing
+select_all_100/sqlx     time:   [2.8648 ms 2.9385 ms 3.0288 ms]
+                        thrpt:  [33.017 Kelem/s 34.031 Kelem/s 34.907 Kelem/s]
+Benchmarking select_all_100/sea-orm
+Benchmarking select_all_100/sea-orm: Warming up for 1.0000 s
+Benchmarking select_all_100/sea-orm: Collecting 20 samples in estimated 2.2191 s (420 iterations)
+Benchmarking select_all_100/sea-orm: Analyzing
+select_all_100/sea-orm  time:   [4.0779 ms 4.2593 ms 4.5417 ms]
+                        thrpt:  [22.018 Kelem/s 23.478 Kelem/s 24.523 Kelem/s]
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) high mild
+  2 (10.00%) high severe
+Benchmarking select_all_100/sz-orm
+Benchmarking select_all_100/sz-orm: Warming up for 1.0000 s
+Benchmarking select_all_100/sz-orm: Collecting 20 samples in estimated 2.4228 s (1050 iterations)
+Benchmarking select_all_100/sz-orm: Analyzing
+select_all_100/sz-orm   time:   [2.2745 ms 2.2968 ms 2.3318 ms]
+                        thrpt:  [42.885 Kelem/s 43.540 Kelem/s 43.965 Kelem/s]
+
+Benchmarking update/rusqlite
+Benchmarking update/rusqlite: Warming up for 1.0000 s
+Benchmarking update/rusqlite: Collecting 20 samples in estimated 2.0002 s (1.6M iterations)
+Benchmarking update/rusqlite: Analyzing
+update/rusqlite         time:   [1.2430 µs 1.2502 µs 1.2570 µs]
+                        thrpt:  [795.55 Kelem/s 799.84 Kelem/s 804.47 Kelem/s]
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) low mild
+  1 (5.00%) high mild
+Benchmarking update/diesel
+Benchmarking update/diesel: Warming up for 1.0000 s
+Benchmarking update/diesel: Collecting 20 samples in estimated 2.0001 s (1.2M iterations)
+Benchmarking update/diesel: Analyzing
+update/diesel           time:   [1.6449 µs 1.7035 µs 1.7835 µs]
+                        thrpt:  [560.70 Kelem/s 587.04 Kelem/s 607.95 Kelem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high severe
+Benchmarking update/sqlx
+Benchmarking update/sqlx: Warming up for 1.0000 s
+Benchmarking update/sqlx: Collecting 20 samples in estimated 2.9832 s (630 iterations)
+Benchmarking update/sqlx: Analyzing
+update/sqlx             time:   [4.8312 ms 5.0130 ms 5.2954 ms]
+                        thrpt:  [188.84  elem/s 199.48  elem/s 206.99  elem/s]
+Found 3 outliers among 20 measurements (15.00%)
+  1 (5.00%) high mild
+  2 (10.00%) high severe
+Benchmarking update/sea-orm
+Benchmarking update/sea-orm: Warming up for 1.0000 s
+Benchmarking update/sea-orm: Collecting 20 samples in estimated 3.4572 s (420 iterations)
+Benchmarking update/sea-orm: Analyzing
+update/sea-orm          time:   [7.5759 ms 7.9262 ms 8.3448 ms]
+                        thrpt:  [119.84  elem/s 126.16  elem/s 132.00  elem/s]
+Found 4 outliers among 20 measurements (20.00%)
+  3 (15.00%) high mild
+  1 (5.00%) high severe
+Benchmarking update/sz-orm
+Benchmarking update/sz-orm: Warming up for 1.0000 s
+Benchmarking update/sz-orm: Collecting 20 samples in estimated 2.3730 s (630 iterations)
+Benchmarking update/sz-orm: Analyzing
+update/sz-orm           time:   [3.8559 ms 4.1367 ms 4.4309 ms]
+                        thrpt:  [225.69  elem/s 241.74  elem/s 259.35  elem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+
+Benchmarking delete/rusqlite
+Benchmarking delete/rusqlite: Warming up for 1.0000 s
+Benchmarking delete/rusqlite: Collecting 20 samples in estimated 2.0747 s (3990 iterations)
+Benchmarking delete/rusqlite: Analyzing
+delete/rusqlite         time:   [477.70 µs 482.22 µs 486.89 µs]
+                        thrpt:  [2.0539 Kelem/s 2.0738 Kelem/s 2.0934 Kelem/s]
+Benchmarking delete/diesel
+Benchmarking delete/diesel: Warming up for 1.0000 s
+Benchmarking delete/diesel: Collecting 20 samples in estimated 2.1290 s (3150 iterations)
+Benchmarking delete/diesel: Analyzing
+delete/diesel           time:   [682.13 µs 702.90 µs 725.34 µs]
+                        thrpt:  [1.3787 Kelem/s 1.4227 Kelem/s 1.4660 Kelem/s]
+Found 2 outliers among 20 measurements (10.00%)
+  1 (5.00%) high mild
+  1 (5.00%) high severe
+Benchmarking delete/sqlx
+Benchmarking delete/sqlx: Warming up for 1.0000 s
+Benchmarking delete/sqlx: Collecting 20 samples in estimated 2.1363 s (420 iterations)
+Benchmarking delete/sqlx: Analyzing
+delete/sqlx             time:   [4.7808 ms 4.8933 ms 4.9909 ms]
+                        thrpt:  [200.36  elem/s 204.36  elem/s 209.17  elem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) low mild
+Benchmarking delete/sea-orm
+Benchmarking delete/sea-orm: Warming up for 1.0000 s
+Benchmarking delete/sea-orm: Collecting 20 samples in estimated 3.4492 s (420 iterations)
+Benchmarking delete/sea-orm: Analyzing
+delete/sea-orm          time:   [8.4774 ms 9.1048 ms 9.6583 ms]
+                        thrpt:  [103.54  elem/s 109.83  elem/s 117.96  elem/s]
+Benchmarking delete/sz-orm
+Benchmarking delete/sz-orm: Warming up for 1.0000 s
+Benchmarking delete/sz-orm: Collecting 20 samples in estimated 2.3031 s (630 iterations)
+Benchmarking delete/sz-orm: Analyzing
+delete/sz-orm           time:   [3.3574 ms 3.5415 ms 3.7317 ms]
+                        thrpt:  [267.98  elem/s 282.37  elem/s 297.85  elem/s]
+Found 1 outliers among 20 measurements (5.00%)
+  1 (5.00%) high mild
+

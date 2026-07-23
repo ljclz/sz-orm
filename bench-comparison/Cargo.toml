@@ -1,0 +1,38 @@
+[package]
+name = "bench-comparison"
+version = "0.1.0"
+edition = "2021"
+publish = false
+description = "Side-by-side benchmark: SZ-ORM vs Diesel vs SeaORM vs SQLx (SQLite in-memory)"
+
+[dependencies]
+# SZ-ORM (from local workspace path for latest code)
+sz-orm-core = { path = "../packages/sz-orm-core" }
+sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
+# Diesel 2.x (sqlite, with returning clauses for sqlite 3.35+)
+diesel = { version = "2.2", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+# SeaORM (sqlite, sqlx backend)
+sea-orm = { version = "1.1", features = ["sqlx-sqlite", "runtime-tokio-rustls"] }
+# SQLx (sqlite, tokio)
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "sqlite", "chrono", "json"] }
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+# Criterion for benchmarking
+criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
+# rusqlite for raw sqlite baseline
+rusqlite = { version = "0.32", features = ["bundled"] }
+# libsqlite3-sys version alignment (diesel/sqlx/sea-orm all depend on it)
+libsqlite3-sys = { version = "0.30", features = ["bundled"] }
+
+[[bench]]
+name = "orm_comparison"
+path = "benches/orm_comparison.rs"
+harness = false
+
+[profile.bench]
+opt-level = 3
+lto = "thin"
+codegen-units = 1
+
+# 保持 bench-comparison 独立于 sz-orm 主 workspace
+[workspace]
