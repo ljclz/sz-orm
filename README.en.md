@@ -9,6 +9,7 @@
 [![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#overview)
+[![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
 
 ---
 

@@ -11,6 +11,7 @@
 [![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
+[![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
 
 [English Documentation](README.en.md) · [使用指南](docs/sz-orm使用指南.md) · [API 参考手册](docs/sz-ormAPI参考.md)
 

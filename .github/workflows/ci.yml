@@ -705,8 +705,8 @@ jobs:
       - name: Install cargo-tarpaulin
         run: cargo install cargo-tarpaulin --locked
 
-      - name: Run coverage
-        run: cargo tarpaulin --workspace --out Xml --output-dir coverage/
+      - name: Run coverage (lib only, fail-under 70)
+        run: cargo tarpaulin --workspace --lib --out Xml --output-dir coverage/ --fail-under 70 --skip-clean
 
       - name: Upload coverage to Codecov
         uses: codecov/codecov-action@v4
