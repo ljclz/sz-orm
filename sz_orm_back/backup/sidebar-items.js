@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["BackupCatalog","BackupConfig","BackupManager","BackupManifest","BackupResult","BackupTable","ExportResult"]};

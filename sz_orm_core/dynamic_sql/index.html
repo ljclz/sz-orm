@@ -1,0 +1,51 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="XML/py_sql 动态 SQL 构造器（rbatis 风格）"><title>sz_orm_core::dynamic_sql - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module dynamic_sql</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module dynamic_<wbr>sql</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#用法" title="用法">用法</a></li><li><a href="#支持的标签" title="支持的标签">支持的标签</a></li><li><a href="#安全警告" title="安全警告">安全警告</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>dynamic_<wbr>sql</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/dynamic_sql.rs.html#1-1325">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>XML/py_sql 动态 SQL 构造器（rbatis 风格）</p>
+<p>rbatis 的核心特性是 XML 风格的动态 SQL 模板：</p>
+<ul>
+<li><code>&lt;select&gt;</code> / <code>&lt;insert&gt;</code> / <code>&lt;update&gt;</code> / <code>&lt;delete&gt;</code> 顶层语句</li>
+<li><code>&lt;if test="..."&gt;</code> 条件块</li>
+<li><code>&lt;where&gt;</code> 自动处理首个 AND/OR</li>
+<li><code>&lt;set&gt;</code> UPDATE 语句的 SET 子句</li>
+<li><code>&lt;foreach&gt;</code> 循环展开（用于 IN 子句）</li>
+<li><code>&lt;choose&gt;&lt;when&gt;&lt;otherwise&gt;</code> 多分支选择</li>
+<li><code>&lt;trim&gt;</code> 通用前后缀修剪</li>
+<li><code>#{name}</code> 命名参数绑定</li>
+</ul>
+<h2 id="用法"><a class="doc-anchor" href="#%E7%94%A8%E6%B3%95">§</a>用法</h2>
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::dynamic_sql::{DynamicSqlParser, SqlParams};
+<span class="kw">use </span>std::collections::HashMap;
+
+<span class="kw">let </span>xml = <span class="string">r#"
+&lt;select id="find_users"&gt;
+    SELECT * FROM users
+    &lt;where&gt;
+        &lt;if test="name != null"&gt;AND name = #{name}&lt;/if&gt;
+        &lt;if test="age != null"&gt;AND age &amp;gt; #{age}&lt;/if&gt;
+    &lt;/where&gt;
+&lt;/select&gt;
+"#</span>;
+
+<span class="kw">let </span>parser = DynamicSqlParser::from_xml(xml);
+<span class="kw">let </span><span class="kw-2">mut </span>params = SqlParams::new();
+params.set(<span class="string">"name"</span>, <span class="string">"Alice"</span>);
+<span class="comment">// params.set("age", 18);  // 不设置则 if 不生效
+
+</span><span class="kw">let </span>sql = parser.build(<span class="string">"find_users"</span>, <span class="kw-2">&amp;</span>params).unwrap();
+<span class="comment">// SELECT * FROM users WHERE name = ?</span></code></pre></div><h2 id="支持的标签"><a class="doc-anchor" href="#%E6%94%AF%E6%8C%81%E7%9A%84%E6%A0%87%E7%AD%BE">§</a>支持的标签</h2><div><table><thead><tr><th>标签</th><th>作用</th></tr></thead><tbody>
+<tr><td><code>&lt;select id&gt;</code></td><td>SELECT 语句容器</td></tr>
+<tr><td><code>&lt;insert id&gt;</code></td><td>INSERT 语句容器</td></tr>
+<tr><td><code>&lt;update id&gt;</code></td><td>UPDATE 语句容器</td></tr>
+<tr><td><code>&lt;delete id&gt;</code></td><td>DELETE 语句容器</td></tr>
+<tr><td><code>&lt;if test="expr"&gt;</code></td><td>条件包含</td></tr>
+<tr><td><code>&lt;where&gt;</code></td><td>WHERE 子句（自动处理首个 AND/OR）</td></tr>
+<tr><td><code>&lt;set&gt;</code></td><td>SET 子句（自动处理末尾逗号）</td></tr>
+<tr><td><code>&lt;foreach collection="x" item="i" separator=","&gt;</code></td><td>循环展开</td></tr>
+<tr><td><code>&lt;choose&gt;</code> / <code>&lt;when&gt;</code> / <code>&lt;otherwise&gt;</code></td><td>多分支选择</td></tr>
+<tr><td><code>&lt;trim prefix="..." suffix="..." prefixOverrides="AND"&gt;</code></td><td>通用修剪</td></tr>
+<tr><td><code>#{name}</code></td><td>命名参数绑定</td></tr>
+<tr><td><code>${name}</code></td><td>字符串插值（注意 SQL 注入风险）</td></tr>
+</tbody></table>
+</div><h2 id="安全警告"><a class="doc-anchor" href="#%E5%AE%89%E5%85%A8%E8%AD%A6%E5%91%8A">§</a>安全警告</h2>
+<p><code>${name}</code> 字符串插值存在 SQL 注入风险，即使已添加基础转义。
+<strong>强烈推荐使用 <code>#{name}</code> 命名参数绑定</strong>，仅在 SQL 结构动态（如表名/列名）时
+才使用 <code>${name}</code>，且必须确保输入来源可信。</p>
+</div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.DynamicSqlParser.html" title="struct sz_orm_core::dynamic_sql::DynamicSqlParser">Dynamic<wbr>SqlParser</a></dt><dd>动态 SQL 解析器</dd><dt><a class="struct" href="struct.SqlParams.html" title="struct sz_orm_core::dynamic_sql::SqlParams">SqlParams</a></dt><dd>SQL 参数容器</dd><dt><a class="struct" href="struct.XmlNode.html" title="struct sz_orm_core::dynamic_sql::XmlNode">XmlNode</a></dt></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.DynamicSqlError.html" title="enum sz_orm_core::dynamic_sql::DynamicSqlError">Dynamic<wbr>SqlError</a></dt><dd>动态 SQL 错误</dd><dt><a class="enum" href="enum.ParamValue.html" title="enum sz_orm_core::dynamic_sql::ParamValue">Param<wbr>Value</a></dt><dd>参数值</dd><dt><a class="enum" href="enum.XmlNodeType.html" title="enum sz_orm_core::dynamic_sql::XmlNodeType">XmlNode<wbr>Type</a></dt></dl></section></div></main></body></html>

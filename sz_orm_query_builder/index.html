@@ -1,0 +1,54 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="SZ-ORM QueryBuilder — 独立 SQL 构造器（sea-query 风格）"><title>sz_orm_query_builder - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm_query_builder" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate sz_orm_query_builder</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm_query_builder/index.html">sz_<wbr>orm_<wbr>query_<wbr>builder</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#sz-orm-querybuilder--独立-sql-构造器sea-query-风格" title="SZ-ORM QueryBuilder — 独立 SQL 构造器（sea-query 风格）">SZ-ORM QueryBuilder — 独立 SQL 构造器（sea-query 风格）</a></li><li><a href="#快速入门" title="快速入门">快速入门</a></li><li><a href="#与-sz-orm-corequerybuilder-的区别" title="与 sz-orm-core::QueryBuilder 的区别">与 sz-orm-core::QueryBuilder 的区别</a></li></ul><h3><a href="#structs">Crate Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>sz_<wbr>orm_<wbr>query_<wbr>builder</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm_query_builder/lib.rs.html#1-1865">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><h2 id="sz-orm-querybuilder--独立-sql-构造器sea-query-风格"><a class="doc-anchor" href="#sz-orm-querybuilder--%E7%8B%AC%E7%AB%8B-sql-%E6%9E%84%E9%80%A0%E5%99%A8sea-query-%E9%A3%8E%E6%A0%BC">§</a>SZ-ORM QueryBuilder — 独立 SQL 构造器（sea-query 风格）</h2>
+<p>一个不绑定 Model 的纯 SQL 构造器，可独立编译、独立发布到 crates.io。</p>
+<p>设计灵感来自 <a href="https://crates.io/crates/sea-query">sea-query</a>：</p>
+<ul>
+<li>与 ORM 解耦：不依赖 <code>Model</code> trait，纯 SQL 构造</li>
+<li>多方言支持：通过 [<code>DbType</code>] 适配 MySQL/PostgreSQL/SQLite/Oracle</li>
+<li>链式 API：所有方法返回 <code>Self</code></li>
+<li>零运行时开销：构造过程零数据库连接</li>
+</ul>
+<h2 id="快速入门"><a class="doc-anchor" href="#%E5%BF%AB%E9%80%9F%E5%85%A5%E9%97%A8">§</a>快速入门</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::DbType;
+<span class="kw">use </span>sz_orm_query_builder::{Query, SelectQuery};
+
+<span class="comment">// SELECT
+</span><span class="kw">let </span>sql = Query::select()
+    .column(<span class="string">"id"</span>)
+    .column(<span class="string">"name"</span>)
+    .from(<span class="string">"users"</span>)
+    .where_clause(<span class="string">"age &gt; 18"</span>)
+    .order_by(<span class="string">"id"</span>, <span class="bool-val">true</span>)
+    .limit(<span class="number">10</span>)
+    .build(DbType::MySQL);
+<span class="macro">assert!</span>(sql.contains(<span class="string">"SELECT"</span>));
+<span class="macro">assert!</span>(sql.contains(<span class="string">"FROM `users`"</span>));
+
+<span class="comment">// INSERT
+</span><span class="kw">let </span>sql = Query::insert()
+    .into_table(<span class="string">"users"</span>)
+    .value(<span class="string">"name"</span>, <span class="string">"'Alice'"</span>)
+    .value(<span class="string">"age"</span>, <span class="string">"30"</span>)
+    .build();
+<span class="macro">assert!</span>(sql.contains(<span class="string">"INSERT INTO `users`"</span>));
+
+<span class="comment">// UPDATE
+</span><span class="kw">let </span>sql = Query::update()
+    .table(<span class="string">"users"</span>)
+    .set(<span class="string">"name"</span>, <span class="string">"'Bob'"</span>)
+    .where_clause(<span class="string">"id = 1"</span>)
+    .build();
+<span class="macro">assert!</span>(sql.contains(<span class="string">"UPDATE `users`"</span>));
+
+<span class="comment">// DELETE
+</span><span class="kw">let </span>sql = Query::delete()
+    .from_table(<span class="string">"users"</span>)
+    .where_clause(<span class="string">"id = 1"</span>)
+    .build();
+<span class="macro">assert!</span>(sql.contains(<span class="string">"DELETE FROM"</span>));</code></pre></div><h2 id="与-sz-orm-corequerybuilder-的区别"><a class="doc-anchor" href="#%E4%B8%8E-sz-orm-corequerybuilder-%E7%9A%84%E5%8C%BA%E5%88%AB">§</a>与 sz-orm-core::QueryBuilder 的区别</h2><div><table><thead><tr><th>特性</th><th><code>sz-orm-core::QueryBuilder&lt;M&gt;</code></th><th>sz-orm-query-builder::Query</th></tr></thead><tbody>
+<tr><td>绑定 Model</td><td>是（<code>&lt;M: Model&gt;</code>）</td><td>否</td></tr>
+<tr><td>类型安全</td><td>编译期表/列校验</td><td>运行时字符串</td></tr>
+<tr><td>适用场景</td><td>ORM 完整流程</td><td>纯 SQL 构造、动态查询</td></tr>
+<tr><td>依赖</td><td>sz-orm-core 全部</td><td>仅 dialect 模块</td></tr>
+<tr><td>独立发布</td><td>否</td><td>是</td></tr>
+</tbody></table>
+</div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.DeleteQuery.html" title="struct sz_orm_query_builder::DeleteQuery">Delete<wbr>Query</a></dt><dd>DELETE 查询构造器</dd><dt><a class="struct" href="struct.InsertQuery.html" title="struct sz_orm_query_builder::InsertQuery">Insert<wbr>Query</a></dt><dd>INSERT 查询构造器</dd><dt><a class="struct" href="struct.Query.html" title="struct sz_orm_query_builder::Query">Query</a></dt><dd>查询构造器入口</dd><dt><a class="struct" href="struct.SelectQuery.html" title="struct sz_orm_query_builder::SelectQuery">Select<wbr>Query</a></dt><dd>SELECT 查询构造器</dd><dt><a class="struct" href="struct.SetQuery.html" title="struct sz_orm_query_builder::SetQuery">SetQuery</a></dt><dd>集合运算查询，支持链式追加多个 SELECT 并以 UNION/INTERSECT/EXCEPT 连接。</dd><dt><a class="struct" href="struct.UpdateQuery.html" title="struct sz_orm_query_builder::UpdateQuery">Update<wbr>Query</a></dt><dd>UPDATE 查询构造器</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.SetOperator.html" title="enum sz_orm_query_builder::SetOperator">SetOperator</a></dt><dd>SQL 集合运算符类型。</dd></dl></section></div></main></body></html>

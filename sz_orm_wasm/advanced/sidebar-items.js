@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MemoryLimitError","PathAccess","SandboxError","TaskStatus"],"struct":["AsyncTask","AsyncTaskScheduler","CacheEntry","CacheStats","LimitedWasmDatabase","MemoryConfig","MemoryUsage","ModuleCache","SandboxConfig","SandboxedFs","TaskResult"]};

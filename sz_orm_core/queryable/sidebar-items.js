@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["QueryError"],"fn":["value_as_bool","value_as_f64","value_as_i64","value_as_nullable_i64","value_as_nullable_string","value_as_string"],"struct":["RowDesc"],"trait":["FromRow","Queryable"]};

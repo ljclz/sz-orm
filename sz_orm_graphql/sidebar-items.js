@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["extensions"],"struct":["GraphQLField","GraphQLSchema","GraphQLSchemaGenerator","GraphQLServer","GraphQLType"]};

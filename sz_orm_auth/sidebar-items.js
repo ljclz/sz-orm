@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["auth","authorizer","error","jwt","mfa","oauth2","token_store"]};

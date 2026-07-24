@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TccError","TccParticipantState","TccState"],"struct":["TccCoordinator","TccManager","TccParticipant","TccRetryPolicy"],"type":["TccCallback"]};

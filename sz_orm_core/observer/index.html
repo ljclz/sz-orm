@@ -1,0 +1,73 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Observer + Event Subscriber — 模型生命周期观察者模式"><title>sz_orm_core::observer - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module observer</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module observer</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#核心概念" title="核心概念">核心概念</a></li><li><a href="#与-behaviors-的区别" title="与 Behaviors 的区别">与 Behaviors 的区别</a></li><li><a href="#设计灵感" title="设计灵感">设计灵感</a></li><li><a href="#使用示例" title="使用示例">使用示例</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li><li><a href="#types" title="Type Aliases">Type Aliases</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>observer</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/observer.rs.html#1-1378">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Observer + Event Subscriber — 模型生命周期观察者模式</p>
+<p>对应文档 6.8 节改进项 32（Observer）+ 33（Event Subscriber）。</p>
+<h2 id="核心概念"><a class="doc-anchor" href="#%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5">§</a>核心概念</h2>
+<ul>
+<li><strong>Observer</strong>：观察者接口，订阅模型生命周期事件（INSERT/UPDATE/DELETE/FIND）</li>
+<li><strong>EventSubscriber</strong>：事件订阅者，按事件类型订阅（比 Observer 更细粒度）</li>
+<li><strong>EventDispatcher</strong>：事件分发器，管理 Observer 与 EventSubscriber 的注册和分发</li>
+</ul>
+<h2 id="与-behaviors-的区别"><a class="doc-anchor" href="#%E4%B8%8E-behaviors-%E7%9A%84%E5%8C%BA%E5%88%AB">§</a>与 Behaviors 的区别</h2><div><table><thead><tr><th>特性</th><th>Behaviors (behaviors.rs)</th><th>Observer (本模块)</th></tr></thead><tbody>
+<tr><td>注册方式</td><td>Model 内部声明</td><td>外部注册到 Dispatcher</td></tr>
+<tr><td>解耦程度</td><td>Model 与 Behavior 强耦合</td><td>完全解耦，Model 无需感知</td></tr>
+<tr><td>适用场景</td><td>字段自动填充（时间戳/操作人）</td><td>审计日志、缓存失效、外部通知</td></tr>
+<tr><td>事件粒度</td><td>4 个生命周期事件</td><td>可订阅特定事件类型</td></tr>
+</tbody></table>
+</div><h2 id="设计灵感"><a class="doc-anchor" href="#%E8%AE%BE%E8%AE%A1%E7%81%B5%E6%84%9F">§</a>设计灵感</h2>
+<ul>
+<li>Doctrine <code>EventSubscriber</code> / <code>LifecycleCallback</code></li>
+<li>Hibernate <code>EntityListener</code> / <code>@PostPersist</code></li>
+<li>Laravel Eloquent <code>Observer</code> 类</li>
+<li>Rails ActiveRecord <code>Callbacks</code> + <code>Observers</code></li>
+</ul>
+<h2 id="使用示例"><a class="doc-anchor" href="#%E4%BD%BF%E7%94%A8%E7%A4%BA%E4%BE%8B">§</a>使用示例</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::observer::{
+    Event, EventDispatcher, EventSubscriber, Observer, SubscriberResult,
+};
+<span class="kw">use </span>sz_orm_core::hooks::HookContext;
+<span class="kw">use </span>std::collections::HashMap;
+<span class="kw">use </span>std::sync::{Arc, Mutex};
+<span class="kw">use </span>sz_orm_core::Value;
+
+<span class="comment">// 1. 审计日志订阅者（订阅所有事件）
+</span><span class="kw">struct </span>AuditLogSubscriber {
+    logs: Arc&lt;Mutex&lt;Vec&lt;String&gt;&gt;&gt;,
+}
+
+<span class="kw">impl </span>EventSubscriber <span class="kw">for </span>AuditLogSubscriber {
+    <span class="kw">fn </span>subscribed_events(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;Event&gt; {
+        <span class="macro">vec!</span>[Event::AfterInsert, Event::AfterUpdate, Event::AfterDelete]
+    }
+
+    <span class="kw">fn </span>on_event(<span class="kw-2">&amp;</span><span class="self">self</span>, event: Event, ctx: <span class="kw-2">&amp;</span>HookContext, attrs: <span class="kw-2">&amp;</span>HashMap&lt;String, Value&gt;) -&gt; SubscriberResult&lt;()&gt; {
+        <span class="kw">let </span><span class="kw-2">mut </span>logs = <span class="self">self</span>.logs.lock().unwrap();
+        logs.push(<span class="macro">format!</span>(<span class="string">"{:?} on attrs with {} fields"</span>, event, attrs.len()));
+        <span class="prelude-val">Ok</span>(())
+    }
+}
+
+<span class="comment">// 2. 缓存失效订阅者（仅订阅写入事件）
+</span><span class="kw">struct </span>CacheInvalidationSubscriber;
+
+<span class="kw">impl </span>EventSubscriber <span class="kw">for </span>CacheInvalidationSubscriber {
+    <span class="kw">fn </span>subscribed_events(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; Vec&lt;Event&gt; {
+        <span class="macro">vec!</span>[Event::AfterUpdate, Event::AfterDelete]
+    }
+
+    <span class="kw">fn </span>on_event(<span class="kw-2">&amp;</span><span class="self">self</span>, event: Event, _ctx: <span class="kw-2">&amp;</span>HookContext, attrs: <span class="kw-2">&amp;</span>HashMap&lt;String, Value&gt;) -&gt; SubscriberResult&lt;()&gt; {
+        <span class="comment">// 失效缓存逻辑...
+        </span><span class="kw">let _ </span>= (event, attrs);
+        <span class="prelude-val">Ok</span>(())
+    }
+}
+
+<span class="comment">// 3. 注册并触发事件
+</span><span class="kw">let </span>logs = Arc::new(Mutex::new(Vec::new()));
+<span class="kw">let </span><span class="kw-2">mut </span>dispatcher = EventDispatcher::new();
+dispatcher.subscribe(Box::new(AuditLogSubscriber { logs: logs.clone() }));
+dispatcher.subscribe(Box::new(CacheInvalidationSubscriber));
+
+<span class="kw">let </span>ctx = HookContext::default();
+<span class="kw">let </span>attrs = HashMap::new();
+dispatcher.dispatch(Event::AfterInsert, <span class="kw-2">&amp;</span>ctx, <span class="kw-2">&amp;</span>attrs);
+
+<span class="macro">assert_eq!</span>(logs.lock().unwrap().len(), <span class="number">1</span>);</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.AuditLogSubscriber.html" title="struct sz_orm_core::observer::AuditLogSubscriber">Audit<wbr>LogSubscriber</a></dt><dd>审计日志订阅者</dd><dt><a class="struct" href="struct.EventDispatcher.html" title="struct sz_orm_core::observer::EventDispatcher">Event<wbr>Dispatcher</a></dt><dd>事件分发器</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.Event.html" title="enum sz_orm_core::observer::Event">Event</a></dt><dd>模型生命周期事件类型</dd><dt><a class="enum" href="enum.SubscriberError.html" title="enum sz_orm_core::observer::SubscriberError">Subscriber<wbr>Error</a></dt><dd>订阅者错误类型</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.EventSubscriber.html" title="trait sz_orm_core::observer::EventSubscriber">Event<wbr>Subscriber</a></dt><dd>事件订阅者 trait</dd><dt><a class="trait" href="trait.Observer.html" title="trait sz_orm_core::observer::Observer">Observer</a></dt><dd>模型观察者 trait</dd></dl><h2 id="types" class="section-header">Type Aliases<a href="#types" class="anchor">§</a></h2><dl class="item-table"><dt><a class="type" href="type.SubscriberResult.html" title="type sz_orm_core::observer::SubscriberResult">Subscriber<wbr>Result</a></dt><dd>订阅者结果类型</dd></dl></section></div></main></body></html>

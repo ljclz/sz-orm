@@ -1,0 +1,45 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="derive(Queryable) — 从 SELECT 结果自动派生结构体（Diesel 风格）"><title>sz_orm_core::queryable - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module queryable</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module queryable</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#设计" title="设计">设计</a></li><li><a href="#用法" title="用法">用法</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>queryable</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/queryable.rs.html#1-528">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>derive(Queryable) — 从 SELECT 结果自动派生结构体（Diesel 风格）</p>
+<p>Diesel 通过 <code>#[derive(Queryable)]</code> 让结构体自动从 SQL 行反序列化。
+SZ-ORM 在 <a href="../enum.Value.html" title="enum sz_orm_core::Value"><code>crate::value::Value</code></a> 之上提供类似的 trait + 派生辅助。</p>
+<p>由于 proc-macro derive 需要在 <code>sz-orm-macros</code> 包中实现，
+此模块提供 trait 定义和运行时反序列化逻辑；
+派生宏 <code>#[derive(Queryable)]</code> 在 <code>sz-orm-macros</code> 中实现。</p>
+<h2 id="设计"><a class="doc-anchor" href="#%E8%AE%BE%E8%AE%A1">§</a>设计</h2>
+<ul>
+<li><a href="trait.Queryable.html" title="trait sz_orm_core::queryable::Queryable"><code>Queryable</code></a> trait：从 <code>Vec&lt;Value&gt;</code> 按列顺序填充结构体字段</li>
+<li><a href="trait.FromRow.html" title="trait sz_orm_core::queryable::FromRow"><code>FromRow</code></a> trait：从 <code>HashMap&lt;String, Value&gt;</code> 按列名填充（更鲁棒）</li>
+<li><a href="struct.RowDesc.html" title="struct sz_orm_core::queryable::RowDesc"><code>RowDesc</code></a>：行描述（列名 + 列数），用于反序列化校验</li>
+</ul>
+<h2 id="用法"><a class="doc-anchor" href="#%E7%94%A8%E6%B3%95">§</a>用法</h2>
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::value::Value;
+<span class="kw">use </span>sz_orm_core::queryable::{Queryable, FromRow, RowDesc};
+
+<span class="attr">#[derive(Debug, Default, PartialEq)]
+</span><span class="kw">struct </span>UserRow {
+    id: i64,
+    name: String,
+}
+
+<span class="kw">impl </span>Queryable <span class="kw">for </span>UserRow {
+    <span class="kw">fn </span>from_values(values: Vec&lt;Value&gt;) -&gt; <span class="prelude-ty">Result</span>&lt;<span class="self">Self</span>, QueryError&gt; {
+        <span class="kw">if </span>values.len() != <span class="number">2 </span>{
+            <span class="kw">return </span><span class="prelude-val">Err</span>(QueryError::ColumnCountMismatch {
+                expected: <span class="number">2</span>,
+                actual: values.len(),
+            });
+        }
+        <span class="kw">let </span>id = values[<span class="number">0</span>].as_i64().ok_or(QueryError::TypeMismatch {
+            column: <span class="number">0</span>,
+            expected: <span class="string">"i64"</span>,
+        })<span class="question-mark">?</span>;
+        <span class="kw">let </span>name = values[<span class="number">1</span>].as_str().ok_or(QueryError::TypeMismatch {
+            column: <span class="number">1</span>,
+            expected: <span class="string">"String"</span>,
+        })<span class="question-mark">?</span>.to_string();
+        <span class="prelude-val">Ok</span>(UserRow { id, name })
+    }
+}
+
+<span class="kw">let </span>row = UserRow::from_values(<span class="macro">vec!</span>[Value::I64(<span class="number">42</span>), Value::String(<span class="string">"Alice"</span>.into())]).unwrap();
+<span class="macro">assert_eq!</span>(row.id, <span class="number">42</span>);
+<span class="macro">assert_eq!</span>(row.name, <span class="string">"Alice"</span>);</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.RowDesc.html" title="struct sz_orm_core::queryable::RowDesc">RowDesc</a></dt><dd>行描述：列名 + 列数</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.QueryError.html" title="enum sz_orm_core::queryable::QueryError">Query<wbr>Error</a></dt><dd>反序列化错误</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.FromRow.html" title="trait sz_orm_core::queryable::FromRow">FromRow</a></dt><dd>从 <code>HashMap&lt;String, Value&gt;</code> 按列名反序列化（更鲁棒）</dd><dt><a class="trait" href="trait.Queryable.html" title="trait sz_orm_core::queryable::Queryable">Queryable</a></dt><dd>从 <code>Vec&lt;Value&gt;</code> 按列顺序反序列化（Diesel 风格）</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.value_as_bool.html" title="fn sz_orm_core::queryable::value_as_bool">value_<wbr>as_<wbr>bool</a></dt><dd>提取 bool</dd><dt><a class="fn" href="fn.value_as_f64.html" title="fn sz_orm_core::queryable::value_as_f64">value_<wbr>as_<wbr>f64</a></dt><dd>提取 f64</dd><dt><a class="fn" href="fn.value_as_i64.html" title="fn sz_orm_core::queryable::value_as_i64">value_<wbr>as_<wbr>i64</a></dt><dd>提取 i64（支持 I8/I16/I32/I64/U8/U16/U32/U64/F32/F64/Bool/String 转换）</dd><dt><a class="fn" href="fn.value_as_nullable_i64.html" title="fn sz_orm_core::queryable::value_as_nullable_i64">value_<wbr>as_<wbr>nullable_<wbr>i64</a></dt><dd>提取 <code>Option&lt;i64&gt;</code>（Null 返回 None）</dd><dt><a class="fn" href="fn.value_as_nullable_string.html" title="fn sz_orm_core::queryable::value_as_nullable_string">value_<wbr>as_<wbr>nullable_<wbr>string</a></dt><dd>提取 <code>Option&lt;String&gt;</code>（Null 返回 None）</dd><dt><a class="fn" href="fn.value_as_string.html" title="fn sz_orm_core::queryable::value_as_string">value_<wbr>as_<wbr>string</a></dt><dd>提取 String</dd></dl></section></div></main></body></html>

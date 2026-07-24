@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TimeseriesProvider","TimeseriesWrapper"],"struct":["TimeseriesBuilder"],"trait":["TimeseriesExt"]};

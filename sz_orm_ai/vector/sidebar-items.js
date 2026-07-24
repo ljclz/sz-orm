@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["VectorMetric"],"mod":["hnsw"],"struct":["CollectionMeta","InMemoryVectorStore","SearchResult","VectorError","VectorFilter","VectorRecord"],"trait":["VectorStore"]};

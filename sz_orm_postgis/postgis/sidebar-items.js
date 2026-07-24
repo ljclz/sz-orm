@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PostgisProvider","PostgisWrapper"],"struct":["PostgisBuilder"],"trait":["PostgisExt"]};

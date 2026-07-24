@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RepositoryError","WhereOp"],"struct":["GenericKeyRepository","InMemoryRepository","PageResult","WhereCondition"],"trait":["EntityAttributes","EntityKey","Repository"],"type":["RepositoryResult"]};

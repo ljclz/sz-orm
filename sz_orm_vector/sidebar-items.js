@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_TOP_K"],"enum":["VectorMetric"],"fn":["validate_top_k"],"mod":["error","extensions","memory","stub"],"struct":["SearchResult","VectorRecord"],"trait":["PgVectorStore"]};

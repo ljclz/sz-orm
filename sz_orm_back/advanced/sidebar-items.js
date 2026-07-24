@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ENCRYPTED_MAGIC"],"enum":["BackupType","CompressionAlgorithm","EncryptionAlgorithm"],"fn":["compress","decode_with_encryption","decompress","decrypt","encode_with_encryption","encrypt","is_encrypted"],"struct":["BackupSchedule","BackupStrategy","CompressionConfig","EncryptionConfig","RpoConfig","RtoConfig","ScheduleEntry"]};

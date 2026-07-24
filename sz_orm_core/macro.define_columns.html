@@ -1,0 +1,40 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="为 Model 定义一组类型安全的字段标记"><title>define_columns in sz_orm_core - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc macro"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">define_columns</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">define_<wbr>columns</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#示例" title="示例">示例</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">sz_orm_core</a></div><h1>Macro <span class="macro">define_<wbr>columns</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm_core/lambda.rs.html#645-680">Source</a> </span></div><pre class="rust item-decl"><code>macro_rules! define_columns {
+    (
+        $columns_struct:ident for $model:ident table = $table:literal {
+            $( $field:ident =&gt; $name:literal ),* $(,)?
+        }
+    ) =&gt; { ... };
+}</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>为 Model 定义一组类型安全的字段标记</p>
+<h2 id="示例"><a class="doc-anchor" href="#%E7%A4%BA%E4%BE%8B">§</a>示例</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::define_columns;
+
+<span class="kw">struct </span>User;
+
+<span class="macro">define_columns!</span> {
+    UserColumns <span class="kw">for </span>User table = <span class="string">"users" </span>{
+        Id =&gt; <span class="string">"id"</span>,
+        Name =&gt; <span class="string">"name"</span>,
+        Age =&gt; <span class="string">"age"</span>,
+    }
+}</code></pre></div>
+<p>生成如下代码：</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="attr">#[derive(Clone, Copy)]
+</span><span class="kw">pub struct </span>UserColumns;
+
+<span class="kw">impl </span>UserColumns {
+    <span class="kw">pub const </span>Id: UserColumn = UserColumn { name: <span class="string">"id"</span>, table: <span class="string">"users" </span>};
+    <span class="kw">pub const </span>Name: UserColumn = UserColumn { name: <span class="string">"name"</span>, table: <span class="string">"users" </span>};
+    <span class="kw">pub const </span>Age: UserColumn = UserColumn { name: <span class="string">"age"</span>, table: <span class="string">"users" </span>};
+}
+
+<span class="attr">#[derive(Clone, Copy)]
+</span><span class="kw">pub struct </span>UserColumn {
+    <span class="kw">pub </span>name: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+    <span class="kw">pub </span>table: <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str,
+}
+
+<span class="kw">impl </span>Column&lt;User&gt; <span class="kw">for </span>UserColumn {
+    <span class="kw">fn </span>name(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str { <span class="self">self</span>.name }
+    <span class="kw">fn </span>table(<span class="kw-2">&amp;</span><span class="self">self</span>) -&gt; <span class="kw-2">&amp;</span><span class="lifetime">'static </span>str { <span class="self">self</span>.table }
+}</code></pre></div></div></details></section></div></main></body></html>

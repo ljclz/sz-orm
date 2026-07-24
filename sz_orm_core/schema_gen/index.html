@@ -1,0 +1,26 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Diesel 风格 schema.rs 自动生成"><title>sz_orm_core::schema_gen - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module schema_gen</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module schema_<wbr>gen</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#设计" title="设计">设计</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#functions" title="Functions">Functions</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>schema_<wbr>gen</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/schema_gen.rs.html#1-388">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Diesel 风格 schema.rs 自动生成</p>
+<p>从数据库表元数据生成 <code>typed_query!</code> 表声明，配合宏做编译期列名校验。</p>
+<h2 id="设计"><a class="doc-anchor" href="#%E8%AE%BE%E8%AE%A1">§</a>设计</h2>
+<p>Diesel 的 <code>diesel print-schema</code> 命令从数据库反向生成 <code>schema.rs</code> 文件，
+包含 <code>table!</code> 宏声明，让 SQL 列名错误在编译期被捕获。</p>
+<p>本模块提供等价功能，生成 SZ-ORM 的 <code>typed_query!</code> 声明：</p>
+
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="comment">// 生成的 schema.rs 内容
+</span><span class="kw">use </span>sz_orm_core::typed_query;
+
+<span class="macro">typed_query!</span> {
+    table users {
+        id: i64,
+        name: String,
+        email: String,
+        created_at: String,
+    }
+}
+
+<span class="macro">typed_query!</span> {
+    table orders {
+        order_id: i64,
+        user_id: i64,
+        total: f64,
+    }
+}</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.ColumnSchema.html" title="struct sz_orm_core::schema_gen::ColumnSchema">Column<wbr>Schema</a></dt><dd>单列的元数据（足够生成 typed_query! 声明）</dd><dt><a class="struct" href="struct.SchemaGenerator.html" title="struct sz_orm_core::schema_gen::SchemaGenerator">Schema<wbr>Generator</a></dt><dd>生成器：把表元数据列表转换成 schema.rs 文件内容</dd><dt><a class="struct" href="struct.TableSchema.html" title="struct sz_orm_core::schema_gen::TableSchema">Table<wbr>Schema</a></dt><dd>单表的元数据</dd></dl><h2 id="functions" class="section-header">Functions<a href="#functions" class="anchor">§</a></h2><dl class="item-table"><dt><a class="fn" href="fn.sql_type_to_rust.html" title="fn sz_orm_core::schema_gen::sql_type_to_rust">sql_<wbr>type_<wbr>to_<wbr>rust</a></dt><dd>把 SQL 类型字符串映射到 Rust 类型字符串</dd></dl></section></div></main></body></html>

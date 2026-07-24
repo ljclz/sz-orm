@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BatchStrategy"],"struct":["BatchLoader","BatchSizeConfig","EntityGraph","GraphEdge"],"type":["BatchLoaderFn"]};

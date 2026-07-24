@@ -1,0 +1,43 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="L2 二级缓存（Level-2 Cache）"><title>sz_orm_core::l2_cache - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module l2_cache</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module l2_<wbr>cache</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#核心概念" title="核心概念">核心概念</a></li><li><a href="#设计灵感" title="设计灵感">设计灵感</a></li><li><a href="#使用示例" title="使用示例">使用示例</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>l2_<wbr>cache</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/l2_cache.rs.html#1-1043">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>L2 二级缓存（Level-2 Cache）</p>
+<p>对应文档 6.8 节改进项 21（L2 二级缓存）。</p>
+<h2 id="核心概念"><a class="doc-anchor" href="#%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5">§</a>核心概念</h2>
+<ul>
+<li><strong>L2Cache</strong>：跨 Session 共享的二级缓存（与 Hibernate L2 Cache / MyBatis 二级缓存对应）</li>
+<li><strong>CacheKey</strong>：统一缓存键构造（table + pk 或 table + query_hash）</li>
+<li><strong>L2CacheStats</strong>：命中率统计（hits/misses/evictions/sets）</li>
+<li><strong>表级失效</strong>：<code>invalidate_table(table)</code> 一次失效某表的所有缓存项</li>
+</ul>
+<p>与 L1 缓存（Session 级别）的区别：</p>
+<ul>
+<li>L1：单次 Session/请求 内有效，事务结束自动清空</li>
+<li>L2：跨 Session 共享，进程级缓存，需显式失效</li>
+</ul>
+<h2 id="设计灵感"><a class="doc-anchor" href="#%E8%AE%BE%E8%AE%A1%E7%81%B5%E6%84%9F">§</a>设计灵感</h2>
+<ul>
+<li>Hibernate L2 Cache（<code>@Cache</code> / <code>@Cacheable</code>）</li>
+<li>MyBatis 二级缓存（<code>&lt;cache&gt;</code> 标签）</li>
+<li>Rails <code>Rails.cache</code></li>
+<li>Django cache framework</li>
+</ul>
+<h2 id="使用示例"><a class="doc-anchor" href="#%E4%BD%BF%E7%94%A8%E7%A4%BA%E4%BE%8B">§</a>使用示例</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::l2_cache::{L2Cache, CacheKey};
+<span class="kw">use </span>sz_orm_core::Value;
+
+<span class="comment">// 1. 创建 L2 缓存
+</span><span class="kw">let </span>cache = L2Cache::new();
+
+<span class="comment">// 2. 缓存单行（pk 维度）
+</span><span class="kw">let </span>key = CacheKey::by_pk(<span class="string">"users"</span>, <span class="number">1</span>);
+cache.put(<span class="kw-2">&amp;</span>key, Value::String(<span class="string">"Alice"</span>.to_string()), <span class="prelude-val">None</span>);
+
+<span class="comment">// 3. 读取
+</span><span class="kw">let </span>val = cache.get(<span class="kw-2">&amp;</span>key);
+<span class="macro">assert!</span>(val.is_some());
+
+<span class="comment">// 4. 表级失效（用户表更新后）
+</span>cache.invalidate_table(<span class="string">"users"</span>);
+<span class="macro">assert!</span>(cache.get(<span class="kw-2">&amp;</span>key).is_none());
+
+<span class="comment">// 5. 命中率统计
+</span><span class="kw">let </span>stats = cache.stats();
+<span class="macro">println!</span>(<span class="string">"hit rate: {:.2}%"</span>, stats.hit_rate() * <span class="number">100.0</span>);</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.CacheKey.html" title="struct sz_orm_core::l2_cache::CacheKey">Cache<wbr>Key</a></dt><dd>统一缓存键</dd><dt><a class="struct" href="struct.L2Cache.html" title="struct sz_orm_core::l2_cache::L2Cache">L2Cache</a></dt><dd>L2 二级缓存 — 跨 Session 共享</dd><dt><a class="struct" href="struct.L2CacheStats.html" title="struct sz_orm_core::l2_cache::L2CacheStats">L2Cache<wbr>Stats</a></dt><dd>L2 缓存命中率统计</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.CacheKeyKind.html" title="enum sz_orm_core::l2_cache::CacheKeyKind">Cache<wbr>KeyKind</a></dt><dd>缓存键类型</dd></dl></section></div></main></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["WillDelivery"],"struct":["WillConfig","WillMessage","WillRegistry"]};

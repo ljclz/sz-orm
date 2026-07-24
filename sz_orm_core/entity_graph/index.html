@@ -1,0 +1,38 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Entity Graph + @BatchSize 批量抓取"><title>sz_orm_core::entity_graph - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module entity_graph</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module entity_<wbr>graph</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#核心概念" title="核心概念">核心概念</a></li><li><a href="#设计灵感" title="设计灵感">设计灵感</a></li><li><a href="#使用示例" title="使用示例">使用示例</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#types" title="Type Aliases">Type Aliases</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>entity_<wbr>graph</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/entity_graph.rs.html#1-829">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Entity Graph + @BatchSize 批量抓取</p>
+<p>对应文档 6.8 节改进项 27（Entity Graph）+ 28（@BatchSize 批量抓取）。</p>
+<h2 id="核心概念"><a class="doc-anchor" href="#%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5">§</a>核心概念</h2>
+<ul>
+<li><strong>EntityGraph</strong>：实体图，定义一组关联关系一起抓取，避免 N+1 查询</li>
+<li><strong>BatchSizeConfig</strong>：批量抓取配置（大小 + 策略）</li>
+<li><strong>BatchLoader</strong>：通用批量加载器，将 N 次单条查询合并为 ⌈N/batch_size⌉ 次批量查询</li>
+<li><strong>BatchStrategy</strong>：批量策略（IN / JOIN / SUBQUERY）</li>
+</ul>
+<h2 id="设计灵感"><a class="doc-anchor" href="#%E8%AE%BE%E8%AE%A1%E7%81%B5%E6%84%9F">§</a>设计灵感</h2>
+<ul>
+<li>Hibernate <code>@NamedEntityGraph</code> / <code>@BatchSize</code></li>
+<li>Doctrine <code>FetchMode::EAGER</code> / partial</li>
+<li>Django <code>select_related</code> / <code>prefetch_related</code></li>
+<li>Sequelize <code>include</code> + <code>separate: true</code></li>
+</ul>
+<h2 id="使用示例"><a class="doc-anchor" href="#%E4%BD%BF%E7%94%A8%E7%A4%BA%E4%BE%8B">§</a>使用示例</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::entity_graph::{EntityGraph, BatchLoader, BatchSizeConfig, BatchStrategy};
+<span class="kw">use </span>std::collections::HashMap;
+
+<span class="comment">// 1. 定义 EntityGraph：抓取 user.posts.comments
+</span><span class="kw">let </span><span class="kw-2">mut </span>graph = EntityGraph::new();
+graph.add_edge(<span class="string">"user"</span>, <span class="string">"posts"</span>);
+graph.add_edge_with_graph(<span class="string">"posts"</span>, <span class="string">"comments"</span>, {
+    <span class="kw">let </span><span class="kw-2">mut </span>sub = EntityGraph::new();
+    sub.add_edge(<span class="string">"comments"</span>, <span class="string">"author"</span>);
+    sub
+});
+
+<span class="comment">// 2. 使用 BatchLoader 批量加载用户
+</span><span class="kw">fn </span>load_users(ids: <span class="kw-2">&amp;</span>[i64]) -&gt; HashMap&lt;i64, String&gt; {
+    ids.iter().map(|id| (<span class="kw-2">*</span>id, <span class="macro">format!</span>(<span class="string">"user_{}"</span>, id))).collect()
+}
+
+<span class="kw">let </span>loader = BatchLoader::new(<span class="number">100</span>, Box::new(load_users));
+<span class="kw">let </span>users = loader.load_many(<span class="kw-2">&amp;</span>[<span class="number">1</span>, <span class="number">2</span>, <span class="number">3</span>, <span class="number">4</span>, <span class="number">5</span>]);
+<span class="macro">assert_eq!</span>(users.len(), <span class="number">5</span>);
+<span class="macro">assert_eq!</span>(users.get(<span class="kw-2">&amp;</span><span class="number">3</span>), <span class="prelude-val">Some</span>(<span class="kw-2">&amp;</span><span class="string">"user_3"</span>.to_string()));</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.BatchLoader.html" title="struct sz_orm_core::entity_graph::BatchLoader">Batch<wbr>Loader</a></dt><dd>批量加载器</dd><dt><a class="struct" href="struct.BatchSizeConfig.html" title="struct sz_orm_core::entity_graph::BatchSizeConfig">Batch<wbr>Size<wbr>Config</a></dt><dd>批量大小配置</dd><dt><a class="struct" href="struct.EntityGraph.html" title="struct sz_orm_core::entity_graph::EntityGraph">Entity<wbr>Graph</a></dt><dd>实体图</dd><dt><a class="struct" href="struct.GraphEdge.html" title="struct sz_orm_core::entity_graph::GraphEdge">Graph<wbr>Edge</a></dt><dd>实体图边（关联关系）</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.BatchStrategy.html" title="enum sz_orm_core::entity_graph::BatchStrategy">Batch<wbr>Strategy</a></dt><dd>批量抓取策略</dd></dl><h2 id="types" class="section-header">Type Aliases<a href="#types" class="anchor">§</a></h2><dl class="item-table"><dt><a class="type" href="type.BatchLoaderFn.html" title="type sz_orm_core::entity_graph::BatchLoaderFn">Batch<wbr>Loader<wbr>Fn</a></dt><dd>批量加载函数类型</dd></dl></section></div></main></body></html>

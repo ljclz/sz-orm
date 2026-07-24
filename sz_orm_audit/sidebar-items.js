@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["query_logs"],"struct":["AsyncAuditWriter","AuditQuery","AuditRules","RotatingAuditor","RotationPolicy","SqlAuditContext","SqlAuditor"]};

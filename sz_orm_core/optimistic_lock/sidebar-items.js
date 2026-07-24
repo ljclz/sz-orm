@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LockError"],"fn":["build_delete_with_lock","build_update_with_lock","check_affected_rows","extract_version","retry_on_conflict"],"trait":["OptimisticLock"],"type":["LockResult"]};

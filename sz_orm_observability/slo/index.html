@@ -1,0 +1,32 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="SLO 燃烧率监控"><title>sz_orm_observability::slo - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_observability" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module slo</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_observability/index.html">sz_<wbr>orm_<wbr>observability</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module slo</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#多窗口告警原理" title="多窗口告警原理">多窗口告警原理</a></li><li><a href="#示例" title="示例">示例</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>observability</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_observability</a></div><h1>Module <span>slo</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_observability/slo.rs.html#1-546">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>SLO 燃烧率监控</p>
+<p>基于 Google SRE 实践（Google SRE Workbook 第 5 章），使用多窗口多燃烧率告警策略：</p>
+<p>v0.2.2 修复 P2-1：从 2 窗口扩展为 4 窗口（标准 Google SRE 多窗口燃烧率告警）：</p>
+<ul>
+<li><strong>Page 告警</strong>（短期，立即触发）：1h 长窗口 + 5m 短窗口，阈值 14.4x（2% 预算/小时）</li>
+<li><strong>Ticket 告警</strong>（长期，工单系统）：6h 长窗口 + 30m 短窗口，阈值 6x（5% 预算/6 小时）</li>
+</ul>
+<p>燃烧率 = 实际错误率 / 允许错误率</p>
+<p>当燃烧率超过阈值时，表示 SLO 预算正在被快速消耗。</p>
+<h2 id="多窗口告警原理"><a class="doc-anchor" href="#%E5%A4%9A%E7%AA%97%E5%8F%A3%E5%91%8A%E8%AD%A6%E5%8E%9F%E7%90%86">§</a>多窗口告警原理</h2>
+<p>单一窗口告警会有误报或漏报：</p>
+<ul>
+<li>仅长窗口：响应过慢，故障已影响用户才告警</li>
+<li>仅短窗口：易因瞬时抖动误报</li>
+</ul>
+<p>多窗口策略：短窗口和长窗口都超过阈值才告警，平衡灵敏度与准确度。</p>
+<h2 id="示例"><a class="doc-anchor" href="#%E7%A4%BA%E4%BE%8B">§</a>示例</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_observability::{SloConfig, SloMonitor};
+<span class="kw">use </span>std::time::Duration;
+
+<span class="comment">// 默认配置即为 Google SRE 推荐：4 窗口 + Page/Ticket 双告警
+</span><span class="kw">let </span>config = SloConfig::default();
+<span class="kw">let </span>monitor = SloMonitor::new(config);
+
+<span class="comment">// 记录请求结果
+</span>monitor.record_success();
+monitor.record_failure();
+
+<span class="comment">// 获取燃烧率（包含 Page 和 Ticket 两级告警）
+</span><span class="kw">let </span>rate = monitor.burn_rate();
+<span class="macro">println!</span>(<span class="string">"Page alerting: {}, Ticket alerting: {}"</span>,
+    rate.page_alerting, rate.ticket_alerting);</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.SloBurnRate.html" title="struct sz_orm_observability::slo::SloBurnRate">SloBurn<wbr>Rate</a></dt><dd>SLO 燃烧率快照</dd><dt><a class="struct" href="struct.SloConfig.html" title="struct sz_orm_observability::slo::SloConfig">SloConfig</a></dt><dd>SLO 配置</dd><dt><a class="struct" href="struct.SloMonitor.html" title="struct sz_orm_observability::slo::SloMonitor">SloMonitor</a></dt><dd>SLO 监控器</dd></dl></section></div></main></body></html>

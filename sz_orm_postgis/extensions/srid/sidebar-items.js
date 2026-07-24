@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["CGCS2000","UTM_ZONE_50N","WEB_MERCATOR","WGS84"]};

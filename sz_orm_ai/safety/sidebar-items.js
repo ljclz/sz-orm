@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["sanitize_sql","validate_no_injection","validate_select_only"]};

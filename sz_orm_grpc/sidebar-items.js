@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["GrpcError","RetryableErrorKind"],"struct":["AuthInterceptor","GrpcChannel","GrpcMethod","GrpcServer","GrpcServerHandle","GrpcServiceDef","GrpcStream","InMemoryUserService","InterceptorRequest","LoggingInterceptor","RetryPolicy","TimeoutPolicy","UserGrpcClient","UserRequest","UserResponse"],"trait":["Interceptor","UserGrpcService"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["AttributeBehavior","BehaviorRegistry","BlameableBehavior","TimestampBehavior"],"trait":["Behavior"],"type":["BehaviorResult"]};

@@ -1,0 +1,52 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Lambda 类型安全 Wrapper"><title>sz_orm_core::lambda - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module lambda</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module lambda</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#核心概念" title="核心概念">核心概念</a></li><li><a href="#设计灵感" title="设计灵感">设计灵感</a></li><li><a href="#优势" title="优势">优势</a></li><li><a href="#使用示例" title="使用示例">使用示例</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li><li><a href="#enums" title="Enums">Enums</a></li><li><a href="#traits" title="Traits">Traits</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>lambda</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/lambda.rs.html#1-1120">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Lambda 类型安全 Wrapper</p>
+<p>对应文档 6.8 节改进项 38（Lambda 类型安全 Wrapper）。</p>
+<h2 id="核心概念"><a class="doc-anchor" href="#%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5">§</a>核心概念</h2>
+<ul>
+<li><strong>Column</strong>：字段标记 trait，关联 Model 类型 M，提供字段名与表名</li>
+<li><strong><code>LambdaWrapper&lt;M&gt;</code></strong>：类型安全的查询构造器，所有字段引用都通过 <code>Column</code> 类型而非 <code>&amp;str</code></li>
+<li><strong>define_columns!</strong>：宏，为 Model 定义所有字段的类型安全标记</li>
+</ul>
+<h2 id="设计灵感"><a class="doc-anchor" href="#%E8%AE%BE%E8%AE%A1%E7%81%B5%E6%84%9F">§</a>设计灵感</h2>
+<ul>
+<li>MyBatis-Plus <code>LambdaQueryWrapper</code> / <code>LambdaUpdateWrapper</code></li>
+<li>JOOQ 类型安全 DSL</li>
+<li>Diesel 强类型 schema</li>
+<li>SeaORM <code>Column</code> trait</li>
+</ul>
+<h2 id="优势"><a class="doc-anchor" href="#%E4%BC%98%E5%8A%BF">§</a>优势</h2>
+<ol>
+<li><strong>编译期字段名检查</strong>：拼写错误直接编译失败</li>
+<li><strong>IDE 自动补全</strong>：<code>UserColumns::</code> 后可补全所有字段</li>
+<li><strong>重构友好</strong>：字段重命名后所有引用处编译失败，便于定位修改</li>
+<li><strong>表名隔离</strong>：不同 Model 的字段不会混淆</li>
+</ol>
+<h2 id="使用示例"><a class="doc-anchor" href="#%E4%BD%BF%E7%94%A8%E7%A4%BA%E4%BE%8B">§</a>使用示例</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::lambda::{LambdaWrapper, Column};
+<span class="kw">use </span>sz_orm_core::define_columns;
+<span class="kw">use </span>sz_orm_core::Value;
+
+<span class="comment">// 1. 定义 Model（示例）
+</span><span class="kw">struct </span>User;
+
+<span class="comment">// 2. 为 User 定义字段标记
+</span><span class="macro">define_columns!</span> {
+    UserColumns <span class="kw">for </span>User table = <span class="string">"users" </span>{
+        Id =&gt; <span class="string">"id"</span>,
+        Name =&gt; <span class="string">"name"</span>,
+        Age =&gt; <span class="string">"age"</span>,
+    }
+}
+
+<span class="comment">// 3. 使用 LambdaWrapper 构造类型安全查询
+</span><span class="kw">let </span><span class="kw-2">mut </span>wrapper = LambdaWrapper::&lt;User&gt;::new(<span class="string">"users"</span>);
+wrapper
+    .select(UserColumns::Id)
+    .select(UserColumns::Name)
+    .eq(UserColumns::Id, Value::I64(<span class="number">1</span>))
+    .gt(UserColumns::Age, Value::I64(<span class="number">18</span>));
+
+<span class="kw">let </span>sql = wrapper.build_select();
+<span class="macro">assert!</span>(sql.contains(<span class="string">"SELECT `id`, `name`"</span>));
+<span class="macro">assert!</span>(sql.contains(<span class="string">"FROM `users`"</span>));
+<span class="macro">assert!</span>(sql.contains(<span class="string">"`id` = 1"</span>));
+<span class="macro">assert!</span>(sql.contains(<span class="string">"`age` &gt; 18"</span>));</code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.LambdaWrapper.html" title="struct sz_orm_core::lambda::LambdaWrapper">Lambda<wbr>Wrapper</a></dt><dd>Lambda 类型安全查询构造器</dd><dt><a class="struct" href="struct.OrderBy.html" title="struct sz_orm_core::lambda::OrderBy">OrderBy</a></dt><dd>排序子句</dd></dl><h2 id="enums" class="section-header">Enums<a href="#enums" class="anchor">§</a></h2><dl class="item-table"><dt><a class="enum" href="enum.OrderDirection.html" title="enum sz_orm_core::lambda::OrderDirection">Order<wbr>Direction</a></dt><dd>排序方向</dd><dt><a class="enum" href="enum.WhereClause.html" title="enum sz_orm_core::lambda::WhereClause">Where<wbr>Clause</a></dt><dd>WHERE 条件子句（内部表示）</dd></dl><h2 id="traits" class="section-header">Traits<a href="#traits" class="anchor">§</a></h2><dl class="item-table"><dt><a class="trait" href="trait.Column.html" title="trait sz_orm_core::lambda::Column">Column</a></dt><dd>字段标记 trait</dd></dl></section></div></main></body></html>

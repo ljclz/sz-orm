@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SpatialIndexType"],"mod":["srid"],"struct":["MemoryCoordTransform","MemorySpatialAggregate","MemorySpatialRelations","SpatialIndexDef","SpatialIndexRegistry"],"trait":["CoordinateTransformExt","SpatialAggregateExt","SpatialRelationsExt"]};

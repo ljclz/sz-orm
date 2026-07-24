@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_CHUNK_SIZE"],"enum":["BatchStage","ConflictTarget","RollbackStrategy","UpsertMode"],"struct":["BatchProgress","BatchResult","ChunkProcessResult","DefaultBatchOps","UpsertResult"],"trait":["BatchOperations"],"type":["ProgressCallback"]};

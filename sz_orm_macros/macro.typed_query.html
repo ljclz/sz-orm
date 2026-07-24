@@ -1,0 +1,30 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Diesel 风格强类型 AST 宏（与 `sql_string!` / `query!` 并存）。"><title>typed_query in sz_orm_macros - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm_macros" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc macro"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">typed_query</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm_macros/index.html">sz_<wbr>orm_<wbr>macros</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">typed_<wbr>query</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#设计" title="设计">设计</a></li><li><a href="#用法" title="用法">用法</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate sz_<wbr>orm_<wbr>macros</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">sz_orm_macros</a></div><h1>Macro <span class="macro">typed_<wbr>query</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm_macros/lib.rs.html#587-616">Source</a> </span></div><pre class="rust item-decl"><code>typed_query!() { <span class="comment">/* proc-macro */</span> }</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Diesel 风格强类型 AST 宏（与 <code>sql_string!</code> / <code>query!</code> 并存）。</p>
+<h2 id="设计"><a class="doc-anchor" href="#%E8%AE%BE%E8%AE%A1">§</a>设计</h2>
+<p>接收 <code>table { col1: Type, col2: Type, ... }</code> 声明，生成：</p>
+<ol>
+<li>一个 <code>table</code> 模块</li>
+<li>每列对应一个零大小标记类型（如 <code>table::id</code>）</li>
+<li>实现 <code>TypedColumn</code> trait，把列名 + Rust 类型提升到类型系统</li>
+</ol>
+<p>这样，<code>typed_query!(SELECT id FROM users WHERE name = ?)</code> 在编译期就能：</p>
+<ul>
+<li>校验 <code>id</code> / <code>name</code> 列是否存在于 <code>users</code> 表声明中</li>
+<li>校验 <code>?</code> 参数的 Rust 类型与列声明的类型一致</li>
+</ul>
+<h2 id="用法"><a class="doc-anchor" href="#%E7%94%A8%E6%B3%95">§</a>用法</h2>
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_macros::typed_query;
+
+<span class="comment">// 1. 声明表 schema（编译期生成 column 标记类型）
+</span><span class="macro">typed_query!</span> {
+    table users {
+        id: i64,
+        name: String,
+        email: String,
+        age: i32,
+    }
+}
+
+<span class="comment">// 2. 编译期校验 SELECT：列名必须存在于 users 表
+</span><span class="kw">let </span>sql = <span class="macro">typed_query!</span>(SELECT id, name FROM users WHERE age &gt; <span class="question-mark">?</span>);
+<span class="comment">// ❌ 编译错误：unknown column 'foo' in table 'users'
+// let sql = typed_query!(SELECT foo FROM users);</span></code></pre></div></div></details></section></div></main></body></html>

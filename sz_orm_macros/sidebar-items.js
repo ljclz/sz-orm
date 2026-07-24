@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"derive":["Builder","Schema"],"macro":["query","schema","sql_string","typed_query"]};

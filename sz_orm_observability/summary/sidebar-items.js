@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["LabeledHistogram","PushSnapshot","PushgatewayConfig","PushgatewayExporter","Summary"]};

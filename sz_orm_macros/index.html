@@ -1,0 +1,42 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="SZ-ORM Procedural Macros - compile-time SQL validation &#38; derive macros"><title>sz_orm_macros - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm_macros" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate sz_orm_macros</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm_macros/index.html">sz_<wbr>orm_<wbr>macros</a><span class="version">1.0.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#usage" title="Usage">Usage</a></li><li><a href="#derive-macros" title="Derive macros">Derive macros</a></li></ul><h3><a href="#macros">Crate Items</a></h3><ul class="block"><li><a href="#macros" title="Macros">Macros</a></li><li><a href="#derives" title="Derive Macros">Derive Macros</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>sz_<wbr>orm_<wbr>macros</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm_macros/lib.rs.html#1-1614">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>SZ-ORM Procedural Macros - compile-time SQL validation &amp; derive macros</p>
+<p>Provides:</p>
+<ul>
+<li><code>sql_string!</code> macro that validates SQL string literals at compile time.
+Errors like <code>SELECT * FORM users</code> or <code>'; DROP TABLE</code> are caught before the binary is built.</li>
+<li><code>#[derive(Schema)]</code> — auto-generate table structure info from a struct.</li>
+<li><code>#[derive(Builder)]</code> — auto-generate builder pattern code for a struct.</li>
+</ul>
+<h2 id="usage"><a class="doc-anchor" href="#usage">§</a>Usage</h2>
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_macros::sql_string;
+
+<span class="comment">// Basic usage
+</span><span class="kw">let </span>sql = <span class="macro">sql_string!</span>(<span class="string">"SELECT * FROM users WHERE id = 1"</span>); <span class="comment">// ✅ compiles
+
+// With parameter count check
+</span><span class="kw">let </span>sql = <span class="macro">sql_string!</span>(<span class="string">"SELECT * FROM users WHERE id = ?"</span>);
+                     params: <span class="number">1</span>);                          <span class="comment">// ✅ compiles
+
+// ❌ compile error: missing FROM
+</span><span class="kw">let </span>sql = <span class="macro">sql_string!</span>(<span class="string">"SELECT * users WHERE id = 1"</span>);
+
+<span class="comment">// ❌ compile error: SQL injection detected
+</span><span class="kw">let </span>sql = <span class="macro">sql_string!</span>(<span class="string">"SELECT * FROM users WHERE name = 'x' OR '1'='1'"</span>);
+
+<span class="comment">// ❌ compile error: parameter count mismatch
+</span><span class="kw">let </span>sql = <span class="macro">sql_string!</span>(<span class="string">"SELECT * FROM users WHERE id = ?"</span>);
+                     params: <span class="number">2</span>);</code></pre></div><h2 id="derive-macros"><a class="doc-anchor" href="#derive-macros">§</a>Derive macros</h2>
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_macros::{Schema, Builder};
+
+<span class="attr">#[derive(Schema)]
+#[table(name = <span class="string">"users"</span>)]
+</span><span class="kw">struct </span>User {
+    <span class="attr">#[column(primary_key)]
+    </span>id: i64,
+    name: String,
+}
+
+<span class="attr">#[derive(Builder)]
+</span><span class="kw">struct </span>Order {
+    id: i64,
+    total: f64,
+}</code></pre></div></div></details><h2 id="macros" class="section-header">Macros<a href="#macros" class="anchor">§</a></h2><dl class="item-table"><dt><a class="macro" href="macro.query.html" title="macro sz_orm_macros::query">query</a></dt><dd>Compile-time SQL validation with optional real DB verification.</dd><dt><a class="macro" href="macro.schema.html" title="macro sz_orm_macros::schema">schema</a></dt><dd>Compile-time SQL schema generator.</dd><dt><a class="macro" href="macro.sql_string.html" title="macro sz_orm_macros::sql_string">sql_<wbr>string</a></dt><dd>Compile-time SQL validation macro.</dd><dt><a class="macro" href="macro.typed_query.html" title="macro sz_orm_macros::typed_query">typed_<wbr>query</a></dt><dd>Diesel 风格强类型 AST 宏（与 <code>sql_string!</code> / <code>query!</code> 并存）。</dd></dl><h2 id="derives" class="section-header">Derive Macros<a href="#derives" class="anchor">§</a></h2><dl class="item-table"><dt><a class="derive" href="derive.Builder.html" title="derive sz_orm_macros::Builder">Builder</a></dt><dd>派生宏：自动生成构造器模式代码。</dd><dt><a class="derive" href="derive.Schema.html" title="derive sz_orm_macros::Schema">Schema</a></dt><dd>派生宏：自动从 Rust 结构体生成表结构信息。</dd></dl></section></div></main></body></html>

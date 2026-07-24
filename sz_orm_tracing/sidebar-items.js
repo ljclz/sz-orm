@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AlertLevel","TracingError"],"mod":["sampling"],"struct":["Alert","ErrorBudget","ErrorRateCounter","LatencyHistogram","LogAlertHook","OtelTracer","SaturationGauge","SlaMonitor","SlaReport","Span","SpanLog","SzTracer","WebhookAlertHook"],"trait":["AlertHook","Tracer"]};

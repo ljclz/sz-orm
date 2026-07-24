@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MetricKind"],"mod":["slo","summary"],"struct":["Counter","Gauge","Histogram","MetricMeta","MetricsRegistry"]};

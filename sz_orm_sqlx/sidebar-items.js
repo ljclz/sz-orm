@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["map_sqlx_error"],"mod":["any_driver","enhanced"],"struct":["MySqlPoolHandle","PgPoolHandle","SqlitePoolHandle","SqlxMySqlConnection","SqlxMySqlConnectionFactory","SqlxPgConnection","SqlxPgConnectionFactory","SqlxSqliteConnection","SqlxSqliteConnectionFactory"]};
