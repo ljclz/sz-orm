@@ -296,6 +296,56 @@ registry.enable("tenant");     // 恢复
 
 `sql_string!` proc macro，编译期验证 SQL 字面量。零外部依赖，通过 `sz_orm_core::sql_string` 重导出使用。
 
+#### sz-orm-oracle — Oracle 数据库适配器
+
+基于 `oracle` crate（ODPI-C 绑定）实现 sz-orm-core 的 `Connection` trait，支持 Oracle 12c/19c/21c/23ai。
+
+- **阻塞池隔离**：`OracleBlockingPool` 专用阻塞线程池（默认 64 线程，可通过 `SZ_ORM_ORACLE_MAX_BLOCKING_THREADS` 环境变量配置），隔离 Oracle 阻塞操作与主 tokio runtime
+- **占位符转换**：自动将 SQL 中的 `?` 转换为 Oracle 的 `:N` 格式
+- **类型映射**：`OracleType` → `Value` 完整映射（NUMBER/FLOAT/BINARY_FLOAT/BINARY_DOUBLE/DATE/TIMESTAMP/CLOB/VARCHAR2 等）
+
+公开类型：`OraclePoolHandle`、`OracleConnectionFactory`、`OracleBlockingPool`、`OracleBlockingPoolConfig`。
+
+```rust
+use sz_orm_core::{Pool, PoolConfigBuilder};
+use sz_orm_oracle::{OraclePoolHandle, OracleConnectionFactory};
+use std::sync::Arc;
+
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+let handle = Arc::new(OraclePoolHandle::connect("oracle://user:pass@localhost:1521/freepdb1").await?);
+let factory = Arc::new(OracleConnectionFactory::new(handle));
+let config = PoolConfigBuilder::new().max_size(10).build()?;
+let pool = Pool::new(config, factory)?;
+# Ok(())
+# }
+```
+
+#### sz-orm-mssql — Microsoft SQL Server 数据库适配器
+
+基于 `tiberius` crate（纯 Rust TDS 协议实现）实现 sz-orm-core 的 `Connection` trait，支持 SQL Server 2008+（TDS 7.3+）。
+
+- **纯 Rust 实现**：无需原生客户端库（ODBC/OLEDB），基于 TDS 协议直接通信
+- **占位符转换**：自动将 SQL 中的 `?` 转换为 SQL Server 的 `@PN` 格式
+- **连接字符串**：支持 tiberius 标准连接字符串（`server=tcp:host,port;user=sa;password=xxx;database=xxx`）
+
+公开类型：`MssqlPoolHandle`、`MssqlConnectionFactory`。
+
+```rust
+use sz_orm_core::{Pool, PoolConfigBuilder};
+use sz_orm_mssql::{MssqlPoolHandle, MssqlConnectionFactory};
+use std::sync::Arc;
+
+# #[tokio::main]
+# async fn main() -> Result<(), Box<dyn std::error::Error>> {
+let handle = Arc::new(MssqlPoolHandle::connect("server=tcp:localhost,1433;user=sa;password=P@ssw0rd;database=test").await?);
+let factory = Arc::new(MssqlConnectionFactory::new(handle));
+let config = PoolConfigBuilder::new().max_size(10).build()?;
+let pool = Pool::new(config, factory)?;
+# Ok(())
+# }
+```
+
 ### 3.3 扩展生态包
 
 | 包 | 功能 | 关键类型 |
@@ -323,6 +373,8 @@ registry.enable("tenant");     // 恢复
 | sz-orm-timeseries | TimescaleDB 时序扩展 | `TimeseriesExt`、`TimeseriesBuilder`、`Metric`、`Aggregation`、`TimeBucket`、`DownsampleConfig`、`RealTimescale`（feature `real-timescale`） |
 | sz-orm-postgis | PostGIS 空间扩展 | `PostgisExt`、`PostgisBuilder`、`Geometry`、`Point`、`LineString`、`Polygon`、`RealPostgis`（feature `real-postgis`） |
 | sz-orm-observability | 可观测性闭环 | `MetricsRegistry`、`Counter`、`Gauge`、`Histogram`、`SloMonitor`、`SloConfig` |
+| sz-orm-axum | axum Web 框架集成 | `PoolState`、`JsonRows`、`JsonResp<T>`、`transaction_layer` |
+| sz-orm-actix | actix-web Web 框架集成 | `PoolState`、`JsonRows`、`JsonResp<T>`、`TransactionMiddleware` |
 
 #### 3.3.1 sz-orm-search — 全文搜索
 

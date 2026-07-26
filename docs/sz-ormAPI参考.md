@@ -346,8 +346,78 @@ pub trait Storage: Send + Sync {
 | sz-orm-timeseries | `TimeseriesExt`（trait）、`TimeseriesBuilder`、`TimeseriesWrapper`、`TimeseriesProvider`、`Metric`、`TimeBucket`、`Aggregation`、`DownsampleConfig`、`MemoryTimeseries`、`StubTimeseries`、`RealTimescale`（feature `real-timescale`）、`TimescaleError` |
 | sz-orm-postgis | `PostgisExt`（trait）、`PostgisBuilder`、`PostgisWrapper`、`PostgisProvider`、`Geometry`、`Point`、`LineString`、`Polygon`、`DEFAULT_SRID`、`MemoryPostgis`、`StubPostgis`、`RealPostgis`（feature `real-postgis`）、`PostgisError` |
 | sz-orm-observability | `MetricsRegistry`、`MetricKind`、`MetricMeta`、`Counter`、`Gauge`、`Histogram`、`SloMonitor`、`SloConfig`、`SloBurnRate`（另有 feature `prometheus` / `otlp` 可选 exporter） |
+| sz-orm-query-builder | `Query`、`SelectQuery`、`InsertQuery`、`UpdateQuery`、`DeleteQuery`、`SetQuery`、`BuiltQuery`、`SetOperator`、`UpsertStrategy` |
+| sz-orm-oracle | `OraclePoolHandle`、`OracleConnectionFactory`、`OracleBlockingPool`、`OracleBlockingPoolConfig` |
+| sz-orm-mssql | `MssqlPoolHandle`、`MssqlConnectionFactory` |
+| sz-orm-axum | `PoolState`、`JsonRows`、`JsonResp<T>`、`transaction_layer`、`pool_into_state` |
+| sz-orm-actix | `PoolState`、`JsonRows`、`JsonResp<T>`、`TransactionMiddleware` |
 
 > sz-orm-dtx 包包含 TCC / Saga / CrossShard 三个分布式事务子模块，详见 §2.15。
+
+#### 2.14.1 sz-orm-oracle — Oracle 数据库适配器
+
+基于 `oracle` crate（ODPI-C 绑定）实现 `Connection` trait，支持 Oracle 12c/19c/21c/23ai。
+
+| 类型 | 说明 |
+|------|------|
+| `OraclePoolHandle` | 连接池句柄，管理底层 `oracle::Connection` 池 |
+| `OracleConnectionFactory` | `ConnectionFactory` 实现，创建新连接 |
+| `OracleBlockingPool` | 专用阻塞线程池，隔离 Oracle 同步调用与主 runtime |
+| `OracleBlockingPoolConfig` | 阻塞池配置（`max_blocking_threads`，默认 64） |
+
+**占位符转换**：SQL 中的 `?` 自动转为 `:N`（N 从 1 递增）。
+
+**环境变量**：`SZ_ORM_ORACLE_MAX_BLOCKING_THREADS` 覆盖默认阻塞线程数。
+
+#### 2.14.2 sz-orm-mssql — SQL Server 数据库适配器
+
+基于 `tiberius` crate（纯 Rust TDS 协议）实现 `Connection` trait，支持 SQL Server 2008+。
+
+| 类型 | 说明 |
+|------|------|
+| `MssqlPoolHandle` | 连接池句柄，管理底层 `tiberius::Client<CompatTcpStream>` 池 |
+| `MssqlConnectionFactory` | `ConnectionFactory` 实现，创建新连接 |
+
+**占位符转换**：SQL 中的 `?` 自动转为 `@PN`（N 从 1 递增）。
+
+**连接字符串格式**：`server=tcp:host,port;user=sa;password=xxx;database=xxx`。
+
+#### 2.14.3 sz-orm-axum — axum Web 框架集成
+
+为 axum 提供 SZ-ORM 集成组件。
+
+| 类型/函数 | 说明 |
+|-----------|------|
+| `PoolState` | 连接池的 axum State 包装（实现 `Clone`） |
+| `JsonRows` | 包装 `QueryRows` 实现 `IntoResponse` |
+| `JsonResp<T>` | 通用 JSON 响应包装（`code/data/message` 三字段） |
+| `transaction_layer` | 事务中间件（请求成功提交，失败回滚） |
+| `pool_into_state` | 将 `Pool` 转为 `Arc<Pool>`（便于直接用作 State） |
+
+#### 2.14.4 sz-orm-actix — actix-web Web 框架集成
+
+为 actix-web 提供 SZ-ORM 集成组件。
+
+| 类型 | 说明 |
+|------|------|
+| `PoolState` | 连接池的 actix-web 应用数据包装（实现 `FromRequest`） |
+| `JsonRows` | 包装 `QueryRows` 实现 `Responder` |
+| `JsonResp<T>` | 通用 JSON 响应包装（实现 `Responder`） |
+| `TransactionMiddleware` | 事务中间件（请求成功提交，失败回滚） |
+
+#### 2.14.5 sz-orm-query-builder — 独立查询构建器
+
+提供与 sz-orm-core `QueryBuilder` 不同的独立 fluent API，支持 SELECT/INSERT/UPDATE/DELETE 四种语句及集合操作。
+
+| 类型 | 说明 |
+|------|------|
+| `Query` | 查询入口（`Query::select()` / `insert()` / `update()` / `delete()`） |
+| `SelectQuery` | SELECT 查询构建器（`columns` / `from` / `where_clause` / `order_by` / `limit` / `offset`） |
+| `InsertQuery` | INSERT 查询构建器（支持 `UpsertStrategy`：`DoNothing` / `DoUpdate`） |
+| `UpdateQuery` | UPDATE 查询构建器 |
+| `DeleteQuery` | DELETE 查询构建器 |
+| `SetQuery` | 集合操作查询（UNION / UNION ALL / INTERSECT / EXCEPT） |
+| `BuiltQuery` | 已构建的查询（`sql()` 返回 SQL 字符串，`params()` 返回参数列表） |
 
 ### 2.15 sz-orm-dtx（分布式事务扩展）
 
