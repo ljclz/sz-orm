@@ -673,17 +673,19 @@ impl GrpcChannel {
                 Ok(value) => return Ok(value),
                 Err(err) => {
                     last_error = Some(err);
-                    // 4. 判断是否应重试
+                    // 4. 判断是否应重试（last_error 刚被设为 Some(err)，安全引用）
                     if let Some(policy) = &self.retry_policy {
-                        if let Some(delay) =
-                            policy.should_retry(last_error.as_ref().unwrap(), attempt)
-                        {
+                        let last_err = last_error
+                            .as_ref()
+                            .expect("last_error must be Some in Err branch");
+                        if let Some(delay) = policy.should_retry(last_err, attempt) {
                             std::thread::sleep(delay);
                             continue;
                         }
                     }
                     // 不可重试或无重试策略，直接返回错误。
-                    return Err(last_error.unwrap());
+                    return Err(last_error
+                        .expect("last_error must be Some after Err branch assignment"));
                 }
             }
         }

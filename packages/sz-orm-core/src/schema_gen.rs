@@ -57,6 +57,16 @@ pub struct SchemaGenerator {
     header: String,
     /// 是否生成 `use` 语句
     emit_use: bool,
+    /// #41 修复：是否同时生成 Model struct 定义
+    ///
+    /// 启用后，会在 typed_query! 声明之前生成对应的 Rust struct 定义，
+    /// 便于用户直接作为 ORM 模型使用，避免手写重复代码。
+    emit_model_structs: bool,
+    /// #41 修复：生成的 Model struct 的派生属性
+    ///
+    /// 默认派生 `Debug, Clone, serde::Serialize, serde::Deserialize`，
+    /// 用户可通过 [`with_model_derives`](SchemaGenerator::with_model_derives) 自定义。
+    model_derives: String,
 }
 
 impl Default for SchemaGenerator {
@@ -78,6 +88,8 @@ impl SchemaGenerator {
                 chrono::Utc::now().format("%Y-%m-%d %H:%M:%S UTC")
             ),
             emit_use: true,
+            emit_model_structs: false,
+            model_derives: "Debug, Clone, serde::Serialize, serde::Deserialize".to_string(),
         }
     }
 
@@ -93,26 +105,79 @@ impl SchemaGenerator {
         self
     }
 
+    /// #41 修复：是否同时生成 Model struct 定义
+    ///
+    /// 启用后，[`generate`](Self::generate) 会在 typed_query! 声明之前
+    /// 生成对应的 Rust struct 定义，便于直接作为 ORM 模型使用。
+    ///
+    /// # 示例
+    ///
+    /// 对于 `users` 表（包含 `id: i64`, `name: String`），会生成：
+    ///
+    /// ```ignore
+    /// #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    /// pub struct Users {
+    ///     pub id: i64,
+    ///     pub name: String,
+    /// }
+    /// ```
+    pub fn emit_model_structs(mut self, emit: bool) -> Self {
+        self.emit_model_structs = emit;
+        self
+    }
+
+    /// #41 修复：自定义 Model struct 的派生属性
+    ///
+    /// 默认为 `"Debug, Clone, serde::Serialize, serde::Deserialize"`。
+    /// 传入空字符串则不生成 `#[derive(...)]` 属性。
+    pub fn with_model_derives(mut self, derives: impl Into<String>) -> Self {
+        self.model_derives = derives.into();
+        self
+    }
+
     /// 生成完整的 schema.rs 文件内容
     pub fn generate(&self, tables: &[TableSchema]) -> String {
         let mut out = String::new();
 
         // 文件头
-        writeln!(out, "{}", self.header).unwrap();
-        writeln!(out).unwrap();
+        writeln!(out, "{}", self.header).expect("write to String is infallible");
+        writeln!(out).expect("write to String is infallible");
 
         // use 语句
         if self.emit_use {
-            writeln!(out, "use sz_orm_core::typed_query;").unwrap();
-            writeln!(out).unwrap();
+            writeln!(out, "use sz_orm_core::typed_query;").expect("write to String is infallible");
+            // 启用 Model struct 生成时，补充 serde 派生所需的 use 语句
+            // 合并嵌套 if 为单层 if（clippy::collapsible_if）
+            if self.emit_model_structs
+                && !self.model_derives.is_empty()
+                && self.model_derives.contains("serde::")
+            {
+                writeln!(out, "use serde::{{Serialize, Deserialize}};").expect("write to String is infallible");
+            }
+            writeln!(out).expect("write to String is infallible");
+        }
+
+        // #41 修复：先生成 Model struct 定义（在 typed_query! 之前）
+        if self.emit_model_structs {
+            for (idx, table) in tables.iter().enumerate() {
+                if idx > 0 {
+                    writeln!(out).expect("write to String is infallible");
+                }
+                write!(out, "{}", self.render_model_struct(table)).expect("write to String is infallible");
+            }
+            // Model struct 与 typed_query! 之间空一行
+            if !tables.is_empty() {
+                writeln!(out).expect("write to String is infallible");
+                writeln!(out).expect("write to String is infallible");
+            }
         }
 
         // 每张表生成一个 typed_query! 声明
         for (idx, table) in tables.iter().enumerate() {
             if idx > 0 {
-                writeln!(out).unwrap();
+                writeln!(out).expect("write to String is infallible");
             }
-            write!(out, "{}", self.render_table(table)).unwrap();
+            write!(out, "{}", self.render_table(table)).expect("write to String is infallible");
         }
 
         out
@@ -121,54 +186,125 @@ impl SchemaGenerator {
     /// 渲染单张表的 typed_query! 声明
     fn render_table(&self, table: &TableSchema) -> String {
         let mut out = String::new();
-        writeln!(out, "typed_query! {{").unwrap();
-        writeln!(out, "    table {} {{", table.name).unwrap();
+        writeln!(out, "typed_query! {{").expect("write to String is infallible");
+        writeln!(out, "    table {} {{", table.name).expect("write to String is infallible");
         for col in &table.columns {
-            writeln!(out, "        {}: {},", col.name, col.rust_type).unwrap();
+            writeln!(out, "        {}: {},", col.name, col.rust_type).expect("write to String is infallible");
         }
-        writeln!(out, "    }}").unwrap();
-        writeln!(out, "}}").unwrap();
+        writeln!(out, "    }}").expect("write to String is infallible");
+        writeln!(out, "}}").expect("write to String is infallible");
         out
     }
+
+    /// #41 修复：渲染单张表对应的 Model struct 定义
+    ///
+    /// 将表名转换为 PascalCase 作为 struct 名（如 `users` → `Users`），
+    /// 字段名保持 snake_case（符合 Rust 命名约定）。
+    fn render_model_struct(&self, table: &TableSchema) -> String {
+        let struct_name = to_pascal_case(&table.name);
+        let mut out = String::new();
+        // 派生属性
+        if !self.model_derives.is_empty() {
+            writeln!(out, "#[derive({})]", self.model_derives).expect("write to String is infallible");
+        }
+        // 表名注解（便于 ORM 框架映射到具体表）
+        writeln!(out, "#[table_name = \"{}\"]", table.name).expect("write to String is infallible");
+        writeln!(out, "pub struct {} {{", struct_name).expect("write to String is infallible");
+        for col in &table.columns {
+            writeln!(out, "    pub {}: {},", col.name, col.rust_type).expect("write to String is infallible");
+        }
+        writeln!(out, "}}").expect("write to String is infallible");
+        out
+    }
+}
+
+/// #41 修复：将 snake_case 或 kebab-case 字符串转换为 PascalCase
+///
+/// 例如：`users` → `Users`，`order_items` → `OrderItems`，
+/// `user-profile` → `UserProfile`。
+fn to_pascal_case(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    let mut next_upper = true;
+    for ch in input.chars() {
+        if ch == '_' || ch == '-' || ch == ' ' {
+            next_upper = true;
+            continue;
+        }
+        if next_upper {
+            result.push(ch.to_ascii_uppercase());
+            next_upper = false;
+        } else {
+            result.push(ch);
+        }
+    }
+    result
 }
 
 /// 把 SQL 类型字符串映射到 Rust 类型字符串
 ///
 /// 用于 `generate schema` 命令从 DB 元数据生成 typed_query! 声明
+///
+/// # P0 修复：精确匹配
+///
+/// 旧实现使用 `String::contains` 进行子串匹配，存在以下误判：
+/// - `INTERVAL` 含 `int` 子串 → 误判为 `i32`（应为 `String`）
+/// - `TIMESTAMP` 含 `time` 子串 → 虽因顺序问题未触发，但逻辑脆弱
+/// - `MEDIUMINT` 含 `int` → 正确但依赖匹配顺序，不可靠
+///
+/// 新实现：
+/// 1. 小写化
+/// 2. 剥离参数列表（`DECIMAL(10,2)` → `decimal`、`VARCHAR(255)` → `varchar`）
+/// 3. 剥离无符号/零填充后缀（`INT UNSIGNED` → `int`、`INT ZEROFILL` → `int`）
+/// 4. 精确匹配基础类型名，杜绝子串误判
 pub fn sql_type_to_rust(sql_type: &str, nullable: bool) -> String {
-    let base = match sql_type.to_lowercase() {
-        // 整数（按长度优先匹配，避免 "int" 误匹配 "bigint"）
-        s if s.contains("tinyint") => "i8",
-        s if s.contains("smallint") || s.contains("int2") => "i16",
-        s if s.contains("bigint") || s.contains("int8") => "i64",
-        s if s.contains("int") || s.contains("serial") => "i32",
-        // 浮点（更具体的先匹配：float8/float4 在 float 之前）
-        s if s.contains("float8") || s.contains("double") => "f64",
-        s if s.contains("float4") || s.contains("real") => "f32",
-        s if s.contains("float") => "f32",
-        s if s.contains("decimal") || s.contains("numeric") => "f64",
+    // 1. 小写化
+    let lower = sql_type.to_lowercase();
+    // 2. 剥离参数列表: "DECIMAL(10,2)" → "decimal", "VARCHAR(255)" → "varchar"
+    let after_param_strip = lower.split('(').next().unwrap_or(&lower).trim();
+    // 3. 剥离无符号/零填充后缀: "INT UNSIGNED" → "INT", "INT ZEROFILL" → "INT"
+    //    仅剥离 " unsigned" 与 " zerofill" 后缀，不影响其他类型
+    let base_type = after_param_strip
+        .strip_suffix(" unsigned")
+        .or_else(|| after_param_strip.strip_suffix(" zerofill"))
+        .unwrap_or(after_param_strip)
+        .trim();
+
+    let rust = match base_type {
+        // 整数 — 精确匹配，避免 "interval" 误匹配 "int"
+        "tinyint" => "i8",
+        "smallint" | "int2" | "smallserial" => "i16",
+        "bigint" | "int8" | "bigserial" => "i64",
+        "int" | "integer" | "int4" | "mediumint" | "serial" => "i32",
+        // 浮点 — "double precision" 需在 "double" 之前匹配（match 按字面顺序，已显式列出）
+        "float8" | "double" | "double precision" => "f64",
+        "float4" | "real" | "float" => "f32",
+        "decimal" | "numeric" => "f64",
         // 布尔
-        s if s.contains("bool") => "bool",
+        "bool" | "boolean" => "bool",
         // 字节
-        s if s.contains("blob") || s.contains("bytea") || s.contains("binary") => "Vec<u8>",
-        // 时间
-        s if s.contains("date") && !s.contains("datetime") && !s.contains("timestamp") => "String",
-        s if s.contains("datetime") || s.contains("timestamp") => "String",
-        s if s.contains("time") => "String",
+        "blob" | "bytea" | "binary" | "varbinary" | "tinyblob" | "mediumblob" | "longblob" => {
+            "Vec<u8>"
+        }
+        // 时间 — interval 单独匹配，不再被 int 子串误判
+        "date" => "String",
+        "datetime" | "timestamp" | "timestamptz" => "String",
+        "time" | "timetz" => "String",
+        "interval" => "String",
         // JSON
-        s if s.contains("json") => "String",
+        "json" | "jsonb" => "String",
         // UUID
-        s if s.contains("uuid") => "String",
+        "uuid" => "String",
         // 字符串
-        s if s.contains("char") || s.contains("text") || s.contains("varchar") => "String",
+        "char" | "varchar" | "text" | "tinytext" | "mediumtext" | "longtext" => "String",
+        "enum" | "set" => "String",
         // 默认
         _ => "String",
     };
 
     if nullable {
-        format!("Option<{}>", base)
+        format!("Option<{}>", rust)
     } else {
-        base.to_string()
+        rust.to_string()
     }
 }
 
@@ -384,5 +520,350 @@ mod tests {
         let count_close = output.matches("}\n}").count();
         assert_eq!(count_open, 1);
         assert_eq!(count_close, 1);
+    }
+
+    // ---- P0 修复：精确匹配测试（杜绝 contains 子串误判） ----
+
+    #[test]
+    fn test_sql_type_to_rust_interval_not_int() {
+        // 关键修复：INTERVAL 不应被 contains("int") 误判为 i32
+        assert_eq!(sql_type_to_rust("INTERVAL", false), "String");
+        assert_eq!(sql_type_to_rust("interval", false), "String");
+        // PostgreSQL INTERVAL DAY TO SECOND 等变体
+        assert_eq!(sql_type_to_rust("INTERVAL DAY TO SECOND", false), "String");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_mediumint() {
+        // MySQL MEDIUMINT 应为 i32
+        assert_eq!(sql_type_to_rust("MEDIUMINT", false), "i32");
+        assert_eq!(sql_type_to_rust("MEDIUMINT(8)", false), "i32");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_integer_alias() {
+        // INTEGER 是 INT 的别名
+        assert_eq!(sql_type_to_rust("INTEGER", false), "i32");
+        assert_eq!(sql_type_to_rust("INTEGER(11)", false), "i32");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_serial_types() {
+        // PostgreSQL SERIAL/BIGSERIAL/SMALLSERIAL
+        assert_eq!(sql_type_to_rust("SERIAL", false), "i32");
+        assert_eq!(sql_type_to_rust("BIGSERIAL", false), "i64");
+        assert_eq!(sql_type_to_rust("SMALLSERIAL", false), "i16");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_unsigned_suffix() {
+        // MySQL UNSIGNED 后缀剥离
+        assert_eq!(sql_type_to_rust("INT UNSIGNED", false), "i32");
+        assert_eq!(sql_type_to_rust("BIGINT UNSIGNED", false), "i64");
+        assert_eq!(sql_type_to_rust("TINYINT UNSIGNED", false), "i8");
+        assert_eq!(sql_type_to_rust("SMALLINT UNSIGNED", false), "i16");
+        assert_eq!(sql_type_to_rust("MEDIUMINT UNSIGNED", false), "i32");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_zerofill_suffix() {
+        // MySQL ZEROFILL 后缀剥离
+        assert_eq!(sql_type_to_rust("INT ZEROFILL", false), "i32");
+        assert_eq!(sql_type_to_rust("INT(4) ZEROFILL", false), "i32");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_timestamptz() {
+        // PostgreSQL TIMESTAMPTZ
+        assert_eq!(sql_type_to_rust("TIMESTAMPTZ", false), "String");
+        assert_eq!(sql_type_to_rust("timestamptz", false), "String");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_timetz() {
+        // PostgreSQL TIMETZ
+        assert_eq!(sql_type_to_rust("TIMETZ", false), "String");
+        assert_eq!(sql_type_to_rust("timetz", false), "String");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_double_precision() {
+        // PostgreSQL DOUBLE PRECISION（带空格）
+        assert_eq!(sql_type_to_rust("DOUBLE PRECISION", false), "f64");
+        assert_eq!(sql_type_to_rust("double precision", false), "f64");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_varbinary() {
+        // MySQL VARBINARY
+        assert_eq!(sql_type_to_rust("VARBINARY(255)", false), "Vec<u8>");
+        assert_eq!(sql_type_to_rust("VARBINARY", false), "Vec<u8>");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_blob_variants() {
+        // MySQL TINYBLOB/MEDIUMBLOB/LONGBLOB
+        assert_eq!(sql_type_to_rust("TINYBLOB", false), "Vec<u8>");
+        assert_eq!(sql_type_to_rust("MEDIUMBLOB", false), "Vec<u8>");
+        assert_eq!(sql_type_to_rust("LONGBLOB", false), "Vec<u8>");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_text_variants() {
+        // MySQL TINYTEXT/MEDIUMTEXT/LONGTEXT
+        assert_eq!(sql_type_to_rust("TINYTEXT", false), "String");
+        assert_eq!(sql_type_to_rust("MEDIUMTEXT", false), "String");
+        assert_eq!(sql_type_to_rust("LONGTEXT", false), "String");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_enum_and_set() {
+        // MySQL ENUM/SET
+        assert_eq!(sql_type_to_rust("ENUM('a','b')", false), "String");
+        assert_eq!(sql_type_to_rust("SET('a','b')", false), "String");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_decimal_with_space() {
+        // DECIMAL(10, 2)（参数内含空格）
+        assert_eq!(sql_type_to_rust("DECIMAL(10, 2)", false), "f64");
+        assert_eq!(sql_type_to_rust("NUMERIC(8, 2)", false), "f64");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_unknown_defaults_string() {
+        // 未知类型默认为 String
+        assert_eq!(sql_type_to_rust("UNKNOWN_TYPE", false), "String");
+        assert_eq!(sql_type_to_rust("citext", false), "String");
+        assert_eq!(sql_type_to_rust("money", false), "String");
+    }
+
+    #[test]
+    fn test_sql_type_to_rust_interval_nullable() {
+        // INTERVAL 可空 → Option<String>
+        assert_eq!(sql_type_to_rust("INTERVAL", true), "Option<String>");
+    }
+
+    // ====================================================================
+    // #41 修复：Model struct 生成测试
+    // ====================================================================
+
+    #[test]
+    fn test_to_pascal_case_basic() {
+        assert_eq!(to_pascal_case("users"), "Users");
+        assert_eq!(to_pascal_case("orders"), "Orders");
+    }
+
+    #[test]
+    fn test_to_pascal_case_snake_case() {
+        assert_eq!(to_pascal_case("order_items"), "OrderItems");
+        assert_eq!(to_pascal_case("user_profiles"), "UserProfiles");
+    }
+
+    #[test]
+    fn test_to_pascal_case_kebab_case() {
+        assert_eq!(to_pascal_case("user-profile"), "UserProfile");
+        assert_eq!(to_pascal_case("order-item"), "OrderItem");
+    }
+
+    #[test]
+    fn test_to_pascal_case_with_spaces() {
+        assert_eq!(to_pascal_case("user profile"), "UserProfile");
+    }
+
+    #[test]
+    fn test_to_pascal_case_single_char() {
+        assert_eq!(to_pascal_case("a"), "A");
+        assert_eq!(to_pascal_case("_a"), "A");
+    }
+
+    #[test]
+    fn test_to_pascal_case_already_pascal() {
+        // 已是 PascalCase 的输入应保持原样（首字母仍大写）
+        assert_eq!(to_pascal_case("Users"), "Users");
+    }
+
+    #[test]
+    fn test_emit_model_structs_generates_struct() {
+        let gen = SchemaGenerator::new()
+            .emit_use(false)
+            .emit_model_structs(true);
+        let tables = vec![TableSchema {
+            name: "users".to_string(),
+            columns: vec![
+                ColumnSchema {
+                    name: "id".to_string(),
+                    rust_type: "i64".to_string(),
+                },
+                ColumnSchema {
+                    name: "name".to_string(),
+                    rust_type: "String".to_string(),
+                },
+            ],
+        }];
+        let output = gen.generate(&tables);
+
+        // 应生成 struct Users
+        assert!(output.contains("pub struct Users {"));
+        assert!(output.contains("pub id: i64,"));
+        assert!(output.contains("pub name: String,"));
+        // 应生成派生属性
+        assert!(output.contains("#[derive("));
+        assert!(output.contains("Debug"));
+        assert!(output.contains("Clone"));
+        // 应生成表名注解
+        assert!(output.contains("#[table_name = \"users\"]"));
+        // 同时应生成 typed_query! 声明
+        assert!(output.contains("typed_query! {"));
+        assert!(output.contains("table users {"));
+    }
+
+    #[test]
+    fn test_emit_model_structs_disabled_by_default() {
+        let gen = SchemaGenerator::new().emit_use(false);
+        let tables = vec![TableSchema {
+            name: "users".to_string(),
+            columns: vec![ColumnSchema {
+                name: "id".to_string(),
+                rust_type: "i64".to_string(),
+            }],
+        }];
+        let output = gen.generate(&tables);
+
+        // 默认不生成 Model struct
+        assert!(!output.contains("pub struct Users"));
+        // 但应生成 typed_query! 声明
+        assert!(output.contains("typed_query! {"));
+    }
+
+    #[test]
+    fn test_emit_model_structs_multiple_tables() {
+        let gen = SchemaGenerator::new()
+            .emit_use(false)
+            .emit_model_structs(true);
+        let tables = vec![
+            TableSchema {
+                name: "users".to_string(),
+                columns: vec![ColumnSchema {
+                    name: "id".to_string(),
+                    rust_type: "i64".to_string(),
+                }],
+            },
+            TableSchema {
+                name: "order_items".to_string(),
+                columns: vec![ColumnSchema {
+                    name: "item_id".to_string(),
+                    rust_type: "i64".to_string(),
+                }],
+            },
+        ];
+        let output = gen.generate(&tables);
+
+        // 应生成两个 struct，且 snake_case 表名转换为 PascalCase
+        assert!(output.contains("pub struct Users {"));
+        assert!(output.contains("pub struct OrderItems {"));
+    }
+
+    #[test]
+    fn test_emit_model_structs_with_custom_derives() {
+        let gen = SchemaGenerator::new()
+            .emit_use(false)
+            .emit_model_structs(true)
+            .with_model_derives("Debug, Clone");
+        let tables = vec![TableSchema {
+            name: "users".to_string(),
+            columns: vec![ColumnSchema {
+                name: "id".to_string(),
+                rust_type: "i64".to_string(),
+            }],
+        }];
+        let output = gen.generate(&tables);
+
+        // 应使用自定义派生属性
+        assert!(output.contains("#[derive(Debug, Clone)]"));
+        // 不应包含默认的 serde 派生
+        assert!(!output.contains("serde::Serialize"));
+    }
+
+    #[test]
+    fn test_emit_model_structs_with_empty_derives() {
+        let gen = SchemaGenerator::new()
+            .emit_use(false)
+            .emit_model_structs(true)
+            .with_model_derives("");
+        let tables = vec![TableSchema {
+            name: "users".to_string(),
+            columns: vec![ColumnSchema {
+                name: "id".to_string(),
+                rust_type: "i64".to_string(),
+            }],
+        }];
+        let output = gen.generate(&tables);
+
+        // 不应生成 #[derive(...)] 属性
+        assert!(!output.contains("#[derive("));
+        // 但仍应生成 struct 定义
+        assert!(output.contains("pub struct Users {"));
+    }
+
+    #[test]
+    fn test_emit_model_structs_with_nullable_fields() {
+        let gen = SchemaGenerator::new()
+            .emit_use(false)
+            .emit_model_structs(true);
+        let tables = vec![TableSchema {
+            name: "products".to_string(),
+            columns: vec![
+                ColumnSchema {
+                    name: "id".to_string(),
+                    rust_type: "i64".to_string(),
+                },
+                ColumnSchema {
+                    name: "price".to_string(),
+                    rust_type: "Option<f64>".to_string(),
+                },
+                ColumnSchema {
+                    name: "description".to_string(),
+                    rust_type: "Option<String>".to_string(),
+                },
+            ],
+        }];
+        let output = gen.generate(&tables);
+
+        assert!(output.contains("pub struct Products {"));
+        assert!(output.contains("pub id: i64,"));
+        assert!(output.contains("pub price: Option<f64>,"));
+        assert!(output.contains("pub description: Option<String>,"));
+    }
+
+    #[test]
+    fn test_emit_model_structs_with_serde_use() {
+        let gen = SchemaGenerator::new()
+            .emit_use(true)
+            .emit_model_structs(true);
+        let tables = vec![TableSchema {
+            name: "users".to_string(),
+            columns: vec![ColumnSchema {
+                name: "id".to_string(),
+                rust_type: "i64".to_string(),
+            }],
+        }];
+        let output = gen.generate(&tables);
+
+        // 启用 serde 派生时应生成对应的 use 语句
+        assert!(output.contains("use serde::{Serialize, Deserialize};"));
+    }
+
+    #[test]
+    fn test_emit_model_structs_empty_tables() {
+        let gen = SchemaGenerator::new()
+            .emit_use(false)
+            .emit_model_structs(true);
+        let output = gen.generate(&[]);
+
+        // 空表列表不应生成任何 struct
+        assert!(!output.contains("pub struct"));
+        // 但应有 header
+        assert!(output.contains("Auto-generated"));
     }
 }

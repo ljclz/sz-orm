@@ -25,3 +25,6 @@ futures-util = { version = "0.3", optional = true, default-features = false, fea
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

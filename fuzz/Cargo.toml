@@ -30,3 +30,6 @@ name = "pool_config"
 path = "fuzz_targets/pool_config.rs"
 
 [workspace]
+
+[lints]
+workspace = true

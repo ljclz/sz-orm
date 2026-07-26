@@ -32,9 +32,9 @@ mod error;
 pub mod enhanced;
 
 pub use any::{
-    MySqlPoolHandle, PgPoolHandle, SqlitePoolHandle, SqlxMySqlConnection,
-    SqlxMySqlConnectionFactory, SqlxPgConnection, SqlxPgConnectionFactory, SqlxSqliteConnection,
-    SqlxSqliteConnectionFactory,
+    mysql_bulk_insert, pg_bulk_insert, sqlite_backup, MySqlPoolHandle, PgExtensions, PgPoolHandle,
+    SqlitePoolHandle, SqlxMySqlConnection, SqlxMySqlConnectionFactory, SqlxPgConnection,
+    SqlxPgConnectionFactory, SqlxSqliteConnection, SqlxSqliteConnectionFactory,
 };
 pub use any_driver::{AnyBackend, AnyConnection, AnyPool};
 pub use enhanced::{

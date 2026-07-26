@@ -1,7 +1,10 @@
 name: Soak Test (Weekly)
 
+# 本 workflow 使用 GitHub Actions 托管 runner（ubuntu-latest）。
+# 托管 runner 单 job 时间限制 6 小时，默认 soak 时长已设为 6h（达到上限）。
+#
 # 周末长时 Soak Test：每周日凌晨 00:00 UTC 自动运行
-# 也可手动触发（workflow_dispatch），支持自定义时长
+# 也可手动触发（workflow_dispatch），支持自定义时长（如需 >6h，请配置 self-hosted runner）
 #
 # 目的：
 # - 检测内存泄漏（RSS 线性增长）
@@ -22,9 +25,9 @@ on:
   workflow_dispatch:
     inputs:
       soak_duration:
-        description: 'Soak 时长（如 1h, 6h, 24h）'
+        description: 'Soak 时长（如 6h；如需 >6h 请用 self-hosted runner）'
         required: false
-        default: '1h'
+        default: '6h'
         type: string
 
 # 防止并发运行（避免多个 soak 任务竞争资源）
@@ -35,7 +38,9 @@ concurrency:
 jobs:
   soak:
     runs-on: ubuntu-latest
-    timeout-minutes: 1500  # 25 小时（24h soak + 1h 缓冲）
+    # GitHub Actions 托管 runner 单 job 上限 6h；预留 1h 缓冲（构建+报告上传）
+    # 如需 >6h soak，请配置 self-hosted runner
+    timeout-minutes: 420  # 7 小时（6h soak + 1h 缓冲）
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -52,8 +57,8 @@ jobs:
           if [ -n "${{ github.event.inputs.soak_duration }}" ]; then
             echo "value=${{ github.event.inputs.soak_duration }}" >> $GITHUB_OUTPUT
           else
-            # 24h 任务默认 24h
-            echo "value=24h" >> $GITHUB_OUTPUT
+            # 默认 6h（GitHub Actions 托管 runner 上限）
+            echo "value=6h" >> $GITHUB_OUTPUT
           fi
 
       - name: Run Soak Test

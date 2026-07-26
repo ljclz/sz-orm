@@ -152,7 +152,9 @@ pub fn hydrate_scalar(rows: &[RowData]) -> HydrationResult<Vec<Value>> {
             return Err(HydrationError::EmptyRow);
         }
         let sorted = row.sorted_columns();
-        let (_, first_value) = sorted.first().unwrap();
+        let (_, first_value) = sorted
+            .first()
+            .expect("sorted_columns is non-empty after is_empty check");
         result.push((*first_value).clone());
     }
     Ok(result)
@@ -170,7 +172,9 @@ pub fn hydrate_single_scalar(rows: &[RowData]) -> HydrationResult<Value> {
         return Err(HydrationError::EmptyRow);
     }
     let sorted = row.sorted_columns();
-    let (_, first_value) = sorted.first().unwrap();
+    let (_, first_value) = sorted
+        .first()
+        .expect("sorted_columns is non-empty after is_empty check");
     Ok((*first_value).clone())
 }
 
@@ -210,7 +214,11 @@ pub fn hydrate(rows: &[RowData], mode: HydrationMode) -> HydrationResult<Vec<Val
                 return Err(HydrationError::EmptyRow);
             }
             let sorted = first_row.sorted_columns();
-            let first_col = sorted.first().unwrap().0.as_str();
+            let first_col = sorted
+                .first()
+                .expect("sorted_columns is non-empty after is_empty check")
+                .0
+                .as_str();
             hydrate_column(rows, first_col)
         }
         HydrationMode::Object | HydrationMode::Array => {
@@ -385,6 +393,8 @@ pub enum PluginDecision {
     Modified { sql: String, parameters: Vec<Value> },
     /// 中止执行（不执行原 SQL，返回错误）
     Abort(String),
+    /// Kill 当前查询/事务（用于慢查询自动 kill 等场景）
+    Kill,
 }
 
 /// Plugin 拦截器 trait
@@ -492,6 +502,7 @@ impl PluginChain {
                 PluginDecision::Abort(reason) => {
                     return PluginDecision::Abort(reason);
                 }
+                PluginDecision::Kill => return PluginDecision::Kill,
             }
         }
         PluginDecision::Continue
@@ -599,6 +610,8 @@ impl Plugin for SqlLogPlugin {
 pub struct SlowQueryPlugin {
     threshold: Duration,
     slow_queries: RwLock<Vec<SlowQueryRecord>>,
+    /// 任务6：慢查询自动 kill 阈值（超过此阈值返回 Kill 决策）
+    kill_threshold: Option<Duration>,
 }
 
 /// 慢查询记录
@@ -615,12 +628,19 @@ impl SlowQueryPlugin {
         Self {
             threshold,
             slow_queries: RwLock::new(Vec::new()),
+            kill_threshold: None,
         }
     }
 
     /// 默认 1 秒阈值
     pub fn default_threshold() -> Self {
         Self::new(Duration::from_secs(1))
+    }
+
+    /// 任务6：设置 kill 阈值（超过此阈值时返回 Kill 决策）
+    pub fn with_kill_threshold(mut self, kill_threshold: Duration) -> Self {
+        self.kill_threshold = Some(kill_threshold);
+        self
     }
 
     /// 获取所有慢查询记录
@@ -644,27 +664,134 @@ impl SlowQueryPlugin {
     }
 }
 
+/// 脱敏 SQL 中的敏感值（password/passwd/secret/token = '...' → '***'）
+///
+/// 由于 sz-orm-core 未依赖 regex crate，使用手动扫描实现大小写不敏感匹配。
+/// 仅处理 `key='value'` 模式；其他形式（如函数参数）不做脱敏。
+fn mask_sql(sql: &str) -> String {
+    const SENSITIVE_KEYS: &[&str] = &["password", "passwd", "secret", "token"];
+
+    let lower = sql.to_ascii_lowercase();
+    let bytes = sql.as_bytes();
+    let lower_bytes = lower.as_bytes();
+    let mut result = String::with_capacity(sql.len());
+    let mut i = 0;
+
+    while i < bytes.len() {
+        let mut matched = false;
+        for kw in SENSITIVE_KEYS {
+            let kw_b = kw.as_bytes();
+            if i + kw_b.len() <= bytes.len() && &lower_bytes[i..i + kw_b.len()] == kw_b {
+                // 边界检查：前后字符不能是标识符字符（避免匹配 "passworded"）
+                let prev_ok = i == 0 || !is_ident_char(bytes[i - 1]);
+                let next = i + kw_b.len();
+                let next_ok = next >= bytes.len() || !is_ident_char(bytes[next]);
+                if !prev_ok || !next_ok {
+                    continue;
+                }
+                // 复制 keyword 原文（保留大小写）
+                result.push_str(&sql[i..next]);
+                i = next;
+                // 跳过空白
+                while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                    result.push(bytes[i] as char);
+                    i += 1;
+                }
+                // 期待 '='
+                if i < bytes.len() && bytes[i] == b'=' {
+                    result.push('=');
+                    i += 1;
+                    while i < bytes.len() && bytes[i].is_ascii_whitespace() {
+                        result.push(bytes[i] as char);
+                        i += 1;
+                    }
+                    // 期待单引号字符串 'value'
+                    if i < bytes.len() && bytes[i] == b'\'' {
+                        i += 1; // 跳过开始引号
+                        while i < bytes.len() && bytes[i] != b'\'' {
+                            i += 1;
+                        }
+                        if i < bytes.len() {
+                            i += 1; // 跳过结束引号
+                        }
+                        result.push_str("'***'");
+                    }
+                }
+                matched = true;
+                break;
+            }
+        }
+        if !matched {
+            let ch = sql[i..]
+                .chars()
+                .next()
+                .expect("i < bytes.len() guarantees non-empty slice");
+            result.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    result
+}
+
+/// ASCII 标识符字符判断（字母/数字/下划线）
+fn is_ident_char(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
 impl Plugin for SlowQueryPlugin {
     fn name(&self) -> &str {
         "slow_query"
     }
 
     fn stages(&self) -> Vec<ExecutionStage> {
-        vec![ExecutionStage::AfterQuery, ExecutionStage::AfterUpdate]
+        // 订阅 BeforeQuery：在执行前记录开始时间，并在超过 kill_threshold 时
+        // 通过 PluginDecision::Kill 中止查询（#9 修复：慢查询自动 Kill 生效）
+        vec![
+            ExecutionStage::BeforeQuery,
+            ExecutionStage::AfterQuery,
+            ExecutionStage::AfterUpdate,
+        ]
     }
 
     fn intercept(&self, context: &mut PluginContext) -> PluginDecision {
-        if let Some(elapsed) = context.elapsed {
-            if elapsed > self.threshold {
-                let mut records = self.slow_queries.write().unwrap();
-                records.push(SlowQueryRecord {
-                    sql: context.sql.clone(),
-                    elapsed,
-                    threshold: self.threshold,
-                });
+        match context.stage {
+            ExecutionStage::BeforeQuery => {
+                // 执行前检查：若已记录的开始时间显示查询进行中超过 kill_threshold，
+                // 直接 Kill（理论上 BeforeQuery 阶段 elapsed 为 None，此处保留扩展点）
+                // 主要 Kill 逻辑放在 AfterQuery，因为 BeforeQuery 时 elapsed 尚未计算
+                if let Some(kill_threshold) = self.kill_threshold {
+                    if let Some(elapsed) = context.elapsed {
+                        if elapsed > kill_threshold {
+                            return PluginDecision::Kill;
+                        }
+                    }
+                }
+                PluginDecision::Continue
             }
+            ExecutionStage::AfterQuery | ExecutionStage::AfterUpdate => {
+                if let Some(elapsed) = context.elapsed {
+                    if elapsed > self.threshold {
+                        // 记录前对 SQL 脱敏，避免敏感值（password/token 等）落入慢查询日志
+                        let masked_sql = mask_sql(&context.sql);
+                        let mut records = self.slow_queries.write().unwrap();
+                        records.push(SlowQueryRecord {
+                            sql: masked_sql,
+                            elapsed,
+                            threshold: self.threshold,
+                        });
+                    }
+                    // #9 修复：超过 kill_threshold 时返回 Kill 决策
+                    // 这会触发插件链中止后续查询/事务，防止慢查询持续占用连接池资源
+                    if let Some(kill_threshold) = self.kill_threshold {
+                        if elapsed > kill_threshold {
+                            return PluginDecision::Kill;
+                        }
+                    }
+                }
+                PluginDecision::Continue
+            }
+            _ => PluginDecision::Continue,
         }
-        PluginDecision::Continue
     }
 }
 

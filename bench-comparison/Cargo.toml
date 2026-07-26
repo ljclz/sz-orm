@@ -3,14 +3,25 @@ name = "bench-comparison"
 version = "0.1.0"
 edition = "2021"
 publish = false
-description = "Side-by-side benchmark: SZ-ORM vs Diesel vs SeaORM vs SQLx (SQLite in-memory + MySQL/PostgreSQL real DB)"
+description = "Side-by-side benchmark: SZ-ORM vs Diesel vs SeaORM vs SQLx (SQLite + MySQL + PostgreSQL + Oracle)"
+
+[features]
+# 默认仅 SQLite（in-memory，无外部依赖，任意平台可运行）
+default = []
+# 启用 diesel MySQL 后端（需 libmysqlclient / mariadb 开发库）
+diesel-mysql = ["diesel/mysql"]
+# 启用 diesel PostgreSQL 后端（需 libpq 开发库）
+diesel-postgres = ["diesel/postgres"]
+# 启用 Oracle 后端（需 ODPI-C / Oracle Instant Client）
+oracle = ["dep:oracle"]
 
 [dependencies]
 # SZ-ORM (from local workspace path for latest code)
 sz-orm-core = { path = "../packages/sz-orm-core" }
 sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
-# Diesel 2.x (sqlite, with returning clauses for sqlite 3.35+)
-diesel = { version = "2.2", features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
+sz-orm-oracle = { path = "../packages/sz-orm-oracle" }
+# Diesel 2.x（默认仅 sqlite；mysql/postgres 由 feature 控制）
+diesel = { version = "2.2", default-features = false, features = ["sqlite", "returning_clauses_for_sqlite_3_35"] }
 # SeaORM (sqlite + mysql + postgres, sqlx backend)
 sea-orm = { version = "1.1", features = ["sqlx-sqlite", "sqlx-mysql", "sqlx-postgres", "runtime-tokio-rustls"] }
 # SQLx (sqlite + mysql + postgres, tokio)
@@ -25,10 +36,17 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 # chrono for timestamp formatting in benchmark output
 chrono = "0.4"
+# Oracle driver (ODPI-C binding) - optional, enabled by `oracle` feature
+oracle = { version = "0.6", default-features = false, features = ["chrono"], optional = true }
 
 [[bench]]
 name = "orm_comparison"
 path = "benches/orm_comparison.rs"
+harness = false
+
+[[bench]]
+name = "cross_db_comparison"
+path = "benches/cross_db_comparison.rs"
 harness = false
 
 [profile.release]
@@ -43,3 +61,6 @@ codegen-units = 1
 
 # 保持 bench-comparison 独立于 sz-orm 主 workspace
 [workspace]
+
+[lints]
+workspace = true

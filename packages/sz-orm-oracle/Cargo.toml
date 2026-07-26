@@ -1,0 +1,29 @@
+[package]
+name = "sz-orm-oracle"
+description = "SZ-ORM Oracle database adapter using the oracle crate (ODPI-C binding)"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+sz-orm-core = { workspace = true }
+async-trait.workspace = true
+tokio = { workspace = true, features = ["sync"] }
+oracle = "0.6"
+serde_json = { workspace = true }
+tracing = { workspace = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lib]
+name = "sz_orm_oracle"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

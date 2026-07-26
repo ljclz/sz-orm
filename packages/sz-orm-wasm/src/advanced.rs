@@ -13,8 +13,6 @@
 //! 所有功能仅依赖 `std`/`serde`/`serde_json`，不引入额外 crate，
 //! 以保持 WASM 包体最小化。
 
-#![allow(dead_code)]
-
 use crate::WasmDatabase;
 use crate::WasmQuery;
 use serde::{Deserialize, Serialize};

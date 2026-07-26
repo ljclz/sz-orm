@@ -840,6 +840,23 @@ impl CircuitBreaker {
             }
         }
     }
+
+    /// 手动重置断路器到 `Closed` 状态，清空失败计数与最后失败时间。
+    ///
+    /// 与 `record_success` 的区别：
+    /// - `record_success`：请求成功后调用，语义上是“一次成功请求”的自然反馈；
+    /// - `reset`：管理员/运维主动强制重置，无视当前状态（含 `Open`），
+    ///   常用于故障排除后手动恢复、测试准备场景。
+    ///
+    /// 返回是否实际发生了状态变更（`Open` 或 `HalfOpen` → `Closed` 视为变更，
+    /// 已处于 `Closed` 且无失败计数则返回 `false`）。
+    pub fn reset(&mut self) -> bool {
+        let changed = self.state != CircuitState::Closed || self.consecutive_failures != 0;
+        self.state = CircuitState::Closed;
+        self.consecutive_failures = 0;
+        self.last_failure_at = None;
+        changed
+    }
 }
 
 /// Provider that tracks the last backup timestamp and reports `Unhealthy`
@@ -880,6 +897,49 @@ impl BackupHealthProvider {
         } else {
             HealthStatus::Healthy
         }
+    }
+}
+
+/// 启动健康检查 HTTP server
+///
+/// 在指定地址暴露健康检查端点，返回各资源池的 `HealthReport` JSON 数组。
+/// HTTP 状态码：全部健康返回 200，任一不健康返回 503。
+///
+/// # 参数
+///
+/// - `checker`: 健康检查器（ wrapped in `Arc` 以便跨 task 共享）
+/// - `pools`: 需要检查的资源池名称列表
+/// - `addr`: 监听地址
+pub async fn start_health_server(
+    checker: Arc<DefaultHealthChecker>,
+    pools: Vec<String>,
+    addr: std::net::SocketAddr,
+) -> Result<(), std::io::Error> {
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    loop {
+        let (mut stream, _) = listener.accept().await?;
+        let checker = checker.clone();
+        let pools = pools.clone();
+        tokio::spawn(async move {
+            let pool_refs: Vec<&str> = pools.iter().map(|s| s.as_str()).collect();
+            let reports = checker.check_all(&pool_refs);
+            let overall = checker.overall_status(&pool_refs);
+            let json = serde_json::to_string(&reports).unwrap_or_default();
+            let status = if overall == HealthStatus::Healthy {
+                "200 OK"
+            } else {
+                "503 Service Unavailable"
+            };
+            let response = format!(
+                "HTTP/1.1 {}\r\nContent-Type: application/json\r\nContent-Length: {}\r\n\r\n{}",
+                status,
+                json.len(),
+                json
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
     }
 }
 
@@ -1723,6 +1783,51 @@ mod tests {
         assert_eq!(cb.state(), CircuitState::Closed);
         cb.record_failure();
         assert_eq!(cb.state(), CircuitState::Open);
+    }
+
+    #[test]
+    fn test_circuit_breaker_reset_from_open() {
+        // 故障排除后手动重置：Open → Closed
+        let mut cb = CircuitBreaker::new(2, std::time::Duration::from_secs(60));
+        cb.record_failure();
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+        assert!(cb.reset());
+        assert_eq!(cb.state(), CircuitState::Closed);
+        assert_eq!(cb.consecutive_failures, 0);
+        // 重置后立即可执行
+        assert!(cb.can_execute());
+        // 仍需累计到阈值才会再次跳闸
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn test_circuit_breaker_reset_from_half_open() {
+        let mut cb = CircuitBreaker::new(1, std::time::Duration::from_millis(10));
+        cb.record_failure();
+        assert_eq!(cb.state(), CircuitState::Open);
+        std::thread::sleep(std::time::Duration::from_millis(20));
+        assert!(cb.can_execute());
+        assert_eq!(cb.state(), CircuitState::HalfOpen);
+        // HalfOpen 状态下手动重置
+        assert!(cb.reset());
+        assert_eq!(cb.state(), CircuitState::Closed);
+    }
+
+    #[test]
+    fn test_circuit_breaker_reset_idempotent_when_closed() {
+        // 已处于 Closed 且无失败计数时，reset 返回 false（无变更）
+        let mut cb = CircuitBreaker::new(3, std::time::Duration::from_secs(60));
+        assert!(!cb.reset());
+        assert_eq!(cb.state(), CircuitState::Closed);
+        // 存在失败计数但未跳闸时，reset 视为变更
+        cb.record_failure();
+        cb.record_failure();
+        assert!(cb.reset());
+        assert_eq!(cb.consecutive_failures, 0);
+        // 再次 reset 无变更
+        assert!(!cb.reset());
     }
 
     #[test]

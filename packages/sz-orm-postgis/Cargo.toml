@@ -25,3 +25,6 @@ postgis = { version = "0.9", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

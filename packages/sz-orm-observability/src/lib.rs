@@ -412,6 +412,32 @@ impl MetricsRegistry {
     }
 }
 
+/// 启动 Prometheus metrics HTTP server
+///
+/// 在指定地址暴露 `/metrics` 端点，返回 Prometheus 文本格式的指标数据。
+/// 每个连接在独立 tokio task 中处理。
+pub async fn start_metrics_server(
+    registry: Arc<MetricsRegistry>,
+    addr: std::net::SocketAddr,
+) -> Result<(), std::io::Error> {
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    loop {
+        let (mut stream, _) = listener.accept().await?;
+        let registry = registry.clone();
+        tokio::spawn(async move {
+            let metrics = registry.render();
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\n\r\n{}",
+                metrics.len(),
+                metrics
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

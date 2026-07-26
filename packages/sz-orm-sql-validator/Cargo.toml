@@ -12,7 +12,11 @@ categories.workspace = true
 
 [dependencies]
 thiserror.workspace = true
+regex = "1"
 
 [lib]
 name = "sz_orm_sql_validator"
 path = "src/lib.rs"
+
+[lints]
+workspace = true

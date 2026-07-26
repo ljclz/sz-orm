@@ -16,6 +16,39 @@ use sz_orm_storage::{LocalStorage, Storage, StorageBuilder, StorageProvider};
 /// 跨测试文件覆盖/删除，造成 NotFound 错误。
 static TEMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+///
+/// 注意：仅检查目录存在不足以保证可用——还需验证可写性，
+/// 以避免在受限沙箱环境中因目录存在但不可写导致测试失败。
+fn test_data_base() -> std::path::PathBuf {
+    let f_drive = std::path::Path::new("F:\\test\\data");
+    if is_dir_writable(f_drive) {
+        return f_drive.to_path_buf();
+    }
+    if let Ok(dir) = std::env::var("SZ_ORM_TEST_DATA_DIR") {
+        let p = std::path::PathBuf::from(&dir);
+        if is_dir_writable(&p) {
+            return p;
+        }
+    }
+    std::env::temp_dir()
+}
+
+/// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+fn is_dir_writable(dir: &std::path::Path) -> bool {
+    if !dir.exists() {
+        return false;
+    }
+    let probe = dir.join(format!(".probe_{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 /// 辅助：创建唯一的临时目录。
 /// 三重唯一性保证：pid（进程级）+ nanos（时间级）+ counter（线程级原子递增）
 fn temp_dir() -> std::path::PathBuf {
@@ -25,7 +58,7 @@ fn temp_dir() -> std::path::PathBuf {
         .as_nanos();
     let pid = std::process::id();
     let counter = TEMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir().join(format!(
+    test_data_base().join(format!(
         "sz_orm_storage_stress_{}_{}_{}",
         pid, nanos, counter
     ))

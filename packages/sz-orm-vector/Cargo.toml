@@ -29,3 +29,6 @@ tokio-test = "0.4"
 [[test]]
 name = "vector_tests"
 path = "tests/vector_tests.rs"
+
+[lints]
+workspace = true

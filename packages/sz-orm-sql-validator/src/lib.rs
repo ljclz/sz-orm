@@ -3,6 +3,8 @@
 //! Provides validation of SQL statements for syntax correctness,
 //! parameter count matching, and structural integrity.
 
+pub mod firewall;
+
 use thiserror::Error;
 
 /// SQL validation errors

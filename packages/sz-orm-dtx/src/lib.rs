@@ -11,11 +11,138 @@
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, RwLock};
 
 pub mod cross_shard;
 pub mod saga;
 pub mod tcc;
+
+// ============================================================================
+// TransactionLogStore — 事务日志持久化（用于崩溃恢复）
+// ============================================================================
+
+/// 分布式事务日志条目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TransactionLogEntry {
+    /// 事务 ID
+    pub tx_id: String,
+    /// 事务状态
+    pub state: String,
+    /// 参与者列表
+    pub participants: Vec<String>,
+    /// 时间戳（Unix 毫秒）
+    pub timestamp: String,
+    /// 操作类型（prepare/commit/rollback）
+    pub action: String,
+}
+
+/// 事务日志存储 trait
+///
+/// 手动解糖 async（不使用 `#[async_trait]`），与 `sz-orm-core` 的 `L2CacheBackend` 风格一致。
+pub trait TransactionLogStore: Send + Sync {
+    /// 追加日志
+    fn append<'a>(
+        &'a self,
+        entry: TransactionLogEntry,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
+
+    /// 读取事务日志
+    fn read<'a>(
+        &'a self,
+        tx_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TransactionLogEntry>, String>> + Send + 'a>>;
+
+    /// 读取所有未完成事务（state 不为 Committed/RolledBack/Failed 的最新条目）
+    fn read_pending<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TransactionLogEntry>, String>> + Send + 'a>>;
+}
+
+/// 内存事务日志存储（开发测试用）
+pub struct InMemoryTransactionLog {
+    logs: tokio::sync::RwLock<Vec<TransactionLogEntry>>,
+}
+
+impl Default for InMemoryTransactionLog {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InMemoryTransactionLog {
+    pub fn new() -> Self {
+        Self {
+            logs: tokio::sync::RwLock::new(Vec::new()),
+        }
+    }
+}
+
+impl TransactionLogStore for InMemoryTransactionLog {
+    fn append<'a>(
+        &'a self,
+        entry: TransactionLogEntry,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut logs = self.logs.write().await;
+            logs.push(entry);
+            Ok(())
+        })
+    }
+
+    fn read<'a>(
+        &'a self,
+        tx_id: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TransactionLogEntry>, String>> + Send + 'a>> {
+        Box::pin(async move {
+            let logs = self.logs.read().await;
+            Ok(logs.iter().filter(|e| e.tx_id == tx_id).cloned().collect())
+        })
+    }
+
+    fn read_pending<'a>(
+        &'a self,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<TransactionLogEntry>, String>> + Send + 'a>> {
+        Box::pin(async move {
+            let logs = self.logs.read().await;
+            // 按 tx_id 分组，取每个事务的最新条目
+            let mut latest: HashMap<String, &TransactionLogEntry> = HashMap::new();
+            for entry in logs.iter() {
+                latest.insert(entry.tx_id.clone(), entry);
+            }
+            // 过滤未完成事务（非 Committed/RolledBack/Failed）
+            const TERMINAL: &[&str] = &["Committed", "RolledBack", "Failed"];
+            let pending: Vec<TransactionLogEntry> = latest
+                .into_values()
+                .filter(|e| !TERMINAL.iter().any(|t| e.state == *t))
+                .cloned()
+                .collect();
+            Ok(pending)
+        })
+    }
+}
+
+/// 同步调用 async trait 方法（用于 prepare/commit/rollback 同步上下文）
+///
+/// 优先使用当前 tokio 运行时 `block_on`；若无运行时（如纯同步测试上下文），
+/// 创建临时运行时执行。失败时返回 `None`，调用方可忽略日志写入失败。
+fn block_on_async<F>(fut: F) -> Option<F::Output>
+where
+    F: Future + Send,
+    F::Output: Send,
+{
+    if let Ok(handle) = tokio::runtime::Handle::try_current() {
+        // 已在 tokio 运行时上下文中，使用 handle.block_on
+        // 注意：若当前是 current-thread runtime 且未来会 re-enter，可能死锁。
+        // 此处用于同步 trait 方法调用 async 日志写入，不会 re-enter 同一 runtime。
+        return Some(handle.block_on(fut));
+    }
+    // 无运行时 → 创建临时运行时
+    tokio::runtime::Runtime::new()
+        .ok()
+        .map(|rt| rt.block_on(fut))
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub enum TransactionState {
@@ -129,6 +256,8 @@ pub struct DistributedTransaction {
     pub id: String,
     state: TransactionState,
     participants: Vec<TransactionParticipant>,
+    /// 事务日志存储（可选，启用后会在 prepare/commit/rollback 写入日志）
+    log_store: Option<Arc<dyn TransactionLogStore>>,
 }
 
 impl DistributedTransaction {
@@ -137,7 +266,19 @@ impl DistributedTransaction {
             id: id.to_string(),
             state: TransactionState::Active,
             participants: Vec::new(),
+            log_store: None,
         }
+    }
+
+    /// 设置事务日志存储
+    pub fn with_log_store(mut self, store: Arc<dyn TransactionLogStore>) -> Self {
+        self.log_store = Some(store);
+        self
+    }
+
+    /// 返回是否启用了日志存储
+    pub fn has_log_store(&self) -> bool {
+        self.log_store.is_some()
     }
 
     pub fn state(&self) -> TransactionState {
@@ -152,6 +293,29 @@ impl DistributedTransaction {
         self.participants.push(p);
     }
 
+    /// 写入一条事务日志（失败时不影响主流程）
+    fn write_log(&self, action: &str, state: &str) {
+        let Some(store) = &self.log_store else {
+            return;
+        };
+        let entry = TransactionLogEntry {
+            tx_id: self.id.clone(),
+            state: state.to_string(),
+            participants: self
+                .participants
+                .iter()
+                .map(|p| p.resource_id.clone())
+                .collect(),
+            timestamp: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis().to_string())
+                .unwrap_or_else(|_| "0".to_string()),
+            action: action.to_string(),
+        };
+        // 同步阻塞调用 async trait 方法
+        let _ = block_on_async(store.append(entry));
+    }
+
     pub fn prepare(&mut self) -> Result<(), String> {
         match self.state {
             TransactionState::Active => {}
@@ -163,6 +327,7 @@ impl DistributedTransaction {
             }
         }
         self.state = TransactionState::Preparing;
+        self.write_log("prepare", "Preparing");
 
         let total = self.participants.len();
         let mut prepared_count = 0;
@@ -176,6 +341,7 @@ impl DistributedTransaction {
                         let _ = self.participants[j].rollback();
                     }
                     self.state = TransactionState::Failed;
+                    self.write_log("prepare", "Failed");
                     return Err(format!(
                         "Prepare failed at participant {}: {}",
                         resource_id, e
@@ -184,6 +350,7 @@ impl DistributedTransaction {
             }
         }
         self.state = TransactionState::Prepared;
+        self.write_log("prepare", "Prepared");
         Ok(())
     }
 
@@ -199,16 +366,26 @@ impl DistributedTransaction {
             }
         }
         self.state = TransactionState::Committing;
+        self.write_log("commit", "Committing");
+        // 先收集首个失败参与者，避免在 &mut self.participants 借用期间调用 self.write_log
+        let mut commit_error: Option<(String, String)> = None;
         for participant in &mut self.participants {
             if let Err(e) = participant.commit() {
-                self.state = TransactionState::Failed;
-                return Err(format!(
-                    "Commit failed at participant {}: {}",
-                    participant.resource_id, e
-                ));
+                let resource_id = participant.resource_id.clone();
+                commit_error = Some((resource_id, e));
+                break;
             }
         }
+        if let Some((resource_id, e)) = commit_error {
+            self.state = TransactionState::Failed;
+            self.write_log("commit", "Failed");
+            return Err(format!(
+                "Commit failed at participant {}: {}",
+                resource_id, e
+            ));
+        }
         self.state = TransactionState::Committed;
+        self.write_log("commit", "Committed");
         Ok(())
     }
 
@@ -227,10 +404,12 @@ impl DistributedTransaction {
             _ => {}
         }
         self.state = TransactionState::RollingBack;
+        self.write_log("rollback", "RollingBack");
         for participant in &mut self.participants {
             let _ = participant.rollback();
         }
         self.state = TransactionState::RolledBack;
+        self.write_log("rollback", "RolledBack");
         Ok(())
     }
 }

@@ -1276,6 +1276,59 @@ impl SwaggerUi {
     }
 }
 
+// ============================================================================
+// Model -> OpenAPI Schema 生成
+// ============================================================================
+
+/// 将 sz-orm `Model` 定义转换为 OpenAPI 3.0 对象 Schema。
+///
+/// 依据 [`sz_orm_core::Model::fields`] 返回的 (字段名, 类型字符串) 列表
+/// 生成 `ObjectType`，类型字符串遵循 sz-orm casts 约定（`"integer"` / `"float"` /
+/// `"boolean"` / `"string"` / `"datetime"` / `"date"` / `"time"` / `"json"` /
+/// `"array"` / `"bytes"`）。
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::Model;
+/// use sz_orm_swagger::model_to_openapi_schema;
+///
+/// struct User { id: i64, name: String }
+/// impl Model for User {
+///     type PrimaryKey = i64;
+///     fn table_name() -> &'static str { "users" }
+///     fn pk(&self) -> Self::PrimaryKey { self.id }
+///     fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+///     fn fields() -> Vec<(&'static str, &'static str)> {
+///         vec![("id", "integer"), ("name", "string")]
+///     }
+/// }
+///
+/// let schema = model_to_openapi_schema::<User>();
+/// ```
+pub fn model_to_openapi_schema<T: sz_orm_core::Model>() -> Schema {
+    let mut obj = ObjectType::new().with_description(T::table_name());
+    for (name, type_str) in T::fields() {
+        obj = obj.with_property(name, cast_type_to_schema(type_str));
+    }
+    Schema::object(obj)
+}
+
+/// 将 sz-orm casts 类型字符串映射为 OpenAPI 基本类型 Schema。
+fn cast_type_to_schema(type_str: &str) -> Schema {
+    match type_str {
+        "integer" => Schema::integer(),
+        "float" | "double" => Schema::number(),
+        "boolean" => Schema::boolean(),
+        "datetime" => Schema::string().with_format("date-time"),
+        "date" => Schema::string().with_format("date"),
+        "time" => Schema::string().with_format("time"),
+        // json/array/bytes 在 OpenAPI 中无直接对应基本类型，统一以 string 表示
+        "json" | "array" | "bytes" => Schema::string(),
+        _ => Schema::string(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2095,5 +2148,57 @@ mod tests {
         assert!(parsed["paths"]["/users"]["post"].is_object());
         assert_eq!(parsed["paths"]["/users"]["get"]["operationId"], "listUsers");
         assert_eq!(parsed["paths"]["/users"]["post"]["operationId"], "createUser");
+    }
+
+    #[test]
+    fn test_model_to_openapi_schema() {
+        use sz_orm_core::Model;
+
+        struct User;
+        impl Model for User {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "users"
+            }
+            fn pk(&self) -> Self::PrimaryKey {
+                0
+            }
+            fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+            fn fields() -> Vec<(&'static str, &'static str)> {
+                vec![("id", "integer"), ("name", "string"), ("active", "boolean")]
+            }
+        }
+
+        let schema = model_to_openapi_schema::<User>();
+        let json = serde_json::to_value(&schema).unwrap();
+        assert_eq!(json["type"], "object");
+        assert_eq!(json["description"], "users");
+        assert_eq!(json["properties"]["id"]["type"], "integer");
+        assert_eq!(json["properties"]["name"]["type"], "string");
+        assert_eq!(json["properties"]["active"]["type"], "boolean");
+    }
+
+    #[test]
+    fn test_model_to_openapi_schema_empty_fields() {
+        use sz_orm_core::Model;
+
+        struct Empty;
+        impl Model for Empty {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "empty"
+            }
+            fn pk(&self) -> Self::PrimaryKey {
+                0
+            }
+            fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+        }
+
+        let schema = model_to_openapi_schema::<Empty>();
+        let json = serde_json::to_value(&schema).unwrap();
+        assert_eq!(json["type"], "object");
+        assert_eq!(json["description"], "empty");
+        // 默认 fields() 返回空，properties 不应出现
+        assert!(json.get("properties").is_none() || json["properties"].as_object().unwrap().is_empty());
     }
 }

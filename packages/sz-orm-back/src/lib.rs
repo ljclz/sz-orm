@@ -349,8 +349,38 @@ impl Default for HealthStatus {
     }
 }
 
+/// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+fn test_data_base() -> std::path::PathBuf {
+    let f_drive = std::path::Path::new("F:\\test\\data");
+    if is_dir_writable(f_drive) {
+        return f_drive.to_path_buf();
+    }
+    if let Ok(dir) = std::env::var("SZ_ORM_TEST_DATA_DIR") {
+        let p = std::path::PathBuf::from(&dir);
+        if is_dir_writable(&p) {
+            return p;
+        }
+    }
+    std::env::temp_dir()
+}
+
+/// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+fn is_dir_writable(dir: &std::path::Path) -> bool {
+    if !dir.exists() {
+        return false;
+    }
+    let probe = dir.join(format!(".probe_{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 fn unique_dir(prefix: &str) -> std::path::PathBuf {
-    std::env::temp_dir().join(format!(
+    test_data_base().join(format!(
         "sz-orm-back-{}-{}",
         prefix,
         std::time::SystemTime::now()
@@ -471,7 +501,7 @@ mod tests {
         let config = BackupConfig::default();
         let manager = BackupManager::new(config);
 
-        let temp_dir = std::env::temp_dir();
+        let temp_dir = test_data_base();
         let result = manager.backup("test_pool", &temp_dir).await;
 
         assert!(result.is_ok());
@@ -483,7 +513,7 @@ mod tests {
     async fn test_backup_writes_real_file_with_manifest() {
         // Unique subdirectory so the test cleans up after itself and does
         // not stomp on sibling tests.
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-test-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -538,7 +568,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backup_then_restore_roundtrip() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-roundtrip-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -575,7 +605,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_restore_rejects_pool_name_mismatch() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-mismatch-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -604,7 +634,7 @@ mod tests {
     #[tokio::test]
     async fn test_restore_rejects_invalid_format_header() {
         // Write a JSON file that does NOT have the magic format header.
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-fmt-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -635,7 +665,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_restore_rejects_corrupt_json() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-corrupt-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -662,7 +692,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_sql_writes_real_insert_statements() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-export-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -699,7 +729,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_export_then_import_roundtrip() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-sqlrt-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -728,7 +758,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_import_sql_records_errors_for_unknown_keywords() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-imperr-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -780,7 +810,7 @@ mod tests {
         // The existing default test only checked that backup returned Ok.
         // Strengthen: an empty BackupManager must still produce a real file
         // with the manifest, just containing zero tables.
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-empty-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -832,7 +862,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backup_compressed_file_has_gzip_magic_bytes() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-gzmagic-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -867,7 +897,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backup_uncompressed_file_starts_with_json_brace() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-plain-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -895,7 +925,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_backup_compressed_then_restore_roundtrip() {
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-gzrt-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
@@ -931,7 +961,7 @@ mod tests {
     async fn test_backup_compressed_file_is_smaller_than_uncompressed_for_repetitive_data() {
         // Highly compressible data: the gzip stream must be smaller than
         // the raw JSON. This is the whole point of `compress: true`.
-        let temp_dir = std::env::temp_dir().join(format!(
+        let temp_dir = test_data_base().join(format!(
             "sz-orm-back-gzsize-{}",
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)

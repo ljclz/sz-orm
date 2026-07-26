@@ -24,3 +24,6 @@ rust-s3 = { version = "0.37", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

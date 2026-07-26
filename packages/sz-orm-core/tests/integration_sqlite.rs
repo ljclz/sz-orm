@@ -16,6 +16,39 @@ use sz_orm_core::Value;
 /// 唯一临时文件路径（避免并行测试冲突）
 static SQLITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
+/// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+///
+/// 注意：仅检查目录存在不足以保证可用——还需验证可写性，
+/// 以避免在受限沙箱环境中因目录存在但不可写导致测试失败。
+fn test_data_dir() -> std::path::PathBuf {
+    let f_drive = std::path::Path::new("F:\\test\\data");
+    if is_dir_writable(f_drive) {
+        return f_drive.to_path_buf();
+    }
+    if let Ok(dir) = std::env::var("SZ_ORM_TEST_DATA_DIR") {
+        let p = std::path::PathBuf::from(&dir);
+        if is_dir_writable(&p) {
+            return p;
+        }
+    }
+    std::env::temp_dir()
+}
+
+/// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+fn is_dir_writable(dir: &std::path::Path) -> bool {
+    if !dir.exists() {
+        return false;
+    }
+    let probe = dir.join(format!(".probe_{}", std::process::id()));
+    match std::fs::File::create(&probe) {
+        Ok(_) => {
+            let _ = std::fs::remove_file(&probe);
+            true
+        }
+        Err(_) => false,
+    }
+}
+
 fn temp_sqlite_path() -> String {
     let pid = std::process::id();
     let nanos = std::time::SystemTime::now()
@@ -23,7 +56,7 @@ fn temp_sqlite_path() -> String {
         .unwrap_or_default()
         .as_nanos();
     let counter = SQLITE_COUNTER.fetch_add(1, Ordering::Relaxed);
-    std::env::temp_dir()
+    test_data_dir()
         .join(format!(
             "sz_orm_int_sqlite_{}_{}_{}.db",
             pid, nanos, counter

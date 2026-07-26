@@ -14,8 +14,6 @@
 //! 避免破坏已有的 memory / stub / real_pg 三种实现。
 //! 内存计算部分基于纯 Rust 实现，不依赖外部库。
 
-#![allow(dead_code)]
-
 use crate::error::VectorError;
 use crate::{PgVectorStore, SearchResult, VectorMetric, VectorRecord};
 use std::collections::HashMap;

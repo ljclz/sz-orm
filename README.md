@@ -56,8 +56,8 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | Rust 最低版本 | 1.94.0+（sqlx 0.9.0 要求） |
 | sqlx 版本 | 0.9.0 |
 | 已知 Bug | **0** |
-| `panic!`/`unimplemented!`/`todo!` | **0**（生产代码） |
-| `cargo clippy -D warnings` | ✅ 0 warnings |
+| `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
+| `cargo clippy -D warnings` | ✅ 0 warnings（`[workspace.lints]` 强制） |
 
 ## 核心特性
 
@@ -82,7 +82,8 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 ## 质量基线
 
 - 7 线验证体系：TDD + Integration + Jepsen + Fuzz + Stress + Chaos + Formal
-- 0 `panic!` / 0 `unimplemented!` / 0 `todo!`（生产代码）
+- 0 `panic!` / 0 `unimplemented!` / 0 `todo!` / 0 `unreachable!`（生产代码）
+- `[workspace.lints]` 强制 `clippy::all` 0 警告，编译期质量门禁
 - `cargo clippy --workspace --all-targets -- -D warnings` 通过，0 warnings
 - `cargo fmt --all --check` 通过
 - `cargo audit` — 0 未忽略漏洞（7 个传递依赖忽略项，均有文档说明）

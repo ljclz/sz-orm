@@ -362,7 +362,10 @@ where
         let mut result: HashMap<K, V> = HashMap::new();
 
         // 1. 从缓存读取
-        let cached = self.cache.read().unwrap();
+        let cached = self
+            .cache
+            .read()
+            .expect("BatchLoader cache lock poisoned (read)");
         let mut to_load: Vec<K> = Vec::new();
         for k in keys {
             if let Some(v) = cached.get(k) {
@@ -386,7 +389,10 @@ where
         }
 
         // 3. 写入缓存
-        let mut cache = self.cache.write().unwrap();
+        let mut cache = self
+            .cache
+            .write()
+            .expect("BatchLoader cache lock poisoned (write)");
         for (k, v) in &all_loaded {
             cache.insert(k.clone(), v.clone());
         }
@@ -405,12 +411,18 @@ where
 
     /// 清空缓存
     pub fn clear_cache(&self) {
-        self.cache.write().unwrap().clear();
+        self.cache
+            .write()
+            .expect("BatchLoader cache lock poisoned (clear_cache)")
+            .clear();
     }
 
     /// 返回当前缓存大小
     pub fn cache_size(&self) -> usize {
-        self.cache.read().unwrap().len()
+        self.cache
+            .read()
+            .expect("BatchLoader cache lock poisoned (cache_size)")
+            .len()
     }
 
     /// 返回 batch_size

@@ -10,7 +10,7 @@
 //!
 //! 超大数据量场景：10 万条记录批量插入性能基线。
 
-use oracle::{Connection as OracleConn, Connector, Privilege};
+use oracle::Connection as OracleConn;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::Instant;
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
@@ -18,8 +18,9 @@ use sz_orm_core::DbType;
 use sz_orm_core::Value;
 
 /// 默认 Oracle 连接参数（本机 23ai Free）；可通过环境变量覆盖。
-const ORACLE_USER_DEFAULT: &str = "sys";
-const ORACLE_PASSWORD_DEFAULT: &str = "<your-password>";
+/// 使用专用测试用户 sz_orm_test（已授予 DBA 权限），避免 sys/SYSDBA 特权。
+const ORACLE_USER_DEFAULT: &str = "sz_orm_test";
+const ORACLE_PASSWORD_DEFAULT: &str = "SzOrmTest2026";
 const ORACLE_CONNECT_STRING_DEFAULT: &str = "127.0.0.1:1521/freepdb1.FALSE";
 
 fn oracle_user() -> String {
@@ -36,10 +37,8 @@ fn oracle_connect_string() -> String {
 }
 
 fn open_conn() -> OracleConn {
-    // sys 用户需要 SYSDBA 特权
-    Connector::new(oracle_user(), oracle_password(), oracle_connect_string())
-        .privilege(Privilege::Sysdba)
-        .connect()
+    // 普通用户连接（sz_orm_test 已授予 DBA 权限，无需 SYSDBA 特权）
+    OracleConn::connect(oracle_user(), oracle_password(), oracle_connect_string())
         .expect("oracle connect failed - is Oracle 23ai running on 127.0.0.1:1521?")
 }
 

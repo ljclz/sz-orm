@@ -529,6 +529,121 @@ fn current_timestamp_secs() -> u64 {
 }
 
 // ============================================================================
+// 密钥版本管理与轮换（并发安全）
+// ============================================================================
+
+use std::sync::RwLock;
+use std::time::Duration;
+
+/// 默认密钥轮换间隔：90 天
+const DEFAULT_ROTATION_INTERVAL_SECS: u64 = 90 * 24 * 60 * 60;
+
+/// 带版本的密钥
+#[derive(Debug, Clone)]
+pub struct VersionedKey {
+    /// 密钥版本
+    pub version: u32,
+    /// 密钥字节
+    pub key: Vec<u8>,
+    /// 创建时间
+    pub created_at: std::time::SystemTime,
+}
+
+/// 密钥管理器（支持轮换）
+///
+/// 维护一个当前活跃密钥和最多 3 个历史密钥（用于解密过渡期），
+/// 支持按时间间隔自动轮换检查。所有字段使用 `RwLock` 保护，可安全跨线程共享。
+pub struct KeyManager {
+    /// 当前活跃密钥
+    current: RwLock<VersionedKey>,
+    /// 旧密钥列表（用于解密过渡期）
+    previous: RwLock<Vec<VersionedKey>>,
+    /// 密钥轮换间隔
+    rotation_interval: Duration,
+    /// 上次轮换时间
+    last_rotation: RwLock<std::time::SystemTime>,
+}
+
+impl KeyManager {
+    /// 创建密钥管理器，使用给定的初始密钥（版本号从 1 开始）
+    pub fn new(initial_key: Vec<u8>) -> Self {
+        let now = std::time::SystemTime::now();
+        Self {
+            current: RwLock::new(VersionedKey {
+                version: 1,
+                key: initial_key,
+                created_at: now,
+            }),
+            previous: RwLock::new(Vec::new()),
+            rotation_interval: Duration::from_secs(DEFAULT_ROTATION_INTERVAL_SECS),
+            last_rotation: RwLock::new(now),
+        }
+    }
+
+    /// 设置轮换间隔
+    pub fn with_rotation_interval(mut self, interval: Duration) -> Self {
+        self.rotation_interval = interval;
+        self
+    }
+
+    /// 轮换密钥
+    pub fn rotate(&self, new_key: Vec<u8>) -> Result<(), CryptoError> {
+        let mut current = self.current.write().expect("KeyManager lock poisoned");
+        let mut previous = self.previous.write().expect("KeyManager lock poisoned");
+
+        // 将当前密钥移入旧密钥列表
+        previous.push(current.clone());
+
+        // 保留最近 3 个旧密钥
+        if previous.len() > 3 {
+            previous.remove(0);
+        }
+
+        // 设置新密钥
+        *current = VersionedKey {
+            version: current.version + 1,
+            key: new_key,
+            created_at: std::time::SystemTime::now(),
+        };
+
+        *self.last_rotation.write().unwrap() = std::time::SystemTime::now();
+        Ok(())
+    }
+
+    /// 检查是否需要轮换
+    pub fn needs_rotation(&self) -> bool {
+        let last = *self.last_rotation.read().unwrap();
+        std::time::SystemTime::now()
+            .duration_since(last)
+            .map(|d| d >= self.rotation_interval)
+            .unwrap_or(false)
+    }
+
+    /// 获取当前密钥
+    pub fn current_key(&self) -> VersionedKey {
+        self.current.read().unwrap().clone()
+    }
+
+    /// 按版本查找密钥
+    pub fn key_by_version(&self, version: u32) -> Option<VersionedKey> {
+        if self.current.read().unwrap().version == version {
+            return Some(self.current.read().unwrap().clone());
+        }
+        self.previous
+            .read()
+            .unwrap()
+            .iter()
+            .find(|k| k.version == version)
+            .cloned()
+    }
+
+    /// 返回保留的旧密钥数量
+    pub fn previous_count(&self) -> usize {
+        self.previous.read().unwrap().len()
+    }
+}
+
+// ============================================================================
 // 辅助函数
 // ============================================================================
 
@@ -1241,5 +1356,124 @@ mod tests {
         mgr.rotate_key(b"k2".to_vec());
         assert_eq!(mgr.version_count(), 1);
         assert_eq!(mgr.versions(), vec![2]);
+    }
+
+    // ===== KeyManager（并发密钥轮换）测试 =====
+
+    #[test]
+    fn test_key_manager_initial_key() {
+        let mgr = KeyManager::new(b"initial-key".to_vec());
+        let current = mgr.current_key();
+        assert_eq!(current.version, 1);
+        assert_eq!(current.key, b"initial-key");
+        assert_eq!(mgr.previous_count(), 0);
+    }
+
+    #[test]
+    fn test_key_manager_rotate_increments_version() {
+        let mgr = KeyManager::new(b"v1".to_vec());
+        assert!(mgr.rotate(b"v2".to_vec()).is_ok());
+        let current = mgr.current_key();
+        assert_eq!(current.version, 2);
+        assert_eq!(current.key, b"v2");
+        assert_eq!(mgr.previous_count(), 1);
+    }
+
+    #[test]
+    fn test_key_manager_key_by_version_current() {
+        let mgr = KeyManager::new(b"v1".to_vec());
+        let found = mgr.key_by_version(1).expect("v1 should exist");
+        assert_eq!(found.key, b"v1");
+    }
+
+    #[test]
+    fn test_key_manager_key_by_version_previous() {
+        let mgr = KeyManager::new(b"v1".to_vec());
+        mgr.rotate(b"v2".to_vec()).unwrap();
+        // 旧版本仍可查找
+        let old = mgr.key_by_version(1).expect("v1 should still be retained");
+        assert_eq!(old.key, b"v1");
+        // 新版本也可查找
+        let new = mgr.key_by_version(2).expect("v2 should exist");
+        assert_eq!(new.key, b"v2");
+    }
+
+    #[test]
+    fn test_key_manager_key_by_version_not_found() {
+        let mgr = KeyManager::new(b"v1".to_vec());
+        assert!(mgr.key_by_version(999).is_none());
+    }
+
+    #[test]
+    fn test_key_manager_retains_at_most_three_previous() {
+        let mgr = KeyManager::new(b"v1".to_vec());
+        mgr.rotate(b"v2".to_vec()).unwrap();
+        mgr.rotate(b"v3".to_vec()).unwrap();
+        mgr.rotate(b"v4".to_vec()).unwrap();
+        // 3 次轮换后 previous 应有 3 个，再轮换一次应淘汰最早的
+        assert_eq!(mgr.previous_count(), 3);
+        mgr.rotate(b"v5".to_vec()).unwrap();
+        assert_eq!(mgr.previous_count(), 3);
+        // v1 应已被淘汰
+        assert!(mgr.key_by_version(1).is_none());
+        // v2 仍应存在
+        assert!(mgr.key_by_version(2).is_some());
+        // 当前版本为 5
+        assert_eq!(mgr.current_key().version, 5);
+    }
+
+    #[test]
+    fn test_key_manager_needs_rotation_false_initially() {
+        let mgr = KeyManager::new(b"k".to_vec());
+        // 刚创建不应需要轮换
+        assert!(!mgr.needs_rotation());
+    }
+
+    #[test]
+    fn test_key_manager_needs_rotation_true_after_interval() {
+        let mgr = KeyManager::new(b"k".to_vec())
+            .with_rotation_interval(Duration::from_millis(0));
+        // 间隔为 0，应立即需要轮换
+        std::thread::sleep(Duration::from_millis(1));
+        assert!(mgr.needs_rotation());
+    }
+
+    #[test]
+    fn test_key_manager_with_rotation_interval() {
+        let mgr = KeyManager::new(b"k".to_vec())
+            .with_rotation_interval(Duration::from_secs(60));
+        assert!(!mgr.needs_rotation());
+    }
+
+    #[test]
+    fn test_key_manager_rotate_resets_last_rotation() {
+        let mgr = KeyManager::new(b"k".to_vec())
+            .with_rotation_interval(Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(mgr.needs_rotation());
+        mgr.rotate(b"k2".to_vec()).unwrap();
+        // 轮换后应不再立即需要轮换
+        assert!(!mgr.needs_rotation());
+    }
+
+    #[test]
+    fn test_key_manager_concurrent_access() {
+        use std::sync::Arc;
+        use std::thread;
+        let mgr = Arc::new(KeyManager::new(b"base".to_vec()));
+        let mut handles = vec![];
+        // 并发读
+        for _ in 0..4 {
+            let m = mgr.clone();
+            handles.push(thread::spawn(move || {
+                let _ = m.current_key();
+                let _ = m.previous_count();
+            }));
+        }
+        for h in handles {
+            h.join().expect("thread panicked");
+        }
+        // 并发读不应改变状态
+        assert_eq!(mgr.current_key().version, 1);
     }
 }

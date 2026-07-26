@@ -5,7 +5,7 @@
 use crate::error::{TransactionState, TxError};
 use crate::pool::Connection;
 use std::sync::Arc;
-use std::time::Duration;
+use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
 
 // TransactionState 定义在 `error` 模块以避免 `transaction` ↔ `error` 循环依赖；
@@ -40,6 +40,24 @@ pub enum AutoCommit {
     Off,
 }
 
+/// 事务传播行为
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum PropagationBehavior {
+    /// 如果当前存在事务，则加入；否则新建事务（默认）
+    #[default]
+    Required,
+    /// 必须在事务中执行，否则抛出异常
+    Mandatory,
+    /// 必须在没有事务的环境中执行，否则抛出异常
+    Never,
+    /// 如果当前存在事务，则加入；否则无事务执行
+    Supports,
+    /// 总是新建事务，挂起当前事务
+    RequiresNew,
+    /// 如果当前存在事务，则嵌套执行（保存点）；否则新建事务
+    Nested,
+}
+
 pub struct TransactOptions {
     pub isolation_level: Option<IsolationLevel>,
     pub read_only: bool,
@@ -49,6 +67,8 @@ pub struct TransactOptions {
     /// 默认 `DEFAULT_MAX_NESTING_DEPTH`（8），防止递归事务导致数据库连接耗尽或
     /// 保存点栈溢出。设为 0 表示禁用嵌套事务（首次 `savepoint()` 即报错）。
     pub max_nesting_depth: u32,
+    /// 事务传播行为（默认 Required）
+    pub propagation: PropagationBehavior,
 }
 
 /// H-8 默认最大嵌套深度
@@ -61,6 +81,7 @@ impl Default for TransactOptions {
             read_only: false,
             timeout: None,
             max_nesting_depth: DEFAULT_MAX_NESTING_DEPTH,
+            propagation: PropagationBehavior::default(),
         }
     }
 }
@@ -84,6 +105,12 @@ impl TransactOptions {
     /// H-8 修复：设置最大嵌套深度
     pub fn with_max_nesting_depth(mut self, max_depth: u32) -> Self {
         self.max_nesting_depth = max_depth;
+        self
+    }
+
+    /// 设置事务传播行为
+    pub fn with_propagation(mut self, propagation: PropagationBehavior) -> Self {
+        self.propagation = propagation;
         self
     }
 }
@@ -118,6 +145,8 @@ pub struct Transaction {
     state: TransactionState,
     options: TransactOptions,
     savepoint_counter: u32,
+    /// 事务超时截止时间（由 options.timeout 计算，在 commit/check 时检查）
+    deadline: Option<Instant>,
 }
 
 impl Transaction {
@@ -139,11 +168,14 @@ impl Transaction {
     /// # }
     /// ```
     pub fn new(conn: Box<dyn Connection>, options: TransactOptions) -> Self {
+        // 任务1：根据 options.timeout 计算事务截止时间
+        let deadline = options.timeout.map(|t| Instant::now() + t);
         Self {
             conn: Arc::new(Mutex::new(Some(conn))),
             state: TransactionState::Active,
             options,
             savepoint_counter: 0,
+            deadline,
         }
     }
 
@@ -178,6 +210,13 @@ impl Transaction {
     pub async fn commit(&mut self) -> Result<(), TxError> {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
+        }
+        // 任务1：检查事务超时，超时则回滚并返回错误
+        if let Some(deadline) = self.deadline {
+            if Instant::now() > deadline {
+                self.rollback().await.ok();
+                return Err(TxError::CommitFailed("Transaction timeout".to_string()));
+            }
         }
         let mut conn_guard = self.conn.lock().await;
         let conn = conn_guard.as_mut().ok_or(TxError::ConnectionTaken)?;
@@ -654,6 +693,7 @@ mod tests {
             read_only: true,
             timeout: Some(Duration::from_secs(30)),
             max_nesting_depth: DEFAULT_MAX_NESTING_DEPTH,
+            propagation: PropagationBehavior::default(),
         };
 
         assert_eq!(opts.isolation_level, Some(IsolationLevel::Serializable));

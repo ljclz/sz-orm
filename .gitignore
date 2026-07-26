@@ -36,3 +36,13 @@ bench-comparison/bench-*.txt
 
 # Publish logs
 scripts/publish-log*.txt
+
+# Mutation testing output artifacts
+mutants.out/
+mutants.out.old/
+
+# IDE 配置目录
+.trae/
+
+# 测试生成的人工产物
+*.proptest-regressions

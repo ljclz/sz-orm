@@ -69,6 +69,17 @@ pub trait Model: Send + Sync + Sized + 'static {
     fn soft_delete_field() -> Option<&'static str> {
         None
     }
+
+    /// 获取字段定义（字段名, 类型字符串），用于 OpenAPI schema 生成等
+    ///
+    /// 类型字符串遵循 sz-orm casts 约定：
+    /// `"integer"` / `"float"` / `"boolean"` / `"string"` / `"datetime"` / `"date"` /
+    /// `"time"` / `"json"` / `"array"` / `"bytes"`。
+    ///
+    /// 默认返回空列表；需要 schema 推导的模型应重写此方法。
+    fn fields() -> Vec<(&'static str, &'static str)> {
+        vec![]
+    }
 }
 
 /// 时间戳字段配置
@@ -239,9 +250,28 @@ pub trait ActiveRecord: Model + ModelExt + RelationLoader + Clone + Send + Sync 
 }
 
 /// 关系预加载构造器
-pub struct WithRelation<M: Model + ModelExt + RelationLoader> {
+///
+/// # Send 约束
+///
+/// `WithRelation<M>` 显式要求 `M: Send`，与 `ActiveRecord: Send + Sync` 保持一致。
+/// 这确保返回值可安全地跨线程传递（如通过 tokio::spawn）。
+///
+/// # Compile-time Send 保证
+///
+/// 通过下方 `impl` 块的 `where Self: Send` 子句强制保证：
+/// 任何满足约束的 `M` 生成的 `WithRelation<M>` 都自动满足 `Send`。
+/// 如果未来 `WithRelation` 字段变更导致不再 `Send`（如使用 `Rc`/`Cell`），编译期即报错。
+pub struct WithRelation<M: Model + ModelExt + RelationLoader + Send> {
     model: M,
     relations: Vec<String>,
+}
+
+// 编译期 Send 断言：通过空 impl 强制 WithRelation<M>: Send
+// 借助 where Self: Send 子句，若未来字段变更破坏 Send 性质，此 impl 将无法编译
+impl<M: Model + ModelExt + RelationLoader + Send> WithRelation<M>
+where
+    Self: Send,
+{
 }
 
 /// 转义 SQL 字符串字面量中的特殊字符（用于内嵌值场景）
@@ -336,7 +366,7 @@ fn validate_relation_identifiers(idents: &[&str]) -> Result<(), RelationError> {
     Ok(())
 }
 
-impl<M: Model + ModelExt + RelationLoader> WithRelation<M> {
+impl<M: Model + ModelExt + RelationLoader + Send> WithRelation<M> {
     /// 追加一个待加载的关系
     pub fn with(mut self, relation: &str) -> Self {
         self.relations.push(relation.to_string());
@@ -762,6 +792,7 @@ pub fn value_to_json(v: Value) -> serde_json::Value {
         Value::Uuid(s) | Value::Date(s) | Value::DateTime(s) | Value::Time(s) | Value::Json(s) => {
             serde_json::Value::String(s)
         }
+        Value::Decimal(s) => serde_json::Value::String(s),
         Value::Array(arr) => serde_json::Value::Array(arr.into_iter().map(value_to_json).collect()),
         Value::Object(map) => {
             let mut obj = serde_json::Map::new();

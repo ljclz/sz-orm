@@ -28,3 +28,6 @@ subtle = "2.5"
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

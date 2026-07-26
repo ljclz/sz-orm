@@ -72,13 +72,55 @@ pub trait SqlType: 'static {}
 pub struct Bool;
 impl SqlType for Bool {}
 
-/// SQL Integer 类型
+/// SQL Integer 类型（对应 i32 / INT）
 pub struct Integer;
 impl SqlType for Integer {}
 
-/// SQL Text 类型
+/// SQL SmallInt 类型（对应 i8/i16 / TINYINT/SMALLINT）
+pub struct SmallInt;
+impl SqlType for SmallInt {}
+
+/// SQL BigInt 类型（对应 i64 / BIGINT）
+pub struct BigInt;
+impl SqlType for BigInt {}
+
+/// SQL Real 类型（对应 f32 / FLOAT/REAL）
+pub struct Real;
+impl SqlType for Real {}
+
+/// SQL Double 类型（对应 f64 / DOUBLE/DOUBLE PRECISION）
+pub struct Double;
+impl SqlType for Double {}
+
+/// SQL Text 类型（对应 String / VARCHAR/TEXT）
 pub struct Text;
 impl SqlType for Text {}
+
+/// SQL Date 类型（对应日期，不含时间）
+pub struct Date;
+impl SqlType for Date {}
+
+/// SQL DateTime 类型（对应日期时间 / DATETIME/TIMESTAMP）
+pub struct DateTime;
+impl SqlType for DateTime {}
+
+/// SQL JSON 类型
+pub struct Json;
+impl SqlType for Json {}
+
+/// SQL UUID 类型
+pub struct Uuid;
+impl SqlType for Uuid {}
+
+/// SQL Binary 类型（对应 Vec<u8> / BLOB/BYTEA/VARBINARY）
+pub struct Binary;
+impl SqlType for Binary {}
+
+/// 可空类型包装器（对应 Option<T> / NULLABLE）
+///
+/// 将内层 SqlType 标记为允许 NULL。
+pub struct Nullable<T: SqlType>(pub std::marker::PhantomData<T>);
+impl<T: SqlType> SqlType for Nullable<T> {}
 
 /// 未指定的 SQL 类型
 ///
@@ -86,6 +128,119 @@ impl SqlType for Text {}
 /// 宏生成的列默认使用此类型；需要强类型 SQL 检查的场景应显式指定具体类型。
 pub struct Untyped;
 impl SqlType for Untyped {}
+
+/// Rust 类型 → SQL 类型标记推断 trait
+///
+/// 为常见 Rust 类型提供编译期 SqlType 映射，使 `typed_query!` 宏能自动推断
+/// 列的 SqlType，而非一律默认 Untyped。
+///
+/// # 类型映射表
+///
+/// | Rust 类型 | SqlType |
+/// |-----------|---------|
+/// | `bool` | `Bool` |
+/// | `i8`, `u8` | `SmallInt` |
+/// | `i16`, `u16` | `SmallInt` |
+/// | `i32`, `u32` | `Integer` |
+/// | `i64`, `u64` | `BigInt` |
+/// | `f32` | `Real` |
+/// | `f64` | `Double` |
+/// | `String`, `&str`, `&String` | `Text` |
+/// | `Vec<u8>`, `&[u8]`, `&Vec<u8>` | `Binary` |
+/// | `Option<T>` | `Nullable<T::SqlType>` |
+/// | `()` | `Untyped`（兜底） |
+///
+/// 未实现此 trait 的类型在 `typed_query!` 宏中使用时会产生编译错误，
+/// 用户可自行实现 `InferSqlType` 来扩展类型映射。
+pub trait InferSqlType {
+    /// 推断出的 SQL 类型标记
+    type SqlType: SqlType;
+}
+
+impl InferSqlType for bool {
+    type SqlType = Bool;
+}
+
+impl InferSqlType for i8 {
+    type SqlType = SmallInt;
+}
+
+impl InferSqlType for i16 {
+    type SqlType = SmallInt;
+}
+
+impl InferSqlType for i32 {
+    type SqlType = Integer;
+}
+
+impl InferSqlType for i64 {
+    type SqlType = BigInt;
+}
+
+impl InferSqlType for u8 {
+    type SqlType = SmallInt;
+}
+
+impl InferSqlType for u16 {
+    type SqlType = SmallInt;
+}
+
+impl InferSqlType for u32 {
+    type SqlType = Integer;
+}
+
+impl InferSqlType for u64 {
+    type SqlType = BigInt;
+}
+
+impl InferSqlType for f32 {
+    type SqlType = Real;
+}
+
+impl InferSqlType for f64 {
+    type SqlType = Double;
+}
+
+impl InferSqlType for String {
+    type SqlType = Text;
+}
+
+impl InferSqlType for Vec<u8> {
+    type SqlType = Binary;
+}
+
+/// `&str` -> `Text` (same as `String`)
+impl InferSqlType for &str {
+    type SqlType = Text;
+}
+
+/// `&String` -> `Text` (same as `String`)
+impl InferSqlType for &String {
+    type SqlType = Text;
+}
+
+/// `&[u8]` -> `Binary` (same as `Vec<u8>`)
+impl InferSqlType for &[u8] {
+    type SqlType = Binary;
+}
+
+/// `&Vec<u8>` -> `Binary` (same as `Vec<u8>`)
+impl InferSqlType for &Vec<u8> {
+    type SqlType = Binary;
+}
+
+/// `Option<T>` 推断为 `Nullable<T::SqlType>`，保留内层类型信息。
+impl<T: InferSqlType> InferSqlType for Option<T> {
+    type SqlType = Nullable<T::SqlType>;
+}
+
+/// 兜底实现：`()` 代表未知类型，映射到 Untyped
+///
+/// 当 `typed_query!` 宏遇到无法解析的类型时，会回退到 `()`，
+/// 由此获得 Untyped 而非编译失败。
+impl InferSqlType for () {
+    type SqlType = Untyped;
+}
 
 /// 强类型表达式 trait
 ///
@@ -139,22 +294,68 @@ impl<C: TypedColumn> TypedExpression for ColumnExpr<C> {
 ///
 /// 将 Rust 值包装为 SQL 字面量（参数化）。
 ///
-/// `SqlType` 由值类型派生：`i64`→`Integer`、`String`→`Text`、`bool`→`Bool`。
-/// 其他类型需显式实现 `TypedExpression` 或包装为 `Literal<String>`。
-pub struct Literal<T: ToString + Clone> {
+/// `SqlType` 由值类型派生：`i64`→`BigInt`、`i32`→`Integer`、`String`→`Text`、
+/// `bool`→`Bool`、`f64`→`Double`、`f32`→`Real`、`Vec<u8>`→`Binary`。
+/// 其他类型需显式实现 `TypedExpression`。
+pub struct Literal<T: Clone> {
     value: T,
 }
 
-impl<T: ToString + Clone> Literal<T> {
+impl<T: Clone> Literal<T> {
     /// 创建字面量
     pub fn new(value: T) -> Self {
         Self { value }
     }
 }
 
-/// `Literal<i64>` → SQL Integer 类型
+/// `Literal<i64>` → SQL BigInt 类型
 impl TypedExpression for Literal<i64> {
+    type SqlType = BigInt;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<i32>` → SQL Integer 类型
+impl TypedExpression for Literal<i32> {
     type SqlType = Integer;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<i16>` → SQL SmallInt 类型
+impl TypedExpression for Literal<i16> {
+    type SqlType = SmallInt;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<i8>` → SQL SmallInt 类型
+impl TypedExpression for Literal<i8> {
+    type SqlType = SmallInt;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<f64>` → SQL Double 类型
+impl TypedExpression for Literal<f64> {
+    type SqlType = Double;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<f32>` → SQL Real 类型
+impl TypedExpression for Literal<f32> {
+    type SqlType = Real;
 
     fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
         (String::from("?"), vec![self.value.to_string()])
@@ -176,6 +377,17 @@ impl TypedExpression for Literal<bool> {
 
     fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
         (String::from("?"), vec![self.value.to_string()])
+    }
+}
+
+/// `Literal<Vec<u8>>` → SQL Binary 类型
+impl TypedExpression for Literal<Vec<u8>> {
+    type SqlType = Binary;
+
+    fn to_sql(&self, _dialect: &dyn Dialect) -> (String, Vec<String>) {
+        // 二进制数据以 hex 编码传递（具体编码由驱动层处理，此处仅占位）
+        let hex: String = self.value.iter().map(|b| format!("{:02x}", b)).collect();
+        (String::from("?"), vec![hex])
     }
 }
 
@@ -610,7 +822,8 @@ mod tests {
         const NAME: &'static str = "id";
         type Table = UsersTable;
         type RustType = i64;
-        type SqlType = Integer;
+        // i64 → BigInt（与 InferSqlType 映射保持一致）
+        type SqlType = BigInt;
     }
 
     struct ColName;
@@ -626,7 +839,26 @@ mod tests {
         const NAME: &'static str = "age";
         type Table = UsersTable;
         type RustType = i64;
+        // i64 → BigInt（与 InferSqlType 映射保持一致）
+        type SqlType = BigInt;
+    }
+
+    /// 测试用列：i32 → Integer
+    struct ColScore;
+    impl TypedColumn for ColScore {
+        const NAME: &'static str = "score";
+        type Table = UsersTable;
+        type RustType = i32;
         type SqlType = Integer;
+    }
+
+    /// 测试用列：f64 → Double
+    struct ColHeight;
+    impl TypedColumn for ColHeight {
+        const NAME: &'static str = "height";
+        type Table = UsersTable;
+        type RustType = f64;
+        type SqlType = Double;
     }
 
     // 另一张表（用于跨表测试）
@@ -986,34 +1218,120 @@ mod tests {
         // 这些是零大小标记类型
         assert_eq!(std::mem::size_of::<Bool>(), 0);
         assert_eq!(std::mem::size_of::<Integer>(), 0);
+        assert_eq!(std::mem::size_of::<SmallInt>(), 0);
+        assert_eq!(std::mem::size_of::<BigInt>(), 0);
+        assert_eq!(std::mem::size_of::<Real>(), 0);
+        assert_eq!(std::mem::size_of::<Double>(), 0);
         assert_eq!(std::mem::size_of::<Text>(), 0);
+        assert_eq!(std::mem::size_of::<Date>(), 0);
+        assert_eq!(std::mem::size_of::<DateTime>(), 0);
+        assert_eq!(std::mem::size_of::<Json>(), 0);
+        assert_eq!(std::mem::size_of::<Uuid>(), 0);
+        assert_eq!(std::mem::size_of::<Binary>(), 0);
         assert_eq!(std::mem::size_of::<Untyped>(), 0);
+        // Nullable<T> 也是零大小（PhantomData 是零大小）
+        assert_eq!(std::mem::size_of::<Nullable<Integer>>(), 0);
+        assert_eq!(std::mem::size_of::<Nullable<Text>>(), 0);
+    }
+
+    #[test]
+    fn test_infer_sql_type_mapping() {
+        // 编译期校验 InferSqlType 类型映射
+        // bool → Bool
+        fn _assert_bool<T: InferSqlType<SqlType = Bool>>(_: T) {}
+        // i8/u8/i16/u16 → SmallInt
+        fn _assert_smallint<T: InferSqlType<SqlType = SmallInt>>(_: T) {}
+        // i32/u32 → Integer
+        fn _assert_integer<T: InferSqlType<SqlType = Integer>>(_: T) {}
+        // i64/u64 → BigInt
+        fn _assert_bigint<T: InferSqlType<SqlType = BigInt>>(_: T) {}
+        // f32 → Real
+        fn _assert_real<T: InferSqlType<SqlType = Real>>(_: T) {}
+        // f64 → Double
+        fn _assert_double<T: InferSqlType<SqlType = Double>>(_: T) {}
+        // String → Text
+        fn _assert_text<T: InferSqlType<SqlType = Text>>(_: T) {}
+        // Vec<u8> → Binary
+        fn _assert_binary<T: InferSqlType<SqlType = Binary>>(_: T) {}
+        // Option<i64> → Nullable<BigInt>
+        fn _assert_nullable_bigint<T: InferSqlType<SqlType = Nullable<BigInt>>>(_: T) {}
+        // () → Untyped
+        fn _assert_untyped<T: InferSqlType<SqlType = Untyped>>(_: T) {}
+
+        _assert_bool(true);
+        _assert_smallint(0i8);
+        _assert_smallint(0u8);
+        _assert_smallint(0i16);
+        _assert_smallint(0u16);
+        _assert_integer(0i32);
+        _assert_integer(0u32);
+        _assert_bigint(0i64);
+        _assert_bigint(0u64);
+        _assert_real(0.0f32);
+        _assert_double(0.0f64);
+        _assert_text(String::new());
+        _assert_binary(Vec::<u8>::new());
+        _assert_nullable_bigint(Some(0i64));
+        _assert_untyped(());
+
+        // Borrowed types: &str, &String, &[u8], &Vec<u8>
+        let s = String::new();
+        let v: Vec<u8> = Vec::new();
+        _assert_text("hello");
+        _assert_text(&s);
+        _assert_binary(&[1u8, 2u8, 3u8][..]);
+        _assert_binary(&v);
     }
 
     #[test]
     fn test_column_sql_type_propagation() {
         // ColumnExpr<C>::SqlType 应等于 C::SqlType
+        fn _assert_bigint<E: TypedExpression<SqlType = BigInt>>(_: E) {}
         fn _assert_integer<E: TypedExpression<SqlType = Integer>>(_: E) {}
+        fn _assert_double<E: TypedExpression<SqlType = Double>>(_: E) {}
         fn _assert_text<E: TypedExpression<SqlType = Text>>(_: E) {}
 
-        _assert_integer(ColumnExpr::<ColId>::new());
-        _assert_integer(ColumnExpr::<ColAge>::new());
+        // i64 列 → BigInt
+        _assert_bigint(ColumnExpr::<ColId>::new());
+        _assert_bigint(ColumnExpr::<ColAge>::new());
+        // i32 列 → Integer
+        _assert_integer(ColumnExpr::<ColScore>::new());
+        // f64 列 → Double
+        _assert_double(ColumnExpr::<ColHeight>::new());
+        // String 列 → Text
         _assert_text(ColumnExpr::<ColName>::new());
         _assert_text(ColumnExpr::<ColPostTitle>::new());
     }
 
     #[test]
     fn test_literal_sql_type_specialized() {
-        // Literal<i64>::SqlType 应为 Integer
+        // Literal<i64>::SqlType 应为 BigInt
+        fn _assert_bigint<E: TypedExpression<SqlType = BigInt>>(_: E) {}
+        // Literal<i32>::SqlType 应为 Integer
         fn _assert_integer<E: TypedExpression<SqlType = Integer>>(_: E) {}
+        // Literal<i16>::SqlType 应为 SmallInt
+        fn _assert_smallint<E: TypedExpression<SqlType = SmallInt>>(_: E) {}
+        // Literal<f64>::SqlType 应为 Double
+        fn _assert_double<E: TypedExpression<SqlType = Double>>(_: E) {}
+        // Literal<f32>::SqlType 应为 Real
+        fn _assert_real<E: TypedExpression<SqlType = Real>>(_: E) {}
         // Literal<String>::SqlType 应为 Text
         fn _assert_text<E: TypedExpression<SqlType = Text>>(_: E) {}
         // Literal<bool>::SqlType 应为 Bool
         fn _assert_bool<E: TypedExpression<SqlType = Bool>>(_: E) {}
+        // Literal<Vec<u8>>::SqlType 应为 Binary
+        fn _assert_binary<E: TypedExpression<SqlType = Binary>>(_: E) {}
 
-        _assert_integer(Literal::new(42i64));
+        _assert_bigint(Literal::new(42i64));
+        _assert_integer(Literal::new(7i32));
+        _assert_smallint(Literal::new(3i16));
+        _assert_smallint(Literal::new(3i8));
+        // 使用 1.5 避免触发 clippy::approx_constant (3.14≈PI, 2.71828≈E)
+        _assert_double(Literal::new(1.5f64));
+        _assert_real(Literal::new(1.0f32));
         _assert_text(Literal::new("hello".to_string()));
         _assert_bool(Literal::new(true));
+        _assert_binary(Literal::new(vec![1u8, 2u8, 3u8]));
     }
 
     #[test]

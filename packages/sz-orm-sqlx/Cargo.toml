@@ -14,11 +14,16 @@ categories.workspace = true
 sz-orm-core = { workspace = true }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal", "uuid"] }
 rust_decimal = "1.36"
+# 流式查询：try_stream! 宏实现 Connection::query_stream
+async-stream = "0.3"
+# Stream trait 与 StreamExt::next（fetch 流式结果迭代）
+futures.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+proptest = { workspace = true }
 
 [lib]
 name = "sz_orm_sqlx"
@@ -35,3 +40,14 @@ path = "tests/real_db_pool_tests.rs"
 [[test]]
 name = "real_db_jepsen"
 path = "tests/real_db_jepsen.rs"
+
+[[test]]
+name = "benchmark"
+path = "tests/benchmark.rs"
+
+[[test]]
+name = "differential_fuzz"
+path = "tests/differential_fuzz.rs"
+
+[lints]
+workspace = true

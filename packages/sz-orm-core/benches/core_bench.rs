@@ -12,18 +12,47 @@
 //! 运行：cargo bench --package sz-orm-core
 //! 报告：target/criterion/index.html
 
-use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use criterion::{
+    black_box, criterion_group, criterion_main, measurement::WallTime, AxisScale, BenchmarkGroup,
+    BenchmarkId, Criterion, PlotConfiguration, Throughput,
+};
 use std::collections::HashMap;
 use std::sync::Arc;
 use sz_orm_core::dialect::{get_dialect, ColumnDef, MySqlDialect};
 use sz_orm_core::{Connection, ConnectionFactory, DbType, Pool, PoolConfig, Value};
 
 // ============================================================================
+// Criterion 配置 — P99/P999 延迟分布观测
+// ============================================================================
+
+/// 构造全局 Criterion 配置。
+///
+/// criterion 0.5.1 的 `percentile` 并非公共 API（百分位由分析层固定输出），
+/// 因此这里通过 [`PlotConfiguration::summary_scale`] 将摘要图设为对数轴，
+/// 便于在 HTML 报告中观察 P99/P999 等尾部延迟分布（criterion 默认即输出
+/// 多个百分位，包含 99th）。
+fn configure_criterion() -> Criterion {
+    Criterion::default()
+}
+
+/// 创建 benchmark group 并应用对数轴摘要配置。
+///
+/// 统一为每个 group 配置 [`AxisScale::Logarithmic`]，使尾部延迟（P99/P999）
+/// 在摘要图中更易辨识，避免线性轴下长尾被压缩。
+fn bench_group<'a>(c: &'a mut Criterion, name: &'static str) -> BenchmarkGroup<'a, WallTime> {
+    let mut group = c.benchmark_group(name);
+    group.plot_config(
+        PlotConfiguration::default().summary_scale(AxisScale::Logarithmic),
+    );
+    group
+}
+
+// ============================================================================
 // Value::to_param 性能
 // ============================================================================
 
 fn bench_value_to_param(c: &mut Criterion) {
-    let mut group = c.benchmark_group("value_to_param");
+    let mut group = bench_group(c, "value_to_param");
     group.throughput(Throughput::Elements(1));
 
     group.bench_function("null", |b| {
@@ -97,7 +126,7 @@ fn bench_dialect_escape_string(c: &mut Criterion) {
     let pg = get_dialect(DbType::PostgreSQL).unwrap();
     let sqlite = get_dialect(DbType::Sqlite).unwrap();
 
-    let mut group = c.benchmark_group("dialect_escape_string");
+    let mut group = bench_group(c, "dialect_escape_string");
 
     let inputs: &[(&str, &str)] = &[
         ("plain_32", "abcdefghijklmnopqrstuvwxyz0123456789"),
@@ -150,7 +179,7 @@ fn bench_dialect_build_create_table(c: &mut Criterion) {
             .collect()
     }
 
-    let mut group = c.benchmark_group("dialect_build_create_table");
+    let mut group = bench_group(c, "dialect_build_create_table");
 
     for n in [5, 20, 50, 100].iter() {
         let cols = make_columns(*n);
@@ -180,7 +209,7 @@ fn bench_dialect_build_pagination(c: &mut Criterion) {
     let base_sql =
         "SELECT id, name, value, data, meta FROM large_table WHERE value > 100 ORDER BY id";
 
-    let mut group = c.benchmark_group("dialect_build_pagination");
+    let mut group = bench_group(c, "dialect_build_pagination");
     group.throughput(Throughput::Elements(1));
 
     for page in [1u64, 100, 10_000, 1_000_000].iter() {
@@ -273,32 +302,32 @@ mod bench_helpers {
 fn bench_pool_acquire_release(c: &mut Criterion) {
     use bench_helpers::BenchConnectionFactory;
 
+    // Runtime 在 bench 外创建，避免每次迭代重建 runtime 的开销
     let rt = tokio::runtime::Runtime::new().unwrap();
 
-    let mut group = c.benchmark_group("pool_acquire_release");
+    let mut group = bench_group(c, "pool_acquire_release");
 
     for max_size in [8u32, 32, 128].iter() {
         group.bench_with_input(
             BenchmarkId::new("pool_size", max_size),
             max_size,
             |b, &size| {
-                b.iter(|| {
-                    rt.block_on(async {
-                        let config = PoolConfig {
-                            max_size: size,
-                            min_idle: 1,
-                            ..PoolConfig::default()
-                        };
-                        let factory = Arc::new(BenchConnectionFactory);
-                        let pool = Pool::new(config, factory).unwrap();
-                        // acquire + release 循环 100 次
-                        for _ in 0..100 {
-                            let conn = pool.acquire().await.unwrap();
-                            pool.release(conn).await;
-                        }
-                        pool.close_all().await;
-                        black_box(());
-                    })
+                // 使用 criterion 的 async benchmark 支持，避免 block_on 污染测量
+                b.to_async(&rt).iter(|| async move {
+                    let config = PoolConfig {
+                        max_size: size,
+                        min_idle: 1,
+                        ..PoolConfig::default()
+                    };
+                    let factory = Arc::new(BenchConnectionFactory);
+                    let pool = Pool::new(config, factory).unwrap();
+                    // acquire + release 循环 100 次
+                    for _ in 0..100 {
+                        let conn = pool.acquire().await.unwrap();
+                        pool.release(conn).await;
+                    }
+                    pool.close_all().await;
+                    black_box(());
                 })
             },
         );
@@ -345,7 +374,7 @@ mod db_helpers {
 fn bench_in_memory_scan(c: &mut Criterion) {
     use db_helpers::InMemoryTable;
 
-    let mut group = c.benchmark_group("in_memory_scan");
+    let mut group = bench_group(c, "in_memory_scan");
 
     for n in [1_000usize, 10_000, 100_000].iter() {
         // 准备数据
@@ -394,7 +423,7 @@ fn bench_in_memory_scan(c: &mut Criterion) {
 // ============================================================================
 
 fn bench_json_parsing(c: &mut Criterion) {
-    let mut group = c.benchmark_group("json_parsing");
+    let mut group = bench_group(c, "json_parsing");
 
     let small = r#"{"name":"alice","age":30,"active":true}"#;
     let medium = serde_json::json!({
@@ -458,7 +487,7 @@ fn bench_query_builder_select(c: &mut Criterion) {
         fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
     }
 
-    let mut group = c.benchmark_group("query_builder_select");
+    let mut group = bench_group(c, "query_builder_select");
     group.throughput(Throughput::Elements(1));
 
     // 简单：SELECT * FROM table WHERE id = ?
@@ -524,7 +553,7 @@ fn bench_query_builder_insert_update(c: &mut Criterion) {
         fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
     }
 
-    let mut group = c.benchmark_group("query_builder_insert_update");
+    let mut group = bench_group(c, "query_builder_insert_update");
     group.throughput(Throughput::Elements(1));
 
     // 构造测试数据
@@ -583,7 +612,7 @@ fn bench_query_builder_insert_update(c: &mut Criterion) {
 // ============================================================================
 
 fn bench_value_batch_to_param(c: &mut Criterion) {
-    let mut group = c.benchmark_group("value_batch_to_param");
+    let mut group = bench_group(c, "value_batch_to_param");
 
     for n in [10usize, 100, 1000].iter() {
         // 准备混合类型 Values
@@ -608,17 +637,19 @@ fn bench_value_batch_to_param(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(
-    benches,
-    bench_value_to_param,
-    bench_dialect_escape_string,
-    bench_dialect_build_create_table,
-    bench_dialect_build_pagination,
-    bench_pool_acquire_release,
-    bench_in_memory_scan,
-    bench_json_parsing,
-    bench_query_builder_select,
-    bench_query_builder_insert_update,
-    bench_value_batch_to_param,
-);
+criterion_group! {
+    name = benches;
+    config = configure_criterion();
+    targets =
+        bench_value_to_param,
+        bench_dialect_escape_string,
+        bench_dialect_build_create_table,
+        bench_dialect_build_pagination,
+        bench_pool_acquire_release,
+        bench_in_memory_scan,
+        bench_json_parsing,
+        bench_query_builder_select,
+        bench_query_builder_insert_update,
+        bench_value_batch_to_param,
+}
 criterion_main!(benches);

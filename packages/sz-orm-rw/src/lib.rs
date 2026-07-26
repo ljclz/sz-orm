@@ -1,4 +1,3 @@
-#![allow(dead_code)]
 //! # SZ-ORM RW — 读写分离
 //!
 //! 提供 master/slave 读写分离路由，支持轮询、随机、最少连接三种负载均衡策略，
@@ -13,11 +12,12 @@
 //! - [`ReadRationing`] — 读写比例控制
 //! - [`LatencyStats`] — 延迟统计
 
+use rand::Rng;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant};
 
 /// 负载均衡策略
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
@@ -432,16 +432,10 @@ impl ReadWriteRouter {
                 healthy_indices[counter % healthy_indices.len()]
             }
             LoadBalanceStrategy::Random => {
-                let now = SystemTime::now()
-                    .duration_since(UNIX_EPOCH)
-                    .unwrap_or_default();
-                static COUNTER: AtomicUsize = AtomicUsize::new(0);
-                let c = COUNTER.fetch_add(1, Ordering::Relaxed);
-                let seed = (now.as_nanos() as usize)
-                    .wrapping_mul(2654435761)
-                    .wrapping_add(std::process::id() as usize)
-                    .wrapping_add(c.wrapping_mul(0x9e3779b9));
-                healthy_indices[seed % healthy_indices.len()]
+                // 改进：使用 rand::thread_rng().gen_range 替代基于系统时间的伪随机
+                // 提供 CSPRNG 级别的随机性，避免高并发下时间熵相近导致的分布不均
+                let idx = rand::thread_rng().gen_range(0..healthy_indices.len());
+                healthy_indices[idx]
             }
             LoadBalanceStrategy::LeastConnections => {
                 let counts = match self.connection_counts.lock() {
@@ -558,43 +552,6 @@ impl ReadWriteRouter {
             .lock()
             .map(|r| r.master_read_percent)
             .unwrap_or(0)
-    }
-
-    fn select_round_robin(&self) -> &str {
-        let idx = self.round_robin_counter.fetch_add(1, Ordering::SeqCst);
-        &self.slaves[idx % self.slaves.len()]
-    }
-
-    fn select_random(&self) -> &str {
-        let now = SystemTime::now()
-            .duration_since(UNIX_EPOCH)
-            .unwrap_or_default();
-        // 组合纳秒、pid 和一个静态计数器增加熵
-        static COUNTER: AtomicUsize = AtomicUsize::new(0);
-        let c = COUNTER.fetch_add(1, Ordering::Relaxed);
-        let seed = (now.as_nanos() as usize)
-            .wrapping_mul(2654435761)
-            .wrapping_add(std::process::id() as usize)
-            .wrapping_add(c.wrapping_mul(0x9e3779b9));
-        &self.slaves[seed % self.slaves.len()]
-    }
-
-    fn select_least_connections(&self) -> &str {
-        // lock poisoned 时降级到 round-robin，避免级联 panic。
-        // lock poisoned 意味着另一线程已 panic，此时统计计数不可信。
-        let counts = match self.connection_counts.lock() {
-            Ok(c) => c,
-            Err(_) => return self.select_round_robin(),
-        };
-        let mut min_idx = 0usize;
-        let mut min_count = counts[0];
-        for (i, &count) in counts.iter().enumerate() {
-            if count < min_count {
-                min_count = count;
-                min_idx = i;
-            }
-        }
-        &self.slaves[min_idx]
     }
 
     /// 在某个 slave 上获取连接（增加连接计数，用于 LeastConnections）

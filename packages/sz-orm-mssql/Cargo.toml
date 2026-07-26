@@ -1,0 +1,29 @@
+[package]
+name = "sz-orm-mssql"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "SZ-ORM Microsoft SQL Server adapter using tiberius (TDS protocol)"
+
+[dependencies]
+sz-orm-core = { workspace = true }
+tiberius = { version = "0.12", features = ["rust_decimal"] }
+rust_decimal = "1.36"
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+tokio-util = { version = "0.7", features = ["compat"] }
+serde_json = { workspace = true }
+futures-util = "0.3"
+
+[lib]
+name = "sz_orm_mssql"
+path = "src/lib.rs"
+
+[lints]
+workspace = true

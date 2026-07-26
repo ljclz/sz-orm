@@ -225,24 +225,21 @@ mod sz_orm {
         ctx.pool.close_all().await;
     }
 
-    /// SZ-ORM Connection trait 当前仅支持 &str SQL（不支持参数绑定），
-    /// 使用 format!() + 手动转义构造 SQL。这是 SZ-ORM API 的已知限制。
+    /// SZ-ORM v1.1.0 起支持参数绑定（execute_with_params/query_with_params），
+    /// 此处使用参数绑定路径，消除 format!() 开销与 SQL 注入风险。
     pub async fn insert_one(ctx: &SzOrmCtx, name: &str, email: &str, age: i64) {
-        let sql = format!(
-            "INSERT INTO bench_users (name, email, age) VALUES ('{}', '{}', {})",
-            name.replace('\'', "''"),
-            email.replace('\'', "''"),
-            age
-        );
+        let sql = "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)";
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        conn.execute(&sql).await.expect("insert");
+        conn.execute_with_params(sql, &[Value::String(name.to_string()), Value::String(email.to_string()), Value::I64(age)])
+            .await
+            .expect("insert");
         // conn drop 时自动归还
     }
 
     pub async fn select_by_id(ctx: &SzOrmCtx, id: i64) -> (String, String, i64) {
-        let sql = format!("SELECT name, email, age FROM bench_users WHERE id = {}", id);
+        let sql = "SELECT name, email, age FROM bench_users WHERE id = ?";
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        let rows = conn.query(&sql).await.expect("query");
+        let rows = conn.query_with_params(sql, &[Value::I64(id)]).await.expect("query");
         // conn drop 时自动归还
         if let Some(row) = rows.first() {
             let name = match row.get("name") {
@@ -297,21 +294,158 @@ mod sz_orm {
     }
 
     pub async fn update_by_id(ctx: &SzOrmCtx, id: i64, name: &str) {
-        let sql = format!(
-            "UPDATE bench_users SET name = '{}' WHERE id = {}",
-            name.replace('\'', "''"),
-            id
-        );
+        let sql = "UPDATE bench_users SET name = ? WHERE id = ?";
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        conn.execute(&sql).await.expect("update");
+        conn.execute_with_params(sql, &[Value::String(name.to_string()), Value::I64(id)])
+            .await
+            .expect("update");
         // conn drop 时自动归还
     }
 
     pub async fn delete_by_id(ctx: &SzOrmCtx, id: i64) {
-        let sql = format!("DELETE FROM bench_users WHERE id = {}", id);
+        let sql = "DELETE FROM bench_users WHERE id = ?";
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        conn.execute(&sql).await.expect("delete");
+        conn.execute_with_params(sql, &[Value::I64(id)]).await.expect("delete");
         // conn drop 时自动归还
+    }
+}
+
+// ============================================================================
+// SZ-ORM with parameter binding（execute_with_params / query_with_params）
+// 与 sz_orm 模块对比，验证参数绑定对性能的提升
+// ============================================================================
+
+mod sz_orm_params {
+    use super::*;
+    use sz_orm_core::{Pool, PoolConfigBuilder, Value};
+    use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
+    use std::sync::Arc;
+
+    #[derive(Clone)]
+    pub struct SzOrmParamsCtx {
+        pub pool: Pool,
+        _handle: Arc<SqlitePoolHandle>,
+    }
+
+    pub async fn setup() -> SzOrmParamsCtx {
+        let handle = Arc::new(
+            SqlitePoolHandle::connect("sqlite::memory:?cache=shared")
+                .await
+                .expect("connect"),
+        );
+        let factory = Arc::new(SqlxSqliteConnectionFactory::new(handle.clone()));
+        let config = PoolConfigBuilder::new().max_size(10).build().expect("config");
+        let pool = Pool::new(config, factory).expect("pool");
+        let mut conn = pool.acquire().await.expect("acquire");
+        conn.execute(CREATE_TABLE_SQL).await.expect("create table");
+        SzOrmParamsCtx {
+            pool,
+            _handle: handle,
+        }
+    }
+
+    pub async fn teardown(ctx: SzOrmParamsCtx) {
+        let mut conn = ctx.pool.acquire().await.expect("acquire");
+        conn.execute(DROP_TABLE_SQL).await.ok();
+        ctx.pool.close_all().await;
+    }
+
+    /// 使用 execute_with_params 参数绑定 INSERT（无 format! 无转义）
+    pub async fn insert_one(ctx: &SzOrmParamsCtx, name: &str, email: &str, age: i64) {
+        let mut conn = ctx.pool.acquire().await.expect("acquire");
+        conn.execute_with_params(
+            "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
+            &[
+                Value::String(name.to_string()),
+                Value::String(email.to_string()),
+                Value::I64(age),
+            ],
+        )
+        .await
+        .expect("insert");
+    }
+
+    /// 使用 query_with_params 参数绑定 SELECT WHERE id = ?
+    pub async fn select_by_id(ctx: &SzOrmParamsCtx, id: i64) -> (String, String, i64) {
+        let mut conn = ctx.pool.acquire().await.expect("acquire");
+        let rows = conn
+            .query_with_params(
+                "SELECT name, email, age FROM bench_users WHERE id = ?",
+                &[Value::I64(id)],
+            )
+            .await
+            .expect("query");
+        if let Some(row) = rows.first() {
+            let name = match row.get("name") {
+                Some(Value::String(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let email = match row.get("email") {
+                Some(Value::String(s)) => s.clone(),
+                _ => String::new(),
+            };
+            let age = match row.get("age") {
+                Some(Value::I64(n)) => *n,
+                Some(v) => v.as_i64().unwrap_or(0),
+                None => 0,
+            };
+            (name, email, age)
+        } else {
+            (String::new(), String::new(), 0)
+        }
+    }
+
+    /// 使用 execute_with_params 参数绑定 UPDATE
+    pub async fn update_by_id(ctx: &SzOrmParamsCtx, id: i64, name: &str) {
+        let mut conn = ctx.pool.acquire().await.expect("acquire");
+        conn.execute_with_params(
+            "UPDATE bench_users SET name = ? WHERE id = ?",
+            &[Value::String(name.to_string()), Value::I64(id)],
+        )
+        .await
+        .expect("update");
+    }
+
+    /// 使用 query_with_params 参数绑定 SELECT ALL（无 WHERE，空参数）
+    pub async fn select_all(ctx: &SzOrmParamsCtx) -> Vec<(i64, String, String, i64)> {
+        let mut conn = ctx.pool.acquire().await.expect("acquire");
+        let rows = conn
+            .query_with_params("SELECT id, name, email, age FROM bench_users", &[])
+            .await
+            .expect("query");
+        rows.iter()
+            .map(|row| {
+                let id = match row.get("id") {
+                    Some(Value::I64(n)) => *n,
+                    Some(v) => v.as_i64().unwrap_or(0),
+                    None => 0,
+                };
+                let name = match row.get("name") {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => String::new(),
+                };
+                let email = match row.get("email") {
+                    Some(Value::String(s)) => s.clone(),
+                    _ => String::new(),
+                };
+                let age = match row.get("age") {
+                    Some(Value::I64(n)) => *n,
+                    Some(v) => v.as_i64().unwrap_or(0),
+                    None => 0,
+                };
+                (id, name, email, age)
+            })
+            .collect()
+    }
+
+    pub async fn delete_by_id(ctx: &SzOrmParamsCtx, id: i64) {
+        let mut conn = ctx.pool.acquire().await.expect("acquire");
+        conn.execute_with_params(
+            "DELETE FROM bench_users WHERE id = ?",
+            &[Value::I64(id)],
+        )
+        .await
+        .expect("delete");
     }
 }
 
@@ -1136,6 +1270,244 @@ fn bench_delete(c: &mut Criterion) {
     group.finish();
 }
 
+// ============================================================================
+// 参数绑定 vs format!() 转义 对比基准测试
+// 对比 sz-orm（format!+escape）与 sz-orm-params（execute_with_params）的性能差异
+// ============================================================================
+
+fn bench_param_binding_comparison(c: &mut Criterion) {
+    let rt = tokio::runtime::Runtime::new().expect("rt");
+    const N: usize = 10000;
+
+    // ---- INSERT 对比（3 个参数：name, email, age）----
+    {
+        let mut group = c.benchmark_group("param_binding_insert");
+        group.throughput(Throughput::Elements(1));
+
+        group.bench_function("sz-orm-format", |b| {
+            b.to_async(&rt).iter(|| async move {
+                let ctx = sz_orm::setup().await;
+                for i in 0..N {
+                    sz_orm::insert_one(
+                        &ctx,
+                        &format!("user_{}", i),
+                        &format!("user_{}@test.com", i),
+                        (i % 100) as i64,
+                    )
+                    .await;
+                }
+                sz_orm::teardown(ctx).await;
+            });
+        });
+
+        group.bench_function("sz-orm-params", |b| {
+            b.to_async(&rt).iter(|| async move {
+                let ctx = sz_orm_params::setup().await;
+                for i in 0..N {
+                    sz_orm_params::insert_one(
+                        &ctx,
+                        &format!("user_{}", i),
+                        &format!("user_{}@test.com", i),
+                        (i % 100) as i64,
+                    )
+                    .await;
+                }
+                sz_orm_params::teardown(ctx).await;
+            });
+        });
+
+        group.finish();
+    }
+
+    // ---- SELECT BY ID 对比（1 个参数：id）----
+    {
+        let mut group = c.benchmark_group("param_binding_select_by_id");
+        group.throughput(Throughput::Elements(1));
+
+        const PREPARE: usize = 100000;
+
+        // 预填充数据，然后只测单次查询性能
+        let ctx_format = rt.block_on(async {
+            let ctx = sz_orm::setup().await;
+            for i in 0..PREPARE {
+                sz_orm::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        let mut idx = 0i64;
+        group.bench_function("sz-orm-format", |b| {
+            b.to_async(&rt).iter(|| {
+                let id = (idx % PREPARE as i64) + 1;
+                idx += 1;
+                let ctx = ctx_format.clone();
+                async move {
+                    let r = sz_orm::select_by_id(&ctx, id).await;
+                    black_box(r);
+                }
+            });
+        });
+        rt.block_on(async { sz_orm::teardown(ctx_format).await; });
+
+        let ctx_params = rt.block_on(async {
+            let ctx = sz_orm_params::setup().await;
+            for i in 0..PREPARE {
+                sz_orm_params::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        let mut idx = 0i64;
+        group.bench_function("sz-orm-params", |b| {
+            b.to_async(&rt).iter(|| {
+                let id = (idx % PREPARE as i64) + 1;
+                idx += 1;
+                let ctx = ctx_params.clone();
+                async move {
+                    let r = sz_orm_params::select_by_id(&ctx, id).await;
+                    black_box(r);
+                }
+            });
+        });
+        rt.block_on(async { sz_orm_params::teardown(ctx_params).await; });
+
+        group.finish();
+    }
+
+    // ---- UPDATE 对比（2 个参数：name, id）----
+    {
+        let mut group = c.benchmark_group("param_binding_update");
+        group.throughput(Throughput::Elements(1));
+
+        const PREPARE: usize = 100000;
+
+        let ctx_format = rt.block_on(async {
+            let ctx = sz_orm::setup().await;
+            for i in 0..PREPARE {
+                sz_orm::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        let mut idx = 0i64;
+        group.bench_function("sz-orm-format", |b| {
+            b.to_async(&rt).iter(|| {
+                let id = (idx % PREPARE as i64) + 1;
+                idx += 1;
+                let ctx = ctx_format.clone();
+                async move {
+                    sz_orm::update_by_id(&ctx, id, "updated_name").await;
+                }
+            });
+        });
+        rt.block_on(async { sz_orm::teardown(ctx_format).await; });
+
+        let ctx_params = rt.block_on(async {
+            let ctx = sz_orm_params::setup().await;
+            for i in 0..PREPARE {
+                sz_orm_params::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        let mut idx = 0i64;
+        group.bench_function("sz-orm-params", |b| {
+            b.to_async(&rt).iter(|| {
+                let id = (idx % PREPARE as i64) + 1;
+                idx += 1;
+                let ctx = ctx_params.clone();
+                async move {
+                    sz_orm_params::update_by_id(&ctx, id, "updated_name").await;
+                }
+            });
+        });
+        rt.block_on(async { sz_orm_params::teardown(ctx_params).await; });
+
+        group.finish();
+    }
+
+    // ---- SELECT ALL 对比（0 个参数，全表查询）----
+    // 验证 query_with_params(空参数) vs query(SQL 字面量) 在行映射开销上的差异。
+    // SELECT ALL 是 SZ-ORM 历史短板（SQLite 慢 50%、PostgreSQL 慢 4.3x），
+    // 本测试验证参数绑定路径是否能缩小/消除该差距。
+    {
+        let mut group = c.benchmark_group("param_binding_select_all");
+        group.throughput(Throughput::Elements(1));
+
+        const PREPARE_ALL: usize = 10000;
+
+        let ctx_format = rt.block_on(async {
+            let ctx = sz_orm::setup().await;
+            for i in 0..PREPARE_ALL {
+                sz_orm::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        group.bench_function("sz-orm-format", |b| {
+            b.to_async(&rt).iter(|| {
+                let ctx = ctx_format.clone();
+                async move {
+                    let r = sz_orm::select_all(&ctx).await;
+                    black_box(r);
+                }
+            });
+        });
+        rt.block_on(async { sz_orm::teardown(ctx_format).await; });
+
+        let ctx_params = rt.block_on(async {
+            let ctx = sz_orm_params::setup().await;
+            for i in 0..PREPARE_ALL {
+                sz_orm_params::insert_one(
+                    &ctx,
+                    &format!("user_{}", i),
+                    &format!("user_{}@test.com", i),
+                    i as i64,
+                )
+                .await;
+            }
+            ctx
+        });
+        group.bench_function("sz-orm-params", |b| {
+            b.to_async(&rt).iter(|| {
+                let ctx = ctx_params.clone();
+                async move {
+                    let r = sz_orm_params::select_all(&ctx).await;
+                    black_box(r);
+                }
+            });
+        });
+        rt.block_on(async { sz_orm_params::teardown(ctx_params).await; });
+
+        group.finish();
+    }
+}
+
 criterion_group!(
     benches,
     bench_insert,
@@ -1143,5 +1515,6 @@ criterion_group!(
     bench_select_all,
     bench_update,
     bench_delete,
+    bench_param_binding_comparison,
 );
 criterion_main!(benches);

@@ -1,0 +1,130 @@
+name: Soak Test (Self-Hosted 24h)
+
+# 自托管 Runner 24 小时 Soak Test
+# ============================================================
+# 本 workflow 使用 self-hosted runner 运行完整的 24 小时 soak test。
+# GitHub Actions 托管 runner 有 6 小时 job 时间限制，无法完成 24h 测试，
+# 因此必须使用 self-hosted runner（无 6h 限制）。
+#
+# 触发方式：
+#   - 手动触发（workflow_dispatch）
+#   - 每周日 00:00 UTC（北京时间 08:00）自动触发
+#
+# 运行时长：约 24 小时（timeout 1500 分钟 = 25 小时，留 1 小时余量）
+#
+# 前置条件：
+#   - 已注册 self-hosted runner 并打上 self-hosted 标签
+#   - 详见 docs/self-hosted-runner-setup.md
+#
+# 报告：
+#   - 控制台日志（实时指标采样，每 60s 一次）
+#   - CSV 报告（target/soak-report.csv，作为 artifact 上传）
+#   - 退化检测结果（如发现则 job 失败）
+# ============================================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      soak_duration_secs:
+        description: 'Soak 时长（秒，默认 86400 = 24h）'
+        required: false
+        default: '86400'
+        type: string
+  schedule:
+    - cron: '0 0 * * 0'  # 每周日 00:00 UTC（北京时间 08:00）
+
+# 防止并发运行（避免多个 soak 任务竞争 self-hosted runner 资源）
+concurrency:
+  group: soak-self-hosted-test
+  cancel-in-progress: false
+
+jobs:
+  soak:
+    # 使用 self-hosted runner（无 6h job 时间限制）
+    runs-on: self-hosted
+    timeout-minutes: 1500  # 25 小时（24h soak + 1h 缓冲）
+    continue-on-error: false  # soak test 失败必须报告，不允许静默通过
+    env:
+      # 用户规范要求的时长与采样间隔（秒）
+      # SOAK_DURATION_SECS=86400 即 24 小时；SOAK_SAMPLE_INTERVAL_SECS=60 即每分钟采样一次
+      SOAK_DURATION_SECS: ${{ github.event.inputs.soak_duration_secs || '86400' }}
+      SOAK_SAMPLE_INTERVAL_SECS: '60'
+      # 兼容现有 Rust 测试代码：tests/common/soak.rs::parse_duration_from_args 读取 SOAK_DURATION
+      # （SOAK_DURATION_SECS 为规范命名，SOAK_DURATION 为代码读取的实际变量，两者保持一致以避免 24h 任务退化为 60s 默认值）
+      SOAK_DURATION: '24h'
+      RUST_BACKTRACE: '1'
+      RUST_LOG: 'info'
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: 安装 Rust toolchain
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: 缓存 cargo registry
+        uses: Swatinem/rust-cache@v2
+
+      - name: 编译 release 产物
+        run: cargo build --release -p sz-orm-core
+
+      - name: 运行 24h Soak Test
+        run: cargo test --release -p sz-orm-core --test soak -- --ignored --nocapture
+
+      - name: 上传 soak 结果文件
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: soak-results-24h
+          path: target/soak-report.csv
+          if-no-files-found: warn
+          retention-days: 30
+
+      - name: 失败告警
+        if: failure()
+        shell: bash
+        run: |
+          echo "::error::24h Soak test 失败。请检查 CSV 报告和退化检测日志。"
+          echo "退化检测标准："
+          echo "- RSS 增长 > 50MB → 内存泄漏"
+          echo "- fd_count 增长 > 10 → 句柄泄漏"
+          echo "- 终态 pool_active != pool_idle → 连接池泄漏"
+          echo "- ops_per_sec 衰减 > 10% → 性能退化"
+          echo "- p99_latency 增长 > 2x → 慢退化"
+          echo "- error_count > 0 → 偶发错误"
+          exit 1
+
+      - name: Job 总结（关键指标）
+        if: always()
+        shell: bash
+        run: |
+          SHORT_SHA="${GITHUB_SHA:0:7}"
+          {
+            echo "## 24h Soak Test 总结"
+            echo ""
+            echo "| 项目 | 值 |"
+            echo "| --- | --- |"
+            echo "| Runner | self-hosted |"
+            echo "| 目标时长 | 24 小时（86400 秒） |"
+            echo "| 采样间隔 | 60 秒 |"
+            echo "| 触发方式 | ${GITHUB_EVENT_NAME} |"
+            echo "| 分支 | ${GITHUB_REF_NAME} |"
+            echo "| Commit | ${SHORT_SHA} |"
+            echo ""
+            echo "### 退化检测标准"
+            echo "- RSS 增长 > 50MB → 内存泄漏"
+            echo "- fd_count 增长 > 10 → 句柄泄漏"
+            echo "- 终态 pool_active != pool_idle → 连接池泄漏"
+            echo "- ops_per_sec 衰减 > 10% → 性能退化"
+            echo "- p99_latency 增长 > 2x → 慢退化"
+            echo "- error_count > 0 → 偶发错误"
+            echo ""
+            echo "### 产物"
+            echo "- CSV 报告：\`target/soak-report.csv\`（artifact: soak-results-24h）"
+            echo ""
+            echo "### 结果"
+            if [ "${{ job.status }}" = "success" ]; then
+              echo "✅ **通过**：未检测到退化"
+            else
+              echo "❌ **失败**：请查看上方日志和退化检测详细信息"
+            fi
+          } >> "$GITHUB_STEP_SUMMARY"

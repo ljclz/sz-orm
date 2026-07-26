@@ -50,3 +50,6 @@ path = "src/bin/production_app.rs"
 [[bin]]
 name = "production_dtx"
 path = "src/bin/production_dtx.rs"
+
+[lints]
+workspace = true

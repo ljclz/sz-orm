@@ -1,5 +1,5 @@
 [workspace]
-members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", "packages/sz-orm-back", "packages/sz-orm-websocket", "packages/sz-orm-mqtt", "packages/sz-orm-storage", "packages/sz-orm-queue", "packages/sz-orm-auth", "packages/sz-orm-scheduler", "packages/sz-orm-tracing", "packages/sz-orm-es", "packages/sz-orm-limit", "packages/sz-orm-crypto", "packages/sz-orm-grpc", "packages/sz-orm-graphql", "packages/sz-orm-dtx", "packages/sz-orm-rw", "packages/sz-orm-sharding", "packages/sz-orm-logger", "packages/sz-orm-swagger", "packages/sz-orm-masking", "packages/sz-orm-config", "packages/sz-orm-health", "packages/sz-orm-audit", "packages/sz-orm-batch", "packages/sz-orm-wasm", "packages/sz-orm-lc", "packages/sz-orm-sqlx", "packages/sz-orm-sql-validator", "packages/sz-orm-macros", "packages/sz-orm-query-builder", "packages/sz-orm-observability", "packages/sz-orm-postgis", "packages/sz-orm-timeseries", "packages/sz-orm-search", "packages/sz-orm-vector", "cli", "examples"]
+members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", "packages/sz-orm-back", "packages/sz-orm-websocket", "packages/sz-orm-mqtt", "packages/sz-orm-storage", "packages/sz-orm-queue", "packages/sz-orm-auth", "packages/sz-orm-scheduler", "packages/sz-orm-tracing", "packages/sz-orm-es", "packages/sz-orm-limit", "packages/sz-orm-crypto", "packages/sz-orm-grpc", "packages/sz-orm-graphql", "packages/sz-orm-dtx", "packages/sz-orm-rw", "packages/sz-orm-sharding", "packages/sz-orm-logger", "packages/sz-orm-swagger", "packages/sz-orm-masking", "packages/sz-orm-config", "packages/sz-orm-health", "packages/sz-orm-audit", "packages/sz-orm-batch", "packages/sz-orm-wasm", "packages/sz-orm-lc", "packages/sz-orm-sqlx", "packages/sz-orm-sql-validator", "packages/sz-orm-macros", "packages/sz-orm-query-builder", "packages/sz-orm-observability", "packages/sz-orm-postgis", "packages/sz-orm-timeseries", "packages/sz-orm-search", "packages/sz-orm-vector", "packages/sz-orm-oracle", "packages/sz-orm-mssql", "packages/sz-orm-axum", "packages/sz-orm-actix", "cli", "examples"]
 resolver = "2"
 
 [workspace.package]
@@ -11,6 +11,20 @@ repository = "https://github.com/ljclz/sz-orm"
 homepage = "https://github.com/ljclz/sz-orm"
 keywords = ["orm", "database", "async", "sql", "tokio"]
 categories = ["database", "asynchronous"]
+
+# 工作空间级别的 lint 配置：强制 clippy::all 0 警告，编译期阻断低质量代码
+# 各子包通过 [lints] workspace = true 继承
+# 注意：仅启用 clippy::all（默认级别），不启用 pedantic/restriction，
+# 因为 pedantic 级别在大型 ORM 项目中会产生数千个过度严格的警告
+[workspace.lints.rust]
+unsafe_op_in_unsafe_fn = "warn"
+
+[workspace.lints.clippy]
+all = { level = "warn", priority = -1 }
+# 允许模块根处的 pub use 重导出（Rust 惯例）
+module_name_repetitions = "allow"
+# 允许某些有意义的类型复杂度（ORM 项目中类型签名天然复杂）
+type_complexity = "allow"
 
 [workspace.dependencies]
 tokio = { version = "1.40", features = ["full"] }
@@ -25,5 +39,34 @@ tracing = { version = "0.1", features = ["attributes"] }
 # v0.2.1 修复 T-1：添加 Property-Based Testing 支持
 # 集中管理 proptest 版本，子包通过 { workspace = true } 继承
 proptest = "1.5"
+# v1.1.0 优化 2：Pool 无锁队列，替换 Mutex<VecDeque>
+crossbeam-queue = "0.3"
+# #11 修复：审计日志哈希链防篡改（SHA-256 密码学哈希）
+sha2 = "0.10"
+# Fix #39：L2Cache RedisBackend 真实实现（异步连接池 + tokio 运行时集成）
+# - features: tokio-comp（tokio 异步 IO）、connection-manager（自动重连的连接池）
+redis = { version = "0.27", features = ["tokio-comp", "connection-manager"] }
+
+# ========== Skills 配套测试依赖（dev-only，子包按需引用） ==========
+# 配合 .trae/skills/sz-orm-mutation-testing
+cargo-mutants = "24.0"
+# 配合 .trae/skills/sz-orm-sql-differential（随机数据生成）
+fake = { version = "2.9", features = ["chrono", "uuid"] }
+rand = "0.8"
+# 配合 .trae/skills/sz-orm-sql-differential（SQL 解析比对）
+sqlparser = "0.47"
+# 配合 .trae/skills/sz-orm-sql-differential / sz-orm-chaos-pool（异步测试）
+rstest = "0.19"
+futures = "0.3"
+tracing-test = "0.2"
+# 配合 .trae/skills/sz-orm-sql-differential / sz-orm-chaos-pool（数据库测试容器）
+testcontainers = { version = "0.17", features = ["postgres", "mysql"] }
+# 配合 .trae/skills/sz-orm-chaos-pool（连接池模拟与度量）
+deadpool-postgres = "0.12"
+metrics = "0.23"
+# 配合 .trae/skills/sz-orm-chaos-pool（资源泄漏检测）
+jemallocator = "0.5"
 sz-orm-core = { version = "1.0.0", path = "packages/sz-orm-core" }
 sz-orm-ai = { version = "1.0.0", path = "packages/sz-orm-ai" }
+sz-orm-oracle = { version = "1.0.0", path = "packages/sz-orm-oracle" }
+sz-orm-mssql = { version = "1.0.0", path = "packages/sz-orm-mssql" }

@@ -24,3 +24,6 @@ rumqttc = { version = "0.25", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

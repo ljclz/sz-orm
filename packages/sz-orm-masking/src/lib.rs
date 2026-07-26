@@ -25,6 +25,9 @@ pub enum MaskingRule {
     BankCard,
     Name,
     Address,
+    Ip,
+    Imei,
+    Plate,
     Custom(String),
 }
 
@@ -44,6 +47,9 @@ impl DataMasker {
             MaskingRule::BankCard => mask_prefix_suffix(value, 4, 4),
             MaskingRule::Name => mask_name(value),
             MaskingRule::Address => mask_address(value, 6),
+            MaskingRule::Ip => mask_ip(value),
+            MaskingRule::Imei => mask_imei(value),
+            MaskingRule::Plate => mask_plate(value),
             MaskingRule::Custom(spec) => mask_custom(value, spec),
         }
     }
@@ -132,6 +138,60 @@ fn mask_address(value: &str, keep: usize) -> String {
     }
     for _ in 0..hidden {
         out.push('*');
+    }
+    out
+}
+
+/// IP 地址脱敏：192.168.1.100 → 192.168.1.*
+///
+/// IPv4：隐藏最后一段（最后一个 `.` 之后的内容）。
+/// IPv6：隐藏最后一个 `:` 组（最后一个冒号之后的内容）。
+/// 无法识别时原样返回。`.` 和 `:` 为 ASCII 单字节，`rfind` 返回的字节位置
+/// 一定是字符边界，切片安全。
+fn mask_ip(ip: &str) -> String {
+    if let Some(last_dot) = ip.rfind('.') {
+        format!("{}.*", &ip[..last_dot])
+    } else if let Some(last_colon) = ip.rfind(':') {
+        format!("{}:*", &ip[..last_colon])
+    } else {
+        ip.to_string()
+    }
+}
+
+/// IMEI 脱敏：保留前 6 位和最后 1 位，中间用 `****` 替代
+///
+/// IMEI 为 15 位数字（3GPP TS 23.003），按 Unicode 字符处理以保证安全。
+fn mask_imei(imei: &str) -> String {
+    let chars: Vec<char> = imei.chars().collect();
+    if chars.len() < 7 {
+        return "*".repeat(chars.len());
+    }
+    let mut out = String::with_capacity(chars.len() + 4);
+    for &c in &chars[..6] {
+        out.push(c);
+    }
+    out.push_str("****");
+    out.push(chars[chars.len() - 1]);
+    out
+}
+
+/// 车牌号脱敏：京A12345 → 京A12**45
+///
+/// 保留前 (len-2) 个字符和最后 2 个字符，中间用 `**` 替代。
+/// 按 Unicode 字符处理，支持中文车牌（如"京A12345"）。
+fn mask_plate(plate: &str) -> String {
+    let chars: Vec<char> = plate.chars().collect();
+    let len = chars.len();
+    if len < 4 {
+        return "*".repeat(len);
+    }
+    let mut out = String::with_capacity(len + 2);
+    for &c in &chars[..len - 2] {
+        out.push(c);
+    }
+    out.push_str("**");
+    for &c in &chars[len - 2..] {
+        out.push(c);
     }
     out
 }
@@ -367,5 +427,99 @@ mod tests {
         assert_eq!(DataMasker::apply(&MaskingRule::BankCard, "1"), "***");
         assert_eq!(DataMasker::apply(&MaskingRule::Name, "张"), "张");
         assert_eq!(DataMasker::apply(&MaskingRule::Address, "张"), "*");
+    }
+
+    // ----- IP -----
+    #[test]
+    fn test_ip_v4_standard() {
+        assert_eq!(
+            DataMasker::apply(&MaskingRule::Ip, "192.168.1.100"),
+            "192.168.1.*"
+        );
+    }
+
+    #[test]
+    fn test_ip_v4_loopback() {
+        assert_eq!(DataMasker::apply(&MaskingRule::Ip, "127.0.0.1"), "127.0.0.*");
+    }
+
+    #[test]
+    fn test_ip_v6_standard() {
+        // IPv6：隐藏最后一个冒号后的内容
+        assert_eq!(
+            DataMasker::apply(&MaskingRule::Ip, "2001:db8::1"),
+            "2001:db8::*"
+        );
+    }
+
+    #[test]
+    fn test_ip_no_separator() {
+        assert_eq!(
+            DataMasker::apply(&MaskingRule::Ip, "localhost"),
+            "localhost"
+        );
+    }
+
+    #[test]
+    fn test_ip_empty() {
+        assert_eq!(DataMasker::apply(&MaskingRule::Ip, ""), "");
+    }
+
+    // ----- IMEI -----
+    #[test]
+    fn test_imei_standard_15() {
+        // 15 位 IMEI：保留前 6 + **** + 最后 1 位
+        assert_eq!(
+            DataMasker::apply(&MaskingRule::Imei, "123456789012345"),
+            "123456****5"
+        );
+    }
+
+    #[test]
+    fn test_imei_too_short() {
+        assert_eq!(DataMasker::apply(&MaskingRule::Imei, "123456"), "******");
+        assert_eq!(DataMasker::apply(&MaskingRule::Imei, "123"), "***");
+    }
+
+    #[test]
+    fn test_imei_empty() {
+        assert_eq!(DataMasker::apply(&MaskingRule::Imei, ""), "");
+    }
+
+    // ----- Plate -----
+    #[test]
+    fn test_plate_chinese_standard() {
+        // 京A12345（7 字符）：前 5 + ** + 后 2
+        assert_eq!(
+            DataMasker::apply(&MaskingRule::Plate, "京A12345"),
+            "京A123**45"
+        );
+    }
+
+    #[test]
+    fn test_plate_with_separator() {
+        // 京A·12345（8 字符）：前 6 + ** + 后 2
+        assert_eq!(
+            DataMasker::apply(&MaskingRule::Plate, "京A·12345"),
+            "京A·123**45"
+        );
+    }
+
+    #[test]
+    fn test_plate_too_short() {
+        assert_eq!(DataMasker::apply(&MaskingRule::Plate, "京A"), "**");
+        assert_eq!(DataMasker::apply(&MaskingRule::Plate, "京"), "*");
+        assert_eq!(DataMasker::apply(&MaskingRule::Plate, "京A1"), "***");
+    }
+
+    #[test]
+    fn test_plate_empty() {
+        assert_eq!(DataMasker::apply(&MaskingRule::Plate, ""), "");
+    }
+
+    #[test]
+    fn test_plate_boundary_four_chars() {
+        // 4 字符：前 2 + ** + 后 2
+        assert_eq!(DataMasker::apply(&MaskingRule::Plate, "ABCD"), "AB**CD");
     }
 }

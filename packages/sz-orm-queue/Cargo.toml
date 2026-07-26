@@ -40,3 +40,6 @@ rdkafka = { version = "0.36", optional = true, default-features = false, feature
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

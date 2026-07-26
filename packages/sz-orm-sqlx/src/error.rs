@@ -14,12 +14,11 @@ pub fn map_sqlx_error(e: sqlx::Error) -> DbError {
                 || msg.contains("Duplicate entry")
                 || msg.contains("unique constraint")
             {
-                DbError::AlreadyExists(msg)
-            } else if code == "23503"
-                || code.starts_with("23")
-                || msg.contains("foreign key constraint")
-                || msg.contains("constraint")
-            {
+                // 优先映射到细粒度的 UniqueViolation（唯一约束），保留 AlreadyExists 向后兼容
+                DbError::UniqueViolation(msg)
+            } else if code == "23503" || msg.contains("foreign key constraint") {
+                DbError::ForeignKeyViolation(msg)
+            } else if code.starts_with("23") || msg.contains("constraint") {
                 DbError::ConstraintViolation(msg)
             } else if code.starts_with("42") || msg.contains("syntax") {
                 DbError::InvalidInput(msg)

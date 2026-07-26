@@ -690,7 +690,9 @@ pub fn apply_result_map_many(
         for coll in &map.collections {
             if let Some(Value::Array(items)) = attrs.get(&coll.property) {
                 if !items.is_empty() {
-                    let acc = collection_acc.get_mut(&key).unwrap();
+                    let acc = collection_acc
+                        .get_mut(&key)
+                        .expect("key exists in collection_acc (inserted alongside groups)");
                     let entry = acc.entry(coll.property.clone()).or_default();
                     for item in items {
                         entry.push(item.clone());
@@ -703,7 +705,9 @@ pub fn apply_result_map_many(
     // 合并 collection 聚合结果到主属性
     let mut result = Vec::new();
     for key in ordered_keys {
-        let mut attrs = groups.remove(&key).unwrap();
+        let mut attrs = groups
+            .remove(&key)
+            .expect("key exists in groups (recorded in ordered_keys)");
         if let Some(coll_acc) = collection_acc.remove(&key) {
             for (prop, items) in coll_acc {
                 attrs.insert(prop, Value::Array(items));

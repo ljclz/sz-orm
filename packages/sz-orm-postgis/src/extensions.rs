@@ -14,8 +14,6 @@
 //! 避免破坏已有的 memory / stub / real_postgis 三种实现。
 //! 内存计算部分基于纯 Rust 实现，不依赖外部库。
 
-#![allow(dead_code)]
-
 use crate::error::PostgisError;
 use crate::geometry::{Geometry, LineString, Point, Polygon};
 use std::collections::HashMap;
@@ -842,9 +840,8 @@ fn collect_all_points(geom: &Geometry) -> Result<Vec<(f64, f64)>, PostgisError> 
 fn convex_hull(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
     let mut pts: Vec<(f64, f64)> = points.to_vec();
     pts.sort_by(|a, b| {
-        a.0.partial_cmp(&b.0)
-            .unwrap()
-            .then(a.1.partial_cmp(&b.1).unwrap())
+        a.0.total_cmp(&b.0)
+            .then(a.1.total_cmp(&b.1))
     });
     pts.dedup();
     let n = pts.len();

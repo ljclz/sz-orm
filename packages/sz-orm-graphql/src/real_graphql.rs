@@ -147,23 +147,23 @@ pub fn router(schema: Schema) -> axum::Router {
         .with_state(schema)
 }
 
-/// Execute a GraphQL query against the dynamic schema and return the resolved
-/// value of the first root field as JSON.
-pub fn execute(schema: &Schema, query: &str) -> Result<serde_json::Value, String> {
-    // Run the async executor on a dedicated scoped thread so this synchronous
-    // API works both inside and outside of an existing tokio runtime.
-    let response = std::thread::scope(|scope| {
-        scope
-            .spawn(|| -> Result<async_graphql::Response, String> {
-                let runtime = tokio::runtime::Builder::new_current_thread()
-                    .enable_all()
-                    .build()
-                    .map_err(|e| format!("Failed to build tokio runtime: {e}"))?;
-                Ok(runtime.block_on(schema.execute(query)))
-            })
-            .join()
-            .map_err(|_| "GraphQL executor thread panicked".to_string())?
-    })?;
+/// 异步执行 GraphQL 查询，返回第一个根字段的解析结果（JSON）。
+///
+/// v1.2.0 修复 P0：新增异步入口，直接 `schema.execute(query).await`，
+/// 供异步调用方使用，避免在 async 上下文中调用 `block_on` 导致 tokio
+/// runtime 死锁。
+///
+/// # 推荐用法
+///
+/// - 调用方处于 async 上下文（`async fn` / tokio task）时，**必须**使用本方法
+/// - 调用方处于同步上下文时，使用 [`execute`]（同步包装）
+pub async fn execute_async(schema: &Schema, query: &str) -> Result<serde_json::Value, String> {
+    let response = schema.execute(query).await;
+    response_to_json(response)
+}
+
+/// 将 async-graphql 响应转换为「第一个根字段的解析结果」JSON。
+fn response_to_json(response: async_graphql::Response) -> Result<serde_json::Value, String> {
     if !response.errors.is_empty() {
         return Err(response
             .errors
@@ -181,4 +181,38 @@ pub fn execute(schema: &Schema, query: &str) -> Result<serde_json::Value, String
             .unwrap_or(serde_json::Value::Null)),
         other => Ok(other),
     }
+}
+
+/// 同步执行 GraphQL 查询，返回第一个根字段的解析结果（JSON）。
+///
+/// # 死锁安全性说明
+///
+/// 本函数为同步 API。它通过 `std::thread::scope` 在**独立的 OS 线程**上
+/// 创建**全新的 current_thread tokio runtime** 再 `block_on`，因此：
+///
+/// - **不会**复用调用方已有的 tokio runtime，不会在已有 runtime 的 worker
+///   线程上调用 `block_on`，故**不会死锁**
+/// - 可安全地从 async 上下文中调用（但会阻塞调用线程直到查询完成）
+///
+/// # 调用方建议
+///
+/// - **同步上下文**：直接使用本函数
+/// - **异步上下文**：优先使用 [`execute_async`]，避免阻塞当前 async 线程；
+///   若必须使用同步 API，本函数也不会死锁，但会占用一个阻塞线程位
+pub fn execute(schema: &Schema, query: &str) -> Result<serde_json::Value, String> {
+    // 在独立 OS 线程上创建全新 runtime 再 block_on，确保不复用调用方的
+    // tokio runtime，从根本上避免在 async 上下文调用 block_on 的死锁风险。
+    let response = std::thread::scope(|scope| {
+        scope
+            .spawn(|| -> Result<async_graphql::Response, String> {
+                let runtime = tokio::runtime::Builder::new_current_thread()
+                    .enable_all()
+                    .build()
+                    .map_err(|e| format!("Failed to build tokio runtime: {e}"))?;
+                Ok(runtime.block_on(schema.execute(query)))
+            })
+            .join()
+            .map_err(|_| "GraphQL executor thread panicked".to_string())?
+    })?;
+    response_to_json(response)
 }

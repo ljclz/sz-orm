@@ -23,3 +23,6 @@ subtle = "2.5"
 rsa = "0.9"
 
 [dev-dependencies]
+
+[lints]
+workspace = true

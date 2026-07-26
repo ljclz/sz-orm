@@ -540,6 +540,205 @@ impl<M: Model> QueryBuilder<M> {
         sql
     }
 
+    // ===================== 参数绑定版本（v1.1.0 新增） =====================
+
+    /// 构建 WHERE 子句（参数绑定版本）。
+    ///
+    /// 将 `In`/`NotIn`/`Between`/`NotBetween` 条件中的值替换为 `?` 占位符，
+    /// 值收集到 `params` 向量中。`And`/`Or`/`Exists` 等原始字符串条件不提取参数
+    /// （调用方负责安全）。
+    fn build_where_clause_with_params(&self) -> (String, Vec<Value>) {
+        if self.where_conditions.is_empty() {
+            return (String::new(), Vec::new());
+        }
+
+        let mut params = Vec::new();
+
+        let conditions: Vec<String> = self
+            .where_conditions
+            .iter()
+            .map(|cond| match cond {
+                WhereCondition::And(c) => c.clone(),
+                WhereCondition::Or(c) => format!("OR {}", c),
+                WhereCondition::In(f, vals) => {
+                    let placeholders: Vec<&str> = vals.iter().map(|_| "?").collect();
+                    params.extend(vals.iter().cloned());
+                    format!("{} IN ({})", self.dialect.quote(f), placeholders.join(", "))
+                }
+                WhereCondition::NotIn(f, vals) => {
+                    let placeholders: Vec<&str> = vals.iter().map(|_| "?").collect();
+                    params.extend(vals.iter().cloned());
+                    format!("{} NOT IN ({})", self.dialect.quote(f), placeholders.join(", "))
+                }
+                WhereCondition::Between(f, start, end) => {
+                    params.push(start.clone());
+                    params.push(end.clone());
+                    format!("{} BETWEEN ? AND ?", self.dialect.quote(f))
+                }
+                WhereCondition::NotBetween(f, start, end) => {
+                    params.push(start.clone());
+                    params.push(end.clone());
+                    format!("{} NOT BETWEEN ? AND ?", self.dialect.quote(f))
+                }
+                WhereCondition::Null(f) => format!("{} IS NULL", self.dialect.quote(f)),
+                WhereCondition::NotNull(f) => format!("{} IS NOT NULL", self.dialect.quote(f)),
+                WhereCondition::Exists(s) => format!("EXISTS ({})", s),
+                WhereCondition::NotExists(s) => format!("NOT EXISTS ({})", s),
+            })
+            .collect();
+
+        if conditions.is_empty() {
+            return (String::new(), params);
+        }
+
+        // OR 分组逻辑：与 build_where_clause 相同
+        let mut groups: Vec<Vec<String>> = Vec::new();
+        let mut current_group: Vec<String> = Vec::new();
+        for cond in conditions.iter() {
+            if let Some(stripped) = cond.strip_prefix("OR ") {
+                current_group.push(stripped.to_string());
+            } else {
+                if !current_group.is_empty() {
+                    groups.push(std::mem::take(&mut current_group));
+                }
+                current_group.push(cond.clone());
+            }
+        }
+        if !current_group.is_empty() {
+            groups.push(current_group);
+        }
+
+        let group_strs: Vec<String> = groups
+            .iter()
+            .map(|g| if g.len() == 1 { g[0].clone() } else { format!("({})", g.join(" OR ")) })
+            .collect();
+
+        (format!(" WHERE {}", group_strs.join(" AND ")), params)
+    }
+
+    /// 构建 SELECT SQL（参数绑定版本）。
+    ///
+    /// WHERE 子句中的值使用 `?` 占位符，值通过 `params` 返回。
+    /// 适用于 `Connection::query_with_params()`。
+    pub fn build_select_with_params(&self) -> (String, Vec<Value>) {
+        let table = self.table.clone().unwrap_or_else(|| M::table_name().to_string());
+        let columns = if self.select_columns.is_empty() {
+            "*".to_string()
+        } else {
+            self.select_columns.join(", ")
+        };
+
+        let mut sql = format!("SELECT {} FROM {}", columns, self.dialect.quote(&table));
+
+        for join in &self.joins {
+            match join {
+                JoinClause::Inner(t, l, r) => {
+                    sql.push_str(&format!(" INNER JOIN {} ON {} = {}", self.dialect.quote(t), self.dialect.quote(l), self.dialect.quote(r)));
+                }
+                JoinClause::Left(t, l, r) => {
+                    sql.push_str(&format!(" LEFT JOIN {} ON {} = {}", self.dialect.quote(t), self.dialect.quote(l), self.dialect.quote(r)));
+                }
+                JoinClause::Right(t, l, r) => {
+                    sql.push_str(&format!(" RIGHT JOIN {} ON {} = {}", self.dialect.quote(t), self.dialect.quote(l), self.dialect.quote(r)));
+                }
+                JoinClause::Cross(t, on) => {
+                    sql.push_str(&format!(" CROSS JOIN {} ON {}", self.dialect.quote(t), self.dialect.quote(on)));
+                }
+            }
+        }
+
+        let mut params = Vec::new();
+        if !self.where_conditions.is_empty() {
+            let (where_clause, where_params) = self.build_where_clause_with_params();
+            sql.push_str(&where_clause);
+            params = where_params;
+        }
+
+        if !self.group_by.is_empty() {
+            let cols: Vec<String> = self.group_by.iter().map(|c| self.dialect.quote(c)).collect();
+            sql.push_str(" GROUP BY ");
+            sql.push_str(&cols.join(", "));
+        }
+
+        if !self.having_conditions.is_empty() {
+            sql.push_str(" HAVING ");
+            for (i, cond) in self.having_conditions.iter().enumerate() {
+                if i > 0 { sql.push_str(" AND "); }
+                if let WhereCondition::And(c) = cond { sql.push_str(c); }
+            }
+        }
+
+        if !self.order_by.is_empty() {
+            let order_cols: Vec<String> = self.order_by.iter().map(|o| {
+                let dir = match o.direction { OrderDirection::Asc => " ASC", OrderDirection::Desc => " DESC" };
+                format!("{}{}", self.dialect.quote(&o.field), dir)
+            }).collect();
+            sql.push_str(" ORDER BY ");
+            sql.push_str(&order_cols.join(", "));
+        }
+
+        if let Some(limit) = self.limit_value { sql.push_str(&format!(" LIMIT {}", limit)); }
+        if let Some(offset) = self.offset_value { sql.push_str(&format!(" OFFSET {}", offset)); }
+
+        (sql, params)
+    }
+
+    /// 构建 INSERT SQL（参数绑定版本）。
+    pub fn build_insert_with_params(&self, data: &std::collections::HashMap<String, Value>) -> (String, Vec<Value>) {
+        let table = self.table.clone().unwrap_or_else(|| M::table_name().to_string());
+        if data.is_empty() { return (String::new(), Vec::new()); }
+
+        let mut columns = Vec::with_capacity(data.len());
+        let mut params = Vec::with_capacity(data.len());
+        let placeholders: Vec<&str> = data.iter().map(|_| "?").collect();
+        for (k, v) in data.iter() {
+            columns.push(self.dialect.quote(k));
+            params.push(v.clone());
+        }
+
+        let sql = format!("INSERT INTO {} ({}) VALUES ({})", self.dialect.quote(&table), columns.join(", "), placeholders.join(", "));
+        (sql, params)
+    }
+
+    /// 构建 UPDATE SQL（参数绑定版本）。
+    /// 参数顺序：SET 参数在前，WHERE 参数在后。
+    pub fn build_update_with_params(&self, data: &std::collections::HashMap<String, Value>) -> (String, Vec<Value>) {
+        let table = self.table.clone().unwrap_or_else(|| M::table_name().to_string());
+        if data.is_empty() { return (String::new(), Vec::new()); }
+
+        let mut set_clauses = Vec::with_capacity(data.len());
+        let mut params = Vec::with_capacity(data.len());
+        for (k, v) in data.iter() {
+            set_clauses.push(format!("{} = ?", self.dialect.quote(k)));
+            params.push(v.clone());
+        }
+
+        let mut sql = format!("UPDATE {} SET {}", self.dialect.quote(&table), set_clauses.join(", "));
+
+        if !self.where_conditions.is_empty() {
+            let (where_clause, where_params) = self.build_where_clause_with_params();
+            sql.push_str(&where_clause);
+            params.extend(where_params);
+        }
+
+        (sql, params)
+    }
+
+    /// 构建 DELETE SQL（参数绑定版本）。
+    pub fn build_delete_with_params(&self) -> (String, Vec<Value>) {
+        let table = self.table.clone().unwrap_or_else(|| M::table_name().to_string());
+        let mut sql = format!("DELETE FROM {}", self.dialect.quote(&table));
+        let mut params = Vec::new();
+
+        if !self.where_conditions.is_empty() {
+            let (where_clause, where_params) = self.build_where_clause_with_params();
+            sql.push_str(&where_clause);
+            params = where_params;
+        }
+
+        (sql, params)
+    }
+
     pub fn build_count(&self) -> String {
         let table = self
             .table

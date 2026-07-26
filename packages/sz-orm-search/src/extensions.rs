@@ -13,8 +13,6 @@
 //! 避免破坏已有的 memory / stub / real provider 实现。
 //! 内存计算部分基于纯 Rust 实现，不依赖外部库。
 
-#![allow(dead_code)]
-
 use crate::error::SearchError;
 use crate::types::{SearchQuery, SearchResult};
 use crate::SearchExt;

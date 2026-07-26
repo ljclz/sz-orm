@@ -394,7 +394,10 @@ impl<E: Clone + Send + Sync + 'static> InMemoryRepository<E> {
 
     /// 当前存储条数
     pub fn len(&self) -> usize {
-        let storage = self.storage.read().unwrap();
+        let storage = self
+            .storage
+            .read()
+            .expect("InMemoryRepository storage lock poisoned (len)");
         storage.len()
     }
 
@@ -405,7 +408,10 @@ impl<E: Clone + Send + Sync + 'static> InMemoryRepository<E> {
 
     /// 清空
     pub fn clear(&self) {
-        let mut storage = self.storage.write().unwrap();
+        let mut storage = self
+            .storage
+            .write()
+            .expect("InMemoryRepository storage lock poisoned (clear)");
         storage.clear();
     }
 }
@@ -493,17 +499,26 @@ impl<E: Clone + Send + Sync + 'static + EntityAttributes> Repository<E> for InMe
     }
 
     fn find_by_id(&self, key: &Self::Key) -> RepositoryResult<Option<E>> {
-        let storage = self.storage.read().unwrap();
+        let storage = self
+            .storage
+            .read()
+            .expect("InMemoryRepository storage lock poisoned (find_by_id)");
         Ok(storage.iter().find(|e| self.key_of(e) == *key).cloned())
     }
 
     fn find_all(&self) -> RepositoryResult<Vec<E>> {
-        let storage = self.storage.read().unwrap();
+        let storage = self
+            .storage
+            .read()
+            .expect("InMemoryRepository storage lock poisoned (find_all)");
         Ok(storage.clone())
     }
 
     fn find_by(&self, conditions: &[WhereCondition]) -> RepositoryResult<Vec<E>> {
-        let storage = self.storage.read().unwrap();
+        let storage = self
+            .storage
+            .read()
+            .expect("InMemoryRepository storage lock poisoned (find_by)");
         let result: Vec<E> = storage
             .iter()
             .filter(|e| {
@@ -522,7 +537,10 @@ impl<E: Clone + Send + Sync + 'static + EntityAttributes> Repository<E> for InMe
     }
 
     fn save(&self, mut entity: E) -> RepositoryResult<E> {
-        let mut storage = self.storage.write().unwrap();
+        let mut storage = self
+            .storage
+            .write()
+            .expect("InMemoryRepository storage lock poisoned (save)");
         let key = self.key_of(&entity);
 
         // 查找是否已存在
@@ -542,7 +560,10 @@ impl<E: Clone + Send + Sync + 'static + EntityAttributes> Repository<E> for InMe
     }
 
     fn delete(&self, key: &Self::Key) -> RepositoryResult<usize> {
-        let mut storage = self.storage.write().unwrap();
+        let mut storage = self
+            .storage
+            .write()
+            .expect("InMemoryRepository storage lock poisoned (delete)");
         let before = storage.len();
         storage.retain(|e| self.key_of(e) != *key);
         Ok(before - storage.len())
@@ -671,7 +692,10 @@ where
     }
 
     pub fn len(&self) -> usize {
-        self.storage.read().unwrap().len()
+        self.storage
+            .read()
+            .expect("GenericKeyRepository storage lock poisoned (len)")
+            .len()
     }
 
     pub fn is_empty(&self) -> bool {
@@ -679,7 +703,10 @@ where
     }
 
     pub fn clear(&self) {
-        self.storage.write().unwrap().clear();
+        self.storage
+            .write()
+            .expect("GenericKeyRepository storage lock poisoned (clear)")
+            .clear();
     }
 }
 
@@ -705,16 +732,26 @@ where
     }
 
     fn find_by_id(&self, key: &Self::Key) -> RepositoryResult<Option<E>> {
-        let storage = self.storage.read().unwrap();
+        let storage = self
+            .storage
+            .read()
+            .expect("GenericKeyRepository storage lock poisoned (find_by_id)");
         Ok(storage.iter().find(|e| &e.key() == key).cloned())
     }
 
     fn find_all(&self) -> RepositoryResult<Vec<E>> {
-        Ok(self.storage.read().unwrap().clone())
+        Ok(self
+            .storage
+            .read()
+            .expect("GenericKeyRepository storage lock poisoned (find_all)")
+            .clone())
     }
 
     fn find_by(&self, conditions: &[WhereCondition]) -> RepositoryResult<Vec<E>> {
-        let storage = self.storage.read().unwrap();
+        let storage = self
+            .storage
+            .read()
+            .expect("GenericKeyRepository storage lock poisoned (find_by)");
         let result: Vec<E> = storage
             .iter()
             .filter(|e| {
@@ -733,7 +770,10 @@ where
     }
 
     fn save(&self, entity: E) -> RepositoryResult<E> {
-        let mut storage = self.storage.write().unwrap();
+        let mut storage = self
+            .storage
+            .write()
+            .expect("GenericKeyRepository storage lock poisoned (save)");
         let key = entity.key();
         let existing_idx = storage.iter().position(|e| e.key() == key);
         match existing_idx {
@@ -748,7 +788,10 @@ where
     }
 
     fn delete(&self, key: &Self::Key) -> RepositoryResult<usize> {
-        let mut storage = self.storage.write().unwrap();
+        let mut storage = self
+            .storage
+            .write()
+            .expect("GenericKeyRepository storage lock poisoned (delete)");
         let before = storage.len();
         storage.retain(|e| &e.key() != key);
         Ok(before - storage.len())

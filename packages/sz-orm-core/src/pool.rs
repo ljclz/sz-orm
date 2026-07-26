@@ -3,19 +3,22 @@
 //! Provides async connection pooling with configurable options
 
 use async_trait::async_trait;
-use std::collections::VecDeque;
+use crossbeam_queue::ArrayQueue;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-use tokio::sync::{Mutex, Notify};
+use tokio::sync::Notify;
 
 use crate::error::PoolError;
 
 /// 查询结果行类型别名：避免 `Connection::query` 签名触发 `clippy::type_complexity`。
 pub type QueryRows = Vec<std::collections::HashMap<String, crate::value::Value>>;
+
+/// 流式查询结果项类型别名：避免 `Connection::query_stream` 签名触发 `clippy::type_complexity`。
+pub type QueryStreamItem = Result<std::collections::HashMap<String, crate::value::Value>, crate::DbError>;
 
 /// 数据库连接 trait
 ///
@@ -46,6 +49,121 @@ pub trait Connection: Send + Sync {
     fn close<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>>;
+
+    /// 参数绑定执行（INSERT/UPDATE/DELETE）
+    ///
+    /// 使用真实 prepared statement 绑定参数，避免 SQL 注入。
+    /// 默认实现返回 `NotImplemented` 错误；支持参数绑定的适配器
+    /// （如 sz-orm-oracle）应覆盖此方法。
+    fn execute_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        params: &'a [crate::value::Value],
+    ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+        let _ = (sql, params);
+        Box::pin(async move {
+            Err(crate::DbError::Internal(
+                "execute_with_params not implemented for this adapter".to_string(),
+            ))
+        })
+    }
+
+    /// 参数绑定查询（SELECT）
+    ///
+    /// 使用真实 prepared statement 绑定参数，避免 SQL 注入。
+    /// 默认实现返回 `NotImplemented` 错误；支持参数绑定的适配器
+    /// （如 sz-orm-oracle）应覆盖此方法。
+    fn query_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        params: &'a [crate::value::Value],
+    ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>> {
+        let _ = (sql, params);
+        Box::pin(async move {
+            Err(crate::DbError::Internal(
+                "query_with_params not implemented for this adapter".to_string(),
+            ))
+        })
+    }
+
+    /// 位置式查询（SELECT）：返回 `(列名, 按列顺序的值矩阵)`
+    ///
+    /// 绕过 `HashMap<String, Value>` 行映射，适用于 SELECT ALL 大结果集场景。
+    /// 默认实现返回 `NotImplemented` 错误；适配器可覆盖此方法以获得 30%~50% 性能提升。
+    fn query_values<'a>(
+        &'a mut self,
+        sql: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<crate::value::QueryValues, crate::DbError>> + Send + 'a>> {
+        let _ = sql;
+        Box::pin(async move {
+            Err(crate::DbError::Internal(
+                "query_values not implemented for this adapter".to_string(),
+            ))
+        })
+    }
+
+    /// 参数绑定位置式查询（SELECT）：叠加 prepared statement + 位置式映射双重优化
+    ///
+    /// 默认实现返回 `NotImplemented` 错误；适配器可覆盖此方法以获得最佳性能。
+    fn query_values_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        params: &'a [crate::value::Value],
+    ) -> Pin<Box<dyn Future<Output = Result<crate::value::QueryValues, crate::DbError>> + Send + 'a>> {
+        let _ = (sql, params);
+        Box::pin(async move {
+            Err(crate::DbError::Internal(
+                "query_values_with_params not implemented for this adapter".to_string(),
+            ))
+        })
+    }
+
+    /// 流式查询：返回逐行结果流
+    ///
+    /// 默认实现返回空流；适配器可覆盖此方法以支持大结果集逐行消费，
+    /// 避免 `query` 一次性 `fetch_all` 导致的内存峰值。
+    fn query_stream<'a>(
+        &'a mut self,
+        sql: &'a str,
+    ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
+        let _ = sql;
+        Box::pin(futures::stream::empty())
+    }
+
+    /// 批量执行多条 SQL（按顺序执行，返回累计影响行数）
+    ///
+    /// 默认实现循环调用 `execute`；适配器可覆盖此方法以利用数据库原生
+    /// 批量执行能力。
+    fn execute_batch<'a>(
+        &'a mut self,
+        sqls: &'a [String],
+    ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut total = 0u64;
+            for sql in sqls {
+                total += self.execute(sql).await?;
+            }
+            Ok(total)
+        })
+    }
+
+    /// 批量插入（单条 SQL 多次参数绑定执行）
+    ///
+    /// 默认实现循环调用 `execute_with_params`；适配器可覆盖此方法
+    /// 以利用数据库原生批量 DML 能力（如 Oracle Array DML）。
+    fn execute_batch_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        params_batch: &'a [Vec<crate::value::Value>],
+    ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut total = 0u64;
+            for params in params_batch {
+                total += self.execute_with_params(sql, params).await?;
+            }
+            Ok(total)
+        })
+    }
 }
 
 /// 连接池中的连接条目，记录创建时间和最后使用时间
@@ -107,8 +225,8 @@ impl PooledConnection {
 /// 1. 如果 `pool` 为 `Some`（未显式 release/into_inner），取出连接并放入
 ///    `ClosedConnection` 占位符
 /// 2. 在 tokio runtime 中 spawn 异步 release（Drop 不能 await）
-/// 3. 如果不在 tokio runtime 中，连接随占位符 drop 而丢弃（调用方需确保
-///    在 runtime 中 drop PooledConnection）
+/// 3. 如果不在 tokio runtime 中（P0 修复）：手动递减 `total_count`，
+///    避免池容量被耗尽；连接随 `pooled` drop 自然释放（依赖底层连接 Drop）
 impl Drop for PooledConnection {
     fn drop(&mut self) {
         if let Some(pool) = self.pool.take() {
@@ -125,8 +243,13 @@ impl Drop for PooledConnection {
                 handle.spawn(async move {
                     pool.release(pooled).await;
                 });
+            } else {
+                // 不在 tokio runtime 中：手动递减计数器，避免池容量泄漏
+                // 注意：close 是 async 方法，无法在 sync Drop 中 await；
+                //       连接随 `pooled` drop 自然释放（依赖底层连接 Drop）
+                drop(pooled);
+                pool.total_count.fetch_sub(1, Ordering::SeqCst);
             }
-            // 不在 tokio runtime 中则直接丢弃（连接随 ClosedConnection drop）
         }
     }
 }
@@ -210,6 +333,47 @@ impl DerefMut for PooledConnection {
     }
 }
 
+/// TLS 版本
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum TlsVersion {
+    #[default]
+    Tls12,
+    Tls13,
+}
+
+/// TLS 配置
+#[derive(Debug, Clone, Default)]
+pub struct TlsConfig {
+    /// 是否启用 TLS
+    pub enabled: bool,
+    /// CA 证书路径
+    pub ca_cert_path: Option<String>,
+    /// 客户端证书路径（双向 TLS）
+    pub client_cert_path: Option<String>,
+    /// 客户端私钥路径
+    pub client_key_path: Option<String>,
+    /// 最小 TLS 版本
+    pub min_version: TlsVersion,
+}
+
+/// 连接池事件
+#[derive(Debug, Clone)]
+pub enum PoolEvent {
+    /// 创建新连接
+    ConnectionCreated,
+    /// 连接被关闭
+    ConnectionClosed,
+    /// 连接被获取
+    ConnectionAcquired,
+    /// 连接被归还
+    ConnectionReleased,
+    /// 获取连接超时
+    AcquireTimeout,
+}
+
+/// 连接池事件回调
+pub type PoolEventCallback = Arc<dyn Fn(PoolEvent) + Send + Sync>;
+
 pub struct PoolConfig {
     pub max_size: u32,
     pub min_idle: u32,
@@ -217,6 +381,16 @@ pub struct PoolConfig {
     pub idle_timeout: Duration,
     pub max_lifetime: Duration,
     pub connection_timeout: Duration,
+    /// TLS 配置
+    pub tls: Option<TlsConfig>,
+    /// SQL 执行超时（默认 30 秒）
+    pub query_timeout: Option<Duration>,
+    /// 单次查询最大返回行数（默认无限制）
+    pub max_rows: Option<usize>,
+    /// 内存使用上限（字节，默认无限制）
+    pub memory_limit: Option<usize>,
+    /// 连接池事件回调
+    pub on_event: Option<PoolEventCallback>,
 }
 
 impl Default for PoolConfig {
@@ -228,6 +402,11 @@ impl Default for PoolConfig {
             idle_timeout: Duration::from_secs(600),
             max_lifetime: Duration::from_secs(1800),
             connection_timeout: Duration::from_secs(10),
+            tls: None,
+            query_timeout: Some(Duration::from_secs(30)),
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
         }
     }
 }
@@ -241,6 +420,11 @@ impl Clone for PoolConfig {
             idle_timeout: self.idle_timeout,
             max_lifetime: self.max_lifetime,
             connection_timeout: self.connection_timeout,
+            tls: self.tls.clone(),
+            query_timeout: self.query_timeout,
+            max_rows: self.max_rows,
+            memory_limit: self.memory_limit,
+            on_event: self.on_event.clone(),
         }
     }
 }
@@ -265,6 +449,8 @@ pub struct PoolStatus {
     pub active: u32,
     pub max: u32,
     pub min: u32,
+    /// 等待 acquire 的任务数
+    pub waiters: u32,
 }
 
 impl std::fmt::Debug for PoolStatus {
@@ -274,6 +460,7 @@ impl std::fmt::Debug for PoolStatus {
             .field("active", &self.active)
             .field("max", &self.max)
             .field("min", &self.min)
+            .field("waiters", &self.waiters)
             .finish()
     }
 }
@@ -314,6 +501,36 @@ impl PoolConfigBuilder {
         self
     }
 
+    /// 设置 TLS 配置
+    pub fn tls(mut self, tls: TlsConfig) -> Self {
+        self.config.tls = Some(tls);
+        self
+    }
+
+    /// 设置 SQL 执行超时
+    pub fn query_timeout(mut self, timeout: Duration) -> Self {
+        self.config.query_timeout = Some(timeout);
+        self
+    }
+
+    /// 设置单次查询最大返回行数
+    pub fn max_rows(mut self, max_rows: usize) -> Self {
+        self.config.max_rows = Some(max_rows);
+        self
+    }
+
+    /// 设置内存使用上限（字节）
+    pub fn memory_limit(mut self, memory_limit: usize) -> Self {
+        self.config.memory_limit = Some(memory_limit);
+        self
+    }
+
+    /// 设置连接池事件回调
+    pub fn on_event(mut self, callback: PoolEventCallback) -> Self {
+        self.config.on_event = Some(callback);
+        self
+    }
+
     pub fn build(self) -> Result<PoolConfig, PoolError> {
         self.config.validate()?;
         Ok(self.config)
@@ -340,7 +557,12 @@ pub trait ConnectionFactory: Send + Sync {
 pub struct Pool {
     config: PoolConfig,
     factory: Arc<dyn ConnectionFactory>,
-    idle: Arc<Mutex<VecDeque<PooledConnection>>>,
+    /// v1.1.0 优化 2：从 `Arc<Mutex<VecDeque<PooledConnection>>>` 改为
+    /// `Arc<ArrayQueue<PooledConnection>>`，使用无锁 MPMC 队列消除锁竞争。
+    /// 容量固定为 `config.max_size`，因为 `total_count` 已限制池中总连接数
+    /// 不超过 `max_size`，所以 `push` 不会因容量不足失败（除非并发 release
+    /// 超过 max_size，那只在 close_all 后的归还路径发生，此时连接会被直接关闭）。
+    idle: Arc<ArrayQueue<PooledConnection>>,
     /// 池中总连接数（idle + borrowed）
     ///
     /// v0.2.1 修复 Critical P-1：从 `Mutex<u32>` 改为 `AtomicU32`
@@ -354,6 +576,27 @@ pub struct Pool {
     /// 池是否已关闭（close_all 后设为 true，拒绝新 acquire/release）
     closed: Arc<AtomicBool>,
     notify: Arc<Notify>,
+    /// 等待 acquire 的任务数（监控用）
+    waiters_count: Arc<AtomicU32>,
+    /// 动态 max_size（可通过 resize/set_max_size 修改，初始值为 config.max_size）
+    dynamic_max_size: Arc<AtomicU32>,
+    /// #88 修复：断路器（启用 `circuit-breaker` feature 时生效）
+    ///
+    /// 当数据库连续失败超过阈值时，断路器跳闸，拒绝新 acquire 请求，
+    /// 避免对下游数据库造成更大压力。reset_timeout 后进入 HalfOpen 状态，
+    /// 放行一次试探请求；成功则 Closed，失败则重新 Open。
+    #[cfg(feature = "circuit-breaker")]
+    circuit_breaker: Arc<std::sync::Mutex<sz_orm_health::CircuitBreaker>>,
+    /// #93 修复：限流器（启用 `rate-limit` feature 时生效）
+    ///
+    /// 在 acquire 前调用 `try_acquire(key)`，被拒绝时返回 `PoolError::RateLimited`。
+    /// 默认 key 为 `"pool"`，调用方可通过 `acquire_with_key` 指定按用户/IP 维度限流。
+    /// 使用 `RwLock<Option<...>>` 支持运行时动态启用/禁用/替换限流器。
+    #[cfg(feature = "rate-limit")]
+    rate_limiter: Arc<std::sync::RwLock<Option<Arc<dyn sz_orm_limit::RateLimiter>>>>,
+    /// #93 修复：限流器使用的 key（默认 "pool"）
+    #[cfg(feature = "rate-limit")]
+    rate_limit_key: String,
 }
 
 /// Pool 克隆：仅增加 Arc 引用计数，成本极低
@@ -368,6 +611,14 @@ impl Clone for Pool {
             total_count: self.total_count.clone(),
             closed: self.closed.clone(),
             notify: Arc::clone(&self.notify),
+            waiters_count: self.waiters_count.clone(),
+            dynamic_max_size: self.dynamic_max_size.clone(),
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: Arc::clone(&self.circuit_breaker),
+            #[cfg(feature = "rate-limit")]
+            rate_limiter: Arc::clone(&self.rate_limiter),
+            #[cfg(feature = "rate-limit")]
+            rate_limit_key: self.rate_limit_key.clone(),
         }
     }
 }
@@ -398,19 +649,108 @@ impl Pool {
     /// ```
     pub fn new(config: PoolConfig, factory: Arc<dyn ConnectionFactory>) -> Result<Self, PoolError> {
         config.validate()?;
+        // v1.1.0 优化 2：容量固定为 max_size，total_count 已限制池中总连接数
+        // 先提取 max_size，避免 config 在结构体字面量中被 move 后再用
+        let max_size = config.max_size as usize;
+        let dynamic_max = config.max_size;
         Ok(Self {
             config,
             factory,
-            idle: Arc::new(Mutex::new(VecDeque::new())),
+            idle: Arc::new(ArrayQueue::new(max_size)),
             total_count: Arc::new(AtomicU32::new(0)),
             closed: Arc::new(AtomicBool::new(false)),
             notify: Arc::new(Notify::new()),
+            waiters_count: Arc::new(AtomicU32::new(0)),
+            dynamic_max_size: Arc::new(AtomicU32::new(dynamic_max)),
+            // #88 修复：默认断路器配置（5 次连续失败跳闸，30 秒后进入 HalfOpen）
+            #[cfg(feature = "circuit-breaker")]
+            circuit_breaker: Arc::new(std::sync::Mutex::new(
+                sz_orm_health::CircuitBreaker::new(5, std::time::Duration::from_secs(30)),
+            )),
+            // #93 修复：默认无限流器（调用方通过 set_rate_limiter 配置）
+            #[cfg(feature = "rate-limit")]
+            rate_limiter: Arc::new(std::sync::RwLock::new(None)),
+            #[cfg(feature = "rate-limit")]
+            rate_limit_key: "pool".to_string(),
         })
     }
 
     /// 获取配置
     pub fn config(&self) -> &PoolConfig {
         &self.config
+    }
+
+    /// #88 修复：配置断路器（启用 `circuit-breaker` feature 时生效）
+    ///
+    /// 替换默认的断路器实例。调用此方法可自定义 `failure_threshold` 和 `reset_timeout`。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// # use sz_orm_core::pool::{Pool, PoolConfig};
+    /// # use std::time::Duration;
+    /// # fn example(pool: &Pool) {
+    /// pool.configure_circuit_breaker(10, Duration::from_secs(60));
+    /// # }
+    /// ```
+    #[cfg(feature = "circuit-breaker")]
+    pub fn configure_circuit_breaker(
+        &self,
+        failure_threshold: usize,
+        reset_timeout: std::time::Duration,
+    ) {
+        let new_cb = sz_orm_health::CircuitBreaker::new(failure_threshold, reset_timeout);
+        if let Ok(mut guard) = self.circuit_breaker.lock() {
+            *guard = new_cb;
+        }
+    }
+
+    /// #88 修复：手动重置断路器到 Closed 状态
+    ///
+    /// 用于故障排除后手动恢复，无视当前 reset_timeout 是否到达。
+    /// 返回是否实际发生了状态变更。
+    #[cfg(feature = "circuit-breaker")]
+    pub fn reset_circuit_breaker(&self) -> bool {
+        if let Ok(mut guard) = self.circuit_breaker.lock() {
+            return guard.reset();
+        }
+        false
+    }
+
+    /// #88 修复：获取断路器当前状态
+    #[cfg(feature = "circuit-breaker")]
+    pub fn circuit_state(&self) -> sz_orm_health::CircuitState {
+        if let Ok(guard) = self.circuit_breaker.lock() {
+            guard.state()
+        } else {
+            // 锁中毒时返回 Closed，避免阻塞业务（保守策略）
+            sz_orm_health::CircuitState::Closed
+        }
+    }
+
+    /// #93 修复：配置限流器（启用 `rate-limit` feature 时生效）
+    ///
+    /// 替换当前的限流器实例。传入 `None` 可禁用限流。
+    /// 默认限流 key 为 `"pool"`，可通过 `with_rate_limit_key` 修改。
+    #[cfg(feature = "rate-limit")]
+    pub fn set_rate_limiter(&self, limiter: Option<Arc<dyn sz_orm_limit::RateLimiter>>) {
+        if let Ok(mut guard) = self.rate_limiter.write() {
+            *guard = limiter;
+        }
+    }
+
+    /// #93 修复：设置限流 key（按用户/IP 维度限流时使用）
+    #[cfg(feature = "rate-limit")]
+    pub fn with_rate_limit_key(mut self, key: impl Into<String>) -> Self {
+        self.rate_limit_key = key.into();
+        self
+    }
+
+    /// 触发连接池事件回调
+    fn emit_event(&self, event: PoolEvent) {
+        if let Some(ref callback) = self.config.on_event {
+            callback(event);
+        }
     }
 
     /// 从池中获取连接（带超时）
@@ -439,19 +779,59 @@ impl Pool {
             return Err(PoolError::Closed);
         }
 
+        // #88 修复：断路器检查（启用 circuit-breaker feature 时生效）
+        // 当数据库连续失败超过阈值时，断路器跳闸，拒绝新 acquire 请求
+        #[cfg(feature = "circuit-breaker")]
+        {
+            let can_execute = if let Ok(mut guard) = self.circuit_breaker.lock() {
+                guard.can_execute()
+            } else {
+                // 锁中毒时放行（保守策略，避免误杀业务）
+                true
+            };
+            if !can_execute {
+                return Err(PoolError::CircuitOpen);
+            }
+        }
+
+        // #93 修复：限流器检查（启用 rate-limit feature 时生效）
+        // 在 acquire 前调用 try_acquire，被拒绝时返回 RateLimited
+        #[cfg(feature = "rate-limit")]
+        {
+            if let Ok(guard) = self.rate_limiter.read() {
+                if let Some(ref limiter) = *guard {
+                    match limiter.try_acquire(&self.rate_limit_key) {
+                        Ok(result) if !result.allowed => {
+                            return Err(PoolError::RateLimited {
+                                remaining: result.remaining,
+                                reset_at: result.reset_at,
+                            });
+                        }
+                        Ok(_) => {} // 放行
+                        Err(_) => {
+                            // 限流器内部错误，保守放行（避免误杀）
+                        }
+                    }
+                }
+            }
+        }
+
         let deadline = Instant::now() + self.config.acquire_timeout;
+        // 指数退避初始值（等待连接归还时的重试间隔）
+        let mut backoff = Duration::from_millis(1);
+        // 指数退避上限（避免等待者频繁唤醒消耗 CPU）
+        const MAX_BACKOFF: Duration = Duration::from_millis(100);
 
         loop {
-            // 尝试从空闲连接中获取
+            // v1.1.0 优化 2：从空闲连接中获取（无锁 pop）
             //
-            // v0.2.1 修复 Critical C-1：持锁期间仅做内存操作（pop_front/检查时间），
-            // **不**在持锁期间 await close()。需要 close 的连接先取出放到本地 Vec，
-            // 释放锁后再批量 close。
+            // `ArrayQueue::pop()` 是单次 CAS 原子操作，无需 await Mutex 锁。
+            // 仍保留 to_close Vec：检查过期/空闲过久/is_connected 失败的连接
+            // 先收集到本地 Vec，循环结束后再批量 close（不在循环内 await）。
             let mut to_close: Vec<PooledConnection> = Vec::new();
             let acquired: Option<PooledConnection> = {
-                let mut idle = self.idle.lock().await;
                 let mut found: Option<PooledConnection> = None;
-                while let Some(pooled) = idle.pop_front() {
+                while let Some(pooled) = self.idle.pop() {
                     // 检查连接是否过期
                     if pooled.is_expired(self.config.max_lifetime) {
                         to_close.push(pooled);
@@ -472,10 +852,9 @@ impl Pool {
                     break;
                 }
                 found
-                // 释放 idle 锁
             };
 
-            // 释放锁后批量 close 过期连接（不持任何锁）
+            // 批量 close 过期连接（不持任何锁）
             for mut pooled in to_close {
                 let _ = pooled.conn.close().await;
                 // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
@@ -492,9 +871,11 @@ impl Pool {
             // 尝试创建新连接
             // v0.2.1 修复 P-1：用 AtomicU32::compare_exchange 替代 Mutex<u32>
             // CAS 循环：先尝试递增 total_count，如果成功则创建连接
+            // 使用 dynamic_max_size 以支持 resize 动态调整
+            let current_max = self.dynamic_max_size.load(Ordering::Acquire);
             let created = loop {
                 let current = self.total_count.load(Ordering::Acquire);
-                if current >= self.config.max_size {
+                if current >= current_max {
                     break None; // 已达上限，不能创建
                 }
                 match self.total_count.compare_exchange(
@@ -512,26 +893,66 @@ impl Pool {
                 match tokio::time::timeout(self.config.connection_timeout, self.factory.create())
                     .await
                 {
-                    Ok(Ok(conn)) => return Ok(PooledConnection::new(conn, self.clone())),
+                    Ok(Ok(conn)) => {
+                        // #88 修复：连接创建成功，记录到断路器
+                        #[cfg(feature = "circuit-breaker")]
+                        {
+                            if let Ok(mut guard) = self.circuit_breaker.lock() {
+                                guard.record_success();
+                            }
+                        }
+                        self.emit_event(PoolEvent::ConnectionCreated);
+                        self.emit_event(PoolEvent::ConnectionAcquired);
+                        return Ok(PooledConnection::new(conn, self.clone()));
+                    }
                     Ok(Err(e)) => {
                         // 创建失败，回退计数
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        // #88 修复：连接创建失败，记录到断路器
+                        #[cfg(feature = "circuit-breaker")]
+                        {
+                            if let Ok(mut guard) = self.circuit_breaker.lock() {
+                                guard.record_failure();
+                            }
+                        }
                         return Err(PoolError::ConnectionFailed(e.to_string()));
                     }
                     Err(_) => {
                         // tokio::time::timeout 的 Err 必为超时
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        // #88 修复：连接创建超时，记录到断路器
+                        #[cfg(feature = "circuit-breaker")]
+                        {
+                            if let Ok(mut guard) = self.circuit_breaker.lock() {
+                                guard.record_failure();
+                            }
+                        }
                         return Err(PoolError::Timeout);
                     }
                 }
             }
 
-            // 等待连接释放或超时
+            // 等待连接释放或超时（带指数退避）
             let now = Instant::now();
             if now >= deadline {
+                self.emit_event(PoolEvent::AcquireTimeout);
                 return Err(PoolError::Timeout);
             }
-            let _ = tokio::time::timeout(deadline - now, self.notify.notified()).await;
+            // 增加等待者计数
+            self.waiters_count.fetch_add(1, Ordering::SeqCst);
+            let wait = std::cmp::min(backoff, deadline - now);
+            match tokio::time::timeout(wait, self.notify.notified()).await {
+                Ok(()) => {
+                    // 收到通知，重置退避
+                    backoff = Duration::from_millis(1);
+                }
+                Err(_) => {
+                    // 本次等待超时，增加退避（指数增长，上限 MAX_BACKOFF）
+                    backoff = std::cmp::min(backoff * 2, MAX_BACKOFF);
+                }
+            }
+            // 减少等待者计数
+            self.waiters_count.fetch_sub(1, Ordering::SeqCst);
         }
     }
 
@@ -552,6 +973,7 @@ impl Pool {
             let _ = pooled.conn.close().await;
             // v0.2.1 修复 P-1：AtomicU32
             self.total_count.fetch_sub(1, Ordering::SeqCst);
+            self.emit_event(PoolEvent::ConnectionClosed);
             return;
         }
 
@@ -559,49 +981,75 @@ impl Pool {
         if !pooled.conn.is_connected() {
             let _ = pooled.conn.close().await;
             self.total_count.fetch_sub(1, Ordering::SeqCst);
+            self.emit_event(PoolEvent::ConnectionClosed);
             return;
         }
 
         // 更新 last_used_at（归还时间），但保留 created_at（原始创建时间）
         pooled.last_used_at = Instant::now();
 
-        {
-            let mut idle = self.idle.lock().await;
-            idle.push_back(pooled);
+        // v1.1.0 优化 2：无锁 push 替换 Mutex<VecDeque>::push_back
+        //
+        // `ArrayQueue::push` 返回 `Result<(), T>`，失败表示队列满。
+        // 正常情况下不会满（因为 `total_count` 限制了池中总连接数 ≤ max_size = 队列容量），
+        // 但仍处理失败情况：取出所有权并关闭连接，避免连接泄漏。
+        if let Err(mut rejected) = self.idle.push(pooled) {
+            // 队列满（极端并发场景），关闭被拒绝的连接
+            let _ = rejected.conn.close().await;
+            self.total_count.fetch_sub(1, Ordering::SeqCst);
+            self.emit_event(PoolEvent::ConnectionClosed);
+        } else {
+            self.emit_event(PoolEvent::ConnectionReleased);
         }
         self.notify.notify_one();
     }
 
     /// 获取池状态
+    ///
+    /// v1.1.0 优化 2：`idle` 长度从 `Mutex::lock().await` 改为 `ArrayQueue::len()`
+    /// （原子 load，无任何等待）。该方法保留 `async` 签名以兼容旧调用方。
     pub async fn status(&self) -> PoolStatus {
-        let idle_count = self.idle.lock().await.len() as u32;
+        let idle_count = self.idle.len() as u32;
         // v0.2.1 修复 P-1：AtomicU32
         let active = self.total_count.load(Ordering::Acquire);
+        let waiters = self.waiters_count.load(Ordering::Acquire);
         PoolStatus {
             idle: idle_count,
             active,
-            max: self.config.max_size,
+            max: self.dynamic_max_size.load(Ordering::Acquire),
             min: self.config.min_idle,
+            waiters,
         }
     }
 
     /// 回收空闲过久的连接
     #[tracing::instrument(skip(self))]
     pub async fn reap_idle(&self) {
-        let mut idle = self.idle.lock().await;
+        // v1.1.0 优化 2：使用 `ArrayQueue::pop` 循环取出所有连接，过滤后再 push 回去。
+        // 无锁操作，无需 `Mutex::lock().await`。
+        // 1. 取出所有空闲连接到本地 Vec
+        let mut all: Vec<PooledConnection> = Vec::new();
+        while let Some(pooled) = self.idle.pop() {
+            all.push(pooled);
+        }
+
+        // 2. 分类：保留 vs 关闭
         let mut to_close = Vec::new();
-        let mut remaining = VecDeque::new();
-        while let Some(pooled) = idle.pop_front() {
+        for pooled in all {
             if pooled.is_idle_too_long(self.config.idle_timeout)
                 || pooled.is_expired(self.config.max_lifetime)
             {
                 to_close.push(pooled);
             } else {
-                remaining.push_back(pooled);
+                // push 回队列（容量足够，因为之前刚从这里 pop 出来）
+                if let Err(mut rejected) = self.idle.push(pooled) {
+                    let _ = rejected.conn.close().await;
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                }
             }
         }
-        *idle = remaining;
-        drop(idle);
+
+        // 3. 关闭过期连接
         for mut pooled in to_close {
             let _ = pooled.conn.close().await;
             // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
@@ -615,17 +1063,13 @@ impl Pool {
     pub async fn close_all(&self) {
         // 标记为已关闭，阻止新 acquire/release
         self.closed.store(true, Ordering::Release);
-        // v0.2.1 修复 C-1：持 idle 锁期间仅做内存操作（pop_front），
-        // 不在持锁期间 await close()。先收集到本地 Vec，释放锁后批量 close。
-        let to_close: Vec<PooledConnection> = {
-            let mut idle = self.idle.lock().await;
-            let mut collected = Vec::with_capacity(idle.len());
-            while let Some(pooled) = idle.pop_front() {
-                collected.push(pooled);
-            }
-            collected
-        };
-        // 释放锁后批量 close（不持任何锁）
+        // v1.1.0 优化 2：使用 `ArrayQueue::pop` 循环取出所有空闲连接（无锁）。
+        // 先收集到本地 Vec，再批量 close（不在循环内 await）。
+        let mut to_close: Vec<PooledConnection> = Vec::new();
+        while let Some(pooled) = self.idle.pop() {
+            to_close.push(pooled);
+        }
+        // 批量 close（不持任何锁）
         let closed_count: u32 = to_close.len() as u32;
         for mut pooled in to_close {
             let _ = pooled.conn.close().await;
@@ -646,19 +1090,16 @@ impl Pool {
     ///
     /// # 注意
     ///
-    /// - 此方法会持锁等待所有 ping 完成，可能阻塞 acquire/release
+    /// - v1.1.0 优化 2 后：使用无锁 `ArrayQueue`，不再持 `Mutex` 锁。
+    ///   仍可能在 ping 期间阻塞 acquire（因为连接已被取出），但不再阻塞 release。
     /// - 仅检查空闲连接，不影响已借出的连接
     /// - 对于大量空闲连接，可能产生较多并发 ping，建议在低峰期执行
     pub async fn health_check(&self) -> u32 {
-        // 收集所有空闲连接，释放锁后逐个 ping
-        let mut to_check: Vec<PooledConnection> = {
-            let mut idle = self.idle.lock().await;
-            let mut collected = Vec::with_capacity(idle.len());
-            while let Some(pooled) = idle.pop_front() {
-                collected.push(pooled);
-            }
-            collected
-        };
+        // v1.1.0 优化 2：使用 `ArrayQueue::pop` 收集所有空闲连接（无锁）
+        let mut to_check: Vec<PooledConnection> = Vec::new();
+        while let Some(pooled) = self.idle.pop() {
+            to_check.push(pooled);
+        }
 
         let mut removed: u32 = 0;
         let mut alive: Vec<PooledConnection> = Vec::with_capacity(to_check.len());
@@ -686,12 +1127,13 @@ impl Pool {
             }
         }
 
-        // 将存活连接放回池中
+        // 将存活连接放回池中（无锁 push）
         let alive_count: u32 = alive.len() as u32;
-        {
-            let mut idle = self.idle.lock().await;
-            for pooled in alive {
-                idle.push_back(pooled);
+        for pooled in alive {
+            // push 回队列（容量足够，因为之前刚从这里 pop 出来）
+            if let Err(mut rejected) = self.idle.push(pooled) {
+                let _ = rejected.conn.close().await;
+                removed += 1;
             }
         }
 
@@ -706,6 +1148,110 @@ impl Pool {
         }
 
         removed
+    }
+
+    /// 优雅停机：关闭所有空闲连接，等待所有在途连接归还
+    ///
+    /// 1. 标记池为已关闭（拒绝新 acquire）
+    /// 2. 通知所有等待者（让 acquire 等待者立即返回 Closed 错误）
+    /// 3. 关闭所有空闲连接（立即释放，避免 wait 阶段无意义等待）
+    /// 4. 等待在途（已借出）连接归还（带 30 秒超时）
+    pub async fn shutdown(&self) {
+        // 1. 标记为关闭状态
+        self.closed.store(true, Ordering::SeqCst);
+        // 2. 通知所有等待者
+        self.notify.notify_waiters();
+        // 3. 关闭所有空闲连接（close_all 内部也会设置 closed，幂等）
+        self.close_all().await;
+        // 4. 等待在途连接归还（带超时）
+        let deadline = Instant::now() + Duration::from_secs(30);
+        while self.total_count.load(Ordering::SeqCst) > 0 {
+            if Instant::now() >= deadline {
+                break;
+            }
+            tokio::time::sleep(Duration::from_millis(100)).await;
+        }
+    }
+
+    /// 动态调整连接池最大容量（resize 的别名，接受 usize）
+    ///
+    /// 简化实现：仅更新动态 max_size 值，在 acquire 时检查新值。
+    /// - 如果 new_max 大于当前值，允许创建更多连接（受 ArrayQueue 容量限制：
+    ///   超出原始 max_size 的空闲连接会在 release 时因队列满而被关闭）
+    /// - 如果 new_max 小于当前值，不立即关闭多余连接，但阻止新连接创建
+    ///   （多余连接会在 release/reap_idle 时自然回收）
+    pub fn resize(&self, new_max: usize) {
+        self.set_max_size(new_max as u32);
+    }
+
+    /// 动态调整连接池最大容量
+    pub fn set_max_size(&self, new_max: u32) {
+        self.dynamic_max_size.store(new_max, Ordering::SeqCst);
+    }
+
+    /// 获取当前动态 max_size
+    pub fn max_size(&self) -> u32 {
+        self.dynamic_max_size.load(Ordering::Acquire)
+    }
+
+    /// 预热连接池：创建指定数量的连接放入空闲队列
+    ///
+    /// 不会超过 `dynamic_max_size` 上限。创建失败时停止预热并返回 Ok。
+    pub async fn warmup(&self, min_idle: usize) -> Result<(), PoolError> {
+        for _ in 0..min_idle {
+            let current_max = self.dynamic_max_size.load(Ordering::Acquire);
+            let current = self.total_count.load(Ordering::Acquire);
+            if current >= current_max {
+                break;
+            }
+            // CAS 递增计数器，避免并发 warmup/acquire 超过 max_size
+            match self.total_count.compare_exchange(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {}
+                Err(_) => continue, // 并发竞争，跳过本次
+            }
+            match self.factory.create().await {
+                Ok(conn) => {
+                    let now = Instant::now();
+                    let pooled = PooledConnection {
+                        conn,
+                        created_at: now,
+                        last_used_at: now,
+                        pool: None,
+                    };
+                    if let Err(mut rejected) = self.idle.push(pooled) {
+                        // 队列满（不应发生，因为 total_count 限制了），关闭并递减
+                        let _ = rejected.conn.close().await;
+                        self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    }
+                    self.emit_event(PoolEvent::ConnectionCreated);
+                }
+                Err(_) => {
+                    // 创建失败，回退计数器并停止预热
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    break;
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// 带超时的查询执行
+    ///
+    /// 强制 `query_timeout` 配置生效：使用 `tokio::time::timeout` 包裹
+    /// `conn.query(sql)`，超时返回 `DbError::QueryError`。未配置时使用 30 秒默认值。
+    pub async fn query_with_timeout(&self, sql: &str) -> Result<QueryRows, crate::DbError> {
+        let timeout = self.config.query_timeout.unwrap_or(Duration::from_secs(30));
+        let mut conn = self.acquire().await.map_err(crate::DbError::PoolError)?;
+        tokio::time::timeout(timeout, conn.query(sql))
+            .await
+            .map_err(|_| {
+                crate::DbError::QueryError(format!("Query timeout after {:?}", timeout))
+            })?
     }
 }
 
@@ -813,6 +1359,7 @@ mod tests {
             active: 10,
             max: 100,
             min: 5,
+            waiters: 0,
         };
 
         let display = format!("{:?}", status);
@@ -1058,6 +1605,11 @@ mod tests {
             idle_timeout: Duration::from_secs(600),
             max_lifetime: Duration::from_millis(100), // 100ms
             connection_timeout: Duration::from_secs(10),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
         };
         let factory = Arc::new(CountingFactory::new());
         let pool = Pool::new(config, factory.clone()).unwrap();

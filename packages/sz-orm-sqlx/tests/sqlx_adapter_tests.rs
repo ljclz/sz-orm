@@ -309,6 +309,192 @@ async fn test_sqlx_adapter_error_handling() {
     assert!(result.is_err(), "query on non-existent table should fail");
 }
 
+// ===================== 参数绑定（execute_with_params / query_with_params）测试 =====================
+
+#[tokio::test]
+async fn test_sqlx_sqlite_execute_with_params_insert() {
+    let factory = setup_sqlite_factory().await;
+    let mut conn = factory.create().await.unwrap();
+    conn.execute("CREATE TABLE t_param (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+        .await
+        .unwrap();
+
+    // 使用参数绑定 INSERT
+    let affected = conn
+        .execute_with_params(
+            "INSERT INTO t_param (id, name, age) VALUES (?, ?, ?)",
+            &[
+                Value::I64(1),
+                Value::String("alice".to_string()),
+                Value::I32(30),
+            ],
+        )
+        .await
+        .expect("execute_with_params INSERT should succeed");
+    assert_eq!(affected, 1, "should insert 1 row");
+
+    let rows = conn
+        .query("SELECT id, name, age FROM t_param")
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("name"), Some(&Value::String("alice".to_string())));
+    // SQLite 将所有 INTEGER 存为 i64
+    assert_eq!(rows[0].get("age"), Some(&Value::I64(30)));
+}
+
+#[tokio::test]
+async fn test_sqlx_sqlite_query_with_params_select_where_in() {
+    let factory = setup_sqlite_factory().await;
+    let mut conn = factory.create().await.unwrap();
+    conn.execute("CREATE TABLE t_qin (id INTEGER PRIMARY KEY, name TEXT)")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_qin (id, name) VALUES (1, 'a')")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_qin (id, name) VALUES (2, 'b')")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_qin (id, name) VALUES (3, 'c')")
+        .await
+        .unwrap();
+
+    // 使用参数绑定 SELECT ... WHERE id IN (?, ?)
+    let rows = conn
+        .query_with_params(
+            "SELECT id, name FROM t_qin WHERE id IN (?, ?) ORDER BY id",
+            &[Value::I64(1), Value::I64(3)],
+        )
+        .await
+        .expect("query_with_params SELECT should succeed");
+    assert_eq!(rows.len(), 2, "should match 2 rows (ids 1 and 3)");
+    assert_eq!(rows[0].get("name"), Some(&Value::String("a".to_string())));
+    assert_eq!(rows[1].get("name"), Some(&Value::String("c".to_string())));
+}
+
+#[tokio::test]
+async fn test_sqlx_sqlite_query_with_params_prevents_sql_injection() {
+    let factory = setup_sqlite_factory().await;
+    let mut conn = factory.create().await.unwrap();
+    conn.execute("CREATE TABLE t_inj (id INTEGER PRIMARY KEY, name TEXT)")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_inj (id, name) VALUES (1, 'safe')")
+        .await
+        .unwrap();
+
+    // 尝试通过参数值注入 SQL（应被 prepared statement 安全处理）
+    let malicious = "x' OR '1'='1";
+    let rows = conn
+        .query_with_params(
+            "SELECT id, name FROM t_inj WHERE name = ?",
+            &[Value::String(malicious.to_string())],
+        )
+        .await
+        .expect("query_with_params with malicious input should not error");
+    // 无匹配行（恶意字符串未匹配到任何记录，且未触发 SQL 注入）
+    assert_eq!(rows.len(), 0, "malicious input should match 0 rows");
+}
+
+#[tokio::test]
+async fn test_sqlx_sqlite_execute_with_params_update_and_delete() {
+    let factory = setup_sqlite_factory().await;
+    let mut conn = factory.create().await.unwrap();
+    conn.execute("CREATE TABLE t_ud (id INTEGER PRIMARY KEY, name TEXT)")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_ud (id, name) VALUES (1, 'old')")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_ud (id, name) VALUES (2, 'old')")
+        .await
+        .unwrap();
+
+    // 参数绑定 UPDATE
+    let affected = conn
+        .execute_with_params(
+            "UPDATE t_ud SET name = ? WHERE id = ?",
+            &[Value::String("new".to_string()), Value::I64(1)],
+        )
+        .await
+        .unwrap();
+    assert_eq!(affected, 1, "UPDATE should affect 1 row");
+
+    // 参数绑定 DELETE
+    let affected = conn
+        .execute_with_params(
+            "DELETE FROM t_ud WHERE id = ?",
+            &[Value::I64(2)],
+        )
+        .await
+        .unwrap();
+    assert_eq!(affected, 1, "DELETE should affect 1 row");
+
+    let rows = conn.query("SELECT id, name FROM t_ud").await.unwrap();
+    assert_eq!(rows.len(), 1, "only 1 row should remain");
+    assert_eq!(rows[0].get("name"), Some(&Value::String("new".to_string())));
+}
+
+#[tokio::test]
+async fn test_sqlx_sqlite_execute_with_params_empty_params_fallback() {
+    // 空 params 应回退到无参数版本（不报错）
+    let factory = setup_sqlite_factory().await;
+    let mut conn = factory.create().await.unwrap();
+    conn.execute("CREATE TABLE t_fb (id INTEGER PRIMARY KEY)")
+        .await
+        .unwrap();
+    let affected = conn
+        .execute_with_params("INSERT INTO t_fb (id) VALUES (1)", &[])
+        .await
+        .expect("empty params should fall back to execute()");
+    assert_eq!(affected, 1);
+}
+
+#[tokio::test]
+async fn test_sqlx_sqlite_query_with_params_value_types() {
+    // 覆盖各种 Value 类型的参数绑定
+    let factory = setup_sqlite_factory().await;
+    let mut conn = factory.create().await.unwrap();
+    conn.execute(
+        "CREATE TABLE t_types (\
+         id INTEGER PRIMARY KEY,\
+         b BOOLEAN,\
+         i INTEGER,\
+         r REAL,\
+         t TEXT,\
+         bl BLOB)",
+    )
+    .await
+    .unwrap();
+
+    conn.execute_with_params(
+        "INSERT INTO t_types (id, b, i, r, t, bl) VALUES (?, ?, ?, ?, ?, ?)",
+        &[
+            Value::I64(1),
+            Value::Bool(true),
+            Value::I32(42),
+            // 使用 1.5 避免触发 clippy::approx_constant (3.14 ≈ PI)
+            Value::F64(1.5),
+            Value::String("hello".to_string()),
+            Value::Bytes(vec![0x41, 0x42, 0x43]),
+        ],
+    )
+    .await
+    .expect("insert with various types should succeed");
+
+    let rows = conn
+        .query_with_params(
+            "SELECT id, b, i, r, t, bl FROM t_types WHERE id = ?",
+            &[Value::I64(1)],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("i"), Some(&Value::I64(42)));
+    assert_eq!(rows[0].get("t"), Some(&Value::String("hello".to_string())));
+}
+
 // 抑制未使用 import 警告（HashMap 在某些 assert 中可用）
 #[allow(dead_code)]
 fn _suppress_hashmap_warning() -> HashMap<String, Value> {

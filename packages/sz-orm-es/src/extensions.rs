@@ -13,8 +13,6 @@
 //! 避免破坏已有的 InMemoryEsSync 实现。
 //! 内存计算部分基于纯 Rust 实现，不依赖外部库。
 
-#![allow(dead_code)]
-
 use crate::{EsDocument, EsError, EsSearchRequest, EsSync, InMemoryEsSync};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

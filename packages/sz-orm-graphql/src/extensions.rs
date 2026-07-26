@@ -13,8 +13,6 @@
 //! 避免破坏已有的 Schema 生成与执行逻辑。
 //! 内存计算部分基于纯 Rust 实现，不依赖外部库。
 
-#![allow(dead_code)]
-
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
@@ -978,7 +976,6 @@ pub type SubscriptionId = u64;
 #[derive(Debug, Clone)]
 enum SubscriptionMessage {
     Event(SubscriptionEvent),
-    Unsubscribe,
 }
 
 /// 订阅句柄
@@ -1006,7 +1003,7 @@ impl SubscriptionHandle {
     pub fn try_recv(&self) -> Option<SubscriptionEvent> {
         match self.receiver.try_recv() {
             Ok(SubscriptionMessage::Event(e)) => Some(e),
-            Ok(SubscriptionMessage::Unsubscribe) | Err(_) => None,
+            Err(_) => None,
         }
     }
 
@@ -1014,7 +1011,7 @@ impl SubscriptionHandle {
     pub fn recv(&self) -> Option<SubscriptionEvent> {
         match self.receiver.recv() {
             Ok(SubscriptionMessage::Event(e)) => Some(e),
-            Ok(SubscriptionMessage::Unsubscribe) | Err(_) => None,
+            Err(_) => None,
         }
     }
 }

@@ -28,6 +28,10 @@
 //! let sql = sql_string!("SELECT * FROM users WHERE id = ?");
 //!                      params: 2);
 //! ```
+
+// 抑制 Windows 链接器输出"正在创建库 ..."的诊断信息被识别为警告：
+// 该输出是 link.exe 创建 DLL 导入库时的正常 stdout 提示，并非代码问题。
+#![allow(linker_messages)]
 //!
 //! # Derive macros
 //!
@@ -684,7 +688,7 @@ fn parse_table_decl(tokens: &[TokenTree]) -> TokenStream {
                     const NAME: &'static str = #col_name_lit;
                     type Table = table;
                     type RustType = #rust_type;
-                    type SqlType = ::sz_orm_core::typed_ast::Untyped;
+                    type SqlType = <#rust_type as ::sz_orm_core::typed_ast::InferSqlType>::SqlType;
                 }
             }
         })
@@ -995,7 +999,7 @@ pub fn schema(input: TokenStream) -> TokenStream {
                     const NAME: &'static str = #col_name_lit;
                     type Table = table;
                     type RustType = #rust_type;
-                    type SqlType = ::sz_orm_core::typed_ast::Untyped;
+                    type SqlType = <#rust_type as ::sz_orm_core::typed_ast::InferSqlType>::SqlType;
                 }
             }
         })
@@ -1218,15 +1222,25 @@ fn split_top_level_commas(s: &str) -> Vec<String> {
 fn sql_type_to_rust(sql_type: &str, nullable: bool) -> String {
     let upper = sql_type.to_uppercase();
     let rust = match upper.as_str() {
-        "INT" | "INTEGER" | "BIGINT" | "INT8" => "i64",
-        "SMALLINT" | "INT2" | "INT4" => "i32",
+        // 8 字节整数
+        "BIGINT" | "INT8" => "i64",
+        // 4 字节整数（INT/INTEGER/INT4/SERIAL）
+        "INT" | "INTEGER" | "INT4" | "SERIAL" => "i32",
+        // 2 字节整数
+        "SMALLINT" | "INT2" | "SMALLSERIAL" => "i16",
+        // 1 字节整数
         "TINYINT" => "i8",
+        // 浮点（4 字节）
         "FLOAT" | "REAL" | "FLOAT4" => "f32",
+        // 浮点（8 字节）/ 定点数
         "DOUBLE" | "DOUBLE PRECISION" | "FLOAT8" | "DECIMAL" | "NUMERIC" => "f64",
+        // 布尔
         "BOOLEAN" | "BOOL" => "bool",
+        // 二进制（与 schema_gen::sql_type_to_rust 保持一致）
+        "BLOB" | "BYTEA" | "BINARY" | "VARBINARY" => "Vec<u8>",
+        // 字符串/日期/JSON/UUID（统一映射到 String，运行时再解析）
         "VARCHAR" | "TEXT" | "CHAR" | "CHARACTER" | "CLOB" | "UUID" | "DATE" | "TIME"
-        | "DATETIME" | "TIMESTAMP" | "JSON" | "JSONB" | "BLOB" => "String",
-        "BYTEA" | "BINARY" | "VARBINARY" => "Vec<u8>",
+        | "DATETIME" | "TIMESTAMP" | "JSON" | "JSONB" => "String",
         _ => "String",
     };
 
@@ -1535,7 +1549,7 @@ mod tests {
         assert_eq!(
             cols,
             vec![
-                ("id".to_string(), "i64".to_string()),
+                ("id".to_string(), "i32".to_string()),
                 ("name".to_string(), "String".to_string())
             ]
         );
@@ -1559,8 +1573,8 @@ mod tests {
     fn test_parse_create_table_nullable() {
         let sql = "CREATE TABLE t (a INT NOT NULL, b INT)";
         let (_, cols) = parse_create_table(sql).unwrap();
-        assert_eq!(cols[0], ("a".to_string(), "i64".to_string()));
-        assert_eq!(cols[1], ("b".to_string(), "Option<i64>".to_string()));
+        assert_eq!(cols[0], ("a".to_string(), "i32".to_string()));
+        assert_eq!(cols[1], ("b".to_string(), "Option<i32>".to_string()));
     }
 
     #[test]
@@ -1582,22 +1596,49 @@ mod tests {
 
     #[test]
     fn test_sql_type_to_rust_mappings() {
-        assert_eq!(sql_type_to_rust("INT", false), "i64");
+        // 整数（按字节宽度严格映射，与 SQL 标准一致）
         assert_eq!(sql_type_to_rust("BIGINT", false), "i64");
-        assert_eq!(sql_type_to_rust("SMALLINT", false), "i32");
+        assert_eq!(sql_type_to_rust("INT8", false), "i64");
+        assert_eq!(sql_type_to_rust("INT", false), "i32");
+        assert_eq!(sql_type_to_rust("INTEGER", false), "i32");
+        assert_eq!(sql_type_to_rust("INT4", false), "i32");
+        assert_eq!(sql_type_to_rust("SERIAL", false), "i32");
+        assert_eq!(sql_type_to_rust("SMALLINT", false), "i16");
+        assert_eq!(sql_type_to_rust("INT2", false), "i16");
+        assert_eq!(sql_type_to_rust("SMALLSERIAL", false), "i16");
         assert_eq!(sql_type_to_rust("TINYINT", false), "i8");
+        // 浮点
         assert_eq!(sql_type_to_rust("FLOAT", false), "f32");
+        assert_eq!(sql_type_to_rust("REAL", false), "f32");
+        assert_eq!(sql_type_to_rust("FLOAT4", false), "f32");
         assert_eq!(sql_type_to_rust("DOUBLE", false), "f64");
+        assert_eq!(sql_type_to_rust("DOUBLE PRECISION", false), "f64");
+        assert_eq!(sql_type_to_rust("FLOAT8", false), "f64");
         assert_eq!(sql_type_to_rust("DECIMAL", false), "f64");
         assert_eq!(sql_type_to_rust("NUMERIC", false), "f64");
+        // 布尔
         assert_eq!(sql_type_to_rust("BOOLEAN", false), "bool");
+        assert_eq!(sql_type_to_rust("BOOL", false), "bool");
+        // 字符串
         assert_eq!(sql_type_to_rust("VARCHAR", false), "String");
         assert_eq!(sql_type_to_rust("TEXT", false), "String");
-        assert_eq!(sql_type_to_rust("BLOB", false), "String");
+        assert_eq!(sql_type_to_rust("CHAR", false), "String");
+        assert_eq!(sql_type_to_rust("UUID", false), "String");
+        assert_eq!(sql_type_to_rust("DATE", false), "String");
+        assert_eq!(sql_type_to_rust("DATETIME", false), "String");
+        assert_eq!(sql_type_to_rust("TIMESTAMP", false), "String");
+        assert_eq!(sql_type_to_rust("JSON", false), "String");
+        assert_eq!(sql_type_to_rust("JSONB", false), "String");
+        // 二进制
+        assert_eq!(sql_type_to_rust("BLOB", false), "Vec<u8>");
         assert_eq!(sql_type_to_rust("BYTEA", false), "Vec<u8>");
+        assert_eq!(sql_type_to_rust("BINARY", false), "Vec<u8>");
+        assert_eq!(sql_type_to_rust("VARBINARY", false), "Vec<u8>");
         // nullable
-        assert_eq!(sql_type_to_rust("INT", true), "Option<i64>");
+        assert_eq!(sql_type_to_rust("INT", true), "Option<i32>");
+        assert_eq!(sql_type_to_rust("BIGINT", true), "Option<i64>");
         assert_eq!(sql_type_to_rust("VARCHAR", true), "Option<String>");
+        assert_eq!(sql_type_to_rust("BLOB", true), "Option<Vec<u8>>");
         // unknown
         assert_eq!(sql_type_to_rust("UNKNOWNTYPE", false), "String");
     }

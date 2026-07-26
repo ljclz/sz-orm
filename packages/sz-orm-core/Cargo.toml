@@ -15,6 +15,12 @@ default = []
 testing = ["tokio/full"]
 # 启用 query! 宏的编译期连真实 DB 验证能力（转发至 sz-orm-macros/db-verify）
 db-verify = ["sz-orm-macros/db-verify"]
+# 启用 L2Cache 的 Redis 分布式后端（Fix #39：真实实现，基于 redis 0.27 + tokio-comp + connection-manager）
+redis = ["dep:redis"]
+# #88 修复：断路器与 ORM 执行路径集成（引入 sz-orm-health 的 CircuitBreaker）
+circuit-breaker = ["sz-orm-health"]
+# #93 修复：限流器与 ORM 执行路径集成（引入 sz-orm-limit 的 RateLimiter）
+rate-limit = ["sz-orm-limit"]
 
 [dependencies]
 async-trait.workspace = true
@@ -25,8 +31,19 @@ serde_json.workspace = true
 chrono.workspace = true
 bytes.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
+# v1.1.0 优化 2：Pool 无锁队列（crossbeam-queue::ArrayQueue 替换 Mutex<VecDeque>）
+crossbeam-queue.workspace = true
+# 流式查询：Connection::query_stream 默认实现需要 futures::stream::empty
+futures.workspace = true
 sz-orm-sql-validator = { version = "1.0.0", path = "../sz-orm-sql-validator" }
 sz-orm-macros = { version = "1.0.0", path = "../sz-orm-macros" }
+# #88 修复：可选断路器依赖（启用 circuit-breaker feature 时生效）
+sz-orm-health = { version = "1.0.0", path = "../sz-orm-health", optional = true }
+# #93 修复：可选限流器依赖（启用 rate-limit feature 时生效）
+sz-orm-limit = { version = "1.0.0", path = "../sz-orm-limit", optional = true }
+# Fix #39：L2Cache RedisBackend 真实实现（启用 redis feature 时生效）
+# 使用 connection-manager 自动重连 + tokio-comp 异步 IO
+redis = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -75,6 +92,11 @@ path = "tests/property.rs"
 name = "soak"
 path = "tests/soak.rs"
 
+# 连接池混沌工程测试
+[[test]]
+name = "chaos_pool"
+path = "tests/chaos_pool.rs"
+
 [[bench]]
 name = "core_bench"
 path = "benches/core_bench.rs"
@@ -83,3 +105,6 @@ harness = false
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
+
+[lints]
+workspace = true

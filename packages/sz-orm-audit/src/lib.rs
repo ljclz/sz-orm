@@ -120,7 +120,10 @@ fn mask_sensitive(sql: &str) -> String {
             i += kw_len;
         } else {
             // Push one char (handles UTF-8 properly since we step by char).
-            let ch = sql[i..].chars().next().unwrap();
+            let ch = sql[i..]
+                .chars()
+                .next()
+                .expect("i < bytes.len() guarantees non-empty slice");
             result.push(ch);
             i += ch.len_utf8();
         }
@@ -520,9 +523,375 @@ pub fn query_logs(auditor: &SqlAuditor, query: &AuditQuery) -> Vec<SqlAuditConte
     query.filter(&logs)
 }
 
+// ============================================================================
+// 审计日志持久化存储
+// ============================================================================
+
+/// 审计日志持久化存储后端 trait
+///
+/// 抽象不同存储介质（文件、数据库、对象存储等）的审计日志持久化能力。
+/// 实现方需保证 `append` 的线程安全；存储前应自行调用 `mask_sensitive` 脱敏。
+pub trait AuditLogStore: Send + Sync {
+    /// 追加一条审计日志（已脱敏），返回是否成功
+    fn append(&self, entry: &SqlAuditContext) -> Result<(), String>;
+    /// 读取所有已持久化的审计日志
+    fn read_all(&self) -> Result<Vec<SqlAuditContext>, String>;
+    /// 清空持久化存储
+    fn clear(&self) -> Result<(), String>;
+}
+
+/// 基于文件的审计日志持久化存储（JSONL 格式：每行一条 JSON）
+///
+/// 适用场景：单机部署、轻量级审计归档、开发调试。
+/// 生产环境高并发场景建议使用 `AsyncAuditWriter` + `FileAuditLogStore` 组合，
+/// 由后台线程串行写入避免锁竞争。
+pub struct FileAuditLogStore {
+    path: String,
+    write_lock: Mutex<()>,
+}
+
+impl FileAuditLogStore {
+    /// 创建文件审计日志存储，目标文件不存在时在首次 `append` 时自动创建
+    pub fn new(path: impl Into<String>) -> Self {
+        Self {
+            path: path.into(),
+            write_lock: Mutex::new(()),
+        }
+    }
+
+    /// 返回存储文件路径
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+}
+
+impl AuditLogStore for FileAuditLogStore {
+    /// 追加一条审计日志（JSONL 格式，自动脱敏后写入）
+    fn append(&self, entry: &SqlAuditContext) -> Result<(), String> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|e| format!("write_lock poisoned: {}", e))?;
+        // 脱敏后序列化，确保落盘内容不含敏感信息
+        let masked_sql = mask_sensitive(&entry.sql);
+        let stored = SqlAuditContext {
+            sql: masked_sql,
+            user: entry.user.clone(),
+            timestamp: entry.timestamp,
+        };
+        let line = serde_json::to_string(&stored).map_err(|e| e.to_string())?;
+        // 以追加模式打开，每条日志占一行（JSONL）
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .create(true)
+            .append(true)
+            .open(&self.path)
+            .map_err(|e| format!("open '{}' failed: {}", self.path, e))?;
+        writeln!(file, "{}", line).map_err(|e| e.to_string())
+    }
+
+    /// 读取所有已持久化的审计日志（按行解析 JSONL）
+    ///
+    /// 文件不存在时返回空 vec（视为尚未持久化任何日志）。
+    fn read_all(&self) -> Result<Vec<SqlAuditContext>, String> {
+        let content = match std::fs::read_to_string(&self.path) {
+            Ok(c) => c,
+            Err(e) if e.kind() == std::io::ErrorKind::NotFound => {
+                return Ok(Vec::new());
+            }
+            Err(e) => return Err(format!("read failed: {}", e)),
+        };
+        let mut result = Vec::new();
+        for (lineno, line) in content.lines().enumerate() {
+            let line = line.trim();
+            if line.is_empty() {
+                continue;
+            }
+            let entry: SqlAuditContext = serde_json::from_str(line).map_err(|e| {
+                format!("parse line {} failed: {}", lineno + 1, e)
+            })?;
+            result.push(entry);
+        }
+        Ok(result)
+    }
+
+    /// 清空持久化文件（删除文件，下次 append 会重新创建）
+    fn clear(&self) -> Result<(), String> {
+        let _guard = self
+            .write_lock
+            .lock()
+            .map_err(|e| format!("write_lock poisoned: {}", e))?;
+        std::fs::remove_file(&self.path).or_else(|e| {
+            // 文件不存在视为已清空
+            if e.kind() == std::io::ErrorKind::NotFound {
+                Ok(())
+            } else {
+                Err(format!("clear failed: {}", e))
+            }
+        })
+    }
+}
+
+// ============================================================================
+// #11 修复：审计日志哈希链防篡改（Tamper-Evident Hash Chain）
+// ============================================================================
+
+/// 创世哈希（链首的前置哈希），固定为全零 64 字符十六进制串。
+///
+/// 所有哈希链的第一条记录以 `GENESIS_HASH` 作为 `prev_hash`，
+/// 便于验证链的起点未被裁剪。
+pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
+
+/// 带哈希链的审计日志条目。
+///
+/// 每条记录包含：
+/// - `prev_hash`：上一条记录的 `current_hash`（首条为 `GENESIS_HASH`）
+/// - `current_hash`：本条记录的 SHA-256 哈希（基于 `prev_hash + entry` 计算）
+/// - `entry`：原始审计上下文（已脱敏）
+///
+/// 任何对历史记录的篡改都会导致 `current_hash` 与下一条记录的 `prev_hash` 不匹配，
+/// 从而被 `verify_chain` 检测出来。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HashChainEntry {
+    /// 上一条记录的哈希（首条为 [`GENESIS_HASH`]）
+    pub prev_hash: String,
+    /// 本条记录的哈希（SHA-256 十六进制串，64 字符）
+    pub current_hash: String,
+    /// 原始审计上下文（已脱敏）
+    pub entry: SqlAuditContext,
+}
+
+impl HashChainEntry {
+    /// 计算单条记录的 `current_hash`。
+    ///
+    /// 哈希输入为 `prev_hash || sql || user || timestamp` 的 UTF-8 字节拼接，
+    /// 使用 SHA-256 算法。这样任何字段被篡改都会导致哈希变化，
+    /// 进而影响下一条记录的 `prev_hash`，形成链式校验。
+    fn compute_hash(prev_hash: &str, entry: &SqlAuditContext) -> String {
+        use sha2::{Digest, Sha256};
+        let mut hasher = Sha256::new();
+        hasher.update(prev_hash.as_bytes());
+        hasher.update(entry.sql.as_bytes());
+        hasher.update(entry.user.as_bytes());
+        // timestamp 使用固定宽度的字节表示，避免可变长度编码导致歧义
+        hasher.update(entry.timestamp.to_le_bytes());
+        let result = hasher.finalize();
+        // 转为小写十六进制字符串（64 字符）
+        hex_encode(&result)
+    }
+
+    /// 创建链首记录（prev_hash = GENESIS_HASH）
+    pub fn genesis(entry: SqlAuditContext) -> Self {
+        let prev_hash = GENESIS_HASH.to_string();
+        let current_hash = Self::compute_hash(&prev_hash, &entry);
+        Self {
+            prev_hash,
+            current_hash,
+            entry,
+        }
+    }
+
+    /// 在指定前置哈希上追加一条记录
+    pub fn append(prev_hash: &str, entry: SqlAuditContext) -> Self {
+        let current_hash = Self::compute_hash(prev_hash, &entry);
+        Self {
+            prev_hash: prev_hash.to_string(),
+            current_hash,
+            entry,
+        }
+    }
+}
+
+/// 将字节数组编码为小写十六进制字符串。
+///
+/// 与 `hex` crate 的 `encode` 行为一致，但避免引入额外依赖。
+fn hex_encode(bytes: &[u8]) -> String {
+    const HEX_CHARS: &[u8] = b"0123456789abcdef";
+    let mut s = String::with_capacity(bytes.len() * 2);
+    for &b in bytes {
+        s.push(HEX_CHARS[(b >> 4) as usize] as char);
+        s.push(HEX_CHARS[(b & 0x0f) as usize] as char);
+    }
+    s
+}
+
+/// 带哈希链的审计器：所有日志通过 SHA-256 链式哈希串联，支持篡改检测。
+///
+/// # 防篡改机制
+///
+/// 1. 每条记录的 `current_hash = SHA256(prev_hash || sql || user || timestamp)`
+/// 2. 下一条记录的 `prev_hash` 等于上一条的 `current_hash`
+/// 3. 任何对历史记录的修改会导致 `current_hash` 变化，
+///    进而与下一条的 `prev_hash` 不匹配
+/// 4. 删除中间记录会断开链；插入记录会改变后续所有哈希
+///
+/// # 示例
+///
+/// ```
+/// use sz_orm_audit::{HashChainAuditor, SqlAuditContext};
+///
+/// let mut auditor = HashChainAuditor::new();
+/// auditor.log(&SqlAuditContext {
+///     sql: "SELECT * FROM users".to_string(),
+///     user: "admin".to_string(),
+///     timestamp: 1000,
+/// });
+/// // 验证链完整性
+/// assert!(auditor.verify().is_ok());
+/// ```
+pub struct HashChainAuditor {
+    /// 哈希链日志条目（按追加顺序存储）
+    entries: Mutex<Vec<HashChainEntry>>,
+}
+
+impl Default for HashChainAuditor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl HashChainAuditor {
+    /// 创建空的哈希链审计器
+    pub fn new() -> Self {
+        Self {
+            entries: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// 追加一条审计日志到哈希链末尾。
+    ///
+    /// - 若链为空，使用 [`GENESIS_HASH`] 作为 `prev_hash`
+    /// - 否则使用上一条记录的 `current_hash` 作为 `prev_hash`
+    ///
+    /// SQL 会先经过 `mask_sensitive` 脱敏再写入链中，
+    /// 确保存储的审计日志不含敏感信息。
+    pub fn log(&self, ctx: &SqlAuditContext) {
+        let masked_sql = mask_sensitive(&ctx.sql);
+        let entry = SqlAuditContext {
+            sql: masked_sql,
+            user: ctx.user.clone(),
+            timestamp: ctx.timestamp,
+        };
+        let mut entries = self.entries.lock().unwrap();
+        let prev_hash = entries
+            .last()
+            .map(|e| e.current_hash.as_str())
+            .unwrap_or(GENESIS_HASH);
+        let chain_entry = if entries.is_empty() {
+            HashChainEntry::genesis(entry)
+        } else {
+            HashChainEntry::append(prev_hash, entry)
+        };
+        entries.push(chain_entry);
+    }
+
+    /// 返回所有日志条目的快照（克隆）
+    pub fn get_entries(&self) -> Vec<HashChainEntry> {
+        self.entries.lock().unwrap().clone()
+    }
+
+    /// 返回日志条目数量
+    pub fn len(&self) -> usize {
+        self.entries.lock().unwrap().len()
+    }
+
+    /// 是否为空
+    pub fn is_empty(&self) -> bool {
+        self.entries.lock().unwrap().is_empty()
+    }
+
+    /// 验证哈希链完整性。
+    ///
+    /// 检查内容：
+    /// 1. 首条记录的 `prev_hash` 等于 [`GENESIS_HASH`]
+    /// 2. 每条记录的 `current_hash` 等于 `compute_hash(prev_hash, entry)`
+    /// 3. 相邻记录的 `prev_hash` 等于前一条的 `current_hash`
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok(())`：链完整，未被篡改
+    /// - `Err(reason)`：链被篡改，`reason` 描述首个异常的位置与类型
+    pub fn verify(&self) -> Result<(), String> {
+        let entries = self.entries.lock().unwrap();
+        for (i, entry) in entries.iter().enumerate() {
+            // 检查 1：首条记录的 prev_hash 必须为 GENESIS_HASH
+            if i == 0 {
+                if entry.prev_hash != GENESIS_HASH {
+                    return Err(format!(
+                        "chain genesis prev_hash mismatch at index 0: expected '{}', got '{}'",
+                        GENESIS_HASH, entry.prev_hash
+                    ));
+                }
+            } else {
+                // 检查 3：非首条记录的 prev_hash 必须等于上一条的 current_hash
+                let prev = &entries[i - 1];
+                if entry.prev_hash != prev.current_hash {
+                    return Err(format!(
+                        "chain broken at index {}: prev_hash '{}' != previous current_hash '{}'",
+                        i, entry.prev_hash, prev.current_hash
+                    ));
+                }
+            }
+            // 检查 2：current_hash 必须等于重新计算的哈希
+            let recomputed = HashChainEntry::compute_hash(&entry.prev_hash, &entry.entry);
+            if entry.current_hash != recomputed {
+                return Err(format!(
+                    "hash mismatch at index {}: stored '{}' != recomputed '{}'",
+                    i, entry.current_hash, recomputed
+                ));
+            }
+        }
+        Ok(())
+    }
+
+    /// 将哈希链持久化到 JSONL 文件（每行一条 JSON）。
+    ///
+    /// 返回写入的条目数。
+    pub fn flush(&self, path: &str) -> Result<usize, String> {
+        let entries = self.entries.lock().unwrap();
+        let snapshot: Vec<&HashChainEntry> = entries.iter().collect();
+        let json = serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?;
+        std::fs::write(path, json).map_err(|e| e.to_string())?;
+        Ok(entries.len())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+    ///
+    /// 注意：仅检查目录存在不足以保证可用——还需验证可写性，
+    /// 以避免在受限沙箱环境（如 TRAE Sandbox）中因目录存在但不可写导致测试失败。
+    fn test_data_dir() -> std::path::PathBuf {
+        let f_drive = std::path::Path::new("F:\\test\\data");
+        if is_dir_writable(f_drive) {
+            return f_drive.to_path_buf();
+        }
+        if let Ok(dir) = std::env::var("SZ_ORM_TEST_DATA_DIR") {
+            let p = std::path::PathBuf::from(&dir);
+            if is_dir_writable(&p) {
+                return p;
+            }
+        }
+        std::env::temp_dir()
+    }
+
+    /// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+    fn is_dir_writable(dir: &std::path::Path) -> bool {
+        if !dir.exists() {
+            return false;
+        }
+        let probe = dir.join(format!(".probe_{}", std::process::id()));
+        match std::fs::File::create(&probe) {
+            Ok(_) => {
+                let _ = std::fs::remove_file(&probe);
+                true
+            }
+            Err(_) => false,
+        }
+    }
 
     fn ctx(sql: &str, user: &str, ts: i64) -> SqlAuditContext {
         SqlAuditContext {
@@ -665,7 +1034,7 @@ mod tests {
         let a = SqlAuditor::new();
         a.log(&ctx("SELECT * FROM users WHERE password='p'", "admin", 123));
         a.log(&ctx("INSERT INTO logs VALUES(1)", "user2", 456));
-        let path = std::env::temp_dir().join("sz_orm_audit_flush_test.json");
+        let path = test_data_dir().join("sz_orm_audit_flush_test.json");
         let path_str = path.to_str().unwrap();
         let count = a.flush(path_str).expect("flush should succeed");
         assert_eq!(count, 2);
@@ -685,7 +1054,7 @@ mod tests {
     #[test]
     fn test_flush_empty_writes_empty_array() {
         let a = SqlAuditor::new();
-        let path = std::env::temp_dir().join("sz_orm_audit_flush_empty_test.json");
+        let path = test_data_dir().join("sz_orm_audit_flush_empty_test.json");
         let path_str = path.to_str().unwrap();
         let count = a.flush(path_str).expect("flush should succeed");
         assert_eq!(count, 0);
@@ -1046,5 +1415,357 @@ mod tests {
         let query = AuditQuery::new().with_limit(0);
         let results = query.filter(&logs);
         assert_eq!(results.len(), 2);
+    }
+
+    // ===== 审计日志持久化存储测试 =====
+
+    #[test]
+    fn test_file_audit_log_store_append_and_read_all() {
+        let path = test_data_dir().join("sz_orm_audit_store_append.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store = FileAuditLogStore::new(path_str);
+        // 清理可能残留的旧文件
+        let _ = store.clear();
+
+        store.append(&ctx("SELECT * FROM users", "alice", 1000)).unwrap();
+        store.append(&ctx("INSERT INTO logs VALUES(1)", "bob", 2000)).unwrap();
+
+        let logs = store.read_all().unwrap();
+        assert_eq!(logs.len(), 2);
+        assert_eq!(logs[0].user, "alice");
+        assert_eq!(logs[0].sql, "SELECT * FROM users");
+        assert_eq!(logs[1].user, "bob");
+        assert_eq!(logs[1].timestamp, 2000);
+
+        let _ = store.clear();
+    }
+
+    #[test]
+    fn test_file_audit_log_store_masks_sensitive() {
+        let path = test_data_dir().join("sz_orm_audit_store_mask.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store = FileAuditLogStore::new(path_str);
+        let _ = store.clear();
+
+        store
+            .append(&ctx(
+                "SELECT * FROM users WHERE password='secret'",
+                "admin",
+                1000,
+            ))
+            .unwrap();
+
+        let logs = store.read_all().unwrap();
+        assert_eq!(logs.len(), 1);
+        // 落盘内容应已脱敏
+        assert!(!logs[0].sql.contains("password"));
+        assert!(!logs[0].sql.contains("secret"));
+        assert!(logs[0].sql.contains("******"));
+
+        let _ = store.clear();
+    }
+
+    #[test]
+    fn test_file_audit_log_store_clear_removes_entries() {
+        let path = test_data_dir().join("sz_orm_audit_store_clear.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store = FileAuditLogStore::new(path_str);
+        let _ = store.clear();
+
+        store.append(&ctx("SELECT 1", "u", 1)).unwrap();
+        store.append(&ctx("SELECT 2", "u", 2)).unwrap();
+        assert_eq!(store.read_all().unwrap().len(), 2);
+
+        store.clear().unwrap();
+        // 清空后读取应返回空
+        assert_eq!(store.read_all().unwrap().len(), 0);
+
+        let _ = store.clear();
+    }
+
+    #[test]
+    fn test_file_audit_log_store_clear_nonexistent_is_ok() {
+        // 清空不存在的文件不应报错
+        let path = test_data_dir().join("sz_orm_audit_store_nonexistent.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store = FileAuditLogStore::new(path_str);
+        // 确保文件不存在
+        let _ = std::fs::remove_file(path_str);
+        assert!(store.clear().is_ok());
+    }
+
+    #[test]
+    fn test_file_audit_log_store_read_all_empty_file() {
+        let path = test_data_dir().join("sz_orm_audit_store_empty_read.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store = FileAuditLogStore::new(path_str);
+        let _ = store.clear();
+
+        // 未写入任何内容，read_all 应返回空 vec（文件不存在视为空）
+        let logs = store.read_all().unwrap();
+        assert!(logs.is_empty());
+
+        let _ = store.clear();
+    }
+
+    #[test]
+    fn test_file_audit_log_store_skips_blank_lines() {
+        let path = test_data_dir().join("sz_orm_audit_store_blank_lines.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store = FileAuditLogStore::new(path_str);
+        let _ = store.clear();
+
+        store.append(&ctx("SELECT 1", "u", 1)).unwrap();
+        // 手动追加空行模拟人工编辑或异常写入
+        use std::io::Write;
+        let mut file = std::fs::OpenOptions::new()
+            .append(true)
+            .open(path_str)
+            .unwrap();
+        writeln!(file, "").unwrap();
+        writeln!(file, "   ").unwrap();
+        drop(file);
+
+        store.append(&ctx("SELECT 2", "u", 2)).unwrap();
+
+        let logs = store.read_all().unwrap();
+        // 空行应被跳过，只解析到 2 条有效日志
+        assert_eq!(logs.len(), 2);
+
+        let _ = store.clear();
+    }
+
+    #[test]
+    fn test_file_audit_log_store_path_accessor() {
+        let store = FileAuditLogStore::new("/tmp/sz_orm_audit_path_test.jsonl");
+        assert_eq!(store.path(), "/tmp/sz_orm_audit_path_test.jsonl");
+    }
+
+    #[test]
+    fn test_file_audit_log_store_concurrent_append() {
+        use std::sync::Arc;
+        let path = test_data_dir().join("sz_orm_audit_store_concurrent.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store = Arc::new(FileAuditLogStore::new(path_str));
+        let _ = store.clear();
+
+        let mut handles = vec![];
+        for i in 0..4 {
+            let s = Arc::clone(&store);
+            handles.push(std::thread::spawn(move || {
+                for j in 0..10 {
+                    s.append(&ctx(&format!("SELECT {}_{}", i, j), "u", j as i64))
+                        .unwrap();
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // 4 线程 × 10 条 = 40 条，全部应成功落盘
+        let logs = store.read_all().unwrap();
+        assert_eq!(logs.len(), 40);
+
+        let _ = store.clear();
+    }
+
+    #[test]
+    fn test_audit_log_store_trait_object() {
+        // 验证 FileAuditLogStore 可作为 trait object 使用
+        let path = test_data_dir().join("sz_orm_audit_store_trait.jsonl");
+        let path_str = path.to_str().unwrap();
+        let store: Box<dyn AuditLogStore> = Box::new(FileAuditLogStore::new(path_str));
+        let _ = store.clear();
+
+        store.append(&ctx("SELECT 1", "u", 1)).unwrap();
+        let logs = store.read_all().unwrap();
+        assert_eq!(logs.len(), 1);
+
+        let _ = store.clear();
+    }
+
+    // ===== #11 修复：哈希链防篡改测试 =====
+
+    #[test]
+    fn test_hash_chain_empty_auditor_verify_ok() {
+        let auditor = HashChainAuditor::new();
+        assert!(auditor.is_empty());
+        assert_eq!(auditor.len(), 0);
+        // 空链应通过验证
+        assert!(auditor.verify().is_ok());
+    }
+
+    #[test]
+    fn test_hash_chain_single_entry_genesis() {
+        let auditor = HashChainAuditor::new();
+        auditor.log(&ctx("SELECT 1", "admin", 1000));
+        assert_eq!(auditor.len(), 1);
+
+        let entries = auditor.get_entries();
+        // 首条记录的 prev_hash 必须为 GENESIS_HASH
+        assert_eq!(entries[0].prev_hash, GENESIS_HASH);
+        // current_hash 必须为 64 字符的十六进制串
+        assert_eq!(entries[0].current_hash.len(), 64);
+        // 验证链完整
+        assert!(auditor.verify().is_ok());
+    }
+
+    #[test]
+    fn test_hash_chain_multiple_entries_linked() {
+        let auditor = HashChainAuditor::new();
+        auditor.log(&ctx("SELECT 1", "admin", 1000));
+        auditor.log(&ctx("SELECT 2", "admin", 1001));
+        auditor.log(&ctx("SELECT 3", "admin", 1002));
+        assert_eq!(auditor.len(), 3);
+
+        let entries = auditor.get_entries();
+        // 验证相邻记录的 prev_hash 链接
+        assert_eq!(entries[1].prev_hash, entries[0].current_hash);
+        assert_eq!(entries[2].prev_hash, entries[1].current_hash);
+        // 验证链完整
+        assert!(auditor.verify().is_ok());
+    }
+
+    #[test]
+    fn test_hash_chain_detects_tampered_sql() {
+        let auditor = HashChainAuditor::new();
+        auditor.log(&ctx("SELECT 1", "admin", 1000));
+        auditor.log(&ctx("SELECT 2", "admin", 1001));
+
+        // 篡改第一条记录的 SQL（模拟攻击者修改历史日志）
+        {
+            let mut entries = auditor.entries.lock().unwrap();
+            entries[0].entry.sql = "DROP TABLE users".to_string();
+        }
+
+        // 验证应失败
+        let result = auditor.verify();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        // 错误信息应包含篡改位置
+        assert!(err.contains("index 0"), "error: {}", err);
+        assert!(err.contains("hash mismatch"), "error: {}", err);
+    }
+
+    #[test]
+    fn test_hash_chain_detects_broken_link() {
+        let auditor = HashChainAuditor::new();
+        auditor.log(&ctx("SELECT 1", "admin", 1000));
+        auditor.log(&ctx("SELECT 2", "admin", 1001));
+
+        // 篡改第二条记录的 prev_hash（模拟删除中间记录）
+        {
+            let mut entries = auditor.entries.lock().unwrap();
+            entries[1].prev_hash = "deadbeef".to_string();
+        }
+
+        let result = auditor.verify();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("chain broken at index 1"), "error: {}", err);
+    }
+
+    #[test]
+    fn test_hash_chain_detects_genesis_tamper() {
+        let auditor = HashChainAuditor::new();
+        auditor.log(&ctx("SELECT 1", "admin", 1000));
+
+        // 篡改首条记录的 prev_hash（模拟裁剪链首）
+        {
+            let mut entries = auditor.entries.lock().unwrap();
+            entries[0].prev_hash = "deadbeef".to_string();
+        }
+
+        let result = auditor.verify();
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(err.contains("genesis prev_hash mismatch"), "error: {}", err);
+    }
+
+    #[test]
+    fn test_hash_chain_masks_sensitive_data() {
+        let auditor = HashChainAuditor::new();
+        auditor.log(&ctx(
+            "SELECT * FROM users WHERE password='secret'",
+            "admin",
+            1000,
+        ));
+
+        let entries = auditor.get_entries();
+        // 链中存储的 SQL 应已被脱敏
+        assert!(!entries[0].entry.sql.contains("password"));
+        assert!(!entries[0].entry.sql.contains("secret"));
+        assert!(entries[0].entry.sql.contains("******"));
+        // 脱敏后的链仍应通过验证
+        assert!(auditor.verify().is_ok());
+    }
+
+    #[test]
+    fn test_hash_chain_deterministic_hashes() {
+        // 相同输入应产生相同哈希（便于跨节点对账）
+        let entry = ctx("SELECT 1", "admin", 1000);
+        let e1 = HashChainEntry::genesis(entry.clone());
+        let e2 = HashChainEntry::genesis(entry);
+        assert_eq!(e1.current_hash, e2.current_hash);
+        assert_eq!(e1.prev_hash, e2.prev_hash);
+    }
+
+    #[test]
+    fn test_hash_chain_different_inputs_different_hashes() {
+        let e1 = HashChainEntry::genesis(ctx("SELECT 1", "admin", 1000));
+        let e2 = HashChainEntry::genesis(ctx("SELECT 2", "admin", 1000));
+        assert_ne!(e1.current_hash, e2.current_hash);
+    }
+
+    #[test]
+    fn test_hash_chain_flush_and_persist() {
+        let auditor = HashChainAuditor::new();
+        auditor.log(&ctx("SELECT 1", "admin", 1000));
+        auditor.log(&ctx("SELECT 2", "admin", 1001));
+
+        let path = test_data_dir().join("sz_orm_audit_hash_chain.json");
+        let path_str = path.to_str().unwrap();
+        let count = auditor.flush(path_str).unwrap();
+        assert_eq!(count, 2);
+
+        // 验证文件存在且非空
+        let content = std::fs::read_to_string(path_str).unwrap();
+        assert!(!content.is_empty());
+        assert!(content.contains("current_hash"));
+
+        let _ = std::fs::remove_file(path_str);
+    }
+
+    #[test]
+    fn test_hash_chain_concurrent_log_thread_safe() {
+        use std::sync::Arc;
+        use std::thread;
+
+        let auditor = Arc::new(HashChainAuditor::new());
+        let mut handles = vec![];
+        for i in 0..4 {
+            let a = Arc::clone(&auditor);
+            handles.push(thread::spawn(move || {
+                for j in 0..25 {
+                    a.log(&ctx(&format!("SELECT {}_{}", i, j), "u", j as i64));
+                }
+            }));
+        }
+        for h in handles {
+            h.join().unwrap();
+        }
+
+        // 4 线程 × 25 条 = 100 条
+        assert_eq!(auditor.len(), 100);
+        // 并发写入后链仍应完整
+        assert!(auditor.verify().is_ok());
+    }
+
+    #[test]
+    fn test_genesis_hash_constant_is_64_zeros() {
+        // 验证 GENESIS_HASH 为 64 字符全零（SHA-256 输出长度）
+        assert_eq!(GENESIS_HASH.len(), 64);
+        assert!(GENESIS_HASH.chars().all(|c| c == '0'));
     }
 }

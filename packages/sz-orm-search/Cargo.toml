@@ -30,3 +30,6 @@ url = { version = "2.5", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+
+[lints]
+workspace = true

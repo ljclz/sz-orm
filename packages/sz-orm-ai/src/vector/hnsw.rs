@@ -32,8 +32,6 @@
 //! assert_eq!(results[0].id, "v1");
 //! ```
 
-#![allow(dead_code)]
-
 use crate::error::AiError;
 use crate::vector::VectorMetric;
 use std::collections::{BinaryHeap, HashMap, HashSet};

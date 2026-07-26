@@ -54,9 +54,42 @@ pub use s3_sdk::S3SdkStorage;
 mod tests {
     use super::*;
 
+    /// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+    ///
+    /// 注意：仅检查目录存在不足以保证可用——还需验证可写性，
+    /// 以避免在受限沙箱环境中因目录存在但不可写导致测试失败。
+    fn test_data_base() -> std::path::PathBuf {
+        let f_drive = std::path::Path::new("F:\\test\\data");
+        if is_dir_writable(f_drive) {
+            return f_drive.to_path_buf();
+        }
+        if let Ok(dir) = std::env::var("SZ_ORM_TEST_DATA_DIR") {
+            let p = std::path::PathBuf::from(&dir);
+            if is_dir_writable(&p) {
+                return p;
+            }
+        }
+        std::env::temp_dir()
+    }
+
+    /// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+    fn is_dir_writable(dir: &std::path::Path) -> bool {
+        if !dir.exists() {
+            return false;
+        }
+        let probe = dir.join(format!(".probe_{}", std::process::id()));
+        match std::fs::File::create(&probe) {
+            Ok(_) => {
+                let _ = std::fs::remove_file(&probe);
+                true
+            }
+            Err(_) => false,
+        }
+    }
+
     #[tokio::test]
     async fn test_local_storage_put_and_get() {
-        let temp_dir = std::env::temp_dir().join(format!("storage_test_{}", uuid_simple()));
+        let temp_dir = test_data_base().join(format!("storage_test_{}", uuid_simple()));
         let storage = LocalStorage::new(temp_dir.to_string_lossy());
 
         let key = "test.txt";
@@ -73,7 +106,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_storage_delete() {
-        let temp_dir = std::env::temp_dir().join(format!("storage_test_{}", uuid_simple()));
+        let temp_dir = test_data_base().join(format!("storage_test_{}", uuid_simple()));
         let storage = LocalStorage::new(temp_dir.to_string_lossy());
 
         let key = "delete_me.txt";
@@ -89,7 +122,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_storage_exists() {
-        let temp_dir = std::env::temp_dir().join(format!("storage_test_{}", uuid_simple()));
+        let temp_dir = test_data_base().join(format!("storage_test_{}", uuid_simple()));
         let storage = LocalStorage::new(temp_dir.to_string_lossy());
 
         let key = "exists.txt";
@@ -103,7 +136,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_local_storage_not_found() {
-        let temp_dir = std::env::temp_dir().join(format!("storage_test_{}", uuid_simple()));
+        let temp_dir = test_data_base().join(format!("storage_test_{}", uuid_simple()));
         let storage = LocalStorage::new(temp_dir.to_string_lossy());
 
         let result = storage.get("nonexistent.txt").await;
@@ -281,7 +314,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_wrapper_put() {
-        let temp_dir = std::env::temp_dir().join(format!("storage_test_{}", uuid_simple()));
+        let temp_dir = test_data_base().join(format!("storage_test_{}", uuid_simple()));
         let wrapper = StorageWrapper::Local(LocalStorage::new(temp_dir.to_string_lossy()));
 
         let url = wrapper
@@ -295,7 +328,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_storage_wrapper_get() {
-        let temp_dir = std::env::temp_dir().join(format!("storage_test_{}", uuid_simple()));
+        let temp_dir = test_data_base().join(format!("storage_test_{}", uuid_simple()));
         let wrapper = StorageWrapper::Local(LocalStorage::new(temp_dir.to_string_lossy()));
 
         wrapper

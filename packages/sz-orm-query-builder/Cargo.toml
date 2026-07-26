@@ -16,3 +16,6 @@ sz-orm-core = { workspace = true }
 [lib]
 name = "sz_orm_query_builder"
 path = "src/lib.rs"
+
+[lints]
+workspace = true

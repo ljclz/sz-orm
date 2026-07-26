@@ -650,7 +650,11 @@ impl InMemoryQueue {
                     )));
                 }
                 OverflowStrategy::Block => {
-                    unreachable!("Block strategy handled by publish_with_block")
+                    // Block 策略应由 publish_with_block 处理；若误入此路径则返回错误而非 panic
+                    return Err(MqError::Publish(format!(
+                        "topic '{}' overflow with Block strategy: use publish_with_block instead",
+                        topic
+                    )));
                 }
             }
         }

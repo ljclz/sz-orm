@@ -177,6 +177,8 @@ fn parse_migration_filename(filename: &str) -> (String, String) {
 pub struct MigrationContext {
     pub table_name: String,
     pub connection: Option<Box<dyn crate::pool::Connection>>,
+    /// 数据库类型（用于判断是否支持 DDL 事务包裹）
+    pub db_type: Option<DbType>,
 }
 
 impl Default for MigrationContext {
@@ -184,8 +186,29 @@ impl Default for MigrationContext {
         Self {
             table_name: "__migrations".to_string(),
             connection: None,
+            db_type: None,
         }
     }
+}
+
+impl MigrationContext {
+    /// 设置数据库类型
+    pub fn with_db_type(mut self, db_type: DbType) -> Self {
+        self.db_type = Some(db_type);
+        self
+    }
+}
+
+/// 判断指定数据库方言是否支持 DDL 事务
+///
+/// - PostgreSQL：✅ 支持 DDL 事务（CREATE/ALTER/DROP 可回滚）
+/// - SQLite：✅ 支持 DDL 事务
+/// - MySQL：❌ DDL 语句隐式提交，无法回滚
+/// - Oracle：❌ DDL 语句前后隐式 COMMIT
+/// - SQL Server：❌ 部分 DDL 不支持事务内执行（保守处理）
+/// - 其他：❌ 默认不支持
+fn supports_ddl_transactions(db_type: DbType) -> bool {
+    matches!(db_type, DbType::PostgreSQL | DbType::Sqlite)
 }
 
 #[derive(Debug, Clone, PartialEq)]
@@ -237,8 +260,32 @@ impl Migrator {
         self.migrations.iter().find(|m| m.version == version)
     }
 
+    /// 检测迁移版本冲突（重复版本号）
+    ///
+    /// 返回第一个冲突的版本号（如有）。
+    /// 在 `migrate`/`up`/`down` 等执行方法入口处调用，确保迁移列表无重复版本。
+    pub fn check_version_conflicts(&self) -> Result<(), DbError> {
+        let mut seen = std::collections::HashSet::new();
+        for m in &self.migrations {
+            if !seen.insert(&m.version) {
+                return Err(DbError::MigrationError(format!(
+                    "迁移版本冲突：版本号 '{}' 重复定义",
+                    m.version
+                )));
+            }
+        }
+        Ok(())
+    }
+
     /// 执行所有待迁移（batch=0）的 up SQL
+    ///
+    /// 若数据库方言支持 DDL 事务（PostgreSQL/SQLite），则用事务包裹所有待执行迁移，
+    /// 任一迁移失败时回滚全部变更，避免部分迁移导致的状态不一致。
+    /// 不支持 DDL 事务的方言（MySQL/Oracle/SQL Server）逐条执行，失败时保留已执行的变更。
     pub async fn migrate(&mut self) -> Result<Vec<String>, DbError> {
+        // 版本冲突检测
+        self.check_version_conflicts()?;
+
         let mut applied = Vec::new();
         let current_batch = self.migrations.iter().map(|m| m.batch).max().unwrap_or(0) + 1;
 
@@ -251,22 +298,61 @@ impl Migrator {
             .map(|(idx, _)| idx)
             .collect();
 
-        for migration_idx in pending_indices {
-            let sql_up = self.migrations[migration_idx].sql_up.clone();
+        if pending_indices.is_empty() {
+            return Ok(applied);
+        }
 
-            // 如果有连接，执行 SQL
+        // 判断是否需要事务包裹
+        let use_transaction = self
+            .context
+            .db_type
+            .map(supports_ddl_transactions)
+            .unwrap_or(false);
+
+        // 开启事务（若方言支持）
+        if use_transaction {
             if let Some(ref mut conn) = self.context.connection {
-                if !sql_up.is_empty() {
-                    conn.execute(&sql_up).await?;
+                conn.begin_transaction().await?;
+            }
+        }
+
+        // 逐条执行迁移
+        for migration_idx in &pending_indices {
+            let sql_up = self.migrations[*migration_idx].sql_up.clone();
+
+            let exec_result = async {
+                if let Some(ref mut conn) = self.context.connection {
+                    if !sql_up.is_empty() {
+                        conn.execute(&sql_up).await?;
+                    }
                 }
+                Ok::<(), DbError>(())
+            }
+            .await;
+
+            if let Err(e) = exec_result {
+                // 事务包裹下回滚
+                if use_transaction {
+                    if let Some(ref mut conn) = self.context.connection {
+                        let _ = conn.rollback().await;
+                    }
+                }
+                return Err(e);
             }
 
             // 标记为已执行
             let now = chrono::Utc::now();
-            self.migrations[migration_idx].batch = current_batch;
-            self.migrations[migration_idx].executed_at = Some(now);
+            self.migrations[*migration_idx].batch = current_batch;
+            self.migrations[*migration_idx].executed_at = Some(now);
 
-            applied.push(self.migrations[migration_idx].version.clone());
+            applied.push(self.migrations[*migration_idx].version.clone());
+        }
+
+        // 提交事务（若方言支持）
+        if use_transaction {
+            if let Some(ref mut conn) = self.context.connection {
+                conn.commit().await?;
+            }
         }
 
         Ok(applied)
@@ -302,6 +388,9 @@ impl Migrator {
 
     /// 执行到指定版本（包括该版本）
     pub async fn up(&mut self, target_version: Option<&str>) -> Result<Vec<String>, DbError> {
+        // 版本冲突检测
+        self.check_version_conflicts()?;
+
         let mut applied = Vec::new();
         let current_batch = self.migrations.iter().map(|m| m.batch).max().unwrap_or(0) + 1;
 
@@ -333,6 +422,9 @@ impl Migrator {
 
     /// 回滚到指定版本（执行该版本之后所有迁移的 down SQL）
     pub async fn down(&mut self, target_version: Option<&str>) -> Result<Vec<String>, DbError> {
+        // 版本冲突检测
+        self.check_version_conflicts()?;
+
         let mut rolled_back = Vec::new();
 
         // 从后往前回滚

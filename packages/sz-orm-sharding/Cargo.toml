@@ -21,3 +21,6 @@ proptest = { workspace = true }
 [[test]]
 name = "property"
 path = "tests/property.rs"
+
+[lints]
+workspace = true

@@ -25,6 +25,15 @@ pub struct Migration {
     pub down_sql: String,
     /// 此迁移涉及的表名列表（用于冲突检测）
     pub affected_tables: Vec<String>,
+    /// #33 修复：正向迁移 SQL 的参数绑定（占位符 ? 或 $1 对应的值）
+    ///
+    /// 用于防止迁移 SQL 中的 SQL 注入：用户输入应通过参数传入，
+    /// 而非字符串拼接进 `up_sql`。空 Vec 表示无参数。
+    #[serde(default)]
+    pub up_params: Vec<serde_json::Value>,
+    /// #33 修复：反向迁移 SQL 的参数绑定
+    #[serde(default)]
+    pub down_params: Vec<serde_json::Value>,
 }
 
 impl Migration {
@@ -41,12 +50,29 @@ impl Migration {
             up_sql: up_sql.into(),
             down_sql: down_sql.into(),
             affected_tables: Vec::new(),
+            up_params: Vec::new(),
+            down_params: Vec::new(),
         }
     }
 
     /// 设置此迁移涉及的表名列表
     pub fn with_tables(mut self, tables: Vec<String>) -> Self {
         self.affected_tables = tables;
+        self
+    }
+
+    /// #33 修复：设置正向迁移 SQL 的参数绑定
+    ///
+    /// 用于将用户输入与 SQL 模板分离，避免 SQL 注入。
+    /// 参数顺序应与 SQL 中的占位符顺序一致。
+    pub fn with_up_params(mut self, params: Vec<serde_json::Value>) -> Self {
+        self.up_params = params;
+        self
+    }
+
+    /// #33 修复：设置反向迁移 SQL 的参数绑定
+    pub fn with_down_params(mut self, params: Vec<serde_json::Value>) -> Self {
+        self.down_params = params;
         self
     }
 
@@ -525,6 +551,120 @@ impl MigrationExecutor {
         }
     }
 
+    /// #33 修复：执行指定迁移的正向（Up）脚本，支持参数绑定
+    ///
+    /// 与 [`execute_up`](Self::execute_up) 的区别：将迁移定义中的 `up_params` 一并传给
+    /// 执行函数，由执行函数使用 prepared statement 绑定参数，避免 SQL 注入。
+    pub fn execute_up_with_params<F>(
+        &self,
+        version: u64,
+        executor_fn: F,
+    ) -> MigrationExecutionResult
+    where
+        F: FnOnce(&str, &[serde_json::Value]) -> Result<(), String>,
+    {
+        let start = std::time::Instant::now();
+        let migrations = match self.migrations.lock() {
+            Ok(m) => m,
+            Err(_) => {
+                return MigrationExecutionResult {
+                    version,
+                    direction: "up".to_string(),
+                    success: false,
+                    duration_ms: 0,
+                    error: Some("failed to lock migrations".to_string()),
+                }
+            }
+        };
+        let migration = match migrations.get(&version) {
+            Some(m) => m,
+            None => {
+                return MigrationExecutionResult {
+                    version,
+                    direction: "up".to_string(),
+                    success: false,
+                    duration_ms: 0,
+                    error: Some(format!("migration {} not found", version)),
+                }
+            }
+        };
+
+        let result = executor_fn(&migration.up_sql, &migration.up_params);
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(()) => {
+                let _ = self.tracker.record_applied(version, duration_ms);
+                MigrationExecutionResult {
+                    version,
+                    direction: "up".to_string(),
+                    success: true,
+                    duration_ms,
+                    error: None,
+                }
+            }
+            Err(e) => {
+                let _ = self.tracker.record_failed(version, &e, duration_ms);
+                MigrationExecutionResult {
+                    version,
+                    direction: "up".to_string(),
+                    success: false,
+                    duration_ms,
+                    error: Some(e),
+                }
+            }
+        }
+    }
+
+    /// #36 修复：试运行（Dry-Run）指定迁移的正向脚本
+    ///
+    /// 返回将要执行的 SQL 和参数，但不实际执行，也不修改迁移状态。
+    /// 用于在应用迁移前预览将执行的 SQL，验证迁移脚本正确性。
+    ///
+    /// # 返回值
+    ///
+    /// - `Ok((sql, params))`：返回 SQL 字符串和参数列表
+    /// - `Err(MigError::Validation)`：迁移不存在
+    pub fn dry_run_up(
+        &self,
+        version: u64,
+    ) -> Result<(String, Vec<serde_json::Value>), MigError> {
+        let migrations = self.migrations.lock().map_err(|e| {
+            MigError::Migration(format!("failed to lock migrations: {}", e))
+        })?;
+        let migration = migrations
+            .get(&version)
+            .ok_or_else(|| MigError::Validation(format!("migration {} not found", version)))?;
+        Ok((migration.up_sql.clone(), migration.up_params.clone()))
+    }
+
+    /// #36 修复：试运行（Dry-Run）指定迁移的反向脚本
+    ///
+    /// 返回将要执行的 SQL 和参数，但不实际执行，也不修改迁移状态。
+    /// 用于在回滚迁移前预览将执行的 SQL。
+    ///
+    /// # 错误
+    ///
+    /// - `MigError::Validation`：迁移不存在或不可回滚
+    pub fn dry_run_down(
+        &self,
+        version: u64,
+    ) -> Result<(String, Vec<serde_json::Value>), MigError> {
+        let migrations = self.migrations.lock().map_err(|e| {
+            MigError::Migration(format!("failed to lock migrations: {}", e))
+        })?;
+        let migration = migrations
+            .get(&version)
+            .ok_or_else(|| MigError::Validation(format!("migration {} not found", version)))?;
+        if !migration.is_reversible() {
+            return Err(MigError::Validation(format!(
+                "migration {} is not reversible (down_sql is empty)",
+                version
+            )));
+        }
+        Ok((migration.down_sql.clone(), migration.down_params.clone()))
+    }
+
     /// 执行指定迁移的反向（Down）脚本
     pub fn execute_down<F>(&self, version: u64, executor_fn: F) -> MigrationExecutionResult
     where
@@ -582,6 +722,95 @@ impl MigrationExecutor {
         }
 
         let result = executor_fn(&migration.down_sql);
+        let duration_ms = start.elapsed().as_millis() as u64;
+
+        match result {
+            Ok(()) => {
+                let _ = self.tracker.record_rolled_back(version, duration_ms);
+                MigrationExecutionResult {
+                    version,
+                    direction: "down".to_string(),
+                    success: true,
+                    duration_ms,
+                    error: None,
+                }
+            }
+            Err(e) => {
+                MigrationExecutionResult {
+                    version,
+                    direction: "down".to_string(),
+                    success: false,
+                    duration_ms,
+                    error: Some(e),
+                }
+            }
+        }
+    }
+
+    /// #33 修复：执行指定迁移的反向（Down）脚本，支持参数绑定
+    ///
+    /// 与 [`execute_down`](Self::execute_down) 的区别：将迁移定义中的 `down_params` 一并传给
+    /// 执行函数，由执行函数使用 prepared statement 绑定参数，避免 SQL 注入。
+    pub fn execute_down_with_params<F>(
+        &self,
+        version: u64,
+        executor_fn: F,
+    ) -> MigrationExecutionResult
+    where
+        F: FnOnce(&str, &[serde_json::Value]) -> Result<(), String>,
+    {
+        let start = std::time::Instant::now();
+        let migrations = match self.migrations.lock() {
+            Ok(m) => m,
+            Err(_) => {
+                return MigrationExecutionResult {
+                    version,
+                    direction: "down".to_string(),
+                    success: false,
+                    duration_ms: 0,
+                    error: Some("failed to lock migrations".to_string()),
+                }
+            }
+        };
+        let migration = match migrations.get(&version) {
+            Some(m) => m,
+            None => {
+                return MigrationExecutionResult {
+                    version,
+                    direction: "down".to_string(),
+                    success: false,
+                    duration_ms: 0,
+                    error: Some(format!("migration {} not found", version)),
+                }
+            }
+        };
+
+        if !migration.is_reversible() {
+            return MigrationExecutionResult {
+                version,
+                direction: "down".to_string(),
+                success: false,
+                duration_ms: 0,
+                error: Some(format!("migration {} is not reversible", version)),
+            };
+        }
+
+        // 检查迁移是否已应用
+        let status = self.tracker.get_status(version);
+        if !matches!(status, Some(MigrationStatus::Applied)) {
+            return MigrationExecutionResult {
+                version,
+                direction: "down".to_string(),
+                success: false,
+                duration_ms: 0,
+                error: Some(format!(
+                    "migration {} cannot be rolled back (status: {:?})",
+                    version, status
+                )),
+            };
+        }
+
+        let result = executor_fn(&migration.down_sql, &migration.down_params);
         let duration_ms = start.elapsed().as_millis() as u64;
 
         match result {
@@ -1149,6 +1378,196 @@ mod tests {
         let down_result = executor.execute_down(1, |_| Ok(()));
         assert!(down_result.success);
         assert_eq!(executor.tracker().last_applied_version(), None);
+    }
+
+    // ====================================================================
+    // #33 修复：参数绑定测试
+    // ====================================================================
+
+    #[test]
+    fn test_migration_with_up_params() {
+        let mig = Migration::new(1, "test", "INSERT INTO t (name) VALUES (?)", "DELETE FROM t")
+            .with_up_params(vec![serde_json::json!("alice")]);
+        assert_eq!(mig.up_params.len(), 1);
+        assert_eq!(mig.up_params[0], serde_json::json!("alice"));
+    }
+
+    #[test]
+    fn test_migration_with_down_params() {
+        let mig = Migration::new(1, "test", "UP", "DELETE FROM t WHERE id = ?")
+            .with_down_params(vec![serde_json::json!(42)]);
+        assert_eq!(mig.down_params.len(), 1);
+        assert_eq!(mig.down_params[0], serde_json::json!(42));
+    }
+
+    #[test]
+    fn test_migration_default_params_empty() {
+        let mig = Migration::new(1, "test", "UP", "DOWN");
+        assert!(mig.up_params.is_empty());
+        assert!(mig.down_params.is_empty());
+    }
+
+    #[test]
+    fn test_migration_params_serde_roundtrip() {
+        let mig = Migration::new(1, "test", "INSERT INTO t VALUES (?)", "DELETE FROM t WHERE id = ?")
+            .with_up_params(vec![serde_json::json!("alice"), serde_json::json!(42)])
+            .with_down_params(vec![serde_json::json!(42)]);
+        let json = serde_json::to_string(&mig).unwrap();
+        // 反序列化后参数应保留
+        let restored: Migration = serde_json::from_str(&json).unwrap();
+        assert_eq!(restored.up_params.len(), 2);
+        assert_eq!(restored.down_params.len(), 1);
+    }
+
+    #[test]
+    fn test_migration_params_serde_backward_compat() {
+        // 旧版本序列化数据（无 up_params/down_params 字段）应能正常反序列化
+        let json = r#"{
+            "version": 1,
+            "name": "test",
+            "up_sql": "UP",
+            "down_sql": "DOWN",
+            "affected_tables": []
+        }"#;
+        let mig: Migration = serde_json::from_str(json).unwrap();
+        assert!(mig.up_params.is_empty());
+        assert!(mig.down_params.is_empty());
+    }
+
+    #[test]
+    fn test_executor_execute_up_with_params() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "INSERT INTO t (name) VALUES (?)", "DELETE FROM t")
+            .with_up_params(vec![serde_json::json!("alice")]);
+        executor.add_migration(mig).unwrap();
+
+        let result = executor.execute_up_with_params(1, |sql, params| {
+            assert_eq!(sql, "INSERT INTO t (name) VALUES (?)");
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0], serde_json::json!("alice"));
+            Ok(())
+        });
+        assert!(result.success);
+        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Applied));
+    }
+
+    #[test]
+    fn test_executor_execute_down_with_params() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "UP", "DELETE FROM t WHERE id = ?")
+            .with_down_params(vec![serde_json::json!(42)]);
+        executor.add_migration(mig).unwrap();
+        executor.execute_up(1, |_| Ok(()));
+
+        let result = executor.execute_down_with_params(1, |sql, params| {
+            assert_eq!(sql, "DELETE FROM t WHERE id = ?");
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0], serde_json::json!(42));
+            Ok(())
+        });
+        assert!(result.success);
+        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::RolledBack));
+    }
+
+    #[test]
+    fn test_executor_execute_up_with_params_not_found() {
+        let executor = MigrationExecutor::new();
+        let result = executor.execute_up_with_params(999, |_sql, _params| Ok(()));
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("not found"));
+    }
+
+    #[test]
+    fn test_executor_execute_down_with_params_not_reversible() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "UP", ""); // 不可回滚
+        executor.add_migration(mig).unwrap();
+        executor.execute_up(1, |_| Ok(()));
+
+        let result = executor.execute_down_with_params(1, |_, _| Ok(()));
+        assert!(!result.success);
+        assert!(result.error.unwrap().contains("not reversible"));
+    }
+
+    // ====================================================================
+    // #36 修复：Dry-Run 测试
+    // ====================================================================
+
+    #[test]
+    fn test_dry_run_up_returns_sql_and_params() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "INSERT INTO t (name) VALUES (?)", "DELETE FROM t")
+            .with_up_params(vec![serde_json::json!("alice")]);
+        executor.add_migration(mig).unwrap();
+
+        let (sql, params) = executor.dry_run_up(1).unwrap();
+        assert_eq!(sql, "INSERT INTO t (name) VALUES (?)");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], serde_json::json!("alice"));
+    }
+
+    #[test]
+    fn test_dry_run_up_does_not_change_status() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "CREATE TABLE t (...)", "DROP TABLE t");
+        executor.add_migration(mig).unwrap();
+
+        // 调用 dry_run_up 不应改变状态
+        let _ = executor.dry_run_up(1).unwrap();
+        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Pending));
+    }
+
+    #[test]
+    fn test_dry_run_up_not_found() {
+        let executor = MigrationExecutor::new();
+        let result = executor.dry_run_up(999);
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), MigError::Validation(_)));
+    }
+
+    #[test]
+    fn test_dry_run_down_returns_sql_and_params() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "UP", "DELETE FROM t WHERE id = ?")
+            .with_down_params(vec![serde_json::json!(42)]);
+        executor.add_migration(mig).unwrap();
+
+        let (sql, params) = executor.dry_run_down(1).unwrap();
+        assert_eq!(sql, "DELETE FROM t WHERE id = ?");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], serde_json::json!(42));
+    }
+
+    #[test]
+    fn test_dry_run_down_does_not_change_status() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "UP", "DELETE FROM t")
+            .with_up_params(vec![]);
+        executor.add_migration(mig).unwrap();
+        executor.execute_up(1, |_| Ok(()));
+
+        // 调用 dry_run_down 不应改变 Applied 状态
+        let _ = executor.dry_run_down(1).unwrap();
+        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Applied));
+    }
+
+    #[test]
+    fn test_dry_run_down_not_reversible() {
+        let executor = MigrationExecutor::new();
+        let mig = Migration::new(1, "test", "UP", ""); // 不可回滚
+        executor.add_migration(mig).unwrap();
+
+        let result = executor.dry_run_down(1);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, MigError::Validation(_)));
+    }
+
+    #[test]
+    fn test_dry_run_down_not_found() {
+        let executor = MigrationExecutor::new();
+        let result = executor.dry_run_down(999);
+        assert!(result.is_err());
     }
 
     // ====================================================================

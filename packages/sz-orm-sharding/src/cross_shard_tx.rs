@@ -185,7 +185,12 @@ impl ShardTransactionCoordinator {
         // Phase 2: Commit
         for p in &self.participants {
             if let Err(reason) = (p.commit)() {
-                // 已提交的无法回滚，返回 commit 失败错误（需人工介入）
+                // 已提交的无法回滚，记录告警后返回 commit 失败错误（需人工介入）
+                // sharding crate 未引入 tracing，使用 eprintln 输出结构化告警
+                eprintln!(
+                    "[ERROR] shard_id={}, reason={}, msg=\"Cross-shard transaction commit failed - manual intervention required\"",
+                    p.shard_id, reason
+                );
                 return Err(ShardTxError::CommitFailed {
                     shard_id: p.shard_id.clone(),
                     reason,

@@ -59,6 +59,11 @@ fuzz_target!(|data: &[u8]| {
             idle_timeout: Duration::from_secs(idle_timeout as u64),
             max_lifetime: Duration::from_secs(max_lifetime as u64),
             connection_timeout: Duration::from_secs(connection_timeout as u64),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
         };
         let _ = config.validate();
         black_box(&config);
@@ -74,6 +79,11 @@ fuzz_target!(|data: &[u8]| {
             idle_timeout: Duration::from_secs(u64::MAX),
             max_lifetime: Duration::from_secs(u64::MAX),
             connection_timeout: Duration::from_secs(u64::MAX),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
         };
         let _ = config.validate();
         // 不实际创建 Pool（需要 factory），仅测试 Duration 运算
@@ -89,6 +99,11 @@ fuzz_target!(|data: &[u8]| {
             idle_timeout: Duration::ZERO,
             max_lifetime: Duration::ZERO,
             connection_timeout: Duration::ZERO,
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
         };
         let _ = config.validate();
         // connection_timeout / 2 = 0（health_check 中的 ping_timeout）
@@ -105,6 +120,11 @@ fuzz_target!(|data: &[u8]| {
             idle_timeout: Duration::from_secs(60),
             max_lifetime: Duration::from_secs(300),
             connection_timeout: Duration::from_secs(5),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
         };
         let _ = config.validate();
         black_box(&config);

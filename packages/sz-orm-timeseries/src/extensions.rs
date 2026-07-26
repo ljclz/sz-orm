@@ -13,8 +13,6 @@
 //! 避免破坏已有的 memory / stub / real_timescale 三种实现。
 //! 内存实现部分基于纯 Rust 实现，不依赖外部库。
 
-#![allow(dead_code)]
-
 use crate::error::TimescaleError;
 use crate::types::TimeBucket;
 use chrono::{DateTime, Duration, Utc};
@@ -780,7 +778,10 @@ pub fn parse_bucket_to_secs(bucket: &str) -> Result<i64, TimescaleError> {
             "bucket string is empty".to_string(),
         ));
     }
-    let unit_char = bucket.chars().last().unwrap();
+    let unit_char = bucket
+        .chars()
+        .last()
+        .expect("bucket is non-empty (checked above)");
     let num_str = &bucket[..bucket.len() - 1];
     let num: i64 = num_str.parse().map_err(|_| {
         TimescaleError::InvalidConfig(format!(

@@ -312,9 +312,9 @@ mod tests {
 
     #[test]
     fn test_token_is_expired() {
-        let mut token = Token::new("test", 0);
-        // Brand-new token with expires_in=0: expiry = issued_at + 0 = issued_at.
-        // is_expired checks `now > expiry`, which is unlikely to be > issued_at within the same millisecond.
+        // 使用 expires_in=1（秒）避免时序竞争：expires_in=0 时 expiry=issued_at，
+        // 任何毫秒级延迟都会导致 now > expiry，使测试不稳定。
+        let mut token = Token::new("test", 1);
         assert!(!token.is_expired());
 
         token.issued_at = current_timestamp() - 100_000;

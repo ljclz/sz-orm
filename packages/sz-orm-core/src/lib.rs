@@ -416,6 +416,7 @@ pub use chrono::{DateTime, Utc};
 pub use serde::{Deserialize, Serialize};
 
 pub mod accessors;
+pub mod access_control;
 pub mod behaviors;
 mod cache;
 pub mod data_permission;
@@ -446,7 +447,9 @@ pub mod queryable;
 pub mod quick_query;
 pub mod repository;
 pub mod result_map;
+pub mod retry;
 pub mod schema_gen;
+pub mod shadow;
 pub mod sql_safety;
 mod transaction;
 pub mod type_handler;

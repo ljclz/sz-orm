@@ -31,3 +31,6 @@ tokio-test = "0.4"
 [[test]]
 name = "ai_tests"
 path = "tests/ai_tests.rs"
+
+[lints]
+workspace = true

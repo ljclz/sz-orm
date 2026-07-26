@@ -52,6 +52,9 @@
 
 ### Added
 
+- **位置式查询优化 (query_values / query_values_with_params)**：为 `Connection` trait 新增两个高性能查询方法，返回 `(Vec<String>, Vec<Vec<Value>>)` 位置式结果（列名 + 按列顺序的值矩阵），绕过 `HashMap<String, Value>` 行映射开销。SQLite/MySQL/PostgreSQL/Oracle 四后端全部实现真实位置式映射（无 HashMap 中转）。默认实现回退到 `query`/`query_with_params` 并转换，向后兼容。**性能提升实测**：SQLite SELECT ALL (1000行) 提升 34.4%（5.58ms → 3.66ms），Oracle 23ai SELECT ALL (1000行) 提升 57.4%（12.88ms → 5.49ms），Oracle 23ai SELECT BY ID 提升 36.4%（372µs → 237µs）
+- **SQLite/Oracle 真实数据库基准测试**：新增 `sz-orm-sqlx/tests/benchmark.rs` 和 `sz-orm-oracle/tests/benchmark.rs` 两个 CRUD 基准测试套件，覆盖 INSERT/SELECT BY ID/SELECT ALL/UPDATE/DELETE 全场景，对比 HashMap 路径与 Positional 路径性能差异，Oracle 23ai 实测通过（本机 127.0.0.1:1521/freepdb1.FALSE）
+
 - **真实 MQ 客户端 (sz-orm-queue)**：新增 5 种真实消息队列客户端实现 — RabbitMQ (lapin/AMQP 0.9.1)、NATS (async-nats)、Kafka (rdkafka)、ActiveMQ Artemis (AMQP 1.0)、Pulsar (pulsar crate)，覆盖 publish/consume/ack/subscribe 全流程
 - **英文文档**：新增 `README.en.md` 英文版 README + `CONTRIBUTING.md` 贡献者指南，支持国际化协作
 - **架构决策记录 (ADR)**：新增 ADR 文档、模块文档、生产事故 runbook
@@ -70,6 +73,11 @@
 - **SeaORM 迁移指南**：新增 `docs/sea-orm迁移指南.md`（547 行，10 章 + 检查清单），覆盖架构差异/连接池/Model/查询/事务/关联/Migration/ActiveModel 替代方案/陷阱/检查清单
 - **编译时 SQL schema 生成（`schema!` 宏）**：新增 `schema!` proc-macro，接受 SQL `CREATE TABLE` 语句，编译期解析列名/类型/约束，自动生成与 `typed_query! { table ... }` 等价的代码（pub mod + table 标记类型 + col_\<name\> TypedColumn 实现），支持 IF NOT EXISTS、反引号/双引号标识符、NOT NULL/PRIMARY KEY 隐含非空判定、嵌套括号类型（如 DECIMAL(10,2)），零外部依赖纯字符串解析，8 个单元测试
 - **全部 37 扩展包深度优化**：完成全部 37 个扩展包的深度优化，测试数从 2,271 增至 4,959（+2,688），clippy 零警告。覆盖 5 大组：数据库扩展（sql-validator/batch/rw/config/storage/scheduler/mig/back）、消息通信+可观测（websocket/mqtt/postgis/vector/graphql/timeseries/es）、安全合规+API（auth/crypto/audit/masking/limit/swagger/search/health）、分布式+运维（tracing/logger/observability/lc/wasm/ai/macros/sqlx）、核心 4 包（queue/grpc/sharding/dtx）。每个包补充 200-500 行高级特性代码与 15-30 个单元测试
+- **Connection trait 参数绑定 (P1.5-3)**：为 `Connection` trait 新增 `execute_with_params`/`query_with_params` 两个方法（默认实现回退无参版本，向后兼容），MySQL/PostgreSQL/SQLite 三个适配器实现真实 prepared statement 参数绑定；新增 17 个单元测试 + 6 个集成测试覆盖空参数/全类型/NULL/IN/BETWEEN/SQL 注入防护；Benchmark 显示 SELECT BY ID 性能提升 26.4%
+- **编译时类型推断完善 (P1-1)**：扩展 `SqlType` 变体至 13 种（新增 SmallInt/BigInt/Real/Double/Date/DateTime/Json/Uuid/Binary/Nullable<T>）；新增 `InferSqlType` trait 为 14 种 Rust 类型（bool/i8/i16/i32/i64/u8/u16/u32/u64/f32/f64/String/Vec<u8>/Option<T> + &str/&[u8] 引用）提供编译期 SqlType 映射；`typed_query!` 宏改用 `<T as InferSqlType>::SqlType` 自动推断，替换原硬编码 Untyped；`Literal<T>` 扩展至 9 种类型实现 TypedExpression；新增 2 个集成测试覆盖 typed_query! 和 schema! 宏的类型推断（i64→BigInt、String→Text、Option<f64>→Nullable<Double> 等 10+ 映射）
+- **Oracle 独立适配器包 (sz-orm-oracle)**：基于 `oracle` crate (ODPI-C 绑定) 实现 sz-orm-core 的 `Connection` trait，支持 Oracle 12c+；通过 `tokio::task::spawn_blocking` 包装同步调用为异步；自动将 `?` 占位符转换为 Oracle 的 `:N` 格式；实现 `execute`/`query`/`execute_with_params`/`query_with_params`/事务/ping/close 全套方法；15 个单元测试全部通过（占位符转换/DDL 判断/Value→ToSql 转换）
+- **SQL Server 独立适配器包 (sz-orm-mssql)**：基于 `tiberius` crate (纯 Rust TDS 协议) 实现 sz-orm-core 的 `Connection` trait，支持 SQL Server 2008+；自动将 `?` 占位符转换为 `@PN` 格式；通过 `MssqlParamOwned` 枚举持有参数所有权解决 tiberius `ColumnData` 生命周期限制；代码已创建（808 行），编译待 `tiberius` crate 下载（本地网络无法访问 crates.io）
+- **测试数据路径迁移**：将 4 个文件的 `std::env::temp_dir()` 调用迁移至优先使用 `F:\test\data`（用户规范），回退到 `SZ_ORM_TEST_DATA_DIR` 环境变量或系统 temp（CI/Linux），涉及 sz-orm-core/tests/integration_sqlite.rs、sz-orm-storage/tests/stress.rs、sz-orm-back/src/lib.rs（15 处）、sz-orm-audit/src/lib.rs（2 处）
 
 ### Changed
 

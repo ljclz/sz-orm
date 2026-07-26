@@ -46,10 +46,88 @@
 //! println!("hit rate: {:.2}%", stats.hit_rate() * 100.0);
 //! ```
 
+use crate::cache::Cache;
+use crate::error::CacheError;
 use crate::value::Value;
 use std::collections::HashMap;
-use std::sync::RwLock;
-use std::time::{Duration, Instant};
+use std::future::Future;
+use std::pin::Pin;
+use std::sync::{Arc, RwLock};
+use std::time::Duration;
+// #72 修复：使用 tokio::time::Instant 替代 std::time::Instant
+// tokio::time::Instant 支持 tokio::time::pause() 测试辅助，
+// 允许测试在不真实睡眠的情况下控制时间流逝。
+// 在非测试环境（未调用 pause）下，行为与 std::time::Instant 完全一致。
+use tokio::time::Instant;
+
+// ============================================================================
+// InvalidationBus — 缓存失效消息总线（跨实例失效）
+// ============================================================================
+
+/// 缓存失效消息
+#[derive(Debug, Clone)]
+pub enum InvalidationMessage {
+    /// 失效单个 key
+    InvalidateKey(String),
+    /// 失效整张表
+    InvalidateTable(String),
+    /// 失效所有缓存
+    InvalidateAll,
+}
+
+/// 缓存失效总线 trait
+///
+/// 用于跨实例缓存失效：当一个实例失效了某张表的缓存时，
+/// 通过总线通知其他订阅者同步失效。
+pub trait InvalidationBus: Send + Sync {
+    /// 发布失效消息
+    fn publish(&self, message: InvalidationMessage);
+    /// 订阅失效消息（返回一个迭代器，drain 当前缓冲的消息）
+    fn subscribe(&self) -> Box<dyn Iterator<Item = InvalidationMessage> + Send>;
+}
+
+/// 进程内失效总线（单实例用）
+///
+/// 基于 `tokio::sync::broadcast` 实现多订阅者广播。
+/// `subscribe()` 返回的迭代器会 drain 当前已缓冲但未消费的消息。
+pub struct LocalInvalidationBus {
+    tx: tokio::sync::broadcast::Sender<InvalidationMessage>,
+}
+
+impl LocalInvalidationBus {
+    /// 创建进程内失效总线，`capacity` 为广播缓冲区容量
+    pub fn new(capacity: usize) -> Self {
+        let (tx, _rx) = tokio::sync::broadcast::channel(capacity.max(1));
+        Self { tx }
+    }
+}
+
+impl Default for LocalInvalidationBus {
+    fn default() -> Self {
+        Self::new(256)
+    }
+}
+
+impl InvalidationBus for LocalInvalidationBus {
+    fn publish(&self, message: InvalidationMessage) {
+        // 忽略无订阅者的错误
+        let _ = self.tx.send(message);
+    }
+
+    fn subscribe(&self) -> Box<dyn Iterator<Item = InvalidationMessage> + Send> {
+        let mut rx = self.tx.subscribe();
+        Box::new(std::iter::from_fn(move || loop {
+            match rx.try_recv() {
+                Ok(msg) => return Some(msg),
+                // 缓冲区为空或通道已关闭 → 终止迭代
+                Err(tokio::sync::broadcast::error::TryRecvError::Empty)
+                | Err(tokio::sync::broadcast::error::TryRecvError::Closed) => return None,
+                // 滞后（订阅者落后太多）→ 跳过丢失的消息，继续读下一条
+                Err(tokio::sync::broadcast::error::TryRecvError::Lagged(_)) => continue,
+            }
+        }))
+    }
+}
 
 // ============================================================================
 // CacheKey — 统一缓存键
@@ -146,6 +224,39 @@ pub struct L2CacheStats {
     pub size: usize,
 }
 
+/// 按表分桶的命中率统计
+///
+/// 用于细粒度观察每张表的缓存命中情况，
+/// 识别"热点表"与"低命中表"，指导缓存策略调整。
+#[derive(Debug, Clone, Default)]
+pub struct PerTableStats {
+    /// 命中次数
+    pub hits: u64,
+    /// 未命中次数
+    pub misses: u64,
+    /// 设置次数
+    pub sets: u64,
+    /// 失效次数
+    pub evictions: u64,
+}
+
+impl PerTableStats {
+    /// 总查询次数（hits + misses）
+    pub fn total_lookups(&self) -> u64 {
+        self.hits + self.misses
+    }
+
+    /// 命中率（0.0 ~ 1.0）
+    pub fn hit_rate(&self) -> f64 {
+        let total = self.total_lookups();
+        if total == 0 {
+            0.0
+        } else {
+            self.hits as f64 / total as f64
+        }
+    }
+}
+
 impl L2CacheStats {
     /// 总查询次数（hits + misses）
     pub fn total_lookups(&self) -> u64 {
@@ -212,6 +323,170 @@ impl CacheEntry {
 }
 
 // ============================================================================
+// LruOrder — O(1) LRU 顺序跟踪器（arena 双向链表 + HashMap）
+// ============================================================================
+
+/// LRU 顺序跟踪器 — 所有操作 O(1)
+///
+/// 基于 arena（Vec<LruNode>）的双向链表 + HashMap 索引实现：
+/// - `touch(key)`：将 key 移到 MRU 端（已存在则摘链+追加，新 key 直接追加）— O(1)
+/// - `remove(key)`：从链表中摘除并回收节点 — O(1)
+/// - `lru_key()`：返回 LRU 端的 key — O(1)
+/// - `iter_keys()`：从 LRU 到 MRU 遍历 — O(n)
+///
+/// 相比 `Vec<String>` + `retain` 方案（touch/remove 为 O(n)），本实现将高频操作
+/// 降为 O(1)，仅遍历（用于查找过期 key）保持 O(n)。
+struct LruOrder {
+    /// 节点池（arena）：节点索引即数组下标
+    nodes: Vec<LruNode>,
+    /// 空闲节点列表（复用已删除节点的槽位，避免 Vec 无限增长）
+    free_list: Vec<usize>,
+    /// key → 节点索引
+    index: HashMap<String, usize>,
+    /// 链表头（LRU 端，淘汰时从此处取）
+    head: Option<usize>,
+    /// 链表尾（MRU 端，新访问的加入此处）
+    tail: Option<usize>,
+}
+
+/// 双向链表节点
+struct LruNode {
+    key: String,
+    prev: Option<usize>,
+    next: Option<usize>,
+}
+
+impl LruOrder {
+    fn new() -> Self {
+        Self {
+            nodes: Vec::new(),
+            free_list: Vec::new(),
+            index: HashMap::new(),
+            head: None,
+            tail: None,
+        }
+    }
+
+    /// 触碰 key：已存在则移到尾部，不存在则创建并追加到尾部 — O(1)
+    fn touch(&mut self, key: &str) {
+        if let Some(&idx) = self.index.get(key) {
+            self.unlink(idx);
+            self.link_tail(idx);
+        } else {
+            let idx = self.alloc_node(key.to_string());
+            self.link_tail(idx);
+            self.index.insert(key.to_string(), idx);
+        }
+    }
+
+    /// 移除 key — O(1)
+    fn remove(&mut self, key: &str) {
+        if let Some(idx) = self.index.remove(key) {
+            self.unlink(idx);
+            self.free_node(idx);
+        }
+    }
+
+    /// 返回 LRU 端的 key（最久未访问） — O(1)
+    fn lru_key(&self) -> Option<&str> {
+        self.head.map(|idx| self.nodes[idx].key.as_str())
+    }
+
+    /// 从 LRU 到 MRU 遍历所有 key — O(n)
+    fn iter_keys(&self) -> impl Iterator<Item = &str> {
+        LruIter {
+            nodes: &self.nodes,
+            current: self.head,
+        }
+    }
+
+    /// 清空所有 — O(n)（需释放 Vec/HashMap 内存）
+    fn clear(&mut self) {
+        self.nodes.clear();
+        self.free_list.clear();
+        self.index.clear();
+        self.head = None;
+        self.tail = None;
+    }
+
+    /// 当前元素数量 — O(1)
+    #[allow(dead_code)]
+    fn len(&self) -> usize {
+        self.index.len()
+    }
+
+    /// 分配节点（优先复用空闲槽位）
+    fn alloc_node(&mut self, key: String) -> usize {
+        if let Some(idx) = self.free_list.pop() {
+            self.nodes[idx] = LruNode {
+                key,
+                prev: None,
+                next: None,
+            };
+            idx
+        } else {
+            self.nodes.push(LruNode {
+                key,
+                prev: None,
+                next: None,
+            });
+            self.nodes.len() - 1
+        }
+    }
+
+    /// 回收节点到空闲列表
+    fn free_node(&mut self, idx: usize) {
+        self.free_list.push(idx);
+    }
+
+    /// 从链表中摘除节点（仅修改前后指针，不释放节点）
+    fn unlink(&mut self, idx: usize) {
+        let prev = self.nodes[idx].prev;
+        let next = self.nodes[idx].next;
+        match prev {
+            Some(p) => self.nodes[p].next = next,
+            None => self.head = next,
+        }
+        match next {
+            Some(n) => self.nodes[n].prev = prev,
+            None => self.tail = prev,
+        }
+        self.nodes[idx].prev = None;
+        self.nodes[idx].next = None;
+    }
+
+    /// 将节点链接到链表尾部（MRU 端）
+    fn link_tail(&mut self, idx: usize) {
+        match self.tail {
+            Some(t) => {
+                self.nodes[t].next = Some(idx);
+                self.nodes[idx].prev = Some(t);
+            }
+            None => self.head = Some(idx),
+        }
+        self.nodes[idx].next = None;
+        self.tail = Some(idx);
+    }
+}
+
+/// LRU 链表迭代器（从 LRU 端到 MRU 端）
+struct LruIter<'a> {
+    nodes: &'a [LruNode],
+    current: Option<usize>,
+}
+
+impl<'a> Iterator for LruIter<'a> {
+    type Item = &'a str;
+
+    fn next(&mut self) -> Option<Self::Item> {
+        let idx = self.current?;
+        let node = &self.nodes[idx];
+        self.current = node.next;
+        Some(node.key.as_str())
+    }
+}
+
+// ============================================================================
 // L2Cache — 跨 Session 共享的二级缓存
 // ============================================================================
 
@@ -244,19 +519,23 @@ pub struct L2Cache {
     data: RwLock<HashMap<String, CacheEntry>>,
     /// 表名索引（用于表级失效）— table -> Vec<key_string>（去重）
     table_index: RwLock<HashMap<String, Vec<String>>>,
-    /// LRU 访问顺序（尾部为最近访问，头部为最久未访问）
+    /// LRU 访问顺序跟踪器（O(1) touch/remove/lru_key，arena 双向链表 + HashMap）
     ///
     /// # 锁顺序约定
     ///
     /// 跨字段持锁时遵循：`data` → `access_order` → `table_index` → `stats`，
     /// 避免死锁。本字段不允许在持 `data` 写锁时获取其他写锁。
-    access_order: RwLock<Vec<String>>,
-    /// 统计信息
+    access_order: RwLock<LruOrder>,
+    /// 全局统计信息
     stats: RwLock<L2CacheStats>,
+    /// 按表分桶的统计信息（table -> PerTableStats）
+    table_stats: RwLock<HashMap<String, PerTableStats>>,
     /// 默认 TTL（`put` 传 `None` 时使用，要"永不失效"请传 `Some(Duration::MAX)`）
     default_ttl: Option<Duration>,
     /// 最大容量（LRU 淘汰）
     max_size: usize,
+    /// 缓存失效总线（可选，用于跨实例失效通知）
+    invalidation_bus: Option<Arc<dyn InvalidationBus>>,
 }
 
 impl Default for L2Cache {
@@ -271,10 +550,12 @@ impl L2Cache {
         Self {
             data: RwLock::new(HashMap::new()),
             table_index: RwLock::new(HashMap::new()),
-            access_order: RwLock::new(Vec::new()),
+            access_order: RwLock::new(LruOrder::new()),
             stats: RwLock::new(L2CacheStats::default()),
+            table_stats: RwLock::new(HashMap::new()),
             default_ttl: None,
             max_size: 10_000,
+            invalidation_bus: None,
         }
     }
 
@@ -287,6 +568,12 @@ impl L2Cache {
     /// 设置最大容量
     pub fn with_max_size(mut self, max_size: usize) -> Self {
         self.max_size = max_size;
+        self
+    }
+
+    /// 设置缓存失效总线（用于跨实例失效通知）
+    pub fn with_invalidation_bus(mut self, bus: Arc<dyn InvalidationBus>) -> Self {
+        self.invalidation_bus = Some(bus);
         self
     }
 
@@ -303,47 +590,57 @@ impl L2Cache {
         let key_str = key.to_string_key();
 
         // 1. 写入数据 + LRU 淘汰
-        let is_new_key = {
-            let mut data = self.data.write().unwrap();
+        {
+            let mut data = self
+                .data
+                .write()
+                .expect("L2Cache data lock poisoned (put)");
             let exists = data.contains_key(&key_str);
             if !exists && data.len() >= self.max_size {
-                // LRU 淘汰：优先淘汰已过期的 key，否则淘汰 access_order 头部
+                // LRU 淘汰：优先淘汰已过期的 key，否则淘汰 LRU 端（access_order 头部）
                 let victim = {
                     // 不在持 data 写锁时获取 access_order 写锁，先读 access_order
-                    let order = self.access_order.read().unwrap();
-                    // 优先找已过期的 key
-                    order
-                        .iter()
+                    let order = self
+                        .access_order
+                        .read()
+                        .expect("L2Cache access_order lock poisoned (put-victim-read)");
+                    // 优先找已过期的 key（O(n) 遍历，仅缓存满时触发）
+                    // 分两步计算，避免闭包捕获 order 导致生命周期问题
+                    let expired = order
+                        .iter_keys()
                         .find(|k| data.get(*k).map(|e| e.is_expired()).unwrap_or(false))
-                        .cloned()
-                        .or_else(|| order.first().cloned())
+                        .map(|s| s.to_string());
+                    let lru = order.lru_key().map(|s| s.to_string());
+                    expired.or(lru)
                 };
                 if let Some(victim) = victim {
                     data.remove(&victim);
-                    // 同步清理 access_order
-                    let mut order = self.access_order.write().unwrap();
-                    order.retain(|k| k != &victim);
+                    // 同步清理 access_order（O(1) remove）
+                    let mut order = self
+                        .access_order
+                        .write()
+                        .expect("L2Cache access_order lock poisoned (put-victim-remove)");
+                    order.remove(&victim);
                 }
             }
             data.insert(key_str.clone(), entry);
-            !exists
         };
 
-        // 2. 更新 LRU 访问顺序（key 移到尾部）
+        // 2. 更新 LRU 访问顺序（O(1) touch：新 key 追加尾部，已存在 key 移到尾部）
         {
-            let mut order = self.access_order.write().unwrap();
-            if is_new_key {
-                order.push(key_str.clone());
-            } else {
-                // 已存在的 key：移到尾部
-                order.retain(|k| k != &key_str);
-                order.push(key_str.clone());
-            }
+            let mut order = self
+                .access_order
+                .write()
+                .expect("L2Cache access_order lock poisoned (put-touch)");
+            order.touch(&key_str);
         }
 
         // 3. 更新表索引（去重，避免重复 push 导致 invalidate_table 统计错误）
         {
-            let mut idx = self.table_index.write().unwrap();
+            let mut idx = self
+                .table_index
+                .write()
+                .expect("L2Cache table_index lock poisoned (put)");
             let keys = idx.entry(key.table.clone()).or_default();
             if !keys.contains(&key_str) {
                 keys.push(key_str);
@@ -352,8 +649,17 @@ impl L2Cache {
 
         // 4. 更新统计（不在此处读取 data.len()，避免锁顺序敏感）
         {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self
+                .stats
+                .write()
+                .expect("L2Cache stats lock poisoned (put)");
             stats.sets += 1;
+        }
+        // 4.1 更新按表分桶统计
+        {
+            if let Ok(mut tbl_stats) = self.table_stats.write() {
+                tbl_stats.entry(key.table.clone()).or_default().sets += 1;
+            }
         }
     }
 
@@ -362,6 +668,7 @@ impl L2Cache {
     /// 命中时会更新 LRU 访问顺序（移到尾部）。
     pub fn get(&self, key: &CacheKey) -> Option<Value> {
         let key_str = key.to_string_key();
+        let table_name = key.table.clone();
         let result = {
             let data = self.data.read().ok()?;
             if let Some(entry) = data.get(&key_str) {
@@ -375,19 +682,30 @@ impl L2Cache {
             }
         };
 
-        // 命中时更新 LRU 顺序（移到尾部）
+        // 命中时更新 LRU 顺序（O(1) touch：移到尾部）
         if result.is_some() {
-            let mut order = self.access_order.write().unwrap();
-            order.retain(|k| k != &key_str);
-            order.push(key_str);
+            let mut order = self
+                .access_order
+                .write()
+                .expect("L2Cache access_order lock poisoned (get)");
+            order.touch(&key_str);
         }
 
-        // 更新统计
+        // 更新全局统计
         if let Ok(mut stats) = self.stats.write() {
             if result.is_some() {
                 stats.hits += 1;
             } else {
                 stats.misses += 1;
+            }
+        }
+        // 更新按表分桶统计
+        if let Ok(mut tbl_stats) = self.table_stats.write() {
+            let entry = tbl_stats.entry(table_name).or_default();
+            if result.is_some() {
+                entry.hits += 1;
+            } else {
+                entry.misses += 1;
             }
         }
 
@@ -397,23 +715,37 @@ impl L2Cache {
     /// 失效单个缓存项
     pub fn invalidate(&self, key: &CacheKey) {
         let key_str = key.to_string_key();
+        let table_name = key.table.clone();
         let removed = {
-            let mut data = self.data.write().unwrap();
+            let mut data = self
+                .data
+                .write()
+                .expect("L2Cache data lock poisoned (invalidate)");
             data.remove(&key_str).is_some()
         };
         if removed {
-            let mut order = self.access_order.write().unwrap();
-            order.retain(|k| k != &key_str);
+            let mut order = self
+                .access_order
+                .write()
+                .expect("L2Cache access_order lock poisoned (invalidate)");
+            order.remove(&key_str);
         }
         if removed {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self
+                .stats
+                .write()
+                .expect("L2Cache stats lock poisoned (invalidate)");
             stats.evictions += 1;
+            if let Ok(mut tbl_stats) = self.table_stats.write() {
+                tbl_stats.entry(table_name).or_default().evictions += 1;
+            }
         }
     }
 
     /// 失效整张表的所有缓存项
     ///
     /// 仅统计实际从缓存中删除的 key 数量，避免 evictions 偏大。
+    /// 若设置了失效总线，会同时发布 `InvalidateTable` 消息通知其他实例。
     pub fn invalidate_table(&self, table: &str) {
         let keys_to_remove: Vec<String> = {
             let idx = match self.table_index.read() {
@@ -425,7 +757,10 @@ impl L2Cache {
 
         let mut actually_removed: usize = 0;
         {
-            let mut data = self.data.write().unwrap();
+            let mut data = self
+                .data
+                .write()
+                .expect("L2Cache data lock poisoned (invalidate_table)");
             for k in &keys_to_remove {
                 if data.remove(k).is_some() {
                     actually_removed += 1;
@@ -433,24 +768,47 @@ impl L2Cache {
             }
         }
 
+        // O(m) 批量移除（m = keys_to_remove），而非旧实现的 O(n*m) retain
         if actually_removed > 0 {
-            let mut order = self.access_order.write().unwrap();
-            order.retain(|k| !keys_to_remove.contains(k));
+            let mut order = self
+                .access_order
+                .write()
+                .expect("L2Cache access_order lock poisoned (invalidate_table)");
+            for k in &keys_to_remove {
+                order.remove(k);
+            }
         }
 
         if let Ok(mut idx) = self.table_index.write() {
             idx.remove(table);
         }
         if actually_removed > 0 {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self
+                .stats
+                .write()
+                .expect("L2Cache stats lock poisoned (invalidate_table)");
             stats.evictions += actually_removed as u64;
+            if let Ok(mut tbl_stats) = self.table_stats.write() {
+                tbl_stats
+                    .entry(table.to_string())
+                    .or_default()
+                    .evictions += actually_removed as u64;
+            }
+        }
+
+        // 发布失效消息到总线（通知其他订阅实例）
+        if let Some(bus) = &self.invalidation_bus {
+            bus.publish(InvalidationMessage::InvalidateTable(table.to_string()));
         }
     }
 
     /// 清空所有缓存
     pub fn clear(&self) {
         let removed = {
-            let mut data = self.data.write().unwrap();
+            let mut data = self
+                .data
+                .write()
+                .expect("L2Cache data lock poisoned (clear)");
             let n = data.len();
             data.clear();
             n
@@ -461,8 +819,14 @@ impl L2Cache {
         if let Ok(mut idx) = self.table_index.write() {
             idx.clear();
         }
+        if let Ok(mut tbl_stats) = self.table_stats.write() {
+            tbl_stats.clear();
+        }
         if removed > 0 {
-            let mut stats = self.stats.write().unwrap();
+            let mut stats = self
+                .stats
+                .write()
+                .expect("L2Cache stats lock poisoned (clear)");
             stats.evictions += removed as u64;
             stats.size = 0;
         }
@@ -481,11 +845,30 @@ impl L2Cache {
         s
     }
 
-    /// 重置统计信息
+    /// 重置统计信息（含全局和按表分桶）
     pub fn reset_stats(&self) {
         if let Ok(mut stats) = self.stats.write() {
             *stats = L2CacheStats::default();
         }
+        if let Ok(mut tbl_stats) = self.table_stats.write() {
+            tbl_stats.clear();
+        }
+    }
+
+    /// 获取指定表的命中率统计
+    pub fn table_stats(&self, table: &str) -> Option<PerTableStats> {
+        self.table_stats
+            .read()
+            .ok()
+            .and_then(|s| s.get(table).cloned())
+    }
+
+    /// 获取所有表的命中率统计快照
+    pub fn all_table_stats(&self) -> HashMap<String, PerTableStats> {
+        self.table_stats
+            .read()
+            .map(|s| s.clone())
+            .unwrap_or_default()
     }
 
     /// 检查缓存项是否存在（不更新统计与 LRU 顺序）
@@ -500,16 +883,37 @@ impl L2Cache {
     /// 手动清理所有过期项
     pub fn evict_expired(&self) -> usize {
         let expired_keys: Vec<String> = {
-            let data = self.data.read().unwrap();
+            let data = self
+                .data
+                .read()
+                .expect("L2Cache data lock poisoned (evict_expired-read)");
             data.iter()
                 .filter(|(_, e)| e.is_expired())
                 .map(|(k, _)| k.clone())
                 .collect()
         };
 
+        // 反向查找 key_str -> table_name，用于按表分桶统计
+        let key_to_table: HashMap<String, String> = {
+            let idx = self
+                .table_index
+                .read()
+                .expect("L2Cache table_index lock poisoned (evict_expired-idx)");
+            let mut map = HashMap::new();
+            for (table, keys) in idx.iter() {
+                for k in keys {
+                    map.insert(k.clone(), table.clone());
+                }
+            }
+            map
+        };
+
         let mut removed = 0;
         if !expired_keys.is_empty() {
-            let mut data = self.data.write().unwrap();
+            let mut data = self
+                .data
+                .write()
+                .expect("L2Cache data lock poisoned (evict_expired-write)");
             for k in &expired_keys {
                 if data.remove(k).is_some() {
                     removed += 1;
@@ -518,12 +922,821 @@ impl L2Cache {
         }
 
         if removed > 0 {
-            let mut order = self.access_order.write().unwrap();
-            order.retain(|k| !expired_keys.contains(k));
-            let mut stats = self.stats.write().unwrap();
-            stats.evictions += removed as u64;
+            // O(m) 批量移除（m = expired_keys），而非旧实现的 O(n*m) retain
+            let mut order = self
+                .access_order
+                .write()
+                .expect("L2Cache access_order lock poisoned (evict_expired)");
+            for k in &expired_keys {
+                order.remove(k);
+            }
+            {
+                let mut stats = self
+                    .stats
+                    .write()
+                    .expect("L2Cache stats lock poisoned (evict_expired)");
+                stats.evictions += removed as u64;
+            }
+            // 更新按表分桶统计（单独持锁，避免与 stats 锁同时持有）
+            if let Ok(mut tbl_stats) = self.table_stats.write() {
+                for k in &expired_keys {
+                    if let Some(table) = key_to_table.get(k) {
+                        tbl_stats.entry(table.clone()).or_default().evictions += 1;
+                    }
+                }
+            }
         }
         removed
+    }
+
+    /// 更新缓存项的 TTL（若 key 不存在返回 false）
+    ///
+    /// 用于 `Cache` trait 的 `expire` 方法实现。
+    pub fn update_ttl(&self, key: &CacheKey, ttl: Duration) -> bool {
+        let key_str = key.to_string_key();
+        let mut data = match self.data.write() {
+            Ok(d) => d,
+            Err(_) => return false,
+        };
+        if let Some(entry) = data.get_mut(&key_str) {
+            entry.expires_at = Some(Instant::now() + ttl);
+            true
+        } else {
+            false
+        }
+    }
+
+    /// 获取缓存项的剩余 TTL
+    ///
+    /// 返回值：
+    /// - `None`：key 不存在或已过期
+    /// - `Some(None)`：key 存在但无 TTL（永不过期）
+    /// - `Some(Some(d))`：key 存在且剩余 TTL 为 d
+    ///
+    /// 用于 `Cache` trait 的 `ttl` 方法实现。
+    pub fn remaining_ttl(&self, key: &CacheKey) -> Option<Option<Duration>> {
+        let key_str = key.to_string_key();
+        let data = self.data.read().ok()?;
+        let entry = data.get(&key_str)?;
+        match entry.expires_at {
+            Some(expires_at) => {
+                let now = Instant::now();
+                if expires_at <= now {
+                    None
+                } else {
+                    Some(Some(expires_at.duration_since(now)))
+                }
+            }
+            None => Some(None),
+        }
+    }
+}
+
+// ============================================================================
+// Cache trait 实现 — 让 L2Cache 可作为通用 Cache 使用
+// ============================================================================
+
+/// 为 L2Cache 实现 `Cache` trait
+///
+/// 通过 `CacheKey::by_pk("__cache__", key)` 将字符串 key 映射到 L2Cache 的 CacheKey 体系，
+/// 所有通过 `Cache` trait 写入的缓存项归入 `__cache__` 表，与业务缓存项隔离。
+///
+/// 值以 `Value::Bytes(Vec<u8>)` 存储；若通过 `Cache::get` 读取到的 Value 非 Bytes 类型
+/// （如直接通过 `L2Cache::put` 写入的其他类型），则回退为 JSON 序列化。
+impl Cache for L2Cache {
+    fn get(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError> {
+        let cache_key = CacheKey::by_pk("__cache__", key);
+        match L2Cache::get(self, &cache_key) {
+            Some(Value::Bytes(bytes)) => Ok(Some(bytes)),
+            Some(other) => {
+                let json = serde_json::to_vec(&other)
+                    .map_err(|e| CacheError::SerializationError(e.to_string()))?;
+                Ok(Some(json))
+            }
+            None => Ok(None),
+        }
+    }
+
+    fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) -> Result<(), CacheError> {
+        let cache_key = CacheKey::by_pk("__cache__", key);
+        self.put(&cache_key, Value::Bytes(value), ttl);
+        Ok(())
+    }
+
+    fn delete(&self, key: &str) -> Result<(), CacheError> {
+        let cache_key = CacheKey::by_pk("__cache__", key);
+        self.invalidate(&cache_key);
+        Ok(())
+    }
+
+    fn clear(&self) -> Result<(), CacheError> {
+        // 仅清除通过 Cache trait 写入的原始缓存项（__cache__ 表），
+        // 不影响通过 CacheKey 直接写入的业务缓存项。
+        self.invalidate_table("__cache__");
+        Ok(())
+    }
+
+    fn exists(&self, key: &str) -> Result<bool, CacheError> {
+        let cache_key = CacheKey::by_pk("__cache__", key);
+        Ok(self.contains(&cache_key))
+    }
+
+    fn expire(&self, key: &str, ttl: Duration) -> Result<(), CacheError> {
+        let cache_key = CacheKey::by_pk("__cache__", key);
+        if self.update_ttl(&cache_key, ttl) {
+            Ok(())
+        } else {
+            Err(CacheError::NotFound(key.to_string()))
+        }
+    }
+
+    fn ttl(&self, key: &str) -> Result<Option<Duration>, CacheError> {
+        let cache_key = CacheKey::by_pk("__cache__", key);
+        match self.remaining_ttl(&cache_key) {
+            None => Err(CacheError::NotFound(key.to_string())),
+            Some(None) => Ok(None),
+            Some(Some(d)) => Ok(Some(d)),
+        }
+    }
+}
+
+// ============================================================================
+// L2CacheBackend — 分布式缓存后端抽象（trait + InMemoryBackend + RedisBackend stub）
+// ============================================================================
+
+/// L2 缓存异步 Future 类型别名
+///
+/// 用于简化 `L2CacheBackend` trait 中方法的返回类型签名，
+/// 避免重复书写复杂的 `Pin<Box<dyn Future<...> + Send + 'a>>`。
+pub type L2CacheFuture<'a, T> =
+    Pin<Box<dyn Future<Output = Result<T, CacheError>> + Send + 'a>>;
+
+/// L2 缓存后端 trait（分布式抽象）
+///
+/// 定义跨进程共享的二级缓存后端接口，支持进程内内存、Redis 等实现。
+/// 手动解糖 async 方法（不使用 `#[async_trait]`），与 `Connection` trait 风格一致。
+///
+/// # 设计要点
+///
+/// - **键值以 `&[u8]` 传输**：后端无关的序列化格式（由调用方决定 bincode/json 等）
+/// - **TTL 可选**：`Some(Duration)` 设置过期时间，`None` 表示永不过期
+/// - **前缀失效**：`invalidate_prefix` 批量失效某前缀的所有键（用于表级失效）
+///
+/// # 实现方
+///
+/// - [`InMemoryBackend`]：进程内内存后端（默认，单机场景）
+/// - [`RedisBackend`]：Redis 分布式后端（stub，需启用 `redis` feature 并补充依赖）
+pub trait L2CacheBackend: Send + Sync {
+    /// 获取缓存值，不存在或已过期返回 `None`
+    fn get<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> L2CacheFuture<'a, Option<Vec<u8>>>;
+
+    /// 设置缓存值，`ttl` 为 `None` 表示永不过期
+    fn set<'a>(
+        &'a self,
+        key: &'a str,
+        value: &'a [u8],
+        ttl: Option<Duration>,
+    ) -> L2CacheFuture<'a, ()>;
+
+    /// 删除单个缓存键
+    fn delete<'a>(&'a self, key: &'a str) -> L2CacheFuture<'a, ()>;
+
+    /// 按前缀批量失效缓存项（用于表级失效）
+    fn invalidate_prefix<'a>(&'a self, prefix: &'a str) -> L2CacheFuture<'a, ()>;
+}
+
+/// 进程内内存后端（默认实现）
+///
+/// 适用于单机场景，不跨进程共享。内部使用 `RwLock<HashMap>` 存储，
+/// `invalidate_prefix` 通过遍历键前缀匹配实现（O(n)，单机场景可接受）。
+///
+/// # 线程安全
+///
+/// 所有操作通过 `RwLock` 保护，可在多线程环境下共享。
+///
+/// # 注意
+///
+/// 由于 `std::sync::RwLock` 的 guard 是 `!Send`，所有同步操作在创建
+/// `Future` 之前完成，guard 在 block 退出时释放，避免跨 `.await` 持锁。
+pub struct InMemoryBackend {
+    /// 缓存数据：key -> (value, expiry_time)
+    /// 使用类型别名降低类型复杂度（clippy::type_complexity）
+    data: RwLock<InMemoryCacheData>,
+}
+
+/// 内存缓存条目类型别名
+type InMemoryCacheData = HashMap<String, (Vec<u8>, Option<Instant>)>;
+
+impl Default for InMemoryBackend {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl InMemoryBackend {
+    /// 创建空的内存后端
+    pub fn new() -> Self {
+        Self {
+            data: RwLock::new(HashMap::new()),
+        }
+    }
+}
+
+impl L2CacheBackend for InMemoryBackend {
+    fn get<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> L2CacheFuture<'a, Option<Vec<u8>>> {
+        // 同步完成读操作，guard 在 block 退出时释放，避免跨 await 持锁
+        let result = {
+            let data = match self.data.read() {
+                Ok(d) => d,
+                Err(e) => {
+                    let err = CacheError::from(e);
+                    return Box::pin(async move { Err(err) });
+                }
+            };
+            match data.get(key) {
+                Some((value, expiry)) => {
+                    // 过期检查：expiry 为 None 表示永不过期
+                    if expiry.map(|t| t <= Instant::now()).unwrap_or(false) {
+                        Ok(None)
+                    } else {
+                        Ok(Some(value.clone()))
+                    }
+                }
+                None => Ok(None),
+            }
+        };
+        Box::pin(async move { result })
+    }
+
+    fn set<'a>(
+        &'a self,
+        key: &'a str,
+        value: &'a [u8],
+        ttl: Option<Duration>,
+    ) -> L2CacheFuture<'a, ()> {
+        let result = {
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(e) => {
+                    let err = CacheError::from(e);
+                    return Box::pin(async move { Err(err) });
+                }
+            };
+            let expiry = ttl.map(|d| Instant::now() + d);
+            data.insert(key.to_string(), (value.to_vec(), expiry));
+            Ok(())
+        };
+        Box::pin(async move { result })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> L2CacheFuture<'a, ()> {
+        let result = {
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(e) => {
+                    let err = CacheError::from(e);
+                    return Box::pin(async move { Err(err) });
+                }
+            };
+            data.remove(key);
+            Ok(())
+        };
+        Box::pin(async move { result })
+    }
+
+    fn invalidate_prefix<'a>(&'a self, prefix: &'a str) -> L2CacheFuture<'a, ()> {
+        let result = {
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(e) => {
+                    let err = CacheError::from(e);
+                    return Box::pin(async move { Err(err) });
+                }
+            };
+            // O(n) 遍历，删除所有以 prefix 开头的键
+            let keys_to_remove: Vec<String> = data
+                .keys()
+                .filter(|k| k.starts_with(prefix))
+                .cloned()
+                .collect();
+            for k in keys_to_remove {
+                data.remove(&k);
+            }
+            Ok(())
+        };
+        Box::pin(async move { result })
+    }
+}
+
+/// Redis 分布式缓存后端
+///
+/// 基于 `redis` crate 0.27 + `tokio-comp` 异步 IO + `connection-manager` 自动重连。
+///
+/// # 实现要点
+///
+/// - **连接管理**：使用 `redis::aio::ConnectionManager`（内部自动重连的连接池）
+/// - **`get`** → `redis::cmd("GET")` 异步执行
+/// - **`set`** → `SET key value` + 可选 `EX seconds`（合并为单次 `SET` 命令，原子性保证）
+/// - **`delete`** → `redis::cmd("DEL")`
+/// - **`invalidate_prefix`** → `SCAN` + 批量 `DEL`（避免 `KEYS` 阻塞 Redis 主线程）
+///   - 使用 `COUNT 100` 分批扫描，避免单次 SCAN 拉取过多 key 导致阻塞
+///   - 多次 DEL 调用合并为单次 pipeline 批量执行，减少 RTT 开销
+///
+/// # 错误处理
+///
+/// - 连接失败 → `CacheError::Internal`，由调用方决定是否重试
+/// - Redis 命令错误 → 原始错误字符串包装为 `CacheError::Internal`
+///
+/// # 启用方式
+///
+/// 在 `Cargo.toml` 中启用 `redis` feature：
+/// ```toml
+/// [dependencies]
+/// sz-orm-core = { version = "1.0", features = ["redis"] }
+/// ```
+///
+/// # 使用示例
+///
+/// ```no_run
+/// # use sz_orm_core::l2_cache::{RedisBackend, L2CacheBackend};
+/// # use std::time::Duration;
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// let backend = RedisBackend::new("redis://127.0.0.1:6379/0").await?;
+/// backend.set("user:1", b"alice", Some(Duration::from_secs(60))).await?;
+/// let val = backend.get("user:1").await?;
+/// assert_eq!(val, Some(b"alice".to_vec()));
+/// backend.delete("user:1").await?;
+/// # Ok(())
+/// # }
+/// ```
+#[cfg(feature = "redis")]
+pub struct RedisBackend {
+    /// Redis 异步连接管理器（自动重连）
+    manager: redis::aio::ConnectionManager,
+}
+
+#[cfg(feature = "redis")]
+impl RedisBackend {
+    /// 创建 Redis 后端
+    ///
+    /// `url` 格式：`redis://[:password@]host:port[/db]`
+    /// - `redis://127.0.0.1:6379/0` — 默认 DB 0
+    /// - `redis://:secret@127.0.0.1:6379/1` — 带密码，DB 1
+    ///
+    /// # 错误
+    ///
+    /// - 连接失败 → `CacheError::Internal`
+    pub async fn new(url: impl Into<String>) -> Result<Self, CacheError> {
+        let url = url.into();
+        let client = redis::Client::open(url.as_str())
+            .map_err(|e| CacheError::Internal(format!("Redis client create failed: {}", e)))?;
+        let manager = redis::aio::ConnectionManager::new(client)
+            .await
+            .map_err(|e| CacheError::Internal(format!("Redis connect failed: {}", e)))?;
+        Ok(Self { manager })
+    }
+
+    /// 使用已有 ConnectionManager 创建后端（用于复用连接池）
+    pub fn from_manager(manager: redis::aio::ConnectionManager) -> Self {
+        Self { manager }
+    }
+
+    /// SCAN + 批量 DEL 实现前缀失效
+    ///
+    /// 使用 `SCAN cursor MATCH prefix* COUNT 100` 迭代扫描所有匹配的 key，
+    /// 累计到本地 Vec 后通过 pipeline 批量 DEL，避免：
+    /// 1. `KEYS pattern` 阻塞 Redis 主线程（O(N) 全表扫描）
+    /// 2. 单次 DEL 调用过多导致 RTT 累积
+    ///
+    /// # 参数
+    /// - `prefix`：key 前缀（不含通配符，函数内部追加 `*`）
+    ///
+    /// # 返回
+    /// - `Ok(())`：扫描完成，无论是否删除了 key
+    /// - `Err(_)`：连接错误或命令执行失败
+    async fn invalidate_prefix_inner(&self, prefix: &str) -> Result<(), CacheError> {
+        let pattern = format!("{}*", prefix);
+        let mut cursor: u64 = 0;
+        loop {
+            // SCAN 返回 (next_cursor, Vec<key>)
+            // 注意：必须先 clone 出独立的 conn，避免 &mut temporary 借用问题
+            let mut conn = self.manager.clone();
+            let scan_result: redis::RedisResult<(u64, Vec<String>)> = redis::cmd("SCAN")
+                .arg(cursor)
+                .arg("MATCH")
+                .arg(&pattern)
+                .arg("COUNT")
+                .arg(100usize)
+                .query_async(&mut conn)
+                .await;
+            let (next_cursor, keys): (u64, Vec<String>) = scan_result
+                .map_err(|e| CacheError::Internal(format!("Redis SCAN failed: {}", e)))?;
+
+            if !keys.is_empty() {
+                // 批量 DEL：使用 pipeline 减少往返次数
+                let mut pipe = redis::pipe();
+                for k in &keys {
+                    pipe.del(k);
+                }
+                // 显式指定 RedisResult<()> 类型，避免 never type fallback 警告
+                let del_result: redis::RedisResult<()> = pipe.query_async(&mut conn).await;
+                del_result.map_err(|e| {
+                    CacheError::Internal(format!("Redis DEL pipeline failed: {}", e))
+                })?;
+            }
+
+            // cursor == 0 表示扫描完成
+            if next_cursor == 0 {
+                break;
+            }
+            cursor = next_cursor;
+        }
+        Ok(())
+    }
+}
+
+#[cfg(feature = "redis")]
+impl L2CacheBackend for RedisBackend {
+    fn get<'a>(
+        &'a self,
+        key: &'a str,
+    ) -> L2CacheFuture<'a, Option<Vec<u8>>> {
+        Box::pin(async move {
+            use redis::AsyncCommands;
+            let mut conn = self.manager.clone();
+            let value: Option<Vec<u8>> = conn
+                .get(key)
+                .await
+                .map_err(|e| CacheError::Internal(format!("Redis GET failed: {}", e)))?;
+            Ok(value)
+        })
+    }
+
+    fn set<'a>(
+        &'a self,
+        key: &'a str,
+        value: &'a [u8],
+        ttl: Option<Duration>,
+    ) -> L2CacheFuture<'a, ()> {
+        Box::pin(async move {
+            use redis::AsyncCommands;
+            let mut conn = self.manager.clone();
+            // 合并 SET + EX 为单次原子操作（SET key value EX seconds）
+            // 避免 SET 后 EXPIRE 之间的窗口期 key 无 TTL
+            match ttl {
+                Some(d) => {
+                    let secs = d.as_secs();
+                    if secs > 0 {
+                        let _: () = conn
+                            .set_ex(key, value, secs)
+                            .await
+                            .map_err(|e| CacheError::Internal(format!("Redis SET EX failed: {}", e)))?;
+                    } else {
+                        // TTL < 1s：退化为 SET + PEXPIRE（毫秒精度）
+                        let _: () = conn
+                            .set(key, value)
+                            .await
+                            .map_err(|e| CacheError::Internal(format!("Redis SET failed: {}", e)))?;
+                        // 毫秒数转换为 i64（u128 → i64，实际值不会超过 i64 范围）
+                        let ms: i64 = d.as_millis().min(i64::MAX as u128) as i64;
+                        let _: () = conn
+                            .pexpire(key, ms)
+                            .await
+                            .map_err(|e| CacheError::Internal(format!("Redis PEXPIRE failed: {}", e)))?;
+                    }
+                }
+                None => {
+                    let _: () = conn
+                        .set(key, value)
+                        .await
+                        .map_err(|e| CacheError::Internal(format!("Redis SET failed: {}", e)))?;
+                }
+            }
+            Ok(())
+        })
+    }
+
+    fn delete<'a>(&'a self, key: &'a str) -> L2CacheFuture<'a, ()> {
+        Box::pin(async move {
+            use redis::AsyncCommands;
+            let mut conn = self.manager.clone();
+            let _: () = conn
+                .del(key)
+                .await
+                .map_err(|e| CacheError::Internal(format!("Redis DEL failed: {}", e)))?;
+            Ok(())
+        })
+    }
+
+    fn invalidate_prefix<'a>(&'a self, prefix: &'a str) -> L2CacheFuture<'a, ()> {
+        Box::pin(async move { self.invalidate_prefix_inner(prefix).await })
+    }
+}
+
+/// Redis 分布式缓存后端（stub，未启用 `redis` feature 时使用）
+///
+/// 当未启用 `redis` feature 时，所有操作返回 `CacheError::Internal`，
+/// 提示用户在 `Cargo.toml` 中启用 `redis` feature。
+#[cfg(not(feature = "redis"))]
+pub struct RedisBackend {
+    /// Redis 连接字符串（保留字段用于错误提示）
+    url: String,
+}
+
+#[cfg(not(feature = "redis"))]
+impl RedisBackend {
+    /// 创建 Redis 后端 stub
+    ///
+    /// 返回 stub 实例，所有操作将返回 `CacheError::Internal`。
+    /// 启用 `redis` feature 后自动切换为真实实现。
+    pub fn new(_url: impl Into<String>) -> Self {
+        Self { url: _url.into() }
+    }
+}
+
+#[cfg(not(feature = "redis"))]
+impl L2CacheBackend for RedisBackend {
+    fn get<'a>(
+        &'a self,
+        _key: &'a str,
+    ) -> L2CacheFuture<'a, Option<Vec<u8>>> {
+        let url = self.url.clone();
+        Box::pin(async move {
+            Err(CacheError::Internal(format!(
+                "RedisBackend not compiled: enable 'redis' feature in sz-orm-core. URL: {}",
+                url
+            )))
+        })
+    }
+
+    fn set<'a>(
+        &'a self,
+        _key: &'a str,
+        _value: &'a [u8],
+        _ttl: Option<Duration>,
+    ) -> L2CacheFuture<'a, ()> {
+        let url = self.url.clone();
+        Box::pin(async move {
+            Err(CacheError::Internal(format!(
+                "RedisBackend not compiled: enable 'redis' feature in sz-orm-core. URL: {}",
+                url
+            )))
+        })
+    }
+
+    fn delete<'a>(&'a self, _key: &'a str) -> L2CacheFuture<'a, ()> {
+        let url = self.url.clone();
+        Box::pin(async move {
+            Err(CacheError::Internal(format!(
+                "RedisBackend not compiled: enable 'redis' feature in sz-orm-core. URL: {}",
+                url
+            )))
+        })
+    }
+
+    fn invalidate_prefix<'a>(&'a self, _prefix: &'a str) -> L2CacheFuture<'a, ()> {
+        let url = self.url.clone();
+        Box::pin(async move {
+            Err(CacheError::Internal(format!(
+                "RedisBackend not compiled: enable 'redis' feature in sz-orm-core. URL: {}",
+                url
+            )))
+        })
+    }
+}
+
+// ============================================================================
+// WriteBehind — 异步写回缓存模式（Fix #40）
+// ============================================================================
+//
+// Write-Behind 模式：写操作立即更新缓存，并异步批量刷新到后端存储（如数据库）。
+// 适用于写吞吐高、可容忍短暂数据不一致的场景。
+//
+// # 工作流程
+//
+// 1. `write()` / `delete()` → 立即更新 L2CacheBackend，同时将操作入队
+// 2. 后台任务每 `flush_interval` 触发一次 `flush()`，或显式调用 `flush()`
+// 3. `flush()` 将队列中的操作批量应用回调 `on_flush`
+//
+// # 失败处理
+//
+// - 缓存写入失败：立即返回错误给调用方
+// - 队列写入失败（锁中毒）：返回 `CacheError::Internal`
+// - 后端刷新失败：调用 `on_error` 回调，操作**保留在队列中**等待下次重试
+//
+// # 注意
+//
+// - 不保证写入顺序与刷新顺序一致（多生产者并发入队）
+// - 同一 key 的多次写入会按入队顺序刷新（FIFO）
+// - 调用方需自行处理幂等性（如使用 upsert）
+
+/// 写回操作类型
+#[derive(Debug, Clone)]
+pub enum WriteOp {
+    /// SET 操作（key, value, ttl）
+    Set {
+        /// 缓存键
+        key: String,
+        /// 缓存值（已序列化的字节）
+        value: Vec<u8>,
+        /// TTL（与 set 调用一致）
+        ttl: Option<Duration>,
+    },
+    /// DELETE 操作
+    Delete {
+        /// 缓存键
+        key: String,
+    },
+}
+
+/// 写回刷新回调类型
+///
+/// 接收一批待刷新的操作，调用方需将其应用到后端存储（如执行 SQL）。
+/// 返回 `Err` 表示刷新失败，操作将保留在队列中等待重试。
+pub type FlushCallback = Arc<
+    dyn Fn(Vec<WriteOp>) -> Pin<Box<dyn Future<Output = Result<(), CacheError>> + Send>>
+        + Send
+        + Sync,
+>;
+
+/// 写回错误回调类型
+pub type ErrorCallback = Arc<dyn Fn(Vec<WriteOp>, CacheError) + Send + Sync>;
+
+/// Write-Behind 写入器
+///
+/// 包装一个 `L2CacheBackend`，将写操作同时写入缓存与内存队列，
+/// 后台任务或显式 `flush()` 触发批量刷新到后端存储。
+///
+/// # 线程安全
+///
+/// 内部使用 `tokio::sync::Mutex` 保护队列，可被多线程并发调用。
+///
+/// # 示例
+///
+/// ```no_run
+/// use sz_orm_core::l2_cache::{WriteBehindWriter, WriteOp, InMemoryBackend};
+/// use std::sync::Arc;
+/// use std::time::Duration;
+///
+/// # async fn example() -> Result<(), Box<dyn std::error::Error>> {
+/// let backend = Arc::new(InMemoryBackend::new());
+/// let on_flush = Arc::new(|ops: Vec<WriteOp>| {
+///     Box::pin(async move {
+///         // 这里将 ops 应用到数据库（如批量 INSERT/UPDATE）
+///         for op in &ops {
+///             println!("flushing: {:?}", op);
+///         }
+///         Ok(())
+///     }) as std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), _>> + Send>>
+///     as _
+/// });
+/// let writer = WriteBehindWriter::new(backend.clone(), on_flush);
+///
+/// // 立即更新缓存，并异步刷新到数据库
+/// writer.write(b"key1", b"value1", None).await?;
+///
+/// // 显式刷新所有待处理操作
+/// writer.flush().await?;
+/// # Ok(())
+/// # }
+/// ```
+pub struct WriteBehindWriter {
+    /// 被包装的 L2 缓存后端
+    backend: Arc<dyn L2CacheBackend>,
+    /// 待刷新操作队列
+    queue: tokio::sync::Mutex<Vec<WriteOp>>,
+    /// 刷新回调
+    on_flush: FlushCallback,
+    /// 错误回调（可选）
+    on_error: Option<ErrorCallback>,
+}
+
+impl WriteBehindWriter {
+    /// 创建 Write-Behind 写入器
+    ///
+    /// # 参数
+    /// - `backend`：被包装的 L2 缓存后端（如 `InMemoryBackend`、`RedisBackend`）
+    /// - `on_flush`：刷新回调，接收一批操作并应用到后端存储
+    pub fn new(backend: Arc<dyn L2CacheBackend>, on_flush: FlushCallback) -> Self {
+        Self {
+            backend,
+            queue: tokio::sync::Mutex::new(Vec::new()),
+            on_flush,
+            on_error: None,
+        }
+    }
+
+    /// 设置错误回调
+    ///
+    /// 当 `flush()` 失败时调用，传入失败的操作和错误信息。
+    /// 注意：失败的操作会保留在队列中等待下次重试。
+    pub fn with_error_callback(mut self, on_error: ErrorCallback) -> Self {
+        self.on_error = Some(on_error);
+        self
+    }
+
+    /// 写入缓存（立即更新后端缓存 + 入队待刷新）
+    ///
+    /// # 参数
+    /// - `key`：缓存键
+    /// - `value`：缓存值（字节切片）
+    /// - `ttl`：TTL，`None` 表示永不过期
+    pub async fn write(
+        &self,
+        key: &[u8],
+        value: &[u8],
+        ttl: Option<Duration>,
+    ) -> Result<(), CacheError> {
+        let key_str = String::from_utf8_lossy(key).into_owned();
+        // 1. 立即更新缓存（同步可见性优先）
+        self.backend.set(&key_str, value, ttl).await?;
+        // 2. 入队待刷新
+        let op = WriteOp::Set {
+            key: key_str,
+            value: value.to_vec(),
+            ttl,
+        };
+        self.queue.lock().await.push(op);
+        Ok(())
+    }
+
+    /// 删除缓存项（立即从后端缓存删除 + 入队待刷新）
+    pub async fn delete(&self, key: &[u8]) -> Result<(), CacheError> {
+        let key_str = String::from_utf8_lossy(key).into_owned();
+        // 1. 立即从缓存删除
+        self.backend.delete(&key_str).await?;
+        // 2. 入队待刷新
+        let op = WriteOp::Delete { key: key_str };
+        self.queue.lock().await.push(op);
+        Ok(())
+    }
+
+    /// 刷新所有待处理操作到后端存储
+    ///
+    /// 将队列中的操作一次性传给 `on_flush` 回调。
+    /// 若回调返回错误，操作保留在队列中等待下次重试。
+    pub async fn flush(&self) -> Result<(), CacheError> {
+        // 1. 取出所有待刷新操作（drain）
+        let ops: Vec<WriteOp> = {
+            let mut guard = self.queue.lock().await;
+            std::mem::take(&mut *guard)
+        };
+        if ops.is_empty() {
+            return Ok(());
+        }
+        // 2. 调用刷新回调
+        match (self.on_flush)(ops.clone()).await {
+            Ok(()) => Ok(()),
+            Err(e) => {
+                // 刷新失败：将操作放回队列，等待下次重试
+                let mut guard = self.queue.lock().await;
+                guard.extend(ops.clone());
+                // 触发错误回调（如有）
+                if let Some(ref on_error) = self.on_error {
+                    on_error(ops, e.clone());
+                }
+                Err(e)
+            }
+        }
+    }
+
+    /// 当前队列中待刷新的操作数（用于监控）
+    pub async fn pending_count(&self) -> usize {
+        self.queue.lock().await.len()
+    }
+
+    /// 启动后台自动刷新任务
+    ///
+    /// 每 `interval` 触发一次 `flush()`，直到 `WriteBehindWriter` 被丢弃。
+    /// 返回 `JoinHandle`，调用方可用于等待任务结束。
+    ///
+    /// # 注意
+    ///
+    /// 调用方需保证 `WriteBehindWriter` 的生命周期长于后台任务，
+    /// 否则在 writer 被丢弃后，后台任务会因 Arc 引用计数归零而停止。
+    pub fn spawn_auto_flush(
+        self: Arc<Self>,
+        interval: Duration,
+    ) -> tokio::task::JoinHandle<()> {
+        tokio::spawn(async move {
+            let mut ticker = tokio::time::interval(interval);
+            // 跳过首次立即触发（首次 tick 会立即返回）
+            ticker.tick().await;
+            loop {
+                ticker.tick().await;
+                // 刷新失败时记录日志（不中断循环）
+                if let Err(e) = self.flush().await {
+                    eprintln!("[WriteBehind] auto flush failed: {}", e);
+                }
+            }
+        })
     }
 }
 
@@ -1039,5 +2252,113 @@ mod tests {
         let stats2 = cache.stats();
         assert_eq!(stats2.hits, 0);
         assert_eq!(stats2.misses, 5);
+    }
+
+    // ===== WriteBehindWriter 测试（Fix #40） =====
+
+    #[tokio::test]
+    async fn test_write_behind_basic_write_and_flush() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        // 计数刷新调用次数
+        let counter = Arc::new(AtomicUsize::new(0));
+        let counter_clone = counter.clone();
+        let on_flush: FlushCallback = Arc::new(move |ops: Vec<WriteOp>| {
+            let c = counter_clone.clone();
+            Box::pin(async move {
+                c.fetch_add(ops.len(), Ordering::SeqCst);
+                Ok(())
+            })
+        });
+        let backend = Arc::new(InMemoryBackend::new());
+        let writer = WriteBehindWriter::new(backend.clone(), on_flush);
+
+        // 写入 3 个键
+        writer.write(b"k1", b"v1", None).await.unwrap();
+        writer.write(b"k2", b"v2", None).await.unwrap();
+        writer.write(b"k3", b"v3", None).await.unwrap();
+
+        // 缓存应立即可见
+        let v1 = backend.get("k1").await.unwrap();
+        assert_eq!(v1, Some(b"v1".to_vec()));
+
+        // 队列应有 3 个待刷新
+        assert_eq!(writer.pending_count().await, 3);
+
+        // 刷新
+        writer.flush().await.unwrap();
+        assert_eq!(counter.load(Ordering::SeqCst), 3);
+        assert_eq!(writer.pending_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_write_behind_delete() {
+        let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
+            Box::pin(async move { Ok(()) })
+        });
+        let backend = Arc::new(InMemoryBackend::new());
+        let writer = WriteBehindWriter::new(backend.clone(), on_flush);
+
+        // 写入后删除
+        writer.write(b"k1", b"v1", None).await.unwrap();
+        assert!(backend.get("k1").await.unwrap().is_some());
+        writer.delete(b"k1").await.unwrap();
+        // 删除后缓存中应不存在
+        assert!(backend.get("k1").await.unwrap().is_none());
+
+        // flush 应处理 2 个操作（Set + Delete）
+        writer.flush().await.unwrap();
+        assert_eq!(writer.pending_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_write_behind_flush_failure_retries() {
+        // 模拟刷新总是失败
+        let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
+            Box::pin(async move {
+                Err(CacheError::Internal("backend down".to_string()))
+            })
+        });
+        let backend = Arc::new(InMemoryBackend::new());
+        let writer = WriteBehindWriter::new(backend.clone(), on_flush);
+
+        writer.write(b"k1", b"v1", None).await.unwrap();
+        // flush 失败，操作应保留在队列中
+        let result = writer.flush().await;
+        assert!(result.is_err());
+        assert_eq!(writer.pending_count().await, 1);
+    }
+
+    #[tokio::test]
+    async fn test_write_behind_empty_flush_noop() {
+        let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
+            Box::pin(async move { Ok(()) })
+        });
+        let backend = Arc::new(InMemoryBackend::new());
+        let writer = WriteBehindWriter::new(backend, on_flush);
+        // 空队列 flush 应立即成功
+        writer.flush().await.unwrap();
+        assert_eq!(writer.pending_count().await, 0);
+    }
+
+    #[tokio::test]
+    async fn test_write_behind_error_callback_invoked() {
+        use std::sync::atomic::{AtomicUsize, Ordering};
+        let error_counter = Arc::new(AtomicUsize::new(0));
+        let ec = error_counter.clone();
+        let on_error: ErrorCallback = Arc::new(move |_ops, _err| {
+            ec.fetch_add(1, Ordering::SeqCst);
+        });
+        let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
+            Box::pin(async move {
+                Err(CacheError::Internal("fail".to_string()))
+            })
+        });
+        let backend = Arc::new(InMemoryBackend::new());
+        let writer =
+            WriteBehindWriter::new(backend, on_flush).with_error_callback(on_error);
+
+        writer.write(b"k1", b"v1", None).await.unwrap();
+        let _ = writer.flush().await;
+        assert_eq!(error_counter.load(Ordering::SeqCst), 1);
     }
 }

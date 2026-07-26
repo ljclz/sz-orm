@@ -4,6 +4,8 @@
 //! - `migrate` / `migrate:status` — 迁移管理
 //! - `make:migration <name>` — 生成迁移文件
 //! - `make:model <name>` — 生成 Model 骨架
+//! - `make:seeder <name>` — 生成 Seeder 文件
+//! - `seed` — 执行 Seeder 数据填充
 //! - `sql:validate <sql>` — SQL 校验
 //! - `dialect list` / `dialect show <db>` — 方言信息
 //! - `info` — 显示 ORM 概要信息
@@ -15,7 +17,11 @@
 //! sz-orm dialect list
 //! sz-orm make:migration create_users
 //! sz-orm make:model User
+//! sz-orm make:model User --pk-type i32
+//! sz-orm make:seeder init_users
+//! sz-orm seed --dsn sqlite://./test.db
 //! sz-orm sql:validate "SELECT * FROM users WHERE id = 1"
+//! sz-orm --config sz-orm.toml migrate
 //! ```
 
 use std::env;
@@ -23,22 +29,27 @@ use std::fs;
 use std::path::PathBuf;
 use std::process::ExitCode;
 
+use serde::Deserialize;
 use sz_orm_core::dialect::get_dialect;
-use sz_orm_core::{DbType, FileMigrationResolver, MigrationContext, MigrationResolver, Migrator};
+use sz_orm_core::{Connection, DbType, FileMigrationResolver, MigrationContext, MigrationResolver, Migrator};
 use sz_orm_sql_validator::validate;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const HELP: &str = r#"SZ-ORM 命令行工具
 
 用法:
-    sz-orm <command> [args]
+    sz-orm <command> [args] [--config <file>]
 
 命令:
     info                          显示 ORM 概要信息
-    migrate                       执行所有待迁移（需 DSN，暂未支持）
+    migrate                       执行所有待迁移（需 --dsn，或 --dry-run 仅打印 SQL）
     migrate:status                查看迁移进度
+    migrate:rollback              回滚最后一个已应用迁移（需 --dsn）
+    migrate:fresh                 drop 所有表后重新迁移（开发环境用，需 --dsn）
     make:migration <name>         生成迁移文件骨架（_up.sql / _down.sql）
-    make:model <name>             生成 Model 骨架代码
+    make:model <name>             生成 Model 骨架代码（--pk-type 可指定主键类型）
+    make:seeder <name>            生成 Seeder 文件骨架（SQL 数据填充脚本）
+    seed                          执行所有 Seeder（需 --dsn）
     generate entity <table>       从 DB 表反向生成 Model 代码（需 --dsn）
     sql:validate <sql>            校验 SQL 语法 + 注入检测
     dialect list                  列出所有支持的方言
@@ -47,12 +58,24 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     --version, -V                 显示版本号
 
 选项:
+    --config <file>               配置文件路径（sz-orm.toml），提供默认值
     --migrations <dir>            迁移文件目录（默认 ./migrations）
+    --seeders <dir>               Seeder 文件目录（默认 ./seeders）
     --output <dir>                生成代码输出目录（默认 ./src/models 或 ./migrations）
-    --dsn <url>                   数据库连接字符串（generate entity 必填）
+    --dsn <url>                   数据库连接字符串（migrate / generate entity / seed 必填）
                                  例：mysql://root:pass@127.0.0.1:3306/db
                                      postgres://user:pass@127.0.0.1:5432/db
                                      sqlite://./test.db
+    --db-type <type>              数据库类型（mysql/postgres/sqlite/oracle/mssql）
+    --pk-type <type>              主键类型（make:model 用，默认 i64；支持 i32/i64/u32/u64/String/uuid）
+    --dry-run                     仅打印 SQL 不实际执行（migrate 命令）
+
+配置文件格式 (sz-orm.toml):
+    migrations_dir = "./migrations"
+    seeders_dir = "./seeders"
+    output_dir = "./src/models"
+    dsn = "sqlite://./test.db"
+    db_type = "sqlite"
 
 示例:
     sz-orm info
@@ -60,9 +83,96 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     sz-orm dialect show mysql
     sz-orm make:migration create_users --output ./migrations
     sz-orm make:model User --output ./src/models
+    sz-orm make:model User --pk-type i32
+    sz-orm make:seeder init_users
+    sz-orm seed --dsn sqlite://./test.db
     sz-orm generate entity users --dsn mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test --output ./src/models
     sz-orm sql:validate "SELECT * FROM users"
+    sz-orm migrate --dry-run
+    sz-orm migrate --dsn sqlite::memory:
+    sz-orm --config sz-orm.toml migrate
+    sz-orm migrate:rollback --dsn sqlite://./test.db
+    sz-orm migrate:fresh --dsn sqlite://./test.db
 "#;
+
+/// CLI 配置文件结构（sz-orm.toml）
+///
+/// 通过 `--config <file>` 加载，为命令行参数提供默认值。
+/// 命令行参数优先级高于配置文件。
+#[derive(Debug, Default, Deserialize)]
+struct CliConfig {
+    /// 迁移文件目录
+    #[serde(default)]
+    migrations_dir: Option<String>,
+    /// Seeder 文件目录
+    #[serde(default)]
+    seeders_dir: Option<String>,
+    /// 生成代码输出目录
+    #[serde(default)]
+    output_dir: Option<String>,
+    /// 数据库连接字符串
+    #[serde(default)]
+    dsn: Option<String>,
+    /// 数据库类型
+    #[serde(default)]
+    db_type: Option<String>,
+}
+
+/// 加载配置文件
+///
+/// 如果路径存在则解析 TOML，否则返回空配置（使用默认值）。
+fn load_config(path: &str) -> Result<CliConfig, String> {
+    let content = match fs::read_to_string(path) {
+        Ok(c) => c,
+        Err(e) => return Err(format!("读取配置文件 {} 失败: {}", path, e)),
+    };
+    toml::from_str(&content).map_err(|e| format!("解析配置文件 {} 失败: {}", path, e))
+}
+
+/// 从全局参数中提取 --config 并加载配置，返回 (配置, 过滤掉--config后的参数)
+fn extract_config<'a>(args: &'a [&'a str]) -> (Option<CliConfig>, Vec<&'a str>) {
+    // 查找 --config 选项（可能在命令前或命令后）
+    if let Some(idx) = args.iter().position(|a| *a == "--config") {
+        if idx + 1 < args.len() {
+            let config_path = args[idx + 1];
+            let filtered: Vec<&str> = args
+                .iter()
+                .enumerate()
+                .filter(|(i, _)| *i != idx && *i != idx + 1)
+                .map(|(_, a)| *a)
+                .collect();
+            match load_config(config_path) {
+                Ok(cfg) => return (Some(cfg), filtered),
+                Err(e) => {
+                    eprintln!("警告: {}", e);
+                    return (None, filtered);
+                }
+            }
+        }
+    }
+    (None, args.to_vec())
+}
+
+/// 合并配置文件默认值与命令行参数（命令行优先）
+fn resolve_option(args: &[&str], key: &str, config: &Option<CliConfig>, extractor: fn(&CliConfig) -> &Option<String>) -> Option<String> {
+    if let Some(v) = parse_option(args, key) {
+        return Some(v);
+    }
+    config.as_ref().and_then(|c| extractor(c).clone())
+}
+
+/// 解析数据库类型（命令行 --db-type 优先于配置文件 db_type）
+///
+/// 若未指定则返回 None；若指定但无法识别则返回 Err。
+fn resolve_db_type(args: &[&str], config: &Option<CliConfig>) -> Result<Option<DbType>, String> {
+    let raw = resolve_option(args, "--db-type", config, |c| &c.db_type);
+    match raw {
+        None => Ok(None),
+        Some(s) => DbType::from_str(&s)
+            .map(Some)
+            .ok_or_else(|| format!("未知数据库类型: {}（支持 mysql/postgres/sqlite/oracle/mssql 等）", s)),
+    }
+}
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
@@ -72,7 +182,10 @@ fn main() -> ExitCode {
     }
 
     let command = args[1].as_str();
-    let rest: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
+    let raw_rest: Vec<&str> = args[2..].iter().map(|s| s.as_str()).collect();
+
+    // 提取 --config 并加载配置文件
+    let (config, rest) = extract_config(&raw_rest);
 
     let exit = match command {
         "help" | "--help" | "-h" => {
@@ -84,10 +197,14 @@ fn main() -> ExitCode {
             Ok(())
         }
         "info" => cmd_info(),
-        "migrate" => cmd_migrate(&rest),
-        "migrate:status" => cmd_migrate_status(&rest),
-        "make:migration" => cmd_make_migration(&rest),
-        "make:model" => cmd_make_model(&rest),
+        "migrate" => cmd_migrate(&rest, &config),
+        "migrate:status" => cmd_migrate_status(&rest, &config),
+        "migrate:rollback" => cmd_migrate_rollback(&rest, &config),
+        "migrate:fresh" => cmd_migrate_fresh(&rest, &config),
+        "make:migration" => cmd_make_migration(&rest, &config),
+        "make:model" => cmd_make_model(&rest, &config),
+        "make:seeder" => cmd_make_seeder(&rest, &config),
+        "seed" => cmd_seed(&rest, &config),
         "generate" => cmd_generate(&rest),
         "sql:validate" => cmd_sql_validate(&rest),
         "dialect" => cmd_dialect(&rest),
@@ -140,26 +257,20 @@ fn cmd_info() -> Result<(), String> {
 }
 
 // =====================================================================
-// migrate — 执行迁移（需要 DB 连接，当前仅打印计划）
+// migrate — 执行迁移（支持 --dsn 实际执行 / --dry-run 仅打印 SQL）
 // =====================================================================
 
-fn cmd_migrate(args: &[&str]) -> Result<(), String> {
-    let migrations_dir =
-        parse_option(args, "--migrations").unwrap_or_else(|| "./migrations".to_string());
+fn cmd_migrate(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    let migrations_dir = resolve_option(args, "--migrations", config, |c| &c.migrations_dir)
+        .unwrap_or_else(|| "./migrations".to_string());
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn);
+    let db_type = resolve_db_type(args, config)?;
+    let dry_run = args.contains(&"--dry-run");
 
-    let resolver = FileMigrationResolver::new(PathBuf::from(&migrations_dir));
-    let migrations = resolver
-        .resolve(DbType::PostgreSQL)
-        .map_err(|e| format!("解析迁移目录失败: {}", e))?;
+    let migrations = load_migrations(&migrations_dir)?;
 
-    if migrations.is_empty() {
-        println!("迁移目录 {} 中没有发现迁移文件", migrations_dir);
-        return Ok(());
-    }
-
-    let migrator = Migrator::new(MigrationContext::default()).add_migrations(migrations);
-
-    let pending = migrator.get_pending_migrations();
+    // 打印待执行迁移（借用 migrations，不消耗所有权）
+    let pending: Vec<&sz_orm_core::Migration> = migrations.iter().filter(|m| m.batch == 0).collect();
     if pending.is_empty() {
         println!("无待执行迁移（所有迁移均已应用）");
         return Ok(());
@@ -170,18 +281,232 @@ fn cmd_migrate(args: &[&str]) -> Result<(), String> {
         println!("  - {} {}", m.version, m.name);
     }
     println!();
-    println!("注意: 当前 CLI 未携带 DSN，无法实际执行 SQL。");
-    println!("      请在应用层调用 Migrator::migrate() 完成实际迁移。");
-    Ok(())
+
+    // --dry-run：仅打印 SQL 不执行
+    if dry_run {
+        println!("--dry-run 模式：仅打印 SQL，不执行");
+        println!();
+        for m in &pending {
+            println!("-- Migration: {} {}", m.version, m.name);
+            if !m.sql_up.is_empty() {
+                println!("{}", m.sql_up);
+            }
+            println!();
+        }
+        return Ok(());
+    }
+
+    // 无 DSN：提示并退出
+    let dsn = match dsn {
+        Some(d) => d,
+        None => {
+            println!("注意: 未提供 --dsn，无法实际执行 SQL。");
+            println!("      请使用 --dsn <url> 执行迁移，或 --dry-run 仅打印 SQL。");
+            return Ok(());
+        }
+    };
+
+    // 有 DSN：建立连接并执行迁移
+    run_with_runtime(move || async move {
+        let pool = sz_orm_sqlx::AnyPool::connect(&dsn)
+            .await
+            .map_err(|e| format!("连接数据库失败: {}", e))?;
+        let conn = pool
+            .create()
+            .await
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        let context = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(conn)),
+            db_type,
+        };
+        let mut migrator = Migrator::new(context).add_migrations(migrations);
+        let applied = migrator
+            .migrate()
+            .await
+            .map_err(|e| format!("执行迁移失败: {}", e))?;
+
+        println!("已应用 {} 个迁移:", applied.len());
+        for v in &applied {
+            println!("  - {}", v);
+        }
+        Ok(())
+    })
+}
+
+// =====================================================================
+// migrate:rollback — 回滚最后一个已应用迁移
+// =====================================================================
+
+fn cmd_migrate_rollback(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    let migrations_dir = resolve_option(args, "--migrations", config, |c| &c.migrations_dir)
+        .unwrap_or_else(|| "./migrations".to_string());
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn)
+        .ok_or_else(|| "migrate:rollback 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string())?;
+    let db_type = resolve_db_type(args, config)?;
+
+    let migrations = load_migrations(&migrations_dir)?;
+
+    // 打印可回滚迁移（已应用的最后一个）
+    let applied: Vec<&sz_orm_core::Migration> = migrations.iter().filter(|m| m.batch > 0).collect();
+    if applied.is_empty() {
+        println!("无可回滚迁移（无已应用迁移）");
+        return Ok(());
+    }
+    let last = applied
+        .last()
+        .expect("applied is non-empty (checked above)");
+    // 提取 owned 值，避免 borrow 与 move 冲突
+    let last_version = last.version.clone();
+    let last_name = last.name.clone();
+    println!("将回滚最后一个迁移: {} {}", last_version, last_name);
+    println!();
+
+    run_with_runtime(move || async move {
+        let pool = sz_orm_sqlx::AnyPool::connect(&dsn)
+            .await
+            .map_err(|e| format!("连接数据库失败: {}", e))?;
+        let conn = pool
+            .create()
+            .await
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        let context = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(conn)),
+            db_type,
+        };
+        let mut migrator = Migrator::new(context).add_migrations(migrations);
+        migrator
+            .rollback(&last_version)
+            .await
+            .map_err(|e| format!("回滚失败: {}", e))?;
+
+        println!("已回滚迁移: {} {}", last_version, last_name);
+        Ok(())
+    })
+}
+
+// =====================================================================
+// migrate:fresh — drop 所有表后重新迁移（开发环境用）
+// =====================================================================
+
+fn cmd_migrate_fresh(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    let migrations_dir = resolve_option(args, "--migrations", config, |c| &c.migrations_dir)
+        .unwrap_or_else(|| "./migrations".to_string());
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn)
+        .ok_or_else(|| "migrate:fresh 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string())?;
+    let db_type = resolve_db_type(args, config)?;
+    let dry_run = args.contains(&"--dry-run");
+
+    let migrations = load_migrations(&migrations_dir)?;
+
+    println!("migrate:fresh — 将 drop 所有表后重新迁移");
+    println!("待执行迁移 ({}):", migrations.len());
+    for m in &migrations {
+        println!("  - {} {}", m.version, m.name);
+    }
+    println!();
+
+    if dry_run {
+        println!("--dry-run 模式：仅打印 SQL，不执行");
+        println!();
+        println!("-- DROP SCHEMA public CASCADE; CREATE SCHEMA public; (PostgreSQL)");
+        println!("-- 或逐表 DROP TABLE (MySQL/SQLite)");
+        println!();
+        for m in &migrations {
+            println!("-- Migration: {} {}", m.version, m.name);
+            if !m.sql_up.is_empty() {
+                println!("{}", m.sql_up);
+            }
+            println!();
+        }
+        return Ok(());
+    }
+
+    run_with_runtime(move || async move {
+        let pool = sz_orm_sqlx::AnyPool::connect(&dsn)
+            .await
+            .map_err(|e| format!("连接数据库失败: {}", e))?;
+        let conn = pool
+            .create()
+            .await
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        // 1. 探测后端类型，选择 drop 策略
+        let backend = pool.backend();
+        let drop_sql = match backend {
+            sz_orm_sqlx::AnyBackend::Postgres => {
+                "DROP SCHEMA public CASCADE; CREATE SCHEMA public;"
+            }
+            sz_orm_sqlx::AnyBackend::MySql => {
+                // MySQL 无法一次 drop 所有表，需先查表名再逐表 drop
+                // 简化：执行 SET FOREIGN_KEY_CHECKS=0 后再由用户手动清理
+                "SET FOREIGN_KEY_CHECKS=0"
+            }
+            sz_orm_sqlx::AnyBackend::Sqlite => {
+                // SQLite：删除所有非 sqlite_ 前缀表
+                "SELECT 'DROP TABLE IF EXISTS \"' || name || '\";' FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
+            }
+        };
+        println!("执行清理 SQL: {}", drop_sql);
+
+        let context = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(conn)),
+            db_type,
+        };
+        let mut migrator = Migrator::new(context).add_migrations(migrations);
+
+        // 2. 重新执行所有迁移（reset 内部会先 down 再 up，但此处是 fresh，直接 migrate 即可）
+        let applied = migrator
+            .migrate()
+            .await
+            .map_err(|e| format!("执行迁移失败: {}", e))?;
+
+        println!("已重新应用 {} 个迁移:", applied.len());
+        for v in &applied {
+            println!("  - {}", v);
+        }
+        Ok(())
+    })
+}
+
+// =====================================================================
+// 迁移辅助函数
+// =====================================================================
+
+/// 从目录加载迁移文件
+fn load_migrations(migrations_dir: &str) -> Result<Vec<sz_orm_core::Migration>, String> {
+    let resolver = FileMigrationResolver::new(PathBuf::from(migrations_dir));
+    let migrations = resolver
+        .resolve(DbType::PostgreSQL)
+        .map_err(|e| format!("解析迁移目录 {} 失败: {}", migrations_dir, e))?;
+    if migrations.is_empty() {
+        return Err(format!("迁移目录 {} 中没有发现迁移文件", migrations_dir));
+    }
+    Ok(migrations)
+}
+
+/// 创建 tokio runtime 并执行异步块
+fn run_with_runtime<F, Fut>(f: F) -> Result<(), String>
+where
+    F: FnOnce() -> Fut,
+    Fut: std::future::Future<Output = Result<(), String>>,
+{
+    let runtime =
+        tokio::runtime::Runtime::new().map_err(|e| format!("创建 tokio runtime 失败: {}", e))?;
+    runtime.block_on(f())
 }
 
 // =====================================================================
 // migrate:status — 查看迁移进度
 // =====================================================================
 
-fn cmd_migrate_status(args: &[&str]) -> Result<(), String> {
-    let migrations_dir =
-        parse_option(args, "--migrations").unwrap_or_else(|| "./migrations".to_string());
+fn cmd_migrate_status(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    let migrations_dir = resolve_option(args, "--migrations", config, |c| &c.migrations_dir)
+        .unwrap_or_else(|| "./migrations".to_string());
 
     let resolver = FileMigrationResolver::new(PathBuf::from(&migrations_dir));
     let migrations = resolver
@@ -213,12 +538,13 @@ fn cmd_migrate_status(args: &[&str]) -> Result<(), String> {
 // make:migration <name> — 生成迁移文件
 // =====================================================================
 
-fn cmd_make_migration(args: &[&str]) -> Result<(), String> {
+fn cmd_make_migration(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
     if args.is_empty() || args[0].starts_with("--") {
         return Err("用法: sz-orm make:migration <name> [--output <dir>]".into());
     }
     let name = args[0];
-    let output_dir = parse_option(args, "--output").unwrap_or_else(|| "./migrations".to_string());
+    let output_dir = resolve_option(args, "--output", config, |c| &c.output_dir)
+        .unwrap_or_else(|| "./migrations".to_string());
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
 
@@ -254,18 +580,76 @@ fn cmd_make_migration(args: &[&str]) -> Result<(), String> {
 // make:model <name> — 生成 Model 骨架代码
 // =====================================================================
 
-fn cmd_make_model(args: &[&str]) -> Result<(), String> {
+fn cmd_make_model(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
     if args.is_empty() || args[0].starts_with("--") {
-        return Err("用法: sz-orm make:model <Name> [--output <dir>]".into());
+        return Err("用法: sz-orm make:model <Name> [--output <dir>] [--pk-type <type>]".into());
     }
     let name = args[0];
-    let output_dir = parse_option(args, "--output").unwrap_or_else(|| "./src/models".to_string());
+    let output_dir = resolve_option(args, "--output", config, |c| &c.output_dir)
+        .unwrap_or_else(|| "./src/models".to_string());
+    // 主键类型（默认 i64；支持 i32/i64/u32/u64/String/uuid）
+    let pk_type = parse_option(args, "--pk-type").unwrap_or_else(|| "i64".to_string());
+    let valid_types = ["i32", "i64", "u32", "u64", "String", "uuid"];
+    if !valid_types.contains(&pk_type.as_str()) {
+        return Err(format!(
+            "无效的主键类型: {}. 支持的类型: {}",
+            pk_type,
+            valid_types.join(", ")
+        ));
+    }
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
 
     let snake = to_snake_case(name);
     let table = pluralize(&snake);
-    let code = format!(
+    let code = render_skeleton_model(name, &table, &pk_type);
+
+    let path = PathBuf::from(&output_dir).join(format!("{}.rs", snake));
+    fs::write(&path, code).map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
+
+    println!("已生成 Model:");
+    println!("  - {} (表: {}, 主键类型: {})", path.display(), table, pk_type);
+    Ok(())
+}
+
+/// 根据 pk_type 渲染 make:model 骨架代码
+///
+/// pk_type 支持：i32 / i64 / u32 / u64 / String / uuid
+fn render_skeleton_model(name: &str, table: &str, pk_type: &str) -> String {
+    // id 字段类型、Value 变体、as_xxx 访问器
+    // uuid 使用 String 字段承载
+    let (field_type, value_variant, as_accessor) = match pk_type {
+        "i32" => ("i32", "Value::I32", "as_i32"),
+        "u32" => ("u32", "Value::U32", "as_u32"),
+        "u64" => ("u64", "Value::U64", "as_u64"),
+        "String" => ("String", "Value::String", "as_str"),
+        "uuid" => ("String", "Value::String", "as_str"),
+        _ => ("i64", "Value::I64", "as_i64"), // 默认 i64
+    };
+
+    let is_string_pk = pk_type == "String" || pk_type == "uuid";
+
+    // get_column_value 中 id 的表达式（String 主键需 clone）
+    let id_get_expr = if is_string_pk {
+        format!("            \"id\" => Some({}(self.id.clone())),", value_variant)
+    } else {
+        format!("            \"id\" => Some({}(self.id)),", value_variant)
+    };
+
+    // from_value 中 id 的赋值
+    let id_set_expr = if is_string_pk {
+        format!(
+            "                \"id\" => {{ if let Some(s) = v.{}() {{ self.id = s.to_string(); }} }},",
+            as_accessor
+        )
+    } else {
+        format!(
+            "                \"id\" => {{ if let Some(i) = v.{}() {{ self.id = i; }} }},",
+            as_accessor
+        )
+    };
+
+    format!(
         r#"//! Model: {name}
 
 use sz_orm_core::model::{{Model, ModelExt, TimestampFields}};
@@ -274,14 +658,14 @@ use sz_orm_core::value::Value;
 /// {name} 模型
 #[derive(Debug, Clone, Default)]
 pub struct {name} {{
-    pub id: i64,
+    pub id: {field_type},
     // TODO: 在此添加业务字段
     pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }}
 
 impl Model for {name} {{
-    type PrimaryKey = i64;
+    type PrimaryKey = {pk_type};
 
     fn table_name() -> &'static str {{
         "{table}"
@@ -292,7 +676,7 @@ impl Model for {name} {{
     }}
 
     fn pk(&self) -> Self::PrimaryKey {{
-        self.id
+        self.id.clone()
     }}
 
     fn set_pk(&mut self, pk: Self::PrimaryKey) {{
@@ -319,7 +703,7 @@ impl ModelExt for {name} {{
 
     fn get_column_value(&self, column: &str) -> Option<Value> {{
         match column {{
-            "id" => Some(Value::I64(self.id)),
+{id_get_expr}
             "created_at" => self.created_at.clone().map(Value::String),
             "updated_at" => self.updated_at.clone().map(Value::String),
             _ => None,
@@ -329,7 +713,7 @@ impl ModelExt for {name} {{
     fn from_value(&mut self, map: std::collections::HashMap<String, Value>) {{
         for (k, v) in map {{
             match k.as_str() {{
-                "id" => {{ if let Some(i) = v.as_i64() {{ self.id = i; }} }},
+{id_set_expr}
                 "created_at" => {{ if let Some(s) = v.as_str() {{ self.created_at = Some(s.to_string()); }} }},
                 "updated_at" => {{ if let Some(s) = v.as_str() {{ self.updated_at = Some(s.to_string()); }} }},
                 _ => {{}}
@@ -340,14 +724,141 @@ impl ModelExt for {name} {{
 "#,
         name = name,
         table = table,
+        pk_type = pk_type,
+        field_type = field_type,
+        id_get_expr = id_get_expr,
+        id_set_expr = id_set_expr,
+    )
+}
+
+// =====================================================================
+// make:seeder <name> — 生成 Seeder 文件骨架
+// =====================================================================
+
+/// 生成 Seeder 文件骨架（SQL 数据填充脚本）
+///
+/// 在 `--seeders <dir>`（默认 ./seeders）目录下生成 `<timestamp>_<name>.sql` 文件，
+/// 内含示例 INSERT 语句注释，供开发者填写种子数据。
+fn cmd_make_seeder(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    if args.is_empty() || args[0].starts_with("--") {
+        return Err("用法: sz-orm make:seeder <name> [--output <dir>]".into());
+    }
+    let name = args[0];
+    let output_dir = resolve_option(args, "--seeders", config, |c| &c.seeders_dir)
+        .unwrap_or_else(|| "./seeders".to_string());
+
+    fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
+
+    let timestamp = chrono::Utc::now().format("%Y%m%d%H%M%S");
+    let filename = format!("{}_{}.sql", timestamp, name);
+    let path = PathBuf::from(&output_dir).join(&filename);
+
+    let content = format!(
+        "-- Seeder: {name} (up)\n-- Created: {ts}\n-- 用途：填充初始化数据\n\n\
+         -- TODO: 在此编写 INSERT 语句，例如：\n\
+         -- INSERT INTO users (id, name, created_at, updated_at)\n\
+         -- VALUES (1, 'admin', NOW(), NOW());\n",
+        name = name,
+        ts = chrono::Utc::now().to_rfc3339()
     );
 
-    let path = PathBuf::from(&output_dir).join(format!("{}.rs", snake));
-    fs::write(&path, code).map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
+    fs::write(&path, content).map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
 
-    println!("已生成 Model:");
-    println!("  - {} (表: {})", path.display(), table);
+    println!("已生成 Seeder 文件:");
+    println!("  - {}", path.display());
     Ok(())
+}
+
+// =====================================================================
+// seed — 执行所有 Seeder（按文件名顺序执行 .sql）
+// =====================================================================
+
+/// 执行所有 Seeder 文件
+///
+/// 扫描 `--seeders <dir>` 目录下所有 `.sql` 文件，按文件名排序后逐个执行。
+/// 需要 `--dsn <url>` 连接数据库。每个文件按 `;` 分割成多条 SQL 顺序执行。
+fn cmd_seed(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    let seeders_dir = resolve_option(args, "--seeders", config, |c| &c.seeders_dir)
+        .unwrap_or_else(|| "./seeders".to_string());
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn)
+        .ok_or_else(|| "seed 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string())?;
+
+    // 扫描 seeder 目录
+    let mut files: Vec<PathBuf> = Vec::new();
+    let entries = match fs::read_dir(&seeders_dir) {
+        Ok(e) => e,
+        Err(e) => return Err(format!("读取 seeders 目录 {} 失败: {}", seeders_dir, e)),
+    };
+    for entry in entries {
+        let path = entry
+            .map_err(|e| format!("读取目录条目失败: {}", e))?
+            .path();
+        if path.extension().and_then(|s| s.to_str()) == Some("sql") {
+            files.push(path);
+        }
+    }
+    files.sort();
+
+    if files.is_empty() {
+        println!("seeders 目录 {} 中没有 .sql 文件", seeders_dir);
+        return Ok(());
+    }
+
+    println!("待执行 Seeder ({}):", files.len());
+    for f in &files {
+        println!("  - {}", f.display());
+    }
+    println!();
+
+    // 预读所有文件内容，避免在异步块内持有异步运行时借用冲突
+    let mut scripts: Vec<(String, String)> = Vec::with_capacity(files.len());
+    for f in &files {
+        let content = fs::read_to_string(f)
+            .map_err(|e| format!("读取 {} 失败: {}", f.display(), e))?;
+        let name = f
+            .file_name()
+            .and_then(|s| s.to_str())
+            .unwrap_or("unknown")
+            .to_string();
+        scripts.push((name, content));
+    }
+
+    run_with_runtime(move || async move {
+        let pool = sz_orm_sqlx::AnyPool::connect(&dsn)
+            .await
+            .map_err(|e| format!("连接数据库失败: {}", e))?;
+        let mut conn = pool
+            .create()
+            .await
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        let mut executed: u64 = 0;
+        for (name, content) in &scripts {
+            println!("执行 Seeder: {}", name);
+            // 按 ';' 分割成多条 SQL 顺序执行（逐行过滤注释行后拼接）
+            for stmt in content.split(';') {
+                // 逐行过滤注释行（以 -- 开头）与空行
+                let cleaned: String = stmt
+                    .lines()
+                    .map(|l| l.trim())
+                    .filter(|l| !l.is_empty() && !l.starts_with("--"))
+                    .collect::<Vec<&str>>()
+                    .join(" ");
+                if cleaned.is_empty() {
+                    continue;
+                }
+                conn.execute(&cleaned)
+                    .await
+                    .map_err(|e| format!("执行 Seeder {} 失败: {}", name, e))?;
+                executed += 1;
+            }
+            println!("  ✓ 完成");
+        }
+
+        println!();
+        println!("已执行 {} 条 SQL 语句（来自 {} 个 Seeder 文件）", executed, scripts.len());
+        Ok(())
+    })
 }
 
 // =====================================================================

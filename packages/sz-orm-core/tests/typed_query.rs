@@ -5,6 +5,7 @@
 
 use sz_orm_core::schema;
 use sz_orm_core::typed::{TypedColumn, TypedTable};
+use sz_orm_core::typed_ast::{Binary, BigInt, Bool, Double, Integer, Nullable, Real, SmallInt, Text};
 use sz_orm_core::typed_query;
 
 // ============================================================================
@@ -168,9 +169,9 @@ fn test_schema_macro_basic() {
     assert_eq!(<schema_users::col_id as TypedColumn>::NAME, "id");
     assert_eq!(<schema_users::col_name as TypedColumn>::NAME, "name");
 
-    // 验证 RustType：PRIMARY KEY 隐含 NOT NULL → i64（非 Option）
-    fn _check_i64<T: TypedColumn<RustType = i64>>(_: T) {}
-    _check_i64(schema_users::col_id);
+    // 验证 RustType：INTEGER → i32，PRIMARY KEY 隐含 NOT NULL → i32（非 Option）
+    fn _check_i32<T: TypedColumn<RustType = i32>>(_: T) {}
+    _check_i32(schema_users::col_id);
 
     // name 有 NOT NULL → String（非 Option）
     fn _check_string<T: TypedColumn<RustType = String>>(_: T) {}
@@ -204,11 +205,13 @@ fn test_schema_macro_nullable() {
         "CREATE TABLE schema_nullable (a INT NOT NULL, b INT)"
     }
 
-    fn _check_i64<T: TypedColumn<RustType = i64>>(_: T) {}
-    _check_i64(schema_nullable::col_a);
+    // INT NOT NULL → i32
+    fn _check_i32<T: TypedColumn<RustType = i32>>(_: T) {}
+    _check_i32(schema_nullable::col_a);
 
-    fn _check_option_i64<T: TypedColumn<RustType = Option<i64>>>(_: T) {}
-    _check_option_i64(schema_nullable::col_b);
+    // INT (nullable) → Option<i32>
+    fn _check_option_i32<T: TypedColumn<RustType = Option<i32>>>(_: T) {}
+    _check_option_i32(schema_nullable::col_b);
 }
 
 /// 跳过约束行（PRIMARY KEY/FOREIGN KEY/CONSTRAINT/UNIQUE/INDEX）
@@ -249,4 +252,90 @@ fn test_schema_macro_compatible_with_typed_query_select() {
     assert!(sql.contains("schema_compat"));
     assert!(sql.contains("id"));
     assert!(sql.contains("name"));
+}
+
+// ============================================================================
+// InferSqlType 类型推断测试 — 验证 typed_query! 宏生成的列 SqlType 正确
+// ============================================================================
+
+/// typed_query! 宏生成的列应通过 InferSqlType 推断出正确的 SqlType
+///
+/// 测试 i64 → BigInt、String → Text、Option<f64> → Nullable<Double> 等映射。
+#[test]
+fn test_typed_query_infer_sql_type() {
+    typed_query! {
+        table typed_infer {
+            id: i64,
+            name: String,
+            score: i32,
+            age: i16,
+            ratio: f32,
+            price: f64,
+            active: bool,
+            avatar: Vec<u8>,
+            optional_price: Option<f64>,
+            optional_name: Option<String>,
+        }
+    }
+
+    // 编译期断言辅助函数：通过 TypedColumn<SqlType = X> trait bound 强约束
+    fn _assert_bigint<T: TypedColumn<SqlType = BigInt>>(_: T) {}
+    fn _assert_integer<T: TypedColumn<SqlType = Integer>>(_: T) {}
+    fn _assert_smallint<T: TypedColumn<SqlType = SmallInt>>(_: T) {}
+    fn _assert_real<T: TypedColumn<SqlType = Real>>(_: T) {}
+    fn _assert_double<T: TypedColumn<SqlType = Double>>(_: T) {}
+    fn _assert_bool<T: TypedColumn<SqlType = Bool>>(_: T) {}
+    fn _assert_text<T: TypedColumn<SqlType = Text>>(_: T) {}
+    fn _assert_binary<T: TypedColumn<SqlType = Binary>>(_: T) {}
+    fn _assert_nullable_double<T: TypedColumn<SqlType = Nullable<Double>>>(_: T) {}
+    fn _assert_nullable_text<T: TypedColumn<SqlType = Nullable<Text>>>(_: T) {}
+
+    // i64 → BigInt
+    _assert_bigint(typed_infer::col_id);
+    // String → Text
+    _assert_text(typed_infer::col_name);
+    // i32 → Integer
+    _assert_integer(typed_infer::col_score);
+    // i16 → SmallInt
+    _assert_smallint(typed_infer::col_age);
+    // f32 → Real
+    _assert_real(typed_infer::col_ratio);
+    // f64 → Double
+    _assert_double(typed_infer::col_price);
+    // bool → Bool
+    _assert_bool(typed_infer::col_active);
+    // Vec<u8> → Binary
+    _assert_binary(typed_infer::col_avatar);
+    // Option<f64> → Nullable<Double>
+    _assert_nullable_double(typed_infer::col_optional_price);
+    // Option<String> → Nullable<Text>
+    _assert_nullable_text(typed_infer::col_optional_name);
+}
+
+/// schema! 宏生成的列应通过 InferSqlType 推断出正确的 SqlType
+#[test]
+fn test_schema_macro_infer_sql_type() {
+    schema! {
+        "CREATE TABLE schema_infer (id BIGINT PRIMARY KEY, score INT NOT NULL, ratio FLOAT, price DOUBLE NOT NULL, active BOOLEAN, avatar BLOB)"
+    }
+
+    fn _assert_bigint<T: TypedColumn<SqlType = BigInt>>(_: T) {}
+    fn _assert_integer<T: TypedColumn<SqlType = Integer>>(_: T) {}
+    fn _assert_nullable_real<T: TypedColumn<SqlType = Nullable<Real>>>(_: T) {}
+    fn _assert_double<T: TypedColumn<SqlType = Double>>(_: T) {}
+    fn _assert_nullable_bool<T: TypedColumn<SqlType = Nullable<Bool>>>(_: T) {}
+    fn _assert_nullable_binary<T: TypedColumn<SqlType = Nullable<Binary>>>(_: T) {}
+
+    // BIGINT → i64 → BigInt
+    _assert_bigint(schema_infer::col_id);
+    // INT → i32 → Integer
+    _assert_integer(schema_infer::col_score);
+    // FLOAT（nullable） → Option<f32> → Nullable<Real>
+    _assert_nullable_real(schema_infer::col_ratio);
+    // DOUBLE NOT NULL → f64 → Double
+    _assert_double(schema_infer::col_price);
+    // BOOLEAN（nullable） → Option<bool> → Nullable<Bool>
+    _assert_nullable_bool(schema_infer::col_active);
+    // BLOB（nullable） → Option<Vec<u8>> → Nullable<Binary>
+    _assert_nullable_binary(schema_infer::col_avatar);
 }
