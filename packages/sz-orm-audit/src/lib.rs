@@ -1517,12 +1517,13 @@ mod tests {
 
         store.append(&ctx("SELECT 1", "u", 1)).unwrap();
         // 手动追加空行模拟人工编辑或异常写入
-        use std::io::Write;
+
         let mut file = std::fs::OpenOptions::new()
             .append(true)
             .open(path_str)
             .unwrap();
-        writeln!(file, "").unwrap();
+        use std::io::Write;
+        writeln!(file).unwrap();
         writeln!(file, "   ").unwrap();
         drop(file);
 

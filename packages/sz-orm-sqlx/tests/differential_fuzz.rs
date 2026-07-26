@@ -240,7 +240,7 @@ async fn deterministic_single_row() {
 #[tokio::test]
 async fn deterministic_large() {
     let users: Vec<(i64, String, i64)> = (0..100)
-        .map(|i| (i + 1, format!("user_{}", i), (i % 100) as i64))
+        .map(|i| (i + 1, format!("user_{}", i), i % 100))
         .collect();
     let (mut conn, native_pool) = setup_db(&users).await.unwrap();
     run_scenarios(&mut conn, &native_pool).await.unwrap();
