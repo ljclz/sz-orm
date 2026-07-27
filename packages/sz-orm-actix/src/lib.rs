@@ -123,9 +123,9 @@ fn value_to_json(v: &Value) -> serde_json::Value {
         Value::String(s) => serde_json::Value::String(s.clone()),
         Value::Decimal(s) => serde_json::Value::String(s.clone()),
         // 字节序列以十六进制字符串表示，避免默认序列化为数字数组
-        Value::Bytes(b) => serde_json::Value::String(
-            b.iter().map(|byte| format!("{:02x}", byte)).collect(),
-        ),
+        Value::Bytes(b) => {
+            serde_json::Value::String(b.iter().map(|byte| format!("{:02x}", byte)).collect())
+        }
         Value::Date(s) | Value::DateTime(s) | Value::Time(s) => {
             serde_json::Value::String(s.clone())
         }
@@ -133,9 +133,7 @@ fn value_to_json(v: &Value) -> serde_json::Value {
             serde_json::from_str(s).unwrap_or_else(|_| serde_json::Value::String(s.clone()))
         }
         Value::Uuid(s) => serde_json::Value::String(s.clone()),
-        Value::Array(arr) => {
-            serde_json::Value::Array(arr.iter().map(value_to_json).collect())
-        }
+        Value::Array(arr) => serde_json::Value::Array(arr.iter().map(value_to_json).collect()),
         Value::Object(map) => {
             let mut obj = serde_json::Map::new();
             for (k, v) in map {
@@ -163,8 +161,7 @@ impl<T: Serialize> Responder for JsonResp<T> {
     fn respond_to(self, _: &HttpRequest) -> HttpResponse {
         match serde_json::to_value(&self.0) {
             Ok(v) => HttpResponse::Ok().json(v),
-            Err(e) => HttpResponse::InternalServerError()
-                .body(format!("JSON 序列化失败: {}", e)),
+            Err(e) => HttpResponse::InternalServerError().body(format!("JSON 序列化失败: {}", e)),
         }
     }
 }
@@ -220,9 +217,8 @@ where
 {
     type Response = ServiceResponse<B>;
     type Error = actix_web::Error;
-    type Future = std::pin::Pin<
-        Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>,
-    >;
+    type Future =
+        std::pin::Pin<Box<dyn std::future::Future<Output = Result<Self::Response, Self::Error>>>>;
 
     forward_ready!(service);
 

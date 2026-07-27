@@ -119,7 +119,10 @@ pub enum WillDelivery {
     /// 遗嘱已发布
     Delivered { client_id: String },
     /// 遗嘱已调度（等待延迟到期）
-    Scheduled { client_id: String, delay_seconds: u32 },
+    Scheduled {
+        client_id: String,
+        delay_seconds: u32,
+    },
     /// 遗嘱未发布（客户端正常断开且配置为不发布）
     Skipped { client_id: String, reason: String },
     /// 遗嘱已被取消（客户端在延迟期内重新连接）
@@ -175,12 +178,7 @@ impl WillRegistry {
 
     /// 触发遗嘱消息发布。`graceful` 表示是否为正常断开。
     /// 返回遗嘱投递结果描述。
-    pub async fn trigger(
-        &self,
-        client_id: &str,
-        graceful: bool,
-        now_ms: i64,
-    ) -> WillDelivery {
+    pub async fn trigger(&self, client_id: &str, graceful: bool, now_ms: i64) -> WillDelivery {
         let config = {
             let mut wills = self.wills.write().await;
             wills.remove(client_id)
@@ -204,10 +202,7 @@ impl WillRegistry {
         if config.has_delay() {
             let due = now_ms + (config.delay_seconds as i64) * 1000;
             let mut pending = self.pending.write().await;
-            pending.insert(
-                client_id.to_string(),
-                (due, config.message.clone()),
-            );
+            pending.insert(client_id.to_string(), (due, config.message.clone()));
             return WillDelivery::Scheduled {
                 client_id: client_id.to_string(),
                 delay_seconds: config.delay_seconds,
@@ -344,11 +339,8 @@ mod tests {
     #[tokio::test]
     async fn test_registry_unregister() {
         let reg = WillRegistry::new();
-        reg.register(
-            "c1",
-            WillConfig::new(WillMessage::text("t", "p")),
-        )
-        .await;
+        reg.register("c1", WillConfig::new(WillMessage::text("t", "p")))
+            .await;
         let removed = reg.unregister("c1").await;
         assert!(removed.is_some());
         assert!(!reg.has_will("c1").await);
@@ -367,11 +359,8 @@ mod tests {
     #[tokio::test]
     async fn test_trigger_ungraceful_immediate_delivery() {
         let reg = WillRegistry::new();
-        reg.register(
-            "c1",
-            WillConfig::new(WillMessage::text("status", "down")),
-        )
-        .await;
+        reg.register("c1", WillConfig::new(WillMessage::text("status", "down")))
+            .await;
         let result = reg.trigger("c1", false, now_ms()).await;
         match result {
             WillDelivery::Delivered { client_id } => {
@@ -386,11 +375,8 @@ mod tests {
     #[tokio::test]
     async fn test_trigger_graceful_default_skipped() {
         let reg = WillRegistry::new();
-        reg.register(
-            "c1",
-            WillConfig::new(WillMessage::text("t", "p")),
-        )
-        .await;
+        reg.register("c1", WillConfig::new(WillMessage::text("t", "p")))
+            .await;
         let result = reg.trigger("c1", true, now_ms()).await;
         assert!(matches!(result, WillDelivery::Skipped { .. }));
     }
@@ -417,9 +403,7 @@ mod tests {
         .await;
         let result = reg.trigger("c1", false, now_ms()).await;
         match result {
-            WillDelivery::Scheduled {
-                delay_seconds, ..
-            } => assert_eq!(delay_seconds, 60),
+            WillDelivery::Scheduled { delay_seconds, .. } => assert_eq!(delay_seconds, 60),
             _ => panic!("expected Scheduled"),
         }
         assert_eq!(reg.pending_count().await, 1);
@@ -507,7 +491,10 @@ mod tests {
     async fn test_to_mqtt_messages_conversion() {
         let items = vec![
             ("c1".to_string(), WillMessage::text("t1", "p1")),
-            ("c2".to_string(), WillMessage::text("t2", "p2").with_qos(QoS::AtLeastOnce)),
+            (
+                "c2".to_string(),
+                WillMessage::text("t2", "p2").with_qos(QoS::AtLeastOnce),
+            ),
         ];
         let msgs = WillRegistry::to_mqtt_messages(items);
         assert_eq!(msgs.len(), 2);
@@ -518,11 +505,8 @@ mod tests {
     #[tokio::test]
     async fn test_trigger_consumes_will_from_registry() {
         let reg = WillRegistry::new();
-        reg.register(
-            "c1",
-            WillConfig::new(WillMessage::text("t", "p")),
-        )
-        .await;
+        reg.register("c1", WillConfig::new(WillMessage::text("t", "p")))
+            .await;
         reg.trigger("c1", false, now_ms()).await;
         // 再次触发应返回 Skipped
         let result = reg.trigger("c1", false, now_ms()).await;
@@ -532,9 +516,12 @@ mod tests {
     #[tokio::test]
     async fn test_multiple_clients_independent_wills() {
         let reg = WillRegistry::new();
-        reg.register("c1", WillConfig::new(WillMessage::text("t1", "p1"))).await;
-        reg.register("c2", WillConfig::new(WillMessage::text("t2", "p2"))).await;
-        reg.register("c3", WillConfig::new(WillMessage::text("t3", "p3"))).await;
+        reg.register("c1", WillConfig::new(WillMessage::text("t1", "p1")))
+            .await;
+        reg.register("c2", WillConfig::new(WillMessage::text("t2", "p2")))
+            .await;
+        reg.register("c3", WillConfig::new(WillMessage::text("t3", "p3")))
+            .await;
         assert_eq!(reg.count().await, 3);
 
         let r1 = reg.trigger("c1", false, now_ms()).await;

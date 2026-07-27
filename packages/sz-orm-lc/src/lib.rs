@@ -217,7 +217,10 @@ impl FieldTypeMapping {
         let upper = sql_type.to_uppercase();
         if upper.starts_with("BIGINT") || upper.starts_with("INT8") {
             "i64"
-        } else if upper.starts_with("INT") || upper.starts_with("INTEGER") || upper.starts_with("INT4") {
+        } else if upper.starts_with("INT")
+            || upper.starts_with("INTEGER")
+            || upper.starts_with("INT4")
+        {
             "i32"
         } else if upper.starts_with("SMALLINT") || upper.starts_with("INT2") {
             "i16"
@@ -225,7 +228,10 @@ impl FieldTypeMapping {
             "bool"
         } else if upper.starts_with("FLOAT8") || upper.starts_with("DOUBLE") {
             "f64"
-        } else if upper.starts_with("FLOAT") || upper.starts_with("REAL") || upper.starts_with("FLOAT4") {
+        } else if upper.starts_with("FLOAT")
+            || upper.starts_with("REAL")
+            || upper.starts_with("FLOAT4")
+        {
             "f32"
         } else if upper.starts_with("NUMERIC") || upper.starts_with("DECIMAL") {
             "rust_decimal::Decimal"
@@ -282,7 +288,8 @@ impl FieldTypeMapping {
     /// 将 SQL 类型映射为 JSON Schema 类型
     pub fn sql_to_json_schema(sql_type: &str) -> &'static str {
         let upper = sql_type.to_uppercase();
-        if upper.starts_with("INT") || upper.starts_with("BIGINT") || upper.starts_with("SMALLINT") {
+        if upper.starts_with("INT") || upper.starts_with("BIGINT") || upper.starts_with("SMALLINT")
+        {
             "integer"
         } else if upper.starts_with("FLOAT")
             || upper.starts_with("DOUBLE")
@@ -647,18 +654,15 @@ impl FormGenerator {
                     _ => InputType::Text,
                 };
 
-                let mut form_field = FormField::new(
-                    &field.name,
-                    field.display_label(),
-                    input_type,
-                );
+                let mut form_field = FormField::new(&field.name, field.display_label(), input_type);
 
                 if !field.nullable && !field.primary_key {
                     form_field = form_field.required();
                 }
 
                 if let Some(default) = &field.default_value {
-                    form_field = form_field.with_default(serde_json::Value::String(default.clone()));
+                    form_field =
+                        form_field.with_default(serde_json::Value::String(default.clone()));
                 }
 
                 form_field
@@ -696,7 +700,11 @@ impl FormGenerator {
                 "        <label for=\"{}\">{}{}</label>\n",
                 field.name,
                 field.label,
-                if field.required { " <span class=\"required\">*</span>" } else { "" }
+                if field.required {
+                    " <span class=\"required\">*</span>"
+                } else {
+                    ""
+                }
             ));
         }
 
@@ -763,9 +771,15 @@ impl FormGenerator {
             let field_type = match &field.input_type {
                 InputType::Number => "number",
                 InputType::Checkbox => "boolean",
-                InputType::Textarea | InputType::Text | InputType::Email
-                | InputType::Password | InputType::Date | InputType::DateTime
-                | InputType::Time | InputType::Select | InputType::File
+                InputType::Textarea
+                | InputType::Text
+                | InputType::Email
+                | InputType::Password
+                | InputType::Date
+                | InputType::DateTime
+                | InputType::Time
+                | InputType::Select
+                | InputType::File
                 | InputType::Hidden => "string",
             };
 
@@ -843,7 +857,10 @@ impl CrudTemplateEngine {
 
         // 索引
         for index in &model.indexes {
-            sql.push_str(&format!("\nCREATE INDEX \"{}\" ON \"{}\";", index, model.name));
+            sql.push_str(&format!(
+                "\nCREATE INDEX \"{}\" ON \"{}\";",
+                index, model.name
+            ));
         }
 
         sql
@@ -852,13 +869,15 @@ impl CrudTemplateEngine {
     /// 生成 INSERT 语句（参数化）
     pub fn generate_insert(model: &ModelDefinition) -> String {
         let columns: Vec<&str> = model.fields.iter().map(|f| f.name.as_str()).collect();
-        let placeholders: Vec<String> = (1..=columns.len())
-            .map(|i| format!("${}", i))
-            .collect();
+        let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("${}", i)).collect();
         format!(
             "INSERT INTO \"{}\" ({}) VALUES ({});",
             model.name,
-            columns.iter().map(|c| format!("\"{}\"", c)).collect::<Vec<_>>().join(", "),
+            columns
+                .iter()
+                .map(|c| format!("\"{}\"", c))
+                .collect::<Vec<_>>()
+                .join(", "),
             placeholders.join(", ")
         )
     }
@@ -893,11 +912,8 @@ impl CrudTemplateEngine {
 
     /// 生成 UPDATE 语句（参数化，排除主键）
     pub fn generate_update(model: &ModelDefinition) -> String {
-        let update_fields: Vec<&FieldDef> = model
-            .fields
-            .iter()
-            .filter(|f| !f.primary_key)
-            .collect();
+        let update_fields: Vec<&FieldDef> =
+            model.fields.iter().filter(|f| !f.primary_key).collect();
 
         let set_clauses: Vec<String> = update_fields
             .iter()
@@ -1090,7 +1106,10 @@ pub async fn delete_{singular_lower}(Path(id): Path<i64>) -> Json<bool> {{
         let singular_lower = model.singular_name().to_lowercase();
         let fields = FormGenerator::from_model(model);
         let form_body = FormGenerator::generate_html_field(
-            fields.iter().find(|f| f.name == "name").unwrap_or(&FormField::new("name", "Name", InputType::Text)),
+            fields
+                .iter()
+                .find(|f| f.name == "name")
+                .unwrap_or(&FormField::new("name", "Name", InputType::Text)),
         );
         format!(
             r#"<!DOCTYPE html>
@@ -1256,8 +1275,14 @@ mod tests {
 
     #[test]
     fn test_sql_to_rust_timestamp() {
-        assert_eq!(FieldTypeMapping::sql_to_rust("TIMESTAMP"), "chrono::NaiveDateTime");
-        assert_eq!(FieldTypeMapping::sql_to_rust("TIMESTAMPTZ"), "chrono::DateTime<chrono::Utc>");
+        assert_eq!(
+            FieldTypeMapping::sql_to_rust("TIMESTAMP"),
+            "chrono::NaiveDateTime"
+        );
+        assert_eq!(
+            FieldTypeMapping::sql_to_rust("TIMESTAMPTZ"),
+            "chrono::DateTime<chrono::Utc>"
+        );
     }
 
     #[test]
@@ -1278,7 +1303,10 @@ mod tests {
         assert_eq!(FieldTypeMapping::sql_to_html_input("INTEGER"), "number");
         assert_eq!(FieldTypeMapping::sql_to_html_input("BOOLEAN"), "checkbox");
         assert_eq!(FieldTypeMapping::sql_to_html_input("DATE"), "date");
-        assert_eq!(FieldTypeMapping::sql_to_html_input("TIMESTAMP"), "datetime-local");
+        assert_eq!(
+            FieldTypeMapping::sql_to_html_input("TIMESTAMP"),
+            "datetime-local"
+        );
         assert_eq!(FieldTypeMapping::sql_to_html_input("TEXT"), "textarea");
     }
 
@@ -1396,7 +1424,9 @@ mod tests {
     #[test]
     fn test_validation_email_pass() {
         let rule = ValidationRule::Email;
-        assert!(rule.validate(&serde_json::json!("user@example.com")).is_ok());
+        assert!(rule
+            .validate(&serde_json::json!("user@example.com"))
+            .is_ok());
     }
 
     #[test]
@@ -1409,14 +1439,18 @@ mod tests {
     #[test]
     fn test_validation_url_pass() {
         let rule = ValidationRule::Url;
-        assert!(rule.validate(&serde_json::json!("https://example.com")).is_ok());
+        assert!(rule
+            .validate(&serde_json::json!("https://example.com"))
+            .is_ok());
         assert!(rule.validate(&serde_json::json!("http://test.org")).is_ok());
     }
 
     #[test]
     fn test_validation_url_fail() {
         let rule = ValidationRule::Url;
-        assert!(rule.validate(&serde_json::json!("ftp://example.com")).is_err());
+        assert!(rule
+            .validate(&serde_json::json!("ftp://example.com"))
+            .is_err());
         assert!(rule.validate(&serde_json::json!("example.com")).is_err());
     }
 
@@ -1471,7 +1505,9 @@ mod tests {
         assert!(validation.validate(&serde_json::json!("hello")).is_ok());
         assert!(validation.validate(&serde_json::json!("")).is_err());
         assert!(validation.validate(&serde_json::json!("hi")).is_err());
-        assert!(validation.validate(&serde_json::json!("a_very_long_username_that_exceeds_max")).is_err());
+        assert!(validation
+            .validate(&serde_json::json!("a_very_long_username_that_exceeds_max"))
+            .is_err());
     }
 
     #[test]
@@ -1594,8 +1630,8 @@ mod tests {
 
     #[test]
     fn test_generate_html_field_with_help_text() {
-        let field = FormField::new("email", "邮箱", InputType::Email)
-            .with_help_text("请输入有效邮箱地址");
+        let field =
+            FormField::new("email", "邮箱", InputType::Email).with_help_text("请输入有效邮箱地址");
         let html = FormGenerator::generate_html_field(&field);
         assert!(html.contains("help-text"));
         assert!(html.contains("请输入有效邮箱地址"));

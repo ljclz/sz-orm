@@ -41,9 +41,7 @@ fn configure_criterion() -> Criterion {
 /// 在摘要图中更易辨识，避免线性轴下长尾被压缩。
 fn bench_group<'a>(c: &'a mut Criterion, name: &'static str) -> BenchmarkGroup<'a, WallTime> {
     let mut group = c.benchmark_group(name);
-    group.plot_config(
-        PlotConfiguration::default().summary_scale(AxisScale::Logarithmic),
-    );
+    group.plot_config(PlotConfiguration::default().summary_scale(AxisScale::Logarithmic));
     group
 }
 

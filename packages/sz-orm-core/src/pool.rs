@@ -18,7 +18,8 @@ use crate::error::PoolError;
 pub type QueryRows = Vec<std::collections::HashMap<String, crate::value::Value>>;
 
 /// 流式查询结果项类型别名：避免 `Connection::query_stream` 签名触发 `clippy::type_complexity`。
-pub type QueryStreamItem = Result<std::collections::HashMap<String, crate::value::Value>, crate::DbError>;
+pub type QueryStreamItem =
+    Result<std::collections::HashMap<String, crate::value::Value>, crate::DbError>;
 
 /// 数据库连接 trait
 ///
@@ -93,7 +94,8 @@ pub trait Connection: Send + Sync {
     fn query_values<'a>(
         &'a mut self,
         sql: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<crate::value::QueryValues, crate::DbError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<crate::value::QueryValues, crate::DbError>> + Send + 'a>>
+    {
         let _ = sql;
         Box::pin(async move {
             Err(crate::DbError::Internal(
@@ -109,7 +111,8 @@ pub trait Connection: Send + Sync {
         &'a mut self,
         sql: &'a str,
         params: &'a [crate::value::Value],
-    ) -> Pin<Box<dyn Future<Output = Result<crate::value::QueryValues, crate::DbError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<crate::value::QueryValues, crate::DbError>> + Send + 'a>>
+    {
         let _ = (sql, params);
         Box::pin(async move {
             Err(crate::DbError::Internal(
@@ -210,8 +213,8 @@ impl PooledConnection {
     /// 调用此方法后，连接不再属于池，调用方需自行管理其生命周期。
     pub fn into_inner(mut self) -> Box<dyn Connection> {
         self.pool = None; // 标记无需归还
-        // PooledConnection 实现了 Drop，不能直接 move conn，
-        // 用 mem::replace 取出连接，放入 ClosedConnection 占位符
+                          // PooledConnection 实现了 Drop，不能直接 move conn，
+                          // 用 mem::replace 取出连接，放入 ClosedConnection 占位符
         std::mem::replace(&mut self.conn, Box::new(ClosedConnection))
     }
 }
@@ -664,9 +667,10 @@ impl Pool {
             dynamic_max_size: Arc::new(AtomicU32::new(dynamic_max)),
             // #88 修复：默认断路器配置（5 次连续失败跳闸，30 秒后进入 HalfOpen）
             #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: Arc::new(std::sync::Mutex::new(
-                sz_orm_health::CircuitBreaker::new(5, std::time::Duration::from_secs(30)),
-            )),
+            circuit_breaker: Arc::new(std::sync::Mutex::new(sz_orm_health::CircuitBreaker::new(
+                5,
+                std::time::Duration::from_secs(30),
+            ))),
             // #93 修复：默认无限流器（调用方通过 set_rate_limiter 配置）
             #[cfg(feature = "rate-limit")]
             rate_limiter: Arc::new(std::sync::RwLock::new(None)),
@@ -1249,9 +1253,7 @@ impl Pool {
         let mut conn = self.acquire().await.map_err(crate::DbError::PoolError)?;
         tokio::time::timeout(timeout, conn.query(sql))
             .await
-            .map_err(|_| {
-                crate::DbError::QueryError(format!("Query timeout after {:?}", timeout))
-            })?
+            .map_err(|_| crate::DbError::QueryError(format!("Query timeout after {:?}", timeout)))?
     }
 }
 
@@ -1667,11 +1669,7 @@ mod tests {
         let status = pool.status().await;
         assert_eq!(status.idle, 1, "Drop 后连接应自动归还，idle 应为 1");
         assert_eq!(status.active, 1, "total_count 应为 1");
-        assert_eq!(
-            factory.created_count(),
-            1,
-            "应复用归还的连接，不创建新连接"
-        );
+        assert_eq!(factory.created_count(), 1, "应复用归还的连接，不创建新连接");
     }
 
     /// 验证 Drop 自动归还后，连接可被再次 acquire 复用
@@ -1691,11 +1689,7 @@ mod tests {
 
         // 再次 acquire 应复用归还的连接，不创建新连接
         let conn = pool.acquire().await.expect("应能复用 Drop 归还的连接");
-        assert_eq!(
-            factory.created_count(),
-            1,
-            "应复用归还的连接，不创建新连接"
-        );
+        assert_eq!(factory.created_count(), 1, "应复用归还的连接，不创建新连接");
 
         pool.release(conn).await;
     }

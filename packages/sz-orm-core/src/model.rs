@@ -268,11 +268,7 @@ pub struct WithRelation<M: Model + ModelExt + RelationLoader + Send> {
 
 // 编译期 Send 断言：通过空 impl 强制 WithRelation<M>: Send
 // 借助 where Self: Send 子句，若未来字段变更破坏 Send 性质，此 impl 将无法编译
-impl<M: Model + ModelExt + RelationLoader + Send> WithRelation<M>
-where
-    Self: Send,
-{
-}
+impl<M: Model + ModelExt + RelationLoader + Send> WithRelation<M> where Self: Send {}
 
 /// 转义 SQL 字符串字面量中的特殊字符（用于内嵌值场景）
 ///

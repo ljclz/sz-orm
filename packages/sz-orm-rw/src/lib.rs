@@ -123,10 +123,7 @@ impl LatencyStats {
     /// 记录一次 slave 的请求延迟
     pub fn record(&self, slave: &str, latency: Duration) {
         if let Ok(mut inner) = self.inner.lock() {
-            inner
-                .entry(slave.to_string())
-                .or_default()
-                .record(latency);
+            inner.entry(slave.to_string()).or_default().record(latency);
         }
     }
 
@@ -141,10 +138,7 @@ impl LatencyStats {
     /// 列出所有 slave 的快照
     pub fn all(&self) -> Vec<(String, LatencySnapshot)> {
         match self.inner.lock() {
-            Ok(inner) => inner
-                .iter()
-                .map(|(k, v)| (k.clone(), v.clone()))
-                .collect(),
+            Ok(inner) => inner.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
             Err(_) => Vec::new(),
         }
     }
@@ -289,10 +283,7 @@ impl HealthChecker {
 
     /// 查询 slave 健康状态，未注册返回 None
     pub fn health(&self, slave: &str) -> Option<SlaveHealth> {
-        self.states
-            .lock()
-            .ok()
-            .and_then(|s| s.get(slave).copied())
+        self.states.lock().ok().and_then(|s| s.get(slave).copied())
     }
 
     /// 列出所有处于指定状态的 slave
@@ -452,9 +443,7 @@ impl ReadWriteRouter {
                 }
                 min_idx
             }
-            LoadBalanceStrategy::WeightedRoundRobin => {
-                self.select_weighted_index(&healthy_indices)
-            }
+            LoadBalanceStrategy::WeightedRoundRobin => self.select_weighted_index(&healthy_indices),
         };
         Some(&self.slaves[idx])
     }
@@ -507,10 +496,7 @@ impl ReadWriteRouter {
 
     /// 获取 slave 权重
     pub fn weight(&self, slave: &str) -> Option<u32> {
-        self.weights
-            .lock()
-            .ok()
-            .and_then(|w| w.get(slave).copied())
+        self.weights.lock().ok().and_then(|w| w.get(slave).copied())
     }
 
     /// 健康检查器引用
@@ -924,8 +910,12 @@ mod tests {
     #[test]
     fn test_router_failover_to_master_when_all_unhealthy() {
         let router = ReadWriteRouter::new("m", vec!["s1", "s2"]);
-        router.health_checker().set_health("s1", SlaveHealth::Unhealthy);
-        router.health_checker().set_health("s2", SlaveHealth::Unhealthy);
+        router
+            .health_checker()
+            .set_health("s1", SlaveHealth::Unhealthy);
+        router
+            .health_checker()
+            .set_health("s2", SlaveHealth::Unhealthy);
         // 全部不健康时降级到 master
         assert_eq!(router.slave(), "m");
     }
@@ -934,7 +924,9 @@ mod tests {
     fn test_router_skips_unhealthy_slave() {
         let mut router = ReadWriteRouter::new("m", vec!["s1", "s2", "s3"]);
         router.set_strategy(LoadBalanceStrategy::RoundRobin);
-        router.health_checker().set_health("s2", SlaveHealth::Unhealthy);
+        router
+            .health_checker()
+            .set_health("s2", SlaveHealth::Unhealthy);
 
         // 100 次调用都不应命中 s2
         for _ in 0..100 {
@@ -946,7 +938,9 @@ mod tests {
     #[test]
     fn test_router_failover_skips_drained_slave() {
         let router = ReadWriteRouter::new("m", vec!["s1", "s2"]);
-        router.health_checker().set_health("s1", SlaveHealth::Drained);
+        router
+            .health_checker()
+            .set_health("s1", SlaveHealth::Drained);
         // 只有 s2 健康
         for _ in 0..5 {
             assert_eq!(router.slave(), "s2");
@@ -1028,7 +1022,9 @@ mod tests {
         router.set_strategy(LoadBalanceStrategy::WeightedRoundRobin);
         router.set_weight("s1", 100).unwrap();
         router.set_weight("s2", 1).unwrap();
-        router.health_checker().set_health("s1", SlaveHealth::Unhealthy);
+        router
+            .health_checker()
+            .set_health("s1", SlaveHealth::Unhealthy);
 
         // s1 不健康，所有请求应落到 s2
         for _ in 0..10 {

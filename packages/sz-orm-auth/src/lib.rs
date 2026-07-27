@@ -25,7 +25,7 @@ pub use authorizer::{Authorizer, RbacAuthorizer};
 pub use error::AuthError;
 pub use mfa::{MfaManager, MfaSecret, TotpVerifier};
 pub use oauth2::{AuthorizationCode, AuthorizationRequest, OAuth2Server, TokenRequest};
-pub use token_store::{TokenStore, StoredToken, TokenFamilyError};
+pub use token_store::{StoredToken, TokenFamilyError, TokenStore};
 
 #[cfg(test)]
 mod tests {

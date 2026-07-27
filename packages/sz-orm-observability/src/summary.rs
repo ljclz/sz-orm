@@ -85,7 +85,10 @@ impl Summary {
 
     /// 计算所有预配置分位数，返回 (分位数, 值) 列表
     pub fn quantiles(&self) -> Vec<(f64, Option<f64>)> {
-        self.quantiles.iter().map(|&q| (q, self.quantile(q))).collect()
+        self.quantiles
+            .iter()
+            .map(|&q| (q, self.quantile(q)))
+            .collect()
     }
 
     /// 样本计数
@@ -192,11 +195,7 @@ impl LabeledHistogram {
     /// - `name`：指标名
     /// - `help`：帮助文本
     /// - `buckets`：bucket 边界（无需包含 +Inf，会自动追加）
-    pub fn new(
-        name: impl Into<String>,
-        help: impl Into<String>,
-        mut buckets: Vec<f64>,
-    ) -> Self {
+    pub fn new(name: impl Into<String>, help: impl Into<String>, mut buckets: Vec<f64>) -> Self {
         buckets.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
         if !buckets.contains(&f64::INFINITY) {
             buckets.push(f64::INFINITY);
@@ -240,11 +239,7 @@ impl LabeledHistogram {
             labels.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
         sorted_labels.sort_by(|a, b| a.0.cmp(&b.0));
         let key = LabeledSeries::label_key(&sorted_labels);
-        self.series
-            .read()
-            .get(&key)
-            .map(|s| s.count)
-            .unwrap_or(0)
+        self.series.read().get(&key).map(|s| s.count).unwrap_or(0)
     }
 
     /// 获取所有标签组合数量
@@ -275,7 +270,10 @@ impl LabeledHistogram {
                 }
             }
             output.push_str(&format!("{}_sum{{{}}} {}\n", self.name, label_str, s.sum));
-            output.push_str(&format!("{}_count{{{}}} {}\n", self.name, label_str, s.count));
+            output.push_str(&format!(
+                "{}_count{{{}}} {}\n",
+                self.name, label_str, s.count
+            ));
         }
 
         output

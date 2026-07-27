@@ -161,7 +161,8 @@ impl AuditRules {
 
     /// 添加允许模式（大小写不敏感子串匹配）
     pub fn allow(mut self, pattern: impl Into<String>) -> Self {
-        self.allow_patterns.push(pattern.into().to_ascii_lowercase());
+        self.allow_patterns
+            .push(pattern.into().to_ascii_lowercase());
         self
     }
 
@@ -607,9 +608,8 @@ impl AuditLogStore for FileAuditLogStore {
             if line.is_empty() {
                 continue;
             }
-            let entry: SqlAuditContext = serde_json::from_str(line).map_err(|e| {
-                format!("parse line {} failed: {}", lineno + 1, e)
-            })?;
+            let entry: SqlAuditContext = serde_json::from_str(line)
+                .map_err(|e| format!("parse line {} failed: {}", lineno + 1, e))?;
             result.push(entry);
         }
         Ok(result)
@@ -1106,9 +1106,7 @@ mod tests {
 
     #[test]
     fn test_audit_rules_deny_overrides_allow() {
-        let rules = AuditRules::new()
-            .allow("select")
-            .deny("password");
+        let rules = AuditRules::new().allow("select").deny("password");
         // 包含 password 的 SELECT 应被拒绝
         assert!(!rules.should_audit("SELECT * FROM users WHERE password='x'"));
         // 不含 password 的 SELECT 应被允许
@@ -1260,8 +1258,12 @@ mod tests {
     #[test]
     fn test_async_writer_log_and_shutdown() {
         let writer = AsyncAuditWriter::new();
-        writer.log(&ctx("SELECT * FROM users", "admin", 1000)).unwrap();
-        writer.log(&ctx("INSERT INTO logs VALUES(1)", "user2", 2000)).unwrap();
+        writer
+            .log(&ctx("SELECT * FROM users", "admin", 1000))
+            .unwrap();
+        writer
+            .log(&ctx("INSERT INTO logs VALUES(1)", "user2", 2000))
+            .unwrap();
         let logs = writer.shutdown().expect("shutdown should succeed");
         assert_eq!(logs.len(), 2);
         assert_eq!(logs[0].user, "admin");
@@ -1271,7 +1273,9 @@ mod tests {
     #[test]
     fn test_async_writer_masks_sensitive() {
         let writer = AsyncAuditWriter::new();
-        writer.log(&ctx("SELECT * FROM users WHERE password='secret'", "u", 1)).unwrap();
+        writer
+            .log(&ctx("SELECT * FROM users WHERE password='secret'", "u", 1))
+            .unwrap();
         let logs = writer.shutdown().unwrap();
         assert_eq!(logs.len(), 1);
         assert!(!logs[0].sql.contains("password"));
@@ -1324,7 +1328,9 @@ mod tests {
         let query = AuditQuery::new().by_time_range(150, 350);
         let results = query_logs(&auditor, &query);
         assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|r| r.timestamp >= 150 && r.timestamp <= 350));
+        assert!(results
+            .iter()
+            .all(|r| r.timestamp >= 150 && r.timestamp <= 350));
     }
 
     #[test]
@@ -1336,7 +1342,9 @@ mod tests {
         let query = AuditQuery::new().by_sql_contains("orders");
         let results = query_logs(&auditor, &query);
         assert_eq!(results.len(), 2);
-        assert!(results.iter().all(|r| r.sql.to_lowercase().contains("orders")));
+        assert!(results
+            .iter()
+            .all(|r| r.sql.to_lowercase().contains("orders")));
     }
 
     #[test]
@@ -1408,10 +1416,7 @@ mod tests {
 
     #[test]
     fn test_audit_query_limit_zero_means_no_limit() {
-        let logs = vec![
-            ctx("SELECT 1", "a", 10),
-            ctx("SELECT 2", "a", 20),
-        ];
+        let logs = vec![ctx("SELECT 1", "a", 10), ctx("SELECT 2", "a", 20)];
         let query = AuditQuery::new().with_limit(0);
         let results = query.filter(&logs);
         assert_eq!(results.len(), 2);
@@ -1427,8 +1432,12 @@ mod tests {
         // 清理可能残留的旧文件
         let _ = store.clear();
 
-        store.append(&ctx("SELECT * FROM users", "alice", 1000)).unwrap();
-        store.append(&ctx("INSERT INTO logs VALUES(1)", "bob", 2000)).unwrap();
+        store
+            .append(&ctx("SELECT * FROM users", "alice", 1000))
+            .unwrap();
+        store
+            .append(&ctx("INSERT INTO logs VALUES(1)", "bob", 2000))
+            .unwrap();
 
         let logs = store.read_all().unwrap();
         assert_eq!(logs.len(), 2);

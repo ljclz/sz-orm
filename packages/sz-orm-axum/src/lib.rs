@@ -166,8 +166,8 @@ pub async fn transaction_layer(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use sz_orm_core::Value;
     use std::collections::HashMap;
+    use sz_orm_core::Value;
 
     #[test]
     fn test_pool_state_clone() {

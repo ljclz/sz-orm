@@ -154,7 +154,8 @@ impl ResolverRegistry {
         parent: &Value,
         args: &HashMap<String, Value>,
     ) -> Option<Value> {
-        self.get(type_name, field_name).map(|resolver| resolver(parent, args))
+        self.get(type_name, field_name)
+            .map(|resolver| resolver(parent, args))
     }
 
     /// 已注册的解析器数量
@@ -534,11 +535,7 @@ pub fn paginate(nodes: Vec<Value>, args: &PaginationArgs) -> Connection {
 
     // 向后分页（first + after）
     if let Some(first) = args.first {
-        let start = match args
-            .after
-            .as_ref()
-            .and_then(|c| decode_cursor(c))
-        {
+        let start = match args.after.as_ref().and_then(|c| decode_cursor(c)) {
             Some(idx) => idx + 1,
             None => 0,
         };
@@ -573,11 +570,7 @@ pub fn paginate(nodes: Vec<Value>, args: &PaginationArgs) -> Connection {
 
     // 向前分页（last + before）
     if let Some(last) = args.last {
-        let end = match args
-            .before
-            .as_ref()
-            .and_then(|c| decode_cursor(c))
-        {
+        let end = match args.before.as_ref().and_then(|c| decode_cursor(c)) {
             Some(idx) => idx,
             None => nodes.len(),
         };
@@ -727,8 +720,7 @@ impl MutationResult {
 }
 
 /// 变更处理器函数类型
-pub type MutationHandlerFn =
-    Box<dyn Fn(&MutationInput) -> MutationResult + Send + Sync>;
+pub type MutationHandlerFn = Box<dyn Fn(&MutationInput) -> MutationResult + Send + Sync>;
 
 /// 变更注册表
 ///
@@ -775,10 +767,7 @@ impl MutationRegistry {
 
     /// 已注册的处理器数量
     pub fn len(&self) -> usize {
-        self.handlers
-            .read()
-            .expect("handler lock poisoned")
-            .len()
+        self.handlers.read().expect("handler lock poisoned").len()
     }
 
     /// 是否没有已注册的处理器
@@ -1053,7 +1042,13 @@ impl SubscriptionBrokerInner {
         *seq
     }
 
-    fn subscribe(&self, topic: &str) -> (SubscriptionId, std::sync::mpsc::Receiver<SubscriptionMessage>) {
+    fn subscribe(
+        &self,
+        topic: &str,
+    ) -> (
+        SubscriptionId,
+        std::sync::mpsc::Receiver<SubscriptionMessage>,
+    ) {
         let (tx, rx) = std::sync::mpsc::channel();
         let id = {
             let mut next = self.next_id.lock().expect("id lock poisoned");
@@ -1062,9 +1057,7 @@ impl SubscriptionBrokerInner {
             id
         };
         let mut subs = self.subscribers.lock().expect("sub lock poisoned");
-        subs.entry(topic.to_string())
-            .or_default()
-            .push((id, tx));
+        subs.entry(topic.to_string()).or_default().push((id, tx));
         (id, rx)
     }
 
@@ -1235,8 +1228,12 @@ impl SchemaExtensions {
             out.push_str("type Mutation {\n");
             for (type_name, kind) in &self.mutations {
                 let op = match kind {
-                    MutationKind::Create => format!("create{type_name}(input: {type_name}Input!): {type_name}"),
-                    MutationKind::Update => format!("update{type_name}(id: ID!, input: {type_name}Input!): {type_name}"),
+                    MutationKind::Create => {
+                        format!("create{type_name}(input: {type_name}Input!): {type_name}")
+                    }
+                    MutationKind::Update => {
+                        format!("update{type_name}(id: ID!, input: {type_name}Input!): {type_name}")
+                    }
                     MutationKind::Delete => format!("delete{type_name}(id: ID!): Boolean!"),
                 };
                 out.push_str(&format!("    {}\n", op));
@@ -1355,16 +1352,8 @@ mod tests {
     #[test]
     fn test_resolver_registry_multiple() {
         let registry = ResolverRegistry::new();
-        registry.register(
-            "User",
-            "orders",
-            Box::new(|_, _| json!([{"id": "1"}])),
-        );
-        registry.register(
-            "Order",
-            "user",
-            Box::new(|_, _| json!({"id": "u1"})),
-        );
+        registry.register("User", "orders", Box::new(|_, _| json!([{"id": "1"}])));
+        registry.register("Order", "user", Box::new(|_, _| json!({"id": "u1"})));
         assert_eq!(registry.len(), 2);
 
         let parent = json!({});
@@ -1437,9 +1426,7 @@ mod tests {
         let ds = RelationDataSource::new();
         assert!(ds.get_all("Nonexistent").is_empty());
         assert!(ds.find_by_id("Nonexistent", "1").is_none());
-        assert!(ds
-            .resolve_one_to_many("Nonexistent", "fk", "1")
-            .is_empty());
+        assert!(ds.resolve_one_to_many("Nonexistent", "fk", "1").is_empty());
         assert!(ds.resolve_many_to_one("Nonexistent", "id", "1").is_none());
     }
 
@@ -1456,9 +1443,7 @@ mod tests {
 
     #[test]
     fn test_page_info_builder() {
-        let pi = PageInfo::new()
-            .with_next(true)
-            .with_previous(false);
+        let pi = PageInfo::new().with_next(true).with_previous(false);
         assert!(pi.has_next_page);
         assert!(!pi.has_previous_page);
     }
@@ -1495,11 +1480,7 @@ mod tests {
 
     #[test]
     fn test_paginate_no_args_returns_all() {
-        let nodes = vec![
-            json!({"id": "1"}),
-            json!({"id": "2"}),
-            json!({"id": "3"}),
-        ];
+        let nodes = vec![json!({"id": "1"}), json!({"id": "2"}), json!({"id": "3"})];
         let conn = paginate(nodes, &PaginationArgs::new());
         assert_eq!(conn.edges.len(), 3);
         assert_eq!(conn.total_count, 3);
@@ -1509,9 +1490,7 @@ mod tests {
 
     #[test]
     fn test_paginate_first_n() {
-        let nodes: Vec<Value> = (1..=10)
-            .map(|i| json!({"id": i.to_string()}))
-            .collect();
+        let nodes: Vec<Value> = (1..=10).map(|i| json!({"id": i.to_string()})).collect();
         let args = PaginationArgs::new().with_first(3);
         let conn = paginate(nodes, &args);
         assert_eq!(conn.edges.len(), 3);
@@ -1522,9 +1501,7 @@ mod tests {
 
     #[test]
     fn test_paginate_first_after() {
-        let nodes: Vec<Value> = (1..=10)
-            .map(|i| json!({"id": i.to_string()}))
-            .collect();
+        let nodes: Vec<Value> = (1..=10).map(|i| json!({"id": i.to_string()})).collect();
         // 第一页取 3 条
         let args1 = PaginationArgs::new().with_first(3);
         let conn1 = paginate(nodes.clone(), &args1);
@@ -1552,9 +1529,7 @@ mod tests {
 
     #[test]
     fn test_paginate_last_n() {
-        let nodes: Vec<Value> = (1..=10)
-            .map(|i| json!({"id": i.to_string()}))
-            .collect();
+        let nodes: Vec<Value> = (1..=10).map(|i| json!({"id": i.to_string()})).collect();
         let args = PaginationArgs::new().with_last(3);
         let conn = paginate(nodes, &args);
         assert_eq!(conn.edges.len(), 3);
@@ -1643,9 +1618,7 @@ mod tests {
         registry.register(
             "User",
             MutationKind::Create,
-            Box::new(|input| {
-                MutationResult::ok(input.data.clone())
-            }),
+            Box::new(|input| MutationResult::ok(input.data.clone())),
         );
         let input = MutationInput::create("User", json!({"name": "Alice"}));
         let result = registry.execute(&input);
@@ -1799,7 +1772,7 @@ mod tests {
             let _handle = broker.subscribe("tempTopic");
             assert_eq!(broker.subscriber_count("tempTopic"), 1);
         } // handle dropped here
-         // Give a moment for drop to propagate
+          // Give a moment for drop to propagate
         assert_eq!(broker.subscriber_count("tempTopic"), 0);
     }
 
@@ -1923,8 +1896,11 @@ mod tests {
 
     #[test]
     fn test_schema_extensions_to_sdl_contains_relation() {
-        let ext = SchemaExtensions::new()
-            .with_relation(Relation::one_to_many("userOrders", "User", "Order"));
+        let ext = SchemaExtensions::new().with_relation(Relation::one_to_many(
+            "userOrders",
+            "User",
+            "Order",
+        ));
         let sdl = ext.to_sdl();
         assert!(sdl.contains("# Relations"));
         assert!(sdl.contains("userOrders"));

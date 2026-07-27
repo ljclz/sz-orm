@@ -119,7 +119,10 @@ impl HnswParams {
 
     /// 生成 SQL 选项子句（`WITH (m = N, ef_construction = N)`）
     pub fn to_sql_options(&self) -> String {
-        format!("(m = {}, ef_construction = {})", self.m, self.ef_construction)
+        format!(
+            "(m = {}, ef_construction = {})",
+            self.m, self.ef_construction
+        )
     }
 }
 
@@ -353,10 +356,7 @@ impl SimilarityAlgorithms {
         if a.len() != b.len() || a.is_empty() {
             return f32::MAX;
         }
-        a.iter()
-            .zip(b.iter())
-            .map(|(x, y)| (x - y).abs())
-            .sum()
+        a.iter().zip(b.iter()).map(|(x, y)| (x - y).abs()).sum()
     }
 
     /// L2 范数（欧氏范数）
@@ -415,9 +415,7 @@ impl SimilarityAlgorithms {
     ) -> Vec<(usize, f32)> {
         let mut scored = Self::batch_similarity(metric, query, candidates);
         // 降序排序（相似度越大越靠前）
-        scored.sort_by(|a, b| {
-            b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal)
-        });
+        scored.sort_by(|a, b| b.1.partial_cmp(&a.1).unwrap_or(std::cmp::Ordering::Equal));
         scored.truncate(top_k);
         scored
     }
@@ -464,10 +462,7 @@ impl DimensionValidator {
     /// 批量校验向量维度是否一致
     ///
     /// 所有向量必须与 `expected_dim` 一致，且彼此之间维度也一致
-    pub fn validate_batch(
-        vectors: &[Vec<f32>],
-        expected_dim: usize,
-    ) -> Result<(), VectorError> {
+    pub fn validate_batch(vectors: &[Vec<f32>], expected_dim: usize) -> Result<(), VectorError> {
         Self::validate_dimension(expected_dim)?;
         for (i, v) in vectors.iter().enumerate() {
             if v.len() != expected_dim {
@@ -808,11 +803,8 @@ mod tests {
 
     #[test]
     fn test_ann_index_def_new_ivfflat() {
-        let def = AnnIndexDef::new_ivfflat(
-            "docs",
-            VectorMetric::Cosine,
-            IvfflatParams::new(100, 10),
-        );
+        let def =
+            AnnIndexDef::new_ivfflat("docs", VectorMetric::Cosine, IvfflatParams::new(100, 10));
         assert_eq!(def.index_name, "idx_docs_ivfflat");
         assert_eq!(def.index_type, AnnIndexType::Ivfflat);
         assert_eq!(def.metric, VectorMetric::Cosine);
@@ -840,11 +832,8 @@ mod tests {
 
     #[test]
     fn test_ann_index_def_to_create_sql_ivfflat() {
-        let def = AnnIndexDef::new_ivfflat(
-            "docs",
-            VectorMetric::Cosine,
-            IvfflatParams::new(100, 10),
-        );
+        let def =
+            AnnIndexDef::new_ivfflat("docs", VectorMetric::Cosine, IvfflatParams::new(100, 10));
         let sql = def.to_create_sql();
         assert!(sql.contains("CREATE INDEX"));
         assert!(sql.contains("idx_docs_ivfflat"));
@@ -855,8 +844,7 @@ mod tests {
 
     #[test]
     fn test_ann_index_def_to_create_sql_hnsw() {
-        let def =
-            AnnIndexDef::new_hnsw("docs", VectorMetric::Euclidean, HnswParams::new(16, 64));
+        let def = AnnIndexDef::new_hnsw("docs", VectorMetric::Euclidean, HnswParams::new(16, 64));
         let sql = def.to_create_sql();
         assert!(sql.contains("USING hnsw"));
         assert!(sql.contains("vector_l2_ops"));
@@ -865,11 +853,8 @@ mod tests {
 
     #[test]
     fn test_ann_index_def_to_drop_sql() {
-        let def = AnnIndexDef::new_ivfflat(
-            "docs",
-            VectorMetric::DotProduct,
-            IvfflatParams::default(),
-        );
+        let def =
+            AnnIndexDef::new_ivfflat("docs", VectorMetric::DotProduct, IvfflatParams::default());
         let sql = def.to_drop_sql();
         assert_eq!(sql, "DROP INDEX idx_docs_ivfflat");
     }
@@ -886,11 +871,7 @@ mod tests {
     #[test]
     fn test_ann_index_registry_register_and_exists() {
         let mut reg = AnnIndexRegistry::new();
-        let def = AnnIndexDef::new_ivfflat(
-            "docs",
-            VectorMetric::Cosine,
-            IvfflatParams::default(),
-        );
+        let def = AnnIndexDef::new_ivfflat("docs", VectorMetric::Cosine, IvfflatParams::default());
         reg.register(def).unwrap();
         assert!(reg.exists("idx_docs_ivfflat"));
         assert!(!reg.exists("nonexistent"));
@@ -899,29 +880,17 @@ mod tests {
     #[test]
     fn test_ann_index_registry_duplicate_register_fails() {
         let mut reg = AnnIndexRegistry::new();
-        let def = AnnIndexDef::new_ivfflat(
-            "docs",
-            VectorMetric::Cosine,
-            IvfflatParams::default(),
-        );
+        let def = AnnIndexDef::new_ivfflat("docs", VectorMetric::Cosine, IvfflatParams::default());
         reg.register(def).unwrap();
         // 重复注册应失败
-        let def2 = AnnIndexDef::new_ivfflat(
-            "docs",
-            VectorMetric::Cosine,
-            IvfflatParams::default(),
-        );
+        let def2 = AnnIndexDef::new_ivfflat("docs", VectorMetric::Cosine, IvfflatParams::default());
         assert!(reg.register(def2).is_err());
     }
 
     #[test]
     fn test_ann_index_registry_unregister() {
         let mut reg = AnnIndexRegistry::new();
-        let def = AnnIndexDef::new_ivfflat(
-            "docs",
-            VectorMetric::Cosine,
-            IvfflatParams::default(),
-        );
+        let def = AnnIndexDef::new_ivfflat("docs", VectorMetric::Cosine, IvfflatParams::default());
         reg.register(def).unwrap();
         let removed = reg.unregister("idx_docs_ivfflat").unwrap();
         assert_eq!(removed.collection, "docs");
@@ -1018,7 +987,10 @@ mod tests {
 
     #[test]
     fn test_l2_distance_mismatched_dims() {
-        assert_eq!(SimilarityAlgorithms::l2_distance(&[1.0], &[1.0, 2.0]), f32::MAX);
+        assert_eq!(
+            SimilarityAlgorithms::l2_distance(&[1.0], &[1.0, 2.0]),
+            f32::MAX
+        );
     }
 
     #[test]
@@ -1077,44 +1049,39 @@ mod tests {
     #[test]
     fn test_distance_to_similarity_cosine() {
         // 距离 0 → 相似度 1
-        assert!((SimilarityAlgorithms::distance_to_similarity(
-            VectorMetric::Cosine,
-            0.0
-        ) - 1.0)
-            .abs()
-            < 1e-6);
+        assert!(
+            (SimilarityAlgorithms::distance_to_similarity(VectorMetric::Cosine, 0.0) - 1.0).abs()
+                < 1e-6
+        );
         // 距离 1 → 相似度 0
-        assert!((SimilarityAlgorithms::distance_to_similarity(
-            VectorMetric::Cosine,
-            1.0
-        ))
-            .abs()
-            < 1e-6);
+        assert!(
+            (SimilarityAlgorithms::distance_to_similarity(VectorMetric::Cosine, 1.0)).abs() < 1e-6
+        );
     }
 
     #[test]
     fn test_distance_to_similarity_euclidean() {
         // 距离 0 → 相似度 1
-        assert!((SimilarityAlgorithms::distance_to_similarity(
-            VectorMetric::Euclidean,
-            0.0
-        ) - 1.0)
-            .abs()
-            < 1e-6);
+        assert!(
+            (SimilarityAlgorithms::distance_to_similarity(VectorMetric::Euclidean, 0.0) - 1.0)
+                .abs()
+                < 1e-6
+        );
         // 距离 1 → 相似度 0.5
-        assert!((SimilarityAlgorithms::distance_to_similarity(
-            VectorMetric::Euclidean,
-            1.0
-        ) - 0.5)
-            .abs()
-            < 1e-6);
+        assert!(
+            (SimilarityAlgorithms::distance_to_similarity(VectorMetric::Euclidean, 1.0) - 0.5)
+                .abs()
+                < 1e-6
+        );
     }
 
     #[test]
     fn test_similarity_by_metric_cosine() {
         let a = vec![1.0, 0.0];
         let b = vec![1.0, 0.0];
-        assert!((SimilarityAlgorithms::similarity(VectorMetric::Cosine, &a, &b) - 1.0).abs() < 1e-6);
+        assert!(
+            (SimilarityAlgorithms::similarity(VectorMetric::Cosine, &a, &b) - 1.0).abs() < 1e-6
+        );
     }
 
     #[test]
@@ -1122,18 +1089,17 @@ mod tests {
         let a = vec![2.0, 3.0];
         let b = vec![1.0, 1.0];
         // 2 + 3 = 5
-        assert!((SimilarityAlgorithms::similarity(VectorMetric::DotProduct, &a, &b) - 5.0).abs() < 1e-6);
+        assert!(
+            (SimilarityAlgorithms::similarity(VectorMetric::DotProduct, &a, &b) - 5.0).abs() < 1e-6
+        );
     }
 
     #[test]
     fn test_batch_similarity() {
         let query = vec![1.0, 0.0];
         let candidates = vec![vec![1.0, 0.0], vec![0.0, 1.0], vec![1.0, 1.0]];
-        let scored = SimilarityAlgorithms::batch_similarity(
-            VectorMetric::Cosine,
-            &query,
-            &candidates,
-        );
+        let scored =
+            SimilarityAlgorithms::batch_similarity(VectorMetric::Cosine, &query, &candidates);
         assert_eq!(scored.len(), 3);
         // 第一个候选应最相似
         assert_eq!(scored[0].0, 0);
@@ -1149,12 +1115,7 @@ mod tests {
             vec![1.0, 1.0],
             vec![0.9, 0.1],
         ];
-        let top = SimilarityAlgorithms::batch_top_k(
-            VectorMetric::Cosine,
-            &query,
-            &candidates,
-            2,
-        );
+        let top = SimilarityAlgorithms::batch_top_k(VectorMetric::Cosine, &query, &candidates, 2);
         assert_eq!(top.len(), 2);
         // 最相似的应是索引 1 (1,0) 或 3 (0.9,0.1)
         assert_eq!(top[0].0, 1);

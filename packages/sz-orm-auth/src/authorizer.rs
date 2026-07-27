@@ -149,7 +149,8 @@ impl RbacAuthorizer {
     /// including permissions inherited from parent roles.
     pub fn role_has_permission(&self, role: &str, permission: &str) -> bool {
         for ancestor in self.role_ancestors(role) {
-            if self.role_permissions
+            if self
+                .role_permissions
                 .get(&ancestor)
                 .map(|perms| perms.contains(permission) || perms.contains("*"))
                 .unwrap_or(false)

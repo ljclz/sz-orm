@@ -1015,8 +1015,7 @@ mod tests {
 
     #[test]
     fn test_level_filter_remove_target() {
-        let mut filter = LevelFilter::new(LogLevel::Info)
-            .with_target_level("db", LogLevel::Debug);
+        let mut filter = LevelFilter::new(LogLevel::Info).with_target_level("db", LogLevel::Debug);
         assert_eq!(filter.level_for("db"), LogLevel::Debug);
 
         let removed = filter.remove_target("db");
@@ -1159,8 +1158,7 @@ mod tests {
     #[test]
     fn test_memory_structured_sink_stores_entry() {
         let sink = MemoryStructuredSink::new("s");
-        let entry = StructuredLogEntry::new(LogLevel::Info, "hello")
-            .with_field("k", "v");
+        let entry = StructuredLogEntry::new(LogLevel::Info, "hello").with_field("k", "v");
         sink.write(&entry);
         assert_eq!(sink.len(), 1);
         assert_eq!(sink.entries()[0].message, "hello");
@@ -1179,15 +1177,13 @@ mod tests {
 
     #[test]
     fn test_structured_log_writer_filters_by_target() {
-        let filter = LevelFilter::new(LogLevel::Info)
-            .with_target_level("verbose", LogLevel::Debug);
+        let filter = LevelFilter::new(LogLevel::Info).with_target_level("verbose", LogLevel::Debug);
         let mut writer = StructuredLogWriter::new(filter);
         let sink = Arc::new(MemoryStructuredSink::new("mem"));
         writer.add_sink(sink.clone());
 
         // verbose 模块的 Debug 日志应该被记录
-        let debug_entry = StructuredLogEntry::new(LogLevel::Debug, "dbg")
-            .with_target("verbose");
+        let debug_entry = StructuredLogEntry::new(LogLevel::Debug, "dbg").with_target("verbose");
         writer.log(&debug_entry);
         assert_eq!(sink.len(), 1);
 

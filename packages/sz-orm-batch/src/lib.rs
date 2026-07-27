@@ -560,11 +560,7 @@ impl DefaultBatchOps {
     }
 
     /// 生成 PostgreSQL ON CONFLICT 子句（带冲突目标）。
-    fn build_pg_conflict_clause(
-        &self,
-        non_pk: &[String],
-        conflict: &ConflictTarget,
-    ) -> String {
+    fn build_pg_conflict_clause(&self, non_pk: &[String], conflict: &ConflictTarget) -> String {
         if non_pk.is_empty() {
             return String::new();
         }
@@ -757,9 +753,7 @@ impl DefaultBatchOps {
 
             // Savepoint 策略：生成 SAVEPOINT
             if self.rollback_strategy == RollbackStrategy::Savepoint {
-                result
-                    .transaction_sqls
-                    .push(Self::savepoint_sql(chunk_idx));
+                result.transaction_sqls.push(Self::savepoint_sql(chunk_idx));
             }
 
             let insert_part = self.build_insert_clause(table, &columns, chunk);
@@ -1526,7 +1520,7 @@ mod tests {
         });
 
         assert_eq!(results.len(), 3); // 2+2+1
-                                       // Started + 3 * (ProcessingChunk + ChunkCompleted) + Finished = 1 + 6 + 1 = 8
+                                      // Started + 3 * (ProcessingChunk + ChunkCompleted) + Finished = 1 + 6 + 1 = 8
         assert_eq!(counter.load(Ordering::SeqCst), 8);
     }
 
@@ -1613,10 +1607,7 @@ mod tests {
 
     #[test]
     fn test_savepoint_sql_format() {
-        assert_eq!(
-            DefaultBatchOps::savepoint_sql(0),
-            "SAVEPOINT batch_chunk_0"
-        );
+        assert_eq!(DefaultBatchOps::savepoint_sql(0), "SAVEPOINT batch_chunk_0");
         assert_eq!(
             DefaultBatchOps::savepoint_sql(42),
             "SAVEPOINT batch_chunk_42"

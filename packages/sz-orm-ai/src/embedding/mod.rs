@@ -270,10 +270,12 @@ where
     async fn embed(&self, text: &str) -> Result<Vec<f32>, AiError> {
         // 先查缓存
         {
-            let cache = self.cache.read().map_err(|e| AiError::Embedding(e.to_string()))?;
+            let cache = self
+                .cache
+                .read()
+                .map_err(|e| AiError::Embedding(e.to_string()))?;
             if let Some(vector) = cache.get(text) {
-                self.hits
-                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 return Ok(vector.clone());
             }
         }
@@ -298,11 +300,13 @@ where
 
         // 先查缓存
         {
-            let cache = self.cache.read().map_err(|e| AiError::Embedding(e.to_string()))?;
+            let cache = self
+                .cache
+                .read()
+                .map_err(|e| AiError::Embedding(e.to_string()))?;
             for (idx, text) in texts.iter().enumerate() {
                 if let Some(vector) = cache.get(text) {
-                    self.hits
-                        .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                     results.push(vector.clone());
                 } else {
                     self.misses
@@ -317,7 +321,10 @@ where
         // 批量计算未缓存的
         if !uncached_texts.is_empty() {
             let vectors = self.inner.embed_batch(&uncached_texts).await?;
-            let mut cache = self.cache.write().map_err(|e| AiError::Embedding(e.to_string()))?;
+            let mut cache = self
+                .cache
+                .write()
+                .map_err(|e| AiError::Embedding(e.to_string()))?;
             for (i, idx) in uncached_indices.iter().enumerate() {
                 let text = &uncached_texts[i];
                 let vector = &vectors[i];
@@ -871,9 +878,15 @@ mod tests {
 
     #[test]
     fn test_dim_reduction_strategy_variants() {
-        assert_eq!(DimReductionStrategy::Truncate, DimReductionStrategy::Truncate);
+        assert_eq!(
+            DimReductionStrategy::Truncate,
+            DimReductionStrategy::Truncate
+        );
         assert_eq!(DimReductionStrategy::Average, DimReductionStrategy::Average);
-        assert_ne!(DimReductionStrategy::Truncate, DimReductionStrategy::Average);
+        assert_ne!(
+            DimReductionStrategy::Truncate,
+            DimReductionStrategy::Average
+        );
     }
 
     #[tokio::test]

@@ -218,9 +218,15 @@ impl DbError {
         let new_ctx = ErrorContext::new(context);
         // 若已是 Contextual，将原 context 链作为 previous
         match self {
-            DbError::Contextual { source, context: existing_ctx } => {
+            DbError::Contextual {
+                source,
+                context: existing_ctx,
+            } => {
                 let new_ctx = new_ctx.with_previous(existing_ctx);
-                DbError::Contextual { source, context: new_ctx }
+                DbError::Contextual {
+                    source,
+                    context: new_ctx,
+                }
             }
             other => DbError::Contextual {
                 source: Box::new(other),
@@ -230,16 +236,18 @@ impl DbError {
     }
 
     /// #6 修复：附加错误上下文（含 tracing span 名）
-    pub fn with_context_in_span(
-        self,
-        context: impl Into<String>,
-        span: impl Into<String>,
-    ) -> Self {
+    pub fn with_context_in_span(self, context: impl Into<String>, span: impl Into<String>) -> Self {
         let new_ctx = ErrorContext::new(context).with_span(span);
         match self {
-            DbError::Contextual { source, context: existing_ctx } => {
+            DbError::Contextual {
+                source,
+                context: existing_ctx,
+            } => {
                 let new_ctx = new_ctx.with_previous(existing_ctx);
-                DbError::Contextual { source, context: new_ctx }
+                DbError::Contextual {
+                    source,
+                    context: new_ctx,
+                }
             }
             other => DbError::Contextual {
                 source: Box::new(other),
@@ -423,9 +431,7 @@ impl fmt::Display for DbError {
             DbError::TenantError(s) => write!(f, "Tenant error: {}", s),
             DbError::Validation(s) => write!(f, "Validation error: {}", s),
             DbError::Contextual {
-                context,
-                source,
-                ..
+                context, source, ..
             } => write!(f, "{}: {}", context.context, source),
         }
     }
@@ -770,7 +776,10 @@ mod tests {
         // 2. 上下文链应有两层：外层 "user_service.fetch"，内层 "fetching user"
         let ctx_chain = outer.context().expect("outer should have context");
         assert_eq!(ctx_chain.context, "user_service.fetch");
-        let inner_ctx = ctx_chain.previous.as_ref().expect("should have previous context");
+        let inner_ctx = ctx_chain
+            .previous
+            .as_ref()
+            .expect("should have previous context");
         assert_eq!(inner_ctx.context, "fetching user");
         assert!(inner_ctx.previous.is_none());
 
@@ -894,10 +903,7 @@ mod tests {
 
     #[test]
     fn test_grpc_status_deadline_exceeded() {
-        assert_eq!(
-            DbError::ConnectionTimeout("t".into()).grpc_status_code(),
-            4
-        );
+        assert_eq!(DbError::ConnectionTimeout("t".into()).grpc_status_code(), 4);
         assert_eq!(DbError::PoolError(PoolError::Timeout).grpc_status_code(), 4);
     }
 
@@ -919,7 +925,10 @@ mod tests {
 
     #[test]
     fn test_grpc_status_resource_exhausted() {
-        assert_eq!(DbError::PoolError(PoolError::Exhausted).grpc_status_code(), 8);
+        assert_eq!(
+            DbError::PoolError(PoolError::Exhausted).grpc_status_code(),
+            8
+        );
         assert_eq!(DbError::PoolError(PoolError::Closed).grpc_status_code(), 8);
         assert_eq!(
             DbError::CacheError(CacheError::Internal("e".into())).grpc_status_code(),
@@ -953,10 +962,7 @@ mod tests {
 
     #[test]
     fn test_grpc_status_unavailable() {
-        assert_eq!(
-            DbError::ConnectionError("c".into()).grpc_status_code(),
-            14
-        );
+        assert_eq!(DbError::ConnectionError("c".into()).grpc_status_code(), 14);
         assert_eq!(
             DbError::ConnectionRefused("r".into()).grpc_status_code(),
             14

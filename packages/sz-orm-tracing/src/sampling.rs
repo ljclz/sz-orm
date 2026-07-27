@@ -272,7 +272,9 @@ impl Baggage {
     }
 
     /// 从键值对列表创建
-    pub fn from_pairs(pairs: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>) -> Self {
+    pub fn from_pairs(
+        pairs: impl IntoIterator<Item = (impl Into<String>, impl Into<String>)>,
+    ) -> Self {
         let mut baggage = Self::new();
         for (k, v) in pairs {
             baggage.set(k, v);
@@ -315,8 +317,11 @@ impl Baggage {
     /// 格式：`key1=value1,key2=value2`
     /// 键值按字母序排列，保证输出确定性。
     pub fn to_header(&self) -> String {
-        let mut pairs: Vec<(String, String)> =
-            self.entries.iter().map(|(k, v)| (k.clone(), v.clone())).collect();
+        let mut pairs: Vec<(String, String)> = self
+            .entries
+            .iter()
+            .map(|(k, v)| (k.clone(), v.clone()))
+            .collect();
         pairs.sort_by(|a, b| a.0.cmp(&b.0));
         pairs
             .into_iter()
@@ -490,12 +495,7 @@ impl BatchSpanExporter {
 
     /// 获取已导出的 span 总数
     pub fn exported_span_count(&self) -> usize {
-        self.exported
-            .read()
-            .unwrap()
-            .iter()
-            .map(|b| b.len())
-            .sum()
+        self.exported.read().unwrap().iter().map(|b| b.len()).sum()
     }
 
     /// 获取当前队列长度
@@ -541,8 +541,14 @@ mod tests {
 
     #[test]
     fn test_sampling_decision_equality() {
-        assert_eq!(SamplingDecision::RecordAndSample, SamplingDecision::RecordAndSample);
-        assert_ne!(SamplingDecision::RecordAndSample, SamplingDecision::NotRecord);
+        assert_eq!(
+            SamplingDecision::RecordAndSample,
+            SamplingDecision::RecordAndSample
+        );
+        assert_ne!(
+            SamplingDecision::RecordAndSample,
+            SamplingDecision::NotRecord
+        );
     }
 
     // ===================== AlwaysOnSampler 测试 =====================

@@ -1292,7 +1292,10 @@ impl QueryOptimizer {
             hints.push(
                 QueryOptimizationHint::warning(
                     "缺少 LIMIT 子句",
-                    format!("查询没有 LIMIT 限制，可能返回大量数据。建议添加 LIMIT {}。", self.default_limit),
+                    format!(
+                        "查询没有 LIMIT 限制，可能返回大量数据。建议添加 LIMIT {}。",
+                        self.default_limit
+                    ),
                 )
                 .with_suggested_sql(suggested),
             );
@@ -1380,13 +1383,8 @@ impl QueryOptimizer {
         }
 
         // 计算复杂度评分
-        let complexity_score = self.calculate_complexity(
-            has_join,
-            has_subquery,
-            has_where,
-            &detected_tables,
-            &lower,
-        );
+        let complexity_score =
+            self.calculate_complexity(has_join, has_subquery, has_where, &detected_tables, &lower);
 
         QueryAnalysis {
             original_sql: sql.to_string(),
@@ -1573,7 +1571,8 @@ impl QueryOptimizer {
             for table in &schema.tables {
                 for col in &table.columns {
                     let col_lower = col.name.to_lowercase();
-                    if col_lower.len() >= 2 && where_clause.contains(&col_lower)
+                    if col_lower.len() >= 2
+                        && where_clause.contains(&col_lower)
                         && !columns.contains(&col.name)
                     {
                         columns.push(col.name.clone());
@@ -2119,8 +2118,8 @@ mod tests {
 
     #[test]
     fn test_query_optimization_hint_with_suggested_sql() {
-        let hint = QueryOptimizationHint::info("建议", "描述")
-            .with_suggested_sql("SELECT id FROM users");
+        let hint =
+            QueryOptimizationHint::info("建议", "描述").with_suggested_sql("SELECT id FROM users");
         assert_eq!(hint.suggested_sql.as_deref(), Some("SELECT id FROM users"));
     }
 
@@ -2197,10 +2196,7 @@ mod tests {
 
         // 没有 WHERE 应产生 critical 建议
         assert!(analysis.critical_count() >= 1);
-        let where_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title == "缺少 WHERE 子句");
+        let where_hint = analysis.hints.iter().find(|h| h.title == "缺少 WHERE 子句");
         assert!(where_hint.is_some());
         assert_eq!(where_hint.unwrap().severity, HintSeverity::Critical);
     }
@@ -2213,10 +2209,7 @@ mod tests {
 
         // 没有 LIMIT 应产生 warning 建议
         assert!(analysis.warning_count() >= 1);
-        let limit_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title == "缺少 LIMIT 子句");
+        let limit_hint = analysis.hints.iter().find(|h| h.title == "缺少 LIMIT 子句");
         assert!(limit_hint.is_some());
         let hint = limit_hint.unwrap();
         assert!(hint.suggested_sql.is_some());
@@ -2229,10 +2222,7 @@ mod tests {
         let schema = optimizer_test_schema();
         let analysis = opt.analyze("SELECT id FROM users WHERE age > 18 LIMIT 10", &schema);
 
-        let limit_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title == "缺少 LIMIT 子句");
+        let limit_hint = analysis.hints.iter().find(|h| h.title == "缺少 LIMIT 子句");
         assert!(limit_hint.is_none());
     }
 
@@ -2298,10 +2288,7 @@ mod tests {
             &schema,
         );
         // 4 个 JOIN 应触发 critical
-        let join_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title == "JOIN 数量过多");
+        let join_hint = analysis.hints.iter().find(|h| h.title == "JOIN 数量过多");
         assert!(join_hint.is_some());
         assert_eq!(join_hint.unwrap().severity, HintSeverity::Critical);
     }
@@ -2338,10 +2325,7 @@ mod tests {
     fn test_analyze_order_by_without_limit() {
         let opt = QueryOptimizer::new();
         let schema = optimizer_test_schema();
-        let analysis = opt.analyze(
-            "SELECT id FROM users WHERE age > 18 ORDER BY id",
-            &schema,
-        );
+        let analysis = opt.analyze("SELECT id FROM users WHERE age > 18 ORDER BY id", &schema);
 
         let order_hint = analysis
             .hints
@@ -2368,15 +2352,9 @@ mod tests {
         let opt = QueryOptimizer::new();
         let schema = optimizer_test_schema();
         // age 列不是主键，应建议添加索引
-        let analysis = opt.analyze(
-            "SELECT id FROM users WHERE age > 18 LIMIT 10",
-            &schema,
-        );
+        let analysis = opt.analyze("SELECT id FROM users WHERE age > 18 LIMIT 10", &schema);
 
-        let index_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title.contains("添加索引"));
+        let index_hint = analysis.hints.iter().find(|h| h.title.contains("添加索引"));
         assert!(index_hint.is_some());
         assert!(index_hint.unwrap().title.contains("age"));
     }
@@ -2386,10 +2364,7 @@ mod tests {
         let opt = QueryOptimizer::new();
         let schema = optimizer_test_schema();
         // id 列是主键，不应建议添加索引
-        let analysis = opt.analyze(
-            "SELECT name FROM users WHERE id = 1 LIMIT 10",
-            &schema,
-        );
+        let analysis = opt.analyze("SELECT name FROM users WHERE id = 1 LIMIT 10", &schema);
 
         let index_hint = analysis
             .hints
@@ -2403,10 +2378,7 @@ mod tests {
     fn test_analyze_complexity_score_simple() {
         let opt = QueryOptimizer::new();
         let schema = optimizer_test_schema();
-        let analysis = opt.analyze(
-            "SELECT id FROM users WHERE id = 1 LIMIT 10",
-            &schema,
-        );
+        let analysis = opt.analyze("SELECT id FROM users WHERE id = 1 LIMIT 10", &schema);
         // 简单查询应该低分
         assert!(analysis.complexity_score < 30);
     }
@@ -2427,10 +2399,7 @@ mod tests {
     fn test_analyze_well_optimized_query() {
         let opt = QueryOptimizer::new();
         let schema = optimizer_test_schema();
-        let analysis = opt.analyze(
-            "SELECT id, name FROM users WHERE id = 1 LIMIT 10",
-            &schema,
-        );
+        let analysis = opt.analyze("SELECT id, name FROM users WHERE id = 1 LIMIT 10", &schema);
 
         // 这个查询写得很好，不应该有 critical 或 warning 建议
         assert_eq!(analysis.critical_count(), 0);
@@ -2447,10 +2416,7 @@ mod tests {
         let analysis = opt.analyze("SELECT * FROM users", &schema);
         assert!(analysis.has_hints());
 
-        let good_analysis = opt.analyze(
-            "SELECT id FROM users WHERE id = 1 LIMIT 1",
-            &schema,
-        );
+        let good_analysis = opt.analyze("SELECT id FROM users WHERE id = 1 LIMIT 1", &schema);
         // 可能仍有 info 级建议，但不应有 critical
         assert_eq!(good_analysis.critical_count(), 0);
     }
@@ -2472,10 +2438,7 @@ mod tests {
     fn test_format_report_no_hints() {
         let opt = QueryOptimizer::new();
         let schema = optimizer_test_schema();
-        let analysis = opt.analyze(
-            "SELECT id FROM users WHERE id = 1 LIMIT 1",
-            &schema,
-        );
+        let analysis = opt.analyze("SELECT id FROM users WHERE id = 1 LIMIT 1", &schema);
         let report = QueryOptimizer::format_report(&analysis);
         // 即使没有建议，报告也应包含基本字段
         assert!(report.contains("复杂度评分"));
@@ -2500,10 +2463,7 @@ mod tests {
         let schema = optimizer_test_schema();
         let analysis = opt.analyze("SELECT id FROM users LIMIT 10", &schema);
 
-        let where_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title == "缺少 WHERE 子句");
+        let where_hint = analysis.hints.iter().find(|h| h.title == "缺少 WHERE 子句");
         assert!(where_hint.is_none());
     }
 
@@ -2513,10 +2473,7 @@ mod tests {
         let schema = optimizer_test_schema();
         let analysis = opt.analyze("SELECT id FROM users WHERE id = 1", &schema);
 
-        let limit_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title == "缺少 LIMIT 子句");
+        let limit_hint = analysis.hints.iter().find(|h| h.title == "缺少 LIMIT 子句");
         assert!(limit_hint.is_none());
     }
 
@@ -2529,10 +2486,7 @@ mod tests {
             &schema,
         );
 
-        let or_hint = analysis
-            .hints
-            .iter()
-            .find(|h| h.title == "多个 OR 条件");
+        let or_hint = analysis.hints.iter().find(|h| h.title == "多个 OR 条件");
         assert!(or_hint.is_some());
     }
 

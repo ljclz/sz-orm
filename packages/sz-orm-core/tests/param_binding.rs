@@ -5,8 +5,8 @@
 //! 占位符和参数向量正确性。不依赖数据库连接。
 
 use std::collections::HashMap;
-use sz_orm_core::{DbType, Model, ModelExt, QueryBuilder, Relation, Value};
 use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, Model, ModelExt, QueryBuilder, Relation, Value};
 
 #[derive(Clone, Debug)]
 #[allow(dead_code)]
@@ -63,7 +63,10 @@ fn test_build_select_with_params_no_where() {
     let builder = make_builder().table("users").select(vec!["id", "name"]);
     let (sql, params) = builder.build_select_with_params();
     assert!(sql.contains("SELECT id, name FROM"));
-    assert!(params.is_empty(), "no WHERE clause should have empty params");
+    assert!(
+        params.is_empty(),
+        "no WHERE clause should have empty params"
+    );
 }
 
 #[test]
@@ -72,7 +75,11 @@ fn test_build_select_with_params_where_in() {
         .table("users")
         .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
     let (sql, params) = builder.build_select_with_params();
-    assert!(sql.contains("IN (?, ?, ?)"), "SQL should have 3 placeholders, got: {}", sql);
+    assert!(
+        sql.contains("IN (?, ?, ?)"),
+        "SQL should have 3 placeholders, got: {}",
+        sql
+    );
     assert_eq!(params.len(), 3);
     assert_eq!(params[0], Value::I64(1));
     assert_eq!(params[1], Value::I64(2));
@@ -81,9 +88,10 @@ fn test_build_select_with_params_where_in() {
 
 #[test]
 fn test_build_select_with_params_where_between() {
-    let builder = make_builder()
-        .table("users")
-        .where_between("age", Value::I32(18), Value::I32(30));
+    let builder =
+        make_builder()
+            .table("users")
+            .where_between("age", Value::I32(18), Value::I32(30));
     let (sql, params) = builder.build_select_with_params();
     assert!(sql.contains("BETWEEN ? AND ?"), "SQL: {}", sql);
     assert_eq!(params.len(), 2);
@@ -105,9 +113,10 @@ fn test_build_select_with_params_where_not_in() {
 
 #[test]
 fn test_build_select_with_params_where_not_between() {
-    let builder = make_builder()
-        .table("users")
-        .where_not_between("age", Value::I32(0), Value::I32(17));
+    let builder =
+        make_builder()
+            .table("users")
+            .where_not_between("age", Value::I32(0), Value::I32(17));
     let (sql, params) = builder.build_select_with_params();
     assert!(sql.contains("NOT BETWEEN ? AND ?"), "SQL: {}", sql);
     assert_eq!(params.len(), 2);
@@ -123,16 +132,18 @@ fn test_build_select_with_params_mixed_conditions() {
     let (sql, params) = builder.build_select_with_params();
     // And 条件不提取参数，In 提取 2 个，Between 提取 2 个 = 4 个参数
     assert_eq!(params.len(), 4, "params: {:?}", params);
-    assert!(sql.contains("status = 'active'"), "raw condition should be inlined: {}", sql);
+    assert!(
+        sql.contains("status = 'active'"),
+        "raw condition should be inlined: {}",
+        sql
+    );
     assert!(sql.contains("IN (?, ?)"), "SQL: {}", sql);
     assert!(sql.contains("BETWEEN ? AND ?"), "SQL: {}", sql);
 }
 
 #[test]
 fn test_build_select_with_params_null_conditions() {
-    let builder = make_builder()
-        .table("users")
-        .where_null("deleted_at");
+    let builder = make_builder().table("users").where_null("deleted_at");
     let (sql, params) = builder.build_select_with_params();
     assert!(sql.contains("IS NULL"), "SQL: {}", sql);
     assert!(params.is_empty(), "IS NULL should have no params");
@@ -140,10 +151,7 @@ fn test_build_select_with_params_null_conditions() {
 
 #[test]
 fn test_build_select_with_params_limit_offset() {
-    let builder = make_builder()
-        .table("users")
-        .limit(10)
-        .offset(20);
+    let builder = make_builder().table("users").limit(10).offset(20);
     let (sql, params) = builder.build_select_with_params();
     assert!(sql.contains("LIMIT 10"), "SQL: {}", sql);
     assert!(sql.contains("OFFSET 20"), "SQL: {}", sql);
@@ -161,7 +169,11 @@ fn test_build_insert_with_params() {
     let builder = make_builder().table("users");
     let (sql, params) = builder.build_insert_with_params(&data);
     assert!(sql.contains("INSERT INTO"), "SQL: {}", sql);
-    assert!(sql.contains("(?, ?)"), "should have 2 placeholders: {}", sql);
+    assert!(
+        sql.contains("(?, ?)"),
+        "should have 2 placeholders: {}",
+        sql
+    );
     assert_eq!(params.len(), 2);
 }
 
@@ -182,14 +194,20 @@ fn test_build_update_with_params() {
     data.insert("name".to_string(), Value::String("Bob".to_string()));
     data.insert("age".to_string(), Value::I32(25));
 
-    let builder = make_builder()
-        .table("users")
-        .where_cond("id = 1");
+    let builder = make_builder().table("users").where_cond("id = 1");
     let (sql, params) = builder.build_update_with_params(&data);
     assert!(sql.contains("UPDATE"), "SQL: {}", sql);
     assert!(sql.contains("SET"), "SQL: {}", sql);
-    assert!(sql.contains("= ?"), "should have placeholders in SET: {}", sql);
-    assert_eq!(params.len(), 2, "SET params: 2, WHERE has no params (raw condition)");
+    assert!(
+        sql.contains("= ?"),
+        "should have placeholders in SET: {}",
+        sql
+    );
+    assert_eq!(
+        params.len(),
+        2,
+        "SET params: 2, WHERE has no params (raw condition)"
+    );
 }
 
 #[test]
@@ -231,9 +249,10 @@ fn test_build_delete_with_params_where_in() {
 
 #[test]
 fn test_build_delete_with_params_where_between() {
-    let builder = make_builder()
-        .table("users")
-        .where_between("age", Value::I32(18), Value::I32(30));
+    let builder =
+        make_builder()
+            .table("users")
+            .where_between("age", Value::I32(18), Value::I32(30));
     let (sql, params) = builder.build_delete_with_params();
     assert!(sql.contains("BETWEEN ? AND ?"), "SQL: {}", sql);
     assert_eq!(params.len(), 2);
@@ -245,9 +264,9 @@ fn test_build_delete_with_params_where_between() {
 
 #[test]
 fn test_build_select_with_params_all_value_types() {
-    let builder = make_builder()
-        .table("users")
-        .where_in("val", vec![
+    let builder = make_builder().table("users").where_in(
+        "val",
+        vec![
             Value::Null,
             Value::Bool(true),
             Value::I8(1),
@@ -262,9 +281,14 @@ fn test_build_select_with_params_all_value_types() {
             Value::F64(2.5),
             Value::String("test".to_string()),
             Value::Bytes(vec![0x41, 0x42]),
-        ]);
+        ],
+    );
     let (sql, params) = builder.build_select_with_params();
-    assert!(sql.contains("IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"), "SQL: {}", sql);
+    assert!(
+        sql.contains("IN (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"),
+        "SQL: {}",
+        sql
+    );
     assert_eq!(params.len(), 14);
 }
 
@@ -280,7 +304,11 @@ fn test_param_binding_prevents_sql_injection() {
     let (sql, params) = builder.build_select_with_params();
 
     // SQL 不应包含 DROP TABLE（值通过参数绑定传递，不在 SQL 中）
-    assert!(!sql.contains("DROP TABLE"), "SQL injection detected in SQL: {}", sql);
+    assert!(
+        !sql.contains("DROP TABLE"),
+        "SQL injection detected in SQL: {}",
+        sql
+    );
     assert_eq!(params.len(), 1);
     // 恶意字符串应原样保留在参数中（由 prepared statement 处理转义）
     assert_eq!(params[0], Value::String(malicious_name.to_string()));

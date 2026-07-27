@@ -258,10 +258,7 @@ impl<C: Connection> ShadowConnection<C> {
                     orm_rows: orm_rows.len(),
                     raw_rows: 0,
                     consistent: false,
-                    mismatch: Some(format!(
-                        "Raw path timeout after {:?}",
-                        self.config.timeout
-                    )),
+                    mismatch: Some(format!("Raw path timeout after {:?}", self.config.timeout)),
                 });
                 return Ok(orm_rows);
             }
@@ -318,7 +315,11 @@ impl<C: Connection> ShadowConnection<C> {
 
         // 逐行逐字段比较（限制最大行数）
         let limit = self.config.max_compare_rows.min(orm_rows.len());
-        for (i, (orm_row, raw_row)) in orm_rows[..limit].iter().zip(raw_rows[..limit].iter()).enumerate() {
+        for (i, (orm_row, raw_row)) in orm_rows[..limit]
+            .iter()
+            .zip(raw_rows[..limit].iter())
+            .enumerate()
+        {
             if orm_row.len() != raw_row.len() {
                 return ShadowComparison {
                     sql: sql.to_string(),

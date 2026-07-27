@@ -111,7 +111,10 @@ impl ScatterGather {
     /// let sum = ScatterGather::merge(results, |vs| Ok(vs.iter().sum())).unwrap();
     /// assert_eq!(sum, 6);
     /// ```
-    pub fn merge<T, F>(results: Vec<Result<T, ShardingError>>, merger: F) -> Result<T, ShardingError>
+    pub fn merge<T, F>(
+        results: Vec<Result<T, ShardingError>>,
+        merger: F,
+    ) -> Result<T, ShardingError>
     where
         F: FnOnce(Vec<T>) -> Result<T, ShardingError>,
     {
@@ -241,7 +244,11 @@ mod tests {
         });
         let calls = call_count.load(Ordering::SeqCst);
         // 50 个 key 哈希到 2 个 shard，命中的 shard 数应为 1 或 2
-        assert!(calls == 1 || calls == 2, "calls should be 1 or 2, got {}", calls);
+        assert!(
+            calls == 1 || calls == 2,
+            "calls should be 1 or 2, got {}",
+            calls
+        );
         assert_eq!(results.len(), calls);
         let total: usize = results.into_iter().map(|r| r.unwrap()).sum();
         assert_eq!(total, 50);
@@ -311,11 +318,8 @@ mod tests {
 
     #[test]
     fn test_merge_propagates_first_error() {
-        let results: Vec<Result<i32, ShardingError>> = vec![
-            Ok(1),
-            Err(ShardingError::ThreadPanic),
-            Ok(3),
-        ];
+        let results: Vec<Result<i32, ShardingError>> =
+            vec![Ok(1), Err(ShardingError::ThreadPanic), Ok(3)];
         let result = ScatterGather::merge(results, |vs| Ok(vs.iter().sum()));
         assert!(matches!(result, Err(ShardingError::ThreadPanic)));
     }

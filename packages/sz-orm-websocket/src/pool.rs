@@ -140,11 +140,7 @@ impl ConnectionPool {
     /// - 若已存在，返回 AlreadyExists
     /// - 若池已满，淘汰 LRU 末尾连接后接纳
     /// - 否则接纳
-    pub async fn admit(
-        &self,
-        connection_id: impl Into<String>,
-        now_ms: i64,
-    ) -> AdmitResult {
+    pub async fn admit(&self, connection_id: impl Into<String>, now_ms: i64) -> AdmitResult {
         let id = connection_id.into();
         let mut connections = self.connections.write().await;
         if connections.contains_key(&id) {

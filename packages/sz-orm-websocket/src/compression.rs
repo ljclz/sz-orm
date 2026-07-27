@@ -86,14 +86,20 @@ impl CompressionConfig {
     /// 将配置渲染为 permessage-deflate 扩展参数字符串
     pub fn to_extension_params(&self) -> String {
         let mut parts = vec!["permessage-deflate".to_string()];
-        parts.push(format!("server_max_window_bits={}", self.server_max_window_bits));
+        parts.push(format!(
+            "server_max_window_bits={}",
+            self.server_max_window_bits
+        ));
         if self.server_no_context_takeover {
             parts.push("server_no_context_takeover".to_string());
         }
         if self.client_no_context_takeover {
             parts.push("client_no_context_takeover".to_string());
         }
-        parts.push(format!("client_max_window_bits={}", self.client_max_window_bits));
+        parts.push(format!(
+            "client_max_window_bits={}",
+            self.client_max_window_bits
+        ));
         parts.join("; ")
     }
 }
@@ -201,15 +207,16 @@ impl CompressionNegotiator {
         let mut response_parts = vec!["permessage-deflate".to_string()];
 
         // server_max_window_bits：若客户端指定了，取 min(客户端, 服务端)
-        let final_server_bits = if let Some(bits_str) = client_ext.get_param("server_max_window_bits") {
-            if let Ok(client_bits) = bits_str.parse::<u8>() {
-                client_bits.min(self.config.server_max_window_bits)
+        let final_server_bits =
+            if let Some(bits_str) = client_ext.get_param("server_max_window_bits") {
+                if let Ok(client_bits) = bits_str.parse::<u8>() {
+                    client_bits.min(self.config.server_max_window_bits)
+                } else {
+                    self.config.server_max_window_bits
+                }
             } else {
                 self.config.server_max_window_bits
-            }
-        } else {
-            self.config.server_max_window_bits
-        };
+            };
         response_parts.push(format!("server_max_window_bits={}", final_server_bits));
 
         if self.config.server_no_context_takeover
@@ -302,10 +309,7 @@ fn rle_compress(data: &[u8]) -> Vec<u8> {
     while i < data.len() {
         let current = data[i];
         let mut count = 1usize;
-        while i + count < data.len()
-            && data[i + count] == current
-            && count < 255
-        {
+        while i + count < data.len() && data[i + count] == current && count < 255 {
             count += 1;
         }
         result.push(current);
@@ -538,7 +542,8 @@ mod tests {
     #[test]
     fn test_negotiator_accepted_with_client_window_bits() {
         let neg = CompressionNegotiator::new(CompressionConfig::default());
-        let result = neg.negotiate("permessage-deflate; server_max_window_bits=10; client_max_window_bits=12");
+        let result = neg
+            .negotiate("permessage-deflate; server_max_window_bits=10; client_max_window_bits=12");
         match result {
             NegotiationResult::Accepted(resp) => {
                 assert!(resp.contains("server_max_window_bits=10"));
@@ -570,9 +575,8 @@ mod tests {
 
     #[test]
     fn test_negotiator_no_context_takeover_propagated() {
-        let neg = CompressionNegotiator::new(
-            CompressionConfig::new().with_server_no_context_takeover(),
-        );
+        let neg =
+            CompressionNegotiator::new(CompressionConfig::new().with_server_no_context_takeover());
         let result = neg.negotiate("permessage-deflate");
         match result {
             NegotiationResult::Accepted(resp) => {

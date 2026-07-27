@@ -235,9 +235,7 @@ impl OAuth2Server {
         }
 
         if auth_code.redirect_uri != req.redirect_uri {
-            return Err(AuthError::TokenInvalid(
-                "Redirect URI mismatch".to_string(),
-            ));
+            return Err(AuthError::TokenInvalid("Redirect URI mismatch".to_string()));
         }
 
         if auth_code.client_id != req.client_id {

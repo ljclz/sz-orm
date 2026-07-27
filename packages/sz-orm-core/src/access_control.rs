@@ -207,11 +207,7 @@ mod tests {
             allowed_columns: None,
             denied_columns: ["password".to_string()].into_iter().collect(),
         });
-        let cols = vec![
-            "id".to_string(),
-            "name".to_string(),
-            "password".to_string(),
-        ];
+        let cols = vec!["id".to_string(), "name".to_string(), "password".to_string()];
         let filtered = ctx.filter_columns("users", &cols);
         assert_eq!(filtered, vec!["id".to_string(), "name".to_string()]);
     }
@@ -235,10 +231,7 @@ mod tests {
         let built = RowLevelSecurity::new(ctx)
             .tenant_isolation("orders", "tenant_id")
             .build();
-        assert_eq!(
-            built.row_filter("orders"),
-            Some("tenant_id = 'tenant-42'")
-        );
+        assert_eq!(built.row_filter("orders"), Some("tenant_id = 'tenant-42'"));
     }
 
     #[test]

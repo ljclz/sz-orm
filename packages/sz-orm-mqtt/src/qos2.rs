@@ -549,10 +549,7 @@ mod tests {
         sim.receiver.send_pubrec(1).await.unwrap();
         sim.sender.receive_pubrec(1).await.unwrap();
 
-        assert_eq!(
-            sim.sender().state_of(1).await,
-            Some(PacketState::Received)
-        );
+        assert_eq!(sim.sender().state_of(1).await, Some(PacketState::Received));
         assert_eq!(
             sim.receiver().state_of(1).await,
             Some(PacketState::Received)

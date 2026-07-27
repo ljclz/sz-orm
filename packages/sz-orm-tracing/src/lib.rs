@@ -24,7 +24,7 @@ use std::time::Duration;
 
 pub use sampling::{
     AlwaysOffSampler, AlwaysOnSampler, Baggage, BaggagePropagator, BatchConfig, BatchSpanExporter,
-    ParentBasedSampler, SamplingDecision, Sampler, TraceIdRatioSampler,
+    ParentBasedSampler, Sampler, SamplingDecision, TraceIdRatioSampler,
 };
 
 #[derive(Debug, Clone, Serialize, Deserialize)]

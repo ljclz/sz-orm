@@ -158,7 +158,9 @@ impl PartialOrd for Candidate {
 
 impl Ord for Candidate {
     fn cmp(&self, other: &Self) -> std::cmp::Ordering {
-        self.distance.partial_cmp(&other.distance).unwrap_or(std::cmp::Ordering::Equal)
+        self.distance
+            .partial_cmp(&other.distance)
+            .unwrap_or(std::cmp::Ordering::Equal)
     }
 }
 
@@ -496,11 +498,8 @@ impl HnswIndex {
                 };
 
                 // 如果结果未满，或比最差结果好
-                let should_add = results.len() < ef
-                    || results
-                        .peek()
-                        .map(|w| dist < w.distance)
-                        .unwrap_or(true);
+                let should_add =
+                    results.len() < ef || results.peek().map(|w| dist < w.distance).unwrap_or(true);
 
                 if should_add {
                     candidates.push(std::cmp::Reverse(Candidate {
@@ -619,7 +618,10 @@ impl HnswIndex {
             return Ok(Vec::new());
         }
         if layer >= nodes[entry_idx].neighbors.len() {
-            return Ok(vec![(entry_idx, Self::distance(metric, query, &nodes[entry_idx].vector))]);
+            return Ok(vec![(
+                entry_idx,
+                Self::distance(metric, query, &nodes[entry_idx].vector),
+            )]);
         }
 
         let entry_dist = Self::distance(metric, query, &nodes[entry_idx].vector);
@@ -669,11 +671,8 @@ impl HnswIndex {
                     Self::distance(metric, query, &nodes[neighbor_idx].vector)
                 };
 
-                let should_add = results.len() < ef
-                    || results
-                        .peek()
-                        .map(|w| dist < w.distance)
-                        .unwrap_or(true);
+                let should_add =
+                    results.len() < ef || results.peek().map(|w| dist < w.distance).unwrap_or(true);
 
                 if should_add {
                     candidates.push(std::cmp::Reverse(Candidate {
@@ -726,7 +725,10 @@ impl HnswIndex {
         let id_map = self.id_to_idx.read().ok()?;
         let idx = id_map.get(id)?;
         let nodes = self.nodes.read().ok()?;
-        nodes.get(*idx).filter(|n| !n.deleted).map(|n| n.vector.clone())
+        nodes
+            .get(*idx)
+            .filter(|n| !n.deleted)
+            .map(|n| n.vector.clone())
     }
 
     /// 获取索引中所有有效 ID
@@ -927,9 +929,7 @@ mod tests {
         for i in 0..100 {
             let x = (i as f32).sin();
             let y = (i as f32).cos();
-            index
-                .insert(&format!("v{}", i), vec![x, y, 0.0])
-                .unwrap();
+            index.insert(&format!("v{}", i), vec![x, y, 0.0]).unwrap();
         }
 
         assert_eq!(index.len(), 100);
@@ -1043,8 +1043,14 @@ mod tests {
 
     #[test]
     fn test_hnsw_candidate_ord() {
-        let c1 = Candidate { distance: 0.5, node_idx: 0 };
-        let c2 = Candidate { distance: 1.0, node_idx: 1 };
+        let c1 = Candidate {
+            distance: 0.5,
+            node_idx: 0,
+        };
+        let c2 = Candidate {
+            distance: 1.0,
+            node_idx: 1,
+        };
         // 距离更大的应排在前面（最大堆）
         assert!(c2 > c1);
     }

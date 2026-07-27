@@ -58,7 +58,7 @@ pub mod meilisearch_provider;
 
 pub use error::SearchError;
 pub use extensions::{
-    BoostScorer, FacetField, FacetResult, FacetedSearchExt, FacetedSearchResult, FacetValue,
+    BoostScorer, FacetField, FacetResult, FacetValue, FacetedSearchExt, FacetedSearchResult,
     FieldBoost, HighlightConfig, HighlightFormat, Highlighter, MemoryFacetedSearch, Tokenizer,
     TokenizerConfig, TokenizerType,
 };

@@ -131,15 +131,14 @@ mod tests {
         let policy = RetryPolicy::default();
         let counter = Arc::new(AtomicU32::new(0));
         let c = counter.clone();
-        let result: Result<u32, DbError> =
-            retry_with_backoff(&policy, || {
-                let c = c.clone();
-                async move {
-                    c.fetch_add(1, Ordering::SeqCst);
-                    Ok(42u32)
-                }
-            })
-            .await;
+        let result: Result<u32, DbError> = retry_with_backoff(&policy, || {
+            let c = c.clone();
+            async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Ok(42u32)
+            }
+        })
+        .await;
         assert_eq!(result.unwrap(), 42);
         assert_eq!(counter.load(Ordering::SeqCst), 1);
     }
@@ -155,19 +154,18 @@ mod tests {
         };
         let counter = Arc::new(AtomicU32::new(0));
         let c = counter.clone();
-        let result: Result<u32, DbError> =
-            retry_with_backoff(&policy, || {
-                let c = c.clone();
-                async move {
-                    let n = c.fetch_add(1, Ordering::SeqCst);
-                    if n < 2 {
-                        Err(DbError::ConnectionError("timeout".to_string()))
-                    } else {
-                        Ok(42u32)
-                    }
+        let result: Result<u32, DbError> = retry_with_backoff(&policy, || {
+            let c = c.clone();
+            async move {
+                let n = c.fetch_add(1, Ordering::SeqCst);
+                if n < 2 {
+                    Err(DbError::ConnectionError("timeout".to_string()))
+                } else {
+                    Ok(42u32)
                 }
-            })
-            .await;
+            }
+        })
+        .await;
         assert_eq!(result.unwrap(), 42);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
     }
@@ -177,15 +175,14 @@ mod tests {
         let policy = RetryPolicy::default();
         let counter = Arc::new(AtomicU32::new(0));
         let c = counter.clone();
-        let result: Result<u32, DbError> =
-            retry_with_backoff(&policy, || {
-                let c = c.clone();
-                async move {
-                    c.fetch_add(1, Ordering::SeqCst);
-                    Err(DbError::QueryError("syntax error".to_string()))
-                }
-            })
-            .await;
+        let result: Result<u32, DbError> = retry_with_backoff(&policy, || {
+            let c = c.clone();
+            async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Err(DbError::QueryError("syntax error".to_string()))
+            }
+        })
+        .await;
         assert!(result.is_err());
         // 非可重试错误应立即返回，不重试
         assert_eq!(counter.load(Ordering::SeqCst), 1);
@@ -202,15 +199,14 @@ mod tests {
         };
         let counter = Arc::new(AtomicU32::new(0));
         let c = counter.clone();
-        let result: Result<u32, DbError> =
-            retry_with_backoff(&policy, || {
-                let c = c.clone();
-                async move {
-                    c.fetch_add(1, Ordering::SeqCst);
-                    Err(DbError::ConnectionError("timeout".to_string()))
-                }
-            })
-            .await;
+        let result: Result<u32, DbError> = retry_with_backoff(&policy, || {
+            let c = c.clone();
+            async move {
+                c.fetch_add(1, Ordering::SeqCst);
+                Err(DbError::ConnectionError("timeout".to_string()))
+            }
+        })
+        .await;
         assert!(result.is_err());
         // max_retries=2 → 尝试 3 次（attempt 0,1,2）
         assert_eq!(counter.load(Ordering::SeqCst), 3);

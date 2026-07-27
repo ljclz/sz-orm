@@ -138,8 +138,10 @@ where
         // 此处用于同步 trait 方法调用 async 日志写入，不会 re-enter 同一 runtime。
         return Some(handle.block_on(fut));
     }
-    // 无运行时 → 创建临时运行时
-    tokio::runtime::Runtime::new()
+    // 无运行时 → 创建临时运行时（仅需单线程，避免依赖 rt-multi-thread）
+    tokio::runtime::Builder::new_current_thread()
+        .enable_all()
+        .build()
         .ok()
         .map(|rt| rt.block_on(fut))
 }

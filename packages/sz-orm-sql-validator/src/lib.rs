@@ -484,15 +484,76 @@ pub fn tokenize(sql: &str) -> Vec<SqlToken> {
             let word: String = chars[start..i].iter().collect();
             let upper = word.to_uppercase();
             const KEYWORDS: &[&str] = &[
-                "SELECT", "FROM", "WHERE", "INSERT", "INTO", "VALUES", "UPDATE", "SET",
-                "DELETE", "CREATE", "TABLE", "DROP", "ALTER", "TRUNCATE", "JOIN", "INNER",
-                "LEFT", "RIGHT", "OUTER", "ON", "AND", "OR", "NOT", "NULL", "IS", "IN",
-                "LIKE", "BETWEEN", "ORDER", "BY", "GROUP", "HAVING", "LIMIT", "OFFSET",
-                "DISTINCT", "AS", "UNION", "ALL", "INTERSECT", "EXCEPT", "CASE", "WHEN",
-                "THEN", "ELSE", "END", "IF", "EXISTS", "PRIMARY", "KEY", "FOREIGN",
-                "REFERENCES", "INDEX", "VIEW", "DATABASE", "SCHEMA", "GRANT", "REVOKE",
-                "EXEC", "EXECUTE", "PROCEDURE", "FUNCTION", "BEGIN", "COMMIT", "ROLLBACK",
-                "SAVEPOINT", "RELEASE", "TRANSACTION", "START", "WITH", "RECURSIVE",
+                "SELECT",
+                "FROM",
+                "WHERE",
+                "INSERT",
+                "INTO",
+                "VALUES",
+                "UPDATE",
+                "SET",
+                "DELETE",
+                "CREATE",
+                "TABLE",
+                "DROP",
+                "ALTER",
+                "TRUNCATE",
+                "JOIN",
+                "INNER",
+                "LEFT",
+                "RIGHT",
+                "OUTER",
+                "ON",
+                "AND",
+                "OR",
+                "NOT",
+                "NULL",
+                "IS",
+                "IN",
+                "LIKE",
+                "BETWEEN",
+                "ORDER",
+                "BY",
+                "GROUP",
+                "HAVING",
+                "LIMIT",
+                "OFFSET",
+                "DISTINCT",
+                "AS",
+                "UNION",
+                "ALL",
+                "INTERSECT",
+                "EXCEPT",
+                "CASE",
+                "WHEN",
+                "THEN",
+                "ELSE",
+                "END",
+                "IF",
+                "EXISTS",
+                "PRIMARY",
+                "KEY",
+                "FOREIGN",
+                "REFERENCES",
+                "INDEX",
+                "VIEW",
+                "DATABASE",
+                "SCHEMA",
+                "GRANT",
+                "REVOKE",
+                "EXEC",
+                "EXECUTE",
+                "PROCEDURE",
+                "FUNCTION",
+                "BEGIN",
+                "COMMIT",
+                "ROLLBACK",
+                "SAVEPOINT",
+                "RELEASE",
+                "TRANSACTION",
+                "START",
+                "WITH",
+                "RECURSIVE",
             ];
             if KEYWORDS.contains(&upper.as_str()) {
                 tokens.push(SqlToken::Keyword(upper));
@@ -558,8 +619,8 @@ pub fn detect_injection_ast(sql: &str) -> ValidationResult {
             SqlToken::Keyword(k) if after_semicolon => {
                 // 分号后出现语句级关键字 = 多语句注入
                 match k.as_str() {
-                    "DROP" | "ALTER" | "TRUNCATE" | "DELETE" | "INSERT" | "UPDATE"
-                    | "CREATE" | "GRANT" | "REVOKE" | "EXEC" | "EXECUTE" => {
+                    "DROP" | "ALTER" | "TRUNCATE" | "DELETE" | "INSERT" | "UPDATE" | "CREATE"
+                    | "GRANT" | "REVOKE" | "EXEC" | "EXECUTE" => {
                         return Err(SqlValidationError::InjectionDetected(format!(
                             "multi-statement injection: semicolon followed by {} keyword",
                             k
@@ -662,10 +723,7 @@ impl WhitelistValidator {
         for token in &tokens {
             match token {
                 SqlToken::Keyword(k)
-                    if matches!(
-                        k.as_str(),
-                        "FROM" | "JOIN" | "INTO" | "UPDATE" | "TABLE"
-                    ) =>
+                    if matches!(k.as_str(), "FROM" | "JOIN" | "INTO" | "UPDATE" | "TABLE") =>
                 {
                     check_next_identifier = true;
                 }
@@ -882,8 +940,7 @@ pub fn score_complexity(sql: &str) -> SqlComplexityScore {
             }
             SqlToken::Identifier(name) => {
                 let upper = name.to_uppercase();
-                if upper.contains("OVER") || upper.contains("ROW_NUMBER")
-                    || upper.contains("RANK")
+                if upper.contains("OVER") || upper.contains("ROW_NUMBER") || upper.contains("RANK")
                 {
                     has_window_function = true;
                 }
@@ -1412,7 +1469,9 @@ mod tests {
     fn test_whitelist_table_allowed() {
         let validator = WhitelistValidator::new().allow_table("users");
         assert!(validator.validate_tables("SELECT * FROM users").is_ok());
-        assert!(validator.validate_tables("SELECT * FROM users WHERE id = 1").is_ok());
+        assert!(validator
+            .validate_tables("SELECT * FROM users WHERE id = 1")
+            .is_ok());
     }
 
     #[test]
@@ -1432,7 +1491,9 @@ mod tests {
         assert!(validator.validate_tables("SELECT * FROM users").is_ok());
         assert!(validator.validate_tables("SELECT * FROM orders").is_ok());
         assert!(validator.validate_tables("SELECT * FROM products").is_ok());
-        assert!(validator.validate_tables("SELECT * FROM forbidden").is_err());
+        assert!(validator
+            .validate_tables("SELECT * FROM forbidden")
+            .is_err());
     }
 
     #[test]
@@ -1486,13 +1547,17 @@ mod tests {
     fn test_whitelist_columns_not_set_passes() {
         let validator = WhitelistValidator::new().allow_table("users");
         // 未设置列白名单，所有列都应通过
-        assert!(validator.validate_columns("SELECT id, name, password FROM users").is_ok());
+        assert!(validator
+            .validate_columns("SELECT id, name, password FROM users")
+            .is_ok());
     }
 
     #[test]
     fn test_whitelist_combined_validate() {
         let validator = WhitelistValidator::new().allow_table("users");
-        assert!(validator.validate("SELECT * FROM users WHERE id = 1").is_ok());
+        assert!(validator
+            .validate("SELECT * FROM users WHERE id = 1")
+            .is_ok());
         assert!(validator.validate("SELECT * FROM forbidden").is_err());
     }
 
@@ -1518,9 +1583,8 @@ mod tests {
 
     #[test]
     fn test_complexity_with_join() {
-        let score = score_complexity(
-            "SELECT u.id, o.total FROM users u JOIN orders o ON u.id = o.user_id",
-        );
+        let score =
+            score_complexity("SELECT u.id, o.total FROM users u JOIN orders o ON u.id = o.user_id");
         assert_eq!(score.join_count, 1);
     }
 
@@ -1534,9 +1598,8 @@ mod tests {
 
     #[test]
     fn test_complexity_with_group_by_having() {
-        let score = score_complexity(
-            "SELECT dept, COUNT(*) FROM users GROUP BY dept HAVING COUNT(*) > 5",
-        );
+        let score =
+            score_complexity("SELECT dept, COUNT(*) FROM users GROUP BY dept HAVING COUNT(*) > 5");
         assert!(score.group_by_count >= 1);
         assert!(score.has_having);
     }
@@ -1559,9 +1622,7 @@ mod tests {
 
     #[test]
     fn test_complexity_with_set_operation() {
-        let score = score_complexity(
-            "SELECT id FROM users UNION SELECT id FROM archived_users",
-        );
+        let score = score_complexity("SELECT id FROM users UNION SELECT id FROM archived_users");
         assert!(score.set_operation_count >= 1);
     }
 
@@ -1615,7 +1676,9 @@ mod tests {
         let policy = DdlPolicy::default();
         assert!(policy.validate("CREATE TABLE users (id INT)").is_err());
         assert!(policy.validate("DROP TABLE users").is_err());
-        assert!(policy.validate("ALTER TABLE users ADD COLUMN name TEXT").is_err());
+        assert!(policy
+            .validate("ALTER TABLE users ADD COLUMN name TEXT")
+            .is_err());
         assert!(policy.validate("TRUNCATE TABLE users").is_err());
     }
 
@@ -1632,7 +1695,9 @@ mod tests {
         let policy = DdlPolicy::permissive();
         assert!(policy.validate("CREATE TABLE users (id INT)").is_ok());
         assert!(policy.validate("DROP TABLE users").is_ok());
-        assert!(policy.validate("ALTER TABLE users ADD COLUMN name TEXT").is_ok());
+        assert!(policy
+            .validate("ALTER TABLE users ADD COLUMN name TEXT")
+            .is_ok());
         assert!(policy.validate("TRUNCATE TABLE users").is_ok());
     }
 
@@ -1641,7 +1706,9 @@ mod tests {
         let policy = DdlPolicy::safe_evolution();
         // 允许 CREATE 和 ALTER
         assert!(policy.validate("CREATE TABLE users (id INT)").is_ok());
-        assert!(policy.validate("ALTER TABLE users ADD COLUMN name TEXT").is_ok());
+        assert!(policy
+            .validate("ALTER TABLE users ADD COLUMN name TEXT")
+            .is_ok());
         // 禁止 DROP 和 TRUNCATE
         assert!(policy.validate("DROP TABLE users").is_err());
         assert!(policy.validate("TRUNCATE TABLE users").is_err());

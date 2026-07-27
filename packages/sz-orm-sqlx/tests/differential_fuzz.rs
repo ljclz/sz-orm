@@ -18,13 +18,12 @@ use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
 
 /// 生成随机用户记录（去重 ID）：Vec<(id, name, age)>
 fn random_users() -> impl Strategy<Value = Vec<(i64, String, i64)>> {
-    prop::collection::vec(
-        (1i64..10000i64, "[a-z]{2,10}", 1i64..120i64),
-        1..=30,
-    )
-    .prop_map(|users| {
+    prop::collection::vec((1i64..10000i64, "[a-z]{2,10}", 1i64..120i64), 1..=30).prop_map(|users| {
         let mut seen = std::collections::HashSet::new();
-        users.into_iter().filter(|(id, _, _)| seen.insert(*id)).collect()
+        users
+            .into_iter()
+            .filter(|(id, _, _)| seen.insert(*id))
+            .collect()
     })
 }
 
@@ -51,7 +50,11 @@ async fn setup_db(
     for (id, name, age) in users {
         conn.execute_with_params(
             "INSERT INTO diff_users (id, name, age) VALUES (?, ?, ?)",
-            &[Value::I64(*id), Value::String(name.clone()), Value::I64(*age)],
+            &[
+                Value::I64(*id),
+                Value::String(name.clone()),
+                Value::I64(*age),
+            ],
         )
         .await?;
     }
@@ -66,7 +69,11 @@ fn native_rows_to_map(rows: &[sqlx::sqlite::SqliteRow]) -> Vec<HashMap<String, V
     if rows.is_empty() {
         return Vec::new();
     }
-    let col_names: Vec<String> = rows[0].columns().iter().map(|c| c.name().to_string()).collect();
+    let col_names: Vec<String> = rows[0]
+        .columns()
+        .iter()
+        .map(|c| c.name().to_string())
+        .collect();
     rows.iter()
         .map(|row| {
             let mut map = HashMap::with_capacity(col_names.len());
@@ -103,13 +110,21 @@ fn assert_results_eq(
     );
 
     for (i, (o, n)) in orm.iter().zip(native.iter()).enumerate() {
-        let keys: HashSet<&str> = o.keys().map(|k| k.as_str()).chain(n.keys().map(|k| k.as_str())).collect();
+        let keys: HashSet<&str> = o
+            .keys()
+            .map(|k| k.as_str())
+            .chain(n.keys().map(|k| k.as_str()))
+            .collect();
         for k in keys {
             prop_assert_eq!(
                 o.get(k),
                 n.get(k),
                 "[{}] row={} col='{}' 不一致: ORM={:?}, Native={:?}",
-                label, i, k, o.get(k), n.get(k)
+                label,
+                i,
+                k,
+                o.get(k),
+                n.get(k)
             );
         }
     }
@@ -139,16 +154,27 @@ async fn run_scenarios(
     let orm_all = conn
         .query("SELECT id, name, age FROM diff_users ORDER BY id")
         .await?;
-    let native_all = native_query(native_pool, "SELECT id, name, age FROM diff_users ORDER BY id").await?;
+    let native_all = native_query(
+        native_pool,
+        "SELECT id, name, age FROM diff_users ORDER BY id",
+    )
+    .await?;
     assert_results_eq(&orm_all, &native_all, "SELECT ALL")
         .map_err(|e| DbError::Internal(format!("{}", e)))?;
 
     // ---------- 场景 2: 条件 WHERE ----------
-    let ages: Vec<i64> = orm_all.iter().filter_map(|r| match r.get("age") {
-        Some(Value::I64(a)) => Some(*a),
-        _ => None,
-    }).collect();
-    let threshold = if ages.is_empty() { 50 } else { ages[ages.len() / 2] };
+    let ages: Vec<i64> = orm_all
+        .iter()
+        .filter_map(|r| match r.get("age") {
+            Some(Value::I64(a)) => Some(*a),
+            _ => None,
+        })
+        .collect();
+    let threshold = if ages.is_empty() {
+        50
+    } else {
+        ages[ages.len() / 2]
+    };
     let sql_where = format!(
         "SELECT id, name, age FROM diff_users WHERE age >= {} ORDER BY id",
         threshold
@@ -162,12 +188,17 @@ async fn run_scenarios(
     let orm_cols = conn
         .query("SELECT id, name FROM diff_users ORDER BY id")
         .await?;
-    let native_cols = native_query(native_pool, "SELECT id, name FROM diff_users ORDER BY id").await?;
+    let native_cols =
+        native_query(native_pool, "SELECT id, name FROM diff_users ORDER BY id").await?;
     assert_results_eq(&orm_cols, &native_cols, "SELECT id,name")
         .map_err(|e| DbError::Internal(format!("{}", e)))?;
 
     // ---------- 场景 4: ORDER BY + LIMIT ----------
-    let limit = if orm_all.len() > 5 { 5 } else { orm_all.len().max(1) };
+    let limit = if orm_all.len() > 5 {
+        5
+    } else {
+        orm_all.len().max(1)
+    };
     let sql_limit = format!(
         "SELECT id, name, age FROM diff_users ORDER BY age DESC, id ASC LIMIT {}",
         limit

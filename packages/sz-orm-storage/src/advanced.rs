@@ -331,10 +331,7 @@ impl ResumableUploadManager {
 
     /// 获取已完成上传的数据
     pub fn get_completed_data(&self, key: &str) -> Option<Vec<u8>> {
-        self.completed
-            .lock()
-            .ok()
-            .and_then(|c| c.get(key).cloned())
+        self.completed.lock().ok().and_then(|c| c.get(key).cloned())
     }
 
     /// 清理已完成或已中止的会话
@@ -344,7 +341,9 @@ impl ResumableUploadManager {
             Err(_) => return 0,
         };
         let before = sessions.len();
-        sessions.retain(|_, u| u.status == UploadStatus::Initiated || u.status == UploadStatus::InProgress);
+        sessions.retain(|_, u| {
+            u.status == UploadStatus::Initiated || u.status == UploadStatus::InProgress
+        });
         before - sessions.len()
     }
 }
@@ -723,26 +722,17 @@ impl CdnRefresher {
     /// 获取刷新请求详情
     pub fn get_request(&self, request_id: &str) -> Option<RefreshRequest> {
         let history = self.history.lock().ok()?;
-        history
-            .iter()
-            .find(|r| r.request_id == request_id)
-            .cloned()
+        history.iter().find(|r| r.request_id == request_id).cloned()
     }
 
     /// 返回所有刷新历史
     pub fn history(&self) -> Vec<RefreshRequest> {
-        self.history
-            .lock()
-            .map(|h| h.clone())
-            .unwrap_or_default()
+        self.history.lock().map(|h| h.clone()).unwrap_or_default()
     }
 
     /// 返回刷新请求总数
     pub fn total_requests(&self) -> usize {
-        self.history
-            .lock()
-            .map(|h| h.len())
-            .unwrap_or(0)
+        self.history.lock().map(|h| h.len()).unwrap_or(0)
     }
 
     /// 返回最近 N 秒内的刷新请求数
@@ -753,11 +743,7 @@ impl CdnRefresher {
             .as_secs();
         self.history
             .lock()
-            .map(|h| {
-                h.iter()
-                    .filter(|r| now - r.submitted_at < seconds)
-                    .count()
-            })
+            .map(|h| h.iter().filter(|r| now - r.submitted_at < seconds).count())
             .unwrap_or(0)
     }
 
@@ -1117,7 +1103,10 @@ mod tests {
         // 35 天 -> 应过期
         let results = lc.evaluate("file.txt", 35, false);
         assert_eq!(results.len(), 1);
-        assert!(matches!(results[0].action, LifecycleAction::Expiration { .. }));
+        assert!(matches!(
+            results[0].action,
+            LifecycleAction::Expiration { .. }
+        ));
     }
 
     #[test]
@@ -1157,7 +1146,10 @@ mod tests {
     #[test]
     fn test_lifecycle_enable_disable_rule() {
         let mut lc = BucketLifecycle::new();
-        lc.add_rule(LifecycleRule::new("r", LifecycleAction::Expiration { days: 30 }));
+        lc.add_rule(LifecycleRule::new(
+            "r",
+            LifecycleAction::Expiration { days: 30 },
+        ));
         assert!(lc.disable_rule("r"));
         assert!(!lc.matching_rules("file").iter().any(|r| r.id == "r"));
         assert!(lc.enable_rule("r"));
@@ -1238,7 +1230,9 @@ mod tests {
     #[test]
     fn test_cdn_refresh_too_many_targets() {
         let refresher = CdnRefresher::new().with_rate_limit(100);
-        let urls: Vec<String> = (0..2000).map(|i| format!("https://cdn.example.com/{}.js", i)).collect();
+        let urls: Vec<String> = (0..2000)
+            .map(|i| format!("https://cdn.example.com/{}.js", i))
+            .collect();
         let result = refresher.refresh_urls(urls);
         assert!(result.is_err());
     }
@@ -1246,9 +1240,15 @@ mod tests {
     #[test]
     fn test_cdn_refresh_history() {
         let refresher = CdnRefresher::new();
-        refresher.refresh_urls(vec!["https://cdn.example.com/a".to_string()]).unwrap();
-        refresher.refresh_urls(vec!["https://cdn.example.com/b".to_string()]).unwrap();
-        refresher.refresh_dirs(vec!["https://cdn.example.com/static/".to_string()]).unwrap();
+        refresher
+            .refresh_urls(vec!["https://cdn.example.com/a".to_string()])
+            .unwrap();
+        refresher
+            .refresh_urls(vec!["https://cdn.example.com/b".to_string()])
+            .unwrap();
+        refresher
+            .refresh_dirs(vec!["https://cdn.example.com/static/".to_string()])
+            .unwrap();
         let history = refresher.history();
         assert_eq!(history.len(), 3);
     }
@@ -1284,9 +1284,15 @@ mod tests {
     #[test]
     fn test_cdn_rate_limit() {
         let refresher = CdnRefresher::new().with_rate_limit(3);
-        refresher.refresh_urls(vec!["https://a.com".to_string()]).unwrap();
-        refresher.refresh_urls(vec!["https://b.com".to_string()]).unwrap();
-        refresher.refresh_urls(vec!["https://c.com".to_string()]).unwrap();
+        refresher
+            .refresh_urls(vec!["https://a.com".to_string()])
+            .unwrap();
+        refresher
+            .refresh_urls(vec!["https://b.com".to_string()])
+            .unwrap();
+        refresher
+            .refresh_urls(vec!["https://c.com".to_string()])
+            .unwrap();
         // 第 4 次应被速率限制拒绝
         let result = refresher.refresh_urls(vec!["https://d.com".to_string()]);
         assert!(result.is_err());
@@ -1295,8 +1301,12 @@ mod tests {
     #[test]
     fn test_cdn_requests_in_last() {
         let refresher = CdnRefresher::new();
-        refresher.refresh_urls(vec!["https://a.com".to_string()]).unwrap();
-        refresher.refresh_urls(vec!["https://b.com".to_string()]).unwrap();
+        refresher
+            .refresh_urls(vec!["https://a.com".to_string()])
+            .unwrap();
+        refresher
+            .refresh_urls(vec!["https://b.com".to_string()])
+            .unwrap();
         assert_eq!(refresher.requests_in_last(60), 2);
     }
 

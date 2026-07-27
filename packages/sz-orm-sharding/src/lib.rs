@@ -153,7 +153,11 @@ impl ShardingRouter {
     /// 构造列表分片路由器
     pub fn new_list(keys: HashSet<String>, target: String, default: Option<String>) -> Self {
         Self {
-            strategy: ShardingStrategy::List { keys, target, default },
+            strategy: ShardingStrategy::List {
+                keys,
+                target,
+                default,
+            },
             shards: vec![],
         }
     }
@@ -262,7 +266,11 @@ fn route_strategy<'a>(
                 Err(ShardingError::NoMappingForKey(key.to_string()))
             }
         }
-        ShardingStrategy::List { keys, target, default } => {
+        ShardingStrategy::List {
+            keys,
+            target,
+            default,
+        } => {
             if keys.contains(key) {
                 Ok(target.as_str())
             } else if let Some(d) = default {
@@ -720,8 +728,7 @@ mod tests {
 
     #[test]
     fn test_list_route_miss_no_default_errors() {
-        let router =
-            ShardingRouter::new_list(HashSet::new(), "vip_shard".to_string(), None);
+        let router = ShardingRouter::new_list(HashSet::new(), "vip_shard".to_string(), None);
         let result = router.route("unknown");
         assert!(matches!(result, Err(ShardingError::NoMappingForKey(_))));
     }

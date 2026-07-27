@@ -224,10 +224,7 @@ impl TokenStore {
 
             let family_revoked = {
                 let families = self.families.lock().unwrap();
-                families
-                    .get(&family_id)
-                    .map(|f| f.revoked)
-                    .unwrap_or(false)
+                families.get(&family_id).map(|f| f.revoked).unwrap_or(false)
             };
 
             (
@@ -273,8 +270,12 @@ impl TokenStore {
         }
 
         // 第二阶段：标记旧令牌为已使用，并创建新令牌
-        let new_stored =
-            StoredToken::new(new_token_value.clone(), family_id.clone(), user_id, expires_at);
+        let new_stored = StoredToken::new(
+            new_token_value.clone(),
+            family_id.clone(),
+            user_id,
+            expires_at,
+        );
 
         {
             let mut tokens = self.tokens.lock().unwrap();
@@ -544,7 +545,10 @@ mod tests {
 
         let new_token = store.refresh("refresh1", "refresh2").unwrap();
         assert_eq!(new_token.user_id, 100);
-        assert_eq!(new_token.family_id, store.get_token("refresh1").unwrap().family_id);
+        assert_eq!(
+            new_token.family_id,
+            store.get_token("refresh1").unwrap().family_id
+        );
         assert!(new_token.is_valid());
 
         // 旧令牌应标记为已使用

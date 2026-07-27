@@ -558,12 +558,19 @@ impl SelectQuery {
                 }
                 match on {
                     JoinOn::Raw(raw) => sql.push_str(raw),
-                    JoinOn::ColumnEq { left_column, right_column } => {
+                    JoinOn::ColumnEq {
+                        left_column,
+                        right_column,
+                    } => {
                         sql.push_str(&quote_column_dialect(dialect, left_column));
                         sql.push_str(" = ");
                         sql.push_str(&quote_column_dialect(dialect, right_column));
                     }
-                    JoinOn::Param { left_column, op, values } => {
+                    JoinOn::Param {
+                        left_column,
+                        op,
+                        values,
+                    } => {
                         sql.push_str(&quote_column_dialect(dialect, left_column));
                         sql.push_str(op);
                         params.extend(values.iter().cloned());
@@ -638,50 +645,71 @@ impl SelectQuery {
 
     /// 添加 `column = ?` AND 条件
     pub fn where_eq(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " = ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " = ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <> ?` AND 条件
     pub fn where_ne(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " <> ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " <> ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column > ?` AND 条件
     pub fn where_gt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " > ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " > ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column >= ?` AND 条件
     pub fn where_ge(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " >= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " >= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column < ?` AND 条件
     pub fn where_lt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " < ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " < ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <= ?` AND 条件
     pub fn where_le(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " <= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " <= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column LIKE ?` AND 条件
     pub fn where_like(mut self, column: &str, pattern: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " LIKE ?".to_string(), values: vec![pattern] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " LIKE ?".to_string(),
+            values: vec![pattern],
+        });
         self
     }
 
@@ -693,9 +721,13 @@ impl SelectQuery {
             (String::new(), "1 = 0".to_string())
         } else {
             let placeholders: Vec<&str> = std::iter::repeat_n("?", values.len()).collect();
-            (column.to_string(), format!(" IN ({})", placeholders.join(", ")))
+            (
+                column.to_string(),
+                format!(" IN ({})", placeholders.join(", ")),
+            )
         };
-        self.param_wheres.push(ParamWhere::And { column, op, values });
+        self.param_wheres
+            .push(ParamWhere::And { column, op, values });
         self
     }
 
@@ -707,78 +739,113 @@ impl SelectQuery {
             (String::new(), "1 = 1".to_string())
         } else {
             let placeholders: Vec<&str> = std::iter::repeat_n("?", values.len()).collect();
-            (column.to_string(), format!(" NOT IN ({})", placeholders.join(", ")))
+            (
+                column.to_string(),
+                format!(" NOT IN ({})", placeholders.join(", ")),
+            )
         };
-        self.param_wheres.push(ParamWhere::And { column, op, values });
+        self.param_wheres
+            .push(ParamWhere::And { column, op, values });
         self
     }
 
     /// 添加 `column BETWEEN ? AND ?` AND 条件
     pub fn where_between(mut self, column: &str, low: Value, high: Value) -> Self {
-        self.param_wheres.push(ParamWhere::And { column: column.to_string(), op: " BETWEEN ? AND ?".to_string(), values: vec![low, high] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " BETWEEN ? AND ?".to_string(),
+            values: vec![low, high],
+        });
         self
     }
 
     /// 添加 `column IS NULL` AND 条件
     pub fn where_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " IS NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " IS NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
     /// 添加 `column IS NOT NULL` AND 条件
     pub fn where_not_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " IS NOT NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " IS NOT NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
     /// 添加 `column = ?` OR 条件
     pub fn or_where_eq(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " = ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " = ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <> ?` OR 条件
     pub fn or_where_ne(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " <> ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " <> ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column > ?` OR 条件
     pub fn or_where_gt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " > ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " > ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column >= ?` OR 条件
     pub fn or_where_ge(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " >= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " >= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column < ?` OR 条件
     pub fn or_where_lt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " < ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " < ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <= ?` OR 条件
     pub fn or_where_le(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " <= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " <= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column LIKE ?` OR 条件
     pub fn or_where_like(mut self, column: &str, pattern: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " LIKE ?".to_string(), values: vec![pattern] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " LIKE ?".to_string(),
+            values: vec![pattern],
+        });
         self
     }
 
@@ -788,29 +855,43 @@ impl SelectQuery {
             (String::new(), "1 = 0".to_string())
         } else {
             let placeholders: Vec<&str> = std::iter::repeat_n("?", values.len()).collect();
-            (column.to_string(), format!(" IN ({})", placeholders.join(", ")))
+            (
+                column.to_string(),
+                format!(" IN ({})", placeholders.join(", ")),
+            )
         };
-        self.param_wheres.push(ParamWhere::Or { column, op, values });
+        self.param_wheres
+            .push(ParamWhere::Or { column, op, values });
         self
     }
 
     /// 添加 `column BETWEEN ? AND ?` OR 条件
     pub fn or_where_between(mut self, column: &str, low: Value, high: Value) -> Self {
-        self.param_wheres.push(ParamWhere::Or { column: column.to_string(), op: " BETWEEN ? AND ?".to_string(), values: vec![low, high] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " BETWEEN ? AND ?".to_string(),
+            values: vec![low, high],
+        });
         self
     }
 
     /// 添加 `column IS NULL` OR 条件
     pub fn or_where_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " IS NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " IS NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
     /// 添加 `column IS NOT NULL` OR 条件
     pub fn or_where_not_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::Or { column: column.to_string(), op: " IS NOT NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::Or {
+            column: column.to_string(),
+            op: " IS NOT NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
@@ -1524,11 +1605,7 @@ pub enum UpsertStrategy {
 fn is_mysql_family(db_type: DbType) -> bool {
     matches!(
         db_type,
-        DbType::MySQL
-            | DbType::MariaDB
-            | DbType::TiDB
-            | DbType::OceanBase
-            | DbType::PolarDB
+        DbType::MySQL | DbType::MariaDB | DbType::TiDB | DbType::OceanBase | DbType::PolarDB
     )
 }
 
@@ -1548,7 +1625,11 @@ fn render_upsert_clause(strategy: &UpsertStrategy, db_type: DbType) -> Option<St
         UpsertStrategy::None => None,
         UpsertStrategy::OnConflictDoNothing(cols) => {
             if is_pg_family(db_type) {
-                let cols_str = cols.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+                let cols_str = cols
+                    .iter()
+                    .map(|c| quote_ident(c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 Some(format!("ON CONFLICT ({}) DO NOTHING", cols_str))
             } else {
                 None
@@ -1556,7 +1637,11 @@ fn render_upsert_clause(strategy: &UpsertStrategy, db_type: DbType) -> Option<St
         }
         UpsertStrategy::OnConflictDoUpdate(cols, assignments) => {
             if is_pg_family(db_type) {
-                let cols_str = cols.iter().map(|c| quote_ident(c)).collect::<Vec<_>>().join(", ");
+                let cols_str = cols
+                    .iter()
+                    .map(|c| quote_ident(c))
+                    .collect::<Vec<_>>()
+                    .join(", ");
                 let sets = assignments
                     .iter()
                     .map(|(c, v)| format!("{} = {}", quote_ident(c), v))
@@ -1589,10 +1674,7 @@ fn render_upsert_clause(strategy: &UpsertStrategy, db_type: DbType) -> Option<St
 /// - MySQL 家族：返回 `None`（跳过）
 /// - PostgreSQL/SQLite：返回 `RETURNING col1, col2, ...`
 /// - 列为 `*` 时不加引号，其余列名经 `dialect.quote()` 转义
-fn render_returning_clause(
-    columns: &Option<Vec<String>>,
-    db_type: DbType,
-) -> Option<String> {
+fn render_returning_clause(columns: &Option<Vec<String>>, db_type: DbType) -> Option<String> {
     let cols = columns.as_ref()?;
     if cols.is_empty() {
         return None;
@@ -1941,50 +2023,71 @@ impl UpdateQuery {
 
     /// 添加 `column = ?` AND 条件（P0 修复：参数化绑定）
     pub fn where_eq(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " = ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " = ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <> ?` AND 条件
     pub fn where_ne(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " <> ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " <> ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column > ?` AND 条件
     pub fn where_gt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " > ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " > ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column >= ?` AND 条件
     pub fn where_ge(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " >= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " >= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column < ?` AND 条件
     pub fn where_lt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " < ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " < ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <= ?` AND 条件
     pub fn where_le(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " <= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " <= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column LIKE ?` AND 条件
     pub fn where_like(mut self, column: &str, pattern: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " LIKE ?".to_string(), values: vec![pattern] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " LIKE ?".to_string(),
+            values: vec![pattern],
+        });
         self
     }
 
@@ -1994,29 +2097,43 @@ impl UpdateQuery {
             (String::new(), "1 = 0".to_string())
         } else {
             let placeholders: Vec<&str> = std::iter::repeat_n("?", values.len()).collect();
-            (column.to_string(), format!(" IN ({})", placeholders.join(", ")))
+            (
+                column.to_string(),
+                format!(" IN ({})", placeholders.join(", ")),
+            )
         };
-        self.param_wheres.push(ParamWhere::And { column, op, values });
+        self.param_wheres
+            .push(ParamWhere::And { column, op, values });
         self
     }
 
     /// 添加 `column BETWEEN ? AND ?` AND 条件
     pub fn where_between(mut self, column: &str, low: Value, high: Value) -> Self {
-        self.param_wheres.push(ParamWhere::And { column: column.to_string(), op: " BETWEEN ? AND ?".to_string(), values: vec![low, high] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " BETWEEN ? AND ?".to_string(),
+            values: vec![low, high],
+        });
         self
     }
 
     /// 添加 `column IS NULL` AND 条件
     pub fn where_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " IS NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " IS NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
     /// 添加 `column IS NOT NULL` AND 条件
     pub fn where_not_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " IS NOT NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " IS NOT NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
@@ -2122,7 +2239,11 @@ impl UpdateQuery {
             .map(|(c, v)| format!("{} = {}", dialect.quote(c), v))
             .collect();
 
-        let mut sql = format!("UPDATE {} SET {}", dialect.quote(&table), set_str.join(", "));
+        let mut sql = format!(
+            "UPDATE {} SET {}",
+            dialect.quote(&table),
+            set_str.join(", ")
+        );
         let mut params: Vec<Value> = Vec::new();
 
         let has_raw = !self.wheres.is_empty();
@@ -2209,50 +2330,71 @@ impl DeleteQuery {
 
     /// 添加 `column = ?` AND 条件（P0 修复：参数化绑定）
     pub fn where_eq(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " = ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " = ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <> ?` AND 条件
     pub fn where_ne(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " <> ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " <> ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column > ?` AND 条件
     pub fn where_gt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " > ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " > ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column >= ?` AND 条件
     pub fn where_ge(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " >= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " >= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column < ?` AND 条件
     pub fn where_lt(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " < ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " < ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column <= ?` AND 条件
     pub fn where_le(mut self, column: &str, value: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " <= ?".to_string(), values: vec![value] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " <= ?".to_string(),
+            values: vec![value],
+        });
         self
     }
 
     /// 添加 `column LIKE ?` AND 条件
     pub fn where_like(mut self, column: &str, pattern: Value) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " LIKE ?".to_string(), values: vec![pattern] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " LIKE ?".to_string(),
+            values: vec![pattern],
+        });
         self
     }
 
@@ -2262,29 +2404,43 @@ impl DeleteQuery {
             (String::new(), "1 = 0".to_string())
         } else {
             let placeholders: Vec<&str> = std::iter::repeat_n("?", values.len()).collect();
-            (column.to_string(), format!(" IN ({})", placeholders.join(", ")))
+            (
+                column.to_string(),
+                format!(" IN ({})", placeholders.join(", ")),
+            )
         };
-        self.param_wheres.push(ParamWhere::And { column, op, values });
+        self.param_wheres
+            .push(ParamWhere::And { column, op, values });
         self
     }
 
     /// 添加 `column BETWEEN ? AND ?` AND 条件
     pub fn where_between(mut self, column: &str, low: Value, high: Value) -> Self {
-        self.param_wheres.push(ParamWhere::And { column: column.to_string(), op: " BETWEEN ? AND ?".to_string(), values: vec![low, high] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " BETWEEN ? AND ?".to_string(),
+            values: vec![low, high],
+        });
         self
     }
 
     /// 添加 `column IS NULL` AND 条件
     pub fn where_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " IS NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " IS NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
     /// 添加 `column IS NOT NULL` AND 条件
     pub fn where_not_null(mut self, column: &str) -> Self {
-        self.param_wheres
-            .push(ParamWhere::And { column: column.to_string(), op: " IS NOT NULL".to_string(), values: vec![] });
+        self.param_wheres.push(ParamWhere::And {
+            column: column.to_string(),
+            op: " IS NOT NULL".to_string(),
+            values: vec![],
+        });
         self
     }
 
@@ -3003,8 +3159,10 @@ mod tests {
             .column("extra")
             .from("users")
             .build(DbType::MySQL);
-        assert!(sql.contains("SELECT *, `extra` FROM `users`"),
-            "all_columns + column 应在 SELECT 列表中同时包含 * 和 extra，实际: {sql}");
+        assert!(
+            sql.contains("SELECT *, `extra` FROM `users`"),
+            "all_columns + column 应在 SELECT 列表中同时包含 * 和 extra，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3015,8 +3173,10 @@ mod tests {
             .table("users")
             .set("name", "'x'")
             .build_with_dialect(DbType::MySQL);
-        assert!(!sql.contains("WHERE"),
-            "无 WHERE 条件时不应包含 WHERE 关键字，实际: {sql}");
+        assert!(
+            !sql.contains("WHERE"),
+            "无 WHERE 条件时不应包含 WHERE 关键字，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3025,8 +3185,10 @@ mod tests {
         let sql = Query::delete()
             .from_table("users")
             .build_with_dialect(DbType::MySQL);
-        assert!(!sql.contains("WHERE"),
-            "无 WHERE 条件时不应包含 WHERE 关键字，实际: {sql}");
+        assert!(
+            !sql.contains("WHERE"),
+            "无 WHERE 条件时不应包含 WHERE 关键字，实际: {sql}"
+        );
     }
 
     // ==================== 深度扩展：CTE / 窗口函数 / 集合运算 / FOR UPDATE 测试 ====================
@@ -3039,7 +3201,10 @@ mod tests {
             .column("id")
             .column("name")
             .from("active_users")
-            .with_cte("active_users", "SELECT * FROM users WHERE status = 'active'")
+            .with_cte(
+                "active_users",
+                "SELECT * FROM users WHERE status = 'active'",
+            )
             .build(DbType::MySQL);
         assert!(sql.starts_with("WITH active_users AS ("));
         assert!(sql.contains("SELECT * FROM users WHERE status = 'active'"));
@@ -3055,7 +3220,9 @@ mod tests {
             .with_cte("b", "SELECT id FROM table_b")
             .with_cte("combined", "SELECT id FROM a UNION SELECT id FROM b")
             .build(DbType::MySQL);
-        assert!(sql.starts_with("WITH a AS (SELECT id FROM table_a), b AS (SELECT id FROM table_b), combined AS ("));
+        assert!(sql.starts_with(
+            "WITH a AS (SELECT id FROM table_a), b AS (SELECT id FROM table_b), combined AS ("
+        ));
     }
 
     #[test]
@@ -3100,9 +3267,9 @@ mod tests {
             .from("employees")
             .row_number("dept", "salary DESC", "row_num")
             .build(DbType::MySQL);
-        assert!(sql.contains(
-            "ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) AS row_num"
-        ));
+        assert!(
+            sql.contains("ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC) AS row_num")
+        );
     }
 
     #[test]
@@ -3133,9 +3300,7 @@ mod tests {
             .from("scores")
             .dense_rank("class", "score DESC", "dr")
             .build(DbType::MySQL);
-        assert!(sql.contains(
-            "DENSE_RANK() OVER (PARTITION BY class ORDER BY score DESC) AS dr"
-        ));
+        assert!(sql.contains("DENSE_RANK() OVER (PARTITION BY class ORDER BY score DESC) AS dr"));
     }
 
     #[test]
@@ -3359,10 +3524,14 @@ mod tests {
             .column("user_id")
             .column("amount")
             .from("transactions")
-            .window_function("SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at) AS running_total")
+            .window_function(
+                "SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at) AS running_total",
+            )
             .rank("user_id", "created_at", "tx_rank")
             .build(DbType::MySQL);
-        assert!(sql.contains("SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at) AS running_total"));
+        assert!(sql.contains(
+            "SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at) AS running_total"
+        ));
         assert!(sql.contains("RANK() OVER (PARTITION BY user_id ORDER BY created_at) AS tx_rank"));
     }
 
@@ -3562,7 +3731,11 @@ mod tests {
         use sz_orm_core::Value;
         let built = Query::delete()
             .from_table("logs")
-            .where_between("created_at", Value::String("2020-01-01".to_string()), Value::String("2020-12-31".to_string()))
+            .where_between(
+                "created_at",
+                Value::String("2020-01-01".to_string()),
+                Value::String("2020-12-31".to_string()),
+            )
             .build_with_params(DbType::MySQL);
         assert!(built.sql.contains("WHERE `created_at` BETWEEN ? AND ?"));
         assert_eq!(built.params.len(), 2);
@@ -3581,8 +3754,10 @@ mod tests {
             .column("id")
             .from_subquery(&inner, "t")
             .build(DbType::MySQL);
-        assert!(sql.contains("FROM (SELECT `id`, `amount` FROM `orders`) AS `t`"),
-            "FROM 子查询应渲染为 `FROM (subquery) AS alias`，实际: {sql}");
+        assert!(
+            sql.contains("FROM (SELECT `id`, `amount` FROM `orders`) AS `t`"),
+            "FROM 子查询应渲染为 `FROM (subquery) AS alias`，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3595,8 +3770,10 @@ mod tests {
             .column("id")
             .from_subquery(&inner, "t")
             .build(DbType::PostgreSQL);
-        assert!(sql.contains("FROM (SELECT \"id\" FROM \"orders\") AS \"t\""),
-            "PG 方言下别名应使用双引号，实际: {sql}");
+        assert!(
+            sql.contains("FROM (SELECT \"id\" FROM \"orders\") AS \"t\""),
+            "PG 方言下别名应使用双引号，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3614,7 +3791,9 @@ mod tests {
             .where_clause("t.amount > 200")
             .order_by("id", true)
             .build(DbType::MySQL);
-        assert!(sql.contains("FROM (SELECT `id`, `amount` FROM `orders` WHERE amount > 100) AS `t`"));
+        assert!(
+            sql.contains("FROM (SELECT `id`, `amount` FROM `orders` WHERE amount > 100) AS `t`")
+        );
         assert!(sql.contains("WHERE t.amount > 200"));
         assert!(sql.contains("ORDER BY `id` ASC"));
     }
@@ -3633,7 +3812,9 @@ mod tests {
             .where_eq("t.id", Value::I64(1))
             .build_with_params(DbType::MySQL);
         // 外层参数 + 内层参数（外层参数在 WHERE 之后，但内层 SQL 已固化为字符串）
-        assert!(built.sql.contains("FROM (SELECT `id` FROM `orders` WHERE `amount` = ?) AS `t`"));
+        assert!(built
+            .sql
+            .contains("FROM (SELECT `id` FROM `orders` WHERE `amount` = ?) AS `t`"));
         assert!(built.sql.contains("WHERE `t`.`id` = ?"));
         // 外层只绑定 1 个参数（内层 SQL 已是字符串）
         assert_eq!(built.params.len(), 1);
@@ -3665,9 +3846,7 @@ mod tests {
 
     #[test]
     fn test_from_subquery_no_from_when_neither_set() {
-        let sql = Query::select()
-            .column("id")
-            .build(DbType::MySQL);
+        let sql = Query::select().column("id").build(DbType::MySQL);
         assert!(!sql.contains("FROM"));
     }
 
@@ -3680,8 +3859,10 @@ mod tests {
             .value("name", "'Alice'")
             .returning(&["id", "created_at"])
             .build_with_dialect(DbType::PostgreSQL);
-        assert!(sql.contains("RETURNING \"id\", \"created_at\""),
-            "PG 方言应渲染 RETURNING，实际: {sql}");
+        assert!(
+            sql.contains("RETURNING \"id\", \"created_at\""),
+            "PG 方言应渲染 RETURNING，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3691,8 +3872,10 @@ mod tests {
             .value("name", "'Alice'")
             .returning(&["id"])
             .build_with_dialect(DbType::Sqlite);
-        assert!(sql.contains("RETURNING \"id\""),
-            "SQLite 方言应渲染 RETURNING，实际: {sql}");
+        assert!(
+            sql.contains("RETURNING \"id\""),
+            "SQLite 方言应渲染 RETURNING，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3702,8 +3885,10 @@ mod tests {
             .value("name", "'Alice'")
             .returning_all()
             .build_with_dialect(DbType::PostgreSQL);
-        assert!(sql.contains("RETURNING *"),
-            "returning_all 应渲染 `RETURNING *`，实际: {sql}");
+        assert!(
+            sql.contains("RETURNING *"),
+            "returning_all 应渲染 `RETURNING *`，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3714,8 +3899,10 @@ mod tests {
             .value("name", "'Alice'")
             .returning(&["id"])
             .build_with_dialect(DbType::MySQL);
-        assert!(!sql.contains("RETURNING"),
-            "MySQL 方言应跳过 RETURNING，实际: {sql}");
+        assert!(
+            !sql.contains("RETURNING"),
+            "MySQL 方言应跳过 RETURNING，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3854,8 +4041,10 @@ mod tests {
             .from("users u")
             .inner_join_on("orders o", "u.id", "o.user_id")
             .build(DbType::MySQL);
-        assert!(sql.contains("INNER JOIN `orders` o ON `u`.`id` = `o`.`user_id`"),
-            "列对列等值连接应渲染转义标识符，实际: {sql}");
+        assert!(
+            sql.contains("INNER JOIN `orders` o ON `u`.`id` = `o`.`user_id`"),
+            "列对列等值连接应渲染转义标识符，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3887,8 +4076,10 @@ mod tests {
             .build(DbType::PostgreSQL);
         // 注：quote_join_table 仍使用反引号包裹表名（向后兼容），
         // 但 ON 条件的列名按 PG 方言用双引号引用
-        assert!(sql.contains("INNER JOIN `orders` o ON \"u\".\"id\" = \"o\".\"user_id\""),
-            "PG 方言下 ON 条件列名应使用双引号引用，实际: {sql}");
+        assert!(
+            sql.contains("INNER JOIN `orders` o ON \"u\".\"id\" = \"o\".\"user_id\""),
+            "PG 方言下 ON 条件列名应使用双引号引用，实际: {sql}"
+        );
     }
 
     #[test]
@@ -3899,8 +4090,13 @@ mod tests {
             .from("users u")
             .inner_join_param("orders o", "o.status", " = ?", Value::String("paid".into()))
             .build_with_params(DbType::MySQL);
-        assert!(built.sql.contains("INNER JOIN `orders` o ON `o`.`status` = ?"),
-            "参数化 JOIN 应渲染 ? 占位符，实际: {}", built.sql);
+        assert!(
+            built
+                .sql
+                .contains("INNER JOIN `orders` o ON `o`.`status` = ?"),
+            "参数化 JOIN 应渲染 ? 占位符，实际: {}",
+            built.sql
+        );
         assert_eq!(built.params.len(), 1);
         assert_eq!(built.params[0], Value::String("paid".to_string()));
     }
@@ -3913,7 +4109,9 @@ mod tests {
             .from("users u")
             .left_join_param("orders o", "o.status", " = ?", Value::String("paid".into()))
             .build_with_params(DbType::MySQL);
-        assert!(built.sql.contains("LEFT JOIN `orders` o ON `o`.`status` = ?"));
+        assert!(built
+            .sql
+            .contains("LEFT JOIN `orders` o ON `o`.`status` = ?"));
         assert_eq!(built.params.len(), 1);
     }
 
@@ -3925,7 +4123,9 @@ mod tests {
             .from("users u")
             .right_join_param("orders o", "o.status", " = ?", Value::String("paid".into()))
             .build_with_params(DbType::MySQL);
-        assert!(built.sql.contains("RIGHT JOIN `orders` o ON `o`.`status` = ?"));
+        assert!(built
+            .sql
+            .contains("RIGHT JOIN `orders` o ON `o`.`status` = ?"));
         assert_eq!(built.params.len(), 1);
     }
 
@@ -3937,7 +4137,12 @@ mod tests {
         let built = Query::select()
             .column("u.id")
             .from("users u")
-            .inner_join_param("orders o", "o.status", " = ?", Value::String(malicious.clone()))
+            .inner_join_param(
+                "orders o",
+                "o.status",
+                " = ?",
+                Value::String(malicious.clone()),
+            )
             .build_with_params(DbType::MySQL);
         // SQL 结构不含恶意输入（仅含 ? 占位符）
         assert!(!built.sql.contains("DROP TABLE"));
@@ -3955,10 +4160,19 @@ mod tests {
             .column("u.id")
             .from("users u")
             .inner_join("orders o", "u.id = o.user_id")
-            .inner_join_param("payments p", "p.status", " = ?", Value::String("paid".into()))
+            .inner_join_param(
+                "payments p",
+                "p.status",
+                " = ?",
+                Value::String("paid".into()),
+            )
             .build_with_params(DbType::MySQL);
-        assert!(built.sql.contains("INNER JOIN `orders` o ON u.id = o.user_id"));
-        assert!(built.sql.contains("INNER JOIN `payments` p ON `p`.`status` = ?"));
+        assert!(built
+            .sql
+            .contains("INNER JOIN `orders` o ON u.id = o.user_id"));
+        assert!(built
+            .sql
+            .contains("INNER JOIN `payments` p ON `p`.`status` = ?"));
         assert_eq!(built.params.len(), 1);
     }
 
@@ -3972,7 +4186,9 @@ mod tests {
             .inner_join_param("orders o", "o.status", " = ?", Value::String("paid".into()))
             .where_eq("u.age", Value::I32(18))
             .build_with_params(DbType::MySQL);
-        assert!(built.sql.contains("INNER JOIN `orders` o ON `o`.`status` = ?"));
+        assert!(built
+            .sql
+            .contains("INNER JOIN `orders` o ON `o`.`status` = ?"));
         assert!(built.sql.contains("WHERE `u`.`age` = ?"));
         // JOIN 参数在前，WHERE 参数在后
         assert_eq!(built.params.len(), 2);

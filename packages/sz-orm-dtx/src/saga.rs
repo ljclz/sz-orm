@@ -555,7 +555,12 @@ impl Saga {
                         start.elapsed(),
                         timeout.total_timeout
                     );
-                    self.append_step_log(i, &step_name, SagaLogAction::StepFailed, Some(reason.clone()));
+                    self.append_step_log(
+                        i,
+                        &step_name,
+                        SagaLogAction::StepFailed,
+                        Some(reason.clone()),
+                    );
                     self.state = SagaState::Compensating;
                     let comp_result = self.compensate();
                     return self.finalize_compensation(comp_result, String::new(), reason);
@@ -587,12 +592,7 @@ impl Saga {
                 }
                 Err(e) => {
                     let failure_reason = e.clone();
-                    self.append_step_log(
-                        i,
-                        &step_name,
-                        SagaLogAction::StepFailed,
-                        Some(e.clone()),
-                    );
+                    self.append_step_log(i, &step_name, SagaLogAction::StepFailed, Some(e.clone()));
                     self.state = SagaState::Compensating;
                     let comp_result = self.compensate();
                     return self.finalize_compensation(comp_result, step_name, failure_reason);
@@ -1528,7 +1528,9 @@ mod tests {
         assert!(entries
             .iter()
             .any(|e| e.action == SagaLogAction::StepCompleted && e.step_name == "step1"));
-        assert!(entries.iter().any(|e| e.action == SagaLogAction::SagaCompleted));
+        assert!(entries
+            .iter()
+            .any(|e| e.action == SagaLogAction::SagaCompleted));
     }
 
     #[test]
@@ -1541,10 +1543,8 @@ mod tests {
                 .with_compensation(|| Ok(())),
         )
         .unwrap();
-        saga.add_step(
-            SagaStep::new("step2").with_action(|| Err("fail".to_string())),
-        )
-        .unwrap();
+        saga.add_step(SagaStep::new("step2").with_action(|| Err("fail".to_string())))
+            .unwrap();
         let _ = saga.execute();
 
         let entries = log.read_all("log-2").unwrap();
@@ -1570,10 +1570,8 @@ mod tests {
                 .with_compensation(|| Err("compensation fail".to_string())),
         )
         .unwrap();
-        saga.add_step(
-            SagaStep::new("step2").with_action(|| Err("action fail".to_string())),
-        )
-        .unwrap();
+        saga.add_step(SagaStep::new("step2").with_action(|| Err("action fail".to_string())))
+            .unwrap();
         let _ = saga.execute();
 
         let entries = log.read_all("log-3").unwrap();

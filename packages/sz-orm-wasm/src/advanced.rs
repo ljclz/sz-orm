@@ -156,7 +156,9 @@ impl LimitedWasmDatabase {
     ///
     /// 通过序列化所有行计算字节数，开销较高，建议仅在调试或周期性采样时调用。
     pub fn memory_usage(&self) -> MemoryUsage {
-        let snapshot = self.inner.query(WasmQuery::new("SELECT * FROM __sz_wasm_snapshot__"));
+        let snapshot = self
+            .inner
+            .query(WasmQuery::new("SELECT * FROM __sz_wasm_snapshot__"));
         // __sz_wasm_snapshot__ 表不存在时返回空，这里通过遍历已知表的 hack：
         // 由于 WasmDatabase 没有公开表列表接口，这里直接返回零值快照。
         // 真实环境下应通过反射或扩展 WasmDatabase API 实现。
@@ -686,7 +688,10 @@ impl AsyncTaskScheduler {
         task.id = id.clone();
         task.enqueued_at = current_millis();
 
-        let mut queue = self.queue.lock().map_err(|e| format!("lock error: {}", e))?;
+        let mut queue = self
+            .queue
+            .lock()
+            .map_err(|e| format!("lock error: {}", e))?;
         if queue.len() >= self.max_queue_size {
             return Err(format!("queue full (max={})", self.max_queue_size));
         }
@@ -777,20 +782,12 @@ impl AsyncTaskScheduler {
 
     /// 查询任务状态
     pub fn status_of(&self, task_id: &str) -> Option<TaskStatus> {
-        self.statuses
-            .lock()
-            .ok()?
-            .get(task_id)
-            .copied()
+        self.statuses.lock().ok()?.get(task_id).copied()
     }
 
     /// 查询任务结果
     pub fn result_of(&self, task_id: &str) -> Option<TaskResult> {
-        self.results
-            .lock()
-            .ok()?
-            .get(task_id)
-            .cloned()
+        self.results.lock().ok()?.get(task_id).cloned()
     }
 
     /// 取消任务（仅当任务处于 Pending 时可取消）
@@ -1065,10 +1062,7 @@ impl ModuleCache {
 
     /// 获取统计快照
     pub fn stats(&self) -> CacheStats {
-        self.stats
-            .lock()
-            .map(|s| s.clone())
-            .unwrap_or_default()
+        self.stats.lock().map(|s| s.clone()).unwrap_or_default()
     }
 
     /// 主动清理所有过期条目
@@ -1258,10 +1252,7 @@ mod tests {
 
     #[test]
     fn test_estimate_insert_rows_single() {
-        let rows = estimate_insert_rows(
-            "INSERT INTO t (a) VALUES (1)",
-            &[json!(1)],
-        );
+        let rows = estimate_insert_rows("INSERT INTO t (a) VALUES (1)", &[json!(1)]);
         assert_eq!(rows.len(), 1);
     }
 
@@ -1352,10 +1343,7 @@ mod tests {
     #[test]
     fn test_sandbox_config_allow_rw() {
         let cfg = SandboxConfig::allow_rw("/tmp/data");
-        assert_eq!(
-            cfg.rules.get("/tmp/data"),
-            Some(&PathAccess::ReadWrite)
-        );
+        assert_eq!(cfg.rules.get("/tmp/data"), Some(&PathAccess::ReadWrite));
     }
 
     #[test]
@@ -1469,8 +1457,8 @@ mod tests {
 
     #[test]
     fn test_async_task_with_params() {
-        let task = AsyncTask::query("t1", "SELECT * FROM t WHERE id = ?")
-            .with_params(vec![json!(1)]);
+        let task =
+            AsyncTask::query("t1", "SELECT * FROM t WHERE id = ?").with_params(vec![json!(1)]);
         assert_eq!(task.params.len(), 1);
     }
 
@@ -1505,7 +1493,7 @@ mod tests {
             "INSERT INTO users (id) VALUES (?)",
             vec![json!(1)],
         ))
-            .unwrap();
+        .unwrap();
         let scheduler = AsyncTaskScheduler::new(db, 16);
 
         let id = scheduler

@@ -198,9 +198,8 @@ impl BulkExecutor {
                 // 内存后端的 sync_to_es 会按 id 替换整个文档
                 // 这里模拟部分更新：先获取原文档，合并字段，再写回
                 // 使用 match_all 搜索，然后从 hits 中按 id 查找
-                let search_req =
-                    EsSearchRequest::new(&index, crate::EsQuery::match_all())
-                        .with_pagination(0, 10000);
+                let search_req = EsSearchRequest::new(&index, crate::EsQuery::match_all())
+                    .with_pagination(0, 10000);
                 let result = match self.backend.search(search_req) {
                     Ok(r) => r,
                     Err(EsError::IndexNotFound(_)) => {
@@ -348,13 +347,9 @@ impl MemorySuggester {
     /// 执行建议查询
     ///
     /// 扫描指定索引中所有文档的指定字段，收集词频，按前缀过滤返回建议
-    pub fn suggest(
-        &self,
-        index: &str,
-        request: &SuggestRequest,
-    ) -> Result<SuggestResult, EsError> {
-        let search_req = EsSearchRequest::new(index, crate::EsQuery::match_all())
-            .with_pagination(0, 10000);
+    pub fn suggest(&self, index: &str, request: &SuggestRequest) -> Result<SuggestResult, EsError> {
+        let search_req =
+            EsSearchRequest::new(index, crate::EsQuery::match_all()).with_pagination(0, 10000);
         let result = self.backend.search(search_req)?;
 
         let prefix_lower = request.prefix.to_lowercase();
@@ -383,11 +378,7 @@ impl MemorySuggester {
                 // 分数 = 词频 * 前缀匹配长度比
                 let prefix_ratio = prefix_lower.len() as f64 / text.len().max(1) as f64;
                 let score = freq as f64 * (1.0 + prefix_ratio);
-                SuggestOption {
-                    text,
-                    freq,
-                    score,
-                }
+                SuggestOption { text, freq, score }
             })
             .collect();
         // 按分数降序排序
@@ -405,12 +396,7 @@ impl MemorySuggester {
     }
 
     /// 索引文档以供建议查询
-    pub fn index_doc(
-        &self,
-        index: &str,
-        id: &str,
-        doc: serde_json::Value,
-    ) -> Result<(), EsError> {
+    pub fn index_doc(&self, index: &str, id: &str, doc: serde_json::Value) -> Result<(), EsError> {
         let doc = EsDocument::new(index, doc).with_id(id);
         self.backend.sync_to_es(vec![doc])?;
         Ok(())
@@ -1005,12 +991,7 @@ impl AliasManager {
     /// 切换别名指向（原子操作：添加新指向 + 移除旧指向）
     ///
     /// 常用于零停机重新索引场景
-    pub fn swap_alias(
-        &self,
-        alias: &str,
-        old_index: &str,
-        new_index: &str,
-    ) -> Result<(), EsError> {
+    pub fn swap_alias(&self, alias: &str, old_index: &str, new_index: &str) -> Result<(), EsError> {
         let actions = vec![
             AliasAction::Add(AliasDefinition::new(alias, new_index)),
             AliasAction::Remove {
@@ -1283,11 +1264,7 @@ mod tests {
     fn test_memory_suggester_basic() {
         let suggester = MemorySuggester::from_new();
         suggester
-            .index_doc(
-                "docs",
-                "1",
-                json!({"title": "hello world help"}),
-            )
+            .index_doc("docs", "1", json!({"title": "hello world help"}))
             .unwrap();
         suggester
             .index_doc("docs", "2", json!({"title": "hello rust"}))
@@ -1464,11 +1441,7 @@ mod tests {
             .unwrap();
         assert_eq!(results.len(), 1);
         assert_eq!(results[0].buckets.len(), 2);
-        let tech = results[0]
-            .buckets
-            .iter()
-            .find(|b| b.key == "tech")
-            .unwrap();
+        let tech = results[0].buckets.iter().find(|b| b.key == "tech").unwrap();
         assert_eq!(tech.doc_count, 2);
     }
 
@@ -1604,7 +1577,9 @@ mod tests {
     fn test_memory_aggregator_avg_empty() {
         let backend = InMemoryEsSync::new();
         backend
-            .sync_to_es(vec![EsDocument::new("docs", json!({"name": "a"})).with_id("1")])
+            .sync_to_es(vec![
+                EsDocument::new("docs", json!({"name": "a"})).with_id("1")
+            ])
             .unwrap();
         let aggregator = MemoryAggregator::new(backend);
         let results = aggregator
@@ -1726,9 +1701,7 @@ mod tests {
     fn test_alias_manager_write_index() {
         let manager = AliasManager::new();
         manager
-            .add_alias(
-                AliasDefinition::new("alias1", "index1").with_write_index(true),
-            )
+            .add_alias(AliasDefinition::new("alias1", "index1").with_write_index(true))
             .unwrap();
         manager
             .add_alias(AliasDefinition::new("alias1", "index2"))

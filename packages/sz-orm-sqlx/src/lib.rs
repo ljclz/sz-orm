@@ -28,8 +28,8 @@
 
 mod any;
 pub mod any_driver;
-mod error;
 pub mod enhanced;
+mod error;
 
 pub use any::{
     mysql_bulk_insert, pg_bulk_insert, sqlite_backup, MySqlPoolHandle, PgExtensions, PgPoolHandle,

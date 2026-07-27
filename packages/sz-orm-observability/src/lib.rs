@@ -60,7 +60,9 @@ pub mod slo;
 pub mod summary;
 
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
-pub use summary::{LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary};
+pub use summary::{
+    LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,
+};
 
 /// 指标类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

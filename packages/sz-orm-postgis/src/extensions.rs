@@ -557,7 +557,10 @@ impl MemoryCoordTransform {
         const R: f64 = 6_378_137.0; // 地球赤道半径（米）
         let x = R * lon.to_radians();
         // 标准墨卡托投影 Y = R * ln(tan(π/4 + lat/2))
-        let y = R * (std::f64::consts::FRAC_PI_4 + lat.to_radians() / 2.0).tan().ln();
+        let y = R
+            * (std::f64::consts::FRAC_PI_4 + lat.to_radians() / 2.0)
+                .tan()
+                .ln();
         (x, y)
     }
 
@@ -839,10 +842,7 @@ fn collect_all_points(geom: &Geometry) -> Result<Vec<(f64, f64)>, PostgisError> 
 /// Andrew's monotone chain 凸包算法
 fn convex_hull(points: &[(f64, f64)]) -> Vec<(f64, f64)> {
     let mut pts: Vec<(f64, f64)> = points.to_vec();
-    pts.sort_by(|a, b| {
-        a.0.total_cmp(&b.0)
-            .then(a.1.total_cmp(&b.1))
-    });
+    pts.sort_by(|a, b| a.0.total_cmp(&b.0).then(a.1.total_cmp(&b.1)));
     pts.dedup();
     let n = pts.len();
     if n < 3 {

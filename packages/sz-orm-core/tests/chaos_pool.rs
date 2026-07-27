@@ -16,7 +16,9 @@ use std::pin::Pin;
 use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
-use sz_orm_core::{Connection, ConnectionFactory, DbError, Pool, PoolConfig, PoolConfigBuilder, PoolError};
+use sz_orm_core::{
+    Connection, ConnectionFactory, DbError, Pool, PoolConfig, PoolConfigBuilder, PoolError,
+};
 
 // ===================== 测试用 Mock 连接及工厂 =====================
 
@@ -46,7 +48,17 @@ impl Connection for MockConnection {
     fn query<'a>(
         &'a mut self,
         _sql: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<std::collections::HashMap<String, sz_orm_core::Value>>, DbError>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Vec<std::collections::HashMap<String, sz_orm_core::Value>>,
+                        DbError,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async move { Ok(vec![]) })
     }
 
@@ -583,33 +595,80 @@ async fn chaos_pool_health_check_detects_disconnected() {
 
     impl Connection for DisconnectableConnection {
         // (其他方法略——与 is_connected 无关)
-        fn execute<'a>(&'a mut self, _sql: &'a str) -> Pin<Box<dyn Future<Output = Result<u64, DbError>> + Send + 'a>> {
-            if !self.alive.load(Ordering::SeqCst) { Box::pin(async { Err(DbError::ConnectionError("disconnected".into())) }) }
-            else { Box::pin(async { Ok(1) }) }
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, DbError>> + Send + 'a>> {
+            if !self.alive.load(Ordering::SeqCst) {
+                Box::pin(async { Err(DbError::ConnectionError("disconnected".into())) })
+            } else {
+                Box::pin(async { Ok(1) })
+            }
         }
-        fn query<'a>(&'a mut self, _sql: &'a str) -> Pin<Box<dyn Future<Output = Result<Vec<std::collections::HashMap<String, sz_orm_core::Value>>, DbError>> + Send + 'a>> {
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<std::collections::HashMap<String, sz_orm_core::Value>>,
+                            DbError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
             Box::pin(async { Ok(vec![]) })
         }
-        fn begin_transaction<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> { Box::pin(async { Ok(()) }) }
-        fn commit<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> { Box::pin(async { Ok(()) }) }
-        fn rollback<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> { Box::pin(async { Ok(()) }) }
-        fn is_connected(&self) -> bool { self.alive.load(Ordering::SeqCst) }
-        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> { let a = self.alive.clone(); Box::pin(async move { a.load(Ordering::SeqCst) }) }
-        fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> { Box::pin(async { Ok(()) }) }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn is_connected(&self) -> bool {
+            self.alive.load(Ordering::SeqCst)
+        }
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            let a = self.alive.clone();
+            Box::pin(async move { a.load(Ordering::SeqCst) })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
     }
 
-    struct DisconnectableFactory { alive: Arc<AtomicBool> }
+    struct DisconnectableFactory {
+        alive: Arc<AtomicBool>,
+    }
     #[async_trait]
     impl ConnectionFactory for DisconnectableFactory {
         async fn create(&self) -> Result<Box<dyn Connection>, DbError> {
-            Ok(Box::new(DisconnectableConnection { alive: self.alive.clone() }))
+            Ok(Box::new(DisconnectableConnection {
+                alive: self.alive.clone(),
+            }))
         }
     }
 
     let alive = Arc::new(AtomicBool::new(true));
-    let factory = Arc::new(DisconnectableFactory { alive: alive.clone() });
+    let factory = Arc::new(DisconnectableFactory {
+        alive: alive.clone(),
+    });
     let config = PoolConfig {
-        max_size: 10, min_idle: 0,
+        max_size: 10,
+        min_idle: 0,
         acquire_timeout: Duration::from_secs(5),
         idle_timeout: Duration::from_secs(600),
         max_lifetime: Duration::from_secs(3600),
@@ -689,11 +748,7 @@ async fn chaos_pool_factory_failure_no_counter_leak() {
     // 前 3 次 acquire 应全部失败
     for i in 0..3 {
         let result = pool.acquire().await;
-        assert!(
-            result.is_err(),
-            "第 {} 次 acquire 应失败",
-            i + 1,
-        );
+        assert!(result.is_err(), "第 {} 次 acquire 应失败", i + 1,);
     }
 
     // 计数器应归零（失败的创建不泄漏）

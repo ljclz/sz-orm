@@ -131,7 +131,10 @@ impl AesGcmCrypter {
     pub fn encrypt_with_aad(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce_bytes = Self::random_nonce();
         let nonce = Nonce::from_slice(&nonce_bytes);
-        let payload = aes_gcm::aead::Payload { msg: plaintext, aad };
+        let payload = aes_gcm::aead::Payload {
+            msg: plaintext,
+            aad,
+        };
         let ciphertext = self
             .cipher
             .encrypt(nonce, payload)
@@ -318,8 +321,8 @@ impl RsaOaepCrypter {
     /// 生成新的 RSA 密钥对（指定位数，推荐 2048 或 3072）
     pub fn generate(key_bits: usize) -> Result<Self, CryptoError> {
         let mut rng = OsRng;
-        let private_key =
-            RsaPrivateKey::new(&mut rng, key_bits).map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
+        let private_key = RsaPrivateKey::new(&mut rng, key_bits)
+            .map_err(|e| CryptoError::InvalidKey(e.to_string()))?;
         let public_key = RsaPublicKey::from(&private_key);
         Ok(Self {
             public_key,
@@ -395,9 +398,7 @@ pub struct HmacSignatureVerifier {
 impl HmacSignatureVerifier {
     /// 创建签名验证器，从任意长度密钥派生
     pub fn new(key: &[u8]) -> Self {
-        Self {
-            key: key.to_vec(),
-        }
+        Self { key: key.to_vec() }
     }
 
     /// 从字符串密钥创建
@@ -1431,8 +1432,7 @@ mod tests {
 
     #[test]
     fn test_key_manager_needs_rotation_true_after_interval() {
-        let mgr = KeyManager::new(b"k".to_vec())
-            .with_rotation_interval(Duration::from_millis(0));
+        let mgr = KeyManager::new(b"k".to_vec()).with_rotation_interval(Duration::from_millis(0));
         // 间隔为 0，应立即需要轮换
         std::thread::sleep(Duration::from_millis(1));
         assert!(mgr.needs_rotation());
@@ -1440,15 +1440,13 @@ mod tests {
 
     #[test]
     fn test_key_manager_with_rotation_interval() {
-        let mgr = KeyManager::new(b"k".to_vec())
-            .with_rotation_interval(Duration::from_secs(60));
+        let mgr = KeyManager::new(b"k".to_vec()).with_rotation_interval(Duration::from_secs(60));
         assert!(!mgr.needs_rotation());
     }
 
     #[test]
     fn test_key_manager_rotate_resets_last_rotation() {
-        let mgr = KeyManager::new(b"k".to_vec())
-            .with_rotation_interval(Duration::from_millis(1));
+        let mgr = KeyManager::new(b"k".to_vec()).with_rotation_interval(Duration::from_millis(1));
         std::thread::sleep(Duration::from_millis(5));
         assert!(mgr.needs_rotation());
         mgr.rotate(b"k2".to_vec()).unwrap();

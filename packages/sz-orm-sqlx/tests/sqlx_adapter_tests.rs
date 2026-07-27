@@ -338,7 +338,10 @@ async fn test_sqlx_sqlite_execute_with_params_insert() {
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].get("name"), Some(&Value::String("alice".to_string())));
+    assert_eq!(
+        rows[0].get("name"),
+        Some(&Value::String("alice".to_string()))
+    );
     // SQLite 将所有 INTEGER 存为 i64
     assert_eq!(rows[0].get("age"), Some(&Value::I64(30)));
 }
@@ -423,10 +426,7 @@ async fn test_sqlx_sqlite_execute_with_params_update_and_delete() {
 
     // 参数绑定 DELETE
     let affected = conn
-        .execute_with_params(
-            "DELETE FROM t_ud WHERE id = ?",
-            &[Value::I64(2)],
-        )
+        .execute_with_params("DELETE FROM t_ud WHERE id = ?", &[Value::I64(2)])
         .await
         .unwrap();
     assert_eq!(affected, 1, "DELETE should affect 1 row");

@@ -152,7 +152,8 @@ impl SchemaGenerator {
                 && !self.model_derives.is_empty()
                 && self.model_derives.contains("serde::")
             {
-                writeln!(out, "use serde::{{Serialize, Deserialize}};").expect("write to String is infallible");
+                writeln!(out, "use serde::{{Serialize, Deserialize}};")
+                    .expect("write to String is infallible");
             }
             writeln!(out).expect("write to String is infallible");
         }
@@ -163,7 +164,8 @@ impl SchemaGenerator {
                 if idx > 0 {
                     writeln!(out).expect("write to String is infallible");
                 }
-                write!(out, "{}", self.render_model_struct(table)).expect("write to String is infallible");
+                write!(out, "{}", self.render_model_struct(table))
+                    .expect("write to String is infallible");
             }
             // Model struct 与 typed_query! 之间空一行
             if !tables.is_empty() {
@@ -189,7 +191,8 @@ impl SchemaGenerator {
         writeln!(out, "typed_query! {{").expect("write to String is infallible");
         writeln!(out, "    table {} {{", table.name).expect("write to String is infallible");
         for col in &table.columns {
-            writeln!(out, "        {}: {},", col.name, col.rust_type).expect("write to String is infallible");
+            writeln!(out, "        {}: {},", col.name, col.rust_type)
+                .expect("write to String is infallible");
         }
         writeln!(out, "    }}").expect("write to String is infallible");
         writeln!(out, "}}").expect("write to String is infallible");
@@ -205,13 +208,15 @@ impl SchemaGenerator {
         let mut out = String::new();
         // 派生属性
         if !self.model_derives.is_empty() {
-            writeln!(out, "#[derive({})]", self.model_derives).expect("write to String is infallible");
+            writeln!(out, "#[derive({})]", self.model_derives)
+                .expect("write to String is infallible");
         }
         // 表名注解（便于 ORM 框架映射到具体表）
         writeln!(out, "#[table_name = \"{}\"]", table.name).expect("write to String is infallible");
         writeln!(out, "pub struct {} {{", struct_name).expect("write to String is infallible");
         for col in &table.columns {
-            writeln!(out, "    pub {}: {},", col.name, col.rust_type).expect("write to String is infallible");
+            writeln!(out, "    pub {}: {},", col.name, col.rust_type)
+                .expect("write to String is infallible");
         }
         writeln!(out, "}}").expect("write to String is infallible");
         out

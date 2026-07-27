@@ -441,7 +441,10 @@ impl FieldBoost {
 
     /// 获取字段权重
     pub fn get_boost(&self, field: &str) -> f64 {
-        self.boosts.get(field).copied().unwrap_or(self.default_boost)
+        self.boosts
+            .get(field)
+            .copied()
+            .unwrap_or(self.default_boost)
     }
 
     /// 转为 ES multi_match 配置 JSON
@@ -872,8 +875,7 @@ mod tests {
 
     #[test]
     fn test_tokenizer_config_to_es_json() {
-        let config = TokenizerConfig::standard()
-            .with_stop_words(vec!["the".to_string()]);
+        let config = TokenizerConfig::standard().with_stop_words(vec!["the".to_string()]);
         let json = config.to_es_analyzer_config();
         assert_eq!(json["type"], "standard");
         assert!(json["stopwords"].is_array());
@@ -915,11 +917,17 @@ mod tests {
 
     #[test]
     fn test_tokenizer_stop_words() {
-        let config = TokenizerConfig::standard()
-            .with_stop_words(vec!["the".to_string(), "a".to_string(), "an".to_string()]);
+        let config = TokenizerConfig::standard().with_stop_words(vec![
+            "the".to_string(),
+            "a".to_string(),
+            "an".to_string(),
+        ]);
         let tk = Tokenizer::new(config);
         let tokens = tk.tokenize("the quick brown fox a lazy dog an apple");
-        assert_eq!(tokens, vec!["quick", "brown", "fox", "lazy", "dog", "apple"]);
+        assert_eq!(
+            tokens,
+            vec!["quick", "brown", "fox", "lazy", "dog", "apple"]
+        );
     }
 
     #[test]
@@ -1052,9 +1060,13 @@ mod tests {
         fs.index_doc("docs", "2", &json!({"title": "go", "category": "tech"}))
             .await
             .unwrap();
-        fs.index_doc("docs", "3", &json!({"title": "cooking", "category": "food"}))
-            .await
-            .unwrap();
+        fs.index_doc(
+            "docs",
+            "3",
+            &json!({"title": "cooking", "category": "food"}),
+        )
+        .await
+        .unwrap();
 
         let query = SearchQuery::match_all();
         let facets = vec![FacetField::new("category")];
@@ -1085,15 +1097,27 @@ mod tests {
     async fn test_memory_faceted_search_with_query() {
         let fs = MemoryFacetedSearch::from_new();
         fs.create_index("docs", &json!({})).await.unwrap();
-        fs.index_doc("docs", "1", &json!({"title": "rust intro", "category": "tech"}))
-            .await
-            .unwrap();
-        fs.index_doc("docs", "2", &json!({"title": "rust advanced", "category": "tech"}))
-            .await
-            .unwrap();
-        fs.index_doc("docs", "3", &json!({"title": "cooking", "category": "food"}))
-            .await
-            .unwrap();
+        fs.index_doc(
+            "docs",
+            "1",
+            &json!({"title": "rust intro", "category": "tech"}),
+        )
+        .await
+        .unwrap();
+        fs.index_doc(
+            "docs",
+            "2",
+            &json!({"title": "rust advanced", "category": "tech"}),
+        )
+        .await
+        .unwrap();
+        fs.index_doc(
+            "docs",
+            "3",
+            &json!({"title": "cooking", "category": "food"}),
+        )
+        .await
+        .unwrap();
 
         // 搜索 "rust"：应命中 2 条 tech 类文档
         let query = SearchQuery::new("rust");
@@ -1114,27 +1138,36 @@ mod tests {
     async fn test_memory_faceted_search_multi_fields() {
         let fs = MemoryFacetedSearch::from_new();
         fs.create_index("docs", &json!({})).await.unwrap();
-        fs.index_doc("docs", "1", &json!({"title": "a", "category": "tech", "lang": "rust"}))
-            .await
-            .unwrap();
-        fs.index_doc("docs", "2", &json!({"title": "b", "category": "tech", "lang": "go"}))
-            .await
-            .unwrap();
-        fs.index_doc("docs", "3", &json!({"title": "c", "category": "food", "lang": "rust"}))
-            .await
-            .unwrap();
+        fs.index_doc(
+            "docs",
+            "1",
+            &json!({"title": "a", "category": "tech", "lang": "rust"}),
+        )
+        .await
+        .unwrap();
+        fs.index_doc(
+            "docs",
+            "2",
+            &json!({"title": "b", "category": "tech", "lang": "go"}),
+        )
+        .await
+        .unwrap();
+        fs.index_doc(
+            "docs",
+            "3",
+            &json!({"title": "c", "category": "food", "lang": "rust"}),
+        )
+        .await
+        .unwrap();
 
         let query = SearchQuery::match_all();
-        let facets = vec![
-            FacetField::new("category"),
-            FacetField::new("lang"),
-        ];
+        let facets = vec![FacetField::new("category"), FacetField::new("lang")];
         let result = fs.faceted_search("docs", &query, &facets).await.unwrap();
 
         assert_eq!(result.facets.len(), 2);
         // category 分面
         assert_eq!(result.facets[0].values.len(), 2); // tech, food
-        // lang 分面
+                                                      // lang 分面
         assert_eq!(result.facets[1].values.len(), 2); // rust, go
     }
 

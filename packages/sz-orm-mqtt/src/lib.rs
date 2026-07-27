@@ -17,10 +17,10 @@ pub mod broker;
 pub mod error;
 pub mod qos;
 pub mod qos2;
-pub mod topics;
-pub mod will;
 pub mod retained;
 pub mod shared;
+pub mod topics;
+pub mod will;
 
 pub use error::MqttError;
 

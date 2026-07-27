@@ -222,9 +222,8 @@ pub fn derive_schema_impl(input: DeriveInput) -> TokenStream2 {
     };
 
     // 解析 #[table(name = "...")]，默认使用结构体名（小写、蛇形）
-    let table_name = parse_table_attr(&input.attrs).unwrap_or_else(|| {
-        to_snake_case(&struct_name.to_string())
-    });
+    let table_name =
+        parse_table_attr(&input.attrs).unwrap_or_else(|| to_snake_case(&struct_name.to_string()));
 
     trace_diag("derive(Schema)", &format!("table_name = {}", table_name));
 
@@ -297,7 +296,10 @@ pub fn derive_schema_impl(input: DeriveInput) -> TokenStream2 {
 /// 接收已解析的 `DeriveInput`，返回 `proc_macro2::TokenStream`，
 /// 便于在单元测试中直接调用（不依赖 proc_macro 上下文）。
 pub fn derive_builder_impl(input: DeriveInput) -> TokenStream2 {
-    trace_diag("derive(Builder)", &format!("target struct: {}", input.ident));
+    trace_diag(
+        "derive(Builder)",
+        &format!("target struct: {}", input.ident),
+    );
 
     let struct_name = &input.ident;
     let builder_name = format_ident!("{}Builder", struct_name);

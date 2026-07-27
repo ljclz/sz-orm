@@ -13,12 +13,12 @@
 //! - [`subprotocol`] — 子协议协商
 //! - [`server`] — WebSocket 服务端（feature = "server"）
 
+pub mod compression;
 pub mod error;
 pub mod handler;
-pub mod pusher;
 pub mod heartbeat;
 pub mod pool;
-pub mod compression;
+pub mod pusher;
 pub mod subprotocol;
 
 pub use error::WsError;

@@ -153,7 +153,11 @@ async fn oracle_crud_benchmark() {
         let mut conn = pool.acquire().await.expect("acquire");
         let sql = format!("SELECT id, name, email, age FROM {}", table);
         let (columns, values_matrix) = conn.query_values(&sql).await.expect("query_values");
-        assert_eq!(values_matrix.len(), ROW_COUNT, "SELECT ALL should return all rows");
+        assert_eq!(
+            values_matrix.len(),
+            ROW_COUNT,
+            "SELECT ALL should return all rows"
+        );
         assert_eq!(columns.len(), 4, "should have 4 columns");
     }
     let elapsed = start.elapsed();
@@ -171,7 +175,10 @@ async fn oracle_crud_benchmark() {
             .query_values_with_params(&sql, &[Value::I64(i as i64)])
             .await
             .expect("query_values_with_params");
-        assert!(!values_matrix.is_empty(), "SELECT BY ID should return 1 row");
+        assert!(
+            !values_matrix.is_empty(),
+            "SELECT BY ID should return 1 row"
+        );
     }
     let elapsed = start.elapsed();
     let per_op = elapsed / select_count as u32;
@@ -220,7 +227,10 @@ async fn oracle_crud_benchmark() {
     let start = Instant::now();
     for i in 0..insert_count {
         let mut conn = pool.acquire().await.expect("acquire");
-        let sql = format!("INSERT INTO {} (name, email, age) VALUES (:1, :2, :3)", table);
+        let sql = format!(
+            "INSERT INTO {} (name, email, age) VALUES (:1, :2, :3)",
+            table
+        );
         let name = format!("new_user_{}", i);
         let email = format!("new_user_{}@test.com", i);
         let age = (i % 100) as i64;

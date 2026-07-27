@@ -57,7 +57,11 @@ pub struct Components {
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub schemas: HashMap<String, Schema>,
     /// 可复用的 SecurityScheme 定义
-    #[serde(rename = "securitySchemes", default, skip_serializing_if = "HashMap::is_empty")]
+    #[serde(
+        rename = "securitySchemes",
+        default,
+        skip_serializing_if = "HashMap::is_empty"
+    )]
     pub security_schemes: HashMap<String, SecurityScheme>,
 }
 
@@ -683,7 +687,11 @@ pub enum SecurityScheme {
         /// 认证方案：`basic` 或 `bearer`
         scheme: String,
         /// Bearer 格式（仅 scheme=bearer 时使用，如 `JWT`）
-        #[serde(rename = "bearerFormat", default, skip_serializing_if = "Option::is_none")]
+        #[serde(
+            rename = "bearerFormat",
+            default,
+            skip_serializing_if = "Option::is_none"
+        )]
         bearer_format: Option<String>,
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
@@ -768,11 +776,7 @@ impl SecurityScheme {
                 bearer_format,
                 description: Some(desc.to_string()),
             },
-            Self::ApiKey {
-                name,
-                location,
-                ..
-            } => Self::ApiKey {
+            Self::ApiKey { name, location, .. } => Self::ApiKey {
                 name,
                 location,
                 description: Some(desc.to_string()),
@@ -838,7 +842,11 @@ impl OAuth2Flows {
 pub struct ImplicitFlow {
     #[serde(rename = "authorizationUrl")]
     pub authorization_url: String,
-    #[serde(rename = "refreshUrl", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "refreshUrl",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub refresh_url: Option<String>,
     pub scopes: HashMap<String, String>,
 }
@@ -848,7 +856,11 @@ pub struct ImplicitFlow {
 pub struct PasswordFlow {
     #[serde(rename = "tokenUrl")]
     pub token_url: String,
-    #[serde(rename = "refreshUrl", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "refreshUrl",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub refresh_url: Option<String>,
     pub scopes: HashMap<String, String>,
 }
@@ -858,7 +870,11 @@ pub struct PasswordFlow {
 pub struct ClientCredentialsFlow {
     #[serde(rename = "tokenUrl")]
     pub token_url: String,
-    #[serde(rename = "refreshUrl", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "refreshUrl",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub refresh_url: Option<String>,
     pub scopes: HashMap<String, String>,
 }
@@ -870,7 +886,11 @@ pub struct AuthorizationCodeFlow {
     pub authorization_url: String,
     #[serde(rename = "tokenUrl")]
     pub token_url: String,
-    #[serde(rename = "refreshUrl", default, skip_serializing_if = "Option::is_none")]
+    #[serde(
+        rename = "refreshUrl",
+        default,
+        skip_serializing_if = "Option::is_none"
+    )]
     pub refresh_url: Option<String>,
     pub scopes: HashMap<String, String>,
 }
@@ -1051,21 +1071,17 @@ impl ExampleBuilder {
         match p.schema_type.as_str() {
             "string" => match p.format.as_deref() {
                 Some("date") => serde_json::Value::String("2026-01-01".to_string()),
-                Some("date-time") => {
-                    serde_json::Value::String("2026-01-01T00:00:00Z".to_string())
+                Some("date-time") => serde_json::Value::String("2026-01-01T00:00:00Z".to_string()),
+                Some("email") => serde_json::Value::String("user@example.com".to_string()),
+                Some("uuid") => {
+                    serde_json::Value::String("550e8400-e29b-41d4-a716-446655440000".to_string())
                 }
-                Some("email") => {
-                    serde_json::Value::String("user@example.com".to_string())
-                }
-                Some("uuid") => serde_json::Value::String(
-                    "550e8400-e29b-41d4-a716-446655440000".to_string(),
-                ),
                 Some("uri") => serde_json::Value::String("https://example.com".to_string()),
                 _ => serde_json::Value::String("string".to_string()),
             },
-            "integer" => serde_json::Value::Number(
-                serde_json::Number::from(p.minimum.unwrap_or(0.0) as i64),
-            ),
+            "integer" => {
+                serde_json::Value::Number(serde_json::Number::from(p.minimum.unwrap_or(0.0) as i64))
+            }
             "number" => serde_json::json!(p.minimum.unwrap_or(0.0)),
             "boolean" => serde_json::Value::Bool(false),
             _ => serde_json::Value::Null,
@@ -1770,10 +1786,14 @@ mod tests {
     fn test_tag_builder() {
         let tag = Tag::new("users")
             .with_description("User management endpoints")
-            .with_external_docs(ExternalDocs::new("https://example.com/docs/users")
-                .with_description("User docs"));
+            .with_external_docs(
+                ExternalDocs::new("https://example.com/docs/users").with_description("User docs"),
+            );
         assert_eq!(tag.name, "users");
-        assert_eq!(tag.description.as_deref(), Some("User management endpoints"));
+        assert_eq!(
+            tag.description.as_deref(),
+            Some("User management endpoints")
+        );
         assert!(tag.external_docs.is_some());
         assert_eq!(
             tag.external_docs.as_ref().unwrap().url,
@@ -1799,7 +1819,11 @@ mod tests {
                 "env",
                 ServerVariable::new("api")
                     .with_description("Environment name")
-                    .with_enum(vec!["api".to_string(), "staging".to_string(), "prod".to_string()]),
+                    .with_enum(vec![
+                        "api".to_string(),
+                        "staging".to_string(),
+                        "prod".to_string(),
+                    ]),
             );
         assert_eq!(server.url, "https://{env}.example.com");
         assert_eq!(
@@ -1988,16 +2012,19 @@ mod tests {
 
     #[test]
     fn test_generator_with_global_security() {
-        let g = OpenAPIGenerator::new()
-            .with_global_security(SecurityRequirement::new("bearerAuth"));
+        let g =
+            OpenAPIGenerator::new().with_global_security(SecurityRequirement::new("bearerAuth"));
         let spec = g.generate();
         assert_eq!(spec.security.len(), 1);
     }
 
     #[test]
     fn test_path_info_with_request_body() {
-        let p = PathInfo::new("POST", "Create user")
-            .with_request_body_ref("User payload", "#/components/schemas/User", true);
+        let p = PathInfo::new("POST", "Create user").with_request_body_ref(
+            "User payload",
+            "#/components/schemas/User",
+            true,
+        );
         assert!(p.request_body.is_some());
         let body = p.request_body.unwrap();
         assert!(body.required);
@@ -2047,19 +2074,23 @@ mod tests {
 
     #[test]
     fn test_path_info_with_response_schema() {
-        let p = PathInfo::new("GET", "Get user")
-            .with_response_schema("200", "OK", "#/components/schemas/User");
+        let p = PathInfo::new("GET", "Get user").with_response_schema(
+            "200",
+            "OK",
+            "#/components/schemas/User",
+        );
         let resp = &p.responses["200"];
         assert_eq!(resp["description"], "OK");
-        assert_eq!(resp["content"]["application/json"]["schema"]["$ref"], "#/components/schemas/User");
+        assert_eq!(
+            resp["content"]["application/json"]["schema"]["$ref"],
+            "#/components/schemas/User"
+        );
     }
 
     #[test]
     fn test_security_requirement_with_scopes() {
-        let req = SecurityRequirement::new("oauth2").with_scopes(
-            "oauth2",
-            vec!["read".to_string(), "write".to_string()],
-        );
+        let req = SecurityRequirement::new("oauth2")
+            .with_scopes("oauth2", vec!["read".to_string(), "write".to_string()]);
         assert_eq!(req.requirements.len(), 1);
         let scopes = req.requirements.get("oauth2").unwrap();
         assert_eq!(scopes.len(), 2);
@@ -2147,7 +2178,10 @@ mod tests {
         assert!(parsed["paths"]["/users"]["get"].is_object());
         assert!(parsed["paths"]["/users"]["post"].is_object());
         assert_eq!(parsed["paths"]["/users"]["get"]["operationId"], "listUsers");
-        assert_eq!(parsed["paths"]["/users"]["post"]["operationId"], "createUser");
+        assert_eq!(
+            parsed["paths"]["/users"]["post"]["operationId"],
+            "createUser"
+        );
     }
 
     #[test]
@@ -2199,6 +2233,8 @@ mod tests {
         assert_eq!(json["type"], "object");
         assert_eq!(json["description"], "empty");
         // 默认 fields() 返回空，properties 不应出现
-        assert!(json.get("properties").is_none() || json["properties"].as_object().unwrap().is_empty());
+        assert!(
+            json.get("properties").is_none() || json["properties"].as_object().unwrap().is_empty()
+        );
     }
 }

@@ -462,11 +462,7 @@ impl InMemoryQueue {
     /// 如果 topic 不存在死信队列，返回 0。
     pub async fn dead_letter_count(&self, topic: &str) -> usize {
         let inner = self.inner.read().await;
-        inner
-            .dead_letters
-            .get(topic)
-            .map(|q| q.len())
-            .unwrap_or(0)
+        inner.dead_letters.get(topic).map(|q| q.len()).unwrap_or(0)
     }
 
     /// 消费一条死信消息（从死信队列头部弹出）
@@ -681,11 +677,7 @@ impl InMemoryQueue {
     /// 阻塞模式 publish：队列满时等待，直到有空间
     ///
     /// 用于 Block 策略。使用 `tokio::sync::Notify` 实现等待/通知。
-    async fn publish_with_block(
-        &self,
-        topic: &str,
-        message: &[u8],
-    ) -> Result<(), MqError> {
+    async fn publish_with_block(&self, topic: &str, message: &[u8]) -> Result<(), MqError> {
         loop {
             let notify = {
                 let mut inner = self.inner.write().await;
@@ -1026,7 +1018,10 @@ mod tests {
             .consume_dead_letter("topic")
             .await
             .expect("should have dead letter");
-        assert_eq!(dlq_msg.retry_count, 0, "reject should not increment retry_count");
+        assert_eq!(
+            dlq_msg.retry_count, 0,
+            "reject should not increment retry_count"
+        );
     }
 
     /// reject 不存在的 message_id 返回错误
@@ -1083,9 +1078,15 @@ mod tests {
         queue.reject(&m2.id).await.unwrap();
 
         // FIFO 顺序
-        let d1 = queue.consume_dead_letter("topic").await.expect("should have dead letter");
+        let d1 = queue
+            .consume_dead_letter("topic")
+            .await
+            .expect("should have dead letter");
         assert_eq!(d1.payload, b"first");
-        let d2 = queue.consume_dead_letter("topic").await.expect("should have dead letter");
+        let d2 = queue
+            .consume_dead_letter("topic")
+            .await
+            .expect("should have dead letter");
         assert_eq!(d2.payload, b"second");
 
         // 死信队列已空
@@ -1124,7 +1125,10 @@ mod tests {
         // 验证 retry_count 已重置
         let m3 = queue.consume("topic").await.unwrap().unwrap();
         assert_eq!(m3.id, m1.id);
-        assert_eq!(m3.retry_count, 0, "retry_count should be reset after requeue");
+        assert_eq!(
+            m3.retry_count, 0,
+            "retry_count should be reset after requeue"
+        );
     }
 
     /// requeue_dead_letter 对不存在的 message_id 返回错误
@@ -1229,12 +1233,16 @@ mod tests {
             if attempt >= self.succeed_on_attempt {
                 Ok(())
             } else {
-                Err(MqError::Connection("simulated connection error".to_string()))
+                Err(MqError::Connection(
+                    "simulated connection error".to_string(),
+                ))
             }
         }
 
         async fn consume(&self, _topic: &str) -> Result<Option<Message>, MqError> {
-            Err(MqError::Connection("simulated connection error".to_string()))
+            Err(MqError::Connection(
+                "simulated connection error".to_string(),
+            ))
         }
 
         async fn ack(&self, _message_id: &str) -> Result<(), MqError> {
@@ -1273,13 +1281,12 @@ mod tests {
     async fn test_reconnect_retries_on_connection_error() {
         // 第 3 次调用成功（前 2 次失败）
         let failing = FailingQueue::new(3);
-        let wrapper = QueueWrapper::with_queue(Box::new(failing))
-            .with_reconnect(ReconnectPolicy {
-                max_retries: 5,
-                initial_delay_ms: 1, // 测试用短延迟
-                max_delay_ms: 10,
-                multiplier: 2.0,
-            });
+        let wrapper = QueueWrapper::with_queue(Box::new(failing)).with_reconnect(ReconnectPolicy {
+            max_retries: 5,
+            initial_delay_ms: 1, // 测试用短延迟
+            max_delay_ms: 10,
+            multiplier: 2.0,
+        });
 
         let result = wrapper.publish("topic", b"data").await;
         assert!(result.is_ok(), "should succeed after retries");
@@ -1290,13 +1297,12 @@ mod tests {
     async fn test_reconnect_gives_up_after_max_retries() {
         // 永不成功
         let failing = FailingQueue::new(u32::MAX);
-        let wrapper = QueueWrapper::with_queue(Box::new(failing))
-            .with_reconnect(ReconnectPolicy {
-                max_retries: 2,
-                initial_delay_ms: 1,
-                max_delay_ms: 10,
-                multiplier: 2.0,
-            });
+        let wrapper = QueueWrapper::with_queue(Box::new(failing)).with_reconnect(ReconnectPolicy {
+            max_retries: 2,
+            initial_delay_ms: 1,
+            max_delay_ms: 10,
+            multiplier: 2.0,
+        });
 
         let result = wrapper.publish("topic", b"data").await;
         assert!(result.is_err());
@@ -1309,8 +1315,8 @@ mod tests {
     /// 重连：非 Connection 错误不触发重试
     #[tokio::test]
     async fn test_reconnect_no_retry_on_non_connection_error() {
-        let wrapper = QueueWrapper::with_queue(Box::new(PublishErrorQueue))
-            .with_reconnect(ReconnectPolicy {
+        let wrapper =
+            QueueWrapper::with_queue(Box::new(PublishErrorQueue)).with_reconnect(ReconnectPolicy {
                 max_retries: 5,
                 initial_delay_ms: 1,
                 max_delay_ms: 10,
@@ -1399,9 +1405,7 @@ mod tests {
 
         // 在另一个任务中尝试 publish（应阻塞）
         let queue_clone = queue.clone();
-        let handle = tokio::spawn(async move {
-            queue_clone.publish("topic", b"m2").await
-        });
+        let handle = tokio::spawn(async move { queue_clone.publish("topic", b"m2").await });
 
         // 等待 50ms，确认任务仍在阻塞
         tokio::time::sleep(Duration::from_millis(50)).await;
@@ -1432,11 +1436,8 @@ mod tests {
         queue.publish("topic", b"m1").await.unwrap();
 
         // 尝试 publish，应阻塞；用 timeout 验证它不会立即返回
-        let result = tokio::time::timeout(
-            Duration::from_millis(100),
-            queue.publish("topic", b"m2"),
-        )
-        .await;
+        let result =
+            tokio::time::timeout(Duration::from_millis(100), queue.publish("topic", b"m2")).await;
 
         // 应超时（队列持续满）
         assert!(result.is_err(), "publish should block and time out");
@@ -1458,9 +1459,7 @@ mod tests {
         // topic-a 满，topic-b 满
         // 向 topic-a publish 应阻塞
         let queue_clone = queue.clone();
-        let handle = tokio::spawn(async move {
-            queue_clone.publish("topic-a", b"a2").await
-        });
+        let handle = tokio::spawn(async move { queue_clone.publish("topic-a", b"a2").await });
 
         tokio::time::sleep(Duration::from_millis(50)).await;
         assert!(!handle.is_finished(), "topic-a publish should be blocked");
@@ -1468,7 +1467,10 @@ mod tests {
         // consume topic-b 不应解除 topic-a 的阻塞
         queue.consume("topic-b").await.unwrap();
         tokio::time::sleep(Duration::from_millis(50)).await;
-        assert!(!handle.is_finished(), "topic-a publish should still be blocked after topic-b consume");
+        assert!(
+            !handle.is_finished(),
+            "topic-a publish should still be blocked after topic-b consume"
+        );
 
         // consume topic-a 才能解除阻塞
         queue.consume("topic-a").await.unwrap();

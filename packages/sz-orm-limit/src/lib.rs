@@ -434,13 +434,15 @@ impl RateLimiter for FixedWindowRateLimiter {
         if entry.count < self.max_requests {
             entry.count += 1;
             let remaining = self.max_requests - entry.count;
-            let reset_at =
-                now_timestamp() + self.window_size.as_millis() as i64;
+            let reset_at = now_timestamp() + self.window_size.as_millis() as i64;
             Ok(RateLimitResult::allowed(remaining, reset_at))
         } else {
             // 计算窗口重置时间
             let elapsed = now.duration_since(entry.window_start);
-            let remaining_window = self.window_size.checked_sub(elapsed).unwrap_or(Duration::ZERO);
+            let remaining_window = self
+                .window_size
+                .checked_sub(elapsed)
+                .unwrap_or(Duration::ZERO);
             let reset_at = now_timestamp() + remaining_window.as_millis() as i64;
             Ok(RateLimitResult::rejected(0, reset_at))
         }
@@ -590,11 +592,7 @@ impl DistributedRateLimiter {
     /// - `backend`：分布式后端（如 `InMemoryBackend`）
     /// - `max_requests`：每个窗口内允许的最大请求数
     /// - `window_secs`：窗口大小（秒）
-    pub fn new(
-        backend: Arc<dyn DistributedBackend>,
-        max_requests: u64,
-        window_secs: u64,
-    ) -> Self {
+    pub fn new(backend: Arc<dyn DistributedBackend>, max_requests: u64, window_secs: u64) -> Self {
         Self {
             backend,
             max_requests,
@@ -611,12 +609,9 @@ impl DistributedRateLimiter {
 impl RateLimiter for DistributedRateLimiter {
     fn acquire(&self, key: &str) -> Result<RateLimitResult, RateLimitError> {
         let window_start = now_secs();
-        let (count, reset_at) = self.backend.incr_and_get(
-            key,
-            self.window_secs,
-            window_start,
-            self.max_requests,
-        )?;
+        let (count, reset_at) =
+            self.backend
+                .incr_and_get(key, self.window_secs, window_start, self.max_requests)?;
 
         if count <= self.max_requests {
             let remaining = self.max_requests - count;
@@ -1217,8 +1212,12 @@ mod tests {
         let headers = RateLimitHeaders::from_result(&result, 10);
         let hdrs = headers.to_headers();
         assert_eq!(hdrs.len(), 3); // 不包含 Retry-After
-        assert!(hdrs.iter().any(|(k, v)| k == "X-RateLimit-Limit" && v == "10"));
-        assert!(hdrs.iter().any(|(k, v)| k == "X-RateLimit-Remaining" && v == "5"));
+        assert!(hdrs
+            .iter()
+            .any(|(k, v)| k == "X-RateLimit-Limit" && v == "10"));
+        assert!(hdrs
+            .iter()
+            .any(|(k, v)| k == "X-RateLimit-Remaining" && v == "5"));
     }
 
     #[test]
@@ -1250,7 +1249,10 @@ mod tests {
 
     #[test]
     fn test_rate_limit_response_strategy_status_codes() {
-        assert_eq!(RateLimitResponseStrategy::TooManyRequests.status_code(), 429);
+        assert_eq!(
+            RateLimitResponseStrategy::TooManyRequests.status_code(),
+            429
+        );
         assert_eq!(
             RateLimitResponseStrategy::ServiceUnavailable.status_code(),
             503
@@ -1261,11 +1263,8 @@ mod tests {
     #[test]
     fn test_rate_limit_response_rejected() {
         let result = RateLimitResult::rejected(0, now_secs() * 1000 + 60000);
-        let response = RateLimitResponse::rejected(
-            &result,
-            10,
-            RateLimitResponseStrategy::TooManyRequests,
-        );
+        let response =
+            RateLimitResponse::rejected(&result, 10, RateLimitResponseStrategy::TooManyRequests);
         assert_eq!(response.status_code, 429);
         assert_eq!(response.body["error"], "rate_limit_exceeded");
         assert!(response.body["retry_after"].as_u64().unwrap() > 0);

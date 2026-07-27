@@ -363,7 +363,11 @@ mod tests {
         let mut reg = SubProtocolRegistry::new();
         reg.register_many(&["json", "protobuf"]);
 
-        let client = vec!["xml".to_string(), "json".to_string(), "protobuf".to_string()];
+        let client = vec![
+            "xml".to_string(),
+            "json".to_string(),
+            "protobuf".to_string(),
+        ];
         let result = reg.negotiate(&client);
         assert_eq!(result, Some("json".to_string()));
     }
@@ -504,9 +508,7 @@ mod tests {
         let not_requested = NegotiationOutcome::NotRequested;
         assert_eq!(not_requested.header_value(), None);
 
-        let no_match = NegotiationOutcome::NoMatch {
-            requested: vec![],
-        };
+        let no_match = NegotiationOutcome::NoMatch { requested: vec![] };
         assert_eq!(no_match.header_value(), None);
     }
 

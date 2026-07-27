@@ -31,7 +31,9 @@ use std::process::ExitCode;
 
 use serde::Deserialize;
 use sz_orm_core::dialect::get_dialect;
-use sz_orm_core::{Connection, DbType, FileMigrationResolver, MigrationContext, MigrationResolver, Migrator};
+use sz_orm_core::{
+    Connection, DbType, FileMigrationResolver, MigrationContext, MigrationResolver, Migrator,
+};
 use sz_orm_sql_validator::validate;
 
 const VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -154,7 +156,12 @@ fn extract_config<'a>(args: &'a [&'a str]) -> (Option<CliConfig>, Vec<&'a str>) 
 }
 
 /// 合并配置文件默认值与命令行参数（命令行优先）
-fn resolve_option(args: &[&str], key: &str, config: &Option<CliConfig>, extractor: fn(&CliConfig) -> &Option<String>) -> Option<String> {
+fn resolve_option(
+    args: &[&str],
+    key: &str,
+    config: &Option<CliConfig>,
+    extractor: fn(&CliConfig) -> &Option<String>,
+) -> Option<String> {
     if let Some(v) = parse_option(args, key) {
         return Some(v);
     }
@@ -168,9 +175,12 @@ fn resolve_db_type(args: &[&str], config: &Option<CliConfig>) -> Result<Option<D
     let raw = resolve_option(args, "--db-type", config, |c| &c.db_type);
     match raw {
         None => Ok(None),
-        Some(s) => DbType::from_str(&s)
-            .map(Some)
-            .ok_or_else(|| format!("未知数据库类型: {}（支持 mysql/postgres/sqlite/oracle/mssql 等）", s)),
+        Some(s) => DbType::from_str(&s).map(Some).ok_or_else(|| {
+            format!(
+                "未知数据库类型: {}（支持 mysql/postgres/sqlite/oracle/mssql 等）",
+                s
+            )
+        }),
     }
 }
 
@@ -270,7 +280,8 @@ fn cmd_migrate(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> 
     let migrations = load_migrations(&migrations_dir)?;
 
     // 打印待执行迁移（借用 migrations，不消耗所有权）
-    let pending: Vec<&sz_orm_core::Migration> = migrations.iter().filter(|m| m.batch == 0).collect();
+    let pending: Vec<&sz_orm_core::Migration> =
+        migrations.iter().filter(|m| m.batch == 0).collect();
     if pending.is_empty() {
         println!("无待执行迁移（所有迁移均已应用）");
         return Ok(());
@@ -342,8 +353,9 @@ fn cmd_migrate(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> 
 fn cmd_migrate_rollback(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
     let migrations_dir = resolve_option(args, "--migrations", config, |c| &c.migrations_dir)
         .unwrap_or_else(|| "./migrations".to_string());
-    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn)
-        .ok_or_else(|| "migrate:rollback 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string())?;
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn).ok_or_else(|| {
+        "migrate:rollback 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string()
+    })?;
     let db_type = resolve_db_type(args, config)?;
 
     let migrations = load_migrations(&migrations_dir)?;
@@ -395,8 +407,9 @@ fn cmd_migrate_rollback(args: &[&str], config: &Option<CliConfig>) -> Result<(),
 fn cmd_migrate_fresh(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
     let migrations_dir = resolve_option(args, "--migrations", config, |c| &c.migrations_dir)
         .unwrap_or_else(|| "./migrations".to_string());
-    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn)
-        .ok_or_else(|| "migrate:fresh 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string())?;
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn).ok_or_else(|| {
+        "migrate:fresh 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string()
+    })?;
     let db_type = resolve_db_type(args, config)?;
     let dry_run = args.contains(&"--dry-run");
 
@@ -608,7 +621,12 @@ fn cmd_make_model(args: &[&str], config: &Option<CliConfig>) -> Result<(), Strin
     fs::write(&path, code).map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
 
     println!("已生成 Model:");
-    println!("  - {} (表: {}, 主键类型: {})", path.display(), table, pk_type);
+    println!(
+        "  - {} (表: {}, 主键类型: {})",
+        path.display(),
+        table,
+        pk_type
+    );
     Ok(())
 }
 
@@ -631,7 +649,10 @@ fn render_skeleton_model(name: &str, table: &str, pk_type: &str) -> String {
 
     // get_column_value 中 id 的表达式（String 主键需 clone）
     let id_get_expr = if is_string_pk {
-        format!("            \"id\" => Some({}(self.id.clone())),", value_variant)
+        format!(
+            "            \"id\" => Some({}(self.id.clone())),",
+            value_variant
+        )
     } else {
         format!("            \"id\" => Some({}(self.id)),", value_variant)
     };
@@ -780,8 +801,9 @@ fn cmd_make_seeder(args: &[&str], config: &Option<CliConfig>) -> Result<(), Stri
 fn cmd_seed(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
     let seeders_dir = resolve_option(args, "--seeders", config, |c| &c.seeders_dir)
         .unwrap_or_else(|| "./seeders".to_string());
-    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn)
-        .ok_or_else(|| "seed 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string())?;
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn).ok_or_else(|| {
+        "seed 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string()
+    })?;
 
     // 扫描 seeder 目录
     let mut files: Vec<PathBuf> = Vec::new();
@@ -813,8 +835,8 @@ fn cmd_seed(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
     // 预读所有文件内容，避免在异步块内持有异步运行时借用冲突
     let mut scripts: Vec<(String, String)> = Vec::with_capacity(files.len());
     for f in &files {
-        let content = fs::read_to_string(f)
-            .map_err(|e| format!("读取 {} 失败: {}", f.display(), e))?;
+        let content =
+            fs::read_to_string(f).map_err(|e| format!("读取 {} 失败: {}", f.display(), e))?;
         let name = f
             .file_name()
             .and_then(|s| s.to_str())
@@ -856,7 +878,11 @@ fn cmd_seed(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
         }
 
         println!();
-        println!("已执行 {} 条 SQL 语句（来自 {} 个 Seeder 文件）", executed, scripts.len());
+        println!(
+            "已执行 {} 条 SQL 语句（来自 {} 个 Seeder 文件）",
+            executed,
+            scripts.len()
+        );
         Ok(())
     })
 }

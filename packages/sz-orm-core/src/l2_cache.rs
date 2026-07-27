@@ -591,10 +591,7 @@ impl L2Cache {
 
         // 1. 写入数据 + LRU 淘汰
         {
-            let mut data = self
-                .data
-                .write()
-                .expect("L2Cache data lock poisoned (put)");
+            let mut data = self.data.write().expect("L2Cache data lock poisoned (put)");
             let exists = data.contains_key(&key_str);
             if !exists && data.len() >= self.max_size {
                 // LRU 淘汰：优先淘汰已过期的 key，否则淘汰 LRU 端（access_order 头部）
@@ -789,10 +786,8 @@ impl L2Cache {
                 .expect("L2Cache stats lock poisoned (invalidate_table)");
             stats.evictions += actually_removed as u64;
             if let Ok(mut tbl_stats) = self.table_stats.write() {
-                tbl_stats
-                    .entry(table.to_string())
-                    .or_default()
-                    .evictions += actually_removed as u64;
+                tbl_stats.entry(table.to_string()).or_default().evictions +=
+                    actually_removed as u64;
             }
         }
 
@@ -1068,8 +1063,7 @@ impl Cache for L2Cache {
 ///
 /// 用于简化 `L2CacheBackend` trait 中方法的返回类型签名，
 /// 避免重复书写复杂的 `Pin<Box<dyn Future<...> + Send + 'a>>`。
-pub type L2CacheFuture<'a, T> =
-    Pin<Box<dyn Future<Output = Result<T, CacheError>> + Send + 'a>>;
+pub type L2CacheFuture<'a, T> = Pin<Box<dyn Future<Output = Result<T, CacheError>> + Send + 'a>>;
 
 /// L2 缓存后端 trait（分布式抽象）
 ///
@@ -1088,10 +1082,7 @@ pub type L2CacheFuture<'a, T> =
 /// - [`RedisBackend`]：Redis 分布式后端（stub，需启用 `redis` feature 并补充依赖）
 pub trait L2CacheBackend: Send + Sync {
     /// 获取缓存值，不存在或已过期返回 `None`
-    fn get<'a>(
-        &'a self,
-        key: &'a str,
-    ) -> L2CacheFuture<'a, Option<Vec<u8>>>;
+    fn get<'a>(&'a self, key: &'a str) -> L2CacheFuture<'a, Option<Vec<u8>>>;
 
     /// 设置缓存值，`ttl` 为 `None` 表示永不过期
     fn set<'a>(
@@ -1146,10 +1137,7 @@ impl InMemoryBackend {
 }
 
 impl L2CacheBackend for InMemoryBackend {
-    fn get<'a>(
-        &'a self,
-        key: &'a str,
-    ) -> L2CacheFuture<'a, Option<Vec<u8>>> {
+    fn get<'a>(&'a self, key: &'a str) -> L2CacheFuture<'a, Option<Vec<u8>>> {
         // 同步完成读操作，guard 在 block 退出时释放，避免跨 await 持锁
         let result = {
             let data = match self.data.read() {
@@ -1364,10 +1352,7 @@ impl RedisBackend {
 
 #[cfg(feature = "redis")]
 impl L2CacheBackend for RedisBackend {
-    fn get<'a>(
-        &'a self,
-        key: &'a str,
-    ) -> L2CacheFuture<'a, Option<Vec<u8>>> {
+    fn get<'a>(&'a self, key: &'a str) -> L2CacheFuture<'a, Option<Vec<u8>>> {
         Box::pin(async move {
             use redis::AsyncCommands;
             let mut conn = self.manager.clone();
@@ -1394,22 +1379,19 @@ impl L2CacheBackend for RedisBackend {
                 Some(d) => {
                     let secs = d.as_secs();
                     if secs > 0 {
-                        let _: () = conn
-                            .set_ex(key, value, secs)
-                            .await
-                            .map_err(|e| CacheError::Internal(format!("Redis SET EX failed: {}", e)))?;
+                        let _: () = conn.set_ex(key, value, secs).await.map_err(|e| {
+                            CacheError::Internal(format!("Redis SET EX failed: {}", e))
+                        })?;
                     } else {
                         // TTL < 1s：退化为 SET + PEXPIRE（毫秒精度）
-                        let _: () = conn
-                            .set(key, value)
-                            .await
-                            .map_err(|e| CacheError::Internal(format!("Redis SET failed: {}", e)))?;
+                        let _: () = conn.set(key, value).await.map_err(|e| {
+                            CacheError::Internal(format!("Redis SET failed: {}", e))
+                        })?;
                         // 毫秒数转换为 i64（u128 → i64，实际值不会超过 i64 范围）
                         let ms: i64 = d.as_millis().min(i64::MAX as u128) as i64;
-                        let _: () = conn
-                            .pexpire(key, ms)
-                            .await
-                            .map_err(|e| CacheError::Internal(format!("Redis PEXPIRE failed: {}", e)))?;
+                        let _: () = conn.pexpire(key, ms).await.map_err(|e| {
+                            CacheError::Internal(format!("Redis PEXPIRE failed: {}", e))
+                        })?;
                     }
                 }
                 None => {
@@ -1463,10 +1445,7 @@ impl RedisBackend {
 
 #[cfg(not(feature = "redis"))]
 impl L2CacheBackend for RedisBackend {
-    fn get<'a>(
-        &'a self,
-        _key: &'a str,
-    ) -> L2CacheFuture<'a, Option<Vec<u8>>> {
+    fn get<'a>(&'a self, _key: &'a str) -> L2CacheFuture<'a, Option<Vec<u8>>> {
         let url = self.url.clone();
         Box::pin(async move {
             Err(CacheError::Internal(format!(
@@ -1721,10 +1700,7 @@ impl WriteBehindWriter {
     ///
     /// 调用方需保证 `WriteBehindWriter` 的生命周期长于后台任务，
     /// 否则在 writer 被丢弃后，后台任务会因 Arc 引用计数归零而停止。
-    pub fn spawn_auto_flush(
-        self: Arc<Self>,
-        interval: Duration,
-    ) -> tokio::task::JoinHandle<()> {
+    pub fn spawn_auto_flush(self: Arc<Self>, interval: Duration) -> tokio::task::JoinHandle<()> {
         tokio::spawn(async move {
             let mut ticker = tokio::time::interval(interval);
             // 跳过首次立即触发（首次 tick 会立即返回）
@@ -2292,9 +2268,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_behind_delete() {
-        let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
-            Box::pin(async move { Ok(()) })
-        });
+        let on_flush: FlushCallback =
+            Arc::new(|_ops: Vec<WriteOp>| Box::pin(async move { Ok(()) }));
         let backend = Arc::new(InMemoryBackend::new());
         let writer = WriteBehindWriter::new(backend.clone(), on_flush);
 
@@ -2314,9 +2289,7 @@ mod tests {
     async fn test_write_behind_flush_failure_retries() {
         // 模拟刷新总是失败
         let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
-            Box::pin(async move {
-                Err(CacheError::Internal("backend down".to_string()))
-            })
+            Box::pin(async move { Err(CacheError::Internal("backend down".to_string())) })
         });
         let backend = Arc::new(InMemoryBackend::new());
         let writer = WriteBehindWriter::new(backend.clone(), on_flush);
@@ -2330,9 +2303,8 @@ mod tests {
 
     #[tokio::test]
     async fn test_write_behind_empty_flush_noop() {
-        let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
-            Box::pin(async move { Ok(()) })
-        });
+        let on_flush: FlushCallback =
+            Arc::new(|_ops: Vec<WriteOp>| Box::pin(async move { Ok(()) }));
         let backend = Arc::new(InMemoryBackend::new());
         let writer = WriteBehindWriter::new(backend, on_flush);
         // 空队列 flush 应立即成功
@@ -2349,13 +2321,10 @@ mod tests {
             ec.fetch_add(1, Ordering::SeqCst);
         });
         let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| {
-            Box::pin(async move {
-                Err(CacheError::Internal("fail".to_string()))
-            })
+            Box::pin(async move { Err(CacheError::Internal("fail".to_string())) })
         });
         let backend = Arc::new(InMemoryBackend::new());
-        let writer =
-            WriteBehindWriter::new(backend, on_flush).with_error_callback(on_error);
+        let writer = WriteBehindWriter::new(backend, on_flush).with_error_callback(on_error);
 
         writer.write(b"k1", b"v1", None).await.unwrap();
         let _ = writer.flush().await;

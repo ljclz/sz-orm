@@ -589,8 +589,8 @@ impl ColType {
         }
         match type_name.to_uppercase().as_str() {
             // SQLite INTEGER 亲和性：实际为 64 位有符号整数
-            "INTEGER" | "INT" | "BIGINT" | "INT8" | "INT4" | "INT2"
-            | "TINYINT" | "SMALLINT" | "MEDIUMINT" => Self::I64,
+            "INTEGER" | "INT" | "BIGINT" | "INT8" | "INT4" | "INT2" | "TINYINT" | "SMALLINT"
+            | "MEDIUMINT" => Self::I64,
             "BOOLEAN" | "BOOL" => Self::Bool,
             "REAL" | "FLOAT" | "DOUBLE" | "FLOAT8" | "DOUBLE PRECISION" => Self::F64,
             "DECIMAL" | "NUMERIC" => Self::Decimal,
@@ -620,8 +620,8 @@ impl ColType {
             "FLOAT" => Self::F32,
             "DOUBLE" => Self::F64,
             "DECIMAL" | "NUMERIC" | "NEWDECIMAL" => Self::Decimal,
-            "VARCHAR" | "CHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT"
-            | "ENUM" | "SET" => Self::String,
+            "VARCHAR" | "CHAR" | "TEXT" | "TINYTEXT" | "MEDIUMTEXT" | "LONGTEXT" | "ENUM"
+            | "SET" => Self::String,
             "BLOB" | "TINYBLOB" | "MEDIUMBLOB" | "LONGBLOB" | "BINARY" | "VARBINARY" => Self::Bytes,
             "DATE" => Self::Date,
             "DATETIME" | "TIMESTAMP" => Self::DateTime,

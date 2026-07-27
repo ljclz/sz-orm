@@ -155,8 +155,12 @@ impl ToSql for MssqlParamOwned {
             MssqlParamOwned::U8(n) => ColumnData::U8(*n),
             MssqlParamOwned::F32(f) => ColumnData::F32(*f),
             MssqlParamOwned::F64(f) => ColumnData::F64(*f),
-            MssqlParamOwned::String(s) => ColumnData::String(Some(std::borrow::Cow::Borrowed(s.as_str()))),
-            MssqlParamOwned::Bytes(b) => ColumnData::Binary(Some(std::borrow::Cow::Borrowed(b.as_slice()))),
+            MssqlParamOwned::String(s) => {
+                ColumnData::String(Some(std::borrow::Cow::Borrowed(s.as_str())))
+            }
+            MssqlParamOwned::Bytes(b) => {
+                ColumnData::Binary(Some(std::borrow::Cow::Borrowed(b.as_slice())))
+            }
         }
     }
 }
@@ -221,7 +225,9 @@ fn row_to_value(row: &MssqlRow, idx: usize) -> Value {
     }
     // 2. 尝试 rust_decimal::Decimal (覆盖 DECIMAL/NUMERIC/MONEY/SMALLMONEY，保留精度)
     if let Ok(v) = row.try_get::<rust_decimal::Decimal, usize>(idx) {
-        return v.map(|d| Value::Decimal(d.to_string())).unwrap_or(Value::Null);
+        return v
+            .map(|d| Value::Decimal(d.to_string()))
+            .unwrap_or(Value::Null);
     }
     // 3. 尝试 f64 (覆盖 REAL/FLOAT)
     if let Ok(v) = row.try_get::<f64, usize>(idx) {
@@ -237,7 +243,9 @@ fn row_to_value(row: &MssqlRow, idx: usize) -> Value {
     }
     // 6. 尝试 &str (覆盖 CHAR/VARCHAR/NCHAR/NVARCHAR/TEXT/NTEXT/DATE/TIME/DATETIME 等)
     if let Ok(v) = row.try_get::<&str, usize>(idx) {
-        return v.map(|s| Value::String(s.to_string())).unwrap_or(Value::Null);
+        return v
+            .map(|s| Value::String(s.to_string()))
+            .unwrap_or(Value::Null);
     }
     Value::Null
 }
@@ -325,11 +333,15 @@ impl MssqlPoolHandle {
         loop {
             // 短暂持锁：弹出空闲连接或决定是否创建新连接
             let create_new = {
-                let mut inner = self.inner.lock().map_err(|e| {
-                    DbError::Internal(format!("MSSQL pool mutex poisoned: {}", e))
-                })?;
+                let mut inner = self
+                    .inner
+                    .lock()
+                    .map_err(|e| DbError::Internal(format!("MSSQL pool mutex poisoned: {}", e)))?;
                 if let Some(client) = inner.idle.pop() {
-                    return Ok(MssqlClientGuard { client: Some(client), pool: self });
+                    return Ok(MssqlClientGuard {
+                        client: Some(client),
+                        pool: self,
+                    });
                 }
                 if inner.total < self.max_size {
                     // 预占一个名额，锁外再建连
@@ -344,7 +356,10 @@ impl MssqlPoolHandle {
                 // 锁外异步建连：不阻塞其他 acquire()
                 match self.build_client().await {
                     Ok(client) => {
-                        return Ok(MssqlClientGuard { client: Some(client), pool: self });
+                        return Ok(MssqlClientGuard {
+                            client: Some(client),
+                            pool: self,
+                        });
                     }
                     Err(e) => {
                         // 建连失败：回滚 total 并唤醒一个等待者，避免其空等
@@ -562,7 +577,8 @@ impl Connection for MssqlConnection {
             let sql_converted = convert_placeholders(sql);
             let params_owned: Vec<MssqlParamOwned> =
                 params.iter().map(value_to_mssql_param_owned).collect();
-            let params_ref: Vec<&dyn ToSql> = params_owned.iter().map(|p| p as &dyn ToSql).collect();
+            let params_ref: Vec<&dyn ToSql> =
+                params_owned.iter().map(|p| p as &dyn ToSql).collect();
 
             let result = {
                 let mut guard = self.handle.acquire().await?;
@@ -595,7 +611,8 @@ impl Connection for MssqlConnection {
             let sql_converted = convert_placeholders(sql);
             let params_owned: Vec<MssqlParamOwned> =
                 params.iter().map(value_to_mssql_param_owned).collect();
-            let params_ref: Vec<&dyn ToSql> = params_owned.iter().map(|p| p as &dyn ToSql).collect();
+            let params_ref: Vec<&dyn ToSql> =
+                params_owned.iter().map(|p| p as &dyn ToSql).collect();
 
             let result = {
                 let mut guard = self.handle.acquire().await?;
@@ -716,7 +733,8 @@ impl Connection for MssqlConnection {
             let sql_converted = convert_placeholders(sql);
             let params_owned: Vec<MssqlParamOwned> =
                 params.iter().map(value_to_mssql_param_owned).collect();
-            let params_ref: Vec<&dyn ToSql> = params_owned.iter().map(|p| p as &dyn ToSql).collect();
+            let params_ref: Vec<&dyn ToSql> =
+                params_owned.iter().map(|p| p as &dyn ToSql).collect();
 
             let result = {
                 let mut guard = self.handle.acquire().await?;
@@ -792,9 +810,7 @@ impl Connection for MssqlConnection {
         })
     }
 
-    fn commit<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn commit<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             if !self.connected {
                 return Err(DbError::ConnectionError("connection closed".to_string()));
@@ -802,7 +818,10 @@ impl Connection for MssqlConnection {
             let result = {
                 let mut guard = self.handle.acquire().await?;
                 let client = &mut *guard;
-                client.simple_query("COMMIT").await.map_err(map_tiberius_error)?;
+                client
+                    .simple_query("COMMIT")
+                    .await
+                    .map_err(map_tiberius_error)?;
                 Ok::<(), DbError>(())
             };
             match result {
@@ -828,7 +847,10 @@ impl Connection for MssqlConnection {
             let result = {
                 let mut guard = self.handle.acquire().await?;
                 let client = &mut *guard;
-                client.simple_query("ROLLBACK").await.map_err(map_tiberius_error)?;
+                client
+                    .simple_query("ROLLBACK")
+                    .await
+                    .map_err(map_tiberius_error)?;
                 Ok::<(), DbError>(())
             };
             match result {
@@ -857,9 +879,7 @@ impl Connection for MssqlConnection {
         })
     }
 
-    fn close<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             self.connected = false;
             Ok(())
@@ -879,7 +899,10 @@ mod tests {
     fn test_convert_placeholders_simple() {
         let sql = "SELECT * FROM users WHERE id = ? AND name = ?";
         let converted = convert_placeholders(sql);
-        assert_eq!(converted, "SELECT * FROM users WHERE id = @P1 AND name = @P2");
+        assert_eq!(
+            converted,
+            "SELECT * FROM users WHERE id = @P1 AND name = @P2"
+        );
     }
 
     #[test]
@@ -922,7 +945,9 @@ mod tests {
 
     #[test]
     fn test_needs_simple_query_alter() {
-        assert!(needs_simple_query("ALTER TABLE users ADD COLUMN name VARCHAR(100)"));
+        assert!(needs_simple_query(
+            "ALTER TABLE users ADD COLUMN name VARCHAR(100)"
+        ));
     }
 
     #[test]

@@ -575,7 +575,8 @@ impl Connection for SqlxSqliteConnection {
     fn query_stream<'a>(
         &'a mut self,
         sql: &'a str,
-    ) -> Pin<Box<dyn futures::Stream<Item = Result<HashMap<String, Value>, DbError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<HashMap<String, Value>, DbError>> + Send + 'a>>
+    {
         Box::pin(async_stream::try_stream! {
             let mut pool_conn = self
                 .conn
@@ -1244,7 +1245,8 @@ impl Connection for SqlxMySqlConnection {
     fn query_stream<'a>(
         &'a mut self,
         sql: &'a str,
-    ) -> Pin<Box<dyn futures::Stream<Item = Result<HashMap<String, Value>, DbError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<HashMap<String, Value>, DbError>> + Send + 'a>>
+    {
         Box::pin(async_stream::try_stream! {
             let mut pool_conn = self
                 .conn
@@ -1372,7 +1374,9 @@ fn row_to_value_pg(row: &sqlx::postgres::PgRow, ordinal: usize) -> Value {
         },
         // UUID：使用 sqlx::types::Uuid（16 字节）解码，避免 36 字符字符串的内存浪费
         "UUID" => match row.try_get::<Option<sqlx::types::Uuid>, usize>(ordinal) {
-            Ok(v) => v.map(|uuid| Value::String(uuid.to_string())).unwrap_or(Value::Null),
+            Ok(v) => v
+                .map(|uuid| Value::String(uuid.to_string()))
+                .unwrap_or(Value::Null),
             Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
                 Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
                 Err(_) => Value::Null,
@@ -1486,7 +1490,9 @@ fn row_to_value_with_coltype_pg(
         }
         // UUID：使用 sqlx::types::Uuid（16 字节）解码，避免 36 字符字符串的内存浪费
         ColType::Uuid => match row.try_get::<Option<sqlx::types::Uuid>, usize>(ordinal) {
-            Ok(v) => v.map(|uuid| Value::String(uuid.to_string())).unwrap_or(Value::Null),
+            Ok(v) => v
+                .map(|uuid| Value::String(uuid.to_string()))
+                .unwrap_or(Value::Null),
             Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
                 Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
                 Err(_) => Value::Null,
@@ -1941,7 +1947,8 @@ impl Connection for SqlxPgConnection {
     fn query_stream<'a>(
         &'a mut self,
         sql: &'a str,
-    ) -> Pin<Box<dyn futures::Stream<Item = Result<HashMap<String, Value>, DbError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn futures::Stream<Item = Result<HashMap<String, Value>, DbError>> + Send + 'a>>
+    {
         Box::pin(async_stream::try_stream! {
             let mut pool_conn = self
                 .conn

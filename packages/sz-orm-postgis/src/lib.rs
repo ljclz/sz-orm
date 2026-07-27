@@ -61,9 +61,9 @@ pub mod real_postgis;
 
 pub use error::PostgisError;
 pub use extensions::{
-    CoordinateTransformExt, MemoryCoordTransform, MemorySpatialAggregate,
-    MemorySpatialRelations, SpatialAggregateExt, SpatialIndexDef, SpatialIndexRegistry,
-    SpatialIndexType, SpatialRelationsExt,
+    CoordinateTransformExt, MemoryCoordTransform, MemorySpatialAggregate, MemorySpatialRelations,
+    SpatialAggregateExt, SpatialIndexDef, SpatialIndexRegistry, SpatialIndexType,
+    SpatialRelationsExt,
 };
 pub use geometry::{Geometry, LineString, Point, Polygon, DEFAULT_SRID};
 pub use postgis::{PostgisBuilder, PostgisExt, PostgisProvider, PostgisWrapper};

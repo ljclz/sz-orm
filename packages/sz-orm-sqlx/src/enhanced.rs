@@ -560,25 +560,49 @@ mod tests {
 
     #[test]
     fn test_isolation_level_names() {
-        assert_eq!(TransactionIsolation::ReadUncommitted.name(), "READ UNCOMMITTED");
+        assert_eq!(
+            TransactionIsolation::ReadUncommitted.name(),
+            "READ UNCOMMITTED"
+        );
         assert_eq!(TransactionIsolation::ReadCommitted.name(), "READ COMMITTED");
-        assert_eq!(TransactionIsolation::RepeatableRead.name(), "REPEATABLE READ");
+        assert_eq!(
+            TransactionIsolation::RepeatableRead.name(),
+            "REPEATABLE READ"
+        );
         assert_eq!(TransactionIsolation::Serializable.name(), "SERIALIZABLE");
     }
 
     #[test]
     fn test_isolation_level_descriptions() {
-        assert_eq!(TransactionIsolation::ReadUncommitted.description(), "读未提交");
-        assert_eq!(TransactionIsolation::ReadCommitted.description(), "读已提交");
-        assert_eq!(TransactionIsolation::RepeatableRead.description(), "可重复读");
+        assert_eq!(
+            TransactionIsolation::ReadUncommitted.description(),
+            "读未提交"
+        );
+        assert_eq!(
+            TransactionIsolation::ReadCommitted.description(),
+            "读已提交"
+        );
+        assert_eq!(
+            TransactionIsolation::RepeatableRead.description(),
+            "可重复读"
+        );
         assert_eq!(TransactionIsolation::Serializable.description(), "串行化");
     }
 
     #[test]
     fn test_isolation_level_strictness_order() {
-        assert!(TransactionIsolation::ReadUncommitted.strictness() < TransactionIsolation::ReadCommitted.strictness());
-        assert!(TransactionIsolation::ReadCommitted.strictness() < TransactionIsolation::RepeatableRead.strictness());
-        assert!(TransactionIsolation::RepeatableRead.strictness() < TransactionIsolation::Serializable.strictness());
+        assert!(
+            TransactionIsolation::ReadUncommitted.strictness()
+                < TransactionIsolation::ReadCommitted.strictness()
+        );
+        assert!(
+            TransactionIsolation::ReadCommitted.strictness()
+                < TransactionIsolation::RepeatableRead.strictness()
+        );
+        assert!(
+            TransactionIsolation::RepeatableRead.strictness()
+                < TransactionIsolation::Serializable.strictness()
+        );
     }
 
     #[test]
@@ -631,7 +655,8 @@ mod tests {
         let pg_sql = TransactionIsolation::RepeatableRead.set_transaction_sql(AnyBackend::Postgres);
         assert!(pg_sql.contains("SET TRANSACTION ISOLATION LEVEL"));
 
-        let sqlite_sql = TransactionIsolation::RepeatableRead.set_transaction_sql(AnyBackend::Sqlite);
+        let sqlite_sql =
+            TransactionIsolation::RepeatableRead.set_transaction_sql(AnyBackend::Sqlite);
         assert!(sqlite_sql.is_empty());
     }
 
@@ -666,8 +691,14 @@ mod tests {
 
     #[test]
     fn test_isolation_level_equality() {
-        assert_eq!(TransactionIsolation::ReadCommitted, TransactionIsolation::ReadCommitted);
-        assert_ne!(TransactionIsolation::ReadCommitted, TransactionIsolation::Serializable);
+        assert_eq!(
+            TransactionIsolation::ReadCommitted,
+            TransactionIsolation::ReadCommitted
+        );
+        assert_ne!(
+            TransactionIsolation::ReadCommitted,
+            TransactionIsolation::Serializable
+        );
     }
 
     // ---- EnhancedPoolConfig 测试 ----

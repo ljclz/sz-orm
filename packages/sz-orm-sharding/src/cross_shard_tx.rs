@@ -282,7 +282,12 @@ mod tests {
     #[test]
     fn test_2pc_single_participant_success() {
         let mut coord = ShardTransactionCoordinator::new();
-        coord.add_participant(ShardParticipant::new("only", || Ok(()), || Ok(()), || Ok(())));
+        coord.add_participant(ShardParticipant::new(
+            "only",
+            || Ok(()),
+            || Ok(()),
+            || Ok(()),
+        ));
         assert!(coord.execute_2pc().is_ok());
     }
 
@@ -482,7 +487,12 @@ mod tests {
     #[test]
     fn test_best_effort_single() {
         let mut coord = ShardTransactionCoordinator::new();
-        coord.add_participant(ShardParticipant::new("only", || Ok(()), || Ok(()), || Ok(())));
+        coord.add_participant(ShardParticipant::new(
+            "only",
+            || Ok(()),
+            || Ok(()),
+            || Ok(()),
+        ));
         let results = coord.execute_best_effort();
         assert_eq!(results.len(), 1);
         assert!(results[0].success);
@@ -509,7 +519,10 @@ mod tests {
         ));
         let results = coord.execute_best_effort();
         assert_eq!(results.len(), 1);
-        assert!(results[0].success, "should succeed after 2 retries (3rd attempt)");
+        assert!(
+            results[0].success,
+            "should succeed after 2 retries (3rd attempt)"
+        );
         assert_eq!(*attempts.lock().unwrap(), 3);
     }
 

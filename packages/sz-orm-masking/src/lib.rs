@@ -440,7 +440,10 @@ mod tests {
 
     #[test]
     fn test_ip_v4_loopback() {
-        assert_eq!(DataMasker::apply(&MaskingRule::Ip, "127.0.0.1"), "127.0.0.*");
+        assert_eq!(
+            DataMasker::apply(&MaskingRule::Ip, "127.0.0.1"),
+            "127.0.0.*"
+        );
     }
 
     #[test]

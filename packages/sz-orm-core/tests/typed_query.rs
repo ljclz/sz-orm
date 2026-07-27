@@ -5,7 +5,9 @@
 
 use sz_orm_core::schema;
 use sz_orm_core::typed::{TypedColumn, TypedTable};
-use sz_orm_core::typed_ast::{Binary, BigInt, Bool, Double, Integer, Nullable, Real, SmallInt, Text};
+use sz_orm_core::typed_ast::{
+    BigInt, Binary, Bool, Double, Integer, Nullable, Real, SmallInt, Text,
+};
 use sz_orm_core::typed_query;
 
 // ============================================================================

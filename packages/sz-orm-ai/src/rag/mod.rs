@@ -563,7 +563,8 @@ impl ContextWindowManager {
                     if truncated_tokens > 0 {
                         context_parts.push(truncated);
                         chunk_tokens.push(truncated_tokens);
-                        used_tokens += truncated_tokens + if idx > 0 { separator_tokens } else { 0 };
+                        used_tokens +=
+                            truncated_tokens + if idx > 0 { separator_tokens } else { 0 };
                         included_chunks += 1;
                         truncated_chunks += 1;
                     }
@@ -643,7 +644,8 @@ impl ContextWindowManager {
         let mut truncated_chunks = 0usize;
 
         for (idx, formatted_text) in formatted.iter().enumerate() {
-            let target = available_per_chunk.saturating_sub(if idx > 0 { separator_tokens } else { 0 });
+            let target =
+                available_per_chunk.saturating_sub(if idx > 0 { separator_tokens } else { 0 });
             let original_tokens = token_counts[idx];
 
             if original_tokens <= target {
@@ -791,7 +793,10 @@ mod tests {
 
     #[test]
     fn test_token_count_strategy_default() {
-        assert_eq!(TokenCountStrategy::default(), TokenCountStrategy::CharApprox);
+        assert_eq!(
+            TokenCountStrategy::default(),
+            TokenCountStrategy::CharApprox
+        );
     }
 
     // ---- ContextWindowConfig 测试 ----
@@ -951,8 +956,8 @@ mod tests {
 
     #[test]
     fn test_count_tokens_whitespace_split() {
-        let config = ContextWindowConfig::default()
-            .with_token_strategy(TokenCountStrategy::WhitespaceSplit);
+        let config =
+            ContextWindowConfig::default().with_token_strategy(TokenCountStrategy::WhitespaceSplit);
         let manager = ContextWindowManager::new(config);
         let tokens = manager.count_tokens("hello world foo bar");
         assert_eq!(tokens, 4);
@@ -960,8 +965,8 @@ mod tests {
 
     #[test]
     fn test_count_tokens_char_div4() {
-        let config = ContextWindowConfig::default()
-            .with_token_strategy(TokenCountStrategy::CharDiv4);
+        let config =
+            ContextWindowConfig::default().with_token_strategy(TokenCountStrategy::CharDiv4);
         let manager = ContextWindowManager::new(config);
         let tokens = manager.count_tokens("hello world!");
         assert_eq!(tokens, 12 / 4); // 3

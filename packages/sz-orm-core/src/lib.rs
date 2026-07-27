@@ -415,8 +415,8 @@ pub use bytes::Bytes;
 pub use chrono::{DateTime, Utc};
 pub use serde::{Deserialize, Serialize};
 
-pub mod accessors;
 pub mod access_control;
+pub mod accessors;
 pub mod behaviors;
 mod cache;
 pub mod data_permission;

@@ -115,10 +115,8 @@ pub fn decompress(input: &[u8]) -> Result<Vec<u8>, BkError> {
                 .map_err(|e| BkError::Compression(format!("gzip decompress failed: {}", e)))?;
             Ok(out)
         }
-        CompressionAlgorithm::Zstd => {
-            zstd::decode_all(input)
-                .map_err(|e| BkError::Compression(format!("zstd decompress failed: {}", e)))
-        }
+        CompressionAlgorithm::Zstd => zstd::decode_all(input)
+            .map_err(|e| BkError::Compression(format!("zstd decompress failed: {}", e))),
     }
 }
 
@@ -290,7 +288,7 @@ pub struct RpoConfig {
 impl Default for RpoConfig {
     fn default() -> Self {
         Self {
-            rpo_seconds: 900,         // 15 分钟
+            rpo_seconds: 900,                  // 15 分钟
             incremental_interval_seconds: 300, // 5 分钟
         }
     }
@@ -570,10 +568,7 @@ mod tests {
     #[test]
     fn test_compression_algorithm_magic_bytes() {
         assert_eq!(CompressionAlgorithm::None.magic_bytes(), &[] as &[u8]);
-        assert_eq!(
-            CompressionAlgorithm::Gzip.magic_bytes(),
-            &[0x1f, 0x8b]
-        );
+        assert_eq!(CompressionAlgorithm::Gzip.magic_bytes(), &[0x1f, 0x8b]);
         assert_eq!(
             CompressionAlgorithm::Zstd.magic_bytes(),
             &[0x28, 0xB5, 0x2F, 0xFD]
@@ -583,25 +578,37 @@ mod tests {
     #[test]
     fn test_compression_algorithm_detect_gzip() {
         let data = [0x1f, 0x8b, 0x00, 0x00];
-        assert_eq!(CompressionAlgorithm::detect(&data), CompressionAlgorithm::Gzip);
+        assert_eq!(
+            CompressionAlgorithm::detect(&data),
+            CompressionAlgorithm::Gzip
+        );
     }
 
     #[test]
     fn test_compression_algorithm_detect_zstd() {
         let data = [0x28, 0xB5, 0x2F, 0xFD, 0x00, 0x00];
-        assert_eq!(CompressionAlgorithm::detect(&data), CompressionAlgorithm::Zstd);
+        assert_eq!(
+            CompressionAlgorithm::detect(&data),
+            CompressionAlgorithm::Zstd
+        );
     }
 
     #[test]
     fn test_compression_algorithm_detect_none() {
         let data = [0x00, 0x00, 0x00, 0x00];
-        assert_eq!(CompressionAlgorithm::detect(&data), CompressionAlgorithm::None);
+        assert_eq!(
+            CompressionAlgorithm::detect(&data),
+            CompressionAlgorithm::None
+        );
     }
 
     #[test]
     fn test_compression_algorithm_detect_short_data() {
         let data = [0x1f];
-        assert_eq!(CompressionAlgorithm::detect(&data), CompressionAlgorithm::None);
+        assert_eq!(
+            CompressionAlgorithm::detect(&data),
+            CompressionAlgorithm::None
+        );
     }
 
     // ====================================================================
@@ -1029,7 +1036,7 @@ mod tests {
     #[test]
     fn test_rto_config_is_rto_breached() {
         let rto = RtoConfig::new(60); // RTO = 60秒
-        // 恢复耗时 30秒 = 30000ms < 60000ms，未超
+                                      // 恢复耗时 30秒 = 30000ms < 60000ms，未超
         assert!(!rto.is_rto_breached(30000));
         // 恢复耗时 90秒 = 90000ms > 60000ms，已超
         assert!(rto.is_rto_breached(90000));

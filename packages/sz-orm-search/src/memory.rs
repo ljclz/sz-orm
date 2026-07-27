@@ -67,10 +67,7 @@ impl MemorySearch {
     }
 
     /// 获取索引内所有文档的快照（用于分面计算等扩展功能）
-    pub fn get_all_docs(
-        &self,
-        index: &str,
-    ) -> Result<HashMap<String, Value>, SearchError> {
+    pub fn get_all_docs(&self, index: &str) -> Result<HashMap<String, Value>, SearchError> {
         let indices = self.indices.lock().unwrap();
         let idx = indices
             .get(index)

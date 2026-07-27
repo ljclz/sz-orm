@@ -73,12 +73,7 @@ impl RetainedStore {
 
     /// 存储一条保留消息。若该主题已有保留消息，将被覆盖。
     /// 注意：根据 MQTT 规范，零字节载荷的保留消息应删除该主题的保留消息。
-    pub async fn store(
-        &self,
-        topic: impl Into<String>,
-        payload: Vec<u8>,
-        qos: QoS,
-    ) -> StoreAction {
+    pub async fn store(&self, topic: impl Into<String>, payload: Vec<u8>, qos: QoS) -> StoreAction {
         let topic = topic.into();
         // 零字节载荷 -> 删除该主题的保留消息
         if payload.is_empty() {
@@ -186,7 +181,13 @@ impl StoreAction {
 
     /// 是否覆盖了已有消息
     pub fn replaced_existing(&self) -> bool {
-        matches!(self, StoreAction::Replaced { previous: Some(_), .. })
+        matches!(
+            self,
+            StoreAction::Replaced {
+                previous: Some(_),
+                ..
+            }
+        )
     }
 }
 
@@ -208,12 +209,8 @@ mod tests {
     #[tokio::test]
     async fn test_store_overwrites_previous() {
         let store = RetainedStore::new();
-        store
-            .store("t", b"v1".to_vec(), QoS::AtMostOnce)
-            .await;
-        let action = store
-            .store("t", b"v2".to_vec(), QoS::AtLeastOnce)
-            .await;
+        store.store("t", b"v1".to_vec(), QoS::AtMostOnce).await;
+        let action = store.store("t", b"v2".to_vec(), QoS::AtLeastOnce).await;
         assert!(action.replaced_existing());
         let msg = store.get("t").await.expect("should exist");
         assert_eq!(msg.text_payload(), Some("v2"));
@@ -224,9 +221,7 @@ mod tests {
     #[tokio::test]
     async fn test_store_empty_payload_removes_topic() {
         let store = RetainedStore::new();
-        store
-            .store("t", b"v1".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("t", b"v1".to_vec(), QoS::AtMostOnce).await;
         assert_eq!(store.count().await, 1);
         // 零字节载荷删除
         store.store("t", vec![], QoS::AtMostOnce).await;
@@ -263,9 +258,7 @@ mod tests {
     #[tokio::test]
     async fn test_remove() {
         let store = RetainedStore::new();
-        store
-            .store("t", b"v".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("t", b"v".to_vec(), QoS::AtMostOnce).await;
         let removed = store.remove("t").await;
         assert!(removed.is_some());
         assert_eq!(store.count().await, 0);
@@ -280,12 +273,8 @@ mod tests {
     #[tokio::test]
     async fn test_clear() {
         let store = RetainedStore::new();
-        store
-            .store("a", b"1".to_vec(), QoS::AtMostOnce)
-            .await;
-        store
-            .store("b", b"2".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("a", b"1".to_vec(), QoS::AtMostOnce).await;
+        store.store("b", b"2".to_vec(), QoS::AtMostOnce).await;
         assert_eq!(store.count().await, 2);
         store.clear().await;
         assert_eq!(store.count().await, 0);
@@ -294,9 +283,7 @@ mod tests {
     #[tokio::test]
     async fn test_contains() {
         let store = RetainedStore::new();
-        store
-            .store("t", b"v".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("t", b"v".to_vec(), QoS::AtMostOnce).await;
         assert!(store.contains("t").await);
         assert!(!store.contains("other").await);
     }
@@ -304,15 +291,9 @@ mod tests {
     #[tokio::test]
     async fn test_topics_sorted() {
         let store = RetainedStore::new();
-        store
-            .store("c", b"1".to_vec(), QoS::AtMostOnce)
-            .await;
-        store
-            .store("a", b"2".to_vec(), QoS::AtMostOnce)
-            .await;
-        store
-            .store("b", b"3".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("c", b"1".to_vec(), QoS::AtMostOnce).await;
+        store.store("a", b"2".to_vec(), QoS::AtMostOnce).await;
+        store.store("b", b"3".to_vec(), QoS::AtMostOnce).await;
         assert_eq!(store.topics().await, vec!["a", "b", "c"]);
     }
 
@@ -367,12 +348,8 @@ mod tests {
     #[tokio::test]
     async fn test_matching_root_hash() {
         let store = RetainedStore::new();
-        store
-            .store("a/b/c", b"1".to_vec(), QoS::AtMostOnce)
-            .await;
-        store
-            .store("x/y", b"2".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("a/b/c", b"1".to_vec(), QoS::AtMostOnce).await;
+        store.store("x/y", b"2".to_vec(), QoS::AtMostOnce).await;
         let matched = store.matching("#").await;
         assert_eq!(matched.len(), 2);
     }
@@ -380,9 +357,7 @@ mod tests {
     #[tokio::test]
     async fn test_matching_no_results() {
         let store = RetainedStore::new();
-        store
-            .store("a/b", b"1".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("a/b", b"1".to_vec(), QoS::AtMostOnce).await;
         let matched = store.matching("c/#").await;
         assert!(matched.is_empty());
     }
@@ -390,15 +365,9 @@ mod tests {
     #[tokio::test]
     async fn test_all_sorted_by_topic() {
         let store = RetainedStore::new();
-        store
-            .store("z", b"1".to_vec(), QoS::AtMostOnce)
-            .await;
-        store
-            .store("a", b"2".to_vec(), QoS::AtMostOnce)
-            .await;
-        store
-            .store("m", b"3".to_vec(), QoS::AtMostOnce)
-            .await;
+        store.store("z", b"1".to_vec(), QoS::AtMostOnce).await;
+        store.store("a", b"2".to_vec(), QoS::AtMostOnce).await;
+        store.store("m", b"3".to_vec(), QoS::AtMostOnce).await;
         let all = store.all().await;
         assert_eq!(all.len(), 3);
         assert_eq!(all[0].topic, "a");
@@ -418,13 +387,9 @@ mod tests {
     #[tokio::test]
     async fn test_store_action_replaced_existing_with_topic() {
         let store = RetainedStore::new();
-        let action = store
-            .store("t", b"v1".to_vec(), QoS::AtMostOnce)
-            .await;
+        let action = store.store("t", b"v1".to_vec(), QoS::AtMostOnce).await;
         assert!(!action.replaced_existing());
-        let action2 = store
-            .store("t", b"v2".to_vec(), QoS::AtMostOnce)
-            .await;
+        let action2 = store.store("t", b"v2".to_vec(), QoS::AtMostOnce).await;
         assert!(action2.replaced_existing());
     }
 

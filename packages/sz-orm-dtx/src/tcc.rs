@@ -686,13 +686,10 @@ impl TccCoordinator {
             });
         }
         // 校验重试策略已设置
-        let policy = self
-            .retry_policy
-            .clone()
-            .ok_or(TccError::InvalidState {
-                current: self.state,
-                expected: "retry_policy must be set (call with_retry_policy first)",
-            })?;
+        let policy = self.retry_policy.clone().ok_or(TccError::InvalidState {
+            current: self.state,
+            expected: "retry_policy must be set (call with_retry_policy first)",
+        })?;
 
         self.state = TccState::Confirming;
 
@@ -734,11 +731,7 @@ impl TccCoordinator {
                 self.state = TccState::Failed;
                 return Err(TccError::ConfirmFailed {
                     resource_id,
-                    reason: format!(
-                        "{} (重试 {} 次后仍失败)",
-                        reason,
-                        policy.max_retries
-                    ),
+                    reason: format!("{} (重试 {} 次后仍失败)", reason, policy.max_retries),
                 });
             }
         }
@@ -785,13 +778,10 @@ impl TccCoordinator {
             });
         }
         // 校验重试策略已设置
-        let policy = self
-            .retry_policy
-            .clone()
-            .ok_or(TccError::InvalidState {
-                current: self.state,
-                expected: "retry_policy must be set (call with_retry_policy first)",
-            })?;
+        let policy = self.retry_policy.clone().ok_or(TccError::InvalidState {
+            current: self.state,
+            expected: "retry_policy must be set (call with_retry_policy first)",
+        })?;
 
         self.state = TccState::Cancelling;
 
@@ -1960,8 +1950,7 @@ mod tests {
 
     #[test]
     fn coordinator_with_retry_policy_sets_policy() {
-        let coord = TccCoordinator::new("tx-1")
-            .with_retry_policy(TccRetryPolicy::default());
+        let coord = TccCoordinator::new("tx-1").with_retry_policy(TccRetryPolicy::default());
         assert!(coord.retry_policy().is_some());
         assert_eq!(coord.retry_policy().unwrap().max_retries, 3);
     }
@@ -1979,18 +1968,16 @@ mod tests {
             .with_retry_policy(TccRetryPolicy::new(3, 1, 10, 2.0));
 
         let a = attempt.clone();
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_confirm(move || {
-                    let n = a.fetch_add(1, Ordering::SeqCst);
-                    if n < 2 {
-                        Err(format!("attempt {} failed", n))
-                    } else {
-                        Ok(())
-                    }
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_confirm(
+            move || {
+                let n = a.fetch_add(1, Ordering::SeqCst);
+                if n < 2 {
+                    Err(format!("attempt {} failed", n))
+                } else {
+                    Ok(())
+                }
+            },
+        ));
 
         // try_phase 成功
         coord.try_phase().unwrap();
@@ -2009,14 +1996,12 @@ mod tests {
             .with_retry_policy(TccRetryPolicy::new(2, 1, 10, 2.0));
 
         let a = attempt.clone();
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_confirm(move || {
-                    a.fetch_add(1, Ordering::SeqCst);
-                    Err("always fails".to_string())
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_confirm(
+            move || {
+                a.fetch_add(1, Ordering::SeqCst);
+                Err("always fails".to_string())
+            },
+        ));
 
         coord.try_phase().unwrap();
         let result = coord.confirm_with_retry();
@@ -2029,18 +2014,16 @@ mod tests {
     #[test]
     fn coordinator_confirm_with_retry_idempotent_skips_confirmed() {
         let confirm_count = Arc::new(AtomicU32::new(0));
-        let mut coord = TccCoordinator::new("tx-idempotent")
-            .with_retry_policy(TccRetryPolicy::default());
+        let mut coord =
+            TccCoordinator::new("tx-idempotent").with_retry_policy(TccRetryPolicy::default());
 
         let c1 = confirm_count.clone();
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_confirm(move || {
-                    c1.fetch_add(1, Ordering::SeqCst);
-                    Ok(())
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_confirm(
+            move || {
+                c1.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        ));
 
         coord.try_phase().unwrap();
         coord.confirm_with_retry().unwrap();
@@ -2077,18 +2060,16 @@ mod tests {
             .with_retry_policy(TccRetryPolicy::new(3, 1, 10, 2.0));
 
         let a = attempt.clone();
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_cancel(move || {
-                    let n = a.fetch_add(1, Ordering::SeqCst);
-                    if n < 2 {
-                        Err(format!("cancel attempt {} failed", n))
-                    } else {
-                        Ok(())
-                    }
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_cancel(
+            move || {
+                let n = a.fetch_add(1, Ordering::SeqCst);
+                if n < 2 {
+                    Err(format!("cancel attempt {} failed", n))
+                } else {
+                    Ok(())
+                }
+            },
+        ));
 
         // try 成功后直接 cancel
         coord.try_phase().unwrap();
@@ -2104,14 +2085,12 @@ mod tests {
             .with_retry_policy(TccRetryPolicy::new(2, 1, 10, 2.0));
 
         let a = attempt.clone();
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_cancel(move || {
-                    a.fetch_add(1, Ordering::SeqCst);
-                    Err("cancel always fails".to_string())
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_cancel(
+            move || {
+                a.fetch_add(1, Ordering::SeqCst);
+                Err("cancel always fails".to_string())
+            },
+        ));
 
         coord.try_phase().unwrap();
         let result = coord.cancel_with_retry();
@@ -2142,14 +2121,12 @@ mod tests {
             .with_retry_policy(TccRetryPolicy::new(0, 1, 10, 2.0));
 
         let a = attempt.clone();
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_confirm(move || {
-                    a.fetch_add(1, Ordering::SeqCst);
-                    Err("always fails".to_string())
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_confirm(
+            move || {
+                a.fetch_add(1, Ordering::SeqCst);
+                Err("always fails".to_string())
+            },
+        ));
 
         coord.try_phase().unwrap();
         let result = coord.confirm_with_retry();
@@ -2167,14 +2144,12 @@ mod tests {
             .with_retry_policy(TccRetryPolicy::new(0, 1, 10, 2.0));
 
         let a = attempt.clone();
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_cancel(move || {
-                    a.fetch_add(1, Ordering::SeqCst);
-                    Err("always fails".to_string())
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_cancel(
+            move || {
+                a.fetch_add(1, Ordering::SeqCst);
+                Err("always fails".to_string())
+            },
+        ));
 
         coord.try_phase().unwrap();
         let result = coord.cancel_with_retry();
@@ -2185,8 +2160,8 @@ mod tests {
 
     #[test]
     fn coordinator_confirm_with_retry_wrong_state_fails() {
-        let mut coord = TccCoordinator::new("tx-wrong-state")
-            .with_retry_policy(TccRetryPolicy::default());
+        let mut coord =
+            TccCoordinator::new("tx-wrong-state").with_retry_policy(TccRetryPolicy::default());
         coord.add_participant(
             TccParticipant::new("db1")
                 .with_try(|| Ok(()))
@@ -2201,19 +2176,17 @@ mod tests {
     #[test]
     fn coordinator_cancel_with_retry_skips_confirmed_and_init() {
         let cancel_count = Arc::new(AtomicU32::new(0));
-        let mut coord = TccCoordinator::new("tx-skip-confirmed")
-            .with_retry_policy(TccRetryPolicy::default());
+        let mut coord =
+            TccCoordinator::new("tx-skip-confirmed").with_retry_policy(TccRetryPolicy::default());
 
         let c1 = cancel_count.clone();
         // 第一个分支：try 成功，需要 cancel
-        coord.add_participant(
-            TccParticipant::new("db1")
-                .with_try(|| Ok(()))
-                .with_cancel(move || {
-                    c1.fetch_add(1, Ordering::SeqCst);
-                    Ok(())
-                }),
-        );
+        coord.add_participant(TccParticipant::new("db1").with_try(|| Ok(())).with_cancel(
+            move || {
+                c1.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            },
+        ));
         // 第二个分支：只有 try（会 try 成功），但 cancel 时会被处理
         coord.add_participant(
             TccParticipant::new("db2")

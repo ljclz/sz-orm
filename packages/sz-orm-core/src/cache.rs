@@ -329,11 +329,7 @@ where
 /// Write-around（写旁路）：仅写后端存储，同时失效缓存中的旧值
 ///
 /// 适用于写多读少场景，避免频繁写入导致缓存频繁失效。
-pub fn write_around<F>(
-    cache: &dyn Cache,
-    key: &str,
-    writer: F,
-) -> Result<(), CacheError>
+pub fn write_around<F>(cache: &dyn Cache, key: &str, writer: F) -> Result<(), CacheError>
 where
     F: FnOnce(&str) -> Result<(), CacheError>,
 {

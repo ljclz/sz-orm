@@ -182,9 +182,10 @@ impl MigrationTracker {
 
     /// 注册一个迁移（初始状态为 Pending）
     pub fn register(&self, migration: &Migration) -> Result<(), MigError> {
-        let mut records = self.records.lock().map_err(|e| {
-            MigError::Migration(format!("failed to lock migration records: {}", e))
-        })?;
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|e| MigError::Migration(format!("failed to lock migration records: {}", e)))?;
         if records.contains_key(&migration.version) {
             return Err(MigError::Validation(format!(
                 "migration version {} already registered",
@@ -200,9 +201,10 @@ impl MigrationTracker {
 
     /// 记录迁移已应用
     pub fn record_applied(&self, version: u64, duration_ms: u64) -> Result<(), MigError> {
-        let mut records = self.records.lock().map_err(|e| {
-            MigError::Migration(format!("failed to lock migration records: {}", e))
-        })?;
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|e| MigError::Migration(format!("failed to lock migration records: {}", e)))?;
         let record = records
             .get_mut(&version)
             .ok_or_else(|| MigError::Validation(format!("migration {} not found", version)))?;
@@ -212,9 +214,10 @@ impl MigrationTracker {
 
     /// 记录迁移已回滚
     pub fn record_rolled_back(&self, version: u64, duration_ms: u64) -> Result<(), MigError> {
-        let mut records = self.records.lock().map_err(|e| {
-            MigError::Migration(format!("failed to lock migration records: {}", e))
-        })?;
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|e| MigError::Migration(format!("failed to lock migration records: {}", e)))?;
         let record = records
             .get_mut(&version)
             .ok_or_else(|| MigError::Validation(format!("migration {} not found", version)))?;
@@ -235,9 +238,10 @@ impl MigrationTracker {
         error: impl Into<String>,
         duration_ms: u64,
     ) -> Result<(), MigError> {
-        let mut records = self.records.lock().map_err(|e| {
-            MigError::Migration(format!("failed to lock migration records: {}", e))
-        })?;
+        let mut records = self
+            .records
+            .lock()
+            .map_err(|e| MigError::Migration(format!("failed to lock migration records: {}", e)))?;
         let record = records
             .get_mut(&version)
             .ok_or_else(|| MigError::Validation(format!("migration {} not found", version)))?;
@@ -295,10 +299,7 @@ impl MigrationTracker {
 
     /// 返回已注册的迁移总数
     pub fn count(&self) -> usize {
-        self.records
-            .lock()
-            .map(|r| r.len())
-            .unwrap_or(0)
+        self.records.lock().map(|r| r.len()).unwrap_or(0)
     }
 
     /// 返回所有迁移记录的快照（按版本排序）
@@ -340,10 +341,7 @@ pub enum ConflictType {
         version_b: u64,
     },
     /// 迁移引用了不存在的依赖
-    MissingDependency {
-        version: u64,
-        dependency: u64,
-    },
+    MissingDependency { version: u64, dependency: u64 },
 }
 
 /// 迁移冲突检测结果
@@ -478,9 +476,10 @@ impl MigrationExecutor {
 
     /// 添加迁移定义
     pub fn add_migration(&self, migration: Migration) -> Result<(), MigError> {
-        let mut migrations = self.migrations.lock().map_err(|e| {
-            MigError::Migration(format!("failed to lock migrations: {}", e))
-        })?;
+        let mut migrations = self
+            .migrations
+            .lock()
+            .map_err(|e| MigError::Migration(format!("failed to lock migrations: {}", e)))?;
         if migrations.contains_key(&migration.version) {
             return Err(MigError::Validation(format!(
                 "migration version {} already exists",
@@ -625,13 +624,11 @@ impl MigrationExecutor {
     ///
     /// - `Ok((sql, params))`：返回 SQL 字符串和参数列表
     /// - `Err(MigError::Validation)`：迁移不存在
-    pub fn dry_run_up(
-        &self,
-        version: u64,
-    ) -> Result<(String, Vec<serde_json::Value>), MigError> {
-        let migrations = self.migrations.lock().map_err(|e| {
-            MigError::Migration(format!("failed to lock migrations: {}", e))
-        })?;
+    pub fn dry_run_up(&self, version: u64) -> Result<(String, Vec<serde_json::Value>), MigError> {
+        let migrations = self
+            .migrations
+            .lock()
+            .map_err(|e| MigError::Migration(format!("failed to lock migrations: {}", e)))?;
         let migration = migrations
             .get(&version)
             .ok_or_else(|| MigError::Validation(format!("migration {} not found", version)))?;
@@ -646,13 +643,11 @@ impl MigrationExecutor {
     /// # 错误
     ///
     /// - `MigError::Validation`：迁移不存在或不可回滚
-    pub fn dry_run_down(
-        &self,
-        version: u64,
-    ) -> Result<(String, Vec<serde_json::Value>), MigError> {
-        let migrations = self.migrations.lock().map_err(|e| {
-            MigError::Migration(format!("failed to lock migrations: {}", e))
-        })?;
+    pub fn dry_run_down(&self, version: u64) -> Result<(String, Vec<serde_json::Value>), MigError> {
+        let migrations = self
+            .migrations
+            .lock()
+            .map_err(|e| MigError::Migration(format!("failed to lock migrations: {}", e)))?;
         let migration = migrations
             .get(&version)
             .ok_or_else(|| MigError::Validation(format!("migration {} not found", version)))?;
@@ -735,15 +730,13 @@ impl MigrationExecutor {
                     error: None,
                 }
             }
-            Err(e) => {
-                MigrationExecutionResult {
-                    version,
-                    direction: "down".to_string(),
-                    success: false,
-                    duration_ms,
-                    error: Some(e),
-                }
-            }
+            Err(e) => MigrationExecutionResult {
+                version,
+                direction: "down".to_string(),
+                success: false,
+                duration_ms,
+                error: Some(e),
+            },
         }
     }
 
@@ -824,15 +817,13 @@ impl MigrationExecutor {
                     error: None,
                 }
             }
-            Err(e) => {
-                MigrationExecutionResult {
-                    version,
-                    direction: "down".to_string(),
-                    success: false,
-                    duration_ms,
-                    error: Some(e),
-                }
-            }
+            Err(e) => MigrationExecutionResult {
+                version,
+                direction: "down".to_string(),
+                success: false,
+                duration_ms,
+                error: Some(e),
+            },
         }
     }
 
@@ -985,7 +976,12 @@ mod tests {
 
     #[test]
     fn test_migration_new() {
-        let mig = Migration::new(1, "create_users", "CREATE TABLE users (...)", "DROP TABLE users");
+        let mig = Migration::new(
+            1,
+            "create_users",
+            "CREATE TABLE users (...)",
+            "DROP TABLE users",
+        );
         assert_eq!(mig.version, 1);
         assert_eq!(mig.name, "create_users");
         assert!(mig.is_reversible());
@@ -1136,9 +1132,15 @@ mod tests {
     #[test]
     fn test_tracker_applied_versions() {
         let tracker = MigrationTracker::new();
-        tracker.register(&Migration::new(1, "a", "UP", "DOWN")).unwrap();
-        tracker.register(&Migration::new(2, "b", "UP", "DOWN")).unwrap();
-        tracker.register(&Migration::new(3, "c", "UP", "DOWN")).unwrap();
+        tracker
+            .register(&Migration::new(1, "a", "UP", "DOWN"))
+            .unwrap();
+        tracker
+            .register(&Migration::new(2, "b", "UP", "DOWN"))
+            .unwrap();
+        tracker
+            .register(&Migration::new(3, "c", "UP", "DOWN"))
+            .unwrap();
         tracker.record_applied(1, 10).unwrap();
         tracker.record_applied(3, 10).unwrap();
         let applied = tracker.applied_versions();
@@ -1148,9 +1150,15 @@ mod tests {
     #[test]
     fn test_tracker_pending_versions() {
         let tracker = MigrationTracker::new();
-        tracker.register(&Migration::new(1, "a", "UP", "DOWN")).unwrap();
-        tracker.register(&Migration::new(2, "b", "UP", "DOWN")).unwrap();
-        tracker.register(&Migration::new(3, "c", "UP", "DOWN")).unwrap();
+        tracker
+            .register(&Migration::new(1, "a", "UP", "DOWN"))
+            .unwrap();
+        tracker
+            .register(&Migration::new(2, "b", "UP", "DOWN"))
+            .unwrap();
+        tracker
+            .register(&Migration::new(3, "c", "UP", "DOWN"))
+            .unwrap();
         tracker.record_applied(2, 10).unwrap();
         let pending = tracker.pending_versions();
         assert_eq!(pending, vec![1, 3]);
@@ -1160,8 +1168,12 @@ mod tests {
     fn test_tracker_last_applied_version() {
         let tracker = MigrationTracker::new();
         assert_eq!(tracker.last_applied_version(), None);
-        tracker.register(&Migration::new(1, "a", "UP", "DOWN")).unwrap();
-        tracker.register(&Migration::new(2, "b", "UP", "DOWN")).unwrap();
+        tracker
+            .register(&Migration::new(1, "a", "UP", "DOWN"))
+            .unwrap();
+        tracker
+            .register(&Migration::new(2, "b", "UP", "DOWN"))
+            .unwrap();
         tracker.record_applied(1, 10).unwrap();
         assert_eq!(tracker.last_applied_version(), Some(1));
         tracker.record_applied(2, 10).unwrap();
@@ -1171,9 +1183,15 @@ mod tests {
     #[test]
     fn test_tracker_all_records_sorted() {
         let tracker = MigrationTracker::new();
-        tracker.register(&Migration::new(3, "c", "UP", "DOWN")).unwrap();
-        tracker.register(&Migration::new(1, "a", "UP", "DOWN")).unwrap();
-        tracker.register(&Migration::new(2, "b", "UP", "DOWN")).unwrap();
+        tracker
+            .register(&Migration::new(3, "c", "UP", "DOWN"))
+            .unwrap();
+        tracker
+            .register(&Migration::new(1, "a", "UP", "DOWN"))
+            .unwrap();
+        tracker
+            .register(&Migration::new(2, "b", "UP", "DOWN"))
+            .unwrap();
         let records = tracker.all_records();
         assert_eq!(records.len(), 3);
         assert_eq!(records[0].version, 1);
@@ -1184,7 +1202,9 @@ mod tests {
     #[test]
     fn test_tracker_get_record() {
         let tracker = MigrationTracker::new();
-        tracker.register(&Migration::new(1, "test", "UP", "DOWN")).unwrap();
+        tracker
+            .register(&Migration::new(1, "test", "UP", "DOWN"))
+            .unwrap();
         let rec = tracker.get_record(1).unwrap();
         assert_eq!(rec.name, "test");
         assert!(tracker.get_record(999).is_none());
@@ -1240,7 +1260,10 @@ mod tests {
         assert!(report.has_conflicts());
         assert!(report.conflicts.iter().any(|c| matches!(
             c,
-            ConflictType::MissingDependency { version: 1, dependency: 99 }
+            ConflictType::MissingDependency {
+                version: 1,
+                dependency: 99
+            }
         )));
     }
 
@@ -1295,7 +1318,10 @@ mod tests {
         let result = executor.execute_up(1, |_sql| Ok(()));
         assert!(result.success);
         assert_eq!(result.direction, "up");
-        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Applied));
+        assert_eq!(
+            executor.tracker().get_status(1),
+            Some(MigrationStatus::Applied)
+        );
     }
 
     #[test]
@@ -1306,7 +1332,10 @@ mod tests {
 
         let result = executor.execute_up(1, |_| Err("syntax error".to_string()));
         assert!(!result.success);
-        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Failed));
+        assert_eq!(
+            executor.tracker().get_status(1),
+            Some(MigrationStatus::Failed)
+        );
     }
 
     #[test]
@@ -1326,7 +1355,10 @@ mod tests {
         let result = executor.execute_down(1, |_| Ok(()));
         assert!(result.success);
         assert_eq!(result.direction, "down");
-        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::RolledBack));
+        assert_eq!(
+            executor.tracker().get_status(1),
+            Some(MigrationStatus::RolledBack)
+        );
     }
 
     #[test]
@@ -1366,7 +1398,12 @@ mod tests {
     #[test]
     fn test_executor_full_up_down_cycle() {
         let executor = MigrationExecutor::new();
-        let mig = Migration::new(1, "create_users", "CREATE TABLE users (...)", "DROP TABLE users");
+        let mig = Migration::new(
+            1,
+            "create_users",
+            "CREATE TABLE users (...)",
+            "DROP TABLE users",
+        );
         executor.add_migration(mig).unwrap();
 
         // 执行 up
@@ -1386,8 +1423,13 @@ mod tests {
 
     #[test]
     fn test_migration_with_up_params() {
-        let mig = Migration::new(1, "test", "INSERT INTO t (name) VALUES (?)", "DELETE FROM t")
-            .with_up_params(vec![serde_json::json!("alice")]);
+        let mig = Migration::new(
+            1,
+            "test",
+            "INSERT INTO t (name) VALUES (?)",
+            "DELETE FROM t",
+        )
+        .with_up_params(vec![serde_json::json!("alice")]);
         assert_eq!(mig.up_params.len(), 1);
         assert_eq!(mig.up_params[0], serde_json::json!("alice"));
     }
@@ -1409,9 +1451,14 @@ mod tests {
 
     #[test]
     fn test_migration_params_serde_roundtrip() {
-        let mig = Migration::new(1, "test", "INSERT INTO t VALUES (?)", "DELETE FROM t WHERE id = ?")
-            .with_up_params(vec![serde_json::json!("alice"), serde_json::json!(42)])
-            .with_down_params(vec![serde_json::json!(42)]);
+        let mig = Migration::new(
+            1,
+            "test",
+            "INSERT INTO t VALUES (?)",
+            "DELETE FROM t WHERE id = ?",
+        )
+        .with_up_params(vec![serde_json::json!("alice"), serde_json::json!(42)])
+        .with_down_params(vec![serde_json::json!(42)]);
         let json = serde_json::to_string(&mig).unwrap();
         // 反序列化后参数应保留
         let restored: Migration = serde_json::from_str(&json).unwrap();
@@ -1437,8 +1484,13 @@ mod tests {
     #[test]
     fn test_executor_execute_up_with_params() {
         let executor = MigrationExecutor::new();
-        let mig = Migration::new(1, "test", "INSERT INTO t (name) VALUES (?)", "DELETE FROM t")
-            .with_up_params(vec![serde_json::json!("alice")]);
+        let mig = Migration::new(
+            1,
+            "test",
+            "INSERT INTO t (name) VALUES (?)",
+            "DELETE FROM t",
+        )
+        .with_up_params(vec![serde_json::json!("alice")]);
         executor.add_migration(mig).unwrap();
 
         let result = executor.execute_up_with_params(1, |sql, params| {
@@ -1448,7 +1500,10 @@ mod tests {
             Ok(())
         });
         assert!(result.success);
-        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Applied));
+        assert_eq!(
+            executor.tracker().get_status(1),
+            Some(MigrationStatus::Applied)
+        );
     }
 
     #[test]
@@ -1466,7 +1521,10 @@ mod tests {
             Ok(())
         });
         assert!(result.success);
-        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::RolledBack));
+        assert_eq!(
+            executor.tracker().get_status(1),
+            Some(MigrationStatus::RolledBack)
+        );
     }
 
     #[test]
@@ -1496,8 +1554,13 @@ mod tests {
     #[test]
     fn test_dry_run_up_returns_sql_and_params() {
         let executor = MigrationExecutor::new();
-        let mig = Migration::new(1, "test", "INSERT INTO t (name) VALUES (?)", "DELETE FROM t")
-            .with_up_params(vec![serde_json::json!("alice")]);
+        let mig = Migration::new(
+            1,
+            "test",
+            "INSERT INTO t (name) VALUES (?)",
+            "DELETE FROM t",
+        )
+        .with_up_params(vec![serde_json::json!("alice")]);
         executor.add_migration(mig).unwrap();
 
         let (sql, params) = executor.dry_run_up(1).unwrap();
@@ -1514,7 +1577,10 @@ mod tests {
 
         // 调用 dry_run_up 不应改变状态
         let _ = executor.dry_run_up(1).unwrap();
-        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Pending));
+        assert_eq!(
+            executor.tracker().get_status(1),
+            Some(MigrationStatus::Pending)
+        );
     }
 
     #[test]
@@ -1541,14 +1607,16 @@ mod tests {
     #[test]
     fn test_dry_run_down_does_not_change_status() {
         let executor = MigrationExecutor::new();
-        let mig = Migration::new(1, "test", "UP", "DELETE FROM t")
-            .with_up_params(vec![]);
+        let mig = Migration::new(1, "test", "UP", "DELETE FROM t").with_up_params(vec![]);
         executor.add_migration(mig).unwrap();
         executor.execute_up(1, |_| Ok(()));
 
         // 调用 dry_run_down 不应改变 Applied 状态
         let _ = executor.dry_run_down(1).unwrap();
-        assert_eq!(executor.tracker().get_status(1), Some(MigrationStatus::Applied));
+        assert_eq!(
+            executor.tracker().get_status(1),
+            Some(MigrationStatus::Applied)
+        );
     }
 
     #[test]

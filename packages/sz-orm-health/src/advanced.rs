@@ -414,15 +414,12 @@ impl ProbeManager {
             ProbeKind::Readiness => self.readiness.read(),
         };
         match map {
-            Ok(guard) => guard
-                .get(name)
-                .cloned()
-                .unwrap_or_else(|| HealthSnapshot {
-                    status: HealthStatus::Unknown,
-                    connection_count: 0,
-                    slow_queries: 0,
-                    message: format!("no {:?} probe registered for '{}'", kind, name),
-                }),
+            Ok(guard) => guard.get(name).cloned().unwrap_or_else(|| HealthSnapshot {
+                status: HealthStatus::Unknown,
+                connection_count: 0,
+                slow_queries: 0,
+                message: format!("no {:?} probe registered for '{}'", kind, name),
+            }),
             Err(_) => HealthSnapshot {
                 status: HealthStatus::Unknown,
                 connection_count: 0,

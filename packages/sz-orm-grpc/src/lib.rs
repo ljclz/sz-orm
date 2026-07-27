@@ -684,15 +684,15 @@ impl GrpcChannel {
                         }
                     }
                     // 不可重试或无重试策略，直接返回错误。
-                    return Err(last_error
-                        .expect("last_error must be Some after Err branch assignment"));
+                    return Err(
+                        last_error.expect("last_error must be Some after Err branch assignment")
+                    );
                 }
             }
         }
 
         // 重试次数耗尽，返回最后一次错误。
-        Err(last_error
-            .unwrap_or_else(|| GrpcError::Transport("no attempt made".to_string())))
+        Err(last_error.unwrap_or_else(|| GrpcError::Transport("no attempt made".to_string())))
     }
 
     /// 发起 server-streaming RPC 调用，返回 [`GrpcStream`]。
@@ -1379,13 +1379,12 @@ mod tests {
         // 未携带 authorization metadata，鉴权应失败。
         let channel = GrpcChannel::new(&addr)
             .with_interceptor(Arc::new(AuthInterceptor::new("Bearer secret")));
-        let result: Result<UserResponse, _> =
-            channel.call_unary("UserService", "GetUser", |svc| {
-                svc.get_user(UserRequest {
-                    id: 1,
-                    username: String::new(),
-                })
-            });
+        let result: Result<UserResponse, _> = channel.call_unary("UserService", "GetUser", |svc| {
+            svc.get_user(UserRequest {
+                id: 1,
+                username: String::new(),
+            })
+        });
         assert!(matches!(result, Err(GrpcError::Unauthorized(_))));
     }
 
@@ -1422,13 +1421,12 @@ mod tests {
         let channel = GrpcChannel::new(&addr)
             .with_interceptor(Arc::new(LoggingInterceptor))
             .with_interceptor(Arc::new(AuthInterceptor::new("Bearer secret")));
-        let result: Result<UserResponse, _> =
-            channel.call_unary("UserService", "GetUser", |svc| {
-                svc.get_user(UserRequest {
-                    id: 1,
-                    username: String::new(),
-                })
-            });
+        let result: Result<UserResponse, _> = channel.call_unary("UserService", "GetUser", |svc| {
+            svc.get_user(UserRequest {
+                id: 1,
+                username: String::new(),
+            })
+        });
         assert!(matches!(result, Err(GrpcError::Unauthorized(_))));
     }
 
@@ -1465,13 +1463,25 @@ mod tests {
         };
         let err = GrpcError::ConnectionFailed("x".to_string());
         // attempt 0: 10 * 2^0 = 10ms
-        assert_eq!(policy.should_retry(&err, 0), Some(Duration::from_millis(10)));
+        assert_eq!(
+            policy.should_retry(&err, 0),
+            Some(Duration::from_millis(10))
+        );
         // attempt 1: 10 * 2^1 = 20ms
-        assert_eq!(policy.should_retry(&err, 1), Some(Duration::from_millis(20)));
+        assert_eq!(
+            policy.should_retry(&err, 1),
+            Some(Duration::from_millis(20))
+        );
         // attempt 2: 10 * 2^2 = 40ms
-        assert_eq!(policy.should_retry(&err, 2), Some(Duration::from_millis(40)));
+        assert_eq!(
+            policy.should_retry(&err, 2),
+            Some(Duration::from_millis(40))
+        );
         // attempt 3: 10 * 2^3 = 80ms
-        assert_eq!(policy.should_retry(&err, 3), Some(Duration::from_millis(80)));
+        assert_eq!(
+            policy.should_retry(&err, 3),
+            Some(Duration::from_millis(80))
+        );
     }
 
     #[test]
@@ -1485,7 +1495,10 @@ mod tests {
         };
         let err = GrpcError::ConnectionFailed("x".to_string());
         // attempt 5: 100 * 2^5 = 3200，应被截断为 500
-        assert_eq!(policy.should_retry(&err, 5), Some(Duration::from_millis(500)));
+        assert_eq!(
+            policy.should_retry(&err, 5),
+            Some(Duration::from_millis(500))
+        );
     }
 
     #[test]
@@ -1665,13 +1678,12 @@ mod tests {
             retryable_errors: vec![RetryableErrorKind::ConnectionFailed],
         });
 
-        let result: Result<UserResponse, _> =
-            channel.call_unary("UserService", "GetUser", |svc| {
-                svc.get_user(UserRequest {
-                    id: 1,
-                    username: String::new(),
-                })
-            });
+        let result: Result<UserResponse, _> = channel.call_unary("UserService", "GetUser", |svc| {
+            svc.get_user(UserRequest {
+                id: 1,
+                username: String::new(),
+            })
+        });
         assert!(matches!(result, Err(GrpcError::MethodNotFound(_))));
         // 验证只调用了一次（无重试）
         let svc_ref = global_registry().read().unwrap();
@@ -1695,13 +1707,12 @@ mod tests {
             retryable_errors: vec![RetryableErrorKind::ConnectionFailed],
         });
 
-        let result: Result<UserResponse, _> =
-            channel.call_unary("UserService", "GetUser", |svc| {
-                svc.get_user(UserRequest {
-                    id: 1,
-                    username: String::new(),
-                })
-            });
+        let result: Result<UserResponse, _> = channel.call_unary("UserService", "GetUser", |svc| {
+            svc.get_user(UserRequest {
+                id: 1,
+                username: String::new(),
+            })
+        });
         // 重试耗尽后返回 ConnectionFailed
         assert!(matches!(result, Err(GrpcError::ConnectionFailed(_))));
     }

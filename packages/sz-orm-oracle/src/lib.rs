@@ -148,7 +148,8 @@ fn map_oracle_error(e: oracle::Error) -> DbError {
     let kind = e.kind();
     match kind {
         oracle::ErrorKind::OciError | oracle::ErrorKind::DpiError => {
-            if msg.contains("connection") || msg.contains("ORA-03114") || msg.contains("ORA-12541") {
+            if msg.contains("connection") || msg.contains("ORA-03114") || msg.contains("ORA-12541")
+            {
                 DbError::ConnectionError(msg)
             } else if msg.contains("ORA-00001") {
                 DbError::AlreadyExists(msg)
@@ -251,9 +252,7 @@ fn value_to_oracle_to_sql(value: &Value) -> Box<dyn oracle::sql_type::ToSql + Se
 /// - 列名与 OracleType 仅从 ResultSet 提取一次,后续行复用
 /// - HashMap 预分配 capacity = col_count,避免插入时 rehash
 /// - 对零行结果直接返回空 Vec,零开销
-fn map_oracle_rows_optimized(
-    rows: oracle::ResultSet<'_, OracleRow>,
-) -> Result<QueryRows, DbError> {
+fn map_oracle_rows_optimized(rows: oracle::ResultSet<'_, OracleRow>) -> Result<QueryRows, DbError> {
     let col_infos: Vec<oracle::ColumnInfo> = rows.column_info().to_vec();
     let col_count = col_infos.len();
     if col_count == 0 {
@@ -261,7 +260,10 @@ fn map_oracle_rows_optimized(
     }
     // 预提取列名与 OracleType(只分配一次)
     let names: Vec<String> = col_infos.iter().map(|ci| ci.name().to_string()).collect();
-    let types: Vec<OracleType> = col_infos.iter().map(|ci| ci.oracle_type().clone()).collect();
+    let types: Vec<OracleType> = col_infos
+        .iter()
+        .map(|ci| ci.oracle_type().clone())
+        .collect();
 
     let mut result: QueryRows = Vec::new();
     for row_result in rows {
@@ -293,7 +295,10 @@ fn map_oracle_rows_positional(
     }
     // 预提取列名与 OracleType(只分配一次)
     let names: Vec<String> = col_infos.iter().map(|ci| ci.name().to_string()).collect();
-    let types: Vec<OracleType> = col_infos.iter().map(|ci| ci.oracle_type().clone()).collect();
+    let types: Vec<OracleType> = col_infos
+        .iter()
+        .map(|ci| ci.oracle_type().clone())
+        .collect();
 
     let mut values_matrix: Vec<Vec<Value>> = Vec::new();
     for row_result in rows {
@@ -344,8 +349,12 @@ fn oracle_row_to_value(row: &OracleRow, col_idx: usize, oracle_type: &OracleType
             }
             Value::Null
         }
-        OracleType::Varchar2(_) | OracleType::NVarchar2(_) | OracleType::Char(_)
-        | OracleType::NChar(_) | OracleType::Rowid | OracleType::Raw(_) => {
+        OracleType::Varchar2(_)
+        | OracleType::NVarchar2(_)
+        | OracleType::Char(_)
+        | OracleType::NChar(_)
+        | OracleType::Rowid
+        | OracleType::Raw(_) => {
             if let Ok(v) = row.get::<_, Option<String>>(col_idx) {
                 return v.map(Value::String).unwrap_or(Value::Null);
             }
@@ -359,14 +368,17 @@ fn oracle_row_to_value(row: &OracleRow, col_idx: usize, oracle_type: &OracleType
         }
         OracleType::Date => {
             if let Ok(v) = row.get::<_, Option<oracle::sql_type::Timestamp>>(col_idx) {
-                return v.map(|ts| Value::DateTime(ts.to_string())).unwrap_or(Value::Null);
+                return v
+                    .map(|ts| Value::DateTime(ts.to_string()))
+                    .unwrap_or(Value::Null);
             }
             Value::Null
         }
-        OracleType::Timestamp(_) | OracleType::TimestampTZ(_)
-        | OracleType::TimestampLTZ(_) => {
+        OracleType::Timestamp(_) | OracleType::TimestampTZ(_) | OracleType::TimestampLTZ(_) => {
             if let Ok(v) = row.get::<_, Option<oracle::sql_type::Timestamp>>(col_idx) {
-                return v.map(|ts| Value::DateTime(ts.to_string())).unwrap_or(Value::Null);
+                return v
+                    .map(|ts| Value::DateTime(ts.to_string()))
+                    .unwrap_or(Value::Null);
             }
             Value::Null
         }
@@ -455,7 +467,12 @@ pub struct OraclePoolHandle {
 impl OraclePoolHandle {
     /// 创建新的 Oracle 连接池（使用默认阻塞池配置，连接池上限默认 10）
     pub fn connect(username: &str, password: &str, connect_string: &str) -> Result<Self, DbError> {
-        Self::connect_with_pool(username, password, connect_string, OracleBlockingPoolConfig::default())
+        Self::connect_with_pool(
+            username,
+            password,
+            connect_string,
+            OracleBlockingPoolConfig::default(),
+        )
     }
 
     /// 创建新的 Oracle 连接池（自定义阻塞池配置，连接池上限默认 10）
@@ -484,8 +501,8 @@ impl OraclePoolHandle {
         max_size: usize,
     ) -> Result<Self, DbError> {
         // 建立首个连接，同时校验账号/连接串可用性
-        let conn = OracleConn::connect(username, password, connect_string)
-            .map_err(map_oracle_error)?;
+        let conn =
+            OracleConn::connect(username, password, connect_string).map_err(map_oracle_error)?;
         let blocking_pool = OracleBlockingPool::new(pool_config);
         let max_size = if max_size == 0 { 10 } else { max_size };
         Ok(Self {
@@ -516,13 +533,17 @@ impl OraclePoolHandle {
     /// 的所有查询方法已通过 `blocking_pool().spawn_blocking` 包装）。等待连接
     /// 时阻塞的是专用阻塞线程，不影响主 tokio runtime。
     pub fn acquire(&self) -> Result<OracleConnGuard<'_>, DbError> {
-        let mut inner = self.inner.lock().map_err(|e| {
-            DbError::Internal(format!("Oracle pool mutex poisoned: {}", e))
-        })?;
+        let mut inner = self
+            .inner
+            .lock()
+            .map_err(|e| DbError::Internal(format!("Oracle pool mutex poisoned: {}", e)))?;
         loop {
             // 1. 空闲连接直接复用
             if let Some(conn) = inner.idle.pop() {
-                return Ok(OracleConnGuard { conn: Some(conn), pool: self });
+                return Ok(OracleConnGuard {
+                    conn: Some(conn),
+                    pool: self,
+                });
             }
             // 2. 未达上限则创建新连接
             if inner.total < self.max_size {
@@ -531,7 +552,12 @@ impl OraclePoolHandle {
                 // 持锁时间 ≈ 一次 TCP+认证耗时（毫秒级），可接受。
                 // 若建连失败需回滚 total 并唤醒一个等待者，避免其空等。
                 match OracleConn::connect(&self.username, &self.password, &self.connect_string) {
-                    Ok(conn) => return Ok(OracleConnGuard { conn: Some(conn), pool: self }),
+                    Ok(conn) => {
+                        return Ok(OracleConnGuard {
+                            conn: Some(conn),
+                            pool: self,
+                        })
+                    }
                     Err(e) => {
                         inner.total -= 1;
                         self.condvar.notify_one();
@@ -540,9 +566,10 @@ impl OraclePoolHandle {
                 }
             }
             // 3. 池满：释放锁并等待连接归还
-            inner = self.condvar.wait(inner).map_err(|e| {
-                DbError::Internal(format!("Oracle pool condvar poisoned: {}", e))
-            })?;
+            inner = self
+                .condvar
+                .wait(inner)
+                .map_err(|e| DbError::Internal(format!("Oracle pool condvar poisoned: {}", e)))?;
         }
     }
 
@@ -650,17 +677,20 @@ impl Connection for OracleConnection {
             }
             let sql_owned = sql.to_string();
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    let stmt = conn.execute(&sql_owned, &[]).map_err(map_oracle_error)?;
-                    Ok::<u64, DbError>(stmt.row_count().unwrap_or(0))
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        let stmt = conn.execute(&sql_owned, &[]).map_err(map_oracle_error)?;
+                        Ok::<u64, DbError>(stmt.row_count().unwrap_or(0))
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if let Err(ref e) = result {
                 self.mark_connection_error(e);
             }
@@ -678,17 +708,20 @@ impl Connection for OracleConnection {
             }
             let sql_owned = sql.to_string();
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    let rows = conn.query(&sql_owned, &[]).map_err(map_oracle_error)?;
-                    map_oracle_rows_optimized(rows)
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        let rows = conn.query(&sql_owned, &[]).map_err(map_oracle_error)?;
+                        map_oracle_rows_optimized(rows)
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if let Err(ref e) = result {
                 self.mark_connection_error(e);
             }
@@ -713,21 +746,28 @@ impl Connection for OracleConnection {
             let sql_converted = convert_placeholders(sql);
             let params_owned: Vec<Value> = params.to_vec();
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    let to_sql_params: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
-                        params_owned.iter().map(value_to_oracle_to_sql).collect();
-                    let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> =
-                        to_sql_params.iter().map(|b| &**b as &dyn oracle::sql_type::ToSql).collect();
-                    let stmt = conn.execute(&sql_converted, &to_sql_refs).map_err(map_oracle_error)?;
-                    Ok::<u64, DbError>(stmt.row_count().unwrap_or(0))
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        let to_sql_params: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
+                            params_owned.iter().map(value_to_oracle_to_sql).collect();
+                        let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> = to_sql_params
+                            .iter()
+                            .map(|b| &**b as &dyn oracle::sql_type::ToSql)
+                            .collect();
+                        let stmt = conn
+                            .execute(&sql_converted, &to_sql_refs)
+                            .map_err(map_oracle_error)?;
+                        Ok::<u64, DbError>(stmt.row_count().unwrap_or(0))
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if let Err(ref e) = result {
                 self.mark_connection_error(e);
             }
@@ -748,21 +788,28 @@ impl Connection for OracleConnection {
             let sql_converted = convert_placeholders(sql);
             let params_owned: Vec<Value> = params.to_vec();
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    let to_sql_params: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
-                        params_owned.iter().map(value_to_oracle_to_sql).collect();
-                    let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> =
-                        to_sql_params.iter().map(|b| &**b as &dyn oracle::sql_type::ToSql).collect();
-                    let rows = conn.query(&sql_converted, &to_sql_refs).map_err(map_oracle_error)?;
-                    map_oracle_rows_optimized(rows)
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        let to_sql_params: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
+                            params_owned.iter().map(value_to_oracle_to_sql).collect();
+                        let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> = to_sql_params
+                            .iter()
+                            .map(|b| &**b as &dyn oracle::sql_type::ToSql)
+                            .collect();
+                        let rows = conn
+                            .query(&sql_converted, &to_sql_refs)
+                            .map_err(map_oracle_error)?;
+                        map_oracle_rows_optimized(rows)
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if let Err(ref e) = result {
                 self.mark_connection_error(e);
             }
@@ -783,17 +830,20 @@ impl Connection for OracleConnection {
             }
             let sql_owned = sql.to_string();
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    let rows = conn.query(&sql_owned, &[]).map_err(map_oracle_error)?;
-                    map_oracle_rows_positional(rows)
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        let rows = conn.query(&sql_owned, &[]).map_err(map_oracle_error)?;
+                        map_oracle_rows_positional(rows)
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if let Err(ref e) = result {
                 self.mark_connection_error(e);
             }
@@ -815,21 +865,28 @@ impl Connection for OracleConnection {
             let sql_converted = convert_placeholders(sql);
             let params_owned: Vec<Value> = params.to_vec();
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    let to_sql_params: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
-                        params_owned.iter().map(value_to_oracle_to_sql).collect();
-                    let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> =
-                        to_sql_params.iter().map(|b| &**b as &dyn oracle::sql_type::ToSql).collect();
-                    let rows = conn.query(&sql_converted, &to_sql_refs).map_err(map_oracle_error)?;
-                    map_oracle_rows_positional(rows)
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        let to_sql_params: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
+                            params_owned.iter().map(value_to_oracle_to_sql).collect();
+                        let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> = to_sql_params
+                            .iter()
+                            .map(|b| &**b as &dyn oracle::sql_type::ToSql)
+                            .collect();
+                        let rows = conn
+                            .query(&sql_converted, &to_sql_refs)
+                            .map_err(map_oracle_error)?;
+                        map_oracle_rows_positional(rows)
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if let Err(ref e) = result {
                 self.mark_connection_error(e);
             }
@@ -868,37 +925,40 @@ impl Connection for OracleConnection {
             // 深拷贝参数，移入 spawn_blocking 闭包
             let batch_owned: Vec<Vec<Value>> = params_batch.to_vec();
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    // 创建批处理，启用 row_counts 以获取每行影响行数
-                    let mut batch = conn
-                        .batch(&sql_converted, batch_size)
-                        .with_row_counts()
-                        .build()
-                        .map_err(map_oracle_error)?;
-                    // 逐行追加：每行参数转换为 &dyn ToSql 引用切片
-                    for row_params in &batch_owned {
-                        let to_sql_boxed: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
-                            row_params.iter().map(value_to_oracle_to_sql).collect();
-                        let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> = to_sql_boxed
-                            .iter()
-                            .map(|b| &**b as &dyn oracle::sql_type::ToSql)
-                            .collect();
-                        batch.append_row(&to_sql_refs).map_err(map_oracle_error)?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        // 创建批处理，启用 row_counts 以获取每行影响行数
+                        let mut batch = conn
+                            .batch(&sql_converted, batch_size)
+                            .with_row_counts()
+                            .build()
+                            .map_err(map_oracle_error)?;
+                        // 逐行追加：每行参数转换为 &dyn ToSql 引用切片
+                        for row_params in &batch_owned {
+                            let to_sql_boxed: Vec<Box<dyn oracle::sql_type::ToSql + Send>> =
+                                row_params.iter().map(value_to_oracle_to_sql).collect();
+                            let to_sql_refs: Vec<&dyn oracle::sql_type::ToSql> = to_sql_boxed
+                                .iter()
+                                .map(|b| &**b as &dyn oracle::sql_type::ToSql)
+                                .collect();
+                            batch.append_row(&to_sql_refs).map_err(map_oracle_error)?;
+                        }
+                        // 执行批处理
+                        batch.execute().map_err(map_oracle_error)?;
+                        // 汇总每行影响行数
+                        let row_counts = batch.row_counts().map_err(map_oracle_error)?;
+                        let total: u64 = row_counts.iter().sum();
+                        Ok::<u64, DbError>(total)
                     }
-                    // 执行批处理
-                    batch.execute().map_err(map_oracle_error)?;
-                    // 汇总每行影响行数
-                    let row_counts = batch.row_counts().map_err(map_oracle_error)?;
-                    let total: u64 = row_counts.iter().sum();
-                    Ok::<u64, DbError>(total)
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if let Err(ref e) = result {
                 self.mark_connection_error(e);
             }
@@ -914,17 +974,20 @@ impl Connection for OracleConnection {
                 return Err(DbError::ConnectionError("connection closed".to_string()));
             }
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    conn.execute("BEGIN", &[]).map_err(map_oracle_error)?;
-                    Ok::<(), DbError>(())
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        conn.execute("BEGIN", &[]).map_err(map_oracle_error)?;
+                        Ok::<(), DbError>(())
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if result.is_ok() {
                 self.in_transaction = true;
             } else if let Err(ref e) = result {
@@ -934,25 +997,26 @@ impl Connection for OracleConnection {
         })
     }
 
-    fn commit<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn commit<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             if !self.connected {
                 return Err(DbError::ConnectionError("connection closed".to_string()));
             }
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    conn.commit().map_err(map_oracle_error)?;
-                    Ok::<(), DbError>(())
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        conn.commit().map_err(map_oracle_error)?;
+                        Ok::<(), DbError>(())
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if result.is_ok() {
                 self.in_transaction = false;
             } else if let Err(ref e) = result {
@@ -970,17 +1034,20 @@ impl Connection for OracleConnection {
                 return Err(DbError::ConnectionError("connection closed".to_string()));
             }
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    conn.rollback().map_err(map_oracle_error)?;
-                    Ok::<(), DbError>(())
-                }
-            })
-            .await
-            .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        conn.rollback().map_err(map_oracle_error)?;
+                        Ok::<(), DbError>(())
+                    }
+                })
+                .await
+                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
             if result.is_ok() {
                 self.in_transaction = false;
             } else if let Err(ref e) = result {
@@ -1000,17 +1067,20 @@ impl Connection for OracleConnection {
                 return false;
             }
             // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self.handle.blocking_pool().spawn_blocking({
-                let handle = self.handle.clone();
-                move || {
-                    let guard = handle.acquire()?;
-                    let conn = guard.deref();
-                    conn.execute("SELECT 1 FROM dual", &[])
-                        .map_err(map_oracle_error)?;
-                    Ok::<(), DbError>(())
-                }
-            })
-            .await;
+            let result = self
+                .handle
+                .blocking_pool()
+                .spawn_blocking({
+                    let handle = self.handle.clone();
+                    move || {
+                        let guard = handle.acquire()?;
+                        let conn = guard.deref();
+                        conn.execute("SELECT 1 FROM dual", &[])
+                            .map_err(map_oracle_error)?;
+                        Ok::<(), DbError>(())
+                    }
+                })
+                .await;
             match result {
                 Ok(Ok(())) => true,
                 _ => {
@@ -1021,9 +1091,7 @@ impl Connection for OracleConnection {
         })
     }
 
-    fn close<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             self.connected = false;
             Ok(())
@@ -1082,7 +1150,9 @@ mod tests {
 
     #[test]
     fn test_needs_raw_sql_alter() {
-        assert!(needs_raw_sql("ALTER TABLE users ADD COLUMN name VARCHAR(100)"));
+        assert!(needs_raw_sql(
+            "ALTER TABLE users ADD COLUMN name VARCHAR(100)"
+        ));
     }
 
     #[test]

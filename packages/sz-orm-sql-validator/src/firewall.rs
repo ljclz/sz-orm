@@ -154,8 +154,7 @@ impl SqlFirewall {
 
     /// 获取被记录次数
     pub fn logged_count(&self) -> u64 {
-        self.logged_count
-            .load(std::sync::atomic::Ordering::Relaxed)
+        self.logged_count.load(std::sync::atomic::Ordering::Relaxed)
     }
 }
 
@@ -175,11 +174,7 @@ pub struct FirewallViolation {
 
 impl std::fmt::Display for FirewallViolation {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        write!(
-            f,
-            "SQL blocked by rule '{}': {}",
-            self.rule_name, self.sql
-        )
+        write!(f, "SQL blocked by rule '{}': {}", self.rule_name, self.sql)
     }
 }
 
@@ -226,9 +221,7 @@ mod tests {
     #[test]
     fn test_blocks_alter_table_drop() {
         let fw = SqlFirewall::new();
-        assert!(fw
-            .check("ALTER TABLE users DROP COLUMN password")
-            .is_err());
+        assert!(fw.check("ALTER TABLE users DROP COLUMN password").is_err());
     }
 
     #[test]
@@ -252,9 +245,7 @@ mod tests {
     #[test]
     fn test_allows_update_with_where() {
         let fw = SqlFirewall::new();
-        assert!(fw
-            .check("UPDATE users SET name = 'a' WHERE id = 1")
-            .is_ok());
+        assert!(fw.check("UPDATE users SET name = 'a' WHERE id = 1").is_ok());
     }
 
     #[test]

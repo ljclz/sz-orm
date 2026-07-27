@@ -250,11 +250,7 @@ impl TaskDag {
     /// 与 [`Self::add_task`] 不同，此方法允许在所有任务注册后配置依赖，
     /// 因此可以构建出循环依赖以供 [`Self::has_cycle`] 检测。
     /// 若任务或依赖不存在则返回错误。
-    pub fn add_dependency(
-        &mut self,
-        task_id: &str,
-        dep_id: &str,
-    ) -> Result<(), SchedulerError> {
+    pub fn add_dependency(&mut self, task_id: &str, dep_id: &str) -> Result<(), SchedulerError> {
         // 先做不可变借用检查 dep_id 是否存在
         if !self.tasks.contains_key(dep_id) {
             return Err(SchedulerError::Internal(format!(
@@ -604,10 +600,7 @@ impl RetryExecutor {
 
     /// 返回所有重试记录
     pub fn history(&self) -> Vec<RetryRecord> {
-        self.history
-            .lock()
-            .map(|h| h.clone())
-            .unwrap_or_default()
+        self.history.lock().map(|h| h.clone()).unwrap_or_default()
     }
 
     /// 返回指定任务的重试次数
@@ -622,11 +615,7 @@ impl RetryExecutor {
     pub fn is_successful(&self, task_id: &str) -> bool {
         self.history
             .lock()
-            .map(|h| {
-                h.iter()
-                    .filter(|r| r.task_id == task_id)
-                    .any(|r| r.success)
-            })
+            .map(|h| h.iter().filter(|r| r.task_id == task_id).any(|r| r.success))
             .unwrap_or(false)
     }
 
@@ -687,12 +676,7 @@ impl DistributedLockManager {
     }
 
     /// 尝试获取任务锁，指定自定义 TTL
-    pub fn try_acquire_with_ttl(
-        &self,
-        task_id: &str,
-        owner: &str,
-        ttl_secs: u64,
-    ) -> LockStatus {
+    pub fn try_acquire_with_ttl(&self, task_id: &str, owner: &str, ttl_secs: u64) -> LockStatus {
         let now = current_timestamp_secs();
         let mut locks = match self.locks.lock() {
             Ok(l) => l,
@@ -910,10 +894,7 @@ impl TaskStatsManager {
 
     /// 获取任务统计信息
     pub fn get_stats(&self, task_id: &str) -> Option<TaskStats> {
-        self.stats
-            .lock()
-            .ok()
-            .and_then(|s| s.get(task_id).cloned())
+        self.stats.lock().ok().and_then(|s| s.get(task_id).cloned())
     }
 
     /// 返回所有被追踪的任务 ID
@@ -1098,7 +1079,8 @@ mod tests {
     fn test_dag_add_dependency_dedup() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
         // 重复添加同一依赖不应产生重复条目
         dag.add_dependency("b", "a").unwrap();
         let task_b = dag.get_task("b").unwrap();
@@ -1110,8 +1092,10 @@ mod tests {
     fn test_dag_no_cycle() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
-        dag.add_task(DagTask::new("c", "C").depends_on("b")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
+        dag.add_task(DagTask::new("c", "C").depends_on("b"))
+            .unwrap();
         assert!(!dag.has_cycle());
     }
 
@@ -1120,8 +1104,10 @@ mod tests {
         // 先注册所有任务（无依赖），再通过 add_dependency 构建循环
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
-        dag.add_task(DagTask::new("c", "C").depends_on("b")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
+        dag.add_task(DagTask::new("c", "C").depends_on("b"))
+            .unwrap();
         // 追加 a -> c 依赖，形成 a->b->c->a 循环
         dag.add_dependency("a", "c").unwrap();
         assert!(dag.has_cycle());
@@ -1131,8 +1117,10 @@ mod tests {
     fn test_dag_topological_sort() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
-        dag.add_task(DagTask::new("c", "C").depends_on("a")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
+        dag.add_task(DagTask::new("c", "C").depends_on("a"))
+            .unwrap();
         // d 依赖 b 和 c，通过链式 depends_on 声明多个依赖
         dag.add_task(DagTask::new("d", "D").depends_on("b").depends_on("c"))
             .unwrap();
@@ -1153,9 +1141,12 @@ mod tests {
     fn test_dag_topological_sort_valid() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
-        dag.add_task(DagTask::new("c", "C").depends_on("a")).unwrap();
-        dag.add_task(DagTask::new("d", "D").depends_on("b")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
+        dag.add_task(DagTask::new("c", "C").depends_on("a"))
+            .unwrap();
+        dag.add_task(DagTask::new("d", "D").depends_on("b"))
+            .unwrap();
 
         let order = dag.topological_sort().unwrap();
         // a 必须在 b 和 c 之前，b 必须在 d 之前
@@ -1183,7 +1174,8 @@ mod tests {
     fn test_dag_ready_tasks_initial() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
         // 初始只有 a 可以执行
         let ready = dag.ready_tasks();
         assert_eq!(ready.len(), 1);
@@ -1194,8 +1186,10 @@ mod tests {
     fn test_dag_ready_tasks_after_completion() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
-        dag.add_task(DagTask::new("c", "C").depends_on("a")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
+        dag.add_task(DagTask::new("c", "C").depends_on("a"))
+            .unwrap();
 
         dag.mark_completed("a").unwrap();
         let ready = dag.ready_tasks();
@@ -1231,7 +1225,8 @@ mod tests {
     fn test_dag_all_completed() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
         assert!(!dag.all_completed());
         dag.mark_completed("a").unwrap();
         assert!(!dag.all_completed());
@@ -1243,8 +1238,10 @@ mod tests {
     fn test_dag_dependents() {
         let mut dag = TaskDag::new();
         dag.add_task(DagTask::new("a", "A")).unwrap();
-        dag.add_task(DagTask::new("b", "B").depends_on("a")).unwrap();
-        dag.add_task(DagTask::new("c", "C").depends_on("a")).unwrap();
+        dag.add_task(DagTask::new("b", "B").depends_on("a"))
+            .unwrap();
+        dag.add_task(DagTask::new("c", "C").depends_on("a"))
+            .unwrap();
         let deps = dag.dependents("a");
         assert_eq!(deps.len(), 2);
         assert!(deps.contains(&"b".to_string()));

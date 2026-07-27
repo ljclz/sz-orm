@@ -41,7 +41,9 @@ impl RefreshPolicy {
         match self {
             RefreshPolicy::Manual => "timescaledb.continuous = true",
             RefreshPolicy::Scheduled => "timescaledb.continuous = true",
-            RefreshPolicy::RealTime => "timescaledb.continuous = true, timescaledb.materialized_only = false",
+            RefreshPolicy::RealTime => {
+                "timescaledb.continuous = true, timescaledb.materialized_only = false"
+            }
         }
     }
 }
@@ -85,9 +87,9 @@ impl ContinuousAggregateDef {
             bucket_interval: bucket_interval.into(),
             aggregate_expr: aggregate_expr.into(),
             refresh_policy: RefreshPolicy::Scheduled,
-            refresh_start_offset: -86400,     // 默认从 1 天前开始
-            refresh_end_offset: -3600,         // 默认到 1 小时前为止
-            refresh_interval: 3600,            // 默认每小时刷新一次
+            refresh_start_offset: -86400, // 默认从 1 天前开始
+            refresh_end_offset: -3600,    // 默认到 1 小时前为止
+            refresh_interval: 3600,       // 默认每小时刷新一次
         }
     }
 
@@ -166,7 +168,10 @@ impl ContinuousAggregateRegistry {
     }
 
     /// 注销一个连续聚合
-    pub fn unregister(&mut self, view_name: &str) -> Result<ContinuousAggregateDef, TimescaleError> {
+    pub fn unregister(
+        &mut self,
+        view_name: &str,
+    ) -> Result<ContinuousAggregateDef, TimescaleError> {
         self.aggregates
             .remove(view_name)
             .ok_or_else(|| TimescaleError::NotFound(format!("continuous aggregate: {}", view_name)))
@@ -563,10 +568,7 @@ impl RetentionPolicyRegistry {
 
     /// 生成所有已启用策略的 add_retention_policy SQL
     pub fn add_all_sql(&self) -> Vec<String> {
-        self.list_enabled()
-            .iter()
-            .map(|p| p.to_add_sql())
-            .collect()
+        self.list_enabled().iter().map(|p| p.to_add_sql()).collect()
     }
 
     /// 计算所有已启用策略的截止时间
@@ -593,7 +595,11 @@ impl TimeBucketAligner {
     ///
     /// - `bucket_secs`：桶宽度（秒）
     /// - `epoch`：对齐基准时间（通常是 Unix epoch 或某个起始时间）
-    pub fn align(timestamp: DateTime<Utc>, bucket_secs: i64, epoch: DateTime<Utc>) -> DateTime<Utc> {
+    pub fn align(
+        timestamp: DateTime<Utc>,
+        bucket_secs: i64,
+        epoch: DateTime<Utc>,
+    ) -> DateTime<Utc> {
         let elapsed = (timestamp - epoch).num_seconds();
         let bucket_idx = elapsed.div_euclid(bucket_secs);
         epoch + Duration::seconds(bucket_idx * bucket_secs)
@@ -731,7 +737,9 @@ impl GapfillFiller {
                         // 线性插值
                         let interpolated = match (last_non_empty, next_non_empty) {
                             (Some(prev), Some(next)) => {
-                                let total_gap = next_idx - i + (i - find_idx(expected_starts, prev.bucket_start).unwrap_or(i));
+                                let total_gap = next_idx - i
+                                    + (i - find_idx(expected_starts, prev.bucket_start)
+                                        .unwrap_or(i));
                                 if total_gap == 0 {
                                     prev.avg
                                 } else {
@@ -791,18 +799,18 @@ pub fn parse_bucket_to_secs(bucket: &str) -> Result<i64, TimescaleError> {
     })?;
     let secs = match unit_char {
         's' => num,
-        'm' => num.checked_mul(60).ok_or_else(|| {
-            TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket))
-        })?,
-        'h' => num.checked_mul(3600).ok_or_else(|| {
-            TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket))
-        })?,
-        'd' => num.checked_mul(86400).ok_or_else(|| {
-            TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket))
-        })?,
-        'w' => num.checked_mul(86400 * 7).ok_or_else(|| {
-            TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket))
-        })?,
+        'm' => num
+            .checked_mul(60)
+            .ok_or_else(|| TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket)))?,
+        'h' => num
+            .checked_mul(3600)
+            .ok_or_else(|| TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket)))?,
+        'd' => num
+            .checked_mul(86400)
+            .ok_or_else(|| TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket)))?,
+        'w' => num
+            .checked_mul(86400 * 7)
+            .ok_or_else(|| TimescaleError::InvalidConfig(format!("bucket overflow: {}", bucket)))?,
         _ => {
             return Err(TimescaleError::InvalidConfig(format!(
                 "unsupported bucket unit '{}' in '{}': expected one of s/m/h/d/w",
@@ -857,9 +865,15 @@ mod tests {
 
     #[test]
     fn test_refresh_policy_as_sql() {
-        assert!(RefreshPolicy::Manual.as_sql_config().contains("timescaledb.continuous"));
-        assert!(RefreshPolicy::Scheduled.as_sql_config().contains("timescaledb.continuous"));
-        assert!(RefreshPolicy::RealTime.as_sql_config().contains("materialized_only = false"));
+        assert!(RefreshPolicy::Manual
+            .as_sql_config()
+            .contains("timescaledb.continuous"));
+        assert!(RefreshPolicy::Scheduled
+            .as_sql_config()
+            .contains("timescaledb.continuous"));
+        assert!(RefreshPolicy::RealTime
+            .as_sql_config()
+            .contains("materialized_only = false"));
     }
 
     #[test]
@@ -931,8 +945,7 @@ mod tests {
     fn test_ca_registry_needs_refresh_never_refreshed() {
         let mut reg = ContinuousAggregateRegistry::new();
         reg.register(
-            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)")
-                .with_refresh_interval(3600),
+            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)").with_refresh_interval(3600),
         )
         .unwrap();
         // 从未刷新过，应该需要刷新
@@ -943,8 +956,7 @@ mod tests {
     fn test_ca_registry_needs_refresh_recently_refreshed() {
         let mut reg = ContinuousAggregateRegistry::new();
         reg.register(
-            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)")
-                .with_refresh_interval(3600),
+            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)").with_refresh_interval(3600),
         )
         .unwrap();
         let now = Utc::now();
@@ -957,8 +969,7 @@ mod tests {
     fn test_ca_registry_needs_refresh_past_interval() {
         let mut reg = ContinuousAggregateRegistry::new();
         reg.register(
-            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)")
-                .with_refresh_interval(3600),
+            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)").with_refresh_interval(3600),
         )
         .unwrap();
         let now = Utc::now();
@@ -971,13 +982,11 @@ mod tests {
     fn test_ca_registry_list_needs_refresh() {
         let mut reg = ContinuousAggregateRegistry::new();
         reg.register(
-            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)")
-                .with_refresh_interval(3600),
+            ContinuousAggregateDef::new("v1", "t1", "1h", "AVG(value)").with_refresh_interval(3600),
         )
         .unwrap();
         reg.register(
-            ContinuousAggregateDef::new("v2", "t2", "1h", "AVG(value)")
-                .with_refresh_interval(3600),
+            ContinuousAggregateDef::new("v2", "t2", "1h", "AVG(value)").with_refresh_interval(3600),
         )
         .unwrap();
         let now = Utc::now();
@@ -1254,14 +1263,20 @@ mod tests {
         // 2026-07-20 10:35:42 对齐到 1 小时 -> 10:00:00
         let t = Utc.with_ymd_and_hms(2026, 7, 20, 10, 35, 42).unwrap();
         let aligned = TimeBucketAligner::align_to_epoch(t, 3600);
-        assert_eq!(aligned, Utc.with_ymd_and_hms(2026, 7, 20, 10, 0, 0).unwrap());
+        assert_eq!(
+            aligned,
+            Utc.with_ymd_and_hms(2026, 7, 20, 10, 0, 0).unwrap()
+        );
     }
 
     #[test]
     fn test_align_to_epoch_minute() {
         let t = Utc.with_ymd_and_hms(2026, 7, 20, 10, 35, 42).unwrap();
         let aligned = TimeBucketAligner::align_to_epoch(t, 300); // 5 分钟
-        assert_eq!(aligned, Utc.with_ymd_and_hms(2026, 7, 20, 10, 35, 0).unwrap());
+        assert_eq!(
+            aligned,
+            Utc.with_ymd_and_hms(2026, 7, 20, 10, 35, 0).unwrap()
+        );
     }
 
     #[test]
@@ -1290,8 +1305,14 @@ mod tests {
         let buckets = TimeBucketAligner::bucket_sequence(start, end, 3600);
         // 对齐后从 0:00 开始，到 2:00 之前 -> 0:00, 1:00
         assert_eq!(buckets.len(), 2);
-        assert_eq!(buckets[0], Utc.with_ymd_and_hms(2026, 7, 20, 0, 0, 0).unwrap());
-        assert_eq!(buckets[1], Utc.with_ymd_and_hms(2026, 7, 20, 1, 0, 0).unwrap());
+        assert_eq!(
+            buckets[0],
+            Utc.with_ymd_and_hms(2026, 7, 20, 0, 0, 0).unwrap()
+        );
+        assert_eq!(
+            buckets[1],
+            Utc.with_ymd_and_hms(2026, 7, 20, 1, 0, 0).unwrap()
+        );
     }
 
     // --- gapfill 测试 ---

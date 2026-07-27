@@ -35,9 +35,9 @@ pub mod real_pg;
 
 pub use error::VectorError;
 pub use extensions::{
-    AnnIndexDef, AnnIndexRegistry, AnnIndexType, BatchOpsExt, DimensionValidator,
-    HnswParams, IvfflatParams, MemoryBatchOps, SimilarityAlgorithms, VectorNormalizer,
-    MAX_VECTOR_DIMENSION, MIN_VECTOR_DIMENSION,
+    AnnIndexDef, AnnIndexRegistry, AnnIndexType, BatchOpsExt, DimensionValidator, HnswParams,
+    IvfflatParams, MemoryBatchOps, SimilarityAlgorithms, VectorNormalizer, MAX_VECTOR_DIMENSION,
+    MIN_VECTOR_DIMENSION,
 };
 pub use memory::InMemoryVectorStore;
 pub use stub::StubVectorStore;

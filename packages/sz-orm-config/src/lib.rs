@@ -291,10 +291,7 @@ impl ConfigWatcher {
 
     /// 返回当前注册的 watcher 数量
     pub fn watcher_count(&self) -> usize {
-        self.watchers
-            .lock()
-            .map(|w| w.len())
-            .unwrap_or(0)
+        self.watchers.lock().map(|w| w.len()).unwrap_or(0)
     }
 }
 
@@ -1101,9 +1098,12 @@ mod tests {
         let watcher = ConfigWatcher::new(1000);
         let received = Arc::new(Mutex::new(String::new()));
         let r = received.clone();
-        watcher.watch("app.port", Arc::new(move |_k, v| {
-            *r.lock().unwrap() = v.to_string();
-        }));
+        watcher.watch(
+            "app.port",
+            Arc::new(move |_k, v| {
+                *r.lock().unwrap() = v.to_string();
+            }),
+        );
 
         center.set("app.port", "8080");
         let changes = watcher.poll(&center);
@@ -1121,9 +1121,12 @@ mod tests {
 
         let received = Arc::new(AtomicU32::new(0));
         let r = received.clone();
-        watcher.watch("k", Arc::new(move |_, _| {
-            r.fetch_add(1, Ordering::SeqCst);
-        }));
+        watcher.watch(
+            "k",
+            Arc::new(move |_, _| {
+                r.fetch_add(1, Ordering::SeqCst);
+            }),
+        );
 
         center.set("k", "v2");
         let changes = watcher.poll(&center);
@@ -1140,9 +1143,12 @@ mod tests {
 
         let deleted_value = Arc::new(Mutex::new("not_empty".to_string()));
         let d = deleted_value.clone();
-        watcher.watch("k", Arc::new(move |_, v| {
-            *d.lock().unwrap() = v.to_string();
-        }));
+        watcher.watch(
+            "k",
+            Arc::new(move |_, v| {
+                *d.lock().unwrap() = v.to_string();
+            }),
+        );
 
         center.delete("k");
         let changes = watcher.poll(&center);
@@ -1310,13 +1316,14 @@ mod tests {
     #[test]
     fn test_schema_missing_required_field() {
         let mut validator = SchemaValidator::new();
-        validator.add_field(
-            ConfigFieldSchema::new("port", ConfigFieldType::Integer).required(),
-        );
+        validator.add_field(ConfigFieldSchema::new("port", ConfigFieldType::Integer).required());
         let config = HashMap::new();
         let errors = validator.validate(&config);
         assert_eq!(errors.len(), 1);
-        assert_eq!(errors[0], ValidationError::MissingRequired("port".to_string()));
+        assert_eq!(
+            errors[0],
+            ValidationError::MissingRequired("port".to_string())
+        );
     }
 
     #[test]
@@ -1369,9 +1376,8 @@ mod tests {
     #[test]
     fn test_schema_string_length() {
         let mut validator = SchemaValidator::new();
-        validator.add_field(
-            ConfigFieldSchema::new("name", ConfigFieldType::String).with_length(2, 10),
-        );
+        validator
+            .add_field(ConfigFieldSchema::new("name", ConfigFieldType::String).with_length(2, 10));
         let mut config = HashMap::new();
         config.insert("name".to_string(), "ab".to_string());
         assert!(validator.validate(&config).is_empty());
@@ -1387,8 +1393,11 @@ mod tests {
     fn test_schema_allowed_values() {
         let mut validator = SchemaValidator::new();
         validator.add_field(
-            ConfigFieldSchema::new("level", ConfigFieldType::String)
-                .with_allowed_values(vec!["info".into(), "warn".into(), "error".into()]),
+            ConfigFieldSchema::new("level", ConfigFieldType::String).with_allowed_values(vec![
+                "info".into(),
+                "warn".into(),
+                "error".into(),
+            ]),
         );
         let mut config = HashMap::new();
         config.insert("level".to_string(), "info".to_string());

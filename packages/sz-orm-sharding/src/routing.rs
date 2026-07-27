@@ -231,8 +231,7 @@ mod tests {
 
     #[test]
     fn test_composite_key_extractor_debug() {
-        let ext = CompositeKeyExtractor::new()
-            .with(FieldExtractor::new(|| "a".to_string()));
+        let ext = CompositeKeyExtractor::new().with(FieldExtractor::new(|| "a".to_string()));
         let s = format!("{:?}", ext);
         assert!(s.contains("CompositeKeyExtractor"));
         assert!(s.contains("count"));

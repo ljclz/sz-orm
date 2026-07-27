@@ -67,10 +67,7 @@ pub struct SharedSubscription {
 }
 
 impl SharedSubscription {
-    pub fn new(
-        group_name: impl Into<String>,
-        topic_filter: impl Into<String>,
-    ) -> Self {
+    pub fn new(group_name: impl Into<String>, topic_filter: impl Into<String>) -> Self {
         Self {
             group_name: group_name.into(),
             topic_filter: topic_filter.into(),
@@ -88,7 +85,11 @@ impl SharedSubscription {
 
     /// 添加订阅者
     pub fn add_subscriber(&mut self, subscriber: SharedSubscriber) -> bool {
-        if self.subscribers.iter().any(|s| s.client_id == subscriber.client_id) {
+        if self
+            .subscribers
+            .iter()
+            .any(|s| s.client_id == subscriber.client_id)
+        {
             return false; // 已存在
         }
         self.subscribers.push(subscriber);
@@ -104,7 +105,11 @@ impl SharedSubscription {
 
     /// 更新订阅者 QoS（若已存在则更新，不存在则添加）
     pub fn upsert_subscriber(&mut self, client_id: &str, qos: QoS) {
-        if let Some(s) = self.subscribers.iter_mut().find(|s| s.client_id == client_id) {
+        if let Some(s) = self
+            .subscribers
+            .iter_mut()
+            .find(|s| s.client_id == client_id)
+        {
             s.qos = qos;
         } else {
             self.subscribers.push(SharedSubscriber::new(client_id, qos));
@@ -206,21 +211,16 @@ impl SharedSubscriptionRegistry {
 
         let mut subs = self.subscriptions.write().await;
         let key = Self::key(group, filter);
-        let entry = subs.entry(key).or_insert_with(|| {
-            SharedSubscription::new(group, filter)
-        });
+        let entry = subs
+            .entry(key)
+            .or_insert_with(|| SharedSubscription::new(group, filter));
         entry.upsert_subscriber(client_id, qos);
         Ok(())
     }
 
     /// 取消某客户端在某组+过滤器下的订阅
     /// 返回是否成功移除（false 表示订阅者不存在）
-    pub async fn unsubscribe(
-        &self,
-        group: &str,
-        filter: &str,
-        client_id: &str,
-    ) -> bool {
+    pub async fn unsubscribe(&self, group: &str, filter: &str, client_id: &str) -> bool {
         let mut subs = self.subscriptions.write().await;
         let key = Self::key(group, filter);
         if let Some(sub) = subs.get_mut(&key) {
@@ -268,7 +268,13 @@ impl SharedSubscriptionRegistry {
         let mut result: Vec<(String, String, usize)> = subs
             .values()
             .filter(|s| s.matches(topic))
-            .map(|s| (s.group_name.clone(), s.topic_filter.clone(), s.subscriber_count()))
+            .map(|s| {
+                (
+                    s.group_name.clone(),
+                    s.topic_filter.clone(),
+                    s.subscriber_count(),
+                )
+            })
             .collect();
         result.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
         result
@@ -308,7 +314,13 @@ impl SharedSubscriptionRegistry {
         let subs = self.subscriptions.read().await;
         let mut result: Vec<(String, String, usize)> = subs
             .values()
-            .map(|s| (s.group_name.clone(), s.topic_filter.clone(), s.subscriber_count()))
+            .map(|s| {
+                (
+                    s.group_name.clone(),
+                    s.topic_filter.clone(),
+                    s.subscriber_count(),
+                )
+            })
             .collect();
         result.sort_by(|a, b| a.0.cmp(&b.0).then(a.1.cmp(&b.1)));
         result
@@ -445,8 +457,7 @@ mod tests {
 
     #[test]
     fn test_select_next_random_returns_valid_index() {
-        let mut sub = SharedSubscription::new("g1", "t")
-            .with_strategy(LoadBalanceStrategy::Random);
+        let mut sub = SharedSubscription::new("g1", "t").with_strategy(LoadBalanceStrategy::Random);
         sub.add_subscriber(SharedSubscriber::new("c1", QoS::AtMostOnce));
         sub.add_subscriber(SharedSubscriber::new("c2", QoS::AtMostOnce));
         let idx = sub.select_next().unwrap();
@@ -455,15 +466,16 @@ mod tests {
 
     #[test]
     fn test_with_strategy() {
-        let sub = SharedSubscription::new("g1", "t")
-            .with_strategy(LoadBalanceStrategy::Random);
+        let sub = SharedSubscription::new("g1", "t").with_strategy(LoadBalanceStrategy::Random);
         assert_eq!(sub.strategy, LoadBalanceStrategy::Random);
     }
 
     #[tokio::test]
     async fn test_registry_subscribe_creates_group() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
         assert_eq!(reg.group_count().await, 1);
         assert_eq!(reg.subscriber_count("g1", "home/#").await, 1);
     }
@@ -471,8 +483,12 @@ mod tests {
     #[tokio::test]
     async fn test_registry_subscribe_adds_to_existing_group() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "home/#", "c2", QoS::AtLeastOnce).await.unwrap();
+        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "home/#", "c2", QoS::AtLeastOnce)
+            .await
+            .unwrap();
         assert_eq!(reg.subscriber_count("g1", "home/#").await, 2);
         assert_eq!(reg.group_count().await, 1);
     }
@@ -487,8 +503,12 @@ mod tests {
     #[tokio::test]
     async fn test_registry_subscribe_updates_qos_for_existing() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "t", "c1", QoS::ExactlyOnce).await.unwrap();
+        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "t", "c1", QoS::ExactlyOnce)
+            .await
+            .unwrap();
         assert_eq!(reg.subscriber_count("g1", "t").await, 1);
         // 验证 QoS 已更新（通过 select_recipients）
         let recipients = reg.select_recipients("t").await;
@@ -499,8 +519,12 @@ mod tests {
     #[tokio::test]
     async fn test_registry_unsubscribe_removes_subscriber() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "t", "c2", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "t", "c2", QoS::AtMostOnce)
+            .await
+            .unwrap();
         assert!(reg.unsubscribe("g1", "t", "c1").await);
         assert_eq!(reg.subscriber_count("g1", "t").await, 1);
     }
@@ -508,7 +532,9 @@ mod tests {
     #[tokio::test]
     async fn test_registry_unsubscribe_removes_empty_group() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
         assert!(reg.unsubscribe("g1", "t", "c1").await);
         assert_eq!(reg.group_count().await, 0);
     }
@@ -522,9 +548,15 @@ mod tests {
     #[tokio::test]
     async fn test_registry_unsubscribe_all() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "t1", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g2", "t2", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "t1", "c2", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "t1", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g2", "t2", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "t1", "c2", QoS::AtMostOnce)
+            .await
+            .unwrap();
         let removed = reg.unsubscribe_all("c1").await;
         assert_eq!(removed, 2);
         assert_eq!(reg.group_count().await, 1); // g1/t1 仍有 c2
@@ -533,9 +565,15 @@ mod tests {
     #[tokio::test]
     async fn test_registry_groups_matching() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g2", "office/#", "c2", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g3", "home/+/temp", "c3", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g2", "office/#", "c2", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g3", "home/+/temp", "c3", QoS::AtMostOnce)
+            .await
+            .unwrap();
 
         let matched = reg.groups_matching("home/living/temp").await;
         assert_eq!(matched.len(), 2);
@@ -547,7 +585,9 @@ mod tests {
     #[tokio::test]
     async fn test_registry_groups_matching_none() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
         let matched = reg.groups_matching("office/temp").await;
         assert!(matched.is_empty());
     }
@@ -555,9 +595,15 @@ mod tests {
     #[tokio::test]
     async fn test_registry_select_recipients_round_robin() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "t", "c2", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "t", "c3", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "t", "c2", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "t", "c3", QoS::AtMostOnce)
+            .await
+            .unwrap();
 
         let r1 = reg.select_recipients("t").await;
         let r2 = reg.select_recipients("t").await;
@@ -575,8 +621,12 @@ mod tests {
     #[tokio::test]
     async fn test_registry_select_recipients_multiple_groups() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g2", "t", "c2", QoS::AtLeastOnce).await.unwrap();
+        reg.subscribe("g1", "t", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g2", "t", "c2", QoS::AtLeastOnce)
+            .await
+            .unwrap();
 
         let recipients = reg.select_recipients("t").await;
         assert_eq!(recipients.len(), 2); // 每组各选一个
@@ -585,7 +635,9 @@ mod tests {
     #[tokio::test]
     async fn test_registry_select_recipients_no_match() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
         let recipients = reg.select_recipients("office/temp").await;
         assert!(recipients.is_empty());
     }
@@ -593,8 +645,12 @@ mod tests {
     #[tokio::test]
     async fn test_registry_list_groups_sorted() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g2", "t2", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "t1", "c2", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g2", "t2", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "t1", "c2", QoS::AtMostOnce)
+            .await
+            .unwrap();
         let groups = reg.list_groups().await;
         assert_eq!(groups[0].0, "g1");
         assert_eq!(groups[1].0, "g2");
@@ -603,8 +659,12 @@ mod tests {
     #[tokio::test]
     async fn test_registry_multiple_filters_same_group() {
         let reg = SharedSubscriptionRegistry::new();
-        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce).await.unwrap();
-        reg.subscribe("g1", "office/#", "c1", QoS::AtMostOnce).await.unwrap();
+        reg.subscribe("g1", "home/#", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
+        reg.subscribe("g1", "office/#", "c1", QoS::AtMostOnce)
+            .await
+            .unwrap();
         // 同组不同过滤器 -> 两个条目
         assert_eq!(reg.group_count().await, 2);
         let removed = reg.unsubscribe_all("c1").await;
