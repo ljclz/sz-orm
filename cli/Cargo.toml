@@ -11,9 +11,9 @@ name = "sz-orm"
 path = "src/main.rs"
 
 [dependencies]
-sz-orm-core = { path = "../packages/sz-orm-core" }
-sz-orm-sql-validator = { path = "../packages/sz-orm-sql-validator" }
-sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
+sz-orm-core = { version = "1.0.0", path = "../packages/sz-orm-core" }
+sz-orm-sql-validator = { version = "1.0.0", path = "../packages/sz-orm-sql-validator" }
+sz-orm-sqlx = { version = "1.0.0", path = "../packages/sz-orm-sqlx" }
 tokio = { workspace = true, features = ["full"] }
 chrono = { workspace = true }
 serde = { workspace = true }
