@@ -1,14 +1,14 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（原型阶段）**，兼容 ThinkORM 风格 API
-> v1.0.0 · 39 工作空间成员 · 4,959 测试 · 16 SQL 方言 · 尚未发布 crates.io
+> v1.2.0 · 39 工作空间成员 · 5,404 测试 · 16 SQL 方言 · 尚未发布 crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-4959-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-5404-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -49,7 +49,7 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 |------|------|
 | 工作空间成员 | **39**（37 个 sz-orm-* lib + cli + examples） |
 | 支持数据库方言 | **16 种 SQL 方言**（7 原生 + 9 委派，含国产信创 6 种） |
-| 测试用例 | **2,271 passed, 0 failed**（含 1,635 `#[test]` + 636 `#[tokio::test]`） |
+| 测试用例 | **5,404 passed, 0 failed** |
 | 代码规模 | **~139,000 LOC**（深度优化后，src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000） |
 | 项目成熟度 | **原型阶段**（未发布 crates.io，零社区验证） |
 | 异步运行时 | Tokio 1.40+ |
@@ -577,7 +577,7 @@ SZ-ORM 通过 **7 线验证体系**保障质量：
 | **Chaos** | 故障鲁棒性 | `chaos.rs` |
 | **Formal** | 形式化不变量验证 | `formal.rs` |
 
-**总计：2,271 tests, 0 failed**（含 1,635 `#[test]` + 636 `#[tokio::test]`；部分测试需真实 DB/云凭证）
+**总计：5,404 tests, 0 failed**（部分测试需真实 DB/云凭证）
 
 ### 运行测试
 

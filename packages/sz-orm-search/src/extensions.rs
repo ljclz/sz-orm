@@ -369,7 +369,8 @@ impl Tokenizer {
                 // 按非字母数字切分
                 text.split(|c: char| !c.is_alphanumeric()).collect()
             }
-            TokenizerType::Keyword => unreachable!(),
+            // Keyword tokenizer 将整个文本视为单个 token（不切分）
+            TokenizerType::Keyword => vec![text],
         };
 
         raw_tokens

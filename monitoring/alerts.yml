@@ -1,0 +1,162 @@
+# SZ-ORM Prometheus 告警规则
+#
+# 使用方法：
+#   1. 将本文件放入 Prometheus 的 rules/ 目录
+#   2. 在 prometheus.yml 中添加 rule_files 引用
+#   3. 重载 Prometheus 配置（POST /-/reload 或重启）
+#
+# 告警分组：
+#   - critical: 需要立即处理（错误率飙升/连接池耗尽/SLO 严重违约）
+#   - warning:  需要关注但不紧急（延迟升高/连接池水位/SLO 预算消耗）
+
+groups:
+  # ============================================================
+  # 错误率告警
+  # ============================================================
+  - name: sz-orm-errors
+    rules:
+      # 错误率 > 5% 持续 5 分钟
+      - alert: SzOrmHighErrorRate
+        expr: |
+          sum(rate(sz_orm_errors_total[5m])) / sum(rate(sz_orm_ops_total[5m])) > 0.05
+        for: 5m
+        labels:
+          severity: critical
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM 错误率过高 ({{ $value | humanizePercentage }})"
+          description: "错误率超过 5% 已持续 5 分钟。当前错误率: {{ $value | humanizePercentage }}"
+
+      # 错误率 > 1% 持续 15 分钟
+      - alert: SzOrmElevatedErrorRate
+        expr: |
+          sum(rate(sz_orm_errors_total[5m])) / sum(rate(sz_orm_ops_total[5m])) > 0.01
+        for: 15m
+        labels:
+          severity: warning
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM 错误率升高 ({{ $value | humanizePercentage }})"
+          description: "错误率超过 1% 已持续 15 分钟。当前错误率: {{ $value | humanizePercentage }}"
+
+  # ============================================================
+  # 延迟告警
+  # ============================================================
+  - name: sz-orm-latency
+    rules:
+      # P99 延迟 > 100ms 持续 5 分钟
+      - alert: SzOrmHighP99Latency
+        expr: |
+          histogram_quantile(0.99, sum(rate(sz_orm_latency_us_bucket[5m])) by (le)) > 100000
+        for: 5m
+        labels:
+          severity: critical
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM P99 延迟过高 ({{ $value | humanize }}μs)"
+          description: "P99 延迟超过 100ms 已持续 5 分钟。当前 P99: {{ $value | humanize }}μs"
+
+      # P95 延迟 > 50ms 持续 10 分钟
+      - alert: SzOrmElevatedP95Latency
+        expr: |
+          histogram_quantile(0.95, sum(rate(sz_orm_latency_us_bucket[5m])) by (le)) > 50000
+        for: 10m
+        labels:
+          severity: warning
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM P95 延迟升高 ({{ $value | humanize }}μs)"
+          description: "P95 延迟超过 50ms 已持续 10 分钟。当前 P95: {{ $value | humanize }}μs"
+
+  # ============================================================
+  # 连接池告警
+  # ============================================================
+  - name: sz-orm-pool
+    rules:
+      # 连接池空闲连接 = 0 持续 2 分钟（池耗尽）
+      - alert: SzOrmPoolExhausted
+        expr: sz_orm_soak_pool_idle == 0
+        for: 2m
+        labels:
+          severity: critical
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM 连接池已耗尽"
+          description: "空闲连接数为 0 已持续 2 分钟，池可能已耗尽。当前活跃: {{ $labels.active }}"
+
+      # 连接池使用率 > 80% 持续 5 分钟
+      - alert: SzOrmPoolHighUtilization
+        expr: |
+          sz_orm_soak_pool_active / sz_orm_soak_pool_max > 0.8
+        for: 5m
+        labels:
+          severity: warning
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM 连接池使用率高 ({{ $value | humanizePercentage }})"
+          description: "连接池使用率超过 80% 已持续 5 分钟。"
+
+  # ============================================================
+  # SLO 燃烧率告警
+  # ============================================================
+  - name: sz-orm-slo
+    rules:
+      # SLO 短窗口燃烧率 > 14.4（2% 预算消耗在 1h 内）
+      - alert: SzOrmSloFastBurn
+        expr: sz_orm_slo_short_burn_rate > 14.4
+        for: 5m
+        labels:
+          severity: critical
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM SLO 快速燃烧 (short_burn_rate={{ $value }})"
+          description: "短窗口 SLO 燃烧率 > 14.4，预计 1 小时内消耗 2% 错误预算。"
+
+      # SLO 长窗口燃烧率 > 6（2% 预算消耗在 6h 内）
+      - alert: SzOrmSloSlowBurn
+        expr: sz_orm_slo_long_burn_rate > 6
+        for: 30m
+        labels:
+          severity: warning
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM SLO 慢速燃烧 (long_burn_rate={{ $value }})"
+          description: "长窗口 SLO 燃烧率 > 6，预计 6 小时内消耗 2% 错误预算。"
+
+      # SLO 错误预算剩余 < 10%
+      - alert: SzOrmSloBudgetLow
+        expr: sz_orm_slo_error_budget_remaining < 0.1
+        for: 5m
+        labels:
+          severity: warning
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM SLO 预算不足 ({{ $value | humanizePercentage }})"
+          description: "SLO 错误预算剩余不足 10%，需减少发布频率。"
+
+  # ============================================================
+  # 资源告警
+  # ============================================================
+  - name: sz-orm-resources
+    rules:
+      # RSS 内存 > 1GB 持续 10 分钟
+      - alert: SzOrmHighMemory
+        expr: sz_orm_soak_rss_bytes > 1073741824
+        for: 10m
+        labels:
+          severity: warning
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM 内存使用高 ({{ $value | humanize1024 }})"
+          description: "RSS 内存超过 1GB 已持续 10 分钟。"
+
+      # 文件描述符 > 1000
+      - alert: SzOrmHighFdCount
+        expr: sz_orm_soak_fd_count > 1000
+        for: 5m
+        labels:
+          severity: warning
+          service: sz-orm
+        annotations:
+          summary: "SZ-ORM 文件描述符过多 ({{ $value }})"
+          description: "文件描述符数量超过 1000 已持续 5 分钟，可能存在句柄泄漏。"

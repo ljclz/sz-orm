@@ -6578,6 +6578,7 @@ dependencies = [
  "sz-orm-limit",
  "sz-orm-scheduler",
  "sz-orm-sharding",
+ "sz-orm-sqlx",
  "tokio",
 ]
 

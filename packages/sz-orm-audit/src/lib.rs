@@ -57,20 +57,29 @@ impl SqlAuditor {
             user: ctx.user.clone(),
             timestamp: ctx.timestamp,
         };
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self
+            .logs
+            .lock()
+            .expect("SqlAuditor logs lock poisoned (log)");
         logs.push(entry);
     }
 
     /// Return a snapshot of all stored audit entries.
     pub fn get_logs(&self) -> Vec<SqlAuditContext> {
-        let logs = self.logs.lock().unwrap();
+        let logs = self
+            .logs
+            .lock()
+            .expect("SqlAuditor logs lock poisoned (get_logs)");
         logs.iter().cloned().collect()
     }
 
     /// Flush all stored audit entries to a JSON file at `path`.
     /// Returns the number of entries written.
     pub fn flush(&self, path: &str) -> Result<usize, String> {
-        let logs = self.logs.lock().unwrap();
+        let logs = self
+            .logs
+            .lock()
+            .expect("SqlAuditor logs lock poisoned (flush)");
         let snapshot: Vec<&SqlAuditContext> = logs.iter().collect();
         let json = serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| e.to_string())?;
@@ -316,14 +325,20 @@ impl RotatingAuditor {
             user: ctx.user.clone(),
             timestamp: ctx.timestamp,
         };
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self
+            .logs
+            .lock()
+            .expect("RotatingAuditor logs lock poisoned (log)");
 
         // 在添加新条目前检查轮转（确保新条目不被立即清除）
         let now = ctx.timestamp;
         let oldest = logs.first().map(|e| e.timestamp).unwrap_or(now);
         if self.policy.needs_rotation(logs.len(), oldest, now) {
             logs.clear();
-            *self.rotations.lock().unwrap() += 1;
+            *self
+                .rotations
+                .lock()
+                .expect("RotatingAuditor rotations lock poisoned (log)") += 1;
         }
 
         logs.push(entry);
@@ -332,31 +347,49 @@ impl RotatingAuditor {
 
     /// 返回当前日志快照
     pub fn get_logs(&self) -> Vec<SqlAuditContext> {
-        self.logs.lock().unwrap().clone()
+        self.logs
+            .lock()
+            .expect("RotatingAuditor logs lock poisoned (get_logs)")
+            .clone()
     }
 
     /// 返回已轮转次数
     pub fn rotation_count(&self) -> usize {
-        *self.rotations.lock().unwrap()
+        *self
+            .rotations
+            .lock()
+            .expect("RotatingAuditor rotations lock poisoned (rotation_count)")
     }
 
     /// 手动触发轮转（清空当前日志）
     pub fn rotate(&self) -> usize {
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self
+            .logs
+            .lock()
+            .expect("RotatingAuditor logs lock poisoned (rotate)");
         let count = logs.len();
         logs.clear();
-        *self.rotations.lock().unwrap() += 1;
+        *self
+            .rotations
+            .lock()
+            .expect("RotatingAuditor rotations lock poisoned (rotate)") += 1;
         count
     }
 
     /// 返回当前日志条数
     pub fn len(&self) -> usize {
-        self.logs.lock().unwrap().len()
+        self.logs
+            .lock()
+            .expect("RotatingAuditor logs lock poisoned (len)")
+            .len()
     }
 
     /// 是否为空
     pub fn is_empty(&self) -> bool {
-        self.logs.lock().unwrap().is_empty()
+        self.logs
+            .lock()
+            .expect("RotatingAuditor logs lock poisoned (is_empty)")
+            .is_empty()
     }
 }
 
@@ -415,7 +448,10 @@ impl AsyncAuditWriter {
     /// 关闭后台线程并返回所有已写入的日志
     pub fn shutdown(&self) -> Result<Vec<SqlAuditContext>, String> {
         let _ = self.sender.send(AsyncCommand::Shutdown);
-        let mut handle_guard = self.handle.lock().unwrap();
+        let mut handle_guard = self
+            .handle
+            .lock()
+            .expect("AsyncAuditWriter handle lock poisoned (shutdown)");
         if let Some(handle) = handle_guard.take() {
             handle
                 .join()
@@ -772,7 +808,10 @@ impl HashChainAuditor {
             user: ctx.user.clone(),
             timestamp: ctx.timestamp,
         };
-        let mut entries = self.entries.lock().unwrap();
+        let mut entries = self
+            .entries
+            .lock()
+            .expect("HashChainAuditor entries lock poisoned (log)");
         let prev_hash = entries
             .last()
             .map(|e| e.current_hash.as_str())
@@ -787,17 +826,26 @@ impl HashChainAuditor {
 
     /// 返回所有日志条目的快照（克隆）
     pub fn get_entries(&self) -> Vec<HashChainEntry> {
-        self.entries.lock().unwrap().clone()
+        self.entries
+            .lock()
+            .expect("HashChainAuditor entries lock poisoned (get_entries)")
+            .clone()
     }
 
     /// 返回日志条目数量
     pub fn len(&self) -> usize {
-        self.entries.lock().unwrap().len()
+        self.entries
+            .lock()
+            .expect("HashChainAuditor entries lock poisoned (len)")
+            .len()
     }
 
     /// 是否为空
     pub fn is_empty(&self) -> bool {
-        self.entries.lock().unwrap().is_empty()
+        self.entries
+            .lock()
+            .expect("HashChainAuditor entries lock poisoned (is_empty)")
+            .is_empty()
     }
 
     /// 验证哈希链完整性。
@@ -812,7 +860,10 @@ impl HashChainAuditor {
     /// - `Ok(())`：链完整，未被篡改
     /// - `Err(reason)`：链被篡改，`reason` 描述首个异常的位置与类型
     pub fn verify(&self) -> Result<(), String> {
-        let entries = self.entries.lock().unwrap();
+        let entries = self
+            .entries
+            .lock()
+            .expect("HashChainAuditor entries lock poisoned (verify)");
         for (i, entry) in entries.iter().enumerate() {
             // 检查 1：首条记录的 prev_hash 必须为 GENESIS_HASH
             if i == 0 {
@@ -848,7 +899,10 @@ impl HashChainAuditor {
     ///
     /// 返回写入的条目数。
     pub fn flush(&self, path: &str) -> Result<usize, String> {
-        let entries = self.entries.lock().unwrap();
+        let entries = self
+            .entries
+            .lock()
+            .expect("HashChainAuditor entries lock poisoned (flush)");
         let snapshot: Vec<&HashChainEntry> = entries.iter().collect();
         let json = serde_json::to_string_pretty(&snapshot).map_err(|e| e.to_string())?;
         std::fs::write(path, json).map_err(|e| e.to_string())?;

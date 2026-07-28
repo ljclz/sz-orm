@@ -607,13 +607,13 @@ impl KeyManager {
             created_at: std::time::SystemTime::now(),
         };
 
-        *self.last_rotation.write().unwrap() = std::time::SystemTime::now();
+        *self.last_rotation.write().expect("KeyManager last_rotation lock poisoned") = std::time::SystemTime::now();
         Ok(())
     }
 
     /// 检查是否需要轮换
     pub fn needs_rotation(&self) -> bool {
-        let last = *self.last_rotation.read().unwrap();
+        let last = *self.last_rotation.read().expect("KeyManager last_rotation lock poisoned");
         std::time::SystemTime::now()
             .duration_since(last)
             .map(|d| d >= self.rotation_interval)
@@ -622,17 +622,17 @@ impl KeyManager {
 
     /// 获取当前密钥
     pub fn current_key(&self) -> VersionedKey {
-        self.current.read().unwrap().clone()
+        self.current.read().expect("KeyManager current lock poisoned").clone()
     }
 
     /// 按版本查找密钥
     pub fn key_by_version(&self, version: u32) -> Option<VersionedKey> {
-        if self.current.read().unwrap().version == version {
-            return Some(self.current.read().unwrap().clone());
+        if self.current.read().expect("KeyManager current lock poisoned").version == version {
+            return Some(self.current.read().expect("KeyManager current lock poisoned").clone());
         }
         self.previous
             .read()
-            .unwrap()
+            .expect("KeyManager previous lock poisoned")
             .iter()
             .find(|k| k.version == version)
             .cloned()
@@ -640,7 +640,10 @@ impl KeyManager {
 
     /// 返回保留的旧密钥数量
     pub fn previous_count(&self) -> usize {
-        self.previous.read().unwrap().len()
+        self.previous
+            .read()
+            .expect("KeyManager previous lock poisoned")
+            .len()
     }
 }
 

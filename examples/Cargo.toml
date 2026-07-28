@@ -16,6 +16,7 @@ sz-orm-scheduler = { path = "../packages/sz-orm-scheduler" }
 sz-orm-audit = { path = "../packages/sz-orm-audit" }
 sz-orm-dtx = { path = "../packages/sz-orm-dtx" }
 sz-orm-sharding = { path = "../packages/sz-orm-sharding" }
+sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 
@@ -50,6 +51,10 @@ path = "src/bin/production_app.rs"
 [[bin]]
 name = "production_dtx"
 path = "src/bin/production_dtx.rs"
+
+[[bin]]
+name = "real_db_crud"
+path = "src/bin/real_db_crud.rs"
 
 [lints]
 workspace = true

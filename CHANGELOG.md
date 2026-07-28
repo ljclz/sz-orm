@@ -52,66 +52,87 @@
 
 ### Added
 
-- **位置式查询优化 (query_values / query_values_with_params)**：为 `Connection` trait 新增两个高性能查询方法，返回 `(Vec<String>, Vec<Vec<Value>>)` 位置式结果（列名 + 按列顺序的值矩阵），绕过 `HashMap<String, Value>` 行映射开销。SQLite/MySQL/PostgreSQL/Oracle 四后端全部实现真实位置式映射（无 HashMap 中转）。默认实现回退到 `query`/`query_with_params` 并转换，向后兼容。**性能提升实测**：SQLite SELECT ALL (1000行) 提升 34.4%（5.58ms → 3.66ms），Oracle 23ai SELECT ALL (1000行) 提升 57.4%（12.88ms → 5.49ms），Oracle 23ai SELECT BY ID 提升 36.4%（372µs → 237µs）
-- **SQLite/Oracle 真实数据库基准测试**：新增 `sz-orm-sqlx/tests/benchmark.rs` 和 `sz-orm-oracle/tests/benchmark.rs` 两个 CRUD 基准测试套件，覆盖 INSERT/SELECT BY ID/SELECT ALL/UPDATE/DELETE 全场景，对比 HashMap 路径与 Positional 路径性能差异，Oracle 23ai 实测通过（本机 127.0.0.1:1521/freepdb1.FALSE）
-
-- **真实 MQ 客户端 (sz-orm-queue)**：新增 5 种真实消息队列客户端实现 — RabbitMQ (lapin/AMQP 0.9.1)、NATS (async-nats)、Kafka (rdkafka)、ActiveMQ Artemis (AMQP 1.0)、Pulsar (pulsar crate)，覆盖 publish/consume/ack/subscribe 全流程
-- **英文文档**：新增 `README.en.md` 英文版 README + `CONTRIBUTING.md` 贡献者指南，支持国际化协作
-- **架构决策记录 (ADR)**：新增 ADR 文档、模块文档、生产事故 runbook
-- **AI 渗透测试报告**：新增 AI 渗透测试报告 + 自定义 Semgrep SAST 规则，crates.io 发布准备
-- **Dependabot 自动升级**：新增 Dependabot 配置，自动升级 GitHub Actions 依赖
-- **GitHub Pages 文档**：自动构建并部署 API 文档到 GitHub Pages
-- **学习路线图**：新增 `docs/sz-orm学习路线图.md`，L1-L4 分阶段学习指南（含按角色推荐路线和验收标准）
-- **学习教程重写**：将学习路线图重写为**面向 PHP/ThinkPHP 工程师的具体学习教程**（17 章 + 3 附录），包含 Rust 速通（对照 PHP）、ThinkPHP ↔ sz-orm 逐概念对照、可运行代码示例、AI 协作开发姿势（提问模板/验证 5 步法/常见陷阱），修复失效文档链接（`sz-orm性能基准.md`、`docs/Security.md` 路径错误）
-- **Benchmark 扩展**：新增 3 组 criterion 基准测试 — `query_builder_select`（3 种复杂度 SELECT 构建）、`query_builder_insert_update`（INSERT/UPDATE/DELETE 4 种操作）、`value_batch_to_param`（10/100/1000 批量转换），共 10 组
-- **ADR 覆盖率扩展**：新增 4 个 ADR（0006-0009）覆盖关联关系加载三策略、ResultMap 分组聚合、连接池持锁不 await close、QueryBuilder 只生成 SQL 不执行，每个 ADR 含 Bug 定位提示，将 ADR 从决策记忆扩展到 bug 定位辅助
-- **core 包 tracing 可观测性**：为 sz-orm-core 关键路径添加 `#[tracing::instrument]` 注解 — 连接池（acquire/release/close_all/reap_idle）、QueryBuilder（build_select/build_insert/build_update/build_delete）、关联加载（load_eager/load_join/find_with_related_eager_sql/find_with_related_subquery）、结果映射（apply_result_map/apply_result_map_many），生产 bug 可通过 tracing span 定位
-- **可复用规范提炼**：新增 `docs/ADR与生产Bug定位规范.md`（v1.0），从 SZ-ORM 实测经验提炼 — ADR 写作四段式（含 Bug 定位提示段必填）、ADR 覆盖率标准（密度 ≥ 0.15）、运行时可观测性规范（关键路径必须加 tracing）、四层 bug 定位流程（决策层→运行时层→指标层→代码层）、ADR 有效性验证流程（零上下文子代理测试 + bug 定位命中率测试）、工程化门禁（PR 检查清单 + CI 门禁），含 ADR 模板/Bug 定位报告模板/新项目落地清单 3 个附录
-- **PooledConnection Drop 修复**：为 `PooledConnection` 实现 `Drop` trait，连接在 drop 时自动归还池中，修复严重池耗尽 bug（commit 01f5465）
-- **Fuzz Testing 基础设施**：新增 3 个 fuzz target（query_builder/value_escape/pool_config）via `cargo-fuzz` + libfuzzer，CI 中每个 target 运行 60s（commit 361e41f）
-- **ORM 对比 Benchmark**：新增 v0.4 SQLite in-memory benchmark（100K rows），SZ-ORM 在 INSERT/DELETE 场景排名第一，UPDATE 排名第二
-- **SeaORM 迁移指南**：新增 `docs/sea-orm迁移指南.md`（547 行，10 章 + 检查清单），覆盖架构差异/连接池/Model/查询/事务/关联/Migration/ActiveModel 替代方案/陷阱/检查清单
-- **编译时 SQL schema 生成（`schema!` 宏）**：新增 `schema!` proc-macro，接受 SQL `CREATE TABLE` 语句，编译期解析列名/类型/约束，自动生成与 `typed_query! { table ... }` 等价的代码（pub mod + table 标记类型 + col_\<name\> TypedColumn 实现），支持 IF NOT EXISTS、反引号/双引号标识符、NOT NULL/PRIMARY KEY 隐含非空判定、嵌套括号类型（如 DECIMAL(10,2)），零外部依赖纯字符串解析，8 个单元测试
-- **全部 37 扩展包深度优化**：完成全部 37 个扩展包的深度优化，测试数从 2,271 增至 4,959（+2,688），clippy 零警告。覆盖 5 大组：数据库扩展（sql-validator/batch/rw/config/storage/scheduler/mig/back）、消息通信+可观测（websocket/mqtt/postgis/vector/graphql/timeseries/es）、安全合规+API（auth/crypto/audit/masking/limit/swagger/search/health）、分布式+运维（tracing/logger/observability/lc/wasm/ai/macros/sqlx）、核心 4 包（queue/grpc/sharding/dtx）。每个包补充 200-500 行高级特性代码与 15-30 个单元测试
-- **Connection trait 参数绑定 (P1.5-3)**：为 `Connection` trait 新增 `execute_with_params`/`query_with_params` 两个方法（默认实现回退无参版本，向后兼容），MySQL/PostgreSQL/SQLite 三个适配器实现真实 prepared statement 参数绑定；新增 17 个单元测试 + 6 个集成测试覆盖空参数/全类型/NULL/IN/BETWEEN/SQL 注入防护；Benchmark 显示 SELECT BY ID 性能提升 26.4%
-- **编译时类型推断完善 (P1-1)**：扩展 `SqlType` 变体至 13 种（新增 SmallInt/BigInt/Real/Double/Date/DateTime/Json/Uuid/Binary/Nullable<T>）；新增 `InferSqlType` trait 为 14 种 Rust 类型（bool/i8/i16/i32/i64/u8/u16/u32/u64/f32/f64/String/Vec<u8>/Option<T> + &str/&[u8] 引用）提供编译期 SqlType 映射；`typed_query!` 宏改用 `<T as InferSqlType>::SqlType` 自动推断，替换原硬编码 Untyped；`Literal<T>` 扩展至 9 种类型实现 TypedExpression；新增 2 个集成测试覆盖 typed_query! 和 schema! 宏的类型推断（i64→BigInt、String→Text、Option<f64>→Nullable<Double> 等 10+ 映射）
-- **Oracle 独立适配器包 (sz-orm-oracle)**：基于 `oracle` crate (ODPI-C 绑定) 实现 sz-orm-core 的 `Connection` trait，支持 Oracle 12c+；通过 `tokio::task::spawn_blocking` 包装同步调用为异步；自动将 `?` 占位符转换为 Oracle 的 `:N` 格式；实现 `execute`/`query`/`execute_with_params`/`query_with_params`/事务/ping/close 全套方法；15 个单元测试全部通过（占位符转换/DDL 判断/Value→ToSql 转换）
-- **SQL Server 独立适配器包 (sz-orm-mssql)**：基于 `tiberius` crate (纯 Rust TDS 协议) 实现 sz-orm-core 的 `Connection` trait，支持 SQL Server 2008+；自动将 `?` 占位符转换为 `@PN` 格式；通过 `MssqlParamOwned` 枚举持有参数所有权解决 tiberius `ColumnData` 生命周期限制；代码已创建（808 行），编译待 `tiberius` crate 下载（本地网络无法访问 crates.io）
-- **测试数据路径迁移**：将 4 个文件的 `std::env::temp_dir()` 调用迁移至优先使用 `F:\test\data`（用户规范），回退到 `SZ_ORM_TEST_DATA_DIR` 环境变量或系统 temp（CI/Linux），涉及 sz-orm-core/tests/integration_sqlite.rs、sz-orm-storage/tests/stress.rs、sz-orm-back/src/lib.rs（15 处）、sz-orm-audit/src/lib.rs（2 处）
-
-### Changed
-
-- **Rust 工具链升级**：升级至 Rust 1.97.1，同步全面工程化审计
-- **sqlx 升级**：sqlx 0.8.6 → 0.9.0，消除 rsa Marvin Attack 漏洞
-- **文档数据统一**：统一测试数 4,959 / LOC ~139,000 / 文档数 11（深度优化后更新），消除文档间数据矛盾（与实测一致）
-- **8 项工程改进落地**：基于 2026-07-21 全面审计的 8 项未来改进建议（1-7）全部实施
-
-### Security
-
-- **Critical 修复 (C-2/C-3)**：修复 2 个 Critical 级别安全漏洞，新增 `SECURITY.md` + `CODEOWNERS` 文件
-- **反向审计全量修复**：完成 H-1 至 H-9（9 项 High）、M-1 至 M-17（17 项 Medium）、L-1 至 L-5（5 项 Low）全部修复
-- **文档敏感信息清除**：清除文档中所有敏感信息（连接字符串、密钥等）
-- **cargo audit / cargo deny 全通过**：advisories / bans / licenses / sources 四项全部通过
+- **API 稳定性承诺文档**：新增 `docs/API-STABILITY.md`，明确 SemVer 承诺、API 稳定性三层分级（Stable/Experimental/Internal）、废弃流程（2 个 MINOR 版本保留期）、破坏性变更条件
+- **端到端真实 DB 示例**：新增 `examples/src/bin/real_db_crud.rs`，使用 SQLite 内存数据库演示完整连接池 + CRUD + 事务（提交/回滚）流程
+- **Prometheus 告警规则**：新增 `monitoring/alerts.yml`，覆盖错误率/延迟/连接池/SLO 燃烧率告警
+- **文档清理**：删除 33 份开发期文档（审计报告/调研文档/重复副本），保留 19 份核心文档
 
 ### Fixed
 
-- **hook 测试锁毒化**：`RwLock<HashSet<String>>` 在 panic 后锁毒化导致静默失败，替换为 `AtomicU32` 无锁计数器
-- **SQLite 集成测试磁盘 I/O 错误**：CI Ubuntu runner 磁盘空间不足导致文件模式 `disk I/O error`，改用 `open_in_memory()`
-- **CI Feature Matrix 原生依赖缺失**：添加 `protobuf-compiler` (pulsar) + `cmake` (rdkafka) 原生依赖安装
-- **CI Semgrep SARIF 上传权限缺失**：添加 `permissions: security-events: write`
-- **CI cargo fmt 格式化失败**：修复长行格式问题
-- **MySQL 9.7 CI 失败**：减少邮件噪音，修复 MySQL 9.7 兼容性
-- **6 个 Cargo.toml description 缺失**：补全 sz-orm-audit/graphql/health/logger/masking/swagger 的 description 字段
-- **README 8 个失效文档链接**：文档索引缩减为 6 条（仅 git 跟踪文件）
-- **unreachable!() 消除**：简化 `sz-orm-postgis` `st_union` 的冗余嵌套 match，消除 `unreachable!()` panic 风险
-- **typed_ast TODO 完成**：为 `Literal<i64>/Literal<String>/Literal<bool>` 分别实现 `TypedExpression`，派生正确的 `SqlType`（Integer/Text/Bool），替换原统一 Text 标记
-- **dialect TODO 完成**：将 `build_create_table` 重复代码 TODO 转为正式架构说明注释，记录权衡决策
+- **sz-orm-search unreachable!() 消除**：将 `TokenizerType::Keyword` 的 `unreachable!()` 替换为正确的 `vec![text]`（整个文本作为单个 token）
+- **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
+- **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
+
+## [1.2.0] — 2026-07-26
+
+### Added
+
+- **Oracle 独立适配器包 (sz-orm-oracle)**：基于 `oracle` crate (ODPI-C 绑定) 实现 `Connection` trait，支持 Oracle 12c+；阻塞池隔离、占位符自动转换、完整类型映射
+- **SQL Server 独立适配器包 (sz-orm-mssql)**：基于 `tiberius` crate (纯 Rust TDS 协议) 实现 `Connection` trait，支持 SQL Server 2008+；占位符自动转换为 `@PN` 格式
+- **axum Web 框架集成 (sz-orm-axum)**：提供 `PoolState`、`JsonRows`、`JsonResp<T>`、`transaction_layer` 组件
+- **actix-web Web 框架集成 (sz-orm-actix)**：提供 `PoolState`、`JsonRows`、`JsonResp<T>`、`TransactionMiddleware` 组件
+- **独立查询构建器 (sz-orm-query-builder)**：提供与 core `QueryBuilder` 不同的 fluent API，支持 SELECT/INSERT/UPDATE/DELETE 及 UNION/INTERSECT/EXCEPT 集合操作
+- **DI 容器 (container.rs)**：依赖注入容器，支持构造函数注入和单例注册
+- **ORM 迁移集成 (migrate.rs)**：sz-orm-mig 与 sz-orm-core 的集成层
+- **Whoops 调试页面 (debug_page.rs)**：开发环境调试信息展示
+- **API 版本管理 (api_version.rs)**：API 版本协商与路由
+- **缓存预热 (cache_warmer.rs)**：启动时预加载热点数据到缓存
+- **迁移历史表 (migration_history.rs)**：迁移执行记录持久化
+
+### Changed
+
+- **MSRV 升级**：1.80 → 1.81（trait_variant dyn compatibility 要求）
+- **workspace lints 强制**：新增 `[workspace.lints]` 配置，全 workspace clippy 零警告强制执行
+- **测试数增长**：4,959 → 5,404（+445），新增 soak test/Jepsen/kill-9 崩溃恢复测试
+
+### Fixed
+
+- **clippy writeln_empty_string**：修复 `sz-orm-audit` 中的 `writeln!(file, "")` 警告
+- **clippy unnecessary_cast**：修复 `sz-orm-sqlx` 中的 `as i64` 不必要转换
+- **hydration_plugin unwrap**：修复 `chars().next().unwrap()` 为安全错误处理
+- **postgis partial_cmp unwrap**：替换为 `total_cmp` 实现 NaN 安全比较
+
+## [1.1.0] — 2026-07-22
+
+### Added
+
+- **位置式查询优化 (query_values / query_values_with_params)**：为 `Connection` trait 新增两个高性能查询方法，绕过 HashMap 行映射开销。SQLite 提升 34.4%，Oracle 提升 57.4%
+- **真实 MQ 客户端 (sz-orm-queue)**：新增 5 种真实消息队列客户端 — RabbitMQ/NATS/Kafka/ActiveMQ Artemis/Pulsar
+- **全部 37 扩展包深度优化**：测试数从 2,271 增至 4,959（+2,688），每个包补充 200-500 行高级特性代码与 15-30 个单元测试
+- **Connection trait 参数绑定**：新增 `execute_with_params`/`query_with_params`，MySQL/PostgreSQL/SQLite 实现真实 prepared statement 绑定
+- **编译时类型推断完善**：`SqlType` 扩展至 13 种变体，`InferSqlType` trait 覆盖 14 种 Rust 类型
+- **编译时 SQL schema 生成（`schema!` 宏）**：接受 SQL CREATE TABLE 语句，编译期自动生成类型安全查询代码
+- **英文文档**：新增 `README.en.md` + `CONTRIBUTING.md`
+- **ADR 体系**：9 个 ADR + `ADR与生产Bug定位规范.md`
+- **SeaORM 迁移指南**：547 行，10 章 + 检查清单
+- **Fuzz Testing**：3 个 fuzz target（query_builder/value_escape/pool_config）
+- **PooledConnection Drop 修复**：连接在 drop 时自动归还池中
+- **core 包 tracing 可观测性**：关键路径添加 `#[tracing::instrument]` 注解
+- **学习路线图**：面向 PHP/ThinkPHP 工程师的 17 章学习教程
+
+### Changed
+
+- **Rust 工具链升级**：升级至 Rust 1.97.1
+- **sqlx 升级**：0.8.6 → 0.9.0，消除 rsa Marvin Attack 漏洞
+
+### Security
+
+- **Critical 修复 (C-2/C-3)**：修复 2 个 Critical 安全漏洞
+- **反向审计全量修复**：H-1 至 H-9（9 项 High）、M-1 至 M-17（17 项 Medium）、L-1 至 L-5（5 项 Low）全部修复
+- **cargo audit / cargo deny 全通过**
+
+### Fixed
+
+- **hook 测试锁毒化**：替换为 `AtomicU32` 无锁计数器
+- **SQLite 集成测试磁盘 I/O 错误**：改用 `open_in_memory()`
+- **unreachable!() 消除**：简化 `sz-orm-postgis` `st_union` 的冗余嵌套 match
 
 ### CI
 
-- **CI 基础设施非阻塞**：将依赖外部 Docker 镜像/第三方工具的 4 类 job（feature-matrix/integration/mq-integration/coverage）设为 `continue-on-error: true`，使其失败不阻塞核心 CI
-- **integration.yml 独立工作流**：移除 push/PR 触发，改为手动触发 + 每日定时，修复 MinIO 标签和健康检查
-- **security.yml 修复**：补全 cargo-deny 安装步骤
-- **test job 解耦**：test 不再依赖 build，加速 CI 反馈
+- **CI 基础设施非阻塞**：4 类外部依赖 job 设为 `continue-on-error: true`
+- **integration.yml 独立工作流**：手动触发 + 每日定时
+- **test job 解耦**：test 不再依赖 build
 
+[1.2.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.2.0
+[1.1.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.0.0

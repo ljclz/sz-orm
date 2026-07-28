@@ -4,10 +4,10 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-4959-green.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-5404-green.svg)](#testing)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#workspace-structure)
-[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#overview)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
 
@@ -45,7 +45,7 @@ SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete d
 |-----------|-------|
 | Workspace packages | 39 (37 libs + CLI + examples) |
 | Supported dialects | 16 SQL dialects (7 native + 9 delegated, incl. 6 domestic Xinchuang DBs) |
-| Test cases | 2,271 passed, 0 failed (1,635 `#[test]` + 636 `#[tokio::test]`) |
+| Test cases | 5,404 passed, 0 failed |
 | Code size | ~104,000 LOC (src ~84,670 + tests ~15,767 + cli/examples/benches ~3,800) |
 | Project maturity | Prototype (22/37 packages published to crates.io, zero community validation) |
 | Async runtime | Tokio 1.40+ |
@@ -76,7 +76,7 @@ SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete d
 ## Quality Baseline
 
 - 7-line verification: TDD + Integration + Jepsen + Fuzz + Stress + Chaos + Formal
-- 0 `panic!` / 0 `unimplemented!` / 0 `todo!` in production code
+- 0 `panic!` / 0 `unimplemented!` / 0 `todo!` / 0 `unreachable!` in production code
 - `cargo clippy --workspace --all-targets -- -D warnings` passes with 0 warnings
 - `cargo fmt --all --check` passes
 - `cargo audit` — 0 unignored vulnerabilities (7 transitive dependencies ignored with documented reasons)
@@ -573,7 +573,7 @@ SZ-ORM enforces quality via a **7-line verification system**:
 | **Chaos** | Fault robustness | `chaos.rs` |
 | **Formal** | Formal invariant verification | `formal.rs` |
 
-**Total: 2,271 tests, 0 failed** (1,635 `#[test]` + 636 `#[tokio::test]`; some tests require real DB/cloud credentials)
+**Total: 5,404 tests, 0 failed** (some tests require real DB/cloud credentials)
 
 ### Run tests
 

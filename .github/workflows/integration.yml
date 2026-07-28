@@ -60,7 +60,7 @@ jobs:
         ports:
           - 1883:1883
       minio:
-        image: minio/minio:latest
+        image: minio/minio:RELEASE.2024-10-13T13-34-11Z
         env:
           MINIO_ROOT_USER: minioadmin
           MINIO_ROOT_PASSWORD: minioadmin

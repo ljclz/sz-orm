@@ -171,10 +171,10 @@ impl TokenStore {
 
         self.tokens
             .lock()
-            .unwrap()
+            .expect("TokenStore tokens lock poisoned")
             .insert(token_value.clone(), stored.clone());
 
-        self.families.lock().unwrap().insert(
+        self.families.lock().expect("TokenStore families lock poisoned").insert(
             family_id.clone(),
             FamilyInfo {
                 revoked: false,
@@ -206,7 +206,7 @@ impl TokenStore {
 
         // 第一阶段：读取并验证旧令牌状态（不加写锁，避免与 revoke 冲突）
         let (family_id, user_id, is_used, is_revoked, is_expired, family_revoked) = {
-            let tokens = self.tokens.lock().unwrap();
+            let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
             let old_stored = match tokens.get(old_refresh_token) {
                 Some(t) => t,
                 None => {
@@ -223,7 +223,7 @@ impl TokenStore {
             let is_expired = old_stored.is_expired();
 
             let family_revoked = {
-                let families = self.families.lock().unwrap();
+                let families = self.families.lock().expect("TokenStore families lock poisoned");
                 families.get(&family_id).map(|f| f.revoked).unwrap_or(false)
             };
 
@@ -278,7 +278,7 @@ impl TokenStore {
         );
 
         {
-            let mut tokens = self.tokens.lock().unwrap();
+            let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
             // 再次检查令牌状态（防止 TOCTOU：在两次加锁之间令牌可能被撤销或使用）
             let old = match tokens.get_mut(old_refresh_token) {
                 Some(t) => t,
@@ -310,7 +310,7 @@ impl TokenStore {
 
         // 将新令牌添加到家族
         {
-            let mut families = self.families.lock().unwrap();
+            let mut families = self.families.lock().expect("TokenStore families lock poisoned");
             if let Some(family) = families.get_mut(&family_id) {
                 family.tokens.push(new_token_value);
             }
@@ -324,7 +324,7 @@ impl TokenStore {
     /// 标记令牌为已撤销，但不影响家族中的其他令牌。
     /// 适用于用户登出单个设备的场景。
     pub fn revoke_token(&self, token: &str) -> Result<(), TokenFamilyError> {
-        let mut tokens = self.tokens.lock().unwrap();
+        let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
         let stored = tokens
             .get_mut(token)
             .ok_or_else(|| TokenFamilyError::NotFound("Token not found".to_string()))?;
@@ -341,7 +341,7 @@ impl TokenStore {
     pub fn revoke_family(&self, family_id: &str) -> Result<usize, TokenFamilyError> {
         // 先验证家族存在
         {
-            let families = self.families.lock().unwrap();
+            let families = self.families.lock().expect("TokenStore families lock poisoned");
             if !families.contains_key(family_id) {
                 return Err(TokenFamilyError::NotFound("Family not found".to_string()));
             }
@@ -355,7 +355,7 @@ impl TokenStore {
     /// 返回撤销的令牌数量。
     fn revoke_family_internal(&self, family_id: &str) -> usize {
         let token_values: Vec<String> = {
-            let mut families = self.families.lock().unwrap();
+            let mut families = self.families.lock().expect("TokenStore families lock poisoned");
             if let Some(family) = families.get_mut(family_id) {
                 family.revoked = true;
                 family.tokens.clone()
@@ -364,7 +364,7 @@ impl TokenStore {
             }
         };
 
-        let mut tokens = self.tokens.lock().unwrap();
+        let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
         let mut count = 0;
         for tv in &token_values {
             if let Some(stored) = tokens.get_mut(tv) {
@@ -381,7 +381,7 @@ impl TokenStore {
     /// 适用于用户修改密码、账户被禁用等场景。
     pub fn revoke_user(&self, user_id: i64) -> usize {
         let family_ids: Vec<String> = {
-            let tokens = self.tokens.lock().unwrap();
+            let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
             tokens
                 .values()
                 .filter(|t| t.user_id == user_id)
@@ -400,26 +400,26 @@ impl TokenStore {
 
     /// 验证令牌是否有效
     pub fn is_valid(&self, token: &str) -> bool {
-        let tokens = self.tokens.lock().unwrap();
+        let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
         tokens.get(token).map(|t| t.is_valid()).unwrap_or(false)
     }
 
     /// 获取令牌信息
     pub fn get_token(&self, token: &str) -> Option<StoredToken> {
-        self.tokens.lock().unwrap().get(token).cloned()
+        self.tokens.lock().expect("TokenStore tokens lock poisoned").get(token).cloned()
     }
 
     /// 获取家族中的所有令牌
     pub fn family_tokens(&self, family_id: &str) -> Vec<StoredToken> {
         let token_values: Vec<String> = {
-            let families = self.families.lock().unwrap();
+            let families = self.families.lock().expect("TokenStore families lock poisoned");
             families
                 .get(family_id)
                 .map(|f| f.tokens.clone())
                 .unwrap_or_default()
         };
 
-        let tokens = self.tokens.lock().unwrap();
+        let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
         token_values
             .iter()
             .filter_map(|tv| tokens.get(tv).cloned())
@@ -430,7 +430,7 @@ impl TokenStore {
     pub fn is_family_revoked(&self, family_id: &str) -> bool {
         self.families
             .lock()
-            .unwrap()
+            .expect("TokenStore families lock poisoned")
             .get(family_id)
             .map(|f| f.revoked)
             .unwrap_or(false)
@@ -440,7 +440,7 @@ impl TokenStore {
     ///
     /// 返回清理的令牌数量。
     pub fn cleanup(&self) -> usize {
-        let mut tokens = self.tokens.lock().unwrap();
+        let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
         let before = tokens.len();
         tokens.retain(|_, t| !t.is_expired() && !t.revoked);
         before - tokens.len()
@@ -448,12 +448,12 @@ impl TokenStore {
 
     /// 返回当前存储的令牌数量
     pub fn token_count(&self) -> usize {
-        self.tokens.lock().unwrap().len()
+        self.tokens.lock().expect("TokenStore tokens lock poisoned").len()
     }
 
     /// 返回当前存储的家族数量
     pub fn family_count(&self) -> usize {
-        self.families.lock().unwrap().len()
+        self.families.lock().expect("TokenStore families lock poisoned").len()
     }
 }
 

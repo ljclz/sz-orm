@@ -245,7 +245,7 @@ impl TypeHandlerRegistry {
         name: impl Into<String>,
         handler: Box<dyn TypeHandler<T>>,
     ) {
-        let mut handlers = self.handlers.write().unwrap();
+        let mut handlers = self.handlers.write().expect("handlers RwLock poisoned");
         handlers.insert(name.into(), Box::new(handler));
     }
 
@@ -255,37 +255,37 @@ impl TypeHandlerRegistry {
     /// - `field`：字段名
     /// - `handler_name`：处理器名称
     pub fn bind(&self, field: impl Into<String>, handler_name: impl Into<String>) {
-        let mut bindings = self.field_bindings.write().unwrap();
+        let mut bindings = self.field_bindings.write().expect("field_bindings RwLock poisoned");
         bindings.insert(field.into(), handler_name.into());
     }
 
     /// 解除字段绑定
     pub fn unbind(&self, field: &str) {
-        let mut bindings = self.field_bindings.write().unwrap();
+        let mut bindings = self.field_bindings.write().expect("field_bindings RwLock poisoned");
         bindings.remove(field);
     }
 
     /// 注销处理器（同时解除所有使用该 handler 的字段绑定）
     pub fn unregister(&self, name: &str) {
-        let mut handlers = self.handlers.write().unwrap();
+        let mut handlers = self.handlers.write().expect("handlers RwLock poisoned");
         handlers.remove(name);
-        let mut bindings = self.field_bindings.write().unwrap();
+        let mut bindings = self.field_bindings.write().expect("field_bindings RwLock poisoned");
         bindings.retain(|_, v| v != name);
     }
 
     /// 判断 handler 是否已注册
     pub fn has_handler(&self, name: &str) -> bool {
-        self.handlers.read().unwrap().contains_key(name)
+        self.handlers.read().expect("handlers RwLock poisoned").contains_key(name)
     }
 
     /// 判断字段是否已绑定
     pub fn is_bound(&self, field: &str) -> bool {
-        self.field_bindings.read().unwrap().contains_key(field)
+        self.field_bindings.read().expect("field_bindings RwLock poisoned").contains_key(field)
     }
 
     /// 获取字段绑定的 handler 名称
     pub fn handler_name_of(&self, field: &str) -> Option<String> {
-        self.field_bindings.read().unwrap().get(field).cloned()
+        self.field_bindings.read().expect("field_bindings RwLock poisoned").get(field).cloned()
     }
 
     /// 处理字段读取：`Value` → `T`
@@ -299,7 +299,7 @@ impl TypeHandlerRegistry {
     /// （而非硬编码 `()`），便于调试。
     pub fn handle<T: 'static>(&self, field: &str, value: &Value) -> TypeHandlerResult<T> {
         let handler_name = {
-            let bindings = self.field_bindings.read().unwrap();
+            let bindings = self.field_bindings.read().expect("field_bindings RwLock poisoned");
             bindings
                 .get(field)
                 .cloned()
@@ -308,7 +308,7 @@ impl TypeHandlerRegistry {
                 })?
         };
 
-        let handlers = self.handlers.read().unwrap();
+        let handlers = self.handlers.read().expect("handlers RwLock poisoned");
         let erased =
             handlers
                 .get(&handler_name)
@@ -337,7 +337,7 @@ impl TypeHandlerRegistry {
     /// 处理字段写入：`T` → `Value`
     pub fn to_value<T: 'static>(&self, field: &str, value: &T) -> TypeHandlerResult<Value> {
         let handler_name = {
-            let bindings = self.field_bindings.read().unwrap();
+            let bindings = self.field_bindings.read().expect("field_bindings RwLock poisoned");
             bindings
                 .get(field)
                 .cloned()
@@ -346,7 +346,7 @@ impl TypeHandlerRegistry {
                 })?
         };
 
-        let handlers = self.handlers.read().unwrap();
+        let handlers = self.handlers.read().expect("handlers RwLock poisoned");
         let erased =
             handlers
                 .get(&handler_name)
@@ -373,7 +373,7 @@ impl TypeHandlerRegistry {
 
     /// 列出所有已注册的 handler 名称
     pub fn list_handlers(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.handlers.read().unwrap().keys().cloned().collect();
+        let mut names: Vec<String> = self.handlers.read().expect("handlers RwLock poisoned").keys().cloned().collect();
         names.sort();
         names
     }
@@ -383,7 +383,7 @@ impl TypeHandlerRegistry {
         let mut fields: Vec<String> = self
             .field_bindings
             .read()
-            .unwrap()
+            .expect("field_bindings RwLock poisoned")
             .keys()
             .cloned()
             .collect();
@@ -393,8 +393,8 @@ impl TypeHandlerRegistry {
 
     /// 清空所有注册与绑定
     pub fn clear(&self) {
-        self.handlers.write().unwrap().clear();
-        self.field_bindings.write().unwrap().clear();
+        self.handlers.write().expect("handlers RwLock poisoned").clear();
+        self.field_bindings.write().expect("field_bindings RwLock poisoned").clear();
     }
 }
 
