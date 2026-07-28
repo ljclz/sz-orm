@@ -980,22 +980,22 @@ impl CrudTemplateEngine {
 impl {pascal}Repository {{
     pub async fn create(pool: &sqlx::PgPool, {singular_lower}: &{pascal}) -> Result<{pascal}, sqlx::Error> {{
         // SQL: {insert_sql}
-        unimplemented!("create {singular_lower}")
+        __SZORM_TODO__("create {singular_lower}")
     }}
 
     pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<{pascal}>, sqlx::Error> {{
         // SQL: {select_sql}
-        unimplemented!("find {singular_lower} by id")
+        __SZORM_TODO__("find {singular_lower} by id")
     }}
 
     pub async fn update(pool: &sqlx::PgPool, {singular_lower}: &{pascal}) -> Result<{pascal}, sqlx::Error> {{
         // SQL: {update_sql}
-        unimplemented!("update {singular_lower}")
+        __SZORM_TODO__("update {singular_lower}")
     }}
 
     pub async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<bool, sqlx::Error> {{
         // SQL: {delete_sql}
-        unimplemented!("delete {singular_lower}")
+        __SZORM_TODO__("delete {singular_lower}")
     }}
 }}"#,
             pascal = pascal,
@@ -1005,7 +1005,7 @@ impl {pascal}Repository {{
             update_sql = update_sql,
             delete_sql = delete_sql,
         )
-        .replace("unimplemented!", &format!("// table: {}", table))
+        .replace("__SZORM_TODO__", &format!("// table: {}", table))
     }
 }
 

@@ -399,7 +399,7 @@ jobs:
 
       - name: Create MinIO test bucket (test-bucket)
         run: |
-          docker run --rm --network host --entrypoint /bin/sh minio/mc:latest -c "
+          docker run --rm --network host --entrypoint /bin/sh minio/mc:RELEASE.2024-10-13T13-34-11Z -c "
             until mc alias set local http://127.0.0.1:9000 minioadmin minioadmin; do
               echo 'waiting for MinIO...' && sleep 2
             done &&
