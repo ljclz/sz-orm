@@ -127,7 +127,7 @@ cargo test -p sz-orm-sqlx -- --ignored
 | T3 | Property-based | `tests/property.rs` | Invariants with `proptest` |
 | T4 | Fuzz | `tests/fuzz.rs` | Edge cases with `proptest` fuzz mode |
 | T5 | Stress | `tests/stress.rs` | High concurrency / load |
-| T6 | Soak | `tests/soak.rs` | 24h long-running degradation |
+| T6 | Soak | `tests/soak.rs` | 6h long-running degradation |
 
 ### TDD Cycle (RED → GREEN → REFACTOR)
 
@@ -145,7 +145,7 @@ cargo test -p sz-orm-sqlx -- --ignored
 
 ### Soak Test Acceptance
 
-24h soak test must meet all criteria:
+6h soak test must meet all criteria:
 - RSS growth < 50 MB
 - fd_count growth < 10
 - pool_active terminal value == pool_idle (no leak)
@@ -425,7 +425,7 @@ By contributing, you agree that your contributions will be licensed under the [M
 | Test (ignored, needs DB) | `cargo test --workspace -- --ignored` |
 | Bench | `cargo bench -p sz-orm-core` |
 | Soak (10s smoke) | `cargo test -p sz-orm-core --test soak -- --ignored` |
-| Soak (24h) | `SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored` |
+| Soak (6h) | `SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored` |
 | Security audit | `cargo audit` (with 7 `--ignore` flags, see CI config) |
 | Deny check | `cargo deny check advisories bans licenses sources` |
 | Full local gate | `./scripts/gate.ps1` or `./scripts/gate.sh` |

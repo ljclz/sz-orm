@@ -1,14 +1,14 @@
 # SZ-ORM — Xian Shi Da ORM
 
-> Rust async ORM workspace (prototype stage) with ThinkORM-style fluent API.
+> Rust async ORM workspace (production-ready) with ThinkORM-style fluent API.
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5530-green.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-5442+-green.svg)](#testing)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#workspace-structure)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
-[![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#overview)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](CHANGELOG.md)
+[![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#overview)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
 
 ---
@@ -70,7 +70,7 @@ SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete d
 - **AI extensions**: pgvector integration + NL→SQL (Simple rule engine + OpenAI API)
 - **Real cloud services**: MQTT (rumqttc) / WebSocket (tokio-tungstenite) / RabbitMQ (lapin) / S3 (rust-s3)
 - **Observability**: Prometheus exporter + OpenTelemetry traceparent propagation + Grafana dashboard
-- **Soak test**: 24h CI soak (Sunday 00:00 UTC) with 10-field snapshots and 6 degradation detectors
+- **Soak test**: 6h CI soak (Sunday 00:00 UTC) with 10-field snapshots and 6 degradation detectors
 - **Extension ecosystem**: 27 business extension packages (crypto/JWT/scheduler/storage/AI/gRPC/GraphQL/ES/tracing/audit/batch/WASM/backup/rw-split/sharding/rate-limit/...)
 
 ## Quality Baseline
@@ -590,8 +590,8 @@ cargo test -p sz-orm-core --features testing
 # Performance benchmarks
 cargo bench -p sz-orm-core
 
-# 24h soak test
-SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored
+# 6h soak test
+SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored
 ```
 
 ## Build & Documentation

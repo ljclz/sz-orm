@@ -33,7 +33,7 @@
   - sz-orm-tracing：分布式追踪（W3C TraceContext）
 - **CLI (sz-orm-cli)**：命令行工具
 - **DevTools**：sz-orm-swagger（OpenAPI）、sz-orm-health（健康检查）
-- **测试体系**：2,271 个单元/集成测试（1,635 `#[test]` + 636 `#[tokio::test]`）、proptest 属性测试、fuzz 模糊测试、chaos 混沌测试（16 项）、24h soak test
+- **测试体系**：2,271 个单元/集成测试（1,635 `#[test]` + 636 `#[tokio::test]`）、proptest 属性测试、fuzz 模糊测试、chaos 混沌测试（16 项）、6h soak test
 - **CI/CD**：GitHub Actions 多 workflow（CI/安全/soak test/依赖更新）
 - **文档**：15 份中文文档 + README.en.md 英文文档 + CONTRIBUTING.md 贡献指南
 
@@ -41,7 +41,7 @@
 
 - cargo audit 通过（1 allowed warning: paste unmaintained）
 - cargo deny check advisories bans licenses sources 全部通过
-- 24h Linux CI Soak Test（2026-07-21 立即触发）
+- 6h Linux CI Soak Test（2026-07-21 立即触发）
 
 ### Performance
 

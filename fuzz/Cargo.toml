@@ -15,6 +15,7 @@ libfuzzer-sys = "0.4"
 # 依赖主 workspace 的包（通过 path 引用）
 sz-orm-core = { path = "../packages/sz-orm-core" }
 sz-orm-query-builder = { path = "../packages/sz-orm-query-builder" }
+sz-orm-sql-validator = { path = "../packages/sz-orm-sql-validator" }
 
 # fuzz target 二进制
 [[bin]]
@@ -29,7 +30,16 @@ path = "fuzz_targets/value_escape.rs"
 name = "pool_config"
 path = "fuzz_targets/pool_config.rs"
 
-[workspace]
+[[bin]]
+name = "sql_validator"
+path = "fuzz_targets/sql_validator.rs"
 
-[lints]
-workspace = true
+[[bin]]
+name = "identifier_safety"
+path = "fuzz_targets/identifier_safety.rs"
+
+[[bin]]
+name = "firewall_bypass"
+path = "fuzz_targets/firewall_bypass.rs"
+
+[workspace]

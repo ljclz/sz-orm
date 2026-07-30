@@ -625,7 +625,7 @@ jobs:
   # - Soak 框架自身正确性（不退化、不 panic）
   # - CSV 报告生成正常
   # - thread_count/RSS/fd_count 字段可读
-  # 周末长时 24h Soak 由 soak.yml 周期触发。
+  # 周末长时 6h Soak 由 soak.yml 周期触发。
   # ============================================================================
   soak-smoke:
     name: Soak Smoke Test (Linux, 10s)

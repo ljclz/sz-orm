@@ -98,7 +98,7 @@ CI 配置中还包含以下扩展 Job：
 | `benchmark` | push 到 main | criterion 性能基准测试（warm-up 1s, measurement 3s, 30 samples） |
 | `soak-smoke` | 每次 push/PR | 10 秒 Soak 冒烟测试，验证框架不退化 |
 | `coverage` | push/PR | cargo-tarpaulin 覆盖率报告上传 Codecov |
-| `soak`（soak.yml） | 每周日 UTC 00:00 | 长时 24h Soak 测试（检测内存泄漏/句柄泄漏/性能退化） |
+| `soak`（soak.yml） | 每周日 UTC 00:00 | 长时 6h Soak 测试（检测内存泄漏/句柄泄漏/性能退化） |
 
 ---
 
@@ -268,7 +268,7 @@ SZ-ORM 当前测试数据：
 | **T3 — 集成测试** | 150+ | 真实数据库（MySQL 8.0/8.4/9.6 × PostgreSQL 14/16/18） |
 | **T4 — 属性测试** | 50+ | Property-Based Testing（proptest） |
 | **T5 — Fuzz 测试** | 20+ | 模糊测试（SQL 解析、Value 反序列化） |
-| **T6 — Soak 测试** | 10+ | 长时稳定性测试（10s 冒烟 / 24h 完整） |
+| **T6 — Soak 测试** | 10+ | 长时稳定性测试（10s 冒烟 / 6h 完整） |
 | **合计** | **2950** | 覆盖全部 39 个 workspace 包 |
 
 ### 4.1 T1：单元测试

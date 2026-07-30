@@ -1,6 +1,6 @@
 # Self-Hosted Runner 配置指南
 
-本仓库的 24 小时 Soak Test（`.github/workflows/soak-self-hosted.yml`）必须运行在 self-hosted runner 上，因为 GitHub Actions 托管 runner 有 6 小时 job 时间限制，无法完成 24h 测试。
+本仓库的 6 小时 Soak Test（`.github/workflows/soak-self-hosted.yml`）可运行在 self-hosted runner 上，以获得更稳定的资源和更长的运行时间余量。GitHub Actions 托管 runner 单 job 上限 6h，self-hosted runner 无此限制。
 
 本文档说明 self-hosted runner 的注册、环境要求、标签配置、监控与故障恢复。
 
@@ -13,13 +13,13 @@
 | 操作系统 | Ubuntu 20.04+ / Windows Server 2019+ | Ubuntu 22.04 LTS | Linux 推荐（soak.rs 的 RSS/fd 监控依赖 `/proc`） |
 | Rust | stable 1.75+ | stable 最新 | 由 `dtolnay/rust-toolchain@stable` 自动安装 |
 | CPU | 2 核 | 4 核 | cargo build + soak 并发 |
-| 内存 | 4 GB | 8 GB | 24h 运行 + cargo 编译 |
+| 内存 | 4 GB | 8 GB | 6h 运行 + cargo 编译 |
 | 磁盘 | 20 GB 可用 | 50 GB SSD | cargo 缓存 + target 产物 + 日志 |
 | 网络 | 可访问 github.com | 稳定带宽 | runner 需轮询 GitHub API |
 | Git | 2.40+ | 最新 | self-hosted runner 必备 |
 | Bash | 4.0+ | 5.0+ | workflow 脚本依赖 bash（Windows 用 Git Bash） |
 
-> ⚠️ **Linux 优先**：soak 测试的 `SoakMonitor` 通过 `/proc/self/status` 和 `/proc/self/fd` 采集 RSS、fd_count、thread_count。Windows 平台这些指标返回占位值（0），无法有效检测内存/句柄泄漏。**生产 24h soak test 必须在 Linux runner 上运行。**
+> ⚠️ **Linux 优先**：soak 测试的 `SoakMonitor` 通过 `/proc/self/status` 和 `/proc/self/fd` 采集 RSS、fd_count、thread_count。Windows 平台这些指标返回占位值（0），无法有效检测内存/句柄泄漏。**生产 6h soak test 必须在 Linux runner 上运行。**
 
 ---
 
@@ -87,7 +87,7 @@ Add-Type -AssemblyName System.IO.Compression.FileSystem
 Get-Service -Name "actions.runner.*"
 ```
 
-> ℹ️ Windows runner 仅用于功能冒烟，**不用于生产 24h soak test**（见上文 Linux 优先说明）。
+> ℹ️ Windows runner 仅用于功能冒烟，**不用于生产 6h soak test**（见上文 Linux 优先说明）。
 
 ---
 
@@ -152,7 +152,7 @@ tail -f Runner_*.log       # 实时跟踪
 
 - **GitHub UI**：仓库 → **Actions** → 选择对应 run → 查看 step 日志
 - **本地工作目录**：`~/actions-runner/_work/<REPO>/<REPO>/`（每次 job 的 checkout 与产物所在）
-- **Soak CSV 报告**：job 结束后通过 artifact `soak-results-24h` 下载，或本地路径 `~/actions-runner/_work/<REPO>/<REPO>/target/soak-report.csv`
+- **Soak CSV 报告**：job 结束后通过 artifact `soak-results-6h` 下载，或本地路径 `~/actions-runner/_work/<REPO>/<REPO>/target/soak-report.csv`
 
 ### 4.4 运行时资源监控
 
@@ -205,7 +205,7 @@ gh api repos/<ORG>/<REPO>/actions/runners --jq '.runners[] | {name, status, busy
 **现象**：job 状态为 failure，日志显示 "Soak test 检测到退化"。
 
 **处理流程：**
-1. 下载 artifact `soak-results-24h`，打开 `soak-report.csv`
+1. 下载 artifact `soak-results-6h`，打开 `soak-report.csv`
 2. 对照退化标准定位问题：
    | 指标 | 阈值 | 含义 |
    | --- | --- | --- |
@@ -265,8 +265,8 @@ cd ~ && rm -rf actions-runner
 
 ## 七、相关文件
 
-- `.github/workflows/soak-self-hosted.yml`：24h soak test workflow（本文档配套）
-- `.github/workflows/soak.yml`：GitHub 托管 runner 的短时 soak（6h 限制）
+- `.github/workflows/soak-self-hosted.yml`：6h soak test workflow（本文档配套）
+- `.github/workflows/soak.yml`：GitHub 托管 runner 的 6h soak
 - `packages/sz-orm-core/tests/soak.rs`：soak test 入口
 - `packages/sz-orm-core/tests/common/soak.rs`：监控与退化检测实现
 - `docs/adr/`：架构决策记录

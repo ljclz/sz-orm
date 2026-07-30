@@ -533,7 +533,7 @@ SeaORM 用户迁移到 SZ-ORM 后可获得的新能力：
 4. **ThinkORM 风格 API**（`Db::name("users")`）—— 无需定义 Model 即可查询
 5. **16 种 SQL 方言**（含 6 种国产数据库：达梦/人大金仓/OceanBase/PolarDB/GaussDB/GBase）
 6. **27 个业务扩展包**（crypto/JWT/scheduler/storage/AI/gRPC/GraphQL/ES/...）
-7. **24h soak test** CI —— 自动检测内存泄漏/性能退化
+7. **6h soak test** CI —— 自动检测内存泄漏/性能退化
 8. **PooledConnection Drop 自动归还** —— v1.0 修复，连接 drop 时自动归还池
 
 ---

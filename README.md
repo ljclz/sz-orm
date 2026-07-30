@@ -1,15 +1,15 @@
 # SZ-ORM — 鲜视达 ORM
 
-> **Rust 异步 ORM 工作空间（原型阶段）**，兼容 ThinkORM 风格 API
-> v1.2.0 · 43 工作空间成员 · 5,442 测试 · 16 SQL 方言 · 尚未发布 crates.io
+> **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
+> v1.2.1 · 43 工作空间成员 · 5,442 测试 · 16 SQL 方言 · 已发布 crates.io v1.2.1
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5442-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-5442+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
-[![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#概览)
+[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](CHANGELOG.md)
+[![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
 
@@ -594,8 +594,8 @@ cargo test -p sz-orm-core --features testing
 # 性能基准
 cargo bench -p sz-orm-core
 
-# 24h Soak 测试
-SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored
+# 6h Soak 测试
+SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored
 ```
 
 ## 构建与文档

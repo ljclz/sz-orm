@@ -467,12 +467,12 @@ pub fn record_latency(window: &Arc<std::sync::Mutex<VecDeque<u64>>>, latency_us:
 ///
 /// ## 方式一：环境变量（推荐，绕过 Rust test harness 参数限制）
 /// ```bash
-/// SOAK_DURATION=24h cargo test --test soak -- --ignored --nocapture
+/// SOAK_DURATION=6h cargo test --test soak -- --ignored --nocapture
 /// ```
 ///
 /// ## 方式二：命令行参数（需在 `--` 之后传递，部分 test harness 可能拦截）
 /// ```bash
-/// cargo test --test soak -- --ignored --nocapture --soak-duration=24h
+/// cargo test --test soak -- --ignored --nocapture --soak-duration=6h
 /// ```
 ///
 /// # 支持格式
@@ -498,7 +498,7 @@ pub fn parse_duration_from_args() -> Duration {
             return parse_duration_str(rest).unwrap_or(Duration::from_secs(60));
         }
     }
-    // 默认 60 秒（便于 CI 快速验证；24h 任务用 SOAK_DURATION=24h）
+    // 默认 60 秒（便于 CI 快速验证；6h 任务用 SOAK_DURATION=6h）
     Duration::from_secs(60)
 }
 

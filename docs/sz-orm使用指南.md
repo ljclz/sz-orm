@@ -1817,8 +1817,8 @@ SOAK_DURATION=10s cargo test -p sz-orm-core --test soak -- --ignored
 # 1 小时测试
 SOAK_DURATION=1h cargo test -p sz-orm-core --test soak -- --ignored
 
-# 24 小时测试（CI 自动触发）
-SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored
+# 6 小时测试（CI 自动触发）
+SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored
 ```
 
 **1h Soak 实测结果**：
@@ -1836,7 +1836,7 @@ SOAK_DURATION=24h cargo test -p sz-orm-core --test soak -- --ignored
 - 连接池泄漏（active != 0 且 idle != max）
 - 错误率 >0.1%
 
-**CI 自动触发**：每周日 UTC 00:00 自动运行 24h Soak，支持 `workflow_dispatch` 手动触发。
+**CI 自动触发**：每周日 UTC 00:00 自动运行 6h Soak，支持 `workflow_dispatch` 手动触发。
 
 ### 8.5 工程化规范文档
 
