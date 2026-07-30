@@ -10,14 +10,14 @@
 //! 运行方式：cargo test --package sz-orm-core --test integration_mysql -- --ignored --nocapture
 
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
+use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
-use sz_orm_core::DbType;
-use sz_orm_core::Value;
+use sz_orm_core::{DbType, Model, ModelExt, QueryBuilder, Value};
 
 /// 默认 MySQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_MYSQL_URL` 覆盖以指向真实云数据库。
-const MYSQL_URL_DEFAULT: &str = "mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test";
+const MYSQL_URL_DEFAULT: &str = "mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test";
 
 fn mysql_url() -> String {
     std::env::var("SZ_ORM_MYSQL_URL").unwrap_or_else(|_| MYSQL_URL_DEFAULT.to_string())
@@ -718,6 +718,363 @@ async fn test_mysql_value_to_param_roundtrip() {
         .await
         .unwrap();
     assert_eq!(count as usize, values.len());
+
+    drop_table(&pool, &table).await;
+}
+
+// =============================================================================
+// Upsert 集成测试（MySQL ON DUPLICATE KEY UPDATE）
+// =============================================================================
+
+struct DummyModel;
+
+impl Model for DummyModel {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str {
+        "dummy"
+    }
+    fn pk(&self) -> Self::PrimaryKey {
+        0
+    }
+    fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+}
+
+impl ModelExt for DummyModel {
+    fn columns() -> Vec<&'static str> {
+        vec!["id", "name", "age", "email"]
+    }
+    fn fillable() -> Vec<&'static str> {
+        vec!["name", "age", "email"]
+    }
+    fn guarded() -> Vec<&'static str> {
+        vec!["id"]
+    }
+    fn hidden() -> Vec<&'static str> {
+        vec![]
+    }
+    fn relations() -> HashMap<&'static str, sz_orm_core::Relation> {
+        HashMap::new()
+    }
+    fn fill(&mut self, _data: HashMap<String, Value>) {}
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+}
+
+/// 构造一行 upsert 测试数据
+fn row_for_upsert(id: i64, name: &str, age: i32, email: &str) -> HashMap<String, Value> {
+    let mut row = HashMap::new();
+    row.insert("id".to_string(), Value::I64(id));
+    row.insert("name".to_string(), Value::String(name.to_string()));
+    row.insert("age".to_string(), Value::I32(age));
+    row.insert("email".to_string(), Value::String(email.to_string()));
+    row
+}
+
+/// 创建 upsert 测试表（含主键 id + 唯一约束 name）
+async fn create_upsert_table(pool: &MySqlPool, table: &str) {
+    let sql = format!(
+        "CREATE TABLE `{}` (
+            id    BIGINT NOT NULL PRIMARY KEY,
+            name  VARCHAR(255) NOT NULL UNIQUE,
+            age   INT NOT NULL,
+            email VARCHAR(255)
+        ) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .execute(pool)
+        .await
+        .expect("create upsert table");
+}
+
+/// 将 Value 绑定到 sqlx MySQL 查询
+fn bind_value_mysql<'q>(
+    q: sqlx::query::Query<'q, sqlx::MySql, sqlx::mysql::MySqlArguments>,
+    v: &'q Value,
+) -> sqlx::query::Query<'q, sqlx::MySql, sqlx::mysql::MySqlArguments> {
+    match v {
+        Value::I32(n) => q.bind(n),
+        Value::I64(n) => q.bind(n),
+        Value::U32(n) => q.bind(*n as i64),
+        Value::U64(n) => q.bind(*n as i64),
+        Value::F64(f) => q.bind(f),
+        Value::Bool(b) => q.bind(b),
+        Value::String(s) => q.bind(s.as_str()),
+        Value::Null => q.bind(None::<String>),
+        _ => q.bind(v.to_param().to_string()),
+    }
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_upsert_basic_insert_path() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ups_bi");
+    create_upsert_table(&pool, &table).await;
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table(&table);
+
+    let rows = vec![row_for_upsert(1, "Alice", 30, "alice@t.com")];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    q.execute(&pool).await.expect("execute upsert insert");
+
+    let count_sql = format!("SELECT COUNT(*) FROM `{}`", table);
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "首次 upsert 应插入 1 行");
+
+    let sel = format!("SELECT name, age, email FROM `{}` WHERE id = 1", table);
+    let (name, age, email): (String, i64, String) =
+        sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(name, "Alice");
+    assert_eq!(age, 30);
+    assert_eq!(email, "alice@t.com");
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_upsert_conflict_update_path() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ups_cu");
+    create_upsert_table(&pool, &table).await;
+
+    let ins = format!(
+        "INSERT INTO `{}` (id, name, age, email) VALUES (?, ?, ?, ?)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(ins.as_str()))
+        .bind(1i64)
+        .bind("Alice")
+        .bind(30i32)
+        .bind("alice@old.com")
+        .execute(&pool)
+        .await
+        .expect("seed insert");
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table(&table);
+
+    let rows = vec![row_for_upsert(1, "Alice", 31, "alice@new.com")];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    q.execute(&pool).await.expect("execute upsert update");
+
+    let count_sql = format!("SELECT COUNT(*) FROM `{}`", table);
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 1, "冲突时应更新而非插入新行");
+
+    let sel = format!("SELECT age, email FROM `{}` WHERE id = 1", table);
+    let (age, email): (i64, String) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(age, 31, "age 应被更新");
+    assert_eq!(email, "alice@new.com", "email 应被更新");
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_upsert_batch_mixed_insert_update() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ups_mx");
+    create_upsert_table(&pool, &table).await;
+
+    let ins = format!(
+        "INSERT INTO `{}` (id, name, age, email) VALUES (?, ?, ?, ?)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(ins.as_str()))
+        .bind(1i64)
+        .bind("Alice")
+        .bind(30i32)
+        .bind("alice@old.com")
+        .execute(&pool)
+        .await
+        .expect("seed");
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table(&table);
+
+    let rows = vec![
+        row_for_upsert(1, "Alice", 31, "alice@new.com"),
+        row_for_upsert(2, "Bob", 25, "bob@t.com"),
+        row_for_upsert(3, "Carol", 28, "carol@t.com"),
+    ];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    q.execute(&pool).await.expect("execute batch upsert");
+
+    let count_sql = format!("SELECT COUNT(*) FROM `{}`", table);
+    let (count,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(count, 3, "应有 3 行（1 更新 + 2 新增）");
+
+    let sel = format!("SELECT age FROM `{}` WHERE id = 1", table);
+    let (age,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(age, 31, "id=1 的 age 应被更新为 31");
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_upsert_specific_update_columns_only() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ups_sc");
+    create_upsert_table(&pool, &table).await;
+
+    let ins = format!(
+        "INSERT INTO `{}` (id, name, age, email) VALUES (?, ?, ?, ?)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(ins.as_str()))
+        .bind(1i64)
+        .bind("Alice")
+        .bind(30i32)
+        .bind("alice@old.com")
+        .execute(&pool)
+        .await
+        .expect("seed");
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table(&table);
+
+    let rows = vec![row_for_upsert(1, "Alice-Changed", 99, "alice@ignored.com")];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &["age"])
+        .expect("build upsert sql");
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    q.execute(&pool).await.expect("execute upsert specific cols");
+
+    let sel = format!("SELECT name, age, email FROM `{}` WHERE id = 1", table);
+    let (name, age, email): (String, i64, String) =
+        sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+    assert_eq!(name, "Alice", "name 不应被更新（不在 update_columns 中）");
+    assert_eq!(age, 99, "age 应被更新");
+    assert_eq!(
+        email, "alice@old.com",
+        "email 不应被更新（不在 update_columns 中）"
+    );
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_upsert_null_value_handling() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ups_nl");
+    create_upsert_table(&pool, &table).await;
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table(&table);
+
+    let mut row = row_for_upsert(1, "Alice", 30, "");
+    row.insert("email".to_string(), Value::Null);
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&[row], &["id"], &[])
+        .expect("build upsert sql");
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    q.execute(&pool).await.expect("execute upsert with null");
+
+    let sel = format!("SELECT email FROM `{}` WHERE id = 1", table);
+    let (email,): (Option<String>,) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert!(email.is_none(), "email 应为 NULL");
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_upsert_unicode_and_special_chars() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ups_un");
+    create_upsert_table(&pool, &table).await;
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table(&table);
+
+    let rows = vec![row_for_upsert(
+        1,
+        "张三-汉字",
+        30,
+        "test'with`special\"chars",
+    )];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    q.execute(&pool)
+        .await
+        .expect("execute upsert unicode/special");
+
+    let sel = format!("SELECT name, email FROM `{}` WHERE id = 1", table);
+    let (name, email): (String, String) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(name, "张三-汉字", "Unicode 名字应正确存储");
+    assert_eq!(
+        email,
+        "test'with`special\"chars",
+        "特殊字符应通过参数化查询正确存储"
+    );
 
     drop_table(&pool, &table).await;
 }

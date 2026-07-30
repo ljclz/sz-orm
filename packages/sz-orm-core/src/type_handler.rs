@@ -245,7 +245,10 @@ impl TypeHandlerRegistry {
         name: impl Into<String>,
         handler: Box<dyn TypeHandler<T>>,
     ) {
-        let mut handlers = self.handlers.write().expect("handlers RwLock poisoned");
+        let mut handlers = match self.handlers.write() {
+            Ok(h) => h,
+            Err(_) => return,
+        };
         handlers.insert(name.into(), Box::new(handler));
     }
 
@@ -255,37 +258,58 @@ impl TypeHandlerRegistry {
     /// - `field`：字段名
     /// - `handler_name`：处理器名称
     pub fn bind(&self, field: impl Into<String>, handler_name: impl Into<String>) {
-        let mut bindings = self.field_bindings.write().expect("field_bindings RwLock poisoned");
+        let mut bindings = match self.field_bindings.write() {
+            Ok(b) => b,
+            Err(_) => return,
+        };
         bindings.insert(field.into(), handler_name.into());
     }
 
     /// 解除字段绑定
     pub fn unbind(&self, field: &str) {
-        let mut bindings = self.field_bindings.write().expect("field_bindings RwLock poisoned");
+        let mut bindings = match self.field_bindings.write() {
+            Ok(b) => b,
+            Err(_) => return,
+        };
         bindings.remove(field);
     }
 
     /// 注销处理器（同时解除所有使用该 handler 的字段绑定）
     pub fn unregister(&self, name: &str) {
-        let mut handlers = self.handlers.write().expect("handlers RwLock poisoned");
+        let mut handlers = match self.handlers.write() {
+            Ok(h) => h,
+            Err(_) => return,
+        };
         handlers.remove(name);
-        let mut bindings = self.field_bindings.write().expect("field_bindings RwLock poisoned");
+        let mut bindings = match self.field_bindings.write() {
+            Ok(b) => b,
+            Err(_) => return,
+        };
         bindings.retain(|_, v| v != name);
     }
 
     /// 判断 handler 是否已注册
     pub fn has_handler(&self, name: &str) -> bool {
-        self.handlers.read().expect("handlers RwLock poisoned").contains_key(name)
+        self.handlers
+            .read()
+            .map(|h| h.contains_key(name))
+            .unwrap_or(false)
     }
 
     /// 判断字段是否已绑定
     pub fn is_bound(&self, field: &str) -> bool {
-        self.field_bindings.read().expect("field_bindings RwLock poisoned").contains_key(field)
+        self.field_bindings
+            .read()
+            .map(|b| b.contains_key(field))
+            .unwrap_or(false)
     }
 
     /// 获取字段绑定的 handler 名称
     pub fn handler_name_of(&self, field: &str) -> Option<String> {
-        self.field_bindings.read().expect("field_bindings RwLock poisoned").get(field).cloned()
+        self.field_bindings
+            .read()
+            .ok()
+            .and_then(|b| b.get(field).cloned())
     }
 
     /// 处理字段读取：`Value` → `T`
@@ -299,7 +323,14 @@ impl TypeHandlerRegistry {
     /// （而非硬编码 `()`），便于调试。
     pub fn handle<T: 'static>(&self, field: &str, value: &Value) -> TypeHandlerResult<T> {
         let handler_name = {
-            let bindings = self.field_bindings.read().expect("field_bindings RwLock poisoned");
+            let bindings = match self.field_bindings.read() {
+                Ok(b) => b,
+                Err(_) => {
+                    return Err(TypeHandlerError::ConversionFailed {
+                        reason: "field_bindings RwLock poisoned".to_string(),
+                    })
+                }
+            };
             bindings
                 .get(field)
                 .cloned()
@@ -308,7 +339,14 @@ impl TypeHandlerRegistry {
                 })?
         };
 
-        let handlers = self.handlers.read().expect("handlers RwLock poisoned");
+        let handlers = match self.handlers.read() {
+            Ok(h) => h,
+            Err(_) => {
+                return Err(TypeHandlerError::ConversionFailed {
+                    reason: "handlers RwLock poisoned".to_string(),
+                })
+            }
+        };
         let erased =
             handlers
                 .get(&handler_name)
@@ -337,7 +375,14 @@ impl TypeHandlerRegistry {
     /// 处理字段写入：`T` → `Value`
     pub fn to_value<T: 'static>(&self, field: &str, value: &T) -> TypeHandlerResult<Value> {
         let handler_name = {
-            let bindings = self.field_bindings.read().expect("field_bindings RwLock poisoned");
+            let bindings = match self.field_bindings.read() {
+                Ok(b) => b,
+                Err(_) => {
+                    return Err(TypeHandlerError::ConversionFailed {
+                        reason: "field_bindings RwLock poisoned".to_string(),
+                    })
+                }
+            };
             bindings
                 .get(field)
                 .cloned()
@@ -346,7 +391,14 @@ impl TypeHandlerRegistry {
                 })?
         };
 
-        let handlers = self.handlers.read().expect("handlers RwLock poisoned");
+        let handlers = match self.handlers.read() {
+            Ok(h) => h,
+            Err(_) => {
+                return Err(TypeHandlerError::ConversionFailed {
+                    reason: "handlers RwLock poisoned".to_string(),
+                })
+            }
+        };
         let erased =
             handlers
                 .get(&handler_name)
@@ -373,7 +425,11 @@ impl TypeHandlerRegistry {
 
     /// 列出所有已注册的 handler 名称
     pub fn list_handlers(&self) -> Vec<String> {
-        let mut names: Vec<String> = self.handlers.read().expect("handlers RwLock poisoned").keys().cloned().collect();
+        let mut names: Vec<String> = self
+            .handlers
+            .read()
+            .map(|h| h.keys().cloned().collect())
+            .unwrap_or_default();
         names.sort();
         names
     }
@@ -383,18 +439,20 @@ impl TypeHandlerRegistry {
         let mut fields: Vec<String> = self
             .field_bindings
             .read()
-            .expect("field_bindings RwLock poisoned")
-            .keys()
-            .cloned()
-            .collect();
+            .map(|b| b.keys().cloned().collect())
+            .unwrap_or_default();
         fields.sort();
         fields
     }
 
     /// 清空所有注册与绑定
     pub fn clear(&self) {
-        self.handlers.write().expect("handlers RwLock poisoned").clear();
-        self.field_bindings.write().expect("field_bindings RwLock poisoned").clear();
+        if let Ok(mut h) = self.handlers.write() {
+            h.clear();
+        }
+        if let Ok(mut b) = self.field_bindings.write() {
+            b.clear();
+        }
     }
 }
 
@@ -567,6 +625,37 @@ impl TypeHandler<bool> for BoolHandler {
             other => Err(TypeHandlerError::ConversionFailed {
                 reason: format!("Expected bool/int/string, got {:?}", other),
             }),
+        }
+    }
+}
+
+// -------------------- ArrayHandler --------------------
+
+/// 数组类型处理器
+///
+/// Rust 端使用 `Vec<Value>`，ORM 端用 `Value::Array` 存储。
+///
+/// # 转换规则
+///
+/// - **to_value**：`Vec<Value>` → `Value::Array(v)`
+/// - **from_value**：`Value::Array(v)` → `Vec<Value>`；`Value::Null` → 空数组
+///
+/// # 用途
+///
+/// 用于 PostgreSQL `ARRAY` 类型、`IN (?, ?, ?)` 参数列表等场景。
+/// 其他 `Value` 变体（如 `I64`、`String`）会被包装为单元素数组。
+pub struct ArrayHandler;
+
+impl TypeHandler<Vec<Value>> for ArrayHandler {
+    fn to_value(&self, value: &Vec<Value>) -> Value {
+        Value::Array(value.clone())
+    }
+
+    fn from_value(&self, value: &Value) -> TypeHandlerResult<Vec<Value>> {
+        match value {
+            Value::Array(v) => Ok(v.clone()),
+            Value::Null => Ok(Vec::new()),
+            other => Ok(vec![other.clone()]),
         }
     }
 }
@@ -902,6 +991,71 @@ mod tests {
             result,
             Err(TypeHandlerError::ConversionFailed { .. })
         ));
+    }
+
+    // ===== ArrayHandler 测试 =====
+
+    #[test]
+    fn test_array_handler_to_value() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("array", Box::new(ArrayHandler));
+        registry.bind("tags", "array");
+
+        let input = vec![Value::I64(1), Value::I64(2), Value::I64(3)];
+        let value = registry.to_value("tags", &input).unwrap();
+        assert!(matches!(value, Value::Array(_)));
+        if let Value::Array(arr) = value {
+            assert_eq!(arr.len(), 3);
+            assert_eq!(arr[0], Value::I64(1));
+            assert_eq!(arr[2], Value::I64(3));
+        }
+    }
+
+    #[test]
+    fn test_array_handler_from_value_array() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("array", Box::new(ArrayHandler));
+        registry.bind("tags", "array");
+
+        let stored = Value::Array(vec![Value::String("a".into()), Value::String("b".into())]);
+        let parsed: Vec<Value> = registry.handle("tags", &stored).unwrap();
+        assert_eq!(parsed.len(), 2);
+        assert_eq!(parsed[0], Value::String("a".to_string()));
+        assert_eq!(parsed[1], Value::String("b".to_string()));
+    }
+
+    #[test]
+    fn test_array_handler_from_value_null() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("array", Box::new(ArrayHandler));
+        registry.bind("tags", "array");
+
+        let parsed: Vec<Value> = registry.handle("tags", &Value::Null).unwrap();
+        assert!(parsed.is_empty());
+    }
+
+    #[test]
+    fn test_array_handler_from_value_scalar_wraps_single() {
+        // 非数组/非 Null 值应被包装为单元素数组
+        let registry = TypeHandlerRegistry::new();
+        registry.register("array", Box::new(ArrayHandler));
+        registry.bind("tags", "array");
+
+        let parsed: Vec<Value> = registry.handle("tags", &Value::I64(42)).unwrap();
+        assert_eq!(parsed.len(), 1);
+        assert_eq!(parsed[0], Value::I64(42));
+    }
+
+    #[test]
+    fn test_array_handler_roundtrip() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("array", Box::new(ArrayHandler));
+        registry.bind("tags", "array");
+
+        let original = vec![Value::I64(1), Value::String("x".into()), Value::Bool(true)];
+        let value = registry.to_value("tags", &original).unwrap();
+        let parsed: Vec<Value> = registry.handle("tags", &value).unwrap();
+        assert_eq!(parsed, original);
     }
 
     // ===== 错误场景测试 =====

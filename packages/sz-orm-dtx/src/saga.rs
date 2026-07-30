@@ -41,7 +41,8 @@
 //! ```
 
 use serde::{Deserialize, Serialize};
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use parking_lot::RwLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Saga 步骤的动作回调类型
@@ -133,19 +134,13 @@ impl Default for InMemorySagaLog {
 
 impl SagaLog for InMemorySagaLog {
     fn append(&self, entry: SagaLogEntry) -> Result<(), String> {
-        let mut entries = self
-            .entries
-            .write()
-            .map_err(|e| format!("日志锁中毒: {}", e))?;
+        let mut entries = self.entries.write();
         entries.push(entry);
         Ok(())
     }
 
     fn read_all(&self, saga_id: &str) -> Result<Vec<SagaLogEntry>, String> {
-        let entries = self
-            .entries
-            .read()
-            .map_err(|e| format!("日志锁中毒: {}", e))?;
+        let entries = self.entries.read();
         Ok(entries
             .iter()
             .filter(|e| e.saga_id == saga_id)
@@ -156,7 +151,7 @@ impl SagaLog for InMemorySagaLog {
 
 impl std::fmt::Debug for InMemorySagaLog {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let count = self.entries.read().map(|e| e.len()).unwrap_or(0);
+        let count = self.entries.read().len();
         f.debug_struct("InMemorySagaLog")
             .field("entries_count", &count)
             .finish()
@@ -856,7 +851,7 @@ impl SagaManager {
 
     /// 注册 Saga
     pub fn register(&self, saga: Saga) -> Result<(), String> {
-        let mut map = self.sagas.write().unwrap();
+        let mut map = self.sagas.write();
         if map.contains_key(&saga.id) {
             return Err(format!("Saga {} already exists", saga.id));
         }
@@ -866,7 +861,7 @@ impl SagaManager {
 
     /// 执行指定 Saga
     pub fn execute(&self, id: &str) -> Result<SagaResult, String> {
-        let mut map = self.sagas.write().unwrap();
+        let mut map = self.sagas.write();
         let saga = map
             .get_mut(id)
             .ok_or_else(|| format!("Saga {} not found", id))?;
@@ -875,20 +870,20 @@ impl SagaManager {
 
     /// 查询 Saga 状态
     pub fn state(&self, id: &str) -> Option<SagaState> {
-        let map = self.sagas.read().unwrap();
+        let map = self.sagas.read();
         map.get(id).map(|s| s.state.clone())
     }
 
     /// 查询 Saga 步骤状态
     pub fn step_states(&self, id: &str) -> Option<Vec<StepState>> {
-        let map = self.sagas.read().unwrap();
+        let map = self.sagas.read();
         map.get(id)
             .map(|s| s.steps.iter().map(|st| st.state.clone()).collect())
     }
 
     /// 列出所有 Saga ID
     pub fn list(&self) -> Vec<String> {
-        let map = self.sagas.read().unwrap();
+        let map = self.sagas.read();
         let mut ids: Vec<String> = map.keys().cloned().collect();
         ids.sort();
         ids
@@ -896,13 +891,13 @@ impl SagaManager {
 
     /// 删除指定 Saga
     pub fn remove(&self, id: &str) -> Option<SagaState> {
-        let mut map = self.sagas.write().unwrap();
+        let mut map = self.sagas.write();
         map.remove(id).map(|s| s.state)
     }
 
     /// 重置 Saga
     pub fn reset(&self, id: &str) -> Result<(), String> {
-        let mut map = self.sagas.write().unwrap();
+        let mut map = self.sagas.write();
         let saga = map
             .get_mut(id)
             .ok_or_else(|| format!("Saga {} not found", id))?;
@@ -920,8 +915,8 @@ impl Default for SagaManager {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use parking_lot::Mutex;
     use std::sync::atomic::{AtomicU32, Ordering};
-    use std::sync::Mutex;
 
     // ---- SagaStep 测试 ----
 
@@ -1110,11 +1105,11 @@ mod tests {
         saga.add_step(
             SagaStep::new("step1")
                 .with_action(move || {
-                    o1a.lock().unwrap().push("action1".to_string());
+                    o1a.lock().push("action1".to_string());
                     Ok(())
                 })
                 .with_compensation(move || {
-                    o1c.lock().unwrap().push("comp1".to_string());
+                    o1c.lock().push("comp1".to_string());
                     Ok(())
                 }),
         )
@@ -1122,11 +1117,11 @@ mod tests {
         saga.add_step(
             SagaStep::new("step2")
                 .with_action(move || {
-                    o2a.lock().unwrap().push("action2".to_string());
+                    o2a.lock().push("action2".to_string());
                     Ok(())
                 })
                 .with_compensation(move || {
-                    o2c.lock().unwrap().push("comp2".to_string());
+                    o2c.lock().push("comp2".to_string());
                     Ok(())
                 }),
         )
@@ -1141,7 +1136,7 @@ mod tests {
         let result = saga.execute().unwrap();
         assert!(matches!(result, SagaResult::Compensated { .. }));
 
-        let recorded = order.lock().unwrap();
+        let recorded = order.lock();
         assert_eq!(
             *recorded,
             vec![
@@ -1545,7 +1540,14 @@ mod tests {
         .unwrap();
         saga.add_step(SagaStep::new("step2").with_action(|| Err("fail".to_string())))
             .unwrap();
-        let _ = saga.execute();
+        let result = saga.execute();
+
+        // step2 失败，step1 补偿成功 -> 应返回 Compensated
+        assert!(
+            matches!(result, Ok(SagaResult::Compensated { .. })),
+            "expected SagaResult::Compensated, got {:?}",
+            result
+        );
 
         let entries = log.read_all("log-2").unwrap();
         // 应包含：CompensationStarted, CompensationCompleted, SagaCompensated
@@ -1572,7 +1574,14 @@ mod tests {
         .unwrap();
         saga.add_step(SagaStep::new("step2").with_action(|| Err("action fail".to_string())))
             .unwrap();
-        let _ = saga.execute();
+        let result = saga.execute();
+
+        // step2 失败，step1 补偿也失败 -> 应返回 CompensationFailed
+        assert!(
+            matches!(result, Ok(SagaResult::CompensationFailed { .. })),
+            "expected SagaResult::CompensationFailed, got {:?}",
+            result
+        );
 
         let entries = log.read_all("log-3").unwrap();
         assert!(entries

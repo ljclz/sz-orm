@@ -154,16 +154,41 @@ impl LimitedWasmDatabase {
 
     /// 获取当前内存使用量快照
     ///
-    /// 通过序列化所有行计算字节数，开销较高，建议仅在调试或周期性采样时调用。
+    /// 遍历所有表的行，计算：
+    /// - 表数量
+    /// - 各表行数
+    /// - 各表最大行字节数
+    /// - 全库序列化字节数（所有行序列化为 JSON 的总字节数）
+    ///
+    /// 通过 `WasmDatabase::table_names()` / `table_rows()` 只读访问，不修改状态。
+    /// 开销较高（O(N) 序列化），建议仅在调试或周期性采样时调用。
     pub fn memory_usage(&self) -> MemoryUsage {
-        let snapshot = self
-            .inner
-            .query(WasmQuery::new("SELECT * FROM __sz_wasm_snapshot__"));
-        // __sz_wasm_snapshot__ 表不存在时返回空，这里通过遍历已知表的 hack：
-        // 由于 WasmDatabase 没有公开表列表接口，这里直接返回零值快照。
-        // 真实环境下应通过反射或扩展 WasmDatabase API 实现。
-        let _ = snapshot;
-        MemoryUsage::default()
+        let names = self.inner.table_names();
+        let mut rows_per_table = HashMap::new();
+        let mut max_row_size_per_table = HashMap::new();
+        let mut total_bytes = 0usize;
+
+        for name in &names {
+            let rows = self.inner.table_rows(name);
+            let row_count = rows.len();
+            let mut max_row = 0usize;
+            for row in &rows {
+                let size = MemoryUsage::row_size(row);
+                total_bytes += size;
+                if size > max_row {
+                    max_row = size;
+                }
+            }
+            rows_per_table.insert(name.clone(), row_count);
+            max_row_size_per_table.insert(name.clone(), max_row);
+        }
+
+        MemoryUsage {
+            table_count: names.len(),
+            rows_per_table,
+            max_row_size_per_table,
+            total_bytes,
+        }
     }
 
     /// 获取配置引用
@@ -1146,6 +1171,60 @@ mod tests {
     use std::thread::sleep;
 
     // -------------------- 内存限制测试 --------------------
+
+    #[test]
+    fn test_memory_usage_empty_database() {
+        // P2-2 回归测试：空数据库的 memory_usage 应返回零值而非默认值
+        let db = LimitedWasmDatabase::new(MemoryConfig::unlimited());
+        let usage = db.memory_usage();
+        assert_eq!(usage.table_count, 0);
+        assert!(usage.rows_per_table.is_empty());
+        assert_eq!(usage.total_bytes, 0);
+    }
+
+    #[test]
+    fn test_memory_usage_with_data() {
+        // P2-2 回归测试：memory_usage 应返回真实统计而非零值
+        let db = LimitedWasmDatabase::new(MemoryConfig::unlimited());
+        db.execute(WasmQuery::new("CREATE TABLE users (id INT, name TEXT)"))
+            .unwrap();
+        db.execute(WasmQuery::with_params(
+            "INSERT INTO users (id, name) VALUES (?, ?)",
+            vec![json!(1), json!("Alice")],
+        ))
+        .unwrap();
+        db.execute(WasmQuery::with_params(
+            "INSERT INTO users (id, name) VALUES (?, ?)",
+            vec![json!(2), json!("Bob")],
+        ))
+        .unwrap();
+
+        let usage = db.memory_usage();
+        assert_eq!(usage.table_count, 1);
+        assert_eq!(usage.rows_per_table.get("users"), Some(&2));
+        // total_bytes 应大于 0（两行 JSON 序列化的字节数）
+        assert!(usage.total_bytes > 0, "total_bytes should be > 0, got {}", usage.total_bytes);
+        // max_row_size_per_table["users"] 应大于 0
+        let max_row = usage.max_row_size_per_table.get("users").copied().unwrap_or(0);
+        assert!(max_row > 0, "max_row_size should be > 0, got {}", max_row);
+    }
+
+    #[test]
+    fn test_memory_usage_multiple_tables() {
+        let db = LimitedWasmDatabase::new(MemoryConfig::unlimited());
+        db.execute(WasmQuery::new("CREATE TABLE users (id INT)")).unwrap();
+        db.execute(WasmQuery::new("CREATE TABLE orders (id INT)")).unwrap();
+        db.execute(WasmQuery::with_params(
+            "INSERT INTO users (id) VALUES (?)",
+            vec![json!(1)],
+        ))
+        .unwrap();
+
+        let usage = db.memory_usage();
+        assert_eq!(usage.table_count, 2);
+        assert_eq!(usage.rows_per_table.get("users"), Some(&1));
+        assert_eq!(usage.rows_per_table.get("orders"), Some(&0));
+    }
 
     #[test]
     fn test_memory_config_unlimited() {

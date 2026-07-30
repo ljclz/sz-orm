@@ -17,7 +17,7 @@
 //! let dialect = get_dialect(DbType::MySQL).unwrap();
 //! // SELECT * FROM users WHERE age > 18 ORDER BY id DESC LIMIT 10
 //! let sql = Db::new(dialect).name("users")
-//!     .where_cond("age > 18")
+//!     .where_gt("age", Value::I64(18))
 //!     .order_desc("id")
 //!     .limit(10)
 //!     .build_select();
@@ -72,17 +72,129 @@ impl Db {
         self
     }
 
-    /// WHERE 条件（AND）
+    /// WHERE 条件（AND）— 字符串拼接，存在 SQL 注入风险
+    ///
+    /// **⚠️ 已废弃**：请使用 `where_eq` / `where_gt` 等参数化方法替代。
+    #[deprecated(
+        since = "1.3.0",
+        note = "P0-2: 字符串拼接存在 SQL 注入风险，请使用 where_eq/where_ne/where_gt/where_lt/where_like 等参数化方法"
+    )]
+    #[allow(deprecated)]
     #[must_use]
     pub fn where_cond(mut self, condition: impl Into<String>) -> Self {
         self.qb = self.qb.where_cond(condition);
         self
     }
 
-    /// WHERE 条件（OR）
+    /// WHERE 条件（OR）— 字符串拼接，存在 SQL 注入风险
+    ///
+    /// **⚠️ 已废弃**：请使用 `or_where_eq` / `or_where_gt` 等参数化方法替代。
+    #[deprecated(
+        since = "1.3.0",
+        note = "P0-2: 字符串拼接存在 SQL 注入风险，请使用 or_where_eq/or_where_ne/or_where_gt 等参数化方法"
+    )]
+    #[allow(deprecated)]
     #[must_use]
     pub fn or_where(mut self, condition: impl Into<String>) -> Self {
         self.qb = self.qb.or_where(condition);
+        self
+    }
+
+    /// P0-2：参数化等值条件 `field = ?`（AND 关系）
+    #[must_use]
+    pub fn where_eq(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.where_eq(field, value);
+        self
+    }
+
+    /// P0-2：参数化不等条件 `field != ?`（AND 关系）
+    #[must_use]
+    pub fn where_ne(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.where_ne(field, value);
+        self
+    }
+
+    /// P0-2：参数化大于条件 `field > ?`（AND 关系）
+    #[must_use]
+    pub fn where_gt(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.where_gt(field, value);
+        self
+    }
+
+    /// P0-2：参数化大于等于条件 `field >= ?`（AND 关系）
+    #[must_use]
+    pub fn where_ge(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.where_ge(field, value);
+        self
+    }
+
+    /// P0-2：参数化小于条件 `field < ?`（AND 关系）
+    #[must_use]
+    pub fn where_lt(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.where_lt(field, value);
+        self
+    }
+
+    /// P0-2：参数化小于等于条件 `field <= ?`（AND 关系）
+    #[must_use]
+    pub fn where_le(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.where_le(field, value);
+        self
+    }
+
+    /// P0-2：参数化 LIKE 条件 `field LIKE ?`（AND 关系）
+    #[must_use]
+    pub fn where_like(mut self, field: impl Into<String>, pattern: Value) -> Self {
+        self.qb = self.qb.where_like(field, pattern);
+        self
+    }
+
+    /// P0-2：参数化 OR 等值条件 `OR field = ?`
+    #[must_use]
+    pub fn or_where_eq(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.or_where_eq(field, value);
+        self
+    }
+
+    /// P0-2：参数化 OR 不等条件 `OR field != ?`
+    #[must_use]
+    pub fn or_where_ne(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.or_where_ne(field, value);
+        self
+    }
+
+    /// P0-2：参数化 OR 大于条件 `OR field > ?`
+    #[must_use]
+    pub fn or_where_gt(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.or_where_gt(field, value);
+        self
+    }
+
+    /// P0-2：参数化 OR 大于等于条件 `OR field >= ?`
+    #[must_use]
+    pub fn or_where_ge(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.or_where_ge(field, value);
+        self
+    }
+
+    /// P0-2：参数化 OR 小于条件 `OR field < ?`
+    #[must_use]
+    pub fn or_where_lt(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.or_where_lt(field, value);
+        self
+    }
+
+    /// P0-2：参数化 OR 小于等于条件 `OR field <= ?`
+    #[must_use]
+    pub fn or_where_le(mut self, field: impl Into<String>, value: Value) -> Self {
+        self.qb = self.qb.or_where_le(field, value);
+        self
+    }
+
+    /// P0-2：参数化 OR LIKE 条件 `OR field LIKE ?`
+    #[must_use]
+    pub fn or_where_like(mut self, field: impl Into<String>, pattern: Value) -> Self {
+        self.qb = self.qb.or_where_like(field, pattern);
         self
     }
 

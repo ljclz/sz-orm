@@ -1152,7 +1152,9 @@ mod tests {
         assert!(!p.is_tried());
         p.try_phase().unwrap();
         assert!(p.is_tried());
-        let _ = p.cancel_phase();
+        // cancel_phase 必须成功，否则状态污染无法被检测
+        p.cancel_phase()
+            .expect("cancel_phase must succeed for a tried participant");
         assert!(p.is_tried()); // 已 cancel 后仍认为 try 曾成功
     }
 

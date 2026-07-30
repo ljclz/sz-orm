@@ -1032,15 +1032,21 @@ mod tests {
         let manager = ContextWindowManager::new(config);
 
         let results = vec![
-            make_result("r1", 0.9, &"a".repeat(200), "doc1"),
-            make_result("r2", 0.8, &"b".repeat(200), "doc2"),
+            make_result("r1", 0.9, &"a".repeat(500), "doc1"),
+            make_result("r2", 0.8, &"b".repeat(500), "doc2"),
         ];
         let result = manager.assemble(results);
 
         // 应该只包含部分片段
         assert!(result.included_chunks <= 2);
-        // 第二个应该被丢弃或截断（usize 始终 >= 0，这里验证字段可访问）
-        let _ = result.dropped_chunks;
+        // 预算为 100 token，每个片段 500 ASCII 字符 ≈ 125 token（CharApprox 策略），
+        // 两个片段总 250 token 远超 100 token 预算，至少有一个片段应被截断或丢弃
+        assert!(
+            result.truncated_chunks + result.dropped_chunks >= 1,
+            "expected at least one truncated or dropped chunk when budget exceeded, got truncated={} dropped={}",
+            result.truncated_chunks,
+            result.dropped_chunks
+        );
     }
 
     #[test]

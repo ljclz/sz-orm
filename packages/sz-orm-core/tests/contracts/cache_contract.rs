@@ -135,12 +135,18 @@ fn test_cache_ttl_missing_key_returns_not_found_contract() {
 #[test]
 fn test_memory_cache_new_returns_self_contract() {
     // 实际 API：new() 返回 Self（不接 capacity，不返回 Result）
-    let _cache: MemoryCache = MemoryCache::new();
+    let cache: MemoryCache = MemoryCache::new();
+    // 新建的缓存应为空：任意 key 不存在
+    assert!(!cache.exists("any_key").unwrap());
+    assert!(cache.get("any_key").unwrap().is_none());
 }
 
 #[test]
 fn test_memory_cache_default_contract() {
-    let _cache: MemoryCache = Default::default();
+    let cache: MemoryCache = Default::default();
+    // default() 与 new() 等价，应为空缓存
+    assert!(!cache.exists("any_key").unwrap());
+    assert!(cache.get("any_key").unwrap().is_none());
 }
 
 #[test]
@@ -157,7 +163,9 @@ fn test_memory_cache_with_ttl_contract() {
 
 #[test]
 fn test_multi_level_cache_new_contract() {
-    let _cache: MultiLevelCache = MultiLevelCache::new();
+    let cache: MultiLevelCache = MultiLevelCache::new();
+    // 新建的多级缓存无任何子缓存层，get 应返回 Ok(None)
+    assert!(cache.get("any_key").unwrap().is_none());
 }
 
 #[test]

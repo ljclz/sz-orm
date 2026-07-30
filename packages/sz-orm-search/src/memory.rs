@@ -15,7 +15,7 @@ use crate::types::{SearchHit, SearchQuery, SearchResult};
 use async_trait::async_trait;
 use serde_json::Value;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::Instant;
 
 /// 内存 Search 实现
@@ -68,7 +68,7 @@ impl MemorySearch {
 
     /// 获取索引内所有文档的快照（用于分面计算等扩展功能）
     pub fn get_all_docs(&self, index: &str) -> Result<HashMap<String, Value>, SearchError> {
-        let indices = self.indices.lock().unwrap();
+        let indices = self.indices.lock();
         let idx = indices
             .get(index)
             .ok_or_else(|| SearchError::NotFound(format!("index: {}", index)))?;
@@ -85,7 +85,7 @@ impl Default for MemorySearch {
 #[async_trait]
 impl SearchExt for MemorySearch {
     async fn create_index(&self, index: &str, _mappings: &Value) -> Result<(), SearchError> {
-        let mut indices = self.indices.lock().unwrap();
+        let mut indices = self.indices.lock();
         if indices.contains_key(index) {
             return Err(SearchError::IndexAlreadyExists(index.to_string()));
         }
@@ -94,7 +94,7 @@ impl SearchExt for MemorySearch {
     }
 
     async fn delete_index(&self, index: &str) -> Result<(), SearchError> {
-        let mut indices = self.indices.lock().unwrap();
+        let mut indices = self.indices.lock();
         if indices.remove(index).is_none() {
             return Err(SearchError::NotFound(format!("index: {}", index)));
         }
@@ -102,7 +102,7 @@ impl SearchExt for MemorySearch {
     }
 
     async fn index_doc(&self, index: &str, id: &str, doc: &Value) -> Result<(), SearchError> {
-        let mut indices = self.indices.lock().unwrap();
+        let mut indices = self.indices.lock();
         let idx = indices
             .get_mut(index)
             .ok_or_else(|| SearchError::NotFound(format!("index: {}", index)))?;
@@ -111,7 +111,7 @@ impl SearchExt for MemorySearch {
     }
 
     async fn get_doc(&self, index: &str, id: &str) -> Result<Option<Value>, SearchError> {
-        let indices = self.indices.lock().unwrap();
+        let indices = self.indices.lock();
         let idx = indices
             .get(index)
             .ok_or_else(|| SearchError::NotFound(format!("index: {}", index)))?;
@@ -119,7 +119,7 @@ impl SearchExt for MemorySearch {
     }
 
     async fn delete_doc(&self, index: &str, id: &str) -> Result<(), SearchError> {
-        let mut indices = self.indices.lock().unwrap();
+        let mut indices = self.indices.lock();
         let idx = indices
             .get_mut(index)
             .ok_or_else(|| SearchError::NotFound(format!("index: {}", index)))?;
@@ -134,7 +134,7 @@ impl SearchExt for MemorySearch {
 
     async fn search(&self, index: &str, query: &SearchQuery) -> Result<SearchResult, SearchError> {
         let start = Instant::now();
-        let indices = self.indices.lock().unwrap();
+        let indices = self.indices.lock();
         let idx = indices
             .get(index)
             .ok_or_else(|| SearchError::NotFound(format!("index: {}", index)))?;
@@ -192,7 +192,7 @@ impl SearchExt for MemorySearch {
     }
 
     async fn count(&self, index: &str, query: &SearchQuery) -> Result<u64, SearchError> {
-        let indices = self.indices.lock().unwrap();
+        let indices = self.indices.lock();
         let idx = indices
             .get(index)
             .ok_or_else(|| SearchError::NotFound(format!("index: {}", index)))?;

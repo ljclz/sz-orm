@@ -1,11 +1,10 @@
-//! # 消息压缩（permessage-deflate 模拟）
+//! # 消息压缩（RFC 7692 permessage-deflate）
 //!
-//! 模拟 RFC 7692 `permessage-deflate` 扩展的协商与压缩/解压缩流程。
-//! 本模块为**纯模拟实现**，不依赖 `flate2` 等外部压缩库：
+//! 实现 RFC 7692 `permessage-deflate` 扩展的协商与压缩/解压缩流程。
+//! 基于 `flate2` 的 zlib DEFLATE 算法，与浏览器/服务端互通：
 //!
 //! - 协商阶段：解析客户端 `Sec-WebSocket-Extensions` 头并匹配服务端支持的参数
-//! - 压缩阶段：使用 RLE（Run-Length Encoding）变体对消息进行简单压缩，
-//!   用于验证压缩流程的正确性与压缩比统计
+//! - 压缩阶段：使用 zlib DEFLATE 压缩消息，按 RFC 7692 移除尾部 4 字节同步标记
 //!
 //! ## 主要类型
 //!
@@ -291,54 +290,59 @@ impl CompressionStats {
     }
 }
 
-/// 使用 RLE 变体对字节序列进行简单压缩。
+/// 使用 zlib DEFLATE 压缩字节序列，并按 RFC 7692 处理尾部同步标记。
 ///
-/// 压缩格式：对于连续重复的字节，输出 `[字节, 计数]`（计数最大 255）。
-/// 对于不重复的字节，原样输出。为区分压缩与未压缩数据，
-/// 压缩结果前缀一个标记字节 `0xFF`（假设原始数据不会以该标记+计数开头）。
+/// RFC 7692 规定：1. 使用 zlib 压缩；2. 移除尾部的 4 字节 `00 00 FF FF` 同步标记；
+/// 3. 若结果以 0x00 结尾且位于 WebSocket frame 的最后，需补一个 0x00 防止 frame 边界冲突。
 ///
-/// 注意：这是简化实现，仅用于演示压缩流程与统计，不用于生产环境。
-fn rle_compress(data: &[u8]) -> Vec<u8> {
-    if data.is_empty() {
-        return vec![0xFF];
-    }
-    let mut result = Vec::with_capacity(data.len());
-    result.push(0xFF); // 压缩标记
+/// 返回值始终非空（空输入也会产生至少 1 字节的 zlib header 信息）。
+fn deflate_compress(data: &[u8]) -> Vec<u8> {
+    use flate2::write::ZlibEncoder;
+    use std::io::Write;
+    let mut encoder = ZlibEncoder::new(Vec::new(), flate2::Compression::default());
+    // 写入数据；空数据也能压缩（zlib header + empty block + trailer）
+    let _ = encoder.write_all(data);
+    let mut compressed = encoder
+        .finish()
+        .expect("zlib compression of in-memory buffer cannot fail");
 
-    let mut i = 0;
-    while i < data.len() {
-        let current = data[i];
-        let mut count = 1usize;
-        while i + count < data.len() && data[i + count] == current && count < 255 {
-            count += 1;
-        }
-        result.push(current);
-        result.push(count as u8);
-        i += count;
+    // RFC 7692: 移除尾部 4 字节 00 00 FF FF 同步标记
+    if compressed.len() >= 4
+        && compressed[compressed.len() - 4..] == [0x00, 0x00, 0xFF, 0xFF]
+    {
+        compressed.truncate(compressed.len() - 4);
     }
-    result
+
+    // 若压缩后末尾为 0x00，补一个 0x00 防止与 frame 边界混淆
+    if compressed.last() == Some(&0x00) {
+        compressed.push(0x00);
+    }
+
+    compressed
 }
 
-/// 解压 RLE 压缩的数据
-fn rle_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
+/// 解压 RFC 7692 permessage-deflate 数据。
+///
+/// 自动补回 4 字节 `00 00 FF FF` 同步标记后调用 zlib 解压。
+/// 同时处理压缩端为防 frame 边界冲突而追加的尾部 0x00（合法的 deflate 流不会以此结尾）。
+fn deflate_decompress(data: &[u8]) -> Result<Vec<u8>, String> {
+    use flate2::read::ZlibDecoder;
+    use std::io::Read;
+
     if data.is_empty() {
         return Err("empty compressed data".to_string());
     }
-    if data[0] != 0xFF {
-        return Err("invalid compression marker".to_string());
-    }
-    let mut result = Vec::new();
-    let mut i = 1;
-    while i + 1 < data.len() {
-        let byte = data[i];
-        let count = data[i + 1] as usize;
-        result.resize(result.len() + count, byte);
-        i += 2;
-    }
-    if i != data.len() {
-        return Err("truncated compressed data".to_string());
-    }
-    Ok(result)
+
+    // 补回 RFC 7692 移除的 4 字节同步标记
+    let mut full = data.to_vec();
+    full.extend_from_slice(&[0x00, 0x00, 0xFF, 0xFF]);
+
+    let mut decoder = ZlibDecoder::new(&full[..]);
+    let mut out = Vec::new();
+    decoder
+        .read_to_end(&mut out)
+        .map_err(|e| format!("zlib decompress failed: {}", e))?;
+    Ok(out)
 }
 
 /// 消息压缩器，跟踪压缩统计
@@ -363,19 +367,32 @@ impl MessageCompressor {
     }
 
     /// 压缩消息。对于小消息（<32 字节）不压缩直接返回原文。
+    ///
+    /// 格式：1 字节标记 + 数据
+    /// - 标记 0x00：原始数据（未压缩，后跟原文）
+    /// - 标记 0x01：DEFLATE 压缩数据（后跟 RFC 7692 zlib 流）
     pub async fn compress(&self, data: &[u8]) -> Vec<u8> {
         let uncompressed_size = data.len() as u64;
 
-        // 小消息不压缩
+        // 小消息不压缩（DEFLATE 对小数据通常反向膨胀）
         let compressed = if data.len() < 32 {
-            data.to_vec()
+            let mut out = Vec::with_capacity(data.len() + 1);
+            out.push(0x00); // 原始数据标记
+            out.extend_from_slice(data);
+            out
         } else {
-            let rle = rle_compress(data);
+            let deflated = deflate_compress(data);
             // 仅当压缩后更小才使用压缩结果
-            if rle.len() < data.len() {
-                rle
+            if deflated.len() + 1 < data.len() + 1 {
+                let mut out = Vec::with_capacity(deflated.len() + 1);
+                out.push(0x01); // 压缩数据标记
+                out.extend_from_slice(&deflated);
+                out
             } else {
-                data.to_vec()
+                let mut out = Vec::with_capacity(data.len() + 1);
+                out.push(0x00); // 原始数据标记
+                out.extend_from_slice(data);
+                out
             }
         };
 
@@ -389,11 +406,19 @@ impl MessageCompressor {
     }
 
     /// 解压消息
+    ///
+    /// 根据首字节标记决定解压路径：
+    /// - 0x00：原始数据，跳过标记后直接返回
+    /// - 0x01：DEFLATE 压缩数据，调用 zlib 解压
     pub async fn decompress(&self, data: &[u8]) -> Result<Vec<u8>, String> {
-        let result = if !data.is_empty() && data[0] == 0xFF {
-            rle_decompress(data)?
-        } else {
-            data.to_vec()
+        if data.is_empty() {
+            return Err("empty compressed data".to_string());
+        }
+
+        let result = match data[0] {
+            0x00 => data[1..].to_vec(),
+            0x01 => deflate_decompress(&data[1..])?,
+            other => return Err(format!("unknown compression marker: 0x{:02X}", other)),
         };
 
         let mut stats = self.stats.write().await;
@@ -453,6 +478,10 @@ mod tests {
     fn test_compression_config_validate_ok() {
         let cfg = CompressionConfig::new();
         assert!(cfg.validate().is_ok());
+        assert_eq!(cfg.server_max_window_bits, 15, "默认 server_max_window_bits 应为 15");
+        assert_eq!(cfg.client_max_window_bits, 15, "默认 client_max_window_bits 应为 15");
+        assert!(!cfg.server_no_context_takeover, "默认 server_no_context_takeover 应为 false");
+        assert!(!cfg.client_no_context_takeover, "默认 client_no_context_takeover 应为 false");
     }
 
     #[test]
@@ -664,73 +693,61 @@ mod tests {
     }
 
     #[test]
-    fn test_rle_compress_empty() {
-        let compressed = rle_compress(b"");
-        assert_eq!(compressed, vec![0xFF]);
+    fn test_deflate_compress_nonempty() {
+        // 空输入也会产生 zlib header + 同步标记（移除 4 字节后仍非空）
+        let compressed = deflate_compress(b"");
+        assert!(!compressed.is_empty());
     }
 
     #[test]
-    fn test_rle_compress_repeated_bytes() {
-        let data = b"aaaaabbbccc";
-        let compressed = rle_compress(data);
-        // [0xFF, 'a', 5, 'b', 3, 'c', 3]
-        assert_eq!(compressed, vec![0xFF, b'a', 5, b'b', 3, b'c', 3]);
+    fn test_deflate_compress_repeated_bytes() {
+        let data = vec![b'a'; 1000];
+        let compressed = deflate_compress(&data);
+        // DEFLATE 对高度重复数据压缩率极高（应远小于 1000）
+        assert!(compressed.len() < data.len());
+        assert!(compressed.len() < 100);
     }
 
     #[test]
-    fn test_rle_compress_unique_bytes() {
-        let data = b"abcdef";
-        let compressed = rle_compress(data);
-        // 每个字节重复 1 次
-        assert_eq!(compressed.len(), 1 + data.len() * 2);
-        assert_eq!(compressed[0], 0xFF);
+    fn test_deflate_decompress_roundtrip() {
+        let original = b"Hello, permessage-deflate! This is a test message.".repeat(20);
+        let compressed = deflate_compress(&original);
+        let decompressed = deflate_decompress(&compressed).unwrap();
+        assert_eq!(decompressed, original);
     }
 
     #[test]
-    fn test_rle_decompress_basic() {
-        let compressed = vec![0xFF, b'a', 5, b'b', 3];
-        let decompressed = rle_decompress(&compressed).unwrap();
-        assert_eq!(decompressed, b"aaaaabbb");
-    }
-
-    #[test]
-    fn test_rle_decompress_empty() {
-        let result = rle_decompress(b"");
+    fn test_deflate_decompress_empty() {
+        let result = deflate_decompress(b"");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_rle_decompress_invalid_marker() {
-        let result = rle_decompress(b"\x00\x01\x02");
+    fn test_deflate_decompress_invalid_data() {
+        // 不是合法 zlib 流
+        let result = deflate_decompress(b"\x00\x01\x02\x03");
         assert!(result.is_err());
     }
 
     #[test]
-    fn test_rle_decompress_truncated() {
-        let compressed = vec![0xFF, b'a']; // 缺少计数
-        let result = rle_decompress(&compressed);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn test_rle_roundtrip() {
-        let original = b"aaaabbbbbcccccccdde";
-        let compressed = rle_compress(original);
-        let decompressed = rle_decompress(&compressed).unwrap();
+    fn test_deflate_roundtrip_random() {
+        let original: Vec<u8> = (0..200u8).collect();
+        let compressed = deflate_compress(&original);
+        let decompressed = deflate_decompress(&compressed).unwrap();
         assert_eq!(decompressed, original);
     }
 
     #[tokio::test]
     async fn test_compressor_compress_small_message() {
         let comp = MessageCompressor::new(CompressionConfig::default());
-        // 小消息不压缩
+        // 小消息不压缩，标记为 0x00 + 原文
         let result = comp.compress(b"hi").await;
-        assert_eq!(result, b"hi");
+        assert_eq!(result, vec![0x00, b'h', b'i']);
 
         let stats = comp.stats().await;
         assert_eq!(stats.messages_compressed, 1);
         assert_eq!(stats.total_uncompressed, 2);
-        assert_eq!(stats.total_compressed, 2);
+        assert_eq!(stats.total_compressed, 3); // 1 字节标记 + 2 字节原文
     }
 
     #[tokio::test]
@@ -738,8 +755,9 @@ mod tests {
         let comp = MessageCompressor::new(CompressionConfig::default());
         let data = vec![b'a'; 1000]; // 高度重复的数据
         let result = comp.compress(&data).await;
-        // 应该被压缩（RLE 非常高效）
+        // 应该被压缩（DEFLATE 对重复数据非常高效）
         assert!(result.len() < data.len());
+        assert_eq!(result[0], 0x01); // 首字节为压缩标记
 
         let stats = comp.stats().await;
         assert_eq!(stats.total_uncompressed, 1000);
@@ -750,15 +768,15 @@ mod tests {
     #[tokio::test]
     async fn test_compressor_compress_incompressible() {
         let comp = MessageCompressor::new(CompressionConfig::default());
-        // 32 字节的随机不重复数据，RLE 不会更小
+        // 32 字节顺序递增数据，DEFLATE 可能无法压缩
         let data: Vec<u8> = (0..32u8).collect();
         let result = comp.compress(&data).await;
-        // 应该返回原文（压缩后更大则不压缩）
-        assert_eq!(result, data);
+        // 首字节应为 0x00（原始）或 0x01（压缩）；总长度不应远超原文+1
+        assert!(result[0] == 0x00 || result[0] == 0x01);
+        assert!(result.len() <= data.len() + 50); // 允许小幅膨胀但仍合理
 
         let stats = comp.stats().await;
         assert_eq!(stats.total_uncompressed, 32);
-        assert_eq!(stats.total_compressed, 32);
     }
 
     #[tokio::test]
@@ -773,10 +791,18 @@ mod tests {
     #[tokio::test]
     async fn test_compressor_decompress_uncompressed() {
         let comp = MessageCompressor::new(CompressionConfig::default());
-        // 小消息不压缩，直接解压
-        let data = b"hello";
-        let decompressed = comp.decompress(data).await.unwrap();
-        assert_eq!(decompressed, data);
+        // 小消息不压缩，标记 0x00 + 原文
+        let data = vec![0x00, b'h', b'e', b'l', b'l', b'o'];
+        let decompressed = comp.decompress(&data).await.unwrap();
+        assert_eq!(decompressed, b"hello");
+    }
+
+    #[tokio::test]
+    async fn test_compressor_decompress_invalid_marker() {
+        let comp = MessageCompressor::new(CompressionConfig::default());
+        let data = vec![0x99, 0x01, 0x02]; // 未知标记
+        let result = comp.decompress(&data).await;
+        assert!(result.is_err());
     }
 
     #[tokio::test]
@@ -809,8 +835,11 @@ mod tests {
     #[tokio::test]
     async fn test_compressor_decompress_count() {
         let comp = MessageCompressor::new(CompressionConfig::default());
-        comp.decompress(b"hi").await.unwrap();
-        comp.decompress(b"world").await.unwrap();
+        // 压缩格式要求首字节为标记（0x00 原始 / 0x01 DEFLATE），不能直接传原始字符串
+        let compressed1 = comp.compress(b"hi").await;
+        let compressed2 = comp.compress(b"world").await;
+        comp.decompress(&compressed1).await.unwrap();
+        comp.decompress(&compressed2).await.unwrap();
 
         let stats = comp.stats().await;
         assert_eq!(stats.messages_decompressed, 2);

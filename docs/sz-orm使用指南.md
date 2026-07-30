@@ -1,9 +1,9 @@
 # SZ-ORM 使用指南
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v5.0（v1.0.0 正式发布：补全 sz-orm-core 全部 21 个高级模块文档 + API 参考手册交叉引用）
-> 适用版本：SZ-ORM **v1.0.0**（工作空间 39 个成员：37 个 sz-orm-* lib + cli + examples）
-> 更新日期：2026-07-21
+> 文档版本：v6.0（v1.2.0：补全 sz-orm-core 全部 21 个高级模块文档 + API 参考手册交叉引用；同步至 43 包）
+> 适用版本：SZ-ORM **v1.2.0**（工作空间 43 个成员：41 个 sz-orm-* lib + cli + examples）
+> 更新日期：2026-07-29
 > 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"，与《项目成熟度评估报告.md》《项目实施进度表.md》配套
 
 > **导读**：本文 §3 按包/模块逐一展开使用示例，所有"详见 [API 参考手册]"链接均指向 `sz-ormAPI参考.md` 对应章节。若只需查阅类型签名与参数说明，直接打开 API 参考手册；若需端到端场景串联（CRUD/事务/连接池/迁移/分布式事务/向量搜索），按本指南章节顺序阅读。
@@ -12,7 +12,7 @@
 
 ## 一、项目概述
 
-SZ-ORM 是一套**原型阶段纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 39 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、27 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。
+SZ-ORM 是一套**原型阶段纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 43 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、31 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。
 
 ### 1.1 核心特性
 
@@ -37,8 +37,8 @@ SZ-ORM 是一套**原型阶段纯 Rust ORM 工作空间**，兼容 ThinkORM 风�
 
 ### 1.2 质量基线（实测数据）
 
-- 测试总量：**3047 passed, 0 failed**（112 个测试套件，需真实 DB/云服务的标记 ignored）
-- 工作空间成员：**39（36 sz-orm-* lib + sz-orm-vector + cli + examples）**
+- 测试总量：**5530 passed, 0 failed**（112 个测试套件，需真实 DB/云服务的标记 ignored）
+- 工作空间成员：**43（41 sz-orm-* lib + cli + examples）**
 - 代码规模：**89,329 LOC（src/ 75,388 + tests/ 13,941）**
 - 七线验证：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal
 - 生产代码 **0 处 panic!**、0 处 `unimplemented!`/`todo!`
@@ -139,7 +139,7 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // ✅ 参
 
 ---
 
-## 三、各包使用说明（39 个工作空间成员）
+## 三、各包使用说明（43 个工作空间成员）
 
 ### 3.1 核心引擎
 

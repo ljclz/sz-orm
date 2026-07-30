@@ -184,17 +184,19 @@ impl JwtAuthenticator {
             ));
         }
 
-        // v0.2.1 修复 Critical S-1：必须通过 PasswordVerifier 验证密码
-        let user_id: i64 = if let Some(verifier) = &self.password_verifier {
-            verifier.verify_password(&credentials.username, &credentials.password)?
-        } else {
-            // 未配置 verifier：保留旧行为（向后兼容）但警告
-            // 生产环境必须通过 with_password_verifier() 配置 verifier
-            eprintln!(
-                "[warn] JwtAuthenticator::authenticate: password_verifier not configured; \
-                 accepting credentials without password verification (Critical S-1)"
-            );
-            0
+        // v1.2.1 修复 High H-1（CWE-1188 不安全默认初始化 / CWE-287 认证不当）：
+        // 未配置 `password_verifier` 时直接返回 `Err`，拒绝签发 JWT。
+        // 原实现（v0.2.1）仅 `eprintln!` 警告后接受任意凭证并签发 `user_id=0` 的 JWT，
+        // 开发者遗漏配置时将导致完全认证绕过。stderr 警告在生产环境常被忽略。
+        let user_id: i64 = match &self.password_verifier {
+            Some(verifier) => verifier.verify_password(&credentials.username, &credentials.password)?,
+            None => {
+                return Err(AuthError::Config(
+                    "JwtAuthenticator.password_verifier not configured; \
+                     call with_password_verifier() before authenticate() (H-1)"
+                        .to_string(),
+                ));
+            }
         };
 
         let exp = current_timestamp_secs() + (self.expiration as i64);
@@ -288,6 +290,25 @@ impl Claims {
 mod tests {
     use super::*;
 
+    /// 测试用密码验证器：用户名哈希后取低 32 位作为 user_id（非 0）。
+    ///
+    /// v1.2.1 修复 H-1 后，`JwtAuthenticator::authenticate` 在未配置 verifier 时
+    /// 返回 `Err(AuthError::Config)`，所有调用 `authenticate` 的测试必须配置 verifier。
+    struct MockPasswordVerifier;
+    impl PasswordVerifier for MockPasswordVerifier {
+        fn verify_password(&self, username: &str, _password: &str) -> Result<i64, AuthError> {
+            // 简单确定性映射：用户名首字节 + 长度，保证 > 0
+            let id = (username.bytes().next().unwrap_or(b'x') as i64) + (username.len() as i64);
+            Ok(id)
+        }
+    }
+
+    /// 构造配置了 MockPasswordVerifier 的 JwtAuthenticator
+    fn auth_with_verifier(secret: &str, issuer: &str, exp: u64) -> JwtAuthenticator {
+        JwtAuthenticator::new(secret, issuer, exp)
+            .with_password_verifier(std::sync::Arc::new(MockPasswordVerifier))
+    }
+
     #[test]
     fn test_credentials_new() {
         let creds = Credentials::new("user", "pass");
@@ -366,7 +387,7 @@ mod tests {
 
     #[test]
     fn test_jwt_authenticate_issues_real_jwt() {
-        let auth = JwtAuthenticator::new("super-secret", "test-issuer", 3600);
+        let auth = auth_with_verifier("super-secret", "test-issuer", 3600);
         let creds = Credentials::new("alice", "password123");
 
         let token = auth.authenticate(&creds).expect("authenticate");
@@ -392,7 +413,7 @@ mod tests {
 
     #[test]
     fn test_jwt_verify_roundtrip() {
-        let auth = JwtAuthenticator::new("super-secret", "test-issuer", 3600);
+        let auth = auth_with_verifier("super-secret", "test-issuer", 3600);
         let creds = Credentials::new("bob", "pw");
 
         let token = auth.authenticate(&creds).expect("authenticate");
@@ -418,7 +439,7 @@ mod tests {
 
     #[test]
     fn test_jwt_verify_rejects_wrong_secret() {
-        let auth_a = JwtAuthenticator::new("secret-a", "issuer", 3600);
+        let auth_a = auth_with_verifier("secret-a", "issuer", 3600);
         let auth_b = JwtAuthenticator::new("secret-b", "issuer", 3600);
 
         let token = auth_a
@@ -430,7 +451,7 @@ mod tests {
 
     #[test]
     fn test_jwt_refresh_roundtrip() {
-        let auth = JwtAuthenticator::new("super-secret", "issuer", 3600);
+        let auth = auth_with_verifier("super-secret", "issuer", 3600);
         let token = auth.authenticate(&Credentials::new("carol", "pw")).unwrap();
 
         let refreshed = auth
@@ -459,10 +480,23 @@ mod tests {
 
     #[test]
     fn test_jwt_claims_carried_to_user() {
-        let auth = JwtAuthenticator::new("secret", "issuer", 3600);
+        let auth = auth_with_verifier("secret", "issuer", 3600);
         let token = auth.authenticate(&Credentials::new("dave", "pw")).unwrap();
         let user = auth.verify_token(&token.access_token).unwrap();
         // authenticate() grants "user" role by default
         assert_eq!(user.roles, vec!["user".to_string()]);
+    }
+
+    /// v1.2.1 新增：验证 H-1 修复 — 未配置 password_verifier 时 authenticate() 必须返回 Err
+    #[test]
+    fn test_jwt_authenticate_rejects_when_verifier_not_configured() {
+        let auth = JwtAuthenticator::new("secret", "issuer", 3600);
+        let creds = Credentials::new("alice", "password123");
+        let result = auth.authenticate(&creds);
+        assert!(
+            matches!(result, Err(AuthError::Config(_))),
+            "expected Err(AuthError::Config) when password_verifier is None, got {:?}",
+            result
+        );
     }
 }

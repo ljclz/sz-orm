@@ -807,11 +807,12 @@ impl<'a> XmlParser<'a> {
         }
         // 解析子节点
         let mut node = XmlNode {
-            node_type: XmlNodeType::Element { name, attrs },
+            node_type: XmlNodeType::Element { name: name.clone(), attrs },
             children: Vec::new(),
         };
         self.parse_children(&mut node)?;
         // 跳过结束标签 </name>
+        // P4-1 修复：未闭合标签必须报错（之前 EOF 时静默返回 Ok）
         if self.starts_with("</") {
             self.pos += 2;
             let end_name = self.read_name();
@@ -820,14 +821,21 @@ impl<'a> XmlParser<'a> {
                 self.pos += 1;
             }
             // 验证标签名匹配
-            if let XmlNodeType::Element { name, .. } = &node.node_type {
-                if name != &end_name {
+            if let XmlNodeType::Element { name: n, .. } = &node.node_type {
+                if n != &end_name {
                     return Err(DynamicSqlError::ParseError(format!(
                         "标签不匹配: <{}> vs </{}>",
-                        name, end_name
+                        n, end_name
                     )));
                 }
             }
+        } else {
+            // 非 self-closing 标签必须有 </name> 结束标签
+            // 否则视为未闭合标签错误
+            return Err(DynamicSqlError::ParseError(format!(
+                "未闭合的标签: <{}>（缺少 </{}>）",
+                name, name
+            )));
         }
         Ok(node)
     }
@@ -1253,11 +1261,21 @@ mod tests {
 
     #[test]
     fn test_parse_error_unclosed_tag() {
+        // P4-1 修复：未闭合标签必须返回 ParseError，而非"接受任何结果"
         let xml = r#"<select id="q">SELECT 1"#;
         let result = DynamicSqlParser::from_xml(xml);
-        // 应该返回错误或者解析为不完整（取决于实现）
-        // 这里我们接受任何结果，只要不 panic
-        let _ = result;
+        assert!(
+            matches!(result, Err(DynamicSqlError::ParseError(_))),
+            "未闭合标签应返回 ParseError，实际: {:?}",
+            result
+        );
+        if let Err(DynamicSqlError::ParseError(msg)) = result {
+            assert!(
+                msg.contains("未闭合") || msg.contains("标签") || msg.contains("EOF"),
+                "错误信息应提及未闭合/标签/EOF: {}",
+                msg
+            );
+        }
     }
 
     // ---- 多语句管理测试 ----

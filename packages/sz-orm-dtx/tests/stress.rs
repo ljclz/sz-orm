@@ -154,11 +154,23 @@ fn stress_dtx_rollback_terminal_state_fails() {
     tx.commit().unwrap();
     let result = tx.rollback();
     assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("terminal state"),
+        "expected 'terminal state' error, got: {}",
+        err
+    );
 
     let mut tx2 = DistributedTransaction::new("tx2");
     tx2.rollback().unwrap();
     let result = tx2.rollback();
     assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("terminal state"),
+        "expected 'terminal state' error, got: {}",
+        err
+    );
 }
 
 /// 验证：DtxManager 并发安全（用 std::thread 模拟同步锁竞争）
@@ -210,12 +222,19 @@ fn stress_dtx_manager_not_found() {
     let manager = DtxManager::new();
     for i in 0..100 {
         let id = format!("nonexistent-{}", i);
-        assert!(manager.prepare(&id).is_err());
-        assert!(manager.commit(&id).is_err());
-        assert!(manager.rollback(&id).is_err());
-        assert!(manager
+        // 至少对第一个 id 验证错误消息内容
+        let err_prepare = manager.prepare(&id).unwrap_err();
+        let err_commit = manager.commit(&id).unwrap_err();
+        let err_rollback = manager.rollback(&id).unwrap_err();
+        let err_add = manager
             .add_participant(&id, TransactionParticipant::new("p"))
-            .is_err());
+            .unwrap_err();
+        if i == 0 {
+            assert!(err_prepare.contains("not found"), "prepare: {}", err_prepare);
+            assert!(err_commit.contains("not found"), "commit: {}", err_commit);
+            assert!(err_rollback.contains("not found"), "rollback: {}", err_rollback);
+            assert!(err_add.contains("not found"), "add_participant: {}", err_add);
+        }
         assert_eq!(manager.get(&id), None);
         assert_eq!(manager.participant_states(&id), None);
     }
@@ -258,4 +277,10 @@ fn stress_dtx_add_participant_after_prepare() {
     // prepare 后不能 add
     let result = manager.add_participant("tx", TransactionParticipant::new("p-2"));
     assert!(result.is_err());
+    let err = result.unwrap_err();
+    assert!(
+        err.contains("not active"),
+        "expected 'not active' error, got: {}",
+        err
+    );
 }

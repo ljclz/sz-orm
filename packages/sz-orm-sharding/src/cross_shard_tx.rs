@@ -264,11 +264,37 @@ mod tests {
 
     #[test]
     fn test_2pc_all_succeed() {
+        let commit_count = Arc::new(Mutex::new(0u32));
         let mut coord = ShardTransactionCoordinator::new();
-        coord.add_participant(ShardParticipant::new("s0", || Ok(()), || Ok(()), || Ok(())));
-        coord.add_participant(ShardParticipant::new("s1", || Ok(()), || Ok(()), || Ok(())));
+        // 两个 participant 都成功，commit 应被调用 2 次
+        let c0 = commit_count.clone();
+        coord.add_participant(ShardParticipant::new(
+            "s0",
+            || Ok(()),
+            move || {
+                *c0.lock().unwrap() += 1;
+                Ok(())
+            },
+            || Ok(()),
+        ));
+        let c1 = commit_count.clone();
+        coord.add_participant(ShardParticipant::new(
+            "s1",
+            || Ok(()),
+            move || {
+                *c1.lock().unwrap() += 1;
+                Ok(())
+            },
+            || Ok(()),
+        ));
         let result = coord.execute_2pc();
         assert!(result.is_ok());
+        // 验证 commit 真正被调用：两个 participant 各调用一次
+        assert_eq!(
+            *commit_count.lock().unwrap(),
+            2,
+            "两个 participant 都成功时 commit 应被调用 2 次"
+        );
     }
 
     #[test]
@@ -277,18 +303,37 @@ mod tests {
         // 空 participant 列表：prepare 和 commit 都无操作，应直接成功
         let result = coord.execute_2pc();
         assert!(result.is_ok());
+        // execute_2pc 返回 Result<(), ShardTxError>，Ok(()) 已由 is_ok 验证
+        // 额外验证 coordinator 状态未被修改
+        assert_eq!(
+            coord.participant_count(),
+            0,
+            "空 participant 列表执行后计数应仍为 0"
+        );
     }
 
     #[test]
     fn test_2pc_single_participant_success() {
+        let commit_count = Arc::new(Mutex::new(0u32));
         let mut coord = ShardTransactionCoordinator::new();
+        let c = commit_count.clone();
         coord.add_participant(ShardParticipant::new(
             "only",
             || Ok(()),
-            || Ok(()),
+            move || {
+                *c.lock().unwrap() += 1;
+                Ok(())
+            },
             || Ok(()),
         ));
-        assert!(coord.execute_2pc().is_ok());
+        let result = coord.execute_2pc();
+        assert!(result.is_ok());
+        // 验证 commit 真正被调用：单 participant 应调用 1 次
+        assert_eq!(
+            *commit_count.lock().unwrap(),
+            1,
+            "单 participant 成功时 commit 应被调用 1 次"
+        );
     }
 
     // --- 2PC Prepare 失败 ---

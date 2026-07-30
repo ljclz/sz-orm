@@ -167,6 +167,177 @@ impl EntityGraph {
         result.dedup();
         result
     }
+
+    /// P2-7：检测实体图中的循环引用
+    ///
+    /// 使用 DFS 遍历图（含嵌套子图），检测是否存在循环路径。
+    /// 循环引用会导致递归 eager load 时栈溢出，必须在加载前检测。
+    ///
+    /// # 算法
+    ///
+    /// 1. **展平**：递归收集主图 + 所有子图的边到统一邻接表
+    /// 2. **三色标记 DFS**：
+    ///    - **白色（未访问）**：节点尚未访问
+    ///    - **灰色（访问中）**：节点正在当前 DFS 路径中，若再次遇到则发现回边（循环）
+    ///    - **黑色（已完成）**：节点及其所有子节点已访问完毕
+    ///
+    /// # 返回
+    ///
+    /// - `Ok(())`：无循环引用
+    /// - `Err(cycle_path)`：检测到循环，`cycle_path` 是循环路径上的节点列表
+    ///   （如 `["user", "posts", "user"]` 表示 user → posts → user 的循环）
+    ///
+    /// # 示例
+    ///
+    /// ```
+    /// use sz_orm_core::entity_graph::EntityGraph;
+    ///
+    /// // 无循环：user → posts → comments
+    /// let mut graph = EntityGraph::new();
+    /// graph.add_edge("user", "posts");
+    /// graph.add_edge("posts", "comments");
+    /// assert!(graph.detect_cycles().is_ok());
+    ///
+    /// // 有循环：user → posts → user
+    /// let mut graph = EntityGraph::new();
+    /// graph.add_edge_with_graph("user", "posts", {
+    ///     let mut sub = EntityGraph::new();
+    ///     sub.add_edge("posts", "user");
+    ///     sub
+    /// });
+    /// assert!(graph.detect_cycles().is_err());
+    /// ```
+    pub fn detect_cycles(&self) -> Result<(), Vec<String>> {
+        // 1. 展平：收集所有边（含子图）到邻接表
+        let mut adj: std::collections::HashMap<String, Vec<String>> =
+            std::collections::HashMap::new();
+        self.collect_edges_recursive(&mut adj);
+
+        // 1.1 对每个节点的邻接列表排序，保证 DFS 遍历顺序确定
+        for neighbors in adj.values_mut() {
+            neighbors.sort();
+        }
+
+        // 2. 三色标记 DFS
+        let mut visited = std::collections::HashSet::new();
+        let mut visiting = std::collections::HashSet::new();
+        let mut path = Vec::new();
+
+        // 2.1 按字典序排序节点，保证 DFS 起点确定
+        let mut sorted_nodes: Vec<String> = adj.keys().cloned().collect();
+        sorted_nodes.sort();
+        for node in &sorted_nodes {
+            if !visited.contains(node) {
+                dfs_cycle_detect(node, &adj, &mut visited, &mut visiting, &mut path)?;
+            }
+        }
+        Ok(())
+    }
+
+    /// P2-7：递归收集所有边到邻接表（含子图）
+    ///
+    /// 将主图和所有子图的边统一收集到 `adj` 中。
+    /// 子图的边也会被加入，因为子图定义了从 `edge.relation` 出发的额外边。
+    fn collect_edges_recursive(
+        &self,
+        adj: &mut std::collections::HashMap<String, Vec<String>>,
+    ) {
+        for edge in &self.edges {
+            adj.entry(edge.parent_field.clone())
+                .or_default()
+                .push(edge.relation.clone());
+            if let Some(sub) = &edge.sub_graph {
+                sub.collect_edges_recursive(adj);
+            }
+        }
+    }
+
+    /// P2-7：检测并拒绝重复边（相同 parent_field + relation）
+    ///
+    /// 重复边不会导致栈溢出，但会产生冗余 SQL 查询，应检测并警告。
+    ///
+    /// 返回 `Ok(())` 表示无重复；返回 `Err(duplicates)` 表示有重复边。
+    pub fn detect_duplicate_edges(&self) -> Result<(), Vec<(String, String)>> {
+        let mut seen = std::collections::HashSet::new();
+        let mut duplicates = Vec::new();
+        for edge in &self.edges {
+            let key = (edge.parent_field.clone(), edge.relation.clone());
+            if !seen.insert(key.clone()) {
+                duplicates.push((edge.parent_field.clone(), edge.relation.clone()));
+            }
+        }
+        if duplicates.is_empty() {
+            Ok(())
+        } else {
+            Err(duplicates)
+        }
+    }
+
+    /// P2-7：综合校验（循环引用 + 重复边）
+    ///
+    /// 在 `load_eager` / `load_join` 前调用，确保图结构安全。
+    pub fn validate(&self) -> Result<(), String> {
+        // 1. 检测循环引用
+        if let Err(cycle) = self.detect_cycles() {
+            return Err(format!(
+                "EntityGraph 循环引用检测失败：{}",
+                cycle.join(" → ")
+            ));
+        }
+        // 2. 检测重复边
+        if let Err(duplicates) = self.detect_duplicate_edges() {
+            let dup_str: Vec<String> = duplicates
+                .iter()
+                .map(|(p, r)| format!("({}->{})", p, r))
+                .collect();
+            return Err(format!(
+                "EntityGraph 重复边检测失败：{}",
+                dup_str.join(", ")
+            ));
+        }
+        Ok(())
+    }
+}
+
+/// P2-7：DFS 循环检测（独立函数，避免 self 借用问题）
+///
+/// `node` 是当前访问节点，`adj` 是邻接表，`visiting` 是灰色标记集合，
+/// `visited` 是黑色标记集合，`path` 是当前路径。
+fn dfs_cycle_detect(
+    node: &str,
+    adj: &std::collections::HashMap<String, Vec<String>>,
+    visited: &mut std::collections::HashSet<String>,
+    visiting: &mut std::collections::HashSet<String>,
+    path: &mut Vec<String>,
+) -> Result<(), Vec<String>> {
+    // 灰色节点再次被访问 → 发现回边（循环）
+    if visiting.contains(node) {
+        let cycle_start = path.iter().position(|n| n == node).unwrap_or(0);
+        let mut cycle = path[cycle_start..].to_vec();
+        cycle.push(node.to_string());
+        return Err(cycle);
+    }
+    // 黑色节点已完全访问，跳过
+    if visited.contains(node) {
+        return Ok(());
+    }
+
+    // 标记为灰色（访问中）
+    visiting.insert(node.to_string());
+    path.push(node.to_string());
+
+    // 遍历所有邻接节点
+    if let Some(neighbors) = adj.get(node) {
+        for neighbor in neighbors {
+            dfs_cycle_detect(neighbor, adj, visited, visiting, path)?;
+        }
+    }
+
+    // 标记为黑色（已完成）
+    visiting.remove(node);
+    visited.insert(node.to_string());
+    path.pop();
+    Ok(())
 }
 
 // ============================================================================
@@ -361,20 +532,19 @@ where
     pub fn load_many(&self, keys: &[K]) -> HashMap<K, V> {
         let mut result: HashMap<K, V> = HashMap::new();
 
-        // 1. 从缓存读取
-        let cached = self
-            .cache
-            .read()
-            .expect("BatchLoader cache lock poisoned (read)");
+        // 1. 从缓存读取（锁毒化时视缓存为空，全部 key 重新加载）
         let mut to_load: Vec<K> = Vec::new();
-        for k in keys {
-            if let Some(v) = cached.get(k) {
-                result.insert(k.clone(), v.clone());
-            } else {
-                to_load.push(k.clone());
+        if let Ok(cached) = self.cache.read() {
+            for k in keys {
+                if let Some(v) = cached.get(k) {
+                    result.insert(k.clone(), v.clone());
+                } else {
+                    to_load.push(k.clone());
+                }
             }
+        } else {
+            to_load.extend(keys.iter().cloned());
         }
-        drop(cached);
 
         if to_load.is_empty() {
             return result;
@@ -388,15 +558,12 @@ where
             all_loaded.extend(loaded);
         }
 
-        // 3. 写入缓存
-        let mut cache = self
-            .cache
-            .write()
-            .expect("BatchLoader cache lock poisoned (write)");
-        for (k, v) in &all_loaded {
-            cache.insert(k.clone(), v.clone());
+        // 3. 写入缓存（锁毒化时跳过写入，不影响本次返回结果）
+        if let Ok(mut cache) = self.cache.write() {
+            for (k, v) in &all_loaded {
+                cache.insert(k.clone(), v.clone());
+            }
         }
-        drop(cache);
 
         // 4. 合并结果
         result.extend(all_loaded);
@@ -411,23 +578,329 @@ where
 
     /// 清空缓存
     pub fn clear_cache(&self) {
-        self.cache
-            .write()
-            .expect("BatchLoader cache lock poisoned (clear_cache)")
-            .clear();
+        if let Ok(mut cache) = self.cache.write() {
+            cache.clear();
+        }
     }
 
     /// 返回当前缓存大小
     pub fn cache_size(&self) -> usize {
-        self.cache
-            .read()
-            .expect("BatchLoader cache lock poisoned (cache_size)")
-            .len()
+        match self.cache.read() {
+            Ok(g) => g.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 返回 batch_size
     pub fn batch_size(&self) -> usize {
         self.batch_size
+    }
+}
+
+// ============================================================================
+// N1QueryDetector — N+1 查询检测器（S-2：SeaORM 对标短板补全）
+// ============================================================================
+
+/// N+1 查询检测器
+///
+/// 通过统计相同表/关系在循环加载场景下的查询次数，识别潜在的 N+1 查询问题。
+///
+/// # 检测策略
+///
+/// 1. **次数阈值**：同一 `relation` 在一次"检测窗口"内被查询次数超过
+///    `threshold`（默认 5），即判定为 N+1 嫌疑；
+/// 2. **检测窗口**：以 `start_window()` / `end_window()` 显式划定窗口，
+///    便于在循环外包裹；
+/// 3. **批量命中识别**：如果一次 `record_batch_load` 调用就加载了多个 key，
+///    视为已通过批量加载规避 N+1，仅记 1 次批量查询；
+/// 4. **回调告警**：触发 N+1 时调用可选的 `on_alert` 回调（用于日志/指标上报）。
+///
+/// # 设计动机
+///
+/// SeaORM 的 `find_with_related` 仅在显式调用时才会批量加载，缺乏运行时
+/// 检测机制。本检测器提供运行时 introspection，可在开发/测试环境启用，
+/// 在生产环境关闭（zero-cost 抽象）。
+///
+/// # 线程安全
+///
+/// 内部使用 `RwLock<HashMap>` 维护计数，可在线程间共享（`Send + Sync`）。
+///
+/// # 示例
+///
+/// ```
+/// use sz_orm_core::entity_graph::{N1QueryDetector, N1DetectionConfig};
+///
+/// let detector = N1QueryDetector::new(N1DetectionConfig::default());
+/// detector.start_window();
+/// for _ in 0..10 {
+///     detector.record_single_load("posts");
+/// }
+/// detector.end_window();
+/// let alerts = detector.alerts();
+/// assert_eq!(alerts.len(), 1);
+/// assert_eq!(alerts[0].relation, "posts");
+/// assert_eq!(alerts[0].query_count, 10);
+/// ```
+pub struct N1QueryDetector {
+    /// 检测配置
+    config: N1DetectionConfig,
+    /// 当前窗口内各 relation 的单条查询计数
+    counts: RwLock<HashMap<String, u64>>,
+    /// 当前窗口内各 relation 的批量查询计数（每个 batch 记 1 次）
+    batch_counts: RwLock<HashMap<String, u64>>,
+    /// 当前窗口是否开启
+    window_active: RwLock<bool>,
+    /// 历史告警列表（最近一次窗口的结果）
+    alerts: RwLock<Vec<N1Alert>>,
+}
+
+/// N+1 检测配置
+#[derive(Debug, Clone)]
+pub struct N1DetectionConfig {
+    /// 触发告警的查询次数阈值（同一 relation 在一个窗口内的单条查询次数 ≥ threshold）
+    pub threshold: u64,
+    /// 是否启用检测（false 时所有 record_* 调用均为 no-op）
+    pub enabled: bool,
+}
+
+impl Default for N1DetectionConfig {
+    fn default() -> Self {
+        Self {
+            threshold: 5,
+            enabled: true,
+        }
+    }
+}
+
+impl N1DetectionConfig {
+    /// 创建默认配置（threshold=5, enabled=true）
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 自定义阈值
+    pub fn with_threshold(mut self, threshold: u64) -> Self {
+        self.threshold = threshold.max(1);
+        self
+    }
+
+    /// 启用/禁用
+    pub fn with_enabled(mut self, enabled: bool) -> Self {
+        self.enabled = enabled;
+        self
+    }
+}
+
+/// N+1 查询告警
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct N1Alert {
+    /// 触发告警的 relation 名称
+    pub relation: String,
+    /// 单条查询次数
+    pub query_count: u64,
+    /// 批量查询次数（0 表示完全没有使用批量加载）
+    pub batch_count: u64,
+    /// 配置的阈值
+    pub threshold: u64,
+}
+
+impl N1Alert {
+    /// 是否完全未使用批量加载
+    pub fn no_batch_used(&self) -> bool {
+        self.batch_count == 0
+    }
+
+    /// 建议的批量大小（query_count 向上取整到 10 的幂级，至少 50）
+    pub fn suggested_batch_size(&self) -> usize {
+        let n = self.query_count as usize;
+        if n <= 50 {
+            50
+        } else if n <= 100 {
+            100
+        } else if n <= 500 {
+            500
+        } else {
+            1000
+        }
+    }
+}
+
+impl N1QueryDetector {
+    /// 创建检测器
+    pub fn new(config: N1DetectionConfig) -> Self {
+        Self {
+            config,
+            counts: RwLock::new(HashMap::new()),
+            batch_counts: RwLock::new(HashMap::new()),
+            window_active: RwLock::new(false),
+            alerts: RwLock::new(Vec::new()),
+        }
+    }
+
+    /// 创建默认配置的检测器
+    pub fn with_defaults() -> Self {
+        Self::new(N1DetectionConfig::default())
+    }
+
+    /// 是否启用检测
+    pub fn is_enabled(&self) -> bool {
+        self.config.enabled
+    }
+
+    /// 当前阈值
+    pub fn threshold(&self) -> u64 {
+        self.config.threshold
+    }
+
+    /// 开启检测窗口（清空旧计数与旧告警）
+    ///
+    /// 重复调用 `start_window` 会重置窗口。
+    pub fn start_window(&self) {
+        if !self.config.enabled {
+            return;
+        }
+        if let Ok(mut counts) = self.counts.write() {
+            *counts = HashMap::new();
+        }
+        if let Ok(mut batch_counts) = self.batch_counts.write() {
+            *batch_counts = HashMap::new();
+        }
+        if let Ok(mut alerts) = self.alerts.write() {
+            *alerts = Vec::new();
+        }
+        if let Ok(mut window_active) = self.window_active.write() {
+            *window_active = true;
+        }
+    }
+
+    /// 结束检测窗口，分析并生成告警
+    ///
+    /// 结束后 `record_*` 调用会被忽略，直到下一次 `start_window`。
+    /// 返回本次窗口产生的告警列表。
+    pub fn end_window(&self) -> Vec<N1Alert> {
+        if !self.config.enabled {
+            return Vec::new();
+        }
+        if let Ok(mut window_active) = self.window_active.write() {
+            *window_active = false;
+        }
+
+        // 读锁毒化时返回空告警列表（graceful 降级）
+        let new_alerts: Vec<N1Alert> =
+            match (self.counts.read(), self.batch_counts.read()) {
+                (Ok(counts), Ok(batch_counts)) => {
+                    let mut alerts: Vec<N1Alert> = counts
+                        .iter()
+                        .filter_map(|(rel, &cnt)| {
+                            if cnt >= self.config.threshold {
+                                Some(N1Alert {
+                                    relation: rel.clone(),
+                                    query_count: cnt,
+                                    batch_count: *batch_counts.get(rel).unwrap_or(&0),
+                                    threshold: self.config.threshold,
+                                })
+                            } else {
+                                None
+                            }
+                        })
+                        .collect();
+                    // 稳定排序便于断言
+                    alerts.sort_by(|a, b| a.relation.cmp(&b.relation));
+                    alerts
+                }
+                _ => Vec::new(),
+            };
+
+        if let Ok(mut alerts) = self.alerts.write() {
+            *alerts = new_alerts.clone();
+        }
+        new_alerts
+    }
+
+    /// 记录一次单条加载（典型的 N+1 来源：循环内 `find_by_id`）
+    pub fn record_single_load(&self, relation: &str) {
+        if !self.config.enabled {
+            return;
+        }
+        {
+            let active = self
+                .window_active
+                .read()
+                .map(|g| *g)
+                .unwrap_or(false);
+            if !active {
+                return;
+            }
+        }
+        if let Ok(mut counts) = self.counts.write() {
+            *counts.entry(relation.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    /// 记录一次批量加载（已规避 N+1 的良好实践）
+    ///
+    /// - `keys_count`：本次批量加载的 key 数量
+    /// - 一个 batch 仅记 1 次批量查询，不论 keys_count 多少
+    pub fn record_batch_load(&self, relation: &str, _keys_count: usize) {
+        if !self.config.enabled {
+            return;
+        }
+        {
+            let active = self
+                .window_active
+                .read()
+                .map(|g| *g)
+                .unwrap_or(false);
+            if !active {
+                return;
+            }
+        }
+        if let Ok(mut batch_counts) = self.batch_counts.write() {
+            *batch_counts.entry(relation.to_string()).or_insert(0) += 1;
+        }
+    }
+
+    /// 获取最近一次 `end_window` 产生的告警（只读副本）
+    pub fn alerts(&self) -> Vec<N1Alert> {
+        self.alerts
+            .read()
+            .map(|g| g.clone())
+            .unwrap_or_default()
+    }
+
+    /// 当前窗口内某 relation 的单条查询次数
+    pub fn current_count(&self, relation: &str) -> u64 {
+        self.counts
+            .read()
+            .map(|g| g.get(relation).copied().unwrap_or(0))
+            .unwrap_or(0)
+    }
+
+    /// 当前窗口内某 relation 的批量查询次数
+    pub fn current_batch_count(&self, relation: &str) -> u64 {
+        self.batch_counts
+            .read()
+            .map(|g| g.get(relation).copied().unwrap_or(0))
+            .unwrap_or(0)
+    }
+
+    /// 窗口是否处于开启状态
+    pub fn is_window_active(&self) -> bool {
+        self.window_active
+            .read()
+            .map(|g| *g)
+            .unwrap_or(false)
+    }
+
+    /// 是否已检测到 N+1（基于最近一次窗口的告警）
+    pub fn has_n_plus_one(&self) -> bool {
+        !self.alerts().is_empty()
+    }
+}
+
+impl Default for N1QueryDetector {
+    fn default() -> Self {
+        Self::with_defaults()
     }
 }
 
@@ -782,6 +1255,248 @@ mod tests {
         assert_eq!(result.get(&1), Some(&10));
         assert_eq!(result.get(&2), Some(&20));
         assert_eq!(result.get(&3), Some(&30));
+    }
+
+    // ===== N1QueryDetector 测试（S-2）=====
+
+    #[test]
+    fn test_n1_config_default() {
+        let cfg = N1DetectionConfig::default();
+        assert_eq!(cfg.threshold, 5);
+        assert!(cfg.enabled);
+    }
+
+    #[test]
+    fn test_n1_config_builder() {
+        let cfg = N1DetectionConfig::new()
+            .with_threshold(10)
+            .with_enabled(false);
+        assert_eq!(cfg.threshold, 10);
+        assert!(!cfg.enabled);
+
+        // threshold < 1 应被钳制为 1
+        let cfg2 = N1DetectionConfig::new().with_threshold(0);
+        assert_eq!(cfg2.threshold, 1);
+    }
+
+    #[test]
+    fn test_n1_detector_default() {
+        let det = N1QueryDetector::default();
+        assert!(det.is_enabled());
+        assert_eq!(det.threshold(), 5);
+        assert!(!det.is_window_active());
+        assert!(!det.has_n_plus_one());
+    }
+
+    #[test]
+    fn test_n1_detector_disabled_is_noop() {
+        let det = N1QueryDetector::new(N1DetectionConfig::new().with_enabled(false));
+        det.start_window();
+        for _ in 0..100 {
+            det.record_single_load("posts");
+        }
+        // 禁用时计数不应增加
+        assert_eq!(det.current_count("posts"), 0);
+        let alerts = det.end_window();
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn test_n1_detector_records_outside_window_ignored() {
+        let det = N1QueryDetector::with_defaults();
+        // 未开启窗口时记录应被忽略
+        det.record_single_load("posts");
+        assert_eq!(det.current_count("posts"), 0);
+    }
+
+    #[test]
+    fn test_n1_detector_below_threshold_no_alert() {
+        let det = N1QueryDetector::with_defaults(); // threshold=5
+        det.start_window();
+        for _ in 0..4 {
+            det.record_single_load("posts");
+        }
+        assert_eq!(det.current_count("posts"), 4);
+        let alerts = det.end_window();
+        assert!(alerts.is_empty(), "below threshold should not alert");
+        assert!(!det.has_n_plus_one());
+    }
+
+    #[test]
+    fn test_n1_detector_at_threshold_triggers_alert() {
+        let det = N1QueryDetector::with_defaults(); // threshold=5
+        det.start_window();
+        for _ in 0..5 {
+            det.record_single_load("posts");
+        }
+        let alerts = det.end_window();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].relation, "posts");
+        assert_eq!(alerts[0].query_count, 5);
+        assert_eq!(alerts[0].threshold, 5);
+        assert_eq!(alerts[0].batch_count, 0);
+        assert!(alerts[0].no_batch_used());
+        assert!(det.has_n_plus_one());
+    }
+
+    #[test]
+    fn test_n1_detector_above_threshold_triggers_alert() {
+        let det = N1QueryDetector::with_defaults();
+        det.start_window();
+        for _ in 0..10 {
+            det.record_single_load("posts");
+        }
+        let alerts = det.end_window();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].query_count, 10);
+        // 默认阈值为 5，10 次查询应建议 batch_size >= 50
+        assert!(alerts[0].suggested_batch_size() >= 50);
+    }
+
+    #[test]
+    fn test_n1_detector_multiple_relations() {
+        let det = N1QueryDetector::with_defaults();
+        det.start_window();
+        for _ in 0..6 {
+            det.record_single_load("posts");
+        }
+        for _ in 0..3 {
+            det.record_single_load("comments"); // 低于阈值
+        }
+        for _ in 0..8 {
+            det.record_single_load("tags");
+        }
+        let alerts = det.end_window();
+        // 仅 posts 与 tags 应触发告警（comments 低于阈值）
+        assert_eq!(alerts.len(), 2);
+        // 排序后应为 posts, tags
+        assert_eq!(alerts[0].relation, "posts");
+        assert_eq!(alerts[0].query_count, 6);
+        assert_eq!(alerts[1].relation, "tags");
+        assert_eq!(alerts[1].query_count, 8);
+    }
+
+    #[test]
+    fn test_n1_detector_batch_load_recorded_separately() {
+        let det = N1QueryDetector::with_defaults();
+        det.start_window();
+        // 单条查询 6 次（触发 N+1）
+        for _ in 0..6 {
+            det.record_single_load("posts");
+        }
+        // 同时有 2 次批量加载（良好实践）
+        det.record_batch_load("posts", 100);
+        det.record_batch_load("posts", 50);
+        let alerts = det.end_window();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].query_count, 6);
+        assert_eq!(alerts[0].batch_count, 2);
+        // batch_count != 0 表示已部分使用批量加载
+        assert!(!alerts[0].no_batch_used());
+    }
+
+    #[test]
+    fn test_n1_detector_batch_only_does_not_trigger() {
+        // 仅使用批量加载（无单条查询）不应触发告警
+        let det = N1QueryDetector::with_defaults();
+        det.start_window();
+        for _ in 0..100 {
+            det.record_batch_load("posts", 50);
+        }
+        assert_eq!(det.current_batch_count("posts"), 100);
+        assert_eq!(det.current_count("posts"), 0);
+        let alerts = det.end_window();
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn test_n1_detector_start_window_resets() {
+        let det = N1QueryDetector::with_defaults();
+        det.start_window();
+        for _ in 0..10 {
+            det.record_single_load("posts");
+        }
+        let _ = det.end_window();
+        assert_eq!(det.alerts().len(), 1);
+
+        // 再次开启窗口应清空旧告警与计数
+        det.start_window();
+        assert_eq!(det.alerts().len(), 0);
+        assert_eq!(det.current_count("posts"), 0);
+        assert!(det.is_window_active());
+    }
+
+    #[test]
+    fn test_n1_detector_end_window_deactivates() {
+        let det = N1QueryDetector::with_defaults();
+        det.start_window();
+        assert!(det.is_window_active());
+        det.end_window();
+        assert!(!det.is_window_active());
+
+        // 结束后 record_* 应被忽略
+        det.record_single_load("posts");
+        assert_eq!(det.current_count("posts"), 0);
+    }
+
+    #[test]
+    fn test_n1_detector_custom_threshold() {
+        let det = N1QueryDetector::new(N1DetectionConfig::new().with_threshold(100));
+        det.start_window();
+        for _ in 0..50 {
+            det.record_single_load("posts");
+        }
+        let alerts = det.end_window();
+        assert!(alerts.is_empty(), "below custom threshold should not alert");
+
+        det.start_window();
+        for _ in 0..100 {
+            det.record_single_load("posts");
+        }
+        let alerts = det.end_window();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].threshold, 100);
+        assert_eq!(alerts[0].query_count, 100);
+    }
+
+    #[test]
+    fn test_n1_alert_suggested_batch_size() {
+        let mk = |cnt: u64| N1Alert {
+            relation: "x".into(),
+            query_count: cnt,
+            batch_count: 0,
+            threshold: 5,
+        };
+        assert_eq!(mk(5).suggested_batch_size(), 50);
+        assert_eq!(mk(50).suggested_batch_size(), 50);
+        assert_eq!(mk(51).suggested_batch_size(), 100);
+        assert_eq!(mk(100).suggested_batch_size(), 100);
+        assert_eq!(mk(101).suggested_batch_size(), 500);
+        assert_eq!(mk(500).suggested_batch_size(), 500);
+        assert_eq!(mk(501).suggested_batch_size(), 1000);
+        assert_eq!(mk(10000).suggested_batch_size(), 1000);
+    }
+
+    #[test]
+    fn test_n1_detector_real_n_plus_one_scenario() {
+        // 模拟真实场景：循环内查询用户 posts，触发 N+1
+        let det = N1QueryDetector::with_defaults();
+        det.start_window();
+        let user_ids: Vec<i64> = (1..=20).collect();
+        for _uid in &user_ids {
+            // 每个用户都单条查询 posts —— 典型 N+1
+            det.record_single_load("posts");
+        }
+        let alerts = det.end_window();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].query_count, 20);
+        assert!(alerts[0].no_batch_used());
+
+        // 对比：使用 BatchLoader 后的批量加载场景
+        det.start_window();
+        det.record_batch_load("posts", 20); // 一次性批量加载 20 个用户的 posts
+        let alerts2 = det.end_window();
+        assert!(alerts2.is_empty(), "batch loading should not trigger N+1");
     }
 
     // ===== 集成场景测试 =====

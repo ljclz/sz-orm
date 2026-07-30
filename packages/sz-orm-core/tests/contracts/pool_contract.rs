@@ -187,6 +187,10 @@ async fn test_release_to_closed_pool_doesnt_panic_contract() {
     pool.close_all().await;
     // release 到已关闭池：应直接关闭连接，不 panic
     pool.release(conn).await;
+    // 池已关闭：status 应反映关闭状态（active/idle 均为 0）
+    let status = pool.status().await;
+    assert_eq!(status.active, 0);
+    assert_eq!(status.idle, 0);
 }
 
 // ===== §5.1 acquire 后再 release 可重复使用连接契约 =====

@@ -58,11 +58,13 @@ async fn stress_queue_concurrent_publish_consume() {
     let queue = Arc::new(InMemoryQueue::new());
     let total_per_task: u64 = 10_000;
     let task_count: u64 = 8;
-    let total = total_per_task * task_count;
+    let expected_total = total_per_task * task_count;
+    let processed_counter = Arc::new(std::sync::atomic::AtomicU64::new(0));
 
     let mut handles = Vec::new();
     for task_id in 0..task_count {
         let q = queue.clone();
+        let counter = processed_counter.clone();
         handles.push(tokio::spawn(async move {
             let topic = format!("task-{}", task_id);
             for i in 0..total_per_task {
@@ -80,6 +82,7 @@ async fn stress_queue_concurrent_publish_consume() {
                     task_id
                 );
                 q.ack(&msg.id).await.unwrap();
+                counter.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
             }
         }));
     }
@@ -103,7 +106,12 @@ async fn stress_queue_concurrent_publish_consume() {
         0,
         "in_flight must be 0 after ack"
     );
-    let _ = total;
+    // 验证总处理量等于预期（8 万条）
+    let processed = processed_counter.load(std::sync::atomic::Ordering::Relaxed);
+    assert_eq!(
+        processed, expected_total,
+        "total processed messages must equal expected total"
+    );
 }
 
 /// 验证：大量 topic（1000 个）下 message_count 准确

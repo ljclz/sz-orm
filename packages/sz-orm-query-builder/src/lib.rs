@@ -3055,8 +3055,8 @@ mod tests {
 
     #[test]
     fn test_safe_where_clauses_pass() {
-        // 这些是合法的 WHERE 条件，不应触发 panic
-        let _ = Query::select()
+        // 这些是合法的 WHERE 条件，不应触发 panic——同时验证生成 SQL 包含预期的 WHERE 子句
+        let sql_str = Query::select()
             .column("id")
             .from("users")
             .where_clause("age > 18")
@@ -3064,17 +3064,30 @@ mod tests {
             .where_clause("id IN (1, 2, 3)")
             .where_clause("created_at > '2026-01-01'")
             .build(DbType::MySQL);
+        assert!(!sql_str.is_empty(), "SELECT SQL 不应为空");
+        assert!(sql_str.contains("age > 18"), "SELECT 应包含 age > 18 条件");
+        assert!(sql_str.contains("name = 'Alice;Bob'"), "SELECT 应包含 name 条件（含分号字面量）");
+        assert!(sql_str.contains("id IN (1, 2, 3)"), "SELECT 应包含 IN 子句");
+        assert!(sql_str.contains("created_at > '2026-01-01'"), "SELECT 应包含日期条件");
 
-        let _ = Query::update()
+        let sql_str = Query::update()
             .table("users")
             .set("name", "'x'")
             .where_clause("id = 1")
             .build();
+        assert!(!sql_str.is_empty(), "UPDATE SQL 不应为空");
+        assert!(sql_str.contains("UPDATE"), "应为 UPDATE 语句");
+        assert!(sql_str.contains("WHERE"), "UPDATE 应包含 WHERE 子句");
+        assert!(sql_str.contains("id = 1"), "UPDATE WHERE 应包含 id = 1");
 
-        let _ = Query::delete()
+        let sql_str = Query::delete()
             .from_table("users")
             .where_clause("id = 1")
             .build();
+        assert!(!sql_str.is_empty(), "DELETE SQL 不应为空");
+        assert!(sql_str.contains("DELETE"), "应为 DELETE 语句");
+        assert!(sql_str.contains("WHERE"), "DELETE 应包含 WHERE 子句");
+        assert!(sql_str.contains("id = 1"), "DELETE WHERE 应包含 id = 1");
     }
 
     // ---- 变异测试专项补防测试（杀死存活的变异体） ----

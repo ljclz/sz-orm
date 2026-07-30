@@ -20,7 +20,8 @@ pub mod advanced;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
@@ -76,7 +77,7 @@ impl StructuredLogger {
 
     /// Return a snapshot of all log entries that passed the level filter.
     pub fn entries(&self) -> Vec<LogEntry> {
-        let entries = self.entries.lock().unwrap();
+        let entries = self.entries.lock();
         entries.iter().cloned().collect()
     }
 
@@ -109,7 +110,7 @@ impl Logger for StructuredLogger {
             timestamp: timestamp.clone(),
         };
         {
-            let mut entries = self.entries.lock().unwrap();
+            let mut entries = self.entries.lock();
             entries.push(entry);
         }
         // Also emit to stdout for runtime observability, with level + timestamp.

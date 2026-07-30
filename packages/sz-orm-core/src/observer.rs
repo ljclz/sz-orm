@@ -83,7 +83,8 @@
 use crate::hooks::HookContext;
 use crate::Value;
 use std::collections::HashMap;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use parking_lot::{Mutex, RwLock};
 
 // ============================================================================
 // Event — 事件类型
@@ -396,7 +397,7 @@ impl EventDispatcher {
     /// 以便 dispatch 时可以 cheap clone 快照后释放读锁。
     pub fn add_observer(&self, observer: Box<dyn Observer>) {
         let arc: Arc<dyn Observer> = Arc::from(observer);
-        self.observers.write().unwrap().push(arc);
+        self.observers.write().push(arc);
     }
 
     /// 注册 EventSubscriber
@@ -404,34 +405,34 @@ impl EventDispatcher {
     /// 接收 `Box<dyn EventSubscriber>`（向后兼容），内部转 `Arc<dyn EventSubscriber>` 存储。
     pub fn subscribe(&self, subscriber: Box<dyn EventSubscriber>) {
         let arc: Arc<dyn EventSubscriber> = Arc::from(subscriber);
-        self.subscribers.write().unwrap().push(arc);
+        self.subscribers.write().push(arc);
     }
 
     /// 清空所有注册
     pub fn clear(&self) {
-        self.observers.write().unwrap().clear();
-        self.subscribers.write().unwrap().clear();
-        self.errors.write().unwrap().clear();
+        self.observers.write().clear();
+        self.subscribers.write().clear();
+        self.errors.write().clear();
     }
 
     /// 返回已注册的 Observer 数量
     pub fn observer_count(&self) -> usize {
-        self.observers.read().unwrap().len()
+        self.observers.read().len()
     }
 
     /// 返回已注册的 EventSubscriber 数量
     pub fn subscriber_count(&self) -> usize {
-        self.subscribers.read().unwrap().len()
+        self.subscribers.read().len()
     }
 
     /// 取出收集到的非致命错误（清空内部缓冲）
     pub fn drain_errors(&self) -> Vec<SubscriberError> {
-        std::mem::take(&mut *self.errors.write().unwrap())
+        std::mem::take(&mut *self.errors.write())
     }
 
     /// 返回当前错误缓冲区中的错误数量
     pub fn error_count(&self) -> usize {
-        self.errors.read().unwrap().len()
+        self.errors.read().len()
     }
 
     /// 将本地错误批量写入 errors 缓冲区，遵循 max_errors 限制（FIFO 淘汰）
@@ -442,7 +443,7 @@ impl EventDispatcher {
         if new_errors.is_empty() {
             return;
         }
-        let mut errors = self.errors.write().unwrap();
+        let mut errors = self.errors.write();
         if self.max_errors == 0 {
             errors.extend(new_errors);
             return;
@@ -470,7 +471,7 @@ impl EventDispatcher {
 
         // 1. 调用 Observers — 持读锁仅 clone 快照，立即释放
         let observers_snapshot: Vec<Arc<dyn Observer>> = {
-            let observers = self.observers.read().unwrap();
+            let observers = self.observers.read();
             observers.clone()
         };
         // 释放读锁后调用用户代码
@@ -488,7 +489,7 @@ impl EventDispatcher {
 
         // 2. 调用 EventSubscribers — 持读锁仅 clone 快照，立即释放
         let subscribers_snapshot: Vec<Arc<dyn EventSubscriber>> = {
-            let subscribers = self.subscribers.read().unwrap();
+            let subscribers = self.subscribers.read();
             subscribers.clone()
         };
         for subscriber in subscribers_snapshot.iter() {
@@ -525,7 +526,7 @@ impl EventDispatcher {
 
         // 1. 调用 Observers — 持读锁仅 clone 快照，立即释放
         let observers_snapshot: Vec<Arc<dyn Observer>> = {
-            let observers = self.observers.read().unwrap();
+            let observers = self.observers.read();
             observers.clone()
         };
         for observer in observers_snapshot.iter() {
@@ -547,7 +548,7 @@ impl EventDispatcher {
         // 2. 调用 EventSubscribers（仅当未被 vetoed）— 持读锁仅 clone 快照，立即释放
         if vetoed.is_none() {
             let subscribers_snapshot: Vec<Arc<dyn EventSubscriber>> = {
-                let subscribers = self.subscribers.read().unwrap();
+                let subscribers = self.subscribers.read();
                 subscribers.clone()
             };
             for subscriber in subscribers_snapshot.iter() {
@@ -589,7 +590,7 @@ impl EventDispatcher {
         let mut local_errors: Vec<SubscriberError> = Vec::new();
 
         let observers_snapshot: Vec<Arc<dyn Observer>> = {
-            let observers = self.observers.read().unwrap();
+            let observers = self.observers.read();
             observers.clone()
         };
         for observer in observers_snapshot.iter() {
@@ -599,7 +600,7 @@ impl EventDispatcher {
         }
 
         let subscribers_snapshot: Vec<Arc<dyn EventSubscriber>> = {
-            let subscribers = self.subscribers.read().unwrap();
+            let subscribers = self.subscribers.read();
             subscribers.clone()
         };
         for subscriber in subscribers_snapshot.iter() {
@@ -650,23 +651,23 @@ impl Default for EventDispatcher {
 /// let attrs = HashMap::new();
 /// dispatcher.dispatch(Event::AfterInsert, &ctx, &attrs);
 ///
-/// assert_eq!(audit.logs().lock().unwrap().len(), 1);
+/// assert_eq!(audit.logs().lock().len(), 1);
 /// ```
 #[derive(Clone)]
 pub struct AuditLogSubscriber {
-    logs: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+    logs: std::sync::Arc<Mutex<Vec<String>>>,
 }
 
 impl AuditLogSubscriber {
     /// 创建审计日志订阅者
     pub fn new() -> Self {
         Self {
-            logs: std::sync::Arc::new(std::sync::Mutex::new(Vec::new())),
+            logs: std::sync::Arc::new(Mutex::new(Vec::new())),
         }
     }
 
     /// 获取日志列表（用于断言）
-    pub fn logs(&self) -> &std::sync::Arc<std::sync::Mutex<Vec<String>>> {
+    pub fn logs(&self) -> &std::sync::Arc<Mutex<Vec<String>>> {
         &self.logs
     }
 }
@@ -692,7 +693,7 @@ impl EventSubscriber for AuditLogSubscriber {
         ctx: &HookContext,
         attrs: &HashMap<String, Value>,
     ) -> SubscriberResult<()> {
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self.logs.lock();
         logs.push(format!(
             "event={} operator={:?} field_count={}",
             event.name(),
@@ -1057,7 +1058,7 @@ mod tests {
         // AfterFind 不在订阅列表，不应记录
         d.dispatch_after_find(&ctx, &mut attrs).unwrap();
 
-        let logs = audit.logs().lock().unwrap();
+        let logs = audit.logs().lock();
         assert_eq!(logs.len(), 3);
         assert!(logs[0].contains("event=after_insert"));
         assert!(logs[0].contains("operator=Some(42)"));

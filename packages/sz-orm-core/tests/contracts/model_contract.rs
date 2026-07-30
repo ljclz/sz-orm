@@ -93,7 +93,8 @@ fn test_model_pk_get_set_contract() {
 fn test_model_primary_key_default_contract() {
     // PrimaryKey 必须实现 Default
     let pk = <User as Model>::PrimaryKey::default();
-    let _ = pk; // 编译时验证
+    // i64::default() == 0
+    assert_eq!(pk, 0);
 }
 
 // ===== §7.1 foreign_key 默认推导契约 =====
@@ -201,7 +202,8 @@ fn test_model_ext_to_json_contract() {
 
 #[test]
 fn test_model_primary_key_trait_bounds_contract() {
-    // PrimaryKey 必须满足 Send + Sync + Debug + Display + Clone + Default
+    // 编译时验证：PrimaryKey 必须满足 Send + Sync + Debug + Display + Clone + Default
+    // 无运行时断言：本测试仅验证 trait bound 约束，不构造值
     fn assert_pk_bounds<T>()
     where
         T: Send + Sync + std::fmt::Debug + std::fmt::Display + Clone + Default,
@@ -212,7 +214,8 @@ fn test_model_primary_key_trait_bounds_contract() {
 
 #[test]
 fn test_model_send_sync_sized_static_bounds_contract() {
-    // Model: Send + Sync + Sized + 'static
+    // 编译时验证：Model: Send + Sync + Sized + 'static
+    // 无运行时断言：本测试仅验证 trait bound 约束，不构造值
     fn assert_model_bounds<T: Model>() {}
     assert_model_bounds::<User>();
 }

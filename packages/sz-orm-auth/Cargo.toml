@@ -25,6 +25,11 @@ hmac = "0.12"
 base64 = "0.22"
 # v0.2.2 修复 H-3：常量时间比较，防止 JWT 签名校验的时序攻击
 subtle = "2.5"
+# v1.2.1 修复 Critical C-1/C-2/C-3：使用 OsRng 替代 DefaultHasher 生成 MFA 密钥/OAuth2 授权码/令牌家族 ID
+# 与 sz-orm-crypto 保持一致（CWE-338 弱 PRNG 修复）
+rand = "0.8"
+# 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .lock().unwrap() panic 风险
+parking_lot.workspace = true
 
 [dev-dependencies]
 tokio-test = "0.4"

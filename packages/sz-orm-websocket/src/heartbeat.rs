@@ -295,6 +295,9 @@ mod tests {
     fn test_heartbeat_config_validate_ok() {
         let cfg = HeartbeatConfig::new(30_000, 10_000, 3);
         assert!(cfg.validate().is_ok());
+        assert_eq!(cfg.interval_ms, 30_000, "validate 不应修改 interval_ms");
+        assert_eq!(cfg.timeout_ms, 10_000, "validate 不应修改 timeout_ms");
+        assert_eq!(cfg.max_missed, 3, "validate 不应修改 max_missed");
     }
 
     #[test]

@@ -1,7 +1,7 @@
 # SeaORM 到 SZ-ORM 迁移指南
 
-> 版本：v1.0（2026-07-23）
-> 适用：SeaORM 0.12+ → SZ-ORM 1.0+
+> 版本：v1.2（2026-07-29）
+> 适用：SeaORM 0.12+ → SZ-ORM 1.2+
 
 ## 目录
 
@@ -27,7 +27,7 @@
 | 类型安全 | 编译期 `#[derive(DeriveEntityModel)]` | 手动实现 `Model` trait |
 | ActiveModel | 有（支持部分字段更新） | 无，用 `HashMap<String, Value>` 替代 |
 | 关联关系 | BelongsTo/HasMany/HasOne/BelongsToMany | 多出 MorphMany/MorphTo（多态） |
-| 工作空间 | 单 crate | 39 个子 crate |
+| 工作空间 | 单 crate | 43 个子 crate |
 | 连接归还 | sqlx Pool 自动 Drop | PooledConnection 实现 Drop 自动归还（v1.0 修复） |
 
 **核心差异**：SeaORM 是"一步执行"（find().all(db)），SZ-ORM 是"两步执行"（build SQL + acquire conn 执行）。

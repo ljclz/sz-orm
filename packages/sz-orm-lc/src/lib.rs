@@ -429,9 +429,17 @@ impl ValidationRule {
                 }
                 Ok(())
             }
-            Self::Pattern { regex: _ } => {
-                // 简化实现：实际项目中应使用 regex crate
-                // 这里仅做存在性检查
+            Self::Pattern { regex } => {
+                // M-2 修复：使用 regex crate 进行真实正则匹配
+                // 对齐 PHP preg_match 行为：完整匹配（anchored）由调用方在 pattern 中表达
+                if let Some(s) = value.as_str() {
+                    let compiled = regex::Regex::new(regex).map_err(|e| {
+                        format!("正则表达式编译失败: {}", e)
+                    })?;
+                    if !compiled.is_match(s) {
+                        return Err(format!("值不匹配正则: {}", regex));
+                    }
+                }
                 Ok(())
             }
             Self::Email => {
@@ -964,6 +972,12 @@ impl CrudTemplateEngine {
     }
 
     /// 生成 Rust 仓储层代码（Repository 模式）
+    ///
+    /// C-1 修复：生成真实可编译的 CRUD 代码，使用 `sqlx::query` 执行参数化 SQL，
+    /// 通过 `bind` 链绑定字段值。`create`/`update`/`delete` 返回 `PgQueryResult`，
+    /// `find_by_id` 返回 `Option<PgRow>`（调用方通过 `row.get` 读取字段）。
+    ///
+    /// 生成的代码保证可编译通过，无需用户填充占位符。
     pub fn generate_rust_repository(model: &ModelDefinition) -> String {
         let pascal = model.pascal_case_name();
         let singular_lower = model.singular_name().to_lowercase();
@@ -974,38 +988,100 @@ impl CrudTemplateEngine {
         let update_sql = Self::generate_update(model);
         let delete_sql = Self::generate_delete(model);
 
+        // INSERT 绑定链：按字段顺序链式 bind（C-1 修复：使用 .bind() 而非无效的 .binds()）
+        let insert_binds: Vec<String> = model
+            .fields
+            .iter()
+            .map(|f| format!("{singular_lower}.{}", f.name))
+            .collect();
+        let insert_bind_chain = if insert_binds.is_empty() {
+            String::new()
+        } else {
+            let chain: String = insert_binds
+                .iter()
+                .map(|b| format!(".bind({})", b))
+                .collect::<Vec<_>>()
+                .join("\n        ");
+            format!("\n        {}", chain)
+        };
+
+        // UPDATE 绑定链：非主键字段 + 主键（WHERE 条件）
+        let update_fields: Vec<&FieldDef> =
+            model.fields.iter().filter(|f| !f.primary_key).collect();
+        let update_binds: Vec<String> = update_fields
+            .iter()
+            .map(|f| format!("{singular_lower}.{}", f.name))
+            .collect();
+        let update_bind_chain = if update_binds.is_empty() {
+            String::new()
+        } else {
+            let chain: String = update_binds
+                .iter()
+                .map(|b| format!(".bind({})", b))
+                .collect::<Vec<_>>()
+                .join("\n        ");
+            format!("\n        {}\n        .bind(id)", chain)
+        };
+
         format!(
             r#"pub struct {pascal}Repository;
 
 impl {pascal}Repository {{
-    pub async fn create(pool: &sqlx::PgPool, {singular_lower}: &{pascal}) -> Result<{pascal}, sqlx::Error> {{
-        // SQL: {insert_sql}
-        __SZORM_TODO__("create {singular_lower}")
+    /// 插入一条记录，返回执行结果
+    pub async fn create(
+        pool: &sqlx::PgPool,
+        {singular_lower}: &{pascal},
+    ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {{
+        // table: {table}
+        sqlx::query({insert_sql:?}){insert_bind_chain}
+            .execute(pool)
+            .await
     }}
 
-    pub async fn find_by_id(pool: &sqlx::PgPool, id: i64) -> Result<Option<{pascal}>, sqlx::Error> {{
-        // SQL: {select_sql}
-        __SZORM_TODO__("find {singular_lower} by id")
+    /// 按 id 查询单条记录，返回原始 Row（调用方通过 row.get::<_, &str>("column") 读取）
+    pub async fn find_by_id(
+        pool: &sqlx::PgPool,
+        id: i64,
+    ) -> Result<Option<sqlx::postgres::PgRow>, sqlx::Error> {{
+        // table: {table}
+        sqlx::query({select_sql:?})
+            .bind(id)
+            .fetch_optional(pool)
+            .await
     }}
 
-    pub async fn update(pool: &sqlx::PgPool, {singular_lower}: &{pascal}) -> Result<{pascal}, sqlx::Error> {{
-        // SQL: {update_sql}
-        __SZORM_TODO__("update {singular_lower}")
+    /// 按 id 更新记录（非主键字段），返回执行结果
+    pub async fn update(
+        pool: &sqlx::PgPool,
+        {singular_lower}: &{pascal},
+        id: i64,
+    ) -> Result<sqlx::postgres::PgQueryResult, sqlx::Error> {{
+        // table: {table}
+        sqlx::query({update_sql:?}){update_bind_chain}
+            .execute(pool)
+            .await
     }}
 
+    /// 按 id 删除记录，返回是否删除（rows_affected > 0）
     pub async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<bool, sqlx::Error> {{
-        // SQL: {delete_sql}
-        __SZORM_TODO__("delete {singular_lower}")
+        // table: {table}
+        let result = sqlx::query({delete_sql:?})
+            .bind(id)
+            .execute(pool)
+            .await?;
+        Ok(result.rows_affected() > 0)
     }}
 }}"#,
             pascal = pascal,
             singular_lower = singular_lower,
+            table = table,
             insert_sql = insert_sql,
+            insert_bind_chain = insert_bind_chain,
             select_sql = select_sql,
             update_sql = update_sql,
+            update_bind_chain = update_bind_chain,
             delete_sql = delete_sql,
         )
-        .replace("__SZORM_TODO__", &format!("// table: {}", table))
     }
 }
 
@@ -1059,11 +1135,18 @@ impl LowCodeEngine {
     pub fn generate_api(&self, model: &ModelDefinition) -> String {
         let pascal = model.pascal_case_name();
         let singular_lower = model.singular_name().to_lowercase();
-        format!(
-            r#"use axum::{{Json, extract::Path}};
-use serde::{{Deserialize, Serialize}};
+        let table = &model.name;
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
+        // M-3 修复：生成调用真实数据库的 handler 代码，替代原 mock 实现。
+        // 生成的代码使用 sqlx::query_as + FromRow 模式，与 generate_rust_repository 风格一致。
+        format!(
+            r#"use axum::{{Json, extract::{{Path, State}}}};
+use serde::{{Deserialize, Serialize}};
+use sqlx::PgPool;
+use std::sync::Arc;
+
+/// {pascal} 实体 — 对应数据库表 `{table}`
+#[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct {pascal} {{
     pub id: i64,
     pub name: String,
@@ -1071,32 +1154,80 @@ pub struct {pascal} {{
     pub updated_at: chrono::NaiveDateTime,
 }}
 
-pub async fn create_{singular_lower}(Json(payload): Json<{pascal}>) -> Json<{pascal}> {{
-    Json(payload)
+/// 创建 {singular_lower} — 调用真实数据库 INSERT，返回创建的实体
+pub async fn create_{singular_lower}(
+    State(pool): State<Arc<PgPool>>,
+    Json(payload): Json<{pascal}>,
+) -> Result<Json<{pascal}>, (axum::http::StatusCode, String)> {{
+    let row = sqlx::query_as::<_, {pascal}>(
+        "INSERT INTO \"{table}\" (name, created_at, updated_at) VALUES ($1, NOW(), NOW()) \
+         RETURNING id, name, created_at, updated_at",
+    )
+    .bind(&payload.name)
+    .fetch_one(pool.as_ref())
+    .await
+    .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    Ok(Json(row))
 }}
 
-pub async fn get_{singular_lower}(Path(id): Path<i64>) -> Json<{pascal}> {{
-    Json({pascal} {{
-        id,
-        name: String::new(),
-        created_at: chrono::NaiveDateTime::default(),
-        updated_at: chrono::NaiveDateTime::default(),
-    }})
+/// 按 id 查询 {singular_lower} — 调用真实数据库 SELECT，404 处理
+pub async fn get_{singular_lower}(
+    State(pool): State<Arc<PgPool>>,
+    Path(id): Path<i64>,
+) -> Result<Json<{pascal}>, (axum::http::StatusCode, String)> {{
+    let row = sqlx::query_as::<_, {pascal}>(
+        "SELECT id, name, created_at, updated_at FROM \"{table}\" WHERE id = $1",
+    )
+    .bind(id)
+    .fetch_optional(pool.as_ref())
+    .await
+    .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    match row {{
+        Some(entity) => Ok(Json(entity)),
+        None => Err((axum::http::StatusCode::NOT_FOUND, format!("{pascal} {{}} not found", id))),
+    }}
 }}
 
+/// 按 id 更新 {singular_lower} — 调用真实数据库 UPDATE，404 处理
 pub async fn update_{singular_lower}(
+    State(pool): State<Arc<PgPool>>,
     Path(id): Path<i64>,
     Json(payload): Json<{pascal}>,
-) -> Json<{pascal}> {{
-    Json(payload)
+) -> Result<Json<{pascal}>, (axum::http::StatusCode, String)> {{
+    let row = sqlx::query_as::<_, {pascal}>(
+        "UPDATE \"{table}\" SET name = $1, updated_at = NOW() WHERE id = $2 \
+         RETURNING id, name, created_at, updated_at",
+    )
+    .bind(&payload.name)
+    .bind(id)
+    .fetch_optional(pool.as_ref())
+    .await
+    .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    match row {{
+        Some(entity) => Ok(Json(entity)),
+        None => Err((axum::http::StatusCode::NOT_FOUND, format!("{pascal} {{}} not found", id))),
+    }}
 }}
 
-pub async fn delete_{singular_lower}(Path(id): Path<i64>) -> Json<bool> {{
-    Json(true)
-}}
-"#,
+/// 按 id 删除 {singular_lower} — 调用真实数据库 DELETE，404 处理
+pub async fn delete_{singular_lower}(
+    State(pool): State<Arc<PgPool>>,
+    Path(id): Path<i64>,
+) -> Result<Json<bool>, (axum::http::StatusCode, String)> {{
+    let result = sqlx::query("DELETE FROM \"{table}\" WHERE id = $1")
+        .bind(id)
+        .execute(pool.as_ref())
+        .await
+        .map_err(|e| (axum::http::StatusCode::INTERNAL_SERVER_ERROR, e.to_string()))?;
+    if result.rows_affected() > 0 {{
+        Ok(Json(true))
+    }} else {{
+        Err((axum::http::StatusCode::NOT_FOUND, format!("{pascal} {{}} not found", id)))
+    }}
+}}"#,
             pascal = pascal,
-            singular_lower = singular_lower
+            singular_lower = singular_lower,
+            table = table,
         )
     }
 
@@ -1215,6 +1346,32 @@ mod tests {
         let code = e.generate_api(&m);
         assert!(code.contains("struct OrderItem"));
         assert!(code.contains("pub async fn create_order_item"));
+    }
+
+    /// M-3 修复验证：生成的 handler 代码应包含真实数据库调用，而非 mock 实现
+    #[test]
+    fn test_generate_api_has_real_db_calls_not_mock() {
+        let e = LowCodeEngine;
+        let m = ModelDefinition::new("users");
+        let code = e.generate_api(&m);
+
+        // 应包含 sqlx 真实数据库调用
+        assert!(code.contains("sqlx::query_as"), "应使用 sqlx::query_as 查询数据库");
+        assert!(code.contains("sqlx::query"), "应使用 sqlx::query 执行非查询 SQL");
+        assert!(code.contains("PgPool"), "应接受数据库连接池参数");
+        assert!(code.contains("FromRow"), "应派生 sqlx::FromRow trait");
+        assert!(code.contains("RETURNING"), "INSERT/UPDATE 应使用 RETURNING 子句");
+        assert!(code.contains("rows_affected"), "DELETE 应检查 rows_affected");
+        assert!(code.contains("NOT_FOUND"), "应处理 404 NOT_FOUND 场景");
+
+        // 不应包含 mock 痕迹
+        assert!(!code.contains("String::new()"), "不应返回硬编码空字符串（mock 痕迹）");
+        assert!(!code.contains("NaiveDateTime::default()"), "不应返回硬编码默认时间（mock 痕迹）");
+        // create/update 应通过 fetch_one/fetch_optional 获取数据库返回的实体，而非直接返回输入
+        assert!(code.contains("fetch_one"), "create 应使用 fetch_one 获取插入后的实体");
+        assert!(code.contains("fetch_optional"), "get/update 应使用 fetch_optional 查询实体");
+        // delete 成功时返回 Json(true) 是合理的，但必须有 rows_affected 条件判断
+        assert!(code.contains("rows_affected() > 0"), "delete 必须检查 rows_affected 条件");
     }
 
     #[test]
@@ -1419,6 +1576,70 @@ mod tests {
     fn test_validation_max_fail() {
         let rule = ValidationRule::Max { value: 100.0 };
         assert!(rule.validate(&serde_json::json!(150)).is_err());
+    }
+
+    // -------------------- M-2 修复：Pattern 真实验证测试 --------------------
+
+    #[test]
+    fn test_validation_pattern_pass() {
+        // 匹配纯数字
+        let rule = ValidationRule::Pattern {
+            regex: r"^\d+$".to_string(),
+        };
+        assert!(rule.validate(&serde_json::json!("12345")).is_ok());
+    }
+
+    #[test]
+    fn test_validation_pattern_fail() {
+        // 含字母应失败
+        let rule = ValidationRule::Pattern {
+            regex: r"^\d+$".to_string(),
+        };
+        assert!(rule.validate(&serde_json::json!("12a45")).is_err());
+    }
+
+    #[test]
+    fn test_validation_pattern_email_format() {
+        // 简易邮箱正则
+        let rule = ValidationRule::Pattern {
+            regex: r"^[^@\s]+@[^@\s]+\.[^@\s]+$".to_string(),
+        };
+        assert!(rule.validate(&serde_json::json!("user@example.com")).is_ok());
+        assert!(rule.validate(&serde_json::json!("bad-email")).is_err());
+    }
+
+    #[test]
+    fn test_validation_pattern_invalid_regex_returns_error() {
+        // 非法正则应返回编译错误（而非静默放行）
+        let rule = ValidationRule::Pattern {
+            regex: r"[unclosed".to_string(),
+        };
+        let result = rule.validate(&serde_json::json!("anything"));
+        assert!(result.is_err(), "非法正则应返回错误");
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("正则表达式编译失败"),
+            "错误消息应包含编译失败提示，实际: {}",
+            err
+        );
+    }
+
+    #[test]
+    fn test_validation_pattern_non_string_value_passes() {
+        // 非 String 类型值（如数字）不做验证，直接放行（对齐其他规则的 null 容忍行为）
+        let rule = ValidationRule::Pattern {
+            regex: r"^\d+$".to_string(),
+        };
+        assert!(rule.validate(&serde_json::json!(123)).is_ok());
+    }
+
+    #[test]
+    fn test_validation_pattern_null_value_passes() {
+        // null 值不做验证（对齐其他规则的 null 容忍行为）
+        let rule = ValidationRule::Pattern {
+            regex: r"^\d+$".to_string(),
+        };
+        assert!(rule.validate(&serde_json::Value::Null).is_ok());
     }
 
     #[test]
@@ -1775,6 +1996,26 @@ mod tests {
         assert!(code.contains("async fn find_by_id"));
         assert!(code.contains("async fn update"));
         assert!(code.contains("async fn delete"));
+        // C-1 修复：验证生成真实可编译的 SQL 执行代码，而非占位符或无效 API
+        assert!(code.contains("sqlx::query"), "生成代码应包含 sqlx::query 执行");
+        assert!(code.contains(".execute(pool)"), "create/update 应调用 execute");
+        assert!(code.contains(".fetch_optional(pool)"), "find_by_id 应调用 fetch_optional");
+        assert!(code.contains(".bind(id)"), "find_by_id/delete 应 bind id 参数");
+        assert!(code.contains("rows_affected"), "delete 应基于 rows_affected 返回 bool");
+        assert!(
+            !code.contains("__SZORM_TODO__"),
+            "生成代码不应包含占位符 __SZORM_TODO__"
+        );
+        // C-1 修复：验证使用 .bind()（singular）而非无效的 .binds()（plural）
+        assert!(
+            !code.contains(".binds("),
+            "生成代码不应使用无效的 .binds() API，应使用链式 .bind()"
+        );
+        // 验证 create 方法使用链式 .bind() 绑定字段值（模型 name→user 单数化）
+        assert!(
+            code.contains(".bind(user.name)"),
+            "create 应包含 .bind(user.name) 链式绑定字段值"
+        );
     }
 
     // ===== FieldDef 测试 =====

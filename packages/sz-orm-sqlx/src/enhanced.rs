@@ -8,7 +8,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::Duration;
 
 use crate::any_driver::AnyBackend;
@@ -423,8 +423,8 @@ impl PreparedStatementCache {
         let hash = Self::hash_sql(sql);
         let seq = self.next_seq();
 
-        let mut entries = self.entries.lock().ok()?;
-        let mut stats = self.stats.lock().ok()?;
+        let mut entries = self.entries.lock();
+        let mut stats = self.stats.lock();
 
         if let Some(entry) = entries.get_mut(&hash) {
             entry.last_access_seq = seq;
@@ -444,8 +444,8 @@ impl PreparedStatementCache {
         let hash = Self::hash_sql(sql);
         let seq = self.next_seq();
 
-        let mut entries = self.entries.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
+        let mut entries = self.entries.lock();
+        let mut stats = self.stats.lock();
 
         // 如果已存在，更新
         if let Some(entry) = entries.get_mut(&hash) {
@@ -482,8 +482,8 @@ impl PreparedStatementCache {
     /// 从缓存中移除指定 SQL 的预备语句。
     pub fn remove(&self, sql: &str) -> bool {
         let hash = Self::hash_sql(sql);
-        let mut entries = self.entries.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
+        let mut entries = self.entries.lock();
+        let mut stats = self.stats.lock();
         let removed = entries.remove(&hash).is_some();
         if removed {
             stats.size = entries.len();
@@ -493,15 +493,15 @@ impl PreparedStatementCache {
 
     /// 清空缓存。
     pub fn clear(&self) {
-        let mut entries = self.entries.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
+        let mut entries = self.entries.lock();
+        let mut stats = self.stats.lock();
         entries.clear();
         stats.size = 0;
     }
 
     /// 获取缓存统计信息。
     pub fn stats(&self) -> CacheStats {
-        let stats = self.stats.lock().unwrap();
+        let stats = self.stats.lock();
         stats.clone()
     }
 
@@ -512,7 +512,7 @@ impl PreparedStatementCache {
 
     /// 获取当前缓存条目数。
     pub fn len(&self) -> usize {
-        self.entries.lock().map(|e| e.len()).unwrap_or(0)
+        self.entries.lock().len()
     }
 
     /// 缓存是否为空。
@@ -522,7 +522,7 @@ impl PreparedStatementCache {
 
     /// 重置统计信息（不清空缓存条目）。
     pub fn reset_stats(&self) {
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock();
         stats.hits = 0;
         stats.misses = 0;
         stats.evictions = 0;

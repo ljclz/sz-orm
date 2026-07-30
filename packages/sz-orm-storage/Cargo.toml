@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM Storage Extension - 7 Cloud Storage Providers"
+description = "SZ-ORM Storage Extension - S3 real impl (s3-sdk feature) + 6 in-memory mock providers (Aliyun/Huawei/Qiniu/Tencent/UpYun/Default)"
 
 [features]
 default = []

@@ -70,6 +70,21 @@ pub trait Model: Send + Sync + Sized + 'static {
         None
     }
 
+    /// 获取多租户字段名（P0-3）
+    ///
+    /// 返回 `Some(field)` 表示该模型支持多租户，`QueryBuilder` 会在
+    /// `with_tenant_id(id)` 设置租户 ID 后自动追加 `WHERE {field} = ?` 条件。
+    ///
+    /// 默认返回 `None`（非多租户模型）。多租户模型应重写此方法返回字段名，
+    /// 如 `Some("tenant_id")`。
+    ///
+    /// 与 `TenantModel` trait 的关系：`TenantModel::tenant_field()` 返回 `&'static str`
+    /// （非 Option），用于实例级的 `tenant_id()`/`set_tenant_id()` 操作；
+    /// 本方法返回 `Option<&'static str>`，用于 `QueryBuilder` 静态判断模型是否多租户。
+    fn tenant_field() -> Option<&'static str> {
+        None
+    }
+
     /// 获取字段定义（字段名, 类型字符串），用于 OpenAPI schema 生成等
     ///
     /// 类型字符串遵循 sz-orm casts 约定：

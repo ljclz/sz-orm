@@ -2,7 +2,7 @@ use crate::embedding::EmbeddingRecord;
 use crate::error::AiError;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 // HNSW 向量索引子模块（近似最近邻搜索）
 pub mod hnsw;
@@ -299,8 +299,7 @@ impl VectorStore for InMemoryVectorStore {
     ) -> Result<(), AiError> {
         let mut collections = self
             .collections
-            .write()
-            .map_err(|e| AiError::Vector(format!("lock error: {}", e)))?;
+            .write();
         collections.insert(
             name.to_string(),
             CollectionState {
@@ -315,8 +314,7 @@ impl VectorStore for InMemoryVectorStore {
     async fn delete_collection(&self, name: &str) -> Result<(), AiError> {
         let mut collections = self
             .collections
-            .write()
-            .map_err(|e| AiError::Vector(format!("lock error: {}", e)))?;
+            .write();
         collections.remove(name);
         Ok(())
     }
@@ -324,8 +322,7 @@ impl VectorStore for InMemoryVectorStore {
     async fn insert(&self, collection: &str, records: Vec<VectorRecord>) -> Result<(), AiError> {
         let mut collections = self
             .collections
-            .write()
-            .map_err(|e| AiError::Vector(format!("lock error: {}", e)))?;
+            .write();
         let state = collections
             .get_mut(collection)
             .ok_or_else(|| AiError::Vector(format!("collection not found: {}", collection)))?;
@@ -363,8 +360,7 @@ impl VectorStore for InMemoryVectorStore {
     ) -> Result<Vec<SearchResult>, AiError> {
         let collections = self
             .collections
-            .read()
-            .map_err(|e| AiError::Vector(format!("lock error: {}", e)))?;
+            .read();
         let state = collections
             .get(collection)
             .ok_or_else(|| AiError::Vector(format!("collection not found: {}", collection)))?;
@@ -397,8 +393,7 @@ impl VectorStore for InMemoryVectorStore {
     async fn get(&self, collection: &str, id: &str) -> Result<Option<VectorRecord>, AiError> {
         let collections = self
             .collections
-            .read()
-            .map_err(|e| AiError::Vector(format!("lock error: {}", e)))?;
+            .read();
         let state = collections
             .get(collection)
             .ok_or_else(|| AiError::Vector(format!("collection not found: {}", collection)))?;
@@ -417,8 +412,7 @@ impl VectorStore for InMemoryVectorStore {
     async fn delete(&self, collection: &str, ids: Vec<String>) -> Result<u64, AiError> {
         let mut collections = self
             .collections
-            .write()
-            .map_err(|e| AiError::Vector(format!("lock error: {}", e)))?;
+            .write();
         let state = collections
             .get_mut(collection)
             .ok_or_else(|| AiError::Vector(format!("collection not found: {}", collection)))?;
@@ -431,8 +425,7 @@ impl VectorStore for InMemoryVectorStore {
     async fn count(&self, collection: &str) -> Result<usize, AiError> {
         let collections = self
             .collections
-            .read()
-            .map_err(|e| AiError::Vector(format!("lock error: {}", e)))?;
+            .read();
         Ok(collections
             .get(collection)
             .map(|s| s.records.len())
@@ -637,10 +630,13 @@ mod tests {
         assert_eq!(results[0].id, "a");
     }
 
-    #[test]
-    fn test_helpers_compile() {
-        // Smoke-test the helper so the binary still has coverage without async runtime.
-        let _ = InMemoryVectorStore::new();
+    #[tokio::test]
+    async fn test_helpers_compile() {
+        // Smoke-test the helper: verify store constructs and is empty for unknown collection.
+        let store = InMemoryVectorStore::new();
+        let count = store.count("nonexistent").await.unwrap();
+        assert_eq!(count, 0, "fresh store should have 0 records for unknown collection");
+        // Cosine similarity contract: identical vectors -> 1.0, orthogonal -> 0.0
         assert_eq!(cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]), 1.0);
         assert!((cosine_similarity(&[1.0, 0.0], &[0.0, 1.0])).abs() < 1e-6);
     }

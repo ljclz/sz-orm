@@ -16,7 +16,7 @@
 //! 4. 登出 -> `revoke_token()` 或 `revoke_family()` 撤销令牌
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::AuthError;
@@ -171,10 +171,9 @@ impl TokenStore {
 
         self.tokens
             .lock()
-            .expect("TokenStore tokens lock poisoned")
             .insert(token_value.clone(), stored.clone());
 
-        self.families.lock().expect("TokenStore families lock poisoned").insert(
+        self.families.lock().insert(
             family_id.clone(),
             FamilyInfo {
                 revoked: false,
@@ -206,7 +205,7 @@ impl TokenStore {
 
         // 第一阶段：读取并验证旧令牌状态（不加写锁，避免与 revoke 冲突）
         let (family_id, user_id, is_used, is_revoked, is_expired, family_revoked) = {
-            let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+            let tokens = self.tokens.lock();
             let old_stored = match tokens.get(old_refresh_token) {
                 Some(t) => t,
                 None => {
@@ -223,7 +222,7 @@ impl TokenStore {
             let is_expired = old_stored.is_expired();
 
             let family_revoked = {
-                let families = self.families.lock().expect("TokenStore families lock poisoned");
+                let families = self.families.lock();
                 families.get(&family_id).map(|f| f.revoked).unwrap_or(false)
             };
 
@@ -278,7 +277,7 @@ impl TokenStore {
         );
 
         {
-            let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+            let mut tokens = self.tokens.lock();
             // 再次检查令牌状态（防止 TOCTOU：在两次加锁之间令牌可能被撤销或使用）
             let old = match tokens.get_mut(old_refresh_token) {
                 Some(t) => t,
@@ -310,7 +309,7 @@ impl TokenStore {
 
         // 将新令牌添加到家族
         {
-            let mut families = self.families.lock().expect("TokenStore families lock poisoned");
+            let mut families = self.families.lock();
             if let Some(family) = families.get_mut(&family_id) {
                 family.tokens.push(new_token_value);
             }
@@ -324,7 +323,7 @@ impl TokenStore {
     /// 标记令牌为已撤销，但不影响家族中的其他令牌。
     /// 适用于用户登出单个设备的场景。
     pub fn revoke_token(&self, token: &str) -> Result<(), TokenFamilyError> {
-        let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+        let mut tokens = self.tokens.lock();
         let stored = tokens
             .get_mut(token)
             .ok_or_else(|| TokenFamilyError::NotFound("Token not found".to_string()))?;
@@ -341,7 +340,7 @@ impl TokenStore {
     pub fn revoke_family(&self, family_id: &str) -> Result<usize, TokenFamilyError> {
         // 先验证家族存在
         {
-            let families = self.families.lock().expect("TokenStore families lock poisoned");
+            let families = self.families.lock();
             if !families.contains_key(family_id) {
                 return Err(TokenFamilyError::NotFound("Family not found".to_string()));
             }
@@ -355,7 +354,7 @@ impl TokenStore {
     /// 返回撤销的令牌数量。
     fn revoke_family_internal(&self, family_id: &str) -> usize {
         let token_values: Vec<String> = {
-            let mut families = self.families.lock().expect("TokenStore families lock poisoned");
+            let mut families = self.families.lock();
             if let Some(family) = families.get_mut(family_id) {
                 family.revoked = true;
                 family.tokens.clone()
@@ -364,7 +363,7 @@ impl TokenStore {
             }
         };
 
-        let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+        let mut tokens = self.tokens.lock();
         let mut count = 0;
         for tv in &token_values {
             if let Some(stored) = tokens.get_mut(tv) {
@@ -381,7 +380,7 @@ impl TokenStore {
     /// 适用于用户修改密码、账户被禁用等场景。
     pub fn revoke_user(&self, user_id: i64) -> usize {
         let family_ids: Vec<String> = {
-            let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+            let tokens = self.tokens.lock();
             tokens
                 .values()
                 .filter(|t| t.user_id == user_id)
@@ -400,26 +399,26 @@ impl TokenStore {
 
     /// 验证令牌是否有效
     pub fn is_valid(&self, token: &str) -> bool {
-        let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+        let tokens = self.tokens.lock();
         tokens.get(token).map(|t| t.is_valid()).unwrap_or(false)
     }
 
     /// 获取令牌信息
     pub fn get_token(&self, token: &str) -> Option<StoredToken> {
-        self.tokens.lock().expect("TokenStore tokens lock poisoned").get(token).cloned()
+        self.tokens.lock().get(token).cloned()
     }
 
     /// 获取家族中的所有令牌
     pub fn family_tokens(&self, family_id: &str) -> Vec<StoredToken> {
         let token_values: Vec<String> = {
-            let families = self.families.lock().expect("TokenStore families lock poisoned");
+            let families = self.families.lock();
             families
                 .get(family_id)
                 .map(|f| f.tokens.clone())
                 .unwrap_or_default()
         };
 
-        let tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+        let tokens = self.tokens.lock();
         token_values
             .iter()
             .filter_map(|tv| tokens.get(tv).cloned())
@@ -430,7 +429,6 @@ impl TokenStore {
     pub fn is_family_revoked(&self, family_id: &str) -> bool {
         self.families
             .lock()
-            .expect("TokenStore families lock poisoned")
             .get(family_id)
             .map(|f| f.revoked)
             .unwrap_or(false)
@@ -440,7 +438,7 @@ impl TokenStore {
     ///
     /// 返回清理的令牌数量。
     pub fn cleanup(&self) -> usize {
-        let mut tokens = self.tokens.lock().expect("TokenStore tokens lock poisoned");
+        let mut tokens = self.tokens.lock();
         let before = tokens.len();
         tokens.retain(|_, t| !t.is_expired() && !t.revoked);
         before - tokens.len()
@@ -448,12 +446,12 @@ impl TokenStore {
 
     /// 返回当前存储的令牌数量
     pub fn token_count(&self) -> usize {
-        self.tokens.lock().expect("TokenStore tokens lock poisoned").len()
+        self.tokens.lock().len()
     }
 
     /// 返回当前存储的家族数量
     pub fn family_count(&self) -> usize {
-        self.families.lock().expect("TokenStore families lock poisoned").len()
+        self.families.lock().len()
     }
 }
 
@@ -464,13 +462,18 @@ impl Default for TokenStore {
 }
 
 /// 生成随机家族 ID（32 字节十六进制）
+///
+/// v1.2.1 修复 Critical C-3（CWE-338）：使用 `OsRng`（密码学安全 RNG）替代
+/// `DefaultHasher` + 纳秒种子。原实现可被预测，攻击者可在 ±1 秒窗口内
+/// 暴力枚举纳秒种子预测家族 ID，可能绕过重放检测机制或对特定令牌家族
+/// 发起定向撤销攻击（DoS）。
 fn generate_family_id() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    current_nanos().hash(&mut hasher);
-    let seed = hasher.finish();
-    format!("fam_{:016x}", seed)
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+    let mut bytes = [0u8; 16];
+    OsRng.fill_bytes(&mut bytes);
+    let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    format!("fam_{}", hex)
 }
 
 fn current_secs() -> i64 {
@@ -478,13 +481,6 @@ fn current_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
-}
-
-fn current_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
 }
 
 #[cfg(test)]
@@ -593,7 +589,7 @@ mod tests {
 
         // 手动将令牌设为过期
         {
-            let mut tokens = store.tokens.lock().unwrap();
+            let mut tokens = store.tokens.lock();
             tokens.get_mut("refresh1").unwrap().expires_at = current_secs() - 100;
         }
 
@@ -734,7 +730,7 @@ mod tests {
 
         // 手动将 refresh1 设为过期
         {
-            let mut tokens = store.tokens.lock().unwrap();
+            let mut tokens = store.tokens.lock();
             tokens.get_mut("refresh1").unwrap().expires_at = current_secs() - 100;
         }
 

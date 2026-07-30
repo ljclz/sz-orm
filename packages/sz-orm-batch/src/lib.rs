@@ -166,9 +166,14 @@ impl DefaultBatchOps {
         })
     }
 
-    /// 用反引号包裹标识符（MySQL 风格）。
+    /// 用反引号包裹标识符（MySQL 风格），转义内部反引号为双反引号。
+    ///
+    /// v1.2.1 修复 High H-3（CWE-89 SQL 注入）：原实现未转义列名中的反引号，
+    /// 当 JSON 数据来源不可信（如直接接受 API 请求体）时，攻击者可通过
+    /// JSON key 注入 SQL。MySQL 反引号转义规则：` -> ``（双反引号）。
     fn quote(name: &str) -> String {
-        format!("`{}`", name)
+        let escaped = name.replace('`', "``");
+        format!("`{}`", escaped)
     }
 
     /// 从 JSON 对象提取字段名。

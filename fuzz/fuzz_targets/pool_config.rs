@@ -10,9 +10,17 @@
 //! - `connection_timeout == 0` 导致 health_check 除零
 //! - `max_size == u32::MAX` 导致无限创建连接
 //! - `acquire_timeout == 0` 导致每次 acquire 立即超时
+//!
+//! # 重要
+//!
+//! 不使用 `catch_unwind`：libfuzzer 自身有 panic 信号处理机制，
+//! Duration 溢出会触发 panic，由 libfuzzer 报告为 crash。
+//! 注意：`Instant::now() + Duration::from_secs(u64::MAX)` 在某些平台会 panic，
+//! 这是我们要发现的 bug，不应被吞掉。
 
 use libfuzzer_sys::fuzz_target;
 use sz_orm_core::{PoolConfig, PoolConfigBuilder};
+use std::hint::black_box;
 use std::time::Duration;
 
 /// 从 fuzz 输入中提取 6 个 u32 值（对应 PoolConfig 的 6 个参数）
@@ -37,98 +45,88 @@ fuzz_target!(|data: &[u8]| {
         extract_u32s(data);
 
     // --- PoolConfigBuilder::build（通过 builder 路径） ---
-    let _ = std::panic::catch_unwind(|| {
-        let result = PoolConfigBuilder::new()
-            .max_size(max_size)
-            .min_idle(min_idle)
-            .acquire_timeout(acquire_timeout as u64)
-            .idle_timeout(idle_timeout as u64)
-            .max_lifetime(max_lifetime as u64)
-            .build();
-        if let Ok(config) = result {
-            black_box(&config);
-        }
-    });
+    let result = PoolConfigBuilder::new()
+        .max_size(max_size)
+        .min_idle(min_idle)
+        .acquire_timeout(acquire_timeout as u64)
+        .idle_timeout(idle_timeout as u64)
+        .max_lifetime(max_lifetime as u64)
+        .build();
+    if let Ok(config) = result {
+        black_box(&config);
+    }
 
     // --- PoolConfig 直接构造 + validate（测试极端 Duration 值） ---
-    let _ = std::panic::catch_unwind(|| {
-        let config = PoolConfig {
-            max_size,
-            min_idle,
-            acquire_timeout: Duration::from_secs(acquire_timeout as u64),
-            idle_timeout: Duration::from_secs(idle_timeout as u64),
-            max_lifetime: Duration::from_secs(max_lifetime as u64),
-            connection_timeout: Duration::from_secs(connection_timeout as u64),
-            tls: None,
-            query_timeout: None,
-            max_rows: None,
-            memory_limit: None,
-            on_event: None,
-        };
-        let _ = config.validate();
-        black_box(&config);
-    });
+    let config = PoolConfig {
+        max_size,
+        min_idle,
+        acquire_timeout: Duration::from_secs(acquire_timeout as u64),
+        idle_timeout: Duration::from_secs(idle_timeout as u64),
+        max_lifetime: Duration::from_secs(max_lifetime as u64),
+        connection_timeout: Duration::from_secs(connection_timeout as u64),
+        tls: None,
+        query_timeout: None,
+        max_rows: None,
+        memory_limit: None,
+        on_event: None,
+    };
+    let _ = config.validate();
+    black_box(&config);
 
     // --- Duration 极端值：from_secs(u64::MAX) ---
     // 测试 Instant::now() + Duration 是否溢出
-    let _ = std::panic::catch_unwind(|| {
-        let config = PoolConfig {
-            max_size: 10,
-            min_idle: 1,
-            acquire_timeout: Duration::from_secs(u64::MAX),
-            idle_timeout: Duration::from_secs(u64::MAX),
-            max_lifetime: Duration::from_secs(u64::MAX),
-            connection_timeout: Duration::from_secs(u64::MAX),
-            tls: None,
-            query_timeout: None,
-            max_rows: None,
-            memory_limit: None,
-            on_event: None,
-        };
-        let _ = config.validate();
-        // 不实际创建 Pool（需要 factory），仅测试 Duration 运算
-        let _ = std::time::Instant::now() + config.acquire_timeout;
-    });
+    // 注：此处的 panic 正是我们要发现的 bug，不能被吞掉
+    let config = PoolConfig {
+        max_size: 10,
+        min_idle: 1,
+        acquire_timeout: Duration::from_secs(u64::MAX),
+        idle_timeout: Duration::from_secs(u64::MAX),
+        max_lifetime: Duration::from_secs(u64::MAX),
+        connection_timeout: Duration::from_secs(u64::MAX),
+        tls: None,
+        query_timeout: None,
+        max_rows: None,
+        memory_limit: None,
+        on_event: None,
+    };
+    let _ = config.validate();
+    // 不实际创建 Pool（需要 factory），仅测试 Duration 运算
+    // Instant + 极端 Duration 可能 panic（这正是 fuzz 要发现的）
+    let _ = std::time::Instant::now() + config.acquire_timeout;
 
     // --- Duration 为 0 的边界（除零/立即超时） ---
-    let _ = std::panic::catch_unwind(|| {
-        let config = PoolConfig {
-            max_size: 10,
-            min_idle: 0,
-            acquire_timeout: Duration::ZERO,
-            idle_timeout: Duration::ZERO,
-            max_lifetime: Duration::ZERO,
-            connection_timeout: Duration::ZERO,
-            tls: None,
-            query_timeout: None,
-            max_rows: None,
-            memory_limit: None,
-            on_event: None,
-        };
-        let _ = config.validate();
-        // connection_timeout / 2 = 0（health_check 中的 ping_timeout）
-        let ping_timeout = config.connection_timeout / 2;
-        black_box(&ping_timeout);
-    });
+    let config = PoolConfig {
+        max_size: 10,
+        min_idle: 0,
+        acquire_timeout: Duration::ZERO,
+        idle_timeout: Duration::ZERO,
+        max_lifetime: Duration::ZERO,
+        connection_timeout: Duration::ZERO,
+        tls: None,
+        query_timeout: None,
+        max_rows: None,
+        memory_limit: None,
+        on_event: None,
+    };
+    let _ = config.validate();
+    // connection_timeout / 2 = 0（health_check 中的 ping_timeout）
+    let ping_timeout = config.connection_timeout / 2;
+    black_box(&ping_timeout);
 
     // --- max_size = u32::MAX（无限连接创建） ---
-    let _ = std::panic::catch_unwind(|| {
-        let config = PoolConfig {
-            max_size: u32::MAX,
-            min_idle: 0,
-            acquire_timeout: Duration::from_secs(1),
-            idle_timeout: Duration::from_secs(60),
-            max_lifetime: Duration::from_secs(300),
-            connection_timeout: Duration::from_secs(5),
-            tls: None,
-            query_timeout: None,
-            max_rows: None,
-            memory_limit: None,
-            on_event: None,
-        };
-        let _ = config.validate();
-        black_box(&config);
-    });
+    let config = PoolConfig {
+        max_size: u32::MAX,
+        min_idle: 0,
+        acquire_timeout: Duration::from_secs(1),
+        idle_timeout: Duration::from_secs(60),
+        max_lifetime: Duration::from_secs(300),
+        connection_timeout: Duration::from_secs(5),
+        tls: None,
+        query_timeout: None,
+        max_rows: None,
+        memory_limit: None,
+        on_event: None,
+    };
+    let _ = config.validate();
+    black_box(&config);
 });
-
-fn black_box<T>(_: &T) {}

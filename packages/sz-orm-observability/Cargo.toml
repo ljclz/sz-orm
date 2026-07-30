@@ -8,14 +8,16 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM 可观测性模块：Prometheus exporter + OTLP exporter + SLO 燃烧率 + Grafana 仪表盘模板"
+description = "SZ-ORM 可观测性模块：Prometheus exporter (TcpListener) + SLO 燃烧率 + Grafana 仪表盘模板；OTLP 导出请使用 sz-orm-tracing 的 otlp feature"
 
 [features]
 default = []
-# 启用 Prometheus exporter（暴露 /metrics HTTP 端点）
-prometheus = ["dep:hyper", "dep:http-body-util"]
-# 启用 OTLP exporter（导出 traces 到 OpenTelemetry Collector）
-otlp = ["dep:opentelemetry", "dep:opentelemetry-otlp", "dep:opentelemetry_sdk"]
+# 启用 Prometheus exporter（暴露 /metrics HTTP 端点，基于 tokio TcpListener）
+# 注：start_metrics_server 始终可用，此 feature 保留供未来扩展（如 hyper 实现）
+prometheus = []
+# 启用真实 Pushgateway HTTP PUT 推送（基于 reqwest）
+# 未启用时 PushgatewayExporter::push 仅记录到内存（用于测试）
+push-gateway = ["reqwest"]
 
 [dependencies]
 sz-orm-core = { workspace = true }
@@ -27,13 +29,8 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
-# Prometheus exporter 依赖（可选）
-hyper = { version = "1.4", optional = true, features = ["server", "http1"] }
-http-body-util = { version = "0.1", optional = true }
-# OTLP exporter 依赖（可选）
-opentelemetry = { version = "0.27", optional = true }
-opentelemetry-otlp = { version = "0.27", optional = true, features = ["tokio"] }
-opentelemetry_sdk = { version = "0.27", optional = true, features = ["rt-tokio"] }
+# 真实 Pushgateway HTTP PUT 推送（可选，通过 push-gateway feature 启用）
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

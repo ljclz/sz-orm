@@ -1,6 +1,6 @@
 [package]
 name = "sz-orm-config"
-description = "Config management: multi-source (file/env/etcd/consul) with hot-reload"
+description = "Config management: in-memory config center with hot-reload API (file/env/etcd/consul data sources not yet integrated)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

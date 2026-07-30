@@ -128,7 +128,13 @@ fn test_hook_dispatcher_is_zero_sized_contract() {
 
 #[test]
 fn test_hook_registry_new_contract() {
-    let _registry = HookRegistry::new();
+    let registry = HookRegistry::new();
+    // 新建注册表应无任何钩子：所有事件 count 为 0
+    assert_eq!(registry.count(HookEvent::BeforeInsert), 0);
+    assert_eq!(registry.count(HookEvent::AfterUpdate), 0);
+    // 派发空事件应成功（无 hook 被触发）
+    let ctx = HookContext::new();
+    assert!(registry.dispatch(HookEvent::BeforeInsert, &ctx).is_ok());
 }
 
 #[test]
@@ -157,7 +163,10 @@ fn test_hook_registry_register_and_dispatch_contract() {
 
 #[test]
 fn test_scope_registry_new_contract() {
-    let _registry = ScopeRegistry::new();
+    let registry = ScopeRegistry::new();
+    // 新建注册表所有作用域默认启用
+    assert!(registry.is_enabled("soft_delete"));
+    assert!(registry.is_enabled("tenant"));
 }
 
 // ===== §11.5 SoftDelete trait 契约（编译时验证） =====
@@ -312,6 +321,13 @@ impl Hookable for HookableUser {}
 
 #[test]
 fn test_hookable_trait_compiles_contract() {
-    // Hookable trait 默认实现应编译通过
-    let _user = HookableUser::default();
+    // Hookable trait 默认实现应编译通过，且默认 no-op 钩子返回 Ok(())
+    let user = HookableUser::default();
+    let mut ctx = HookContext::new();
+    assert!(HookableUser::before_insert(&mut ctx).is_ok());
+    assert!(HookableUser::after_insert(&ctx, &user.pk()).is_ok());
+    assert!(HookableUser::before_update(&mut ctx, &user.pk()).is_ok());
+    assert!(HookableUser::after_update(&ctx, &user.pk()).is_ok());
+    assert!(HookableUser::before_delete(&mut ctx, &user.pk()).is_ok());
+    assert!(HookableUser::after_delete(&ctx, &user.pk()).is_ok());
 }

@@ -196,6 +196,13 @@ mod tests {
             .publish("test", vec![1, 2, 3], QoS::AtLeastOnce)
             .await;
         assert!(result.is_ok());
+        // 验证消息已真正进入内部队列：计数递增、内容与 QoS 一致
+        assert_eq!(plugin.message_count().await, 1, "publish 后消息计数应为 1");
+        let msgs = plugin.messages_for("test").await;
+        assert_eq!(msgs.len(), 1, "应能按 topic 取回 1 条消息");
+        assert_eq!(msgs[0].payload, vec![1, 2, 3], "payload 应与发布内容一致");
+        assert_eq!(msgs[0].qos, QoS::AtLeastOnce, "QoS 应为 AtLeastOnce");
+        assert_eq!(msgs[0].topic, "test", "topic 应为 test");
     }
 
     #[tokio::test]
@@ -206,6 +213,17 @@ mod tests {
         plugin.connect().await.unwrap();
         let result = plugin.subscribe("home/#", QoS::ExactlyOnce).await;
         assert!(result.is_ok());
+        // 验证订阅真正生效：计数、成员、QoS 三个维度
+        assert_eq!(plugin.subscription_count().await, 1, "订阅后计数应为 1");
+        assert!(
+            plugin.is_subscribed("home/#").await,
+            "is_subscribed 应返回 true"
+        );
+        assert_eq!(
+            plugin.subscription_qos("home/#").await,
+            Some(QoS::ExactlyOnce),
+            "订阅 QoS 应为 ExactlyOnce"
+        );
     }
 
     #[tokio::test]
@@ -214,8 +232,26 @@ mod tests {
         let mut plugin = MqttPlugin::new(config);
 
         plugin.connect().await.unwrap();
+        plugin.subscribe("home/living", QoS::AtLeastOnce).await.unwrap();
+        assert_eq!(plugin.subscription_count().await, 1, "前置：订阅后计数应为 1");
+
         let result = plugin.unsubscribe("home/living").await;
         assert!(result.is_ok());
+        // 验证取消订阅真正生效：计数归零、成员查询返回 false
+        assert_eq!(
+            plugin.subscription_count().await,
+            0,
+            "取消订阅后计数应归零"
+        );
+        assert!(
+            !plugin.is_subscribed("home/living").await,
+            "is_subscribed 应返回 false"
+        );
+        assert_eq!(
+            plugin.subscription_qos("home/living").await,
+            None,
+            "取消订阅后 QoS 查询应返回 None"
+        );
     }
 
     #[tokio::test]

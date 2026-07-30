@@ -1,7 +1,7 @@
 # SZ-ORM 公共 API 行为契约清单
 
-> **版本**: v1.0.0
-> **更新日期**: 2026-07-21
+> **版本**: v1.2.0
+> **更新日期**: 2026-07-29
 > **维护规则**: 任何修改公共 API 行为的 PR 必须同步更新本文档
 > **关联测试**: [packages/sz-orm-core/tests/contracts/](../packages/sz-orm-core/tests/contracts/)
 > **关联审计**: [scripts/audit-api-changes.ps1](../scripts/audit-api-changes.ps1) / [.sh](../scripts/audit-api-changes.sh)
@@ -37,14 +37,16 @@
 
 ## 1. value 模块 — Value 枚举
 
-### 1.1 `Value` 枚举（20 种变体）
+### 1.1 `Value` 枚举（22 种变体）
 
-**签名**: `pub enum Value { Null, Bool(bool), I8..I64, U8..U64, F32, F64, String(String), Bytes(Vec<u8>), Uuid(String), Date(String), DateTime(String), Time(String), Json(String), Array(Vec<Value>) }`
+**签名**: `pub enum Value { Null, Bool(bool), I8(i8), I16(i16), I32(i32), I64(i64), U8(u8), U16(u16), U32(u32), U64(u64), F32(f32), F64(f64), Decimal(String), String(String), Bytes(Vec<u8>), Uuid(String), Date(String), DateTime(String), Time(String), Json(String), Array(Vec<Value>), Object(HashMap<String, Value>) }`
 
 **不变量**:
 - `Value` 是 `Clone + Debug + Send + Sync`
 - 所有变体可序列化为 SQL 参数（通过 `to_param()`）
 - `Value::Null` 在 SQL 参数中渲染为 `NULL`
+- `Decimal` 以字符串形式存储以避免 f64 精度丢失
+- `Object` 变体为 `HashMap<String, Value>`，用于存储关系数据
 
 **契约**:
 
@@ -74,9 +76,11 @@
 
 ## 2. db_type 模块 — DbType
 
-### 2.1 `DbType` 枚举（11 种数据库）
+### 2.1 `DbType` 枚举（20 种数据库）
 
-**签名**: `pub enum DbType { MySQL, PostgreSQL, Sqlite, Redis, MongoDB, ClickHouse, Oracle, OceanBase, SqlServer, VectorDb, PureJsDb }`
+**签名**: `pub enum DbType { MySQL, PostgreSQL, Sqlite, Redis, MongoDB, ClickHouse, Oracle, OceanBase, SqlServer, VectorDb, PureJsDb, Dameng, Kingbase, Db2, MariaDB, TiDB, PolarDB, GaussDB, GBase, Sybase }`
+
+> 注：枚举标注 `#[non_exhaustive]`，未来可能继续扩展；下游 match 必须保留 `_` 通配分支。
 
 **契约**:
 
@@ -84,27 +88,32 @@
 |------|------|-------|
 | `DbType::as_str()` | `"mysql"`/`"postgres"`/`"sqlite"` 等 | 小写字符串，稳定不变 |
 | `DbType::default_port()` | 3306/5432/0 等 | Redis=6379, MongoDB=27017, ClickHouse=8123, Oracle=1521 |
-| `DbType::supports_transaction()` | bool | SQL 数据库（MySQL/PG/SQLite/Oracle/OceanBase/SqlServer）返回 true；NoSQL 返回 false |
+| `DbType::supports_transaction()` | bool | SQL 数据库（MySQL/PG/SQLite/Oracle/OceanBase/SqlServer/Dameng/Kingbase/Db2/MariaDB/TiDB/PolarDB/GaussDB/GBase/Sybase）返回 true；NoSQL（Redis/MongoDB/ClickHouse/VectorDb/PureJsDb）返回 false |
 | `DbType::supports_foreign_key()` | bool | 同上 |
 
 **不变量**:
 - 枚举顺序稳定，不重新排序（影响序列化）
 - 新增 DbType 必须实现 `as_str/default_port/supports_transaction/supports_foreign_key`
+- 兼容方言映射：`Dameng`→Oracle 方言、`Kingbase`/`PolarDB`/`GaussDB`→PostgreSQL 方言、`OceanBase`/`MariaDB`/`TiDB`→MySQL 方言、`GBase`/`Sybase`→各自方言
 
 ---
 
 ## 3. error 模块 — 错误类型体系
 
-### 3.1 `DbError`（20 变体，错误码 DB001-DB020）
+### 3.1 `DbError`（24 变体，错误码 DB001-DB023，Contextual 透传 source 错误码）
+
+**变体**: `QueryError | ConnectionError | ConnectionRefused | ConnectionTimeout | PoolError(PoolError) | CacheError(CacheError) | TxError(TxError) | MigrationError | Unsupported | ConfigError | SerdeError | NotFound | AlreadyExists | ConstraintViolation | UniqueViolation | ForeignKeyViolation | NullValue | InvalidInput | Internal | IoError | Hook | TenantError | Validation | Contextual { source, context }`
 
 **契约**:
 - 每个变体有唯一错误码（`error_code()` 返回 `"DB001"` 等）
+- `Contextual` 不分配独立错误码，而是透传内部 `source.error_code()`
 - `is_retryable()` 对 `ConnectionTimeout`/`ConnectionRefused` 返回 true，其他 false
 - `Display` 实现稳定（影响日志/告警匹配）
 
 **已知陷阱**:
 - `DbError::PoolError(_)` 包装 `PoolError`，`source()` 返回 `Some(&PoolError)`
 - 错误码字符串不可变（破坏会断日志匹配）
+- `DbError::Contextual` 通过 `with_context()` 创建，包装原始错误 + `ErrorContext` 链
 
 ### 3.2 `PoolError`（6 变体，PL001-PL006）
 

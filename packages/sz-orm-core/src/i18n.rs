@@ -115,7 +115,7 @@ fn catalog() -> &'static RwLock<MessageCatalog> {
 ///
 /// 覆盖现有目录。通常在应用启动时调用一次。
 pub fn set_catalog(new_catalog: MessageCatalog) {
-    let mut guard = catalog().write().expect("i18n catalog poisoned");
+    let mut guard = catalog().write().unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = new_catalog;
 }
 
@@ -123,7 +123,7 @@ pub fn set_catalog(new_catalog: MessageCatalog) {
 ///
 /// 向现有目录添加或覆盖单条翻译。
 pub fn register(key: MessageKey, msg: impl Into<String>) {
-    let mut guard = catalog().write().expect("i18n catalog poisoned");
+    let mut guard = catalog().write().unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.insert(key, msg.into());
 }
 
@@ -131,7 +131,7 @@ pub fn register(key: MessageKey, msg: impl Into<String>) {
 ///
 /// 恢复默认中文消息。
 pub fn clear() {
-    let mut guard = catalog().write().expect("i18n catalog poisoned");
+    let mut guard = catalog().write().unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.clear();
 }
 
@@ -140,8 +140,8 @@ pub fn clear() {
 /// 若目录中存在翻译，则使用翻译并用 `args` 替换 `{0}`、`{1}` 等占位符；
 /// 否则返回 `key.default_msg()`。
 pub fn translate(key: MessageKey, args: &[&str]) -> String {
-    let guard = catalog().read().expect("i18n catalog poisoned");
-    if let Some(template) = guard.get(&key) {
+    let catalog = catalog().read().map(|g| g.clone()).unwrap_or_default();
+    if let Some(template) = catalog.get(&key) {
         format_args(template, args)
     } else {
         key.default_msg().to_string()

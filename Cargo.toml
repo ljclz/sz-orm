@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "1.2.0"
+version = "1.2.1"
 edition = "2021"
 authors = ["SZ-ORM Team"]
 license = "MIT"

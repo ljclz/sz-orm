@@ -1,3 +1,15 @@
+//! # Tencent COS Storage（**MOCK-ONLY，非生产可用**）
+//!
+//! ⚠️ **重要警告：本模块为内存 Mock 实现，未集成真实腾讯云 COS SDK。**
+//!
+//! - 所有数据存储在进程内 `HashMap`，重启即丢失
+//! - 不执行任何 HTTP 请求，不与真实 COS 服务交互
+//! - 不支持认证、签名、TLS、分片上传等任何 COS 生产特性
+//! - **请勿用于生产环境**——仅适用于单元测试与本地开发
+//!
+//! 如需真实 COS 集成，请基于 [`crate::storage::Storage`] trait
+//! 接入腾讯云官方 SDK 实现。
+
 use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -5,6 +17,10 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// 腾讯云 COS 存储后端（**Mock 实现**）
+///
+/// ⚠️ 仅用于测试。所有数据存储在内存 `HashMap`，不与真实 COS 服务交互。
+/// 如需生产使用，请实现 `Storage` trait 接入官方 SDK。
 pub struct TencentCosStorage {
     pub bucket: String,
     pub region: String,

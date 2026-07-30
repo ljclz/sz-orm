@@ -14,7 +14,8 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
+use parking_lot::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,7 +82,7 @@ impl GrpcServer {
         }
         let addr = format!("{}:{}", self.address, self.port);
         {
-            let mut reg = global_registry().write().unwrap();
+            let mut reg = global_registry().write();
             reg.definitions.insert(addr.clone(), self.services.clone());
             // Always create the services map entry so clients can distinguish
             // "server up but service missing" from "no server at all".
@@ -109,7 +110,7 @@ impl GrpcServerHandle {
 
     /// Removes this address's user service entry from the global registry.
     pub fn stop(&self) -> Result<(), GrpcError> {
-        let mut reg = global_registry().write().unwrap();
+        let mut reg = global_registry().write();
         if let Some(services) = reg.services.get_mut(&self.address) {
             services.remove("UserService");
         }
@@ -125,7 +126,7 @@ impl GrpcServerHandle {
 impl Drop for GrpcServerHandle {
     fn drop(&mut self) {
         // Best-effort cleanup so tests do not leak state into each other.
-        if let Ok(mut reg) = global_registry().write() {
+        if let Some(mut reg) = global_registry().try_write() {
             reg.services.remove(&self.address);
             reg.definitions.remove(&self.address);
         }
@@ -178,16 +179,16 @@ impl InMemoryUserService {
     }
 
     pub fn with_user(self, user: UserResponse) -> Self {
-        self.users.write().unwrap().insert(user.id, user);
+        self.users.write().insert(user.id, user);
         self
     }
 
     pub fn add_user(&self, user: UserResponse) {
-        self.users.write().unwrap().insert(user.id, user);
+        self.users.write().insert(user.id, user);
     }
 
     pub fn remove_user(&self, id: i64) -> Option<UserResponse> {
-        self.users.write().unwrap().remove(&id)
+        self.users.write().remove(&id)
     }
 }
 
@@ -199,7 +200,7 @@ impl Default for InMemoryUserService {
 
 impl UserGrpcService for InMemoryUserService {
     fn get_user(&self, request: UserRequest) -> Result<UserResponse, GrpcError> {
-        let users = self.users.read().unwrap();
+        let users = self.users.read();
         users
             .get(&request.id)
             .cloned()
@@ -207,7 +208,7 @@ impl UserGrpcService for InMemoryUserService {
     }
 
     fn list_users(&self) -> Result<Vec<UserResponse>, GrpcError> {
-        let users = self.users.read().unwrap();
+        let users = self.users.read();
         let mut list: Vec<UserResponse> = users.values().cloned().collect();
         list.sort_by_key(|a| a.id);
         Ok(list)
@@ -233,7 +234,7 @@ impl UserGrpcService for InMemoryUserService {
 /// 调用方可通过 [`GrpcStream::is_closed`] 判断流是否已结束。
 pub struct GrpcStream<T> {
     /// 待消费的元素队列，使用 Mutex 保证线程安全。
-    items: std::sync::Mutex<Vec<T>>,
+    items: Mutex<Vec<T>>,
     /// 流是否已关闭的标记，一旦关闭不再接受新元素。
     closed: AtomicBool,
 }
@@ -242,7 +243,7 @@ impl<T> GrpcStream<T> {
     /// 创建一个空的、未关闭的流。
     pub fn new() -> Self {
         Self {
-            items: std::sync::Mutex::new(Vec::new()),
+            items: Mutex::new(Vec::new()),
             closed: AtomicBool::new(false),
         }
     }
@@ -251,7 +252,7 @@ impl<T> GrpcStream<T> {
     ///
     /// 即使流已关闭也会推入（调用方应自行检查 [`GrpcStream::is_closed`]）。
     pub fn push(&self, item: T) {
-        self.items.lock().unwrap().push(item);
+        self.items.lock().push(item);
     }
 
     /// 从流中取出下一个元素（FIFO 顺序）。
@@ -262,7 +263,7 @@ impl<T> GrpcStream<T> {
     /// 调用方应结合 [`GrpcStream::is_closed`] 判断流是否真正结束：
     /// `next() == None && is_closed() == true` 表示流已结束且无残留数据。
     pub fn next(&self) -> Option<T> {
-        let mut items = self.items.lock().unwrap();
+        let mut items = self.items.lock();
         if items.is_empty() {
             None
         } else {
@@ -290,7 +291,7 @@ impl<T> Default for GrpcStream<T> {
 
 impl<T: std::fmt::Debug> std::fmt::Debug for GrpcStream<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let items_len = self.items.lock().unwrap().len();
+        let items_len = self.items.lock().len();
         f.debug_struct("GrpcStream")
             .field("pending_items", &items_len)
             .field("closed", &self.is_closed())
@@ -659,7 +660,7 @@ impl GrpcChannel {
 
             // 3. 实际调用（使用 IIFE 以便使用 ? 操作符）
             let result = (|| {
-                let reg = global_registry().read().unwrap();
+                let reg = global_registry().read();
                 let services = reg.services.get(&self.address).ok_or_else(|| {
                     GrpcError::ConnectionFailed(format!("No server listening at {}", self.address))
                 })?;
@@ -717,7 +718,7 @@ impl GrpcChannel {
 
     /// Returns the registered service definitions for this address (metadata only).
     pub fn list_services(&self) -> Vec<GrpcServiceDef> {
-        let reg = global_registry().read().unwrap();
+        let reg = global_registry().read();
         reg.definitions
             .get(&self.address)
             .cloned()
@@ -840,6 +841,17 @@ mod tests {
     fn test_user_grpc_client_connect() {
         let client = UserGrpcClient::connect("localhost:50051");
         assert!(client.is_ok());
+        // 验证连接后客户端持有正确的地址（防止 is_ok() 假成功）
+        let client = client.unwrap();
+        assert_eq!(
+            client.channel().address(),
+            "localhost:50051",
+            "客户端地址应与传入参数一致"
+        );
+        assert!(
+            client.channel().metadata().is_empty(),
+            "新连接的 metadata 应为空"
+        );
     }
 
     #[test]
@@ -1014,7 +1026,11 @@ mod tests {
         let handle = server.start().expect("server start");
 
         let client = UserGrpcClient::connect(&addr).expect("connect");
-        assert!(client.get_user(1).is_ok());
+        let resp = client.get_user(1).expect("get_user before stop");
+        // 验证返回的用户数据正确，而不仅仅是 is_ok()
+        assert_eq!(resp.id, 1);
+        assert_eq!(resp.username, "a");
+        assert_eq!(resp.email, "a@x");
 
         handle.stop().expect("stop");
         let result = client.get_user(1);
@@ -1272,13 +1288,30 @@ mod tests {
     #[test]
     fn test_logging_interceptor_returns_ok() {
         let interceptor = LoggingInterceptor;
+        let mut metadata = HashMap::new();
+        metadata.insert("trace-id".to_string(), "abc-123".to_string());
         let req = InterceptorRequest {
             method: "GetUser".to_string(),
             service_name: "UserService".to_string(),
-            metadata: HashMap::new(),
+            metadata,
         };
-        // LoggingInterceptor 始终返回 Ok
-        assert!(interceptor.call(&req).is_ok());
+        // LoggingInterceptor 始终返回 Ok，且不修改请求
+        let result = interceptor.call(&req);
+        assert!(result.is_ok());
+        // LoggingInterceptor.call 返回 Result<(), GrpcError>，Ok(()) 已由 is_ok 验证
+        // 验证请求字段未被拦截器修改
+        assert_eq!(req.method, "GetUser", "method 不应被修改");
+        assert_eq!(req.service_name, "UserService", "service_name 不应被修改");
+        assert_eq!(
+            req.metadata.len(),
+            1,
+            "metadata 数量不应被修改"
+        );
+        assert_eq!(
+            req.metadata.get("trace-id"),
+            Some(&"abc-123".to_string()),
+            "metadata 内容不应被修改"
+        );
     }
 
     #[test]
@@ -1317,12 +1350,20 @@ mod tests {
             service_name: "UserService".to_string(),
             metadata,
         };
-        assert!(interceptor.call(&req).is_ok());
+        let result = interceptor.call(&req);
+        assert!(result.is_ok());
+        // AuthInterceptor.call 返回 Result<(), GrpcError>，Ok(()) 已由 is_ok 验证
+        // 验证 token 匹配是精确匹配（不会因前缀相同而误判）
+        assert_eq!(
+            req.metadata.get("authorization"),
+            Some(&"Bearer secret".to_string()),
+            "authorization 不应被修改"
+        );
     }
 
     #[test]
     fn test_interceptor_execution_order() {
-        use std::sync::Mutex;
+        use parking_lot::Mutex;
 
         /// 测试用拦截器：将自身名称追加到共享日志，用于验证执行顺序。
         struct OrderInterceptor {
@@ -1331,7 +1372,7 @@ mod tests {
         }
         impl Interceptor for OrderInterceptor {
             fn call(&self, _req: &InterceptorRequest) -> Result<(), GrpcError> {
-                self.log.lock().unwrap().push(self.name);
+                self.log.lock().push(self.name);
                 Ok(())
             }
         }
@@ -1365,7 +1406,7 @@ mod tests {
             })
             .expect("call should succeed");
 
-        let recorded = log.lock().unwrap().clone();
+        let recorded = log.lock().clone();
         assert_eq!(recorded, vec!["first", "second", "third"]);
     }
 
@@ -1562,6 +1603,13 @@ mod tests {
         // 已耗时 1ms < 30s deadline
         let result = policy.check_elapsed(Duration::from_millis(1));
         assert!(result.is_ok());
+        // check_elapsed 返回 Result<(), GrpcError>，Ok(()) 已由 is_ok 验证
+        // 验证 deadline 字段未被 check_elapsed 修改
+        assert_eq!(
+            policy.deadline,
+            Duration::from_secs(30),
+            "deadline 不应被 check_elapsed 修改"
+        );
     }
 
     #[test]
@@ -1578,6 +1626,13 @@ mod tests {
         let policy = TimeoutPolicy::new(Duration::from_millis(100));
         let result = policy.check_elapsed(Duration::from_millis(100));
         assert!(result.is_ok());
+        // check_elapsed 返回 Result<(), GrpcError>，Ok(()) 已由 is_ok 验证
+        // 反例：elapsed 比 deadline 多 1ns 就应超时（> 而非 >= 的严格验证）
+        let result_over = policy.check_elapsed(Duration::from_nanos(100_000_001));
+        assert!(
+            matches!(result_over, Err(GrpcError::Timeout(_))),
+            "elapsed 比 deadline 多 1ns 应超时"
+        );
     }
 
     #[test]
@@ -1686,7 +1741,7 @@ mod tests {
         });
         assert!(matches!(result, Err(GrpcError::MethodNotFound(_))));
         // 验证只调用了一次（无重试）
-        let svc_ref = global_registry().read().unwrap();
+        let svc_ref = global_registry().read();
         // 通过注册表间接验证：服务仍在
         assert!(svc_ref
             .services

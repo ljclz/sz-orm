@@ -269,6 +269,8 @@ mod tests {
 
         let result = pusher.push_to_room("room1", vec![1, 2, 3]).await;
         assert!(result.is_ok());
+        // 验证推送成功计数：1 个连接订阅了 room1
+        assert_eq!(result.unwrap(), 1, "应向 1 个连接推送成功");
     }
 
     #[tokio::test]
@@ -285,10 +287,12 @@ mod tests {
     #[tokio::test]
     async fn test_realtime_pusher_push_order_status() {
         let pusher = RealtimePusher::new();
-        pusher.register_connection("conn1").await;
+        pusher.register_connection_with_user("conn1", 123).await;
 
         let result = pusher.push_order_status(123, 456, "shipped").await;
         assert!(result.is_ok());
+        // 验证推送成功计数：user_id=123 注册了 1 个连接
+        assert_eq!(result.unwrap(), 1, "应向 1 个 user_id=123 的连接推送成功");
     }
 
     #[tokio::test]
@@ -299,5 +303,7 @@ mod tests {
 
         let result = pusher.push_customer_message("room1", 123, "hello").await;
         assert!(result.is_ok());
+        // 验证推送成功计数
+        assert_eq!(result.unwrap(), 1, "应向 1 个订阅了 room1 的连接推送成功");
     }
 }

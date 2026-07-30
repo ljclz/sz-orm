@@ -92,11 +92,25 @@ impl RowLevelSecurity {
     }
 
     /// 为表添加租户隔离规则
+    ///
+    /// # 安全
+    /// - `table` 会校验为合法 SQL 标识符（防注入）
+    /// - `tenant_column` 会校验为合法 SQL 标识符（防注入）
+    /// - `tenant_id` 会转义单引号与反斜杠（防注入）
     pub fn tenant_isolation(mut self, table: &str, tenant_column: &str) -> Self {
         if let Some(ref tenant_id) = self.context.tenant_id {
+            // 校验表名为合法标识符
+            if crate::sql_safety::validate_identifier(table, "table").is_err() {
+                return self;
+            }
+            // 校验列名为合法标识符
+            if crate::sql_safety::validate_identifier(tenant_column, "tenant_column").is_err() {
+                return self;
+            }
+            let escaped_id = escape_sql_literal(tenant_id);
             self.context.add_rule(AccessRule {
                 table: table.to_string(),
-                row_filter: Some(format!("{} = '{}'", tenant_column, tenant_id)),
+                row_filter: Some(format!("{} = '{}'", tenant_column, escaped_id)),
                 allowed_columns: None,
                 denied_columns: HashSet::new(),
             });
@@ -105,11 +119,25 @@ impl RowLevelSecurity {
     }
 
     /// 为表添加用户隔离规则
+    ///
+    /// # 安全
+    /// - `table` 会校验为合法 SQL 标识符（防注入）
+    /// - `user_column` 会校验为合法 SQL 标识符（防注入）
+    /// - `user_id` 会转义单引号与反斜杠（防注入）
     pub fn user_isolation(mut self, table: &str, user_column: &str) -> Self {
         if let Some(ref user_id) = self.context.user_id {
+            // 校验表名为合法标识符
+            if crate::sql_safety::validate_identifier(table, "table").is_err() {
+                return self;
+            }
+            // 校验列名为合法标识符
+            if crate::sql_safety::validate_identifier(user_column, "user_column").is_err() {
+                return self;
+            }
+            let escaped_id = escape_sql_literal(user_id);
             self.context.add_rule(AccessRule {
                 table: table.to_string(),
-                row_filter: Some(format!("{} = '{}'", user_column, user_id)),
+                row_filter: Some(format!("{} = '{}'", user_column, escaped_id)),
                 allowed_columns: None,
                 denied_columns: HashSet::new(),
             });
@@ -138,6 +166,36 @@ impl RowLevelSecurity {
     pub fn build(self) -> AccessContext {
         self.context
     }
+}
+
+/// 转义 SQL 字面量字符串
+///
+/// # 处理规则
+///
+/// 1. 单引号 `'` → `''`（SQL 标准）
+/// 2. 反斜杠 `\` → `\\`（MySQL 默认模式 `NO_BACKSLASH_ESCAPES` 未启用时为转义字符）
+/// 3. NULL 字节 `\0` → `\0`（MySQL 会截断字符串）
+/// 4. 换行 `\n` / 回车 `\r` → `\\n` / `\\r`（防止日志注入）
+/// 5. Ctrl+Z `\x1a` → `\\Z`（Windows MySQL 截断字符）
+///
+/// # 注意
+///
+/// 此函数仅用于无法使用参数化查询的边角场景（如动态 WHERE 拼接）。
+/// **首选方案永远是参数化查询**（`?` 占位符 + Value 绑定）。
+fn escape_sql_literal(s: &str) -> String {
+    let mut out = String::with_capacity(s.len() + 8);
+    for ch in s.chars() {
+        match ch {
+            '\'' => out.push_str("''"),
+            '\\' => out.push_str("\\\\"),
+            '\0' => out.push_str("\\0"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\x1a' => out.push_str("\\Z"),
+            other => out.push(other),
+        }
+    }
+    out
 }
 
 #[cfg(test)]
@@ -262,5 +320,114 @@ mod tests {
             .tenant_isolation("orders", "tenant_id")
             .build();
         assert_eq!(built.row_filter("orders"), None);
+    }
+
+    // ===== SQL 注入防护测试 =====
+
+    #[test]
+    fn test_escape_sql_literal_single_quote() {
+        // 单引号 → '' （SQL 标准）
+        assert_eq!(escape_sql_literal("O'Brien"), "O''Brien");
+    }
+
+    #[test]
+    fn test_escape_sql_literal_backslash() {
+        // 反斜杠 → \\（MySQL 默认模式防注入）
+        assert_eq!(escape_sql_literal(r"a\b"), r"a\\b");
+        assert_eq!(escape_sql_literal(r"\"), r"\\");
+    }
+
+    #[test]
+    fn test_escape_sql_literal_classic_injection() {
+        // 经典注入 payload：' OR '1'='1
+        let escaped = escape_sql_literal("' OR '1'='1");
+        // 单引号成对出现，不会破坏外层字面量
+        let quote_count = escaped.matches('\'').count();
+        assert_eq!(quote_count % 2, 0, "escaped quotes must be paired");
+        assert_eq!(escaped, "'' OR ''1''=''1");
+    }
+
+    #[test]
+    fn test_escape_sql_literal_mysql_backslash_injection() {
+        // MySQL 注入 payload：\'
+        // 攻击者用反斜杠让单引号转义失效，escape 后应同时处理 \ 和 '
+        let payload = r"\' OR 1=1--";
+        let escaped = escape_sql_literal(payload);
+        // \ → \\，' → ''，结果不应包含未配对单引号
+        assert_eq!(escaped, r"\\'' OR 1=1--");
+        let quote_count = escaped.matches('\'').count();
+        assert_eq!(quote_count % 2, 0, "escaped quotes must be paired");
+    }
+
+    #[test]
+    fn test_escape_sql_literal_null_byte() {
+        // NULL 字节会被 MySQL 截断字符串
+        assert_eq!(escape_sql_literal("a\0b"), "a\\0b");
+    }
+
+    #[test]
+    fn test_escape_sql_literal_newline_carriage_return() {
+        // 换行/回车防止日志注入
+        assert_eq!(escape_sql_literal("a\nb\rc"), r"a\nb\rc");
+    }
+
+    #[test]
+    fn test_escape_sql_literal_ctrl_z() {
+        // Windows MySQL Ctrl+Z 截断：\x1a → \Z（反斜杠 + Z，共 2 字符）
+        assert_eq!(escape_sql_literal("a\x1ab"), "a\\Zb");
+    }
+
+    #[test]
+    fn test_tenant_isolation_rejects_invalid_table_name() {
+        // 表名为非法标识符时不应添加规则
+        let ctx = AccessContext::new().with_tenant("t1");
+        let built = RowLevelSecurity::new(ctx)
+            .tenant_isolation("orders; DROP TABLE users", "tenant_id")
+            .build();
+        assert_eq!(built.row_filter("orders; DROP TABLE users"), None);
+    }
+
+    #[test]
+    fn test_tenant_isolation_rejects_invalid_column_name() {
+        // 列名为非法标识符时不应添加规则
+        let ctx = AccessContext::new().with_tenant("t1");
+        let built = RowLevelSecurity::new(ctx)
+            .tenant_isolation("orders", "tenant_id; DROP TABLE users")
+            .build();
+        assert_eq!(built.row_filter("orders"), None);
+    }
+
+    #[test]
+    fn test_tenant_isolation_escapes_tenant_id_injection() {
+        // tenant_id 含注入 payload，应被正确转义
+        let ctx = AccessContext::new().with_tenant("' OR '1'='1");
+        let built = RowLevelSecurity::new(ctx)
+            .tenant_isolation("orders", "tenant_id")
+            .build();
+        let filter = built.row_filter("orders").unwrap();
+        // 单引号应被转义为成对出现
+        let quote_count = filter.matches('\'').count();
+        assert_eq!(
+            quote_count % 2,
+            0,
+            "tenant_id injection not escaped: {filter}"
+        );
+        assert_eq!(filter, "tenant_id = ''' OR ''1''=''1'");
+    }
+
+    #[test]
+    fn test_user_isolation_escapes_user_id_backslash_injection() {
+        // user_id 含反斜杠注入 payload
+        let ctx = AccessContext::new().with_user(r"\' OR 1=1--");
+        let built = RowLevelSecurity::new(ctx)
+            .user_isolation("profiles", "user_id")
+            .build();
+        let filter = built.row_filter("profiles").unwrap();
+        let quote_count = filter.matches('\'').count();
+        assert_eq!(
+            quote_count % 2,
+            0,
+            "user_id backslash injection not escaped: {filter}"
+        );
     }
 }

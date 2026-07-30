@@ -99,6 +99,30 @@ pub trait Dialect: Send + Sync {
             format!("DROP TABLE {}", self.quote(table))
         }
     }
+
+    /// P2-6：生成批量 upsert 的冲突处理子句（ON CONFLICT / ON DUPLICATE KEY UPDATE）
+    ///
+    /// 参数（均为原始列名，由各方言自行 quote）：
+    /// - `conflict_columns`: 冲突检测列（唯一键/主键），用于 `ON CONFLICT (cols)` 或 `ON DUPLICATE KEY`
+    /// - `update_columns`: 冲突时需要更新的列；空切片表示更新所有 `all_columns` 中非冲突列
+    /// - `all_columns`: 本次 INSERT 的全部列名（原始未 quote），用于确定"更新所有非冲突列"的范围
+    ///
+    /// 返回 `None` 表示该方言不支持 upsert（如 ClickHouse、Db2）。
+    /// 返回 `Some(clause)` 表示完整的冲突处理子句（不含前导空格），如：
+    /// - MySQL: `ON DUPLICATE KEY UPDATE \`c1\`=VALUES(\`c1\`), \`c2\`=VALUES(\`c2\`)`
+    /// - PG/SQLite: `ON CONFLICT ("c1") DO UPDATE SET "c2"=EXCLUDED."c2"`
+    ///
+    /// **L3 实现深度**：返回的子句使用参数化占位符（`VALUES(col)` 或 `EXCLUDED.col`），
+    /// 不拼接用户值，杜绝 SQL 注入。
+    fn build_upsert_on_conflict(
+        &self,
+        conflict_columns: &[&str],
+        update_columns: &[&str],
+        all_columns: &[String],
+    ) -> Option<String> {
+        let _ = (conflict_columns, update_columns, all_columns);
+        None
+    }
 }
 
 /// 建表时的列定义
@@ -303,6 +327,35 @@ impl Dialect for MySqlDialect {
 
         stmts.join("; ")
     }
+
+    /// P2-6：MySQL 批量 upsert — `ON DUPLICATE KEY UPDATE col=VALUES(col), ...`
+    ///
+    /// MySQL 不需要指定冲突列（自动检测唯一键/主键冲突）。
+    /// `conflict_columns` 参数在 MySQL 方言中被忽略。
+    fn build_upsert_on_conflict(
+        &self,
+        _conflict_columns: &[&str],
+        update_columns: &[&str],
+        all_columns: &[String],
+    ) -> Option<String> {
+        // 确定要更新的列：优先使用 update_columns，为空则使用所有列（均已 quote）
+        let cols_to_update: Vec<String> = if update_columns.is_empty() {
+            all_columns.iter().map(|c| self.quote(c)).collect()
+        } else {
+            update_columns.iter().map(|c| self.quote(c)).collect()
+        };
+        if cols_to_update.is_empty() {
+            return None;
+        }
+        let set_clauses: Vec<String> = cols_to_update
+            .iter()
+            .map(|col| format!("{}=VALUES({})", col, col))
+            .collect();
+        Some(format!(
+            "ON DUPLICATE KEY UPDATE {}",
+            set_clauses.join(", ")
+        ))
+    }
 }
 
 /// PostgreSQL 方言实现
@@ -473,6 +526,48 @@ impl Dialect for PostgreSqlDialect {
         }).collect();
 
         stmts.join("; ")
+    }
+
+    /// P2-6：PostgreSQL 批量 upsert — `ON CONFLICT (cols) DO UPDATE SET col=EXCLUDED.col, ...`
+    ///
+    /// PostgreSQL 要求显式指定冲突列（主键或唯一键）。
+    fn build_upsert_on_conflict(
+        &self,
+        conflict_columns: &[&str],
+        update_columns: &[&str],
+        all_columns: &[String],
+    ) -> Option<String> {
+        if conflict_columns.is_empty() {
+            return None;
+        }
+        let conflict_cols: Vec<String> = conflict_columns.iter().map(|c| self.quote(c)).collect();
+        // 确定要更新的列：优先使用 update_columns，为空则使用所有非冲突列
+        let conflict_set: std::collections::HashSet<&str> = conflict_columns.iter().copied().collect();
+        let cols_to_update: Vec<String> = if update_columns.is_empty() {
+            all_columns
+                .iter()
+                .filter(|c| !conflict_set.contains(c.as_str()))
+                .map(|c| self.quote(c))
+                .collect()
+        } else {
+            update_columns.iter().map(|c| self.quote(c)).collect()
+        };
+        if cols_to_update.is_empty() {
+            // 没有要更新的列，使用 DO NOTHING
+            return Some(format!(
+                "ON CONFLICT ({}) DO NOTHING",
+                conflict_cols.join(", ")
+            ));
+        }
+        let set_clauses: Vec<String> = cols_to_update
+            .iter()
+            .map(|col| format!("{}=EXCLUDED.{}", col, col))
+            .collect();
+        Some(format!(
+            "ON CONFLICT ({}) DO UPDATE SET {}",
+            conflict_cols.join(", "),
+            set_clauses.join(", ")
+        ))
     }
 }
 
@@ -663,6 +758,46 @@ impl Dialect for SqliteDialect {
             .collect();
 
         stmts.join("; ")
+    }
+
+    /// P2-6：SQLite 批量 upsert — `ON CONFLICT (cols) DO UPDATE SET col=EXCLUDED.col, ...`
+    ///
+    /// SQLite 语法与 PostgreSQL 一致（SQLite 3.24.0+ 支持 ON CONFLICT 子句）。
+    fn build_upsert_on_conflict(
+        &self,
+        conflict_columns: &[&str],
+        update_columns: &[&str],
+        all_columns: &[String],
+    ) -> Option<String> {
+        if conflict_columns.is_empty() {
+            return None;
+        }
+        let conflict_cols: Vec<String> = conflict_columns.iter().map(|c| self.quote(c)).collect();
+        let conflict_set: std::collections::HashSet<&str> = conflict_columns.iter().copied().collect();
+        let cols_to_update: Vec<String> = if update_columns.is_empty() {
+            all_columns
+                .iter()
+                .filter(|c| !conflict_set.contains(c.as_str()))
+                .map(|c| self.quote(c))
+                .collect()
+        } else {
+            update_columns.iter().map(|c| self.quote(c)).collect()
+        };
+        if cols_to_update.is_empty() {
+            return Some(format!(
+                "ON CONFLICT ({}) DO NOTHING",
+                conflict_cols.join(", ")
+            ));
+        }
+        let set_clauses: Vec<String> = cols_to_update
+            .iter()
+            .map(|col| format!("{}=EXCLUDED.{}", col, col))
+            .collect();
+        Some(format!(
+            "ON CONFLICT ({}) DO UPDATE SET {}",
+            conflict_cols.join(", "),
+            set_clauses.join(", ")
+        ))
     }
 }
 

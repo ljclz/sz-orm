@@ -19,6 +19,7 @@
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
+use parking_lot::RwLock;
 
 /// 采样决策
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -430,9 +431,9 @@ impl Default for BatchConfig {
 pub struct BatchSpanExporter {
     config: BatchConfig,
     /// 待导出的 span 队列
-    queue: Arc<std::sync::RwLock<Vec<crate::Span>>>,
+    queue: Arc<RwLock<Vec<crate::Span>>>,
     /// 已导出的 span 批次
-    exported: Arc<std::sync::RwLock<Vec<Vec<crate::Span>>>>,
+    exported: Arc<RwLock<Vec<Vec<crate::Span>>>>,
     /// 被丢弃的 span 数量
     dropped: AtomicU64,
 }
@@ -442,15 +443,15 @@ impl BatchSpanExporter {
     pub fn new(config: BatchConfig) -> Self {
         Self {
             config,
-            queue: Arc::new(std::sync::RwLock::new(Vec::new())),
-            exported: Arc::new(std::sync::RwLock::new(Vec::new())),
+            queue: Arc::new(RwLock::new(Vec::new())),
+            exported: Arc::new(RwLock::new(Vec::new())),
             dropped: AtomicU64::new(0),
         }
     }
 
     /// 将 span 加入导出队列
     pub fn enqueue(&self, span: crate::Span) {
-        let mut queue = self.queue.write().unwrap();
+        let mut queue = self.queue.write();
         if queue.len() >= self.config.max_queue_size {
             // 队列已满，丢弃最旧的 span
             queue.remove(0);
@@ -464,43 +465,43 @@ impl BatchSpanExporter {
     /// 当队列长度 >= max_batch_size 时导出整批，否则不导出。
     /// 返回导出的 span 数量。
     pub fn flush_batch(&self) -> usize {
-        let mut queue = self.queue.write().unwrap();
+        let mut queue = self.queue.write();
         if queue.len() < self.config.max_batch_size {
             return 0;
         }
         let batch: Vec<crate::Span> = queue.drain(..self.config.max_batch_size).collect();
         let count = batch.len();
-        let mut exported = self.exported.write().unwrap();
+        let mut exported = self.exported.write();
         exported.push(batch);
         count
     }
 
     /// 强制导出所有排队中的 span，不论批次大小。
     pub fn flush_all(&self) -> usize {
-        let mut queue = self.queue.write().unwrap();
+        let mut queue = self.queue.write();
         if queue.is_empty() {
             return 0;
         }
         let batch: Vec<crate::Span> = queue.drain(..).collect();
         let count = batch.len();
-        let mut exported = self.exported.write().unwrap();
+        let mut exported = self.exported.write();
         exported.push(batch);
         count
     }
 
     /// 获取已导出的批次数
     pub fn exported_batch_count(&self) -> usize {
-        self.exported.read().unwrap().len()
+        self.exported.read().len()
     }
 
     /// 获取已导出的 span 总数
     pub fn exported_span_count(&self) -> usize {
-        self.exported.read().unwrap().iter().map(|b| b.len()).sum()
+        self.exported.read().iter().map(|b| b.len()).sum()
     }
 
     /// 获取当前队列长度
     pub fn queue_len(&self) -> usize {
-        self.queue.read().unwrap().len()
+        self.queue.read().len()
     }
 
     /// 获取被丢弃的 span 数量
@@ -510,8 +511,8 @@ impl BatchSpanExporter {
 
     /// 清空所有状态（队列与已导出记录）
     pub fn clear(&self) {
-        self.queue.write().unwrap().clear();
-        self.exported.write().unwrap().clear();
+        self.queue.write().clear();
+        self.exported.write().clear();
         self.dropped.store(0, Ordering::Relaxed);
     }
 

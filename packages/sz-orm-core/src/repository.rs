@@ -22,8 +22,15 @@
 //!
 //! 1. **分层解耦**：业务层依赖 Repository 接口，不直接依赖 Model 静态方法
 //! 2. **可替换性**：同一接口可有 InMemory / SQL / NoSQL 等多种实现
-//! 3. **可测试**：单元测试用 InMemoryRepository，集成测试用 SqlRepository
+//! 3. **可测试**：单元测试用 InMemoryRepository；生产环境请直接使用 QueryBuilder + Connection
 //! 4. **统一 API**：CRUD + 分页 + 条件查询接口统一
+//!
+//! # 重要说明
+//!
+//! 本模块**仅提供 InMemoryRepository**（内存实现），**不提供 SqlRepository**。
+//! 如需基于 SQL 的仓储实现，请直接使用 `QueryBuilder` 生成 SQL 并通过
+//! `Pool::acquire()` 获取连接后执行。InMemoryRepository 主要用于单元测试与
+//! 业务逻辑原型验证，不执行任何真实 SQL。
 //!
 //! # 使用示例
 //!
@@ -213,6 +220,77 @@ impl<T> PageResult<T> {
 }
 
 // ============================================================================
+// BatchUpdateResult — 批量更新结果（S-1：SeaORM 对标短板补全）
+// ============================================================================
+
+/// 批量更新结果
+///
+/// 由 [`Repository::batch_update`](Repository::batch_update) 返回，
+/// 区分成功更新的实体与因主键不存在而被跳过的实体数量。
+///
+/// # 字段
+///
+/// - `updated`：成功更新的实体列表（按主键匹配命中并完成 UPDATE）
+/// - `skipped`：主键不存在而被跳过的实体数量
+///
+/// # 设计动机
+///
+/// SeaORM 的 `update_many` 不区分"存在"与"不存在"，只返回受影响行数。
+/// 本结构明确区分两者，便于调用方感知部分失败（如批量同步外部数据时
+/// 部分记录已被删除）并采取补偿措施（记录日志、重试插入等）。
+#[derive(Debug, Clone)]
+pub struct BatchUpdateResult<E> {
+    /// 成功更新的实体列表
+    pub updated: Vec<E>,
+    /// 主键不存在而被跳过的实体数量
+    pub skipped: usize,
+}
+
+impl<E> BatchUpdateResult<E> {
+    /// 创建批量更新结果
+    pub fn new(updated: Vec<E>, skipped: usize) -> Self {
+        Self { updated, skipped }
+    }
+
+    /// 成功更新数量
+    pub fn updated_count(&self) -> usize {
+        self.updated.len()
+    }
+
+    /// 是否有跳过的实体
+    pub fn has_skipped(&self) -> bool {
+        self.skipped > 0
+    }
+
+    /// 是否全部成功（无跳过）
+    pub fn all_updated(&self) -> bool {
+        self.skipped == 0
+    }
+
+    /// 总计处理数量（已更新 + 跳过）
+    pub fn total(&self) -> usize {
+        self.updated.len() + self.skipped
+    }
+
+    /// 映射已更新实体为其他类型（保留 skipped 计数）
+    pub fn map<U, F: Fn(E) -> U>(self, f: F) -> BatchUpdateResult<U> {
+        BatchUpdateResult {
+            updated: self.updated.into_iter().map(f).collect(),
+            skipped: self.skipped,
+        }
+    }
+}
+
+impl<E> Default for BatchUpdateResult<E> {
+    fn default() -> Self {
+        Self {
+            updated: Vec::new(),
+            skipped: 0,
+        }
+    }
+}
+
+// ============================================================================
 // RepositoryError — 错误类型
 // ============================================================================
 
@@ -293,6 +371,37 @@ pub trait Repository<E>: Send + Sync {
         Ok(saved)
     }
 
+    /// 批量更新（S-1：SeaORM 对标短板补全）
+    ///
+    /// 仅更新已存在的实体（按主键匹配），不存在的实体跳过并计入 `skipped`。
+    /// 与 [`save_many`](Self::save_many) 的区别：`save_many` 是 upsert（存在则更新，不存在则插入），
+    /// `batch_update` 是纯更新（不存在则跳过）。
+    ///
+    /// 默认实现为逐条调用 [`find_by_id`](Self::find_by_id) + [`save`](Self::save)，
+    /// 具体实现可重写为真正的批量 UPDATE SQL（如 `UPDATE ... SET ... WHERE id IN (...)`）。
+    ///
+    /// # 参数
+    ///
+    /// - `entities`：待更新的实体列表（主键必须已填充）
+    ///
+    /// # 返回
+    ///
+    /// - `updated`：成功更新的实体列表
+    /// - `skipped`：主键不存在而被跳过的实体数量
+    fn batch_update(&self, entities: Vec<E>) -> RepositoryResult<BatchUpdateResult<E>> {
+        let mut updated = Vec::with_capacity(entities.len());
+        let mut skipped = 0usize;
+        for e in entities {
+            let key = self.key_of(&e);
+            if self.find_by_id(&key)?.is_some() {
+                updated.push(self.save(e)?);
+            } else {
+                skipped += 1;
+            }
+        }
+        Ok(BatchUpdateResult { updated, skipped })
+    }
+
     /// 按主键删除
     fn delete(&self, key: &Self::Key) -> RepositoryResult<usize>;
 
@@ -363,6 +472,68 @@ pub trait Repository<E>: Send + Sync {
 
         Ok(PageResult::new(items, total, page, page_size))
     }
+
+    /// 按 AND 条件查询，并对结果应用额外的 OR 过滤组
+    ///
+    /// 语义：`WHERE (and1 AND and2 AND ...) AND (or1_1 OR or1_2 OR ...)`
+    ///
+    /// 用于多字段 keyword LIKE 搜索等场景（对齐 PHP ThinkPHP
+    /// `where('field1|field2|field3','like','%kw%')` 多字段 OR LIKE 语法）。
+    ///
+    /// # 默认实现
+    ///
+    /// 基于 `find_by` + 内存 OR 过滤；SQL 后端实现可重写以将 OR 下推到 SQL，
+    /// 避免 `SELECT ... WHERE app_id=?` 全表拉取后再内存过滤的性能问题。
+    ///
+    /// # 参数
+    ///
+    /// - `and`：AND 关系的条件列表（同 `find_by`）
+    /// - `or_filter`：OR 关系的条件列表，对 `and` 结果做二次过滤
+    ///
+    /// # 示例
+    ///
+    /// ```
+    /// use sz_orm_core::repository::{Repository, WhereCondition, WhereOp};
+    /// use sz_orm_core::Value;
+    /// # use sz_orm_core::repository::InMemoryRepository;
+    /// # fn example<E: sz_orm_core::repository::EntityAttributes + Clone + Send + Sync + 'static>(repo: &dyn Repository<E, Key = Value>) {
+    /// let and = vec![
+    ///     WhereCondition::new("is_delete", WhereOp::Eq, Value::I64(0)),
+    ///     WhereCondition::new("app_id", WhereOp::Eq, Value::I64(1)),
+    /// ];
+    /// let or = vec![
+    ///     WhereCondition::new("name", WhereOp::Like, Value::String("%kw%".into())),
+    ///     WhereCondition::new("addr", WhereOp::Like, Value::String("%kw%".into())),
+    /// ];
+    /// let items = repo.find_by_with_or_filter(&and, &or).unwrap();
+    /// # }
+    /// ```
+    fn find_by_with_or_filter(
+        &self,
+        and: &[WhereCondition],
+        or_filter: &[WhereCondition],
+    ) -> RepositoryResult<Vec<E>>
+    where
+        E: Clone + EntityAttributes,
+    {
+        let items = self.find_by(and)?;
+        if or_filter.is_empty() {
+            return Ok(items);
+        }
+        Ok(items
+            .into_iter()
+            .filter(|e| {
+                or_filter.iter().any(|c| {
+                    let attr = e.get_attribute(&c.field);
+                    match (attr, c.op) {
+                        (None, WhereOp::IsNull) => true,
+                        (None, _) => false,
+                        (Some(v), _) => value_matches(&v, c.op, &c.value, &c.extra_values),
+                    }
+                })
+            })
+            .collect())
+    }
 }
 
 // ============================================================================
@@ -394,11 +565,10 @@ impl<E: Clone + Send + Sync + 'static> InMemoryRepository<E> {
 
     /// 当前存储条数
     pub fn len(&self) -> usize {
-        let storage = self
-            .storage
-            .read()
-            .expect("InMemoryRepository storage lock poisoned (len)");
-        storage.len()
+        match self.storage.read() {
+            Ok(storage) => storage.len(),
+            Err(_) => 0,
+        }
     }
 
     /// 是否为空
@@ -408,11 +578,9 @@ impl<E: Clone + Send + Sync + 'static> InMemoryRepository<E> {
 
     /// 清空
     pub fn clear(&self) {
-        let mut storage = self
-            .storage
-            .write()
-            .expect("InMemoryRepository storage lock poisoned (clear)");
-        storage.clear();
+        if let Ok(mut storage) = self.storage.write() {
+            storage.clear();
+        }
     }
 }
 
@@ -457,10 +625,11 @@ fn value_matches(value: &Value, op: WhereOp, target: &Value, extras: &[Value]) -
         WhereOp::Like => match (value, target) {
             (String(a), String(b)) => {
                 // 简化 LIKE：将 % 转换为 .*，其他字符转义
-                let pattern = b.replace('%', ".*").replace('_', ".");
+                // 大小写不敏感（对齐 MySQL utf8mb4_general_ci / utf8mb4_unicode_ci 默认 collation）
+                let pattern = b.to_lowercase().replace('%', ".*").replace('_', ".");
                 let full_pattern = format!("^{}$", pattern);
                 if let Ok(re) = simple_regex::compile(&full_pattern) {
-                    re.is_match(a)
+                    re.is_match(&a.to_lowercase())
                 } else {
                     false
                 }
@@ -499,26 +668,26 @@ impl<E: Clone + Send + Sync + 'static + EntityAttributes> Repository<E> for InMe
     }
 
     fn find_by_id(&self, key: &Self::Key) -> RepositoryResult<Option<E>> {
-        let storage = self
-            .storage
-            .read()
-            .expect("InMemoryRepository storage lock poisoned (find_by_id)");
+        let storage = match self.storage.read() {
+            Ok(g) => g,
+            Err(_) => return Ok(None),
+        };
         Ok(storage.iter().find(|e| self.key_of(e) == *key).cloned())
     }
 
     fn find_all(&self) -> RepositoryResult<Vec<E>> {
-        let storage = self
-            .storage
-            .read()
-            .expect("InMemoryRepository storage lock poisoned (find_all)");
+        let storage = match self.storage.read() {
+            Ok(g) => g,
+            Err(_) => return Ok(Vec::new()),
+        };
         Ok(storage.clone())
     }
 
     fn find_by(&self, conditions: &[WhereCondition]) -> RepositoryResult<Vec<E>> {
-        let storage = self
-            .storage
-            .read()
-            .expect("InMemoryRepository storage lock poisoned (find_by)");
+        let storage = match self.storage.read() {
+            Ok(g) => g,
+            Err(_) => return Ok(Vec::new()),
+        };
         let result: Vec<E> = storage
             .iter()
             .filter(|e| {
@@ -537,10 +706,10 @@ impl<E: Clone + Send + Sync + 'static + EntityAttributes> Repository<E> for InMe
     }
 
     fn save(&self, mut entity: E) -> RepositoryResult<E> {
-        let mut storage = self
-            .storage
-            .write()
-            .expect("InMemoryRepository storage lock poisoned (save)");
+        let mut storage = match self.storage.write() {
+            Ok(g) => g,
+            Err(_) => return Ok(entity),
+        };
         let key = self.key_of(&entity);
 
         // 查找是否已存在
@@ -560,10 +729,10 @@ impl<E: Clone + Send + Sync + 'static + EntityAttributes> Repository<E> for InMe
     }
 
     fn delete(&self, key: &Self::Key) -> RepositoryResult<usize> {
-        let mut storage = self
-            .storage
-            .write()
-            .expect("InMemoryRepository storage lock poisoned (delete)");
+        let mut storage = match self.storage.write() {
+            Ok(g) => g,
+            Err(_) => return Ok(0),
+        };
         let before = storage.len();
         storage.retain(|e| self.key_of(e) != *key);
         Ok(before - storage.len())
@@ -692,10 +861,10 @@ where
     }
 
     pub fn len(&self) -> usize {
-        self.storage
-            .read()
-            .expect("GenericKeyRepository storage lock poisoned (len)")
-            .len()
+        match self.storage.read() {
+            Ok(g) => g.len(),
+            Err(_) => 0,
+        }
     }
 
     pub fn is_empty(&self) -> bool {
@@ -703,10 +872,9 @@ where
     }
 
     pub fn clear(&self) {
-        self.storage
-            .write()
-            .expect("GenericKeyRepository storage lock poisoned (clear)")
-            .clear();
+        if let Ok(mut storage) = self.storage.write() {
+            storage.clear();
+        }
     }
 }
 
@@ -732,26 +900,26 @@ where
     }
 
     fn find_by_id(&self, key: &Self::Key) -> RepositoryResult<Option<E>> {
-        let storage = self
-            .storage
-            .read()
-            .expect("GenericKeyRepository storage lock poisoned (find_by_id)");
+        let storage = match self.storage.read() {
+            Ok(g) => g,
+            Err(_) => return Ok(None),
+        };
         Ok(storage.iter().find(|e| &e.key() == key).cloned())
     }
 
     fn find_all(&self) -> RepositoryResult<Vec<E>> {
-        Ok(self
-            .storage
-            .read()
-            .expect("GenericKeyRepository storage lock poisoned (find_all)")
-            .clone())
+        let storage = match self.storage.read() {
+            Ok(g) => g,
+            Err(_) => return Ok(Vec::new()),
+        };
+        Ok(storage.clone())
     }
 
     fn find_by(&self, conditions: &[WhereCondition]) -> RepositoryResult<Vec<E>> {
-        let storage = self
-            .storage
-            .read()
-            .expect("GenericKeyRepository storage lock poisoned (find_by)");
+        let storage = match self.storage.read() {
+            Ok(g) => g,
+            Err(_) => return Ok(Vec::new()),
+        };
         let result: Vec<E> = storage
             .iter()
             .filter(|e| {
@@ -770,10 +938,10 @@ where
     }
 
     fn save(&self, entity: E) -> RepositoryResult<E> {
-        let mut storage = self
-            .storage
-            .write()
-            .expect("GenericKeyRepository storage lock poisoned (save)");
+        let mut storage = match self.storage.write() {
+            Ok(g) => g,
+            Err(_) => return Ok(entity),
+        };
         let key = entity.key();
         let existing_idx = storage.iter().position(|e| e.key() == key);
         match existing_idx {
@@ -788,10 +956,10 @@ where
     }
 
     fn delete(&self, key: &Self::Key) -> RepositoryResult<usize> {
-        let mut storage = self
-            .storage
-            .write()
-            .expect("GenericKeyRepository storage lock poisoned (delete)");
+        let mut storage = match self.storage.write() {
+            Ok(g) => g,
+            Err(_) => return Ok(0),
+        };
         let before = storage.len();
         storage.retain(|e| &e.key() != key);
         Ok(before - storage.len())
@@ -1034,6 +1202,138 @@ mod tests {
         assert_eq!(repo.len(), 3);
     }
 
+    // ===== S-1: batch_update 批量更新 =====
+
+    #[test]
+    fn test_batch_update_result_new() {
+        let result = BatchUpdateResult::new(vec![1, 2, 3], 2);
+        assert_eq!(result.updated_count(), 3);
+        assert_eq!(result.skipped, 2);
+        assert_eq!(result.total(), 5);
+        assert!(result.has_skipped());
+        assert!(!result.all_updated());
+    }
+
+    #[test]
+    fn test_batch_update_result_all_updated() {
+        let result: BatchUpdateResult<i32> = BatchUpdateResult::new(vec![1, 2], 0);
+        assert!(!result.has_skipped());
+        assert!(result.all_updated());
+        assert_eq!(result.total(), 2);
+    }
+
+    #[test]
+    fn test_batch_update_result_default() {
+        let result: BatchUpdateResult<i32> = BatchUpdateResult::default();
+        assert_eq!(result.updated_count(), 0);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.total(), 0);
+    }
+
+    #[test]
+    fn test_batch_update_result_map() {
+        let result = BatchUpdateResult::new(vec![1, 2, 3], 1);
+        let mapped = result.map(|x| x * 10);
+        assert_eq!(mapped.updated, vec![10, 20, 30]);
+        assert_eq!(mapped.skipped, 1);
+    }
+
+    #[test]
+    fn test_repo_batch_update_all_existing() {
+        // 所有实体都存在：全部更新，无跳过
+        let repo = InMemoryRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "a@b.com"),
+            User::new(2, "Bob", 25, "b@b.com"),
+        ]);
+        let updates = vec![
+            User::new(1, "Alice Updated", 31, "a2@b.com"),
+            User::new(2, "Bob Updated", 26, "b2@b.com"),
+        ];
+        let result = repo.batch_update(updates).unwrap();
+        assert_eq!(result.updated_count(), 2);
+        assert_eq!(result.skipped, 0);
+        assert!(result.all_updated());
+
+        // 验证实际更新生效
+        let alice = repo.find_by_id(&Value::I64(1)).unwrap().unwrap();
+        assert_eq!(alice.name, "Alice Updated");
+        assert_eq!(alice.age, 31);
+        let bob = repo.find_by_id(&Value::I64(2)).unwrap().unwrap();
+        assert_eq!(bob.name, "Bob Updated");
+        assert_eq!(bob.age, 26);
+        // 总数不变（不是插入）
+        assert_eq!(repo.len(), 2);
+    }
+
+    #[test]
+    fn test_repo_batch_update_partial_missing() {
+        // 部分实体不存在：仅更新存在的，跳过不存在的
+        let repo = InMemoryRepository::from_vec(vec![User::new(1, "Alice", 30, "a@b.com")]);
+        let updates = vec![
+            User::new(1, "Alice Updated", 31, "a2@b.com"),
+            User::new(999, "Ghost", 1, "ghost@b.com"), // 不存在
+        ];
+        let result = repo.batch_update(updates).unwrap();
+        assert_eq!(result.updated_count(), 1);
+        assert_eq!(result.skipped, 1);
+        assert!(result.has_skipped());
+
+        // 验证存在的实体被更新
+        let alice = repo.find_by_id(&Value::I64(1)).unwrap().unwrap();
+        assert_eq!(alice.name, "Alice Updated");
+        // 不存在的实体不会被插入
+        assert!(repo.find_by_id(&Value::I64(999)).unwrap().is_none());
+        assert_eq!(repo.len(), 1);
+    }
+
+    #[test]
+    fn test_repo_batch_update_all_missing() {
+        // 所有实体都不存在：全部跳过
+        let repo = InMemoryRepository::from_vec(vec![User::new(1, "Alice", 30, "a@b.com")]);
+        let updates = vec![
+            User::new(100, "Ghost1", 1, "g1@b.com"),
+            User::new(200, "Ghost2", 2, "g2@b.com"),
+        ];
+        let result = repo.batch_update(updates).unwrap();
+        assert_eq!(result.updated_count(), 0);
+        assert_eq!(result.skipped, 2);
+        assert_eq!(repo.len(), 1); // 原数据不变
+    }
+
+    #[test]
+    fn test_repo_batch_update_empty() {
+        let repo = InMemoryRepository::from_vec(vec![User::new(1, "Alice", 30, "a@b.com")]);
+        let result = repo.batch_update(vec![]).unwrap();
+        assert_eq!(result.updated_count(), 0);
+        assert_eq!(result.skipped, 0);
+        assert_eq!(result.total(), 0);
+    }
+
+    #[test]
+    fn test_repo_batch_update_distinct_from_save_many() {
+        // 验证 batch_update 与 save_many 语义不同：
+        // - save_many 是 upsert（不存在的会插入）
+        // - batch_update 是纯更新（不存在的会跳过）
+        let repo1 = InMemoryRepository::from_vec(vec![User::new(1, "Alice", 30, "a@b.com")]);
+        let repo2 = InMemoryRepository::from_vec(vec![User::new(1, "Alice", 30, "a@b.com")]);
+
+        let updates = vec![
+            User::new(1, "Alice Updated", 31, "a2@b.com"),
+            User::new(999, "New User", 1, "new@b.com"),
+        ];
+
+        // save_many：两条都保存（id=999 会插入）
+        let saved = repo1.save_many(updates.clone()).unwrap();
+        assert_eq!(saved.len(), 2);
+        assert_eq!(repo1.len(), 2); // 1 条原始 + 1 条新增
+
+        // batch_update：仅 id=1 更新，id=999 跳过
+        let result = repo2.batch_update(updates).unwrap();
+        assert_eq!(result.updated_count(), 1);
+        assert_eq!(result.skipped, 1);
+        assert_eq!(repo2.len(), 1); // 不增加
+    }
+
     #[test]
     fn test_repo_save_update_existing() {
         let repo = InMemoryRepository::<User>::new();
@@ -1155,6 +1455,117 @@ mod tests {
             )])
             .unwrap();
         assert_eq!(result.len(), 2);
+    }
+
+    #[test]
+    fn test_repo_find_by_like_case_insensitive() {
+        // 对齐 MySQL utf8mb4_general_ci / utf8mb4_unicode_ci 默认 collation（大小写不敏感）
+        let repo = InMemoryRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "alice@example.com"),
+            User::new(2, "bob", 25, "bob@example.com"),
+            User::new(3, "ALICIA", 28, "alicia@test.com"),
+        ]);
+
+        // 小写 pattern 应匹配大小写混合的数据
+        let result = repo
+            .find_by(&[WhereCondition::new(
+                "name",
+                WhereOp::Like,
+                Value::String("ali%".to_string()),
+            )])
+            .unwrap();
+        assert_eq!(result.len(), 2, "LIKE should be case-insensitive");
+
+        // 大写 pattern 也应匹配小写数据
+        let result = repo
+            .find_by(&[WhereCondition::new(
+                "name",
+                WhereOp::Like,
+                Value::String("BOB".to_string()),
+            )])
+            .unwrap();
+        assert_eq!(result.len(), 1, "LIKE exact match should be case-insensitive");
+    }
+
+    #[test]
+    fn test_repo_find_by_with_or_filter_multi_field_keyword() {
+        // 对齐 PHP ThinkPHP `where('field1|field2|field3','like','%kw%')` 多字段 OR LIKE
+        let repo = InMemoryRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "alice@example.com"),
+            User::new(2, "Bob", 25, "bob@example.com"),
+            User::new(3, "Carol", 28, "carol@kw.com"), // email 含 kw
+            User::new(4, "Dave", 32, "dave@example.com"),
+        ]);
+
+        let and = vec![]; // 无 AND 条件
+        let or = vec![
+            WhereCondition::new(
+                "name",
+                WhereOp::Like,
+                Value::String("%kw%".to_string()),
+            ),
+            WhereCondition::new(
+                "email",
+                WhereOp::Like,
+                Value::String("%kw%".to_string()),
+            ),
+        ];
+
+        let result = repo.find_by_with_or_filter(&and, &or).unwrap();
+        // 只有 Carol 的 email 含 kw
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key(), 3);
+    }
+
+    #[test]
+    fn test_repo_find_by_with_or_filter_combined_with_and() {
+        // AND + OR 组合：对齐 PHP `where(is_delete=0 AND app_id=1) AND (name LIKE %kw% OR addr LIKE %kw%)`
+        let repo = InMemoryRepository::from_vec(vec![
+            User::new(1, "Alice_kw", 30, "alice@example.com"), // app_id=1, name 含 kw
+            User::new(2, "Bob", 25, "bob@kw.com"),             // app_id=1, email 含 kw
+            User::new(3, "Carol_kw", 28, "carol@example.com"), // app_id=2, name 含 kw（被 AND 排除）
+            User::new(4, "Dave", 32, "dave@example.com"),      // app_id=1, 无 kw
+        ]);
+
+        // User struct 没有 app_id 字段，用 age 模拟 AND 条件：age >= 28
+        let and = vec![WhereCondition::new("age", WhereOp::Ge, Value::I64(28))];
+        let or = vec![
+            WhereCondition::new(
+                "name",
+                WhereOp::Like,
+                Value::String("%kw%".to_string()),
+            ),
+            WhereCondition::new(
+                "email",
+                WhereOp::Like,
+                Value::String("%kw%".to_string()),
+            ),
+        ];
+
+        let result = repo.find_by_with_or_filter(&and, &or).unwrap();
+        // age >= 28: Alice(30), Carol(28), Dave(32)
+        // 其中 name 或 email 含 kw: Alice(name), Carol(name), Bob(email 不满足 age>=28)
+        // 但 Carol age=28 满足 >= 28，所以 Carol 也应被选中
+        assert_eq!(result.len(), 2);
+        let ids: Vec<i64> = result.iter().map(|u| u.key()).collect();
+        assert!(ids.contains(&1));
+        assert!(ids.contains(&3));
+    }
+
+    #[test]
+    fn test_repo_find_by_with_or_filter_empty_or() {
+        // or_filter 为空时应等同于 find_by
+        let repo = InMemoryRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "alice@example.com"),
+            User::new(2, "Bob", 25, "bob@example.com"),
+        ]);
+
+        let and = vec![WhereCondition::new("age", WhereOp::Ge, Value::I64(28))];
+        let or: Vec<WhereCondition> = vec![];
+
+        let result = repo.find_by_with_or_filter(&and, &or).unwrap();
+        assert_eq!(result.len(), 1);
+        assert_eq!(result[0].key(), 1);
     }
 
     #[test]

@@ -6,7 +6,7 @@ use crate::types::{Aggregation, DownsampleConfig, Metric, TimeBucket};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 /// 内存 TimescaleDB 实现
 pub struct MemoryTimeseries {
@@ -69,19 +69,17 @@ impl TimeseriesExt for MemoryTimeseries {
     ) -> Result<(), TimescaleError> {
         self.hypertables
             .lock()
-            .unwrap()
             .push((table.to_string(), time_column.to_string()));
         // 确保 storage 中有该 metric 的 entry
         self.storage
             .lock()
-            .unwrap()
             .entry(table.to_string())
             .or_default();
         Ok(())
     }
 
     async fn insert_metric(&self, metric: &Metric) -> Result<(), TimescaleError> {
-        let mut storage = self.storage.lock().unwrap();
+        let mut storage = self.storage.lock();
         storage
             .entry(metric.name.clone())
             .or_default()
@@ -97,7 +95,7 @@ impl TimeseriesExt for MemoryTimeseries {
     ) -> Result<Vec<Metric>, TimescaleError> {
         // M-17 修复：校验时间范围（start < end 且跨度 <= MAX_QUERY_RANGE_SECS）
         crate::validate_time_range(start, end)?;
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock();
         let data = storage.get(metric).cloned().unwrap_or_default();
         Ok(data
             .into_iter()
@@ -164,14 +162,13 @@ impl TimeseriesExt for MemoryTimeseries {
     ) -> Result<(), TimescaleError> {
         self.continuous_aggregates
             .lock()
-            .unwrap()
             .push((view_name.to_string(), query.to_string()));
         Ok(())
     }
 
     async fn downsample(&self, config: &DownsampleConfig) -> Result<(), TimescaleError> {
         // 内存实现：从源指标读取所有数据，按 interval 聚合，写入目标指标
-        let storage = self.storage.lock().unwrap();
+        let storage = self.storage.lock();
         let source_data = storage
             .get(&config.source_metric)
             .cloned()
@@ -210,7 +207,7 @@ impl TimeseriesExt for MemoryTimeseries {
         }
 
         // 写入目标指标
-        let mut storage = self.storage.lock().unwrap();
+        let mut storage = self.storage.lock();
         let target = storage.entry(config.target_metric.clone()).or_default();
         target.extend(downsampled);
 
@@ -218,7 +215,7 @@ impl TimeseriesExt for MemoryTimeseries {
     }
 
     async fn drop_metric(&self, metric: &str) -> Result<(), TimescaleError> {
-        let mut storage = self.storage.lock().unwrap();
+        let mut storage = self.storage.lock();
         if storage.remove(metric).is_none() {
             return Err(TimescaleError::NotFound(metric.to_string()));
         }
@@ -428,7 +425,7 @@ mod tests {
         ts.create_continuous_aggregate("cpu_1h_view", "SELECT ...")
             .await
             .unwrap();
-        assert_eq!(ts.hypertables.lock().unwrap().len(), 1);
-        assert_eq!(ts.continuous_aggregates.lock().unwrap().len(), 1);
+        assert_eq!(ts.hypertables.lock().len(), 1);
+        assert_eq!(ts.continuous_aggregates.lock().len(), 1);
     }
 }

@@ -5,7 +5,7 @@ use crate::search::SearchExt;
 use crate::types::{SearchQuery, SearchResult};
 use async_trait::async_trait;
 use serde_json::Value;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 /// Stub Search 实现
 pub struct StubSearch {
@@ -20,15 +20,15 @@ impl StubSearch {
     }
 
     pub fn operations(&self) -> Vec<String> {
-        self.operation_log.lock().unwrap().clone()
+        self.operation_log.lock().clone()
     }
 
     pub fn clear(&self) {
-        self.operation_log.lock().unwrap().clear();
+        self.operation_log.lock().clear();
     }
 
     fn log(&self, op: String) {
-        self.operation_log.lock().unwrap().push(op);
+        self.operation_log.lock().push(op);
     }
 }
 

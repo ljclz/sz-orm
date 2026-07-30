@@ -7,8 +7,16 @@
 //!
 //! - [`GraphQLSchema`] — Schema 容器
 //! - [`GraphQLType`] / [`GraphQLField`] — 类型与字段定义
+//! - [`resolver::DbResolver`] — 真实 DB resolver trait（P2-1 修复 C-3：可注入真实数据源）
+//!
+//! ## P2-1 修复 C-3：DB resolver 注入
+//!
+//! `GraphQLServer::with_db_resolver` 允许调用方注入真实 DB resolver，
+//! 启用后 GraphQL root field 通过 resolver 异步查询真实数据库，
+//! 未注入时回退到 mock 数据（向后兼容）。
 
 pub mod extensions;
+pub mod resolver;
 
 use serde::{Deserialize, Serialize};
 
@@ -167,6 +175,8 @@ pub struct GraphQLServer {
     schema: Option<GraphQLSchema>,
     #[cfg(feature = "real")]
     dynamic_schema: std::sync::OnceLock<Result<async_graphql::dynamic::Schema, String>>,
+    #[cfg(feature = "real")]
+    resolver: Option<resolver::SharedDbResolver>,
 }
 
 impl GraphQLServer {
@@ -176,11 +186,23 @@ impl GraphQLServer {
             schema: None,
             #[cfg(feature = "real")]
             dynamic_schema: std::sync::OnceLock::new(),
+            #[cfg(feature = "real")]
+            resolver: None,
         }
     }
 
     pub fn with_schema(mut self, s: GraphQLSchema) -> Self {
         self.schema = Some(s);
+        self
+    }
+
+    /// 注入真实 DB resolver — P2-1 修复 C-3
+    ///
+    /// 启用后，GraphQL root field 将通过 resolver 查询真实数据库，
+    /// 而非返回 mock 数据。
+    #[cfg(feature = "real")]
+    pub fn with_db_resolver(mut self, resolver: resolver::SharedDbResolver) -> Self {
+        self.resolver = Some(resolver);
         self
     }
 
@@ -216,7 +238,7 @@ impl GraphQLServer {
     fn executable_schema(&self) -> Result<&async_graphql::dynamic::Schema, String> {
         let schema = self.schema.as_ref().ok_or("No schema")?;
         self.dynamic_schema
-            .get_or_init(|| real_graphql::build_dynamic_schema(schema))
+            .get_or_init(|| real_graphql::build_dynamic_schema(schema, self.resolver.as_ref()))
             .as_ref()
             .map_err(Clone::clone)
     }

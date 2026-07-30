@@ -31,6 +31,9 @@ serde_json.workspace = true
 chrono.workspace = true
 bytes.workspace = true
 tokio = { workspace = true, features = ["sync", "time", "rt", "macros"] }
+# P3-4 修复：使用 parking_lot::RwLock 替换 std::sync::RwLock，消除锁毒化风险
+# parking_lot 的 RwLock 不会返回 PoisonError，无需 unwrap()，且性能更好
+parking_lot.workspace = true
 # v1.1.0 优化 2：Pool 无锁队列（crossbeam-queue::ArrayQueue 替换 Mutex<VecDeque>）
 crossbeam-queue.workspace = true
 # 流式查询：Connection::query_stream 默认实现需要 futures::stream::empty

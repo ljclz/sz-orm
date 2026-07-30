@@ -14,7 +14,8 @@
 use crate::{LogEntry, LogLevel, Logger};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
+use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
 // ============================================================================
@@ -92,9 +93,9 @@ impl LogRotator {
     /// 写入一条日志（字节形式）。写入后自动检查是否需要轮转。
     pub fn write(&self, data: &[u8]) {
         let should_rotate = {
-            let mut current = self.current.lock().unwrap();
+            let mut current = self.current.lock();
             current.extend_from_slice(data);
-            let started_at = self.started_at.lock().unwrap();
+            let started_at = self.started_at.lock();
             self.policy
                 .should_rotate(current.len() as u64, started_at.elapsed())
         };
@@ -106,10 +107,10 @@ impl LogRotator {
 
     /// 手动触发轮转：将当前缓冲移入历史列表，开启新的空缓冲。
     pub fn rotate(&self) {
-        let mut current = self.current.lock().unwrap();
-        let mut rotated = self.rotated.lock().unwrap();
-        let mut started_at = self.started_at.lock().unwrap();
-        let mut count = self.rotation_count.lock().unwrap();
+        let mut current = self.current.lock();
+        let mut rotated = self.rotated.lock();
+        let mut started_at = self.started_at.lock();
+        let mut count = self.rotation_count.lock();
 
         // 将当前缓冲移入历史列表头部
         let old_buffer = std::mem::take(&mut *current);
@@ -129,33 +130,33 @@ impl LogRotator {
 
     /// 获取当前缓冲的字节大小
     pub fn current_size(&self) -> usize {
-        self.current.lock().unwrap().len()
+        self.current.lock().len()
     }
 
     /// 获取已轮转的历史日志数量
     pub fn rotated_count(&self) -> usize {
-        self.rotated.lock().unwrap().len()
+        self.rotated.lock().len()
     }
 
     /// 获取总轮转次数（含因 max_files 限制被丢弃的）
     pub fn total_rotations(&self) -> u64 {
-        *self.rotation_count.lock().unwrap()
+        *self.rotation_count.lock()
     }
 
     /// 获取当前缓冲内容的快照（拷贝）
     pub fn current_content(&self) -> Vec<u8> {
-        self.current.lock().unwrap().clone()
+        self.current.lock().clone()
     }
 
     /// 获取第 `index` 个历史日志的快照（0 = 最近一次轮转）
     pub fn rotated_content(&self, index: usize) -> Option<Vec<u8>> {
-        let rotated = self.rotated.lock().unwrap();
+        let rotated = self.rotated.lock();
         rotated.get(index).cloned()
     }
 
     /// 获取当前缓冲已存活的时长
     pub fn current_age(&self) -> Duration {
-        self.started_at.lock().unwrap().elapsed()
+        self.started_at.lock().elapsed()
     }
 
     /// 获取轮转策略引用
@@ -170,9 +171,9 @@ impl LogRotator {
 
     /// 清空所有日志（当前缓冲 + 历史）
     pub fn clear(&self) {
-        self.current.lock().unwrap().clear();
-        self.rotated.lock().unwrap().clear();
-        *self.started_at.lock().unwrap() = Instant::now();
+        self.current.lock().clear();
+        self.rotated.lock().clear();
+        *self.started_at.lock() = Instant::now();
     }
 }
 
@@ -207,31 +208,30 @@ impl MemorySink {
 
     /// 获取已存储的日志条目快照
     pub fn entries(&self) -> Vec<LogEntry> {
-        self.entries.lock().unwrap().clone()
+        self.entries.lock().clone()
     }
 
     /// 获取已存储的日志条目数量
     pub fn len(&self) -> usize {
-        self.entries.lock().unwrap().len()
+        self.entries.lock().len()
     }
 
     /// 是否为空
     pub fn is_empty(&self) -> bool {
-        self.entries.lock().unwrap().is_empty()
+        self.entries.lock().is_empty()
     }
 
     /// 清空存储的日志
     pub fn clear(&self) {
-        self.entries.lock().unwrap().clear();
+        self.entries.lock().clear();
     }
 }
 
 impl LogSink for MemorySink {
     fn write(&self, entry: &LogEntry) {
         // lock poisoned 时跳过写入而非 panic
-        if let Ok(mut entries) = self.entries.lock() {
+        let mut entries = self.entries.lock();
             entries.push(entry.clone());
-        }
     }
 
     fn name(&self) -> &str {
@@ -593,27 +593,26 @@ impl MemoryStructuredSink {
     }
 
     pub fn entries(&self) -> Vec<StructuredLogEntry> {
-        self.entries.lock().unwrap().clone()
+        self.entries.lock().clone()
     }
 
     pub fn len(&self) -> usize {
-        self.entries.lock().unwrap().len()
+        self.entries.lock().len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.entries.lock().unwrap().is_empty()
+        self.entries.lock().is_empty()
     }
 
     pub fn clear(&self) {
-        self.entries.lock().unwrap().clear();
+        self.entries.lock().clear();
     }
 }
 
 impl StructuredSink for MemoryStructuredSink {
     fn write(&self, entry: &StructuredLogEntry) {
-        if let Ok(mut entries) = self.entries.lock() {
+        let mut entries = self.entries.lock();
             entries.push(entry.clone());
-        }
     }
 
     fn name(&self) -> &str {
@@ -913,7 +912,7 @@ mod tests {
         let counter = Arc::new(Mutex::new(0u32));
         let c = counter.clone();
         let sink = CallbackSink::new("cb", move |_entry| {
-            *c.lock().unwrap() += 1;
+            *c.lock() += 1;
         });
         let entry = LogEntry {
             level: LogLevel::Info,
@@ -922,7 +921,7 @@ mod tests {
         };
         sink.write(&entry);
         sink.write(&entry);
-        assert_eq!(*counter.lock().unwrap(), 2);
+        assert_eq!(*counter.lock(), 2);
     }
 
     // ===================== MultiOutputLogger 测试 =====================

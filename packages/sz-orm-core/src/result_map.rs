@@ -61,8 +61,8 @@
 //! ```
 
 use crate::value::Value;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::RwLock;
 
 // ============================================================================
 // Mapping — 单字段映射规则
@@ -348,25 +348,25 @@ impl ResultMapRegistry {
 
     /// 注册 ResultMap（同名覆盖）
     pub fn register(&self, map: ResultMap) {
-        let mut maps = self.maps.write().unwrap();
+        let mut maps = self.maps.write();
         maps.insert(map.id.clone(), map);
     }
 
     /// 按 id 查找 ResultMap
     pub fn get(&self, id: &str) -> Option<ResultMap> {
-        let maps = self.maps.read().unwrap();
+        let maps = self.maps.read();
         maps.get(id).cloned()
     }
 
     /// 是否包含指定 id
     pub fn contains(&self, id: &str) -> bool {
-        let maps = self.maps.read().unwrap();
+        let maps = self.maps.read();
         maps.contains_key(id)
     }
 
     /// 已注册的 ResultMap 数量
     pub fn len(&self) -> usize {
-        let maps = self.maps.read().unwrap();
+        let maps = self.maps.read();
         maps.len()
     }
 
@@ -377,13 +377,13 @@ impl ResultMapRegistry {
 
     /// 列出所有已注册的 id
     pub fn list_ids(&self) -> Vec<String> {
-        let maps = self.maps.read().unwrap();
+        let maps = self.maps.read();
         maps.keys().cloned().collect()
     }
 
     /// 清空注册中心
     pub fn clear(&self) {
-        let mut maps = self.maps.write().unwrap();
+        let mut maps = self.maps.write();
         maps.clear();
     }
 }
@@ -827,22 +827,22 @@ impl ResultSetMappingRegistry {
     }
 
     pub fn register(&self, mapping: ResultSetMapping) {
-        let mut m = self.mappings.write().unwrap();
+        let mut m = self.mappings.write();
         m.insert(mapping.name.clone(), mapping);
     }
 
     pub fn get(&self, name: &str) -> Option<ResultSetMapping> {
-        let m = self.mappings.read().unwrap();
+        let m = self.mappings.read();
         m.get(name).cloned()
     }
 
     pub fn contains(&self, name: &str) -> bool {
-        let m = self.mappings.read().unwrap();
+        let m = self.mappings.read();
         m.contains_key(name)
     }
 
     pub fn len(&self) -> usize {
-        let m = self.mappings.read().unwrap();
+        let m = self.mappings.read();
         m.len()
     }
 

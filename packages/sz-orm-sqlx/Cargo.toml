@@ -20,6 +20,8 @@ rust_decimal = "1.36"
 async-stream = "0.3"
 # Stream trait 与 StreamExt::next（fetch 流式结果迭代）
 futures.workspace = true
+# 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .lock().unwrap() panic 风险
+parking_lot.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

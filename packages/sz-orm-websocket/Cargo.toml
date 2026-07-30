@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM WebSocket Extension"
+description = "SZ-ORM WebSocket Extension (RFC 7692 permessage-deflate via flate2)"
 
 [features]
 default = []
@@ -20,6 +20,8 @@ tokio = { version = "1.40", features = ["full"] }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# RFC 7692 permessage-deflate 真实 DEFLATE 压缩（替换原 RLE 模拟实现）
+flate2 = { version = "1.0", features = ["zlib"] }
 tokio-tungstenite = { version = "0.30", optional = true }
 futures-util = { version = "0.3", optional = true, default-features = false, features = ["sink", "std"] }
 

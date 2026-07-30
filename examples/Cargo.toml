@@ -17,6 +17,7 @@ sz-orm-audit = { path = "../packages/sz-orm-audit" }
 sz-orm-dtx = { path = "../packages/sz-orm-dtx" }
 sz-orm-sharding = { path = "../packages/sz-orm-sharding" }
 sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
+sz-orm-macros = { path = "../packages/sz-orm-macros" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 
@@ -55,6 +56,16 @@ path = "src/bin/production_dtx.rs"
 [[bin]]
 name = "real_db_crud"
 path = "src/bin/real_db_crud.rs"
+
+[[bin]]
+name = "db_verify_test"
+path = "src/bin/db_verify_test.rs"
+required-features = ["sz-orm-macros/db-verify"]
+
+[features]
+default = []
+# 启用 query! 宏的编译期连真 DB 验证能力
+db-verify = ["sz-orm-macros/db-verify"]
 
 [lints]
 workspace = true

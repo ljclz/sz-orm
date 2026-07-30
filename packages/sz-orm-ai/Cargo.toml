@@ -24,6 +24,8 @@ serde_json = "1.0"
 # real feature 可选依赖
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 base64 = { version = "0.22", optional = true }
+# 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .write().unwrap() panic 风险
+parking_lot.workspace = true
 
 [dev-dependencies]
 tokio-test = "0.4"

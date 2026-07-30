@@ -759,6 +759,12 @@ mod tests {
         let key = "0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef";
         let config = EncryptionConfig::new(EncryptionAlgorithm::Aes256Gcm, key);
         assert!(config.validate_key().is_ok());
+        // 验证 algorithm 字段被正确设置（防止 is_ok() 假成功）
+        assert_eq!(
+            config.algorithm,
+            EncryptionAlgorithm::Aes256Gcm,
+            "algorithm 应为 Aes256Gcm"
+        );
     }
 
     #[test]
@@ -918,6 +924,13 @@ mod tests {
     fn test_rpo_config_validate_ok() {
         let rpo = RpoConfig::new(900);
         assert!(rpo.validate().is_ok());
+        // 验证 new(900) 设置的字段值（防止 is_ok() 假成功）
+        assert_eq!(rpo.rpo_seconds, 900, "rpo_seconds 应为 900");
+        // new(900) 计算 incremental = 900/3 = 300，但 .max(60) 保底
+        assert_eq!(
+            rpo.incremental_interval_seconds, 300,
+            "incremental_interval_seconds 应为 300（900/3）"
+        );
     }
 
     #[test]
@@ -1011,6 +1024,11 @@ mod tests {
     fn test_rto_config_validate_ok() {
         let rto = RtoConfig::new(1800);
         assert!(rto.validate().is_ok());
+        // 验证 new(1800) 设置的字段值（防止 is_ok() 假成功）
+        assert_eq!(rto.rto_seconds, 1800, "rto_seconds 应为 1800");
+        assert_eq!(rto.max_parallel_tasks, 4, "默认 max_parallel_tasks 应为 4");
+        // 1800 > 300，所以 fast_mode 应为 false
+        assert!(!rto.fast_mode, "RTO > 300s 时 fast_mode 应为 false");
     }
 
     #[test]
@@ -1050,6 +1068,9 @@ mod tests {
     fn test_backup_strategy_default() {
         let strategy = BackupStrategy::default();
         assert!(strategy.validate().is_ok());
+        // 验证默认值（防止 is_ok() 假成功）
+        assert_eq!(strategy.rpo.rpo_seconds, 900, "默认 RPO 应为 900s");
+        assert_eq!(strategy.rto.rto_seconds, 1800, "默认 RTO 应为 1800s");
     }
 
     #[test]
@@ -1062,6 +1083,17 @@ mod tests {
             encryption: EncryptionConfig::new(EncryptionAlgorithm::Aes256Gcm, key),
         };
         assert!(strategy.validate().is_ok());
+        // 验证各组件字段被正确设置（防止 is_ok() 假成功）
+        assert_eq!(
+            strategy.compression.algorithm,
+            CompressionAlgorithm::Zstd,
+            "compression 应为 Zstd"
+        );
+        assert_eq!(
+            strategy.encryption.algorithm,
+            EncryptionAlgorithm::Aes256Gcm,
+            "encryption 应为 Aes256Gcm"
+        );
     }
 
     #[test]

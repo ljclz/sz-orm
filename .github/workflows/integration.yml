@@ -12,6 +12,10 @@ on:
   schedule:
     # 每日 02:00 (Asia/Shanghai, UTC+8) 运行完整真实服务集成测试
     - cron: "0 18 * * *"
+  pull_request:
+    types: [labeled, synchronize]
+    # 当 PR 添加 "run-integration" 标签时触发真实 DB 集成测试
+    branches: [main, master]
 
 env:
   CARGO_TERM_COLOR: always
@@ -20,23 +24,27 @@ jobs:
   integration:
     name: Real Service Integration Tests
     runs-on: ubuntu-latest
+    # PR 触发时仅在添加 "run-integration" 标签时运行；定时/手动触发始终运行
+    if: |
+      github.event_name != 'pull_request' ||
+      contains(github.event.pull_request.labels.*.name, 'run-integration')
     services:
       mysql:
         image: mysql:9.7
         env:
-          MYSQL_ROOT_PASSWORD: <your-password>
+          MYSQL_ROOT_PASSWORD: szormtestpwd
           MYSQL_DATABASE: sz_orm_test
         ports:
           - 3306:3306
         options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -p<your-password>"
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -uroot -pszormtestpwd"
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
       postgres:
         image: postgres:18
         env:
-          POSTGRES_PASSWORD: <your-password>
+          POSTGRES_PASSWORD: szormtestpwd
           POSTGRES_DB: sz_orm_test
         ports:
           - 5432:5432
@@ -72,8 +80,8 @@ jobs:
           --health-timeout=5s
           --health-retries=10
     env:
-      MYSQL_URL: mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test
-      PG_URL: postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test
+      SZ_ORM_MYSQL_URL: mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test
+      SZ_ORM_PG_URL: postgres://postgres:szormtestpwd@127.0.0.1:5432/sz_orm_test
       S3_TEST_ENDPOINT: http://127.0.0.1:9000
       S3_TEST_BUCKET: test-bucket
       S3_TEST_REGION: us-east-1

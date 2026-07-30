@@ -493,18 +493,50 @@ impl<'a> WithRelation<'a> {
     ///
     /// 返回 `self` 后通过 [`main_sql`](Self::main_sql) 和
     /// [`related_sql`](Self::related_sql) 获取生成的 SQL。
+    ///
+    /// **P2-7 循环引用检测**：调用此方法前会自动检测重复关联名，
+    /// 若发现重复则返回 `DbError::InvalidInput`。
     #[tracing::instrument(skip(self), fields(strategy = "eager", main_table = &self.main_table))]
-    pub fn load_eager(mut self, main_where: Option<&str>) -> Self {
+    pub fn load_eager(mut self, main_where: Option<&str>) -> Result<Self, crate::DbError> {
+        // P2-7：检测重复关联名
+        self.check_duplicate_relations()?;
         self.main_where = main_where.map(String::from);
-        self
+        Ok(self)
+    }
+
+    /// P2-7：检测重复关联名
+    ///
+    /// 相同关联名（related 字符串）添加多次会导致 SQL 生成错误
+    /// （同名字段冲突、冗余查询），必须在加载前检测。
+    ///
+    /// 检测到重复时返回 `DbError::InvalidInput`，给出明确的错误信息（含重复的关联名列表）。
+    fn check_duplicate_relations(&self) -> Result<(), crate::DbError> {
+        let mut seen = std::collections::HashSet::new();
+        let mut duplicates = Vec::new();
+        for (name, _) in &self.relations {
+            if !seen.insert(*name) {
+                duplicates.push(*name);
+            }
+        }
+        if !duplicates.is_empty() {
+            return Err(crate::DbError::InvalidInput(format!(
+                "WithRelation 重复关联检测失败：关联名 {:?} 被添加多次。请使用不同的关联名或移除重复项。",
+                duplicates
+            )));
+        }
+        Ok(())
     }
 
     /// 执行 JOIN load（生成单条 JOIN SQL）
     ///
     /// HasMany / HasOne → LEFT JOIN
     /// BelongsTo → INNER JOIN
+    ///
+    /// **P2-7 循环引用检测**：调用此方法前会自动检测重复关联名。
     #[tracing::instrument(skip(self), fields(strategy = "join", main_table = &self.main_table))]
-    pub fn load_join(&self, main_where: Option<&str>) -> String {
+    pub fn load_join(&self, main_where: Option<&str>) -> Result<String, crate::DbError> {
+        // P2-7：检测重复关联名
+        self.check_duplicate_relations()?;
         let mut sql = format!("SELECT {}.*", self.dialect.quote(&self.main_table));
         // 添加所有关联表的列
         for (_, item) in &self.relations {
@@ -554,7 +586,7 @@ impl<'a> WithRelation<'a> {
         if let Some(w) = main_where {
             sql.push_str(&format!(" WHERE {}", w));
         }
-        sql
+        Ok(sql)
     }
 
     /// 获取主表 SQL
@@ -921,7 +953,8 @@ mod tests {
         let d = mysql_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(Some("users.id IN (1, 2, 3)"));
+            .load_eager(Some("users.id IN (1, 2, 3)"))
+            .expect("load_eager should succeed for non-duplicate relations");
         assert_eq!(
             loader.main_sql(),
             "SELECT * FROM `users` WHERE users.id IN (1, 2, 3)"
@@ -951,7 +984,8 @@ mod tests {
         let d = mysql_dialect();
         let sql = WithRelation::new(&*d, "users")
             .with_has_one("profiles", "user_id", "id")
-            .load_join(Some("users.id = 1"));
+            .load_join(Some("users.id = 1"))
+            .expect("load_join should succeed for non-duplicate relations");
         assert!(sql.contains("LEFT JOIN `profiles`"));
         assert!(sql.contains("ON `profiles`.`user_id` = `users`.`id`"));
         assert!(sql.contains("WHERE users.id = 1"));
@@ -962,7 +996,8 @@ mod tests {
         let d = mysql_dialect();
         let sql = WithRelation::new(&*d, "orders")
             .with_belongs_to("users", "user_id", "id")
-            .load_join(None);
+            .load_join(None)
+            .expect("load_join should succeed for non-duplicate relations");
         // BelongsTo: orders.user_id → users.id（INNER JOIN）
         // JOIN 条件方向：main.fk = related.pk（语义直观）
         assert!(sql.contains("INNER JOIN `users`"));
@@ -976,7 +1011,8 @@ mod tests {
             .with_has_many("orders", "user_id", "id")
             .with_has_many("posts", "author_id", "id")
             .with_has_one("profiles", "user_id", "id")
-            .load_eager(None);
+            .load_eager(None)
+            .expect("load_eager should succeed for non-duplicate relations");
         assert_eq!(loader.main_sql(), "SELECT * FROM `users`");
         // 三个关联都应该有对应的 SQL
         assert!(loader.related_sql("orders").is_some());
@@ -991,7 +1027,8 @@ mod tests {
         let d = mysql_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(None);
+            .load_eager(None)
+            .expect("load_eager should succeed for non-duplicate relations");
         // 自定义 ID 列表（i64 数组直接传入，泛型自动推断）
         let orders_sql = loader
             .related_sql_with_ids("orders", [1_i64, 5, 10])
@@ -1007,7 +1044,8 @@ mod tests {
         let d = pg_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(Some("users.id > 100"));
+            .load_eager(Some("users.id > 100"))
+            .expect("load_eager should succeed for non-duplicate relations");
         assert_eq!(
             loader.main_sql(),
             "SELECT * FROM \"users\" WHERE users.id > 100"
@@ -1029,7 +1067,8 @@ mod tests {
         let d = sqlite_dialect();
         let sql = WithRelation::new(&*d, "users")
             .with_has_one("profiles", "user_id", "id")
-            .load_join(None);
+            .load_join(None)
+            .expect("load_join should succeed for non-duplicate relations");
         assert!(sql.contains("LEFT JOIN \"profiles\""));
     }
 
@@ -1041,7 +1080,8 @@ mod tests {
         let d = mysql_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(None);
+            .load_eager(None)
+            .expect("load_eager should succeed for non-duplicate relations");
         let _ = loader.related_sql_with_ids("orders", ["1; DROP TABLE users"]);
     }
 
@@ -1051,7 +1091,8 @@ mod tests {
         let d = mysql_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(None);
+            .load_eager(None)
+            .expect("load_eager should succeed for non-duplicate relations");
         let _ = loader.related_sql_with_ids("orders", ["1) OR 1=1"]);
     }
 
@@ -1061,7 +1102,8 @@ mod tests {
         let d = mysql_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(None);
+            .load_eager(None)
+            .expect("load_eager should succeed for non-duplicate relations");
         let _ = loader.related_sql_with_ids("orders", ["' OR '1'='1"]);
     }
 
@@ -1071,7 +1113,8 @@ mod tests {
         let d = mysql_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(None);
+            .load_eager(None)
+            .expect("load_eager should succeed for non-duplicate relations");
         let _ = loader.related_sql_with_ids("orders", ["1--"]);
     }
 
@@ -1081,7 +1124,8 @@ mod tests {
         let d = mysql_dialect();
         let loader = WithRelation::new(&*d, "users")
             .with_has_many("orders", "user_id", "id")
-            .load_eager(None);
+            .load_eager(None)
+            .expect("load_eager should succeed for non-duplicate relations");
         let _ = loader.related_sql_with_ids("orders", ["1 2"]);
     }
 }

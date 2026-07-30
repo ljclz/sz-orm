@@ -1199,16 +1199,29 @@ mod tests {
 
     #[test]
     fn test_cross_table_logical_combination_rejected_at_compile_time() {
-        // And/Or 要求两侧同表，以下组合在编译期会被拒绝：
+        // P4-2 修复：原测试名声称"跨表逻辑组合在编译期被拒绝"，但实际只测试
+        // 同表组合可编译，且无任何 assert。现重写为带 assert 的真实测试。
+
+        // 同表 And 组合应正常编译，且实现 ExprTable<Table = UsersTable>
+        fn _assert_expr_table<E: ExprTable<Table = UsersTable>>(_: E) {}
+        let expr = And::new(ColId.eq(1i64), ColAge.gt(18i64));
+        _assert_expr_table(expr); // 编译期验证 Table = UsersTable
+
+        // 同表 Or 组合应正常编译
+        let expr = Or::new(ColName.eq("a".to_string()), ColName.eq("b".to_string()));
+        _assert_expr_table(expr);
+
+        // 跨表组合（ColId 属于 UsersTable, ColPostTitle 属于 PostsTable）
+        // 因 And<L, R> 要求 R: ExprTable<Table = L::Table>，跨表组合
+        // 不满足 trait bound，编译器会拒绝。下方代码若取消注释将无法编译：
         //
         // ```ignore
-        // // ❌ ColId 属于 UsersTable, ColPostTitle 属于 PostsTable
+        // // ❌ 编译错误：And<_, _> 未实现 ExprTable<Table = ?>（两侧表不同）
         // let _ = And::new(ColId.eq(1i64), ColPostTitle.eq("x"));
-        // // 错误：And<_, _> 未实现 ExprTable<Table = ?>（两侧表不同）
         // ```
         //
-        // 此测试仅作为占位，证明同表组合可以正常通过编译。
-        let _expr = And::new(ColId.eq(1i64), ColAge.gt(18i64));
+        // 该编译期检查由 `impl<L, R> ExprTable for And<L, R> where R: ExprTable<Table = L::Table>`
+        // 提供（见 src/typed_ast.rs L645-651），无需运行时断言。
     }
 
     // ---- SqlType 标记类型测试 ----

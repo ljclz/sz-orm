@@ -456,21 +456,40 @@ fn verify_with_real_db(sql: &str) -> Result<(), String> {
     let db_kind =
         detect_db_kind(&dsn).map_err(|e| format!("Failed to detect DB kind from DSN: {}", e))?;
 
+    // 将 ? 占位符替换为 NULL，使 EXPLAIN 无需绑定参数即可执行。
+    // EXPLAIN 不实际执行查询，NULL 对所有列类型都合法。
+    let sql_no_placeholders = replace_placeholders_with_null(sql);
+
+    // Oracle/SQL Server 使用 EXPLAIN PLAN FOR（不同语法），其余用 EXPLAIN
     let explain_sql = match db_kind {
-        DbKind::MySql | DbKind::Postgres => format!("EXPLAIN {}", sql),
-        DbKind::Sqlite => format!("EXPLAIN QUERY PLAN {}", sql),
+        DbKind::MySql | DbKind::Postgres => format!("EXPLAIN {}", sql_no_placeholders),
+        DbKind::Sqlite => format!("EXPLAIN QUERY PLAN {}", sql_no_placeholders),
+        // Oracle: EXPLAIN PLAN FOR 放入 PLAN_TABLE，再查询结果验证语法
+        DbKind::Oracle => format!("EXPLAIN PLAN FOR {}", sql_no_placeholders),
+        // SQL Server: SET SHOWPLAN_TEXT ON 后执行（不实际运行）
+        DbKind::SqlServer => sql_no_placeholders,
     };
 
-    let rt = tokio::runtime::Runtime::new()
-        .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
+    // MySQL/PG/SQLite 走 sqlx 异步路径
+    if matches!(db_kind, DbKind::MySql | DbKind::Postgres | DbKind::Sqlite) {
+        let rt = tokio::runtime::Runtime::new()
+            .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
+        return rt.block_on(async {
+            match db_kind {
+                DbKind::MySql => verify_mysql(&dsn, &explain_sql).await,
+                DbKind::Postgres => verify_postgres(&dsn, &explain_sql).await,
+                DbKind::Sqlite => verify_sqlite(&dsn, &explain_sql).await,
+                _ => unreachable!(),
+            }
+        });
+    }
 
-    rt.block_on(async {
-        match db_kind {
-            DbKind::MySql => verify_mysql(&dsn, &explain_sql).await,
-            DbKind::Postgres => verify_postgres(&dsn, &explain_sql).await,
-            DbKind::Sqlite => verify_sqlite(&dsn, &explain_sql).await,
-        }
-    })
+    // Oracle/SQL Server 走命令行工具验证（避免引入重依赖）
+    match db_kind {
+        DbKind::Oracle => verify_oracle(&dsn, &explain_sql),
+        DbKind::SqlServer => verify_sqlserver(&dsn, &explain_sql),
+        _ => unreachable!(),
+    }
 }
 
 #[cfg(feature = "db-verify")]
@@ -479,6 +498,42 @@ enum DbKind {
     MySql,
     Postgres,
     Sqlite,
+    Oracle,
+    SqlServer,
+}
+
+/// 将 SQL 中的 `?` 占位符替换为 `NULL`，跳过字符串字面量内的 `?`。
+///
+/// EXPLAIN 不实际执行查询，用 NULL 代替参数可验证语法和表/列存在性，
+/// 同时避免 sqlx 预处理语句要求绑定参数的问题。
+#[cfg(feature = "db-verify")]
+fn replace_placeholders_with_null(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len() + 16);
+    let mut in_single_quote = false;
+    let mut in_double_quote = false;
+    let mut prev = '\0';
+
+    for ch in sql.chars() {
+        if prev == '\\' {
+            // 转义字符：直接追加
+            result.push(ch);
+            prev = ch;
+            continue;
+        }
+        match ch {
+            '\'' if !in_double_quote => in_single_quote = !in_single_quote,
+            '"' if !in_single_quote => in_double_quote = !in_double_quote,
+            '?' if !in_single_quote && !in_double_quote => {
+                result.push_str("NULL");
+                prev = ch;
+                continue;
+            }
+            _ => {}
+        }
+        result.push(ch);
+        prev = ch;
+    }
+    result
 }
 
 #[cfg(feature = "db-verify")]
@@ -490,6 +545,13 @@ fn detect_db_kind(dsn: &str) -> Result<DbKind, String> {
         Ok(DbKind::Postgres)
     } else if lower.starts_with("sqlite://") || lower.starts_with("sqlite:") {
         Ok(DbKind::Sqlite)
+    } else if lower.starts_with("oracle://") || lower.starts_with("oracle:") {
+        Ok(DbKind::Oracle)
+    } else if lower.starts_with("sqlserver://")
+        || lower.starts_with("mssql://")
+        || lower.starts_with("tds://")
+    {
+        Ok(DbKind::SqlServer)
     } else {
         Err(format!("Unsupported DSN scheme: {}", dsn))
     }
@@ -529,6 +591,201 @@ async fn verify_sqlite(dsn: &str, explain_sql: &str) -> Result<(), String> {
         .await
         .map_err(|e| format!("SQLite EXPLAIN failed: {}", e))?;
     Ok(())
+}
+
+/// Oracle 编译期验证：通过 sqlplus 命令行工具执行 EXPLAIN PLAN FOR
+///
+/// DSN 格式：`oracle://user:pass@host:port/service`（可选 `?sysdba=1`）
+/// 例如：`oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1`
+#[cfg(feature = "db-verify")]
+fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
+    let parsed = parse_oracle_dsn(dsn)?;
+    // 构造 sqlplus 连接串：user/pass@host:port/service [AS SYSDBA]
+    let mut conn_str = format!(
+        "{}/{}@{}:{}/{}",
+        parsed.user, parsed.password, parsed.host, parsed.port, parsed.service
+    );
+    if parsed.sysdba {
+        conn_str.push_str(" AS SYSDBA");
+    }
+    // 用 SET SHOWPLAN 不适用于 Oracle，用 EXPLAIN PLAN FOR 并立即查询 PLAN_TABLE
+    let full_script = format!(
+        "SET HEADING OFF FEEDBACK OFF ECHO OFF;\n\
+         EXPLAIN PLAN FOR {};\n\
+         SELECT COUNT(*) FROM plan_table WHERE statement_id = (SELECT MAX(statement_id) FROM plan_table);\n\
+         EXIT;\n",
+        explain_sql
+    );
+    let output = std::process::Command::new("sqlplus")
+        .args(["-S", "-L", &conn_str])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .map_err(|e| format!("sqlplus not found (Oracle client required): {}", e))?;
+    use std::io::Write;
+    let mut child = output;
+    if let Some(mut stdin) = child.stdin.take() {
+        stdin
+            .write_all(full_script.as_bytes())
+            .map_err(|e| format!("sqlplus stdin write failed: {}", e))?;
+    }
+    let out = child
+        .wait_with_output()
+        .map_err(|e| format!("sqlplus wait failed: {}", e))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() || stdout.contains("ORA-") || stdout.contains("SP2-") {
+        return Err(format!(
+            "Oracle EXPLAIN failed: stdout={} stderr={}",
+            stdout.trim(),
+            stderr.trim()
+        ));
+    }
+    Ok(())
+}
+
+/// SQL Server 编译期验证：通过 sqlcmd 命令行工具执行 SET SHOWPLAN_TEXT ON
+///
+/// DSN 格式：`sqlserver://user:pass@host:port/db`
+/// 例如：`sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test`
+#[cfg(feature = "db-verify")]
+fn verify_sqlserver(dsn: &str, explain_sql: &str) -> Result<(), String> {
+    let parsed = parse_sqlserver_dsn(dsn)?;
+    // sqlcmd -S host,port -U user -P pass -d db -Q "SET SHOWPLAN_TEXT ON; <sql>"
+    let query = format!("SET SHOWPLAN_TEXT ON;\n{}", explain_sql);
+    let out = std::process::Command::new("sqlcmd")
+        .args([
+            "-S",
+            &format!("{},{}", parsed.host, parsed.port),
+            "-U",
+            &parsed.user,
+            "-P",
+            &parsed.password,
+            "-d",
+            &parsed.database,
+            "-Q",
+            &query,
+            "-h",
+            "-1",
+            "-W",
+        ])
+        .output()
+        .map_err(|e| format!("sqlcmd not found (SQL Server client required): {}", e))?;
+    let stdout = String::from_utf8_lossy(&out.stdout);
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    if !out.status.success() || stdout.contains("Msg ") || stdout.contains("Level ") {
+        return Err(format!(
+            "SQL Server SHOWPLAN failed: stdout={} stderr={}",
+            stdout.trim(),
+            stderr.trim()
+        ));
+    }
+    Ok(())
+}
+
+/// Oracle DSN 解析结果
+#[cfg(feature = "db-verify")]
+struct OracleDsn {
+    user: String,
+    password: String,
+    host: String,
+    port: u16,
+    service: String,
+    sysdba: bool,
+}
+
+/// 解析 oracle://user:pass@host:port/service?sysdba=1
+#[cfg(feature = "db-verify")]
+fn parse_oracle_dsn(dsn: &str) -> Result<OracleDsn, String> {
+    let raw = dsn
+        .strip_prefix("oracle://")
+        .or_else(|| dsn.strip_prefix("oracle:"))
+        .ok_or_else(|| format!("Invalid Oracle DSN: {}", dsn))?;
+    // 分离 query
+    let (auth_host_service, query) = match raw.find('?') {
+        Some(idx) => (&raw[..idx], &raw[idx + 1..]),
+        None => (raw, ""),
+    };
+    let sysdba = query.split('&').any(|p| p == "sysdba=1" || p == "sysdba=true");
+    // user:pass@host:port/service
+    let at = auth_host_service
+        .find('@')
+        .ok_or_else(|| format!("Oracle DSN missing '@': {}", dsn))?;
+    let (user_pass, host_port_service) = (&auth_host_service[..at], &auth_host_service[at + 1..]);
+    let colon = user_pass
+        .find(':')
+        .ok_or_else(|| format!("Oracle DSN missing password separator: {}", dsn))?;
+    let (user, password) = (&user_pass[..colon], &user_pass[colon + 1..]);
+    let (host_port, service) = match host_port_service.rfind('/') {
+        Some(idx) => (&host_port_service[..idx], &host_port_service[idx + 1..]),
+        None => return Err(format!("Oracle DSN missing service name: {}", dsn)),
+    };
+    let (host, port) = match host_port.find(':') {
+        Some(idx) => (
+            &host_port[..idx],
+            host_port[idx + 1..]
+                .parse::<u16>()
+                .map_err(|_| format!("Oracle DSN invalid port: {}", dsn))?,
+        ),
+        None => (host_port, 1521u16),
+    };
+    Ok(OracleDsn {
+        user: user.to_string(),
+        password: password.to_string(),
+        host: host.to_string(),
+        port,
+        service: service.to_string(),
+        sysdba,
+    })
+}
+
+/// SQL Server DSN 解析结果
+#[cfg(feature = "db-verify")]
+struct SqlServerDsn {
+    user: String,
+    password: String,
+    host: String,
+    port: u16,
+    database: String,
+}
+
+/// 解析 sqlserver://user:pass@host:port/db
+#[cfg(feature = "db-verify")]
+fn parse_sqlserver_dsn(dsn: &str) -> Result<SqlServerDsn, String> {
+    let raw = dsn
+        .strip_prefix("sqlserver://")
+        .or_else(|| dsn.strip_prefix("mssql://"))
+        .or_else(|| dsn.strip_prefix("tds://"))
+        .ok_or_else(|| format!("Invalid SQL Server DSN: {}", dsn))?;
+    let at = raw
+        .find('@')
+        .ok_or_else(|| format!("SQL Server DSN missing '@': {}", dsn))?;
+    let (user_pass, host_port_db) = (&raw[..at], &raw[at + 1..]);
+    let colon = user_pass
+        .find(':')
+        .ok_or_else(|| format!("SQL Server DSN missing password separator: {}", dsn))?;
+    let (user, password) = (&user_pass[..colon], &user_pass[colon + 1..]);
+    let (host_port, database) = match host_port_db.rfind('/') {
+        Some(idx) => (&host_port_db[..idx], &host_port_db[idx + 1..]),
+        None => return Err(format!("SQL Server DSN missing database: {}", dsn)),
+    };
+    let (host, port) = match host_port.find(':') {
+        Some(idx) => (
+            &host_port[..idx],
+            host_port[idx + 1..]
+                .parse::<u16>()
+                .map_err(|_| format!("SQL Server DSN invalid port: {}", dsn))?,
+        ),
+        None => (host_port, 1433u16),
+    };
+    Ok(SqlServerDsn {
+        user: user.to_string(),
+        password: password.to_string(),
+        host: host.to_string(),
+        port,
+        database: database.to_string(),
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -1534,9 +1791,84 @@ mod tests {
 
     #[cfg(feature = "db-verify")]
     #[test]
+    fn test_detect_db_kind_oracle() {
+        assert_eq!(
+            detect_db_kind("oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1").unwrap(),
+            DbKind::Oracle
+        );
+        assert_eq!(
+            detect_db_kind("oracle:sys:test123@127.0.0.1:1521/FREE").unwrap(),
+            DbKind::Oracle
+        );
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_detect_db_kind_sqlserver() {
+        assert_eq!(
+            detect_db_kind("sqlserver://test:pass@host:1433/db").unwrap(),
+            DbKind::SqlServer
+        );
+        assert_eq!(
+            detect_db_kind("mssql://test:pass@host:1433/db").unwrap(),
+            DbKind::SqlServer
+        );
+        assert_eq!(
+            detect_db_kind("tds://test:pass@host:1433/db").unwrap(),
+            DbKind::SqlServer
+        );
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
     fn test_detect_db_kind_unsupported() {
-        assert!(detect_db_kind("oracle://user:pass@host/db").is_err());
+        assert!(detect_db_kind("redis://user:pass@host/db").is_err());
         assert!(detect_db_kind("not-a-url").is_err());
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_parse_oracle_dsn_basic() {
+        let dsn = "oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1";
+        let p = parse_oracle_dsn(dsn).unwrap();
+        assert_eq!(p.user, "sys");
+        assert_eq!(p.password, "test123");
+        assert_eq!(p.host, "127.0.0.1");
+        assert_eq!(p.port, 1521);
+        assert_eq!(p.service, "freepdb1.FALSE");
+        assert!(p.sysdba);
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_parse_oracle_dsn_default_port() {
+        // 无端口号时默认 1521
+        let dsn = "oracle://sys:test123@127.0.0.1/FREE";
+        let p = parse_oracle_dsn(dsn).unwrap();
+        assert_eq!(p.port, 1521);
+        assert_eq!(p.service, "FREE");
+        assert!(!p.sysdba);
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_parse_sqlserver_dsn_basic() {
+        let dsn = "sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test";
+        let p = parse_sqlserver_dsn(dsn).unwrap();
+        assert_eq!(p.user, "test");
+        assert_eq!(p.password, "JkbC2jsaWAYDe2Gz");
+        assert_eq!(p.host, "sh-mssql-adrul9nm.sql.tencentcdb.com");
+        assert_eq!(p.port, 22527);
+        assert_eq!(p.database, "test");
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_parse_sqlserver_dsn_default_port() {
+        let dsn = "mssql://user:pass@host/db";
+        let p = parse_sqlserver_dsn(dsn).unwrap();
+        assert_eq!(p.port, 1433);
+        assert_eq!(p.database, "db");
     }
 
     // ---- schema! 宏 parse_create_table 测试 ----

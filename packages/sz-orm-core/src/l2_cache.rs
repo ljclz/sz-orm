@@ -591,53 +591,52 @@ impl L2Cache {
 
         // 1. 写入数据 + LRU 淘汰
         {
-            let mut data = self.data.write().expect("L2Cache data lock poisoned (put)");
+            // 锁毒化时跳过写入，优雅降级
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(_) => return,
+            };
             let exists = data.contains_key(&key_str);
             if !exists && data.len() >= self.max_size {
                 // LRU 淘汰：优先淘汰已过期的 key，否则淘汰 LRU 端（access_order 头部）
                 let victim = {
                     // 不在持 data 写锁时获取 access_order 写锁，先读 access_order
-                    let order = self
-                        .access_order
-                        .read()
-                        .expect("L2Cache access_order lock poisoned (put-victim-read)");
-                    // 优先找已过期的 key（O(n) 遍历，仅缓存满时触发）
-                    // 分两步计算，避免闭包捕获 order 导致生命周期问题
-                    let expired = order
-                        .iter_keys()
-                        .find(|k| data.get(*k).map(|e| e.is_expired()).unwrap_or(false))
-                        .map(|s| s.to_string());
-                    let lru = order.lru_key().map(|s| s.to_string());
-                    expired.or(lru)
+                    // 锁毒化时降级为 None（不淘汰），保留新插入项
+                    match self.access_order.read() {
+                        Ok(order) => {
+                            // 优先找已过期的 key（O(n) 遍历，仅缓存满时触发）
+                            // 分两步计算，避免闭包捕获 order 导致生命周期问题
+                            let expired = order
+                                .iter_keys()
+                                .find(|k| data.get(*k).map(|e| e.is_expired()).unwrap_or(false))
+                                .map(|s| s.to_string());
+                            let lru = order.lru_key().map(|s| s.to_string());
+                            expired.or(lru)
+                        }
+                        Err(_) => None,
+                    }
                 };
                 if let Some(victim) = victim {
                     data.remove(&victim);
                     // 同步清理 access_order（O(1) remove）
-                    let mut order = self
-                        .access_order
-                        .write()
-                        .expect("L2Cache access_order lock poisoned (put-victim-remove)");
-                    order.remove(&victim);
+                    // 锁毒化时跳过 LRU 顺序同步（不影响数据正确性）
+                    if let Ok(mut order) = self.access_order.write() {
+                        order.remove(&victim);
+                    }
                 }
             }
             data.insert(key_str.clone(), entry);
         };
 
         // 2. 更新 LRU 访问顺序（O(1) touch：新 key 追加尾部，已存在 key 移到尾部）
-        {
-            let mut order = self
-                .access_order
-                .write()
-                .expect("L2Cache access_order lock poisoned (put-touch)");
+        // 锁毒化时跳过 LRU 顺序更新（不影响数据正确性）
+        if let Ok(mut order) = self.access_order.write() {
             order.touch(&key_str);
         }
 
         // 3. 更新表索引（去重，避免重复 push 导致 invalidate_table 统计错误）
-        {
-            let mut idx = self
-                .table_index
-                .write()
-                .expect("L2Cache table_index lock poisoned (put)");
+        // 锁毒化时跳过索引更新（invalidate_table 会遍历 data，影响仅限于失效精度）
+        if let Ok(mut idx) = self.table_index.write() {
             let keys = idx.entry(key.table.clone()).or_default();
             if !keys.contains(&key_str) {
                 keys.push(key_str);
@@ -645,11 +644,8 @@ impl L2Cache {
         }
 
         // 4. 更新统计（不在此处读取 data.len()，避免锁顺序敏感）
-        {
-            let mut stats = self
-                .stats
-                .write()
-                .expect("L2Cache stats lock poisoned (put)");
+        // 锁毒化时跳过统计更新（不影响数据正确性）
+        if let Ok(mut stats) = self.stats.write() {
             stats.sets += 1;
         }
         // 4.1 更新按表分桶统计
@@ -680,12 +676,11 @@ impl L2Cache {
         };
 
         // 命中时更新 LRU 顺序（O(1) touch：移到尾部）
+        // 锁毒化时跳过 LRU 顺序更新（不影响数据正确性）
         if result.is_some() {
-            let mut order = self
-                .access_order
-                .write()
-                .expect("L2Cache access_order lock poisoned (get)");
-            order.touch(&key_str);
+            if let Ok(mut order) = self.access_order.write() {
+                order.touch(&key_str);
+            }
         }
 
         // 更新全局统计
@@ -714,25 +709,24 @@ impl L2Cache {
         let key_str = key.to_string_key();
         let table_name = key.table.clone();
         let removed = {
-            let mut data = self
-                .data
-                .write()
-                .expect("L2Cache data lock poisoned (invalidate)");
+            // 锁毒化时跳过失效操作（视为未删除）
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(_) => return,
+            };
             data.remove(&key_str).is_some()
         };
         if removed {
-            let mut order = self
-                .access_order
-                .write()
-                .expect("L2Cache access_order lock poisoned (invalidate)");
-            order.remove(&key_str);
+            // 锁毒化时跳过 LRU 顺序同步（不影响数据正确性）
+            if let Ok(mut order) = self.access_order.write() {
+                order.remove(&key_str);
+            }
         }
         if removed {
-            let mut stats = self
-                .stats
-                .write()
-                .expect("L2Cache stats lock poisoned (invalidate)");
-            stats.evictions += 1;
+            // 锁毒化时跳过统计更新（不影响数据正确性）
+            if let Ok(mut stats) = self.stats.write() {
+                stats.evictions += 1;
+            }
             if let Ok(mut tbl_stats) = self.table_stats.write() {
                 tbl_stats.entry(table_name).or_default().evictions += 1;
             }
@@ -754,10 +748,11 @@ impl L2Cache {
 
         let mut actually_removed: usize = 0;
         {
-            let mut data = self
-                .data
-                .write()
-                .expect("L2Cache data lock poisoned (invalidate_table)");
+            // 锁毒化时跳过失效并直接返回（不发布总线通知）
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(_) => return,
+            };
             for k in &keys_to_remove {
                 if data.remove(k).is_some() {
                     actually_removed += 1;
@@ -766,13 +761,12 @@ impl L2Cache {
         }
 
         // O(m) 批量移除（m = keys_to_remove），而非旧实现的 O(n*m) retain
+        // 锁毒化时跳过 LRU 顺序同步（不影响数据正确性）
         if actually_removed > 0 {
-            let mut order = self
-                .access_order
-                .write()
-                .expect("L2Cache access_order lock poisoned (invalidate_table)");
-            for k in &keys_to_remove {
-                order.remove(k);
+            if let Ok(mut order) = self.access_order.write() {
+                for k in &keys_to_remove {
+                    order.remove(k);
+                }
             }
         }
 
@@ -780,11 +774,10 @@ impl L2Cache {
             idx.remove(table);
         }
         if actually_removed > 0 {
-            let mut stats = self
-                .stats
-                .write()
-                .expect("L2Cache stats lock poisoned (invalidate_table)");
-            stats.evictions += actually_removed as u64;
+            // 锁毒化时跳过统计更新（不影响数据正确性）
+            if let Ok(mut stats) = self.stats.write() {
+                stats.evictions += actually_removed as u64;
+            }
             if let Ok(mut tbl_stats) = self.table_stats.write() {
                 tbl_stats.entry(table.to_string()).or_default().evictions +=
                     actually_removed as u64;
@@ -800,10 +793,11 @@ impl L2Cache {
     /// 清空所有缓存
     pub fn clear(&self) {
         let removed = {
-            let mut data = self
-                .data
-                .write()
-                .expect("L2Cache data lock poisoned (clear)");
+            // 锁毒化时跳过清空并直接返回
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(_) => return,
+            };
             let n = data.len();
             data.clear();
             n
@@ -818,12 +812,11 @@ impl L2Cache {
             tbl_stats.clear();
         }
         if removed > 0 {
-            let mut stats = self
-                .stats
-                .write()
-                .expect("L2Cache stats lock poisoned (clear)");
-            stats.evictions += removed as u64;
-            stats.size = 0;
+            // 锁毒化时跳过统计更新（不影响数据正确性）
+            if let Ok(mut stats) = self.stats.write() {
+                stats.evictions += removed as u64;
+                stats.size = 0;
+            }
         }
     }
 
@@ -878,10 +871,11 @@ impl L2Cache {
     /// 手动清理所有过期项
     pub fn evict_expired(&self) -> usize {
         let expired_keys: Vec<String> = {
-            let data = self
-                .data
-                .read()
-                .expect("L2Cache data lock poisoned (evict_expired-read)");
+            // 锁毒化时返回空 Vec（无过期项可清理）
+            let data = match self.data.read() {
+                Ok(d) => d,
+                Err(_) => return 0,
+            };
             data.iter()
                 .filter(|(_, e)| e.is_expired())
                 .map(|(k, _)| k.clone())
@@ -889,26 +883,27 @@ impl L2Cache {
         };
 
         // 反向查找 key_str -> table_name，用于按表分桶统计
-        let key_to_table: HashMap<String, String> = {
-            let idx = self
-                .table_index
-                .read()
-                .expect("L2Cache table_index lock poisoned (evict_expired-idx)");
-            let mut map = HashMap::new();
-            for (table, keys) in idx.iter() {
-                for k in keys {
-                    map.insert(k.clone(), table.clone());
+        // 锁毒化时返回空 map（按表统计将不更新，不影响数据清理）
+        let key_to_table: HashMap<String, String> = match self.table_index.read() {
+            Ok(idx) => {
+                let mut map = HashMap::new();
+                for (table, keys) in idx.iter() {
+                    for k in keys {
+                        map.insert(k.clone(), table.clone());
+                    }
                 }
+                map
             }
-            map
+            Err(_) => HashMap::new(),
         };
 
         let mut removed = 0;
         if !expired_keys.is_empty() {
-            let mut data = self
-                .data
-                .write()
-                .expect("L2Cache data lock poisoned (evict_expired-write)");
+            // 锁毒化时跳过清理（视为未删除）
+            let mut data = match self.data.write() {
+                Ok(d) => d,
+                Err(_) => return 0,
+            };
             for k in &expired_keys {
                 if data.remove(k).is_some() {
                     removed += 1;
@@ -918,19 +913,17 @@ impl L2Cache {
 
         if removed > 0 {
             // O(m) 批量移除（m = expired_keys），而非旧实现的 O(n*m) retain
-            let mut order = self
-                .access_order
-                .write()
-                .expect("L2Cache access_order lock poisoned (evict_expired)");
-            for k in &expired_keys {
-                order.remove(k);
+            // 锁毒化时跳过 LRU 顺序同步（不影响数据正确性）
+            if let Ok(mut order) = self.access_order.write() {
+                for k in &expired_keys {
+                    order.remove(k);
+                }
             }
             {
-                let mut stats = self
-                    .stats
-                    .write()
-                    .expect("L2Cache stats lock poisoned (evict_expired)");
-                stats.evictions += removed as u64;
+                // 锁毒化时跳过统计更新（不影响数据正确性）
+                if let Ok(mut stats) = self.stats.write() {
+                    stats.evictions += removed as u64;
+                }
             }
             // 更新按表分桶统计（单独持锁，避免与 stats 锁同时持有）
             if let Ok(mut tbl_stats) = self.table_stats.write() {

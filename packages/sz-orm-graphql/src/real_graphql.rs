@@ -3,6 +3,28 @@
 //! This module is only compiled with the `real` feature enabled. It builds a
 //! dynamic async-graphql schema from the declarative [`GraphQLSchema`],
 //! executes queries against it and exposes it over HTTP via axum.
+//!
+//! # P1-1 / P2-1 说明：root field resolver
+//!
+//! ## P2-1 修复 C-3：DB resolver 注入（当前状态）
+//!
+//! 自 P2-1 起，本模块支持通过 [`crate::resolver::DbResolver`] 注入真实数据源。
+//! 调用方通过 `GraphQLServer::with_db_resolver` 注入 resolver 后，root field
+//! 将通过 resolver 异步查询真实数据库（见 [`resolver_root_field`]）。
+//! 未注入 resolver 时，回退到 [`mock_root_field`] 返回硬编码 mock 数据（向后兼容）。
+//!
+//! 这意味着：
+//! - ✅ **Schema 构建是真实的**：使用 `async-graphql::dynamic::Schema`，类型/字段定义
+//!   均根据 `GraphQLSchema` 动态注册
+//! - ✅ **GraphQL 执行是真实的**：查询由 `async-graphql` 引擎按 GraphQL 规范解析与执行
+//! - ✅ **HTTP 服务是真实的**：通过 axum 暴露 `/graphql` POST 端点
+//! - ✅ **数据解析可注入真实 DB resolver**（P2-1）：注入 resolver 后查询真实数据库
+//! - ⚠️ **未注入 resolver 时数据为 mock**：root field 返回硬编码数据
+//!
+//! ## 如何接入真实数据源
+//!
+//! 实现 [`crate::resolver::DbResolver`] trait，并通过
+//! `GraphQLServer::with_db_resolver` 注入即可，无需修改本模块代码。
 
 use async_graphql::dynamic::{
     Field, FieldFuture, InputValue, Object, ResolverContext, Schema, TypeRef,
@@ -80,6 +102,60 @@ fn mock_root_field(field: &GraphQLField) -> Result<Field, String> {
     Ok(root)
 }
 
+/// Create a root field backed by a real DB resolver — P2-1 修复 C-3
+///
+/// 当调用方注入了 DbResolver 时，root field 通过 resolver 异步查询真实数据库，
+/// 而非返回 mock 数据。闭包从 async-graphql 执行上下文提取参数，构造
+/// [`crate::resolver::ResolverContext`] 后调用 `DbResolver::resolve_query`。
+fn resolver_root_field(
+    field: &GraphQLField,
+    resolver: crate::resolver::SharedDbResolver,
+) -> Result<Field, String> {
+    let type_ref = parse_type_ref(&field.type_name)?;
+    let is_list = field.type_name.trim_start().starts_with('[');
+    let field_name = field.name.clone();
+    let type_name = field.type_name.clone();
+    let resolver = resolver;
+
+    let mut root = Field::new(field.name.clone(), type_ref, move |ctx: ResolverContext<'_>| {
+        // 从 GraphQL 执行上下文提取参数
+        let mut args = serde_json::Map::new();
+        for (key, val) in ctx.args.iter() {
+            if let Ok(json_v) = val.as_value().clone().into_json() {
+                args.insert(key.to_string(), json_v);
+            }
+        }
+        let resolver_ctx = crate::resolver::ResolverContext {
+            field_name: field_name.clone(),
+            type_name: type_name.clone(),
+            is_list,
+            args: serde_json::Value::Object(args),
+        };
+        let resolver = resolver.clone();
+        FieldFuture::new(async move {
+            match resolver.resolve_query(&resolver_ctx).await {
+                Ok(value) => {
+                    let gql_value = Value::from_json(value).unwrap_or(Value::Null);
+                    Ok(Some(gql_value))
+                }
+                Err(msg) => {
+                    tracing::error!(
+                        field = %resolver_ctx.field_name,
+                        error = %msg,
+                        "DB resolver failed"
+                    );
+                    Ok(Some(Value::Null))
+                }
+            }
+        })
+    });
+
+    if !is_list {
+        root = root.argument(InputValue::new("id", TypeRef::named(TypeRef::ID)));
+    }
+    Ok(root)
+}
+
 /// Create a dynamic object type whose fields read from the parent value
 /// resolved by the root field.
 fn object_type(t: &GraphQLType) -> Result<Object, String> {
@@ -108,7 +184,13 @@ fn object_type(t: &GraphQLType) -> Result<Object, String> {
 
 /// Build a real executable async-graphql [`Schema`] from the declarative
 /// [`GraphQLSchema`].
-pub fn build_dynamic_schema(schema: &GraphQLSchema) -> Result<Schema, String> {
+///
+/// 当 `resolver` 为 `Some` 时，root field 通过 [`resolver_root_field`] 查询真实
+/// 数据库；为 `None` 时回退到 [`mock_root_field`]（向后兼容）。
+pub fn build_dynamic_schema(
+    schema: &GraphQLSchema,
+    resolver: Option<&crate::resolver::SharedDbResolver>,
+) -> Result<Schema, String> {
     let mutation_name = if schema.mutations.is_empty() {
         None
     } else {
@@ -120,13 +202,21 @@ pub fn build_dynamic_schema(schema: &GraphQLSchema) -> Result<Schema, String> {
     }
     let mut query = Object::new("Query");
     for field in &schema.queries {
-        query = query.field(mock_root_field(field)?);
+        let f = match resolver {
+            Some(r) => resolver_root_field(field, std::sync::Arc::clone(r))?,
+            None => mock_root_field(field)?,
+        };
+        query = query.field(f);
     }
     builder = builder.register(query);
     if mutation_name.is_some() {
         let mut mutation = Object::new("Mutation");
         for field in &schema.mutations {
-            mutation = mutation.field(mock_root_field(field)?);
+            let f = match resolver {
+                Some(r) => resolver_root_field(field, std::sync::Arc::clone(r))?,
+                None => mock_root_field(field)?,
+            };
+            mutation = mutation.field(f);
         }
         builder = builder.register(mutation);
     }
@@ -215,4 +305,91 @@ pub fn execute(schema: &Schema, query: &str) -> Result<serde_json::Value, String
             .map_err(|_| "GraphQL executor thread panicked".to_string())?
     })?;
     response_to_json(response)
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::resolver::{DbResolver, ResolverContext, SharedDbResolver};
+    use crate::{GraphQLSchemaGenerator, GraphQLServer};
+    use serde_json::json;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::Arc;
+
+    /// 测试用 DB resolver — 返回包含 "real" 标记的数据
+    struct TestDbResolver;
+
+    impl DbResolver for TestDbResolver {
+        fn resolve_query(
+            &self,
+            ctx: &ResolverContext,
+        ) -> Pin<Box<dyn Future<Output = Result<serde_json::Value, String>> + Send>> {
+            let field_name = ctx.field_name.clone();
+            let is_list = ctx.is_list;
+            Box::pin(async move {
+                if is_list {
+                    Ok(json!([
+                        {"id": "100", "name": format!("{}_real_100", field_name), "createdAt": "2024-01-01T00:00:00Z", "updatedAt": "2024-01-01T00:00:00Z"},
+                        {"id": "200", "name": format!("{}_real_200", field_name), "createdAt": "2024-01-01T00:00:00Z", "updatedAt": "2024-01-01T00:00:00Z"}
+                    ]))
+                } else {
+                    Ok(json!({
+                        "id": "100",
+                        "name": format!("{}_real", field_name),
+                        "createdAt": "2024-01-01T00:00:00Z",
+                        "updatedAt": "2024-01-01T00:00:00Z"
+                    }))
+                }
+            })
+        }
+    }
+
+    #[test]
+    fn test_resolver_returns_real_data_single() {
+        let resolver: SharedDbResolver = Arc::new(TestDbResolver);
+        let srv = GraphQLServer::new(4501)
+            .with_schema(GraphQLSchemaGenerator::generate_schema(&["users"]))
+            .with_db_resolver(resolver);
+        let result = srv.execute_query("{ getUser(id: 1) { id name } }");
+        assert!(result.is_ok(), "expected ok, got {:?}", result);
+        let v = result.unwrap();
+        assert_eq!(v["id"], "100");
+        assert!(
+            v["name"].as_str().unwrap().contains("real"),
+            "name should contain 'real': {}",
+            v["name"]
+        );
+    }
+
+    #[test]
+    fn test_resolver_returns_real_data_list() {
+        let resolver: SharedDbResolver = Arc::new(TestDbResolver);
+        let srv = GraphQLServer::new(4502)
+            .with_schema(GraphQLSchemaGenerator::generate_schema(&["users"]))
+            .with_db_resolver(resolver);
+        let result = srv.execute_query("{ listUsers { id name } }");
+        assert!(result.is_ok(), "expected ok, got {:?}", result);
+        let v = result.unwrap();
+        assert!(v.is_array());
+        let arr = v.as_array().unwrap();
+        assert_eq!(arr.len(), 2);
+        assert_eq!(arr[0]["id"], "100");
+        assert_eq!(arr[1]["id"], "200");
+        assert!(arr[0]["name"].as_str().unwrap().contains("real"));
+    }
+
+    #[test]
+    fn test_no_resolver_falls_back_to_mock() {
+        // 不注入 resolver 时，应回退到 mock 数据
+        let srv = GraphQLServer::new(4503)
+            .with_schema(GraphQLSchemaGenerator::generate_schema(&["users"]));
+        let result = srv.execute_query("{ getUser(id: 1) { id name } }");
+        assert!(result.is_ok(), "expected ok, got {:?}", result);
+        let v = result.unwrap();
+        assert_eq!(v["id"], "1"); // mock 数据 id 为 "1"
+        assert!(
+            v["name"].as_str().unwrap().contains("getUser"),
+            "mock name should contain field name"
+        );
+    }
 }

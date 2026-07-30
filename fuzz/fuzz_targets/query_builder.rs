@@ -9,10 +9,16 @@
 //! - `paginate` 整数溢出（page * size）
 //! - `quote_ident` 对空字符串/NULL 字节/超长标识符的处理
 //! - `build()` 在不同 DbType 下的行为
+//!
+//! # 重要
+//!
+//! 不使用 `catch_unwind` 包装：libfuzzer 自身有 panic 信号处理机制，
+//! 任何 panic 都会被正确报告为 crash。手动 catch_unwind 会让 libfuzzer 永远发现不了问题。
 
 use libfuzzer_sys::fuzz_target;
 use sz_orm_core::DbType;
 use sz_orm_query_builder::Query;
+use std::hint::black_box;
 
 /// 将任意字节转换为 UTF-8 字符串（损失转换，保留非 UTF-8 字节为替换符）
 fn bytes_to_string(data: &[u8]) -> String {
@@ -40,68 +46,54 @@ fuzz_target!(|data: &[u8]| {
     };
 
     // --- SELECT 查询构造（触发 check_where_injection / quote_ident） ---
-    let _ = std::panic::catch_unwind(|| {
-        let sql = Query::select()
-            .column(&col)
-            .from(&table)
-            .where_clause(&condition)
-            .having(&condition)
-            .group_by(&col)
-            .order_by(&col, true)
-            .build(db_type);
-        black_box(&sql);
-    });
+    // 不使用 catch_unwind：panic 自然传播给 libfuzzer，由其报告为 crash
+    let sql = Query::select()
+        .column(&col)
+        .from(&table)
+        .where_clause(&condition)
+        .having(&condition)
+        .group_by(&col)
+        .order_by(&col, true)
+        .build(db_type);
+    black_box(&sql);
 
     // --- SELECT with JOIN（join on 无校验） ---
-    let _ = std::panic::catch_unwind(|| {
-        let sql = Query::select()
-            .column(&col)
-            .from(&table)
-            .inner_join(&table, &condition)
-            .build(db_type);
-        black_box(&sql);
-    });
+    let sql = Query::select()
+        .column(&col)
+        .from(&table)
+        .inner_join(&table, &condition)
+        .build(db_type);
+    black_box(&sql);
 
     // --- SELECT with paginate（整数溢出检测） ---
     let page = data.iter().fold(1u64, |acc, &b| acc.wrapping_mul(b.max(1) as u64));
     let size = data.iter().fold(10u64, |acc, &b| acc.wrapping_add(b as u64));
-    let _ = std::panic::catch_unwind(|| {
-        let sql = Query::select()
-            .column(&col)
-            .from(&table)
-            .paginate(page, size)
-            .build(db_type);
-        black_box(&sql);
-    });
+    let sql = Query::select()
+        .column(&col)
+        .from(&table)
+        .paginate(page, size)
+        .build(db_type);
+    black_box(&sql);
 
     // --- INSERT 查询（value 无校验） ---
-    let _ = std::panic::catch_unwind(|| {
-        let sql = Query::insert()
-            .into_table(&table)
-            .value(&col, &condition)
-            .build();
-        black_box(&sql);
-    });
+    let sql = Query::insert()
+        .into_table(&table)
+        .value(&col, &condition)
+        .build();
+    black_box(&sql);
 
     // --- UPDATE 查询 ---
-    let _ = std::panic::catch_unwind(|| {
-        let sql = Query::update()
-            .table(&table)
-            .set(&col, &condition)
-            .where_clause(&condition)
-            .build();
-        black_box(&sql);
-    });
+    let sql = Query::update()
+        .table(&table)
+        .set(&col, &condition)
+        .where_clause(&condition)
+        .build();
+    black_box(&sql);
 
     // --- DELETE 查询 ---
-    let _ = std::panic::catch_unwind(|| {
-        let sql = Query::delete()
-            .from_table(&table)
-            .where_clause(&condition)
-            .build();
-        black_box(&sql);
-    });
+    let sql = Query::delete()
+        .from_table(&table)
+        .where_clause(&condition)
+        .build();
+    black_box(&sql);
 });
-
-/// 防止编译器优化掉结果
-fn black_box<T>(_: &T) {}

@@ -4,9 +4,9 @@
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5404-green.svg)](#testing)
+[![Tests](https://img.shields.io/badge/tests-5530-green.svg)](#testing)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#supported-databases)
-[![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#workspace-structure)
+[![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#overview)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -37,16 +37,16 @@
 
 ## Overview
 
-SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete data access layer for the Rust ecosystem. It is compatible with ThinkORM-style fluent chainable API, supports 16 SQL dialects, and ships as a 39-member Cargo workspace.
+SZ-ORM is a pure Rust async ORM workspace aiming to provide a feature-complete data access layer for the Rust ecosystem. It is compatible with ThinkORM-style fluent chainable API, supports 16 SQL dialects, and ships as a 43-member Cargo workspace.
 
 > **⚠️ Honest disclaimer**: This is a single-author engineering practice project, currently in **prototype stage**. No production cases, no third-party audit, no community adoption yet. Feature list covers mainstream ORM capabilities but is not production-verified. See [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md) for deep comparison with Diesel/SeaORM/SQLx.
 
 | Dimension | Value |
 |-----------|-------|
-| Workspace packages | 39 (37 libs + CLI + examples) |
+| Workspace packages | 43 (41 libs + CLI + examples) |
 | Supported dialects | 16 SQL dialects (7 native + 9 delegated, incl. 6 domestic Xinchuang DBs) |
-| Test cases | 5,404 passed, 0 failed |
-| Code size | ~104,000 LOC (src ~84,670 + tests ~15,767 + cli/examples/benches ~3,800) |
+| Test cases | 5,530 passed, 0 failed |
+| Code size | ~89,329 LOC (src 75,388 + tests 13,941) |
 | Project maturity | Prototype (22/37 packages published to crates.io, zero community validation) |
 | Async runtime | Tokio 1.40+ |
 | Minimum Rust version | 1.94.0+ (sqlx 0.9.0 requires) |
@@ -573,7 +573,7 @@ SZ-ORM enforces quality via a **7-line verification system**:
 | **Chaos** | Fault robustness | `chaos.rs` |
 | **Formal** | Formal invariant verification | `formal.rs` |
 
-**Total: 5,404 tests, 0 failed** (some tests require real DB/cloud credentials)
+**Total: 5,530 tests, 0 failed** (some tests require real DB/cloud credentials)
 
 ### Run tests
 

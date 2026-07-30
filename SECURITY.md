@@ -2,12 +2,12 @@
 
 ## Supported Versions
 
-SZ-ORM 当前处于 v1.0.x 阶段，仅对最新主版本提供安全更新。
+SZ-ORM 当前处于 v1.2.0 阶段，仅对最新主版本提供安全更新。
 
 | Version | Supported          |
 |---------|--------------------|
-| 1.0.x   | ✅ 安全更新         |
-| < 1.0   | ❌ 不支持           |
+| 1.2.x   | ✅ 安全更新         |
+| < 1.2   | ❌ 不支持           |
 
 ## Reporting a Vulnerability
 

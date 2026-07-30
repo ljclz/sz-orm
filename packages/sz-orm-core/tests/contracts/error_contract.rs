@@ -89,16 +89,38 @@ fn test_pool_error_display_stability_contract() {
 
 #[test]
 fn test_tx_error_variants_contract() {
-    // TxError 9 变体
-    let _ = TxError::NotStarted;
-    let _ = TxError::AlreadyStarted;
-    let _ = TxError::CommitFailed("x".to_string());
-    let _ = TxError::RollbackFailed("x".to_string());
-    let _ = TxError::SavepointError("x".to_string());
-    let _ = TxError::NestedNotSupported;
-    let _ = TxError::NotActive(TransactionState::Active);
-    let _ = TxError::InvalidSavepointName("x".to_string());
-    let _ = TxError::ConnectionTaken;
+    // TxError 9 变体：验证每个变体的 Display 输出稳定（影响日志/告警匹配）
+    assert_eq!(format!("{}", TxError::NotStarted), "Transaction not started");
+    assert_eq!(
+        format!("{}", TxError::AlreadyStarted),
+        "Transaction already started"
+    );
+    assert_eq!(
+        format!("{}", TxError::CommitFailed("x".to_string())),
+        "Transaction commit failed: x"
+    );
+    assert_eq!(
+        format!("{}", TxError::RollbackFailed("x".to_string())),
+        "Transaction rollback failed: x"
+    );
+    assert_eq!(
+        format!("{}", TxError::SavepointError("x".to_string())),
+        "Savepoint error: x"
+    );
+    assert_eq!(
+        format!("{}", TxError::NestedNotSupported),
+        "Nested transactions not supported"
+    );
+    assert_eq!(
+        format!("{}", TxError::NotActive(TransactionState::Active)),
+        "Transaction not active (current state: Active)"
+    );
+    let invalid_name_err = TxError::InvalidSavepointName("1bad".to_string());
+    assert!(format!("{}", invalid_name_err).contains("1bad"));
+    assert_eq!(
+        format!("{}", TxError::ConnectionTaken),
+        "Transaction connection already taken"
+    );
 }
 
 #[test]

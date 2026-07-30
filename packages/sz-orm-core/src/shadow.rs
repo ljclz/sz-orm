@@ -213,6 +213,7 @@ impl<C: Connection> ShadowConnection<C> {
             Ok(Ok(rows)) => rows,
             Ok(Err(e)) => {
                 self.stats.mismatches.fetch_add(1, Ordering::Relaxed);
+                // H-5 修复：传播 handle_mismatch 的 Result（Panic 模式下返回 Internal 错误）
                 self.handle_mismatch(ShadowComparison {
                     sql: sql.to_string(),
                     orm_duration,
@@ -221,7 +222,7 @@ impl<C: Connection> ShadowConnection<C> {
                     raw_rows: 0,
                     consistent: false,
                     mismatch: Some(format!("ORM error: {}", e)),
-                });
+                })?;
                 return Err(e);
             }
             Err(_) => {
@@ -237,6 +238,7 @@ impl<C: Connection> ShadowConnection<C> {
             Ok(Ok(rows)) => rows,
             Ok(Err(e)) => {
                 self.stats.mismatches.fetch_add(1, Ordering::Relaxed);
+                // H-5 修复：传播 handle_mismatch 的 Result（Panic 模式下返回 Internal 错误）
                 self.handle_mismatch(ShadowComparison {
                     sql: sql.to_string(),
                     orm_duration,
@@ -245,12 +247,13 @@ impl<C: Connection> ShadowConnection<C> {
                     raw_rows: 0,
                     consistent: false,
                     mismatch: Some(format!("Raw path error: {}", e)),
-                });
+                })?;
                 // 原生路径失败不影响 ORM 路径返回
                 return Ok(orm_rows);
             }
             Err(_) => {
                 self.stats.mismatches.fetch_add(1, Ordering::Relaxed);
+                // H-5 修复：传播 handle_mismatch 的 Result（Panic 模式下返回 Internal 错误）
                 self.handle_mismatch(ShadowComparison {
                     sql: sql.to_string(),
                     orm_duration,
@@ -259,7 +262,7 @@ impl<C: Connection> ShadowConnection<C> {
                     raw_rows: 0,
                     consistent: false,
                     mismatch: Some(format!("Raw path timeout after {:?}", self.config.timeout)),
-                });
+                })?;
                 return Ok(orm_rows);
             }
         };
@@ -268,7 +271,8 @@ impl<C: Connection> ShadowConnection<C> {
         let comparison = self.compare_rows(sql, orm_duration, raw_duration, &orm_rows, &raw_rows);
         if !comparison.consistent {
             self.stats.mismatches.fetch_add(1, Ordering::Relaxed);
-            self.handle_mismatch(comparison);
+            // H-5 修复：传播 handle_mismatch 的 Result（Panic 模式下返回 Internal 错误）
+            self.handle_mismatch(comparison)?;
         }
 
         Ok(orm_rows)
@@ -383,7 +387,10 @@ impl<C: Connection> ShadowConnection<C> {
     }
 
     /// 根据策略处理不匹配
-    fn handle_mismatch(&self, comparison: ShadowComparison) {
+    ///
+    /// 返回 `Err` 仅在 `MismatchAction::Panic` 模式下（H-5 修复：将 panic! 改为
+    /// 返回 `Result`，由调用方决定如何处理）。其他模式返回 `Ok(())`。
+    fn handle_mismatch(&self, comparison: ShadowComparison) -> Result<(), crate::DbError> {
         tracing::warn!(
             target: "sz_orm::shadow",
             sql = %comparison.sql,
@@ -396,14 +403,12 @@ impl<C: Connection> ShadowConnection<C> {
         );
 
         match self.on_mismatch {
-            MismatchAction::Record => { /* 仅记录，已由上面的 tracing::warn 完成 */ }
-            MismatchAction::Error => { /* 调用方在 query_shadow 中已处理返回值 */ }
-            MismatchAction::Panic => {
-                panic!(
-                    "Shadow traffic mismatch: SQL={:?} mismatch={:?}",
-                    comparison.sql, comparison.mismatch
-                );
-            }
+            MismatchAction::Record => Ok(()),
+            MismatchAction::Error => Ok(()),
+            MismatchAction::Panic => Err(crate::DbError::Internal(format!(
+                "Shadow traffic mismatch: SQL={:?} mismatch={:?}",
+                comparison.sql, comparison.mismatch
+            ))),
         }
     }
 }

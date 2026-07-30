@@ -22,6 +22,8 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
 tokio-postgres = { version = "0.7", optional = true, features = ["with-chrono-0_4"] }
+# 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .lock().unwrap() panic 风险
+parking_lot.workspace = true
 
 [dev-dependencies]
 tokio-test = "0.4"

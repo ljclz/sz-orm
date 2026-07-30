@@ -8,7 +8,7 @@
 //! 本模块提供流程状态管理，不包含 HTTP 传输层实现。
 
 use std::collections::HashMap;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::AuthError;
@@ -203,7 +203,6 @@ impl OAuth2Server {
         );
         self.codes
             .lock()
-            .unwrap()
             .insert(auth_code.code.clone(), auth_code.clone());
         Ok(auth_code)
     }
@@ -217,7 +216,7 @@ impl OAuth2Server {
     /// 4. redirect_uri 与签发时一致
     /// 5. client_id 与签发时一致
     pub fn exchange_code(&self, req: &TokenRequest) -> Result<AuthorizationCode, AuthError> {
-        let mut codes = self.codes.lock().unwrap();
+        let mut codes = self.codes.lock();
         let auth_code = codes
             .get(&req.code)
             .ok_or_else(|| AuthError::TokenInvalid("Invalid authorization code".to_string()))?;
@@ -250,12 +249,12 @@ impl OAuth2Server {
 
     /// 返回当前存储的授权码数量
     pub fn code_count(&self) -> usize {
-        self.codes.lock().unwrap().len()
+        self.codes.lock().len()
     }
 
     /// 清理已过期或已使用的授权码
     pub fn cleanup(&self) -> usize {
-        let mut codes = self.codes.lock().unwrap();
+        let mut codes = self.codes.lock();
         let before = codes.len();
         codes.retain(|_, c| !c.is_expired() && !c.used);
         before - codes.len()

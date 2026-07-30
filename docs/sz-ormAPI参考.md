@@ -1,12 +1,12 @@
 # SZ-ORM API 参考手册
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v5.0（v1.0.0 正式发布：补全 sz-orm-core 全部 21 个高级模块的 API 速查）
-> 适用版本：SZ-ORM **v1.0.0**（工作空间 39 个成员：37 个 lib + cli + examples）
-> 测试：3047 passed / 0 failed（112 个测试套件）
+> 文档版本：v6.0（v1.2.0：补全 sz-orm-core 全部 21 个高级模块的 API 速查；同步至 43 包）
+> 适用版本：SZ-ORM **v1.2.0**（工作空间 43 个成员：41 个 lib + cli + examples）
+> 测试：5,442 passed / 0 failed（131 个测试套件）
 > 代码规模：89,329 LOC（src/ 75,388 + tests/ 13,941）
 > 成熟度：原型阶段（尚未发布 crates.io，0 社区验证）
-> 更新日期：2026-07-21
+> 更新日期：2026-07-29
 > 文档定位：核心 trait/结构体说明 + 各包公开 API 速查 + 错误处理指南
 > **配套使用文档**：场景示例与端到端串联请查阅 [SZ-ORM 使用指南](sz-orm使用指南.md)；本文聚焦于类型签名与参数说明
 
@@ -330,7 +330,7 @@ pub trait Storage: Send + Sync {
 | sz-orm-limit | `RateLimiter`（trait）、`TokenBucketRateLimiter`、`SlidingWindowRateLimiter`、`RateLimitResult`、`RateLimitError` |
 | sz-orm-config | `ConfigCenter`（trait）、`ConsulConfigCenter`、`NacosConfigCenter`、`ConfigChangeEvent`、`ConfigChangeCallback` |
 | sz-orm-es | `EsSyncManager`、`EsSync`（trait）、`InMemoryEsSync`、`EsDocument`、`EsSearchRequest`、`EsQuery`、`EsBoolQuery`、`EsRangeQuery`、`EsSort`、`EsSearchResult`、`EsHit`、`EsFieldType`、`EsError` |
-| sz-orm-tracing | `Tracer`（trait）、`SzTracer`、`OtelTracer`、`Span`、`SpanLog`、`LatencyHistogram`、`ErrorRateCounter`、`ErrorBudget`、`SlaMonitor`、`SlaReport`、`AlertHook`、`LogAlertHook`、`WebhookAlertHook`、`Alert`、`AlertLevel`、`SaturationGauge`、`TracingError` |
+| sz-orm-tracing | `Tracer`（trait）、`SzTracer`、`OtelTracer`、`Span`、`SpanLog`、`LatencyHistogram`、`ErrorRateCounter`、`ErrorBudget`、`SlaMonitor`、`SlaReport`、`AlertHook`、`LogAlertHook`、`InMemoryAlertHook`、`Alert`、`AlertLevel`、`SaturationGauge`、`TracingError` |
 | sz-orm-logger | `Logger`（trait）、`StructuredLogger`、`LoggerFactory`、`LogEntry`、`LogLevel`、`Metrics`、`MetricsSnapshot` |
 | sz-orm-health | `HealthReport`、`HealthSnapshot`、`HealthStatus`、`DbHealthChecker`、`DefaultHealthChecker`、`HealthStatusProvider`、`StaticStatusProvider`、`ThresholdProvider`、`AlertManager`、`AlertChannel`、`LogAlertChannel`、`WebhookAlertChannel`、`ImAlertChannel`、`HealthAlert`、`AlertLevel`、`FailoverPolicy`、`FailoverAction`、`MultiRegionHealthView`、`CircuitBreaker`、`CircuitState`、`BackupHealthProvider` |
 | sz-orm-grpc | `GrpcServer`、`GrpcServerHandle`、`GrpcServiceDef`、`GrpcMethod`、`UserGrpcService`（trait）、`InMemoryUserService`、`UserGrpcClient`、`GrpcChannel`、`UserRequest`、`UserResponse`、`GrpcError` |
@@ -403,7 +403,7 @@ pub trait Storage: Send + Sync {
 | `PoolState` | 连接池的 actix-web 应用数据包装（实现 `FromRequest`） |
 | `JsonRows` | 包装 `QueryRows` 实现 `Responder` |
 | `JsonResp<T>` | 通用 JSON 响应包装（实现 `Responder`） |
-| `TransactionMiddleware` | 事务中间件（请求成功提交，失败回滚） |
+| `TransactionMiddleware` | 事务中间件：请求前从池中 acquire 连接并 `begin_transaction`，将 `TransactionConn` 注入 request extensions 供 handler 复用；响应 2xx 提交、非 2xx 回滚。降级策略：未注册 `PoolState`/acquire/begin 失败时退化为透传 |
 
 #### 2.14.5 sz-orm-query-builder — 独立查询构建器
 

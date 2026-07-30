@@ -1,3 +1,15 @@
+//! # Huawei OBS Storage（**MOCK-ONLY，非生产可用**）
+//!
+//! ⚠️ **重要警告：本模块为内存 Mock 实现，未集成真实华为云 OBS SDK。**
+//!
+//! - 所有数据存储在进程内 `HashMap`，重启即丢失
+//! - 不执行任何 HTTP 请求，不与真实 OBS 服务交互
+//! - 不支持认证、签名、TLS、分片上传等任何 OBS 生产特性
+//! - **请勿用于生产环境**——仅适用于单元测试与本地开发
+//!
+//! 如需真实 OBS 集成，请基于 [`crate::storage::Storage`] trait
+//! 接入华为云官方 SDK 实现。
+
 use crate::error::StorageError;
 use crate::storage::Storage;
 use async_trait::async_trait;
@@ -5,6 +17,9 @@ use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
+/// 华为云 OBS 存储后端（**Mock 实现**）
+///
+/// ⚠️ 仅用于测试。所有数据存储在内存 `HashMap`，不与真实 OBS 服务交互。
 pub struct HuaweiObsStorage {
     pub bucket: String,
     pub endpoint: String,

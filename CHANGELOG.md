@@ -18,7 +18,7 @@
   - sz-orm-dtx：分布式事务
   - sz-orm-mig：迁移工具
   - sz-orm-sharding：分库分表
-  - sz-orm-cache：多级缓存
+  - sz-orm-cache：多级缓存（注：实现在 sz-orm-core/src/cache.rs 与 l2_cache.rs 内，非独立 crate）
   - sz-orm-queue：消息队列
   - sz-orm-scheduler：任务调度
   - sz-orm-graphql：GraphQL 接口

@@ -301,13 +301,25 @@ impl Default for PushgatewayConfig {
     }
 }
 
-/// Pushgateway 导出器（内存模拟）。
+/// Pushgateway 导出器。
 ///
-/// 模拟将指标推送到 Prometheus Pushgateway 的行为。
-/// 实际网络发送被替换为内存记录，便于测试验证。
+/// 将指标推送到 Prometheus Pushgateway。
+///
+/// # 两种模式
+///
+/// - **内存模式（默认）**：`push` 仅记录到内存 `Vec`，不发起网络请求。用于单元测试。
+/// - **真实 HTTP PUT 模式**：启用 `push-gateway` feature 后，`push` 会向
+///   `config.endpoint` 发起 HTTP PUT 请求，推送指标文本到 Pushgateway。
+///
+/// # Feature 切换
+///
+/// ```toml
+/// [dependencies]
+/// sz-orm-observability = { version = "1.2", features = ["push-gateway"] }
+/// ```
 pub struct PushgatewayExporter {
     config: PushgatewayConfig,
-    /// 已推送的指标文本快照
+    /// 已推送的指标文本快照（内存模式下的唯一存储，HTTP 模式下也保留用于审计）
     pushed: RwLock<Vec<PushSnapshot>>,
 }
 
@@ -333,20 +345,79 @@ impl PushgatewayExporter {
         }
     }
 
-    /// 模拟推送指标到 Pushgateway
+    /// 推送指标到 Pushgateway
     ///
-    /// 将渲染后的指标文本记录到内存，返回推送是否成功。
-    /// 实际实现中此处会发起 HTTP PUT 请求。
+    /// # 行为
+    ///
+    /// - **内存模式（默认）**：将指标文本记录到内存 `Vec`，不发起网络请求。
+    /// - **HTTP PUT 模式（`push-gateway` feature）**：向 `config.endpoint` 发起
+    ///   HTTP PUT 请求，URL 格式为 `{endpoint}/metrics/job/{job}[/instance/{instance}]`。
+    ///   请求体为 Prometheus exposition format 文本。
+    ///
+    /// # 错误
+    ///
+    /// HTTP 模式下，网络错误或非 2xx 响应码会返回 `Err`。
+    /// 内存模式永远返回 `Ok`。
     pub fn push(&self, metrics_text: impl Into<String>) -> Result<(), String> {
+        let text = metrics_text.into();
         let snapshot = PushSnapshot {
             timestamp_ms: current_timestamp_ms(),
-            metrics_text: metrics_text.into(),
+            metrics_text: text.clone(),
             job: self.config.job.clone(),
             instance: self.config.instance.clone(),
         };
-        let mut pushed = self.pushed.write();
-        pushed.push(snapshot);
+
+        // 记录到内存（两种模式都保留，用于审计/测试）
+        self.pushed.write().push(snapshot);
+
+        // 真实 HTTP PUT 推送（仅 push-gateway feature 启用时）
+        #[cfg(feature = "push-gateway")]
+        {
+            return self.push_http(&text);
+        }
+
+        // 内存模式：直接返回成功
+        #[cfg(not(feature = "push-gateway"))]
         Ok(())
+    }
+
+    /// 真实 HTTP PUT 推送实现（仅 `push-gateway` feature 启用时编译）
+    #[cfg(feature = "push-gateway")]
+    fn push_http(&self, text: &str) -> Result<(), String> {
+        // 构造 Pushgateway URL: {endpoint}/metrics/job/{job}[/instance/{instance}]
+        let mut url = format!(
+            "{}/metrics/job/{}",
+            self.config.endpoint.trim_end_matches('/'),
+            url_encode(&self.config.job)
+        );
+        if let Some(ref instance) = self.config.instance {
+            url.push_str(&format!("/instance/{}", url_encode(instance)));
+        }
+
+        // 同步阻塞 HTTP PUT（Pushgateway 推送通常是低频操作）
+        // 使用 blocking client 避免要求调用方在 tokio runtime 内
+        let client = reqwest::blocking::Client::builder()
+            .timeout(std::time::Duration::from_secs(10))
+            .build()
+            .map_err(|e| format!("reqwest client build failed: {}", e))?;
+
+        let resp = client
+            .put(&url)
+            .header("Content-Type", "text/plain; version=0.0.4; charset=utf-8")
+            .body(text.to_string())
+            .send()
+            .map_err(|e| format!("push to {} failed: {}", url, e))?;
+
+        let status = resp.status();
+        if status.is_success() {
+            Ok(())
+        } else {
+            let body = resp.text().unwrap_or_default();
+            Err(format!(
+                "push to {} returned non-2xx status {}: {}",
+                url, status, body
+            ))
+        }
     }
 
     /// 从 MetricsRegistry 渲染并推送
@@ -384,9 +455,67 @@ fn current_timestamp_ms() -> i64 {
         .as_millis() as i64
 }
 
+/// URL 路径段编码（用于 Pushgateway URL 中的 job/instance）
+///
+/// 将非字母数字字符编码为 `%XX` 格式，避免特殊字符破坏 URL 结构。
+fn url_encode(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    for byte in s.bytes() {
+        match byte {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'_' | b'.' | b'~' => {
+                out.push(byte as char);
+            }
+            _ => {
+                out.push_str(&format!("%{:02X}", byte));
+            }
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    // ===================== url_encode 测试（P2-3 回归） =====================
+
+    #[test]
+    fn test_url_encode_alphanumeric() {
+        assert_eq!(url_encode("job1"), "job1");
+        assert_eq!(url_encode("my-job"), "my-job");
+        assert_eq!(url_encode("job.test"), "job.test");
+        assert_eq!(url_encode("job_test"), "job_test");
+        assert_eq!(url_encode("job~test"), "job~test");
+    }
+
+    #[test]
+    fn test_url_encode_special_chars() {
+        // 空格 → %20
+        assert_eq!(url_encode("my job"), "my%20job");
+        // 斜杠 → %2F
+        assert_eq!(url_encode("a/b"), "a%2Fb");
+        // 中文字符 → 多字节 %XX
+        assert_eq!(url_encode("任务"), "%E4%BB%BB%E5%8A%A1");
+    }
+
+    #[test]
+    fn test_url_encode_empty() {
+        assert_eq!(url_encode(""), "");
+    }
+
+    // ===================== Pushgateway 内存模式测试 =====================
+
+    #[test]
+    fn test_pushgateway_memory_mode_records_snapshot() {
+        // 内存模式下 push 应记录快照，不发起网络请求
+        let exporter = PushgatewayExporter::new(PushgatewayConfig::default());
+        let result = exporter.push("# HELP test_metric\n");
+        assert!(result.is_ok());
+        assert_eq!(exporter.push_count(), 1);
+        let snap = &exporter.snapshots()[0];
+        assert_eq!(snap.metrics_text, "# HELP test_metric\n");
+        assert_eq!(snap.job, "sz-orm");
+    }
 
     // ===================== Summary 测试 =====================
 
@@ -462,6 +591,33 @@ mod tests {
         let qs = s.quantiles();
         assert_eq!(qs.len(), 3);
         assert!(qs.iter().all(|(_, v)| v.is_some()));
+
+        // 验证分位数值的合理性：p50 应在 5-6 之间，p90 应在 9-10 之间，p99 应为 10
+        let qmap: std::collections::HashMap<f64, f64> = qs
+            .iter()
+            .filter_map(|(q, v)| v.map(|val| (*q, val)))
+            .collect();
+
+        let p50 = qmap[&0.5];
+        assert!(
+            (5.0..=6.0).contains(&p50),
+            "p50 应在 5-6 之间，实际: {}",
+            p50
+        );
+
+        let p90 = qmap[&0.9];
+        assert!(
+            (9.0..=10.0).contains(&p90),
+            "p90 应在 9-10 之间，实际: {}",
+            p90
+        );
+
+        let p99 = qmap[&0.99];
+        assert!(
+            (9.0..=10.0).contains(&p99),
+            "p99 应在 9-10 之间，实际: {}",
+            p99
+        );
     }
 
     #[test]

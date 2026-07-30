@@ -105,6 +105,40 @@ impl WasmDatabase {
         }
     }
 
+    /// 列出所有表名（P2-2 修复：为 memory_usage 提供只读访问接口）
+    ///
+    /// 返回表名的快照（排序后），不暴露内部锁。
+    pub fn table_names(&self) -> Vec<String> {
+        let tables = self
+            .tables
+            .lock()
+            .map(|t| t.keys().cloned().collect::<Vec<_>>())
+            .unwrap_or_default();
+        let mut names = tables;
+        names.sort();
+        names
+    }
+
+    /// 获取指定表的行数（P2-2 修复：为 memory_usage 提供只读访问接口）
+    ///
+    /// 表不存在时返回 0。
+    pub fn table_row_count(&self, table: &str) -> usize {
+        self.tables
+            .lock()
+            .map(|t| t.get(table).map(|v| v.len()).unwrap_or(0))
+            .unwrap_or(0)
+    }
+
+    /// 获取指定表的行快照（P2-2 修复：为 memory_usage 提供只读访问接口）
+    ///
+    /// 表不存在时返回空 Vec。返回行的克隆，调用方可安全计算序列化字节数。
+    pub fn table_rows(&self, table: &str) -> Vec<serde_json::Value> {
+        self.tables
+            .lock()
+            .map(|t| t.get(table).cloned().unwrap_or_default())
+            .unwrap_or_default()
+    }
+
     fn parse_table_from_select(upper: &str, sql: &str) -> Result<String, String> {
         let from_idx = upper
             .find("FROM")

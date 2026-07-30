@@ -43,8 +43,8 @@
 
 use crate::result_map::RowData;
 use crate::value::Value;
+use parking_lot::RwLock;
 use std::collections::HashMap;
-use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 // ============================================================================
@@ -429,20 +429,20 @@ impl PluginChain {
 
     /// 注册插件（追加到链尾）
     pub fn register(&self, plugin: Box<dyn Plugin>) {
-        let mut plugins = self.plugins.write().unwrap();
+        let mut plugins = self.plugins.write();
         plugins.push(plugin);
     }
 
     /// 注册插件到指定位置
     pub fn insert_at(&self, index: usize, plugin: Box<dyn Plugin>) {
-        let mut plugins = self.plugins.write().unwrap();
+        let mut plugins = self.plugins.write();
         let len = plugins.len();
         plugins.insert(index.min(len), plugin);
     }
 
     /// 注销指定名称的插件
     pub fn unregister(&self, name: &str) -> bool {
-        let mut plugins = self.plugins.write().unwrap();
+        let mut plugins = self.plugins.write();
         if let Some(idx) = plugins.iter().position(|p| p.name() == name) {
             plugins.remove(idx);
             true
@@ -453,7 +453,7 @@ impl PluginChain {
 
     /// 已注册的插件数量
     pub fn len(&self) -> usize {
-        self.plugins.read().unwrap().len()
+        self.plugins.read().len()
     }
 
     /// 是否为空
@@ -465,7 +465,6 @@ impl PluginChain {
     pub fn plugin_names(&self) -> Vec<String> {
         self.plugins
             .read()
-            .unwrap()
             .iter()
             .map(|p| p.name().to_string())
             .collect()
@@ -473,7 +472,7 @@ impl PluginChain {
 
     /// 清空插件链
     pub fn clear(&self) {
-        self.plugins.write().unwrap().clear();
+        self.plugins.write().clear();
     }
 
     /// 执行插件链
@@ -483,7 +482,7 @@ impl PluginChain {
     /// 任意插件返回 `Modified` 会修改 context 后继续。
     /// 任意插件返回 `Skip` 跳过后续插件（但继续原操作）。
     pub fn execute(&self, context: &mut PluginContext) -> PluginDecision {
-        let plugins = self.plugins.read().unwrap();
+        let plugins = self.plugins.read();
         let target_stages = [context.stage];
 
         for plugin in plugins.iter() {
@@ -511,7 +510,7 @@ impl PluginChain {
 
 impl std::fmt::Debug for PluginChain {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
-        let plugins = self.plugins.read().unwrap();
+        let plugins = self.plugins.read();
         let names: Vec<&str> = plugins.iter().map(|p| p.name()).collect();
         f.debug_struct("PluginChain")
             .field("plugins", &names)
@@ -536,15 +535,15 @@ impl SqlLogPlugin {
     }
 
     pub fn logs(&self) -> Vec<String> {
-        self.logs.read().unwrap().clone()
+        self.logs.read().clone()
     }
 
     pub fn clear(&self) {
-        self.logs.write().unwrap().clear();
+        self.logs.write().clear();
     }
 
     pub fn count(&self) -> usize {
-        self.logs.read().unwrap().len()
+        self.logs.read().len()
     }
 }
 
@@ -569,7 +568,7 @@ impl Plugin for SqlLogPlugin {
     }
 
     fn intercept(&self, context: &mut PluginContext) -> PluginDecision {
-        let mut logs = self.logs.write().unwrap();
+        let mut logs = self.logs.write();
         let entry = match context.stage {
             ExecutionStage::BeforeQuery => {
                 format!("[{}] QUERY: {}", context.stage.name(), context.sql)
@@ -645,17 +644,17 @@ impl SlowQueryPlugin {
 
     /// 获取所有慢查询记录
     pub fn slow_queries(&self) -> Vec<SlowQueryRecord> {
-        self.slow_queries.read().unwrap().clone()
+        self.slow_queries.read().clone()
     }
 
     /// 慢查询数量
     pub fn count(&self) -> usize {
-        self.slow_queries.read().unwrap().len()
+        self.slow_queries.read().len()
     }
 
     /// 清空记录
     pub fn clear(&self) {
-        self.slow_queries.write().unwrap().clear();
+        self.slow_queries.write().clear();
     }
 
     /// 阈值
@@ -773,7 +772,7 @@ impl Plugin for SlowQueryPlugin {
                     if elapsed > self.threshold {
                         // 记录前对 SQL 脱敏，避免敏感值（password/token 等）落入慢查询日志
                         let masked_sql = mask_sql(&context.sql);
-                        let mut records = self.slow_queries.write().unwrap();
+                        let mut records = self.slow_queries.write();
                         records.push(SlowQueryRecord {
                             sql: masked_sql,
                             elapsed,
@@ -820,15 +819,15 @@ impl AuditPlugin {
     }
 
     pub fn records(&self) -> Vec<AuditRecord> {
-        self.audit_log.read().unwrap().clone()
+        self.audit_log.read().clone()
     }
 
     pub fn count(&self) -> usize {
-        self.audit_log.read().unwrap().len()
+        self.audit_log.read().len()
     }
 
     pub fn clear(&self) {
-        self.audit_log.write().unwrap().clear();
+        self.audit_log.write().clear();
     }
 }
 
@@ -848,7 +847,7 @@ impl Plugin for AuditPlugin {
     }
 
     fn intercept(&self, context: &mut PluginContext) -> PluginDecision {
-        let mut log = self.audit_log.write().unwrap();
+        let mut log = self.audit_log.write();
         log.push(AuditRecord {
             stage: context.stage,
             sql: context.sql.clone(),

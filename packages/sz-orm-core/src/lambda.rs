@@ -252,7 +252,36 @@ pub struct LambdaWrapper<M> {
     offset: Option<u64>,
     /// 数据库方言
     dialect: Box<dyn Dialect>,
+    /// P3-2 修复：软删除配置
+    /// - `Some(column)`：启用软删除，build_select/count/exists 自动追加 `column = 0`
+    ///   build_delete 改为 `UPDATE ... SET column = 1`
+    /// - `None`：未启用软删除（默认）
+    soft_delete: Option<SoftDeleteConfig>,
+    /// P3-2 修复：多租户配置
+    /// - `Some(config)`：启用多租户过滤，build_select/count/exists/delete 自动追加 `column = tenant_id`
+    /// - `None`：未启用多租户（默认）
+    tenant: Option<TenantConfig>,
     _marker: PhantomData<M>,
+}
+
+/// 软删除配置
+#[derive(Debug, Clone)]
+pub struct SoftDeleteConfig {
+    /// 软删除标记列名（如 "deleted"、"is_deleted"、"deleted_at"）
+    pub column: String,
+    /// 未删除时的值（通常为 0 / false / NULL）
+    pub not_deleted_value: Value,
+    /// 已删除时的值（通常为 1 / true / 当前时间字符串）
+    pub deleted_value: Value,
+}
+
+/// 多租户配置
+#[derive(Debug, Clone)]
+pub struct TenantConfig {
+    /// 租户列名（如 "tenant_id"）
+    pub column: String,
+    /// 当前租户 ID
+    pub tenant_id: Value,
 }
 
 impl<M> LambdaWrapper<M> {
@@ -266,6 +295,8 @@ impl<M> LambdaWrapper<M> {
             limit: None,
             offset: None,
             dialect: Box::new(MySqlDialect),
+            soft_delete: None,
+            tenant: None,
             _marker: PhantomData,
         }
     }
@@ -280,7 +311,99 @@ impl<M> LambdaWrapper<M> {
             limit: None,
             offset: None,
             dialect,
+            soft_delete: None,
+            tenant: None,
             _marker: PhantomData,
+        }
+    }
+
+    // -------------------- P3-2 修复：软删除 / 多租户配置 --------------------
+
+    /// 启用软删除支持
+    ///
+    /// 启用后：
+    /// - `build_select` / `build_count` / `build_exists`：自动追加 `column = not_deleted_value`
+    /// - `build_delete`：改为 `UPDATE ... SET column = deleted_value`
+    ///
+    /// # 示例
+    ///
+    /// ```
+    /// use sz_orm_core::lambda::{LambdaWrapper, SoftDeleteConfig};
+    /// use sz_orm_core::Value;
+    ///
+    /// struct User;
+    /// let mut w = LambdaWrapper::<User>::new("users")
+    ///     .with_soft_delete(SoftDeleteConfig {
+    ///         column: "deleted".to_string(),
+    ///         not_deleted_value: Value::I64(0),
+    ///         deleted_value: Value::I64(1),
+    ///     });
+    /// ```
+    pub fn with_soft_delete(mut self, config: SoftDeleteConfig) -> Self {
+        // 校验列名为合法标识符
+        if crate::sql_safety::validate_identifier(&config.column, "soft_delete column").is_ok() {
+            self.soft_delete = Some(config);
+        }
+        self
+    }
+
+    /// 启用多租户过滤
+    ///
+    /// 启用后：
+    /// - `build_select` / `build_count` / `build_exists` / `build_delete`：
+    ///   自动追加 `column = tenant_id`
+    ///
+    /// # 示例
+    ///
+    /// ```
+    /// use sz_orm_core::lambda::{LambdaWrapper, TenantConfig};
+    /// use sz_orm_core::Value;
+    ///
+    /// struct User;
+    /// let mut w = LambdaWrapper::<User>::new("users")
+    ///     .with_tenant(TenantConfig {
+    ///         column: "tenant_id".to_string(),
+    ///         tenant_id: Value::I64(42),
+    ///     });
+    /// ```
+    pub fn with_tenant(mut self, config: TenantConfig) -> Self {
+        // 校验列名为合法标识符
+        if crate::sql_safety::validate_identifier(&config.column, "tenant column").is_ok() {
+            self.tenant = Some(config);
+        }
+        self
+    }
+
+    /// 收集所有隐式 WHERE 条件（软删除 + 多租户）
+    /// 返回 (conditions, 是否非空)
+    fn collect_implicit_wheres(&self) -> Vec<String> {
+        let mut implicit = Vec::new();
+        if let Some(ref sd) = self.soft_delete {
+            let col = self.dialect.quote(&sd.column);
+            let val = sd.not_deleted_value.to_param_with_dialect(self.dialect.as_ref());
+            implicit.push(format!("{} = {}", col, val));
+        }
+        if let Some(ref t) = self.tenant {
+            let col = self.dialect.quote(&t.column);
+            let val = t.tenant_id.to_param_with_dialect(self.dialect.as_ref());
+            implicit.push(format!("{} = {}", col, val));
+        }
+        implicit
+    }
+
+    /// 渲染 WHERE 子句（包含用户 wheres + 隐式软删除/多租户条件）
+    fn render_where_clause(&self) -> String {
+        let user_conds: Vec<String> = self
+            .wheres
+            .iter()
+            .map(|w| w.render(self.dialect.as_ref()))
+            .collect();
+        let implicit_conds = self.collect_implicit_wheres();
+        let all_conds: Vec<String> = user_conds.into_iter().chain(implicit_conds).collect();
+        if all_conds.is_empty() {
+            String::new()
+        } else {
+            format!(" WHERE {}", all_conds.join(" AND "))
         }
     }
 
@@ -465,6 +588,8 @@ impl<M> LambdaWrapper<M> {
     // -------------------- SQL 生成 --------------------
 
     /// 生成 SELECT SQL
+    ///
+    /// P3-2 修复：若启用了软删除/多租户，自动追加隐式 WHERE 条件
     pub fn build_select(&self) -> String {
         let quoted_table = self.dialect.quote(&self.table);
 
@@ -481,16 +606,8 @@ impl<M> LambdaWrapper<M> {
 
         let mut sql = format!("SELECT {} FROM {}", select_sql, quoted_table);
 
-        // WHERE
-        if !self.wheres.is_empty() {
-            let conditions: Vec<String> = self
-                .wheres
-                .iter()
-                .map(|w| w.render(self.dialect.as_ref()))
-                .collect();
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
-        }
+        // WHERE（含隐式软删除/多租户条件）
+        sql.push_str(&self.render_where_clause());
 
         // ORDER BY
         if !self.orders.is_empty() {
@@ -521,24 +638,18 @@ impl<M> LambdaWrapper<M> {
     }
 
     /// 生成 COUNT SQL（SELECT COUNT(*) FROM ... WHERE ...）
+    ///
+    /// P3-2 修复：若启用了软删除/多租户，自动追加隐式 WHERE 条件
     pub fn build_count(&self) -> String {
         let quoted_table = self.dialect.quote(&self.table);
         let mut sql = format!("SELECT COUNT(*) FROM {}", quoted_table);
-
-        if !self.wheres.is_empty() {
-            let conditions: Vec<String> = self
-                .wheres
-                .iter()
-                .map(|w| w.render(self.dialect.as_ref()))
-                .collect();
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
-        }
-
+        sql.push_str(&self.render_where_clause());
         sql
     }
 
     /// 生成 EXISTS SQL（SELECT EXISTS(SELECT 1 FROM ... WHERE ...) AS exists_flag）
+    ///
+    /// P3-2 修复：若启用了软删除/多租户，自动追加隐式 WHERE 条件
     pub fn build_exists(&self) -> String {
         let inner = self.build_select();
         // 把 SELECT 字段部分替换为 SELECT 1
@@ -551,20 +662,54 @@ impl<M> LambdaWrapper<M> {
     }
 
     /// 生成 DELETE SQL
+    ///
+    /// P3-2 修复：
+    /// - 若启用软删除，则改为 `UPDATE ... SET column = deleted_value`
+    ///   （即软删除：仅标记，不实际删除行）
+    /// - 若启用多租户，自动追加 `column = tenant_id` 条件，防止跨租户删除
     pub fn build_delete(&self) -> String {
         let quoted_table = self.dialect.quote(&self.table);
-        let mut sql = format!("DELETE FROM {}", quoted_table);
 
-        if !self.wheres.is_empty() {
-            let conditions: Vec<String> = self
+        // 软删除：改为 UPDATE
+        if let Some(ref sd) = self.soft_delete {
+            let col = self.dialect.quote(&sd.column);
+            let val = sd.deleted_value.to_param_with_dialect(self.dialect.as_ref());
+            let mut sql = format!(
+                "UPDATE {} SET {} = {}",
+                quoted_table, col, val
+            );
+
+            // WHERE（含用户条件 + 多租户条件；软删除条件不再追加，因为本就是 UPDATE SET）
+            let user_conds: Vec<String> = self
                 .wheres
                 .iter()
                 .map(|w| w.render(self.dialect.as_ref()))
                 .collect();
-            sql.push_str(" WHERE ");
-            sql.push_str(&conditions.join(" AND "));
+            let mut all_conds = user_conds;
+            // 多租户过滤仍需追加
+            if let Some(ref t) = self.tenant {
+                let tcol = self.dialect.quote(&t.column);
+                let tval = t.tenant_id.to_param_with_dialect(self.dialect.as_ref());
+                all_conds.push(format!("{} = {}", tcol, tval));
+            }
+            // 同时确保只更新未删除的行
+            let not_deleted_cond = format!(
+                "{} = {}",
+                col,
+                sd.not_deleted_value.to_param_with_dialect(self.dialect.as_ref())
+            );
+            all_conds.push(not_deleted_cond);
+
+            if !all_conds.is_empty() {
+                sql.push_str(" WHERE ");
+                sql.push_str(&all_conds.join(" AND "));
+            }
+            return sql;
         }
 
+        // 硬删除：DELETE FROM
+        let mut sql = format!("DELETE FROM {}", quoted_table);
+        sql.push_str(&self.render_where_clause());
         sql
     }
 
@@ -985,6 +1130,161 @@ mod tests {
         let sql = w.build_delete();
         assert!(sql.starts_with("DELETE FROM `users`"));
         assert!(sql.contains("WHERE `id` = 1"));
+    }
+
+    // ===== P3-2 修复：软删除 / 多租户测试 =====
+
+    #[test]
+    fn test_soft_delete_select_appends_filter() {
+        // 启用软删除后，build_select 应自动追加 `deleted = 0`
+        let w = LambdaWrapper::<User>::new("users").with_soft_delete(SoftDeleteConfig {
+            column: "deleted".to_string(),
+            not_deleted_value: Value::I64(0),
+            deleted_value: Value::I64(1),
+        });
+        let sql = w.build_select();
+        assert!(
+            sql.contains("`deleted` = 0"),
+            "软删除 SELECT 应追加 `deleted` = 0: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_soft_delete_count_appends_filter() {
+        // 启用软删除后，build_count 应自动追加 `deleted = 0`
+        let w = LambdaWrapper::<User>::new("users").with_soft_delete(SoftDeleteConfig {
+            column: "deleted".to_string(),
+            not_deleted_value: Value::I64(0),
+            deleted_value: Value::I64(1),
+        });
+        let sql = w.build_count();
+        assert!(
+            sql.contains("`deleted` = 0"),
+            "软删除 COUNT 应追加 `deleted` = 0: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_soft_delete_exists_appends_filter() {
+        // 启用软删除后，build_exists 应自动追加 `deleted = 0`
+        let w = LambdaWrapper::<User>::new("users").with_soft_delete(SoftDeleteConfig {
+            column: "deleted".to_string(),
+            not_deleted_value: Value::I64(0),
+            deleted_value: Value::I64(1),
+        });
+        let sql = w.build_exists();
+        assert!(
+            sql.contains("`deleted` = 0"),
+            "软删除 EXISTS 应追加 `deleted` = 0: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_soft_delete_delete_becomes_update() {
+        // 启用软删除后，build_delete 应改为 UPDATE ... SET deleted = 1
+        let mut w = LambdaWrapper::<User>::new("users").with_soft_delete(SoftDeleteConfig {
+            column: "deleted".to_string(),
+            not_deleted_value: Value::I64(0),
+            deleted_value: Value::I64(1),
+        });
+        w.eq(UserColumns::Id, Value::I64(42));
+        let sql = w.build_delete();
+        assert!(
+            sql.starts_with("UPDATE `users` SET `deleted` = 1"),
+            "软删除应为 UPDATE：{}",
+            sql
+        );
+        assert!(
+            sql.contains("`id` = 42"),
+            "应保留用户 WHERE 条件：{}",
+            sql
+        );
+        assert!(
+            sql.contains("`deleted` = 0"),
+            "应追加未删除条件防止重复删除：{}",
+            sql
+        );
+        assert!(
+            !sql.starts_with("DELETE"),
+            "软删除不应生成 DELETE 语句：{}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_tenant_select_appends_filter() {
+        // 启用多租户后，build_select 应自动追加 `tenant_id` = 42
+        let w = LambdaWrapper::<User>::new("users").with_tenant(TenantConfig {
+            column: "tenant_id".to_string(),
+            tenant_id: Value::I64(42),
+        });
+        let sql = w.build_select();
+        assert!(
+            sql.contains("`tenant_id` = 42"),
+            "多租户 SELECT 应追加 `tenant_id` = 42: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_tenant_delete_appends_filter() {
+        // 启用多租户后，build_delete 应自动追加 `tenant_id` = 42 防止跨租户删除
+        let mut w = LambdaWrapper::<User>::new("users").with_tenant(TenantConfig {
+            column: "tenant_id".to_string(),
+            tenant_id: Value::I64(42),
+        });
+        w.eq(UserColumns::Id, Value::I64(1));
+        let sql = w.build_delete();
+        assert!(
+            sql.contains("`tenant_id` = 42"),
+            "多租户 DELETE 应追加 `tenant_id` = 42: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_soft_delete_and_tenant_combined() {
+        // 同时启用软删除和多租户
+        let mut w = LambdaWrapper::<User>::new("users")
+            .with_soft_delete(SoftDeleteConfig {
+                column: "deleted".to_string(),
+                not_deleted_value: Value::I64(0),
+                deleted_value: Value::I64(1),
+            })
+            .with_tenant(TenantConfig {
+                column: "tenant_id".to_string(),
+                tenant_id: Value::I64(99),
+            });
+        w.eq(UserColumns::Id, Value::I64(7));
+
+        // SELECT 应同时包含两个隐式条件
+        let sql = w.build_select();
+        assert!(sql.contains("`deleted` = 0"), "应包含软删除条件: {}", sql);
+        assert!(sql.contains("`tenant_id` = 99"), "应包含多租户条件: {}", sql);
+        assert!(sql.contains("`id` = 7"), "应包含用户条件: {}", sql);
+
+        // DELETE 应改为 UPDATE，并追加所有条件
+        let del_sql = w.build_delete();
+        assert!(del_sql.starts_with("UPDATE `users` SET `deleted` = 1"));
+        assert!(del_sql.contains("`tenant_id` = 99"));
+        assert!(del_sql.contains("`deleted` = 0"));
+        assert!(del_sql.contains("`id` = 7"));
+    }
+
+    #[test]
+    fn test_no_soft_delete_no_tenant_backward_compat() {
+        // 未启用软删除/多租户时，行为与之前一致
+        let mut w = LambdaWrapper::<User>::new("users");
+        w.eq(UserColumns::Id, Value::I64(1));
+        let sql = w.build_select();
+        assert!(!sql.contains("deleted"));
+        assert!(!sql.contains("tenant_id"));
+
+        let del_sql = w.build_delete();
+        assert!(del_sql.starts_with("DELETE FROM"));
     }
 
     // ===== 方言测试 =====

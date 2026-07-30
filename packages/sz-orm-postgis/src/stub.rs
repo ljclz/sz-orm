@@ -9,7 +9,7 @@ use crate::error::PostgisError;
 use crate::geometry::Geometry;
 use crate::postgis::PostgisExt;
 use async_trait::async_trait;
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 /// Stub PostGIS 实现：记录生成的 SQL 语句
 pub struct StubPostgis {
@@ -26,16 +26,16 @@ impl StubPostgis {
 
     /// 获取已生成的 SQL 历史
     pub fn sql_history(&self) -> Vec<String> {
-        self.sql_log.lock().unwrap().clone()
+        self.sql_log.lock().clone()
     }
 
     /// 清空 SQL 历史
     pub fn clear(&self) {
-        self.sql_log.lock().unwrap().clear();
+        self.sql_log.lock().clear();
     }
 
     fn log(&self, sql: String) {
-        self.sql_log.lock().unwrap().push(sql);
+        self.sql_log.lock().push(sql);
     }
 }
 
@@ -156,7 +156,9 @@ mod tests {
         let stub = StubPostgis::new();
         let p1 = Geometry::Point(Point::new(0.0, 0.0));
         let p2 = Geometry::Point(Point::new(3.0, 4.0));
-        let _ = stub.st_distance(&p1, &p2).await.unwrap();
+        // stub 返回 0.0（文档化行为），验证返回值而非丢弃
+        let dist = stub.st_distance(&p1, &p2).await.unwrap();
+        assert_eq!(dist, 0.0, "stub st_distance must return documented 0.0");
 
         let history = stub.sql_history();
         assert_eq!(history.len(), 1);
@@ -193,7 +195,9 @@ mod tests {
     async fn test_stub_clear() {
         let stub = StubPostgis::new();
         let p = Geometry::Point(Point::new(0.0, 0.0));
-        let _ = stub.st_area(&p).await.unwrap();
+        // 验证返回值（stub 文档化返回 0.0）
+        let area = stub.st_area(&p).await.unwrap();
+        assert_eq!(area, 0.0, "stub st_area must return documented 0.0");
         assert_eq!(stub.sql_history().len(), 1);
         stub.clear();
         assert_eq!(stub.sql_history().len(), 0);
@@ -203,9 +207,16 @@ mod tests {
     async fn test_stub_multiple_operations() {
         let stub = StubPostgis::new();
         let p = Geometry::Point(Point::new(0.0, 0.0));
-        let _ = stub.st_area(&p).await.unwrap();
-        let _ = stub.st_length(&p).await.unwrap();
+        // 验证每个操作的返回值
+        let area = stub.st_area(&p).await.unwrap();
+        assert_eq!(area, 0.0);
+        let length = stub.st_length(&p).await.unwrap();
+        assert_eq!(length, 0.0);
         stub.create_spatial_index("t", "g").await.unwrap();
         assert_eq!(stub.sql_history().len(), 3);
+        // 验证每条历史记录包含正确的操作名
+        assert!(stub.sql_history()[0].contains("ST_Area"));
+        assert!(stub.sql_history()[1].contains("ST_Length"));
+        assert!(stub.sql_history()[2].contains("CREATE INDEX"));
     }
 }

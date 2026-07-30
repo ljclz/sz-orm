@@ -1,7 +1,7 @@
 use crate::error::AiError;
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 #[derive(Debug, Clone)]
 pub struct EmbeddingError {
@@ -126,13 +126,13 @@ impl SimpleEmbeddingModel {
     }
 
     pub fn vocabulary_size(&self) -> usize {
-        self.vocabulary.read().map(|v| v.len()).unwrap_or(0)
+        self.vocabulary.read().len()
     }
 
     /// Registers a token in the vocabulary, returning its slot index.
     /// New tokens are appended; existing tokens keep their slot.
     fn register_token(&self, token: &str) -> usize {
-        let mut vocab = self.vocabulary.write().unwrap();
+        let mut vocab = self.vocabulary.write();
         if let Some(&idx) = vocab.get(token) {
             return idx;
         }
@@ -225,7 +225,7 @@ where
 
     /// 获取缓存大小
     pub fn cache_size(&self) -> usize {
-        self.cache.read().map(|c| c.len()).unwrap_or(0)
+        self.cache.read().len()
     }
 
     /// 获取缓存命中次数
@@ -251,9 +251,8 @@ where
 
     /// 清空缓存
     pub fn clear_cache(&self) {
-        if let Ok(mut cache) = self.cache.write() {
-            cache.clear();
-        }
+        let mut cache = self.cache.write();
+        cache.clear();
     }
 
     /// 获取内部模型引用
@@ -270,10 +269,7 @@ where
     async fn embed(&self, text: &str) -> Result<Vec<f32>, AiError> {
         // 先查缓存
         {
-            let cache = self
-                .cache
-                .read()
-                .map_err(|e| AiError::Embedding(e.to_string()))?;
+            let cache = self.cache.read();
             if let Some(vector) = cache.get(text) {
                 self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
                 return Ok(vector.clone());
@@ -286,7 +282,8 @@ where
         let vector = self.inner.embed(text).await?;
 
         // 写入缓存
-        if let Ok(mut cache) = self.cache.write() {
+        {
+            let mut cache = self.cache.write();
             cache.insert(text.to_string(), vector.clone());
         }
 
@@ -300,10 +297,7 @@ where
 
         // 先查缓存
         {
-            let cache = self
-                .cache
-                .read()
-                .map_err(|e| AiError::Embedding(e.to_string()))?;
+            let cache = self.cache.read();
             for (idx, text) in texts.iter().enumerate() {
                 if let Some(vector) = cache.get(text) {
                     self.hits.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
@@ -321,10 +315,7 @@ where
         // 批量计算未缓存的
         if !uncached_texts.is_empty() {
             let vectors = self.inner.embed_batch(&uncached_texts).await?;
-            let mut cache = self
-                .cache
-                .write()
-                .map_err(|e| AiError::Embedding(e.to_string()))?;
+            let mut cache = self.cache.write();
             for (i, idx) in uncached_indices.iter().enumerate() {
                 let text = &uncached_texts[i];
                 let vector = &vectors[i];
@@ -721,9 +712,13 @@ mod tests {
         let inner = SimpleEmbeddingModel::new("test", 16);
         let caching = CachingEmbeddingModel::new(inner);
 
-        let _ = caching.embed("hello").await.unwrap();
-        let _ = caching.embed("world").await.unwrap();
+        let v1 = caching.embed("hello").await.unwrap();
+        let v2 = caching.embed("world").await.unwrap();
 
+        // 不同输入应产生不同向量
+        assert_eq!(v1.len(), 16);
+        assert_eq!(v2.len(), 16);
+        assert_ne!(v1, v2, "different inputs must yield different embeddings");
         assert_eq!(caching.cache_misses(), 2);
         assert_eq!(caching.cache_hits(), 0);
         assert_eq!(caching.cache_size(), 2);
@@ -734,10 +729,15 @@ mod tests {
         let inner = SimpleEmbeddingModel::new("test", 16);
         let caching = CachingEmbeddingModel::new(inner);
 
-        let _ = caching.embed("a").await.unwrap();
-        let _ = caching.embed("a").await.unwrap(); // hit
-        let _ = caching.embed("b").await.unwrap();
-        let _ = caching.embed("a").await.unwrap(); // hit
+        let v1_miss = caching.embed("a").await.unwrap();
+        let v1_hit = caching.embed("a").await.unwrap(); // hit
+        let v2_miss = caching.embed("b").await.unwrap();
+        let v1_hit2 = caching.embed("a").await.unwrap(); // hit
+
+        // 缓存命中必须返回与首次 miss 相同的向量
+        assert_eq!(v1_miss, v1_hit, "cache hit must return identical vector");
+        assert_eq!(v1_miss, v1_hit2, "cache hit must return identical vector");
+        assert_ne!(v1_miss, v2_miss, "different inputs must yield different vectors");
 
         // 4 calls: 2 misses, 2 hits
         assert!((caching.hit_rate() - 0.5).abs() < 1e-6);
@@ -755,14 +755,15 @@ mod tests {
         let inner = SimpleEmbeddingModel::new("test", 16);
         let caching = CachingEmbeddingModel::new(inner);
 
-        let _ = caching.embed("hello").await.unwrap();
+        let v1 = caching.embed("hello").await.unwrap();
         assert_eq!(caching.cache_size(), 1);
 
         caching.clear_cache();
         assert_eq!(caching.cache_size(), 0);
 
-        // 再次调用应 miss
-        let _ = caching.embed("hello").await.unwrap();
+        // 再次调用应 miss，且必须返回与首次相同的向量（确定性）
+        let v2 = caching.embed("hello").await.unwrap();
+        assert_eq!(v1, v2, "embeddings must be deterministic across cache clears");
         assert_eq!(caching.cache_misses(), 2);
     }
 
@@ -772,13 +773,18 @@ mod tests {
         let caching = CachingEmbeddingModel::new(inner);
 
         // 先缓存一个
-        let _ = caching.embed("hello").await.unwrap();
+        let seed = caching.embed("hello").await.unwrap();
 
         // 批量调用：hello 已缓存，world 未缓存
         let texts = vec!["hello".to_string(), "world".to_string()];
         let results = caching.embed_batch(&texts).await.unwrap();
 
         assert_eq!(results.len(), 2);
+        // hello 必须返回与 seed 相同的向量（缓存命中）
+        assert_eq!(results[0], seed, "cached entry must match seed vector");
+        // world 是新向量，维度必须一致
+        assert_eq!(results[1].len(), 16);
+        assert_ne!(results[0], results[1], "different inputs must differ");
         assert_eq!(caching.cache_hits(), 1); // hello
         assert_eq!(caching.cache_misses(), 2); // 初始 hello + world
     }
@@ -789,14 +795,17 @@ mod tests {
         let caching = CachingEmbeddingModel::new(inner);
 
         // 先缓存全部
-        let _ = caching.embed("hello").await.unwrap();
-        let _ = caching.embed("world").await.unwrap();
+        let seed_hello = caching.embed("hello").await.unwrap();
+        let seed_world = caching.embed("world").await.unwrap();
 
         // 批量调用：全部命中
         let texts = vec!["hello".to_string(), "world".to_string()];
         let results = caching.embed_batch(&texts).await.unwrap();
 
         assert_eq!(results.len(), 2);
+        // 批量结果必须与 seed 向量逐一匹配
+        assert_eq!(results[0], seed_hello, "cached hello must match seed");
+        assert_eq!(results[1], seed_world, "cached world must match seed");
         assert_eq!(caching.cache_hits(), 2);
     }
 
@@ -992,9 +1001,14 @@ mod tests {
         let inner = SimpleEmbeddingModel::new("test", 16);
         let logging = LoggingEmbeddingModel::new(inner);
 
-        let _ = logging.embed("hello").await.unwrap();
-        let _ = logging.embed("world").await.unwrap();
+        let v1 = logging.embed("hello").await.unwrap();
+        let v2 = logging.embed("world").await.unwrap();
 
+        // 返回向量必须与底层 SimpleEmbeddingModel 直接计算的结果一致
+        let baseline = SimpleEmbeddingModel::new("test", 16);
+        assert_eq!(v1, baseline.embed_text("hello"));
+        assert_eq!(v2, baseline.embed_text("world"));
+        assert_ne!(v1, v2);
         assert_eq!(logging.call_count(), 2);
         assert_eq!(logging.total_texts(), 2);
     }
@@ -1005,8 +1019,14 @@ mod tests {
         let logging = LoggingEmbeddingModel::new(inner);
 
         let texts = vec!["hello".to_string(), "world".to_string(), "foo".to_string()];
-        let _ = logging.embed_batch(&texts).await.unwrap();
+        let results = logging.embed_batch(&texts).await.unwrap();
 
+        // 验证批量返回值与底层模型直接计算结果一致
+        let baseline = SimpleEmbeddingModel::new("test", 16);
+        assert_eq!(results.len(), 3);
+        assert_eq!(results[0], baseline.embed_text("hello"));
+        assert_eq!(results[1], baseline.embed_text("world"));
+        assert_eq!(results[2], baseline.embed_text("foo"));
         assert_eq!(logging.call_count(), 1);
         assert_eq!(logging.total_texts(), 3);
     }
@@ -1057,11 +1077,16 @@ mod tests {
         let logging = LoggingEmbeddingModel::new(inner);
         let caching = CachingEmbeddingModel::new(logging);
 
-        let _ = caching.embed("hello").await.unwrap();
-        let _ = caching.embed("hello").await.unwrap(); // cache hit
+        let v1 = caching.embed("hello").await.unwrap();
+        let v2 = caching.embed("hello").await.unwrap(); // cache hit
 
-        // 日志层应记录 2 次调用（缓存层每次都会转发到日志层）
-        // 实际上缓存命中时不会调用内部模型，所以日志层只记录 1 次
+        // 两次调用返回必须一致（缓存命中）
+        assert_eq!(v1, v2, "cache hit must return identical vector");
+        // 验证向量与底层 SimpleEmbeddingModel 直接计算结果一致
+        let baseline = SimpleEmbeddingModel::new("composed", 16);
+        assert_eq!(v1, baseline.embed_text("hello"));
+        // 缓存命中时不会调用内部模型，所以日志层只记录 1 次
+        assert_eq!(caching.inner().call_count(), 1);
         assert_eq!(caching.cache_hits(), 1);
     }
 }

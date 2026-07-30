@@ -409,7 +409,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_helpers_compile() {
-        let _ = InMemoryVectorStore::new();
+        let store = InMemoryVectorStore::new();
+        // Fresh store: count for unknown collection must be 0
+        let count = store.count("nonexistent").await.unwrap();
+        assert_eq!(count, 0, "fresh store should have 0 records for unknown collection");
+        // Cosine similarity contract
         assert_eq!(cosine_similarity(&[1.0, 0.0], &[1.0, 0.0]), 1.0);
         assert!((cosine_similarity(&[1.0, 0.0], &[0.0, 1.0])).abs() < 1e-6);
         assert_eq!(cosine_similarity(&[], &[]), 0.0);

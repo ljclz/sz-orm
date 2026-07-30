@@ -2,15 +2,19 @@
 //!
 //! 全操作的集中错误类型定义
 
+use parking_lot::RwLock;
 use std::error::Error;
 use std::fmt;
 use std::io;
-use std::sync::{Arc, OnceLock, RwLock};
+use std::sync::{Arc, OnceLock};
 
 /// 错误上报 hook 类型
 type ErrorHook = Arc<dyn Fn(&DbError) + Send + Sync>;
 
 /// 全局错误上报 hook 存储（使用 OnceLock 实现 lazy 初始化，无需 once_cell 依赖）
+///
+/// P3-4 修复：使用 parking_lot::RwLock 替换 std::sync::RwLock，消除锁毒化风险
+/// （parking_lot 的 RwLock 不会返回 PoisonError，无需 unwrap()）
 static GLOBAL_ERROR_HOOK: OnceLock<RwLock<Option<ErrorHook>>> = OnceLock::new();
 
 /// 获取全局错误 hook 存储的引用
@@ -22,17 +26,16 @@ fn error_hook_storage() -> &'static RwLock<Option<ErrorHook>> {
 ///
 /// 调用后，所有通过 `trigger_error_hook` 触发的错误都会被传入此 hook。
 pub fn set_error_hook(hook: ErrorHook) {
-    *error_hook_storage().write().unwrap() = Some(hook);
+    *error_hook_storage().write() = Some(hook);
 }
 
 /// 触发错误 hook（在 DbError 创建/返回时调用）
 ///
-/// 如果未设置 hook 或读取锁失败，则静默跳过。
+/// 如果未设置 hook，则静默跳过。
 pub fn trigger_error_hook(err: &DbError) {
-    if let Ok(storage) = error_hook_storage().read() {
-        if let Some(ref hook) = *storage {
-            hook(err);
-        }
+    let storage = error_hook_storage().read();
+    if let Some(ref hook) = *storage {
+        hook(err);
     }
 }
 

@@ -168,8 +168,14 @@ async fn test_savepoint_name_monotonic_increment_contract() {
 async fn test_rollback_to_savepoint_contract() {
     let mut tx = make_tx();
     let sp = tx.savepoint().await.unwrap();
+    // savepoint 创建后事务仍处于 Active 状态
+    assert_eq!(tx.state(), TransactionState::Active);
     tx.rollback_to_savepoint(&sp).await.unwrap();
+    // 回滚到保存点后事务仍为 Active
+    assert_eq!(tx.state(), TransactionState::Active);
     tx.release_savepoint(&sp).await.unwrap();
+    // 释放保存点后事务仍为 Active
+    assert!(tx.is_active());
 }
 
 #[tokio::test]
@@ -290,9 +296,14 @@ fn test_transact_options_chaining_contract() {
 #[tokio::test]
 async fn test_options_and_state_dont_panic_contract() {
     let mut tx = make_tx();
-    let _opts = tx.options();
-    let _state = tx.state();
+    // Active 状态下 options()/state() 应可读取且不 panic
+    assert_eq!(tx.state(), TransactionState::Active);
+    assert!(tx.options().isolation_level.is_none());
+
     tx.commit().await.unwrap();
-    let _opts2 = tx.options();
-    let _state2 = tx.state();
+    // Committed 状态下 options()/state() 仍应可读取且不 panic
+    assert_eq!(tx.state(), TransactionState::Committed);
+    assert!(!tx.is_active());
+    // options() 在 commit 后应仍可访问且内容不变（默认 None）
+    assert!(tx.options().isolation_level.is_none());
 }

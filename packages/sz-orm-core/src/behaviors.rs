@@ -38,7 +38,7 @@ use crate::error::DbError;
 use crate::hooks::HookContext;
 use crate::Value;
 use std::collections::HashMap;
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 /// Behavior 处理结果
 pub type BehaviorResult<T> = Result<T, DbError>;
@@ -249,6 +249,177 @@ impl Behavior for BlameableBehavior {
 }
 
 // ============================================================================
+// TenantBehavior — 自动填充 tenant_id（S-3：SeaORM 对标短板补全）
+// ============================================================================
+//
+// 对应：Yii2 `TenantBehavior` / Laravel Tenancy `BootTenant`
+// / Hibernate `@TenantId`
+//
+// - before_insert：从 HookContext.tenant_id 读取租户 ID 填充到 attrs
+// - before_update：可选校验 tenant_id 不可变更（防跨租户篡改）
+//
+// 与 hooks::TenantScope（查询时自动追加 tenant_id = ? 过滤）配套，
+// 共同实现多租户隔离：写入侧由 TenantBehavior 填充，读取侧由 TenantScope 过滤。
+
+/// 租户隔离行为配置：是否在 update 时强制 tenant_id 不可变更
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum TenantUpdatePolicy {
+    /// 允许 update 时变更 tenant_id（不推荐，仅在特殊迁移场景使用）
+    Allow,
+    /// update 时若 attrs 中出现 tenant_id 且与 ctx.tenant_id 不一致则报错（默认）
+    DenyMismatch,
+    /// update 时静默忽略 attrs 中的 tenant_id（保持原值不变）
+    Strip,
+}
+
+impl Default for TenantUpdatePolicy {
+    fn default() -> Self {
+        TenantUpdatePolicy::DenyMismatch
+    }
+}
+
+/// 自动填充 tenant_id Behavior
+///
+/// # 工作机制
+///
+/// - `before_insert`：若 `ctx.tenant_id` 为 `Some(tid)`，将 `tid` 写入 `attrs[tenant_field]`；
+///   若 `ctx.tenant_id` 为 `None`，按 `skip_when_no_tenant` 配置决定是跳过还是报错。
+/// - `before_update`：根据 [`TenantUpdatePolicy`] 处理 attrs 中的 tenant_id：
+///   - `DenyMismatch`（默认）：若 attrs 中 tenant_id 与 ctx.tenant_id 不一致则返回 `DbError::TenantError`
+///   - `Strip`：从 attrs 中移除 tenant_id（保证不被更新）
+///   - `Allow`：不做任何处理
+///
+/// # 示例
+///
+/// ```
+/// use sz_orm_core::behaviors::{TenantBehavior, TenantUpdatePolicy, Behavior};
+/// use sz_orm_core::hooks::HookContext;
+/// use sz_orm_core::Value;
+/// use std::collections::HashMap;
+///
+/// let b = TenantBehavior::default_fields();
+/// let ctx = HookContext::default().with_tenant(42);
+/// let mut attrs = HashMap::new();
+/// b.before_insert(&ctx, &mut attrs).unwrap();
+/// assert_eq!(attrs.get("tenant_id"), Some(&Value::I64(42)));
+/// ```
+pub struct TenantBehavior {
+    /// 租户字段名（默认 "tenant_id"）
+    pub tenant_field: &'static str,
+    /// update 时对 tenant_id 的处理策略
+    pub update_policy: TenantUpdatePolicy,
+    /// ctx.tenant_id 为 None 时的行为：
+    /// - true：跳过填充（不写入 tenant_id，允许跨租户写入）
+    /// - false：返回 TenantError
+    pub skip_when_no_tenant: bool,
+}
+
+impl TenantBehavior {
+    /// 创建 TenantBehavior
+    pub fn new(
+        tenant_field: &'static str,
+        update_policy: TenantUpdatePolicy,
+        skip_when_no_tenant: bool,
+    ) -> Self {
+        Self {
+            tenant_field,
+            update_policy,
+            skip_when_no_tenant,
+        }
+    }
+
+    /// 使用默认字段名（tenant_id）+ 默认策略（DenyMismatch + skip_when_no_tenant=true）
+    pub fn default_fields() -> Self {
+        Self::new("tenant_id", TenantUpdatePolicy::default(), true)
+    }
+
+    /// 设置 update 策略（builder 风格）
+    pub fn with_update_policy(mut self, policy: TenantUpdatePolicy) -> Self {
+        self.update_policy = policy;
+        self
+    }
+
+    /// 设置 ctx.tenant_id 为 None 时的行为（builder 风格）
+    pub fn with_skip_when_no_tenant(mut self, skip: bool) -> Self {
+        self.skip_when_no_tenant = skip;
+        self
+    }
+}
+
+impl Behavior for TenantBehavior {
+    fn name(&self) -> &'static str {
+        "TenantBehavior"
+    }
+
+    fn before_insert(
+        &self,
+        ctx: &HookContext,
+        attrs: &mut HashMap<String, Value>,
+    ) -> BehaviorResult<()> {
+        match ctx.tenant_id {
+            Some(tid) => {
+                attrs.insert(self.tenant_field.to_string(), Value::I64(tid));
+                Ok(())
+            }
+            None => {
+                if self.skip_when_no_tenant {
+                    Ok(())
+                } else {
+                    Err(DbError::TenantError(format!(
+                        "TenantBehavior::before_insert: ctx.tenant_id is None, \
+                         cannot auto-fill `{}`; set skip_when_no_tenant=true or \
+                         provide tenant_id in HookContext",
+                        self.tenant_field
+                    )))
+                }
+            }
+        }
+    }
+
+    fn before_update(
+        &self,
+        ctx: &HookContext,
+        attrs: &mut HashMap<String, Value>,
+    ) -> BehaviorResult<()> {
+        match self.update_policy {
+            TenantUpdatePolicy::Allow => Ok(()),
+            TenantUpdatePolicy::Strip => {
+                attrs.remove(self.tenant_field);
+                Ok(())
+            }
+            TenantUpdatePolicy::DenyMismatch => {
+                if let Some(existing) = attrs.get(self.tenant_field) {
+                    match (existing, ctx.tenant_id) {
+                        // ctx 中有 tenant_id：必须与 attrs 一致
+                        (Value::I64(a), Some(b)) if *a == b => Ok(()),
+                        (Value::I64(a), Some(b)) => Err(DbError::TenantError(format!(
+                            "TenantBehavior::before_update: tenant_id mismatch — \
+                             attrs.{}={}, ctx.tenant_id={}; update rejected to prevent \
+                             cross-tenant tampering",
+                            self.tenant_field, a, b
+                        ))),
+                        // ctx 中无 tenant_id：不允许显式更新 tenant_id
+                        (_, None) => Err(DbError::TenantError(format!(
+                            "TenantBehavior::before_update: attrs contains `{}` but \
+                             ctx.tenant_id is None; remove `{}` from update payload or \
+                             set ctx.tenant_id",
+                            self.tenant_field, self.tenant_field
+                        ))),
+                        // 非 I64 类型的 tenant_id 视为类型不匹配
+                        (other, _) => Err(DbError::TenantError(format!(
+                            "TenantBehavior::before_update: attrs.{} expected I64, got {:?}",
+                            self.tenant_field, other
+                        ))),
+                    }
+                } else {
+                    Ok(())
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
 // AttributeBehavior — 通用属性自动设置
 // ============================================================================
 //
@@ -396,13 +567,13 @@ impl BehaviorRegistry {
 
     /// 注册一个 Behavior
     pub fn register(&self, behavior: Box<dyn Behavior>) {
-        let mut guards = self.behaviors.write().unwrap();
+        let mut guards = self.behaviors.write();
         guards.push(behavior);
     }
 
     /// 按 name 移除已注册的 Behavior
     pub fn unregister(&self, name: &str) -> bool {
-        let mut guards = self.behaviors.write().unwrap();
+        let mut guards = self.behaviors.write();
         let before = guards.len();
         guards.retain(|b| b.name() != name);
         guards.len() < before
@@ -410,14 +581,13 @@ impl BehaviorRegistry {
 
     /// 已注册的 Behavior 数量
     pub fn count(&self) -> usize {
-        self.behaviors.read().unwrap().len()
+        self.behaviors.read().len()
     }
 
     /// 列出所有已注册 Behavior 的名称
     pub fn names(&self) -> Vec<&'static str> {
         self.behaviors
             .read()
-            .unwrap()
             .iter()
             .map(|b| b.name())
             .collect()
@@ -429,7 +599,7 @@ impl BehaviorRegistry {
         ctx: &HookContext,
         attrs: &mut HashMap<String, Value>,
     ) -> BehaviorResult<()> {
-        let guards = self.behaviors.read().unwrap();
+        let guards = self.behaviors.read();
         for b in guards.iter() {
             b.before_insert(ctx, attrs)?;
         }
@@ -442,7 +612,7 @@ impl BehaviorRegistry {
         ctx: &HookContext,
         attrs: &mut HashMap<String, Value>,
     ) -> BehaviorResult<()> {
-        let guards = self.behaviors.read().unwrap();
+        let guards = self.behaviors.read();
         for b in guards.iter() {
             b.before_update(ctx, attrs)?;
         }
@@ -455,7 +625,7 @@ impl BehaviorRegistry {
         ctx: &HookContext,
         attrs: &mut HashMap<String, Value>,
     ) -> BehaviorResult<()> {
-        let guards = self.behaviors.read().unwrap();
+        let guards = self.behaviors.read();
         for b in guards.iter() {
             b.before_delete(ctx, attrs)?;
         }
@@ -468,7 +638,7 @@ impl BehaviorRegistry {
         ctx: &HookContext,
         attrs: &mut HashMap<String, Value>,
     ) -> BehaviorResult<()> {
-        let guards = self.behaviors.read().unwrap();
+        let guards = self.behaviors.read();
         for b in guards.iter() {
             b.after_find(ctx, attrs)?;
         }
@@ -477,7 +647,7 @@ impl BehaviorRegistry {
 
     /// 清空所有已注册的 Behavior
     pub fn clear(&self) {
-        self.behaviors.write().unwrap().clear();
+        self.behaviors.write().clear();
     }
 }
 
@@ -572,6 +742,268 @@ mod tests {
     fn test_blameable_behavior_name() {
         let b = BlameableBehavior::default_fields();
         assert_eq!(b.name(), "BlameableBehavior");
+    }
+
+    // ===== TenantBehavior 测试（S-3）=====
+
+    #[test]
+    fn test_tenant_behavior_default_policy() {
+        assert_eq!(TenantUpdatePolicy::default(), TenantUpdatePolicy::DenyMismatch);
+    }
+
+    #[test]
+    fn test_tenant_behavior_before_insert_fills_tenant_id() {
+        let b = TenantBehavior::default_fields();
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        b.before_insert(&ctx, &mut attrs).unwrap();
+        assert_eq!(attrs.get("tenant_id"), Some(&Value::I64(42)));
+    }
+
+    #[test]
+    fn test_tenant_behavior_before_insert_overwrites_existing() {
+        // 即使 attrs 已有 tenant_id，也以 ctx.tenant_id 为准（防止业务层伪造）
+        let b = TenantBehavior::default_fields();
+        let ctx = HookContext::default().with_tenant(99);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(1)); // 业务层伪造
+        b.before_insert(&ctx, &mut attrs).unwrap();
+        assert_eq!(attrs.get("tenant_id"), Some(&Value::I64(99)));
+    }
+
+    #[test]
+    fn test_tenant_behavior_before_insert_no_tenant_skips_by_default() {
+        // 默认 skip_when_no_tenant=true：ctx 无 tenant_id 时跳过
+        let b = TenantBehavior::default_fields();
+        let ctx = HookContext::default(); // 无 tenant_id
+        let mut attrs = HashMap::new();
+        let result = b.before_insert(&ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert!(!attrs.contains_key("tenant_id"));
+    }
+
+    #[test]
+    fn test_tenant_behavior_before_insert_no_tenant_errors_when_configured() {
+        // skip_when_no_tenant=false：ctx 无 tenant_id 时返回 TenantError
+        let b = TenantBehavior::default_fields().with_skip_when_no_tenant(false);
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = b.before_insert(&ctx, &mut attrs);
+        match result {
+            Err(DbError::TenantError(msg)) => {
+                assert!(msg.contains("ctx.tenant_id is None"));
+                assert!(msg.contains("tenant_id"));
+            }
+            other => panic!("expected TenantError, got {:?}", other),
+        }
+        assert!(!attrs.contains_key("tenant_id"));
+    }
+
+    #[test]
+    fn test_tenant_behavior_custom_field_name() {
+        let b = TenantBehavior::new("org_id", TenantUpdatePolicy::default(), true);
+        let ctx = HookContext::default().with_tenant(7);
+        let mut attrs = HashMap::new();
+        b.before_insert(&ctx, &mut attrs).unwrap();
+        assert_eq!(attrs.get("org_id"), Some(&Value::I64(7)));
+        assert!(!attrs.contains_key("tenant_id"));
+    }
+
+    #[test]
+    fn test_tenant_behavior_name() {
+        let b = TenantBehavior::default_fields();
+        assert_eq!(b.name(), "TenantBehavior");
+    }
+
+    // --- before_update 策略测试 ---
+
+    #[test]
+    fn test_tenant_behavior_update_deny_mismatch_match_ok() {
+        // attrs.tenant_id == ctx.tenant_id：允许 update
+        let b = TenantBehavior::default_fields(); // DenyMismatch
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(42));
+        let result = b.before_update(&ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert_eq!(attrs.get("tenant_id"), Some(&Value::I64(42))); // 未被移除
+    }
+
+    #[test]
+    fn test_tenant_behavior_update_deny_mismatch_mismatch_rejected() {
+        // attrs.tenant_id != ctx.tenant_id：拒绝 update
+        let b = TenantBehavior::default_fields();
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(99)); // 跨租户篡改
+        let result = b.before_update(&ctx, &mut attrs);
+        match result {
+            Err(DbError::TenantError(msg)) => {
+                assert!(msg.contains("mismatch"));
+                assert!(msg.contains("99"));
+                assert!(msg.contains("42"));
+            }
+            other => panic!("expected TenantError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_tenant_behavior_update_deny_mismatch_no_ctx_tenant_rejected() {
+        // ctx.tenant_id=None 但 attrs 有 tenant_id：拒绝
+        let b = TenantBehavior::default_fields();
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(1));
+        let result = b.before_update(&ctx, &mut attrs);
+        match result {
+            Err(DbError::TenantError(msg)) => {
+                assert!(msg.contains("ctx.tenant_id is None"));
+            }
+            other => panic!("expected TenantError, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_tenant_behavior_update_deny_mismatch_no_attrs_tenant_ok() {
+        // attrs 中没有 tenant_id：允许 update（不影响原值）
+        let b = TenantBehavior::default_fields();
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        attrs.insert("name".to_string(), Value::String("updated".into()));
+        let result = b.before_update(&ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert!(!attrs.contains_key("tenant_id"));
+    }
+
+    #[test]
+    fn test_tenant_behavior_update_strip_removes_tenant_id() {
+        // Strip 策略：从 attrs 中移除 tenant_id
+        let b = TenantBehavior::default_fields().with_update_policy(TenantUpdatePolicy::Strip);
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(99));
+        attrs.insert("name".to_string(), Value::String("x".into()));
+        let result = b.before_update(&ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert!(!attrs.contains_key("tenant_id"), "Strip should remove tenant_id");
+        assert!(attrs.contains_key("name"), "other fields should remain");
+    }
+
+    #[test]
+    fn test_tenant_behavior_update_strip_no_tenant_id_no_op() {
+        // Strip 策略：attrs 中没有 tenant_id，无操作
+        let b = TenantBehavior::default_fields().with_update_policy(TenantUpdatePolicy::Strip);
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        attrs.insert("name".to_string(), Value::String("x".into()));
+        let result = b.before_update(&ctx, &mut attrs);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_tenant_behavior_update_allow_no_check() {
+        // Allow 策略：不做任何检查（即使不一致也允许）
+        let b = TenantBehavior::default_fields().with_update_policy(TenantUpdatePolicy::Allow);
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(999));
+        let result = b.before_update(&ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert_eq!(attrs.get("tenant_id"), Some(&Value::I64(999))); // 保留原值
+    }
+
+    #[test]
+    fn test_tenant_behavior_update_wrong_type_rejected() {
+        // attrs.tenant_id 不是 I64 类型：拒绝（类型不匹配）
+        let b = TenantBehavior::default_fields();
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::String("forty-two".into()));
+        let result = b.before_update(&ctx, &mut attrs);
+        match result {
+            Err(DbError::TenantError(msg)) => {
+                assert!(msg.contains("expected I64"));
+            }
+            other => panic!("expected TenantError, got {:?}", other),
+        }
+    }
+
+    // --- 集成：BehaviorRegistry + TenantBehavior ---
+
+    #[test]
+    fn test_registry_with_tenant_behavior_insert() {
+        let r = BehaviorRegistry::new();
+        r.register(Box::new(TenantBehavior::default_fields()));
+        r.register(Box::new(TimestampBehavior::default_fields()));
+
+        let ctx = HookContext::default().with_tenant(7).with_timestamp(1000);
+        let mut attrs = HashMap::new();
+        r.before_insert(&ctx, &mut attrs).unwrap();
+        assert_eq!(attrs.get("tenant_id"), Some(&Value::I64(7)));
+        assert_eq!(attrs.get("created_at"), Some(&Value::I64(1000)));
+    }
+
+    #[test]
+    fn test_registry_with_tenant_behavior_update_strip() {
+        let r = BehaviorRegistry::new();
+        r.register(
+            Box::new(
+                TenantBehavior::default_fields().with_update_policy(TenantUpdatePolicy::Strip),
+            ),
+        );
+
+        let ctx = HookContext::default().with_tenant(7);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(99));
+        attrs.insert("name".to_string(), Value::String("updated".into()));
+        r.before_update(&ctx, &mut attrs).unwrap();
+        // Strip 应移除 tenant_id
+        assert!(!attrs.contains_key("tenant_id"));
+        assert!(attrs.contains_key("name"));
+    }
+
+    #[test]
+    fn test_registry_unregister_tenant_behavior() {
+        let r = BehaviorRegistry::new();
+        r.register(Box::new(TenantBehavior::default_fields()));
+        assert_eq!(r.count(), 1);
+        assert!(r.unregister("TenantBehavior"));
+        assert_eq!(r.count(), 0);
+    }
+
+    #[test]
+    fn test_combined_tenant_timestamp_blameable_insert() {
+        // 模拟真实场景：同时使用 Tenant + Timestamp + Blameable
+        let r = BehaviorRegistry::new();
+        r.register(Box::new(TenantBehavior::default_fields()));
+        r.register(Box::new(TimestampBehavior::default_fields()));
+        r.register(Box::new(BlameableBehavior::default_fields()));
+
+        let ctx = HookContext::default()
+            .with_tenant(42)
+            .with_operator(1)
+            .with_timestamp(1700000000);
+        let mut attrs = HashMap::new();
+        r.before_insert(&ctx, &mut attrs).unwrap();
+        assert_eq!(attrs.get("tenant_id"), Some(&Value::I64(42)));
+        assert_eq!(attrs.get("created_at"), Some(&Value::I64(1700000000)));
+        assert_eq!(attrs.get("created_by"), Some(&Value::I64(1)));
+    }
+
+    #[test]
+    fn test_tenant_behavior_prevents_cross_tenant_tampering() {
+        // 安全场景：恶意用户尝试在 update 时将 tenant_id 改为其他租户
+        let r = BehaviorRegistry::new();
+        r.register(Box::new(TenantBehavior::default_fields())); // DenyMismatch
+
+        // 正常租户 42 的用户尝试把记录的 tenant_id 改为 99
+        let ctx = HookContext::default().with_tenant(42);
+        let mut attrs = HashMap::new();
+        attrs.insert("tenant_id".to_string(), Value::I64(99)); // 试图迁移到租户 99
+        attrs.insert("data".to_string(), Value::String("evil".into()));
+
+        let result = r.before_update(&ctx, &mut attrs);
+        assert!(result.is_err(), "cross-tenant tampering should be rejected");
     }
 
     // ===== AttributeBehavior 测试 =====

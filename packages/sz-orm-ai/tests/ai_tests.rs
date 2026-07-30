@@ -693,7 +693,9 @@ async fn test_rag_engine_delete_document() {
         Document::new("d1", "the quick brown fox jumps over the lazy dog"),
         Document::new("d2", "rust programming is fun and productive"),
     ];
-    let _ = engine.index_documents(docs).await.unwrap();
+    let indexed = engine.index_documents(docs).await.unwrap();
+    // 每个文档 chunk_size=100 产生 1 个 chunk，共 2 个
+    assert_eq!(indexed, 2, "expected 2 chunks indexed (1 per doc)");
 
     // 删除 d1（其 chunk id 形如 "d1_0"）
     let deleted = engine.delete_document("d1").await.unwrap();
@@ -729,7 +731,9 @@ async fn test_rag_engine_filter_passthrough() {
         Document::new("d1", "alpha beta gamma").with_metadata("kind", serde_json::json!("x")),
         Document::new("d2", "delta epsilon zeta").with_metadata("kind", serde_json::json!("y")),
     ];
-    let _ = engine.index_documents(docs).await.unwrap();
+    let indexed = engine.index_documents(docs).await.unwrap();
+    // 每个文档 chunk_size=100 产生 1 个 chunk，共 2 个
+    assert_eq!(indexed, 2, "expected 2 chunks indexed (1 per doc)");
 
     // 按 "kind" 过滤（chunk metadata 只有 "source"）→ 空
     let results = engine

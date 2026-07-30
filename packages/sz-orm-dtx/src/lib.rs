@@ -13,7 +13,8 @@ use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
-use std::sync::{Arc, RwLock};
+use std::sync::Arc;
+use parking_lot::RwLock;
 
 pub mod cross_shard;
 pub mod saga;
@@ -428,7 +429,7 @@ impl DtxManager {
     }
 
     pub fn begin(&self, id: &str) -> Result<(), String> {
-        let mut txs = self.transactions.write().unwrap();
+        let mut txs = self.transactions.write();
         if txs.contains_key(id) {
             return Err(format!("Transaction {} already exists", id));
         }
@@ -441,7 +442,7 @@ impl DtxManager {
         tx_id: &str,
         participant: TransactionParticipant,
     ) -> Result<(), String> {
-        let mut txs = self.transactions.write().unwrap();
+        let mut txs = self.transactions.write();
         let tx = txs
             .get_mut(tx_id)
             .ok_or_else(|| format!("Transaction {} not found", tx_id))?;
@@ -453,7 +454,7 @@ impl DtxManager {
     }
 
     pub fn prepare(&self, tx_id: &str) -> Result<(), String> {
-        let mut txs = self.transactions.write().unwrap();
+        let mut txs = self.transactions.write();
         let tx = txs
             .get_mut(tx_id)
             .ok_or_else(|| format!("Transaction {} not found", tx_id))?;
@@ -461,7 +462,7 @@ impl DtxManager {
     }
 
     pub fn commit(&self, tx_id: &str) -> Result<(), String> {
-        let mut txs = self.transactions.write().unwrap();
+        let mut txs = self.transactions.write();
         let tx = txs
             .get_mut(tx_id)
             .ok_or_else(|| format!("Transaction {} not found", tx_id))?;
@@ -469,7 +470,7 @@ impl DtxManager {
     }
 
     pub fn rollback(&self, tx_id: &str) -> Result<(), String> {
-        let mut txs = self.transactions.write().unwrap();
+        let mut txs = self.transactions.write();
         let tx = txs
             .get_mut(tx_id)
             .ok_or_else(|| format!("Transaction {} not found", tx_id))?;
@@ -477,19 +478,19 @@ impl DtxManager {
     }
 
     pub fn get(&self, tx_id: &str) -> Option<TransactionState> {
-        let txs = self.transactions.read().unwrap();
+        let txs = self.transactions.read();
         txs.get(tx_id).map(|t| t.state.clone())
     }
 
     pub fn list(&self) -> Vec<String> {
-        let txs = self.transactions.read().unwrap();
+        let txs = self.transactions.read();
         let mut ids: Vec<String> = txs.keys().cloned().collect();
         ids.sort();
         ids
     }
 
     pub fn participant_states(&self, tx_id: &str) -> Option<Vec<ParticipantState>> {
-        let txs = self.transactions.read().unwrap();
+        let txs = self.transactions.read();
         txs.get(tx_id)
             .map(|t| t.participants.iter().map(|p| p.state.clone()).collect())
     }
@@ -659,7 +660,14 @@ mod tests {
         let mut tx = DistributedTransaction::new("tx-noprepare");
         tx.add_participant(TransactionParticipant::new("db1").with_commit(|| Ok(())));
         let result = tx.commit();
+        // 有 participant 但未 prepare，应返回 "Cannot commit transaction in state Active"
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("Cannot commit transaction in state"),
+            "expected state error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -680,7 +688,7 @@ mod tests {
     #[test]
     fn test_manager_new() {
         let m = DtxManager::new();
-        assert!(m.transactions.read().unwrap().is_empty());
+        assert!(m.transactions.read().is_empty());
     }
 
     #[test]
@@ -697,6 +705,12 @@ mod tests {
         m.begin("tx1").unwrap();
         let result = m.begin("tx1");
         assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(
+            err.contains("already exists"),
+            "expected 'already exists' error, got: {}",
+            err
+        );
     }
 
     #[test]
@@ -756,8 +770,12 @@ mod tests {
     #[test]
     fn test_manager_missing_transaction() {
         let m = DtxManager::new();
-        assert!(m.commit("missing").is_err());
-        assert!(m.rollback("missing").is_err());
-        assert!(m.prepare("missing").is_err());
+        // 所有操作对不存在的 tx 都应返回 "not found" 错误
+        let err_commit = m.commit("missing").unwrap_err();
+        assert!(err_commit.contains("not found"), "commit: {}", err_commit);
+        let err_rollback = m.rollback("missing").unwrap_err();
+        assert!(err_rollback.contains("not found"), "rollback: {}", err_rollback);
+        let err_prepare = m.prepare("missing").unwrap_err();
+        assert!(err_prepare.contains("not found"), "prepare: {}", err_prepare);
     }
 }

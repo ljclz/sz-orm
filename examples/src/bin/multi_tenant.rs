@@ -47,7 +47,7 @@ impl TenantModel for Order {
 fn main() {
     println!("=== 多租户 Model ===");
     println!("表名:        {}", Order::table_name());
-    println!("租户字段:    {}", Order::tenant_field());
+    println!("租户字段:    {}", <Order as TenantModel>::tenant_field());
 
     let mut order = Order::default();
     order.set_tenant_id(42);

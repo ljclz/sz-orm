@@ -1,13 +1,13 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（原型阶段）**，兼容 ThinkORM 风格 API
-> v1.2.0 · 39 工作空间成员 · 5,404 测试 · 16 SQL 方言 · 尚未发布 crates.io
+> v1.2.0 · 43 工作空间成员 · 5,442 测试 · 16 SQL 方言 · 尚未发布 crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5404-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-5442-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#支持的数据库)
-[![Packages](https://img.shields.io/badge/packages-39-purple.svg)](#工作空间结构)
+[![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#工作空间结构)
 [![Version](https://img.shields.io/badge/version-1.2.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-prototype-yellow.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
@@ -41,15 +41,15 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.0.0 版本包含 39 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.2.0 版本包含 43 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
 
 > **⚠️ 诚实声明**：本项目为单作者工程实践项目，**当前处于原型阶段**，尚无生产案例、无第三方审计、无社区采用。功能清单已覆盖主流 ORM 能力，但未经生产环境验证。与 Diesel/SeaORM/SQLx 的深度对比详见 [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md)。
 
 | 维度 | 数据 |
 |------|------|
-| 工作空间成员 | **39**（37 个 sz-orm-* lib + cli + examples） |
+| 工作空间成员 | **43**（41 个 sz-orm-* lib + cli + examples） |
 | 支持数据库方言 | **16 种 SQL 方言**（7 原生 + 9 委派，含国产信创 6 种） |
-| 测试用例 | **5,404 passed, 0 failed** |
+| 测试用例 | **5,442 passed, 0 failed** |
 | 代码规模 | **~139,000 LOC**（深度优化后，src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000） |
 | 项目成熟度 | **原型阶段**（未发布 crates.io，零社区验证） |
 | 异步运行时 | Tokio 1.40+ |
@@ -64,20 +64,20 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 - **异步**：基于 Tokio，全程 `async/await`
 - **多数据库方言**：16 种 SQL 方言（7 原生：MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2 + 9 委派：MariaDB/TiDB/OceanBase/达梦/金仓/PolarDB/GaussDB/GBase/Sybase）
 - **链式 QueryBuilder**：仿 ThinkORM 风格的 fluent API
-- **ACID 事务**：隔离级别、保存点（20 层嵌套验证）、`TransactionManager` 多事务管理
+- **ACID 事务**：隔离级别、保存点（默认 8 层嵌套，`DEFAULT_MAX_NESTING_DEPTH = 8`，可配置）、`TransactionManager` 多事务管理
 - **连接池**：可配置大小、超时、空闲回收、健康检查、最大生命周期
 - **迁移系统**：up/down/rollback/reset/refresh + `SchemaBuilder` 程序化建表
 - **多级缓存**：`MemoryCache` / `MultiLevelCache` / `L2Cache`，支持 TTL 与表级失效
 - **钩子系统**：16 种生命周期事件 + `HookDispatcher` + `HookRegistry` 运行时钩子
 - **软删除**：`SoftDelete` trait + `SoftDeleteScope` 全局作用域
 - **多租户**：`TenantModel` trait + `TenantScope` 自动 `tenant_id = ?` 过滤
-- **SQL 校验**：编译期（`sql_string!`）+ 运行时（`validate()`）双重校验、12 种注入模式检测
+- **SQL 校验**：编译期（`sql_string!`）+ 运行时（`validate()`）双重校验、10 种注入模式检测（5 种正则模式 + 5 种 AST 模式）
 - **关联关系**：BelongsTo / HasMany / HasOne / BelongsToMany + Eager Loading + `find_with_related`
 - **21 个高级模块**：accessors/behaviors/data_permission/dirty_attributes/dynamic_filter/entity_graph/guard/hydration_plugin/join_dsl/l2_cache/lambda/observer/optimistic_lock/phinx_migration/queryable/quick_query/repository/result_map/schema_gen/sql_safety/type_handler
 - **分布式事务**：2PC + TCC（Try-Confirm-Cancel）+ Saga + 跨分片 ACID 协调器
 - **AI 向量 + pgvector**：sz-orm-vector（cosine/euclidean/dot 三种度量）+ sz-orm-ai（NL→SQL + RAG + Embedding）
 - **可观测性**：sz-orm-observability（Prometheus exporter + OTLP + SLO 监控） + sz-orm-tracing（OpenTelemetry traceparent 传播）
-- **扩展生态**：加密、JWT、调度、MQTT、WebSocket、消息队列（7 种）、对象存储（7 种）、gRPC、GraphQL、ES、Swagger、脱敏、健康检查、审计、批量、WASM、备份、读写分离、分库分表、限流、迁移、PostGIS、TimescaleDB、搜索（ES/Meilisearch/OpenSearch）
+- **扩展生态**：加密、JWT、调度、MQTT、WebSocket、消息队列（7 种，其中 RocketMQ 为 stub）、对象存储（7 种，其中 6 种为 in-memory mock）、gRPC、GraphQL、ES、Swagger、脱敏、健康检查、审计、批量、WASM、备份、读写分离、分库分表、限流、迁移、PostGIS、TimescaleDB、搜索（ES/Meilisearch/OpenSearch）
 
 ## 质量基线
 
@@ -135,9 +135,9 @@ sz-orm/
 │   └── sz-orm-back/                 # 备份与恢复
 │
 ├── cli/                             # CLI 工具（sz-orm）
-├── examples/                        # 8 个可运行示例
+├── examples/                        # 9 个可运行示例
 ├── grafana/                         # Grafana 仪表盘 JSON
-├── docs/                            # 11 份文档
+├── docs/                            # 22 份文档（含 adr/ 子目录 11 份 ADR）
 ├── scripts/                         # gate.ps1/sh, install-hooks, audit-api-changes
 ├── Cargo.toml                       # 工作空间清单（version.workspace = true）
 ├── audit.toml                       # cargo-audit 配置（7 个忽略项）
@@ -243,10 +243,10 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 | MySQL | `MySqlDialect`（反引号） | sz-orm-sqlx | 3306 |
 | PostgreSQL | `PostgreSqlDialect`（双引号） | sz-orm-sqlx | 5432 |
 | SQLite 3.35+ | `SqliteDialect` | sz-orm-sqlx | — |
-| Oracle 23ai | `OracleDialect`（`:N` 占位符 + OFFSET/FETCH） | sz-orm-sqlx | 1521 |
+| Oracle 23ai | `OracleDialect`（`:N` 占位符 + OFFSET/FETCH） | sz-orm-oracle（基于 `oracle` crate / ODPI-C 绑定） | 1521 |
 | OceanBase | 兼容 `MySqlDialect` | — | 2881 |
-| SQL Server | 兼容 `MySqlDialect` | — | 1433 |
-| ClickHouse | 兼容 `MySqlDialect` | — | 8123 |
+| SQL Server | `SqlServerDialect`（独立实现，TDS 协议） | sz-orm-mssql（基于 `tiberius` crate） | 1433 |
+| ClickHouse | `ClickHouseDialect`（独立实现，非 MySQL 兼容） | — | 8123 |
 | Redis | NoSQL（无 SQL 方言） | — | 6379 |
 | MongoDB | NoSQL | — | 27017 |
 | VectorDB | 向量数据库 | sz-orm-vector | 19530 |

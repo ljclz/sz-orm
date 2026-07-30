@@ -41,7 +41,7 @@ fn main() {
     let select_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .select(vec!["id", "name", "email"])
-        .where_cond("status = 'active'")
+        .where_eq("status", Value::String("active".to_string()))
         .order_by("created_at")
         .order_desc("id")
         .limit(10)
@@ -52,8 +52,8 @@ fn main() {
     let complex_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .select(vec!["id", "name"])
-        .where_cond("status = 'active'")
-        .or_where("role = 'admin'")
+        .where_eq("status", Value::String("active".to_string()))
+        .or_where_eq("role", Value::String("admin".to_string()))
         .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
         .where_between("age", Value::I64(18), Value::I64(65))
         .where_null("deleted_at")
@@ -67,14 +67,14 @@ fn main() {
         .select(vec!["users.id", "posts.title"])
         .join_inner("posts", "users.id", "posts.user_id")
         .join_left("profiles", "users.id", "profiles.user_id")
-        .where_cond("users.status = 'active'")
+        .where_eq("users.status", Value::String("active".to_string()))
         .build_select();
     println!("JOIN:\n{}\n", join_sql);
 
     // ===== 聚合 =====
     let count_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
-        .where_cond("status = 'active'")
+        .where_eq("status", Value::String("active".to_string()))
         .build_count();
     println!("COUNT:\n{}\n", count_sql);
 
@@ -98,14 +98,14 @@ fn main() {
 
     let update_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
-        .where_cond("id = 1")
+        .where_eq("id", Value::I64(1))
         .build_update(&update_data);
     println!("UPDATE:\n{}\n", update_sql);
 
     // ===== DELETE =====
     let delete_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
-        .where_cond("id = 1")
+        .where_eq("id", Value::I64(1))
         .build_delete();
     println!("DELETE:\n{}\n", delete_sql);
 
@@ -113,7 +113,7 @@ fn main() {
     let validate_result = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .select(vec!["id", "name"])
-        .where_cond("id = 1")
+        .where_eq("id", Value::I64(1))
         .validate();
     println!("校验结果: {:?}", validate_result);
 }

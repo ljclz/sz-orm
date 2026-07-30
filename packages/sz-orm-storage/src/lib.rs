@@ -3,6 +3,27 @@
 //! 提供统一的对象存储抽象，支持 S3、阿里云 OSS、七牛 Kodo、华为 OBS、
 //! 腾讯 COS、又拍云以及本地文件系统，可通过 `StorageBuilder` 配置多 provider。
 //!
+//! ## ⚠️ 生产可用性说明（**重要**）
+//!
+//! 本 crate 中各 provider 的**生产可用性分级**如下：
+//!
+//! | Provider | 模块 | 状态 |
+//! |---|---|---|
+//! | Local（本地文件系统） | [`local`] | ✅ 生产可用 |
+//! | S3（AWS S3 兼容） | [`s3_sdk`]（feature = "s3-sdk"） | ✅ 生产可用（基于 `rust-s3` crate） |
+//! | S3（默认） | [`s3`] | ⚠️ **MOCK-ONLY**（内存 HashMap） |
+//! | Aliyun OSS | [`aliyun`] | ⚠️ **MOCK-ONLY**（内存 HashMap） |
+//! | Huawei OBS | [`huawei`] | ⚠️ **MOCK-ONLY**（内存 HashMap） |
+//! | Qiniu Kodo | [`qiniu`] | ⚠️ **MOCK-ONLY**（内存 HashMap） |
+//! | Tencent COS | [`tencent`] | ⚠️ **MOCK-ONLY**（内存 HashMap） |
+//! | UpYun | [`upyun`] | ⚠️ **MOCK-ONLY**（内存 HashMap） |
+//!
+//! **6 个云存储 provider（aliyun/huawei/qiniu/tencent/upyun/s3 默认）为内存 Mock 实现，
+//! 不与真实云服务交互，请勿用于生产环境。**
+//! 如需生产使用，请：
+//! - S3：启用 `s3-sdk` feature 使用 [`s3_sdk::S3SdkStorage`]
+//! - 其他云：基于 [`storage::Storage`] trait 接入官方 SDK 自行实现
+//!
 //! ## 主要模块
 //!
 //! - [`storage`] — 统一 trait 与构建器

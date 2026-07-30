@@ -12,6 +12,7 @@ use std::time::Instant;
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
 use sz_orm_core::DbType;
 use sz_orm_core::Value;
+use sz_orm_core::QueryBuilder;
 
 /// 唯一临时文件路径（避免并行测试冲突）
 static SQLITE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -579,4 +580,428 @@ fn test_sqlite_value_to_param_roundtrip() {
         .query_row("SELECT COUNT(*) FROM t_vp", [], |row| row.get(0))
         .unwrap();
     assert_eq!(count as usize, values.len());
+}
+// ============================================================================
+// P2-6 真实数据库 Upsert 执行验证
+//
+// 以下测试与 `e2e_batch_upsert.rs`（仅 SQL 生成）形成互补，
+// 验证 `build_batch_upsert_with_params` 生成的 SQL 在真实 SQLite 数据库
+// 上的执行语义：冲突检测、更新生效、数据一致性。
+// ============================================================================
+
+/// 将 sz-orm Value 转换为 rusqlite 可接受的 Box<dyn ToSql>，
+/// 用于参数化执行 build_batch_upsert_with_params 生成的 SQL。
+fn value_to_rusqlite(v: &Value) -> Box<dyn rusqlite::ToSql> {
+    match v {
+        Value::Null => Box::new(rusqlite::types::Null),
+        Value::Bool(b) => Box::new(*b),
+        Value::I8(n) => Box::new(*n as i64),
+        Value::I16(n) => Box::new(*n as i64),
+        Value::I32(n) => Box::new(*n),
+        Value::I64(n) => Box::new(*n),
+        Value::U8(n) => Box::new(*n as i64),
+        Value::U16(n) => Box::new(*n as i64),
+        Value::U32(n) => Box::new(*n as i64),
+        Value::U64(n) => Box::new(*n as i64),
+        Value::F32(f) => Box::new(*f as f64),
+        Value::F64(f) => Box::new(*f),
+        Value::Decimal(s) | Value::String(s) | Value::Uuid(s) | Value::Date(s)
+        | Value::DateTime(s) | Value::Time(s) | Value::Json(s) => Box::new(s.clone()),
+        Value::Bytes(b) => Box::new(b.clone()),
+        // Array/Object 在 SQLite 中以 JSON 字符串存储
+        Value::Array(_) | Value::Object(_) => Box::new(serde_json::to_string(v).unwrap_or_default()),
+        // Value 标记为 non-exhaustive，未来可能新增变体——统一回退为 NULL
+        _ => Box::new(rusqlite::types::Null),
+    }
+}
+
+/// 构造 upsert 测试用表（含主键 id + 唯一约束 name）
+fn create_upsert_table(conn: &RusqliteConn, table: &str) {
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} (
+                id   INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL UNIQUE,
+                age  INTEGER NOT NULL,
+                email TEXT
+            )",
+            table
+        ),
+        [],
+    )
+    .expect("create upsert table");
+}
+
+#[test]
+fn test_sqlite_upsert_basic_insert_path() {
+    // 验证：初次 upsert 应作为 INSERT 生效（无冲突）
+    let conn = open_conn();
+    create_upsert_table(&conn, "t_upsert_basic");
+
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table("t_upsert_basic");
+
+    let rows = vec![row_for_upsert(1, "Alice", 30, "alice@t.com")];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    // 执行 SQL：将 Value 转换为 rusqlite 参数
+    let rusqlite_params: Vec<Box<dyn rusqlite::ToSql>> =
+        params.iter().map(value_to_rusqlite).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> =
+        rusqlite_params.iter().map(|b| b.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .expect("execute upsert insert");
+
+    // 验证：1 行被插入
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM t_upsert_basic", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "首次 upsert 应插入 1 行");
+
+    // 验证数据正确
+    let (name, age, email): (String, i64, String) = conn
+        .query_row(
+            "SELECT name, age, email FROM t_upsert_basic WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?, row.get(2)?)),
+        )
+        .unwrap();
+    assert_eq!(name, "Alice");
+    assert_eq!(age, 30);
+    assert_eq!(email, "alice@t.com");
+}
+
+#[test]
+fn test_sqlite_upsert_conflict_update_path() {
+    // 验证：主键冲突时，upsert 应更新而非插入新行
+    let conn = open_conn();
+    create_upsert_table(&conn, "t_upsert_conflict");
+
+    // 1) 先插入一行
+    conn.execute(
+        "INSERT INTO t_upsert_conflict (id, name, age, email) VALUES (?1, ?2, ?3, ?4)",
+        params![1i64, "Alice", 30i64, "alice@old.com"],
+    )
+    .expect("seed insert");
+
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table("t_upsert_conflict");
+
+    // 2) upsert 同一 id，新数据
+    let rows = vec![row_for_upsert(1, "Alice", 31, "alice@new.com")];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    let rusqlite_params: Vec<Box<dyn rusqlite::ToSql>> =
+        params.iter().map(value_to_rusqlite).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> =
+        rusqlite_params.iter().map(|b| b.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .expect("execute upsert update");
+
+    // 验证：总行数仍为 1（无重复）
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM t_upsert_conflict", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "冲突时应更新而非插入新行");
+
+    // 验证：age 和 email 已更新
+    let (age, email): (i64, String) = conn
+        .query_row(
+            "SELECT age, email FROM t_upsert_conflict WHERE id = 1",
+            [],
+            |row| Ok((row.get(0)?, row.get(1)?)),
+        )
+        .unwrap();
+    assert_eq!(age, 31, "age 应被更新");
+    assert_eq!(email, "alice@new.com", "email 应被更新");
+}
+
+#[test]
+fn test_sqlite_upsert_batch_mixed_insert_update() {
+    // 验证：批量 upsert 中既有新行也有冲突行
+    let conn = open_conn();
+    create_upsert_table(&conn, "t_upsert_mix");
+
+    // 预置 id=1 一行
+    conn.execute(
+        "INSERT INTO t_upsert_mix (id, name, age, email) VALUES (?1, ?2, ?3, ?4)",
+        params![1i64, "Alice", 30i64, "alice@old.com"],
+    )
+    .expect("seed");
+
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table("t_upsert_mix");
+
+    // 批量 upsert：id=1 冲突（更新），id=2/id=3 新增（插入）
+    let rows = vec![
+        row_for_upsert(1, "Alice", 31, "alice@new.com"),
+        row_for_upsert(2, "Bob", 25, "bob@t.com"),
+        row_for_upsert(3, "Carol", 28, "carol@t.com"),
+    ];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    let rusqlite_params: Vec<Box<dyn rusqlite::ToSql>> =
+        params.iter().map(value_to_rusqlite).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> =
+        rusqlite_params.iter().map(|b| b.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .expect("execute batch upsert");
+
+    // 验证：总行数为 3（1 已存在 + 2 新增）
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM t_upsert_mix", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 3, "应有 3 行（1 更新 + 2 新增）");
+
+    // 验证 id=1 已更新
+    let alice_age: i64 = conn
+        .query_row(
+            "SELECT age FROM t_upsert_mix WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(alice_age, 31, "Alice 的 age 应已更新");
+
+    // 验证 id=2/id=3 已插入
+    let bob_name: String = conn
+        .query_row(
+            "SELECT name FROM t_upsert_mix WHERE id = 2",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(bob_name, "Bob");
+
+    let carol_name: String = conn
+        .query_row(
+            "SELECT name FROM t_upsert_mix WHERE id = 3",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(carol_name, "Carol");
+}
+
+#[test]
+fn test_sqlite_upsert_specific_update_columns_only() {
+    // 验证：指定 update_columns 时，仅更新指定列，其他列保持不变
+    let conn = open_conn();
+    create_upsert_table(&conn, "t_upsert_cols");
+
+    // 预置一行
+    conn.execute(
+        "INSERT INTO t_upsert_cols (id, name, age, email) VALUES (?1, ?2, ?3, ?4)",
+        params![1i64, "Alice", 30i64, "alice@keep.com"],
+    )
+    .expect("seed");
+
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table("t_upsert_cols");
+
+    // 仅更新 age，email 保持不变
+    let rows = vec![row_for_upsert(1, "Alice", 99, "alice@changed.com")];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &["age"])
+        .expect("build upsert sql with specific columns");
+
+    let rusqlite_params: Vec<Box<dyn rusqlite::ToSql>> =
+        params.iter().map(value_to_rusqlite).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> =
+        rusqlite_params.iter().map(|b| b.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .expect("execute upsert");
+
+    // 验证：age 已更新为 99
+    let age: i64 = conn
+        .query_row(
+            "SELECT age FROM t_upsert_cols WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(age, 99, "age 应被更新");
+
+    // 验证：email 保持不变（未在 update_columns 中）
+    let email: String = conn
+        .query_row(
+            "SELECT email FROM t_upsert_cols WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(email, "alice@keep.com", "email 不应被更新");
+}
+
+#[test]
+fn test_sqlite_upsert_null_value_handling() {
+    // 验证：upsert 处理 NULL 值（从有值更新为 NULL）
+    let conn = open_conn();
+    create_upsert_table(&conn, "t_upsert_null");
+
+    // 预置一行有 email
+    conn.execute(
+        "INSERT INTO t_upsert_null (id, name, age, email) VALUES (?1, ?2, ?3, ?4)",
+        params![1i64, "Alice", 30i64, "alice@t.com"],
+    )
+    .expect("seed");
+
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table("t_upsert_null");
+
+    // upsert 将 email 设为 NULL
+    let mut row = std::collections::HashMap::new();
+    row.insert("id".to_string(), Value::I64(1));
+    row.insert("name".to_string(), Value::String("Alice".to_string()));
+    row.insert("age".to_string(), Value::I32(30));
+    row.insert("email".to_string(), Value::Null);
+
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&[row], &["id"], &["email"])
+        .expect("build upsert sql with null");
+
+    let rusqlite_params: Vec<Box<dyn rusqlite::ToSql>> =
+        params.iter().map(value_to_rusqlite).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> =
+        rusqlite_params.iter().map(|b| b.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .expect("execute upsert with null");
+
+    // 验证：email 已变为 NULL
+    let email: Option<String> = conn
+        .query_row(
+            "SELECT email FROM t_upsert_null WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert!(email.is_none(), "email 应为 NULL");
+}
+
+#[test]
+fn test_sqlite_upsert_unicode_and_special_chars() {
+    // 验证：upsert 处理 Unicode 和特殊字符（防 SQL 注入 + 数据完整性）
+    let conn = open_conn();
+    create_upsert_table(&conn, "t_upsert_uni");
+
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect).table("t_upsert_uni");
+
+    // 第一行：Unicode + 引号（尝试注入）
+    let rows = vec![row_for_upsert(
+        1,
+        "张三'; DROP TABLE t_upsert_uni; --",
+        25,
+        "zhang's@example.com",
+    )];
+    let (sql, params) = builder
+        .build_batch_upsert_with_params(&rows, &["id"], &[])
+        .expect("build upsert sql");
+
+    let rusqlite_params: Vec<Box<dyn rusqlite::ToSql>> =
+        params.iter().map(value_to_rusqlite).collect();
+    let param_refs: Vec<&dyn rusqlite::ToSql> =
+        rusqlite_params.iter().map(|b| b.as_ref()).collect();
+    conn.execute(&sql, param_refs.as_slice())
+        .expect("execute upsert with unicode");
+
+    // 验证：表未被删除（参数化绑定阻止注入）
+    let count: i64 = conn
+        .query_row("SELECT COUNT(*) FROM t_upsert_uni", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count, 1, "表应仍存在且有 1 行");
+
+    // 验证：name 完整保留（含特殊字符）
+    let name: String = conn
+        .query_row(
+            "SELECT name FROM t_upsert_uni WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(name, "张三'; DROP TABLE t_upsert_uni; --");
+
+    // 第二次 upsert（同 id），验证更新路径也安全
+    let rows2 = vec![row_for_upsert(1, "李四", 26, "li@t.com")];
+    let (sql2, params2) = builder
+        .build_batch_upsert_with_params(&rows2, &["id"], &[])
+        .expect("build upsert sql 2");
+
+    let rusqlite_params2: Vec<Box<dyn rusqlite::ToSql>> =
+        params2.iter().map(value_to_rusqlite).collect();
+    let param_refs2: Vec<&dyn rusqlite::ToSql> =
+        rusqlite_params2.iter().map(|b| b.as_ref()).collect();
+    conn.execute(&sql2, param_refs2.as_slice())
+        .expect("execute upsert 2");
+
+    let count2: i64 = conn
+        .query_row("SELECT COUNT(*) FROM t_upsert_uni", [], |row| row.get(0))
+        .unwrap();
+    assert_eq!(count2, 1, "应仍为 1 行（更新而非插入）");
+
+    let name2: String = conn
+        .query_row(
+            "SELECT name FROM t_upsert_uni WHERE id = 1",
+            [],
+            |row| row.get(0),
+        )
+        .unwrap();
+    assert_eq!(name2, "李四");
+}
+
+// ============================================================================
+// Upsert 测试辅助类型与函数
+// ============================================================================
+
+/// 占位 Model（仅为满足 QueryBuilder<M> 泛型约束，无实际业务意义）
+#[derive(Clone, Debug)]
+struct DummyModel;
+
+impl sz_orm_core::Model for DummyModel {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str {
+        "dummy"
+    }
+    fn pk(&self) -> Self::PrimaryKey {
+        0
+    }
+    fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+}
+
+impl sz_orm_core::ModelExt for DummyModel {
+    fn columns() -> Vec<&'static str> {
+        vec!["id", "name", "age", "email"]
+    }
+    fn fillable() -> Vec<&'static str> {
+        vec!["name", "age", "email"]
+    }
+    fn guarded() -> Vec<&'static str> {
+        vec!["id"]
+    }
+    fn hidden() -> Vec<&'static str> {
+        vec![]
+    }
+    fn relations() -> std::collections::HashMap<&'static str, sz_orm_core::Relation> {
+        std::collections::HashMap::new()
+    }
+    fn fill(&mut self, _data: std::collections::HashMap<String, Value>) {}
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+}
+
+/// 构造一行 upsert 测试数据
+fn row_for_upsert(id: i64, name: &str, age: i32, email: &str) -> std::collections::HashMap<String, Value> {
+    let mut row = std::collections::HashMap::new();
+    row.insert("id".to_string(), Value::I64(id));
+    row.insert("name".to_string(), Value::String(name.to_string()));
+    row.insert("age".to_string(), Value::I32(age));
+    row.insert("email".to_string(), Value::String(email.to_string()));
+    row
 }

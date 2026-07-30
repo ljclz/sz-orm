@@ -2,7 +2,7 @@
 name = "sz-orm-es"
 version.workspace = true
 edition.workspace = true
-description = "SZ-ORM Elasticsearch Extension - Full-text search and sync with ES"
+description = "SZ-ORM Elasticsearch Extension - MOCK-ONLY (in-memory mock, NOT for production; real ES client integration via EsSync trait)"
 authors.workspace = true
 license.workspace = true
 repository.workspace = true

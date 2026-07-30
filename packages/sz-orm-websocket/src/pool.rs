@@ -294,6 +294,8 @@ mod tests {
     fn test_pool_config_validate_ok() {
         let cfg = PoolConfig::new(100);
         assert!(cfg.validate().is_ok());
+        // 验证字段未被 validate 修改
+        assert_eq!(cfg.max_connections, 100, "validate 不应修改 max_connections");
     }
 
     #[test]

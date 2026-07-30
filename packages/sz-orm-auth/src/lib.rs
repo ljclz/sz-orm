@@ -31,6 +31,14 @@ pub use token_store::{StoredToken, TokenFamilyError, TokenStore};
 mod tests {
     use super::*;
 
+    /// 测试用密码验证器（H-1 修复后 authenticate 必须配置 verifier）
+    struct MockVerifier;
+    impl auth::PasswordVerifier for MockVerifier {
+        fn verify_password(&self, _u: &str, _p: &str) -> Result<i64, AuthError> {
+            Ok(42)
+        }
+    }
+
     #[test]
     fn test_module_exports() {
         // Smoke test ensuring the public API compiles and is reachable.
@@ -62,7 +70,9 @@ mod tests {
 
     #[test]
     fn test_jwt_authenticator_via_lib_root() {
-        let auth = JwtAuthenticator::new("secret", "issuer", 3600);
+        // v1.2.1 H-1 修复：authenticate 必须配置 password_verifier
+        let auth = JwtAuthenticator::new("secret", "issuer", 3600)
+            .with_password_verifier(std::sync::Arc::new(MockVerifier));
         let creds = Credentials::new("user", "pass");
 
         let token = auth.authenticate(&creds).expect("authenticate");
@@ -70,6 +80,7 @@ mod tests {
 
         let user = auth.verify_token(&token.access_token).expect("verify");
         assert_eq!(user.username, "user");
+        assert_eq!(user.id, 42);
     }
 
     #[test]

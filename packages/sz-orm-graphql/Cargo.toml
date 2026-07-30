@@ -1,6 +1,6 @@
 [package]
 name = "sz-orm-graphql"
-description = "GraphQL schema generator and server: SDL generation, model-driven Query/Mutation, optional async-graphql runtime"
+description = "GraphQL schema generator and server: SDL generation, model-driven Query/Mutation, optional async-graphql runtime with injectable DB resolver (P2-1: real DB resolver support; falls back to mock data when no resolver is injected)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true
@@ -12,12 +12,16 @@ categories.workspace = true
 
 [features]
 default = []
-real = ["dep:async-graphql", "dep:async-graphql-axum", "dep:axum"]
+real = ["dep:async-graphql", "dep:async-graphql-axum", "dep:axum", "dep:tracing"]
+# db-resolver: 预留 feature 开关，当前 DB resolver 由 `real` feature 覆盖
+# （resolver trait 由本包定义，使用 boxed future，无需外部依赖）。
+db-resolver = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 tokio = { workspace = true }
+tracing = { workspace = true, optional = true }
 async-graphql = { version = "7", optional = true }
 async-graphql-axum = { version = "7", optional = true }
 axum = { version = "0.8", optional = true }

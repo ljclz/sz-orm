@@ -35,7 +35,7 @@
 use crate::error::AiError;
 use crate::vector::VectorMetric;
 use std::collections::{BinaryHeap, HashMap, HashSet};
-use std::sync::RwLock;
+use parking_lot::RwLock;
 
 // ---------------------------------------------------------------------------
 // 配置
@@ -234,7 +234,7 @@ impl HnswIndex {
 
     /// 获取当前索引的节点数量（不含已删除）
     pub fn len(&self) -> usize {
-        let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+        let nodes = self.nodes.read();
         nodes.iter().filter(|n| !n.deleted).count()
     }
 
@@ -245,7 +245,7 @@ impl HnswIndex {
 
     /// 获取已配置的维度
     pub fn dimension(&self) -> usize {
-        *self.dimension.read().expect("HNSW 维度读锁获取失败")
+        *self.dimension.read()
     }
 
     /// 计算两个向量之间的距离（根据配置的度量方式）
@@ -273,7 +273,7 @@ impl HnswIndex {
 
     /// 为新节点生成随机层级
     fn generate_level(&self) -> usize {
-        let mut rng = self.rng.write().expect("HNSW 随机数生成器写锁获取失败");
+        let mut rng = self.rng.write();
         let factor = self.config.level_factor;
         if factor <= 0.0 {
             return 0;
@@ -294,7 +294,7 @@ impl HnswIndex {
 
         // 设置维度（首次插入时）
         {
-            let mut dim = self.dimension.write().expect("HNSW 维度写锁获取失败");
+            let mut dim = self.dimension.write();
             if *dim == 0 {
                 *dim = vector.len();
             } else if *dim != vector.len() {
@@ -311,10 +311,10 @@ impl HnswIndex {
 
         // 检查是否已存在同 ID 的节点
         {
-            let id_map = self.id_to_idx.read().expect("HNSW ID 映射读锁获取失败");
+            let id_map = self.id_to_idx.read();
             if let Some(&existing_idx) = id_map.get(id) {
                 // 更新现有节点
-                let mut nodes = self.nodes.write().expect("HNSW 节点表写锁获取失败");
+                let mut nodes = self.nodes.write();
                 let node = &mut nodes[existing_idx];
                 node.vector = vector.clone();
                 node.deleted = false;
@@ -324,7 +324,7 @@ impl HnswIndex {
 
         // 创建新节点
         {
-            let mut nodes = self.nodes.write().expect("HNSW 节点表写锁获取失败");
+            let mut nodes = self.nodes.write();
             new_node_idx = nodes.len();
             let neighbors = vec![Vec::new(); level + 1];
             nodes.push(Node {
@@ -337,22 +337,22 @@ impl HnswIndex {
 
         // 更新 ID 映射
         {
-            let mut id_map = self.id_to_idx.write().expect("HNSW ID 映射写锁获取失败");
+            let mut id_map = self.id_to_idx.write();
             id_map.insert(id.to_string(), new_node_idx);
         }
 
         // 连接到现有图
-        let entry = *self.entry_point.read().expect("HNSW 入口点读锁获取失败");
+        let entry = *self.entry_point.read();
         if let Some(entry_idx) = entry {
             self.connect_node(new_node_idx, level, entry_idx)?;
         }
 
         // 更新入口点（如果新节点的层级更高）
         {
-            let mut max_level = self.max_level.write().expect("HNSW 最大层级写锁获取失败");
+            let mut max_level = self.max_level.write();
             if level >= *max_level {
                 *max_level = level + 1;
-                let mut entry = self.entry_point.write().expect("HNSW 入口点写锁获取失败");
+                let mut entry = self.entry_point.write();
                 *entry = Some(new_node_idx);
             }
         }
@@ -367,7 +367,7 @@ impl HnswIndex {
         new_level: usize,
         entry_idx: usize,
     ) -> Result<(), AiError> {
-        let max_level = *self.max_level.read().expect("HNSW 最大层级读锁获取失败");
+        let max_level = *self.max_level.read();
         let ef = self.config.ef_construction;
         let m = self.config.max_connections;
         let metric = self.config.metric;
@@ -396,7 +396,7 @@ impl HnswIndex {
 
             // 设置新节点的邻居
             {
-                let mut nodes = self.nodes.write().expect("HNSW 节点表写锁获取失败");
+                let mut nodes = self.nodes.write();
                 if new_idx < nodes.len() && layer < nodes[new_idx].neighbors.len() {
                     nodes[new_idx].neighbors[layer] = selected.clone();
                 }
@@ -404,7 +404,7 @@ impl HnswIndex {
 
             // 反向连接：将新节点添加到邻居的邻居列表中
             for &neighbor_idx in &selected {
-                let mut nodes = self.nodes.write().expect("HNSW 节点表写锁获取失败");
+                let mut nodes = self.nodes.write();
                 if neighbor_idx < nodes.len() && layer < nodes[neighbor_idx].neighbors.len() {
                     let neighbor_list = &mut nodes[neighbor_idx].neighbors[layer];
                     if !neighbor_list.contains(&new_idx) {
@@ -436,7 +436,7 @@ impl HnswIndex {
         layer: usize,
         metric: VectorMetric,
     ) -> Result<Vec<(usize, f32)>, AiError> {
-        let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+        let nodes = self.nodes.read();
 
         if query_idx >= nodes.len() || entry_idx >= nodes.len() {
             return Ok(Vec::new());
@@ -454,7 +454,7 @@ impl HnswIndex {
         let mut results: BinaryHeap<Candidate> = BinaryHeap::new();
 
         let entry_dist = {
-            let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+            let nodes = self.nodes.read();
             Self::distance(metric, &query_vector, &nodes[entry_idx].vector)
         };
         candidates.push(std::cmp::Reverse(Candidate {
@@ -476,7 +476,7 @@ impl HnswIndex {
 
             // 检查候选的邻居
             let neighbor_ids = {
-                let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+                let nodes = self.nodes.read();
                 if cand.node_idx >= nodes.len() || layer >= nodes[cand.node_idx].neighbors.len() {
                     continue;
                 }
@@ -490,7 +490,7 @@ impl HnswIndex {
                 visited.insert(neighbor_idx);
 
                 let dist = {
-                    let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+                    let nodes = self.nodes.read();
                     if neighbor_idx >= nodes.len() {
                         continue;
                     }
@@ -544,13 +544,13 @@ impl HnswIndex {
             return Err(AiError::Vector("查询向量不能为空".to_string()));
         }
 
-        let entry = *self.entry_point.read().expect("HNSW 入口点读锁获取失败");
+        let entry = *self.entry_point.read();
         let entry_idx = match entry {
             Some(idx) => idx,
             None => return Ok(Vec::new()),
         };
 
-        let dim = *self.dimension.read().expect("HNSW 维度读锁获取失败");
+        let dim = *self.dimension.read();
         if dim != 0 && dim != query.len() {
             return Err(AiError::Vector(format!(
                 "查询向量维度不匹配: 期望 {}, 实际 {}",
@@ -560,7 +560,7 @@ impl HnswIndex {
         }
 
         let metric = self.config.metric;
-        let max_level = *self.max_level.read().expect("HNSW 最大层级读锁获取失败");
+        let max_level = *self.max_level.read();
         let ef = ef_search.max(top_k);
 
         // 从顶层贪心下降到第 1 层
@@ -576,7 +576,7 @@ impl HnswIndex {
         let candidates = self.search_layer_query(query, current_entry, ef, 0, metric)?;
 
         // 转换为搜索结果
-        let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+        let nodes = self.nodes.read();
         let results: Vec<HnswSearchResult> = candidates
             .into_iter()
             .filter(|(idx, _)| !nodes.get(*idx).map(|n| n.deleted).unwrap_or(true))
@@ -612,7 +612,7 @@ impl HnswIndex {
         layer: usize,
         metric: VectorMetric,
     ) -> Result<Vec<(usize, f32)>, AiError> {
-        let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+        let nodes = self.nodes.read();
 
         if entry_idx >= nodes.len() {
             return Ok(Vec::new());
@@ -650,7 +650,7 @@ impl HnswIndex {
             }
 
             let neighbor_ids = {
-                let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+                let nodes = self.nodes.read();
                 if cand.node_idx >= nodes.len() || layer >= nodes[cand.node_idx].neighbors.len() {
                     continue;
                 }
@@ -664,7 +664,7 @@ impl HnswIndex {
                 visited.insert(neighbor_idx);
 
                 let dist = {
-                    let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+                    let nodes = self.nodes.read();
                     if neighbor_idx >= nodes.len() || nodes[neighbor_idx].deleted {
                         continue;
                     }
@@ -703,14 +703,14 @@ impl HnswIndex {
     ///
     /// 被删除的节点不会出现在搜索结果中，但仍保留在图中以维持连接性。
     pub fn delete(&self, id: &str) -> Result<bool, AiError> {
-        let id_map = self.id_to_idx.read().expect("HNSW ID 映射读锁获取失败");
+        let id_map = self.id_to_idx.read();
         let idx = match id_map.get(id) {
             Some(&idx) => idx,
             None => return Ok(false),
         };
         drop(id_map);
 
-        let mut nodes = self.nodes.write().expect("HNSW 节点表写锁获取失败");
+        let mut nodes = self.nodes.write();
         if idx < nodes.len() {
             let was_deleted = nodes[idx].deleted;
             nodes[idx].deleted = true;
@@ -722,9 +722,9 @@ impl HnswIndex {
 
     /// 获取指定 ID 的向量
     pub fn get(&self, id: &str) -> Option<Vec<f32>> {
-        let id_map = self.id_to_idx.read().ok()?;
+        let id_map = self.id_to_idx.read();
         let idx = id_map.get(id)?;
-        let nodes = self.nodes.read().ok()?;
+        let nodes = self.nodes.read();
         nodes
             .get(*idx)
             .filter(|n| !n.deleted)
@@ -733,7 +733,7 @@ impl HnswIndex {
 
     /// 获取索引中所有有效 ID
     pub fn ids(&self) -> Vec<String> {
-        let nodes = self.nodes.read().expect("HNSW 节点表读锁获取失败");
+        let nodes = self.nodes.read();
         nodes
             .iter()
             .filter(|n| !n.deleted)

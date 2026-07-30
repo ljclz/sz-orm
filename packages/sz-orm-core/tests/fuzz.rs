@@ -381,24 +381,47 @@ fn fuzz_pagination_boundaries() {
     }
 }
 
-/// Fuzz Value 类型转换：验证不会 panic
+/// Fuzz Value 类型转换：验证不会 panic，且类型谓词与转换结果自洽
 #[test]
 fn fuzz_value_type_conversions() {
     let mut rng = Rng::new(505);
     for _ in 0..FUZZ_ITERATIONS {
         let v = generate_random_value(&mut rng);
-        // 这些转换不应 panic
-        let _ = v.as_i64();
-        let _ = v.as_f64();
-        let _ = v.as_bool();
-        let _ = v.as_str();
-        let _ = v.as_bytes();
-        let _ = v.is_null();
-        let _ = v.is_bool();
-        let _ = v.is_i64();
-        let _ = v.is_f64();
-        let _ = v.is_string();
-        let _ = v.is_bytes();
+
+        // 类型谓词与转换结果的自洽性验证
+        // 注意：is_i64()/is_f64() 是精确类型判断（仅 I64/F64），
+        // 而 as_i64()/as_f64() 是宽松转换（支持多种数值/字符串类型）。
+        // 因此只验证"为真时 Some"，不为真时可能 Some 或 None。
+        if v.is_i64() {
+            assert!(v.as_i64().is_some(), "is_i64() 为真时 as_i64() 应返回 Some");
+        }
+
+        if v.is_f64() {
+            assert!(v.as_f64().is_some(), "is_f64() 为真时 as_f64() 应返回 Some");
+        }
+
+        if v.is_bool() {
+            assert!(v.as_bool().is_some(), "is_bool() 为真时 as_bool() 应返回 Some");
+        }
+
+        if v.is_string() {
+            assert!(v.as_str().is_some(), "is_string() 为真时 as_str() 应返回 Some");
+        }
+
+        if v.is_bytes() {
+            assert!(v.as_bytes().is_some(), "is_bytes() 为真时 as_bytes() 应返回 Some");
+        }
+
+        // is_null() 与其他类型谓词互斥（除 Null 外不应有任何 is_xxx 为真）
+        if v.is_null() {
+            assert!(!v.is_bool(), "Null 不应同时 is_bool()");
+            assert!(!v.is_i64(), "Null 不应同时 is_i64()");
+            assert!(!v.is_f64(), "Null 不应同时 is_f64()");
+            assert!(!v.is_string(), "Null 不应同时 is_string()");
+            assert!(!v.is_bytes(), "Null 不应同时 is_bytes()");
+        }
+
+        // Display 和 Debug 不应 panic
         let _ = format!("{}", v);
         let _ = format!("{:?}", v);
     }

@@ -144,6 +144,14 @@ mod tests {
         let wrapper = QueueWrapper::new(MqProvider::Kafka(KafkaConfig::default()));
         let result = wrapper.publish("test-topic", b"message").await;
         assert!(result.is_ok());
+        // 验证消息真正进入队列：consume 应能取回，且内容与发布一致
+        let msg = wrapper
+            .consume("test-topic")
+            .await
+            .expect("consume 不应报错")
+            .expect("消息应存在");
+        assert_eq!(msg.payload, b"message", "取回的 payload 应与发布一致");
+        assert_eq!(msg.topic, "test-topic", "取回的 topic 应与发布一致");
     }
 
     #[test]

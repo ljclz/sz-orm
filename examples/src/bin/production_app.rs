@@ -424,7 +424,8 @@ impl AppState {
 
         let update_stock_sql = QueryBuilder::<Product>::new(self.new_dialect())
             .table("products")
-            .where_cond(format!("id = {} AND stock >= {}", product_id, quantity).as_str())
+            .where_eq("id", Value::I64(product_id))
+            .where_ge("stock", Value::I64(quantity))
             .build_update(&{
                 let mut m = HashMap::new();
                 m.insert(
@@ -447,7 +448,7 @@ impl AppState {
 
         let clear_cart_sql = QueryBuilder::<Order>::new(self.new_dialect())
             .table("cart_items")
-            .where_cond(format!("user_id = {}", user_id).as_str())
+            .where_eq("user_id", Value::I64(user_id))
             .build_delete();
 
         // 审计日志（3 条 SQL）
@@ -471,7 +472,7 @@ impl AppState {
 
         let sql = QueryBuilder::<Order>::new(self.new_dialect())
             .table("orders")
-            .where_cond(format!("id = {}", order_id).as_str())
+            .where_eq("id", Value::I64(order_id))
             .build_update(&data);
 
         self.audit(user, &sql);

@@ -171,14 +171,14 @@ impl Default for TotpVerifier {
 /// MFA 管理器：管理用户的 MFA 密钥和验证状态
 pub struct MfaManager {
     verifier: TotpVerifier,
-    secrets: std::sync::Mutex<std::collections::HashMap<String, MfaSecret>>,
+    secrets: parking_lot::Mutex<std::collections::HashMap<String, MfaSecret>>,
 }
 
 impl MfaManager {
     pub fn new() -> Self {
         Self {
             verifier: TotpVerifier::new(),
-            secrets: std::sync::Mutex::new(std::collections::HashMap::new()),
+            secrets: parking_lot::Mutex::new(std::collections::HashMap::new()),
         }
     }
 
@@ -192,22 +192,18 @@ impl MfaManager {
         let secret = MfaSecret::new(account, issuer);
         self.secrets
             .lock()
-            .unwrap()
             .insert(user_id.to_string(), secret.clone());
         secret
     }
 
     /// 为用户绑定已有密钥
     pub fn bind_secret(&self, user_id: &str, secret: MfaSecret) {
-        self.secrets
-            .lock()
-            .unwrap()
-            .insert(user_id.to_string(), secret);
+        self.secrets.lock().insert(user_id.to_string(), secret);
     }
 
     /// 验证用户的 TOTP 码
     pub fn verify(&self, user_id: &str, code: &str) -> Result<bool, AuthError> {
-        let secrets = self.secrets.lock().unwrap();
+        let secrets = self.secrets.lock();
         let secret = secrets
             .get(user_id)
             .ok_or_else(|| AuthError::Config(format!("No MFA secret for user: {}", user_id)))?;
@@ -216,7 +212,7 @@ impl MfaManager {
 
     /// 生成用户当前的 TOTP 码（用于测试或重置流程）
     pub fn generate_code(&self, user_id: &str) -> Result<String, AuthError> {
-        let secrets = self.secrets.lock().unwrap();
+        let secrets = self.secrets.lock();
         let secret = secrets
             .get(user_id)
             .ok_or_else(|| AuthError::Config(format!("No MFA secret for user: {}", user_id)))?;
@@ -225,17 +221,17 @@ impl MfaManager {
 
     /// 移除用户的 MFA 密钥
     pub fn remove_secret(&self, user_id: &str) -> bool {
-        self.secrets.lock().unwrap().remove(user_id).is_some()
+        self.secrets.lock().remove(user_id).is_some()
     }
 
     /// 检查用户是否已绑定 MFA
     pub fn has_mfa(&self, user_id: &str) -> bool {
-        self.secrets.lock().unwrap().contains_key(user_id)
+        self.secrets.lock().contains_key(user_id)
     }
 
     /// 获取用户 MFA 密钥的 otpauth URI
     pub fn get_uri(&self, user_id: &str) -> Result<String, AuthError> {
-        let secrets = self.secrets.lock().unwrap();
+        let secrets = self.secrets.lock();
         let secret = secrets
             .get(user_id)
             .ok_or_else(|| AuthError::Config(format!("No MFA secret for user: {}", user_id)))?;
@@ -261,21 +257,18 @@ fn current_secs() -> u64 {
         .as_secs()
 }
 
+/// 生成密码学安全的随机字节序列
+///
+/// v1.2.1 修复 Critical C-1（CWE-338）：使用 `OsRng`（密码学安全 RNG）替代
+/// `DefaultHasher` + 时间种子。原实现可被预测，攻击者可在 ±1 秒窗口内
+/// 暴力枚举纳秒种子复原 MFA 密钥，绕过 TOTP 二因素认证（违反 RFC 6238 §4）。
+///
+/// 与 `sz-orm-crypto::random_bytes` 实现保持一致。
 fn generate_random_bytes(len: usize) -> Vec<u8> {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut result = Vec::with_capacity(len);
-    let mut seed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos();
-    for i in 0..len {
-        let mut hasher = DefaultHasher::new();
-        seed.wrapping_add(i as u128).hash(&mut hasher);
-        let h = hasher.finish();
-        result.push((h & 0xFF) as u8);
-        seed = seed.wrapping_add(h as u128);
-    }
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+    let mut result = vec![0u8; len];
+    OsRng.fill_bytes(&mut result);
     result
 }
 

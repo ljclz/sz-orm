@@ -13,7 +13,7 @@ use crate::timeseries::TimeseriesExt;
 use crate::types::{Aggregation, DownsampleConfig, Metric, TimeBucket};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::sync::Mutex;
+use parking_lot::Mutex;
 
 /// Stub TimescaleDB 实现
 pub struct StubTimeseries {
@@ -28,15 +28,15 @@ impl StubTimeseries {
     }
 
     pub fn sql_history(&self) -> Vec<String> {
-        self.sql_log.lock().unwrap().clone()
+        self.sql_log.lock().clone()
     }
 
     pub fn clear(&self) {
-        self.sql_log.lock().unwrap().clear();
+        self.sql_log.lock().clear();
     }
 
     fn log(&self, sql: String) {
-        self.sql_log.lock().unwrap().push(sql);
+        self.sql_log.lock().push(sql);
     }
 }
 
@@ -181,7 +181,9 @@ mod tests {
         let stub = StubTimeseries::new();
         let start = Utc.with_ymd_and_hms(2026, 7, 20, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2026, 7, 20, 1, 0, 0).unwrap();
-        let _ = stub.query_range("cpu", start, end).await.unwrap();
+        // stub 返回空 Vec（文档化行为），验证返回值而非丢弃
+        let result = stub.query_range("cpu", start, end).await.unwrap();
+        assert!(result.is_empty(), "stub query_range must return empty Vec");
         let history = stub.sql_history();
         assert_eq!(history.len(), 1);
         assert!(history[0].contains("SELECT * FROM cpu"));
@@ -193,10 +195,12 @@ mod tests {
         let stub = StubTimeseries::new();
         let start = Utc.with_ymd_and_hms(2026, 7, 20, 0, 0, 0).unwrap();
         let end = Utc.with_ymd_and_hms(2026, 7, 20, 1, 0, 0).unwrap();
-        let _ = stub
+        // stub 返回空 Vec（文档化行为），验证返回值而非丢弃
+        let result = stub
             .time_bucket_aggregate("cpu", "5m", Aggregation::Avg, start, end)
             .await
             .unwrap();
+        assert!(result.is_empty(), "stub time_bucket_aggregate must return empty Vec");
         let history = stub.sql_history();
         assert_eq!(history.len(), 1);
         assert!(history[0].contains("time_bucket('5m'"));

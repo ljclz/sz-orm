@@ -1,7 +1,7 @@
 //! SZ-ORM 可观测性模块
 //!
-//! 提供 Prometheus exporter、OTLP exporter、SLO 燃烧率监控等能力，
-//! 与 `sz-orm-tracing` 配合形成完整的可观测性闭环。
+//! 提供 Prometheus exporter、SLO 燃烧率监控等能力。
+//! OTLP 导出由 `sz-orm-tracing` 的 `otlp` feature 提供（本模块不含 OTLP）。
 //!
 //! # 核心能力
 //!
@@ -10,15 +10,12 @@
 //! 统一的指标注册中心，支持 Counter / Gauge / Histogram 三种类型，
 //! 内置线程安全（`RwLock`），可通过 `render()` 输出 Prometheus 文本格式。
 //!
-//! ## 2. Prometheus exporter（feature = "prometheus"）
+//! ## 2. Prometheus exporter
 //!
-//! 在指定端口暴露 `/metrics` HTTP 端点，供 Prometheus 拉取。
+//! 通过 `start_metrics_server` 在指定端口暴露 `/metrics` HTTP 端点，
+//! 供 Prometheus 拉取。基于 `tokio::net::TcpListener` 实现（不依赖 hyper）。
 //!
-//! ## 3. OTLP exporter（feature = "otlp"）
-//!
-//! 通过 OpenTelemetry OTLP 协议将 traces 导出到 Collector。
-//!
-//! ## 4. SLO 燃烧率
+//! ## 3. SLO 燃烧率
 //!
 //! 基于 5m / 1h 两个窗口计算 SLO 燃烧率，支持多窗口告警。
 //!

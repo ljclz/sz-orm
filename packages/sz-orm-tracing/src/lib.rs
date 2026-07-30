@@ -722,19 +722,27 @@ impl AlertHook for LogAlertHook {
     }
 }
 
-/// 模拟 Webhook 告警钩子：将告警存入内存，不进行真实网络发送。
+/// 内存告警钩子（**非真实 Webhook**）：将告警存入内存，不进行任何网络发送。
+///
+/// 类型名刻意改为 `InMemoryAlertHook`（原 `WebhookAlertHook` 名字暗示 HTTP 调用，
+/// 但实际只 push 到 Vec，会误导用户）。`identifier` 字段仅用于测试断言与调试，
+/// **不会被用于任何 HTTP 请求**。
+///
+/// 如需真实 Webhook 推送，请实现自定义 `AlertHook` 并在 `notify` 中使用
+/// `reqwest` 或 `hyper` 发起 HTTP 请求。
 ///
 /// 用于测试和本地开发环境，可通过 [`sent_alerts`](Self::sent_alerts)
 /// 检查被分发过的告警。
-pub struct WebhookAlertHook {
-    url: String,
+pub struct InMemoryAlertHook {
+    identifier: String,
     sent: RwLock<Vec<Alert>>,
 }
 
-impl WebhookAlertHook {
-    pub fn new(url: String) -> Self {
+impl InMemoryAlertHook {
+    /// 创建内存告警钩子。`identifier` 仅作调试标识，不参与网络调用。
+    pub fn new(identifier: String) -> Self {
         Self {
-            url,
+            identifier,
             sent: RwLock::new(Vec::new()),
         }
     }
@@ -747,20 +755,30 @@ impl WebhookAlertHook {
             .unwrap_or_default()
     }
 
-    /// 暴露配置的 URL，便于调用方调试或断言。
+    /// 暴露配置的标识符，便于调用方调试或断言。
+    pub fn identifier(&self) -> &str {
+        &self.identifier
+    }
+
+    /// 向后兼容：返回 identifier（原 url 字段的别名）。
+    ///
+    /// # 已废弃
+    ///
+    /// 此方法仅为减少破坏性变更而保留，新代码应使用 [`identifier`](Self::identifier)。
+    #[deprecated(since = "1.2.0", note = "use `identifier()` instead; this hook does not perform HTTP")]
     pub fn url(&self) -> &str {
-        &self.url
+        &self.identifier
     }
 }
 
-impl AlertHook for WebhookAlertHook {
+impl AlertHook for InMemoryAlertHook {
     fn notify(&self, alert: &Alert) -> Result<(), String> {
         match self.sent.write() {
             Ok(mut guard) => {
                 guard.push(alert.clone());
                 Ok(())
             }
-            Err(e) => Err(format!("webhook alert lock poisoned: {e}")),
+            Err(e) => Err(format!("in-memory alert hook lock poisoned: {e}")),
         }
     }
 }
@@ -1619,8 +1637,10 @@ mod tests {
         let cloned = alert.clone();
         assert_eq!(cloned.level, alert.level);
         assert_eq!(cloned.message, alert.message);
-        // Debug formatting must not panic.
-        let _ = format!("{alert:?}");
+        // Debug formatting must contain expected fields, not just "not panic".
+        let debug_str = format!("{alert:?}");
+        assert!(debug_str.contains("approaching budget"), "debug output missing message: {}", debug_str);
+        assert!(debug_str.contains("Warning"), "debug output missing level: {}", debug_str);
     }
 
     // ===================== SaturationGauge tests =====================
@@ -1694,7 +1714,7 @@ mod tests {
         assert!(gauge.is_saturated());
     }
 
-    // ===================== AlertHook / LogAlertHook / WebhookAlertHook tests =====================
+    // ===================== AlertHook / LogAlertHook / InMemoryAlertHook tests =====================
 
     fn sample_alert(level: AlertLevel, op: Option<&str>) -> Alert {
         Alert {
@@ -1729,13 +1749,13 @@ mod tests {
 
     #[test]
     fn test_webhook_alert_hook_new_starts_empty() {
-        let hook = WebhookAlertHook::new("https://example.com/hook".to_string());
+        let hook = InMemoryAlertHook::new("https://example.com/hook".to_string());
         assert!(hook.sent_alerts().is_empty());
     }
 
     #[test]
     fn test_webhook_alert_hook_notify_stores_alert() {
-        let hook = WebhookAlertHook::new("https://example.com/hook".to_string());
+        let hook = InMemoryAlertHook::new("https://example.com/hook".to_string());
         let alert = sample_alert(AlertLevel::Critical, Some("query_user"));
         hook.notify(&alert).expect("notify must succeed");
         let sent = hook.sent_alerts();
@@ -1745,7 +1765,7 @@ mod tests {
 
     #[test]
     fn test_webhook_alert_hook_multiple_notifications_accumulate() {
-        let hook = WebhookAlertHook::new("https://example.com/hook".to_string());
+        let hook = InMemoryAlertHook::new("https://example.com/hook".to_string());
         let a1 = sample_alert(AlertLevel::Info, None);
         let a2 = sample_alert(AlertLevel::Warning, Some("op1"));
         let a3 = sample_alert(AlertLevel::Critical, Some("op2"));
@@ -1762,7 +1782,7 @@ mod tests {
     #[test]
     fn test_webhook_alert_hook_sent_alerts_returns_clone() {
         // The returned Vec should be a snapshot; mutating it must not affect the hook.
-        let hook = WebhookAlertHook::new("https://example.com/hook".to_string());
+        let hook = InMemoryAlertHook::new("https://example.com/hook".to_string());
         let alert = sample_alert(AlertLevel::Info, None);
         hook.notify(&alert).unwrap();
         let mut sent = hook.sent_alerts();
@@ -1774,7 +1794,7 @@ mod tests {
     #[test]
     fn test_webhook_alert_hook_implements_send_sync() {
         fn assert_send_sync<T: Send + Sync>() {}
-        assert_send_sync::<WebhookAlertHook>();
+        assert_send_sync::<InMemoryAlertHook>();
     }
 
     #[test]
@@ -1782,7 +1802,7 @@ mod tests {
         // Confirm trait-object dispatch works for heterogeneous hooks.
         let hooks: Vec<Box<dyn AlertHook>> = vec![
             Box::new(LogAlertHook::new()),
-            Box::new(WebhookAlertHook::new(
+            Box::new(InMemoryAlertHook::new(
                 "https://example.com/hook".to_string(),
             )),
         ];
@@ -1792,7 +1812,7 @@ mod tests {
         }
         // The webhook hook stored one alert; verify via downcast-less approach by
         // constructing separately.
-        let webhook = WebhookAlertHook::new("https://example.com/hook".to_string());
+        let webhook = InMemoryAlertHook::new("https://example.com/hook".to_string());
         webhook.notify(&alert).unwrap();
         assert_eq!(webhook.sent_alerts().len(), 1);
     }

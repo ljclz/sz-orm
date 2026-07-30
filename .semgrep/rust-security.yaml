@@ -1,82 +1,171 @@
+# SZ-ORM Semgrep Rust Security Rules
+# Custom SAST rules for Rust ORM security audit
+# Covers: SQL injection, unsafe code, hardcoded secrets, path traversal, crypto misuse
+
 rules:
-- id: rust-sql-string-concat
-  patterns:
-    - pattern-either:
-      - pattern: format!("...{}...{}...", ...)
-      - pattern: format!("...{}...{}", ...)
-    - metavariable-pattern:
-        metavariable: $FMT
-        pattern-either:
-          - pattern: "SELECT ..."
-          - pattern: "INSERT ..."
-          - pattern: "UPDATE ..."
-          - pattern: "DELETE ..."
-          - pattern: "CREATE ..."
-          - pattern: "DROP ..."
-          - pattern: "ALTER ..."
-    message: "Potential SQL injection: SQL string built with format!() using user-controlled variables. Use parameterized queries or quote_checked() instead."
-    severity: WARNING
+  # ===== SQL Injection =====
+  - id: rust-sql-injection-format-string
+    pattern: format!($FMT, ...)
+    condition: |
+      $FMT.matches("SELECT") || $FMT.matches("INSERT") || $FMT.matches("UPDATE") || $FMT.matches("DELETE")
+    message: "Potential SQL injection: format! used to build SQL string. Use parameterized queries instead."
     languages: [rust]
-    paths:
-      exclude:
-        - "**/tests/**"
-        - "**/*_test.rs"
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
+      owasp: "A03:2021-Injection"
 
-- id: rust-quote-not-quote-checked
-  pattern: |
-    $DIALECT.quote($IDENT)
-  languages: [rust]
-  severity: INFO
-  message: "Consider using quote_checked() instead of quote() when the identifier comes from an untrusted source. quote() does not validate identifier length or SQL metacharacters."
-  paths:
-    include:
-      - "**/dialect.rs"
-      - "**/dynamic_sql.rs"
+  - id: rust-sql-injection-string-concat
+    pattern: $SQL + $VAL
+    condition: |
+      $SQL.matches("SELECT") || $SQL.matches("WHERE") || $SQL.matches("INSERT")
+    message: "Potential SQL injection: string concatenation with SQL keyword. Use parameterized queries."
+    languages: [rust]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-89: SQL Injection"
 
-- id: rust-path-join-traversal
-  pattern: |
-    $BASE.join($KEY)
-  languages: [rust]
-  severity: WARNING
-  message: "Path traversal risk: PathBuf::join() with user-controlled key. Validate or canonicalize the path before use."
-  paths:
-    include:
-      - "**/storage/**"
-      - "**/backup/**"
+  - id: rust-sql-injection-push-str
+    pattern: $BUF.push_str($VAL)
+    condition: |
+      $BUF.matches("sql") || $BUF.matches("query")
+    message: "Potential SQL injection: push_str on SQL buffer. Validate input or use parameters."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-89: SQL Injection"
 
-- id: rust-unwrap-poison-risk
-  patterns:
-    - pattern: |
-        $LOCK.lock().unwrap()
-    - metavariable-pattern:
-        metavariable: $LOCK
-        pattern-either:
-          - pattern: $X.$Y
-    - pattern-not-inside: |
-        if let Ok($GUARD) = $LOCK.lock() { ... }
-  message: "Mutex/RwLock unwrap() risks panic on lock poisoning. Use 'if let Ok(guard) = lock()' pattern instead."
-  severity: INFO
-  languages: [rust]
+  # ===== Unsafe Code =====
+  - id: rust-unsafe-block
+    pattern: unsafe { ... }
+    message: "Unsafe code block detected. Ensure safety invariants are documented and maintained."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-119: Memory Corruption"
 
-- id: rust-format-crypto-sensitive
-  patterns:
-    - pattern-either:
-      - pattern: |
-          println!("... password ...", ...)
-      - pattern: |
-          log::info!("... password ...", ...)
-  message: "Potential sensitive data leak: password/credential in log output."
-  severity: WARNING
-  languages: [rust]
+  - id: rust-unsafe-fn
+    pattern: unsafe fn $FNAME(...) { ... }
+    message: "Unsafe function detected. Document safety contract in # Safety section."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-119: Memory Corruption"
 
-- id: rust-checked-add
-  patterns:
-    - pattern: $VAR += 1
-    - metavariable-pattern:
-        metavariable: $VAR
-        pattern: $X
-    - pattern-not-inside: |
-        if ... { ... }
-  message: "Unchecked integer addition. Consider using checked_add() or saturating_add() for counter variables, especially in production paths."
-  severity: INFO
-  languages: [rust]
+  # ===== Hardcoded Secrets =====
+  - id: rust-hardcoded-password
+    pattern-either:
+      - pattern: let $VAR = "$PASSWORD"
+        condition: $VAR.matches("password") || $VAR.matches("passwd") || $VAR.matches("pwd")
+      - pattern: const $VAR: &str = "$PASSWORD"
+        condition: $VAR.matches("PASSWORD") || $VAR.matches("SECRET")
+    message: "Hardcoded password/secret detected. Use environment variables or config files."
+    languages: [rust]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798: Hardcoded Credentials"
+      owasp: "A07:2021-Identification and Authentication Failures"
+
+  - id: rust-hardcoded-api-key
+    pattern: let $VAR = "$KEY"
+    condition: |
+      $VAR.matches("api_key") || $VAR.matches("apikey") || $VAR.matches("token") || $VAR.matches("secret_key")
+    message: "Hardcoded API key/token detected. Use environment variables."
+    languages: [rust]
+    severity: ERROR
+    metadata:
+      cwe: "CWE-798: Hardcoded Credentials"
+
+  # ===== Path Traversal =====
+  - id: rust-path-traversal
+    pattern: std::fs::read($PATH)
+    condition: |
+      $PATH.contains("..") || $PATH.contains("~")
+    message: "Potential path traversal. Validate and sanitize file paths."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-22: Path Traversal"
+
+  # ===== Crypto Misuse =====
+  - id: rust-weak-crypto-md5
+    pattern: md5::compute(...)
+    message: "MD5 is cryptographically broken. Use SHA-256 or stronger."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-327: Broken Crypto"
+
+  - id: rust-weak-crypto-sha1
+    pattern: sha1::compute(...)
+    message: "SHA-1 is cryptographically broken. Use SHA-256 or stronger."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-327: Broken Crypto"
+
+  - id: rust-insecure-random
+    pattern: rand::thread_rng().gen(...)
+    message: "ThreadRNG is not deterministic. Use OsRng for crypto-sensitive operations."
+    languages: [rust]
+    severity: INFO
+    metadata:
+      cwe: "CWE-338: Weak Randomness"
+
+  # ===== Panic in Production =====
+  - id: rust-panic-in-production
+    pattern-either:
+      - pattern: panic!($MSG)
+      - pattern: unimplemented!($MSG)
+      - pattern: todo!($MSG)
+    message: "panic!/unimplemented!/todo! in production code. Use Result<T, E> for error handling."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-754: Improper Check for Unusual or Exceptional Conditions"
+
+  - id: rust-expect-in-production
+    pattern: $EXPR.expect($MSG)
+    message: ".expect() can panic. Consider using ? operator or match for graceful error handling."
+    languages: [rust]
+    severity: INFO
+    metadata:
+      cwe: "CWE-754: Improper Check for Unusual or Exceptional Conditions"
+
+  - id: rust-unwrap-in-production
+    pattern: $EXPR.unwrap()
+    message: ".unwrap() can panic. Consider using ? operator or match for graceful error handling."
+    languages: [rust]
+    severity: INFO
+    metadata:
+      cwe: "CWE-754: Improper Check for Unusual or Exceptional Conditions"
+
+  # ===== Integer Overflow =====
+  - id: rust-integer-overflow-as
+    pattern: $EXPR as $TYPE
+    condition: |
+      $TYPE.matches("i32") || $TYPE.matches("i64") || $TYPE.matches("u32") || $TYPE.matches("u64")
+    message: "Type cast may cause integer overflow. Use try_from or checked arithmetic."
+    languages: [rust]
+    severity: INFO
+    metadata:
+      cwe: "CWE-190: Integer Overflow"
+
+  # ===== Command Injection =====
+  - id: rust-command-injection
+    pattern: std::process::Command::new($CMD)
+    message: "Command execution detected. Validate and sanitize all inputs."
+    languages: [rust]
+    severity: WARNING
+    metadata:
+      cwe: "CWE-78: OS Command Injection"
+      owasp: "A03:2021-Injection"
+
+  # ===== Deserialization =====
+  - id: rust-unsafe-deserialization
+    pattern: serde_json::from_str($VAL)
+    message: "Deserialization of untrusted input. Validate schema and handle errors."
+    languages: [rust]
+    severity: INFO
+    metadata:
+      cwe: "CWE-502: Deserialization of Untrusted Data"
