@@ -1993,8 +1993,8 @@ mod tests {
     }
 
     #[test]
-    fn test_query_builder_select() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_select() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder
@@ -2003,11 +2003,12 @@ mod tests {
             .build_select();
         assert!(sql.contains("SELECT id, name FROM"));
         assert!(sql.contains("`users`"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_where() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_where() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder
@@ -2019,11 +2020,12 @@ mod tests {
         assert!(sql.contains("WHERE"));
         assert!(sql.contains("status = 'active'"));
         assert!(sql.contains("age > 18"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_order_by() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_order_by() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder
@@ -2035,33 +2037,36 @@ mod tests {
         assert!(sql.contains("ORDER BY"));
         assert!(sql.contains("`created_at` ASC"));
         assert!(sql.contains("`id` DESC"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_limit_offset() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_limit_offset() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("users").limit(10).offset(20).build_select();
 
         assert!(sql.contains("LIMIT 10"));
         assert!(sql.contains("OFFSET 20"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_page() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_page() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("users").page(3, 20).build_select();
 
         assert!(sql.contains("LIMIT 20"));
         assert!(sql.contains("OFFSET 40"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_insert() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_insert() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let mut data = std::collections::HashMap::new();
@@ -2073,11 +2078,12 @@ mod tests {
         assert!(sql.contains("INSERT INTO"));
         assert!(sql.contains("`name`"));
         assert!(sql.contains("'test'"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_update() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_update() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let mut data = std::collections::HashMap::new();
@@ -2091,33 +2097,36 @@ mod tests {
         assert!(sql.contains("UPDATE"));
         assert!(sql.contains("`name` = 'updated'"));
         assert!(sql.contains("WHERE"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_delete() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_delete() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("users").where_cond("id = 1").build_delete();
 
         assert!(sql.contains("DELETE FROM"));
         assert!(sql.contains("WHERE"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_count() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_count() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("users").build_count();
 
         assert!(sql.contains("SELECT COUNT(*)"));
         assert!(sql.contains("FROM"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_where_in() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_where_in() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder
@@ -2126,11 +2135,12 @@ mod tests {
             .build_select();
 
         assert!(sql.contains("IN ("));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_where_between() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_where_between() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder
@@ -2139,11 +2149,12 @@ mod tests {
             .build_select();
 
         assert!(sql.contains("BETWEEN"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_where_null() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_where_null() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder
@@ -2152,11 +2163,12 @@ mod tests {
             .build_select();
 
         assert!(sql.contains("IS NULL"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_join() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_join() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder
@@ -2166,75 +2178,82 @@ mod tests {
 
         assert!(sql.contains("INNER JOIN"));
         assert!(sql.contains("`posts`"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_group_by() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_group_by() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("users").group_by("status").build_select();
 
         assert!(sql.contains("GROUP BY"));
         assert!(sql.contains("`status`"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_max() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_max() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("users").build_max("score");
 
         assert!(sql.contains("MAX("));
         assert!(sql.contains("`score`"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_min() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_min() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("users").build_min("price");
 
         assert!(sql.contains("MIN("));
         assert!(sql.contains("`price`"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_sum() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_sum() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("orders").build_sum("amount");
 
         assert!(sql.contains("SUM("));
         assert!(sql.contains("`amount`"));
+            Ok(())
     }
 
     #[test]
-    fn test_query_builder_avg() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_query_builder_avg() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let sql = builder.table("scores").build_avg("value");
 
         assert!(sql.contains("AVG("));
         assert!(sql.contains("`value`"));
+            Ok(())
     }
 
     #[test]
-    fn test_validator_select() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_select() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let result = builder.table("users").select(vec!["id", "name"]).validate();
         assert!(result.is_ok());
+            Ok(())
     }
 
     #[test]
-    fn test_validator_select_with_join() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_select_with_join() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let result = builder
@@ -2242,11 +2261,12 @@ mod tests {
             .join_inner("posts", "users.id", "posts.user_id")
             .validate();
         assert!(result.is_ok());
+            Ok(())
     }
 
     #[test]
-    fn test_validator_insert() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_insert() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let mut data = std::collections::HashMap::new();
@@ -2254,21 +2274,23 @@ mod tests {
 
         let result = builder.table("users").validate_insert(&data);
         assert!(result.is_ok());
+            Ok(())
     }
 
     #[test]
-    fn test_validator_insert_empty_data() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_insert_empty_data() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let data = std::collections::HashMap::new();
         let result = builder.table("users").validate_insert(&data);
         assert!(result.is_err());
+            Ok(())
     }
 
     #[test]
-    fn test_validator_update() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_update() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let mut data = std::collections::HashMap::new();
@@ -2276,21 +2298,23 @@ mod tests {
 
         let result = builder.table("users").validate_update(&data);
         assert!(result.is_ok());
+            Ok(())
     }
 
     #[test]
-    fn test_validator_update_empty_data() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_update_empty_data() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let data = std::collections::HashMap::new();
         let result = builder.table("users").validate_update(&data);
         assert!(result.is_err());
+            Ok(())
     }
 
     #[test]
-    fn test_validator_delete() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_delete() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         let result = builder
@@ -2298,37 +2322,40 @@ mod tests {
             .where_cond("id = 1")
             .validate_delete();
         assert!(result.is_ok());
+            Ok(())
     }
 
     #[test]
-    fn test_validator_delete_no_where() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_validator_delete_no_where() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         // DELETE without WHERE still produces valid SQL (just no filter)
         let result = builder.table("users").validate_delete();
         assert!(result.is_ok());
+            Ok(())
     }
 
     // ==================== M-3 select_quoted 测试 ====================
 
     #[test]
-    fn test_m3_select_quoted_valid_columns() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_m3_select_quoted_valid_columns() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let builder = builder
             .table("users")
             .select_quoted(vec!["id", "name"])
-            .expect("valid columns should succeed");
+            ?;
         let sql = builder.build_select();
         // 应自动 quote 列名
         assert!(sql.contains("SELECT `id`, `name` FROM"));
         assert!(sql.contains("`users`"));
+            Ok(())
     }
 
     #[test]
-    fn test_m3_select_quoted_rejects_sql_injection() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_m3_select_quoted_rejects_sql_injection() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
         // SQL 注入尝试：分号 + DROP TABLE
@@ -2338,36 +2365,38 @@ mod tests {
         assert!(result.is_err());
 
         // 含引号
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let result = builder.table("users").select_quoted(vec!["name'"]);
         assert!(result.is_err());
 
         // 数字开头
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let result = builder.table("users").select_quoted(vec!["1col"]);
         assert!(result.is_err());
 
         // 含空格
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let result = builder.table("users").select_quoted(vec!["col name"]);
         assert!(result.is_err());
+            Ok(())
     }
 
     #[test]
-    fn test_m3_select_quoted_postgresql_dialect() {
-        let dialect = get_dialect(DbType::PostgreSQL).unwrap();
+    fn test_m3_select_quoted_postgresql_dialect() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::PostgreSQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let builder = builder
             .table("users")
             .select_quoted(vec!["id", "name"])
-            .expect("valid columns should succeed");
+            ?;
         let sql = builder.build_select();
         // PostgreSQL 使用双引号
         assert!(sql.contains("SELECT \"id\", \"name\" FROM"));
         assert!(sql.contains("\"users\""));
+            Ok(())
     }
 
     // ==================== P0-1 软删除集成行为测试 ====================
@@ -2396,8 +2425,8 @@ mod tests {
     ///
     /// 用户视角：查询软删除模型时，自动过滤已删除记录，无需手动写条件。
     #[test]
-    fn test_p01_soft_delete_select_auto_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_select_auto_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<SoftDeleteModel>::new(dialect);
         let sql = builder.table("soft_users").build_select();
         // 必须自动追加软删除过滤
@@ -2406,12 +2435,13 @@ mod tests {
             "软删除模型 SELECT 必须自动追加 `deleted_at` IS NULL，实际: {}",
             sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-2：软删除模型 + 用户 WHERE 条件，软删除条件以 AND 追加
     #[test]
-    fn test_p01_soft_delete_select_with_user_where() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_select_with_user_where() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("status", Value::String("active".into()))
@@ -2423,14 +2453,15 @@ mod tests {
             "软删除条件应自动追加: {}",
             sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-3：without_soft_delete() 临时禁用软删除过滤
     ///
     /// 用户视角：管理员查询已删除记录时，可禁用自动过滤。
     #[test]
-    fn test_p01_soft_delete_without_soft_delete() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_without_soft_delete() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .without_soft_delete()
@@ -2447,14 +2478,15 @@ mod tests {
             "无用户条件 + 禁用软删除应无 WHERE 子句: {}",
             sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-4：软删除模型 build_delete 自动转为 UPDATE
     ///
     /// 用户视角：调用 delete 实际是软删除 UPDATE，不是物理 DELETE。
     #[test]
-    fn test_p01_soft_delete_delete_becomes_update() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_delete_becomes_update() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("id", Value::I64(42))
@@ -2481,14 +2513,15 @@ mod tests {
             "软删除 UPDATE 应追加 deleted_at IS NULL 防止重复删除: {}",
             sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-5：build_force_delete 物理删除，不追加软删除过滤
     ///
     /// 用户视角：管理员强制清除时使用 build_force_delete。
     #[test]
-    fn test_p01_soft_delete_force_delete() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_force_delete() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("id", Value::I64(99))
@@ -2505,12 +2538,13 @@ mod tests {
             "物理删除不应追加软删除过滤: {}",
             sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-6：build_select_with_params 自动追加软删除条件（参数化版本）
     #[test]
-    fn test_p01_soft_delete_select_with_params() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_select_with_params() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("id", Value::I64(1))
@@ -2522,12 +2556,13 @@ mod tests {
         );
         assert_eq!(params.len(), 1, "参数应为 1 个（用户 where_eq 的值）");
         assert_eq!(params[0], Value::I64(1));
+            Ok(())
     }
 
     /// 行为级测试 L3-7：build_delete_with_params 自动转为 UPDATE
     #[test]
-    fn test_p01_soft_delete_delete_with_params_becomes_update() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_delete_with_params_becomes_update() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("id", Value::I64(7))
@@ -2535,12 +2570,13 @@ mod tests {
         assert!(sql.starts_with("UPDATE"), "应生成 UPDATE: {}", sql);
         assert!(sql.contains("`deleted_at` = NOW()"), "应设置 NOW(): {}", sql);
         assert_eq!(params.len(), 1, "参数应为 1 个（WHERE 的值）");
+            Ok(())
     }
 
     /// 行为级测试 L3-8：build_force_delete_with_params 物理删除（参数化版本）
     #[test]
-    fn test_p01_soft_delete_force_delete_with_params() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_force_delete_with_params() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("id", Value::I64(11))
@@ -2552,14 +2588,15 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 1);
+            Ok(())
     }
 
     /// 行为级测试 L3-9：非软删除模型 TestModel 不追加软删除条件
     ///
     /// 用户视角：未启用软删除的模型行为不变。
     #[test]
-    fn test_p01_non_soft_delete_model_unchanged() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_non_soft_delete_model_unchanged() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("id", Value::I64(1))
@@ -2570,7 +2607,7 @@ mod tests {
             sql
         );
         // build_delete 仍生成 DELETE FROM
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let dialect = get_dialect(DbType::MySQL)?;
         let del_sql = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("id", Value::I64(1))
@@ -2580,12 +2617,13 @@ mod tests {
             "非软删除模型 build_delete 应生成 DELETE: {}",
             del_sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-10：build_count 也应自动追加软删除条件
     #[test]
-    fn test_p01_soft_delete_count_auto_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_soft_delete_count_auto_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .build_count();
@@ -2594,6 +2632,7 @@ mod tests {
             "build_count 也应追加软删除过滤: {}",
             sql
         );
+            Ok(())
     }
 
     // ==================== P0-2 参数化查询注入防护测试 ====================
@@ -2602,8 +2641,8 @@ mod tests {
     ///
     /// 用户视角：参数化查询杜绝 SQL 注入。
     #[test]
-    fn test_p02_where_eq_uses_placeholder() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_where_eq_uses_placeholder() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("name", Value::String("alice".into()))
@@ -2621,12 +2660,13 @@ mod tests {
         );
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::String("alice".into()));
+            Ok(())
     }
 
     /// 行为级测试 L3-12：where_like 使用 `?` 占位符
     #[test]
-    fn test_p02_where_like_uses_placeholder() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_where_like_uses_placeholder() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_like("name", Value::String("%alice%".into()))
@@ -2634,14 +2674,15 @@ mod tests {
         assert!(sql.contains("`name` LIKE ?"), "应使用 LIKE ?: {}", sql);
         assert!(!sql.contains("%alice%"), "不应内嵌 pattern: {}", sql);
         assert_eq!(params.len(), 1);
+            Ok(())
     }
 
     /// 行为级测试 L3-12a：where_ne 使用 `?` 占位符
     ///
     /// 验证 P0-2 参数化 API where_ne 生成 `field != ?` 且值不内嵌。
     #[test]
-    fn test_p02_where_ne_uses_placeholder() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_where_ne_uses_placeholder() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_ne("status", Value::I64(0))
@@ -2654,14 +2695,15 @@ mod tests {
         assert!(!sql.contains("!= 0"), "不应内嵌值: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::I64(0));
+            Ok(())
     }
 
     /// 行为级测试 L3-12b：where_ge 使用 `?` 占位符
     ///
     /// 验证 P0-2 参数化 API where_ge 生成 `field >= ?` 且值不内嵌。
     #[test]
-    fn test_p02_where_ge_uses_placeholder() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_where_ge_uses_placeholder() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_ge("age", Value::I64(18))
@@ -2674,14 +2716,15 @@ mod tests {
         assert!(!sql.contains(">= 18"), "不应内嵌值: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::I64(18));
+            Ok(())
     }
 
     /// 行为级测试 L3-12c：where_lt 使用 `?` 占位符
     ///
     /// 验证 P0-2 参数化 API where_lt 生成 `field < ?` 且值不内嵌。
     #[test]
-    fn test_p02_where_lt_uses_placeholder() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_where_lt_uses_placeholder() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_lt("score", Value::F64(60.0))
@@ -2694,14 +2737,15 @@ mod tests {
         assert!(!sql.contains("< 60"), "不应内嵌值: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::F64(60.0));
+            Ok(())
     }
 
     /// 行为级测试 L3-13：注入攻击防护 - 值含 SQL 关键字也不会被解释执行
     ///
     /// 用户视角：即使用户输入 `'; DROP TABLE users; --`，也不会造成注入。
     #[test]
-    fn test_p02_injection_protection_drop_table() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_injection_protection_drop_table() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let evil_input = "'; DROP TABLE users; --".to_string();
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
@@ -2718,12 +2762,13 @@ mod tests {
         assert_eq!(params[0], Value::String(evil_input));
         // SQL 中只有 1 个 `?`
         assert_eq!(sql.matches('?').count(), 1);
+            Ok(())
     }
 
     /// 行为级测试 L3-14：注入攻击防护 - OR 1=1 经典攻击
     #[test]
-    fn test_p02_injection_protection_or_one_equals_one() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_injection_protection_or_one_equals_one() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let evil = "' OR '1'='1".to_string();
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
@@ -2736,12 +2781,13 @@ mod tests {
         );
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::String(evil));
+            Ok(())
     }
 
     /// 行为级测试 L3-15：多参数顺序正确（WHERE a = ? AND b = ?）
     #[test]
-    fn test_p02_multiple_params_order() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_multiple_params_order() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("name", Value::String("alice".into()))
@@ -2759,12 +2805,13 @@ mod tests {
         assert_eq!(params[0], Value::String("alice".into()));
         assert_eq!(params[1], Value::I64(18));
         assert_eq!(params[2], Value::F64(99.5));
+            Ok(())
     }
 
     /// 行为级测试 L3-16：where_in 参数化
     #[test]
-    fn test_p02_where_in_uses_placeholders() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_where_in_uses_placeholders() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
@@ -2775,12 +2822,13 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 3);
+            Ok(())
     }
 
     /// 行为级测试 L3-17：where_between 参数化
     #[test]
-    fn test_p02_where_between_uses_placeholders() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_where_between_uses_placeholders() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_between("age", Value::I64(18), Value::I64(65))
@@ -2793,12 +2841,13 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(18));
         assert_eq!(params[1], Value::I64(65));
+            Ok(())
     }
 
     /// 行为级测试 L3-18：UPDATE 参数化版本 - SET 参数在前，WHERE 参数在后
     #[test]
-    fn test_p02_update_params_order_set_before_where() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_update_params_order_set_before_where() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let mut data = std::collections::HashMap::new();
         data.insert("name".to_string(), Value::String("bob".into()));
         data.insert("age".to_string(), Value::I64(30));
@@ -2812,14 +2861,15 @@ mod tests {
         // 前 2 个为 SET 参数，最后 1 个为 WHERE 参数
         // 注意：HashMap 迭代顺序未指定，仅校验 WHERE 参数在最后
         assert_eq!(params[2], Value::I64(99));
+            Ok(())
     }
 
     /// 行为级测试 L3-19：build_where_clause（无参数版本）参数化条件内嵌值
     ///
     /// 验证无参数版本（build_select）对参数化条件的处理：直接内嵌转义值。
     #[test]
-    fn test_p02_build_where_clause_inlines_value() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p02_build_where_clause_inlines_value() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("name", Value::String("alice".into()))
@@ -2836,23 +2886,25 @@ mod tests {
             "无参数版本不应使用 ? 占位符: {}",
             sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-20：is_soft_delete_disabled 反映状态
     #[test]
-    fn test_p01_is_soft_delete_disabled_flag() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p01_is_soft_delete_disabled_flag() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<SoftDeleteModel>::new(dialect);
         assert!(
             !builder.is_soft_delete_disabled(),
             "默认应启用软删除过滤"
         );
-        let builder = QueryBuilder::<SoftDeleteModel>::new(get_dialect(DbType::MySQL).unwrap())
+        let builder = QueryBuilder::<SoftDeleteModel>::new(get_dialect(DbType::MySQL)?)
             .without_soft_delete();
         assert!(
             builder.is_soft_delete_disabled(),
             "without_soft_delete 后应反映禁用状态"
         );
+            Ok(())
     }
 
     // ==================== P0-3 多租户自动过滤行为测试 ====================
@@ -2905,8 +2957,8 @@ mod tests {
     ///
     /// 用户视角：设置租户 ID 后，查询自动过滤当前租户数据。
     #[test]
-    fn test_p03_tenant_select_auto_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_select_auto_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .with_tenant_id(42)
@@ -2918,12 +2970,13 @@ mod tests {
         );
         assert_eq!(params.len(), 1, "应有 1 个参数（tenant_id 值）");
         assert_eq!(params[0], Value::I64(42));
+            Ok(())
     }
 
     /// 行为级测试 L3-22：多租户模型 + 用户 WHERE 条件 + 租户条件
     #[test]
-    fn test_p03_tenant_select_with_user_where() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_select_with_user_where() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .with_tenant_id(7)
@@ -2939,14 +2992,15 @@ mod tests {
         // 第 1 个为用户 where_eq 的值，第 2 个为 tenant_id
         assert_eq!(params[0], Value::String("active".into()));
         assert_eq!(params[1], Value::I64(7));
+            Ok(())
     }
 
     /// 行为级测试 L3-23：without_tenant() 临时禁用租户过滤
     ///
     /// 用户视角：管理员跨租户查询时禁用自动过滤。
     #[test]
-    fn test_p03_tenant_without_tenant() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_without_tenant() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .with_tenant_id(42)
@@ -2958,14 +3012,15 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 0, "不应有租户参数");
+            Ok(())
     }
 
     /// 行为级测试 L3-24：多租户模型 build_delete 自动追加租户条件
     ///
     /// 用户视角：删除操作自动限定在当前租户，防止跨租户删除。
     #[test]
-    fn test_p03_tenant_delete_auto_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_delete_auto_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .with_tenant_id(99)
@@ -2980,12 +3035,13 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(1));
         assert_eq!(params[1], Value::I64(99));
+            Ok(())
     }
 
     /// 行为级测试 L3-25：多租户模型 build_update 自动追加租户条件
     #[test]
-    fn test_p03_tenant_update_auto_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_update_auto_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let mut data = std::collections::HashMap::new();
         data.insert("status".to_string(), Value::String("shipped".into()));
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
@@ -3002,12 +3058,13 @@ mod tests {
         assert_eq!(params.len(), 3);
         // 最后一个应为 tenant_id
         assert_eq!(params[2], Value::I64(5));
+            Ok(())
     }
 
     /// 行为级测试 L3-26：多租户模型 build_count 自动追加租户条件
     #[test]
-    fn test_p03_tenant_count_auto_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_count_auto_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let sql = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .with_tenant_id(42)
@@ -3017,14 +3074,15 @@ mod tests {
             "build_count 应追加租户条件（无参数版本内嵌值）: {}",
             sql
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-27：非多租户模型 TestModel 不追加租户条件
     ///
     /// 用户视角：未启用多租户的模型行为不变。
     #[test]
-    fn test_p03_non_tenant_model_unchanged() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_non_tenant_model_unchanged() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         // 即使设置了 with_tenant_id，非多租户模型也不应追加
         let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
@@ -3036,14 +3094,15 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 0);
+            Ok(())
     }
 
     /// 行为级测试 L3-28：多租户模型未设置 tenant_id 时不追加条件
     ///
     /// 用户视角：未设置租户 ID 时，查询不追加租户过滤（允许跨租户，需调用方保证安全）。
     #[test]
-    fn test_p03_tenant_no_id_no_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_no_id_no_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .build_select_with_params();
@@ -3053,14 +3112,15 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 0);
+            Ok(())
     }
 
     /// 行为级测试 L3-29：软删除 + 多租户组合，两个条件同时追加
     ///
     /// 用户视角：同时启用软删除和多租户时，查询自动追加两个条件。
     #[test]
-    fn test_p03_soft_delete_and_tenant_combined() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_soft_delete_and_tenant_combined() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<SoftDeleteAndTenantModel>::new(dialect)
             .table("documents")
             .with_tenant_id(100)
@@ -3088,12 +3148,13 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::String("report".into()));
         assert_eq!(params[1], Value::I64(100));
+            Ok(())
     }
 
     /// 行为级测试 L3-30：without_tenant + without_soft_delete 同时禁用
     #[test]
-    fn test_p03_without_tenant_and_soft_delete() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_without_tenant_and_soft_delete() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<SoftDeleteAndTenantModel>::new(dialect)
             .table("documents")
             .with_tenant_id(100)
@@ -3111,32 +3172,34 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 0);
+            Ok(())
     }
 
     /// 行为级测试 L3-31：is_tenant_disabled 反映状态
     #[test]
-    fn test_p03_is_tenant_disabled_flag() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_is_tenant_disabled_flag() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TenantModel>::new(dialect);
         assert!(
             !builder.is_tenant_disabled(),
             "默认应启用租户过滤"
         );
-        let builder = QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL).unwrap())
+        let builder = QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL)?)
             .with_tenant_id(1)
             .without_tenant();
         assert!(
             builder.is_tenant_disabled(),
             "without_tenant 后应反映禁用状态"
         );
+            Ok(())
     }
 
     /// 行为级测试 L3-32：build_force_delete 保留租户条件（防止跨租户物理删除）
     ///
     /// 用户视角：物理删除也应受租户隔离约束，跨租户操作需显式 without_tenant()。
     #[test]
-    fn test_p03_tenant_force_delete_keeps_tenant_filter() {
-        let dialect = get_dialect(DbType::MySQL).unwrap();
+    fn test_p03_tenant_force_delete_keeps_tenant_filter() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .with_tenant_id(42)
@@ -3152,5 +3215,6 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(999));
         assert_eq!(params[1], Value::I64(42));
+            Ok(())
     }
 }
