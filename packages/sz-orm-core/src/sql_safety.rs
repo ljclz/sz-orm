@@ -19,7 +19,10 @@ pub fn validate_identifier(name: &str, kind: &str) -> Result<(), DbError> {
         )));
     }
     let mut chars = name.chars();
-    let first = chars.next().expect("non-empty checked above");
+    let first = chars.next().ok_or_else(|| DbError::InvalidInput(format!(
+        "invalid {}: empty string after length check: {:?}",
+        kind, name
+    )))?;
     if !first.is_ascii_alphabetic() && first != '_' {
         return Err(DbError::InvalidInput(format!(
             "invalid {}: must start with ASCII letter or underscore, got {:?}",

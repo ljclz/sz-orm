@@ -140,46 +140,44 @@ impl SchemaGenerator {
         let mut out = String::new();
 
         // 文件头
-        writeln!(out, "{}", self.header).expect("write to String is infallible");
-        writeln!(out).expect("write to String is infallible");
+        let _ = writeln!(out, "{}", self.header);
+        let _ = writeln!(out);
 
         // use 语句
         if self.emit_use {
-            writeln!(out, "use sz_orm_core::typed_query;").expect("write to String is infallible");
+            let _ = writeln!(out, "use sz_orm_core::typed_query;");
             // 启用 Model struct 生成时，补充 serde 派生所需的 use 语句
             // 合并嵌套 if 为单层 if（clippy::collapsible_if）
             if self.emit_model_structs
                 && !self.model_derives.is_empty()
                 && self.model_derives.contains("serde::")
             {
-                writeln!(out, "use serde::{{Serialize, Deserialize}};")
-                    .expect("write to String is infallible");
+                let _ = writeln!(out, "use serde::{{Serialize, Deserialize}};");
             }
-            writeln!(out).expect("write to String is infallible");
+            let _ = writeln!(out);
         }
 
         // #41 修复：先生成 Model struct 定义（在 typed_query! 之前）
         if self.emit_model_structs {
             for (idx, table) in tables.iter().enumerate() {
                 if idx > 0 {
-                    writeln!(out).expect("write to String is infallible");
+                    let _ = writeln!(out);
                 }
-                write!(out, "{}", self.render_model_struct(table))
-                    .expect("write to String is infallible");
+                let _ = write!(out, "{}", self.render_model_struct(table));
             }
             // Model struct 与 typed_query! 之间空一行
             if !tables.is_empty() {
-                writeln!(out).expect("write to String is infallible");
-                writeln!(out).expect("write to String is infallible");
+                let _ = writeln!(out);
+                let _ = writeln!(out);
             }
         }
 
         // 每张表生成一个 typed_query! 声明
         for (idx, table) in tables.iter().enumerate() {
             if idx > 0 {
-                writeln!(out).expect("write to String is infallible");
+                let _ = writeln!(out);
             }
-            write!(out, "{}", self.render_table(table)).expect("write to String is infallible");
+            let _ = write!(out, "{}", self.render_table(table));
         }
 
         out
@@ -188,14 +186,13 @@ impl SchemaGenerator {
     /// 渲染单张表的 typed_query! 声明
     fn render_table(&self, table: &TableSchema) -> String {
         let mut out = String::new();
-        writeln!(out, "typed_query! {{").expect("write to String is infallible");
-        writeln!(out, "    table {} {{", table.name).expect("write to String is infallible");
+        let _ = writeln!(out, "typed_query! {{");
+        let _ = writeln!(out, "    table {} {{", table.name);
         for col in &table.columns {
-            writeln!(out, "        {}: {},", col.name, col.rust_type)
-                .expect("write to String is infallible");
+            let _ = writeln!(out, "        {}: {},", col.name, col.rust_type);
         }
-        writeln!(out, "    }}").expect("write to String is infallible");
-        writeln!(out, "}}").expect("write to String is infallible");
+        let _ = writeln!(out, "    }}");
+        let _ = writeln!(out, "}}");
         out
     }
 
@@ -208,17 +205,15 @@ impl SchemaGenerator {
         let mut out = String::new();
         // 派生属性
         if !self.model_derives.is_empty() {
-            writeln!(out, "#[derive({})]", self.model_derives)
-                .expect("write to String is infallible");
+            let _ = writeln!(out, "#[derive({})]", self.model_derives);
         }
         // 表名注解（便于 ORM 框架映射到具体表）
-        writeln!(out, "#[table_name = \"{}\"]", table.name).expect("write to String is infallible");
-        writeln!(out, "pub struct {} {{", struct_name).expect("write to String is infallible");
+        let _ = writeln!(out, "#[table_name = \"{}\"]", table.name);
+        let _ = writeln!(out, "pub struct {} {{", struct_name);
         for col in &table.columns {
-            writeln!(out, "    pub {}: {},", col.name, col.rust_type)
-                .expect("write to String is infallible");
+            let _ = writeln!(out, "    pub {}: {},", col.name, col.rust_type);
         }
-        writeln!(out, "}}").expect("write to String is infallible");
+        let _ = writeln!(out, "}}");
         out
     }
 }
