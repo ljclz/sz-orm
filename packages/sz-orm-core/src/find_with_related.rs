@@ -72,15 +72,15 @@ impl<'a> FindWithRelated<'a> {
         foreign_key: impl Into<String>,
         primary_key: impl Into<String>,
         left_join: bool,
-    ) -> Self {
+    ) -> Result<Self, crate::DbError> {
         let main_table = main_table.into();
         let related_table = related_table.into();
         let foreign_key = foreign_key.into();
         let primary_key = primary_key.into();
         // H-2 修复：构造时校验所有标识符
         validate_find_identifiers(&[&main_table, &related_table, &foreign_key, &primary_key])
-            .expect("invalid SQL identifier in FindWithRelated::new");
-        Self {
+            .map_err(crate::DbError::InvalidInput)?;
+        Ok(Self {
             dialect,
             main_table,
             related_table,
@@ -91,7 +91,7 @@ impl<'a> FindWithRelated<'a> {
             order_by: Vec::new(),
             limit: None,
             offset: None,
-        }
+        })
     }
 
     /// 追加 WHERE 条件（AND 连接）
@@ -242,7 +242,7 @@ pub fn find_with_related_join<'a>(
     foreign_key: &'a str,
     primary_key: &'a str,
     left_join: bool,
-) -> FindWithRelated<'a> {
+) -> Result<FindWithRelated<'a>, crate::DbError> {
     FindWithRelated::new(
         dialect,
         main_table,
@@ -276,10 +276,10 @@ pub fn find_with_related_eager_sql(
     related_table: &str,
     foreign_key: &str,
     main_where: Option<&str>,
-) -> (String, String) {
+) -> Result<(String, String), crate::DbError> {
     // H-2 修复：校验表名/列名为合法标识符
     validate_find_identifiers(&[main_table, related_table, foreign_key])
-        .expect("invalid SQL identifier in find_with_related_eager_sql");
+        .map_err(crate::DbError::InvalidInput)?;
 
     let main_sql = if let Some(w) = main_where {
         format!("SELECT * FROM {} WHERE {}", dialect.quote(main_table), w)
@@ -294,7 +294,7 @@ pub fn find_with_related_eager_sql(
         dialect.quote(foreign_key),
     );
 
-    (main_sql, related_sql)
+    Ok((main_sql, related_sql))
 }
 
 /// 生成子查询模式 SQL（适合 1:N 关联，避免主表行膨胀）
@@ -314,10 +314,10 @@ pub fn find_with_related_subquery(
     foreign_key: &str,
     primary_key: &str,
     related_where: Option<&str>,
-) -> String {
+) -> Result<String, crate::DbError> {
     // H-2 修复：校验表名/列名为合法标识符
     validate_find_identifiers(&[main_table, related_table, foreign_key, primary_key])
-        .expect("invalid SQL identifier in find_with_related_subquery");
+        .map_err(crate::DbError::InvalidInput)?;
 
     let inner = if let Some(w) = related_where {
         format!(
@@ -333,12 +333,12 @@ pub fn find_with_related_subquery(
             dialect.quote(related_table)
         )
     };
-    format!(
+    Ok(format!(
         "SELECT * FROM {} WHERE {} IN ({})",
         dialect.quote(main_table),
         dialect.quote(primary_key),
         inner
-    )
+    ))
 }
 
 // ============================================================================
@@ -399,17 +399,17 @@ pub struct WithRelation<'a> {
 
 impl<'a> WithRelation<'a> {
     /// 创建关联加载器
-    pub fn new(dialect: &'a dyn Dialect, main_table: impl Into<String>) -> Self {
+    pub fn new(dialect: &'a dyn Dialect, main_table: impl Into<String>) -> Result<Self, crate::DbError> {
         let main_table = main_table.into();
         // H-2 修复：校验主表名
         validate_find_identifiers(&[&main_table])
-            .expect("invalid SQL identifier in WithRelation::new");
-        Self {
+            .map_err(crate::DbError::InvalidInput)?;
+        Ok(Self {
             dialect,
             main_table,
             relations: Vec::new(),
             main_where: None,
-        }
+        })
     }
 
     /// 添加 HasMany 关联
@@ -418,12 +418,12 @@ impl<'a> WithRelation<'a> {
         related: &'a str,
         foreign_key: impl Into<String>,
         primary_key: impl Into<String>,
-    ) -> Self {
+    ) -> Result<Self, crate::DbError> {
         let foreign_key = foreign_key.into();
         let primary_key = primary_key.into();
         // H-2 修复：校验关联表名/列名
         validate_find_identifiers(&[related, &foreign_key, &primary_key])
-            .expect("invalid SQL identifier in with_has_many");
+            .map_err(crate::DbError::InvalidInput)?;
         self.relations.push((
             related,
             WithRelationItem {
@@ -434,7 +434,7 @@ impl<'a> WithRelation<'a> {
                 },
             },
         ));
-        self
+        Ok(self)
     }
 
     /// 添加 HasOne 关联
@@ -443,12 +443,12 @@ impl<'a> WithRelation<'a> {
         related: &'a str,
         foreign_key: impl Into<String>,
         primary_key: impl Into<String>,
-    ) -> Self {
+    ) -> Result<Self, crate::DbError> {
         let foreign_key = foreign_key.into();
         let primary_key = primary_key.into();
         // H-2 修复：校验关联表名/列名
         validate_find_identifiers(&[related, &foreign_key, &primary_key])
-            .expect("invalid SQL identifier in with_has_one");
+            .map_err(crate::DbError::InvalidInput)?;
         self.relations.push((
             related,
             WithRelationItem {
@@ -459,7 +459,7 @@ impl<'a> WithRelation<'a> {
                 },
             },
         ));
-        self
+        Ok(self)
     }
 
     /// 添加 BelongsTo 关联
@@ -468,12 +468,12 @@ impl<'a> WithRelation<'a> {
         related: &'a str,
         foreign_key: impl Into<String>,
         primary_key: impl Into<String>,
-    ) -> Self {
+    ) -> Result<Self, crate::DbError> {
         let foreign_key = foreign_key.into();
         let primary_key = primary_key.into();
         // H-2 修复：校验关联表名/列名
         validate_find_identifiers(&[related, &foreign_key, &primary_key])
-            .expect("invalid SQL identifier in with_belongs_to");
+            .map_err(crate::DbError::InvalidInput)?;
         self.relations.push((
             related,
             WithRelationItem {
@@ -484,7 +484,7 @@ impl<'a> WithRelation<'a> {
                 },
             },
         ));
-        self
+        Ok(self)
     }
 
     /// 执行 eager load（生成主表 SQL + 各关联表 SQL）
@@ -627,8 +627,12 @@ impl<'a> WithRelation<'a> {
         &self,
         name: &str,
         ids: impl IntoIterator<Item = impl ToString>,
-    ) -> Option<String> {
-        let (_, item) = self.relations.iter().find(|(n, _)| *n == name)?;
+    ) -> Result<Option<String>, crate::DbError> {
+        let (_, item) = self
+            .relations
+            .iter()
+            .find(|(n, _)| *n == name)
+            .ok_or_else(|| crate::DbError::NotFound(format!("relation '{}' not found", name)))?;
         let foreign_key = match &item.kind {
             WithRelationKind::HasMany { foreign_key, .. }
             | WithRelationKind::HasOne { foreign_key, .. }
@@ -639,18 +643,17 @@ impl<'a> WithRelation<'a> {
             .into_iter()
             .map(|v| {
                 let s = v.to_string();
-                crate::sql_safety::validate_id_value(&s)
-                    .expect("invalid id value in related_sql_with_ids");
-                s
+                crate::sql_safety::validate_id_value(&s)?;
+                Ok(s)
             })
-            .collect::<Vec<_>>()
+            .collect::<Result<Vec<_>, crate::DbError>>()?
             .join(", ");
-        Some(format!(
+        Ok(Some(format!(
             "SELECT * FROM {} WHERE {} IN ({})",
             self.dialect.quote(&item.related_table),
             self.dialect.quote(&foreign_key),
             ids_str,
-        ))
+        )))
     }
 
     /// 获取所有已注册的关联名
@@ -718,7 +721,7 @@ mod tests {
     #[test]
     fn join_left_basic() {
         let d = mysql_dialect();
-        let sql = FindWithRelated::new(&*d, "users", "profiles", "user_id", "id", true).build();
+        let sql = FindWithRelated::new(&*d, "users", "profiles", "user_id", "id", true).unwrap().build();
         assert!(sql.contains("SELECT `users`.*, `profiles`.*"));
         assert!(sql.contains("FROM `users`"));
         assert!(sql.contains("LEFT JOIN `profiles`"));
@@ -728,7 +731,7 @@ mod tests {
     #[test]
     fn join_inner_basic() {
         let d = mysql_dialect();
-        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", false).build();
+        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", false).unwrap().build();
         assert!(sql.contains("INNER JOIN `orders`"));
         assert!(!sql.contains("LEFT JOIN"));
     }
@@ -737,6 +740,7 @@ mod tests {
     fn join_with_where_order_limit() {
         let d = mysql_dialect();
         let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true)
+            .unwrap()
             .where_cond("users.status = 'active'")
             .where_cond("orders.amount > 100")
             .order_desc("orders.created_at")
@@ -752,7 +756,7 @@ mod tests {
     #[test]
     fn join_pg_dialect() {
         let d = pg_dialect();
-        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true).build();
+        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true).unwrap().build();
         assert!(sql.contains("SELECT \"users\".*, \"orders\".*"));
         assert!(sql.contains("LEFT JOIN \"orders\""));
         assert!(sql.contains("ON \"orders\".\"user_id\" = \"users\".\"id\""));
@@ -761,7 +765,7 @@ mod tests {
     #[test]
     fn join_sqlite_dialect() {
         let d = sqlite_dialect();
-        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true).build();
+        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true).unwrap().build();
         // SQLite 方言使用双引号（与 PG 类似）
         assert!(sql.contains("LEFT JOIN \"orders\""));
     }
@@ -770,7 +774,7 @@ mod tests {
     fn eager_sql_basic() {
         let d = mysql_dialect();
         let (main_sql, related_sql) =
-            find_with_related_eager_sql(&*d, "users", "orders", "user_id", Some("users.id > 0"));
+            find_with_related_eager_sql(&*d, "users", "orders", "user_id", Some("users.id > 0")).unwrap();
         assert_eq!(main_sql, "SELECT * FROM `users` WHERE users.id > 0");
         assert_eq!(related_sql, "SELECT * FROM `orders` WHERE `user_id` IN (?)");
     }
@@ -779,7 +783,7 @@ mod tests {
     fn eager_sql_no_where() {
         let d = mysql_dialect();
         let (main_sql, related_sql) =
-            find_with_related_eager_sql(&*d, "users", "orders", "user_id", None);
+            find_with_related_eager_sql(&*d, "users", "orders", "user_id", None).unwrap();
         assert_eq!(main_sql, "SELECT * FROM `users`");
         assert_eq!(related_sql, "SELECT * FROM `orders` WHERE `user_id` IN (?)");
     }
@@ -794,7 +798,7 @@ mod tests {
             "user_id",
             "id",
             Some("orders.amount > 100"),
-        );
+        ).unwrap();
         assert_eq!(
             sql,
             "SELECT * FROM `users` WHERE `id` IN (SELECT `user_id` FROM `orders` WHERE orders.amount > 100)"
@@ -804,7 +808,7 @@ mod tests {
     #[test]
     fn subquery_no_where() {
         let d = mysql_dialect();
-        let sql = find_with_related_subquery(&*d, "users", "orders", "user_id", "id", None);
+        let sql = find_with_related_subquery(&*d, "users", "orders", "user_id", "id", None).unwrap();
         assert_eq!(
             sql,
             "SELECT * FROM `users` WHERE `id` IN (SELECT `user_id` FROM `orders`)"
@@ -923,7 +927,7 @@ mod tests {
     #[test]
     fn empty_where_produces_no_where_clause() {
         let d = mysql_dialect();
-        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true).build();
+        let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true).unwrap().build();
         assert!(!sql.contains("WHERE"));
     }
 
@@ -931,6 +935,7 @@ mod tests {
     fn multiple_order_by() {
         let d = mysql_dialect();
         let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true)
+            .unwrap()
             .order_by("users.id")
             .order_desc("orders.created_at")
             .build();
@@ -941,6 +946,7 @@ mod tests {
     fn find_with_related_join_convenience_fn() {
         let d = mysql_dialect();
         let sql = find_with_related_join(&*d, "users", "orders", "user_id", "id", true)
+            .unwrap()
             .where_cond("users.id = 1")
             .build();
         assert!(sql.contains("WHERE users.id = 1"));
@@ -951,8 +957,8 @@ mod tests {
     #[test]
     fn with_relation_load_has_many_eager() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(Some("users.id IN (1, 2, 3)"))
             .expect("load_eager should succeed for non-duplicate relations");
         assert_eq!(
@@ -968,12 +974,14 @@ mod tests {
         assert_eq!(
             loader
                 .related_sql_with_ids("orders", [1_i64, 2, 3])
+                .unwrap()
                 .unwrap(),
             "SELECT * FROM `orders` WHERE `user_id` IN (1, 2, 3)"
         );
         assert_eq!(
             loader
                 .related_sql_with_ids("orders", ["a", "b", "c"])
+                .unwrap()
                 .unwrap(),
             "SELECT * FROM `orders` WHERE `user_id` IN (a, b, c)"
         );
@@ -982,8 +990,8 @@ mod tests {
     #[test]
     fn with_relation_load_has_one_join() {
         let d = mysql_dialect();
-        let sql = WithRelation::new(&*d, "users")
-            .with_has_one("profiles", "user_id", "id")
+        let sql = WithRelation::new(&*d, "users").unwrap()
+            .with_has_one("profiles", "user_id", "id").unwrap()
             .load_join(Some("users.id = 1"))
             .expect("load_join should succeed for non-duplicate relations");
         assert!(sql.contains("LEFT JOIN `profiles`"));
@@ -994,8 +1002,8 @@ mod tests {
     #[test]
     fn with_relation_load_belongs_to_join() {
         let d = mysql_dialect();
-        let sql = WithRelation::new(&*d, "orders")
-            .with_belongs_to("users", "user_id", "id")
+        let sql = WithRelation::new(&*d, "orders").unwrap()
+            .with_belongs_to("users", "user_id", "id").unwrap()
             .load_join(None)
             .expect("load_join should succeed for non-duplicate relations");
         // BelongsTo: orders.user_id → users.id（INNER JOIN）
@@ -1007,10 +1015,10 @@ mod tests {
     #[test]
     fn with_relation_multiple_relations_eager() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
-            .with_has_many("posts", "author_id", "id")
-            .with_has_one("profiles", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
+            .with_has_many("posts", "author_id", "id").unwrap()
+            .with_has_one("profiles", "user_id", "id").unwrap()
             .load_eager(None)
             .expect("load_eager should succeed for non-duplicate relations");
         assert_eq!(loader.main_sql(), "SELECT * FROM `users`");
@@ -1025,13 +1033,14 @@ mod tests {
     #[test]
     fn with_relation_load_eager_with_specific_ids() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(None)
             .expect("load_eager should succeed for non-duplicate relations");
         // 自定义 ID 列表（i64 数组直接传入，泛型自动推断）
         let orders_sql = loader
             .related_sql_with_ids("orders", [1_i64, 5, 10])
+            .unwrap()
             .unwrap();
         assert_eq!(
             orders_sql,
@@ -1042,8 +1051,8 @@ mod tests {
     #[test]
     fn with_relation_pg_dialect_eager() {
         let d = pg_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(Some("users.id > 100"))
             .expect("load_eager should succeed for non-duplicate relations");
         assert_eq!(
@@ -1057,7 +1066,7 @@ mod tests {
         );
         // 使用具体 ID 列表（PG 方言）
         assert_eq!(
-            loader.related_sql_with_ids("orders", [100_i64]).unwrap(),
+            loader.related_sql_with_ids("orders", [100_i64]).unwrap().unwrap(),
             "SELECT * FROM \"orders\" WHERE \"user_id\" IN (100)"
         );
     }
@@ -1065,8 +1074,8 @@ mod tests {
     #[test]
     fn with_relation_sqlite_dialect_join() {
         let d = sqlite_dialect();
-        let sql = WithRelation::new(&*d, "users")
-            .with_has_one("profiles", "user_id", "id")
+        let sql = WithRelation::new(&*d, "users").unwrap()
+            .with_has_one("profiles", "user_id", "id").unwrap()
             .load_join(None)
             .expect("load_join should succeed for non-duplicate relations");
         assert!(sql.contains("LEFT JOIN \"profiles\""));
@@ -1075,57 +1084,57 @@ mod tests {
     // v0.2.2 修复 C-5：SQL 注入测试套件
 
     #[test]
-    #[should_panic(expected = "invalid id value")]
     fn with_relation_rejects_sql_injection_in_id_semicolon() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(None)
             .expect("load_eager should succeed for non-duplicate relations");
-        let _ = loader.related_sql_with_ids("orders", ["1; DROP TABLE users"]);
+        let err = loader.related_sql_with_ids("orders", ["1; DROP TABLE users"]).unwrap_err();
+        assert!(matches!(err, crate::DbError::InvalidInput(_)));
     }
 
     #[test]
-    #[should_panic(expected = "invalid id value")]
     fn with_relation_rejects_sql_injection_in_id_or() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(None)
             .expect("load_eager should succeed for non-duplicate relations");
-        let _ = loader.related_sql_with_ids("orders", ["1) OR 1=1"]);
+        let err = loader.related_sql_with_ids("orders", ["1) OR 1=1"]).unwrap_err();
+        assert!(matches!(err, crate::DbError::InvalidInput(_)));
     }
 
     #[test]
-    #[should_panic(expected = "invalid id value")]
     fn with_relation_rejects_sql_injection_in_id_quote() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(None)
             .expect("load_eager should succeed for non-duplicate relations");
-        let _ = loader.related_sql_with_ids("orders", ["' OR '1'='1"]);
+        let err = loader.related_sql_with_ids("orders", ["' OR '1'='1"]).unwrap_err();
+        assert!(matches!(err, crate::DbError::InvalidInput(_)));
     }
 
     #[test]
-    #[should_panic(expected = "invalid id value")]
     fn with_relation_rejects_sql_injection_in_id_comment() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(None)
             .expect("load_eager should succeed for non-duplicate relations");
-        let _ = loader.related_sql_with_ids("orders", ["1--"]);
+        let err = loader.related_sql_with_ids("orders", ["1--"]).unwrap_err();
+        assert!(matches!(err, crate::DbError::InvalidInput(_)));
     }
 
     #[test]
-    #[should_panic(expected = "invalid id value")]
     fn with_relation_rejects_sql_injection_in_id_with_space() {
         let d = mysql_dialect();
-        let loader = WithRelation::new(&*d, "users")
-            .with_has_many("orders", "user_id", "id")
+        let loader = WithRelation::new(&*d, "users").unwrap()
+            .with_has_many("orders", "user_id", "id").unwrap()
             .load_eager(None)
             .expect("load_eager should succeed for non-duplicate relations");
-        let _ = loader.related_sql_with_ids("orders", ["1 2"]);
+        let err = loader.related_sql_with_ids("orders", ["1 2"]).unwrap_err();
+        assert!(matches!(err, crate::DbError::InvalidInput(_)));
     }
 }

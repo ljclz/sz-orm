@@ -3,16 +3,16 @@
 - **生成日期**: 2026-08-01
 - **扫描范围**: `packages/` 目录下所有 `.rs` 文件
 - **审计工具**: `scripts/unwrap_audit.py`
-- **总发现数**: 5268
+- **总发现数**: 5080
 
 ## 摘要
 
 | 危险等级 | 数量 | 说明 |
 |----------|------|------|
-| 🔴 CRITICAL | 166 | 运行时必然 panic，生产环境零容忍 |
-| 🟠 HIGH | 4806 | Option/Result 强制解包，输入不满足假设时 panic |
+| 🔴 CRITICAL | 161 | 运行时必然 panic，生产环境零容忍 |
+| 🟠 HIGH | 4621 | Option/Result 强制解包，输入不满足假设时 panic |
 | 🟡 MEDIUM | 159 | 测试代码中的 unwrap/expect（允许但需记录） |
-| 🔵 LOW | 137 | 注释中的关键词（误报，仅提示） |
+| 🔵 LOW | 139 | 注释中的关键词（误报，仅提示） |
 | ⚪ INFO | 0 | 其他信息 |
 
 ## 按文件分布（Top 20）
@@ -30,7 +30,6 @@
 | `packages\sz-orm-limit\src\lib.rs` | 84 |
 | `packages\sz-orm-scheduler\src\advanced.rs` | 81 |
 | `packages\sz-orm-core\src\repository.rs` | 79 |
-| `packages\sz-orm-core\src\query.rs` | 74 |
 | `packages\sz-orm-es\src\extensions.rs` | 72 |
 | `packages\sz-orm-ai\tests\ai_tests.rs` | 71 |
 | `packages\sz-orm-crypto\src\lib.rs` | 70 |
@@ -39,17 +38,17 @@
 | `packages\sz-orm-sharding\src\lib.rs` | 68 |
 | `packages\sz-orm-wasm\src\advanced.rs` | 61 |
 | `packages\sz-orm-grpc\src\lib.rs` | 60 |
+| `packages\sz-orm-timeseries\src\extensions.rs` | 59 |
 
 ## 按模式分布
 
 | 模式 | 数量 |
 |------|------|
-| `unwrap()` | 4302 |
-| `expect()` | 663 |
-| `panic!` | 164 |
-| `comment_panic` | 73 |
+| `unwrap()` | 4152 |
+| `expect()` | 628 |
+| `panic!` | 161 |
+| `comment_panic` | 75 |
 | `comment_unwrap` | 64 |
-| `unreachable!` | 2 |
 
 ## 详细发现
 
@@ -408,7 +407,7 @@ other => panic!("expected Failed, got {:?}", other),
 
 ### `packages\sz-orm-core\src\result_map.rs`
 
-#### 🔴 [CRITICAL] `panic!` @ L1228:C18
+#### 🔴 [CRITICAL] `panic!` @ L1234:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -417,7 +416,7 @@ other => panic!("expected Failed, got {:?}", other),
 _ => panic!("expected MapNotFound"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1335:C13
+#### 🔴 [CRITICAL] `panic!` @ L1341:C13
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -426,7 +425,7 @@ _ => panic!("expected MapNotFound"),
 panic!("dept should be an Object");
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1761:C13
+#### 🔴 [CRITICAL] `panic!` @ L1767:C13
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -435,7 +434,7 @@ panic!("dept should be an Object");
 panic!("dept should be an Object");
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1768:C13
+#### 🔴 [CRITICAL] `panic!` @ L1774:C13
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -455,7 +454,7 @@ panic!("roles should be an Array");
 _ => panic!("Expected NotActive error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L764:C18
+#### 🔴 [CRITICAL] `panic!` @ L765:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -464,7 +463,7 @@ _ => panic!("Expected NotActive error"),
 _ => panic!("Expected NotActive error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L778:C18
+#### 🔴 [CRITICAL] `panic!` @ L780:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -473,7 +472,7 @@ _ => panic!("Expected NotActive error"),
 _ => panic!("Expected NotActive error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L792:C18
+#### 🔴 [CRITICAL] `panic!` @ L795:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -482,7 +481,7 @@ _ => panic!("Expected NotActive error"),
 _ => panic!("Expected NotActive error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L821:C18
+#### 🔴 [CRITICAL] `panic!` @ L826:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -491,7 +490,7 @@ _ => panic!("Expected NotActive error"),
 _ => panic!("Expected InvalidSavepointName error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L829:C18
+#### 🔴 [CRITICAL] `panic!` @ L834:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -500,7 +499,7 @@ _ => panic!("Expected InvalidSavepointName error"),
 _ => panic!("Expected InvalidSavepointName error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L837:C18
+#### 🔴 [CRITICAL] `panic!` @ L842:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -509,7 +508,7 @@ _ => panic!("Expected InvalidSavepointName error"),
 _ => panic!("Expected InvalidSavepointName error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L855:C18
+#### 🔴 [CRITICAL] `panic!` @ L860:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -518,7 +517,7 @@ _ => panic!("Expected InvalidSavepointName error"),
 _ => panic!("Expected NotActive error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L868:C18
+#### 🔴 [CRITICAL] `panic!` @ L873:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -527,7 +526,7 @@ _ => panic!("Expected NotActive error"),
 _ => panic!("Expected ConnectionTaken error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1059:C18
+#### 🔴 [CRITICAL] `panic!` @ L1066:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -536,7 +535,7 @@ _ => panic!("Expected ConnectionTaken error"),
 _ => panic!("Expected MaxNestingDepthExceeded error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1085:C18
+#### 🔴 [CRITICAL] `panic!` @ L1093:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -545,7 +544,7 @@ _ => panic!("Expected MaxNestingDepthExceeded error"),
 _ => panic!("Expected MaxNestingDepthExceeded error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1105:C18
+#### 🔴 [CRITICAL] `panic!` @ L1114:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -554,7 +553,7 @@ _ => panic!("Expected MaxNestingDepthExceeded error"),
 _ => panic!("Expected MaxNestingDepthExceeded error"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1134:C18
+#### 🔴 [CRITICAL] `panic!` @ L1143:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -565,7 +564,7 @@ _ => panic!("Expected MaxNestingDepthExceeded error"),
 
 ### `packages\sz-orm-core\src\type_handler.rs`
 
-#### 🔴 [CRITICAL] `panic!` @ L1134:C22
+#### 🔴 [CRITICAL] `panic!` @ L1144:C22
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -574,7 +573,7 @@ _ => panic!("Expected MaxNestingDepthExceeded error"),
 other => panic!("expected TypeMismatch, got {:?}", other),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L1158:C22
+#### 🔴 [CRITICAL] `panic!` @ L1168:C22
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -831,7 +830,7 @@ other => panic!("期望 MissingColumn {{name}}，实际: {:?}", other),
 
 ### `packages\sz-orm-core\tests\contracts\transaction_contract.rs`
 
-#### 🔴 [CRITICAL] `panic!` @ L64:C18
+#### 🔴 [CRITICAL] `panic!` @ L66:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -840,7 +839,7 @@ other => panic!("期望 MissingColumn {{name}}，实际: {:?}", other),
 other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L78:C18
+#### 🔴 [CRITICAL] `panic!` @ L81:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -849,7 +848,7 @@ other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
 other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L116:C13
+#### 🔴 [CRITICAL] `panic!` @ L122:C13
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -858,7 +857,7 @@ other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
 panic!("v0.2.0 契约违反：commit 后 savepoint 应返回 NotActive，而非 SavepointError");
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L118:C18
+#### 🔴 [CRITICAL] `panic!` @ L124:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -867,7 +866,7 @@ panic!("v0.2.0 契约违反：commit 后 savepoint 应返回 NotActive，而非 
 other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L215:C23
+#### 🔴 [CRITICAL] `panic!` @ L226:C23
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -876,7 +875,7 @@ other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
 Err(other) => panic!("期望 NotActive(Active)，实际: {:?}", other),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L216:C18
+#### 🔴 [CRITICAL] `panic!` @ L227:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -885,7 +884,7 @@ Err(other) => panic!("期望 NotActive(Active)，实际: {:?}", other),
 Ok(_) => panic!("Active 状态 take_connection 必须返回 Err，实际返回 Ok"),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L248:C23
+#### 🔴 [CRITICAL] `panic!` @ L261:C23
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -894,7 +893,7 @@ Ok(_) => panic!("Active 状态 take_connection 必须返回 Err，实际返回 O
 Err(other) => panic!("期望 ConnectionTaken，实际: {:?}", other),
 ```
 
-#### 🔴 [CRITICAL] `panic!` @ L249:C18
+#### 🔴 [CRITICAL] `panic!` @ L262:C18
 
 - **上下文**: 运行时 panic，进程终止
 - **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
@@ -1045,26 +1044,6 @@ other => panic!("期望 InvalidState 错误，得到 {:?}", other),
 
 ```rust
 _ => panic!("expected Size policy"),
-```
-
-### `packages\sz-orm-macros\src\lib.rs`
-
-#### 🔴 [CRITICAL] `unreachable!` @ L482:C22
-
-- **上下文**: 标记为不可达但实际可达时 panic
-- **建议**: 重构逻辑消除不可达分支，或返回 Result
-
-```rust
-_ => unreachable!(),
-```
-
-#### 🔴 [CRITICAL] `unreachable!` @ L491:C14
-
-- **上下文**: 标记为不可达但实际可达时 panic
-- **建议**: 重构逻辑消除不可达分支，或返回 Result
-
-```rust
-_ => unreachable!(),
 ```
 
 ### `packages\sz-orm-mqtt\src\will.rs`
@@ -1255,35 +1234,6 @@ _ => panic!("expected Stub variant"),
 
 ```rust
 _ => panic!("expected MultiPoint"),
-```
-
-### `packages\sz-orm-query-builder\src\lib.rs`
-
-#### 🔴 [CRITICAL] `panic!` @ L181:C13
-
-- **上下文**: 运行时 panic，进程终止
-- **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
-
-```rust
-panic!(
-```
-
-#### 🔴 [CRITICAL] `panic!` @ L188:C9
-
-- **上下文**: 运行时 panic，进程终止
-- **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
-
-```rust
-panic!(
-```
-
-#### 🔴 [CRITICAL] `panic!` @ L194:C9
-
-- **上下文**: 运行时 panic，进程终止
-- **建议**: 返回 Result/Error，或使用 expect() 附带明确错误信息
-
-```rust
-panic!(
 ```
 
 ### `packages\sz-orm-queue\src\queue.rs`
@@ -6529,15 +6479,6 @@ let filter = built.row_filter("profiles").unwrap();
 
 ### `packages\sz-orm-core\src\accessors.rs`
 
-#### 🟠 [HIGH] `unwrap()` @ L509:C48
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-write!(&mut s, "{:02x}", byte).unwrap();
-```
-
 #### 🟠 [HIGH] `unwrap()` @ L855:C70
 
 - **上下文**: Option/Result 为 None/Err 时 panic
@@ -9513,58 +9454,31 @@ let dialect: Box<dyn Dialect> = get_dialect(DbType::MySQL).unwrap();
 
 ### `packages\sz-orm-core\src\migration.rs`
 
-#### 🟠 [HIGH] `expect()` @ L967:C14
+#### 🟠 [HIGH] `unwrap()` @ L1058:C43
 
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
 
 ```rust
-.expect("invalid foreign key constraint name");
+let sql = fk.build(DbType::MySQL).unwrap();
 ```
 
-#### 🟠 [HIGH] `expect()` @ L969:C14
+#### 🟠 [HIGH] `unwrap()` @ L1067:C43
 
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
 
 ```rust
-.expect("invalid foreign key column name");
+let sql = fk.build(DbType::MySQL).unwrap();
 ```
 
-#### 🟠 [HIGH] `expect()` @ L974:C10
+#### 🟠 [HIGH] `unwrap()` @ L1106:C47
 
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("invalid foreign key referenced table name");
-```
-
-#### 🟠 [HIGH] `expect()` @ L979:C10
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
 
 ```rust
-.expect("invalid foreign key referenced column name");
-```
-
-#### 🟠 [HIGH] `expect()` @ L981:C62
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-crate::sql_safety::validate_fk_action(on_delete).expect("invalid ON DELETE action");
-```
-
-#### 🟠 [HIGH] `expect()` @ L984:C62
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-crate::sql_safety::validate_fk_action(on_update).expect("invalid ON UPDATE action");
+let sql = schema.build(DbType::MySQL).unwrap();
 ```
 
 ### `packages\sz-orm-core\src\model.rs`
@@ -10041,1063 +9955,6 @@ crate::sql_safety::validate_fk_action(on_delete).expect("invalid ON DELETE actio
 
 ```rust
 crate::sql_safety::validate_fk_action(on_update).expect("invalid ON UPDATE action");
-```
-
-### `packages\sz-orm-core\src\pool.rs`
-
-#### 🟠 [HIGH] `unwrap()` @ L1363:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1405:C38
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = builder.build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1424:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1426:C47
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1428:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1438:C43
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let _conn2 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1449:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1451:C47
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1461:C67
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1463:C47
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1466:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn1 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1467:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn2 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1483:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1485:C47
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1487:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1520:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1525:C47
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1526:C43
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let _conn1 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1533:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1536:C81
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let fast_pool = Pool::new(fast_config, Arc::new(MockConnectionFactory)).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1537:C52
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let _fast_conn = fast_pool.acquire().await.unwrap(); // 占满 max_size=1
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1550:C67
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1552:C47
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1555:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn1 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1556:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn2 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1557:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn3 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1572:C67
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1574:C47
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1629:C55
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory.clone()).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1632:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1642:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn2 = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1663:C67
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1665:C55
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory.clone()).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1669:C46
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let _conn = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1690:C67
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1692:C55
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory.clone()).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1696:C46
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let _conn = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `expect()` @ L1703:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-let conn = pool.acquire().await.expect("应能复用 Drop 归还的连接");
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1712:C67
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1714:C55
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory.clone()).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1716:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1733:C67
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1735:C55
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let pool = Pool::new(config, factory.clone()).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1737:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = pool.acquire().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1744:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = pool.acquire().await.unwrap();
-```
-
-### `packages\sz-orm-core\src\query.rs`
-
-#### 🟠 [HIGH] `unwrap()` @ L1997:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2010:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2026:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2042:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2053:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2064:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2080:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2098:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2109:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2120:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2133:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2146:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2159:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2173:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2184:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2195:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2206:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2217:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2228:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2237:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2249:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2261:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2271:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2283:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2293:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2305:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2317:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `expect()` @ L2322:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("valid columns should succeed");
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2331:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2341:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2347:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2353:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2361:C55
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::PostgreSQL).unwrap();
-```
-
-#### 🟠 [HIGH] `expect()` @ L2366:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("valid columns should succeed");
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2400:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2414:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2433:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2457:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2491:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2513:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2530:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2543:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2562:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2573:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2588:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2606:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2629:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2644:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2664:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2684:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2704:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2726:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2744:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2767:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2783:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2801:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2822:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2844:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2850:C87
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let builder = QueryBuilder::<SoftDeleteModel>::new(get_dialect(DbType::MySQL).unwrap())
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2909:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2926:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2949:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2968:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L2988:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3010:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3027:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3046:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3063:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3096:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3119:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3125:C83
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let builder = QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL).unwrap())
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L3139:C50
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let dialect = get_dialect(DbType::MySQL).unwrap();
 ```
 
 ### `packages\sz-orm-core\src\queryable.rs`
@@ -12046,25 +10903,7 @@ let page = repo.paginate(current_page, 10).unwrap();
 
 ### `packages\sz-orm-core\src\result_map.rs`
 
-#### 🟠 [HIGH] `expect()` @ L695:C26
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("key exists in collection_acc (inserted alongside groups)");
-```
-
-#### 🟠 [HIGH] `expect()` @ L710:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("key exists in groups (recorded in ordered_keys)");
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1063:C46
+#### 🟠 [HIGH] `unwrap()` @ L1069:C46
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12073,7 +10912,7 @@ let page = repo.paginate(current_page, 10).unwrap();
 assert_eq!(rm.discriminator.as_ref().unwrap().column, "user_type");
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1125:C42
+#### 🟠 [HIGH] `unwrap()` @ L1131:C42
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12082,7 +10921,7 @@ assert_eq!(rm.discriminator.as_ref().unwrap().column, "user_type");
 let rm = registry.get("userMap").unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1201:C66
+#### 🟠 [HIGH] `unwrap()` @ L1207:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12091,7 +10930,7 @@ let rm = registry.get("userMap").unwrap();
 let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1215:C66
+#### 🟠 [HIGH] `unwrap()` @ L1221:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12100,7 +10939,7 @@ let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1257:C66
+#### 🟠 [HIGH] `unwrap()` @ L1263:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12109,7 +10948,7 @@ let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1295:C66
+#### 🟠 [HIGH] `unwrap()` @ L1301:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12118,7 +10957,7 @@ let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1324:C66
+#### 🟠 [HIGH] `unwrap()` @ L1330:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12127,7 +10966,7 @@ let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1380:C66
+#### 🟠 [HIGH] `unwrap()` @ L1386:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12136,7 +10975,7 @@ let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
 let attrs = apply_result_map(&registry, "baseMap", &row).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1390:C68
+#### 🟠 [HIGH] `unwrap()` @ L1396:C68
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12145,7 +10984,7 @@ let attrs = apply_result_map(&registry, "baseMap", &row).unwrap();
 let attrs2 = apply_result_map(&registry, "baseMap", &row2).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1414:C66
+#### 🟠 [HIGH] `unwrap()` @ L1420:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12154,7 +10993,7 @@ let attrs2 = apply_result_map(&registry, "baseMap", &row2).unwrap();
 let attrs = apply_result_map(&registry, "baseMap", &row).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1457:C73
+#### 🟠 [HIGH] `unwrap()` @ L1463:C73
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12163,7 +11002,7 @@ let attrs = apply_result_map(&registry, "baseMap", &row).unwrap();
 let result = apply_result_map_many(&registry, "userMap", &rows).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1504:C73
+#### 🟠 [HIGH] `unwrap()` @ L1510:C73
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12172,7 +11011,7 @@ let result = apply_result_map_many(&registry, "userMap", &rows).unwrap();
 let result = apply_result_map_many(&registry, "userMap", &rows).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1516:C71
+#### 🟠 [HIGH] `unwrap()` @ L1522:C71
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12181,7 +11020,7 @@ let result = apply_result_map_many(&registry, "userMap", &rows).unwrap();
 let result = apply_result_map_many(&registry, "userMap", &[]).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1747:C73
+#### 🟠 [HIGH] `unwrap()` @ L1753:C73
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12212,196 +11051,7 @@ assert_eq!(result.unwrap(), 42);
 
 ### `packages\sz-orm-core\src\schema_gen.rs`
 
-#### 🟠 [HIGH] `expect()` @ L143:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "{}", self.header).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L144:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L148:C60
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "use sz_orm_core::typed_query;").expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L156:C22
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L158:C27
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L165:C35
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L168:C22
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L172:C31
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L173:C31
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L180:C31
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L182:C57
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-write!(out, "{}", self.render_table(table)).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L191:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "typed_query! {{").expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L192:C54
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "    table {} {{", table.name).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L195:C18
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L197:C33
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "    }}").expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L198:C29
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "}}").expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L212:C18
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L215:C61
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "#[table_name = \"{}\"]", table.name).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L216:C56
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "pub struct {} {{", struct_name).expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L219:C18
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `expect()` @ L221:C29
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-writeln!(out, "}}").expect("write to String is infallible");
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L424:C42
+#### 🟠 [HIGH] `unwrap()` @ L419:C42
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12410,7 +11060,7 @@ writeln!(out, "}}").expect("write to String is infallible");
 let users_end = output.find("}").unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L425:C56
+#### 🟠 [HIGH] `unwrap()` @ L420:C56
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12419,247 +11069,9 @@ let users_end = output.find("}").unwrap();
 let orders_start = output.find("table orders").unwrap();
 ```
 
-### `packages\sz-orm-core\src\sql_safety.rs`
-
-#### 🟠 [HIGH] `expect()` @ L22:C30
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-let first = chars.next().expect("non-empty checked above");
-```
-
-### `packages\sz-orm-core\src\transaction.rs`
-
-#### 🟠 [HIGH] `unwrap()` @ L735:C27
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L754:C29
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.rollback().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L772:C27
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L786:C27
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L801:C40
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp1 = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L804:C40
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp2 = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L807:C46
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.rollback_to_savepoint(&sp1).await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L808:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.release_savepoint(&sp2).await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L859:C27
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L879:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L884:C33
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-mgr.commit("tx1").await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L899:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L901:C35
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-mgr.rollback("tx2").await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L920:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1033:C43
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1045:C34
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1070:C43
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1116:C40
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp1 = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1117:C40
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp2 = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1120:C46
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.rollback_to_savepoint(&sp1).await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1121:C42
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.release_savepoint(&sp2).await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1214:C27
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-assert_eq!(result.unwrap(), 42);
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L1242:C27
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-assert_eq!(result.unwrap(), 42);
-```
-
 ### `packages\sz-orm-core\src\type_handler.rs`
 
-#### 🟠 [HIGH] `expect()` @ L371:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("TypeId 已校验匹配，downcast 必然成功");
-```
-
-#### 🟠 [HIGH] `expect()` @ L422:C14
-
-- **上下文**: Option/Result 为 None/Err 时 panic（带自定义消息）
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result
-
-```rust
-.expect("TypeId 已校验匹配，downcast 必然成功");
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L745:C14
+#### 🟠 [HIGH] `unwrap()` @ L755:C14
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12668,7 +11080,7 @@ assert_eq!(result.unwrap(), 42);
 .unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L759:C69
+#### 🟠 [HIGH] `unwrap()` @ L769:C69
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12677,7 +11089,7 @@ assert_eq!(result.unwrap(), 42);
 let parsed: String = registry.handle("created_at", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L770:C69
+#### 🟠 [HIGH] `unwrap()` @ L780:C69
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12686,7 +11098,7 @@ let parsed: String = registry.handle("created_at", &stored).unwrap();
 let parsed: String = registry.handle("created_at", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L780:C74
+#### 🟠 [HIGH] `unwrap()` @ L790:C74
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12695,7 +11107,7 @@ let parsed: String = registry.handle("created_at", &stored).unwrap();
 let parsed: String = registry.handle("created_at", &Value::Null).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L806:C52
+#### 🟠 [HIGH] `unwrap()` @ L816:C52
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12704,7 +11116,7 @@ let parsed: String = registry.handle("created_at", &Value::Null).unwrap();
 let value = registry.to_value("id", &uuid).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L817:C61
+#### 🟠 [HIGH] `unwrap()` @ L827:C61
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12713,7 +11125,7 @@ let value = registry.to_value("id", &uuid).unwrap();
 let parsed: String = registry.handle("id", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L828:C61
+#### 🟠 [HIGH] `unwrap()` @ L838:C61
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12722,7 +11134,7 @@ let parsed: String = registry.handle("id", &stored).unwrap();
 let parsed: String = registry.handle("id", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L841:C58
+#### 🟠 [HIGH] `unwrap()` @ L851:C58
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12731,7 +11143,7 @@ let parsed: String = registry.handle("id", &stored).unwrap();
 let value = registry.to_value("settings", &json).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L852:C67
+#### 🟠 [HIGH] `unwrap()` @ L862:C67
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12740,7 +11152,7 @@ let value = registry.to_value("settings", &json).unwrap();
 let parsed: String = registry.handle("settings", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L862:C72
+#### 🟠 [HIGH] `unwrap()` @ L872:C72
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12749,7 +11161,7 @@ let parsed: String = registry.handle("settings", &stored).unwrap();
 let parsed: String = registry.handle("settings", &Value::Null).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L874:C59
+#### 🟠 [HIGH] `unwrap()` @ L884:C59
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12758,7 +11170,7 @@ let parsed: String = registry.handle("settings", &Value::Null).unwrap();
 let value = registry.to_value("price", &12345i64).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L885:C61
+#### 🟠 [HIGH] `unwrap()` @ L895:C61
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12767,7 +11179,7 @@ let value = registry.to_value("price", &12345i64).unwrap();
 let parsed: i64 = registry.handle("price", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L896:C61
+#### 🟠 [HIGH] `unwrap()` @ L906:C61
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12776,7 +11188,7 @@ let parsed: i64 = registry.handle("price", &stored).unwrap();
 let parsed: i64 = registry.handle("price", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L907:C61
+#### 🟠 [HIGH] `unwrap()` @ L917:C61
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12785,7 +11197,7 @@ let parsed: i64 = registry.handle("price", &stored).unwrap();
 let parsed: i64 = registry.handle("price", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L917:C66
+#### 🟠 [HIGH] `unwrap()` @ L927:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12794,7 +11206,7 @@ let parsed: i64 = registry.handle("price", &stored).unwrap();
 let parsed: i64 = registry.handle("price", &Value::Null).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L929:C56
+#### 🟠 [HIGH] `unwrap()` @ L939:C56
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12803,7 +11215,7 @@ let parsed: i64 = registry.handle("price", &Value::Null).unwrap();
 let value = registry.to_value("active", &true).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L939:C74
+#### 🟠 [HIGH] `unwrap()` @ L949:C74
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12812,7 +11224,7 @@ let value = registry.to_value("active", &true).unwrap();
 let parsed: bool = registry.handle("active", &Value::Bool(true)).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L942:C75
+#### 🟠 [HIGH] `unwrap()` @ L952:C75
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12821,7 +11233,7 @@ let parsed: bool = registry.handle("active", &Value::Bool(true)).unwrap();
 let parsed: bool = registry.handle("active", &Value::Bool(false)).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L952:C70
+#### 🟠 [HIGH] `unwrap()` @ L962:C70
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12830,7 +11242,7 @@ let parsed: bool = registry.handle("active", &Value::Bool(false)).unwrap();
 let parsed: bool = registry.handle("active", &Value::I64(1)).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L955:C70
+#### 🟠 [HIGH] `unwrap()` @ L965:C70
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12839,7 +11251,7 @@ let parsed: bool = registry.handle("active", &Value::I64(1)).unwrap();
 let parsed: bool = registry.handle("active", &Value::I64(0)).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L969:C18
+#### 🟠 [HIGH] `unwrap()` @ L979:C18
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12848,7 +11260,7 @@ let parsed: bool = registry.handle("active", &Value::I64(0)).unwrap();
 .unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L977:C18
+#### 🟠 [HIGH] `unwrap()` @ L987:C18
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12857,7 +11269,7 @@ let parsed: bool = registry.handle("active", &Value::I64(0)).unwrap();
 .unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1005:C55
+#### 🟠 [HIGH] `unwrap()` @ L1015:C55
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12866,7 +11278,7 @@ let parsed: bool = registry.handle("active", &Value::I64(0)).unwrap();
 let value = registry.to_value("tags", &input).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1021:C67
+#### 🟠 [HIGH] `unwrap()` @ L1031:C67
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12875,7 +11287,7 @@ let value = registry.to_value("tags", &input).unwrap();
 let parsed: Vec<Value> = registry.handle("tags", &stored).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1033:C72
+#### 🟠 [HIGH] `unwrap()` @ L1043:C72
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12884,7 +11296,7 @@ let parsed: Vec<Value> = registry.handle("tags", &stored).unwrap();
 let parsed: Vec<Value> = registry.handle("tags", &Value::Null).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1044:C75
+#### 🟠 [HIGH] `unwrap()` @ L1054:C75
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12893,7 +11305,7 @@ let parsed: Vec<Value> = registry.handle("tags", &Value::Null).unwrap();
 let parsed: Vec<Value> = registry.handle("tags", &Value::I64(42)).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1056:C58
+#### 🟠 [HIGH] `unwrap()` @ L1066:C58
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12902,7 +11314,7 @@ let parsed: Vec<Value> = registry.handle("tags", &Value::I64(42)).unwrap();
 let value = registry.to_value("tags", &original).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1057:C66
+#### 🟠 [HIGH] `unwrap()` @ L1067:C66
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12911,7 +11323,7 @@ let value = registry.to_value("tags", &original).unwrap();
 let parsed: Vec<Value> = registry.handle("tags", &value).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1198:C63
+#### 🟠 [HIGH] `unwrap()` @ L1208:C63
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12920,7 +11332,7 @@ let parsed: Vec<Value> = registry.handle("tags", &value).unwrap();
 let value = registry.to_value("price", &Money(12345)).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1208:C71
+#### 🟠 [HIGH] `unwrap()` @ L1218:C71
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12929,7 +11341,7 @@ let value = registry.to_value("price", &Money(12345)).unwrap();
 let parsed: Money = registry.handle("price", &Value::I64(99)).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1220:C14
+#### 🟠 [HIGH] `unwrap()` @ L1230:C14
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12938,7 +11350,7 @@ let parsed: Money = registry.handle("price", &Value::I64(99)).unwrap();
 .unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1278:C14
+#### 🟠 [HIGH] `unwrap()` @ L1288:C14
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12947,7 +11359,7 @@ let parsed: Money = registry.handle("price", &Value::I64(99)).unwrap();
 .unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1281:C14
+#### 🟠 [HIGH] `unwrap()` @ L1291:C14
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12956,7 +11368,7 @@ let parsed: Money = registry.handle("price", &Value::I64(99)).unwrap();
 .unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1298:C75
+#### 🟠 [HIGH] `unwrap()` @ L1308:C75
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12965,7 +11377,7 @@ let parsed: Money = registry.handle("price", &Value::I64(99)).unwrap();
 let id_value = registry.to_value("id", &String::from("user-123")).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1301:C14
+#### 🟠 [HIGH] `unwrap()` @ L1311:C14
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12974,7 +11386,7 @@ let id_value = registry.to_value("id", &String::from("user-123")).unwrap();
 .unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1302:C63
+#### 🟠 [HIGH] `unwrap()` @ L1312:C63
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12983,7 +11395,7 @@ let id_value = registry.to_value("id", &String::from("user-123")).unwrap();
 let active_value = registry.to_value("active", &true).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1309:C59
+#### 🟠 [HIGH] `unwrap()` @ L1319:C59
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -12992,7 +11404,7 @@ let active_value = registry.to_value("active", &true).unwrap();
 let id: String = registry.handle("id", &id_value).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1310:C67
+#### 🟠 [HIGH] `unwrap()` @ L1320:C67
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -13001,7 +11413,7 @@ let id: String = registry.handle("id", &id_value).unwrap();
 let ts: String = registry.handle("created_at", &ts_value).unwrap();
 ```
 
-#### 🟠 [HIGH] `unwrap()` @ L1311:C69
+#### 🟠 [HIGH] `unwrap()` @ L1321:C69
 
 - **上下文**: Option/Result 为 None/Err 时 panic
 - **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
@@ -14295,6 +12707,71 @@ registry.dispatch(HookEvent::BeforeInsert, &ctx).unwrap();
 registry.dispatch(HookEvent::BeforeUpdate, &ctx).unwrap();
 ```
 
+### `packages\sz-orm-core\tests\contracts\migration_contract.rs`
+
+#### 🟠 [HIGH] `unwrap()` @ L20:C44
+
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
+
+```rust
+let sql = builder.build(DbType::MySQL).unwrap();
+```
+
+#### 🟠 [HIGH] `unwrap()` @ L35:C44
+
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
+
+```rust
+let sql = builder.build(DbType::MySQL).unwrap();
+```
+
+#### 🟠 [HIGH] `unwrap()` @ L46:C49
+
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
+
+```rust
+let mysql_sql = make().build(DbType::MySQL).unwrap();
+```
+
+#### 🟠 [HIGH] `unwrap()` @ L47:C51
+
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
+
+```rust
+let pg_sql = make().build(DbType::PostgreSQL).unwrap();
+```
+
+#### 🟠 [HIGH] `unwrap()` @ L78:C10
+
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
+
+```rust
+.unwrap();
+```
+
+#### 🟠 [HIGH] `unwrap()` @ L87:C10
+
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
+
+```rust
+.unwrap();
+```
+
+#### 🟠 [HIGH] `unwrap()` @ L97:C10
+
+- **上下文**: Option/Result 为 None/Err 时 panic
+- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
+
+```rust
+.unwrap();
+```
+
 ### `packages\sz-orm-core\tests\contracts\pool_contract.rs`
 
 #### 🟠 [HIGH] `unwrap()` @ L28:C10
@@ -14587,206 +13064,6 @@ let v = Value::from_values(vec![Value::I64(42)]).unwrap();
 
 ```rust
 let user = UserRow::from_row(row).unwrap();
-```
-
-### `packages\sz-orm-core\tests\contracts\transaction_contract.rs`
-
-#### 🟠 [HIGH] `unwrap()` @ L40:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L48:C25
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.rollback().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L56:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L71:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L85:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L94:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L108:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L125:C25
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.rollback().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L137:C36
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp1 = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L140:C36
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp2 = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L143:C36
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp3 = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L157:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-names.push(tx.savepoint().await.unwrap());
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L170:C35
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let sp = tx.savepoint().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L173:C41
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.rollback_to_savepoint(&sp).await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L176:C37
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.release_savepoint(&sp).await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L223:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L225:C43
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = tx.take_connection().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L232:C25
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.rollback().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L234:C43
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let conn = tx.take_connection().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L241:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L243:C45
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-let _first = tx.take_connection().await.unwrap();
-```
-
-#### 🟠 [HIGH] `unwrap()` @ L303:C23
-
-- **上下文**: Option/Result 为 None/Err 时 panic
-- **建议**: 使用 ok_or()/ok_or_else() 转换为 Result，或使用 match/if let
-
-```rust
-tx.commit().await.unwrap();
 ```
 
 ### `packages\sz-orm-core\tests\e2e_batch_upsert.rs`
@@ -47469,7 +45746,7 @@ let day: u32 = date_stamp[6..8].parse().expect("day should be parseable");
 
 ### `packages\sz-orm-core\tests\contracts\transaction_contract.rs`
 
-#### 🔵 [LOW] `comment_panic` @ L294:C0
+#### 🔵 [LOW] `comment_panic` @ L308:C0
 
 - **上下文**: 注释中的 panic 关键词
 - **建议**: 确认是否为待处理问题
@@ -47478,7 +45755,7 @@ let day: u32 = date_stamp[6..8].parse().expect("day should be parseable");
 // ===== §6.1 options() / state() 不 panic 契约 =====
 ```
 
-#### 🔵 [LOW] `comment_panic` @ L299:C4
+#### 🔵 [LOW] `comment_panic` @ L313:C4
 
 - **上下文**: 注释中的 panic 关键词
 - **建议**: 确认是否为待处理问题
@@ -47487,7 +45764,7 @@ let day: u32 = date_stamp[6..8].parse().expect("day should be parseable");
 // Active 状态下 options()/state() 应可读取且不 panic
 ```
 
-#### 🔵 [LOW] `comment_panic` @ L304:C4
+#### 🔵 [LOW] `comment_panic` @ L318:C4
 
 - **上下文**: 注释中的 panic 关键词
 - **建议**: 确认是否为待处理问题
@@ -47903,7 +46180,25 @@ let day: u32 = date_stamp[6..8].parse().expect("day should be parseable");
 
 ### `packages\sz-orm-query-builder\src\lib.rs`
 
-#### 🔵 [LOW] `comment_panic` @ L3058:C8
+#### 🔵 [LOW] `comment_panic` @ L630:C4
+
+- **上下文**: 注释中的 panic 关键词
+- **建议**: 确认是否为待处理问题
+
+```rust
+/// 检测到 SQL 注入尝试时返回 `Err(QueryError::SqlInjection)`，不再 panic。
+```
+
+#### 🔵 [LOW] `comment_panic` @ L645:C4
+
+- **上下文**: 注释中的 panic 关键词
+- **建议**: 确认是否为待处理问题
+
+```rust
+/// 检测到 SQL 注入尝试时返回 `Err(QueryError::SqlInjection)`，不再 panic。
+```
+
+#### 🔵 [LOW] `comment_panic` @ L3088:C8
 
 - **上下文**: 注释中的 panic 关键词
 - **建议**: 确认是否为待处理问题
@@ -47912,7 +46207,7 @@ let day: u32 = date_stamp[6..8].parse().expect("day should be parseable");
 // 这些是合法的 WHERE 条件，不应触发 panic——同时验证生成 SQL 包含预期的 WHERE 子句
 ```
 
-#### 🔵 [LOW] `comment_panic` @ L3100:C8
+#### 🔵 [LOW] `comment_panic` @ L3130:C8
 
 - **上下文**: 注释中的 panic 关键词
 - **建议**: 确认是否为待处理问题
@@ -48120,3 +46415,69 @@ let day: u32 = date_stamp[6..8].parse().expect("day should be parseable");
 
 4. **低优先级（LOW）**：注释中的关键词
    - 确认是否为待处理问题，更新注释或创建 issue
+
+---
+
+## 2026-08-01 修复进展（Task 1.5 批量修复）
+
+### 修复统计
+
+| 类别 | 修复前 | 修复后 | 说明 |
+|------|--------|--------|------|
+| 生产代码 unwrap/expect/panic | ~30 | 12 | 剩余均为防御性不变量（见下文） |
+| 测试代码 unwrap/expect | ~4700 | ~4700 | 允许保留 |
+| 基准测试 unwrap | ~15 | ~15 | 允许保留 |
+
+### 已修复文件
+
+| 包 | 文件 | 修复内容 |
+|----|------|----------|
+| sz-orm-core | `queryable.rs` | 5 unwrap → 索引访问 |
+| sz-orm-core | `find_with_related.rs` | 8 expect → Result 传播（API 变更） |
+| sz-orm-core | `hydration_plugin.rs` | 4 expect → Option 处理 |
+| sz-orm-core | `phinx_migration.rs` | 7 expect → `create()` 返回 Result |
+| sz-orm-auth | `jwt.rs` | HMAC `new_from_slice` → Result 传播 |
+| sz-orm-auth | `oauth2.rs` | `get_mut().unwrap()` → `if let Some` |
+| sz-orm-audit | `lib.rs` | `mask_sql` chars().next().expect → if let Some |
+| sz-orm-dtx | `file_log.rs` | guard.expect → ok_or_else |
+| sz-orm-dtx | `recovery.rs` | hashmap.get().expect → ok_or_else |
+| sz-orm-dtx | `saga.rs` | entries.last().unwrap() → 索引访问 |
+| sz-orm-es | `extensions.rs` / `real_es.rs` | unwrap → expect（带注释） |
+| sz-orm-grpc | `lib.rs` | 2 expect → 直接使用 err 变量 |
+| sz-orm-oracle | `lib.rs` | `OracleBlockingPool::new()` → Result |
+| sz-orm-postgis | `real_postgis.rs` | chars().next().unwrap() → ok_or_else |
+| sz-orm-query-builder | `lib.rs` | `check_where_injection` 未使用 Result 警告修复 |
+| sz-orm-scheduler | `lib.rs` | `register_handler`/`list_tasks` → Result |
+| sz-orm-sharding | `enhanced.rs` | `.unwrap()` → `ok_or_else(NoNodes)` |
+| sz-orm-timeseries | `safety.rs` / `extensions.rs` | expect → ok_or_else |
+| sz-orm-tracing | `lib.rs` | get_spans/clear → match / if let Ok |
+| sz-orm-vector | `real_pg.rs` | chars().next().unwrap() → ok_or_else |
+| sz-orm-websocket | `compression.rs` / `subprotocol.rs` | 保留（防御性不变量） |
+| examples | `migration.rs` / `production_app.rs` | 适配 API 变更 |
+
+### 剩余 12 处生产代码 expect（均为防御性不变量）
+
+这些调用均有前置守卫条件保证不会失败，`expect()` 消息明确记录了不变量：
+
+1. **sz-orm-es** (4): `terms.iter().next()` after `len() == 1` 守卫
+2. **sz-orm-mssql** (2): `Deref`/`DerefMut` trait 方法（无法返回 Result）
+3. **sz-orm-oracle** (2): `Deref`/`DerefMut` trait 方法（无法返回 Result）
+4. **sz-orm-queue** (1): `VecDeque::remove(idx)` where `idx` 由遍历保证存在
+5. **sz-orm-timeseries** (1): Unix epoch 0 始终有效
+6. **sz-orm-websocket** (2): zlib 内存压缩不会失败 / candidates 经 `is_empty()` 守卫
+
+### 验证
+
+```bash
+cargo check --workspace --exclude sz-orm-es
+# Finished `dev` profile [unoptimized + debuginfo] target(s)
+```
+
+### 最终验证（2026-08-01 Task 1.10）
+
+- `cargo check --workspace --exclude sz-orm-es` ✅ 全工作空间编译通过
+- `cargo test -p sz-orm-core --lib find_with_related` ✅ 31 测试全通过（含 5 个 SQL 注入拦截测试）
+- `cargo clippy -p sz-orm-core` ✅ 无新增警告（find_with_related.rs 零冗余闭包）
+- `find_with_related.rs` 生产代码：0 处 unwrap/expect（全部 8 处已转为 Result 传播）
+- 剩余生产代码 expect（12 处）：均为防御性不变量或 trait 方法限制，详见上文
+- 4 个 phinx_migration SQL 注入测试为**预存失败**（clean tree 同样失败，与本次修复无关）

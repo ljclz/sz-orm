@@ -1,21 +1,41 @@
 # SZ-ORM 工程化实践规范
 
-> **目标项目**: SZ-ORM（原型阶段 ORM，43 workspace 包，5,442 测试）
-> **项目版本**: v1.2.0
-> **文档用途**: 锁定已有工程质量，防止后续修改引入退化
-> **维护规则**: 任何修改 CI/CD 或新增门禁的 PR 必须同步更新本文档
-> **文档版本**: v3.0（v2.0 基础上同步：39→43 包 / 2,950→5,442 测试 / v1.0.0→v1.2.0）
+> **目标项目**：SZ-ORM（鲜视达 ORM 框架，43 workspace 包，5,442 测试）
+> **项目版本**：v1.2.1
+> **文档用途**：锁定已有工程质量，防止后续修改引入退化
+> **维护规则**：任何修改 CI/CD 或新增门禁的 PR 必须同步更新本文档
+> **文档版本**：v3.1（2026-08-01）
 
 ---
 
 ## 目录
 
-1. [标准 7 道门禁（已实现）](#1-标准-7-道门禁已实现)
-2. [SZ-ORM 特殊强化门禁（新增）](#2-sz-orm-特殊强化门禁新增)
-3. [五维审查增强](#3-五维审查增强)
-4. [测试金字塔](#4-测试金字塔)
-5. [CI/CD 工作流约束](#5-cicd-工作流约束)
-6. [附录：SZ-ORM 教训 → 防御追溯表](#6-附录sz-orm-教训--防御追溯表)
+1. [核心原则（ADR-0001）](#0-核心原则adr-0001)
+2. [标准 7 道门禁（已实现）](#1-标准-7-道门禁已实现)
+3. [SZ-ORM 特殊强化门禁（新增）](#2-sz-orm-特殊强化门禁新增)
+4. [五维审查增强](#3-五维审查增强)
+5. [测试金字塔](#4-测试金字塔)
+6. [CI/CD 工作流约束](#5-cicd-工作流约束)
+7. [附录：SZ-ORM 教训 → 防御追溯表](#6-附录sz-orm-教训--防御追溯表)
+
+---
+
+## 0. 核心原则（ADR-0001）
+
+**ADR-0001：严禁修改上游 sz-rust / sz-orm 仓库的任何文件。**
+
+sz-orm 作为上游基础库，其代码由独立团队维护。下游项目（如 sz-pay）通过 Cargo 依赖引用 sz-orm，**不得**直接修改 `target/` 或 vendored 源码中的 sz-orm 文件。任何需要的改动必须通过以下途径：
+
+1. **提交 PR 到 sz-orm 上游**：功能增强、Bug 修复走正常贡献流程
+2. **使用 sz-orm 提供的扩展点**：trait 实现、hook、自定义 Dialect
+3. **Fork + patch**：仅在紧急生产修复时，且必须同步向上游提交 PR
+
+**违反此原则的后果**：
+- 下游项目与上游版本脱节，无法享受安全补丁和功能更新
+- 审计记录与事实不符（Phase 0/1/2/4 检查点均要求"上游仓库未修改"）
+- 多人协作时产生难以追踪的分歧
+
+**例外**：sz-orm 自身仓库的开发当然可以修改 sz-orm 文件。此约束针对的是**使用 sz-orm 的下游项目**。
 
 ---
 
@@ -211,6 +231,41 @@ cargo check --workspace --all-targets --all-features
 - 确保所有 feature 组合（包括 real-*、mock-*、default）都能正确编译
 - 防止 feature 隔离失败导致伪实现逃逸
 
+### 门禁 11：上游仓库未修改检查（ADR-0001）
+
+| 属性 | 值 |
+|------|-----|
+| **教训来源** | 下游项目直接修改 sz-orm 源码导致审计记录与事实不符 |
+| **命令** | `git diff --stat` + 文件完整性校验 |
+| **CI Job 名** | `check-upstream-unmodified`（新增） |
+| **状态** | ✅ 已通过 |
+
+**检查脚本**（PowerShell）：
+
+```powershell
+# ADR-0001：上游仓库未修改检查
+# 在下游项目中运行，确认 sz-orm / sz-rust 相关文件未被修改
+$upstreamPatterns = @("sz-orm-core", "sz-orm-auth", "sz-orm-config", "sz-orm-macros", "sz-rust-core")
+$modified = git diff --name-only HEAD
+
+$violations = @()
+foreach ($pattern in $upstreamPatterns) {
+    foreach ($file in $modified) {
+        if ($file -like "*$pattern*") {
+            $violations += $file
+        }
+    }
+}
+
+if ($violations.Count -gt 0) {
+    Write-Warning "[ADR-0001 VIOLATION] 上游仓库文件被修改："
+    $violations | ForEach-Object { Write-Host "  $_" }
+    Write-Host "请通过 PR 贡献到上游，而非直接修改。" -ForegroundColor Red
+    exit 11
+}
+Write-Host "[OK] ADR-0001 通过：上游仓库未修改" -ForegroundColor Green
+```
+
 ---
 
 ## 3. 五维审查增强
@@ -221,10 +276,10 @@ cargo check --workspace --all-targets --all-features
 
 | 维度 | 审查要点 | SZ-ORM 对应教训 |
 |------|---------|----------------|
-| **正确性** | 逻辑正确、边界处理、错误处理、并发安全 | 锁 panic（13 处 expect） |
+| **正确性** | 逻辑正确、边界处理、错误处理、并发安全 | 锁 panic（13 处 expect）+ API 签名变更未同步 |
 | **可读性** | 命名清晰、注释恰当、代码结构合理 | — |
 | **架构** | 模块边界、依赖方向、feature 隔离、API 设计 | 名实不符（S-1~S-8）、夸大对比（D-1~D-7） |
-| **安全性** | SQL 注入、unsafe 审计、输入验证、权限 | SQL 注入（C-1~C-6） |
+| **安全性** | SQL 注入、unsafe 审计、输入验证、权限 | SQL 注入（C-1~C-6）+ 标识符注入（phinx_migration） |
 | **性能** | 内存分配、锁竞争、序列化开销、连接池 | — |
 
 ### 3.2 AI 生成代码特有检查
@@ -233,12 +288,16 @@ cargo check --workspace --all-targets --all-features
 
 | 检查项 | 说明 |
 |--------|------|
-| `unsafe` 代码审计 | 检查所有 `unsafe` 块的安全性、不变式维护、内存安全 |
-| 所有权泄漏检查 | 检查 `Box::leak`、`ManuallyDrop`、`forget` 使用场景 |
-| 锁使用审计 | 检查 `Mutex`/`RwLock` 范围、死锁风险、是否为 `parking_lot` |
+| `unsafe` 代码审计 | 检查所有 `unsafe` 块的安全性、不变式维护、内存安全，必须有 `// SAFETY:` 注释 |
+| 所有权泄漏检查 | 检查 `Box::leak`、`ManuallyDrop`、`forget` 使用场景；检查 `Arc` 循环引用 |
+| 锁使用审计 | 检查 `Mutex`/`RwLock` 范围、死锁风险、是否为 `parking_lot`（无 poison） |
 | 虚假实现检测 | 检查是否有 `todo!()`、空实现、mock 实现逃逸到 main |
 | API 名实一致性 | 检查函数名是否与实现行为一致（对比 S-1~S-8） |
+| API 签名变更传播 | 修改返回类型（如 `T` → `Result<T, E>`）时，必须同步更新所有调用方和测试 |
 | 跨平台兼容性 | 检查平台特定代码是否有条件编译保护 |
+| `as` 类型转换 | 检查 `as i32` / `as u32` / `as usize` 等缩窄转换是否可能溢出 |
+| SQL 注入检查 | 检查是否有 `format!` 拼接 SQL，必须使用 `where_eq` 等参数化方法 |
+| 标识符注入检查 | 检查表名/列名/约束名是否经过 `validate_identifier` 校验 |
 
 ### 3.3 审查清单脚本
 
@@ -263,19 +322,20 @@ SZ-ORM 当前测试数据：
 
 | 层级 | 数量 | 说明 |
 |------|------|------|
-| **T1 — 单元测试** | 1200+ | 核心模块独立测试（Value、DbType、Dialect、Model trait 等） |
-| **T2 — 契约测试** | 200+ | 公共 API 行为契约（pool、transaction、hooks、error 等） |
-| **T3 — 集成测试** | 150+ | 真实数据库（MySQL 8.0/8.4/9.6 × PostgreSQL 14/16/18） |
-| **T4 — 属性测试** | 50+ | Property-Based Testing（proptest） |
-| **T5 — Fuzz 测试** | 20+ | 模糊测试（SQL 解析、Value 反序列化） |
-| **T6 — Soak 测试** | 10+ | 长时稳定性测试（10s 冒烟 / 6h 完整） |
-| **合计** | **2950** | 覆盖全部 39 个 workspace 包 |
+| **T1 — 单元测试** | 4500+ | 核心模块独立测试（Value、DbType、Dialect、Model trait、QueryBuilder、Pool、Transaction、Hooks 等） |
+| **T2 — 契约测试** | 300+ | 公共 API 行为契约（pool、transaction、hooks、error、phinx_migration 等） |
+| **T3 — 集成测试** | 400+ | 真实数据库（MySQL 9.6 × PostgreSQL 18 × SQLite）+ RabbitMQ + MinIO |
+| **T4 — 属性测试** | 100+ | Property-Based Testing（proptest）覆盖 Value 序列化/SQL 生成 |
+| **T5 — Fuzz 测试** | 40+ | 模糊测试（SQL 解析、Value 反序列化、标识符注入抵抗） |
+| **T6 — Soak 测试** | 12+ | 长时稳定性测试（10s 冒烟 / 6h 完整） |
+| **合计** | **5,442+** | 覆盖全部 43 个 workspace 包 |
 
 ### 4.1 T1：单元测试
 
 - 每个模块的独立功能测试，不依赖外部服务
 - 使用 `#[cfg(test)] mod tests` 内联在源码中
 - 覆盖率要求：核心模块 >= 90%
+- 当前状态：sz-orm-core 1300+ 单元测试，覆盖 query/model/pool/transaction/hooks/error/schema_gen/sql_safety/phinx_migration 等全部模块
 
 ### 4.2 T2：契约测试
 
@@ -288,25 +348,25 @@ SZ-ORM 当前测试数据：
 
 - 需要真实数据库/消息队列/对象存储服务
 - 全部标注 `#[ignore]`，仅在 CI 或手动指定时运行
-- MySQL + PostgreSQL 多版本矩阵测试
+- MySQL 9.6 + PostgreSQL 18 + SQLite 多版本矩阵测试
 - 运行命令：`cargo test --package sz-orm-core --test integration_mysql -- --ignored`
 
 ### 4.4 T4：Property-Based Testing
 
 - 使用 `proptest` crate（版本统一管理在 workspace dependencies）
-- 覆盖：Value 序列化/反序列化、SQL 生成、Dialect 输出
+- 覆盖：Value 序列化/反序列化、SQL 生成、Dialect 输出、标识符校验
 - 运行命令：`cargo test --workspace proptest`（或 `PROPTEST_CASES=10000 cargo test` 强化）
 
 ### 4.5 T5：Fuzz 测试
 
-- 覆盖：SQL 解析器、Value 解析、动态 SQL XML 模板
+- 覆盖：SQL 解析器、Value 解析、动态 SQL XML 模板、标识符注入抵抗
 - 工具：`cargo fuzz`（需 nightly）
 - 运行命令：`cargo fuzz run <target>`
 
 ### 4.6 T6：Soak 测试
 
-- 短时冒烟（每次 push）：`cargo test --package sz-orm-core --test soak soak_smoke_10s`
-- 长时完整（每周日）：`cargo test -p sz-orm-core --test soak -- --ignored`
+- 短时冒烟（每次 push/PR）：`cargo test --package sz-orm-core --test soak soak_smoke_10s`
+- 长时完整（每周日 00:00 UTC）：`cargo test -p sz-orm-core --test soak -- --ignored --nocapture`（soak.yml，timeout 420 分钟）
 - 退化检测标准：
   - RSS 增长 > 50MB → 内存泄漏
   - fd_count 增长 > 10 → 句柄泄漏
@@ -334,7 +394,7 @@ flowchart LR
 2. **`cargo test -p <affected-package>`** — 运行受影响包的测试
 3. **`cargo test -p sz-orm-core --test contracts`** — 运行契约测试（API 变更时必做）
 4. **`cargo clippy --workspace --all-targets --all-features -- -D warnings`** — 严格 lint
-5. **`./scripts/gate.ps1`** — 本地门禁全关卡验证（7 道关卡 + 新增 3 道）
+5. **`./scripts/gate.ps1`** — 本地门禁全关卡验证（7 道关卡 + 新增 4 道）
 6. **`git commit`** — 通过后提交
 
 **紧急修复**：使用 `./scripts/gate.ps1 -Fast` 只跑前 3 关（fmt + check + clippy）
@@ -346,15 +406,54 @@ flowchart LR
 | # | 约束 | 说明 |
 |---|------|------|
 | 1 | **禁止占位实现** | 不允许 AI 生成 `todo!()` / `unimplemented!()` / `unreachable!()` |
-| 2 | **强制参数化查询** | 不允许 AI 生成任何 SQL 字符串拼接代码 |
-| 3 | **API 兼容性** | AI 修改公共 API 时必须同步更新 `api-contracts.md` 和契约测试 |
+| 2 | **强制参数化查询** | 不允许 AI 生成任何 SQL 字符串拼接代码；任何 WHERE 条件必须用 `where_eq`/`or_where_eq` 等参数化方法 |
+| 3 | **API 兼容性** | AI 修改公共 API 时必须同步更新 `api-contracts.md` 和契约测试；签名变更（如 `T` → `Result<T,E>`）必须同步更新所有调用方 |
 | 4 | **五维审查** | AI 生成代码必须通过正确性/可读性/架构/安全性/性能五维审查 |
-| 5 | **unsafe 零容忍** | AI 生成 `unsafe` 代码必须单独标注并经过人工审计 |
+| 5 | **unsafe 零容忍** | AI 生成 `unsafe` 代码必须单独标注并经过人工审计，必须有 `// SAFETY:` 注释 |
 | 6 | **禁止 mock 逃逸** | AI 引入的 mock/伪实现必须在合入 main 前替换为真实实现 |
 | 7 | **门禁前置** | AI 必须主动运行 `gate.ps1` 验证代码，不能依赖 CI 发现编译错误 |
 | 8 | **跨平台意识** | AI 添加平台相关代码必须使用条件编译，不能破坏双平台编译 |
 | 9 | **Feature 隔离** | AI 修改 feature-gated 代码时必须验证 feature 全组合编译 |
 | 10 | **教训记忆** | AI 必须阅读本附录的防御追溯表，避免重复已犯错误 |
+
+### 5.3 编译时 SQL 验证（db-verify feature）
+
+sz-orm-macros 提供 `query!` 宏，支持连真 DB 验证：
+
+```bash
+# 启用连真 DB 验证（支持 MySQL/PostgreSQL/SQLite）
+export DATABASE_URL="mysql://root:test123@127.0.0.1:3306/sz_orm_test"
+export SZ_ORM_QUERY_VERIFY=1
+cargo build --features sz-orm-macros/db-verify
+```
+
+- 默认仅语法校验（`validate_sql_content`）
+- 启用 `db-verify` feature + `SZ_ORM_QUERY_VERIFY=1` 后，编译时连真 DB 执行 `EXPLAIN` 验证
+- 支持 MySQL（`EXPLAIN`）、PostgreSQL（`EXPLAIN`）、SQLite（`EXPLAIN QUERY PLAN`）
+
+### 5.4 部署前检查清单
+
+部署前必须逐项确认以下检查全部通过：
+
+- [ ] **门禁检查**
+  - [ ] 10 道门禁全部通过（含增强门禁 8-11）
+  - [ ] 所有 feature 组合编译通过
+
+- [ ] **测试检查**
+  - [ ] 单元测试 + 集成测试全部通过
+  - [ ] Soak 冒烟测试 10s 高并发无内存增长（soak.yml 已配置）
+
+- [ ] **审查检查**
+  - [ ] 五维审查全部通过（正确性/可读性/架构/安全/性能）
+  - [ ] 无残留的占位宏（todo!/unimplemented!/unreachable!）
+  - [ ] 无 SQL 拼接（所有查询参数化）
+  - [ ] 所有 unsafe 有 // SAFETY: 注释
+  - [ ] API 签名变更已传播到所有调用方和测试
+
+- [ ] **文档检查**
+  - [ ] ADR 已记录所有重大决策
+  - [ ] API 参考已更新
+  - [ ] 审计记录与实际代码状态一致
 
 ---
 
@@ -364,14 +463,17 @@ flowchart LR
 
 | 教训类别 | 问题数 | 防御门禁 | 是否已实现 |
 |---------|--------|---------|-----------|
-| SQL 注入（C-1~C-6） | 6 | 门禁 9（SQL 拼接扫描）+ 五维审查（安全性） | ✅ 已实现 |
-| 虚假/伪实现（V-1~V-7） | 7 | 门禁 8（占位检查）+ 五维审查（正确性） | ✅ 已实现 |
+| SQL 注入（C-1~C-6） | 6 | 门禁 9（SQL 拼接扫描）+ 五维审查（安全性）+ where_eq 参数化强制 | ✅ 已实现 |
+| 标识符注入（C-2 扩展） | 3 | phinx_migration 标识符校验 + validate_identifier + 门禁 9 | ✅ 已实现 |
+| 虚假/伪实现（V-1~V-7） | 7 | 门禁 8（占位检查）+ 五维审查（正确性）+ 门禁 10（feature 全组合） | ✅ 已实现 |
 | 转义不一致（H-1） | 1 | 契约测试（T2）+ 各方言独立 escape 测试 | ✅ 已有 |
-| 锁 panic（13 处 expect） | 13 | 五维审查（正确性）+ parking_lot 替换 | ✅ 已修复 |
+| 锁 panic（13 处 expect） | 13 | 五维审查（正确性）+ parking_lot 替换 + unwrap 消除 | ✅ 已修复 |
 | 名实不符（S-1~S-8） | 8 | 门禁 6（API 审计）+ 契约测试（T2） | ✅ 已有 |
 | 夸大对比（D-1~D-7） | 7 | 五维审查（架构维度） | ✅ 已有 |
 | Feature 隔离失败（V-4） | 1 | 门禁 10（feature 全组合编译） | ✅ 已实现 |
 | 跨平台限制 | 1 | CI 双平台（build matrix: ubuntu + windows + macos） | ✅ 已有 |
+| API 签名变更未传播 | — | 五维审查（正确性）+ AI 检查表"API 签名变更传播" | ✅ 已实现 |
+| 上游仓库被修改（ADR-0001） | — | 门禁 11（上游未修改检查） | ✅ 已实现 |
 
 ### 6.1 教训详情参考
 
@@ -383,6 +485,9 @@ flowchart LR
 | C-4 | SQL 注入 | GROUP BY 用户输入未转义 | 聚合查询 | 参数化 + 白名单 |
 | C-5 | SQL 注入 | LIKE 查询未转义通配符 | 搜索模块 | 转义 `%` 和 `_` |
 | C-6 | SQL 注入 | 表名动态拼接 | Schema Gen | 白名单 + 门禁 9 |
+| C-7 | 标识符注入 | PhinxTable 表名/列名未校验 | phinx_migration.rs | validate_identifier + Result 传播 |
+| C-8 | 标识符注入 | FK 约束名/动作未校验 | phinx_migration.rs | validate_fk_action + validate_identifier |
+| C-9 | 标识符注入 | FK 引用表/列名未校验 | phinx_migration.rs | validate_identifier |
 | V-1 | 虚假实现 | `todo!()` 留在 release 代码 | sz-orm-postgis | 门禁 8 + 五维审查 |
 | V-2 | 虚假实现 | 空函数体无实现 | sz-orm-timeseries | 门禁 8 + 五维审查 |
 | V-3 | 虚假实现 | `unimplemented!()` 在错误路径 | sz-orm-search | 门禁 8 + 五维审查 |
@@ -409,9 +514,29 @@ flowchart LR
 | — | 锁 panic | 13 处 `.expect()` 在 Mutex 上 | 多个文件 | 替换为 `parking_lot` + panic 安全处理 |
 | — | Feature 隔离 | real-* feature 数月未在 CI 编译 | Cargo.toml | 门禁 10 + real-features-compile job |
 | — | 跨平台 | Windows 路径分隔符差异 | 文件操作 | CI 双平台矩阵 |
+| — | API 签名变更未传播 | `create()` 返回类型变更但调用方未更新 | phinx_migration.rs + 测试 | 五维审查 + AI 检查表 |
 
 ---
 
-> **最后更新**: 2026-07-20
+## 附录：与其他文档的关系
+
+- 本规范定义 **SZ-ORM 工程化的全局规范**，是 sz-orm 项目所有 crate 必须遵守的约定；
+- [`AGENTS.md`](../AGENTS.md) 定义 **AI 工作指南与项目架构**，是本规范的前置阅读材料；
+- [`docs/audit/`](audit/) 存放 **审计报告与基线文档**，本规范是其工程化审计结论的落地；
+- [`docs/adr/`](adr/) 是 ADR 索引，包含 ADR-0001（严禁修改上游仓库）等架构决策；
+- 本规范与 sz-rust 的 [`sz-rust-engineering-practices.md`](../sz-rust/docs/sz-rust-engineering-practices.md) 对齐，共享门禁 8-10 的设计理念。
+
+---
+
+> **最后更新**: 2026-08-01
 > **维护人**: SZ-ORM 工程团队
-> **规范版本**: v1.0
+> **规范版本**: v3.1
+>
+> **v3.1 变更摘要**（2026-08-01）：
+> - 新增第 0 章：ADR-0001 核心原则（严禁修改上游仓库）
+> - 新增门禁 11：上游仓库未修改检查
+> - 新增 5.3 节：编译时 SQL 验证（db-verify feature）
+> - AI 检查表新增"API 签名变更传播"和"标识符注入检查"两项
+> - 教训追溯表新增 C-7/C-8/C-9（标识符注入）和"API 签名变更未传播"条目
+> - 项目版本 v1.2.0 → v1.2.1
+> - 测试数据统一为 5,442+（覆盖 43 个 workspace 包）

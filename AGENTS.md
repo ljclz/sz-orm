@@ -9,6 +9,48 @@
 - 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 1.2.0
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 检测自动拦截（N1QueryDetector）。
+- 版本：1.2.1（2026-08-01 更新）
+
+## 工程化审查规范
+
+**每次开发必须严格遵守** [docs/sz-orm-engineering-practices.md](docs/sz-orm-engineering-practices.md)，核心要点：
+
+### ADR-0001（铁律）
+
+**严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。** 任何改动必须通过 PR 贡献到上游。违反此原则会导致审计记录与事实不符，直接红牌拒绝入库。
+
+### 10 道门禁（提交前必过）
+
+| # | 门禁 | 命令 |
+|---|------|------|
+| 1 | fmt 格式检查 | `cargo fmt --all -- --check` |
+| 2 | check 编译检查 | `cargo check --workspace --all-targets` |
+| 3 | clippy 静态分析 | `cargo clippy --workspace --all-targets -- -D warnings` |
+| 4 | test 单元/集成测试 | `cargo test --workspace` |
+| 5 | doc 文档构建 | `cargo doc --workspace --no-deps --all-features` |
+| 6 | audit 安全审计 | `cargo audit` + `cargo deny check` |
+| 7 | integration 真实服务集成 | `cargo test --workspace -- --ignored` |
+| 8 | 禁止占位实现检查 | `grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs'` |
+| 9 | SQL 注入扫描 | `scripts/check-sql-injection.ps1` |
+| 10 | Feature 全组合编译 | `cargo check --workspace --all-targets --all-features` |
+| 11 | 上游仓库未修改检查 | `git diff --name-only HEAD`（ADR-0001） |
+
+### 五维审查（每次 PR 必做）
+
+正确性 → 可读性 → 架构 → 安全性 → 性能
+
+### AI 辅助开发 10 条硬约束
+
+1. 禁止占位实现（todo!/unimplemented!/unreachable!）
+2. 强制参数化查询（禁止 SQL 字符串拼接）
+3. API 兼容性（签名变更必须同步更新所有调用方和测试）
+4. 五维审查必过
+5. unsafe 零容忍（必须有 // SAFETY: 注释）
+6. 禁止 mock 逃逸
+7. 门禁前置（主动运行 gate.ps1）
+8. 跨平台意识
+9. Feature 隔离
+10. 教训记忆（阅读防御追溯表）
 
 ## 编译时 SQL 验证（db-verify feature）
 

@@ -10,7 +10,7 @@ use sz_orm_core::migration::{
 };
 use sz_orm_core::DbType;
 
-fn main() {
+fn main() -> Result<(), Box<dyn std::error::Error>> {
     // ===== 1. SchemaBuilder 程序化建表 =====
     println!("=== SchemaBuilder: users 表 (MySQL) ===");
     let users_sql = SchemaBuilder::new("users")
@@ -22,7 +22,7 @@ fn main() {
         .add_column(ColumnDef::new("updated_at", "TIMESTAMP").default("CURRENT_TIMESTAMP"))
         .add_index(IndexDef::new("idx_email", vec!["email"]).unique())
         .add_index(IndexDef::new("idx_name", vec!["name"]))
-        .build(DbType::MySQL);
+        .build(DbType::MySQL)?;
     println!("{}\n", users_sql);
 
     println!("=== SchemaBuilder: posts 表 (PostgreSQL) ===");
@@ -38,7 +38,7 @@ fn main() {
                 .on_delete("CASCADE")
                 .on_update("CASCADE"),
         )
-        .build(DbType::PostgreSQL);
+        .build(DbType::PostgreSQL)?;
     println!("{}\n", posts_sql);
 
     // ===== 2. Migrator（无连接，演示状态管理）=====
@@ -74,4 +74,5 @@ fn main() {
   migrator.refresh().await?;          // 同 reset
 "#
     );
+    Ok(())
 }
