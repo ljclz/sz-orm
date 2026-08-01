@@ -379,14 +379,12 @@ impl PhinxTable {
     }
 
     /// 生成 CREATE TABLE SQL（Phinx `create()` 等价物）
-    pub fn create(&self, db_type: DbType) -> String {
+    pub fn create(&self, db_type: DbType) -> Result<String, crate::DbError> {
         // v0.2.2 修复 C-2：表名/主键列名严格校验
-        crate::sql_safety::validate_identifier(&self.table_name, "table")
-            .expect("invalid table name");
+        crate::sql_safety::validate_identifier(&self.table_name, "table")?;
         if let Some(pk) = &self.primary_key {
             for col in pk {
-                crate::sql_safety::validate_identifier(col, "primary key column")
-                    .expect("invalid primary key column name");
+                crate::sql_safety::validate_identifier(col, "primary key column")?;
             }
         }
         let mut sql = String::new();
@@ -419,23 +417,20 @@ impl PhinxTable {
         // 外键（约束名含引用表，避免多表指向同一引用表时冲突）
         // v0.2.2 修复 C-2：FOREIGN KEY 标识符与 ON DELETE/ON UPDATE 动作严格校验，杜绝 SQL 注入
         for fk in &self.foreign_keys {
-            crate::sql_safety::validate_identifier(&fk.column, "foreign key column")
-                .expect("invalid foreign key column name");
+            crate::sql_safety::validate_identifier(&fk.column, "foreign key column")?;
             crate::sql_safety::validate_identifier(
                 &fk.referenced_table,
                 "foreign key referenced table",
-            )
-            .expect("invalid foreign key referenced table name");
+            )?;
             crate::sql_safety::validate_identifier(
                 &fk.referenced_column,
                 "foreign key referenced column",
-            )
-            .expect("invalid foreign key referenced column name");
+            )?;
             if let Some(on_delete) = &fk.options.on_delete {
-                crate::sql_safety::validate_fk_action(on_delete).expect("invalid ON DELETE action");
+                crate::sql_safety::validate_fk_action(on_delete)?;
             }
             if let Some(on_update) = &fk.options.on_update {
-                crate::sql_safety::validate_fk_action(on_update).expect("invalid ON UPDATE action");
+                crate::sql_safety::validate_fk_action(on_update)?;
             }
             // 约束名 fk_{table}_{column}_{ref_table} 由 table/column/ref_table 拼接而成，
             // 此三者均已校验为合法标识符，故约束名也必然合法（仅含字母数字下划线）
@@ -457,7 +452,7 @@ impl PhinxTable {
         }
 
         sql.push(')');
-        sql
+        Ok(sql)
     }
 
     /// 生成 ALTER TABLE 添加列 SQL（Phinx `change()` 等价物的一部分）
@@ -664,7 +659,7 @@ mod tests {
             .add_column("email", ColumnType::String, |c| c.limit(255).not_null())
             .add_column("age", ColumnType::Integer, |c| c)
             .set_primary_key(vec!["id".to_string()])
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
 
         assert!(sql.contains("CREATE TABLE users"));
         assert!(sql.contains("id BIGINT AUTO_INCREMENT NOT NULL"));
@@ -680,7 +675,7 @@ mod tests {
             .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
             .add_column("email", ColumnType::String, |c| c.limit(255))
             .add_index(&["email"], |i| i.unique().name("idx_email"))
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
 
         assert!(sql.contains("UNIQUE KEY idx_email (email)"));
     }
@@ -691,7 +686,7 @@ mod tests {
             .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
             .add_column("user_id", ColumnType::BigIntermediate, |c| c.not_null())
             .add_foreign_key("user_id", "users", "id", |fk| fk.on_delete_cascade())
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
 
         assert!(sql.contains(
             "CONSTRAINT fk_orders_user_id_users FOREIGN KEY (user_id) REFERENCES users (id)"
@@ -706,7 +701,7 @@ mod tests {
             .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
             .add_column("user_id", ColumnType::BigIntermediate, |c| c.not_null())
             .add_foreign_key("user_id", "users", "id", |fk| fk.on_delete("cascade"))
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
         assert!(sql.contains("ON DELETE CASCADE"));
     }
 
@@ -716,7 +711,7 @@ mod tests {
         let _ = PhinxTable::new("orders")
             .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
             .add_foreign_key("user_id; DROP TABLE", "users", "id", |fk| fk)
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
     }
 
     #[test]
@@ -725,7 +720,7 @@ mod tests {
         let _ = PhinxTable::new("orders")
             .add_column("id", ColumnType::BigIntermediate, |c| c.auto_increment())
             .add_foreign_key("user_id", "users; DROP TABLE users", "id", |fk| fk)
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
     }
 
     #[test]
@@ -736,7 +731,7 @@ mod tests {
             .add_foreign_key("user_id", "users", "id", |fk| {
                 fk.on_delete("CASCADE; DROP TABLE users")
             })
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
     }
 
     #[test]
@@ -744,7 +739,7 @@ mod tests {
     fn test_phinx_table_rejects_sql_injection_in_table_name() {
         let _ = PhinxTable::new("orders; DROP TABLE orders")
             .add_column("id", ColumnType::Integer, |c| c.not_null())
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
     }
 
     #[test]
@@ -755,7 +750,7 @@ mod tests {
             })
             .add_column("data", ColumnType::Json, |c| c)
             .add_column("is_active", ColumnType::Boolean, |c| c)
-            .create(DbType::PostgreSQL);
+            .create(DbType::PostgreSQL).unwrap();
 
         assert!(sql.contains("id BIGINT GENERATED BY DEFAULT AS IDENTITY NOT NULL"));
         assert!(sql.contains("data JSONB"));
@@ -769,7 +764,7 @@ mod tests {
                 c.auto_increment().not_null()
             })
             .add_column("data", ColumnType::Json, |c| c)
-            .create(DbType::Sqlite);
+            .create(DbType::Sqlite).unwrap();
 
         assert!(sql.contains("id BIGINT AUTOINCREMENT NOT NULL"));
         assert!(sql.contains("data TEXT"));
@@ -780,7 +775,7 @@ mod tests {
         let sql = PhinxTable::new("users")
             .if_not_exists()
             .add_column("id", ColumnType::Integer, |c| c.not_null())
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
 
         assert!(sql.contains("CREATE TABLE IF NOT EXISTS users"));
     }
@@ -835,7 +830,7 @@ mod tests {
             .add_column("price", ColumnType::Decimal, |c| {
                 c.precision(10, 2).not_null()
             })
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
 
         assert!(sql.contains("price DECIMAL(10, 2) NOT NULL"));
     }
@@ -857,7 +852,7 @@ mod tests {
             .add_column("user_id", ColumnType::BigIntermediate, |c| c.not_null())
             .add_column("role_id", ColumnType::BigIntermediate, |c| c.not_null())
             .set_primary_key(vec!["user_id".to_string(), "role_id".to_string()])
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
 
         assert!(sql.contains("PRIMARY KEY (user_id, role_id)"));
     }
@@ -868,7 +863,7 @@ mod tests {
             .add_column("status", ColumnType::String, |c| {
                 c.limit(50).comment("用户状态：active/inactive")
             })
-            .create(DbType::MySQL);
+            .create(DbType::MySQL).unwrap();
 
         assert!(sql.contains("COMMENT '用户状态：active/inactive'"));
     }
