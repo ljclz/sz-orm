@@ -4,6 +4,13 @@
 
 use async_trait::async_trait;
 use crossbeam_queue::ArrayQueue;
+// P1-4 修复：使用核心层定义的 CircuitBreaker/RateLimiter 抽象，
+// 消除对 sz-orm-health/sz-orm-limit 的反向依赖。
+// parking_lot 锁仅在启用 circuit-breaker/rate-limit feature 时使用
+#[cfg(feature = "circuit-breaker")]
+use parking_lot::Mutex as PlMutex;
+#[cfg(feature = "rate-limit")]
+use parking_lot::RwLock as PlRwLock;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
@@ -12,7 +19,14 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
+// P1-4 修复：CircuitBreaker/RateLimiter 抽象已提升到核心层，
+// 仅在启用相应 feature 时导入（避免 default feature 下的 unused imports）
+// 注意：trait 方法（can_execute/record_success 等）需要 trait 在 scope 中
+#[cfg(feature = "circuit-breaker")]
+use crate::circuit_breaker::{CircuitBreaker, CircuitState, DefaultCircuitBreaker};
 use crate::error::PoolError;
+#[cfg(feature = "rate-limit")]
+use crate::rate_limiter::RateLimiter;
 
 /// 查询结果行类型别名：避免 `Connection::query` 签名触发 `clippy::type_complexity`。
 pub type QueryRows = Vec<std::collections::HashMap<String, crate::value::Value>>;
@@ -589,14 +603,17 @@ pub struct Pool {
     /// 避免对下游数据库造成更大压力。reset_timeout 后进入 HalfOpen 状态，
     /// 放行一次试探请求；成功则 Closed，失败则重新 Open。
     #[cfg(feature = "circuit-breaker")]
-    circuit_breaker: Arc<std::sync::Mutex<sz_orm_health::CircuitBreaker>>,
+    circuit_breaker: Arc<PlMutex<DefaultCircuitBreaker>>,
     /// #93 修复：限流器（启用 `rate-limit` feature 时生效）
     ///
     /// 在 acquire 前调用 `try_acquire(key)`，被拒绝时返回 `PoolError::RateLimited`。
     /// 默认 key 为 `"pool"`，调用方可通过 `acquire_with_key` 指定按用户/IP 维度限流。
     /// 使用 `RwLock<Option<...>>` 支持运行时动态启用/禁用/替换限流器。
+    ///
+    /// P1-4 修复：使用核心层 `crate::rate_limiter::RateLimiter` trait，
+    /// 而非 `sz_orm_limit::RateLimiter`，消除反向依赖。
     #[cfg(feature = "rate-limit")]
-    rate_limiter: Arc<std::sync::RwLock<Option<Arc<dyn sz_orm_limit::RateLimiter>>>>,
+    rate_limiter: Arc<PlRwLock<Option<Arc<dyn RateLimiter>>>>,
     /// #93 修复：限流器使用的 key（默认 "pool"）
     #[cfg(feature = "rate-limit")]
     rate_limit_key: String,
@@ -666,14 +683,16 @@ impl Pool {
             waiters_count: Arc::new(AtomicU32::new(0)),
             dynamic_max_size: Arc::new(AtomicU32::new(dynamic_max)),
             // #88 修复：默认断路器配置（5 次连续失败跳闸，30 秒后进入 HalfOpen）
+            // P1-4 修复：使用核心层 DefaultCircuitBreaker，而非 sz_orm_health::CircuitBreaker
             #[cfg(feature = "circuit-breaker")]
-            circuit_breaker: Arc::new(std::sync::Mutex::new(sz_orm_health::CircuitBreaker::new(
+            circuit_breaker: Arc::new(PlMutex::new(DefaultCircuitBreaker::new(
                 5,
                 std::time::Duration::from_secs(30),
             ))),
             // #93 修复：默认无限流器（调用方通过 set_rate_limiter 配置）
+            // P1-4 修复：使用 parking_lot::RwLock，而非 std::sync::RwLock
             #[cfg(feature = "rate-limit")]
-            rate_limiter: Arc::new(std::sync::RwLock::new(None)),
+            rate_limiter: Arc::new(PlRwLock::new(None)),
             #[cfg(feature = "rate-limit")]
             rate_limit_key: "pool".to_string(),
         })
@@ -703,10 +722,10 @@ impl Pool {
         failure_threshold: usize,
         reset_timeout: std::time::Duration,
     ) {
-        let new_cb = sz_orm_health::CircuitBreaker::new(failure_threshold, reset_timeout);
-        if let Ok(mut guard) = self.circuit_breaker.lock() {
-            *guard = new_cb;
-        }
+        let new_cb = DefaultCircuitBreaker::new(failure_threshold, reset_timeout);
+        // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
+        let mut guard = self.circuit_breaker.lock();
+        *guard = new_cb;
     }
 
     /// #88 修复：手动重置断路器到 Closed 状态
@@ -715,32 +734,32 @@ impl Pool {
     /// 返回是否实际发生了状态变更。
     #[cfg(feature = "circuit-breaker")]
     pub fn reset_circuit_breaker(&self) -> bool {
-        if let Ok(mut guard) = self.circuit_breaker.lock() {
-            return guard.reset();
-        }
-        false
+        // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
+        let mut guard = self.circuit_breaker.lock();
+        guard.reset()
     }
 
     /// #88 修复：获取断路器当前状态
     #[cfg(feature = "circuit-breaker")]
-    pub fn circuit_state(&self) -> sz_orm_health::CircuitState {
-        if let Ok(guard) = self.circuit_breaker.lock() {
-            guard.state()
-        } else {
-            // 锁中毒时返回 Closed，避免阻塞业务（保守策略）
-            sz_orm_health::CircuitState::Closed
-        }
+    pub fn circuit_state(&self) -> CircuitState {
+        // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
+        let guard = self.circuit_breaker.lock();
+        guard.state()
     }
 
     /// #93 修复：配置限流器（启用 `rate-limit` feature 时生效）
     ///
     /// 替换当前的限流器实例。传入 `None` 可禁用限流。
     /// 默认限流 key 为 `"pool"`，可通过 `with_rate_limit_key` 修改。
+    ///
+    /// P1-4 修复：参数类型使用核心层 `crate::rate_limiter::RateLimiter` trait，
+    /// 而非 `sz_orm_limit::RateLimiter`，消除反向依赖。
+    /// sz-orm-limit 包的所有限流器实现均已实现此 trait。
     #[cfg(feature = "rate-limit")]
-    pub fn set_rate_limiter(&self, limiter: Option<Arc<dyn sz_orm_limit::RateLimiter>>) {
-        if let Ok(mut guard) = self.rate_limiter.write() {
-            *guard = limiter;
-        }
+    pub fn set_rate_limiter(&self, limiter: Option<Arc<dyn RateLimiter>>) {
+        // P1-4 修复：parking_lot::RwLock::write 直接返回 guard，无 PoisonError
+        let mut guard = self.rate_limiter.write();
+        *guard = limiter;
     }
 
     /// #93 修复：设置限流 key（按用户/IP 维度限流时使用）
@@ -785,36 +804,32 @@ impl Pool {
 
         // #88 修复：断路器检查（启用 circuit-breaker feature 时生效）
         // 当数据库连续失败超过阈值时，断路器跳闸，拒绝新 acquire 请求
+        // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
         #[cfg(feature = "circuit-breaker")]
         {
-            let can_execute = if let Ok(mut guard) = self.circuit_breaker.lock() {
-                guard.can_execute()
-            } else {
-                // 锁中毒时放行（保守策略，避免误杀业务）
-                true
-            };
-            if !can_execute {
+            let mut guard = self.circuit_breaker.lock();
+            if !guard.can_execute() {
                 return Err(PoolError::CircuitOpen);
             }
         }
 
         // #93 修复：限流器检查（启用 rate-limit feature 时生效）
         // 在 acquire 前调用 try_acquire，被拒绝时返回 RateLimited
+        // P1-4 修复：parking_lot::RwLock::read 直接返回 guard，无 PoisonError
         #[cfg(feature = "rate-limit")]
         {
-            if let Ok(guard) = self.rate_limiter.read() {
-                if let Some(ref limiter) = *guard {
-                    match limiter.try_acquire(&self.rate_limit_key) {
-                        Ok(result) if !result.allowed => {
-                            return Err(PoolError::RateLimited {
-                                remaining: result.remaining,
-                                reset_at: result.reset_at,
-                            });
-                        }
-                        Ok(_) => {} // 放行
-                        Err(_) => {
-                            // 限流器内部错误，保守放行（避免误杀）
-                        }
+            let guard = self.rate_limiter.read();
+            if let Some(ref limiter) = *guard {
+                match limiter.try_acquire(&self.rate_limit_key) {
+                    Ok(result) if !result.allowed => {
+                        return Err(PoolError::RateLimited {
+                            remaining: result.remaining,
+                            reset_at: result.reset_at,
+                        });
+                    }
+                    Ok(_) => {} // 放行
+                    Err(_) => {
+                        // 限流器内部错误，保守放行（避免误杀）
                     }
                 }
             }
@@ -899,11 +914,10 @@ impl Pool {
                 {
                     Ok(Ok(conn)) => {
                         // #88 修复：连接创建成功，记录到断路器
+                        // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
                         #[cfg(feature = "circuit-breaker")]
                         {
-                            if let Ok(mut guard) = self.circuit_breaker.lock() {
-                                guard.record_success();
-                            }
+                            self.circuit_breaker.lock().record_success();
                         }
                         self.emit_event(PoolEvent::ConnectionCreated);
                         self.emit_event(PoolEvent::ConnectionAcquired);
@@ -913,11 +927,10 @@ impl Pool {
                         // 创建失败，回退计数
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
                         // #88 修复：连接创建失败，记录到断路器
+                        // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
                         #[cfg(feature = "circuit-breaker")]
                         {
-                            if let Ok(mut guard) = self.circuit_breaker.lock() {
-                                guard.record_failure();
-                            }
+                            self.circuit_breaker.lock().record_failure();
                         }
                         return Err(PoolError::ConnectionFailed(e.to_string()));
                     }
@@ -925,11 +938,10 @@ impl Pool {
                         // tokio::time::timeout 的 Err 必为超时
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
                         // #88 修复：连接创建超时，记录到断路器
+                        // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
                         #[cfg(feature = "circuit-breaker")]
                         {
-                            if let Ok(mut guard) = self.circuit_breaker.lock() {
-                                guard.record_failure();
-                            }
+                            self.circuit_breaker.lock().record_failure();
                         }
                         return Err(PoolError::Timeout);
                     }
@@ -1343,15 +1355,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pool_config_builder() {
+    async fn test_pool_config_builder() -> Result<(), Box<dyn std::error::Error>> {
         let config = PoolConfigBuilder::new()
             .max_size(50)
             .min_idle(10)
-            .build()
-            .unwrap();
+            .build()?;
 
         assert_eq!(config.max_size, 50);
         assert_eq!(config.min_idle, 10);
+        Ok(())
     }
 
     #[test]
@@ -1388,10 +1400,11 @@ mod tests {
     }
 
     #[test]
-    fn test_pool_config_builder_default() {
+    fn test_pool_config_builder_default() -> Result<(), Box<dyn std::error::Error>> {
         let builder = PoolConfigBuilder::new();
-        let config = builder.build().unwrap();
+        let config = builder.build()?;
         assert_eq!(config.max_size, 100);
+        Ok(())
     }
 
     #[test]
@@ -1404,16 +1417,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pool_acquire_and_release() {
+    async fn test_pool_acquire_and_release() -> Result<(), Box<dyn std::error::Error>> {
         let config = PoolConfigBuilder::new()
             .max_size(5)
             .min_idle(1)
-            .build()
-            .unwrap();
+            .build()?;
         let factory = Arc::new(MockConnectionFactory);
-        let pool = Pool::new(config, factory).unwrap();
+        let pool = Pool::new(config, factory)?;
 
-        let conn = pool.acquire().await.unwrap();
+        let conn = pool.acquire().await?;
         let status = pool.status().await;
         assert_eq!(status.active, 1);
         assert_eq!(status.idle, 0);
@@ -1423,36 +1435,37 @@ mod tests {
         assert_eq!(status.idle, 1);
 
         // 再次获取应该复用空闲连接
-        let _conn2 = pool.acquire().await.unwrap();
+        let _conn2 = pool.acquire().await?;
         let status = pool.status().await;
         assert_eq!(status.idle, 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_pool_status() {
+    async fn test_pool_status() -> Result<(), Box<dyn std::error::Error>> {
         let config = PoolConfigBuilder::new()
             .max_size(10)
             .min_idle(2)
-            .build()
-            .unwrap();
+            .build()?;
         let factory = Arc::new(MockConnectionFactory);
-        let pool = Pool::new(config, factory).unwrap();
+        let pool = Pool::new(config, factory)?;
 
         let status = pool.status().await;
         assert_eq!(status.max, 10);
         assert_eq!(status.min, 2);
         assert_eq!(status.active, 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_pool_close_all() {
-        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+    async fn test_pool_close_all() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(5).build()?;
         let factory = Arc::new(MockConnectionFactory);
-        let pool = Pool::new(config, factory).unwrap();
+        let pool = Pool::new(config, factory)?;
 
         // 创建几个连接然后释放
-        let conn1 = pool.acquire().await.unwrap();
-        let conn2 = pool.acquire().await.unwrap();
+        let conn1 = pool.acquire().await?;
+        let conn2 = pool.acquire().await?;
         pool.release(conn1).await;
         pool.release(conn2).await;
 
@@ -1460,19 +1473,19 @@ mod tests {
         let status = pool.status().await;
         assert_eq!(status.idle, 0);
         assert_eq!(status.active, 0);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_pool_reap_idle() {
+    async fn test_pool_reap_idle() -> Result<(), Box<dyn std::error::Error>> {
         let config = PoolConfigBuilder::new()
             .max_size(5)
             .idle_timeout(0) // 立即超时
-            .build()
-            .unwrap();
+            .build()?;
         let factory = Arc::new(MockConnectionFactory);
-        let pool = Pool::new(config, factory).unwrap();
+        let pool = Pool::new(config, factory)?;
 
-        let conn = pool.acquire().await.unwrap();
+        let conn = pool.acquire().await?;
         pool.release(conn).await;
 
         // 等待一下确保空闲超时
@@ -1481,6 +1494,7 @@ mod tests {
         pool.reap_idle().await;
         let status = pool.status().await;
         assert_eq!(status.idle, 0);
+        Ok(())
     }
 
     /// H-7 验证：acquire_timeout 默认 30s
@@ -1500,49 +1514,48 @@ mod tests {
 
     /// H-7 验证：acquire_timeout 可通过 builder 配置
     #[tokio::test]
-    async fn test_h7_acquire_timeout_configurable() {
+    async fn test_h7_acquire_timeout_configurable() -> Result<(), Box<dyn std::error::Error>> {
         let config = PoolConfigBuilder::new()
             .max_size(1)
             .acquire_timeout(5) // 5s
-            .build()
-            .unwrap();
+            .build()?;
         assert_eq!(config.acquire_timeout, Duration::from_secs(5));
 
         // 创建 max_size=1 的池，acquire 一个连接（占满），第二次 acquire 应超时
         let factory = Arc::new(MockConnectionFactory);
-        let pool = Pool::new(config, factory).unwrap();
-        let _conn1 = pool.acquire().await.unwrap();
+        let pool = Pool::new(config, factory)?;
+        let _conn1 = pool.acquire().await?;
 
         // 第二次 acquire 应在 5s 后超时（这里用 1ms 超时配置加速测试）
         let fast_config = PoolConfigBuilder::new()
             .max_size(1)
             .acquire_timeout(0) // 立即超时（0s 超时；deadline 为 now）
-            .build()
-            .unwrap();
+            .build()?;
         // 注意：acquire_timeout(0) 是合法值，表示 deadline 为 now
         // 实际行为：第一次循环即检查 deadline，返回 Timeout
-        let fast_pool = Pool::new(fast_config, Arc::new(MockConnectionFactory)).unwrap();
-        let _fast_conn = fast_pool.acquire().await.unwrap(); // 占满 max_size=1
+        let fast_pool = Pool::new(fast_config, Arc::new(MockConnectionFactory))?;
+        let _fast_conn = fast_pool.acquire().await?; // 占满 max_size=1
         let result = fast_pool.acquire().await;
         assert!(
             matches!(result, Err(PoolError::Timeout)),
             "H-7: 应返回 Timeout"
         );
+        Ok(())
     }
 
     // ==================== M-7 健康检查测试 ====================
 
     #[tokio::test]
-    async fn test_m7_health_check_removes_nothing_when_all_healthy() {
+    async fn test_m7_health_check_removes_nothing_when_all_healthy() -> Result<(), Box<dyn std::error::Error>> {
         // 所有连接健康时，health_check 应返回 0
-        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let config = PoolConfigBuilder::new().max_size(5).build()?;
         let factory = Arc::new(MockConnectionFactory);
-        let pool = Pool::new(config, factory).unwrap();
+        let pool = Pool::new(config, factory)?;
 
         // 创建 3 个连接并归还到池中
-        let conn1 = pool.acquire().await.unwrap();
-        let conn2 = pool.acquire().await.unwrap();
-        let conn3 = pool.acquire().await.unwrap();
+        let conn1 = pool.acquire().await?;
+        let conn2 = pool.acquire().await?;
+        let conn3 = pool.acquire().await?;
         pool.release(conn1).await;
         pool.release(conn2).await;
         pool.release(conn3).await;
@@ -1553,16 +1566,18 @@ mod tests {
         let status = pool.status().await;
         assert_eq!(status.idle, 3);
         assert_eq!(status.active, 3);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_m7_health_check_returns_zero_for_empty_pool() {
-        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+    async fn test_m7_health_check_returns_zero_for_empty_pool() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(5).build()?;
         let factory = Arc::new(MockConnectionFactory);
-        let pool = Pool::new(config, factory).unwrap();
+        let pool = Pool::new(config, factory)?;
 
         let removed = pool.health_check().await;
         assert_eq!(removed, 0);
+        Ok(())
     }
 
     // ==================== 生产 Bug 复现测试 ====================
@@ -1597,7 +1612,7 @@ mod tests {
     /// 根因：release() 中 created_at 被重置为 now()，max_lifetime 检查永远不触发
     /// 期望：超过 max_lifetime 的连接应被回收并创建新连接
     #[tokio::test]
-    async fn test_production_bug_max_lifetime_never_expires() {
+    async fn test_production_bug_max_lifetime_never_expires() -> Result<(), Box<dyn std::error::Error>> {
         // 注意：PoolConfigBuilder::max_lifetime() 接受秒，这里需要毫秒级精度
         // 所以直接构造 PoolConfig
         let config = PoolConfig {
@@ -1614,10 +1629,10 @@ mod tests {
             on_event: None,
         };
         let factory = Arc::new(CountingFactory::new());
-        let pool = Pool::new(config, factory.clone()).unwrap();
+        let pool = Pool::new(config, factory.clone())?;
 
         // 1. 创建连接
-        let conn = pool.acquire().await.unwrap();
+        let conn = pool.acquire().await?;
         assert_eq!(factory.created_count(), 1, "应创建 1 个连接");
 
         // 2. 归还连接（bug：重置 created_at）
@@ -1627,7 +1642,7 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(150)).await;
 
         // 4. 再次获取 — 应检测到连接过期，创建新连接
-        let conn2 = pool.acquire().await.unwrap();
+        let conn2 = pool.acquire().await?;
 
         // 5. 验证：如果 bug 存在，factory.created_count() 仍为 1（连接被复用，未过期）
         //         如果修复，factory.created_count() 应为 2（旧连接过期，创建新连接）
@@ -1638,6 +1653,7 @@ mod tests {
         );
 
         pool.release(conn2).await;
+        Ok(())
     }
 
     // ==================== PooledConnection::Drop 自动归还测试 ====================
@@ -1647,14 +1663,14 @@ mod tests {
     /// 修复前：PooledConnection 未实现 Drop，drop 时连接丢失，池耗尽
     /// 修复后：Drop 时 spawn 异步 release，连接自动归还
     #[tokio::test]
-    async fn test_drop_auto_release_connection() {
-        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+    async fn test_drop_auto_release_connection() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(2).build()?;
         let factory = Arc::new(CountingFactory::new());
-        let pool = Pool::new(config, factory.clone()).unwrap();
+        let pool = Pool::new(config, factory.clone())?;
 
         // 1. acquire 一个连接（不显式 release）
         {
-            let _conn = pool.acquire().await.unwrap();
+            let _conn = pool.acquire().await?;
             assert_eq!(factory.created_count(), 1, "应创建 1 个连接");
             let status = pool.status().await;
             assert_eq!(status.active, 1, "active 应为 1");
@@ -1670,38 +1686,40 @@ mod tests {
         assert_eq!(status.idle, 1, "Drop 后连接应自动归还，idle 应为 1");
         assert_eq!(status.active, 1, "total_count 应为 1");
         assert_eq!(factory.created_count(), 1, "应复用归还的连接，不创建新连接");
+        Ok(())
     }
 
     /// 验证 Drop 自动归还后，连接可被再次 acquire 复用
     #[tokio::test]
-    async fn test_drop_auto_release_then_reuse() {
-        let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+    async fn test_drop_auto_release_then_reuse() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(1).build()?;
         let factory = Arc::new(CountingFactory::new());
-        let pool = Pool::new(config, factory.clone()).unwrap();
+        let pool = Pool::new(config, factory.clone())?;
 
         // max_size=1，如果 Drop 不归还，第二次 acquire 会超时
         {
-            let _conn = pool.acquire().await.unwrap();
+            let _conn = pool.acquire().await?;
         }
 
         // 等待 Drop spawn 的 release 完成
         tokio::time::sleep(Duration::from_millis(50)).await;
 
         // 再次 acquire 应复用归还的连接，不创建新连接
-        let conn = pool.acquire().await.expect("应能复用 Drop 归还的连接");
+        let conn = pool.acquire().await?;
         assert_eq!(factory.created_count(), 1, "应复用归还的连接，不创建新连接");
 
         pool.release(conn).await;
+        Ok(())
     }
 
     /// 验证 into_inner 后 Drop 不归还（连接被消费）
     #[tokio::test]
-    async fn test_into_inner_does_not_return_to_pool() {
-        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+    async fn test_into_inner_does_not_return_to_pool() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(2).build()?;
         let factory = Arc::new(CountingFactory::new());
-        let pool = Pool::new(config, factory.clone()).unwrap();
+        let pool = Pool::new(config, factory.clone())?;
 
-        let conn = pool.acquire().await.unwrap();
+        let conn = pool.acquire().await?;
         assert_eq!(factory.created_count(), 1);
 
         // into_inner 消费连接，pool 字段设为 None
@@ -1713,27 +1731,29 @@ mod tests {
         let status = pool.status().await;
         assert_eq!(status.idle, 0, "into_inner 后连接不应归还");
         assert_eq!(status.active, 1, "total_count 仍为 1（连接被外部持有）");
+        Ok(())
     }
 
     /// 验证显式 release 后 Drop 不会重复归还
     #[tokio::test]
-    async fn test_explicit_release_no_double_return() {
-        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+    async fn test_explicit_release_no_double_return() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(2).build()?;
         let factory = Arc::new(CountingFactory::new());
-        let pool = Pool::new(config, factory.clone()).unwrap();
+        let pool = Pool::new(config, factory.clone())?;
 
-        let conn = pool.acquire().await.unwrap();
+        let conn = pool.acquire().await?;
         pool.release(conn).await;
 
         let status = pool.status().await;
         assert_eq!(status.idle, 1, "release 后 idle 应为 1");
 
         // 再次 acquire + release 验证不会重复
-        let conn = pool.acquire().await.unwrap();
+        let conn = pool.acquire().await?;
         pool.release(conn).await;
 
         let status = pool.status().await;
         assert_eq!(status.idle, 1, "再次 release 后 idle 仍应为 1（不重复）");
         assert_eq!(status.active, 1, "total_count 应为 1");
+        Ok(())
     }
 }
