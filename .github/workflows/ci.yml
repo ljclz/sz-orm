@@ -43,6 +43,58 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ============================================================================
+  # Job 1.5: ADR-0001 上游仓库未修改检查
+  #
+  # 确保核心包（sz-orm-core / sz-orm-auth / sz-orm-config 等）的修改
+  # 已正确提交，且文档与代码保持一致。
+  # ============================================================================
+  check-upstream:
+    name: ADR-0001 Check (Upstream Unmodified)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install tomli (TOML parser for Python < 3.11)
+        run: pip install tomli
+
+      - name: Run ADR-0001 upstream check
+        run: bash scripts/check-upstream-unmodified.sh
+
+      - name: Run doc consistency check
+        run: python3 scripts/check-doc-consistency.py
+
+  # ============================================================================
+  # Job 1.6: 文档与代码一致性检查（独立 job，快速失败）
+  #
+  # 验证 AGENTS.md 和 sz-orm-engineering-practices.md 中的关键数据
+  # 与实际 Cargo.toml 一致：包数量、版本号等。
+  # ============================================================================
+  check-docs:
+    name: Doc Consistency Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install tomli (TOML parser for Python < 3.11)
+        run: pip install tomli
+
+      - name: Run doc consistency check
+        run: python3 scripts/check-doc-consistency.py
+
+  # ============================================================================
   # Job 2: 工作空间编译验证
   # ============================================================================
   build:

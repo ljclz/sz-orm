@@ -6,7 +6,7 @@
     在 push / 合并 / 部署前强制执行全项目集成验证。
     任何一步失败立即停止并返回非零退出码。
 
-    包含 7 道关卡：
+    包含 10 道关卡 + 2 道新增关卡：
       1. cargo fmt --check        格式检查
       2. cargo check --workspace  全项目编译检查（含 all-features）
       3. cargo clippy             严格模式（-D warnings）
@@ -14,6 +14,11 @@
       5. cargo doc                文档构建（捕获断裂的 doc 链接）
       6. API 变更扫描             检测公共 API 签名变化（如果有的话）
       7. 契约测试                 单独跑契约测试套件
+      8. 禁止占位实现检查         扫描 todo!/unimplemented!/unreachable!
+      9. SQL 注入扫描             扫描 SQL 拼接模式
+      10. Feature 全组合编译      cargo check --all-features
+      11. ADR-0001 上游未修改检查  核心包修改必须附带文档更新
+      12. 文档一致性检查          验证文档数据与实际代码一致
 
 .EXAMPLE
     ./scripts/gate.ps1
@@ -171,6 +176,66 @@ if (-not $SkipTests) {
     }
     if (-not $ok) { exit 7 }
 }
+
+# ============================================================================
+# 关卡 8: 禁止占位实现检查
+# ============================================================================
+$ok = Invoke-Step "禁止占位实现检查" {
+    $matches = Select-String -Path (Get-ChildItem -Recurse "*.rs" -Exclude "*target*").FullName -Pattern '\b(todo!|unimplemented!|unreachable!)\b'
+    if ($matches) {
+        Write-Host "发现 $($matches.Count) 处占位实现：" -ForegroundColor Red
+        $matches | ForEach-Object { Write-Host "  $($_.Path):$($_.LineNumber) — $($_.Line.Trim())" }
+        exit 8
+    }
+}
+if (-not $ok) { exit 8 }
+
+# ============================================================================
+# 关卡 9: SQL 注入扫描
+# ============================================================================
+$ok = Invoke-Step "SQL 注入扫描" {
+    $sqlPatterns = @(
+        @{ Name = "format! SQL 拼接"; Pattern = 'format!\s*\(\s*"[^"]*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WHERE)[^"]*".*\{' },
+        @{ Name = "字符串插值 SQL"; Pattern = '"(?:[^"]*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WHERE)[^"]*)\$\{?\w+\}?"' },
+        @{ Name = "SQL 字符串拼接"; Pattern = '\.to_string\(\s*\)\s*\+\s*"' },
+        @{ Name = "raw SQL 参数插值"; Pattern = '\.(?:execute|query|raw)\s*\(\s*format!' }
+    )
+    $found = $false
+    foreach ($pattern in $sqlPatterns) {
+        $m = Select-String -Path (Get-ChildItem -Recurse "*.rs" -Exclude "*target*").FullName -Pattern $pattern.Pattern
+        if ($m) {
+            Write-Host "[$($pattern.Name)] 发现 $($m.Count) 处" -ForegroundColor Red
+            $m | ForEach-Object { Write-Host "  $($_.Path):$($_.LineNumber)" }
+            $found = $true
+        }
+    }
+    if ($found) { exit 9 }
+}
+if (-not $ok) { exit 9 }
+
+# ============================================================================
+# 关卡 10: Feature 全组合编译
+# ============================================================================
+$ok = Invoke-Step "Feature 全组合编译 (cargo check --all-features)" {
+    cargo check --workspace --all-targets --all-features
+}
+if (-not $ok) { exit 10 }
+
+# ============================================================================
+# 关卡 11: ADR-0001 上游未修改检查
+# ============================================================================
+$ok = Invoke-Step "ADR-0001 上游未修改检查" {
+    & "$PSScriptRoot/check-upstream-unmodified.ps1"
+}
+if (-not $ok) { exit 11 }
+
+# ============================================================================
+# 关卡 12: 文档一致性检查
+# ============================================================================
+$ok = Invoke-Step "文档一致性检查" {
+    python "$PSScriptRoot/check-doc-consistency.py"
+}
+if (-not $ok) { exit 12 }
 
 # ============================================================================
 # 汇总

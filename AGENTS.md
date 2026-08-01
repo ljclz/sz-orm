@@ -1,6 +1,6 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：1.2.0（workspace.package.version 集中管理）
+- 版本：1.2.1（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：43 个成员（41 个 lib 包 + cli + examples）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
