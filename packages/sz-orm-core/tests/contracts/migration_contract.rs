@@ -17,7 +17,7 @@ fn test_schema_builder_chain_returns_self_contract() {
             ForeignKeyDef::new("fk_role", "role_id", "roles", "id").on_delete("CASCADE"),
         );
     // 链式调用后 build 应生成包含所有元素的 DDL
-    let sql = builder.build(DbType::MySQL);
+    let sql = builder.build(DbType::MySQL).unwrap();
     assert!(sql.contains("CREATE TABLE"), "应包含 CREATE TABLE: {}", sql);
     assert!(sql.contains("users"), "应包含表名: {}", sql);
     assert!(sql.contains("id"), "应包含列 id: {}", sql);
@@ -32,7 +32,7 @@ fn test_schema_builder_build_generates_create_table_contract() {
         .add_column(ColumnDef::new("id", "INT").not_null().auto_increment())
         .add_column(ColumnDef::new("name", "VARCHAR").length(255).not_null());
 
-    let sql = builder.build(DbType::MySQL);
+    let sql = builder.build(DbType::MySQL).unwrap();
     assert!(sql.to_uppercase().contains("CREATE TABLE"));
     assert!(sql.contains("users"));
     assert!(sql.contains("id"));
@@ -43,8 +43,8 @@ fn test_schema_builder_build_generates_create_table_contract() {
 fn test_schema_builder_build_per_dialect_contract() {
     let make = || SchemaBuilder::new("users").add_column(ColumnDef::new("id", "INT").not_null());
 
-    let mysql_sql = make().build(DbType::MySQL);
-    let pg_sql = make().build(DbType::PostgreSQL);
+    let mysql_sql = make().build(DbType::MySQL).unwrap();
+    let pg_sql = make().build(DbType::PostgreSQL).unwrap();
 
     // 不同方言应生成不同 DDL（至少表名引用不同）
     assert!(mysql_sql.contains("users") || mysql_sql.contains("`users`"));
@@ -74,7 +74,8 @@ fn test_column_def_new_sets_name_and_type_contract() {
     // ColumnDef::build 是私有的，通过 SchemaBuilder::build 间接验证
     let sql = SchemaBuilder::new("users")
         .add_column(ColumnDef::new("email", "VARCHAR"))
-        .build(DbType::MySQL);
+        .build(DbType::MySQL)
+        .unwrap();
     assert!(sql.contains("email"), "DDL 应包含字段名: {}", sql);
 }
 
@@ -82,7 +83,8 @@ fn test_column_def_new_sets_name_and_type_contract() {
 fn test_column_def_length_contract() {
     let sql = SchemaBuilder::new("users")
         .add_column(ColumnDef::new("name", "VARCHAR").length(255))
-        .build(DbType::MySQL);
+        .build(DbType::MySQL)
+        .unwrap();
     // VARCHAR(255) 或类似格式
     assert!(sql.contains("255"), "length 应出现在 DDL 中: {}", sql);
 }
@@ -91,7 +93,8 @@ fn test_column_def_length_contract() {
 fn test_column_def_not_null_contract() {
     let sql = SchemaBuilder::new("users")
         .add_column(ColumnDef::new("id", "INT").not_null())
-        .build(DbType::MySQL);
+        .build(DbType::MySQL)
+        .unwrap();
     assert!(
         sql.to_uppercase().contains("NOT NULL"),
         "not_null 应生成 NOT NULL: {}",
