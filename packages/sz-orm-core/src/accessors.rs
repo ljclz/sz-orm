@@ -506,7 +506,7 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             use std::fmt::Write;
             let mut s = String::with_capacity(b.len() * 2);
             for byte in b {
-                write!(&mut s, "{:02x}", byte).unwrap();
+                let _ = write!(&mut s, "{:02x}", byte);
             }
             serde_json::Value::String(s)
         }
