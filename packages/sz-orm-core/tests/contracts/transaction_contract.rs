@@ -35,25 +35,27 @@ async fn test_new_transaction_is_active_contract() {
 }
 
 #[tokio::test]
-async fn test_commit_transitions_state_contract() {
+async fn test_commit_transitions_state_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
     assert_eq!(tx.state(), TransactionState::Committed);
     assert!(!tx.is_active());
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_rollback_transitions_state_contract() {
+async fn test_rollback_transitions_state_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.rollback().await.unwrap();
+    tx.rollback().await?;
     assert_eq!(tx.state(), TransactionState::RolledBack);
     assert!(!tx.is_active());
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_double_commit_returns_not_active_contract() {
+async fn test_double_commit_returns_not_active_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
 
     // 再次 commit 应返回 NotActive(Committed)
     let err = tx.commit().await.unwrap_err();
@@ -63,12 +65,13 @@ async fn test_double_commit_returns_not_active_contract() {
         }
         other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_rollback_after_commit_returns_not_active_contract() {
+async fn test_rollback_after_commit_returns_not_active_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
 
     let err = tx.rollback().await.unwrap_err();
     match err {
@@ -77,35 +80,38 @@ async fn test_rollback_after_commit_returns_not_active_contract() {
         }
         other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_execute_after_commit_returns_not_active_contract() {
+async fn test_execute_after_commit_returns_not_active_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
 
     let err = tx.execute("SELECT 1").await.unwrap_err();
     assert!(matches!(err, TxError::NotActive(_)));
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_query_after_commit_returns_not_active_contract() {
+async fn test_query_after_commit_returns_not_active_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
 
     let err = tx.query("SELECT 1").await.unwrap_err();
     assert!(matches!(err, TxError::NotActive(_)));
+    Ok(())
 }
 
 // ===== §6.1 v0.2.0 行为变更：savepoint 在非 Active 状态返回 NotActive =====
 
 #[tokio::test]
-async fn test_savepoint_after_commit_returns_not_active_contract() {
+async fn test_savepoint_after_commit_returns_not_active_contract() -> Result<(), TxError> {
     // v0.2.0 行为变更：
     // commit/rollback 后调用 savepoint() 必须返回 Err(TxError::NotActive(state))
     // 而不是 Err(TxError::SavepointError(...))
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
 
     let err = tx.savepoint().await.unwrap_err();
     match err {
@@ -117,35 +123,38 @@ async fn test_savepoint_after_commit_returns_not_active_contract() {
         }
         other => panic!("期望 NotActive(Committed)，实际: {:?}", other),
     }
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_savepoint_after_rollback_returns_not_active_contract() {
+async fn test_savepoint_after_rollback_returns_not_active_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.rollback().await.unwrap();
+    tx.rollback().await?;
 
     let err = tx.savepoint().await.unwrap_err();
     assert!(matches!(err, TxError::NotActive(_)));
+    Ok(())
 }
 
 // ===== §6.1 savepoint 名称格式 "sp_N" 契约 =====
 
 #[tokio::test]
-async fn test_savepoint_name_format_contract() {
+async fn test_savepoint_name_format_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
 
-    let sp1 = tx.savepoint().await.unwrap();
+    let sp1 = tx.savepoint().await?;
     assert_eq!(sp1, "sp_1");
 
-    let sp2 = tx.savepoint().await.unwrap();
+    let sp2 = tx.savepoint().await?;
     assert_eq!(sp2, "sp_2");
 
-    let sp3 = tx.savepoint().await.unwrap();
+    let sp3 = tx.savepoint().await?;
     assert_eq!(sp3, "sp_3");
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_savepoint_name_monotonic_increment_contract() {
+async fn test_savepoint_name_monotonic_increment_contract() -> Result<(), TxError> {
     // H-8 修复适配：默认 max_nesting_depth=8，循环 10 次会触发 MaxNestingDepthExceeded。
     // 此处显式提升上限以保留原始契约意图（验证名称单调递增）。
     let db = Arc::new(Mutex::new(InMemoryDb::new()));
@@ -154,28 +163,30 @@ async fn test_savepoint_name_monotonic_increment_contract() {
     let mut tx = Transaction::new(Box::new(conn), opts);
     let mut names = Vec::new();
     for _ in 0..10 {
-        names.push(tx.savepoint().await.unwrap());
+        names.push(tx.savepoint().await?);
     }
     // 名称应单调递增
     for (i, name) in names.iter().enumerate() {
         assert_eq!(name, &format!("sp_{}", i + 1));
     }
+    Ok(())
 }
 
 // ===== §6.1 rollback_to_savepoint / release_savepoint 契约 =====
 
 #[tokio::test]
-async fn test_rollback_to_savepoint_contract() {
+async fn test_rollback_to_savepoint_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    let sp = tx.savepoint().await.unwrap();
+    let sp = tx.savepoint().await?;
     // savepoint 创建后事务仍处于 Active 状态
     assert_eq!(tx.state(), TransactionState::Active);
-    tx.rollback_to_savepoint(&sp).await.unwrap();
+    tx.rollback_to_savepoint(&sp).await?;
     // 回滚到保存点后事务仍为 Active
     assert_eq!(tx.state(), TransactionState::Active);
-    tx.release_savepoint(&sp).await.unwrap();
+    tx.release_savepoint(&sp).await?;
     // 释放保存点后事务仍为 Active
     assert!(tx.is_active());
+    Ok(())
 }
 
 #[tokio::test]
@@ -218,29 +229,31 @@ async fn test_take_connection_in_active_returns_not_active_contract() {
 }
 
 #[tokio::test]
-async fn test_take_connection_after_commit_contract() {
+async fn test_take_connection_after_commit_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
 
-    let conn = tx.take_connection().await.unwrap();
+    let conn = tx.take_connection().await?;
     assert!(conn.is_connected());
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_take_connection_after_rollback_contract() {
+async fn test_take_connection_after_rollback_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.rollback().await.unwrap();
+    tx.rollback().await?;
 
-    let conn = tx.take_connection().await.unwrap();
+    let conn = tx.take_connection().await?;
     assert!(conn.is_connected());
+    Ok(())
 }
 
 #[tokio::test]
-async fn test_take_connection_twice_returns_connection_taken_contract() {
+async fn test_take_connection_twice_returns_connection_taken_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
-    tx.commit().await.unwrap();
+    tx.commit().await?;
 
-    let _first = tx.take_connection().await.unwrap();
+    let _first = tx.take_connection().await?;
     // 重复 take_connection 应返回 ConnectionTaken
     let result = tx.take_connection().await;
     match result {
@@ -248,6 +261,7 @@ async fn test_take_connection_twice_returns_connection_taken_contract() {
         Err(other) => panic!("期望 ConnectionTaken，实际: {:?}", other),
         Ok(_) => panic!("重复 take_connection 必须返回 Err，实际返回 Ok"),
     }
+    Ok(())
 }
 
 // ===== §6.2 TransactOptions 契约 =====
@@ -294,16 +308,17 @@ fn test_transact_options_chaining_contract() {
 // ===== §6.1 options() / state() 不 panic 契约 =====
 
 #[tokio::test]
-async fn test_options_and_state_dont_panic_contract() {
+async fn test_options_and_state_dont_panic_contract() -> Result<(), TxError> {
     let mut tx = make_tx();
     // Active 状态下 options()/state() 应可读取且不 panic
     assert_eq!(tx.state(), TransactionState::Active);
     assert!(tx.options().isolation_level.is_none());
 
-    tx.commit().await.unwrap();
+    tx.commit().await?;
     // Committed 状态下 options()/state() 仍应可读取且不 panic
     assert_eq!(tx.state(), TransactionState::Committed);
     assert!(!tx.is_active());
     // options() 在 commit 后应仍可访问且内容不变（默认 None）
     assert!(tx.options().isolation_level.is_none());
+    Ok(())
 }

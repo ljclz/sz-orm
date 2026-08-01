@@ -724,7 +724,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_transaction_commit() {
+    async fn test_transaction_commit() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
         assert!(tx.is_active());
@@ -732,7 +732,7 @@ mod tests {
         let result = tx.execute("INSERT INTO users VALUES (1)").await;
         assert!(result.is_ok());
 
-        tx.commit().await.unwrap();
+        tx.commit().await?;
         assert_eq!(tx.state(), TransactionState::Committed);
 
         // 再次 commit 应该失败（NotActive）
@@ -744,14 +744,15 @@ mod tests {
             }
             _ => panic!("Expected NotActive error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_transaction_rollback() {
+    async fn test_transaction_rollback() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
 
-        tx.rollback().await.unwrap();
+        tx.rollback().await?;
         assert_eq!(tx.state(), TransactionState::RolledBack);
 
         // 再次 rollback 应该失败（NotActive）
@@ -763,13 +764,14 @@ mod tests {
             }
             _ => panic!("Expected NotActive error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_transaction_execute_after_commit() {
+    async fn test_transaction_execute_after_commit() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
-        tx.commit().await.unwrap();
+        tx.commit().await?;
 
         let result = tx.execute("SELECT 1").await;
         assert!(result.is_err());
@@ -777,13 +779,14 @@ mod tests {
             Err(TxError::NotActive(_)) => {}
             _ => panic!("Expected NotActive error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_transaction_query_after_commit_returns_not_active() {
+    async fn test_transaction_query_after_commit_returns_not_active() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
-        tx.commit().await.unwrap();
+        tx.commit().await?;
 
         let result = tx.query("SELECT 1").await;
         assert!(result.is_err());
@@ -791,21 +794,23 @@ mod tests {
             Err(TxError::NotActive(_)) => {}
             _ => panic!("Expected NotActive error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_transaction_savepoint() {
+    async fn test_transaction_savepoint() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
 
-        let sp1 = tx.savepoint().await.unwrap();
+        let sp1 = tx.savepoint().await?;
         assert_eq!(sp1, "sp_1");
 
-        let sp2 = tx.savepoint().await.unwrap();
+        let sp2 = tx.savepoint().await?;
         assert_eq!(sp2, "sp_2");
 
-        tx.rollback_to_savepoint(&sp1).await.unwrap();
-        tx.release_savepoint(&sp2).await.unwrap();
+        tx.rollback_to_savepoint(&sp1).await?;
+        tx.release_savepoint(&sp2).await?;
+        Ok(())
     }
 
     #[tokio::test]
@@ -843,7 +848,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_transaction_take_connection() {
+    async fn test_transaction_take_connection() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
 
@@ -856,7 +861,7 @@ mod tests {
         }
 
         // commit 后可以取连接
-        tx.commit().await.unwrap();
+        tx.commit().await?;
         let conn = tx.take_connection().await;
         assert!(conn.is_ok());
 
@@ -867,40 +872,41 @@ mod tests {
             Err(TxError::ConnectionTaken) => {}
             _ => panic!("Expected ConnectionTaken error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_transaction_manager() {
+    async fn test_transaction_manager() -> Result<(), TxError> {
         let mgr = TransactionManager::new();
         let conn = Box::new(MockConnection::new());
 
         mgr.begin("tx1".to_string(), conn, TransactOptions::default())
-            .await
-            .unwrap();
+            .await?;
 
         let state = mgr.state("tx1").await;
         assert_eq!(state, Some(TransactionState::Active));
 
-        mgr.commit("tx1").await.unwrap();
+        mgr.commit("tx1").await?;
         let state = mgr.state("tx1").await;
         assert_eq!(state, Some(TransactionState::Committed));
 
         let list = mgr.list().await;
         assert!(list.contains(&"tx1".to_string()));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_transaction_manager_rollback() {
+    async fn test_transaction_manager_rollback() -> Result<(), TxError> {
         let mgr = TransactionManager::new();
         let conn = Box::new(MockConnection::new());
 
         mgr.begin("tx2".to_string(), conn, TransactOptions::default())
-            .await
-            .unwrap();
+            .await?;
 
-        mgr.rollback("tx2").await.unwrap();
+        mgr.rollback("tx2").await?;
         let state = mgr.state("tx2").await;
         assert_eq!(state, Some(TransactionState::RolledBack));
+        Ok(())
     }
 
     #[tokio::test]
@@ -911,19 +917,19 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_transaction_manager_remove() {
+    async fn test_transaction_manager_remove() -> Result<(), TxError> {
         let mgr = TransactionManager::new();
         let conn = Box::new(MockConnection::new());
 
         mgr.begin("tx3".to_string(), conn, TransactOptions::default())
-            .await
-            .unwrap();
+            .await?;
 
         let removed = mgr.remove("tx3").await;
         assert!(removed.is_some());
 
         let state = mgr.state("tx3").await;
         assert_eq!(state, None);
+        Ok(())
     }
 
     /// 验证 Drop 时若事务仍 Active，会 spawn 后台 rollback 任务
@@ -1024,25 +1030,26 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_h8_savepoint_within_default_depth_succeeds() {
+    async fn test_h8_savepoint_within_default_depth_succeeds() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
 
         // 默认深度 8，创建 8 个保存点应全部成功
         for i in 1..=8 {
-            let sp = tx.savepoint().await.unwrap();
+            let sp = tx.savepoint().await?;
             assert_eq!(sp, format!("sp_{}", i));
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_h8_savepoint_exceeding_default_depth_fails() {
+    async fn test_h8_savepoint_exceeding_default_depth_fails() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default());
 
         // 创建 8 个保存点（达到上限）
         for _ in 0..8 {
-            tx.savepoint().await.unwrap();
+            tx.savepoint().await?;
         }
 
         // 第 9 个保存点应失败
@@ -1058,16 +1065,17 @@ mod tests {
             }
             _ => panic!("Expected MaxNestingDepthExceeded error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_h8_savepoint_with_custom_depth_3() {
+    async fn test_h8_savepoint_with_custom_depth_3() -> Result<(), TxError> {
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default().with_max_nesting_depth(3));
 
         // 3 个保存点应成功
         for i in 1..=3 {
-            let sp = tx.savepoint().await.unwrap();
+            let sp = tx.savepoint().await?;
             assert_eq!(sp, format!("sp_{}", i));
         }
 
@@ -1084,6 +1092,7 @@ mod tests {
             }
             _ => panic!("Expected MaxNestingDepthExceeded error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
@@ -1107,18 +1116,18 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_h8_savepoint_after_rollback_to_still_respects_depth() {
+    async fn test_h8_savepoint_after_rollback_to_still_respects_depth() -> Result<(), TxError> {
         // 即使回滚到保存点，savepoint_counter 不减少（保存点栈可能仍存在），
         // 因此深度检查仍以 savepoint_counter 为准
         let conn = Box::new(MockConnection::new());
         let mut tx = Transaction::new(conn, TransactOptions::default().with_max_nesting_depth(2));
 
-        let sp1 = tx.savepoint().await.unwrap();
-        let sp2 = tx.savepoint().await.unwrap();
+        let sp1 = tx.savepoint().await?;
+        let sp2 = tx.savepoint().await?;
 
         // 回滚到 sp1（不重置计数器）
-        tx.rollback_to_savepoint(&sp1).await.unwrap();
-        tx.release_savepoint(&sp2).await.unwrap();
+        tx.rollback_to_savepoint(&sp1).await?;
+        tx.release_savepoint(&sp2).await?;
 
         // 第 3 个保存点仍应失败（计数器不回退）
         let result = tx.savepoint().await;
@@ -1133,6 +1142,7 @@ mod tests {
             }
             _ => panic!("Expected MaxNestingDepthExceeded error"),
         }
+        Ok(())
     }
 
     #[tokio::test]
@@ -1195,7 +1205,7 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_m8_retry_on_deadlock_succeeds_first_attempt() {
+    async fn test_m8_retry_on_deadlock_succeeds_first_attempt() -> Result<(), TxError> {
         use std::sync::atomic::{AtomicU32, Ordering};
 
         let counter = Arc::new(AtomicU32::new(0));
@@ -1211,12 +1221,13 @@ mod tests {
             })
             .await;
 
-        assert_eq!(result.unwrap(), 42);
+        assert_eq!(result?, 42);
         assert_eq!(counter.load(Ordering::SeqCst), 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_m8_retry_on_deadlock_retries_on_deadlock_error() {
+    async fn test_m8_retry_on_deadlock_retries_on_deadlock_error() -> Result<(), TxError> {
         use std::sync::atomic::{AtomicU32, Ordering};
 
         let counter = Arc::new(AtomicU32::new(0));
@@ -1239,8 +1250,9 @@ mod tests {
             })
             .await;
 
-        assert_eq!(result.unwrap(), 42);
+        assert_eq!(result?, 42);
         assert_eq!(counter.load(Ordering::SeqCst), 3);
+        Ok(())
     }
 
     #[tokio::test]
