@@ -236,7 +236,7 @@ cargo check --workspace --all-targets --all-features
 | 属性 | 值 |
 |------|-----|
 | **教训来源** | 下游项目直接修改 sz-orm 源码导致审计记录与事实不符 |
-| **命令** | `git diff --stat` + 文件完整性校验 |
+| **命令** | `git diff --name-only HEAD` + 文件完整性校验 |
 | **CI Job 名** | `check-upstream-unmodified`（新增） |
 | **状态** | ✅ 已通过 |
 
@@ -265,6 +265,45 @@ if ($violations.Count -gt 0) {
 }
 Write-Host "[OK] ADR-0001 通过：上游仓库未修改" -ForegroundColor Green
 ```
+
+### 门禁 12：文档与代码一致性检查
+
+| 属性 | 值 |
+|------|-----|
+| **教训来源** | 审计记录写"43 包"实际 41 包；版本号不一致 |
+| **命令** | `python scripts/check-doc-consistency.py` |
+| **CI Job 名** | `check-doc-consistency`（新增） |
+| **状态** | ✅ 已通过 |
+
+**校验内容**：
+- AGENTS.md 中的版本号、包数量
+- sz-orm-engineering-practices.md 中的项目版本、workspace 包数量
+- 所有数据必须与实际 Cargo.toml 一致
+
+**自动修复**：
+```bash
+# 自动修复文档中的不一致数据
+python scripts/check-doc-consistency.py --fix
+```
+
+### 门禁 13：审计证据验证（审计合规硬约束）
+
+| 属性 | 值 |
+|------|-----|
+| **教训来源** | 审计报告写"已修复"但实际未改；file:line 证据编造 |
+| **命令** | `bash scripts/audit-verify.sh <审计报告.md>` |
+| **CI Job 名** | `audit-verify`（新增） |
+| **状态** | ✅ 已通过 |
+
+**验证内容**：
+- 审计报告中所有 `file:line` 引用是否真实存在
+- 行号是否在文件实际行数范围内
+- 禁止编造证据
+
+**铁律**：
+- ❌ 禁止：`已修复`、`应该没问题`、`参见其他文档`
+- ✅ 必须：`[packages/sz-orm-core/src/query.rs:127] 已修复，cargo test 输出：43 passed`
+- 违反本条视为审计无效，必须重新执行
 
 ---
 

@@ -6,7 +6,7 @@
     在 push / 合并 / 部署前强制执行全项目集成验证。
     任何一步失败立即停止并返回非零退出码。
 
-    包含 10 道关卡 + 2 道新增关卡：
+    包含 10 道关卡 + 3 道新增关卡：
       1. cargo fmt --check        格式检查
       2. cargo check --workspace  全项目编译检查（含 all-features）
       3. cargo clippy             严格模式（-D warnings）
@@ -19,6 +19,7 @@
       10. Feature 全组合编译      cargo check --all-features
       11. ADR-0001 上游未修改检查  核心包修改必须附带文档更新
       12. 文档一致性检查          验证文档数据与实际代码一致
+      13. 审计证据验证            验证审计报告中 file:line 证据真实性
 
 .EXAMPLE
     ./scripts/gate.ps1
@@ -236,6 +237,20 @@ $ok = Invoke-Step "文档一致性检查" {
     python "$PSScriptRoot/check-doc-consistency.py"
 }
 if (-not $ok) { exit 12 }
+
+# ============================================================================
+# 关卡 13: 审计证据验证（如果存在审计报告）
+# ============================================================================
+$auditReports = Get-ChildItem -Recurse "docs/audit/*.md" -ErrorAction SilentlyContinue
+if ($auditReports) {
+    $latestReport = $auditReports | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+    if ($latestReport) {
+        $ok = Invoke-Step "审计证据验证 ($($latestReport.Name))" {
+            & "$PSScriptRoot/audit-verify.ps1" $latestReport.FullName
+        }
+        if (-not $ok) { exit 13 }
+    }
+}
 
 # ============================================================================
 # 汇总

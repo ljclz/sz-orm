@@ -6,10 +6,9 @@
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
-- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 1.2.0
+- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 1.2.1
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 检测自动拦截（N1QueryDetector）。
-- 版本：1.2.1（2026-08-01 更新）
 
 ## 工程化审查规范
 
@@ -51,6 +50,30 @@
 8. 跨平台意识
 9. Feature 隔离
 10. 教训记忆（阅读防御追溯表）
+
+### 审计合规铁律（生死线）
+
+**任何审计/审查结论必须附带可验证的代码证据：**
+
+- ❌ 禁止：`已修复`、`应该没问题`、`参见其他文档`
+- ✅ 必须：`[packages/sz-orm-core/src/query.rs:127](file:///.../query.rs#L127) 已修复，cargo test 输出：43 passed`
+- 每条结论必须有 `file:line` 证据，且该文件行必须真实存在
+- 修复后必须运行 `cargo test` 并附输出，禁止未验证即标记 ✅
+- 多项修复必须逐项验证，禁止批量声称"全部通过"
+- 违反本条视为审计无效，必须重新执行
+
+**审计后必须运行验证脚本：**
+
+```bash
+# 验证审计报告中所有 file:line 引用是否真实存在
+bash scripts/audit-verify.sh <审计报告.md>
+# 或 Windows：
+.\scripts\audit-verify.ps1 <审计报告.md>
+```
+
+脚本会逐项验证报告中所有 `file:line` 引用：
+- ✅ 文件存在且行号在范围内
+- ❌ 文件不存在或行号超出范围（编造证据）
 
 ## 编译时 SQL 验证（db-verify feature）
 

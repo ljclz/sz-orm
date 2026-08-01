@@ -5,7 +5,7 @@
 # 在 push / 合并 / 部署前强制执行全项目集成验证。
 # 任何一步失败立即停止并返回非零退出码。
 #
-# 包含 10 道关卡 + 2 道新增关卡：
+# 包含 10 道关卡 + 3 道新增关卡：
 #   1. cargo fmt --check        格式检查
 #   2. cargo check --workspace  全项目编译检查（含 all-features）
 #   3. cargo clippy             严格模式（-D warnings）
@@ -18,6 +18,7 @@
 #   10. Feature 全组合编译      cargo check --all-features
 #   11. ADR-0001 上游未修改检查  核心包修改必须附带文档更新
 #   12. 文档一致性检查          验证文档数据与实际代码一致
+#   13. 审计证据验证            验证审计报告中 file:line 证据真实性
 #
 # 用法：
 #   ./scripts/gate.sh
@@ -242,6 +243,18 @@ write_step "文档一致性检查"
 if ! python3 "$SCRIPT_DIR/check-doc-consistency.py"; then
     write_fail "文档一致性检查未通过"
     exit 12
+fi
+
+# ============================================================================
+# 关卡 13: 审计证据验证（如果存在审计报告）
+# ============================================================================
+latest_audit=$(find docs/audit -name "*.md" -type f 2>/dev/null | xargs ls -t 2>/dev/null | head -1)
+if [ -n "$latest_audit" ]; then
+    write_step "审计证据验证 ($latest_audit)"
+    if ! bash "$SCRIPT_DIR/audit-verify.sh" "$latest_audit"; then
+        write_fail "审计证据验证未通过"
+        exit 13
+    fi
 fi
 
 # ============================================================================
