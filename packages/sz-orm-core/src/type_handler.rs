@@ -368,7 +368,12 @@ impl TypeHandlerRegistry {
         let handler = erased
             .as_any()
             .downcast_ref::<Box<dyn TypeHandler<T>>>()
-            .expect("TypeId 已校验匹配，downcast 必然成功");
+            .ok_or_else(|| TypeHandlerError::ConversionFailed {
+                reason: format!(
+                    "downcast failed for field '{}': TypeId mismatch despite prior check",
+                    field
+                ),
+            })?;
         handler.from_value(value)
     }
 
@@ -419,7 +424,12 @@ impl TypeHandlerRegistry {
         let handler = erased
             .as_any()
             .downcast_ref::<Box<dyn TypeHandler<T>>>()
-            .expect("TypeId 已校验匹配，downcast 必然成功");
+            .ok_or_else(|| TypeHandlerError::ConversionFailed {
+                reason: format!(
+                    "downcast failed for field '{}': TypeId mismatch despite prior check",
+                    field
+                ),
+            })?;
         Ok(handler.to_value(value))
     }
 

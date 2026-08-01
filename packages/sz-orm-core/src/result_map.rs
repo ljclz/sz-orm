@@ -690,9 +690,12 @@ pub fn apply_result_map_many(
         for coll in &map.collections {
             if let Some(Value::Array(items)) = attrs.get(&coll.property) {
                 if !items.is_empty() {
-                    let acc = collection_acc
-                        .get_mut(&key)
-                        .expect("key exists in collection_acc (inserted alongside groups)");
+                    let acc = collection_acc.get_mut(&key).ok_or_else(|| {
+                        ResultMapError::NestedMappingFailed {
+                            property: "collection_acc".to_string(),
+                            reason: format!("key '{}' not found in collection_acc", key),
+                        }
+                    })?;
                     let entry = acc.entry(coll.property.clone()).or_default();
                     for item in items {
                         entry.push(item.clone());
@@ -705,9 +708,12 @@ pub fn apply_result_map_many(
     // 合并 collection 聚合结果到主属性
     let mut result = Vec::new();
     for key in ordered_keys {
-        let mut attrs = groups
-            .remove(&key)
-            .expect("key exists in groups (recorded in ordered_keys)");
+        let mut attrs = groups.remove(&key).ok_or_else(|| {
+            ResultMapError::NestedMappingFailed {
+                property: "groups".to_string(),
+                reason: format!("key '{}' not found in groups", key),
+            }
+        })?;
         if let Some(coll_acc) = collection_acc.remove(&key) {
             for (prop, items) in coll_acc {
                 attrs.insert(prop, Value::Array(items));
