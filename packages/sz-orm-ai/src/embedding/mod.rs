@@ -1,7 +1,7 @@
 use crate::error::AiError;
 use async_trait::async_trait;
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
 pub struct EmbeddingError {
@@ -737,7 +737,10 @@ mod tests {
         // 缓存命中必须返回与首次 miss 相同的向量
         assert_eq!(v1_miss, v1_hit, "cache hit must return identical vector");
         assert_eq!(v1_miss, v1_hit2, "cache hit must return identical vector");
-        assert_ne!(v1_miss, v2_miss, "different inputs must yield different vectors");
+        assert_ne!(
+            v1_miss, v2_miss,
+            "different inputs must yield different vectors"
+        );
 
         // 4 calls: 2 misses, 2 hits
         assert!((caching.hit_rate() - 0.5).abs() < 1e-6);
@@ -763,7 +766,10 @@ mod tests {
 
         // 再次调用应 miss，且必须返回与首次相同的向量（确定性）
         let v2 = caching.embed("hello").await.unwrap();
-        assert_eq!(v1, v2, "embeddings must be deterministic across cache clears");
+        assert_eq!(
+            v1, v2,
+            "embeddings must be deterministic across cache clears"
+        );
         assert_eq!(caching.cache_misses(), 2);
     }
 

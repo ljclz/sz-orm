@@ -11,8 +11,8 @@ use std::sync::Arc;
 use std::time::Instant;
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
 use sz_orm_core::DbType;
-use sz_orm_core::Value;
 use sz_orm_core::QueryBuilder;
+use sz_orm_core::Value;
 
 /// 唯一临时文件路径（避免并行测试冲突）
 static SQLITE_COUNTER: AtomicU64 = AtomicU64::new(0);
@@ -605,11 +605,18 @@ fn value_to_rusqlite(v: &Value) -> Box<dyn rusqlite::ToSql> {
         Value::U64(n) => Box::new(*n as i64),
         Value::F32(f) => Box::new(*f as f64),
         Value::F64(f) => Box::new(*f),
-        Value::Decimal(s) | Value::String(s) | Value::Uuid(s) | Value::Date(s)
-        | Value::DateTime(s) | Value::Time(s) | Value::Json(s) => Box::new(s.clone()),
+        Value::Decimal(s)
+        | Value::String(s)
+        | Value::Uuid(s)
+        | Value::Date(s)
+        | Value::DateTime(s)
+        | Value::Time(s)
+        | Value::Json(s) => Box::new(s.clone()),
         Value::Bytes(b) => Box::new(b.clone()),
         // Array/Object 在 SQLite 中以 JSON 字符串存储
-        Value::Array(_) | Value::Object(_) => Box::new(serde_json::to_string(v).unwrap_or_default()),
+        Value::Array(_) | Value::Object(_) => {
+            Box::new(serde_json::to_string(v).unwrap_or_default())
+        }
         // Value 标记为 non-exhaustive，未来可能新增变体——统一回退为 NULL
         _ => Box::new(rusqlite::types::Null),
     }
@@ -704,7 +711,9 @@ fn test_sqlite_upsert_conflict_update_path() {
 
     // 验证：总行数仍为 1（无重复）
     let count: i64 = conn
-        .query_row("SELECT COUNT(*) FROM t_upsert_conflict", [], |row| row.get(0))
+        .query_row("SELECT COUNT(*) FROM t_upsert_conflict", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(count, 1, "冲突时应更新而非插入新行");
 
@@ -761,30 +770,24 @@ fn test_sqlite_upsert_batch_mixed_insert_update() {
 
     // 验证 id=1 已更新
     let alice_age: i64 = conn
-        .query_row(
-            "SELECT age FROM t_upsert_mix WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT age FROM t_upsert_mix WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(alice_age, 31, "Alice 的 age 应已更新");
 
     // 验证 id=2/id=3 已插入
     let bob_name: String = conn
-        .query_row(
-            "SELECT name FROM t_upsert_mix WHERE id = 2",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT name FROM t_upsert_mix WHERE id = 2", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(bob_name, "Bob");
 
     let carol_name: String = conn
-        .query_row(
-            "SELECT name FROM t_upsert_mix WHERE id = 3",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT name FROM t_upsert_mix WHERE id = 3", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(carol_name, "Carol");
 }
@@ -820,21 +823,17 @@ fn test_sqlite_upsert_specific_update_columns_only() {
 
     // 验证：age 已更新为 99
     let age: i64 = conn
-        .query_row(
-            "SELECT age FROM t_upsert_cols WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT age FROM t_upsert_cols WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(age, 99, "age 应被更新");
 
     // 验证：email 保持不变（未在 update_columns 中）
     let email: String = conn
-        .query_row(
-            "SELECT email FROM t_upsert_cols WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT email FROM t_upsert_cols WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(email, "alice@keep.com", "email 不应被更新");
 }
@@ -875,11 +874,9 @@ fn test_sqlite_upsert_null_value_handling() {
 
     // 验证：email 已变为 NULL
     let email: Option<String> = conn
-        .query_row(
-            "SELECT email FROM t_upsert_null WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT email FROM t_upsert_null WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert!(email.is_none(), "email 应为 NULL");
 }
@@ -919,11 +916,9 @@ fn test_sqlite_upsert_unicode_and_special_chars() {
 
     // 验证：name 完整保留（含特殊字符）
     let name: String = conn
-        .query_row(
-            "SELECT name FROM t_upsert_uni WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT name FROM t_upsert_uni WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(name, "张三'; DROP TABLE t_upsert_uni; --");
 
@@ -946,11 +941,9 @@ fn test_sqlite_upsert_unicode_and_special_chars() {
     assert_eq!(count2, 1, "应仍为 1 行（更新而非插入）");
 
     let name2: String = conn
-        .query_row(
-            "SELECT name FROM t_upsert_uni WHERE id = 1",
-            [],
-            |row| row.get(0),
-        )
+        .query_row("SELECT name FROM t_upsert_uni WHERE id = 1", [], |row| {
+            row.get(0)
+        })
         .unwrap();
     assert_eq!(name2, "李四");
 }
@@ -997,7 +990,12 @@ impl sz_orm_core::ModelExt for DummyModel {
 }
 
 /// 构造一行 upsert 测试数据
-fn row_for_upsert(id: i64, name: &str, age: i32, email: &str) -> std::collections::HashMap<String, Value> {
+fn row_for_upsert(
+    id: i64,
+    name: &str,
+    age: i32,
+    email: &str,
+) -> std::collections::HashMap<String, Value> {
     let mut row = std::collections::HashMap::new();
     row.insert("id".to_string(), Value::I64(id));
     row.insert("name".to_string(), Value::String(name.to_string()));

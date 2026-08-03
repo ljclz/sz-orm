@@ -13,9 +13,9 @@ use crate::error::SearchError;
 use crate::search::SearchExt;
 use crate::types::{SearchHit, SearchQuery, SearchResult};
 use async_trait::async_trait;
+use parking_lot::Mutex;
 use serde_json::Value;
 use std::collections::HashMap;
-use parking_lot::Mutex;
 use std::time::Instant;
 
 /// 内存 Search 实现

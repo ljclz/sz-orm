@@ -437,6 +437,7 @@ pub mod json_query;
 pub mod l2_cache;
 pub mod lambda;
 pub mod migration;
+pub mod mock;
 mod model;
 pub mod observer;
 pub mod optimistic_lock;

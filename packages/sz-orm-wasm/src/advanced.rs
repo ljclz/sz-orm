@@ -1203,17 +1203,27 @@ mod tests {
         assert_eq!(usage.table_count, 1);
         assert_eq!(usage.rows_per_table.get("users"), Some(&2));
         // total_bytes 应大于 0（两行 JSON 序列化的字节数）
-        assert!(usage.total_bytes > 0, "total_bytes should be > 0, got {}", usage.total_bytes);
+        assert!(
+            usage.total_bytes > 0,
+            "total_bytes should be > 0, got {}",
+            usage.total_bytes
+        );
         // max_row_size_per_table["users"] 应大于 0
-        let max_row = usage.max_row_size_per_table.get("users").copied().unwrap_or(0);
+        let max_row = usage
+            .max_row_size_per_table
+            .get("users")
+            .copied()
+            .unwrap_or(0);
         assert!(max_row > 0, "max_row_size should be > 0, got {}", max_row);
     }
 
     #[test]
     fn test_memory_usage_multiple_tables() {
         let db = LimitedWasmDatabase::new(MemoryConfig::unlimited());
-        db.execute(WasmQuery::new("CREATE TABLE users (id INT)")).unwrap();
-        db.execute(WasmQuery::new("CREATE TABLE orders (id INT)")).unwrap();
+        db.execute(WasmQuery::new("CREATE TABLE users (id INT)"))
+            .unwrap();
+        db.execute(WasmQuery::new("CREATE TABLE orders (id INT)"))
+            .unwrap();
         db.execute(WasmQuery::with_params(
             "INSERT INTO users (id) VALUES (?)",
             vec![json!(1)],

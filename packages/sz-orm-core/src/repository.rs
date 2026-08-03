@@ -1484,7 +1484,11 @@ mod tests {
                 Value::String("BOB".to_string()),
             )])
             .unwrap();
-        assert_eq!(result.len(), 1, "LIKE exact match should be case-insensitive");
+        assert_eq!(
+            result.len(),
+            1,
+            "LIKE exact match should be case-insensitive"
+        );
     }
 
     #[test]
@@ -1499,16 +1503,8 @@ mod tests {
 
         let and = vec![]; // 无 AND 条件
         let or = vec![
-            WhereCondition::new(
-                "name",
-                WhereOp::Like,
-                Value::String("%kw%".to_string()),
-            ),
-            WhereCondition::new(
-                "email",
-                WhereOp::Like,
-                Value::String("%kw%".to_string()),
-            ),
+            WhereCondition::new("name", WhereOp::Like, Value::String("%kw%".to_string())),
+            WhereCondition::new("email", WhereOp::Like, Value::String("%kw%".to_string())),
         ];
 
         let result = repo.find_by_with_or_filter(&and, &or).unwrap();
@@ -1530,16 +1526,8 @@ mod tests {
         // User struct 没有 app_id 字段，用 age 模拟 AND 条件：age >= 28
         let and = vec![WhereCondition::new("age", WhereOp::Ge, Value::I64(28))];
         let or = vec![
-            WhereCondition::new(
-                "name",
-                WhereOp::Like,
-                Value::String("%kw%".to_string()),
-            ),
-            WhereCondition::new(
-                "email",
-                WhereOp::Like,
-                Value::String("%kw%".to_string()),
-            ),
+            WhereCondition::new("name", WhereOp::Like, Value::String("%kw%".to_string())),
+            WhereCondition::new("email", WhereOp::Like, Value::String("%kw%".to_string())),
         ];
 
         let result = repo.find_by_with_or_filter(&and, &or).unwrap();

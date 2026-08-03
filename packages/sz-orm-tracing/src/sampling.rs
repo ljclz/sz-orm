@@ -16,10 +16,10 @@
 //!
 //! 格式：`baggage: key1=value1,key2=value2`
 
+use parking_lot::RwLock;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 /// 采样决策
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -807,7 +807,10 @@ impl<'a> XmlParser<'a> {
         }
         // 解析子节点
         let mut node = XmlNode {
-            node_type: XmlNodeType::Element { name: name.clone(), attrs },
+            node_type: XmlNodeType::Element {
+                name: name.clone(),
+                attrs,
+            },
             children: Vec::new(),
         };
         self.parse_children(&mut node)?;

@@ -1356,10 +1356,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_config_builder() -> Result<(), Box<dyn std::error::Error>> {
-        let config = PoolConfigBuilder::new()
-            .max_size(50)
-            .min_idle(10)
-            .build()?;
+        let config = PoolConfigBuilder::new().max_size(50).min_idle(10).build()?;
 
         assert_eq!(config.max_size, 50);
         assert_eq!(config.min_idle, 10);
@@ -1418,10 +1415,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_acquire_and_release() -> Result<(), Box<dyn std::error::Error>> {
-        let config = PoolConfigBuilder::new()
-            .max_size(5)
-            .min_idle(1)
-            .build()?;
+        let config = PoolConfigBuilder::new().max_size(5).min_idle(1).build()?;
         let factory = Arc::new(MockConnectionFactory);
         let pool = Pool::new(config, factory)?;
 
@@ -1443,10 +1437,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_pool_status() -> Result<(), Box<dyn std::error::Error>> {
-        let config = PoolConfigBuilder::new()
-            .max_size(10)
-            .min_idle(2)
-            .build()?;
+        let config = PoolConfigBuilder::new().max_size(10).min_idle(2).build()?;
         let factory = Arc::new(MockConnectionFactory);
         let pool = Pool::new(config, factory)?;
 
@@ -1546,7 +1537,8 @@ mod tests {
     // ==================== M-7 健康检查测试 ====================
 
     #[tokio::test]
-    async fn test_m7_health_check_removes_nothing_when_all_healthy() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_m7_health_check_removes_nothing_when_all_healthy(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // 所有连接健康时，health_check 应返回 0
         let config = PoolConfigBuilder::new().max_size(5).build()?;
         let factory = Arc::new(MockConnectionFactory);
@@ -1570,7 +1562,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_m7_health_check_returns_zero_for_empty_pool() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_m7_health_check_returns_zero_for_empty_pool(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         let config = PoolConfigBuilder::new().max_size(5).build()?;
         let factory = Arc::new(MockConnectionFactory);
         let pool = Pool::new(config, factory)?;
@@ -1612,7 +1605,8 @@ mod tests {
     /// 根因：release() 中 created_at 被重置为 now()，max_lifetime 检查永远不触发
     /// 期望：超过 max_lifetime 的连接应被回收并创建新连接
     #[tokio::test]
-    async fn test_production_bug_max_lifetime_never_expires() -> Result<(), Box<dyn std::error::Error>> {
+    async fn test_production_bug_max_lifetime_never_expires(
+    ) -> Result<(), Box<dyn std::error::Error>> {
         // 注意：PoolConfigBuilder::max_lifetime() 接受秒，这里需要毫秒级精度
         // 所以直接构造 PoolConfig
         let config = PoolConfig {

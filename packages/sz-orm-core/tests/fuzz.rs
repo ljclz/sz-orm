@@ -401,15 +401,24 @@ fn fuzz_value_type_conversions() {
         }
 
         if v.is_bool() {
-            assert!(v.as_bool().is_some(), "is_bool() 为真时 as_bool() 应返回 Some");
+            assert!(
+                v.as_bool().is_some(),
+                "is_bool() 为真时 as_bool() 应返回 Some"
+            );
         }
 
         if v.is_string() {
-            assert!(v.as_str().is_some(), "is_string() 为真时 as_str() 应返回 Some");
+            assert!(
+                v.as_str().is_some(),
+                "is_string() 为真时 as_str() 应返回 Some"
+            );
         }
 
         if v.is_bytes() {
-            assert!(v.as_bytes().is_some(), "is_bytes() 为真时 as_bytes() 应返回 Some");
+            assert!(
+                v.as_bytes().is_some(),
+                "is_bytes() 为真时 as_bytes() 应返回 Some"
+            );
         }
 
         // is_null() 与其他类型谓词互斥（除 Null 外不应有任何 is_xxx 为真）

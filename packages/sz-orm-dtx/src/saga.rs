@@ -40,9 +40,9 @@
 //! assert_eq!(saga.state(), SagaState::Completed);
 //! ```
 
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::sync::Arc;
-use parking_lot::RwLock;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 
 /// Saga 步骤的动作回调类型

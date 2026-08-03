@@ -230,10 +230,22 @@ fn stress_dtx_manager_not_found() {
             .add_participant(&id, TransactionParticipant::new("p"))
             .unwrap_err();
         if i == 0 {
-            assert!(err_prepare.contains("not found"), "prepare: {}", err_prepare);
+            assert!(
+                err_prepare.contains("not found"),
+                "prepare: {}",
+                err_prepare
+            );
             assert!(err_commit.contains("not found"), "commit: {}", err_commit);
-            assert!(err_rollback.contains("not found"), "rollback: {}", err_rollback);
-            assert!(err_add.contains("not found"), "add_participant: {}", err_add);
+            assert!(
+                err_rollback.contains("not found"),
+                "rollback: {}",
+                err_rollback
+            );
+            assert!(
+                err_add.contains("not found"),
+                "add_participant: {}",
+                err_add
+            );
         }
         assert_eq!(manager.get(&id), None);
         assert_eq!(manager.participant_states(&id), None);

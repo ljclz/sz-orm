@@ -475,20 +475,23 @@ fn verify_with_real_db(sql: &str) -> Result<(), String> {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
         return rt.block_on(async {
-            match db_kind {
-                DbKind::MySql => verify_mysql(&dsn, &explain_sql).await,
-                DbKind::Postgres => verify_postgres(&dsn, &explain_sql).await,
-                DbKind::Sqlite => verify_sqlite(&dsn, &explain_sql).await,
-                _ => unreachable!(),
+            if let DbKind::MySql = db_kind {
+                verify_mysql(&dsn, &explain_sql).await
+            } else if let DbKind::Postgres = db_kind {
+                verify_postgres(&dsn, &explain_sql).await
+            } else {
+                // 由外层 if matches! 保证此处必为 Sqlite
+                verify_sqlite(&dsn, &explain_sql).await
             }
         });
     }
 
     // Oracle/SQL Server 走命令行工具验证（避免引入重依赖）
-    match db_kind {
-        DbKind::Oracle => verify_oracle(&dsn, &explain_sql),
-        DbKind::SqlServer => verify_sqlserver(&dsn, &explain_sql),
-        _ => unreachable!(),
+    if let DbKind::Oracle = db_kind {
+        verify_oracle(&dsn, &explain_sql)
+    } else {
+        // 由外层 if matches! 保证此处必为 SqlServer
+        verify_sqlserver(&dsn, &explain_sql)
     }
 }
 
@@ -707,7 +710,9 @@ fn parse_oracle_dsn(dsn: &str) -> Result<OracleDsn, String> {
         Some(idx) => (&raw[..idx], &raw[idx + 1..]),
         None => (raw, ""),
     };
-    let sysdba = query.split('&').any(|p| p == "sysdba=1" || p == "sysdba=true");
+    let sysdba = query
+        .split('&')
+        .any(|p| p == "sysdba=1" || p == "sysdba=true");
     // user:pass@host:port/service
     let at = auth_host_service
         .find('@')
@@ -1583,6 +1588,75 @@ pub fn derive_builder(input: TokenStream) -> TokenStream {
 }
 
 // ---------------------------------------------------------------------------
+// `#[derive(Entity)]` — auto-generate `impl Model for Struct`
+// ---------------------------------------------------------------------------
+
+/// 派生宏：自动生成 `sz_orm_core::Model` trait 实现。
+///
+/// 要求结构体恰好有一个 `#[column(primary_key)]` 字段，
+/// 该字段的类型即为 `Model::PrimaryKey`。
+///
+/// # 支持的属性
+///
+/// - `#[table(name = "...")]` — 指定表名，默认蛇形结构体名
+/// - `#[column(primary_key)]` — 标记主键字段（必需，恰好一个）
+/// - `#[column(name = "...")]` — 覆盖主键列名（默认与字段名相同）
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::Entity;
+///
+/// #[derive(Entity)]
+/// #[table(name = "users")]
+/// struct User {
+///     #[column(primary_key)]
+///     id: i64,
+///     name: String,
+/// }
+///
+/// assert_eq!(User::table_name(), "users");
+/// assert_eq!(User::pk_name(), "id");
+/// ```
+#[proc_macro_derive(Entity, attributes(table, column))]
+pub fn derive_entity(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_entity_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(FromQueryResult)]` — auto-generate `impl FromQueryResult for Struct`
+// ---------------------------------------------------------------------------
+
+/// 派生宏：自动生成 `sz_orm_core::FromQueryResult` trait 实现。
+///
+/// 从查询结果行（`HashMap<String, Value>`）反序列化为结构体实例。
+/// `Option<T>` 字段在列缺失或值为 NULL 时自动返回 `None`。
+///
+/// # 支持的属性
+///
+/// - `#[column(name = "...")]` — 覆盖列名映射（默认使用字段名）
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::FromQueryResult;
+///
+/// #[derive(FromQueryResult)]
+/// struct UserRow {
+///     id: i64,
+///     name: String,
+///     #[column(name = "user_email")]
+///     email: Option<String>,
+/// }
+/// ```
+#[proc_macro_derive(FromQueryResult, attributes(column))]
+pub fn derive_from_query_result(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_from_query_result_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests — cover helper functions used by both macros
 // ---------------------------------------------------------------------------
 
@@ -1853,7 +1927,8 @@ mod tests {
     #[cfg(feature = "db-verify")]
     #[test]
     fn test_parse_sqlserver_dsn_basic() {
-        let dsn = "sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test";
+        let dsn =
+            "sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test";
         let p = parse_sqlserver_dsn(dsn).unwrap();
         assert_eq!(p.user, "test");
         assert_eq!(p.password, "JkbC2jsaWAYDe2Gz");

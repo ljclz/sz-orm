@@ -121,10 +121,7 @@ impl InMemoryDb {
 
     /// P1-3：获取表的完整快照（克隆所有行），用于测试断言
     pub fn snapshot(&self, table: &str) -> Vec<std::collections::HashMap<String, Value>> {
-        self.tables
-            .get(table)
-            .cloned()
-            .unwrap_or_default()
+        self.tables.get(table).cloned().unwrap_or_default()
     }
 
     /// P1-3：直接替换表的所有行（用于测试初始化或快照恢复）
@@ -604,10 +601,7 @@ impl TransactionalConnection {
         };
         let where_pos = upper.find("WHERE");
         let (table_part, cond_part) = if let Some(wp) = where_pos {
-            (
-                sql[from_pos + 4..wp].trim(),
-                sql[wp + 5..].trim(),
-            )
+            (sql[from_pos + 4..wp].trim(), sql[wp + 5..].trim())
         } else {
             (sql[from_pos + 4..].trim(), "")
         };
@@ -624,7 +618,9 @@ impl TransactionalConnection {
 
         // 解析 <col>=<val>
         if let Some(eq_pos) = cond_part.find('=') {
-            let col = cond_part[..eq_pos].trim().trim_matches(|c: char| c == '`' || c == '"');
+            let col = cond_part[..eq_pos]
+                .trim()
+                .trim_matches(|c: char| c == '`' || c == '"');
             let val = Self::parse_value(&cond_part[eq_pos + 1..]);
             return db.delete_where(table, col, &val);
         }
@@ -643,10 +639,7 @@ impl TransactionalConnection {
         let table = table_part.trim_matches(|c: char| c == '`' || c == '"');
 
         let (set_part, cond_part) = if let Some(wp) = where_pos {
-            (
-                sql[set_pos + 3..wp].trim(),
-                sql[wp + 5..].trim(),
-            )
+            (sql[set_pos + 3..wp].trim(), sql[wp + 5..].trim())
         } else {
             (sql[set_pos + 3..].trim(), "")
         };
@@ -797,10 +790,7 @@ impl Connection for TransactionalConnection {
 
             // 解析表名
             let (table_part, cond_part) = if let Some(wp) = where_pos {
-                (
-                    sql[from_pos + 4..wp].trim(),
-                    sql[wp + 5..].trim(),
-                )
+                (sql[from_pos + 4..wp].trim(), sql[wp + 5..].trim())
             } else {
                 (sql[from_pos + 4..].trim(), "")
             };
@@ -817,7 +807,10 @@ impl Connection for TransactionalConnection {
                     .trim()
                     .trim_matches(|c: char| c == '`' || c == '"');
                 let val = Self::parse_value(&cond_part[eq_pos + 1..]);
-                all_rows.iter().filter(|r| r.get(col) == Some(&val)).collect()
+                all_rows
+                    .iter()
+                    .filter(|r| r.get(col) == Some(&val))
+                    .collect()
             } else {
                 all_rows.iter().collect()
             };

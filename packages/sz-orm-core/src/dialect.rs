@@ -542,7 +542,8 @@ impl Dialect for PostgreSqlDialect {
         }
         let conflict_cols: Vec<String> = conflict_columns.iter().map(|c| self.quote(c)).collect();
         // 确定要更新的列：优先使用 update_columns，为空则使用所有非冲突列
-        let conflict_set: std::collections::HashSet<&str> = conflict_columns.iter().copied().collect();
+        let conflict_set: std::collections::HashSet<&str> =
+            conflict_columns.iter().copied().collect();
         let cols_to_update: Vec<String> = if update_columns.is_empty() {
             all_columns
                 .iter()
@@ -773,7 +774,8 @@ impl Dialect for SqliteDialect {
             return None;
         }
         let conflict_cols: Vec<String> = conflict_columns.iter().map(|c| self.quote(c)).collect();
-        let conflict_set: std::collections::HashSet<&str> = conflict_columns.iter().copied().collect();
+        let conflict_set: std::collections::HashSet<&str> =
+            conflict_columns.iter().copied().collect();
         let cols_to_update: Vec<String> = if update_columns.is_empty() {
             all_columns
                 .iter()

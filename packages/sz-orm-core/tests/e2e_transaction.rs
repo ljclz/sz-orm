@@ -43,7 +43,10 @@ async fn seed_users(db: &Arc<Mutex<InMemoryDb>>) {
     d.create_table("users");
     let mut row = std::collections::HashMap::new();
     row.insert("id".to_string(), sz_orm_core::Value::I64(1));
-    row.insert("name".to_string(), sz_orm_core::Value::String("Alice".to_string()));
+    row.insert(
+        "name".to_string(),
+        sz_orm_core::Value::String("Alice".to_string()),
+    );
     row.insert("age".to_string(), sz_orm_core::Value::I64(30));
     d.insert("users", row);
 }
@@ -114,7 +117,8 @@ async fn test_l3_t2_basic_rollback_discards_data() {
         let d = db.lock().await;
         assert_eq!(d.count("users"), 1, "rollback 后新插入的行应被丢弃");
         assert!(
-            d.find_where("users", "id", &sz_orm_core::Value::I64(2)).is_none(),
+            d.find_where("users", "id", &sz_orm_core::Value::I64(2))
+                .is_none(),
             "Bob 的行不应存在"
         );
     }
@@ -232,7 +236,8 @@ async fn test_l3_t5_savepoint_rollback() {
         let d = db.lock().await;
         assert_eq!(d.count("users"), 2, "回滚到保存点后应有 2 行");
         assert!(
-            d.find_where("users", "id", &sz_orm_core::Value::I64(3)).is_none(),
+            d.find_where("users", "id", &sz_orm_core::Value::I64(3))
+                .is_none(),
             "Charlie 的行应被回滚"
         );
     }
@@ -243,7 +248,8 @@ async fn test_l3_t5_savepoint_rollback() {
     let d = db.lock().await;
     assert_eq!(d.count("users"), 2, "commit 后应有 2 行（Alice + Bob）");
     assert!(
-        d.find_where("users", "id", &sz_orm_core::Value::I64(2)).is_some(),
+        d.find_where("users", "id", &sz_orm_core::Value::I64(2))
+            .is_some(),
         "Bob 的行应保留"
     );
 }
@@ -291,7 +297,8 @@ async fn test_l3_t6_nested_savepoints() {
         let d = db.lock().await;
         assert_eq!(d.count("users"), 3, "回滚到 sp2 后应有 3 行");
         assert!(
-            d.find_where("users", "id", &sz_orm_core::Value::I64(4)).is_none(),
+            d.find_where("users", "id", &sz_orm_core::Value::I64(4))
+                .is_none(),
             "Dave 应被回滚"
         );
     }
@@ -303,7 +310,8 @@ async fn test_l3_t6_nested_savepoints() {
         let d = db.lock().await;
         assert_eq!(d.count("users"), 2, "回滚到 sp1 后应有 2 行");
         assert!(
-            d.find_where("users", "id", &sz_orm_core::Value::I64(3)).is_none(),
+            d.find_where("users", "id", &sz_orm_core::Value::I64(3))
+                .is_none(),
             "Charlie 应被回滚"
         );
     }
@@ -335,7 +343,8 @@ async fn test_l3_t7_release_savepoint_then_rollback_all() {
     let d = db.lock().await;
     assert_eq!(d.count("users"), 1, "rollback 后应只有原始的 Alice");
     assert!(
-        d.find_where("users", "id", &sz_orm_core::Value::I64(2)).is_none(),
+        d.find_where("users", "id", &sz_orm_core::Value::I64(2))
+            .is_none(),
         "Bob 应被回滚"
     );
 }
@@ -375,11 +384,7 @@ async fn test_l3_t8_transaction_timeout_rollback() {
 
     // 验证数据被回滚（注意：超时触发的 rollback 调用的是底层 conn.rollback）
     let d = db.lock().await;
-    assert_eq!(
-        d.count("users"),
-        1,
-        "超时回滚后应只有原始的 Alice"
-    );
+    assert_eq!(d.count("users"), 1, "超时回滚后应只有原始的 Alice");
 }
 
 // ==================== L3-T9：嵌套深度限制 ====================
@@ -435,13 +440,10 @@ async fn test_l3_t10_drop_auto_rollback() {
 
     // 验证数据被回滚
     let d = db.lock().await;
-    assert_eq!(
-        d.count("users"),
-        1,
-        "Drop 自动回滚后应只有原始的 Alice"
-    );
+    assert_eq!(d.count("users"), 1, "Drop 自动回滚后应只有原始的 Alice");
     assert!(
-        d.find_where("users", "id", &sz_orm_core::Value::I64(2)).is_none(),
+        d.find_where("users", "id", &sz_orm_core::Value::I64(2))
+            .is_none(),
         "Bob 应被 Drop 自动回滚"
     );
 }
@@ -539,7 +541,11 @@ async fn test_l3_t11_commit_failure_rolls_back() {
 
     // 验证数据被回滚
     let d = db.lock().await;
-    assert_eq!(d.count("users"), 1, "commit 失败 + rollback 后应只有原始 Alice");
+    assert_eq!(
+        d.count("users"),
+        1,
+        "commit 失败 + rollback 后应只有原始 Alice"
+    );
 }
 
 // ==================== L3-T12：事务隔离级别设置 ====================
@@ -643,7 +649,10 @@ async fn test_l3_t14_multi_table_transaction_rollback() {
         d.create_table("orders");
         let mut user = std::collections::HashMap::new();
         user.insert("id".to_string(), sz_orm_core::Value::I64(1));
-        user.insert("name".to_string(), sz_orm_core::Value::String("Alice".to_string()));
+        user.insert(
+            "name".to_string(),
+            sz_orm_core::Value::String("Alice".to_string()),
+        );
         d.insert("users", user);
         let mut order = std::collections::HashMap::new();
         order.insert("id".to_string(), sz_orm_core::Value::I64(100));
@@ -726,7 +735,11 @@ async fn test_l3_t15_update_rollback_restores_original() {
     let d = db.lock().await;
     let alice = d.find_where("users", "id", &sz_orm_core::Value::I64(1));
     let alice = alice.unwrap();
-    assert_eq!(alice.get("age"), Some(&sz_orm_core::Value::I64(30)), "age 应恢复为 30");
+    assert_eq!(
+        alice.get("age"),
+        Some(&sz_orm_core::Value::I64(30)),
+        "age 应恢复为 30"
+    );
     assert_eq!(
         alice.get("name"),
         Some(&sz_orm_core::Value::String("Alice".to_string())),

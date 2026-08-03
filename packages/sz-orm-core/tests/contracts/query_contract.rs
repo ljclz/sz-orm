@@ -42,8 +42,16 @@ fn test_query_builder_chain_returns_self_contract() {
     assert!(sql.contains("SELECT"), "应包含 SELECT: {}", sql);
     assert!(sql.contains("FROM"), "应包含 FROM: {}", sql);
     assert!(sql.contains("users"), "应包含表名 users: {}", sql);
-    assert!(sql.contains("status = 'active'"), "应包含 where 条件: {}", sql);
-    assert!(sql.contains("role = 'admin'"), "应包含 or_where 条件: {}", sql);
+    assert!(
+        sql.contains("status = 'active'"),
+        "应包含 where 条件: {}",
+        sql
+    );
+    assert!(
+        sql.contains("role = 'admin'"),
+        "应包含 or_where 条件: {}",
+        sql
+    );
     assert!(sql.contains("ORDER BY"), "应包含 ORDER BY: {}", sql);
     assert!(sql.contains("GROUP BY"), "应包含 GROUP BY: {}", sql);
     assert!(sql.contains("HAVING"), "应包含 HAVING: {}", sql);
@@ -58,7 +66,11 @@ fn test_query_builder_new_with_dialect_contract() {
     // 新建 builder 未设置 table 时，build_select 应回退到 Model::table_name()
     let sql = builder.build_select();
     assert!(sql.contains("SELECT"), "应包含 SELECT: {}", sql);
-    assert!(sql.contains("users"), "应回退到 User::table_name(): {}", sql);
+    assert!(
+        sql.contains("users"),
+        "应回退到 User::table_name(): {}",
+        sql
+    );
 }
 
 // ===== §8.1 build_select 生成 SQL 契约 =====

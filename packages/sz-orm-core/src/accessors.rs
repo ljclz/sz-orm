@@ -433,10 +433,8 @@ impl AttributeCaster {
                 // 尝试解析 JSON 数组；解析失败则包装为单元素数组
                 match serde_json::from_str::<Vec<serde_json::Value>>(&s) {
                     Ok(json_arr) => {
-                        let items: Vec<Value> = json_arr
-                            .into_iter()
-                            .map(|jv| json_to_value(jv))
-                            .collect();
+                        let items: Vec<Value> =
+                            json_arr.into_iter().map(json_to_value).collect();
                         Value::Array(items)
                     }
                     Err(_) => Value::Array(vec![Value::Json(s)]),
@@ -446,10 +444,8 @@ impl AttributeCaster {
                 // 尝试解析字符串为 JSON 数组；失败则包装为单元素数组
                 match serde_json::from_str::<Vec<serde_json::Value>>(&s) {
                     Ok(json_arr) => {
-                        let items: Vec<Value> = json_arr
-                            .into_iter()
-                            .map(|jv| json_to_value(jv))
-                            .collect();
+                        let items: Vec<Value> =
+                            json_arr.into_iter().map(json_to_value).collect();
                         Value::Array(items)
                     }
                     Err(_) => Value::Array(vec![Value::String(s)]),
@@ -465,7 +461,7 @@ impl AttributeCaster {
             Value::Array(items) => {
                 // 序列化为合法 JSON 数组字符串存储
                 let json_arr: Vec<serde_json::Value> =
-                    items.iter().map(|v| value_to_json(&v)).collect();
+                    items.iter().map(value_to_json).collect();
                 Value::Json(serde_json::to_string(&json_arr).unwrap_or_else(|_| "[]".to_string()))
             }
             other => Value::Json(value_to_json_string(&other)),
@@ -488,14 +484,12 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::U16(v) => serde_json::Value::Number((*v).into()),
         Value::U32(v) => serde_json::Value::Number((*v).into()),
         Value::U64(v) => serde_json::Value::Number((*v).into()),
-        Value::F32(v) => {
-            serde_json::Number::from_f64(*v as f64).map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
-        }
-        Value::F64(v) => {
-            serde_json::Number::from_f64(*v).map(serde_json::Value::Number)
-                .unwrap_or(serde_json::Value::Null)
-        }
+        Value::F32(v) => serde_json::Number::from_f64(*v as f64)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
+        Value::F64(v) => serde_json::Number::from_f64(*v)
+            .map(serde_json::Value::Number)
+            .unwrap_or(serde_json::Value::Null),
         Value::Decimal(s) => {
             // 高精度十进制数：尝试作为数字，否则作为字符串
             serde_json::from_str(s).unwrap_or_else(|_| serde_json::Value::String(s.clone()))
@@ -514,12 +508,8 @@ fn value_to_json(value: &Value) -> serde_json::Value {
         Value::Date(s) => serde_json::Value::String(s.clone()),
         Value::DateTime(s) => serde_json::Value::String(s.clone()),
         Value::Time(s) => serde_json::Value::String(s.clone()),
-        Value::Json(s) => {
-            serde_json::from_str(s).unwrap_or(serde_json::Value::String(s.clone()))
-        }
-        Value::Array(items) => {
-            serde_json::Value::Array(items.iter().map(value_to_json).collect())
-        }
+        Value::Json(s) => serde_json::from_str(s).unwrap_or(serde_json::Value::String(s.clone())),
+        Value::Array(items) => serde_json::Value::Array(items.iter().map(value_to_json).collect()),
         Value::Object(map) => {
             let mut obj = serde_json::Map::new();
             for (k, v) in map {
@@ -554,9 +544,7 @@ fn json_to_value(jv: serde_json::Value) -> Value {
             }
         }
         serde_json::Value::String(s) => Value::String(s),
-        serde_json::Value::Array(arr) => {
-            Value::Array(arr.into_iter().map(json_to_value).collect())
-        }
+        serde_json::Value::Array(arr) => Value::Array(arr.into_iter().map(json_to_value).collect()),
         serde_json::Value::Object(obj) => {
             let mut map = std::collections::HashMap::new();
             for (k, v) in obj {
@@ -859,10 +847,7 @@ mod tests {
 
     #[test]
     fn test_cast_to_json_from_invalid_string() {
-        let v = AttributeCaster::cast_read(
-            Value::String("not a json".to_string()),
-            CastType::Json,
-        );
+        let v = AttributeCaster::cast_read(Value::String("not a json".to_string()), CastType::Json);
         // 非法 JSON 字符串应保留为 String
         assert!(matches!(v, Value::String(_)));
     }
@@ -929,10 +914,7 @@ mod tests {
     #[test]
     fn test_cast_to_array_from_json_string() {
         // 合法 JSON 数组字符串应被正确解析
-        let v = AttributeCaster::cast_read(
-            Value::String("[1, 2, 3]".to_string()),
-            CastType::Array,
-        );
+        let v = AttributeCaster::cast_read(Value::String("[1, 2, 3]".to_string()), CastType::Array);
         assert!(matches!(v, Value::Array(_)));
         if let Value::Array(arr) = v {
             assert_eq!(arr.len(), 3);
@@ -945,10 +927,8 @@ mod tests {
     #[test]
     fn test_cast_to_array_from_json_value() {
         // Value::Json 中的合法 JSON 数组应被正确解析
-        let v = AttributeCaster::cast_read(
-            Value::Json(r#"["a", "b"]"#.to_string()),
-            CastType::Array,
-        );
+        let v =
+            AttributeCaster::cast_read(Value::Json(r#"["a", "b"]"#.to_string()), CastType::Array);
         assert!(matches!(v, Value::Array(_)));
         if let Value::Array(arr) = v {
             assert_eq!(arr.len(), 2);

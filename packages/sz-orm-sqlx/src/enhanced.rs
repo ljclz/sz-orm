@@ -6,9 +6,9 @@
 //! 2. **连接池配置增强**：提供更丰富的连接池配置选项与构建器模式
 //! 3. **预备语句缓存**：LRU 策略的预备语句缓存，减少 SQL 解析开销
 
+use parking_lot::Mutex;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use parking_lot::Mutex;
 use std::time::Duration;
 
 use crate::any_driver::AnyBackend;

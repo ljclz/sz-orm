@@ -189,7 +189,9 @@ impl JwtAuthenticator {
         // 原实现（v0.2.1）仅 `eprintln!` 警告后接受任意凭证并签发 `user_id=0` 的 JWT，
         // 开发者遗漏配置时将导致完全认证绕过。stderr 警告在生产环境常被忽略。
         let user_id: i64 = match &self.password_verifier {
-            Some(verifier) => verifier.verify_password(&credentials.username, &credentials.password)?,
+            Some(verifier) => {
+                verifier.verify_password(&credentials.username, &credentials.password)?
+            }
             None => {
                 return Err(AuthError::Config(
                     "JwtAuthenticator.password_verifier not configured; \

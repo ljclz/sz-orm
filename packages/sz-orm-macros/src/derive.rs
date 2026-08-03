@@ -288,6 +288,242 @@ pub fn derive_schema_impl(input: DeriveInput) -> TokenStream2 {
 }
 
 // ---------------------------------------------------------------------------
+// `#[derive(FromQueryResult)]` — auto-generate `impl FromQueryResult for Struct`
+// ---------------------------------------------------------------------------
+
+/// 判断类型是否为 `Option<T>`，若是则返回内层类型 `T`
+fn extract_option_inner(ty: &syn::Type) -> Option<&syn::Type> {
+    if let syn::Type::Path(type_path) = ty {
+        let seg = type_path.path.segments.last()?;
+        if seg.ident == "Option" {
+            if let syn::PathArguments::AngleBracketed(args) = &seg.arguments {
+                if let Some(syn::GenericArgument::Type(inner)) = args.args.first() {
+                    return Some(inner);
+                }
+            }
+        }
+    }
+    None
+}
+
+/// `#[derive(FromQueryResult)]` 派生宏入口
+///
+/// 为结构体自动生成 `FromQueryResult` trait 实现，
+/// 从查询结果行（`HashMap<String, Value>`）反序列化为结构体实例。
+///
+/// 支持字段级 `#[column(name = "...")]` 覆盖列名映射。
+/// `Option<T>` 字段在列缺失或值为 NULL 时自动返回 `None`。
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::FromQueryResult;
+///
+/// #[derive(FromQueryResult)]
+/// struct User {
+///     id: i64,
+///     name: String,
+///     #[column(name = "user_email")]
+///     email: Option<String>,
+/// }
+/// ```
+pub fn derive_from_query_result_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag(
+        "derive(FromQueryResult)",
+        &format!("target struct: {}", input.ident),
+    );
+
+    let struct_name = &input.ident;
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(named) => &named.named,
+            _ => {
+                return syn_error_to_compile_error(syn::Error::new_spanned(
+                    struct_name,
+                    "FromQueryResult 仅支持命名字段结构体（struct Foo { a: T }）",
+                ))
+            }
+        },
+        _ => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "FromQueryResult 仅支持 struct，不支持 enum / union",
+            ))
+        }
+    };
+
+    let mut field_inits = Vec::new();
+
+    for field in fields.iter() {
+        let field_ident = field.ident.as_ref().unwrap();
+        let field_name = field_ident.to_string();
+        let col_attr = parse_column_attr(&field.attrs);
+        let col_name = col_attr.name.clone().unwrap_or(field_name.clone());
+        let field_ty = &field.ty;
+        let is_option = extract_option_inner(field_ty).is_some();
+
+        if is_option {
+            // Option<T> 字段：列缺失或 NULL 时返回 None
+            field_inits.push(quote! {
+                #field_ident: {
+                    match row.get(#col_name) {
+                        Some(::sz_orm_core::value::Value::Null) | None => ::std::option::Option::None,
+                        Some(v) => {
+                            <#field_ty as ::sz_orm_core::FromQueryResult>::from_value(v)
+                                .map_err(|e| format!("字段 `{}`: {}", #col_name, e))?
+                        }
+                    }
+                }
+            });
+        } else {
+            // 非 Option 字段：列缺失时直接报错
+            field_inits.push(quote! {
+                #field_ident: {
+                    match row.get(#col_name) {
+                        Some(v) => {
+                            <#field_ty as ::sz_orm_core::FromQueryResult>::from_value(v)
+                                .map_err(|e| format!("字段 `{}`: {}", #col_name, e))?
+                        }
+                        None => {
+                            return ::std::result::Result::Err(
+                                format!("字段 `{}` 在结果行中不存在", #col_name)
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    let expanded = quote! {
+        impl ::sz_orm_core::FromQueryResult for #struct_name {
+            fn from_query_result(
+                row: &std::collections::HashMap<String, ::sz_orm_core::value::Value>,
+            ) -> ::std::result::Result<Self, ::std::string::String> {
+                ::std::result::Result::Ok(#struct_name {
+                    #(#field_inits,)*
+                })
+            }
+        }
+    };
+
+    expanded
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(Entity)]` — auto-generate `impl Model for Struct`
+// ---------------------------------------------------------------------------
+
+/// `#[derive(Entity)]` 派生宏入口
+///
+/// 为目标结构体自动生成 `sz_orm_core::Model` trait 实现：
+/// - `type PrimaryKey` — 由 `#[column(primary_key)]` 字段的类型决定
+/// - `fn table_name()` — 由 `#[table(name = "...")]` 决定，默认蛇形结构体名
+/// - `fn pk_name()` — 主键列名，默认 `"id"`
+/// - `fn pk(&self)` / `fn set_pk(&mut self, pk)` — 主键读写
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::Entity;
+///
+/// #[derive(Entity)]
+/// #[table(name = "users")]
+/// struct User {
+///     #[column(primary_key)]
+///     id: i64,
+///     name: String,
+/// }
+/// ```
+pub fn derive_entity_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag("derive(Entity)", &format!("target struct: {}", input.ident));
+
+    let struct_name = &input.ident;
+
+    // 仅支持命名字段结构体
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(named) => &named.named,
+            _ => {
+                return syn_error_to_compile_error(syn::Error::new_spanned(
+                    struct_name,
+                    "Entity 仅支持命名字段结构体（struct Foo { a: T }）",
+                ))
+            }
+        },
+        _ => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "Entity 仅支持 struct，不支持 enum / union",
+            ))
+        }
+    };
+
+    // 表名
+    let table_name =
+        parse_table_attr(&input.attrs).unwrap_or_else(|| to_snake_case(&struct_name.to_string()));
+
+    // 找主键字段
+    let mut pk_field_ident = None;
+    let mut pk_field_col_name = None;
+    let mut pk_field_ty = None;
+
+    for field in fields.iter() {
+        let field_name = field.ident.as_ref().unwrap().to_string();
+        let col_attr = parse_column_attr(&field.attrs);
+        if col_attr.primary_key {
+            pk_field_ident = Some(field.ident.as_ref().unwrap().clone());
+            pk_field_col_name = Some(col_attr.name.clone().unwrap_or(field_name));
+            pk_field_ty = Some(field.ty.clone());
+        }
+    }
+
+    // 未指定主键时的错误
+    let (pk_ident, pk_col_name, pk_ty) = match (pk_field_ident, pk_field_col_name, pk_field_ty) {
+        (Some(ident), Some(col), Some(ty)) => (ident, col, ty),
+        _ => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "Entity 需要恰好一个 #[column(primary_key)] 字段",
+            ))
+        }
+    };
+
+    trace_diag(
+        "derive(Entity)",
+        &format!("pk = {} ({})", pk_col_name, quote!(#pk_ty)),
+    );
+
+    let pk_col_name_lit = proc_macro2::Literal::string(&pk_col_name);
+
+    let expanded = quote! {
+        #[allow(clippy::wrong_self_convention)]
+        impl ::sz_orm_core::Model for #struct_name {
+            type PrimaryKey = #pk_ty;
+
+            fn table_name() -> &'static str {
+                #table_name
+            }
+
+            fn pk_name() -> &'static str {
+                #pk_col_name_lit
+            }
+
+            fn pk(&self) -> Self::PrimaryKey {
+                self.#pk_ident.clone()
+            }
+
+            fn set_pk(&mut self, pk: Self::PrimaryKey) {
+                self.#pk_ident = pk;
+            }
+        }
+    };
+
+    expanded
+}
+
+// ---------------------------------------------------------------------------
 // `#[derive(Builder)]`
 // ---------------------------------------------------------------------------
 
@@ -1393,5 +1629,217 @@ mod tests {
     fn test_trace_diag_no_panic() {
         // 不应 panic
         trace_diag("test", "info");
+    }
+
+    // ---- derive_entity_impl ----
+
+    #[test]
+    fn test_derive_entity_basic() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[table(name = "users")]
+            struct User {
+                #[column(primary_key)]
+                id: i64,
+                name: String,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("Model"), "应生成 Model trait impl: {}", s);
+        assert!(s.contains("PrimaryKey"), "应生成 PrimaryKey 类型: {}", s);
+        assert!(s.contains("table_name"), "应生成 table_name: {}", s);
+        assert!(s.contains("pk_name"), "应生成 pk_name: {}", s);
+        assert!(s.contains("fn pk"), "应生成 pk 方法: {}", s);
+        assert!(s.contains("fn set_pk"), "应生成 set_pk 方法: {}", s);
+    }
+
+    #[test]
+    fn test_derive_entity_default_table_name() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct UserAccount {
+                #[column(primary_key)]
+                id: i64,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("user_account"), "默认表名应为蛇形: {}", s);
+    }
+
+    #[test]
+    fn test_derive_entity_pk_column_name() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key, name = "user_id")]
+                id: i64,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("user_id"), "pk_name 应使用覆盖列名: {}", s);
+    }
+
+    #[test]
+    fn test_derive_entity_pk_type_i64() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key)]
+                id: i64,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("i64"), "PrimaryKey 应为 i64: {}", s);
+    }
+
+    #[test]
+    fn test_derive_entity_pk_type_string() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key)]
+                id: String,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("String"), "PrimaryKey 应为 String: {}", s);
+    }
+
+    #[test]
+    fn test_derive_entity_rejects_enum() {
+        let input: DeriveInput = syn::parse_quote! {
+            enum Foo { A, B }
+        };
+        let output = derive_entity_impl(input);
+        assert!(
+            output.to_string().contains("compile_error"),
+            "enum 应触发编译错误: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_derive_entity_rejects_tuple_struct() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct Foo(i64);
+        };
+        let output = derive_entity_impl(input);
+        assert!(
+            output.to_string().contains("compile_error"),
+            "元组结构体应触发编译错误: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_derive_entity_rejects_no_pk() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct Foo {
+                name: String,
+            }
+        };
+        let output = derive_entity_impl(input);
+        assert!(
+            output.to_string().contains("compile_error"),
+            "无主键字段应触发编译错误: {}",
+            output
+        );
+    }
+
+    #[test]
+    fn test_derive_entity_pk_setter_getter() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key)]
+                id: i64,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("self . id . clone ()") || s.contains("self.id.clone()"),
+            "pk 应返回 self.id.clone(): {}", s);
+        assert!(s.contains("self . id = pk") || s.contains("self.id = pk"),
+            "set_pk 应设置 self.id: {}", s);
+    }
+
+    // ---- FromQueryResult derive ----
+
+    #[test]
+    fn test_derive_from_query_result_basic() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct UserRow {
+                id: i64,
+                name: String,
+            }
+        };
+        let output = derive_from_query_result_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("impl :: sz_orm_core :: FromQueryResult for UserRow"),
+            "应生成 FromQueryResult impl: {}", s);
+        assert!(s.contains("id"), "应包含 id 字段: {}", s);
+        assert!(s.contains("name"), "应包含 name 字段: {}", s);
+    }
+
+    #[test]
+    fn test_derive_from_query_result_option_field() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct UserRow {
+                id: i64,
+                email: Option<String>,
+            }
+        };
+        let output = derive_from_query_result_impl(input);
+        let s = output.to_string();
+        // Option 字段应匹配 Null 和 None
+        assert!(s.contains("Value :: Null") || s.contains("Value::Null"),
+            "Option 字段应处理 Null: {}", s);
+    }
+
+    #[test]
+    fn test_derive_from_query_result_column_name_override() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct UserRow {
+                #[column(name = "user_id")]
+                id: i64,
+            }
+        };
+        let output = derive_from_query_result_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("user_id"), "应使用覆盖列名 user_id: {}", s);
+    }
+
+    #[test]
+    fn test_derive_from_query_result_rejects_enum() {
+        let input: DeriveInput = syn::parse_quote! {
+            enum Foo { A, B }
+        };
+        let output = derive_from_query_result_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("compile_error !"), "enum 应报错: {}", s);
+    }
+
+    #[test]
+    fn test_derive_from_query_result_rejects_tuple_struct() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct Foo(i64, String);
+        };
+        let output = derive_from_query_result_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("compile_error !"), "tuple struct 应报错: {}", s);
+    }
+
+    #[test]
+    fn test_extract_option_inner_some() {
+        let ty: syn::Type = syn::parse_str("Option<String>").unwrap();
+        assert!(extract_option_inner(&ty).is_some());
+    }
+
+    #[test]
+    fn test_extract_option_inner_none() {
+        let ty: syn::Type = syn::parse_str("i64").unwrap();
+        assert!(extract_option_inner(&ty).is_none());
+
+        let ty2: syn::Type = syn::parse_str("String").unwrap();
+        assert!(extract_option_inner(&ty2).is_none());
     }
 }

@@ -9,12 +9,12 @@
 //! - [`tcc`] — Try-Confirm-Cancel 三阶段提交
 //! - [`cross_shard`] — 跨分片事务协调
 
+use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
-use parking_lot::RwLock;
 
 pub mod cross_shard;
 pub mod saga;
@@ -774,8 +774,16 @@ mod tests {
         let err_commit = m.commit("missing").unwrap_err();
         assert!(err_commit.contains("not found"), "commit: {}", err_commit);
         let err_rollback = m.rollback("missing").unwrap_err();
-        assert!(err_rollback.contains("not found"), "rollback: {}", err_rollback);
+        assert!(
+            err_rollback.contains("not found"),
+            "rollback: {}",
+            err_rollback
+        );
         let err_prepare = m.prepare("missing").unwrap_err();
-        assert!(err_prepare.contains("not found"), "prepare: {}", err_prepare);
+        assert!(
+            err_prepare.contains("not found"),
+            "prepare: {}",
+            err_prepare
+        );
     }
 }

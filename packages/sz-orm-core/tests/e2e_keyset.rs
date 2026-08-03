@@ -80,10 +80,18 @@ fn test_l3_1_keyset_after_generates_correct_sql() {
     let sql_clean = strip_quotes(&sql);
 
     assert!(sql_clean.contains("id > ?"), "应包含 'id > ?': {}", sql);
-    assert!(sql.to_uppercase().contains("ORDER BY"), "应包含 ORDER BY: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("ORDER BY"),
+        "应包含 ORDER BY: {}",
+        sql
+    );
     assert!(sql.to_uppercase().contains("ASC"), "应包含 ASC: {}", sql);
     assert!(sql.contains("LIMIT 20"), "应包含 LIMIT 20: {}", sql);
-    assert!(!sql.to_uppercase().contains("OFFSET"), "不应包含 OFFSET: {}", sql);
+    assert!(
+        !sql.to_uppercase().contains("OFFSET"),
+        "不应包含 OFFSET: {}",
+        sql
+    );
     assert_eq!(params, vec![Value::I64(100)]);
 }
 
@@ -98,10 +106,18 @@ fn test_l3_2_keyset_before_generates_correct_sql() {
     let sql_clean = strip_quotes(&sql);
 
     assert!(sql_clean.contains("id < ?"), "应包含 'id < ?': {}", sql);
-    assert!(sql.to_uppercase().contains("ORDER BY"), "应包含 ORDER BY: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("ORDER BY"),
+        "应包含 ORDER BY: {}",
+        sql
+    );
     assert!(sql.to_uppercase().contains("DESC"), "应包含 DESC: {}", sql);
     assert!(sql.contains("LIMIT 20"), "应包含 LIMIT 20: {}", sql);
-    assert!(!sql.to_uppercase().contains("OFFSET"), "不应包含 OFFSET: {}", sql);
+    assert!(
+        !sql.to_uppercase().contains("OFFSET"),
+        "不应包含 OFFSET: {}",
+        sql
+    );
     assert_eq!(params, vec![Value::I64(100)]);
 }
 
@@ -109,13 +125,19 @@ fn test_l3_2_keyset_before_generates_correct_sql() {
 
 #[test]
 fn test_l3_3_keyset_after_param_binding() {
-    let builder = make_builder()
-        .table("users")
-        .keyset_after("created_at", Value::String("2024-01-01".to_string()), 10);
+    let builder = make_builder().table("users").keyset_after(
+        "created_at",
+        Value::String("2024-01-01".to_string()),
+        10,
+    );
     let (sql, params) = builder.build_select_with_params();
     let sql_clean = strip_quotes(&sql);
 
-    assert!(sql_clean.contains("created_at > ?"), "应包含 'created_at > ?': {}", sql);
+    assert!(
+        sql_clean.contains("created_at > ?"),
+        "应包含 'created_at > ?': {}",
+        sql
+    );
     assert_eq!(params.len(), 1);
     assert_eq!(params[0], Value::String("2024-01-01".to_string()));
 }
@@ -141,10 +163,11 @@ fn test_l3_4_keyset_auto_sets_order_by() {
 
 #[test]
 fn test_l3_5_keyset_respects_user_order_by() {
-    let builder = make_builder()
-        .table("users")
-        .order_by("name")
-        .keyset_after("id", Value::I64(50), 10);
+    let builder =
+        make_builder()
+            .table("users")
+            .order_by("name")
+            .keyset_after("id", Value::I64(50), 10);
     let (sql, _) = builder.build_select_with_params();
     let sql_clean = strip_quotes(&sql);
 
@@ -166,7 +189,11 @@ fn test_l3_6_keyset_clears_offset() {
         .keyset_after("id", Value::I64(50), 10);
     let (sql, _) = builder.build_select_with_params();
 
-    assert!(!sql.to_uppercase().contains("OFFSET"), "keyset 应清除 OFFSET: {}", sql);
+    assert!(
+        !sql.to_uppercase().contains("OFFSET"),
+        "keyset 应清除 OFFSET: {}",
+        sql
+    );
     assert!(sql.contains("LIMIT 10"), "应保留 LIMIT: {}", sql);
 }
 
@@ -181,7 +208,11 @@ fn test_l3_7_keyset_with_other_where_conditions() {
     let (sql, params) = builder.build_select_with_params();
     let sql_clean = strip_quotes(&sql);
 
-    assert!(sql_clean.contains("status = ?"), "应包含 status 条件: {}", sql);
+    assert!(
+        sql_clean.contains("status = ?"),
+        "应包含 status 条件: {}",
+        sql
+    );
     assert!(sql_clean.contains("id > ?"), "应包含 keyset 条件: {}", sql);
     assert_eq!(params.len(), 2, "应有 2 个参数: {:?}", params);
     assert_eq!(params[0], Value::String("active".to_string()));
@@ -192,9 +223,11 @@ fn test_l3_7_keyset_with_other_where_conditions() {
 
 #[test]
 fn test_l3_8_keyset_after_different_value_types() {
-    let builder = make_builder()
-        .table("users")
-        .keyset_after("email", Value::String("user@example.com".to_string()), 10);
+    let builder = make_builder().table("users").keyset_after(
+        "email",
+        Value::String("user@example.com".to_string()),
+        10,
+    );
     let (sql, params) = builder.build_select_with_params();
     let sql_clean = strip_quotes(&sql);
     assert!(sql_clean.contains("email > ?"), "应包含 email > ?: {}", sql);
@@ -238,9 +271,24 @@ fn test_l3_10_keyset_cross_dialect() {
             .keyset_after("id", Value::I64(100), 20);
         let (sql, params) = builder.build_select_with_params();
 
-        assert!(sql.contains("> ?"), "方言 {:?} 应包含 '> ?': {}", db_type, sql);
-        assert!(sql.to_uppercase().contains("ORDER BY"), "方言 {:?} 应包含 ORDER BY: {}", db_type, sql);
-        assert!(sql.contains("LIMIT 20"), "方言 {:?} 应包含 LIMIT 20: {}", db_type, sql);
+        assert!(
+            sql.contains("> ?"),
+            "方言 {:?} 应包含 '> ?': {}",
+            db_type,
+            sql
+        );
+        assert!(
+            sql.to_uppercase().contains("ORDER BY"),
+            "方言 {:?} 应包含 ORDER BY: {}",
+            db_type,
+            sql
+        );
+        assert!(
+            sql.contains("LIMIT 20"),
+            "方言 {:?} 应包含 LIMIT 20: {}",
+            db_type,
+            sql
+        );
         assert_eq!(params, vec![Value::I64(100)]);
     }
 }
@@ -251,10 +299,13 @@ fn test_l3_10_keyset_cross_dialect() {
 fn test_l3_11_keyset_with_where_in() {
     let builder = make_builder()
         .table("users")
-        .where_in("status", vec![
-            Value::String("active".to_string()),
-            Value::String("pending".to_string()),
-        ])
+        .where_in(
+            "status",
+            vec![
+                Value::String("active".to_string()),
+                Value::String("pending".to_string()),
+            ],
+        )
         .keyset_after("id", Value::I64(100), 20);
     let (sql, params) = builder.build_select_with_params();
 
@@ -273,7 +324,11 @@ fn test_l3_12_keyset_with_where_between() {
         .keyset_after("id", Value::I64(100), 20);
     let (sql, params) = builder.build_select_with_params();
 
-    assert!(sql.to_uppercase().contains("BETWEEN ? AND ?"), "应包含 BETWEEN: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("BETWEEN ? AND ?"),
+        "应包含 BETWEEN: {}",
+        sql
+    );
     assert!(sql.contains("> ?"), "应包含 keyset: {}", sql);
     assert_eq!(params.len(), 3, "应有 3 个参数: {:?}", params);
 }
@@ -289,7 +344,11 @@ fn test_l3_13_keyset_after_no_params_version() {
     let sql_clean = strip_quotes(&sql);
 
     assert!(sql_clean.contains("id >"), "应包含 'id >': {}", sql);
-    assert!(sql.to_uppercase().contains("ORDER BY"), "应包含 ORDER BY: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("ORDER BY"),
+        "应包含 ORDER BY: {}",
+        sql
+    );
     assert!(sql.to_uppercase().contains("ASC"), "应包含 ASC: {}", sql);
     assert!(sql.contains("LIMIT 20"), "应包含 LIMIT 20: {}", sql);
 }
@@ -305,7 +364,11 @@ fn test_l3_14_keyset_before_no_params_version() {
     let sql_clean = strip_quotes(&sql);
 
     assert!(sql_clean.contains("id <"), "应包含 'id <': {}", sql);
-    assert!(sql.to_uppercase().contains("ORDER BY"), "应包含 ORDER BY: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("ORDER BY"),
+        "应包含 ORDER BY: {}",
+        sql
+    );
     assert!(sql.to_uppercase().contains("DESC"), "应包含 DESC: {}", sql);
     assert!(sql.contains("LIMIT 20"), "应包含 LIMIT 20: {}", sql);
 }
@@ -361,7 +424,11 @@ fn test_l3_17_keyset_with_group_by() {
         .keyset_after("user_id", Value::I64(100), 20);
     let (sql, params) = builder.build_select_with_params();
 
-    assert!(sql.to_uppercase().contains("GROUP BY"), "应包含 GROUP BY: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("GROUP BY"),
+        "应包含 GROUP BY: {}",
+        sql
+    );
     assert!(sql.contains("> ?"), "应包含 keyset: {}", sql);
     assert_eq!(params.len(), 1);
 }
@@ -376,7 +443,11 @@ fn test_l3_18_keyset_with_join() {
         .keyset_after("orders.id", Value::I64(100), 20);
     let (sql, params) = builder.build_select_with_params();
 
-    assert!(sql.to_uppercase().contains("INNER JOIN"), "应包含 JOIN: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("INNER JOIN"),
+        "应包含 JOIN: {}",
+        sql
+    );
     assert!(sql.contains("> ?"), "应包含 keyset: {}", sql);
     assert_eq!(params.len(), 1);
 }
@@ -403,8 +474,16 @@ fn test_l3_20_keyset_overrides_previous() {
         .keyset_before("id", Value::I64(200), 10);
     let (sql, params) = builder.build_select_with_params();
 
-    assert!(sql.contains("< ?"), "应使用最后一次 keyset (before): {}", sql);
-    assert!(!sql.contains("> ?"), "不应包含前一次 keyset (after): {}", sql);
+    assert!(
+        sql.contains("< ?"),
+        "应使用最后一次 keyset (before): {}",
+        sql
+    );
+    assert!(
+        !sql.contains("> ?"),
+        "不应包含前一次 keyset (after): {}",
+        sql
+    );
     assert!(sql.to_uppercase().contains("DESC"), "应使用 DESC: {}", sql);
     assert_eq!(params, vec![Value::I64(200)]);
 }

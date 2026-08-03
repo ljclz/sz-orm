@@ -238,10 +238,7 @@ impl EntityGraph {
     ///
     /// 将主图和所有子图的边统一收集到 `adj` 中。
     /// 子图的边也会被加入，因为子图定义了从 `edge.relation` 出发的额外边。
-    fn collect_edges_recursive(
-        &self,
-        adj: &mut std::collections::HashMap<String, Vec<String>>,
-    ) {
+    fn collect_edges_recursive(&self, adj: &mut std::collections::HashMap<String, Vec<String>>) {
         for edge in &self.edges {
             adj.entry(edge.parent_field.clone())
                 .or_default()
@@ -786,30 +783,29 @@ impl N1QueryDetector {
         }
 
         // 读锁毒化时返回空告警列表（graceful 降级）
-        let new_alerts: Vec<N1Alert> =
-            match (self.counts.read(), self.batch_counts.read()) {
-                (Ok(counts), Ok(batch_counts)) => {
-                    let mut alerts: Vec<N1Alert> = counts
-                        .iter()
-                        .filter_map(|(rel, &cnt)| {
-                            if cnt >= self.config.threshold {
-                                Some(N1Alert {
-                                    relation: rel.clone(),
-                                    query_count: cnt,
-                                    batch_count: *batch_counts.get(rel).unwrap_or(&0),
-                                    threshold: self.config.threshold,
-                                })
-                            } else {
-                                None
-                            }
-                        })
-                        .collect();
-                    // 稳定排序便于断言
-                    alerts.sort_by(|a, b| a.relation.cmp(&b.relation));
-                    alerts
-                }
-                _ => Vec::new(),
-            };
+        let new_alerts: Vec<N1Alert> = match (self.counts.read(), self.batch_counts.read()) {
+            (Ok(counts), Ok(batch_counts)) => {
+                let mut alerts: Vec<N1Alert> = counts
+                    .iter()
+                    .filter_map(|(rel, &cnt)| {
+                        if cnt >= self.config.threshold {
+                            Some(N1Alert {
+                                relation: rel.clone(),
+                                query_count: cnt,
+                                batch_count: *batch_counts.get(rel).unwrap_or(&0),
+                                threshold: self.config.threshold,
+                            })
+                        } else {
+                            None
+                        }
+                    })
+                    .collect();
+                // 稳定排序便于断言
+                alerts.sort_by(|a, b| a.relation.cmp(&b.relation));
+                alerts
+            }
+            _ => Vec::new(),
+        };
 
         if let Ok(mut alerts) = self.alerts.write() {
             *alerts = new_alerts.clone();
@@ -823,11 +819,7 @@ impl N1QueryDetector {
             return;
         }
         {
-            let active = self
-                .window_active
-                .read()
-                .map(|g| *g)
-                .unwrap_or(false);
+            let active = self.window_active.read().map(|g| *g).unwrap_or(false);
             if !active {
                 return;
             }
@@ -846,11 +838,7 @@ impl N1QueryDetector {
             return;
         }
         {
-            let active = self
-                .window_active
-                .read()
-                .map(|g| *g)
-                .unwrap_or(false);
+            let active = self.window_active.read().map(|g| *g).unwrap_or(false);
             if !active {
                 return;
             }
@@ -862,10 +850,7 @@ impl N1QueryDetector {
 
     /// 获取最近一次 `end_window` 产生的告警（只读副本）
     pub fn alerts(&self) -> Vec<N1Alert> {
-        self.alerts
-            .read()
-            .map(|g| g.clone())
-            .unwrap_or_default()
+        self.alerts.read().map(|g| g.clone()).unwrap_or_default()
     }
 
     /// 当前窗口内某 relation 的单条查询次数
@@ -886,10 +871,7 @@ impl N1QueryDetector {
 
     /// 窗口是否处于开启状态
     pub fn is_window_active(&self) -> bool {
-        self.window_active
-            .read()
-            .map(|g| *g)
-            .unwrap_or(false)
+        self.window_active.read().map(|g| *g).unwrap_or(false)
     }
 
     /// 是否已检测到 N+1（基于最近一次窗口的告警）

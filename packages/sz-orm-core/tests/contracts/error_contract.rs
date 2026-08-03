@@ -90,7 +90,10 @@ fn test_pool_error_display_stability_contract() {
 #[test]
 fn test_tx_error_variants_contract() {
     // TxError 9 变体：验证每个变体的 Display 输出稳定（影响日志/告警匹配）
-    assert_eq!(format!("{}", TxError::NotStarted), "Transaction not started");
+    assert_eq!(
+        format!("{}", TxError::NotStarted),
+        "Transaction not started"
+    );
     assert_eq!(
         format!("{}", TxError::AlreadyStarted),
         "Transaction already started"

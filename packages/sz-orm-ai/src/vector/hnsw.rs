@@ -34,8 +34,8 @@
 
 use crate::error::AiError;
 use crate::vector::VectorMetric;
-use std::collections::{BinaryHeap, HashMap, HashSet};
 use parking_lot::RwLock;
+use std::collections::{BinaryHeap, HashMap, HashSet};
 
 // ---------------------------------------------------------------------------
 // 配置

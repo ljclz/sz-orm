@@ -494,9 +494,7 @@ impl AppState {
             .schedule(task)
             .map_err(|e| format!("调度注册失败: {}", e))?;
 
-        // register_handler 现在返回 Result（锁毒化时可能失败）
-        let _ = self
-            .scheduler
+        self.scheduler
             .register_handler("order_timeout_check", self.timeout_handler.clone());
 
         Ok(())
@@ -611,7 +609,7 @@ fn main() {
     // ⑦ 定时任务
     println!("【⑦ 定时任务：超时订单自动取消】");
     state.register_timeout_job().expect("定时任务注册失败");
-    let tasks = state.scheduler.list_tasks().expect("list_tasks failed");
+    let tasks = state.scheduler.list_tasks();
     println!("  已注册 {} 个定时任务:", tasks.len());
     for t in &tasks {
         println!(

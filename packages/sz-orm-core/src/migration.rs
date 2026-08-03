@@ -373,10 +373,7 @@ impl Migrator {
     ) -> Result<std::collections::HashMap<String, i32>, DbError> {
         let mut applied = std::collections::HashMap::new();
         if let Some(ref mut conn) = self.context.connection {
-            let sql = format!(
-                "SELECT version, batch FROM {}",
-                self.context.table_name
-            );
+            let sql = format!("SELECT version, batch FROM {}", self.context.table_name);
             let rows = conn.query(&sql).await?;
             for row in rows {
                 if let Some(crate::Value::String(version)) = row.get("version") {
@@ -424,10 +421,7 @@ impl Migrator {
             validate_migration_version(version)?;
             // name 可能为空或含下划线，放宽校验：仅拒绝单引号和分号
             if name.contains('\'') || name.contains(';') {
-                return Err(DbError::MigrationError(format!(
-                    "非法迁移名称: {}",
-                    name
-                )));
+                return Err(DbError::MigrationError(format!("非法迁移名称: {}", name)));
             }
             let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
             let sql = format!(
@@ -638,7 +632,8 @@ impl Migrator {
             self.migrations[idx].executed_at = Some(chrono::Utc::now());
 
             // P1-4：向 __migrations 表插入记录
-            self.record_migration(&version, &name, current_batch).await?;
+            self.record_migration(&version, &name, current_batch)
+                .await?;
 
             applied.push(version);
         }

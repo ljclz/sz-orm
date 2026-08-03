@@ -307,9 +307,7 @@ fn deflate_compress(data: &[u8]) -> Vec<u8> {
         .expect("zlib compression of in-memory buffer cannot fail");
 
     // RFC 7692: 移除尾部 4 字节 00 00 FF FF 同步标记
-    if compressed.len() >= 4
-        && compressed[compressed.len() - 4..] == [0x00, 0x00, 0xFF, 0xFF]
-    {
+    if compressed.len() >= 4 && compressed[compressed.len() - 4..] == [0x00, 0x00, 0xFF, 0xFF] {
         compressed.truncate(compressed.len() - 4);
     }
 
@@ -478,10 +476,22 @@ mod tests {
     fn test_compression_config_validate_ok() {
         let cfg = CompressionConfig::new();
         assert!(cfg.validate().is_ok());
-        assert_eq!(cfg.server_max_window_bits, 15, "默认 server_max_window_bits 应为 15");
-        assert_eq!(cfg.client_max_window_bits, 15, "默认 client_max_window_bits 应为 15");
-        assert!(!cfg.server_no_context_takeover, "默认 server_no_context_takeover 应为 false");
-        assert!(!cfg.client_no_context_takeover, "默认 client_no_context_takeover 应为 false");
+        assert_eq!(
+            cfg.server_max_window_bits, 15,
+            "默认 server_max_window_bits 应为 15"
+        );
+        assert_eq!(
+            cfg.client_max_window_bits, 15,
+            "默认 client_max_window_bits 应为 15"
+        );
+        assert!(
+            !cfg.server_no_context_takeover,
+            "默认 server_no_context_takeover 应为 false"
+        );
+        assert!(
+            !cfg.client_no_context_takeover,
+            "默认 client_no_context_takeover 应为 false"
+        );
     }
 
     #[test]

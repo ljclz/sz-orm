@@ -380,7 +380,9 @@ impl<M> LambdaWrapper<M> {
         let mut implicit = Vec::new();
         if let Some(ref sd) = self.soft_delete {
             let col = self.dialect.quote(&sd.column);
-            let val = sd.not_deleted_value.to_param_with_dialect(self.dialect.as_ref());
+            let val = sd
+                .not_deleted_value
+                .to_param_with_dialect(self.dialect.as_ref());
             implicit.push(format!("{} = {}", col, val));
         }
         if let Some(ref t) = self.tenant {
@@ -673,11 +675,10 @@ impl<M> LambdaWrapper<M> {
         // 软删除：改为 UPDATE
         if let Some(ref sd) = self.soft_delete {
             let col = self.dialect.quote(&sd.column);
-            let val = sd.deleted_value.to_param_with_dialect(self.dialect.as_ref());
-            let mut sql = format!(
-                "UPDATE {} SET {} = {}",
-                quoted_table, col, val
-            );
+            let val = sd
+                .deleted_value
+                .to_param_with_dialect(self.dialect.as_ref());
+            let mut sql = format!("UPDATE {} SET {} = {}", quoted_table, col, val);
 
             // WHERE（含用户条件 + 多租户条件；软删除条件不再追加，因为本就是 UPDATE SET）
             let user_conds: Vec<String> = self
@@ -696,7 +697,8 @@ impl<M> LambdaWrapper<M> {
             let not_deleted_cond = format!(
                 "{} = {}",
                 col,
-                sd.not_deleted_value.to_param_with_dialect(self.dialect.as_ref())
+                sd.not_deleted_value
+                    .to_param_with_dialect(self.dialect.as_ref())
             );
             all_conds.push(not_deleted_cond);
 
@@ -1197,11 +1199,7 @@ mod tests {
             "软删除应为 UPDATE：{}",
             sql
         );
-        assert!(
-            sql.contains("`id` = 42"),
-            "应保留用户 WHERE 条件：{}",
-            sql
-        );
+        assert!(sql.contains("`id` = 42"), "应保留用户 WHERE 条件：{}", sql);
         assert!(
             sql.contains("`deleted` = 0"),
             "应追加未删除条件防止重复删除：{}",
@@ -1263,7 +1261,11 @@ mod tests {
         // SELECT 应同时包含两个隐式条件
         let sql = w.build_select();
         assert!(sql.contains("`deleted` = 0"), "应包含软删除条件: {}", sql);
-        assert!(sql.contains("`tenant_id` = 99"), "应包含多租户条件: {}", sql);
+        assert!(
+            sql.contains("`tenant_id` = 99"),
+            "应包含多租户条件: {}",
+            sql
+        );
         assert!(sql.contains("`id` = 7"), "应包含用户条件: {}", sql);
 
         // DELETE 应改为 UPDATE，并追加所有条件

@@ -21,7 +21,10 @@ use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
 fn print_rows(label: &str, rows: &QueryRows) {
     println!("\n--- {} ({} 行) ---", label, rows.len());
     for (i, row) in rows.iter().enumerate() {
-        let id = row.get("id").map(|v| format!("{:?}", v)).unwrap_or_default();
+        let id = row
+            .get("id")
+            .map(|v| format!("{:?}", v))
+            .unwrap_or_default();
         let name = row
             .get("name")
             .map(|v| format!("{:?}", v))
@@ -84,10 +87,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "INSERT INTO users (name, email, age) VALUES ('Alice', 'alice@example.com', 30)",
         )
         .await?;
-        conn.execute(
-            "INSERT INTO users (name, email, age) VALUES ('Bob', 'bob@example.com', 25)",
-        )
-        .await?;
+        conn.execute("INSERT INTO users (name, email, age) VALUES ('Bob', 'bob@example.com', 25)")
+            .await?;
         conn.execute(
             "INSERT INTO users (name, email, age) VALUES ('Carol', 'carol@example.com', 28)",
         )
@@ -103,7 +104,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut conn = pool.acquire().await?;
 
         // 查询全部
-        let rows = conn.query("SELECT id, name, email, age FROM users ORDER BY id").await?;
+        let rows = conn
+            .query("SELECT id, name, email, age FROM users ORDER BY id")
+            .await?;
         print_rows("全部用户", &rows);
 
         // 条件查询
@@ -137,13 +140,13 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n6. 删除数据...");
     {
         let mut conn = pool.acquire().await?;
-        let affected = conn
-            .execute("DELETE FROM users WHERE name = 'Bob'")
-            .await?;
+        let affected = conn.execute("DELETE FROM users WHERE name = 'Bob'").await?;
         println!("   删除 Bob, 影响行数: {}", affected);
 
         // 验证删除
-        let rows = conn.query("SELECT id, name, email, age FROM users ORDER BY id").await?;
+        let rows = conn
+            .query("SELECT id, name, email, age FROM users ORDER BY id")
+            .await?;
         print_rows("删除后的用户列表", &rows);
     }
 
@@ -160,10 +163,8 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             "INSERT INTO users (name, email, age) VALUES ('Dave', 'dave@example.com', 35)",
         )
         .await?;
-        conn.execute(
-            "INSERT INTO users (name, email, age) VALUES ('Eve', 'eve@example.com', 22)",
-        )
-        .await?;
+        conn.execute("INSERT INTO users (name, email, age) VALUES ('Eve', 'eve@example.com', 22)")
+            .await?;
         println!("   事务内插入 Dave 和 Eve");
 
         // 提交事务
@@ -171,7 +172,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         println!("   事务已提交");
 
         // 验证
-        let rows = conn.query("SELECT id, name, email, age FROM users ORDER BY id").await?;
+        let rows = conn
+            .query("SELECT id, name, email, age FROM users ORDER BY id")
+            .await?;
         print_rows("提交后的用户列表", &rows);
     }
 
@@ -208,7 +211,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     println!("\n9. 最终状态...");
     {
         let mut conn = pool.acquire().await?;
-        let rows = conn.query("SELECT id, name, email, age FROM users ORDER BY id").await?;
+        let rows = conn
+            .query("SELECT id, name, email, age FROM users ORDER BY id")
+            .await?;
         print_rows("最终用户列表", &rows);
         println!("\n   预期: Alice(31), Carol(28), Dave(35), Eve(22) — 共 4 人");
         assert_eq!(rows.len(), 4, "最终应有 4 条记录");

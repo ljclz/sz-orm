@@ -12,10 +12,10 @@
 //!   在消息之外附加键值对字段，便于日志聚合系统（ELK/Loki）索引与查询。
 
 use crate::{LogEntry, LogLevel, Logger};
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Arc;
-use parking_lot::Mutex;
 use std::time::{Duration, Instant};
 
 // ============================================================================
@@ -231,7 +231,7 @@ impl LogSink for MemorySink {
     fn write(&self, entry: &LogEntry) {
         // lock poisoned 时跳过写入而非 panic
         let mut entries = self.entries.lock();
-            entries.push(entry.clone());
+        entries.push(entry.clone());
     }
 
     fn name(&self) -> &str {
@@ -612,7 +612,7 @@ impl MemoryStructuredSink {
 impl StructuredSink for MemoryStructuredSink {
     fn write(&self, entry: &StructuredLogEntry) {
         let mut entries = self.entries.lock();
-            entries.push(entry.clone());
+        entries.push(entry.clone());
     }
 
     fn name(&self) -> &str {

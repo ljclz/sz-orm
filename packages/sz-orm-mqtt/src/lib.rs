@@ -232,17 +232,20 @@ mod tests {
         let mut plugin = MqttPlugin::new(config);
 
         plugin.connect().await.unwrap();
-        plugin.subscribe("home/living", QoS::AtLeastOnce).await.unwrap();
-        assert_eq!(plugin.subscription_count().await, 1, "前置：订阅后计数应为 1");
+        plugin
+            .subscribe("home/living", QoS::AtLeastOnce)
+            .await
+            .unwrap();
+        assert_eq!(
+            plugin.subscription_count().await,
+            1,
+            "前置：订阅后计数应为 1"
+        );
 
         let result = plugin.unsubscribe("home/living").await;
         assert!(result.is_ok());
         // 验证取消订阅真正生效：计数归零、成员查询返回 false
-        assert_eq!(
-            plugin.subscription_count().await,
-            0,
-            "取消订阅后计数应归零"
-        );
+        assert_eq!(plugin.subscription_count().await, 0, "取消订阅后计数应归零");
         assert!(
             !plugin.is_subscribed("home/living").await,
             "is_subscribed 应返回 false"

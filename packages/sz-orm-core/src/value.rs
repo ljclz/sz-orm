@@ -79,6 +79,152 @@ pub enum Value {
     Object(std::collections::HashMap<String, Value>),
 }
 
+// ---------------------------------------------------------------------------
+// FromQueryResult trait
+// ---------------------------------------------------------------------------
+
+/// 从 `Value` 反序列化查询结果行的字段值。
+///
+/// 由 `#[derive(FromQueryResult)]` 自动为结构体生成实现，
+/// 也可手动为自定义类型实现。
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::value::{Value, FromQueryResult};
+///
+/// #[derive(FromQueryResult)]
+/// struct User {
+///     id: i64,
+///     name: String,
+/// }
+///
+/// let row = vec![
+///     ("id".to_string(), Value::from(1i64)),
+///     ("name".to_string(), Value::from("Alice")),
+/// ];
+/// let user = User::from_row(&row).unwrap();
+/// assert_eq!(user.id, 1);
+/// ```
+pub trait FromQueryResult: Sized {
+    /// 从单个 `Value` 提取字段值
+    fn from_value(value: &Value) -> Result<Self, String>;
+
+    /// 从一行数据（列名→值的 HashMap 表示）构建自身
+    fn from_row(row: &std::collections::HashMap<String, Value>) -> Result<Self, String> {
+        Self::from_query_result(row)
+    }
+
+    /// 从一行数据构建自身（主入口，由 derive 生成）
+    fn from_query_result(_row: &std::collections::HashMap<String, Value>) -> Result<Self, String> {
+        Err("from_query_result not implemented for this type".to_string())
+    }
+}
+
+// 基础类型的 FromQueryResult 实现
+
+macro_rules! impl_from_query_result_int {
+    ($t:ty, $variant:ident) => {
+        impl FromQueryResult for $t {
+            fn from_value(value: &Value) -> Result<Self, String> {
+                match value {
+                    // 精确匹配对应变体；数据库整数变体间不做隐式截断转换，
+                    // 需要转换时由调用方显式处理。
+                    Value::$variant(n) => Ok(*n as $t),
+                    Value::Null => Err("NULL value cannot be converted to integer".to_string()),
+                    other => Err(format!("cannot convert {:?} to {}", other, stringify!($t))),
+                }
+            }
+        }
+    };
+}
+
+impl_from_query_result_int!(i64, I64);
+impl_from_query_result_int!(i32, I32);
+impl_from_query_result_int!(i16, I16);
+impl_from_query_result_int!(i8, I8);
+impl_from_query_result_int!(u64, U64);
+impl_from_query_result_int!(u32, U32);
+impl_from_query_result_int!(u16, U16);
+impl_from_query_result_int!(u8, U8);
+
+macro_rules! impl_from_query_result_float {
+    ($t:ty, $variant:ident) => {
+        impl FromQueryResult for $t {
+            fn from_value(value: &Value) -> Result<Self, String> {
+                match value {
+                    Value::$variant(n) => Ok(*n as $t),
+                    Value::Null => Err("NULL value cannot be converted to float".to_string()),
+                    other => Err(format!("cannot convert {:?} to {}", other, stringify!($t))),
+                }
+            }
+        }
+    };
+}
+
+impl_from_query_result_float!(f64, F64);
+impl_from_query_result_float!(f32, F32);
+
+impl FromQueryResult for bool {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        match value {
+            Value::Bool(b) => Ok(*b),
+            Value::I64(n) => Ok(*n != 0),
+            Value::Null => Err("NULL value cannot be converted to bool".to_string()),
+            other => Err(format!("cannot convert {:?} to bool", other)),
+        }
+    }
+}
+
+impl FromQueryResult for String {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        match value {
+            Value::String(s) => Ok(s.clone()),
+            Value::Decimal(s) => Ok(s.clone()),
+            Value::Uuid(s) => Ok(s.clone()),
+            Value::Date(s) => Ok(s.clone()),
+            Value::DateTime(s) => Ok(s.clone()),
+            Value::Time(s) => Ok(s.clone()),
+            Value::Json(s) => Ok(s.clone()),
+            Value::Null => Err("NULL value cannot be converted to String".to_string()),
+            other => Err(format!("cannot convert {:?} to String", other)),
+        }
+    }
+}
+
+impl<T: FromQueryResult> FromQueryResult for Option<T> {
+    fn from_value(value: &Value) -> Result<Self, String> {
+        match value {
+            Value::Null => Ok(None),
+            other => T::from_value(other).map(Some),
+        }
+    }
+}
+
+// 基础类型实现后，为 Option<T> 补充 from_row 不支持的兜底
+impl FromQueryResult for () {
+    fn from_value(_value: &Value) -> Result<Self, String> {
+        Ok(())
+    }
+}
+
+// ---------------------------------------------------------------------------
+// 快捷函数：从 QueryRows 中提取 Vec<T>
+// ---------------------------------------------------------------------------
+
+/// 将 `QueryRows` 转换为 `Vec<T>`，其中 `T: FromQueryResult`。
+///
+/// # 示例
+///
+/// ```ignore
+/// let users: Vec<User> = rows_to::<User>(rows)?;
+/// ```
+pub fn rows_to<T: FromQueryResult>(
+    rows: &crate::pool::QueryRows,
+) -> Result<Vec<T>, String> {
+    rows.iter().map(T::from_query_result).collect()
+}
+
 impl Value {
     /// 判断是否为 null
     pub fn is_null(&self) -> bool {

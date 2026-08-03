@@ -458,6 +458,7 @@ fn current_timestamp_ms() -> i64 {
 /// URL 路径段编码（用于 Pushgateway URL 中的 job/instance）
 ///
 /// 将非字母数字字符编码为 `%XX` 格式，避免特殊字符破坏 URL 结构。
+#[allow(dead_code)]
 fn url_encode(s: &str) -> String {
     let mut out = String::with_capacity(s.len());
     for byte in s.bytes() {
@@ -593,26 +594,32 @@ mod tests {
         assert!(qs.iter().all(|(_, v)| v.is_some()));
 
         // 验证分位数值的合理性：p50 应在 5-6 之间，p90 应在 9-10 之间，p99 应为 10
-        let qmap: std::collections::HashMap<f64, f64> = qs
+        let qmap: Vec<(f64, f64)> = qs
             .iter()
             .filter_map(|(q, v)| v.map(|val| (*q, val)))
             .collect();
+        let lookup = |target: f64| -> f64 {
+            qmap.iter()
+                .find(|(q, _)| (*q - target).abs() < 1e-9)
+                .map(|(_, v)| *v)
+                .unwrap_or(f64::NAN)
+        };
 
-        let p50 = qmap[&0.5];
+        let p50 = lookup(0.5);
         assert!(
             (5.0..=6.0).contains(&p50),
             "p50 应在 5-6 之间，实际: {}",
             p50
         );
 
-        let p90 = qmap[&0.9];
+        let p90 = lookup(0.9);
         assert!(
             (9.0..=10.0).contains(&p90),
             "p90 应在 9-10 之间，实际: {}",
             p90
         );
 
-        let p99 = qmap[&0.99];
+        let p99 = lookup(0.99);
         assert!(
             (9.0..=10.0).contains(&p99),
             "p99 应在 9-10 之间，实际: {}",

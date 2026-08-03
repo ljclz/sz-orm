@@ -200,7 +200,10 @@ mod tests {
             .time_bucket_aggregate("cpu", "5m", Aggregation::Avg, start, end)
             .await
             .unwrap();
-        assert!(result.is_empty(), "stub time_bucket_aggregate must return empty Vec");
+        assert!(
+            result.is_empty(),
+            "stub time_bucket_aggregate must return empty Vec"
+        );
         let history = stub.sql_history();
         assert_eq!(history.len(), 1);
         assert!(history[0].contains("time_bucket('5m'"));

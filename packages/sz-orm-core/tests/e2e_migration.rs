@@ -13,9 +13,9 @@
 mod common;
 
 use common::{InMemoryDb, TransactionalConnection};
+use std::sync::Arc;
 use sz_orm_core::migration::Migration;
 use sz_orm_core::{DbType, MigrationContext, Migrator, Value};
-use std::sync::Arc;
 use tokio::sync::Mutex;
 
 // ===== 辅助函数 =====
@@ -35,14 +35,31 @@ fn make_migrator(db_type: DbType) -> (Migrator, Arc<Mutex<InMemoryDb>>) {
 /// 构造一组测试迁移
 fn test_migrations() -> Vec<Migration> {
     vec![
-        Migration::new("001", "create_users", "INSERT INTO users (id, name) VALUES (1, 'Alice')", "DELETE FROM users WHERE id = 1"),
-        Migration::new("002", "add_age_col", "INSERT INTO users (id, name) VALUES (2, 'Bob')", "DELETE FROM users WHERE id = 2"),
-        Migration::new("003", "add_index", "INSERT INTO users (id, name) VALUES (3, 'Carol')", "DELETE FROM users WHERE id = 3"),
+        Migration::new(
+            "001",
+            "create_users",
+            "INSERT INTO users (id, name) VALUES (1, 'Alice')",
+            "DELETE FROM users WHERE id = 1",
+        ),
+        Migration::new(
+            "002",
+            "add_age_col",
+            "INSERT INTO users (id, name) VALUES (2, 'Bob')",
+            "DELETE FROM users WHERE id = 2",
+        ),
+        Migration::new(
+            "003",
+            "add_index",
+            "INSERT INTO users (id, name) VALUES (3, 'Carol')",
+            "DELETE FROM users WHERE id = 3",
+        ),
     ]
 }
 
 /// 从共享 db 句柄查询 __migrations 表的所有记录
-async fn query_migrations_table(db: &Arc<Mutex<InMemoryDb>>) -> Vec<std::collections::HashMap<String, Value>> {
+async fn query_migrations_table(
+    db: &Arc<Mutex<InMemoryDb>>,
+) -> Vec<std::collections::HashMap<String, Value>> {
     let db = db.lock().await;
     db.select_all("__migrations").to_vec()
 }
@@ -99,7 +116,10 @@ async fn test_l3_3_rollback_removes_migration_record() {
 
     let rows = query_migrations_table(&db).await;
     let versions = extract_versions(&rows);
-    assert!(!versions.contains(&"003".to_string()), "003 应已从 __migrations 删除");
+    assert!(
+        !versions.contains(&"003".to_string()),
+        "003 应已从 __migrations 删除"
+    );
     assert!(versions.contains(&"001".to_string()), "001 应保留");
     assert!(versions.contains(&"002".to_string()), "002 应保留");
 }
@@ -189,9 +209,18 @@ async fn test_l3_7_create_migrations_table_sql_per_dialect() {
         );
     };
 
-    check(DbType::MySQL, "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
-    check(DbType::PostgreSQL, "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
-    check(DbType::Sqlite, "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP");
+    check(
+        DbType::MySQL,
+        "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    );
+    check(
+        DbType::PostgreSQL,
+        "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    );
+    check(
+        DbType::Sqlite,
+        "TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP",
+    );
     check(DbType::Oracle, "TIMESTAMP DEFAULT CURRENT_TIMESTAMP");
     check(DbType::SqlServer, "DATETIME DEFAULT GETDATE()");
 }
@@ -239,7 +268,12 @@ async fn test_l3_10_version_conflict_rejected_before_migrate() {
     let (mut migrator, _db) = make_migrator(DbType::Sqlite);
     let dup_migrations = vec![
         Migration::new("001", "first", "INSERT INTO t VALUES (1)", "DELETE FROM t"),
-        Migration::new("001", "duplicate", "INSERT INTO t VALUES (2)", "DELETE FROM t"),
+        Migration::new(
+            "001",
+            "duplicate",
+            "INSERT INTO t VALUES (2)",
+            "DELETE FROM t",
+        ),
     ];
     migrator = migrator.add_migrations(dup_migrations);
 
@@ -254,9 +288,12 @@ async fn test_l3_10_version_conflict_rejected_before_migrate() {
 #[tokio::test]
 async fn test_l3_11_illegal_version_rejected() {
     let (mut migrator, _db) = make_migrator(DbType::Sqlite);
-    let bad_migrations = vec![
-        Migration::new("001'; DROP TABLE __migrations; --", "evil", "INSERT INTO t VALUES (1)", "DELETE FROM t"),
-    ];
+    let bad_migrations = vec![Migration::new(
+        "001'; DROP TABLE __migrations; --",
+        "evil",
+        "INSERT INTO t VALUES (1)",
+        "DELETE FROM t",
+    )];
     migrator = migrator.add_migrations(bad_migrations);
 
     let result = migrator.migrate().await;
@@ -268,9 +305,12 @@ async fn test_l3_11_illegal_version_rejected() {
 #[tokio::test]
 async fn test_l3_12_illegal_name_rejected() {
     let (mut migrator, _db) = make_migrator(DbType::Sqlite);
-    let bad_migrations = vec![
-        Migration::new("001", "evil'; DROP TABLE users; --", "INSERT INTO t VALUES (1)", "DELETE FROM t"),
-    ];
+    let bad_migrations = vec![Migration::new(
+        "001",
+        "evil'; DROP TABLE users; --",
+        "INSERT INTO t VALUES (1)",
+        "DELETE FROM t",
+    )];
     migrator = migrator.add_migrations(bad_migrations);
 
     let result = migrator.migrate().await;
@@ -344,7 +384,10 @@ async fn test_l3_14_reset_preserves_table_state() {
             _ => None,
         })
         .unwrap_or("");
-    assert_eq!(name, "Alice", "reset 应恢复 id=1 的 name 为 Alice，而非保留篡改值");
+    assert_eq!(
+        name, "Alice",
+        "reset 应恢复 id=1 的 name 为 Alice，而非保留篡改值"
+    );
 }
 
 // ===== L3-15：自定义表名生效 =====
@@ -427,9 +470,19 @@ async fn test_l3_18_ddl_transaction_commit_persists_data() {
 async fn test_l3_19_empty_sql_migration_skipped() {
     let (mut migrator, db) = make_migrator(DbType::Sqlite);
     let migrations = vec![
-        Migration::new("001", "ok", "INSERT INTO users (id) VALUES (1)", "DELETE FROM users WHERE id = 1"),
+        Migration::new(
+            "001",
+            "ok",
+            "INSERT INTO users (id) VALUES (1)",
+            "DELETE FROM users WHERE id = 1",
+        ),
         Migration::new("002", "empty", "", "DELETE FROM users WHERE id = 2"),
-        Migration::new("003", "after_empty", "INSERT INTO users (id) VALUES (3)", "DELETE FROM users WHERE id = 3"),
+        Migration::new(
+            "003",
+            "after_empty",
+            "INSERT INTO users (id) VALUES (3)",
+            "DELETE FROM users WHERE id = 3",
+        ),
     ];
     migrator = migrator.add_migrations(migrations);
 

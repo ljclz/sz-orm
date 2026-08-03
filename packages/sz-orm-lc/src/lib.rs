@@ -433,9 +433,8 @@ impl ValidationRule {
                 // M-2 修复：使用 regex crate 进行真实正则匹配
                 // 对齐 PHP preg_match 行为：完整匹配（anchored）由调用方在 pattern 中表达
                 if let Some(s) = value.as_str() {
-                    let compiled = regex::Regex::new(regex).map_err(|e| {
-                        format!("正则表达式编译失败: {}", e)
-                    })?;
+                    let compiled = regex::Regex::new(regex)
+                        .map_err(|e| format!("正则表达式编译失败: {}", e))?;
                     if !compiled.is_match(s) {
                         return Err(format!("值不匹配正则: {}", regex));
                     }
@@ -1356,22 +1355,49 @@ mod tests {
         let code = e.generate_api(&m);
 
         // 应包含 sqlx 真实数据库调用
-        assert!(code.contains("sqlx::query_as"), "应使用 sqlx::query_as 查询数据库");
-        assert!(code.contains("sqlx::query"), "应使用 sqlx::query 执行非查询 SQL");
+        assert!(
+            code.contains("sqlx::query_as"),
+            "应使用 sqlx::query_as 查询数据库"
+        );
+        assert!(
+            code.contains("sqlx::query"),
+            "应使用 sqlx::query 执行非查询 SQL"
+        );
         assert!(code.contains("PgPool"), "应接受数据库连接池参数");
         assert!(code.contains("FromRow"), "应派生 sqlx::FromRow trait");
-        assert!(code.contains("RETURNING"), "INSERT/UPDATE 应使用 RETURNING 子句");
-        assert!(code.contains("rows_affected"), "DELETE 应检查 rows_affected");
+        assert!(
+            code.contains("RETURNING"),
+            "INSERT/UPDATE 应使用 RETURNING 子句"
+        );
+        assert!(
+            code.contains("rows_affected"),
+            "DELETE 应检查 rows_affected"
+        );
         assert!(code.contains("NOT_FOUND"), "应处理 404 NOT_FOUND 场景");
 
         // 不应包含 mock 痕迹
-        assert!(!code.contains("String::new()"), "不应返回硬编码空字符串（mock 痕迹）");
-        assert!(!code.contains("NaiveDateTime::default()"), "不应返回硬编码默认时间（mock 痕迹）");
+        assert!(
+            !code.contains("String::new()"),
+            "不应返回硬编码空字符串（mock 痕迹）"
+        );
+        assert!(
+            !code.contains("NaiveDateTime::default()"),
+            "不应返回硬编码默认时间（mock 痕迹）"
+        );
         // create/update 应通过 fetch_one/fetch_optional 获取数据库返回的实体，而非直接返回输入
-        assert!(code.contains("fetch_one"), "create 应使用 fetch_one 获取插入后的实体");
-        assert!(code.contains("fetch_optional"), "get/update 应使用 fetch_optional 查询实体");
+        assert!(
+            code.contains("fetch_one"),
+            "create 应使用 fetch_one 获取插入后的实体"
+        );
+        assert!(
+            code.contains("fetch_optional"),
+            "get/update 应使用 fetch_optional 查询实体"
+        );
         // delete 成功时返回 Json(true) 是合理的，但必须有 rows_affected 条件判断
-        assert!(code.contains("rows_affected() > 0"), "delete 必须检查 rows_affected 条件");
+        assert!(
+            code.contains("rows_affected() > 0"),
+            "delete 必须检查 rows_affected 条件"
+        );
     }
 
     #[test]
@@ -1604,7 +1630,9 @@ mod tests {
         let rule = ValidationRule::Pattern {
             regex: r"^[^@\s]+@[^@\s]+\.[^@\s]+$".to_string(),
         };
-        assert!(rule.validate(&serde_json::json!("user@example.com")).is_ok());
+        assert!(rule
+            .validate(&serde_json::json!("user@example.com"))
+            .is_ok());
         assert!(rule.validate(&serde_json::json!("bad-email")).is_err());
     }
 
@@ -1997,11 +2025,26 @@ mod tests {
         assert!(code.contains("async fn update"));
         assert!(code.contains("async fn delete"));
         // C-1 修复：验证生成真实可编译的 SQL 执行代码，而非占位符或无效 API
-        assert!(code.contains("sqlx::query"), "生成代码应包含 sqlx::query 执行");
-        assert!(code.contains(".execute(pool)"), "create/update 应调用 execute");
-        assert!(code.contains(".fetch_optional(pool)"), "find_by_id 应调用 fetch_optional");
-        assert!(code.contains(".bind(id)"), "find_by_id/delete 应 bind id 参数");
-        assert!(code.contains("rows_affected"), "delete 应基于 rows_affected 返回 bool");
+        assert!(
+            code.contains("sqlx::query"),
+            "生成代码应包含 sqlx::query 执行"
+        );
+        assert!(
+            code.contains(".execute(pool)"),
+            "create/update 应调用 execute"
+        );
+        assert!(
+            code.contains(".fetch_optional(pool)"),
+            "find_by_id 应调用 fetch_optional"
+        );
+        assert!(
+            code.contains(".bind(id)"),
+            "find_by_id/delete 应 bind id 参数"
+        );
+        assert!(
+            code.contains("rows_affected"),
+            "delete 应基于 rows_affected 返回 bool"
+        );
         assert!(
             !code.contains("__SZORM_TODO__"),
             "生成代码不应包含占位符 __SZORM_TODO__"

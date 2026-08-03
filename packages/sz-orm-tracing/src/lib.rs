@@ -765,7 +765,10 @@ impl InMemoryAlertHook {
     /// # 已废弃
     ///
     /// 此方法仅为减少破坏性变更而保留，新代码应使用 [`identifier`](Self::identifier)。
-    #[deprecated(since = "1.2.0", note = "use `identifier()` instead; this hook does not perform HTTP")]
+    #[deprecated(
+        since = "1.2.0",
+        note = "use `identifier()` instead; this hook does not perform HTTP"
+    )]
     pub fn url(&self) -> &str {
         &self.identifier
     }
@@ -1639,8 +1642,16 @@ mod tests {
         assert_eq!(cloned.message, alert.message);
         // Debug formatting must contain expected fields, not just "not panic".
         let debug_str = format!("{alert:?}");
-        assert!(debug_str.contains("approaching budget"), "debug output missing message: {}", debug_str);
-        assert!(debug_str.contains("Warning"), "debug output missing level: {}", debug_str);
+        assert!(
+            debug_str.contains("approaching budget"),
+            "debug output missing message: {}",
+            debug_str
+        );
+        assert!(
+            debug_str.contains("Warning"),
+            "debug output missing level: {}",
+            debug_str
+        );
     }
 
     // ===================== SaturationGauge tests =====================

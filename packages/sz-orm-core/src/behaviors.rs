@@ -37,8 +37,8 @@
 use crate::error::DbError;
 use crate::hooks::HookContext;
 use crate::Value;
-use std::collections::HashMap;
 use parking_lot::RwLock;
+use std::collections::HashMap;
 
 /// Behavior 处理结果
 pub type BehaviorResult<T> = Result<T, DbError>;
@@ -262,20 +262,15 @@ impl Behavior for BlameableBehavior {
 // 共同实现多租户隔离：写入侧由 TenantBehavior 填充，读取侧由 TenantScope 过滤。
 
 /// 租户隔离行为配置：是否在 update 时强制 tenant_id 不可变更
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
 pub enum TenantUpdatePolicy {
     /// 允许 update 时变更 tenant_id（不推荐，仅在特殊迁移场景使用）
     Allow,
     /// update 时若 attrs 中出现 tenant_id 且与 ctx.tenant_id 不一致则报错（默认）
+    #[default]
     DenyMismatch,
     /// update 时静默忽略 attrs 中的 tenant_id（保持原值不变）
     Strip,
-}
-
-impl Default for TenantUpdatePolicy {
-    fn default() -> Self {
-        TenantUpdatePolicy::DenyMismatch
-    }
 }
 
 /// 自动填充 tenant_id Behavior
@@ -586,11 +581,7 @@ impl BehaviorRegistry {
 
     /// 列出所有已注册 Behavior 的名称
     pub fn names(&self) -> Vec<&'static str> {
-        self.behaviors
-            .read()
-            .iter()
-            .map(|b| b.name())
-            .collect()
+        self.behaviors.read().iter().map(|b| b.name()).collect()
     }
 
     /// 分发 before_insert 事件
@@ -748,7 +739,10 @@ mod tests {
 
     #[test]
     fn test_tenant_behavior_default_policy() {
-        assert_eq!(TenantUpdatePolicy::default(), TenantUpdatePolicy::DenyMismatch);
+        assert_eq!(
+            TenantUpdatePolicy::default(),
+            TenantUpdatePolicy::DenyMismatch
+        );
     }
 
     #[test]
@@ -885,7 +879,10 @@ mod tests {
         attrs.insert("name".to_string(), Value::String("x".into()));
         let result = b.before_update(&ctx, &mut attrs);
         assert!(result.is_ok());
-        assert!(!attrs.contains_key("tenant_id"), "Strip should remove tenant_id");
+        assert!(
+            !attrs.contains_key("tenant_id"),
+            "Strip should remove tenant_id"
+        );
         assert!(attrs.contains_key("name"), "other fields should remain");
     }
 
@@ -946,11 +943,9 @@ mod tests {
     #[test]
     fn test_registry_with_tenant_behavior_update_strip() {
         let r = BehaviorRegistry::new();
-        r.register(
-            Box::new(
-                TenantBehavior::default_fields().with_update_policy(TenantUpdatePolicy::Strip),
-            ),
-        );
+        r.register(Box::new(
+            TenantBehavior::default_fields().with_update_policy(TenantUpdatePolicy::Strip),
+        ));
 
         let ctx = HookContext::default().with_tenant(7);
         let mut attrs = HashMap::new();

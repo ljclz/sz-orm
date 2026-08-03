@@ -334,7 +334,9 @@ impl EsSyncManager {
             Some(mock) => mock.count(index),
             None => Err(EsError::BackendNotSupported {
                 operation: "count".to_string(),
-                reason: "current backend is not InMemoryEsSync; implement count on your EsSync impl".to_string(),
+                reason:
+                    "current backend is not InMemoryEsSync; implement count on your EsSync impl"
+                        .to_string(),
             }),
         }
     }
@@ -1082,10 +1084,7 @@ mod tests {
         // 一个假后端：sync_to_es / delete_from_es / search 都返回 Ok（空结果）
         struct StubBackend;
         impl EsSync for StubBackend {
-            fn sync_to_es(
-                &self,
-                _documents: Vec<EsDocument>,
-            ) -> Result<EsSyncResult, EsError> {
+            fn sync_to_es(&self, _documents: Vec<EsDocument>) -> Result<EsSyncResult, EsError> {
                 Ok(EsSyncResult::success(0))
             }
             fn delete_from_es(
@@ -1095,10 +1094,7 @@ mod tests {
             ) -> Result<EsSyncResult, EsError> {
                 Ok(EsSyncResult::success(0))
             }
-            fn search(
-                &self,
-                _request: EsSearchRequest,
-            ) -> Result<EsSearchResult, EsError> {
+            fn search(&self, _request: EsSearchRequest) -> Result<EsSearchResult, EsError> {
                 Ok(EsSearchResult {
                     total: 0,
                     hits: Vec::new(),

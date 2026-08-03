@@ -946,7 +946,9 @@ async fn test_pg_upsert_specific_update_columns_only() {
     for v in &params {
         q = bind_value_pg(q, v);
     }
-    q.execute(&pool).await.expect("execute upsert specific cols");
+    q.execute(&pool)
+        .await
+        .expect("execute upsert specific cols");
 
     let sel = format!("SELECT name, age, email FROM \"{}\" WHERE id = 1", table);
     let (name, age, email): (String, i64, String) =
@@ -1031,8 +1033,7 @@ async fn test_pg_upsert_unicode_and_special_chars() {
         .unwrap();
     assert_eq!(name, "张三-汉字", "Unicode 名字应正确存储");
     assert_eq!(
-        email,
-        "test'with`special\"chars",
+        email, "test'with`special\"chars",
         "特殊字符应通过参数化查询正确存储"
     );
 

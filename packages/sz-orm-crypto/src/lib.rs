@@ -607,13 +607,19 @@ impl KeyManager {
             created_at: std::time::SystemTime::now(),
         };
 
-        *self.last_rotation.write().expect("KeyManager last_rotation lock poisoned") = std::time::SystemTime::now();
+        *self
+            .last_rotation
+            .write()
+            .expect("KeyManager last_rotation lock poisoned") = std::time::SystemTime::now();
         Ok(())
     }
 
     /// 检查是否需要轮换
     pub fn needs_rotation(&self) -> bool {
-        let last = *self.last_rotation.read().expect("KeyManager last_rotation lock poisoned");
+        let last = *self
+            .last_rotation
+            .read()
+            .expect("KeyManager last_rotation lock poisoned");
         std::time::SystemTime::now()
             .duration_since(last)
             .map(|d| d >= self.rotation_interval)
@@ -622,13 +628,27 @@ impl KeyManager {
 
     /// 获取当前密钥
     pub fn current_key(&self) -> VersionedKey {
-        self.current.read().expect("KeyManager current lock poisoned").clone()
+        self.current
+            .read()
+            .expect("KeyManager current lock poisoned")
+            .clone()
     }
 
     /// 按版本查找密钥
     pub fn key_by_version(&self, version: u32) -> Option<VersionedKey> {
-        if self.current.read().expect("KeyManager current lock poisoned").version == version {
-            return Some(self.current.read().expect("KeyManager current lock poisoned").clone());
+        if self
+            .current
+            .read()
+            .expect("KeyManager current lock poisoned")
+            .version
+            == version
+        {
+            return Some(
+                self.current
+                    .read()
+                    .expect("KeyManager current lock poisoned")
+                    .clone(),
+            );
         }
         self.previous
             .read()

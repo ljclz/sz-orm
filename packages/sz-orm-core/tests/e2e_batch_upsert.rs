@@ -97,8 +97,16 @@ fn test_l3_1_mysql_batch_insert_basic() {
     ];
     let (sql, params) = builder.build_batch_insert_with_params(&rows);
 
-    assert!(sql.to_uppercase().starts_with("INSERT INTO"), "应以 INSERT INTO 开头: {}", sql);
-    assert!(sql.to_uppercase().contains("VALUES"), "应包含 VALUES: {}", sql);
+    assert!(
+        sql.to_uppercase().starts_with("INSERT INTO"),
+        "应以 INSERT INTO 开头: {}",
+        sql
+    );
+    assert!(
+        sql.to_uppercase().contains("VALUES"),
+        "应包含 VALUES: {}",
+        sql
+    );
     // 两行应有两组 VALUES 括号（列列表括号 + 2 行值括号 = 3）
     let values_pos = sql.to_uppercase().find("VALUES").unwrap();
     let values_part = &sql[values_pos..];
@@ -163,8 +171,16 @@ fn test_l3_4_mysql_upsert_specific_update_columns() {
         .unwrap();
 
     let sql_clean = strip_quotes(&sql);
-    assert!(sql_clean.contains("name=VALUES(name)"), "应更新 name 列: {}", sql);
-    assert!(sql_clean.contains("age=VALUES(age)"), "应更新 age 列: {}", sql);
+    assert!(
+        sql_clean.contains("name=VALUES(name)"),
+        "应更新 name 列: {}",
+        sql
+    );
+    assert!(
+        sql_clean.contains("age=VALUES(age)"),
+        "应更新 age 列: {}",
+        sql
+    );
     assert!(
         !sql_clean.contains("email=VALUES(email)"),
         "不应更新 email 列（未指定）: {}",
@@ -184,9 +200,17 @@ fn test_l3_5_mysql_upsert_update_all_columns() {
 
     let sql_clean = strip_quotes(&sql);
     // MySQL 模式下 update_columns 为空 → 更新所有列（包括 id）
-    assert!(sql_clean.contains("name=VALUES(name)"), "应更新 name: {}", sql);
+    assert!(
+        sql_clean.contains("name=VALUES(name)"),
+        "应更新 name: {}",
+        sql
+    );
     assert!(sql_clean.contains("age=VALUES(age)"), "应更新 age: {}", sql);
-    assert!(sql_clean.contains("email=VALUES(email)"), "应更新 email: {}", sql);
+    assert!(
+        sql_clean.contains("email=VALUES(email)"),
+        "应更新 email: {}",
+        sql
+    );
 }
 
 // ===== L3-6：PostgreSQL 批量 Upsert — ON CONFLICT DO UPDATE =====
@@ -252,9 +276,21 @@ fn test_l3_8_pg_upsert_update_non_conflict_columns() {
 
     let sql_clean = strip_quotes(&sql);
     // PG 模式下 update_columns 为空 → 更新所有非冲突列（不含 id）
-    assert!(sql_clean.contains("name=EXCLUDED.name"), "应更新 name: {}", sql);
-    assert!(sql_clean.contains("age=EXCLUDED.age"), "应更新 age: {}", sql);
-    assert!(sql_clean.contains("email=EXCLUDED.email"), "应更新 email: {}", sql);
+    assert!(
+        sql_clean.contains("name=EXCLUDED.name"),
+        "应更新 name: {}",
+        sql
+    );
+    assert!(
+        sql_clean.contains("age=EXCLUDED.age"),
+        "应更新 age: {}",
+        sql
+    );
+    assert!(
+        sql_clean.contains("email=EXCLUDED.email"),
+        "应更新 email: {}",
+        sql
+    );
     // id 是冲突列，不应出现在 SET 中
     assert!(
         !sql_clean.contains("id=EXCLUDED.id"),
@@ -274,7 +310,11 @@ fn test_l3_9_pg_upsert_specific_update_columns() {
         .unwrap();
 
     let sql_clean = strip_quotes(&sql);
-    assert!(sql_clean.contains("name=EXCLUDED.name"), "应更新 name: {}", sql);
+    assert!(
+        sql_clean.contains("name=EXCLUDED.name"),
+        "应更新 name: {}",
+        sql
+    );
     assert!(
         !sql_clean.contains("age=EXCLUDED.age"),
         "不应更新 age（未指定）: {}",
@@ -302,8 +342,16 @@ fn test_l3_10_sqlite_batch_upsert() {
     let (sql, params) = result.unwrap();
     let sql_upper = sql.to_uppercase();
 
-    assert!(sql_upper.contains("ON CONFLICT"), "应包含 ON CONFLICT: {}", sql);
-    assert!(sql_upper.contains("DO UPDATE SET"), "应包含 DO UPDATE SET: {}", sql);
+    assert!(
+        sql_upper.contains("ON CONFLICT"),
+        "应包含 ON CONFLICT: {}",
+        sql
+    );
+    assert!(
+        sql_upper.contains("DO UPDATE SET"),
+        "应包含 DO UPDATE SET: {}",
+        sql
+    );
     assert!(sql_upper.contains("EXCLUDED"), "应包含 EXCLUDED: {}", sql);
     assert_eq!(params.len(), 8, "应有 8 个参数: {:?}", params);
 }
@@ -335,7 +383,11 @@ fn test_l3_12_single_row_upsert() {
         .build_batch_upsert_with_params(&rows, &["id"], &[])
         .unwrap();
 
-    assert!(sql.to_uppercase().contains("ON DUPLICATE KEY UPDATE"), "应包含 upsert 子句: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("ON DUPLICATE KEY UPDATE"),
+        "应包含 upsert 子句: {}",
+        sql
+    );
     assert_eq!(params.len(), 4, "单行应有 4 个参数: {:?}", params);
 }
 
@@ -405,9 +457,17 @@ fn test_l3_16_mysql_no_conflict_columns_ok() {
     let rows = vec![make_row(1, "Alice", 30, "alice@t.com")];
     let result = builder.build_batch_upsert_with_params(&rows, &[], &[]);
 
-    assert!(result.is_ok(), "MySQL 无冲突列应成功（自动检测唯一键）: {:?}", result);
+    assert!(
+        result.is_ok(),
+        "MySQL 无冲突列应成功（自动检测唯一键）: {:?}",
+        result
+    );
     let (sql, _) = result.unwrap();
-    assert!(sql.to_uppercase().contains("ON DUPLICATE KEY UPDATE"), "应包含 upsert: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("ON DUPLICATE KEY UPDATE"),
+        "应包含 upsert: {}",
+        sql
+    );
 }
 
 // ===== L3-17：NULL 值处理 =====
@@ -425,7 +485,12 @@ fn test_l3_17_null_value_handling() {
 
     // Value::Null 应通过 ? 占位符参数化（与 SeaORM/Diesel 一致，不 inline NULL）
     // 4 个参数（id, name=Null, age, email）
-    assert_eq!(params.len(), 4, "应有 4 个参数（Null 也占参数）: {:?}", params);
+    assert_eq!(
+        params.len(),
+        4,
+        "应有 4 个参数（Null 也占参数）: {:?}",
+        params
+    );
     let placeholder_count = sql.matches('?').count();
     assert_eq!(placeholder_count, 4, "应有 4 个 ? 占位符: {}", sql);
 }
@@ -441,7 +506,11 @@ fn test_l3_18_unicode_values() {
         .unwrap();
 
     // 中文值应通过参数绑定，不直接拼接到 SQL
-    assert!(!sql.contains("张三"), "中文值不应出现在 SQL 中（应参数化）: {}", sql);
+    assert!(
+        !sql.contains("张三"),
+        "中文值不应出现在 SQL 中（应参数化）: {}",
+        sql
+    );
     assert_eq!(params.len(), 4, "应有 4 个参数: {:?}", params);
 }
 
@@ -469,11 +538,7 @@ fn test_l3_19_sql_injection_prevention() {
         "SQL 注入字符串不应出现在 SQL 中: {}",
         sql
     );
-    assert!(
-        !sql.contains("--"),
-        "SQL 注释不应出现在 SQL 中: {}",
-        sql
-    );
+    assert!(!sql.contains("--"), "SQL 注释不应出现在 SQL 中: {}", sql);
     // 注入字符串应作为参数值安全传递
     assert_eq!(params.len(), 4, "应有 4 个参数: {:?}", params);
 }
@@ -484,7 +549,14 @@ fn test_l3_19_sql_injection_prevention() {
 fn test_l3_20_large_batch_100_rows() {
     let builder = make_builder(DbType::PostgreSQL);
     let rows: Vec<HashMap<String, Value>> = (1..=100)
-        .map(|i| make_row(i, &format!("user{}", i), (i % 80) as i32, &format!("u{}@t.com", i)))
+        .map(|i| {
+            make_row(
+                i,
+                &format!("user{}", i),
+                (i % 80) as i32,
+                &format!("u{}@t.com", i),
+            )
+        })
         .collect();
 
     let (sql, params) = builder
@@ -492,10 +564,23 @@ fn test_l3_20_large_batch_100_rows() {
         .unwrap();
 
     // 100 行 × 4 列 = 400 个参数
-    assert_eq!(params.len(), 400, "100 行应有 400 个参数: {:?}", params.len());
+    assert_eq!(
+        params.len(),
+        400,
+        "100 行应有 400 个参数: {:?}",
+        params.len()
+    );
     // SQL 应有 400 个 ? 占位符
     let placeholder_count = sql.matches('?').count();
-    assert_eq!(placeholder_count, 400, "应有 400 个 ? 占位符: {}", placeholder_count);
+    assert_eq!(
+        placeholder_count, 400,
+        "应有 400 个 ? 占位符: {}",
+        placeholder_count
+    );
     // 应包含 ON CONFLICT
-    assert!(sql.to_uppercase().contains("ON CONFLICT"), "应包含 ON CONFLICT: {}", sql);
+    assert!(
+        sql.to_uppercase().contains("ON CONFLICT"),
+        "应包含 ON CONFLICT: {}",
+        sql
+    );
 }

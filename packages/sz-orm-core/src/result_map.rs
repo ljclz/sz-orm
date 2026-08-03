@@ -708,12 +708,12 @@ pub fn apply_result_map_many(
     // 合并 collection 聚合结果到主属性
     let mut result = Vec::new();
     for key in ordered_keys {
-        let mut attrs = groups.remove(&key).ok_or_else(|| {
-            ResultMapError::NestedMappingFailed {
+        let mut attrs = groups
+            .remove(&key)
+            .ok_or_else(|| ResultMapError::NestedMappingFailed {
                 property: "groups".to_string(),
                 reason: format!("key '{}' not found in groups", key),
-            }
-        })?;
+            })?;
         if let Some(coll_acc) = collection_acc.remove(&key) {
             for (prop, items) in coll_acc {
                 attrs.insert(prop, Value::Array(items));

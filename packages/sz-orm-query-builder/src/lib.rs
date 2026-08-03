@@ -3066,9 +3066,15 @@ mod tests {
             .build(DbType::MySQL);
         assert!(!sql_str.is_empty(), "SELECT SQL 不应为空");
         assert!(sql_str.contains("age > 18"), "SELECT 应包含 age > 18 条件");
-        assert!(sql_str.contains("name = 'Alice;Bob'"), "SELECT 应包含 name 条件（含分号字面量）");
+        assert!(
+            sql_str.contains("name = 'Alice;Bob'"),
+            "SELECT 应包含 name 条件（含分号字面量）"
+        );
         assert!(sql_str.contains("id IN (1, 2, 3)"), "SELECT 应包含 IN 子句");
-        assert!(sql_str.contains("created_at > '2026-01-01'"), "SELECT 应包含日期条件");
+        assert!(
+            sql_str.contains("created_at > '2026-01-01'"),
+            "SELECT 应包含日期条件"
+        );
 
         let sql_str = Query::update()
             .table("users")

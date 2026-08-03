@@ -7,8 +7,8 @@
 //!
 //! 本模块提供流程状态管理，不包含 HTTP 传输层实现。
 
-use std::collections::HashMap;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use crate::error::AuthError;

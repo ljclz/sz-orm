@@ -77,11 +77,7 @@ fn test_l3_3_indirect_cycle() {
     assert!(result.is_err(), "间接循环应被检测到");
 
     let cycle = result.unwrap_err();
-    assert!(
-        cycle.len() >= 3,
-        "间接循环路径应至少 3 个节点: {:?}",
-        cycle
-    );
+    assert!(cycle.len() >= 3, "间接循环路径应至少 3 个节点: {:?}", cycle);
     // 循环路径的起点取决于 DFS 遍历顺序（字典序），
     // 但循环必须包含 user、posts、comments 三个节点
     assert!(
@@ -163,11 +159,7 @@ fn test_l3_6_cycle_path_in_error() {
         cycle
     );
     // 循环路径应至少 2 个节点（user → posts → user）
-    assert!(
-        cycle.len() >= 2,
-        "循环路径应至少 2 个节点: {:?}",
-        cycle
-    );
+    assert!(cycle.len() >= 2, "循环路径应至少 2 个节点: {:?}", cycle);
 }
 
 // ===== L3-7：重复边检测 =====
@@ -312,11 +304,7 @@ fn test_l3_14_deep_nested_cycle() {
     assert!(result.is_err(), "4 层嵌套循环应被检测到");
 
     let cycle = result.unwrap_err();
-    assert!(
-        cycle.len() >= 4,
-        "4 层循环路径应至少 4 个节点: {:?}",
-        cycle
-    );
+    assert!(cycle.len() >= 4, "4 层循环路径应至少 4 个节点: {:?}", cycle);
 }
 
 // ===== L3-15：子图独立循环检测 =====
@@ -349,9 +337,12 @@ fn test_l3_15_subgraph_cycle() {
 #[test]
 fn test_l3_16_with_relation_duplicate_eager() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let loader = WithRelation::new(&*dialect, "users").unwrap()
-        .with_has_many("orders", "user_id", "id").unwrap()
-        .with_has_many("orders", "user_id", "id").unwrap(); // 重复关联名
+    let loader = WithRelation::new(&*dialect, "users")
+        .unwrap()
+        .with_has_many("orders", "user_id", "id")
+        .unwrap()
+        .with_has_many("orders", "user_id", "id")
+        .unwrap(); // 重复关联名
 
     let result = loader.load_eager(Some("users.id > 0"));
     assert!(result.is_err(), "重复关联应返回 Err");
@@ -372,9 +363,12 @@ fn test_l3_16_with_relation_duplicate_eager() {
 #[test]
 fn test_l3_17_with_relation_duplicate_join() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let loader = WithRelation::new(&*dialect, "users").unwrap()
-        .with_has_one("profiles", "user_id", "id").unwrap()
-        .with_has_one("profiles", "user_id", "id").unwrap(); // 重复关联名
+    let loader = WithRelation::new(&*dialect, "users")
+        .unwrap()
+        .with_has_one("profiles", "user_id", "id")
+        .unwrap()
+        .with_has_one("profiles", "user_id", "id")
+        .unwrap(); // 重复关联名
 
     let result = loader.load_join(Some("users.id > 0"));
     assert!(result.is_err(), "重复关联应返回 Err");
@@ -395,9 +389,12 @@ fn test_l3_17_with_relation_duplicate_join() {
 #[test]
 fn test_l3_18_with_relation_different_names_ok() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let loader = WithRelation::new(&*dialect, "users").unwrap()
-        .with_has_many("orders", "user_id", "id").unwrap()
-        .with_has_one("profiles", "user_id", "id").unwrap();
+    let loader = WithRelation::new(&*dialect, "users")
+        .unwrap()
+        .with_has_many("orders", "user_id", "id")
+        .unwrap()
+        .with_has_one("profiles", "user_id", "id")
+        .unwrap();
 
     // 不同关联名应成功
     let loaded = loader.load_eager(Some("users.id > 0"));
@@ -411,9 +408,12 @@ fn test_l3_18_with_relation_different_names_ok() {
 #[test]
 fn test_l3_19_with_relation_same_name_different_type() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let loader = WithRelation::new(&*dialect, "users").unwrap()
-        .with_has_many("orders", "user_id", "id").unwrap()
-        .with_belongs_to("orders", "order_id", "id").unwrap(); // 同名 "orders"，不同类型
+    let loader = WithRelation::new(&*dialect, "users")
+        .unwrap()
+        .with_has_many("orders", "user_id", "id")
+        .unwrap()
+        .with_belongs_to("orders", "order_id", "id")
+        .unwrap(); // 同名 "orders"，不同类型
 
     let result = loader.load_eager(None);
     assert!(result.is_err(), "同名不同类型应返回 Err");

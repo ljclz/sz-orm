@@ -115,7 +115,9 @@ fn catalog() -> &'static RwLock<MessageCatalog> {
 ///
 /// 覆盖现有目录。通常在应用启动时调用一次。
 pub fn set_catalog(new_catalog: MessageCatalog) {
-    let mut guard = catalog().write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = catalog()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     *guard = new_catalog;
 }
 
@@ -123,7 +125,9 @@ pub fn set_catalog(new_catalog: MessageCatalog) {
 ///
 /// 向现有目录添加或覆盖单条翻译。
 pub fn register(key: MessageKey, msg: impl Into<String>) {
-    let mut guard = catalog().write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = catalog()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.insert(key, msg.into());
 }
 
@@ -131,7 +135,9 @@ pub fn register(key: MessageKey, msg: impl Into<String>) {
 ///
 /// 恢复默认中文消息。
 pub fn clear() {
-    let mut guard = catalog().write().unwrap_or_else(|poisoned| poisoned.into_inner());
+    let mut guard = catalog()
+        .write()
+        .unwrap_or_else(|poisoned| poisoned.into_inner());
     guard.clear();
 }
 

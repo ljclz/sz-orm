@@ -11,11 +11,11 @@
 //! - [`Interceptor`] / [`InterceptorRequest`] — 请求拦截器机制
 //! - [`RetryPolicy`] / [`TimeoutPolicy`] — 超时与重试策略
 
+use parking_lot::{Mutex, RwLock};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::{Arc, OnceLock};
-use parking_lot::{Mutex, RwLock};
 use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -1302,11 +1302,7 @@ mod tests {
         // 验证请求字段未被拦截器修改
         assert_eq!(req.method, "GetUser", "method 不应被修改");
         assert_eq!(req.service_name, "UserService", "service_name 不应被修改");
-        assert_eq!(
-            req.metadata.len(),
-            1,
-            "metadata 数量不应被修改"
-        );
+        assert_eq!(req.metadata.len(), 1, "metadata 数量不应被修改");
         assert_eq!(
             req.metadata.get("trace-id"),
             Some(&"abc-123".to_string()),

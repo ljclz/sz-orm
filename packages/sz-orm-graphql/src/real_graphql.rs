@@ -117,38 +117,42 @@ fn resolver_root_field(
     let type_name = field.type_name.clone();
     let resolver = resolver;
 
-    let mut root = Field::new(field.name.clone(), type_ref, move |ctx: ResolverContext<'_>| {
-        // 从 GraphQL 执行上下文提取参数
-        let mut args = serde_json::Map::new();
-        for (key, val) in ctx.args.iter() {
-            if let Ok(json_v) = val.as_value().clone().into_json() {
-                args.insert(key.to_string(), json_v);
-            }
-        }
-        let resolver_ctx = crate::resolver::ResolverContext {
-            field_name: field_name.clone(),
-            type_name: type_name.clone(),
-            is_list,
-            args: serde_json::Value::Object(args),
-        };
-        let resolver = resolver.clone();
-        FieldFuture::new(async move {
-            match resolver.resolve_query(&resolver_ctx).await {
-                Ok(value) => {
-                    let gql_value = Value::from_json(value).unwrap_or(Value::Null);
-                    Ok(Some(gql_value))
-                }
-                Err(msg) => {
-                    tracing::error!(
-                        field = %resolver_ctx.field_name,
-                        error = %msg,
-                        "DB resolver failed"
-                    );
-                    Ok(Some(Value::Null))
+    let mut root = Field::new(
+        field.name.clone(),
+        type_ref,
+        move |ctx: ResolverContext<'_>| {
+            // 从 GraphQL 执行上下文提取参数
+            let mut args = serde_json::Map::new();
+            for (key, val) in ctx.args.iter() {
+                if let Ok(json_v) = val.as_value().clone().into_json() {
+                    args.insert(key.to_string(), json_v);
                 }
             }
-        })
-    });
+            let resolver_ctx = crate::resolver::ResolverContext {
+                field_name: field_name.clone(),
+                type_name: type_name.clone(),
+                is_list,
+                args: serde_json::Value::Object(args),
+            };
+            let resolver = resolver.clone();
+            FieldFuture::new(async move {
+                match resolver.resolve_query(&resolver_ctx).await {
+                    Ok(value) => {
+                        let gql_value = Value::from_json(value).unwrap_or(Value::Null);
+                        Ok(Some(gql_value))
+                    }
+                    Err(msg) => {
+                        tracing::error!(
+                            field = %resolver_ctx.field_name,
+                            error = %msg,
+                            "DB resolver failed"
+                        );
+                        Ok(Some(Value::Null))
+                    }
+                }
+            })
+        },
+    );
 
     if !is_list {
         root = root.argument(InputValue::new("id", TypeRef::named(TypeRef::ID)));

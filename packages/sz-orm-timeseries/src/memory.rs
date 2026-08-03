@@ -5,8 +5,8 @@ use crate::timeseries::TimeseriesExt;
 use crate::types::{Aggregation, DownsampleConfig, Metric, TimeBucket};
 use async_trait::async_trait;
 use chrono::{DateTime, Utc};
-use std::collections::HashMap;
 use parking_lot::Mutex;
+use std::collections::HashMap;
 
 /// 内存 TimescaleDB 实现
 pub struct MemoryTimeseries {
@@ -71,10 +71,7 @@ impl TimeseriesExt for MemoryTimeseries {
             .lock()
             .push((table.to_string(), time_column.to_string()));
         // 确保 storage 中有该 metric 的 entry
-        self.storage
-            .lock()
-            .entry(table.to_string())
-            .or_default();
+        self.storage.lock().entry(table.to_string()).or_default();
         Ok(())
     }
 

@@ -4,8 +4,8 @@ use crate::error::SearchError;
 use crate::search::SearchExt;
 use crate::types::{SearchQuery, SearchResult};
 use async_trait::async_trait;
-use serde_json::Value;
 use parking_lot::Mutex;
+use serde_json::Value;
 
 /// Stub Search 实现
 pub struct StubSearch {

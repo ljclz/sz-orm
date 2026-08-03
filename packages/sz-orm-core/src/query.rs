@@ -1588,14 +1588,12 @@ impl<M: Model> QueryBuilder<M> {
         for row in rows {
             let placeholders: Vec<String> = columns
                 .iter()
-                .map(|col| {
-                    match row.get(col) {
-                        Some(v) => {
-                            params.push(v.clone());
-                            "?".to_string()
-                        }
-                        None => "NULL".to_string(),
+                .map(|col| match row.get(col) {
+                    Some(v) => {
+                        params.push(v.clone());
+                        "?".to_string()
                     }
+                    None => "NULL".to_string(),
                 })
                 .collect();
             value_groups.push(format!("({})", placeholders.join(", ")));
@@ -2003,7 +2001,7 @@ mod tests {
             .build_select();
         assert!(sql.contains("SELECT id, name FROM"));
         assert!(sql.contains("`users`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2020,7 +2018,7 @@ mod tests {
         assert!(sql.contains("WHERE"));
         assert!(sql.contains("status = 'active'"));
         assert!(sql.contains("age > 18"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2037,7 +2035,7 @@ mod tests {
         assert!(sql.contains("ORDER BY"));
         assert!(sql.contains("`created_at` ASC"));
         assert!(sql.contains("`id` DESC"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2049,7 +2047,7 @@ mod tests {
 
         assert!(sql.contains("LIMIT 10"));
         assert!(sql.contains("OFFSET 20"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2061,7 +2059,7 @@ mod tests {
 
         assert!(sql.contains("LIMIT 20"));
         assert!(sql.contains("OFFSET 40"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2078,7 +2076,7 @@ mod tests {
         assert!(sql.contains("INSERT INTO"));
         assert!(sql.contains("`name`"));
         assert!(sql.contains("'test'"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2097,7 +2095,7 @@ mod tests {
         assert!(sql.contains("UPDATE"));
         assert!(sql.contains("`name` = 'updated'"));
         assert!(sql.contains("WHERE"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2109,7 +2107,7 @@ mod tests {
 
         assert!(sql.contains("DELETE FROM"));
         assert!(sql.contains("WHERE"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2121,7 +2119,7 @@ mod tests {
 
         assert!(sql.contains("SELECT COUNT(*)"));
         assert!(sql.contains("FROM"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2135,7 +2133,7 @@ mod tests {
             .build_select();
 
         assert!(sql.contains("IN ("));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2149,7 +2147,7 @@ mod tests {
             .build_select();
 
         assert!(sql.contains("BETWEEN"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2163,7 +2161,7 @@ mod tests {
             .build_select();
 
         assert!(sql.contains("IS NULL"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2178,7 +2176,7 @@ mod tests {
 
         assert!(sql.contains("INNER JOIN"));
         assert!(sql.contains("`posts`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2190,7 +2188,7 @@ mod tests {
 
         assert!(sql.contains("GROUP BY"));
         assert!(sql.contains("`status`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2202,7 +2200,7 @@ mod tests {
 
         assert!(sql.contains("MAX("));
         assert!(sql.contains("`score`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2214,7 +2212,7 @@ mod tests {
 
         assert!(sql.contains("MIN("));
         assert!(sql.contains("`price`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2226,7 +2224,7 @@ mod tests {
 
         assert!(sql.contains("SUM("));
         assert!(sql.contains("`amount`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2238,7 +2236,7 @@ mod tests {
 
         assert!(sql.contains("AVG("));
         assert!(sql.contains("`value`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2248,7 +2246,7 @@ mod tests {
 
         let result = builder.table("users").select(vec!["id", "name"]).validate();
         assert!(result.is_ok());
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2261,7 +2259,7 @@ mod tests {
             .join_inner("posts", "users.id", "posts.user_id")
             .validate();
         assert!(result.is_ok());
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2274,7 +2272,7 @@ mod tests {
 
         let result = builder.table("users").validate_insert(&data);
         assert!(result.is_ok());
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2285,7 +2283,7 @@ mod tests {
         let data = std::collections::HashMap::new();
         let result = builder.table("users").validate_insert(&data);
         assert!(result.is_err());
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2298,7 +2296,7 @@ mod tests {
 
         let result = builder.table("users").validate_update(&data);
         assert!(result.is_ok());
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2309,7 +2307,7 @@ mod tests {
         let data = std::collections::HashMap::new();
         let result = builder.table("users").validate_update(&data);
         assert!(result.is_err());
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2322,7 +2320,7 @@ mod tests {
             .where_cond("id = 1")
             .validate_delete();
         assert!(result.is_ok());
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2333,7 +2331,7 @@ mod tests {
         // DELETE without WHERE still produces valid SQL (just no filter)
         let result = builder.table("users").validate_delete();
         assert!(result.is_ok());
-            Ok(())
+        Ok(())
     }
 
     // ==================== M-3 select_quoted 测试 ====================
@@ -2342,15 +2340,12 @@ mod tests {
     fn test_m3_select_quoted_valid_columns() -> Result<(), crate::DbError> {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
-        let builder = builder
-            .table("users")
-            .select_quoted(vec!["id", "name"])
-            ?;
+        let builder = builder.table("users").select_quoted(vec!["id", "name"])?;
         let sql = builder.build_select();
         // 应自动 quote 列名
         assert!(sql.contains("SELECT `id`, `name` FROM"));
         assert!(sql.contains("`users`"));
-            Ok(())
+        Ok(())
     }
 
     #[test]
@@ -2381,22 +2376,19 @@ mod tests {
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let result = builder.table("users").select_quoted(vec!["col name"]);
         assert!(result.is_err());
-            Ok(())
+        Ok(())
     }
 
     #[test]
     fn test_m3_select_quoted_postgresql_dialect() -> Result<(), crate::DbError> {
         let dialect = get_dialect(DbType::PostgreSQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
-        let builder = builder
-            .table("users")
-            .select_quoted(vec!["id", "name"])
-            ?;
+        let builder = builder.table("users").select_quoted(vec!["id", "name"])?;
         let sql = builder.build_select();
         // PostgreSQL 使用双引号
         assert!(sql.contains("SELECT \"id\", \"name\" FROM"));
         assert!(sql.contains("\"users\""));
-            Ok(())
+        Ok(())
     }
 
     // ==================== P0-1 软删除集成行为测试 ====================
@@ -2435,7 +2427,7 @@ mod tests {
             "软删除模型 SELECT 必须自动追加 `deleted_at` IS NULL，实际: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-2：软删除模型 + 用户 WHERE 条件，软删除条件以 AND 追加
@@ -2453,7 +2445,7 @@ mod tests {
             "软删除条件应自动追加: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-3：without_soft_delete() 临时禁用软删除过滤
@@ -2478,7 +2470,7 @@ mod tests {
             "无用户条件 + 禁用软删除应无 WHERE 子句: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-4：软删除模型 build_delete 自动转为 UPDATE
@@ -2513,7 +2505,7 @@ mod tests {
             "软删除 UPDATE 应追加 deleted_at IS NULL 防止重复删除: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-5：build_force_delete 物理删除，不追加软删除过滤
@@ -2538,7 +2530,7 @@ mod tests {
             "物理删除不应追加软删除过滤: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-6：build_select_with_params 自动追加软删除条件（参数化版本）
@@ -2556,7 +2548,7 @@ mod tests {
         );
         assert_eq!(params.len(), 1, "参数应为 1 个（用户 where_eq 的值）");
         assert_eq!(params[0], Value::I64(1));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-7：build_delete_with_params 自动转为 UPDATE
@@ -2568,9 +2560,13 @@ mod tests {
             .where_eq("id", Value::I64(7))
             .build_delete_with_params();
         assert!(sql.starts_with("UPDATE"), "应生成 UPDATE: {}", sql);
-        assert!(sql.contains("`deleted_at` = NOW()"), "应设置 NOW(): {}", sql);
+        assert!(
+            sql.contains("`deleted_at` = NOW()"),
+            "应设置 NOW(): {}",
+            sql
+        );
         assert_eq!(params.len(), 1, "参数应为 1 个（WHERE 的值）");
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-8：build_force_delete_with_params 物理删除（参数化版本）
@@ -2588,7 +2584,7 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 1);
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-9：非软删除模型 TestModel 不追加软删除条件
@@ -2617,7 +2613,7 @@ mod tests {
             "非软删除模型 build_delete 应生成 DELETE: {}",
             del_sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-10：build_count 也应自动追加软删除条件
@@ -2632,7 +2628,7 @@ mod tests {
             "build_count 也应追加软删除过滤: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     // ==================== P0-2 参数化查询注入防护测试 ====================
@@ -2648,19 +2644,11 @@ mod tests {
             .where_eq("name", Value::String("alice".into()))
             .build_select_with_params();
         // SQL 中应含 `?` 占位符，不应内嵌值
-        assert!(
-            sql.contains("`name` = ?"),
-            "应使用 ? 占位符: {}",
-            sql
-        );
-        assert!(
-            !sql.contains("'alice'"),
-            "不应内嵌值到 SQL: {}",
-            sql
-        );
+        assert!(sql.contains("`name` = ?"), "应使用 ? 占位符: {}", sql);
+        assert!(!sql.contains("'alice'"), "不应内嵌值到 SQL: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::String("alice".into()));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-12：where_like 使用 `?` 占位符
@@ -2674,7 +2662,7 @@ mod tests {
         assert!(sql.contains("`name` LIKE ?"), "应使用 LIKE ?: {}", sql);
         assert!(!sql.contains("%alice%"), "不应内嵌 pattern: {}", sql);
         assert_eq!(params.len(), 1);
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-12a：where_ne 使用 `?` 占位符
@@ -2687,15 +2675,11 @@ mod tests {
             .table("users")
             .where_ne("status", Value::I64(0))
             .build_select_with_params();
-        assert!(
-            sql.contains("`status` != ?"),
-            "应使用 != ?: {}",
-            sql
-        );
+        assert!(sql.contains("`status` != ?"), "应使用 != ?: {}", sql);
         assert!(!sql.contains("!= 0"), "不应内嵌值: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::I64(0));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-12b：where_ge 使用 `?` 占位符
@@ -2708,15 +2692,11 @@ mod tests {
             .table("users")
             .where_ge("age", Value::I64(18))
             .build_select_with_params();
-        assert!(
-            sql.contains("`age` >= ?"),
-            "应使用 >= ?: {}",
-            sql
-        );
+        assert!(sql.contains("`age` >= ?"), "应使用 >= ?: {}", sql);
         assert!(!sql.contains(">= 18"), "不应内嵌值: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::I64(18));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-12c：where_lt 使用 `?` 占位符
@@ -2729,15 +2709,11 @@ mod tests {
             .table("users")
             .where_lt("score", Value::F64(60.0))
             .build_select_with_params();
-        assert!(
-            sql.contains("`score` < ?"),
-            "应使用 < ?: {}",
-            sql
-        );
+        assert!(sql.contains("`score` < ?"), "应使用 < ?: {}", sql);
         assert!(!sql.contains("< 60"), "不应内嵌值: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::F64(60.0));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-13：注入攻击防护 - 值含 SQL 关键字也不会被解释执行
@@ -2752,17 +2728,13 @@ mod tests {
             .where_eq("name", Value::String(evil_input.clone()))
             .build_select_with_params();
         // SQL 中不应出现 DROP TABLE
-        assert!(
-            !sql.contains("DROP TABLE"),
-            "SQL 注入未防护: {}",
-            sql
-        );
+        assert!(!sql.contains("DROP TABLE"), "SQL 注入未防护: {}", sql);
         // 整个恶意字符串应作为单一参数传递
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::String(evil_input));
         // SQL 中只有 1 个 `?`
         assert_eq!(sql.matches('?').count(), 1);
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-14：注入攻击防护 - OR 1=1 经典攻击
@@ -2774,14 +2746,10 @@ mod tests {
             .table("users")
             .where_eq("name", Value::String(evil.clone()))
             .build_select_with_params();
-        assert!(
-            !sql.contains("OR '1'='1'"),
-            "OR 1=1 注入未防护: {}",
-            sql
-        );
+        assert!(!sql.contains("OR '1'='1'"), "OR 1=1 注入未防护: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::String(evil));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-15：多参数顺序正确（WHERE a = ? AND b = ?）
@@ -2794,18 +2762,13 @@ mod tests {
             .where_gt("age", Value::I64(18))
             .where_le("score", Value::F64(99.5))
             .build_select_with_params();
-        assert_eq!(
-            sql.matches('?').count(),
-            3,
-            "应有 3 个占位符: {}",
-            sql
-        );
+        assert_eq!(sql.matches('?').count(), 3, "应有 3 个占位符: {}", sql);
         assert_eq!(params.len(), 3);
         // 参数顺序应与 WHERE 子句出现顺序一致
         assert_eq!(params[0], Value::String("alice".into()));
         assert_eq!(params[1], Value::I64(18));
         assert_eq!(params[2], Value::F64(99.5));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-16：where_in 参数化
@@ -2822,7 +2785,7 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 3);
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-17：where_between 参数化
@@ -2841,7 +2804,7 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(18));
         assert_eq!(params[1], Value::I64(65));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-18：UPDATE 参数化版本 - SET 参数在前，WHERE 参数在后
@@ -2861,7 +2824,7 @@ mod tests {
         // 前 2 个为 SET 参数，最后 1 个为 WHERE 参数
         // 注意：HashMap 迭代顺序未指定，仅校验 WHERE 参数在最后
         assert_eq!(params[2], Value::I64(99));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-19：build_where_clause（无参数版本）参数化条件内嵌值
@@ -2886,7 +2849,7 @@ mod tests {
             "无参数版本不应使用 ? 占位符: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-20：is_soft_delete_disabled 反映状态
@@ -2894,17 +2857,14 @@ mod tests {
     fn test_p01_is_soft_delete_disabled_flag() -> Result<(), crate::DbError> {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<SoftDeleteModel>::new(dialect);
-        assert!(
-            !builder.is_soft_delete_disabled(),
-            "默认应启用软删除过滤"
-        );
-        let builder = QueryBuilder::<SoftDeleteModel>::new(get_dialect(DbType::MySQL)?)
-            .without_soft_delete();
+        assert!(!builder.is_soft_delete_disabled(), "默认应启用软删除过滤");
+        let builder =
+            QueryBuilder::<SoftDeleteModel>::new(get_dialect(DbType::MySQL)?).without_soft_delete();
         assert!(
             builder.is_soft_delete_disabled(),
             "without_soft_delete 后应反映禁用状态"
         );
-            Ok(())
+        Ok(())
     }
 
     // ==================== P0-3 多租户自动过滤行为测试 ====================
@@ -2970,7 +2930,7 @@ mod tests {
         );
         assert_eq!(params.len(), 1, "应有 1 个参数（tenant_id 值）");
         assert_eq!(params[0], Value::I64(42));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-22：多租户模型 + 用户 WHERE 条件 + 租户条件
@@ -2992,7 +2952,7 @@ mod tests {
         // 第 1 个为用户 where_eq 的值，第 2 个为 tenant_id
         assert_eq!(params[0], Value::String("active".into()));
         assert_eq!(params[1], Value::I64(7));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-23：without_tenant() 临时禁用租户过滤
@@ -3012,7 +2972,7 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 0, "不应有租户参数");
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-24：多租户模型 build_delete 自动追加租户条件
@@ -3035,7 +2995,7 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(1));
         assert_eq!(params[1], Value::I64(99));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-25：多租户模型 build_update 自动追加租户条件
@@ -3058,7 +3018,7 @@ mod tests {
         assert_eq!(params.len(), 3);
         // 最后一个应为 tenant_id
         assert_eq!(params[2], Value::I64(5));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-26：多租户模型 build_count 自动追加租户条件
@@ -3074,7 +3034,7 @@ mod tests {
             "build_count 应追加租户条件（无参数版本内嵌值）: {}",
             sql
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-27：非多租户模型 TestModel 不追加租户条件
@@ -3094,7 +3054,7 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 0);
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-28：多租户模型未设置 tenant_id 时不追加条件
@@ -3112,7 +3072,7 @@ mod tests {
             sql
         );
         assert_eq!(params.len(), 0);
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-29：软删除 + 多租户组合，两个条件同时追加
@@ -3133,22 +3093,14 @@ mod tests {
             sql
         );
         // 租户条件
-        assert!(
-            sql.contains("`tenant_id` = ?"),
-            "应追加租户条件: {}",
-            sql
-        );
+        assert!(sql.contains("`tenant_id` = ?"), "应追加租户条件: {}", sql);
         // 用户条件
-        assert!(
-            sql.contains("`title` = ?"),
-            "用户条件应保留: {}",
-            sql
-        );
+        assert!(sql.contains("`title` = ?"), "用户条件应保留: {}", sql);
         // 2 个参数：where_eq(title) + tenant_id（软删除 IS NULL 无参数）
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::String("report".into()));
         assert_eq!(params[1], Value::I64(100));
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-30：without_tenant + without_soft_delete 同时禁用
@@ -3166,13 +3118,9 @@ mod tests {
             "应禁用软删除: {}",
             sql
         );
-        assert!(
-            !sql.contains("`tenant_id` = ?"),
-            "应禁用租户: {}",
-            sql
-        );
+        assert!(!sql.contains("`tenant_id` = ?"), "应禁用租户: {}", sql);
         assert_eq!(params.len(), 0);
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-31：is_tenant_disabled 反映状态
@@ -3180,10 +3128,7 @@ mod tests {
     fn test_p03_is_tenant_disabled_flag() -> Result<(), crate::DbError> {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TenantModel>::new(dialect);
-        assert!(
-            !builder.is_tenant_disabled(),
-            "默认应启用租户过滤"
-        );
+        assert!(!builder.is_tenant_disabled(), "默认应启用租户过滤");
         let builder = QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL)?)
             .with_tenant_id(1)
             .without_tenant();
@@ -3191,7 +3136,7 @@ mod tests {
             builder.is_tenant_disabled(),
             "without_tenant 后应反映禁用状态"
         );
-            Ok(())
+        Ok(())
     }
 
     /// 行为级测试 L3-32：build_force_delete 保留租户条件（防止跨租户物理删除）
@@ -3215,6 +3160,6 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(999));
         assert_eq!(params[1], Value::I64(42));
-            Ok(())
+        Ok(())
     }
 }
