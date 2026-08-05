@@ -11,7 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = []
+# 默认启用 Redis 分布式缓存后端（RedisBackend），开箱即用
+default = ["redis"]
 testing = ["tokio/full"]
 # 启用 query! 宏的编译期连真实 DB 验证能力（转发至 sz-orm-macros/db-verify）
 db-verify = ["sz-orm-macros/db-verify"]

@@ -79,6 +79,13 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 - **`DbType::DuckDB`**：新增枚举变体，`as_str()` / `from_str()` / `default_port()` 均已支持
 - 10 个单元测试覆盖建表、改表、类型映射
 
+### Redis 分布式缓存后端默认启用
+
+- **`RedisBackend`**（Fix #39）：基于 redis 0.27 + `tokio-comp` + `connection-manager`（自动重连连接池）
+- 支持 `GET` / `SET EX` / `DEL` / `SCAN` + pipeline 批量删除（避免 `KEYS` 阻塞主线程）
+- **默认启用**：`redis` feature 已加入 `default`，`RedisBackend::new("redis://127.0.0.1:6379/0")` 开箱即用
+- 新增 1 个单元测试（无效 URL 错误路径）+ 4 个真实集成测试（`--ignored`，需本地 Redis 服务）
+
 ### crates.io 发布
 
 - sz-orm-sql-validator 1.4.0 ✅
@@ -297,7 +304,7 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 | SQL Server | `SqlServerDialect`（独立实现，TDS 协议） | sz-orm-mssql（基于 `tiberius` crate） | 1433 |
 | ClickHouse | `ClickHouseDialect`（独立实现，非 MySQL 兼容） | — | 8123 |
 | DuckDB | `DuckDBDialect`（独立实现，支持 INSERT OR IGNORE） | — | — |
-| Redis | NoSQL（无 SQL 方言） | — | 6379 |
+| Redis | NoSQL（无 SQL 方言，L2Cache 分布式缓存后端默认启用） | — | 6379 |
 | MongoDB | NoSQL | — | 27017 |
 | VectorDB | 向量数据库 | sz-orm-vector | 19530 |
 | PureJsDb | JS 引擎 DB | — | — |

@@ -2668,4 +2668,23 @@ mod tests {
             hit_rate * 100.0
         );
     }
+
+    // ===== RedisBackend 测试（Fix #39） =====
+
+    #[cfg(feature = "redis")]
+    #[tokio::test]
+    async fn test_redis_backend_invalid_url_returns_error() {
+        // 无效 URL：redis::Client::open 在连接前解析失败，快速返回错误
+        let result = RedisBackend::new("not-a-valid-redis-url").await;
+        let msg = match result {
+            Ok(_) => panic!("无效 URL 不应连接成功"),
+            Err(CacheError::Internal(m)) => m,
+            Err(other) => panic!("期望 CacheError::Internal，实际: {:?}", other),
+        };
+        assert!(
+            msg.contains("Redis client create failed"),
+            "错误消息应指明 client 创建失败: {}",
+            msg
+        );
+    }
 }
