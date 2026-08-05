@@ -5,6 +5,22 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [1.5.0] — 2026-08-05
+
+### Added
+
+- **连接池 Prometheus 统计指标 (sz-orm-core)**：`Pool::pool_metrics()` 返回 `PoolMetrics`（acquire_count / acquire_failed_count / acquire_wait_time / release_count / connection_created_count / connection_closed_count），基于无锁 `AtomicU64`，热路径开销可忽略；`average_acquire_wait_time()` 计算平均获取等待时长
+- **ClickHouse 行锁支持 (sz-orm-core)**：`supports_lock_for_update()` / `supports_lock_shared()` 显式返回 `false`（无事务无行锁）；`build_insert_or_ignore_prefix()` 回退普通 `INSERT INTO`
+- **SQL Server INSERT OR IGNORE 回退 (sz-orm-core)**：`build_insert_or_ignore_prefix()` 回退普通 `INSERT INTO`（SQL Server 无等价前缀语法，应用层可捕获 2601/2627 冲突或使用 MERGE）
+- **DuckDB 真实集成测试**：`integration_duckdb.rs` 7 个真实 DB 测试（duckdb bundled 特性）
+- **向量/时序真实实现集成测试**：sz-orm-vector 3 个 `#[ignore]` 真实 pgvector 测试；sz-orm-timeseries 5 个内存集成测试 + 2 个 `#[ignore]` 真实 TimescaleDB 测试
+- **Redis 后端默认启用 (sz-orm-core)**：`redis` feature 加入 `default`，`RedisBackend` 开箱即用
+
+### Changed
+
+- **crates.io**：sz-orm-core 发布 **1.5.0**（依赖 sz-orm-sql-validator 1.4.0 / sz-orm-macros 1.4.0）
+- **测试规模**：全 workspace 5,809 passed, 0 failed
+
 ## [1.0.0] — 2026-07-19
 
 ### Added
