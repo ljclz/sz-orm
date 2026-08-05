@@ -72,33 +72,6 @@ impl Db {
         self
     }
 
-    /// WHERE 条件（AND）— 字符串拼接，存在 SQL 注入风险
-    ///
-    /// **⚠️ 已废弃**：请使用 `where_eq` / `where_gt` 等参数化方法替代。
-    #[deprecated(
-        since = "1.3.0",
-        note = "P0-2: 字符串拼接存在 SQL 注入风险，请使用 where_eq/where_ne/where_gt/where_lt/where_like 等参数化方法"
-    )]
-    #[allow(deprecated)]
-    #[must_use]
-    pub fn where_cond(mut self, condition: impl Into<String>) -> Self {
-        self.qb = self.qb.where_cond(condition);
-        self
-    }
-
-    /// WHERE 条件（OR）— 字符串拼接，存在 SQL 注入风险
-    ///
-    /// **⚠️ 已废弃**：请使用 `or_where_eq` / `or_where_gt` 等参数化方法替代。
-    #[deprecated(
-        since = "1.3.0",
-        note = "P0-2: 字符串拼接存在 SQL 注入风险，请使用 or_where_eq/or_where_ne/or_where_gt 等参数化方法"
-    )]
-    #[allow(deprecated)]
-    #[must_use]
-    pub fn or_where(mut self, condition: impl Into<String>) -> Self {
-        self.qb = self.qb.or_where(condition);
-        self
-    }
 
     /// P0-2：参数化等值条件 `field = ?`（AND 关系）
     #[must_use]

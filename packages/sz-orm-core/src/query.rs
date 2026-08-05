@@ -356,48 +356,6 @@ impl<M: Model> QueryBuilder<M> {
         Ok(self)
     }
 
-    /// 添加原始字符串 WHERE 条件（AND 关系）。
-    ///
-    /// **⚠️ P0-2 安全警告（v1.3.0+）**：本方法直接拼接 `condition` 到 SQL，
-    /// **存在 SQL 注入风险**。仅在以下场景使用：
-    /// - 条件来自硬编码字符串（如 `where_cond("age > 18")`）
-    /// - 条件含复杂表达式（如 `where_cond("status = 'active' AND role = 'admin'")`）
-    ///
-    /// **禁止**将用户输入拼接到 `condition` 中。若值来自不可信来源，
-    /// 必须使用参数化方法：[`where_eq`](Self::where_eq) / [`where_ne`](Self::where_ne) /
-    /// [`where_gt`](Self::where_gt) / [`where_lt`](Self::where_lt) / [`where_like`](Self::where_like)。
-    ///
-    /// # 推荐迁移
-    ///
-    /// ```ignore
-    /// // ❌ 危险：字符串拼接
-    /// builder.where_cond(format!("name = '{}'", user_input));
-    ///
-    /// // ✅ 安全：参数化绑定
-    /// builder.where_eq("name", Value::String(user_input.to_string()));
-    /// ```
-    #[deprecated(
-        since = "1.3.0",
-        note = "P0-2: 字符串拼接存在 SQL 注入风险，请使用 where_eq/where_ne/where_gt/where_lt/where_like 等参数化方法"
-    )]
-    pub fn where_cond(mut self, condition: impl Into<String>) -> Self {
-        self.where_conditions
-            .push(WhereCondition::And(condition.into()));
-        self
-    }
-
-    /// 添加原始字符串 WHERE 条件（OR 关系）。
-    ///
-    /// **⚠️ P0-2 安全警告**：同 [`where_cond`](Self::where_cond)，存在注入风险。
-    #[deprecated(
-        since = "1.3.0",
-        note = "P0-2: 字符串拼接存在 SQL 注入风险，请使用参数化方法"
-    )]
-    pub fn or_where(mut self, condition: impl Into<String>) -> Self {
-        self.where_conditions
-            .push(WhereCondition::Or(condition.into()));
-        self
-    }
 
     /// P0-2：参数化等值条件 `field = ?`（AND 关系）。
     ///

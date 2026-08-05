@@ -86,7 +86,7 @@
 //! let sql = QueryBuilder::<User>::new(dialect)
 //!     .table("users")
 //!     .select(vec!["id", "name", "email"])
-//!     .where_cond("status = 'active'")
+//!     .where_eq("status", Value::String("active".to_string()))
 //!     .order_by("created_at")
 //!     .order_desc("id")
 //!     .limit(10)
@@ -109,12 +109,12 @@
 //!
 //! let update_sql = QueryBuilder::<User>::new(get_dialect(DbType::MySQL).unwrap())
 //!     .table("users")
-//!     .where_cond("id = 1")
+//!     .where_eq("id", Value::I64(1))
 //!     .build_update(&data);
 //!
 //! let delete_sql = QueryBuilder::<User>::new(get_dialect(DbType::MySQL).unwrap())
 //!     .table("users")
-//!     .where_cond("id = 1")
+//!     .where_eq("id", Value::I64(1))
 //!     .build_delete();
 //! ```
 //!
@@ -147,8 +147,8 @@
 //! QueryBuilder::<M>::new(dialect)
 //!     .table("users")
 //!     .select(vec!["id", "name"])
-//!     .where_cond("status = 'active'")    // AND
-//!     .or_where("role = 'admin'")         // OR
+//!     .where_eq("status", Value::String("active".to_string()))    // AND
+//!     .or_where_eq("role", Value::String("admin".to_string()))     // OR
 //!     .where_in("id", vec![Value::I64(1), Value::I64(2)])
 //!     .where_between("age", Value::I64(18), Value::I64(30))
 //!     .where_null("deleted_at")
