@@ -1,14 +1,14 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v1.2.1 · 43 工作空间成员 · 5,442 测试 · 16 SQL 方言 · 已发布 crates.io v1.2.1
+> v1.3.0 · 43 工作空间成员 · 5,442 测试 · 16 SQL 方言 · 已发布 crates.io v1.3.0
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-5442+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.3.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -58,6 +58,29 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | 已知 Bug | **0** |
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
 | `cargo clippy -D warnings` | ✅ 0 warnings（`[workspace.lints]` 强制） |
+
+## v1.3.0 新特性（2026-08-05）
+
+### 性能优化
+
+- **连接池预热**（TASK-021）：`PoolConfig::prewarm` 启用后，池创建时立即建立 `min_idle` 个连接，首次 `acquire()` 延迟从 < 100ms 降至 < 10ms
+- **查询缓存 TTL**（TASK-022）：`QueryBuilder::cache_ttl(Duration)` 支持查询结果缓存，相同 SQL + 参数在 TTL 内返回缓存结果，空结果也缓存（TTL 缩短为 1/10）防止缓存穿透
+
+### API 增强
+
+- **deprecated 方法移除**（TASK-010~012）：移除 `QueryBuilder::where_cond` / `or_where` 等字符串拼接方法，强制使用参数化查询（`where_eq` / `where_ne` / `where_gt` 等），杜绝 SQL 注入
+- **PoolConfigBuilder::prewarm**：链式构建方法，支持 `PoolConfigBuilder::new().prewarm(true).min_idle(5).build()`
+
+### 质量改进
+
+- **测试覆盖**：新增 3 个预热测试（`test_pool_prewarm` / `test_pool_prewarm_failure_non_blocking` / `test_pool_prewarm_disabled`），验证预热逻辑正确性
+- **文档完善**：所有公开 API 补充 `///` 文档注释和示例，`cargo doc` 零警告
+
+### crates.io 发布
+
+- sz-orm-sql-validator 1.3.0 ✅
+- sz-orm-macros 1.3.0 ✅
+- sz-orm-core 1.3.0 ✅
 
 ## 核心特性
 

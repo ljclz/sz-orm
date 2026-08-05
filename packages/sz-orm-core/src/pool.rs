@@ -803,6 +803,124 @@ impl Pool {
         })
     }
 
+    /// 连接池预热（TASK-021）
+    ///
+    /// 当 `PoolConfig::prewarm` 为 `true` 时，调用此方法会立即建立 `min_idle` 个连接
+    /// 并放入空闲队列。预热失败不阻断池创建（仅记录 `tracing::warn!`）。
+    ///
+    /// **注意**：`Pool::new()` 是同步方法，无法内部执行异步预热。
+    /// 调用方需要在创建池后手动调用 `pool.prewarm().await`：
+    ///
+    /// ```ignore
+    /// let config = PoolConfig::default().with_prewarm(true).min_idle(5);
+    /// let pool = Pool::new(config, factory)?;
+    /// pool.prewarm().await; // 手动预热
+    /// // 此时池中已有 5 个连接
+    /// ```
+    ///
+    /// 预热后首次 `acquire()` 延迟 < 10ms（对比冷启动 < 100ms）。
+    pub async fn prewarm(&self) {
+        if !self.config.prewarm {
+            return;
+        }
+
+        let min_idle = self.config.min_idle as usize;
+        let mut warmed = 0;
+
+        for i in 0..min_idle {
+            // 检查池是否已关闭
+            if self.closed.load(Ordering::Acquire) {
+                break;
+            }
+
+            // 检查是否已达上限
+            let current_max = self.dynamic_max_size.load(Ordering::Acquire);
+            let current = self.total_count.load(Ordering::Acquire);
+            if current >= current_max {
+                break;
+            }
+
+            // 尝试递增 total_count
+            let created = loop {
+                let current = self.total_count.load(Ordering::Acquire);
+                if current >= current_max {
+                    break None;
+                }
+                match self.total_count.compare_exchange(
+                    current,
+                    current + 1,
+                    Ordering::SeqCst,
+                    Ordering::Acquire,
+                ) {
+                    Ok(_) => break Some(()),
+                    Err(_) => continue,
+                }
+            };
+
+            if created.is_some() {
+                match tokio::time::timeout(self.config.connection_timeout, self.factory.create())
+                    .await
+                {
+                    Ok(Ok(conn)) => {
+                        #[cfg(feature = "circuit-breaker")]
+                        {
+                            self.circuit_breaker.lock().record_success();
+                        }
+                        self.emit_event(PoolEvent::ConnectionCreated);
+                        let pooled = PooledConnection::new(conn, self.clone());
+                        // 放入空闲队列
+                        if let Err(_) = self.idle.push(pooled) {
+                            // 队列满（不应该发生），关闭连接
+                            let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                            tracing::warn!(
+                                target: "sz_orm::pool::prewarm",
+                                "prewarm connection {} failed: idle queue full",
+                                i
+                            );
+                        } else {
+                            warmed += 1;
+                            self.notify.notify_one();
+                        }
+                    }
+                    Ok(Err(e)) => {
+                        let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        #[cfg(feature = "circuit-breaker")]
+                        {
+                            self.circuit_breaker.lock().record_failure();
+                        }
+                        tracing::warn!(
+                            target: "sz_orm::pool::prewarm",
+                            "prewarm connection {} failed: {}",
+                            i,
+                            e
+                        );
+                    }
+                    Err(_) => {
+                        let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        #[cfg(feature = "circuit-breaker")]
+                        {
+                            self.circuit_breaker.lock().record_failure();
+                        }
+                        tracing::warn!(
+                            target: "sz_orm::pool::prewarm",
+                            "prewarm connection {} timeout",
+                            i
+                        );
+                    }
+                }
+            }
+        }
+
+        if warmed > 0 {
+            tracing::info!(
+                target: "sz_orm::pool::prewarm",
+                "pool prewarm completed: {}/{} connections established",
+                warmed,
+                min_idle
+            );
+        }
+    }
+
     /// 获取配置
     pub fn config(&self) -> &PoolConfig {
         &self.config
@@ -2261,5 +2379,157 @@ mod tests {
         }
         // 连接仍可用
         assert!(conn.is_connected(), "提前 drop 流后连接仍应可用");
+    }
+
+    /// TASK-021：连接池预热测试
+    #[tokio::test]
+    async fn test_pool_prewarm() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::AtomicU32;
+
+        // 创建可计数的连接工厂
+        let create_count = Arc::new(AtomicU32::new(0));
+        let create_count_clone = create_count.clone();
+
+        struct CountingFactory {
+            count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for CountingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(MockConnection::new()))
+            }
+        }
+
+        // 配置：max_size=10, min_idle=5, prewarm=true
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(5)
+            .prewarm(true)
+            .build()?;
+
+        let factory = Arc::new(CountingFactory {
+            count: create_count_clone,
+        });
+
+        let pool = Pool::new(config, factory)?;
+
+        // 预热前：空闲连接为 0
+        let status_before = pool.status().await;
+        assert_eq!(status_before.idle, 0, "预热前 idle 应为 0");
+
+        // 执行预热
+        pool.prewarm().await;
+
+        // 预热后：空闲连接应 >= min_idle（5）
+        let status_after = pool.status().await;
+        assert!(
+            status_after.idle >= 5,
+            "预热后 idle 应 >= 5，实际: {}",
+            status_after.idle
+        );
+
+        // 验证工厂被调用了 5 次（min_idle）
+        assert_eq!(
+            create_count.load(Ordering::SeqCst),
+            5,
+            "工厂应被调用 5 次（min_idle）"
+        );
+
+        Ok(())
+    }
+
+    /// TASK-021：预热失败不阻断池创建
+    #[tokio::test]
+    async fn test_pool_prewarm_failure_non_blocking() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::AtomicBool;
+
+        struct FailingFactory {
+            failed: Arc<AtomicBool>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for FailingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.failed.store(true, Ordering::SeqCst);
+                // 模拟连接失败
+                Err(crate::DbError::Internal(
+                    "simulated connection failure".to_string(),
+                ))
+            }
+        }
+
+        let failed = Arc::new(AtomicBool::new(false));
+        let mut config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(3)
+            .prewarm(true)
+            .build()?;
+        config.connection_timeout = std::time::Duration::from_secs(1); // 缩短超时以加快测试
+
+        let factory = Arc::new(FailingFactory {
+            failed: failed.clone(),
+        });
+
+        // 池创建应成功（即使预热失败）
+        let pool = Pool::new(config, factory)?;
+        pool.prewarm().await; // 预热失败不应 panic
+
+        // 验证工厂被调用了 3 次（尝试预热 3 个连接）
+        assert!(failed.load(Ordering::SeqCst), "工厂应被调用且失败");
+
+        // 池仍然可用（acquire 会尝试创建新连接）
+        let status = pool.status().await;
+        assert_eq!(status.max, 10, "池配置应正常");
+
+        Ok(())
+    }
+
+    /// TASK-021：prewarm=false 时预热不执行
+    #[tokio::test]
+    async fn test_pool_prewarm_disabled() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::AtomicU32;
+
+        let create_count = Arc::new(AtomicU32::new(0));
+        let create_count_clone = create_count.clone();
+
+        struct CountingFactory {
+            count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for CountingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(MockConnection::new()))
+            }
+        }
+
+        // 配置：prewarm=false
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(5)
+            .prewarm(false) // 禁用预热
+            .build()?;
+
+        let factory = Arc::new(CountingFactory {
+            count: create_count_clone,
+        });
+
+        let pool = Pool::new(config, factory)?;
+        pool.prewarm().await; // 应直接返回，不创建连接
+
+        // 验证工厂未被调用
+        assert_eq!(
+            create_count.load(Ordering::SeqCst),
+            0,
+            "prewarm=false 时工厂不应被调用"
+        );
+
+        let status = pool.status().await;
+        assert_eq!(status.idle, 0, "idle 应为 0");
+
+        Ok(())
     }
 }

@@ -787,7 +787,6 @@ mod tests {
 
     #[test]
     fn json_query_build_extract() {
-
         let json_cond = JsonQuery::new(DbType::MySQL, "prefs")
             .path("theme")
             .build_extract();

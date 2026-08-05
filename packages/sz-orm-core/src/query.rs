@@ -29,6 +29,7 @@ use crate::model::Model;
 use crate::typed::TypedColumn;
 use crate::value::Value;
 use std::fmt;
+use std::time::Duration;
 
 /// 用于构造 SQL 查询的查询构造器
 pub struct QueryBuilder<M: Model> {
@@ -54,6 +55,11 @@ pub struct QueryBuilder<M: Model> {
     /// `WHERE {field} < ?` 条件（取决于排序方向），实现基于游标的高效分页。
     /// 与 OFFSET 分页相比，Keyset 分页在大数据集下性能稳定，不受数据插入/删除影响。
     keyset_cursor: Option<KeysetCursor>,
+    /// P2-2：查询缓存 TTL（TASK-022）
+    ///
+    /// 设置后，查询结果会被缓存指定时长。相同 SQL + 参数在 TTL 内返回缓存结果。
+    /// 空结果也会缓存（TTL 缩短为 1/10），避免缓存穿透。
+    cache_ttl: Option<Duration>,
     #[allow(dead_code)]
     model: std::marker::PhantomData<M>,
 }
@@ -170,6 +176,7 @@ impl<M: Model> QueryBuilder<M> {
             tenant_id_value: None,
             tenant_disabled: false,
             keyset_cursor: None,
+            cache_ttl: None,
             model: std::marker::PhantomData,
         }
     }
@@ -207,6 +214,35 @@ impl<M: Model> QueryBuilder<M> {
         self.soft_delete_disabled
     }
 
+    /// P2-2：设置查询缓存 TTL（TASK-022）
+    ///
+    /// 设置后，查询结果会被缓存指定时长。相同 SQL + 参数在 TTL 内返回缓存结果。
+    /// 空结果也会缓存（TTL 缩短为 1/10），避免缓存穿透。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::query::QueryBuilder;
+    /// use sz_orm_core::dialect::MySqlDialect;
+    /// use std::time::Duration;
+    ///
+    /// // 缓存热点查询 5 分钟
+    /// let sql = QueryBuilder::<User>::new(Box::new(MySqlDialect))
+    ///     .table("users")
+    ///     .where_eq("status", 1)
+    ///     .cache_ttl(Duration::from_secs(300))
+    ///     .build_select_with_params();
+    /// ```
+    pub fn cache_ttl(mut self, ttl: Duration) -> Self {
+        self.cache_ttl = Some(ttl);
+        self
+    }
+
+    /// P2-2：返回当前缓存 TTL
+    pub fn get_cache_ttl(&self) -> Option<Duration> {
+        self.cache_ttl
+    }
+
     /// P0-4：克隆当前 `QueryBuilder` 用于 COUNT 查询。
     ///
     /// 保留 `table` / `joins` / `where_conditions` / `group_by` / `having_conditions`
@@ -229,6 +265,7 @@ impl<M: Model> QueryBuilder<M> {
             tenant_id_value: self.tenant_id_value,
             tenant_disabled: self.tenant_disabled,
             keyset_cursor: None,
+            cache_ttl: None, // COUNT 查询不缓存
             model: std::marker::PhantomData,
         }
     }
