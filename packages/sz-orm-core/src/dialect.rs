@@ -1876,11 +1876,7 @@ impl Dialect for DuckDBDialect {
             })
             .collect();
 
-        format!(
-            "CREATE TABLE {} ({})",
-            self.quote(table),
-            cols.join(", ")
-        )
+        format!("CREATE TABLE {} ({})", self.quote(table), cols.join(", "))
     }
 
     fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
@@ -1900,7 +1896,11 @@ impl Dialect for DuckDBDialect {
                     sql
                 }
                 TableChange::DropColumn(name) => {
-                    format!("ALTER TABLE {} DROP COLUMN {}", self.quote(table), self.quote(name))
+                    format!(
+                        "ALTER TABLE {} DROP COLUMN {}",
+                        self.quote(table),
+                        self.quote(name)
+                    )
                 }
                 TableChange::ModifyColumn(col) => {
                     format!(
@@ -1912,7 +1912,11 @@ impl Dialect for DuckDBDialect {
                 }
                 TableChange::AddIndex(name, _cols) => {
                     // DuckDB 支持 CREATE INDEX，但不支持 ALTER TABLE ADD INDEX
-                    format!("CREATE INDEX {} ON {} (id)", self.quote(name), self.quote(table))
+                    format!(
+                        "CREATE INDEX {} ON {} (id)",
+                        self.quote(name),
+                        self.quote(table)
+                    )
                 }
                 TableChange::DropIndex(name) => {
                     format!("DROP INDEX {}", self.quote(name))
@@ -3463,16 +3467,14 @@ mod tests {
     #[test]
     fn test_duckdb_alter_table() {
         let dialect = DuckDBDialect;
-        let changes = vec![
-            TableChange::AddColumn(ColumnDef {
-                name: "age".to_string(),
-                sql_type: "INTEGER".to_string(),
-                nullable: true,
-                default: None,
-                auto_increment: false,
-                primary_key: false,
-            }),
-        ];
+        let changes = vec![TableChange::AddColumn(ColumnDef {
+            name: "age".to_string(),
+            sql_type: "INTEGER".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        })];
         let sql = dialect.build_alter_table("users", &changes);
         assert!(sql.contains("ALTER TABLE \"users\" ADD COLUMN \"age\" INTEGER"));
     }

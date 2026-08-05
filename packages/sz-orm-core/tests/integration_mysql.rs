@@ -1093,10 +1093,7 @@ async fn test_mysql_lock_for_update_basic() {
     create_test_table(&pool, &table).await;
 
     // 插入一条测试数据
-    let insert_sql = format!(
-        "INSERT INTO `{}` (name, value) VALUES (?, ?)",
-        table
-    );
+    let insert_sql = format!("INSERT INTO `{}` (name, value) VALUES (?, ?)", table);
     sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
         .bind("Alice")
         .bind(100i64)
@@ -1113,7 +1110,11 @@ async fn test_mysql_lock_for_update_basic() {
         .expect("lock_for_update should succeed on MySQL");
 
     let (sql, params) = builder.build_select_with_params();
-    assert!(sql.contains("FOR UPDATE"), "SQL 应包含 FOR UPDATE 子句: {}", sql);
+    assert!(
+        sql.contains("FOR UPDATE"),
+        "SQL 应包含 FOR UPDATE 子句: {}",
+        sql
+    );
 
     // 执行查询（在事务中）
     let mut tx = pool.begin().await.expect("begin transaction");
@@ -1121,9 +1122,8 @@ async fn test_mysql_lock_for_update_basic() {
     for v in &params {
         q = bind_value_mysql(q, v);
     }
-    let rows: Vec<sqlx::mysql::MySqlRow> = q.fetch_all(&mut *tx)
-        .await
-        .expect("execute locked select");
+    let rows: Vec<sqlx::mysql::MySqlRow> =
+        q.fetch_all(&mut *tx).await.expect("execute locked select");
 
     assert_eq!(rows.len(), 1, "应返回 1 行");
     let name: String = rows[0].get(1);
@@ -1140,10 +1140,7 @@ async fn test_mysql_lock_shared_basic() {
     let table = unique_table("t_lock_sh");
     create_test_table(&pool, &table).await;
 
-    let insert_sql = format!(
-        "INSERT INTO `{}` (name, value) VALUES (?, ?)",
-        table
-    );
+    let insert_sql = format!("INSERT INTO `{}` (name, value) VALUES (?, ?)", table);
     sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
         .bind("Bob")
         .bind(200i64)
@@ -1170,7 +1167,8 @@ async fn test_mysql_lock_shared_basic() {
     for v in &params {
         q = bind_value_mysql(q, v);
     }
-    let rows: Vec<sqlx::mysql::MySqlRow> = q.fetch_all(&mut *tx)
+    let rows: Vec<sqlx::mysql::MySqlRow> = q
+        .fetch_all(&mut *tx)
         .await
         .expect("execute shared lock select");
 
@@ -1188,10 +1186,7 @@ async fn test_mysql_lock_with_limit() {
 
     // 插入多条数据
     for i in 0..5 {
-        let insert_sql = format!(
-            "INSERT INTO `{}` (name, value) VALUES (?, ?)",
-            table
-        );
+        let insert_sql = format!("INSERT INTO `{}` (name, value) VALUES (?, ?)", table);
         sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
             .bind(format!("User{}", i))
             .bind((i * 10) as i64)
@@ -1216,7 +1211,8 @@ async fn test_mysql_lock_with_limit() {
     for v in &params {
         q = bind_value_mysql(q, v);
     }
-    let rows: Vec<sqlx::mysql::MySqlRow> = q.fetch_all(&pool)
+    let rows: Vec<sqlx::mysql::MySqlRow> = q
+        .fetch_all(&pool)
         .await
         .expect("execute locked select with limit");
 
@@ -1236,10 +1232,7 @@ async fn test_mysql_insert_or_ignore_duplicate() {
     create_test_table(&pool, &table).await;
 
     // 插入第一条数据
-    let insert_sql = format!(
-        "INSERT INTO `{}` (name, value) VALUES (?, ?)",
-        table
-    );
+    let insert_sql = format!("INSERT INTO `{}` (name, value) VALUES (?, ?)", table);
     sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
         .bind("Alice")
         .bind(100i64)
@@ -1269,11 +1262,13 @@ async fn test_mysql_insert_or_ignore_duplicate() {
     for v in &params {
         q = bind_value_mysql(q, v);
     }
-    let result = q.execute(&pool)
-        .await
-        .expect("INSERT IGNORE 不应报错");
+    let result = q.execute(&pool).await.expect("INSERT IGNORE 不应报错");
 
-    assert_eq!(result.rows_affected(), 0, "重复插入应被忽略，affected_rows 应为 0");
+    assert_eq!(
+        result.rows_affected(),
+        0,
+        "重复插入应被忽略，affected_rows 应为 0"
+    );
 
     // 验证原始数据未被修改
     let sel = format!("SELECT value FROM `{}` WHERE name = 'Alice'", table);
@@ -1308,11 +1303,13 @@ async fn test_mysql_insert_or_ignore_new_row() {
     for v in &params {
         q = bind_value_mysql(q, v);
     }
-    let result = q.execute(&pool)
-        .await
-        .expect("INSERT IGNORE 新行应成功");
+    let result = q.execute(&pool).await.expect("INSERT IGNORE 新行应成功");
 
-    assert_eq!(result.rows_affected(), 1, "新行插入应成功，affected_rows 应为 1");
+    assert_eq!(
+        result.rows_affected(),
+        1,
+        "新行插入应成功，affected_rows 应为 1"
+    );
 
     // 验证数据已插入
     let sel = format!("SELECT value FROM `{}` WHERE name = 'NewUser'", table);

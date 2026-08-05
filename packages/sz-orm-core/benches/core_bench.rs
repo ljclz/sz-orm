@@ -738,8 +738,7 @@ fn bench_query_builder_insert_or_ignore(c: &mut Criterion) {
 
     group.bench_function("insert_normal_mysql", |b| {
         b.iter(|| {
-            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
-                .table("bench_table");
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect)).table("bench_table");
             black_box(qb.build_insert_with_params(&data))
         })
     });
