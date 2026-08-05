@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["And","BigInt","Binary","Bool","ColumnExpr","Date","DateTime","Double","Eq","Ge","Gt","Integer","Json","Le","Literal","Lt","Ne","Nullable","Or","Real","SmallInt","Text","TypedSelectQuery","Untyped","Uuid"],"trait":["ExprTable","InferSqlType","SqlType","TypedColumnExt","TypedExpression"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RotationPolicy"],"struct":["CallbackSink","ConsoleSink","LevelFilter","LogRotator","MemorySink","MemoryStructuredSink","MultiOutputLogger","StructuredLogEntry","StructuredLogWriter"],"trait":["LogSink","StructuredSink"],"type":["StructuredFields"]};

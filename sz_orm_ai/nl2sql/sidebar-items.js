@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HintSeverity","Nl2SqlError"],"struct":["ColumnInfo","QueryAnalysis","QueryOptimizationHint","QueryOptimizer","SchemaContext","SimpleNl2SqlEngine","SqlQuery","TableInfo"],"trait":["Nl2SqlEngine"]};

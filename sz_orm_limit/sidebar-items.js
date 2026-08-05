@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_MAX_KEYS"],"enum":["RateLimitError","RateLimitResponseStrategy"],"struct":["DistributedRateLimiter","FixedWindowRateLimiter","InMemoryBackend","MultiRateLimiter","RateLimitHeaders","RateLimitResponse","RateLimitResult","SlidingWindowRateLimiter","TokenBucketRateLimiter"],"trait":["DistributedBackend","RateLimiter"]};

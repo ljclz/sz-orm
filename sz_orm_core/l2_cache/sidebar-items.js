@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CacheKeyKind","InvalidationMessage","WriteOp"],"struct":["CacheKey","InMemoryBackend","L2Cache","L2CacheStats","LocalInvalidationBus","PerTableStats","RedisBackend","WriteBehindWriter"],"trait":["InvalidationBus","L2CacheBackend"],"type":["ErrorCallback","FlushCallback","L2CacheFuture"]};

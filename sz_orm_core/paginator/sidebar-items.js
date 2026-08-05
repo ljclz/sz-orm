@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["Paginator"],"trait":["PaginatorBuilderTrait","PaginatorTrait","StreamQueryTrait"],"type":["RowResult"]};

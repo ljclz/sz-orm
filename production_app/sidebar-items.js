@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["current_ts_millis","current_ts_secs","main"],"struct":["AppState","Order","Product","User"]};

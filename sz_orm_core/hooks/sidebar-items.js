@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HookEvent"],"struct":["HookContext","HookDispatcher","HookRegistry","ScopeRegistry","SoftDeleteScope","TenantScope"],"trait":["GlobalScope","Hookable","SoftDelete","TenantModel"],"type":["HookFn","HookResult"]};

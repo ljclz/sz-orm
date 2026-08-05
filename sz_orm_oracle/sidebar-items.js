@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["OracleBlockingPool","OracleBlockingPoolConfig","OracleConnGuard","OracleConnection","OracleConnectionFactory","OraclePoolHandle"]};

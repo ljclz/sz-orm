@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["ENCRYPTED_PREFIX","ENCRYPTED_SUFFIX"],"enum":["ConfigFieldType","ConfigSourcePriority","ValidationError"],"struct":["ConfigChangeEvent","ConfigEncryption","ConfigFieldSchema","ConfigWatcher","ConsulConfigCenter","MultiSourceConfig","NacosConfigCenter","SchemaValidator"],"trait":["ConfigCenter"],"type":["ConfigChangeCallback"]};

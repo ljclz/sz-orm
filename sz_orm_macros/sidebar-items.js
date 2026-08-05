@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"derive":["Builder","ColumnEnum","Entity","FromQueryResult","FromRow","Relation","Schema","SqlType"],"macro":["query","query_as","schema","sql_string","typed_query"]};

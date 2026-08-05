@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ParticipantState","TransactionState"],"mod":["cross_shard","saga","tcc"],"struct":["DistributedTransaction","DtxManager","InMemoryTransactionLog","TransactionLogEntry","TransactionParticipant"],"trait":["TransactionLogStore"],"type":["ParticipantCallback"]};

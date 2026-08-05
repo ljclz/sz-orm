@@ -1,0 +1,25 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="派生宏：为 Rust 枚举自动生成 `sz_orm_core::FromQueryResult` trait 实现 和 `to_value()` 方法。"><title>SqlType in sz_orm_macros - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-17e0aaed.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm_macros" data-themes="" data-resource-suffix="" data-rustdoc-version="1.97.1 (8bab26f4f 2026-07-14)" data-channel="1.97.1" data-search-js="search-fd9372ac.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-fcd733ba.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc derive"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">SqlType</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm_macros/index.html">sz_<wbr>orm_<wbr>macros</a><span class="version">1.5.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">SqlType</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#支持的属性" title="支持的属性">支持的属性</a></li><li><a href="#示例" title="示例">示例</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate sz_<wbr>orm_<wbr>macros</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">sz_orm_macros</a></div><h1>Derive Macro <span class="derive">SqlType</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm_macros/lib.rs.html#2634-2637">Source</a> </span></div><pre class="rust item-decl"><code>#[derive(SqlType)]
+{
+    <span class="comment">// Attributes available to this derive:</span>
+    #[sql_type]
+}
+</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>派生宏：为 Rust 枚举自动生成 <code>sz_orm_core::FromQueryResult</code> trait 实现
+和 <code>to_value()</code> 方法。</p>
+<p>这是 sz-orm 对 SQLx <code>#[derive(Type)]</code> 的等效实现：
+让自定义枚举可以直接用于查询结果的字段映射和查询参数的绑定。</p>
+<h2 id="支持的属性"><a class="doc-anchor" href="#%E6%94%AF%E6%8C%81%E7%9A%84%E5%B1%9E%E6%80%A7">§</a>支持的属性</h2>
+<ul>
+<li><code>#[sql_type(rename_all = "snake_case")]</code> — 控制变体名的序列化格式
+（snake_case / SCREAMING_SNAKE_CASE / camelCase / PascalCase / lowercase / UPPERCASE）</li>
+<li><code>#[sql_type(rename = "...")]</code>（变体级）— 覆盖单个变体的序列化名</li>
+</ul>
+<h2 id="示例"><a class="doc-anchor" href="#%E7%A4%BA%E4%BE%8B">§</a>示例</h2>
+<div class="example-wrap ignore"><a href="#" class="tooltip" title="This example is not tested">ⓘ</a><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_macros::SqlType;
+
+<span class="attr">#[derive(SqlType)]
+</span><span class="kw">enum </span>Status {
+    Active,    <span class="comment">// → "active"
+    </span>Inactive,  <span class="comment">// → "inactive"
+</span>}
+
+<span class="kw">let </span>v = Status::Active.to_value();  <span class="comment">// Value::String("active")</span></code></pre></div></div></details></section></div></main></body></html>
