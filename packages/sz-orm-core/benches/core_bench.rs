@@ -637,6 +637,126 @@ fn bench_value_batch_to_param(c: &mut Criterion) {
     group.finish();
 }
 
+// ============================================================================
+// P2-3：锁查询性能基准（TASK-032）
+// ============================================================================
+
+fn bench_query_builder_lock(c: &mut Criterion) {
+    use sz_orm_core::Model;
+    use sz_orm_core::QueryBuilder;
+
+    struct BenchModel;
+    impl Model for BenchModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "bench_table"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+
+    let mut group = bench_group(c, "query_builder_lock");
+    group.throughput(Throughput::Elements(1));
+
+    group.bench_function("lock_for_update_mysql", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .where_eq("id", Value::I64(1));
+            black_box(qb.lock_for_update().unwrap().build_select_with_params())
+        })
+    });
+
+    group.bench_function("lock_shared_mysql", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .where_eq("id", Value::I64(1));
+            black_box(qb.lock_shared().unwrap().build_select_with_params())
+        })
+    });
+
+    group.bench_function("lock_for_update_postgresql", |b| {
+        b.iter(|| {
+            let pg_dialect = get_dialect(DbType::PostgreSQL).unwrap();
+            let qb = QueryBuilder::<BenchModel>::new(pg_dialect)
+                .table("bench_table")
+                .where_eq("id", Value::I64(1));
+            black_box(qb.lock_for_update().unwrap().build_select_with_params())
+        })
+    });
+
+    group.bench_function("no_lock_baseline", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .where_eq("id", Value::I64(1));
+            black_box(qb.build_select_with_params())
+        })
+    });
+
+    group.finish();
+}
+
+// ============================================================================
+// P2-4：INSERT OR IGNORE 性能基准（TASK-032）
+// ============================================================================
+
+fn bench_query_builder_insert_or_ignore(c: &mut Criterion) {
+    use sz_orm_core::Model;
+    use sz_orm_core::QueryBuilder;
+
+    struct BenchModel;
+    impl Model for BenchModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "bench_table"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+
+    let mut group = bench_group(c, "insert_or_ignore");
+    group.throughput(Throughput::Elements(1));
+
+    let mut data = HashMap::new();
+    data.insert("name".to_string(), Value::String("test".to_string()));
+    data.insert("value".to_string(), Value::I64(42));
+
+    group.bench_function("insert_ignore_mysql", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table")
+                .insert_or_ignore();
+            black_box(qb.build_insert_with_params(&data))
+        })
+    });
+
+    group.bench_function("insert_normal_mysql", |b| {
+        b.iter(|| {
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
+                .table("bench_table");
+            black_box(qb.build_insert_with_params(&data))
+        })
+    });
+
+    group.bench_function("insert_ignore_postgresql", |b| {
+        b.iter(|| {
+            let pg_dialect = get_dialect(DbType::PostgreSQL).unwrap();
+            let qb = QueryBuilder::<BenchModel>::new(pg_dialect)
+                .table("bench_table")
+                .insert_or_ignore();
+            black_box(qb.build_insert_with_params(&data))
+        })
+    });
+
+    group.finish();
+}
+
 criterion_group! {
     name = benches;
     config = configure_criterion();
@@ -651,5 +771,7 @@ criterion_group! {
         bench_query_builder_select,
         bench_query_builder_insert_update,
         bench_value_batch_to_param,
+        bench_query_builder_lock,
+        bench_query_builder_insert_or_ignore,
 }
 criterion_main!(benches);

@@ -10,6 +10,7 @@
 //! 运行方式：cargo test --package sz-orm-core --test integration_mysql -- --ignored --nocapture
 
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
+use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -1076,6 +1077,250 @@ async fn test_mysql_upsert_unicode_and_special_chars() {
         email, "test'with`special\"chars",
         "特殊字符应通过参数化查询正确存储"
     );
+
+    drop_table(&pool, &table).await;
+}
+
+// ============================================================================
+// P2-3：锁查询集成测试（TASK-031）
+// ============================================================================
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_lock_for_update_basic() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_lock_fu");
+    create_test_table(&pool, &table).await;
+
+    // 插入一条测试数据
+    let insert_sql = format!(
+        "INSERT INTO `{}` (name, value) VALUES (?, ?)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+        .bind("Alice")
+        .bind(100i64)
+        .execute(&pool)
+        .await
+        .expect("insert test data");
+
+    // 使用 FOR UPDATE 锁查询
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("name", Value::String("Alice".to_string()))
+        .lock_for_update()
+        .expect("lock_for_update should succeed on MySQL");
+
+    let (sql, params) = builder.build_select_with_params();
+    assert!(sql.contains("FOR UPDATE"), "SQL 应包含 FOR UPDATE 子句: {}", sql);
+
+    // 执行查询（在事务中）
+    let mut tx = pool.begin().await.expect("begin transaction");
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    let rows: Vec<sqlx::mysql::MySqlRow> = q.fetch_all(&mut *tx)
+        .await
+        .expect("execute locked select");
+
+    assert_eq!(rows.len(), 1, "应返回 1 行");
+    let name: String = rows[0].get(1);
+    assert_eq!(name, "Alice", "名字应匹配");
+
+    tx.commit().await.expect("commit transaction");
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_lock_shared_basic() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_lock_sh");
+    create_test_table(&pool, &table).await;
+
+    let insert_sql = format!(
+        "INSERT INTO `{}` (name, value) VALUES (?, ?)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+        .bind("Bob")
+        .bind(200i64)
+        .execute(&pool)
+        .await
+        .expect("insert test data");
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("name", Value::String("Bob".to_string()))
+        .lock_shared()
+        .expect("lock_shared should succeed on MySQL");
+
+    let (sql, params) = builder.build_select_with_params();
+    assert!(
+        sql.contains("LOCK IN SHARE MODE"),
+        "SQL 应包含 LOCK IN SHARE MODE 子句: {}",
+        sql
+    );
+
+    let mut tx = pool.begin().await.expect("begin transaction");
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    let rows: Vec<sqlx::mysql::MySqlRow> = q.fetch_all(&mut *tx)
+        .await
+        .expect("execute shared lock select");
+
+    assert_eq!(rows.len(), 1, "应返回 1 行");
+    tx.commit().await.expect("commit transaction");
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_lock_with_limit() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_lock_lim");
+    create_test_table(&pool, &table).await;
+
+    // 插入多条数据
+    for i in 0..5 {
+        let insert_sql = format!(
+            "INSERT INTO `{}` (name, value) VALUES (?, ?)",
+            table
+        );
+        sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+            .bind(format!("User{}", i))
+            .bind((i * 10) as i64)
+            .execute(&pool)
+            .await
+            .expect("insert test data");
+    }
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .order_by("id")
+        .limit(2)
+        .lock_for_update()
+        .expect("lock_for_update should succeed");
+
+    let (sql, params) = builder.build_select_with_params();
+    assert!(sql.contains("LIMIT 2"), "应包含 LIMIT 子句");
+    assert!(sql.contains("FOR UPDATE"), "应包含 FOR UPDATE 子句");
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    let rows: Vec<sqlx::mysql::MySqlRow> = q.fetch_all(&pool)
+        .await
+        .expect("execute locked select with limit");
+
+    assert_eq!(rows.len(), 2, "应返回 2 行");
+    drop_table(&pool, &table).await;
+}
+
+// ============================================================================
+// P2-4：INSERT OR IGNORE 集成测试（TASK-031）
+// ============================================================================
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_insert_or_ignore_duplicate() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ins_ign");
+    create_test_table(&pool, &table).await;
+
+    // 插入第一条数据
+    let insert_sql = format!(
+        "INSERT INTO `{}` (name, value) VALUES (?, ?)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+        .bind("Alice")
+        .bind(100i64)
+        .execute(&pool)
+        .await
+        .expect("insert first row");
+
+    // 再次插入相同数据（会触发主键冲突）
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .insert_or_ignore();
+
+    let mut data2 = HashMap::new();
+    data2.insert("name".to_string(), Value::String("Alice".to_string()));
+    data2.insert("value".to_string(), Value::I64(200)); // 不同的 value
+
+    let (sql, params) = builder.build_insert_with_params(&data2);
+    assert!(
+        sql.contains("INSERT IGNORE INTO"),
+        "SQL 应包含 INSERT IGNORE INTO: {}",
+        sql
+    );
+
+    // 执行 INSERT IGNORE（不应报错）
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    let result = q.execute(&pool)
+        .await
+        .expect("INSERT IGNORE 不应报错");
+
+    assert_eq!(result.rows_affected(), 0, "重复插入应被忽略，affected_rows 应为 0");
+
+    // 验证原始数据未被修改
+    let sel = format!("SELECT value FROM `{}` WHERE name = 'Alice'", table);
+    let (value,): (Option<i64>,) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(value, Some(100), "原始 value 不应被修改");
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306"]
+async fn test_mysql_insert_or_ignore_new_row() {
+    let pool = setup_pool().await;
+    let table = unique_table("t_ins_new");
+    create_test_table(&pool, &table).await;
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let builder = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .insert_or_ignore();
+
+    let mut data = HashMap::new();
+    data.insert("name".to_string(), Value::String("NewUser".to_string()));
+    data.insert("value".to_string(), Value::I64(999));
+
+    let (sql, params) = builder.build_insert_with_params(&data);
+
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()));
+    for v in &params {
+        q = bind_value_mysql(q, v);
+    }
+    let result = q.execute(&pool)
+        .await
+        .expect("INSERT IGNORE 新行应成功");
+
+    assert_eq!(result.rows_affected(), 1, "新行插入应成功，affected_rows 应为 1");
+
+    // 验证数据已插入
+    let sel = format!("SELECT value FROM `{}` WHERE name = 'NewUser'", table);
+    let (value,): (Option<i64>,) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    assert_eq!(value, Some(999), "新插入的 value 应正确");
 
     drop_table(&pool, &table).await;
 }
