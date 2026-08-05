@@ -53,6 +53,8 @@ redis = { workspace = true, optional = true }
 tokio = { workspace = true, features = ["full", "test-util"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
+# DuckDB 真实集成测试（bundled：编译 DuckDB 源码，需 MSVC + CMake）
+duckdb = { version = "1", features = ["bundled"] }
 oracle = { version = "0.6", default-features = false, features = ["chrono"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 # v0.2.1 修复 T-1：Property-Based Testing

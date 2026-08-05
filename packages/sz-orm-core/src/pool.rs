@@ -15,7 +15,7 @@ use parking_lot::RwLock as PlRwLock;
 use std::future::Future;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
@@ -569,6 +569,39 @@ impl std::fmt::Debug for PoolStatus {
     }
 }
 
+/// 连接池累计统计指标（Prometheus 风格）
+///
+/// 所有字段均为池生命周期内的累计值（不会随获取/归还重置），
+/// 由 `Pool::pool_metrics()` 返回。基于无锁 `AtomicU64` 计数，
+/// 对 acquire/release 热路径的影响可忽略（单条原子指令）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct PoolMetrics {
+    /// 累计成功获取连接次数
+    pub acquire_count: u64,
+    /// 累计获取连接失败次数（超时 / 连接创建失败 / 池已关闭 / 断路器或限流拒绝）
+    pub acquire_failed_count: u64,
+    /// 累计等待获取连接的时长（池满时阻塞等待的累计时间）
+    pub acquire_wait_time: Duration,
+    /// 累计归还连接次数
+    pub release_count: u64,
+    /// 累计创建连接数（含 prewarm / warmup / acquire 新建）
+    pub connection_created_count: u64,
+    /// 累计关闭连接数（含过期回收 / 失效 / 池关闭）
+    pub connection_closed_count: u64,
+}
+
+impl PoolMetrics {
+    /// 平均获取等待时长（无成功获取时为 0）
+    #[must_use]
+    pub fn average_acquire_wait_time(&self) -> Duration {
+        if self.acquire_count == 0 {
+            Duration::ZERO
+        } else {
+            self.acquire_wait_time / self.acquire_count as u32
+        }
+    }
+}
+
 pub struct PoolConfigBuilder {
     config: PoolConfig,
 }
@@ -722,6 +755,18 @@ pub struct Pool {
     /// #93 修复：限流器使用的 key（默认 "pool"）
     #[cfg(feature = "rate-limit")]
     rate_limit_key: String,
+    /// 累计成功获取连接次数（Prometheus 风格统计，无锁原子计数）
+    acquire_count: Arc<AtomicU64>,
+    /// 累计获取连接失败次数（超时 / 连接创建失败 / 池已关闭 / 断路器或限流拒绝）
+    acquire_failed_count: Arc<AtomicU64>,
+    /// 累计等待获取连接的时长（纳秒，池满时阻塞等待的累计时间）
+    acquire_wait_time_ns: Arc<AtomicU64>,
+    /// 累计归还连接次数
+    release_count: Arc<AtomicU64>,
+    /// 累计创建连接数
+    connection_created_count: Arc<AtomicU64>,
+    /// 累计关闭连接数
+    connection_closed_count: Arc<AtomicU64>,
 }
 
 /// Pool 克隆：仅增加 Arc 引用计数，成本极低
@@ -744,6 +789,12 @@ impl Clone for Pool {
             rate_limiter: Arc::clone(&self.rate_limiter),
             #[cfg(feature = "rate-limit")]
             rate_limit_key: self.rate_limit_key.clone(),
+            acquire_count: self.acquire_count.clone(),
+            acquire_failed_count: self.acquire_failed_count.clone(),
+            acquire_wait_time_ns: self.acquire_wait_time_ns.clone(),
+            release_count: self.release_count.clone(),
+            connection_created_count: self.connection_created_count.clone(),
+            connection_closed_count: self.connection_closed_count.clone(),
         }
     }
 }
@@ -800,6 +851,12 @@ impl Pool {
             rate_limiter: Arc::new(PlRwLock::new(None)),
             #[cfg(feature = "rate-limit")]
             rate_limit_key: "pool".to_string(),
+            acquire_count: Arc::new(AtomicU64::new(0)),
+            acquire_failed_count: Arc::new(AtomicU64::new(0)),
+            acquire_wait_time_ns: Arc::new(AtomicU64::new(0)),
+            release_count: Arc::new(AtomicU64::new(0)),
+            connection_created_count: Arc::new(AtomicU64::new(0)),
+            connection_closed_count: Arc::new(AtomicU64::new(0)),
         })
     }
 
@@ -994,9 +1051,25 @@ impl Pool {
 
     /// 触发连接池事件回调
     fn emit_event(&self, event: PoolEvent) {
+        // Prometheus 风格统计：连接创建事件统一在此计数
+        // （所有创建路径均通过 emit_event(ConnectionCreated) 上报）
+        if matches!(event, PoolEvent::ConnectionCreated) {
+            self.connection_created_count
+                .fetch_add(1, Ordering::Relaxed);
+        }
         if let Some(ref callback) = self.config.on_event {
             callback(event);
         }
+    }
+
+    /// 关闭连接并记录统计（统一入口）
+    ///
+    /// 所有连接关闭路径必须通过此方法，确保 `connection_closed_count`
+    /// 与 `total_count` 递减的统计口径一致。
+    async fn close_connection(&self, pooled: PooledConnection) {
+        let mut pooled = pooled;
+        let _ = pooled.conn.close().await;
+        self.connection_closed_count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 从池中获取连接（带超时）
@@ -1022,6 +1095,7 @@ impl Pool {
     pub async fn acquire(&self) -> Result<PooledConnection, PoolError> {
         // close_all 后拒绝新 acquire
         if self.closed.load(Ordering::Acquire) {
+            self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
             return Err(PoolError::Closed);
         }
 
@@ -1032,6 +1106,7 @@ impl Pool {
         {
             let mut guard = self.circuit_breaker.lock();
             if !guard.can_execute() {
+                self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
                 return Err(PoolError::CircuitOpen);
             }
         }
@@ -1045,6 +1120,7 @@ impl Pool {
             if let Some(ref limiter) = *guard {
                 match limiter.try_acquire(&self.rate_limit_key) {
                     Ok(result) if !result.allowed => {
+                        self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
                         return Err(PoolError::RateLimited {
                             remaining: result.remaining,
                             reset_at: result.reset_at,
@@ -1097,8 +1173,8 @@ impl Pool {
             };
 
             // 批量 close 过期连接（不持任何锁）
-            for mut pooled in to_close {
-                let _ = pooled.conn.close().await;
+            for pooled in to_close {
+                self.close_connection(pooled).await;
                 // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
                 self.total_count.fetch_sub(1, Ordering::SeqCst);
             }
@@ -1114,7 +1190,7 @@ impl Pool {
                     };
                     if !alive {
                         // ping 失败：关闭连接，回退计数，继续循环重新 acquire
-                        let _ = pooled.conn.close().await;
+                        self.close_connection(pooled).await;
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
                         continue;
                     }
@@ -1122,6 +1198,7 @@ impl Pool {
                 // 从 idle 获取的连接 pool 字段为 None（release 时清除），
                 // 重新设置 pool 引用以支持 Drop 自动归还
                 pooled.pool = Some(self.clone());
+                self.acquire_count.fetch_add(1, Ordering::Relaxed);
                 return Ok(pooled);
             }
 
@@ -1159,6 +1236,7 @@ impl Pool {
                         }
                         self.emit_event(PoolEvent::ConnectionCreated);
                         self.emit_event(PoolEvent::ConnectionAcquired);
+                        self.acquire_count.fetch_add(1, Ordering::Relaxed);
                         return Ok(PooledConnection::new(conn, self.clone()));
                     }
                     Ok(Err(e)) => {
@@ -1170,6 +1248,7 @@ impl Pool {
                         {
                             self.circuit_breaker.lock().record_failure();
                         }
+                        self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
                         return Err(PoolError::ConnectionFailed(e.to_string()));
                     }
                     Err(_) => {
@@ -1181,6 +1260,7 @@ impl Pool {
                         {
                             self.circuit_breaker.lock().record_failure();
                         }
+                        self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
                         return Err(PoolError::Timeout);
                     }
                 }
@@ -1190,6 +1270,7 @@ impl Pool {
             let now = Instant::now();
             if now >= deadline {
                 self.emit_event(PoolEvent::AcquireTimeout);
+                self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
                 return Err(PoolError::Timeout);
             }
             // 增加等待者计数
@@ -1207,6 +1288,9 @@ impl Pool {
             }
             // 减少等待者计数
             self.waiters_count.fetch_sub(1, Ordering::SeqCst);
+            // Prometheus 风格统计：累计本次实际等待时长（纳秒）
+            self.acquire_wait_time_ns
+                .fetch_add(wait.as_nanos() as u64, Ordering::Relaxed);
         }
     }
 
@@ -1221,10 +1305,12 @@ impl Pool {
     pub async fn release(&self, mut pooled: PooledConnection) {
         // 标记已显式归还，避免 Drop 重复归还
         pooled.pool = None;
+        // Prometheus 风格统计：每次 release 调用计一次（含直接关闭路径）
+        self.release_count.fetch_add(1, Ordering::Relaxed);
 
         // 检查池是否已关闭
         if self.closed.load(Ordering::Acquire) {
-            let _ = pooled.conn.close().await;
+            self.close_connection(pooled).await;
             // v0.2.1 修复 P-1：AtomicU32
             self.total_count.fetch_sub(1, Ordering::SeqCst);
             self.emit_event(PoolEvent::ConnectionClosed);
@@ -1233,7 +1319,7 @@ impl Pool {
 
         // 检查连接是否仍然有效
         if !pooled.conn.is_connected() {
-            let _ = pooled.conn.close().await;
+            self.close_connection(pooled).await;
             self.total_count.fetch_sub(1, Ordering::SeqCst);
             self.emit_event(PoolEvent::ConnectionClosed);
             return;
@@ -1247,9 +1333,9 @@ impl Pool {
         // `ArrayQueue::push` 返回 `Result<(), T>`，失败表示队列满。
         // 正常情况下不会满（因为 `total_count` 限制了池中总连接数 ≤ max_size = 队列容量），
         // 但仍处理失败情况：取出所有权并关闭连接，避免连接泄漏。
-        if let Err(mut rejected) = self.idle.push(pooled) {
+        if let Err(rejected) = self.idle.push(pooled) {
             // 队列满（极端并发场景），关闭被拒绝的连接
-            let _ = rejected.conn.close().await;
+            self.close_connection(rejected).await;
             self.total_count.fetch_sub(1, Ordering::SeqCst);
             self.emit_event(PoolEvent::ConnectionClosed);
         } else {
@@ -1276,6 +1362,29 @@ impl Pool {
         }
     }
 
+    /// 获取连接池累计统计指标（Prometheus 风格）
+    ///
+    /// 返回池生命周期内的累计计数，可通过监控系统（如 Prometheus 抓取）
+    /// 观察连接池的健康状况与压力：
+    ///
+    /// - `acquire_count` / `acquire_failed_count`：获取成功率
+    /// - `acquire_wait_time`：池满时等待的累计时长（配合 `average_acquire_wait_time()` 评估延迟）
+    /// - `connection_created_count` / `connection_closed_count`：连接波动
+    ///
+    /// 计数基于无锁原子操作，调用开销可忽略。
+    pub fn pool_metrics(&self) -> PoolMetrics {
+        PoolMetrics {
+            acquire_count: self.acquire_count.load(Ordering::Acquire),
+            acquire_failed_count: self.acquire_failed_count.load(Ordering::Acquire),
+            acquire_wait_time: Duration::from_nanos(
+                self.acquire_wait_time_ns.load(Ordering::Acquire),
+            ),
+            release_count: self.release_count.load(Ordering::Acquire),
+            connection_created_count: self.connection_created_count.load(Ordering::Acquire),
+            connection_closed_count: self.connection_closed_count.load(Ordering::Acquire),
+        }
+    }
+
     /// 回收空闲过久的连接
     #[tracing::instrument(skip(self))]
     pub async fn reap_idle(&self) {
@@ -1296,16 +1405,16 @@ impl Pool {
                 to_close.push(pooled);
             } else {
                 // push 回队列（容量足够，因为之前刚从这里 pop 出来）
-                if let Err(mut rejected) = self.idle.push(pooled) {
-                    let _ = rejected.conn.close().await;
+                if let Err(rejected) = self.idle.push(pooled) {
+                    self.close_connection(rejected).await;
                     self.total_count.fetch_sub(1, Ordering::SeqCst);
                 }
             }
         }
 
         // 3. 关闭过期连接
-        for mut pooled in to_close {
-            let _ = pooled.conn.close().await;
+        for pooled in to_close {
+            self.close_connection(pooled).await;
             // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
             self.total_count.fetch_sub(1, Ordering::SeqCst);
         }
@@ -1325,8 +1434,8 @@ impl Pool {
         }
         // 批量 close（不持任何锁）
         let closed_count: u32 = to_close.len() as u32;
-        for mut pooled in to_close {
-            let _ = pooled.conn.close().await;
+        for pooled in to_close {
+            self.close_connection(pooled).await;
         }
         // 减少总连接计数（只减去已关闭的空闲连接数）
         // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
@@ -1360,7 +1469,7 @@ impl Pool {
         for mut pooled in to_check.drain(..) {
             // 先检查 is_connected（同步内存检查），再 ping（异步网络检查）
             if !pooled.conn.is_connected() {
-                let _ = pooled.conn.close().await;
+                self.close_connection(pooled).await;
                 removed += 1;
                 continue;
             }
@@ -1370,12 +1479,12 @@ impl Pool {
                 Ok(true) => alive.push(pooled),
                 Ok(false) => {
                     // ping 返回 false，连接失效
-                    let _ = pooled.conn.close().await;
+                    self.close_connection(pooled).await;
                     removed += 1;
                 }
                 Err(_) => {
                     // ping 超时，连接可能卡住
-                    let _ = pooled.conn.close().await;
+                    self.close_connection(pooled).await;
                     removed += 1;
                 }
             }
@@ -1385,8 +1494,8 @@ impl Pool {
         let alive_count: u32 = alive.len() as u32;
         for pooled in alive {
             // push 回队列（容量足够，因为之前刚从这里 pop 出来）
-            if let Err(mut rejected) = self.idle.push(pooled) {
-                let _ = rejected.conn.close().await;
+            if let Err(rejected) = self.idle.push(pooled) {
+                self.close_connection(rejected).await;
                 removed += 1;
             }
         }
@@ -1477,9 +1586,9 @@ impl Pool {
                         last_used_at: now,
                         pool: None,
                     };
-                    if let Err(mut rejected) = self.idle.push(pooled) {
+                    if let Err(rejected) = self.idle.push(pooled) {
                         // 队列满（不应发生，因为 total_count 限制了），关闭并递减
-                        let _ = rejected.conn.close().await;
+                        self.close_connection(rejected).await;
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
                     }
                     self.emit_event(PoolEvent::ConnectionCreated);
@@ -2531,5 +2640,98 @@ mod tests {
         assert_eq!(status.idle, 0, "idle 应为 0");
 
         Ok(())
+    }
+
+    /// Prometheus 风格统计：acquire/release 计数与连接创建计数
+    #[tokio::test]
+    async fn test_pool_metrics_acquire_release() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(10).build()?;
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory))?;
+
+        let metrics = pool.pool_metrics();
+        assert_eq!(metrics.acquire_count, 0);
+        assert_eq!(metrics.release_count, 0);
+        assert_eq!(metrics.connection_created_count, 0);
+
+        let conn = pool.acquire().await?;
+        let metrics = pool.pool_metrics();
+        assert_eq!(metrics.acquire_count, 1);
+        assert_eq!(metrics.connection_created_count, 1);
+        assert_eq!(metrics.acquire_failed_count, 0);
+
+        pool.release(conn).await;
+        let metrics = pool.pool_metrics();
+        assert_eq!(metrics.release_count, 1);
+        // 连接归还到空闲队列，未被关闭
+        assert_eq!(metrics.connection_closed_count, 0);
+
+        Ok(())
+    }
+
+    /// Prometheus 风格统计：获取失败计数（工厂创建连接失败）
+    #[tokio::test]
+    async fn test_pool_metrics_acquire_failed() -> Result<(), Box<dyn std::error::Error>> {
+        struct FailingFactory;
+
+        #[async_trait]
+        impl ConnectionFactory for FailingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                Err(crate::DbError::Internal("simulated failure".to_string()))
+            }
+        }
+
+        let config = PoolConfigBuilder::new().max_size(10).build()?;
+        let pool = Pool::new(config, Arc::new(FailingFactory))?;
+
+        let result = pool.acquire().await;
+        assert!(result.is_err());
+
+        let metrics = pool.pool_metrics();
+        assert_eq!(metrics.acquire_failed_count, 1);
+        assert_eq!(metrics.acquire_count, 0);
+
+        Ok(())
+    }
+
+    /// Prometheus 风格统计：连接关闭计数（close_all 后空闲连接被关闭）
+    #[tokio::test]
+    async fn test_pool_metrics_connection_closed() -> Result<(), Box<dyn std::error::Error>> {
+        let config = PoolConfigBuilder::new().max_size(10).build()?;
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory))?;
+
+        let conn = pool.acquire().await?;
+        pool.release(conn).await;
+
+        let status = pool.status().await;
+        assert_eq!(status.idle, 1);
+
+        pool.close_all().await;
+
+        let metrics = pool.pool_metrics();
+        assert_eq!(metrics.connection_closed_count, 1);
+        assert_eq!(metrics.connection_created_count, 1);
+
+        Ok(())
+    }
+
+    /// Prometheus 风格统计：平均获取等待时长计算
+    #[test]
+    fn test_pool_metrics_average_wait_time() {
+        let metrics = PoolMetrics {
+            acquire_count: 4,
+            acquire_failed_count: 1,
+            acquire_wait_time: Duration::from_millis(200),
+            release_count: 4,
+            connection_created_count: 2,
+            connection_closed_count: 0,
+        };
+        assert_eq!(
+            metrics.average_acquire_wait_time(),
+            Duration::from_millis(50)
+        );
+
+        // 无成功获取时平均等待时长为 0
+        let empty = PoolMetrics::default();
+        assert_eq!(empty.average_acquire_wait_time(), Duration::ZERO);
     }
 }

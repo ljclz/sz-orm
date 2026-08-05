@@ -1384,6 +1384,15 @@ impl Dialect for SqlServerDialect {
 
         stmts.join("; ")
     }
+
+    fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
+        // SQL Server 不支持 `INSERT OR IGNORE` 语法，也没有等价的前缀写法：
+        // - MERGE 需要完整的 USING/WHEN NOT MATCHED 结构，无法以"前缀"形式表达
+        // - `IF NOT EXISTS (...) INSERT ...` 是语句级控制流，同样无法作为前缀
+        // 因此回退为普通 INSERT，应用层可通过唯一索引 + 捕获重复键冲突
+        // （SQLSTATE 2601/2627）或 MERGE 语句实现幂等插入。
+        format!("INSERT INTO {}", self.quote(table))
+    }
 }
 
 // 架构说明：build_create_table / build_alter_table / build_drop_table 在四个方言中
@@ -1685,6 +1694,21 @@ impl Dialect for ClickHouseDialect {
             .collect();
 
         stmts.join("; ")
+    }
+
+    fn supports_lock_for_update(&self) -> bool {
+        // ClickHouse 是列式 OLAP 数据库：无事务、无行级锁
+        false
+    }
+
+    fn supports_lock_shared(&self) -> bool {
+        // ClickHouse 是列式 OLAP 数据库：无事务、无共享锁
+        false
+    }
+
+    fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
+        // ClickHouse 不支持 INSERT OR IGNORE 语法，回退为普通 INSERT
+        format!("INSERT INTO {}", self.quote(table))
     }
 }
 
@@ -2743,6 +2767,15 @@ mod tests {
         assert_eq!(dialect.last_insert_id_sql(), Some("SCOPE_IDENTITY()"));
         // json_type
         assert_eq!(dialect.json_type(), "NVARCHAR(MAX)");
+    }
+
+    #[test]
+    fn test_sqlserver_insert_or_ignore_fallback_to_plain_insert() {
+        let dialect = SqlServerDialect;
+        let sql = dialect.build_insert_or_ignore_prefix("users");
+        // SQL Server 不支持 INSERT OR IGNORE，回退为普通 INSERT（不生成非法 SQL）
+        assert_eq!(sql, "INSERT INTO [users]");
+        assert!(!sql.contains("OR IGNORE"));
     }
 
     #[test]

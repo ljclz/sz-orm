@@ -3754,6 +3754,8 @@ mod tests {
         let mysql = get_dialect(DbType::MySQL)?;
         let pg = get_dialect(DbType::PostgreSQL)?;
         let sqlite = get_dialect(DbType::Sqlite)?;
+        let clickhouse = get_dialect(DbType::ClickHouse)?;
+        let duckdb = get_dialect(DbType::DuckDB)?;
 
         assert!(mysql.supports_lock_for_update(), "MySQL 应支持 FOR UPDATE");
         assert!(
@@ -3764,6 +3766,14 @@ mod tests {
             !sqlite.supports_lock_for_update(),
             "SQLite 不应支持 FOR UPDATE"
         );
+        assert!(
+            !clickhouse.supports_lock_for_update(),
+            "ClickHouse 是列式 OLAP，不应支持 FOR UPDATE"
+        );
+        assert!(
+            !duckdb.supports_lock_for_update(),
+            "DuckDB 不应支持 FOR UPDATE"
+        );
         Ok(())
     }
 
@@ -3772,10 +3782,17 @@ mod tests {
         let mysql = get_dialect(DbType::MySQL)?;
         let pg = get_dialect(DbType::PostgreSQL)?;
         let sqlite = get_dialect(DbType::Sqlite)?;
+        let clickhouse = get_dialect(DbType::ClickHouse)?;
+        let duckdb = get_dialect(DbType::DuckDB)?;
 
         assert!(mysql.supports_lock_shared(), "MySQL 应支持共享锁");
         assert!(pg.supports_lock_shared(), "PostgreSQL 应支持共享锁");
         assert!(!sqlite.supports_lock_shared(), "SQLite 不应支持共享锁");
+        assert!(
+            !clickhouse.supports_lock_shared(),
+            "ClickHouse 是列式 OLAP，不应支持共享锁"
+        );
+        assert!(!duckdb.supports_lock_shared(), "DuckDB 不应支持共享锁");
         Ok(())
     }
 
