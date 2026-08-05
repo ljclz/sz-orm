@@ -126,6 +126,60 @@ pub trait Dialect: Send + Sync {
         let _ = (conflict_columns, update_columns, all_columns);
         None
     }
+
+    /// P2-3：生成行锁子句（TASK-025/026）
+    ///
+    /// 根据 `lock_type` 生成对应的 SQL 锁子句：
+    /// - `ForUpdate`：MySQL 生成 `FOR UPDATE`，PG 生成 `FOR UPDATE`
+    /// - `Shared`：MySQL 生成 `LOCK IN SHARE MODE`，PG 生成 `FOR SHARE`
+    ///
+    /// 返回 `None` 表示该方言不支持行锁（如 SQLite）。
+    /// 返回 `Some(clause)` 表示完整的锁子句（不含前导空格）。
+    fn build_lock_clause(&self, lock_type: LockType) -> Option<String> {
+        let _ = lock_type;
+        None
+    }
+
+    /// P2-3：该方言是否支持 `FOR UPDATE` 行锁（TASK-029）
+    ///
+    /// 默认返回 `true`。不支持行锁的方言（如 SQLite、ClickHouse、DuckDB）
+    /// 应覆盖此方法返回 `false`。
+    fn supports_lock_for_update(&self) -> bool {
+        true
+    }
+
+    /// P2-3：该方言是否支持共享锁（TASK-029）
+    ///
+    /// 默认返回 `true`。不支持共享锁的方言（如 SQLite、ClickHouse、DuckDB）
+    /// 应覆盖此方法返回 `false`。
+    fn supports_lock_shared(&self) -> bool {
+        true
+    }
+
+    /// P2-4：生成 `INSERT OR IGNORE` 前缀（TASK-027）
+    ///
+    /// - MySQL：返回 `INSERT IGNORE INTO {table}`
+    /// - PostgreSQL/SQLite：返回 `INSERT OR IGNORE INTO {table}`
+    ///
+    /// 用于"存在则忽略"的插入场景，避免主键/唯一键冲突时报错。
+    fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
+        format!("INSERT OR IGNORE INTO {}", self.quote(table))
+    }
+}
+
+/// P2-3：行锁类型（TASK-024）
+///
+/// 用于 `QueryBuilder::lock_for_update()` 和 `QueryBuilder::lock_shared()`。
+/// 不同数据库对共享锁的语法不同：
+/// - MySQL：`LOCK IN SHARE MODE`
+/// - PostgreSQL：`FOR SHARE`
+/// - SQLite：不支持行锁
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LockType {
+    /// 排他锁（`FOR UPDATE`）：锁定行，其他事务无法读取或修改
+    ForUpdate,
+    /// 共享锁（`FOR SHARE` / `LOCK IN SHARE MODE`）：锁定行，其他事务可读取但无法修改
+    Shared,
 }
 
 /// 建表时的列定义
@@ -364,6 +418,17 @@ impl Dialect for MySqlDialect {
             set_clauses.join(", ")
         ))
     }
+
+    fn build_lock_clause(&self, lock_type: LockType) -> Option<String> {
+        match lock_type {
+            LockType::ForUpdate => Some("FOR UPDATE".to_string()),
+            LockType::Shared => Some("LOCK IN SHARE MODE".to_string()),
+        }
+    }
+
+    fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
+        format!("INSERT IGNORE INTO {}", self.quote(table))
+    }
 }
 
 /// PostgreSQL 方言实现
@@ -582,6 +647,13 @@ impl Dialect for PostgreSqlDialect {
             conflict_cols.join(", "),
             set_clauses.join(", ")
         ))
+    }
+
+    fn build_lock_clause(&self, lock_type: LockType) -> Option<String> {
+        match lock_type {
+            LockType::ForUpdate => Some("FOR UPDATE".to_string()),
+            LockType::Shared => Some("FOR SHARE".to_string()),
+        }
     }
 }
 
@@ -818,6 +890,14 @@ impl Dialect for SqliteDialect {
             conflict_cols.join(", "),
             set_clauses.join(", ")
         ))
+    }
+
+    fn supports_lock_for_update(&self) -> bool {
+        false
+    }
+
+    fn supports_lock_shared(&self) -> bool {
+        false
     }
 }
 

@@ -25,6 +25,7 @@
 
 use crate::db_type::DbType;
 use crate::dialect::Dialect;
+use crate::dialect::LockType;
 use crate::model::Model;
 use crate::typed::TypedColumn;
 use crate::value::Value;
@@ -60,6 +61,19 @@ pub struct QueryBuilder<M: Model> {
     /// 设置后，查询结果会被缓存指定时长。相同 SQL + 参数在 TTL 内返回缓存结果。
     /// 空结果也会缓存（TTL 缩短为 1/10），避免缓存穿透。
     cache_ttl: Option<Duration>,
+    /// P2-3：行锁类型（TASK-025/026）
+    ///
+    /// 设置后，`build_select`/`build_select_with_params` 会在 SQL 末尾追加锁子句。
+    /// - `ForUpdate`：排他锁（`FOR UPDATE`）
+    /// - `Shared`：共享锁（`FOR SHARE` / `LOCK IN SHARE MODE`）
+    ///
+    /// SQLite 不支持行锁，设置后会返回 `DbError::QueryError`。
+    lock_type: Option<LockType>,
+    /// P2-4：INSERT OR IGNORE 标志（TASK-028）
+    ///
+    /// 设置后，`build_insert` 会生成 `INSERT IGNORE INTO`（MySQL）或
+    /// `INSERT OR IGNORE INTO`（PG/SQLite），避免主键/唯一键冲突时报错。
+    insert_or_ignore: bool,
     #[allow(dead_code)]
     model: std::marker::PhantomData<M>,
 }
@@ -177,6 +191,8 @@ impl<M: Model> QueryBuilder<M> {
             tenant_disabled: false,
             keyset_cursor: None,
             cache_ttl: None,
+            lock_type: None,
+            insert_or_ignore: false,
             model: std::marker::PhantomData,
         }
     }
@@ -243,6 +259,107 @@ impl<M: Model> QueryBuilder<M> {
         self.cache_ttl
     }
 
+    /// P2-3：设置排他锁（FOR UPDATE）（TASK-025）
+    ///
+    /// 锁定查询结果行，其他事务无法读取或修改这些行，直到当前事务提交。
+    ///
+    /// # 各方言行为
+    ///
+    /// - MySQL：生成 `FOR UPDATE`
+    /// - PostgreSQL：生成 `FOR UPDATE`
+    /// - SQLite：返回 `Err(DbError::QueryError)`（不支持行锁）
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::query::QueryBuilder;
+    /// use sz_orm_core::dialect::MySqlDialect;
+    ///
+    /// // 锁定用户行以供更新
+    /// let sql = QueryBuilder::<User>::new(Box::new(MySqlDialect))
+    ///     .table("users")
+    ///     .where_eq("id", 1)
+    ///     .lock_for_update()
+    ///     .build_select_with_params();
+    /// // 生成：SELECT * FROM users WHERE id = ? FOR UPDATE
+    /// ```
+    pub fn lock_for_update(mut self) -> Result<Self, crate::error::DbError> {
+        if !self.dialect.supports_lock_for_update() {
+            return Err(crate::error::DbError::QueryError(
+                "FOR UPDATE lock is not supported by this dialect".to_string(),
+            ));
+        }
+        self.lock_type = Some(LockType::ForUpdate);
+        Ok(self)
+    }
+
+    /// P2-3：设置共享锁（FOR SHARE / LOCK IN SHARE MODE）（TASK-026）
+    ///
+    /// 锁定查询结果行，其他事务可读取但无法修改这些行，直到当前事务提交。
+    ///
+    /// # 各方言行为
+    ///
+    /// - MySQL：生成 `LOCK IN SHARE MODE`
+    /// - PostgreSQL：生成 `FOR SHARE`
+    /// - SQLite：返回 `Err(DbError::QueryError)`（不支持行锁）
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::query::QueryBuilder;
+    /// use sz_orm_core::dialect::PostgreSqlDialect;
+    ///
+    /// // 共享锁定用户行
+    /// let sql = QueryBuilder::<User>::new(Box::new(PostgreSqlDialect))
+    ///     .table("users")
+    ///     .where_eq("id", 1)
+    ///     .lock_shared()
+    ///     .build_select_with_params();
+    /// // 生成：SELECT * FROM users WHERE id = ? FOR SHARE
+    /// ```
+    pub fn lock_shared(mut self) -> Result<Self, crate::error::DbError> {
+        if !self.dialect.supports_lock_shared() {
+            return Err(crate::error::DbError::QueryError(
+                "Shared lock is not supported by this dialect".to_string(),
+            ));
+        }
+        self.lock_type = Some(LockType::Shared);
+        Ok(self)
+    }
+
+    /// P2-4：设置 INSERT OR IGNORE 标志（TASK-028）
+    ///
+    /// 设置后，`build_insert` 会生成 `INSERT IGNORE INTO`（MySQL）或
+    /// `INSERT OR IGNORE INTO`（PG/SQLite），避免主键/唯一键冲突时报错。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::query::QueryBuilder;
+    /// use sz_orm_core::dialect::MySqlDialect;
+    ///
+    /// // 忽略重复插入
+    /// let sql = QueryBuilder::<User>::new(Box::new(MySqlDialect))
+    ///     .table("users")
+    ///     .insert_or_ignore()
+    ///     .build_insert(&[("name", Value::String("Alice".to_string()))]);
+    /// // 生成：INSERT IGNORE INTO `users` (`name`) VALUES (?)
+    /// ```
+    pub fn insert_or_ignore(mut self) -> Self {
+        self.insert_or_ignore = true;
+        self
+    }
+
+    /// P2-3：返回当前锁类型
+    pub fn get_lock_type(&self) -> Option<LockType> {
+        self.lock_type
+    }
+
+    /// P2-4：返回 INSERT OR IGNORE 标志
+    pub fn is_insert_or_ignore(&self) -> bool {
+        self.insert_or_ignore
+    }
+
     /// P0-4：克隆当前 `QueryBuilder` 用于 COUNT 查询。
     ///
     /// 保留 `table` / `joins` / `where_conditions` / `group_by` / `having_conditions`
@@ -266,6 +383,8 @@ impl<M: Model> QueryBuilder<M> {
             tenant_disabled: self.tenant_disabled,
             keyset_cursor: None,
             cache_ttl: None, // COUNT 查询不缓存
+            lock_type: None, // COUNT 查询不加锁
+            insert_or_ignore: false, // COUNT 查询不使用 INSERT
             model: std::marker::PhantomData,
         }
     }
@@ -1664,6 +1783,14 @@ impl<M: Model> QueryBuilder<M> {
             sql.push_str(&format!(" OFFSET {}", offset));
         }
 
+        // P2-3：追加行锁子句（TASK-025/026）
+        if let Some(lock_type) = &self.lock_type {
+            if let Some(lock_clause) = self.dialect.build_lock_clause(*lock_type) {
+                sql.push(' ');
+                sql.push_str(&lock_clause);
+            }
+        }
+
         (sql, params)
     }
 
@@ -1688,9 +1815,16 @@ impl<M: Model> QueryBuilder<M> {
             params.push(v.clone());
         }
 
+        // P2-4：INSERT OR IGNORE 前缀（TASK-027/028）
+        let insert_clause = if self.insert_or_ignore {
+            self.dialect.build_insert_or_ignore_prefix(&table)
+        } else {
+            format!("INSERT INTO {}", self.dialect.quote(&table))
+        };
+
         let sql = format!(
-            "INSERT INTO {} ({}) VALUES ({})",
-            self.dialect.quote(&table),
+            "{} ({}) VALUES ({})",
+            insert_clause,
             columns.join(", "),
             placeholders.join(", ")
         );
@@ -3408,6 +3542,258 @@ mod tests {
             .build_select_with_params();
         assert!(sql.contains("`id` > ?"));
         assert_eq!(params[0], Value::I64(10));
+        Ok(())
+    }
+
+    // ---- P2-3：行锁查询测试（TASK-025/026） ----
+
+    #[test]
+    fn test_lock_for_update_mysql() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_for_update()?
+            .build_select_with_params();
+        assert!(sql.contains("SELECT * FROM `users`"));
+        assert!(sql.contains("WHERE `id` = ?"));
+        assert!(sql.contains("FOR UPDATE"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::I64(1));
+        Ok(())
+    }
+
+    #[test]
+    fn test_lock_shared_mysql() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_shared()?
+            .build_select_with_params();
+        assert!(sql.contains("SELECT * FROM `users`"));
+        assert!(sql.contains("WHERE `id` = ?"));
+        assert!(sql.contains("LOCK IN SHARE MODE"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::I64(1));
+        Ok(())
+    }
+
+    #[test]
+    fn test_lock_for_update_postgresql() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::PostgreSQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_for_update()?
+            .build_select_with_params();
+        assert!(sql.contains("SELECT * FROM \"users\""));
+        assert!(sql.contains("WHERE \"id\" = ?"));
+        assert!(sql.contains("FOR UPDATE"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::I64(1));
+        Ok(())
+    }
+
+    #[test]
+    fn test_lock_shared_postgresql() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::PostgreSQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_shared()?
+            .build_select_with_params();
+        assert!(sql.contains("SELECT * FROM \"users\""));
+        assert!(sql.contains("WHERE \"id\" = ?"));
+        assert!(sql.contains("FOR SHARE"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::I64(1));
+        Ok(())
+    }
+
+    #[test]
+    fn test_lock_for_update_sqlite_should_fail() {
+        let dialect = get_dialect(DbType::Sqlite).unwrap();
+        let result = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_for_update();
+        assert!(result.is_err(), "SQLite 不应支持 FOR UPDATE 锁");
+        let err = result.err().unwrap();
+        assert!(
+            format!("{:?}", err).contains("FOR UPDATE lock is not supported"),
+            "错误信息应说明不支持行锁"
+        );
+    }
+
+    #[test]
+    fn test_lock_shared_sqlite_should_fail() {
+        let dialect = get_dialect(DbType::Sqlite).unwrap();
+        let result = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_shared();
+        assert!(result.is_err(), "SQLite 不应支持共享锁");
+        let err = result.err().unwrap();
+        assert!(
+            format!("{:?}", err).contains("Shared lock is not supported"),
+            "错误信息应说明不支持共享锁"
+        );
+    }
+
+    #[test]
+    fn test_lock_with_limit_and_offset() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("status", Value::String("active".into()))
+            .limit(10)
+            .offset(20)
+            .lock_for_update()?
+            .build_select_with_params();
+        assert!(sql.contains("WHERE `status` = ?"));
+        assert!(sql.contains("LIMIT 10"));
+        assert!(sql.contains("OFFSET 20"));
+        assert!(sql.contains("FOR UPDATE"));
+        assert_eq!(params.len(), 1);
+        Ok(())
+    }
+
+    // ---- P2-4：INSERT OR IGNORE 测试（TASK-027/028） ----
+
+    #[test]
+    fn test_insert_or_ignore_mysql() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("Alice".into()));
+        data.insert("age".to_string(), Value::I64(30));
+
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .insert_or_ignore()
+            .build_insert_with_params(&data);
+        assert!(sql.contains("INSERT IGNORE INTO `users`"));
+        assert!(sql.contains("(`name`, `age`)"));
+        assert!(sql.contains("VALUES (?, ?)"));
+        assert_eq!(params.len(), 2);
+        assert_eq!(params[0], Value::String("Alice".into()));
+        assert_eq!(params[1], Value::I64(30));
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_or_ignore_postgresql() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::PostgreSQL)?;
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("Bob".into()));
+
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .insert_or_ignore()
+            .build_insert_with_params(&data);
+        assert!(sql.contains("INSERT OR IGNORE INTO \"users\""));
+        assert!(sql.contains("(\"name\")"));
+        assert!(sql.contains("VALUES (?)"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::String("Bob".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_or_ignore_sqlite() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::Sqlite)?;
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("Charlie".into()));
+
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .insert_or_ignore()
+            .build_insert_with_params(&data);
+        assert!(sql.contains("INSERT OR IGNORE INTO \"users\""));
+        assert!(sql.contains("(\"name\")"));
+        assert!(sql.contains("VALUES (?)"));
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::String("Charlie".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_normal_without_ignore() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("Dave".into()));
+
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .build_insert_with_params(&data);
+        assert!(sql.contains("INSERT INTO `users`"));
+        assert!(!sql.contains("IGNORE"), "普通插入不应包含 IGNORE");
+        assert_eq!(params.len(), 1);
+        assert_eq!(params[0], Value::String("Dave".into()));
+        Ok(())
+    }
+
+    #[test]
+    fn test_insert_or_ignore_empty_data() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let data = std::collections::HashMap::new();
+
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .insert_or_ignore()
+            .build_insert_with_params(&data);
+        assert!(sql.is_empty(), "空数据应返回空 SQL");
+        assert!(params.is_empty());
+        Ok(())
+    }
+
+    // ---- P2-3：方言支持性测试（TASK-029） ----
+
+    #[test]
+    fn test_dialect_supports_lock_for_update() -> Result<(), crate::DbError> {
+        let mysql = get_dialect(DbType::MySQL)?;
+        let pg = get_dialect(DbType::PostgreSQL)?;
+        let sqlite = get_dialect(DbType::Sqlite)?;
+
+        assert!(mysql.supports_lock_for_update(), "MySQL 应支持 FOR UPDATE");
+        assert!(pg.supports_lock_for_update(), "PostgreSQL 应支持 FOR UPDATE");
+        assert!(!sqlite.supports_lock_for_update(), "SQLite 不应支持 FOR UPDATE");
+        Ok(())
+    }
+
+    #[test]
+    fn test_dialect_supports_lock_shared() -> Result<(), crate::DbError> {
+        let mysql = get_dialect(DbType::MySQL)?;
+        let pg = get_dialect(DbType::PostgreSQL)?;
+        let sqlite = get_dialect(DbType::Sqlite)?;
+
+        assert!(mysql.supports_lock_shared(), "MySQL 应支持共享锁");
+        assert!(pg.supports_lock_shared(), "PostgreSQL 应支持共享锁");
+        assert!(!sqlite.supports_lock_shared(), "SQLite 不应支持共享锁");
+        Ok(())
+    }
+
+    #[test]
+    fn test_get_lock_type_and_is_insert_or_ignore() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+
+        // 默认值
+        let builder = QueryBuilder::<TestModel>::new(dialect);
+        assert!(builder.get_lock_type().is_none(), "默认无锁");
+        assert!(!builder.is_insert_or_ignore(), "默认不忽略插入");
+
+        // 设置锁后
+        let builder = QueryBuilder::<TestModel>::new(get_dialect(DbType::MySQL)?)
+            .table("users")
+            .lock_for_update()?;
+        assert_eq!(builder.get_lock_type(), Some(LockType::ForUpdate));
+
+        // 设置忽略插入后
+        let builder = QueryBuilder::<TestModel>::new(get_dialect(DbType::MySQL)?)
+            .table("users")
+            .insert_or_ignore();
+        assert!(builder.is_insert_or_ignore());
+
         Ok(())
     }
 }
