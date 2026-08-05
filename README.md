@@ -1,14 +1,14 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v1.4.0 · 43 工作空间成员 · 4,943 测试 · 17 SQL 方言 · 已发布 crates.io v1.4.0
+> v1.5.0 · 43 工作空间成员 · 5,809 测试 · 17 SQL 方言 · 已发布 crates.io v1.5.0
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-4943+-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-5809+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -41,7 +41,7 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.4.0 版本包含 43 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.5.0 版本包含 43 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
 
 > **⚠️ 诚实声明**：本项目为单作者工程实践项目，**当前处于原型阶段**，尚无生产案例、无第三方审计、无社区采用。功能清单已覆盖主流 ORM 能力，但未经生产环境验证。与 Diesel/SeaORM/SQLx 的深度对比详见 [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md)。
 
@@ -49,7 +49,7 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 |------|------|
 | 工作空间成员 | **43**（41 个 sz-orm-* lib + cli + examples） |
 | 支持数据库方言 | **17 种 SQL 方言**（8 原生 + 9 委派，含国产信创 6 种） |
-| 测试用例 | **4,943 passed, 0 failed** |
+| 测试用例 | **5,809 passed, 0 failed** |
 | 代码规模 | **~139,000 LOC**（深度优化后，src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000） |
 | 项目成熟度 | **原型阶段**（未发布 crates.io，零社区验证） |
 | 异步运行时 | Tokio 1.40+ |
@@ -58,6 +58,37 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | 已知 Bug | **0** |
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
 | `cargo clippy -D warnings` | ✅ 0 warnings（`[workspace.lints]` 强制） |
+
+## v1.5.0 新特性（2026-08-05）
+
+### 连接池 Prometheus 统计指标
+
+- **`PoolMetrics`**：`Pool::pool_metrics()` 返回池生命周期累计指标（acquire_count / acquire_failed_count / acquire_wait_time / release_count / connection_created_count / connection_closed_count）
+- **`average_acquire_wait_time()`**：平均获取等待时长（`acquire_wait_time / acquire_count`）
+- 基于无锁 `AtomicU64` 原子计数，对 acquire/release 热路径开销可忽略；4 个单元测试验证计数正确性
+
+### ClickHouse 行锁支持
+
+- `ClickHouseDialect::supports_lock_for_update()` / `supports_lock_shared()` 显式返回 `false`（列式 OLAP 无事务无行锁）
+- `build_insert_or_ignore_prefix()` 回退为普通 `INSERT INTO`（ClickHouse 不支持 `INSERT OR IGNORE`）
+
+### SQL Server INSERT OR IGNORE 回退
+
+- `SqlServerDialect::build_insert_or_ignore_prefix()` 回退为普通 `INSERT INTO`（SQL Server 无等价前缀语法；MERGE / IF NOT EXISTS 均无法以"前缀"形式表达）
+- 应用层可通过唯一索引 + 捕获重复键冲突（SQLSTATE 2601/2627）或 MERGE 实现幂等插入
+
+### DuckDB 真实集成测试
+
+- `packages/sz-orm-core/tests/integration_duckdb.rs`：7 个真实 DB 测试（建表、参数化插入/查询、INSERT OR IGNORE、分页、ALTER TABLE、转义、DROP TABLE），使用 `duckdb` bundled 特性（编译需 MSVC + CMake）
+
+### 向量 / 时序真实实现集成测试
+
+- `sz-orm-vector`：3 个 `#[ignore]` 真实 PostgreSQL + pgvector 测试（create/insert/search 工作流、upsert 覆盖、欧氏距离排序）
+- `sz-orm-timeseries`：5 个内存版集成测试 + 2 个 `#[ignore]` 真实 TimescaleDB 测试（hypertable 创建 + 时间桶聚合）
+
+### crates.io 发布
+
+- sz-orm-core **1.5.0** ✅（2026-08-05）
 
 ## v1.4.0 新特性（2026-08-05）
 
@@ -91,6 +122,7 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 - sz-orm-sql-validator 1.4.0 ✅
 - sz-orm-macros 1.4.0 ✅
 - sz-orm-core 1.4.0 ✅
+- sz-orm-core 1.5.0 ✅（连接池统计指标 + ClickHouse 行锁 + SQL Server INSERT OR IGNORE 回退）
 
 ## v1.3.0 新特性（2026-08-05）
 
@@ -213,8 +245,8 @@ sz-orm-core = "1.4"
 sz-orm-sqlx = "1.4"
 
 # 本地开发（path 依赖）
-# sz-orm-core = { version = "1.4", path = "packages/sz-orm-core" }
-# sz-orm-sqlx = { version = "1.4", path = "packages/sz-orm-sqlx" }
+# sz-orm-core = { version = "1.5", path = "packages/sz-orm-core" }
+# sz-orm-sqlx = { version = "1.5", path = "packages/sz-orm-sqlx" }
 
 tokio = { version = "1.40", features = ["full"] }
 ```
