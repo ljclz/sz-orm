@@ -1730,6 +1730,206 @@ fn map_to_clickhouse_type(sql_type: &str) -> String {
 }
 
 // ============================================================================
+// DuckDB 方言（嵌入式 OLAP 数据库）
+//
+// DuckDB 语法特性：
+// - 双引号标识符（标准 SQL 风格）
+// - 字符串字面量单引号转义为 ''（标准 SQL 风格）
+// - 不支持 RETURNING 子句
+// - 分页使用 LIMIT x OFFSET y（与 PostgreSQL 一致）
+// - 自增列使用 SERIAL 或 BIGINT PRIMARY KEY
+// - 类型系统：BIGINT/INTEGER/VARCHAR/BOOLEAN/DOUBLE/TIMESTAMP/DATE 等
+// - 支持 INSERT OR IGNORE（与 SQLite 一致）
+// ============================================================================
+
+/// DuckDB 方言实现（嵌入式 OLAP 数据库）
+#[derive(Debug, Clone)]
+pub struct DuckDBDialect;
+
+impl Dialect for DuckDBDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(DuckDBDialect)
+    }
+
+    fn db_type(&self) -> DbType {
+        DbType::DuckDB
+    }
+
+    fn quote(&self, identifier: &str) -> String {
+        // DuckDB 使用双引号包裹标识符（标准 SQL 风格）
+        format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn escape_string(&self, s: &str) -> String {
+        // DuckDB 标准转义：单引号双写（'O''Brien'）
+        let mut escaped = String::with_capacity(s.len() * 2);
+        for c in s.chars() {
+            match c {
+                '\'' => escaped.push_str("''"),
+                _ => escaped.push(c),
+            }
+        }
+        escaped
+    }
+
+    fn supports_returning(&self) -> bool {
+        // DuckDB 不支持 RETURNING 子句
+        false
+    }
+
+    fn build_pagination(&self, sql: &str, page: u64, limit: u64) -> String {
+        // DuckDB 使用 LIMIT x OFFSET y（与 PostgreSQL 一致）
+        let offset = page.saturating_sub(1).saturating_mul(limit);
+        format!("{} LIMIT {} OFFSET {}", sql, limit, offset)
+    }
+
+    fn json_type(&self) -> &'static str {
+        // DuckDB 使用 JSON 类型
+        "JSON"
+    }
+
+    fn json_extract(&self, column: &str, path: &str) -> String {
+        // DuckDB 使用 -> 或 ->> 操作符（与 PostgreSQL 一致）
+        let normalized = if path.starts_with('$') {
+            path[2..].to_string()
+        } else {
+            path.to_string()
+        };
+        format!("{} -> '{}'", column, normalized)
+    }
+
+    fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
+        // DuckDB 无原生 FTS，降级使用 LIKE
+        if columns.is_empty() {
+            return "0".to_string();
+        }
+        let escaped = self.escape_string(keyword);
+        let parts: Vec<String> = columns
+            .iter()
+            .map(|c| format!("{} LIKE '%{}%'", c, escaped))
+            .collect();
+        parts.join(" OR ")
+    }
+
+    fn bool_to_int(&self, expr: &str) -> String {
+        // DuckDB 支持 BOOLEAN 类型，但可使用 CASE WHEN 转换
+        format!("(CASE WHEN {} THEN 1 ELSE 0 END)", expr)
+    }
+
+    fn concat(&self, parts: &[&str]) -> String {
+        // DuckDB 使用 || 操作符进行字符串拼接
+        if parts.is_empty() {
+            return "''".to_string();
+        }
+        parts.join(" || ")
+    }
+
+    fn supports_if_exists(&self) -> bool {
+        true
+    }
+
+    fn supports_if_not_exists(&self) -> bool {
+        true
+    }
+
+    fn auto_increment_keyword(&self) -> &'static str {
+        // DuckDB 不支持自增列关键字，使用 SERIAL 或 BIGINT PRIMARY KEY
+        ""
+    }
+
+    fn last_insert_id_sql(&self) -> Option<&'static str> {
+        // DuckDB 不支持 last_insert_id
+        None
+    }
+
+    fn supports_lock_for_update(&self) -> bool {
+        // DuckDB 不支持行锁（嵌入式数据库）
+        false
+    }
+
+    fn supports_lock_shared(&self) -> bool {
+        // DuckDB 不支持共享锁
+        false
+    }
+
+    fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
+        // DuckDB 使用 INSERT OR IGNORE INTO（与 SQLite 一致）
+        format!("INSERT OR IGNORE INTO {}", self.quote(table))
+    }
+
+    fn build_create_table(&self, table: &str, columns: &[ColumnDef]) -> String {
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|col| {
+                let mut sql = format!("{} {}", self.quote(&col.name), col.sql_type);
+                if col.auto_increment {
+                    // DuckDB 不支持 AUTO_INCREMENT，使用 BIGINT PRIMARY KEY
+                    sql = format!("{} BIGINT PRIMARY KEY", self.quote(&col.name));
+                }
+                if let Some(default) = &col.default {
+                    sql.push_str(&format!(" DEFAULT {}", default));
+                }
+                if col.primary_key && !col.auto_increment {
+                    sql.push_str(" PRIMARY KEY");
+                }
+                sql
+            })
+            .collect();
+
+        format!(
+            "CREATE TABLE {} ({})",
+            self.quote(table),
+            cols.join(", ")
+        )
+    }
+
+    fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
+        let stmts: Vec<String> = changes
+            .iter()
+            .map(|change| match change {
+                TableChange::AddColumn(col) => {
+                    let mut sql = format!(
+                        "ALTER TABLE {} ADD COLUMN {} {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        col.sql_type
+                    );
+                    if let Some(default) = &col.default {
+                        sql.push_str(&format!(" DEFAULT {}", default));
+                    }
+                    sql
+                }
+                TableChange::DropColumn(name) => {
+                    format!("ALTER TABLE {} DROP COLUMN {}", self.quote(table), self.quote(name))
+                }
+                TableChange::ModifyColumn(col) => {
+                    format!(
+                        "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        col.sql_type
+                    )
+                }
+                TableChange::AddIndex(name, _cols) => {
+                    // DuckDB 支持 CREATE INDEX，但不支持 ALTER TABLE ADD INDEX
+                    format!("CREATE INDEX {} ON {} (id)", self.quote(name), self.quote(table))
+                }
+                TableChange::DropIndex(name) => {
+                    format!("DROP INDEX {}", self.quote(name))
+                }
+                TableChange::AddForeignKey { .. } => {
+                    // DuckDB 不支持外键约束
+                    String::new()
+                }
+            })
+            .filter(|s| !s.is_empty())
+            .collect();
+
+        stmts.join("; ")
+    }
+}
+
+// ============================================================================
 // IBM DB2 方言（独立实现）
 //
 // DB2 LUW 语法特性：
@@ -2041,6 +2241,7 @@ pub fn get_dialect(db_type: DbType) -> Result<Box<dyn Dialect>, DbError> {
         DbType::GaussDB => Ok(Box::new(GaussDbDialect)),
         DbType::GBase => Ok(Box::new(GBaseDialect)),
         DbType::Sybase => Ok(Box::new(SybaseDialect)),
+        DbType::DuckDB => Ok(Box::new(DuckDBDialect)),
     }
 }
 
@@ -3190,5 +3391,121 @@ mod tests {
         let dialect = SqlServerDialect;
         assert_eq!(dialect.quote_checked("users").unwrap(), "[users]");
         assert!(dialect.quote_checked(&"a".repeat(64)).is_err());
+    }
+
+    // ---- DuckDB 方言测试（TASK-033~036） ----
+
+    #[test]
+    fn test_duckdb_quote() {
+        let dialect = DuckDBDialect;
+        assert_eq!(dialect.quote("users"), "\"users\"");
+        assert_eq!(dialect.quote("user\"id"), "\"user\"\"id\"");
+    }
+
+    #[test]
+    fn test_duckdb_escape() {
+        let dialect = DuckDBDialect;
+        assert_eq!(dialect.escape_string("hello"), "hello");
+        assert_eq!(dialect.escape_string("it's"), "it''s");
+    }
+
+    #[test]
+    fn test_duckdb_pagination() {
+        let dialect = DuckDBDialect;
+        let sql = dialect.build_pagination("SELECT * FROM users", 2, 10);
+        assert_eq!(sql, "SELECT * FROM users LIMIT 10 OFFSET 10");
+    }
+
+    #[test]
+    fn test_duckdb_supports() {
+        let dialect = DuckDBDialect;
+        assert!(!dialect.supports_returning());
+        assert!(!dialect.supports_lock_for_update());
+        assert!(!dialect.supports_lock_shared());
+        assert!(dialect.supports_if_exists());
+        assert!(dialect.supports_if_not_exists());
+    }
+
+    #[test]
+    fn test_duckdb_insert_or_ignore() {
+        let dialect = DuckDBDialect;
+        let sql = dialect.build_insert_or_ignore_prefix("users");
+        assert_eq!(sql, "INSERT OR IGNORE INTO \"users\"");
+    }
+
+    #[test]
+    fn test_duckdb_create_table() {
+        let dialect = DuckDBDialect;
+        let columns = vec![
+            ColumnDef {
+                name: "id".to_string(),
+                sql_type: "BIGINT".to_string(),
+                nullable: false,
+                default: None,
+                auto_increment: true,
+                primary_key: true,
+            },
+            ColumnDef {
+                name: "name".to_string(),
+                sql_type: "VARCHAR(255)".to_string(),
+                nullable: false,
+                default: None,
+                auto_increment: false,
+                primary_key: false,
+            },
+        ];
+        let sql = dialect.build_create_table("users", &columns);
+        assert!(sql.contains("CREATE TABLE \"users\""));
+        assert!(sql.contains("\"id\" BIGINT PRIMARY KEY"));
+        assert!(sql.contains("\"name\" VARCHAR(255)"));
+    }
+
+    #[test]
+    fn test_duckdb_alter_table() {
+        let dialect = DuckDBDialect;
+        let changes = vec![
+            TableChange::AddColumn(ColumnDef {
+                name: "age".to_string(),
+                sql_type: "INTEGER".to_string(),
+                nullable: true,
+                default: None,
+                auto_increment: false,
+                primary_key: false,
+            }),
+        ];
+        let sql = dialect.build_alter_table("users", &changes);
+        assert!(sql.contains("ALTER TABLE \"users\" ADD COLUMN \"age\" INTEGER"));
+    }
+
+    #[test]
+    fn test_duckdb_json_extract() {
+        let dialect = DuckDBDialect;
+        let sql = dialect.json_extract("data", "$.user.name");
+        assert!(sql.contains("->"));
+        assert!(sql.contains("user.name"));
+    }
+
+    #[test]
+    fn test_duckdb_concat() {
+        let dialect = DuckDBDialect;
+        let sql = dialect.concat(&["a", "b", "c"]);
+        assert_eq!(sql, "a || b || c");
+    }
+
+    #[test]
+    fn test_duckdb_bool_to_int() {
+        let dialect = DuckDBDialect;
+        let sql = dialect.bool_to_int("active");
+        assert!(sql.contains("CASE WHEN"));
+        assert!(sql.contains("THEN 1"));
+        assert!(sql.contains("ELSE 0"));
+    }
+
+    #[test]
+    fn test_get_dialect_duckdb() {
+        let result = get_dialect(DbType::DuckDB);
+        assert!(result.is_ok());
+        let dialect = result.unwrap();
+        assert_eq!(dialect.db_type(), DbType::DuckDB);
     }
 }

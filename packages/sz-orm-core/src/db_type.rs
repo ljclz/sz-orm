@@ -50,6 +50,8 @@ pub enum DbType {
     GBase,
     /// Sybase ASE
     Sybase,
+    /// DuckDB（嵌入式 OLAP 数据库）
+    DuckDB,
 }
 
 impl DbType {
@@ -76,6 +78,7 @@ impl DbType {
             DbType::GaussDB => "gaussdb",
             DbType::GBase => "gbase",
             DbType::Sybase => "sybase",
+            DbType::DuckDB => "duckdb",
         }
     }
 
@@ -104,6 +107,7 @@ impl DbType {
             "gaussdb" => Some(DbType::GaussDB),
             "gbase" | "gbase8s" => Some(DbType::GBase),
             "sybase" | "ase" => Some(DbType::Sybase),
+            "duckdb" => Some(DbType::DuckDB),
             _ => None,
         }
     }
@@ -171,6 +175,7 @@ impl DbType {
             DbType::GaussDB => 25308,
             DbType::GBase => 9088,
             DbType::Sybase => 5000,
+            DbType::DuckDB => 0, // 嵌入式数据库，无网络端口
         }
     }
 
