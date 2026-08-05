@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! QueryBuilder 参数绑定方法单元测试
 //!
 //! 验证 `build_select_with_params`、`build_insert_with_params`、

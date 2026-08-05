@@ -7,7 +7,7 @@
 //! - 不支持认证、签名、TLS、分片上传等任何 S3 生产特性
 //! - **请勿用于生产环境**——仅适用于单元测试与本地开发
 //!
-//! 如需真实 S3 集成，请使用 [`crate::s3_sdk::S3SdkStorage`]（基于 `aws-sdk-s3`），
+//! 如需真实 S3 集成，请使用 `S3SdkStorage`（基于 `aws-sdk-s3`），
 //! 或基于 [`crate::storage::Storage`] trait 自行实现官方 SDK 接入。
 
 use crate::error::StorageError;
@@ -20,7 +20,7 @@ use tokio::sync::RwLock;
 /// AWS S3 存储后端（**Mock 实现**）
 ///
 /// ⚠️ 仅用于测试。所有数据存储在内存 `HashMap`，不与真实 S3 服务交互。
-/// 如需生产使用，请使用 [`crate::s3_sdk::S3SdkStorage`]。
+/// 如需生产使用，请使用 `S3SdkStorage`。
 pub struct S3Storage {
     pub bucket: String,
     pub region: String,

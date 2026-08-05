@@ -40,7 +40,9 @@ use tokio::net::TcpStream;
 use tokio::sync::Notify;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
-use sz_orm_core::{Connection, ConnectionFactory, DbError, QueryRows, QueryValues, Value};
+use sz_orm_core::{
+    Connection, ConnectionFactory, DbError, QueryRows, QueryStreamItem, QueryValues, Value,
+};
 use tiberius::{ColumnData, Row as MssqlRow, ToSql};
 
 /// tiberius 0.12 使用 futures_io traits,需通过 tokio-util compat 包装 tokio TcpStream
@@ -557,6 +559,51 @@ impl Connection for MssqlConnection {
                 Err(e) => {
                     self.mark_connection_error_after(&e);
                     Err(e)
+                }
+            }
+        })
+    }
+
+    /// G-SX-4：MSSQL 原生游标流式查询
+    ///
+    /// tiberius `simple_query` 返回 `QueryItem::Row` 的异步流，本方法直接
+    /// yield 每一行，避免默认实现将全部行收集到 Vec 再逐行返回。
+    /// 适用于大结果集场景，显著降低内存峰值。
+    fn query_stream<'a>(
+        &'a mut self,
+        sql: &'a str,
+    ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
+        Box::pin(async_stream::try_stream! {
+            if !self.connected {
+                Err(DbError::ConnectionError("connection closed".to_string()))?;
+            }
+            let mut guard = self.handle.acquire().await?;
+            let client = &mut *guard;
+            let mut stream = client.simple_query(sql).await.map_err(map_tiberius_error)?;
+            let mut col_names: Vec<String> = Vec::new();
+            let mut col_set = false;
+            while let Some(item_result) = stream.next().await {
+                match item_result {
+                    Ok(tiberius::QueryItem::Row(row)) => {
+                        if !col_set {
+                            for col in row.columns() {
+                                col_names.push(col.name().to_string());
+                            }
+                            col_set = true;
+                        }
+                        let mut row_map: HashMap<String, Value> = HashMap::new();
+                        for (i, col_name) in col_names.iter().enumerate() {
+                            let value = row_to_value(&row, i);
+                            row_map.insert(col_name.clone(), value);
+                        }
+                        yield row_map;
+                    }
+                    Ok(tiberius::QueryItem::Metadata(_)) => {
+                        // 元数据项，忽略（列信息从第一行提取）
+                    }
+                    Err(e) => {
+                        Err(map_tiberius_error(e))?;
+                    }
                 }
             }
         })

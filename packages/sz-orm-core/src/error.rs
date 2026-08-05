@@ -369,7 +369,7 @@ impl DbError {
     /// 映射到 gRPC 状态码
     ///
     /// 用于在 gRPC 服务（tonic）中根据数据库错误返回合适的 gRPC 状态码。
-    /// 参考：https://grpc.io/docs/guides/status-codes/
+    /// 参考：<https://grpc.io/docs/guides/status-codes/>
     /// - 2 UNKNOWN：查询失败、内部错误、钩子失败、迁移失败、IO 错误
     /// - 3 INVALID_ARGUMENT：非法输入、参数校验失败、配置错误
     /// - 4 DEADLINE_EXCEEDED：连接超时、连接池获取超时

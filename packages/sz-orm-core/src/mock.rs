@@ -180,11 +180,11 @@ impl MockConnection {
             .iter()
             .position(|e| e.sql.as_deref() == Some(sql))
         {
-            return Some(self.expectations.remove(pos).unwrap());
+            return Some(self.expectations.remove(pos).unwrap()); // SAFETY: pos 来自 position() 保证有效，remove 一定返回 Some
         }
         // Fallback 匹配
         if let Some(pos) = self.expectations.iter().position(|e| e.sql.is_none()) {
-            return Some(self.expectations.remove(pos).unwrap());
+            return Some(self.expectations.remove(pos).unwrap()); // SAFETY: pos 来自 position() 保证有效，remove 一定返回 Some
         }
         None
     }
@@ -274,6 +274,15 @@ impl Connection for MockConnection {
         Box::pin(async move { self.handle_query(sql) })
     }
 
+    fn query_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        _params: &'a [crate::value::Value],
+    ) -> Pin<Box<dyn Future<Output = Result<QueryRows, DbError>> + Send + 'a>> {
+        // MockConnection 将 query_with_params 委托给 query（mock 不实际绑定参数）
+        Box::pin(async move { self.handle_query(sql) })
+    }
+
     fn begin_transaction<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
@@ -288,9 +297,7 @@ impl Connection for MockConnection {
         })
     }
 
-    fn commit<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn commit<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             if !self.in_transaction {
                 return Err(DbError::Internal("MockConnection: 未开启事务".to_string()));
@@ -322,9 +329,7 @@ impl Connection for MockConnection {
         Box::pin(async move { true })
     }
 
-    fn close<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move { Ok(()) })
     }
 }
@@ -342,11 +347,14 @@ mod tests {
     async fn test_mock_connection_basic_query() {
         let mut mock = MockConnection::new();
         mock.expect_query("SELECT * FROM users")
-            .with_rows(vec![vec![("id", Value::from(1i64)), ("name", Value::from("Alice"))]]);
+            .with_rows(vec![vec![
+                ("id", Value::from(1i64)),
+                ("name", Value::from("Alice")),
+            ]]);
 
         let rows = mock.query("SELECT * FROM users").await.unwrap();
         assert_eq!(rows.len(), 1);
-        let row = rows.get(0).unwrap();
+        let row = rows.first().unwrap();
         assert_eq!(row.get("id"), Some(&Value::from(1i64)));
         assert_eq!(row.get("name"), Some(&Value::from("Alice")));
     }
@@ -477,17 +485,25 @@ mod tests {
     #[tokio::test]
     async fn test_mock_connection_multiple_rows() {
         let mut mock = MockConnection::new();
-        mock.expect_query("SELECT * FROM products")
-            .with_rows(vec![
-                vec![("id", Value::from(1i64)), ("name", Value::from("Widget"))],
-                vec![("id", Value::from(2i64)), ("name", Value::from("Gadget"))],
-                vec![("id", Value::from(3i64)), ("name", Value::from("Doohickey"))],
-            ]);
+        mock.expect_query("SELECT * FROM products").with_rows(vec![
+            vec![("id", Value::from(1i64)), ("name", Value::from("Widget"))],
+            vec![("id", Value::from(2i64)), ("name", Value::from("Gadget"))],
+            vec![
+                ("id", Value::from(3i64)),
+                ("name", Value::from("Doohickey")),
+            ],
+        ]);
 
         let rows = mock.query("SELECT * FROM products").await.unwrap();
         assert_eq!(rows.len(), 3);
-        assert_eq!(rows.get(0).unwrap().get("name"), Some(&Value::from("Widget")));
-        assert_eq!(rows.get(2).unwrap().get("name"), Some(&Value::from("Doohickey")));
+        assert_eq!(
+            rows.first().unwrap().get("name"),
+            Some(&Value::from("Widget"))
+        );
+        assert_eq!(
+            rows.get(2).unwrap().get("name"),
+            Some(&Value::from("Doohickey"))
+        );
     }
 
     #[tokio::test]
@@ -504,6 +520,9 @@ mod tests {
             .with_rows(vec![vec![("source", Value::from("exact"))]]);
 
         let rows = mock.query("SELECT exact").await.unwrap();
-        assert_eq!(rows.get(0).unwrap().get("source"), Some(&Value::from("exact")));
+        assert_eq!(
+            rows.first().unwrap().get("source"),
+            Some(&Value::from("exact"))
+        );
     }
 }

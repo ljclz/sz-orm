@@ -154,7 +154,7 @@ pub fn hydrate_scalar(rows: &[RowData]) -> HydrationResult<Vec<Value>> {
         let sorted = row.sorted_columns();
         let (_, first_value) = sorted
             .first()
-            .expect("sorted_columns is non-empty after is_empty check");
+            .expect("sorted_columns is non-empty after is_empty check"); // SAFETY: 前置 row.is_empty() 校验已 return，保证 sorted_columns 非空
         result.push((*first_value).clone());
     }
     Ok(result)
@@ -174,7 +174,7 @@ pub fn hydrate_single_scalar(rows: &[RowData]) -> HydrationResult<Value> {
     let sorted = row.sorted_columns();
     let (_, first_value) = sorted
         .first()
-        .expect("sorted_columns is non-empty after is_empty check");
+        .expect("sorted_columns is non-empty after is_empty check"); // SAFETY: 前置 row.is_empty() 校验已 return，保证 sorted_columns 非空
     Ok((*first_value).clone())
 }
 
@@ -216,7 +216,7 @@ pub fn hydrate(rows: &[RowData], mode: HydrationMode) -> HydrationResult<Vec<Val
             let sorted = first_row.sorted_columns();
             let first_col = sorted
                 .first()
-                .expect("sorted_columns is non-empty after is_empty check")
+                .expect("sorted_columns is non-empty after is_empty check") // SAFETY: 前置 first_row.is_empty() 校验已 return，保证 sorted_columns 非空
                 .0
                 .as_str();
             hydrate_column(rows, first_col)
@@ -724,7 +724,7 @@ fn mask_sql(sql: &str) -> String {
             let ch = sql[i..]
                 .chars()
                 .next()
-                .expect("i < bytes.len() guarantees non-empty slice");
+                .expect("i < bytes.len() guarantees non-empty slice"); // SAFETY: 循环条件 i < bytes.len() 保证 sql[i..] 非空，chars().next() 必返回 Some
             result.push(ch);
             i += ch.len_utf8();
         }

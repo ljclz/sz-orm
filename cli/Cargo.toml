@@ -17,6 +17,7 @@ sz-orm-sqlx = { version = "1.0.0", path = "../packages/sz-orm-sqlx" }
 tokio = { workspace = true, features = ["full"] }
 chrono = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
 toml = "0.8"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 

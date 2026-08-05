@@ -57,6 +57,9 @@ extern crate proc_macro;
 
 use proc_macro::{Delimiter, Group, Ident, Literal, Punct, Spacing, Span, TokenStream, TokenTree};
 
+#[cfg(feature = "db-verify")]
+use sqlx::Row as _;
+
 // 引入 quote! 宏，用于类型安全地构建 TokenStream
 use proc_macro2::TokenStream as TokenStream2;
 use quote::quote;
@@ -357,12 +360,14 @@ fn validate_no_injection(sql: &str) -> Result<(), String> {
 ///   joins, etc.).
 /// - Otherwise, falls back to syntax-only validation.
 ///
-/// Emits the validated SQL as a `&'static str` literal.
+/// Emits a [`sz_orm_core::queryable::Query`] object wrapping the validated SQL.
 ///
 /// # Syntax
 ///
 /// ```ignore
-/// let sql = query!("SELECT id, name FROM users WHERE id = ?");
+/// use sz_orm_core::queryable::Query;
+/// let q = query!("SELECT id, name FROM users WHERE id = ?");
+/// let rows = q.fetch_all(&mut conn).await?;
 /// ```
 ///
 /// # Verification setup
@@ -376,19 +381,61 @@ fn validate_no_injection(sql: &str) -> Result<(), String> {
 pub fn query(input: TokenStream) -> TokenStream {
     let mut tokens = input.into_iter().peekable();
 
-    // Parse the SQL string literal (same as sql_string!)
+    // P0-1：支持可选类型参数 `query!(T, "SQL")` → `QueryAs::<T>::new(sql)`
+    // 若无类型参数则保持 `query!("SQL")` → `Query::new(sql)`
+    let type_param: Option<TokenStream2> = match tokens.peek() {
+        Some(TokenTree::Ident(_)) | Some(TokenTree::Punct(_)) => {
+            // 收集类型路径（如 `User` 或 `crate::User`）
+            let mut ty_tokens = Vec::new();
+            while let Some(tok) = tokens.peek() {
+                match tok {
+                    TokenTree::Punct(p) if p.as_char() == ',' => break,
+                    TokenTree::Punct(p) if p.as_char() == ':' => {
+                        ty_tokens.push(tokens.next().unwrap());
+                        // 消耗 `:`
+                        if let Some(TokenTree::Punct(p2)) = tokens.peek() {
+                            if p2.as_char() == ':' {
+                                ty_tokens.push(tokens.next().unwrap());
+                            }
+                        }
+                    }
+                    _ => ty_tokens.push(tokens.next().unwrap()),
+                }
+            }
+            // 确认下一个 token 是逗号（类型参数分隔符）
+            match tokens.peek() {
+                Some(TokenTree::Punct(p)) if p.as_char() == ',' => {
+                    tokens.next(); // 消耗逗号
+                    let ts: proc_macro::TokenStream = ty_tokens.into_iter().collect();
+                    Some(TokenStream2::from(ts))
+                }
+                _ => None, // 不是类型参数，回退
+            }
+        }
+        _ => None,
+    };
+
+    // Parse the SQL string literal
     let sql = match tokens.next() {
         Some(TokenTree::Literal(lit)) => lit.to_string(),
         Some(other) => {
             return compile_error(
                 other.span(),
-                "Expected a string literal as the first argument to query!",
+                if type_param.is_some() {
+                    "query!(T, \"SQL\"): expected a string literal as the second argument"
+                } else {
+                    "Expected a string literal as the first argument to query!"
+                },
             );
         }
         None => {
             return compile_error(
                 Span::call_site(),
-                "Expected a string literal argument to query!",
+                if type_param.is_some() {
+                    "query!(T, \"SQL\"): missing SQL string argument"
+                } else {
+                    "Expected a string literal argument to query!"
+                },
             );
         }
     };
@@ -410,22 +457,59 @@ pub fn query(input: TokenStream) -> TokenStream {
 
     // Optional real DB verification (only when feature is enabled)
     #[cfg(feature = "db-verify")]
-    {
-        if std::env::var("SZ_ORM_QUERY_VERIFY").ok().as_deref() == Some("1") {
-            if let Err(err) = verify_with_real_db(sql_content) {
-                return compile_error(
-                    Span::call_site(),
-                    &format!("query! real DB verification failed: {}", err),
-                );
+    let verify_cols: Option<Vec<(String, String)>> = {
+        match std::env::var("SZ_ORM_QUERY_VERIFY").ok().as_deref() {
+            // 模式 1：连真 DB 执行 EXPLAIN 验证（需 DATABASE_URL），并获取 SELECT 列的实际类型
+            Some("1") => match verify_with_real_db(sql_content) {
+                Ok(cols) => Some(cols),
+                Err(err) => {
+                    return compile_error(
+                        Span::call_site(),
+                        &format!("query! real DB verification failed: {}", err),
+                    )
+                }
+            },
+            // 模式 cache：从离线缓存文件查找（无需 DB，适合 CI）
+            Some("cache") => {
+                if let Err(err) = verify_with_cache(sql_content) {
+                    return compile_error(
+                        Span::call_site(),
+                        &format!("query! offline cache verification failed: {}", err),
+                    );
+                }
+                None
             }
+            _ => None,
         }
-    }
+    };
+    #[cfg(not(feature = "db-verify"))]
+    let _verify_cols: Option<Vec<(String, String)>> = None;
 
-    // Emit the validated string as a &str literal
-    let output = format!("\"{}\"", sql_content.escape_default());
+    // Emit the appropriate query object
+    let escaped = sql_content.escape_default().to_string();
+    let base = if let Some(ref ty) = type_param {
+        // query!(T, "SQL") → QueryAs::<T>::new("SQL")
+        format!(
+            "::sz_orm_core::queryable::QueryAs::<{}>::new(\"{}\")",
+            ty, escaped
+        )
+    } else {
+        // query!("SQL") → Query::new("SQL")
+        format!("::sz_orm_core::queryable::Query::new(\"{}\")", escaped)
+    };
+    // db-verify 通过且有类型参数时，附加编译期类型验证块（P0-2）
+    #[cfg(feature = "db-verify")]
+    let output = match (&verify_cols, &type_param) {
+        (Some(cols), Some(ty)) if !cols.is_empty() => {
+            gen_compile_time_type_check(&ty.to_string(), sql_content, cols, &base)
+        }
+        _ => base,
+    };
+    #[cfg(not(feature = "db-verify"))]
+    let output = base;
     output
         .parse()
-        .unwrap_or_else(|_| compile_error(Span::call_site(), "Failed to generate output token"))
+        .unwrap_or_else(|_| compile_error(Span::call_site(), "Failed to generate query! output"))
 }
 
 /// Strip surrounding quotes from a string literal token's raw representation.
@@ -449,7 +533,7 @@ fn strip_string_literal(raw: &str) -> Option<&str> {
 // ---------------------------------------------------------------------------
 
 #[cfg(feature = "db-verify")]
-fn verify_with_real_db(sql: &str) -> Result<(), String> {
+fn verify_with_real_db(sql: &str) -> Result<Vec<(String, String)>, String> {
     let dsn = std::env::var("DATABASE_URL")
         .map_err(|_| "DATABASE_URL environment variable not set".to_string())?;
 
@@ -475,23 +559,89 @@ fn verify_with_real_db(sql: &str) -> Result<(), String> {
         let rt = tokio::runtime::Runtime::new()
             .map_err(|e| format!("Failed to create tokio runtime: {}", e))?;
         return rt.block_on(async {
+            // 1. EXPLAIN 语法验证
             if let DbKind::MySql = db_kind {
-                verify_mysql(&dsn, &explain_sql).await
+                verify_mysql(&dsn, &explain_sql).await?;
             } else if let DbKind::Postgres = db_kind {
-                verify_postgres(&dsn, &explain_sql).await
+                verify_postgres(&dsn, &explain_sql).await?;
             } else {
                 // 由外层 if matches! 保证此处必为 Sqlite
-                verify_sqlite(&dsn, &explain_sql).await
+                verify_sqlite(&dsn, &explain_sql).await?;
             }
+            // 2. 列名/类型验证（Gap 1 修复）
+            verify_columns(&dsn, db_kind, sql).await?;
+            // 3. 获取 SELECT 列的实际 DB 类型（供编译期类型验证使用）
+            //    SQLite/Oracle/SQL Server 返回空列表（跳过类型级验证）
+            fetch_column_types(&dsn, db_kind, sql).await
         });
     }
 
     // Oracle/SQL Server 走命令行工具验证（避免引入重依赖）
     if let DbKind::Oracle = db_kind {
-        verify_oracle(&dsn, &explain_sql)
+        verify_oracle(&dsn, &explain_sql).map(|_| Vec::new())
     } else {
         // 由外层 if matches! 保证此处必为 SqlServer
-        verify_sqlserver(&dsn, &explain_sql)
+        verify_sqlserver(&dsn, &explain_sql).map(|_| Vec::new())
+    }
+}
+
+/// 离线缓存验证：从 `SZ_ORM_SQLX_CACHE` 指定的 JSON 文件中查找已验证的 SQL。
+///
+/// 缓存文件格式为 JSON 字符串数组，每行一条已验证 SQL：
+/// ```json
+/// ["SELECT `id`, `name` FROM `users` WHERE `id` = ?", ...]
+/// ```
+///
+/// 生成方式：在有 DB 的环境中运行 `cargo build --features db-verify`（`SZ_ORM_QUERY_VERIFY=1`），
+/// 或使用 `cargo sz-orm prepare` 工具扫描项目中的 `query!` 宏并生成缓存。
+///
+/// CI 中只需设置 `SZ_ORM_QUERY_VERIFY=cache` + `SZ_ORM_SQLX_CACHE=.sz-orm/query-cache.json`
+/// 即可在不连接 DB 的情况下完成编译期 SQL 验证。
+#[cfg(feature = "db-verify")]
+fn verify_with_cache(sql: &str) -> Result<(), String> {
+    let cache_path = std::env::var("SZ_ORM_SQLX_CACHE").map_err(|_| {
+        "SZ_ORM_SQLX_CACHE not set. \
+             Set it to the path of a JSON file containing verified SQL statements, \
+             e.g. SZ_ORM_SQLX_CACHE=.sz-orm/query-cache.json"
+            .to_string()
+    })?;
+
+    let cache_content = std::fs::read_to_string(&cache_path).map_err(|e| {
+        format!(
+            "Failed to read cache file '{}': {}. \
+             Run `cargo sz-orm prepare` or build with SZ_ORM_QUERY_VERIFY=1 to generate it.",
+            cache_path, e
+        )
+    })?;
+
+    // 支持两种格式：JSON 数组 或 每行一条 SQL 的文本文件
+    let verified: Vec<String> = serde_json::from_str(&cache_content).unwrap_or_else(|_| {
+        cache_content
+            .lines()
+            .map(|l| l.trim().to_string())
+            .filter(|l| !l.is_empty() && !l.starts_with('#'))
+            .collect()
+    });
+
+    if verified.iter().any(|v| v.trim() == sql.trim()) {
+        Ok(())
+    } else {
+        Err(format!(
+            "SQL not found in offline cache ({} entries): \"{}\". \
+             Add it to the cache by running with SZ_ORM_QUERY_VERIFY=1 first.",
+            verified.len(),
+            truncate_sql(sql, 80)
+        ))
+    }
+}
+
+/// 截断 SQL 用于错误消息显示
+#[cfg(feature = "db-verify")]
+fn truncate_sql(sql: &str, max: usize) -> String {
+    if sql.len() <= max {
+        sql.to_string()
+    } else {
+        format!("{}...", &sql[..max])
     }
 }
 
@@ -594,6 +744,597 @@ async fn verify_sqlite(dsn: &str, explain_sql: &str) -> Result<(), String> {
         .await
         .map_err(|e| format!("SQLite EXPLAIN failed: {}", e))?;
     Ok(())
+}
+
+// ========================================================================
+// Gap 1 修复：列名/类型验证（在 EXPLAIN 语法验证通过后执行）
+// ========================================================================
+
+/// 从 SQL 中提取表名和列引用，并查询 information_schema 验证列存在性。
+///
+/// EXPLAIN 已验证语法和表存在性；此函数进一步验证：
+/// - SELECT/WHERE/ORDER BY/GROUP BY 中引用的列是否存在于对应表中
+/// - 不验证表别名限定的列（由 EXPLAIN 负责）
+/// - 仅对 `*` 以外的显式列名做验证
+///
+/// # 支持的 DB
+///
+/// MySQL / PostgreSQL / SQLite（Oracle/SQL Server 跳过此步骤）
+#[cfg(feature = "db-verify")]
+async fn verify_columns(dsn: &str, db_kind: DbKind, sql: &str) -> Result<(), String> {
+    // SQLite 的 information_schema 支持有限，跳过
+    if matches!(db_kind, DbKind::Sqlite | DbKind::Oracle | DbKind::SqlServer) {
+        return Ok(());
+    }
+
+    let tables = extract_tables(sql);
+    let columns = extract_columns(sql);
+
+    if tables.is_empty() || columns.is_empty() {
+        return Ok(());
+    }
+
+    match db_kind {
+        DbKind::MySql => verify_columns_mysql(dsn, &tables, &columns, sql).await,
+        DbKind::Postgres => verify_columns_postgres(dsn, &tables, &columns, sql).await,
+        _ => Ok(()),
+    }
+}
+
+/// 从 SQL 的 FROM 子句中提取表名（支持别名和 JOIN）
+#[cfg(feature = "db-verify")]
+fn extract_tables(sql: &str) -> Vec<String> {
+    let mut tables = Vec::new();
+    let upper = sql.to_uppercase();
+
+    // 查找 FROM ... WHERE/ORDER/GROUP/LIMIT/HAVING/JOIN 之间的内容
+    let from_idx = match upper.find("FROM") {
+        Some(i) => i,
+        None => return tables,
+    };
+
+    let end_patterns = ["WHERE", "ORDER", "GROUP", "LIMIT", "HAVING", "UNION"];
+    let end_idx = end_patterns
+        .iter()
+        .filter_map(|p| {
+            // 按单词边界查找，避免 "ORDER" 误匹配 "user_id" 等标识符中的子串
+            let mut search_start = 0;
+            while let Some(i) = upper[search_start..].find(*p) {
+                let abs_i = search_start + i;
+                let before = upper[..abs_i].chars().last().unwrap_or(' ');
+                let after = upper[abs_i + p.len()..].chars().next().unwrap_or(' ');
+                if !before.is_alphanumeric()
+                    && !after.is_alphanumeric()
+                    && before != '_'
+                    && after != '_'
+                {
+                    return Some(abs_i);
+                }
+                search_start = abs_i + p.len();
+            }
+            None
+        })
+        .filter(|&i| i > from_idx)
+        .min()
+        .unwrap_or(sql.len());
+
+    let from_clause = &sql[from_idx + 4..end_idx];
+
+    // 按逗号、换行、JOIN 关键字分割（忽略大小写）
+    let join_split = {
+        let lower = from_clause.to_lowercase();
+        let mut result = String::with_capacity(from_clause.len());
+        let mut i = 0;
+        let bytes = from_clause.as_bytes();
+        let lower_bytes = lower.as_bytes();
+        while i < bytes.len() {
+            let mut matched = false;
+            for join_kw in &[
+                " join ",
+                " inner join ",
+                " left join ",
+                " right join ",
+                " left outer join ",
+                " right outer join ",
+                " cross join ",
+                " full join ",
+                " full outer join ",
+            ] {
+                let kw = join_kw.as_bytes();
+                if i + kw.len() <= bytes.len() && &lower_bytes[i..i + kw.len()] == kw {
+                    result.push(',');
+                    i += kw.len();
+                    matched = true;
+                    break;
+                }
+            }
+            if !matched {
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+        }
+        result
+    };
+    let parts: Vec<&str> = join_split.split([',', '\n']).collect();
+
+    for part in parts {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        // 取第一个词作为表名（忽略别名）
+        let table_word = part
+            .split_whitespace()
+            .next()
+            .unwrap_or(part)
+            .trim_end_matches([',', ';']);
+        // 去除反引号/双引号
+        let clean = table_word.trim_matches(|c| c == '`' || c == '"');
+        if !clean.is_empty()
+            && !matches!(
+                clean.to_uppercase().as_str(),
+                "INNER"
+                    | "LEFT"
+                    | "RIGHT"
+                    | "OUTER"
+                    | "CROSS"
+                    | "FULL"
+                    | "NATURAL"
+                    | "ON"
+                    | "USING"
+                    | "AS"
+            )
+        {
+            tables.push(clean.to_lowercase());
+        }
+    }
+
+    tables
+}
+
+/// 从 SQL 中提取未限定的列名引用（SELECT/WHERE/ORDER BY/GROUP BY 中）
+#[cfg(feature = "db-verify")]
+fn extract_columns(sql: &str) -> Vec<String> {
+    let mut columns = Vec::new();
+    let upper = sql.to_uppercase();
+
+    // 收集各子句中的标识符
+    let mut collect_from_segment = |segment: &str| {
+        // 简单的标识符提取：匹配 `\w+` 模式的词
+        // 排除 SQL 关键字和已限定的列（table.col）
+        let keywords = [
+            "SELECT",
+            "FROM",
+            "WHERE",
+            "AND",
+            "OR",
+            "NOT",
+            "IN",
+            "IS",
+            "NULL",
+            "LIKE",
+            "BETWEEN",
+            "AS",
+            "ON",
+            "JOIN",
+            "INNER",
+            "LEFT",
+            "RIGHT",
+            "OUTER",
+            "CROSS",
+            "FULL",
+            "NATURAL",
+            "ORDER",
+            "BY",
+            "GROUP",
+            "HAVING",
+            "LIMIT",
+            "OFFSET",
+            "ASC",
+            "DESC",
+            "DISTINCT",
+            "COUNT",
+            "SUM",
+            "AVG",
+            "MIN",
+            "MAX",
+            "CASE",
+            "WHEN",
+            "THEN",
+            "ELSE",
+            "END",
+            "COALESCE",
+            "NULLIF",
+            "CAST",
+            "TRUE",
+            "FALSE",
+            "INSERT",
+            "INTO",
+            "VALUES",
+            "UPDATE",
+            "SET",
+            "DELETE",
+            "CREATE",
+            "TABLE",
+            "INDEX",
+            "IF",
+            "EXISTS",
+            "PRIMARY",
+            "KEY",
+            "REFERENCES",
+            "FOREIGN",
+        ];
+
+        for word in segment.split(|c: char| !c.is_alphanumeric() && c != '_') {
+            if word.is_empty() || word.len() < 2 {
+                continue;
+            }
+            let w = word.to_uppercase();
+            if keywords.contains(&w.as_str()) {
+                continue;
+            }
+            // 跳过纯数字
+            if word.chars().all(|c| c.is_ascii_digit()) {
+                continue;
+            }
+            // 跳过已限定的列（table.col）— 这些由 EXPLAIN 验证
+            // 检查前面是否有 `.`
+            let pos = segment.find(word).unwrap_or(0);
+            if pos > 0 && segment.chars().nth(pos - 1) == Some('.') {
+                continue;
+            }
+            // 跳过 *
+            if word == "*" {
+                continue;
+            }
+            let lower = word.to_lowercase();
+            if !columns.contains(&lower) {
+                columns.push(lower);
+            }
+        }
+    };
+
+    // 收集 SELECT 列（FROM 之前）
+    if let Some(from_idx) = upper.find("FROM") {
+        if let Some(sel_idx) = upper.find("SELECT") {
+            let sel_segment = &sql[sel_idx + 6..from_idx];
+            collect_from_segment(sel_segment);
+        }
+    }
+
+    // 收集 WHERE 列
+    if let Some(where_idx) = upper.find("WHERE") {
+        let end_idx = ["ORDER", "GROUP", "LIMIT", "HAVING", "UNION"]
+            .iter()
+            .filter_map(|p| upper.find(p))
+            .filter(|&i| i > where_idx)
+            .min()
+            .unwrap_or(sql.len());
+        collect_from_segment(&sql[where_idx + 5..end_idx]);
+    }
+
+    // 收集 ORDER BY 列
+    if let Some(order_idx) = upper.find("ORDER BY") {
+        let end_idx = ["GROUP", "LIMIT", "HAVING", "UNION"]
+            .iter()
+            .filter_map(|p| upper.find(p))
+            .filter(|&i| i > order_idx)
+            .min()
+            .unwrap_or(sql.len());
+        collect_from_segment(&sql[order_idx + 8..end_idx]);
+    }
+
+    columns
+}
+
+#[cfg(feature = "db-verify")]
+async fn verify_columns_mysql(
+    dsn: &str,
+    tables: &[String],
+    columns: &[String],
+    sql: &str,
+) -> Result<(), String> {
+    let pool = sqlx::MySqlPool::connect(dsn)
+        .await
+        .map_err(|e| format!("MySQL connect failed: {}", e))?;
+
+    for col in columns {
+        // 查询 information_schema.COLUMNS
+        let rows = sqlx::query(
+            "SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS \
+             WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = ?",
+        )
+        .bind(col)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("MySQL column lookup failed for '{}': {}", col, e))?;
+
+        if rows.is_empty() {
+            // 尝试检查是否是数据库函数（如 NOW, COUNT 等）
+            if is_sql_function(col) {
+                continue;
+            }
+            return Err(format!(
+                "query! column verification failed: column '{}' not found in any table of the current database. \
+                 SQL: {}",
+                col,
+                truncate_sql(sql, 120)
+            ));
+        }
+
+        // 验证列至少存在于一个 FROM 表中（如果有表信息）
+        if !tables.is_empty() {
+            let found_in_table = rows.iter().any(|row| {
+                let table_name: String = row.get("TABLE_NAME");
+                tables.iter().any(|t| t == &table_name.to_lowercase())
+            });
+            if !found_in_table {
+                let available: Vec<String> = rows.iter().map(|r| r.get("TABLE_NAME")).collect();
+                return Err(format!(
+                    "query! column verification failed: column '{}' exists but not in FROM table(s) {:?}. \
+                     Found in: {:?}. SQL: {}",
+                    col,
+                    tables,
+                    available,
+                    truncate_sql(sql, 120)
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+#[cfg(feature = "db-verify")]
+async fn verify_columns_postgres(
+    dsn: &str,
+    tables: &[String],
+    columns: &[String],
+    sql: &str,
+) -> Result<(), String> {
+    let pool = sqlx::PgPool::connect(dsn)
+        .await
+        .map_err(|e| format!("PostgreSQL connect failed: {}", e))?;
+
+    for col in columns {
+        let rows = sqlx::query(
+            "SELECT TABLE_NAME, COLUMN_NAME FROM INFORMATION_SCHEMA.COLUMNS \
+             WHERE TABLE_CATALOG = CURRENT_CATALOG AND COLUMN_NAME = $1",
+        )
+        .bind(col)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("PostgreSQL column lookup failed for '{}': {}", col, e))?;
+
+        if rows.is_empty() && !is_sql_function(col) {
+            return Err(format!(
+                "query! column verification failed: column '{}' not found in any table of the current database. \
+                 SQL: {}",
+                col,
+                truncate_sql(sql, 120)
+            ));
+        }
+
+        if !tables.is_empty() && !rows.is_empty() {
+            let found_in_table = rows.iter().any(|row| {
+                let table_name: String = row.get("TABLE_NAME");
+                tables.iter().any(|t| t == &table_name.to_lowercase())
+            });
+            if !found_in_table {
+                let available: Vec<String> = rows.iter().map(|r| r.get("TABLE_NAME")).collect();
+                return Err(format!(
+                    "query! column verification failed: column '{}' exists but not in FROM table(s) {:?}. \
+                     Found in: {:?}. SQL: {}",
+                    col, tables, available,
+                    truncate_sql(sql, 120)
+                ));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// 列类型获取（P0-2）
+//
+// 获取 SELECT 列的实际 DB 类型（列名 → 类型名），由 `query_as!`/`query!(T, ...)`
+// 宏嵌入到生成的编译期验证代码中：用户代码在 const 上下文中将实际类型与
+// 结构体 `__sz_orm_column_types()` 期望值对比，不匹配即编译失败。
+// ---------------------------------------------------------------------------
+
+/// 获取 SELECT 列的实际 DB 类型列表 `(列名, DATA_TYPE/udt_name)`。
+///
+/// 仅 MySQL/PostgreSQL 支持（SQLite/Oracle/SQL Server 返回空列表，跳过类型级验证）。
+#[cfg(feature = "db-verify")]
+async fn fetch_column_types(
+    dsn: &str,
+    db_kind: DbKind,
+    sql: &str,
+) -> Result<Vec<(String, String)>, String> {
+    if !matches!(db_kind, DbKind::MySql | DbKind::Postgres) {
+        return Ok(Vec::new());
+    }
+
+    let tables = extract_tables(sql);
+    let columns = extract_columns(sql);
+    if tables.is_empty() || columns.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    match db_kind {
+        DbKind::MySql => fetch_column_types_mysql(dsn, &tables, &columns).await,
+        DbKind::Postgres => fetch_column_types_postgres(dsn, &tables, &columns).await,
+        _ => Ok(Vec::new()),
+    }
+}
+
+#[cfg(feature = "db-verify")]
+async fn fetch_column_types_mysql(
+    dsn: &str,
+    tables: &[String],
+    columns: &[String],
+) -> Result<Vec<(String, String)>, String> {
+    let pool = sqlx::MySqlPool::connect(dsn)
+        .await
+        .map_err(|e| format!("MySQL connect failed for type fetch: {}", e))?;
+
+    let mut result = Vec::new();
+    for col in columns {
+        let rows = sqlx::query(
+            "SELECT TABLE_NAME, COLUMN_NAME, DATA_TYPE \
+             FROM INFORMATION_SCHEMA.COLUMNS \
+             WHERE TABLE_SCHEMA = DATABASE() AND COLUMN_NAME = ?",
+        )
+        .bind(col)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("MySQL type lookup failed for '{}': {}", col, e))?;
+
+        // 取 FROM 表中的类型（多表同名列时取第一个匹配）
+        let ty = rows
+            .iter()
+            .find(|row| {
+                let tn: String = row.get("TABLE_NAME");
+                tables.iter().any(|t| t == &tn.to_lowercase())
+            })
+            .and_then(|r| r.try_get::<String, _>("DATA_TYPE").ok());
+        if let Some(ty) = ty {
+            result.push((col.to_lowercase(), ty));
+        }
+    }
+    Ok(result)
+}
+
+#[cfg(feature = "db-verify")]
+async fn fetch_column_types_postgres(
+    dsn: &str,
+    tables: &[String],
+    columns: &[String],
+) -> Result<Vec<(String, String)>, String> {
+    let pool = sqlx::PgPool::connect(dsn)
+        .await
+        .map_err(|e| format!("PostgreSQL connect failed for type fetch: {}", e))?;
+
+    let mut result = Vec::new();
+    for col in columns {
+        let rows = sqlx::query(
+            "SELECT TABLE_NAME, COLUMN_NAME, udt_name \
+             FROM INFORMATION_SCHEMA.COLUMNS \
+             WHERE TABLE_CATALOG = CURRENT_CATALOG AND COLUMN_NAME = $1",
+        )
+        .bind(col)
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("PostgreSQL type lookup failed for '{}': {}", col, e))?;
+
+        let ty = rows
+            .iter()
+            .find(|row| {
+                let tn: String = row.get("TABLE_NAME");
+                tables.iter().any(|t| t == &tn.to_lowercase())
+            })
+            .and_then(|r| r.try_get::<String, _>("udt_name").ok());
+        if let Some(ty) = ty {
+            result.push((col.to_lowercase(), ty));
+        }
+    }
+    Ok(result)
+}
+
+/// 生成编译期类型验证代码块：`{ const _: () = { ...检查... }; <查询表达式> }`。
+///
+/// 验证逻辑在 const 上下文中执行（`panic!` 触发即编译失败，实现真正的编译期拦截）：
+/// 1. 列数必须与结构体字段数一致；
+/// 2. 每个 SELECT 列名必须存在于结构体字段中（与 `__sz_orm_column_types()` 对比）；
+/// 3. 每个列的实际 DB 类型必须与结构体字段类型兼容（`__sz_orm_const_types_compatible`）。
+///
+/// `record_type` 为 `query_as!` 第一个参数（如 `User` / `crate::User`），
+/// 生成的代码通过 `<记录类型>::__sz_orm_column_types()` 引用 derive 宏生成的
+/// const fn（因此记录类型必须 `#[derive(FromQueryResult)]`）。
+#[cfg(feature = "db-verify")]
+fn gen_compile_time_type_check(
+    record_type: &str,
+    sql: &str,
+    cols: &[(String, String)],
+    query_expr: &str,
+) -> String {
+    let n = cols.len();
+    let sql_esc = sql.escape_default().to_string();
+    let mut checks = String::new();
+    checks.push_str(&format!(
+        "if exp.len() != {} {{ panic!(\"sz-orm compile-time type check failed for `{}`: SELECT returns {} columns but struct field count differs\"); }}",
+        n, sql_esc, n
+    ));
+    for (i, (name, ty)) in cols.iter().enumerate() {
+        let name_esc = name.escape_default().to_string();
+        let ty_esc = ty.escape_default().to_string();
+        checks.push_str(&format!(
+            "if !::sz_orm_core::__sz_orm_const_str_eq(exp[{}].0, \"{}\") {{ panic!(\"sz-orm compile-time type check failed for `{}`: SELECT column #{} `{}` not found in struct fields\"); }}",
+            i, name_esc, sql_esc, i, name_esc
+        ));
+        checks.push_str(&format!(
+            "if !::sz_orm_core::__sz_orm_const_types_compatible(\"{}\", exp[{}].1) {{ panic!(\"sz-orm compile-time type check failed for `{}`: column `{}` type mismatch (db type `{}` not compatible with struct field type)\"); }}",
+            ty_esc, i, sql_esc, name_esc, ty_esc
+        ));
+    }
+    format!(
+        "{{ const _: () = {{ let exp = <{}>::__sz_orm_column_types(); {} }}; {} }}",
+        record_type, checks, query_expr
+    )
+}
+
+/// 常见 SQL 函数名列表（不应作为列名验证）
+#[cfg(feature = "db-verify")]
+fn is_sql_function(name: &str) -> bool {
+    matches!(
+        name.to_uppercase().as_str(),
+        "NOW"
+            | "CURRENT_TIMESTAMP"
+            | "CURRENT_DATE"
+            | "CURRENT_TIME"
+            | "COUNT"
+            | "SUM"
+            | "AVG"
+            | "MIN"
+            | "MAX"
+            | "COALESCE"
+            | "NULLIF"
+            | "CAST"
+            | "CONVERT"
+            | "IFNULL"
+            | "NVL"
+            | "UPPER"
+            | "LOWER"
+            | "LENGTH"
+            | "TRIM"
+            | "SUBSTRING"
+            | "CONCAT"
+            | "REPLACE"
+            | "ROUND"
+            | "CEIL"
+            | "FLOOR"
+            | "ABS"
+            | "MOD"
+            | "POWER"
+            | "SQRT"
+            | "LOG"
+            | "EXP"
+            | "DATE"
+            | "YEAR"
+            | "MONTH"
+            | "DAY"
+            | "HOUR"
+            | "MINUTE"
+            | "SECOND"
+            | "NOW()"
+            | "UUID"
+            | "RANDOM"
+            | "MD5"
+            | "TRUE"
+            | "FALSE"
+            | "NULL"
+    )
 }
 
 /// Oracle 编译期验证：通过 sqlplus 命令行工具执行 EXPLAIN PLAN FOR
@@ -1207,6 +1948,144 @@ fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
 /// }
 /// ```
 #[proc_macro]
+/// 类型化裸 SQL 查询宏（SQLx `query_as!` 风格）。
+///
+/// 用法：`query_as!(RecordType, "SELECT col1, col2 FROM table WHERE id = ?")`
+///
+/// 生成 `sz_orm_core::queryable::QueryAs::<RecordType>::new("SELECT ...")`。
+/// 在 `db-verify` feature + `SZ_ORM_QUERY_VERIFY=1` 环境下会连真 DB
+/// 执行 EXPLAIN 验证 SQL 合法性。
+///
+/// **运行时列名验证**（P0-2）：`QueryAs::fetch_all` 会比对 DB 返回的列名
+/// 与 `RecordType::row_desc()`（由 `#[derive(FromQueryResult)]` 自动生成）。
+/// 若 SQL SELECT 列不在 struct 字段中，返回 `DbError::QueryError`。
+///
+/// # 示例
+///
+/// ```ignore
+/// #[derive(FromQueryResult)]
+/// struct User { id: i64, name: String }
+///
+/// let q = query_as!(User, "SELECT id, name FROM users WHERE id = 1");
+/// let users: Vec<User> = q.fetch_all(&mut conn).await?;
+/// ```
+pub fn query_as(input: TokenStream) -> TokenStream {
+    let mut tokens = input.into_iter().peekable();
+
+    // 解析记录类型（第一个标识符/路径，如 User 或 crate::User）
+    let mut record_type = String::new();
+    loop {
+        match tokens.next() {
+            Some(TokenTree::Ident(ident)) => {
+                record_type.push_str(&ident.to_string());
+            }
+            Some(TokenTree::Punct(p)) if p.as_char() == ':' => {
+                // 处理 :: 路径分隔符
+                record_type.push_str("::");
+                // 跳过第二个 :
+                if let Some(TokenTree::Punct(p2)) = tokens.peek() {
+                    if p2.as_char() == ':' {
+                        let _ = tokens.next();
+                    }
+                }
+            }
+            Some(TokenTree::Punct(p)) if p.as_char() == ',' => break,
+            Some(TokenTree::Punct(p)) if p.as_char() == ',' => break,
+            Some(other) => {
+                return compile_error(
+                    other.span(),
+                    "query_as! 第一个参数必须是记录类型，如 query_as!(User, \"SELECT ...\")",
+                );
+            }
+            None => {
+                return compile_error(
+                    Span::call_site(),
+                    "query_as! 需要两个参数：query_as!(RecordType, \"SELECT ...\")",
+                );
+            }
+        }
+    }
+
+    // 解析 SQL 字符串字面量
+    let sql_raw = match tokens.next() {
+        Some(TokenTree::Literal(lit)) => lit.to_string(),
+        Some(other) => {
+            return compile_error(other.span(), "query_as! 第二个参数必须是 SQL 字符串字面量");
+        }
+        None => {
+            return compile_error(
+                Span::call_site(),
+                "query_as! 需要两个参数：query_as!(RecordType, \"SELECT ...\")",
+            );
+        }
+    };
+
+    let sql_content = match strip_string_literal(&sql_raw) {
+        Some(s) => s,
+        None => {
+            return compile_error(Span::call_site(), "query_as! 的 SQL 参数必须是字符串字面量");
+        }
+    };
+
+    // 语法验证
+    if let Err(err_msg) = validate_sql_content(sql_content, None) {
+        return compile_error(Span::call_site(), &err_msg);
+    }
+
+    // db-verify 验证
+    #[cfg(feature = "db-verify")]
+    let verify_cols: Option<Vec<(String, String)>> = {
+        match std::env::var("SZ_ORM_QUERY_VERIFY").ok().as_deref() {
+            // 模式 1：连真 DB 执行 EXPLAIN 验证，并获取 SELECT 列的实际类型
+            Some("1") => match verify_with_real_db(sql_content) {
+                Ok(cols) => Some(cols),
+                Err(err) => {
+                    return compile_error(
+                        Span::call_site(),
+                        &format!("query_as! real DB verification failed: {}", err),
+                    )
+                }
+            },
+            // 模式 cache：从离线缓存文件查找（无需 DB，适合 CI）
+            Some("cache") => {
+                if let Err(err) = verify_with_cache(sql_content) {
+                    return compile_error(
+                        Span::call_site(),
+                        &format!("query_as! offline cache verification failed: {}", err),
+                    );
+                }
+                None
+            }
+            _ => None,
+        }
+    };
+    #[cfg(not(feature = "db-verify"))]
+    let _verify_cols: Option<Vec<(String, String)>> = None;
+
+    // 生成 QueryAs::<T>::new("...")
+    // db-verify 通过时，附加编译期类型验证块（P0-2）：
+    // const 上下文中将 DB 实际列类型与结构体 __sz_orm_column_types() 对比，
+    // 不匹配则 const panic → 编译失败。
+    let escaped = sql_content.escape_default();
+    let base = format!(
+        "::sz_orm_core::queryable::QueryAs::<{}>::new(\"{}\")",
+        record_type, escaped
+    );
+    #[cfg(feature = "db-verify")]
+    let output = match &verify_cols {
+        Some(cols) if !cols.is_empty() => {
+            gen_compile_time_type_check(&record_type, sql_content, cols, &base)
+        }
+        _ => base,
+    };
+    #[cfg(not(feature = "db-verify"))]
+    let output = base;
+    output
+        .parse()
+        .unwrap_or_else(|_| compile_error(Span::call_site(), "Failed to generate query_as output"))
+}
+
+#[proc_macro]
 pub fn schema(input: TokenStream) -> TokenStream {
     let mut tokens = input.into_iter().peekable();
 
@@ -1657,6 +2536,148 @@ pub fn derive_from_query_result(input: TokenStream) -> TokenStream {
 }
 
 // ---------------------------------------------------------------------------
+// `#[derive(ColumnEnum)]` — auto-generate column name enum (P2-2)
+// ---------------------------------------------------------------------------
+
+/// 派生宏：从结构体字段自动生成 `<StructName>Column` 列名枚举（P2-2）。
+///
+/// 每个字段生成一个变体（snake_case → CamelCase），通过 `ColumnTrait::as_str()`
+/// 返回数据库列名；`#[column(name = "...")]` 可覆盖列名（与 FromQueryResult 一致）。
+/// 同时实现 `std::fmt::Display`。
+///
+/// # 示例
+///
+/// ```rust,ignore
+/// use sz_orm_macros::ColumnEnum;
+/// use sz_orm_core::ColumnTrait;
+///
+/// #[derive(ColumnEnum)]
+/// struct User {
+///     id: i64,
+///     #[column(name = "user_name")]
+///     name: String,
+/// }
+///
+/// assert_eq!(UserColumn::Id.as_str(), "id");
+/// assert_eq!(UserColumn::Name.as_str(), "user_name");
+/// assert_eq!(UserColumn::Id.to_string(), "id");
+/// ```
+#[proc_macro_derive(ColumnEnum, attributes(column))]
+pub fn derive_column_enum(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_column_enum_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(FromRow)]` — auto-generate `impl FromRow for Struct`
+// ---------------------------------------------------------------------------
+
+/// 派生宏：自动生成 `sz_orm_core::queryable::FromRow` trait 实现。
+///
+/// 从 `HashMap<String, Value>` 按列名反序列化为结构体实例。
+/// 与 `FromQueryResult` 的区别在于错误类型为 `QueryError`（含列信息），
+/// 适合需要精确错误定位的底层场景。
+///
+/// # 支持的属性
+///
+/// - `#[column(name = "...")]` — 覆盖列名映射（默认使用字段名）
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::FromRow;
+///
+/// #[derive(FromRow)]
+/// struct User {
+///     id: i64,
+///     name: String,
+///     #[column(name = "user_email")]
+///     email: Option<String>,
+/// }
+/// ```
+#[proc_macro_derive(FromRow, attributes(column))]
+pub fn derive_from_row(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_from_row_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(SqlType)]` — auto-generate `impl FromQueryResult + to_value()` for enums
+// ---------------------------------------------------------------------------
+
+/// 派生宏：为 Rust 枚举自动生成 `sz_orm_core::FromQueryResult` trait 实现
+/// 和 `to_value()` 方法。
+///
+/// 这是 sz-orm 对 SQLx `#[derive(Type)]` 的等效实现：
+/// 让自定义枚举可以直接用于查询结果的字段映射和查询参数的绑定。
+///
+/// # 支持的属性
+///
+/// - `#[sql_type(rename_all = "snake_case")]` — 控制变体名的序列化格式
+///   （snake_case / SCREAMING_SNAKE_CASE / camelCase / PascalCase / lowercase / UPPERCASE）
+/// - `#[sql_type(rename = "...")]`（变体级）— 覆盖单个变体的序列化名
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::SqlType;
+///
+/// #[derive(SqlType)]
+/// enum Status {
+///     Active,    // → "active"
+///     Inactive,  // → "inactive"
+/// }
+///
+/// let v = Status::Active.to_value();  // Value::String("active")
+/// ```
+#[proc_macro_derive(SqlType, attributes(sql_type))]
+pub fn derive_sql_type(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_sql_type_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(Relation)]` — auto-generate `impl ModelExt` with relations()
+// ---------------------------------------------------------------------------
+
+/// 派生宏：自动生成 `sz_orm_core::model::ModelExt` trait 实现，
+/// 填充 `relations()` 映射，消除手写关系样板代码。
+///
+/// # 支持的属性
+///
+/// - `#[relation(has_many = "orders", fk = "user_id", pk = "id")]`
+/// - `#[relation(belongs_to = "users", fk = "user_id", pk = "id")]`
+/// - `#[relation(has_one = "profile", fk = "user_id", pk = "id")]`
+/// - `#[relation(belongs_to_many = "roles", junction = "user_roles", fk = "user_id", other_key = "role_id", target = "roles", target_pk = "id")]`
+/// - `#[relation(morph_many = "comments", morph_type = "commentable_type", morph_id = "commentable_id", morph_type_value = "Post")]`
+/// - `#[relation(morph_to, morph_type = "commentable_type", morph_id = "commentable_id")]`
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::{Entity, Relation};
+///
+/// #[derive(Entity, Relation)]
+/// #[table(name = "users")]
+/// struct User {
+///     #[column(primary_key)]
+///     id: i64,
+/// }
+///
+/// // 自动生成：
+/// // impl ModelExt for User {
+/// //     fn relations() -> HashMap<&str, Relation> {
+/// //         // 包含 #[relation] 定义的关系
+/// //     }
+/// // }
+/// ```
+#[proc_macro_derive(Relation, attributes(relation, table, column))]
+pub fn derive_relation(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_relation_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests — cover helper functions used by both macros
 // ---------------------------------------------------------------------------
 
@@ -2058,5 +3079,59 @@ mod tests {
     #[test]
     fn test_parse_create_table_error_no_parens() {
         assert!(parse_create_table("CREATE TABLE foo").is_err());
+    }
+
+    // -----------------------------------------------------------------------
+    // Gap 1 测试：列名/表名提取
+    // -----------------------------------------------------------------------
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_extract_tables_simple() {
+        let tables = extract_tables("SELECT id, name FROM users WHERE id = ?");
+        assert!(tables.contains(&"users".to_string()));
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_extract_tables_multiple() {
+        let tables = extract_tables(
+            "SELECT u.id, o.total FROM users u JOIN orders o ON u.id = o.user_id WHERE u.id = ?",
+        );
+        assert!(tables.contains(&"users".to_string()));
+        assert!(tables.contains(&"orders".to_string()));
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_extract_columns_select_and_where() {
+        let cols =
+            extract_columns("SELECT id, name FROM users WHERE email = ? ORDER BY created_at");
+        // id, name from SELECT; email from WHERE; created_at from ORDER BY
+        assert!(cols.contains(&"id".to_string()));
+        assert!(cols.contains(&"name".to_string()));
+        assert!(cols.contains(&"email".to_string()));
+        assert!(cols.contains(&"created_at".to_string()));
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_extract_columns_skips_keywords() {
+        let cols = extract_columns("SELECT COUNT(id), name FROM users WHERE status = ?");
+        // COUNT is a function, should be skipped
+        assert!(!cols.contains(&"count".to_string()));
+        assert!(cols.contains(&"id".to_string()));
+        assert!(cols.contains(&"name".to_string()));
+        assert!(cols.contains(&"status".to_string()));
+    }
+
+    #[cfg(feature = "db-verify")]
+    #[test]
+    fn test_is_sql_function() {
+        assert!(is_sql_function("COUNT"));
+        assert!(is_sql_function("now"));
+        assert!(is_sql_function("COALESCE"));
+        assert!(!is_sql_function("name"));
+        assert!(!is_sql_function("user_id"));
     }
 }

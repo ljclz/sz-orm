@@ -3,6 +3,8 @@
 //! 针对输入边界、恶意输入、SQL 注入进行随机测试
 //! 使用自定义伪随机数生成器，不依赖外部 fuzz 库
 
+#![allow(deprecated)]
+
 mod common;
 
 use common::Rng;

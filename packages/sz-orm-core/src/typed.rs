@@ -92,6 +92,52 @@ pub const fn _schema_lookup(_schema: &[(&str, &str)], _col: &str) -> Option<&'st
     None
 }
 
+// ========================================================================
+// M3 修复：多列类型安全 SELECT 宏
+// ========================================================================
+
+/// 类型安全多列 SELECT 宏（M3 验收标准）
+///
+/// 解决 Rust 无法将异构类型放入同一数组的限制，
+/// 允许一次性指定多个 `TypedColumn` 类型作为 SELECT 列。
+///
+/// # 用法
+///
+/// ```ignore
+/// use sz_orm_core::select_typed;
+/// use sz_orm_core::typed::{TypedColumn, TypedTable};
+///
+/// // 假设已定义 UserColId / UserColName / UserColEmail
+/// let (sql, params) = select_typed!(query, UserColId, UserColName, UserColEmail)
+///     .build_select_with_params();
+/// // 生成：SELECT id, name, email FROM users
+/// ```
+///
+/// # 编译期保证
+///
+/// 每个参数必须是实现了 `TypedColumn` 的类型。
+/// 若传入非 `TypedColumn` 类型，编译期即报错。
+///
+/// # 与 `select_typed` 方法的关系
+///
+/// `QueryBuilder::select_typed::<Col>()` 是单列版本，需链式调用：
+/// ```ignore
+/// query.select_typed::<Col1>().select_typed::<Col2>().select_typed::<Col3>()
+/// ```
+/// 本宏将其简化为：
+/// ```ignore
+/// select_typed!(query, Col1, Col2, Col3)
+/// ```
+#[macro_export]
+macro_rules! select_typed {
+    ($query:expr, $col:ty) => {
+        $query.select_typed::<$col>()
+    };
+    ($query:expr, $col:ty, $($cols:ty),+) => {
+        $crate::select_typed!($query.select_typed::<$col>(), $($cols),+)
+    };
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -164,5 +210,72 @@ mod tests {
         // 占位函数总是返回 None（实际查找由宏展开完成）
         let schema: &[(&str, &str)] = &[("id", "i64"), ("name", "String")];
         assert_eq!(_schema_lookup(schema, "id"), None);
+    }
+
+    // ---- M3 宏测试 ----
+
+    use crate::db_type::DbType;
+    use crate::dialect::get_dialect;
+
+    /// Mock Model for macro tests (uses "users" table)
+    #[derive(Debug, Clone, Default)]
+    struct MockModel;
+    impl crate::model::Model for MockModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "users"
+        }
+        fn pk_name() -> &'static str {
+            "id"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+        fn timestamp_fields() -> Option<crate::model::TimestampFields> {
+            None
+        }
+        fn soft_delete_field() -> Option<&'static str> {
+            None
+        }
+    }
+
+    struct MockColEmail;
+    impl TypedColumn for MockColEmail {
+        const NAME: &'static str = "email";
+        type Table = MockUsersTable;
+        type RustType = String;
+        type SqlType = crate::typed_ast::Untyped;
+    }
+
+    #[test]
+    fn test_select_typed_macro_single_column() {
+        // 单列：select_typed!(q, Col) → q.select_typed::<Col>()
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let q = crate::QueryBuilder::<MockModel>::new(dialect);
+        let (sql, _params) =
+            select_typed!(q.select(Vec::new()), MockColId).build_select_with_params();
+        assert_eq!(sql, "SELECT id FROM `users`");
+    }
+
+    #[test]
+    fn test_select_typed_macro_multi_column() {
+        // 多列：select_typed!(q, Col1, Col2) → q.select_typed::<Col1>().select_typed::<Col2>()
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let q = crate::QueryBuilder::<MockModel>::new(dialect);
+        let (sql, _params) =
+            select_typed!(q.select(Vec::new()), MockColId, MockColName).build_select_with_params();
+        assert_eq!(sql, "SELECT id, name FROM `users`");
+    }
+
+    #[test]
+    fn test_select_typed_macro_three_columns() {
+        // 三列宏展开
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let q = crate::QueryBuilder::<MockModel>::new(dialect);
+        let (sql, _params) =
+            select_typed!(q.select(Vec::new()), MockColId, MockColName, MockColEmail)
+                .build_select_with_params();
+        assert_eq!(sql, "SELECT id, name, email FROM `users`");
     }
 }

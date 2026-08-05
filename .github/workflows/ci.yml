@@ -126,9 +126,14 @@ jobs:
 
       - name: Build workspace
         run: cargo build --workspace --all-targets --verbose
+        env:
+          CARGO_INCREMENTAL: ${{ matrix.os == 'windows-latest' && '0' || '1' }}
 
       - name: Build documentation (all platforms, skip --all-features to avoid pulsar/rdkafka native deps)
         run: cargo doc --workspace --no-deps
+        env:
+          CARGO_INCREMENTAL: ${{ matrix.os == 'windows-latest' && '0' || '1' }}
+          RUSTDOCFLAGS: ${{ matrix.os == 'windows-latest' && '-C link-arg=/STACK:8388608' || '' }}
 
   # ============================================================================
   # Job 2.5: cargo-hack — 每个 feature 独立编译验证
@@ -801,17 +806,17 @@ jobs:
       - name: Install cargo-fuzz
         run: cargo install cargo-fuzz --locked
 
-      - name: Run fuzz target: query_builder (60s)
+      - name: "Run fuzz target: query_builder (60s)"
         run: |
           cd fuzz
           cargo +nightly fuzz run query_builder -- -max_total_time=60 -max_len=4096
 
-      - name: Run fuzz target: value_escape (60s)
+      - name: "Run fuzz target: value_escape (60s)"
         run: |
           cd fuzz
           cargo +nightly fuzz run value_escape -- -max_total_time=60 -max_len=4096
 
-      - name: Run fuzz target: pool_config (60s)
+      - name: "Run fuzz target: pool_config (60s)"
         run: |
           cd fuzz
           cargo +nightly fuzz run pool_config -- -max_total_time=60 -max_len=256

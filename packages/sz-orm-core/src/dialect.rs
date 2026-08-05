@@ -2,7 +2,7 @@
 //!
 //! 为数据库特定的 SQL 语法提供统一接口
 
-use crate::db_type::DbType;
+pub use crate::db_type::DbType;
 use crate::error::DbError;
 use std::fmt;
 
@@ -21,6 +21,9 @@ pub const MAX_IDENTIFIER_LEN: usize = 63;
 ///
 /// 实现者负责处理各数据库特有的 SQL 语法差异
 pub trait Dialect: Send + Sync {
+    /// 克隆为 trait object（用于 `QueryBuilder::clone_for_count`）。
+    fn clone_box(&self) -> Box<dyn Dialect>;
+
     /// 返回该方言对应的数据库类型
     fn db_type(&self) -> DbType;
 
@@ -152,9 +155,14 @@ pub enum TableChange {
 }
 
 /// MySQL 方言实现
+#[derive(Debug, Clone)]
 pub struct MySqlDialect;
 
 impl Dialect for MySqlDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(MySqlDialect)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::MySQL
     }
@@ -359,9 +367,14 @@ impl Dialect for MySqlDialect {
 }
 
 /// PostgreSQL 方言实现
+#[derive(Debug, Clone)]
 pub struct PostgreSqlDialect;
 
 impl Dialect for PostgreSqlDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(PostgreSqlDialect)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::PostgreSQL
     }
@@ -573,9 +586,14 @@ impl Dialect for PostgreSqlDialect {
 }
 
 /// SQLite 方言实现
+#[derive(Debug, Clone)]
 pub struct SqliteDialect;
 
 impl Dialect for SqliteDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(SqliteDialect)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::Sqlite
     }
@@ -835,9 +853,14 @@ fn map_to_oracle_type(sql_type: &str) -> String {
 }
 
 /// Oracle 方言实现（Oracle 23ai）
+#[derive(Debug, Clone)]
 pub struct OracleDialect;
 
 impl Dialect for OracleDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(OracleDialect)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::Oracle
     }
@@ -1076,9 +1099,14 @@ fn map_to_sqlserver_type(sql_type: &str) -> String {
 }
 
 /// SQL Server 方言实现（SQL Server 2012+ / T-SQL）
+#[derive(Debug, Clone)]
 pub struct SqlServerDialect;
 
 impl Dialect for SqlServerDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(SqlServerDialect)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::SqlServer
     }
@@ -1297,9 +1325,14 @@ impl Dialect for SqlServerDialect {
 macro_rules! delegate_dialect_to {
     ($wrapper:ident, $base:ident, $db_type:expr) => {
         /// 兼容方言（委派给基础方言实现）
+        #[derive(Debug, Clone)]
         pub struct $wrapper;
 
         impl Dialect for $wrapper {
+            fn clone_box(&self) -> Box<dyn Dialect> {
+                Box::new($wrapper)
+            }
+
             fn db_type(&self) -> DbType {
                 $db_type
             }
@@ -1392,9 +1425,14 @@ delegate_dialect_to!(GBaseDialect, SqlServerDialect, DbType::GBase);
 // ============================================================================
 
 /// ClickHouse 方言实现（列式 OLAP 数据库）
+#[derive(Debug, Clone)]
 pub struct ClickHouseDialect;
 
 impl Dialect for ClickHouseDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(ClickHouseDialect)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::ClickHouse
     }
@@ -1624,9 +1662,14 @@ fn map_to_clickhouse_type(sql_type: &str) -> String {
 // ============================================================================
 
 /// IBM DB2 LUW 方言实现
+#[derive(Debug, Clone)]
 pub struct Db2Dialect;
 
 impl Dialect for Db2Dialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(Db2Dialect)
+    }
+
     fn db_type(&self) -> DbType {
         DbType::Db2
     }

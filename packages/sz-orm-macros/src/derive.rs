@@ -44,7 +44,7 @@
 //! ```
 
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{format_ident, quote};
+use quote::{format_ident, quote, ToTokens};
 use syn::{Attribute, Data, DeriveInput, Expr, Fields, Lit, Type};
 
 // ---------------------------------------------------------------------------
@@ -354,13 +354,18 @@ pub fn derive_from_query_result_impl(input: DeriveInput) -> TokenStream2 {
     };
 
     let mut field_inits = Vec::new();
+    let mut col_names: Vec<String> = Vec::new();
+    let mut col_type_pairs: Vec<TokenStream2> = Vec::new();
 
     for field in fields.iter() {
         let field_ident = field.ident.as_ref().unwrap();
         let field_name = field_ident.to_string();
         let col_attr = parse_column_attr(&field.attrs);
         let col_name = col_attr.name.clone().unwrap_or(field_name.clone());
+        col_names.push(col_name.clone());
         let field_ty = &field.ty;
+        let sql_type = rust_type_to_sql_type(field_ty);
+        col_type_pairs.push(quote! { (#col_name, #sql_type) });
         let is_option = extract_option_inner(field_ty).is_some();
 
         if is_option {
@@ -368,7 +373,7 @@ pub fn derive_from_query_result_impl(input: DeriveInput) -> TokenStream2 {
             field_inits.push(quote! {
                 #field_ident: {
                     match row.get(#col_name) {
-                        Some(::sz_orm_core::value::Value::Null) | None => ::std::option::Option::None,
+                        Some(::sz_orm_core::Value::Null) | None => ::std::option::Option::None,
                         Some(v) => {
                             <#field_ty as ::sz_orm_core::FromQueryResult>::from_value(v)
                                 .map_err(|e| format!("字段 `{}`: {}", #col_name, e))?
@@ -399,8 +404,148 @@ pub fn derive_from_query_result_impl(input: DeriveInput) -> TokenStream2 {
     let expanded = quote! {
         impl ::sz_orm_core::FromQueryResult for #struct_name {
             fn from_query_result(
-                row: &std::collections::HashMap<String, ::sz_orm_core::value::Value>,
+                row: &std::collections::HashMap<String, ::sz_orm_core::Value>,
             ) -> ::std::result::Result<Self, ::std::string::String> {
+                ::std::result::Result::Ok(#struct_name {
+                    #(#field_inits,)*
+                })
+            }
+
+            fn row_desc() -> Vec<&'static str> {
+                vec![#(#col_names),*]
+            }
+
+            fn column_types() -> &'static [(&'static str, &'static str)] {
+                &[#(#col_type_pairs),*]
+            }
+        }
+
+        impl #struct_name {
+            /// 编译期列类型元数据（const fn，供 `query_as!` 宏在 `db-verify` 模式下
+            /// 做编译期列名/列类型交叉验证）。
+            ///
+            /// 与 trait 方法 `column_types()` 数据一致，但可在 const 上下文中调用，
+            /// 使 `query_as!` 生成的 `const _: () = { ... }` 验证块能引用它：
+            /// 验证失败时 const panic 直接导致编译失败（编译期拦截类型不匹配）。
+            #[doc(hidden)]
+            pub const fn __sz_orm_column_types() -> &'static [(&'static str, &'static str)] {
+                &[#(#col_type_pairs),*]
+            }
+        }
+    };
+
+    expanded
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(FromRow)]` — auto-generate `impl FromRow for Struct`
+// ---------------------------------------------------------------------------
+
+/// `#[derive(FromRow)]` 派生宏入口
+///
+/// 为结构体自动生成 `sz_orm_core::queryable::FromRow` trait 实现，
+/// 从 `HashMap<String, Value>` 按列名反序列化为结构体实例。
+///
+/// 与 `#[derive(FromQueryResult)]` 的区别：
+/// - `FromRow` 使用 `QueryError` 错误类型（含列索引/类型信息），适合底层使用
+/// - `FromQueryResult` 使用 `String` 错误类型，适合业务层使用
+///
+/// 支持字段级 `#[column(name = "...")]` 覆盖列名映射。
+/// `Option<T>` 字段在列缺失或值为 NULL 时自动返回 `None`。
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::FromRow;
+///
+/// #[derive(FromRow)]
+/// struct User {
+///     id: i64,
+///     name: String,
+///     #[column(name = "user_email")]
+///     email: Option<String>,
+/// }
+/// ```
+pub fn derive_from_row_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag(
+        "derive(FromRow)",
+        &format!("target struct: {}", input.ident),
+    );
+
+    let struct_name = &input.ident;
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(named) => &named.named,
+            _ => {
+                return syn_error_to_compile_error(syn::Error::new_spanned(
+                    struct_name,
+                    "FromRow 仅支持命名字段结构体（struct Foo { a: T }）",
+                ))
+            }
+        },
+        _ => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "FromRow 仅支持 struct，不支持 enum / union",
+            ))
+        }
+    };
+
+    let mut field_inits = Vec::new();
+
+    for field in fields.iter() {
+        let field_ident = field.ident.as_ref().unwrap();
+        let field_name = field_ident.to_string();
+        let col_attr = parse_column_attr(&field.attrs);
+        let col_name = col_attr.name.clone().unwrap_or(field_name.clone());
+        let field_ty = &field.ty;
+        let is_option = extract_option_inner(field_ty).is_some();
+
+        if is_option {
+            field_inits.push(quote! {
+                #field_ident: {
+                    match row.get(#col_name) {
+                        Some(::sz_orm_core::Value::Null) | None => ::std::option::Option::None,
+                        Some(v) => {
+                            <#field_ty as ::sz_orm_core::FromQueryResult>::from_value(v)
+                                .map_err(|e| ::sz_orm_core::queryable::QueryError::TypeMismatch {
+                                    column: ::std::borrow::Cow::Borrowed(#col_name),
+                                    expected: ::std::stringify!(#field_ty),
+                                })?
+                        }
+                    }
+                }
+            });
+        } else {
+            field_inits.push(quote! {
+                #field_ident: {
+                    match row.get(#col_name) {
+                        Some(v) => {
+                            <#field_ty as ::sz_orm_core::FromQueryResult>::from_value(v)
+                                .map_err(|e| ::sz_orm_core::queryable::QueryError::TypeMismatch {
+                                    column: ::std::borrow::Cow::Borrowed(#col_name),
+                                    expected: ::std::stringify!(#field_ty),
+                                })?
+                        }
+                        None => {
+                            return ::std::result::Result::Err(
+                                ::sz_orm_core::queryable::QueryError::MissingColumn {
+                                    column: #col_name,
+                                }
+                            );
+                        }
+                    }
+                }
+            });
+        }
+    }
+
+    let expanded = quote! {
+        impl ::sz_orm_core::queryable::FromRow for #struct_name {
+            fn from_row(
+                row: std::collections::HashMap<String, ::sz_orm_core::Value>,
+            ) -> ::std::result::Result<Self, ::sz_orm_core::queryable::QueryError> {
                 ::std::result::Result::Ok(#struct_name {
                     #(#field_inits,)*
                 })
@@ -409,6 +554,218 @@ pub fn derive_from_query_result_impl(input: DeriveInput) -> TokenStream2 {
     };
 
     expanded
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(SqlType)]` — auto-generate `impl FromQueryResult + to_value()` for enums
+// ---------------------------------------------------------------------------
+
+/// `#[derive(SqlType)]` 派生宏入口
+///
+/// 为 Rust 枚举自动生成 `sz_orm_core::FromQueryResult` trait 实现（从 `Value` 反序列化）
+/// 和 `to_value(&self) -> Value` 方法（序列化到 `Value`）。
+///
+/// 这是 sz-orm 对 SQLx `#[derive(Type)]` 的等效实现：
+/// 让自定义枚举可以直接用于查询结果的字段映射和查询参数的绑定。
+///
+/// # 支持的属性
+///
+/// - `#[sql_type(rename_all = "snake_case")]` — 控制变体名的序列化格式
+///   - `lowercase` / `UPPERCASE` / `PascalCase` / `camelCase` / `snake_case` / `SCREAMING_SNAKE_CASE`
+///   - 默认为 `snake_case`（`Status::Active` → `"active"`）
+/// - `#[sql_type(rename = "...")]`（变体级）— 覆盖单个变体的序列化名
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::SqlType;
+///
+/// #[derive(SqlType)]
+/// enum Status {
+///     Active,      // → "active"
+///     Inactive,    // → "inactive"
+///     Pending,     // → "pending"
+/// }
+///
+/// let v = Status::Active.to_value();  // Value::String("active")
+/// ```
+pub fn derive_sql_type_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag("derive(SqlType)", &format!("target: {}", input.ident));
+
+    let type_name = &input.ident;
+
+    // 解析 #[sql_type(rename_all = "...")]
+    let rename_all = parse_sql_type_attr(&input.attrs);
+
+    match &input.data {
+        Data::Enum(data) => generate_sql_type_for_enum(type_name, &data.variants, rename_all),
+        _ => syn_error_to_compile_error(syn::Error::new_spanned(
+            type_name,
+            "SqlType 目前仅支持 enum（枚举类型映射到 Value::String）",
+        )),
+    }
+}
+
+/// 解析 `#[sql_type(rename_all = "...")]` 属性
+fn parse_sql_type_attr(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("sql_type") {
+            attr.parse_nested_meta(|meta| {
+                if meta.path.is_ident("rename_all") {
+                    let value = meta.value()?;
+                    let _lit: syn::LitStr = value.parse()?;
+                    return Ok(());
+                }
+                Ok(())
+            })
+            .ok();
+            // 简化：直接从 attr tokens 提取字符串
+            let tokens = attr.meta.require_list().ok()?.to_token_stream().to_string();
+            if let Some(start) = tokens.find('"') {
+                if let Some(end) = tokens[start + 1..].find('"') {
+                    return Some(tokens[start + 1..start + 1 + end].to_string());
+                }
+            }
+        }
+    }
+    None
+}
+
+/// 将变体名按 rename_all 规则转换
+fn apply_rename(name: &str, rule: Option<&str>) -> String {
+    match rule.unwrap_or("snake_case") {
+        "snake_case" => to_snake_case(name),
+        "SCREAMING_SNAKE_CASE" => to_snake_case(name).to_uppercase(),
+        "camelCase" => {
+            let s = to_snake_case(name);
+            let mut chars = s.chars();
+            match chars.next() {
+                Some(first) => {
+                    let mut result = first.to_lowercase().to_string();
+                    let mut prev_underscore = false;
+                    for c in chars {
+                        if c == '_' {
+                            prev_underscore = true;
+                            continue;
+                        }
+                        result.push(if prev_underscore {
+                            c.to_ascii_uppercase()
+                        } else {
+                            c
+                        });
+                        prev_underscore = false;
+                    }
+                    result
+                }
+                None => s,
+            }
+        }
+        "PascalCase" => {
+            let mut result = String::new();
+            let mut upper_next = true;
+            for c in name.chars() {
+                if c == '_' {
+                    upper_next = true;
+                    continue;
+                }
+                result.push(if upper_next {
+                    c.to_ascii_uppercase()
+                } else {
+                    c
+                });
+                upper_next = false;
+            }
+            result
+        }
+        "lowercase" => name.to_lowercase(),
+        "UPPERCASE" => name.to_uppercase(),
+        _ => name.to_string(),
+    }
+}
+
+/// 为枚举生成 SqlType 实现
+fn generate_sql_type_for_enum(
+    type_name: &syn::Ident,
+    variants: &syn::punctuated::Punctuated<syn::Variant, syn::token::Comma>,
+    rename_all: Option<String>,
+) -> TokenStream2 {
+    // 仅支持单元变体（无字段）
+    let mut match_arms_from: Vec<TokenStream2> = Vec::new();
+    let mut match_arms_to: Vec<TokenStream2> = Vec::new();
+
+    for variant in variants.iter() {
+        // 只支持单元变体（无字段）
+        if !matches!(variant.fields, syn::Fields::Unit) {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                &variant.fields,
+                "SqlType 枚举仅支持单元变体（如 Active，不支持 Active(String)）",
+            ));
+        }
+
+        let var_ident = &variant.ident;
+        let var_name = var_ident.to_string();
+
+        // 检查变体级 #[sql_type(rename = "...")]
+        let serialized_name = parse_sql_type_variant_rename(&variant.attrs)
+            .unwrap_or_else(|| apply_rename(&var_name, rename_all.as_deref()));
+
+        match_arms_from.push(quote! {
+            #serialized_name => ::std::result::Result::Ok(#type_name::#var_ident),
+        });
+
+        match_arms_to.push(quote! {
+            #type_name::#var_ident => ::sz_orm_core::Value::String(#serialized_name.to_string()),
+        });
+    }
+
+    let expanded = quote! {
+        impl ::sz_orm_core::FromQueryResult for #type_name {
+            fn from_value(value: &::sz_orm_core::Value) -> ::std::result::Result<Self, ::std::string::String> {
+                match value {
+                    ::sz_orm_core::Value::String(s) => {
+                        match s.as_str() {
+                            #(#match_arms_from)*
+                            other => ::std::result::Result::Err(
+                                ::std::format!("无法将 '{}' 反序列化为 {}", other, ::std::stringify!(#type_name))
+                            ),
+                        }
+                    }
+                    ::sz_orm_core::Value::Null => ::std::result::Result::Err(
+                        "NULL 值不能反序列化为非 Option 枚举类型".to_string()
+                    ),
+                    other => ::std::result::Result::Err(
+                        ::std::format!("期望 String 类型，实际得到 {:?}", other)
+                    ),
+                }
+            }
+        }
+
+        impl #type_name {
+            /// 将枚举值转换为 `Value`，用于查询参数绑定
+            pub fn to_value(&self) -> ::sz_orm_core::Value {
+                match self {
+                    #(#match_arms_to)*
+                }
+            }
+        }
+    };
+
+    expanded
+}
+
+/// 解析变体级 `#[sql_type(rename = "...")]`
+fn parse_sql_type_variant_rename(attrs: &[Attribute]) -> Option<String> {
+    for attr in attrs {
+        if attr.path().is_ident("sql_type") {
+            let tokens = attr.meta.require_list().ok()?.to_token_stream().to_string();
+            if let Some(start) = tokens.find('"') {
+                if let Some(end) = tokens[start + 1..].find('"') {
+                    return Some(tokens[start + 1..start + 1 + end].to_string());
+                }
+            }
+        }
+    }
+    None
 }
 
 // ---------------------------------------------------------------------------
@@ -497,6 +854,53 @@ pub fn derive_entity_impl(input: DeriveInput) -> TokenStream2 {
 
     let pk_col_name_lit = proc_macro2::Literal::string(&pk_col_name);
 
+    // G-SO-2：自动为 #[derive(Entity)] 生成 <StructName>Column 枚举（ColumnTrait），
+    // 无需用户额外添加 #[derive(ColumnEnum)]。跳过 #[column(skip)] 字段。
+    let mut col_variants: Vec<syn::Ident> = Vec::new();
+    let mut col_as_str_arms: Vec<TokenStream2> = Vec::new();
+    for field in fields.iter() {
+        let field_ident = field.ident.as_ref().unwrap();
+        let col_attr = parse_column_attr(&field.attrs);
+        if col_attr.skip {
+            continue;
+        }
+        let col_name = col_attr
+            .name
+            .clone()
+            .unwrap_or_else(|| field_ident.to_string());
+        let variant = syn::Ident::new(
+            &snake_to_camel(&field_ident.to_string()),
+            field_ident.span(),
+        );
+        col_variants.push(variant.clone());
+        col_as_str_arms.push(quote! { Self::#variant => #col_name, });
+    }
+    let enum_name = syn::Ident::new(&format!("{}Column", struct_name), struct_name.span());
+    let column_enum_impl = if col_variants.is_empty() {
+        quote! {}
+    } else {
+        quote! {
+            #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+            #[allow(dead_code)]
+            pub enum #enum_name {
+                #(#col_variants),*
+            }
+
+            impl ::sz_orm_core::ColumnTrait for #enum_name {
+                fn as_str(&self) -> &'static str {
+                    match self { #(#col_as_str_arms)* }
+                }
+                fn all() -> Vec<Self> { vec![#(Self::#col_variants),*] }
+            }
+
+            impl std::fmt::Display for #enum_name {
+                fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                    write!(f, "{}", ::sz_orm_core::ColumnTrait::as_str(self))
+                }
+            }
+        }
+    };
+
     let expanded = quote! {
         #[allow(clippy::wrong_self_convention)]
         impl ::sz_orm_core::Model for #struct_name {
@@ -518,6 +922,8 @@ pub fn derive_entity_impl(input: DeriveInput) -> TokenStream2 {
                 self.#pk_ident = pk;
             }
         }
+
+        #column_enum_impl
     };
 
     expanded
@@ -705,9 +1111,469 @@ fn to_snake_case(s: &str) -> String {
 }
 
 // ---------------------------------------------------------------------------
-// 单元测试
+// `#[derive(Relation)]` — auto-generate `impl ModelExt` with relations()
 // ---------------------------------------------------------------------------
 
+/// 关系属性解析结果
+#[derive(Default)]
+struct RelationAttr {
+    kind: Option<String>, // has_many / belongs_to / has_one / belongs_to_many / morph_many / morph_to
+    model: Option<String>, // 关联模型名（运行时字符串值）
+    fk: Option<String>,   // 外键列名
+    pk: Option<String>,   // 关联主键列名（默认 "id"）
+    other_key: Option<String>, // 多对多：中间表另一侧键
+    junction: Option<String>, // 多对多：中间表名
+    target: Option<String>, // 多对多：目标模型
+    target_pk: Option<String>, // 多对多：目标主键
+    morph_type: Option<String>, // 多态：类型列
+    morph_id: Option<String>, // 多态：ID 列
+    morph_type_value: Option<String>, // 多态：类型标识值
+}
+
+/// 解析 `#[relation(...)]` 属性
+fn parse_relation_attr(attrs: &[Attribute]) -> Vec<RelationAttr> {
+    let mut results = Vec::new();
+    for attr in attrs {
+        if !attr.path().is_ident("relation") {
+            continue;
+        }
+        let tokens = match &attr.meta {
+            syn::Meta::List(list) => &list.tokens,
+            _ => continue,
+        };
+        // 手动解析逗号分隔的 key[ = value] 对，避免 parse_nested_meta 对
+        // `key = "string"` 语法的限制（它把 = 右侧当作表达式，导致 "Post" 被当作路径）
+        let mut attr_obj = RelationAttr::default();
+        let mut found = false;
+        let parse_result: Result<(), syn::Error> = (|| {
+            let stream = tokens.clone();
+            let mut cursor = stream.into_iter().peekable();
+            while let Some(tok) = cursor.next() {
+                let key = match tok {
+                    proc_macro2::TokenTree::Ident(id) => id.to_string(),
+                    proc_macro2::TokenTree::Punct(p) if p.as_char() == ',' => continue,
+                    other => {
+                        return Err(syn::Error::new(other.span(), "expected identifier or ','"))
+                    }
+                };
+                // 跳过可选的 '='
+                let val_tok = if let Some(proc_macro2::TokenTree::Punct(p)) = cursor.peek() {
+                    if p.as_char() == '=' {
+                        cursor.next(); // consume '='
+                        cursor.next() // consume value
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                };
+                match key.as_str() {
+                    "has_many" | "belongs_to" | "has_one" | "belongs_to_many" | "morph_many"
+                    | "morph_to" => {
+                        attr_obj.kind = Some(key.to_string());
+                        if let Some(v) = val_tok {
+                            attr_obj.model = Some(match v {
+                                proc_macro2::TokenTree::Ident(id) => id.to_string(),
+                                proc_macro2::TokenTree::Literal(lit) => {
+                                    let s = lit.to_string();
+                                    if s.starts_with('"') && s.ends_with('"') {
+                                        s[1..s.len() - 1].to_string()
+                                    } else {
+                                        return Err(syn::Error::new(
+                                            lit.span(),
+                                            "expected string literal or identifier",
+                                        ));
+                                    }
+                                }
+                                other => {
+                                    return Err(syn::Error::new(
+                                        other.span(),
+                                        "expected string literal or identifier",
+                                    ))
+                                }
+                            });
+                        }
+                        found = true;
+                    }
+                    "fk" | "foreign_key" => {
+                        attr_obj.fk = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "pk" | "parent_pk" | "child_pk" => {
+                        attr_obj.pk = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "other_key" => {
+                        attr_obj.other_key = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "junction" | "junction_table" => {
+                        attr_obj.junction = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "target" | "target_model" => {
+                        attr_obj.target = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "target_pk" => {
+                        attr_obj.target_pk = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "morph_type" => {
+                        attr_obj.morph_type = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "morph_id" => {
+                        attr_obj.morph_id = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    "morph_type_value" => {
+                        attr_obj.morph_type_value = val_tok.map(extract_str_lit).transpose()?;
+                    }
+                    _ => {}
+                }
+            }
+            Ok(())
+        })();
+        if parse_result.is_ok() && found {
+            results.push(attr_obj);
+        }
+    }
+    results
+}
+
+/// 从 TokenTree 中提取字符串字面量的内容（去引号）
+fn extract_str_lit(tok: proc_macro2::TokenTree) -> Result<String, syn::Error> {
+    match tok {
+        proc_macro2::TokenTree::Literal(lit) => {
+            let s = lit.to_string();
+            if s.starts_with('"') && s.ends_with('"') {
+                Ok(s[1..s.len() - 1].to_string())
+            } else {
+                Err(syn::Error::new(lit.span(), "expected string literal"))
+            }
+        }
+        other => Err(syn::Error::new(other.span(), "expected string literal")),
+    }
+}
+
+/// 从关系名（Rust 字段名）推断默认外键列名
+///
+/// 规则：`orders` → `order_id`，`user_profile` → `user_profile_id`
+fn infer_fk_from_name(name: &str) -> String {
+    // 去掉尾部 's'（复数形式），加 `_id`
+    let stem = name.strip_suffix('s').unwrap_or(name);
+    format!("{}_id", stem)
+}
+
+/// `#[derive(Relation)]` 派生宏入口
+///
+/// 自动生成 `impl ModelExt for Struct`，填充 `relations()` 映射。
+/// 每个 `#[relation(...)]` 属性对应一条关系定义。
+///
+/// # 支持的属性格式
+///
+/// ```ignore
+/// #[relation(has_many = "orders", fk = "user_id", pk = "id")]
+/// #[relation(belongs_to = "users", fk = "user_id", pk = "id")]
+/// #[relation(has_one = "profiles", fk = "user_id", pk = "id")]
+/// #[relation(belongs_to_many = "roles", junction = "user_roles",
+///            fk = "user_id", other_key = "role_id", target = "roles", target_pk = "id")]
+/// #[relation(morph_many = "comments", morph_type = "commentable_type",
+///            morph_id = "commentable_id", morph_type_value = "Post")]
+/// #[relation(morph_to, morph_type = "commentable_type", morph_id = "commentable_id")]
+/// ```
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::{Entity, Relation};
+///
+/// #[derive(Entity, Relation)]
+/// #[table(name = "users")]
+/// struct User {
+///     #[column(primary_key)]
+///     id: i64,
+/// }
+///
+/// // 自动生成 relations() 包含 "orders" → HasMany { ... }
+/// ```
+pub fn derive_relation_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag(
+        "derive(Relation)",
+        &format!("target struct: {}", input.ident),
+    );
+
+    let struct_name = &input.ident;
+    let rel_attrs = parse_relation_attr(&input.attrs);
+
+    let table_name =
+        parse_table_attr(&input.attrs).unwrap_or_else(|| to_snake_case(&struct_name.to_string()));
+
+    // 从结构体字段提取列名（用于 columns()/fillable()）
+    let fields = match &input.data {
+        syn::Data::Struct(s) => &s.fields,
+        _ => &syn::Fields::Named(syn::FieldsNamed {
+            brace_token: Default::default(),
+            named: Default::default(),
+        }),
+    };
+    let col_idents: Vec<&syn::Ident> = fields.iter().filter_map(|f| f.ident.as_ref()).collect();
+    let col_strs: Vec<String> = col_idents.iter().map(|id| id.to_string()).collect();
+    // fillable = 所有非主键字段
+    let pk_name = fields
+        .iter()
+        .find(|f| parse_column_attr(&f.attrs).primary_key)
+        .and_then(|f| f.ident.as_ref())
+        .map(|id| id.to_string());
+    let fillable_strs: Vec<String> = col_strs
+        .iter()
+        .filter(|s| pk_name.as_ref().map(|pk| *s != pk).unwrap_or(true))
+        .cloned()
+        .collect();
+
+    let mut map_inserts = Vec::new();
+    for (i, attr) in rel_attrs.iter().enumerate() {
+        // rel_name 用作 HashMap<&'static str, Relation> 的 key；
+        // 必须用 LitStr 生成字符串字面量（Ident 会产生变量引用导致 E0425）
+        let rel_name_str = attr
+            .model
+            .clone()
+            .unwrap_or_else(|| format!("relation_{}", i));
+        let rel_name_lit = syn::LitStr::new(&rel_name_str, proc_macro2::Span::call_site());
+        let kind = attr.kind.as_deref().unwrap_or("has_many");
+        let fk_default = infer_fk_from_name(match kind {
+            "has_many" => "orders",
+            "has_one" => "profile",
+            _ => "fk",
+        });
+        let fk = attr.fk.clone().unwrap_or_else(|| fk_default.clone());
+        let pk = attr.pk.clone().unwrap_or_else(|| "id".to_string());
+        let rel_expr = match kind {
+            "has_many" => {
+                let child = attr.model.clone().unwrap_or_else(|| table_name.clone());
+                quote! {
+                    ::sz_orm_core::Relation::HasMany(::sz_orm_core::HasMany {
+                        foreign_key: #fk.to_string(),
+                        child_model: #child.to_string(),
+                        child_pk: #pk.to_string(),
+                    })
+                }
+            }
+            "belongs_to" => {
+                let parent = attr.model.clone().unwrap_or_else(|| "parent".to_string());
+                let fk_bt = attr.fk.clone().unwrap_or_else(|| "parent_id".to_string());
+                quote! {
+                    ::sz_orm_core::Relation::BelongsTo(::sz_orm_core::BelongsTo {
+                        foreign_key: #fk_bt.to_string(),
+                        parent_model: #parent.to_string(),
+                        parent_pk: #pk.to_string(),
+                    })
+                }
+            }
+            "has_one" => {
+                let child = attr.model.clone().unwrap_or_else(|| "child".to_string());
+                quote! {
+                    ::sz_orm_core::Relation::HasOne(::sz_orm_core::HasOne {
+                        foreign_key: #fk.to_string(),
+                        child_model: #child.to_string(),
+                        child_pk: #pk.to_string(),
+                    })
+                }
+            }
+            "belongs_to_many" => {
+                let junction = attr
+                    .junction
+                    .clone()
+                    .unwrap_or_else(|| "junction".to_string());
+                let other = attr
+                    .other_key
+                    .clone()
+                    .unwrap_or_else(|| "other_key".to_string());
+                let target = attr.target.clone().unwrap_or_else(|| "target".to_string());
+                let target_pk = attr.target_pk.clone().unwrap_or_else(|| "id".to_string());
+                quote! {
+                    ::sz_orm_core::Relation::BelongsToMany(::sz_orm_core::BelongsToMany {
+                        junction_table: #junction.to_string(),
+                        foreign_key: #fk.to_string(),
+                        other_key: #other.to_string(),
+                        target_model: #target.to_string(),
+                        target_pk: #target_pk.to_string(),
+                    })
+                }
+            }
+            "morph_many" => {
+                let child = attr.model.clone().unwrap_or_else(|| "child".to_string());
+                let mt = attr
+                    .morph_type
+                    .clone()
+                    .unwrap_or_else(|| "morph_type".to_string());
+                let mi = attr
+                    .morph_id
+                    .clone()
+                    .unwrap_or_else(|| "morph_id".to_string());
+                let mtv = attr
+                    .morph_type_value
+                    .clone()
+                    .unwrap_or_else(|| "Parent".to_string());
+                quote! {
+                    ::sz_orm_core::Relation::MorphMany(::sz_orm_core::MorphMany {
+                        child_model: #child.to_string(),
+                        morph_type_column: #mt.to_string(),
+                        morph_id_column: #mi.to_string(),
+                        morph_type_value: #mtv.to_string(),
+                    })
+                }
+            }
+            "morph_to" => {
+                let mt = attr
+                    .morph_type
+                    .clone()
+                    .unwrap_or_else(|| "morph_type".to_string());
+                let mi = attr
+                    .morph_id
+                    .clone()
+                    .unwrap_or_else(|| "morph_id".to_string());
+                quote! {
+                    ::sz_orm_core::Relation::MorphTo(::sz_orm_core::MorphTo {
+                        morph_type_column: #mt.to_string(),
+                        morph_id_column: #mi.to_string(),
+                    })
+                }
+            }
+            _ => continue,
+        };
+        map_inserts.push(quote! {
+            map.insert(#rel_name_lit, #rel_expr);
+        });
+    }
+
+    let expanded = quote! {
+        impl ::sz_orm_core::ModelExt for #struct_name {
+            fn columns() -> Vec<&'static str> {
+                vec![#(#col_strs),*]
+            }
+
+            fn fillable() -> Vec<&'static str> {
+                vec![#(#fillable_strs),*]
+            }
+
+            fn relations() -> std::collections::HashMap<&'static str, ::sz_orm_core::Relation> {
+                let mut map = std::collections::HashMap::new();
+                #(#map_inserts)*
+                map
+            }
+        }
+    };
+
+    expanded
+}
+
+// ---------------------------------------------------------------------------
+// `#[derive(ColumnEnum)]` — 自动生成列名枚举（P2-2）
+// ---------------------------------------------------------------------------
+
+/// snake_case 字段名 → CamelCase 变体名（`user_id` → `UserId`，`id` → `Id`）
+fn snake_to_camel(s: &str) -> String {
+    let mut out = String::with_capacity(s.len());
+    let mut upper_next = true;
+    for c in s.chars() {
+        if c == '_' {
+            upper_next = true;
+        } else if upper_next {
+            out.push(c.to_ascii_uppercase());
+            upper_next = false;
+        } else {
+            out.push(c);
+        }
+    }
+    out
+}
+
+/// `#[derive(ColumnEnum)]` 派生宏入口（P2-2）
+///
+/// 从结构体命名字段自动生成 `<StructName>Column` 枚举：
+/// - 每个字段一个变体（snake_case → CamelCase）；
+/// - `#[column(name = "...")]` 覆盖列名（与 `#[derive(FromQueryResult)]` 一致）；
+/// - 实现 `ColumnTrait`（`as_str` / `all`）与 `Display`。
+///
+/// # 示例
+///
+/// ```rust,ignore
+/// use sz_orm_macros::ColumnEnum;
+/// use sz_orm_core::ColumnTrait;
+///
+/// #[derive(ColumnEnum)]
+/// struct User {
+///     id: i64,
+///     #[column(name = "user_name")]
+///     name: String,
+/// }
+///
+/// assert_eq!(UserColumn::Id.as_str(), "id");
+/// assert_eq!(UserColumn::Name.as_str(), "user_name");
+/// ```
+pub fn derive_column_enum_impl(input: DeriveInput) -> TokenStream2 {
+    let struct_name = &input.ident;
+    let enum_name = syn::Ident::new(&format!("{}Column", struct_name), struct_name.span());
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(named) => &named.named,
+            _ => {
+                return syn_error_to_compile_error(syn::Error::new_spanned(
+                    struct_name,
+                    "ColumnEnum 仅支持命名字段结构体（struct Foo { a: T }）",
+                ))
+            }
+        },
+        _ => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "ColumnEnum 仅支持 struct，不支持 enum / union",
+            ))
+        }
+    };
+
+    let mut variants: Vec<syn::Ident> = Vec::new();
+    let mut as_str_arms: Vec<TokenStream2> = Vec::new();
+    for field in fields {
+        let field_ident = field.ident.as_ref().unwrap();
+        let variant = syn::Ident::new(
+            &snake_to_camel(&field_ident.to_string()),
+            field_ident.span(),
+        );
+        let col_attr = parse_column_attr(&field.attrs);
+        let col_name = col_attr
+            .name
+            .clone()
+            .unwrap_or_else(|| field_ident.to_string());
+        variants.push(variant.clone());
+        as_str_arms.push(quote! {
+            Self::#variant => #col_name,
+        });
+    }
+
+    let expanded = quote! {
+        #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+        #[allow(dead_code)]
+        pub enum #enum_name {
+            #(#variants),*
+        }
+
+        impl ::sz_orm_core::ColumnTrait for #enum_name {
+            fn as_str(&self) -> &'static str {
+                match self {
+                    #(#as_str_arms)*
+                }
+            }
+
+            fn all() -> Vec<Self> {
+                vec![#(Self::#variants),*]
+            }
+        }
+
+        impl std::fmt::Display for #enum_name {
+            fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                write!(f, "{}", ::sz_orm_core::ColumnTrait::as_str(self))
+            }
+        }
+    };
+
+    expanded
+}
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1756,10 +2622,101 @@ mod tests {
         };
         let output = derive_entity_impl(input);
         let s = output.to_string();
-        assert!(s.contains("self . id . clone ()") || s.contains("self.id.clone()"),
-            "pk 应返回 self.id.clone(): {}", s);
-        assert!(s.contains("self . id = pk") || s.contains("self.id = pk"),
-            "set_pk 应设置 self.id: {}", s);
+        assert!(
+            s.contains("self . id . clone ()") || s.contains("self.id.clone()"),
+            "pk 应返回 self.id.clone(): {}",
+            s
+        );
+        assert!(
+            s.contains("self . id = pk") || s.contains("self.id = pk"),
+            "set_pk 应设置 self.id: {}",
+            s
+        );
+    }
+
+    // ---- G-SO-2: Entity 自动生成 ColumnEnum ----
+
+    #[test]
+    fn test_derive_entity_auto_column_enum() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key)]
+                id: i64,
+                name: String,
+                email: String,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        // ColumnEnum 部分
+        assert!(s.contains("UserColumn"), "应生成 UserColumn 枚举: {}", s);
+        assert!(s.contains("ColumnTrait"), "应实现 ColumnTrait: {}", s);
+        assert!(s.contains("fn as_str"), "应生成 as_str 方法: {}", s);
+        assert!(s.contains("fn all"), "应生成 all 方法: {}", s);
+        // 变体名（snake → CamelCase）
+        assert!(
+            s.contains("Id") && s.contains("Name") && s.contains("Email"),
+            "变体应为 CamelCase: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_derive_entity_column_enum_name_override() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key, name = "user_id")]
+                id: i64,
+                #[column(name = "user_name")]
+                name: String,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("user_id"),
+            "as_str 应使用覆盖列名 user_id: {}",
+            s
+        );
+        assert!(
+            s.contains("user_name"),
+            "as_str 应使用覆盖列名 user_name: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_derive_entity_column_enum_skip() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key)]
+                id: i64,
+                #[column(skip)]
+                password: String,
+                name: String,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(!s.contains("Password"), "skip 字段不应出现在枚举: {}", s);
+        assert!(s.contains("Name"), "非 skip 字段应出现在枚举: {}", s);
+    }
+
+    #[test]
+    fn test_derive_entity_column_enum_display() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct User {
+                #[column(primary_key)]
+                id: i64,
+            }
+        };
+        let output = derive_entity_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("impl std :: fmt :: Display for UserColumn"),
+            "应生成 Display impl: {}",
+            s
+        );
     }
 
     // ---- FromQueryResult derive ----
@@ -1774,8 +2731,11 @@ mod tests {
         };
         let output = derive_from_query_result_impl(input);
         let s = output.to_string();
-        assert!(s.contains("impl :: sz_orm_core :: FromQueryResult for UserRow"),
-            "应生成 FromQueryResult impl: {}", s);
+        assert!(
+            s.contains("impl :: sz_orm_core :: FromQueryResult for UserRow"),
+            "应生成 FromQueryResult impl: {}",
+            s
+        );
         assert!(s.contains("id"), "应包含 id 字段: {}", s);
         assert!(s.contains("name"), "应包含 name 字段: {}", s);
     }
@@ -1791,8 +2751,11 @@ mod tests {
         let output = derive_from_query_result_impl(input);
         let s = output.to_string();
         // Option 字段应匹配 Null 和 None
-        assert!(s.contains("Value :: Null") || s.contains("Value::Null"),
-            "Option 字段应处理 Null: {}", s);
+        assert!(
+            s.contains("Value :: Null") || s.contains("Value::Null"),
+            "Option 字段应处理 Null: {}",
+            s
+        );
     }
 
     #[test]
@@ -1826,6 +2789,167 @@ mod tests {
         let output = derive_from_query_result_impl(input);
         let s = output.to_string();
         assert!(s.contains("compile_error !"), "tuple struct 应报错: {}", s);
+    }
+
+    // ---- FromRow derive ----
+
+    #[test]
+    fn test_derive_from_row_basic() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct UserRow {
+                id: i64,
+                name: String,
+            }
+        };
+        let output = derive_from_row_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("impl :: sz_orm_core :: queryable :: FromRow for UserRow"),
+            "应生成 FromRow impl: {}",
+            s
+        );
+        assert!(s.contains("QueryError"), "应使用 QueryError: {}", s);
+        assert!(s.contains("id"), "应包含 id 字段: {}", s);
+        assert!(s.contains("name"), "应包含 name 字段: {}", s);
+    }
+
+    #[test]
+    fn test_derive_from_row_option_field() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct UserRow {
+                id: i64,
+                email: Option<String>,
+            }
+        };
+        let output = derive_from_row_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("Value :: Null") || s.contains("Value::Null"),
+            "Option 字段应处理 Null: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_derive_from_row_column_name_override() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct UserRow {
+                id: i64,
+                #[column(name = "user_email")]
+                email: Option<String>,
+            }
+        };
+        let output = derive_from_row_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("user_email"),
+            "应使用覆盖的列名 user_email: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_derive_from_row_rejects_enum() {
+        let input: DeriveInput = syn::parse_quote! {
+            enum Foo { Bar, Baz }
+        };
+        let output = derive_from_row_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("compile_error !"), "enum 应报错: {}", s);
+    }
+
+    #[test]
+    fn test_derive_from_row_rejects_tuple_struct() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct Foo(i64, String);
+        };
+        let output = derive_from_row_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("compile_error !"), "tuple struct 应报错: {}", s);
+    }
+
+    // ---- SqlType derive ----
+
+    #[test]
+    fn test_derive_sql_type_basic() {
+        let input: DeriveInput = syn::parse_quote! {
+            enum Status {
+                Active,
+                Inactive,
+                Pending,
+            }
+        };
+        let output = derive_sql_type_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("impl :: sz_orm_core :: FromQueryResult for Status"),
+            "应生成 FromQueryResult impl: {}",
+            s
+        );
+        assert!(s.contains("to_value"), "应生成 to_value 方法: {}", s);
+        assert!(
+            s.contains("active"),
+            "应包含 snake_case 变体名 active: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_derive_sql_type_rename_all() {
+        let input: DeriveInput = syn::parse_quote! {
+            #[sql_type(rename_all = "UPPERCASE")]
+            enum Priority {
+                Low,
+                High,
+            }
+        };
+        let output = derive_sql_type_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("LOW") && s.contains("HIGH"),
+            "rename_all=UPPERCASE 应生成大写变体名: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_derive_sql_type_variant_rename() {
+        let input: DeriveInput = syn::parse_quote! {
+            enum Role {
+                #[sql_type(rename = "admin_user")]
+                Admin,
+                User,
+            }
+        };
+        let output = derive_sql_type_impl(input);
+        let s = output.to_string();
+        assert!(
+            s.contains("admin_user"),
+            "变体级 rename 应覆盖为 admin_user: {}",
+            s
+        );
+    }
+
+    #[test]
+    fn test_derive_sql_type_rejects_struct() {
+        let input: DeriveInput = syn::parse_quote! {
+            struct Foo { id: i64 }
+        };
+        let output = derive_sql_type_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("compile_error !"), "struct 应报错: {}", s);
+    }
+
+    #[test]
+    fn test_derive_sql_type_rejects_tuple_variant() {
+        let input: DeriveInput = syn::parse_quote! {
+            enum Foo {
+                Bar(i64),
+            }
+        };
+        let output = derive_sql_type_impl(input);
+        let s = output.to_string();
+        assert!(s.contains("compile_error !"), "带字段变体应报错: {}", s);
     }
 
     #[test]

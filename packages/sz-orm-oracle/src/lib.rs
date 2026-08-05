@@ -29,7 +29,9 @@ use std::sync::{Arc, Condvar, Mutex};
 
 use oracle::sql_type::OracleType;
 use oracle::{Connection as OracleConn, Row as OracleRow};
-use sz_orm_core::{Connection, ConnectionFactory, DbError, QueryRows, QueryValues, Value};
+use sz_orm_core::{
+    Connection, ConnectionFactory, DbError, QueryRows, QueryStreamItem, QueryValues, Value,
+};
 
 // ============================================================================
 // v1.1.0 优化 3：Oracle 专用阻塞线程池
@@ -726,6 +728,98 @@ impl Connection for OracleConnection {
                 self.mark_connection_error(e);
             }
             result
+        })
+    }
+
+    /// G-SX-4：Oracle 原生游标流式查询
+    ///
+    /// `oracle` crate 为同步 API，`ResultSet` 是同步迭代器。本方法通过
+    /// `tokio::sync::mpsc` 通道桥接阻塞迭代与异步消费：
+    ///
+    /// 1. 在专用阻塞线程池中获取连接、执行查询、迭代 `ResultSet`
+    /// 2. 每一行通过 mpsc 通道发送到异步端
+    /// 3. 异步端从通道接收并逐行 yield
+    ///
+    /// 相比默认实现（全量加载到 Vec 再逐行 yield），本方法避免了大结果集
+    /// 的内存峰值：阻塞线程逐行拉取，异步端逐行消费，通道缓冲区大小
+    /// 限制了同时在途的行数。
+    fn query_stream<'a>(
+        &'a mut self,
+        sql: &'a str,
+    ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
+        let sql_owned = sql.to_string();
+        // 通道容量：平衡内存占用与吞吐。64 行在途足以让异步端批量消费，
+        // 同时限制内存占用（每行一个 HashMap<String, Value>）。
+        let (tx, mut rx) = tokio::sync::mpsc::channel::<QueryStreamItem>(64);
+
+        // 在专用阻塞线程池中迭代 ResultSet
+        let handle = self.handle.clone();
+        let blocking_pool = self.handle.blocking_pool().handle.clone();
+        // spawn_blocking 需要闭包为 'static，所以 move handle 和 sql_owned
+        let connected = self.connected;
+        blocking_pool.spawn_blocking(move || {
+            if !connected {
+                let _ = tx.blocking_send(Err(DbError::ConnectionError(
+                    "connection closed".to_string(),
+                )));
+                return;
+            }
+            // 获取连接 guard（阻塞）
+            let guard = match handle.acquire() {
+                Ok(g) => g,
+                Err(e) => {
+                    let _ = tx.blocking_send(Err(e));
+                    return;
+                }
+            };
+            let conn = guard.deref();
+            // 执行查询并迭代 ResultSet（全部在阻塞线程内完成）
+            let rows = match conn.query(&sql_owned, &[]) {
+                Ok(rs) => rs,
+                Err(e) => {
+                    let _ = tx.blocking_send(Err(map_oracle_error(e)));
+                    return;
+                }
+            };
+            // 提取列信息（只一次）
+            let col_infos: Vec<oracle::ColumnInfo> = rows.column_info().to_vec();
+            let col_count = col_infos.len();
+            if col_count == 0 {
+                return;
+            }
+            let names: Vec<String> = col_infos.iter().map(|ci| ci.name().to_string()).collect();
+            let types: Vec<OracleType> = col_infos
+                .iter()
+                .map(|ci| ci.oracle_type().clone())
+                .collect();
+            // 逐行迭代，通过通道发送
+            for row_result in rows {
+                match row_result {
+                    Ok(row) => {
+                        let mut row_map: HashMap<String, Value> = HashMap::with_capacity(col_count);
+                        for idx in 0..col_count {
+                            let value = oracle_row_to_value(&row, idx, &types[idx]);
+                            row_map.insert(names[idx].clone(), value);
+                        }
+                        if tx.blocking_send(Ok(row_map)).is_err() {
+                            // 接收端已 drop（消费者提前终止流），停止迭代
+                            break;
+                        }
+                    }
+                    Err(e) => {
+                        let _ = tx.blocking_send(Err(map_oracle_error(e)));
+                        break;
+                    }
+                }
+            }
+            // tx drop 后 rx 将收到 None，自然结束流
+        });
+
+        // 异步端：从通道接收并逐行 yield
+        Box::pin(async_stream::stream! {
+            while let Some(item) = rx.recv().await {
+                yield item;
+            }
         })
     }
 

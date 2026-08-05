@@ -225,7 +225,7 @@ impl<T> PageResult<T> {
 
 /// 批量更新结果
 ///
-/// 由 [`Repository::batch_update`](Repository::batch_update) 返回，
+/// 由 [`Repository::batch_update`] 返回，
 /// 区分成功更新的实体与因主键不存在而被跳过的实体数量。
 ///
 /// # 字段

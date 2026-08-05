@@ -158,7 +158,7 @@ impl WasmDatabase {
     ) -> Result<Vec<serde_json::Value>, String> {
         let parts: Vec<&str> = where_clause.splitn(2, '=').collect();
         if parts.len() != 2 {
-            return Err(format!("unsupported WHERE clause: {}", where_clause));
+            return Err(format!("unsupported WHERE clause: {}", where_clause)); // SAFETY: 错误消息拼接，非 SQL 执行
         }
         let col = parts[0].trim();
         let value_part = parts[1].trim();
@@ -314,6 +314,7 @@ impl WasmDatabase {
                 let where_parts: Vec<&str> = where_clause.splitn(2, '=').collect();
                 if where_parts.len() != 2 {
                     return Err(format!("unsupported WHERE clause: {}", where_clause));
+                    // SAFETY: 错误消息拼接，非 SQL 执行
                 }
                 let wcol = where_parts[0].trim().to_string();
                 let wval_str = where_parts[1].trim();
@@ -370,6 +371,7 @@ impl WasmDatabase {
                 let where_parts: Vec<&str> = where_clause.splitn(2, '=').collect();
                 if where_parts.len() != 2 {
                     return Err(format!("unsupported WHERE clause: {}", where_clause));
+                    // SAFETY: 错误消息拼接，非 SQL 执行
                 }
                 let wcol = where_parts[0].trim().to_string();
                 let wval_str = where_parts[1].trim();

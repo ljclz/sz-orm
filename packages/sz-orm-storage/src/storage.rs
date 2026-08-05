@@ -3,6 +3,8 @@ use crate::error::StorageError;
 use crate::huawei::HuaweiObsStorage;
 use crate::local::LocalStorage;
 use crate::qiniu::QiniuKodoStorage;
+#[cfg(feature = "real-cloud")]
+use crate::real::RealCloudStorage;
 use crate::s3::S3Storage;
 use crate::tencent::TencentCosStorage;
 use crate::upyun::UpYunStorage;
@@ -81,33 +83,162 @@ impl StorageBuilder {
                 Ok(StorageWrapper::S3(S3Storage::new(bucket, region)))
             }
             StorageProvider::AliyunOss(_) => {
-                let bucket = self.config.bucket.clone();
-                let endpoint = self.config.endpoint.clone().unwrap_or_default();
-                Ok(StorageWrapper::Aliyun(AliyunOssStorage::new(
-                    bucket, endpoint,
-                )))
+                #[cfg(feature = "real-cloud")]
+                {
+                    let bucket = self.config.bucket.clone();
+                    let endpoint = self.config.endpoint.clone().unwrap_or_default();
+                    let access_key = self.config.access_key.clone().ok_or_else(|| {
+                        StorageError::InvalidConfig(
+                            "aliyun oss: 需要 with_access_key 配置 AccessKeyId".into(),
+                        )
+                    })?;
+                    let secret_key = self.config.secret_key.clone().ok_or_else(|| {
+                        StorageError::InvalidConfig(
+                            "aliyun oss: 需要 with_secret_key 配置 AccessKeySecret".into(),
+                        )
+                    })?;
+                    let real =
+                        crate::real::aliyun_oss(&bucket, &endpoint, &access_key, &secret_key)?;
+                    Ok(StorageWrapper::Cloud(RealCloudStorage::Aliyun(real)))
+                }
+                #[cfg(not(feature = "real-cloud"))]
+                {
+                    let bucket = self.config.bucket.clone();
+                    let endpoint = self.config.endpoint.clone().unwrap_or_default();
+                    Ok(StorageWrapper::Aliyun(AliyunOssStorage::new(
+                        bucket, endpoint,
+                    )))
+                }
             }
-            StorageProvider::TencentCos(_) => {
-                let bucket = self.config.bucket.clone();
-                let region = self.config.region.clone();
-                Ok(StorageWrapper::Tencent(TencentCosStorage::new(
-                    bucket, region,
-                )))
+            StorageProvider::TencentCos(tencent_cfg) => {
+                #[cfg(feature = "real-cloud")]
+                {
+                    let bucket = self.config.bucket.clone();
+                    let region = self.config.region.clone();
+                    let endpoint = self.config.endpoint.clone();
+                    let secret_id = tencent_cfg
+                        .secret_id
+                        .or_else(|| self.config.access_key.clone())
+                        .ok_or_else(|| {
+                            StorageError::InvalidConfig(
+                                "tencent cos: 需要 with_access_key 配置 SecretId".into(),
+                            )
+                        })?;
+                    let secret_key = tencent_cfg
+                        .secret_key
+                        .or_else(|| self.config.secret_key.clone())
+                        .ok_or_else(|| {
+                            StorageError::InvalidConfig(
+                                "tencent cos: 需要 with_secret_key 配置 SecretKey".into(),
+                            )
+                        })?;
+                    let real = crate::real::tencent_cos(
+                        &bucket,
+                        &region,
+                        endpoint,
+                        &secret_id,
+                        &secret_key,
+                    )?;
+                    Ok(StorageWrapper::Cloud(RealCloudStorage::Tencent(real)))
+                }
+                #[cfg(not(feature = "real-cloud"))]
+                {
+                    let _ = &tencent_cfg;
+                    let bucket = self.config.bucket.clone();
+                    let region = self.config.region.clone();
+                    Ok(StorageWrapper::Tencent(TencentCosStorage::new(
+                        bucket, region,
+                    )))
+                }
             }
             StorageProvider::QiniuKodo(_) => {
-                let bucket = self.config.bucket.clone();
-                Ok(StorageWrapper::Qiniu(QiniuKodoStorage::new(bucket)))
+                #[cfg(feature = "real-cloud")]
+                {
+                    let bucket = self.config.bucket.clone();
+                    let access_key = self.config.access_key.clone().ok_or_else(|| {
+                        StorageError::InvalidConfig(
+                            "qiniu kodo: 需要 with_access_key 配置 AccessKey".into(),
+                        )
+                    })?;
+                    let secret_key = self.config.secret_key.clone().ok_or_else(|| {
+                        StorageError::InvalidConfig(
+                            "qiniu kodo: 需要 with_secret_key 配置 SecretKey".into(),
+                        )
+                    })?;
+                    // endpoint 作为下载域名（私有桶下载需域名）；缺省用 {bucket}.qiniudn.com
+                    let domain = self
+                        .config
+                        .endpoint
+                        .clone()
+                        .unwrap_or_else(|| format!("{}.qiniudn.com", bucket));
+                    let real = crate::real::RealQiniuKodoStorage::new(
+                        bucket, access_key, secret_key, domain,
+                    );
+                    Ok(StorageWrapper::Cloud(RealCloudStorage::Qiniu(real)))
+                }
+                #[cfg(not(feature = "real-cloud"))]
+                {
+                    let bucket = self.config.bucket.clone();
+                    Ok(StorageWrapper::Qiniu(QiniuKodoStorage::new(bucket)))
+                }
             }
             StorageProvider::HuaweiObs(_) => {
-                let bucket = self.config.bucket.clone();
-                let endpoint = self.config.endpoint.clone().unwrap_or_default();
-                Ok(StorageWrapper::Huawei(HuaweiObsStorage::new(
-                    bucket, endpoint,
-                )))
+                #[cfg(feature = "real-cloud")]
+                {
+                    let bucket = self.config.bucket.clone();
+                    let endpoint = self.config.endpoint.clone().unwrap_or_default();
+                    let access_key = self.config.access_key.clone().ok_or_else(|| {
+                        StorageError::InvalidConfig(
+                            "huawei obs: 需要 with_access_key 配置 AccessKeyId".into(),
+                        )
+                    })?;
+                    let secret_key = self.config.secret_key.clone().ok_or_else(|| {
+                        StorageError::InvalidConfig(
+                            "huawei obs: 需要 with_secret_key 配置 SecretAccessKey".into(),
+                        )
+                    })?;
+                    let real =
+                        crate::real::huawei_obs(&bucket, &endpoint, &access_key, &secret_key)?;
+                    Ok(StorageWrapper::Cloud(RealCloudStorage::Huawei(real)))
+                }
+                #[cfg(not(feature = "real-cloud"))]
+                {
+                    let bucket = self.config.bucket.clone();
+                    let endpoint = self.config.endpoint.clone().unwrap_or_default();
+                    Ok(StorageWrapper::Huawei(HuaweiObsStorage::new(
+                        bucket, endpoint,
+                    )))
+                }
             }
-            StorageProvider::UpYun(_) => {
-                let bucket = self.config.bucket.clone();
-                Ok(StorageWrapper::Upyun(UpYunStorage::new(bucket)))
+            StorageProvider::UpYun(upyun_cfg) => {
+                #[cfg(feature = "real-cloud")]
+                {
+                    let bucket = self.config.bucket.clone();
+                    let operator = upyun_cfg
+                        .operator
+                        .or_else(|| self.config.access_key.clone())
+                        .ok_or_else(|| {
+                            StorageError::InvalidConfig(
+                                "upyun: 需要 with_access_key 配置操作员名 operator".into(),
+                            )
+                        })?;
+                    let password = upyun_cfg
+                        .password
+                        .or_else(|| self.config.secret_key.clone())
+                        .ok_or_else(|| {
+                            StorageError::InvalidConfig(
+                                "upyun: 需要 with_secret_key 配置操作员密码 password".into(),
+                            )
+                        })?;
+                    let real = crate::real::upyun(&bucket, &operator, &password)?;
+                    Ok(StorageWrapper::Cloud(RealCloudStorage::Upyun(real)))
+                }
+                #[cfg(not(feature = "real-cloud"))]
+                {
+                    let _ = &upyun_cfg;
+                    let bucket = self.config.bucket.clone();
+                    Ok(StorageWrapper::Upyun(UpYunStorage::new(bucket)))
+                }
             }
         }
     }
@@ -211,6 +342,9 @@ pub enum StorageWrapper {
     Qiniu(QiniuKodoStorage),
     Huawei(HuaweiObsStorage),
     Upyun(UpYunStorage),
+    /// 真实云存储（feature = "real-cloud"）：OSS / COS / OBS / UpYun / Qiniu
+    #[cfg(feature = "real-cloud")]
+    Cloud(RealCloudStorage),
 }
 
 #[async_trait]
@@ -229,6 +363,8 @@ impl Storage for StorageWrapper {
             StorageWrapper::Qiniu(s) => s.put(key, data, content_type).await,
             StorageWrapper::Huawei(s) => s.put(key, data, content_type).await,
             StorageWrapper::Upyun(s) => s.put(key, data, content_type).await,
+            #[cfg(feature = "real-cloud")]
+            StorageWrapper::Cloud(s) => s.put(key, data, content_type).await,
         }
     }
 
@@ -241,6 +377,8 @@ impl Storage for StorageWrapper {
             StorageWrapper::Qiniu(s) => s.get(key).await,
             StorageWrapper::Huawei(s) => s.get(key).await,
             StorageWrapper::Upyun(s) => s.get(key).await,
+            #[cfg(feature = "real-cloud")]
+            StorageWrapper::Cloud(s) => s.get(key).await,
         }
     }
 
@@ -253,6 +391,8 @@ impl Storage for StorageWrapper {
             StorageWrapper::Qiniu(s) => s.delete(key).await,
             StorageWrapper::Huawei(s) => s.delete(key).await,
             StorageWrapper::Upyun(s) => s.delete(key).await,
+            #[cfg(feature = "real-cloud")]
+            StorageWrapper::Cloud(s) => s.delete(key).await,
         }
     }
 
@@ -265,6 +405,8 @@ impl Storage for StorageWrapper {
             StorageWrapper::Qiniu(s) => s.exists(key).await,
             StorageWrapper::Huawei(s) => s.exists(key).await,
             StorageWrapper::Upyun(s) => s.exists(key).await,
+            #[cfg(feature = "real-cloud")]
+            StorageWrapper::Cloud(s) => s.exists(key).await,
         }
     }
 }

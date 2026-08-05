@@ -241,11 +241,18 @@ fn validate_string_literals(sql: &str) -> ValidationResult {
 fn validate_no_injection_patterns(sql: &str) -> ValidationResult {
     let sql_upper = sql.to_uppercase();
 
-    // Check for suspicious patterns
+    // 检查可疑模式（含裸语句/无引号变体，2026-08-03 实测审计补充）
+    // 说明：仅匹配带引号的 `'; DROP` 会漏检裸 `DROP TABLE` / `; DROP`（多语句）/ `OR 1=1`（恒真）
     let suspicious_patterns = [
         ("'; DROP TABLE", "DROP TABLE injection"),
         ("' OR '1'='1", "classic OR injection"),
         ("' OR 1=1", "OR 1=1 injection"),
+        (" OR 1=1", "OR 1=1 injection (bare)"),
+        (" OR '1'='1", "OR constant injection (bare)"),
+        ("; DROP", "multi-statement DROP injection"),
+        ("; DELETE", "multi-statement DELETE injection"),
+        ("; INSERT", "multi-statement INSERT injection"),
+        ("; UPDATE", "multi-statement UPDATE injection"),
         (
             "UNION SELECT",
             "UNION SELECT injection (not allowed in simple queries)",

@@ -62,6 +62,26 @@ ignore = [
     # paste 1.0.15: 未维护 (RUSTSEC-2024-0436)
     # 来源: 传递依赖（proc-macro 工具 crate），不进入运行时，无安全风险
     { id = "RUSTSEC-2024-0436", reason = "paste 是编译期 proc-macro 工具，不进入运行时；功能完整，无安全风险；待上游升级后移除" },
+    # rsa 0.9.10: Marvin Attack 时序侧信道 (RUSTSEC-2023-0071)
+    # 来源: sz-orm-crypto → rsa 0.9.10
+    # 影响: RSA-OAEP 加密可能通过时序侧信道泄露密钥；sz-orm-crypto 的 RSA 用于非对称加密场景
+    # 跟踪: 待 rsa 0.9.11+ 发布后自动移除（当前 0.9.10 为 0.9.x 最新版）
+    { id = "RUSTSEC-2023-0071", reason = "rsa 0.9.10 Marvin Attack 时序侧信道；上游 0.9.10 为最新版，尚未修复；sz-orm-crypto RSA 用于非对称加密" },
+    # rand 0.7.3: 自定义 logger 不安全 (RUSTSEC-2026-0097)
+    # 来源: sz-orm-mssql → tiberius 0.12 → winauth 0.0.4 → rand 0.7.3
+    # 影响: 仅在启用 MSSQL 认证时引入 winauth；rand 0.7.3 不安全仅在自定义 logger 场景
+    # 跟踪: 待 tiberius 升级 winauth 依赖后自动移除
+    { id = "RUSTSEC-2026-0097", reason = "tiberius 0.12 → winauth 0.0.4 → rand 0.7.3；仅影响 MSSQL 认证场景；待 tiberius 升级后移除" },
+    # event-listener 5.4.1: !Send 标签跨线程 (RUSTSEC-2026-0221)
+    # 来源: sz-orm-sqlx → sqlx-core 0.9.0 → event-listener 5.4.1
+    # 影响: sqlx 连接池内部使用，不影响 sz-orm 自研连接池
+    # 跟踪: 待 sqlx 升级 event-listener 依赖后自动移除
+    { id = "RUSTSEC-2026-0221", reason = "sqlx-core 0.9.0 → event-listener 5.4.1；sqlx 连接池内部使用，不影响 sz-orm 自研连接池；待 sqlx 升级后移除" },
+    # rkyv 0.7.46: Rc/Arc 越界读取 (RUSTSEC-2026-0235)
+    # 来源: 某些可选 feature 的传递依赖，不在默认编译中引入
+    # 影响: 仅在特定 feature 组合下引入；rkyv 用于零拷贝序列化
+    # 跟踪: 待上游修复后自动移除
+    { id = "RUSTSEC-2026-0235", reason = "rkyv 0.7.46 在特定 feature 组合下引入；Rc/Arc 越界读取仅在恶意构造的 archive 中触发；待上游修复后移除" },
 ]
 # 未维护的依赖不报告（避免 CI 因传递依赖的 unmaintained 而失败）
 unmaintained = "none"

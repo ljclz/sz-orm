@@ -795,7 +795,7 @@ async fn test_pg_upsert_basic_insert_path() {
     assert_eq!(count, 1, "首次 upsert 应插入 1 行");
 
     let sel = format!("SELECT name, age, email FROM \"{}\" WHERE id = 1", table);
-    let (name, age, email): (String, i64, String) =
+    let (name, age, email): (String, i32, String) =
         sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
             .fetch_one(&pool)
             .await
@@ -849,7 +849,7 @@ async fn test_pg_upsert_conflict_update_path() {
     assert_eq!(count, 1, "冲突时应更新而非插入新行");
 
     let sel = format!("SELECT age, email FROM \"{}\" WHERE id = 1", table);
-    let (age, email): (i64, String) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+    let (age, email): (i32, String) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -905,7 +905,7 @@ async fn test_pg_upsert_batch_mixed_insert_update() {
     assert_eq!(count, 3, "应有 3 行（1 更新 + 2 新增）");
 
     let sel = format!("SELECT age FROM \"{}\" WHERE id = 1", table);
-    let (age,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
+    let (age,): (i32,) = sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
         .fetch_one(&pool)
         .await
         .unwrap();
@@ -951,7 +951,7 @@ async fn test_pg_upsert_specific_update_columns_only() {
         .expect("execute upsert specific cols");
 
     let sel = format!("SELECT name, age, email FROM \"{}\" WHERE id = 1", table);
-    let (name, age, email): (String, i64, String) =
+    let (name, age, email): (String, i32, String) =
         sqlx::query_as(sqlx::AssertSqlSafe(sel.as_str()))
             .fetch_one(&pool)
             .await

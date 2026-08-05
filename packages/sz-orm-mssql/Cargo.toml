@@ -20,6 +20,8 @@ tracing = { workspace = true }
 tokio-util = { version = "0.7", features = ["compat"] }
 serde_json = { workspace = true }
 futures-util = "0.3"
+futures = { workspace = true }
+async-stream = "0.3"
 
 [lib]
 name = "sz_orm_mssql"

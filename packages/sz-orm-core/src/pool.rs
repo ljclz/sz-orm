@@ -4,6 +4,7 @@
 
 use async_trait::async_trait;
 use crossbeam_queue::ArrayQueue;
+use futures::StreamExt;
 // P1-4 修复：使用核心层定义的 CircuitBreaker/RateLimiter 抽象，
 // 消除对 sz-orm-health/sz-orm-limit 的反向依赖。
 // parking_lot 锁仅在启用 circuit-breaker/rate-limit feature 时使用
@@ -137,14 +138,51 @@ pub trait Connection: Send + Sync {
 
     /// 流式查询：返回逐行结果流
     ///
-    /// 默认实现返回空流；适配器可覆盖此方法以支持大结果集逐行消费，
-    /// 避免 `query` 一次性 `fetch_all` 导致的内存峰值。
+    /// 默认实现：通过 `query()` 获取全部行后，以
+    /// `futures::stream::iter` 逐行 yield，提供统一的流式消费接口。
+    /// 适合中小结果集；对超大结果集，支持原生游标的适配器应覆盖此方法。
+    ///
+    /// # 注意
+    ///
+    /// 此方法本身是同步的（返回 Stream），但内部通过 `futures::stream::once`
+    /// 异步获取数据后展开为逐行流。若适配器支持 sqlx `fetch()` 游标，
+    /// 覆盖此方法可获得真正的逐行拉取，避免大结果集内存峰值。
     fn query_stream<'a>(
         &'a mut self,
         sql: &'a str,
     ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
-        let _ = sql;
-        Box::pin(futures::stream::empty())
+        // 克隆 sql 以脱离 &self 的生命周期
+        let sql_owned = sql.to_string();
+        // 使用 stream::once 异步执行查询，再 flat_map 为逐行流
+        let stream = futures::stream::once(async move { self.query(&sql_owned).await })
+            // 统一为 Vec 收集后再 iter：保证 match 两臂流类型一致（E0308 修复）
+            .map(|result| {
+                let items: Vec<QueryStreamItem> = match result {
+                    Ok(rows) => rows.into_iter().map(Ok).collect(),
+                    Err(e) => vec![Err(e)],
+                };
+                futures::stream::iter(items)
+            })
+            .flatten();
+        Box::pin(stream)
+    }
+
+    /// 游标式流式查询（P1-2）：按 `batch_size` 分批拉取，避免大结果集内存峰值。
+    ///
+    /// 适用于无原生服务器端游标（或无法便捷暴露逐行拉取）的数据库：
+    /// - Oracle：`ROWNUM` 子查询包装（见 `cursor_stream::build_paged_query`）；
+    /// - SQL Server：`OFFSET ... ROWS FETCH NEXT ... ROWS ONLY`。
+    ///
+    /// 默认实现退化为 [`Connection::query_stream`]（全量拉取后逐行 yield）；
+    /// Oracle/MSSQL 适配器应覆盖此方法，使用
+    /// `cursor_stream::stream_cursor_paged(conn, sql, DbType::Oracle, batch)`
+    /// 获得真正的分页游标流。
+    fn query_stream_cursor<'a>(
+        &'a mut self,
+        sql: &'a str,
+        _batch_size: usize,
+    ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
+        self.query_stream(sql)
     }
 
     /// 批量执行多条 SQL（按顺序执行，返回累计影响行数）
@@ -408,6 +446,14 @@ pub struct PoolConfig {
     pub memory_limit: Option<usize>,
     /// 连接池事件回调
     pub on_event: Option<PoolEventCallback>,
+    /// acquire 时是否执行 ping 验证连接存活（默认 false）。
+    ///
+    /// 开启后，从空闲队列取出的连接会先执行 `ping()` 验证网络连通性，
+    /// ping 失败的连接会被丢弃并重新 acquire。
+    ///
+    /// **注意**：开启此选项会增加每次 acquire 的延迟（一次额外的网络 RTT）。
+    /// 适用于 DB 可能重启且不能容忍首次查询失败的场景。
+    pub test_before_acquire: bool,
 }
 
 impl Default for PoolConfig {
@@ -424,6 +470,7 @@ impl Default for PoolConfig {
             max_rows: None,
             memory_limit: None,
             on_event: None,
+            test_before_acquire: false,
         }
     }
 }
@@ -442,6 +489,7 @@ impl Clone for PoolConfig {
             max_rows: self.max_rows,
             memory_limit: self.memory_limit,
             on_event: self.on_event.clone(),
+            test_before_acquire: self.test_before_acquire,
         }
     }
 }
@@ -456,6 +504,24 @@ impl PoolConfig {
             return Err(PoolError::InvalidConfig(
                 "min_idle cannot exceed max_size".to_string(),
             ));
+        }
+        // Duration 上界校验：防止 `Instant::now() + duration` 溢出 panic。
+        // u64::MAX 秒 ≈ 5.8e11 年，远超任何合理配置；实际使用中 1 年（31_536_000 秒）
+        // 已是宽松上限。此处用 u32::MAX 秒（≈ 136 年）作为硬性上限，
+        // 既覆盖所有现实场景，又保证 `Instant + Duration` 在 i64 微秒精度内不溢出。
+        const MAX_DURATION_SECS: u64 = u32::MAX as u64; // ≈ 136 年
+        for (name, dur) in [
+            ("acquire_timeout", self.acquire_timeout),
+            ("idle_timeout", self.idle_timeout),
+            ("max_lifetime", self.max_lifetime),
+            ("connection_timeout", self.connection_timeout),
+        ] {
+            if dur.as_secs() > MAX_DURATION_SECS {
+                return Err(PoolError::InvalidConfig(format!(
+                    "{name} ({:?}) exceeds maximum allowed duration ({} seconds)",
+                    dur, MAX_DURATION_SECS
+                )));
+            }
         }
         Ok(())
     }
@@ -545,6 +611,15 @@ impl PoolConfigBuilder {
     /// 设置连接池事件回调
     pub fn on_event(mut self, callback: PoolEventCallback) -> Self {
         self.config.on_event = Some(callback);
+        self
+    }
+
+    /// 设置 acquire 时是否执行 ping 验证连接存活（P1-1）
+    ///
+    /// 开启后，从空闲队列取出的连接会先执行 `ping()` 验证网络连通性。
+    /// 默认关闭（仅做 `is_connected()` 内存检查）。
+    pub fn test_before_acquire(mut self, enabled: bool) -> Self {
+        self.config.test_before_acquire = enabled;
         self
     }
 
@@ -881,6 +956,21 @@ impl Pool {
             }
 
             if let Some(mut pooled) = acquired {
+                // P1-1：test_before_acquire — 从空闲队列取出的连接先 ping 验证存活
+                if self.config.test_before_acquire {
+                    let ping_timeout = self.config.connection_timeout / 2;
+                    let alive = match tokio::time::timeout(ping_timeout, pooled.conn.ping()).await {
+                        Ok(true) => true,
+                        Ok(false) => false,
+                        Err(_) => false, // ping 超时，连接可能卡住
+                    };
+                    if !alive {
+                        // ping 失败：关闭连接，回退计数，继续循环重新 acquire
+                        let _ = pooled.conn.close().await;
+                        self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        continue;
+                    }
+                }
                 // 从 idle 获取的连接 pool 字段为 None（release 时清除），
                 // 重新设置 pool 引用以支持 Drop 自动归还
                 pooled.pool = Some(self.clone());
@@ -1413,6 +1503,79 @@ mod tests {
         assert!(result.is_err());
     }
 
+    #[test]
+    fn test_pool_config_validate_duration_upper_bound() {
+        use std::time::Duration;
+
+        // u64::MAX 秒应被拒绝（远超 u32::MAX 上限）
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 1,
+            acquire_timeout: Duration::from_secs(u64::MAX),
+            idle_timeout: Duration::from_secs(1),
+            max_lifetime: Duration::from_secs(1),
+            connection_timeout: Duration::from_secs(5),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+        };
+        assert!(config.validate().is_err());
+
+        // u32::MAX 秒（≈136 年）恰好在上限内，应通过
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 1,
+            acquire_timeout: Duration::from_secs(u32::MAX as u64),
+            idle_timeout: Duration::from_secs(1),
+            max_lifetime: Duration::from_secs(1),
+            connection_timeout: Duration::from_secs(5),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+        };
+        assert!(config.validate().is_ok());
+
+        // u32::MAX + 1 秒应被拒绝
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 1,
+            acquire_timeout: Duration::from_secs(u32::MAX as u64 + 1),
+            idle_timeout: Duration::from_secs(1),
+            max_lifetime: Duration::from_secs(1),
+            connection_timeout: Duration::from_secs(5),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_pool_config_test_before_acquire_default() {
+        // P1-1：test_before_acquire 默认关闭
+        let config = PoolConfig::default();
+        assert!(!config.test_before_acquire);
+    }
+
+    #[test]
+    fn test_pool_config_builder_test_before_acquire() {
+        // P1-1：builder 设置 test_before_acquire
+        let config = PoolConfigBuilder::new()
+            .test_before_acquire(true)
+            .build()
+            .unwrap();
+        assert!(config.test_before_acquire);
+    }
+
     #[tokio::test]
     async fn test_pool_acquire_and_release() -> Result<(), Box<dyn std::error::Error>> {
         let config = PoolConfigBuilder::new().max_size(5).min_idle(1).build()?;
@@ -1621,6 +1784,7 @@ mod tests {
             max_rows: None,
             memory_limit: None,
             on_event: None,
+            test_before_acquire: false,
         };
         let factory = Arc::new(CountingFactory::new());
         let pool = Pool::new(config, factory.clone())?;
@@ -1749,5 +1913,319 @@ mod tests {
         assert_eq!(status.idle, 1, "再次 release 后 idle 仍应为 1（不重复）");
         assert_eq!(status.active, 1, "total_count 应为 1");
         Ok(())
+    }
+
+    // ========================================================================
+    // G-SX-4：query_stream 游标流式查询测试
+    // ========================================================================
+
+    /// 带预设行数据的模拟连接，用于测试 `query_stream` 默认实现。
+    struct CursorMockConn {
+        rows: QueryRows,
+        call_count: usize,
+    }
+
+    impl CursorMockConn {
+        fn new(rows: QueryRows) -> Self {
+            Self {
+                rows,
+                call_count: 0,
+            }
+        }
+    }
+
+    impl Connection for CursorMockConn {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(1) })
+        }
+
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.call_count += 1;
+                Ok(self.rows.clone())
+            })
+        }
+
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    /// 模拟游标适配器：覆盖 `query_stream` 以逐行 yield，而非全量收集。
+    struct CursorOverrideMockConn {
+        rows: Vec<crate::value::Value>,
+        yielded: usize,
+    }
+
+    impl CursorOverrideMockConn {
+        fn new(rows: Vec<crate::value::Value>) -> Self {
+            Self { rows, yielded: 0 }
+        }
+    }
+
+    impl Connection for CursorOverrideMockConn {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(1) })
+        }
+
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>> {
+            // 全量收集实现（不应被 cursor override 调用）
+            Box::pin(async move {
+                Ok(self
+                    .rows
+                    .iter()
+                    .map(|v| {
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("v".to_string(), v.clone());
+                        m
+                    })
+                    .collect())
+            })
+        }
+
+        /// G-SX-4：覆盖 query_stream，逐行 yield 模拟真游标
+        fn query_stream<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
+            Box::pin(futures::stream::iter(
+                self.rows
+                    .iter()
+                    .enumerate()
+                    .map(|(i, v)| {
+                        self.yielded = i + 1;
+                        let mut m = std::collections::HashMap::new();
+                        m.insert("v".to_string(), v.clone());
+                        Ok(m)
+                    })
+                    .collect::<Vec<_>>(),
+            ))
+        }
+
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    /// G-SX-4 测试 1：默认 query_stream 逐行 yield 全量结果
+    #[tokio::test]
+    async fn test_query_stream_default_impl_yields_all_rows() {
+        use futures::StreamExt;
+        let rows: QueryRows = vec![
+            std::collections::HashMap::from([
+                ("id".to_string(), crate::value::Value::I64(1)),
+                (
+                    "name".to_string(),
+                    crate::value::Value::String("alice".to_string()),
+                ),
+            ]),
+            std::collections::HashMap::from([
+                ("id".to_string(), crate::value::Value::I64(2)),
+                (
+                    "name".to_string(),
+                    crate::value::Value::String("bob".to_string()),
+                ),
+            ]),
+            std::collections::HashMap::from([
+                ("id".to_string(), crate::value::Value::I64(3)),
+                (
+                    "name".to_string(),
+                    crate::value::Value::String("carol".to_string()),
+                ),
+            ]),
+        ];
+        let mut conn = CursorMockConn::new(rows);
+        let mut stream = conn.query_stream("SELECT id, name FROM users");
+        let mut received: Vec<QueryStreamItem> = Vec::new();
+        while let Some(item) = stream.next().await {
+            received.push(item);
+        }
+        assert_eq!(received.len(), 3, "应收到 3 行");
+        assert!(received.iter().all(|r| r.is_ok()), "所有项应为 Ok");
+        drop(stream);
+        assert_eq!(conn.call_count, 1, "默认实现应调用 query() 一次");
+    }
+
+    /// G-SX-4 测试 2：默认 query_stream 空结果集
+    #[tokio::test]
+    async fn test_query_stream_default_empty_result() {
+        use futures::StreamExt;
+        let mut conn = CursorMockConn::new(Vec::new());
+        let mut stream = conn.query_stream("SELECT * FROM empty_table");
+        let mut count = 0;
+        while let Some(_item) = stream.next().await {
+            count += 1;
+        }
+        assert_eq!(count, 0, "空结果集应产生 0 项");
+    }
+
+    /// G-SX-4 测试 3：默认 query_stream 错误传播
+    #[tokio::test]
+    async fn test_query_stream_default_error_propagation() {
+        use futures::StreamExt;
+        // 创建一个会返回错误的 mock
+        struct ErrorMockConn;
+        impl Connection for ErrorMockConn {
+            fn execute<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>>
+            {
+                Box::pin(async move { Ok(1) })
+            }
+            fn query<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>>
+            {
+                Box::pin(async move { Err(crate::DbError::Internal("query failed".to_string())) })
+            }
+            fn begin_transaction<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async move { Ok(()) })
+            }
+            fn commit<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async move { Ok(()) })
+            }
+            fn rollback<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async move { Ok(()) })
+            }
+            fn is_connected(&self) -> bool {
+                true
+            }
+            fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+                Box::pin(async move { true })
+            }
+            fn close<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async move { Ok(()) })
+            }
+        }
+        let mut conn = ErrorMockConn;
+        let mut stream = conn.query_stream("SELECT * FROM bad_table");
+        let item = stream.next().await;
+        assert!(item.is_some(), "应产生一项");
+        assert!(item.unwrap().is_err(), "该项应为 Err");
+    }
+
+    /// G-SX-4 测试 4：覆盖 query_stream 的适配器逐行 yield（模拟真游标）
+    #[tokio::test]
+    async fn test_query_stream_override_yields_rows_one_by_one() {
+        use futures::StreamExt;
+        let rows = vec![
+            crate::value::Value::I64(10),
+            crate::value::Value::I64(20),
+            crate::value::Value::I64(30),
+            crate::value::Value::I64(40),
+            crate::value::Value::I64(50),
+        ];
+        let mut conn = CursorOverrideMockConn::new(rows);
+        let values: Vec<i64> = {
+            let mut stream = conn.query_stream("SELECT v FROM seq");
+            let mut vals: Vec<i64> = Vec::new();
+            while let Some(Ok(row)) = stream.next().await {
+                if let crate::value::Value::I64(v) = row.get("v").unwrap() {
+                    vals.push(*v);
+                }
+            }
+            vals
+        };
+        assert_eq!(values, vec![10, 20, 30, 40, 50], "应按顺序收到全部 5 行");
+        assert_eq!(conn.yielded, 5, "应逐行 yield 5 次（真游标覆盖）");
+    }
+
+    /// G-SX-4 测试 5：覆盖 query_stream 提前 drop 流（消费者中断）
+    #[tokio::test]
+    async fn test_query_stream_override_early_drop() {
+        use futures::StreamExt;
+        let rows = vec![
+            crate::value::Value::I64(1),
+            crate::value::Value::I64(2),
+            crate::value::Value::I64(3),
+        ];
+        let mut conn = CursorOverrideMockConn::new(rows);
+        {
+            let mut stream = conn.query_stream("SELECT v FROM seq");
+            let first = stream.next().await;
+            assert!(first.is_some(), "第一项应存在");
+            // 提前 drop stream — 模拟消费者中断
+            drop(stream);
+        }
+        // 连接仍可用
+        assert!(conn.is_connected(), "提前 drop 流后连接仍应可用");
     }
 }

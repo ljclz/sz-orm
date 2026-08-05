@@ -83,7 +83,7 @@ fn make_row(id: i64, name: &str, age: i32, email: &str) -> HashMap<String, Value
 
 /// 去除 SQL 中的方言引号（反引号、双引号），便于断言
 fn strip_quotes(sql: &str) -> String {
-    sql.replace('`', "").replace('"', "")
+    sql.replace(['`', '"'], "")
 }
 
 // ===== L3-1：MySQL 批量 INSERT 基本结构 =====
@@ -570,11 +570,11 @@ fn test_l3_20_large_batch_100_rows() {
         "100 行应有 400 个参数: {:?}",
         params.len()
     );
-    // SQL 应有 400 个 ? 占位符
-    let placeholder_count = sql.matches('?').count();
+    // PG 用 $N 占位符，应包含 $1 到 $400
+    let placeholder_count = sql.matches('$').count();
     assert_eq!(
         placeholder_count, 400,
-        "应有 400 个 ? 占位符: {}",
+        "PG 应有 400 个 $N 占位符: {}",
         placeholder_count
     );
     // 应包含 ON CONFLICT

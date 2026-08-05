@@ -433,8 +433,7 @@ impl AttributeCaster {
                 // 尝试解析 JSON 数组；解析失败则包装为单元素数组
                 match serde_json::from_str::<Vec<serde_json::Value>>(&s) {
                     Ok(json_arr) => {
-                        let items: Vec<Value> =
-                            json_arr.into_iter().map(json_to_value).collect();
+                        let items: Vec<Value> = json_arr.into_iter().map(json_to_value).collect();
                         Value::Array(items)
                     }
                     Err(_) => Value::Array(vec![Value::Json(s)]),
@@ -444,8 +443,7 @@ impl AttributeCaster {
                 // 尝试解析字符串为 JSON 数组；失败则包装为单元素数组
                 match serde_json::from_str::<Vec<serde_json::Value>>(&s) {
                     Ok(json_arr) => {
-                        let items: Vec<Value> =
-                            json_arr.into_iter().map(json_to_value).collect();
+                        let items: Vec<Value> = json_arr.into_iter().map(json_to_value).collect();
                         Value::Array(items)
                     }
                     Err(_) => Value::Array(vec![Value::String(s)]),
@@ -460,8 +458,7 @@ impl AttributeCaster {
         match value {
             Value::Array(items) => {
                 // 序列化为合法 JSON 数组字符串存储
-                let json_arr: Vec<serde_json::Value> =
-                    items.iter().map(value_to_json).collect();
+                let json_arr: Vec<serde_json::Value> = items.iter().map(value_to_json).collect();
                 Value::Json(serde_json::to_string(&json_arr).unwrap_or_else(|_| "[]".to_string()))
             }
             other => Value::Json(value_to_json_string(&other)),

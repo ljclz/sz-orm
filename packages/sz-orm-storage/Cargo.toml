@@ -8,11 +8,20 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM Storage Extension - S3 real impl (s3-sdk feature) + 6 in-memory mock providers (Aliyun/Huawei/Qiniu/Tencent/UpYun/Default)"
+description = "SZ-ORM Storage Extension - real cloud providers via OpenDAL (real-cloud feature) + S3 real impl (s3-sdk feature) + in-memory mock providers"
 
 [features]
 default = []
 s3-sdk = ["rust-s3"]
+# 真实云存储：Aliyun OSS / Tencent COS / Huawei OBS / UpYun 基于 OpenDAL，
+# Qiniu Kodo 基于官方 REST API（reqwest + HMAC-SHA1 签名）
+real-cloud = [
+  "dep:opendal",
+  "dep:reqwest",
+  "dep:hmac",
+  "dep:sha1",
+  "dep:base64",
+]
 
 [dependencies]
 async-trait = "0.1"
@@ -21,6 +30,18 @@ thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 rust-s3 = { version = "0.37", optional = true }
+opendal = { version = "0.58", optional = true, features = [
+  "services-oss",
+  "services-cos",
+  "services-obs",
+  "services-upyun",
+] }
+reqwest = { version = "0.12", optional = true, default-features = false, features = [
+  "rustls-tls",
+] }
+hmac = { version = "0.12", optional = true }
+sha1 = { version = "0.10", optional = true }
+base64 = { version = "0.22", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -562,6 +562,7 @@ fn escape_sql_str(s: &str) -> String {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 

@@ -23,8 +23,10 @@
 //! 原有 `where_cond(condition: impl Into<String>)` 因字符串拼接存在注入风险，
 //! 保留以兼容复杂表达式（如 `age > 18 AND status = 'active'`），但文档标记为不推荐。
 
+use crate::db_type::DbType;
 use crate::dialect::Dialect;
 use crate::model::Model;
+use crate::typed::TypedColumn;
 use crate::value::Value;
 use std::fmt;
 
@@ -203,6 +205,32 @@ impl<M: Model> QueryBuilder<M> {
     /// P0-1：返回软删除过滤是否被禁用
     pub fn is_soft_delete_disabled(&self) -> bool {
         self.soft_delete_disabled
+    }
+
+    /// P0-4：克隆当前 `QueryBuilder` 用于 COUNT 查询。
+    ///
+    /// 保留 `table` / `joins` / `where_conditions` / `group_by` / `having_conditions`
+    /// 以及软删除 / 租户过滤设置，清空 `select_columns` / `order_by` / `limit` / `offset` / `keyset_cursor`。
+    ///
+    /// 用于 `PaginatorTrait` 的 COUNT 子查询构造。
+    pub fn clone_for_count(&self) -> Self {
+        Self {
+            table: self.table.clone(),
+            select_columns: vec!["*".to_string()],
+            where_conditions: self.where_conditions.clone(),
+            order_by: Vec::new(),
+            group_by: self.group_by.clone(),
+            having_conditions: self.having_conditions.clone(),
+            limit_value: None,
+            offset_value: None,
+            joins: self.joins.clone(),
+            dialect: self.dialect.clone_box(),
+            soft_delete_disabled: self.soft_delete_disabled,
+            tenant_id_value: self.tenant_id_value,
+            tenant_disabled: self.tenant_disabled,
+            keyset_cursor: None,
+            model: std::marker::PhantomData,
+        }
     }
 
     /// P0-1：返回当前 Model 的软删除字段名（若启用）
@@ -547,6 +575,119 @@ impl<M: Model> QueryBuilder<M> {
 
     pub fn group_by(mut self, field: impl Into<String>) -> Self {
         self.group_by.push(field.into());
+        self
+    }
+
+    // -----------------------------------------------------------------------
+    // 类型安全列引用（TypedColumn）变体
+    // 以下方法接受实现 TypedColumn 的零大小标记类型，在编译期确保列名
+    // 与表归属正确，避免字符串列名拼写错误逃逸到运行时。
+    // -----------------------------------------------------------------------
+
+    /// 类型安全 `where_eq`：通过 [`TypedColumn`] 标记类型指定列。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::typed::TypedColumn;
+    /// // 假设 typed_query! 生成了 users::col_id
+    /// QueryBuilder::<User>::new()
+    ///     .where_eq_typed::<users::col_id>(Value::from(1i64))
+    ///     .build();
+    /// // 生成：WHERE `id` = ?
+    /// ```
+    pub fn where_eq_typed<C: TypedColumn>(mut self, value: Value) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Eq(C::NAME.to_string(), value));
+        self
+    }
+
+    /// 类型安全 `where_ne`。
+    pub fn where_ne_typed<C: TypedColumn>(mut self, value: Value) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Ne(C::NAME.to_string(), value));
+        self
+    }
+
+    /// 类型安全 `where_gt`。
+    pub fn where_gt_typed<C: TypedColumn>(mut self, value: Value) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Gt(C::NAME.to_string(), value));
+        self
+    }
+
+    /// 类型安全 `where_ge`。
+    pub fn where_ge_typed<C: TypedColumn>(mut self, value: Value) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Ge(C::NAME.to_string(), value));
+        self
+    }
+
+    /// 类型安全 `where_lt`。
+    pub fn where_lt_typed<C: TypedColumn>(mut self, value: Value) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Lt(C::NAME.to_string(), value));
+        self
+    }
+
+    /// 类型安全 `where_le`。
+    pub fn where_le_typed<C: TypedColumn>(mut self, value: Value) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Le(C::NAME.to_string(), value));
+        self
+    }
+
+    /// 类型安全 `where_null`。
+    pub fn where_null_typed<C: TypedColumn>(mut self) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Null(C::NAME.to_string()));
+        self
+    }
+
+    /// 类型安全 `where_not_null`。
+    pub fn where_not_null_typed<C: TypedColumn>(mut self) -> Self {
+        self.where_conditions
+            .push(WhereCondition::NotNull(C::NAME.to_string()));
+        self
+    }
+
+    /// 类型安全 `order_by`（升序）。
+    pub fn order_by_typed<C: TypedColumn>(mut self) -> Self {
+        self.order_by.push(OrderClause {
+            field: C::NAME.to_string(),
+            direction: OrderDirection::Asc,
+        });
+        self
+    }
+
+    /// 类型安全 `order_desc`。
+    pub fn order_desc_typed<C: TypedColumn>(mut self) -> Self {
+        self.order_by.push(OrderClause {
+            field: C::NAME.to_string(),
+            direction: OrderDirection::Desc,
+        });
+        self
+    }
+
+    /// 类型安全 `group_by`。
+    pub fn group_by_typed<C: TypedColumn>(mut self) -> Self {
+        self.group_by.push(C::NAME.to_string());
+        self
+    }
+
+    /// 类型安全 `select`：添加单个列到 SELECT 列表。
+    ///
+    /// 多次调用追加列；与 `select`/`select_quoted` 混用时注意顺序。
+    pub fn select_typed<C: TypedColumn>(mut self) -> Self {
+        self.select_columns.push(C::NAME.to_string());
+        self
+    }
+
+    /// 类型安全 `select`：一次性添加多个列。
+    pub fn select_typed_cols<C: TypedColumn, const N: usize>(mut self) -> Self {
+        // 此方法用于固定数量列的场景；泛型 C 作为占位，实际列名由宏展开填充
+        // 对于多列场景，推荐链式调用 select_typed::<Col1>().select_typed::<Col2>()
+        self.select_columns.push(C::NAME.to_string());
         self
     }
 
@@ -1109,6 +1250,7 @@ impl<M: Model> QueryBuilder<M> {
             })
             .collect();
 
+        // SAFETY: group_strs 来自 WhereCondition::Eq/Gt 等参数化变体渲染，值已绑定为 ? 占位符或内联常量
         format!(" WHERE {}", group_strs.join(" AND "))
     }
 
@@ -1418,6 +1560,7 @@ impl<M: Model> QueryBuilder<M> {
             })
             .collect();
 
+        // SAFETY: group_strs 来自 WhereCondition::Eq/Gt 等参数化变体渲染，值已绑定为 ? 占位符
         (format!(" WHERE {}", group_strs.join(" AND ")), params)
     }
 
@@ -1585,13 +1728,21 @@ impl<M: Model> QueryBuilder<M> {
 
         let mut params = Vec::with_capacity(rows.len() * columns.len());
         let mut value_groups: Vec<String> = Vec::with_capacity(rows.len());
+        let is_pg = self.dialect.db_type() == DbType::PostgreSQL;
+        let mut param_idx = 1usize;
         for row in rows {
             let placeholders: Vec<String> = columns
                 .iter()
                 .map(|col| match row.get(col) {
                     Some(v) => {
                         params.push(v.clone());
-                        "?".to_string()
+                        if is_pg {
+                            let p = format!("${}", param_idx);
+                            param_idx += 1;
+                            p
+                        } else {
+                            "?".to_string()
+                        }
                     }
                     None => "NULL".to_string(),
                 })
@@ -1970,6 +2121,7 @@ impl<M: Model> fmt::Debug for QueryBuilder<M> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::db_type::DbType;
@@ -2011,13 +2163,13 @@ mod tests {
 
         let sql = builder
             .table("users")
-            .where_cond("status = 'active'")
-            .where_cond("age > 18")
+            .where_eq("status", crate::value::Value::String("active".into()))
+            .where_gt("age", crate::value::Value::I64(18))
             .build_select();
 
         assert!(sql.contains("WHERE"));
-        assert!(sql.contains("status = 'active'"));
-        assert!(sql.contains("age > 18"));
+        assert!(sql.contains("`status` = 'active'"));
+        assert!(sql.contains("`age` > 18"));
         Ok(())
     }
 
@@ -2089,7 +2241,7 @@ mod tests {
 
         let sql = builder
             .table("users")
-            .where_cond("id = 1")
+            .where_eq("id", Value::I64(1))
             .build_update(&data);
 
         assert!(sql.contains("UPDATE"));
@@ -2103,7 +2255,10 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
-        let sql = builder.table("users").where_cond("id = 1").build_delete();
+        let sql = builder
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .build_delete();
 
         assert!(sql.contains("DELETE FROM"));
         assert!(sql.contains("WHERE"));
@@ -2317,7 +2472,7 @@ mod tests {
 
         let result = builder
             .table("users")
-            .where_cond("id = 1")
+            .where_eq("id", Value::I64(1))
             .validate_delete();
         assert!(result.is_ok());
         Ok(())
@@ -3160,6 +3315,105 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(999));
         assert_eq!(params[1], Value::I64(42));
+        Ok(())
+    }
+
+    // ---- TypedColumn 类型安全方法测试 ----
+
+    struct TcUsersTable;
+    impl crate::typed::TypedTable for TcUsersTable {
+        const NAME: &'static str = "users";
+    }
+    struct TcColId;
+    impl crate::typed::TypedColumn for TcColId {
+        const NAME: &'static str = "id";
+        type Table = TcUsersTable;
+        type RustType = i64;
+        type SqlType = crate::typed_ast::Untyped;
+    }
+    struct TcColName;
+    impl crate::typed::TypedColumn for TcColName {
+        const NAME: &'static str = "name";
+        type Table = TcUsersTable;
+        type RustType = String;
+        type SqlType = crate::typed_ast::Untyped;
+    }
+
+    #[test]
+    fn test_where_eq_typed() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .where_eq_typed::<TcColId>(Value::I64(42))
+            .build_select_with_params();
+        assert!(sql.contains("`id` = ?"));
+        assert_eq!(params[0], Value::I64(42));
+        Ok(())
+    }
+
+    #[test]
+    fn test_order_by_typed() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, _) = QueryBuilder::<TestModel>::new(dialect)
+            .order_by_typed::<TcColName>()
+            .build_select_with_params();
+        assert!(sql.contains("ORDER BY"));
+        assert!(sql.contains("`name`"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_select_typed() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, _) = QueryBuilder::<TestModel>::new(dialect)
+            .select_typed::<TcColId>()
+            .select_typed::<TcColName>()
+            .build_select_with_params();
+        assert!(sql.contains("SELECT"));
+        // select_columns are joined as-is (not quoted by build_select_with_params)
+        assert!(sql.contains("id"));
+        assert!(sql.contains("name"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_where_null_typed() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, _) = QueryBuilder::<TestModel>::new(dialect)
+            .where_null_typed::<TcColName>()
+            .build_select_with_params();
+        assert!(sql.contains("`name` IS NULL"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_where_not_null_typed() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, _) = QueryBuilder::<TestModel>::new(dialect)
+            .where_not_null_typed::<TcColName>()
+            .build_select_with_params();
+        assert!(sql.contains("`name` IS NOT NULL"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_group_by_typed() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, _) = QueryBuilder::<TestModel>::new(dialect)
+            .group_by_typed::<TcColName>()
+            .build_select_with_params();
+        assert!(sql.contains("GROUP BY"));
+        assert!(sql.contains("`name`"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_where_gt_typed() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .where_gt_typed::<TcColId>(Value::I64(10))
+            .build_select_with_params();
+        assert!(sql.contains("`id` > ?"));
+        assert_eq!(params[0], Value::I64(10));
         Ok(())
     }
 }

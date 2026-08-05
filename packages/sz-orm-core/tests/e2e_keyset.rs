@@ -66,7 +66,7 @@ fn make_builder() -> QueryBuilder<User> {
 
 /// 去除 SQL 中的方言引号（反引号、双引号），便于断言
 fn strip_quotes(sql: &str) -> String {
-    sql.replace('`', "").replace('"', "")
+    sql.replace(['`', '"'], "")
 }
 
 // ===== L3-1：keyset_after 生成正确 SQL =====

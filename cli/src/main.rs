@@ -53,6 +53,7 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     make:seeder <name>            生成 Seeder 文件骨架（SQL 数据填充脚本）
     seed                          执行所有 Seeder（需 --dsn）
     generate entity <table>       从 DB 表反向生成 Model 代码（需 --dsn）
+    prepare                       扫描项目 query! 宏，生成离线 SQL 验证缓存
     sql:validate <sql>            校验 SQL 语法 + 注入检测
     dialect list                  列出所有支持的方言
     dialect show <db_type>        显示指定方言详情
@@ -90,6 +91,7 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     sz-orm seed --dsn sqlite://./test.db
     sz-orm generate entity users --dsn mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test --output ./src/models
     sz-orm sql:validate "SELECT * FROM users"
+    sz-orm prepare --dsn mysql://root:pass@localhost/db
     sz-orm migrate --dry-run
     sz-orm migrate --dsn sqlite::memory:
     sz-orm --config sz-orm.toml migrate
@@ -215,6 +217,7 @@ fn main() -> ExitCode {
         "make:model" => cmd_make_model(&rest, &config),
         "make:seeder" => cmd_make_seeder(&rest, &config),
         "seed" => cmd_seed(&rest, &config),
+        "prepare" => cmd_prepare(&rest, &config),
         "generate" => cmd_generate(&rest),
         "sql:validate" => cmd_sql_validate(&rest),
         "dialect" => cmd_dialect(&rest),
@@ -885,6 +888,335 @@ fn cmd_seed(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
         );
         Ok(())
     })
+}
+
+// =====================================================================
+// prepare — 扫描项目 query! 宏，生成离线 SQL 验证缓存
+// =====================================================================
+
+/// 扫描项目源码中的 `query!` 宏，连接真实数据库执行 EXPLAIN 验证，
+/// 将已验证的 SQL 写入 `.sz-orm/query-cache.json`。
+///
+/// CI 中可通过 `SZ_ORM_QUERY_VERIFY=cache` + `SZ_ORM_SQLX_CACHE=.sz-orm/query-cache.json`
+/// 在不连接 DB 的情况下完成编译期 SQL 验证。
+///
+/// 用法：
+/// ```text
+/// sz-orm prepare --dsn mysql://root:pass@localhost/db
+/// sz-orm prepare --dsn postgres://user:pass@localhost/db --source-dir ./src
+/// sz-orm prepare --dsn sqlite://./test.db --output .sz-orm/query-cache.json
+/// ```
+fn cmd_prepare(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn)
+        .ok_or_else(|| "prepare 需要 --dsn <url> 参数连接数据库执行 EXPLAIN 验证".to_string())?;
+    let source_dir =
+        resolve_option(args, "--source-dir", config, |_| &None).unwrap_or_else(|| ".".to_string());
+    let output =
+        parse_option(args, "--output").unwrap_or_else(|| ".sz-orm/query-cache.json".to_string());
+
+    println!("扫描源码目录: {}", source_dir);
+    println!("数据库:       {}", dsn);
+    println!("输出缓存:     {}", output);
+    println!();
+
+    // 1. 扫描所有 .rs 文件，提取 query! 宏中的 SQL
+    let mut sqls: Vec<String> = Vec::new();
+    scan_query_macros(&source_dir, &mut sqls)?;
+    sqls.sort();
+    sqls.dedup();
+
+    println!("发现 query! 宏: {} 条唯一 SQL", sqls.len());
+    if sqls.is_empty() {
+        println!("未发现 query! 宏调用，无需生成缓存。");
+        return Ok(());
+    }
+
+    // 2. 连接 DB 并逐条执行 EXPLAIN
+    println!();
+    println!("连接数据库执行 EXPLAIN 验证...");
+    let mut verified: Vec<String> = Vec::with_capacity(sqls.len());
+    let mut errors: Vec<(String, String)> = Vec::new();
+
+    run_with_runtime(move || async move {
+        let pool = sz_orm_sqlx::AnyPool::connect(&dsn)
+            .await
+            .map_err(|e| format!("连接数据库失败: {}", e))?;
+        let backend = pool.backend();
+
+        for sql in &sqls {
+            let explain_sql = build_explain_sql(backend, sql);
+            let mut conn = pool
+                .create()
+                .await
+                .map_err(|e| format!("获取连接失败: {}", e))?;
+            match conn.execute(&explain_sql).await {
+                Ok(_) => {
+                    println!("  ✓ {}", truncate_sql(sql, 60));
+                    verified.push(sql.clone());
+                }
+                Err(e) => {
+                    println!("  ✗ {}", truncate_sql(sql, 60));
+                    errors.push((truncate_sql(sql, 80), e.to_string()));
+                }
+            }
+        }
+
+        // 3. 写入缓存文件
+        std::fs::create_dir_all(
+            std::path::Path::new(&output)
+                .parent()
+                .unwrap_or(std::path::Path::new(".")),
+        )
+        .map_err(|e| format!("创建缓存目录失败: {}", e))?;
+        let json = serde_json::to_string_pretty(&verified)
+            .map_err(|e| format!("序列化缓存失败: {}", e))?;
+        std::fs::write(&output, json)
+            .map_err(|e| format!("写入缓存文件 {} 失败: {}", output, e))?;
+
+        println!();
+        println!("验证完成:");
+        println!("  通过: {} 条", verified.len());
+        println!("  失败: {} 条", errors.len());
+        println!("  缓存: {}", output);
+
+        if !errors.is_empty() {
+            println!();
+            println!("失败详情:");
+            for (sql, err) in &errors {
+                println!("  SQL:  {}", sql);
+                println!("  错误: {}", err);
+            }
+            return Err(format!("{} 条 SQL 验证失败，请检查后重试", errors.len()));
+        }
+
+        Ok(())
+    })
+}
+
+/// 递归扫描目录下的所有 .rs 文件，提取 `query!` 宏中的 SQL 字符串
+fn scan_query_macros(dir: &str, out: &mut Vec<String>) -> Result<(), String> {
+    let dir_path = std::path::Path::new(dir);
+    if !dir_path.exists() {
+        return Err(format!("源码目录不存在: {}", dir));
+    }
+    for entry in walkdir(dir_path).map_err(|e| format!("扫描目录失败: {}", e))? {
+        let path = entry.path();
+        if path.extension().and_then(|s| s.to_str()) != Some("rs") {
+            continue;
+        }
+        let content = std::fs::read_to_string(&path)
+            .map_err(|e| format!("读取 {} 失败: {}", path.display(), e))?;
+        extract_query_sql(&content, out);
+    }
+    Ok(())
+}
+
+/// 简单的目录遍历（不引入 walkdir crate 依赖）
+fn walkdir(dir: &std::path::Path) -> Result<Vec<std::fs::DirEntry>, std::io::Error> {
+    let mut entries = Vec::new();
+    let mut stack = vec![std::fs::read_dir(dir)?];
+    while let Some(rd) = stack.pop() {
+        for entry in rd {
+            let entry = entry?;
+            let path = entry.path();
+            if path.is_dir() {
+                if path
+                    .file_name()
+                    .is_some_and(|n| n == "target" || n == "node_modules")
+                {
+                    continue;
+                }
+                stack.push(std::fs::read_dir(&path)?);
+            } else {
+                entries.push(entry);
+            }
+        }
+    }
+    Ok(entries)
+}
+
+/// 从 Rust 源码文本中提取 `query!` 宏的 SQL 字符串
+///
+/// 支持以下形式：
+/// - `query!("SELECT ...")`
+/// - `query!(r#"SELECT ..."#)`
+/// - `query!("SELECT ..." .to_string())`
+fn extract_query_sql(content: &str, out: &mut Vec<String>) {
+    let mut i = 0;
+    let bytes = content.as_bytes();
+
+    while i < bytes.len() {
+        // 查找 query! 标记
+        if bytes[i..].starts_with(b"query!") {
+            // 跳过 query! 和随后的空白/括号
+            let start = i + 6;
+            let mut j = start;
+            while j < bytes.len()
+                && (bytes[j] == b' ' || bytes[j] == b'\t' || bytes[j] == b'\n' || bytes[j] == b'\r')
+            {
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'(' {
+                j += 1;
+                while j < bytes.len()
+                    && (bytes[j] == b' '
+                        || bytes[j] == b'\t'
+                        || bytes[j] == b'\n'
+                        || bytes[j] == b'\r')
+                {
+                    j += 1;
+                }
+                // 尝试提取字符串字面量
+                if let Some((sql, end)) = extract_string_literal(&bytes[j..]) {
+                    out.push(sql);
+                    i = j + end;
+                    continue;
+                }
+            }
+        }
+        i += 1;
+    }
+}
+
+/// 从字节切片开头提取字符串字面量（支持 "..." 和 r#"..."#）
+/// 返回 (SQL 内容, 消耗字节数)
+fn extract_string_literal(bytes: &[u8]) -> Option<(String, usize)> {
+    if bytes.is_empty() {
+        return None;
+    }
+
+    // 原始字符串 r#"..."#
+    if bytes.len() >= 2 && bytes[0] == b'r' && bytes[1] == b'#' {
+        // 找到 #" 开始 和 "# 结束
+        let mut i = 2;
+        // 跳过 # 号（r##"..."## 形式）
+        while i < bytes.len() && bytes[i] == b'#' {
+            i += 1;
+        }
+        if i >= bytes.len() || bytes[i] != b'"' {
+            return None;
+        }
+        i += 1; // 跳过开头 "
+        let start = i;
+        // 找 "# 结束
+        loop {
+            if i >= bytes.len() {
+                return None;
+            }
+            if bytes[i] == b'"' {
+                // 检查后面是否跟着 # 号（r#"..."# 形式）
+                let mut k = i + 1;
+                while k < bytes.len() && bytes[k] == b'#' {
+                    k += 1;
+                }
+                if k > i + 1 {
+                    // 找到匹配的 "# 结尾
+                    let sql = String::from_utf8_lossy(&bytes[start..i]).to_string();
+                    return Some((sql, k));
+                }
+            }
+            i += 1;
+        }
+    }
+
+    // 普通字符串 "..."
+    if bytes[0] == b'"' {
+        let mut i = 1;
+        let mut s = String::new();
+        while i < bytes.len() {
+            match bytes[i] {
+                b'\\' => {
+                    if i + 1 < bytes.len() {
+                        match bytes[i + 1] {
+                            b'"' => {
+                                s.push('"');
+                                i += 2;
+                            }
+                            b'\\' => {
+                                s.push('\\');
+                                i += 2;
+                            }
+                            b'n' => {
+                                s.push('\n');
+                                i += 2;
+                            }
+                            b't' => {
+                                s.push('\t');
+                                i += 2;
+                            }
+                            _ => {
+                                s.push(bytes[i] as char);
+                                i += 1;
+                            }
+                        }
+                    } else {
+                        return None;
+                    }
+                }
+                b'"' => {
+                    return Some((s, i + 1));
+                }
+                c => {
+                    s.push(c as char);
+                    i += 1;
+                }
+            }
+        }
+        return None;
+    }
+
+    None
+}
+
+/// 根据数据库后端类型构建 EXPLAIN SQL
+fn build_explain_sql(backend: sz_orm_sqlx::AnyBackend, sql: &str) -> String {
+    let sql_no_placeholders = replace_placeholders_with_null(sql);
+    match backend {
+        sz_orm_sqlx::AnyBackend::Postgres | sz_orm_sqlx::AnyBackend::MySql => {
+            format!("EXPLAIN {}", sql_no_placeholders)
+        }
+        sz_orm_sqlx::AnyBackend::Sqlite => {
+            format!("EXPLAIN QUERY PLAN {}", sql_no_placeholders)
+        }
+    }
+}
+
+/// 将 SQL 中的 `?` 占位符替换为 `NULL`（跳过字符串字面量内的 `?`）
+fn replace_placeholders_with_null(sql: &str) -> String {
+    let mut result = String::with_capacity(sql.len());
+    let mut in_string = false;
+    let mut escape_next = false;
+    for c in sql.chars() {
+        if escape_next {
+            result.push(c);
+            escape_next = false;
+            continue;
+        }
+        if c == '\\' && in_string {
+            result.push(c);
+            escape_next = true;
+            continue;
+        }
+        if c == '\'' {
+            in_string = !in_string;
+            result.push(c);
+            continue;
+        }
+        if c == '?' && !in_string {
+            result.push_str("NULL");
+        } else {
+            result.push(c);
+        }
+    }
+    result
+}
+
+fn truncate_sql(sql: &str, max: usize) -> String {
+    if sql.len() <= max {
+        sql.to_string()
+    } else {
+        format!("{}...", &sql[..max])
+    }
 }
 
 // =====================================================================

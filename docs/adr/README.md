@@ -15,6 +15,7 @@
 | [0007](0007-ResultMap分组聚合用主键字符串拼接.md) | ResultMap 分组聚合用主键字符串拼接 | Accepted |
 | [0008](0008-连接池acquire持锁不await-close.md) | 连接池 acquire 持锁期间不 await close() | Accepted |
 | [0009](0009-QueryBuilder只生成SQL不执行.md) | QueryBuilder 只生成 SQL 不执行 | Accepted |
+| [0011](0011-异步运行时仅支持tokio.md) | 异步运行时仅支持 Tokio（不支持 async-std） | Accepted |
 
 ## 为什么需要 ADR？
 

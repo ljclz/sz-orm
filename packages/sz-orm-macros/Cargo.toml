@@ -22,11 +22,17 @@ syn = { version = "2.0", features = ["full", "parsing", "derive", "extra-traits"
 # query! 宏可选连真实 DB 验证（通过 SZ_ORM_QUERY_VERIFY=1 + DATABASE_URL 启用）
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite"], optional = true }
 tokio = { workspace = true, features = ["full"], optional = true }
+# 离线缓存验证：解析 .sz-orm/query-cache.json
+serde_json = { version = "1.0", optional = true }
 
 [features]
 default = []
-# 启用 query! 宏的编译期连真实 DB 验证能力
-db-verify = ["dep:sqlx", "dep:tokio"]
+# 启用 query! 宏的编译期连真实 DB 验证能力（含离线缓存模式）
+db-verify = ["dep:sqlx", "dep:tokio", "dep:serde_json"]
+
+[dev-dependencies]
+sz-orm-core = { path = "../sz-orm-core" }
+trybuild = { version = "1.0", default-features = false }
 
 [lints]
 workspace = true

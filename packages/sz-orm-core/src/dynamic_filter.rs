@@ -596,6 +596,7 @@ fn append_filter_clauses(sql: &str, clauses: &[String]) -> String {
         let after = &sql[insert_pos..];
         let trimmed = before.trim_end();
         let sep = if trimmed.is_empty() { "" } else { " " };
+        // SAFETY: combined 来自 DynamicFilter::apply 内部生成，filter 字段名经白名单校验、值经类型转换，非直接用户输入
         format!("{}{}WHERE {}{}", trimmed, sep, combined, after)
     }
 }

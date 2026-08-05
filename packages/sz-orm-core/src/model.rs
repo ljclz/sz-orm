@@ -52,6 +52,14 @@ pub trait Model: Send + Sync + Sized + 'static {
     /// 设置当前实例的主键值
     fn set_pk(&mut self, pk: Self::PrimaryKey);
 
+    /// 将主键值转换为 `Value`（用于 ActiveModel / 参数绑定）
+    ///
+    /// 默认返回 `Value::Null`；需要 ActiveValue 支持的模型应重写此方法。
+    /// 常见实现：`Value::I64(self.pk() as i64)` 或 `Value::String(self.pk().to_string())`。
+    fn pk_as_value(&self) -> Value {
+        Value::Null
+    }
+
     /// 根据关系名推导外键名（默认 `<relation>_id`）
     ///
     /// M-9 说明：默认将 `relation` 转为小写后拼接 `_id`。

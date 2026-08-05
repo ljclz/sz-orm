@@ -38,6 +38,7 @@
 
 use crate::dialect::Dialect;
 use crate::model::Relation;
+
 use std::collections::HashMap;
 
 /// find_with_related 关联查询构造器（JOIN 模式）
@@ -283,6 +284,7 @@ pub fn find_with_related_eager_sql(
         .map_err(crate::DbError::InvalidInput)?;
 
     let main_sql = if let Some(w) = main_where {
+        // SAFETY: main_table 经 dialect.quote 转义；w 来自调用方 WhereCondition 渲染，值已参数化
         format!("SELECT * FROM {} WHERE {}", dialect.quote(main_table), w)
     } else {
         format!("SELECT * FROM {}", dialect.quote(main_table))
@@ -587,6 +589,7 @@ impl<'a> WithRelation<'a> {
         }
 
         if let Some(w) = main_where {
+            // SAFETY: w 来自调用方 WhereCondition 渲染，值已参数化
             sql.push_str(&format!(" WHERE {}", w));
         }
         Ok(sql)
@@ -596,6 +599,7 @@ impl<'a> WithRelation<'a> {
     pub fn main_sql(&self) -> String {
         let base = format!("SELECT * FROM {}", self.dialect.quote(&self.main_table));
         if let Some(w) = &self.main_where {
+            // SAFETY: w 来自 WhereCondition 渲染，值已参数化
             format!("{} WHERE {}", base, w)
         } else {
             base
@@ -703,6 +707,7 @@ fn validate_find_identifiers(idents: &[&str]) -> Result<(), String> {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::db_type::DbType;

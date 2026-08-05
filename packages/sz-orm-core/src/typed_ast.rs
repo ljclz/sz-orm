@@ -112,11 +112,11 @@ impl SqlType for Json {}
 pub struct Uuid;
 impl SqlType for Uuid {}
 
-/// SQL Binary 类型（对应 Vec<u8> / BLOB/BYTEA/VARBINARY）
+/// SQL Binary 类型（对应 `Vec<u8>` / BLOB/BYTEA/VARBINARY）
 pub struct Binary;
 impl SqlType for Binary {}
 
-/// 可空类型包装器（对应 Option<T> / NULLABLE）
+/// 可空类型包装器（对应 `Option<T>` / NULLABLE）
 ///
 /// 将内层 SqlType 标记为允许 NULL。
 pub struct Nullable<T: SqlType>(pub std::marker::PhantomData<T>);

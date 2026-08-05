@@ -1,0 +1,31 @@
+error[E0277]: the trait bound `UserNoModel: Model` is not satisfied
+ --> tests/ui/relation_fail/01_no_model.rs:8:8
+  |
+8 | struct UserNoModel {
+  |        ^^^^^^^^^^^ unsatisfied trait bound
+  |
+help: the trait `Model` is not implemented for `UserNoModel`
+ --> tests/ui/relation_fail/01_no_model.rs:8:1
+  |
+8 | struct UserNoModel {
+  | ^^^^^^^^^^^^^^^^^^
+note: required by a bound in `ModelExt`
+ --> $WORKSPACE/packages/sz-orm-core/src/model.rs
+  |
+  | pub trait ModelExt: Model {
+  |                     ^^^^^ required by this bound in `ModelExt`
+
+error[E0599]: no associated function or constant named `relations` found for struct `UserNoModel` in the current scope
+  --> tests/ui/relation_fail/01_no_model.rs:14:26
+   |
+ 8 | struct UserNoModel {
+   | ------------------ associated function or constant `relations` not found for this struct
+...
+14 |     let _ = UserNoModel::relations();
+   |                          ^^^^^^^^^ associated function or constant not found in `UserNoModel`
+   |
+   = help: items from traits can only be used if the trait is in scope
+help: trait `ModelExt` which provides `relations` is implemented but not in scope; perhaps you want to import it
+   |
+ 3 + use sz_orm_core::ModelExt;
+   |

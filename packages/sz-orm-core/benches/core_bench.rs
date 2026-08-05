@@ -3,6 +3,8 @@
 //! 使用 criterion 测量核心组件的吞吐量与延迟：
 //! - Value::to_param() 各类型转换
 //! - Dialect::escape_string() SQL 转义
+
+#![allow(deprecated)]
 //! - Dialect::build_create_table() DDL 生成
 //! - Dialect::build_pagination() 分页 SQL
 //! - Pool::acquire/release 连接池

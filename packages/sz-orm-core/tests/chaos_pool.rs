@@ -256,6 +256,7 @@ async fn chaos_pool_connection_creation_timeout() {
         max_rows: None,
         memory_limit: None,
         on_event: None,
+        test_before_acquire: false,
     };
     let pool = Pool::new(config, factory).unwrap();
 
@@ -523,6 +524,7 @@ async fn chaos_pool_health_check_recycles_expired() {
         max_rows: None,
         memory_limit: None,
         on_event: None,
+        test_before_acquire: false,
     };
     let pool = Pool::new(config, factory).unwrap();
 
@@ -566,6 +568,7 @@ async fn chaos_pool_health_check_then_serve() {
         max_rows: None,
         memory_limit: None,
         on_event: None,
+        test_before_acquire: false,
     };
     let pool = Pool::new(config, factory).unwrap();
 
@@ -678,6 +681,7 @@ async fn chaos_pool_health_check_detects_disconnected() {
         max_rows: None,
         memory_limit: None,
         on_event: None,
+        test_before_acquire: false,
     };
     let pool = Pool::new(config, factory).unwrap();
 
@@ -711,6 +715,7 @@ async fn chaos_pool_health_check_no_false_positive() {
         max_rows: None,
         memory_limit: None,
         on_event: None,
+        test_before_acquire: false,
     };
     let pool = Pool::new(config, factory).unwrap();
 
@@ -742,6 +747,7 @@ async fn chaos_pool_factory_failure_no_counter_leak() {
         max_rows: None,
         memory_limit: None,
         on_event: None,
+        test_before_acquire: false,
     };
     let pool = Pool::new(config, factory).unwrap();
 

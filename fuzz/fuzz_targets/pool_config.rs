@@ -73,9 +73,9 @@ fuzz_target!(|data: &[u8]| {
     let _ = config.validate();
     black_box(&config);
 
-    // --- Duration 极端值：from_secs(u64::MAX) ---
-    // 测试 Instant::now() + Duration 是否溢出
-    // 注：此处的 panic 正是我们要发现的 bug，不能被吞掉
+    // --- Duration 极端值：validate 必须拒绝超出上限的 Duration ---
+    // 修复前：`Instant::now() + Duration::from_secs(u64::MAX)` 会 panic（overflow）
+    // 修复后：validate() 拒绝 > u32::MAX 秒的 Duration，fuzz target 验证拒绝行为
     let config = PoolConfig {
         max_size: 10,
         min_idle: 1,
@@ -89,10 +89,11 @@ fuzz_target!(|data: &[u8]| {
         memory_limit: None,
         on_event: None,
     };
-    let _ = config.validate();
-    // 不实际创建 Pool（需要 factory），仅测试 Duration 运算
-    // Instant + 极端 Duration 可能 panic（这正是 fuzz 要发现的）
-    let _ = std::time::Instant::now() + config.acquire_timeout;
+    // validate 应拒绝极端 Duration，而非让调用方 panic
+    assert!(
+        config.validate().is_err(),
+        "validate should reject Duration > u32::MAX seconds"
+    );
 
     // --- Duration 为 0 的边界（除零/立即超时） ---
     let config = PoolConfig {

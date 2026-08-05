@@ -15,6 +15,8 @@ sz-orm-core = { workspace = true }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 oracle = "0.6"
+futures = { workspace = true }
+async-stream = "0.3"
 serde_json = { workspace = true }
 tracing = { workspace = true }
 

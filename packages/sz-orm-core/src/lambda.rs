@@ -405,6 +405,7 @@ impl<M> LambdaWrapper<M> {
         if all_conds.is_empty() {
             String::new()
         } else {
+            // SAFETY: all_conds 来自 lambda 表达式编译期生成，字段名/值经类型系统约束，非直接用户输入
             format!(" WHERE {}", all_conds.join(" AND "))
         }
     }

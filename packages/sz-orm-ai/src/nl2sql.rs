@@ -693,6 +693,7 @@ impl Nl2SqlEngine for SimpleNl2SqlEngine {
         let where_clause = if conditions.is_empty() {
             String::new()
         } else {
+            // SAFETY: conditions 来自 NL2SQL 内部解析（field/op/param 由 schema 和 NLP 解析生成），非直接用户输入；AI 生成 SQL 需在执行前经 sql-validator 校验
             format!(" WHERE {}", conditions.join(" AND "))
         };
 
@@ -1413,7 +1414,7 @@ impl QueryOptimizer {
                 analysis.detected_tables.join(", ")
             }
         ));
-        report.push_str(&format!("包含 WHERE: {}\n", analysis.has_where));
+        report.push_str(&format!("包含 WHERE: {}\n", analysis.has_where)); // SAFETY: 报告文本拼接，非 SQL 执行
         report.push_str(&format!("包含 LIMIT: {}\n", analysis.has_limit));
         report.push_str(&format!("包含 JOIN: {}\n", analysis.has_join));
         report.push_str(&format!("包含子查询: {}\n", analysis.has_subquery));

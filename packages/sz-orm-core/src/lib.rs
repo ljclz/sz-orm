@@ -417,8 +417,11 @@ pub use serde::{Deserialize, Serialize};
 
 pub mod access_control;
 pub mod accessors;
+pub mod active_model;
 pub mod behaviors;
 mod cache;
+pub mod circuit_breaker;
+pub mod cursor_stream;
 pub mod data_permission;
 mod db_type;
 pub mod dialect;
@@ -441,15 +444,18 @@ pub mod mock;
 mod model;
 pub mod observer;
 pub mod optimistic_lock;
+pub mod paginator;
 pub mod phinx_migration;
 mod pool;
 mod query;
 pub mod queryable;
 pub mod quick_query;
+pub mod rate_limiter;
 pub mod repository;
 pub mod result_map;
 pub mod retry;
 pub mod schema_gen;
+pub mod select_types;
 pub mod shadow;
 pub mod sql_safety;
 mod transaction;
@@ -459,9 +465,15 @@ pub mod typed_ast;
 mod value;
 
 // Re-export proc macros
+pub use queryable::Query;
+pub use queryable::QueryAs;
+pub use sz_orm_macros::query;
+pub use sz_orm_macros::query_as;
 pub use sz_orm_macros::schema;
 pub use sz_orm_macros::sql_string;
 pub use sz_orm_macros::typed_query;
+// FromQueryResult derive 宏（与 value.rs 中同名 trait 通过显式 use 遮蔽 glob 导出）
+pub use sz_orm_macros::FromQueryResult;
 
 pub use cache::*;
 pub use db_type::*;

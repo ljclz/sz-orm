@@ -1,3 +1,5 @@
+#![allow(deprecated)]
+
 //! Query 模块契约测试 — 对应 `docs/api-contracts.md` §8
 //!
 //! 锁定 QueryBuilder 链式 API、SQL 生成、校验契约。

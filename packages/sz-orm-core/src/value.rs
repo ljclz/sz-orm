@@ -108,17 +108,180 @@ pub enum Value {
 /// ```
 pub trait FromQueryResult: Sized {
     /// 从单个 `Value` 提取字段值
-    fn from_value(value: &Value) -> Result<Self, String>;
+    ///
+    /// 对结构体类型无意义（结构体由多列组成，不能从单个 Value 构造），
+    /// 因此提供默认实现返回错误。仅基础标量类型（i64, String, bool 等）
+    /// 需要真正重写此方法。
+    fn from_value(_value: &Value) -> Result<Self, String> {
+        Err(
+            "from_value not implemented for this type; use from_query_result for structs"
+                .to_string(),
+        )
+    }
 
     /// 从一行数据（列名→值的 HashMap 表示）构建自身
     fn from_row(row: &std::collections::HashMap<String, Value>) -> Result<Self, String> {
         Self::from_query_result(row)
     }
 
-    /// 从一行数据构建自身（主入口，由 derive 生成）
+    /// 从一行数据构建自身（主入口，由 `#[derive(FromQueryResult)]` 自动生成）
     fn from_query_result(_row: &std::collections::HashMap<String, Value>) -> Result<Self, String> {
         Err("from_query_result not implemented for this type".to_string())
     }
+
+    /// 返回该类型期望的列名列表（由 `#[derive(FromQueryResult)]` 自动生成）。
+    ///
+    /// 用于 `query_as!` 宏在 `db-verify` 模式下做编译期列名交叉验证：
+    /// 确保 SQL 的 SELECT 列全部出现在结构体字段中。
+    fn row_desc() -> Vec<&'static str> {
+        Vec::new()
+    }
+
+    /// 返回该类型期望的列名 + SQL 类型列表（由 `#[derive(FromQueryResult)]` 自动生成）。
+    ///
+    /// 用于 `query_as!` 宏在 `db-verify` 模式下做编译期列类型匹配验证：
+    /// 确保 SQL 的 SELECT 列类型与结构体字段类型兼容。
+    ///
+    /// 返回格式：`&[(&'static str, &'static str)]`，例如 `[("id", "bigint"), ("name", "varchar")]`。
+    /// SQL 类型名使用 `INFORMATION_SCHEMA.DATA_TYPE`（MySQL）或 `udt_name`（PostgreSQL）
+    /// 的规范化小写形式。
+    fn column_types() -> &'static [(&'static str, &'static str)] {
+        &[]
+    }
+}
+
+/// 列名枚举抽象（P2-2：由 `#[derive(ColumnEnum)]` 自动实现）。
+///
+/// 从结构体字段自动生成 `<StructName>Column` 枚举，每个变体对应一个数据库列：
+/// ```rust,ignore
+/// #[derive(ColumnEnum)]
+/// struct User { id: i64, name: String }
+///
+/// let col = UserColumn::Id;
+/// assert_eq!(col.as_str(), "id");
+/// ```
+///
+/// 支持 `#[column(name = "...")]` 覆盖列名（与 `#[derive(FromQueryResult)]` 一致）。
+pub trait ColumnTrait {
+    /// 返回当前变体对应的数据库列名。
+    fn as_str(&self) -> &'static str;
+    /// 返回全部列变体（保持结构体字段声明顺序）。
+    fn all() -> Vec<Self>
+    where
+        Self: Sized;
+}
+
+/// 编译期字符串相等比较（const 上下文专用，供 `query_as!` 生成的编译期验证代码使用）。
+///
+/// `str == str` 在 const 上下文中不可用（`PartialEq` 非 const），
+/// 因此提供逐字节比较的 const 实现。
+pub const fn __sz_orm_const_str_eq(a: &str, b: &str) -> bool {
+    if a.len() != b.len() {
+        return false;
+    }
+    let ab = a.as_bytes();
+    let bb = b.as_bytes();
+    let mut i = 0;
+    while i < ab.len() {
+        if ab[i] != bb[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
+}
+
+/// 编译期 SQL 类型兼容性比较（const 上下文专用，供 `query_as!` 生成的编译期验证代码使用）。
+///
+/// 与 `sz-orm-macros` crate 内 `types_compatible()` 保持同一分类逻辑：
+/// 将类型名映射到逻辑分类（整数/浮点/文本/二进制/时间/JSON/UUID 等），
+/// 分类相同即视为兼容（如 `BIGINT` 与 `INT8`）。
+pub const fn __sz_orm_const_types_compatible(
+    actual_db_type: &str,
+    expected_rust_type: &str,
+) -> bool {
+    // 逐字节大小写不敏感比较（const 上下文不支持 to_uppercase()/slice range 索引）
+    const fn ci_eq(t: &str, pat: &[u8]) -> bool {
+        let tb = t.as_bytes();
+        if tb.len() != pat.len() {
+            return false;
+        }
+        let mut i = 0;
+        while i < tb.len() {
+            let c = tb[i];
+            let u = if c >= b'a' && c <= b'z' { c - 32 } else { c };
+            if u != pat[i] {
+                return false;
+            }
+            i += 1;
+        }
+        true
+    }
+    const fn classify(t: &str) -> u8 {
+        if ci_eq(t, b"BOOLEAN") || ci_eq(t, b"BOOL") {
+            1
+        } else if ci_eq(t, b"TINYINT") {
+            2
+        } else if ci_eq(t, b"SMALLINT") || ci_eq(t, b"INT2") {
+            3
+        } else if ci_eq(t, b"INT")
+            || ci_eq(t, b"INT4")
+            || ci_eq(t, b"OID")
+            || ci_eq(t, b"MEDIUMINT")
+            || ci_eq(t, b"INTEGER")
+        {
+            4
+        } else if ci_eq(t, b"BIGINT") || ci_eq(t, b"INT8") {
+            5
+        } else if ci_eq(t, b"TINYINT UNSIGNED") {
+            6
+        } else if ci_eq(t, b"SMALLINT UNSIGNED") {
+            7
+        } else if ci_eq(t, b"INT UNSIGNED") || ci_eq(t, b"MEDIUMINT UNSIGNED") {
+            8
+        } else if ci_eq(t, b"BIGINT UNSIGNED") {
+            9
+        } else if ci_eq(t, b"FLOAT") || ci_eq(t, b"FLOAT4") || ci_eq(t, b"REAL") {
+            10
+        } else if ci_eq(t, b"DOUBLE") || ci_eq(t, b"FLOAT8") {
+            11
+        } else if ci_eq(t, b"DECIMAL")
+            || ci_eq(t, b"NUMERIC")
+            || ci_eq(t, b"NEWDECIMAL")
+            || ci_eq(t, b"MONEY")
+        {
+            12
+        } else if ci_eq(t, b"TEXT")
+            || ci_eq(t, b"VARCHAR")
+            || ci_eq(t, b"CHAR")
+            || ci_eq(t, b"NAME")
+            || ci_eq(t, b"CLOB")
+            || ci_eq(t, b"STRING")
+        {
+            13
+        } else if ci_eq(t, b"BLOB")
+            || ci_eq(t, b"BYTEA")
+            || ci_eq(t, b"BINARY")
+            || ci_eq(t, b"VARBINARY")
+        {
+            14
+        } else if ci_eq(t, b"DATE") {
+            15
+        } else if ci_eq(t, b"DATETIME") || ci_eq(t, b"TIMESTAMP") || ci_eq(t, b"TIMESTAMPTZ") {
+            16
+        } else if ci_eq(t, b"TIME") || ci_eq(t, b"TIMETZ") {
+            17
+        } else if ci_eq(t, b"JSON") || ci_eq(t, b"JSONB") {
+            18
+        } else if ci_eq(t, b"UUID") {
+            19
+        } else {
+            0
+        }
+    }
+    let a = classify(actual_db_type);
+    let b = classify(expected_rust_type);
+    a == b || a == 0 || b == 0
 }
 
 // 基础类型的 FromQueryResult 实现
@@ -219,9 +382,7 @@ impl FromQueryResult for () {
 /// ```ignore
 /// let users: Vec<User> = rows_to::<User>(rows)?;
 /// ```
-pub fn rows_to<T: FromQueryResult>(
-    rows: &crate::pool::QueryRows,
-) -> Result<Vec<T>, String> {
+pub fn rows_to<T: FromQueryResult>(rows: &crate::pool::QueryRows) -> Result<Vec<T>, String> {
     rows.iter().map(T::from_query_result).collect()
 }
 
@@ -833,6 +994,50 @@ mod tests {
     fn test_value_is_null() {
         assert!(Value::Null.is_null());
         assert!(!Value::I64(0).is_null());
+    }
+
+    // ---- P0-2：编译期 const 辅助函数测试 ----
+
+    #[test]
+    fn test_const_str_eq() {
+        assert!(__sz_orm_const_str_eq("id", "id"));
+        assert!(__sz_orm_const_str_eq("user_id", "user_id"));
+        assert!(!__sz_orm_const_str_eq("id", "ID"));
+        assert!(!__sz_orm_const_str_eq("id", "idd"));
+        assert!(!__sz_orm_const_str_eq("", "id"));
+        assert!(__sz_orm_const_str_eq("", ""));
+    }
+
+    #[test]
+    fn test_const_types_compatible_same_category() {
+        // 同一逻辑分类 → 兼容
+        assert!(__sz_orm_const_types_compatible("BIGINT", "BIGINT"));
+        assert!(__sz_orm_const_types_compatible("bigint", "BIGINT"));
+        assert!(__sz_orm_const_types_compatible("INT8", "BIGINT")); // PG 风格
+        assert!(__sz_orm_const_types_compatible("varchar", "TEXT"));
+        assert!(__sz_orm_const_types_compatible("VARCHAR", "VARCHAR"));
+        assert!(__sz_orm_const_types_compatible("timestamp", "DATETIME"));
+        assert!(__sz_orm_const_types_compatible("int4", "INT"));
+        assert!(__sz_orm_const_types_compatible("jsonb", "JSON"));
+        assert!(__sz_orm_const_types_compatible("numeric", "DECIMAL"));
+    }
+
+    #[test]
+    fn test_const_types_compatible_different_category() {
+        // 不同逻辑分类 → 不兼容
+        assert!(!__sz_orm_const_types_compatible("BIGINT", "TEXT"));
+        assert!(!__sz_orm_const_types_compatible("VARCHAR", "INT"));
+        assert!(!__sz_orm_const_types_compatible("JSON", "BIGINT"));
+        assert!(!__sz_orm_const_types_compatible("BLOB", "DATE"));
+        assert!(!__sz_orm_const_types_compatible("DOUBLE", "INT"));
+    }
+
+    #[test]
+    fn test_const_types_compatible_unknown_tolerant() {
+        // 未知类型分类为 0 → 容忍（不误报）
+        assert!(__sz_orm_const_types_compatible("CUSTOM_TYPE", "BIGINT"));
+        assert!(__sz_orm_const_types_compatible("BIGINT", "CUSTOM_TYPE"));
+        assert!(__sz_orm_const_types_compatible("UNKNOWN1", "UNKNOWN2"));
     }
 
     #[test]

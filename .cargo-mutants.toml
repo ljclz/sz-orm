@@ -1,0 +1,41 @@
+[!output]
+"mutants.out"
+
+[!exclude]
+# 排除测试代码（不对其变异）
+"tests/"
+"benches/"
+
+# 排除生成的代码
+"target/"
+
+# 排除纯文档/示例代码
+"examples/"
+
+[!mutants]
+# 启用的变异类型
+include = [
+    "fn",           # 函数体替换为默认值
+    "expr",         # 表达式替换
+    "binop",        # 二元运算符替换（== → !=, && → ||, + → - 等）
+    "unop",         # 一元运算符替换
+    "cmp",          # 比较运算符替换
+]
+
+# 排除会产生无意义变异的模式
+exclude = [
+    "fn drop",      # Drop impl 不应变异
+    "fn clone",     # Clone impl 不应变异
+    "fn default",   # Default impl 不应变异
+    "tracing::",    # 日志调用不应变异
+    "eprintln!",    # 调试输出不应变异
+    "debug!",       # 调试宏不应变异
+]
+
+[!timeout]
+# 单个变异测试的超时时间（秒）
+per_test = 300
+
+[!minimum_test_count]
+# 最少测试数量（防止测试套件退化）
+per_mutant = 1

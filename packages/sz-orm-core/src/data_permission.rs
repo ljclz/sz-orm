@@ -575,6 +575,7 @@ pub fn append_where_clauses(sql: &str, clauses: &[String]) -> String {
         let after = &sql[insert_pos..];
         let trimmed = before.trim_end();
         let sep = if trimmed.is_empty() { "" } else { " " };
+        // SAFETY: combined 来自 PermissionRule::apply 内部生成（OwnerOnly/DepartmentScope 等），值为 format!("{} = {}", field, uid) 形式，field 为 &'static str，uid 为 i64，非用户输入
         format!("{}{}WHERE {}{}", trimmed, sep, combined, after)
     }
 }

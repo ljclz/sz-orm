@@ -370,6 +370,7 @@ impl Db {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::db_type::DbType;
@@ -393,12 +394,12 @@ mod tests {
     fn db_name_with_where_and_limit() {
         let sql = Db::new(mysql())
             .name("users")
-            .where_cond("age > 18")
+            .where_gt("age", Value::I64(18))
             .order_desc("id")
             .limit(10)
             .build_select();
         assert!(sql.contains("SELECT * FROM `users`"));
-        assert!(sql.contains("WHERE age > 18"));
+        assert!(sql.contains("WHERE `age` > 18"));
         assert!(sql.contains("ORDER BY `id` DESC"));
         assert!(sql.contains("LIMIT 10"));
     }
@@ -422,31 +423,31 @@ mod tests {
         data.insert("name".to_string(), Value::String("Bob".to_string()));
         let sql = Db::new(mysql())
             .name("users")
-            .where_cond("id = 1")
+            .where_eq("id", Value::I64(1))
             .build_update(&data);
         assert!(sql.starts_with("UPDATE `users` SET"));
         assert!(sql.contains("`name` = 'Bob'"));
-        assert!(sql.contains("WHERE id = 1"));
+        assert!(sql.contains("WHERE `id` = 1"));
     }
 
     #[test]
     fn db_name_delete_with_where() {
         let sql = Db::new(mysql())
             .name("users")
-            .where_cond("id = 1")
+            .where_eq("id", Value::I64(1))
             .build_delete();
-        assert_eq!(sql, "DELETE FROM `users` WHERE id = 1");
+        assert!(sql.contains("DELETE FROM `users` WHERE `id` = 1"));
     }
 
     #[test]
     fn db_name_count() {
         let sql = Db::new(mysql())
             .name("users")
-            .where_cond("age > 18")
+            .where_gt("age", Value::I64(18))
             .build_count();
         assert!(sql.contains("SELECT COUNT(*)"));
         assert!(sql.contains("FROM `users`"));
-        assert!(sql.contains("WHERE age > 18"));
+        assert!(sql.contains("WHERE `age` > 18"));
     }
 
     #[test]
@@ -494,7 +495,7 @@ mod tests {
     fn db_name_aggregate_functions() {
         let db = Db::new(mysql())
             .name("orders")
-            .where_cond("status = 'paid'");
+            .where_eq("status", Value::String("paid".into()));
         assert!(db.build_sum("amount").contains("SUM(`amount`)"));
         assert!(db.build_max("amount").contains("MAX(`amount`)"));
         assert!(db.build_min("amount").contains("MIN(`amount`)"));
@@ -506,10 +507,10 @@ mod tests {
     fn db_name_chained_or_where() {
         let sql = Db::new(mysql())
             .name("users")
-            .where_cond("age < 18")
-            .or_where("age > 65")
+            .where_lt("age", Value::I64(18))
+            .or_where_gt("age", Value::I64(65))
             .build_select();
-        assert!(sql.contains("WHERE (age < 18 OR age > 65)"));
+        assert!(sql.contains("WHERE (`age` < 18 OR `age` > 65)"));
     }
 
     #[test]

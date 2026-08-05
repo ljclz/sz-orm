@@ -1003,3 +1003,310 @@ fn row_for_upsert(
     row.insert("email".to_string(), Value::String(email.to_string()));
     row
 }
+
+// ===========================================================================
+// P2-3：join() 端到端验证（load_join 生成的 JOIN SQL 在真实 SQLite 上执行）
+// ===========================================================================
+
+/// 建 users/orders 测试表并填充数据：
+/// - alice(id=1) 有 2 个订单；bob(id=2) 无订单
+fn setup_join_tables(conn: &RusqliteConn) {
+    conn.execute_batch(
+        "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT); \
+         CREATE TABLE orders (id INTEGER PRIMARY KEY, user_id INTEGER, amount REAL);",
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO users (id, name) VALUES (1, 'alice'), (2, 'bob')",
+        [],
+    )
+    .unwrap();
+    conn.execute(
+        "INSERT INTO orders (id, user_id, amount) VALUES (1, 1, 10.5), (2, 1, 20.0)",
+        [],
+    )
+    .unwrap();
+}
+
+/// 执行主表 users 的 JOIN SQL（users.* + orders.* 布局：id,name | id,user_id,amount）
+fn run_join_sql(conn: &RusqliteConn, sql: &str) -> Vec<(i64, String, Option<i64>, Option<f64>)> {
+    let mut stmt = conn.prepare(sql).unwrap();
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,         // users.id
+                r.get::<_, String>(1)?,      // users.name
+                r.get::<_, Option<i64>>(2)?, // orders.id（LEFT JOIN 无匹配时为 NULL）
+                r.get::<_, Option<f64>>(4)?, // orders.amount
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    rows
+}
+
+/// 执行主表 orders 的 BelongsTo JOIN SQL（orders.* + users.* 布局：id,user_id,amount | id,name）
+fn run_join_belongs_to_sql(conn: &RusqliteConn, sql: &str) -> Vec<(i64, String, Option<f64>)> {
+    let mut stmt = conn.prepare(sql).unwrap();
+    let rows = stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?,         // orders.id
+                r.get::<_, String>(4)?,      // users.name
+                r.get::<_, Option<f64>>(2)?, // orders.amount
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    rows
+}
+
+#[test]
+fn test_e2e_load_join_left_has_many_null_side() {
+    let conn = open_conn();
+    setup_join_tables(&conn);
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+
+    let sql = sz_orm_core::find_with_related::WithRelation::new(&*dialect, "users")
+        .unwrap()
+        .with_has_many("orders", "user_id", "id")
+        .unwrap()
+        .load_join(None)
+        .unwrap();
+
+    // 在真实 DB 上执行（端到端：语法 + 数据正确性）
+    let rows = run_join_sql(&conn, &sql);
+    // LEFT JOIN：alice 2 行订单 + bob 1 行（订单列 NULL）
+    assert_eq!(
+        rows.len(),
+        3,
+        "LEFT JOIN 应返回 3 行（含 bob 的 NULL 侧）: {:?}",
+        rows
+    );
+    assert!(rows.contains(&(1, "alice".to_string(), Some(1), Some(10.5))));
+    assert!(rows.contains(&(1, "alice".to_string(), Some(2), Some(20.0))));
+    // bob 无订单 → orders 列全部 NULL
+    assert!(
+        rows.contains(&(2, "bob".to_string(), None, None)),
+        "LEFT JOIN 无匹配行应补 NULL: {:?}",
+        rows
+    );
+}
+
+#[test]
+fn test_e2e_load_join_inner_has_many_filters() {
+    let conn = open_conn();
+    setup_join_tables(&conn);
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+
+    // BelongsTo 关联生成 INNER JOIN：orders 为主表，关联 users
+    let sql = sz_orm_core::find_with_related::WithRelation::new(&*dialect, "orders")
+        .unwrap()
+        .with_belongs_to("users", "user_id", "id")
+        .unwrap()
+        .load_join(None)
+        .unwrap();
+    assert!(
+        sql.contains("INNER JOIN"),
+        "BelongsTo 应生成 INNER JOIN: {}",
+        sql
+    );
+
+    let rows = run_join_belongs_to_sql(&conn, &sql);
+    // orders 主表 2 行，均有关联 user（INNER JOIN 保证非 NULL）
+    assert_eq!(rows.len(), 2, "INNER JOIN 结果应为全部订单: {:?}", rows);
+    assert!(rows.contains(&(1, "alice".to_string(), Some(10.5))));
+    assert!(rows.contains(&(2, "alice".to_string(), Some(20.0))));
+}
+
+#[test]
+fn test_e2e_load_join_with_where_and_order() {
+    let conn = open_conn();
+    setup_join_tables(&conn);
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+
+    // main_where 条件：orders.amount > 10 → 仅订单 2（20.0）保留
+    let sql = sz_orm_core::find_with_related::WithRelation::new(&*dialect, "users")
+        .unwrap()
+        .with_has_many("orders", "user_id", "id")
+        .unwrap()
+        .load_join(Some("orders.amount > 10"))
+        .unwrap();
+
+    let rows = run_join_sql(&conn, &sql);
+    // amount > 10 → 两个订单（10.5、20.0）都保留；bob 的 NULL 侧被过滤
+    assert_eq!(rows.len(), 2, "where 过滤后应剩 2 行: {:?}", rows);
+    assert!(
+        !rows.iter().any(|(id, _, _, _)| *id == 2),
+        "bob 的 NULL 侧应被 where 过滤"
+    );
+    assert!(rows.contains(&(1, "alice".to_string(), Some(1), Some(10.5))));
+    assert!(rows.contains(&(1, "alice".to_string(), Some(2), Some(20.0))));
+}
+
+#[test]
+fn test_e2e_load_join_main_where_nulls() {
+    let conn = open_conn();
+    setup_join_tables(&conn);
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+
+    // load_join(Some(...)) 主表条件：只查 bob
+    let sql = sz_orm_core::find_with_related::WithRelation::new(&*dialect, "users")
+        .unwrap()
+        .with_has_many("orders", "user_id", "id")
+        .unwrap()
+        .load_join(Some("users.id = 2"))
+        .unwrap();
+
+    let rows = run_join_sql(&conn, &sql);
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0], (2, "bob".to_string(), None, None));
+}
+
+// ===========================================================================
+// P2-1：eager loading 端到端验证
+// （find_with_related_eager_sql 两条 SQL 在真实 SQLite 上执行 + 内存组装）
+// ===========================================================================
+
+/// eager loading 端到端：主表 SQL + 关联表 SQL（WHERE fk IN (pk 列表)）真实执行，
+/// 返回 `(user_id, user_name, Vec<(order_id, amount)>)` 组装结果。
+fn run_eager_loading(
+    conn: &RusqliteConn,
+    main_sql: &str,
+    related_sql_template: &str,
+) -> Vec<(i64, String, Vec<(i64, f64)>)> {
+    // 1. 执行主表 SQL
+    let mut main_stmt = conn.prepare(main_sql).unwrap();
+    let main_rows: Vec<(i64, String)> = main_stmt
+        .query_map([], |r| Ok((r.get::<_, i64>(0)?, r.get::<_, String>(1)?)))
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    // 2. 收集主键，替换关联 SQL 模板的 `?`
+    let pks: Vec<String> = main_rows.iter().map(|(id, _)| id.to_string()).collect();
+    let related_sql = if pks.is_empty() {
+        return Vec::new();
+    } else {
+        related_sql_template.replace('?', &pks.join(", "))
+    };
+
+    // 3. 执行关联表 SQL
+    let mut rel_stmt = conn.prepare(&related_sql).unwrap();
+    let rel_rows: Vec<(i64, i64, f64)> = rel_stmt
+        .query_map([], |r| {
+            Ok((
+                r.get::<_, i64>(0)?, // orders.id
+                r.get::<_, i64>(1)?, // orders.user_id
+                r.get::<_, f64>(2)?, // orders.amount
+            ))
+        })
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+
+    // 4. 内存组装：按 foreign_key 分组
+    main_rows
+        .into_iter()
+        .map(|(uid, name)| {
+            let orders: Vec<(i64, f64)> = rel_rows
+                .iter()
+                .filter(|(_, fk, _)| *fk == uid)
+                .map(|(oid, _, amount)| (*oid, *amount))
+                .collect();
+            (uid, name, orders)
+        })
+        .collect()
+}
+
+#[test]
+fn test_e2e_eager_loading_has_many() {
+    let conn = open_conn();
+    setup_join_tables(&conn);
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+
+    let (main_sql, related_sql) = sz_orm_core::find_with_related::find_with_related_eager_sql(
+        &*dialect, "users", "orders", "user_id", None,
+    )
+    .unwrap();
+
+    let result = run_eager_loading(&conn, &main_sql, &related_sql);
+    // alice 2 个订单、bob 0 个订单
+    assert_eq!(result.len(), 2, "主表应返回全部用户: {:?}", result);
+    let alice = result.iter().find(|(_, n, _)| n == "alice").unwrap();
+    assert_eq!(alice.2.len(), 2, "alice 应有 2 个订单");
+    assert!(alice.2.contains(&(1, 10.5)));
+    assert!(alice.2.contains(&(2, 20.0)));
+    let bob = result.iter().find(|(_, n, _)| n == "bob").unwrap();
+    assert!(bob.2.is_empty(), "bob 应无订单（eager 不膨胀主表行）");
+}
+
+#[test]
+fn test_e2e_eager_loading_with_main_where() {
+    let conn = open_conn();
+    setup_join_tables(&conn);
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+
+    // main_where 过滤：只查 alice
+    let (main_sql, related_sql) = sz_orm_core::find_with_related::find_with_related_eager_sql(
+        &*dialect,
+        "users",
+        "orders",
+        "user_id",
+        Some("users.id = 1"),
+    )
+    .unwrap();
+    assert!(
+        main_sql.contains("WHERE users.id = 1"),
+        "main_sql 应含 where: {}",
+        main_sql
+    );
+
+    let result = run_eager_loading(&conn, &main_sql, &related_sql);
+    assert_eq!(result.len(), 1);
+    assert_eq!(result[0].1, "alice");
+    assert_eq!(result[0].2.len(), 2);
+}
+
+#[test]
+fn test_e2e_eager_loading_sql_injection_guard() {
+    // 非法表名/列名被拦截（H-2）
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+    let r = sz_orm_core::find_with_related::find_with_related_eager_sql(
+        &*dialect,
+        "users; DROP TABLE orders",
+        "orders",
+        "user_id",
+        None,
+    );
+    assert!(r.is_err(), "非法表名应被拒绝");
+    let r2 = sz_orm_core::find_with_related::find_with_related_eager_sql(
+        &*dialect,
+        "users",
+        "orders",
+        "user_id; DROP TABLE users",
+        None,
+    );
+    assert!(r2.is_err(), "非法外键列名应被拒绝");
+}
+
+#[test]
+fn test_e2e_eager_loading_empty_main_where_no_rows() {
+    let conn = open_conn();
+    setup_join_tables(&conn);
+    let dialect = get_dialect(DbType::Sqlite).expect("sqlite dialect");
+
+    // where 过滤后无行：主键列表为空 → 直接返回空（不执行关联查询）
+    let (main_sql, related_sql) = sz_orm_core::find_with_related::find_with_related_eager_sql(
+        &*dialect,
+        "users",
+        "orders",
+        "user_id",
+        Some("users.id = 999"),
+    )
+    .unwrap();
+    let result = run_eager_loading(&conn, &main_sql, &related_sql);
+    assert!(result.is_empty(), "无主表行时 eager 结果应为空");
+}
