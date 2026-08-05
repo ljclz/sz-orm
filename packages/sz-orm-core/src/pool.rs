@@ -869,7 +869,7 @@ impl Pool {
                         self.emit_event(PoolEvent::ConnectionCreated);
                         let pooled = PooledConnection::new(conn, self.clone());
                         // 放入空闲队列
-                        if let Err(_) = self.idle.push(pooled) {
+                        if self.idle.push(pooled).is_err() {
                             // 队列满（不应该发生），关闭连接
                             let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
                             tracing::warn!(

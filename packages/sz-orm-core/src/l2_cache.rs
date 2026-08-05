@@ -900,12 +900,10 @@ impl L2Cache {
         let cache_key = CacheKey::by_query(table, query_hash);
 
         // 检查缓存
-        if let Some(cached) = self.get(&cache_key) {
+        if let Some(Value::Json(json_str)) = self.get(&cache_key) {
             // 缓存命中：反序列化结果
-            if let Value::Json(json_str) = cached {
-                if let Ok(rows) = serde_json::from_str::<crate::pool::QueryRows>(&json_str) {
-                    return Ok(rows);
-                }
+            if let Ok(rows) = serde_json::from_str::<crate::pool::QueryRows>(&json_str) {
+                return Ok(rows);
             }
         }
 
