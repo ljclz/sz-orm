@@ -843,6 +843,108 @@ impl L2Cache {
         }
     }
 
+    /// TASK-023：查询缓存辅助方法
+    ///
+    /// 根据 SQL + 参数生成缓存键，先查缓存，命中则返回缓存结果；
+    /// 未命中则调用 `loader` 执行查询，将结果缓存后返回。
+    ///
+    /// # 参数
+    ///
+    /// * `table` - 表名（用于表级失效）
+    /// * `sql` - SQL 查询语句
+    /// * `params` - 查询参数（用于生成缓存键）
+    /// * `ttl` - 缓存 TTL
+    /// * `loader` - 异步查询闭包，返回 `Result<Vec<QueryRows>, DbError>`
+    ///
+    /// # 空结果缓存
+    ///
+    /// 空结果也会缓存，TTL 缩短为 `ttl / 10`（至少 1 秒），防止缓存穿透。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::l2_cache::L2Cache;
+    /// use std::time::Duration;
+    ///
+    /// let cache = L2Cache::new();
+    /// let rows = cache.get_or_load_query(
+    ///     "users",
+    ///     "SELECT * FROM users WHERE status = ?",
+    ///     &[Value::I64(1)],
+    ///     Duration::from_secs(300),
+    ///     || async { conn.query_with_params(sql, params).await },
+    /// ).await?;
+    /// ```
+    pub async fn get_or_load_query<F, Fut>(
+        &self,
+        table: &str,
+        sql: &str,
+        params: &[crate::value::Value],
+        ttl: Duration,
+        loader: F,
+    ) -> Result<crate::pool::QueryRows, crate::DbError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<crate::pool::QueryRows, crate::DbError>>,
+    {
+        // 生成缓存键：使用 SQL + 参数的哈希
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        sql.hash(&mut hasher);
+        for param in params {
+            param.to_string().hash(&mut hasher);
+        }
+        let query_hash = hasher.finish();
+        let cache_key = CacheKey::by_query(table, query_hash);
+
+        // 检查缓存
+        if let Some(cached) = self.get(&cache_key) {
+            // 缓存命中：反序列化结果
+            if let Value::Json(json_str) = cached {
+                if let Ok(rows) = serde_json::from_str::<crate::pool::QueryRows>(&json_str) {
+                    return Ok(rows);
+                }
+            }
+        }
+
+        // 缓存未命中：执行查询
+        let rows = loader().await?;
+
+        // 确定缓存 TTL（空结果缩短为 1/10）
+        let cache_ttl = if rows.is_empty() {
+            // 空结果也缓存，TTL 缩短为 1/10（至少 1 秒）
+            std::cmp::max(ttl / 10, Duration::from_secs(1))
+        } else {
+            ttl
+        };
+
+        // 序列化并缓存结果
+        if let Ok(json_str) = serde_json::to_string(&rows) {
+            self.put(&cache_key, Value::Json(json_str), Some(cache_ttl));
+        }
+
+        Ok(rows)
+    }
+
+    /// TASK-023：失效查询缓存
+    ///
+    /// 根据 SQL + 参数失效特定的查询缓存项。
+    pub fn invalidate_query(&self, table: &str, sql: &str, params: &[crate::value::Value]) {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+
+        let mut hasher = DefaultHasher::new();
+        sql.hash(&mut hasher);
+        for param in params {
+            param.to_string().hash(&mut hasher);
+        }
+        let query_hash = hasher.finish();
+        let cache_key = CacheKey::by_query(table, query_hash);
+        self.invalidate(&cache_key);
+    }
+
     /// 获取指定表的命中率统计
     pub fn table_stats(&self, table: &str) -> Option<PerTableStats> {
         self.table_stats
@@ -2322,5 +2424,250 @@ mod tests {
         writer.write(b"k1", b"v1", None).await.unwrap();
         let _ = writer.flush().await;
         assert_eq!(error_counter.load(Ordering::SeqCst), 1);
+    }
+
+    // ===== 查询缓存测试（TASK-023） =====
+
+    #[tokio::test]
+    async fn test_query_cache_hit() {
+        use std::collections::HashMap;
+
+        let cache = L2Cache::new();
+        let mut call_count = 0;
+
+        // 第一次查询：缓存未命中，执行查询
+        let rows1 = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(1)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async {
+                        let mut row = HashMap::new();
+                        row.insert("id".to_string(), crate::value::Value::I64(1));
+                        row.insert(
+                            "name".to_string(),
+                            crate::value::Value::String("Alice".to_string()),
+                        );
+                        Ok(vec![row])
+                    }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(call_count, 1, "第一次查询应调用 loader");
+        assert_eq!(rows1.len(), 1, "应返回 1 行");
+
+        // 第二次查询：缓存命中，不调用 loader
+        let rows2 = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(1)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async { Ok(vec![]) }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(call_count, 1, "第二次查询不应调用 loader（缓存命中）");
+        assert_eq!(rows2.len(), 1, "应返回缓存的 1 行");
+    }
+
+    #[tokio::test]
+    async fn test_query_cache_empty_result_cached() {
+        let cache = L2Cache::new();
+        let mut call_count = 0;
+
+        // 第一次查询：返回空结果
+        let rows1 = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(999)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async { Ok(vec![]) }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(call_count, 1, "第一次查询应调用 loader");
+        assert_eq!(rows1.len(), 0, "应返回空结果");
+
+        // 第二次查询：应命中空结果缓存
+        let rows2 = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(999)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async { Ok(vec![]) }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(call_count, 1, "第二次查询不应调用 loader（空结果缓存命中）");
+        assert_eq!(rows2.len(), 0, "应返回缓存的空结果");
+    }
+
+    #[tokio::test]
+    async fn test_query_cache_different_params() {
+        use std::collections::HashMap;
+
+        let cache = L2Cache::new();
+        let mut call_count = 0;
+
+        // 查询 status = 1
+        let _ = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(1)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async {
+                        let mut row = HashMap::new();
+                        row.insert("id".to_string(), crate::value::Value::I64(1));
+                        Ok(vec![row])
+                    }
+                },
+            )
+            .await
+            .unwrap();
+
+        // 查询 status = 2（不同参数，应未命中）
+        let rows2 = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(2)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async {
+                        let mut row = HashMap::new();
+                        row.insert("id".to_string(), crate::value::Value::I64(2));
+                        row.insert(
+                            "name".to_string(),
+                            crate::value::Value::String("Bob".to_string()),
+                        );
+                        Ok(vec![row])
+                    }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(call_count, 2, "不同参数应调用 loader 两次");
+        assert_eq!(rows2.len(), 1, "应返回 1 行");
+    }
+
+    #[tokio::test]
+    async fn test_query_cache_invalidate() {
+        use std::collections::HashMap;
+
+        let cache = L2Cache::new();
+        let mut call_count = 0;
+
+        // 第一次查询
+        let _ = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(1)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async {
+                        let mut row = HashMap::new();
+                        row.insert("id".to_string(), crate::value::Value::I64(1));
+                        Ok(vec![row])
+                    }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(call_count, 1, "第一次查询应调用 loader");
+
+        // 失效查询缓存
+        cache.invalidate_query(
+            "users",
+            "SELECT * FROM users WHERE status = ?",
+            &[crate::value::Value::I64(1)],
+        );
+
+        // 再次查询：应重新调用 loader
+        let _ = cache
+            .get_or_load_query(
+                "users",
+                "SELECT * FROM users WHERE status = ?",
+                &[crate::value::Value::I64(1)],
+                std::time::Duration::from_secs(300),
+                || {
+                    call_count += 1;
+                    async { Ok(vec![]) }
+                },
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(call_count, 2, "失效后应重新调用 loader");
+    }
+
+    #[tokio::test]
+    async fn test_query_cache_hit_rate() {
+        use std::collections::HashMap;
+
+        let cache = L2Cache::new();
+        let mut call_count = 0;
+
+        // 模拟 10 次相同查询
+        for _ in 0..10 {
+            let _ = cache
+                .get_or_load_query(
+                    "users",
+                    "SELECT * FROM users WHERE status = ?",
+                    &[crate::value::Value::I64(1)],
+                    std::time::Duration::from_secs(300),
+                    || {
+                        call_count += 1;
+                        async {
+                            let mut row = HashMap::new();
+                            row.insert("id".to_string(), crate::value::Value::I64(1));
+                            Ok(vec![row])
+                        }
+                    },
+                )
+                .await
+                .unwrap();
+        }
+
+        // 只有第一次调用 loader，后续 9 次命中缓存
+        assert_eq!(call_count, 1, "10 次查询中只有 1 次调用 loader");
+
+        let stats = cache.stats();
+        assert_eq!(stats.hits, 9, "应命中 9 次");
+        assert_eq!(stats.misses, 1, "应未命中 1 次");
+
+        let hit_rate = stats.hit_rate();
+        assert!(
+            hit_rate >= 0.8,
+            "命中率应 >= 80%，实际: {:.2}%",
+            hit_rate * 100.0
+        );
     }
 }
