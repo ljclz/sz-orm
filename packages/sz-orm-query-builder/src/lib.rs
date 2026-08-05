@@ -608,16 +608,6 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 OR WHERE 条件
-    ///
-    /// # 安全性（v0.2.2 修复 C-6）
-    ///
-    /// 同 `where_clause`，调用 `check_where_injection` 检测高危模式。
-    pub fn or_where(mut self, condition: &str) -> Self {
-        check_where_injection(condition);
-        self.wheres.push(format!("OR {}", condition));
-        self
-    }
 
     // ========================================================================
     // 参数化 WHERE 条件（P0 修复：SQL 注入防护）
@@ -2625,17 +2615,7 @@ mod tests {
     }
 
     #[test]
-    fn test_select_with_or_where() {
-        let sql = Query::select()
-            .column("id")
-            .from("users")
-            .where_clause("age > 18")
-            .or_where("role = 'admin'")
-            .build(DbType::MySQL);
-        assert!(sql.contains("WHERE age > 18 OR role = 'admin'"));
-    }
 
-    #[test]
     fn test_select_with_inner_join() {
         let sql = Query::select()
             .column("u.id")
@@ -2992,17 +2972,6 @@ mod tests {
             .column("id")
             .from("users")
             .where_clause("id = 1 /* comment */ OR 1=1")
-            .build(DbType::MySQL);
-    }
-
-    #[test]
-    #[should_panic(expected = "SQL injection detected")]
-    fn test_select_or_where_rejects_drop() {
-        let _ = Query::select()
-            .column("id")
-            .from("users")
-            .where_clause("id = 1")
-            .or_where("1=1; DROP TABLE users")
             .build(DbType::MySQL);
     }
 

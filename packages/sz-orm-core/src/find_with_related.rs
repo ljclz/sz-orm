@@ -52,7 +52,7 @@ pub struct FindWithRelated<'a> {
     foreign_key: String,
     primary_key: String,
     left_join: bool,
-    where_conds: Vec<String>,
+
     order_by: Vec<(String, bool)>, // (field, is_desc)
     limit: Option<usize>,
     offset: Option<usize>,
@@ -89,27 +89,13 @@ impl<'a> FindWithRelated<'a> {
             foreign_key,
             primary_key,
             left_join,
-            where_conds: Vec::new(),
+
             order_by: Vec::new(),
             limit: None,
             offset: None,
         })
     }
 
-    /// 追加 WHERE 条件（AND 连接）
-    ///
-    /// **⚠️ 已废弃**：此方法存在 SQL 注入风险，将在 2.0.0 中移除。
-    /// 请使用参数化查询替代方案（待 2.0.0 实现）。
-    #[deprecated(
-        since = "1.3.0",
-        note = "存在 SQL 注入风险，将在 2.0.0 中移除。请使用参数化查询替代方案。"
-    )]
-    #[must_use]
-    #[allow(deprecated)]
-    pub fn where_cond(mut self, cond: impl Into<String>) -> Self {
-        self.where_conds.push(cond.into());
-        self
-    }
 
     /// 追加 ORDER BY（ASC）
     #[must_use]
@@ -169,10 +155,6 @@ impl<'a> FindWithRelated<'a> {
             self.dialect.quote(&self.primary_key),
         );
 
-        if !self.where_conds.is_empty() {
-            sql.push_str(" WHERE ");
-            sql.push_str(&self.where_conds.join(" AND "));
-        }
 
         if !self.order_by.is_empty() {
             let parts: Vec<String> = self
@@ -757,17 +739,14 @@ mod tests {
     }
 
     #[test]
-    fn join_with_where_order_limit() {
+    fn join_with_order_limit() {
         let d = mysql_dialect();
         let sql = FindWithRelated::new(&*d, "users", "orders", "user_id", "id", true)
             .unwrap()
-            .where_cond("users.status = 'active'")
-            .where_cond("orders.amount > 100")
             .order_desc("orders.created_at")
             .limit(10)
             .offset(20)
             .build();
-        assert!(sql.contains("WHERE users.status = 'active' AND orders.amount > 100"));
         assert!(sql.contains("ORDER BY `orders.created_at` DESC"));
         assert!(sql.contains("LIMIT 10"));
         assert!(sql.contains("OFFSET 20"));
@@ -976,9 +955,8 @@ mod tests {
         let d = mysql_dialect();
         let sql = find_with_related_join(&*d, "users", "orders", "user_id", "id", true)
             .unwrap()
-            .where_cond("users.id = 1")
             .build();
-        assert!(sql.contains("WHERE users.id = 1"));
+        assert!(sql.contains("JOIN"));
     }
 
     // ---- WithRelation::load 风格 API 测试 ----
