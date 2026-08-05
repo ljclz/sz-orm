@@ -495,7 +495,7 @@ fn bench_query_builder_select(c: &mut Criterion) {
         b.iter(|| {
             let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
                 .table("bench_table")
-                .where_cond("id = 1");
+                .where_eq("id", Value::I64(1));
             black_box(qb.build_select())
         })
     });
@@ -506,8 +506,8 @@ fn bench_query_builder_select(c: &mut Criterion) {
             let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
                 .table("bench_table")
                 .select(vec!["col1", "col2", "col3"])
-                .where_cond("a = 1")
-                .where_cond("b > 10")
+                .where_eq("a", Value::I64(1))
+                .where_gt("b", Value::I64(10))
                 .where_in("status", vec![Value::I64(1), Value::I64(2)])
                 .order_by("created_at")
                 .limit(10);
@@ -521,7 +521,7 @@ fn bench_query_builder_select(c: &mut Criterion) {
             let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
                 .table("bench_table")
                 .select(vec!["id", "name", "email", "status", "created_at"])
-                .where_cond("status = 'active'")
+                .where_eq("status", Value::String("active".to_string()))
                 .where_between("age", Value::I64(18), Value::I64(65))
                 .where_not_null("email")
                 .order_by("created_at")
@@ -589,7 +589,7 @@ fn bench_query_builder_insert_update(c: &mut Criterion) {
         b.iter(|| {
             let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
                 .table("bench_table")
-                .where_cond("id = 1");
+                .where_eq("id", Value::I64(1));
             black_box(qb.build_update(black_box(&data_5)))
         })
     });
@@ -599,7 +599,7 @@ fn bench_query_builder_insert_update(c: &mut Criterion) {
         b.iter(|| {
             let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
                 .table("bench_table")
-                .where_cond("id = 1");
+                .where_eq("id", Value::I64(1));
             black_box(qb.build_delete())
         })
     });

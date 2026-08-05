@@ -31,8 +31,8 @@ fn test_query_builder_chain_returns_self_contract() {
     let builder = QueryBuilder::<User>::new(d)
         .table("users")
         .select(vec!["id", "name"])
-        .where_cond("status = 'active'")
-        .or_where("role = 'admin'")
+        .where_eq("status", Value::String("active".to_string()))
+        .or_where_eq("role", Value::String("admin".to_string()))
         .order_by("created_at")
         .order_desc("id")
         .group_by("status")
@@ -44,16 +44,8 @@ fn test_query_builder_chain_returns_self_contract() {
     assert!(sql.contains("SELECT"), "应包含 SELECT: {}", sql);
     assert!(sql.contains("FROM"), "应包含 FROM: {}", sql);
     assert!(sql.contains("users"), "应包含表名 users: {}", sql);
-    assert!(
-        sql.contains("status = 'active'"),
-        "应包含 where 条件: {}",
-        sql
-    );
-    assert!(
-        sql.contains("role = 'admin'"),
-        "应包含 or_where 条件: {}",
-        sql
-    );
+    assert!(sql.contains("`status` = "), "应包含 where 条件: {}", sql);
+    assert!(sql.contains("`role` = "), "应包含 or_where 条件: {}", sql);
     assert!(sql.contains("ORDER BY"), "应包含 ORDER BY: {}", sql);
     assert!(sql.contains("GROUP BY"), "应包含 GROUP BY: {}", sql);
     assert!(sql.contains("HAVING"), "应包含 HAVING: {}", sql);
@@ -98,11 +90,11 @@ fn test_build_select_with_where_contract() {
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
         .select(vec!["*"])
-        .where_cond("age > 18")
+        .where_gt("age", Value::I64(18))
         .build_select();
 
     assert!(sql.contains("WHERE"));
-    assert!(sql.contains("age > 18"));
+    assert!(sql.contains("`age` > "));
 }
 
 #[test]
@@ -243,7 +235,7 @@ fn test_build_update_basic_contract() {
 
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .where_cond("id = 1")
+        .where_eq("id", Value::I64(1))
         .build_update(&data);
 
     assert!(sql.to_uppercase().contains("UPDATE"));
@@ -257,7 +249,7 @@ fn test_build_delete_basic_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .where_cond("id = 1")
+        .where_eq("id", Value::I64(1))
         .build_delete();
 
     assert!(sql.to_uppercase().contains("DELETE FROM"));
@@ -311,7 +303,7 @@ fn test_validate_update_rejects_empty_data_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let builder = QueryBuilder::<User>::new(d)
         .table("users")
-        .where_cond("id = 1");
+        .where_eq("id", Value::I64(1));
     let empty: HashMap<String, Value> = HashMap::new();
     assert!(builder.validate_update(&empty).is_err());
 }

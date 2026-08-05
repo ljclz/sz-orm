@@ -1551,6 +1551,7 @@ mod tests {
             memory_limit: None,
             on_event: None,
             test_before_acquire: false,
+            prewarm: false,
         };
         assert!(config.validate().is_err());
 
@@ -1568,6 +1569,7 @@ mod tests {
             memory_limit: None,
             on_event: None,
             test_before_acquire: false,
+            prewarm: false,
         };
         assert!(config.validate().is_ok());
 
@@ -1585,6 +1587,7 @@ mod tests {
             memory_limit: None,
             on_event: None,
             test_before_acquire: false,
+            prewarm: false,
         };
         assert!(config.validate().is_err());
     }
@@ -1815,6 +1818,7 @@ mod tests {
             memory_limit: None,
             on_event: None,
             test_before_acquire: false,
+            prewarm: false,
         };
         let factory = Arc::new(CountingFactory::new());
         let pool = Pool::new(config, factory.clone())?;

@@ -283,7 +283,7 @@ fn fuzz_query_builder() {
             match rng.next_usize(6) {
                 0 => {
                     let val = rng.next_i64();
-                    builder = builder.where_cond(format!("{} = {}", field, val));
+                    builder = builder.where_eq(field, Value::I64(val));
                 }
                 1 => {
                     // 用 Value::String + where_in 让 query builder 自动转义，避免手动拼接错误
@@ -301,7 +301,8 @@ fn fuzz_query_builder() {
                     builder = builder.where_not_null(field);
                 }
                 _ => {
-                    builder = builder.or_where(format!("{} > {}", field, rng.next_i64()));
+                    let val = rng.next_i64();
+                    builder = builder.or_where_eq(field, Value::I64(val));
                 }
             }
         }

@@ -72,7 +72,6 @@ impl Db {
         self
     }
 
-
     /// P0-2：参数化等值条件 `field = ?`（AND 关系）
     #[must_use]
     pub fn where_eq(mut self, field: impl Into<String>, value: Value) -> Self {

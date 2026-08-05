@@ -97,7 +97,15 @@ impl<'a> FindWithRelated<'a> {
     }
 
     /// 追加 WHERE 条件（AND 连接）
+    ///
+    /// **⚠️ 已废弃**：此方法存在 SQL 注入风险，将在 2.0.0 中移除。
+    /// 请使用参数化查询替代方案（待 2.0.0 实现）。
+    #[deprecated(
+        since = "1.3.0",
+        note = "存在 SQL 注入风险，将在 2.0.0 中移除。请使用参数化查询替代方案。"
+    )]
     #[must_use]
+    #[allow(deprecated)]
     pub fn where_cond(mut self, cond: impl Into<String>) -> Self {
         self.where_conds.push(cond.into());
         self

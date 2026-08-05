@@ -786,22 +786,12 @@ mod tests {
     // ===== 整合测试：JSON 查询 + 主查询 =====
 
     #[test]
-    fn json_query_integrate_with_quick_query() {
-        use crate::dialect::get_dialect;
-        use crate::quick_query::Db;
+    fn json_query_build_extract() {
 
-        let dialect = get_dialect(DbType::MySQL).expect("MySQL");
         let json_cond = JsonQuery::new(DbType::MySQL, "prefs")
             .path("theme")
-            .eq_string("dark");
-        let sql = Db::new(dialect)
-            .name("users")
-            .where_cond(json_cond)
-            .build_select();
-        assert_eq!(
-            sql,
-            "SELECT * FROM `users` WHERE `prefs`->'$.theme' = 'dark'"
-        );
+            .build_extract();
+        assert_eq!(json_cond, "`prefs`->'$.theme'");
     }
 
     #[test]

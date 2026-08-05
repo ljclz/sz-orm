@@ -128,15 +128,15 @@ fn test_build_select_with_params_where_not_between() {
 fn test_build_select_with_params_mixed_conditions() {
     let builder = make_builder()
         .table("users")
-        .where_cond("status = 'active'")
+        .where_eq("status", Value::String("active".to_string()))
         .where_in("id", vec![Value::I64(1), Value::I64(2)])
         .where_between("age", Value::I32(18), Value::I32(65));
     let (sql, params) = builder.build_select_with_params();
-    // And 条件不提取参数，In 提取 2 个，Between 提取 2 个 = 4 个参数
-    assert_eq!(params.len(), 4, "params: {:?}", params);
+    // And 条件提取 1 个参数，In 提取 2 个，Between 提取 2 个 = 5 个参数
+    assert_eq!(params.len(), 5, "params: {:?}", params);
     assert!(
-        sql.contains("status = 'active'"),
-        "raw condition should be inlined: {}",
+        sql.contains("\"status\" = ?"),
+        "参数化条件应在 SQL 中: {}",
         sql
     );
     assert!(sql.contains("IN (?, ?)"), "SQL: {}", sql);
@@ -196,7 +196,7 @@ fn test_build_update_with_params() {
     data.insert("name".to_string(), Value::String("Bob".to_string()));
     data.insert("age".to_string(), Value::I32(25));
 
-    let builder = make_builder().table("users").where_cond("id = 1");
+    let builder = make_builder().table("users").where_eq("id", Value::I64(1));
     let (sql, params) = builder.build_update_with_params(&data);
     assert!(sql.contains("UPDATE"), "SQL: {}", sql);
     assert!(sql.contains("SET"), "SQL: {}", sql);
@@ -205,11 +205,7 @@ fn test_build_update_with_params() {
         "should have placeholders in SET: {}",
         sql
     );
-    assert_eq!(
-        params.len(),
-        2,
-        "SET params: 2, WHERE has no params (raw condition)"
-    );
+    assert_eq!(params.len(), 3, "SET params: 2, WHERE params: 1");
 }
 
 #[test]
