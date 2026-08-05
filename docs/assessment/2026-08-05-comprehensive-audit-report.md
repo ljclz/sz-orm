@@ -2,7 +2,7 @@
 
 - **日期**：2026-08-05
 - **审计范围**：全 workspace（43 个包）
-- **版本**：1.4.0（已发布 crates.io）
+- **版本**：1.5.0（已发布 crates.io）
 - **审计人**：AI 辅助审计
 - **审计方法**：基于实际代码读取 + 工具验证 + 测试执行
 
@@ -14,13 +14,13 @@
 |------|------|
 | 工作空间成员 | **43**（41 个 sz-orm-* lib + cli + examples） |
 | 支持数据库方言 | **21 种**（DbType 枚举变体数） |
-| 测试用例 | **4,943 passed, 0 failed** |
+| 测试用例 | **5,809 passed, 0 failed** |
 | 代码规模 | **~167,680 LOC**（含测试） |
 | 核心包代码 | sz-orm-core: 63,181 LOC / 90 文件 |
 | 异步运行时 | Tokio 1.40+ |
 | Rust 最低版本 | 1.81（workspace）/ 1.94.0+（sqlx 0.9.0 要求） |
 | sqlx 版本 | 0.9.0 |
-| crates.io 发布 | sz-orm-core/sz-orm-macros/sz-orm-sql-validator v1.4.0 ✅ |
+| crates.io 发布 | sz-orm-core/sz-orm-macros/sz-orm-sql-validator v1.4.0 ✅；sz-orm-core v1.5.0 ✅ |
 | 已知 Bug | **0** |
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
 | `cargo clippy -D warnings` | ✅ 0 warnings |
@@ -269,12 +269,13 @@ e9cd39f fix: 移除 deprecated where_cond/or_where 方法 + 修复测试兼容�
 | sz-orm-sql-validator | 1.4.0 | ✅ 已发布 |
 | sz-orm-macros | 1.4.0 | ✅ 已发布 |
 | sz-orm-core | 1.4.0 | ✅ 已发布 |
+| sz-orm-core | **1.5.0** | ✅ 已发布（2026-08-05：连接池统计指标 + SQL Server INSERT OR IGNORE 回退 + ClickHouse 行锁 + DuckDB 集成测试） |
 
 ---
 
 ## 十、后续更新方向评估
 
-### 10.1 短期目标（v1.5.0）
+### 10.1 短期目标（v1.5.0）— ✅ 已于 2026-08-05 全部完成并发布
 
 | 优先级 | 任务 | 描述 | 预期收益 |
 |--------|------|------|----------|
@@ -283,6 +284,13 @@ e9cd39f fix: 移除 deprecated where_cond/or_where 方法 + 修复测试兼容�
 | **中** | 查询缓存 L2 Redis | 当前 L2Cache 仅内存版，可添加 Redis 后端 | 分布式缓存 |
 | **中** | 连接池统计指标 | 添加 Prometheus 指标导出（acquire_count/wait_time/pool_size） | 可观测性 |
 | **低** | SQL Server INSERT OR IGNORE | SqlServerDialect 当前不支持 INSERT OR IGNORE，可使用 `MERGE` 代替 | 功能完整性 |
+
+> **v1.5.0 完成情况**：
+> - ClickHouse 行锁：`dialect.rs:1690-1698` `supports_lock_for_update/shared` 返回 false（无事务无行锁）；INSERT OR IGNORE 回退普通 INSERT（`dialect.rs:1700-1703`）
+> - DuckDB 集成测试：`packages/sz-orm-core/tests/integration_duckdb.rs` 7 个真实 DB 测试全部通过
+> - Redis 后端：`redis` feature 加入 default（`packages/sz-orm-core/Cargo.toml:15`），RedisBackend 真实实现 + 4 个 ignored 集成测试
+> - 连接池统计指标：`PoolMetrics` + `pool_metrics()`（`pool.rs:583-641`），原子计数不阻塞热路径
+> - SQL Server INSERT OR IGNORE：`dialect.rs:1388-1395` 回退普通 INSERT（MERGE 无法以前缀形式表达，应用层捕获 2601/2627 冲突）
 
 ### 10.2 中期目标（v2.0.0）
 
