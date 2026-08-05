@@ -301,3 +301,400 @@ fn test_oracle_transaction_rollback() {
     // 清理
     drop_table_if_exists(&conn, &table);
 }
+
+// ============================================================================
+// v2.0.0 任务 1.1：补齐 Oracle 集成测试 7 类场景
+//
+// 覆盖场景：
+//   1. 参数化插入 + 参数化 WHERE 查询
+//   2. INSERT OR IGNORE 语义（dialect SQL 断言 + Oracle MERGE INTO 替代执行）
+//   3. 事务 COMMIT 可见性（与 rollback 测试互补）
+//   4. 分页查询（OFFSET/FETCH NEXT 语法）
+//   5. ALTER TABLE ADD/DROP COLUMN
+//   6. 字符串转义（O'Brien）
+//   7. DROP TABLE 后表不存在
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 23ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn test_oracle_parameterized_insert_query() {
+    let conn = open_conn();
+    let table = unique_table("tparam");
+    drop_table_if_exists(&conn, &table);
+    create_test_table(&conn, &table);
+
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let insert_sql = format!(
+        "INSERT INTO {} ({}, {}, {}) VALUES (:1, :2, :3)",
+        dialect.quote(&table),
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote("data"),
+    );
+    conn.execute(&insert_sql, &[&"alice", &100i64, &"data1"])
+        .expect("insert 1");
+    conn.execute(&insert_sql, &[&"bob", &200i64, &"data2"])
+        .expect("insert 2");
+    conn.execute(&insert_sql, &[&"carol", &300i64, &"data3"])
+        .expect("insert 3");
+    conn.commit().expect("commit");
+
+    let select_sql = format!(
+        "SELECT {}, {} FROM {} WHERE {} > :1 ORDER BY {}",
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote(&table),
+        dialect.quote("value"),
+        dialect.quote("value"),
+    );
+    let rows: Vec<(String, i64)> = conn
+        .query_as::<(String, i64)>(&select_sql, &[&150i64])
+        .expect("query")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, "bob");
+    assert_eq!(rows[0].1, 200);
+    assert_eq!(rows[1].0, "carol");
+    assert_eq!(rows[1].1, 300);
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+fn test_oracle_insert_or_ignore_dialect_sql() {
+    let dialect = get_dialect(DbType::Oracle).expect("oracle dialect");
+    let sql = dialect.build_insert_or_ignore_prefix("my_table");
+    assert_eq!(
+        sql, "INSERT OR IGNORE INTO \"my_table\"",
+        "OracleDialect 沿用 Dialect 默认实现生成 INSERT OR IGNORE INTO；\
+         Oracle 不原生支持此语法，真实执行需用 MERGE INTO 替代"
+    );
+}
+
+#[test]
+#[ignore = "需要 Oracle 23ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn test_oracle_merge_into_ignore_semantics() {
+    // Oracle 不原生支持 INSERT OR IGNORE；使用 MERGE INTO 实现"存在则忽略"语义。
+    // 此测试验证 MERGE INTO 在主键冲突时不报错且不覆盖已有行。
+    let conn = open_conn();
+    let table = unique_table("tmerge");
+    drop_table_if_exists(&conn, &table);
+
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let create_sql = format!(
+        "CREATE TABLE {} ({} NUMBER PRIMARY KEY, {} VARCHAR2(100))",
+        dialect.quote(&table),
+        dialect.quote("id"),
+        dialect.quote("name"),
+    );
+    conn.execute(&create_sql, &[]).expect("create table");
+
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}, {}) VALUES (:1, :2)",
+            dialect.quote(&table),
+            dialect.quote("id"),
+            dialect.quote("name"),
+        ),
+        &[&1i64, &"original"],
+    )
+    .expect("insert original");
+    conn.commit().expect("commit");
+
+    let merge_sql = format!(
+        "MERGE INTO {} t USING (SELECT :1 AS {}, :2 AS {} FROM dual) s \
+         ON (t.{} = s.{}) \
+         WHEN NOT MATCHED THEN INSERT ({}, {}) VALUES (s.{}, s.{})",
+        dialect.quote(&table),
+        dialect.quote("id"),
+        dialect.quote("name"),
+        dialect.quote("id"),
+        dialect.quote("id"),
+        dialect.quote("id"),
+        dialect.quote("name"),
+        dialect.quote("id"),
+        dialect.quote("name"),
+    );
+    conn.execute(&merge_sql, &[&1i64, &"ignored"])
+        .expect("merge with existing id");
+    conn.execute(&merge_sql, &[&2i64, &"new"])
+        .expect("merge with new id");
+    conn.commit().expect("commit");
+
+    let count_sql = format!("SELECT COUNT(*) FROM {}", dialect.quote(&table));
+    let count: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count");
+    assert_eq!(count, 2, "应有 2 行：original(id=1) + new(id=2)");
+
+    let name_sql = format!(
+        "SELECT {} FROM {} WHERE {} = :1",
+        dialect.quote("name"),
+        dialect.quote(&table),
+        dialect.quote("id"),
+    );
+    let name1: String = conn
+        .query_row_as::<String>(&name_sql, &[&1i64])
+        .expect("name 1");
+    assert_eq!(name1, "original", "id=1 应保持 original，未被覆盖");
+
+    let name2: String = conn
+        .query_row_as::<String>(&name_sql, &[&2i64])
+        .expect("name 2");
+    assert_eq!(name2, "new");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 23ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn test_oracle_transaction_commit() {
+    let conn = open_conn();
+    let table = unique_table("tcommit");
+    drop_table_if_exists(&conn, &table);
+    create_test_table(&conn, &table);
+
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let insert_sql = format!(
+        "INSERT INTO {} ({}, {}, {}) VALUES (:1, :2, :3)",
+        dialect.quote(&table),
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote("data"),
+    );
+    conn.execute(&insert_sql, &[&"alice", &100i64, &"data1"])
+        .expect("insert 1");
+    conn.execute(&insert_sql, &[&"bob", &200i64, &"data2"])
+        .expect("insert 2");
+    conn.commit().expect("commit");
+
+    let count_sql = format!("SELECT COUNT(*) FROM {}", dialect.quote(&table));
+    let count: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count");
+    assert_eq!(count, 2, "commit 后应可见 2 行");
+
+    conn.execute(&insert_sql, &[&"carol", &300i64, &"data3"])
+        .expect("insert 3");
+    conn.rollback().expect("rollback");
+
+    let count2: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count 2");
+    assert_eq!(count2, 2, "rollback 后应仍为 2 行");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 23ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn test_oracle_pagination_executes() {
+    let conn = open_conn();
+    let table = unique_table("tpage");
+    drop_table_if_exists(&conn, &table);
+    create_test_table(&conn, &table);
+
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let insert_sql = format!(
+        "INSERT INTO {} ({}, {}, {}) VALUES (:1, :2, :3)",
+        dialect.quote(&table),
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote("data"),
+    );
+    let mut stmt = conn.statement(&insert_sql).build().expect("build stmt");
+    for i in 0..25i64 {
+        stmt.execute(&[&format!("user_{}", i), &i, &format!("d{}", i % 5)])
+            .expect("insert");
+    }
+    conn.commit().expect("commit");
+
+    let base_select = format!(
+        "SELECT {}, {} FROM {} ORDER BY {}",
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let page3_sql = dialect.build_pagination(&base_select, 3, 10);
+    let rows: Vec<(String, i64)> = conn
+        .query_as::<(String, i64)>(&page3_sql, &[])
+        .expect("query page 3")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(rows.len(), 5, "25 条分页 10/页，第 3 页应 5 条");
+    assert_eq!(rows[0].0, "user_20");
+    assert_eq!(rows[0].1, 20);
+    assert_eq!(rows[4].0, "user_24");
+    assert_eq!(rows[4].1, 24);
+
+    let page1_sql = dialect.build_pagination(&base_select, 1, 10);
+    let rows1: Vec<(String, i64)> = conn
+        .query_as::<(String, i64)>(&page1_sql, &[])
+        .expect("query page 1")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(rows1.len(), 10);
+    assert_eq!(rows1[0].0, "user_0");
+
+    let page2_sql = dialect.build_pagination(&base_select, 2, 10);
+    let rows2: Vec<(String, i64)> = conn
+        .query_as::<(String, i64)>(&page2_sql, &[])
+        .expect("query page 2")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(rows2.len(), 10);
+    assert_eq!(rows2[0].0, "user_10");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 23ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn test_oracle_alter_table_executes() {
+    use sz_orm_core::dialect::TableChange;
+    let conn = open_conn();
+    let table = unique_table("talter");
+    drop_table_if_exists(&conn, &table);
+    create_test_table(&conn, &table);
+
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let insert_sql = format!(
+        "INSERT INTO {} ({}, {}, {}) VALUES (:1, :2, :3)",
+        dialect.quote(&table),
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote("data"),
+    );
+    conn.execute(&insert_sql, &[&"alice", &100i64, &"data1"])
+        .expect("insert");
+    conn.commit().expect("commit");
+
+    let add_col = TableChange::AddColumn(ColumnDef {
+        name: "email".to_string(),
+        sql_type: "VARCHAR2(255)".to_string(),
+        nullable: true,
+        default: None,
+        auto_increment: false,
+        primary_key: false,
+    });
+    let alter_sql = dialect.build_alter_table(&table, &[add_col]);
+    conn.execute(&alter_sql, &[]).expect("alter add column");
+
+    let update_sql = format!(
+        "UPDATE {} SET {} = :1 WHERE {} = :2",
+        dialect.quote(&table),
+        dialect.quote("email"),
+        dialect.quote("name"),
+    );
+    conn.execute(&update_sql, &[&"alice@example.com", &"alice"])
+        .expect("update email");
+    conn.commit().expect("commit");
+
+    let select_sql = format!(
+        "SELECT {} FROM {} WHERE {} = :1",
+        dialect.quote("email"),
+        dialect.quote(&table),
+        dialect.quote("name"),
+    );
+    let email: String = conn
+        .query_row_as::<String>(&select_sql, &[&"alice"])
+        .expect("select email");
+    assert_eq!(email, "alice@example.com");
+
+    let drop_col = TableChange::DropColumn("email".to_string());
+    let drop_sql = dialect.build_alter_table(&table, &[drop_col]);
+    conn.execute(&drop_sql, &[]).expect("alter drop column");
+
+    let check_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {} = :1",
+        dialect.quote(&table),
+        dialect.quote("name"),
+    );
+    let cnt: i64 = conn
+        .query_row_as::<i64>(&check_sql, &[&"alice"])
+        .expect("check");
+    assert_eq!(cnt, 1, "DROP COLUMN 后行应仍在");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 23ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn test_oracle_escape_executes() {
+    let conn = open_conn();
+    let table = unique_table("tescape");
+    drop_table_if_exists(&conn, &table);
+    create_test_table(&conn, &table);
+
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let raw = "O'Brien";
+    let escaped = dialect.escape_string(raw);
+    assert_eq!(escaped, "O''Brien");
+
+    let insert_sql = format!(
+        "INSERT INTO {} ({}, {}, {}) VALUES (:1, :2, :3)",
+        dialect.quote(&table),
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote("data"),
+    );
+    conn.execute(&insert_sql, &[&raw, &1i64, &"single quote"])
+        .expect("insert with quote");
+    conn.commit().expect("commit");
+
+    let select_sql = format!(
+        "SELECT {} FROM {} WHERE {} = :1",
+        dialect.quote("name"),
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let name: String = conn
+        .query_row_as::<String>(&select_sql, &[&1i64])
+        .expect("select name");
+    assert_eq!(name, "O'Brien", "参数化绑定应原样存取，无需手动转义");
+
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {} = '{}'",
+        dialect.quote(&table),
+        dialect.quote("name"),
+        escaped,
+    );
+    let count: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count");
+    assert_eq!(count, 1, "escape_string 生成的字面量应可正确查询");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 23ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn test_oracle_drop_table_executes() {
+    let conn = open_conn();
+    let table = unique_table("tdrop");
+    drop_table_if_exists(&conn, &table);
+    create_test_table(&conn, &table);
+
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let insert_sql = format!(
+        "INSERT INTO {} ({}, {}, {}) VALUES (:1, :2, :3)",
+        dialect.quote(&table),
+        dialect.quote("name"),
+        dialect.quote("value"),
+        dialect.quote("data"),
+    );
+    conn.execute(&insert_sql, &[&"alice", &1i64, &"d1"])
+        .expect("insert");
+    conn.commit().expect("commit");
+
+    let count_sql = format!("SELECT COUNT(*) FROM {}", dialect.quote(&table));
+    let count: i64 = conn.query_row_as::<i64>(&count_sql, &[]).expect("count");
+    assert_eq!(count, 1);
+
+    drop_table_if_exists(&conn, &table);
+
+    let check_exist_sql = "SELECT COUNT(*) FROM user_tables WHERE table_name = :1";
+    let upper_table = table.to_uppercase();
+    let remain: i64 = conn
+        .query_row_as::<i64>(check_exist_sql, &[&upper_table])
+        .expect("check exist");
+    assert_eq!(remain, 0, "DROP TABLE 后表应不存在");
+
+    let drop_again_sql = dialect.build_drop_table(&table, true);
+    let result = conn.execute(&drop_again_sql, &[]);
+    assert!(result.is_ok(), "DROP TABLE IF EXISTS 对不存在的表应不报错");
+}

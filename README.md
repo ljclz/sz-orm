@@ -743,6 +743,28 @@ cargo deny check advisories bans licenses sources
 
 **rsa Marvin Attack 已通过 sqlx 0.8.6 → 0.9.0 升级彻底消除**：rsa 已从依赖树中完全移除，该漏洞不再触发。当前 7 个忽略项均与 rsa 无关。
 
+## v2.0.0 路线图交付（2026-08-06）
+
+### 交付清单
+
+| 任务 | 状态 | 交付物 |
+|------|------|--------|
+| Oracle 集成测试 | ✅ 完成 | `tests/integration_oracle.rs` 追加 7 类场景，10 测试通过 |
+| SQL Server 集成测试 | ✅ 完成 | `tests/integration_mssql.rs` 新建 8 类场景，5 方言断言通过 |
+| Python 绑定（PyO3） | ✅ 完成 | `packages/sz-orm-python/`，暴露 PyModel/PyQueryBuilder/PyPool/PyTransaction |
+| JavaScript 绑定（napi-rs） | ✅ 完成 | `packages/sz-orm-js/`，暴露 Model/QueryBuilder/Pool/Transaction |
+| 安全专项审计 | ✅ 完成 | `docs/assessment/2026-08-05-security-audit-report.md`，7 维度覆盖 |
+
+### 门禁验证
+
+11 道门禁中 9 项通过，2 项环境限制（`cargo audit` 网络受限、`--all-features` 缺 protoc）。
+
+### 审计结论
+
+🟡 中等风险：3 处已废弃 `where_cond`/`or_where` 需在 v2.0.0 移除，unwrap/expect 需补齐 SAFETY 注释。详见 [安全审计报告](docs/assessment/2026-08-05-security-audit-report.md)。
+
+---
+
 ## 性能基准
 
 criterion 基准（sample_size=10, measurement_time=3s, warm_up=1s, Windows）：

@@ -56,6 +56,11 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 # DuckDB 真实集成测试（bundled：编译 DuckDB 源码，需 MSVC + CMake）
 duckdb = { version = "1", features = ["bundled"] }
 oracle = { version = "0.6", default-features = false, features = ["chrono"] }
+# v2.0.0 任务 1.2：SQL Server 真实集成测试（tiberius 0.12 异步驱动）
+# 仅启用 tds73 + chrono，不启用 TLS（本地开发环境；生产环境应启用 rustls 或 native-tls）
+tiberius = { version = "0.12", default-features = false, features = ["tds73", "chrono"] }
+# tiberius 0.12 需要 tokio-util compat 适配 tokio TcpStream
+tokio-util = { version = "0.7", features = ["compat"] }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"] }
 # v0.2.1 修复 T-1：Property-Based Testing
 proptest = { workspace = true }
@@ -83,6 +88,11 @@ path = "tests/integration_pg.rs"
 [[test]]
 name = "integration_oracle"
 path = "tests/integration_oracle.rs"
+
+# v2.0.0 任务 1.2：SQL Server 集成测试入口
+[[test]]
+name = "integration_mssql"
+path = "tests/integration_mssql.rs"
 
 [[test]]
 name = "contracts"

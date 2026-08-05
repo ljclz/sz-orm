@@ -1,0 +1,30 @@
+[package]
+name = "sz-orm-js"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+authors = ["SZ-ORM Team"]
+license = "MIT"
+description = "JavaScript/Node.js bindings for sz-orm-core (napi-rs): Model, QueryBuilder, Pool, Transaction"
+repository = "https://github.com/ljclz/sz-orm"
+keywords = ["orm", "database", "javascript", "napi", "ffi"]
+categories = ["database", "api-bindings"]
+
+[lib]
+name = "sz_orm_js"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sz-orm-core = { workspace = true }
+napi = "2"
+napi-derive = "2"
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints.rust]
+unsafe_op_in_unsafe_fn = "allow"
+
+[lints.clippy]
+all = { level = "warn", priority = -1 }
+module_name_repetitions = "allow"
+type_complexity = "allow"

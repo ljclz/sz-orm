@@ -1,0 +1,31 @@
+{
+    "name": "@sz-orm/core",
+    "version": "0.1.0",
+    "description": "JavaScript/Node.js bindings for sz-orm-core: async ORM with Model, QueryBuilder, Pool, Transaction",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "napi": {
+        "name": "core",
+        "package": "@sz-orm/core"
+    },
+    "engines": {
+        "node": ">=16"
+    },
+    "scripts": {
+        "build": "napi build --release",
+        "prepublishOnly": "napi prepublish -t npm"
+    },
+    "keywords": [
+        "orm",
+        "database",
+        "async",
+        "sql",
+        "napi"
+    ],
+    "license": "MIT",
+    "optionalDependencies": {
+        "@sz-orm/core-linux-x64-gnu": "0.1.0",
+        "@sz-orm/core-darwin-x64": "0.1.0",
+        "@sz-orm/core-win32-x64-msvc": "0.1.0"
+    }
+}
