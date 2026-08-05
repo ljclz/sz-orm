@@ -1,12 +1,12 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v1.4.0 · 43 工作空间成员 · 5,452 测试 · 17 SQL 方言 · 已发布 crates.io v1.4.0
+> v1.4.0 · 43 工作空间成员 · 4,943 测试 · 17 SQL 方言 · 已发布 crates.io v1.4.0
 
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5442+-green.svg)](#测试)
-[![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#支持的数据库)
+[![Tests](https://img.shields.io/badge/tests-4943+-green.svg)](#测试)
+[![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#工作空间结构)
 [![Version](https://img.shields.io/badge/version-1.4.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
@@ -48,8 +48,8 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | 维度 | 数据 |
 |------|------|
 | 工作空间成员 | **43**（41 个 sz-orm-* lib + cli + examples） |
-| 支持数据库方言 | **16 种 SQL 方言**（7 原生 + 9 委派，含国产信创 6 种） |
-| 测试用例 | **5,442 passed, 0 failed** |
+| 支持数据库方言 | **17 种 SQL 方言**（8 原生 + 9 委派，含国产信创 6 种） |
+| 测试用例 | **4,943 passed, 0 failed** |
 | 代码规模 | **~139,000 LOC**（深度优化后，src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000） |
 | 项目成熟度 | **原型阶段**（未发布 crates.io，零社区验证） |
 | 异步运行时 | Tokio 1.40+ |
@@ -58,6 +58,32 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | 已知 Bug | **0** |
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
 | `cargo clippy -D warnings` | ✅ 0 warnings（`[workspace.lints]` 强制） |
+
+## v1.4.0 新特性（2026-08-05）
+
+### 锁查询（TASK-024~027）
+
+- **`lock_for_update()`**：悲观锁，`SELECT ... FOR UPDATE`，支持 MySQL / PostgreSQL / SQLite（行锁）
+- **`lock_shared()`**：共享锁，`SELECT ... FOR SHARE`（PostgreSQL）/ `LOCK IN SHARE MODE`（MySQL）
+- **`LockType` 枚举**：`Update` / `Shared`，通过 `Dialect` trait 的 `lock_clause()` 方法生成方言特定 SQL
+- 15 个单元测试 + 3 个 MySQL 集成测试 + 1 个基准测试
+
+### INSERT OR IGNORE（TASK-028~029）
+
+- **`insert_or_ignore()`**：插入时忽略唯一键冲突，支持 MySQL（`INSERT IGNORE`）/ PostgreSQL（`ON CONFLICT DO NOTHING`）/ SQLite（`INSERT OR IGNORE`）/ DuckDB（`INSERT OR IGNORE`）
+- 2 个 MySQL 集成测试 + 1 个基准测试
+
+### DuckDB 方言支持（TASK-033~036）
+
+- **`DuckDBDialect`**：完整实现 Dialect trait，支持 CREATE TABLE / ALTER TABLE / 索引 / INSERT OR IGNORE
+- **`DbType::DuckDB`**：新增枚举变体，`as_str()` / `from_str()` / `default_port()` 均已支持
+- 10 个单元测试覆盖建表、改表、类型映射
+
+### crates.io 发布
+
+- sz-orm-sql-validator 1.4.0 ✅
+- sz-orm-macros 1.4.0 ✅
+- sz-orm-core 1.4.0 ✅
 
 ## v1.3.0 新特性（2026-08-05）
 
@@ -85,7 +111,7 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 ## 核心特性
 
 - **异步**：基于 Tokio，全程 `async/await`
-- **多数据库方言**：16 种 SQL 方言（7 原生：MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2 + 9 委派：MariaDB/TiDB/OceanBase/达梦/金仓/PolarDB/GaussDB/GBase/Sybase）
+- **多数据库方言**：17 种 SQL 方言（8 原生：MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB + 9 委派：MariaDB/TiDB/OceanBase/达梦/金仓/PolarDB/GaussDB/GBase/Sybase）
 - **链式 QueryBuilder**：仿 ThinkORM 风格的 fluent API
 - **ACID 事务**：隔离级别、保存点（默认 8 层嵌套，`DEFAULT_MAX_NESTING_DEPTH = 8`，可配置）、`TransactionManager` 多事务管理
 - **连接池**：可配置大小、超时、空闲回收、健康检查、最大生命周期
@@ -175,13 +201,13 @@ sz-orm/
 
 ```toml
 [dependencies]
-# 从 crates.io 安装（推荐，发布后适用）
-sz-orm-core = "1.0"
-sz-orm-sqlx = "1.0"
+# 从 crates.io 安装（推荐）
+sz-orm-core = "1.4"
+sz-orm-sqlx = "1.4"
 
 # 本地开发（path 依赖）
-# sz-orm-core = { version = "1.0", path = "packages/sz-orm-core" }
-# sz-orm-sqlx = { version = "1.0", path = "packages/sz-orm-sqlx" }
+# sz-orm-core = { version = "1.4", path = "packages/sz-orm-core" }
+# sz-orm-sqlx = { version = "1.4", path = "packages/sz-orm-sqlx" }
 
 tokio = { version = "1.40", features = ["full"] }
 ```
@@ -219,7 +245,7 @@ let dialect = get_dialect(DbType::MySQL)?;
 let sql = QueryBuilder::<User>::new(dialect)
     .table("users")
     .select(vec!["id", "name", "email"])
-    .where_cond("status = 'active'")
+    .where_eq("status", Value::String("active".to_string()))
     .order_by("created_at")
     .limit(10)
     .build_select();
@@ -270,6 +296,7 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 | OceanBase | 兼容 `MySqlDialect` | — | 2881 |
 | SQL Server | `SqlServerDialect`（独立实现，TDS 协议） | sz-orm-mssql（基于 `tiberius` crate） | 1433 |
 | ClickHouse | `ClickHouseDialect`（独立实现，非 MySQL 兼容） | — | 8123 |
+| DuckDB | `DuckDBDialect`（独立实现，支持 INSERT OR IGNORE） | — | — |
 | Redis | NoSQL（无 SQL 方言） | — | 6379 |
 | MongoDB | NoSQL | — | 27017 |
 | VectorDB | 向量数据库 | sz-orm-vector | 19530 |
@@ -285,8 +312,8 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 QueryBuilder::<M>::new(dialect)
     .table("users")
     .select(vec!["id", "name"])
-    .where_cond("status = 'active'")            // AND
-    .or_where("role = 'admin'")                  // OR
+    .where_eq("status", Value::String("active".to_string()))  // AND
+    .or_where_eq("role", Value::String("admin".to_string()))   // OR
     .where_in("id", vec![Value::I64(1), Value::I64(2)])
     .where_between("age", Value::I64(18), Value::I64(30))
     .where_null("deleted_at")
