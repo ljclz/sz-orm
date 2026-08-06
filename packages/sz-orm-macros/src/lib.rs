@@ -2677,6 +2677,28 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     derive::derive_relation_impl(input).into()
 }
 
+/// `#[derive(RelationTrait)]` — 自动生成 `RelationTrait` 实现（P-F-2, v2.1.0）
+///
+/// 从 `#[relation(...)]` 属性生成 `RelationDef` 静量表 + `impl RelationTrait`。
+/// 与 `#[derive(Relation)]` 共享属性解析，但生成零分配的静态切片而非 `HashMap`。
+///
+/// # 示例
+///
+/// ```ignore
+/// #[derive(RelationTrait)]
+/// #[relation(has_many = "Order", fk = "user_id", pk = "id")]
+/// struct User { id: i64, name: String }
+///
+/// // 自动生成：
+/// // static RELATIONS: &[RelationDef] = &[RelationDef::new("Order", "users", "orders", "id", "user_id", HasMany)];
+/// // impl RelationTrait for User { ... }
+/// ```
+#[proc_macro_derive(RelationTrait, attributes(relation, table, column))]
+pub fn derive_relation_trait(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_relation_trait_impl(input).into()
+}
+
 // ---------------------------------------------------------------------------
 // Unit tests — cover helper functions used by both macros
 // ---------------------------------------------------------------------------

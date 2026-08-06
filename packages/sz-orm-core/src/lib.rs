@@ -445,12 +445,14 @@ mod model;
 pub mod observer;
 pub mod optimistic_lock;
 pub mod paginator;
+pub mod partial_model;
 pub mod phinx_migration;
 mod pool;
 mod query;
 pub mod queryable;
 pub mod quick_query;
 pub mod rate_limiter;
+pub mod relation_trait;
 pub mod repository;
 pub mod result_map;
 pub mod retry;
@@ -474,6 +476,7 @@ pub use sz_orm_macros::sql_string;
 pub use sz_orm_macros::typed_query;
 // FromQueryResult derive 宏（与 value.rs 中同名 trait 通过显式 use 遮蔽 glob 导出）
 pub use sz_orm_macros::FromQueryResult;
+pub use sz_orm_macros::RelationTrait;
 
 pub use cache::*;
 pub use db_type::*;

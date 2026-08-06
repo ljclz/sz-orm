@@ -1462,7 +1462,124 @@ pub fn derive_relation_impl(input: DeriveInput) -> TokenStream2 {
 }
 
 // ---------------------------------------------------------------------------
-// `#[derive(ColumnEnum)]` — 自动生成列名枚举（P2-2）
+// `#[derive(RelationTrait)]` — 自动生成 RelationTrait 实现（P-F-2, v2.1.0）
+// ---------------------------------------------------------------------------
+
+/// 从 `#[derive(Relation)]` 的 `#[relation(...)]` 属性生成 `RelationTrait` 实现
+///
+/// 与 `derive_relation_impl` 共享 `parse_relation_attr`，但生成 `RelationDef` 静量表
+/// 而非 `HashMap<Relation>`，零分配、编译期常量。
+pub fn derive_relation_trait_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag(
+        "derive(RelationTrait)",
+        &format!("target struct: {}", input.ident),
+    );
+
+    let struct_name = &input.ident;
+    let rel_attrs = parse_relation_attr(&input.attrs);
+
+    let table_name =
+        parse_table_attr(&input.attrs).unwrap_or_else(|| to_snake_case(&struct_name.to_string()));
+
+    let mut relation_defs = Vec::new();
+    for (i, attr) in rel_attrs.iter().enumerate() {
+        let rel_name_str = attr
+            .model
+            .clone()
+            .unwrap_or_else(|| format!("relation_{}", i));
+        let kind = attr.kind.as_deref().unwrap_or("has_many");
+        let pk = attr.pk.clone().unwrap_or_else(|| "id".to_string());
+
+        let (relation_kind, to_entity, from_key, to_key) = match kind {
+            "has_many" => {
+                let child = attr.model.clone().unwrap_or_else(|| table_name.clone());
+                let fk = attr.fk.clone().unwrap_or_else(|| "fk".to_string());
+                (
+                    quote! { ::sz_orm_core::relation_trait::RelationKind::HasMany },
+                    child,
+                    pk,
+                    fk,
+                )
+            }
+            "belongs_to" => {
+                let parent = attr.model.clone().unwrap_or_else(|| "parent".to_string());
+                let fk_bt = attr.fk.clone().unwrap_or_else(|| "parent_id".to_string());
+                (
+                    quote! { ::sz_orm_core::relation_trait::RelationKind::BelongsTo },
+                    parent,
+                    fk_bt,
+                    pk,
+                )
+            }
+            "has_one" => {
+                let child = attr.model.clone().unwrap_or_else(|| "child".to_string());
+                let fk = attr.fk.clone().unwrap_or_else(|| "fk".to_string());
+                (
+                    quote! { ::sz_orm_core::relation_trait::RelationKind::HasOne },
+                    child,
+                    pk,
+                    fk,
+                )
+            }
+            "belongs_to_many" => {
+                let target = attr.target.clone().unwrap_or_else(|| "target".to_string());
+                let other = attr
+                    .other_key
+                    .clone()
+                    .unwrap_or_else(|| "other_key".to_string());
+                (
+                    quote! { ::sz_orm_core::relation_trait::RelationKind::ManyToMany },
+                    target,
+                    pk,
+                    other,
+                )
+            }
+            _ => continue,
+        };
+
+        relation_defs.push(quote! {
+            ::sz_orm_core::relation_trait::RelationDef::new(
+                #rel_name_str,
+                #table_name,
+                #to_entity,
+                #from_key,
+                #to_key,
+                #relation_kind,
+            )
+        });
+    }
+
+    let relation_count = relation_defs.len();
+
+    let relations_ident = syn::Ident::new(
+        &format!("__RELATIONS_{}", struct_name.to_string().to_ascii_uppercase()),
+        proc_macro2::Span::call_site(),
+    );
+
+    let expanded = if relation_count == 0 {
+        quote! {}
+    } else {
+        quote! {
+            #[allow(dead_code)]
+            static #relations_ident: &[::sz_orm_core::relation_trait::RelationDef] = &[
+                #(#relation_defs),*
+            ];
+
+            impl ::sz_orm_core::relation_trait::RelationTrait for #struct_name {
+                fn def(&self) -> &'static ::sz_orm_core::relation_trait::RelationDef {
+                    &#relations_ident[0]
+                }
+
+                fn all_relations() -> &'static [::sz_orm_core::relation_trait::RelationDef] {
+                    #relations_ident
+                }
+            }
+        }
+    };
+
+    expanded
+}
+
 // ---------------------------------------------------------------------------
 
 /// snake_case 字段名 → CamelCase 变体名（`user_id` → `UserId`，`id` → `Id`）

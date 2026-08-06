@@ -36,6 +36,7 @@ use std::time::Duration;
 pub struct QueryBuilder<M: Model> {
     table: Option<String>,
     select_columns: Vec<String>,
+    select_mode: crate::partial_model::SelectMode,
     where_conditions: Vec<WhereCondition>,
     order_by: Vec<OrderClause>,
     group_by: Vec<String>,
@@ -171,6 +172,9 @@ enum JoinClause {
     Left(String, String, String),
     Right(String, String, String),
     Cross(String, String),
+    /// 关联关系 JOIN（P-F-2, v2.1.0）：存储 (join_kind, from_table, from_key, to_table, to_key)
+    /// 渲染为 `{join_kind} {quote(to_table)} ON {quote(from_table)}.{quote(from_key)} = {quote(to_table)}.{quote(to_key)}`
+    Relation(crate::relation_trait::JoinKind, String, String, String, String),
 }
 
 impl<M: Model> QueryBuilder<M> {
@@ -178,6 +182,7 @@ impl<M: Model> QueryBuilder<M> {
         Self {
             table: None,
             select_columns: vec!["*".to_string()],
+            select_mode: crate::partial_model::SelectMode::All,
             where_conditions: Vec::new(),
             order_by: Vec::new(),
             group_by: Vec::new(),
@@ -370,6 +375,7 @@ impl<M: Model> QueryBuilder<M> {
         Self {
             table: self.table.clone(),
             select_columns: vec!["*".to_string()],
+            select_mode: crate::partial_model::SelectMode::All,
             where_conditions: self.where_conditions.clone(),
             order_by: Vec::new(),
             group_by: self.group_by.clone(),
@@ -1011,6 +1017,109 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 基于 `RelationTrait` 的类型安全 JOIN（P-F-2, v2.1.0）
+    ///
+    /// 根据 `RelationDef::kind.default_join_type()` 自动决定 INNER 或 LEFT JOIN。
+    /// 编译期拒绝字符串参数，防 SQL 注入。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::RelationTrait;
+    ///
+    /// #[derive(RelationTrait)]
+    /// #[relation(has_many = "orders", fk = "user_id")]
+    /// struct Order;
+    ///
+    /// let sql = User::find()
+    ///     .join(&Order)  // HasMany → LEFT JOIN
+    ///     .build_select();
+    /// // 生成: SELECT * FROM users LEFT JOIN orders ON users.id = orders.user_id
+    /// ```
+    pub fn join(mut self, relation: &dyn crate::relation_trait::RelationTrait) -> Self {
+        let def = relation.def();
+        let join_kind = def.kind.default_join_type();
+        self.joins.push(JoinClause::Relation(
+            join_kind,
+            def.from_entity.to_string(),
+            def.from_key.to_string(),
+            def.to_entity.to_string(),
+            def.to_key.to_string(),
+        ));
+        self
+    }
+
+    /// 强制 LEFT JOIN 的关联查询（P-F-2, v2.1.0）
+    ///
+    /// 与 `join()` 类似，但始终使用 LEFT JOIN，不论 `RelationKind`。
+    pub fn left_join(mut self, relation: &dyn crate::relation_trait::RelationTrait) -> Self {
+        let def = relation.def();
+        self.joins.push(JoinClause::Relation(
+            crate::relation_trait::JoinKind::Left,
+            def.from_entity.to_string(),
+            def.from_key.to_string(),
+            def.to_entity.to_string(),
+            def.to_key.to_string(),
+        ));
+        self
+    }
+
+    /// 进入部分选择模式（P-F-3, v2.1.0）
+    ///
+    /// 调用后清空默认的 `SELECT *`，需通过 `.column()` 指定查询列。
+    /// 追平 SeaORM `select_only()` API。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// let sql = User::find()
+    ///     .select_only()
+    ///     .column("id")
+    ///     .column("name")
+    ///     .build_select();
+    /// // SELECT id, name FROM users
+    /// ```
+    pub fn select_only(mut self) -> Self {
+        self.select_mode = crate::partial_model::SelectMode::Partial;
+        self.select_columns.clear();
+        self
+    }
+
+    /// 添加查询列（P-F-3, v2.1.0）
+    ///
+    /// 在 `select_only()` 模式下添加列到 SELECT 子句。
+    pub fn column(mut self, column: impl Into<String>) -> Self {
+        self.select_columns.push(column.into());
+        self
+    }
+
+    /// 批量添加查询列（P-F-3, v2.1.0）
+    pub fn columns(mut self, cols: Vec<impl Into<String>>) -> Self {
+        self.select_columns
+            .extend(cols.into_iter().map(Into::into));
+        self
+    }
+
+    /// 添加聚合表达式列（P-F-3, v2.1.0）
+    ///
+    /// 将聚合表达式渲染为 `FUNC(col) AS alias` 推入 SELECT 子句。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::partial_model::Expr;
+    ///
+    /// let sql = User::find()
+    ///     .select_only()
+    ///     .column_as(Expr::count("id"), "total")
+    ///     .build_select();
+    /// // SELECT COUNT(id) AS total FROM users
+    /// ```
+    pub fn column_as(mut self, expr: crate::partial_model::Expr, alias: impl Into<String>) -> Self {
+        self.select_columns.push(expr.render_as(&alias.into()));
+        self
+    }
+
     /// 构建 SELECT SQL 语句
     ///
     /// L-5 修复：补充示例文档
@@ -1089,6 +1198,17 @@ impl<M: Model> QueryBuilder<M> {
                         " CROSS JOIN {} ON {}",
                         self.dialect.quote(t),
                         self.dialect.quote(on)
+                    ));
+                }
+                JoinClause::Relation(kind, ft, fk, tt, tk) => {
+                    sql.push_str(&format!(
+                        " {} {} ON {}.{} = {}.{}",
+                        kind.as_sql(),
+                        self.dialect.quote(tt),
+                        self.dialect.quote(ft),
+                        self.dialect.quote(fk),
+                        self.dialect.quote(tt),
+                        self.dialect.quote(tk)
                     ));
                 }
             }
@@ -1727,6 +1847,17 @@ impl<M: Model> QueryBuilder<M> {
                         self.dialect.quote(on)
                     ));
                 }
+                JoinClause::Relation(kind, ft, fk, tt, tk) => {
+                    sql.push_str(&format!(
+                        " {} {} ON {}.{} = {}.{}",
+                        kind.as_sql(),
+                        self.dialect.quote(tt),
+                        self.dialect.quote(ft),
+                        self.dialect.quote(fk),
+                        self.dialect.quote(tt),
+                        self.dialect.quote(tk)
+                    ));
+                }
             }
         }
 
@@ -2147,6 +2278,13 @@ impl<M: Model> QueryBuilder<M> {
                         }
                         if let Err(e) = sz_orm_sql_validator::validate_column_name(right) {
                             errors.push(e);
+                        }
+                    }
+                    JoinClause::Relation(_, ft, fk, tt, tk) => {
+                        for ident in [ft.as_str(), fk.as_str(), tt.as_str(), tk.as_str()] {
+                            if let Err(e) = sz_orm_sql_validator::validate_column_name(ident) {
+                                errors.push(e);
+                            }
                         }
                     }
                     _ => {}
