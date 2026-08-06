@@ -174,7 +174,13 @@ enum JoinClause {
     Cross(String, String),
     /// 关联关系 JOIN（P-F-2, v2.1.0）：存储 (join_kind, from_table, from_key, to_table, to_key)
     /// 渲染为 `{join_kind} {quote(to_table)} ON {quote(from_table)}.{quote(from_key)} = {quote(to_table)}.{quote(to_key)}`
-    Relation(crate::relation_trait::JoinKind, String, String, String, String),
+    Relation(
+        crate::relation_trait::JoinKind,
+        String,
+        String,
+        String,
+        String,
+    ),
 }
 
 impl<M: Model> QueryBuilder<M> {
@@ -1095,8 +1101,7 @@ impl<M: Model> QueryBuilder<M> {
 
     /// 批量添加查询列（P-F-3, v2.1.0）
     pub fn columns(mut self, cols: Vec<impl Into<String>>) -> Self {
-        self.select_columns
-            .extend(cols.into_iter().map(Into::into));
+        self.select_columns.extend(cols.into_iter().map(Into::into));
         self
     }
 

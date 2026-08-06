@@ -134,11 +134,10 @@ mod tests {
     #[tokio::test]
     async fn test_stream_buffered_yields_rows() {
         let mut mock = MockConnection::new();
-        mock.expect_any()
-            .with_rows(vec![
-                vec![("id", Value::I64(1))],
-                vec![("id", Value::I64(2))],
-            ]);
+        mock.expect_any().with_rows(vec![
+            vec![("id", Value::I64(1))],
+            vec![("id", Value::I64(2))],
+        ]);
 
         let dialect = get_dialect(DbType::MySQL).unwrap();
         let query = QueryBuilder::<TestUser>::new(dialect).table("users");

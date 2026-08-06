@@ -75,8 +75,8 @@ async fn test_nested_save_basic() {
     let order1 = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(100.0))]);
     let order2 = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(200.0))]);
 
-    let nested = NestedActiveModel::from_model(user, order_relation())
-        .with_children(vec![order1, order2]);
+    let nested =
+        NestedActiveModel::from_model(user, order_relation()).with_children(vec![order1, order2]);
 
     let result = nested_save(&mut mock, nested).await.unwrap();
 
@@ -136,8 +136,8 @@ async fn test_nested_save_transaction_rollback() {
     let order1 = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(100.0))]);
     let order2 = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(200.0))]);
 
-    let nested = NestedActiveModel::from_model(user, order_relation())
-        .with_children(vec![order1, order2]);
+    let nested =
+        NestedActiveModel::from_model(user, order_relation()).with_children(vec![order1, order2]);
 
     let result = nested_save(&mut mock, nested).await;
 
@@ -186,7 +186,10 @@ async fn test_nested_save_multi_level() {
 
     let result = nested_save(&mut mock, nested).await.unwrap();
 
-    assert_eq!(result.affected_rows, 3, "应插入 3 行（user + order + item）");
+    assert_eq!(
+        result.affected_rows, 3,
+        "应插入 3 行（user + order + item）"
+    );
 }
 
 // ============================================================================
@@ -202,7 +205,10 @@ async fn test_nested_delete_order() {
     // 后删父
     mock.expect_execute("DELETE FROM users WHERE id = ?", 1);
 
-    let user_model = User { id: 1, name: String::new() };
+    let user_model = User {
+        id: 1,
+        name: String::new(),
+    };
     let user = ActiveModel::from_model(user_model);
 
     let order = ChildEntity::new("orders", vec![]);
@@ -295,7 +301,10 @@ async fn test_nested_save_no_children() {
 
 #[tokio::test]
 async fn test_child_entity_from_active_model() {
-    let order_model = User { id: 0, name: "test".to_string() };
+    let order_model = User {
+        id: 0,
+        name: "test".to_string(),
+    };
 
     let mut active = ActiveModel::from_model(order_model);
     active.set("name", "updated".into());

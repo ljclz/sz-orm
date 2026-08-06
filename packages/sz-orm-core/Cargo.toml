@@ -39,12 +39,12 @@ parking_lot.workspace = true
 crossbeam-queue.workspace = true
 # 流式查询：Connection::query_stream 默认实现需要 futures::stream::empty
 futures.workspace = true
-sz-orm-sql-validator = { version = "2.0.0", path = "../sz-orm-sql-validator" }
-sz-orm-macros = { version = "2.0.0", path = "../sz-orm-macros" }
+sz-orm-sql-validator = { version = "2.1.0", path = "../sz-orm-sql-validator" }
+sz-orm-macros = { version = "2.1.0", path = "../sz-orm-macros" }
 # #88 修复：可选断路器依赖（启用 circuit-breaker feature 时生效）
-sz-orm-health = { version = "2.0.0", path = "../sz-orm-health", optional = true }
+sz-orm-health = { version = "2.1.0", path = "../sz-orm-health", optional = true }
 # #93 修复：可选限流器依赖（启用 rate-limit feature 时生效）
-sz-orm-limit = { version = "2.0.0", path = "../sz-orm-limit", optional = true }
+sz-orm-limit = { version = "2.1.0", path = "../sz-orm-limit", optional = true }
 # Fix #39：L2Cache RedisBackend 真实实现（启用 redis feature 时生效）
 # 使用 connection-manager 自动重连 + tokio-comp 异步 IO
 redis = { workspace = true, optional = true }

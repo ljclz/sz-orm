@@ -1552,7 +1552,10 @@ pub fn derive_relation_trait_impl(input: DeriveInput) -> TokenStream2 {
     let relation_count = relation_defs.len();
 
     let relations_ident = syn::Ident::new(
-        &format!("__RELATIONS_{}", struct_name.to_string().to_ascii_uppercase()),
+        &format!(
+            "__RELATIONS_{}",
+            struct_name.to_string().to_ascii_uppercase()
+        ),
         proc_macro2::Span::call_site(),
     );
 

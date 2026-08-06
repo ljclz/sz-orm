@@ -5,6 +5,64 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.1.0] — 2026-08-06
+
+### 新增功能
+
+#### P-F-1 Eager Loading 端到端（M3）
+- `EagerLoader` 结构体 + `eager_load_all` / `eager_load_one` 一行 API
+- HasMany 双查询策略 + HasOne/BelongsTo JOIN 策略
+- N+1 查询消除（2 条 SQL 而非 N+1 条）
+- Oracle IN >1000 分批查询
+- 多级关联（User → Order → OrderItem，限 2 级）
+- `value_to_key` 辅助函数解决 Value 不实现 Hash/Eq 问题
+
+#### P-F-2 RelationTrait + join/left_join（M1）
+- `RelationKind` / `RelationDef` / `RelationTrait` 核心类型
+- `#[derive(RelationTrait)]` 宏自动生成 RelationTrait 实现
+- `QueryBuilder::join()` / `left_join()` 类型安全链式 JOIN API
+
+#### P-F-3 Partial Models（M2）
+- `SelectMode` / `AggFunc` / `Expr` 类型
+- `QueryBuilder::select_only()` / `.column()` / `.columns()` / `.column_as()` 方法
+- 聚合查询 + GROUP BY 支持
+
+#### P-F-4 Schema Sync 自动结构同步（M5）
+- `TableDef` / `ColumnDef` / `SchemaDiff` / `SyncResult` 类型
+- `diff` 纯函数：6 类变更检测
+- 5 方言 DDL 生成器：MySQL / PostgreSQL / SQLite / Oracle / MSSQL
+- `SchemaSync` 协调器：`sync_dry_run` + `sync`（事务执行）
+- 破坏性变更检测（dropped_tables / dropped_columns → Err）
+
+#### P-F-5 ActiveModel 嵌套持久化（M4）
+- `NestedActiveModel<M>` 包装器（不修改存量 ActiveModel）
+- `ChildEntity` 子实体
+- `nested_save`：事务执行 + 外键自动回填 + 多级递归
+- `nested_delete`：子先父后删除顺序
+- 深度限制 10 层 + RAII 事务 guard
+
+#### P-F-6 Stream API（M6）
+- `StreamApiExt` trait + `stream_buffered` 兼容版
+- `stream` impl 改造（委托 query 而非全量收集）
+- 向后兼容：`stream_buffered` 保留 v2.0.0 行为
+
+#### P-F-7 性能基准对比（M7）
+- v2.1.0 新功能基准测试（Eager Loading / Nested Save / Schema Diff / Stream API）
+- Eager Loading vs N+1 查询对比
+
+### 向后兼容
+
+- **无 Breaking Change**：所有 v2.0.0 API 保持不变
+- `ActiveModel<M>` 结构不变（嵌套通过 `NestedActiveModel` 包装）
+- `Connection` trait 不变（复用 v2.0.0 `query_stream_cursor`）
+- `StreamQueryTrait` trait 签名不变（仅改 impl 实现）
+
+### 测试
+
+- 1521 单元测试通过（+33 新增）
+- 50+ 集成测试通过（+20 新增）
+- clippy 0 警告
+
 ## [2.0.0] — 2026-08-06
 
 ### Breaking Changes

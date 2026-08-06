@@ -116,7 +116,10 @@ impl EagerLoader {
         let results = main_rows
             .into_iter()
             .map(|row| {
-                let pk = row.get(self.relation.from_key).cloned().unwrap_or(Value::Null);
+                let pk = row
+                    .get(self.relation.from_key)
+                    .cloned()
+                    .unwrap_or(Value::Null);
                 let pk_key = value_to_key(&pk);
                 let related = grouped.get(&pk_key).cloned().unwrap_or_default();
                 (row, related)

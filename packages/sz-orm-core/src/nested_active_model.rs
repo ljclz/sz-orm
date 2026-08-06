@@ -459,7 +459,9 @@ where
     if !nested.children.is_empty() {
         let delete_children_sql = format!("DELETE FROM {} WHERE {} = ?", child_table, fk_key);
         let params = vec![parent_pk.clone()];
-        let rows = conn.execute_with_params(&delete_children_sql, &params).await?;
+        let rows = conn
+            .execute_with_params(&delete_children_sql, &params)
+            .await?;
         affected_rows += rows;
     }
 
@@ -467,7 +469,9 @@ where
     let parent_table = nested.parent.table_name();
     let delete_parent_sql = format!("DELETE FROM {} WHERE id = ?", parent_table);
     let params = vec![parent_pk];
-    let rows = conn.execute_with_params(&delete_parent_sql, &params).await?;
+    let rows = conn
+        .execute_with_params(&delete_parent_sql, &params)
+        .await?;
     affected_rows += rows;
 
     Ok(affected_rows)
@@ -529,7 +533,8 @@ mod tests {
     fn test_nested_active_model_with_children() {
         let user = ActiveModel::from_model(User::default());
         let order = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(100.0))]);
-        let nested = NestedActiveModel::from_model(user, make_relation()).with_children(vec![order]);
+        let nested =
+            NestedActiveModel::from_model(user, make_relation()).with_children(vec![order]);
         assert_eq!(nested.children().len(), 1);
         assert_eq!(nested.children()[0].table(), "orders");
     }

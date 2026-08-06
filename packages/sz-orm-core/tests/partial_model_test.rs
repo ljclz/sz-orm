@@ -2,11 +2,11 @@
 //!
 //! 测试 select_only / column / columns / column_as 方法
 
+use sz_orm_core::dialect::get_dialect;
 use sz_orm_core::partial_model::{AggFunc, Expr, SelectMode};
 use sz_orm_core::DbType;
-use sz_orm_core::dialect::get_dialect;
-use sz_orm_core::QueryBuilder;
 use sz_orm_core::Model;
+use sz_orm_core::QueryBuilder;
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]

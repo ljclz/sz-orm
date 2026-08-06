@@ -23,18 +23,35 @@ async fn test_eager_load_hasmany_basic() {
     let mut mock = MockConnection::new();
 
     // 主表查询：users
-    mock.expect_query("SELECT * FROM users")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1)), ("name", Value::String("Alice".into()))]),
-            MockRow::from(vec![("id", Value::I64(2)), ("name", Value::String("Bob".into()))]),
-        ]);
+    mock.expect_query("SELECT * FROM users").with_rows(vec![
+        MockRow::from(vec![
+            ("id", Value::I64(1)),
+            ("name", Value::String("Alice".into())),
+        ]),
+        MockRow::from(vec![
+            ("id", Value::I64(2)),
+            ("name", Value::String("Bob".into())),
+        ]),
+    ]);
 
     // 关联表查询：orders WHERE user_id IN (?, ?)
     mock.expect_query("SELECT * FROM orders WHERE user_id IN (?, ?)")
         .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(101)), ("user_id", Value::I64(1)), ("total", Value::F64(100.0))]),
-            MockRow::from(vec![("id", Value::I64(102)), ("user_id", Value::I64(1)), ("total", Value::F64(200.0))]),
-            MockRow::from(vec![("id", Value::I64(103)), ("user_id", Value::I64(2)), ("total", Value::F64(50.0))]),
+            MockRow::from(vec![
+                ("id", Value::I64(101)),
+                ("user_id", Value::I64(1)),
+                ("total", Value::F64(100.0)),
+            ]),
+            MockRow::from(vec![
+                ("id", Value::I64(102)),
+                ("user_id", Value::I64(1)),
+                ("total", Value::F64(200.0)),
+            ]),
+            MockRow::from(vec![
+                ("id", Value::I64(103)),
+                ("user_id", Value::I64(2)),
+                ("total", Value::F64(50.0)),
+            ]),
         ]);
 
     let relation = RelationDef::new(
@@ -92,9 +109,10 @@ async fn test_eager_load_hasmany_no_related() {
     let mut mock = MockConnection::new();
 
     mock.expect_query("SELECT * FROM users")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1)), ("name", Value::String("Alice".into()))]),
-        ]);
+        .with_rows(vec![MockRow::from(vec![
+            ("id", Value::I64(1)),
+            ("name", Value::String("Alice".into())),
+        ])]);
 
     // 关联表无匹配记录
     mock.expect_query("SELECT * FROM orders WHERE user_id IN (?)")
@@ -127,12 +145,11 @@ async fn test_eager_load_eliminates_n_plus_1() {
     let mut mock = MockConnection::new();
 
     // 3 个用户
-    mock.expect_query("SELECT * FROM users")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1))]),
-            MockRow::from(vec![("id", Value::I64(2))]),
-            MockRow::from(vec![("id", Value::I64(3))]),
-        ]);
+    mock.expect_query("SELECT * FROM users").with_rows(vec![
+        MockRow::from(vec![("id", Value::I64(1))]),
+        MockRow::from(vec![("id", Value::I64(2))]),
+        MockRow::from(vec![("id", Value::I64(3))]),
+    ]);
 
     // 1 条批量查询（而非 3 条单独查询）
     mock.expect_query("SELECT * FROM orders WHERE user_id IN (?, ?, ?)")
@@ -179,17 +196,22 @@ async fn test_eager_load_one_hasone() {
     let mut mock = MockConnection::new();
 
     // 主表查询：orders
-    mock.expect_query("SELECT * FROM orders")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(101)), ("user_id", Value::I64(1))]),
-            MockRow::from(vec![("id", Value::I64(102)), ("user_id", Value::I64(2))]),
-        ]);
+    mock.expect_query("SELECT * FROM orders").with_rows(vec![
+        MockRow::from(vec![("id", Value::I64(101)), ("user_id", Value::I64(1))]),
+        MockRow::from(vec![("id", Value::I64(102)), ("user_id", Value::I64(2))]),
+    ]);
 
     // 关联表查询：users WHERE id IN (?, ?)
     mock.expect_query("SELECT * FROM users WHERE id IN (?, ?)")
         .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1)), ("name", Value::String("Alice".into()))]),
-            MockRow::from(vec![("id", Value::I64(2)), ("name", Value::String("Bob".into()))]),
+            MockRow::from(vec![
+                ("id", Value::I64(1)),
+                ("name", Value::String("Alice".into())),
+            ]),
+            MockRow::from(vec![
+                ("id", Value::I64(2)),
+                ("name", Value::String("Bob".into())),
+            ]),
         ]);
 
     let relation = RelationDef::new(
@@ -228,17 +250,17 @@ async fn test_eager_load_one_hasone() {
 async fn test_eager_load_one_missing_related() {
     let mut mock = MockConnection::new();
 
-    mock.expect_query("SELECT * FROM orders")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(101)), ("user_id", Value::I64(1))]),
-            MockRow::from(vec![("id", Value::I64(102)), ("user_id", Value::I64(999))]),
-        ]);
+    mock.expect_query("SELECT * FROM orders").with_rows(vec![
+        MockRow::from(vec![("id", Value::I64(101)), ("user_id", Value::I64(1))]),
+        MockRow::from(vec![("id", Value::I64(102)), ("user_id", Value::I64(999))]),
+    ]);
 
     // User 999 不存在
     mock.expect_query("SELECT * FROM users WHERE id IN (?, ?)")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1)), ("name", Value::String("Alice".into()))]),
-        ]);
+        .with_rows(vec![MockRow::from(vec![
+            ("id", Value::I64(1)),
+            ("name", Value::String("Alice".into())),
+        ])]);
 
     let relation = RelationDef::new(
         "user",
@@ -272,21 +294,25 @@ async fn test_eager_load_multilevel() {
 
     // 主表：users
     mock.expect_query("SELECT * FROM users")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1)), ("name", Value::String("Alice".into()))]),
-        ]);
+        .with_rows(vec![MockRow::from(vec![
+            ("id", Value::I64(1)),
+            ("name", Value::String("Alice".into())),
+        ])]);
 
     // 一级关联：orders
     mock.expect_query("SELECT * FROM orders WHERE user_id IN (?)")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(101)), ("user_id", Value::I64(1))]),
-        ]);
+        .with_rows(vec![MockRow::from(vec![
+            ("id", Value::I64(101)),
+            ("user_id", Value::I64(1)),
+        ])]);
 
     // 二级关联：order_items
     mock.expect_query("SELECT * FROM order_items WHERE order_id IN (?)")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1001)), ("order_id", Value::I64(101)), ("qty", Value::I32(5))]),
-        ]);
+        .with_rows(vec![MockRow::from(vec![
+            ("id", Value::I64(1001)),
+            ("order_id", Value::I64(101)),
+            ("qty", Value::I32(5)),
+        ])]);
 
     let order_relation = RelationDef::new(
         "orders",
@@ -307,7 +333,10 @@ async fn test_eager_load_multilevel() {
     );
 
     let loader = EagerLoader::new(order_relation).with(item_relation);
-    let results = loader.load_many(&mut mock, "SELECT * FROM users").await.unwrap();
+    let results = loader
+        .load_many(&mut mock, "SELECT * FROM users")
+        .await
+        .unwrap();
 
     assert_eq!(results.len(), 1);
     let (user, orders) = &results[0];
@@ -336,17 +365,33 @@ async fn test_eager_load_oracle_batching() {
         .map(|i| MockRow::from(vec![("id", Value::I64(i))]))
         .collect();
 
-    mock.expect_query("SELECT * FROM big_table").with_rows(main_rows);
+    mock.expect_query("SELECT * FROM big_table")
+        .with_rows(main_rows);
 
     // 分 3 批：1000 + 1000 + 500
     let batch1_rows: Vec<MockRow> = (1..=1000)
-        .map(|i| MockRow::from(vec![("id", Value::I64(10000 + i)), ("parent_id", Value::I64(i))]))
+        .map(|i| {
+            MockRow::from(vec![
+                ("id", Value::I64(10000 + i)),
+                ("parent_id", Value::I64(i)),
+            ])
+        })
         .collect();
     let batch2_rows: Vec<MockRow> = (1001..=2000)
-        .map(|i| MockRow::from(vec![("id", Value::I64(10000 + i)), ("parent_id", Value::I64(i))]))
+        .map(|i| {
+            MockRow::from(vec![
+                ("id", Value::I64(10000 + i)),
+                ("parent_id", Value::I64(i)),
+            ])
+        })
         .collect();
     let batch3_rows: Vec<MockRow> = (2001..=2500)
-        .map(|i| MockRow::from(vec![("id", Value::I64(10000 + i)), ("parent_id", Value::I64(i))]))
+        .map(|i| {
+            MockRow::from(vec![
+                ("id", Value::I64(10000 + i)),
+                ("parent_id", Value::I64(i)),
+            ])
+        })
         .collect();
 
     // 预设 3 批查询的 SQL（使用 expect_any 匹配任意 IN 查询）
@@ -390,9 +435,7 @@ async fn test_eager_load_orphan_records_skipped() {
     let mut mock = MockConnection::new();
 
     mock.expect_query("SELECT * FROM users")
-        .with_rows(vec![
-            MockRow::from(vec![("id", Value::I64(1))]),
-        ]);
+        .with_rows(vec![MockRow::from(vec![("id", Value::I64(1))])]);
 
     // 包含一个孤儿订单（user_id=999 不在主表中）
     mock.expect_query("SELECT * FROM orders WHERE user_id IN (?)")
@@ -465,7 +508,10 @@ async fn test_eager_load_five_dialects() {
             .with_rows(vec![MockRow::from(vec![("id", Value::I64(1))])]);
 
         mock.expect_query("SELECT * FROM orders WHERE user_id IN (?)")
-            .with_rows(vec![MockRow::from(vec![("id", Value::I64(101)), ("user_id", Value::I64(1))])]);
+            .with_rows(vec![MockRow::from(vec![
+                ("id", Value::I64(101)),
+                ("user_id", Value::I64(1)),
+            ])]);
 
         let relation = RelationDef::new(
             "orders",
@@ -480,17 +526,7 @@ async fn test_eager_load_five_dialects() {
             .await
             .unwrap();
 
-        assert_eq!(
-            results.len(),
-            1,
-            "{}: 应返回 1 个用户",
-            dialect_name
-        );
-        assert_eq!(
-            results[0].1.len(),
-            1,
-            "{}: 应有 1 个订单",
-            dialect_name
-        );
+        assert_eq!(results.len(), 1, "{}: 应返回 1 个用户", dialect_name);
+        assert_eq!(results[0].1.len(), 1, "{}: 应有 1 个订单", dialect_name);
     }
 }

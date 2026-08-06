@@ -184,11 +184,8 @@ pub fn diff(entity: &[TableDef], db: &[TableDef]) -> SchemaDiff {
 
 /// 比较两个表的列差异
 fn diff_columns(result: &mut SchemaDiff, entity: &TableDef, db: &TableDef) {
-    let db_col_map: std::collections::HashMap<&str, &ColumnDef> = db
-        .columns
-        .iter()
-        .map(|c| (c.name.as_str(), c))
-        .collect();
+    let db_col_map: std::collections::HashMap<&str, &ColumnDef> =
+        db.columns.iter().map(|c| (c.name.as_str(), c)).collect();
     let entity_col_map: std::collections::HashMap<&str, &ColumnDef> = entity
         .columns
         .iter()
@@ -216,9 +213,7 @@ fn diff_columns(result: &mut SchemaDiff, entity: &TableDef, db: &TableDef) {
     // 类型变更
     for entity_col in &entity.columns {
         if let Some(db_col) = db_col_map.get(entity_col.name.as_str()) {
-            if entity_col.sql_type != db_col.sql_type
-                || entity_col.nullable != db_col.nullable
-            {
+            if entity_col.sql_type != db_col.sql_type || entity_col.nullable != db_col.nullable {
                 result.type_changed_columns.push((
                     entity.name.clone(),
                     (*db_col).clone(),
@@ -518,10 +513,7 @@ impl SchemaSync {
     /// 2. diff → 计算变更
     /// 3. 检查破坏性变更 → 若有则返回 `Err(DestructiveChangeDetected)`
     /// 4. generate → 生成 DDL
-    pub async fn sync_dry_run(
-        &self,
-        conn: &mut dyn Connection,
-    ) -> Result<Vec<String>, DbError> {
+    pub async fn sync_dry_run(&self, conn: &mut dyn Connection) -> Result<Vec<String>, DbError> {
         let db_tables = introspect(conn).await?;
         let diff_result = diff(&self.entity_tables, &db_tables);
 
@@ -638,7 +630,10 @@ mod tests {
     fn test_diff_add_column() {
         let entity = vec![make_table(
             "users",
-            vec![make_column("id", "BIGINT"), make_column("email", "VARCHAR(255)")],
+            vec![
+                make_column("id", "BIGINT"),
+                make_column("email", "VARCHAR(255)"),
+            ],
         )];
         let db = vec![make_table("users", vec![make_column("id", "BIGINT")])];
 
@@ -654,13 +649,19 @@ mod tests {
         let entity = vec![make_table("users", vec![make_column("id", "BIGINT")])];
         let db = vec![make_table(
             "users",
-            vec![make_column("id", "BIGINT"), make_column("legacy_col", "TEXT")],
+            vec![
+                make_column("id", "BIGINT"),
+                make_column("legacy_col", "TEXT"),
+            ],
         )];
 
         let result = diff(&entity, &db);
 
         assert_eq!(result.dropped_columns.len(), 1);
-        assert_eq!(result.dropped_columns[0], ("users".to_string(), "legacy_col".to_string()));
+        assert_eq!(
+            result.dropped_columns[0],
+            ("users".to_string(), "legacy_col".to_string())
+        );
         assert!(result.has_destructive_changes());
     }
 
@@ -668,11 +669,17 @@ mod tests {
     fn test_diff_type_change() {
         let entity = vec![make_table(
             "users",
-            vec![make_column("id", "BIGINT"), make_column("name", "VARCHAR(255)")],
+            vec![
+                make_column("id", "BIGINT"),
+                make_column("name", "VARCHAR(255)"),
+            ],
         )];
         let db = vec![make_table(
             "users",
-            vec![make_column("id", "BIGINT"), make_column("name", "VARCHAR(100)")],
+            vec![
+                make_column("id", "BIGINT"),
+                make_column("name", "VARCHAR(100)"),
+            ],
         )];
 
         let result = diff(&entity, &db);
@@ -773,7 +780,11 @@ mod tests {
     #[test]
     fn test_mssql_ddl_rename() {
         let diff_result = SchemaDiff {
-            renamed_columns: vec![("users".to_string(), "old_name".to_string(), "new_name".to_string())],
+            renamed_columns: vec![(
+                "users".to_string(),
+                "old_name".to_string(),
+                "new_name".to_string(),
+            )],
             ..Default::default()
         };
 

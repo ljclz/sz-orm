@@ -67,7 +67,10 @@ fn test_derive_relation_trait_has_one() {
 
 #[test]
 fn test_derive_relation_trait_def() {
-    let user = User { id: 1, name: "test".into() };
+    let user = User {
+        id: 1,
+        name: "test".into(),
+    };
     let def = user.def();
     assert_eq!(def.name, "orders");
 }

@@ -2,11 +2,11 @@
 //!
 //! 测试关联 JOIN 的 SQL 生成、五方言标识符引用、类型安全
 
-use sz_orm_core::DbType;
 use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::DbType;
+use sz_orm_core::Model;
 use sz_orm_core::QueryBuilder;
 use sz_orm_core::RelationTrait as RelationTraitMacro;
-use sz_orm_core::Model;
 
 #[derive(Clone, Default)]
 #[allow(dead_code)]

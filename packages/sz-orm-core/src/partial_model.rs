@@ -151,7 +151,10 @@ mod tests {
     fn test_expr_sum() {
         let expr = Expr::sum("amount");
         assert_eq!(expr.render(), "SUM(amount)");
-        assert_eq!(expr.render_as("total_amount"), "SUM(amount) AS total_amount");
+        assert_eq!(
+            expr.render_as("total_amount"),
+            "SUM(amount) AS total_amount"
+        );
     }
 
     #[test]
