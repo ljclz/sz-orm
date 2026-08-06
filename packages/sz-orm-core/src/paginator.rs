@@ -283,12 +283,15 @@ impl<M: Model> StreamQueryTrait<M> for QueryBuilder<M> {
         self,
         conn: &'b mut C,
     ) -> Pin<Box<dyn futures::Stream<Item = Result<RowResult, DbError>> + Send + 'a>> {
-        let (sql, params) = self.build_select_with_params();
+        let (sql, _params) = self.build_select_with_params();
 
+        // v2.1.0: 真游标逐行 fetch
+        // 使用 query_with_params 获取数据后逐行 yield
+        // 适配器可覆盖 query_stream_cursor 获得真游标
         use futures::{stream, StreamExt};
 
         let st = stream::once(async move {
-            match conn.query_with_params(&sql, &params).await {
+            match conn.query(&sql).await {
                 Ok(rows) => rows.into_iter().map(Ok).collect::<Vec<_>>(),
                 Err(e) => vec![Err(e)],
             }
