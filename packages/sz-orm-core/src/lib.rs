@@ -437,6 +437,7 @@ pub mod hooks;
 pub mod hydration_plugin;
 pub mod i18n;
 pub mod nested_active_model;
+pub mod schema_sync;
 pub mod join_dsl;
 pub mod json_query;
 pub mod l2_cache;
