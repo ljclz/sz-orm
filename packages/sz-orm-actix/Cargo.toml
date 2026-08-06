@@ -11,7 +11,7 @@ categories.workspace = true
 description = "actix-web framework integration for sz-orm"
 
 [dependencies]
-sz-orm-core = { version = "1.0.0", path = "../sz-orm-core" }
+sz-orm-core = { version = "2.0.0", path = "../sz-orm-core" }
 actix-web = "4"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

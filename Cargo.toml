@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "1.5.0"
+version = "2.0.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["SZ-ORM Team"]
@@ -67,7 +67,7 @@ deadpool-postgres = "0.12"
 metrics = "0.23"
 # 配合 .trae/skills/sz-orm-chaos-pool（资源泄漏检测）
 jemallocator = "0.5"
-sz-orm-core = { version = "1.0.0", path = "packages/sz-orm-core" }
-sz-orm-ai = { version = "1.0.0", path = "packages/sz-orm-ai" }
-sz-orm-oracle = { version = "1.0.0", path = "packages/sz-orm-oracle" }
-sz-orm-mssql = { version = "1.0.0", path = "packages/sz-orm-mssql" }
+sz-orm-core = { version = "2.0.0", path = "packages/sz-orm-core" }
+sz-orm-ai = { version = "2.0.0", path = "packages/sz-orm-ai" }
+sz-orm-oracle = { version = "2.0.0", path = "packages/sz-orm-oracle" }
+sz-orm-mssql = { version = "2.0.0", path = "packages/sz-orm-mssql" }
