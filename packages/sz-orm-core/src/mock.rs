@@ -283,6 +283,15 @@ impl Connection for MockConnection {
         Box::pin(async move { self.handle_query(sql) })
     }
 
+    fn execute_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        _params: &'a [crate::value::Value],
+    ) -> Pin<Box<dyn Future<Output = Result<u64, DbError>> + Send + 'a>> {
+        // MockConnection 将 execute_with_params 委托给 execute（mock 不实际绑定参数）
+        Box::pin(async move { self.handle_execute(sql) })
+    }
+
     fn begin_transaction<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
