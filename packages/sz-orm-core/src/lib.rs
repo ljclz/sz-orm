@@ -428,6 +428,7 @@ pub mod dialect;
 pub mod dirty_attributes;
 pub mod dynamic_filter;
 pub mod dynamic_sql;
+pub mod eager_loader;
 pub mod entity_graph;
 mod error;
 pub mod find_with_related;

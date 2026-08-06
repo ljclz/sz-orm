@@ -9,6 +9,7 @@ use sz_orm_core::RelationTrait as RelationTraitMacro;
 use sz_orm_core::Model;
 
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 struct User {
     id: i64,
     name: String,
@@ -28,6 +29,7 @@ impl Model for User {
 }
 
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 struct Order {
     id: i64,
     user_id: i64,
@@ -49,6 +51,7 @@ impl Model for Order {
 #[derive(RelationTraitMacro)]
 #[table(name = "users")]
 #[relation(has_many = "orders", fk = "user_id", pk = "id")]
+#[allow(dead_code)]
 struct UserEntity {
     id: i64,
     name: String,
@@ -57,6 +60,7 @@ struct UserEntity {
 #[derive(RelationTraitMacro)]
 #[table(name = "orders")]
 #[relation(belongs_to = "users", fk = "user_id", pk = "id")]
+#[allow(dead_code)]
 struct OrderEntity {
     id: i64,
     user_id: i64,

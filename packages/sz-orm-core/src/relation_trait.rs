@@ -144,8 +144,22 @@ mod tests {
     use super::*;
 
     static TEST_RELATIONS: &[RelationDef] = &[
-        RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany),
-        RelationDef::new("profile", "users", "profiles", "id", "user_id", RelationKind::HasOne),
+        RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        ),
+        RelationDef::new(
+            "profile",
+            "users",
+            "profiles",
+            "id",
+            "user_id",
+            RelationKind::HasOne,
+        ),
         RelationDef::new(
             "owner",
             "orders",
@@ -180,10 +194,7 @@ mod tests {
         assert_eq!(RelationKind::HasOne.default_join_type(), JoinKind::Inner);
         assert_eq!(RelationKind::BelongsTo.default_join_type(), JoinKind::Inner);
         assert_eq!(RelationKind::HasMany.default_join_type(), JoinKind::Left);
-        assert_eq!(
-            RelationKind::ManyToMany.default_join_type(),
-            JoinKind::Left
-        );
+        assert_eq!(RelationKind::ManyToMany.default_join_type(), JoinKind::Left);
     }
 
     #[test]

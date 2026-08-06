@@ -9,6 +9,7 @@ use sz_orm_core::QueryBuilder;
 use sz_orm_core::Model;
 
 #[derive(Clone, Default)]
+#[allow(dead_code)]
 struct User {
     id: i64,
     name: String,

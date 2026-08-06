@@ -8,6 +8,7 @@ use sz_orm_core::RelationTrait as RelationTraitMacro;
 #[derive(RelationTraitMacro)]
 #[table(name = "users")]
 #[relation(has_many = "orders", fk = "user_id", pk = "id")]
+#[allow(dead_code)]
 struct User {
     id: i64,
     name: String,
@@ -16,6 +17,7 @@ struct User {
 #[derive(RelationTraitMacro)]
 #[table(name = "orders")]
 #[relation(belongs_to = "users", fk = "user_id", pk = "id")]
+#[allow(dead_code)]
 struct Order {
     id: i64,
     user_id: i64,
@@ -24,6 +26,7 @@ struct Order {
 #[derive(RelationTraitMacro)]
 #[table(name = "user_profiles")]
 #[relation(has_one = "profiles", fk = "user_id", pk = "id")]
+#[allow(dead_code)]
 struct UserProfile {
     id: i64,
     name: String,
