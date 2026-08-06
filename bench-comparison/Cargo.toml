@@ -36,6 +36,8 @@ rusqlite = { version = "0.32", features = ["bundled"] }
 libsqlite3-sys = { version = "0.30", features = ["bundled"] }
 # chrono for timestamp formatting in benchmark output
 chrono = "0.4"
+# futures for Stream API
+futures = "0.3"
 # Oracle driver (ODPI-C binding) - optional, enabled by `oracle` feature
 oracle = { version = "0.6", default-features = false, features = ["chrono"], optional = true }
 
@@ -47,6 +49,11 @@ harness = false
 [[bench]]
 name = "cross_db_comparison"
 path = "benches/cross_db_comparison.rs"
+harness = false
+
+[[bench]]
+name = "v2_1_0_features"
+path = "benches/v2_1_0_features.rs"
 harness = false
 
 [profile.release]
@@ -62,5 +69,3 @@ codegen-units = 1
 # 保持 bench-comparison 独立于 sz-orm 主 workspace
 [workspace]
 
-[lints]
-workspace = true
