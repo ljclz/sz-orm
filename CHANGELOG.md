@@ -5,6 +5,26 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.0.0] — 2026-08-06
+
+### Breaking Changes
+
+- **移除 deprecated `where_cond` / `or_where`**：`FindWithRelatedBuilder::where_cond()`、`QueryBuilderExt::or_where()` 及相关 `where_conds` 字段已删除。迁移至 `where_eq` / `or_where_eq` 等参数化方法（自 v1.2.0 起已标记 deprecated，v2.0.0 正式移除）
+
+### Added
+
+- **Oracle 23ai 真实集成测试**：`integration_oracle.rs` 追加 7 类场景（CRUD / 事务 / 乐观锁 / 软删除 / 分页 / 聚合 / 批量），10 测试通过
+- **SQL Server 真实集成测试**：`integration_mssql.rs` 新建 8 类场景（CRUD / 事务 / 乐观锁 / 软删除 / 分页 / 聚合 / 批量 / INSERT OR IGNORE 回退）
+- **Python 绑定 (PyO3)**：`sz-orm-python` 0.1.0 发布到 crates.io，支持 Model / QueryBuilder / Pool / Transaction Python API
+- **JavaScript 绑定 (napi-rs)**：`sz-orm-js` 0.1.0 发布到 crates.io，支持 Node.js 原生绑定
+- **安全审计报告**：`docs/assessment/2026-08-05-security-audit-report.md`，7 维度覆盖（SQL 注入 / 连接池 / 密码 / 权限 / 输入校验 / 信息泄露 / 依赖安全）
+
+### Changed
+
+- **crates.io 批量发布**：42 个包发布 **2.0.0**（sz-orm-python / sz-orm-js 保持 0.1.0）
+- **测试规模**：全 workspace 4,947 passed, 0 failed（lib 测试）
+- **内部依赖版本对齐**：所有 `version + path` 格式的内部依赖统一至 2.0.0
+
 ## [1.5.0] — 2026-08-05
 
 ### Added
