@@ -96,7 +96,6 @@ impl<'a> FindWithRelated<'a> {
         })
     }
 
-
     /// 追加 ORDER BY（ASC）
     #[must_use]
     pub fn order_by(mut self, field: impl Into<String>) -> Self {
@@ -154,7 +153,6 @@ impl<'a> FindWithRelated<'a> {
             self.dialect.quote(&self.main_table),
             self.dialect.quote(&self.primary_key),
         );
-
 
         if !self.order_by.is_empty() {
             let parts: Vec<String> = self

@@ -681,7 +681,6 @@ pub trait QueryBuilderExt: Send + Sync {
     type Model: Model;
 
     fn and_where(&mut self, condition: &str);
-
 }
 
 /// 模型扩展 trait，提供额外功能
