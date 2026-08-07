@@ -5,6 +5,99 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [2.3.0] — 2026-08-07
+
+### 新增功能
+
+#### 任务 C：Eager Loading 智能策略选择
+- `SmartEagerLoader` 类型：基于 `RelationKind` 自动选择最优加载策略
+- `EagerLoader::smart()` 扩展方法：返回 `SmartEagerLoader`，向后兼容
+- `LoadStrategy` 枚举（Join/DataLoader/IntermediateTableBatch）
+- `StrategyDecision` 结构：策略决策记录（关联名/类型/策略/原因/查询次数）
+- `StrategyResolver` 策略决策器：纯规则匹配，决策延迟 ≤ 100μs
+  - HasOne / BelongsTo → Join（单次 JOIN 查询）
+  - HasMany → DataLoader（批量 IN 查询，2 次）
+  - ManyToMany（有中间表）→ IntermediateTableBatch（中间表批量，2 次）
+  - ManyToMany（无中间表）→ 回退 DataLoader + 告警
+- `JoinStrategy` 执行器：HasOne/BelongsTo 自动 JOIN + 结果集拆分
+- `DataLoaderStrategy` 执行器：HasMany 自动 data loader + 按外键分组
+- `IntermediateTableStrategy` 执行器：ManyToMany 中间表批量查询
+- `N1Eliminator` N+1 自动消除器：连续查询模式检测 + 批量合并 + 等价性校验
+- `N1EliminationReport` 消除报告（原次数/合并后次数/节省/触发位置/合并 SQL）
+- `RelationDef::new_many_to_many()` 构造器：ManyToMany 中间表元数据
+- `RelationDef` 新增 `join_table`/`join_from_key`/`join_to_key` 可选字段
+
+#### 任务 B：性能基准完整报告
+- `CompetitorAdapter` trait：竞品适配层统一接口
+- `BenchmarkReporter` 报告生成器：Markdown + CSV/JSON + DSN 脱敏
+- `full_comparison` bench 主入口：全维度 × 多方言 × 竞品基准
+- criterion 配置：sample_size=100, warm_up=3s, measurement=10s
+
+### 向后兼容
+- v2.3.0 无 Breaking Change，所有新增能力以扩展方法提供
+- `RelationDef::new()` 签名不变，新增中间表字段默认 `None`
+- `EagerLoader` 原有 API（`new`/`with`/`load_many`/`load_nested`）不变
+
+### 测试
+- sz-orm-core lib 测试：1578 passed（+28 新测试）
+- 全 workspace 测试：全部通过，零失败
+- 全 workspace clippy：零警告
+
+## [2.2.0] — 2026-08-06
+
+### 新增功能
+
+#### A-1 AnyPool 扩展支持 Oracle/MSSQL
+- `AnyBackend` 枚举新增 `Oracle` / `Mssql` 变体 + `#[non_exhaustive]` 标注
+- `AnyPool::connect` 新增 Oracle/MSSQL 分派分支（feature gate）
+- DSN 解析支持 `oracle://` / `mssql://` / `sqlserver://` scheme
+
+#### A-2 Dialect 与 AnyPool 集成验证
+- `AnyBackend::dialect()` 方法：5 后端 → 5 Dialect 映射
+- `AnyPool::dialect()` 方法：委托 backend.dialect()
+
+#### A-3 UnifiedPool 统一抽象
+- `UnifiedPool` 结构体：统一连接池接口
+- `connect(dsn)` / `connect_with_config(dsn, config)` / `from_pool(pool, backend)` 方法
+- `acquire()` / `backend()` / `dialect()` / `resize()` / `close_all()` / `status()` 委托方法
+
+#### B-1 Eager Loading 多级关联 + 循环检测
+- `CyclePolicy` 枚举（Error/Truncate/AllowWithDepthLimit）+ `CycleDetector`
+- `NestedEagerResult` 递归枚举（Leaf/Node）支持无限级嵌套树
+- `EagerLoader::load_nested()` 方法：多级批量查询 + 循环检测
+- `EagerLoader::with_cycle_policy()` 方法：设置循环检测策略
+- `ChildLoadConfig` 改为递归结构支持无限级链式调用
+
+#### B-2 Schema Sync 破坏性变更安全策略
+- `Confirm` 枚举（Yes/No）显式确认破坏性 DDL
+- `DataMigrationHook` trait（before_drop_column / before_rename_column 钩子）
+- `DestructiveSyncResult` 结构体
+- `SchemaSync::destructive_sync()` 方法：事务内执行 + 钩子 + 审计
+- `diff_columns` 新增 Levenshtein 重命名检测（距离 ≤ 2 或比例 ≤ 0.3）
+- `SchemaSync::with_rename_threshold()` 方法：配置重命名检测阈值
+
+#### B-3 Partial Models select_exclude
+- `QueryBuilder::select_exclude(fields: &[&str])` 方法：排除指定字段查询
+- 校验排除字段存在、不排除全部字段
+- 与 `select_only` 互补，自动进入 Partial 模式
+
+#### B-4 Stream API 背压控制
+- `StreamApiExt::stream_with_backpressure(buffer_size)` 方法
+- 有界缓冲通道，缓冲区满时生产者阻塞（背压）
+- `buffer_size == 0` 返回 `Err(DbError::InvalidInput)`
+
+#### B-5 嵌套持久化 cascade_delete 策略
+- `CascadeStrategy` 枚举（Restrict/Cascade/SetNull/SetDefault）
+- `nested_delete_with_strategy(conn, nested, strategy)` 函数
+- 4 策略分支：Restrict 禁止删除 / Cascade 递归删除 / SetNull 置 NULL / SetDefault 置默认值
+- 事务内原子执行，失败 ROLLBACK
+
+### 兼容性
+
+- **零 Breaking Change**：所有新增能力以扩展方法、新增类型、新增枚举变体提供
+- `EagerResult` / `load_many` / `stream_buffered` / `sync()` / `cascade_delete(bool)` 保留不变
+- `AnyBackend` 新增 `#[non_exhaustive]`：外部 crate match 须加 `_` 通配符
+
 ## [2.1.0] — 2026-08-06
 
 ### 新增功能

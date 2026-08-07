@@ -40,6 +40,11 @@ chrono = "0.4"
 futures = "0.3"
 # Oracle driver (ODPI-C binding) - optional, enabled by `oracle` feature
 oracle = { version = "0.6", default-features = false, features = ["chrono"], optional = true }
+# async-trait for CompetitorAdapter trait (v2.3.0)
+async-trait = "0.1"
+# serde for BenchmarkReporter serialization (v2.3.0)
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
 
 [[bench]]
 name = "orm_comparison"
@@ -54,6 +59,11 @@ harness = false
 [[bench]]
 name = "v2_1_0_features"
 path = "benches/v2_1_0_features.rs"
+harness = false
+
+[[bench]]
+name = "full_comparison"
+path = "benches/full_comparison.rs"
 harness = false
 
 [profile.release]

@@ -22,6 +22,16 @@ async-stream = "0.3"
 futures.workspace = true
 # 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .lock().unwrap() panic 风险
 parking_lot.workspace = true
+# v2.2.0: Oracle/MSSQL 后端 optional 依赖，通过 feature gate 启用
+sz-orm-oracle = { workspace = true, optional = true }
+sz-orm-mssql = { workspace = true, optional = true }
+
+[features]
+default = []
+# v2.2.0 A-1: 启用 Oracle 后端支持（AnyPool 运行时切换）
+oracle = ["dep:sz-orm-oracle"]
+# v2.2.0 A-1: 启用 MSSQL 后端支持（AnyPool 运行时切换）
+mssql = ["dep:sz-orm-mssql"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

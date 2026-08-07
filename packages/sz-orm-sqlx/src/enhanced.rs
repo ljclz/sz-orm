@@ -85,6 +85,9 @@ impl TransactionIsolation {
                 // SQLite 隐式使用 SERIALIZABLE，不支持设置
                 String::new()
             }
+            AnyBackend::Oracle | AnyBackend::Mssql => {
+                format!("SET TRANSACTION ISOLATION LEVEL {}", self.name())
+            }
         }
     }
 
@@ -98,6 +101,9 @@ impl TransactionIsolation {
             AnyBackend::MySql => format!("SET TRANSACTION ISOLATION LEVEL {}", self.name()),
             AnyBackend::Postgres => format!("SET TRANSACTION ISOLATION LEVEL {}", self.name()),
             AnyBackend::Sqlite => String::new(),
+            AnyBackend::Oracle | AnyBackend::Mssql => {
+                format!("SET TRANSACTION ISOLATION LEVEL {}", self.name())
+            }
         }
     }
 
@@ -111,6 +117,7 @@ impl TransactionIsolation {
             AnyBackend::MySql => "SELECT @@transaction_isolation".to_string(),
             AnyBackend::Postgres => "SHOW transaction_isolation".to_string(),
             AnyBackend::Sqlite => String::new(),
+            AnyBackend::Oracle | AnyBackend::Mssql => String::new(),
         }
     }
 

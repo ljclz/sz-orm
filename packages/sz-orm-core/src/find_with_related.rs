@@ -32,7 +32,7 @@
 //!     true,               // LEFT JOIN
 //! )
 //!     .unwrap()
-//!     .where_cond("users.id = 1")
+
 //!     .build();
 //! ```
 

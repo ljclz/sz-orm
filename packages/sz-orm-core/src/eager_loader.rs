@@ -23,6 +23,7 @@
 //! // results: Vec<(user_row, Vec<order_row>)>
 //! ```
 
+use crate::cycle_detection::{CycleDetector, CyclePolicy};
 use crate::pool::Connection;
 use crate::relation_trait::RelationDef;
 use crate::value::Value;
@@ -33,9 +34,93 @@ use std::collections::HashMap;
 /// Eager Loading 结果类型：主表行 + 关联行列表
 pub type EagerResult = (HashMap<String, Value>, Vec<HashMap<String, Value>>);
 
-/// 子级加载配置（多级关联）
+/// 多级 Eager Loading 结果（递归类型，v2.2.0 新增）
+///
+/// 表示无限级嵌套的 Eager Loading 结果树：
+/// - [`NestedEagerResult::Leaf`]：叶子节点（无子级关联）
+/// - [`NestedEagerResult::Node`]：分支节点（本级行 + 子级结果）
+///
+/// # 用法
+///
+/// ```ignore
+/// use sz_orm_core::eager_loader::NestedEagerResult;
+///
+/// let leaf = NestedEagerResult::Leaf(row);
+/// assert!(leaf.is_leaf());
+///
+/// let node = NestedEagerResult::Node { row, children: vec![] };
+/// assert!(!node.is_leaf());
+/// ```
+#[derive(Debug, Clone)]
+pub enum NestedEagerResult {
+    /// 叶子节点（无子级关联）
+    Leaf(HashMap<String, Value>),
+    /// 分支节点（本级行 + 子级结果）
+    Node {
+        /// 本级行数据
+        row: HashMap<String, Value>,
+        /// 子级嵌套结果
+        children: Vec<NestedEagerResult>,
+    },
+}
+
+impl NestedEagerResult {
+    /// 返回本级行数据引用
+    pub fn row(&self) -> &HashMap<String, Value> {
+        match self {
+            NestedEagerResult::Leaf(row) => row,
+            NestedEagerResult::Node { row, .. } => row,
+        }
+    }
+
+    /// 返回子级结果切片
+    pub fn children(&self) -> &[NestedEagerResult] {
+        match self {
+            NestedEagerResult::Leaf(_) => &[],
+            NestedEagerResult::Node { children, .. } => children,
+        }
+    }
+
+    /// 是否为叶子节点
+    pub fn is_leaf(&self) -> bool {
+        matches!(self, NestedEagerResult::Leaf(_))
+    }
+}
+
+/// 子级加载配置（多级关联，v2.2.0 改为递归结构支持无限级）
 struct ChildLoadConfig {
     relation: RelationDef,
+    /// 子级的子级（无限级嵌套）
+    children: Vec<ChildLoadConfig>,
+}
+
+impl ChildLoadConfig {
+    /// 递归追加到最深层级
+    fn push_to_deepest(&mut self, child: ChildLoadConfig) {
+        if self.children.is_empty() {
+            self.children.push(child);
+        } else {
+            self.children.last_mut().unwrap().push_to_deepest(child);
+        }
+    }
+
+    /// 递归计算链深度
+    fn chain_depth(&self) -> usize {
+        if self.children.is_empty() {
+            1
+        } else {
+            1 + self.children[0].chain_depth()
+        }
+    }
+
+    /// 递归收集关联名称
+    fn chain_names(&self) -> Vec<&str> {
+        let mut names = vec![std::borrow::Borrow::<str>::borrow(&self.relation.name)];
+        if !self.children.is_empty() {
+            names.extend(self.children[0].chain_names());
+        }
+        names
+    }
 }
 
 /// Eager Loading 执行器
@@ -44,6 +129,8 @@ struct ChildLoadConfig {
 pub struct EagerLoader {
     relation: RelationDef,
     children: Vec<ChildLoadConfig>,
+    /// 循环检测策略（v2.2.0 新增）
+    cycle_policy: CyclePolicy,
 }
 
 impl EagerLoader {
@@ -52,31 +139,94 @@ impl EagerLoader {
         Self {
             relation,
             children: Vec::new(),
+            cycle_policy: CyclePolicy::default(),
         }
     }
 
-    /// 添加子级关联（多级嵌套，限 2 级）
+    /// 添加子级关联（v2.2.0 扩展为无限级链式调用）
+    ///
+    /// 每次 `with()` 追加到最深层级，构建线性关联链：
     ///
     /// ```ignore
-    /// EagerLoader::new(order_relation)
-    ///     .with(order_item_relation)  // User → Order → OrderItem
+    /// EagerLoader::new(order_relation)       // User → Order
+    ///     .with(order_item_relation)          // Order → OrderItem
+    ///     .with(product_relation)             // OrderItem → Product
+    /// // 构建 4 级链：User → Order → OrderItem → Product
     /// ```
     pub fn with(mut self, relation: RelationDef) -> Self {
-        self.children.push(ChildLoadConfig { relation });
+        let new_child = ChildLoadConfig {
+            relation,
+            children: Vec::new(),
+        };
+        if self.children.is_empty() {
+            self.children.push(new_child);
+        } else {
+            self.children.last_mut().unwrap().push_to_deepest(new_child);
+        }
         self
     }
 
-    /// 返回子级关联数量
-    pub fn children_count(&self) -> usize {
-        self.children.len()
+    /// 设置循环检测策略（v2.2.0 新增）
+    ///
+    /// ```ignore
+    /// use sz_orm_core::cycle_detection::CyclePolicy;
+    ///
+    /// let loader = EagerLoader::new(rel)
+    ///     .with(child_rel)
+    ///     .with_cycle_policy(CyclePolicy::Truncate);
+    /// ```
+    pub fn with_cycle_policy(mut self, policy: CyclePolicy) -> Self {
+        self.cycle_policy = policy;
+        self
     }
 
-    /// 返回子级关联名称列表
+    /// 切换到智能策略选择模式（v2.3.0 新增）
+    ///
+    /// 返回 [`SmartEagerLoader`](crate::smart_eager_loader::SmartEagerLoader)，
+    /// 基于 `RelationKind` 自动选择最优加载策略：
+    /// - HasOne / BelongsTo → JOIN（单次查询）
+    /// - HasMany → Data Loader（批量 IN 查询）
+    /// - ManyToMany → 中间表批量查询
+    ///
+    /// 原有 `EagerLoader` API（`new`/`with`/`load_many`/`load_nested`）不变，
+    /// 此方法为扩展入口，不影响 v2.2.0 代码行为。
+    ///
+    /// ```ignore
+    /// use sz_orm_core::eager_loader::EagerLoader;
+    ///
+    /// let loader = EagerLoader::new(order_rel)
+    ///     .with(item_rel)
+    ///     .smart();
+    /// let tree = loader.load(&mut conn, "SELECT id, name FROM users").await?;
+    /// ```
+    pub fn smart(self) -> crate::smart_eager_loader::SmartEagerLoader {
+        let mut smart = crate::smart_eager_loader::SmartEagerLoader::new(self.relation)
+            .with_cycle_policy(self.cycle_policy);
+        for child in &self.children {
+            let relations = collect_child_relations(child);
+            for rel in relations {
+                smart = smart.with(rel);
+            }
+        }
+        smart
+    }
+
+    /// 返回子级关联链深度（v2.2.0 改为递归计算）
+    pub fn children_count(&self) -> usize {
+        if self.children.is_empty() {
+            0
+        } else {
+            self.children[0].chain_depth()
+        }
+    }
+
+    /// 返回子级关联名称列表（v2.2.0 改为递归遍历链）
     pub fn child_names(&self) -> Vec<&str> {
-        self.children
-            .iter()
-            .map(|c| std::borrow::Borrow::<str>::borrow(&c.relation.name))
-            .collect()
+        if self.children.is_empty() {
+            Vec::new()
+        } else {
+            self.children[0].chain_names()
+        }
     }
 
     /// 执行 HasMany 双查询策略
@@ -167,6 +317,148 @@ impl EagerLoader {
         Ok(self.group_by_foreign_key(all_child_rows, child_relation.to_key))
     }
 
+    /// 执行多级 Eager Loading，返回嵌套结果树（v2.2.0 新增）
+    ///
+    /// 自动执行主表 + 各级关联表批量查询，组装 `Vec<NestedEagerResult>` 嵌套树。
+    /// 每级使用 `WHERE fk IN (?, ...)` 参数化批量查询，消除 N+1。
+    /// 循环检测根据 `cycle_policy` 策略处理循环引用。
+    ///
+    /// # 执行流程
+    ///
+    /// 1. 初始化 `CycleDetector(cycle_policy)`
+    /// 2. 执行主表 SQL 获取根行
+    /// 3. 递归加载各子级：提取父级主键 → `WHERE fk IN (?, ...)` 批量查询 → 按外键分组 → 递归子级
+    /// 4. 返回 `NestedEagerResult` 嵌套树
+    ///
+    /// # 参数
+    ///
+    /// - `conn`：数据库连接
+    /// - `main_sql`：主表查询 SQL
+    ///
+    /// # 异常处理
+    ///
+    /// - 结果集超内存限制（>1,000,000 行）→ `Err(DbError::InvalidInput)` 含建议改用 Stream API
+    /// - 循环检测策略为 `Error` 且检测到循环 → `Err(DbError::InvalidInput)` 含循环路径
+    ///
+    /// ```ignore
+    /// let loader = EagerLoader::new(order_rel)
+    ///     .with(item_rel)
+    ///     .with(product_rel)
+    ///     .with_cycle_policy(CyclePolicy::Truncate);
+    /// let tree = loader.load_nested(&mut conn, "SELECT id, name FROM users").await?;
+    /// // tree: Vec<NestedEagerResult>（4 级嵌套树）
+    /// ```
+    pub async fn load_nested(
+        &self,
+        conn: &mut dyn Connection,
+        main_sql: &str,
+    ) -> Result<Vec<NestedEagerResult>, DbError> {
+        let mut detector = CycleDetector::new(self.cycle_policy);
+        let main_rows = conn.query(main_sql).await?;
+
+        if main_rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        const MAX_RESULT_SIZE: usize = 1_000_000;
+        if main_rows.len() > MAX_RESULT_SIZE {
+            return Err(DbError::InvalidInput(format!(
+                "结果集超内存限制（{} 行），建议改用 Stream API 处理大结果集",
+                main_rows.len()
+            )));
+        }
+
+        if self.children.is_empty() {
+            return Ok(main_rows.into_iter().map(NestedEagerResult::Leaf).collect());
+        }
+
+        let first_child = &self.children[0];
+        self.load_level_nested(
+            conn,
+            main_rows,
+            &first_child.relation,
+            &first_child.children,
+            &mut detector,
+        )
+        .await
+    }
+
+    /// 递归加载单级关联并构建嵌套树
+    async fn load_level_nested(
+        &self,
+        conn: &mut dyn Connection,
+        parent_rows: Vec<HashMap<String, Value>>,
+        relation: &RelationDef,
+        child_configs: &[ChildLoadConfig],
+        detector: &mut CycleDetector,
+    ) -> Result<Vec<NestedEagerResult>, DbError> {
+        let can_continue = detector.check(relation.from_entity, relation.name)?;
+        if !can_continue {
+            return Ok(parent_rows
+                .into_iter()
+                .map(NestedEagerResult::Leaf)
+                .collect());
+        }
+
+        detector.enter(relation.from_entity, relation.name);
+
+        let pk_values: Vec<Value> = parent_rows
+            .iter()
+            .filter_map(|row| row.get(relation.from_key).cloned())
+            .collect();
+
+        if pk_values.is_empty() {
+            detector.leave();
+            return Ok(parent_rows
+                .into_iter()
+                .map(|row| NestedEagerResult::Node {
+                    row,
+                    children: Vec::new(),
+                })
+                .collect());
+        }
+
+        let related_rows = batch_query_with_relation(conn, relation, &pk_values).await?;
+        let grouped = group_rows_by_foreign_key(related_rows, relation.to_key);
+
+        let mut results = Vec::with_capacity(parent_rows.len());
+        for parent_row in parent_rows {
+            let pk = parent_row
+                .get(relation.from_key)
+                .cloned()
+                .unwrap_or(Value::Null);
+            let pk_key = value_to_key(&pk);
+            let child_rows = grouped.get(&pk_key).cloned().unwrap_or_default();
+
+            let children = if child_rows.is_empty() {
+                Vec::new()
+            } else if child_configs.is_empty() {
+                child_rows
+                    .into_iter()
+                    .map(NestedEagerResult::Leaf)
+                    .collect()
+            } else {
+                let next_config = &child_configs[0];
+                Box::pin(self.load_level_nested(
+                    conn,
+                    child_rows,
+                    &next_config.relation,
+                    &next_config.children,
+                    detector,
+                ))
+                .await?
+            };
+
+            results.push(NestedEagerResult::Node {
+                row: parent_row,
+                children,
+            });
+        }
+
+        detector.leave();
+        Ok(results)
+    }
+
     /// 从主表结果提取主键值列表
     fn extract_primary_keys(&self, rows: &[HashMap<String, Value>]) -> Vec<Value> {
         rows.iter()
@@ -219,6 +511,15 @@ impl EagerLoader {
     }
 }
 
+/// 递归收集 ChildLoadConfig 链中的所有 RelationDef（v2.3.0 smart() 转移用）
+fn collect_child_relations(config: &ChildLoadConfig) -> Vec<RelationDef> {
+    let mut relations = vec![config.relation.clone()];
+    for child in &config.children {
+        relations.extend(collect_child_relations(child));
+    }
+    relations
+}
+
 /// 将 Value 转换为字符串键（用于 HashMap 分组，因 Value 含 f32/f64 不实现 Hash/Eq）
 fn value_to_key(value: &Value) -> String {
     match value {
@@ -237,6 +538,44 @@ fn value_to_key(value: &Value) -> String {
         Value::String(s) => format!("str:{}", s),
         _ => format!("other:{:?}", value),
     }
+}
+
+/// 批量查询关联表（Oracle IN >1000 分批，v2.2.0 提取为公共函数）
+async fn batch_query_with_relation(
+    conn: &mut dyn Connection,
+    relation: &RelationDef,
+    pk_values: &[Value],
+) -> Result<Vec<HashMap<String, Value>>, DbError> {
+    let batch_size = 1000;
+    let mut all_rows = Vec::new();
+
+    for chunk in pk_values.chunks(batch_size) {
+        let placeholders: Vec<String> = (0..chunk.len()).map(|_| "?".to_string()).collect();
+        let sql = format!(
+            "SELECT * FROM {} WHERE {} IN ({})",
+            relation.to_entity,
+            relation.to_key,
+            placeholders.join(", ")
+        );
+        let rows = conn.query_with_params(&sql, chunk).await?;
+        all_rows.extend(rows);
+    }
+
+    Ok(all_rows)
+}
+
+/// 按外键值分组关联行（v2.2.0 提取为公共函数）
+fn group_rows_by_foreign_key(
+    rows: Vec<HashMap<String, Value>>,
+    fk_key: &str,
+) -> HashMap<String, Vec<HashMap<String, Value>>> {
+    let mut grouped: HashMap<String, Vec<HashMap<String, Value>>> = HashMap::new();
+    for row in rows {
+        let fk = row.get(fk_key).cloned().unwrap_or(Value::Null);
+        let key = value_to_key(&fk);
+        grouped.entry(key).or_default().push(row);
+    }
+    grouped
 }
 
 /// 一行 API：Eager Loading 端到端自动执行与组装
@@ -425,5 +764,124 @@ mod tests {
         assert_eq!(grouped.len(), 2);
         assert_eq!(grouped.get("i64:1").unwrap().len(), 2);
         assert_eq!(grouped.get("i64:2").unwrap().len(), 1);
+    }
+
+    #[test]
+    fn test_nested_eager_result_leaf() {
+        let mut row = HashMap::new();
+        row.insert("id".to_string(), Value::I64(1));
+        let leaf = NestedEagerResult::Leaf(row.clone());
+        assert!(leaf.is_leaf());
+        assert_eq!(leaf.row().get("id"), Some(&Value::I64(1)));
+        assert!(leaf.children().is_empty());
+    }
+
+    #[test]
+    fn test_nested_eager_result_node() {
+        let mut row = HashMap::new();
+        row.insert("id".to_string(), Value::I64(1));
+        let child = NestedEagerResult::Leaf(HashMap::new());
+        let node = NestedEagerResult::Node {
+            row: row.clone(),
+            children: vec![child],
+        };
+        assert!(!node.is_leaf());
+        assert_eq!(node.row().get("id"), Some(&Value::I64(1)));
+        assert_eq!(node.children().len(), 1);
+        assert!(node.children()[0].is_leaf());
+    }
+
+    #[test]
+    fn test_eager_loader_4_level_chain() {
+        let rel1 = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let rel2 = RelationDef::new(
+            "items",
+            "orders",
+            "order_items",
+            "id",
+            "order_id",
+            RelationKind::HasMany,
+        );
+        let rel3 = RelationDef::new(
+            "product",
+            "order_items",
+            "products",
+            "id",
+            "product_id",
+            RelationKind::BelongsTo,
+        );
+        let loader = EagerLoader::new(rel1).with(rel2).with(rel3);
+        assert_eq!(loader.children_count(), 2);
+        assert_eq!(loader.child_names(), vec!["items", "product"]);
+    }
+
+    #[test]
+    fn test_eager_loader_with_cycle_policy() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel).with_cycle_policy(CyclePolicy::Error);
+        assert_eq!(loader.cycle_policy, CyclePolicy::Error);
+    }
+
+    #[test]
+    fn test_eager_loader_default_cycle_policy() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel);
+        assert_eq!(loader.cycle_policy, CyclePolicy::Truncate);
+    }
+
+    #[test]
+    fn test_eager_loader_chain_depth_limit() {
+        let rel1 = RelationDef::new("a", "t0", "t1", "id", "t0_id", RelationKind::HasMany);
+        let rel2 = RelationDef::new("b", "t1", "t2", "id", "t1_id", RelationKind::HasMany);
+        let rel3 = RelationDef::new("c", "t2", "t3", "id", "t2_id", RelationKind::HasMany);
+        let rel4 = RelationDef::new("d", "t3", "t4", "id", "t3_id", RelationKind::HasMany);
+        let loader = EagerLoader::new(rel1).with(rel2).with(rel3).with(rel4);
+        assert_eq!(loader.children_count(), 3);
+        assert_eq!(loader.child_names(), vec!["b", "c", "d"]);
+    }
+
+    #[test]
+    fn test_eager_loader_backward_compat_2_level() {
+        let rel1 = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let rel2 = RelationDef::new(
+            "items",
+            "orders",
+            "order_items",
+            "id",
+            "order_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel1).with(rel2);
+        assert_eq!(loader.children.len(), 1);
+        assert_eq!(loader.children_count(), 1);
+        assert_eq!(loader.child_names(), vec!["items"]);
     }
 }

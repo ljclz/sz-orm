@@ -2380,6 +2380,54 @@ impl<M: Model> QueryBuilder<M> {
     }
 }
 
+/// QueryBuilder 方法 requiring ModelExt（v2.2.0 B-3 select_exclude）
+impl<M: Model + crate::model::ModelExt> QueryBuilder<M> {
+    /// 排除指定字段查询（v2.2.0 B-3，与 `select_only` 互补）
+    ///
+    /// 从实体全部列中减去排除列，设置 Partial 模式查询保留列。
+    ///
+    /// # 错误
+    ///
+    /// - 排除不存在的字段 → `Err(DbError::InvalidInput)`
+    /// - 排除所有字段 → `Err(DbError::InvalidInput)`
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// let sql = User::find()
+    ///     .select_exclude(&["avatar", "blob_data"])?
+    ///     .build_select();
+    /// // SELECT id, name, email FROM users（排除 avatar 和 blob_data）
+    /// ```
+    pub fn select_exclude(mut self, fields: &[&str]) -> Result<Self, crate::DbError> {
+        let all_columns = M::columns();
+        let exclude_set: std::collections::HashSet<&str> = fields.iter().copied().collect();
+
+        for field in fields {
+            if !all_columns.contains(field) {
+                return Err(crate::DbError::InvalidInput(format!(
+                    "排除的字段不存在: {}",
+                    field
+                )));
+            }
+        }
+
+        let retained: Vec<String> = all_columns
+            .into_iter()
+            .filter(|c| !exclude_set.contains(*c))
+            .map(|s| s.to_string())
+            .collect();
+
+        if retained.is_empty() {
+            return Err(crate::DbError::InvalidInput("不能排除所有字段".to_string()));
+        }
+
+        self.select_mode = crate::partial_model::SelectMode::Partial;
+        self.select_columns = retained;
+        Ok(self)
+    }
+}
+
 impl<M: Model> fmt::Debug for QueryBuilder<M> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.debug_struct("QueryBuilder")
@@ -3961,5 +4009,73 @@ mod tests {
         assert!(builder.is_insert_or_ignore());
 
         Ok(())
+    }
+
+    struct TestModelWithColumns;
+    impl Model for TestModelWithColumns {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "test_with_cols"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+    impl crate::model::ModelExt for TestModelWithColumns {
+        fn columns() -> Vec<&'static str> {
+            vec!["id", "name", "email", "avatar", "blob_data"]
+        }
+        fn fillable() -> Vec<&'static str> {
+            vec!["name", "email", "avatar", "blob_data"]
+        }
+        fn guarded() -> Vec<&'static str> {
+            vec!["id"]
+        }
+        fn hidden() -> Vec<&'static str> {
+            vec!["blob_data"]
+        }
+        fn relations() -> std::collections::HashMap<&'static str, crate::model::Relation> {
+            std::collections::HashMap::new()
+        }
+        fn fill(&mut self, _data: std::collections::HashMap<String, crate::value::Value>) {}
+        fn to_json(&self) -> serde_json::Value {
+            serde_json::Value::Null
+        }
+    }
+
+    #[test]
+    fn test_select_exclude_basic() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let builder = QueryBuilder::<TestModelWithColumns>::new(dialect)
+            .table("users")
+            .select_exclude(&["avatar", "blob_data"])?;
+        let sql = builder.build_select();
+        assert!(sql.contains("id"));
+        assert!(sql.contains("name"));
+        assert!(sql.contains("email"));
+        assert!(!sql.contains("avatar"));
+        assert!(!sql.contains("blob_data"));
+        Ok(())
+    }
+
+    #[test]
+    fn test_select_exclude_nonexistent_field() {
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let result = QueryBuilder::<TestModelWithColumns>::new(dialect)
+            .table("users")
+            .select_exclude(&["nonexistent"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_select_exclude_all_fields() {
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let result = QueryBuilder::<TestModelWithColumns>::new(dialect)
+            .table("users")
+            .select_exclude(&["id", "name", "email", "avatar", "blob_data"]);
+        assert!(result.is_err());
+        let err = result.unwrap_err();
+        assert!(matches!(err, crate::DbError::InvalidInput(_)));
     }
 }

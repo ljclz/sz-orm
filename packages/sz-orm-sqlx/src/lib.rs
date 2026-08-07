@@ -30,6 +30,7 @@ mod any;
 pub mod any_driver;
 pub mod enhanced;
 mod error;
+pub mod unified_pool;
 
 pub use any::{
     mysql_bulk_insert, pg_bulk_insert, sqlite_backup, MySqlPoolHandle, PgExtensions, PgPoolHandle,
@@ -42,5 +43,6 @@ pub use enhanced::{
     TransactionIsolation,
 };
 pub use error::map_sqlx_error;
+pub use unified_pool::UnifiedPool;
 
 pub use sz_orm_core;

@@ -465,6 +465,10 @@ fn cmd_migrate_fresh(args: &[&str], config: &Option<CliConfig>) -> Result<(), St
                 // SQLite：删除所有非 sqlite_ 前缀表
                 "SELECT 'DROP TABLE IF EXISTS \"' || name || '\";' FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%'"
             }
+            _ => {
+                // Oracle/MSSQL 及未来后端清理需专用脚本，此处返回空 SQL
+                ""
+            }
         };
         println!("执行清理 SQL: {}", drop_sql);
 
@@ -1178,6 +1182,13 @@ fn build_explain_sql(backend: sz_orm_sqlx::AnyBackend, sql: &str) -> String {
         sz_orm_sqlx::AnyBackend::Sqlite => {
             format!("EXPLAIN QUERY PLAN {}", sql_no_placeholders)
         }
+        sz_orm_sqlx::AnyBackend::Oracle => {
+            format!("EXPLAIN PLAN FOR {}", sql_no_placeholders)
+        }
+        sz_orm_sqlx::AnyBackend::Mssql => {
+            format!("SET SHOWPLAN_XML ON; {}", sql_no_placeholders)
+        }
+        _ => format!("EXPLAIN {}", sql_no_placeholders),
     }
 }
 

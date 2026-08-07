@@ -422,6 +422,7 @@ pub mod behaviors;
 mod cache;
 pub mod circuit_breaker;
 pub mod cursor_stream;
+pub mod cycle_detection;
 pub mod data_permission;
 mod db_type;
 pub mod dialect;
@@ -443,6 +444,7 @@ pub mod lambda;
 pub mod migration;
 pub mod mock;
 mod model;
+pub mod n1_eliminator;
 pub mod nested_active_model;
 pub mod observer;
 pub mod optimistic_lock;
@@ -462,6 +464,7 @@ pub mod schema_gen;
 pub mod schema_sync;
 pub mod select_types;
 pub mod shadow;
+pub mod smart_eager_loader;
 pub mod sql_safety;
 pub mod stream_api;
 mod transaction;
@@ -483,15 +486,19 @@ pub use sz_orm_macros::FromQueryResult;
 pub use sz_orm_macros::RelationTrait;
 
 pub use cache::*;
+pub use cycle_detection::{CycleDetector, CyclePolicy};
 pub use db_type::*;
 #[allow(ambiguous_glob_reexports)]
 pub use dialect::*;
+pub use eager_loader::NestedEagerResult;
 pub use error::*;
 #[allow(ambiguous_glob_reexports)]
 pub use migration::*;
 pub use model::*;
+pub use nested_active_model::CascadeStrategy;
 pub use pool::*;
 pub use query::*;
+pub use schema_sync::{Confirm, DataMigrationHook, DestructiveSyncResult};
 pub use transaction::*;
 pub use value::*;
 

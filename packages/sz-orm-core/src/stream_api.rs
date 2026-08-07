@@ -39,14 +39,14 @@ use crate::DbError;
 use std::collections::HashMap;
 use std::pin::Pin;
 
-use futures::{stream, Stream, StreamExt};
+use futures::{sink::SinkExt, stream, Stream, StreamExt};
 
 /// 流式查询结果行类型
 pub type RowResult = HashMap<String, crate::value::Value>;
 
 /// Stream API 扩展 trait
 ///
-/// 为 `QueryBuilder<M>` 提供 `stream_buffered` 兼容版方法。
+/// 为 `QueryBuilder<M>` 提供 `stream_buffered` 兼容版方法和 `stream_with_backpressure` 背压方法。
 pub trait StreamApiExt<M: Model> {
     /// 兼容版流式查询（全量收集后逐行 yield）
     ///
@@ -56,6 +56,29 @@ pub trait StreamApiExt<M: Model> {
         self,
         conn: &'b mut C,
     ) -> Pin<Box<dyn Stream<Item = Result<RowResult, DbError>> + Send + 'a>>;
+
+    /// 背压流式查询（v2.2.0 B-4）
+    ///
+    /// 创建有界缓冲通道，缓冲区满时生产者阻塞（背压）。
+    ///
+    /// # 参数
+    ///
+    /// - `conn`：数据库连接
+    /// - `buffer_size`：缓冲区容量（必须 > 0）
+    ///
+    /// # 错误
+    ///
+    /// - `buffer_size == 0` → 返回 `Err(DbError::InvalidInput)`
+    ///
+    /// ```ignore
+    /// let stream = query.stream_with_backpressure(&mut conn, 1000)?;
+    /// // 缓冲区容量 1000，满时生产者阻塞
+    /// ```
+    fn stream_with_backpressure<'a, 'b: 'a, C: Connection + Send + 'b>(
+        self,
+        conn: &'b mut C,
+        buffer_size: usize,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<RowResult, DbError>> + Send + 'a>>, DbError>;
 }
 
 impl<M: Model> StreamApiExt<M> for QueryBuilder<M> {
@@ -74,6 +97,70 @@ impl<M: Model> StreamApiExt<M> for QueryBuilder<M> {
         .flat_map(stream::iter);
 
         Box::pin(st)
+    }
+
+    fn stream_with_backpressure<'a, 'b: 'a, C: Connection + Send + 'b>(
+        self,
+        conn: &'b mut C,
+        buffer_size: usize,
+    ) -> Result<Pin<Box<dyn Stream<Item = Result<RowResult, DbError>> + Send + 'a>>, DbError> {
+        if buffer_size == 0 {
+            return Err(DbError::InvalidInput("buffer_size 必须大于 0".to_string()));
+        }
+
+        let (sql, params) = self.build_select_with_params();
+        let (mut tx, rx) =
+            futures::channel::mpsc::channel::<Result<RowResult, DbError>>(buffer_size);
+
+        let producer = async move {
+            match conn.query_with_params(&sql, &params).await {
+                Ok(rows) => {
+                    for row in rows {
+                        if tx.send(Ok(row)).await.is_err() {
+                            break;
+                        }
+                    }
+                }
+                Err(e) => {
+                    let _ = tx.send(Err(e)).await;
+                }
+            }
+        };
+
+        let receiver_stream = BackpressureStream {
+            rx,
+            producer: Some(Box::pin(producer)),
+        };
+
+        Ok(Box::pin(receiver_stream))
+    }
+}
+
+/// 背压流（v2.2.0 B-4）：合并生产者 future 和接收器
+struct BackpressureStream<'a> {
+    rx: futures::channel::mpsc::Receiver<Result<RowResult, DbError>>,
+    producer: Option<Pin<Box<dyn std::future::Future<Output = ()> + Send + 'a>>>,
+}
+
+impl<'a> Stream for BackpressureStream<'a> {
+    type Item = Result<RowResult, DbError>;
+
+    fn poll_next(
+        self: std::pin::Pin<&mut Self>,
+        cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Option<Self::Item>> {
+        let this = self.get_mut();
+
+        if let Some(mut producer) = this.producer.take() {
+            match std::future::Future::poll(std::pin::Pin::new(&mut producer), cx) {
+                std::task::Poll::Ready(()) => {}
+                std::task::Poll::Pending => {
+                    this.producer = Some(producer);
+                }
+            }
+        }
+
+        Stream::poll_next(std::pin::Pin::new(&mut this.rx), cx)
     }
 }
 
@@ -180,5 +267,74 @@ mod tests {
         }
 
         assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_stream_backpressure_zero_buffer() {
+        let mut mock = MockConnection::new();
+        mock.expect_any().with_rows(vec![]);
+
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let query = QueryBuilder::<TestUser>::new(dialect).table("users");
+
+        let result = query.stream_with_backpressure(&mut mock, 0);
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(matches!(err, crate::DbError::InvalidInput(_)));
+    }
+
+    #[tokio::test]
+    async fn test_stream_backpressure_basic() {
+        let mut mock = MockConnection::new();
+        mock.expect_any().with_rows(vec![
+            vec![("id", Value::I64(1))],
+            vec![("id", Value::I64(2))],
+            vec![("id", Value::I64(3))],
+        ]);
+
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let query = QueryBuilder::<TestUser>::new(dialect).table("users");
+
+        let stream = query.stream_with_backpressure(&mut mock, 10).unwrap();
+        let mut stream = Box::pin(stream);
+        let mut rows = Vec::new();
+        while let Some(row) = stream.next().await {
+            rows.push(row.unwrap());
+        }
+
+        assert_eq!(rows.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn test_stream_backpressure_empty() {
+        let mut mock = MockConnection::new();
+        mock.expect_any().with_rows(vec![]);
+
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let query = QueryBuilder::<TestUser>::new(dialect).table("users");
+
+        let stream = query.stream_with_backpressure(&mut mock, 100).unwrap();
+        let mut stream = Box::pin(stream);
+        let mut count = 0;
+        while stream.next().await.is_some() {
+            count += 1;
+        }
+
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn test_stream_backpressure_error_propagation() {
+        let mut mock = MockConnection::new().with_fallback(crate::mock::FallbackBehavior::Error);
+
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let query = QueryBuilder::<TestUser>::new(dialect).table("nonexistent");
+
+        let stream = query.stream_with_backpressure(&mut mock, 10).unwrap();
+        let mut stream = Box::pin(stream);
+        let result = stream.next().await;
+
+        assert!(result.is_some());
+        assert!(result.unwrap().is_err());
     }
 }

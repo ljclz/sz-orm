@@ -80,6 +80,9 @@ impl JoinKind {
 ///
 /// 描述两个实体间的关联关系，包含外键映射信息。
 /// 所有字段为 `&'static str`，运行时零分配。
+///
+/// v2.3.0 新增 ManyToMany 中间表元数据字段（`join_table`/`join_from_key`/`join_to_key`），
+/// 通过 [`RelationDef::new_many_to_many`] 构造器设置，`new()` 构造器保持向后兼容（中间表字段为 `None`）。
 #[derive(Debug, Clone)]
 pub struct RelationDef {
     /// 关联名称（如 "orders"、"profile"）
@@ -94,10 +97,18 @@ pub struct RelationDef {
     pub to_key: &'static str,
     /// 关联类型
     pub kind: RelationKind,
+    /// ManyToMany 中间表名（v2.3.0 新增，仅 `ManyToMany` 关联使用）
+    pub join_table: Option<&'static str>,
+    /// 中间表中指向源实体的外键列名（v2.3.0 新增）
+    pub join_from_key: Option<&'static str>,
+    /// 中间表中指向目标实体的外键列名（v2.3.0 新增）
+    pub join_to_key: Option<&'static str>,
 }
 
 impl RelationDef {
     /// 创建关联关系定义
+    ///
+    /// v2.3.0 中间表字段默认为 `None`，确保 v2.2.0 代码零修改编译通过。
     pub const fn new(
         name: &'static str,
         from_entity: &'static str,
@@ -113,6 +124,56 @@ impl RelationDef {
             from_key,
             to_key,
             kind,
+            join_table: None,
+            join_from_key: None,
+            join_to_key: None,
+        }
+    }
+
+    /// 创建 ManyToMany 关联关系定义（v2.3.0 新增）
+    ///
+    /// 强制 `kind = ManyToMany`，并设置中间表元数据。
+    ///
+    /// # 参数
+    ///
+    /// - `name`：关联名称（如 "roles"）
+    /// - `from_entity`：源实体表名（如 "users"）
+    /// - `to_entity`：目标实体表名（如 "roles"）
+    /// - `from_key`：源实体主键列名（如 "id"）
+    /// - `to_key`：目标实体主键列名（如 "id"）
+    /// - `join_table`：中间表名（如 "user_roles"）
+    /// - `join_from_key`：中间表中指向源实体的外键（如 "user_id"）
+    /// - `join_to_key`：中间表中指向目标实体的外键（如 "role_id"）
+    ///
+    /// ```ignore
+    /// let rel = RelationDef::new_many_to_many(
+    ///     "roles", "users", "roles", "id", "id",
+    ///     "user_roles", "user_id", "role_id",
+    /// );
+    /// assert_eq!(rel.kind, RelationKind::ManyToMany);
+    /// assert_eq!(rel.join_table, Some("user_roles"));
+    /// ```
+    #[allow(clippy::too_many_arguments)]
+    pub const fn new_many_to_many(
+        name: &'static str,
+        from_entity: &'static str,
+        to_entity: &'static str,
+        from_key: &'static str,
+        to_key: &'static str,
+        join_table: &'static str,
+        join_from_key: &'static str,
+        join_to_key: &'static str,
+    ) -> Self {
+        Self {
+            name,
+            from_entity,
+            to_entity,
+            from_key,
+            to_key,
+            kind: RelationKind::ManyToMany,
+            join_table: Some(join_table),
+            join_from_key: Some(join_from_key),
+            join_to_key: Some(join_to_key),
         }
     }
 }

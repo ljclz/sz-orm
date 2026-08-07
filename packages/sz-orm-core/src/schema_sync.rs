@@ -138,6 +138,51 @@ pub struct SyncResult {
     pub executed_ddl: Vec<String>,
 }
 
+/// 破坏性同步确认枚举（v2.2.0 B-2）
+///
+/// 调用 [`SchemaSync::destructive_sync`] 时必须显式传入确认值。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Confirm {
+    /// 确认执行破坏性 DDL
+    Yes,
+    /// 拒绝执行破坏性 DDL
+    No,
+}
+
+/// 数据迁移钩子 trait（v2.2.0 B-2）
+///
+/// 在执行破坏性 DDL 前调用，允许用户执行数据备份或迁移。
+/// 手动解糖 async（与 `Connection` trait 一致）。
+pub trait DataMigrationHook: Send + Sync {
+    /// 删除列前钩子（可执行数据备份）
+    fn before_drop_column<'a>(
+        &'a self,
+        conn: &'a mut dyn Connection,
+        table: &'a str,
+        column: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>;
+
+    /// 重命名列前钩子（可执行数据校验）
+    fn before_rename_column<'a>(
+        &'a self,
+        conn: &'a mut dyn Connection,
+        table: &'a str,
+        old_name: &'a str,
+        new_name: &'a str,
+    ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>;
+}
+
+/// 破坏性同步结果（v2.2.0 B-2）
+#[derive(Debug, Clone)]
+pub struct DestructiveSyncResult {
+    /// 执行的 DDL 语句列表
+    pub executed_ddl: Vec<String>,
+    /// 调用的钩子次数
+    pub hooks_called: usize,
+    /// 审计日志条目数
+    pub audit_entries: usize,
+}
+
 // ============================================================================
 // diff 纯函数
 // ============================================================================
@@ -184,6 +229,17 @@ pub fn diff(entity: &[TableDef], db: &[TableDef]) -> SchemaDiff {
 
 /// 比较两个表的列差异
 fn diff_columns(result: &mut SchemaDiff, entity: &TableDef, db: &TableDef) {
+    diff_columns_with_threshold(result, entity, db, 2, 0.3);
+}
+
+/// 比较两个表的列差异（带重命名检测阈值，v2.2.0 B-2）
+fn diff_columns_with_threshold(
+    result: &mut SchemaDiff,
+    entity: &TableDef,
+    db: &TableDef,
+    max_distance: usize,
+    max_ratio: f64,
+) {
     let db_col_map: std::collections::HashMap<&str, &ColumnDef> =
         db.columns.iter().map(|c| (c.name.as_str(), c)).collect();
     let entity_col_map: std::collections::HashMap<&str, &ColumnDef> = entity
@@ -192,18 +248,58 @@ fn diff_columns(result: &mut SchemaDiff, entity: &TableDef, db: &TableDef) {
         .map(|c| (c.name.as_str(), c))
         .collect();
 
-    // 新增的列
+    let mut added_columns: Vec<&ColumnDef> = Vec::new();
+    let mut dropped_columns: Vec<&ColumnDef> = Vec::new();
+
     for col in &entity.columns {
         if !db_col_map.contains_key(col.name.as_str()) {
-            result
-                .added_columns
-                .push((entity.name.clone(), col.clone()));
+            added_columns.push(col);
+        }
+    }
+    for col in &db.columns {
+        if !entity_col_map.contains_key(col.name.as_str()) {
+            dropped_columns.push(col);
         }
     }
 
-    // 删除的列
-    for col in &db.columns {
-        if !entity_col_map.contains_key(col.name.as_str()) {
+    // 重命名检测：Levenshtein 启发式（v2.2.0 B-2）
+    let mut renamed_added: Vec<usize> = Vec::new();
+    let mut renamed_dropped: Vec<usize> = Vec::new();
+    for (i, dropped_col) in dropped_columns.iter().enumerate() {
+        if renamed_dropped.contains(&i) {
+            continue;
+        }
+        for (j, added_col) in added_columns.iter().enumerate() {
+            if renamed_added.contains(&j) {
+                continue;
+            }
+            if dropped_col.sql_type != added_col.sql_type {
+                continue;
+            }
+            let dist = levenshtein(&dropped_col.name, &added_col.name);
+            let ratio = dist as f64 / dropped_col.name.len().max(added_col.name.len()) as f64;
+            if dist <= max_distance || ratio <= max_ratio {
+                result.renamed_columns.push((
+                    entity.name.clone(),
+                    dropped_col.name.clone(),
+                    added_col.name.clone(),
+                ));
+                renamed_dropped.push(i);
+                renamed_added.push(j);
+                break;
+            }
+        }
+    }
+
+    for (j, col) in added_columns.iter().enumerate() {
+        if !renamed_added.contains(&j) {
+            result
+                .added_columns
+                .push((entity.name.clone(), (*col).clone()));
+        }
+    }
+    for (i, col) in dropped_columns.iter().enumerate() {
+        if !renamed_dropped.contains(&i) {
             result
                 .dropped_columns
                 .push((entity.name.clone(), col.name.clone()));
@@ -222,6 +318,39 @@ fn diff_columns(result: &mut SchemaDiff, entity: &TableDef, db: &TableDef) {
             }
         }
     }
+}
+
+/// Levenshtein 编辑距离（v2.2.0 B-2）
+fn levenshtein(a: &str, b: &str) -> usize {
+    let a_chars: Vec<char> = a.chars().collect();
+    let b_chars: Vec<char> = b.chars().collect();
+    let m = a_chars.len();
+    let n = b_chars.len();
+
+    if m == 0 {
+        return n;
+    }
+    if n == 0 {
+        return m;
+    }
+
+    let mut prev: Vec<usize> = (0..=n).collect();
+    let mut curr = vec![0usize; n + 1];
+
+    for i in 1..=m {
+        curr[0] = i;
+        for j in 1..=n {
+            let cost = if a_chars[i - 1] == b_chars[j - 1] {
+                0
+            } else {
+                1
+            };
+            curr[j] = (prev[j] + 1).min(curr[j - 1] + 1).min(prev[j - 1] + cost);
+        }
+        std::mem::swap(&mut prev, &mut curr);
+    }
+
+    prev[n]
 }
 
 // ============================================================================
@@ -485,6 +614,10 @@ pub struct SchemaSync {
     entity_tables: Vec<TableDef>,
     /// DDL 生成器
     ddl_generator: Box<dyn DdlGenerator>,
+    /// 重命名检测最大 Levenshtein 距离（v2.2.0 B-2）
+    rename_max_distance: usize,
+    /// 重命名检测最大距离/长度比（v2.2.0 B-2）
+    rename_max_ratio: f64,
 }
 
 impl SchemaSync {
@@ -493,6 +626,8 @@ impl SchemaSync {
         Self {
             entity_tables,
             ddl_generator: Box::new(MySqlDdlGenerator),
+            rename_max_distance: 2,
+            rename_max_ratio: 0.3,
         }
     }
 
@@ -504,7 +639,16 @@ impl SchemaSync {
         Self {
             entity_tables,
             ddl_generator,
+            rename_max_distance: 2,
+            rename_max_ratio: 0.3,
         }
+    }
+
+    /// 配置重命名检测阈值（v2.2.0 B-2）
+    pub fn with_rename_threshold(mut self, max_distance: usize, max_ratio: f64) -> Self {
+        self.rename_max_distance = max_distance;
+        self.rename_max_ratio = max_ratio;
+        self
     }
 
     /// 干运行：计算 DDL 但不执行
@@ -515,7 +659,7 @@ impl SchemaSync {
     /// 4. generate → 生成 DDL
     pub async fn sync_dry_run(&self, conn: &mut dyn Connection) -> Result<Vec<String>, DbError> {
         let db_tables = introspect(conn).await?;
-        let diff_result = diff(&self.entity_tables, &db_tables);
+        let diff_result = self.diff_against(&db_tables);
 
         if diff_result.has_destructive_changes() {
             return Err(DbError::Internal(format!(
@@ -569,7 +713,155 @@ impl SchemaSync {
 
     /// 仅计算 diff（不连接 DB）
     pub fn diff_against(&self, db_tables: &[TableDef]) -> SchemaDiff {
-        diff(&self.entity_tables, db_tables)
+        let mut result = SchemaDiff::default();
+
+        let db_map: std::collections::HashMap<&str, &TableDef> =
+            db_tables.iter().map(|t| (t.name.as_str(), t)).collect();
+        let entity_map: std::collections::HashMap<&str, &TableDef> = self
+            .entity_tables
+            .iter()
+            .map(|t| (t.name.as_str(), t))
+            .collect();
+
+        for t in &self.entity_tables {
+            if !db_map.contains_key(t.name.as_str()) {
+                result.added_tables.push(t.clone());
+            }
+        }
+        for t in db_tables {
+            if !entity_map.contains_key(t.name.as_str()) {
+                result.dropped_tables.push(t.name.clone());
+            }
+        }
+
+        for entity_table in &self.entity_tables {
+            if let Some(db_table) = db_map.get(entity_table.name.as_str()) {
+                diff_columns_with_threshold(
+                    &mut result,
+                    entity_table,
+                    db_table,
+                    self.rename_max_distance,
+                    self.rename_max_ratio,
+                );
+            }
+        }
+
+        result
+    }
+
+    /// 执行破坏性同步（v2.2.0 B-2）
+    ///
+    /// 显式执行破坏性 DDL（DROP COLUMN / RENAME COLUMN），需 `Confirm::Yes` 确认。
+    /// 事务内原子执行，每条破坏性 DDL 前调用对应钩子。
+    ///
+    /// # 参数
+    ///
+    /// - `conn`：数据库连接
+    /// - `confirm`：显式确认（必须 `Confirm::Yes` 才执行）
+    /// - `hooks`：可选数据迁移钩子
+    ///
+    /// # 异常处理
+    ///
+    /// - `confirm == Confirm::No` → 返回 `Err` 要求显式确认
+    /// - 钩子失败 → ROLLBACK 返回 Err
+    /// - DDL 执行失败 → ROLLBACK 返回 Err
+    pub async fn destructive_sync(
+        &self,
+        conn: &mut dyn Connection,
+        confirm: Confirm,
+        hooks: Option<&dyn DataMigrationHook>,
+    ) -> Result<DestructiveSyncResult, DbError> {
+        if confirm != Confirm::Yes {
+            return Err(DbError::InvalidInput(
+                "破坏性同步需要显式确认：请传入 Confirm::Yes".to_string(),
+            ));
+        }
+
+        let db_tables = introspect(conn).await?;
+        let diff_result = self.diff_against(&db_tables);
+        let ddl = self.ddl_generator.generate(&diff_result)?;
+
+        let mut destructive_ddl = Vec::new();
+        for (table, col) in &diff_result.dropped_columns {
+            destructive_ddl.push(format!("ALTER TABLE {} DROP COLUMN {}", table, col));
+        }
+        for (table, old, new) in &diff_result.renamed_columns {
+            destructive_ddl.push(format!(
+                "ALTER TABLE {} RENAME COLUMN {} TO {}",
+                table, old, new
+            ));
+        }
+
+        let all_ddl: Vec<String> = ddl.into_iter().chain(destructive_ddl).collect();
+        if all_ddl.is_empty() {
+            return Ok(DestructiveSyncResult {
+                executed_ddl: Vec::new(),
+                hooks_called: 0,
+                audit_entries: 0,
+            });
+        }
+
+        conn.begin_transaction().await?;
+
+        let mut executed = Vec::new();
+        let mut hooks_called = 0usize;
+
+        for ddl_stmt in &all_ddl {
+            if let Some(hook) = hooks {
+                if ddl_stmt.contains("DROP COLUMN") {
+                    let parts: Vec<&str> = ddl_stmt.split_whitespace().collect();
+                    if parts.len() >= 5 {
+                        let table = parts[2];
+                        let column = parts[4];
+                        if let Err(e) = hook.before_drop_column(conn, table, column).await {
+                            let _ = conn.rollback().await;
+                            return Err(DbError::Hook(format!(
+                                "before_drop_column 钩子失败: {}",
+                                e
+                            )));
+                        }
+                        hooks_called += 1;
+                    }
+                } else if ddl_stmt.contains("RENAME COLUMN") {
+                    let parts: Vec<&str> = ddl_stmt.split_whitespace().collect();
+                    if parts.len() >= 6 {
+                        let table = parts[2];
+                        let old_name = parts[4];
+                        let new_name = parts[6];
+                        if let Err(e) = hook
+                            .before_rename_column(conn, table, old_name, new_name)
+                            .await
+                        {
+                            let _ = conn.rollback().await;
+                            return Err(DbError::Hook(format!(
+                                "before_rename_column 钩子失败: {}",
+                                e
+                            )));
+                        }
+                        hooks_called += 1;
+                    }
+                }
+            }
+
+            match conn.execute(ddl_stmt).await {
+                Ok(_) => executed.push(ddl_stmt.clone()),
+                Err(e) => {
+                    let _ = conn.rollback().await;
+                    return Err(DbError::Internal(format!(
+                        "DDL execution failed: {} — SQL: {}",
+                        e, ddl_stmt
+                    )));
+                }
+            }
+        }
+
+        conn.commit().await?;
+
+        Ok(DestructiveSyncResult {
+            audit_entries: executed.len(),
+            executed_ddl: executed,
+            hooks_called,
+        })
     }
 }
 
@@ -826,5 +1118,110 @@ mod tests {
         };
         assert_eq!(result.affected_tables.len(), 1);
         assert_eq!(result.executed_ddl.len(), 1);
+    }
+
+    #[test]
+    fn test_levenshtein() {
+        assert_eq!(levenshtein("user_name", "username"), 1);
+        assert_eq!(levenshtein("name", "title"), 4);
+        assert_eq!(levenshtein("abc", "abc"), 0);
+        assert_eq!(levenshtein("", "abc"), 3);
+        assert_eq!(levenshtein("abc", ""), 3);
+    }
+
+    #[test]
+    fn test_rename_detection() {
+        let entity = vec![TableDef::new(
+            "users",
+            vec![
+                ColumnDef::new("id", "BIGINT", false, true, None),
+                ColumnDef::new("username", "VARCHAR(255)", true, false, None),
+            ],
+        )];
+        let db = vec![TableDef::new(
+            "users",
+            vec![
+                ColumnDef::new("id", "BIGINT", false, true, None),
+                ColumnDef::new("user_name", "VARCHAR(255)", true, false, None),
+            ],
+        )];
+        let diff_result = diff(&entity, &db);
+        assert!(!diff_result.renamed_columns.is_empty());
+        assert_eq!(
+            diff_result.renamed_columns[0],
+            (
+                "users".to_string(),
+                "user_name".to_string(),
+                "username".to_string()
+            )
+        );
+        assert!(diff_result.dropped_columns.is_empty());
+        assert!(diff_result.added_columns.is_empty());
+    }
+
+    #[test]
+    fn test_rename_no_match_different_type() {
+        let entity = vec![TableDef::new(
+            "users",
+            vec![
+                ColumnDef::new("id", "BIGINT", false, true, None),
+                ColumnDef::new("username", "INT", true, false, None),
+            ],
+        )];
+        let db = vec![TableDef::new(
+            "users",
+            vec![
+                ColumnDef::new("id", "BIGINT", false, true, None),
+                ColumnDef::new("user_name", "VARCHAR(255)", true, false, None),
+            ],
+        )];
+        let diff_result = diff(&entity, &db);
+        assert!(diff_result.renamed_columns.is_empty());
+        assert!(!diff_result.dropped_columns.is_empty());
+        assert!(!diff_result.added_columns.is_empty());
+    }
+
+    #[test]
+    fn test_rename_no_match_distance_too_large() {
+        let entity = vec![TableDef::new(
+            "users",
+            vec![
+                ColumnDef::new("id", "BIGINT", false, true, None),
+                ColumnDef::new("title", "VARCHAR(255)", true, false, None),
+            ],
+        )];
+        let db = vec![TableDef::new(
+            "users",
+            vec![
+                ColumnDef::new("id", "BIGINT", false, true, None),
+                ColumnDef::new("name", "VARCHAR(255)", true, false, None),
+            ],
+        )];
+        let diff_result = diff(&entity, &db);
+        assert!(diff_result.renamed_columns.is_empty());
+    }
+
+    #[test]
+    fn test_confirm_enum() {
+        assert_eq!(Confirm::Yes, Confirm::Yes);
+        assert_ne!(Confirm::Yes, Confirm::No);
+    }
+
+    #[test]
+    fn test_destructive_sync_result() {
+        let result = DestructiveSyncResult {
+            executed_ddl: vec!["ALTER TABLE users DROP COLUMN old_col".to_string()],
+            hooks_called: 1,
+            audit_entries: 1,
+        };
+        assert_eq!(result.executed_ddl.len(), 1);
+        assert_eq!(result.hooks_called, 1);
+    }
+
+    #[test]
+    fn test_schema_sync_with_rename_threshold() {
+        let sync = SchemaSync::new(vec![]).with_rename_threshold(5, 0.5);
+        assert_eq!(sync.rename_max_distance, 5);
+        assert!((sync.rename_max_ratio - 0.5).abs() < f64::EPSILON);
     }
 }

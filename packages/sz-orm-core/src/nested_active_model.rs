@@ -437,6 +437,164 @@ where
     }
 }
 
+/// 级联删除策略（v2.2.0 B-5）
+///
+/// 控制 [`nested_delete_with_strategy`] 在删除父实体时对子实体的处理方式。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum CascadeStrategy {
+    /// 若存在子实体则禁止删除，返回错误
+    Restrict,
+    /// 递归删除所有子实体（默认，与 v2.1.0 `cascade_delete(true)` 兼容）
+    #[default]
+    Cascade,
+    /// 将子实体的外键置为 NULL
+    SetNull,
+    /// 将子实体的外键置为默认值
+    SetDefault,
+}
+
+/// 按指定策略执行嵌套删除（v2.2.0 B-5）
+///
+/// 在事务内按 `strategy` 处理子实体后删除父实体。
+///
+/// # 策略行为
+///
+/// - `Restrict`：子实体存在时返回 Err，不存在时删除父实体
+/// - `Cascade`：递归删除子实体后删除父实体
+/// - `SetNull`：子实体外键置 NULL 后删除父实体
+/// - `SetDefault`：子实体外键置默认值后删除父实体
+pub async fn nested_delete_with_strategy<M: Model>(
+    conn: &mut dyn Connection,
+    nested: &NestedActiveModel<M>,
+    strategy: CascadeStrategy,
+) -> Result<u64, DbError>
+where
+    M::PrimaryKey: Into<Value>,
+{
+    conn.begin_transaction().await?;
+
+    let result = match strategy {
+        CascadeStrategy::Cascade => do_nested_delete(conn, nested).await,
+        CascadeStrategy::Restrict => do_nested_delete_restrict(conn, nested).await,
+        CascadeStrategy::SetNull => do_nested_delete_set_null(conn, nested).await,
+        CascadeStrategy::SetDefault => do_nested_delete_set_default(conn, nested).await,
+    };
+
+    match result {
+        Ok(rows) => {
+            conn.commit().await?;
+            Ok(rows)
+        }
+        Err(e) => {
+            let _ = conn.rollback().await;
+            Err(e)
+        }
+    }
+}
+
+/// Restrict 策略：子实体存在时禁止删除
+async fn do_nested_delete_restrict<M: Model>(
+    conn: &mut dyn Connection,
+    nested: &NestedActiveModel<M>,
+) -> Result<u64, DbError>
+where
+    M::PrimaryKey: Into<Value>,
+{
+    if !nested.children.is_empty() {
+        let fk = &nested.relation.to_key;
+        let table = &nested.relation.to_entity;
+        let pk_value = nested
+            .parent
+            .pk_value()
+            .ok_or_else(|| DbError::InvalidInput("父实体缺少主键值".to_string()))?;
+
+        let count_sql = format!("SELECT COUNT(*) AS cnt FROM {} WHERE {} = ?", table, fk);
+        let rows = conn.query_with_params(&count_sql, &[pk_value]).await?;
+        let count = rows
+            .first()
+            .and_then(|r| r.get("cnt"))
+            .and_then(|v| v.as_i64())
+            .unwrap_or(0);
+
+        if count > 0 {
+            return Err(DbError::InvalidInput(format!(
+                "存在 {} 个子实体（{}），禁止删除",
+                count, table
+            )));
+        }
+    }
+
+    let table = M::table_name();
+    let pk_col = M::pk_name();
+    let pk_value = nested
+        .parent
+        .pk_value()
+        .ok_or_else(|| DbError::InvalidInput("父实体缺少主键值".to_string()))?;
+    let delete_sql = format!("DELETE FROM {} WHERE {} = ?", table, pk_col);
+    let affected = conn.execute_with_params(&delete_sql, &[pk_value]).await?;
+    Ok(affected)
+}
+
+/// SetNull 策略：子实体外键置 NULL
+async fn do_nested_delete_set_null<M: Model>(
+    conn: &mut dyn Connection,
+    nested: &NestedActiveModel<M>,
+) -> Result<u64, DbError>
+where
+    M::PrimaryKey: Into<Value>,
+{
+    let pk_value = nested
+        .parent
+        .pk_value()
+        .ok_or_else(|| DbError::InvalidInput("父实体缺少主键值".to_string()))?;
+
+    let mut total_affected = 0u64;
+    if !nested.children.is_empty() {
+        let fk = &nested.relation.to_key;
+        let table = &nested.relation.to_entity;
+        let sql = format!("UPDATE {} SET {} = NULL WHERE {} = ?", table, fk, fk);
+        total_affected += conn
+            .execute_with_params(&sql, std::slice::from_ref(&pk_value))
+            .await?;
+    }
+
+    let table = M::table_name();
+    let pk_col = M::pk_name();
+    let delete_sql = format!("DELETE FROM {} WHERE {} = ?", table, pk_col);
+    total_affected += conn.execute_with_params(&delete_sql, &[pk_value]).await?;
+    Ok(total_affected)
+}
+
+/// SetDefault 策略：子实体外键置默认值
+async fn do_nested_delete_set_default<M: Model>(
+    conn: &mut dyn Connection,
+    nested: &NestedActiveModel<M>,
+) -> Result<u64, DbError>
+where
+    M::PrimaryKey: Into<Value>,
+{
+    let pk_value = nested
+        .parent
+        .pk_value()
+        .ok_or_else(|| DbError::InvalidInput("父实体缺少主键值".to_string()))?;
+
+    let mut total_affected = 0u64;
+    if !nested.children.is_empty() {
+        let fk = &nested.relation.to_key;
+        let table = &nested.relation.to_entity;
+        let sql = format!("UPDATE {} SET {} = DEFAULT WHERE {} = ?", table, fk, fk);
+        total_affected += conn
+            .execute_with_params(&sql, std::slice::from_ref(&pk_value))
+            .await?;
+    }
+
+    let table = M::table_name();
+    let pk_col = M::pk_name();
+    let delete_sql = format!("DELETE FROM {} WHERE {} = ?", table, pk_col);
+    total_affected += conn.execute_with_params(&delete_sql, &[pk_value]).await?;
+    Ok(total_affected)
+}
+
 /// 递归执行嵌套删除（内部函数）
 async fn do_nested_delete<M: Model>(
     conn: &mut dyn Connection,
@@ -603,5 +761,23 @@ mod tests {
         assert_eq!(child.table(), "users");
         assert_eq!(child.fields().len(), 1);
         assert_eq!(child.fields()[0].0, "name");
+    }
+
+    #[test]
+    fn test_cascade_strategy_default() {
+        assert_eq!(CascadeStrategy::default(), CascadeStrategy::Cascade);
+    }
+
+    #[test]
+    fn test_cascade_strategy_variants() {
+        let strategies = [
+            CascadeStrategy::Restrict,
+            CascadeStrategy::Cascade,
+            CascadeStrategy::SetNull,
+            CascadeStrategy::SetDefault,
+        ];
+        assert_eq!(strategies.len(), 4);
+        assert_ne!(CascadeStrategy::Restrict, CascadeStrategy::Cascade);
+        assert_ne!(CascadeStrategy::SetNull, CascadeStrategy::SetDefault);
     }
 }
