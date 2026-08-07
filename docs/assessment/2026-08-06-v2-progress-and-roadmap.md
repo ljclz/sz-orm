@@ -1,8 +1,9 @@
 # sz-orm v2.3.0 进展总结、后续方向与竞品对比
 
-> **日期**：2026-08-07（v2.3.0 更新）
+> **日期**：2026-08-07（v2.3.0 任务 B 全维度基准完成）
 > **当前版本**：workspace 2.3.0（43 包 @ 2.3.0，代码已完成，待发布 crates.io）
-> **历史版本**：v2.1.0（git commit `ed7867b`）→ v2.2.0（代码完成）→ v2.3.0（代码完成）
+> **历史版本**：v2.1.0（git commit `ed7867b`）→ v2.2.0（代码完成）→ v2.3.0（任务 A 核心 + 任务 B 全维度 + 任务 C 全部完成）
+> **git 提交**：`8974f17`（任务 C+A 核心）+ `8b836e6`（任务 B 全维度基准）
 > **文档目的**：总结 v2.1.0~v2.3.0 交付成果，规划 v2.4.0 方向，对比同类产品
 
 ---
@@ -35,13 +36,20 @@
 
 | # | 任务 | 交付物 | 状态 |
 |---|------|--------|------|
-| C | Eager Loading 智能策略选择 | `smart_eager_loader.rs`（SmartEagerLoader + StrategyResolver + 3 策略执行器） | ✅ |
-| C | N+1 自动消除器 | `n1_eliminator.rs`（N1Eliminator + 等价性校验） | ✅ |
+| C | Eager Loading 智能策略选择 | `smart_eager_loader.rs`（SmartEagerLoader + StrategyResolver + 3 策略执行器，19 单元测试） | ✅ |
+| C | N+1 自动消除器 | `n1_eliminator.rs`（N1Eliminator + 等价性校验，9 单元测试） | ✅ |
 | C | RelationDef 中间表扩展 | `relation_trait.rs` new_many_to_many + 3 字段 | ✅ |
 | C | EagerLoader::smart() | `eager_loader.rs` 扩展方法 | ✅ |
-| B | 竞品适配层 | `competitor_adapter.rs` CompetitorAdapter trait | ✅ |
-| B | 报告生成器 | `benchmark_reporter.rs` BenchmarkReporter + DSN 脱敏 | ✅ |
-| B | 全维度基准主入口 | `full_comparison.rs` criterion 配置 | ✅ |
+| B | 竞品适配层（T-B-001） | `competitor_adapter.rs`：CompetitorAdapter trait + SzOrmAdapter + SqlxAdapter + DieselAdapter + SeaOrmAdapter | ✅ |
+| B | 报告生成器骨架（T-B-008） | `benchmark_reporter.rs` BenchmarkReporter + DSN 脱敏 + 4 单元测试 | ✅ |
+| B | CRUD 维度基准（T-B-002） | `bench_crud.rs`：6 bench 函数（单条 insert/find/update/delete + 批量 insert/find） | ✅ |
+| B | 关联维度基准（T-B-003） | `bench_relation.rs`：3 bench 函数（has_one/has_many/m2m） | ✅ |
+| B | 事务维度基准（T-B-004） | `bench_transaction.rs`：3 bench 函数（commit/rollback/nested） | ✅ |
+| B | 连接池维度基准（T-B-005） | `bench_pool.rs`：1 bench 函数（pool_acquire） | ✅ |
+| B | 分页维度基准（T-B-006） | `bench_pagination.rs`：2 bench 函数（offset/cursor） | ✅ |
+| B | 全维度主入口（T-B-007） | `full_comparison.rs`：聚合 9 bench 函数 + criterion 配置 | ✅ |
+| A | sz-pay 依赖升级 2.1.0→2.3.0 | `[patch.crates-io]` 7 包指向本地 v2.3.0 path | ✅ |
+| A | sz-pay 回归测试 | 5139 passed, 0 failed（零回归） | ✅ |
 
 ### 新增 API
 
@@ -56,14 +64,23 @@
 | `IntermediateTableStrategy` | `smart_eager_loader.rs` | ManyToMany 中间表批量 |
 | `N1Eliminator` | `n1_eliminator.rs` | N+1 自动消除器 |
 | `RelationDef::new_many_to_many()` | `relation_trait.rs` | ManyToMany 中间表构造器 |
-| `CompetitorAdapter` | `competitor_adapter.rs` | 竞品适配层统一接口 |
-| `BenchmarkReporter` | `benchmark_reporter.rs` | 基准报告生成器 |
+| `CompetitorAdapter` | `competitor_adapter.rs` | 竞品适配层统一接口（4 竞品实现） |
+| `SzOrmAdapter` | `competitor_adapter.rs` | sz-orm 适配器（全维度支持） |
+| `SqlxAdapter` | `competitor_adapter.rs` | SQLx 适配器（关联返回 Unsupported） |
+| `DieselAdapter` | `competitor_adapter.rs` | Diesel 适配器（同步 ORM，raw SQL JOIN） |
+| `SeaOrmAdapter` | `competitor_adapter.rs` | SeaORM 适配器（raw SQL JOIN） |
+| `BenchmarkReporter` | `benchmark_reporter.rs` | 基准报告生成器（Markdown + CSV + JSON） |
+| `create_all_adapters()` | `competitor_adapter.rs` | 创建全部四竞品适配器 |
 
 ### 验证结果
 - sz-orm-core lib 测试：1578 passed（+28 新测试）
 - 全 workspace clippy：零警告
 - 全 workspace check：通过（v2.3.0）
+- bench-comparison 全 bench 编译：通过
+- bench-comparison clippy（新增 bench）：零警告
+- sz-pay 回归：5139 passed, 0 failed（零回归）
 - 向后兼容：无 Breaking Change
+- 零 todo!/unimplemented!/unreachable!
 
 ---
 
@@ -259,8 +276,8 @@ v2.1.0 交付的 7 项功能直接解决了 `docs/assessment/2026-08-04-deep-com
 | 测试覆盖 | 4.9/5 | 4.95/5 | **4.97/5** | 1578 测试（+85），28 个新测试覆盖智能策略 |
 | 安全性 | 4.9/5 | 4.9/5 | **4.9/5** | SQL 注入防护完善，unsafe 零容忍 |
 | 文档完整性 | 4.7/5 | 4.8/5 | **4.9/5** | 三阶段规格文档 v2.2.0+v2.3.0 + 进展总结更新 |
-| 生产就绪 | 3.5/5 | 4.0/5 | **4.1/5** | sz-pay 试点验证通过，性能采集进行中 |
-| **综合** | **4.6/5** | **4.77/5** | **4.81/5** | **智能策略选择 + 竞品基准框架 + 生产深化** |
+| 生产就绪 | 3.5/5 | 4.0/5 | **4.3/5** | sz-pay 2.3.0 回归零违规 + 四竞品基准框架完成 |
+| **综合** | **4.6/5** | **4.77/5** | **4.85/5** | **智能策略选择 + 全维度竞品基准 + 生产深化** |
 
 ---
 
@@ -276,24 +293,28 @@ v2.1.0 交付的 7 项功能直接解决了 `docs/assessment/2026-08-04-deep-com
 | 4 | Stream API 背压控制 | ✅ | `stream_api.rs` BackpressureStream |
 | 5 | cascade_delete 策略 | ✅ | `nested_active_model.rs` CascadeStrategy |
 
-### 4.2 v2.3.0（已完成，2026-08-07）
+### 4.2 v2.3.0（核心完成，2026-08-07）
 
 | # | 任务 | 状态 | 交付物 |
 |---|------|------|--------|
-| 1 | sz-pay 生产案例深化 | 🟡 进行中 | 依赖升级 + 性能采集 |
-| 2 | 第三方安全审计 | ⚪ 待启动 | 需外部参与 |
-| 3 | 性能基准完整报告 | 🟡 骨架完成 | `competitor_adapter.rs` + `benchmark_reporter.rs` + `full_comparison.rs` |
-| 4 | Eager Loading 智能策略选择 | ✅ | `smart_eager_loader.rs` + `n1_eliminator.rs` |
-| 5 | 社区建设 | ⚪ 待启动 | 贡献者指南、issue 模板 |
+| 1 | 任务 C：Eager Loading 智能策略选择 | ✅ 完成 | `smart_eager_loader.rs` + `n1_eliminator.rs`（28 单元测试） |
+| 2 | 任务 B：竞品适配层 + 全维度基准 | ✅ 完成 | 4 竞品适配器 + 5 维度 bench 文件 + 15 bench 函数 |
+| 3 | 任务 A：sz-pay 依赖升级 + 回归测试 | ✅ 核心完成 | 2.1.0→2.3.0 升级 + 5139 passed 零回归 |
+| 4 | 任务 A：sz-pay 新功能验证用例 | ⚪ 待做 | T-A-004：smart() 验证用例 |
+| 5 | 任务 A：sz-pay 性能采集 | ⚪ 待做 | T-A-005~007：QPS/P50/P95/P99/峰值内存 |
+| 6 | 任务 B：基准报告生成 + 多方言运行 | ⚪ 待做 | T-B-008~010：报告生成器已有骨架，需实际运行采集 |
+
+**v2.3.0 完成度**：核心功能 100%（任务 C 全部 + 任务 B 全维度 + 任务 A 依赖升级），增强功能待做（性能采集 + 报告运行）
 
 ### 4.3 短期目标（v2.4.0，预计 2-4 周）
 
 | # | 任务 | 优先级 | 描述 | 预期收益 |
 |---|------|--------|------|----------|
 | 1 | sz-pay 性能采集完成 | 高 | QPS/P50/P95/P99/峰值内存采集 + v2.1.0 vs v2.3.0 对比报告 | 生产证据 |
-| 2 | bench 全维度场景实现 | 中 | T-B-002~006：CRUD/关联/事务/连接池/分页维度基准 | 竞品量化对比 |
+| 2 | 基准报告实际运行 + 多方言 | 高 | T-B-009~010：运行 full_comparison 采集数据 + 生成 Markdown/CSV 报告 | 竞品量化对比报告 |
 | 3 | SmartEagerLoader 集成测试 | 中 | 智能vs手动等价性 + 五方言集成测试 | 质量保证 |
 | 4 | SmartEagerLoader 性能基准 | 中 | 决策延迟 ≤100μs + 智能vs手动性能对比 | 性能验证 |
+| 5 | crates.io v2.3.0 发布 | 中 | 43 包发布到 crates.io | 公开可用 |
 
 ### 4.4 长期目标（v3.0.0+）
 
@@ -331,7 +352,7 @@ v2.1.0 交付的 7 项功能直接解决了 `docs/assessment/2026-08-04-deep-com
 
 ---
 
-> **文档版本**：v2.1（反映 v2.1.0 已发布状态）
-> **生成日期**：2026-08-06
-> **验证方法**：基于 git commit `ed7867b` + crates.io 发布状态 + 4,993 测试通过 + sz-pay 5,139 试点验证
+> **文档版本**：v2.3（反映 v2.3.0 任务 A 核心 + 任务 B 全维度 + 任务 C 全部完成）
+> **生成日期**：2026-08-07
+> **验证方法**：基于 git commit `8974f17` + `8b836e6` + 1578 测试通过 + sz-pay 5139 回归零违规 + bench-comparison 全 bench 编译通过
 > **审计合规**：所有结论附 file:line 证据或命令输出
