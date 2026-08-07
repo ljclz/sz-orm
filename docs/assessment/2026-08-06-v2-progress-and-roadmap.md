@@ -1,9 +1,9 @@
 # sz-orm v2.3.0 进展总结、后续方向与竞品对比
 
-> **日期**：2026-08-07（v2.3.0 任务 B 全维度基准完成）
+> **日期**：2026-08-07（v2.3.0 全部任务完成）
 > **当前版本**：workspace 2.3.0（43 包 @ 2.3.0，代码已完成，待发布 crates.io）
-> **历史版本**：v2.1.0（git commit `ed7867b`）→ v2.2.0（代码完成）→ v2.3.0（任务 A 核心 + 任务 B 全维度 + 任务 C 全部完成）
-> **git 提交**：`8974f17`（任务 C+A 核心）+ `8b836e6`（任务 B 全维度基准）
+> **历史版本**：v2.1.0（git commit `ed7867b`）→ v2.2.0（代码完成）→ v2.3.0（任务 A + B + C 全部完成）
+> **git 提交**：`8974f17`（任务 C+A 核心）+ `8b836e6`（任务 B 全维度基准）+ `b8516e3`（进展文档）+ 待提交（T-A-004~007 + T-B-009~010）
 > **文档目的**：总结 v2.1.0~v2.3.0 交付成果，规划 v2.4.0 方向，对比同类产品
 
 ---
@@ -50,6 +50,12 @@
 | B | 全维度主入口（T-B-007） | `full_comparison.rs`：聚合 9 bench 函数 + criterion 配置 | ✅ |
 | A | sz-pay 依赖升级 2.1.0→2.3.0 | `[patch.crates-io]` 7 包指向本地 v2.3.0 path | ✅ |
 | A | sz-pay 回归测试 | 5139 passed, 0 failed（零回归） | ✅ |
+| A | sz-pay 新功能验证用例（T-A-004） | `tests/v2_3_0_feature_verification.rs`：13 passed + 2 ignored，覆盖 6 项新功能 | ✅ |
+| A | sz-pay 性能采集工具（T-A-005） | `tests/performance_collector.rs`：SzPayPerformanceRecord + QPS/P50/P95/P99/峰值内存，10 passed + 1 ignored | ✅ |
+| A | 性能对比报告（T-A-006） | `docs/spec/v2.3.0/sz-pay-performance-comparison.md`：3 场景全提升，无退化 | ✅ |
+| A | 测试基线文档（T-A-007） | `docs/spec/v2.3.0/sz-pay-test-baseline.md`：5139→5162 passed，零回归 | ✅ |
+| B | 多方言基准运行（T-B-009） | `full_comparison.rs`：多方言检测 + BenchmarkReporter 集成 + Drop guard 报告生成 | ✅ |
+| B | 基准报告审查（T-B-010） | `docs/spec/v2.3.0/benchmark-report.md`：audit() + 复现指令 + 差异说明 | ✅ |
 
 ### 新增 API
 
@@ -77,8 +83,11 @@
 - 全 workspace clippy：零警告
 - 全 workspace check：通过（v2.3.0）
 - bench-comparison 全 bench 编译：通过
-- bench-comparison clippy（新增 bench）：零警告
+- bench-comparison clippy（含 full_comparison）：零警告
+- bench-comparison bench 测试：144 passed（9 维度 × 4 竞品 × 4 规模，SQLite 方言）
 - sz-pay 回归：5139 passed, 0 failed（零回归）
+- sz-pay 功能验证：13 passed, 2 ignored（T-A-004）
+- sz-pay 性能采集：10 passed, 1 ignored（T-A-005）
 - 向后兼容：无 Breaking Change
 - 零 todo!/unimplemented!/unreachable!
 

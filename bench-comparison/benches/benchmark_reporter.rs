@@ -249,8 +249,11 @@ impl BenchmarkReporter {
 }
 
 #[cfg(test)]
+#[allow(unused_imports)]
 mod tests {
-    use super::*;
+    use super::{
+        AuditReport, BenchmarkRecord, BenchmarkReporter, CriterionConfig, EnvironmentMetadata,
+    };
 
     #[test]
     fn test_mask_dsn_with_password() {
