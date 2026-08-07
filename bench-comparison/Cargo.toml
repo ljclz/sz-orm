@@ -66,6 +66,31 @@ name = "full_comparison"
 path = "benches/full_comparison.rs"
 harness = false
 
+[[bench]]
+name = "bench_crud"
+path = "benches/bench_crud.rs"
+harness = false
+
+[[bench]]
+name = "bench_relation"
+path = "benches/bench_relation.rs"
+harness = false
+
+[[bench]]
+name = "bench_transaction"
+path = "benches/bench_transaction.rs"
+harness = false
+
+[[bench]]
+name = "bench_pool"
+path = "benches/bench_pool.rs"
+harness = false
+
+[[bench]]
+name = "bench_pagination"
+path = "benches/bench_pagination.rs"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = "thin"
