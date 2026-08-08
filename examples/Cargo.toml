@@ -62,6 +62,10 @@ name = "db_verify_test"
 path = "src/bin/db_verify_test.rs"
 required-features = ["sz-orm-macros/db-verify"]
 
+[[bin]]
+name = "sz_rust_integration_example"
+path = "src/bin/sz_rust_integration_example.rs"
+
 [features]
 default = []
 # 启用 query! 宏的编译期连真 DB 验证能力

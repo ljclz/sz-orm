@@ -5,6 +5,233 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [3.2.0] — 2026-08-08
+
+### 概述
+
+v3.2.0 是 SZ-ORM 的性能深度优化版本，包含 4 大方向交付物，覆盖 20 条 EARS 需求，通过 5 个里程碑（M1-M5）推进。所有新能力通过 feature gate 隔离，默认关闭，无 Breaking Change。
+
+### 新增功能
+
+#### 连接池自动预热增强（`auto-prewarm` feature）
+
+- `PrewarmConfig` + `ProgressiveConfig` + `PrewarmProgress` + `PrewarmSummary`
+- `Pool::new_async` 自动预热 + `Pool::progressive_prewarm` 渐进式分批预热
+- `UnifiedPool::prewarm` + `UnifiedPool::progressive_prewarm` + `MultiPoolRegistry` 多池统一预热
+- 预热失败不阻断池创建，超时可配置，进度可观测
+- telemetry 集成（prewarm 计数器 + 快照字段）
+- 29 单元测试 + 7 集成测试（真实 MySQL+PG）
+
+#### 查询计划缓存（`plan-cache` feature）
+
+- `SqlNormalizer` SQL 归一化 + 表名提取（AST 提取 + 字符串回退）
+- `PlanCacheKey` xxHash 64bit 强哈希
+- `PlanCacheEntry` + `PlanCacheStats` 原子计数器无锁统计
+- `PlanCache` 双缓存（parse + optimize）+ `LruOrder64` arena 双向链表 LRU
+- `invalidate_table` 表级精确失效 + `invalidate_all` 全量失效
+- `UnifiedQueryOptimizer::with_plan_cache` 缓存集成
+- 26 单元测试 + 11 差分测试
+
+#### 零拷贝序列化（`zero-copy` feature）
+
+- `BorrowedValue<'a>` 21 变体枚举（字符串/字节用 `Cow<'a, str>` / `Cow<'a, [u8]>` 借用）
+- `BorrowedRowData<'a>` 借用型行数据
+- `ColumnarSchema` + `ColumnarResultSet` 列式结果集（按列连续存储，缓存友好）
+- `from_row_data` / `to_row_data` 行列互转
+- `apply_result_map_borrowed` + `apply_result_map_many_borrowed` 零拷贝反序列化路径
+- 31 单元测试 + 4 等价性测试 + criterion 基准测试
+
+#### SIMD 加速（`simd` feature）
+
+- `SimdAvailability` 枚举 + `detect()` 运行时检测（AVX2/AVX/SSE2/NEON/None，OnceLock 缓存）
+- `batch_decode_integers` SIMD 批量整数解码（wide::i64x4 向量并行）
+- `batch_compare_eq` / `batch_compare_in` SIMD 列比较（向量比较 + 布尔掩码）
+- 标量降级路径（count < 1024 或 None 时自动回退）
+- WASM 目标自动降级标量
+- 20 单元测试 + 12 差分测试 + criterion 基准测试
+
+### 性能收益
+
+- 连接池冷启动：自动预热后首次查询 P95 ≤ 20ms（对比未预热 ≤ 100ms）
+- 查询计划缓存：重复 SQL 跳过解析/优化，命中率可观测
+- 零拷贝：BorrowedValue Cow 借用消除深拷贝，10000 行反序列化分配减少
+- SIMD：1024+ 行批量解码/比较走 SIMD 向量化路径
+
+### Feature Gate
+
+| Feature | 默认 | 描述 |
+|---------|------|------|
+| `auto-prewarm` | 关闭 | 连接池自动预热增强 |
+| `plan-cache` | 关闭 | 查询计划缓存 |
+| `zero-copy` | 关闭 | 零拷贝序列化 |
+| `simd` | 关闭 | SIMD 加速 |
+
+### 兼容性
+
+- 无 Breaking Change：所有新能力通过 feature gate 隔离，默认关闭
+- 默认 feature 测试基线：1594 passed
+- 四 feature 全组合：1695 passed
+- clippy 零警告（`--all-features --all-targets`）
+
+## [3.0.0] — 2026-08-07
+
+### 概述
+
+v3.0.0 是 SZ-ORM 的长期目标迭代版本，包含 6 大方向交付物，覆盖 29 条 EARS 需求，通过 7 个里程碑（M1-M7）推进。
+
+### 新增功能
+
+#### 图数据库支持（sz-orm-graph 0.1.0）
+
+- Neo4j 图数据库连接池（GraphConfig + GraphConnection + GraphPool）
+- Cypher 查询构建器（CypherQueryBuilder）+ 参数化校验（CypherValidator）
+- 声明式图模型（GraphNodeModel + GraphRelationModel）
+- 结果映射（NodeMapper + RelationMapper，serde 反序列化）
+- DSN 脱敏（sanitize_dsn）
+- 11 单元测试 + 6 集成测试 + P95 性能测试
+- 需求覆盖：REQ-GDB-001 ~ REQ-GDB-005
+
+#### WASM 完善（sz-orm-wasm）
+
+- wasm-bindgen JS 绑定（JsWasmDatabase + JsQueryResult）
+- IndexedDB 持久化（WasmPersistence trait + IndexedDbStore）
+- 内存限制（行数 + 行大小超限拒绝写入）
+- 持久化不可用明确报告（WasmPersistenceError）
+- wasm-bindgen-test 7 测试
+- WASM gzip 89.7 KB << 1MB
+- 需求覆盖：REQ-WASM-001 ~ REQ-WASM-005
+
+#### FFI 发布产物（Python + JS）
+
+- maturin Python wheel 构建脚本 + PyPI 发布脚本
+- napi-rs JS 绑定构建脚本 + npm 发布脚本
+- Python 等价性测试（pytest）+ JS 等价性测试（jest 16 passed）
+- 绑定验证脚本（verify_bindings.ps1）
+- CI 矩阵（三平台 × Python 3.8/3.10/3.12 × Node 18/20/22）
+- 需求覆盖：REQ-FDI-001 ~ REQ-FDI-005
+
+#### AI 查询优化器（sz-orm-ai --features llm-optimizer）
+
+- HintSource 枚举（Rule/Llm）+ UnifiedOptimizationHint（来源追溯）
+- OptimizerConfig（LLM 可配置性，默认降级纯规则）
+- ExplainPlanParser trait + 5 方言实现（MySQL/PG/SQLite/Oracle/MSSQL）
+- LlmOptimizer（OpenAI 兼容 API，SQL 脱敏后发送）
+- UnifiedQueryOptimizer（规则 + LLM 合并，降级安全）
+- SqlSanitizer（password/token/Base64 敏感字面量脱敏）
+- LLM SQL 零执行（suggested_sql 仅建议，无 execute_sql 方法）
+- 230 单元测试 + 4 集成测试
+- 需求覆盖：REQ-AI-001 ~ REQ-AI-005
+
+#### XA 事务一致性（sz-orm-dtx --features xa）
+
+- XaResource/XaParticipant/XaCoordinator（2PC 协议）
+- XaRecoveryCoordinator（3 恢复策略：COMMIT/ROLLBACK/HEURISTIC）
+- SuspensionDetector（后台扫描 + 超时检测）
+- XaCapabilityChecker（拒绝不支持 XA 的参与者）
+- 6 集成测试 + coexistence 测试（XA 与 2PC/Saga/TCC 共存）
+- 需求覆盖：REQ-DTX-001 ~ REQ-DTX-005
+
+#### 多后端协同文档
+
+- multi_backend_readiness.md（5 项就绪验证全 PASS）
+- dialect_constraints.md（11 特性 × 5 方言矩阵）
+- sz_rust_integration_example.rs（编译 + clippy 零警告 + 运行成功）
+- ADR-0001 PASS（业务代码零修改）
+- 需求覆盖：REQ-MB-001 ~ REQ-MB-004
+
+### Feature Gate 隔离
+
+| Feature | 包 | 默认 | 依赖 |
+|---------|---|------|------|
+| `xa` | sz-orm-dtx | 关闭 | sz-orm-sqlx |
+| `llm-optimizer` | sz-orm-ai | 关闭 | reqwest (via `real`) |
+| `js` | sz-orm-wasm | 关闭 | wasm-bindgen, js-sys |
+| `persistence` | sz-orm-wasm | 关闭 | web-sys |
+| `integration` | sz-orm-graph | 关闭 | neo4rs |
+
+### 无 Breaking Change
+
+- v2.4.0 公开 API 签名全部保持不变
+- 新增能力通过 feature gate 隔离（默认 feature 不引入额外依赖）
+- `cargo build --workspace`（默认 feature）成功
+
+### 门禁验证
+
+| 门禁 | 状态 |
+|------|------|
+| fmt | ✅ |
+| check | ✅ |
+| clippy | ✅ 零警告 |
+| test | ✅ 全部通过 |
+| doc | ✅（预存警告） |
+| 占位检查 | ✅ |
+| Feature 全组合 | ⚠️ rdkafka-sys 预存问题 |
+
+### 需求覆盖
+
+29 条 EARS 需求全部映射到任务并验收通过：
+- REQ-GDB-001~005（图数据库）
+- REQ-WASM-001~005（WASM）
+- REQ-FDI-001~005（FFI 发布）
+- REQ-AI-001~005（AI 优化器）
+- REQ-DTX-001~005（XA 事务）
+- REQ-MB-001~004（多后端协同）
+
+## [2.4.0] — 2026-08-07
+
+### Bug 修复
+
+#### SmartEagerLoader `load()` 根关联未加载
+- 修复 `SmartEagerLoader::load()` 方法中 `self.relation`（根关联）从未被加载的 bug
+  - 当 `children.is_empty()` 时直接返回 Leaf 不加载关联数据
+  - 当 children 非空时使用 `first_child.relation` 而非 `self.relation` 作为第一级
+- 修复方式：使用 `self.relation` 作为根级关联，`std::mem::take(&mut self.children)` 作为子级配置传给 `load_level_smart`
+- 位置：`packages/sz-orm-core/src/smart_eager_loader.rs:650`
+
+### 新增测试
+
+#### SmartEagerLoader 五方言集成测试套件
+- `tests/common/equivalence.rs`：等价性断言工具（Smart vs Manual 结果集对比）
+- `tests/common/schema_builder.rs`：TestSchemaBuilder（5 方言 DDL + 数据填充）
+- `tests/common/rusqlite_adapter.rs`：SQLite Connection trait 适配器
+- `tests/common/sqlx_mysql_adapter.rs`：MySQL Connection trait 适配器（sqlx::MySqlPool）
+- `tests/common/sqlx_pg_adapter.rs`：PostgreSQL Connection trait 适配器（sqlx::PgPool + `?` → `$N` 转换）
+- `tests/smart_eager_test_infra.rs`：31 passed（基础设施测试）
+- `tests/smart_eager_integration_sqlite.rs`：29 passed（SQLite 集成测试）
+- `tests/smart_eager_integration_mysql.rs`：7 测试 `#[ignore]`（需 MySQL 服务）
+- `tests/smart_eager_integration_pg.rs`：7 测试 `#[ignore]`（需 PostgreSQL 服务）
+- `tests/smart_eager_integration_oracle.rs`：7 测试 `#[ignore]`（需 Oracle 服务）
+- `tests/smart_eager_integration_mssql.rs`：7 测试 `#[ignore]`（需 MSSQL 服务）
+
+#### SmartEagerLoader 性能基准套件
+- `bench-comparison/benches/smart_eager_harness.rs`：基准测试工具（BenchSqliteConn + SmartEagerBenchHarness，4 规模 10/100/1000/10000）
+- `bench-comparison/benches/bench_smart_eager.rs`：4 基准组
+  - `bench_decision_latency`：StrategyResolver::resolve() 延迟（实测 68-81 ns，远超 ≤100μs 要求）
+  - `bench_smart_vs_manual`：SmartEagerLoader vs EagerLoader 对比（开销 4-6%，10000 行 Smart 快 9%）
+  - `bench_n1_elimination`：N+1 逐条 vs 批量对比（100 行 3.3x、1000 行 12.8x、10000 行 60.6x 加速）
+  - `bench_n1_detector`：N1Eliminator 检测能力（8.46μs）
+
+### 新增脚本
+- `scripts/compute_topology.ps1`：依赖拓扑排序脚本（Kahn 算法 + 字典序打破并列）
+- `scripts/publish_crates_io.ps1`：crates.io 逐包发布脚本（门禁 → token → 拓扑序 → 逐包发布）
+- `scripts/verify_sz_pay.ps1`：sz-pay 下游验证脚本（版本升级 → build → test → 零回归）
+
+### 向后兼容
+- v2.4.0 无 Breaking Change，所有 v2.3.0 公开 API 签名保持不变
+- SmartEagerLoader `load()` 方法签名不变，仅修复内部实现逻辑
+- 新增文件均为测试/基准/脚本，不进入 sz-orm-core 公开 API
+
+### 验证结果
+- sz-orm-core 全测试：0 failed
+- sz-orm-core clippy：零警告
+- sz-orm-core fmt：通过
+- SQLite 集成测试：29 passed
+- 集成测试基础设施：31 passed
+- 性能基准：4 组 × 4 规模全部达标
+- sz-pay 回归：5139 passed, 0 failed, 13 ignored（零回归）
+- 占位实现检查：0 处（2 处匹配在文档注释中）
+- SQL 注入扫描：31 项均为内部逻辑拼接（手动审查确认安全）
+
 ## [2.3.0] — 2026-08-07
 
 ### 新增功能

@@ -22,6 +22,14 @@ redis = ["dep:redis"]
 circuit-breaker = ["sz-orm-health"]
 # #93 修复：限流器与 ORM 执行路径集成（引入 sz-orm-limit 的 RateLimiter）
 rate-limit = ["sz-orm-limit"]
+# v3.2.0：连接池自动预热增强（渐进式分批 + 多池统一 + 进度可观测）
+auto-prewarm = []
+# v3.2.0：查询计划缓存（SQL 解析/优化结果缓存 + LRU 淘汰 + 表级失效）
+plan-cache = ["dep:sqlparser", "dep:xxhash-rust"]
+# v3.2.0：零拷贝序列化（BorrowedValue + ColumnarResultSet）
+zero-copy = []
+# v3.2.0：SIMD 加速（批量整数解码 + 列比较 + 自动降级）
+simd = ["dep:wide"]
 
 [dependencies]
 async-trait.workspace = true
@@ -48,6 +56,11 @@ sz-orm-limit = { version = "2.1.0", path = "../sz-orm-limit", optional = true }
 # Fix #39：L2Cache RedisBackend 真实实现（启用 redis feature 时生效）
 # 使用 connection-manager 自动重连 + tokio-comp 异步 IO
 redis = { workspace = true, optional = true }
+# v3.2.0：查询计划缓存（plan-cache feature）
+sqlparser = { workspace = true, optional = true }
+xxhash-rust = { workspace = true, optional = true }
+# v3.2.0：SIMD 加速（simd feature）
+wide = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -117,6 +130,18 @@ path = "tests/chaos_pool.rs"
 name = "core_bench"
 path = "benches/core_bench.rs"
 harness = false
+
+[[bench]]
+name = "zero_copy_bench"
+path = "benches/zero_copy_bench.rs"
+harness = false
+required-features = ["zero-copy"]
+
+[[bench]]
+name = "simd_bench"
+path = "benches/simd_bench.rs"
+harness = false
+required-features = ["simd"]
 
 [package.metadata.docs.rs]
 all-features = true

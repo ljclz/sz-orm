@@ -7,12 +7,10 @@
 //! 所有生成的 SQL 均经过安全验证：只允许 SELECT 查询，并检测注入风险。
 
 use async_trait::async_trait;
+use serde::{Deserialize, Serialize};
 use thiserror::Error;
 
 use crate::safety;
-
-#[cfg(feature = "real")]
-use serde::{Deserialize, Serialize};
 
 // ==================== 数据结构 ====================
 
@@ -1065,7 +1063,7 @@ fn clean_llm_sql_output(raw: &str) -> String {
 // ==================== 查询优化提示 ====================
 
 /// 优化建议的严重级别
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum HintSeverity {
     /// 信息级：可选的优化建议
     Info,

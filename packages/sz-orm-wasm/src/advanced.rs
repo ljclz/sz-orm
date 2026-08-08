@@ -1935,4 +1935,90 @@ mod tests {
         let stats = cache.stats();
         assert_eq!(stats.hits, 2);
     }
+
+    // -------------------- M4.5: 内存限制验证测试 --------------------
+
+    #[test]
+    fn test_memory_limit_rejects_insert_when_rows_exceed() {
+        let db = LimitedWasmDatabase::new(MemoryConfig::unlimited().with_max_rows_per_table(2));
+        db.execute(WasmQuery::new("CREATE TABLE items (id INT)"))
+            .unwrap();
+        db.execute(WasmQuery::with_params(
+            "INSERT INTO items (id) VALUES (?)",
+            vec![json!(1)],
+        ))
+        .unwrap();
+        db.execute(WasmQuery::with_params(
+            "INSERT INTO items (id) VALUES (?)",
+            vec![json!(2)],
+        ))
+        .unwrap();
+
+        let result = db.execute(WasmQuery::with_params(
+            "INSERT INTO items (id) VALUES (?)",
+            vec![json!(3)],
+        ));
+
+        assert!(result.is_err(), "third insert should be rejected");
+        match result {
+            Err(MemoryLimitError::TooManyRows {
+                table,
+                limit,
+                current,
+            }) => {
+                assert_eq!(table, "items");
+                assert_eq!(limit, 2);
+                assert_eq!(current, 3);
+            }
+            other => panic!("expected TooManyRows, got {:?}", other),
+        }
+
+        let usage = db.memory_usage();
+        assert_eq!(usage.rows_per_table.get("items"), Some(&2));
+    }
+
+    #[test]
+    fn test_memory_limit_no_panic_on_rejection() {
+        let db = LimitedWasmDatabase::new(MemoryConfig::strict());
+        db.execute(WasmQuery::new("CREATE TABLE t (id INT, data TEXT)"))
+            .unwrap();
+
+        for i in 0..100 {
+            let _ = db.execute(WasmQuery::with_params(
+                "INSERT INTO t (id, data) VALUES (?, ?)",
+                vec![json!(i), json!("x".repeat(100))],
+            ));
+        }
+
+        let usage = db.memory_usage();
+        assert!(usage.rows_per_table.get("t").unwrap_or(&0) <= &100);
+    }
+
+    #[test]
+    fn test_memory_limit_row_size_rejection() {
+        let db = LimitedWasmDatabase::new(MemoryConfig::unlimited().with_max_row_size_bytes(50));
+
+        let large_row = vec![json!({"id": 1, "data": "x".repeat(200)})];
+        let result = db.check_insert("big", &large_row);
+
+        assert!(result.is_err(), "oversized row should be rejected");
+        match result {
+            Err(MemoryLimitError::RowTooLarge { table, .. }) => {
+                assert_eq!(table, "big");
+            }
+            other => panic!("expected RowTooLarge, got {:?}", other),
+        }
+    }
+
+    // -------------------- M4.6: 持久化不可用验证测试 --------------------
+
+    #[test]
+    fn test_persistence_unavailable_in_non_browser_env() {
+        let db = crate::WasmDatabase::new();
+        let tables = db.table_names();
+        assert!(
+            tables.is_empty(),
+            "non-browser env should not have IndexedDB"
+        );
+    }
 }

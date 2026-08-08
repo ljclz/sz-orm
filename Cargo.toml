@@ -1,5 +1,5 @@
 [workspace]
-members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", "packages/sz-orm-back", "packages/sz-orm-websocket", "packages/sz-orm-mqtt", "packages/sz-orm-storage", "packages/sz-orm-queue", "packages/sz-orm-auth", "packages/sz-orm-scheduler", "packages/sz-orm-tracing", "packages/sz-orm-es", "packages/sz-orm-limit", "packages/sz-orm-crypto", "packages/sz-orm-grpc", "packages/sz-orm-graphql", "packages/sz-orm-dtx", "packages/sz-orm-rw", "packages/sz-orm-sharding", "packages/sz-orm-logger", "packages/sz-orm-swagger", "packages/sz-orm-masking", "packages/sz-orm-config", "packages/sz-orm-health", "packages/sz-orm-audit", "packages/sz-orm-batch", "packages/sz-orm-wasm", "packages/sz-orm-lc", "packages/sz-orm-sqlx", "packages/sz-orm-sql-validator", "packages/sz-orm-macros", "packages/sz-orm-query-builder", "packages/sz-orm-observability", "packages/sz-orm-postgis", "packages/sz-orm-timeseries", "packages/sz-orm-search", "packages/sz-orm-vector", "packages/sz-orm-oracle", "packages/sz-orm-mssql", "packages/sz-orm-axum", "packages/sz-orm-actix", "packages/sz-orm-python", "packages/sz-orm-js", "cli", "examples"]
+members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", "packages/sz-orm-back", "packages/sz-orm-websocket", "packages/sz-orm-mqtt", "packages/sz-orm-storage", "packages/sz-orm-queue", "packages/sz-orm-auth", "packages/sz-orm-scheduler", "packages/sz-orm-tracing", "packages/sz-orm-es", "packages/sz-orm-limit", "packages/sz-orm-crypto", "packages/sz-orm-grpc", "packages/sz-orm-graphql", "packages/sz-orm-dtx", "packages/sz-orm-rw", "packages/sz-orm-sharding", "packages/sz-orm-logger", "packages/sz-orm-swagger", "packages/sz-orm-masking", "packages/sz-orm-config", "packages/sz-orm-health", "packages/sz-orm-audit", "packages/sz-orm-batch", "packages/sz-orm-wasm", "packages/sz-orm-lc", "packages/sz-orm-sqlx", "packages/sz-orm-sql-validator", "packages/sz-orm-macros", "packages/sz-orm-query-builder", "packages/sz-orm-observability", "packages/sz-orm-postgis", "packages/sz-orm-timeseries", "packages/sz-orm-search", "packages/sz-orm-vector", "packages/sz-orm-oracle", "packages/sz-orm-mssql", "packages/sz-orm-axum", "packages/sz-orm-actix", "packages/sz-orm-python", "packages/sz-orm-js", "packages/sz-orm-graph", "cli", "examples"]
 resolver = "2"
 
 [workspace.package]
@@ -56,6 +56,10 @@ fake = { version = "2.9", features = ["chrono", "uuid"] }
 rand = "0.8"
 # 配合 .trae/skills/sz-orm-sql-differential（SQL 解析比对）
 sqlparser = "0.47"
+# v3.2.0：查询计划缓存键哈希（plan-cache feature）
+xxhash-rust = { version = "0.8", features = ["xxh64"] }
+# v3.2.0：SIMD 向量化加速（simd feature）
+wide = "0.7"
 # 配合 .trae/skills/sz-orm-sql-differential / sz-orm-chaos-pool（异步测试）
 rstest = "0.19"
 futures = "0.3"
@@ -71,3 +75,4 @@ sz-orm-core = { version = "2.1.0", path = "packages/sz-orm-core" }
 sz-orm-ai = { version = "2.1.0", path = "packages/sz-orm-ai" }
 sz-orm-oracle = { version = "2.1.0", path = "packages/sz-orm-oracle" }
 sz-orm-mssql = { version = "2.1.0", path = "packages/sz-orm-mssql" }
+sz-orm-sqlx = { version = "2.1.0", path = "packages/sz-orm-sqlx" }

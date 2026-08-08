@@ -32,6 +32,8 @@ default = []
 oracle = ["dep:sz-orm-oracle"]
 # v2.2.0 A-1: 启用 MSSQL 后端支持（AnyPool 运行时切换）
 mssql = ["dep:sz-orm-mssql"]
+# v3.2.0：转发 auto-prewarm feature 到 sz-orm-core
+auto-prewarm = ["sz-orm-core/auto-prewarm"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

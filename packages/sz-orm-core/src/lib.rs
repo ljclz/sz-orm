@@ -421,6 +421,8 @@ pub mod active_model;
 pub mod behaviors;
 mod cache;
 pub mod circuit_breaker;
+#[cfg(feature = "zero-copy")]
+pub mod columnar;
 pub mod cursor_stream;
 pub mod cycle_detection;
 pub mod data_permission;
@@ -451,7 +453,11 @@ pub mod optimistic_lock;
 pub mod paginator;
 pub mod partial_model;
 pub mod phinx_migration;
+#[cfg(feature = "plan-cache")]
+pub mod plan_cache;
 mod pool;
+#[cfg(feature = "auto-prewarm")]
+pub mod prewarm;
 mod query;
 pub mod queryable;
 pub mod quick_query;
@@ -464,14 +470,19 @@ pub mod schema_gen;
 pub mod schema_sync;
 pub mod select_types;
 pub mod shadow;
+#[cfg(feature = "simd")]
+pub mod simd;
 pub mod smart_eager_loader;
 pub mod sql_safety;
 pub mod stream_api;
+pub mod telemetry;
 mod transaction;
 pub mod type_handler;
 pub mod typed;
 pub mod typed_ast;
 mod value;
+#[cfg(feature = "zero-copy")]
+pub mod value_borrowed;
 
 // Re-export proc macros
 pub use queryable::Query;

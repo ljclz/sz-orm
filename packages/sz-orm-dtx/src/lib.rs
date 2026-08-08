@@ -20,6 +20,14 @@ pub mod cross_shard;
 pub mod saga;
 pub mod tcc;
 
+// XA 事务支持（feature 隔离，默认关闭）
+#[cfg(feature = "xa")]
+pub mod recovery;
+#[cfg(feature = "xa")]
+pub mod suspension;
+#[cfg(feature = "xa")]
+pub mod xa;
+
 // ============================================================================
 // TransactionLogStore — 事务日志持久化（用于崩溃恢复）
 // ============================================================================

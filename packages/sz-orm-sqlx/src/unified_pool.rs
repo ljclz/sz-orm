@@ -162,6 +162,73 @@ impl UnifiedPool {
     pub async fn status(&self) -> PoolStatus {
         self.pool.status().await
     }
+
+    /// 预热连接池（委托 Pool::prewarm）
+    #[inline]
+    pub async fn prewarm(&self) {
+        self.pool.prewarm().await;
+    }
+
+    /// v3.2.0：渐进式分批预热（委托 Pool::progressive_prewarm）
+    #[cfg(feature = "auto-prewarm")]
+    pub async fn progressive_prewarm(
+        &self,
+        batch_size: u32,
+        interval: std::time::Duration,
+        total_timeout: std::time::Duration,
+        progress: &sz_orm_core::prewarm::PrewarmProgress,
+    ) {
+        self.pool
+            .progressive_prewarm(batch_size, interval, total_timeout, progress)
+            .await;
+    }
+}
+
+/// v3.2.0：多池注册表 — 统一管理多个后端的 UnifiedPool
+#[cfg(feature = "auto-prewarm")]
+pub struct MultiPoolRegistry {
+    pools: Vec<(String, UnifiedPool)>,
+}
+
+#[cfg(feature = "auto-prewarm")]
+impl MultiPoolRegistry {
+    pub fn new() -> Self {
+        Self { pools: Vec::new() }
+    }
+
+    pub fn register(&mut self, name: impl Into<String>, pool: UnifiedPool) {
+        self.pools.push((name.into(), pool));
+    }
+
+    /// 并行预热所有注册的池
+    pub async fn unified_prewarm_all(&self) -> sz_orm_core::prewarm::PrewarmSummary {
+        use std::time::Instant;
+        use sz_orm_core::prewarm::{BackendPrewarmResult, PrewarmSummary};
+
+        let mut summary = PrewarmSummary::new();
+        for (name, pool) in &self.pools {
+            let start = Instant::now();
+            let min_idle = pool.pool.config().min_idle;
+            let progress = sz_orm_core::prewarm::PrewarmProgress::new(min_idle);
+            pool.prewarm().await;
+            let snap = progress.snapshot();
+            summary.add(BackendPrewarmResult {
+                backend: name.clone(),
+                warmed: snap.warmed,
+                failed: snap.failed,
+                elapsed: start.elapsed(),
+                errors: vec![],
+            });
+        }
+        summary
+    }
+}
+
+#[cfg(feature = "auto-prewarm")]
+impl Default for MultiPoolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 impl std::fmt::Debug for UnifiedPool {

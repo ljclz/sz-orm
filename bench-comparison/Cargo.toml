@@ -91,6 +91,11 @@ name = "bench_pagination"
 path = "benches/bench_pagination.rs"
 harness = false
 
+[[bench]]
+name = "bench_smart_eager"
+path = "benches/bench_smart_eager.rs"
+harness = false
+
 [profile.release]
 opt-level = 3
 lto = "thin"

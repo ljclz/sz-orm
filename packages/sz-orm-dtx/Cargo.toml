@@ -1,7 +1,7 @@
 [package]
 name = "sz-orm-dtx"
-description = "Distributed tx: 2PC coordinator, Saga orchestration, TCC compensation"
-version.workspace = true
+description = "Distributed tx: 2PC coordinator, Saga orchestration, TCC compensation, XA transaction"
+version = "2.4.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -16,6 +16,21 @@ serde_json = "1.0"
 tokio = { version = "1.40", features = ["rt", "sync"] }
 # 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .lock().unwrap() panic 风险
 parking_lot.workspace = true
+
+# XA 事务支持（feature 隔离，默认关闭）
+sz-orm-sqlx = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+thiserror = { version = "2", optional = true }
+chrono = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+sqlx = { version = "0.9", features = ["runtime-tokio", "mysql", "postgres"], optional = true }
+
+[features]
+default = []
+# XA 事务支持（直连 DB 资源管理器 + 崩溃恢复 + 悬挂检测）
+xa = ["dep:sz-orm-sqlx", "dep:async-trait", "dep:thiserror", "dep:chrono", "dep:tracing", "tokio/time"]
+# 真实数据库集成测试（需 xa + 真实数据库连接）
+real-db = ["xa", "dep:sqlx"]
 
 [lints]
 workspace = true

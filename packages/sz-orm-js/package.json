@@ -23,6 +23,9 @@
         "napi"
     ],
     "license": "MIT",
+    "devDependencies": {
+        "jest": "^29.7.0"
+    },
     "optionalDependencies": {
         "@sz-orm/core-linux-x64-gnu": "0.1.0",
         "@sz-orm/core-darwin-x64": "0.1.0",

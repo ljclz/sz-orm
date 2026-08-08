@@ -11,6 +11,15 @@
 
 pub mod advanced;
 
+#[cfg(feature = "js")]
+pub mod js_bindings;
+
+#[cfg(feature = "persistence")]
+pub mod persistence;
+
+#[cfg(feature = "persistence")]
+pub mod error;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -20,6 +29,9 @@ pub use advanced::{
     MemoryLimitError, MemoryUsage, ModuleCache, PathAccess, SandboxConfig, SandboxError,
     SandboxedFs, TaskResult, TaskStatus,
 };
+
+#[cfg(feature = "js")]
+pub use js_bindings::{JsQueryResult, JsWasmDatabase};
 
 /// WASM 查询请求
 #[derive(Debug, Clone, Serialize, Deserialize)]

@@ -125,6 +125,7 @@ impl MessageQueue for RealNatsQueue {
                     timestamp: current_timestamp_millis(),
                     headers: HashMap::new(),
                     id: uuid_like_id(),
+                    retry_count: 0,
                 };
                 Ok(Some(message))
             }

@@ -157,6 +157,7 @@ impl MessageQueue for LapinRabbitmqQueue {
                         timestamp: current_timestamp_millis(),
                         headers: HashMap::new(),
                         id: msg_id.clone(),
+                        retry_count: 0,
                     };
                     self.in_flight.write().await.insert(msg_id, delivery_tag);
                     Ok(Some(msg))

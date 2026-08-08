@@ -860,6 +860,23 @@ impl Pool {
         })
     }
 
+    /// 异步构造连接池（v3.2.0 auto-prewarm）
+    ///
+    /// 当 `config.prewarm == true` 时，内部 await `prewarm()` 阻塞至预热完成。
+    /// 当 `config.prewarm == false` 时，等同 `Pool::new`（向后兼容）。
+    ///
+    /// 预热失败不阻断池创建（返回 Ok，日志含失败原因）。
+    pub async fn new_async(
+        config: PoolConfig,
+        factory: Arc<dyn ConnectionFactory>,
+    ) -> Result<Self, PoolError> {
+        let pool = Self::new(config, factory)?;
+        if pool.config.prewarm {
+            pool.prewarm().await;
+        }
+        Ok(pool)
+    }
+
     /// 连接池预热（TASK-021）
     ///
     /// 当 `PoolConfig::prewarm` 为 `true` 时，调用此方法会立即建立 `min_idle` 个连接
@@ -976,6 +993,131 @@ impl Pool {
                 min_idle
             );
         }
+    }
+
+    /// 渐进式分批预热（v3.2.0 auto-prewarm）
+    ///
+    /// 分批创建连接，每批 `batch_size` 个，批间隔 `interval`，
+    /// 总时间不超 `total_timeout`。每批后更新 `progress`。
+    #[cfg(feature = "auto-prewarm")]
+    pub async fn progressive_prewarm(
+        &self,
+        batch_size: u32,
+        interval: std::time::Duration,
+        total_timeout: std::time::Duration,
+        progress: &crate::prewarm::PrewarmProgress,
+    ) {
+        use std::time::Instant;
+
+        let min_idle = self.config.min_idle;
+        if min_idle == 0 || !self.config.prewarm {
+            progress.mark_completed();
+            return;
+        }
+
+        let start = Instant::now();
+        let batch = batch_size.max(1);
+        let mut warmed_total: u32 = 0;
+
+        while warmed_total < min_idle {
+            if start.elapsed() >= total_timeout {
+                tracing::warn!(
+                    target: "sz_orm::pool::prewarm",
+                    "progressive prewarm timeout: {}/{} connections established",
+                    warmed_total,
+                    min_idle
+                );
+                break;
+            }
+
+            if self.closed.load(Ordering::Acquire) {
+                break;
+            }
+
+            let remaining = min_idle - warmed_total;
+            let this_batch = batch.min(remaining);
+
+            for _ in 0..this_batch {
+                let current_max = self.dynamic_max_size.load(Ordering::Acquire);
+                let current = self.total_count.load(Ordering::Acquire);
+                if current >= current_max {
+                    break;
+                }
+
+                let created = loop {
+                    let current = self.total_count.load(Ordering::Acquire);
+                    if current >= current_max {
+                        break None;
+                    }
+                    match self.total_count.compare_exchange(
+                        current,
+                        current + 1,
+                        Ordering::SeqCst,
+                        Ordering::Acquire,
+                    ) {
+                        Ok(_) => break Some(()),
+                        Err(_) => continue,
+                    }
+                };
+
+                if created.is_some() {
+                    match tokio::time::timeout(
+                        self.config.connection_timeout,
+                        self.factory.create(),
+                    )
+                    .await
+                    {
+                        Ok(Ok(conn)) => {
+                            #[cfg(feature = "circuit-breaker")]
+                            {
+                                self.circuit_breaker.lock().record_success();
+                            }
+                            self.emit_event(PoolEvent::ConnectionCreated);
+                            let pooled = PooledConnection::new(conn, self.clone());
+                            if self.idle.push(pooled).is_err() {
+                                let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                                progress.record_failure();
+                            } else {
+                                progress.record_success();
+                                warmed_total += 1;
+                                self.notify.notify_one();
+                            }
+                        }
+                        Ok(Err(_)) => {
+                            let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                            progress.record_failure();
+                            #[cfg(feature = "circuit-breaker")]
+                            {
+                                self.circuit_breaker.lock().record_failure();
+                            }
+                        }
+                        Err(_) => {
+                            let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                            progress.record_failure();
+                            #[cfg(feature = "circuit-breaker")]
+                            {
+                                self.circuit_breaker.lock().record_failure();
+                            }
+                        }
+                    }
+                }
+            }
+
+            if warmed_total < min_idle && interval > std::time::Duration::ZERO {
+                tokio::time::sleep(interval).await;
+            }
+        }
+
+        progress.set_elapsed(start.elapsed());
+        progress.mark_completed();
+
+        tracing::info!(
+            target: "sz_orm::pool::prewarm",
+            "progressive prewarm completed: {} warmed, {} failed, elapsed {:?}",
+            progress.snapshot().warmed,
+            progress.snapshot().failed,
+            start.elapsed()
+        );
     }
 
     /// 获取配置
@@ -2638,6 +2780,316 @@ mod tests {
 
         let status = pool.status().await;
         assert_eq!(status.idle, 0, "idle 应为 0");
+
+        Ok(())
+    }
+
+    /// v3.2.0：Pool::new_async with prewarm=true 预热后 idle >= min_idle
+    #[tokio::test]
+    async fn test_pool_new_async_with_prewarm() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::AtomicU32;
+
+        let create_count = Arc::new(AtomicU32::new(0));
+        let create_count_clone = create_count.clone();
+
+        struct CountingFactory {
+            count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for CountingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(MockConnection::new()))
+            }
+        }
+
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(5)
+            .prewarm(true)
+            .build()?;
+
+        let factory = Arc::new(CountingFactory {
+            count: create_count_clone,
+        });
+
+        let pool = Pool::new_async(config, factory).await?;
+
+        let status = pool.status().await;
+        assert!(
+            status.idle >= 5,
+            "new_async prewarm=true 后 idle 应 >= 5，实际: {}",
+            status.idle
+        );
+        assert_eq!(create_count.load(Ordering::SeqCst), 5, "工厂应被调用 5 次");
+
+        Ok(())
+    }
+
+    /// v3.2.0：Pool::new_async with prewarm=false 等同 Pool::new
+    #[tokio::test]
+    async fn test_pool_new_async_without_prewarm() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::AtomicU32;
+
+        let create_count = Arc::new(AtomicU32::new(0));
+        let create_count_clone = create_count.clone();
+
+        struct CountingFactory {
+            count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for CountingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(MockConnection::new()))
+            }
+        }
+
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(5)
+            .prewarm(false)
+            .build()?;
+
+        let factory = Arc::new(CountingFactory {
+            count: create_count_clone,
+        });
+
+        let pool = Pool::new_async(config, factory).await?;
+
+        let status = pool.status().await;
+        assert_eq!(status.idle, 0, "prewarm=false 时 idle 应为 0");
+        assert_eq!(create_count.load(Ordering::SeqCst), 0, "工厂不应被调用");
+
+        Ok(())
+    }
+
+    /// v3.2.0：Pool::new_async 预热失败不阻断池创建
+    #[tokio::test]
+    async fn test_pool_new_async_failure_non_blocking() -> Result<(), Box<dyn std::error::Error>> {
+        struct FailingFactory;
+
+        #[async_trait]
+        impl ConnectionFactory for FailingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                Err(crate::DbError::Internal("simulated failure".to_string()))
+            }
+        }
+
+        let mut config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(3)
+            .prewarm(true)
+            .build()?;
+        config.connection_timeout = std::time::Duration::from_secs(1);
+
+        let pool = Pool::new_async(config, Arc::new(FailingFactory)).await?;
+
+        let status = pool.status().await;
+        assert_eq!(status.max, 10, "池配置应正常");
+
+        Ok(())
+    }
+
+    /// v3.2.0：progressive_prewarm 分批建连
+    #[cfg(feature = "auto-prewarm")]
+    #[tokio::test]
+    async fn test_pool_progressive_prewarm() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::AtomicU32;
+
+        let create_count = Arc::new(AtomicU32::new(0));
+        let create_count_clone = create_count.clone();
+
+        struct CountingFactory {
+            count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for CountingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(MockConnection::new()))
+            }
+        }
+
+        let config = PoolConfigBuilder::new()
+            .max_size(20)
+            .min_idle(6)
+            .prewarm(true)
+            .build()?;
+
+        let factory = Arc::new(CountingFactory {
+            count: create_count_clone,
+        });
+
+        let pool = Pool::new(config, factory)?;
+
+        let progress = crate::prewarm::PrewarmProgress::new(6);
+        pool.progressive_prewarm(
+            2,
+            std::time::Duration::from_millis(5),
+            std::time::Duration::from_secs(10),
+            &progress,
+        )
+        .await;
+
+        let snap = progress.snapshot();
+        assert!(
+            snap.warmed >= 6,
+            "progressive_prewarm 后 warmed 应 >= 6，实际: {}",
+            snap.warmed
+        );
+        assert!(snap.is_completed, "应标记完成");
+        assert_eq!(create_count.load(Ordering::SeqCst), 6, "工厂应被调用 6 次");
+
+        let status = pool.status().await;
+        assert!(status.idle >= 6, "池中 idle 应 >= 6");
+
+        Ok(())
+    }
+
+    /// v3.2.0：progressive_prewarm total_timeout=0 立即停止
+    #[cfg(feature = "auto-prewarm")]
+    #[tokio::test]
+    async fn test_pool_progressive_prewarm_timeout_zero() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use std::sync::atomic::AtomicU32;
+
+        let create_count = Arc::new(AtomicU32::new(0));
+        let create_count_clone = create_count.clone();
+
+        struct CountingFactory {
+            count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for CountingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(MockConnection::new()))
+            }
+        }
+
+        let config = PoolConfigBuilder::new()
+            .max_size(20)
+            .min_idle(10)
+            .prewarm(true)
+            .build()?;
+
+        let factory = Arc::new(CountingFactory {
+            count: create_count_clone,
+        });
+
+        let pool = Pool::new(config, factory)?;
+
+        let progress = crate::prewarm::PrewarmProgress::new(10);
+        pool.progressive_prewarm(
+            2,
+            std::time::Duration::from_millis(5),
+            std::time::Duration::ZERO,
+            &progress,
+        )
+        .await;
+
+        let snap = progress.snapshot();
+        assert!(snap.is_completed, "应标记完成");
+        assert!(
+            snap.warmed <= 2,
+            "total_timeout=0 时最多建一批（batch_size=2），实际: {}",
+            snap.warmed
+        );
+
+        Ok(())
+    }
+
+    /// v3.2.0：progressive_prewarm prewarm=false 时直接返回
+    #[cfg(feature = "auto-prewarm")]
+    #[tokio::test]
+    async fn test_pool_progressive_prewarm_disabled() -> Result<(), Box<dyn std::error::Error>> {
+        use std::sync::atomic::AtomicU32;
+
+        let create_count = Arc::new(AtomicU32::new(0));
+        let create_count_clone = create_count.clone();
+
+        struct CountingFactory {
+            count: Arc<AtomicU32>,
+        }
+
+        #[async_trait]
+        impl ConnectionFactory for CountingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                self.count.fetch_add(1, Ordering::SeqCst);
+                Ok(Box::new(MockConnection::new()))
+            }
+        }
+
+        let config = PoolConfigBuilder::new()
+            .max_size(20)
+            .min_idle(10)
+            .prewarm(false)
+            .build()?;
+
+        let factory = Arc::new(CountingFactory {
+            count: create_count_clone,
+        });
+
+        let pool = Pool::new(config, factory)?;
+
+        let progress = crate::prewarm::PrewarmProgress::new(10);
+        pool.progressive_prewarm(
+            2,
+            std::time::Duration::from_millis(5),
+            std::time::Duration::from_secs(10),
+            &progress,
+        )
+        .await;
+
+        let snap = progress.snapshot();
+        assert!(snap.is_completed, "应标记完成");
+        assert_eq!(snap.warmed, 0, "prewarm=false 时不应建连");
+        assert_eq!(create_count.load(Ordering::SeqCst), 0, "工厂不应被调用");
+
+        Ok(())
+    }
+
+    /// v3.2.0：progressive_prewarm 失败不阻断（failing factory）
+    #[cfg(feature = "auto-prewarm")]
+    #[tokio::test]
+    async fn test_pool_progressive_prewarm_failure_non_blocking(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        struct FailingFactory;
+
+        #[async_trait]
+        impl ConnectionFactory for FailingFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                Err(crate::DbError::Internal("simulated failure".to_string()))
+            }
+        }
+
+        let mut config = PoolConfigBuilder::new()
+            .max_size(20)
+            .min_idle(5)
+            .prewarm(true)
+            .build()?;
+        config.connection_timeout = std::time::Duration::from_secs(1);
+
+        let pool = Pool::new(config, Arc::new(FailingFactory))?;
+
+        let progress = crate::prewarm::PrewarmProgress::new(5);
+        pool.progressive_prewarm(
+            2,
+            std::time::Duration::from_millis(5),
+            std::time::Duration::from_secs(5),
+            &progress,
+        )
+        .await;
+
+        let snap = progress.snapshot();
+        assert!(snap.is_completed, "应标记完成");
+        assert_eq!(snap.warmed, 0, "全部失败时 warmed=0");
+        assert!(snap.failed > 0, "应有失败记录");
 
         Ok(())
     }

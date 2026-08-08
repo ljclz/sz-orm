@@ -647,27 +647,13 @@ impl SmartEagerLoader {
             )));
         }
 
-        if self.children.is_empty() {
-            let resolver = StrategyResolver::new();
-            let decision = resolver.resolve(&self.relation);
-            tracing::info!(
-                relation = decision.relation_name,
-                kind = ?decision.relation_kind,
-                strategy = ?decision.strategy,
-                reason = decision.reason,
-                "策略决策"
-            );
-            self.decisions.push(decision);
-
-            return Ok(main_rows.into_iter().map(NestedEagerResult::Leaf).collect());
-        }
-
-        let first_child = self.children.remove(0);
+        let root_relation = self.relation.clone();
+        let root_children = std::mem::take(&mut self.children);
         self.load_level_smart(
             conn,
             main_rows,
-            &first_child.relation,
-            &first_child.children,
+            &root_relation,
+            &root_children,
             &mut detector,
         )
         .await

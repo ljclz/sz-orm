@@ -726,8 +726,221 @@ pub fn apply_result_map_many(
 }
 
 // ============================================================================
-// NativeQuery + ResultSetMapping
+// 零拷贝反序列化路径（zero-copy feature）
 // ============================================================================
+
+#[cfg(feature = "zero-copy")]
+mod borrowed {
+    use super::*;
+    use crate::value_borrowed::{BorrowedRowData, BorrowedValue};
+
+    /// 零拷贝版 `apply_result_map`
+    ///
+    /// 与 `apply_result_map` 行为完全一致，但返回 `BorrowedValue`（字符串/字节借用引用），
+    /// 消除 `v.clone()` 的深拷贝。
+    #[tracing::instrument(skip(registry, row), fields(map_id = map_id))]
+    pub fn apply_result_map_borrowed<'a>(
+        registry: &ResultMapRegistry,
+        map_id: &str,
+        row: &BorrowedRowData<'a>,
+    ) -> Result<HashMap<String, BorrowedValue<'a>>, ResultMapError> {
+        let map = registry
+            .get(map_id)
+            .ok_or_else(|| ResultMapError::MapNotFound {
+                id: map_id.to_string(),
+            })?;
+
+        let effective_map = if let Some(disc) = &map.discriminator {
+            if let Some(disc_value) = row.get(&disc.column) {
+                let owned_disc = disc_value.to_owned_value();
+                if let Some(case_map_id) = disc.resolve(&owned_disc) {
+                    registry.get(case_map_id).unwrap_or(map)
+                } else {
+                    map
+                }
+            } else {
+                map
+            }
+        } else {
+            map
+        };
+
+        let mut attrs: HashMap<String, BorrowedValue<'a>> = HashMap::new();
+
+        for m in &effective_map.id_mappings {
+            if let Some(v) = row.get(&m.column) {
+                attrs.insert(m.property.clone(), v.clone());
+            }
+        }
+        for m in &effective_map.result_mappings {
+            if let Some(v) = row.get(&m.column) {
+                attrs.insert(m.property.clone(), v.clone());
+            }
+        }
+
+        for assoc in &effective_map.associations {
+            if let Some(not_null_col) = &assoc.not_null_column {
+                if !row.is_not_null(not_null_col) {
+                    continue;
+                }
+            }
+
+            let nested_value = if let Some(prefix) = &assoc.column_prefix {
+                let mut prefixed_row = BorrowedRowData::new();
+                for (col, v) in row.iter() {
+                    if let Some(stripped) = col.strip_prefix(prefix) {
+                        prefixed_row.set(stripped.to_string(), v.clone());
+                    }
+                }
+                apply_result_map_borrowed(registry, &assoc.result_map, &prefixed_row).map_err(
+                    |e| ResultMapError::NestedMappingFailed {
+                        property: assoc.property.clone(),
+                        reason: e.to_string(),
+                    },
+                )?
+            } else {
+                apply_result_map_borrowed(registry, &assoc.result_map, row).map_err(|e| {
+                    ResultMapError::NestedMappingFailed {
+                        property: assoc.property.clone(),
+                        reason: e.to_string(),
+                    }
+                })?
+            };
+
+            attrs.insert(assoc.property.clone(), BorrowedValue::Object(nested_value));
+        }
+
+        for coll in &effective_map.collections {
+            if let Some(not_null_col) = &coll.not_null_column {
+                if !row.is_not_null(not_null_col) {
+                    continue;
+                }
+            }
+
+            let nested = if let Some(prefix) = &coll.column_prefix {
+                let mut prefixed_row = BorrowedRowData::new();
+                for (col, v) in row.iter() {
+                    if let Some(stripped) = col.strip_prefix(prefix) {
+                        prefixed_row.set(stripped.to_string(), v.clone());
+                    }
+                }
+                apply_result_map_borrowed(registry, &coll.result_map, &prefixed_row).map_err(
+                    |e| ResultMapError::NestedMappingFailed {
+                        property: coll.property.clone(),
+                        reason: e.to_string(),
+                    },
+                )?
+            } else {
+                apply_result_map_borrowed(registry, &coll.result_map, row).map_err(|e| {
+                    ResultMapError::NestedMappingFailed {
+                        property: coll.property.clone(),
+                        reason: e.to_string(),
+                    }
+                })?
+            };
+
+            attrs.insert(
+                coll.property.clone(),
+                BorrowedValue::Array(vec![BorrowedValue::Object(nested)]),
+            );
+        }
+
+        Ok(attrs)
+    }
+
+    /// 零拷贝版 `apply_result_map_many`
+    ///
+    /// 与 `apply_result_map_many` 行为完全一致，但返回 `BorrowedValue`。
+    #[tracing::instrument(skip(registry, rows), fields(map_id = map_id, row_count = rows.len()))]
+    pub fn apply_result_map_many_borrowed<'a>(
+        registry: &ResultMapRegistry,
+        map_id: &str,
+        rows: &[BorrowedRowData<'a>],
+    ) -> Result<Vec<HashMap<String, BorrowedValue<'a>>>, ResultMapError> {
+        if rows.is_empty() {
+            return Ok(Vec::new());
+        }
+
+        let map = registry
+            .get(map_id)
+            .ok_or_else(|| ResultMapError::MapNotFound {
+                id: map_id.to_string(),
+            })?;
+
+        fn pk_key_borrowed(
+            attrs: &HashMap<String, BorrowedValue<'_>>,
+            id_mappings: &[Mapping],
+        ) -> String {
+            if id_mappings.is_empty() {
+                return String::new();
+            }
+            let mut parts = Vec::new();
+            for m in id_mappings {
+                if let Some(v) = attrs.get(&m.property) {
+                    parts.push(format!("{:?}", v));
+                } else {
+                    parts.push("null".to_string());
+                }
+            }
+            parts.join("|")
+        }
+
+        let mut ordered_keys: Vec<String> = Vec::new();
+        let mut groups: HashMap<String, HashMap<String, BorrowedValue<'a>>> = HashMap::new();
+        let mut collection_acc: HashMap<String, HashMap<String, Vec<BorrowedValue<'a>>>> =
+            HashMap::new();
+
+        for row in rows {
+            let attrs = apply_result_map_borrowed(registry, map_id, row)?;
+            let key = pk_key_borrowed(&attrs, &map.id_mappings);
+
+            if !groups.contains_key(&key) {
+                ordered_keys.push(key.clone());
+                groups.insert(key.clone(), attrs.clone());
+                collection_acc.insert(key.clone(), HashMap::new());
+            }
+
+            for coll in &map.collections {
+                if let Some(BorrowedValue::Array(items)) = attrs.get(&coll.property) {
+                    if !items.is_empty() {
+                        let acc = collection_acc.get_mut(&key).ok_or_else(|| {
+                            ResultMapError::NestedMappingFailed {
+                                property: "collection_acc".to_string(),
+                                reason: format!("key '{}' not found in collection_acc", key),
+                            }
+                        })?;
+                        let entry = acc.entry(coll.property.clone()).or_default();
+                        for item in items {
+                            entry.push(item.clone());
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut result = Vec::new();
+        for key in ordered_keys {
+            let mut attrs =
+                groups
+                    .remove(&key)
+                    .ok_or_else(|| ResultMapError::NestedMappingFailed {
+                        property: "groups".to_string(),
+                        reason: format!("key '{}' not found in groups", key),
+                    })?;
+            if let Some(coll_acc) = collection_acc.remove(&key) {
+                for (prop, items) in coll_acc {
+                    attrs.insert(prop, BorrowedValue::Array(items));
+                }
+            }
+            result.push(attrs);
+        }
+
+        Ok(result)
+    }
+}
+
+#[cfg(feature = "zero-copy")]
+pub use borrowed::{apply_result_map_borrowed, apply_result_map_many_borrowed};
 
 /// 标量结果列
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -856,6 +1069,10 @@ impl ResultSetMappingRegistry {
         self.len() == 0
     }
 }
+
+// ============================================================================
+// NativeQuery + ResultSetMapping
+// ============================================================================
 
 /// NativeQuery — 原生 SQL + ResultSetMapping
 #[derive(Debug, Clone)]
@@ -1825,5 +2042,234 @@ mod tests {
         // 验证 NativeQuery 字段
         assert_eq!(nq.result_set_mapping, "userOrderCount");
         assert_eq!(nq.parameters.len(), 1);
+    }
+
+    // ===== 零拷贝等价性测试 =====
+
+    #[cfg(feature = "zero-copy")]
+    #[test]
+    fn test_apply_result_map_borrowed_basic_equivalence() {
+        use crate::value_borrowed::{BorrowedRowData, BorrowedValue};
+
+        let registry = ResultMapRegistry::new();
+        let mut rm = ResultMap::new("userMap", "User");
+        rm.add_id_mapping(Mapping::new("id", "user_id"))
+            .add_result_mapping(Mapping::new("name", "user_name"));
+        registry.register(rm);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(42));
+        row.set("user_name", Value::String("Alice".into()));
+
+        let v_id = Value::I64(42);
+        let v_name = Value::String("Alice".into());
+        let mut borrowed_row = BorrowedRowData::new();
+        borrowed_row.set("user_id", BorrowedValue::from_value(&v_id));
+        borrowed_row.set("user_name", BorrowedValue::from_value(&v_name));
+
+        let owned_result = apply_result_map(&registry, "userMap", &row).unwrap();
+        let borrowed_result =
+            apply_result_map_borrowed(&registry, "userMap", &borrowed_row).unwrap();
+
+        assert_eq!(owned_result.len(), borrowed_result.len());
+        assert_eq!(owned_result.get("id"), Some(&Value::I64(42)));
+        assert_eq!(
+            borrowed_result.get("id").map(|v| v.to_owned_value()),
+            Some(Value::I64(42))
+        );
+        assert_eq!(
+            owned_result.get("name"),
+            Some(&Value::String("Alice".into()))
+        );
+        assert_eq!(
+            borrowed_result.get("name").map(|v| v.to_owned_value()),
+            Some(Value::String("Alice".into()))
+        );
+    }
+
+    #[cfg(feature = "zero-copy")]
+    #[test]
+    fn test_apply_result_map_borrowed_association_equivalence() {
+        use crate::value_borrowed::{BorrowedRowData, BorrowedValue};
+
+        let registry = ResultMapRegistry::new();
+
+        let mut dept_map = ResultMap::new("deptMap", "Dept");
+        dept_map
+            .add_id_mapping(Mapping::new("id", "id"))
+            .add_result_mapping(Mapping::new("name", "name"));
+        registry.register(dept_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_result_mapping(Mapping::new("name", "user_name"))
+            .add_association(NestedAssociation::new("dept", "deptMap").with_prefix("dept_"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("user_name", Value::String("Alice".into()));
+        row.set("dept_id", Value::I64(10));
+        row.set("dept_name", Value::String("Engineering".into()));
+
+        let mut borrowed_row = BorrowedRowData::new();
+        for (k, v) in &row.columns {
+            borrowed_row.set(k.clone(), BorrowedValue::from_value(v));
+        }
+
+        let owned_result = apply_result_map(&registry, "userMap", &row).unwrap();
+        let borrowed_result =
+            apply_result_map_borrowed(&registry, "userMap", &borrowed_row).unwrap();
+
+        assert_eq!(owned_result.get("id"), Some(&Value::I64(1)));
+        assert_eq!(
+            borrowed_result.get("id").map(|v| v.to_owned_value()),
+            Some(Value::I64(1))
+        );
+
+        let owned_dept = owned_result.get("dept").and_then(|v| match v {
+            Value::Object(m) => Some(m),
+            _ => None,
+        });
+        let borrowed_dept = borrowed_result.get("dept").and_then(|v| match v {
+            BorrowedValue::Object(m) => Some(m),
+            _ => None,
+        });
+        assert!(owned_dept.is_some() && borrowed_dept.is_some());
+        let owned_dept = owned_dept.unwrap();
+        let borrowed_dept = borrowed_dept.unwrap();
+        assert_eq!(owned_dept.get("id"), Some(&Value::I64(10)));
+        assert_eq!(
+            borrowed_dept.get("id").map(|v| v.to_owned_value()),
+            Some(Value::I64(10))
+        );
+    }
+
+    #[cfg(feature = "zero-copy")]
+    #[test]
+    fn test_apply_result_map_borrowed_many_equivalence() {
+        use crate::value_borrowed::{BorrowedRowData, BorrowedValue};
+
+        let registry = ResultMapRegistry::new();
+
+        let mut order_map = ResultMap::new("orderMap", "Order");
+        order_map
+            .add_id_mapping(Mapping::new("id", "order_id"))
+            .add_result_mapping(Mapping::new("amount", "order_amount"));
+        registry.register(order_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_result_mapping(Mapping::new("name", "user_name"))
+            .add_collection(NestedCollection::new("orders", "orderMap"));
+        registry.register(user_map);
+
+        let rows: Vec<RowData> = vec![
+            {
+                let mut r = RowData::empty();
+                r.set("user_id", Value::I64(1));
+                r.set("user_name", Value::String("Alice".into()));
+                r.set("order_id", Value::I64(100));
+                r.set("order_amount", Value::F64(50.0));
+                r
+            },
+            {
+                let mut r = RowData::empty();
+                r.set("user_id", Value::I64(1));
+                r.set("user_name", Value::String("Alice".into()));
+                r.set("order_id", Value::I64(101));
+                r.set("order_amount", Value::F64(75.0));
+                r
+            },
+        ];
+
+        let borrowed_rows: Vec<BorrowedRowData> = rows
+            .iter()
+            .map(|r| {
+                let mut br = BorrowedRowData::new();
+                for (k, v) in &r.columns {
+                    br.set(k.clone(), BorrowedValue::from_value(v));
+                }
+                br
+            })
+            .collect();
+
+        let owned_result = apply_result_map_many(&registry, "userMap", &rows).unwrap();
+        let borrowed_result =
+            apply_result_map_many_borrowed(&registry, "userMap", &borrowed_rows).unwrap();
+
+        assert_eq!(owned_result.len(), borrowed_result.len());
+        assert_eq!(owned_result.len(), 1);
+
+        let owned_orders = owned_result[0].get("orders").and_then(|v| match v {
+            Value::Array(a) => Some(a),
+            _ => None,
+        });
+        let borrowed_orders = borrowed_result[0].get("orders").and_then(|v| match v {
+            BorrowedValue::Array(a) => Some(a),
+            _ => None,
+        });
+        assert!(owned_orders.is_some() && borrowed_orders.is_some());
+        assert_eq!(owned_orders.unwrap().len(), 2);
+        assert_eq!(borrowed_orders.unwrap().len(), 2);
+    }
+
+    #[cfg(feature = "zero-copy")]
+    #[test]
+    fn test_apply_result_map_borrowed_discriminator_equivalence() {
+        use crate::value_borrowed::{BorrowedRowData, BorrowedValue};
+
+        let registry = ResultMapRegistry::new();
+
+        let mut admin_map = ResultMap::new("adminMap", "Admin");
+        admin_map
+            .add_id_mapping(Mapping::new("id", "id"))
+            .add_result_mapping(Mapping::new("level", "admin_level"));
+        registry.register(admin_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "id"))
+            .add_result_mapping(Mapping::new("name", "user_name"));
+        registry.register(user_map);
+
+        let mut base_map = ResultMap::new("personMap", "Person");
+        base_map
+            .add_id_mapping(Mapping::new("id", "id"))
+            .set_discriminator({
+                let mut disc = Discriminator::new("type");
+                disc.add_case(DiscriminatorCase::new(
+                    Value::String("admin".into()),
+                    "adminMap",
+                ));
+                disc.add_case(DiscriminatorCase::new(
+                    Value::String("user".into()),
+                    "userMap",
+                ));
+                disc
+            });
+        registry.register(base_map);
+
+        let mut row = RowData::empty();
+        row.set("id", Value::I64(1));
+        row.set("type", Value::String("admin".into()));
+        row.set("admin_level", Value::I64(5));
+
+        let mut borrowed_row = BorrowedRowData::new();
+        for (k, v) in &row.columns {
+            borrowed_row.set(k.clone(), BorrowedValue::from_value(v));
+        }
+
+        let owned_result = apply_result_map(&registry, "personMap", &row).unwrap();
+        let borrowed_result =
+            apply_result_map_borrowed(&registry, "personMap", &borrowed_row).unwrap();
+
+        assert_eq!(owned_result.get("level"), Some(&Value::I64(5)));
+        assert_eq!(
+            borrowed_result.get("level").map(|v| v.to_owned_value()),
+            Some(Value::I64(5))
+        );
     }
 }

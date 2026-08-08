@@ -1,0 +1,25 @@
+{
+    "name": "sz-orm-wasm",
+    "version": "2.4.0",
+    "description": "WebAssembly: run Rust ORM code in browser via WASM targets",
+    "main": "index.js",
+    "types": "index.d.ts",
+    "type": "module",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/ljclz/sz-orm"
+    },
+    "keywords": [
+        "orm",
+        "wasm",
+        "database",
+        "sql",
+        "browser"
+    ],
+    "license": "MIT",
+    "files": [
+        "index.d.ts",
+        "index.js",
+        "sz_orm_wasm_bg.wasm"
+    ]
+}

@@ -1,0 +1,28 @@
+[package]
+name = "sz-orm-graph"
+description = "Graph database support for sz-orm: Neo4j Cypher query, typed mapping, declarative modeling"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.81"
+authors = ["SZ-ORM Team"]
+license = "MIT"
+repository = "https://github.com/ljclz/sz-orm"
+homepage = "https://github.com/ljclz/sz-orm"
+keywords = ["orm", "graph", "neo4j", "cypher", "database"]
+categories = ["database"]
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+async-trait = { workspace = true }
+tracing = { workspace = true }
+crossbeam-queue = { workspace = true }
+
+[features]
+default = []
+integration = []
+
+[lints]
+workspace = true

@@ -1,0 +1,195 @@
+name: Bindings CI
+
+on:
+  push:
+    branches: [main, master]
+    paths:
+      - 'packages/sz-orm-python/**'
+      - 'packages/sz-orm-js/**'
+      - 'packages/sz-orm-core/**'
+      - '.github/workflows/bindings.yml'
+  pull_request:
+    branches: [main, master]
+    paths:
+      - 'packages/sz-orm-python/**'
+      - 'packages/sz-orm-js/**'
+      - 'packages/sz-orm-core/**'
+      - '.github/workflows/bindings.yml'
+  workflow_dispatch:
+
+env:
+  CARGO_TERM_COLOR: always
+  CARGO_INCREMENTAL: 0
+
+jobs:
+  # ── Rust 核心编译验证 ──
+  rust-core:
+    name: Rust Core (${{ matrix.os }})
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - name: Check sz-orm-core
+        run: cargo check -p sz-orm-core --all-targets
+
+      - name: Test sz-orm-core
+        run: cargo test -p sz-orm-core
+
+  # ── Python 绑定三平台构建 + 测试 ──
+  python-binding:
+    name: Python ${{ matrix.python-version }} (${{ matrix.os }})
+    needs: rust-core
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ['3.8', '3.10', '3.12']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+
+      - name: Install maturin
+        run: pip install maturin pytest pytest-asyncio
+
+      - name: Build wheel
+        run: |
+          cd packages/sz-orm-python
+          maturin build --release --out ../../target/wheels
+
+      - name: Install wheel
+        run: |
+          WHEEL=$(ls target/wheels/*.whl | head -1)
+          pip install --force-reinstall "$WHEEL"
+
+      - name: pytest
+        run: pytest packages/sz-orm-python/tests/ -v --tb=short
+
+  # ── Node.js 绑定三平台构建 + 测试 ──
+  node-binding:
+    name: Node ${{ matrix.node-version }} (${{ matrix.os }})
+    needs: rust-core
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        node-version: ['18', '20', '22']
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node-version }}
+
+      - name: Install napi CLI
+        run: npm install -g @napi-rs/cli
+
+      - name: Build napi
+        run: |
+          cd packages/sz-orm-js
+          napi build --release
+
+      - name: Install jest
+        run: |
+          cd packages/sz-orm-js
+          npm install
+
+      - name: jest
+        run: |
+          cd packages/sz-orm-js
+          npx jest tests/ --verbose
+
+  # ── 绑定层等价性验证 ──
+  binding-verification:
+    name: Binding Verification
+    needs: [python-binding, node-binding]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install tools
+        run: |
+          pip install maturin pytest pytest-asyncio
+          npm install -g @napi-rs/cli
+
+      - name: Verify bindings
+        run: pwsh ./scripts/verify_bindings.ps1
+
+  # ── 发布（仅 tag 触发） ──
+  publish:
+    name: Publish
+    needs: binding-verification
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.10'
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install tools
+        run: |
+          pip install maturin pytest pytest-asyncio
+          npm install -g @napi-rs/cli
+
+      - name: Build and publish Python
+        env:
+          PYPI_TOKEN: ${{ secrets.PYPI_TOKEN }}
+        run: pwsh ./scripts/publish_pypi.ps1
+
+      - name: Build and publish npm
+        env:
+          NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: pwsh ./scripts/publish_npm.ps1

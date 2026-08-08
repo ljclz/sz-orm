@@ -1,6 +1,6 @@
 [package]
 name = "sz-orm-ai"
-version.workspace = true
+version = "2.4.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -14,6 +14,10 @@ description = "SZ-ORM AI Extension - Embedding, Vector Store, RAG Engine"
 default = []
 # 启用真实 OpenAI 兼容 API 客户端（HTTP 调用）
 real = ["dep:reqwest", "dep:base64"]
+# 启用 LLM 查询计划优化器（依赖 real feature 的 reqwest HTTP 客户端）
+llm-optimizer = ["real"]
+# v3.2.0：查询计划缓存转发
+plan-cache = ["dep:sz-orm-core", "sz-orm-core/plan-cache"]
 
 [dependencies]
 async-trait = "0.1"
@@ -26,6 +30,8 @@ reqwest = { version = "0.12", default-features = false, features = ["json", "rus
 base64 = { version = "0.22", optional = true }
 # 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .write().unwrap() panic 风险
 parking_lot.workspace = true
+# v3.2.0：查询计划缓存（plan-cache feature，可选依赖）
+sz-orm-core = { version = "2.1.0", path = "../sz-orm-core", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -33,6 +39,11 @@ tokio-test = "0.4"
 [[test]]
 name = "ai_tests"
 path = "tests/ai_tests.rs"
+
+[[test]]
+name = "llm_integration"
+path = "tests/llm_integration.rs"
+required-features = ["llm-optimizer"]
 
 [lints]
 workspace = true
