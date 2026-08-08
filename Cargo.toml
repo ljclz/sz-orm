@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "2.3.0"
+version = "2.4.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["SZ-ORM Team"]
@@ -60,6 +60,8 @@ sqlparser = "0.47"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 # v3.2.0：SIMD 向量化加速（simd feature）
 wide = "0.7"
+# v3.3.0：分布式缓存布隆过滤器防护（dist-cache feature）
+bloomfilter = "1.0"
 # 配合 .trae/skills/sz-orm-sql-differential / sz-orm-chaos-pool（异步测试）
 rstest = "0.19"
 futures = "0.3"

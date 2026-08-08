@@ -18,6 +18,15 @@
 pub mod extensions;
 pub mod resolver;
 
+#[cfg(feature = "graphql-complexity")]
+pub mod complexity;
+#[cfg(feature = "graphql-n1")]
+pub mod dataloader;
+#[cfg(any(feature = "graphql-n1", feature = "graphql-complexity"))]
+pub mod query_ir;
+#[cfg(feature = "graphql-schema-gen")]
+pub mod schema_gen;
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "real")]

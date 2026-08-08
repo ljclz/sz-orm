@@ -198,6 +198,44 @@ fn escape_sql_literal(s: &str) -> String {
     out
 }
 
+// ─── v3.3.0 multi-tenant-enhanced：行级安全策略集成 ──────────────────
+
+#[cfg(feature = "multi-tenant-enhanced")]
+impl AccessContext {
+    /// 应用行级安全策略，返回参数化过滤条件
+    ///
+    /// 从 `TenantContext` 的权限中查找匹配表名的行级安全策略，
+    /// 返回其参数化过滤条件。既有 `AccessRule` 不变。
+    pub fn apply_row_level_security(
+        ctx: &crate::tenant_context::TenantContext,
+        table: &str,
+    ) -> Option<crate::tenant_security::ParameterizedCondition> {
+        ctx.permissions
+            .row_level_policies
+            .iter()
+            .find(|p| p.table == table && p.principal.tenant_id == ctx.tenant_id)
+            .map(|p| p.filter_condition.clone())
+    }
+
+    /// 应用列级脱敏规则，返回匹配的脱敏规则列表
+    ///
+    /// 从 `TenantContext` 的权限中查找匹配表名 + 列名的脱敏规则，
+    /// 且规则适用于当前角色列表。
+    pub fn apply_column_masking(
+        ctx: &crate::tenant_context::TenantContext,
+        table: &str,
+        column: &str,
+    ) -> Option<crate::tenant_security::ColumnMaskingRule> {
+        ctx.permissions
+            .column_masking_rules
+            .iter()
+            .find(|r| {
+                r.table == table && r.column == column && r.applies_to(&ctx.permissions.roles)
+            })
+            .cloned()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

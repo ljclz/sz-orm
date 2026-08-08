@@ -2428,6 +2428,40 @@ pub fn derive_schema(input: TokenStream) -> TokenStream {
 }
 
 // ---------------------------------------------------------------------------
+// `#[derive(GraphQLModel)]` — auto-generate `impl GraphQLModelInfo`
+// ---------------------------------------------------------------------------
+
+/// 派生宏：自动生成 `sz_orm_graphql::schema_gen::GraphQLModelInfo` 实现。
+///
+/// 从 `#[derive(GraphQLModel)]` 结构体提取字段元数据（字段名 + Rust 类型 + 可空性），
+/// 供 `SchemaGenerator::from_model` 使用。零运行时开销。
+///
+/// # 支持的属性
+///
+/// - `#[table(name = "users")]` — 指定表名（默认使用结构体名的 snake_case）
+/// - `#[column(skip)]` — 跳过此字段
+/// - `#[column(name = "custom_name")]` — 指定列名
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::GraphQLModel;
+///
+/// #[derive(GraphQLModel)]
+/// #[table(name = "users")]
+/// struct User {
+///     id: i64,
+///     name: String,
+///     email: Option<String>,
+/// }
+/// ```
+#[proc_macro_derive(GraphQLModel, attributes(table, column))]
+pub fn derive_graphql_model(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_graphql_model_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
 // `#[derive(Builder)]` — auto-generate builder pattern code
 // ---------------------------------------------------------------------------
 

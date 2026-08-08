@@ -30,6 +30,10 @@ plan-cache = ["dep:sqlparser", "dep:xxhash-rust"]
 zero-copy = []
 # v3.2.0：SIMD 加速（批量整数解码 + 列比较 + 自动降级）
 simd = ["dep:wide"]
+# v3.3.0：多租户与数据隔离增强（租户上下文自动注入 + Schema 隔离 + 连接池隔离 + 行级安全 + 列级脱敏 + 多租户审计）
+multi-tenant-enhanced = ["dep:sz-orm-audit", "dep:sz-orm-masking"]
+# v3.3.0：分布式缓存一致性（跨实例失效 + Write-behind + 缓存击穿/雪崩防护）
+dist-cache = ["dep:bloomfilter", "dep:rand", "dep:sz-orm-crypto"]
 
 [dependencies]
 async-trait.workspace = true
@@ -61,6 +65,16 @@ sqlparser = { workspace = true, optional = true }
 xxhash-rust = { workspace = true, optional = true }
 # v3.2.0：SIMD 加速（simd feature）
 wide = { workspace = true, optional = true }
+# v3.3.0：多租户审计增强（multi-tenant-enhanced feature）
+sz-orm-audit = { version = "2.1.0", path = "../sz-orm-audit", optional = true }
+# v3.3.0：列级脱敏增强（multi-tenant-enhanced feature）
+sz-orm-masking = { version = "2.1.0", path = "../sz-orm-masking", optional = true }
+# v3.3.0：分布式缓存布隆过滤器防护（dist-cache feature）
+bloomfilter = { workspace = true, optional = true }
+# v3.3.0：分布式缓存随机 TTL 雪崩防护（dist-cache feature）
+rand = { workspace = true, optional = true }
+# v3.3.0：WAL 加密（dist-cache feature）
+sz-orm-crypto = { version = "2.1.0", path = "../sz-orm-crypto", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -125,6 +139,30 @@ path = "tests/soak.rs"
 [[test]]
 name = "chaos_pool"
 path = "tests/chaos_pool.rs"
+
+# v3.3.0 多租户竞态与跨租户泄漏测试
+[[test]]
+name = "tenant_concurrency"
+path = "tests/tenant_concurrency.rs"
+required-features = ["multi-tenant-enhanced"]
+
+# v3.2.0 查询计划缓存差分测试（需 plan-cache feature）
+[[test]]
+name = "plan_cache_differential"
+path = "tests/plan_cache_differential.rs"
+required-features = ["plan-cache"]
+
+# v3.1.0 SIMD 差分测试（需 simd feature）
+[[test]]
+name = "simd_differential"
+path = "tests/simd_differential.rs"
+required-features = ["simd"]
+
+# v3.2.0 连接池预热集成测试（需 auto-prewarm feature）
+[[test]]
+name = "prewarm_integration"
+path = "tests/prewarm_integration.rs"
+required-features = ["auto-prewarm"]
 
 [[bench]]
 name = "core_bench"

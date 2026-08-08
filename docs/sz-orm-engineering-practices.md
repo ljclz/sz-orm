@@ -567,9 +567,73 @@ cargo build --features sz-orm-macros/db-verify
 
 ---
 
-> **最后更新**: 2026-08-01
+## v3.3.0 工程化审查要点（2026-08-08）
+
+### 8 Feature 组合矩阵
+
+| Feature | 包 | 默认 | 依赖 |
+|---------|-----|------|------|
+| `multi-tenant-enhanced` | sz-orm-core | 关闭 | sz-orm-audit, sz-orm-masking |
+| `dist-cache` | sz-orm-core | 关闭 | bloomfilter, rand, sz-orm-crypto |
+| `graphql-n1` | sz-orm-graphql | 关闭 | parking_lot |
+| `graphql-schema-gen` | sz-orm-graphql | 关闭 | sz-orm-macros |
+| `graphql-complexity` | sz-orm-graphql | 关闭 | 无 |
+| `ai-nl2sql-enhanced` | sz-orm-ai | 关闭 | 无 |
+| `ai-index-advisor` | sz-orm-ai | 关闭 | sqlparser |
+| `ai-rewrite-advisor` | sz-orm-ai | 关闭 | sqlparser |
+
+### v3.3.0 审查清单
+
+1. **Feature 正交性**：8 个 feature 任意组合编译通过
+2. **默认零行为变更**：不启用 feature 时，既有测试全部通过
+3. **API 向后兼容**：无 Breaking Change，新能力通过 feature gate 隔离
+4. **安全审计**：新代码零 SQL 注入、零 unsafe、零占位实现
+5. **性能不回退**：v3.2.0 性能基准不回退
+6. **下游零回归**：sz-pay 5139 测试零回归
+
+### 五方言集成测试指南
+
+v3.3.0 四项新能力在五方言（MySQL/PostgreSQL/SQLite/Oracle/MSSQL）下的行为一致性验证：
+
+```bash
+# MySQL
+DATABASE_URL="mysql://root:test123@127.0.0.1:3306/sz_orm_test" cargo test --workspace -- --ignored
+
+# PostgreSQL
+DATABASE_URL="postgres://postgres:test123@127.0.0.1:5432/sz_orm_test" cargo test --workspace -- --ignored
+
+# SQLite（内存）
+cargo test --workspace
+
+# Oracle / MSSQL：需配置对应数据库连接
+```
+
+### v3.3.0 新增模块
+
+| 模块 | 文件 | 测试数 |
+|------|------|--------|
+| TenantContext | `packages/sz-orm-core/src/tenant_context.rs` | 8 |
+| TenantSecurity | `packages/sz-orm-core/src/tenant_security.rs` | 12 |
+| DistCache | `packages/sz-orm-core/src/dist_cache.rs` | 22 |
+| GraphQLIR | `packages/sz-orm-graphql/src/query_ir.rs` | 16 |
+| DataLoader | `packages/sz-orm-graphql/src/dataloader.rs` | 7 |
+| SchemaGen | `packages/sz-orm-graphql/src/schema_gen.rs` | 10 |
+| Complexity | `packages/sz-orm-graphql/src/complexity.rs` | 11 |
+| IntentAnalysis | `packages/sz-orm-ai/src/intent_analysis.rs` | 12 |
+| IndexAdvisor | `packages/sz-orm-ai/src/index_advisor.rs` | 9 |
+| RewriteAdvisor | `packages/sz-orm-ai/src/rewrite_advisor.rs` | 11 |
+| AdviceCommon | `packages/sz-orm-ai/src/advice_common.rs` | 5 |
+
+---
+
+> **最后更新**: 2026-08-08
 > **维护人**: SZ-ORM 工程团队
-> **规范版本**: v3.1
+> **规范版本**: v3.3
+>
+> **v3.3 变更摘要**（2026-08-08）：
+> - 新增 v3.3.0 工程化审查要点（8 feature 组合矩阵 + 审查清单 + 五方言集成测试指南）
+> - 新增 11 个模块的测试数据
+> - 项目版本 v3.2.0 → v3.3.0
 >
 > **v3.1 变更摘要**（2026-08-01）：
 > - 新增第 0 章：ADR-0001 核心原则（严禁修改上游仓库）

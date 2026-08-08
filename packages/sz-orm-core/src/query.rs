@@ -209,7 +209,23 @@ impl<M: Model> QueryBuilder<M> {
     }
 
     pub fn table(mut self, table: impl Into<String>) -> Self {
-        self.table = Some(table.into());
+        let table_name = table.into();
+        // v3.3.0 multi-tenant-enhanced：Schema 隔离策略下重写表名
+        #[cfg(feature = "multi-tenant-enhanced")]
+        {
+            if let Some(ctx) = crate::tenant_context::TenantContext::current() {
+                if ctx.isolation_strategy
+                    == crate::tenant_context::IsolationStrategy::SchemaIsolation
+                {
+                    self.table = Some(crate::tenant_context::SchemaIsolationRouter::rewrite_table(
+                        &table_name,
+                        ctx.tenant_id,
+                    ));
+                    return self;
+                }
+            }
+        }
+        self.table = Some(table_name);
         self
     }
 
@@ -474,11 +490,24 @@ impl<M: Model> QueryBuilder<M> {
     }
 
     /// P0-3：返回当前租户 ID（若设置了且未禁用）
+    ///
+    /// v3.3.0 `multi-tenant-enhanced` feature：当显式 `with_tenant_id` 未设置时，
+    /// 自动从 `TenantContext::current()` 读取（上下文自动注入）。
+    /// 既有显式 `with_tenant_id` 优先，行为不变。
     fn tenant_id_value(&self) -> Option<i64> {
         if self.tenant_disabled {
             return None;
         }
-        self.tenant_id_value
+        if let Some(tid) = self.tenant_id_value {
+            return Some(tid);
+        }
+        #[cfg(feature = "multi-tenant-enhanced")]
+        {
+            if let Some(ctx) = crate::tenant_context::TenantContext::current() {
+                return Some(ctx.tenant_id);
+            }
+        }
+        None
     }
 
     /// P0-3：构造租户过滤条件（SQL 片段 + 参数值）
@@ -491,6 +520,29 @@ impl<M: Model> QueryBuilder<M> {
         Some((
             format!("{} = ?", self.dialect.quote(field)),
             Value::I64(tid),
+        ))
+    }
+
+    /// v3.3.0 `multi-tenant-enhanced`：强制要求租户上下文，未设置时返回错误
+    ///
+    /// 当 `multi-tenant-enhanced` feature 启用且模型有 `tenant_field` 且
+    /// 未显式 `with_tenant_id` 且未 `without_tenant` 且上下文未设置时，
+    /// 返回 `DbError::TenantError("TenantContextRequired")`。
+    #[cfg(feature = "multi-tenant-enhanced")]
+    #[allow(dead_code)]
+    fn require_tenant_condition(&self) -> Result<Option<(String, Value)>, crate::DbError> {
+        if self.tenant_field().is_none() {
+            return Ok(None);
+        }
+        if self.tenant_id_value.is_some() {
+            return Ok(self.build_tenant_condition());
+        }
+        if crate::tenant_context::TenantContext::current().is_some() {
+            return Ok(self.build_tenant_condition());
+        }
+        Err(crate::DbError::TenantError(
+            "TenantContextRequired: multi-tenant-enhanced feature enabled but no tenant context set"
+                .to_string(),
         ))
     }
 
@@ -3634,6 +3686,96 @@ mod tests {
         assert_eq!(params.len(), 2);
         assert_eq!(params[0], Value::I64(999));
         assert_eq!(params[1], Value::I64(42));
+        Ok(())
+    }
+
+    // ─── v3.3.0 multi-tenant-enhanced：上下文自动注入测试 ──────────────
+
+    /// 既有 with_tenant_id 行为不变（显式优先于上下文自动注入）
+    #[cfg(feature = "multi-tenant-enhanced")]
+    #[tokio::test]
+    async fn test_mt_explicit_tenant_id_takes_priority() -> Result<(), crate::DbError> {
+        let ctx = crate::tenant_context::TenantContext::new(
+            99,
+            crate::tenant_context::IsolationStrategy::RowLevel,
+        );
+        ctx.scope(async {
+            // 显式 with_tenant_id(42) 应优先于上下文的 tenant_id=99
+            let (sql, params) =
+                QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL).unwrap())
+                    .table("orders")
+                    .with_tenant_id(42)
+                    .build_select_with_params();
+            assert!(sql.contains("`tenant_id` = ?"), "应追加租户条件: {}", sql);
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0], Value::I64(42), "显式 tenant_id 应优先");
+        })
+        .await;
+        Ok(())
+    }
+
+    /// 上下文自动注入：未显式 with_tenant_id 时从 TenantContext 读取
+    #[cfg(feature = "multi-tenant-enhanced")]
+    #[tokio::test]
+    async fn test_mt_context_auto_inject() -> Result<(), crate::DbError> {
+        let ctx = crate::tenant_context::TenantContext::new(
+            77,
+            crate::tenant_context::IsolationStrategy::RowLevel,
+        );
+        ctx.scope(async {
+            let (sql, params) =
+                QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL).unwrap())
+                    .table("orders")
+                    .build_select_with_params();
+            assert!(
+                sql.contains("`tenant_id` = ?"),
+                "应从上下文自动追加租户条件: {}",
+                sql
+            );
+            assert_eq!(params.len(), 1);
+            assert_eq!(params[0], Value::I64(77), "应从上下文注入 tenant_id");
+        })
+        .await;
+        Ok(())
+    }
+
+    /// Schema 隔离策略：表名重写为 tenant_{id}_{table}
+    #[cfg(feature = "multi-tenant-enhanced")]
+    #[tokio::test]
+    async fn test_mt_schema_isolation_table_rewrite() -> Result<(), crate::DbError> {
+        let ctx = crate::tenant_context::TenantContext::new(
+            42,
+            crate::tenant_context::IsolationStrategy::SchemaIsolation,
+        );
+        ctx.scope(async {
+            let (sql, _params) =
+                QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL).unwrap())
+                    .table("orders")
+                    .build_select_with_params();
+            assert!(
+                sql.contains("tenant_42_orders"),
+                "Schema 隔离应重写表名: {}",
+                sql
+            );
+        })
+        .await;
+        Ok(())
+    }
+
+    /// 既有 API 兼容：feature 启用但未设置上下文时行为不变
+    #[cfg(feature = "multi-tenant-enhanced")]
+    #[test]
+    fn test_mt_no_context_no_change() -> Result<(), crate::DbError> {
+        let (sql, params) = QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL)?)
+            .table("orders")
+            .build_select_with_params();
+        // 未设置上下文且未显式 with_tenant_id：不追加租户条件（既有行为不变）
+        assert!(
+            !sql.contains("`tenant_id` = ?"),
+            "未设置上下文不应追加租户条件: {}",
+            sql
+        );
+        assert_eq!(params.len(), 0);
         Ok(())
     }
 

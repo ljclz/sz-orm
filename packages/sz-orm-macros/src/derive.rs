@@ -288,6 +288,77 @@ pub fn derive_schema_impl(input: DeriveInput) -> TokenStream2 {
 }
 
 // ---------------------------------------------------------------------------
+// `#[derive(GraphQLModel)]` — auto-generate `impl GraphQLModelInfo`
+// ---------------------------------------------------------------------------
+
+/// `#[derive(GraphQLModel)]` 派生宏入口
+///
+/// 从结构体字段提取元数据，生成 `sz_orm_graphql::schema_gen::GraphQLModelInfo` 实现。
+/// 复用 `#[table(name = "...")]` 和 `#[column(skip)]` 属性。
+pub fn derive_graphql_model_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag(
+        "derive(GraphQLModel)",
+        &format!("target struct: {}", input.ident),
+    );
+
+    let struct_name = &input.ident;
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(named) => &named.named,
+            _ => {
+                return syn_error_to_compile_error(syn::Error::new_spanned(
+                    struct_name,
+                    "GraphQLModel 仅支持命名字段结构体",
+                ))
+            }
+        },
+        _ => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "GraphQLModel 仅支持 struct，不支持 enum / union",
+            ))
+        }
+    };
+
+    let table_name =
+        parse_table_attr(&input.attrs).unwrap_or_else(|| to_snake_case(&struct_name.to_string()));
+
+    let mut column_entries = Vec::new();
+    for field in fields.iter() {
+        let field_name = field.ident.as_ref().unwrap().to_string();
+        let col_attr = parse_column_attr(&field.attrs);
+        if col_attr.skip {
+            continue;
+        }
+        let col_name = col_attr.name.clone().unwrap_or_else(|| field_name.clone());
+        let rust_type_str = quote!(#field.ty).to_string().replace(" ", "");
+        let nullable = col_attr.nullable || is_option_type(&field.ty).is_some();
+
+        column_entries.push(quote! {
+            sz_orm_graphql::schema_gen::ColumnMeta {
+                name: #col_name.to_string(),
+                rust_type: #rust_type_str.to_string(),
+                nullable: #nullable,
+            }
+        });
+    }
+
+    let expanded = quote! {
+        impl sz_orm_graphql::schema_gen::GraphQLModelInfo for #struct_name {
+            fn table_name() -> &'static str {
+                #table_name
+            }
+            fn columns() -> Vec<sz_orm_graphql::schema_gen::ColumnMeta> {
+                vec![#(#column_entries),*]
+            }
+        }
+    };
+
+    expanded
+}
+
+// ---------------------------------------------------------------------------
 // `#[derive(FromQueryResult)]` — auto-generate `impl FromQueryResult for Struct`
 // ---------------------------------------------------------------------------
 

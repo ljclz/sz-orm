@@ -894,7 +894,63 @@ impl OpenAINl2SqlEngine {
             prompt.push_str(");\n\n");
         }
 
+        // v3.3.0 M4：ai-nl2sql-enhanced feature 启用时追加关系信息 + 增强指令
+        #[cfg(feature = "ai-nl2sql-enhanced")]
+        {
+            Self::append_relationship_info(&mut prompt, schema);
+            Self::append_enhanced_instructions(&mut prompt);
+        }
+
         prompt
+    }
+
+    /// 追加表间关系信息（外键推断 + JOIN 关系）
+    #[cfg(feature = "ai-nl2sql-enhanced")]
+    fn append_relationship_info(prompt: &mut String, schema: &SchemaContext) {
+        prompt.push_str("Relationships (inferred from column naming conventions):\n");
+        let mut found_relations = false;
+        for table in &schema.tables {
+            for col in &table.columns {
+                if col.name.ends_with("_id") && !col.is_primary_key {
+                    let ref_table = col.name.trim_end_matches("_id");
+                    let ref_table_plural = if ref_table.ends_with('s') {
+                        ref_table.to_string()
+                    } else {
+                        format!("{}s", ref_table)
+                    };
+                    if schema.tables.iter().any(|t| t.name == ref_table_plural) {
+                        prompt.push_str(&format!(
+                            "  {}.{} -> {}(id) (foreign key)\n",
+                            table.name, col.name, ref_table_plural
+                        ));
+                        found_relations = true;
+                    } else if schema.tables.iter().any(|t| t.name == ref_table) {
+                        prompt.push_str(&format!(
+                            "  {}.{} -> {}(id) (foreign key)\n",
+                            table.name, col.name, ref_table
+                        ));
+                        found_relations = true;
+                    }
+                }
+            }
+        }
+        if !found_relations {
+            prompt.push_str("  (no foreign keys detected from naming conventions)\n");
+        }
+        prompt.push('\n');
+    }
+
+    /// 追加增强 SQL 生成指令（多表 JOIN + 聚合 + 子查询 + 排序 + 分页）
+    #[cfg(feature = "ai-nl2sql-enhanced")]
+    fn append_enhanced_instructions(prompt: &mut String) {
+        prompt.push_str("Enhanced Query Capabilities:\n");
+        prompt.push_str("- Multi-table JOIN: use INNER/LEFT/RIGHT JOIN with ON conditions when query spans multiple tables\n");
+        prompt.push_str("- Aggregation: support COUNT/SUM/AVG/MIN/MAX with GROUP BY and HAVING\n");
+        prompt.push_str("- Subquery: support subqueries in WHERE (IN/EXISTS) and FROM clauses\n");
+        prompt.push_str("- Ordering: support ORDER BY with ASC/DESC for multiple columns\n");
+        prompt.push_str("- Pagination: support LIMIT and OFFSET for result pagination\n");
+        prompt.push_str("- DISTINCT: support SELECT DISTINCT for deduplication\n");
+        prompt.push_str("- Always use table-qualified column names (e.g., users.name) in JOINs to avoid ambiguity\n\n");
     }
 }
 
@@ -949,10 +1005,16 @@ impl Nl2SqlEngine for OpenAINl2SqlEngine {
         }
 
         let system_prompt = Self::build_system_prompt(schema);
-        let user_message = format!(
+        let user_content = format!(
             "Given the schema above, generate a SQL query for: {}",
             nl_query
         );
+        // v3.3.0 M4：ai-nl2sql-enhanced feature 启用时对 LLM 请求脱敏
+        let user_message = if cfg!(feature = "ai-nl2sql-enhanced") {
+            crate::sql_sanitizer::SqlSanitizer::sanitize(&user_content)
+        } else {
+            user_content
+        };
 
         let body = ChatCompletionRequest {
             model: &self.model,

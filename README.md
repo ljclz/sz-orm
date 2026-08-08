@@ -59,6 +59,75 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
 | `cargo clippy -D warnings` | ✅ 0 warnings（`[workspace.lints]` 强制） |
 
+## v3.3.0 新特性（2026-08-08）
+
+> 企业级数据治理版本：多租户数据隔离 + 分布式缓存一致性 + GraphQL 查询支持 + AI 自然语言查询增强。8 个 feature gate 全部默认关闭，无 Breaking Change。22 条 EARS 需求全部满足。
+
+### 多租户与数据隔离增强（`multi-tenant-enhanced`）
+
+```toml
+sz-orm-core = { version = "2.3", features = ["multi-tenant-enhanced"] }
+```
+
+- `TenantContext` + RAII 守卫 + `scope()` 异步作用域
+- `SchemaIsolationRouter` 表名重写（`users` → `tenant_42_users`）
+- `RowLevelSecurityPolicy` + `ColumnMaskingRule` 行级安全 + 列级脱敏
+- `TenantAuditContext` 多租户审计日志
+
+```rust
+use sz_orm_core::tenant_context::{TenantContext, IsolationStrategy};
+
+TenantContext::scope(42, IsolationStrategy::Schema, async {
+    // 所有查询自动注入 tenant_id = 42 + 表名重写
+    query.table("users").where_eq("status", "active").fetch_all().await
+}).await?;
+```
+
+### 分布式缓存一致性（`dist-cache`）
+
+```toml
+sz-orm-core = { version = "2.3", features = ["dist-cache"] }
+```
+
+- `ConsistencyLevel`（Strong / Eventual）可选一致性级别
+- `RedisPubSubInvalidationBus` Redis Pub/Sub 跨实例失效（HMAC 认证）
+- `GossipInvalidationBus` Gossip 协议失效（≤10 实例 1s 收敛）
+- `WriteBehindQueue` + `WalFile` 异步批量写入 + WAL 持久化
+- `BloomFilterGuard` + `CacheMutexGuard` + `RandomTtlJitter` 击穿/雪崩防护
+
+### GraphQL 查询支持（`graphql-n1` / `graphql-schema-gen` / `graphql-complexity`）
+
+```toml
+sz-orm-graphql = { version = "2.3", features = ["graphql-n1", "graphql-schema-gen", "graphql-complexity"] }
+```
+
+- `GraphQLIR` 递归下降解析器
+- `DataLoader<K, V>` N+1 自动消除（查询次数 ≤ 2，减少 ≥ 90%）
+- `SchemaGenerator` Rust 模型 → GraphQL Schema 自动生成
+- `#[derive(GraphQLModel)]` 过程宏
+- `ComplexityCalculator` 查询复杂度限制（深度/字段数/成本）
+
+### AI 自然语言查询增强（`ai-nl2sql-enhanced` / `ai-index-advisor` / `ai-rewrite-advisor`）
+
+```toml
+sz-orm-ai = { version = "2.4", features = ["ai-nl2sql-enhanced", "ai-index-advisor", "ai-rewrite-advisor"] }
+```
+
+- `IntentAnalyzer` 查询意图分析 + 风险标记
+- `IndexAdvisor` 自动索引建议 + 收益评估
+- `RewriteAdvisor` 查询重写建议 + 等价论证
+- `AiAdviceAuditRecord` AI 建议审计记录
+- NL2SQL LLM prompt 增强 + `SqlSanitizer` 脱敏
+- **零数据库执行保证**（仅建议展示，不自动执行）
+
+### 兼容性
+
+- 无 Breaking Change，默认 feature 零行为变更
+- 下游 sz-pay 项目 5139 测试零回归验证通过
+- clippy 零警告（含全部 v3.3.0 feature）
+
+详见 [CHANGELOG.md](CHANGELOG.md) 和 [升级指南](docs/v3.3.0-upgrade-guide.md)。
+
 ## v1.5.0 新特性（2026-08-05）
 
 ### 连接池 Prometheus 统计指标

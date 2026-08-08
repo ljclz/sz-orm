@@ -5,6 +5,97 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [3.3.0] — 2026-08-08
+
+### 概述
+
+v3.3.0 是 SZ-ORM 的企业级数据治理版本，包含 4 大方向交付物，覆盖 22 条 EARS 需求，通过 5 个里程碑（M1-M5）推进。所有新能力通过 8 个 feature gate 隔离，默认关闭，无 Breaking Change。下游 sz-pay 项目 5139 测试零回归验证通过。
+
+### 新增功能
+
+#### 多租户与数据隔离增强（`multi-tenant-enhanced` feature）
+
+- `TenantContext` + `TenantContextGuard`（RAII 守卫）+ `scope()` 异步作用域
+- `IsolationStrategy` 枚举（RowLevel / Schema / Database）
+- `SchemaIsolationRouter` 表名重写（`users` → `tenant_42_users`）
+- `TenantPoolRegistry` 租户级连接池隔离
+- `RowLevelSecurityPolicy` + `ColumnMaskingRule` 行级安全 + 列级脱敏
+- `TenantAuditContext` 多租户审计日志（不可篡改）
+- `QueryBuilder::set_tenant_id()` 自动注入 tenant_id 条件
+- `QueryBuilder::table()` Schema 隔离自动重写
+- 70 单元测试 + 4 并发隔离测试
+
+#### 分布式缓存一致性（`dist-cache` feature）
+
+- `ConsistencyLevel` 枚举（Strong / Eventual）
+- `RedisPubSubInvalidationBus` Redis Pub/Sub 跨实例失效（HMAC-SHA256 认证）
+- `GossipInvalidationBus` Gossip 协议失效（≤10 实例 1s 收敛）
+- `WriteBehindQueue` + `WalFile` 异步批量写入 + WAL 持久化（AES-GCM 加密）
+- `BloomFilterGuard` 缓存击穿防护（布隆过滤器）
+- `CacheMutexGuard` 分布式互斥锁（防雪崩）
+- `RandomTtlJitter` 随机 TTL 抖动（±20%，防雪崩）
+- 22 单元测试
+
+#### GraphQL 查询支持（`graphql-n1` / `graphql-schema-gen` / `graphql-complexity` feature）
+
+- `GraphQLIR` 递归下降解析器（完整选择集 + 参数 + 别名 + 内联片段）
+- `DataLoader<K, V>` + `BatchLoader` trait N+1 自动消除（查询次数 ≤ 2，减少 ≥ 90%）
+- `SchemaGenerator` + `TypeMapping` Rust 模型 → GraphQL Schema 自动生成
+- `#[derive(GraphQLModel)]` 过程宏
+- `ComplexityCalculator` + `ComplexityConfig` 查询复杂度限制（深度/字段数/成本）
+- 44 单元测试 + 11 集成测试
+
+#### AI 自然语言查询增强（`ai-nl2sql-enhanced` / `ai-index-advisor` / `ai-rewrite-advisor` feature）
+
+- `IntentAnalyzer` 查询意图分析（SELECT/INSERT/UPDATE/DELETE + 风险标记）
+- `IndexAdvisor` 自动索引建议（慢查询日志分析 + 收益评估）
+- `RewriteAdvisor` 查询重写建议（等价变换 + 论证）
+- `AiAdviceAuditRecord` AI 建议审计记录（来源/模型/置信度）
+- `AdviceSource` + `AdviceType` + `BenefitEstimate` 建议元数据
+- NL2SQL LLM prompt 增强（关系信息 + 多表 JOIN/聚合/子查询指令）
+- `SqlSanitizer` LLM 请求脱敏
+- 零数据库执行保证（仅建议展示，不自动执行）
+- 37 单元测试 + 24 集成测试
+
+### Feature Gate
+
+| Feature | 包 | 默认 | 描述 |
+|---------|-----|------|------|
+| `multi-tenant-enhanced` | sz-orm-core | 关闭 | 多租户与数据隔离增强 |
+| `dist-cache` | sz-orm-core | 关闭 | 分布式缓存一致性 |
+| `graphql-n1` | sz-orm-graphql | 关闭 | GraphQL N+1 消除 DataLoader |
+| `graphql-schema-gen` | sz-orm-graphql | 关闭 | GraphQL Schema 自动生成 |
+| `graphql-complexity` | sz-orm-graphql | 关闭 | GraphQL 查询复杂度限制 |
+| `ai-nl2sql-enhanced` | sz-orm-ai | 关闭 | NL2SQL 增强 + 意图分析 |
+| `ai-index-advisor` | sz-orm-ai | 关闭 | 自动索引建议 |
+| `ai-rewrite-advisor` | sz-orm-ai | 关闭 | 查询重写建议 |
+
+### 性能指标
+
+- 跨实例失效延迟：≤ 50ms（Pub/Sub）/ ≤ 1s（Gossip）
+- Write-behind 吞吐量：≥ 3x
+- GraphQL N+1 查询次数：≤ 2（减少 ≥ 90%）
+- 复杂度计算开销：≤ 5%
+- 多租户隔离开销：≤ 5μs（行级）/ ≤ 50μs（Schema）
+- AI 建议延迟：≤ 10s / 5s P95
+
+### 兼容性
+
+- 无 Breaking Change：所有新能力通过 feature gate 隔离，默认关闭
+- 默认 feature 测试基线：1594 passed（sz-orm-core）
+- 下游 sz-pay 零回归：5139 passed, 0 failed
+- clippy 零警告（含全部 v3.3.0 feature）
+- 22 条 REQ 全部满足（附 file:line 证据）
+
+### 需求追溯
+
+| 需求编号 | 描述 | 验证证据 |
+|----------|------|----------|
+| REQ-DC-001~006 | 分布式缓存一致性 | `dist_cache.rs:27~716` |
+| REQ-GQL-001~005 | GraphQL 查询支持 | `query_ir.rs:54` / `dataloader.rs:89` / `schema_gen.rs:111` / `complexity.rs:22` |
+| REQ-MT-001~006 | 多租户与数据隔离 | `tenant_context.rs:80~224` / `tenant_security.rs:67~244` |
+| REQ-AI-001~006 | AI 自然语言查询增强 | `intent_analysis.rs:95` / `index_advisor.rs:100` / `rewrite_advisor.rs:89` / `advice_common.rs:34` |
+
 ## [3.2.0] — 2026-08-08
 
 ### 概述

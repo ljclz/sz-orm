@@ -53,3 +53,43 @@ pub use query_plan_optimizer::{
     HintSource, OptimizerConfig, UnifiedOptimizationHint, UnifiedQueryAnalysis,
     UnifiedQueryOptimizer,
 };
+
+// v3.3.0 M4：AI 自然语言查询增强
+// 共享类型模块（任一 AI 增强 feature 启用时编译）
+#[cfg(any(
+    feature = "ai-nl2sql-enhanced",
+    feature = "ai-index-advisor",
+    feature = "ai-rewrite-advisor"
+))]
+pub mod advice_common;
+#[cfg(any(
+    feature = "ai-nl2sql-enhanced",
+    feature = "ai-index-advisor",
+    feature = "ai-rewrite-advisor"
+))]
+pub use advice_common::{AdviceSource, AdviceType, AiAdviceAuditRecord, BenefitEstimate};
+
+// 查询意图分析模块
+#[cfg(feature = "ai-nl2sql-enhanced")]
+pub mod intent_analysis;
+#[cfg(feature = "ai-nl2sql-enhanced")]
+pub use intent_analysis::{
+    IntentAnalysisResult, IntentAnalyzer, IntentError, OrderDirection, OrderField, Pagination,
+    ParameterizedCondition, QueryIntent, RiskLevel,
+};
+
+// 自动索引建议模块
+#[cfg(feature = "ai-index-advisor")]
+pub mod index_advisor;
+#[cfg(feature = "ai-index-advisor")]
+pub use index_advisor::{
+    IndexAdvisor, IndexError, IndexSuggestion, IndexType, QueryPattern, SlowQueryLog,
+};
+
+// 查询重写建议模块
+#[cfg(feature = "ai-rewrite-advisor")]
+pub mod rewrite_advisor;
+#[cfg(feature = "ai-rewrite-advisor")]
+pub use rewrite_advisor::{
+    EquivalenceProof, RewriteAdvisor, RewriteError, RewriteSuggestion, TransformType,
+};

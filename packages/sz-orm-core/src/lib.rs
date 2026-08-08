@@ -429,6 +429,8 @@ pub mod data_permission;
 mod db_type;
 pub mod dialect;
 pub mod dirty_attributes;
+#[cfg(feature = "dist-cache")]
+pub mod dist_cache;
 pub mod dynamic_filter;
 pub mod dynamic_sql;
 pub mod eager_loader;
@@ -476,6 +478,10 @@ pub mod smart_eager_loader;
 pub mod sql_safety;
 pub mod stream_api;
 pub mod telemetry;
+#[cfg(feature = "multi-tenant-enhanced")]
+pub mod tenant_context;
+#[cfg(feature = "multi-tenant-enhanced")]
+pub mod tenant_security;
 mod transaction;
 pub mod type_handler;
 pub mod typed;
