@@ -1915,6 +1915,115 @@ mod pool_prod {
 #[cfg(feature = "prod-pool-tuning")]
 pub use pool_prod::{PoolProdConfig, PoolProdError};
 
+// ============================================================================
+// v3.8.0: 连接泄漏检测（prod-leak-detection feature）
+// ============================================================================
+
+#[cfg(feature = "prod-leak-detection")]
+mod leak_detection {
+    use serde::{Deserialize, Serialize};
+    use std::time::Duration;
+
+    /// 连接泄漏检测配置
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct LeakDetectionConfig {
+        /// 是否启用
+        pub enabled: bool,
+        /// 检测间隔
+        pub interval: Duration,
+        /// 泄漏阈值
+        pub threshold: u32,
+        /// 借用超时
+        pub borrow_timeout: Duration,
+    }
+
+    impl Default for LeakDetectionConfig {
+        fn default() -> Self {
+            Self {
+                enabled: false,
+                interval: Duration::from_secs(60),
+                threshold: 5,
+                borrow_timeout: Duration::from_secs(60),
+            }
+        }
+    }
+
+    impl LeakDetectionConfig {
+        /// 创建配置
+        pub fn new(
+            enabled: bool,
+            interval: Duration,
+            threshold: u32,
+            borrow_timeout: Duration,
+        ) -> Self {
+            Self {
+                enabled,
+                interval,
+                threshold,
+                borrow_timeout,
+            }
+        }
+
+        /// 验证配置合法性
+        pub fn validate(&self) -> Result<(), LeakDetectionError> {
+            if self.interval.is_zero() {
+                return Err(LeakDetectionError::IntervalNotPositive);
+            }
+            if self.borrow_timeout.is_zero() {
+                return Err(LeakDetectionError::BorrowTimeoutNotPositive);
+            }
+            Ok(())
+        }
+    }
+
+    /// 泄漏检测错误
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+    pub enum LeakDetectionError {
+        /// 检测间隔非正
+        #[error("leak detection interval must be positive")]
+        IntervalNotPositive,
+        /// 借用超时非正
+        #[error("leak detection borrow_timeout must be positive")]
+        BorrowTimeoutNotPositive,
+    }
+
+    /// 泄漏条目
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct LeakEntry {
+        /// 连接 ID
+        pub conn_id: u64,
+        /// 借用时间戳
+        pub borrowed_at: String,
+        /// 借用时长
+        pub borrow_duration: Duration,
+    }
+
+    /// 泄漏报告
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct LeakReport {
+        /// 当前借用数
+        pub borrowed_count: u32,
+        /// 最大借用时长
+        pub max_borrow_duration: Duration,
+        /// 疑似泄漏列表
+        pub suspected_leaks: Vec<LeakEntry>,
+    }
+
+    impl LeakReport {
+        /// 创建空报告
+        pub fn empty() -> Self {
+            Self {
+                borrowed_count: 0,
+                max_borrow_duration: Duration::ZERO,
+                suspected_leaks: vec![],
+            }
+        }
+    }
+}
+
+#[cfg(feature = "prod-leak-detection")]
+pub use leak_detection::{LeakDetectionConfig, LeakDetectionError, LeakEntry, LeakReport};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3516,5 +3625,38 @@ mod pool_prod_tests {
         assert_eq!(pool.max_size(), 100);
         pool.resize(50);
         assert_eq!(pool.max_size(), 50);
+    }
+}
+
+#[cfg(all(test, feature = "prod-leak-detection"))]
+mod leak_prod_tests {
+    use super::*;
+
+    #[test]
+    fn test_leak_config_default() {
+        let config = LeakDetectionConfig::default();
+        assert!(!config.enabled);
+        assert_eq!(config.interval, Duration::from_secs(60));
+        assert_eq!(config.threshold, 5);
+    }
+
+    #[test]
+    fn test_leak_config_validate_ok() {
+        let config =
+            LeakDetectionConfig::new(true, Duration::from_secs(30), 10, Duration::from_secs(60));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_leak_config_interval_zero_rejected() {
+        let config = LeakDetectionConfig::new(true, Duration::ZERO, 10, Duration::from_secs(60));
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_leak_report_empty() {
+        let report = LeakReport::empty();
+        assert_eq!(report.borrowed_count, 0);
+        assert!(report.suspected_leaks.is_empty());
     }
 }

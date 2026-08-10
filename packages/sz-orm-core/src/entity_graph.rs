@@ -649,6 +649,12 @@ pub struct N1QueryDetector {
     window_active: RwLock<bool>,
     /// 历史告警列表（最近一次窗口的结果）
     alerts: RwLock<Vec<N1Alert>>,
+    /// v3.8.0: 触发次数
+    #[cfg(feature = "prod-n1-tuning")]
+    trigger_count: std::sync::atomic::AtomicU64,
+    /// v3.8.0: 拦截次数
+    #[cfg(feature = "prod-n1-tuning")]
+    block_count: std::sync::atomic::AtomicU64,
 }
 
 /// N+1 检测配置
@@ -658,6 +664,10 @@ pub struct N1DetectionConfig {
     pub threshold: u64,
     /// 是否启用检测（false 时所有 record_* 调用均为 no-op）
     pub enabled: bool,
+    /// v3.8.0: 检测窗口大小（默认 1s）
+    pub window: std::time::Duration,
+    /// v3.8.0: 是否拦截（true=拦截，false=仅告警）
+    pub block: bool,
 }
 
 impl Default for N1DetectionConfig {
@@ -665,6 +675,8 @@ impl Default for N1DetectionConfig {
         Self {
             threshold: 5,
             enabled: true,
+            window: std::time::Duration::from_secs(1),
+            block: false,
         }
     }
 }
@@ -684,6 +696,20 @@ impl N1DetectionConfig {
     /// 启用/禁用
     pub fn with_enabled(mut self, enabled: bool) -> Self {
         self.enabled = enabled;
+        self
+    }
+
+    /// v3.8.0: 自定义检测窗口
+    #[cfg(feature = "prod-n1-tuning")]
+    pub fn with_window(mut self, window: std::time::Duration) -> Self {
+        self.window = window;
+        self
+    }
+
+    /// v3.8.0: 设置拦截模式（true=拦截，false=仅告警）
+    #[cfg(feature = "prod-n1-tuning")]
+    pub fn with_block(mut self, block: bool) -> Self {
+        self.block = block;
         self
     }
 }
@@ -731,6 +757,21 @@ impl N1QueryDetector {
             batch_counts: RwLock::new(HashMap::new()),
             window_active: RwLock::new(false),
             alerts: RwLock::new(Vec::new()),
+            #[cfg(feature = "prod-n1-tuning")]
+            trigger_count: std::sync::atomic::AtomicU64::new(0),
+            #[cfg(feature = "prod-n1-tuning")]
+            block_count: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// v3.8.0: 查询统计信息
+    #[cfg(feature = "prod-n1-tuning")]
+    pub fn stats(&self) -> N1DetectorStats {
+        N1DetectorStats {
+            trigger_count: self
+                .trigger_count
+                .load(std::sync::atomic::Ordering::Relaxed),
+            block_count: self.block_count.load(std::sync::atomic::Ordering::Relaxed),
         }
     }
 
@@ -886,7 +927,16 @@ impl Default for N1QueryDetector {
     }
 }
 
-// ============================================================================
+/// v3.8.0: N+1 检测统计信息（prod-n1-tuning feature）
+#[cfg(feature = "prod-n1-tuning")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct N1DetectorStats {
+    /// 触发次数
+    pub trigger_count: u64,
+    /// 拦截次数
+    pub block_count: u64,
+}
+
 // 单元测试
 // ============================================================================
 
@@ -1534,5 +1584,48 @@ mod tests {
 
         // 应分 3 批（100+100+50），调用 loader 3 次
         assert_eq!(*query_count.lock().unwrap(), 3);
+    }
+}
+
+#[cfg(all(test, feature = "prod-n1-tuning"))]
+mod n1_prod_tests {
+    use super::*;
+
+    #[test]
+    fn test_n1_config_with_window() {
+        let config = N1DetectionConfig::new().with_window(std::time::Duration::from_secs(5));
+        assert_eq!(config.window, std::time::Duration::from_secs(5));
+    }
+
+    #[test]
+    fn test_n1_config_with_block() {
+        let config = N1DetectionConfig::new().with_block(true);
+        assert!(config.block);
+    }
+
+    #[test]
+    fn test_n1_config_default_window_block() {
+        let config = N1DetectionConfig::default();
+        assert_eq!(config.window, std::time::Duration::from_secs(1));
+        assert!(!config.block);
+    }
+
+    #[test]
+    fn test_n1_detector_stats_initial() {
+        let detector = N1QueryDetector::new(N1DetectionConfig::default());
+        let stats = detector.stats();
+        assert_eq!(stats.trigger_count, 0);
+        assert_eq!(stats.block_count, 0);
+    }
+
+    #[test]
+    fn test_n1_config_backward_compatible() {
+        let config = N1DetectionConfig::new()
+            .with_threshold(10)
+            .with_enabled(true);
+        assert_eq!(config.threshold, 10);
+        assert!(config.enabled);
+        assert_eq!(config.window, std::time::Duration::from_secs(1));
+        assert!(!config.block);
     }
 }

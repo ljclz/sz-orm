@@ -428,6 +428,8 @@ pub mod cycle_detection;
 pub mod data_permission;
 mod db_type;
 pub mod dialect;
+#[cfg(feature = "prod-dialect-security")]
+pub mod dialect_security;
 pub mod dirty_attributes;
 #[cfg(feature = "dist-cache")]
 pub mod dist_cache;
