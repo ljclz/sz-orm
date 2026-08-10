@@ -7,6 +7,7 @@ pub enum AuthError {
     TokenInvalid(String),
     PermissionDenied(String),
     Config(String),
+    SecretTooShort(String),
 }
 
 impl fmt::Display for AuthError {
@@ -17,6 +18,7 @@ impl fmt::Display for AuthError {
             AuthError::TokenInvalid(msg) => write!(f, "Token invalid: {}", msg),
             AuthError::PermissionDenied(msg) => write!(f, "Permission denied: {}", msg),
             AuthError::Config(msg) => write!(f, "Config error: {}", msg),
+            AuthError::SecretTooShort(msg) => write!(f, "Secret too short: {}", msg),
         }
     }
 }

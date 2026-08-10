@@ -20,6 +20,8 @@ type HmacSha256 = Hmac<Sha256>;
 pub struct JwtHeader {
     pub alg: String,
     pub typ: String,
+    #[serde(skip_serializing_if = "Option::is_none", default)]
+    pub kid: Option<String>,
 }
 
 impl Default for JwtHeader {
@@ -27,6 +29,7 @@ impl Default for JwtHeader {
         Self {
             alg: "HS256".to_string(),
             typ: "JWT".to_string(),
+            kid: None,
         }
     }
 }
@@ -253,6 +256,183 @@ fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     let mut out = [0u8; 32];
     out.copy_from_slice(&result);
     out
+}
+
+// ============================================================================
+// v3.8.0：JWT 密钥轮换（多 kid 并存，无停机轮换）
+// ============================================================================
+
+/// JWT 密钥集：支持多密钥并存，以 kid 标识，实现无停机密钥轮换
+#[cfg(feature = "prod-jwt-key-rotation")]
+pub struct JwtKeySet {
+    keys: std::sync::RwLock<std::collections::HashMap<String, String>>,
+    active_kid: std::sync::RwLock<String>,
+    min_secret_length: usize,
+}
+
+#[cfg(feature = "prod-jwt-key-rotation")]
+impl JwtKeySet {
+    /// 创建密钥集，校验所有密钥长度 ≥ 32 字节，active_kid 存在于 keys
+    pub fn new(
+        keys: std::collections::HashMap<String, String>,
+        active_kid: String,
+    ) -> Result<Self, AuthError> {
+        const MIN_LEN: usize = 32;
+        for (kid, secret) in &keys {
+            if secret.len() < MIN_LEN {
+                return Err(AuthError::SecretTooShort(format!(
+                    "key '{}' has {} bytes, minimum {} required",
+                    kid,
+                    secret.len(),
+                    MIN_LEN
+                )));
+            }
+        }
+        if !keys.contains_key(&active_kid) {
+            return Err(AuthError::TokenInvalid(format!(
+                "active_kid '{}' not found in keys",
+                active_kid
+            )));
+        }
+        Ok(Self {
+            keys: std::sync::RwLock::new(keys),
+            active_kid: std::sync::RwLock::new(active_kid),
+            min_secret_length: MIN_LEN,
+        })
+    }
+
+    /// 轮换密钥：新增 kid 设为 active，保留旧 kid（旧令牌用旧密钥验证直至过期）
+    pub fn rotate(&self, new_kid: String, new_secret: String) -> Result<(), AuthError> {
+        if new_secret.len() < self.min_secret_length {
+            return Err(AuthError::SecretTooShort(format!(
+                "new key has {} bytes, minimum {} required",
+                new_secret.len(),
+                self.min_secret_length
+            )));
+        }
+        {
+            let mut keys = self.keys.write().unwrap();
+            keys.insert(new_kid.clone(), new_secret);
+        }
+        let mut active = self.active_kid.write().unwrap();
+        *active = new_kid;
+        Ok(())
+    }
+
+    /// 移除非 active 的 kid
+    pub fn remove_kid(&self, kid: &str) -> Result<(), AuthError> {
+        let active = self.active_kid.read().unwrap();
+        if *active == kid {
+            return Err(AuthError::TokenInvalid(format!(
+                "cannot remove active kid '{}'",
+                kid
+            )));
+        }
+        let mut keys = self.keys.write().unwrap();
+        if keys.remove(kid).is_none() {
+            return Err(AuthError::TokenInvalid(format!("kid '{}' not found", kid)));
+        }
+        Ok(())
+    }
+
+    /// 获取当前 active kid
+    pub fn active_kid(&self) -> String {
+        self.active_kid.read().unwrap().clone()
+    }
+
+    /// 按 kid 获取密钥
+    pub fn get_secret(&self, kid: &str) -> Result<String, AuthError> {
+        let keys = self.keys.read().unwrap();
+        keys.get(kid)
+            .cloned()
+            .ok_or_else(|| AuthError::TokenInvalid(format!("kid '{}' not found", kid)))
+    }
+}
+
+/// 带 kid 的 JWT 编解码器
+#[cfg(feature = "prod-jwt-key-rotation")]
+pub struct JwtEncoderWithKid {
+    key_set: std::sync::Arc<JwtKeySet>,
+}
+
+#[cfg(feature = "prod-jwt-key-rotation")]
+impl JwtEncoderWithKid {
+    pub fn new(key_set: std::sync::Arc<JwtKeySet>) -> Self {
+        Self { key_set }
+    }
+
+    /// 签发令牌：用 active_kid 密钥签发，header 携带 kid
+    pub fn encode(&self, claims: &JwtClaims) -> Result<String, AuthError> {
+        let kid = self.key_set.active_kid();
+        let secret = self.key_set.get_secret(&kid)?;
+
+        let header = JwtHeader {
+            kid: Some(kid),
+            ..Default::default()
+        };
+        let header_json = serde_json::to_string(&header)
+            .map_err(|e| AuthError::TokenInvalid(format!("Header serialization failed: {}", e)))?;
+        let claims_json = serde_json::to_string(claims)
+            .map_err(|e| AuthError::TokenInvalid(format!("Claims serialization failed: {}", e)))?;
+
+        let header_b64 = base64_url_encode(header_json.as_bytes());
+        let claims_b64 = base64_url_encode(claims_json.as_bytes());
+        let signing_input = format!("{}.{}", header_b64, claims_b64);
+        let signature = hmac_sha256(secret.as_bytes(), signing_input.as_bytes());
+        let signature_b64 = base64_url_encode(&signature);
+
+        Ok(format!("{}.{}.{}", header_b64, claims_b64, signature_b64))
+    }
+
+    /// 验证令牌：解析 header.kid，按 kid 查找密钥验证签名
+    pub fn decode(&self, token: &str) -> Result<JwtClaims, AuthError> {
+        if token.is_empty() {
+            return Err(AuthError::TokenInvalid("Token is empty".to_string()));
+        }
+        let parts: Vec<&str> = token.split('.').collect();
+        if parts.len() != 3 {
+            return Err(AuthError::TokenInvalid(
+                "Invalid JWT format: expected 3 parts".to_string(),
+            ));
+        }
+        let header_b64 = parts[0];
+        let claims_b64 = parts[1];
+        let signature_b64 = parts[2];
+
+        let header_bytes = base64_url_decode(header_b64)
+            .map_err(|e| AuthError::TokenInvalid(format!("Header decode failed: {}", e)))?;
+        let header: JwtHeader = serde_json::from_slice(&header_bytes)
+            .map_err(|e| AuthError::TokenInvalid(format!("Header parse failed: {}", e)))?;
+
+        let kid = header
+            .kid
+            .ok_or_else(|| AuthError::TokenInvalid("missing kid in token".to_string()))?;
+        let secret = self.key_set.get_secret(&kid)?;
+
+        let signing_input = format!("{}.{}", header_b64, claims_b64);
+        let expected_signature = hmac_sha256(secret.as_bytes(), signing_input.as_bytes());
+        let expected_b64 = base64_url_encode(&expected_signature);
+
+        use subtle::ConstantTimeEq;
+        if signature_b64
+            .as_bytes()
+            .ct_eq(expected_b64.as_bytes())
+            .into()
+        {
+            let claims_bytes = base64_url_decode(claims_b64)
+                .map_err(|e| AuthError::TokenInvalid(format!("Claims decode failed: {}", e)))?;
+            let claims: JwtClaims = serde_json::from_slice(&claims_bytes)
+                .map_err(|e| AuthError::TokenInvalid(format!("Claims parse failed: {}", e)))?;
+            if claims.is_expired() {
+                return Err(AuthError::TokenExpired("token expired".to_string()));
+            }
+            Ok(claims)
+        } else {
+            Err(AuthError::TokenInvalid(
+                "Signature verification failed".to_string(),
+            ))
+        }
+    }
 }
 
 #[cfg(test)]
@@ -514,5 +694,94 @@ mod tests {
             s.push_str(&format!("{:02x}", b));
         }
         s
+    }
+
+    #[cfg(feature = "prod-jwt-key-rotation")]
+    mod prod_jwt_key_rotation_tests {
+        use super::*;
+        use std::collections::HashMap;
+
+        fn make_secret(n: usize) -> String {
+            "a".repeat(n)
+        }
+
+        #[test]
+        fn test_key_set_new_validates_min_length() {
+            let mut keys = HashMap::new();
+            keys.insert("kid1".to_string(), make_secret(32));
+            let result = JwtKeySet::new(keys, "kid1".to_string());
+            assert!(result.is_ok());
+        }
+
+        #[test]
+        fn test_key_set_new_rejects_short_secret() {
+            let mut keys = HashMap::new();
+            keys.insert("kid1".to_string(), make_secret(31));
+            let result = JwtKeySet::new(keys, "kid1".to_string());
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_key_set_new_rejects_missing_active_kid() {
+            let mut keys = HashMap::new();
+            keys.insert("kid1".to_string(), make_secret(32));
+            let result = JwtKeySet::new(keys, "kid2".to_string());
+            assert!(result.is_err());
+        }
+
+        #[test]
+        fn test_encode_decode_with_kid() {
+            let mut keys = HashMap::new();
+            keys.insert("kid1".to_string(), make_secret(32));
+            keys.insert("kid2".to_string(), make_secret(32));
+            let key_set = JwtKeySet::new(keys, "kid2".to_string()).unwrap();
+            let encoder = JwtEncoderWithKid::new(std::sync::Arc::new(key_set));
+
+            let claims = JwtClaims::new("alice", current_timestamp() + 3600);
+            let token = encoder.encode(&claims).unwrap();
+            let decoded = encoder.decode(&token).unwrap();
+            assert_eq!(decoded.sub, "alice");
+        }
+
+        #[test]
+        fn test_rotate_old_token_still_valid() {
+            let mut keys = HashMap::new();
+            keys.insert("kid1".to_string(), make_secret(32));
+            let key_set = std::sync::Arc::new(JwtKeySet::new(keys, "kid1".to_string()).unwrap());
+            let encoder = JwtEncoderWithKid::new(key_set.clone());
+
+            let claims = JwtClaims::new("bob", current_timestamp() + 3600);
+            let old_token = encoder.encode(&claims).unwrap();
+
+            key_set.rotate("kid2".to_string(), make_secret(32)).unwrap();
+            let new_token = encoder.encode(&claims).unwrap();
+
+            assert!(encoder.decode(&old_token).is_ok());
+            assert!(encoder.decode(&new_token).is_ok());
+        }
+
+        #[test]
+        fn test_remove_kid_rejects_active() {
+            let mut keys = HashMap::new();
+            keys.insert("kid1".to_string(), make_secret(32));
+            keys.insert("kid2".to_string(), make_secret(32));
+            let key_set = JwtKeySet::new(keys, "kid1".to_string()).unwrap();
+            assert!(key_set.remove_kid("kid1").is_err());
+            assert!(key_set.remove_kid("kid2").is_ok());
+        }
+
+        #[test]
+        fn test_decode_missing_kid_rejected() {
+            let mut keys = HashMap::new();
+            keys.insert("kid1".to_string(), make_secret(32));
+            let key_set = JwtKeySet::new(keys, "kid1".to_string()).unwrap();
+            let encoder = JwtEncoderWithKid::new(std::sync::Arc::new(key_set));
+
+            let plain_encoder = JwtEncoder::new(make_secret(32));
+            let claims = JwtClaims::new("eve", current_timestamp() + 3600);
+            let token = plain_encoder.encode(&claims).unwrap();
+
+            assert!(encoder.decode(&token).is_err());
+        }
     }
 }
