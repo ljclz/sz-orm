@@ -437,6 +437,173 @@ pub async fn start_metrics_server(
     }
 }
 
+/// v3.8.0：metrics 端点访问控制配置
+#[cfg(feature = "prod-metrics-acl")]
+#[derive(Debug, Clone)]
+pub struct MetricsAccessControl {
+    /// 是否启用访问控制
+    pub enabled: bool,
+    /// IP 白名单（CIDR 格式字符串，如 "10.0.0.0/8"）
+    pub ip_whitelist: Vec<String>,
+    /// Bearer Token 鉴权
+    pub bearer_token: Option<String>,
+    /// Basic Auth 鉴权 (username, password)
+    pub basic_auth: Option<(String, String)>,
+}
+
+#[cfg(feature = "prod-metrics-acl")]
+impl MetricsAccessControl {
+    /// 创建禁用访问控制的配置
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            ip_whitelist: Vec::new(),
+            bearer_token: None,
+            basic_auth: None,
+        }
+    }
+
+    /// 检查 IP 是否在白名单中
+    pub fn check_ip_whitelist(peer_ip: &str, whitelist: &[String]) -> bool {
+        if whitelist.is_empty() {
+            return true;
+        }
+        for cidr in whitelist {
+            if ip_in_cidr(peer_ip, cidr) {
+                return true;
+            }
+        }
+        false
+    }
+
+    /// 检查 Bearer Token（常量时间比较）
+    pub fn check_bearer_token(auth_header: Option<&str>, expected: &str) -> bool {
+        use subtle::ConstantTimeEq;
+        if let Some(header) = auth_header {
+            if let Some(token) = header.strip_prefix("Bearer ") {
+                return token.as_bytes().ct_eq(expected.as_bytes()).into();
+            }
+        }
+        false
+    }
+
+    /// 检查 Basic Auth（常量时间比较）
+    pub fn check_basic_auth(
+        auth_header: Option<&str>,
+        expected_user: &str,
+        expected_pass: &str,
+    ) -> bool {
+        use subtle::ConstantTimeEq;
+        if let Some(header) = auth_header {
+            if let Some(encoded) = header.strip_prefix("Basic ") {
+                if let Ok(decoded) = base64_decode(encoded) {
+                    let parts: Vec<&str> = decoded.splitn(2, ':').collect();
+                    if parts.len() == 2 {
+                        return parts[0].as_bytes().ct_eq(expected_user.as_bytes()).into()
+                            && parts[1].as_bytes().ct_eq(expected_pass.as_bytes()).into();
+                    }
+                }
+            }
+        }
+        false
+    }
+
+    /// 综合鉴权检查
+    pub fn check_access(&self, peer_ip: &str, auth_header: Option<&str>) -> bool {
+        if !self.enabled {
+            return true;
+        }
+        if !Self::check_ip_whitelist(peer_ip, &self.ip_whitelist) {
+            return false;
+        }
+        if let Some(ref expected_token) = self.bearer_token {
+            if !Self::check_bearer_token(auth_header, expected_token) {
+                return false;
+            }
+        }
+        if let Some((ref user, ref pass)) = self.basic_auth {
+            if !Self::check_basic_auth(auth_header, user, pass) {
+                return false;
+            }
+        }
+        true
+    }
+}
+
+#[cfg(feature = "prod-metrics-acl")]
+fn ip_in_cidr(ip: &str, cidr: &str) -> bool {
+    if let Some(slash_pos) = cidr.find('/') {
+        let network = &cidr[..slash_pos];
+        let prefix_len: u32 = cidr[slash_pos + 1..].parse().unwrap_or(0);
+        if let (Ok(ip_addr), Ok(net_addr)) = (
+            ip.parse::<std::net::IpAddr>(),
+            network.parse::<std::net::IpAddr>(),
+        ) {
+            match (ip_addr, net_addr) {
+                (std::net::IpAddr::V4(ip4), std::net::IpAddr::V4(net4)) => {
+                    if prefix_len > 32 {
+                        return false;
+                    }
+                    let mask = if prefix_len == 0 {
+                        0u32
+                    } else {
+                        (!0u32) << (32 - prefix_len)
+                    };
+                    let ip_int = u32::from(ip4);
+                    let net_int = u32::from(net4);
+                    return (ip_int & mask) == (net_int & mask);
+                }
+                (std::net::IpAddr::V6(_), std::net::IpAddr::V6(_)) => {
+                    return ip == network;
+                }
+                _ => return false,
+            }
+        }
+    }
+    ip == cidr
+}
+
+#[cfg(feature = "prod-metrics-acl")]
+fn base64_decode(input: &str) -> Result<String, String> {
+    use base64::engine::general_purpose::STANDARD;
+    use base64::Engine;
+    let bytes = STANDARD.decode(input).map_err(|e| e.to_string())?;
+    String::from_utf8(bytes).map_err(|e| e.to_string())
+}
+
+/// v3.8.0：带访问控制的 metrics 端点
+#[cfg(feature = "prod-metrics-acl")]
+pub async fn start_metrics_server_with_acl(
+    registry: Arc<MetricsRegistry>,
+    addr: std::net::SocketAddr,
+    acl: MetricsAccessControl,
+) -> Result<(), std::io::Error> {
+    use tokio::io::AsyncWriteExt;
+
+    let listener = tokio::net::TcpListener::bind(addr).await?;
+    loop {
+        let (mut stream, peer) = listener.accept().await?;
+        let registry = registry.clone();
+        let acl = acl.clone();
+        tokio::spawn(async move {
+            let peer_ip = peer.ip().to_string();
+            let metrics = registry.render();
+            let auth_header = None;
+            if !acl.check_access(&peer_ip, auth_header) {
+                let response = "HTTP/1.1 403 Forbidden\r\nContent-Length: 0\r\n\r\n";
+                let _ = stream.write_all(response.as_bytes()).await;
+                return;
+            }
+            let response = format!(
+                "HTTP/1.1 200 OK\r\nContent-Type: text/plain; version=0.0.4\r\nContent-Length: {}\r\n\r\n{}",
+                metrics.len(),
+                metrics
+            );
+            let _ = stream.write_all(response.as_bytes()).await;
+        });
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -515,5 +682,62 @@ mod tests {
         assert!(output.contains("method=\"GET\""));
         assert!(output.contains("status=\"200\""));
         assert!(output.contains("} 1"));
+    }
+
+    #[cfg(feature = "prod-metrics-acl")]
+    mod prod_metrics_acl_tests {
+        use super::*;
+
+        #[test]
+        fn test_ip_whitelist_match() {
+            let whitelist = vec!["10.0.0.0/8".to_string()];
+            assert!(MetricsAccessControl::check_ip_whitelist(
+                "10.1.2.3", &whitelist
+            ));
+            assert!(!MetricsAccessControl::check_ip_whitelist(
+                "192.168.1.1",
+                &whitelist
+            ));
+        }
+
+        #[test]
+        fn test_ip_whitelist_empty_allows_all() {
+            assert!(MetricsAccessControl::check_ip_whitelist("1.2.3.4", &[]));
+        }
+
+        #[test]
+        fn test_bearer_token_valid() {
+            assert!(MetricsAccessControl::check_bearer_token(
+                Some("Bearer secret123"),
+                "secret123"
+            ));
+        }
+
+        #[test]
+        fn test_bearer_token_invalid() {
+            assert!(!MetricsAccessControl::check_bearer_token(
+                Some("Bearer wrong"),
+                "secret123"
+            ));
+            assert!(!MetricsAccessControl::check_bearer_token(None, "secret123"));
+        }
+
+        #[test]
+        fn test_check_access_disabled_allows_all() {
+            let acl = MetricsAccessControl::disabled();
+            assert!(acl.check_access("1.2.3.4", None));
+        }
+
+        #[test]
+        fn test_check_access_enabled_ip_rejected() {
+            let acl = MetricsAccessControl {
+                enabled: true,
+                ip_whitelist: vec!["10.0.0.0/8".to_string()],
+                bearer_token: None,
+                basic_auth: None,
+            };
+            assert!(!acl.check_access("192.168.1.1", None));
+            assert!(acl.check_access("10.1.2.3", None));
+        }
     }
 }
