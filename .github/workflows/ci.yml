@@ -95,6 +95,33 @@ jobs:
         run: python3 scripts/check-doc-consistency.py
 
   # ============================================================================
+  # Job 1.7: 文档同步更新检查（门禁 14）
+  #
+  # 检查代码变更是否触发对应文档的同步更新。当 Cargo.toml 版本/feature、
+  # pub API、pool.rs、dialect.rs、typed_ast.rs、l2_cache.rs、migration 等变更时，
+  # 对应文档必须同步更新，否则阻断 PR。
+  # 跳过标记：在受影响文档中添加 `# doc-sync-skip` 行可跳过检查。
+  # ============================================================================
+  check-doc-sync:
+    name: Doc Sync Check (Gate 14)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0  # 需要完整历史以获取 diff
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install PyYAML
+        run: pip install pyyaml
+
+      - name: Run doc sync check
+        run: python3 scripts/check-doc-sync.py --diff HEAD
+
+  # ============================================================================
   # Job 2: 工作空间编译验证
   # ============================================================================
   build:

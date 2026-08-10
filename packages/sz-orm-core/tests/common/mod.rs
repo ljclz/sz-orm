@@ -4,12 +4,14 @@
 
 #![allow(dead_code)]
 
+pub mod cleanup;
 pub mod equivalence;
 pub mod rusqlite_adapter;
 pub mod schema_builder;
 pub mod soak;
 pub mod sqlx_mysql_adapter;
 pub mod sqlx_pg_adapter;
+pub mod timeout;
 
 use async_trait::async_trait;
 use std::future::Future;

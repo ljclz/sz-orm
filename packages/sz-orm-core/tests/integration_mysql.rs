@@ -1229,7 +1229,15 @@ async fn test_mysql_lock_with_limit() {
 async fn test_mysql_insert_or_ignore_duplicate() {
     let pool = setup_pool().await;
     let table = unique_table("t_ins_ign");
-    create_test_table(&pool, &table).await;
+    // M1-T3 修复：name 列添加 UNIQUE 约束，使 INSERT IGNORE 能正确忽略重复
+    let create_sql = format!(
+        "CREATE TABLE `{}` (id BIGINT NOT NULL AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255) NOT NULL UNIQUE, value BIGINT NULL, data TEXT NULL, meta JSON NULL)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(create_sql.as_str()))
+        .execute(&pool)
+        .await
+        .expect("create table with UNIQUE name");
 
     // 插入第一条数据
     let insert_sql = format!("INSERT INTO `{}` (name, value) VALUES (?, ?)", table);

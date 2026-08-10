@@ -1,6 +1,6 @@
 [package]
 name = "sz-orm-ai"
-version = "2.4.0"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -35,7 +35,7 @@ base64 = { version = "0.22", optional = true }
 # 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .write().unwrap() panic 风险
 parking_lot.workspace = true
 # v3.2.0：查询计划缓存（plan-cache feature，可选依赖）
-sz-orm-core = { version = "2.4.0", path = "../sz-orm-core", optional = true }
+sz-orm-core = { version = "3.5.0", path = "../sz-orm-core", optional = true }
 # v3.3.0 M4：SQL 解析（索引建议 + 重写建议，optional）
 sqlparser = { workspace = true, optional = true }
 

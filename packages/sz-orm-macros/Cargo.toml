@@ -29,10 +29,27 @@ serde_json = { version = "1.0", optional = true }
 default = []
 # 启用 query! 宏的编译期连真实 DB 验证能力（含离线缓存模式）
 db-verify = ["dep:sqlx", "dep:tokio", "dep:serde_json"]
+# v3.4.0：类型安全列引用（Schema derive 生成列名常量）
+type-safe-columns = []
+# v3.4.0：类型化 Schema（为复杂类型字段生成告警并跳过）
+typed-schema = []
+# v3.6.0：自定义编译期诊断信息（与 sz-orm-core/typed-dsl 配合使用）
+typed-dsl = []
+# v3.7.0: stable（自定义编译期诊断信息，独立 feature gate）
+custom-diagnostic = []
 
 [dev-dependencies]
 sz-orm-core = { path = "../sz-orm-core" }
 trybuild = { version = "1.0", default-features = false }
+
+[[test]]
+name = "typed_ast_diagnostic_test"
+required-features = ["typed-dsl"]
+
+# M3-T5: 自定义诊断测试（需 custom-diagnostic feature）
+[[test]]
+name = "custom_diagnostic_test"
+required-features = ["custom-diagnostic"]
 
 [lints]
 workspace = true

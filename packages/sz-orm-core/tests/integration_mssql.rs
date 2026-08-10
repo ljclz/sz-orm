@@ -270,10 +270,11 @@ async fn test_mssql_merge_into_ignore_semantics() {
         .expect("insert original");
     let _: Vec<tiberius::Row> = stream.into_first_result().await.expect("insert results");
 
+    // SQL Server 要求 MERGE 语句必须以分号结尾（SQL Server 语法强制要求）
     let merge_sql = format!(
         "MERGE INTO {} t USING (SELECT @p1 AS {}, @p2 AS {}) s \
          ON (t.{} = s.{}) \
-         WHEN NOT MATCHED THEN INSERT ({}, {}) VALUES (s.{}, s.{})",
+         WHEN NOT MATCHED THEN INSERT ({}, {}) VALUES (s.{}, s.{});",
         dialect.quote(&table),
         dialect.quote("id"),
         dialect.quote("name"),
@@ -376,18 +377,20 @@ async fn test_mssql_transaction_rollback() {
         .await
         .expect("insert");
     let _: Vec<tiberius::Row> = stream.into_first_result().await.expect("insert results");
-    client
-        .simple_query("IF @@TRANCOUNT > 0 COMMIT")
-        .await
-        .expect("commit");
+    // 自动提交模式下 @@TRANCOUNT 为 0，无需 COMMIT（alice 已自动提交）
 
+    // 显式开启事务，插入 bob 后 ROLLBACK，验证 bob 被回滚
+    client
+        .simple_query("BEGIN TRANSACTION")
+        .await
+        .expect("begin transaction");
     let stream = client
         .query(&insert_sql, &[&"bob", &200i32, &"d2"])
         .await
         .expect("insert 2");
     let _: Vec<tiberius::Row> = stream.into_first_result().await.expect("insert results");
     client
-        .simple_query("IF @@TRANCOUNT > 0 ROLLBACK")
+        .simple_query("ROLLBACK TRANSACTION")
         .await
         .expect("rollback");
 

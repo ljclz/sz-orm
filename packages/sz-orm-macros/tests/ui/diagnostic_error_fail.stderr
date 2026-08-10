@@ -1,0 +1,8 @@
+error: 类型不匹配：列 `id` 期望 `i64`，但发现 `String`
+         help: 请使用 Cast 显式转换
+ --> tests/ui/diagnostic_error_fail.rs:8:5
+  |
+8 |     diagnostic_error!("类型不匹配：列 `id` 期望 `i64`，但发现 `String`", "请使用 Cast 显式转换");
+  |     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  |
+  = note: this error originates in the macro `diagnostic_error` (in Nightly builds, run with -Z macro-backtrace for more info)

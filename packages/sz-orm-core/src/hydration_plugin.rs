@@ -88,9 +88,15 @@ impl HydrationMode {
 #[derive(Debug, Clone, PartialEq)]
 pub enum HydrationError {
     /// SingleScalar 模式下行数不等于 1
-    SingleScalarRequiresSingleRow { actual_rows: usize },
+    SingleScalarRequiresSingleRow {
+        /// 实际行数
+        actual_rows: usize,
+    },
     /// 指定列不存在
-    ColumnNotFound { column: String },
+    ColumnNotFound {
+        /// 缺失的列名
+        column: String,
+    },
     /// 行列数为 0
     EmptyRow,
 }
@@ -390,7 +396,12 @@ pub enum PluginDecision {
     /// 跳过后续插件（但仍执行原 SQL）
     Skip,
     /// 修改 SQL/参数后继续
-    Modified { sql: String, parameters: Vec<Value> },
+    Modified {
+        /// 改写后的 SQL
+        sql: String,
+        /// 替换后的参数列表
+        parameters: Vec<Value>,
+    },
     /// 中止执行（不执行原 SQL，返回错误）
     Abort(String),
     /// Kill 当前查询/事务（用于慢查询自动 kill 等场景）
@@ -528,20 +539,24 @@ pub struct SqlLogPlugin {
 }
 
 impl SqlLogPlugin {
+    /// 创建一个空的 SQL 日志插件
     pub fn new() -> Self {
         Self {
             logs: RwLock::new(Vec::new()),
         }
     }
 
+    /// 返回已记录的全部 SQL 日志
     pub fn logs(&self) -> Vec<String> {
         self.logs.read().clone()
     }
 
+    /// 清空已记录的日志
     pub fn clear(&self) {
         self.logs.write().clear();
     }
 
+    /// 返回已记录的日志条数
     pub fn count(&self) -> usize {
         self.logs.read().len()
     }
@@ -616,8 +631,11 @@ pub struct SlowQueryPlugin {
 /// 慢查询记录
 #[derive(Debug, Clone)]
 pub struct SlowQueryRecord {
+    /// 慢查询 SQL 文本
     pub sql: String,
+    /// 实际执行耗时
     pub elapsed: Duration,
+    /// 判定为慢查询的阈值
     pub threshold: Duration,
 }
 
@@ -806,26 +824,33 @@ pub struct AuditPlugin {
 /// 审计记录
 #[derive(Debug, Clone)]
 pub struct AuditRecord {
+    /// 审计触发阶段
     pub stage: ExecutionStage,
+    /// 审计记录的 SQL 文本
     pub sql: String,
+    /// 受影响的行数（若可用）
     pub affected_rows: Option<usize>,
 }
 
 impl AuditPlugin {
+    /// 创建一个空的审计插件
     pub fn new() -> Self {
         Self {
             audit_log: RwLock::new(Vec::new()),
         }
     }
 
+    /// 返回全部审计记录
     pub fn records(&self) -> Vec<AuditRecord> {
         self.audit_log.read().clone()
     }
 
+    /// 返回审计记录条数
     pub fn count(&self) -> usize {
         self.audit_log.read().len()
     }
 
+    /// 清空审计记录
     pub fn clear(&self) {
         self.audit_log.write().clear();
     }
@@ -870,6 +895,7 @@ pub struct SqlRewritePlugin {
 }
 
 impl SqlRewritePlugin {
+    /// 创建 SQL 改写插件，指定匹配模式和替换文本
     pub fn new(pattern: impl Into<String>, replacement: impl Into<String>) -> Self {
         Self {
             pattern: pattern.into(),
@@ -912,6 +938,7 @@ pub struct BlockPlugin {
 }
 
 impl BlockPlugin {
+    /// 创建阻断插件，指定需拦截的关键字列表
     pub fn new(keywords: Vec<String>) -> Self {
         Self {
             blocked_keywords: keywords,

@@ -44,5 +44,8 @@ mutants.out.old/
 # IDE 配置目录
 .trae/
 
+# Node.js 依赖
+node_modules/
+
 # 测试生成的人工产物
 *.proptest-regressions

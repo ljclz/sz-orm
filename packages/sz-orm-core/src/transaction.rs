@@ -11,13 +11,19 @@ use tokio::sync::Mutex;
 // TransactionState 定义在 `error` 模块以避免 `transaction` ↔ `error` 循环依赖；
 // 通过 `pub use error::*;` 在 crate 根重导出，外部访问路径仍为 `sz_orm_core::TransactionState`。
 
+/// 事务隔离级别
 #[derive(Debug, Clone, PartialEq, Default)]
 pub enum IsolationLevel {
+    /// 读未提交
     ReadUncommitted,
+    /// 读已提交
     ReadCommitted,
+    /// 可重复读（默认）
     #[default]
     RepeatableRead,
+    /// 串行化
     Serializable,
+    /// 快照隔离
     Snapshot,
 }
 
@@ -33,10 +39,13 @@ impl std::fmt::Display for IsolationLevel {
     }
 }
 
+/// 自动提交模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum AutoCommit {
+    /// 开启自动提交（默认）
     #[default]
     On,
+    /// 关闭自动提交
     Off,
 }
 
@@ -58,9 +67,13 @@ pub enum PropagationBehavior {
     Nested,
 }
 
+/// 事务执行选项
 pub struct TransactOptions {
+    /// 隔离级别
     pub isolation_level: Option<IsolationLevel>,
+    /// 是否只读
     pub read_only: bool,
+    /// 超时时间
     pub timeout: Option<Duration>,
     /// H-8 修复：嵌套事务（保存点）最大深度限制
     ///
@@ -87,16 +100,19 @@ impl Default for TransactOptions {
 }
 
 impl TransactOptions {
+    /// 设置隔离级别
     pub fn with_isolation(mut self, level: IsolationLevel) -> Self {
         self.isolation_level = Some(level);
         self
     }
 
+    /// 设置为只读事务
     pub fn read_only(mut self) -> Self {
         self.read_only = true;
         self
     }
 
+    /// 设置事务超时时间
     pub fn with_timeout(mut self, timeout: Duration) -> Self {
         self.timeout = Some(timeout);
         self
@@ -507,11 +523,13 @@ impl Drop for Transaction {
 }
 
 /// 事务管理器，管理多个事务
+/// 事务管理器（按名称管理多个事务）
 pub struct TransactionManager {
     transactions: Arc<Mutex<std::collections::HashMap<String, Transaction>>>,
 }
 
 impl TransactionManager {
+    /// 创建空的事务管理器
     pub fn new() -> Self {
         Self {
             transactions: Arc::new(Mutex::new(std::collections::HashMap::new())),

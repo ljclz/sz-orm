@@ -62,7 +62,7 @@ impl RelationKind {
 pub enum JoinKind {
     /// INNER JOIN
     Inner,
-    /// LEFT [OUTER] JOIN
+    /// LEFT \[OUTER\] JOIN
     Left,
 }
 

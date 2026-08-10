@@ -55,6 +55,7 @@ impl Default for TelemetryConfig {
 }
 
 impl TelemetryConfig {
+    /// 创建默认配置（指定服务名）
     pub fn new(service_name: impl Into<String>) -> Self {
         Self {
             service_name: service_name.into(),
@@ -62,16 +63,19 @@ impl TelemetryConfig {
         }
     }
 
+    /// 设置采样率（自动限制在 0.0 ~ 1.0）
     pub fn with_sample_rate(mut self, rate: f64) -> Self {
         self.sample_rate = rate.clamp(0.0, 1.0);
         self
     }
 
+    /// 设置是否启用查询 span
     pub fn with_query_span(mut self, enabled: bool) -> Self {
         self.enable_query_span = enabled;
         self
     }
 
+    /// 设置是否启用连接池 span
     pub fn with_pool_span(mut self, enabled: bool) -> Self {
         self.enable_pool_span = enabled;
         self
@@ -102,6 +106,7 @@ pub struct TelemetryMetrics {
 }
 
 impl TelemetryMetrics {
+    /// 创建零值指标计数器
     pub fn new() -> Self {
         Self::default()
     }
@@ -167,11 +172,17 @@ impl TelemetryMetrics {
 /// 指标快照
 #[derive(Debug, Clone)]
 pub struct TelemetryMetricsSnapshot {
+    /// 累计查询次数
     pub query_count: u64,
+    /// 累计查询耗时
     pub query_total_duration: Duration,
+    /// 累计查询行数
     pub query_total_rows: u64,
+    /// 累计连接获取次数
     pub pool_acquire_count: u64,
+    /// 累计连接获取耗时
     pub pool_acquire_total_duration: Duration,
+    /// 累计查询错误次数
     pub query_error_count: u64,
     /// v3.2.0：预热成功次数
     pub prewarm_count: u64,
@@ -227,6 +238,7 @@ pub struct Telemetry {
 }
 
 impl Telemetry {
+    /// 创建遥测实例
     pub fn new(config: TelemetryConfig) -> Self {
         Self {
             config: Arc::new(config),
@@ -234,10 +246,12 @@ impl Telemetry {
         }
     }
 
+    /// 获取配置引用
     pub fn config(&self) -> &TelemetryConfig {
         &self.config
     }
 
+    /// 获取指标快照
     pub fn metrics(&self) -> TelemetryMetricsSnapshot {
         self.metrics.snapshot()
     }
@@ -396,6 +410,7 @@ impl PoolAcquireSpanGuard {
         }
     }
 
+    /// 进入 span（若存在）
     pub fn enter(&self) -> Option<tracing::span::Entered<'_>> {
         self.span.as_ref().map(|s| s.enter())
     }

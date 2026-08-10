@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "2.4.0"
+version = "3.6.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["SZ-ORM Team"]
@@ -62,6 +62,8 @@ xxhash-rust = { version = "0.8", features = ["xxh64"] }
 wide = "0.7"
 # v3.3.0：分布式缓存布隆过滤器防护（dist-cache feature）
 bloomfilter = "1.0"
+# v3.4.0：SmallString 优化（perf-smallstring feature，短字符串 ≤ 23 字节内联存储）
+compact_str = "0.8"
 # 配合 .trae/skills/sz-orm-sql-differential / sz-orm-chaos-pool（异步测试）
 rstest = "0.19"
 futures = "0.3"
@@ -73,8 +75,8 @@ deadpool-postgres = "0.12"
 metrics = "0.23"
 # 配合 .trae/skills/sz-orm-chaos-pool（资源泄漏检测）
 jemallocator = "0.5"
-sz-orm-core = { version = "2.1.0", path = "packages/sz-orm-core" }
-sz-orm-ai = { version = "2.1.0", path = "packages/sz-orm-ai" }
-sz-orm-oracle = { version = "2.1.0", path = "packages/sz-orm-oracle" }
-sz-orm-mssql = { version = "2.1.0", path = "packages/sz-orm-mssql" }
-sz-orm-sqlx = { version = "2.1.0", path = "packages/sz-orm-sqlx" }
+sz-orm-core = { version = "3.5.0", path = "packages/sz-orm-core" }
+sz-orm-ai = { version = "3.5.0", path = "packages/sz-orm-ai" }
+sz-orm-oracle = { version = "3.5.0", path = "packages/sz-orm-oracle" }
+sz-orm-mssql = { version = "3.5.0", path = "packages/sz-orm-mssql" }
+sz-orm-sqlx = { version = "3.5.0", path = "packages/sz-orm-sqlx" }

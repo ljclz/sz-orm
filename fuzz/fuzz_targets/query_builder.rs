@@ -1,4 +1,5 @@
 #![no_main]
+#![allow(deprecated)]
 //! Fuzz Target 1: SQL Query Builder 注入/溢出检测
 //!
 //! 目标：发现 `sz_orm_query_builder` 在处理任意字符串输入时的 panic/crash。
@@ -16,9 +17,9 @@
 //! 任何 panic 都会被正确报告为 crash。手动 catch_unwind 会让 libfuzzer 永远发现不了问题。
 
 use libfuzzer_sys::fuzz_target;
+use std::hint::black_box;
 use sz_orm_core::DbType;
 use sz_orm_query_builder::Query;
-use std::hint::black_box;
 
 /// 将任意字节转换为 UTF-8 字符串（损失转换，保留非 UTF-8 字节为替换符）
 fn bytes_to_string(data: &[u8]) -> String {
@@ -66,8 +67,12 @@ fuzz_target!(|data: &[u8]| {
     black_box(&sql);
 
     // --- SELECT with paginate（整数溢出检测） ---
-    let page = data.iter().fold(1u64, |acc, &b| acc.wrapping_mul(b.max(1) as u64));
-    let size = data.iter().fold(10u64, |acc, &b| acc.wrapping_add(b as u64));
+    let page = data
+        .iter()
+        .fold(1u64, |acc, &b| acc.wrapping_mul(b.max(1) as u64));
+    let size = data
+        .iter()
+        .fold(10u64, |acc, &b| acc.wrapping_add(b as u64));
     let sql = Query::select()
         .column(&col)
         .from(&table)

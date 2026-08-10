@@ -492,6 +492,8 @@ fn value_to_json(value: &Value) -> serde_json::Value {
             serde_json::from_str(s).unwrap_or_else(|_| serde_json::Value::String(s.clone()))
         }
         Value::String(s) => serde_json::Value::String(s.clone()),
+        #[cfg(feature = "perf-box-str")]
+        Value::BoxedStr(s) => serde_json::Value::String(s.to_string()),
         Value::Bytes(b) => {
             // 字节值：以 base64 编码字符串形式表示
             use std::fmt::Write;

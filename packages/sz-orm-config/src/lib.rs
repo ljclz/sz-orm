@@ -8,6 +8,11 @@
 //! - [`ConfigCenter`] trait — 配置中心接口
 //! - [`ConfigChangeEvent`] — 配置变更事件
 
+#[cfg(feature = "real-consul")]
+pub mod consul_client;
+#[cfg(feature = "real-nacos")]
+pub mod nacos_client;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

@@ -6,7 +6,7 @@
 //! - [`GossipInvalidationBus`] — Gossip 去中心化失效总线
 //! - [`WriteBehindQueue`] / [`WriteBehindConfig`] / [`WriteOp`] — Write-behind 异步批量写入
 //! - [`BloomFilterGuard`] — 布隆过滤器击穿防护
-//! - [`MutexGuard`] — 互斥锁击穿防护
+//! - `MutexGuard` — 互斥锁击穿防护
 //! - [`RandomTtlJitter`] — 随机 TTL 雪崩防护
 
 use crate::l2_cache::{InvalidationBus, InvalidationMessage};
@@ -315,26 +315,32 @@ pub struct WriteBehindConfigBuilder {
 }
 
 impl WriteBehindConfigBuilder {
+    /// 设置批大小
     pub fn batch_size(mut self, size: u32) -> Self {
         self.batch_size = Some(size);
         self
     }
+    /// 设置刷新间隔
     pub fn flush_interval(mut self, interval: Duration) -> Self {
         self.flush_interval = Some(interval);
         self
     }
+    /// 设置 WAL 文件路径
     pub fn wal_path(mut self, path: PathBuf) -> Self {
         self.wal_path = Some(path);
         self
     }
+    /// 设置加密密钥
     pub fn encryption_key(mut self, key: Vec<u8>) -> Self {
         self.encryption_key = Some(key);
         self
     }
+    /// 设置是否回退到同步写
     pub fn fallback_to_sync(mut self, fallback: bool) -> Self {
         self.fallback_to_sync = Some(fallback);
         self
     }
+    /// 构建配置
     pub fn build(self) -> WriteBehindConfig {
         WriteBehindConfig {
             batch_size: self.batch_size.unwrap_or(100),
@@ -353,8 +359,11 @@ impl WriteBehindConfigBuilder {
 /// 写操作类型
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum WriteOpType {
+    /// 插入
     Insert,
+    /// 更新
     Update,
+    /// 删除
     Delete,
 }
 

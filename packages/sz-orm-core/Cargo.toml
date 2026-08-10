@@ -34,6 +34,52 @@ simd = ["dep:wide"]
 multi-tenant-enhanced = ["dep:sz-orm-audit", "dep:sz-orm-masking"]
 # v3.3.0：分布式缓存一致性（跨实例失效 + Write-behind + 缓存击穿/雪崩防护）
 dist-cache = ["dep:bloomfilter", "dep:rand", "dep:sz-orm-crypto"]
+# v3.4.0：测试覆盖补齐门禁矩阵标识（不引入依赖，仅用于 feature 组合编译门禁）
+test-coverage = []
+# v3.4.0：架构改进门禁矩阵标识（不引入依赖，仅用于 feature 组合编译门禁）
+arch-improvement = []
+# v3.4.0：文档补全门禁矩阵标识（不引入依赖，仅用于 feature 组合编译门禁）
+doc-completion = []
+# v3.4.0：SmallString 优化（CompactString 替代 String，短字符串 ≤ 23 字节内联存储）
+perf-smallstring = ["dep:compact_str"]
+# v3.4.0：enum dispatch 优化（match 分发替代 Box<dyn Dialect> vtable 查找）
+perf-enum-dispatch = []
+# v3.4.0：L2 缓存零拷贝推广（BorrowedValue + ColumnarResultSet 推广到 L2 缓存路径）
+perf-zero-copy-l2 = ["zero-copy"]
+# v3.4.0：Box<str> 优化（Value::BoxedStr 变体，节省 8 字节/值 capacity 字段）
+perf-box-str = []
+# v3.4.0：类型安全列引用（Column<T> + Schema derive 列名常量）
+type-safe-columns = ["sz-orm-macros/type-safe-columns"]
+# v3.4.0：类型化列（Column<T> 独立 feature，允许仅启用 Column<T> 不启用 Schema 扩展）
+typed-column = []
+# v3.4.0：类型化 DSL（typed_ast.rs Diesel 风格表达式 DSL）
+typed-dsl = []
+# v3.7.0: stable（类型安全关联查询，编译期外键校验）
+typed-relation = []
+# v3.7.0: stable（proc-macro 编译期 SQL 验证）
+sql-verify-proc = ["dep:sqlparser", "dep:xxhash-rust"]
+# v3.6.0：QueryBuilder 迁移工具（lint + fix + 差分测试）
+qb-migration-tool = ["dep:syn", "dep:quote"]
+# v3.5.0：L1 缓存（Session 级别 Identity Map + LRU + AtomicU64 统计）
+l1-cache = []
+# v3.5.0：CockroachDB 方言（PG 兼容分布式数据库，委派 PostgreSqlDialect）
+dialect-cockroachdb = []
+# v3.5.0：YugabyteDB 方言（PG 兼容分布式数据库，委派 PostgreSqlDialect）
+dialect-yugabytedb = []
+# v3.6.0：Snowflake 方言（云数仓，独立实现，支持 VARIANT/OBJECT/ARRAY + COPY INTO + TIME TRAVEL）
+dialect-snowflake = []
+# v3.6.0：Redshift 方言（AWS 云数仓，委派 PostgreSqlDialect + COPY/UNLOAD 特性扩展）
+dialect-redshift = []
+# v3.7.0: Informix 方言（SQL generation only，SERIAL/ROW 类型 + PUT 语句，无真 DB 驱动）
+dialect-informix = []
+# v3.7.0: SAP HANA 方言（SQL generation only，计算列 + CE 函数，无真 DB 驱动）
+dialect-saphana = []
+# v3.7.0: Firebird 方言（SQL generation only，GENERATOR/SEQUENCE + EXECUTE BLOCK，无真 DB 驱动）
+dialect-firebird = []
+# v3.4.0：迁移指南门禁矩阵标识（纯文档，不引入依赖）
+migration-guide = []
+# v3.7.0：真实 DB 端到端测试套件（连真实 MySQL/PostgreSQL/SQLite/Oracle/MSSQL 验证 8 类核心路径）
+e2e-real-db = []
 
 [dependencies]
 async-trait.workspace = true
@@ -51,12 +97,12 @@ parking_lot.workspace = true
 crossbeam-queue.workspace = true
 # 流式查询：Connection::query_stream 默认实现需要 futures::stream::empty
 futures.workspace = true
-sz-orm-sql-validator = { version = "2.1.0", path = "../sz-orm-sql-validator" }
-sz-orm-macros = { version = "2.1.0", path = "../sz-orm-macros" }
+sz-orm-sql-validator = { version = "3.5.0", path = "../sz-orm-sql-validator" }
+sz-orm-macros = { version = "3.5.0", path = "../sz-orm-macros" }
 # #88 修复：可选断路器依赖（启用 circuit-breaker feature 时生效）
-sz-orm-health = { version = "2.1.0", path = "../sz-orm-health", optional = true }
+sz-orm-health = { version = "3.5.0", path = "../sz-orm-health", optional = true }
 # #93 修复：可选限流器依赖（启用 rate-limit feature 时生效）
-sz-orm-limit = { version = "2.1.0", path = "../sz-orm-limit", optional = true }
+sz-orm-limit = { version = "3.5.0", path = "../sz-orm-limit", optional = true }
 # Fix #39：L2Cache RedisBackend 真实实现（启用 redis feature 时生效）
 # 使用 connection-manager 自动重连 + tokio-comp 异步 IO
 redis = { workspace = true, optional = true }
@@ -66,18 +112,25 @@ xxhash-rust = { workspace = true, optional = true }
 # v3.2.0：SIMD 加速（simd feature）
 wide = { workspace = true, optional = true }
 # v3.3.0：多租户审计增强（multi-tenant-enhanced feature）
-sz-orm-audit = { version = "2.1.0", path = "../sz-orm-audit", optional = true }
+sz-orm-audit = { version = "3.5.0", path = "../sz-orm-audit", optional = true }
 # v3.3.0：列级脱敏增强（multi-tenant-enhanced feature）
-sz-orm-masking = { version = "2.1.0", path = "../sz-orm-masking", optional = true }
+sz-orm-masking = { version = "3.5.0", path = "../sz-orm-masking", optional = true }
 # v3.3.0：分布式缓存布隆过滤器防护（dist-cache feature）
 bloomfilter = { workspace = true, optional = true }
 # v3.3.0：分布式缓存随机 TTL 雪崩防护（dist-cache feature）
 rand = { workspace = true, optional = true }
 # v3.3.0：WAL 加密（dist-cache feature）
-sz-orm-crypto = { version = "2.1.0", path = "../sz-orm-crypto", optional = true }
+sz-orm-crypto = { version = "3.5.0", path = "../sz-orm-crypto", optional = true }
+# v3.4.0：SmallString 优化（perf-smallstring feature）
+compact_str = { workspace = true, optional = true }
+# v3.6.0：QueryBuilder 迁移工具（qb-migration-tool feature）
+syn = { version = "2.0", features = ["full", "parsing", "visit"], optional = true }
+quote = { version = "1.0", default-features = false, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+# M3-T3: 差分测试需要 sz-orm-query-builder
+sz-orm-query-builder = { path = "../sz-orm-query-builder" }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 # DuckDB 真实集成测试（bundled：编译 DuckDB 源码，需 MSVC + CMake）
@@ -163,6 +216,207 @@ required-features = ["simd"]
 name = "prewarm_integration"
 path = "tests/prewarm_integration.rs"
 required-features = ["auto-prewarm"]
+
+[[test]]
+name = "smallstring_differential"
+path = "tests/smallstring_differential.rs"
+
+[[test]]
+name = "type_safe_columns"
+path = "tests/type_safe_columns.rs"
+required-features = ["type-safe-columns"]
+
+# M2: typed_ast DSL 46 种表达式测试（需 typed-dsl feature）
+[[test]]
+name = "typed_ast_aggregate"
+path = "tests/typed_ast_aggregate_test.rs"
+required-features = ["typed-dsl"]
+
+[[test]]
+name = "typed_ast_arithmetic"
+path = "tests/typed_ast_arithmetic_test.rs"
+required-features = ["typed-dsl"]
+
+[[test]]
+name = "typed_ast_string"
+path = "tests/typed_ast_string_test.rs"
+required-features = ["typed-dsl"]
+
+[[test]]
+name = "typed_ast_date"
+path = "tests/typed_ast_date_test.rs"
+required-features = ["typed-dsl"]
+
+[[test]]
+name = "typed_ast_zst_diff"
+path = "tests/typed_ast_zst_diff_test.rs"
+required-features = ["typed-dsl"]
+
+# M1-T7: 15 种新增表达式 ZST 断言测试（需 typed-dsl feature）
+[[test]]
+name = "typed_ast_zst_assert"
+path = "tests/typed_ast_zst_assert_test.rs"
+required-features = ["typed-dsl"]
+
+# M1-T9: SQL 注入防护测试（需 typed-dsl feature）
+[[test]]
+name = "typed_ast_sql_injection"
+path = "tests/typed_ast_sql_injection_test.rs"
+required-features = ["typed-dsl"]
+
+# M2: L1 缓存测试（需 l1-cache feature）
+[[test]]
+name = "l1_cache"
+path = "tests/l1_cache_test.rs"
+required-features = ["l1-cache"]
+
+[[test]]
+name = "l1_l2_db"
+path = "tests/l1_l2_db_test.rs"
+required-features = ["l1-cache"]
+
+# M5: CockroachDB 方言测试（需 dialect-cockroachdb feature）
+[[test]]
+name = "dialect_cockroachdb"
+path = "tests/dialect_cockroachdb_test.rs"
+required-features = ["dialect-cockroachdb"]
+
+# M5: YugabyteDB 方言测试（需 dialect-yugabytedb feature）
+[[test]]
+name = "dialect_yugabytedb"
+path = "tests/dialect_yugabytedb_test.rs"
+required-features = ["dialect-yugabytedb"]
+
+# M4: Snowflake 方言测试（需 dialect-snowflake feature）
+[[test]]
+name = "dialect_snowflake"
+path = "tests/dialect_snowflake_test.rs"
+required-features = ["dialect-snowflake"]
+
+# M4: Redshift 方言测试（需 dialect-redshift feature）
+[[test]]
+name = "dialect_redshift"
+path = "tests/dialect_redshift_test.rs"
+required-features = ["dialect-redshift"]
+
+# M3: QueryBuilder 迁移工具测试
+[[test]]
+name = "qb_migration_lint"
+path = "tests/qb_migration_lint_test.rs"
+required-features = ["qb-migration-tool"]
+
+[[test]]
+name = "qb_migration_fix"
+path = "tests/qb_migration_fix_test.rs"
+required-features = ["qb-migration-tool"]
+
+[[test]]
+name = "qb_migration_diff"
+path = "tests/qb_migration_diff_test.rs"
+required-features = ["qb-migration-tool"]
+
+# M1: 真实 DB e2e 测试套件（需 e2e-real-db feature）
+[[test]]
+name = "e2e_real_db_crud"
+path = "tests/e2e_real_db_crud.rs"
+required-features = ["e2e-real-db"]
+
+[[test]]
+name = "e2e_real_db_transaction"
+path = "tests/e2e_real_db_transaction.rs"
+required-features = ["e2e-real-db"]
+
+[[test]]
+name = "e2e_real_db_pagination"
+path = "tests/e2e_real_db_pagination.rs"
+required-features = ["e2e-real-db"]
+
+[[test]]
+name = "e2e_real_db_soft_delete"
+path = "tests/e2e_real_db_soft_delete.rs"
+required-features = ["e2e-real-db"]
+
+[[test]]
+name = "e2e_real_db_dialect_behavior"
+path = "tests/e2e_real_db_dialect_behavior.rs"
+required-features = ["e2e-real-db"]
+
+[[test]]
+name = "e2e_real_db_eager_load"
+path = "tests/e2e_real_db_eager_load.rs"
+required-features = ["e2e-real-db"]
+
+[[test]]
+name = "e2e_real_db_multi_tenant"
+path = "tests/e2e_real_db_multi_tenant.rs"
+required-features = ["e2e-real-db", "multi-tenant-enhanced"]
+
+[[test]]
+name = "e2e_real_db_cache"
+path = "tests/e2e_real_db_cache.rs"
+required-features = ["e2e-real-db", "l1-cache"]
+
+# M3-T1: typed relation 测试（需 typed-relation feature）
+[[test]]
+name = "typed_relation_test"
+path = "tests/typed_relation_test.rs"
+required-features = ["typed-relation"]
+
+# M3-T8: proc-macro SQL 验证测试（需 sql-verify-proc feature）
+[[test]]
+name = "sql_verify_proc_test"
+path = "tests/sql_verify_proc_test.rs"
+required-features = ["sql-verify-proc"]
+
+# M4-T2: Informix 方言测试（需 dialect-informix feature）
+[[test]]
+name = "dialect_informix_test"
+path = "tests/dialect_informix_test.rs"
+required-features = ["dialect-informix"]
+
+# M4-T4: SAP HANA 方言测试（需 dialect-saphana feature）
+[[test]]
+name = "dialect_saphana_test"
+path = "tests/dialect_saphana_test.rs"
+required-features = ["dialect-saphana"]
+
+# M4-T6: Firebird 方言测试（需 dialect-firebird feature）
+[[test]]
+name = "dialect_firebird_test"
+path = "tests/dialect_firebird_test.rs"
+required-features = ["dialect-firebird"]
+
+[[bench]]
+name = "smallstring_bench"
+path = "benches/smallstring_bench.rs"
+harness = false
+
+[[bench]]
+name = "enum_dispatch_bench"
+path = "benches/enum_dispatch_bench.rs"
+harness = false
+
+[[bench]]
+name = "zero_copy_l2_bench"
+path = "benches/zero_copy_l2_bench.rs"
+harness = false
+
+[[bench]]
+name = "box_str_bench"
+path = "benches/box_str_bench.rs"
+harness = false
+
+[[bench]]
+name = "typed_overhead_bench"
+path = "benches/typed_overhead_bench.rs"
+harness = false
+
+# M2: L1 缓存性能基准（需 l1-cache feature）
+[[bench]]
+name = "l1_cache_bench"
+path = "benches/l1_cache_bench.rs"
+harness = false
+required-features = ["l1-cache"]
 
 [[bench]]
 name = "core_bench"

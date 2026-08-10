@@ -16,27 +16,49 @@ use crate::value::Value;
 #[non_exhaustive]
 pub enum BorrowedValue<'a> {
     #[default]
+    /// NULL 值
     Null,
+    /// 布尔值
     Bool(bool),
+    /// 8 位有符号整数
     I8(i8),
+    /// 16 位有符号整数
     I16(i16),
+    /// 32 位有符号整数
     I32(i32),
+    /// 64 位有符号整数
     I64(i64),
+    /// 8 位无符号整数
     U8(u8),
+    /// 16 位无符号整数
     U16(u16),
+    /// 32 位无符号整数
     U32(u32),
+    /// 64 位无符号整数
     U64(u64),
+    /// 32 位浮点数
     F32(f32),
+    /// 64 位浮点数
     F64(f64),
+    /// 十进制数（字符串形式）
     Decimal(Cow<'a, str>),
+    /// 字符串
     String(Cow<'a, str>),
+    /// 字节数组
     Bytes(Cow<'a, [u8]>),
+    /// UUID（字符串形式）
     Uuid(Cow<'a, str>),
+    /// 日期（字符串形式）
     Date(Cow<'a, str>),
+    /// 日期时间（字符串形式）
     DateTime(Cow<'a, str>),
+    /// 时间（字符串形式）
     Time(Cow<'a, str>),
+    /// JSON（字符串形式）
     Json(Cow<'a, str>),
+    /// 数组
     Array(Vec<BorrowedValue<'a>>),
+    /// 对象（键值对）
     Object(HashMap<String, BorrowedValue<'a>>),
 }
 
@@ -90,6 +112,8 @@ impl<'a> BorrowedValue<'a> {
             Value::F64(v) => BorrowedValue::F64(*v),
             Value::Decimal(v) => BorrowedValue::Decimal(Cow::Borrowed(v.as_str())),
             Value::String(v) => BorrowedValue::String(Cow::Borrowed(v.as_str())),
+            #[cfg(feature = "perf-box-str")]
+            Value::BoxedStr(v) => BorrowedValue::String(Cow::Borrowed(&**v)),
             Value::Bytes(v) => BorrowedValue::Bytes(Cow::Borrowed(v.as_slice())),
             Value::Uuid(v) => BorrowedValue::Uuid(Cow::Borrowed(v.as_str())),
             Value::Date(v) => BorrowedValue::Date(Cow::Borrowed(v.as_str())),

@@ -11,19 +11,24 @@ use crate::value::Value;
 /// 列式 schema（列名 + 类型）
 #[derive(Debug, Clone)]
 pub struct ColumnarSchema {
+    /// 列名列表
     pub names: Vec<String>,
+    /// 列类型列表
     pub types: Vec<String>,
 }
 
 impl ColumnarSchema {
+    /// 创建新的列式 schema
     pub fn new(names: Vec<String>, types: Vec<String>) -> Self {
         Self { names, types }
     }
 
+    /// 返回列数
     pub fn column_count(&self) -> usize {
         self.names.len()
     }
 
+    /// 按列名查找列索引
     pub fn name_index(&self, name: &str) -> Option<usize> {
         self.names.iter().position(|n| n == name)
     }
@@ -40,6 +45,7 @@ pub struct ColumnarResultSet {
 }
 
 impl ColumnarResultSet {
+    /// 创建空的列式结果集
     pub fn new(schema: ColumnarSchema) -> Self {
         let column_count = schema.column_count();
         Self {

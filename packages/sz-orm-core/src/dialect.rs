@@ -185,25 +185,40 @@ pub enum LockType {
 /// 建表时的列定义
 #[derive(Debug, Clone)]
 pub struct ColumnDef {
+    /// 列名
     pub name: String,
+    /// SQL 类型字符串
     pub sql_type: String,
+    /// 是否允许 NULL
     pub nullable: bool,
+    /// 默认值
     pub default: Option<String>,
+    /// 是否自增
     pub auto_increment: bool,
+    /// 是否主键
     pub primary_key: bool,
 }
 
 /// ALTER TABLE 的变更操作
 #[derive(Debug, Clone)]
 pub enum TableChange {
+    /// 新增列
     AddColumn(ColumnDef),
+    /// 删除列
     DropColumn(String),
+    /// 修改列定义
     ModifyColumn(ColumnDef),
+    /// 新增索引
     AddIndex(String, Vec<String>),
+    /// 删除索引
     DropIndex(String),
+    /// 新增外键
     AddForeignKey {
+        /// 本表列
         columns: Vec<String>,
+        /// 引用表名
         reference_table: String,
+        /// 引用列
         reference_columns: Vec<String>,
     },
 }
@@ -1501,6 +1516,309 @@ delegate_dialect_to!(SybaseDialect, SqlServerDialect, DbType::Sybase);
 // GBase 8s：南大通用，Informix 兼容方言，SQL 语法接近 T-SQL
 delegate_dialect_to!(GBaseDialect, SqlServerDialect, DbType::GBase);
 
+// CockroachDB：PostgreSQL 兼容分布式数据库（v3.5.0 新增）
+//
+// CockroachDB 是 Google Spanner 风格的分布式 SQL 数据库，完全兼容 PostgreSQL 协议：
+// - 使用 PG wire protocol，可直接用 sqlx::Postgres 驱动连接
+// - 支持 PG 方言的 SQL 语法（SERIAL/RETURNING/LIMIT OFFSET 等）
+// - 支持分布式事务（SERIALIZABLE 隔离级别）
+// - 不支持 PG 的某些高级特性（如 LISTEN/NOTIFY、advisory locks）
+//
+// 方言实现通过 delegate_dialect_to 宏委派 PostgreSqlDialect，
+// 复用 PG 的 quote/escape_string/build_pagination 等方法。
+#[cfg(feature = "dialect-cockroachdb")]
+delegate_dialect_to!(CockroachDbDialect, PostgreSqlDialect, DbType::CockroachDB);
+
+// YugabyteDB：PostgreSQL 兼容分布式数据库（v3.5.0 新增）
+//
+// YugabyteDB 是 Yugabyte 开源的分布式 SQL 数据库，兼容 PostgreSQL 协议：
+// - 使用 PG wire protocol（YSQL API），可直接用 sqlx::Postgres 驱动连接
+// - 支持 PG 方言的 SQL 语法（SERIAL/RETURNING/LIMIT OFFSET 等）
+// - 支持分布式事务（ACID + 全局一致性）
+// - 支持 PG 存储过程（PL/pgSQL）
+//
+// 方言实现通过 delegate_dialect_to 宏委派 PostgreSqlDialect，
+// 复用 PG 的 quote/escape_string/build_pagination 等方法。
+#[cfg(feature = "dialect-yugabytedb")]
+delegate_dialect_to!(YugabyteDbDialect, PostgreSqlDialect, DbType::YugabyteDB);
+
+// ============================================================================
+// Snowflake 方言（v3.6.0 新增，独立实现）
+//
+// Snowflake 是云原生数据仓库，有独特的特性：
+// - 使用双引号标识符（与 PostgreSQL 一致）
+// - 字符串字面量单引号转义为 ''（与 PG 一致）
+// - 支持 RETURNING 子句
+// - 分页使用 LIMIT offset, count 语法
+// - 支持 VARIANT/OBJECT/ARRAY 半结构化类型
+// - 支持 COPY INTO 数据加载
+// - 支持 TIME TRAVEL 查询（AT(OBJECT => ...)/BEFORE(...)）
+// - 自增列不支持（使用 IDENTITY 或 SEQUENCE）
+// ============================================================================
+
+/// Snowflake 方言实现（云数仓，独立实现）
+///
+/// 支持 Snowflake 特有特性：
+/// - VARIANT/OBJECT/ARRAY 半结构化类型
+/// - COPY INTO 数据加载
+/// - TIME TRAVEL 时间旅行查询
+#[cfg(feature = "dialect-snowflake")]
+#[derive(Debug, Clone)]
+pub struct SnowflakeDialect;
+
+#[cfg(feature = "dialect-snowflake")]
+impl Dialect for SnowflakeDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(SnowflakeDialect)
+    }
+
+    fn db_type(&self) -> DbType {
+        DbType::Snowflake
+    }
+
+    fn quote(&self, identifier: &str) -> String {
+        // Snowflake 使用双引号包裹标识符（与 PG 一致）
+        format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn escape_string(&self, s: &str) -> String {
+        // Snowflake 使用双单引号转义（与 PG 一致）
+        let mut escaped = String::with_capacity(s.len() * 2);
+        for c in s.chars() {
+            match c {
+                '\'' => escaped.push_str("''"),
+                '\\' => escaped.push_str("\\\\"),
+                _ => escaped.push(c),
+            }
+        }
+        escaped
+    }
+
+    fn supports_returning(&self) -> bool {
+        // Snowflake 支持 RETURNING 子句
+        true
+    }
+
+    fn build_pagination(&self, sql: &str, page: u64, limit: u64) -> String {
+        // Snowflake 使用 LIMIT offset, count 语法
+        let offset = page.saturating_sub(1).saturating_mul(limit);
+        format!("{} LIMIT {}, {}", sql, offset, limit)
+    }
+
+    fn json_type(&self) -> &'static str {
+        // Snowflake 原生支持 VARIANT 类型
+        "VARIANT"
+    }
+
+    fn json_extract(&self, column: &str, path: &str) -> String {
+        // Snowflake 使用 : 路径访问或 GET_PATH 函数
+        let normalized = path.trim_start_matches("$.");
+        format!("{}:{}", column, normalized)
+    }
+
+    fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
+        // Snowflake 使用 ILIKE 进行全文检索
+        if columns.is_empty() {
+            return "FALSE".to_string();
+        }
+        let escaped = self.escape_string(keyword);
+        let parts: Vec<String> = columns
+            .iter()
+            .map(|c| format!("{} ILIKE '%{}%'", c, escaped))
+            .collect();
+        parts.join(" OR ")
+    }
+
+    fn bool_to_int(&self, expr: &str) -> String {
+        format!("(CASE WHEN {} THEN 1 ELSE 0 END)", expr)
+    }
+
+    fn concat(&self, parts: &[&str]) -> String {
+        if parts.is_empty() {
+            return "NULL".to_string();
+        }
+        // Snowflake 使用 || 拼接或 CONCAT 函数
+        format!("CONCAT({})", parts.join(", "))
+    }
+
+    fn supports_if_exists(&self) -> bool {
+        true
+    }
+
+    fn supports_if_not_exists(&self) -> bool {
+        true
+    }
+
+    fn auto_increment_keyword(&self) -> &'static str {
+        // Snowflake 使用 IDENTITY 或 AUTOINCREMENT
+        "AUTOINCREMENT"
+    }
+
+    fn last_insert_id_sql(&self) -> Option<&'static str> {
+        // Snowflake 不支持 lastval()，需用 RETURNING
+        None
+    }
+
+    fn build_create_table(&self, table: &str, columns: &[ColumnDef]) -> String {
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|col| {
+                let mut sql = format!("{} {}", self.quote(&col.name), col.sql_type);
+                if !col.nullable {
+                    sql.push_str(" NOT NULL");
+                }
+                if let Some(default) = &col.default {
+                    sql.push_str(&format!(" DEFAULT {}", default));
+                }
+                if col.primary_key {
+                    sql.push_str(" PRIMARY KEY");
+                }
+                sql
+            })
+            .collect();
+        format!("CREATE TABLE {} ({})", self.quote(table), cols.join(", "))
+    }
+
+    fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
+        let stmts: Vec<String> = changes
+            .iter()
+            .map(|change| match change {
+                TableChange::AddColumn(col) => {
+                    let mut sql = format!(
+                        "ALTER TABLE {} ADD COLUMN {} {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        col.sql_type
+                    );
+                    if !col.nullable {
+                        sql.push_str(" NOT NULL");
+                    }
+                    if let Some(default) = &col.default {
+                        sql.push_str(&format!(" DEFAULT {}", default));
+                    }
+                    sql
+                }
+                TableChange::DropColumn(name) => {
+                    format!(
+                        "ALTER TABLE {} DROP COLUMN {}",
+                        self.quote(table),
+                        self.quote(name)
+                    )
+                }
+                TableChange::ModifyColumn(col) => {
+                    format!(
+                        "ALTER TABLE {} ALTER COLUMN {} SET DATA TYPE {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        col.sql_type
+                    )
+                }
+                TableChange::AddIndex(name, cols) => {
+                    format!(
+                        "CREATE INDEX {} ON {} ({})",
+                        name,
+                        self.quote(table),
+                        cols.join(", ")
+                    )
+                }
+                TableChange::DropIndex(name) => {
+                    format!("DROP INDEX {}", name)
+                }
+                TableChange::AddForeignKey {
+                    columns,
+                    reference_table,
+                    reference_columns,
+                } => {
+                    format!(
+                        "ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
+                        self.quote(table),
+                        table,
+                        columns.join("_"),
+                        columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
+                        self.quote(reference_table),
+                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", ")
+                    )
+                }
+            })
+            .collect();
+        stmts.join("; ")
+    }
+}
+
+/// Snowflake 特有 SQL 构造方法
+#[cfg(feature = "dialect-snowflake")]
+impl SnowflakeDialect {
+    /// 生成 COPY INTO 数据加载语句
+    ///
+    /// `COPY INTO target FROM source`
+    pub fn build_copy_into(&self, target: &str, source: &str) -> String {
+        format!("COPY INTO {} FROM {}", self.quote(target), source)
+    }
+
+    /// 生成 TIME TRAVEL AT 查询语句
+    ///
+    /// `SELECT * FROM table AT(OBJECT => timestamp)`
+    pub fn build_time_travel_at(&self, table: &str, timestamp: &str) -> String {
+        format!(
+            "SELECT * FROM {} AT(OBJECT => '{}')",
+            self.quote(table),
+            self.escape_string(timestamp)
+        )
+    }
+
+    /// 生成 TIME TRAVEL BEFORE 查询语句
+    ///
+    /// `SELECT * FROM table BEFORE(timestamp => timestamp)`
+    pub fn build_time_travel_before(&self, table: &str, timestamp: &str) -> String {
+        format!(
+            "SELECT * FROM {} BEFORE(timestamp => '{}')",
+            self.quote(table),
+            self.escape_string(timestamp)
+        )
+    }
+}
+
+// ============================================================================
+// Redshift 方言（v3.6.0 新增，委派 PostgreSqlDialect + 特性扩展）
+//
+// Redshift 是 AWS 云数据仓库，基于 PostgreSQL 8.0.2 扩展：
+// - 大部分 SQL 语法与 PG 兼容（quote/escape_string/pagination 等）
+// - 支持 COPY 数据加载、UNLOAD 数据卸载
+// - 不支持 PG 的某些特性（如 LISTEN/NOTIFY、advisory locks）
+// - 使用 delegate_dialect_to 宏委派 PG，再扩展特有方法
+// ============================================================================
+
+/// Redshift 方言实现（AWS 云数仓，委派 PG + COPY/UNLOAD 特性扩展）
+// Redshift 委派 PostgreSqlDialect，再扩展 COPY/UNLOAD 特有方法
+#[cfg(feature = "dialect-redshift")]
+delegate_dialect_to!(RedshiftDialect, PostgreSqlDialect, DbType::Redshift);
+
+/// Redshift 特有 SQL 构造方法
+#[cfg(feature = "dialect-redshift")]
+impl RedshiftDialect {
+    /// 生成 COPY 数据加载语句
+    ///
+    /// `COPY target FROM source CREDENTIALS ... FORMAT AS CSV`
+    pub fn build_copy(&self, target: &str, source: &str, credentials: &str) -> String {
+        format!(
+            "COPY {} FROM '{}' CREDENTIALS '{}' FORMAT AS CSV",
+            PostgreSqlDialect.quote(target),
+            source,
+            credentials
+        )
+    }
+
+    /// 生成 UNLOAD 数据卸载语句
+    ///
+    /// `UNLOAD ('query') TO 's3://path' CREDENTIALS ...`
+    pub fn build_unload(&self, query: &str, s3_path: &str, credentials: &str) -> String {
+        format!(
+            "UNLOAD ('{}') TO '{}' CREDENTIALS '{}'",
+            query, s3_path, credentials
+        )
+    }
+}
+
 // ============================================================================
 // ClickHouse 方言（独立实现）
 //
@@ -2270,12 +2588,726 @@ pub fn get_dialect(db_type: DbType) -> Result<Box<dyn Dialect>, DbError> {
         DbType::GBase => Ok(Box::new(GBaseDialect)),
         DbType::Sybase => Ok(Box::new(SybaseDialect)),
         DbType::DuckDB => Ok(Box::new(DuckDBDialect)),
+        #[cfg(feature = "dialect-cockroachdb")]
+        DbType::CockroachDB => Ok(Box::new(CockroachDbDialect)),
+        #[cfg(feature = "dialect-yugabytedb")]
+        DbType::YugabyteDB => Ok(Box::new(YugabyteDbDialect)),
+        #[cfg(feature = "dialect-snowflake")]
+        DbType::Snowflake => Ok(Box::new(SnowflakeDialect)),
+        #[cfg(feature = "dialect-redshift")]
+        DbType::Redshift => Ok(Box::new(RedshiftDialect)),
+        #[cfg(feature = "dialect-informix")]
+        DbType::Informix => Ok(Box::new(InformixDialect)),
+        #[cfg(feature = "dialect-saphana")]
+        DbType::SapHana => Ok(Box::new(SapHanaDialect)),
+        #[cfg(feature = "dialect-firebird")]
+        DbType::Firebird => Ok(Box::new(FirebirdDialect)),
     }
 }
 
 impl fmt::Display for dyn Dialect {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(f, "Dialect({})", self.db_type())
+    }
+}
+
+// ============================================================================
+// v3.7.0 M4: Informix / SAP HANA / Firebird 方言实现
+// ============================================================================
+// 三种方言均为 "SQL generation only, no real DB driver"：
+// - Informix: informix_rust v0.0.4 不成熟（依赖 C SDK），无用户需求
+// - SAP HANA: hdbconnect v0.32.0 较成熟，但 sqlx 不支持，无用户需求
+// - Firebird: rsfbclient v0.27.0 较成熟，但 sqlx 不支持，无用户需求
+// ============================================================================
+
+/// Informix 方言实现（v3.7.0，SQL generation only）
+///
+/// IBM Informix 数据库方言，支持 SERIAL/ROW 类型。
+/// 无真 DB 驱动（informix_rust v0.0.4 不成熟），仅生成 SQL 语法。
+#[cfg(feature = "dialect-informix")]
+#[derive(Debug, Clone)]
+pub struct InformixDialect;
+
+#[cfg(feature = "dialect-informix")]
+impl Dialect for InformixDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(InformixDialect)
+    }
+
+    fn db_type(&self) -> DbType {
+        DbType::Informix
+    }
+
+    fn quote(&self, identifier: &str) -> String {
+        format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn escape_string(&self, s: &str) -> String {
+        let mut escaped = String::with_capacity(s.len() * 2);
+        for c in s.chars() {
+            match c {
+                '\'' => escaped.push_str("''"),
+                _ => escaped.push(c),
+            }
+        }
+        escaped
+    }
+
+    fn supports_returning(&self) -> bool {
+        false
+    }
+
+    fn build_pagination(&self, sql: &str, page: u64, limit: u64) -> String {
+        let offset = page.saturating_sub(1).saturating_mul(limit);
+        format!("{} SKIP {} FIRST {}", sql, offset, limit)
+    }
+
+    fn json_type(&self) -> &'static str {
+        "LVARCHAR"
+    }
+
+    fn json_extract(&self, column: &str, path: &str) -> String {
+        let normalized = if path.starts_with('$') {
+            path.to_string()
+        } else {
+            format!("$.{}", path)
+        };
+        format!(
+            "JSONExtract({}, '{}')",
+            column,
+            self.escape_string(&normalized)
+        )
+    }
+
+    fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
+        if columns.is_empty() {
+            return "0".to_string();
+        }
+        let escaped = self.escape_string(keyword);
+        let parts: Vec<String> = columns
+            .iter()
+            .map(|c| format!("CONTAINS({}, '{}') > 0", c, escaped))
+            .collect();
+        parts.join(" OR ")
+    }
+
+    fn bool_to_int(&self, expr: &str) -> String {
+        format!("(CASE WHEN {} THEN 1 ELSE 0 END)", expr)
+    }
+
+    fn concat(&self, parts: &[&str]) -> String {
+        if parts.is_empty() {
+            return "''".to_string();
+        }
+        parts.join(" || ")
+    }
+
+    fn supports_if_exists(&self) -> bool {
+        true
+    }
+
+    fn supports_if_not_exists(&self) -> bool {
+        true
+    }
+
+    fn auto_increment_keyword(&self) -> &'static str {
+        "SERIAL"
+    }
+
+    fn last_insert_id_sql(&self) -> Option<&'static str> {
+        Some("SELECT DBINFO('sqlca.sqlerrd1') FROM systables WHERE tabid = 1")
+    }
+
+    fn build_create_table(&self, table: &str, columns: &[ColumnDef]) -> String {
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|col| {
+                let informix_type = map_to_informix_type(&col.sql_type);
+                let mut sql = format!("{} {}", self.quote(&col.name), informix_type);
+                if !col.nullable && !col.auto_increment {
+                    sql.push_str(" NOT NULL");
+                }
+                if let Some(default) = &col.default {
+                    sql.push_str(&format!(" DEFAULT {}", default));
+                }
+                if col.primary_key {
+                    sql.push_str(" PRIMARY KEY");
+                }
+                sql
+            })
+            .collect();
+
+        format!("CREATE TABLE {} ({})", self.quote(table), cols.join(", "))
+    }
+
+    fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
+        let stmts: Vec<String> = changes
+            .iter()
+            .map(|change| match change {
+                TableChange::AddColumn(col) => {
+                    let informix_type = map_to_informix_type(&col.sql_type);
+                    let mut sql = format!(
+                        "ALTER TABLE {} ADD COLUMN {} {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        informix_type
+                    );
+                    if !col.nullable {
+                        sql.push_str(" NOT NULL");
+                    }
+                    if let Some(default) = &col.default {
+                        sql.push_str(&format!(" DEFAULT {}", default));
+                    }
+                    sql
+                }
+                TableChange::DropColumn(name) => {
+                    format!(
+                        "ALTER TABLE {} DROP COLUMN {}",
+                        self.quote(table),
+                        self.quote(name)
+                    )
+                }
+                TableChange::ModifyColumn(col) => {
+                    let informix_type = map_to_informix_type(&col.sql_type);
+                    format!(
+                        "ALTER TABLE {} MODIFY {} {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        informix_type
+                    )
+                }
+                TableChange::AddIndex(name, cols) => {
+                    format!(
+                        "CREATE INDEX {} ON {} ({})",
+                        name,
+                        self.quote(table),
+                        cols.join(", ")
+                    )
+                }
+                TableChange::DropIndex(name) => {
+                    format!("DROP INDEX {}", name)
+                }
+                TableChange::AddForeignKey {
+                    columns,
+                    reference_table,
+                    reference_columns,
+                } => {
+                    format!(
+                        "ALTER TABLE {} ADD CONSTRAINT FOREIGN KEY ({}) REFERENCES {} ({})",
+                        self.quote(table),
+                        columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        self.quote(reference_table),
+                        reference_columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            })
+            .collect();
+
+        stmts.join("; ")
+    }
+}
+
+/// 将通用 SQL 类型映射为 Informix 类型
+#[cfg(feature = "dialect-informix")]
+fn map_to_informix_type(sql_type: &str) -> String {
+    let upper = sql_type.to_uppercase();
+    let trimmed = upper.trim();
+
+    if trimmed.starts_with("BIGINT") {
+        "BIGINT".to_string()
+    } else if matches!(trimmed, "INT" | "INTEGER") {
+        "INTEGER".to_string()
+    } else if matches!(trimmed, "SMALLINT") {
+        "SMALLINT".to_string()
+    } else if trimmed.starts_with("VARCHAR") || trimmed.starts_with("CHAR") {
+        sql_type.to_string()
+    } else if matches!(trimmed, "TEXT" | "LVARCHAR") {
+        "LVARCHAR".to_string()
+    } else if matches!(trimmed, "BOOLEAN" | "BOOL") {
+        "BOOLEAN".to_string()
+    } else if matches!(trimmed, "FLOAT" | "REAL") {
+        "SMALLFLOAT".to_string()
+    } else if matches!(trimmed, "DOUBLE" | "DOUBLE PRECISION") {
+        "FLOAT".to_string()
+    } else if matches!(trimmed, "DATETIME" | "TIMESTAMP") {
+        "DATETIME YEAR TO SECOND".to_string()
+    } else if matches!(trimmed, "DATE") {
+        "DATE".to_string()
+    } else if trimmed.starts_with("SERIAL") {
+        sql_type.to_string()
+    } else {
+        sql_type.to_string()
+    }
+}
+
+/// SAP HANA 方言实现（v3.7.0，SQL generation only）
+///
+/// SAP HANA 内存数据库方言，支持计算列 + CE 函数。
+/// 无真 DB 驱动（sz-orm 使用 sqlx，sqlx 不支持 SAP HANA），仅生成 SQL 语法。
+#[cfg(feature = "dialect-saphana")]
+#[derive(Debug, Clone)]
+pub struct SapHanaDialect;
+
+#[cfg(feature = "dialect-saphana")]
+impl Dialect for SapHanaDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(SapHanaDialect)
+    }
+
+    fn db_type(&self) -> DbType {
+        DbType::SapHana
+    }
+
+    fn quote(&self, identifier: &str) -> String {
+        format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn escape_string(&self, s: &str) -> String {
+        let mut escaped = String::with_capacity(s.len() * 2);
+        for c in s.chars() {
+            match c {
+                '\'' => escaped.push_str("''"),
+                _ => escaped.push(c),
+            }
+        }
+        escaped
+    }
+
+    fn supports_returning(&self) -> bool {
+        false
+    }
+
+    fn build_pagination(&self, sql: &str, page: u64, limit: u64) -> String {
+        let offset = page.saturating_sub(1).saturating_mul(limit);
+        format!("{} LIMIT {} OFFSET {}", sql, limit, offset)
+    }
+
+    fn json_type(&self) -> &'static str {
+        "NCLOB"
+    }
+
+    fn json_extract(&self, column: &str, path: &str) -> String {
+        let normalized = if path.starts_with('$') {
+            path.to_string()
+        } else {
+            format!("$.{}", path)
+        };
+        format!(
+            "JSON_VALUE({}, '{}')",
+            column,
+            self.escape_string(&normalized)
+        )
+    }
+
+    fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
+        if columns.is_empty() {
+            return "0".to_string();
+        }
+        let escaped = self.escape_string(keyword);
+        let parts: Vec<String> = columns
+            .iter()
+            .map(|c| format!("CONTAINS({}, '{}') > 0", c, escaped))
+            .collect();
+        parts.join(" OR ")
+    }
+
+    fn bool_to_int(&self, expr: &str) -> String {
+        format!("(CASE WHEN {} THEN 1 ELSE 0 END)", expr)
+    }
+
+    fn concat(&self, parts: &[&str]) -> String {
+        if parts.is_empty() {
+            return "''".to_string();
+        }
+        parts.join(" || ")
+    }
+
+    fn supports_if_exists(&self) -> bool {
+        true
+    }
+
+    fn supports_if_not_exists(&self) -> bool {
+        true
+    }
+
+    fn auto_increment_keyword(&self) -> &'static str {
+        "GENERATED BY DEFAULT AS IDENTITY"
+    }
+
+    fn last_insert_id_sql(&self) -> Option<&'static str> {
+        None
+    }
+
+    fn build_create_table(&self, table: &str, columns: &[ColumnDef]) -> String {
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|col| {
+                let hana_type = map_to_saphana_type(&col.sql_type);
+                let mut sql = format!("{} {}", self.quote(&col.name), hana_type);
+                if !col.nullable && !col.auto_increment {
+                    sql.push_str(" NOT NULL");
+                }
+                if let Some(default) = &col.default {
+                    sql.push_str(&format!(" DEFAULT {}", default));
+                }
+                if col.auto_increment {
+                    sql.push_str(&format!(" {}", self.auto_increment_keyword()));
+                }
+                if col.primary_key {
+                    sql.push_str(" PRIMARY KEY");
+                }
+                sql
+            })
+            .collect();
+
+        format!(
+            "CREATE COLUMN TABLE {} ({})",
+            self.quote(table),
+            cols.join(", ")
+        )
+    }
+
+    fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
+        let stmts: Vec<String> = changes
+            .iter()
+            .map(|change| match change {
+                TableChange::AddColumn(col) => {
+                    let hana_type = map_to_saphana_type(&col.sql_type);
+                    let mut sql = format!(
+                        "ALTER TABLE {} ADD ({})",
+                        self.quote(table),
+                        format!("{} {}", self.quote(&col.name), hana_type)
+                    );
+                    if !col.nullable {
+                        sql.push_str(" NOT NULL");
+                    }
+                    if let Some(default) = &col.default {
+                        sql.push_str(&format!(" DEFAULT {}", default));
+                    }
+                    sql
+                }
+                TableChange::DropColumn(name) => {
+                    format!(
+                        "ALTER TABLE {} DROP ({})",
+                        self.quote(table),
+                        self.quote(name)
+                    )
+                }
+                TableChange::ModifyColumn(col) => {
+                    let hana_type = map_to_saphana_type(&col.sql_type);
+                    format!(
+                        "ALTER TABLE {} ALTER ({})",
+                        self.quote(table),
+                        format!("{} {}", self.quote(&col.name), hana_type)
+                    )
+                }
+                TableChange::AddIndex(name, cols) => {
+                    format!(
+                        "CREATE INDEX {} ON {} ({})",
+                        name,
+                        self.quote(table),
+                        cols.join(", ")
+                    )
+                }
+                TableChange::DropIndex(name) => {
+                    format!("DROP INDEX {}", name)
+                }
+                TableChange::AddForeignKey {
+                    columns,
+                    reference_table,
+                    reference_columns,
+                } => {
+                    format!(
+                        "ALTER TABLE {} ADD CONSTRAINT FOREIGN KEY ({}) REFERENCES {} ({})",
+                        self.quote(table),
+                        columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        self.quote(reference_table),
+                        reference_columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            })
+            .collect();
+
+        stmts.join("; ")
+    }
+}
+
+/// 将通用 SQL 类型映射为 SAP HANA 类型
+#[cfg(feature = "dialect-saphana")]
+fn map_to_saphana_type(sql_type: &str) -> String {
+    let upper = sql_type.to_uppercase();
+    let trimmed = upper.trim();
+
+    if trimmed.starts_with("BIGINT") {
+        "BIGINT".to_string()
+    } else if matches!(trimmed, "INT" | "INTEGER") {
+        "INTEGER".to_string()
+    } else if matches!(trimmed, "TINYINT" | "SMALLINT") {
+        "SMALLINT".to_string()
+    } else if trimmed.starts_with("VARCHAR") || trimmed.starts_with("NVARCHAR") {
+        sql_type.to_string()
+    } else if trimmed.starts_with("CHAR") || trimmed.starts_with("NCHAR") {
+        sql_type.to_string()
+    } else if matches!(trimmed, "TEXT" | "CLOB") {
+        "NCLOB".to_string()
+    } else if matches!(trimmed, "BOOLEAN" | "BOOL") {
+        "BOOLEAN".to_string()
+    } else if matches!(trimmed, "FLOAT" | "REAL") {
+        "REAL".to_string()
+    } else if matches!(trimmed, "DOUBLE" | "DOUBLE PRECISION") {
+        "DOUBLE".to_string()
+    } else if matches!(trimmed, "DATETIME" | "TIMESTAMP") {
+        "TIMESTAMP".to_string()
+    } else if matches!(trimmed, "DATE") {
+        "DATE".to_string()
+    } else {
+        sql_type.to_string()
+    }
+}
+
+/// Firebird 方言实现（v3.7.0，SQL generation only）
+///
+/// Firebird 数据库方言，支持 GENERATOR/SEQUENCE + EXECUTE BLOCK。
+/// 无真 DB 驱动（sz-orm 使用 sqlx，sqlx 不支持 Firebird），仅生成 SQL 语法。
+#[cfg(feature = "dialect-firebird")]
+#[derive(Debug, Clone)]
+pub struct FirebirdDialect;
+
+#[cfg(feature = "dialect-firebird")]
+impl Dialect for FirebirdDialect {
+    fn clone_box(&self) -> Box<dyn Dialect> {
+        Box::new(FirebirdDialect)
+    }
+
+    fn db_type(&self) -> DbType {
+        DbType::Firebird
+    }
+
+    fn quote(&self, identifier: &str) -> String {
+        format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn escape_string(&self, s: &str) -> String {
+        let mut escaped = String::with_capacity(s.len() * 2);
+        for c in s.chars() {
+            match c {
+                '\'' => escaped.push_str("''"),
+                _ => escaped.push(c),
+            }
+        }
+        escaped
+    }
+
+    fn supports_returning(&self) -> bool {
+        true
+    }
+
+    fn build_pagination(&self, sql: &str, page: u64, limit: u64) -> String {
+        let offset = page.saturating_sub(1).saturating_mul(limit);
+        let to = offset + limit;
+        format!("{} ROWS {} TO {}", sql, offset + 1, to)
+    }
+
+    fn json_type(&self) -> &'static str {
+        "BLOB SUB_TYPE TEXT"
+    }
+
+    fn json_extract(&self, column: &str, path: &str) -> String {
+        let normalized = if path.starts_with('$') {
+            path.to_string()
+        } else {
+            format!("$.{}", path)
+        };
+        format!(
+            "JSON_GET({}, '{}')",
+            column,
+            self.escape_string(&normalized)
+        )
+    }
+
+    fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
+        if columns.is_empty() {
+            return "0".to_string();
+        }
+        let escaped = self.escape_string(keyword);
+        let parts: Vec<String> = columns
+            .iter()
+            .map(|c| format!("CONTAINING({}, '{}')", c, escaped))
+            .collect();
+        parts.join(" OR ")
+    }
+
+    fn bool_to_int(&self, expr: &str) -> String {
+        format!("(CASE WHEN {} THEN 1 ELSE 0 END)", expr)
+    }
+
+    fn concat(&self, parts: &[&str]) -> String {
+        if parts.is_empty() {
+            return "''".to_string();
+        }
+        parts.join(" || ")
+    }
+
+    fn supports_if_exists(&self) -> bool {
+        true
+    }
+
+    fn supports_if_not_exists(&self) -> bool {
+        true
+    }
+
+    fn auto_increment_keyword(&self) -> &'static str {
+        "GENERATED BY DEFAULT AS IDENTITY"
+    }
+
+    fn last_insert_id_sql(&self) -> Option<&'static str> {
+        Some("SELECT GEN_ID(SQLITE_SEQUENCE, 0) FROM RDB$DATABASE")
+    }
+
+    fn build_create_table(&self, table: &str, columns: &[ColumnDef]) -> String {
+        let cols: Vec<String> = columns
+            .iter()
+            .map(|col| {
+                let fb_type = map_to_firebird_type(&col.sql_type);
+                let mut sql = format!("{} {}", self.quote(&col.name), fb_type);
+                if !col.nullable && !col.auto_increment {
+                    sql.push_str(" NOT NULL");
+                }
+                if let Some(default) = &col.default {
+                    sql.push_str(&format!(" DEFAULT {}", default));
+                }
+                if col.auto_increment {
+                    sql.push_str(&format!(" {}", self.auto_increment_keyword()));
+                }
+                if col.primary_key {
+                    sql.push_str(" PRIMARY KEY");
+                }
+                sql
+            })
+            .collect();
+
+        format!("CREATE TABLE {} ({})", self.quote(table), cols.join(", "))
+    }
+
+    fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
+        let stmts: Vec<String> = changes
+            .iter()
+            .map(|change| match change {
+                TableChange::AddColumn(col) => {
+                    let fb_type = map_to_firebird_type(&col.sql_type);
+                    let mut sql = format!(
+                        "ALTER TABLE {} ADD {} {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        fb_type
+                    );
+                    if !col.nullable {
+                        sql.push_str(" NOT NULL");
+                    }
+                    if let Some(default) = &col.default {
+                        sql.push_str(&format!(" DEFAULT {}", default));
+                    }
+                    sql
+                }
+                TableChange::DropColumn(name) => {
+                    format!(
+                        "ALTER TABLE {} DROP {}",
+                        self.quote(table),
+                        self.quote(name)
+                    )
+                }
+                TableChange::ModifyColumn(col) => {
+                    let fb_type = map_to_firebird_type(&col.sql_type);
+                    format!(
+                        "ALTER TABLE {} ALTER COLUMN {} TYPE {}",
+                        self.quote(table),
+                        self.quote(&col.name),
+                        fb_type
+                    )
+                }
+                TableChange::AddIndex(name, cols) => {
+                    format!(
+                        "CREATE INDEX {} ON {} ({})",
+                        name,
+                        self.quote(table),
+                        cols.join(", ")
+                    )
+                }
+                TableChange::DropIndex(name) => {
+                    format!("DROP INDEX {}", name)
+                }
+                TableChange::AddForeignKey {
+                    columns,
+                    reference_table,
+                    reference_columns,
+                } => {
+                    format!(
+                        "ALTER TABLE {} ADD CONSTRAINT FOREIGN KEY ({}) REFERENCES {} ({})",
+                        self.quote(table),
+                        columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", "),
+                        self.quote(reference_table),
+                        reference_columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
+                }
+            })
+            .collect();
+
+        stmts.join("; ")
+    }
+}
+
+/// 将通用 SQL 类型映射为 Firebird 类型
+#[cfg(feature = "dialect-firebird")]
+fn map_to_firebird_type(sql_type: &str) -> String {
+    let upper = sql_type.to_uppercase();
+    let trimmed = upper.trim();
+
+    if trimmed.starts_with("BIGINT") {
+        "BIGINT".to_string()
+    } else if matches!(trimmed, "INT" | "INTEGER") {
+        "INTEGER".to_string()
+    } else if matches!(trimmed, "SMALLINT") {
+        "SMALLINT".to_string()
+    } else if trimmed.starts_with("VARCHAR") || trimmed.starts_with("CHAR") {
+        sql_type.to_string()
+    } else if matches!(trimmed, "TEXT" | "BLOB") {
+        "BLOB SUB_TYPE TEXT".to_string()
+    } else if matches!(trimmed, "BOOLEAN" | "BOOL") {
+        "BOOLEAN".to_string()
+    } else if matches!(trimmed, "FLOAT" | "REAL") {
+        "FLOAT".to_string()
+    } else if matches!(trimmed, "DOUBLE" | "DOUBLE PRECISION") {
+        "DOUBLE PRECISION".to_string()
+    } else if matches!(trimmed, "DATETIME" | "TIMESTAMP") {
+        "TIMESTAMP".to_string()
+    } else if matches!(trimmed, "DATE") {
+        "DATE".to_string()
+    } else {
+        sql_type.to_string()
     }
 }
 
@@ -3542,5 +4574,151 @@ mod tests {
         assert!(result.is_ok());
         let dialect = result.unwrap();
         assert_eq!(dialect.db_type(), DbType::DuckDB);
+    }
+}
+
+// ============================================================================
+// v3.4.0 M3-T3：enum dispatch 优化（perf-enum-dispatch feature）
+// ============================================================================
+
+/// 方言种类枚举（用于 match 分发替代 `Box<dyn Dialect>` vtable 查找）
+///
+/// 当 `perf-enum-dispatch` feature 启用时，可通过 `DialectKind` 直接 match 分发
+/// 到具体方言实现，避免动态分发的 vtable 间接寻址开销。
+#[cfg(feature = "perf-enum-dispatch")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DialectKind {
+    /// MySQL 方言
+    MySQL,
+    /// PostgreSQL 方言
+    PostgreSQL,
+    /// SQLite 方言
+    SQLite,
+    /// Oracle 方言
+    Oracle,
+    /// SQL Server 方言
+    MSSQL,
+}
+
+#[cfg(feature = "perf-enum-dispatch")]
+impl DialectKind {
+    /// 从 `DbType` 创建 `DialectKind`（不支持返回 None）
+    pub fn from_db_type(db_type: DbType) -> Option<Self> {
+        match db_type {
+            DbType::MySQL | DbType::MariaDB | DbType::TiDB | DbType::OceanBase => Some(Self::MySQL),
+            DbType::PostgreSQL | DbType::Kingbase | DbType::PolarDB | DbType::GaussDB => {
+                Some(Self::PostgreSQL)
+            }
+            DbType::Sqlite => Some(Self::SQLite),
+            DbType::Oracle | DbType::Dameng => Some(Self::Oracle),
+            DbType::SqlServer | DbType::Sybase | DbType::GBase => Some(Self::MSSQL),
+            _ => None,
+        }
+    }
+
+    /// 引用标识符（match 分发，避免 vtable 查找）
+    pub fn quote(&self, identifier: &str) -> String {
+        match self {
+            Self::MySQL => MySqlDialect.quote(identifier),
+            Self::PostgreSQL => PostgreSqlDialect.quote(identifier),
+            Self::SQLite => SqliteDialect.quote(identifier),
+            Self::Oracle => OracleDialect.quote(identifier),
+            Self::MSSQL => SqlServerDialect.quote(identifier),
+        }
+    }
+
+    /// 转义字符串字面量（match 分发）
+    pub fn escape_string(&self, s: &str) -> String {
+        match self {
+            Self::MySQL => MySqlDialect.escape_string(s),
+            Self::PostgreSQL => PostgreSqlDialect.escape_string(s),
+            Self::SQLite => SqliteDialect.escape_string(s),
+            Self::Oracle => OracleDialect.escape_string(s),
+            Self::MSSQL => SqlServerDialect.escape_string(s),
+        }
+    }
+
+    /// 返回对应的 `DbType`
+    pub fn db_type(&self) -> DbType {
+        match self {
+            Self::MySQL => DbType::MySQL,
+            Self::PostgreSQL => DbType::PostgreSQL,
+            Self::SQLite => DbType::Sqlite,
+            Self::Oracle => DbType::Oracle,
+            Self::MSSQL => DbType::SqlServer,
+        }
+    }
+
+    /// 转为 `Box<dyn Dialect>`
+    pub fn to_dialect(&self) -> Box<dyn Dialect> {
+        match self {
+            Self::MySQL => Box::new(MySqlDialect),
+            Self::PostgreSQL => Box::new(PostgreSqlDialect),
+            Self::SQLite => Box::new(SqliteDialect),
+            Self::Oracle => Box::new(OracleDialect),
+            Self::MSSQL => Box::new(SqlServerDialect),
+        }
+    }
+}
+
+#[cfg(all(test, feature = "perf-enum-dispatch"))]
+mod enum_dispatch_tests {
+    use super::*;
+
+    #[test]
+    fn test_dialect_kind_from_db_type() {
+        assert_eq!(
+            DialectKind::from_db_type(DbType::MySQL),
+            Some(DialectKind::MySQL)
+        );
+        assert_eq!(
+            DialectKind::from_db_type(DbType::PostgreSQL),
+            Some(DialectKind::PostgreSQL)
+        );
+        assert_eq!(
+            DialectKind::from_db_type(DbType::Sqlite),
+            Some(DialectKind::SQLite)
+        );
+        assert_eq!(
+            DialectKind::from_db_type(DbType::Oracle),
+            Some(DialectKind::Oracle)
+        );
+        assert_eq!(
+            DialectKind::from_db_type(DbType::SqlServer),
+            Some(DialectKind::MSSQL)
+        );
+        assert_eq!(DialectKind::from_db_type(DbType::Redis), None);
+    }
+
+    #[test]
+    fn test_dialect_kind_quote_diff() {
+        let kinds = [
+            DialectKind::MySQL,
+            DialectKind::PostgreSQL,
+            DialectKind::SQLite,
+            DialectKind::Oracle,
+            DialectKind::MSSQL,
+        ];
+        for kind in &kinds {
+            let enum_result = kind.quote("users");
+            let box_result = kind.to_dialect().quote("users");
+            assert_eq!(enum_result, box_result);
+        }
+    }
+
+    #[test]
+    fn test_dialect_kind_escape_diff() {
+        let kinds = [
+            DialectKind::MySQL,
+            DialectKind::PostgreSQL,
+            DialectKind::SQLite,
+            DialectKind::Oracle,
+            DialectKind::MSSQL,
+        ];
+        for kind in &kinds {
+            let enum_result = kind.escape_string("it's");
+            let box_result = kind.to_dialect().escape_string("it's");
+            assert_eq!(enum_result, box_result);
+        }
     }
 }

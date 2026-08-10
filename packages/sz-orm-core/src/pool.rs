@@ -43,25 +43,33 @@ pub type QueryStreamItem =
 /// 所有 async 方法使用单一生命周期 `'a`（绑定 `&'a mut self` 和 `&'a str`），
 /// 而非 HRTB，从而允许 sqlx 适配器实现。
 pub trait Connection: Send + Sync {
+    /// 执行 SQL（INSERT/UPDATE/DELETE），返回影响行数
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>>;
+    /// 执行查询（SELECT），返回结果行集
     fn query<'a>(
         &'a mut self,
         sql: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>>;
+    /// 开启事务
     fn begin_transaction<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>>;
+    /// 提交事务
     fn commit<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>>;
+    /// 回滚事务
     fn rollback<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>>;
+    /// 判断连接是否仍然有效
     fn is_connected(&self) -> bool;
+    /// 发送 PING 检测连接存活
     fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>>;
+    /// 关闭连接
     fn close<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>>;
@@ -391,8 +399,10 @@ impl DerefMut for PooledConnection {
 /// TLS 版本
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TlsVersion {
+    /// TLS 1.2
     #[default]
     Tls12,
+    /// TLS 1.3
     Tls13,
 }
 
@@ -429,12 +439,19 @@ pub enum PoolEvent {
 /// 连接池事件回调
 pub type PoolEventCallback = Arc<dyn Fn(PoolEvent) + Send + Sync>;
 
+/// 连接池配置
 pub struct PoolConfig {
+    /// 最大连接数
     pub max_size: u32,
+    /// 最小空闲连接数
     pub min_idle: u32,
+    /// 获取连接超时时间
     pub acquire_timeout: Duration,
+    /// 空闲连接超时时间
     pub idle_timeout: Duration,
+    /// 连接最大存活时间
     pub max_lifetime: Duration,
+    /// 连接建立超时时间
     pub connection_timeout: Duration,
     /// TLS 配置
     pub tls: Option<TlsConfig>,
@@ -548,10 +565,15 @@ impl PoolConfig {
     }
 }
 
+/// 连接池状态快照
 pub struct PoolStatus {
+    /// 空闲连接数
     pub idle: u32,
+    /// 活跃连接数
     pub active: u32,
+    /// 最大连接数
     pub max: u32,
+    /// 最小空闲连接数
     pub min: u32,
     /// 等待 acquire 的任务数
     pub waiters: u32,
@@ -602,37 +624,44 @@ impl PoolMetrics {
     }
 }
 
+/// 连接池配置构建器
 pub struct PoolConfigBuilder {
     config: PoolConfig,
 }
 
 impl PoolConfigBuilder {
+    /// 创建默认配置构建器
     pub fn new() -> Self {
         Self {
             config: PoolConfig::default(),
         }
     }
 
+    /// 设置最大连接数
     pub fn max_size(mut self, size: u32) -> Self {
         self.config.max_size = size;
         self
     }
 
+    /// 设置最小空闲连接数
     pub fn min_idle(mut self, count: u32) -> Self {
         self.config.min_idle = count;
         self
     }
 
+    /// 设置获取连接超时（秒）
     pub fn acquire_timeout(mut self, timeout_secs: u64) -> Self {
         self.config.acquire_timeout = Duration::from_secs(timeout_secs);
         self
     }
 
+    /// 设置空闲连接超时（秒）
     pub fn idle_timeout(mut self, timeout_secs: u64) -> Self {
         self.config.idle_timeout = Duration::from_secs(timeout_secs);
         self
     }
 
+    /// 设置连接最大存活时间（秒）
     pub fn max_lifetime(mut self, lifetime_secs: u64) -> Self {
         self.config.max_lifetime = Duration::from_secs(lifetime_secs);
         self
@@ -686,6 +715,7 @@ impl PoolConfigBuilder {
         self
     }
 
+    /// 构建并校验连接池配置
     pub fn build(self) -> Result<PoolConfig, PoolError> {
         self.config.validate()?;
         Ok(self.config)
@@ -701,6 +731,7 @@ impl Default for PoolConfigBuilder {
 /// 连接工厂 trait，用于创建新连接
 #[async_trait]
 pub trait ConnectionFactory: Send + Sync {
+    /// 创建新连接
     async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError>;
 }
 

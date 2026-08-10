@@ -1,12 +1,12 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：1.2.2（workspace.package.version 集中管理）
+- 版本：3.6.0（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：43 个成员（41 个 lib 包 + cli + examples）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
-- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 1.2.2
+- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 3.4.0
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 检测自动拦截（N1QueryDetector）。
 
@@ -18,7 +18,7 @@
 
 **严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。** 任何改动必须通过 PR 贡献到上游。违反此原则会导致审计记录与事实不符，直接红牌拒绝入库。
 
-### 10 道门禁（提交前必过）
+### 14 道门禁（提交前必过）
 
 | # | 门禁 | 命令 |
 |---|------|------|
@@ -33,6 +33,9 @@
 | 9 | SQL 注入扫描 | `scripts/check-sql-injection.ps1` |
 | 10 | Feature 全组合编译 | `cargo check --workspace --all-targets --all-features` |
 | 11 | 上游仓库未修改检查 | `git diff --name-only HEAD`（ADR-0001） |
+| 12 | 文档与代码一致性检查 | `python scripts/check-doc-consistency.py` |
+| 13 | 审计证据验证 | `bash scripts/audit-verify.sh <审计报告.md>` |
+| 14 | 文档同步更新检查 | `python scripts/check-doc-sync.py --diff HEAD` |
 
 ### 五维审查（每次 PR 必做）
 

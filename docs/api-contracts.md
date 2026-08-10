@@ -1,7 +1,10 @@
 # SZ-ORM 公共 API 行为契约清单
 
-> **版本**: v1.2.0
-> **更新日期**: 2026-07-29
+> **版本**: v3.4.0
+> **更新日期**: 2026-08-09
+> **基线**: v3.3.0（分布式缓存一致性 + GraphQL + 多租户 + AI 增强）
+> **项目状态**: 早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 3.4.0
+> **生产案例**: sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
 > **维护规则**: 任何修改公共 API 行为的 PR 必须同步更新本文档
 > **关联测试**: [packages/sz-orm-core/tests/contracts/](../packages/sz-orm-core/tests/contracts/)
 > **关联审计**: [scripts/audit-api-changes.ps1](../scripts/audit-api-changes.ps1) / [.sh](../scripts/audit-api-changes.sh)

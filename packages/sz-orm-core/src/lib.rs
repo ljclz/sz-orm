@@ -400,10 +400,8 @@
 //! - `transaction::*` — `Transaction`, `TransactionManager`, `TransactOptions`, `IsolationLevel`
 //! - `value::*` — `Value` 枚举 (20 种变体)
 
-// 文档完整性：docs.rs 构建文档时启用 missing_docs lint
-// 本地和 CI clippy 不触发，避免 313 个 pub API 缺文档阻塞开发
-// 待文档逐步补齐后再改为全局 #![warn(missing_docs)]
-#![cfg_attr(docsrs, warn(missing_docs))]
+// 文档完整性：全局启用 missing_docs lint（v3.6.0 已补齐全部 pub API 文档）
+#![warn(missing_docs)]
 
 use std::sync::Arc;
 
@@ -421,6 +419,8 @@ pub mod active_model;
 pub mod behaviors;
 mod cache;
 pub mod circuit_breaker;
+#[cfg(feature = "type-safe-columns")]
+pub mod column;
 #[cfg(feature = "zero-copy")]
 pub mod columnar;
 pub mod cursor_stream;
@@ -443,6 +443,8 @@ pub mod hydration_plugin;
 pub mod i18n;
 pub mod join_dsl;
 pub mod json_query;
+#[cfg(feature = "l1-cache")]
+pub mod l1_cache;
 pub mod l2_cache;
 pub mod lambda;
 pub mod migration;
@@ -461,6 +463,12 @@ mod pool;
 #[cfg(feature = "auto-prewarm")]
 pub mod prewarm;
 mod query;
+/// 重导出 QueryBuilder 供外部使用
+pub use query::QueryBuilder;
+#[cfg(feature = "qb-migration-tool")]
+pub mod qb_migration_fix;
+#[cfg(feature = "qb-migration-tool")]
+pub mod qb_migration_lint;
 pub mod queryable;
 pub mod quick_query;
 pub mod rate_limiter;
@@ -475,7 +483,10 @@ pub mod shadow;
 #[cfg(feature = "simd")]
 pub mod simd;
 pub mod smart_eager_loader;
+pub mod sql_buffer;
 pub mod sql_safety;
+#[cfg(feature = "sql-verify-proc")]
+pub mod sql_verify;
 pub mod stream_api;
 pub mod telemetry;
 #[cfg(feature = "multi-tenant-enhanced")]
@@ -486,6 +497,8 @@ mod transaction;
 pub mod type_handler;
 pub mod typed;
 pub mod typed_ast;
+#[cfg(feature = "typed-relation")]
+pub mod typed_relation;
 mod value;
 #[cfg(feature = "zero-copy")]
 pub mod value_borrowed;

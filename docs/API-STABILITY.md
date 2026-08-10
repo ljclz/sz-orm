@@ -1,6 +1,9 @@
 # API 稳定性与废弃策略
 
-> 版本：v1.2.0 · 生效日期：2026-07-29 · 适用范围：SZ-ORM 全部公共 API
+> 版本：v3.4.0 · 生效日期：2026-08-09 · 适用范围：SZ-ORM 全部公共 API
+> 基线：v3.3.0（分布式缓存一致性 + GraphQL + 多租户 + AI 增强）
+> 当前状态：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 3.4.0
+> 生产案例：sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
 
 ## 1. 语义化版本 (SemVer) 承诺
 
@@ -9,8 +12,8 @@ SZ-ORM 严格遵循 [Semantic Versioning 2.0.0](https://semver.org/lang/zh-CN/)�
 | 版本号变更 | 触发条件 | 向后兼容 |
 |-----------|---------|---------|
 | **MAJOR** (x.0.0) | 破坏性 API 变更（删除/重命名公共类型、修改函数签名、改变行为语义） | ❌ 不兼容 |
-| **MINOR** (1.x.0) | 新增功能、新增类型、新增 trait 方法（有默认实现） | ✅ 兼容 |
-| **PATCH** (1.0.x) | Bug 修复、性能优化、文档改进 | ✅ 兼容 |
+| **MINOR** (3.x.0) | 新增功能、新增类型、新增 trait 方法（有默认实现） | ✅ 兼容 |
+| **PATCH** (3.4.x) | Bug 修复、性能优化、文档改进 | ✅ 兼容 |
 
 ### 1.1 什么是"公共 API"
 
@@ -37,10 +40,11 @@ SZ-ORM 将公共 API 按稳定性分为三层：
 - **承诺**：在当前 MAJOR 版本内不引入破坏性变更
 - **变更条件**：仅在 MAJOR 版本升级时可能变更
 - **覆盖范围**：
-  - `sz-orm-core`：`Model` trait、`QueryBuilder`、`Value`、`DbError`、`Pool`、`PoolConfig`、`Connection` trait（已有方法）
+  - `sz-orm-core`：`Model` trait、`QueryBuilder`、`Value`、`DbError`、`Pool`、`PoolConfig`、`Connection` trait（已有方法）、`Dialect` trait、`L2Cache`、`ResultMap`、`Schema` trait
   - `sz-orm-sqlx`：`SqlitePoolHandle`、`MySqlPoolHandle`、`PgPoolHandle` 及对应 `ConnectionFactory`
-  - `sz-orm-macros`：`typed_query!`、`schema!`、`sql_string!`
+  - `sz-orm-macros`：`typed_query!`、`schema!`、`sql_string!`、`#[derive(Schema)]`、`#[derive(Model)]`、`#[derive(FromQueryResult)]`
   - CLI 命令行接口（`sz-orm-cli`）
+  - v3.4.0 新增 Tier 1 API（feature gate 隔离，默认关闭）：`Column<T>` 类型安全列引用（`typed-column`）、`#[derive(Schema)]` 列名常量（`typed-schema`）、typed_ast Diesel 风格 DSL（`typed-dsl`）
 
 ### Tier 2 — 实验性 (Experimental)
 
@@ -51,7 +55,10 @@ SZ-ORM 将公共 API 按稳定性分为三层：
   - `sz-orm-ai`：NL2SQL API（依赖 LLM 能力，接口可能调整）
   - `sz-orm-sharding`：分库分表路由 API
   - `sz-orm-search`：全文检索 API
+  - `sz-orm-es`：Elasticsearch 集成（v3.4.0 `real` feature 占位，真实后端待实现）
+  - `sz-orm-config`：真实 Consul/Nacos 客户端（v3.4.0 `real-consul`/`real-nacos` feature）
   - `Connection` trait 的新增方法（`execute_with_params`、`query_with_params` 等）
+  - v3.4.0 性能优化 feature（`perf-smallstring`/`perf-enum-dispatch`/`perf-zero-copy-l2`/`perf-box-str`）
   - 各扩展包中标注 `#[doc = "Experimental"]` 的 API
 
 ### Tier 3 — 内部不稳定 (Internal)
@@ -77,14 +84,14 @@ SZ-ORM 将公共 API 按稳定性分为三层：
 1. **废弃通知**：在 API 上添加 `#[deprecated]` 属性，并标注替代方案：
    ```rust
    #[deprecated(
-       since = "1.3.0",
-       note = "使用 `new_method` 替代，此方法将在 2.0.0 中移除"
+       since = "3.5.0",
+       note = "使用 `new_method` 替代，此方法将在 4.0.0 中移除"
    )]
    pub fn old_method(&self) -> Result<()> { ... }
    ```
 
 2. **保留期**：废弃的 API 至少保留 **2 个 MINOR 版本**。例如：
-   - 在 `1.3.0` 中废弃 → 在 `1.5.0` 中仍可用 → 在 `2.0.0` 中移除
+   - 在 `3.5.0` 中废弃 → 在 `3.7.0` 中仍可用 → 在 `4.0.0` 中移除
 
 3. **文档标注**：CHANGELOG 中以 `**DEPRECATED**` 前缀记录每次废弃
 
@@ -139,3 +146,5 @@ SZ-ORM 将公共 API 按稳定性分为三层：
 |------|------|---------|
 | 2026-07-28 | v1.0.0 | 首次发布 API 稳定性承诺 |
 | 2026-07-29 | v1.2.0 | 版本号同步至工作空间当前版本；内容不变 |
+| 2026-08-08 | v3.3.0 | 分布式缓存一致性 + GraphQL + 多租户 + AI 增强；新增 dist-cache/multi-tenant-enhanced feature |
+| 2026-08-09 | v3.4.0 | 测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例；新增 10 聚合 feature gate（test-coverage/arch-improvement/perf-*/type-safe-columns/doc-completion/migration-guide/sz-pay-example）；sz-orm-core 1.0.0 已发布 crates.io，当前 3.4.0 |

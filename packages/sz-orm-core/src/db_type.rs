@@ -52,6 +52,27 @@ pub enum DbType {
     Sybase,
     /// DuckDB（嵌入式 OLAP 数据库）
     DuckDB,
+    /// CockroachDB（PostgreSQL 兼容分布式数据库，v3.5.0 新增）
+    #[cfg(feature = "dialect-cockroachdb")]
+    CockroachDB,
+    /// YugabyteDB（PostgreSQL 兼容分布式数据库，v3.5.0 新增）
+    #[cfg(feature = "dialect-yugabytedb")]
+    YugabyteDB,
+    /// Snowflake（云数仓数据库，v3.6.0 新增，支持 VARIANT/OBJECT/ARRAY 半结构化类型）
+    #[cfg(feature = "dialect-snowflake")]
+    Snowflake,
+    /// Redshift（AWS 云数仓数据库，v3.6.0 新增，PostgreSQL 兼容 + COPY/UNLOAD 特性）
+    #[cfg(feature = "dialect-redshift")]
+    Redshift,
+    /// Informix（IBM Informix 数据库，v3.7.0 新增，SQL generation only，SERIAL/ROW 类型）
+    #[cfg(feature = "dialect-informix")]
+    Informix,
+    /// SAP HANA（SAP HANA 内存数据库，v3.7.0 新增，SQL generation only，计算列 + CE 函数）
+    #[cfg(feature = "dialect-saphana")]
+    SapHana,
+    /// Firebird（Firebird 数据库，v3.7.0 新增，SQL generation only，GENERATOR/SEQUENCE + EXECUTE BLOCK）
+    #[cfg(feature = "dialect-firebird")]
+    Firebird,
 }
 
 impl DbType {
@@ -79,6 +100,20 @@ impl DbType {
             DbType::GBase => "gbase",
             DbType::Sybase => "sybase",
             DbType::DuckDB => "duckdb",
+            #[cfg(feature = "dialect-cockroachdb")]
+            DbType::CockroachDB => "cockroachdb",
+            #[cfg(feature = "dialect-yugabytedb")]
+            DbType::YugabyteDB => "yugabytedb",
+            #[cfg(feature = "dialect-snowflake")]
+            DbType::Snowflake => "snowflake",
+            #[cfg(feature = "dialect-redshift")]
+            DbType::Redshift => "redshift",
+            #[cfg(feature = "dialect-informix")]
+            DbType::Informix => "informix",
+            #[cfg(feature = "dialect-saphana")]
+            DbType::SapHana => "saphana",
+            #[cfg(feature = "dialect-firebird")]
+            DbType::Firebird => "firebird",
         }
     }
 
@@ -108,6 +143,20 @@ impl DbType {
             "gbase" | "gbase8s" => Some(DbType::GBase),
             "sybase" | "ase" => Some(DbType::Sybase),
             "duckdb" => Some(DbType::DuckDB),
+            #[cfg(feature = "dialect-cockroachdb")]
+            "cockroachdb" | "cockroach" => Some(DbType::CockroachDB),
+            #[cfg(feature = "dialect-yugabytedb")]
+            "yugabytedb" | "yugabyte" => Some(DbType::YugabyteDB),
+            #[cfg(feature = "dialect-snowflake")]
+            "snowflake" => Some(DbType::Snowflake),
+            #[cfg(feature = "dialect-redshift")]
+            "redshift" => Some(DbType::Redshift),
+            #[cfg(feature = "dialect-informix")]
+            "informix" => Some(DbType::Informix),
+            #[cfg(feature = "dialect-saphana")]
+            "saphana" | "hana" => Some(DbType::SapHana),
+            #[cfg(feature = "dialect-firebird")]
+            "firebird" | "firebirdsql" => Some(DbType::Firebird),
             _ => None,
         }
     }
@@ -176,6 +225,20 @@ impl DbType {
             DbType::GBase => 9088,
             DbType::Sybase => 5000,
             DbType::DuckDB => 0, // 嵌入式数据库，无网络端口
+            #[cfg(feature = "dialect-cockroachdb")]
+            DbType::CockroachDB => 26257, // CockroachDB 默认端口
+            #[cfg(feature = "dialect-yugabytedb")]
+            DbType::YugabyteDB => 5433, // YugabyteDB 默认端口（与 PG 5432 区分）
+            #[cfg(feature = "dialect-snowflake")]
+            DbType::Snowflake => 443, // Snowflake HTTPS 端口
+            #[cfg(feature = "dialect-redshift")]
+            DbType::Redshift => 5439, // Redshift 默认端口
+            #[cfg(feature = "dialect-informix")]
+            DbType::Informix => 9088, // Informix 默认端口（sqlexec）
+            #[cfg(feature = "dialect-saphana")]
+            DbType::SapHana => 39015, // SAP HANA 默认端口（systemdb）
+            #[cfg(feature = "dialect-firebird")]
+            DbType::Firebird => 3050, // Firebird 默认端口
         }
     }
 
@@ -189,10 +252,16 @@ impl DbType {
 
     /// 判断该数据库是否为 PostgreSQL 方言家族（PostgreSQL/Kingbase/PolarDB-PG/GaussDB）
     pub fn is_postgres_family(&self) -> bool {
-        matches!(
-            self,
-            DbType::PostgreSQL | DbType::Kingbase | DbType::GaussDB
-        )
+        match self {
+            DbType::PostgreSQL | DbType::Kingbase | DbType::GaussDB | DbType::PolarDB => true,
+            #[cfg(feature = "dialect-cockroachdb")]
+            DbType::CockroachDB => true,
+            #[cfg(feature = "dialect-yugabytedb")]
+            DbType::YugabyteDB => true,
+            #[cfg(feature = "dialect-redshift")]
+            DbType::Redshift => true,
+            _ => false,
+        }
     }
 
     /// 判断该数据库是否为 Oracle 方言家族（Oracle/达梦）

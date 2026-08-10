@@ -1,0 +1,139 @@
+﻿warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for an associated function
+warning: missing documentation for an associated function
+warning: missing documentation for a struct
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a trait
+warning: missing documentation for a method
+warning: missing documentation for a struct
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a struct
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an enum
+warning: missing documentation for a variant
+warning: missing documentation for a variant
+warning: missing documentation for a struct
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a struct
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a struct
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a struct
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a struct
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a struct
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for an associated type
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for an associated function
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for a struct field
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for a method
+warning: missing documentation for an associated function
+warning: missing documentation for a method
+warning: missing documentation for a method

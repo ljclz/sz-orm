@@ -151,6 +151,8 @@ enum WhereCondition {
     NotNull(String),
     Exists(String),
     NotExists(String),
+    /// M4-T4.3: 类型化表达式条件（参数化 SQL 片段 + 参数值）
+    TypedExpr(String, Vec<Value>),
 }
 
 #[derive(Debug, Clone)]
@@ -184,6 +186,7 @@ enum JoinClause {
 }
 
 impl<M: Model> QueryBuilder<M> {
+    /// 创建查询构造器
     pub fn new(dialect: Box<dyn Dialect>) -> Self {
         Self {
             table: None,
@@ -208,6 +211,7 @@ impl<M: Model> QueryBuilder<M> {
         }
     }
 
+    /// 设置查询表名
     pub fn table(mut self, table: impl Into<String>) -> Self {
         let table_name = table.into();
         // v3.3.0 multi-tenant-enhanced：Schema 隔离策略下重写表名
@@ -595,6 +599,37 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// M4-T3.3: 类型安全参数化等值条件 `col = ?`（AND 关系）。
+    ///
+    /// 接受 `Column<T>` 替代 `&str`，编译期保证列引用属于指定表。
+    /// 需启用 `type-safe-columns` feature。
+    #[cfg(feature = "type-safe-columns")]
+    pub fn where_eq_col<T: crate::column::Schema>(
+        mut self,
+        col: crate::column::Column<T>,
+        value: Value,
+    ) -> Self {
+        self.where_conditions
+            .push(WhereCondition::Eq(col.name().to_string(), value));
+        self
+    }
+
+    /// M4-T4.3: 类型安全表达式条件（AND 关系）。
+    ///
+    /// 接受 `TypedExpression<SqlType = Bool>`，编译期保证表达式类型安全。
+    /// 需启用 `type-safe-columns` feature。
+    #[cfg(feature = "type-safe-columns")]
+    pub fn where_expr<E: crate::typed_ast::TypedExpression<SqlType = crate::typed_ast::Bool>>(
+        mut self,
+        expr: E,
+    ) -> Self {
+        let (sql, params) = expr.to_sql(&*self.dialect);
+        let values: Vec<Value> = params.into_iter().map(Value::String).collect();
+        self.where_conditions
+            .push(WhereCondition::TypedExpr(sql, values));
+        self
+    }
+
     /// P0-2：参数化不等条件 `field != ?`（AND 关系）。
     pub fn where_ne(mut self, field: impl Into<String>, value: Value) -> Self {
         self.where_conditions
@@ -698,42 +733,49 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 添加 IN 条件
     pub fn where_in(mut self, field: impl Into<String>, values: Vec<Value>) -> Self {
         self.where_conditions
             .push(WhereCondition::In(field.into(), values));
         self
     }
 
+    /// 添加 NOT IN 条件
     pub fn where_not_in(mut self, field: impl Into<String>, values: Vec<Value>) -> Self {
         self.where_conditions
             .push(WhereCondition::NotIn(field.into(), values));
         self
     }
 
+    /// 添加 BETWEEN 条件
     pub fn where_between(mut self, field: impl Into<String>, start: Value, end: Value) -> Self {
         self.where_conditions
             .push(WhereCondition::Between(field.into(), start, end));
         self
     }
 
+    /// 添加 NOT BETWEEN 条件
     pub fn where_not_between(mut self, field: impl Into<String>, start: Value, end: Value) -> Self {
         self.where_conditions
             .push(WhereCondition::NotBetween(field.into(), start, end));
         self
     }
 
+    /// 添加 IS NULL 条件
     pub fn where_null(mut self, field: impl Into<String>) -> Self {
         self.where_conditions
             .push(WhereCondition::Null(field.into()));
         self
     }
 
+    /// 添加 IS NOT NULL 条件
     pub fn where_not_null(mut self, field: impl Into<String>) -> Self {
         self.where_conditions
             .push(WhereCondition::NotNull(field.into()));
         self
     }
 
+    /// 添加升序排序
     pub fn order_by(mut self, field: impl Into<String>) -> Self {
         self.order_by.push(OrderClause {
             field: field.into(),
@@ -742,6 +784,7 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 添加降序排序
     pub fn order_desc(mut self, field: impl Into<String>) -> Self {
         self.order_by.push(OrderClause {
             field: field.into(),
@@ -750,6 +793,7 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 添加 GROUP BY 字段
     pub fn group_by(mut self, field: impl Into<String>) -> Self {
         self.group_by.push(field.into());
         self
@@ -868,22 +912,26 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 添加 HAVING 条件
     pub fn having(mut self, condition: impl Into<String>) -> Self {
         self.having_conditions
             .push(WhereCondition::And(condition.into()));
         self
     }
 
+    /// 设置 LIMIT
     pub fn limit(mut self, limit: usize) -> Self {
         self.limit_value = Some(limit);
         self
     }
 
+    /// 设置 OFFSET
     pub fn offset(mut self, offset: usize) -> Self {
         self.offset_value = Some(offset);
         self
     }
 
+    /// 设置分页（页码从 1 开始）
     pub fn page(mut self, page: usize, page_size: usize) -> Self {
         self.limit_value = Some(page_size);
         self.offset_value = Some((page.saturating_sub(1)) * page_size);
@@ -1033,6 +1081,7 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 添加 INNER JOIN
     pub fn join_inner(
         mut self,
         table: impl Into<String>,
@@ -1047,6 +1096,7 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 添加 LEFT JOIN
     pub fn join_left(
         mut self,
         table: impl Into<String>,
@@ -1061,6 +1111,7 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
+    /// 添加 RIGHT JOIN
     pub fn join_right(
         mut self,
         table: impl Into<String>,
@@ -1222,7 +1273,11 @@ impl<M: Model> QueryBuilder<M> {
             self.select_columns.join(", ")
         };
 
-        let mut sql = format!("SELECT {} FROM {}", columns, self.dialect.quote(&table));
+        let mut sql = crate::sql_buffer::SqlBuffer::from_str(&format!(
+            "SELECT {} FROM {}",
+            columns,
+            self.dialect.quote(&table)
+        ));
 
         for join in &self.joins {
             match join {
@@ -1323,7 +1378,7 @@ impl<M: Model> QueryBuilder<M> {
             sql.push_str(&format!(" OFFSET {}", offset));
         }
 
-        sql
+        sql.into_string()
     }
 
     /// 构建 WHERE 子句（处理所有条件类型：And/Or/In/NotIn/Between/Null/Eq/Ne/Gt/Lt/Like 等）
@@ -1478,6 +1533,7 @@ impl<M: Model> QueryBuilder<M> {
                 WhereCondition::NotNull(f) => format!("{} IS NOT NULL", self.dialect.quote(f)),
                 WhereCondition::Exists(s) => format!("EXISTS ({})", s),
                 WhereCondition::NotExists(s) => format!("NOT EXISTS ({})", s),
+                WhereCondition::TypedExpr(sql, _) => sql.clone(),
             })
             .collect();
 
@@ -1545,6 +1601,7 @@ impl<M: Model> QueryBuilder<M> {
     }
 
     #[tracing::instrument(skip(self, data), fields(op = "insert"))]
+    /// 构建 INSERT SQL
     pub fn build_insert(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
@@ -1562,15 +1619,17 @@ impl<M: Model> QueryBuilder<M> {
             .map(|v| v.to_param_with_dialect(&*self.dialect).to_string())
             .collect();
 
-        format!(
+        crate::sql_buffer::SqlBuffer::from_str(&format!(
             "INSERT INTO {} ({}) VALUES ({})",
             self.dialect.quote(&table),
             columns.join(", "),
             values.join(", ")
-        )
+        ))
+        .into_string()
     }
 
     #[tracing::instrument(skip(self, data), fields(op = "update"))]
+    /// 构建 UPDATE SQL
     pub fn build_update(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
@@ -1592,14 +1651,14 @@ impl<M: Model> QueryBuilder<M> {
             })
             .collect();
 
-        let mut sql = format!(
+        let mut sql = crate::sql_buffer::SqlBuffer::from_str(&format!(
             "UPDATE {} SET {}",
             self.dialect.quote(&table),
             set_clauses.join(", ")
-        );
+        ));
 
         sql.push_str(&self.build_where_clause());
-        sql
+        sql.into_string()
     }
 
     /// 构建 DELETE SQL 语句。
@@ -1630,9 +1689,12 @@ impl<M: Model> QueryBuilder<M> {
             );
         }
 
-        let mut sql = format!("DELETE FROM {}", self.dialect.quote(&table));
+        let mut sql = crate::sql_buffer::SqlBuffer::from_str(&format!(
+            "DELETE FROM {}",
+            self.dialect.quote(&table)
+        ));
         sql.push_str(&self.build_where_clause());
-        sql
+        sql.into_string()
     }
 
     /// 构建物理 DELETE SQL 语句（绕过软删除）。
@@ -1794,6 +1856,10 @@ impl<M: Model> QueryBuilder<M> {
                 WhereCondition::NotNull(f) => format!("{} IS NOT NULL", self.dialect.quote(f)),
                 WhereCondition::Exists(s) => format!("EXISTS ({})", s),
                 WhereCondition::NotExists(s) => format!("NOT EXISTS ({})", s),
+                WhereCondition::TypedExpr(sql, expr_params) => {
+                    params.extend(expr_params.iter().cloned());
+                    sql.clone()
+                }
             })
             .collect();
 
@@ -2227,6 +2293,7 @@ impl<M: Model> QueryBuilder<M> {
         (sql, params)
     }
 
+    /// 构建 COUNT 查询 SQL，返回 `SELECT COUNT(*) as total FROM <table> <where>`
     pub fn build_count(&self) -> String {
         let table = self
             .table
@@ -2241,6 +2308,7 @@ impl<M: Model> QueryBuilder<M> {
         sql
     }
 
+    /// 构建 EXISTS 查询 SQL，返回 `SELECT EXISTS(SELECT 1 FROM <table> <where> LIMIT 1)`
     pub fn build_exists(&self) -> String {
         let table = self
             .table
@@ -2253,6 +2321,7 @@ impl<M: Model> QueryBuilder<M> {
         format!("SELECT EXISTS({})", sql)
     }
 
+    /// 构建 MAX 聚合查询 SQL，返回 `SELECT MAX(<field>) as max_val FROM <table> <where>`
     pub fn build_max(&self, field: &str) -> String {
         let table = self
             .table
@@ -2268,6 +2337,7 @@ impl<M: Model> QueryBuilder<M> {
         sql
     }
 
+    /// 构建 MIN 聚合查询 SQL，返回 `SELECT MIN(<field>) as min_val FROM <table> <where>`
     pub fn build_min(&self, field: &str) -> String {
         let table = self
             .table
@@ -2283,6 +2353,7 @@ impl<M: Model> QueryBuilder<M> {
         sql
     }
 
+    /// 构建 SUM 聚合查询 SQL，返回 `SELECT SUM(<field>) as sum_val FROM <table> <where>`
     pub fn build_sum(&self, field: &str) -> String {
         let table = self
             .table
@@ -2298,6 +2369,7 @@ impl<M: Model> QueryBuilder<M> {
         sql
     }
 
+    /// 构建 AVG 聚合查询 SQL，返回 `SELECT AVG(<field>) as avg_val FROM <table> <where>`
     pub fn build_avg(&self, field: &str) -> String {
         let table = self
             .table

@@ -77,6 +77,13 @@ pub enum Value {
 
     /// 基于 HashMap 的对象值，用于存储关系数据
     Object(std::collections::HashMap<String, Value>),
+
+    /// v3.4.0 M3-T5：`Box<str>` 优化变体（perf-box-str feature）
+    ///
+    /// 用于不需要修改字符串的场景，`Box<str>` 为 16 字节（指针 + 长度），
+    /// 比 `String`（24 字节：指针 + 长度 + 容量）节省 8 字节/值。
+    #[cfg(feature = "perf-box-str")]
+    BoxedStr(Box<str>),
 }
 
 // ---------------------------------------------------------------------------
@@ -538,6 +545,8 @@ impl Value {
             Value::F64(v) => Cow::Owned(v.to_string()),
             Value::Decimal(s) => Cow::Owned(s.clone()),
             Value::String(s) => Cow::Owned(format!("'{}'", escape_string(s))),
+            #[cfg(feature = "perf-box-str")]
+            Value::BoxedStr(s) => Cow::Owned(format!("'{}'", escape_string(s))),
             Value::Bytes(b) => Cow::Owned(format!("X'{}'", hex_encode(b))),
             Value::Uuid(s) => Cow::Owned(format!("'{}'", escape_string(s))),
             Value::Date(s) => Cow::Owned(format!("'{}'", escape_string(s))),
@@ -585,6 +594,8 @@ impl Value {
             Value::F64(v) => Cow::Owned(v.to_string()),
             Value::Decimal(s) => Cow::Owned(s.clone()),
             Value::String(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
+            #[cfg(feature = "perf-box-str")]
+            Value::BoxedStr(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
             Value::Bytes(b) => Cow::Owned(format!("X'{}'", hex_encode(b))),
             Value::Uuid(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
             Value::Date(s) => Cow::Owned(format!("'{}'", dialect.escape_string(s))),
@@ -606,6 +617,15 @@ impl Value {
     pub fn from<T: Into<Value>>(v: T) -> Self {
         v.into()
     }
+
+    /// v3.4.0 M3-T5：创建 `BoxedStr` 变体（perf-box-str feature）
+    ///
+    /// `Box<str>` 为 16 字节（指针 + 长度），比 `String`（24 字节）节省 8 字节。
+    /// 适用于不需要修改字符串的场景。
+    #[cfg(feature = "perf-box-str")]
+    pub fn boxed_str(s: impl Into<Box<str>>) -> Self {
+        Value::BoxedStr(s.into())
+    }
 }
 
 impl fmt::Display for Value {
@@ -625,6 +645,8 @@ impl fmt::Display for Value {
             Value::F64(v) => write!(f, "{}", v),
             Value::Decimal(v) => write!(f, "{}", v),
             Value::String(v) => write!(f, "'{}'", v),
+            #[cfg(feature = "perf-box-str")]
+            Value::BoxedStr(v) => write!(f, "'{}'", v),
             Value::Bytes(v) => write!(f, "X'{}'", hex_encode(v)),
             Value::Uuid(v) => write!(f, "'{}'", v),
             Value::Date(v) => write!(f, "'{}'", v),
@@ -1115,5 +1137,24 @@ mod tests {
         assert_eq!(format!("{}", Value::Bool(true)), "true");
         assert_eq!(format!("{}", Value::I64(42)), "42");
         assert_eq!(format!("{}", Value::String("test".to_string())), "'test'");
+    }
+
+    /// M3-T5.2：Box<str> vs String 内存占用对比
+    #[test]
+    fn test_box_str_size() {
+        let string_size = std::mem::size_of::<String>();
+        let box_str_size = std::mem::size_of::<Box<str>>();
+        assert_eq!(string_size, 24);
+        assert_eq!(box_str_size, 16);
+        assert_eq!(string_size - box_str_size, 8);
+    }
+
+    /// M3-T5：BoxedStr 变体行为验证
+    #[cfg(feature = "perf-box-str")]
+    #[test]
+    fn test_boxed_str_variant() {
+        let v = Value::boxed_str("hello");
+        assert_eq!(format!("{}", v), "'hello'");
+        assert_eq!(v.to_param(), "'hello'");
     }
 }

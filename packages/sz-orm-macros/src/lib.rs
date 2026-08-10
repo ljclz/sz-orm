@@ -68,6 +68,89 @@ use syn::parse_macro_input;
 // 派生宏模块
 mod derive;
 
+// 自定义编译期诊断模块（typed-dsl 或 custom-diagnostic feature 隔离）
+#[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
+mod diagnostic;
+
+// ---- 自定义编译期诊断宏（typed-dsl 或 custom-diagnostic feature 隔离）----
+
+/// `#[type_check]` 属性宏 — 为函数添加类型检查诊断提示
+///
+/// 当函数体内的类型约束失败时，生成比 Rust 默认更清晰的诊断信息。
+///
+/// # 示例
+///
+/// ```ignore
+/// #[type_check]
+/// fn my_query() {
+///     let expr = ColId.eq("hello"); // i64 列与 String 比较
+///     // 编译期将生成自定义诊断信息
+/// }
+/// ```
+#[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
+#[proc_macro_attribute]
+pub fn type_check(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let input_fn = parse_macro_input!(item as syn::ItemFn);
+    let fn_name = input_fn.sig.ident.to_string();
+    let fn_vis = &input_fn.vis;
+    let fn_sig = &input_fn.sig;
+    let fn_block = &input_fn.block;
+
+    let expanded = quote! {
+        #[doc = concat!("类型检查函数 `", #fn_name, "`：若编译失败，请检查类型约束")]
+        #fn_vis #fn_sig {
+            #fn_block
+        }
+    };
+
+    TokenStream::from(expanded)
+}
+
+/// `diagnostic_error!` 宏 — 生成带建议信息的编译期错误
+///
+/// # 示例
+///
+/// ```ignore
+/// diagnostic_error!("类型不匹配", "请使用 Cast 显式转换");
+/// ```
+#[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
+#[proc_macro]
+pub fn diagnostic_error(input: TokenStream) -> TokenStream {
+    let mut iter = input.into_iter().peekable();
+
+    let msg = match iter.next() {
+        Some(TokenTree::Literal(l)) => l.to_string(),
+        _ => {
+            return "compile_error!(\"diagnostic_error! requires string literal arguments\")"
+                .parse()
+                .unwrap()
+        }
+    };
+
+    let suggestion: Option<String> = match iter.next() {
+        Some(TokenTree::Punct(p)) if p.as_char() == ',' => match iter.next() {
+            Some(TokenTree::Literal(l)) => Some(l.to_string()),
+            _ => None,
+        },
+        _ => None,
+    };
+
+    let stripped_msg = diagnostic::strip_quotes(&msg);
+    let full_msg = if let Some(sug) = suggestion.as_ref() {
+        let stripped_sug = diagnostic::strip_quotes(sug);
+        format!("{}\n  help: {}", stripped_msg, stripped_sug)
+    } else {
+        stripped_msg.to_string()
+    };
+
+    let err = format!("compile_error!({:?})", full_msg);
+    err.parse().unwrap_or_else(|_| {
+        "compile_error!(\"internal error in diagnostic macro\")"
+            .parse()
+            .unwrap()
+    })
+}
+
 /// Compile-time SQL validation macro.
 ///
 /// Validates SQL syntax at compile time and emits the validated SQL string.

@@ -66,10 +66,16 @@ required-features = ["sz-orm-macros/db-verify"]
 name = "sz_rust_integration_example"
 path = "src/bin/sz_rust_integration_example.rs"
 
+[[bin]]
+name = "sz_pay_pattern"
+path = "src/bin/sz_pay_pattern.rs"
+
 [features]
 default = []
 # 启用 query! 宏的编译期连真 DB 验证能力
 db-verify = ["sz-orm-macros/db-verify"]
+# v3.4.0：sz-pay 生产案例示例
+sz-pay-example = []
 
 [lints]
 workspace = true

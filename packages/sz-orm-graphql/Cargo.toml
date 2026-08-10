@@ -32,7 +32,7 @@ async-graphql = { version = "7", optional = true }
 async-graphql-axum = { version = "7", optional = true }
 axum = { version = "0.8", optional = true }
 parking_lot = { workspace = true, optional = true }
-sz-orm-macros = { version = "2.1.0", path = "../sz-orm-macros", optional = true }
+sz-orm-macros = { version = "3.5.0", path = "../sz-orm-macros", optional = true }
 
 [lints]
 workspace = true

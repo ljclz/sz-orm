@@ -704,17 +704,25 @@ fn normalize_set_commas(s: &str) -> String {
 // 简易 XML 解析器
 // =====================================================
 
+/// XML 节点（简易解析器内部表示）
 #[derive(Debug, Clone)]
 pub struct XmlNode {
+    /// 节点类型（文本或元素）
     pub node_type: XmlNodeType,
+    /// 子节点列表
     pub children: Vec<XmlNode>,
 }
 
+/// XML 节点类型
 #[derive(Debug, Clone)]
 pub enum XmlNodeType {
+    /// 文本节点
     Text(String),
+    /// 元素节点（含标签名与属性映射）
     Element {
+        /// 标签名
         name: String,
+        /// 属性键值对
         attrs: HashMap<String, String>,
     },
 }

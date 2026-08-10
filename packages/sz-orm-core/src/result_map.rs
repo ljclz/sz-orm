@@ -473,11 +473,22 @@ impl RowData {
 #[derive(Debug, Clone, PartialEq)]
 pub enum ResultMapError {
     /// ResultMap 未注册
-    MapNotFound { id: String },
+    MapNotFound {
+        /// 未找到的 ResultMap ID
+        id: String,
+    },
     /// 必需列缺失
-    RequiredColumnMissing { column: String },
+    RequiredColumnMissing {
+        /// 缺失的列名
+        column: String,
+    },
     /// 嵌套映射失败
-    NestedMappingFailed { property: String, reason: String },
+    NestedMappingFailed {
+        /// 嵌套属性名
+        property: String,
+        /// 失败原因
+        reason: String,
+    },
 }
 
 impl std::fmt::Display for ResultMapError {
@@ -952,6 +963,7 @@ pub struct ScalarResult {
 }
 
 impl ScalarResult {
+    /// 创建标量结果，指定列名和类型名
     pub fn new(column: impl Into<String>, type_name: impl Into<String>) -> Self {
         Self {
             column: column.into(),
@@ -963,11 +975,14 @@ impl ScalarResult {
 /// 实体字段结果
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldResult {
+    /// 字段名（实体属性名）
     pub name: String,
+    /// 对应的数据库列名
     pub column: String,
 }
 
 impl FieldResult {
+    /// 创建字段结果，指定实体属性名和数据库列名
     pub fn new(name: impl Into<String>, column: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -979,12 +994,16 @@ impl FieldResult {
 /// Entity 结果（用于 ResultSetMapping）
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EntityResult {
+    /// 实体类名
     pub entity_class: String,
+    /// 字段映射列表
     pub fields: Vec<FieldResult>,
+    /// 鉴别器列名（用于多态映射）
     pub discriminator_column: Option<String>,
 }
 
 impl EntityResult {
+    /// 创建实体结果，指定类名
     pub fn new(entity_class: impl Into<String>) -> Self {
         Self {
             entity_class: entity_class.into(),
@@ -993,11 +1012,13 @@ impl EntityResult {
         }
     }
 
+    /// 添加一个字段映射
     pub fn add_field(&mut self, field: FieldResult) -> &mut Self {
         self.fields.push(field);
         self
     }
 
+    /// 设置鉴别器列名
     pub fn with_discriminator_column(mut self, col: impl Into<String>) -> Self {
         self.discriminator_column = Some(col.into());
         self
@@ -1007,12 +1028,16 @@ impl EntityResult {
 /// Hibernate `@SqlResultSetMapping` 风格的结果集映射
 #[derive(Debug, Clone, PartialEq)]
 pub struct ResultSetMapping {
+    /// 映射名称
     pub name: String,
+    /// 实体结果列表
     pub entities: Vec<EntityResult>,
+    /// 标量结果列表
     pub scalars: Vec<ScalarResult>,
 }
 
 impl ResultSetMapping {
+    /// 创建结果集映射，指定名称
     pub fn new(name: impl Into<String>) -> Self {
         Self {
             name: name.into(),
@@ -1021,11 +1046,13 @@ impl ResultSetMapping {
         }
     }
 
+    /// 添加一个实体结果
     pub fn add_entity(&mut self, entity: EntityResult) -> &mut Self {
         self.entities.push(entity);
         self
     }
 
+    /// 添加一个标量结果
     pub fn add_scalar(&mut self, scalar: ScalarResult) -> &mut Self {
         self.scalars.push(scalar);
         self
@@ -1039,32 +1066,38 @@ pub struct ResultSetMappingRegistry {
 }
 
 impl ResultSetMappingRegistry {
+    /// 创建空的注册中心
     pub fn new() -> Self {
         Self {
             mappings: RwLock::new(HashMap::new()),
         }
     }
 
+    /// 注册一个结果集映射
     pub fn register(&self, mapping: ResultSetMapping) {
         let mut m = self.mappings.write();
         m.insert(mapping.name.clone(), mapping);
     }
 
+    /// 按名称查找结果集映射
     pub fn get(&self, name: &str) -> Option<ResultSetMapping> {
         let m = self.mappings.read();
         m.get(name).cloned()
     }
 
+    /// 判断指定名称的映射是否已注册
     pub fn contains(&self, name: &str) -> bool {
         let m = self.mappings.read();
         m.contains_key(name)
     }
 
+    /// 返回已注册的映射数量
     pub fn len(&self) -> usize {
         let m = self.mappings.read();
         m.len()
     }
 
+    /// 判断注册中心是否为空
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
@@ -1086,6 +1119,7 @@ pub struct NativeQuery {
 }
 
 impl NativeQuery {
+    /// 创建原生查询，指定 SQL 和 ResultSetMapping 名称
     pub fn new(sql: impl Into<String>, mapping_name: impl Into<String>) -> Self {
         Self {
             sql: sql.into(),
@@ -1094,11 +1128,13 @@ impl NativeQuery {
         }
     }
 
+    /// 绑定单个参数
     pub fn bind(&mut self, value: Value) -> &mut Self {
         self.parameters.push(value);
         self
     }
 
+    /// 绑定多个参数
     pub fn bind_many(&mut self, values: Vec<Value>) -> &mut Self {
         self.parameters.extend(values);
         self

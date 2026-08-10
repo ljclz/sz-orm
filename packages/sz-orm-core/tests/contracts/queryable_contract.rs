@@ -123,26 +123,13 @@ fn test_queryable_from_values_with_desc_mismatch_contract() {
 }
 
 // ===== §17.2 FromRow trait 契约 =====
+// v3.4.0：迁移到 #[derive(FromRow)] 宏生成方案（FromQueryResult 宏迁移）
+// 宏生成 from_row 实现，编译期生成，消除运行时反射开销
 
-#[derive(Debug, PartialEq)]
+#[derive(Debug, PartialEq, sz_orm_macros::FromRow)]
 struct UserRow {
     id: i64,
     name: String,
-}
-
-impl FromRow for UserRow {
-    fn from_row(row: HashMap<String, Value>) -> Result<Self, QueryError> {
-        let id = row
-            .get("id")
-            .and_then(|v| v.as_i64())
-            .ok_or(QueryError::MissingColumn { column: "id" })?;
-        let name = row
-            .get("name")
-            .and_then(|v| v.as_str())
-            .ok_or(QueryError::MissingColumn { column: "name" })?
-            .to_string();
-        Ok(UserRow { id, name })
-    }
 }
 
 #[test]

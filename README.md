@@ -43,7 +43,7 @@
 
 SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.5.0 版本包含 43 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
 
-> **⚠️ 诚实声明**：本项目为单作者工程实践项目，**当前处于原型阶段**，尚无生产案例、无第三方审计、无社区采用。功能清单已覆盖主流 ORM 能力，但未经生产环境验证。与 Diesel/SeaORM/SQLx 的深度对比详见 [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md)。
+> **⚠️ 诚实声明**：本项目为单作者工程实践项目，**早期生产可用（内部项目）**。sz-pay 项目已在生产环境使用 sz-orm-core/sqlx/config/auth/macros/queue/scheduler 7 个包（297 处引用、5139 测试零回归）。与 Diesel/SeaORM/SQLx 的深度对比详见 [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md)。
 
 | 维度 | 数据 |
 |------|------|
@@ -51,13 +51,73 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | 支持数据库方言 | **17 种 SQL 方言**（8 原生 + 9 委派，含国产信创 6 种） |
 | 测试用例 | **5,809 passed, 0 failed** |
 | 代码规模 | **~139,000 LOC**（深度优化后，src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000） |
-| 项目成熟度 | **原型阶段**（未发布 crates.io，零社区验证） |
+| 项目成熟度 | **早期生产可用（内部项目）**（sz-pay 生产试点，crates.io 已发布 sz-orm-core） |
 | 异步运行时 | Tokio 1.40+ |
 | Rust 最低版本 | 1.94.0+（sqlx 0.9.0 要求） |
 | sqlx 版本 | 0.9.0 |
 | 已知 Bug | **0** |
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
 | `cargo clippy -D warnings` | ✅ 0 warnings（`[workspace.lints]` 强制） |
+
+## v3.4.0 新特性（2026-08-09）
+
+> 质量深耕版本：测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例深化。10 个 feature gate 全部默认关闭，无 Breaking Change。44 主任务 / 160 子任务全部完成，五方言集成测试 83 项全部通过。
+
+### 测试覆盖补齐（`test-coverage`）
+
+- 18 个扩展包测试从 0 → 全覆盖（每个包 ≥ 5 测试）
+- 全 workspace 159 个测试套件全部通过
+- 五方言集成测试：MySQL 23 + PostgreSQL 18 + SQLite 25 + Oracle 10 + DuckDB 7 = 83 项全通过
+
+### 架构改进（`arch-improvement`）
+
+- `async_trait_style_evaluation.md`：async trait 风格评估（dyn Trait vs async-trait vs impl Trait）
+- `query_builder_selection_guide.md`：QueryBuilder 选择指南
+- `result_map_macro_evaluation.md`：result_map 宏生成评估
+
+### 性能优化（`perf-smallstring` / `perf-enum-dispatch` / `perf-zero-copy-l2` / `perf-box-str`）
+
+```toml
+sz-orm-core = { version = "3.4", features = ["perf-smallstring", "perf-enum-dispatch", "perf-zero-copy-l2", "perf-box-str"] }
+```
+
+- `SqlBuffer`：CompactString/String 双后端，短字符串 ≤ 23 字节内联存储
+- `DialectKind` enum dispatch：替代 `Box<dyn Dialect>` vtable 查找
+- `Value::BoxedStr(Box<str>)`：节省 8 字节/值 capacity 字段
+- L2 缓存零拷贝推广：BorrowedValue + ColumnarResultSet 推广到 L2 缓存路径
+- 4 个基准 + 16 个差分测试
+
+### 编译期类型安全（`type-safe-columns` / `typed-column` / `typed-dsl`）
+
+```toml
+sz-orm-core = { version = "3.4", features = ["type-safe-columns", "typed-column", "typed-dsl"] }
+```
+
+- `Column<T: Schema>`：类型安全列引用，编译期检测列名拼写错误
+- `Schema` trait + `#[derive(Schema)]`：自动生成列名常量
+- `typed_ast` 扩展：`Like`/`In`/`Not` 表达式 + `BoolExpressionExt` trait
+- `where_eq_col` / `where_expr`：类型安全 WHERE 条件构建
+- 30 个测试 + 1 个基准
+
+### 文档生态（`migration-guide`）
+
+- `docs/migration/diesel_to_sz_orm.md`：Diesel → SZ-ORM 迁移指南
+- `docs/migration/seaorm_to_sz_orm.md`：SeaORM → SZ-ORM 迁移指南
+- `docs/migration/sqlx_to_sz_orm.md`：SQLx → SZ-ORM 迁移指南
+
+### sz-pay 生产案例深化
+
+- `examples/src/bin/sz_pay_pattern.rs`：脱敏版生产使用模式示例
+- sz-pay 项目 6 个测试套件零回归验证通过
+
+### 兼容性
+
+- 无 Breaking Change，默认 feature 零行为变更
+- 五方言集成测试 83 项全部通过（MySQL/PostgreSQL/SQLite/Oracle/DuckDB）
+- clippy 零警告（含全部 v3.4.0 feature）
+- workspace 版本统一为 3.4.0
+
+详见 [CHANGELOG.md](CHANGELOG.md)。
 
 ## v3.3.0 新特性（2026-08-08）
 
@@ -125,6 +185,7 @@ sz-orm-ai = { version = "2.4", features = ["ai-nl2sql-enhanced", "ai-index-advis
 - 无 Breaking Change，默认 feature 零行为变更
 - 下游 sz-pay 项目 5139 测试零回归验证通过
 - clippy 零警告（含全部 v3.3.0 feature）
+- sz-pay 生产使用模式示例：`cargo run --bin sz_pay_pattern`（脱敏版，展示连接池/SQL 执行/错误映射/软删除典型用法）
 
 详见 [CHANGELOG.md](CHANGELOG.md) 和 [升级指南](docs/v3.3.0-upgrade-guide.md)。
 

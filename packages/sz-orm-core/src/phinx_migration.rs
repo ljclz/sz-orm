@@ -102,13 +102,21 @@ impl ColumnType {
 /// 列选项构建器（Phinx 风格链式配置）
 #[derive(Debug, Clone)]
 pub struct ColumnOptions {
+    /// 列长度（如 VARCHAR 长度）
     pub limit: Option<usize>,
+    /// 是否允许 NULL
     pub nullable: bool,
+    /// 默认值
     pub default: Option<String>,
+    /// 是否自增
     pub auto_increment: bool,
+    /// 是否唯一
     pub unique: bool,
+    /// 列注释
     pub comment: Option<String>,
+    /// DECIMAL 精度（precision, scale）
     pub precision: Option<(u32, u32)>,
+    /// MySQL AFTER 子句（指定列插入位置）
     pub after: Option<String>,
 }
 
@@ -180,8 +188,11 @@ impl ColumnOptions {
 /// 索引选项构建器（Phinx 风格链式配置）
 #[derive(Debug, Clone, Default)]
 pub struct IndexOptions {
+    /// 是否为唯一索引
     pub unique: bool,
+    /// 索引名
     pub name: Option<String>,
+    /// 索引类型（BTREE / HASH / FULLTEXT 等）
     pub index_type: Option<String>,
 }
 
@@ -208,7 +219,9 @@ impl IndexOptions {
 /// 外键选项构建器（Phinx 风格链式配置）
 #[derive(Debug, Clone, Default)]
 pub struct ForeignKeyOptions {
+    /// ON DELETE 动作
     pub on_delete: Option<String>,
+    /// ON UPDATE 动作
     pub on_update: Option<String>,
 }
 

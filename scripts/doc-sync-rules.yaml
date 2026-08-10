@@ -1,0 +1,143 @@
+# SZ-ORM 文档同步映射规则（门禁 14）
+#
+# 定义 10 类代码变更 → 受影响文档清单的映射关系。
+# 当代码变更匹配某类规则时，对应的文档必须在同一次提交中更新，
+# 否则 scripts/check-doc-sync.py 退出码 1 阻断提交。
+#
+# 跳过标记：在受影响文档中添加 `# doc-sync-skip` 行可跳过该文档的检查。
+#
+# 规则格式：
+#   id          规则编号（1-10）
+#   name        规则名称
+#   description 规则描述
+#   code_patterns  代码变更匹配模式（glob 列表）
+#   code_regex     代码变更正则匹配（可选，对 diff 内容匹配）
+#   affected_docs  受影响文档清单（glob 列表）
+#   doc_anchor     文档锚点（可选，用于定位章节）
+
+rules:
+  - id: 1
+    name: cargo-version
+    description: Cargo.toml 版本号变更 → README/AGENTS.md 版本引用
+    code_patterns:
+      - "Cargo.toml"
+      - "packages/*/Cargo.toml"
+    code_regex: '^\+version\s*=\s*"\d+\.\d+\.\d+"'
+    affected_docs:
+      - "README.md"
+      - "AGENTS.md"
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "版本"
+
+  - id: 2
+    name: cargo-feature
+    description: Cargo.toml feature 列表变更 → engineering-practices.md feature 矩阵
+    code_patterns:
+      - "Cargo.toml"
+      - "packages/*/Cargo.toml"
+    code_regex: '^\+(\[features\]|\w+\s*=\s*\[|default\s*=)'
+    affected_docs:
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "Feature"
+
+  - id: 3
+    name: new-pub-api
+    description: 新增 pub API → API 文档（lib.rs / 对比分析文档）
+    code_patterns:
+      - "packages/*/src/*.rs"
+    code_regex: '^\+pub\s+(fn|struct|enum|trait|mod|const|static|type|use)'
+    affected_docs:
+      - "docs/sz-orm与同类产品对比分析.md"
+      - "docs/spec/v3.5.0/design.md"
+    doc_anchor: "API"
+
+  - id: 4
+    name: pool-rs
+    description: pool.rs 变更 → 连接池文档（对比分析 + 工程实践）
+    code_patterns:
+      - "packages/sz-orm-core/src/pool.rs"
+      - "packages/sz-orm-core/src/pool/*.rs"
+    affected_docs:
+      - "docs/sz-orm与同类产品对比分析.md"
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "连接池"
+
+  - id: 5
+    name: dialect-rs
+    description: dialect.rs 变更 → 方言文档（对比分析 + 工程实践）
+    code_patterns:
+      - "packages/sz-orm-core/src/dialect.rs"
+      - "packages/sz-orm-core/src/dialect/*.rs"
+    affected_docs:
+      - "docs/sz-orm与同类产品对比分析.md"
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "方言"
+
+  - id: 6
+    name: typed-ast-rs
+    description: typed_ast.rs 变更 → DSL 文档（对比分析 + 工程实践）
+    code_patterns:
+      - "packages/sz-orm-core/src/typed_ast.rs"
+      - "packages/sz-orm-core/src/typed_ast/*.rs"
+    affected_docs:
+      - "docs/sz-orm与同类产品对比分析.md"
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "DSL"
+
+  - id: 7
+    name: l2-cache-rs
+    description: l2_cache.rs 变更 → 缓存文档（对比分析 + 工程实践）
+    code_patterns:
+      - "packages/sz-orm-core/src/l2_cache.rs"
+      - "packages/sz-orm-core/src/l1_cache.rs"
+      - "packages/sz-orm-core/src/cache/*.rs"
+    affected_docs:
+      - "docs/sz-orm与同类产品对比分析.md"
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "缓存"
+
+  - id: 8
+    name: migration
+    description: 迁移模块变更 → 迁移指南文档
+    code_patterns:
+      - "packages/sz-orm-core/src/migration*.rs"
+      - "packages/sz-orm-mig/**/*.rs"
+      - "docs/migration/*.md"
+    affected_docs:
+      - "docs/sz-orm-engineering-practices.md"
+      - "docs/migration/diesel-to-sz-orm.md"
+      - "docs/migration/seaorm-to-sz-orm.md"
+      - "docs/migration/sqlx-to-sz-orm.md"
+    doc_anchor: "迁移"
+
+  - id: 9
+    name: cargo-new-package
+    description: Cargo.toml workspace members 新增包 → workspace 文档
+    code_patterns:
+      - "Cargo.toml"
+    code_regex: '^\+members\s*=\s*\[|^\+\s*"packages/'
+    affected_docs:
+      - "AGENTS.md"
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "workspace"
+
+  - id: 10
+    name: cargo-dependency
+    description: Cargo.toml 依赖变更 → 依赖文档（AGENTS.md + 工程实践）
+    code_patterns:
+      - "Cargo.toml"
+      - "packages/*/Cargo.toml"
+    code_regex: '^\+(sz-orm-|tokio|sqlx|serde|crossbeam-queue|redis)\w*\s*=\s*'
+    affected_docs:
+      - "AGENTS.md"
+      - "docs/sz-orm-engineering-practices.md"
+    doc_anchor: "依赖"
+
+# 全局配置
+config:
+  # 跳过标记（在受影响文档任意行出现即跳过该文档检查）
+  skip_marker: "# doc-sync-skip"
+  # 默认 diff 范围
+  default_diff: "HEAD"
+  # 文档检查模式：strict（必须修改）/ soft（存在即跳过）
+  check_mode: "strict"

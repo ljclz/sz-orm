@@ -43,3 +43,110 @@ pub fn value_to_json(v: &Value) -> JsonValue {
 pub fn value_to_json_string(v: &Value) -> String {
     serde_json::to_string(&value_to_json(v)).unwrap_or_else(|_| "null".to_string())
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_value_to_json_null() {
+        assert_eq!(value_to_json(&Value::Null), JsonValue::Null);
+    }
+
+    #[test]
+    fn test_value_to_json_bool() {
+        assert_eq!(value_to_json(&Value::Bool(true)), JsonValue::Bool(true));
+        assert_eq!(value_to_json(&Value::Bool(false)), JsonValue::Bool(false));
+    }
+
+    #[test]
+    fn test_value_to_json_integers() {
+        assert_eq!(value_to_json(&Value::I8(1)), JsonValue::from(1i64));
+        assert_eq!(value_to_json(&Value::I16(2)), JsonValue::from(2i64));
+        assert_eq!(value_to_json(&Value::I32(3)), JsonValue::from(3i64));
+        assert_eq!(value_to_json(&Value::I64(4)), JsonValue::from(4i64));
+        assert_eq!(value_to_json(&Value::U8(5)), JsonValue::from(5u64));
+        assert_eq!(value_to_json(&Value::U16(6)), JsonValue::from(6u64));
+        assert_eq!(value_to_json(&Value::U32(7)), JsonValue::from(7u64));
+        assert_eq!(value_to_json(&Value::U64(8)), JsonValue::from(8u64));
+    }
+
+    #[test]
+    fn test_value_to_json_floats() {
+        assert_eq!(value_to_json(&Value::F32(1.5)), JsonValue::from(1.5f64));
+        assert_eq!(value_to_json(&Value::F64(2.5)), JsonValue::from(2.5f64));
+    }
+
+    #[test]
+    fn test_value_to_json_string() {
+        assert_eq!(
+            value_to_json(&Value::String("hello".into())),
+            JsonValue::String("hello".into())
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_decimal() {
+        assert_eq!(
+            value_to_json(&Value::Decimal("123.45".into())),
+            JsonValue::String("123.45".into())
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_uuid() {
+        let uuid = "550e8400-e29b-41d4-a716-446655440000";
+        assert_eq!(
+            value_to_json(&Value::Uuid(uuid.into())),
+            JsonValue::String(uuid.into())
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_dates() {
+        assert_eq!(
+            value_to_json(&Value::Date("2024-01-01".into())),
+            JsonValue::String("2024-01-01".into())
+        );
+        assert_eq!(
+            value_to_json(&Value::DateTime("2024-01-01T00:00:00".into())),
+            JsonValue::String("2024-01-01T00:00:00".into())
+        );
+        assert_eq!(
+            value_to_json(&Value::Time("12:30:00".into())),
+            JsonValue::String("12:30:00".into())
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_bytes() {
+        let result = value_to_json(&Value::Bytes(vec![1, 2, 3]));
+        assert!(result.is_array());
+    }
+
+    #[test]
+    fn test_value_to_json_array() {
+        let arr = Value::Array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+        let result = value_to_json(&arr);
+        assert!(result.is_array());
+        assert_eq!(result.as_array().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn test_value_to_json_object() {
+        let mut map = std::collections::HashMap::new();
+        map.insert("key".to_string(), Value::String("value".into()));
+        let obj = Value::Object(map);
+        let result = value_to_json(&obj);
+        assert!(result.is_object());
+        assert_eq!(result["key"], JsonValue::String("value".into()));
+    }
+
+    #[test]
+    fn test_value_to_json_string_fn() {
+        assert_eq!(value_to_json_string(&Value::I64(42)), "42");
+        assert_eq!(value_to_json_string(&Value::String("hi".into())), "\"hi\"");
+        assert_eq!(value_to_json_string(&Value::Bool(true)), "true");
+        assert_eq!(value_to_json_string(&Value::Null), "null");
+    }
+}

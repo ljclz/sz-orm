@@ -51,6 +51,7 @@ impl Default for ProgressiveConfig {
 }
 
 impl ProgressiveConfig {
+    /// 创建渐进式预热配置
     pub fn new(batch_size: u32, interval: Duration, total_timeout: Duration) -> Self {
         Self {
             batch_size: batch_size.max(1),
@@ -59,16 +60,19 @@ impl ProgressiveConfig {
         }
     }
 
+    /// 设置每批创建连接数
     pub fn with_batch_size(mut self, size: u32) -> Self {
         self.batch_size = size.max(1);
         self
     }
 
+    /// 设置批间隔
     pub fn with_interval(mut self, interval: Duration) -> Self {
         self.interval = interval;
         self
     }
 
+    /// 设置总超时
     pub fn with_total_timeout(mut self, timeout: Duration) -> Self {
         self.total_timeout = timeout;
         self
@@ -85,15 +89,18 @@ pub struct PrewarmConfig {
 }
 
 impl PrewarmConfig {
+    /// 创建默认预热配置
     pub fn new() -> Self {
         Self::default()
     }
 
+    /// 设置是否自动预热
     pub fn with_auto_prewarm(mut self, enabled: bool) -> Self {
         self.auto_prewarm = enabled;
         self
     }
 
+    /// 设置渐进式配置
     pub fn with_progressive(mut self, config: ProgressiveConfig) -> Self {
         self.progressive = Some(config);
         self
@@ -115,6 +122,7 @@ pub struct PrewarmProgress {
 }
 
 impl PrewarmProgress {
+    /// 创建预热进度实例
     pub fn new(target: u32) -> Self {
         Self {
             warmed: AtomicU32::new(0),
@@ -125,23 +133,28 @@ impl PrewarmProgress {
         }
     }
 
+    /// 记录一次成功预热
     pub fn record_success(&self) {
         self.warmed.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// 记录一次失败预热
     pub fn record_failure(&self) {
         self.failed.fetch_add(1, Ordering::Relaxed);
     }
 
+    /// 设置已耗时
     pub fn set_elapsed(&self, duration: Duration) {
         self.elapsed_ns
             .store(duration.as_nanos() as u64, Ordering::Relaxed);
     }
 
+    /// 标记预热完成
     pub fn mark_completed(&self) {
         self.is_completed.store(true, Ordering::Release);
     }
 
+    /// 获取进度快照
     pub fn snapshot(&self) -> PrewarmProgressSnapshot {
         PrewarmProgressSnapshot {
             warmed: self.warmed.load(Ordering::Relaxed),
@@ -156,10 +169,15 @@ impl PrewarmProgress {
 /// 预热进度快照
 #[derive(Debug, Clone)]
 pub struct PrewarmProgressSnapshot {
+    /// 已成功预热数
     pub warmed: u32,
+    /// 目标连接数
     pub target: u32,
+    /// 失败次数
     pub failed: u32,
+    /// 已耗时
     pub elapsed: Duration,
+    /// 是否已完成
     pub is_completed: bool,
 }
 
@@ -186,38 +204,49 @@ impl PrewarmProgressSnapshot {
 /// 单个后端预热结果
 #[derive(Debug, Clone)]
 pub struct BackendPrewarmResult {
+    /// 后端名称
     pub backend: String,
+    /// 已成功预热数
     pub warmed: u32,
+    /// 失败次数
     pub failed: u32,
+    /// 已耗时
     pub elapsed: Duration,
+    /// 错误信息列表
     pub errors: Vec<String>,
 }
 
 /// 多池统一预热汇总
 #[derive(Debug, Clone)]
 pub struct PrewarmSummary {
+    /// 各后端预热结果
     pub results: Vec<BackendPrewarmResult>,
 }
 
 impl PrewarmSummary {
+    /// 创建空的预热汇总
     pub fn new() -> Self {
         Self {
             results: Vec::new(),
         }
     }
 
+    /// 添加一个后端的预热结果
     pub fn add(&mut self, result: BackendPrewarmResult) {
         self.results.push(result);
     }
 
+    /// 所有后端成功预热总数
     pub fn total_warmed(&self) -> u32 {
         self.results.iter().map(|r| r.warmed).sum()
     }
 
+    /// 所有后端失败总数
     pub fn total_failed(&self) -> u32 {
         self.results.iter().map(|r| r.failed).sum()
     }
 
+    /// 是否全部成功
     pub fn all_succeeded(&self) -> bool {
         !self.results.is_empty() && self.results.iter().all(|r| r.failed == 0)
     }

@@ -1,12 +1,13 @@
 # SZ-ORM 架构设计文档
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v6.0（同步到 43 包 / 5,442 测试 / v1.2.0 / sqlx 0.9.0 升级完成）
-> 适用版本：SZ-ORM v1.2.0（工作空间 43 个成员：41 个 lib + cli + examples）
-> 更新日期：2026-07-29
+> 文档版本：v3.4.0（同步到 43 包 / 6,738+253 ignored 测试 / v3.4.0 / 测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例）
+> 适用版本：SZ-ORM v3.4.0（工作空间 43 个成员：41 个 lib + cli + examples）
+> 更新日期：2026-08-09
 > 文档定位：整体架构、包间依赖、核心设计决策、扩展包开发指南
-> 测试：5,442 passed / 0 failed（131 个测试套件） | 代码：89,329 LOC（src/ 75,388 + tests/ 13,941）
-> 成熟度：原型阶段（未发布 crates.io） | 已知 Bug：0
+> 测试：6,738 passed / 0 failed / 253 ignored（195 个测试套件） | 代码：235,537 LOC（src/ 196,846 + tests/ 38,691）
+> 成熟度：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io | 已知 Bug：0
+> 生产案例：sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
 
 ---
 
@@ -402,11 +403,13 @@ Saga 适合订单、旅行预订、跨服务编排等长流程业务，无锁高
 | v4.0 | 2026-07-20 | 同步到 39 包 / 1970+ 测试 / v0.2.1 / AI 增强完成（sz-orm-vector + NL→SQL）/ 工程化审计三门禁通过 / 85,834 LOC |
 | v5.0 | 2026-07-21 | sqlx 0.9.0 升级完成 / 3047 测试 / v1.0.0 正式发布 / MSRV 升至 1.94.0+ / rsa Marvin Attack（RUSTSEC-2023-0071）已消除 |
 | v6.0 | 2026-07-29 | 同步至 v1.2.0 / 43 包 / 5,442 测试 / 131 测试套件 / 修复 SQL 注入与 panic! 健壮性问题 / 软删除与多租户集成到 lambda.rs / JSON 序列化改用 serde_json |
+| v3.3.0 | 2026-08-08 | 分布式缓存一致性 + GraphQL 查询支持 + 多租户与数据隔离 + AI 自然语言查询增强 / 6,327 测试基线 / dist-cache + multi-tenant-enhanced feature |
+| v3.4.0 | 2026-08-09 | 测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例 / 6,738+253 ignored 测试 / 235,537 LOC / 195 测试套件 / Column<T> + Schema 列名常量 + Diesel DSL / SmallString/enum dispatch/zero-copy L2/Box<str> / 10 聚合 feature gate / sz-pay 生产案例（7 包/297 引用/5139 测试零回归） |
 
 ---
 
 *项目名称：SZ-ORM（鲜视达 ORM）*
 *定位：纯 ORM + 可选扩展包（用户按需引入，不强制安装）*
-*文档版本：v6.0 | crate 版本：1.2.0 | 更新日期：2026-07-29*
+*文档版本：v3.4.0 | crate 版本：3.4.0 | 更新日期：2026-08-09*
 *核心模块：15 个（含 hooks/typed_ast/dynamic_sql/json_query/find_with_related）| 扩展包：37 个 sz-orm-* lib + cli + examples*
-*测试：2,271 passed / 0 failed | 代码：~104,000 LOC | 成熟度：原型阶段*
+*测试：6,738 passed / 0 failed / 253 ignored | 代码：235,537 LOC | 成熟度：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布 crates.io*

@@ -545,6 +545,8 @@ fn value_to_sql_type_name(value: &Value) -> &'static str {
         | Value::DateTime(_)
         | Value::Time(_)
         | Value::Json(_) => "VARCHAR",
+        #[cfg(feature = "perf-box-str")]
+        Value::BoxedStr(_) => "VARCHAR",
         Value::Bytes(_) => "BLOB",
         Value::Array(_) | Value::Object(_) => "JSON",
     }
@@ -555,6 +557,10 @@ mod tests {
     use super::*;
 
     // ---- 测试用结构体 ----
+    // 注：sz-orm-core 内部测试模块不能使用 #[derive(FromRow)] 宏，
+    // 因为宏生成代码引用 ::sz_orm_core 绝对路径，在 crate 自身内部测试中不可用。
+    // 内部测试保留手动实现；外部测试（tests/）使用宏生成方案。
+    // 详见 tests/contracts/queryable_contract.rs 的宏迁移示例。
 
     #[derive(Debug, Default, PartialEq)]
     struct UserRow {

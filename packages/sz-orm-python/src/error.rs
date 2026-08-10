@@ -50,3 +50,36 @@ pub fn db_error_to_pyerr(err: DbError) -> PyErr {
         _ => PyRuntimeError::new_err(format!("[{}] {}", code, msg)),
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_pydb_error_new() {
+        let err = PyDbError::new("test error".to_string());
+        assert_eq!(err.message, "test error");
+        assert_eq!(err.code, "DB000");
+    }
+
+    #[test]
+    fn test_pydb_error_getters() {
+        let err = PyDbError::new("connection failed".to_string());
+        assert_eq!(err.message(), "connection failed");
+        assert_eq!(err.code(), "DB000");
+    }
+
+    #[test]
+    fn test_pydb_error_str() {
+        let err = PyDbError::new("not found".to_string());
+        assert_eq!(err.__str__(), "[DB000] not found");
+    }
+
+    #[test]
+    fn test_pydb_error_clone() {
+        let err = PyDbError::new("original".to_string());
+        let cloned = err.clone();
+        assert_eq!(cloned.message, "original");
+        assert_eq!(cloned.code, "DB000");
+    }
+}

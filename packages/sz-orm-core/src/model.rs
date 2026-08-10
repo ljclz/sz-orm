@@ -119,6 +119,7 @@ pub struct TimestampFields {
 }
 
 impl TimestampFields {
+    /// 创建时间戳字段配置
     pub fn new(created_at: Option<&'static str>, updated_at: Option<&'static str>) -> Self {
         Self {
             created_at,
@@ -128,6 +129,7 @@ impl TimestampFields {
         }
     }
 
+    /// 同时设置 created_at 和 updated_at 字段
     pub fn with_both(created_at: &'static str, updated_at: &'static str) -> Self {
         Self {
             created_at: Some(created_at),
@@ -159,24 +161,33 @@ pub enum Relation {
 /// 多对一关系配置
 #[derive(Debug, Clone)]
 pub struct BelongsTo {
+    /// 外键列名
     pub foreign_key: String,
+    /// 父模型表名
     pub parent_model: String,
+    /// 父表主键列名
     pub parent_pk: String,
 }
 
 /// 一对多关系配置
 #[derive(Debug, Clone)]
 pub struct HasMany {
+    /// 外键列名
     pub foreign_key: String,
+    /// 子模型表名
     pub child_model: String,
+    /// 子表主键列名
     pub child_pk: String,
 }
 
 /// 一对一关系配置
 #[derive(Debug, Clone)]
 pub struct HasOne {
+    /// 外键列名
     pub foreign_key: String,
+    /// 子模型表名
     pub child_model: String,
+    /// 子表主键列名
     pub child_pk: String,
 }
 
@@ -190,10 +201,15 @@ pub struct HasOne {
 /// - `target_pk`：目标表的主键列名（如 `id`），用于 JOIN 条件 `t.{target_pk} = j.{other_key}`
 #[derive(Debug, Clone)]
 pub struct BelongsToMany {
+    /// 中间表名
     pub junction_table: String,
+    /// 中间表中指向当前模型主键的列名
     pub foreign_key: String,
+    /// 中间表中指向目标模型主键的列名
     pub other_key: String,
+    /// 目标表名
     pub target_model: String,
+    /// 目标表主键列名
     pub target_pk: String,
 }
 
@@ -567,14 +583,18 @@ pub fn rows_to_values(rows: Vec<HashMap<String, Value>>) -> Value {
 }
 
 /// 关系操作错误类型
+/// 关系加载错误
 #[derive(Error, Debug, Clone)]
 pub enum RelationError {
+    /// 关系不存在于模型定义中
     #[error("Relation '{0}' not found in model relations")]
     RelationNotFound(String),
 
+    /// 加载关系时查询出错
     #[error("Query error during relation loading: {0}")]
     QueryError(String),
 
+    /// 关系数据未加载（需先调用 .with() 预加载）
     #[error("Relation data not loaded. Call .with(\"{0}\") before accessing.")]
     NotLoaded(String),
 }
@@ -674,12 +694,16 @@ pub trait Scope: Send + Sync {
 
 /// 查询构造器包装类型，用于挂载作用域
 pub struct QueryBuilderWrapper<'a, M: Model> {
+    /// 查询构造器引用
     pub builder: &'a mut dyn QueryBuilderExt<Model = M>,
 }
 
+/// 查询构造器扩展 trait
 pub trait QueryBuilderExt: Send + Sync {
+    /// 关联的模型类型
     type Model: Model;
 
+    /// 添加 AND WHERE 条件
     fn and_where(&mut self, condition: &str);
 }
 
@@ -797,6 +821,8 @@ pub fn value_to_json(v: Value) -> serde_json::Value {
             .map(serde_json::Value::Number)
             .unwrap_or(serde_json::Value::Null),
         Value::String(s) => serde_json::Value::String(s),
+        #[cfg(feature = "perf-box-str")]
+        Value::BoxedStr(s) => serde_json::Value::String(s.into_string()),
         Value::Bytes(b) => {
             // M-1 修复：使用查表法替代 format!("{:02x}", byte) 提升性能
             const HEX_LOWER: &[u8; 16] = b"0123456789abcdef";

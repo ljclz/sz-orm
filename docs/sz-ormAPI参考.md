@@ -1,14 +1,16 @@
 # SZ-ORM API 参考手册
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v6.0（v1.2.0：补全 sz-orm-core 全部 21 个高级模块的 API 速查；同步至 43 包）
-> 适用版本：SZ-ORM **v1.2.0**（工作空间 43 个成员：41 个 lib + cli + examples）
-> 测试：5,442 passed / 0 failed（131 个测试套件）
-> 代码规模：89,329 LOC（src/ 75,388 + tests/ 13,941）
-> 成熟度：原型阶段（尚未发布 crates.io，0 社区验证）
-> 更新日期：2026-07-29
+> 文档版本：v3.4.0（v3.4.0：测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例；同步至 43 包）
+> 适用版本：SZ-ORM **v3.4.0**（工作空间 43 个成员：41 个 lib + cli + examples）
+> 测试：6,738 passed / 0 failed / 253 ignored（195 个测试套件）
+> 代码规模：235,537 LOC（src/ 196,846 + tests/ 38,691）
+> 成熟度：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io
+> 生产案例：sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
+> 更新日期：2026-08-09
 > 文档定位：核心 trait/结构体说明 + 各包公开 API 速查 + 错误处理指南
 > **配套使用文档**：场景示例与端到端串联请查阅 [SZ-ORM 使用指南](sz-orm使用指南.md)；本文聚焦于类型签名与参数说明
+> **v3.4.0 新增 API**：`Column<T>` 类型安全列引用（`typed-column` feature）、`#[derive(Schema)]` 列名常量（`typed-schema` feature）、typed_ast Diesel 风格 DSL（`typed-dsl` feature）、`#[derive(FromQueryResult)]` 宏生成结果集映射
 
 ---
 

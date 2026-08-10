@@ -107,8 +107,11 @@ impl WhereOp {
 /// 查询条件
 #[derive(Debug, Clone)]
 pub struct WhereCondition {
+    /// 字段名
     pub field: String,
+    /// 操作符
     pub op: WhereOp,
+    /// 比较值
     pub value: Value,
     /// For Between / In / NotIn，副值列表
     pub extra_values: Vec<Value>,
@@ -163,9 +166,13 @@ impl WhereCondition {
 /// 分页结果
 #[derive(Debug, Clone)]
 pub struct PageResult<T> {
+    /// 当前页数据
     pub items: Vec<T>,
+    /// 总记录数
     pub total: u64,
+    /// 当前页码
     pub page: u64,
+    /// 每页大小
     pub page_size: u64,
 }
 
@@ -846,6 +853,7 @@ where
     E: Clone + Send + Sync + 'static,
     K: Clone + Debug + PartialEq + Send + Sync + 'static,
 {
+    /// 创建一个空的 `GenericKeyRepository`
     pub fn new() -> Self {
         Self {
             storage: RwLock::new(Vec::new()),
@@ -853,6 +861,7 @@ where
         }
     }
 
+    /// 从已有向量创建 `GenericKeyRepository`
     pub fn from_vec(items: Vec<E>) -> Self {
         Self {
             storage: RwLock::new(items),
@@ -860,6 +869,7 @@ where
         }
     }
 
+    /// 返回仓储中实体的数量
     pub fn len(&self) -> usize {
         match self.storage.read() {
             Ok(g) => g.len(),
@@ -867,10 +877,12 @@ where
         }
     }
 
+    /// 判断仓储是否为空
     pub fn is_empty(&self) -> bool {
         self.len() == 0
     }
 
+    /// 清空仓储中的所有实体
     pub fn clear(&self) {
         if let Ok(mut storage) = self.storage.write() {
             storage.clear();

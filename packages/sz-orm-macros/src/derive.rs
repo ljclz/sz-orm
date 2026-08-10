@@ -254,6 +254,52 @@ pub fn derive_schema_impl(input: DeriveInput) -> TokenStream2 {
 
     let columns_len = column_entries.len();
 
+    // M4-T2: type-safe-columns feature 启用时，为每个字段生成列名常量
+    // 如 impl User { pub const ID: &'static str = "id"; pub const NAME: &'static str = "name"; }
+    #[cfg(feature = "type-safe-columns")]
+    let column_constants = {
+        let mut const_entries = Vec::new();
+        for field in fields.iter() {
+            let field_name = field.ident.as_ref().unwrap().to_string();
+            let col_attr = parse_column_attr(&field.attrs);
+            if col_attr.skip {
+                continue;
+            }
+            let col_name = col_attr.name.clone().unwrap_or_else(|| field_name.clone());
+
+            // M4-T2.3: 仅跳过含生命周期/trait object/impl trait 的类型
+            // 简单泛型（Vec<u8>、Option<String> 等）正常生成列名常量
+            let type_str = quote!(#field.ty).to_string();
+            let is_complex_type =
+                type_str.contains('\'') || type_str.contains("dyn ") || type_str.contains("impl ");
+
+            if is_complex_type {
+                continue;
+            }
+
+            // 字段名转大写作为常量名（如 "id" -> "ID", "user_name" -> "USER_NAME"）
+            let const_name = format_ident!("{}", field_name.to_uppercase());
+            const_entries.push(quote! {
+                /// 列名常量（由 #[derive(Schema)] + type-safe-columns 生成）
+                pub const #const_name: &'static str = #col_name;
+            });
+        }
+        quote! {
+            #[allow(dead_code)]
+            impl #struct_name {
+                #(#const_entries)*
+            }
+
+            impl ::sz_orm_core::column::Schema for #struct_name {
+                fn schema_table_name() -> &'static str {
+                    #table_name
+                }
+            }
+        }
+    };
+    #[cfg(not(feature = "type-safe-columns"))]
+    let column_constants = quote! {};
+
     // 注意：proc-macro crate 不能导出普通 trait/struct，因此生成 inherent 方法。
     // 列信息以元组形式返回：(列名, Rust字段名, SQL类型, nullable, primary_key, has_default)
     let expanded = quote! {
@@ -282,6 +328,8 @@ pub fn derive_schema_impl(input: DeriveInput) -> TokenStream2 {
                 #columns_len
             }
         }
+
+        #column_constants
     };
 
     expanded

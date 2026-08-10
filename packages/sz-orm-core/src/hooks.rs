@@ -101,11 +101,17 @@ impl HookContext {
 /// `BeforeFind` → (SELECT) → `AfterFind`
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum HookEvent {
+    /// 插入前触发
     BeforeInsert,
+    /// 插入后触发
     AfterInsert,
+    /// 更新前触发
     BeforeUpdate,
+    /// 更新后触发
     AfterUpdate,
+    /// 删除前触发
     BeforeDelete,
+    /// 删除后触发
     AfterDelete,
     /// 通用写入前：insert 或 update 前均触发
     BeforeWrite,

@@ -5,6 +5,122 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [3.6.0] — 2026-08-10
+
+### 概述
+
+v3.6.0 是 SZ-ORM 的类型安全与文档完善版本，包含 5 大方向交付物，覆盖 37 条 EARS 需求，通过 5 个里程碑（M1-M5）推进。所有新能力通过 feature gate 隔离，默认关闭，无 Breaking Change。全 workspace 测试零回归，sz-pay 项目验证通过。
+
+### 新增功能
+
+#### M1: 编译期类型安全深入优化（`typed-relation` / `sql-verify-proc` / `typed-dsl` features）
+
+- CTE 3 种：`With<N,S>` / `WithRecursive<N,I,R>` / `CteRef<N>`（typed_ast.rs:1693-1779）
+- Window Frame 6 种：`RowsFrame` / `RangeFrame` / `GroupsFrame` / `FrameBetween<S,E>` / `FrameUnboundedPreceding` / `FrameCurrentRow`（typed_ast.rs:1785-1913）
+- JSON 操作符 6 种：`JsonGet<C,K>` / `JsonGetText<C,K>` / `JsonPathGet<C,P>` / `JsonPathGetText<C,P>` / `JsonContains<C,V>` / `JsonExists<C,K>`（typed_ast.rs:1915-2055）
+- 自定义诊断模块：`sz-orm-macros/src/diagnostic.rs` + `type_check` 属性宏 + `diagnostic_error!` 宏 + trybuild 测试
+- typed relation：`BelongsTo<C,P>` / `HasMany<P,C>` / `HasOne<P,C>` + `RelationQuery<R>` + `RelationKind` enum
+- SQL 验证模块：`sql_verify.rs`（sqlparser 语法验证 + xxhash 缓存 + 只读检查）
+- ZST 断言测试 + SQL 注入防护测试 + 覆盖度对比文档（61 种 vs Diesel ~38 种）
+- DSL 覆盖度：61 种表达式，超过 Diesel（~38 种）
+
+#### M2: 313 pub API 文档补齐
+
+- 195 个 missing_docs 警告全部补齐
+- `#![warn(missing_docs)]` 全局启用（从 `cfg_attr(docsrs, ...)` 升级）
+- `cargo doc -p sz-orm-core --no-deps --all-features` 零警告
+- 5 个文档格式警告修复（unclosed HTML tag / unresolved link）
+
+#### M3: QueryBuilder 渐进合并（`qb-migration-tool` feature）
+
+- `qb_migration_lint.rs`：迁移 lint 模块（15 个测试）
+- `qb_migration_fix.rs`：迁移 fix 模块（23 个测试）
+- `qb_migration_diff_test.rs`：差分测试验证语义等价（9 个测试）
+- `docs/qb-migration-roadmap.md`：v3.7.0 移除路线图
+- sz-orm-query-builder 6 个 deprecated 标注验证通过
+- sz-pay 项目 `cargo check` + `cargo test` 零回归验证通过
+
+#### M4: 方言扩展 Snowflake + Redshift（`dialect-snowflake` / `dialect-redshift` features）
+
+- SnowflakeDialect：独立实现，支持 VARIANT/OBJECT/ARRAY + COPY INTO + TIME TRAVEL（17 个测试）
+- RedshiftDialect：委派 PostgreSqlDialect + COPY/UNLOAD 特性扩展（15 个测试）
+- DbType 新增 Snowflake + Redshift 变体（#[non_exhaustive] 允许）
+- 方言总数：18 → 21 种（新增 Snowflake + Redshift）
+- `docs/snowflake-redshift-driver-evaluation.md`：Rust 驱动评估
+- `docs/prisma-dialect-evaluation.md`：Prisma 兼容评估
+- `docs/dialect-extension-roadmap.md`：方言扩展路线图更新
+
+#### M5: async trait 重评估
+
+- 基于 Rust 1.81 原生 async fn in trait 重新评估
+- 评估结论：保持方案 C（现状 + 文档），dyn trait + Send bound 限制仍存在
+- `docs/async-trait-evaluation.md` 更新 v3.6.0 重评估章节
+- Connection trait 签名不变，sz-pay 零回归
+
+### 测试
+
+- 全 workspace 测试零失败
+- sz-pay 项目 10 + 13 + 2 = 25 个测试通过
+- M1 新增 50+ 测试，M3 新增 47 测试
+
+### 兼容性
+
+- 无 Breaking Change，所有新能力通过 feature gate 隔离
+- sz-pay 生产项目验证通过
+
+## [3.4.0] — 2026-08-09
+
+### 概述
+
+v3.4.0 是 SZ-ORM 的质量深耕版本，包含 6 大方向交付物，覆盖 31 条 EARS 需求，通过 6 个里程碑（M1-M6）推进。所有新能力通过 10 个 feature gate 隔离，默认关闭，无 Breaking Change。五方言集成测试 83 项全部通过，sz-pay 项目 6 个测试套件零回归验证通过。
+
+### 新增功能
+
+#### 测试覆盖补齐（`test-coverage` feature）
+
+- 18 个扩展包测试从 0 → 全覆盖（每个包 ≥ 5 测试）
+- 全 workspace 159 个测试套件全部通过
+- 五方言集成测试：MySQL 23 + PostgreSQL 18 + SQLite 25 + Oracle 10 + DuckDB 7 = 83 项全通过
+
+#### 架构改进（`arch-improvement` feature）
+
+- `async_trait_style_evaluation.md`：async trait 风格评估
+- `query_builder_selection_guide.md`：QueryBuilder 选择指南
+- `result_map_macro_evaluation.md`：result_map 宏生成评估
+
+#### 性能优化（`perf-smallstring` / `perf-enum-dispatch` / `perf-zero-copy-l2` / `perf-box-str` features）
+
+- `SqlBuffer`：CompactString/String 双后端，短字符串 ≤ 23 字节内联存储
+- `DialectKind` enum dispatch：替代 `Box<dyn Dialect>` vtable 查找
+- `Value::BoxedStr(Box<str>)`：节省 8 字节/值 capacity 字段
+- L2 缓存零拷贝推广：BorrowedValue + ColumnarResultSet 推广到 L2 缓存路径
+- 4 个基准 + 16 个差分测试
+
+#### 编译期类型安全（`type-safe-columns` / `typed-column` / `typed-dsl` features）
+
+- `Column<T: Schema>`：类型安全列引用，编译期检测列名拼写错误
+- `Schema` trait + `#[derive(Schema)]`：自动生成列名常量
+- `typed_ast` 扩展：`Like`/`In`/`Not` 表达式 + `BoolExpressionExt` trait
+- `where_eq_col` / `where_expr`：类型安全 WHERE 条件构建
+- 30 个测试 + 1 个基准
+
+#### 文档生态（`migration-guide` feature）
+
+- `docs/migration/diesel_to_sz_orm.md`：Diesel → SZ-ORM 迁移指南
+- `docs/migration/seaorm_to_sz_orm.md`：SeaORM → SZ-ORM 迁移指南
+- `docs/migration/sqlx_to_sz_orm.md`：SQLx → SZ-ORM 迁移指南
+
+#### sz-pay 生产案例深化
+
+- `examples/src/bin/sz_pay_pattern.rs`：脱敏版生产使用模式示例
+- sz-pay 项目 6 个测试套件零回归验证通过
+
+### 兼容性
+
+- 无 Breaking Change，所有 v3.3.0 公开 API 签名保持不变
+- 默认 feature 零行为变更
+- workspace 版本统一为 3.4.0
+
 ## [3.3.0] — 2026-08-08
 
 ### 概述

@@ -199,25 +199,58 @@ fn check_where_injection(condition: &str) {
 }
 
 /// 查询构造器入口
+///
+/// # 渐进 Deprecation 说明（v3.5.0）
+///
+/// 自 v3.5.0 起，`sz-orm-query-builder` 进入渐进 deprecation 阶段。
+/// 请评估 [docs/query-builder-guide.md](../../../docs/query-builder-guide.md)
+/// 选择合适方案：
+///
+/// - **标准 CRUD**：推荐迁移到 `sz_orm_core::QueryBuilder<M>`（编译期类型安全）
+/// - **复杂 SQL（UNION/CTE/窗口函数）**：可继续使用本 crate（暂不删除）
+///
+/// 本 crate 在 v3.5.0 **不立即删除**，API 完全兼容，仅添加 `#[deprecated]` 警告。
+/// 计划在 v4.0.0 评估是否合并到 `sz-orm-core` 或保留独立。
+#[deprecated(
+    since = "3.5.0",
+    note = "v3.5.0: 请评估 docs/query-builder-guide.md 选择合适方案。标准 CRUD 推荐迁移到 sz_orm_core::QueryBuilder<M>"
+)]
 pub struct Query;
 
+#[allow(deprecated)]
 impl Query {
     /// 创建 SELECT 查询
+    #[deprecated(
+        since = "3.5.0",
+        note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::select()。详见 docs/query-builder-guide.md"
+    )]
     pub fn select() -> SelectQuery {
         SelectQuery::new()
     }
 
     /// 创建 INSERT 查询
+    #[deprecated(
+        since = "3.5.0",
+        note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::insert()。详见 docs/query-builder-guide.md"
+    )]
     pub fn insert() -> InsertQuery {
         InsertQuery::new()
     }
 
     /// 创建 UPDATE 查询
+    #[deprecated(
+        since = "3.5.0",
+        note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::update()。详见 docs/query-builder-guide.md"
+    )]
     pub fn update() -> UpdateQuery {
         UpdateQuery::new()
     }
 
     /// 创建 DELETE 查询
+    #[deprecated(
+        since = "3.5.0",
+        note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::delete()。详见 docs/query-builder-guide.md"
+    )]
     pub fn delete() -> DeleteQuery {
         DeleteQuery::new()
     }
@@ -2564,6 +2597,7 @@ impl DeleteQuery {
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
 

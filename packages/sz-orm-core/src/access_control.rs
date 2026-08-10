@@ -87,6 +87,7 @@ pub struct RowLevelSecurity {
 }
 
 impl RowLevelSecurity {
+    /// 创建行级权限控制器
     pub fn new(context: AccessContext) -> Self {
         Self { context }
     }
@@ -163,6 +164,7 @@ impl RowLevelSecurity {
         self
     }
 
+    /// 构建并返回最终的访问控制上下文
     pub fn build(self) -> AccessContext {
         self.context
     }

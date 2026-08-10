@@ -522,10 +522,16 @@ pub enum PoolError {
     ///
     /// 当 `rate-limit` feature 启用且 `RateLimiter` 拒绝当前 key 时返回。
     /// `remaining` 为本次窗口剩余配额（已为 0），`reset_at` 为窗口重置时间戳（毫秒）。
-    RateLimited { remaining: u64, reset_at: i64 },
+    RateLimited {
+        /// 本次窗口剩余配额（已为 0）
+        remaining: u64,
+        /// 窗口重置时间戳（毫秒）
+        reset_at: i64,
+    },
 }
 
 impl PoolError {
+    /// 返回错误对应的业务错误码
     pub fn error_code(&self) -> &'static str {
         match self {
             PoolError::Exhausted => "PL001",
@@ -591,6 +597,7 @@ pub enum CacheError {
 }
 
 impl CacheError {
+    /// 返回错误对应的业务错误码
     pub fn error_code(&self) -> &'static str {
         match self {
             CacheError::NotFound(_) => "CH001",
@@ -630,9 +637,12 @@ impl<T> From<std::sync::PoisonError<T>> for CacheError {
 /// `transaction` 模块通过 `pub use` 重导出本类型。
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransactionState {
+    /// 事务活跃中（已开始但未提交或回滚）
     #[default]
     Active,
+    /// 事务已提交
     Committed,
+    /// 事务已回滚
     RolledBack,
 }
 
@@ -679,13 +689,23 @@ pub enum TxError {
     /// H-8 修复：嵌套事务深度超过限制
     ///
     /// `current_depth` 为当前已嵌套深度（含本次），`max_depth` 为配置的最大深度。
-    MaxNestingDepthExceeded { current_depth: u32, max_depth: u32 },
+    MaxNestingDepthExceeded {
+        /// 当前已嵌套深度（含本次）
+        current_depth: u32,
+        /// 配置的最大深度
+        max_depth: u32,
+    },
 
     /// M-8 修复：死锁检测
     ///
     /// 当事务执行过程中检测到死锁（数据库返回死锁错误码）时返回。
     /// 调用方可使用 `retry_on_deadlock` 包装器自动重试。
-    DeadlockDetected { attempt: u32, max_attempts: u32 },
+    DeadlockDetected {
+        /// 当前重试次数
+        attempt: u32,
+        /// 最大重试次数
+        max_attempts: u32,
+    },
 }
 
 impl fmt::Display for TxError {

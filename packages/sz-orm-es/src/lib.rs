@@ -21,6 +21,9 @@
 //! - [`InMemoryEsSync`] — **Mock 实现**（仅供测试）
 //! - [`EsSyncManager`] — 同步管理器（默认使用 Mock，可通过 `with_backend` 替换）
 
+#[cfg(feature = "real")]
+pub mod real_es;
+
 pub mod extensions;
 
 use serde::{Deserialize, Serialize};

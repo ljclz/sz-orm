@@ -305,6 +305,42 @@ python scripts/check-doc-consistency.py --fix
 - ✅ 必须：`[packages/sz-orm-core/src/query.rs:127] 已修复，cargo test 输出：43 passed`
 - 违反本条视为审计无效，必须重新执行
 
+### 门禁 14：文档同步更新检查
+
+| 属性 | 值 |
+|------|-----|
+| **教训来源** | 代码变更未同步更新文档，导致文档与代码脱节（版本号、feature、API、连接池、方言、DSL、缓存、迁移指南等） |
+| **命令** | `python scripts/check-doc-sync.py --diff HEAD` |
+| **CI Job 名** | `check-doc-sync`（新增） |
+| **状态** | ✅ 已实现 |
+
+**检查逻辑**：
+1. 解析 `git diff` 获取本次变更文件清单与新增行
+2. 按 10 类代码变更 → 受影响文档映射规则（`scripts/doc-sync-rules.yaml`）匹配
+3. 对每个受影响文档，检查是否在本次 diff 中被修改
+4. 未修改则退出码 1 阻断提交；全部已修改或已跳过则退出码 0
+
+**10 类映射规则**：
+
+| # | 规则名 | 代码变更 | 受影响文档 |
+|---|--------|---------|-----------|
+| 1 | cargo-version | Cargo.toml 版本号变更 | README.md / AGENTS.md / engineering-practices.md |
+| 2 | cargo-feature | Cargo.toml feature 列表变更 | engineering-practices.md（feature 矩阵） |
+| 3 | new-pub-api | 新增 pub API（pub fn/struct/enum/trait/mod/const/static/type/use） | 对比分析文档 / design.md |
+| 4 | pool-rs | pool.rs 变更 | 对比分析文档 / engineering-practices.md |
+| 5 | dialect-rs | dialect.rs 变更 | 对比分析文档 / engineering-practices.md |
+| 6 | typed-ast-rs | typed_ast.rs 变更 | 对比分析文档 / engineering-practices.md |
+| 7 | l2-cache-rs | l2_cache.rs / l1_cache.rs 变更 | 对比分析文档 / engineering-practices.md |
+| 8 | migration | 迁移模块变更 | engineering-practices.md / 迁移指南 |
+| 9 | cargo-new-package | Cargo.toml workspace members 新增包 | AGENTS.md / engineering-practices.md |
+| 10 | cargo-dependency | Cargo.toml 依赖变更 | AGENTS.md / engineering-practices.md |
+
+**跳过标记**：在受影响文档任意位置添加 `# doc-sync-skip` 行可跳过该文档的检查（用于紧急修复或文档尚未创建的场景）。
+
+**CI 集成**：在 `.github/workflows/ci.yml` 中新增 `check-doc-sync` job，PR 触发时执行文档同步检查，退出码非 0 阻断 PR 合入。
+
+**单元测试**：`tests/test_check_doc_sync.py` 覆盖规则加载、diff 解析、跳过标记、退出码、端到端三种场景（未同步/已同步/跳过），36 个测试全通过。
+
 ---
 
 ## 3. 五维审查增强
@@ -626,9 +662,55 @@ cargo test --workspace
 
 ---
 
-> **最后更新**: 2026-08-08
+## v3.4.0 工程化审查要点（2026-08-09）
+
+### 10 Feature 组合矩阵
+
+| Feature | 包 | 默认 | 依赖 |
+|---------|-----|------|------|
+| `test-coverage` | sz-orm-core | 关闭 | 无 |
+| `arch-improvement` | sz-orm-core | 关闭 | 无 |
+| `perf-smallstring` | sz-orm-core | 关闭 | compact_str |
+| `perf-enum-dispatch` | sz-orm-core | 关闭 | 无 |
+| `perf-zero-copy-l2` | sz-orm-core | 关闭 | zero-copy |
+| `perf-box-str` | sz-orm-core | 关闭 | 无 |
+| `type-safe-columns` | sz-orm-core | 关闭 | sz-orm-macros/type-safe-columns |
+| `typed-column` | sz-orm-core | 关闭 | 无 |
+| `typed-dsl` | sz-orm-core | 关闭 | 无 |
+| `migration-guide` | sz-orm-core | 关闭 | 无 |
+
+### v3.4.0 审查清单
+
+1. **Feature 正交性**：10 个 feature 任意组合编译通过
+2. **默认零行为变更**：不启用 feature 时，既有测试全部通过
+3. **API 向后兼容**：无 Breaking Change，新能力通过 feature gate 隔离
+4. **安全审计**：新代码零 SQL 注入、零 unsafe、零占位实现
+5. **性能不回退**：v3.3.0 性能基准不回退
+6. **下游零回归**：sz-pay 6 个测试套件零回归
+7. **五方言集成测试**：MySQL 23 + PostgreSQL 18 + SQLite 25 + Oracle 10 + DuckDB 7 = 83 项全通过
+
+### v3.4.0 新增模块
+
+| 模块 | 文件 | 测试数 |
+|------|------|--------|
+| SqlBuffer | `packages/sz-orm-core/src/sql_buffer.rs` | 16（差分） |
+| DialectKind | `packages/sz-orm-core/src/dialect.rs` | 4（基准） |
+| Value::BoxedStr | `packages/sz-orm-core/src/value.rs` | 4（基准） |
+| L2 zero_copy | `packages/sz-orm-core/src/l2_cache.rs` | 4（基准） |
+| Column<T> | `packages/sz-orm-core/src/column.rs` | 30 |
+| typed_ast ext | `packages/sz-orm-core/src/typed_ast.rs` | 30 |
+| sz_pay_pattern | `examples/src/bin/sz_pay_pattern.rs` | 1（示例） |
+
+---
+
+> **最后更新**: 2026-08-09
 > **维护人**: SZ-ORM 工程团队
-> **规范版本**: v3.3
+> **规范版本**: v3.4
+>
+> **v3.4 变更摘要**（2026-08-09）：
+> - 新增 v3.4.0 工程化审查要点（10 feature 组合矩阵 + 审查清单 + 五方言集成测试结果）
+> - 新增 7 个模块的测试数据
+> - 项目版本 v3.3.0 → v3.4.0
 >
 > **v3.3 变更摘要**（2026-08-08）：
 > - 新增 v3.3.0 工程化审查要点（8 feature 组合矩阵 + 审查清单 + 五方言集成测试指南）

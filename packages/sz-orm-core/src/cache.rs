@@ -7,16 +7,25 @@ use std::collections::HashMap;
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
+/// 缓存抽象 trait
 pub trait Cache: Send + Sync {
+    /// 获取缓存值
     fn get(&self, key: &str) -> Result<Option<Vec<u8>>, CacheError>;
+    /// 设置缓存值（可指定 TTL）
     fn set(&self, key: &str, value: Vec<u8>, ttl: Option<Duration>) -> Result<(), CacheError>;
+    /// 删除缓存键
     fn delete(&self, key: &str) -> Result<(), CacheError>;
+    /// 清空所有缓存
     fn clear(&self) -> Result<(), CacheError>;
+    /// 判断键是否存在
     fn exists(&self, key: &str) -> Result<bool, CacheError>;
+    /// 设置键的过期时间
     fn expire(&self, key: &str, ttl: Duration) -> Result<(), CacheError>;
+    /// 查询键的剩余 TTL
     fn ttl(&self, key: &str) -> Result<Option<Duration>, CacheError>;
 }
 
+/// 基于内存的缓存实现
 #[derive(Clone)]
 pub struct MemoryCache {
     data: Arc<RwLock<HashMap<String, CacheEntry>>>,
@@ -29,6 +38,7 @@ struct CacheEntry {
 }
 
 impl MemoryCache {
+    /// 创建无默认 TTL 的内存缓存
     pub fn new() -> Self {
         Self {
             data: Arc::new(RwLock::new(HashMap::new())),
@@ -36,6 +46,7 @@ impl MemoryCache {
         }
     }
 
+    /// 创建带默认 TTL 的内存缓存
     pub fn with_ttl(ttl: Duration) -> Self {
         Self {
             data: Arc::new(RwLock::new(HashMap::new())),
@@ -126,15 +137,18 @@ impl Cache for MemoryCache {
     }
 }
 
+/// 多级缓存（按顺序查询各级缓存）
 pub struct MultiLevelCache {
     caches: Vec<Box<dyn Cache>>,
 }
 
 impl MultiLevelCache {
+    /// 创建空的多级缓存
     pub fn new() -> Self {
         Self { caches: Vec::new() }
     }
 
+    /// 追加一级缓存
     pub fn add_cache(mut self, cache: Box<dyn Cache>) -> Self {
         self.caches.push(cache);
         self
@@ -208,11 +222,16 @@ impl Cache for MultiLevelCache {
     }
 }
 
+/// 缓存统计信息
 #[derive(Debug, Clone, Default)]
 pub struct CacheStats {
+    /// 缓存命中次数
     pub hits: u64,
+    /// 缓存未命中次数
     pub misses: u64,
+    /// 写入次数
     pub sets: u64,
+    /// 删除次数
     pub deletes: u64,
 }
 

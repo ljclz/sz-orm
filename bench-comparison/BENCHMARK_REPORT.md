@@ -166,7 +166,7 @@ cargo bench --bench orm_comparison -- --sample-size 10 --measurement-time 2 --wa
 
 ```bash
 cd bench-comparison
-cargo run --release -- --mysql "mysql://root:0167df3598924d19@122.51.216.76:8802/lewuli" --trials 3
+cargo run --release -- --mysql "mysql://root:***MASKED***@122.51.216.76:8802/lewuli" --trials 3
 ```
 
 结果输出到 stdout，可重定向至文件：`bench-real-db-results.txt`

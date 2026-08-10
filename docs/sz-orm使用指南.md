@@ -1,10 +1,12 @@
 # SZ-ORM 使用指南
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v6.0（v1.2.0：补全 sz-orm-core 全部 21 个高级模块文档 + API 参考手册交叉引用；同步至 43 包）
-> 适用版本：SZ-ORM **v1.2.0**（工作空间 43 个成员：41 个 sz-orm-* lib + cli + examples）
-> 更新日期：2026-07-29
-> 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"，与《项目成熟度评估报告.md》《项目实施进度表.md》配套
+> 文档版本：v3.4.0（v3.4.0：测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例；同步至 43 包）
+> 适用版本：SZ-ORM **v3.4.0**（工作空间 43 个成员：41 个 sz-orm-* lib + cli + examples）
+> 更新日期：2026-08-09
+> 项目状态：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 3.4.0
+> 生产案例：sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
+> 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"，G《项目成熟度评估报告.md》《项目实施进度表.md》配套
 
 > **导读**：本文 §3 按包/模块逐一展开使用示例，所有"详见 [API 参考手册]"链接均指向 `sz-ormAPI参考.md` 对应章节。若只需查阅类型签名与参数说明，直接打开 API 参考手册；若需端到端场景串联（CRUD/事务/连接池/迁移/分布式事务/向量搜索），按本指南章节顺序阅读。
 
@@ -12,7 +14,7 @@
 
 ## 一、项目概述
 
-SZ-ORM 是一套**原型阶段纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 43 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、31 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。
+SZ-ORM 是一套**早期生产可用（内部项目）的纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 43 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、31 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。v3.4.0 新增编译期类型安全（`Column<T>` + `#[derive(Schema)]` 列名常量 + typed_ast Diesel 风格 DSL）与性能优化（SmallString/enum dispatch/zero-copy L2/Box<str>），全部通过 feature gate 隔离。
 
 ### 1.1 核心特性
 
@@ -37,9 +39,9 @@ SZ-ORM 是一套**原型阶段纯 Rust ORM 工作空间**，兼容 ThinkORM 风�
 
 ### 1.2 质量基线（实测数据）
 
-- 测试总量：**5530 passed, 0 failed**（112 个测试套件，需真实 DB/云服务的标记 ignored）
+- 测试总量：**6,738 passed, 0 failed, 253 ignored**（195 个测试套件，需真实 DB/云服务的标记 ignored）
 - 工作空间成员：**43（41 sz-orm-* lib + cli + examples）**
-- 代码规模：**89,329 LOC（src/ 75,388 + tests/ 13,941）**
+- 代码规模：**235,537 LOC（src/ 196,846 + tests/ 38,691）**
 - 七线验证：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal
 - 生产代码 **0 处 panic!**、0 处 `unimplemented!`/`todo!`
 - `cargo clippy --workspace --all-targets -- -D warnings` 全通过（0 warnings）

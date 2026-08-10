@@ -238,22 +238,27 @@ impl PlanCacheStats {
         }
     }
 
+    /// 解析缓存命中次数
     pub fn parse_hits(&self) -> u64 {
         self.parse_hits.load(Ordering::Relaxed)
     }
 
+    /// 解析缓存未命中次数
     pub fn parse_misses(&self) -> u64 {
         self.parse_misses.load(Ordering::Relaxed)
     }
 
+    /// 优化缓存命中次数
     pub fn optimize_hits(&self) -> u64 {
         self.optimize_hits.load(Ordering::Relaxed)
     }
 
+    /// 优化缓存未命中次数
     pub fn optimize_misses(&self) -> u64 {
         self.optimize_misses.load(Ordering::Relaxed)
     }
 
+    /// LRU 淘汰次数
     pub fn evictions(&self) -> u64 {
         self.evictions.load(Ordering::Relaxed)
     }
@@ -294,13 +299,21 @@ impl Default for PlanCacheStats {
 /// 统计快照（用于读取一致性视图）
 #[derive(Debug, Clone)]
 pub struct PlanCacheStatsSnapshot {
+    /// 解析缓存命中次数
     pub parse_hits: u64,
+    /// 解析缓存未命中次数
     pub parse_misses: u64,
+    /// 优化缓存命中次数
     pub optimize_hits: u64,
+    /// 优化缓存未命中次数
     pub optimize_misses: u64,
+    /// LRU 淘汰次数
     pub evictions: u64,
+    /// 当前缓存条目数
     pub size: usize,
+    /// 解析缓存命中率
     pub parse_hit_rate: f64,
+    /// 优化缓存命中率
     pub optimize_hit_rate: f64,
 }
 
@@ -434,7 +447,7 @@ pub struct PlanCache {
     optimize_cache: RwLock<HashMap<u64, PlanCacheEntry>>,
     /// LRU 访问顺序（arena 双向链表）
     access_order: RwLock<LruOrder64>,
-    /// 表级失效索引（table → Vec<hash>）
+    /// 表级失效索引（table → `Vec<hash>`）
     table_index: RwLock<HashMap<String, Vec<u64>>>,
     /// 统计计数器
     stats: PlanCacheStats,

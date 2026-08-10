@@ -6,16 +6,24 @@ use crate::db_type::DbType;
 use crate::error::DbError;
 use std::path::PathBuf;
 
+/// 数据库迁移定义
 pub struct Migration {
+    /// 版本号
     pub version: String,
+    /// 迁移名称
     pub name: String,
+    /// 正向 SQL（升级）
     pub sql_up: String,
+    /// 反向 SQL（回滚）
     pub sql_down: String,
+    /// 批次号（0 表示未执行）
     pub batch: i32,
+    /// 执行时间（None 表示未执行）
     pub executed_at: Option<chrono::DateTime<chrono::Utc>>,
 }
 
 impl Migration {
+    /// 创建迁移，指定版本号、名称、正向和反向 SQL
     pub fn new(version: &str, name: &str, sql_up: &str, sql_down: &str) -> Self {
         Self {
             version: version.to_string(),
@@ -27,11 +35,13 @@ impl Migration {
         }
     }
 
+    /// 设置批次号
     pub fn with_batch(mut self, batch: i32) -> Self {
         self.batch = batch;
         self
     }
 
+    /// 设置执行时间
     pub fn with_executed_at(mut self, time: chrono::DateTime<chrono::Utc>) -> Self {
         self.executed_at = Some(time);
         self
@@ -48,15 +58,20 @@ impl std::fmt::Debug for Migration {
     }
 }
 
+/// 迁移解析器 trait
 pub trait MigrationResolver: Send + Sync {
+    /// 解析指定数据库类型的迁移列表
     fn resolve(&self, db_type: DbType) -> Result<Vec<Migration>, DbError>;
 }
 
+/// 文件迁移解析器
 pub struct FileMigrationResolver {
+    /// 迁移文件目录
     pub path: PathBuf,
 }
 
 impl FileMigrationResolver {
+    /// 创建文件迁移解析器，指定迁移文件目录
     pub fn new(path: PathBuf) -> Self {
         Self { path }
     }
@@ -174,8 +189,11 @@ fn parse_migration_filename(filename: &str) -> (String, String) {
     }
 }
 
+/// 迁移上下文
 pub struct MigrationContext {
+    /// 迁移记录表名
     pub table_name: String,
+    /// 数据库连接
     pub connection: Option<Box<dyn crate::pool::Connection>>,
     /// 数据库类型（用于判断是否支持 DDL 事务包裹）
     pub db_type: Option<DbType>,
@@ -245,18 +263,23 @@ fn supports_ddl_transactions(db_type: DbType) -> bool {
     matches!(db_type, DbType::PostgreSQL | DbType::Sqlite)
 }
 
+/// 迁移方向
 #[derive(Debug, Clone, PartialEq)]
 pub enum MigrationDirection {
+    /// 正向迁移（升级）
     Up,
+    /// 反向迁移（回滚）
     Down,
 }
 
+/// 迁移执行器
 pub struct Migrator {
     context: MigrationContext,
     migrations: Vec<Migration>,
 }
 
 impl Migrator {
+    /// 创建迁移执行器，指定上下文
     pub fn new(context: MigrationContext) -> Self {
         Self {
             context,
@@ -264,32 +287,39 @@ impl Migrator {
         }
     }
 
+    /// 添加单个迁移
     pub fn add_migration(mut self, migration: Migration) -> Self {
         self.migrations.push(migration);
         self
     }
 
+    /// 添加多个迁移
     pub fn add_migrations(mut self, migrations: Vec<Migration>) -> Self {
         self.migrations.extend(migrations);
         self
     }
 
+    /// 返回所有迁移的引用
     pub fn get_migrations(&self) -> &Vec<Migration> {
         &self.migrations
     }
 
+    /// 返回待执行的迁移（batch == 0）
     pub fn get_pending_migrations(&self) -> Vec<&Migration> {
         self.migrations.iter().filter(|m| m.batch == 0).collect()
     }
 
+    /// 返回已执行的迁移（batch > 0）
     pub fn get_applied_migrations(&self) -> Vec<&Migration> {
         self.migrations.iter().filter(|m| m.batch > 0).collect()
     }
 
+    /// 返回最新版本号
     pub fn latest_version(&self) -> Option<&str> {
         self.migrations.last().map(|m| m.version.as_str())
     }
 
+    /// 按版本号查找迁移
     pub fn find_migration(&self, version: &str) -> Option<&Migration> {
         self.migrations.iter().find(|m| m.version == version)
     }
@@ -712,15 +742,21 @@ impl Migrator {
     }
 }
 
+/// 迁移进度
 #[derive(Debug, Clone)]
 pub struct MigrationProgress {
+    /// 总迁移数
     pub total: usize,
+    /// 已执行数
     pub applied: usize,
+    /// 待执行数
     pub pending: usize,
+    /// 当前批次号
     pub current_batch: i32,
 }
 
 impl MigrationProgress {
+    /// 创建迁移进度，指定总数和已执行数
     pub fn new(total: usize, applied: usize) -> Self {
         Self {
             total,
@@ -730,6 +766,7 @@ impl MigrationProgress {
         }
     }
 
+    /// 返回完成百分比
     pub fn percent_complete(&self) -> f64 {
         if self.total == 0 {
             return 100.0;
@@ -738,6 +775,7 @@ impl MigrationProgress {
     }
 }
 
+/// Schema 构建器
 pub struct SchemaBuilder {
     table_name: String,
     columns: Vec<ColumnDef>,
@@ -747,6 +785,7 @@ pub struct SchemaBuilder {
 }
 
 impl SchemaBuilder {
+    /// 创建 Schema 构建器，指定表名
     pub fn new(table_name: &str) -> Self {
         Self {
             table_name: table_name.to_string(),
@@ -757,26 +796,31 @@ impl SchemaBuilder {
         }
     }
 
+    /// 添加列定义
     pub fn add_column(mut self, column: ColumnDef) -> Self {
         self.columns.push(column);
         self
     }
 
+    /// 添加索引定义
     pub fn add_index(mut self, index: IndexDef) -> Self {
         self.indexes.push(index);
         self
     }
 
+    /// 添加外键定义
     pub fn add_foreign_key(mut self, fk: ForeignKeyDef) -> Self {
         self.foreign_keys.push(fk);
         self
     }
 
+    /// 设置是否添加 `IF NOT EXISTS`
     pub fn if_not_exists(mut self, value: bool) -> Self {
         self.if_not_exists = value;
         self
     }
 
+    /// 构建 CREATE TABLE SQL
     pub fn build(&self, db_type: DbType) -> Result<String, DbError> {
         let mut sql = String::new();
         sql.push_str("CREATE TABLE ");
@@ -804,20 +848,31 @@ impl SchemaBuilder {
     }
 }
 
+/// 列定义
 #[derive(Debug, Clone)]
 pub struct ColumnDef {
+    /// 列名
     pub name: String,
+    /// 列类型
     pub col_type: String,
+    /// 长度（如 VARCHAR(255)）
     pub length: Option<usize>,
+    /// 精度与小数位（如 DECIMAL(10,2)）
     pub precision: Option<(u32, u32)>,
+    /// 是否允许 NULL
     pub nullable: bool,
+    /// 默认值表达式
     pub default: Option<String>,
+    /// 是否自增
     pub auto_increment: bool,
+    /// 是否唯一
     pub unique: bool,
+    /// 列注释
     pub comment: Option<String>,
 }
 
 impl ColumnDef {
+    /// 创建列定义，指定列名和类型
     pub fn new(name: &str, col_type: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -832,31 +887,37 @@ impl ColumnDef {
         }
     }
 
+    /// 设置 NOT NULL
     pub fn not_null(mut self) -> Self {
         self.nullable = false;
         self
     }
 
+    /// 设置默认值
     pub fn default(mut self, value: &str) -> Self {
         self.default = Some(value.to_string());
         self
     }
 
+    /// 设置自增
     pub fn auto_increment(mut self) -> Self {
         self.auto_increment = true;
         self
     }
 
+    /// 设置唯一约束
     pub fn unique(mut self) -> Self {
         self.unique = true;
         self
     }
 
+    /// 设置列注释
     pub fn comment(mut self, comment: &str) -> Self {
         self.comment = Some(comment.to_string());
         self
     }
 
+    /// 设置列长度
     pub fn length(mut self, len: usize) -> Self {
         self.length = Some(len);
         self
@@ -890,15 +951,21 @@ impl ColumnDef {
     }
 }
 
+/// 索引定义
 #[derive(Debug, Clone)]
 pub struct IndexDef {
+    /// 索引名
     pub name: String,
+    /// 索引列列表
     pub columns: Vec<String>,
+    /// 是否唯一索引
     pub unique: bool,
+    /// 索引类型（如 BTREE、HASH）
     pub index_type: Option<String>,
 }
 
 impl IndexDef {
+    /// 创建索引定义，指定索引名和列列表
     pub fn new(name: &str, columns: Vec<&str>) -> Self {
         Self {
             name: name.to_string(),
@@ -908,6 +975,7 @@ impl IndexDef {
         }
     }
 
+    /// 设置为唯一索引
     pub fn unique(mut self) -> Self {
         self.unique = true;
         self
@@ -924,17 +992,25 @@ impl IndexDef {
     }
 }
 
+/// 外键定义
 #[derive(Debug, Clone)]
 pub struct ForeignKeyDef {
+    /// 约束名
     pub name: String,
+    /// 本表列名
     pub column: String,
+    /// 引用表名
     pub referenced_table: String,
+    /// 引用列名
     pub referenced_column: String,
+    /// ON DELETE 动作
     pub on_delete: Option<String>,
+    /// ON UPDATE 动作
     pub on_update: Option<String>,
 }
 
 impl ForeignKeyDef {
+    /// 创建外键定义，指定约束名、本表列、引用表和引用列
     pub fn new(name: &str, column: &str, referenced_table: &str, referenced_column: &str) -> Self {
         Self {
             name: name.to_string(),
@@ -946,11 +1022,13 @@ impl ForeignKeyDef {
         }
     }
 
+    /// 设置 ON DELETE 动作
     pub fn on_delete(mut self, action: &str) -> Self {
         self.on_delete = Some(action.to_string());
         self
     }
 
+    /// 设置 ON UPDATE 动作
     pub fn on_update(mut self, action: &str) -> Self {
         self.on_update = Some(action.to_string());
         self

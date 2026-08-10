@@ -10,9 +10,24 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+# v3.4.0：真实 Consul 配置中心客户端（基于 reqwest HTTP API）
+real-consul = ["dep:reqwest", "dep:tokio"]
+# v3.4.0：真实 Nacos 配置中心客户端（基于 reqwest HTTP API）
+real-nacos = ["dep:reqwest", "dep:tokio"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+thiserror = "2.0"
+base64 = "0.22"
+# v3.4.0：HTTP 客户端（real-consul / real-nacos feature，默认不启用）
+reqwest = { version = "0.12", features = ["json"], optional = true }
+tokio = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true }
 
 [lints]
 workspace = true
