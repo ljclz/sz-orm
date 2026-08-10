@@ -527,6 +527,7 @@ pub use migration::*;
 pub use model::*;
 pub use nested_active_model::CascadeStrategy;
 pub use pool::*;
+#[allow(unused_imports)]
 pub use query::*;
 pub use schema_sync::{Confirm, DataMigrationHook, DestructiveSyncResult};
 pub use transaction::*;

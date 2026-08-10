@@ -6,7 +6,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-5442+-green.svg)](#testing)
 [![Dialects](https://img.shields.io/badge/dialects-16-red.svg)](#supported-databases)
-[![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#workspace-structure)
+[![Packages](https://img.shields.io/badge/packages-46-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-1.2.1-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#overview)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)

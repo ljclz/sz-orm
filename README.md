@@ -7,7 +7,7 @@
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-5809+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
-[![Packages](https://img.shields.io/badge/packages-43-purple.svg)](#工作空间结构)
+[![Packages](https://img.shields.io/badge/packages-46-purple.svg)](#工作空间结构)
 [![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
@@ -41,7 +41,7 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.5.0 版本包含 43 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.5.0 版本包含 46 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
 
 > **⚠️ 诚实声明**：本项目为单作者工程实践项目，**早期生产可用（内部项目）**。sz-pay 项目已在生产环境使用 sz-orm-core/sqlx/config/auth/macros/queue/scheduler 7 个包（297 处引用、5139 测试零回归）。与 Diesel/SeaORM/SQLx 的深度对比详见 [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md)。
 
