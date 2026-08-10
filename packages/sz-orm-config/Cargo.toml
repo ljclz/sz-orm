@@ -16,6 +16,8 @@ default = []
 real-consul = ["dep:reqwest", "dep:tokio"]
 # v3.4.0：真实 Nacos 配置中心客户端（基于 reqwest HTTP API）
 real-nacos = ["dep:reqwest", "dep:tokio"]
+# v3.8.0：生产配置脱敏验证
+prod-config-masking = ["dep:sz-orm-masking", "dep:toml"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -25,6 +27,10 @@ base64 = "0.22"
 # v3.4.0：HTTP 客户端（real-consul / real-nacos feature，默认不启用）
 reqwest = { version = "0.12", features = ["json"], optional = true }
 tokio = { workspace = true, optional = true }
+# v3.8.0：脱敏规则（prod-config-masking feature，默认不启用）
+sz-orm-masking = { workspace = true, optional = true }
+# v3.8.0：TOML 配置解析（prod-config-masking feature）
+toml = { version = "0.8", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

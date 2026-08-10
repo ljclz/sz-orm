@@ -80,6 +80,39 @@ dialect-firebird = []
 migration-guide = []
 # v3.7.0：真实 DB 端到端测试套件（连真实 MySQL/PostgreSQL/SQLite/Oracle/MSSQL 验证 8 类核心路径）
 e2e-real-db = []
+# v3.8.0：生产部署就绪检查清单（prod-ready feature gate 体系，14 个子 feature，默认关闭）
+# 注意：跨包 feature 在各自包中独立定义，sz-orm-core 仅聚合自身内部 feature
+prod-redis-tls = []
+prod-jwt-key-rotation = []
+prod-metrics-acl = []
+prod-shutdown-timeout = []
+prod-leak-detection = []
+prod-n1-tuning = []
+prod-pool-tuning = []
+prod-config-masking = []
+prod-log-level = []
+prod-health-endpoint = []
+prod-probe-endpoint = []
+prod-circuit-tuning = []
+prod-rate-limit-tuning = []
+prod-dialect-security = []
+# prod-ready 总 feature：聚合所有生产就绪子 feature
+prod-ready = [
+    "prod-redis-tls",
+    "prod-jwt-key-rotation",
+    "prod-metrics-acl",
+    "prod-shutdown-timeout",
+    "prod-leak-detection",
+    "prod-n1-tuning",
+    "prod-pool-tuning",
+    "prod-config-masking",
+    "prod-log-level",
+    "prod-health-endpoint",
+    "prod-probe-endpoint",
+    "prod-circuit-tuning",
+    "prod-rate-limit-tuning",
+    "prod-dialect-security",
+]
 
 [dependencies]
 async-trait.workspace = true

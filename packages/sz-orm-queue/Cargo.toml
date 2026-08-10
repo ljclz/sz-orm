@@ -28,6 +28,8 @@ all-real = ["rabbitmq", "nats", "pulsar", "kafka", "activemq"]
 # 全部真实实现（除需要外部 C 库/工具的 Kafka 和 Pulsar）
 # 用于 Windows 等无 librdkafka/protoc 的环境，修复 --all-features 门禁
 all-real-no-native = ["rabbitmq", "nats", "activemq"]
+# v3.8.0：Redis TLS 加密连接
+prod-redis-tls = []
 
 [dependencies]
 async-trait = "0.1"

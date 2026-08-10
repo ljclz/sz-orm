@@ -18,6 +18,8 @@ prometheus = []
 # 启用真实 Pushgateway HTTP PUT 推送（基于 reqwest）
 # 未启用时 PushgatewayExporter::push 仅记录到内存（用于测试）
 push-gateway = ["reqwest"]
+# v3.8.0：metrics 端点访问控制
+prod-metrics-acl = []
 
 [dependencies]
 sz-orm-core = { workspace = true }

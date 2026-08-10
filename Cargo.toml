@@ -80,3 +80,4 @@ sz-orm-ai = { version = "3.5.0", path = "packages/sz-orm-ai" }
 sz-orm-oracle = { version = "3.5.0", path = "packages/sz-orm-oracle" }
 sz-orm-mssql = { version = "3.5.0", path = "packages/sz-orm-mssql" }
 sz-orm-sqlx = { version = "3.5.0", path = "packages/sz-orm-sqlx" }
+sz-orm-masking = { version = "3.5.0", path = "packages/sz-orm-masking" }

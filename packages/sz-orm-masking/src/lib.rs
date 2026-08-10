@@ -29,6 +29,8 @@ pub enum MaskingRule {
     Imei,
     Plate,
     Custom(String),
+    Password,
+    ApiKey,
 }
 
 pub struct DataMasker;
@@ -51,6 +53,8 @@ impl DataMasker {
             MaskingRule::Imei => mask_imei(value),
             MaskingRule::Plate => mask_plate(value),
             MaskingRule::Custom(spec) => mask_custom(value, spec),
+            MaskingRule::Password => "***".to_string(),
+            MaskingRule::ApiKey => mask_api_key(value),
         }
     }
 }
@@ -83,6 +87,13 @@ fn mask_prefix_suffix(value: &str, prefix: usize, suffix: usize) -> String {
         out.push(c);
     }
     out
+}
+
+/// Masks an API key by keeping the first 4 and last 4 characters visible
+/// and replacing everything in between with `*`. Returns `"***"` for inputs
+/// too short to safely mask (≤ 8 characters).
+fn mask_api_key(value: &str) -> String {
+    mask_prefix_suffix(value, 4, 4)
 }
 
 fn mask_email(value: &str) -> String {

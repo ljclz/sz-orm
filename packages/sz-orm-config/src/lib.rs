@@ -12,6 +12,8 @@
 pub mod consul_client;
 #[cfg(feature = "real-nacos")]
 pub mod nacos_client;
+#[cfg(feature = "prod-config-masking")]
+pub mod prod_ready;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

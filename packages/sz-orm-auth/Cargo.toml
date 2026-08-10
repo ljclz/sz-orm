@@ -10,6 +10,11 @@ keywords.workspace = true
 categories.workspace = true
 description = "SZ-ORM Authentication & Authorization Extension"
 
+[features]
+default = []
+# v3.8.0：JWT 签名密钥轮换机制
+prod-jwt-key-rotation = []
+
 [dependencies]
 async-trait = "0.1"
 tokio = { version = "1.40", features = ["full"] }
