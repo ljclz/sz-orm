@@ -9,7 +9,7 @@
 use std::time::{Duration, Instant};
 
 /// 断路器状态机状态。
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum CircuitState {
     /// 正常运行：请求放行。
     Closed,
@@ -44,6 +44,8 @@ pub struct DefaultCircuitBreaker {
     state: CircuitState,
     consecutive_failures: usize,
     last_failure_at: Option<Instant>,
+    /// v3.8.0: 累计熔断次数
+    total_trips: u64,
 }
 
 impl DefaultCircuitBreaker {
@@ -58,6 +60,17 @@ impl DefaultCircuitBreaker {
             state: CircuitState::Closed,
             consecutive_failures: 0,
             last_failure_at: None,
+            total_trips: 0,
+        }
+    }
+
+    /// v3.8.0: 查询熔断器统计信息
+    #[cfg(feature = "prod-circuit-tuning")]
+    pub fn stats(&self) -> CircuitBreakerStats {
+        CircuitBreakerStats {
+            state: self.state,
+            consecutive_failures: self.consecutive_failures,
+            total_trips: self.total_trips,
         }
     }
 }
@@ -91,8 +104,9 @@ impl CircuitBreaker for DefaultCircuitBreaker {
     fn record_failure(&mut self) {
         self.consecutive_failures += 1;
         self.last_failure_at = Some(Instant::now());
-        if self.consecutive_failures >= self.failure_threshold {
+        if self.consecutive_failures >= self.failure_threshold && self.state != CircuitState::Open {
             self.state = CircuitState::Open;
+            self.total_trips += 1;
         }
     }
 
@@ -108,6 +122,72 @@ impl CircuitBreaker for DefaultCircuitBreaker {
         changed
     }
 }
+
+// ============================================================================
+// v3.8.0: 熔断器生产配置（prod-circuit-tuning feature）
+// ============================================================================
+
+#[cfg(feature = "prod-circuit-tuning")]
+mod prod {
+    use super::CircuitState;
+    use serde::{Deserialize, Serialize};
+    use std::time::Duration;
+
+    /// 熔断器生产配置错误
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+    pub enum CircuitBreakerProdError {
+        #[error("circuit breaker failure_threshold must be positive")]
+        FailureThresholdNotPositive,
+        #[error("circuit breaker reset_timeout must be positive")]
+        ResetTimeoutNotPositive,
+    }
+
+    /// 熔断器生产配置
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct CircuitBreakerProdConfig {
+        pub failure_threshold: u32,
+        pub reset_timeout: Duration,
+    }
+
+    impl Default for CircuitBreakerProdConfig {
+        fn default() -> Self {
+            Self {
+                failure_threshold: 5,
+                reset_timeout: Duration::from_secs(30),
+            }
+        }
+    }
+
+    impl CircuitBreakerProdConfig {
+        pub fn new(failure_threshold: u32, reset_timeout: Duration) -> Self {
+            Self {
+                failure_threshold,
+                reset_timeout,
+            }
+        }
+
+        pub fn validate(&self) -> Result<(), CircuitBreakerProdError> {
+            if self.failure_threshold == 0 {
+                return Err(CircuitBreakerProdError::FailureThresholdNotPositive);
+            }
+            if self.reset_timeout.is_zero() {
+                return Err(CircuitBreakerProdError::ResetTimeoutNotPositive);
+            }
+            Ok(())
+        }
+    }
+
+    /// 熔断器统计信息
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct CircuitBreakerStats {
+        pub state: CircuitState,
+        pub consecutive_failures: usize,
+        pub total_trips: u64,
+    }
+}
+
+#[cfg(feature = "prod-circuit-tuning")]
+pub use prod::{CircuitBreakerProdConfig, CircuitBreakerProdError, CircuitBreakerStats};
 
 #[cfg(test)]
 mod tests {
@@ -186,5 +266,61 @@ mod tests {
         assert!(cb.can_execute());
         // 已关闭时 reset 返回 false
         assert!(!cb.reset());
+    }
+}
+
+#[cfg(all(test, feature = "prod-circuit-tuning"))]
+mod prod_tests {
+    use super::*;
+
+    #[test]
+    fn test_circuit_breaker_prod_config_validate_ok() {
+        let config = CircuitBreakerProdConfig::new(10, Duration::from_secs(60));
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_circuit_breaker_prod_config_threshold_zero_rejected() {
+        let config = CircuitBreakerProdConfig::new(0, Duration::from_secs(60));
+        let err = config.validate().unwrap_err();
+        assert!(err
+            .to_string()
+            .contains("failure_threshold must be positive"));
+    }
+
+    #[test]
+    fn test_circuit_breaker_prod_config_timeout_zero_rejected() {
+        let config = CircuitBreakerProdConfig::new(10, Duration::ZERO);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_circuit_breaker_stats_after_trips() {
+        let mut cb = DefaultCircuitBreaker::new(3, Duration::from_secs(60));
+        cb.record_failure();
+        cb.record_failure();
+        cb.record_failure();
+        let stats = cb.stats();
+        assert_eq!(stats.state, CircuitState::Open);
+        assert_eq!(stats.consecutive_failures, 3);
+        assert_eq!(stats.total_trips, 1);
+    }
+
+    #[test]
+    fn test_circuit_breaker_stats_no_trips() {
+        let cb = DefaultCircuitBreaker::new(5, Duration::from_secs(60));
+        let stats = cb.stats();
+        assert_eq!(stats.state, CircuitState::Closed);
+        assert_eq!(stats.total_trips, 0);
+    }
+
+    #[test]
+    fn test_circuit_breaker_total_trips_increments() {
+        let mut cb = DefaultCircuitBreaker::new(1, Duration::from_secs(60));
+        cb.record_failure();
+        assert_eq!(cb.stats().total_trips, 1);
+        cb.record_success();
+        cb.record_failure();
+        assert_eq!(cb.stats().total_trips, 2);
     }
 }

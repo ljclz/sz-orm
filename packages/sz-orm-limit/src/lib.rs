@@ -11,6 +11,7 @@
 //! v0.2.1 修复 Critical S-3：引入 `DEFAULT_MAX_KEYS` 防止无限 key 导致 OOM。
 
 use std::collections::HashMap;
+use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
@@ -52,11 +53,15 @@ impl RateLimitResult {
 }
 
 pub struct SlidingWindowRateLimiter {
-    max_requests: u64,
+    max_requests: Arc<AtomicU64>,
     window_size: Duration,
     entries: Arc<RwLock<HashMap<String, SlidingWindowEntry>>>,
     /// 最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
     max_keys: usize,
+    /// v3.8.0: 已通过计数
+    allowed_count: AtomicU64,
+    /// v3.8.0: 已拒绝计数
+    rejected_count: AtomicU64,
 }
 
 #[derive(Clone)]
@@ -67,10 +72,12 @@ struct SlidingWindowEntry {
 impl SlidingWindowRateLimiter {
     pub fn new(max_requests: u64, window_size: Duration) -> Self {
         Self {
-            max_requests,
+            max_requests: Arc::new(AtomicU64::new(max_requests)),
             window_size,
             entries: Arc::new(RwLock::new(HashMap::new())),
             max_keys: DEFAULT_MAX_KEYS,
+            allowed_count: AtomicU64::new(0),
+            rejected_count: AtomicU64::new(0),
         }
     }
 
@@ -110,6 +117,36 @@ impl SlidingWindowRateLimiter {
             }
         }
     }
+
+    /// v3.8.0: 运行时动态调整容量（max_requests）
+    #[cfg(feature = "prod-rate-limit-tuning")]
+    pub fn set_capacity(&self, capacity: u64) {
+        self.max_requests.store(capacity, Ordering::Relaxed);
+    }
+
+    /// v3.8.0: 运行时动态调整速率（requests per second）
+    #[cfg(feature = "prod-rate-limit-tuning")]
+    pub fn set_rate(&self, rate: u64) {
+        let window_secs = self.window_size.as_secs().max(1);
+        self.max_requests
+            .store(rate * window_secs, Ordering::Relaxed);
+    }
+
+    /// v3.8.0: 查询当前容量
+    #[cfg(feature = "prod-rate-limit-tuning")]
+    pub fn capacity(&self) -> u64 {
+        self.max_requests.load(Ordering::Relaxed)
+    }
+
+    /// v3.8.0: 查询统计信息
+    #[cfg(feature = "prod-rate-limit-tuning")]
+    pub fn stats(&self) -> RateLimitStats {
+        RateLimitStats {
+            capacity: self.max_requests.load(Ordering::Relaxed),
+            allowed_count: self.allowed_count.load(Ordering::Relaxed),
+            rejected_count: self.rejected_count.load(Ordering::Relaxed),
+        }
+    }
 }
 
 impl RateLimiter for SlidingWindowRateLimiter {
@@ -132,10 +169,12 @@ impl RateLimiter for SlidingWindowRateLimiter {
 
         self.cleanup_old_requests(entry);
 
-        if entry.requests.len() < self.max_requests as usize {
+        let max_req = self.max_requests.load(Ordering::Relaxed);
+        if entry.requests.len() < max_req as usize {
             entry.requests.push(Instant::now());
-            let remaining = self.max_requests - entry.requests.len() as u64;
+            let remaining = max_req - entry.requests.len() as u64;
             let reset_at = now_timestamp() + self.window_size.as_millis() as i64;
+            self.allowed_count.fetch_add(1, Ordering::Relaxed);
             Ok(RateLimitResult::allowed(remaining, reset_at))
         } else {
             let oldest = entry
@@ -149,6 +188,7 @@ impl RateLimiter for SlidingWindowRateLimiter {
                 .unwrap_or(now_timestamp());
 
             let remaining = 0;
+            self.rejected_count.fetch_add(1, Ordering::Relaxed);
             Ok(RateLimitResult::rejected(remaining, oldest))
         }
     }
@@ -846,9 +886,93 @@ impl MultiRateLimiter {
                 }
             }
         }
+
         best_result.ok_or_else(|| RateLimitError::Internal("No limiters configured".to_string()))
     }
 }
+
+// ============================================================================
+// v3.8.0: 限流生产配置（prod-rate-limit-tuning feature）
+// ============================================================================
+
+#[cfg(feature = "prod-rate-limit-tuning")]
+mod prod {
+    use super::DEFAULT_MAX_KEYS;
+    use serde::{Deserialize, Serialize};
+    use std::time::Duration;
+
+    /// 限流生产配置错误
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+    pub enum RateLimitProdError {
+        #[error("rate limit capacity must be positive")]
+        CapacityNotPositive,
+        #[error("rate limit rate must be positive")]
+        RateNotPositive,
+        #[error("rate limit window_size must be positive")]
+        WindowSizeNotPositive,
+        #[error("rate limit max_keys too small, minimum 100 recommended")]
+        MaxKeysTooSmall,
+    }
+
+    /// 限流生产配置
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct RateLimitProdConfig {
+        pub capacity: u64,
+        pub rate: u64,
+        pub window_size: Duration,
+        pub max_keys: usize,
+    }
+
+    impl Default for RateLimitProdConfig {
+        fn default() -> Self {
+            Self {
+                capacity: 100,
+                rate: 10,
+                window_size: Duration::from_secs(1),
+                max_keys: DEFAULT_MAX_KEYS,
+            }
+        }
+    }
+
+    impl RateLimitProdConfig {
+        pub fn new(capacity: u64, rate: u64, window_size: Duration, max_keys: usize) -> Self {
+            Self {
+                capacity,
+                rate,
+                window_size,
+                max_keys,
+            }
+        }
+
+        /// 校验阈值合理性
+        pub fn validate(&self) -> Result<(), RateLimitProdError> {
+            if self.capacity == 0 {
+                return Err(RateLimitProdError::CapacityNotPositive);
+            }
+            if self.rate == 0 {
+                return Err(RateLimitProdError::RateNotPositive);
+            }
+            if self.window_size.is_zero() {
+                return Err(RateLimitProdError::WindowSizeNotPositive);
+            }
+            if self.max_keys < 100 {
+                return Err(RateLimitProdError::MaxKeysTooSmall);
+            }
+            Ok(())
+        }
+    }
+
+    /// 限流统计信息
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct RateLimitStats {
+        pub capacity: u64,
+        pub allowed_count: u64,
+        pub rejected_count: u64,
+    }
+}
+
+#[cfg(feature = "prod-rate-limit-tuning")]
+pub use prod::{RateLimitProdConfig, RateLimitProdError, RateLimitStats};
 
 #[cfg(test)]
 mod tests {
@@ -1338,5 +1462,74 @@ mod tests {
         let multi = MultiRateLimiter::new(vec![]);
         let result = multi.check_all("key");
         assert!(result.is_err());
+    }
+}
+
+#[cfg(all(test, feature = "prod-rate-limit-tuning"))]
+mod prod_tests {
+    use super::*;
+
+    #[test]
+    fn test_rate_limit_prod_config_validate_ok() {
+        let config = RateLimitProdConfig::new(100, 10, Duration::from_secs(1), 1000);
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_rate_limit_prod_config_capacity_zero_rejected() {
+        let config = RateLimitProdConfig::new(0, 10, Duration::from_secs(1), 1000);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("capacity must be positive"));
+    }
+
+    #[test]
+    fn test_rate_limit_prod_config_rate_zero_rejected() {
+        let config = RateLimitProdConfig::new(100, 0, Duration::from_secs(1), 1000);
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn test_rate_limit_prod_config_max_keys_too_small() {
+        let config = RateLimitProdConfig::new(100, 10, Duration::from_secs(1), 50);
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("max_keys too small"));
+    }
+
+    #[test]
+    fn test_sliding_window_set_capacity() {
+        let limiter = SlidingWindowRateLimiter::new(100, Duration::from_secs(60));
+        assert_eq!(limiter.capacity(), 100);
+        limiter.set_capacity(200);
+        assert_eq!(limiter.capacity(), 200);
+    }
+
+    #[test]
+    fn test_sliding_window_set_rate() {
+        let limiter = SlidingWindowRateLimiter::new(100, Duration::from_secs(10));
+        limiter.set_rate(20);
+        // rate=20, window=10s → capacity=200
+        assert_eq!(limiter.capacity(), 200);
+    }
+
+    #[test]
+    fn test_sliding_window_stats_after_acquire() {
+        let limiter = SlidingWindowRateLimiter::new(2, Duration::from_secs(60));
+        limiter.acquire("k1").unwrap();
+        limiter.acquire("k1").unwrap();
+        limiter.acquire("k1").unwrap(); // rejected
+        let stats = limiter.stats();
+        assert_eq!(stats.capacity, 2);
+        assert_eq!(stats.allowed_count, 2);
+        assert_eq!(stats.rejected_count, 1);
+    }
+
+    #[test]
+    fn test_sliding_window_dynamic_capacity_takes_effect() {
+        let limiter = SlidingWindowRateLimiter::new(2, Duration::from_secs(60));
+        limiter.acquire("k").unwrap();
+        limiter.acquire("k").unwrap();
+        assert!(!limiter.acquire("k").unwrap().allowed);
+        limiter.set_capacity(5);
+        assert!(limiter.acquire("k").unwrap().allowed);
     }
 }

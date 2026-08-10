@@ -1809,6 +1809,112 @@ impl Pool {
     }
 }
 
+// ============================================================================
+// v3.8.0: 连接池生产配置（prod-pool-tuning feature）
+// ============================================================================
+
+#[cfg(feature = "prod-pool-tuning")]
+mod pool_prod {
+    use super::{PoolConfig, PoolError};
+    use serde::{Deserialize, Serialize};
+    use std::time::Duration;
+
+    /// 连接池生产配置错误
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+    pub enum PoolProdError {
+        #[error("pool max_size must be positive")]
+        MaxSizeNotPositive,
+        #[error("pool acquire_timeout must be positive")]
+        AcquireTimeoutNotPositive,
+        #[error("pool min_idle cannot exceed max_size")]
+        MinIdleExceedsMaxSize,
+    }
+
+    /// 连接池生产配置：包装既有 PoolConfig，提供生产配置加载入口
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct PoolProdConfig {
+        pub max_size: u32,
+        pub acquire_timeout: Duration,
+        pub idle_timeout: Duration,
+        pub connection_timeout: Duration,
+        pub query_timeout: Duration,
+        pub min_idle: u32,
+        pub prewarm: bool,
+    }
+
+    impl Default for PoolProdConfig {
+        fn default() -> Self {
+            Self {
+                max_size: 100,
+                acquire_timeout: Duration::from_secs(30),
+                idle_timeout: Duration::from_secs(600),
+                connection_timeout: Duration::from_secs(10),
+                query_timeout: Duration::from_secs(30),
+                min_idle: 0,
+                prewarm: false,
+            }
+        }
+    }
+
+    impl PoolProdConfig {
+        pub fn new(
+            max_size: u32,
+            acquire_timeout: Duration,
+            idle_timeout: Duration,
+            connection_timeout: Duration,
+            query_timeout: Duration,
+            min_idle: u32,
+            prewarm: bool,
+        ) -> Self {
+            Self {
+                max_size,
+                acquire_timeout,
+                idle_timeout,
+                connection_timeout,
+                query_timeout,
+                min_idle,
+                prewarm,
+            }
+        }
+
+        /// 校验参数合理性
+        pub fn validate(&self) -> Result<(), PoolProdError> {
+            if self.max_size == 0 {
+                return Err(PoolProdError::MaxSizeNotPositive);
+            }
+            if self.acquire_timeout.is_zero() {
+                return Err(PoolProdError::AcquireTimeoutNotPositive);
+            }
+            if self.min_idle > self.max_size {
+                return Err(PoolProdError::MinIdleExceedsMaxSize);
+            }
+            Ok(())
+        }
+
+        /// 转换为既有 PoolConfig
+        pub fn to_pool_config(&self) -> PoolConfig {
+            PoolConfig {
+                max_size: self.max_size,
+                min_idle: self.min_idle,
+                acquire_timeout: self.acquire_timeout,
+                idle_timeout: self.idle_timeout,
+                max_lifetime: Duration::from_secs(1800),
+                connection_timeout: self.connection_timeout,
+                tls: None,
+                query_timeout: Some(self.query_timeout),
+                max_rows: None,
+                memory_limit: None,
+                on_event: None,
+                test_before_acquire: false,
+                prewarm: self.prewarm,
+            }
+        }
+    }
+}
+
+#[cfg(feature = "prod-pool-tuning")]
+pub use pool_prod::{PoolProdConfig, PoolProdError};
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -3277,5 +3383,138 @@ mod tests {
         pool.shutdown_with_timeout(Duration::from_secs(1)).await;
         let result = pool.acquire().await;
         assert!(result.is_err());
+    }
+}
+
+#[cfg(all(test, feature = "prod-pool-tuning"))]
+mod pool_prod_tests {
+    use super::*;
+
+    struct MockFactory;
+
+    #[async_trait]
+    impl ConnectionFactory for MockFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            Ok(Box::new(MockConn))
+        }
+    }
+
+    struct MockConn;
+
+    impl Connection for MockConn {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(1) })
+        }
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<std::collections::HashMap<String, crate::value::Value>>,
+                            crate::DbError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move { Ok(vec![]) })
+        }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    #[test]
+    fn test_pool_prod_config_validate_ok() {
+        let config = PoolProdConfig::new(
+            50,
+            Duration::from_secs(10),
+            Duration::from_secs(600),
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            5,
+            true,
+        );
+        assert!(config.validate().is_ok());
+    }
+
+    #[test]
+    fn test_pool_prod_config_max_size_zero_rejected() {
+        let config = PoolProdConfig::default();
+        let mut c = config;
+        c.max_size = 0;
+        let err = c.validate().unwrap_err();
+        assert!(err.to_string().contains("max_size must be positive"));
+    }
+
+    #[test]
+    fn test_pool_prod_config_min_idle_exceeds_max_size() {
+        let config = PoolProdConfig::new(
+            10,
+            Duration::from_secs(10),
+            Duration::from_secs(600),
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            20,
+            false,
+        );
+        let err = config.validate().unwrap_err();
+        assert!(err.to_string().contains("min_idle cannot exceed max_size"));
+    }
+
+    #[test]
+    fn test_pool_prod_config_to_pool_config() {
+        let config = PoolProdConfig::new(
+            50,
+            Duration::from_secs(10),
+            Duration::from_secs(600),
+            Duration::from_secs(5),
+            Duration::from_secs(30),
+            5,
+            true,
+        );
+        let pool_config = config.to_pool_config();
+        assert_eq!(pool_config.max_size, 50);
+        assert_eq!(pool_config.min_idle, 5);
+        assert_eq!(pool_config.acquire_timeout, Duration::from_secs(10));
+        assert!(pool_config.prewarm);
+    }
+
+    #[tokio::test]
+    async fn test_pool_prod_config_runtime_resize() {
+        let factory = Arc::new(MockFactory) as Arc<dyn ConnectionFactory>;
+        let config = PoolProdConfig::default();
+        let pool = Pool::new(config.to_pool_config(), factory).unwrap();
+        assert_eq!(pool.max_size(), 100);
+        pool.resize(50);
+        assert_eq!(pool.max_size(), 50);
     }
 }
