@@ -13,7 +13,7 @@ categories.workspace = true
 [features]
 default = []
 # v3.8.0：日志级别生产配置
-prod-log-level = []
+prod-log-level = ["dep:thiserror"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -21,6 +21,7 @@ serde_json = "1.0"
 chrono = { workspace = true }
 # 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .lock().unwrap() panic 风险
 parking_lot.workspace = true
+thiserror = { workspace = true, optional = true }
 
 [lints]
 workspace = true

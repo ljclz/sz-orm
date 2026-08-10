@@ -1693,16 +1693,36 @@ impl Pool {
     /// 3. 关闭所有空闲连接（立即释放，避免 wait 阶段无意义等待）
     /// 4. 等待在途（已借出）连接归还（带 30 秒超时）
     pub async fn shutdown(&self) {
-        // 1. 标记为关闭状态
-        self.closed.store(true, Ordering::SeqCst);
+        self.shutdown_with_timeout(Duration::from_secs(30)).await;
+    }
+
+    /// 优雅停机（可配置超时）：关闭所有空闲连接，等待所有在途连接归还
+    ///
+    /// 与 [`shutdown`] 行为一致，但超时时间可配置。超时后强制关闭，
+    /// 输出告警日志含强制关闭的连接数。
+    ///
+    /// # 参数
+    /// - `timeout`：等待在途连接归还的最大时间
+    pub async fn shutdown_with_timeout(&self, timeout: Duration) {
+        // 1. 标记为关闭状态（幂等：重复调用直接返回）
+        if self.closed.swap(true, Ordering::SeqCst) {
+            return;
+        }
         // 2. 通知所有等待者
         self.notify.notify_waiters();
-        // 3. 关闭所有空闲连接（close_all 内部也会设置 closed，幂等）
+        // 3. 关闭所有空闲连接
         self.close_all().await;
         // 4. 等待在途连接归还（带超时）
-        let deadline = Instant::now() + Duration::from_secs(30);
+        let deadline = Instant::now() + timeout;
         while self.total_count.load(Ordering::SeqCst) > 0 {
             if Instant::now() >= deadline {
+                let remaining = self.total_count.load(Ordering::SeqCst);
+                if remaining > 0 {
+                    eprintln!(
+                        "graceful shutdown timeout, {} connections force closed",
+                        remaining
+                    );
+                }
                 break;
             }
             tokio::time::sleep(Duration::from_millis(100)).await;
@@ -3216,5 +3236,46 @@ mod tests {
         // 无成功获取时平均等待时长为 0
         let empty = PoolMetrics::default();
         assert_eq!(empty.average_acquire_wait_time(), Duration::ZERO);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_timeout_fast_return_when_empty() {
+        let factory = Arc::new(MockConnectionFactory) as Arc<dyn ConnectionFactory>;
+        let config = PoolConfigBuilder::new().max_size(4).build().unwrap();
+        let pool = Pool::new(config, factory).unwrap();
+        pool.shutdown_with_timeout(Duration::from_secs(1)).await;
+        assert!(pool.closed.load(Ordering::SeqCst));
+        assert_eq!(pool.total_count.load(Ordering::SeqCst), 0);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_delegates_to_shutdown_with_timeout() {
+        let factory = Arc::new(MockConnectionFactory) as Arc<dyn ConnectionFactory>;
+        let config = PoolConfigBuilder::new().max_size(4).build().unwrap();
+        let pool = Pool::new(config, factory).unwrap();
+        pool.shutdown().await;
+        assert!(pool.closed.load(Ordering::SeqCst));
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_timeout_idempotent() {
+        let factory = Arc::new(MockConnectionFactory) as Arc<dyn ConnectionFactory>;
+        let config = PoolConfigBuilder::new().max_size(4).build().unwrap();
+        let pool = Pool::new(config, factory).unwrap();
+        pool.shutdown_with_timeout(Duration::from_secs(1)).await;
+        let count_after_first = pool.total_count.load(Ordering::SeqCst);
+        pool.shutdown_with_timeout(Duration::from_secs(1)).await;
+        let count_after_second = pool.total_count.load(Ordering::SeqCst);
+        assert_eq!(count_after_first, count_after_second);
+    }
+
+    #[tokio::test]
+    async fn test_shutdown_with_timeout_rejects_new_acquire() {
+        let factory = Arc::new(MockConnectionFactory) as Arc<dyn ConnectionFactory>;
+        let config = PoolConfigBuilder::new().max_size(4).build().unwrap();
+        let pool = Pool::new(config, factory).unwrap();
+        pool.shutdown_with_timeout(Duration::from_secs(1)).await;
+        let result = pool.acquire().await;
+        assert!(result.is_err());
     }
 }

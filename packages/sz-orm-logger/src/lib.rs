@@ -25,6 +25,7 @@ use std::sync::Arc;
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord)]
 pub enum LogLevel {
+    Trace,
     Debug,
     Info,
     Warn,
@@ -34,6 +35,7 @@ pub enum LogLevel {
 impl LogLevel {
     pub fn as_str(&self) -> &'static str {
         match self {
+            LogLevel::Trace => "TRACE",
             LogLevel::Debug => "DEBUG",
             LogLevel::Info => "INFO",
             LogLevel::Warn => "WARN",
@@ -45,6 +47,63 @@ impl LogLevel {
 pub trait Logger: Send + Sync {
     fn log(&self, level: LogLevel, msg: &str);
 }
+
+/// 环境类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum EnvKind {
+    Development,
+    Staging,
+    Production,
+}
+
+impl EnvKind {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            EnvKind::Development => "development",
+            EnvKind::Staging => "staging",
+            EnvKind::Production => "production",
+        }
+    }
+}
+
+#[cfg(feature = "prod-log-level")]
+mod prod {
+    use super::{EnvKind, LogLevel};
+    use serde::{Deserialize, Serialize};
+
+    /// 日志生产配置错误
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+    pub enum LoggerProdError {
+        #[error("log level {0} forbidden in production, minimum warn")]
+        LevelForbidden(String),
+    }
+
+    /// 日志生产配置：强制生产环境日志级别 warn 及以上
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct LoggerProdConfig {
+        pub level: LogLevel,
+        pub env: EnvKind,
+    }
+
+    impl LoggerProdConfig {
+        pub fn new(level: LogLevel, env: EnvKind) -> Self {
+            Self { level, env }
+        }
+
+        /// 校验：生产环境拒绝 level < Warn（Trace/Debug/Info 被拒绝）
+        pub fn validate(&self) -> Result<(), LoggerProdError> {
+            if self.env == EnvKind::Production && self.level < LogLevel::Warn {
+                return Err(LoggerProdError::LevelForbidden(
+                    self.level.as_str().to_string(),
+                ));
+            }
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "prod-log-level")]
+pub use prod::{LoggerProdConfig, LoggerProdError};
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct LogEntry {
@@ -130,6 +189,10 @@ impl LoggerFactory {
         StructuredLogger::with_level(level)
     }
 
+    pub fn trace(&self) -> StructuredLogger {
+        self.create(LogLevel::Trace)
+    }
+
     pub fn debug(&self) -> StructuredLogger {
         self.create(LogLevel::Debug)
     }
@@ -212,10 +275,56 @@ mod tests {
 
     #[test]
     fn test_log_level_ordering() {
-        // Verifies the PartialOrd derivation: Debug < Info < Warn < Error
+        // Verifies the PartialOrd derivation: Trace < Debug < Info < Warn < Error
+        assert!(LogLevel::Trace < LogLevel::Debug);
         assert!(LogLevel::Debug < LogLevel::Info);
         assert!(LogLevel::Info < LogLevel::Warn);
         assert!(LogLevel::Warn < LogLevel::Error);
+    }
+
+    #[test]
+    fn test_log_level_trace_as_str() {
+        assert_eq!(LogLevel::Trace.as_str(), "TRACE");
+    }
+
+    #[test]
+    fn test_logger_with_level_info_filters_trace_and_debug() {
+        let l = StructuredLogger::with_level(LogLevel::Info);
+        l.log(LogLevel::Trace, "trace msg");
+        l.log(LogLevel::Debug, "debug msg");
+        l.log(LogLevel::Info, "info msg");
+        l.log(LogLevel::Warn, "warn msg");
+        l.log(LogLevel::Error, "error msg");
+        let entries = l.entries();
+        assert_eq!(entries.len(), 3, "trace and debug should be filtered out");
+        assert!(entries.iter().all(|e| e.level >= LogLevel::Info));
+    }
+
+    #[test]
+    fn test_logger_with_level_trace_passes_everything() {
+        let l = StructuredLogger::with_level(LogLevel::Trace);
+        l.log(LogLevel::Trace, "t");
+        l.log(LogLevel::Debug, "d");
+        l.log(LogLevel::Info, "i");
+        l.log(LogLevel::Warn, "w");
+        l.log(LogLevel::Error, "e");
+        assert_eq!(l.entries().len(), 5);
+    }
+
+    #[test]
+    fn test_logger_factory_trace() {
+        let factory = LoggerFactory::new();
+        let logger = factory.trace();
+        logger.log(LogLevel::Trace, "trace");
+        assert_eq!(logger.entries().len(), 1);
+        assert_eq!(logger.entries()[0].level, LogLevel::Trace);
+    }
+
+    #[test]
+    fn test_env_kind_as_str() {
+        assert_eq!(EnvKind::Development.as_str(), "development");
+        assert_eq!(EnvKind::Staging.as_str(), "staging");
+        assert_eq!(EnvKind::Production.as_str(), "production");
     }
 
     #[test]
@@ -357,5 +466,54 @@ mod tests {
         // RFC3339 timestamps contain 'T' separator and 'Z' for UTC
         assert!(e.timestamp.contains('T'));
         assert!(e.timestamp.ends_with('Z') || e.timestamp.contains('+'));
+    }
+}
+
+#[cfg(all(test, feature = "prod-log-level"))]
+mod prod_tests {
+    use super::*;
+
+    #[test]
+    fn test_prod_config_debug_in_production_rejected() {
+        let cfg = LoggerProdConfig::new(LogLevel::Debug, EnvKind::Production);
+        let err = cfg.validate().unwrap_err();
+        assert!(err.to_string().contains("DEBUG"));
+        assert!(err.to_string().contains("forbidden in production"));
+    }
+
+    #[test]
+    fn test_prod_config_trace_in_production_rejected() {
+        let cfg = LoggerProdConfig::new(LogLevel::Trace, EnvKind::Production);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_prod_config_info_in_production_rejected() {
+        let cfg = LoggerProdConfig::new(LogLevel::Info, EnvKind::Production);
+        assert!(cfg.validate().is_err());
+    }
+
+    #[test]
+    fn test_prod_config_warn_in_production_accepted() {
+        let cfg = LoggerProdConfig::new(LogLevel::Warn, EnvKind::Production);
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_prod_config_error_in_production_accepted() {
+        let cfg = LoggerProdConfig::new(LogLevel::Error, EnvKind::Production);
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_prod_config_debug_in_development_accepted() {
+        let cfg = LoggerProdConfig::new(LogLevel::Debug, EnvKind::Development);
+        assert!(cfg.validate().is_ok());
+    }
+
+    #[test]
+    fn test_prod_config_trace_in_staging_accepted() {
+        let cfg = LoggerProdConfig::new(LogLevel::Trace, EnvKind::Staging);
+        assert!(cfg.validate().is_ok());
     }
 }

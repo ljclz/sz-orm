@@ -16,6 +16,8 @@
 //! - [`advanced::TimeoutHealthChecker`] — 带超时的健康检查
 
 pub mod advanced;
+#[cfg(any(feature = "prod-health-endpoint", feature = "prod-probe-endpoint"))]
+pub mod endpoint;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
