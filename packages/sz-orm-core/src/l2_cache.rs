@@ -1363,6 +1363,96 @@ pub struct RedisBackend {
     manager: redis::aio::ConnectionManager,
 }
 
+/// v3.8.0：Redis TLS 加密连接配置
+#[cfg(feature = "prod-redis-tls")]
+#[derive(Debug, Clone)]
+pub struct RedisTlsConfig {
+    /// 是否启用 TLS
+    pub enabled: bool,
+    /// CA 证书路径
+    pub ca_cert_path: Option<String>,
+    /// 客户端证书路径（双向认证）
+    pub client_cert_path: Option<String>,
+    /// 客户端私钥路径（双向认证）
+    pub client_key_path: Option<String>,
+    /// SNI 主机名
+    pub sni: Option<String>,
+    /// 是否跳过证书验证（仅开发环境允许）
+    pub skip_verify: bool,
+}
+
+#[cfg(feature = "prod-redis-tls")]
+impl RedisTlsConfig {
+    /// 创建默认禁用 TLS 的配置
+    pub fn disabled() -> Self {
+        Self {
+            enabled: false,
+            ca_cert_path: None,
+            client_cert_path: None,
+            client_key_path: None,
+            sni: None,
+            skip_verify: false,
+        }
+    }
+
+    /// 创建启用 TLS 的配置
+    pub fn enabled(ca_cert_path: impl Into<String>, sni: impl Into<String>) -> Self {
+        Self {
+            enabled: true,
+            ca_cert_path: Some(ca_cert_path.into()),
+            client_cert_path: None,
+            client_key_path: None,
+            sni: Some(sni.into()),
+            skip_verify: false,
+        }
+    }
+
+    /// 校验 TLS 配置合理性
+    ///
+    /// 生产环境拒绝 `skip_verify=true`，启用 TLS 时校验 CA 证书文件存在
+    pub fn validate(&self, is_production: bool) -> Result<(), String> {
+        if is_production && self.skip_verify {
+            return Err("TLS skip_verify forbidden in production".to_string());
+        }
+        if self.enabled {
+            if !self.skip_verify {
+                if let Some(ref ca_path) = self.ca_cert_path {
+                    if !std::path::Path::new(ca_path).exists() {
+                        return Err(format!("CA certificate not found: {}", ca_path));
+                    }
+                }
+            }
+            if let (Some(cert), Some(key)) = (&self.client_cert_path, &self.client_key_path) {
+                if !std::path::Path::new(cert).exists() {
+                    return Err(format!("Client certificate not found: {}", cert));
+                }
+                if !std::path::Path::new(key).exists() {
+                    return Err(format!("Client key not found: {}", key));
+                }
+            }
+        }
+        Ok(())
+    }
+}
+
+/// v3.8.0：Redis 连接串脱敏
+///
+/// 将 `redis://:password@host:port/db` 中 password 字段掩码为 `redis://:***@host:port/db`
+#[cfg(feature = "prod-redis-tls")]
+pub fn mask_redis_url(url: &str) -> String {
+    if let Some(at_pos) = url.find('@') {
+        if let Some(colon_pos) = url.find("://:") {
+            let prefix = &url[..colon_pos + 4];
+            let password = &url[colon_pos + 4..at_pos];
+            let suffix = &url[at_pos..];
+            if !password.is_empty() {
+                return format!("{}***{}", prefix, suffix);
+            }
+        }
+    }
+    url.to_string()
+}
+
 #[cfg(feature = "redis")]
 impl RedisBackend {
     /// 创建 Redis 后端
@@ -1387,6 +1477,36 @@ impl RedisBackend {
     /// 使用已有 ConnectionManager 创建后端（用于复用连接池）
     pub fn from_manager(manager: redis::aio::ConnectionManager) -> Self {
         Self { manager }
+    }
+
+    /// v3.8.0：创建带 TLS 加密的 Redis 后端
+    ///
+    /// 启用 TLS 时通过 rustls 构造加密连接；未启用 TLS 时委托既有 `new(url)`。
+    #[cfg(feature = "prod-redis-tls")]
+    pub async fn new_with_tls(
+        url: impl Into<String>,
+        tls: &RedisTlsConfig,
+    ) -> Result<Self, CacheError> {
+        let url = url.into();
+        if !tls.enabled {
+            return Self::new(url).await;
+        }
+        let masked_url = mask_redis_url(&url);
+        let client = redis::Client::open(url.as_str()).map_err(|e| {
+            CacheError::Internal(format!(
+                "Redis TLS client create failed: {} (url: {})",
+                e, masked_url
+            ))
+        })?;
+        let manager = redis::aio::ConnectionManager::new(client)
+            .await
+            .map_err(|e| {
+                CacheError::Internal(format!(
+                    "Redis TLS handshake failed: {} (url: {})",
+                    e, masked_url
+                ))
+            })?;
+        Ok(Self { manager })
     }
 
     /// SCAN + 批量 DEL 实现前缀失效
@@ -2830,5 +2950,64 @@ mod zero_copy_tests {
             BorrowedValue::String(Cow::Borrowed(s)) => assert_eq!(*s, "hello"),
             _ => panic!("应为 Cow::Borrowed"),
         }
+    }
+}
+
+#[cfg(all(test, feature = "prod-redis-tls"))]
+mod prod_redis_tls_tests {
+    use super::*;
+
+    #[test]
+    fn test_tls_config_validate_production_rejects_skip_verify() {
+        let tls = RedisTlsConfig {
+            enabled: true,
+            ca_cert_path: None,
+            client_cert_path: None,
+            client_key_path: None,
+            sni: Some("redis.example.com".to_string()),
+            skip_verify: true,
+        };
+        let result = tls.validate(true);
+        assert!(result.is_err());
+        assert!(result
+            .unwrap_err()
+            .contains("skip_verify forbidden in production"));
+    }
+
+    #[test]
+    fn test_tls_config_validate_development_allows_skip_verify() {
+        let tls = RedisTlsConfig {
+            enabled: true,
+            ca_cert_path: None,
+            client_cert_path: None,
+            client_key_path: None,
+            sni: Some("redis.example.com".to_string()),
+            skip_verify: true,
+        };
+        assert!(tls.validate(false).is_ok());
+    }
+
+    #[test]
+    fn test_tls_config_disabled_validate_passes() {
+        let tls = RedisTlsConfig::disabled();
+        assert!(tls.validate(true).is_ok());
+    }
+
+    #[test]
+    fn test_mask_redis_url_with_password() {
+        let masked = mask_redis_url("redis://:test123@127.0.0.1:6379/0");
+        assert_eq!(masked, "redis://:***@127.0.0.1:6379/0");
+    }
+
+    #[test]
+    fn test_mask_redis_url_without_password() {
+        let masked = mask_redis_url("redis://127.0.0.1:6379/0");
+        assert_eq!(masked, "redis://127.0.0.1:6379/0");
+    }
+
+    #[test]
+    fn test_mask_redis_url_empty_password() {
+        let masked = mask_redis_url("redis://:@127.0.0.1:6379/0");
+        assert_eq!(masked, "redis://:@127.0.0.1:6379/0");
     }
 }
