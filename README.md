@@ -1,14 +1,14 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v1.5.0 · 43 工作空间成员 · 5,809 测试 · 17 SQL 方言 · 已发布 crates.io v1.5.0
+> v3.8.0 · 46 工作空间成员 · 6,760 测试 · 17 SQL 方言 · 已发布 crates.io
 
-[![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
+[![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-5809+-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-6760+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-46-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-1.5.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-3.8.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -41,9 +41,31 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v1.5.0 版本包含 46 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v3.8.0 版本包含 46 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，新增 15 项生产就绪检查能力。
 
 > **⚠️ 诚实声明**：本项目为单作者工程实践项目，**早期生产可用（内部项目）**。sz-pay 项目已在生产环境使用 sz-orm-core/sqlx/config/auth/macros/queue/scheduler 7 个包（297 处引用、5139 测试零回归）。与 Diesel/SeaORM/SQLx 的深度对比详见 [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md)。
+
+### 生产就绪检查（v3.8.0 新增）
+
+启用 `prod-ready` feature 后，可使用 `ProdReadyChecker` 执行 15 项生产就绪检查：
+
+```rust
+use sz_orm_core::prod_ready_check::{ProdReadyChecker, ProdReadyCheckerConfig};
+
+let checker = ProdReadyChecker::new(ProdReadyCheckerConfig::default());
+let report = checker.run();
+println!("{}", report.to_json().unwrap());
+// 15 项检查（REQ-PROD-001~015），每项附 file:line 证据
+```
+
+| Feature | 说明 |
+|---------|------|
+| `prod-ready` | 聚合全部 14 个子 feature |
+| `prod-dialect-security` | 五方言 TLS/认证/脱敏验证 |
+| `prod-n1-tuning` | N+1 检测窗口/拦截调优 |
+| `prod-leak-detection` | 连接泄漏检测配置 |
+| `prod-pool-tuning` | 连接池参数验证 |
+| ... | 共 14 个子 feature |
 
 | 维度 | 数据 |
 |------|------|

@@ -5,6 +5,78 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [3.8.0] — 2026-08-10
+
+### 概述
+
+v3.8.0 是 SZ-ORM 的生产部署就绪版本，新增 15 项生产就绪检查能力，通过 `prod-ready` feature gate 聚合 14 个子 feature，覆盖安全红线、配置可观测、阈值调优、ORM 防护四大类别。提供 `ProdReadyChecker` 检查清单执行器，可聚合 15 项检查并输出 JSON 报告供 CI/CD 集成。所有新能力默认关闭，无 Breaking Change。全 workspace 测试零回归（6760 passed 0 failed）。
+
+### 新增功能
+
+#### M1: 安全红线类（`prod-redis-tls` / `prod-jwt-key-rotation` / `prod-metrics-acl` / `prod-config-masking` features）
+
+- Redis TLS 连接验证
+- JWT 密钥轮换验证
+- metrics ACL 访问控制验证
+- 配置脱敏验证（`ProdReadyConfig::verify_masking()`）
+
+#### M2: 配置可观测类（`prod-log-level` / `prod-health-endpoint` / `prod-probe-endpoint` / `prod-shutdown-timeout` features）
+
+- LogLevel 新增 Trace 变体（Trace < Debug < Info < Warn < Error）
+- `LoggerProdConfig` 生产环境日志级别强制（`prod-log-level`）
+- `HealthEndpointConfig` + `start_health_endpoint` HTTP 健康检查端点
+- `ProbeEndpointConfig` + `start_probe_endpoint` K8s readiness/liveness 探针端点
+- `to_k8s_yaml()` 生成 K8s 探针配置
+- `Pool::shutdown_with_timeout(timeout)` 优雅关闭超时
+
+#### M3: 阈值调优类（`prod-rate-limit-tuning` / `prod-circuit-tuning` / `prod-pool-tuning` features）
+
+- `RateLimitProdConfig` + `SlidingWindowRateLimiter::set_capacity/set_rate/stats()` 运行时动态调整
+- `CircuitBreakerProdConfig` + `DefaultCircuitBreaker::stats()` 统计信息
+- `PoolProdConfig` + `validate()` + `to_pool_config()` 连接池参数验证
+
+#### M4: ORM 防护类（`prod-leak-detection` / `prod-n1-tuning` / `prod-dialect-security` features）
+
+- `LeakDetectionConfig` / `LeakReport` / `LeakEntry` 连接泄漏检测配置
+- `N1DetectionConfig` 扩展 `window`/`block` 字段 + `N1DetectorStats` + `stats()` N+1 检测调优
+- `DialectSecurityVerifier` 五方言连接安全验证（MySQL/PostgreSQL/SQLite/Oracle/MSSQL）
+  - TLS / 认证 / 连接串脱敏 / 连接池参数四维检查
+  - SQLite TLS 标记 N/A，不可用方言标记 Skipped
+
+#### M5: 检查清单工具化（`prod-ready` feature）
+
+- `ProdReadyChecker` 检查清单执行器，聚合 15 项检查（REQ-PROD-001~015）
+- `CheckItem` trait 支持扩展（新增检查项仅需实现 trait）
+- `ProdReadyReport` 可序列化为 JSON 输出（供 CI/CD 集成）
+- `enabled_checks` / `skipped_checks` 配置过滤
+- 每项检查附 file:line 证据，FAIL 附失败原因
+
+### Feature Gate 体系
+
+| Feature | 类别 | 说明 |
+|---------|------|------|
+| `prod-redis-tls` | M1 | Redis TLS 验证 |
+| `prod-jwt-key-rotation` | M1 | JWT 密钥轮换 |
+| `prod-metrics-acl` | M1 | metrics ACL |
+| `prod-config-masking` | M1 | 配置脱敏 |
+| `prod-log-level` | M2 | 日志级别 |
+| `prod-health-endpoint` | M2 | 健康端点 |
+| `prod-probe-endpoint` | M2 | K8s 探针 |
+| `prod-shutdown-timeout` | M2 | 优雅关闭 |
+| `prod-rate-limit-tuning` | M3 | 限流调优 |
+| `prod-circuit-tuning` | M3 | 熔断调优 |
+| `prod-pool-tuning` | M3 | 连接池调优 |
+| `prod-leak-detection` | M4 | 泄漏检测 |
+| `prod-n1-tuning` | M4 | N+1 检测 |
+| `prod-dialect-security` | M4 | 方言安全 |
+| `prod-ready` | M5 | 聚合以上全部 |
+
+### 测试
+
+- 默认 feature: 6760 passed 0 failed
+- `prod-ready` feature: 1647 passed 0 failed（sz-orm-core lib）
+- 14 道门禁: fmt ✅ check ✅ clippy ✅ test ✅ doc ✅ 占位扫描 ✅ ADR-0001 ✅
+
 ## [3.6.0] — 2026-08-10
 
 ### 概述
