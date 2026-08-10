@@ -464,6 +464,8 @@ pub mod plan_cache;
 mod pool;
 #[cfg(feature = "auto-prewarm")]
 pub mod prewarm;
+#[cfg(feature = "prod-ready")]
+pub mod prod_ready_check;
 mod query;
 /// 重导出 QueryBuilder 供外部使用
 pub use query::QueryBuilder;

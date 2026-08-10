@@ -1815,17 +1815,20 @@ impl Pool {
 
 #[cfg(feature = "prod-pool-tuning")]
 mod pool_prod {
-    use super::{PoolConfig, PoolError};
+    use super::PoolConfig;
     use serde::{Deserialize, Serialize};
     use std::time::Duration;
 
     /// 连接池生产配置错误
     #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
     pub enum PoolProdError {
+        /// max_size 非正
         #[error("pool max_size must be positive")]
         MaxSizeNotPositive,
+        /// acquire_timeout 非正
         #[error("pool acquire_timeout must be positive")]
         AcquireTimeoutNotPositive,
+        /// min_idle 超过 max_size
         #[error("pool min_idle cannot exceed max_size")]
         MinIdleExceedsMaxSize,
     }
@@ -1833,12 +1836,19 @@ mod pool_prod {
     /// 连接池生产配置：包装既有 PoolConfig，提供生产配置加载入口
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct PoolProdConfig {
+        /// 最大连接数
         pub max_size: u32,
+        /// 获取连接超时
         pub acquire_timeout: Duration,
+        /// 空闲超时
         pub idle_timeout: Duration,
+        /// 连接建立超时
         pub connection_timeout: Duration,
+        /// 查询超时
         pub query_timeout: Duration,
+        /// 最小空闲连接数
         pub min_idle: u32,
+        /// 是否预热
         pub prewarm: bool,
     }
 
@@ -1857,6 +1867,7 @@ mod pool_prod {
     }
 
     impl PoolProdConfig {
+        /// 创建配置
         pub fn new(
             max_size: u32,
             acquire_timeout: Duration,

@@ -136,8 +136,10 @@ mod prod {
     /// 熔断器生产配置错误
     #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
     pub enum CircuitBreakerProdError {
+        /// 失败阈值非正
         #[error("circuit breaker failure_threshold must be positive")]
         FailureThresholdNotPositive,
+        /// 重置超时非正
         #[error("circuit breaker reset_timeout must be positive")]
         ResetTimeoutNotPositive,
     }
@@ -145,7 +147,9 @@ mod prod {
     /// 熔断器生产配置
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct CircuitBreakerProdConfig {
+        /// 失败阈值
         pub failure_threshold: u32,
+        /// 重置超时
         pub reset_timeout: Duration,
     }
 
@@ -159,6 +163,7 @@ mod prod {
     }
 
     impl CircuitBreakerProdConfig {
+        /// 创建配置
         pub fn new(failure_threshold: u32, reset_timeout: Duration) -> Self {
             Self {
                 failure_threshold,
@@ -166,6 +171,7 @@ mod prod {
             }
         }
 
+        /// 验证配置合法性
         pub fn validate(&self) -> Result<(), CircuitBreakerProdError> {
             if self.failure_threshold == 0 {
                 return Err(CircuitBreakerProdError::FailureThresholdNotPositive);
@@ -180,8 +186,11 @@ mod prod {
     /// 熔断器统计信息
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct CircuitBreakerStats {
+        /// 当前状态
         pub state: CircuitState,
+        /// 连续失败次数
         pub consecutive_failures: usize,
+        /// 总跳闸次数
         pub total_trips: u64,
     }
 }
