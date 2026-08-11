@@ -5,6 +5,76 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [4.2.0] — 2026-08-12
+
+### 概述
+
+v4.2.0 是 SZ-ORM 的跨语言与可视化增强版本，新增 5 项能力：跨语言分布式事务、Go/Java/C++ 语言绑定、可视化 Schema 设计器、OpenAPI → ORM 反向生成、WASM 真实数据库连接。所有新能力通过 7 个 feature gate 隔离（`cross-lang-dtx` / `lang-binding-go` / `lang-binding-java` / `lang-binding-cpp` / `schema-designer` / `openapi-reverse` / `wasm-real-db` + `wasi-socket`），默认关闭，无 Breaking Change。新增 4 个包（sz-orm-go / sz-orm-java / sz-orm-cpp / sz-orm-designer），新增约 200 个测试，全工作空间约 6,920 个测试通过。
+
+### 新增功能
+
+#### M1: 跨语言分布式事务（`cross-lang-dtx` feature，sz-orm-dtx）
+
+- `CrossLangDtxCoordinator`：跨语言 DTX 协调器，支持 Go/Java/C++/Python 调用方
+- `DtxProtocol`：二进制协议（Magic + Version + Op + XID + Payload + Checksum）
+- `DtxOperation`：Begin/Commit/Rollback/Join/Heartbeat 五种操作
+- `DtxTransport` trait：TCP/HTTP/gRPC 传输抽象
+- `CrossLangDtxParticipant`：参与者注册 + 心跳 + 超时检测
+- `DtxRecovery`：故障恢复 + 悬挂事务清理
+- 50 个测试通过
+
+#### M2: Go/Java/C++ 语言绑定（`lang-binding-go` / `lang-binding-java` / `lang-binding-cpp` feature）
+
+- **sz-orm-go**：Go FFI 绑定包，CGO 桥接层，`GoQueryBuilder` / `GoModel` / `GoTransaction`
+- **sz-orm-java**：Java FFI 绑定包，JNI 桥接层，`JavaQueryBuilder` / `JavaModel` / `JavaTransaction`
+- **sz-orm-cpp**：C++ FFI 绑定包，C ABI 桥接层，`CppQueryBuilder` / `CppModel` / `CppTransaction`
+- 4 个新包，27 个测试通过
+
+#### M3: 可视化 Schema 设计器（`schema-designer` feature，sz-orm-designer）
+
+- **sz-orm-designer**：独立包，可视化 Schema 设计器
+- `SchemaDesign`：表/列/索引/外键/约束建模
+- `SchemaDesigner`：设计器核心，支持 5 种方言（MySQL/PostgreSQL/SQLite/Oracle/MSSQL）
+- `DesignerExporter`：导出为 SQL DDL / JSON / Mermaid ER 图 / HTML 可视化
+- `DiffVisualizer`：Schema 差异可视化（Text/JSON/HTML 三种格式）
+- 26 个测试通过
+
+#### M3: OpenAPI → ORM 反向生成（`openapi-reverse` feature，sz-orm-swagger）
+
+- `OpenApiReverseGenerator`：从 OpenAPI 3.0 spec 反向生成 ORM 代码
+- `SchemaToModelMapper`：OpenAPI Schema → Rust model 类型映射 + 约束映射
+- `OpenApiToMigrationMapper`：OpenAPI Schema → 数据库迁移 DDL（5 种方言）
+- `OpenApiToRepositoryMapper`：OpenAPI paths → CRUD repository 骨架代码
+- `ApiFirstLoopVerifier`：API-first 循环验证（检测 spec ↔ impl 不一致）
+- `OpenApiInjectionGuard`：恶意扩展检测 + 签名验证
+- 55 个测试通过
+
+#### M3: CLI 集成
+
+- CLI 新增 `designer` / `designer:export` / `openapi:reverse` 命令
+- 支持 `--dialect` / `--format` / `--trust-unsigned` 参数
+
+#### M4: WASM 真实数据库连接（`wasm-real-db` + `wasi-socket` feature，sz-orm-wasm）
+
+- `WasmDbProxyProtocol`：WASM ↔ 后端 DB 代理协议（JSON + MessagePack 双序列化）
+- `WasmRealDbConnection`：HTTP/WebSocket 代理桥接，WASM 端不持有 DB 凭据
+- `WasmRealDbQueryExecutor`：查询执行器，集成白名单 + 限流 + 鉴权 + 指标
+- `WasmDbProxy`：后端代理，鉴权 + 限流 + SQL 白名单 + 结果集大小限制
+- `WasmDbAuthValidator`：Token/Session 鉴权
+- `WasmDbRateLimiter`：固定窗口 QPS 限流（默认 100 QPS）
+- `WasmDbSqlWhitelist`：SQL 白名单（仅 SELECT/INSERT/UPDATE/DELETE，禁止 DDL）
+- `WasmRealDbReconnector`：指数退避重连
+- `WasmRealDbMetrics`：查询指标采集（线程安全 AtomicU64）
+- `WasiSocketConnection`：WASI socket 直连（`wasi-socket` feature 门控）
+- 94 个测试通过
+
+### 工程化
+
+- SDD 三阶段文档：`docs/spec/v4.2.0/{spec.md, design.md, tasks.md}`（640 + 1438 + 1589 行）
+- 7 个 feature gate 全部默认关闭，无 Breaking Change
+- 全工作空间 clippy 零警告，fmt 通过
+- 4 个里程碑（M1~M4），40 主任务，278 子任务
+
 ## [4.1.0] — 2026-08-11
 
 ### 概述
