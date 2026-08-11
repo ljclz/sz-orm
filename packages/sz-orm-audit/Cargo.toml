@@ -16,6 +16,8 @@ default = []
 data-lineage = ["dep:sqlparser"]
 # v4.1.0：数据质量自动检测（六类统计学规则 + 只读检测）
 data-quality = []
+# v4.3.0 M3：血缘可视化（Mermaid/HTML 导出）+ 带深度影响分析（复用 data-lineage 的 LineageGraph）
+lineage-viz = ["data-lineage"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

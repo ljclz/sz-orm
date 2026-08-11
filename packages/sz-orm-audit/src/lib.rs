@@ -17,6 +17,8 @@ pub mod lineage;
 #[cfg(feature = "data-quality")]
 pub mod data_quality;
 
+#[cfg(feature = "lineage-viz")]
+pub use lineage::{downstream_impact, upstream_trace, ImpactEdge};
 #[cfg(feature = "data-lineage")]
 pub use lineage::{
     EdgeType, LineageDialect, LineageEdge, LineageError, LineageExportFormat, LineageGraph,

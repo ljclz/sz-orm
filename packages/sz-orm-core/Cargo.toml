@@ -126,6 +126,8 @@ schema-diff-viz = []
 cache-coherence = []
 # v4.1.0锛氳縼绉荤増鏈垎鏀紙澶氬垎鏀苟琛屽紑鍙?+ 鍚堝苟鍐茬獊妫€娴嬶級
 migration-branch = []
+# v4.3.0 M3：编译期数据治理（PII 标注强制 + 合规报告，feature gate 隔离，默认关闭）
+compile-governance = ["sz-orm-macros/governance-derive"]
 
 [dependencies]
 async-trait.workspace = true

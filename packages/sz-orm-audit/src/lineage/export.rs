@@ -138,6 +138,106 @@ fn edge_type_str(edge: &LineageEdge) -> &'static str {
     }
 }
 
+// ---------------------------------------------------------------------------
+// v4.3.0 M3-T1：血缘可视化导出（Mermaid / HTML 报告，`lineage-viz` feature）
+// ---------------------------------------------------------------------------
+
+/// 导出 Mermaid 流程图格式（可被 GitHub / Mermaid Live 渲染）
+///
+/// ```text
+/// graph LR
+///     users_id["users.id"] --> orders_user_id["orders.user_id"]
+/// ```
+#[cfg(feature = "lineage-viz")]
+pub fn export_mermaid(graph: &LineageGraph) -> String {
+    let mut out = String::new();
+    out.push_str("graph LR\n");
+    for edge in &graph.edges {
+        let src = node_id_str(&edge.source);
+        let tgt = node_id_str(&edge.target);
+        out.push_str(&format!(
+            "    {}[\"{}\"] --> {}[\"{}\"]\n",
+            escape_mermaid_id(&src),
+            escape_mermaid(&src),
+            escape_mermaid_id(&tgt),
+            escape_mermaid(&tgt)
+        ));
+    }
+    out
+}
+
+/// 导出独立 HTML 血缘报告（内联样式，无外部依赖）
+#[cfg(feature = "lineage-viz")]
+pub fn export_html_report(graph: &LineageGraph) -> String {
+    let mut rows = String::new();
+    let mut seen = std::collections::HashSet::new();
+    for edge in &graph.edges {
+        let src = node_id_str(&edge.source);
+        let tgt = node_id_str(&edge.target);
+        // 去重（同源同目标仅展示一次）
+        let key = format!("{src}->{tgt}");
+        if !seen.insert(key) {
+            continue;
+        }
+        rows.push_str(&format!(
+            "<tr><td>{}</td><td>→</td><td>{}</td><td>{}</td></tr>\n",
+            escape_html(&src),
+            escape_html(&tgt),
+            edge_type_str(edge)
+        ));
+    }
+    format!(
+        r#"<!DOCTYPE html>
+<html lang="zh">
+<head><meta charset="utf-8"><title>数据血缘报告</title>
+<style>
+body {{ font-family: monospace; margin: 2rem; }}
+table {{ border-collapse: collapse; }}
+td, th {{ border: 1px solid #999; padding: 4px 12px; }}
+th {{ background: #eee; }}
+</style></head>
+<body>
+<h2>数据血缘报告</h2>
+<p>节点数: {nodes} | 边数: {edges}</p>
+<table>
+<tr><th>来源</th><th></th><th>目标</th><th>依赖类型</th></tr>
+{rows}</table>
+</body>
+</html>"#,
+        nodes = graph.node_count(),
+        edges = graph.edge_count(),
+        rows = rows
+    )
+}
+
+/// 转义 Mermaid 节点 ID（仅保留字母数字与下划线）
+#[cfg(feature = "lineage-viz")]
+fn escape_mermaid_id(s: &str) -> String {
+    s.chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect()
+}
+
+/// 转义 Mermaid 标签文本（引号与方括号）
+#[cfg(feature = "lineage-viz")]
+fn escape_mermaid(s: &str) -> String {
+    s.replace('"', "&quot;").replace('[', "(").replace(']', ")")
+}
+
+/// 转义 HTML 文本
+#[cfg(feature = "lineage-viz")]
+fn escape_html(s: &str) -> String {
+    s.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
 fn escape_json(s: &str) -> String {
     s.replace('\\', "\\\\")
         .replace('"', "\\\"")
@@ -316,5 +416,56 @@ mod tests {
         let xml = export_graphml(&graph);
         assert!(xml.contains("&lt;"));
         assert!(xml.contains("&gt;"));
+    }
+
+    #[cfg(feature = "lineage-viz")]
+    #[test]
+    fn test_export_mermaid() {
+        let graph = sample_graph();
+        let mermaid = export_mermaid(&graph);
+        assert!(mermaid.starts_with("graph LR"));
+        assert!(mermaid.contains("users_name"));
+        assert!(mermaid.contains("report_name"));
+        assert!(mermaid.contains("-->"));
+        // 节点 ID 转义：`.` → `_`
+        assert!(mermaid.contains("users_name[\"users.name\"]"));
+    }
+
+    #[cfg(feature = "lineage-viz")]
+    #[test]
+    fn test_export_html_report() {
+        let graph = sample_graph();
+        let html = export_html_report(&graph);
+        assert!(html.starts_with("<!DOCTYPE html>"));
+        assert!(html.contains("users.name"));
+        assert!(html.contains("report.name"));
+        assert!(html.contains("Derived"));
+        assert!(html.contains("节点数: 2"));
+        // 无外部脚本
+        assert!(!html.contains("<script"));
+    }
+
+    #[cfg(feature = "lineage-viz")]
+    #[test]
+    fn test_export_mermaid_escapes_special_chars() {
+        let mut graph = LineageGraph::new();
+        graph.add_node(LineageNode::new(
+            LineageNodeId::new("a\"b", "c"),
+            NodeType::Column,
+        ));
+        graph.add_node(LineageNode::new(
+            LineageNodeId::new("target", "col"),
+            NodeType::Column,
+        ));
+        graph
+            .add_edge(super::super::graph::LineageEdge::new(
+                LineageNodeId::new("a\"b", "c"),
+                LineageNodeId::new("target", "col"),
+                super::super::graph::EdgeType::Derived,
+            ))
+            .unwrap();
+        let mermaid = export_mermaid(&graph);
+        // 引号被转义，ID 中非法字符转 `_`
+        assert!(mermaid.contains("&quot;"));
     }
 }

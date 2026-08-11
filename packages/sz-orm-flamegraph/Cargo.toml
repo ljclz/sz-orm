@@ -1,0 +1,23 @@
+[package]
+name = "sz-orm-flamegraph"
+description = "Query performance flame graph: per-phase timing collection and Brendan Gregg / SVG rendering"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# v4.3.0 M1：查询火焰图能力（核心计时/渲染默认可用；tracing 集成由本 feature 启用）
+query-flamegraph = ["dep:sz-orm-tracing"]
+
+[dependencies]
+# 分布式追踪集成（可选，复用既有 Tracer trait）
+sz-orm-tracing = { path = "../sz-orm-tracing", optional = true }
+
+[lints]
+workspace = true

@@ -24,11 +24,13 @@ sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio",
 tokio = { workspace = true, features = ["full"], optional = true }
 # 离线缓存验证：解析 .sz-orm/query-cache.json
 serde_json = { version = "1.0", optional = true }
+# v4.3.0 M1-T3：EXPLAIN 结果分析（全表扫描/缺失索引编译期警告）
+sz-orm-explain = { workspace = true, optional = true }
 
 [features]
 default = []
 # 启用 query! 宏的编译期连真实 DB 验证能力（含离线缓存模式）
-db-verify = ["dep:sqlx", "dep:tokio", "dep:serde_json"]
+db-verify = ["dep:sqlx", "dep:tokio", "dep:serde_json", "dep:sz-orm-explain"]
 # v3.4.0：类型安全列引用（Schema derive 生成列名常量）
 type-safe-columns = []
 # v3.4.0：类型化 Schema（为复杂类型字段生成告警并跳过）
@@ -39,6 +41,8 @@ typed-dsl = []
 custom-diagnostic = []
 # v3.9.0：数据验证派生宏（#[derive(Validate)]）
 data-validation = []
+# v4.3.0 M3：数据治理派生宏（#[derive(Governed)]，由 sz-orm-core/compile-governance 启用）
+governance-derive = []
 
 [dev-dependencies]
 sz-orm-core = { path = "../sz-orm-core" }

@@ -446,6 +446,8 @@ pub mod eager_loader;
 pub mod entity_graph;
 mod error;
 pub mod find_with_related;
+#[cfg(feature = "compile-governance")]
+pub mod governance;
 pub mod guard;
 pub mod hooks;
 pub mod hydration_plugin;

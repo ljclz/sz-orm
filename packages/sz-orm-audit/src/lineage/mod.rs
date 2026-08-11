@@ -11,6 +11,8 @@
 
 pub mod export;
 pub mod graph;
+#[cfg(feature = "lineage-viz")]
+pub mod impact;
 pub mod parser;
 pub mod tracker;
 
@@ -18,5 +20,7 @@ pub use export::LineageExportFormat;
 pub use graph::{
     EdgeType, LineageEdge, LineageError, LineageGraph, LineageNode, LineageNodeId, NodeType,
 };
+#[cfg(feature = "lineage-viz")]
+pub use impact::{downstream_impact, upstream_trace, ImpactEdge};
 pub use parser::{LineageDialect, LineageSqlParser};
 pub use tracker::{LineageTracker, LineageUpdate};

@@ -548,7 +548,13 @@ pub fn query(input: TokenStream) -> TokenStream {
         match std::env::var("SZ_ORM_QUERY_VERIFY").ok().as_deref() {
             // 模式 1：连真 DB 执行 EXPLAIN 验证（需 DATABASE_URL），并获取 SELECT 列的实际类型
             Some("1") => match verify_with_real_db(sql_content) {
-                Ok(cols) => Some(cols),
+                Ok(cols) => {
+                    // v4.3.0 M1-T3：EXPLAIN 分析 → 编译期性能警告（非阻断）
+                    for warning in analyze_explain(sql_content) {
+                        eprintln!("warning: [sz-orm-explain] {warning}");
+                    }
+                    Some(cols)
+                }
                 Err(err) => {
                     return compile_error(
                         Span::call_site(),
@@ -670,6 +676,147 @@ fn verify_with_real_db(sql: &str) -> Result<Vec<(String, String)>, String> {
         // 由外层 if matches! 保证此处必为 SqlServer
         verify_sqlserver(&dsn, &explain_sql).map(|_| Vec::new())
     }
+}
+
+// ---------------------------------------------------------------------------
+// v4.3.0 M1-T3：EXPLAIN 结果分析（编译期性能警告，非阻断）
+// 在 db-verify 语法/列验证通过后，进一步解析 EXPLAIN 输出，检测
+// 全表扫描与缺失索引，输出编译期警告（eprintln，stable Rust 无 Span::warning）。
+// ---------------------------------------------------------------------------
+
+/// 分析 EXPLAIN 输出，返回警告文案列表。
+///
+/// 仅对 sqlx 路径（MySQL/PostgreSQL/SQLite）执行分析；Oracle/SQL Server
+/// 命令行验证路径跳过。解析失败降级为空列表（EXPLAIN 语法已由
+/// [`verify_with_real_db`] 验证，此处不阻断编译）。
+#[cfg(feature = "db-verify")]
+fn analyze_explain(sql: &str) -> Vec<String> {
+    let Ok(dsn) = std::env::var("DATABASE_URL") else {
+        return Vec::new();
+    };
+    let Ok(db_kind) = detect_db_kind(&dsn) else {
+        return Vec::new();
+    };
+    if !matches!(db_kind, DbKind::MySql | DbKind::Postgres | DbKind::Sqlite) {
+        return Vec::new();
+    }
+    let sql_no_placeholders = replace_placeholders_with_null(sql);
+    let explain_sql = match db_kind {
+        DbKind::MySql | DbKind::Postgres => format!("EXPLAIN {}", sql_no_placeholders),
+        DbKind::Sqlite => format!("EXPLAIN QUERY PLAN {}", sql_no_placeholders),
+        _ => return Vec::new(),
+    };
+    let rt = match tokio::runtime::Runtime::new() {
+        Ok(rt) => rt,
+        Err(_) => return Vec::new(),
+    };
+    rt.block_on(explain_analysis_raw(&dsn, db_kind, &explain_sql))
+        .unwrap_or_default()
+}
+
+/// 获取 EXPLAIN 原始输出并解析为警告列表
+#[cfg(feature = "db-verify")]
+async fn explain_analysis_raw(
+    dsn: &str,
+    db_kind: DbKind,
+    explain_sql: &str,
+) -> Result<Vec<String>, String> {
+    let raw = match db_kind {
+        DbKind::MySql => fetch_explain_mysql(dsn, explain_sql).await?,
+        DbKind::Postgres => fetch_explain_postgres(dsn, explain_sql).await?,
+        DbKind::Sqlite => fetch_explain_sqlite(dsn, explain_sql).await?,
+        _ => return Ok(Vec::new()),
+    };
+    let db_type = match db_kind {
+        DbKind::MySql => sz_orm_explain::ExplainDialect::MySql,
+        DbKind::Postgres => sz_orm_explain::ExplainDialect::Postgres,
+        DbKind::Sqlite => sz_orm_explain::ExplainDialect::Sqlite,
+        _ => return Ok(Vec::new()),
+    };
+    let parser = sz_orm_explain::parser_for(db_type)
+        .map_err(|e| format!("no explain parser for db: {e}"))?;
+    let plan = parser
+        .parse(&raw)
+        .map_err(|e| format!("explain parse failed: {e}"))?;
+
+    let mut warnings = Vec::new();
+    if plan.scan_type.is_full_table_scan() {
+        warnings.push(format!(
+            "full table scan detected on table '{}': consider adding an index",
+            plan.table
+        ));
+    } else {
+        // 行数阈值：SZ_ORM_EXPLAIN_ROW_THRESHOLD 环境变量，默认 1000
+        let threshold: u64 = std::env::var("SZ_ORM_EXPLAIN_ROW_THRESHOLD")
+            .ok()
+            .and_then(|v| v.parse().ok())
+            .unwrap_or(1000);
+        if plan.missing_index(threshold) {
+            warnings.push(format!(
+                "missing index on table '{}': estimated rows = {} exceeds threshold {}",
+                plan.table, plan.rows, threshold
+            ));
+        }
+    }
+    Ok(warnings)
+}
+
+/// MySQL：EXPLAIN 表格行 → `| a | b | ... |` 文本（与 MySqlParser 输入兼容）
+#[cfg(feature = "db-verify")]
+async fn fetch_explain_mysql(dsn: &str, explain_sql: &str) -> Result<String, String> {
+    let pool = sqlx::MySqlPool::connect(dsn)
+        .await
+        .map_err(|e| format!("MySQL connect failed: {e}"))?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(explain_sql))
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("MySQL EXPLAIN failed: {e}"))?;
+    let mut out = String::new();
+    for row in &rows {
+        let cells: Vec<String> = (0..row.columns().len())
+            .map(|i| row.try_get::<String, _>(i).unwrap_or_default())
+            .collect();
+        out.push_str(&format!("| {} |\n", cells.join(" | ")));
+    }
+    Ok(out)
+}
+
+/// PostgreSQL：EXPLAIN 文本行拼接
+#[cfg(feature = "db-verify")]
+async fn fetch_explain_postgres(dsn: &str, explain_sql: &str) -> Result<String, String> {
+    let pool = sqlx::PgPool::connect(dsn)
+        .await
+        .map_err(|e| format!("PostgreSQL connect failed: {e}"))?;
+    let rows: Vec<(String,)> = sqlx::query_as::<_, (String,)>(sqlx::AssertSqlSafe(explain_sql))
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("PostgreSQL EXPLAIN failed: {e}"))?;
+    Ok(rows
+        .iter()
+        .map(|(line,)| line.as_str())
+        .collect::<Vec<_>>()
+        .join("\n"))
+}
+
+/// SQLite：EXPLAIN QUERY PLAN 四列（id/parent/notused/detail）→ 数字前缀文本
+#[cfg(feature = "db-verify")]
+async fn fetch_explain_sqlite(dsn: &str, explain_sql: &str) -> Result<String, String> {
+    let pool = sqlx::SqlitePool::connect(dsn)
+        .await
+        .map_err(|e| format!("SQLite connect failed: {e}"))?;
+    let rows = sqlx::query(sqlx::AssertSqlSafe(explain_sql))
+        .fetch_all(&pool)
+        .await
+        .map_err(|e| format!("SQLite EXPLAIN failed: {e}"))?;
+    let mut out = String::new();
+    for row in &rows {
+        let id: i64 = row.try_get(0).unwrap_or_default();
+        let parent: i64 = row.try_get(1).unwrap_or_default();
+        let notused: i64 = row.try_get(2).unwrap_or_default();
+        let detail: String = row.try_get(3).unwrap_or_default();
+        out.push_str(&format!("{id} {parent} {notused} {detail}\n"));
+    }
+    Ok(out)
 }
 
 /// 离线缓存验证：从 `SZ_ORM_SQLX_CACHE` 指定的 JSON 文件中查找已验证的 SQL。
@@ -1204,11 +1351,15 @@ async fn verify_columns_postgres(
 
         if !tables.is_empty() && !rows.is_empty() {
             let found_in_table = rows.iter().any(|row| {
-                let table_name: String = row.get("TABLE_NAME");
+                // PG information_schema 返回小写列名，按索引取列避免大小写问题
+                let table_name: String = row.try_get(0).unwrap_or_default();
                 tables.iter().any(|t| t == &table_name.to_lowercase())
             });
             if !found_in_table {
-                let available: Vec<String> = rows.iter().map(|r| r.get("TABLE_NAME")).collect();
+                let available: Vec<String> = rows
+                    .iter()
+                    .map(|r| r.try_get::<String, _>(0).unwrap_or_default())
+                    .collect();
                 return Err(format!(
                     "query! column verification failed: column '{}' exists but not in FROM table(s) {:?}. \
                      Found in: {:?}. SQL: {}",
@@ -1318,10 +1469,11 @@ async fn fetch_column_types_postgres(
         let ty = rows
             .iter()
             .find(|row| {
-                let tn: String = row.get("TABLE_NAME");
+                // PG information_schema 返回小写列名，按索引取列
+                let tn: String = row.try_get(0).unwrap_or_default();
                 tables.iter().any(|t| t == &tn.to_lowercase())
             })
-            .and_then(|r| r.try_get::<String, _>("udt_name").ok());
+            .and_then(|r| r.try_get::<String, _>(2).ok());
         if let Some(ty) = ty {
             result.push((col.to_lowercase(), ty));
         }
@@ -2853,6 +3005,127 @@ pub fn derive_relation_trait(input: TokenStream) -> TokenStream {
 #[proc_macro_derive(Validate, attributes(validate))]
 pub fn derive_validate(input: TokenStream) -> TokenStream {
     crate::derive_validate::derive_validate_impl(input)
+}
+
+// ---------------------------------------------------------------------------
+// v4.3.0 M3-T3：`#[derive(Governed)]` — 编译期数据治理（PII 标注强制）
+// 通过 `compile-governance` feature（sz-orm-core）→ `governance-derive`（本包）启用。
+// ---------------------------------------------------------------------------
+
+/// 派生宏：为模型生成数据治理元数据，并**编译期强制** PII 标注合规。
+///
+/// # 支持属性
+///
+/// - `#[pii]` — 标记字段为个人敏感数据（PII）
+/// - `#[mask(strategy = "...")]` — 声明脱敏策略（hash / partial / replace / encrypt）
+///
+/// # 编译期强制规则
+///
+/// 1. `#[pii]` 字段必须同时声明 `#[mask(strategy = "...")]`，否则 **编译失败**
+/// 2. `mask` 策略必须在白名单内（hash/partial/replace/encrypt），否则 **编译失败**
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::governance::GovernedModel;
+///
+/// #[derive(Governed)]
+/// struct User {
+///     id: i64,
+///     #[pii]
+///     #[mask(strategy = "partial")]
+///     email: String,
+///     #[pii]
+///     #[mask(strategy = "hash")]
+///     phone: String,
+///     name: String, // 非 PII，无需 mask
+/// }
+///
+/// assert_eq!(
+///     User::pii_fields(),
+///     vec![("email", "partial"), ("phone", "hash")]
+/// );
+/// ```
+#[cfg(feature = "governance-derive")]
+#[proc_macro_derive(Governed, attributes(pii, mask))]
+pub fn derive_governed(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    let name = &input.ident;
+
+    const VALID_STRATEGIES: [&str; 4] = ["hash", "partial", "replace", "encrypt"];
+
+    let mut pii_fields: Vec<(String, String)> = Vec::new();
+    let mut errors: Vec<syn::Error> = Vec::new();
+
+    if let syn::Data::Struct(data) = &input.data {
+        for field in &data.fields {
+            let Some(field_name) = field.ident.as_ref().map(|i| i.to_string()) else {
+                continue;
+            };
+            let is_pii = field.attrs.iter().any(|a| a.path().is_ident("pii"));
+
+            // 解析 #[mask(strategy = "xxx")]
+            let mut mask_strategy: Option<String> = None;
+            for attr in &field.attrs {
+                if !attr.path().is_ident("mask") {
+                    continue;
+                }
+                let _ = attr.parse_nested_meta(|meta| {
+                    if meta.path.is_ident("strategy") {
+                        let lit: syn::LitStr = meta.value()?.parse()?;
+                        mask_strategy = Some(lit.value());
+                        Ok(())
+                    } else {
+                        Err(meta.error("unsupported #[mask] attribute, only 'strategy' is allowed"))
+                    }
+                });
+            }
+
+            if is_pii {
+                match mask_strategy {
+                    Some(strategy) => {
+                        if !VALID_STRATEGIES.contains(&strategy.as_str()) {
+                            errors.push(syn::Error::new_spanned(
+                                field,
+                                format!(
+                                    "invalid #[mask(strategy = \"{strategy}\")]: allowed strategies are {:?}",
+                                    VALID_STRATEGIES
+                                ),
+                            ));
+                        } else {
+                            pii_fields.push((field_name, strategy));
+                        }
+                    }
+                    None => errors.push(syn::Error::new_spanned(
+                        field,
+                        "#[pii] field must declare #[mask(strategy = \"...\")]",
+                    )),
+                }
+            }
+        }
+    }
+
+    if !errors.is_empty() {
+        // 每条错误独立转 compile_error!，合并为一个 TokenStream
+        let err_tokens: proc_macro2::TokenStream =
+            errors.iter().map(|e| e.to_compile_error()).collect();
+        return err_tokens.into();
+    }
+
+    let entries = pii_fields.iter().map(|(f, s)| {
+        let f = f.as_str();
+        let s = s.as_str();
+        quote::quote!((#f, #s))
+    });
+
+    quote::quote! {
+        impl ::sz_orm_core::governance::GovernedModel for #name {
+            fn pii_fields() -> Vec<(&'static str, &'static str)> {
+                vec![#(#entries),*]
+            }
+        }
+    }
+    .into()
 }
 
 // ---------------------------------------------------------------------------
