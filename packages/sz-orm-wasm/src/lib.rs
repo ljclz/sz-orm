@@ -856,3 +856,6 @@ mod tests {
         assert!(result.is_err());
     }
 }
+
+#[cfg(feature = "wasm-real-db")]
+pub mod real_db;
