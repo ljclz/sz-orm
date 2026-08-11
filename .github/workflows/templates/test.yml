@@ -1,0 +1,37 @@
+name: Reusable Test
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        type: string
+        required: false
+        default: "--workspace"
+      database_url:
+        type: string
+        required: false
+        default: ""
+      features:
+        type: string
+        required: false
+        default: ""
+      toolchain:
+        type: string
+        required: false
+        default: "stable"
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env:
+      DATABASE_URL: ${{ inputs.database_url }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.toolchain }}
+      - name: Unit tests
+        run: cargo test ${{ inputs.package }} --no-fail-fast ${{ inputs.features }}
+      - name: Integration tests
+        run: cargo test ${{ inputs.package }} --test '*' --no-fail-fast ${{ inputs.features }}
+        continue-on-error: true

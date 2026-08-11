@@ -1,0 +1,33 @@
+name: Reusable Lint
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        type: string
+        required: false
+        default: "--workspace"
+      toolchain:
+        type: string
+        required: false
+        default: "stable"
+      extra_flags:
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: ${{ inputs.toolchain }}
+          components: rustfmt, clippy
+      - name: Format check
+        run: cargo fmt --all -- --check
+      - name: Clippy
+        run: cargo clippy ${{ inputs.package }} --all-targets -- -D warnings ${{ inputs.extra_flags }}
+      - name: Check
+        run: cargo check ${{ inputs.package }} --all-targets ${{ inputs.extra_flags }}

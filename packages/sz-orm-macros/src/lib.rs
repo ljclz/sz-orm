@@ -68,6 +68,10 @@ use syn::parse_macro_input;
 // 派生宏模块
 mod derive;
 
+// v3.9.0：数据验证派生宏模块（data-validation feature 隔离）
+#[cfg(feature = "data-validation")]
+mod derive_validate;
+
 // 自定义编译期诊断模块（typed-dsl 或 custom-diagnostic feature 隔离）
 #[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
 mod diagnostic;
@@ -2814,6 +2818,41 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
 pub fn derive_relation_trait(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
     derive::derive_relation_trait_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
+// v3.9.0：数据验证派生宏（data-validation feature 隔离）
+// ---------------------------------------------------------------------------
+
+/// 派生 `Validate` trait 实现。
+///
+/// 支持的 `#[validate(...)]` 规则：
+/// - `email` — 邮箱格式校验
+/// - `required` — 非空校验
+/// - `length(min=N, max=N)` — 长度范围校验
+/// - `range(min=N, max=N)` — 数值范围校验
+/// - `regex(pattern=r"...")` — 正则匹配校验
+/// - `contains(value="...")` — 包含子串校验
+/// - `does_not_contain(value="...")` — 不包含子串校验
+/// - `if = "condition"` — 条件校验
+///
+/// # 示例
+///
+/// ```ignore
+/// #[derive(Validate)]
+/// struct User {
+///     #[validate(email)]
+///     email: String,
+///     #[validate(length(min=2, max=50))]
+///     name: String,
+///     #[validate(range(min=0, max=150))]
+///     age: i64,
+/// }
+/// ```
+#[cfg(feature = "data-validation")]
+#[proc_macro_derive(Validate, attributes(validate))]
+pub fn derive_validate(input: TokenStream) -> TokenStream {
+    crate::derive_validate::derive_validate_impl(input)
 }
 
 // ---------------------------------------------------------------------------

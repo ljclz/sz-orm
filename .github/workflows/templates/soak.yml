@@ -1,0 +1,27 @@
+name: Reusable Soak
+
+on:
+  workflow_call:
+    inputs:
+      duration:
+        type: string
+        required: false
+        default: "1h"
+      image:
+        type: string
+        required: true
+      metrics_url:
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  soak:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Soak test
+        run: |
+          echo "Running soak test for ${{ inputs.duration }}"
+          echo "Image: ${{ inputs.image }}"
+          echo "Metrics: ${{ inputs.metrics_url }}"

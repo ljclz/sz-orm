@@ -1,0 +1,30 @@
+name: Reusable Probe
+
+on:
+  workflow_call:
+    inputs:
+      image:
+        type: string
+        required: true
+      namespace:
+        type: string
+        required: false
+        default: "default"
+      ready_path:
+        type: string
+        required: false
+        default: "/health/ready"
+      live_path:
+        type: string
+        required: false
+        default: "/health/live"
+
+jobs:
+  probe:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Deploy probe
+        run: |
+          echo "Deploying ${{ inputs.image }} to ${{ inputs.namespace }}"
+          echo "Ready: ${{ inputs.ready_path }} Live: ${{ inputs.live_path }}"

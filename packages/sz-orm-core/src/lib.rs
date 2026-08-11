@@ -403,6 +403,11 @@
 // 文档完整性：全局启用 missing_docs lint（v3.6.0 已补齐全部 pub API 文档）
 #![warn(missing_docs)]
 
+// v3.9.0 M1-T3：derive(Validate) 宏生成 sz_orm_core 绝对路径，
+// crate 内部测试需 self 别名使该路径解析到当前 crate
+#[cfg(all(test, feature = "data-validation"))]
+extern crate self as sz_orm_core;
+
 use std::sync::Arc;
 
 /// Re-export async traits
@@ -417,6 +422,8 @@ pub mod access_control;
 pub mod accessors;
 pub mod active_model;
 pub mod behaviors;
+#[cfg(feature = "benchmark-suite")]
+pub mod benchmark;
 mod cache;
 pub mod circuit_breaker;
 #[cfg(feature = "type-safe-columns")]
@@ -450,6 +457,8 @@ pub mod l1_cache;
 pub mod l2_cache;
 pub mod lambda;
 pub mod migration;
+#[cfg(feature = "migration-dry-run")]
+pub mod migration_dry_run;
 pub mod mock;
 mod model;
 pub mod n1_eliminator;
@@ -467,6 +476,8 @@ pub mod prewarm;
 #[cfg(feature = "prod-ready")]
 pub mod prod_ready_check;
 mod query;
+#[cfg(feature = "data-validation")]
+pub mod validation;
 /// 重导出 QueryBuilder 供外部使用
 pub use query::QueryBuilder;
 #[cfg(feature = "qb-migration-tool")]
@@ -492,6 +503,8 @@ pub mod sql_safety;
 #[cfg(feature = "sql-verify-proc")]
 pub mod sql_verify;
 pub mod stream_api;
+#[cfg(feature = "streaming-export")]
+pub mod streaming_export;
 pub mod telemetry;
 #[cfg(feature = "multi-tenant-enhanced")]
 pub mod tenant_context;
@@ -518,6 +531,8 @@ pub use sz_orm_macros::typed_query;
 // FromQueryResult derive 宏（与 value.rs 中同名 trait 通过显式 use 遮蔽 glob 导出）
 pub use sz_orm_macros::FromQueryResult;
 pub use sz_orm_macros::RelationTrait;
+#[cfg(feature = "data-validation")]
+pub use sz_orm_macros::Validate;
 
 pub use cache::*;
 pub use cycle_detection::{CycleDetector, CyclePolicy};

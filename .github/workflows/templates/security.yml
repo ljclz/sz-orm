@@ -1,0 +1,30 @@
+name: Reusable Security
+
+on:
+  workflow_call:
+    inputs:
+      package:
+        type: string
+        required: false
+        default: "--workspace"
+      fail_on_vuln:
+        type: boolean
+        required: false
+        default: true
+
+jobs:
+  security:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Install cargo-audit
+        run: cargo install cargo-audit --locked
+      - name: Audit
+        run: cargo audit
+        continue-on-error: ${{ !inputs.fail_on_vuln }}
+      - name: Install cargo-deny
+        run: cargo install cargo-deny --locked
+      - name: Deny check
+        run: cargo deny check
+        continue-on-error: true

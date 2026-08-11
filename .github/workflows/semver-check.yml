@@ -1,0 +1,39 @@
+name: SemVer Check
+
+on:
+  pull_request:
+    branches: [main, master, develop]
+  workflow_dispatch:
+
+jobs:
+  semver:
+    name: cargo-semver-checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Install cargo-semver-checks
+        run: cargo install cargo-semver-checks --locked
+
+      - name: Check sz-orm-core
+        run: cargo semver-checks check-release --manifest-path packages/sz-orm-core/Cargo.toml
+
+      - name: Check sz-orm-macros
+        run: cargo semver-checks check-release --manifest-path packages/sz-orm-macros/Cargo.toml
+
+  deprecation-period:
+    name: Deprecation Period Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Check deprecation period
+        run: python3 scripts/check-deprecation-period.py

@@ -37,6 +37,8 @@ typed-schema = []
 typed-dsl = []
 # v3.7.0: stable（自定义编译期诊断信息，独立 feature gate）
 custom-diagnostic = []
+# v3.9.0：数据验证派生宏（#[derive(Validate)]）
+data-validation = []
 
 [dev-dependencies]
 sz-orm-core = { path = "../sz-orm-core" }

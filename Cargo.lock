@@ -1421,9 +1421,9 @@ dependencies = [
 
 [[package]]
 name = "chrono"
-version = "0.4.45"
+version = "0.4.44"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1aa79e62e7697b8e29b513a68abacf485adcd1fe8284a4316c5ae868e6633327"
+checksum = "c673075a2e0e5f4a1dde27ce9dee1ea4558c7ffe648f576438a20ca1d2acc4b0"
 dependencies = [
  "iana-time-zone",
  "js-sys",
@@ -1884,6 +1884,27 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ce6e4c961d6cd6c9a86db418387425e8bdeaf05b3c8bc1411e6dca4c252f1453"
 dependencies = [
  "hybrid-array",
+]
+
+[[package]]
+name = "csv"
+version = "1.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "52cd9d68cf7efc6ddfaaee42e7288d3a99d613d4b50f76ce9827ae0c6e14f938"
+dependencies = [
+ "csv-core",
+ "itoa",
+ "ryu",
+ "serde_core",
+]
+
+[[package]]
+name = "csv-core"
+version = "0.1.13"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "704a3c26996a80471189265814dbc2c257598b96b8a7feae2d31ace646bb9782"
+dependencies = [
+ "memchr",
 ]
 
 [[package]]
@@ -7461,7 +7482,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-actix"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "actix-web",
  "futures 0.3.33",
@@ -7474,7 +7495,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-ai"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7491,7 +7512,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-audit"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7500,7 +7521,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-auth"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7519,7 +7540,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-axum"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "axum 0.7.9",
  "futures 0.3.33",
@@ -7532,7 +7553,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-back"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7549,7 +7570,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-batch"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7557,7 +7578,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-cli"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7572,7 +7593,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-config"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "base64 0.22.1",
  "reqwest 0.12.28",
@@ -7586,7 +7607,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-core"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "bloomfilter",
@@ -7595,6 +7616,7 @@ dependencies = [
  "compact_str 0.8.2",
  "criterion",
  "crossbeam-queue",
+ "csv",
  "duckdb",
  "futures 0.3.33",
  "oracle",
@@ -7603,6 +7625,7 @@ dependencies = [
  "quote 1.0.47",
  "rand 0.8.7",
  "redis",
+ "regex",
  "rusqlite",
  "serde",
  "serde_json",
@@ -7628,7 +7651,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-crypto"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "aes-gcm",
  "hmac 0.12.1",
@@ -7643,7 +7666,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-dtx"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7659,7 +7682,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-es"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "chrono",
  "reqwest 0.12.28",
@@ -7670,7 +7693,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-examples"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "serde_json",
  "sz-orm-audit",
@@ -7701,7 +7724,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-graphql"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-graphql",
  "async-graphql-axum",
@@ -7716,7 +7739,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-grpc"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "parking_lot",
  "prost 0.14.4",
@@ -7733,7 +7756,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-health"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "chrono",
  "serde",
@@ -7754,7 +7777,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-lc"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "regex",
  "serde",
@@ -7763,7 +7786,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-limit"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7772,7 +7795,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-logger"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "chrono",
  "parking_lot",
@@ -7783,7 +7806,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-macros"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "proc-macro2 1.0.107",
  "quote 1.0.47",
@@ -7797,7 +7820,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-masking"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -7805,7 +7828,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-mig"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -7817,7 +7840,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-mqtt"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "rumqttc",
@@ -7830,7 +7853,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-mssql"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7847,7 +7870,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-observability"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -7865,7 +7888,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-oracle"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -7879,7 +7902,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-postgis"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "parking_lot",
@@ -7905,14 +7928,14 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-query-builder"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "sz-orm-core",
 ]
 
 [[package]]
 name = "sz-orm-queue"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-nats",
  "async-trait",
@@ -7929,7 +7952,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-rw"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "rand 0.8.7",
  "serde",
@@ -7937,7 +7960,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-scheduler"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7949,7 +7972,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-search"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -7967,7 +7990,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-sharding"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "proptest",
  "serde",
@@ -7976,7 +7999,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-sql-validator"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "regex",
  "thiserror 2.0.19",
@@ -7984,7 +8007,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-sqlx"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -8001,7 +8024,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-storage"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "base64 0.22.1",
@@ -8019,7 +8042,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-swagger"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "serde",
  "serde_json",
@@ -8028,7 +8051,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-timeseries"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "chrono",
@@ -8043,7 +8066,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-tracing"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "chrono",
  "opentelemetry",
@@ -8057,7 +8080,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-vector"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "serde",
@@ -8071,7 +8094,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-wasm"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "js-sys",
  "serde",
@@ -8084,7 +8107,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-websocket"
-version = "3.6.0"
+version = "3.9.0"
 dependencies = [
  "async-trait",
  "flate2",
@@ -9880,18 +9903,18 @@ dependencies = [
 
 [[package]]
 name = "zstd-safe"
-version = "7.2.4"
+version = "7.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8f49c4d5f0abb602a93fb8736af2a4f4dd9512e36f7f570d66e65ff867ed3b9d"
+checksum = "54a3ab4db68cea366acc5c897c7b4d4d1b8994a9cd6e6f841f8964566a419059"
 dependencies = [
  "zstd-sys",
 ]
 
 [[package]]
 name = "zstd-sys"
-version = "2.0.16+zstd.1.5.7"
+version = "2.0.12+zstd.1.5.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "91e19ebc2adc8f83e43039e79776e3fda8ca919132d68a1fed6a5faca2683748"
+checksum = "0a4e40c320c3cb459d9a9ff6de98cff88f4751ee9275d140e2be94a2b74e4c13"
 dependencies = [
  "cc",
  "pkg-config",

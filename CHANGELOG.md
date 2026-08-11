@@ -5,6 +5,61 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [3.9.0] — 2026-08-11
+
+### 概述
+
+v3.9.0 是 SZ-ORM 的开发者体验增强版本，新增 6 项优化能力：数据验证框架、criterion benchmark 套件、semver/API 稳定性、迁移 dry-run + 影响分析、流式 CSV 导出、CI/CD 模板。所有新能力通过 5 个 feature gate 隔离（`data-validation` / `validate-on-write` / `benchmark-suite` / `migration-dry-run` / `streaming-export`），默认关闭，无 Breaking Change。默认 feature 测试零回归（1605 passed 0 failed），全 feature 组合 1655 passed 0 failed。
+
+### 新增功能
+
+#### M1: 数据验证框架（`data-validation` / `validate-on-write` features）
+
+- `Validate` trait + `ValidationError`（9 变体）+ `aggregate` 聚合函数
+- 8 种校验规则：email / length / range / regex / required / contains / does_not_contain / custom
+- `#[derive(Validate)]` 派生宏，支持 `#[validate(email)]` / `#[validate(length(min=2, max=50))]` 等属性
+- 条件校验：`#[validate(email, when = "self.enabled")]`
+- `insert_validated` / `update_validated` 方法，写入前自动校验，失败返回 `DbError::Validation`
+- 42 个测试通过
+
+#### M2: criterion benchmark 套件（`benchmark-suite` feature）
+
+- 6 路径回归基准：query_build / pool / cache / transaction / serialization / stream
+- 每路径 3 基准点，复用 criterion 0.5 + bench_group 配置
+- `BenchPath` enum + `BaselinePoint` / `RegressionPoint` / `RegressionReport` 回归对比结构
+- `compute_change` 变化百分比计算 + 回归判定（≥10%）
+
+#### M3: semver/API 稳定性
+
+- `.github/workflows/semver-check.yml`：CI 集成 cargo-semver-checks，PR 自动检测破坏性变更
+- `scripts/check-deprecation-period.py`：废弃保留期检查（≥2 个 MINOR 版本），CI 失败时 exit(1)
+
+#### M4: 迁移 dry-run + 影响分析（`migration-dry-run` feature）
+
+- `Migrator::migrate_dry_run()` → `DryRunReport`：预览待执行迁移 SQL，不修改数据库
+- `Migrator::impact_analysis()` → `ImpactReport`：DDL 分类（Create/AlterAdd/AlterDrop/Drop/Other）
+- 受影响表提取 + 锁类型标记 + 破坏性 DDL 标记 + 回滚可行性评估
+- 5 个测试通过
+
+#### M5: 流式 CSV 导出（`streaming-export` feature）
+
+- `CsvExporter<W: Write>`：逐行导出 CSV，峰值内存 = 单行 + CSV 缓冲
+- `ExportConfig`：表头开关 + 分隔符 + 批次大小
+- `ExportResult`：导出行数 + 字节数
+- 5 个测试通过
+
+#### M6: CI/CD 模板
+
+- 6 个 reusable workflow 模板：lint / test / security / release / probe / soak
+- 参数化 inputs（包名 / 数据库 / feature / 工具链），支持 `uses:` 远程引用
+- 无硬编码密钥，均通过 `${{ secrets.* }}` 引用
+
+### 技术约束
+
+- `streaming-export` feature 仅依赖 `csv`（移除 arrow/parquet，因 arrow-arith 52 与 chrono 0.4.45 版本冲突）
+- `#[derive(Validate)]` 条件属性用 `when` 而非 `if`（避免 Rust 关键字冲突）
+- `extern crate self as sz_orm_core` 用于 crate 内部测试解析宏生成的绝对路径
+
 ## [3.8.0] — 2026-08-10
 
 ### 概述
