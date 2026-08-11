@@ -8,6 +8,9 @@
 //! - [`BatchResult`] — 批量操作结果
 //! - [`BatchOperations`] trait — 批量操作接口
 
+#[cfg(feature = "batch-stream")]
+pub mod stream;
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 

@@ -8,19 +8,19 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM 可观测性模块：Prometheus exporter (TcpListener) + SLO 燃烧�?+ Grafana 仪表盘模板；OTLP 导出请使�?sz-orm-tracing �?otlp feature"
+description = "SZ-ORM 鍙娴嬫€фā鍧楋細Prometheus exporter (TcpListener) + SLO 鐕冪儳锟?+ Grafana 浠〃鐩樻ā鏉匡紱OTLP 瀵煎嚭璇蜂娇锟?sz-orm-tracing 锟?otlp feature"
 
 [features]
 default = []
-# 启用 Prometheus exporter（暴�?/metrics HTTP 端点，基�?tokio TcpListener�?
-# 注：start_metrics_server 始终可用，此 feature 保留供未来扩展（�?hyper 实现�?
+# 鍚敤 Prometheus exporter锛堟毚锟?/metrics HTTP 绔偣锛屽熀锟?tokio TcpListener锟?
+# 娉細start_metrics_server 濮嬬粓鍙敤锛屾 feature 淇濈暀渚涙湭鏉ユ墿灞曪紙锟?hyper 瀹炵幇锟?
 prometheus = []
-# 启用真实 Pushgateway HTTP PUT 推送（基于 reqwest�?
-# 未启用时 PushgatewayExporter::push 仅记录到内存（用于测试）
+# 鍚敤鐪熷疄 Pushgateway HTTP PUT 鎺ㄩ€侊紙鍩轰簬 reqwest锟?
+# 鏈惎鐢ㄦ椂 PushgatewayExporter::push 浠呰褰曞埌鍐呭瓨锛堢敤浜庢祴璇曪級
 push-gateway = ["reqwest"]
-# v3.8.0：metrics 端点访问控制
+# v3.8.0锛歮etrics 绔偣璁块棶鎺у埗
 prod-metrics-acl = ["dep:base64", "dep:subtle"]
-# v4.0.0 M9：服务网格集成（Istio/Linkerd + mTLS + 流量治理 + sidecar 注入 + 可观测性）
+# v4.0.0 M9锛氭湇鍔＄綉鏍奸泦鎴愶紙Istio/Linkerd + mTLS + 娴侀噺娌荤悊 + sidecar 娉ㄥ叆 + 鍙娴嬫€э級
 service-mesh = ["dep:sz-orm-limit"]
 
 [dependencies]
@@ -33,13 +33,13 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
-# 真实 Pushgateway HTTP PUT 推送（可选，通过 push-gateway feature 启用�?
+# 鐪熷疄 Pushgateway HTTP PUT 鎺ㄩ€侊紙鍙€夛紝閫氳繃 push-gateway feature 鍚敤锟?
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"], optional = true }
-# v3.8.0：metrics 访问控制（prod-metrics-acl feature�?
+# v3.8.0锛歮etrics 璁块棶鎺у埗锛坧rod-metrics-acl feature锟?
 base64 = { version = "0.22", optional = true }
 subtle = { version = "2.5", optional = true }
-# v4.0.0 M9：服务网格限流熔断（service-mesh feature�?
-sz-orm-limit = { version = "4.0.0", path = "../sz-orm-limit", optional = true }
+# v4.0.0 M9锛氭湇鍔＄綉鏍奸檺娴佺啍鏂紙service-mesh feature锟?
+sz-orm-limit = { version = "4.1.0", path = "../sz-orm-limit", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

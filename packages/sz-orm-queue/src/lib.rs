@@ -14,6 +14,9 @@ pub mod queue;
 #[cfg(feature = "cdc")]
 pub mod cdc;
 
+#[cfg(feature = "message-tracing")]
+pub mod message_tracing;
+
 pub mod activemq;
 pub mod kafka;
 pub mod nats;

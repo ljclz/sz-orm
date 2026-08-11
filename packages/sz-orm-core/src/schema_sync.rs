@@ -872,7 +872,7 @@ impl SchemaSync {
 /// 从 DB 读取现有表结构
 ///
 /// 简化实现：返回空列表（实际应由各方言 introspector 实现）
-async fn introspect(conn: &mut dyn Connection) -> Result<Vec<TableDef>, DbError> {
+pub async fn introspect(conn: &mut dyn Connection) -> Result<Vec<TableDef>, DbError> {
     // 简化：查询 information_schema.tables 获取表列表
     // 实际实现应由各方言 introspector 提供
     let _ = conn;

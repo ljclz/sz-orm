@@ -14,6 +14,8 @@ categories.workspace = true
 default = []
 # v4.0.0 M4：数据 lineage（字段级血缘追踪 + 影响分析 + 溯源分析）
 data-lineage = ["dep:sqlparser"]
+# v4.1.0：数据质量自动检测（六类统计学规则 + 只读检测）
+data-quality = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

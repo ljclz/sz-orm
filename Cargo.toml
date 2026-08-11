@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "4.0.0"
+version = "4.1.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["SZ-ORM Team"]
@@ -56,6 +56,7 @@ fake = { version = "2.9", features = ["chrono", "uuid"] }
 rand = "0.8"
 # 配合 .trae/skills/sz-orm-sql-differential（SQL 解析比对）
 sqlparser = "0.47"
+serde_yaml = "0.9"
 # v3.2.0：查询计划缓存键哈希（plan-cache feature）
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 # v3.2.0：SIMD 向量化加速（simd feature）

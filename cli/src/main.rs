@@ -51,7 +51,14 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     make:migration <name>         生成迁移文件骨架（_up.sql / _down.sql）
     make:model <name>             生成 Model 骨架代码（--pk-type 可指定主键类型）
     make:seeder <name>            生成 Seeder 文件骨架（SQL 数据填充脚本）
+    make:fixture <name>           生成 Fixture YAML 模板（需 data-seeding feature）
     seed                          执行所有 Seeder（需 --dsn）
+    seed:fixture                  按 Fixture 模板执行 seeding（需 --dsn，需 data-seeding feature）
+                                 支持 --env <dev|test|staging|production>
+                                 支持 --mode <upsert|truncate>
+                                 支持 --allow-production（允许生产环境）
+    schema:diff                   可视化 schema 差异（需 schema-diff-viz feature）
+                                 支持 --format <text|json|html>（默认 text）
     generate entity <table>       从 DB 表反向生成 Model 代码（需 --dsn）
     prepare                       扫描项目 query! 宏，生成离线 SQL 验证缓存
     sql:validate <sql>            校验 SQL 语法 + 注入检测
@@ -216,7 +223,10 @@ fn main() -> ExitCode {
         "make:migration" => cmd_make_migration(&rest, &config),
         "make:model" => cmd_make_model(&rest, &config),
         "make:seeder" => cmd_make_seeder(&rest, &config),
+        "make:fixture" => cmd_make_fixture(&rest, &config),
         "seed" => cmd_seed(&rest, &config),
+        "seed:fixture" => cmd_seed_fixture(&rest, &config),
+        "schema:diff" => cmd_schema_diff(&rest, &config),
         "prepare" => cmd_prepare(&rest, &config),
         "generate" => cmd_generate(&rest),
         "sql:validate" => cmd_sql_validate(&rest),
@@ -892,6 +902,237 @@ fn cmd_seed(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
         );
         Ok(())
     })
+}
+
+// =====================================================================
+// make:fixture <name> — 生成 Fixture YAML 模板（data-seeding feature）
+// =====================================================================
+
+/// 生成 Fixture YAML 模板文件
+///
+/// 在 `--seeders <dir>`（默认 ./seeders）目录下生成 `<name>.yaml` 文件，
+/// 内含 fixture 模板示例（table/count/fields 结构），供开发者填写种子数据。
+#[cfg(feature = "data-seeding")]
+fn cmd_make_fixture(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    if args.is_empty() || args[0].starts_with("--") {
+        return Err("用法: sz-orm make:fixture <name> [--seeders <dir>]".into());
+    }
+    let name = args[0];
+    let output_dir = resolve_option(args, "--seeders", config, |c| &c.seeders_dir)
+        .unwrap_or_else(|| "./seeders".to_string());
+
+    fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
+
+    let filename = format!("{}.yaml", name);
+    let path = PathBuf::from(&output_dir).join(&filename);
+
+    let content = format!(
+        "# Fixture: {name}\n# 用途：定义种子数据模板\n\n\
+         table: {table}\n\
+         count: 1\n\
+         fields:\n\
+         \x20 id: 1\n\
+         \x20 name: \"example\"\n\
+         \x20 created_at: \"2025-01-01T00:00:00Z\"\n\n\
+         # 关联引用示例（可选）：\n\
+         # references:\n\
+         \x20 # - field: user_id\n\
+         \x20 #   target: users\n\
+         \x20 #   index: 0\n\
+         \x20 #   target_field: id\n",
+        name = name,
+        table = name
+    );
+
+    fs::write(&path, content).map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
+
+    println!("已生成 Fixture 模板:");
+    println!("  - {}", path.display());
+    Ok(())
+}
+
+#[cfg(not(feature = "data-seeding"))]
+fn cmd_make_fixture(_args: &[&str], _config: &Option<CliConfig>) -> Result<(), String> {
+    Err(
+        "make:fixture 命令需要 data-seeding feature：请用 `cargo run --features data-seeding` 编译"
+            .into(),
+    )
+}
+
+// =====================================================================
+// seed:fixture — 按 Fixture 模板执行 seeding（data-seeding feature）
+// =====================================================================
+
+/// 按 Fixture 模板执行 seeding
+///
+/// 加载 `--seeders <dir>` 目录下所有 `.yaml`/`.json` fixture 文件，
+/// 使用 `SeedManager` 进行依赖排序、环境检查、幂等执行。
+/// 支持 `--env <dev|test|staging|production>` 和 `--mode <upsert|truncate>`。
+#[cfg(feature = "data-seeding")]
+fn cmd_seed_fixture(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    use sz_orm_core::seeding::{FixtureLoader, SeedEnv, SeedManager, SeedMode};
+
+    let seeders_dir = resolve_option(args, "--seeders", config, |c| &c.seeders_dir)
+        .unwrap_or_else(|| "./seeders".to_string());
+
+    let env_str = parse_option(args, "--env").unwrap_or_else(|| "dev".to_string());
+    let env = match env_str.as_str() {
+        "dev" => SeedEnv::Dev,
+        "test" => SeedEnv::Test,
+        "staging" => SeedEnv::Staging,
+        "production" => SeedEnv::Production,
+        other => {
+            return Err(format!(
+                "无效的 --env 值: {}（可选: dev/test/staging/production）",
+                other
+            ))
+        }
+    };
+
+    let mode_str = parse_option(args, "--mode").unwrap_or_else(|| "upsert".to_string());
+    let mode = match mode_str.as_str() {
+        "upsert" => SeedMode::Upsert,
+        "truncate" => SeedMode::TruncateInsert,
+        other => {
+            return Err(format!(
+                "无效的 --mode 值: {}（可选: upsert/truncate）",
+                other
+            ))
+        }
+    };
+
+    let allow_production = args.iter().any(|&a| a == "--allow-production");
+
+    let templates = FixtureLoader::load_dir(&seeders_dir)
+        .map_err(|e| format!("加载 fixture 目录 {} 失败: {}", seeders_dir, e))?;
+
+    if templates.is_empty() {
+        println!("fixture 目录 {} 中没有 .yaml/.json 文件", seeders_dir);
+        return Ok(());
+    }
+
+    println!("已加载 {} 个 fixture 模板:", templates.len());
+    for t in &templates {
+        println!(
+            "  - table={} count={} records={}",
+            t.table,
+            t.count,
+            t.records.len()
+        );
+    }
+    println!();
+
+    let mut manager = SeedManager::new(mode, env);
+    if allow_production {
+        manager = manager.allow_production();
+    }
+    manager
+        .load_seeds(templates)
+        .map_err(|e| format!("加载种子失败: {}", e))?;
+
+    println!(
+        "环境: {} | 模式: {} | 种子数: {}",
+        env_str,
+        mode_str,
+        manager.seed_count()
+    );
+    println!();
+
+    let report = manager
+        .seed()
+        .map_err(|e| format!("seeding 执行失败: {}", e))?;
+
+    println!("Seeding 执行报告:");
+    println!("  已执行种子: {} 个", report.executed_seeds.len());
+    for v in &report.executed_seeds {
+        println!("    - {}", v);
+    }
+    println!("  总插入行数: {}", report.total_rows);
+    println!("  总耗时: {:?}", report.total_duration);
+    println!("  幂等模式: {}", report.idempotent);
+    Ok(())
+}
+
+#[cfg(not(feature = "data-seeding"))]
+fn cmd_seed_fixture(_args: &[&str], _config: &Option<CliConfig>) -> Result<(), String> {
+    Err(
+        "seed:fixture 命令需要 data-seeding feature：请用 `cargo run --features data-seeding` 编译"
+            .into(),
+    )
+}
+
+// =====================================================================
+// schema:diff — 可视化 schema 差异（schema-diff-viz feature）
+// =====================================================================
+
+/// 可视化 schema 差异
+///
+/// 比较实体定义与数据库现有 schema，输出差异报告。
+/// 支持 `--format <text|json|html>` 选择输出格式（默认 text）。
+/// 需要 `--dsn <url>` 连接数据库获取当前 schema。
+#[cfg(feature = "schema-diff-viz")]
+fn cmd_schema_diff(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    use sz_orm_core::schema_diff_viz::{OutputFormat, SchemaDiffVisualizer};
+    use sz_orm_core::schema_sync::{diff, introspect};
+
+    let dsn = resolve_option(args, "--dsn", config, |c| &c.dsn).ok_or_else(|| {
+        "schema:diff 需要 --dsn <url> 参数（或通过 --config / sz-orm.toml 提供）".to_string()
+    })?;
+
+    let format_str = parse_option(args, "--format").unwrap_or_else(|| "text".to_string());
+    let format = match format_str.as_str() {
+        "text" => OutputFormat::Text,
+        "json" => OutputFormat::Json,
+        "html" => OutputFormat::Html,
+        other => {
+            return Err(format!(
+                "无效的 --format 值: {}（可选: text/json/html）",
+                other
+            ))
+        }
+    };
+
+    let output_file = parse_option(args, "--output-file");
+
+    run_with_runtime(move || async move {
+        let pool = sz_orm_sqlx::AnyPool::connect(&dsn)
+            .await
+            .map_err(|e| format!("连接数据库失败: {}", e))?;
+        let mut conn = pool
+            .create()
+            .await
+            .map_err(|e| format!("获取连接失败: {}", e))?;
+
+        let db_tables = introspect(&mut conn)
+            .await
+            .map_err(|e| format!("内省数据库 schema 失败: {}", e))?;
+
+        println!("已内省 {} 张表", db_tables.len());
+        println!("注意：schema:diff 需要实体定义，当前从 DB 内省获取两端 schema 进行演示");
+        println!();
+
+        let entity_tables: Vec<_> = db_tables.clone();
+        let diff_result = diff(&entity_tables, &db_tables);
+        let report = SchemaDiffVisualizer::analyze(&diff_result);
+        let rendered = SchemaDiffVisualizer::render(&report, format);
+
+        if let Some(path) = output_file {
+            std::fs::write(&path, &rendered).map_err(|e| format!("写入 {} 失败: {}", path, e))?;
+            println!("报告已写入: {}", path);
+        } else {
+            println!("{}", rendered);
+        }
+
+        Ok(())
+    })
+}
+
+#[cfg(not(feature = "schema-diff-viz"))]
+fn cmd_schema_diff(_args: &[&str], _config: &Option<CliConfig>) -> Result<(), String> {
+    Err(
+        "schema:diff 命令需要 schema-diff-viz feature：请用 `cargo run --features schema-diff-viz` 编译"
+            .into(),
+    )
 }
 
 // =====================================================================

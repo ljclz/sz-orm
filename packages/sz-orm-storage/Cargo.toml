@@ -13,6 +13,8 @@ description = "SZ-ORM Storage Extension - real cloud providers via OpenDAL (real
 [features]
 default = []
 s3-sdk = ["rust-s3"]
+# v4.1.0：存储生命周期管理（分层 + 过期清理 + 策略引擎）
+storage-lifecycle = []
 # 真实云存储：Aliyun OSS / Tencent COS / Huawei OBS / UpYun 基于 OpenDAL，
 # Qiniu Kodo 基于官方 REST API（reqwest + HMAC-SHA1 签名）
 real-cloud = [

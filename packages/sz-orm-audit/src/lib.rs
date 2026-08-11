@@ -14,6 +14,9 @@ use std::sync::Mutex;
 #[cfg(feature = "data-lineage")]
 pub mod lineage;
 
+#[cfg(feature = "data-quality")]
+pub mod data_quality;
+
 #[cfg(feature = "data-lineage")]
 pub use lineage::{
     EdgeType, LineageDialect, LineageEdge, LineageError, LineageExportFormat, LineageGraph,

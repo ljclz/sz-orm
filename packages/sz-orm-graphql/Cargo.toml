@@ -13,16 +13,16 @@ categories.workspace = true
 [features]
 default = []
 real = ["dep:async-graphql", "dep:async-graphql-axum", "dep:axum", "dep:tracing"]
-# db-resolver: 预留 feature 开关，当前 DB resolver �?`real` feature 覆盖
-# （resolver trait 由本包定义，使用 boxed future，无需外部依赖）�?
+# db-resolver: 棰勭暀 feature 寮€鍏筹紝褰撳墠 DB resolver 锟?`real` feature 瑕嗙洊
+# 锛坮esolver trait 鐢辨湰鍖呭畾涔夛紝浣跨敤 boxed future锛屾棤闇€澶栭儴渚濊禆锛夛拷?
 db-resolver = []
-# M3: GraphQL N+1 自动消除（DataLoader�?
+# M3: GraphQL N+1 鑷姩娑堥櫎锛圖ataLoader锟?
 graphql-n1 = ["dep:parking_lot"]
-# M3: 类型�?Schema 自动生成（需过程宏提取字段元数据�?
+# M3: 绫诲瀷锟?Schema 鑷姩鐢熸垚锛堥渶杩囩▼瀹忔彁鍙栧瓧娈靛厓鏁版嵁锟?
 graphql-schema-gen = ["dep:sz-orm-macros"]
-# M3: 查询复杂度限�?
+# M3: 鏌ヨ澶嶆潅搴﹂檺锟?
 graphql-complexity = []
-# v4.0.0 M8：GraphQL 深度集成（async-graphql Schema + DataLoader + Subscription + Relay + Federation + 工单化错误）
+# v4.0.0 M8锛欸raphQL 娣卞害闆嗘垚锛坅sync-graphql Schema + DataLoader + Subscription + Relay + Federation + 宸ュ崟鍖栭敊璇級
 async-graphql-integration = ["real", "graphql-n1", "dep:sz-orm-queue"]
 
 [dependencies]
@@ -34,9 +34,9 @@ async-graphql = { version = "7", optional = true }
 async-graphql-axum = { version = "7", optional = true }
 axum = { version = "0.8", optional = true }
 parking_lot = { workspace = true, optional = true }
-sz-orm-macros = { version = "4.0.0", path = "../sz-orm-macros", optional = true }
-# v4.0.0 M8：CDC Subscription 数据源（async-graphql-integration feature�?
-sz-orm-queue = { version = "4.0.0", path = "../sz-orm-queue", optional = true }
+sz-orm-macros = { version = "4.1.0", path = "../sz-orm-macros", optional = true }
+# v4.0.0 M8锛欳DC Subscription 鏁版嵁婧愶紙async-graphql-integration feature锟?
+sz-orm-queue = { version = "4.1.0", path = "../sz-orm-queue", optional = true }
 
 [lints]
 workspace = true

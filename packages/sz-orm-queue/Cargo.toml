@@ -32,6 +32,8 @@ all-real-no-native = ["rabbitmq", "nats", "activemq"]
 prod-redis-tls = []
 # v4.0.0 M7：CDC 变更数据捕获（WAL/binlog/触发器 + Exactly-Once + 断点续传 + 下游分发 + 脱敏）
 cdc = ["dep:sz-orm-masking"]
+# v4.1.0：消息轨迹追踪（采样 + 脱敏 + 端到端关联）
+message-tracing = []
 
 [dependencies]
 async-trait = "0.1"

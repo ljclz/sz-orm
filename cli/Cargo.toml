@@ -4,16 +4,16 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "SZ-ORM 命令行工具 — 迁移管理、模型/迁移代码生成、SQL 执行"
+description = "SZ-ORM 鍛戒护琛屽伐鍏?鈥?杩佺Щ绠＄悊銆佹ā鍨?杩佺Щ浠ｇ爜鐢熸垚銆丼QL 鎵ц"
 
 [[bin]]
 name = "sz-orm"
 path = "src/main.rs"
 
 [dependencies]
-sz-orm-core = { version = "4.0.0", path = "../packages/sz-orm-core" }
-sz-orm-sql-validator = { version = "4.0.0", path = "../packages/sz-orm-sql-validator" }
-sz-orm-sqlx = { version = "4.0.0", path = "../packages/sz-orm-sqlx" }
+sz-orm-core = { version = "4.1.0", path = "../packages/sz-orm-core" }
+sz-orm-sql-validator = { version = "4.1.0", path = "../packages/sz-orm-sql-validator" }
+sz-orm-sqlx = { version = "4.1.0", path = "../packages/sz-orm-sqlx" }
 tokio = { workspace = true, features = ["full"] }
 chrono = { workspace = true }
 serde = { workspace = true }
@@ -23,6 +23,8 @@ sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio",
 
 [features]
 default = []
+data-seeding = ["sz-orm-core/data-seeding"]
+schema-diff-viz = ["sz-orm-core/schema-diff-viz"]
 
 [lints]
 workspace = true

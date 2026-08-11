@@ -53,6 +53,9 @@ pub mod advanced;
 pub mod error;
 pub mod storage;
 
+#[cfg(feature = "storage-lifecycle")]
+pub mod lifecycle;
+
 pub mod aliyun;
 pub mod huawei;
 pub mod local;

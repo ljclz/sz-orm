@@ -12,19 +12,19 @@ description = "SZ-ORM AI Extension - Embedding, Vector Store, RAG Engine"
 
 [features]
 default = []
-# 启用真实 OpenAI 兼容 API 客户端（HTTP 调用�?
+# 鍚敤鐪熷疄 OpenAI 鍏煎 API 瀹㈡埛绔紙HTTP 璋冪敤锟?
 real = ["dep:reqwest", "dep:base64"]
-# 启用 LLM 查询计划优化器（依赖 real feature �?reqwest HTTP 客户端）
+# 鍚敤 LLM 鏌ヨ璁″垝浼樺寲鍣紙渚濊禆 real feature 锟?reqwest HTTP 瀹㈡埛绔級
 llm-optimizer = ["real"]
-# v3.2.0：查询计划缓存转�?
+# v3.2.0锛氭煡璇㈣鍒掔紦瀛樿浆锟?
 plan-cache = ["dep:sz-orm-core", "sz-orm-core/plan-cache"]
-# v3.3.0 M4：AI 自然语言查询增强
+# v3.3.0 M4锛欰I 鑷劧璇█鏌ヨ澧炲己
 ai-nl2sql-enhanced = []
 ai-index-advisor = ["dep:sqlparser"]
 ai-rewrite-advisor = ["dep:sqlparser"]
-# v4.0.0 M1：多 LLM 模型支持（Claude/Gemini/Ollama/OpenAI + 热切�?+ fallback�?
+# v4.0.0 M1锛氬 LLM 妯″瀷鏀寔锛圕laude/Gemini/Ollama/OpenAI + 鐑垏锟?+ fallback锟?
 multi-llm = ["dep:reqwest", "dep:base64", "dep:tracing"]
-# v4.0.0 M2：AI 自动调优闭环（Detect→Advise→Apply→Verify，复用既有优化器�?
+# v4.0.0 M2锛欰I 鑷姩璋冧紭闂幆锛圖etect鈫扐dvise鈫扐pply鈫扸erify锛屽鐢ㄦ棦鏈変紭鍖栧櫒锟?
 ai-auto-tuning = ["llm-optimizer", "ai-index-advisor", "ai-rewrite-advisor"]
 
 [dependencies]
@@ -33,17 +33,17 @@ tokio = { version = "1.40", features = ["full"] }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# real feature 可选依�?
+# real feature 鍙€変緷锟?
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 base64 = { version = "0.22", optional = true }
 
-# v4.0.0 M1：fallback 降级日志（multi-llm feature�?
+# v4.0.0 M1锛歠allback 闄嶇骇鏃ュ織锛坢ulti-llm feature锟?
 tracing = { workspace = true, optional = true }
-# 锁毒化修复：使用 parking_lot 替代 std::sync，消�?.write().unwrap() panic 风险
+# 閿佹瘨鍖栦慨澶嶏細浣跨敤 parking_lot 鏇夸唬 std::sync锛屾秷锟?.write().unwrap() panic 椋庨櫓
 parking_lot.workspace = true
-# v3.2.0：查询计划缓存（plan-cache feature，可选依赖）
-sz-orm-core = { version = "4.0.0", path = "../sz-orm-core", optional = true }
-# v3.3.0 M4：SQL 解析（索引建�?+ 重写建议，optional�?
+# v3.2.0锛氭煡璇㈣鍒掔紦瀛橈紙plan-cache feature锛屽彲閫変緷璧栵級
+sz-orm-core = { version = "4.1.0", path = "../sz-orm-core", optional = true }
+# v3.3.0 M4锛歋QL 瑙ｆ瀽锛堢储寮曞缓锟?+ 閲嶅啓寤鸿锛宱ptional锟?
 sqlparser = { workspace = true, optional = true }
 
 [dev-dependencies]

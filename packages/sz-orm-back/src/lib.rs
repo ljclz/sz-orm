@@ -14,6 +14,9 @@ pub mod backup;
 pub mod error;
 pub mod restore;
 
+#[cfg(feature = "backup-verify")]
+pub mod verify;
+
 pub use advanced::*;
 pub use backup::*;
 pub use error::BkError;

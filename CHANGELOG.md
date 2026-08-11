@@ -5,6 +5,80 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [4.1.0] — 2026-08-11
+
+### 概述
+
+v4.1.0 是 SZ-ORM 的数据治理与运维增强版本，新增 9 项能力：数据 seeding/fixture 管理、schema diff 可视化、缓存一致性协议、消息轨迹追踪、存储生命周期管理、数据质量自动检测、批量流式处理、迁移版本分支、备份验证自动化。所有新能力通过 9 个 feature gate 隔离（`data-seeding` / `schema-diff-viz` / `cache-coherence` / `message-tracing` / `storage-lifecycle` / `data-quality` / `batch-stream` / `migration-branch` / `backup-verify`），默认关闭，无 Breaking Change。新增 106 个测试，全工作空间 6760 个测试通过。
+
+### 新增功能
+
+#### M1: 数据 seeding/fixture 管理（`data-seeding` feature，sz-orm-core）
+
+- `FakerGenerator`：10 内置字段生成器（Name/Email/Address/Phone/Uuid/Date/Number/Float/Boolean/Enum/Json）
+- `FixtureLoader`：YAML/JSON fixture 模板加载，关联引用解析
+- `SeedManager`：种子版本管理 + 依赖拓扑排序 + 幂等执行 + 环境隔离
+- CLI 新增 `make:fixture` 和 `seed:fixture` 命令
+- 21 个测试通过
+
+#### M1: schema diff 可视化（`schema-diff-viz` feature，sz-orm-core）
+
+- `SchemaDiffVisualizer`：复用既有 `SchemaDiff`/`DdlGenerator`，生成差异报告
+- `DiffReport`：自动标注破坏性变更（删除表/列）
+- 三种输出格式：Text（终端友好）/ JSON / HTML
+- CLI 新增 `schema:diff` 命令
+- 9 个测试通过
+
+#### M2: 缓存一致性协议（`cache-coherence` feature，sz-orm-core）
+
+- `CacheCoherenceProtocol`：MESI 风格状态机（M/E/S/I 四状态）
+- `ConsistencyStrategy`：WriteThrough / WriteBehind 写策略
+- `InvalidationBroadcaster` trait：跨实例失效广播（trait-based，支持任意 MQ 实现）
+- `CoherenceMetrics`：一致性指标追踪
+- 10 个测试通过
+
+#### M2: 消息轨迹追踪（`message-tracing` feature，sz-orm-queue）
+
+- `MessageTracingInterceptor`：消息轨迹记录 + 采样率控制
+- `TraceContext`：端到端 trace_id/span_id 关联
+- `DesensitizeRule`：三种脱敏方式（FullMask/PartialMask/Hash）
+- 11 个测试通过
+
+#### M2: 存储生命周期管理（`storage-lifecycle` feature，sz-orm-storage）
+
+- `StorageLifecycleManager`：对象生命周期策略管理
+- `TieringRule`：分层策略（Hot/Warm/Cold/Archive 四层）
+- `ExpirationCleaner`：过期自动清理
+- 20 个测试通过
+
+#### M2: 数据质量自动检测（`data-quality` feature，sz-orm-audit）
+
+- `DataQualityEngine`：六类统计学规则检测
+- `QualityRule`：Completeness/Uniqueness/Validity/Consistency/Timeliness/Accuracy
+- `QualityReport`：质量报告与通过率统计
+- 8 个测试通过
+
+#### M3: 批量流式处理（`batch-stream` feature，sz-orm-batch）
+
+- `BatchSplitter`：流式批次分割器
+- `BackpressureController`：背压控制
+- `StreamConfig`：批次大小/并发度/背压阈值配置
+- 8 个测试通过
+
+#### M3: 迁移版本分支（`migration-branch` feature，sz-orm-core）
+
+- `MigrationBranchManager`：多分支并行开发迁移管理
+- `MergeConflict`：合并冲突检测（版本冲突/依赖冲突/Schema 冲突）
+- 分支创建/合并/冲突检测全流程
+- 9 个测试通过
+
+#### M3: 备份验证自动化（`backup-verify` feature，sz-orm-back）
+
+- `BackupVerifier`：备份完整性校验（文件存在/大小/SHA-256）
+- `VerifyReport`：校验报告生成
+- `restore_drill`：恢复演练
+- 10 个测试通过
+
 ## [4.0.0] — 2026-08-11
 
 ### 概述

@@ -480,6 +480,10 @@ mod query;
 pub mod validation;
 /// 重导出 QueryBuilder 供外部使用
 pub use query::QueryBuilder;
+#[cfg(feature = "cache-coherence")]
+pub mod cache_coherence;
+#[cfg(feature = "migration-branch")]
+pub mod migration_branch;
 #[cfg(feature = "qb-migration-tool")]
 pub mod qb_migration_fix;
 #[cfg(feature = "qb-migration-tool")]
@@ -491,8 +495,12 @@ pub mod relation_trait;
 pub mod repository;
 pub mod result_map;
 pub mod retry;
+#[cfg(feature = "schema-diff-viz")]
+pub mod schema_diff_viz;
 pub mod schema_gen;
 pub mod schema_sync;
+#[cfg(feature = "data-seeding")]
+pub mod seeding;
 pub mod select_types;
 pub mod shadow;
 #[cfg(feature = "simd")]
