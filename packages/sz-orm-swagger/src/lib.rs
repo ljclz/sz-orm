@@ -2238,3 +2238,6 @@ mod tests {
         );
     }
 }
+
+#[cfg(feature = "openapi-reverse")]
+pub mod reverse;

@@ -10,10 +10,18 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+openapi-reverse = ["dep:quote", "dep:syn", "dep:proc-macro2", "dep:thiserror", "dep:chrono", "sz-orm-core/prod-dialect-security"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sz-orm-core = { workspace = true }
+quote = { version = "1.0", optional = true }
+syn = { version = "2.0", features = ["full"], optional = true }
+proc-macro2 = { version = "1.0", optional = true }
+thiserror = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
 
 [lints]
 workspace = true
