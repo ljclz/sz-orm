@@ -7699,6 +7699,21 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-designer"
+version = "4.1.0"
+dependencies = [
+ "axum 0.7.9",
+ "quote 1.0.47",
+ "serde",
+ "serde_json",
+ "syn 2.0.119",
+ "sz-orm-core",
+ "sz-orm-masking",
+ "thiserror 2.0.19",
+ "tokio",
+]
+
+[[package]]
 name = "sz-orm-dtx"
 version = "4.1.0"
 dependencies = [
@@ -7744,6 +7759,21 @@ dependencies = [
  "sz-orm-sharding",
  "sz-orm-sqlx",
  "tokio",
+]
+
+[[package]]
+name = "sz-orm-explain"
+version = "4.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "sz-orm-flamegraph"
+version = "4.1.0"
+dependencies = [
+ "sz-orm-tracing",
 ]
 
 [[package]]
@@ -7868,6 +7898,7 @@ dependencies = [
  "sqlx",
  "syn 2.0.119",
  "sz-orm-core",
+ "sz-orm-explain",
  "tokio",
  "trybuild",
 ]

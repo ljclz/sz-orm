@@ -1,0 +1,16 @@
+#[cfg(feature = "schema-designer")]
+pub mod code_gen;
+#[cfg(feature = "schema-designer")]
+pub mod code_parse;
+#[cfg(feature = "schema-designer")]
+pub mod design_ir;
+#[cfg(feature = "schema-designer")]
+pub mod designer;
+#[cfg(feature = "schema-designer")]
+pub mod er_editor;
+#[cfg(feature = "schema-designer")]
+pub mod exporter;
+#[cfg(feature = "schema-designer")]
+pub mod masking;
+#[cfg(feature = "schema-designer")]
+pub mod web_ui;
