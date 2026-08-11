@@ -7592,6 +7592,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-cabi"
+version = "4.1.0"
+dependencies = [
+ "parking_lot",
+ "serde_json",
+ "sz-orm-core",
+ "tokio",
+]
+
+[[package]]
 name = "sz-orm-cli"
 version = "4.1.0"
 dependencies = [
@@ -7666,6 +7676,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-cpp"
+version = "4.1.0"
+dependencies = [
+ "sz-orm-cabi",
+ "sz-orm-core",
+]
+
+[[package]]
 name = "sz-orm-crypto"
 version = "4.1.0"
 dependencies = [
@@ -7687,12 +7705,15 @@ dependencies = [
  "async-trait",
  "chrono",
  "parking_lot",
+ "prost 0.14.4",
  "serde",
  "serde_json",
  "sqlx",
+ "sz-orm-grpc",
  "sz-orm-sqlx",
  "thiserror 2.0.19",
  "tokio",
+ "tonic 0.14.6",
  "tracing",
 ]
 
@@ -7723,6 +7744,14 @@ dependencies = [
  "sz-orm-sharding",
  "sz-orm-sqlx",
  "tokio",
+]
+
+[[package]]
+name = "sz-orm-go"
+version = "4.1.0"
+dependencies = [
+ "sz-orm-cabi",
+ "sz-orm-core",
 ]
 
 [[package]]
@@ -7779,6 +7808,14 @@ dependencies = [
  "serde",
  "serde_json",
  "tokio",
+]
+
+[[package]]
+name = "sz-orm-java"
+version = "4.1.0"
+dependencies = [
+ "sz-orm-cabi",
+ "sz-orm-core",
 ]
 
 [[package]]

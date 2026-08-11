@@ -1,0 +1,24 @@
+[package]
+name = "sz-orm-cabi"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "C ABI for sz-orm-core: FFI exports for Go/Java/C++ bindings"
+
+[lib]
+name = "sz_orm_cabi"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sz-orm-core = { workspace = true }
+tokio = { workspace = true }
+serde_json = { workspace = true }
+parking_lot.workspace = true
+
+[lints]
+workspace = true

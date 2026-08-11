@@ -1,0 +1,22 @@
+[package]
+name = "sz-orm-cpp"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "C++ bindings for sz-orm-core via extern C + C ABI"
+
+[lib]
+name = "sz_orm_cpp"
+crate-type = ["cdylib", "rlib"]
+
+[dependencies]
+sz-orm-cabi = { path = "../sz-orm-cabi" }
+sz-orm-core = { workspace = true }
+
+[lints]
+workspace = true
