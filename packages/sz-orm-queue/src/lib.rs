@@ -11,6 +11,9 @@
 pub mod error;
 pub mod queue;
 
+#[cfg(feature = "cdc")]
+pub mod cdc;
+
 pub mod activemq;
 pub mod kafka;
 pub mod nats;

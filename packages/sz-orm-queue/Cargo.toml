@@ -30,6 +30,8 @@ all-real = ["rabbitmq", "nats", "pulsar", "kafka", "activemq"]
 all-real-no-native = ["rabbitmq", "nats", "activemq"]
 # v3.8.0：Redis TLS 加密连接
 prod-redis-tls = []
+# v4.0.0 M7：CDC 变更数据捕获（WAL/binlog/触发器 + Exactly-Once + 断点续传 + 下游分发 + 脱敏）
+cdc = ["dep:sz-orm-masking"]
 
 [dependencies]
 async-trait = "0.1"
@@ -42,9 +44,15 @@ lapin = { version = "4", optional = true }
 async-nats = { version = "0.38", optional = true }
 pulsar = { version = "6", optional = true, default-features = false, features = ["tokio-rustls-runtime"] }
 rdkafka = { version = "0.36", optional = true, default-features = false, features = ["cmake-build"] }
+# v4.0.0 M7：CDC 变更数据捕获脱敏（cdc feature）
+sz-orm-masking = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "cdc_test"
+required-features = ["cdc"]

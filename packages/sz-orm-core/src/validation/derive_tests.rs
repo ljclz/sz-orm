@@ -2,10 +2,9 @@
 
 #![cfg(feature = "data-validation")]
 
-use crate::Validate;
 use crate::validation::Validate as _;
 use crate::validation::ValidationError;
-
+use crate::Validate;
 
 #[derive(Validate)]
 struct User {

@@ -13,6 +13,8 @@ description = "SZ-ORM pgvector Extension - Vector similarity search with pgvecto
 [features]
 default = []
 real-pg = ["dep:tokio-postgres"]
+# v4.0.0 M3：混合搜索（向量+全文+结构化三源融合 + RRF/加权/级联）
+hybrid-search = []
 
 [dependencies]
 async-trait = "0.1"

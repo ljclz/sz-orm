@@ -11,6 +11,15 @@
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
 
+#[cfg(feature = "data-lineage")]
+pub mod lineage;
+
+#[cfg(feature = "data-lineage")]
+pub use lineage::{
+    EdgeType, LineageDialect, LineageEdge, LineageError, LineageExportFormat, LineageGraph,
+    LineageNode, LineageNodeId, LineageTracker, LineageUpdate, NodeType,
+};
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SqlAuditContext {
     pub sql: String,

@@ -20,6 +20,9 @@ pub mod enhanced;
 pub mod routing;
 pub mod scatter;
 
+#[cfg(feature = "shard-rebalance")]
+pub mod rebalancer;
+
 // 顶层再导出常用类型，方便用户直接 `use sz_orm_sharding::*`
 pub use cross_shard_tx::{
     ShardParticipant, ShardTransactionCoordinator, ShardTxError, ShardTxResult,

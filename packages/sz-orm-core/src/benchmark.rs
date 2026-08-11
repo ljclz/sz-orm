@@ -72,7 +72,10 @@ pub struct RegressionReport {
 impl RegressionReport {
     /// 从对比点列表生成报告
     pub fn from_points(points: Vec<RegressionPoint>) -> Self {
-        let regression_count = points.iter().filter(|p| p.is_regression && p.change_percent > 0.0).count();
+        let regression_count = points
+            .iter()
+            .filter(|p| p.is_regression && p.change_percent > 0.0)
+            .count();
         let improvement_count = points.iter().filter(|p| p.change_percent < 0.0).count();
         Self {
             timestamp: std::time::SystemTime::now()

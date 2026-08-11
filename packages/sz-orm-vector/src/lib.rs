@@ -33,6 +33,10 @@ pub mod stub;
 #[cfg(feature = "real-pg")]
 pub mod real_pg;
 
+// v4.0.0 M3：混合搜索（hybrid-search feature gate 隔离）
+#[cfg(feature = "hybrid-search")]
+pub mod hybrid_search;
+
 pub use error::VectorError;
 pub use extensions::{
     AnnIndexDef, AnnIndexRegistry, AnnIndexType, BatchOpsExt, DimensionValidator, HnswParams,

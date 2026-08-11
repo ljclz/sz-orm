@@ -10,11 +10,22 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+# v4.0.0 M4：数据 lineage（字段级血缘追踪 + 影响分析 + 溯源分析）
+data-lineage = ["dep:sqlparser"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # #11 修复：审计日志哈希链防篡改（SHA-256 密码学哈希）
 sha2 = { workspace = true }
+# v4.0.0 M4：SQL 依赖解析（data-lineage feature）
+sqlparser = { workspace = true, optional = true }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "lineage_test"
+required-features = ["data-lineage"]

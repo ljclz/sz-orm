@@ -106,12 +106,12 @@ mod tests {
     impl Validate for TestUser {
         fn validate(&self) -> Result<(), crate::validation::ValidationError> {
             let mut results = Vec::new();
-            results.push(crate::validation::rules::validate_email("email", &self.email));
+            results.push(crate::validation::rules::validate_email(
+                "email",
+                &self.email,
+            ));
             results.push(crate::validation::rules::validate_length(
-                "name",
-                &self.name,
-                2,
-                50,
+                "name", &self.name, 2, 50,
             ));
             crate::validation::aggregate(results)
         }
@@ -134,8 +134,9 @@ mod tests {
         fn execute<'a>(
             &'a mut self,
             sql: &'a str,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64, crate::DbError>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<u64, crate::DbError>> + Send + 'a>,
+        > {
             Box::pin(async move {
                 self.executed.lock().unwrap().push(sql.to_string());
                 Ok(1)
@@ -145,39 +146,49 @@ mod tests {
             &'a mut self,
             sql: &'a str,
         ) -> std::pin::Pin<
-            Box<dyn std::future::Future<Output = Result<crate::pool::QueryRows, crate::DbError>> + Send + 'a>,
+            Box<
+                dyn std::future::Future<Output = Result<crate::pool::QueryRows, crate::DbError>>
+                    + Send
+                    + 'a,
+            >,
         > {
             let _ = sql;
             Box::pin(async { Ok(crate::pool::QueryRows::new()) })
         }
         fn begin_transaction<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(()) })
         }
         fn commit<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(()) })
         }
         fn rollback<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(()) })
         }
         fn is_connected(&self) -> bool {
             true
         }
-        fn ping<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        fn ping<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
             Box::pin(async { true })
         }
         fn close<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(()) })
         }
     }

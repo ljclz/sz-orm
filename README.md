@@ -1,14 +1,14 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v3.8.0 · 46 工作空间成员 · 6,760 测试 · 17 SQL 方言 · 已发布 crates.io
+> v4.0.0 · 46 工作空间成员 · 7,100+ 测试 · 17 SQL 方言 · 已发布 crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-6760+-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-7100+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-46-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-3.8.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.0.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -41,7 +41,21 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v3.8.0 版本包含 46 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，新增 15 项生产就绪检查能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v4.0.0 版本包含 46 个工作空间成员，覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，新增 9 项智能化与云原生集成能力。
+
+### v4.0.0 新增能力（9 个 feature gate，默认关闭）
+
+| Feature | 包 | 说明 |
+|---------|-----|------|
+| `multi-llm` | sz-orm-ai | 多 LLM 模型支持（OpenAI/Claude/Gemini/Ollama），热切换 + 负载均衡 |
+| `ai-auto-tuning` | sz-orm-ai | AI 自动调优闭环：检测→建议→验证→应用→回归 |
+| `hybrid-search` | sz-orm-vector | 混合搜索：向量 + 全文 + 结构化，RRF 融合 |
+| `data-lineage` | sz-orm-audit | 数据 lineage 追踪：SQL AST 解析 + DAG 图 + 多格式导出 |
+| `shard-rebalance` | sz-orm-sharding | 分片自动 rebalance：负载均衡 + 检查点 + 原子迁移 |
+| `auto-failover` | sz-orm-rw | 数据库 failover 自动化：主从切换 + 脑裂检测 |
+| `cdc` | sz-orm-queue | CDC 变更数据捕获：5 方言 + 精确一次去重 + 多下游 |
+| `async-graphql-integration` | sz-orm-graphql | GraphQL 深度集成：DataLoader + Relay + Federation |
+| `service-mesh` | sz-orm-observability | 服务网格集成：Istio/Linkerd 配置生成 + 可观测性 |
 
 > **⚠️ 诚实声明**：本项目为单作者工程实践项目，**早期生产可用（内部项目）**。sz-pay 项目已在生产环境使用 sz-orm-core/sqlx/config/auth/macros/queue/scheduler 7 个包（297 处引用、5139 测试零回归）。与 Diesel/SeaORM/SQLx 的深度对比详见 [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md)。
 

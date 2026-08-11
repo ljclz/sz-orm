@@ -5,6 +5,114 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [4.0.0] — 2026-08-11
+
+### 概述
+
+v4.0.0 是 SZ-ORM 的智能化与云原生集成版本，新增 9 项优化能力：多 LLM 模型支持、AI 自动调优闭环、混合搜索、数据 lineage 追踪、分片自动 rebalance、数据库 failover 自动化、CDC 变更数据捕获、GraphQL 深度集成、服务网格集成。所有新能力通过 9 个 feature gate 隔离（`multi-llm` / `ai-auto-tuning` / `hybrid-search` / `data-lineage` / `shard-rebalance` / `auto-failover` / `cdc` / `async-graphql-integration` / `service-mesh`），默认关闭，无 Breaking Change。
+
+### 新增功能
+
+#### M1: 多 LLM 模型支持（`multi-llm` feature，sz-orm-ai）
+
+- `LlmProvider` trait + 5 个实现：OpenAI / Claude / Gemini / Ollama / 本地
+- `LlmRouter`：多模型热切换（ArcSwap 原子切换）、负载均衡、故障转移
+- `LlmCapability` 能力声明：文本生成 / SQL 优化 / 嵌入向量 / 函数调用
+- 213 个测试通过
+
+#### M2: AI 自动调优闭环（`ai-auto-tuning` feature，sz-orm-ai）
+
+- `AutoTuningPipeline`：检测 → 建议 → 验证 → 应用 → 回归 五阶段闭环
+- `SlowQueryDetector`：基于执行计划的慢查询根因分析
+- `TuningSuggestion`：索引建议 / SQL 重写 / Schema 变更，附风险等级
+- `RegressionDetector`：应用前后 A/B 对比，自动回滚高风险变更
+- 275 个测试通过
+
+#### M3: 混合搜索（`hybrid-search` feature，sz-orm-vector）
+
+- `HybridSearcher`：统一向量 + 全文 + 结构化搜索接口
+- `SearchFusion`：RRF（Reciprocal Rank Fusion）+ 加权融合
+- `SearchPushdown`：搜索条件下推至数据库引擎
+- 107 个测试通过
+
+#### M4: 数据 lineage 追踪（`data-lineage` feature，sz-orm-audit）
+
+- `LineageGraph`：DAG 图结构，节点 = 表/列，边 = 数据流向
+- `SqlLineageParser`：基于 sqlparser 0.47 AST 解析，支持 INSERT/UPDATE/DELETE/SELECT/CTE/JOIN/子查询
+- `LineageTracker`：运行时追踪，记录每次查询的源/目标列映射
+- `LineageExporter`：导出为 JSON / Mermaid / Graphviz 格式
+- 161 个测试通过
+
+#### M5: 分片自动 rebalance（`shard-rebalance` feature，sz-orm-sharding）
+
+- `RebalancePlanner`：基于负载均衡算法生成迁移计划
+- `RebalanceCheckpoint`：迁移检查点，支持断点续传
+- `RebalanceExecutor`：原子化迁移执行，失败自动回滚
+- 属性测试验证收敛性和不变量
+- 155 个测试通过
+
+#### M6: 数据库 failover 自动化（`auto-failover` feature，sz-orm-rw）
+
+- `AutoFailoverManager`：主从故障自动切换，可配置阈值和冷却时间
+- `FailoverConfig`：故障检测间隔 / 重试次数 / 数据一致性检查
+- `DataLossRisk`：切换前数据丢失风险评估
+- `SplitBrainDetector`：脑裂检测 + 自动降级策略（DemotionStrategy）
+- 43 个测试通过
+
+#### M7: CDC 变更数据捕获（`cdc` feature，sz-orm-queue）
+
+- `DialectCapturer` trait + 5 方言实现：PostgreSQL WAL / MySQL Binlog / SQLite Trigger / Oracle LogMiner / MSSQL CDC
+- `ExactlyOnceDedup`：基于 LSN + 事务 ID 的精确一次去重
+- `CheckpointManager`：检查点持久化，支持断点续传
+- `DownstreamSink` trait + 3 实现：Kafka / HTTP Webhook / InMemory
+- `apply_masking`：下游分发前数据脱敏
+- 56 个测试通过
+
+#### M8: GraphQL 深度集成（`async-graphql-integration` feature，sz-orm-graphql）
+
+- `AsyncGraphqlBridge`：async-graphql 桥接，支持 Query / Mutation / Subscription
+- `BridgeDataLoader`：DataLoader 批量加载，N+1 查询自动消除
+- `SubscriptionSource`：基于 CDC ChangeEvent 的实时订阅
+- `RelayConnection` / `RelayEdge` / `PageInfo`：Relay 游标分页规范
+- `FederationGateway`：Apollo Federation 联邦 schema 聚合
+- `TicketError`：工单化错误处理，附错误分类和追踪 ID
+- 49 个测试通过
+
+#### M9: 服务网格集成（`service-mesh` feature，sz-orm-observability）
+
+- `ServiceMeshAdapter` trait + 2 实现：Istio / Linkerd
+- `IstioAdapter`：VirtualService / DestinationRule / PeerAuthentication 生成
+- `LinkerdAdapter`：Server / ServerAuthorization / ServiceProfile 生成
+- `MeshObservability`：网格级指标采集 + 分布式追踪 + Prometheus / OTLP 导出
+- `MeshConfig`：mTLS 模式 / 流量治理 / Sidecar 配置
+- 38 个测试通过
+
+### 门禁验证
+
+| 门禁 | 结果 |
+|------|------|
+| fmt | ✅ PASS |
+| check --workspace --all-targets | ✅ PASS |
+| clippy --workspace --all-targets -- -D warnings | ✅ PASS |
+| test --workspace | ✅ PASS（0 failed） |
+| doc --workspace --no-deps | ✅ PASS |
+| 占位实现检查 | ✅ PASS |
+| 9 个新 feature 独立编译 | ✅ 全部通过 |
+
+### Feature Gate 汇总
+
+| Feature | 包 | 测试数 |
+|---------|-----|--------|
+| `multi-llm` | sz-orm-ai | 213 |
+| `ai-auto-tuning` | sz-orm-ai | 275 |
+| `hybrid-search` | sz-orm-vector | 107 |
+| `data-lineage` | sz-orm-audit | 161 |
+| `shard-rebalance` | sz-orm-sharding | 155 |
+| `auto-failover` | sz-orm-rw | 43 |
+| `cdc` | sz-orm-queue | 56 |
+| `async-graphql-integration` | sz-orm-graphql | 49 |
+| `service-mesh` | sz-orm-observability | 38 |
+
 ## [3.9.0] — 2026-08-11
 
 ### 概述

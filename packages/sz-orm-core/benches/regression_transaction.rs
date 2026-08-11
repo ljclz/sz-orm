@@ -14,43 +14,60 @@ mod helpers {
         fn execute<'a>(
             &'a mut self,
             sql: &'a str,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64, sz_orm_core::DbError>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<u64, sz_orm_core::DbError>> + Send + 'a>,
+        > {
             let _ = sql;
             Box::pin(async move { Ok(1) })
         }
         fn query<'a>(
             &'a mut self,
             sql: &'a str,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<sz_orm_core::QueryRows, sz_orm_core::DbError>> + Send + 'a>>
-        {
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<
+                        Output = Result<sz_orm_core::QueryRows, sz_orm_core::DbError>,
+                    > + Send
+                    + 'a,
+            >,
+        > {
             let _ = sql;
             Box::pin(async { Ok(sz_orm_core::QueryRows::new()) })
         }
         fn begin_transaction<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>> {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(()) })
         }
         fn commit<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>> {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(()) })
         }
         fn rollback<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>> {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>,
+        > {
             Box::pin(async { Ok(()) })
         }
         fn is_connected(&self) -> bool {
             self.connected
         }
-        fn ping<'a>(&'a mut self) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+        fn ping<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
             Box::pin(async { true })
         }
         fn close<'a>(
             &'a mut self,
-        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>> {
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), sz_orm_core::DbError>> + Send + 'a>,
+        > {
             Box::pin(async move {
                 self.connected = false;
                 Ok(())

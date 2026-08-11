@@ -56,6 +56,9 @@ use std::sync::Arc;
 pub mod slo;
 pub mod summary;
 
+#[cfg(feature = "service-mesh")]
+pub mod service_mesh;
+
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{
     LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,

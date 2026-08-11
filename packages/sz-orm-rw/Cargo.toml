@@ -10,10 +10,21 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+# v4.0.0 M6：数据库 failover 自动化（健康监控 + slave 提升 + 脑裂检测 + 数据丢失评估）
+auto-failover = ["dep:tokio"]
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 # 随机负载均衡策略：使用 rand 提供高质量随机性，替代系统时间伪随机
 rand = { workspace = true }
+# v4.0.0 M6：异步 failover 监控（auto-failover feature）
+tokio = { workspace = true, optional = true, features = ["sync", "rt", "time"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "auto_failover_test"
+required-features = ["auto-failover"]

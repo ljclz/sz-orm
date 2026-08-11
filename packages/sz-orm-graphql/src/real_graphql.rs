@@ -251,6 +251,7 @@ pub fn router(schema: Schema) -> axum::Router {
 ///
 /// - 调用方处于 async 上下文（`async fn` / tokio task）时，**必须**使用本方法
 /// - 调用方处于同步上下文时，使用 [`execute`]（同步包装）
+#[allow(dead_code)]
 pub async fn execute_async(schema: &Schema, query: &str) -> Result<serde_json::Value, String> {
     let response = schema.execute(query).await;
     response_to_json(response)

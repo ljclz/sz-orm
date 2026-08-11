@@ -27,6 +27,9 @@ pub mod query_ir;
 #[cfg(feature = "graphql-schema-gen")]
 pub mod schema_gen;
 
+#[cfg(feature = "async-graphql-integration")]
+pub mod async_graphql_integration;
+
 use serde::{Deserialize, Serialize};
 
 #[cfg(feature = "real")]

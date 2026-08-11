@@ -65,8 +65,11 @@ fn select_with_where(c: &mut Criterion) {
 fn select_with_join(c: &mut Criterion) {
     c.bench_function("select_with_join", |b| {
         b.iter(|| {
-            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect))
-                .join_inner("orders", "users.id", "orders.user_id");
+            let qb = QueryBuilder::<BenchModel>::new(Box::new(MySqlDialect)).join_inner(
+                "orders",
+                "users.id",
+                "orders.user_id",
+            );
             let sql = qb.build_select();
             black_box(sql);
         })

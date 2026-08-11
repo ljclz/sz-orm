@@ -19,6 +19,9 @@ use std::sync::atomic::{AtomicU64, AtomicUsize, Ordering};
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+#[cfg(feature = "auto-failover")]
+pub mod auto_failover;
+
 /// 负载均衡策略
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LoadBalanceStrategy {

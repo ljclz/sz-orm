@@ -93,3 +93,22 @@ pub mod rewrite_advisor;
 pub use rewrite_advisor::{
     EquivalenceProof, RewriteAdvisor, RewriteError, RewriteSuggestion, TransformType,
 };
+
+// v4.0.0 M1：多 LLM 模型支持（multi-llm feature gate 隔离）
+#[cfg(feature = "multi-llm")]
+pub mod llm_provider;
+#[cfg(feature = "multi-llm")]
+pub use llm_provider::{
+    LlmCapability, LlmConfig, LlmError, LlmProvider, LlmProviderKind, LlmRequestConfig,
+    LlmResponse, LlmUsage,
+};
+
+// v4.0.0 M2：AI 自动调优闭环（ai-auto-tuning feature gate 隔离）
+#[cfg(feature = "ai-auto-tuning")]
+pub mod auto_tuning;
+#[cfg(feature = "ai-auto-tuning")]
+pub use auto_tuning::{
+    AdviseReport, AppliedSuggestion, ApplyReport, AutoTuningConfig, AutoTuningReport, DetectReport,
+    RegressionRecord, SkippedSuggestion, SlowQueryInfo, SuggestionType, TuningError,
+    TuningSuggestion, VerifyReport, VerifyResult,
+};

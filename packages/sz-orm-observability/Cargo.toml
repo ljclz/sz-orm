@@ -8,18 +8,20 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM 可观测性模块：Prometheus exporter (TcpListener) + SLO 燃烧率 + Grafana 仪表盘模板；OTLP 导出请使用 sz-orm-tracing 的 otlp feature"
+description = "SZ-ORM 可观测性模块：Prometheus exporter (TcpListener) + SLO 燃烧�?+ Grafana 仪表盘模板；OTLP 导出请使�?sz-orm-tracing �?otlp feature"
 
 [features]
 default = []
-# 启用 Prometheus exporter（暴露 /metrics HTTP 端点，基于 tokio TcpListener）
-# 注：start_metrics_server 始终可用，此 feature 保留供未来扩展（如 hyper 实现）
+# 启用 Prometheus exporter（暴�?/metrics HTTP 端点，基�?tokio TcpListener�?
+# 注：start_metrics_server 始终可用，此 feature 保留供未来扩展（�?hyper 实现�?
 prometheus = []
-# 启用真实 Pushgateway HTTP PUT 推送（基于 reqwest）
+# 启用真实 Pushgateway HTTP PUT 推送（基于 reqwest�?
 # 未启用时 PushgatewayExporter::push 仅记录到内存（用于测试）
 push-gateway = ["reqwest"]
 # v3.8.0：metrics 端点访问控制
 prod-metrics-acl = ["dep:base64", "dep:subtle"]
+# v4.0.0 M9：服务网格集成（Istio/Linkerd + mTLS + 流量治理 + sidecar 注入 + 可观测性）
+service-mesh = ["dep:sz-orm-limit"]
 
 [dependencies]
 sz-orm-core = { workspace = true }
@@ -31,11 +33,13 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
-# 真实 Pushgateway HTTP PUT 推送（可选，通过 push-gateway feature 启用）
+# 真实 Pushgateway HTTP PUT 推送（可选，通过 push-gateway feature 启用�?
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"], optional = true }
-# v3.8.0：metrics 访问控制（prod-metrics-acl feature）
+# v3.8.0：metrics 访问控制（prod-metrics-acl feature�?
 base64 = { version = "0.22", optional = true }
 subtle = { version = "2.5", optional = true }
+# v4.0.0 M9：服务网格限流熔断（service-mesh feature�?
+sz-orm-limit = { version = "4.0.0", path = "../sz-orm-limit", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
@@ -46,3 +50,7 @@ path = "src/lib.rs"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "service_mesh_test"
+required-features = ["service-mesh"]
