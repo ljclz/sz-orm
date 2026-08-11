@@ -21,6 +21,14 @@ pub mod migration_mapper;
 pub mod model_mapper;
 pub mod repository_mapper;
 
+pub use config::{NamingConvention, ReverseGenConfig};
+pub use generator::{OpenApiReverseGenerator, ReverseGenResult};
+pub use injection_guard::OpenApiInjectionGuard;
+pub use loop_verifier::{ApiFirstLoopVerifier, LoopReport};
+pub use migration_mapper::OpenApiToMigrationMapper;
+pub use model_mapper::{Constraint, ModelField, RustType, SchemaToModelMapper};
+pub use repository_mapper::OpenApiToRepositoryMapper;
+
 use thiserror::Error;
 
 /// 反向生成错误

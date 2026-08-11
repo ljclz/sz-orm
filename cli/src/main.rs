@@ -64,6 +64,11 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     sql:validate <sql>            校验 SQL 语法 + 注入检测
     dialect list                  列出所有支持的方言
     dialect show <db_type>        显示指定方言详情
+    designer [--port <n>]         启动 Schema 设计器 Web UI（需 designer feature，默认端口 3000）
+    designer:export               从设计文件导出 DDL/迁移/Model/ER 图（需 designer feature）
+                                  --design <file> --format <ddl|migration|model|svg|json> --dialect <mysql|postgresql|sqlite|oracle|mssql>
+    openapi:reverse               OpenAPI → ORM 反向生成（需 openapi-reverse feature）
+                                  --spec <file> --dialect <mysql|postgresql|sqlite|oracle|mssql> [--trust-unsigned]
     help, --help, -h              显示本帮助
     --version, -V                 显示版本号
 
@@ -231,6 +236,9 @@ fn main() -> ExitCode {
         "generate" => cmd_generate(&rest),
         "sql:validate" => cmd_sql_validate(&rest),
         "dialect" => cmd_dialect(&rest),
+        "designer" => cmd_designer(&rest),
+        "designer:export" => cmd_designer_export(&rest),
+        "openapi:reverse" => cmd_openapi_reverse(&rest),
         other => {
             eprintln!("未知命令: {}", other);
             eprintln!("\n{}", HELP);
@@ -2258,4 +2266,175 @@ fn to_pascal_case(s: &str) -> String {
         out.pop();
     }
     out
+}
+
+// =====================================================================
+// designer — 可视化 Schema 设计器（需 designer feature）
+// =====================================================================
+
+#[cfg(feature = "designer")]
+fn cmd_designer(args: &[&str]) -> Result<(), String> {
+    let port: u16 = args
+        .iter()
+        .position(|a| *a == "--port")
+        .and_then(|i| args.get(i + 1))
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(3000);
+
+    println!("启动 Schema 设计器 Web UI: http://127.0.0.1:{}", port);
+    println!("提示: 在浏览器中打开上述地址进行图形化建表/改表/ER 图编辑");
+    println!("按 Ctrl+C 停止服务器");
+
+    let design = sz_orm_designer::SchemaDesign::new(sz_orm_designer::Dialect::MySql);
+    let designer = sz_orm_designer::SchemaDesigner::new(design);
+    let web_ui = sz_orm_designer::SchemaDesignerWebUI::new(designer, port);
+
+    let rt = tokio::runtime::Runtime::new().map_err(|e| format!("创建异步运行时失败: {}", e))?;
+    rt.block_on(async {
+        web_ui
+            .start()
+            .await
+            .map_err(|e| format!("Web UI 启动失败: {:?}", e))
+    })
+}
+
+#[cfg(not(feature = "designer"))]
+fn cmd_designer(_args: &[&str]) -> Result<(), String> {
+    Err("designer 命令需要启用 designer feature: cargo run --features designer -- designer".into())
+}
+
+// =====================================================================
+// designer:export — 从设计文件导出（需 designer feature）
+// =====================================================================
+
+#[cfg(feature = "designer")]
+fn cmd_designer_export(args: &[&str]) -> Result<(), String> {
+    let design_file = args
+        .iter()
+        .position(|a| *a == "--design")
+        .and_then(|i| args.get(i + 1).copied())
+        .ok_or("缺少 --design <file> 参数")?;
+
+    let format = args
+        .iter()
+        .position(|a| *a == "--format")
+        .and_then(|i| args.get(i + 1).copied())
+        .unwrap_or("ddl");
+
+    let dialect_str = args
+        .iter()
+        .position(|a| *a == "--dialect")
+        .and_then(|i| args.get(i + 1).copied())
+        .unwrap_or("mysql");
+
+    let dialect = match dialect_str {
+        "mysql" => sz_orm_designer::Dialect::MySql,
+        "postgresql" => sz_orm_designer::Dialect::PostgreSql,
+        "sqlite" => sz_orm_designer::Dialect::Sqlite,
+        "oracle" => sz_orm_designer::Dialect::Oracle,
+        "mssql" => sz_orm_designer::Dialect::Mssql,
+        _ => return Err(format!("未知方言: {}", dialect_str)),
+    };
+
+    let content =
+        fs::read_to_string(design_file).map_err(|e| format!("读取设计文件失败: {}", e))?;
+    let design: sz_orm_designer::SchemaDesign =
+        serde_json::from_str(&content).map_err(|e| format!("解析设计文件失败: {}", e))?;
+
+    let export_format = match format {
+        "ddl" | "sql" => sz_orm_designer::ExportFormat::DdlSql,
+        "migration" => sz_orm_designer::ExportFormat::Migration,
+        "model" | "rust" => sz_orm_designer::ExportFormat::RustModel,
+        "svg" => sz_orm_designer::ExportFormat::ErSvg,
+        "json" => sz_orm_designer::ExportFormat::JsonDesign,
+        _ => return Err(format!("未知导出格式: {}", format)),
+    };
+
+    let output = sz_orm_designer::DesignerExporter::export(&design, export_format, dialect)
+        .map_err(|e| format!("导出失败: {:?}", e))?;
+
+    let output_str = String::from_utf8(output).map_err(|e| format!("输出非 UTF-8: {}", e))?;
+    println!("{}", output_str);
+    Ok(())
+}
+
+#[cfg(not(feature = "designer"))]
+fn cmd_designer_export(_args: &[&str]) -> Result<(), String> {
+    Err("designer:export 命令需要启用 designer feature".into())
+}
+
+// =====================================================================
+// openapi:reverse — OpenAPI → ORM 反向生成（需 openapi-reverse feature）
+// =====================================================================
+
+#[cfg(feature = "openapi-reverse")]
+fn cmd_openapi_reverse(args: &[&str]) -> Result<(), String> {
+    let spec_path = args
+        .iter()
+        .position(|a| *a == "--spec")
+        .and_then(|i| args.get(i + 1).copied())
+        .ok_or("缺少 --spec <file> 参数")?;
+
+    let dialect_str = args
+        .iter()
+        .position(|a| *a == "--dialect")
+        .and_then(|i| args.get(i + 1).copied())
+        .unwrap_or("postgresql");
+
+    let trust_unsigned = args.contains(&"--trust-unsigned");
+
+    let dialect = match dialect_str {
+        "mysql" => sz_orm_core::dialect_security::Dialect::MySql,
+        "postgresql" => sz_orm_core::dialect_security::Dialect::PostgreSql,
+        "sqlite" => sz_orm_core::dialect_security::Dialect::Sqlite,
+        "oracle" => sz_orm_core::dialect_security::Dialect::Oracle,
+        "mssql" => sz_orm_core::dialect_security::Dialect::Mssql,
+        _ => return Err(format!("未知方言: {}", dialect_str)),
+    };
+
+    let config =
+        sz_orm_swagger::reverse::ReverseGenConfig::new(dialect).with_trust_unsigned(trust_unsigned);
+    let generator = sz_orm_swagger::reverse::OpenApiReverseGenerator::new(config);
+
+    let result = generator
+        .generate_from_file(spec_path)
+        .map_err(|e| format!("反向生成失败: {}", e))?;
+
+    println!("=== OpenAPI → ORM 反向生成结果 ===");
+    println!("方言: {:?}", result.dialect);
+    println!();
+
+    println!("--- Model 代码 ({} 个) ---", result.model_code.len());
+    for (name, code) in &result.model_code {
+        println!("\n// {}", name);
+        println!("{}", code);
+    }
+
+    println!("\n--- 迁移文件 ({} 个) ---", result.migrations.len());
+    for migration in &result.migrations {
+        println!("\n// Migration: {} ({})", migration.name, migration.version);
+        println!("-- up\n{}", migration.sql_up);
+        println!("-- down\n{}", migration.sql_down);
+    }
+
+    println!(
+        "\n--- Repository 代码 ({} 个) ---",
+        result.repository_code.len()
+    );
+    for (name, code) in &result.repository_code {
+        println!("\n// {}", name);
+        println!("{}", code);
+    }
+
+    println!("\n--- 闭环验证报告 ---");
+    let report_text =
+        sz_orm_swagger::reverse::ApiFirstLoopVerifier::format_report(&result.loop_report);
+    println!("{}", report_text);
+
+    Ok(())
+}
+
+#[cfg(not(feature = "openapi-reverse"))]
+fn cmd_openapi_reverse(_args: &[&str]) -> Result<(), String> {
+    Err("openapi:reverse 命令需要启用 openapi-reverse feature: cargo run --features openapi-reverse -- openapi:reverse".into())
 }
