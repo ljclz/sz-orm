@@ -484,6 +484,8 @@ pub mod validation;
 pub use query::QueryBuilder;
 #[cfg(feature = "cache-coherence")]
 pub mod cache_coherence;
+#[cfg(feature = "connection-level-tenant")]
+pub mod connection_tenant;
 #[cfg(feature = "migration-branch")]
 pub mod migration_branch;
 #[cfg(feature = "qb-migration-tool")]
