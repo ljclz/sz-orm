@@ -1,0 +1,26 @@
+[package]
+name = "sz-orm-stream"
+description = "Async streaming result set: cursor-based streaming with backpressure and keyset pagination"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# v4.5.0 M3：异步流式结果集（游标分页 + keyset pagination + 背压控制）
+stream-resultset = ["dep:tokio", "dep:futures"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+sz-orm-core = { path = "../sz-orm-core", version = "4.5.0" }
+tokio = { version = "1.40", features = ["full"], optional = true }
+futures = { version = "0.3", optional = true }
+
+[lints]
+workspace = true

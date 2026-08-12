@@ -21,7 +21,7 @@ perf-baseline = ["explain-analyzer", "dep:sz-orm-flamegraph"]
 # 注意：本包刻意零依赖 sz-orm-core，避免 core → macros → explain → core 依赖循环
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "4.4.0", optional = true }
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "4.5.0", optional = true }
 
 [lints]
 workspace = true

@@ -18,6 +18,8 @@ serde_json = "1.0"
 default = []
 # v4.1.0：批量流式处理（背压 + 窗口 + 并行度控制）
 batch-stream = []
+# v4.5.0 M2：批量 INSERT/UPDATE/DELETE 优化（异步执行器 + 五方言 + 事务回滚 + PG COPY）
+batch-v2 = []
 
 [lints]
 workspace = true
