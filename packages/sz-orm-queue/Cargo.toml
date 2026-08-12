@@ -52,6 +52,8 @@ pulsar = { version = "6", optional = true, default-features = false, features = 
 rdkafka = { version = "0.36", optional = true, default-features = false, features = ["cmake-build"] }
 # v4.0.0 M7：CDC 变更数据捕获脱敏（cdc feature）
 sz-orm-masking = { workspace = true, optional = true }
+# v4.7.0 M1：延迟队列与优先级调度（delayed-priority-queue feature）
+chrono = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

@@ -20,6 +20,9 @@ pub mod message_tracing;
 #[cfg(feature = "dlx-auto-redelivery")]
 pub mod dlx;
 
+#[cfg(feature = "delayed-priority-queue")]
+pub mod delayed_priority;
+
 pub mod activemq;
 pub mod kafka;
 pub mod nats;
