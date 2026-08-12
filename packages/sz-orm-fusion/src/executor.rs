@@ -2,7 +2,7 @@
 
 use crate::plan::{FusionConfig, FusionPlanner, FusionQuery, PlanStep};
 use std::sync::{Arc, Mutex};
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 /// 融合缓存抽象（Redis 或内存实现均可注入）
 pub trait FusionCache: Send + Sync {
@@ -10,13 +10,23 @@ pub trait FusionCache: Send + Sync {
     fn get(&self, key: &str) -> Option<String>;
     /// 写入缓存（JSON 字符串）
     fn set(&self, key: &str, value: String);
+    /// 读取带 TTL 的% 的缓存（默认委托到 `get`，TTL 实现可覆盖）
+    fn get_with_ttl(&self, key: &str) -> Option<String> {
+        self.get(key)
+    }
+    /// 写入带 TTL 的缓存（默认委托到 `set`，TTL 实现可覆盖）
+    fn set_with_ttl(&self, key: &str, value: String, _ttl: Duration) {
+        self.set(key, value);
+    }
 }
 
 /// 进程内内存缓存（POC/测试用；生产可替换为 Redis 实现）
+#[deprecated(note = "use TtlFusionCache with db-fusion-v2 feature instead")]
 pub struct MemoryFusionCache {
     inner: Mutex<std::collections::HashMap<String, String>>,
 }
 
+#[allow(deprecated)]
 impl MemoryFusionCache {
     /// 创建空缓存
     pub fn new() -> Self {
@@ -26,12 +36,14 @@ impl MemoryFusionCache {
     }
 }
 
+#[allow(deprecated)]
 impl Default for MemoryFusionCache {
     fn default() -> Self {
         Self::new()
     }
 }
 
+#[allow(deprecated)]
 impl FusionCache for MemoryFusionCache {
     fn get(&self, key: &str) -> Option<String> {
         self.inner.lock().ok()?.get(key).cloned()
@@ -63,6 +75,8 @@ pub struct FusionOutcome {
 pub struct FusionExecutor {
     config: FusionConfig,
     cache: Option<Arc<dyn FusionCache>>,
+    #[cfg(feature = "db-fusion-v2")]
+    invalidation_bus: Option<Arc<dyn sz_orm_core::l2_cache::InvalidationBus>>,
 }
 
 impl FusionExecutor {
@@ -71,12 +85,27 @@ impl FusionExecutor {
         Self {
             config,
             cache: None,
+            #[cfg(feature = "db-fusion-v2")]
+            invalidation_bus: None,
         }
     }
 
     /// 注入缓存后端实现
     pub fn with_cache(mut self, cache: Arc<dyn FusionCache>) -> Self {
         self.cache = Some(cache);
+        self
+    }
+
+    /// 注入失效总线（`db-fusion-v2` feature，转正 API）
+    ///
+    /// 主库写入成功后发布失效消息，跨实例缓存失效。
+    /// 复用既有 `InvalidationBus` `packages/sz-orm-core/src/l2_cache.rs:82`。
+    #[cfg(feature = "db-fusion-v2")]
+    pub fn with_invalidation_bus(
+        mut self,
+        bus: Arc<dyn sz_orm_core::l2_cache::InvalidationBus>,
+    ) -> Self {
+        self.invalidation_bus = Some(bus);
         self
     }
 
@@ -133,6 +162,18 @@ impl FusionExecutor {
                         cache.set(key, json);
                     }
                 }
+                // 失效广播（db-fusion-v2 feature）
+                #[cfg(feature = "db-fusion-v2")]
+                if let Some(bus) = &self.invalidation_bus {
+                    if let Some(key) = &plan.cache_key {
+                        bus.publish(sz_orm_core::l2_cache::InvalidationMessage::InvalidateKey(
+                            key.clone(),
+                        ));
+                    }
+                    bus.publish(sz_orm_core::l2_cache::InvalidationMessage::InvalidateTable(
+                        query.table.clone(),
+                    ));
+                }
                 Ok(FusionOutcome {
                     rows,
                     from_cache: false,
@@ -186,6 +227,7 @@ pub fn cache_configured_without_backend(
 }
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use crate::plan::CacheBackend;

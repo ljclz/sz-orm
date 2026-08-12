@@ -14,10 +14,13 @@ categories.workspace = true
 default = []
 # v4.3.0 M5（可选实验）：多数据库融合查询 POC（查询拆分 + 聚合 + 降级）
 db-fusion = ["dep:serde", "dep:serde_json"]
+# v4.4.0 M3：db-fusion 转正（TTL 缓存 + 失效广播 + CDC 同步 + 向量下推）
+db-fusion-v2 = ["db-fusion", "dep:sz-orm-core"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
+sz-orm-core = { path = "../sz-orm-core", version = "4.3.0", optional = true }
 
 [lints]
 workspace = true

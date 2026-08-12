@@ -26,8 +26,13 @@
 pub mod executor;
 #[cfg(feature = "db-fusion")]
 pub mod plan;
+#[cfg(feature = "db-fusion-v2")]
+pub mod ttl_cache;
 
 #[cfg(feature = "db-fusion")]
+#[allow(deprecated)]
 pub use executor::{FusionCache, FusionExecutor, FusionOutcome, MemoryFusionCache};
 #[cfg(feature = "db-fusion")]
 pub use plan::{FusionPlan, FusionPlanner, FusionQuery, PlanStep};
+#[cfg(feature = "db-fusion-v2")]
+pub use ttl_cache::TtlFusionCache;
