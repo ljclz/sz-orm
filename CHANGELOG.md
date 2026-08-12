@@ -5,6 +5,48 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [4.4.0] — 2026-08-12
+
+### 概述
+
+v4.4.0 是 SZ-ORM 的查询智能闭环版本，新增 6 项能力，全部通过 feature gate 隔离（默认关闭，无 Breaking Change）：查询自动优化建议引擎、慢查询自动诊断报告、db-fusion 转正阶段一（TTL 缓存 + 失效广播）、结构化查询日志、性能回归基准线、查询智能闭环联动。
+
+### 新增能力（6 个 feature gate，默认关闭）
+
+| feature gate | 所属包 | 能力 |
+|-------------|--------|------|
+| `query-advisor` | sz-orm-advisor（新包） | 规则引擎分析 EXPLAIN 计划 + 自适应统计，生成六种可执行优化建议（AddIndex/DropIndex/UsePagination/EnableCache/RewriteQuery/AdjustPoolSize），支持 MySQL/PostgreSQL/SQLite/Oracle/MSSQL 五方言 DDL |
+| `slow-query-diagnosis` | sz-orm-diagnosis（新包） | 慢查询自动诊断：六种根因分析（全表扫描/缺失索引/N+1/连接池耗尽/锁等待/结果集过大）+ 分阶段耗时分解 + JSON/人类可读双格式报告 |
+| `db-fusion-v2` | sz-orm-fusion | db-fusion 转正阶段一：TTL 缓存（TtlFusionCache）+ 失效广播（InvalidationBus 集成）+ MemoryFusionCache 标记 deprecated |
+| `query-logging` | sz-orm-observability | 结构化查询日志：采样率控制 + 级别控制 + 参数脱敏（复用 MaskingRule）+ 分阶段计时序列化 |
+| `perf-baseline` | sz-orm-explain | 性能回归基准线：基线快照 + CI 自动比对 + 复用 PlanRegression 回归检测 |
+| `query-intelligence-loop` | sz-orm-advisor | 查询智能闭环联动：串联 EXPLAIN → 自适应 → 诊断 → 建议四步闭环，任一环节失败降级跳过 |
+
+### 新增包
+
+sz-orm-advisor / sz-orm-diagnosis（2 个，工作空间成员 56 → 58）
+
+### 里程碑完成情况
+
+| 里程碑 | 名称 | 状态 |
+|--------|------|------|
+| M0 | 文档基线与准备 | ✅ |
+| M1 | 查询自动优化建议引擎 | ✅ |
+| M2 | 慢查询自动诊断报告 | ✅ |
+| M3 | db-fusion 转正（阶段一：TTL + 失效广播） | ✅ |
+| M4 | 结构化查询日志 | ✅ |
+| M5 | 性能回归基准线 | ✅ |
+| M6 | 查询智能闭环联动 | ✅ |
+
+### 测试
+
+- 新增约 50 个测试，全工作空间测试通过
+- sz-orm-advisor: 44 tests（M1: 37 + M6: 7）
+- sz-orm-diagnosis: 29 tests
+- sz-orm-fusion: 21 tests（db-fusion-v2）+ 12 tests（POC）
+- sz-orm-observability: 56 tests（44 既有 + 12 新增）
+- sz-orm-explain: 47 tests（40 既有 + 7 新增）
+
 ## [4.3.0] — 2026-08-12
 
 ### 概述
