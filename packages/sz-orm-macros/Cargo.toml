@@ -26,6 +26,8 @@ tokio = { workspace = true, features = ["full"], optional = true }
 serde_json = { version = "1.0", optional = true }
 # v4.3.0 M1-T3：EXPLAIN 结果分析（全表扫描/缺失索引编译期警告）
 sz-orm-explain = { workspace = true, optional = true }
+# v4.3.0 M2：N+1 静态检测分析逻辑（detect_n_plus_one 标注宏复用批量扫描器）
+sz-orm-n1-lint = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -43,6 +45,8 @@ custom-diagnostic = []
 data-validation = []
 # v4.3.0 M3：数据治理派生宏（#[derive(Governed)]，由 sz-orm-core/compile-governance 启用）
 governance-derive = []
+# v4.3.0 M2：N+1 静态检测标注宏（#[detect_n_plus_one]）
+n1-lint = ["dep:sz-orm-n1-lint"]
 
 [dev-dependencies]
 sz-orm-core = { path = "../sz-orm-core" }

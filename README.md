@@ -41,7 +41,7 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v4.2.0 版本包含 55 个工作空间成员（v4.3.0 新增 sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，新增 9 项数据治理与运维增强能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v4.2.0 版本包含 56 个工作空间成员（v4.3.0 新增 sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion/sz-orm-n1-lint），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，新增 9 项数据治理与运维增强能力。
 
 ### v4.1.0 新增能力（9 个 feature gate，默认关闭）
 

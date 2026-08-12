@@ -49,7 +49,7 @@
 
 | 维度 | 数据 | 竞品对比 |
 |------|------|---------|
-| 工作空间成员 | **55**（53 lib + cli + examples；v4.3.0 新增 sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion） | Diesel 1 包 / SeaORM ~10 包 / SQLx 1 包 |
+| 工作空间成员 | **56**（54 lib + cli + examples；v4.3.0 新增 sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion/sz-orm-n1-lint） | Diesel 1 包 / SeaORM ~10 包 / SQLx 1 包 |
 | SQL 方言 | **28 种**（21 默认 + 7 feature 门控） | Diesel 4 / SeaORM 5 / SQLx 4 / Hibernate 40+ / EF Core 20+ |
 | 测试用例 | **6,650 个** `#[test]`（5,314 单元 + 1,309 集成 + 27 其他） | Diesel ~3000 / SeaORM ~2000 / SQLx ~1500 |
 | 代码规模 | **239,505 LOC**（全部 .rs）/ **189,710 LOC**（仅 src/） | Diesel ~50,000 / SeaORM ~30,000 / SQLx ~20,000 |
@@ -534,7 +534,7 @@ SZ-ORM v4.1.0 是一个**功能覆盖面极广**的 Rust 异步 ORM 工作空间
 
 ### 8.3 最大风险
 
-**最大风险是单作者维护连续性**。55 个包的代码规模（291,349+ LOC，2026-08-12 实测）已超出单人长期维护的合理范围。建议优先扩展社区（英文文档 + crates.io 全发布 + 贡献者指南），将单人项目演进为社区项目。
+**最大风险是单作者维护连续性**。56 个包的代码规模（291,349+ LOC，2026-08-12 实测）已超出单人长期维护的合理范围。建议优先扩展社区（英文文档 + crates.io 全发布 + 贡献者指南），将单人项目演进为社区项目。
 
 ---
 

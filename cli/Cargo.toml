@@ -16,6 +16,7 @@ sz-orm-sql-validator = { version = "4.1.0", path = "../packages/sz-orm-sql-valid
 sz-orm-sqlx = { version = "4.1.0", path = "../packages/sz-orm-sqlx" }
 sz-orm-designer = { version = "4.1.0", path = "../packages/sz-orm-designer", optional = true }
 sz-orm-swagger = { version = "4.1.0", path = "../packages/sz-orm-swagger", optional = true }
+sz-orm-n1-lint = { version = "4.1.0", path = "../packages/sz-orm-n1-lint", optional = true }
 tokio = { workspace = true, features = ["full"] }
 chrono = { workspace = true }
 serde = { workspace = true }
@@ -29,6 +30,8 @@ data-seeding = ["sz-orm-core/data-seeding"]
 schema-diff-viz = ["sz-orm-core/schema-diff-viz"]
 designer = ["dep:sz-orm-designer", "sz-orm-designer/schema-designer"]
 openapi-reverse = ["dep:sz-orm-swagger", "sz-orm-swagger/openapi-reverse"]
+# v4.3.0 M2：N+1 静态检测（sz-orm n1-lint --path=...）
+n1-lint = ["dep:sz-orm-n1-lint", "sz-orm-n1-lint/n1-lint"]
 
 [lints]
 workspace = true

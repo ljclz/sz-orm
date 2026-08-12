@@ -3129,6 +3129,47 @@ pub fn derive_governed(input: TokenStream) -> TokenStream {
 }
 
 // ---------------------------------------------------------------------------
+// v4.3.0 M2：`#[detect_n_plus_one]` — N+1 静态检测标注宏（n1-lint feature）
+// 分析函数体 AST，检测循环（for/while）内查询调用，编译期输出警告。
+// 分析逻辑复用 sz-orm-n1-lint（与 CLI 批量扫描共用，避免重复实现）。
+// ---------------------------------------------------------------------------
+
+/// 标注宏：分析函数体，检测 N+1 查询模式并输出编译期警告（非阻断）。
+///
+/// 检测模式（保守白名单，避免误报）：
+/// - 循环体内 `find_by_*` / `where_eq` / `query` 等查询调用 → `query-in-loop` 警告
+/// - 循环内条件分支中的查询调用 → `query-in-loop` 警告
+///
+/// 警告通过 `eprintln!` 输出（`warning: [sz-orm-n1-lint] ...`），不阻断编译；
+/// 函数原样透传（零运行时影响）。
+///
+/// # 示例
+///
+/// ```ignore
+/// #[detect_n_plus_one]
+/// fn process_users(users: Vec<User>) {
+///     for user in users {
+///         let orders = Order::find_by_user(user.id); // ⚠️ 编译期警告：query-in-loop
+///     }
+/// }
+/// ```
+#[cfg(feature = "n1-lint")]
+#[proc_macro_attribute]
+pub fn detect_n_plus_one(_attr: TokenStream, item: TokenStream) -> TokenStream {
+    let item_fn = parse_macro_input!(item as syn::ItemFn);
+    let findings = sz_orm_n1_lint::analyze_fn(&item_fn);
+    for f in &findings {
+        eprintln!(
+            "warning: [sz-orm-n1-lint] {} at line {}: {}",
+            f.pattern.as_str(),
+            f.line,
+            f.message
+        );
+    }
+    quote::quote!(#item_fn).into()
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests — cover helper functions used by both macros
 // ---------------------------------------------------------------------------
 

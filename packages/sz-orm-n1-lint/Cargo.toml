@@ -1,0 +1,25 @@
+[package]
+name = "sz-orm-n1-lint"
+description = "N+1 query static detector: loop-body query analysis (AST) shared by detect_n_plus_one macro and CLI batch scan"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# v4.3.0 M2：N+1 静态检测（由 sz-orm-macros/n1-lint 标注宏与 cli n1-lint 命令启用）
+n1-lint = []
+
+[dependencies]
+# syn 用于解析函数体 AST（for/while 循环内查询调用检测）
+syn = { version = "2.0", features = ["full", "parsing", "extra-traits"] }
+# span-locations：获取检测结果的源码行号
+proc-macro2 = { version = "1.0", features = ["span-locations"] }
+
+[lints]
+workspace = true

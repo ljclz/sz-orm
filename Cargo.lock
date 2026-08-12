@@ -7638,6 +7638,7 @@ dependencies = [
  "sqlx",
  "sz-orm-core",
  "sz-orm-designer",
+ "sz-orm-n1-lint",
  "sz-orm-sql-validator",
  "sz-orm-sqlx",
  "sz-orm-swagger",
@@ -7693,6 +7694,7 @@ dependencies = [
  "sz-orm-limit",
  "sz-orm-macros",
  "sz-orm-masking",
+ "sz-orm-n1-lint",
  "sz-orm-query-builder",
  "sz-orm-sql-validator",
  "thiserror 2.0.19",
@@ -7936,6 +7938,7 @@ dependencies = [
  "syn 2.0.119",
  "sz-orm-core",
  "sz-orm-explain",
+ "sz-orm-n1-lint",
  "tokio",
  "trybuild",
 ]
@@ -7988,6 +7991,14 @@ dependencies = [
  "tokio",
  "tokio-util",
  "tracing",
+]
+
+[[package]]
+name = "sz-orm-n1-lint"
+version = "4.2.0"
+dependencies = [
+ "proc-macro2 1.0.107",
+ "syn 2.0.119",
 ]
 
 [[package]]

@@ -239,6 +239,7 @@ fn main() -> ExitCode {
         "designer" => cmd_designer(&rest),
         "designer:export" => cmd_designer_export(&rest),
         "openapi:reverse" => cmd_openapi_reverse(&rest),
+        "n1-lint" => cmd_n1_lint(&rest),
         other => {
             eprintln!("未知命令: {}", other);
             eprintln!("\n{}", HELP);
@@ -2437,4 +2438,76 @@ fn cmd_openapi_reverse(args: &[&str]) -> Result<(), String> {
 #[cfg(not(feature = "openapi-reverse"))]
 fn cmd_openapi_reverse(_args: &[&str]) -> Result<(), String> {
     Err("openapi:reverse 命令需要启用 openapi-reverse feature: cargo run --features openapi-reverse -- openapi:reverse".into())
+}
+
+// =====================================================================
+// n1-lint — N+1 静态检测（v4.3.0 M2，需 n1-lint feature）
+// =====================================================================
+
+#[cfg(feature = "n1-lint")]
+fn cmd_n1_lint(args: &[&str]) -> Result<(), String> {
+    // 支持两种参数格式：`--path <dir>` 与 `--path=<dir>`
+    let path = args
+        .iter()
+        .position(|a| *a == "--path")
+        .and_then(|i| args.get(i + 1).copied())
+        .map(String::from)
+        .or_else(|| {
+            args.iter()
+                .find_map(|a| a.strip_prefix("--path="))
+                .map(String::from)
+        })
+        .ok_or("缺少 --path <dir|file> 参数")?;
+    let format = args
+        .iter()
+        .position(|a| *a == "--format")
+        .and_then(|i| args.get(i + 1).copied())
+        .unwrap_or("table");
+
+    let results = sz_orm_n1_lint::scan_dir(std::path::Path::new(&path));
+    let total: usize = results.iter().map(|(_, fs)| fs.len()).sum();
+
+    match format {
+        "json" => {
+            let payload: Vec<serde_json::Value> = results
+                .iter()
+                .flat_map(|(file, findings)| {
+                    findings.iter().map(move |f| {
+                        serde_json::json!({
+                            "file": file,
+                            "line": f.line,
+                            "pattern": f.pattern.as_str(),
+                            "message": f.message,
+                        })
+                    })
+                })
+                .collect();
+            println!(
+                "{}",
+                serde_json::to_string_pretty(&payload).map_err(|e| e.to_string())?
+            );
+        }
+        _ => {
+            for (file, findings) in &results {
+                for f in findings {
+                    println!("{}:{} [{}] {}", file, f.line, f.pattern.as_str(), f.message);
+                }
+            }
+        }
+    }
+
+    if total == 0 {
+        println!("N+1 检测通过: 未发现循环内查询模式");
+    } else {
+        println!("N+1 检测完成: 发现 {} 处潜在问题", total);
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "n1-lint"))]
+fn cmd_n1_lint(_args: &[&str]) -> Result<(), String> {
+    Err(
+        "n1-lint 命令需要启用 n1-lint feature: cargo run --features n1-lint -- n1-lint --path=src"
+            .into(),
+    )
 }

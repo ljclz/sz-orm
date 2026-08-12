@@ -539,6 +539,8 @@ pub use sz_orm_macros::schema;
 pub use sz_orm_macros::sql_string;
 pub use sz_orm_macros::typed_query;
 // FromQueryResult derive 宏（与 value.rs 中同名 trait 通过显式 use 遮蔽 glob 导出）
+#[cfg(feature = "n1-lint")]
+pub use sz_orm_macros::detect_n_plus_one;
 pub use sz_orm_macros::FromQueryResult;
 pub use sz_orm_macros::RelationTrait;
 #[cfg(feature = "data-validation")]

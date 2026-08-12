@@ -128,6 +128,8 @@ cache-coherence = []
 migration-branch = []
 # v4.3.0 M3：编译期数据治理（PII 标注强制 + 合规报告，feature gate 隔离，默认关闭）
 compile-governance = ["sz-orm-macros/governance-derive"]
+# v4.3.0 M2：N+1 静态检测标注宏（#[detect_n_plus_one]，feature gate 隔离，默认关闭）
+n1-lint = ["sz-orm-macros/n1-lint"]
 
 [dependencies]
 async-trait.workspace = true
@@ -187,6 +189,8 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 
 # M3-T3: 宸垎娴嬭瘯闇€锟?sz-orm-query-builder
 sz-orm-query-builder = { path = "../sz-orm-query-builder" }
+# v4.3.0 M2：N+1 静态检测交叉验证（静态分析 ↔ 运行时 N1QueryDetector）
+sz-orm-n1-lint = { path = "../sz-orm-n1-lint", features = ["n1-lint"] }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
 rusqlite = { version = "0.32", features = ["bundled"] }
 # DuckDB 鐪熷疄闆嗘垚娴嬭瘯锛坆undled锛氱紪锟?DuckDB 婧愮爜锛岄渶 MSVC + CMake锟?
