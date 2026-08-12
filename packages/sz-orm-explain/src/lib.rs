@@ -23,6 +23,8 @@
 
 pub mod dialect;
 pub mod parsers;
+#[cfg(feature = "perf-baseline")]
+pub mod perf_baseline;
 #[cfg(feature = "explain-analyzer")]
 pub mod regression;
 
