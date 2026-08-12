@@ -22,3 +22,8 @@ pub use advisor::{AdvisorConfig, OptimizationAdvisor};
 pub use suggestion::{
     OptimizationSuggestion, RiskLevel, SuggestionType, TuningSuggestion, TuningSuggestionType,
 };
+
+#[cfg(feature = "query-intelligence-loop")]
+pub mod intelligence_loop;
+#[cfg(feature = "query-intelligence-loop")]
+pub use intelligence_loop::{ExplainPlanSummary, IntelligenceLoop, LoopReport};

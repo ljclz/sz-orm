@@ -15,7 +15,7 @@ default = []
 # v4.4.0 M1：查询自动优化建议引擎（规则匹配生成六种建议）
 query-advisor = ["dep:serde", "dep:serde_json", "dep:sz-orm-explain", "dep:sz-orm-adaptive", "dep:sz-orm-ai", "sz-orm-ai/ai-index-advisor", "sz-orm-ai/ai-rewrite-advisor"]
 # v4.4.0 M6：查询智能闭环联动（EXPLAIN → 自适应 → 诊断 → 建议 四步闭环）
-query-intelligence-loop = ["query-advisor", "dep:sz-orm-flamegraph", "dep:sz-orm-diagnosis"]
+query-intelligence-loop = ["query-advisor", "dep:sz-orm-flamegraph", "dep:sz-orm-diagnosis", "sz-orm-diagnosis/slow-query-diagnosis"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
