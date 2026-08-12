@@ -22,6 +22,8 @@ push-gateway = ["reqwest"]
 prod-metrics-acl = ["dep:base64", "dep:subtle"]
 # v4.0.0 M9锛氭湇鍔＄綉鏍奸泦鎴愶紙Istio/Linkerd + mTLS + 娴侀噺娌荤悊 + sidecar 娉ㄥ叆 + 鍙娴嬫€э級
 service-mesh = ["dep:sz-orm-limit"]
+# v4.4.0 M4：结构化查询日志（QueryLogger + 采样率 + 级别控制 + 参数脱敏）
+query-logging = ["dep:sz-orm-flamegraph", "dep:sz-orm-masking"]
 
 [dependencies]
 sz-orm-core = { workspace = true }
@@ -40,6 +42,9 @@ base64 = { version = "0.22", optional = true }
 subtle = { version = "2.5", optional = true }
 # v4.0.0 M9锛氭湇鍔＄綉鏍奸檺娴佺啍鏂紙service-mesh feature锟?
 sz-orm-limit = { version = "4.1.0", path = "../sz-orm-limit", optional = true }
+# v4.4.0 M4：结构化查询日志（query-logging feature）
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "4.3.0", optional = true }
+sz-orm-masking = { path = "../sz-orm-masking", version = "4.3.0", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

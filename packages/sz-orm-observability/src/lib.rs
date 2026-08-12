@@ -59,10 +59,16 @@ pub mod summary;
 #[cfg(feature = "service-mesh")]
 pub mod service_mesh;
 
+#[cfg(feature = "query-logging")]
+pub mod query_logger;
+
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{
     LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,
 };
+
+#[cfg(feature = "query-logging")]
+pub use query_logger::{mask_params, LogLevel, QueryLogEntry, QueryLogger};
 
 /// 指标类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
