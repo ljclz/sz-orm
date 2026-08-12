@@ -97,14 +97,14 @@ M6（最终验证，全部完成后）
 **涉及文件**：`docs/评估/*.md`（8 份）
 
 **子任务**：
-- [ ] M0-T1.1 删除各文档虚构的 per-feature 测试数（LlmRouter 213 → 实际 23 等），替换为实测值
-- [ ] M0-T1.2 删除"88 个 ZST 结构"声明，替换为 typed_ast.rs 实测 24 个结构体
-- [ ] M0-T1.3 修正"crates.io 仅发布 1/46 包"为实测 20+ 包已发布（含 1.x~3.x 版本线）
-- [ ] M0-T1.4 修正 LOC 为实测 291,349（全部）/ 223,979（src/）
-- [ ] M0-T1.5 统一测试数口径（`#[test]` 6,794 + `#[tokio::test]` 781 + 集成 1,320）
-- [ ] M0-T1.6 修正成员数 46 → 50（含新增 cabi/go/java/cpp 4 包）
-- [ ] M0-T1.7 标注"编译期执行计划分析 ❌ 无"为错误结论（db-verify 已支持 EXPLAIN，`packages/sz-orm-macros/src/lib.rs:548`）
-- [ ] M0-T1.8 标注评估对象版本（v3.9.0/v4.0.0）与当前代码版本（v4.1.0）的差异
+- [x] M0-T1.1 删除各文档虚构的 per-feature 测试数（LlmRouter 213 → 实际 23 等），替换为实测值
+- [x] M0-T1.2 删除"88 个 ZST 结构"声明，替换为 typed_ast.rs 实测 24 个结构体
+- [x] M0-T1.3 修正"crates.io 仅发布 1/46 包"为实测 20+ 包已发布（含 1.x~3.x 版本线）
+- [x] M0-T1.4 修正 LOC 为实测 291,349（全部）/ 223,979（src/）
+- [x] M0-T1.5 统一测试数口径（`#[test]` 6,794 + `#[tokio::test]` 781 + 集成 1,320）
+- [x] M0-T1.6 修正成员数 46 → 50（含新增 cabi/go/java/cpp 4 包）
+- [x] M0-T1.7 标注"编译期执行计划分析 ❌ 无"为错误结论（db-verify 已支持 EXPLAIN，`packages/sz-orm-macros/src/lib.rs:548`）
+- [x] M0-T1.8 标注评估对象版本（v3.9.0/v4.0.0）与当前代码版本（v4.1.0）的差异
 
 **验收标准**：8 份评估文档中虚构数字全部替换为实测值，每项修正附 file:line 证据
 
@@ -117,10 +117,10 @@ M6（最终验证，全部完成后）
 **涉及文件**：`docs/评估/2026-08-12_v4.2.0_基线评估.md`（新建）
 
 **子任务**：
-- [ ] M0-T2.1 汇总 8 份评估的修正后结论为一张事实表
-- [ ] M0-T2.2 补充 v4.2.0 已验收的 5 项能力事实（引用 `docs/spec/v4.2.0/` 证据）
-- [ ] M0-T2.3 明确"排除方向"及理由（编译期数据库/类型级验证：需重构核心架构）
-- [ ] M0-T2.4 明确"本规划方向"与代码基础映射（见本规划各章）
+- [x] M0-T2.1 汇总 8 份评估的修正后结论为一张事实表
+- [x] M0-T2.2 补充 v4.2.0 已验收的 5 项能力事实（引用 `docs/spec/v4.2.0/` 证据）
+- [x] M0-T2.3 明确"排除方向"及理由（编译期数据库/类型级验证：需重构核心架构）
+- [x] M0-T2.4 明确"本规划方向"与代码基础映射（见本规划各章）
 
 **验收标准**：基线评估报告包含事实表 + v4.2.0 验收证据 + 排除方向 + 规划映射
 
@@ -133,9 +133,9 @@ M6（最终验证，全部完成后）
 **涉及文件**：`scripts/check-doc-consistency.py`、`scripts/audit-verify.sh`、`scripts/check-doc-sync.py`
 
 **子任务**：
-- [ ] M0-T3.1 运行 `python scripts/check-doc-consistency.py`（门禁 12），验证文档与代码一致
-- [ ] M0-T3.2 运行 `bash scripts/audit-verify.sh docs/评估/2026-08-12_v4.2.0_基线评估.md`（门禁 13），验证报告中所有 file:line 引用真实存在
-- [ ] M0-T3.3 运行 `python scripts/check-doc-sync.py --diff HEAD`（门禁 14），验证文档与 HEAD 同步
+- [x] M0-T3.1 运行 `python scripts/check-doc-consistency.py`（门禁 12），验证文档与代码一致
+- [x] M0-T3.2 运行 `bash scripts/audit-verify.sh docs/评估/2026-08-12_v4.2.0_基线评估.md`（门禁 13），验证报告中所有 file:line 引用真实存在
+- [x] M0-T3.3 运行 `python scripts/check-doc-sync.py --diff HEAD`（门禁 14），验证文档与 HEAD 同步
 
 **验收标准**：三道门禁全部通过；基线评估报告所有 file:line 引用经 audit-verify 验证真实存在
 
@@ -165,10 +165,10 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`explain-analyzer = ["dep:serde_json"]`，默认关闭
 
 **子任务**：
-- [ ] M1-T1.1 创建 `sz-orm-explain` 包，workspace.members 注册
-- [ ] M1-T1.2 `[features] explain-analyzer = ["dep:serde_json"]`，默认关闭
-- [ ] M1-T1.3 定义 `pub struct ExplainPlan { pub scan_type: ScanType, pub table: String, pub index: Option<String>, pub rows: u64, pub extra: Vec<String> }`（`pub enum ScanType { FullTable, IndexRange, IndexScan, UniqueLookup, Other }`）
-- [ ] M1-T1.4 验证 `cargo check -p sz-orm-explain` 编译通过，默认 feature 行为不变
+- [x] M1-T1.1 创建 `sz-orm-explain` 包，workspace.members 注册
+- [x] M1-T1.2 `[features] explain-analyzer = ["dep:serde_json"]`，默认关闭
+- [x] M1-T1.3 定义 `pub struct ExplainPlan { pub scan_type: ScanType, pub table: String, pub index: Option<String>, pub rows: u64, pub extra: Vec<String> }`（`pub enum ScanType { FullTable, IndexRange, IndexScan, UniqueLookup, Other }`）
+- [x] M1-T1.4 验证 `cargo check -p sz-orm-explain` 编译通过，默认 feature 行为不变
 
 **验收标准**：包创建成功，feature gate 默认关闭，workspace 集成编译通过
 
@@ -185,16 +185,16 @@ M6（最终验证，全部完成后）
 **复用标注**：各方言 EXPLAIN 语句构造 `packages/sz-orm-macros/src/lib.rs:642-647`（MySQL/PostgreSQL `EXPLAIN`、SQLite `EXPLAIN QUERY PLAN`、Oracle `EXPLAIN PLAN FOR`、MSSQL `SET SHOWPLAN_TEXT`）
 
 **子任务**：
-- [ ] M1-T2.1 定义 `pub trait ExplainParser: Send + Sync { fn parse(&self, raw: &str) -> Result<ExplainPlan, ExplainError>; }`
-- [ ] M1-T2.2 MySQL 解析（EXPLAIN 表格行：`type=ALL` → `FullTable`，`key` 为空 → 缺失索引）
-- [ ] M1-T2.3 PostgreSQL 解析（EXPLAIN VERBOSE：`Seq Scan` → `FullTable`，`Index Scan` → `IndexRange`）
-- [ ] M1-T2.4 SQLite 解析（EXPLAIN QUERY PLAN：`SCAN` → `FullTable`，`SEARCH` → `IndexRange`）
-- [ ] M1-T2.5 Oracle 解析（EXPLAIN PLAN TABLE 行：`OPERATION TABLE ACCESS FULL` → `FullTable`）
-- [ ] M1-T2.6 MSSQL 解析（SET SHOWPLAN_ALL 行：`Table Scan` → `FullTable`，`Index Seek` → `IndexRange`）
-- [ ] M1-T2.7 定义 `pub fn parser_for(dialect: Dialect) -> Box<dyn ExplainParser>` 方言分派
-- [ ] M1-T2.8 定义 `pub enum ExplainError { Unparseable { reason: String }, UnsupportedDialect }`
-- [ ] M1-T2.9 单元测试：5 方言各提供真实 EXPLAIN 样例输出，解析为正确的 `ScanType`/`index`/`rows`
-- [ ] M1-T2.10 边界测试：非 SQL 输入返回 `Unparseable`，不 panic
+- [x] M1-T2.1 定义 `pub trait ExplainParser: Send + Sync { fn parse(&self, raw: &str) -> Result<ExplainPlan, ExplainError>; }`
+- [x] M1-T2.2 MySQL 解析（EXPLAIN 表格行：`type=ALL` → `FullTable`，`key` 为空 → 缺失索引）
+- [x] M1-T2.3 PostgreSQL 解析（EXPLAIN VERBOSE：`Seq Scan` → `FullTable`，`Index Scan` → `IndexRange`）
+- [x] M1-T2.4 SQLite 解析（EXPLAIN QUERY PLAN：`SCAN` → `FullTable`，`SEARCH` → `IndexRange`）
+- [x] M1-T2.5 Oracle 解析（EXPLAIN PLAN TABLE 行：`OPERATION TABLE ACCESS FULL` → `FullTable`）
+- [x] M1-T2.6 MSSQL 解析（SET SHOWPLAN_ALL 行：`Table Scan` → `FullTable`，`Index Seek` → `IndexRange`）
+- [x] M1-T2.7 定义 `pub fn parser_for(dialect: Dialect) -> Box<dyn ExplainParser>` 方言分派
+- [x] M1-T2.8 定义 `pub enum ExplainError { Unparseable { reason: String }, UnsupportedDialect }`
+- [x] M1-T2.9 单元测试：5 方言各提供真实 EXPLAIN 样例输出，解析为正确的 `ScanType`/`index`/`rows`
+- [x] M1-T2.10 边界测试：非 SQL 输入返回 `Unparseable`，不 panic
 
 **验收标准**：5 方言解析器 + 方言分派；真实样例解析测试通过；`cargo test -p sz-orm-explain --features explain-analyzer` 全部通过
 
@@ -213,13 +213,13 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`db-verify` feature 增加可选依赖 `sz-orm-explain`，默认模式（非 db-verify）零改动
 
 **子任务**：
-- [ ] M1-T3.1 `db-verify` feature 增加可选依赖 `sz-orm-explain`（`packages/sz-orm-macros/Cargo.toml`）
-- [ ] M1-T3.2 在 db-verify EXPLAIN 执行后（`packages/sz-orm-macros/src/lib.rs:546` 区域），调用 `sz-orm-explain` 解析结果
-- [ ] M1-T3.3 `ScanType::FullTable` → `proc_macro::Span::warning("full table scan detected, consider adding index")`
-- [ ] M1-T3.4 `index == None` 且 rows 超过阈值（可配 `SZ_ORM_EXPLAIN_ROW_THRESHOLD`，默认 1000）→ 缺失索引警告
-- [ ] M1-T3.5 警告不阻断编译（仅 warning），解析失败降级为无警告（返回 `ExplainError::Unparseable` 不 panic）
-- [ ] M1-T3.6 单元测试：mock EXPLAIN 输出（Seq Scan），编译期输出 warning 文案
-- [ ] M1-T3.7 集成验证：`SZ_ORM_QUERY_VERIFY=1 DATABASE_URL=mysql://root:test123@127.0.0.1:3306/sz_orm_test` 连真库编译，验证全表扫描警告触发
+- [x] M1-T3.1 `db-verify` feature 增加可选依赖 `sz-orm-explain`（`packages/sz-orm-macros/Cargo.toml`）
+- [x] M1-T3.2 在 db-verify EXPLAIN 执行后（`packages/sz-orm-macros/src/lib.rs:546` 区域），调用 `sz-orm-explain` 解析结果
+- [x] M1-T3.3 `ScanType::FullTable` → `proc_macro::Span::warning("full table scan detected, consider adding index")`
+- [x] M1-T3.4 `index == None` 且 rows 超过阈值（可配 `SZ_ORM_EXPLAIN_ROW_THRESHOLD`，默认 1000）→ 缺失索引警告
+- [x] M1-T3.5 警告不阻断编译（仅 warning），解析失败降级为无警告（返回 `ExplainError::Unparseable` 不 panic）
+- [x] M1-T3.6 单元测试：mock EXPLAIN 输出（Seq Scan），编译期输出 warning 文案
+- [x] M1-T3.7 集成验证：`SZ_ORM_QUERY_VERIFY=1 DATABASE_URL=mysql://root:test123@127.0.0.1:3306/sz_orm_test` 连真库编译，验证全表扫描警告触发
 
 **验收标准**：`query!` 宏在 db-verify 模式下输出编译期性能警告（全表扫描/缺失索引）；默认模式行为不变；警告不阻断编译；解析失败降级无警告
 
@@ -234,12 +234,12 @@ M6（最终验证，全部完成后）
 - `packages/sz-orm-explain/src/lib.rs`（导出 regression 模块）
 
 **子任务**：
-- [ ] M1-T4.1 定义 `pub struct PlanSnapshot { pub query_key: String, pub plan: ExplainPlan, pub captured_at: String }`
-- [ ] M1-T4.2 实现 `PlanSnapshot::to_json()` / `from_json()`（基线文件格式，JSON 序列化可版本化管理）
-- [ ] M1-T4.3 实现 `pub fn compare(baseline: &ExplainPlan, current: &ExplainPlan) -> Vec<PlanRegression>`（`pub enum PlanRegression { ScanTypeUpgrade { .. }, IndexLost { .. }, RowsGrowth { before: u64, after: u64 } }`）
-- [ ] M1-T4.4 实现 `pub fn check_regressions(baseline_path: &str, current: &str) -> Result<Vec<PlanRegression>, ExplainError>`：CI 入口
-- [ ] M1-T4.5 单元测试：IndexRange → FullTable 检出 `ScanTypeUpgrade`；索引丢失检出 `IndexLost`；扫描行数增长检出 `RowsGrowth`
-- [ ] M1-T4.6 集成测试：生成基线快照 → 修改查询 → 对比检出回归
+- [x] M1-T4.1 定义 `pub struct PlanSnapshot { pub query_key: String, pub plan: ExplainPlan, pub captured_at: String }`
+- [x] M1-T4.2 实现 `PlanSnapshot::to_json()` / `from_json()`（基线文件格式，JSON 序列化可版本化管理）
+- [x] M1-T4.3 实现 `pub fn compare(baseline: &ExplainPlan, current: &ExplainPlan) -> Vec<PlanRegression>`（`pub enum PlanRegression { ScanTypeUpgrade { .. }, IndexLost { .. }, RowsGrowth { before: u64, after: u64 } }`）
+- [x] M1-T4.4 实现 `pub fn check_regressions(baseline_path: &str, current: &str) -> Result<Vec<PlanRegression>, ExplainError>`：CI 入口
+- [x] M1-T4.5 单元测试：IndexRange → FullTable 检出 `ScanTypeUpgrade`；索引丢失检出 `IndexLost`；扫描行数增长检出 `RowsGrowth`
+- [x] M1-T4.6 集成测试：生成基线快照 → 修改查询 → 对比检出回归
 
 **验收标准**：基线快照 + 回归对比 + CI 入口；检出逻辑测试通过；JSON 序列化可版本化管理
 
@@ -261,15 +261,15 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`query-flamegraph = []`，默认关闭
 
 **子任务**：
-- [ ] M1-T5.1 创建 `sz-orm-flamegraph` 包，`[features] query-flamegraph`，默认关闭，workspace.members 注册
-- [ ] M1-T5.2 定义 `pub struct QueryPhaseTiming { pub phase: Phase, pub start_ms: u64, pub duration_ms: u64 }`（`pub enum Phase { Build, Bind, PoolAcquire, SqlExecute, ResultMap }`）
-- [ ] M1-T5.3 实现 `QueryTracer`：`fn trace_execute<F>(&self, f: F) -> (F::Output, Vec<QueryPhaseTiming>)`，用 `Instant::now()` 分阶段计时
-- [ ] M1-T5.4 实现 `QueryTracer::with_tracer(tracer: &dyn Tracer)`：将阶段耗时写入既有 Tracer span（复用 `packages/sz-orm-tracing/src/lib.rs:129`）
-- [ ] M1-T5.5 实现 `render::to_brendan_gregg(timings: &[QueryPhaseTiming]) -> String`（`phase;start;duration` 格式，兼容 `flamegraph.pl`）
-- [ ] M1-T5.6 实现 `render::to_svg(timings: &[QueryPhaseTiming]) -> String`（内联 SVG 火焰图，无外部依赖）
-- [ ] M1-T5.7 单元测试：各阶段计时总和 = 总耗时（误差 < 1ms）
-- [ ] M1-T5.8 单元测试：Brendan Gregg 输出格式与 `flamegraph.pl` 兼容（首行 header 正确）
-- [ ] M1-T5.9 集成测试：真实查询执行，SVG 输出包含 Build/PoolAcquire/SqlExecute 层
+- [x] M1-T5.1 创建 `sz-orm-flamegraph` 包，`[features] query-flamegraph`，默认关闭，workspace.members 注册
+- [x] M1-T5.2 定义 `pub struct QueryPhaseTiming { pub phase: Phase, pub start_ms: u64, pub duration_ms: u64 }`（`pub enum Phase { Build, Bind, PoolAcquire, SqlExecute, ResultMap }`）
+- [x] M1-T5.3 实现 `QueryTracer`：`fn trace_execute<F>(&self, f: F) -> (F::Output, Vec<QueryPhaseTiming>)`，用 `Instant::now()` 分阶段计时
+- [x] M1-T5.4 实现 `QueryTracer::with_tracer(tracer: &dyn Tracer)`：将阶段耗时写入既有 Tracer span（复用 `packages/sz-orm-tracing/src/lib.rs:129`）
+- [x] M1-T5.5 实现 `render::to_brendan_gregg(timings: &[QueryPhaseTiming]) -> String`（`phase;start;duration` 格式，兼容 `flamegraph.pl`）
+- [x] M1-T5.6 实现 `render::to_svg(timings: &[QueryPhaseTiming]) -> String`（内联 SVG 火焰图，无外部依赖）
+- [x] M1-T5.7 单元测试：各阶段计时总和 = 总耗时（误差 < 1ms）
+- [x] M1-T5.8 单元测试：Brendan Gregg 输出格式与 `flamegraph.pl` 兼容（首行 header 正确）
+- [x] M1-T5.9 集成测试：真实查询执行，SVG 输出包含 Build/PoolAcquire/SqlExecute 层
 
 **验收标准**：阶段计时 + 双格式输出；`flamegraph.pl` 兼容性验证；`cargo test -p sz-orm-flamegraph --features query-flamegraph` 通过
 
@@ -280,12 +280,12 @@ M6（最终验证，全部完成后）
 **任务描述**：M1 里程碑集成测试与门禁验证，确保 REQ-V43-001 全部验收条件满足，默认 feature 行为不变。
 
 **子任务**：
-- [ ] M1-T6.1 集成测试：`query!` 宏 + db-verify + 真库（MySQL `mysql://root:test123@127.0.0.1:3306/sz_orm_test` / PostgreSQL `postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`），全表扫描警告触发
-- [ ] M1-T6.2 集成测试：PlanSnapshot 基线 → 回归检出完整流程
-- [ ] M1-T6.3 运行 `cargo test -p sz-orm-explain --features explain-analyzer` + `cargo test -p sz-orm-flamegraph --features query-flamegraph`
-- [ ] M1-T6.4 `cargo clippy -p sz-orm-explain -p sz-orm-flamegraph --features explain-analyzer,query-flamegraph -- -D warnings`
-- [ ] M1-T6.5 扫描 `grep -rn 'todo!\|unimplemented!\|unreachable!' packages/sz-orm-explain/ packages/sz-orm-flamegraph/` 无占位实现
-- [ ] M1-T6.6 验证默认 feature 行为与 v4.2.0 一致（不启用新 feature，`cargo build --workspace` 行为不变）
+- [x] M1-T6.1 集成测试：`query!` 宏 + db-verify + 真库（MySQL `mysql://root:test123@127.0.0.1:3306/sz_orm_test` / PostgreSQL `postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`），全表扫描警告触发
+- [x] M1-T6.2 集成测试：PlanSnapshot 基线 → 回归检出完整流程
+- [x] M1-T6.3 运行 `cargo test -p sz-orm-explain --features explain-analyzer` + `cargo test -p sz-orm-flamegraph --features query-flamegraph`
+- [x] M1-T6.4 `cargo clippy -p sz-orm-explain -p sz-orm-flamegraph --features explain-analyzer,query-flamegraph -- -D warnings`
+- [x] M1-T6.5 扫描 `grep -rn 'todo!\|unimplemented!\|unreachable!' packages/sz-orm-explain/ packages/sz-orm-flamegraph/` 无占位实现
+- [x] M1-T6.6 验证默认 feature 行为与 v4.2.0 一致（不启用新 feature，`cargo build --workspace` 行为不变）
 
 **验收标准**：M1 集成测试通过；clippy/fmt/占位检查通过；默认 feature 行为不变；五方言 EXPLAIN 解析 + 编译期警告 + 计划回归 + 火焰图（Brendan Gregg 兼容）全部验证
 
@@ -317,14 +317,14 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`n1-lint = ["dep:syn", "dep:serde_json"]`，默认关闭；`syn = { version = "2.0", features = ["full"], optional = true }`
 
 **子任务**：
-- [ ] M2-T1.1 创建 `sz-orm-n1-lint` 包（纯 lib + bin，无需 cdylib），workspace.members 注册
-- [ ] M2-T1.2 `[features] n1-lint = ["dep:syn", "dep:serde_json"]`，默认关闭；依赖 `syn = { version = "2.0", features = ["full"], optional = true }`
-- [ ] M2-T1.3 定义 `#[proc_macro_attribute] pub fn detect_n_plus_one(_attr: TokenStream, item: TokenStream) -> TokenStream`：解析函数体 → 分析 → 生成警告 + 透传原函数
-- [ ] M2-T1.4 实现 `fn analyze_fn(ast: &syn::ItemFn) -> Vec<N1Finding>`（`pub struct N1Finding { pub span_line: usize, pub pattern: N1Pattern, pub message: String }`，`pub enum N1Pattern { QueryInLoop, ConditionalQueryInLoop, MissingEagerLoadHint }`）
-- [ ] M2-T1.5 检测模式一：`for`/`while` 循环体内出现 `QueryBuilder`/`find_by_*` 调用 → `QueryInLoop`
-- [ ] M2-T1.6 检测模式二：循环体内 `if` 分支出现查询调用 → `ConditionalQueryInLoop`
-- [ ] M2-T1.7 检测模式三：循环体内出现 `where_in` 可批量替代的单查询（引用 `packages/sz-orm-core/src/eager_loader.rs`/`find_with_related.rs` 既有能力）→ `MissingEagerLoadHint`
-- [ ] M2-T1.8 生成 `proc_macro::Span::warning` 或 `compile_error!`（默认 warning，`#![allow(n_plus_one)]` 可抑制）
+- [x] M2-T1.1 创建 `sz-orm-n1-lint` 包（纯 lib + bin，无需 cdylib），workspace.members 注册
+- [x] M2-T1.2 `[features] n1-lint = ["dep:syn", "dep:serde_json"]`，默认关闭；依赖 `syn = { version = "2.0", features = ["full"], optional = true }`
+- [x] M2-T1.3 定义 `#[proc_macro_attribute] pub fn detect_n_plus_one(_attr: TokenStream, item: TokenStream) -> TokenStream`：解析函数体 → 分析 → 生成警告 + 透传原函数
+- [x] M2-T1.4 实现 `fn analyze_fn(ast: &syn::ItemFn) -> Vec<N1Finding>`（`pub struct N1Finding { pub span_line: usize, pub pattern: N1Pattern, pub message: String }`，`pub enum N1Pattern { QueryInLoop, ConditionalQueryInLoop, MissingEagerLoadHint }`）
+- [x] M2-T1.5 检测模式一：`for`/`while` 循环体内出现 `QueryBuilder`/`find_by_*` 调用 → `QueryInLoop`
+- [x] M2-T1.6 检测模式二：循环体内 `if` 分支出现查询调用 → `ConditionalQueryInLoop`
+- [x] M2-T1.7 检测模式三：循环体内出现 `where_in` 可批量替代的单查询（引用 `packages/sz-orm-core/src/eager_loader.rs`/`find_with_related.rs` 既有能力）→ `MissingEagerLoadHint`
+- [x] M2-T1.8 生成 `proc_macro::Span::warning` 或 `compile_error!`（默认 warning，`#![allow(n_plus_one)]` 可抑制）
 
 **验收标准**：标注宏可解析函数体 AST；3 种检测模式单元测试通过；默认 warning 不阻断编译；复用既有 N1QueryDetector 检测知识不重复实现
 
@@ -339,12 +339,12 @@ M6（最终验证，全部完成后）
 - `packages/sz-orm-n1-lint/src/batch.rs`（新建）
 
 **子任务**：
-- [ ] M2-T2.1 实现 `batch::scan_dir(path: &str) -> Vec<(String, N1Finding)>`：递归扫描 .rs 文件，用 syn 解析全部函数（不依赖用户标注）
-- [ ] M2-T2.2 `cli/src/main.rs` 新增 `cmd_n1_lint(path: &str, format: &str)` 命令
-- [ ] M2-T2.3 CLI 命令分发新增 `sz-orm n1-lint --path=src --format=table|json`
-- [ ] M2-T2.4 JSON 输出格式（`serde_json` 序列化 findings，可被 CI 消费）
-- [ ] M2-T2.5 单元测试：扫描样例工程（含循环内查询），检出 `QueryInLoop`
-- [ ] M2-T2.6 集成测试：`sz-orm n1-lint --path=packages/sz-orm-n1-lint/tests/fixtures` 输出预期 findings
+- [x] M2-T2.1 实现 `batch::scan_dir(path: &str) -> Vec<(String, N1Finding)>`：递归扫描 .rs 文件，用 syn 解析全部函数（不依赖用户标注）
+- [x] M2-T2.2 `cli/src/main.rs` 新增 `cmd_n1_lint(path: &str, format: &str)` 命令
+- [x] M2-T2.3 CLI 命令分发新增 `sz-orm n1-lint --path=src --format=table|json`
+- [x] M2-T2.4 JSON 输出格式（`serde_json` 序列化 findings，可被 CI 消费）
+- [x] M2-T2.5 单元测试：扫描样例工程（含循环内查询），检出 `QueryInLoop`
+- [x] M2-T2.6 集成测试：`sz-orm n1-lint --path=packages/sz-orm-n1-lint/tests/fixtures` 输出预期 findings
 
 **验收标准**：CLI 命令可用；批量扫描检出循环内查询；JSON 输出可被 CI 消费；`cli/src/main.rs` 修改在 v4.2.0 交付后进行无冲突
 
@@ -355,11 +355,11 @@ M6（最终验证，全部完成后）
 **任务描述**：M2 里程碑集成测试与门禁验证，确保静态/运行时检测交叉一致，默认 feature 行为不变。
 
 **子任务**：
-- [ ] M2-T3.1 集成测试：既有 `N1QueryDetector`（`packages/sz-orm-core/src/entity_graph.rs:641`）与静态检测结果交叉验证（同一样例代码，运行时检测与静态检测发现一致）
-- [ ] M2-T3.2 运行 `cargo test -p sz-orm-n1-lint --features n1-lint`
-- [ ] M2-T3.3 `cargo clippy -p sz-orm-n1-lint --features n1-lint -- -D warnings`
-- [ ] M2-T3.4 扫描 `grep -rn 'todo!\|unimplemented!\|unreachable!' packages/sz-orm-n1-lint/` 无占位实现
-- [ ] M2-T3.5 验证默认 feature 行为不变（`cargo build --workspace` 行为与 v4.2.0 一致）
+- [x] M2-T3.1 集成测试：既有 `N1QueryDetector`（`packages/sz-orm-core/src/entity_graph.rs:641`）与静态检测结果交叉验证（同一样例代码，运行时检测与静态检测发现一致）
+- [x] M2-T3.2 运行 `cargo test -p sz-orm-n1-lint --features n1-lint`
+- [x] M2-T3.3 `cargo clippy -p sz-orm-n1-lint --features n1-lint -- -D warnings`
+- [x] M2-T3.4 扫描 `grep -rn 'todo!\|unimplemented!\|unreachable!' packages/sz-orm-n1-lint/` 无占位实现
+- [x] M2-T3.5 验证默认 feature 行为不变（`cargo build --workspace` 行为与 v4.2.0 一致）
 
 **验收标准**：静态/运行时检测交叉一致；门禁通过；默认行为不变；3 种 N+1 模式检测 + CLI 批量扫描 + JSON 输出全部验证
 
@@ -387,12 +387,12 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`lineage-viz = []`，默认关闭，既有三导出保留不动
 
 **子任务**：
-- [ ] M3-T1.1 `[features] lineage-viz = []`，默认关闭
-- [ ] M3-T1.2 实现 `to_mermaid(&self, graph: &LineageGraph) -> String`（`graph LR` 格式，表/列/服务节点 + 边）
-- [ ] M3-T1.3 实现 `to_graphviz(&self, graph: &LineageGraph) -> String`（`digraph` 格式）
-- [ ] M3-T1.4 实现 `to_html_report(&self, graph: &LineageGraph) -> String`（内联样式 HTML，无外部依赖）
-- [ ] M3-T1.5 单元测试：users→orders→report 链路导出 Mermaid 含 3 节点 2 边
-- [ ] M3-T1.6 单元测试：Graphviz 输出可被 `dot` 语法解析（结构断言）；HTML 含内联样式
+- [x] M3-T1.1 `[features] lineage-viz = []`，默认关闭
+- [x] M3-T1.2 实现 `to_mermaid(&self, graph: &LineageGraph) -> String`（`graph LR` 格式，表/列/服务节点 + 边）
+- [x] M3-T1.3 实现 `to_graphviz(&self, graph: &LineageGraph) -> String`（`digraph` 格式）
+- [x] M3-T1.4 实现 `to_html_report(&self, graph: &LineageGraph) -> String`（内联样式 HTML，无外部依赖）
+- [x] M3-T1.5 单元测试：users→orders→report 链路导出 Mermaid 含 3 节点 2 边
+- [x] M3-T1.6 单元测试：Graphviz 输出可被 `dot` 语法解析（结构断言）；HTML 含内联样式
 
 **验收标准**：3 种格式导出；链路完整性测试通过；`cargo test -p sz-orm-audit --features lineage-viz` 通过；既有 export_dot/export_json/export_graphml 保留不动
 
@@ -407,12 +407,12 @@ M6（最终验证，全部完成后）
 **复用标注**：既有 `migrate_dry_run` `packages/sz-orm-core/src/migration_dry_run.rs:94`（影响分析与 dry-run 联动，DROP 前输出受影响链路）
 
 **子任务**：
-- [ ] M3-T2.1 实现 `pub fn downstream_impact(graph: &LineageGraph, node: &str, depth: usize) -> Vec<ImpactEdge>`（变更影响范围，BFS 深度受限）
-- [ ] M3-T2.2 实现 `pub fn upstream_trace(graph: &LineageGraph, node: &str, depth: usize) -> Vec<ImpactEdge>`（数据来源追溯）
-- [ ] M3-T2.3 定义 `pub struct ImpactEdge { pub from: String, pub to: String, pub via: String }`
-- [ ] M3-T2.4 单元测试：删除 users 表，`downstream_impact` 检出 orders/报表服务受影响
-- [ ] M3-T2.5 单元测试：深度限制（depth=1 只返回直接下游）；环检测（已访问节点不重复遍历，不死循环）
-- [ ] M3-T2.6 集成测试：迁移 dry-run（`packages/sz-orm-core/src/migration_dry_run.rs:94`）与血缘影响分析联动，DROP 前输出受影响链路
+- [x] M3-T2.1 实现 `pub fn downstream_impact(graph: &LineageGraph, node: &str, depth: usize) -> Vec<ImpactEdge>`（变更影响范围，BFS 深度受限）
+- [x] M3-T2.2 实现 `pub fn upstream_trace(graph: &LineageGraph, node: &str, depth: usize) -> Vec<ImpactEdge>`（数据来源追溯）
+- [x] M3-T2.3 定义 `pub struct ImpactEdge { pub from: String, pub to: String, pub via: String }`
+- [x] M3-T2.4 单元测试：删除 users 表，`downstream_impact` 检出 orders/报表服务受影响
+- [x] M3-T2.5 单元测试：深度限制（depth=1 只返回直接下游）；环检测（已访问节点不重复遍历，不死循环）
+- [x] M3-T2.6 集成测试：迁移 dry-run（`packages/sz-orm-core/src/migration_dry_run.rs:94`）与血缘影响分析联动，DROP 前输出受影响链路
 
 **验收标准**：影响分析正确（BFS 深度受限 + 环检测）；与迁移 dry-run 联动测试通过
 
@@ -432,14 +432,14 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`compile-governance = ["dep:sz-orm-masking"]`，默认关闭，治理检查仅在 feature 启用时生效
 
 **子任务**：
-- [ ] M3-T3.1 `sz-orm-core` 新增 `compile-governance` feature（依赖 `sz-orm-masking`），默认关闭
-- [ ] M3-T3.2 `sz-orm-macros` 新增 `#[proc_macro_derive(Governed, attributes(pii, mask))]`：解析 `#[pii]`/`#[mask(strategy = "...")]` 标注
-- [ ] M3-T3.3 编译期检查：`#[pii]` 字段未标注 `#[mask]` → `compile_error!("PII field must declare mask strategy")`
-- [ ] M3-T3.4 编译期检查：`#[mask(strategy = "invalid")]` → `compile_error!`（策略白名单：hash/partial/replace/encrypt）
-- [ ] M3-T3.5 生成运行时治理代码：`fn pii_fields() -> Vec<&'static str>` + `fn mask_policy(field) -> Option<MaskPolicy>`（复用 `sz-orm-masking` 执行脱敏）
-- [ ] M3-T3.6 单元测试：合法标注编译通过；缺 mask 的 PII 字段编译失败
-- [ ] M3-T3.7 单元测试：非法 mask 策略编译失败
-- [ ] M3-T3.8 集成测试：`Governed` 模型通过既有 `access_control.rs` ABAC 检查后，PII 字段输出自动脱敏
+- [x] M3-T3.1 `sz-orm-core` 新增 `compile-governance` feature（依赖 `sz-orm-masking`），默认关闭
+- [x] M3-T3.2 `sz-orm-macros` 新增 `#[proc_macro_derive(Governed, attributes(pii, mask))]`：解析 `#[pii]`/`#[mask(strategy = "...")]` 标注
+- [x] M3-T3.3 编译期检查：`#[pii]` 字段未标注 `#[mask]` → `compile_error!("PII field must declare mask strategy")`
+- [x] M3-T3.4 编译期检查：`#[mask(strategy = "invalid")]` → `compile_error!`（策略白名单：hash/partial/replace/encrypt）
+- [x] M3-T3.5 生成运行时治理代码：`fn pii_fields() -> Vec<&'static str>` + `fn mask_policy(field) -> Option<MaskPolicy>`（复用 `sz-orm-masking` 执行脱敏）
+- [x] M3-T3.6 单元测试：合法标注编译通过；缺 mask 的 PII 字段编译失败
+- [x] M3-T3.7 单元测试：非法 mask 策略编译失败
+- [x] M3-T3.8 集成测试：`Governed` 模型通过既有 `access_control.rs` ABAC 检查后，PII 字段输出自动脱敏
 
 **验收标准**：编译期强制（缺 mask/非法策略 → compile_error）；运行时脱敏复用 sz-orm-masking；默认 feature 行为不变；既有 ABAC/脱敏保留不动
 
@@ -454,11 +454,11 @@ M6（最终验证，全部完成后）
 **复用标注**：既有 `sz-orm-audit` 审计链（报告哈希入链）
 
 **子任务**：
-- [ ] M3-T4.1 实现 `pub fn compliance_report(models: &[&dyn GovernedModel]) -> ComplianceReport`（PII 字段清单 + 脱敏策略 + 保留策略）
-- [ ] M3-T4.2 定义 `pub struct ComplianceReport { pub pii_fields: Vec<PiiFieldEntry>, pub retention_days: Option<u32>, pub generated_at: String }`
-- [ ] M3-T4.3 实现 JSON 输出（可被审计工具消费）
-- [ ] M3-T4.4 单元测试：含 2 个 PII 字段的模型，报告列出字段 + 策略
-- [ ] M3-T4.5 集成测试：与既有 `sz-orm-audit` 审计链联动（报告哈希入链）；审计链写入失败时告警 + 报告标注"audit chain write failed"
+- [x] M3-T4.1 实现 `pub fn compliance_report(models: &[&dyn GovernedModel]) -> ComplianceReport`（PII 字段清单 + 脱敏策略 + 保留策略）
+- [x] M3-T4.2 定义 `pub struct ComplianceReport { pub pii_fields: Vec<PiiFieldEntry>, pub retention_days: Option<u32>, pub generated_at: String }`
+- [x] M3-T4.3 实现 JSON 输出（可被审计工具消费）
+- [x] M3-T4.4 单元测试：含 2 个 PII 字段的模型，报告列出字段 + 策略
+- [x] M3-T4.5 集成测试：与既有 `sz-orm-audit` 审计链联动（报告哈希入链）；审计链写入失败时告警 + 报告标注"audit chain write failed"
 
 **验收标准**：合规报告生成正确；JSON 输出；审计联动测试通过；审计链写入失败降级处理
 
@@ -469,11 +469,11 @@ M6（最终验证，全部完成后）
 **任务描述**：M3 里程碑集成测试与门禁验证，确保 REQ-V43-003 全部验收条件满足，默认 feature 行为不变。
 
 **子任务**：
-- [ ] M3-T5.1 运行 `cargo test -p sz-orm-audit --features lineage-viz` + `cargo test -p sz-orm-core --features compile-governance`
-- [ ] M3-T5.2 `cargo clippy` 相关包 feature 组合 `-D warnings`
-- [ ] M3-T5.3 扫描 `grep -rn 'todo!\|unimplemented!\|unreachable!' packages/sz-orm-audit/src/lineage/ packages/sz-orm-core/src/governance/` 无占位实现
-- [ ] M3-T5.4 验证默认 feature 行为与 v4.2.0 一致（不启用新 feature，`cargo build --workspace` 行为不变）
-- [ ] M3-T5.5 验证 `compile-governance` 与既有 feature 组合编译（`cargo check --workspace --all-targets --all-features`）
+- [x] M3-T5.1 运行 `cargo test -p sz-orm-audit --features lineage-viz` + `cargo test -p sz-orm-core --features compile-governance`
+- [x] M3-T5.2 `cargo clippy` 相关包 feature 组合 `-D warnings`
+- [x] M3-T5.3 扫描 `grep -rn 'todo!\|unimplemented!\|unreachable!' packages/sz-orm-audit/src/lineage/ packages/sz-orm-core/src/governance/` 无占位实现
+- [x] M3-T5.4 验证默认 feature 行为与 v4.2.0 一致（不启用新 feature，`cargo build --workspace` 行为不变）
+- [x] M3-T5.5 验证 `compile-governance` 与既有 feature 组合编译（`cargo check --workspace --all-targets --all-features`）
 
 **验收标准**：门禁通过；feature 组合编译通过；默认行为不变；Mermaid/Graphviz/HTML 血缘导出 + 影响分析 + PII 编译期强制 + 合规报告全部验证
 
@@ -503,11 +503,11 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`adaptive-query = ["dep:sz-orm-observability"]`，默认关闭
 
 **子任务**：
-- [ ] M4-T1.1 创建 `sz-orm-adaptive` 包，workspace.members 注册
-- [ ] M4-T1.2 `[features] adaptive-query = ["dep:sz-orm-observability"]`，默认关闭
-- [ ] M4-T1.3 定义 `pub struct QueryStats { total_executions: AtomicU64, total_rows: AtomicU64, total_time_us: AtomicU64 }` + `record(&self, rows: u64, time_us: u64)`（原子操作无锁采集）
-- [ ] M4-T1.4 实现 `pub fn should_paginate(&self, threshold_rows: u64) -> bool`（avg_rows > threshold，默认 1000）
-- [ ] M4-T1.5 实现 `pub fn should_cache(&self, threshold_ms: u64, min_executions: u64) -> bool`（avg_time > threshold 且执行次数达标）
+- [x] M4-T1.1 创建 `sz-orm-adaptive` 包，workspace.members 注册
+- [x] M4-T1.2 `[features] adaptive-query = ["dep:sz-orm-observability"]`，默认关闭
+- [x] M4-T1.3 定义 `pub struct QueryStats { total_executions: AtomicU64, total_rows: AtomicU64, total_time_us: AtomicU64 }` + `record(&self, rows: u64, time_us: u64)`（原子操作无锁采集）
+- [x] M4-T1.4 实现 `pub fn should_paginate(&self, threshold_rows: u64) -> bool`（avg_rows > threshold，默认 1000）
+- [x] M4-T1.5 实现 `pub fn should_cache(&self, threshold_ms: u64, min_executions: u64) -> bool`（avg_time > threshold 且执行次数达标）
 
 **验收标准**：统计采集 + 决策阈值；单元测试通过；默认关闭；统计采集开销 < 1μs/次
 
@@ -522,14 +522,14 @@ M6（最终验证，全部完成后）
 **复用标注**：既有游标分页 `packages/sz-orm-core/src/cursor_stream.rs`、分页器 `packages/sz-orm-core/src/paginator.rs`、L1 缓存 `packages/sz-orm-core/src/l1_cache.rs`、L2 缓存 `packages/sz-orm-core/src/l2_cache.rs`、计划缓存 `packages/sz-orm-core/src/plan_cache.rs`；既有 AI 离线调优 `packages/sz-orm-ai/src/auto_tuning/pipeline.rs:15`（互补关系，保留不动）
 
 **子任务**：
-- [ ] M4-T2.1 定义 `pub struct AdaptiveExecutor { stats: HashMap<String, QueryStats>, config: AdaptiveConfig }`（`pub struct AdaptiveConfig { pub row_threshold: u64, pub cache_time_ms: u64, pub min_executions: u64 }`）
-- [ ] M4-T2.2 实现 `AdaptiveExecutor::execute(&self, query_key: &str, f: impl FnOnce() -> QueryOutcome) -> QueryOutcome`：记录统计 → 按决策选择执行路径
-- [ ] M4-T2.3 自动游标分页：`should_paginate` 为真时切换到既有游标分页（复用 `packages/sz-orm-core/src/cursor_stream.rs`），返回分页句柄而非全量
-- [ ] M4-T2.4 自动缓存：`should_cache` 为真时结果写入既有 L2 缓存（复用 `packages/sz-orm-core/src/l2_cache.rs`），TTL 按 `cache_time_ms`，默认关闭自动缓存（需显式开启避免脏读）
-- [ ] M4-T2.5 慢查询降级：单次执行超时（`timeout_ms` 可配，默认 5000）返回明确超时错误，不静默丢查询，不无限重试
-- [ ] M4-T2.6 单元测试：模拟统计增长，验证 `should_paginate` 状态翻转
-- [ ] M4-T2.7 单元测试：缓存命中返回缓存结果，统计不重复累加执行时间（仅记录命中次数，避免统计失真）
-- [ ] M4-T2.8 性能测试：统计采集开销 < 1μs/次（AtomicU64 原子操作，无锁）
+- [x] M4-T2.1 定义 `pub struct AdaptiveExecutor { stats: HashMap<String, QueryStats>, config: AdaptiveConfig }`（`pub struct AdaptiveConfig { pub row_threshold: u64, pub cache_time_ms: u64, pub min_executions: u64 }`）
+- [x] M4-T2.2 实现 `AdaptiveExecutor::execute(&self, query_key: &str, f: impl FnOnce() -> QueryOutcome) -> QueryOutcome`：记录统计 → 按决策选择执行路径
+- [x] M4-T2.3 自动游标分页：`should_paginate` 为真时切换到既有游标分页（复用 `packages/sz-orm-core/src/cursor_stream.rs`），返回分页句柄而非全量
+- [x] M4-T2.4 自动缓存：`should_cache` 为真时结果写入既有 L2 缓存（复用 `packages/sz-orm-core/src/l2_cache.rs`），TTL 按 `cache_time_ms`，默认关闭自动缓存（需显式开启避免脏读）
+- [x] M4-T2.5 慢查询降级：单次执行超时（`timeout_ms` 可配，默认 5000）返回明确超时错误，不静默丢查询，不无限重试
+- [x] M4-T2.6 单元测试：模拟统计增长，验证 `should_paginate` 状态翻转
+- [x] M4-T2.7 单元测试：缓存命中返回缓存结果，统计不重复累加执行时间（仅记录命中次数，避免统计失真）
+- [x] M4-T2.8 性能测试：统计采集开销 < 1μs/次（AtomicU64 原子操作，无锁）
 
 **验收标准**：决策执行器完整；复用既有缓存/分页实现（不重写）；性能测试通过；默认关闭自动缓存避免脏读
 
@@ -540,10 +540,10 @@ M6（最终验证，全部完成后）
 **任务描述**：M4 里程碑集成测试与门禁验证，确保 REQ-V43-004 全部验收条件满足，默认 feature 行为不变。
 
 **子任务**：
-- [ ] M4-T3.1 集成测试：真实查询（SQLite）执行 N 次后自动切游标分页
-- [ ] M4-T3.2 集成测试：热点查询自动缓存，命中返回缓存结果；慢查询超时返回明确错误
-- [ ] M4-T3.3 运行 `cargo test -p sz-orm-adaptive --features adaptive-query` + clippy/fmt/占位检查
-- [ ] M4-T3.4 验证默认 feature 行为不变（`cargo build --workspace` 行为与 v4.2.0 一致）
+- [x] M4-T3.1 集成测试：真实查询（SQLite）执行 N 次后自动切游标分页
+- [x] M4-T3.2 集成测试：热点查询自动缓存，命中返回缓存结果；慢查询超时返回明确错误
+- [x] M4-T3.3 运行 `cargo test -p sz-orm-adaptive --features adaptive-query` + clippy/fmt/占位检查
+- [x] M4-T3.4 验证默认 feature 行为不变（`cargo build --workspace` 行为与 v4.2.0 一致）
 
 **验收标准**：集成测试通过；门禁通过；默认行为不变；统计采集 <1μs + 自动分页/缓存决策 + 慢查询降级全部验证
 
@@ -572,9 +572,9 @@ M6（最终验证，全部完成后）
 **feature gate 隔离**：`db-fusion = ["dep:sz-orm-vector", "dep:sz-orm-queue"]`，默认关闭，标记为可选/实验
 
 **子任务**：
-- [ ] M5-T1.1 创建 `sz-orm-fusion` 包，`[features] db-fusion = ["dep:sz-orm-vector", "dep:sz-orm-queue"]`，默认关闭，workspace.members 注册
-- [ ] M5-T1.2 定义 `pub struct FusionConfig { pub primary: Dialect, pub cache: Option<CacheBackend>, pub search: Option<SearchBackend> }`
-- [ ] M5-T1.3 定义 `pub enum CacheBackend { Redis }` / `pub enum SearchBackend { Vector }`（复用既有 `sz-orm-vector` 混合搜索 `packages/sz-orm-vector/src/hybrid_search/searcher.rs:30`）
+- [x] M5-T1.1 创建 `sz-orm-fusion` 包，`[features] db-fusion = ["dep:sz-orm-vector", "dep:sz-orm-queue"]`，默认关闭，workspace.members 注册
+- [x] M5-T1.2 定义 `pub struct FusionConfig { pub primary: Dialect, pub cache: Option<CacheBackend>, pub search: Option<SearchBackend> }`
+- [x] M5-T1.3 定义 `pub enum CacheBackend { Redis }` / `pub enum SearchBackend { Vector }`（复用既有 `sz-orm-vector` 混合搜索 `packages/sz-orm-vector/src/hybrid_search/searcher.rs:30`）
 
 **验收标准**：包创建成功；feature gate 默认关闭；FusionConfig 支持主库 + 缓存 + 搜索后端配置
 
@@ -591,10 +591,10 @@ M6（最终验证，全部完成后）
 **复用标注**：既有 `HybridSearcher` `packages/sz-orm-vector/src/hybrid_search/searcher.rs:30`（三源并行模式复用）
 
 **子任务**：
-- [ ] M5-T2.1 实现 `FusionPlanner::plan(query: &QueryBuilder<M>) -> FusionPlan`：静态分析 WHERE/排序，识别可下推缓存/搜索子句；实验阶段仅支持安全拆分（主键等值 + 缓存键），不安全拆分回退全主库
-- [ ] M5-T2.2 实现 `FusionExecutor::execute(plan: FusionPlan) -> Result<Vec<Row>>`：主库查询 + 缓存/搜索并行执行 + 聚合
-- [ ] M5-T2.3 单元测试：`where_eq` + 缓存键命中 → 主库跳过，返回缓存结果
-- [ ] M5-T2.4 单元测试：主库失败回退（缓存可读）→ 返回缓存结果 + 降级标记，不静默返回脏数据
+- [x] M5-T2.1 实现 `FusionPlanner::plan(query: &QueryBuilder<M>) -> FusionPlan`：静态分析 WHERE/排序，识别可下推缓存/搜索子句；实验阶段仅支持安全拆分（主键等值 + 缓存键），不安全拆分回退全主库
+- [x] M5-T2.2 实现 `FusionExecutor::execute(plan: FusionPlan) -> Result<Vec<Row>>`：主库查询 + 缓存/搜索并行执行 + 聚合
+- [x] M5-T2.3 单元测试：`where_eq` + 缓存键命中 → 主库跳过，返回缓存结果
+- [x] M5-T2.4 单元测试：主库失败回退（缓存可读）→ 返回缓存结果 + 降级标记，不静默返回脏数据
 
 
 **验收标准**：查询拆分/聚合正确；仅安全拆分；主库失败回退 + 降级标记；不静默返回脏数据
@@ -612,9 +612,9 @@ M6（最终验证，全部完成后）
 **复用标注**：既有方言 CDC 捕获器 `packages/sz-orm-queue/src/cdc/capturer.rs:12`（`DialectCapturer` trait，各方言 WAL/Binlog/Trigger/LogMiner 捕获，不重复实现 CDC）
 
 **子任务**：
-- [ ] M5-T3.1 复用既有 CDC（`packages/sz-orm-queue/src/cdc/capturer.rs:12`）做主库→缓存/搜索索引同步
-- [ ] M5-T3.2 编写《db-fusion 实验评估报告》：POC 结果 + 价值判断（转正/废弃建议）+ CDC 同步延迟影响分析
-- [ ] M5-T3.3 门禁验证（`cargo test -p sz-orm-fusion --features db-fusion` + clippy/fmt/占位检查）+ 默认 feature 行为不变
+- [x] M5-T3.1 复用既有 CDC（`packages/sz-orm-queue/src/cdc/capturer.rs:12`）做主库→缓存/搜索索引同步
+- [x] M5-T3.2 编写《db-fusion 实验评估报告》：POC 结果 + 价值判断（转正/废弃建议）+ CDC 同步延迟影响分析
+- [x] M5-T3.3 门禁验证（`cargo test -p sz-orm-fusion --features db-fusion` + clippy/fmt/占位检查）+ 默认 feature 行为不变
 
 **验收标准**：POC 可运行；CDC 同步生效；评估报告给出转正/废弃建议；默认行为不变
 
@@ -634,20 +634,20 @@ M6（最终验证，全部完成后）
 **任务描述**：运行 AGENTS.md 定义的 14 道门禁全量验证，确保 v4.3.0 全部门禁通过，v4.2.0 已验收测试基线不回退。
 
 **子任务**：
-- [ ] M6-T1.1 `cargo fmt --all -- --check`（门禁 1，fmt 格式检查）
-- [ ] M6-T1.2 `cargo check --workspace --all-targets`（门禁 2，编译检查）
-- [ ] M6-T1.3 `cargo clippy --workspace --all-targets -- -D warnings`（门禁 3，clippy 静态分析）
-- [ ] M6-T1.4 `cargo test --workspace -j 2 --no-fail-fast`（门禁 4，单元/集成测试，v4.2.0 基线不回退）
-- [ ] M6-T1.5 `cargo doc --workspace --no-deps --all-features`（门禁 5，文档构建）
-- [ ] M6-T1.6 `cargo audit` + `cargo deny check`（门禁 6，安全审计）
-- [ ] M6-T1.7 `cargo test --workspace -- --ignored`（门禁 7，真实服务集成测试）
-- [ ] M6-T1.8 扫描占位实现 `grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs'`（门禁 8）
-- [ ] M6-T1.9 `scripts/check-sql-injection.ps1`（门禁 9，SQL 注入扫描）
-- [ ] M6-T1.10 `cargo check --workspace --all-targets --all-features`（门禁 10，feature 全组合编译）
-- [ ] M6-T1.11 `git diff --name-only HEAD`（门禁 11，ADR-0001 上游仓库未修改检查）
-- [ ] M6-T1.12 `python scripts/check-doc-consistency.py`（门禁 12，文档与代码一致性检查）
-- [ ] M6-T1.13 `bash scripts/audit-verify.sh <审计报告.md>`（门禁 13，审计证据验证）
-- [ ] M6-T1.14 `python scripts/check-doc-sync.py --diff HEAD`（门禁 14，文档同步更新检查）
+- [x] M6-T1.1 `cargo fmt --all -- --check`（门禁 1，fmt 格式检查）
+- [x] M6-T1.2 `cargo check --workspace --all-targets`（门禁 2，编译检查）
+- [x] M6-T1.3 `cargo clippy --workspace --all-targets -- -D warnings`（门禁 3，clippy 静态分析）
+- [x] M6-T1.4 `cargo test --workspace -j 2 --no-fail-fast`（门禁 4，单元/集成测试，v4.2.0 基线不回退）
+- [x] M6-T1.5 `cargo doc --workspace --no-deps --all-features`（门禁 5，文档构建）
+- [x] M6-T1.6 `cargo audit` + `cargo deny check`（门禁 6，安全审计）
+- [x] M6-T1.7 `cargo test --workspace -- --ignored`（门禁 7，真实服务集成测试）
+- [x] M6-T1.8 扫描占位实现 `grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs'`（门禁 8）
+- [x] M6-T1.9 `scripts/check-sql-injection.ps1`（门禁 9，SQL 注入扫描）
+- [x] M6-T1.10 `cargo check --workspace --all-targets --all-features`（门禁 10，feature 全组合编译）
+- [x] M6-T1.11 `git diff --name-only HEAD`（门禁 11，ADR-0001 上游仓库未修改检查）
+- [x] M6-T1.12 `python scripts/check-doc-consistency.py`（门禁 12，文档与代码一致性检查）
+- [x] M6-T1.13 `bash scripts/audit-verify.sh <审计报告.md>`（门禁 13，审计证据验证）
+- [x] M6-T1.14 `python scripts/check-doc-sync.py --diff HEAD`（门禁 14，文档同步更新检查）
 
 **验收标准**：14 道门禁全部通过；v4.2.0 已验收测试基线不回退
 
@@ -658,11 +658,11 @@ M6（最终验证，全部完成后）
 **任务描述**：更新版本号 v4.2.0 → v4.3.0，同步更新所有相关文档，验证 sz-pay 兼容性。
 
 **子任务**：
-- [ ] M6-T2.1 版本号 v4.2.0 → v4.3.0（`Cargo.toml` workspace.package.version）
-- [ ] M6-T2.2 更新 `docs/API-STABILITY.md`（7 个新 feature 接口为 Experimental 等级）
-- [ ] M6-T2.3 更新 `CHANGELOG.md` / `README.md` / `AGENTS.md`（新包 sz-orm-explain/sz-orm-flamegraph/sz-orm-n1-lint/sz-orm-adaptive/sz-orm-fusion + 7 个 feature 列表）
-- [ ] M6-T2.4 验证 sz-pay 兼容性（不启用新 feature 行为不变，sz-pay 既有测试套件通过）
-- [ ] M6-T2.5 更新 `docs/评估/2026-08-12_v4.2.0_基线评估.md` → 追加 v4.3.0 章节
+- [x] M6-T2.1 版本号 v4.2.0 → v4.3.0（`Cargo.toml` workspace.package.version）
+- [x] M6-T2.2 更新 `docs/API-STABILITY.md`（7 个新 feature 接口为 Experimental 等级）
+- [x] M6-T2.3 更新 `CHANGELOG.md` / `README.md` / `AGENTS.md`（新包 sz-orm-explain/sz-orm-flamegraph/sz-orm-n1-lint/sz-orm-adaptive/sz-orm-fusion + 7 个 feature 列表）
+- [x] M6-T2.4 验证 sz-pay 兼容性（不启用新 feature 行为不变，sz-pay 既有测试套件通过）
+- [x] M6-T2.5 更新 `docs/评估/2026-08-12_v4.2.0_基线评估.md` → 追加 v4.3.0 章节
 
 **验收标准**：版本号更新；文档同步；sz-pay 兼容性验证通过
 
@@ -673,10 +673,10 @@ M6（最终验证，全部完成后）
 **任务描述**：验证 7 个新 feature 与既有 feature（含 v4.2.0 7 个 feature）任意组合编译通过，制定逐步启用计划。
 
 **子任务**：
-- [ ] M6-T3.1 每个 feature 独立编译验证（`cargo build --features sz-orm-macros/explain-analyzer` 等 7 项）
-- [ ] M6-T3.2 feature 组合编译验证（含与 v4.2.0 7 个 feature 的组合，`cargo build --features sz-orm-dtx/cross-lang-dtx,sz-orm-macros/explain-analyzer,...`）
-- [ ] M6-T3.3 全 feature 编译验证（`cargo build --workspace --all-features`）
-- [ ] M6-T3.4 制定逐步启用计划（按 P1→P2→P3 优先级，标注每个 feature 的启用条件与风险）
+- [x] M6-T3.1 每个 feature 独立编译验证（`cargo build --features sz-orm-macros/explain-analyzer` 等 7 项）
+- [x] M6-T3.2 feature 组合编译验证（含与 v4.2.0 7 个 feature 的组合，`cargo build --features sz-orm-dtx/cross-lang-dtx,sz-orm-macros/explain-analyzer,...`）
+- [x] M6-T3.3 全 feature 编译验证（`cargo build --workspace --all-features`）
+- [x] M6-T3.4 制定逐步启用计划（按 P1→P2→P3 优先级，标注每个 feature 的启用条件与风险）
 
 **验收标准**：feature 组合无冲突；全 feature 编译通过；逐步启用计划文档化
 
