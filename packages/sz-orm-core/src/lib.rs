@@ -488,6 +488,8 @@ pub mod cache_coherence;
 pub mod connection_tenant;
 #[cfg(feature = "migration-branch")]
 pub mod migration_branch;
+#[cfg(feature = "process-l1-cache")]
+pub mod process_l1_cache;
 #[cfg(feature = "qb-migration-tool")]
 pub mod qb_migration_fix;
 #[cfg(feature = "qb-migration-tool")]
