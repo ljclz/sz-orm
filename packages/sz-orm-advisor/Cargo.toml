@@ -1,0 +1,30 @@
+[package]
+name = "sz-orm-advisor"
+description = "Query optimization advisor: rule-based suggestions (AddIndex/DropIndex/UsePagination/EnableCache/RewriteQuery/AdjustPoolSize) + intelligence loop"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# v4.4.0 M1：查询自动优化建议引擎（规则匹配生成六种建议）
+query-advisor = ["dep:serde", "dep:serde_json", "dep:sz-orm-explain", "dep:sz-orm-adaptive", "dep:sz-orm-ai"]
+# v4.4.0 M6：查询智能闭环联动（EXPLAIN → 自适应 → 诊断 → 建议 四步闭环）
+query-intelligence-loop = ["query-advisor", "dep:sz-orm-flamegraph", "dep:sz-orm-diagnosis"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+sz-orm-explain = { path = "../sz-orm-explain", version = "4.3.0", optional = true }
+sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "4.3.0", optional = true }
+sz-orm-ai = { path = "../sz-orm-ai", version = "4.3.0", optional = true }
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "4.3.0", optional = true }
+sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "4.3.0", optional = true }
+
+[lints]
+workspace = true

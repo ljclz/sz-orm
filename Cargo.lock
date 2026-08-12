@@ -7534,6 +7534,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-advisor"
+version = "4.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sz-orm-adaptive",
+ "sz-orm-ai",
+ "sz-orm-diagnosis",
+ "sz-orm-explain",
+ "sz-orm-flamegraph",
+]
+
+[[package]]
 name = "sz-orm-ai"
 version = "4.3.0"
 dependencies = [
@@ -7742,6 +7755,16 @@ dependencies = [
  "sz-orm-masking",
  "thiserror 2.0.19",
  "tokio",
+]
+
+[[package]]
+name = "sz-orm-diagnosis"
+version = "4.3.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "sz-orm-adaptive",
+ "sz-orm-flamegraph",
 ]
 
 [[package]]

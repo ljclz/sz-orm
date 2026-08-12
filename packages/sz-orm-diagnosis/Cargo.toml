@@ -1,0 +1,26 @@
+[package]
+name = "sz-orm-diagnosis"
+description = "Slow query auto-diagnosis: phase-based bottleneck localization with root-cause analysis and fix suggestions"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# v4.4.0 M2：慢查询自动诊断报告（分阶段瓶颈定位 + 根因分析 + 修复建议）
+# 注：不依赖 sz-orm-advisor，避免循环依赖。建议联动在 sz-orm-advisor 闭环中串联。
+slow-query-diagnosis = ["dep:serde", "dep:serde_json", "dep:sz-orm-flamegraph", "dep:sz-orm-adaptive"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "4.3.0", optional = true }
+sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "4.3.0", optional = true }
+
+[lints]
+workspace = true
