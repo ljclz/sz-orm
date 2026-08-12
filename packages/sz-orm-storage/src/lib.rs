@@ -97,6 +97,9 @@ pub use real::{OpendalStorage, RealCloudStorage, RealQiniuKodoStorage};
 #[cfg(feature = "s3-sdk")]
 pub mod s3_sdk;
 
+#[cfg(feature = "cost-analysis")]
+pub mod cost;
+
 #[cfg(feature = "s3-sdk")]
 pub use s3_sdk::S3SdkStorage;
 
