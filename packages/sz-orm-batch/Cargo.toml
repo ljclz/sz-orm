@@ -26,6 +26,8 @@ batch-stream = []
 batch-v2 = ["dep:tokio", "dep:futures", "dep:sz-orm-core"]
 # v4.6.0 M3：批量事务原子性保证（Saga/2PC + 事务协调器 + 原子提交/回滚）
 batch-atomic = ["batch-v2", "dep:sz-orm-dtx"]
+# v4.7.0 M3：批量 COPY 协议与并行分片执行（COPY 高速加载 + 并行分片 + 冲突解决）
+copy-parallel-shard = ["batch-atomic"]
 
 [lints]
 workspace = true

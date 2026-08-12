@@ -17,6 +17,8 @@ s3-sdk = ["rust-s3"]
 storage-lifecycle = []
 # v4.6.0 M7：存储成本分析与优化建议（CostAnalyzer + 分层策略 + 冷热数据 + 压缩建议）
 cost-analysis = []
+# v4.7.0 M7：多云成本对比与容量预测（跨 provider 对比 + 趋势预测 + 自动优化执行）
+multicloud-cost-forecast = ["cost-analysis"]
 # 真实云存储：Aliyun OSS / Tencent COS / Huawei OBS / UpYun 基于 OpenDAL，
 # Qiniu Kodo 基于官方 REST API（reqwest + HMAC-SHA1 签名）
 real-cloud = [

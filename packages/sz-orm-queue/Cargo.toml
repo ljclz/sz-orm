@@ -36,6 +36,8 @@ cdc = ["dep:sz-orm-masking"]
 message-tracing = []
 # v4.6.0 M1：死信队列自动重投递（DLX + 退避策略 + 路由策略 + 重投递上限）
 dlx-auto-redelivery = []
+# v4.7.0 M1：消息延迟队列与优先级调度（延迟投递 + 优先级队列 + 定时调度）
+delayed-priority-queue = ["dlx-auto-redelivery"]
 
 [dependencies]
 async-trait = "0.1"

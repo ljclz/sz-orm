@@ -26,6 +26,8 @@ service-mesh = ["dep:sz-orm-limit"]
 query-logging = ["dep:sz-orm-flamegraph", "dep:sz-orm-masking"]
 # v4.6.0 M6：异常检测（AnomalyDetector + 3σ/IQR/Z-Score + 滑动窗口 + 告警）
 anomaly-detection = []
+# v4.7.0 M6：异常自愈与根因分析（自动修复 + RCA + 关联分析）
+anomaly-remediation-rca = ["anomaly-detection"]
 
 [dependencies]
 sz-orm-core = { workspace = true }
