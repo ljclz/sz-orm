@@ -69,8 +69,13 @@ impl QueryTracer {
 
     /// 将阶段耗时写入既有 `sz-orm-tracing` 的 `Tracer` span（需 `query-flamegraph` feature）
     ///
-    /// 每个阶段生成一个独立 span（`{span_name}.{phase}`），阶段耗时通过
-    /// `inject` 读取 span 上下文中的 `duration_ms` 字段关联。
+    /// 每个阶段生成一个独立 span（`{span_name}.{phase}`），span 的生命周期
+    /// 对应阶段执行区间。阶段耗时（`duration_ms`）通过返回的
+    /// [`QueryPhaseTiming`] 列表关联，调用方可按需用 `inject` 提取 span 上下文。
+    ///
+    /// 注意：`Tracer` trait 无字段设置 API，本方法仅记录 span 边界
+    /// （start/end），不写入 `duration_ms` 字段。如需关联耗时，
+    /// 调用方应在 `end_span` 后自行用 timings 列表关联。
     #[cfg(feature = "query-flamegraph")]
     pub fn with_tracer(
         tracer: &dyn sz_orm_tracing::Tracer,
@@ -79,10 +84,6 @@ impl QueryTracer {
     ) {
         for t in timings {
             let span = tracer.start_span(&format!("{span_name}.{}", t.phase.as_str()));
-            // 阶段耗时写入 span 字段后立即结束
-            let mut fields = std::collections::HashMap::new();
-            fields.insert("duration_ms".to_string(), t.duration_ms.to_string());
-            let _ = fields; // 字段随 span 生命周期记录
             tracer.end_span(span);
         }
     }

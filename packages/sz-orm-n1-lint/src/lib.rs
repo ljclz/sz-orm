@@ -124,12 +124,22 @@ pub fn scan_dir(path: &Path) -> Vec<(String, Vec<N1Finding>)> {
 
 /// 深度遍历块，检测循环内查询调用
 fn scan_block(block: &syn::Block, findings: &mut Vec<N1Finding>, in_loop: bool) {
+    scan_block_impl(block, findings, in_loop, false);
+}
+
+/// 深度遍历块（带条件分支标记）
+fn scan_block_impl(
+    block: &syn::Block,
+    findings: &mut Vec<N1Finding>,
+    in_loop: bool,
+    in_conditional: bool,
+) {
     for stmt in &block.stmts {
         match stmt {
-            syn::Stmt::Expr(expr, _) => scan_expr(expr, findings, in_loop),
+            syn::Stmt::Expr(expr, _) => scan_expr_impl(expr, findings, in_loop, in_conditional),
             syn::Stmt::Local(local) => {
                 if let Some(init) = &local.init {
-                    scan_expr(&init.expr, findings, in_loop);
+                    scan_expr_impl(&init.expr, findings, in_loop, in_conditional);
                 }
             }
             _ => {}
@@ -137,31 +147,35 @@ fn scan_block(block: &syn::Block, findings: &mut Vec<N1Finding>, in_loop: bool) 
     }
 }
 
-/// 遍历表达式树：循环 → 递归体内扫描（in_loop=true）；if/else 分支 → 条件标记；
-/// 查询调用 → 按当前上下文记录
-fn scan_expr(expr: &syn::Expr, findings: &mut Vec<N1Finding>, in_loop: bool) {
+/// 遍历表达式树（带条件分支标记）
+fn scan_expr_impl(
+    expr: &syn::Expr,
+    findings: &mut Vec<N1Finding>,
+    in_loop: bool,
+    in_conditional: bool,
+) {
     match expr {
         syn::Expr::ForLoop(for_loop) => {
-            scan_block(&for_loop.body, findings, true);
+            scan_block_impl(&for_loop.body, findings, true, false);
         }
         syn::Expr::While(while_loop) => {
-            scan_block(&while_loop.body, findings, true);
+            scan_block_impl(&while_loop.body, findings, true, false);
         }
         syn::Expr::If(if_expr) => {
-            // 条件分支中的查询：随 in_loop 上下文判定（已在循环内则为 QueryInLoop）
-            scan_block(&if_expr.then_branch, findings, in_loop);
+            scan_block_impl(&if_expr.then_branch, findings, in_loop, true);
             if let Some((_, else_branch)) = &if_expr.else_branch {
-                scan_expr(else_branch, findings, in_loop);
+                scan_expr_impl(else_branch, findings, in_loop, true);
             }
         }
         syn::Expr::Block(block_expr) => {
-            scan_block(&block_expr.block, findings, in_loop);
+            scan_block_impl(&block_expr.block, findings, in_loop, in_conditional);
         }
         syn::Expr::MethodCall(method_call) => {
-            // 查询方法调用检测
             let method = method_call.method.to_string();
             if is_query_method(&method) {
-                let pattern = if in_loop {
+                let pattern = if in_loop && in_conditional {
+                    N1Pattern::ConditionalQueryInLoop
+                } else if in_loop {
                     N1Pattern::QueryInLoop
                 } else {
                     N1Pattern::MissingEagerLoadHint
@@ -181,14 +195,12 @@ fn scan_expr(expr: &syn::Expr, findings: &mut Vec<N1Finding>, in_loop: bool) {
                     ),
                 });
             }
-            // 递归：方法调用链的 receiver 与参数
-            scan_expr(&method_call.receiver, findings, in_loop);
+            scan_expr_impl(&method_call.receiver, findings, in_loop, in_conditional);
             for arg in &method_call.args {
-                scan_expr(arg, findings, in_loop);
+                scan_expr_impl(arg, findings, in_loop, in_conditional);
             }
         }
         syn::Expr::Call(call) => {
-            // 自由函数查询调用（find_by_* 等）
             if let syn::Expr::Path(path_expr) = &*call.func {
                 let name = path_expr
                     .path
@@ -203,12 +215,15 @@ fn scan_expr(expr: &syn::Expr, findings: &mut Vec<N1Finding>, in_loop: bool) {
                         .last()
                         .map(|s| s.ident.span())
                         .unwrap_or_else(proc_macro2::Span::call_site);
+                    let pattern = if in_loop && in_conditional {
+                        N1Pattern::ConditionalQueryInLoop
+                    } else if in_loop {
+                        N1Pattern::QueryInLoop
+                    } else {
+                        N1Pattern::MissingEagerLoadHint
+                    };
                     findings.push(N1Finding {
-                        pattern: if in_loop {
-                            N1Pattern::QueryInLoop
-                        } else {
-                            N1Pattern::MissingEagerLoadHint
-                        },
+                        pattern,
                         file: String::new(),
                         line: span.start().line,
                         message: format!(
@@ -223,29 +238,36 @@ fn scan_expr(expr: &syn::Expr, findings: &mut Vec<N1Finding>, in_loop: bool) {
                 }
             }
             for arg in &call.args {
-                scan_expr(arg, findings, in_loop);
+                scan_expr_impl(arg, findings, in_loop, in_conditional);
             }
         }
         syn::Expr::Closure(closure) => {
-            scan_expr(&closure.body, findings, in_loop);
+            scan_expr_impl(&closure.body, findings, in_loop, in_conditional);
         }
-        // 包裹类型：递归进入内部表达式（.await? / 括号 / 引用 / 一元运算等）
-        syn::Expr::Try(try_expr) => scan_expr(&try_expr.expr, findings, in_loop),
-        syn::Expr::Await(await_expr) => scan_expr(&await_expr.base, findings, in_loop),
-        syn::Expr::Paren(paren) => scan_expr(&paren.expr, findings, in_loop),
-        syn::Expr::Group(group) => scan_expr(&group.expr, findings, in_loop),
-        syn::Expr::Reference(reference) => scan_expr(&reference.expr, findings, in_loop),
-        syn::Expr::Unary(unary) => scan_expr(&unary.expr, findings, in_loop),
-        syn::Expr::Cast(cast) => scan_expr(&cast.expr, findings, in_loop),
-        syn::Expr::Let(let_expr) => scan_expr(&let_expr.expr, findings, in_loop),
+        syn::Expr::Try(try_expr) => {
+            scan_expr_impl(&try_expr.expr, findings, in_loop, in_conditional)
+        }
+        syn::Expr::Await(await_expr) => {
+            scan_expr_impl(&await_expr.base, findings, in_loop, in_conditional)
+        }
+        syn::Expr::Paren(paren) => scan_expr_impl(&paren.expr, findings, in_loop, in_conditional),
+        syn::Expr::Group(group) => scan_expr_impl(&group.expr, findings, in_loop, in_conditional),
+        syn::Expr::Reference(reference) => {
+            scan_expr_impl(&reference.expr, findings, in_loop, in_conditional)
+        }
+        syn::Expr::Unary(unary) => scan_expr_impl(&unary.expr, findings, in_loop, in_conditional),
+        syn::Expr::Cast(cast) => scan_expr_impl(&cast.expr, findings, in_loop, in_conditional),
+        syn::Expr::Let(let_expr) => {
+            scan_expr_impl(&let_expr.expr, findings, in_loop, in_conditional)
+        }
         syn::Expr::Tuple(tuple) => {
             for e in &tuple.elems {
-                scan_expr(e, findings, in_loop);
+                scan_expr_impl(e, findings, in_loop, in_conditional);
             }
         }
         syn::Expr::Array(array) => {
             for e in &array.elems {
-                scan_expr(e, findings, in_loop);
+                scan_expr_impl(e, findings, in_loop, in_conditional);
             }
         }
         _ => {}
@@ -318,7 +340,7 @@ fn process(users: Vec<User>) {
 "#;
         let findings = analyze_str(code, "test.rs");
         assert_eq!(findings.len(), 1);
-        assert_eq!(findings[0].pattern, N1Pattern::QueryInLoop);
+        assert_eq!(findings[0].pattern, N1Pattern::ConditionalQueryInLoop);
     }
 
     #[test]

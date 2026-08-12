@@ -12,7 +12,7 @@
 //! baseline.save("plans/baseline.json")?;
 //!
 //! // 2. 对比当前计划
-//! let regressions = sz_orm_explain::regression::check_regressions("plans/baseline.json", current_json)?;
+//! let regressions = sz_orm_explain::regression::check_regressions("plans/baseline.json", current_json, 2)?;
 //! ```
 
 use crate::ExplainPlan;
@@ -155,16 +155,20 @@ fn severity(scan: crate::ScanType) -> u8 {
 }
 
 /// CI 入口：读取基线 JSON，对比当前计划 JSON，返回回归列表
+///
+/// `rows_growth_factor` 为行数增长阈值倍数（如 2 表示当前行数超过基线 2 倍时报告 `RowsGrowth`）。
+/// 建议值：2（保守）、3（常规）、5（宽松）。
 pub fn check_regressions(
     baseline_json: &str,
     current_json: &str,
+    rows_growth_factor: u64,
 ) -> Result<Vec<PlanRegression>, serde_json::Error> {
     let baseline: PlanBaseline = serde_json::from_str(baseline_json)?;
     let current: PlanBaseline = serde_json::from_str(current_json)?;
     let mut regressions = Vec::new();
     for (key, base) in &baseline.snapshots {
         if let Some(cur) = current.snapshots.get(key) {
-            regressions.extend(compare(&base.plan, &cur.plan, key, 2));
+            regressions.extend(compare(&base.plan, &cur.plan, key, rows_growth_factor));
         }
     }
     Ok(regressions)
@@ -285,7 +289,7 @@ mod tests {
             "q1",
             plan(ScanType::FullTable, None, 1150),
         ));
-        let regs = check_regressions(&base.to_json().unwrap(), &cur.to_json().unwrap()).unwrap();
+        let regs = check_regressions(&base.to_json().unwrap(), &cur.to_json().unwrap(), 2).unwrap();
         // ScanTypeUpgrade + IndexLost + RowsGrowth（1150 > 10*2）共 3 项
         assert_eq!(regs.len(), 3);
         assert!(regs
@@ -295,6 +299,32 @@ mod tests {
             .iter()
             .any(|r| matches!(r, PlanRegression::IndexLost { .. })));
         assert!(regs
+            .iter()
+            .any(|r| matches!(r, PlanRegression::RowsGrowth { .. })));
+    }
+
+    #[test]
+    fn check_regressions_configurable_threshold() {
+        let mut base = PlanBaseline::default();
+        base.upsert(PlanSnapshot::new(
+            "q1",
+            plan(ScanType::IndexRange, Some("idx"), 100),
+        ));
+        let mut cur = PlanBaseline::default();
+        cur.upsert(PlanSnapshot::new(
+            "q1",
+            plan(ScanType::IndexRange, Some("idx"), 300),
+        ));
+        // factor=2: 300 > 100*2 → RowsGrowth
+        let regs_strict =
+            check_regressions(&base.to_json().unwrap(), &cur.to_json().unwrap(), 2).unwrap();
+        assert!(regs_strict
+            .iter()
+            .any(|r| matches!(r, PlanRegression::RowsGrowth { .. })));
+        // factor=5: 300 <= 100*5 → 无 RowsGrowth
+        let regs_loose =
+            check_regressions(&base.to_json().unwrap(), &cur.to_json().unwrap(), 5).unwrap();
+        assert!(!regs_loose
             .iter()
             .any(|r| matches!(r, PlanRegression::RowsGrowth { .. })));
     }
