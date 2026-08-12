@@ -17,6 +17,9 @@ pub mod cdc;
 #[cfg(feature = "message-tracing")]
 pub mod message_tracing;
 
+#[cfg(feature = "dlx-auto-redelivery")]
+pub mod dlx;
+
 pub mod activemq;
 pub mod kafka;
 pub mod nats;

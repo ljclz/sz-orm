@@ -477,6 +477,35 @@ impl InMemoryQueue {
         None
     }
 
+    /// 收集所有 topic 的死信消息（用于 DLX 自动重投递）
+    ///
+    /// 返回所有死信队列中消息的克隆副本，不修改原队列。
+    pub async fn collect_all_dead_letters(&self) -> Vec<Message> {
+        let inner = self.inner.read().await;
+        let mut result = Vec::new();
+        for dq in inner.dead_letters.values() {
+            for msg in dq {
+                result.push(msg.clone());
+            }
+        }
+        result
+    }
+
+    /// 从死信队列中移除指定消息（用于 DLX 自动重投递）
+    ///
+    /// 在所有 topic 的死信队列中查找指定 `message_id` 并移除。
+    /// 返回 `true` 表示找到并移除，`false` 表示未找到。
+    pub async fn remove_dead_letter(&self, message_id: &str) -> bool {
+        let mut inner = self.inner.write().await;
+        for dq in inner.dead_letters.values_mut() {
+            if let Some(pos) = dq.iter().position(|m| m.id == message_id) {
+                dq.remove(pos);
+                return true;
+            }
+        }
+        false
+    }
+
     /// 将死信消息重新放回原 topic 队列（重置 retry_count = 0）
     ///
     /// 在所有 topic 的死信队列中查找指定 `message_id`。
