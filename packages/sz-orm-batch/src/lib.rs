@@ -20,6 +20,9 @@ pub mod dialect;
 #[cfg(feature = "batch-v2")]
 pub mod executor;
 
+#[cfg(feature = "batch-atomic")]
+pub mod atomic;
+
 #[cfg(feature = "batch-v2")]
 pub use copy::CopyProtocolExecutor;
 #[cfg(feature = "batch-v2")]
