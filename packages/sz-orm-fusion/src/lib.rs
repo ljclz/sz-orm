@@ -22,17 +22,29 @@
 //! assert!(!out.degraded);
 //! ```
 
+#[cfg(feature = "db-fusion-v2")]
+pub mod cdc_sync;
 #[cfg(feature = "db-fusion")]
 pub mod executor;
+#[cfg(feature = "db-fusion-v2")]
+pub mod migration;
 #[cfg(feature = "db-fusion")]
 pub mod plan;
 #[cfg(feature = "db-fusion-v2")]
 pub mod ttl_cache;
+#[cfg(feature = "db-fusion-v2")]
+pub mod vector_pushdown;
 
+#[cfg(feature = "db-fusion-v2")]
+pub use cdc_sync::{CdcSyncCoordinator, SyncOutcome};
 #[cfg(feature = "db-fusion")]
 #[allow(deprecated)]
 pub use executor::{FusionCache, FusionExecutor, FusionOutcome, MemoryFusionCache};
+#[cfg(feature = "db-fusion-v2")]
+pub use migration::{migration_guide, migration_steps, MigrationStep};
 #[cfg(feature = "db-fusion")]
 pub use plan::{FusionPlan, FusionPlanner, FusionQuery, PlanStep};
 #[cfg(feature = "db-fusion-v2")]
 pub use ttl_cache::TtlFusionCache;
+#[cfg(feature = "db-fusion-v2")]
+pub use vector_pushdown::{VectorPushdownExecutor, VectorPushdownOutcome};
