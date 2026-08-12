@@ -7,6 +7,7 @@ use crate::error::DbError;
 use std::path::PathBuf;
 
 /// 数据库迁移定义
+#[derive(Clone)]
 pub struct Migration {
     /// 版本号
     pub version: String,

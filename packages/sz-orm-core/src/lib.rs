@@ -497,6 +497,8 @@ pub mod relation_trait;
 pub mod repository;
 pub mod result_map;
 pub mod retry;
+#[cfg(feature = "zero-downtime-rollback")]
+pub mod rollback_zero_downtime;
 #[cfg(feature = "schema-diff-viz")]
 pub mod schema_diff_viz;
 pub mod schema_gen;
