@@ -5,6 +5,41 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [4.5.0] — 2026-08-12
+
+### 概述
+
+v4.5.0 是 SZ-ORM 的数据访问层高吞吐版本，新增 3 项能力，全部通过 feature gate 隔离（默认关闭，无 Breaking Change）：并行查询执行器、批量 INSERT/UPDATE/DELETE 优化、异步流式结果集。
+
+### 新增能力（3 个 feature gate，默认关闭）
+
+| feature gate | 所属包 | 能力 |
+|-------------|--------|------|
+| `parallel-query` | sz-orm-parallel（新包） | 并行查询执行器：Semaphore 并发控制 + 超时 + 三种合并策略（Concat/Map/Union）+ 三种失败策略（Abort/Skip/Collect）+ DefaultLike 降级 |
+| `batch-v2` | sz-orm-batch | 批量 INSERT/UPDATE/DELETE 优化：五方言 SQL 生成（BatchDialect）+ 事务边界（RollbackStrategy 三策略）+ PG COPY 协议 + 批量删除 + 进度回调 |
+| `stream-resultset` | sz-orm-stream（新包） | 异步流式结果集：futures::stream::unfold 实现 Stream trait + 三种分页策略（Keyset/LimitOffset/ServerCursor）+ 无锁背压（AtomicUsize + Notify） |
+
+### 新增包
+
+sz-orm-parallel / sz-orm-stream（2 个，工作空间成员 58 → 60）
+
+### 里程碑完成情况
+
+| 里程碑 | 名称 | 状态 |
+|--------|------|------|
+| M0 | 文档基线与准备 | ✅ |
+| M1 | 并行查询执行器 | ✅ |
+| M2 | 批量 INSERT/UPDATE/DELETE 优化 | ✅ |
+| M3 | 异步流式结果集 | ✅ |
+| M4 | 集成验证与文档同步 | ✅ |
+
+### 测试
+
+- 新增 89 个测试，全工作空间测试通过
+- sz-orm-parallel: 27 tests（parallel-query feature）
+- sz-orm-batch: 26 tests（batch-v2 feature，含 14 dialect + 8 delete + 10 executor + 12 copy，部分在默认 feature 下）
+- sz-orm-stream: 36 tests（stream-resultset feature，含 8 config + 10 keyset + 9 backpressure + 9 result_set）
+
 ## [4.4.0] — 2026-08-12
 
 ### 概述
