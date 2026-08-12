@@ -34,6 +34,8 @@ prod-redis-tls = []
 cdc = ["dep:sz-orm-masking"]
 # v4.1.0：消息轨迹追踪（采样 + 脱敏 + 端到端关联）
 message-tracing = []
+# v4.6.0 M1：死信队列自动重投递（DLX + 退避策略 + 路由策略 + 重投递上限）
+dlx-auto-redelivery = []
 
 [dependencies]
 async-trait = "0.1"

@@ -14,6 +14,7 @@ categories.workspace = true
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 sz-orm-core = { path = "../sz-orm-core", version = "4.5.0", optional = true }
+sz-orm-dtx = { path = "../sz-orm-dtx", version = "4.5.0", optional = true }
 tokio = { version = "1.40", features = ["full"], optional = true }
 futures = { version = "0.3", optional = true }
 
@@ -23,6 +24,8 @@ default = []
 batch-stream = []
 # v4.5.0 M2：批量 INSERT/UPDATE/DELETE 优化（异步执行器 + 五方言 + 事务回滚 + PG COPY）
 batch-v2 = ["dep:tokio", "dep:futures", "dep:sz-orm-core"]
+# v4.6.0 M3：批量事务原子性保证（Saga/2PC + 事务协调器 + 原子提交/回滚）
+batch-atomic = ["batch-v2", "dep:sz-orm-dtx"]
 
 [lints]
 workspace = true

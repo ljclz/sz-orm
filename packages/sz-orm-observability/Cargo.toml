@@ -24,6 +24,8 @@ prod-metrics-acl = ["dep:base64", "dep:subtle"]
 service-mesh = ["dep:sz-orm-limit"]
 # v4.4.0 M4：结构化查询日志（QueryLogger + 采样率 + 级别控制 + 参数脱敏）
 query-logging = ["dep:sz-orm-flamegraph", "dep:sz-orm-masking"]
+# v4.6.0 M6：异常检测（AnomalyDetector + 3σ/IQR/Z-Score + 滑动窗口 + 告警）
+anomaly-detection = []
 
 [dependencies]
 sz-orm-core = { workspace = true }

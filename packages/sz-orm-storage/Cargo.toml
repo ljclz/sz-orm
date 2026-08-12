@@ -15,6 +15,8 @@ default = []
 s3-sdk = ["rust-s3"]
 # v4.1.0：存储生命周期管理（分层 + 过期清理 + 策略引擎）
 storage-lifecycle = []
+# v4.6.0 M7：存储成本分析与优化建议（CostAnalyzer + 分层策略 + 冷热数据 + 压缩建议）
+cost-analysis = []
 # 真实云存储：Aliyun OSS / Tencent COS / Huawei OBS / UpYun 基于 OpenDAL，
 # Qiniu Kodo 基于官方 REST API（reqwest + HMAC-SHA1 签名）
 real-cloud = [
