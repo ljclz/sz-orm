@@ -5,6 +5,35 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [4.3.0] — 2026-08-12
+
+### 概述
+
+v4.3.0 是 SZ-ORM 的查询智能与数据治理增强版本，新增 6 项能力，全部通过 feature gate 隔离（默认关闭，无 Breaking Change）：编译期 EXPLAIN 分析、查询性能火焰图、N+1 静态检测、数据血缘可视化、编译期数据治理、自适应查询优化器；另含多数据库融合查询 POC（`db-fusion`，实验性，转正建议见评估文档）。
+
+### 新增能力（7 个 feature gate，默认关闭）
+
+| feature gate | 所属包 | 能力 |
+|-------------|--------|------|
+| `explain-analyzer` | sz-orm-explain（新包）+ sz-orm-macros | `query!` 宏 db-verify 模式编译期解析 EXPLAIN，检测全表扫描/缺失索引并输出编译期警告（MySQL/PostgreSQL/SQLite 真库验证）；执行计划基线快照 + CI 回归检测 |
+| `query-flamegraph` | sz-orm-flamegraph（新包） | 查询分阶段计时（构建/绑定/连接池/SQL 执行/结果映射）+ Brendan Gregg 折叠格式与 SVG 火焰图输出 |
+| `n1-lint` | sz-orm-n1-lint（新包）+ sz-orm-macros + cli | N+1 静态检测：`#[detect_n_plus_one]` 标注宏编译期警告 + `sz-orm n1-lint --path` CLI 批量扫描（table/JSON 双格式），与运行时 `N1QueryDetector` 交叉验证 |
+| `lineage-viz` | sz-orm-audit | 数据血缘可视化：Mermaid/HTML 导出 + 带深度限制的影响分析（downstream/upstream） |
+| `compile-governance` | sz-orm-core + sz-orm-macros | 编译期数据治理：`#[derive(Governed)]` PII 标注强制（缺 mask/非法策略编译失败）+ 合规报告（GDPR 清单 JSON） |
+| `adaptive-query` | sz-orm-adaptive（新包） | 运行时自适应查询：原子统计 + 自动分页/热点缓存决策（缓存默认关闭防脏读） |
+| `db-fusion` | sz-orm-fusion（新包） | 多数据库融合查询 POC：缓存键下推 + 主库降级回退（实验性，转正建议见 `docs/评估/2026-08-12_db-fusion实验评估.md`） |
+
+### 新增包
+
+sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint（5 个，工作空间成员 55 → 56）
+
+### 其他
+
+- 文档基线：8 份评估文档勘误（虚构测试数/“88 ZST”/“crates.io 仅 1 包”等修正）+ v4.2.0 基线评估报告（audit-verify 14/14）
+- 修复：`verify_columns_postgres` 列名大小写（TABLE_NAME → 按索引），PG 路径 query! db-verify 可用
+- 适配：MySQL 9.6 树形 EXPLAIN 输出格式
+- 新增约 100 个测试，全工作空间约 7,000 个测试通过
+
 ## [4.2.0] — 2026-08-12
 
 ### 概述

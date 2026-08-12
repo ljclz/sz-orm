@@ -385,6 +385,6 @@ fn compute(list: Vec<i32>) -> i32 {
             !results.iter().any(|(path, _)| path.contains("target")),
             "target dir must be skipped"
         );
-        let _ = std::fs::remove_dir_all(&fixture_dir());
+        let _ = std::fs::remove_dir_all(fixture_dir());
     }
 }

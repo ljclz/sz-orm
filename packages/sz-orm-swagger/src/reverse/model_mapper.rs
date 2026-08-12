@@ -364,7 +364,7 @@ mod tests {
         let schema = make_user_schema();
         let obj = match &schema {
             Schema::Object(o) => o,
-            _ => unreachable!(),
+            _ => panic!("test_extract_fields: expected Object schema"),
         };
         let fields = SchemaToModelMapper::extract_fields(obj);
         assert_eq!(fields.len(), 3);

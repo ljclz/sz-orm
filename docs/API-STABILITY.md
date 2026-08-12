@@ -59,6 +59,7 @@ SZ-ORM 将公共 API 按稳定性分为三层：
   - `sz-orm-config`：真实 Consul/Nacos 客户端（v3.4.0 `real-consul`/`real-nacos` feature）
   - `Connection` trait 的新增方法（`execute_with_params`、`query_with_params` 等）
   - v3.4.0 性能优化 feature（`perf-smallstring`/`perf-enum-dispatch`/`perf-zero-copy-l2`/`perf-box-str`）
+  - v4.3.0 新增 feature gate 接口（`explain-analyzer`/`query-flamegraph`/`n1-lint`/`lineage-viz`/`compile-governance`/`adaptive-query`/`db-fusion`）——新能力处于 Experimental 等级，MINOR 版本可能调整
   - 各扩展包中标注 `#[doc = "Experimental"]` 的 API
 
 ### Tier 3 — 内部不稳定 (Internal)
