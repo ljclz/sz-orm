@@ -76,7 +76,7 @@ deadpool-postgres = "0.12"
 metrics = "0.23"
 # 配合 .trae/skills/sz-orm-chaos-pool（资源泄漏检测）
 jemallocator = "0.5"
-sz-orm-core = { version = "4.0.0", path = "packages/sz-orm-core" }
+sz-orm-core = { version = "4.6.0", path = "packages/sz-orm-core" }
 sz-orm-ai = { version = "4.0.0", path = "packages/sz-orm-ai" }
 sz-orm-oracle = { version = "4.0.0", path = "packages/sz-orm-oracle" }
 sz-orm-mssql = { version = "4.0.0", path = "packages/sz-orm-mssql" }
