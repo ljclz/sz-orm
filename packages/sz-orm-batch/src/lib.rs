@@ -11,6 +11,27 @@
 #[cfg(feature = "batch-stream")]
 pub mod stream;
 
+#[cfg(feature = "batch-v2")]
+pub mod copy;
+#[cfg(feature = "batch-v2")]
+pub mod delete;
+#[cfg(feature = "batch-v2")]
+pub mod dialect;
+#[cfg(feature = "batch-v2")]
+pub mod executor;
+
+#[cfg(feature = "batch-v2")]
+pub use copy::CopyProtocolExecutor;
+#[cfg(feature = "batch-v2")]
+pub use delete::{batch_delete, BatchDeleteError, BatchDeleteRequest, BatchDeleteResult};
+#[cfg(feature = "batch-v2")]
+pub use dialect::BatchDialect;
+#[cfg(feature = "batch-v2")]
+pub use executor::{
+    BatchExecutionResult, BatchExecutor, BatchExecutorConfig, BatchExecutorError,
+    ChunkExecutionDetail,
+};
+
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
@@ -51,6 +72,12 @@ pub trait BatchOperations: Send + Sync {
 pub enum UpsertMode {
     MysqlOnDuplicate,
     PostgresOnConflict,
+    #[cfg(feature = "batch-v2")]
+    SqliteOnConflict,
+    #[cfg(feature = "batch-v2")]
+    OracleMerge,
+    #[cfg(feature = "batch-v2")]
+    MssqlMerge,
 }
 
 /// 默认批量操作实现。生成多值 INSERT、CASE WHEN UPDATE、ON CONFLICT/ON DUPLICATE UPSERT。
@@ -174,7 +201,7 @@ impl DefaultBatchOps {
     /// v1.2.1 修复 High H-3（CWE-89 SQL 注入）：原实现未转义列名中的反引号，
     /// 当 JSON 数据来源不可信（如直接接受 API 请求体）时，攻击者可通过
     /// JSON key 注入 SQL。MySQL 反引号转义规则：` -> ``（双反引号）。
-    fn quote(name: &str) -> String {
+    pub(crate) fn quote(name: &str) -> String {
         let escaped = name.replace('`', "``");
         format!("`{}`", escaped)
     }
