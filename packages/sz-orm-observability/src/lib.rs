@@ -62,6 +62,9 @@ pub mod service_mesh;
 #[cfg(feature = "query-logging")]
 pub mod query_logger;
 
+#[cfg(feature = "anomaly-detection")]
+pub mod anomaly;
+
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{
     LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,
