@@ -65,6 +65,10 @@ pub mod query_logger;
 #[cfg(feature = "anomaly-detection")]
 pub mod anomaly;
 
+#[cfg(feature = "anomaly-remediation-rca")]
+#[allow(missing_docs)]
+pub mod anomaly_remediation_rca;
+
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{
     LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,
