@@ -1280,7 +1280,9 @@ impl Pool {
         {
             let guard = self.quota_enforcer.lock();
             if let Some(ref enforcer) = *guard {
-                enforcer.record_usage(tenant_id, QuotaResource::Connection, 0);
+                // 修复：此前传 0 导致配额只增不减（record_usage 为 += 语义），
+                // 归还连接必须递减使用量（release_usage 饱和递减）
+                enforcer.release_usage(tenant_id, QuotaResource::Connection, 1);
             }
         }
         self.release(pooled).await;

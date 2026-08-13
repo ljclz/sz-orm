@@ -141,7 +141,9 @@ impl IntelligenceLoop {
         // 第四步：优化建议
         let suggestions = if let Some(p) = plan {
             let stats = sz_orm_adaptive::stats::QueryStats::new();
-            stats.record(elapsed_ms, 0);
+            // 修复：record(rows, time_us)——此前 elapsed_ms 被误传为 rows 且 time_us 传 0，
+            // 导致统计耗时恒为 0；本场景无行数信息（QueryOutcome.rows=0），耗时需转微秒
+            stats.record(0, elapsed_ms * 1000);
             self.advisor.suggest(Some(p), Some(&stats), None)
         } else {
             Vec::new()

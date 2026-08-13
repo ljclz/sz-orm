@@ -18,7 +18,7 @@
 
 **严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。** 任何改动必须通过 PR 贡献到上游。违反此原则会导致审计记录与事实不符，直接红牌拒绝入库。
 
-### 15 道门禁（提交前必过）
+### 19 道门禁（提交前必过）
 
 | # | 门禁 | 命令 |
 |---|------|------|
@@ -37,6 +37,10 @@
 | 13 | 审计证据验证 | `bash scripts/audit-verify.sh <审计报告.md>` |
 | 14 | 文档同步更新检查 | `python scripts/check-doc-sync.py --diff HEAD` |
 | 15 | 幻影交付检查 | `python scripts/check-phantom-delivery.py`（PHANTOM-1 零调用符号断言，任何一项存在即失败；PHANTOM-2 门控未启用为警告） |
+| 16 | 语义反模式扫描 | `python scripts/check-semantic-patterns.py`（无效递增/丢弃检查结果/释放路径空操作等；2026-08-13 已抓出 2 处真实 bug：quota 只增不减、QueryStats 参数错位） |
+| 17 | 架构一致性扫描 | `python scripts/check-architecture.py`（概念重复实现/依赖白名单/孤儿包；豁免登记：bloom_filter 双实现——dist_cache 击穿守卫 vs warmup 穿透过滤，合并列为阶段 3 架构债） |
+| 18 | 度量真实性扫描 | `python scripts/check-metrics-real.py`（README 数字声称 vs 源码统计，--fix 自动修正；数字禁止手写） |
+| 19 | 发布一致性扫描 | `python scripts/check-publish-consistency.py`（版本声明一致性；豁免：sz-orm-python/js/graph 独立 0.1.0 版本线） |
 
 ### 五维审查（每次 PR 必做）
 

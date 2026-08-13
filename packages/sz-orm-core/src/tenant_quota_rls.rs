@@ -241,6 +241,23 @@ impl QuotaEnforcer {
         }
     }
 
+    /// 释放资源使用（饱和递减，最小到 0）
+    ///
+    /// v4.7.0 幻影交付修复：`release_with_tenant` 此前调用 `record_usage(..., 0)`
+    /// 导致配额只增不减（+= 0），租户连接用满后永不释放。本方法提供递减语义，
+    /// 超过当前使用量的释放按 0 饱和处理，不会下溢。
+    pub fn release_usage(&self, tenant_id: &str, resource: QuotaResource, amount: u64) {
+        let mut usage = self.usage.lock().unwrap();
+        let entry = usage.entry(tenant_id.to_string()).or_default();
+        match resource {
+            QuotaResource::Connection => {
+                entry.connections = entry.connections.saturating_sub(amount)
+            }
+            QuotaResource::Qps => entry.qps = entry.qps.saturating_sub(amount),
+            QuotaResource::Storage => entry.storage = entry.storage.saturating_sub(amount),
+        }
+    }
+
     /// 获取当前使用量
     pub fn current_usage(&self, tenant_id: &str, resource: QuotaResource) -> u64 {
         let usage = self.usage.lock().unwrap();
@@ -1031,6 +1048,102 @@ mod tests {
         let enforcer = QuotaEnforcer::new().with_strategy(QuotaEnforceStrategy::FailOpen);
         let debug = format!("{:?}", enforcer);
         assert!(debug.contains("FailOpen"));
+    }
+
+    #[test]
+    fn test_release_usage_decrements_saturating() {
+        let enforcer = QuotaEnforcer::new();
+        enforcer.record_usage("t1", QuotaResource::Connection, 5);
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 5);
+        // 正常释放：递减
+        enforcer.release_usage("t1", QuotaResource::Connection, 2);
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 3);
+        // 过量释放：饱和到 0，不下溢（u64 语义安全）
+        enforcer.release_usage("t1", QuotaResource::Connection, 10);
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 0);
+    }
+
+    #[tokio::test]
+    async fn test_pool_acquire_release_with_tenant_usage_cycle(
+    ) -> Result<(), Box<dyn std::error::Error>> {
+        use crate::pool::{Connection, ConnectionFactory, Pool, PoolConfigBuilder};
+        use async_trait::async_trait;
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::sync::Arc;
+
+        struct MockConn;
+        impl Connection for MockConn {
+            fn execute<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>>
+            {
+                Box::pin(async { Ok(1) })
+            }
+            fn query<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<
+                Box<
+                    dyn Future<Output = Result<crate::pool::QueryRows, crate::DbError>> + Send + 'a,
+                >,
+            > {
+                Box::pin(async { Ok(vec![]) })
+            }
+            fn begin_transaction<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn commit<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn rollback<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn is_connected(&self) -> bool {
+                true
+            }
+            fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+                Box::pin(async { true })
+            }
+            fn close<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+        }
+
+        struct MockFactory;
+        #[async_trait]
+        impl ConnectionFactory for MockFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                Ok(Box::new(MockConn))
+            }
+        }
+
+        let config = PoolConfigBuilder::new().max_size(5).build()?;
+        let pool = Pool::new(config, Arc::new(MockFactory))?;
+
+        let enforcer = Arc::new(QuotaEnforcer::new());
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(3));
+        pool.set_quota_enforcer(Some(enforcer.clone()));
+
+        // acquire → 使用量 +1
+        let conn1 = pool.acquire_with_tenant("t1").await?;
+        let conn2 = pool.acquire_with_tenant("t1").await?;
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 2);
+        // release → 使用量递减（回归：此前 release 传 0 导致只增不减）
+        pool.release_with_tenant("t1", conn1).await;
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 1);
+        pool.release_with_tenant("t1", conn2).await;
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 0);
+        Ok(())
     }
 
     #[tokio::test]
