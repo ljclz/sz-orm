@@ -546,6 +546,8 @@ cargo build --features sz-orm-macros/db-verify
 | 锁 panic（13 处 expect） | 13 | 五维审查（正确性）+ parking_lot 替换 + unwrap 消除 | ✅ 已修复 |
 | 名实不符（S-1~S-8） | 8 | 门禁 6（API 审计）+ 契约测试（T2） | ✅ 已有 |
 | 夸大对比（D-1~D-7） | 7 | 五维审查（架构维度） | ✅ 已有 |
+| 幻影交付（P-1~P-3） | 3 | 门禁 15（零调用符号断言 + feature 启用矩阵）+ 文档措辞分级（"提供 X 组件" vs "自动/强制"）+ M8 接线冒烟 | ✅ 已实现 |
+| 数字/性能声明无载体（D-8） | 1 | 数字自动生成（禁止手写）+ 基准代码入仓 | 🟡 待办 |
 | Feature 隔离失败（V-4） | 1 | 门禁 10（feature 全组合编译） | ✅ 已实现 |
 | 跨平台限制 | 1 | CI 双平台（build matrix: ubuntu + windows + macos） | ✅ 已有 |
 | API 签名变更未传播 | — | 五维审查（正确性）+ AI 检查表"API 签名变更传播" | ✅ 已实现 |
@@ -591,6 +593,10 @@ cargo build --features sz-orm-macros/db-verify
 | — | Feature 隔离 | real-* feature 数月未在 CI 编译 | Cargo.toml | 门禁 10 + real-features-compile job |
 | — | 跨平台 | Windows 路径分隔符差异 | 文件操作 | CI 双平台矩阵 |
 | — | API 签名变更未传播 | `create()` 返回类型变更但调用方未更新 | phinx_migration.rs + 测试 | 五维审查 + AI 检查表 |
+| P-1 | 幻影交付 | 文档宣称"自动拦截/强制执行"但生产路径零调用（N1QueryDetector、QuotaEnforcer、CacheWarmer、cache_ttl、hooks 等 37 个符号） | entity_graph.rs、tenant_quota_rls.rs、cache_warmup_protection.rs、query.rs 等 | 门禁 15 PHANTOM-1 断言 + 文档降级（2026-08-13，见 docs/assessment/2026-08-13-production-zero-call-audit.md） |
+| P-2 | 幻影交付 | feature gate 定义存在但无任何启用点，默认构建不编译（149 个 gate） | 各包 Cargo.toml | 门禁 15 PHANTOM-2 警告 + 文档标注"提供 X 组件（需手动接入）" |
+| P-3 | 幻影交付 | "集成验证"里程碑只跑单包 feature 测试，不验证生产接线 | docs/spec/v4.7.0/tasks.md M8 | M8 升级为"生产入口冒烟"（启用 feature 后从 cli/example 真实调用） |
+| D-8 | 夸大对比 | 性能/规模数字无载体（"13.8 亿次操作"等）且 README 内数字互相矛盾（56/43/60 成员、5,404/5,809/6,900+ 测试） | README.md:4/100/102/359/849 | 数字自动生成（从 Cargo.toml/测试统计推导）+ 基准代码入仓 + 删除无载体数字 |
 
 ---
 
