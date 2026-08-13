@@ -34,6 +34,10 @@ bench-comparison/target/
 bench-comparison/build-log.txt
 bench-comparison/bench-*.txt
 
+# Python 编译缓存（2026-08-13 清理误入库的 *.pyc）
+__pycache__/
+*.pyc
+
 # Publish logs
 scripts/publish-log*.txt
 
