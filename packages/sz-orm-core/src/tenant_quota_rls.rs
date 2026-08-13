@@ -1032,4 +1032,282 @@ mod tests {
         let debug = format!("{:?}", enforcer);
         assert!(debug.contains("FailOpen"));
     }
+
+    #[tokio::test]
+    async fn test_pool_acquire_with_tenant_quota_ok() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::pool::{Connection, ConnectionFactory, Pool, PoolConfigBuilder};
+        use async_trait::async_trait;
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::sync::Arc;
+
+        struct MockConn;
+        impl Connection for MockConn {
+            fn execute<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>>
+            {
+                Box::pin(async { Ok(1) })
+            }
+            fn query<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<
+                Box<
+                    dyn Future<Output = Result<crate::pool::QueryRows, crate::DbError>> + Send + 'a,
+                >,
+            > {
+                Box::pin(async { Ok(vec![]) })
+            }
+            fn begin_transaction<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn commit<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn rollback<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn is_connected(&self) -> bool {
+                true
+            }
+            fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+                Box::pin(async { true })
+            }
+            fn close<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+        }
+
+        struct MockFactory;
+        #[async_trait]
+        impl ConnectionFactory for MockFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                Ok(Box::new(MockConn))
+            }
+        }
+
+        let config = PoolConfigBuilder::new().max_size(5).build()?;
+        let pool = Pool::new(config, Arc::new(MockFactory))?;
+
+        let enforcer = Arc::new(QuotaEnforcer::new());
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(3));
+        pool.set_quota_enforcer(Some(enforcer));
+
+        let conn1 = pool.acquire_with_tenant("t1").await?;
+        assert!(conn1.is_connected());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pool_acquire_with_tenant_quota_exceeded() -> Result<(), Box<dyn std::error::Error>>
+    {
+        use crate::pool::{Connection, ConnectionFactory, Pool, PoolConfigBuilder};
+        use async_trait::async_trait;
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::sync::Arc;
+
+        struct MockConn;
+        impl Connection for MockConn {
+            fn execute<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>>
+            {
+                Box::pin(async { Ok(1) })
+            }
+            fn query<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<
+                Box<
+                    dyn Future<Output = Result<crate::pool::QueryRows, crate::DbError>> + Send + 'a,
+                >,
+            > {
+                Box::pin(async { Ok(vec![]) })
+            }
+            fn begin_transaction<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn commit<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn rollback<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn is_connected(&self) -> bool {
+                true
+            }
+            fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+                Box::pin(async { true })
+            }
+            fn close<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+        }
+
+        struct MockFactory;
+        #[async_trait]
+        impl ConnectionFactory for MockFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                Ok(Box::new(MockConn))
+            }
+        }
+
+        let config = PoolConfigBuilder::new().max_size(5).build()?;
+        let pool = Pool::new(config, Arc::new(MockFactory))?;
+
+        let enforcer = Arc::new(QuotaEnforcer::new());
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(2));
+        pool.set_quota_enforcer(Some(enforcer));
+
+        let conn1 = pool.acquire_with_tenant("t1").await?;
+        assert!(conn1.is_connected());
+
+        let result = pool.acquire_with_tenant("t1").await;
+        assert!(result.is_err());
+        let err = result.err().unwrap();
+        assert!(err.to_string().contains("quota exceeded"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_pool_acquire_with_tenant_no_enforcer() -> Result<(), Box<dyn std::error::Error>> {
+        use crate::pool::{Connection, ConnectionFactory, Pool, PoolConfigBuilder};
+        use async_trait::async_trait;
+        use std::future::Future;
+        use std::pin::Pin;
+        use std::sync::Arc;
+
+        struct MockConn;
+        impl Connection for MockConn {
+            fn execute<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>>
+            {
+                Box::pin(async { Ok(1) })
+            }
+            fn query<'a>(
+                &'a mut self,
+                _sql: &'a str,
+            ) -> Pin<
+                Box<
+                    dyn Future<Output = Result<crate::pool::QueryRows, crate::DbError>> + Send + 'a,
+                >,
+            > {
+                Box::pin(async { Ok(vec![]) })
+            }
+            fn begin_transaction<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn commit<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn rollback<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+            fn is_connected(&self) -> bool {
+                true
+            }
+            fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+                Box::pin(async { true })
+            }
+            fn close<'a>(
+                &'a mut self,
+            ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+                Box::pin(async { Ok(()) })
+            }
+        }
+
+        struct MockFactory;
+        #[async_trait]
+        impl ConnectionFactory for MockFactory {
+            async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+                Ok(Box::new(MockConn))
+            }
+        }
+
+        let config = PoolConfigBuilder::new().max_size(5).build()?;
+        let pool = Pool::new(config, Arc::new(MockFactory))?;
+
+        let conn1 = pool.acquire_with_tenant("any_tenant").await?;
+        assert!(conn1.is_connected());
+        Ok(())
+    }
+
+    #[test]
+    fn test_rls_enhancer_query_builder_integration() {
+        use crate::dialect::MySqlDialect;
+        use crate::model::Model;
+        use crate::query::QueryBuilder;
+        use crate::tenant_security::{ParameterizedCondition, Principal};
+        use crate::value::Value;
+        use std::sync::Arc;
+
+        struct TestModel;
+        impl Model for TestModel {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "orders"
+            }
+            fn pk(&self) -> i64 {
+                0
+            }
+            fn set_pk(&mut self, _pk: i64) {}
+        }
+
+        let enhancer = Arc::new(RlsPolicyEnhancer::new());
+        let policy = EnhancedRlsPolicy::new("orders", Principal::new(42, vec!["user".to_string()]))
+            .with_condition(ParameterizedCondition::new(
+                "`tenant_id` = ?",
+                vec![Value::I64(42)],
+            ))
+            .with_condition(ParameterizedCondition::new(
+                "`dept_id` IN (?, ?)",
+                vec![Value::I64(1), Value::I64(2)],
+            ));
+        enhancer.with_policy(policy).unwrap();
+
+        let qb = QueryBuilder::<TestModel>::new(Box::new(MySqlDialect))
+            .table("orders")
+            .with_tenant_id(42)
+            .with_rls_policy_enhancer(enhancer);
+
+        let (sql, params) = qb.build_select_with_params();
+        assert!(
+            sql.contains("tenant_id"),
+            "SQL should contain RLS condition: {}",
+            sql
+        );
+        assert!(
+            params.contains(&Value::I64(42)),
+            "Params should contain tenant_id value: {:?}",
+            params
+        );
+    }
 }

@@ -724,4 +724,59 @@ mod tests {
         let debug = format!("{:?}", sf);
         assert!(debug.contains("SingleFlight"));
     }
+
+    // ========================================================================
+    // 集成测试：ProcessL1Cache → CacheWarmer 生产调用链（v4.7.0 幻影交付修复）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_process_l1_cache_warmup_integration() {
+        let cache: Arc<ProcessL1Cache<String>> = make_cache();
+        let config = WarmupConfig::new("users", WarmupStrategy::HotspotKey(vec!["k1".to_string()]));
+        let result = cache
+            .warmup(&config, |_| async {
+                Ok(vec![
+                    (Value::I64(1), "Alice".to_string()),
+                    (Value::I64(2), "Bob".to_string()),
+                ])
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.warmed_keys, 2);
+        assert_eq!(result.skipped_keys, 0);
+        let val = cache.get("users", &Value::I64(1)).await;
+        assert!(val.is_some());
+        assert_eq!(val.unwrap().as_str(), "Alice");
+    }
+
+    #[tokio::test]
+    async fn test_process_l1_cache_warmup_disabled() {
+        let cache: Arc<ProcessL1Cache<String>> = make_cache();
+        let config = WarmupConfig::default();
+        let result = cache
+            .warmup(&config, |_| async { Ok(Vec::<(Value, String)>::new()) })
+            .await
+            .unwrap();
+        assert_eq!(result.warmed_keys, 0);
+    }
+
+    #[tokio::test]
+    async fn test_process_l1_cache_warmup_skip_existing() {
+        let cache: Arc<ProcessL1Cache<String>> = make_cache();
+        cache
+            .put("users", Value::I64(1), Arc::new("Alice".to_string()))
+            .await;
+        let config = WarmupConfig::new("users", WarmupStrategy::HotspotKey(vec!["k1".to_string()]));
+        let result = cache
+            .warmup(&config, |_| async {
+                Ok(vec![
+                    (Value::I64(1), "Alice".to_string()),
+                    (Value::I64(2), "Bob".to_string()),
+                ])
+            })
+            .await
+            .unwrap();
+        assert_eq!(result.warmed_keys, 1);
+        assert_eq!(result.skipped_keys, 1);
+    }
 }

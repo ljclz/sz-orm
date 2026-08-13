@@ -11,7 +11,8 @@ fn bench_l1_hit(c: &mut Criterion) {
     c.bench_function("l1_cache_hit", |b| {
         let mut cache: L1Cache<i32> = L1Cache::new(1000);
         for i in 0..1000 {
-            cache.put(i, Arc::new(i));
+            // put 的 key 参数为 i64（l1_cache.rs:126），value 需要 Arc<i32>
+            cache.put(i, Arc::new(i as i32));
         }
         b.iter(|| {
             for i in 0..1000 {
@@ -37,7 +38,7 @@ fn bench_l1_put(c: &mut Criterion) {
         b.iter(|| {
             let mut cache: L1Cache<i32> = L1Cache::new(1000);
             for i in 0..100 {
-                cache.put(i, Arc::new(i));
+                cache.put(i, Arc::new(i as i32));
             }
             black_box(&cache);
         })
@@ -49,7 +50,8 @@ fn bench_l1_l2_db_db_load(c: &mut Criterion) {
         let mut coord: L1L2Coordinator<i32> = L1L2Coordinator::new(1000);
         b.iter(|| {
             for i in 0..100 {
-                black_box(coord.get_or_load("t", i, || Some(i)));
+                // get_or_load 的 pk 参数为 i64（l1_cache.rs:245），循环变量 i 默认 i32
+                black_box(coord.get_or_load("t", i as i64, || Some(i)));
             }
         })
     });
@@ -59,11 +61,11 @@ fn bench_l1_l2_db_l1_hit(c: &mut Criterion) {
     c.bench_function("l1_l2_db_l1_hit", |b| {
         let mut coord: L1L2Coordinator<i32> = L1L2Coordinator::new(1000);
         for i in 0..1000 {
-            coord.get_or_load("t", i, || Some(i));
+            coord.get_or_load("t", i as i64, || Some(i));
         }
         b.iter(|| {
             for i in 0..100 {
-                black_box(coord.get_or_load("t", i, || Some(i)));
+                black_box(coord.get_or_load("t", i as i64, || Some(i)));
             }
         })
     });

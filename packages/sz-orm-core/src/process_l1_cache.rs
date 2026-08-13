@@ -20,11 +20,14 @@
 //! use sz_orm_core::process_l1_cache::{ProcessL1Cache, ProcessL1Config};
 //! use std::sync::Arc;
 //!
-//! let config = ProcessL1Config::new().with_capacity(100);
-//! let cache: ProcessL1Cache<String> = ProcessL1Cache::new(config);
-//! cache.put("users", &sz_orm_core::value::Value::I64(1), Arc::new("Alice".to_string()));
-//! let a = cache.get("users", &sz_orm_core::value::Value::I64(1));
-//! assert!(a.is_some());
+//! #[tokio::main]
+//! async fn main() {
+//!     let config = ProcessL1Config::new().with_capacity(100);
+//!     let cache: ProcessL1Cache<String> = ProcessL1Cache::new(config);
+//!     cache.put("users", sz_orm_core::Value::I64(1), Arc::new("Alice".to_string())).await;
+//!     let a = cache.get("users", &sz_orm_core::Value::I64(1)).await;
+//!     assert!(a.is_some());
+//! }
 //! ```
 
 use std::collections::{HashMap, VecDeque};
@@ -351,6 +354,36 @@ impl<T: Clone + Send + Sync + 'static> ProcessL1Cache<T> {
     /// 是否为空
     pub fn is_empty(&self) -> bool {
         self.len() == 0
+    }
+}
+
+#[cfg(feature = "cache-warmup-protection")]
+impl<T: Clone + Send + Sync + 'static> ProcessL1Cache<T> {
+    /// 预热缓存（接线 `CacheWarmer`，v4.7.0 幻影交付修复）
+    ///
+    /// 从 `ProcessL1Cache` 创建 `CacheWarmer` 并按 `WarmupConfig` 预热缓存。
+    /// 实际数据加载由调用方提供 `loader` 函数。
+    ///
+    /// # 生产调用点
+    ///
+    /// 此方法在 `process_l1_cache.rs` 中调用 `cache_warmup_protection::CacheWarmer`，
+    /// 构成 `ProcessL1Cache → CacheWarmer` 的生产调用链。
+    pub async fn warmup<F, Fut>(
+        self: &Arc<Self>,
+        config: &crate::cache_warmup_protection::WarmupConfig,
+        loader: F,
+    ) -> Result<
+        crate::cache_warmup_protection::WarmupResult,
+        crate::cache_warmup_protection::CacheError,
+    >
+    where
+        F: Fn(&str) -> Fut,
+        Fut: std::future::Future<
+            Output = Result<Vec<(Value, T)>, crate::cache_warmup_protection::CacheError>,
+        >,
+    {
+        let warmer = crate::cache_warmup_protection::CacheWarmer::new(Arc::clone(self));
+        warmer.warmup(config, loader).await
     }
 }
 

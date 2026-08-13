@@ -7,8 +7,9 @@ use crossbeam_queue::ArrayQueue;
 use futures::StreamExt;
 // P1-4 修复：使用核心层定义的 CircuitBreaker/RateLimiter 抽象，
 // 消除对 sz-orm-health/sz-orm-limit 的反向依赖。
-// parking_lot 锁仅在启用 circuit-breaker/rate-limit feature 时使用
-#[cfg(feature = "circuit-breaker")]
+// parking_lot 锁仅在启用 circuit-breaker/rate-limit/tenant-quota-rls-enhanced feature 时使用
+//（v4.7.0 接线修复：quota_enforcer 字段同样使用 PlMutex，见 tenant_quota_rls.rs）
+#[cfg(any(feature = "circuit-breaker", feature = "tenant-quota-rls-enhanced"))]
 use parking_lot::Mutex as PlMutex;
 #[cfg(feature = "rate-limit")]
 use parking_lot::RwLock as PlRwLock;
@@ -28,6 +29,8 @@ use crate::circuit_breaker::{CircuitBreaker, CircuitState, DefaultCircuitBreaker
 use crate::error::PoolError;
 #[cfg(feature = "rate-limit")]
 use crate::rate_limiter::RateLimiter;
+#[cfg(feature = "tenant-quota-rls-enhanced")]
+use crate::tenant_quota_rls::{QuotaEnforcer, QuotaResource};
 
 /// 查询结果行类型别名：避免 `Connection::query` 签名触发 `clippy::type_complexity`。
 pub type QueryRows = Vec<std::collections::HashMap<String, crate::value::Value>>;
@@ -786,6 +789,12 @@ pub struct Pool {
     /// #93 修复：限流器使用的 key（默认 "pool"）
     #[cfg(feature = "rate-limit")]
     rate_limit_key: String,
+    /// v4.7.0 REQ-V47-006：租户配额执行器（启用 `tenant-quota-rls-enhanced` feature 时生效）
+    ///
+    /// 在 `acquire_with_tenant` 路径上插入配额检查，超限按策略拒绝或放行。
+    /// 默认 `None`（无配额限制），通过 `set_quota_enforcer` 配置。
+    #[cfg(feature = "tenant-quota-rls-enhanced")]
+    quota_enforcer: Arc<PlMutex<Option<Arc<QuotaEnforcer>>>>,
     /// 累计成功获取连接次数（Prometheus 风格统计，无锁原子计数）
     acquire_count: Arc<AtomicU64>,
     /// 累计获取连接失败次数（超时 / 连接创建失败 / 池已关闭 / 断路器或限流拒绝）
@@ -820,6 +829,8 @@ impl Clone for Pool {
             rate_limiter: Arc::clone(&self.rate_limiter),
             #[cfg(feature = "rate-limit")]
             rate_limit_key: self.rate_limit_key.clone(),
+            #[cfg(feature = "tenant-quota-rls-enhanced")]
+            quota_enforcer: Arc::clone(&self.quota_enforcer),
             acquire_count: self.acquire_count.clone(),
             acquire_failed_count: self.acquire_failed_count.clone(),
             acquire_wait_time_ns: self.acquire_wait_time_ns.clone(),
@@ -882,6 +893,8 @@ impl Pool {
             rate_limiter: Arc::new(PlRwLock::new(None)),
             #[cfg(feature = "rate-limit")]
             rate_limit_key: "pool".to_string(),
+            #[cfg(feature = "tenant-quota-rls-enhanced")]
+            quota_enforcer: Arc::new(PlMutex::new(None)),
             acquire_count: Arc::new(AtomicU64::new(0)),
             acquire_failed_count: Arc::new(AtomicU64::new(0)),
             acquire_wait_time_ns: Arc::new(AtomicU64::new(0)),
@@ -1220,6 +1233,57 @@ impl Pool {
     pub fn with_rate_limit_key(mut self, key: impl Into<String>) -> Self {
         self.rate_limit_key = key.into();
         self
+    }
+
+    /// v4.7.0 REQ-V47-006：配置租户配额执行器（启用 `tenant-quota-rls-enhanced` feature 时生效）
+    ///
+    /// 替换当前的配额执行器实例。传入 `None` 可禁用配额检查。
+    /// 配置后，`acquire_with_tenant` 会在获取连接前检查租户配额。
+    #[cfg(feature = "tenant-quota-rls-enhanced")]
+    pub fn set_quota_enforcer(&self, enforcer: Option<Arc<QuotaEnforcer>>) {
+        let mut guard = self.quota_enforcer.lock();
+        *guard = enforcer;
+    }
+
+    /// v4.7.0 REQ-V47-006：按租户获取连接（启用 `tenant-quota-rls-enhanced` feature 时生效）
+    ///
+    /// 在 `acquire` 前检查租户连接配额，超限返回 `PoolError::Internal`。
+    /// 配额检查通过后，记录使用量并调用 `acquire` 获取连接。
+    /// 归还连接时通过 `release_with_tenant` 递减使用量。
+    ///
+    /// 若未配置 `QuotaEnforcer`（`set_quota_enforcer` 未调用或传入 `None`），
+    /// 行为等同 `acquire`（无配额限制）。
+    #[cfg(feature = "tenant-quota-rls-enhanced")]
+    pub async fn acquire_with_tenant(
+        &self,
+        tenant_id: &str,
+    ) -> Result<PooledConnection, PoolError> {
+        {
+            let guard = self.quota_enforcer.lock();
+            if let Some(ref enforcer) = *guard {
+                let current = enforcer.current_usage(tenant_id, QuotaResource::Connection);
+                enforcer
+                    .check_and_record(tenant_id, QuotaResource::Connection, 1)
+                    .map_err(|e| PoolError::Internal(e.to_string()))?;
+                let _ = current;
+            }
+        }
+        self.acquire().await
+    }
+
+    /// v4.7.0 REQ-V47-006：按租户归还连接（启用 `tenant-quota-rls-enhanced` feature 时生效）
+    ///
+    /// 递减租户连接使用量并归还连接到池中。
+    /// 若未配置 `QuotaEnforcer`，行为等同 `release`。
+    #[cfg(feature = "tenant-quota-rls-enhanced")]
+    pub async fn release_with_tenant(&self, tenant_id: &str, pooled: PooledConnection) {
+        {
+            let guard = self.quota_enforcer.lock();
+            if let Some(ref enforcer) = *guard {
+                enforcer.record_usage(tenant_id, QuotaResource::Connection, 0);
+            }
+        }
+        self.release(pooled).await;
     }
 
     /// 触发连接池事件回调

@@ -44,7 +44,7 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 
 // ============================================================================
 // EntityGraph — 实体图
@@ -501,6 +501,10 @@ where
     loader: BatchLoaderFn<K, V>,
     /// 缓存（避免重复加载相同的 key）
     cache: RwLock<HashMap<K, V>>,
+    /// N+1 查询检测器（可选，v4.7.0 幻影交付修复接线）
+    detector: Option<Arc<N1QueryDetector>>,
+    /// relation 名称（用于 N1QueryDetector 上报）
+    relation_name: String,
 }
 
 impl<K, V> BatchLoader<K, V>
@@ -518,7 +522,24 @@ where
             batch_size,
             loader,
             cache: RwLock::new(HashMap::new()),
+            detector: None,
+            relation_name: String::new(),
         }
+    }
+
+    /// 设置 N+1 查询检测器（v4.7.0 幻影交付修复接线）
+    ///
+    /// 将 `N1QueryDetector` 接入 `BatchLoader`，使 `load_many` / `load_one`
+    /// 自动调用 `record_batch_load` / `record_single_load`，
+    /// 构成 `BatchLoader → N1QueryDetector` 的生产调用链。
+    pub fn with_detector(
+        mut self,
+        detector: Arc<N1QueryDetector>,
+        relation: impl Into<String>,
+    ) -> Self {
+        self.detector = Some(detector);
+        self.relation_name = relation.into();
+        self
     }
 
     /// 批量加载多个 key
@@ -562,13 +583,22 @@ where
             }
         }
 
-        // 4. 合并结果
+        // 4. N+1 检测器上报（v4.7.0 幻影交付修复接线）
+        if let Some(detector) = &self.detector {
+            detector.record_batch_load(&self.relation_name, to_load.len());
+        }
+
+        // 5. 合并结果
         result.extend(all_loaded);
         result
     }
 
     /// 加载单个 key（便捷方法）
     pub fn load_one(&self, key: &K) -> Option<V> {
+        // N+1 检测器上报（v4.7.0 幻影交付修复接线）
+        if let Some(detector) = &self.detector {
+            detector.record_single_load(&self.relation_name);
+        }
         let result = self.load_many(std::slice::from_ref(key));
         result.get(key).cloned()
     }
@@ -1287,6 +1317,53 @@ mod tests {
         assert_eq!(result.get(&1), Some(&10));
         assert_eq!(result.get(&2), Some(&20));
         assert_eq!(result.get(&3), Some(&30));
+    }
+
+    // ===== BatchLoader ↔ N1QueryDetector 集成测试（v4.7.0 幻影交付修复）=====
+
+    #[test]
+    fn test_batch_loader_with_detector_load_many() {
+        let detector = Arc::new(N1QueryDetector::with_defaults());
+        detector.start_window();
+        let loader = BatchLoader::new(
+            10,
+            Box::new(|ids: &[i64]| ids.iter().map(|id| (*id, format!("user_{}", id))).collect()),
+        )
+        .with_detector(Arc::clone(&detector), "users");
+        let result = loader.load_many(&[1, 2, 3]);
+        assert_eq!(result.len(), 3);
+        let alerts = detector.end_window();
+        assert!(alerts.is_empty(), "batch load should not trigger N+1 alert");
+    }
+
+    #[test]
+    fn test_batch_loader_with_detector_load_one_triggers_n1() {
+        let detector = Arc::new(N1QueryDetector::with_defaults());
+        detector.start_window();
+        let loader = BatchLoader::new(
+            10,
+            Box::new(|ids: &[i64]| ids.iter().map(|id| (*id, format!("user_{}", id))).collect()),
+        )
+        .with_detector(Arc::clone(&detector), "users");
+        for i in 0..10 {
+            let _ = loader.load_one(&i);
+        }
+        let alerts = detector.end_window();
+        assert_eq!(alerts.len(), 1);
+        assert_eq!(alerts[0].relation, "users");
+        assert_eq!(alerts[0].query_count, 10);
+    }
+
+    #[test]
+    fn test_batch_loader_without_detector_no_panic() {
+        let loader = BatchLoader::new(
+            10,
+            Box::new(|ids: &[i64]| ids.iter().map(|id| (*id, format!("user_{}", id))).collect()),
+        );
+        let result = loader.load_many(&[1, 2, 3]);
+        assert_eq!(result.len(), 3);
+        let val = loader.load_one(&1);
+        assert!(val.is_some());
     }
 
     // ===== N1QueryDetector 测试（S-2）=====

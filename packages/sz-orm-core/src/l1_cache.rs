@@ -26,7 +26,7 @@
 //! use sz_orm_core::l1_cache::L1Cache;
 //! use std::sync::Arc;
 //!
-//! let cache: L1Cache<String> = L1Cache::new(100);
+//! let mut cache: L1Cache<String> = L1Cache::new(100);
 //! cache.put(1, Arc::new("Alice".to_string()));
 //! let a = cache.get(&1).unwrap();
 //! let b = cache.get(&1).unwrap();

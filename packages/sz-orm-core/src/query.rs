@@ -75,6 +75,12 @@ pub struct QueryBuilder<M: Model> {
     /// 设置后，`build_insert` 会生成 `INSERT IGNORE INTO`（MySQL）或
     /// `INSERT OR IGNORE INTO`（PG/SQLite），避免主键/唯一键冲突时报错。
     insert_or_ignore: bool,
+    /// v4.7.0 REQ-V47-006：RLS 策略增强器（启用 `tenant-quota-rls-enhanced` feature 时生效）
+    ///
+    /// 设置后，`build_where_clause_with_params_options` 会追加增强 RLS 条件
+    ///（多条件组合 + 参数化绑定），在租户条件之后。
+    #[cfg(feature = "tenant-quota-rls-enhanced")]
+    rls_enhancer: Option<std::sync::Arc<crate::tenant_quota_rls::RlsPolicyEnhancer>>,
     #[allow(dead_code)]
     model: std::marker::PhantomData<M>,
 }
@@ -207,6 +213,8 @@ impl<M: Model> QueryBuilder<M> {
             cache_ttl: None,
             lock_type: None,
             insert_or_ignore: false,
+            #[cfg(feature = "tenant-quota-rls-enhanced")]
+            rls_enhancer: None,
             model: std::marker::PhantomData,
         }
     }
@@ -288,6 +296,54 @@ impl<M: Model> QueryBuilder<M> {
     /// P2-2：返回当前缓存 TTL
     pub fn get_cache_ttl(&self) -> Option<Duration> {
         self.cache_ttl
+    }
+
+    /// P2-2：使用 L2Cache 执行查询（v4.7.0 幻影交付修复：接线 `cache_ttl` → `L2Cache`）
+    ///
+    /// 如果设置了 `cache_ttl`，则通过 `L2Cache::get_or_load_query` 缓存查询结果；
+    /// 如果未设置 `cache_ttl`，则直接调用 `loader` 执行查询。
+    ///
+    /// # 生产调用点
+    ///
+    /// 此方法调用 `get_cache_ttl()` 并将结果传递给 `L2Cache::get_or_load_query`，
+    /// 构成 `QueryBuilder::get_cache_ttl → L2Cache::get_or_load_query` 的生产调用链。
+    ///
+    /// # 示例
+    ///
+    /// ```ignore
+    /// use sz_orm_core::query::QueryBuilder;
+    /// use sz_orm_core::dialect::MySqlDialect;
+    /// use sz_orm_core::l2_cache::L2Cache;
+    /// use std::time::Duration;
+    ///
+    /// let cache = L2Cache::new();
+    /// let qb = QueryBuilder::<User>::new(Box::new(MySqlDialect))
+    ///     .table("users")
+    ///     .where_eq("status", 1)
+    ///     .cache_ttl(Duration::from_secs(300));
+    /// let rows = qb.execute_with_cache(&cache, "users", || async {
+    ///     conn.query_with_params(sql, params).await
+    /// }).await?;
+    /// ```
+    pub async fn execute_with_cache<F, Fut>(
+        &self,
+        cache: &crate::l2_cache::L2Cache,
+        table: &str,
+        loader: F,
+    ) -> Result<crate::pool::QueryRows, crate::DbError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: std::future::Future<Output = Result<crate::pool::QueryRows, crate::DbError>>,
+    {
+        let (sql, params) = self.build_select_with_params();
+        match self.get_cache_ttl() {
+            Some(ttl) => {
+                cache
+                    .get_or_load_query(table, &sql, &params, ttl, loader)
+                    .await
+            }
+            None => loader().await,
+        }
     }
 
     /// P2-3：设置排他锁（FOR UPDATE）（TASK-025）
@@ -417,6 +473,8 @@ impl<M: Model> QueryBuilder<M> {
             cache_ttl: None,         // COUNT 查询不缓存
             lock_type: None,         // COUNT 查询不加锁
             insert_or_ignore: false, // COUNT 查询不使用 INSERT
+            #[cfg(feature = "tenant-quota-rls-enhanced")]
+            rls_enhancer: self.rls_enhancer.clone(),
             model: std::marker::PhantomData,
         }
     }
@@ -475,6 +533,19 @@ impl<M: Model> QueryBuilder<M> {
     /// 等价于 Laravel Eloquent 的全局作用域禁用。
     pub fn without_tenant(mut self) -> Self {
         self.tenant_disabled = true;
+        self
+    }
+
+    /// v4.7.0 REQ-V47-006：配置 RLS 策略增强器（启用 `tenant-quota-rls-enhanced` feature 时生效）
+    ///
+    /// 设置后，`build_select_with_params` 等 WHERE 构建方法会追加增强 RLS 条件
+    ///（多条件组合 + 参数化绑定），在租户条件之后。
+    #[cfg(feature = "tenant-quota-rls-enhanced")]
+    pub fn with_rls_policy_enhancer(
+        mut self,
+        enhancer: std::sync::Arc<crate::tenant_quota_rls::RlsPolicyEnhancer>,
+    ) -> Self {
+        self.rls_enhancer = Some(enhancer);
         self
     }
 
@@ -1754,11 +1825,36 @@ impl<M: Model> QueryBuilder<M> {
         // P0-3：构造租户条件（若有且启用）— 参数化版本保留 (sql, value)
         let tenant_cond = self.build_tenant_condition();
 
-        // 无用户条件且无软删除条件且无租户条件且无 keyset 游标 → 空 WHERE
+        // v4.7.0 REQ-V47-006：构造增强 RLS 条件（启用 tenant-quota-rls-enhanced feature 时生效）
+        #[cfg(feature = "tenant-quota-rls-enhanced")]
+        let rls_cond: Option<(String, Vec<Value>)> = {
+            if let Some(ref enhancer) = self.rls_enhancer {
+                if let Some(ref table) = self.table {
+                    if let Some(tid) = self.tenant_id_value() {
+                        match enhancer.enhance_query(table, &tid.to_string()) {
+                            Ok(Some(c)) => Some((c.sql_fragment, c.params)),
+                            Ok(None) => None,
+                            Err(_) => None,
+                        }
+                    } else {
+                        None
+                    }
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        };
+        #[cfg(not(feature = "tenant-quota-rls-enhanced"))]
+        let rls_cond: Option<(String, Vec<Value>)> = None;
+
+        // 无用户条件且无软删除条件且无租户条件且无 keyset 游标且无 RLS 条件 → 空 WHERE
         if self.where_conditions.is_empty()
             && soft_delete_cond.is_none()
             && tenant_cond.is_none()
             && self.keyset_cursor.is_none()
+            && rls_cond.is_none()
         {
             return (String::new(), Vec::new());
         }
@@ -1872,6 +1968,12 @@ impl<M: Model> QueryBuilder<M> {
         if let Some((t_sql, t_value)) = tenant_cond {
             conditions.push(t_sql);
             params.push(t_value);
+        }
+
+        // v4.7.0 REQ-V47-006：追加增强 RLS 条件（在租户条件之后，参数化绑定）
+        if let Some((rls_sql, rls_params)) = rls_cond {
+            conditions.push(rls_sql);
+            params.extend(rls_params);
         }
 
         // P2-5：追加 keyset 游标条件（在租户条件之后，参数化绑定）
@@ -4291,5 +4393,91 @@ mod tests {
         assert!(result.is_err());
         let err = result.unwrap_err();
         assert!(matches!(err, crate::DbError::InvalidInput(_)));
+    }
+
+    // ===== cache_ttl → L2Cache 集成测试（v4.7.0 幻影交付修复）=====
+
+    #[tokio::test]
+    async fn test_execute_with_cache_ttl_hit() {
+        use crate::l2_cache::L2Cache;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+        use std::time::Duration;
+
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let cache = L2Cache::new();
+        let qb = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("status", Value::I64(1))
+            .cache_ttl(Duration::from_secs(300));
+
+        let call_count = Arc::new(AtomicU64::new(0));
+        let cc1 = Arc::clone(&call_count);
+        let rows1 = qb
+            .execute_with_cache(&cache, "users", || async move {
+                cc1.fetch_add(1, Ordering::SeqCst);
+                let mut row = std::collections::HashMap::new();
+                row.insert("id".to_string(), Value::I64(1));
+                Ok(vec![row])
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows1.len(), 1);
+        assert_eq!(call_count.load(Ordering::SeqCst), 1);
+
+        let cc2 = Arc::clone(&call_count);
+        let rows2 = qb
+            .execute_with_cache(&cache, "users", || async move {
+                cc2.fetch_add(1, Ordering::SeqCst);
+                let mut row = std::collections::HashMap::new();
+                row.insert("id".to_string(), Value::I64(2));
+                Ok(vec![row])
+            })
+            .await
+            .unwrap();
+        assert_eq!(rows2.len(), 1);
+        assert_eq!(rows2[0].get("id"), Some(&Value::I64(1)));
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            1,
+            "second call should hit cache, not loader"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_cache_no_ttl_bypasses_cache() {
+        use crate::l2_cache::L2Cache;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use std::sync::Arc;
+
+        let dialect = get_dialect(DbType::MySQL).unwrap();
+        let cache = L2Cache::new();
+        let qb = QueryBuilder::<TestModel>::new(dialect).table("users");
+
+        let call_count = Arc::new(AtomicU64::new(0));
+        let cc1 = Arc::clone(&call_count);
+        let rows1 = qb
+            .execute_with_cache(&cache, "users", || async move {
+                cc1.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            })
+            .await
+            .unwrap();
+        assert!(rows1.is_empty());
+
+        let cc2 = Arc::clone(&call_count);
+        let rows2 = qb
+            .execute_with_cache(&cache, "users", || async move {
+                cc2.fetch_add(1, Ordering::SeqCst);
+                Ok(vec![])
+            })
+            .await
+            .unwrap();
+        assert!(rows2.is_empty());
+        assert_eq!(
+            call_count.load(Ordering::SeqCst),
+            2,
+            "without ttl, loader should be called each time"
+        );
     }
 }
