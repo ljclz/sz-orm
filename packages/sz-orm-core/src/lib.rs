@@ -527,6 +527,9 @@ pub mod streaming_export;
 pub mod telemetry;
 #[cfg(feature = "multi-tenant-enhanced")]
 pub mod tenant_context;
+#[cfg(feature = "tenant-quota-rls-enhanced")]
+#[allow(missing_docs)]
+pub mod tenant_quota_rls;
 #[cfg(feature = "multi-tenant-enhanced")]
 pub mod tenant_security;
 mod transaction;
