@@ -486,6 +486,9 @@ pub use query::QueryBuilder;
 pub mod cache_coherence;
 #[cfg(feature = "connection-level-tenant")]
 pub mod connection_tenant;
+#[cfg(feature = "forward-compat-sandbox")]
+#[allow(missing_docs)]
+pub mod forward_compat_sandbox;
 #[cfg(feature = "migration-branch")]
 pub mod migration_branch;
 #[cfg(feature = "process-l1-cache")]

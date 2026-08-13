@@ -137,7 +137,7 @@ connection-level-tenant = ["multi-tenant-enhanced"]
 # v4.6.0 M5：进程级 L1 缓存（DashMap + TTL + 容量限制 + 缓存一致性）
 process-l1-cache = ["l1-cache", "cache-coherence"]
 # v4.7.0 M2：迁移前向兼容性检查与沙箱预演（前向兼容 + 影子表预演 + 依赖图分析）
-forward-compat-sandbox = ["zero-downtime-rollback"]
+forward-compat-sandbox = ["zero-downtime-rollback", "migration-dry-run"]
 # v4.7.0 M4：租户资源配额与行级安全增强（配额 + RLS 自动注入 + 租户审计）
 tenant-quota-rls-enhanced = ["connection-level-tenant"]
 # v4.7.0 M5：缓存预热与穿透防护（预热 + 布隆过滤器 + singleflight）
