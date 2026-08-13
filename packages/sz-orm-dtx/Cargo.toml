@@ -28,7 +28,7 @@ sqlx = { version = "0.9", features = ["runtime-tokio", "mysql", "postgres"], opt
 # 跨语言分布式事务支持（feature 隔离，默认关闭）
 prost = { version = "0.14", optional = true }
 tonic = { version = "0.14", optional = true }
-sz-orm-grpc = { path = "../sz-orm-grpc", optional = true }
+sz-orm-grpc = { version = "4.7.0", path = "../sz-orm-grpc", optional = true }
 
 [features]
 default = []
