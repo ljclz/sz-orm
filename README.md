@@ -8,7 +8,7 @@
 [![Tests](https://img.shields.io/badge/tests-6760+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-60-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-4.6.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.7.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -309,7 +309,7 @@ sz-orm-ai = { version = "2.4", features = ["ai-nl2sql-enhanced", "ai-index-advis
 ### 性能优化
 
 - **连接池预热**（TASK-021）：`PoolConfig::prewarm` 启用后，池创建时立即建立 `min_idle` 个连接，首次 `acquire()` 延迟从 < 100ms 降至 < 10ms
-- **查询缓存 TTL**（TASK-022）：`QueryBuilder::cache_ttl(Duration)` 支持查询结果缓存，相同 SQL + 参数在 TTL 内返回缓存结果，空结果也缓存（TTL 缩短为 1/10）防止缓存穿透
+- **查询缓存 TTL**（TASK-022）：`QueryBuilder::cache_ttl(Duration)` 预留查询结果缓存 TTL 设置项（⚠️ 2026-08-13 勘误：执行路径尚未消费该 TTL，暂为死 API，见 [审计报告 §二-5](docs/assessment/2026-08-13-production-zero-call-audit.md)）
 
 ### API 增强
 
@@ -335,8 +335,8 @@ sz-orm-ai = { version = "2.4", features = ["ai-nl2sql-enhanced", "ai-index-advis
 - **ACID 事务**：隔离级别、保存点（默认 8 层嵌套，`DEFAULT_MAX_NESTING_DEPTH = 8`，可配置）、`TransactionManager` 多事务管理
 - **连接池**：可配置大小、超时、空闲回收、健康检查、最大生命周期
 - **迁移系统**：up/down/rollback/reset/refresh + `SchemaBuilder` 程序化建表
-- **多级缓存**：`MemoryCache` / `MultiLevelCache` / `L2Cache`，支持 TTL 与表级失效
-- **钩子系统**：16 种生命周期事件 + `HookDispatcher` + `HookRegistry` 运行时钩子
+- **多级缓存**：`MemoryCache` / `MultiLevelCache` / `L2Cache`，支持 TTL 与表级失效（⚠️ 2026-08-13 勘误：组件可用，查询执行路径未自动接入缓存，见 [审计报告 §二-8](docs/assessment/2026-08-13-production-zero-call-audit.md)）
+- **钩子系统**：16 种生命周期事件 + `HookDispatcher` + `HookRegistry` 运行时钩子（⚠️ 2026-08-13 勘误：需手动 `registry.dispatch`，CRUD 执行不自动触发，见 [审计报告 §二-7](docs/assessment/2026-08-13-production-zero-call-audit.md)）
 - **软删除**：`SoftDelete` trait + `SoftDeleteScope` 全局作用域
 - **多租户**：`TenantModel` trait + `TenantScope` 自动 `tenant_id = ?` 过滤
 - **SQL 校验**：编译期（`sql_string!`）+ 运行时（`validate()`）双重校验、10 种注入模式检测（5 种正则模式 + 5 种 AST 模式）

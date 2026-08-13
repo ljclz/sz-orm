@@ -21,8 +21,8 @@
 3. **批量 COPY 协议与并行分片执行**：扩展既有 `sz-orm-batch` 包，`CopyProtocolAdapter` COPY 协议方言适配器复用既有 `CopyProtocolExecutor`（`packages/sz-orm-batch/src/copy.rs:14`），补齐 MySQL LOAD DATA INFILE / Oracle SQL*Loader / MSSQL BULK INSERT 方言适配，`ParallelShardExecutor` 并行分片执行器复用 v4.6.0 `BatchTransactionCoordinator`（`packages/sz-orm-batch/src/atomic.rs:216`）原子性，`ConflictResolution` 冲突解决策略（Upsert/Ignore/Merge/Replace）。
 4. **异常自愈与根因分析**：扩展既有 `sz-orm-observability` 包，`AutoRemediator` 异常自愈器 + `RootCauseAnalyzer` 根因分析器 + `AnomalyCorrelator` 异常关联器，复用 v4.6.0 `AnomalyDetector`（`packages/sz-orm-observability/src/anomaly.rs:254`）/ `AnomalyAlert`（`:206`）+ 既有 `MetricsRegistry`（`packages/sz-orm-observability/src/lib.rs:262`）/ `QueryLogger`（`packages/sz-orm-observability/src/query_logger.rs:73`），自愈动作须人工确认（可配白名单），根因分析附证据链与置信度。
 5. **多云成本对比与容量预测**：扩展既有 `sz-orm-storage` 包，`MultiCloudCostComparator` 多云成本对比器 + `CapacityForecaster` 容量预测器 + `AutoOptimizer` 自动优化执行器，复用 v4.6.0 `CostAnalyzer`（`packages/sz-orm-storage/src/cost.rs:231`）/ `CostReport`（`:213`）/ `ProviderCost`（`:202`）+ 既有 `Storage` trait（`packages/sz-orm-storage/src/storage.rs:14`）/ `StorageProvider`（`:287`），容量预测附置信区间（线性回归/指数平滑/Holt-Winters）。
-6. **租户资源配额与行级安全增强**：扩展既有 `sz-orm-core` 多租户，`TenantResourceQuota` 租户资源配额 + `QuotaEnforcer` 配额执行器 + `RlsPolicyEnhancer` RLS 策略增强器 + `TenantAuditLogger` 租户级审计日志器，复用 v4.6.0 `ConnectionTenantBinder`（`packages/sz-orm-core/src/connection_tenant.rs:133`）/ `TenantConnectionGuard`（`:249`）+ 既有 `RowLevelSecurityPolicy`（`packages/sz-orm-core/src/tenant_security.rs:67`）/ `ColumnMaskingRule`（`:155`）/ `TenantAuditContext`（`:244`）/ `Pool`（`packages/sz-orm-core/src/pool.rs:743`），配额检查在连接池/查询层强制执行，RLS 自动注入 WHERE 参数化绑定。
-7. **缓存预热与穿透防护**：扩展既有 `sz-orm-core` 缓存，`CacheWarmer` 缓存预热器 + `BloomFilter` 布隆过滤器 + `PenetrationGuard` 穿透防护器 + `SingleFlight` 击穿防护器，复用 v4.6.0 `ProcessL1Cache`（`packages/sz-orm-core/src/process_l1_cache.rs:169`）/ `CrossSessionIdentityMap`（`:366`）+ 既有 `L2Cache`（`packages/sz-orm-core/src/l2_cache.rs:517`）/ `CacheCoherenceProtocol`（`packages/sz-orm-core/src/cache_coherence.rs:103`），预热异步不阻塞启动，布隆过滤器不漏判，singleflight 不死锁。
+6. **租户资源配额与行级安全增强**：扩展既有 `sz-orm-core` 多租户，`TenantResourceQuota` 租户资源配额 + `QuotaEnforcer` 配额执行器 + `RlsPolicyEnhancer` RLS 策略增强器 + `TenantAuditLogger` 租户级审计日志器，复用 v4.6.0 `ConnectionTenantBinder`（`packages/sz-orm-core/src/connection_tenant.rs:133`）/ `TenantConnectionGuard`（`:249`）+ 既有 `RowLevelSecurityPolicy`（`packages/sz-orm-core/src/tenant_security.rs:67`）/ `ColumnMaskingRule`（`:155`）/ `TenantAuditContext`（`:244`）/ `Pool`（`packages/sz-orm-core/src/pool.rs:743`），配额检查在连接池/查询层强制执行，RLS 自动注入 WHERE 参数化绑定（⚠️ 2026-08-13 勘误：`QuotaEnforcer`/`RlsPolicyEnhancer` 组件已实现但未自动接线，pool.rs/query.rs 零引用，需手动调用——见 `docs/assessment/2026-08-13-production-zero-call-audit.md` §二-2/3）。
+7. **缓存预热与穿透防护**：扩展既有 `sz-orm-core` 缓存，`CacheWarmer` 缓存预热器 + `BloomFilter` 布隆过滤器 + `PenetrationGuard` 穿透防护器 + `SingleFlight` 击穿防护器，复用 v4.6.0 `ProcessL1Cache`（`packages/sz-orm-core/src/process_l1_cache.rs:169`）/ `CrossSessionIdentityMap`（`:366`）+ 既有 `L2Cache`（`packages/sz-orm-core/src/l2_cache.rs:517`）/ `CacheCoherenceProtocol`（`packages/sz-orm-core/src/cache_coherence.rs:103`），预热异步不阻塞启动，布隆过滤器不漏判，singleflight 不死锁（⚠️ 2026-08-13 勘误：`CacheWarmer` 组件已实现但零调用，l2_cache/process_l1_cache 初始化未触发预热，需手动接入——见审计报告 §二-4）。
 
 ## 设计约束
 
@@ -30,7 +30,7 @@
 |---------|---------|------|
 | 兼容性 | 无 Breaking Change，7 个新 feature gate 隔离，默认全关闭，既有公开 API 完全向后兼容 | spec.md §1.4 / §4.5.1 |
 | sz-pay 不破坏 | sz-pay 从 crates.io 拉取 sz-orm-* 6 个包既有用法不受影响 | spec.md §4.5.2 |
-| 五方言覆盖 | MySQL/PostgreSQL/SQLite/Oracle/MSSQL 行为一致（COPY 协议按方言能力适配，RLS 自动注入 WHERE 全方言支持） | spec.md §4.4.9 / §1.2.5 |
+| 五方言覆盖 | MySQL/PostgreSQL/SQLite/Oracle/MSSQL 行为一致（COPY 协议按方言能力适配，RLS 自动注入 WHERE 全方言支持（⚠️ 2026-08-13 勘误：RLS 增强组件未自动接线，见审计报告 §二-3）） | spec.md §4.4.9 / §1.2.5 |
 | 复用优先 | 优先复用既有能力，不重复实现（7 项需求全部通过既有包扩展，不新增包） | spec.md §1.4 / §10.4 |
 | unsafe 零容忍 | 无 `unsafe` 块，或必须有 `// SAFETY:` 注释 | spec.md §1.4.13 / §4.3 |
 | 禁止占位实现 | 禁止 `todo!`/`unimplemented!`/`unreachable!` | AGENTS.md |
@@ -47,9 +47,9 @@
 | 根因分析附证据链 | 根因分析附证据链（指标+日志+拓扑），置信度可配阈值 | spec.md §4.2.8 |
 | 容量预测附置信区间 | 容量预测附置信区间（默认 95%），不单点预测 | spec.md §4.2.10 |
 | 配额不超限 | 租户配额严格执行，超限拒绝请求，配额检查在连接池/查询层强制不可绕过 | spec.md §4.2.11 / §4.3.7 |
-| RLS 防越权 | RLS 自动注入 WHERE 参数化绑定，tenant_id 不可被客户端篡改 | spec.md §4.2.12 / §4.3.8 |
+| RLS 防越权 | RLS 自动注入 WHERE 参数化绑定，tenant_id 不可被客户端篡改（⚠️ 2026-08-13 勘误：组件已实现但未自动接线，见审计报告 §二-3） | spec.md §4.2.12 / §4.3.8 |
 | 审计日志不可篡改 | 租户级审计日志追加写入不可修改/删除 | spec.md §4.3.9 |
-| 预热不阻塞启动 | 缓存预热异步执行不阻塞服务启动，预热失败不影响启动 | spec.md §4.2.13 |
+| 预热不阻塞启动 | 缓存预热异步执行不阻塞服务启动，预热失败不影响启动（⚠️ 2026-08-13 勘误：`CacheWarmer` 已实现但零调用，无启动预热路径，见审计报告 §二-4） | spec.md §4.2.13 |
 | 布隆不漏判 | 布隆过滤器不存在的 key 一定返回 None，误判回退 DB 查询 | spec.md §4.2.14 |
 | singleflight 不死锁 | singleflight 重建超时释放锁，其他请求可重试 | spec.md §4.2.15 |
 
@@ -236,9 +236,9 @@ end note
 | REQ-V47-005 容量预测 | v4.6.0 `CostAnalyzer` 分析当前成本，不预测未来容量 | 业务逻辑差异：需基于历史时间序列预测未来；输出差异：需 `CapacityForecast` 含置信区间 | 新增 `CapacityForecaster` 基于历史容量数据（时间序列）按算法（LinearRegression/ExponentialSmoothing/HoltWinters）预测，计算置信区间，生成 `CapacityForecast` |
 | REQ-V47-005 成本自动优化 | v4.6.0 `CostAnalyzer.suggest_optimization`（`cost.rs:293`）仅生成 `CostOptimizationSuggestion`，不自动执行 | 业务逻辑差异：须自动执行优化建议而非仅生成；边界差异：须人工确认（白名单除外） | 新增 `AutoOptimizer` 接收 `CostOptimizationSuggestion`，白名单内自动执行（如降级 tier），非白名单请求人工确认，生成 `OptimizationExecutionResult`，复用既有 `Storage` trait 执行优化 |
 | REQ-V47-006 租户资源配额 | v4.6.0 `ConnectionTenantBinder`（`connection_tenant.rs:133`）绑定连接到租户，但不限制租户资源配额 | 业务逻辑差异：须按租户限制 max_connections/max_qps/max_storage；边界差异：超限拒绝请求 | 新增 `TenantResourceQuota` + `QuotaEnforcer`，在 `ConnectionTenantBinder.acquire_with_tenant` 路径上插入配额检查，超限拒绝，复用既有 `TenantConnectionGuard`（`:249`） |
-| REQ-V47-006 RLS 策略增强 | 既有 `RowLevelSecurityPolicy`（`tenant_security.rs:67`）支持单条件 WHERE 注入，不支持多条件组合/复杂谓词 | 业务逻辑差异：需支持多条件组合（`tenant_id=? AND dept_id IN (?,?)`）；边界差异：须与列级脱敏联动 | 新增 `RlsPolicyEnhancer` + `EnhancedRlsPolicy` 支持多条件组合与复杂谓词，自动注入 WHERE 参数化绑定（复用 `Connection::execute_with_params` `pool.rs:82`），与 `ColumnMaskingRule`（`:155`）联动，不修改既有 `RowLevelSecurityPolicy` |
+| REQ-V47-006 RLS 策略增强 | 既有 `RowLevelSecurityPolicy`（`tenant_security.rs:67`）支持单条件 WHERE 注入，不支持多条件组合/复杂谓词 | 业务逻辑差异：需支持多条件组合（`tenant_id=? AND dept_id IN (?,?)`）；边界差异：须与列级脱敏联动 | 新增 `RlsPolicyEnhancer` + `EnhancedRlsPolicy` 支持多条件组合与复杂谓词，自动注入 WHERE 参数化绑定（复用 `Connection::execute_with_params` `pool.rs:82`），与 `ColumnMaskingRule`（`:155`）联动，不修改既有 `RowLevelSecurityPolicy`（⚠️ 2026-08-13 勘误：组件已实现但未自动接线，query.rs 零引用，需手动调用——见审计报告 §二-3） |
 | REQ-V47-006 租户级审计日志 | 既有 `TenantAuditContext`（`tenant_security.rs:244`）/ `TenantAuditOperation`（`:197`）定义审计结构，但无独立租户级审计日志器 | 业务逻辑差异：须按租户独立记录审计日志；边界差异：追加写入不可篡改 | 新增 `TenantAuditLogger` + `TenantAuditEntry`，按租户独立记录审计日志（连接/查询/配额超限/RLS 命中），追加写入不可篡改，复用既有 `TenantAuditContext`/`TenantAuditOperation`/`AuditResult`（`:224`） |
-| REQ-V47-007 缓存预热 | v4.6.0 `ProcessL1Cache`（`process_l1_cache.rs:169`）按需加载，无启动预热 | 业务逻辑差异：须启动时预加载热点数据；边界差异：异步不阻塞启动 | 新增 `CacheWarmer` + `WarmupConfig`，按预热策略（HotspotTable/HotspotKey/CustomQuery）异步预加载热点数据到 L1+L2，复用 `ProcessL1Cache.put` + `L2Cache.put`，预热失败不影响启动 |
+| REQ-V47-007 缓存预热 | v4.6.0 `ProcessL1Cache`（`process_l1_cache.rs:169`）按需加载，无启动预热 | 业务逻辑差异：须启动时预加载热点数据；边界差异：异步不阻塞启动 | 新增 `CacheWarmer` + `WarmupConfig`，按预热策略（HotspotTable/HotspotKey/CustomQuery）异步预加载热点数据到 L1+L2，复用 `ProcessL1Cache.put` + `L2Cache.put`，预热失败不影响启动（⚠️ 2026-08-13 勘误：`CacheWarmer` 已实现但零调用，无启动预热路径——见审计报告 §二-4） |
 | REQ-V47-007 缓存穿透防护 | 既有 `ProcessL1Cache`/`L2Cache` 查询未命中直接查 DB，无布隆过滤器拦截 | 业务逻辑差异：须查询前判断 key 是否可能存在；边界差异：不漏判（不存在一定返回 None） | 新增 `BloomFilter` + `PenetrationGuard`，查询前 `BloomFilter.might_contain` 判断，不存在直接返回 None 不查 DB，误判回退 DB，复用既有 L1/L2 查询路径 |
 | REQ-V47-007 缓存击穿防护 | 既有 `ProcessL1Cache` 缓存未命中时各请求独立查 DB 重建，无 singleflight | 业务逻辑差异：须并发重建只执行一次其他等待复用；边界差异：超时释放锁不死锁 | 新增 `SingleFlight` + `StampedeGuard`，对同一 key 的并发重建请求只执行一次（`tokio::sync::OnceCell` 或 `Notify` 等待），其他等待结果复用，超时释放锁，复用 `ProcessL1Cache` 重建逻辑 |
 

@@ -1,7 +1,7 @@
 # SZ-ORM 工程化实践规范
 
 > **目标项目**：SZ-ORM（鲜视达 ORM 框架，60 workspace 包，6,794+ 测试（2026-08-12 实测））
-> **项目版本**：v4.6.0
+> **项目版本**：v4.7.0
 > **文档用途**：锁定已有工程质量，防止后续修改引入退化
 > **维护规则**：任何修改 CI/CD 或新增门禁的 PR 必须同步更新本文档
 > **文档版本**：v3.1（2026-08-01）
@@ -474,7 +474,7 @@ flowchart LR
 
 **紧急修复**：使用 `./scripts/gate.ps1 -Fast` 只跑前 3 关（fmt + check + clippy）
 
-### 5.2 AI 辅助开发 10 条硬约束
+### 5.2 AI 辅助开发 11 条硬约束
 
 以下约束适用于任何使用 AI 辅助对 SZ-ORM 进行修改的场景：
 
@@ -490,6 +490,7 @@ flowchart LR
 | 8 | **跨平台意识** | AI 添加平台相关代码必须使用条件编译，不能破坏双平台编译 |
 | 9 | **Feature 隔离** | AI 修改 feature-gated 代码时必须验证 feature 全组合编译 |
 | 10 | **教训记忆** | AI 必须阅读本附录的防御追溯表，避免重复已犯错误 |
+| 11 | **禁止幻影交付** | 宣称"自动/强制/默认/集成"的能力必须附生产调用点证据（file:line）；"模块存在 + 测试通过"≠"已交付"。交付前运行门禁 15（`python scripts/check-phantom-delivery.py`）：零调用符号（PHANTOM-1）必须接线或删除；feature gate 无启用点（PHANTOM-2）必须在文档标注"提供 X 组件（需手动接入）"。依据 2026-08-13 审计报告 `docs/assessment/2026-08-13-production-zero-call-audit.md` |
 
 ### 5.3 编译时 SQL 验证（db-verify feature）
 

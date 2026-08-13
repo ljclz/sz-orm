@@ -8,7 +8,7 @@
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
 - 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 4.7.0（v4.7.0 7 项需求全部完成，8 个里程碑 M0~M7 通过）
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
-- 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 检测自动拦截（N1QueryDetector）。
+- 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 防护：编译期 `#[detect_n_plus_one]` 静态检测（n1-lint）+ 运行时 `N1QueryDetector` 检测组件（需手动接入，未自动拦截）。
 
 ## 工程化审查规范
 
@@ -18,7 +18,7 @@
 
 **严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。** 任何改动必须通过 PR 贡献到上游。违反此原则会导致审计记录与事实不符，直接红牌拒绝入库。
 
-### 14 道门禁（提交前必过）
+### 15 道门禁（提交前必过）
 
 | # | 门禁 | 命令 |
 |---|------|------|
@@ -36,12 +36,13 @@
 | 12 | 文档与代码一致性检查 | `python scripts/check-doc-consistency.py` |
 | 13 | 审计证据验证 | `bash scripts/audit-verify.sh <审计报告.md>` |
 | 14 | 文档同步更新检查 | `python scripts/check-doc-sync.py --diff HEAD` |
+| 15 | 幻影交付检查 | `python scripts/check-phantom-delivery.py`（PHANTOM-1 零调用符号断言，任何一项存在即失败；PHANTOM-2 门控未启用为警告） |
 
 ### 五维审查（每次 PR 必做）
 
 正确性 → 可读性 → 架构 → 安全性 → 性能
 
-### AI 辅助开发 10 条硬约束
+### AI 辅助开发 11 条硬约束
 
 1. 禁止占位实现（todo!/unimplemented!/unreachable!）
 2. 强制参数化查询（禁止 SQL 字符串拼接）
@@ -53,6 +54,7 @@
 8. 跨平台意识
 9. Feature 隔离
 10. 教训记忆（阅读防御追溯表）
+11. 禁止幻影交付：宣称"自动/强制/默认/集成"的能力必须附生产调用点证据（file:line）；"模块存在 + 测试通过"≠"已交付"（门禁 15）；feature gate 无启用点时文档必须用"提供 X 组件（需手动接入）"措辞，禁止用"强制执行/自动注入/自动拦截/启动预热/默认生效"等集成语义描述零调用模块（依据 2026-08-13 审计：docs/assessment/2026-08-13-production-zero-call-audit.md）
 
 ### 审计合规铁律（生死线）
 
