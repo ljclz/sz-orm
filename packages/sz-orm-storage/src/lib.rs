@@ -100,6 +100,9 @@ pub mod s3_sdk;
 #[cfg(feature = "cost-analysis")]
 pub mod cost;
 
+#[cfg(feature = "multicloud-cost-forecast")]
+pub mod multicloud_cost_forecast;
+
 #[cfg(feature = "s3-sdk")]
 pub use s3_sdk::S3SdkStorage;
 
