@@ -23,6 +23,9 @@ pub mod executor;
 #[cfg(feature = "batch-atomic")]
 pub mod atomic;
 
+#[cfg(feature = "copy-parallel-shard")]
+pub mod copy_parallel_shard;
+
 #[cfg(feature = "batch-v2")]
 pub use copy::CopyProtocolExecutor;
 #[cfg(feature = "batch-v2")]
@@ -33,6 +36,12 @@ pub use dialect::BatchDialect;
 pub use executor::{
     BatchExecutionResult, BatchExecutor, BatchExecutorConfig, BatchExecutorError,
     ChunkExecutionDetail,
+};
+
+#[cfg(feature = "copy-parallel-shard")]
+pub use copy_parallel_shard::{
+    ConflictResolution, CopyBatchResult, CopyDialect, CopyParallelShardError, CopyProtocolAdapter,
+    ParallelShardExecutor, ShardConfig, ShardResult, ShardStrategy,
 };
 
 use serde::{Deserialize, Serialize};
