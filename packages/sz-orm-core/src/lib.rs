@@ -484,6 +484,9 @@ pub mod validation;
 pub use query::QueryBuilder;
 #[cfg(feature = "cache-coherence")]
 pub mod cache_coherence;
+#[cfg(feature = "cache-warmup-protection")]
+#[allow(missing_docs)]
+pub mod cache_warmup_protection;
 #[cfg(feature = "connection-level-tenant")]
 pub mod connection_tenant;
 #[cfg(feature = "forward-compat-sandbox")]
