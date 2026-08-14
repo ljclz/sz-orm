@@ -26,10 +26,10 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGES = os.path.join(ROOT, "packages")
 
-# 概念重复实现表：{概念名: [实现符号...]}（2026-08-13 审计实例）
-# 命中 = 同一概念存在 ≥2 个实现符号
+# 概念重复实现表：{概念名: [实现符号...]}
+# 2026-08-14 布隆双实现已合并为公共 sz-orm-core::bloom（bloom.rs），
+# dist_cache::BloomFilterGuard 为兼容包装（内部即公共实现），不再视为重复实现。
 DEFAULT_CONCEPTS = {
-    "bloom_filter": ["BloomFilter", "BloomFilterGuard"],
     "cache_ttl_holder": ["cache_ttl", "cache_ttl_override"],
 }
 
