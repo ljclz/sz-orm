@@ -1,7 +1,7 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v4.3.0 · 56 工作空间成员 · 6,900+ 测试 · 28 SQL 方言 · 已发布 crates.io
+> v4.3.0 · 60 工作空间成员 · 8930+ 测试 · 27 SQL 方言 · 已发布 crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
@@ -67,7 +67,7 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | `data-lineage` | sz-orm-audit | 数据 lineage 追踪：SQL AST 解析 + DAG 图 + 多格式导出 |
 | `shard-rebalance` | sz-orm-sharding | 分片自动 rebalance：负载均衡 + 检查点 + 原子迁移 |
 | `auto-failover` | sz-orm-rw | 数据库 failover 自动化：主从切换 + 脑裂检测 |
-| `cdc` | sz-orm-queue | CDC 变更数据捕获：5 方言 + 精确一次去重 + 多下游 |
+| `cdc` | sz-orm-queue | CDC 变更数据捕获：5 方言 + 精确一次去重 + 多下游（⚠️ 2026-08-14 勘误：5 个方言捕获器为 stub——均返回 "requires live connection"（capturer.rs:66/118/151/187），仅 dedup/downstream/masking 组件可用，见审计报告 §二） |
 | `async-graphql-integration` | sz-orm-graphql | GraphQL 深度集成：DataLoader + Relay + Federation |
 | `service-mesh` | sz-orm-observability | 服务网格集成：Istio/Linkerd 配置生成 + 可观测性 |
 

@@ -46,10 +46,11 @@ DEFAULT_RULES = [
     },
     {
         "id": "R3",
-        "name": "无符号恒假比较",
-        "pattern": r"\b(u8|u16|u32|u64|usize)\b[^;=<>]*[<>]=?\s*-?\d+",
+        "name": "无符号恒假/恒真比较",
+        # 2026-08-14 收紧：仅报 < 0（恒假）与 >= 0（恒真）；usize > 0 是合法检查不再误报
+        "pattern": r"\b(u8|u16|u32|u64|usize)\b[^;\n]*(?:<\s*0\b|>=\s*0\b)",
         "hard": False,
-        "hint": "无符号类型与负数/越界比较恒真或恒假，通常是逻辑错误",
+        "hint": "无符号类型 < 0 恒假 / >= 0 恒真，通常是逻辑错误",
     },
     {
         "id": "R4",
@@ -77,13 +78,39 @@ def iter_rs_files():
 
 
 def strip_tests(txt):
-    """去掉 #[cfg(test)] 与顶层 mod tests 块（测试代码不参与语义扫描）。"""
-    for _ in range(8):
-        new = re.sub(r"#\[cfg\(test\)\][^{]*\{[^{}]*\}", "", txt, flags=re.S)
-        if new == txt:
-            break
-        txt = new
-    return re.sub(r"\n\s*mod\s+tests\s*\{[^{}]*\}\n", "\n", txt)
+    """去掉 #[cfg(test)] 与顶层 mod tests 块（括号匹配，支持嵌套花括号——
+    正则 [^{}]* 会在测试体内嵌套 { } 处失败导致剥离不完整，2026-08-14 修复）。"""
+
+    def strip_block(src, marker):
+        out = []
+        i = 0
+        n = len(src)
+        while True:
+            m = re.search(marker, src[i:])
+            if not m:
+                out.append(src[i:])
+                break
+            start = i + m.start()
+            out.append(src[i:start])
+            j = src.find('{', start)
+            if j == -1:
+                out.append(src[start:])
+                break
+            depth = 0
+            k = j
+            while k < n:
+                if src[k] == '{':
+                    depth += 1
+                elif src[k] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            i = k + 1 if k < n else n
+        return ''.join(out)
+
+    txt = strip_block(txt, r'#\[cfg\(test\)\]')
+    return strip_block(txt, r'\bmod\s+tests\s*\{')
 
 
 def scan(rules):

@@ -55,6 +55,16 @@ def count_features():
     return total
 
 
+def count_dialects():
+    """DbType 枚举变体数（方言支持的真实口径，README 顶部徽章用）。"""
+    path = os.path.join(ROOT, "packages", "sz-orm-core", "src", "db_type.rs")
+    try:
+        txt = open(path, encoding="utf-8", errors="replace").read()
+        return len(re.findall(r"^\s+[A-Z][A-Za-z]+,", txt, re.M))
+    except OSError:
+        return 0
+
+
 def real_metrics():
     pkg_dirs = [d for d in os.listdir(os.path.join(ROOT, "packages")) if d.startswith("sz-orm")]
     tests = count_test_annotations()
@@ -63,6 +73,7 @@ def real_metrics():
         "packages": len(pkg_dirs),
         "test_annotations": tests,
         "features": feats,
+        "dialects": count_dialects(),
         "workspace_members": len(pkg_dirs) + 2,  # + cli + examples
     }
 
@@ -78,6 +89,10 @@ CLAIM_PATTERNS = [
     (r"packages-(\d+)", "workspace_members", "包数徽章", r"packages-\g<1>"),
     (r"工作空间成员\s*\|\s*\*\*(\d+)\*\*（(\d+) 个 sz-orm-\* lib", "workspace_members", "成员表行",
      r"工作空间成员 | **\g<1>**（\g<2> 个 sz-orm-* lib"),
+    # 2026-08-14 补盲区：README 顶部概览行散落数字（"N 工作空间成员"/"N+ 测试"/"N SQL 方言"）
+    (r"(\d+)\s*工作空间成员", "workspace_members", "顶部成员数", r"\g<1> 工作空间成员"),
+    (r"(\d[\d,]*)\+\s*测试", "test_annotations", "顶部测试数", r"\g<1>+ 测试"),
+    (r"(\d+)\s+SQL 方言", "dialects", "顶部方言数", r"\g<1> SQL 方言"),
 ]
 
 
@@ -122,10 +137,23 @@ def main():
 
     if args.fix and issues:
         lines = open(README, encoding="utf-8", errors="replace").read().splitlines()
-        for ln, _, _, _, _, new_line in issues:
-            lines[ln - 1] = new_line
+        fixed = 0
+        # 按行分组、顺序应用替换（同一行多个模式不互相覆盖——2026-08-14 修复覆盖 bug）
+        for ln in sorted({i[0] for i in issues}):
+            cur = lines[ln - 1]
+            for pat, key, kind, fix_tpl in CLAIM_PATTERNS:
+                m = re.search(pat, cur)
+                if not m:
+                    continue
+                claimed = int(m.group(1).replace(",", "").replace("+", ""))
+                if claimed != metrics[key]:
+                    cur = cur[:m.start()] + fix_tpl \
+                        .replace(r"\g<1>", str(metrics[key])) \
+                        .replace(r"\g<2>", str(metrics["packages"])) + cur[m.end():]
+                    fixed += 1
+            lines[ln - 1] = cur
         open(README, "w", encoding="utf-8", newline="\n").write("\n".join(lines) + "\n")
-        print(f"  → 已自动修正 README {len(issues)} 处数字声称")
+        print(f"  → 已自动修正 README {fixed} 处数字声称")
         # 保险：修复残留检查（模板占位符泄漏会污染文档）
         leftover = [(i + 1, l) for i, l in enumerate(lines) if r"\g<" in l]
         if leftover:

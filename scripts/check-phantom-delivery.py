@@ -165,17 +165,40 @@ def iter_rs_files():
                         yield os.path.join(root, f)
 
 
-def strip_test_blocks(txt):
-    """去掉 #[cfg(test)] 与顶层 mod tests { ... } 块，返回生产代码。"""
-    txt = re.sub(r"#\[cfg\(test\)\][^{]*\{[^{}]*\}", "", txt, flags=re.S)
-    # 逐层剥离（cfg(test) 块内可能嵌套 mod）
-    for _ in range(8):
-        new = re.sub(r"#\[cfg\(test\)\][^{]*\{[^{}]*\}", "", txt, flags=re.S)
-        if new == txt:
-            break
-        txt = new
-    txt = re.sub(r"\n\s*mod\s+tests\s*\{[^{}]*\}\n", "\n", txt)
-    return txt
+def strip_tests(txt):
+    """去掉 #[cfg(test)] 与顶层 mod tests 块（括号匹配，支持嵌套花括号——
+    正则 [^{}]* 会在测试体内嵌套 { } 处失败导致剥离不完整，2026-08-14 修复）。"""
+
+    def strip_block(src, marker):
+        out = []
+        i = 0
+        n = len(src)
+        while True:
+            m = re.search(marker, src[i:])
+            if not m:
+                out.append(src[i:])
+                break
+            start = i + m.start()
+            out.append(src[i:start])
+            j = src.find('{', start)
+            if j == -1:
+                out.append(src[start:])
+                break
+            depth = 0
+            k = j
+            while k < n:
+                if src[k] == '{':
+                    depth += 1
+                elif src[k] == '}':
+                    depth -= 1
+                    if depth == 0:
+                        break
+                k += 1
+            i = k + 1 if k < n else n
+        return ''.join(out)
+
+    txt = strip_block(txt, r'#\[cfg\(test\)\]')
+    return strip_block(txt, r'\bmod\s+tests\s*\{')
 
 
 def find_definition_file(symbol):
@@ -207,7 +230,7 @@ def production_callers(symbol, def_file):
             continue
         if not rx.search(txt):
             continue
-        body = PUB_USE_BLOCK_RE.sub("", strip_test_blocks(txt))
+        body = PUB_USE_BLOCK_RE.sub("", strip_tests(txt))
         hits = 0
         for ln in body.splitlines():
             if not rx.search(ln):

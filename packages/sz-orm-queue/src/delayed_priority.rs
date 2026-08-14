@@ -506,6 +506,8 @@ impl DelayScheduler {
     pub async fn run(&self) {
         let interval = Duration::from_millis(self.config.check_interval_ms);
         while !self.shutdown.load(Ordering::Relaxed) {
+            // 轮询循环 best-effort：单次投递失败不中断调度器，下一轮重试
+            // （门禁 16 R2 豁免登记：有意丢弃 Result，非静默吞错——失败由 delay_log 记录）
             let _ = self.check_and_deliver().await;
             tokio::time::sleep(interval).await;
         }
