@@ -597,7 +597,7 @@ cargo build --features sz-orm-macros/db-verify
 | P-2 | 幻影交付 | feature gate 定义存在但无任何启用点，默认构建不编译（149 个 gate） | 各包 Cargo.toml | 门禁 15 PHANTOM-2 警告 + 文档标注"提供 X 组件（需手动接入）" |
 | P-3 | 幻影交付 | "集成验证"里程碑只跑单包 feature 测试，不验证生产接线 | docs/spec/v4.7.0/tasks.md M8 | M8 升级为"生产入口冒烟"（启用 feature 后从 cli/example 真实调用） |
 | — | 测试 flaky | doctest 6 失败未复现（2026-08-14 一次运行 doc-tests 55 passed / 6 failed / 97 ignored，重跑 61/0/97；疑似并发 cargo 竞争 target 增量缓存） | sz-orm-core doctests | 串行执行 cargo（禁止并行 cargo 共享 target）+ 测试报告必须 `grep "test result:"` 全量汇总（`tail` 截断会漏掉失败套件） |
-| P-4 | 幻影交付 | CDC 捕获器 5 方言全为 stub（返回 "requires live connection"，capturer.rs:66/118/151/187），README:70 宣称"5 方言 + 精确一次去重 + 多下游" | packages/sz-orm-queue/src/cdc/capturer.rs | README 勘误（2026-08-14）+ stub 实现标注"提供组件（需手动接入）"；由门禁 16 R2 软扫描意外发现（丢弃元组模式暴露 stub 残留） |
+| P-4 | 幻影交付 | CDC 捕获器 5 方言全为 stub（返回 "requires live connection"，capturer.rs:66/118/151/187），README:70 宣称"5 方言 + 精确一次去重 + 多下游" | packages/sz-orm-queue/src/cdc/capturer.rs | ✅ 已处置（2026-08-14）：新增真实轮询式 `PollingCapturer`（checkpoint 游标 + 增量轮询 + 事件流，3 测试）；协议级捕获器明确标注"未实现"状态（返回明确错误不假装成功）；README 宣称改为准确描述 |
 | D-8 | 夸大对比 | 性能/规模数字无载体（"13.8 亿次操作"等）且 README 内数字互相矛盾（56/43/60 成员、5,404/5,809/6,900+ 测试） | README.md:4/100/102/359/849 | 数字自动生成（从 Cargo.toml/测试统计推导）+ 基准代码入仓 + 删除无载体数字 |
 
 ---

@@ -1,11 +1,11 @@
 # SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v4.3.0 · 60 工作空间成员 · 8949+ 测试 · 27 SQL 方言 · 已发布 crates.io
+> v4.3.0 · 60 工作空间成员 · 8952+ 测试 · 27 SQL 方言 · 已发布 crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-8949+-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-8952+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-60-purple.svg)](#工作空间结构)
 [![Version](https://img.shields.io/badge/version-4.7.0-blue.svg)](CHANGELOG.md)
@@ -67,7 +67,7 @@ SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust �
 | `data-lineage` | sz-orm-audit | 数据 lineage 追踪：SQL AST 解析 + DAG 图 + 多格式导出 |
 | `shard-rebalance` | sz-orm-sharding | 分片自动 rebalance：负载均衡 + 检查点 + 原子迁移 |
 | `auto-failover` | sz-orm-rw | 数据库 failover 自动化：主从切换 + 脑裂检测 |
-| `cdc` | sz-orm-queue | CDC 变更数据捕获：5 方言 + 精确一次去重 + 多下游（⚠️ 2026-08-14 勘误：5 个方言捕获器为 stub——均返回 "requires live connection"（capturer.rs:66/118/151/187），仅 dedup/downstream/masking 组件可用，见审计报告 §二） |
+| `cdc` | sz-orm-queue | CDC 变更数据捕获：**轮询式捕获器（真实实现，`PollingCapturer`）+ 精确一次去重 + 多下游**；协议级捕获（PostgreSQL WAL / MySQL binlog / Oracle LogMiner / MSSQL CDC）明确未实现（需真实 DB 复制协议，返回明确错误不假装成功），见审计报告 §二-P4 |
 | `async-graphql-integration` | sz-orm-graphql | GraphQL 深度集成：DataLoader + Relay + Federation |
 | `service-mesh` | sz-orm-observability | 服务网格集成：Istio/Linkerd 配置生成 + 可观测性 |
 
@@ -99,7 +99,7 @@ println!("{}", report.to_json().unwrap());
 |------|------|
 | 工作空间成员 | **60**（58 个 sz-orm-* lib + cli + examples） |
 | 支持数据库方言 | **17 种 SQL 方言**（8 原生 + 9 委派，含国产信创 6 种） |
-| 测试用例 | **8949 passed, 0 failed** |
+| 测试用例 | **8952 passed, 0 failed** |
 | 代码规模 | **~139,000 LOC**（深度优化后，src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000） |
 | 项目成熟度 | **早期生产可用（内部项目）**（sz-pay 生产试点，crates.io 已发布 sz-orm-core） |
 | 异步运行时 | Tokio 1.40+ |
@@ -846,7 +846,7 @@ SZ-ORM 通过 **7 线验证体系**保障质量：
 | **Chaos** | 故障鲁棒性 | `chaos.rs` |
 | **Formal** | 形式化不变量验证 | `formal.rs` |
 
-**总计：8949 tests, 0 failed**（部分测试需真实 DB/云凭证）
+**总计：8952 tests, 0 failed**（部分测试需真实 DB/云凭证）
 
 ### 运行测试
 
