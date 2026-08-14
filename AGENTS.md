@@ -36,7 +36,7 @@
 | 12 | 文档与代码一致性检查 | `python scripts/check-doc-consistency.py` |
 | 13 | 审计证据验证 | `bash scripts/audit-verify.sh <审计报告.md>` |
 | 14 | 文档同步更新检查 | `python scripts/check-doc-sync.py --diff HEAD` |
-| 15 | 幻影交付检查 | `python scripts/check-phantom-delivery.py`（PHANTOM-1 零调用符号断言，任何一项存在即失败；PHANTOM-2 门控未启用为警告） |
+| 15 | 幻影交付检查 | `python scripts/check-phantom-delivery.py`（双模式：①符号断言 PHANTOM-1 零调用符号，任何一项存在即失败；②接线断言 W1~W2 模块内接线函数体级验证；③PHANTOM-2 门控未启用为警告。接线规范：跨文件接线→符号断言自动变绿；同文件接线→登记 WIRING_ASSERTIONS 表） |
 | 16 | 语义反模式扫描 | `python scripts/check-semantic-patterns.py`（无效递增/丢弃检查结果/释放路径空操作等；2026-08-13 已抓出 2 处真实 bug：quota 只增不减、QueryStats 参数错位） |
 | 17 | 架构一致性扫描 | `python scripts/check-architecture.py`（概念重复实现/依赖白名单/孤儿包；豁免登记：bloom_filter 双实现——dist_cache 击穿守卫 vs warmup 穿透过滤，合并列为阶段 3 架构债） |
 | 18 | 度量真实性扫描 | `python scripts/check-metrics-real.py`（README 数字声称 vs 源码统计，--fix 自动修正；数字禁止手写） |

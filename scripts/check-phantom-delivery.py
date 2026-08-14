@@ -63,6 +63,82 @@ DECLARED_SYMBOLS = [
 EXPORT_RE = re.compile(r"^\s*(pub\s+mod\s+\w+|pub\s+use\s+\S+)")
 # 多行 pub use X::{ ... }; 块（续行符号不计调用）
 PUB_USE_BLOCK_RE = re.compile(r"pub\s+use\s+[\w:]+::\{[^}]*\};", re.S)
+
+# ============================================================================
+# 接线断言表（门禁 15 双模式之"接线断言"）：
+# 覆盖 PHANTOM-1 符号级检测看不见的"模块内接线"（符号与调用方同文件）。
+# 验证方式：caller 函数体（括号匹配提取）内必须引用 symbol 的定义。
+# 新增接线时：跨文件接线 → 符号断言自动变绿；同文件接线 → 在此登记断言。
+# ============================================================================
+WIRING_ASSERTIONS = [
+    {
+        "id": "W1",
+        "name": "cache_ttl → execute_with_cache（query.rs 内部接线）",
+        "symbol": "get_cache_ttl",
+        "file": "packages/sz-orm-core/src/query.rs",
+        "caller": "execute_with_cache",
+        "hint": "QueryBuilder::cache_ttl 的 TTL 被 execute_with_cache 消费（v4.7.0 接线，测试 test_execute_with_cache_ttl_hit）",
+    },
+    {
+        "id": "W2",
+        "name": "N1QueryDetector → BatchLoader（entity_graph.rs 内部接线）",
+        "symbol": "N1QueryDetector",
+        "file": "packages/sz-orm-core/src/entity_graph.rs",
+        "caller": "with_detector",
+        "hint": "批量加载器通过 with_detector 挂载 N+1 检测器（v4.7.0 接线，测试 test_batch_loader_with_detector_*）",
+    },
+]
+
+
+def extract_fn_body(lines, fn_name):
+    """提取 `pub fn fn_name` / `pub async fn fn_name` 的函数体（括号匹配），返回行区间或 None。"""
+    start = None
+    for i, ln in enumerate(lines):
+        if re.search(rf"^\s*pub\s+(?:async\s+)?fn\s+{re.escape(fn_name)}\b", ln):
+            start = i
+            break
+    if start is None:
+        return None
+    # 找函数体起始 {（可能跨行，如泛型参数）
+    depth = 0
+    j = start
+    while j < len(lines):
+        depth += lines[j].count("{") - lines[j].count("}")
+        if depth >= 1:
+            # 已进入函数体，继续到 depth 归零
+            k = j
+            while k < len(lines):
+                depth += lines[k].count("{") - lines[k].count("}")
+                if depth <= 0:
+                    return start, k
+                k += 1
+            return None
+        j += 1
+    return None
+
+
+def check_wiring(assertions):
+    """验证接线断言：caller 函数体内引用 symbol。"""
+    results = []
+    for a in assertions:
+        path = os.path.join(ROOT, a["file"])
+        if not os.path.isfile(path):
+            results.append((a, "FAIL", "文件不存在"))
+            continue
+        lines = open(path, encoding="utf-8", errors="replace").read().splitlines()
+        span = extract_fn_body(lines, a["caller"])
+        if span is None:
+            results.append((a, "FAIL", f"未找到函数 {a['caller']}"))
+            continue
+        body = "\n".join(lines[span[0]:span[1] + 1])
+        # 剥注释（函数体 doc 注释里的符号引用不算接线）
+        body = "\n".join(l for l in body.splitlines()
+                         if not l.strip().startswith("//"))
+        if re.search(r"\b" + re.escape(a["symbol"]) + r"\b", body):
+            results.append((a, "PASS", f"函数体 {span[0]+1}-{span[1]+1} 引用 {a['symbol']}"))
+        else:
+            results.append((a, "FAIL", f"函数 {a['caller']} 体内未引用 {a['symbol']}"))
+    return results
 # 非生产目录（测试/示例/基准/fuzz）
 NON_PROD_DIR_RE = re.compile(r"(^|/)(tests|benches|fuzz|examples)(/|$)")
 
@@ -227,19 +303,20 @@ def check_feature_matrix():
 
 
 def main():
-    ap = argparse.ArgumentParser(description="幻影交付扫描（AGENTS.md 门禁 15）")
+    ap = argparse.ArgumentParser(description="幻影交付扫描（AGENTS.md 门禁 15，双模式）")
     ap.add_argument("--symbols", nargs="*", default=DECLARED_SYMBOLS,
                     help="符号表（默认内置宣称符号表）")
     ap.add_argument("--strict", action="store_true", help="PHANTOM-2 也按失败计")
     ap.add_argument("--skip-matrix", action="store_true", help="跳过 feature 矩阵检查")
+    ap.add_argument("--skip-wiring", action="store_true", help="跳过接线断言检查")
     args = ap.parse_args()
 
     print("=" * 60)
-    print("  幻影交付扫描: PHANTOM-1 零调用符号 + PHANTOM-2 门控未启用")
+    print("  幻影交付扫描（门禁 15）: 符号断言 + 接线断言 + 门控矩阵")
     print("=" * 60)
 
     ok, phantoms = check_symbols(args.symbols)
-    print(f"\n[1/2] 生产调用断言（宣称符号 {len(ok) + len(phantoms)} 个）")
+    print(f"\n[1/3] 符号断言（宣称符号 {len(ok) + len(phantoms)} 个）")
     for sym, def_rel, callers in ok:
         print(f"  ✅ {sym:28s} 定义 {def_rel}  生产调用方 {len(callers)} 处")
     for sym, def_rel, _ in phantoms:
@@ -248,9 +325,19 @@ def main():
         else:
             print(f"  ❌ PHANTOM-1 {sym:18s} 定义 {def_rel} — 生产路径零调用")
 
+    wiring = [] if args.skip_wiring else check_wiring(WIRING_ASSERTIONS)
+    print(f"\n[2/3] 接线断言（模块内接线 {len(wiring)} 条）")
+    wiring_fail = 0
+    for a, status, detail in wiring:
+        if status == "PASS":
+            print(f"  ✅ {a['id']} {a['name']} — {detail}")
+        else:
+            wiring_fail += 1
+            print(f"  ❌ {a['id']} {a['name']} — {detail}（{a['hint']}）")
+
     if not args.skip_matrix:
         p2 = check_feature_matrix()
-        print(f"\n[2/2] feature 启用矩阵（未启用 gate {len(p2)} 个）")
+        print(f"\n[3/3] feature 启用矩阵（未启用 gate {len(p2)} 个）")
         for pkg, f in p2:
             print(f"  ⚠️  PHANTOM-2 {pkg:26s} {f} — 无任何成员启用，默认构建不编译")
         matrix_fail = args.strict and bool(p2)
@@ -260,10 +347,10 @@ def main():
 
     n1 = len([p for p in phantoms if p[1] != "未找到定义"])
     print("\n" + "=" * 60)
-    print(f"  结果: PHANTOM-1 {n1} 个 | PHANTOM-2 {len(p2)} 个 | 通过 {len(ok)} 个")
+    print(f"  结果: PHANTOM-1 {n1} 个 | PHANTOM-2 {len(p2)} 个 | 符号通过 {len(ok)} | 接线断言 {len(wiring) - wiring_fail}/{len(wiring)}")
     print("=" * 60)
-    if n1 > 0 or matrix_fail:
-        print("❌ 门禁 15 未通过 — 存在幻影交付（请接线或修正文档措辞）")
+    if n1 > 0 or matrix_fail or wiring_fail > 0:
+        print("❌ 门禁 15 未通过 — 存在幻影交付或接线断言失败（请接线、登记断言或修正文档措辞）")
         return 1
     print("✅ 门禁 15 通过（PHANTOM-2 为警告，可加 --strict 升级为失败）")
     return 0
