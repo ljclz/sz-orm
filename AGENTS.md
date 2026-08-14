@@ -18,7 +18,7 @@
 
 **严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。** 任何改动必须通过 PR 贡献到上游。违反此原则会导致审计记录与事实不符，直接红牌拒绝入库。
 
-### 21 道门禁（提交前必过）
+### 23 道门禁（提交前必过）
 
 | # | 门禁 | 命令 |
 |---|------|------|
@@ -43,6 +43,8 @@
 | 19 | 发布一致性扫描 | `python scripts/check-publish-consistency.py`（版本声明一致性；豁免：sz-orm-python/js/graph 独立 0.1.0 版本线） |
 | 20 | 变异测试杀率 | `python scripts/check-mutation-coverage.py`（cargo-mutants 对关键模块子集，杀率 < 70% 失败；2026-08-14 首跑 100%：22/22 变异体被杀） |
 | 21 | 安全攻击测试 | `cargo test -p sz-orm-auth --test security_attacks && cargo test -p sz-orm-crypto --test kat && cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks`（JWT 伪造/过期/弱密钥 + 密码学 RFC/NIST 向量 KAT + 租户越权/注入向量；并发正确性：bloom 多线程不漏判测试——loom 模型检查因 RUSTFLAGS 污染依赖树不可行，2026-08-14 评估记录） |
+| 22 | 覆盖率门禁 | `python scripts/check-coverage.py`（cargo-llvm-cov 对关键模块行覆盖率，< 60% 失败） |
+| 23 | 未用依赖扫描 | `python scripts/check-unused-deps.py`（cargo-machete，警告级；feature 门控误报登记 `[package.metadata.cargo-machete] ignored`） |
 
 ### 五维审查（每次 PR 必做）
 

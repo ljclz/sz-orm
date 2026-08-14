@@ -549,3 +549,7 @@ rustdoc-args = ["--cfg", "docsrs"]
 
 [lints]
 workspace = true
+# v4.7.0 门禁 23：machete 误报登记——以下依赖在 feature 门控内使用
+#（circuit-breaker/rate-limit/plan-cache 等 feature 启用时 pool.rs/macros 引用）
+[package.metadata.cargo-machete]
+ignored = ["sz-orm-health", "sz-orm-limit", "quote"]

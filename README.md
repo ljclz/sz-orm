@@ -356,7 +356,7 @@ sz-orm-ai = { version = "2.4", features = ["ai-nl2sql-enhanced", "ai-index-advis
 - `cargo fmt --all --check` 通过
 - `cargo audit` — 0 未忽略漏洞（7 个传递依赖忽略项，均有文档说明）
 - `cargo deny check advisories bans licenses sources` — 全部 OK
-- 1 小时 Soak Test：13.8 亿次操作，1.16% 吞吐衰减，P99 43μs→41μs，0 错误，无连接池泄漏
+- 1 小时 Soak Test：13.8 亿次操作，1.16% 吞吐衰减，P99 43μs→41μs，0 错误，无连接池泄漏（复现：`SOAK_DURATION=1h cargo test -p sz-orm-core --test soak -- --ignored --nocapture`）
 
 ## 工作空间结构
 
@@ -947,7 +947,7 @@ cargo deny check advisories bans licenses sources
 
 ## 性能基准
 
-criterion 基准（sample_size=10, measurement_time=3s, warm_up=1s, Windows）：
+criterion 基准（sample_size=10, measurement_time=3s, warm_up=1s, Windows；复现：`cargo bench -p sz-orm-core`）：
 
 | 基准 | 结果 |
 |------|------|
@@ -970,7 +970,7 @@ criterion 基准（sample_size=10, measurement_time=3s, warm_up=1s, Windows）�
 | MySQL 9.6 | 145K rows/s | 1.0×（基线） |
 | Oracle 23ai Free | 19.1K rows/s | 0.13× |
 
-**1 小时 Soak 测试**：13.8 亿次操作，1.16% 吞吐衰减，P99 43μs→41μs，0 错误。
+**1 小时 Soak 测试**：13.8 亿次操作，1.16% 吞吐衰减，P99 43μs→41μs，0 错误（复现方式同上）。
 
 ## 文档索引
 
