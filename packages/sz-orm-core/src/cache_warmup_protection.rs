@@ -233,6 +233,15 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
         Ok(())
     }
 
+    /// 布隆过滤器判断（穿透检查）：key 不存在返回 `false`（不漏判）
+    ///
+    /// 与 `get` 的区别：`get` 将"穿透"与"缓存未命中"合并返回 `None`；
+    /// 本方法仅做穿透判断，供组合防护区分"不查 DB"与"查 DB 后未命中"。
+    pub fn might_contain(&self, table: &str, pk: &Value) -> bool {
+        let bloom_key = format!("{table}:{pk:?}");
+        self.bloom.lock().unwrap().might_contain(&bloom_key)
+    }
+
     /// 查询缓存（穿透防护）
     ///
     /// 布隆过滤器判断不存在则直接返回 `None`，不查 DB。
@@ -344,6 +353,96 @@ impl std::fmt::Debug for SingleFlight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SingleFlight")
             .field("in_flight_count", &self.in_flight.lock().unwrap().len())
+            .finish()
+    }
+}
+
+// ============================================================================
+// CacheProtection — 组合防护门面（v4.7.0 真剩余接入）
+//
+// 将穿透防护（PenetrationGuard：BloomFilter 不存在不查 DB）与击穿防护
+// （SingleFlight：并发重建只执行一次）组合为缓存查询的统一入口，
+// 形成生产可用的"防穿透 + 防击穿"缓存加载路径。
+// ============================================================================
+
+/// 组合防护门面：穿透防护 + 击穿防护
+///
+/// 查询路径：
+///   ① 布隆过滤器判断 key 不存在 → 直接 `None`（穿透防护，不查 DB）
+///   ② 缓存命中 → 返回
+///   ③ 未命中 → SingleFlight 并发重建（击穿防护，同一 key 只重建一次）
+///   ④ 重建结果写入缓存并注册布隆过滤器
+pub struct CacheProtection<T: Clone + Send + Sync + 'static> {
+    penetration: PenetrationGuard<T>,
+    single_flight: SingleFlight,
+}
+
+impl<T: Clone + Send + Sync + 'static> CacheProtection<T> {
+    /// 创建组合防护（`bloom_capacity` 布隆过滤器容量）
+    pub fn new(cache: Arc<ProcessL1Cache<T>>, bloom_capacity: usize) -> Self {
+        Self {
+            penetration: PenetrationGuard::new(cache, bloom_capacity),
+            single_flight: SingleFlight::new(),
+        }
+    }
+
+    /// 防护查询：存在返回缓存值，不存在返回 `None`（不查 DB）
+    pub async fn get(&self, table: &str, pk: &Value) -> Option<Arc<T>> {
+        self.penetration.get(table, pk).await
+    }
+
+    /// 防护加载：缓存命中 → SingleFlight 并发重建 → 写入缓存并注册布隆
+    ///
+    /// 穿透防护分层语义：
+    ///   - `get`（查询热路径）：bloom 不存在的 key 被拦截，不查 DB（防穿透风暴）
+    ///   - `get_or_load`（加载路径）：不受 bloom 限制，负责首次加载并注册——
+    ///     否则首次访问会被短路，数据永远加载不进来
+    ///
+    /// `loader` 返回 `Ok(Some(v))` 表示数据存在，`Ok(None)` 表示数据不存在
+    /// （不存在也经 SingleFlight 去重，避免穿透风暴）。
+    pub async fn get_or_load<F, Fut>(
+        &self,
+        table: &str,
+        pk: Value,
+        loader: F,
+    ) -> Result<Option<Arc<T>>, CacheError>
+    where
+        F: FnOnce() -> Fut,
+        Fut: Future<Output = Result<Option<T>, CacheError>>,
+    {
+        // ① 缓存命中（bloom 存在且缓存有值）
+        if let Some(hit) = self.penetration.get(table, &pk).await {
+            return Ok(Some(hit));
+        }
+        // ② 击穿防护：并发重建只执行一次（loader 调用次数由 SingleFlight 去重），
+        //    成功后 put 写入缓存并注册布隆过滤器（后续查询走穿透防护）
+        let key = format!("{table}:{pk:?}");
+        let value: Option<T> = self
+            .single_flight
+            .get_or_rebuild(&key, || async {
+                match loader().await {
+                    Ok(Some(v)) => {
+                        self.penetration.put(table, pk.clone(), v.clone()).await?;
+                        Ok(Some(v))
+                    }
+                    Ok(None) => Ok(None),
+                    Err(e) => Err(e),
+                }
+            })
+            .await?;
+        Ok(value.map(Arc::new))
+    }
+
+    /// 布隆过滤器元素数量
+    pub fn bloom_count(&self) -> usize {
+        self.penetration.bloom_count()
+    }
+}
+
+impl<T: Clone + Send + Sync + 'static> std::fmt::Debug for CacheProtection<T> {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("CacheProtection")
+            .field("bloom_count", &self.bloom_count())
             .finish()
     }
 }
@@ -701,5 +800,97 @@ mod tests {
             .unwrap();
         assert_eq!(result.warmed_keys, 1);
         assert_eq!(result.skipped_keys, 1);
+    }
+
+    // ========================================================================
+    // CacheProtection 组合防护测试（v4.7.0 真剩余接入）
+    // ========================================================================
+
+    #[tokio::test]
+    async fn test_cache_protection_penetration_short_circuit() {
+        // 穿透防护（查询热路径）：注册 key A 后，未注册 key B 的 get 被 bloom 拦截
+        let cache: Arc<ProcessL1Cache<String>> = make_cache();
+        let protection = CacheProtection::new(Arc::clone(&cache), 1000);
+
+        // 注册 key 1（模拟数据写入）
+        protection
+            .get_or_load("users", Value::I64(1), || async {
+                Ok(Some("Alice".to_string()))
+            })
+            .await
+            .unwrap();
+
+        // 未注册 key（穿透攻击）：get 直接 None，不查 DB（无 loader 概念，纯 bloom 拦截）
+        let miss = protection.get("users", &Value::I64(999)).await;
+        assert!(miss.is_none(), "未注册 key 的查询必须被穿透防护拦截");
+        // 已注册 key：get 命中
+        let hit = protection.get("users", &Value::I64(1)).await;
+        assert!(hit.is_some(), "已注册 key 的查询必须命中");
+    }
+
+    #[tokio::test]
+    async fn test_cache_protection_load_and_hit() {
+        // 加载路径：get_or_load 不受 bloom 短路（负责注册），二次访问命中不重复加载
+        let cache: Arc<ProcessL1Cache<String>> = make_cache();
+        let protection = CacheProtection::new(Arc::clone(&cache), 1000);
+        let loader_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        let calls = Arc::clone(&loader_calls);
+        let first = protection
+            .get_or_load("users", Value::I64(1), move || {
+                calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                async { Ok(Some("Alice".to_string())) }
+            })
+            .await
+            .unwrap();
+        assert_eq!(first.unwrap().as_str(), "Alice");
+        assert_eq!(protection.bloom_count(), 1, "加载后必须注册布隆过滤器");
+
+        // 二次加载：缓存命中，loader 不再执行
+        let calls2 = Arc::clone(&loader_calls);
+        let second = protection
+            .get_or_load("users", Value::I64(1), move || {
+                calls2.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                async { Ok(Some("should-not-reload".to_string())) }
+            })
+            .await
+            .unwrap();
+        assert_eq!(second.unwrap().as_str(), "Alice", "二次访问应命中缓存");
+        assert_eq!(
+            loader_calls.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "缓存命中时 loader 不应重复执行"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_cache_protection_single_flight_dedup() {
+        // 击穿防护：并发加载同一 key，loader 只执行一次
+        let cache: Arc<ProcessL1Cache<String>> = make_cache();
+        let protection = Arc::new(CacheProtection::new(Arc::clone(&cache), 1000));
+        let loader_calls = std::sync::Arc::new(std::sync::atomic::AtomicUsize::new(0));
+
+        let mut handles = vec![];
+        for _ in 0..8 {
+            let p = Arc::clone(&protection);
+            let calls = Arc::clone(&loader_calls);
+            handles.push(tokio::spawn(async move {
+                p.get_or_load("users", Value::I64(7), move || {
+                    calls.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                    async { Ok(Some("Bob".to_string())) }
+                })
+                .await
+                .unwrap()
+            }));
+        }
+        for h in handles {
+            assert!(h.await.unwrap().is_some());
+        }
+        assert_eq!(
+            loader_calls.load(std::sync::atomic::Ordering::Relaxed),
+            1,
+            "并发加载同一 key 时 loader 只应执行一次（击穿防护）"
+        );
+        assert_eq!(protection.bloom_count(), 1);
     }
 }

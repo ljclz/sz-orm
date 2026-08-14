@@ -87,6 +87,22 @@ WIRING_ASSERTIONS = [
         "caller": "with_detector",
         "hint": "批量加载器通过 with_detector 挂载 N+1 检测器（v4.7.0 接线，测试 test_batch_loader_with_detector_*）",
     },
+    {
+        "id": "W3",
+        "name": "PenetrationGuard → CacheProtection（cache_warmup_protection.rs 内部接线）",
+        "symbol": "self.penetration",
+        "file": "packages/sz-orm-core/src/cache_warmup_protection.rs",
+        "caller": "get_or_load",
+        "hint": "组合防护门面：穿透防护进入缓存加载路径（字段类型 PenetrationGuard，构造点 CacheProtection::new；v4.7.0 真剩余接入，测试 test_cache_protection_*）",
+    },
+    {
+        "id": "W4",
+        "name": "SingleFlight → CacheProtection（cache_warmup_protection.rs 内部接线）",
+        "symbol": "single_flight",
+        "file": "packages/sz-orm-core/src/cache_warmup_protection.rs",
+        "caller": "get_or_load",
+        "hint": "组合防护门面：击穿防护进入缓存加载路径（字段类型 SingleFlight，构造点 CacheProtection::new；v4.7.0 真剩余接入，测试 test_cache_protection_single_flight_dedup）",
+    },
 ]
 
 

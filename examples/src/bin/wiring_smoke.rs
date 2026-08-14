@@ -163,11 +163,42 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     assert!(rows.is_ok(), "execute_with_cache 应成功");
     println!("✅ 3. 查询缓存接线：execute_with_cache 消费 cache_ttl");
 
-    // 4. 观测导出：Pool 指标 JSON（观测闭环演示——monitoring/grafana 数据源）
+    // 4. 组合防护接线：CacheProtection（穿透 + 击穿）进入缓存加载路径
+    use sz_orm_core::cache_warmup_protection::CacheProtection;
+    let protection = CacheProtection::new(Arc::clone(&cache), 1000);
+    // 加载路径：get_or_load 加载并注册布隆
+    let loaded = protection
+        .get_or_load("users", Value::I64(2), || async {
+            Ok(Some("Bob".to_string()))
+        })
+        .await
+        .unwrap();
+    assert_eq!(loaded.unwrap().as_str(), "Bob");
+    // 查询热路径：已注册 key 命中；未注册 key 被穿透防护拦截（不查 DB）
+    assert!(protection.get("users", &Value::I64(2)).await.is_some());
+    assert!(
+        protection.get("users", &Value::I64(999)).await.is_none(),
+        "未注册 key 必须被穿透防护拦截"
+    );
+    println!("✅ 4. 组合防护接线：CacheProtection 加载/命中/穿透拦截");
+
+    // 5. 配额审计接线：QuotaEnforcer 超限事件写入 TenantAuditLogger
+    use sz_orm_core::tenant_quota_rls::TenantAuditLogger;
+    let audit_logger = Arc::new(TenantAuditLogger::new());
+    let audit_enforcer = Arc::new(QuotaEnforcer::new());
+    audit_enforcer.set_audit_logger(Some(Arc::clone(&audit_logger)));
+    audit_enforcer.set_quota(TenantResourceQuota::new("t2").with_max_connections(1));
+    let exceeded = audit_enforcer.check_and_record("t2", QuotaResource::Connection, 2);
+    assert!(exceeded.is_err(), "超限应拒绝");
+    let audit_logs = audit_logger.filter_by_operation("t2", "quota_exceeded");
+    assert_eq!(audit_logs.len(), 1, "超限事件必须写入审计日志");
+    println!("✅ 5. 配额审计接线：超限拒绝 → 审计日志 1 条");
+
+    // 6. 观测导出：Pool 指标 JSON（观测闭环演示——monitoring/grafana 数据源）
     let snapshot = pool.metrics_snapshot_json();
     assert!(snapshot.contains("acquire_count"), "JSON 快照应含指标字段");
-    println!("✅ 4. 观测导出：metrics_snapshot_json = {snapshot}");
+    println!("✅ 6. 观测导出：metrics_snapshot_json = {snapshot}");
 
-    println!("== 接线冒烟全部通过（配额/预热/查询缓存/观测）==");
+    println!("== 接线冒烟全部通过（配额/预热/查询缓存/组合防护/审计/观测）==");
     Ok(())
 }

@@ -168,6 +168,8 @@ pub struct QuotaEnforcer {
     quotas: Arc<Mutex<HashMap<String, TenantResourceQuota>>>,
     usage: Arc<Mutex<HashMap<String, QuotaUsage>>>,
     strategy: QuotaEnforceStrategy,
+    /// v4.7.0 审计接入：配额事件审计日志器（超限拒绝时记录，可配置关闭）
+    audit: Arc<Mutex<Option<Arc<TenantAuditLogger>>>>,
 }
 
 impl QuotaEnforcer {
@@ -176,6 +178,20 @@ impl QuotaEnforcer {
             quotas: Arc::new(Mutex::new(HashMap::new())),
             usage: Arc::new(Mutex::new(HashMap::new())),
             strategy: QuotaEnforceStrategy::default(),
+            audit: Arc::new(Mutex::new(None)),
+        }
+    }
+
+    /// v4.7.0 审计接入：配置租户审计日志器（超限拒绝事件写入审计日志）
+    pub fn set_audit_logger(&self, logger: Option<Arc<TenantAuditLogger>>) {
+        let mut guard = self.audit.lock().unwrap();
+        *guard = logger;
+    }
+
+    /// v4.7.0 审计接入：记录配额事件（尽力而为，审计失败不影响主流程）
+    fn record_audit(&self, entry: TenantAuditEntry) {
+        if let Some(logger) = self.audit.lock().unwrap().as_ref() {
+            let _ = logger.log(entry);
         }
     }
 
@@ -276,7 +292,22 @@ impl QuotaEnforcer {
         amount: u64,
     ) -> Result<(), QuotaError> {
         let current = self.current_usage(tenant_id, resource);
-        self.check_quota(tenant_id, resource, current + amount)?;
+        if let Err(e) = self.check_quota(tenant_id, resource, current + amount) {
+            // v4.7.0 审计接入：超限拒绝事件记录审计日志（审计失败不影响主流程）
+            self.record_audit(TenantAuditEntry {
+                tenant_id: tenant_id.to_string(),
+                operation: "quota_exceeded".to_string(),
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_secs() as i64)
+                    .unwrap_or(0),
+                result: "rejected".to_string(),
+                detail: format!("{resource:?} limit exceeded (current={current}, amount={amount})"),
+                table: None,
+                quota_resource: Some(resource),
+            });
+            return Err(e);
+        }
         self.record_usage(tenant_id, resource, amount);
         Ok(())
     }
@@ -1061,6 +1092,34 @@ mod tests {
         // 过量释放：饱和到 0，不下溢（u64 语义安全）
         enforcer.release_usage("t1", QuotaResource::Connection, 10);
         assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 0);
+    }
+
+    #[test]
+    fn test_quota_exceeded_records_audit() {
+        // v4.7.0 审计接入回归：超限拒绝必须写入审计日志
+        let enforcer = QuotaEnforcer::new();
+        let logger = Arc::new(TenantAuditLogger::new());
+        enforcer.set_audit_logger(Some(Arc::clone(&logger)));
+
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(3));
+        assert!(enforcer
+            .check_and_record("t1", QuotaResource::Connection, 2)
+            .is_ok());
+        assert_eq!(logger.log_count("t1"), 0, "正常通过不应记审计");
+
+        let result = enforcer.check_and_record("t1", QuotaResource::Connection, 1);
+        assert!(result.is_err(), "达到上限后应超限（current >= limit 拒绝）");
+        let logs = logger.filter_by_operation("t1", "quota_exceeded");
+        assert_eq!(logs.len(), 1, "超限拒绝必须记录审计");
+        assert_eq!(logs[0].result, "rejected");
+        assert!(logs[0].detail.contains("limit exceeded"));
+
+        // 未配置 logger 时超限不 panic（尽力而为）
+        let bare = QuotaEnforcer::new();
+        bare.set_quota(TenantResourceQuota::new("t2").with_max_connections(1));
+        assert!(bare
+            .check_and_record("t2", QuotaResource::Connection, 2)
+            .is_err());
     }
 
     #[tokio::test]
