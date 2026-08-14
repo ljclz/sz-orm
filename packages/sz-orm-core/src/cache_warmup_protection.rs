@@ -6,10 +6,8 @@
 //!
 //! 复用 v4.6.0 `ProcessL1Cache`（`process_l1_cache.rs:169`）+ 既有 `L2Cache`（`l2_cache.rs:517`）。
 
-use std::collections::hash_map::DefaultHasher;
 use std::collections::HashMap;
 use std::future::Future;
-use std::hash::{Hash, Hasher};
 use std::sync::{Arc, Mutex};
 
 use serde::{Deserialize, Serialize};
@@ -96,6 +94,21 @@ pub enum CacheError {
     CacheUnavailable(String),
 }
 
+/// v4.7.0 双实现合并：公共布隆过滤器错误转换
+impl From<crate::bloom::BloomError> for CacheError {
+    fn from(e: crate::bloom::BloomError) -> Self {
+        match e {
+            crate::bloom::BloomError::CapacityExceeded {
+                capacity,
+                requested,
+            } => Self::BloomFilterCapacityExceeded {
+                capacity,
+                requested,
+            },
+        }
+    }
+}
+
 impl std::fmt::Display for CacheError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
@@ -122,101 +135,10 @@ impl std::error::Error for CacheError {}
 ///
 /// 不漏判：不存在的键一定返回 `false`（可能误判存在）。
 /// 使用双哈希策略（k 个哈希函数 = 2 个基础哈希的线性组合）。
-#[derive(Debug, Clone)]
-pub struct BloomFilter {
-    bits: Vec<u64>,
-    num_bits: usize,
-    num_hashes: usize,
-    capacity: usize,
-    count: usize,
-}
-
-impl BloomFilter {
-    /// 创建布隆过滤器
-    ///
-    /// `capacity` 预期元素数量，`fpp` 误判率（0~1）。
-    pub fn new(capacity: usize, fpp: f64) -> Self {
-        let capacity = capacity.max(1);
-        let fpp = fpp.clamp(0.0001, 0.5);
-        let ln2 = std::f64::consts::LN_2;
-        let m = (-(capacity as f64) * fpp.ln() / (ln2 * ln2)).ceil() as usize;
-        let m = m.max(8);
-        let k = ((m as f64 / capacity as f64) * ln2).ceil() as usize;
-        let k = k.max(1);
-        let num_words = m.div_ceil(64);
-        Self {
-            bits: vec![0u64; num_words],
-            num_bits: m,
-            num_hashes: k,
-            capacity,
-            count: 0,
-        }
-    }
-
-    /// 添加键
-    pub fn add(&mut self, key: &str) -> Result<(), CacheError> {
-        if self.count >= self.capacity {
-            return Err(CacheError::BloomFilterCapacityExceeded {
-                capacity: self.capacity,
-                requested: self.count + 1,
-            });
-        }
-        let (h1, h2) = self.hash(key);
-        for i in 0..self.num_hashes {
-            let combined = h1.wrapping_add((i as u64).wrapping_mul(h2));
-            let idx = (combined as usize) % self.num_bits;
-            self.bits[idx / 64] |= 1u64 << (idx % 64);
-        }
-        self.count += 1;
-        Ok(())
-    }
-
-    /// 检查键可能存在（不漏判：不存在一定返回 false）
-    pub fn might_contain(&self, key: &str) -> bool {
-        let (h1, h2) = self.hash(key);
-        for i in 0..self.num_hashes {
-            let combined = h1.wrapping_add((i as u64).wrapping_mul(h2));
-            let idx = (combined as usize) % self.num_bits;
-            if self.bits[idx / 64] & (1u64 << (idx % 64)) == 0 {
-                return false;
-            }
-        }
-        true
-    }
-
-    /// 当前元素数量
-    pub fn count(&self) -> usize {
-        self.count
-    }
-
-    /// 容量
-    pub fn capacity(&self) -> usize {
-        self.capacity
-    }
-
-    /// 是否为空
-    pub fn is_empty(&self) -> bool {
-        self.count == 0
-    }
-
-    /// 清空
-    pub fn clear(&mut self) {
-        self.bits.fill(0);
-        self.count = 0;
-    }
-
-    fn hash(&self, key: &str) -> (u64, u64) {
-        let mut hasher1 = DefaultHasher::new();
-        key.hash(&mut hasher1);
-        let h1 = hasher1.finish();
-
-        let mut hasher2 = DefaultHasher::new();
-        (key, 0xC0FFEE_u64).hash(&mut hasher2);
-        let h2 = hasher2.finish();
-
-        (h1, h2 | 1)
-    }
-}
+///
+/// 公共实现（v4.7.0 双实现合并）：原自研实现已迁移至 `crate::bloom`
+/// （并发安全 + 容量拒绝），此处保留公开路径兼容（架构债清零）。
+pub use crate::bloom::BloomFilter;
 
 /// 缓存预热器
 ///
@@ -307,7 +229,8 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
 
     /// 注册存在的键（预热时调用）
     pub fn register(&self, key: &str) -> Result<(), CacheError> {
-        self.bloom.lock().unwrap().add(key)
+        self.bloom.lock().unwrap().add(key)?;
+        Ok(())
     }
 
     /// 查询缓存（穿透防护）
@@ -329,7 +252,7 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
     pub async fn put(&self, table: &str, pk: Value, value: T) -> Result<(), CacheError> {
         let bloom_key = format!("{table}:{pk:?}");
         {
-            let mut bloom = self.bloom.lock().unwrap();
+            let bloom = self.bloom.lock().unwrap();
             bloom.add(&bloom_key)?;
         }
         self.cache.put(table, pk, Arc::new(value)).await;
@@ -498,7 +421,7 @@ mod tests {
 
     #[test]
     fn test_bloom_filter_add_and_check() {
-        let mut bf = BloomFilter::new(1000, 0.01);
+        let bf = BloomFilter::new(1000, 0.01);
         bf.add("key1").unwrap();
         bf.add("key2").unwrap();
         bf.add("key3").unwrap();
@@ -510,20 +433,20 @@ mod tests {
 
     #[test]
     fn test_bloom_filter_not_contain() {
-        let mut bf = BloomFilter::new(100, 0.01);
+        let bf = BloomFilter::new(100, 0.01);
         bf.add("existing").unwrap();
         assert!(!bf.might_contain("nonexistent_key_12345"));
     }
 
     #[test]
     fn test_bloom_filter_capacity_exceeded() {
-        let mut bf = BloomFilter::new(2, 0.01);
+        let bf = BloomFilter::new(2, 0.01);
         assert!(bf.add("key1").is_ok());
         assert!(bf.add("key2").is_ok());
         let result = bf.add("key3");
         assert!(result.is_err());
         match result {
-            Err(CacheError::BloomFilterCapacityExceeded { capacity, .. }) => {
+            Err(crate::bloom::BloomError::CapacityExceeded { capacity, .. }) => {
                 assert_eq!(capacity, 2);
             }
             _ => panic!("wrong error"),
@@ -532,7 +455,7 @@ mod tests {
 
     #[test]
     fn test_bloom_filter_clear() {
-        let mut bf = BloomFilter::new(100, 0.01);
+        let bf = BloomFilter::new(100, 0.01);
         bf.add("key1").unwrap();
         bf.clear();
         assert!(bf.is_empty());
@@ -541,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_bloom_filter_no_false_negatives() {
-        let mut bf = BloomFilter::new(10000, 0.01);
+        let bf = BloomFilter::new(10000, 0.01);
         let keys: Vec<String> = (0..1000).map(|i| format!("key_{i}")).collect();
         for key in &keys {
             bf.add(key).unwrap();

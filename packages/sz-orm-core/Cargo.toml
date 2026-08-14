@@ -33,7 +33,7 @@ simd = ["dep:wide"]
 # v3.3.0锛氬绉熸埛涓庢暟鎹殧绂诲寮猴紙绉熸埛涓婁笅鏂囪嚜鍔ㄦ敞锟?+ Schema 闅旂 + 杩炴帴姹犻殧锟?+ 琛岀骇瀹夊叏 + 鍒楃骇鑴辨晱 + 澶氱鎴峰璁★級
 multi-tenant-enhanced = ["dep:sz-orm-audit", "dep:sz-orm-masking"]
 # v3.3.0锛氬垎甯冨紡缂撳瓨涓€鑷存€э紙璺ㄥ疄渚嬪け锟?+ Write-behind + 缂撳瓨鍑荤┛/闆穿闃叉姢锟?
-dist-cache = ["dep:bloomfilter", "dep:rand", "dep:sz-orm-crypto"]
+dist-cache = ["dep:rand", "dep:sz-orm-crypto"]
 # v3.4.0锛氭祴璇曡鐩栬ˉ榻愰棬绂佺煩闃垫爣璇嗭紙涓嶅紩鍏ヤ緷璧栵紝浠呯敤锟?feature 缁勫悎缂栬瘧闂ㄧ锟?
 test-coverage = []
 # v3.4.0锛氭灦鏋勬敼杩涢棬绂佺煩闃垫爣璇嗭紙涓嶅紩鍏ヤ緷璧栵紝浠呯敤锟?feature 缁勫悎缂栬瘧闂ㄧ锟?
@@ -178,7 +178,6 @@ sz-orm-audit = { version = "4.1.0", path = "../sz-orm-audit", optional = true }
 # v3.3.0锛氬垪绾ц劚鏁忓寮猴紙multi-tenant-enhanced feature锟?
 sz-orm-masking = { version = "4.1.0", path = "../sz-orm-masking", optional = true }
 # v3.3.0锛氬垎甯冨紡缂撳瓨甯冮殕杩囨护鍣ㄩ槻鎶わ紙dist-cache feature锟?
-bloomfilter = { workspace = true, optional = true }
 # v3.3.0锛氬垎甯冨紡缂撳瓨闅忔満 TTL 闆穿闃叉姢锛坉ist-cache feature锟?
 rand = { workspace = true, optional = true }
 # v3.3.0锛歐AL 鍔犲瘑锛坉ist-cache feature锟?

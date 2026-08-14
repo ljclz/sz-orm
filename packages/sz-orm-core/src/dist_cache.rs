@@ -623,21 +623,18 @@ fn crc64(data: &[u8]) -> u64 {
 /// 布隆过滤器击穿防护
 ///
 /// 假阳性率 ≤ 1% 可配置，超容量自动重建。
+/// v4.7.0 双实现合并：内部使用公共 `crate::bloom::BloomFilter`（原 bloomfilter crate 依赖已移除）。
 pub struct BloomFilterGuard {
-    filter: parking_lot::RwLock<bloomfilter::Bloom<String>>,
-    capacity: usize,
-    false_positive_rate: f64,
+    filter: crate::bloom::BloomFilter,
     count: AtomicU64,
 }
 
 impl BloomFilterGuard {
     /// 创建布隆过滤器
     pub fn new(capacity: usize, false_positive_rate: f64) -> Self {
-        let filter = bloomfilter::Bloom::new_for_fp_rate(capacity, false_positive_rate);
+        let filter = crate::bloom::BloomFilter::new(capacity, false_positive_rate);
         Self {
-            filter: parking_lot::RwLock::new(filter),
-            capacity,
-            false_positive_rate,
+            filter,
             count: AtomicU64::new(0),
         }
     }
@@ -647,26 +644,26 @@ impl BloomFilterGuard {
         Self::new(100_000, 0.01)
     }
 
-    /// 添加 key
+    /// 添加 key（容量满时拒绝写入——击穿防护场景漏判仅导致多查 DB，安全降级）
     pub fn add(&self, key: &str) {
-        self.filter.write().set(&key.to_string());
+        let _ = self.filter.add(key);
         self.count.fetch_add(1, Ordering::Relaxed);
     }
 
     /// 判断是否可能存在（假阳性 ≤ false_positive_rate）
     pub fn might_contain(&self, key: &str) -> bool {
-        self.filter.read().check(&key.to_string())
+        self.filter.might_contain(key)
     }
 
     /// 重建布隆过滤器（超容量时调用）
+    ///
+    /// 公共 `BloomFilter` 内部可变（RwLock），`&self` 即可清空重填。
     pub fn rebuild(&self, keys: impl Iterator<Item = String>) {
-        let mut filter =
-            bloomfilter::Bloom::new_for_fp_rate(self.capacity, self.false_positive_rate);
+        self.filter.clear();
         for key in keys {
-            filter.set(&key);
+            let _ = self.filter.add(&key);
             self.count.fetch_add(1, Ordering::Relaxed);
         }
-        *self.filter.write() = filter;
     }
 
     /// 获取当前元素计数

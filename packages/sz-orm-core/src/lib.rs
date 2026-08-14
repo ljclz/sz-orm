@@ -424,6 +424,7 @@ pub mod active_model;
 pub mod behaviors;
 #[cfg(feature = "benchmark-suite")]
 pub mod benchmark;
+pub mod bloom;
 mod cache;
 pub mod circuit_breaker;
 #[cfg(feature = "type-safe-columns")]

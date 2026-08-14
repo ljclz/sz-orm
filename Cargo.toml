@@ -62,8 +62,8 @@ serde_yaml = "0.9"
 xxhash-rust = { version = "0.8", features = ["xxh64"] }
 # v3.2.0：SIMD 向量化加速（simd feature）
 wide = "0.7"
-# v3.3.0：分布式缓存布隆过滤器防护（dist-cache feature）
-bloomfilter = "1.0"
+# v4.7.0 架构债清零：布隆过滤器双实现合并为 sz-orm-core::bloom（公共模块），
+# bloomfilter crate 依赖已移除（原 v3.3.0 dist-cache 使用）
 # v3.4.0：SmallString 优化（perf-smallstring feature，短字符串 ≤ 23 字节内联存储）
 compact_str = "0.8"
 # 配合 .trae/skills/sz-orm-sql-differential / sz-orm-chaos-pool（异步测试）

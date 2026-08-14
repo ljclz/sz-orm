@@ -18,7 +18,7 @@
 
 **严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。** 任何改动必须通过 PR 贡献到上游。违反此原则会导致审计记录与事实不符，直接红牌拒绝入库。
 
-### 19 道门禁（提交前必过）
+### 21 道门禁（提交前必过）
 
 | # | 门禁 | 命令 |
 |---|------|------|
@@ -41,6 +41,8 @@
 | 17 | 架构一致性扫描 | `python scripts/check-architecture.py`（概念重复实现/依赖白名单/孤儿包；豁免登记：bloom_filter 双实现——dist_cache 击穿守卫 vs warmup 穿透过滤，合并列为阶段 3 架构债） |
 | 18 | 度量真实性扫描 | `python scripts/check-metrics-real.py`（README 数字声称 vs 源码统计，--fix 自动修正；数字禁止手写） |
 | 19 | 发布一致性扫描 | `python scripts/check-publish-consistency.py`（版本声明一致性；豁免：sz-orm-python/js/graph 独立 0.1.0 版本线） |
+| 20 | 变异测试杀率 | `python scripts/check-mutation-coverage.py`（cargo-mutants 对关键模块子集，杀率 < 70% 失败；2026-08-14 首跑 100%：22/22 变异体被杀） |
+| 21 | 安全攻击测试 | `cargo test -p sz-orm-auth --test security_attacks && cargo test -p sz-orm-crypto --test kat && cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks`（JWT 伪造/过期/弱密钥 + 密码学 RFC/NIST 向量 KAT + 租户越权/注入向量；并发正确性：bloom 多线程不漏判测试——loom 模型检查因 RUSTFLAGS 污染依赖树不可行，2026-08-14 评估记录） |
 
 ### 五维审查（每次 PR 必做）
 
