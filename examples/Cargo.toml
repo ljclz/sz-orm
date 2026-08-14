@@ -8,7 +8,9 @@ description = "SZ-ORM 使用示例集"
 publish = false
 
 [dependencies]
-sz-orm-core = { path = "../packages/sz-orm-core" }
+# v4.7.0 接线生产入口：启用配额/RLS/预热 feature，形成真实生产路径
+#（门禁 15 PHANTOM-2 检查：feature 有启用点即不再视为"默认不编译"）
+sz-orm-core = { path = "../packages/sz-orm-core", features = ["tenant-quota-rls-enhanced", "cache-warmup-protection"] }
 sz-orm-crypto = { path = "../packages/sz-orm-crypto" }
 sz-orm-auth = { path = "../packages/sz-orm-auth" }
 sz-orm-limit = { path = "../packages/sz-orm-limit" }
@@ -20,6 +22,7 @@ sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
 sz-orm-macros = { path = "../packages/sz-orm-macros" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
+async-trait = { workspace = true }
 
 [[bin]]
 name = "quick_start"

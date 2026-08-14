@@ -5,6 +5,8 @@
 use async_trait::async_trait;
 use crossbeam_queue::ArrayQueue;
 use futures::StreamExt;
+// v4.7.0 观测闭环：PoolMetrics JSON 导出（metrics_snapshot_json）
+use serde::{Deserialize, Serialize};
 // P1-4 修复：使用核心层定义的 CircuitBreaker/RateLimiter 抽象，
 // 消除对 sz-orm-health/sz-orm-limit 的反向依赖。
 // parking_lot 锁仅在启用 circuit-breaker/rate-limit/tenant-quota-rls-enhanced feature 时使用
@@ -599,7 +601,8 @@ impl std::fmt::Debug for PoolStatus {
 /// 所有字段均为池生命周期内的累计值（不会随获取/归还重置），
 /// 由 `Pool::pool_metrics()` 返回。基于无锁 `AtomicU64` 计数，
 /// 对 acquire/release 热路径的影响可忽略（单条原子指令）。
-#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+/// serde 序列化支持：观测层导出（`Pool::metrics_snapshot_json`，v4.7.0 观测闭环）。
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PoolMetrics {
     /// 累计成功获取连接次数
     pub acquire_count: u64,
@@ -1622,6 +1625,14 @@ impl Pool {
             connection_created_count: self.connection_created_count.load(Ordering::Acquire),
             connection_closed_count: self.connection_closed_count.load(Ordering::Acquire),
         }
+    }
+
+    /// 观测层导出：Pool 指标 JSON 快照（v4.7.0 观测闭环——monitoring/grafana 数据源）
+    ///
+    /// 序列化 `pool_metrics()` 为 JSON，供运行时遥测/监控告警消费。
+    /// 例：`curl` 轮询 + Grafana 面板，或 cron 告警阈值判断。
+    pub fn metrics_snapshot_json(&self) -> String {
+        serde_json::to_string(&self.pool_metrics()).unwrap_or_else(|_| "{}".to_string())
     }
 
     /// 回收空闲过久的连接
