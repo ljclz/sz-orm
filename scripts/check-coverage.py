@@ -32,6 +32,9 @@ DEFAULT_MODULES = [
     "packages/sz-orm-core/src/bloom.rs",
     "packages/sz-orm-core/src/process_l1_cache.rs",
 ]
+# 默认子集对应 feature（2026-08-15 修复：默认调用此前不带 features，feature 门控模块
+# 不编译导致"无覆盖率数据"静默通过——见验证报告发现 2b）
+DEFAULT_FEATURES = "tenant-quota-rls-enhanced,cache-warmup-protection,process-l1-cache"
 
 
 def find_cargo_bin(name):
@@ -50,9 +53,12 @@ def main():
     ap = argparse.ArgumentParser(description="覆盖率门禁（门禁 22）")
     ap.add_argument("--package", default="sz-orm-core", help="目标包")
     ap.add_argument("--modules", action="append", default=None, help="目标文件（可多次），默认内置子集")
-    ap.add_argument("--features", default="", help="cargo features")
+    ap.add_argument("--features", default="", help="cargo features（默认自动使用 DEFAULT_FEATURES）")
     ap.add_argument("--threshold", type=float, default=0.6, help="行覆盖率阈值（默认 60%）")
     args = ap.parse_args()
+    # 默认子集全部位于 feature 门控内：未显式指定 features 时自动使用 DEFAULT_FEATURES
+    # （2026-08-15 修复：此前默认调用不带 features，模块不编译 → "无数据"静默通过）
+    args.features = args.features or DEFAULT_FEATURES
 
     modules = args.modules or DEFAULT_MODULES
     print("=" * 60)
@@ -101,8 +107,10 @@ def main():
             missing.append((path.split("/")[-1], pct, covered, regions))
 
     if total_regions == 0:
-        print("  ⚠️  目标模块无覆盖率数据（模块未编译或路径不匹配）")
-        return 0
+        # fail-closed（2026-08-15 修复）：目标模块无覆盖率数据 = 未编译或路径不匹配，
+        # 属门禁失效而非通过——按失败处理并引导检查 features
+        print("  ❌ 目标模块无覆盖率数据（模块未编译或路径不匹配——请检查 --features / --modules）")
+        return 1
 
     rate = total_covered / total_regions
     print("\n  模块行覆盖率:")

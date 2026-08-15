@@ -59,6 +59,57 @@ DECLARED_SYMBOLS = [
     "PenetrationGuard", "SingleFlight",
 ]
 
+# C 类保留组件登记表（2026-08-13 生产零调用审计分类："提供 X 组件（需手动接入）"的独立库组件）：
+# 零调用但按设计保留。登记条件（fail-closed，全部满足才豁免）：
+#   ① 符号必须仍在 DECLARED_SYMBOLS 中（登记表过期即失败）；
+#   ② 审计报告文件必须存在（出处可追溯）；
+#   ③ 当前文档（README.md / 工程实践）中符号所在行不得含集成语义措辞
+#      （自动注入/自动拦截/强制执行/默认生效/启动预热/自动接线/自动应用/默认启用），
+#      追溯表行（| P-N |）除外——它们描述历史违规而非当前宣称。
+C_CLASS_SYMBOLS = [
+    "AnomalyCorrelator", "AnomalyDetector", "AutoOptimizer", "AutoRemediator",
+    "BatchTransactionCoordinator", "BehaviorRegistry", "CapacityForecaster",
+    "ConflictResolution", "ConnectionTenantBinder", "CopyProtocolAdapter",
+    "CostAnalyzer", "DelayScheduler", "DelayedMessage", "ForwardCompatChecker",
+    "GossipInvalidationBus", "HookDispatcher", "HookRegistry",
+    "MigrationDependencyGraph", "MultiCloudCostComparator", "N1QueryDetector",
+    "ParallelShardExecutor", "PenetrationGuard", "PriorityQueue",
+    "RedeliveryScheduler", "RedisPubSubInvalidationBus", "RollbackExecutor",
+    "RootCauseAnalyzer", "SandboxDryRunner", "ScheduledMessage", "SingleFlight",
+    "TenantAuditLogger", "TenantResourceQuota", "WriteBehindQueue",
+]
+
+# 集成语义措辞（AGENTS.md 门禁 15 明令禁止的"宣称集成"表述）
+INTEGRATION_WORDING_RE = re.compile(
+    r"自动注入|自动拦截|强制执行|默认生效|启动预热|自动接线|自动应用|默认启用"
+)
+# 追溯表行（| P-1 | 等）：描述历史违规与整改，不代表当前文档宣称
+TRACE_ROW_RE = re.compile(r"^\s*\| P-\d+ \|")
+AUDIT_DOC = "docs/assessment/2026-08-13-production-zero-call-audit.md"
+C_CLASS_DOCS = ["README.md", "docs/sz-orm-engineering-practices.md"]
+
+
+def c_class_exempt(sym):
+    """C 类豁免校验（fail-closed）。返回 (True, 原因) 或 (False, 失败原因)。"""
+    if sym not in DECLARED_SYMBOLS:
+        return False, f"登记符号 {sym} 不在 DECLARED_SYMBOLS 中（登记表过期，请移除或恢复声明）"
+    audit_path = os.path.join(ROOT, AUDIT_DOC)
+    if not os.path.isfile(audit_path):
+        return False, f"审计报告缺失 {AUDIT_DOC}（C 类出处不可追溯）"
+    rx = sym_re(sym)
+    for doc in C_CLASS_DOCS:
+        path = os.path.join(ROOT, doc)
+        if not os.path.isfile(path):
+            continue
+        for i, ln in enumerate(
+            open(path, encoding="utf-8", errors="replace").read().splitlines(), 1
+        ):
+            if TRACE_ROW_RE.match(ln) or not rx.search(ln):
+                continue
+            if INTEGRATION_WORDING_RE.search(ln):
+                return False, f"{doc}:{i} 对 {sym} 使用集成语义措辞：{ln.strip()[:80]}"
+    return True, "C 类保留组件（审计出处存在 + 文档措辞已降级为'提供组件'）"
+
 # 导出声明模式（lib.rs 的 pub mod / pub use，不算调用）
 EXPORT_RE = re.compile(r"^\s*(pub\s+mod\s+\w+|pub\s+use\s+\S+)")
 # 多行 pub use X::{ ... }; 块（续行符号不计调用）
@@ -355,12 +406,22 @@ def main():
     print("=" * 60)
 
     ok, phantoms = check_symbols(args.symbols)
-    print(f"\n[1/3] 符号断言（宣称符号 {len(ok) + len(phantoms)} 个）")
+    # C 类豁免：零调用但按"提供 X 组件（需手动接入）"定位保留的独立库组件
+    # （fail-closed：登记条件由 c_class_exempt 逐项校验，不满足仍按 PHANTOM-1 判红）
+    exempt = {}
+    for sym, def_rel, _ in phantoms:
+        if def_rel != "未找到定义" and sym in C_CLASS_SYMBOLS:
+            ok_exempt, reason = c_class_exempt(sym)
+            if ok_exempt:
+                exempt[sym] = reason
+    print(f"\n[1/3] 符号断言（宣称符号 {len(ok) + len(phantoms)} 个，C 类豁免 {len(exempt)} 个）")
     for sym, def_rel, callers in ok:
         print(f"  ✅ {sym:28s} 定义 {def_rel}  生产调用方 {len(callers)} 处")
     for sym, def_rel, _ in phantoms:
         if def_rel == "未找到定义":
             print(f"  ⚠️  {sym:28s} 未找到定义（符号已移除或非本仓库定义）")
+        elif sym in exempt:
+            print(f"  ⓒ  C 类保留 {sym:16s} 定义 {def_rel} — 零调用（{exempt[sym]}）")
         else:
             print(f"  ❌ PHANTOM-1 {sym:18s} 定义 {def_rel} — 生产路径零调用")
 
@@ -385,10 +446,11 @@ def main():
         matrix_fail = False
 
     n1 = len([p for p in phantoms if p[1] != "未找到定义"])
+    n1_real = n1 - len(exempt)
     print("\n" + "=" * 60)
-    print(f"  结果: PHANTOM-1 {n1} 个 | PHANTOM-2 {len(p2)} 个 | 符号通过 {len(ok)} | 接线断言 {len(wiring) - wiring_fail}/{len(wiring)}")
+    print(f"  结果: PHANTOM-1 {n1_real} 个（C 类豁免 {len(exempt)}）| PHANTOM-2 {len(p2)} 个 | 符号通过 {len(ok)} | 接线断言 {len(wiring) - wiring_fail}/{len(wiring)}")
     print("=" * 60)
-    if n1 > 0 or matrix_fail or wiring_fail > 0:
+    if n1_real > 0 or matrix_fail or wiring_fail > 0:
         print("❌ 门禁 15 未通过 — 存在幻影交付或接线断言失败（请接线、登记断言或修正文档措辞）")
         return 1
     print("✅ 门禁 15 通过（PHANTOM-2 为警告，可加 --strict 升级为失败）")

@@ -33,6 +33,9 @@ DEFAULT_FILES = [
     "packages/sz-orm-core/src/tenant_quota_rls.rs",   # 配额（P0 教训：release 只增不减）
     "packages/sz-orm-core/src/cache_warmup_protection.rs",  # 布隆/单飞（不漏判语义）
 ]
+# 默认子集对应 feature（2026-08-15 修复：默认调用此前不带 features，
+# feature 门控模块不编译导致 cargo-mutants 必然失败——见验证报告发现 2）
+DEFAULT_FEATURES = "tenant-quota-rls-enhanced,cache-warmup-protection"
 
 
 def find_cargo():
@@ -82,6 +85,9 @@ def main():
     ap.add_argument("--features", default="", help="cargo features（如 multi-tenant-enhanced）")
     ap.add_argument("--threshold", type=float, default=0.7, help="杀率阈值（默认 0.7）")
     args = ap.parse_args()
+    # 默认子集全部位于 feature 门控内：未显式指定 features 时自动使用 DEFAULT_FEATURES
+    # （2026-08-15 修复：此前默认调用不带 features，cargo-mutants 必然失败——见验证报告发现 2）
+    args.features = args.features or DEFAULT_FEATURES
 
     files = args.file or DEFAULT_FILES
     print("=" * 60)
@@ -96,8 +102,10 @@ def main():
     caught, missed, timeout = result
     total = caught + missed + timeout
     if total == 0:
-        print("⚠️  无变异体生成（文件可能无有效测试或未被编译覆盖）")
-        return 0
+        # fail-closed（2026-08-15 修复）：目标模块零变异体 = 未被编译覆盖或无有效测试，
+        # 与"杀率不足"同属测试质量缺陷，按失败处理，不能静默通过
+        print("❌ 无变异体生成（目标模块未被编译覆盖或无有效测试——请检查 --features / 目标文件）")
+        return 1
     killed = caught
     rate = killed / total
     print(f"\n  caught(被杀) {killed} | missed(存活) {missed} | timeout {timeout} | 总数 {total}")
