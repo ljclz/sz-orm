@@ -41,6 +41,9 @@
 | DialectCapturer（v4.0.0） | [capturer.rs:12](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-queue/src/cdc/capturer.rs#L12) | `pub trait DialectCapturer` |
 | AsyncGraphqlBridge（v4.0.0） | [bridge.rs:90](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-graphql/src/async_graphql_integration/bridge.rs#L90) | `pub struct AsyncGraphqlBridge` |
 | ServiceMeshAdapter（v4.0.0） | [mod.rs:134](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-observability/src/service_mesh/mod.rs#L134) | `pub trait ServiceMeshAdapter` |
+| AggExpr（v4.9.0） | [query.rs:119](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/query.rs#L119) | `pub enum AggExpr`（HAVING 聚合表达式，函数名白名单校验） |
+| HavingOp（v4.9.0） | [query.rs:157](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/query.rs#L157) | `pub enum HavingOp`（HAVING 比较运算符） |
+| select_expr（v4.9.0） | [query.rs:735](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/query.rs#L735) | `pub fn select_expr`（复杂 SELECT 表达式逃生口，标注仅可信来源） |
 
 ---
 
@@ -52,7 +55,7 @@
 |------|------|---------|
 | 工作空间成员 | **60**（58 lib + cli + examples；v4.3.0 新增 sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion/sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor/sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel/sz-orm-stream） | Diesel 1 包 / SeaORM ~10 包 / SQLx 1 包 |
 | SQL 方言 | **28 种**（21 默认 + 7 feature 门控） | Diesel 4 / SeaORM 5 / SQLx 4 / Hibernate 40+ / EF Core 20+ |
-| 测试用例 | **6,900+ 个** `#[test]`（v4.5.0 新增 89 个：parallel 27 + batch-v2 26 + stream 36） | Diesel ~3000 / SeaORM ~2000 / SQLx ~1500 |
+| 测试用例 | **9,205+ 个** `#[test]`（v4.9.0 新增 2,305 个：安全攻击/OWASP 渗透测试/契约测试/变异证明） | Diesel ~3000 / SeaORM ~2000 / SQLx ~1500 |
 | 代码规模 | **291,349+ LOC**（全部 .rs）/ v4.5.0 新增 ~2,500 LOC | Diesel ~50,000 / SeaORM ~30,000 / SQLx ~20,000 |
 | 派生宏 | **17 个**（11 derive + 6 proc_macro） | Diesel 6 / SeaORM 4 / SQLx 3 |
 | prod-ready 检查 | **15 项**（14 子 feature gate） | 无竞品有等价能力 |
@@ -61,6 +64,9 @@
 | v4.3.0 新增 feature | **5 个**（explain-analyzer/perf-baseline/adaptive-query/db-fusion/n1-lint） | — |
 | v4.4.0 新增 feature | **6 个**（query-advisor/slow-query-diagnosis/db-fusion-v2/query-logging/perf-baseline/query-intelligence-loop） | — |
 | v4.5.0 新增 feature | **3 个**（parallel-query/batch-v2/stream-resultset） | — |
+| v4.6.0 新增 feature | **7 个**（dlx-auto-redelivery/zero-downtime-rollback/batch-atomic/anomaly-detection/cost-analysis/connection-level-tenant/process-l1-cache） | — |
+| v4.7.0 新增 feature | **7 个**（delayed-priority-queue/forward-compat-sandbox/copy-parallel-shard/tenant-quota-rls-enhanced/cache-warmup-protection/anomaly-remediation-rca/multicloud-cost-forecast） | — |
+| v4.9.0 新增 feature | **7 个**（owasp-pentest-suite 等，OWASP Top 10 完整覆盖渗透测试套件 85 测试 + A06 脚本） | — |
 
 ### 2.2 核心查询构造
 
@@ -691,4 +697,4 @@ SZ-ORM v4.5.0 是一个**功能覆盖面极广**的 Rust 异步 ORM 工作空间
 
 > 本文档基于 SZ-ORM v4.5.0 实际源代码分析生成，每条 SZ-ORM 能力结论均附 `file:line` 证据，竞品能力基于其官方文档/crates.io/GitHub 最新公开信息。客观标注优势与不足，杜绝"自嗨型"结论。
 > 生成日期：2026-08-12
-> 代码基线：v4.5.0（6,900+ 个 #[test] / 291,349+ LOC / 28 方言 / 17 宏 / 60 工作空间成员 / 3 个 v4.5.0 新 feature gate）
+> 代码基线：v4.9.0（9,205+ 个 #[test] / 89,786+ LOC / 28 方言 / 17 宏 / 60 工作空间成员 / 7 个 v4.9.0 新 feature gate）

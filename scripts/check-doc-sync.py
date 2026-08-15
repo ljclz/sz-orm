@@ -167,7 +167,7 @@ def run_git(args: list[str], cwd: Path | None = None) -> tuple[int, str, str]:
         cwd = ROOT
     try:
         proc = subprocess.run(
-            ["git"] + args,
+            ["git", "-c", "core.quotePath=false"] + args,
             cwd=str(cwd),
             capture_output=True,
             text=True,

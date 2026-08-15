@@ -8,7 +8,7 @@
 [![Tests](https://img.shields.io/badge/tests-9205+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-60-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-4.7.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-4.9.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
