@@ -200,6 +200,12 @@ impl Pbkdf2Hasher {
         }
     }
 
+    /// 迭代次数上下限（v4.8.0 修复 M-8）：
+    /// - 下限与生产默认值对齐，拒绝 c<100_000 的弱哈希（黑帽实证 c=1 被接受）；
+    /// - 上限防 `$4294967295$...` CPU DoS（单次校验可卡死数分钟）。
+    pub const MIN_ITERATIONS: u32 = 100_000;
+    pub const MAX_ITERATIONS: u32 = 10_000_000;
+
     fn compute_hash(password: &str, salt: &[u8], iterations: u32) -> [u8; Self::HASH_LEN] {
         let mut out = [0u8; Self::HASH_LEN];
         pbkdf2_hmac::<Sha256>(password.as_bytes(), salt, iterations, &mut out);
@@ -219,6 +225,15 @@ impl PasswordHasher for Pbkdf2Hasher {
             return Err(CryptoError::InvalidHash(
                 "Password cannot be empty".to_string(),
             ));
+        }
+        // v4.8.0 修复 M-8：hash 侧同样拒绝低迭代配置（fail-fast，
+        // 避免生成无法通过 verify 门槛的哈希）
+        if self.iterations < Self::MIN_ITERATIONS {
+            return Err(CryptoError::InvalidHash(format!(
+                "Iterations below minimum ({} < {})",
+                self.iterations,
+                Self::MIN_ITERATIONS
+            )));
         }
         let salt = random_bytes(Self::SALT_LEN);
         let hash = Self::compute_hash(password, &salt, self.iterations);
@@ -241,6 +256,22 @@ impl PasswordHasher for Pbkdf2Hasher {
         let iterations: u32 = parts[0]
             .parse()
             .map_err(|_| CryptoError::InvalidHash("Invalid iterations".to_string()))?;
+
+        // v4.8.0 修复 M-8：迭代次数攻击者可控（来自存储串）——
+        // 无下限则弱哈希被接受（离线破解加速 10 万倍），无上限则 CPU DoS。
+        if iterations < Self::MIN_ITERATIONS {
+            return Err(CryptoError::InvalidHash(format!(
+                "Iterations below minimum ({iterations} < {})",
+                Self::MIN_ITERATIONS
+            )));
+        }
+        if iterations > Self::MAX_ITERATIONS {
+            return Err(CryptoError::InvalidHash(format!(
+                "Iterations above maximum ({iterations} > {})",
+                Self::MAX_ITERATIONS
+            )));
+        }
+
         let salt = hex_decode(parts[1])
             .map_err(|_| CryptoError::InvalidHash("Invalid salt hex".to_string()))?;
         let expected_hash = hex_decode(parts[2])
@@ -262,11 +293,45 @@ pub trait ApiSigner: Send + Sync {
 /// HMAC-SHA256 API 签名器
 ///
 /// 对参数按字典序排序后拼接成 query string，再用 HMAC-SHA256 签名。
+///
+/// # 安全说明（v4.8.0 修复 H-1 参数走私）
+///
+/// - key/value 均做 RFC 3986 percent-encoding 后再拼接，消除
+///   `{a:1,b:2}` 与 `{a:"1&b=2"}` 的规范串歧义（参数走私）；
+/// - **调用方必须**将时间戳/随机 nonce 作为参数之一参与签名，
+///   并在服务端校验时间窗，否则签名请求仍可被重放。
 pub struct HmacSigner;
 
 impl HmacSigner {
     pub fn new() -> Self {
         Self
+    }
+
+    /// RFC 3986 percent-encoding：仅保留 unreserved 字符（ALPHA/DIGIT/-/./_/~），
+    /// 其余字节按 `%XX` 大写十六进制编码。消除 `&`/`=` 等分隔符歧义。
+    fn percent_encode(s: &str) -> String {
+        let mut out = String::with_capacity(s.len());
+        for b in s.bytes() {
+            match b {
+                b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                    out.push(b as char)
+                }
+                _ => {
+                    out.push('%');
+                    out.push(
+                        char::from_digit((b >> 4) as u32, 16)
+                            .unwrap_or('0')
+                            .to_ascii_uppercase(),
+                    );
+                    out.push(
+                        char::from_digit((b & 0x0f) as u32, 16)
+                            .unwrap_or('0')
+                            .to_ascii_uppercase(),
+                    );
+                }
+            }
+        }
+        out
     }
 
     fn compute_signature(params: &HashMap<String, String>, secret: &str) -> String {
@@ -275,7 +340,7 @@ impl HmacSigner {
 
         let query_string: String = sorted
             .iter()
-            .map(|(k, v)| format!("{}={}", k, v))
+            .map(|(k, v)| format!("{}={}", Self::percent_encode(k), Self::percent_encode(v)))
             .collect::<Vec<_>>()
             .join("&");
 
@@ -933,10 +998,14 @@ mod tests {
 
     #[test]
     fn test_pbkdf2_hasher_with_iterations() {
-        let hasher = Pbkdf2Hasher::with_iterations(1000);
+        // v4.8.0 修复 M-8：低于下限（100_000）的迭代配置被拒绝
+        let low = Pbkdf2Hasher::with_iterations(1000);
+        assert!(low.hash("secret").is_err());
+
+        let hasher = Pbkdf2Hasher::with_iterations(100_000);
         let hash = hasher.hash("secret").unwrap();
         let parts: Vec<&str> = hash[1..].splitn(3, '$').collect();
-        assert_eq!(parts[0], "1000");
+        assert_eq!(parts[0], "100000");
         assert!(hasher.verify("secret", &hash).unwrap());
     }
 

@@ -12,6 +12,8 @@ description = "SZ-ORM Authentication & Authorization Extension"
 
 [features]
 default = []
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
 # v3.8.0：JWT 签名密钥轮换机制
 prod-jwt-key-rotation = []
 
@@ -41,3 +43,11 @@ tokio-test = "0.4"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "owasp_a09_auth_failures"
+required-features = ["owasp-pentest-suite"]
+
+[[test]]
+name = "owasp_csrf"
+required-features = ["owasp-pentest-suite"]

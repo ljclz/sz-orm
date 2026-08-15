@@ -38,7 +38,45 @@ impl ModelDefinition {
         }
     }
 
-    /// 将表名转换为 PascalCase 单数模型名。
+    pub fn validate_identifier(name: &str) -> Result<(), String> {
+        if name.is_empty() {
+            return Err("identifier must not be empty".to_string());
+        }
+        if name.len() > 63 {
+            return Err(format!("identifier length {} exceeds 63", name.len()));
+        }
+        if !name.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            return Err(format!(
+                "identifier '{}' contains invalid chars (only alphanumeric + underscore allowed)",
+                name
+            ));
+        }
+        Ok(())
+    }
+
+    pub fn sanitize_identifier(name: &str) -> String {
+        let sanitized: String = name
+            .chars()
+            .map(|c| {
+                if c.is_ascii_alphanumeric() || c == '_' {
+                    c
+                } else {
+                    '_'
+                }
+            })
+            .collect();
+        let sanitized = if sanitized.is_empty() {
+            "_".to_string()
+        } else {
+            sanitized
+        };
+        if sanitized.len() > 63 {
+            sanitized[..63].to_string()
+        } else {
+            sanitized
+        }
+    }
+
     /// 例："users" -> "User", "order_items" -> "OrderItem"
     pub fn pascal_case_name(&self) -> String {
         to_pascal_singular(&self.name)
@@ -636,6 +674,22 @@ impl FormField {
     }
 }
 
+/// HTML 转义：将特殊字符转义为 HTML 实体，防止 XSS
+fn escape_html(input: &str) -> String {
+    let mut result = String::with_capacity(input.len());
+    for ch in input.chars() {
+        match ch {
+            '&' => result.push_str("&amp;"),
+            '<' => result.push_str("&lt;"),
+            '>' => result.push_str("&gt;"),
+            '"' => result.push_str("&quot;"),
+            '\'' => result.push_str("&#x27;"),
+            _ => result.push(ch),
+        }
+    }
+    result
+}
+
 /// 动态表单生成器
 pub struct FormGenerator;
 
@@ -682,7 +736,8 @@ impl FormGenerator {
         let mut html = String::new();
         html.push_str(&format!(
             r#"<form action="{}" method="{}" enctype="multipart/form-data">"#,
-            action, method
+            escape_html(action),
+            escape_html(method)
         ));
         html.push('\n');
 
@@ -701,12 +756,15 @@ impl FormGenerator {
         let mut html = String::new();
         html.push_str("    <div class=\"form-group\">\n");
 
+        let escaped_name = escape_html(&field.name);
+        let escaped_label = escape_html(&field.label);
+
         // Hidden 字段不显示 label
         if !matches!(field.input_type, InputType::Hidden) {
             html.push_str(&format!(
                 "        <label for=\"{}\">{}{}</label>\n",
-                field.name,
-                field.label,
+                escaped_name,
+                escaped_label,
                 if field.required {
                     " <span class=\"required\">*</span>"
                 } else {
@@ -719,20 +777,21 @@ impl FormGenerator {
         let placeholder = field
             .placeholder
             .as_ref()
-            .map(|p| format!("placeholder=\"{}\"", p))
+            .map(|p| format!("placeholder=\"{}\"", escape_html(p)))
             .unwrap_or_default();
 
         match &field.input_type {
             InputType::Select => {
                 html.push_str(&format!(
                     "        <select id=\"{}\" name=\"{}\" {}>\n",
-                    field.name, field.name, validation_attrs
+                    escaped_name, escaped_name, validation_attrs
                 ));
                 html.push_str("            <option value=\"\">请选择</option>\n");
                 for (value, label) in &field.options {
                     html.push_str(&format!(
                         "            <option value=\"{}\">{}</option>\n",
-                        value, label
+                        escape_html(value),
+                        escape_html(label)
                     ));
                 }
                 html.push_str("        </select>\n");
@@ -740,20 +799,20 @@ impl FormGenerator {
             InputType::Textarea => {
                 html.push_str(&format!(
                     "        <textarea id=\"{}\" name=\"{}\" {} {}></textarea>\n",
-                    field.name, field.name, validation_attrs, placeholder
+                    escaped_name, escaped_name, validation_attrs, placeholder
                 ));
             }
             InputType::Checkbox => {
                 html.push_str(&format!(
                     "        <input type=\"checkbox\" id=\"{}\" name=\"{}\" {} />\n",
-                    field.name, field.name, validation_attrs
+                    escaped_name, escaped_name, validation_attrs
                 ));
             }
             _ => {
                 let input_type = field.input_type.as_html_type();
                 html.push_str(&format!(
                     "        <input type=\"{}\" id=\"{}\" name=\"{}\" {} {} />\n",
-                    input_type, field.name, field.name, validation_attrs, placeholder
+                    input_type, escaped_name, escaped_name, validation_attrs, placeholder
                 ));
             }
         }
@@ -761,7 +820,7 @@ impl FormGenerator {
         if let Some(help) = &field.help_text {
             html.push_str(&format!(
                 "        <small class=\"help-text\">{}</small>\n",
-                help
+                escape_html(help)
             ));
         }
 
@@ -835,14 +894,16 @@ pub struct CrudTemplateEngine;
 impl CrudTemplateEngine {
     /// 生成 CREATE TABLE DDL 语句
     pub fn generate_ddl(model: &ModelDefinition) -> String {
+        let table = ModelDefinition::sanitize_identifier(&model.name);
         let mut sql = String::new();
-        sql.push_str(&format!("CREATE TABLE \"{}\" (\n", model.name));
+        sql.push_str(&format!("CREATE TABLE \"{}\" (\n", table));
 
         let column_defs: Vec<String> = model
             .fields
             .iter()
             .map(|field| {
-                let mut def = format!("    \"{}\" {}", field.name, field.field_type);
+                let col_name = ModelDefinition::sanitize_identifier(&field.name);
+                let mut def = format!("    \"{}\" {}", col_name, field.field_type);
                 if !field.nullable {
                     def.push_str(" NOT NULL");
                 }
@@ -853,7 +914,8 @@ impl CrudTemplateEngine {
                     def.push_str(" UNIQUE");
                 }
                 if let Some(default) = &field.default_value {
-                    def.push_str(&format!(" DEFAULT {}", default));
+                    let safe_default = CrudTemplateEngine::sanitize_default_value(default);
+                    def.push_str(&format!(" DEFAULT {}", safe_default));
                 }
                 def
             })
@@ -862,24 +924,47 @@ impl CrudTemplateEngine {
         sql.push_str(&column_defs.join(",\n"));
         sql.push_str("\n);");
 
-        // 索引
         for index in &model.indexes {
+            let safe_index = ModelDefinition::sanitize_identifier(index);
             sql.push_str(&format!(
                 "\nCREATE INDEX \"{}\" ON \"{}\";",
-                index, model.name
+                safe_index, table
             ));
         }
 
         sql
     }
 
+    fn sanitize_default_value(value: &str) -> String {
+        let trimmed = value.trim();
+        if trimmed.eq_ignore_ascii_case("NULL")
+            || trimmed.eq_ignore_ascii_case("TRUE")
+            || trimmed.eq_ignore_ascii_case("FALSE")
+            || trimmed.parse::<f64>().is_ok()
+        {
+            return trimmed.to_string();
+        }
+        let inner = if trimmed.starts_with('\'') && trimmed.ends_with('\'') && trimmed.len() >= 2 {
+            &trimmed[1..trimmed.len() - 1]
+        } else {
+            trimmed
+        };
+        let escaped = inner.replace('\'', "''");
+        format!("'{}'", escaped)
+    }
+
     /// 生成 INSERT 语句（参数化）
     pub fn generate_insert(model: &ModelDefinition) -> String {
-        let columns: Vec<&str> = model.fields.iter().map(|f| f.name.as_str()).collect();
+        let table = ModelDefinition::sanitize_identifier(&model.name);
+        let columns: Vec<String> = model
+            .fields
+            .iter()
+            .map(|f| ModelDefinition::sanitize_identifier(&f.name))
+            .collect();
         let placeholders: Vec<String> = (1..=columns.len()).map(|i| format!("${}", i)).collect();
         format!(
             "INSERT INTO \"{}\" ({}) VALUES ({});",
-            model.name,
+            table,
             columns
                 .iter()
                 .map(|c| format!("\"{}\"", c))
@@ -891,48 +976,57 @@ impl CrudTemplateEngine {
 
     /// 生成 SELECT BY ID 语句
     pub fn generate_select_by_id(model: &ModelDefinition) -> String {
+        let table = ModelDefinition::sanitize_identifier(&model.name);
         let columns: Vec<String> = model
             .fields
             .iter()
-            .map(|f| format!("\"{}\"", f.name))
+            .map(|f| format!("\"{}\"", ModelDefinition::sanitize_identifier(&f.name)))
             .collect();
         format!(
             "SELECT {} FROM \"{}\" WHERE \"id\" = $1;",
             columns.join(", "),
-            model.name
+            table
         )
     }
 
     /// 生成 SELECT ALL 语句（带分页）
     pub fn generate_select_all(model: &ModelDefinition) -> String {
+        let table = ModelDefinition::sanitize_identifier(&model.name);
         let columns: Vec<String> = model
             .fields
             .iter()
-            .map(|f| format!("\"{}\"", f.name))
+            .map(|f| format!("\"{}\"", ModelDefinition::sanitize_identifier(&f.name)))
             .collect();
         format!(
             "SELECT {} FROM \"{}\" ORDER BY \"id\" DESC LIMIT $1 OFFSET $2;",
             columns.join(", "),
-            model.name
+            table
         )
     }
 
     /// 生成 UPDATE 语句（参数化，排除主键）
     pub fn generate_update(model: &ModelDefinition) -> String {
+        let table = ModelDefinition::sanitize_identifier(&model.name);
         let update_fields: Vec<&FieldDef> =
             model.fields.iter().filter(|f| !f.primary_key).collect();
 
         let set_clauses: Vec<String> = update_fields
             .iter()
             .enumerate()
-            .map(|(i, f)| format!("\"{}\" = ${}", f.name, i + 1))
+            .map(|(i, f)| {
+                format!(
+                    "\"{}\" = ${}",
+                    ModelDefinition::sanitize_identifier(&f.name),
+                    i + 1
+                )
+            })
             .collect();
 
         let id_placeholder = format!("${}", update_fields.len() + 1);
 
         format!(
             "UPDATE \"{}\" SET {} WHERE \"id\" = {};",
-            model.name,
+            table,
             set_clauses.join(", "),
             id_placeholder
         )
@@ -940,12 +1034,14 @@ impl CrudTemplateEngine {
 
     /// 生成 DELETE 语句
     pub fn generate_delete(model: &ModelDefinition) -> String {
-        format!("DELETE FROM \"{}\" WHERE \"id\" = $1;", model.name)
+        let table = ModelDefinition::sanitize_identifier(&model.name);
+        format!("DELETE FROM \"{}\" WHERE \"id\" = $1;", table)
     }
 
     /// 生成 COUNT 语句
     pub fn generate_count(model: &ModelDefinition) -> String {
-        format!("SELECT COUNT(*) AS total FROM \"{}\";", model.name)
+        let table = ModelDefinition::sanitize_identifier(&model.name);
+        format!("SELECT COUNT(*) AS total FROM \"{}\";", table)
     }
 
     /// 生成 Rust 结构体定义
@@ -1993,6 +2089,94 @@ mod tests {
         let sql = CrudTemplateEngine::generate_count(&model);
         assert!(sql.contains("SELECT COUNT(*)"));
         assert!(sql.contains("FROM \"users\""));
+    }
+
+    #[test]
+    fn test_validate_identifier_safe() {
+        assert!(ModelDefinition::validate_identifier("users").is_ok());
+        assert!(ModelDefinition::validate_identifier("order_items").is_ok());
+        assert!(ModelDefinition::validate_identifier("_private").is_ok());
+        assert!(ModelDefinition::validate_identifier("t123").is_ok());
+    }
+
+    #[test]
+    fn test_validate_identifier_unsafe() {
+        assert!(ModelDefinition::validate_identifier("").is_err());
+        assert!(ModelDefinition::validate_identifier("users; DROP TABLE").is_err());
+        assert!(ModelDefinition::validate_identifier("users\" --").is_err());
+        assert!(ModelDefinition::validate_identifier("user' OR '1'='1").is_err());
+        assert!(ModelDefinition::validate_identifier(&"a".repeat(64)).is_err());
+    }
+
+    #[test]
+    fn test_sanitize_identifier() {
+        assert_eq!(ModelDefinition::sanitize_identifier("users"), "users");
+        assert_eq!(
+            ModelDefinition::sanitize_identifier("users; DROP TABLE"),
+            "users__DROP_TABLE"
+        );
+        assert_eq!(
+            ModelDefinition::sanitize_identifier("user\" --"),
+            "user____"
+        );
+        assert_eq!(ModelDefinition::sanitize_identifier(""), "_");
+    }
+
+    #[test]
+    fn test_generate_delete_sanitizes_malicious_name() {
+        let model = ModelDefinition::new("users\" DROP TABLE users; --");
+        let sql = CrudTemplateEngine::generate_delete(&model);
+        assert!(
+            !sql.contains("DROP TABLE"),
+            "DELETE SQL must not contain DROP TABLE: {}",
+            sql
+        );
+        assert!(
+            !sql.contains("--"),
+            "DELETE SQL must not contain comment: {}",
+            sql
+        );
+        assert!(sql.starts_with("DELETE FROM \""));
+    }
+
+    #[test]
+    fn test_generate_insert_sanitizes_malicious_name() {
+        let model = ModelDefinition::new("users'; DROP TABLE users; --")
+            .with_field(FieldDef::new("name", "VARCHAR(255)"));
+        let sql = CrudTemplateEngine::generate_insert(&model);
+        assert!(
+            !sql.contains("DROP TABLE"),
+            "INSERT SQL must not contain DROP TABLE: {}",
+            sql
+        );
+        assert!(
+            !sql.contains("'"),
+            "INSERT SQL must not contain raw quote: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_generate_ddl_sanitizes_malicious_name() {
+        let model = ModelDefinition::new("users; DROP TABLE users; --")
+            .with_field(FieldDef::new("name", "VARCHAR(255)").with_default("'; DROP TABLE x; --"));
+        let sql = CrudTemplateEngine::generate_ddl(&model);
+        assert!(
+            !sql.contains("DROP TABLE users"),
+            "DDL must not contain DROP TABLE users: {}",
+            sql
+        );
+        assert!(
+            sql.starts_with("CREATE TABLE"),
+            "DDL must start with CREATE TABLE: {}",
+            sql
+        );
+        let after_close = sql.rfind(");").map(|i| &sql[i + 2..]).unwrap_or("");
+        assert!(
+            !after_close.contains("DROP TABLE"),
+            "DDL must not have DROP TABLE after closing: {}",
+            sql
+        );
     }
 
     #[test]

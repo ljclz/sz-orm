@@ -518,7 +518,7 @@ mod tests {
         for i in 0..4 {
             let cache_clone = Arc::clone(&cache);
             handles.push(thread::spawn(move || {
-                let mut cache = cache_clone.lock().unwrap();
+                let mut cache = cache_clone.lock().unwrap_or_else(|e| e.into_inner());
                 cache.put(i, Arc::new(i as i32));
                 let _ = cache.get(&i);
             }));
@@ -528,7 +528,7 @@ mod tests {
             h.join().unwrap();
         }
 
-        let cache = cache.lock().unwrap();
+        let cache = cache.lock().unwrap_or_else(|e| e.into_inner());
         let stats = cache.stats();
         assert_eq!(stats.entry_count, 4);
         assert!(stats.hits >= 4);

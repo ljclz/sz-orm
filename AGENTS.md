@@ -1,12 +1,12 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：4.7.0（workspace.package.version 集中管理）
+- 版本：4.9.0（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：60 个成员（58 个 lib 包 + cli + examples；v4.3.0 新增 sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor / sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel / sz-orm-stream；v4.6.0 不新增包，7 个 feature gate 扩展既有包；v4.7.0 不新增包，7 个 feature gate 扩展既有包）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
-- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 4.7.0（v4.7.0 7 项需求全部完成，8 个里程碑 M0~M7 通过）
+- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 4.9.0（v4.9.0 OWASP Top 10 完整覆盖渗透测试套件交付，85 个测试 + A06 脚本）
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 防护：编译期 `#[detect_n_plus_one]` 静态检测（n1-lint）+ 运行时 `N1QueryDetector` 检测组件（需手动接入，未自动拦截）。
 
@@ -42,7 +42,7 @@
 | 18 | 度量真实性扫描 | `python scripts/check-metrics-real.py`（README 数字声称 vs 源码统计，--fix 自动修正；数字禁止手写） |
 | 19 | 发布一致性扫描 | `python scripts/check-publish-consistency.py`（版本声明一致性；豁免：sz-orm-python/js/graph 独立 0.1.0 版本线） |
 | 20 | 变异测试杀率 | `python scripts/check-mutation-coverage.py`（cargo-mutants 对关键模块子集，杀率 < 70% 失败；2026-08-14 首跑 100%：22/22 变异体被杀） |
-| 21 | 安全攻击测试 | `cargo test -p sz-orm-auth --test security_attacks && cargo test -p sz-orm-crypto --test kat && cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks`（JWT 伪造/过期/弱密钥 + 密码学 RFC/NIST 向量 KAT + 租户越权/注入向量；并发正确性：bloom 多线程不漏判测试——loom 模型检查因 RUSTFLAGS 污染依赖树不可行，2026-08-14 评估记录） |
+| 21 | 安全攻击测试 | `cargo test -p sz-orm-auth --test security_attacks && cargo test -p sz-orm-crypto --test kat && cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks`（JWT 伪造/过期/弱密钥 + 密码学 RFC/NIST 向量 KAT + 租户越权/注入向量；并发正确性：bloom 多线程不漏判测试——loom 模型检查因 RUSTFLAGS 污染依赖树不可行，2026-08-14 评估记录）+ v4.9.0 OWASP Top 10 完整覆盖渗透测试套件（`--features owasp-pentest-suite`，85 个测试覆盖 A01~A10 + XSS/CSRF/文件上传/竞态；A06 脚本 `scripts/owasp_a06_vulnerable_components.ps1`） |
 | 22 | 覆盖率门禁 | `python scripts/check-coverage.py`（cargo-llvm-cov 对关键模块行覆盖率，< 60% 失败） |
 | 23 | 未用依赖扫描 | `python scripts/check-unused-deps.py`（cargo-machete，警告级；feature 门控误报登记 `[package.metadata.cargo-machete] ignored`） |
 

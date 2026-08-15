@@ -1068,6 +1068,7 @@ mod tests {
         server
             .backend()
             .add_user(build_user(42, "alice", "alice@example.com"));
+        let token = server.auth_token().to_string();
         let mut handle = server.start(bind_addr()).await.expect("server start");
         let addr = handle.local_addr();
 
@@ -1093,6 +1094,7 @@ mod tests {
         server.backend().add_user(build_user(3, "c", "c@x"));
         server.backend().add_user(build_user(1, "a", "a@x"));
         server.backend().add_user(build_user(2, "b", "b@x"));
+        let token = server.auth_token().to_string();
         let mut handle = server.start(bind_addr()).await.expect("server start");
         let addr = handle.local_addr();
 
@@ -1117,6 +1119,7 @@ mod tests {
 
         let server = RealGrpcServer::new();
         server.backend().add_user(build_user(1, "a", "a@x"));
+        let token = server.auth_token().to_string();
         let mut handle = server.start(bind_addr()).await.expect("server start");
         let addr = handle.local_addr();
 
@@ -1145,6 +1148,7 @@ mod tests {
         server
             .backend()
             .add_user(build_user(42, "shared", "shared@example.com"));
+        let token = server.auth_token().to_string();
         let mut handle = server.start(bind_addr()).await.expect("server start");
         let addr = handle.local_addr();
         let addr_str = addr.to_string();
@@ -1153,7 +1157,10 @@ mod tests {
         let mut client1 = RealGrpcClient::connect(addr_str.clone())
             .await
             .expect("connect1");
-        let mut client2 = RealGrpcClient::connect(addr_str).await.expect("connect2");
+        let mut client2 = RealGrpcClient::connect(addr_str)
+            .await
+            .expect("connect2")
+            .with_token(token.clone());
 
         let u1 = client1.get_user(42).await.expect("get_user via client1");
         let u2 = client2.get_user(42).await.expect("get_user via client2");

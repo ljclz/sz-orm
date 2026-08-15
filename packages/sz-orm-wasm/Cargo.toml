@@ -27,16 +27,31 @@ reqwest = { version = "0.12", optional = true, default-features = false, feature
 tokio-tungstenite = { version = "0.24", optional = true }
 rmp-serde = { version = "1.3", optional = true }
 chrono = { workspace = true, optional = true }
+# v4.8.0 REQ-V48-004：WASM 真实数据库连接闭环（代理后端连接池 + 查询构建器桥接）
+sz-orm-core = { version = "4.8.0", path = "../sz-orm-core", optional = true }
+sz-orm-query-builder = { version = "4.8.0", path = "../sz-orm-query-builder", optional = true }
+tokio = { version = "1.40", features = ["rt", "net"], optional = true }
 
 [features]
 default = []
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
 js = ["dep:wasm-bindgen", "dep:js-sys"]
 persistence = ["dep:web-sys", "dep:thiserror", "js"]
-wasm-real-db = ["dep:reqwest", "dep:tokio-tungstenite", "dep:rmp-serde", "dep:thiserror", "dep:chrono", "js"]
+wasm-real-db = ["dep:reqwest", "dep:tokio-tungstenite", "dep:rmp-serde", "dep:thiserror", "dep:chrono", "dep:sz-orm-core", "dep:sz-orm-query-builder", "dep:tokio", "js", "sz-orm-core/prod-dialect-security"]
 wasi-socket = ["wasm-real-db"]
 
 [dev-dependencies]
 wasm-bindgen-test = "0.2"
+async-trait = "0.1"
+
+[[test]]
+name = "blackhat_poc"
+required-features = ["wasm-real-db"]
+
+[[test]]
+name = "owasp_a10_ssrf"
+required-features = ["wasm-real-db", "owasp-pentest-suite"]
 
 [lints]
 workspace = true

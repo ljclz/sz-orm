@@ -518,8 +518,8 @@ mod polling_tests {
 
         /// 轮询函数：从 checkpoint 的 seq 开始拉取新事件
         fn poll(&self, cp: &CdcCheckpoint) -> Result<(Vec<ChangeEvent>, CdcCheckpoint), CdcError> {
-            let mut events = self.events.lock().unwrap();
-            let mut next = self.next_seq.lock().unwrap();
+            let mut events = self.events.lock().unwrap_or_else(|e| e.into_inner());
+            let mut next = self.next_seq.lock().unwrap_or_else(|e| e.into_inner());
             let mut batch = vec![];
             // 伪数据源：pop 全部剩余事件（checkpoint 语义由调用方按 seq 过滤）
             while let Some(ev) = events.pop_front() {

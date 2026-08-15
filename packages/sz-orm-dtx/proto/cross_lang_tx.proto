@@ -1,0 +1,23 @@
+syntax = "proto3";
+
+package szorm.dtx;
+
+// 跨语言事务调用请求（统一 RPC 入口）
+message CrossLangTxRequest {
+    string method = 1;   // prepare / commit / rollback / query_status
+    string tx_id = 2;
+    bytes payload = 3;
+}
+
+// 跨语言事务调用响应
+message CrossLangTxResponse {
+    bool success = 1;
+    bytes payload = 2;
+    string error = 3;
+    uint64 latency_ms = 4;
+}
+
+// 跨语言事务统一服务（所有语言参与者实现此 gRPC 契约）
+service CrossLangTxService {
+    rpc Call(CrossLangTxRequest) returns (CrossLangTxResponse);
+}

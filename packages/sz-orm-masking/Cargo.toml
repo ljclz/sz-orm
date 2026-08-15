@@ -10,9 +10,18 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+[features]
+default = []
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "owasp_a08_logging_failures"
+required-features = ["owasp-pentest-suite"]

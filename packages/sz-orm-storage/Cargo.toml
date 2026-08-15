@@ -12,6 +12,8 @@ description = "SZ-ORM Storage Extension - real cloud providers via OpenDAL (real
 
 [features]
 default = []
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
 s3-sdk = ["rust-s3"]
 # v4.1.0：存储生命周期管理（分层 + 过期清理 + 策略引擎）
 storage-lifecycle = []
@@ -54,3 +56,7 @@ tokio-test = "0.4"
 
 [lints]
 workspace = true
+
+[[test]]
+name = "owasp_file_upload"
+required-features = ["owasp-pentest-suite"]

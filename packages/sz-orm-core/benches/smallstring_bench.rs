@@ -29,6 +29,7 @@ fn bench_build_select_short(c: &mut Criterion) {
             let dialect = sz_orm_core::get_dialect(DbType::MySQL).unwrap();
             let q = QueryBuilder::<User>::new(dialect)
                 .select(vec!["id", "name", "email"])
+                .expect("valid columns")
                 .where_eq("id", Value::I64(1))
                 .limit(10);
             black_box(q.build_select())

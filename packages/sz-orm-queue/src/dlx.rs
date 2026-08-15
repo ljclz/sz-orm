@@ -336,7 +336,7 @@ impl RedeliveryScheduler {
             outcome: outcome.clone(),
             timestamp: now_ms(),
         };
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self.logs.lock().unwrap_or_else(|e| e.into_inner());
         logs.push_back(log);
         if logs.len() > 10000 {
             logs.pop_front();
@@ -344,7 +344,7 @@ impl RedeliveryScheduler {
     }
 
     pub fn get_logs(&self) -> Vec<RedeliveryLog> {
-        let logs = self.logs.lock().unwrap();
+        let logs = self.logs.lock().unwrap_or_else(|e| e.into_inner());
         logs.iter().cloned().collect()
     }
 

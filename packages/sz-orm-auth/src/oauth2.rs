@@ -26,6 +26,13 @@ pub struct AuthorizationRequest {
     pub state: String,
     /// 响应类型（固定为 "code"）
     pub response_type: String,
+    /// PKCE code_challenge（RFC 7636，v4.8.0 修复 M-7）
+    ///
+    /// 携带 challenge 的授权码在交换令牌时**强制**要求匹配的 code_verifier，
+    /// 抵御授权码拦截攻击（即使授权码泄露也无法兑换令牌）。
+    pub code_challenge: Option<String>,
+    /// PKCE 方法（当前仅支持 "S256"）
+    pub code_challenge_method: Option<String>,
 }
 
 impl AuthorizationRequest {
@@ -41,7 +48,19 @@ impl AuthorizationRequest {
             scope: scope.into(),
             state: state.into(),
             response_type: "code".to_string(),
+            code_challenge: None,
+            code_challenge_method: None,
         }
+    }
+
+    /// 附加 PKCE 参数（v4.8.0 修复 M-7）
+    ///
+    /// `challenge` 为 S256 变换后的 code_challenge（服务端生成，
+    /// 详见 RFC 7636 §4.2）；`method` 仅支持 `"S256"`。
+    pub fn with_pkce(mut self, challenge: impl Into<String>, method: &str) -> Self {
+        self.code_challenge = Some(challenge.into());
+        self.code_challenge_method = Some(method.to_string());
+        self
     }
 }
 
@@ -64,6 +83,8 @@ pub struct AuthorizationCode {
     pub expires_at: i64,
     /// 是否已使用（一次性消费）
     pub used: bool,
+    /// PKCE code_challenge（签发时携带则交换时必须验证 verifier）
+    pub code_challenge: Option<String>,
 }
 
 impl AuthorizationCode {
@@ -87,6 +108,7 @@ impl AuthorizationCode {
             created_at: now,
             expires_at: now + Self::DEFAULT_LIFETIME_SECS,
             used: false,
+            code_challenge: None,
         }
     }
 
@@ -103,6 +125,18 @@ pub struct TokenRequest {
     pub code: String,
     pub redirect_uri: String,
     pub client_id: String,
+    /// 客户端密钥（v4.8.0 修复 M-7：提供时强制校验）
+    ///
+    /// 修复前 `exchange_code` 从不校验 client_secret——攻击者只需窃取
+    /// 授权码 + 已知 client_id 即可兑换令牌（RFC 6749 §4.1.3 要求验证
+    /// 客户端身份）。生产环境必须通过 [`TokenRequest::with_client_secret`]
+    /// 携带密钥。
+    pub client_secret: Option<String>,
+    /// PKCE code_verifier（RFC 7636，v4.8.0 修复 M-7）
+    ///
+    /// 签发时携带 code_challenge 的授权码，交换时**必须**提供匹配的
+    /// verifier，否则拒绝兑换。
+    pub code_verifier: Option<String>,
 }
 
 impl TokenRequest {
@@ -116,7 +150,21 @@ impl TokenRequest {
             code: code.into(),
             redirect_uri: redirect_uri.into(),
             client_id: client_id.into(),
+            client_secret: None,
+            code_verifier: None,
         }
+    }
+
+    /// 附加客户端密钥（v4.8.0 修复 M-7：交换时强制校验）
+    pub fn with_client_secret(mut self, secret: impl Into<String>) -> Self {
+        self.client_secret = Some(secret.into());
+        self
+    }
+
+    /// 附加 PKCE code_verifier（v4.8.0 修复 M-7）
+    pub fn with_code_verifier(mut self, verifier: impl Into<String>) -> Self {
+        self.code_verifier = Some(verifier.into());
+        self
     }
 }
 
@@ -194,13 +242,15 @@ impl OAuth2Server {
             )));
         }
         let code_value = generate_code();
-        let auth_code = AuthorizationCode::new(
+        let mut auth_code = AuthorizationCode::new(
             code_value,
             req.client_id.clone(),
             user_id,
             req.redirect_uri.clone(),
             req.scope.clone(),
         );
+        // v4.8.0 修复 M-7：签发时记录 PKCE challenge
+        auth_code.code_challenge = req.code_challenge.clone();
         self.codes
             .lock()
             .insert(auth_code.code.clone(), auth_code.clone());
@@ -215,6 +265,8 @@ impl OAuth2Server {
     /// 3. 授权码未使用（一次性消费）
     /// 4. redirect_uri 与签发时一致
     /// 5. client_id 与签发时一致
+    /// 6. client_secret 提供时强制校验（v4.8.0 修复 M-7）
+    /// 7. 签发时携带 PKCE challenge → 必须验证 code_verifier（v4.8.0 修复 M-7）
     pub fn exchange_code(&self, req: &TokenRequest) -> Result<AuthorizationCode, AuthError> {
         let mut codes = self.codes.lock();
         let auth_code = codes
@@ -241,6 +293,31 @@ impl OAuth2Server {
             return Err(AuthError::TokenInvalid("Client ID mismatch".to_string()));
         }
 
+        // v4.8.0 修复 M-7（RFC 6749 §4.1.3）：客户端密钥校验。
+        // 携带 client_secret 的请求必须与注册表匹配——此前从不校验，
+        // 仅凭授权码 + 已知 client_id 即可兑换令牌。
+        if let Some(secret) = &req.client_secret {
+            if !self.validate_client(&req.client_id, secret) {
+                return Err(AuthError::TokenInvalid(
+                    "Invalid client credentials".to_string(),
+                ));
+            }
+        }
+
+        // v4.8.0 修复 M-7（RFC 7636）：PKCE 强制验证——签发时携带
+        // code_challenge 的授权码，交换必须提供匹配的 code_verifier。
+        // 授权码被拦截（回调劫持/日志泄露）时，攻击者仍无法兑换令牌。
+        if let Some(challenge) = &auth_code.code_challenge {
+            let verifier = req.code_verifier.as_deref().ok_or_else(|| {
+                AuthError::TokenInvalid("PKCE code_verifier required".to_string())
+            })?;
+            if !verify_pkce_s256(challenge, verifier) {
+                return Err(AuthError::TokenInvalid(
+                    "PKCE verification failed".to_string(),
+                ));
+            }
+        }
+
         // 标记为已使用
         let result = auth_code.clone();
         codes.get_mut(&req.code).unwrap().used = true;
@@ -261,14 +338,46 @@ impl OAuth2Server {
     }
 }
 
-/// 生成随机授权码（32 字节十六进制）
+/// 生成随机授权码（32 字节随机十六进制）
+///
+/// v4.8.0 修复 Critical C-1（CWE-338）：使用 `OsRng`（密码学安全 RNG）替代
+/// `DefaultHasher` + 纳秒种子。原实现熵完全来自可预测时间戳——2026-08-14
+/// 黑帽审计实证：攻击者在 ±1ms 窗口内枚举纳秒种子，102 万候选 0.84s 即还原
+/// 真实授权码（见 docs/assessment/2026-08-14-blackhat-security-audit.md）。
+/// 修复模式与 token_store.rs / mfa.rs 的家族 ID / MFA 密钥生成保持一致。
 fn generate_code() -> String {
-    use std::collections::hash_map::DefaultHasher;
-    use std::hash::{Hash, Hasher};
-    let mut hasher = DefaultHasher::new();
-    current_nanos().hash(&mut hasher);
-    let seed = hasher.finish();
-    format!("{:064x}", seed)
+    use rand::rngs::OsRng;
+    use rand::RngCore;
+    let mut bytes = [0u8; 32];
+    OsRng.fill_bytes(&mut bytes);
+    let hex: String = bytes.iter().map(|b| format!("{:02x}", b)).collect();
+    hex
+}
+
+/// PKCE S256 验证（RFC 7636 §4.6，v4.8.0 修复 M-7）
+///
+/// `base64url(sha256(code_verifier), 无 padding)` 必须与签发的
+/// `code_challenge` 相等。时间常数比较防侧信道。
+fn verify_pkce_s256(challenge: &str, verifier: &str) -> bool {
+    use base64::engine::general_purpose::URL_SAFE_NO_PAD;
+    use base64::Engine;
+    use sha2::{Digest, Sha256};
+    let digest = Sha256::digest(verifier.as_bytes());
+    let computed = URL_SAFE_NO_PAD.encode(digest);
+    // 长度不同快速失败；相同长度走常数时间比较
+    if computed.len() != challenge.len() {
+        return false;
+    }
+    constant_time_eq(computed.as_bytes(), challenge.as_bytes())
+}
+
+/// 常数时间字节比较（防时序侧信道）
+fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
+    let mut diff: u8 = (a.len() as u8) ^ (b.len() as u8);
+    for (x, y) in a.iter().zip(b.iter()) {
+        diff |= u8::from(x != y);
+    }
+    diff == 0
 }
 
 fn current_secs() -> i64 {
@@ -276,13 +385,6 @@ fn current_secs() -> i64 {
         .duration_since(UNIX_EPOCH)
         .unwrap_or_default()
         .as_secs() as i64
-}
-
-fn current_nanos() -> u128 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .unwrap_or_default()
-        .as_nanos()
 }
 
 #[cfg(test)]
@@ -487,5 +589,107 @@ mod tests {
         // 正确交换
         let right_req = TokenRequest::new(&c1.code, "https://a1/cb", "app1");
         assert!(server.exchange_code(&right_req).is_ok());
+    }
+
+    // ── v4.8.0 修复 M-7：client_secret 强校验 + PKCE ──
+
+    /// RFC 7636 官方向量：verifier = "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk"
+    /// challenge = "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM"
+    fn pkce_vector() -> (String, String) {
+        (
+            "dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk".to_string(),
+            "E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM".to_string(),
+        )
+    }
+
+    #[test]
+    fn test_pkce_s256_rfc7636_vector() {
+        let (verifier, challenge) = pkce_vector();
+        assert!(
+            verify_pkce_s256(&challenge, &verifier),
+            "RFC 7636 §A.1 官方向量必须验证通过"
+        );
+        assert!(
+            !verify_pkce_s256(&challenge, "wrong-verifier"),
+            "错误 verifier 必须失败"
+        );
+        assert!(!verify_pkce_s256(&challenge, ""), "空 verifier 必须失败");
+    }
+
+    #[test]
+    fn test_exchange_code_client_secret_mismatch_rejected() {
+        let server = make_server();
+        let req = make_request();
+        let code = server.create_authorization_code(&req, 1).unwrap();
+
+        // 修复前：exchange_code 从不校验 client_secret，攻击者凭码即可兑换
+        let bad = TokenRequest::new(&code.code, "https://app.com/cb", "client1")
+            .with_client_secret("wrong-secret");
+        let result = server.exchange_code(&bad);
+        assert!(
+            matches!(result, Err(AuthError::TokenInvalid(_))),
+            "错误 client_secret 必须被拒绝（M-7 修复失效）"
+        );
+
+        // 正确 secret 放行
+        let good = TokenRequest::new(&code.code, "https://app.com/cb", "client1")
+            .with_client_secret("secret1");
+        assert!(server.exchange_code(&good).is_ok());
+    }
+
+    #[test]
+    fn test_pkce_challenge_enforced_on_exchange() {
+        let server = make_server();
+        let (verifier, challenge) = pkce_vector();
+        let req = make_request().with_pkce(challenge.clone(), "S256");
+        let code = server.create_authorization_code(&req, 7).unwrap();
+        assert_eq!(code.code_challenge.as_deref(), Some(challenge.as_str()));
+
+        // 攻击场景：拦截到授权码但没有 verifier → 必须拒绝
+        let no_verifier = TokenRequest::new(&code.code, "https://app.com/cb", "client1");
+        assert!(
+            matches!(
+                server.exchange_code(&no_verifier),
+                Err(AuthError::TokenInvalid(_))
+            ),
+            "缺少 code_verifier 必须被拒绝（M-7 修复失效）"
+        );
+
+        // 攻击场景：错误的 verifier → 必须拒绝
+        let wrong_verifier = TokenRequest::new(&code.code, "https://app.com/cb", "client1")
+            .with_code_verifier("attacker-guessed-verifier");
+        assert!(
+            matches!(
+                server.exchange_code(&wrong_verifier),
+                Err(AuthError::TokenInvalid(_))
+            ),
+            "错误 code_verifier 必须被拒绝"
+        );
+
+        // 正常路径：正确 verifier → 放行
+        let correct = TokenRequest::new(&code.code, "https://app.com/cb", "client1")
+            .with_code_verifier(verifier);
+        let exchanged = server.exchange_code(&correct).unwrap();
+        assert_eq!(exchanged.user_id, 7);
+    }
+
+    #[test]
+    fn test_pkce_and_secret_combined() {
+        let server = make_server();
+        let (verifier, challenge) = pkce_vector();
+        let req = make_request().with_pkce(challenge, "S256");
+        let code = server.create_authorization_code(&req, 5).unwrap();
+
+        // 全参数正确
+        let ok = TokenRequest::new(&code.code, "https://app.com/cb", "client1")
+            .with_client_secret("secret1")
+            .with_code_verifier(verifier.clone());
+        assert!(server.exchange_code(&ok).is_ok());
+
+        // secret 错误 + verifier 正确
+        let bad_secret = TokenRequest::new(&code.code, "https://app.com/cb", "client1")
+            .with_client_secret("nope")
+            .with_code_verifier(verifier);
+        assert!(server.exchange_code(&bad_secret).is_err());
     }
 }

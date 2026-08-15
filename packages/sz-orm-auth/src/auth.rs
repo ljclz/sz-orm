@@ -159,6 +159,16 @@ pub struct JwtAuthenticator {
 }
 
 impl JwtAuthenticator {
+    /// HS256 最小密钥长度（v4.8.0 修复 M-15）
+    ///
+    /// 修复前默认路径无密钥强度校验——短密钥/常见口令可被 GPU 离线爆破
+    /// （数十亿次/秒），攻击者获取任一令牌即可枚举密钥并任意伪造 claims。
+    pub const MIN_SECRET_LEN: usize = 32;
+
+    /// 创建认证器（兼容旧签名，不做密钥强度校验）
+    ///
+    /// **生产环境必须使用 [`JwtAuthenticator::try_new`]**——本构造器保留
+    /// 兼容性（测试/低风险场景），弱密钥风险见 M-15。
     pub fn new(secret: impl Into<String>, issuer: impl Into<String>, expiration: u64) -> Self {
         Self {
             encoder: JwtEncoder::new(secret),
@@ -166,6 +176,31 @@ impl JwtAuthenticator {
             expiration,
             password_verifier: None,
         }
+    }
+
+    /// 创建认证器并强制校验密钥强度（v4.8.0 修复 M-15）
+    ///
+    /// secret 长度必须 ≥ [`JwtAuthenticator::MIN_SECRET_LEN`]（32 字节），
+    /// 否则返回 [`AuthError::SecretTooShort`]。生产路径应使用本构造器。
+    pub fn try_new(
+        secret: impl Into<String>,
+        issuer: impl Into<String>,
+        expiration: u64,
+    ) -> Result<Self, AuthError> {
+        let secret = secret.into();
+        if secret.len() < Self::MIN_SECRET_LEN {
+            return Err(AuthError::SecretTooShort(format!(
+                "JWT secret must be at least {} bytes (got {})",
+                Self::MIN_SECRET_LEN,
+                secret.len()
+            )));
+        }
+        Ok(Self {
+            encoder: JwtEncoder::new(secret),
+            issuer: issuer.into(),
+            expiration,
+            password_verifier: None,
+        })
     }
 
     /// 配置密码验证器（v0.2.1 新增，修复 Critical S-1）
@@ -202,15 +237,19 @@ impl JwtAuthenticator {
         };
 
         let exp = current_timestamp_secs() + (self.expiration as i64);
+        // v4.8.0 修复 Critical C-2：访问/刷新令牌必须带 token_use 类型声明，
+        // 防止窃取的访问令牌被 refresh 端点接受导致无限续期（黑帽实证）。
         let claims = JwtClaims::new(credentials.username.clone(), exp)
             .with_issuer(self.issuer.clone())
             .with_roles(vec!["user".to_string()])
-            .with_user_id(user_id);
+            .with_user_id(user_id)
+            .with_token_use("access");
 
         let access_token = self.encoder.encode(&claims)?;
         let refresh_claims = JwtClaims::new(credentials.username.clone(), exp + 86400)
             .with_issuer(self.issuer.clone())
-            .with_user_id(user_id);
+            .with_user_id(user_id)
+            .with_token_use("refresh");
         let refresh_token = self.encoder.encode(&refresh_claims)?;
 
         Ok(Token::new(access_token, self.expiration).with_refresh(refresh_token))
@@ -244,13 +283,23 @@ impl JwtAuthenticator {
         }
 
         let claims = self.encoder.decode(refresh_token)?;
+        // v4.8.0 修复 Critical C-2：严格校验令牌类型——仅接受显式声明
+        // token_use="refresh" 的令牌。旧版无类型声明的令牌一律拒绝
+        //（访问令牌送入 refresh 端点的类型混淆攻击面被切断）。
+        if !claims.is_token_use("refresh") {
+            return Err(AuthError::TokenInvalid(
+                "Token is not a refresh token (missing token_use=refresh)".to_string(),
+            ));
+        }
+
         let now = current_timestamp_secs();
         let new_exp = now + (self.expiration as i64);
         let new_claims = JwtClaims::new(claims.sub, new_exp)
             .with_issuer(self.issuer.clone())
             .with_roles(claims.roles)
             .with_permissions(claims.permissions)
-            .with_user_id(claims.user_id.unwrap_or(0));
+            .with_user_id(claims.user_id.unwrap_or(0))
+            .with_token_use("access");
         let new_access_token = self.encoder.encode(&new_claims)?;
 
         Ok(Token::new(new_access_token, self.expiration))

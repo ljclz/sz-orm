@@ -191,12 +191,15 @@ impl AutoRemediator {
     }
 
     pub fn with_whitelist(&self, whitelist: Vec<RemediationAction>) {
-        *self.whitelist.lock().unwrap() = whitelist;
+        *self.whitelist.lock().unwrap_or_else(|e| e.into_inner()) = whitelist;
     }
 
     /// 获取白名单
     pub fn whitelist(&self) -> Vec<RemediationAction> {
-        self.whitelist.lock().unwrap().clone()
+        self.whitelist
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// 选择修复动作
@@ -223,7 +226,11 @@ impl AutoRemediator {
         &self,
         action: RemediationAction,
     ) -> Result<RemediationResult, RemediationError> {
-        let whitelist = self.whitelist.lock().unwrap().clone();
+        let whitelist = self
+            .whitelist
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone();
         let auto_executed = action.is_in_whitelist(&whitelist);
 
         if !auto_executed {
@@ -250,13 +257,19 @@ impl AutoRemediator {
             auto_executed,
         };
 
-        self.history.lock().unwrap().push(result.clone());
+        self.history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(result.clone());
         Ok(result)
     }
 
     /// 获取修复历史
     pub fn history(&self) -> Vec<RemediationResult> {
-        self.history.lock().unwrap().clone()
+        self.history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// 自动修复流程：选择动作 → 执行
@@ -279,8 +292,14 @@ impl Default for AutoRemediator {
 impl std::fmt::Debug for AutoRemediator {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AutoRemediator")
-            .field("whitelist", &self.whitelist.lock().unwrap())
-            .field("history_count", &self.history.lock().unwrap().len())
+            .field(
+                "whitelist",
+                &self.whitelist.lock().unwrap_or_else(|e| e.into_inner()),
+            )
+            .field(
+                "history_count",
+                &self.history.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            )
             .finish()
     }
 }
@@ -347,7 +366,7 @@ impl RootCauseAnalyzer {
 
     /// 分析根因
     pub fn analyze_root_cause(&self, anomaly: &Anomaly) -> Result<RootCause, RemediationError> {
-        let rules = self.rules.lock().unwrap();
+        let rules = self.rules.lock().unwrap_or_else(|e| e.into_inner());
         let metric = &anomaly.metric_name;
 
         let matched_rule = rules.iter().find(|r| metric.contains(&r.metric_pattern));
@@ -395,12 +414,15 @@ impl RootCauseAnalyzer {
         action: RemediationAction,
         confidence: f64,
     ) {
-        self.rules.lock().unwrap().push(RootCauseRule {
-            metric_pattern: metric_pattern.into(),
-            category,
-            action,
-            confidence: confidence.clamp(0.0, 1.0),
-        });
+        self.rules
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(RootCauseRule {
+                metric_pattern: metric_pattern.into(),
+                category,
+                action,
+                confidence: confidence.clamp(0.0, 1.0),
+            });
     }
 }
 
@@ -413,7 +435,10 @@ impl Default for RootCauseAnalyzer {
 impl std::fmt::Debug for RootCauseAnalyzer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RootCauseAnalyzer")
-            .field("rule_count", &self.rules.lock().unwrap().len())
+            .field(
+                "rule_count",
+                &self.rules.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            )
             .finish()
     }
 }

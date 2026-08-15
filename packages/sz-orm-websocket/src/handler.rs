@@ -201,16 +201,24 @@ fn current_timestamp() -> i64 {
 /// - Ping messages are answered with a Pong.
 /// - Subscribe/Unsubscribe/Join/Leave messages return a System acknowledgement.
 /// - All other messages are logged but produce no response.
+///
+/// # 安全说明（v4.8.0 修复 M-1）
+///
+/// `message_log` 为有界环形缓冲（上限 [`MAX_MESSAGE_LOG`]，默认 10_000 条），
+/// 修复前无界增长——未认证客户端持续发消息可耗尽内存（黑帽审计实证）。
 pub struct DefaultWebSocketHandler {
     connections: Arc<RwLock<HashMap<String, WebSocketConnection>>>,
-    message_log: Arc<RwLock<Vec<WebSocketMessage>>>,
+    message_log: Arc<RwLock<std::collections::VecDeque<WebSocketMessage>>>,
 }
+
+/// 消息日志上限（v4.8.0 修复 M-1）：超出后丢弃最旧消息
+const MAX_MESSAGE_LOG: usize = 10_000;
 
 impl DefaultWebSocketHandler {
     pub fn new() -> Self {
         Self {
             connections: Arc::new(RwLock::new(HashMap::new())),
-            message_log: Arc::new(RwLock::new(Vec::new())),
+            message_log: Arc::new(RwLock::new(std::collections::VecDeque::new())),
         }
     }
 
@@ -227,7 +235,7 @@ impl DefaultWebSocketHandler {
     }
 
     pub async fn messages(&self) -> Vec<WebSocketMessage> {
-        self.message_log.read().await.clone()
+        self.message_log.read().await.iter().cloned().collect()
     }
 
     pub async fn get_connection(&self, connection_id: &str) -> Option<WebSocketConnection> {
@@ -248,7 +256,14 @@ impl WebSocketHandler for DefaultWebSocketHandler {
         conn: &WebSocketConnection,
         msg: WebSocketMessage,
     ) -> Result<Option<WebSocketMessage>, WsError> {
-        self.message_log.write().await.push(msg.clone());
+        // M-1 修复：有界日志——超出上限丢弃最旧条目，防内存无界增长
+        {
+            let mut log = self.message_log.write().await;
+            if log.len() >= MAX_MESSAGE_LOG {
+                log.pop_front();
+            }
+            log.push_back(msg.clone());
+        }
 
         match msg.msg_type {
             MessageType::Text => {

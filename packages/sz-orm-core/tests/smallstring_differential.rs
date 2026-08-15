@@ -42,7 +42,9 @@ mod tests {
 
     #[test]
     fn diff_select_columns() {
-        let q = make_query().select(vec!["id", "name", "email"]);
+        let q = make_query()
+            .select(vec!["id", "name", "email"])
+            .expect("valid columns");
         let sql = q.build_select();
         assert!(sql.contains("id"));
         assert!(sql.contains("name"));

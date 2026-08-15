@@ -71,6 +71,36 @@ pub trait TransactionLogStore: Send + Sync {
     fn read_pending<'a>(
         &'a self,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<TransactionLogEntry>, String>> + Send + 'a>>;
+
+    /// 标记事务为终态（v4.8.0 修复 H-4）
+    ///
+    /// 崩溃恢复完成后将已解决事务写回日志（state = Committed/RolledBack），
+    /// 防止 `read_pending` 下次恢复时重复处理同一事务。
+    ///
+    /// 修复前恢复流程从未写回——已提交/已回滚事务仍在 pending 集合，
+    /// 每次恢复都会对已终态事务重复执行 commit/rollback 通知。
+    ///
+    /// 默认实现追加终态条目；存储实现可覆盖为原地更新以节省空间。
+    fn finalize<'a>(
+        &'a self,
+        tx_id: &'a str,
+        state: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            self.append(TransactionLogEntry {
+                tx_id: tx_id.to_string(),
+                state: state.to_string(),
+                participants: vec![],
+                timestamp: std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .unwrap_or_default()
+                    .as_millis()
+                    .to_string(),
+                action: "recovery_finalize".to_string(),
+            })
+            .await
+        })
+    }
 }
 
 /// 内存事务日志存储（开发测试用）
@@ -132,6 +162,24 @@ impl TransactionLogStore for InMemoryTransactionLog {
                 .cloned()
                 .collect();
             Ok(pending)
+        })
+    }
+
+    /// 原地更新事务最新条目为终态（比默认追加更节省空间）
+    fn finalize<'a>(
+        &'a self,
+        tx_id: &'a str,
+        state: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>> {
+        Box::pin(async move {
+            let mut logs = self.logs.write().await;
+            for entry in logs.iter_mut().rev() {
+                if entry.tx_id == tx_id {
+                    entry.state = state.to_string();
+                    break;
+                }
+            }
+            Ok(())
         })
     }
 }

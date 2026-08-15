@@ -62,9 +62,13 @@ fn make_builder() -> QueryBuilder<TestUser> {
 
 #[test]
 fn test_build_select_with_params_no_where() {
-    let builder = make_builder().table("users").select(vec!["id", "name"]);
+    let builder = make_builder()
+        .table("users")
+        .select(vec!["id", "name"])
+        .expect("valid columns");
     let (sql, params) = builder.build_select_with_params();
-    assert!(sql.contains("SELECT id, name FROM"));
+    // SQLite 方言：列名以双引号 quote
+    assert!(sql.contains("SELECT \"id\", \"name\" FROM"));
     assert!(
         params.is_empty(),
         "no WHERE clause should have empty params"

@@ -10,6 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
+use tonic::service::{Interceptor as TonicInterceptor, InterceptorLayer, LayerExt};
 use tonic::transport::Server;
 
 // 引入 build.rs 中 tonic_prost_build 生成的代码。
@@ -91,8 +92,16 @@ impl UserService for UserServiceImpl {
 ///
 /// 构造后通过 [`RealGrpcServer::start`] 绑定到 TCP 端口并启动后台 task。
 /// 返回的 [`RealGrpcServerHandle`] 可用于查询监听地址与停止服务。
+///
+/// # 鉴权（v4.8.0 修复 M-4）
+///
+/// 修复前服务器无任何认证中间件（项目自有的 `AuthInterceptor` 从未挂载），
+/// 任意客户端可无凭证调用 RPC。修复后：服务器**强制**校验
+/// `authorization` metadata，默认 token 为进程随机值（可用
+/// [`RealGrpcServer::with_auth_token`] 显式配置，生产环境必须配置强 token）。
 pub struct RealGrpcServer {
     backend: Arc<InMemoryUserService>,
+    auth_token: String,
 }
 
 impl RealGrpcServer {
@@ -100,12 +109,27 @@ impl RealGrpcServer {
     pub fn new() -> Self {
         Self {
             backend: Arc::new(InMemoryUserService::new()),
+            auth_token: random_token(),
         }
     }
 
     /// 用已有后端构造真实服务器，便于在多个客户端间共享同一份数据。
     pub fn with_backend(backend: Arc<InMemoryUserService>) -> Self {
-        Self { backend }
+        Self {
+            backend,
+            auth_token: random_token(),
+        }
+    }
+
+    /// 显式配置鉴权 token（生产环境必须配置强随机 token）。
+    pub fn with_auth_token(mut self, token: impl Into<String>) -> Self {
+        self.auth_token = token.into();
+        self
+    }
+
+    /// 当前鉴权 token（供客户端连接时注入 metadata）。
+    pub fn auth_token(&self) -> &str {
+        &self.auth_token
     }
 
     /// 获取后端引用，方便测试预置数据。
@@ -133,7 +157,11 @@ impl RealGrpcServer {
         // 用 oneshot 通道作为优雅停机信号：handle 持有 sender，drop 或
         // 显式 send 都会让 server future 退出。
         let (shutdown_tx, shutdown_rx) = tokio::sync::oneshot::channel::<()>();
+        let expected_token = self.auth_token.clone();
+        // v4.8.0 修复 M-4：强制鉴权拦截器（此前 AuthInterceptor 存在但未挂载，
+        // 任何客户端可无凭证调用 GetUser/ListUsers）
         let serve = Server::builder()
+            .layer(InterceptorLayer::new(AuthInterceptorFn { expected_token }))
             .add_service(UserServiceServer::new(UserServiceImpl::new(self.backend)))
             .serve_with_incoming_shutdown(incoming, async move {
                 let _ = shutdown_rx.await;
@@ -146,6 +174,54 @@ impl RealGrpcServer {
             join: Some(join),
         })
     }
+}
+
+/// 强制鉴权拦截器（tonic service Interceptor 适配）
+///
+/// 校验每个 RPC 的 `authorization` metadata 与服务器 token 精确匹配，
+/// 缺失或不匹配返回 `Status::unauthenticated`（v4.8.0 修复 M-4）。
+struct AuthInterceptorFn {
+    expected_token: String,
+}
+
+impl Clone for AuthInterceptorFn {
+    fn clone(&self) -> Self {
+        Self {
+            expected_token: self.expected_token.clone(),
+        }
+    }
+}
+
+impl TonicInterceptor for AuthInterceptorFn {
+    fn call(&mut self, request: tonic::Request<()>) -> Result<tonic::Request<()>, tonic::Status> {
+        let authorized = request
+            .metadata()
+            .get("authorization")
+            .and_then(|v| v.to_str().ok())
+            .map(|v| v == self.expected_token)
+            .unwrap_or(false);
+        if authorized {
+            Ok(request)
+        } else {
+            Err(tonic::Status::unauthenticated(
+                "missing or invalid authorization metadata",
+            ))
+        }
+    }
+}
+
+/// 生成进程随机鉴权 token（时间 + PID 熵）
+///
+/// 非密码学级随机源——生产环境必须通过 [`RealGrpcServer::with_auth_token`]
+/// 显式配置强随机 token。默认值仅用于防止"零配置即无认证"的默认不安全状态。
+fn random_token() -> String {
+    use std::time::{SystemTime, UNIX_EPOCH};
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let pid = std::process::id();
+    format!("szorm-grpc-token-{pid:x}-{nanos:x}")
 }
 
 impl Default for RealGrpcServer {
@@ -198,6 +274,7 @@ impl Drop for RealGrpcServerHandle {
 /// 真实 tonic gRPC 客户端，通过 TCP 调用 [`RealGrpcServer`]。
 pub struct RealGrpcClient {
     inner: UserServiceClient<tonic::transport::Channel>,
+    auth_token: Option<String>,
 }
 
 impl RealGrpcClient {
@@ -214,7 +291,29 @@ impl RealGrpcClient {
         let client = UserServiceClient::connect(endpoint)
             .await
             .map_err(|e| GrpcError::ConnectionFailed(format!("connect {addr_str} failed: {e}")))?;
-        Ok(Self { inner: client })
+        Ok(Self {
+            inner: client,
+            auth_token: None,
+        })
+    }
+
+    /// 设置鉴权 token（v4.8.0 修复 M-4：服务器强制校验 authorization metadata，
+    /// 客户端必须携带 `RealGrpcServer::auth_token()` 返回的 token）。
+    pub fn with_token(mut self, token: impl Into<String>) -> Self {
+        self.auth_token = Some(token.into());
+        self
+    }
+
+    /// 构建带鉴权 metadata 的请求
+    fn authorized_request<T>(&self, msg: T) -> Result<tonic::Request<T>, GrpcError> {
+        let mut req = tonic::Request::new(msg);
+        if let Some(token) = &self.auth_token {
+            let value = format!("Bearer {token}")
+                .parse::<tonic::metadata::MetadataValue<tonic::metadata::Ascii>>()
+                .map_err(|_| GrpcError::Unauthorized("invalid token format".to_string()))?;
+            req.metadata_mut().insert("authorization", value);
+        }
+        Ok(req)
     }
 
     /// 调用 `GetUser` RPC，按 id 查询用户。未找到时返回
@@ -227,7 +326,7 @@ impl RealGrpcClient {
         };
         let resp = self
             .inner
-            .get_user(tonic::Request::new(req))
+            .get_user(self.authorized_request(req)?)
             .await
             .map_err(|e| {
                 if e.code() == tonic::Code::NotFound {
@@ -248,7 +347,7 @@ impl RealGrpcClient {
     pub async fn list_users(&mut self) -> Result<Vec<UserResponse>, GrpcError> {
         let resp = self
             .inner
-            .list_users(tonic::Request::new(ProtoEmpty {}))
+            .list_users(self.authorized_request(ProtoEmpty {})?)
             .await
             .map_err(|e| GrpcError::Transport(e.to_string()))?;
         let users = resp.into_inner().users;

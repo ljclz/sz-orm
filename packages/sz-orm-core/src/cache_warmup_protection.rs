@@ -229,7 +229,10 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
 
     /// 注册存在的键（预热时调用）
     pub fn register(&self, key: &str) -> Result<(), CacheError> {
-        self.bloom.lock().unwrap().add(key)?;
+        self.bloom
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .add(key)?;
         Ok(())
     }
 
@@ -239,7 +242,10 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
     /// 本方法仅做穿透判断，供组合防护区分"不查 DB"与"查 DB 后未命中"。
     pub fn might_contain(&self, table: &str, pk: &Value) -> bool {
         let bloom_key = format!("{table}:{pk:?}");
-        self.bloom.lock().unwrap().might_contain(&bloom_key)
+        self.bloom
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .might_contain(&bloom_key)
     }
 
     /// 查询缓存（穿透防护）
@@ -249,7 +255,7 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
     pub async fn get(&self, table: &str, pk: &Value) -> Option<Arc<T>> {
         let bloom_key = format!("{table}:{pk:?}");
         {
-            let bloom = self.bloom.lock().unwrap();
+            let bloom = self.bloom.lock().unwrap_or_else(|e| e.into_inner());
             if !bloom.might_contain(&bloom_key) {
                 return None;
             }
@@ -261,7 +267,7 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
     pub async fn put(&self, table: &str, pk: Value, value: T) -> Result<(), CacheError> {
         let bloom_key = format!("{table}:{pk:?}");
         {
-            let bloom = self.bloom.lock().unwrap();
+            let bloom = self.bloom.lock().unwrap_or_else(|e| e.into_inner());
             bloom.add(&bloom_key)?;
         }
         self.cache.put(table, pk, Arc::new(value)).await;
@@ -270,14 +276,17 @@ impl<T: Clone + Send + Sync + 'static> PenetrationGuard<T> {
 
     /// 布隆过滤器中的元素数量
     pub fn bloom_count(&self) -> usize {
-        self.bloom.lock().unwrap().count()
+        self.bloom.lock().unwrap_or_else(|e| e.into_inner()).count()
     }
 }
 
 impl<T: Clone + Send + Sync + 'static> std::fmt::Debug for PenetrationGuard<T> {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("PenetrationGuard")
-            .field("bloom_count", &self.bloom.lock().unwrap().count())
+            .field(
+                "bloom_count",
+                &self.bloom.lock().unwrap_or_else(|e| e.into_inner()).count(),
+            )
             .finish_non_exhaustive()
     }
 }
@@ -306,7 +315,7 @@ impl SingleFlight {
         V: Clone,
     {
         let notify = {
-            let mut in_flight = self.in_flight.lock().unwrap();
+            let mut in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
             if let Some(existing) = in_flight.get(key) {
                 Arc::clone(existing)
             } else {
@@ -317,14 +326,14 @@ impl SingleFlight {
         };
 
         let is_leader = {
-            let in_flight = self.in_flight.lock().unwrap();
+            let in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
             Arc::ptr_eq(in_flight.get(key).unwrap_or(&notify), &notify)
         };
 
         if is_leader {
             let result = rebuild().await;
             {
-                let mut in_flight = self.in_flight.lock().unwrap();
+                let mut in_flight = self.in_flight.lock().unwrap_or_else(|e| e.into_inner());
                 in_flight.remove(key);
             }
             notify.notify_waiters();
@@ -339,7 +348,10 @@ impl SingleFlight {
 
     /// 当前在途的键数量
     pub fn in_flight_count(&self) -> usize {
-        self.in_flight.lock().unwrap().len()
+        self.in_flight
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .len()
     }
 }
 
@@ -352,7 +364,14 @@ impl Default for SingleFlight {
 impl std::fmt::Debug for SingleFlight {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("SingleFlight")
-            .field("in_flight_count", &self.in_flight.lock().unwrap().len())
+            .field(
+                "in_flight_count",
+                &self
+                    .in_flight
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .len(),
+            )
             .finish()
     }
 }

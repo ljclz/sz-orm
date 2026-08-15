@@ -111,6 +111,14 @@ impl TotpVerifier {
 
     /// 验证指定时间戳的 TOTP 码
     pub fn verify_at(&self, base32_secret: &str, code: &str, timestamp: u64) -> bool {
+        // v4.8.0 修复 M-10：空/非法 base32 密钥的 HOTP 输出恒为 "000000"，
+        // 且该恒定码会被 verify 接受（黑帽实证：空密钥账户一次即过 MFA）。
+        // 验证入口直接拒绝空密钥，杜绝恒定码绕过。
+        let key = base32_decode(base32_secret).unwrap_or_default();
+        if key.is_empty() {
+            return false;
+        }
+
         let counter = timestamp / self.time_step;
         // 检查当前窗口及前后 drift 个窗口
         for offset in 0..=self.drift {

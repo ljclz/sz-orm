@@ -111,6 +111,78 @@ enum KeysetDirection {
     Before,
 }
 
+/// 聚合表达式（HAVING 条件专用，审计 M-5）
+///
+/// 函数名限制在 COUNT/SUM/AVG/MIN/MAX 白名单；`Sum`/`Avg`/`Min`/`Max`
+/// 内列名须通过 `sql_safety::validate_identifier` 校验并 quote。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum AggExpr {
+    /// `COUNT(*)`
+    CountStar,
+    /// `SUM(column)`
+    Sum(String),
+    /// `AVG(column)`
+    Avg(String),
+    /// `MIN(column)`
+    Min(String),
+    /// `MAX(column)`
+    Max(String),
+}
+
+impl AggExpr {
+    /// 校验聚合表达式（列名标识符校验），失败返回 `DbError::InvalidInput`
+    pub fn validate(&self) -> Result<(), crate::DbError> {
+        match self {
+            AggExpr::CountStar => Ok(()),
+            AggExpr::Sum(col) | AggExpr::Avg(col) | AggExpr::Min(col) | AggExpr::Max(col) => {
+                crate::sql_safety::validate_identifier(col, "aggregate column")
+            }
+        }
+    }
+
+    /// 渲染为 SQL 片段（`COUNT(*)` / `SUM(\`col\`)`），调用前须已通过 [`Self::validate`]
+    fn render(&self, dialect: &dyn crate::dialect::Dialect) -> String {
+        match self {
+            AggExpr::CountStar => "COUNT(*)".to_string(),
+            AggExpr::Sum(col) => format!("SUM({})", dialect.quote(col)),
+            AggExpr::Avg(col) => format!("AVG({})", dialect.quote(col)),
+            AggExpr::Min(col) => format!("MIN({})", dialect.quote(col)),
+            AggExpr::Max(col) => format!("MAX({})", dialect.quote(col)),
+        }
+    }
+}
+
+/// HAVING 比较运算符（审计 M-5）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HavingOp {
+    /// `=`
+    Eq,
+    /// `!=`
+    Ne,
+    /// `>`
+    Gt,
+    /// `>=`
+    Ge,
+    /// `<`
+    Lt,
+    /// `<=`
+    Le,
+}
+
+impl HavingOp {
+    /// SQL 运算符文本
+    pub fn as_sql(&self) -> &'static str {
+        match self {
+            HavingOp::Eq => "=",
+            HavingOp::Ne => "!=",
+            HavingOp::Gt => ">",
+            HavingOp::Ge => ">=",
+            HavingOp::Lt => "<",
+            HavingOp::Le => "<=",
+        }
+    }
+}
+
 #[derive(Debug, Clone)]
 #[allow(dead_code)]
 enum WhereCondition {
@@ -121,6 +193,8 @@ enum WhereCondition {
     And(String),
     /// 原始字符串条件（OR）— **存在注入风险，不推荐使用**
     Or(String),
+    /// M-5：参数化 HAVING 条件 `<聚合> <op> ?`，值走绑定参数
+    Having(AggExpr, HavingOp, Value),
     /// P0-2：参数化等值条件 `field = ?`
     Eq(String, Value),
     /// P0-2：参数化不等条件 `field != ?`
@@ -621,27 +695,29 @@ impl<M: Model> QueryBuilder<M> {
         ))
     }
 
-    /// 设置 SELECT 列。
+    /// 设置 SELECT 列（审计 M-6）：每个列名经 `sql_safety::validate_identifier` 校验并 quote。
     ///
-    /// **M-3 安全警告**：本方法直接拼接 `columns` 到 SQL，**不**进行标识符校验或 quote。
-    /// 调用方必须确保 `columns` 来自可信来源（硬编码或经 `sql_safety::validate_identifier`
-    /// 校验）。若列名可能来自不可信输入，请使用 [`QueryBuilder::select_quoted`]。
+    /// 校验失败时返回 `DbError::InvalidInput`——非法列名在构建期即被拦截，
+    /// 不再裸拼进 SELECT 列表。复杂表达式（`COUNT(*)`、`users.id AS uid`、`*`）
+    /// 请使用 [`QueryBuilder::select_expr`]。
     ///
-    /// 本方法保留原行为以兼容复杂表达式（如 `COUNT(*)`、`users.id AS uid`）。
-    pub fn select(mut self, columns: Vec<&str>) -> Self {
-        self.select_columns = columns.into_iter().map(|s| s.to_string()).collect();
-        self
-    }
-
-    /// M-3 修复：安全的 SELECT 列设置，自动校验每个列名并 quote。
+    /// # 示例
     ///
-    /// 每个 `column` 必须通过 `sql_safety::validate_identifier` 校验
-    /// （仅允许 ASCII 字母数字 + 下划线，不以数字开头，长度 1-63）。
-    /// 校验失败时返回 `DbError::InvalidInput`。
-    ///
-    /// 对于复杂表达式（如 `COUNT(*)`、`users.id AS uid`），请使用 [`QueryBuilder::select`]
-    /// 并自行确保安全。
-    pub fn select_quoted(mut self, columns: Vec<&str>) -> Result<Self, crate::DbError> {
+    /// ```
+    /// # use sz_orm_core::{get_dialect, DbType, QueryBuilder};
+    /// # struct M; impl sz_orm_core::Model for M {
+    /// #     type PrimaryKey = i64;
+    /// #     fn table_name() -> &'static str { "users" }
+    /// #     fn pk(&self) -> Self::PrimaryKey { 0 }
+    /// #     fn set_pk(&mut self, _: Self::PrimaryKey) {}
+    /// # }
+    /// let d = get_dialect(DbType::MySQL).unwrap();
+    /// let qb = QueryBuilder::<M>::new(d)
+    ///     .select(vec!["id", "name"])
+    ///     .expect("valid columns");
+    /// # let _ = qb;
+    /// ```
+    pub fn select(mut self, columns: Vec<&str>) -> Result<Self, crate::DbError> {
         let mut quoted = Vec::with_capacity(columns.len());
         for col in columns {
             crate::sql_safety::validate_identifier(col, "select column")?;
@@ -649,6 +725,23 @@ impl<M: Model> QueryBuilder<M> {
         }
         self.select_columns = quoted;
         Ok(self)
+    }
+
+    /// 设置 SELECT 表达式列（审计 M-6 逃生口）：原样拼接，不做标识符校验与 quote。
+    ///
+    /// 用于复杂表达式（`COUNT(*)`、`users.id AS uid`、`*`）。
+    /// **调用方必须确保表达式来自可信来源**（硬编码或已经过校验），
+    /// 否则存在 SQL 注入风险。
+    pub fn select_expr(mut self, columns: Vec<&str>) -> Self {
+        self.select_columns = columns.into_iter().map(|s| s.to_string()).collect();
+        self
+    }
+
+    /// SELECT 列的显式安全变体——与 [`QueryBuilder::select`] 等价。
+    ///
+    /// 保留以兼容旧调用方；新代码请直接使用 [`QueryBuilder::select`]。
+    pub fn select_quoted(self, columns: Vec<&str>) -> Result<Self, crate::DbError> {
+        self.select(columns)
     }
 
     /// P0-2：参数化等值条件 `field = ?`（AND 关系）。
@@ -983,11 +1076,39 @@ impl<M: Model> QueryBuilder<M> {
         self
     }
 
-    /// 添加 HAVING 条件
-    pub fn having(mut self, condition: impl Into<String>) -> Self {
+    /// 添加参数化 HAVING 条件：`<聚合表达式> <op> ?`，值走绑定参数（审计 M-5）。
+    ///
+    /// 聚合函数限制在 COUNT/SUM/AVG/MIN/MAX 白名单，列名经
+    /// `sql_safety::validate_identifier` 校验并 quote——不再接受原始字符串拼入 HAVING，
+    /// 消除全库唯一残余注入面。多次调用以 AND 连接。
+    ///
+    /// # 示例
+    ///
+    /// ```
+    /// # use sz_orm_core::{get_dialect, DbType, QueryBuilder, Value, AggExpr, HavingOp};
+    /// # struct M; impl sz_orm_core::Model for M {
+    /// #     type PrimaryKey = i64;
+    /// #     fn table_name() -> &'static str { "orders" }
+    /// #     fn pk(&self) -> Self::PrimaryKey { 0 }
+    /// #     fn set_pk(&mut self, _: Self::PrimaryKey) {}
+    /// # }
+    /// let d = get_dialect(DbType::MySQL).unwrap();
+    /// let qb = QueryBuilder::<M>::new(d)
+    ///     .group_by("user_id")
+    ///     .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+    ///     .expect("valid aggregate");
+    /// # let _ = qb;
+    /// ```
+    pub fn having(
+        mut self,
+        agg: AggExpr,
+        op: HavingOp,
+        value: Value,
+    ) -> Result<Self, crate::DbError> {
+        agg.validate()?;
         self.having_conditions
-            .push(WhereCondition::And(condition.into()));
-        self
+            .push(WhereCondition::Having(agg, op, value));
+        Ok(self)
     }
 
     /// 设置 LIMIT
@@ -1419,8 +1540,18 @@ impl<M: Model> QueryBuilder<M> {
                 if i > 0 {
                     sql.push_str(" AND ");
                 }
-                if let WhereCondition::And(c) = cond {
-                    sql.push_str(c);
+                match cond {
+                    WhereCondition::And(c) => sql.push_str(c),
+                    // M-5：无参数版本将值经方言转义内联（与参数化 where 条件同模式）
+                    WhereCondition::Having(agg, op, value) => {
+                        sql.push_str(&format!(
+                            "{} {} {}",
+                            agg.render(&*self.dialect),
+                            op.as_sql(),
+                            value.to_param_with_dialect(&*self.dialect)
+                        ));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -1605,6 +1736,8 @@ impl<M: Model> QueryBuilder<M> {
                 WhereCondition::Exists(s) => format!("EXISTS ({})", s),
                 WhereCondition::NotExists(s) => format!("NOT EXISTS ({})", s),
                 WhereCondition::TypedExpr(sql, _) => sql.clone(),
+                // M-5：Having 仅出现在 HAVING 子句，防御性空串
+                WhereCondition::Having(..) => String::new(),
             })
             .collect();
 
@@ -1956,6 +2089,8 @@ impl<M: Model> QueryBuilder<M> {
                     params.extend(expr_params.iter().cloned());
                     sql.clone()
                 }
+                // M-5：Having 仅出现在 HAVING 子句，防御性空串
+                WhereCondition::Having(..) => String::new(),
             })
             .collect();
 
@@ -2110,8 +2245,14 @@ impl<M: Model> QueryBuilder<M> {
                 if i > 0 {
                     sql.push_str(" AND ");
                 }
-                if let WhereCondition::And(c) = cond {
-                    sql.push_str(c);
+                match cond {
+                    WhereCondition::And(c) => sql.push_str(c),
+                    // M-5：参数化 HAVING，值走绑定参数
+                    WhereCondition::Having(agg, op, value) => {
+                        params.push(value.clone());
+                        sql.push_str(&format!("{} {} ?", agg.render(&*self.dialect), op.as_sql()));
+                    }
+                    _ => {}
                 }
             }
         }
@@ -2694,9 +2835,9 @@ mod tests {
 
         let sql = builder
             .table("users")
-            .select(vec!["id", "name"])
+            .select(vec!["id", "name"])?
             .build_select();
-        assert!(sql.contains("SELECT id, name FROM"));
+        assert!(sql.contains("SELECT `id`, `name` FROM"));
         assert!(sql.contains("`users`"));
         Ok(())
     }
@@ -2944,7 +3085,10 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
-        let result = builder.table("users").select(vec!["id", "name"]).validate();
+        let result = builder
+            .table("users")
+            .select(vec!["id", "name"])?
+            .validate();
         assert!(result.is_ok());
         Ok(())
     }

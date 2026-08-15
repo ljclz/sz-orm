@@ -13,6 +13,8 @@ categories.workspace = true
 [features]
 # 榛樿鍚敤 Redis 鍒嗗竷寮忕紦瀛樺悗绔紙RedisBackend锛夛紝寮€绠卞嵆锟?
 default = ["redis"]
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
 testing = ["tokio/full"]
 # 鍚敤 query! 瀹忕殑缂栬瘧鏈熻繛鐪熷疄 DB 楠岃瘉鑳藉姏锛堣浆鍙戣嚦 sz-orm-macros/db-verify锟?
 db-verify = ["sz-orm-macros/db-verify"]

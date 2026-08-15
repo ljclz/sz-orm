@@ -233,7 +233,26 @@ pub fn router(schema: Schema) -> axum::Router {
         axum::extract::State(schema): axum::extract::State<Schema>,
         request: async_graphql_axum::GraphQLRequest,
     ) -> async_graphql_axum::GraphQLResponse {
-        schema.execute(request.into_inner()).await.into()
+        let inner = request.into_inner();
+        // v4.8.0 修复 M-3：真实服务端接入查询复杂度/深度限制（需
+        // `graphql-complexity` feature）。修复前 complexity.rs 独立存在但
+        // 从未接入——深层嵌套/多别名查询可耗尽解析与执行 CPU。超限查询
+        // 在执行前拒绝。
+        #[cfg(feature = "graphql-complexity")]
+        {
+            if let Ok(ir) = crate::query_ir::parse_query(&inner.query, None) {
+                let calculator = crate::complexity::ComplexityCalculator::with_defaults();
+                let result = calculator.calculate(&ir);
+                if let Some(err) = result.exceeded {
+                    let resp = async_graphql::Response::from_errors(vec![
+                        async_graphql::ServerError::new(format!("query rejected: {err}"), None),
+                    ]);
+                    return resp.into();
+                }
+            }
+            // 解析失败交由 async-graphql 自身返回语法错误
+        }
+        schema.execute(inner).await.into()
     }
 
     axum::Router::new()

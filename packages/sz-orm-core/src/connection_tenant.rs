@@ -171,12 +171,18 @@ impl ConnectionTenantBinder {
     /// 绑定连接到租户
     pub fn bind_connection(&self, tenant_id: &str) -> ConnectionId {
         let conn_id = {
-            let mut next = self.next_connection_id.lock().unwrap();
+            let mut next = self
+                .next_connection_id
+                .lock()
+                .unwrap_or_else(|e| e.into_inner());
             let id = *next;
             *next += 1;
             id
         };
-        let mut bindings = self.tenant_bindings.lock().unwrap();
+        let mut bindings = self
+            .tenant_bindings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         bindings
             .entry(tenant_id.to_string())
             .or_default()
@@ -186,13 +192,19 @@ impl ConnectionTenantBinder {
 
     /// 查找绑定到指定租户的连接
     pub fn find_bound_connections(&self, tenant_id: &str) -> Vec<ConnectionId> {
-        let bindings = self.tenant_bindings.lock().unwrap();
+        let bindings = self
+            .tenant_bindings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         bindings.get(tenant_id).cloned().unwrap_or_default()
     }
 
     /// 解绑连接
     pub fn unbind_connection(&self, tenant_id: &str, conn_id: ConnectionId) {
-        let mut bindings = self.tenant_bindings.lock().unwrap();
+        let mut bindings = self
+            .tenant_bindings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         if let Some(conns) = bindings.get_mut(tenant_id) {
             conns.retain(|&id| id != conn_id);
         }
@@ -200,13 +212,19 @@ impl ConnectionTenantBinder {
 
     /// 获取绑定数量
     pub fn binding_count(&self, tenant_id: &str) -> usize {
-        let bindings = self.tenant_bindings.lock().unwrap();
+        let bindings = self
+            .tenant_bindings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         bindings.get(tenant_id).map(|v| v.len()).unwrap_or(0)
     }
 
     /// 获取所有租户绑定
     pub fn all_bindings(&self) -> Vec<TenantBinding> {
-        let bindings = self.tenant_bindings.lock().unwrap();
+        let bindings = self
+            .tenant_bindings
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let mut result = Vec::new();
         for (tenant_id, conn_ids) in bindings.iter() {
             for &conn_id in conn_ids {

@@ -130,6 +130,8 @@ impl WasmRealDbConnection {
             return Err(WasmRealDbError::ProxyUnavailable);
         }
 
+        Self::validate_proxy_url(&self.proxy_url)?;
+
         let body = self.serialize_request(request)?;
         let resp = reqwest::Client::new()
             .post(&self.proxy_url)
@@ -152,6 +154,17 @@ impl WasmRealDbConnection {
             .await
             .map_err(|e| WasmRealDbError::SerializationError(e.to_string()))?;
         self.deserialize_response(&bytes)
+    }
+
+    /// 验证代理 URL 安全性：只允许 http/https 协议。
+    pub fn validate_proxy_url(url: &str) -> Result<(), WasmRealDbError> {
+        let lower = url.to_lowercase();
+        if !lower.starts_with("http://") && !lower.starts_with("https://") {
+            return Err(WasmRealDbError::QueryFailed {
+                reason: format!("proxy_url must use http or https protocol, got: {}", url),
+            });
+        }
+        Ok(())
     }
 }
 
@@ -188,6 +201,21 @@ mod tests {
         assert_eq!(conn.session_id(), "sess-001");
         assert_eq!(conn.token(), "token-xyz");
         assert_eq!(conn.serialization_format(), SerializationFormat::Json);
+    }
+
+    #[test]
+    fn test_validate_proxy_url_safe() {
+        assert!(WasmRealDbConnection::validate_proxy_url("http://localhost:8080").is_ok());
+        assert!(WasmRealDbConnection::validate_proxy_url("https://proxy.example.com/db").is_ok());
+        assert!(WasmRealDbConnection::validate_proxy_url("HTTP://LOCALHOST:8080").is_ok());
+    }
+
+    #[test]
+    fn test_validate_proxy_url_unsafe() {
+        assert!(WasmRealDbConnection::validate_proxy_url("file:///etc/passwd").is_err());
+        assert!(WasmRealDbConnection::validate_proxy_url("ftp://evil.com").is_err());
+        assert!(WasmRealDbConnection::validate_proxy_url("gopher://evil.com").is_err());
+        assert!(WasmRealDbConnection::validate_proxy_url("javascript:alert(1)").is_err());
     }
 
     #[test]

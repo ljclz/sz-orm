@@ -37,9 +37,13 @@ fn test_user_with_roles() {
 
 #[test]
 fn test_rbac_authorizer_permission_allowed() {
+    // v4.8.0 修复 M-11：显式 action:resource 权限正常放行
     let authorizer = RbacAuthorizer::new();
-    let user = User::new(1, "u").with_permissions(vec!["read".to_string()]);
+    let user = User::new(1, "u").with_permissions(vec!["read:resource".to_string()]);
     assert!(authorizer.can(&user, "read", "resource").unwrap());
+    // action 级权限不再隐式授予任意资源
+    let coarse = User::new(2, "v").with_permissions(vec!["read".to_string()]);
+    assert!(!authorizer.can(&coarse, "read", "resource").unwrap());
 }
 
 #[test]

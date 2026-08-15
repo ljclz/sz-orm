@@ -139,7 +139,7 @@ mod tests {
         cache.set_with_ttl("key1", "value1".into(), Duration::from_millis(0));
         std::thread::sleep(Duration::from_millis(1));
         let _ = cache.get_with_ttl("key1");
-        let inner = cache.inner.lock().unwrap();
+        let inner = cache.inner.lock().unwrap_or_else(|e| e.into_inner());
         assert!(!inner.contains_key("key1"));
     }
 

@@ -25,6 +25,7 @@
 
 use crate::dialect::Dialect;
 use crate::query::QueryBuilder;
+use crate::query::{AggExpr, HavingOp};
 use crate::value::Value;
 use std::collections::HashMap;
 
@@ -65,10 +66,16 @@ impl Db {
         self
     }
 
-    /// 选择列
+    /// 选择列（列名经校验 + quote，审计 M-6）
+    pub fn select(mut self, columns: Vec<&str>) -> Result<Self, crate::DbError> {
+        self.qb = self.qb.select(columns)?;
+        Ok(self)
+    }
+
+    /// 选择表达式列（审计 M-6 逃生口）：原样拼接，调用方须确保来自可信来源
     #[must_use]
-    pub fn select(mut self, columns: Vec<&str>) -> Self {
-        self.qb = self.qb.select(columns);
+    pub fn select_expr(mut self, columns: Vec<&str>) -> Self {
+        self.qb = self.qb.select_expr(columns);
         self
     }
 
@@ -226,11 +233,15 @@ impl Db {
         self
     }
 
-    /// HAVING
-    #[must_use]
-    pub fn having(mut self, condition: impl Into<String>) -> Self {
-        self.qb = self.qb.having(condition);
-        self
+    /// HAVING（参数化，审计 M-5）：`<聚合> <op> ?`，值走绑定参数
+    pub fn having(
+        mut self,
+        agg: AggExpr,
+        op: HavingOp,
+        value: Value,
+    ) -> Result<Self, crate::DbError> {
+        self.qb = self.qb.having(agg, op, value)?;
+        Ok(self)
     }
 
     /// LIMIT
@@ -489,9 +500,10 @@ mod tests {
     fn db_name_group_having() {
         let sql = Db::new(mysql())
             .name("orders")
-            .select(vec!["user_id", "COUNT(*) as cnt"])
+            .select_expr(vec!["user_id", "COUNT(*) as cnt"])
             .group_by("user_id")
-            .having("COUNT(*) > 5")
+            .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+            .expect("valid aggregate")
             .build_select();
         assert!(sql.contains("GROUP BY `user_id`"));
         assert!(sql.contains("HAVING COUNT(*) > 5"));

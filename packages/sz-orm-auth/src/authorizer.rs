@@ -211,15 +211,11 @@ impl Default for RbacAuthorizer {
 
 impl Authorizer for RbacAuthorizer {
     fn can(&self, user: &User, action: &str, resource: &str) -> Result<bool, AuthError> {
+        // v4.8.0 修复 M-11：删除 action 级隐式降级（"read" 曾自动授予
+        // "read:任意资源"，黑帽实证：粗粒度配置即全资源横向越权）。
+        // 现在仅接受显式 `action:resource` 权限或 `action:*` / `*` 通配符。
         let specific = format!("{}:{}", action, resource);
-        if self.check_permission(user, &specific) {
-            return Ok(true);
-        }
-        // Fall back to action-level permission (e.g. "read" grants "read:foo").
-        if self.check_permission(user, action) {
-            return Ok(true);
-        }
-        Ok(false)
+        Ok(self.check_permission(user, &specific))
     }
 }
 
@@ -253,13 +249,17 @@ mod tests {
     }
 
     #[test]
-    fn test_action_only_permission_grants_all_resources() {
+    fn test_action_only_permission_no_longer_grants_all_resources() {
         let authz = RbacAuthorizer::new();
         let user = make_user(1, "bob").with_permissions(vec!["read".to_string()]);
 
-        assert!(authz.can(&user, "read", "posts").unwrap());
-        assert!(authz.can(&user, "read", "users").unwrap());
-        assert!(!authz.can(&user, "write", "posts").unwrap());
+        // v4.8.0 修复 M-11：action 级权限不再隐式授予任何资源
+        assert!(!authz.can(&user, "read", "posts").unwrap());
+        assert!(!authz.can(&user, "read", "users").unwrap());
+        // 显式 action:resource 权限仍是正常授权方式
+        let explicit = make_user(2, "root").with_permissions(vec!["read:posts".to_string()]);
+        assert!(authz.can(&explicit, "read", "posts").unwrap());
+        assert!(!authz.can(&explicit, "read", "users").unwrap());
     }
 
     #[test]

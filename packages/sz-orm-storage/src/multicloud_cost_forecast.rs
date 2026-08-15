@@ -139,10 +139,13 @@ impl MultiCloudCostComparator {
 
     /// 添加自定义 provider 定价
     pub fn add_provider(&self, name: impl Into<String>, price_per_gb_month: f64) {
-        self.provider_pricing.lock().unwrap().push(ProviderPricing {
-            name: name.into(),
-            price_per_gb_month,
-        });
+        self.provider_pricing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(ProviderPricing {
+                name: name.into(),
+                price_per_gb_month,
+            });
     }
 
     /// 多云成本对比
@@ -159,7 +162,10 @@ impl MultiCloudCostComparator {
             ));
         }
 
-        let pricing = self.provider_pricing.lock().unwrap();
+        let pricing = self
+            .provider_pricing
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let capacity_gb = capacity_bytes as f64 / (1024.0 * 1024.0 * 1024.0);
 
         let mut estimates: Vec<ProviderCostEstimate> = pricing
@@ -217,7 +223,11 @@ impl std::fmt::Debug for MultiCloudCostComparator {
         f.debug_struct("MultiCloudCostComparator")
             .field(
                 "provider_count",
-                &self.provider_pricing.lock().unwrap().len(),
+                &self
+                    .provider_pricing
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .len(),
             )
             .finish()
     }
@@ -333,7 +343,7 @@ impl AutoOptimizer {
     }
 
     pub fn with_whitelist(&self, whitelist: Vec<CostOptimizationSuggestion>) {
-        *self.whitelist.lock().unwrap() = whitelist;
+        *self.whitelist.lock().unwrap_or_else(|e| e.into_inner()) = whitelist;
     }
 
     /// 执行优化建议
@@ -343,7 +353,7 @@ impl AutoOptimizer {
         &self,
         suggestion: &CostOptimizationSuggestion,
     ) -> Result<OptimizationExecutionResult, StorageError> {
-        let whitelist = self.whitelist.lock().unwrap();
+        let whitelist = self.whitelist.lock().unwrap_or_else(|e| e.into_inner());
         let auto_executed = whitelist.contains(suggestion);
 
         if !auto_executed {
@@ -377,13 +387,19 @@ impl AutoOptimizer {
             detail,
         };
 
-        self.history.lock().unwrap().push(result.clone());
+        self.history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .push(result.clone());
         Ok(result)
     }
 
     /// 获取执行历史
     pub fn history(&self) -> Vec<OptimizationExecutionResult> {
-        self.history.lock().unwrap().clone()
+        self.history
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 }
 
@@ -396,8 +412,18 @@ impl Default for AutoOptimizer {
 impl std::fmt::Debug for AutoOptimizer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("AutoOptimizer")
-            .field("whitelist_count", &self.whitelist.lock().unwrap().len())
-            .field("history_count", &self.history.lock().unwrap().len())
+            .field(
+                "whitelist_count",
+                &self
+                    .whitelist
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .len(),
+            )
+            .field(
+                "history_count",
+                &self.history.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            )
             .finish()
     }
 }

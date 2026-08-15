@@ -127,10 +127,10 @@ impl<M: Model> SelectOne<M> {
         self
     }
 
-    /// 透传：设置 SELECT 列
-    pub fn select(mut self, columns: Vec<&str>) -> Self {
-        self.inner = self.inner.select(columns);
-        self
+    /// 透传：设置 SELECT 列（列名经校验 + quote，审计 M-6）
+    pub fn select(mut self, columns: Vec<&str>) -> Result<Self, crate::DbError> {
+        self.inner = self.inner.select(columns)?;
+        Ok(self)
     }
 
     /// 获取内部 QueryBuilder 的不可变引用（用于高级用法）

@@ -584,22 +584,42 @@ impl WalFile {
         Ok(())
     }
 
+    /// 获取加密器（v4.8.0 修复 M-9）
+    ///
+    /// 修复前：非 UTF-8 密钥回退到公开字面量 `"default-key"`——该回退密钥
+    /// 是公开已知的，任何知情者可直接解密缓存数据（白帽报告 M-9）。
+    /// 修复后：非 UTF-8 密钥回退为**进程级随机密钥**（启动时生成一次），
+    /// 缓存数据在回退场景下不可被公开密钥解密（代价：旧缓存数据不可恢复，
+    /// 安全优先于可用性）。
+    fn crypter(&self) -> sz_orm_crypto::AesGcmCrypter {
+        match std::str::from_utf8(&self.encryption_key) {
+            Ok(s) => sz_orm_crypto::AesGcmCrypter::from_key_str(s),
+            Err(_) => {
+                static FALLBACK_KEY: std::sync::OnceLock<[u8; 32]> = std::sync::OnceLock::new();
+                let key = FALLBACK_KEY.get_or_init(|| {
+                    use rand::RngCore;
+                    let mut k = [0u8; 32];
+                    rand::rngs::OsRng.fill_bytes(&mut k);
+                    k
+                });
+                sz_orm_crypto::AesGcmCrypter::new(key)
+            }
+        }
+    }
+
     fn encrypt(&self, data: &[u8]) -> Vec<u8> {
-        let crypter = sz_orm_crypto::AesGcmCrypter::from_key_str(
-            std::str::from_utf8(&self.encryption_key).unwrap_or("default-key"),
-        );
-        crypter
+        self.crypter()
             .encrypt_with_aad(data, &[])
-            .unwrap_or_else(|_| data.to_vec())
+            // M-9 修复：加密失败不再回退明文（明文落盘=加密失效），
+            // 返回空（数据按损坏处理，不明文泄露）
+            .unwrap_or_default()
     }
 
     fn decrypt(&self, data: &[u8]) -> Vec<u8> {
-        let crypter = sz_orm_crypto::AesGcmCrypter::from_key_str(
-            std::str::from_utf8(&self.encryption_key).unwrap_or("default-key"),
-        );
-        crypter
+        self.crypter()
             .decrypt_with_aad(data, &[])
-            .unwrap_or_else(|_| data.to_vec())
+            // 解密失败（密钥变更/数据损坏）返回空 → 上层按缓存 miss 处理
+            .unwrap_or_default()
     }
 }
 

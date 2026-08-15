@@ -12,6 +12,11 @@ pub mod rate_limiter;
 pub mod reconnector;
 pub mod sql_whitelist;
 
+#[cfg(feature = "wasm-real-db")]
+pub mod orm_session;
+#[cfg(feature = "wasm-real-db")]
+pub mod proxy_server;
+
 #[cfg(feature = "wasi-socket")]
 pub mod wasi_socket;
 
@@ -26,6 +31,16 @@ pub use proxy::{DbCredentials, WasmDbProxy};
 pub use rate_limiter::WasmDbRateLimiter;
 pub use reconnector::WasmRealDbReconnector;
 pub use sql_whitelist::WasmDbSqlWhitelist;
+
+#[cfg(feature = "wasm-real-db")]
+pub use orm_session::{
+    WasmLoopReport, WasmOrmLoopVerifier, WasmOrmSession, WasmQueryBuilderBridge,
+};
+#[cfg(feature = "wasm-real-db")]
+pub use proxy_server::{
+    AuthConfig, DialectProxyConfig, MultiDialectProxyBackend, ProxyServerConfig, RateLimitConfig,
+    WasmProxyServer, WhitelistConfig,
+};
 
 use thiserror::Error;
 

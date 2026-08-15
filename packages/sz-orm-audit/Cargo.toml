@@ -12,6 +12,8 @@ categories.workspace = true
 
 [features]
 default = []
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
 # v4.0.0 M4：数据 lineage（字段级血缘追踪 + 影响分析 + 溯源分析）
 data-lineage = ["dep:sqlparser"]
 # v4.1.0：数据质量自动检测（六类统计学规则 + 只读检测）
@@ -33,3 +35,11 @@ workspace = true
 [[test]]
 name = "lineage_test"
 required-features = ["data-lineage"]
+
+[[test]]
+name = "owasp_a07_integrity"
+required-features = ["owasp-pentest-suite"]
+
+[[test]]
+name = "owasp_a08_logging_failures"
+required-features = ["owasp-pentest-suite"]

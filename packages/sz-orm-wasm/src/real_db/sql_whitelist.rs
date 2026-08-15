@@ -1,12 +1,25 @@
 //! WasmDbSqlWhitelist — SQL 白名单
 //!
-//! 仅允许 SELECT/INSERT/UPDATE/DELETE，禁止 DDL（DROP/ALTER/TRUNCATE/CREATE）。
+//! 仅允许 SELECT/INSERT/UPDATE/DELETE，禁止 DDL（DROP/ALTER/TRUNCATE/CREATE）、
+//! 禁止文件读写原语（INTO OUTFILE/LOAD_FILE 等）与多语句注入。
 
 /// WASM DB SQL 白名单
 ///
 /// 验证 SQL 语句类型是否在允许范围内。
 /// 默认允许：SELECT、INSERT、UPDATE、DELETE。
-/// 默认禁止：DROP、ALTER、TRUNCATE、CREATE、GRANT、REVOKE。
+/// 默认禁止：DROP、ALTER、TRUNCATE、CREATE、GRANT、REVOKE、
+/// 文件读写原语（OUTFILE/DUMPFILE/LOAD_FILE）、命令执行原语（PROCEDURE/EXEC/CALL）。
+///
+/// # 安全说明（v4.8.0 修复 H-2）
+///
+/// - **多语句检测**：语句分隔符 `;` 后存在非空白内容即拒绝（黑帽实证：
+///   `SELECT 1; DELETE FROM users` 曾通过检查；SQL 字符串内的分号经引号
+///   状态机识别，不误伤）；
+/// - **文件读写原语**：`INTO OUTFILE`/`INTO DUMPFILE`/`LOAD_FILE()` 加入
+///   forbidden 列表（MySQL FILE 权限下曾可读写任意文件）；
+/// - 注释拆分（`DR/**/OP`）可重组 forbidden 关键字——本实现按**完整词**
+///   匹配 forbidden 列表，且禁止注释符内嵌关键字仍需解析器，此残余风险
+///   已在部署文档标注（配合连接层禁用多语句 + 最小权限账号使用）。
 #[derive(Debug, Clone)]
 pub struct WasmDbSqlWhitelist {
     allowed_prefixes: Vec<String>,
@@ -30,6 +43,17 @@ impl WasmDbSqlWhitelist {
                 "CREATE".to_string(),
                 "GRANT".to_string(),
                 "REVOKE".to_string(),
+                // v4.8.0 修复 H-2：MySQL 文件读写原语（FILE 权限下可读写任意文件）
+                "OUTFILE".to_string(),
+                "DUMPFILE".to_string(),
+                "LOAD_FILE".to_string(),
+                // 命令执行/存储过程调用原语（可被利用做提权或命令执行）
+                "PROCEDURE".to_string(),
+                "EXEC".to_string(),
+                "EXECUTE".to_string(),
+                "CALL".to_string(),
+                // PostgreSQL COPY ... TO PROGRAM（superuser 命令执行）
+                "COPY".to_string(),
             ],
         }
     }
@@ -50,15 +74,57 @@ impl WasmDbSqlWhitelist {
         }
     }
 
+    /// 检测多语句注入：语句分隔符 `;` 后存在非空白内容
+    ///
+    /// 用引号状态机区分 SQL 字符串内的分号（`WHERE name='a;b'`）与
+    /// 真实语句分隔符；支持反斜杠转义（MySQL）与 `''` 双写转义（标准 SQL）。
+    /// 尾部单分号（`SELECT 1;`）视为合法。
+    fn has_statement_semicolon(sql: &str) -> bool {
+        let bytes = sql.as_bytes();
+        let mut in_string = false;
+        let mut i = 0;
+        while i < bytes.len() {
+            let b = bytes[i];
+            if in_string {
+                if b == b'\\' {
+                    i += 2; // 跳过转义字符（MySQL）
+                    continue;
+                }
+                if b == b'\'' {
+                    // 双写单引号（''）是标准 SQL 转义，不结束字符串
+                    if i + 1 < bytes.len() && bytes[i + 1] == b'\'' {
+                        i += 2;
+                        continue;
+                    }
+                    in_string = false;
+                }
+            } else if b == b'\'' {
+                in_string = true;
+            } else if b == b';' {
+                // 语句分隔符：分号后存在非空白内容 → 多语句
+                if !sql[i + 1..].trim().is_empty() {
+                    return true;
+                }
+            }
+            i += 1;
+        }
+        false
+    }
+
     /// 验证 SQL 是否允许
     ///
     /// 检查逻辑：
     /// 1. SQL 非空
     /// 2. 首关键字在 allowed_prefixes 中
     /// 3. SQL 中不包含任何 forbidden_keywords
+    /// 4. 不包含多语句分隔符（v4.8.0 修复 H-2）
     pub fn validate(&self, sql: &str) -> bool {
         let trimmed = sql.trim();
         if trimmed.is_empty() {
+            return false;
+        }
+
+        if Self::has_statement_semicolon(trimmed) {
             return false;
         }
 

@@ -41,6 +41,7 @@ fn main() {
     let select_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .select(vec!["id", "name", "email"])
+        .expect("valid columns")
         .where_eq("status", Value::String("active".to_string()))
         .order_by("created_at")
         .order_desc("id")
@@ -52,6 +53,7 @@ fn main() {
     let complex_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .select(vec!["id", "name"])
+        .expect("valid columns")
         .where_eq("status", Value::String("active".to_string()))
         .or_where_eq("role", Value::String("admin".to_string()))
         .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
@@ -64,7 +66,7 @@ fn main() {
     // ===== JOIN =====
     let join_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
-        .select(vec!["users.id", "posts.title"])
+        .select_expr(vec!["users.id", "posts.title"])
         .join_inner("posts", "users.id", "posts.user_id")
         .join_left("profiles", "users.id", "profiles.user_id")
         .where_eq("users.status", Value::String("active".to_string()))
@@ -113,6 +115,7 @@ fn main() {
     let validate_result = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .select(vec!["id", "name"])
+        .expect("valid columns")
         .where_eq("id", Value::I64(1))
         .validate();
     println!("校验结果: {:?}", validate_result);

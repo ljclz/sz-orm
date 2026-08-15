@@ -36,6 +36,8 @@ use sz_orm_core::{
 };
 use sz_orm_sql_validator::validate;
 
+mod phantom1_wiring;
+
 const VERSION: &str = env!("CARGO_PKG_VERSION");
 const HELP: &str = r#"SZ-ORM 命令行工具
 
@@ -240,6 +242,7 @@ fn main() -> ExitCode {
         "designer:export" => cmd_designer_export(&rest),
         "openapi:reverse" => cmd_openapi_reverse(&rest),
         "n1-lint" => cmd_n1_lint(&rest),
+        "phantom1-wiring" => phantom1_wiring::run_all().map_err(|e| e.to_string()),
         other => {
             eprintln!("未知命令: {}", other);
             eprintln!("\n{}", HELP);

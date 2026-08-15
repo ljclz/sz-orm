@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "4.7.0"
+version = "4.9.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["SZ-ORM Team"]

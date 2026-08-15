@@ -49,11 +49,15 @@ mod tests {
     #[test]
     fn test_rbac_authorizer_via_lib_root() {
         let authorizer = RbacAuthorizer::new();
+        // v4.8.0 修复 M-11：action 级权限不再隐式授予任意资源
         let user = User::new(1, "user").with_permissions(vec!["read".to_string()]);
-
         let can_read = authorizer.can(&user, "read", "resource");
-        let can_delete = authorizer.can(&user, "delete", "resource");
+        assert!(!can_read.unwrap(), "action 级 read 不得授予 read:resource");
 
+        // 显式 action:resource 权限正常放行
+        let user2 = User::new(2, "user").with_permissions(vec!["read:resource".to_string()]);
+        let can_read = authorizer.can(&user2, "read", "resource");
+        let can_delete = authorizer.can(&user2, "delete", "resource");
         assert!(can_read.unwrap());
         assert!(!can_delete.unwrap());
     }

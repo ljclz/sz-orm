@@ -184,13 +184,18 @@ impl QuotaEnforcer {
 
     /// v4.7.0 审计接入：配置租户审计日志器（超限拒绝事件写入审计日志）
     pub fn set_audit_logger(&self, logger: Option<Arc<TenantAuditLogger>>) {
-        let mut guard = self.audit.lock().unwrap();
+        let mut guard = self.audit.lock().unwrap_or_else(|e| e.into_inner());
         *guard = logger;
     }
 
     /// v4.7.0 审计接入：记录配额事件（尽力而为，审计失败不影响主流程）
     fn record_audit(&self, entry: TenantAuditEntry) {
-        if let Some(logger) = self.audit.lock().unwrap().as_ref() {
+        if let Some(logger) = self
+            .audit
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .as_ref()
+        {
             let _ = logger.log(entry);
         }
     }
@@ -203,12 +208,19 @@ impl QuotaEnforcer {
     /// 设置租户配额
     pub fn set_quota(&self, quota: TenantResourceQuota) {
         let tenant_id = quota.tenant_id.clone();
-        self.quotas.lock().unwrap().insert(tenant_id, quota);
+        self.quotas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .insert(tenant_id, quota);
     }
 
     /// 获取租户配额
     pub fn get_quota(&self, tenant_id: &str) -> Option<TenantResourceQuota> {
-        self.quotas.lock().unwrap().get(tenant_id).cloned()
+        self.quotas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(tenant_id)
+            .cloned()
     }
 
     /// 检查配额
@@ -220,7 +232,7 @@ impl QuotaEnforcer {
         resource: QuotaResource,
         current: u64,
     ) -> Result<(), QuotaError> {
-        let quotas = self.quotas.lock().unwrap();
+        let quotas = self.quotas.lock().unwrap_or_else(|e| e.into_inner());
         let quota = quotas.get(tenant_id);
         match quota {
             None => Ok(()),
@@ -248,7 +260,7 @@ impl QuotaEnforcer {
 
     /// 记录资源使用
     pub fn record_usage(&self, tenant_id: &str, resource: QuotaResource, amount: u64) {
-        let mut usage = self.usage.lock().unwrap();
+        let mut usage = self.usage.lock().unwrap_or_else(|e| e.into_inner());
         let entry = usage.entry(tenant_id.to_string()).or_default();
         match resource {
             QuotaResource::Connection => entry.connections += amount,
@@ -263,7 +275,7 @@ impl QuotaEnforcer {
     /// 导致配额只增不减（+= 0），租户连接用满后永不释放。本方法提供递减语义，
     /// 超过当前使用量的释放按 0 饱和处理，不会下溢。
     pub fn release_usage(&self, tenant_id: &str, resource: QuotaResource, amount: u64) {
-        let mut usage = self.usage.lock().unwrap();
+        let mut usage = self.usage.lock().unwrap_or_else(|e| e.into_inner());
         let entry = usage.entry(tenant_id.to_string()).or_default();
         match resource {
             QuotaResource::Connection => {
@@ -276,7 +288,7 @@ impl QuotaEnforcer {
 
     /// 获取当前使用量
     pub fn current_usage(&self, tenant_id: &str, resource: QuotaResource) -> u64 {
-        let usage = self.usage.lock().unwrap();
+        let usage = self.usage.lock().unwrap_or_else(|e| e.into_inner());
         usage.get(tenant_id).map_or(0, |u| match resource {
             QuotaResource::Connection => u.connections,
             QuotaResource::Qps => u.qps,
@@ -323,7 +335,10 @@ impl std::fmt::Debug for QuotaEnforcer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("QuotaEnforcer")
             .field("strategy", &self.strategy)
-            .field("quota_count", &self.quotas.lock().unwrap().len())
+            .field(
+                "quota_count",
+                &self.quotas.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            )
             .finish()
     }
 }
@@ -415,7 +430,7 @@ impl RlsPolicyEnhancer {
     /// 注册增强 RLS 策略
     pub fn with_policy(&self, policy: EnhancedRlsPolicy) -> Result<(), QuotaError> {
         let table = policy.table.clone();
-        let mut policies = self.policies.lock().unwrap();
+        let mut policies = self.policies.lock().unwrap_or_else(|e| e.into_inner());
         if policies.contains_key(&table) {
             return Err(QuotaError::RlsPolicyConflict(format!(
                 "policy already exists for table {table}"
@@ -427,7 +442,11 @@ impl RlsPolicyEnhancer {
 
     /// 获取表的策略
     pub fn get_policy(&self, table: &str) -> Option<EnhancedRlsPolicy> {
-        self.policies.lock().unwrap().get(table).cloned()
+        self.policies
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .get(table)
+            .cloned()
     }
 
     /// 增强 SQL 查询：注入 WHERE 参数化条件
@@ -438,7 +457,7 @@ impl RlsPolicyEnhancer {
         table: &str,
         tenant_id: &str,
     ) -> Result<Option<ParameterizedCondition>, QuotaError> {
-        let policies = self.policies.lock().unwrap();
+        let policies = self.policies.lock().unwrap_or_else(|e| e.into_inner());
         let policy = policies.get(table);
         match policy {
             None => Ok(None),
@@ -483,7 +502,14 @@ impl Default for RlsPolicyEnhancer {
 impl std::fmt::Debug for RlsPolicyEnhancer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("RlsPolicyEnhancer")
-            .field("policy_count", &self.policies.lock().unwrap().len())
+            .field(
+                "policy_count",
+                &self
+                    .policies
+                    .lock()
+                    .unwrap_or_else(|e| e.into_inner())
+                    .len(),
+            )
             .finish()
     }
 }
@@ -576,7 +602,7 @@ impl TenantAuditLogger {
 
     /// 记录审计日志（追加写入，不可篡改）
     pub fn log(&self, entry: TenantAuditEntry) -> Result<(), QuotaError> {
-        let mut logs = self.logs.lock().unwrap();
+        let mut logs = self.logs.lock().unwrap_or_else(|e| e.into_inner());
         logs.push(entry);
         Ok(())
     }
@@ -594,7 +620,7 @@ impl TenantAuditLogger {
 
     /// 获取所有审计日志
     pub fn all_logs(&self) -> Vec<TenantAuditEntry> {
-        self.logs.lock().unwrap().clone()
+        self.logs.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// 获取指定租户的日志数量
@@ -628,7 +654,10 @@ impl Default for TenantAuditLogger {
 impl std::fmt::Debug for TenantAuditLogger {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("TenantAuditLogger")
-            .field("log_count", &self.logs.lock().unwrap().len())
+            .field(
+                "log_count",
+                &self.logs.lock().unwrap_or_else(|e| e.into_inner()).len(),
+            )
             .finish()
     }
 }

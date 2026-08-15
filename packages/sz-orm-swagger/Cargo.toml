@@ -11,7 +11,9 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-openapi-reverse = ["dep:quote", "dep:syn", "dep:proc-macro2", "dep:thiserror", "dep:chrono", "sz-orm-core/prod-dialect-security"]
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
+openapi-reverse = ["dep:quote", "dep:syn", "dep:proc-macro2", "dep:thiserror", "dep:chrono", "dep:sz-orm-sqlx", "sz-orm-core/prod-dialect-security"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -22,6 +24,8 @@ syn = { version = "2.0", features = ["full"], optional = true }
 proc-macro2 = { version = "1.0", optional = true }
 thiserror = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
+# v4.8.0 REQ-V48-003：DB schema→OpenAPI 反向生成（五方言 schema 读取）
+sz-orm-sqlx = { workspace = true, optional = true }
 
 [lints]
 workspace = true

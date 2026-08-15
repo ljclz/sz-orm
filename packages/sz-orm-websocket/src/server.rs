@@ -6,7 +6,9 @@ use std::sync::Arc;
 use tokio::net::{TcpListener, TcpStream};
 use tokio::sync::mpsc::{self, Sender};
 use tokio::sync::{Mutex, RwLock};
-use tokio_tungstenite::accept_async;
+use tokio_tungstenite::accept_hdr_async_with_config;
+use tokio_tungstenite::tungstenite::handshake::server::{Request, Response};
+use tokio_tungstenite::tungstenite::protocol::WebSocketConfig as TungsteniteConfig;
 use tokio_tungstenite::tungstenite::Message as TungsteniteMessage;
 
 #[derive(Clone)]
@@ -120,12 +122,71 @@ async fn handle_connection(
     handler: Arc<dyn WebSocketHandler>,
     connections: Arc<RwLock<HashMap<String, WebSocketSender>>>,
 ) -> Result<(), WsError> {
-    let ws_stream = accept_async(socket)
-        .await
-        .map_err(|e| WsError::Connection(format!("accept failed: {}", e)))?;
+    // v4.8.0 修复 M-2：握手阶段强制认证——此前 `authenticate()` 从未被
+    // server 调用（死代码），任何客户端可直接连接并加入任意房间。
+    // Token 来源：`Authorization: Bearer <token>` 或 `Sec-WebSocket-Protocol`；
+    // 认证失败（或无 token）→ 401 拒绝握手。
+    // v4.8.0 修复 M-1：配置 max_message_size / max_frame_size（1MB），
+    // 防超大帧内存 DoS。
+    let auth_uid = Arc::new(std::sync::Mutex::new(None::<i64>));
+    let auth_uid_cb = auth_uid.clone();
+    let handler_cb = handler.clone();
+
+    let ws_config = TungsteniteConfig::default()
+        .max_message_size(Some(1 * 1024 * 1024))
+        .max_frame_size(Some(1 * 1024 * 1024))
+        .max_write_buffer_size(1 * 1024 * 1024);
+
+    let ws_stream = accept_hdr_async_with_config(
+        socket,
+        ws_config,
+        move |req: &Request, mut resp: Response| {
+            let token = req
+                .headers()
+                .get("authorization")
+                .and_then(|v| v.to_str().ok())
+                .and_then(|v| v.strip_prefix("Bearer ").map(|s| s.to_string()))
+                .or_else(|| {
+                    req.headers()
+                        .get("sec-websocket-protocol")
+                        .and_then(|v| v.to_str().ok())
+                        .map(|s| s.to_string())
+                });
+            match token {
+                Some(token) => match handler_cb.authenticate(&token) {
+                    Ok(uid) => {
+                        if let Ok(mut guard) = auth_uid_cb.lock() {
+                            *guard = Some(uid);
+                        }
+                        resp.headers_mut().insert(
+                            "x-auth-user",
+                            uid.to_string().parse().expect("i64 is a valid header"),
+                        );
+                        Ok(resp)
+                    }
+                    Err(_) => Err(Response::builder()
+                        .status(401)
+                        .body(Some("unauthorized".to_string()))
+                        .expect("401 response")),
+                },
+                None => Err(Response::builder()
+                    .status(401)
+                    .body(Some("missing auth token".to_string()))
+                    .expect("401 response")),
+            }
+        },
+    )
+    .await
+    .map_err(|e| WsError::Connection(format!("accept/auth failed: {e}")))?;
 
     let conn_id = generate_connection_id();
-    let conn = WebSocketConnection::new(conn_id.clone()).with_address(addr.to_string());
+    let mut conn = WebSocketConnection::new(conn_id.clone()).with_address(addr.to_string());
+    // 认证通过的用户 ID 写入连接（黑帽审计 M-2：认证此前形同虚设）
+    if let Ok(guard) = auth_uid.lock() {
+        if let Some(uid) = *guard {
+            conn = conn.with_user(uid);
+        }
+    }
 
     handler.on_connect(&conn).await?;
 

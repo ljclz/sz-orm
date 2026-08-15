@@ -6,6 +6,7 @@
 
 use std::collections::HashMap;
 use sz_orm_core::{get_dialect, DbType, QueryBuilder, Value};
+use sz_orm_core::{AggExpr, HavingOp};
 
 // ===== 测试用模型 =====
 
@@ -31,12 +32,14 @@ fn test_query_builder_chain_returns_self_contract() {
     let builder = QueryBuilder::<User>::new(d)
         .table("users")
         .select(vec!["id", "name"])
+        .expect("valid columns")
         .where_eq("status", Value::String("active".to_string()))
         .or_where_eq("role", Value::String("admin".to_string()))
         .order_by("created_at")
         .order_desc("id")
         .group_by("status")
-        .having("COUNT(*) > 5")
+        .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+        .expect("valid aggregate")
         .limit(20)
         .offset(40);
     // 链式调用后 build_select 应生成包含所有子句的 SQL
@@ -75,6 +78,7 @@ fn test_build_select_basic_contract() {
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
         .select(vec!["id", "name"])
+        .expect("valid columns")
         .build_select();
 
     assert!(sql.contains("SELECT"));
@@ -89,7 +93,7 @@ fn test_build_select_with_where_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .where_gt("age", Value::I64(18))
         .build_select();
 
@@ -102,7 +106,7 @@ fn test_build_select_with_order_by_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .order_by("name")
         .order_desc("id")
         .build_select();
@@ -118,7 +122,7 @@ fn test_build_select_with_limit_offset_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .limit(10)
         .offset(20)
         .build_select();
@@ -134,7 +138,7 @@ fn test_build_select_with_page_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .page(3, 20) // 第 3 页，每页 20
         .build_select();
 
@@ -147,7 +151,7 @@ fn test_build_select_with_where_in_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
         .build_select();
 
@@ -162,7 +166,7 @@ fn test_build_select_with_where_between_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .where_between("age", Value::I64(18), Value::I64(30))
         .build_select();
 
@@ -176,7 +180,7 @@ fn test_build_select_with_where_null_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .where_null("deleted_at")
         .build_select();
 
@@ -188,7 +192,7 @@ fn test_build_select_with_join_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .join_inner("posts", "users.id", "posts.user_id")
         .build_select();
 
@@ -201,7 +205,7 @@ fn test_build_select_with_left_join_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["*"])
+        .select_expr(vec!["*"])
         .join_left("profiles", "users.id", "profiles.user_id")
         .build_select();
 
@@ -284,7 +288,8 @@ fn test_validate_select_passes_for_valid_query_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let builder = QueryBuilder::<User>::new(d)
         .table("users")
-        .select(vec!["id", "name"]);
+        .select(vec!["id", "name"])
+        .expect("valid columns");
     // 合法 SELECT 应通过校验
     assert!(builder.validate().is_ok());
 }

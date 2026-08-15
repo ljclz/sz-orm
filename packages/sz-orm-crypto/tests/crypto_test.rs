@@ -141,9 +141,13 @@ fn test_pbkdf2_invalid_hash_format() {
 
 #[test]
 fn test_pbkdf2_with_iterations() {
+    // v4.8.0 修复 M-8：迭代次数下限 100_000——低于下限的配置被拒绝
     let hasher = Pbkdf2Hasher::with_iterations(1000);
+    assert!(hasher.hash("test").is_err(), "低于下限的迭代配置必须被拒绝");
+
+    let hasher = Pbkdf2Hasher::with_iterations(100_000);
     let hash = hasher.hash("test").unwrap();
-    assert!(hash.starts_with("$1000$"));
+    assert!(hash.starts_with("$100000$"));
     assert!(hasher.verify("test", &hash).unwrap());
 }
 

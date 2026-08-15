@@ -140,13 +140,14 @@
 //!
 //! ### QueryBuilder API
 //!
-//! 所有查询方法返回 `Self`，支持链式调用：
+//! 大部分查询方法返回 `Self`，支持链式调用；`select`/`having` 等校验类方法
+//! 返回 `Result<Self>`（审计 M-5/M-6 后列名/聚合表达式经标识符校验）：
 //!
 //! ```rust,ignore
 //! // 基础查询
 //! QueryBuilder::<M>::new(dialect)
 //!     .table("users")
-//!     .select(vec!["id", "name"])
+//!     .select(vec!["id", "name"])?                 // 列名校验 + quote
 //!     .where_eq("status", Value::String("active".to_string()))    // AND
 //!     .or_where_eq("role", Value::String("admin".to_string()))     // OR
 //!     .where_in("id", vec![Value::I64(1), Value::I64(2)])
@@ -155,7 +156,7 @@
 //!     .order_by("created_at")
 //!     .order_desc("id")
 //!     .group_by("status")
-//!     .having("COUNT(*) > 5")
+//!     .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))?   // 参数化 HAVING
 //!     .limit(20)
 //!     .offset(40)
 //!     .page(3, 20)                       // page=3, page_size=20

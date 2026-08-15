@@ -269,7 +269,7 @@ fn fuzz_query_builder() {
         // 随机选择列
         if rng.next_bool() {
             let cols = vec!["id", "name", "email"];
-            builder = builder.select(cols);
+            builder = builder.select(cols).expect("fuzz columns valid");
         }
 
         // 随机添加 WHERE 条件

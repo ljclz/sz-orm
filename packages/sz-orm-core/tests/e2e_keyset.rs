@@ -419,7 +419,7 @@ fn test_l3_16_keyset_with_null_cursor() {
 fn test_l3_17_keyset_with_group_by() {
     let builder = make_builder()
         .table("orders")
-        .select(vec!["user_id", "COUNT(*) as cnt"])
+        .select_expr(vec!["user_id", "COUNT(*) as cnt"])
         .group_by("user_id")
         .keyset_after("user_id", Value::I64(100), 20);
     let (sql, params) = builder.build_select_with_params();

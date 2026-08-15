@@ -1583,7 +1583,6 @@ fn is_sql_function(name: &str) -> bool {
 #[cfg(feature = "db-verify")]
 fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let parsed = parse_oracle_dsn(dsn)?;
-    // 构造 sqlplus 连接串：user/pass@host:port/service [AS SYSDBA]
     let mut conn_str = format!(
         "{}/{}@{}:{}/{}",
         parsed.user, parsed.password, parsed.host, parsed.port, parsed.service
@@ -1591,7 +1590,6 @@ fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
     if parsed.sysdba {
         conn_str.push_str(" AS SYSDBA");
     }
-    // 用 SET SHOWPLAN 不适用于 Oracle，用 EXPLAIN PLAN FOR 并立即查询 PLAN_TABLE
     let full_script = format!(
         "SET HEADING OFF FEEDBACK OFF ECHO OFF;\n\
          EXPLAIN PLAN FOR {};\n\
@@ -1599,8 +1597,9 @@ fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
          EXIT;\n",
         explain_sql
     );
+    let connect_script = format!("connect {}\n{}", conn_str, full_script);
     let output = std::process::Command::new("sqlplus")
-        .args(["-S", "-L", &conn_str])
+        .args(["-S", "-L", "/nolog"])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
         .stderr(std::process::Stdio::piped())
@@ -1610,7 +1609,7 @@ fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let mut child = output;
     if let Some(mut stdin) = child.stdin.take() {
         stdin
-            .write_all(full_script.as_bytes())
+            .write_all(connect_script.as_bytes())
             .map_err(|e| format!("sqlplus stdin write failed: {}", e))?;
     }
     let out = child
@@ -1635,7 +1634,6 @@ fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
 #[cfg(feature = "db-verify")]
 fn verify_sqlserver(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let parsed = parse_sqlserver_dsn(dsn)?;
-    // sqlcmd -S host,port -U user -P pass -d db -Q "SET SHOWPLAN_TEXT ON; <sql>"
     let query = format!("SET SHOWPLAN_TEXT ON;\n{}", explain_sql);
     let out = std::process::Command::new("sqlcmd")
         .args([
@@ -1643,8 +1641,6 @@ fn verify_sqlserver(dsn: &str, explain_sql: &str) -> Result<(), String> {
             &format!("{},{}", parsed.host, parsed.port),
             "-U",
             &parsed.user,
-            "-P",
-            &parsed.password,
             "-d",
             &parsed.database,
             "-Q",
@@ -1653,6 +1649,7 @@ fn verify_sqlserver(dsn: &str, explain_sql: &str) -> Result<(), String> {
             "-1",
             "-W",
         ])
+        .env("SQLCMDPASSWORD", &parsed.password)
         .output()
         .map_err(|e| format!("sqlcmd not found (SQL Server client required): {}", e))?;
     let stdout = String::from_utf8_lossy(&out.stdout);

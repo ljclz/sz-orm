@@ -12,6 +12,8 @@ categories.workspace = true
 
 [features]
 default = []
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
 # v3.4.0：真实 Consul 配置中心客户端（基于 reqwest HTTP API）
 real-consul = ["dep:reqwest", "dep:tokio"]
 # v3.4.0：真实 Nacos 配置中心客户端（基于 reqwest HTTP API）

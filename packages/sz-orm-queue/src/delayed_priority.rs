@@ -240,7 +240,7 @@ impl PriorityQueue {
     }
 
     pub fn enqueue(&self, message: Message, priority: i32) -> Result<(), MqError> {
-        let mut heap = self.heap.lock().unwrap();
+        let mut heap = self.heap.lock().unwrap_or_else(|e| e.into_inner());
         if heap.len() >= self.capacity {
             return Err(MqError::NotSupported(format!(
                 "priority queue capacity exceeded ({}), please increase capacity or drain queue",
@@ -266,7 +266,7 @@ impl PriorityQueue {
     }
 
     fn dequeue_strict(&self) -> Option<Message> {
-        let mut heap = self.heap.lock().unwrap();
+        let mut heap = self.heap.lock().unwrap_or_else(|e| e.into_inner());
         if self.aging_enabled {
             let threshold = Duration::from_millis(self.aging_threshold_ms);
             let now = Instant::now();
@@ -288,7 +288,7 @@ impl PriorityQueue {
     }
 
     fn dequeue_weighted(&self) -> Option<Message> {
-        let mut heap = self.heap.lock().unwrap();
+        let mut heap = self.heap.lock().unwrap_or_else(|e| e.into_inner());
         if heap.is_empty() {
             return None;
         }
@@ -325,13 +325,16 @@ impl PriorityQueue {
     }
 
     fn dequeue_fair_share(&self) -> Option<Message> {
-        let mut heap = self.heap.lock().unwrap();
+        let mut heap = self.heap.lock().unwrap_or_else(|e| e.into_inner());
         if heap.is_empty() {
             return None;
         }
         let mut all: Vec<PriorityEntry> = heap.drain().collect();
         all.sort_by_key(|b| std::cmp::Reverse(b.priority));
-        let mut fair_state = self.fair_share_state.lock().unwrap();
+        let mut fair_state = self
+            .fair_share_state
+            .lock()
+            .unwrap_or_else(|e| e.into_inner());
         let now_ms_val = now_ms() as u64;
         let mut chosen_idx = 0;
         let mut min_last_served = u64::MAX;
@@ -362,11 +365,14 @@ impl PriorityQueue {
     }
 
     pub fn len(&self) -> usize {
-        self.heap.lock().unwrap().len()
+        self.heap.lock().unwrap_or_else(|e| e.into_inner()).len()
     }
 
     pub fn is_empty(&self) -> bool {
-        self.heap.lock().unwrap().is_empty()
+        self.heap
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .is_empty()
     }
 
     pub fn total_dequeued(&self) -> u64 {
@@ -497,7 +503,10 @@ impl DelayScheduler {
                 success,
                 retry_count,
             };
-            self.logs.lock().unwrap().push_back(log);
+            self.logs
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .push_back(log);
             delivered_count += 1;
         }
         Ok(delivered_count)
@@ -531,7 +540,12 @@ impl DelayScheduler {
     }
 
     pub fn logs(&self) -> Vec<ScheduleLog> {
-        self.logs.lock().unwrap().iter().cloned().collect()
+        self.logs
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .iter()
+            .cloned()
+            .collect()
     }
 
     pub fn config(&self) -> &ScheduleConfig {

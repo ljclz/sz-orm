@@ -49,9 +49,11 @@ impl TopicFilter {
 
 impl From<&str> for TopicFilter {
     fn from(s: &str) -> Self {
-        TopicFilter::new(s).unwrap_or_else(|_| TopicFilter {
-            pattern: s.to_string(),
-            levels: s.split('/').map(|l| l.to_string()).collect(),
+        TopicFilter::new(s).unwrap_or_else(|e| {
+            // v4.8.0 修复 L-6：非法过滤器不再静默降级为"超广匹配"（黑帽实证：
+            // `a/#/b` 经 From 构造后匹配整个 a/ 命名空间——越权订阅）。
+            // From 无法返回 Result，选择 fail-fast，让订阅入口立即暴露问题。
+            panic!("invalid MQTT topic filter via From: {e}")
         })
     }
 }
@@ -65,6 +67,16 @@ impl From<String> for TopicFilter {
 pub fn topic_matches(topic: &str, filter: &str) -> bool {
     if topic.is_empty() || filter.is_empty() {
         return false;
+    }
+
+    // v4.8.0 修复 L-7（MQTT 3.1.1 §4.7.2）：以 `$` 开头的主题（$SYS 等）
+    // 不得被首级通配符 `#` / `+` 匹配——只能被字面 `$` 前缀过滤器匹配。
+    // 黑帽实证：普通订阅者 `#` 曾可读取 $SYS 系统主题。
+    if topic.starts_with('$') {
+        let first_filter_level = filter.split('/').next().unwrap_or("");
+        if first_filter_level.contains('#') || first_filter_level.contains('+') {
+            return false;
+        }
     }
 
     let topic_levels: Vec<&str> = topic.split('/').collect();

@@ -51,6 +51,16 @@ pub struct JwtClaims {
     /// - `None`：兼容旧 token；verify_token 会回退为 0 并通过 tracing 警告
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub user_id: Option<i64>,
+    /// 令牌用途（v4.8.0 新增，修复 Critical C-2 令牌类型混淆）
+    ///
+    /// - `Some("access")`：访问令牌
+    /// - `Some("refresh")`：刷新令牌
+    /// - `None`：旧版令牌（仅 verify_token 兼容；refresh_token 严格拒绝）
+    ///
+    /// 修复前访问/刷新令牌共用同一 claims 结构且无类型区分，黑帽审计实证：
+    /// 窃取的访问令牌可送入 refresh 端点无限续期（exp 永续重置）。
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub token_use: Option<String>,
 }
 
 impl JwtClaims {
@@ -63,6 +73,7 @@ impl JwtClaims {
             roles: Vec::new(),
             permissions: Vec::new(),
             user_id: None,
+            token_use: None,
         }
     }
 
@@ -85,6 +96,17 @@ impl JwtClaims {
     pub fn with_user_id(mut self, user_id: i64) -> Self {
         self.user_id = Some(user_id);
         self
+    }
+
+    /// 设置令牌用途（v4.8.0 新增，修复 Critical C-2）：`"access"` 或 `"refresh"`
+    pub fn with_token_use(mut self, token_use: &str) -> Self {
+        self.token_use = Some(token_use.to_string());
+        self
+    }
+
+    /// 是否为指定用途的令牌
+    pub fn is_token_use(&self, token_use: &str) -> bool {
+        self.token_use.as_deref() == Some(token_use)
     }
 
     pub fn is_expired(&self) -> bool {

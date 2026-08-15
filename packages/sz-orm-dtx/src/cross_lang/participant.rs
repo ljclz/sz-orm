@@ -9,6 +9,7 @@ use crate::TransactionParticipant;
 use std::sync::Arc;
 
 /// 跨语言参与者适配器
+#[derive(Clone)]
 pub struct CrossLangParticipant {
     desc: CrossLangParticipantDesc,
     protocol: Arc<dyn CrossLangParticipantProtocol>,
@@ -48,8 +49,16 @@ impl CrossLangParticipant {
     ///
     /// 将远程调用包装为 `ParticipantCallback` 闭包，
     /// 通过 `with_prepare/with_commit/with_rollback` 注册。
-    pub fn to_participant(&self) -> TransactionParticipant {
+    ///
+    /// # 安全说明（v4.8.0 修复 H-3）
+    ///
+    /// `tx_id` 必须传真实事务 ID：修复前幂等键把 tx_id 与 participant_id
+    /// 都传成了 resource_id，导致同一资源的所有事务产生恒定幂等键
+    /// `{resource_id}:{resource_id}:{action}`——事务 B 的退款/补偿被远端
+    /// 当作事务 A 的重复操作丢弃（资金/库存一致性破坏，黑帽审计实证）。
+    pub fn to_participant(&self, tx_id: &str) -> TransactionParticipant {
         let resource_id = self.desc.resource_id.clone();
+        let tx_id_prepare = tx_id.to_string();
         let protocol_prepare = self.protocol.clone();
 
         let participant = TransactionParticipant::new(&resource_id).with_prepare(move || {
@@ -57,8 +66,9 @@ impl CrossLangParticipant {
                 action: "prepare".to_string(),
                 target: resource_id.clone(),
                 params: serde_json::json!({}),
+                // H-3 修复：幂等键绑定真实 tx_id
                 idempotency_key: CrossLangCompensationSerializer::idempotency_key(
-                    &resource_id,
+                    &tx_id_prepare,
                     &resource_id,
                     "prepare",
                 ),
@@ -84,9 +94,10 @@ impl CrossLangParticipant {
 
         let protocol_rollback = self.protocol.clone();
         let resource_id_rollback = self.desc.resource_id.clone();
+        let tx_id_rollback = tx_id.to_string();
         participant.with_rollback(move || {
             let compensation = CrossLangCompensationSerializer::build_compensation(
-                &resource_id_rollback,
+                &tx_id_rollback, // H-3 修复：真实 tx_id
                 &resource_id_rollback,
                 "deduct",
                 &resource_id_rollback,

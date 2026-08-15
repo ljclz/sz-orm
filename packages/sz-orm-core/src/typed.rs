@@ -254,7 +254,8 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL).unwrap();
         let q = crate::QueryBuilder::<MockModel>::new(dialect);
         let (sql, _params) =
-            select_typed!(q.select(Vec::new()), MockColId).build_select_with_params();
+            select_typed!(q.select(Vec::new()).expect("empty select list"), MockColId)
+                .build_select_with_params();
         assert_eq!(sql, "SELECT id FROM `users`");
     }
 
@@ -263,8 +264,12 @@ mod tests {
         // 多列：select_typed!(q, Col1, Col2) → q.select_typed::<Col1>().select_typed::<Col2>()
         let dialect = get_dialect(DbType::MySQL).unwrap();
         let q = crate::QueryBuilder::<MockModel>::new(dialect);
-        let (sql, _params) =
-            select_typed!(q.select(Vec::new()), MockColId, MockColName).build_select_with_params();
+        let (sql, _params) = select_typed!(
+            q.select(Vec::new()).expect("empty select list"),
+            MockColId,
+            MockColName
+        )
+        .build_select_with_params();
         assert_eq!(sql, "SELECT id, name FROM `users`");
     }
 
@@ -273,9 +278,13 @@ mod tests {
         // 三列宏展开
         let dialect = get_dialect(DbType::MySQL).unwrap();
         let q = crate::QueryBuilder::<MockModel>::new(dialect);
-        let (sql, _params) =
-            select_typed!(q.select(Vec::new()), MockColId, MockColName, MockColEmail)
-                .build_select_with_params();
+        let (sql, _params) = select_typed!(
+            q.select(Vec::new()).expect("empty select list"),
+            MockColId,
+            MockColName,
+            MockColEmail
+        )
+        .build_select_with_params();
         assert_eq!(sql, "SELECT id, name, email FROM `users`");
     }
 }

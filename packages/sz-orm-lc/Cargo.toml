@@ -15,6 +15,24 @@ serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # M-2 修复：Pattern 验证需要 regex crate 进行真实正则匹配
 regex = "1"
+# v4.8.0 REQ-V48-002：低代码双向同步（feature 隔离，默认关闭）
+sz-orm-designer = { version = "4.8.0", path = "../sz-orm-designer", optional = true }
+tokio = { version = "1.40", features = ["sync"], optional = true }
+parking_lot = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+thiserror = { workspace = true, optional = true }
+
+[features]
+default = []
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
+# v4.8.0 REQ-V48-002：低代码双向同步（双向同步引擎 + 冲突检测与解决 + 增量追踪 + 审计日志）
+lc-bidirectional-sync = ["dep:sz-orm-designer", "dep:tokio", "dep:parking_lot", "dep:chrono", "dep:tracing", "dep:thiserror"]
 
 [lints]
 workspace = true
+
+[[test]]
+name = "owasp_xss"
+required-features = ["owasp-pentest-suite"]

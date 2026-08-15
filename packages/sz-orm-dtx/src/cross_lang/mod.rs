@@ -6,8 +6,13 @@
 pub mod observability;
 pub mod participant;
 pub mod protocol;
+pub mod real_transport;
+pub mod recovery;
 pub mod registry;
+pub mod saga;
+pub mod sdk_contract;
 pub mod serializer;
+pub mod tcc;
 
 use serde::{Deserialize, Serialize};
 

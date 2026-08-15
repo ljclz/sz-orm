@@ -12,6 +12,8 @@ categories.workspace = true
 build = "build.rs"
 
 [features]
+# v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
+owasp-pentest-suite = []
 # Enable the real tokio + tonic based gRPC transport.
 # Disabled by default so consumers only pay for the in-memory mock.
 real = [
