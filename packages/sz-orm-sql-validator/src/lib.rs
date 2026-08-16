@@ -4,6 +4,7 @@
 //! parameter count matching, and structural integrity.
 
 pub mod firewall;
+pub mod sql_rules;
 
 use thiserror::Error;
 

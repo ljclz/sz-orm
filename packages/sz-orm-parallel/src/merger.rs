@@ -129,4 +129,64 @@ mod tests {
         let merged = ResultMerger::merge_outcome(&outcome, &MergeStrategy::First);
         assert_eq!(merged, Some(42));
     }
+
+    #[test]
+    fn test_merge_first_empty_slice() {
+        let results: Vec<Option<QueryOutcome<i32>>> = vec![];
+        let merged = ResultMerger::merge(&results, &MergeStrategy::First);
+        assert_eq!(merged, None);
+    }
+
+    #[test]
+    fn test_merge_union_single_result() {
+        let results = vec![Some(outcome(99))];
+        let merged = ResultMerger::merge(&results, &MergeStrategy::Union);
+        assert_eq!(merged, Some(99));
+    }
+
+    #[test]
+    fn test_merge_map_with_none() {
+        let results: Vec<Option<QueryOutcome<String>>> =
+            vec![None, None, Some(outcome("only".to_string()))];
+        let merged = ResultMerger::merge(&results, &MergeStrategy::Map);
+        assert_eq!(merged, Some("only".to_string()));
+    }
+
+    #[test]
+    fn test_merge_join_with_none() {
+        let results: Vec<Option<QueryOutcome<i32>>> = vec![None, Some(outcome(7))];
+        let merged = ResultMerger::merge(
+            &results,
+            &MergeStrategy::Join {
+                join_key: "k".to_string(),
+            },
+        );
+        assert_eq!(merged, Some(7));
+    }
+
+    #[test]
+    fn test_merge_outcome_all_none() {
+        let outcome: ParallelQueryOutcome<i32> = ParallelQueryOutcome {
+            results: vec![None, None, None],
+            failures: vec![],
+            timed_out: vec![],
+            total_elapsed_ms: 0,
+            merged_result: None,
+        };
+        let merged = ResultMerger::merge_outcome(&outcome, &MergeStrategy::First);
+        assert_eq!(merged, None);
+    }
+
+    #[test]
+    fn test_merge_outcome_map_strategy() {
+        let outcome = ParallelQueryOutcome {
+            results: vec![Some(outcome(1)), Some(outcome(2)), Some(outcome(3))],
+            failures: vec![],
+            timed_out: vec![],
+            total_elapsed_ms: 30,
+            merged_result: None,
+        };
+        let merged = ResultMerger::merge_outcome(&outcome, &MergeStrategy::Map);
+        assert_eq!(merged, Some(3));
+    }
 }

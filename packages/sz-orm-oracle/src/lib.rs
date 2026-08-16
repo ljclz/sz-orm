@@ -1193,6 +1193,532 @@ impl Connection for OracleConnection {
     }
 }
 
+// ============================================================================
+// 连接串解析 API
+// ============================================================================
+
+/// Oracle 连接串解析结果
+#[derive(Debug, Clone)]
+pub struct OracleConnInfo {
+    host: String,
+    port: u16,
+    service_name: String,
+    username: String,
+    password: String,
+}
+
+impl OracleConnInfo {
+    /// 获取主机地址
+    #[must_use]
+    pub fn host(&self) -> &str {
+        &self.host
+    }
+
+    /// 获取端口
+    #[must_use]
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// 获取服务名
+    #[must_use]
+    pub fn service_name(&self) -> &str {
+        &self.service_name
+    }
+
+    /// 获取用户名
+    #[must_use]
+    pub fn username(&self) -> &str {
+        &self.username
+    }
+
+    /// 获取密码
+    #[must_use]
+    pub fn password(&self) -> &str {
+        &self.password
+    }
+
+    /// 重新生成连接串（`host:port/service_name`）
+    #[must_use]
+    pub fn as_connect_string(&self) -> String {
+        format!("{}:{}/{}", self.host, self.port, self.service_name)
+    }
+}
+
+/// 解析 Oracle 连接串
+///
+/// 支持格式：`host:port/service_name` 或 `host/service_name`（默认端口 1521）
+///
+/// # Errors
+///
+/// 若格式无效返回 `DbError::Internal`。
+pub fn parse_connect_string(conn_str: &str) -> Result<OracleConnInfo, DbError> {
+    let (host_port, service_name) = conn_str.split_once('/').ok_or_else(|| {
+        DbError::Internal("missing service_name (use host:port/service)".to_string())
+    })?;
+    let service_name = service_name.trim().to_string();
+    if service_name.is_empty() {
+        return Err(DbError::Internal("empty service_name".to_string()));
+    }
+
+    let (host, port) = if let Some((h, p)) = host_port.split_once(':') {
+        let port: u16 = p
+            .trim()
+            .parse()
+            .map_err(|_| DbError::Internal(format!("invalid port: {p}")))?;
+        (h.trim().to_string(), port)
+    } else {
+        (host_port.trim().to_string(), 1521)
+    };
+
+    if host.is_empty() {
+        return Err(DbError::Internal("empty host".to_string()));
+    }
+
+    Ok(OracleConnInfo {
+        host,
+        port,
+        service_name,
+        username: String::new(),
+        password: String::new(),
+    })
+}
+
+// ============================================================================
+// Oracle 方言辅助 API
+// ============================================================================
+
+/// Oracle 方言辅助
+pub struct OracleDialect;
+
+impl OracleDialect {
+    /// 构造方言辅助器
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 引用标识符（Oracle 用双引号 `"name"`）
+    #[must_use]
+    pub fn quote_identifier(&self, name: &str) -> String {
+        format!("\"{}\"", name.replace('"', "\"\""))
+    }
+
+    /// 生成 LIMIT/OFFSET 子句（Oracle 12c+ 用 `OFFSET ... ROWS FETCH NEXT`）
+    #[must_use]
+    pub fn limit_clause(&self, limit: Option<u64>, offset: Option<u64>) -> String {
+        match (limit, offset) {
+            (Some(l), Some(o)) => {
+                format!("OFFSET {o} ROWS FETCH NEXT {l} ROWS ONLY")
+            }
+            (Some(l), None) => format!("FETCH NEXT {l} ROWS ONLY"),
+            (None, Some(o)) => format!("OFFSET {o} ROWS"),
+            (None, None) => String::new(),
+        }
+    }
+
+    /// 生成参数占位符（Oracle 用 `:1`, `:2`, ...）
+    #[must_use]
+    pub fn placeholder(&self, index: usize) -> String {
+        format!(":{index}")
+    }
+
+    /// 检查是否为 Oracle 保留字
+    #[must_use]
+    pub fn is_reserved_keyword(&self, kw: &str) -> bool {
+        matches!(
+            kw.to_uppercase().as_str(),
+            "SELECT"
+                | "FROM"
+                | "WHERE"
+                | "INSERT"
+                | "UPDATE"
+                | "DELETE"
+                | "CREATE"
+                | "ALTER"
+                | "DROP"
+                | "TABLE"
+                | "INDEX"
+                | "VIEW"
+                | "JOIN"
+                | "ON"
+                | "AND"
+                | "OR"
+                | "NOT"
+                | "NULL"
+                | "ORDER"
+                | "GROUP"
+                | "HAVING"
+                | "BY"
+                | "AS"
+                | "DISTINCT"
+                | "OFFSET"
+                | "FETCH"
+                | "NEXT"
+                | "ROWS"
+                | "ONLY"
+                | "BEGIN"
+                | "END"
+                | "COMMIT"
+                | "ROLLBACK"
+                | "INTO"
+                | "VALUES"
+                | "SET"
+                | "EXEC"
+                | "PROCEDURE"
+                | "FUNCTION"
+                | "RETURN"
+                | "IF"
+                | "ELSE"
+                | "WHILE"
+                | "DECLARE"
+                | "CURSOR"
+                | "OPEN"
+                | "CLOSE"
+                | "PRIMARY"
+                | "FOREIGN"
+                | "KEY"
+                | "REFERENCES"
+                | "CONSTRAINT"
+                | "DEFAULT"
+                | "CHECK"
+                | "UNIQUE"
+                | "TRIGGER"
+                | "SEQUENCE"
+                | "SYSDATE"
+                | "ROWNUM"
+                | "LEVEL"
+                | "CONNECT"
+                | "START"
+                | "WITH"
+                | "MERGE"
+                | "MATCHED"
+                | "USING"
+                | "WHEN"
+                | "THEN"
+                | "CASE"
+        )
+    }
+}
+
+impl Default for OracleDialect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// Oracle 类型枚举 API
+// ============================================================================
+
+/// Oracle 数据类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OracleDataType {
+    Number,
+    Varchar2,
+    Nvarchar2,
+    Char,
+    Nchar,
+    Clob,
+    Nclob,
+    Blob,
+    Raw,
+    Long,
+    LongRaw,
+    Date,
+    Timestamp,
+    TimestampTz,
+    TimestampLtz,
+    IntervalYearToMonth,
+    IntervalDayToSecond,
+    BinaryFloat,
+    BinaryDouble,
+    Rowid,
+    Urowid,
+    Xmltype,
+    Null,
+}
+
+impl OracleDataType {
+    /// 返回 SQL 类型名
+    #[must_use]
+    pub fn as_sql_type(&self) -> &'static str {
+        match self {
+            OracleDataType::Number => "NUMBER",
+            OracleDataType::Varchar2 => "VARCHAR2",
+            OracleDataType::Nvarchar2 => "NVARCHAR2",
+            OracleDataType::Char => "CHAR",
+            OracleDataType::Nchar => "NCHAR",
+            OracleDataType::Clob => "CLOB",
+            OracleDataType::Nclob => "NCLOB",
+            OracleDataType::Blob => "BLOB",
+            OracleDataType::Raw => "RAW",
+            OracleDataType::Long => "LONG",
+            OracleDataType::LongRaw => "LONG RAW",
+            OracleDataType::Date => "DATE",
+            OracleDataType::Timestamp => "TIMESTAMP",
+            OracleDataType::TimestampTz => "TIMESTAMP WITH TIME ZONE",
+            OracleDataType::TimestampLtz => "TIMESTAMP WITH LOCAL TIME ZONE",
+            OracleDataType::IntervalYearToMonth => "INTERVAL YEAR TO MONTH",
+            OracleDataType::IntervalDayToSecond => "INTERVAL DAY TO SECOND",
+            OracleDataType::BinaryFloat => "BINARY_FLOAT",
+            OracleDataType::BinaryDouble => "BINARY_DOUBLE",
+            OracleDataType::Rowid => "ROWID",
+            OracleDataType::Urowid => "UROWID",
+            OracleDataType::Xmltype => "XMLTYPE",
+            OracleDataType::Null => "NULL",
+        }
+    }
+
+    /// 是否为数值类型
+    #[must_use]
+    pub fn is_numeric(&self) -> bool {
+        matches!(
+            self,
+            OracleDataType::Number | OracleDataType::BinaryFloat | OracleDataType::BinaryDouble
+        )
+    }
+
+    /// 是否为字符串类型
+    #[must_use]
+    pub fn is_string(&self) -> bool {
+        matches!(
+            self,
+            OracleDataType::Varchar2
+                | OracleDataType::Nvarchar2
+                | OracleDataType::Char
+                | OracleDataType::Nchar
+                | OracleDataType::Long
+                | OracleDataType::Xmltype
+        )
+    }
+
+    /// 是否为二进制类型
+    #[must_use]
+    pub fn is_binary(&self) -> bool {
+        matches!(
+            self,
+            OracleDataType::Raw | OracleDataType::LongRaw | OracleDataType::Blob
+        )
+    }
+
+    /// 是否为时间类型
+    #[must_use]
+    pub fn is_temporal(&self) -> bool {
+        matches!(
+            self,
+            OracleDataType::Date
+                | OracleDataType::Timestamp
+                | OracleDataType::TimestampTz
+                | OracleDataType::TimestampLtz
+        )
+    }
+
+    /// 是否为 LOB 类型
+    #[must_use]
+    pub fn is_lob(&self) -> bool {
+        matches!(
+            self,
+            OracleDataType::Clob | OracleDataType::Nclob | OracleDataType::Blob
+        )
+    }
+
+    /// 从类型名解析
+    #[must_use]
+    pub fn parse_name(name: &str) -> Self {
+        let upper = name.to_uppercase();
+        if upper.starts_with("TIMESTAMP") {
+            if upper.contains("LOCAL") {
+                return OracleDataType::TimestampLtz;
+            }
+            if upper.contains("TIME ZONE") || upper.contains("TZ") {
+                return OracleDataType::TimestampTz;
+            }
+            return OracleDataType::Timestamp;
+        }
+        if upper.starts_with("INTERVAL") {
+            if upper.contains("YEAR") {
+                return OracleDataType::IntervalYearToMonth;
+            }
+            return OracleDataType::IntervalDayToSecond;
+        }
+        match upper.as_str() {
+            "NUMBER" | "NUMERIC" | "DECIMAL" | "DEC" | "INTEGER" | "INT" | "FLOAT" | "REAL" => {
+                OracleDataType::Number
+            }
+            "VARCHAR2" | "VARCHAR" => OracleDataType::Varchar2,
+            "NVARCHAR2" => OracleDataType::Nvarchar2,
+            "CHAR" => OracleDataType::Char,
+            "NCHAR" => OracleDataType::Nchar,
+            "CLOB" => OracleDataType::Clob,
+            "NCLOB" => OracleDataType::Nclob,
+            "BLOB" => OracleDataType::Blob,
+            "RAW" => OracleDataType::Raw,
+            "LONG" => OracleDataType::Long,
+            "LONG RAW" => OracleDataType::LongRaw,
+            "DATE" => OracleDataType::Date,
+            "BINARY_FLOAT" => OracleDataType::BinaryFloat,
+            "BINARY_DOUBLE" => OracleDataType::BinaryDouble,
+            "ROWID" => OracleDataType::Rowid,
+            "UROWID" => OracleDataType::Urowid,
+            "XMLTYPE" => OracleDataType::Xmltype,
+            "NULL" => OracleDataType::Null,
+            _ => OracleDataType::Varchar2,
+        }
+    }
+}
+
+// ============================================================================
+// Oracle 错误分类 API
+// ============================================================================
+
+/// Oracle 错误分类（基于 ORA- 错误码）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum OracleErrorCategory {
+    /// 唯一约束违反（ORA-00001）
+    DuplicateKey,
+    /// 外键约束违反（ORA-02291）
+    ForeignKeyViolation,
+    /// 检查约束违反（ORA-02290）
+    CheckConstraintViolation,
+    /// 值过大（ORA-01401）
+    ValueTooLarge,
+    /// 无效 SQL（ORA-00900）
+    InvalidSql,
+    /// 对象不存在（ORA-00942）
+    ObjectNotFound,
+    /// 死锁（ORA-00060）
+    Deadlock,
+    /// 资源忙（ORA-00054）
+    ResourceBusy,
+    /// 超时
+    Timeout,
+    /// 其他
+    Other,
+}
+
+impl OracleErrorCategory {
+    /// 从 Oracle 错误码分类
+    #[must_use]
+    pub fn from_code(code: i32) -> Self {
+        match code {
+            1 => OracleErrorCategory::DuplicateKey,
+            2291 => OracleErrorCategory::ForeignKeyViolation,
+            2290 => OracleErrorCategory::CheckConstraintViolation,
+            1401 => OracleErrorCategory::ValueTooLarge,
+            900 => OracleErrorCategory::InvalidSql,
+            942 => OracleErrorCategory::ObjectNotFound,
+            60 => OracleErrorCategory::Deadlock,
+            54 => OracleErrorCategory::ResourceBusy,
+            _ => OracleErrorCategory::Other,
+        }
+    }
+
+    /// 错误描述
+    #[must_use]
+    pub fn description(&self) -> &'static str {
+        match self {
+            OracleErrorCategory::DuplicateKey => "unique constraint violated",
+            OracleErrorCategory::ForeignKeyViolation => "foreign key constraint violated",
+            OracleErrorCategory::CheckConstraintViolation => "check constraint violated",
+            OracleErrorCategory::ValueTooLarge => "value too large for column",
+            OracleErrorCategory::InvalidSql => "invalid SQL statement",
+            OracleErrorCategory::ObjectNotFound => "table or view does not exist",
+            OracleErrorCategory::Deadlock => "deadlock detected",
+            OracleErrorCategory::ResourceBusy => "resource busy",
+            OracleErrorCategory::Timeout => "operation timed out",
+            OracleErrorCategory::Other => "unknown error",
+        }
+    }
+
+    /// 是否可重试（死锁/资源忙/超时）
+    #[must_use]
+    pub fn is_retriable(&self) -> bool {
+        matches!(
+            self,
+            OracleErrorCategory::Deadlock
+                | OracleErrorCategory::ResourceBusy
+                | OracleErrorCategory::Timeout
+        )
+    }
+}
+
+// ============================================================================
+// PL/SQL 调用辅助 API
+// ============================================================================
+
+/// PL/SQL 调用构建器
+#[derive(Debug, Clone)]
+pub struct PlSqlCall {
+    name: String,
+    is_function: bool,
+    return_type: String,
+    params: Vec<(String, String)>,
+}
+
+impl PlSqlCall {
+    /// 构建存储过程调用
+    #[must_use]
+    pub fn procedure(name: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            is_function: false,
+            return_type: String::new(),
+            params: Vec::new(),
+        }
+    }
+
+    /// 构建函数调用
+    #[must_use]
+    pub fn function(name: &str, return_type: &str) -> Self {
+        Self {
+            name: name.to_string(),
+            is_function: true,
+            return_type: return_type.to_string(),
+            params: Vec::new(),
+        }
+    }
+
+    /// 添加参数
+    #[must_use]
+    pub fn param(mut self, name: &str, value: &str) -> Self {
+        self.params.push((name.to_string(), value.to_string()));
+        self
+    }
+
+    /// 生成 PL/SQL 匿名块
+    #[must_use]
+    pub fn build(&self) -> String {
+        let param_binds: Vec<String> = self
+            .params
+            .iter()
+            .map(|(n, _)| format!("{n} => {n}_val"))
+            .collect();
+        let param_assigns: Vec<String> = self
+            .params
+            .iter()
+            .map(|(n, v)| format!("{n}_val VARCHAR2(4000) := '{v}';"))
+            .collect();
+
+        if self.is_function {
+            format!(
+                "DECLARE\n  {}\n  result {};\nBEGIN\n  result := {}({});\nEND;",
+                param_assigns.join("\n  "),
+                self.return_type,
+                self.name,
+                param_binds.join(", ")
+            )
+        } else {
+            format!(
+                "DECLARE\n  {}\nBEGIN\n  {}({});\nEND;",
+                param_assigns.join("\n  "),
+                self.name,
+                param_binds.join(", ")
+            )
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1298,5 +1824,321 @@ mod tests {
     fn test_value_to_oracle_array() {
         let v = Value::Array(vec![Value::I32(1), Value::I32(2)]);
         let _param = value_to_oracle_to_sql(&v);
+    }
+
+    #[test]
+    fn test_value_to_oracle_object() {
+        let v = Value::Object(std::collections::HashMap::from([(
+            "a".to_string(),
+            Value::I32(1),
+        )]));
+        let _param = value_to_oracle_to_sql(&v);
+    }
+
+    #[test]
+    fn test_value_to_oracle_u64_boundary() {
+        // u64 超出 i64 范围时降级为 i64 转换（不 panic）
+        let v = Value::U64(u64::MAX);
+        let _param = value_to_oracle_to_sql(&v);
+    }
+
+    #[test]
+    fn test_value_to_oracle_decimal_string() {
+        let v = Value::Decimal("123.45".to_string());
+        let _param = value_to_oracle_to_sql(&v);
+    }
+
+    #[test]
+    fn test_blocking_pool_config_defaults() {
+        let cfg = OracleBlockingPoolConfig::default();
+        assert!(cfg.max_blocking_threads > 0);
+    }
+
+    #[test]
+    fn test_blocking_pool_new_and_drop() {
+        let cfg = OracleBlockingPoolConfig::default();
+        let pool = OracleBlockingPool::new(cfg);
+        // 未连接时 spawn_blocking 仍可排队（真实连接需 Oracle 服务，此处仅验证结构）
+        let _ = pool;
+    }
+
+    // ===== 连接串解析测试 =====
+
+    #[test]
+    fn test_parse_connect_string_full() {
+        let info = parse_connect_string("localhost:1521/ORCLPDB1").unwrap();
+        assert_eq!(info.host(), "localhost");
+        assert_eq!(info.port(), 1521);
+        assert_eq!(info.service_name(), "ORCLPDB1");
+    }
+
+    #[test]
+    fn test_parse_connect_string_default_port() {
+        let info = parse_connect_string("dbserver/MYSID").unwrap();
+        assert_eq!(info.host(), "dbserver");
+        assert_eq!(info.port(), 1521, "default port should be 1521");
+        assert_eq!(info.service_name(), "MYSID");
+    }
+
+    #[test]
+    fn test_parse_connect_string_missing_service() {
+        let result = parse_connect_string("localhost:1521");
+        assert!(result.is_err(), "missing service_name should error");
+    }
+
+    #[test]
+    fn test_parse_connect_string_empty_host() {
+        let result = parse_connect_string(":1521/SVC");
+        assert!(result.is_err(), "empty host should error");
+    }
+
+    #[test]
+    fn test_parse_connect_string_invalid_port() {
+        let result = parse_connect_string("host:abc/SVC");
+        assert!(result.is_err(), "invalid port should error");
+    }
+
+    #[test]
+    fn test_parse_connect_string_roundtrip() {
+        let info = parse_connect_string("host:1522/SVC").unwrap();
+        let cs = info.as_connect_string();
+        let info2 = parse_connect_string(&cs).unwrap();
+        assert_eq!(info.host(), info2.host());
+        assert_eq!(info.port(), info2.port());
+        assert_eq!(info.service_name(), info2.service_name());
+    }
+
+    // ===== OracleDialect 测试 =====
+
+    #[test]
+    fn test_oracle_dialect_quote_identifier() {
+        let d = OracleDialect::new();
+        assert_eq!(d.quote_identifier("users"), "\"users\"");
+        assert_eq!(d.quote_identifier("select"), "\"select\"");
+    }
+
+    #[test]
+    fn test_oracle_dialect_quote_escape() {
+        let d = OracleDialect::new();
+        assert_eq!(d.quote_identifier("a\"b"), "\"a\"\"b\"");
+    }
+
+    #[test]
+    fn test_oracle_dialect_limit_clause() {
+        let d = OracleDialect::new();
+        assert_eq!(
+            d.limit_clause(Some(10), Some(20)),
+            "OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"
+        );
+        assert_eq!(d.limit_clause(Some(10), None), "FETCH NEXT 10 ROWS ONLY");
+        assert_eq!(d.limit_clause(None, None), "");
+    }
+
+    #[test]
+    fn test_oracle_dialect_placeholder() {
+        let d = OracleDialect::new();
+        assert_eq!(d.placeholder(1), ":1");
+        assert_eq!(d.placeholder(3), ":3");
+    }
+
+    #[test]
+    fn test_oracle_dialect_reserved_keyword() {
+        let d = OracleDialect::new();
+        assert!(d.is_reserved_keyword("SELECT"));
+        assert!(d.is_reserved_keyword("rownum"));
+        assert!(!d.is_reserved_keyword("my_table"));
+    }
+
+    // ===== OracleType 测试 =====
+
+    #[test]
+    fn test_oracle_type_as_sql_type() {
+        assert_eq!(OracleDataType::Number.as_sql_type(), "NUMBER");
+        assert_eq!(OracleDataType::Varchar2.as_sql_type(), "VARCHAR2");
+        assert_eq!(
+            OracleDataType::TimestampTz.as_sql_type(),
+            "TIMESTAMP WITH TIME ZONE"
+        );
+    }
+
+    #[test]
+    fn test_oracle_type_is_numeric() {
+        assert!(OracleDataType::Number.is_numeric());
+        assert!(OracleDataType::BinaryFloat.is_numeric());
+        assert!(OracleDataType::BinaryDouble.is_numeric());
+        assert!(!OracleDataType::Varchar2.is_numeric());
+    }
+
+    #[test]
+    fn test_oracle_type_is_string() {
+        assert!(OracleDataType::Varchar2.is_string());
+        assert!(OracleDataType::Nvarchar2.is_string());
+        assert!(OracleDataType::Xmltype.is_string());
+        assert!(!OracleDataType::Number.is_string());
+    }
+
+    #[test]
+    fn test_oracle_type_is_binary() {
+        assert!(OracleDataType::Raw.is_binary());
+        assert!(OracleDataType::Blob.is_binary());
+        assert!(OracleDataType::LongRaw.is_binary());
+        assert!(!OracleDataType::Number.is_binary());
+    }
+
+    #[test]
+    fn test_oracle_type_is_temporal() {
+        assert!(OracleDataType::Date.is_temporal());
+        assert!(OracleDataType::Timestamp.is_temporal());
+        assert!(OracleDataType::TimestampTz.is_temporal());
+        assert!(!OracleDataType::Number.is_temporal());
+    }
+
+    #[test]
+    fn test_oracle_type_is_lob() {
+        assert!(OracleDataType::Clob.is_lob());
+        assert!(OracleDataType::Blob.is_lob());
+        assert!(OracleDataType::Nclob.is_lob());
+        assert!(!OracleDataType::Varchar2.is_lob());
+    }
+
+    #[test]
+    fn test_oracle_type_parse_name() {
+        assert_eq!(OracleDataType::parse_name("NUMBER"), OracleDataType::Number);
+        assert_eq!(
+            OracleDataType::parse_name("varchar2"),
+            OracleDataType::Varchar2
+        );
+        assert_eq!(
+            OracleDataType::parse_name("TIMESTAMP WITH TIME ZONE"),
+            OracleDataType::TimestampTz
+        );
+        assert_eq!(
+            OracleDataType::parse_name("INTEGER"),
+            OracleDataType::Number
+        );
+        assert_eq!(
+            OracleDataType::parse_name("unknown"),
+            OracleDataType::Varchar2
+        );
+    }
+
+    #[test]
+    fn test_oracle_type_parse_timestamp_variants() {
+        assert_eq!(
+            OracleDataType::parse_name("TIMESTAMP"),
+            OracleDataType::Timestamp
+        );
+        assert_eq!(
+            OracleDataType::parse_name("TIMESTAMP WITH LOCAL TIME ZONE"),
+            OracleDataType::TimestampLtz
+        );
+    }
+
+    // ===== OracleErrorCategory 测试 =====
+
+    #[test]
+    fn test_oracle_error_category_duplicate_key() {
+        assert_eq!(
+            OracleErrorCategory::from_code(1),
+            OracleErrorCategory::DuplicateKey
+        );
+    }
+
+    #[test]
+    fn test_oracle_error_category_fk_and_check() {
+        assert_eq!(
+            OracleErrorCategory::from_code(2291),
+            OracleErrorCategory::ForeignKeyViolation
+        );
+        assert_eq!(
+            OracleErrorCategory::from_code(2290),
+            OracleErrorCategory::CheckConstraintViolation
+        );
+    }
+
+    #[test]
+    fn test_oracle_error_category_object_not_found() {
+        assert_eq!(
+            OracleErrorCategory::from_code(942),
+            OracleErrorCategory::ObjectNotFound
+        );
+    }
+
+    #[test]
+    fn test_oracle_error_category_deadlock() {
+        assert_eq!(
+            OracleErrorCategory::from_code(60),
+            OracleErrorCategory::Deadlock
+        );
+        assert!(OracleErrorCategory::Deadlock.is_retriable());
+    }
+
+    #[test]
+    fn test_oracle_error_category_description() {
+        assert_eq!(
+            OracleErrorCategory::DuplicateKey.description(),
+            "unique constraint violated"
+        );
+        assert_eq!(
+            OracleErrorCategory::ObjectNotFound.description(),
+            "table or view does not exist"
+        );
+    }
+
+    #[test]
+    fn test_oracle_error_category_is_retriable() {
+        assert!(OracleErrorCategory::Deadlock.is_retriable());
+        assert!(OracleErrorCategory::ResourceBusy.is_retriable());
+        assert!(!OracleErrorCategory::DuplicateKey.is_retriable());
+        assert!(!OracleErrorCategory::Other.is_retriable());
+    }
+
+    #[test]
+    fn test_oracle_error_category_other() {
+        assert_eq!(
+            OracleErrorCategory::from_code(9999),
+            OracleErrorCategory::Other
+        );
+    }
+
+    // ===== PlSqlCall 测试 =====
+
+    #[test]
+    fn test_plsql_procedure_build() {
+        let call = PlSqlCall::procedure("my_proc")
+            .param("p1", "value1")
+            .param("p2", "value2");
+        let sql = call.build();
+        assert!(sql.contains("BEGIN"));
+        assert!(sql.contains("my_proc"));
+        assert!(sql.contains("p1 => p1_val"));
+        assert!(sql.contains("END;"));
+    }
+
+    #[test]
+    fn test_plsql_function_build() {
+        let call = PlSqlCall::function("my_func", "NUMBER").param("x", "42");
+        let sql = call.build();
+        assert!(sql.contains("result NUMBER"));
+        assert!(sql.contains("result := my_func"));
+    }
+
+    #[test]
+    fn test_plsql_procedure_no_params() {
+        let call = PlSqlCall::procedure("simple_proc");
+        let sql = call.build();
+        assert!(sql.contains("simple_proc()"));
+    }
+
+    #[test]
+    fn test_plsql_function_with_multiple_params() {
+        let call = PlSqlCall::function("calc", "NUMBER")
+            .param("a", "1")
+            .param("b", "2")
+            .param("c", "3");
+        let sql = call.build();
+        assert!(sql.contains("result NUMBER"));
+        assert!(sql.contains("calc(a => a_val, b => b_val, c => c_val)"));
+        assert!(sql.contains("a_val VARCHAR2(4000) := '1';"));
     }
 }

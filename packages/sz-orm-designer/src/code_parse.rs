@@ -266,4 +266,40 @@ pub struct User {
         assert_eq!(parsed.tables[0].name, "Users");
         assert_eq!(parsed.tables[0].columns.len(), 2);
     }
+
+    #[test]
+    fn test_parse_if_not_exists() {
+        let sql = "CREATE TABLE IF NOT EXISTS users (id BIGINT PRIMARY KEY);";
+        let design = CodeReverseParser::parse_migration(sql, Dialect::MySql).unwrap();
+        assert_eq!(design.tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_parse_auto_increment() {
+        let sql = "CREATE TABLE items (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(100));";
+        let design = CodeReverseParser::parse_migration(sql, Dialect::MySql).unwrap();
+        assert!(design.tables[0].columns[0].is_auto_increment);
+    }
+
+    #[test]
+    fn test_parse_skips_constraint_lines() {
+        let sql = "CREATE TABLE orders (id BIGINT PRIMARY KEY, user_id BIGINT, CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users(id));";
+        let design = CodeReverseParser::parse_migration(sql, Dialect::MySql).unwrap();
+        assert_eq!(design.tables[0].columns.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_multi_table() {
+        let sql = "CREATE TABLE a (id BIGINT PRIMARY KEY); CREATE TABLE b (id BIGINT PRIMARY KEY);";
+        let design = CodeReverseParser::parse_migration(sql, Dialect::MySql).unwrap();
+        assert_eq!(design.tables.len(), 2);
+    }
+
+    #[test]
+    fn test_parse_backtick_names() {
+        let sql = "CREATE TABLE `order` (id BIGINT PRIMARY KEY, `name` VARCHAR(50));";
+        let design = CodeReverseParser::parse_migration(sql, Dialect::MySql).unwrap();
+        assert_eq!(design.tables[0].name, "order");
+        assert_eq!(design.tables[0].columns[1].name, "name");
+    }
 }

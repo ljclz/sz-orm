@@ -53,6 +53,16 @@ impl PoolState {
     pub fn pool(&self) -> &Pool {
         &self.pool
     }
+
+    /// 获取 `Arc<Pool>` 克隆（便于直接传递给其他组件）
+    pub fn pool_arc(&self) -> Arc<Pool> {
+        self.pool.clone()
+    }
+
+    /// 消费 PoolState 返回 `Arc<Pool>`
+    pub fn into_arc(self) -> Arc<Pool> {
+        self.pool
+    }
 }
 
 impl FromRequest for PoolState {
@@ -156,6 +166,18 @@ fn value_to_json(v: &Value) -> serde_json::Value {
 ///
 /// 对任何实现了 `Serialize` 的类型提供 `Responder` 实现。
 pub struct JsonResp<T: Serialize>(pub T);
+
+impl<T: Serialize> JsonResp<T> {
+    /// 创建 JSON 响应包装
+    pub fn new(value: T) -> Self {
+        Self(value)
+    }
+
+    /// 解包内部值
+    pub fn into_inner(self) -> T {
+        self.0
+    }
+}
 
 impl<T: Serialize> Responder for JsonResp<T> {
     type Body = actix_web::body::BoxBody;
@@ -392,6 +414,209 @@ where
     }
 }
 
+// ============================================================================
+// Pagination — 分页辅助
+// ============================================================================
+
+/// 分页参数辅助：计算 offset/limit、总页数、前后页判断
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Pagination {
+    page: u64,
+    per_page: u64,
+}
+
+impl Pagination {
+    /// 创建分页（page 从 1 开始，per_page 默认 20）
+    pub fn new(page: u64, per_page: u64) -> Self {
+        Self {
+            page: page.max(1),
+            per_page: per_page.max(1),
+        }
+    }
+
+    /// 当前页码
+    pub fn page(&self) -> u64 {
+        self.page
+    }
+
+    /// 每页行数
+    pub fn per_page(&self) -> u64 {
+        self.per_page
+    }
+
+    /// SQL OFFSET
+    pub fn offset(&self) -> u64 {
+        (self.page - 1) * self.per_page
+    }
+
+    /// SQL LIMIT
+    pub fn limit(&self) -> u64 {
+        self.per_page
+    }
+
+    /// 总页数
+    pub fn total_pages(&self, total: u64) -> u64 {
+        if total == 0 {
+            0
+        } else {
+            total.div_ceil(self.per_page)
+        }
+    }
+
+    /// 是否有下一页
+    pub fn has_next(&self, total: u64) -> bool {
+        self.page < self.total_pages(total)
+    }
+
+    /// 是否有上一页
+    pub fn has_prev(&self) -> bool {
+        self.page > 1
+    }
+}
+
+// ============================================================================
+// ErrorResponse — 标准错误响应
+// ============================================================================
+
+/// 标准错误响应：统一 code + message 格式
+#[derive(Debug, Clone)]
+pub struct ErrorResponse {
+    code: u16,
+    message: String,
+}
+
+impl Default for ErrorResponse {
+    fn default() -> Self {
+        Self {
+            code: 500,
+            message: "Internal Server Error".to_string(),
+        }
+    }
+}
+
+impl ErrorResponse {
+    /// 创建默认错误响应（500）
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置 HTTP 状态码（链式）
+    pub fn with_code(mut self, code: u16) -> Self {
+        self.code = code;
+        self
+    }
+
+    /// 设置错误消息（链式）
+    pub fn with_message(mut self, msg: &str) -> Self {
+        self.message = msg.to_string();
+        self
+    }
+
+    /// 状态码
+    pub fn code(&self) -> u16 {
+        self.code
+    }
+
+    /// 错误消息
+    pub fn message(&self) -> &str {
+        &self.message
+    }
+
+    /// JSON 字符串表示
+    pub fn to_json_string(&self) -> String {
+        serde_json::json!({
+            "code": self.code,
+            "message": self.message,
+        })
+        .to_string()
+    }
+
+    /// 转换为 actix-web HttpResponse
+    pub fn to_http_response(&self) -> HttpResponse {
+        let status = actix_web::http::StatusCode::from_u16(self.code)
+            .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
+        HttpResponse::build(status).json(serde_json::json!({
+            "code": self.code,
+            "message": self.message,
+        }))
+    }
+}
+
+// ============================================================================
+// HealthCheck — 健康检查
+// ============================================================================
+
+/// 健康检查结果聚合
+#[derive(Debug, Clone, Default)]
+pub struct HealthCheck {
+    checks: Vec<(String, bool)>,
+}
+
+impl HealthCheck {
+    /// 创建空健康检查
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 添加检查结果
+    pub fn add_check(&mut self, name: &str, passed: bool) {
+        self.checks.push((name.to_string(), passed));
+    }
+
+    /// 检查项数
+    pub fn check_count(&self) -> usize {
+        self.checks.len()
+    }
+
+    /// 是否全部通过
+    pub fn is_healthy(&self) -> bool {
+        self.checks.iter().all(|(_, passed)| *passed)
+    }
+}
+
+// ============================================================================
+// RouteInfo — 路由信息
+// ============================================================================
+
+/// 路由元信息：路径、方法、handler 名称
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RouteInfo {
+    path: String,
+    method: String,
+    handler_name: String,
+}
+
+impl RouteInfo {
+    /// 创建路由信息
+    pub fn new(path: &str, method: &str, handler_name: &str) -> Self {
+        Self {
+            path: path.to_string(),
+            method: method.to_string(),
+            handler_name: handler_name.to_string(),
+        }
+    }
+
+    /// 路径
+    pub fn path(&self) -> &str {
+        &self.path
+    }
+
+    /// HTTP 方法
+    pub fn method(&self) -> &str {
+        &self.method
+    }
+
+    /// handler 名称
+    pub fn handler_name(&self) -> &str {
+        &self.handler_name
+    }
+
+    /// 描述字符串
+    pub fn description(&self) -> String {
+        format!("{} {} -> {}", self.method, self.path, self.handler_name)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -453,5 +678,235 @@ mod tests {
         let req = actix_web::test::TestRequest::default().to_http_request();
         let resp = JsonResp(user).respond_to(&req);
         assert_eq!(resp.status(), actix_web::http::StatusCode::OK);
+    }
+}
+
+#[cfg(test)]
+mod pagination_tests {
+    use super::*;
+
+    // --- Pagination tests ---
+
+    #[test]
+    fn pagination_new_defaults() {
+        let p = Pagination::new(1, 20);
+        assert_eq!(p.page(), 1);
+        assert_eq!(p.per_page(), 20);
+    }
+
+    #[test]
+    fn pagination_page_zero_clamped_to_one() {
+        let p = Pagination::new(0, 10);
+        assert_eq!(p.page(), 1);
+    }
+
+    #[test]
+    fn pagination_per_page_zero_clamped_to_one() {
+        let p = Pagination::new(1, 0);
+        assert_eq!(p.per_page(), 1);
+    }
+
+    #[test]
+    fn pagination_offset() {
+        let p = Pagination::new(3, 20);
+        assert_eq!(p.offset(), 40);
+    }
+
+    #[test]
+    fn pagination_limit_equals_per_page() {
+        let p = Pagination::new(1, 50);
+        assert_eq!(p.limit(), 50);
+    }
+
+    #[test]
+    fn pagination_total_pages_exact() {
+        let p = Pagination::new(1, 10);
+        assert_eq!(p.total_pages(100), 10);
+    }
+
+    #[test]
+    fn pagination_total_pages_with_remainder() {
+        let p = Pagination::new(1, 10);
+        assert_eq!(p.total_pages(105), 11);
+    }
+
+    #[test]
+    fn pagination_total_pages_zero() {
+        let p = Pagination::new(1, 10);
+        assert_eq!(p.total_pages(0), 0);
+    }
+
+    #[test]
+    fn pagination_has_next_true() {
+        let p = Pagination::new(1, 10);
+        assert!(p.has_next(100));
+    }
+
+    #[test]
+    fn pagination_has_next_false() {
+        let p = Pagination::new(10, 10);
+        assert!(!p.has_next(100));
+    }
+
+    #[test]
+    fn pagination_has_prev_true() {
+        let p = Pagination::new(2, 10);
+        assert!(p.has_prev());
+    }
+
+    #[test]
+    fn pagination_has_prev_false() {
+        let p = Pagination::new(1, 10);
+        assert!(!p.has_prev());
+    }
+}
+
+#[cfg(test)]
+mod error_response_tests {
+    use super::*;
+
+    #[test]
+    fn error_response_defaults() {
+        let e = ErrorResponse::new();
+        assert_eq!(e.code(), 500);
+        assert_eq!(e.message(), "Internal Server Error");
+    }
+
+    #[test]
+    fn error_response_with_code() {
+        let e = ErrorResponse::new().with_code(404);
+        assert_eq!(e.code(), 404);
+    }
+
+    #[test]
+    fn error_response_with_message() {
+        let e = ErrorResponse::new().with_message("not found");
+        assert_eq!(e.message(), "not found");
+    }
+
+    #[test]
+    fn error_response_builder_chain() {
+        let e = ErrorResponse::new()
+            .with_code(400)
+            .with_message("bad request");
+        assert_eq!(e.code(), 400);
+        assert_eq!(e.message(), "bad request");
+    }
+
+    #[test]
+    fn error_response_to_json_string() {
+        let e = ErrorResponse::new()
+            .with_code(404)
+            .with_message("Not Found");
+        let json = e.to_json_string();
+        assert!(json.contains("404"));
+        assert!(json.contains("Not Found"));
+    }
+
+    #[test]
+    fn error_response_to_http_response_status() {
+        let e = ErrorResponse::new().with_code(404);
+        let resp = e.to_http_response();
+        assert_eq!(resp.status(), actix_web::http::StatusCode::NOT_FOUND);
+    }
+
+    #[test]
+    fn error_response_to_http_response_body() {
+        let e = ErrorResponse::new().with_code(400).with_message("bad");
+        let resp = e.to_http_response();
+        assert_eq!(resp.status(), actix_web::http::StatusCode::BAD_REQUEST);
+    }
+
+    #[test]
+    fn error_response_invalid_code_fallback() {
+        let e = ErrorResponse::new().with_code(99);
+        let resp = e.to_http_response();
+        assert_eq!(
+            resp.status(),
+            actix_web::http::StatusCode::INTERNAL_SERVER_ERROR
+        );
+    }
+}
+
+#[cfg(test)]
+mod health_check_tests {
+    use super::*;
+
+    #[test]
+    fn health_check_new_empty() {
+        let h = HealthCheck::new();
+        assert_eq!(h.check_count(), 0);
+        assert!(h.is_healthy());
+    }
+
+    #[test]
+    fn health_check_add_check() {
+        let mut h = HealthCheck::new();
+        h.add_check("db", true);
+        assert_eq!(h.check_count(), 1);
+    }
+
+    #[test]
+    fn health_check_all_pass() {
+        let mut h = HealthCheck::new();
+        h.add_check("db", true);
+        h.add_check("cache", true);
+        assert!(h.is_healthy());
+    }
+
+    #[test]
+    fn health_check_some_fail() {
+        let mut h = HealthCheck::new();
+        h.add_check("db", true);
+        h.add_check("cache", false);
+        assert!(!h.is_healthy());
+    }
+
+    #[test]
+    fn health_check_all_fail() {
+        let mut h = HealthCheck::new();
+        h.add_check("db", false);
+        h.add_check("cache", false);
+        assert!(!h.is_healthy());
+    }
+}
+
+#[cfg(test)]
+mod route_info_tests {
+    use super::*;
+
+    #[test]
+    fn route_info_new() {
+        let r = RouteInfo::new("/users", "GET", "list_users");
+        assert_eq!(r.path(), "/users");
+        assert_eq!(r.method(), "GET");
+        assert_eq!(r.handler_name(), "list_users");
+    }
+
+    #[test]
+    fn route_info_path_getter() {
+        let r = RouteInfo::new("/api/v1/items", "POST", "create_item");
+        assert_eq!(r.path(), "/api/v1/items");
+    }
+
+    #[test]
+    fn route_info_method_getter() {
+        let r = RouteInfo::new("/users", "DELETE", "delete_user");
+        assert_eq!(r.method(), "DELETE");
+    }
+
+    #[test]
+    fn route_info_handler_name_getter() {
+        let r = RouteInfo::new("/users", "PUT", "update_user");
+        assert_eq!(r.handler_name(), "update_user");
+    }
+
+    #[test]
+    fn route_info_description() {
+        let r = RouteInfo::new("/users", "GET", "list_users");
+        let desc = r.description();
+        assert!(desc.contains("GET"));
+        assert!(desc.contains("/users"));
+        assert!(desc.contains("list_users"));
     }
 }

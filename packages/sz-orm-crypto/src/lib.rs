@@ -9,6 +9,8 @@
 //! - AES-256-GCM 加解密
 //! - HMAC-SHA256 与 PBKDF2
 
+pub mod key_management;
+
 use std::collections::HashMap;
 
 use aes_gcm::aead::{Aead, KeyInit};

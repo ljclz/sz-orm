@@ -22,6 +22,9 @@ use std::time::{Duration, Instant};
 #[cfg(feature = "auto-failover")]
 pub mod auto_failover;
 
+pub mod circuit_breaker;
+pub mod replication_lag;
+
 /// 负载均衡策略
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LoadBalanceStrategy {

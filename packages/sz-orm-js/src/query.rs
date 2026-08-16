@@ -195,3 +195,178 @@ impl QueryBuilder {
         Ok(SqlWithParams { sql, params })
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn qb() -> QueryBuilder {
+        QueryBuilder::new(None).unwrap()
+    }
+
+    #[test]
+    fn query_builder_default_mysql() {
+        let q = qb();
+        assert_eq!(q.db_type, DbType::MySQL);
+    }
+
+    #[test]
+    fn query_builder_explicit_postgres() {
+        let q = QueryBuilder::new(Some("postgres".to_string())).unwrap();
+        assert_eq!(q.db_type, DbType::PostgreSQL);
+    }
+
+    #[test]
+    fn query_builder_explicit_sqlite() {
+        let q = QueryBuilder::new(Some("sqlite".to_string())).unwrap();
+        assert_eq!(q.db_type, DbType::Sqlite);
+    }
+
+    #[test]
+    fn query_builder_unknown_db_type() {
+        assert!(QueryBuilder::new(Some("unknown".to_string())).is_err());
+    }
+
+    #[test]
+    fn query_builder_set_table() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        assert_eq!(q.table, Some("users".to_string()));
+    }
+
+    #[test]
+    fn query_builder_select_all_by_default() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("SELECT *"));
+    }
+
+    #[test]
+    fn query_builder_select_columns() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.set_select(vec!["id".to_string(), "name".to_string()]);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("id"));
+        assert!(result.sql.contains("name"));
+    }
+
+    #[test]
+    fn query_builder_where_eq_str() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.where_eq_str("name".to_string(), "Alice".to_string());
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("WHERE"));
+        assert!(result.params.contains(&"\"Alice\"".to_string()));
+    }
+
+    #[test]
+    fn query_builder_where_eq_i64() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.where_eq_i64("age".to_string(), 30);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("WHERE"));
+        assert!(result.params.contains(&"30".to_string()));
+    }
+
+    #[test]
+    fn query_builder_where_eq_f64() {
+        let mut q = qb();
+        q.set_table("products".to_string());
+        q.where_eq_f64("price".to_string(), 9.99);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("WHERE"));
+    }
+
+    #[test]
+    fn query_builder_where_eq_bool() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.where_eq_bool("active".to_string(), true);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("WHERE"));
+        assert!(result.params.contains(&"true".to_string()));
+    }
+
+    #[test]
+    fn query_builder_or_where() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.where_eq_i64("age".to_string(), 20);
+        q.or_where_eq_i64("age".to_string(), 30);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("OR"));
+    }
+
+    #[test]
+    fn query_builder_order_by() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.add_order_by("name".to_string());
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("ORDER BY"));
+    }
+
+    #[test]
+    fn query_builder_order_desc() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.add_order_desc("created_at".to_string());
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("DESC"));
+    }
+
+    #[test]
+    fn query_builder_limit() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.set_limit(10);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("LIMIT 10"));
+    }
+
+    #[test]
+    fn query_builder_offset() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.set_offset(20);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("OFFSET 20"));
+    }
+
+    #[test]
+    fn query_builder_build_delete() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.where_eq_i64("id".to_string(), 1);
+        let result = q.build_delete().unwrap();
+        assert!(result.sql.contains("DELETE FROM"));
+        assert!(result.sql.contains("WHERE"));
+    }
+
+    #[test]
+    fn query_builder_no_table_error() {
+        let q = qb();
+        assert!(q.build_select().is_err());
+    }
+
+    #[test]
+    fn query_builder_no_table_delete_error() {
+        let q = qb();
+        assert!(q.build_delete().is_err());
+    }
+
+    #[test]
+    fn query_builder_multiple_where_clauses() {
+        let mut q = qb();
+        q.set_table("users".to_string());
+        q.where_eq_str("name".to_string(), "Alice".to_string());
+        q.where_eq_i64("age".to_string(), 30);
+        let result = q.build_select().unwrap();
+        assert!(result.sql.contains("AND"));
+        assert_eq!(result.params.len(), 2);
+    }
+}

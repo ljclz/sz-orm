@@ -230,6 +230,120 @@ impl AdaptiveExecutor {
     }
 }
 
+/// 索引选择策略
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum IndexSelectionStrategy {
+    /// 全表扫描
+    FullScan,
+    /// 索引扫描（使用指定索引，需回表取数据）
+    IndexScan(String),
+    /// 仅索引扫描（覆盖索引，不回表）
+    IndexOnlyScan(String),
+}
+
+impl IndexSelectionStrategy {
+    /// 是否使用索引
+    pub fn is_index_used(&self) -> bool {
+        !matches!(self, Self::FullScan)
+    }
+
+    /// 索引名称（全表扫描返回 `None`）
+    pub fn index_name(&self) -> Option<&str> {
+        match self {
+            Self::FullScan => None,
+            Self::IndexScan(name) | Self::IndexOnlyScan(name) => Some(name),
+        }
+    }
+
+    /// 估算 I/O 成本（全表扫描 = table_rows；索引扫描 ≈ log2(rows)；仅索引扫描 ≈ log2(rows)/2）
+    pub fn estimated_cost(&self, table_rows: u64) -> u64 {
+        let log2 = |n: u64| -> u64 {
+            if n <= 1 {
+                1
+            } else {
+                64 - (n - 1).leading_zeros() as u64
+            }
+        };
+        match self {
+            Self::FullScan => table_rows,
+            Self::IndexScan(_) => log2(table_rows),
+            Self::IndexOnlyScan(_) => log2(table_rows) / 2,
+        }
+    }
+}
+
+/// 连接顺序策略
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum JoinOrderStrategy {
+    /// 左深树（嵌套循环连接）
+    LeftDeep,
+    /// 右深树（哈希连接流水线）
+    RightDeep,
+    /// 浓密树（可并行执行）
+    Bushy,
+}
+
+impl JoinOrderStrategy {
+    /// 是否可并行化
+    pub fn is_parallelizable(&self) -> bool {
+        matches!(self, Self::Bushy)
+    }
+
+    /// 策略描述
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::LeftDeep => "left-deep tree (nested loop join)",
+            Self::RightDeep => "right-deep tree (hash join pipeline)",
+            Self::Bushy => "bushy tree (parallel execution)",
+        }
+    }
+}
+
+/// 批量大小调优器：根据成功/失败反馈动态调整批大小
+///
+/// 成功时倍增（上限 max），失败时减半（下限 min），
+/// 适用于批量写入/拉取场景的自适应批大小控制。
+#[derive(Debug, Clone)]
+pub struct BatchSizeTuner {
+    current: u64,
+    min: u64,
+    max: u64,
+}
+
+impl BatchSizeTuner {
+    /// 创建调优器（初始值 = min）
+    pub fn new(min: u64, max: u64) -> Self {
+        Self {
+            current: min,
+            min,
+            max,
+        }
+    }
+
+    /// 当前批大小
+    pub fn current(&self) -> u64 {
+        self.current
+    }
+
+    /// 成功反馈：倍增批大小（上限 max），返回新值
+    pub fn on_success(&mut self) -> u64 {
+        self.current = (self.current.saturating_mul(2)).min(self.max);
+        self.current
+    }
+
+    /// 失败反馈：减半批大小（下限 min），返回新值
+    pub fn on_failure(&mut self) -> u64 {
+        self.current = (self.current / 2).max(self.min);
+        self.current
+    }
+
+    /// 重置为最小值
+    pub fn reset(&mut self) -> u64 {
+        self.current = self.min;
+        self.current
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -359,5 +473,144 @@ mod tests {
                 .expect("run ok");
         }
         assert_eq!(calls, 3);
+    }
+
+    // --- IndexSelectionStrategy tests ---
+
+    #[test]
+    fn index_strategy_full_scan_no_index() {
+        let s = IndexSelectionStrategy::FullScan;
+        assert!(!s.is_index_used());
+        assert_eq!(s.index_name(), None);
+    }
+
+    #[test]
+    fn index_strategy_index_scan_name() {
+        let s = IndexSelectionStrategy::IndexScan("idx_users_email".to_string());
+        assert!(s.is_index_used());
+        assert_eq!(s.index_name(), Some("idx_users_email"));
+    }
+
+    #[test]
+    fn index_strategy_index_only_scan_name() {
+        let s = IndexSelectionStrategy::IndexOnlyScan("covering_idx".to_string());
+        assert!(s.is_index_used());
+        assert_eq!(s.index_name(), Some("covering_idx"));
+    }
+
+    #[test]
+    fn index_strategy_cost_full_scan() {
+        let s = IndexSelectionStrategy::FullScan;
+        assert_eq!(s.estimated_cost(1_000_000), 1_000_000);
+    }
+
+    #[test]
+    fn index_strategy_cost_index_scan_cheaper() {
+        let full = IndexSelectionStrategy::FullScan;
+        let idx = IndexSelectionStrategy::IndexScan("idx".to_string());
+        let rows = 1_000_000u64;
+        assert!(idx.estimated_cost(rows) < full.estimated_cost(rows));
+    }
+
+    #[test]
+    fn index_strategy_cost_index_only_cheapest() {
+        let idx = IndexSelectionStrategy::IndexScan("idx".to_string());
+        let covering = IndexSelectionStrategy::IndexOnlyScan("covering".to_string());
+        let rows = 1_000_000u64;
+        assert!(covering.estimated_cost(rows) <= idx.estimated_cost(rows));
+    }
+
+    // --- JoinOrderStrategy tests ---
+
+    #[test]
+    fn join_order_left_deep_not_parallel() {
+        assert!(!JoinOrderStrategy::LeftDeep.is_parallelizable());
+    }
+
+    #[test]
+    fn join_order_bushy_parallel() {
+        assert!(JoinOrderStrategy::Bushy.is_parallelizable());
+    }
+
+    #[test]
+    fn join_order_descriptions_nonempty() {
+        assert!(!JoinOrderStrategy::LeftDeep.description().is_empty());
+        assert!(!JoinOrderStrategy::RightDeep.description().is_empty());
+        assert!(!JoinOrderStrategy::Bushy.description().is_empty());
+    }
+
+    #[test]
+    fn join_order_all_variants_distinct() {
+        let variants = [
+            JoinOrderStrategy::LeftDeep,
+            JoinOrderStrategy::RightDeep,
+            JoinOrderStrategy::Bushy,
+        ];
+        for i in 0..variants.len() {
+            for j in (i + 1)..variants.len() {
+                assert_ne!(variants[i], variants[j]);
+            }
+        }
+    }
+
+    // --- BatchSizeTuner tests ---
+
+    #[test]
+    fn batch_tuner_new_starts_at_min() {
+        let t = BatchSizeTuner::new(10, 1000);
+        assert_eq!(t.current(), 10);
+    }
+
+    #[test]
+    fn batch_tuner_on_success_doubles() {
+        let mut t = BatchSizeTuner::new(10, 1000);
+        assert_eq!(t.on_success(), 20);
+        assert_eq!(t.on_success(), 40);
+    }
+
+    #[test]
+    fn batch_tuner_on_success_capped_at_max() {
+        let mut t = BatchSizeTuner::new(10, 50);
+        t.on_success();
+        t.on_success();
+        t.on_success();
+        assert_eq!(t.current(), 50);
+    }
+
+    #[test]
+    fn batch_tuner_on_failure_halves() {
+        let mut t = BatchSizeTuner::new(10, 1000);
+        t.on_success();
+        assert_eq!(t.on_failure(), 10);
+    }
+
+    #[test]
+    fn batch_tuner_on_failure_floored_at_min() {
+        let mut t = BatchSizeTuner::new(10, 1000);
+        assert_eq!(t.on_failure(), 10);
+    }
+
+    #[test]
+    fn batch_tuner_reset() {
+        let mut t = BatchSizeTuner::new(10, 1000);
+        t.on_success();
+        t.on_success();
+        assert_eq!(t.reset(), 10);
+    }
+
+    #[test]
+    fn batch_tuner_alternating() {
+        let mut t = BatchSizeTuner::new(8, 256);
+        assert_eq!(t.on_success(), 16);
+        assert_eq!(t.on_success(), 32);
+        assert_eq!(t.on_failure(), 16);
+        assert_eq!(t.on_success(), 32);
+    }
+
+    #[test]
+    fn batch_tuner_min_equals_max() {
+        let mut t = BatchSizeTuner::new(100, 100);
+        assert_eq!(t.on_success(), 100);
+        assert_eq!(t.on_failure(), 100);
     }
 }

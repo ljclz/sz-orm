@@ -71,6 +71,15 @@ impl AsyncBackpressureController {
     pub fn threshold(&self) -> usize {
         self.threshold
     }
+
+    pub fn is_over_threshold(&self) -> bool {
+        self.current.load(Ordering::Relaxed) >= self.threshold
+    }
+
+    pub fn reset(&self) {
+        self.current.store(0, Ordering::Relaxed);
+        self.notify.notify_one();
+    }
 }
 
 impl Clone for AsyncBackpressureController {
@@ -163,5 +172,34 @@ mod tests {
         assert_eq!(clone.pending(), 1);
         clone.pop();
         assert_eq!(controller.pending(), 0);
+    }
+
+    #[test]
+    fn test_is_over_threshold() {
+        let controller = AsyncBackpressureController::new(3);
+        assert!(!controller.is_over_threshold());
+        controller.push();
+        controller.push();
+        assert!(!controller.is_over_threshold());
+        controller.push();
+        assert!(controller.is_over_threshold());
+    }
+
+    #[test]
+    fn test_reset() {
+        let controller = AsyncBackpressureController::new(10);
+        controller.push();
+        controller.push();
+        controller.push();
+        assert_eq!(controller.pending(), 3);
+        controller.reset();
+        assert_eq!(controller.pending(), 0);
+        assert!(controller.try_allow_push());
+    }
+
+    #[test]
+    fn test_threshold_getter() {
+        let controller = AsyncBackpressureController::new(42);
+        assert_eq!(controller.threshold(), 42);
     }
 }

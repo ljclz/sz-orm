@@ -345,4 +345,23 @@ mod tests {
         let sum: f64 = breakdown.iter().map(|b| b.percentage).sum();
         assert!((sum - 100.0).abs() < 0.01);
     }
+
+    #[test]
+    fn empty_timings_unknown() {
+        assert_eq!(
+            analyze_root_cause(&[], &DiagnosisConfig::default()),
+            RootCause::Unknown
+        );
+    }
+
+    #[test]
+    fn zero_durations_no_panic() {
+        let timings = vec![
+            timing(Phase::PoolAcquire, 0),
+            timing(Phase::SqlExecute, 0),
+            timing(Phase::ResultMap, 0),
+        ];
+        let _ = analyze_root_cause(&timings, &DiagnosisConfig::default());
+        // 不应 panic
+    }
 }

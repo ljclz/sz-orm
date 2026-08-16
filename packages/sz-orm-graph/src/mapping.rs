@@ -111,4 +111,57 @@ mod tests {
         let err = mapped.unwrap_err();
         assert!(err.to_string().contains("mapping"));
     }
+
+    #[test]
+    fn test_node_mapper_extract_and_map() {
+        let node1 = GraphNode {
+            id: "1".into(),
+            labels: vec!["Person".into()],
+            properties: serde_json::json!({"name": "Alice", "age": 30}),
+        };
+        let node2 = GraphNode {
+            id: "2".into(),
+            labels: vec!["Person".into()],
+            properties: serde_json::json!({"name": "Bob", "age": 25}),
+        };
+        let results = vec![
+            GraphResult::Node { node: node1 },
+            GraphResult::Node { node: node2 },
+        ];
+        let extracted = NodeMapper::extract_nodes(&results);
+        assert_eq!(extracted.len(), 2);
+        let mapped: Person = NodeMapper::map_node(extracted[0]).unwrap();
+        assert_eq!(mapped.name, "Alice");
+    }
+
+    #[test]
+    fn test_relation_mapper_extract_and_map() {
+        let rel = GraphRelationship {
+            id: "r1".into(),
+            rel_type: "KNOWS".into(),
+            start_node_id: "1".into(),
+            end_node_id: "2".into(),
+            properties: serde_json::json!({"name": "Alice", "age": 30}),
+        };
+        let results = vec![GraphResult::Relationship { relationship: rel }];
+        let extracted = RelationMapper::extract_relationships(&results);
+        assert_eq!(extracted.len(), 1);
+        let mapped: Person = RelationMapper::map_relationship(extracted[0]).unwrap();
+        assert_eq!(mapped.name, "Alice");
+        assert_eq!(mapped.age, 30);
+    }
+
+    #[test]
+    fn test_result_mapper_scalar() {
+        let results = vec![
+            GraphResult::Scalar {
+                value: serde_json::json!(1),
+            },
+            GraphResult::Scalar {
+                value: serde_json::json!(2),
+            },
+        ];
+        let mapped: Vec<i64> = ResultMapper::map_to(&results).unwrap();
+        assert_eq!(mapped, vec![1, 2]);
+    }
 }

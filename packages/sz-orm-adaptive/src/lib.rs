@@ -25,6 +25,7 @@ pub mod executor;
 pub mod stats;
 
 pub use executor::{
-    AdaptiveConfig, AdaptiveExecutor, ExecutionPath, MemoryTtlCache, QueryOutcome, ResultCache,
+    AdaptiveConfig, AdaptiveExecutor, BatchSizeTuner, ExecutionPath, IndexSelectionStrategy,
+    JoinOrderStrategy, MemoryTtlCache, QueryOutcome, ResultCache,
 };
-pub use stats::QueryStats;
+pub use stats::{QueryStats, SlidingWindowStats};

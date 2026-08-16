@@ -212,4 +212,21 @@ mod tests {
         assert!(INDEX_HTML.contains("/api/preview-ddl"));
         assert!(INDEX_HTML.contains("/api/export"));
     }
+
+    #[test]
+    fn test_web_ui_port_accessor() {
+        let design = SchemaDesign::new(Dialect::PostgreSql);
+        let designer = SchemaDesigner::new(design);
+        let web_ui = SchemaDesignerWebUI::new(designer, 3000);
+        assert_eq!(web_ui.port(), 3000);
+    }
+
+    #[test]
+    fn test_html_contains_javascript() {
+        assert!(
+            INDEX_HTML.contains("loadErDiagram")
+                || INDEX_HTML.contains("loadDdl")
+                || INDEX_HTML.contains("script")
+        );
+    }
 }

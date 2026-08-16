@@ -71,3 +71,33 @@ impl PyModel {
         )
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn model_default_fields() {
+        let m = PyModel {
+            table_name: "users".to_string(),
+            pk_name: "id".to_string(),
+            fields: HashMap::new(),
+        };
+        assert_eq!(m.table_name, "users");
+        assert_eq!(m.pk_name, "id");
+        assert_eq!(m.fields.len(), 0);
+    }
+
+    #[test]
+    fn model_repr_contains_table_and_pk() {
+        let m = PyModel {
+            table_name: "orders".to_string(),
+            pk_name: "order_id".to_string(),
+            fields: HashMap::new(),
+        };
+        let repr = m.__repr__();
+        assert!(repr.contains("orders"));
+        assert!(repr.contains("order_id"));
+        assert!(repr.contains("fields=0"));
+    }
+}

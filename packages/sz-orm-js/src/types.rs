@@ -149,4 +149,77 @@ mod tests {
         assert_eq!(value_to_json_string(&Value::Bool(true)), "true");
         assert_eq!(value_to_json_string(&Value::Null), "null");
     }
+
+    #[test]
+    fn test_value_to_json_bytes_empty() {
+        let result = value_to_json(&Value::Bytes(vec![]));
+        assert!(result.is_array());
+        assert_eq!(result.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_value_to_json_array_empty() {
+        let arr = Value::Array(vec![]);
+        let result = value_to_json(&arr);
+        assert!(result.is_array());
+        assert_eq!(result.as_array().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_value_to_json_object_empty() {
+        let map = std::collections::HashMap::new();
+        let obj = Value::Object(map);
+        let result = value_to_json(&obj);
+        assert!(result.is_object());
+        assert_eq!(result.as_object().unwrap().len(), 0);
+    }
+
+    #[test]
+    fn test_value_to_json_string_fn_array() {
+        let arr = Value::Array(vec![Value::I64(1), Value::I64(2)]);
+        assert_eq!(value_to_json_string(&arr), "[1,2]");
+    }
+
+    #[test]
+    fn test_value_to_json_string_fn_object() {
+        let mut map = std::collections::HashMap::new();
+        map.insert("k".to_string(), Value::I64(1));
+        let obj = Value::Object(map);
+        let json = value_to_json_string(&obj);
+        assert!(json.contains("\"k\":1"));
+    }
+
+    #[test]
+    fn test_value_to_json_negative_integers() {
+        assert_eq!(value_to_json(&Value::I8(-1)), JsonValue::from(-1i64));
+        assert_eq!(value_to_json(&Value::I16(-100)), JsonValue::from(-100i64));
+        assert_eq!(value_to_json(&Value::I32(-1000)), JsonValue::from(-1000i64));
+        assert_eq!(
+            value_to_json(&Value::I64(-10000)),
+            JsonValue::from(-10000i64)
+        );
+    }
+
+    #[test]
+    fn test_value_to_json_nested_array() {
+        let inner = Value::Array(vec![Value::I64(1), Value::I64(2)]);
+        let outer = Value::Array(vec![inner, Value::I64(3)]);
+        let result = value_to_json(&outer);
+        assert!(result.is_array());
+        assert_eq!(result.as_array().unwrap().len(), 2);
+        assert!(result[0].is_array());
+    }
+
+    #[test]
+    fn test_value_to_json_nested_object() {
+        let mut inner = std::collections::HashMap::new();
+        inner.insert("nested".to_string(), Value::I64(42));
+        let mut outer = std::collections::HashMap::new();
+        outer.insert("inner".to_string(), Value::Object(inner));
+        let obj = Value::Object(outer);
+        let result = value_to_json(&obj);
+        assert!(result.is_object());
+        assert!(result["inner"].is_object());
+        assert_eq!(result["inner"]["nested"], JsonValue::from(42i64));
+    }
 }

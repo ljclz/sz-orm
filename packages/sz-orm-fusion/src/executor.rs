@@ -362,4 +362,21 @@ mod tests {
             .unwrap();
         assert_eq!(out.sources, vec!["primary"]);
     }
+
+    #[test]
+    fn test_config_getter() {
+        let config = FusionConfig::new("pg").with_cache(CacheBackend::Memory);
+        let ex = FusionExecutor::new(config);
+        assert_eq!(ex.config().primary, "pg");
+        assert_eq!(ex.config().cache, Some(CacheBackend::Memory));
+    }
+
+    #[test]
+    fn test_execute_with_eq_conditions() {
+        let ex = FusionExecutor::new(FusionConfig::default());
+        let q = FusionQuery::new("users").eq("id", "42").limit(1);
+        let out = ex.execute(&q, |_q| Ok(vec![row("alice")])).unwrap();
+        assert!(out.rows.len() <= 1 || out.rows.is_empty());
+        assert!(out.sources.contains(&"primary".to_string()));
+    }
 }

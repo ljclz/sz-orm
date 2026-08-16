@@ -26,6 +26,27 @@ impl AdvisorDialect {
             AdvisorDialect::MSSQL => "mssql",
         }
     }
+
+    pub fn all() -> &'static [AdvisorDialect] {
+        &[
+            AdvisorDialect::MySQL,
+            AdvisorDialect::PostgreSQL,
+            AdvisorDialect::SQLite,
+            AdvisorDialect::Oracle,
+            AdvisorDialect::MSSQL,
+        ]
+    }
+
+    pub fn parse_name(s: &str) -> Option<AdvisorDialect> {
+        match s.to_lowercase().as_str() {
+            "mysql" => Some(AdvisorDialect::MySQL),
+            "postgres" | "postgresql" => Some(AdvisorDialect::PostgreSQL),
+            "sqlite" => Some(AdvisorDialect::SQLite),
+            "oracle" => Some(AdvisorDialect::Oracle),
+            "mssql" | "sqlserver" => Some(AdvisorDialect::MSSQL),
+            _ => None,
+        }
+    }
 }
 
 /// 生成 `CREATE INDEX` DDL 文本

@@ -232,4 +232,21 @@ mod tests {
         assert_eq!(edges[0]["to"], "orders");
         assert_eq!(edges[0]["cardinality"], "1:N");
     }
+
+    #[test]
+    fn test_empty_design_svg() {
+        let design = SchemaDesign::new(Dialect::MySql);
+        let editor = ErDiagramEditor::new(design);
+        let svg = editor.to_svg();
+        assert!(svg.contains("<svg"));
+    }
+
+    #[test]
+    fn test_force_directed_layout() {
+        let design = sample_design_with_relation();
+        let mut editor = ErDiagramEditor::new(design);
+        editor.layout(LayoutAlgorithm::ForceDirected);
+        let svg = editor.to_svg();
+        assert!(svg.contains("<svg"));
+    }
 }

@@ -10,6 +10,9 @@ homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
 
+
+[package.metadata.cargo-machete]
+ignored = ['tracing']
 [dependencies]
 sz-orm-core = { workspace = true }
 async-trait.workspace = true

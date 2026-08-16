@@ -10,6 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 description = "SZ-ORM Microsoft SQL Server adapter using tiberius (TDS protocol)"
 
+
+[package.metadata.cargo-machete]
+ignored = ['tracing']
 [dependencies]
 sz-orm-core = { workspace = true }
 tiberius = { version = "0.12", features = ["rust_decimal"] }

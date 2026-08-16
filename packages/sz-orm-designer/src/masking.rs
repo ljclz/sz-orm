@@ -88,4 +88,34 @@ mod tests {
 
         assert_eq!(design.tables[0].columns[0].name, "id");
     }
+
+    #[test]
+    fn test_masking_multiple_rules() {
+        let mut design = SchemaDesign::new(Dialect::MySql).with_table(DesignTable::new(
+            "users",
+            vec![
+                DesignColumn::new("password", ColumnType::Varchar(Some(255))),
+                DesignColumn::new("email", ColumnType::Varchar(Some(255))),
+            ],
+        ));
+
+        let masking = DesignerMasking::new()
+            .with_rule("password", MaskingRule::Password)
+            .with_rule("email", MaskingRule::Email);
+        masking.apply(&mut design);
+
+        assert_ne!(design.tables[0].columns[0].name, "password");
+        assert_ne!(design.tables[0].columns[1].name, "email");
+    }
+
+    #[test]
+    fn test_masking_default() {
+        let masking = DesignerMasking::default();
+        let mut design = SchemaDesign::new(Dialect::MySql).with_table(DesignTable::new(
+            "users",
+            vec![DesignColumn::new("id", ColumnType::BigInt)],
+        ));
+        masking.apply(&mut design);
+        assert_eq!(design.tables[0].columns[0].name, "id");
+    }
 }

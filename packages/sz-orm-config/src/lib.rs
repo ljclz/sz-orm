@@ -15,6 +15,12 @@ pub mod nacos_client;
 #[cfg(feature = "prod-config-masking")]
 pub mod prod_ready;
 
+pub mod config_validator;
+
+pub use config_validator::{
+    ConfigSchema, ConfigValidationReport, FieldSchema, ValidationResult, ValidationRule,
+};
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};

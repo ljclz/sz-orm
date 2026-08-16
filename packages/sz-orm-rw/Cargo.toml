@@ -15,6 +15,9 @@ default = []
 # v4.0.0 M6：数据库 failover 自动化（健康监控 + slave 提升 + 脑裂检测 + 数据丢失评估）
 auto-failover = ["dep:tokio"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['tokio']
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 # 随机负载均衡策略：使用 rand 提供高质量随机性，替代系统时间伪随机

@@ -4,6 +4,7 @@
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：60 个成员（58 个 lib 包 + cli + examples；v4.3.0 新增 sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor / sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel / sz-orm-stream；v4.6.0 不新增包，7 个 feature gate 扩展既有包；v4.7.0 不新增包，7 个 feature gate 扩展既有包）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
+- 绑定层依赖：sz-orm-cabi/sz-orm-java/sz-orm-go/sz-orm-cpp 依赖 sz-orm-sqlx（SQLite 后端）+ jni 0.22（Java）；sz-orm-python 依赖 sz-orm-sqlx + pyo3 0.20（PyPool 真实连接）；sz-orm-stream dev-dependencies 含 tokio/futures（集成测试）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
 - 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 4.9.0（v4.9.0 OWASP Top 10 完整覆盖渗透测试套件交付，85 个测试 + A06 脚本）

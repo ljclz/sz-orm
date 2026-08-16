@@ -19,6 +19,7 @@
 
 #[cfg(feature = "slow-query-diagnosis")]
 pub mod diagnoser;
+pub mod metrics;
 #[cfg(feature = "slow-query-diagnosis")]
 pub mod report;
 #[cfg(feature = "slow-query-diagnosis")]
@@ -26,6 +27,7 @@ pub mod root_cause;
 
 #[cfg(feature = "slow-query-diagnosis")]
 pub use diagnoser::SlowQueryDiagnoser;
+pub use metrics::{BottleneckRanker, DiagnosisMetrics, DiagnosisSummary, FixAction};
 #[cfg(feature = "slow-query-diagnosis")]
 pub use report::{DiagnosisReport, SuggestionHint};
 #[cfg(feature = "slow-query-diagnosis")]

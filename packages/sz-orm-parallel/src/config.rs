@@ -15,6 +15,21 @@ pub enum MergeStrategy {
     Map,
 }
 
+impl MergeStrategy {
+    pub fn is_join(&self) -> bool {
+        matches!(self, MergeStrategy::Join { .. })
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            MergeStrategy::First => "first",
+            MergeStrategy::Union => "union",
+            MergeStrategy::Join { .. } => "join",
+            MergeStrategy::Map => "map",
+        }
+    }
+}
+
 /// 降级策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FailureStrategy {
@@ -24,6 +39,16 @@ pub enum FailureStrategy {
     Abort,
     /// 返回降级值
     Fallback,
+}
+
+impl FailureStrategy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FailureStrategy::Skip => "skip",
+            FailureStrategy::Abort => "abort",
+            FailureStrategy::Fallback => "fallback",
+        }
+    }
 }
 
 /// 并行查询配置
@@ -106,6 +131,18 @@ impl ParallelQueryConfig {
             None
         }
     }
+
+    pub fn concurrency(&self) -> usize {
+        self.concurrency
+    }
+
+    pub fn failure_strategy(&self) -> FailureStrategy {
+        self.failure_strategy
+    }
+
+    pub fn merge_strategy(&self) -> &MergeStrategy {
+        &self.merge_strategy
+    }
 }
 
 #[cfg(test)]
@@ -173,5 +210,48 @@ mod tests {
         assert_ne!(FailureStrategy::Skip, FailureStrategy::Abort);
         assert_ne!(FailureStrategy::Abort, FailureStrategy::Fallback);
         assert_ne!(FailureStrategy::Skip, FailureStrategy::Fallback);
+    }
+
+    #[test]
+    fn test_merge_strategy_is_join() {
+        assert!(!MergeStrategy::First.is_join());
+        assert!(!MergeStrategy::Union.is_join());
+        assert!(MergeStrategy::Join {
+            join_key: "id".into()
+        }
+        .is_join());
+        assert!(!MergeStrategy::Map.is_join());
+    }
+
+    #[test]
+    fn test_merge_strategy_as_str() {
+        assert_eq!(MergeStrategy::First.as_str(), "first");
+        assert_eq!(MergeStrategy::Union.as_str(), "union");
+        assert_eq!(
+            MergeStrategy::Join {
+                join_key: "x".into()
+            }
+            .as_str(),
+            "join"
+        );
+        assert_eq!(MergeStrategy::Map.as_str(), "map");
+    }
+
+    #[test]
+    fn test_failure_strategy_as_str() {
+        assert_eq!(FailureStrategy::Skip.as_str(), "skip");
+        assert_eq!(FailureStrategy::Abort.as_str(), "abort");
+        assert_eq!(FailureStrategy::Fallback.as_str(), "fallback");
+    }
+
+    #[test]
+    fn test_config_getters() {
+        let config = ParallelQueryConfig::new()
+            .with_concurrency(16)
+            .with_failure_strategy(FailureStrategy::Fallback)
+            .with_merge_strategy(MergeStrategy::Map);
+        assert_eq!(config.concurrency(), 16);
+        assert_eq!(config.failure_strategy(), FailureStrategy::Fallback);
+        assert_eq!(config.merge_strategy(), &MergeStrategy::Map);
     }
 }

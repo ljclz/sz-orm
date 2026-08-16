@@ -72,6 +72,10 @@ impl<T> QueryOutcome<T> {
         self.from_cache = true;
         self
     }
+
+    pub fn is_from_cache(&self) -> bool {
+        self.from_cache
+    }
 }
 
 /// 查询失败信息
@@ -81,6 +85,15 @@ pub struct QueryFailure {
     pub query_index: usize,
     /// 错误信息
     pub error: String,
+}
+
+impl QueryFailure {
+    pub fn new(query_index: usize, error: impl Into<String>) -> Self {
+        Self {
+            query_index,
+            error: error.into(),
+        }
+    }
 }
 
 /// 并行查询整体结果
@@ -117,6 +130,18 @@ impl<T> ParallelQueryOutcome<T> {
     /// 是否全部成功
     pub fn all_succeeded(&self) -> bool {
         self.failures.is_empty() && self.timed_out.is_empty()
+    }
+
+    pub fn total_count(&self) -> usize {
+        self.results.len()
+    }
+
+    pub fn has_merged_result(&self) -> bool {
+        self.merged_result.is_some()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.results.is_empty()
     }
 }
 
@@ -180,5 +205,110 @@ mod tests {
             merged_result: Some(1),
         };
         assert!(outcome.all_succeeded());
+    }
+
+    #[test]
+    fn test_query_outcome_is_from_cache() {
+        let fresh = QueryOutcome::new(1, 1, 10);
+        assert!(!fresh.is_from_cache());
+        let cached = QueryOutcome::new(2, 1, 5).from_cache();
+        assert!(cached.is_from_cache());
+    }
+
+    #[test]
+    fn test_query_failure_new() {
+        let f = QueryFailure::new(3, "connection refused");
+        assert_eq!(f.query_index, 3);
+        assert_eq!(f.error, "connection refused");
+    }
+
+    #[test]
+    fn test_parallel_outcome_total_count() {
+        let outcome = ParallelQueryOutcome {
+            results: vec![
+                Some(QueryOutcome::new(1, 1, 10)),
+                None,
+                Some(QueryOutcome::new(3, 1, 20)),
+            ],
+            failures: vec![],
+            timed_out: vec![],
+            total_elapsed_ms: 30,
+            merged_result: None,
+        };
+        assert_eq!(outcome.total_count(), 3);
+    }
+
+    #[test]
+    fn test_parallel_outcome_has_merged_result() {
+        let with_merge = ParallelQueryOutcome {
+            results: vec![Some(QueryOutcome::new(1, 1, 10))],
+            failures: vec![],
+            timed_out: vec![],
+            total_elapsed_ms: 10,
+            merged_result: Some(1),
+        };
+        let no_merge = ParallelQueryOutcome {
+            results: vec![Some(QueryOutcome::new(1, 1, 10))],
+            failures: vec![],
+            timed_out: vec![],
+            total_elapsed_ms: 10,
+            merged_result: None,
+        };
+        assert!(with_merge.has_merged_result());
+        assert!(!no_merge.has_merged_result());
+    }
+
+    #[test]
+    fn test_parallel_outcome_is_empty() {
+        let empty: ParallelQueryOutcome<i32> = ParallelQueryOutcome {
+            results: vec![],
+            failures: vec![],
+            timed_out: vec![],
+            total_elapsed_ms: 0,
+            merged_result: None,
+        };
+        let non_empty = ParallelQueryOutcome {
+            results: vec![Some(QueryOutcome::new(1, 1, 10))],
+            failures: vec![],
+            timed_out: vec![],
+            total_elapsed_ms: 10,
+            merged_result: None,
+        };
+        assert!(empty.is_empty());
+        assert!(!non_empty.is_empty());
+    }
+
+    #[test]
+    fn test_parallel_query_with_fallback() {
+        let q = ParallelQuery::new("SELECT 1", vec![])
+            .with_key("test")
+            .with_fallback(42);
+        assert_eq!(q.query_key.as_deref(), Some("test"));
+        assert_eq!(q.fallback_value, Some(42));
+    }
+
+    #[test]
+    fn test_parallel_outcome_mixed_results() {
+        let outcome = ParallelQueryOutcome {
+            results: vec![
+                Some(QueryOutcome::new(vec!["a".to_string()], 1, 10).from_cache()),
+                None,
+                Some(QueryOutcome::new(vec!["b".to_string()], 1, 20)),
+                None,
+            ],
+            failures: vec![
+                QueryFailure::new(1, "timeout"),
+                QueryFailure::new(3, "db error"),
+            ],
+            timed_out: vec![1],
+            total_elapsed_ms: 30,
+            merged_result: Some(vec!["a".to_string(), "b".to_string()]),
+        };
+        assert_eq!(outcome.total_count(), 4);
+        assert_eq!(outcome.success_count(), 2);
+        assert_eq!(outcome.failure_count(), 2);
+        assert_eq!(outcome.timeout_count(), 1);
+        assert!(!outcome.all_succeeded());
+        assert!(outcome.has_merged_result());
     }
 }

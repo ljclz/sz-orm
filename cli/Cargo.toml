@@ -11,17 +11,22 @@ name = "sz-orm"
 path = "src/main.rs"
 
 [dependencies]
-sz-orm-core = { version = "4.1.0", path = "../packages/sz-orm-core" }
+sz-orm-core = { version = "4.1.0", path = "../packages/sz-orm-core", features = [
+    "dist-cache", "cache-warmup-protection", "connection-level-tenant",
+    "forward-compat-sandbox", "process-l1-cache", "zero-downtime-rollback",
+    "tenant-quota-rls-enhanced", "multi-tenant-enhanced",
+] }
 sz-orm-sql-validator = { version = "4.1.0", path = "../packages/sz-orm-sql-validator" }
 sz-orm-sqlx = { version = "4.1.0", path = "../packages/sz-orm-sqlx" }
 sz-orm-designer = { version = "4.1.0", path = "../packages/sz-orm-designer", optional = true }
 sz-orm-swagger = { version = "4.1.0", path = "../packages/sz-orm-swagger", optional = true }
 sz-orm-n1-lint = { version = "4.1.0", path = "../packages/sz-orm-n1-lint", optional = true }
-sz-orm-observability = { version = "4.1.0", path = "../packages/sz-orm-observability" }
-sz-orm-storage = { version = "4.1.0", path = "../packages/sz-orm-storage" }
-sz-orm-batch = { version = "4.1.0", path = "../packages/sz-orm-batch" }
-sz-orm-queue = { version = "4.1.0", path = "../packages/sz-orm-queue" }
+sz-orm-observability = { version = "4.1.0", path = "../packages/sz-orm-observability", features = ["anomaly-detection", "anomaly-remediation-rca"] }
+sz-orm-storage = { version = "4.1.0", path = "../packages/sz-orm-storage", features = ["cost-analysis", "multicloud-cost-forecast"] }
+sz-orm-batch = { version = "4.1.0", path = "../packages/sz-orm-batch", features = ["batch-v2", "batch-atomic", "copy-parallel-shard"] }
+sz-orm-queue = { version = "4.1.0", path = "../packages/sz-orm-queue", features = ["dlx-auto-redelivery", "delayed-priority-queue"] }
 tokio = { workspace = true, features = ["full"] }
+async-trait = "0.1"
 chrono = { workspace = true }
 serde = { workspace = true }
 serde_json = { workspace = true }

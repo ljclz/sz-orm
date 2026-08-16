@@ -148,4 +148,30 @@ mod tests {
         let cache = TtlFusionCache::default();
         assert_eq!(cache.default_ttl(), Duration::from_secs(60));
     }
+
+    #[test]
+    fn test_multiple_keys_independent_ttl() {
+        let cache = TtlFusionCache::new(Duration::from_secs(60));
+        cache.set_with_ttl("short", "a".into(), Duration::from_millis(1));
+        cache.set_with_ttl("long", "b".into(), Duration::from_secs(60));
+        std::thread::sleep(Duration::from_millis(2));
+        assert_eq!(cache.get_with_ttl("short"), None);
+        assert_eq!(cache.get_with_ttl("long"), Some("b".into()));
+    }
+
+    #[test]
+    fn test_cache_with_empty_key() {
+        let cache = TtlFusionCache::new(Duration::from_secs(60));
+        cache.set("", "empty".into());
+        assert_eq!(cache.get(""), Some("empty".into()));
+    }
+
+    #[test]
+    fn test_overwrite_with_different_ttl() {
+        let cache = TtlFusionCache::new(Duration::from_secs(60));
+        cache.set_with_ttl("k", "v1".into(), Duration::from_secs(60));
+        cache.set_with_ttl("k", "v2".into(), Duration::from_millis(1));
+        std::thread::sleep(Duration::from_millis(2));
+        assert_eq!(cache.get_with_ttl("k"), None);
+    }
 }

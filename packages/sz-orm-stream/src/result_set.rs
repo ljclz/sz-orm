@@ -92,8 +92,10 @@ impl StreamResultSet {
                     if state.done {
                         return None;
                     }
-                    if !state.backpressure.try_allow_push() {
-                        return Some((Err("backpressure limit reached".into()), state));
+                    // 背压满时等待消费者处理，而不是产出错误死循环
+                    // （try_allow_push 仅用于非阻塞检查；此处必须 await 等待）
+                    if !state.backpressure.allow_push().await {
+                        return None;
                     }
                     let (page_sql, page_params) = match state.build_next_page() {
                         Ok(page) => page,

@@ -14,6 +14,9 @@ description = "SZ-ORM WebSocket Extension (RFC 7692 permessage-deflate via flate
 default = []
 server = ["tokio-tungstenite", "futures-util"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['thiserror']
 [dependencies]
 async-trait = "0.1"
 tokio = { version = "1.40", features = ["full"] }

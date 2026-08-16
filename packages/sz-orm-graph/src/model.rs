@@ -169,3 +169,90 @@ impl GraphRelationModel {
 pub fn extract_node_properties(result: &GraphResult) -> Option<&serde_json::Value> {
     result.as_node().map(|n| &n.properties)
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::query::{GraphNode, GraphResult};
+
+    #[test]
+    fn test_graph_property_def_builders() {
+        let prop = GraphPropertyDef::new("name", GraphValueType::String)
+            .nullable()
+            .with_default(serde_json::json!("unknown"));
+        assert_eq!(prop.name, "name");
+        assert!(prop.nullable);
+        assert_eq!(prop.default, Some(serde_json::json!("unknown")));
+
+        let non_nullable = GraphPropertyDef::new("age", GraphValueType::Integer);
+        assert!(!non_nullable.nullable);
+        assert!(non_nullable.default.is_none());
+    }
+
+    #[test]
+    fn test_node_model_match_clause() {
+        let model = GraphNodeModel::new("Person")
+            .property("name", GraphValueType::String)
+            .property("age", GraphValueType::Integer);
+        let clause = model.match_clause("n");
+        assert_eq!(clause, "MATCH (n:Person)");
+    }
+
+    #[test]
+    fn test_node_model_create_clause_with_props() {
+        let model = GraphNodeModel::new("Person")
+            .property("name", GraphValueType::String)
+            .property("age", GraphValueType::Integer);
+        let clause = model.create_clause("n");
+        assert!(clause.contains("CREATE (n:Person"));
+        assert!(clause.contains("name: $name"));
+        assert!(clause.contains("age: $age"));
+    }
+
+    #[test]
+    fn test_node_model_create_clause_no_props() {
+        let model = GraphNodeModel::new("EmptyLabel");
+        let clause = model.create_clause("n");
+        assert_eq!(clause, "CREATE (n:EmptyLabel)");
+    }
+
+    #[test]
+    fn test_relation_model_match_outgoing() {
+        let model = GraphRelationModel::new("KNOWS", "Person", "Person");
+        let clause = model.match_clause("a", "r", "b");
+        assert!(clause.contains("MATCH (a:Person)-[r:KNOWS]->(b:Person)"));
+    }
+
+    #[test]
+    fn test_relation_model_match_incoming_and_undirected() {
+        let incoming = GraphRelationModel::new("KNOWS", "Person", "Person")
+            .direction(RelationDirection::Incoming);
+        let clause = incoming.match_clause("a", "r", "b");
+        assert!(clause.contains("<-[r:KNOWS]-"));
+
+        let undirected = GraphRelationModel::new("KNOWS", "Person", "Person")
+            .direction(RelationDirection::Undirected);
+        let clause = undirected.match_clause("a", "r", "b");
+        assert!(clause.contains("-[r:KNOWS]-"));
+        assert!(!clause.contains("->"));
+        assert!(!clause.contains("<-"));
+    }
+
+    #[test]
+    fn test_extract_node_properties() {
+        let node = GraphNode {
+            id: "1".into(),
+            labels: vec![],
+            properties: serde_json::json!({"name": "Alice"}),
+        };
+        let result = GraphResult::Node { node };
+        let props = extract_node_properties(&result);
+        assert!(props.is_some());
+        assert_eq!(props.unwrap()["name"], serde_json::json!("Alice"));
+
+        let scalar = GraphResult::Scalar {
+            value: serde_json::json!(42),
+        };
+        assert!(extract_node_properties(&scalar).is_none());
+    }
+}

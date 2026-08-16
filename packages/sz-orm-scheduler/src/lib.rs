@@ -27,6 +27,8 @@ pub struct ScheduledTask {
     pub callback: String,
     pub metadata: HashMap<String, serde_json::Value>,
     pub enabled: bool,
+    #[serde(default)]
+    pub priority: i32,
 }
 
 impl ScheduledTask {
@@ -42,6 +44,7 @@ impl ScheduledTask {
             callback: String::new(),
             metadata: HashMap::new(),
             enabled: true,
+            priority: 0,
         }
     }
 
@@ -52,6 +55,11 @@ impl ScheduledTask {
 
     pub fn with_metadata(mut self, key: impl Into<String>, value: serde_json::Value) -> Self {
         self.metadata.insert(key.into(), value);
+        self
+    }
+
+    pub fn with_priority(mut self, priority: i32) -> Self {
+        self.priority = priority;
         self
     }
 
@@ -345,6 +353,9 @@ impl CronScheduler {
                 .collect()
         };
 
+        let mut due = due;
+        due.sort_by_key(|a| std::cmp::Reverse(a.0.priority));
+
         let mut fired = 0usize;
         for (task, handler) in due {
             if let Some(handler) = handler {
@@ -433,6 +444,87 @@ impl CronScheduler {
             Ok(w) => w.is_some(),
             Err(_) => false,
         }
+    }
+
+    /// 触发所有到期任务并将执行结果记录到 `tracker`。
+    ///
+    /// 与 `try_fire_due` 的区别：此方法会在每次任务触发后记录执行状态
+    /// （Succeeded / Failed / Skipped），便于后续查询任务健康度。
+    pub fn try_fire_due_tracked(
+        &self,
+        now: chrono::DateTime<chrono::Utc>,
+        tracker: &TaskExecutionTracker,
+    ) -> usize {
+        let due: Vec<(ScheduledTask, Option<Arc<dyn JobHandler>>)> = {
+            let tasks = self.tasks.read().unwrap();
+            let handlers = self.handlers.read().unwrap();
+            tasks
+                .values()
+                .filter(|t| t.enabled)
+                .filter_map(|t| {
+                    let parsed = self.parse_cron(&t.cron_expr).ok()?;
+                    if self.matches_cron(&parsed, now) {
+                        Some((t.clone(), handlers.get(&t.id).cloned()))
+                    } else {
+                        None
+                    }
+                })
+                .collect()
+        };
+
+        let mut due = due;
+        due.sort_by_key(|a| std::cmp::Reverse(a.0.priority));
+
+        let mut fired = 0usize;
+        for (task, handler) in due {
+            let start = std::time::Instant::now();
+            let (status, error_message) = if let Some(handler) = handler {
+                match handler.handle(&task) {
+                    Ok(()) => (TaskStatus::Succeeded, None),
+                    Err(e) => (TaskStatus::Failed, Some(e.to_string())),
+                }
+            } else {
+                (TaskStatus::Skipped, None)
+            };
+            let duration_ms = start.elapsed().as_millis() as u64;
+
+            let is_fired = status != TaskStatus::Failed;
+            tracker.record(TaskExecutionRecord {
+                task_id: task.id.clone(),
+                fired_at: now,
+                status,
+                error_message,
+                duration_ms,
+            });
+            if is_fired {
+                fired += 1;
+            }
+        }
+        fired
+    }
+
+    /// 返回已注册任务总数。
+    pub fn get_task_count(&self) -> usize {
+        self.tasks.read().map(|tasks| tasks.len()).unwrap_or(0)
+    }
+
+    /// 返回已启用任务数。
+    pub fn get_enabled_task_count(&self) -> usize {
+        self.tasks
+            .read()
+            .map(|tasks| tasks.values().filter(|t| t.enabled).count())
+            .unwrap_or(0)
+    }
+
+    /// 返回所有任务的 `(id, priority)` 列表，按 priority 降序排列。
+    pub fn get_task_priorities(&self) -> Vec<(String, i32)> {
+        let mut result: Vec<(String, i32)> = self
+            .tasks
+            .read()
+            .map(|tasks| tasks.values().map(|t| (t.id.clone(), t.priority)).collect())
+            .unwrap_or_default();
+        result.sort_by_key(|(_, p)| std::cmp::Reverse(*p));
+        result
     }
 }
 
@@ -532,6 +624,187 @@ impl Scheduler for CronScheduler {
             .map_err(|e| SchedulerError::Internal(e.to_string()))
             .unwrap();
         tasks.values().cloned().collect()
+    }
+}
+
+/// 任务执行状态。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum TaskStatus {
+    Pending,
+    Running,
+    Succeeded,
+    Failed,
+    Skipped,
+}
+
+/// 单次任务执行记录。
+#[derive(Debug, Clone)]
+pub struct TaskExecutionRecord {
+    pub task_id: String,
+    pub fired_at: chrono::DateTime<chrono::Utc>,
+    pub status: TaskStatus,
+    pub error_message: Option<String>,
+    pub duration_ms: u64,
+}
+
+/// 任务执行追踪器：记录每次任务触发的结果，支持按任务查询历史和统计。
+///
+/// 独立组件，不修改 `CronScheduler` 内部状态。调用方可在 `try_fire_due`
+/// 之后手动记录，或使用 `CronScheduler::try_fire_due_tracked` 便捷方法。
+pub struct TaskExecutionTracker {
+    records: RwLock<Vec<TaskExecutionRecord>>,
+    max_capacity: usize,
+}
+
+impl TaskExecutionTracker {
+    pub fn new() -> Self {
+        Self::with_capacity(10_000)
+    }
+
+    pub fn with_capacity(max_capacity: usize) -> Self {
+        Self {
+            records: RwLock::new(Vec::new()),
+            max_capacity: max_capacity.max(1),
+        }
+    }
+
+    pub fn record(&self, record: TaskExecutionRecord) {
+        if let Ok(mut records) = self.records.write() {
+            if records.len() >= self.max_capacity {
+                records.remove(0);
+            }
+            records.push(record);
+        }
+    }
+
+    pub fn get_task_history(&self, task_id: &str) -> Vec<TaskExecutionRecord> {
+        self.records
+            .read()
+            .map(|records| {
+                records
+                    .iter()
+                    .filter(|r| r.task_id == task_id)
+                    .cloned()
+                    .collect()
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn get_last_status(&self, task_id: &str) -> Option<TaskStatus> {
+        self.records.read().ok().and_then(|records| {
+            records
+                .iter()
+                .rev()
+                .find(|r| r.task_id == task_id)
+                .map(|r| r.status)
+        })
+    }
+
+    pub fn get_failure_count(&self, task_id: &str) -> usize {
+        self.records
+            .read()
+            .map(|records| {
+                records
+                    .iter()
+                    .filter(|r| r.task_id == task_id && r.status == TaskStatus::Failed)
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn get_success_count(&self, task_id: &str) -> usize {
+        self.records
+            .read()
+            .map(|records| {
+                records
+                    .iter()
+                    .filter(|r| r.task_id == task_id && r.status == TaskStatus::Succeeded)
+                    .count()
+            })
+            .unwrap_or(0)
+    }
+
+    pub fn get_total_count(&self, task_id: &str) -> usize {
+        self.records
+            .read()
+            .map(|records| records.iter().filter(|r| r.task_id == task_id).count())
+            .unwrap_or(0)
+    }
+
+    pub fn get_success_rate(&self, task_id: &str) -> f64 {
+        let total = self.get_total_count(task_id);
+        if total == 0 {
+            return 0.0;
+        }
+        self.get_success_count(task_id) as f64 / total as f64
+    }
+
+    pub fn clear(&self) {
+        if let Ok(mut records) = self.records.write() {
+            records.clear();
+        }
+    }
+
+    pub fn clear_task(&self, task_id: &str) {
+        if let Ok(mut records) = self.records.write() {
+            records.retain(|r| r.task_id != task_id);
+        }
+    }
+
+    pub fn record_count(&self) -> usize {
+        self.records
+            .read()
+            .map(|records| records.len())
+            .unwrap_or(0)
+    }
+}
+
+impl Default for TaskExecutionTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 任务健康度汇总。
+#[derive(Debug, Clone)]
+pub struct TaskHealthSummary {
+    pub task_id: String,
+    pub total_executions: usize,
+    pub successes: usize,
+    pub failures: usize,
+    pub success_rate: f64,
+    pub last_status: Option<TaskStatus>,
+}
+
+impl TaskExecutionTracker {
+    pub fn get_all_task_ids(&self) -> Vec<String> {
+        self.records
+            .read()
+            .map(|records| {
+                let mut ids: Vec<String> = records.iter().map(|r| r.task_id.clone()).collect();
+                ids.sort();
+                ids.dedup();
+                ids
+            })
+            .unwrap_or_default()
+    }
+
+    pub fn get_health_summary(&self, task_id: &str) -> TaskHealthSummary {
+        TaskHealthSummary {
+            task_id: task_id.to_string(),
+            total_executions: self.get_total_count(task_id),
+            successes: self.get_success_count(task_id),
+            failures: self.get_failure_count(task_id),
+            success_rate: self.get_success_rate(task_id),
+            last_status: self.get_last_status(task_id),
+        }
+    }
+
+    pub fn get_all_health_summaries(&self) -> Vec<TaskHealthSummary> {
+        self.get_all_task_ids()
+            .iter()
+            .map(|id| self.get_health_summary(id))
+            .collect()
     }
 }
 
@@ -937,5 +1210,272 @@ mod tests {
             .with_timezone(&chrono::Utc);
         let next = scheduler.next_run_time("10,20,30 * * * *", from).unwrap();
         assert_eq!(next, from + chrono::Duration::seconds(5));
+    }
+
+    #[test]
+    fn test_priority_ordering_high_first() {
+        let scheduler = CronScheduler::new();
+        let handler = Arc::new(RecordingJobHandler::new()) as Arc<dyn JobHandler>;
+
+        scheduler
+            .schedule(ScheduledTask::new("low", "Low", "* * * * *").with_priority(1))
+            .unwrap();
+        scheduler
+            .schedule(ScheduledTask::new("high", "High", "* * * * *").with_priority(10))
+            .unwrap();
+        scheduler
+            .schedule(ScheduledTask::new("mid", "Mid", "* * * * *").with_priority(5))
+            .unwrap();
+        scheduler.register_handler("low", handler.clone());
+        scheduler.register_handler("high", handler.clone());
+        scheduler.register_handler("mid", handler);
+
+        let now = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let fired = scheduler.try_fire_due(now);
+        assert_eq!(fired, 3);
+
+        let tasks = scheduler.list_tasks();
+        let high = tasks.iter().find(|t| t.id == "high").unwrap();
+        let low = tasks.iter().find(|t| t.id == "low").unwrap();
+        assert!(high.priority > low.priority);
+    }
+
+    #[test]
+    fn test_cron_boundary_second_59() {
+        let scheduler = CronScheduler::new();
+        let from = chrono::DateTime::parse_from_rfc3339("2024-06-15T10:10:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let next = scheduler.next_run_time("59 * * * *", from).unwrap();
+        assert_eq!(next.second(), 59);
+    }
+
+    #[test]
+    fn test_cron_boundary_cross_year() {
+        let scheduler = CronScheduler::new();
+        let from = chrono::DateTime::parse_from_rfc3339("2024-12-31T23:59:59Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let next = scheduler.next_run_time("0 0 1 1 *", from);
+        assert!(next.is_ok());
+        let next = next.unwrap();
+        assert_eq!(next.year(), 2025);
+        assert_eq!(next.month(), 1);
+        assert_eq!(next.day(), 1);
+    }
+
+    #[test]
+    fn test_next_run_time_strictly_greater() {
+        let scheduler = CronScheduler::new();
+        let from = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let next = scheduler.next_run_time("0 * * * *", from).unwrap();
+        assert!(next > from);
+    }
+
+    #[test]
+    fn test_task_status_enum() {
+        let statuses = [
+            TaskStatus::Pending,
+            TaskStatus::Running,
+            TaskStatus::Succeeded,
+            TaskStatus::Failed,
+            TaskStatus::Skipped,
+        ];
+        for i in 0..statuses.len() {
+            for j in 0..statuses.len() {
+                if i == j {
+                    assert_eq!(statuses[i], statuses[j]);
+                } else {
+                    assert_ne!(statuses[i], statuses[j]);
+                }
+            }
+        }
+    }
+
+    #[test]
+    fn test_execution_tracker_record_and_query() {
+        let tracker = TaskExecutionTracker::new();
+        let now = chrono::Utc::now();
+
+        tracker.record(TaskExecutionRecord {
+            task_id: "t1".to_string(),
+            fired_at: now,
+            status: TaskStatus::Succeeded,
+            error_message: None,
+            duration_ms: 10,
+        });
+        tracker.record(TaskExecutionRecord {
+            task_id: "t1".to_string(),
+            fired_at: now,
+            status: TaskStatus::Failed,
+            error_message: Some("boom".to_string()),
+            duration_ms: 5,
+        });
+        tracker.record(TaskExecutionRecord {
+            task_id: "t1".to_string(),
+            fired_at: now,
+            status: TaskStatus::Succeeded,
+            error_message: None,
+            duration_ms: 8,
+        });
+
+        assert_eq!(tracker.get_total_count("t1"), 3);
+        assert_eq!(tracker.get_success_count("t1"), 2);
+        assert_eq!(tracker.get_failure_count("t1"), 1);
+        assert_eq!(tracker.get_last_status("t1"), Some(TaskStatus::Succeeded));
+        let rate = tracker.get_success_rate("t1");
+        assert!((rate - 2.0 / 3.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_execution_tracker_capacity_eviction() {
+        let tracker = TaskExecutionTracker::with_capacity(2);
+        let now = chrono::Utc::now();
+        for i in 0..3 {
+            tracker.record(TaskExecutionRecord {
+                task_id: format!("t{}", i),
+                fired_at: now,
+                status: TaskStatus::Succeeded,
+                error_message: None,
+                duration_ms: 1,
+            });
+        }
+        assert_eq!(tracker.record_count(), 2);
+        assert_eq!(tracker.get_total_count("t0"), 0);
+        assert_eq!(tracker.get_total_count("t1"), 1);
+        assert_eq!(tracker.get_total_count("t2"), 1);
+    }
+
+    #[test]
+    fn test_execution_tracker_clear() {
+        let tracker = TaskExecutionTracker::new();
+        let now = chrono::Utc::now();
+        tracker.record(TaskExecutionRecord {
+            task_id: "t1".to_string(),
+            fired_at: now,
+            status: TaskStatus::Succeeded,
+            error_message: None,
+            duration_ms: 1,
+        });
+        tracker.record(TaskExecutionRecord {
+            task_id: "t2".to_string(),
+            fired_at: now,
+            status: TaskStatus::Failed,
+            error_message: None,
+            duration_ms: 1,
+        });
+        tracker.clear_task("t1");
+        assert_eq!(tracker.get_total_count("t1"), 0);
+        assert_eq!(tracker.get_total_count("t2"), 1);
+        assert_eq!(tracker.record_count(), 1);
+        tracker.clear();
+        assert_eq!(tracker.record_count(), 0);
+    }
+
+    #[test]
+    fn test_try_fire_due_tracked() {
+        let scheduler = CronScheduler::new();
+        let tracker = TaskExecutionTracker::new();
+        let handler = Arc::new(RecordingJobHandler::new()) as Arc<dyn JobHandler>;
+
+        scheduler
+            .schedule(ScheduledTask::new("t1", "Task1", "* * * * *"))
+            .unwrap();
+        scheduler.register_handler("t1", handler);
+
+        let now = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let fired = scheduler.try_fire_due_tracked(now, &tracker);
+        assert_eq!(fired, 1);
+        assert_eq!(tracker.get_total_count("t1"), 1);
+        assert_eq!(tracker.get_last_status("t1"), Some(TaskStatus::Succeeded));
+    }
+
+    #[test]
+    fn test_try_fire_due_tracked_no_handler_skipped() {
+        let scheduler = CronScheduler::new();
+        let tracker = TaskExecutionTracker::new();
+
+        scheduler
+            .schedule(ScheduledTask::new("t1", "Task1", "* * * * *"))
+            .unwrap();
+
+        let now = chrono::DateTime::parse_from_rfc3339("2024-01-01T00:00:00Z")
+            .unwrap()
+            .with_timezone(&chrono::Utc);
+        let fired = scheduler.try_fire_due_tracked(now, &tracker);
+        assert_eq!(fired, 1);
+        assert_eq!(tracker.get_last_status("t1"), Some(TaskStatus::Skipped));
+    }
+
+    #[test]
+    fn test_health_summary() {
+        let tracker = TaskExecutionTracker::new();
+        let now = chrono::Utc::now();
+        tracker.record(TaskExecutionRecord {
+            task_id: "t1".to_string(),
+            fired_at: now,
+            status: TaskStatus::Succeeded,
+            error_message: None,
+            duration_ms: 1,
+        });
+        tracker.record(TaskExecutionRecord {
+            task_id: "t1".to_string(),
+            fired_at: now,
+            status: TaskStatus::Failed,
+            error_message: Some("err".to_string()),
+            duration_ms: 1,
+        });
+        tracker.record(TaskExecutionRecord {
+            task_id: "t2".to_string(),
+            fired_at: now,
+            status: TaskStatus::Succeeded,
+            error_message: None,
+            duration_ms: 1,
+        });
+
+        let ids = tracker.get_all_task_ids();
+        assert_eq!(ids, vec!["t1".to_string(), "t2".to_string()]);
+
+        let summary = tracker.get_health_summary("t1");
+        assert_eq!(summary.total_executions, 2);
+        assert_eq!(summary.successes, 1);
+        assert_eq!(summary.failures, 1);
+        assert!((summary.success_rate - 0.5).abs() < 1e-9);
+
+        let all = tracker.get_all_health_summaries();
+        assert_eq!(all.len(), 2);
+    }
+
+    #[test]
+    fn test_scheduler_task_counts() {
+        let scheduler = CronScheduler::new();
+        scheduler
+            .schedule(ScheduledTask::new("t1", "T1", "* * * * *"))
+            .unwrap();
+        scheduler
+            .schedule(ScheduledTask::new("t2", "T2", "* * * * *").disable())
+            .unwrap();
+        assert_eq!(scheduler.get_task_count(), 2);
+        assert_eq!(scheduler.get_enabled_task_count(), 1);
+    }
+
+    #[test]
+    fn test_scheduler_task_priorities() {
+        let scheduler = CronScheduler::new();
+        scheduler
+            .schedule(ScheduledTask::new("low", "Low", "* * * * *").with_priority(1))
+            .unwrap();
+        scheduler
+            .schedule(ScheduledTask::new("high", "High", "* * * * *").with_priority(10))
+            .unwrap();
+        let prios = scheduler.get_task_priorities();
+        assert_eq!(prios[0], ("high".to_string(), 10));
+        assert_eq!(prios[1], ("low".to_string(), 1));
     }
 }

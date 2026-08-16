@@ -16,7 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 sz-orm-cabi = { path = "../sz-orm-cabi" }
-sz-orm-core = { workspace = true }
+jni = "0.22"
 
 
 [lints]

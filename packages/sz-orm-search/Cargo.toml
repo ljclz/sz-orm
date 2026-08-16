@@ -16,6 +16,9 @@ real-es = ["elasticsearch"]
 real-opensearch = ["opensearch", "url"]
 real-meilisearch = ["meilisearch-sdk"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['chrono', 'thiserror']
 [dependencies]
 async-trait = "0.1"
 tokio = { version = "1.40", features = ["full"] }

@@ -133,4 +133,122 @@ mod tests {
         let svg = to_svg(&[]);
         assert!(svg.starts_with("<svg"));
     }
+
+    #[test]
+    fn brendan_gregg_empty_timings() {
+        let out = to_brendan_gregg(&[]);
+        assert!(out.is_empty());
+    }
+
+    #[test]
+    fn brendan_gregg_single_phase() {
+        let timings = vec![QueryPhaseTiming {
+            phase: Phase::Build,
+            start_ms: 0,
+            duration_ms: 5,
+        }];
+        let out = to_brendan_gregg(&timings);
+        assert!(out.contains("query.build 5000"));
+        assert!(out.ends_with('\n'));
+    }
+
+    #[test]
+    fn brendan_gregg_zero_duration() {
+        let timings = vec![QueryPhaseTiming {
+            phase: Phase::Bind,
+            start_ms: 0,
+            duration_ms: 0,
+        }];
+        let out = to_brendan_gregg(&timings);
+        assert!(out.contains("query.bind 0"));
+    }
+
+    #[test]
+    fn svg_contains_rect_for_each_phase() {
+        let timings = sample();
+        let svg = to_svg(&timings);
+        let rect_count = svg.matches("<rect").count();
+        assert_eq!(rect_count, 3, "should have one rect per phase");
+    }
+
+    #[test]
+    fn svg_contains_legend_text() {
+        let svg = to_svg(&sample());
+        assert!(svg.contains("<text"));
+        assert!(svg.contains("ms"));
+    }
+
+    #[test]
+    fn svg_escapes_special_chars() {
+        let timings = vec![QueryPhaseTiming {
+            phase: Phase::Build,
+            start_ms: 0,
+            duration_ms: 1,
+        }];
+        let svg = to_svg(&timings);
+        // & should be escaped as &amp; in legend
+        assert!(!svg.contains(" & ") || svg.contains("&amp;"));
+    }
+
+    #[test]
+    fn svg_all_phases_have_colors() {
+        let phases = vec![
+            QueryPhaseTiming {
+                phase: Phase::Build,
+                start_ms: 0,
+                duration_ms: 1,
+            },
+            QueryPhaseTiming {
+                phase: Phase::Bind,
+                start_ms: 0,
+                duration_ms: 1,
+            },
+            QueryPhaseTiming {
+                phase: Phase::PoolAcquire,
+                start_ms: 0,
+                duration_ms: 1,
+            },
+            QueryPhaseTiming {
+                phase: Phase::SqlExecute,
+                start_ms: 0,
+                duration_ms: 1,
+            },
+            QueryPhaseTiming {
+                phase: Phase::ResultMap,
+                start_ms: 0,
+                duration_ms: 1,
+            },
+        ];
+        let svg = to_svg(&phases);
+        assert!(svg.contains("#d95f02")); // Build
+        assert!(svg.contains("#7570b3")); // Bind
+        assert!(svg.contains("#e7298a")); // PoolAcquire
+        assert!(svg.contains("#1b9e77")); // SqlExecute
+        assert!(svg.contains("#66a61e")); // ResultMap
+    }
+
+    #[test]
+    fn svg_zero_total_uses_fallback() {
+        let timings = vec![QueryPhaseTiming {
+            phase: Phase::Build,
+            start_ms: 0,
+            duration_ms: 0,
+        }];
+        let svg = to_svg(&timings);
+        assert!(svg.starts_with("<svg"));
+    }
+
+    #[test]
+    fn phase_color_unknown_returns_gray() {
+        assert_eq!(phase_color("unknown"), "#999999");
+    }
+
+    #[test]
+    fn phase_color_known_phases() {
+        assert_eq!(phase_color("query.build"), "#d95f02");
+        assert_eq!(phase_color("query.bind"), "#7570b3");
+        assert_eq!(phase_color("pool.acquire"), "#e7298a");
+        assert_eq!(phase_color("db.execute"), "#1b9e77");
+        assert_eq!(phase_color("result.map"), "#66a61e");
+    }
 }

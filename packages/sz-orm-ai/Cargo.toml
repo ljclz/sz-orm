@@ -27,6 +27,9 @@ multi-llm = ["dep:reqwest", "dep:base64", "dep:tracing"]
 # v4.0.0 M2锛欰I 鑷姩璋冧紭闂幆锛圖etect鈫扐dvise鈫扐pply鈫扸erify锛屽鐢ㄦ棦鏈変紭鍖栧櫒锟?
 ai-auto-tuning = ["llm-optimizer", "ai-index-advisor", "ai-rewrite-advisor"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['base64']
 [dependencies]
 async-trait = "0.1"
 tokio = { version = "1.40", features = ["full"] }

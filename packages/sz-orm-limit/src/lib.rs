@@ -50,6 +50,14 @@ impl RateLimitResult {
             reset_at,
         }
     }
+
+    pub fn is_allowed(&self) -> bool {
+        self.allowed
+    }
+
+    pub fn is_rejected(&self) -> bool {
+        !self.allowed
+    }
 }
 
 pub struct SlidingWindowRateLimiter {
@@ -88,6 +96,25 @@ impl SlidingWindowRateLimiter {
     pub fn with_max_keys(mut self, max_keys: usize) -> Self {
         self.max_keys = max_keys;
         self
+    }
+
+    pub fn max_requests(&self) -> u64 {
+        self.max_requests.load(Ordering::Relaxed)
+    }
+
+    pub fn window_size(&self) -> Duration {
+        self.window_size
+    }
+
+    pub fn max_keys(&self) -> usize {
+        self.max_keys
+    }
+
+    pub fn key_count(&self) -> usize {
+        self.entries
+            .read()
+            .map(|entries| entries.len())
+            .unwrap_or(0)
     }
 
     fn cleanup_old_requests(&self, entry: &mut SlidingWindowEntry) {
@@ -235,6 +262,25 @@ impl TokenBucketRateLimiter {
     pub fn with_max_keys(mut self, max_keys: usize) -> Self {
         self.max_keys = max_keys;
         self
+    }
+
+    pub fn capacity(&self) -> u64 {
+        self.capacity as u64
+    }
+
+    pub fn refill_rate(&self) -> f64 {
+        self.refill_rate
+    }
+
+    pub fn max_keys(&self) -> usize {
+        self.max_keys
+    }
+
+    pub fn key_count(&self) -> usize {
+        self.entries
+            .read()
+            .map(|entries| entries.len())
+            .unwrap_or(0)
     }
 
     fn refill(&self, entry: &mut TokenBucketEntry) {
@@ -427,6 +473,25 @@ impl FixedWindowRateLimiter {
     pub fn with_max_keys(mut self, max_keys: usize) -> Self {
         self.max_keys = max_keys;
         self
+    }
+
+    pub fn max_requests(&self) -> u64 {
+        self.max_requests
+    }
+
+    pub fn window_size(&self) -> Duration {
+        self.window_size
+    }
+
+    pub fn max_keys(&self) -> usize {
+        self.max_keys
+    }
+
+    pub fn key_count(&self) -> usize {
+        self.entries
+            .read()
+            .map(|entries| entries.len())
+            .unwrap_or(0)
     }
 
     /// 强制淘汰超出 `max_keys` 的最旧 entry
@@ -854,6 +919,10 @@ impl MultiRateLimiter {
     pub fn with_limiter(mut self, limiter: Arc<dyn RateLimiter>) -> Self {
         self.limiters.push(limiter);
         self
+    }
+
+    pub fn limiter_count(&self) -> usize {
+        self.limiters.len()
     }
 
     /// 检查所有限流器，返回最严格的结果

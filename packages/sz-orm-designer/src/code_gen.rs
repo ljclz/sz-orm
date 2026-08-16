@@ -122,4 +122,17 @@ mod tests {
             assert!(migration.is_ok(), "migration failed for {:?}", dialect);
         }
     }
+
+    #[test]
+    fn test_generate_migration_multi_table() {
+        let design = sample_design().with_table(DesignTable::new(
+            "orders",
+            vec![DesignColumn::new("id", ColumnType::BigInt).primary_key()],
+        ));
+        let gen = DesignerCodeGenerator::new(Dialect::MySql);
+        let migration = gen.generate_migration(&design).unwrap();
+        assert!(migration.sql_up.contains("users"));
+        assert!(migration.sql_up.contains("orders"));
+        assert!(migration.sql_down.contains("DROP TABLE"));
+    }
 }

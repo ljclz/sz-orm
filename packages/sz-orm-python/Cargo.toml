@@ -14,8 +14,12 @@ categories = ["database", "api-bindings"]
 name = "sz_orm_python"
 crate-type = ["cdylib", "rlib"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['pyo3-asyncio']
 [dependencies]
 sz-orm-core = { workspace = true }
+sz-orm-sqlx = { path = "../sz-orm-sqlx" }
 pyo3 = { version = "0.20", features = ["extension-module"] }
 pyo3-asyncio = "0.20"
 tokio = { workspace = true }

@@ -17,6 +17,7 @@
 //! - [`advanced::StructuredLogEntry`] / [`advanced::StructuredLogWriter`] — 结构化字段
 
 pub mod advanced;
+pub mod log_pipeline;
 
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};

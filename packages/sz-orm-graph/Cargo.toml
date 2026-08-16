@@ -11,6 +11,9 @@ homepage = "https://github.com/ljclz/sz-orm"
 keywords = ["orm", "graph", "neo4j", "cypher", "database"]
 categories = ["database"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['async-trait', 'tracing']
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }

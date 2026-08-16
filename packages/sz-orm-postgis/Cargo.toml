@@ -14,6 +14,9 @@ description = "SZ-ORM PostGIS Extension - PostgreSQL PostGIS spatial geometry qu
 default = []
 real-postgis = ["tokio-postgres", "postgis"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['serde_json', 'thiserror']
 [dependencies]
 async-trait = "0.1"
 tokio = { version = "1.40", features = ["full"] }

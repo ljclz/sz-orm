@@ -183,4 +183,73 @@ mod tests {
         let sql = paginator.build_next_page_sql("SELECT * FROM t");
         assert!(sql.contains("WHERE uuid > 'abc-123'"));
     }
+
+    #[test]
+    fn full_pagination_cycle() {
+        // 模拟 250 行数据按 100/页 keyset 分页遍历：3 页全部取回
+        let mut paginator = KeysetPaginator::new("id", 100);
+        let mut fetched = 0usize;
+        let mut page = 0;
+        loop {
+            let sql = paginator.build_next_page_sql("SELECT * FROM t");
+            assert!(
+                sql.starts_with("SELECT * FROM t"),
+                "sql should keep base: {sql}"
+            );
+            // 模拟返回 100 行（最后一页 50 行）
+            let batch = if fetched + 100 <= 250 {
+                100
+            } else {
+                250 - fetched
+            };
+            fetched += batch;
+            page += 1;
+            // 用最后一行的 id 更新游标
+            paginator.update_last_key(&json!(fetched));
+            paginator.mark_batch_result(batch);
+            if !paginator.has_more() || fetched >= 250 {
+                break;
+            }
+        }
+        assert_eq!(fetched, 250, "all rows should be fetched");
+        assert_eq!(page, 3, "250 rows / 100 per page = 3 pages");
+    }
+
+    #[test]
+    fn paginator_has_more_respects_batch_size() {
+        let mut paginator = KeysetPaginator::new("id", 10);
+        paginator.update_last_key(&json!(1));
+        paginator.mark_batch_result(10);
+        assert!(paginator.has_more(), "full batch => more pages");
+        paginator.mark_batch_result(5);
+        assert!(!paginator.has_more(), "short batch => last page");
+    }
+
+    #[test]
+    fn build_sql_escapes_string_keys() {
+        let mut paginator = KeysetPaginator::new("name", 10);
+        paginator.last_key = Some(json!("O'Reilly"));
+        let sql = paginator.build_next_page_sql("SELECT * FROM t");
+        assert!(
+            sql.contains("O''Reilly"),
+            "single quote must be escaped: {sql}"
+        );
+    }
+
+    #[test]
+    fn test_desc_order_direction() {
+        let paginator = KeysetPaginator::new("id", 500).with_order_direction(OrderDirection::Desc);
+        let sql = paginator.build_next_page_sql("SELECT * FROM t");
+        assert!(sql.contains("ORDER BY id DESC"));
+        assert!(sql.contains("LIMIT 500"));
+    }
+
+    #[test]
+    fn test_has_more_initial_state() {
+        let paginator = KeysetPaginator::new("id", 100);
+        assert!(paginator.has_more());
+        let mut p2 = KeysetPaginator::new("id", 100);
+        p2.mark_batch_result(0);
+        assert!(!p2.has_more());
+    }
 }

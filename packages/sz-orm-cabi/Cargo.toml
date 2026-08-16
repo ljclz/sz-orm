@@ -16,6 +16,7 @@ crate-type = ["cdylib", "rlib"]
 
 [dependencies]
 sz-orm-core = { workspace = true }
+sz-orm-sqlx = { path = "../sz-orm-sqlx" }
 tokio = { workspace = true }
 serde_json = { workspace = true }
 parking_lot.workspace = true

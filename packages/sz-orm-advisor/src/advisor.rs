@@ -36,6 +36,42 @@ impl Default for AdvisorConfig {
     }
 }
 
+impl AdvisorConfig {
+    pub fn new(
+        row_threshold: u64,
+        confidence_threshold: f64,
+        pool_pct_threshold: f64,
+        dialect: AdvisorDialect,
+    ) -> Self {
+        Self {
+            row_threshold,
+            confidence_threshold,
+            pool_pct_threshold,
+            dialect,
+        }
+    }
+
+    pub fn with_row_threshold(mut self, row_threshold: u64) -> Self {
+        self.row_threshold = row_threshold;
+        self
+    }
+
+    pub fn with_confidence_threshold(mut self, confidence_threshold: f64) -> Self {
+        self.confidence_threshold = confidence_threshold;
+        self
+    }
+
+    pub fn with_pool_pct_threshold(mut self, pool_pct_threshold: f64) -> Self {
+        self.pool_pct_threshold = pool_pct_threshold;
+        self
+    }
+
+    pub fn with_dialect(mut self, dialect: AdvisorDialect) -> Self {
+        self.dialect = dialect;
+        self
+    }
+}
+
 /// 优化建议规则引擎
 pub struct OptimizationAdvisor {
     config: AdvisorConfig,
@@ -103,6 +139,18 @@ impl OptimizationAdvisor {
                 .unwrap_or(std::cmp::Ordering::Equal)
         });
         suggestions
+    }
+
+    pub fn suggest_for_plan(&self, plan: &ExplainPlan) -> Vec<OptimizationSuggestion> {
+        self.suggest(Some(plan), None, None)
+    }
+
+    pub fn suggest_for_stats(&self, stats: &QueryStats) -> Vec<OptimizationSuggestion> {
+        self.suggest(None, Some(stats), None)
+    }
+
+    pub fn rule_count() -> usize {
+        6
     }
 }
 
@@ -232,5 +280,106 @@ mod tests {
         assert!(suggestions
             .iter()
             .any(|s| s.suggestion_type == crate::suggestion::SuggestionType::AdjustPoolSize));
+    }
+
+    #[test]
+    fn test_advisor_config_builder() {
+        let config = AdvisorConfig::default()
+            .with_row_threshold(500)
+            .with_confidence_threshold(0.7)
+            .with_pool_pct_threshold(25.0)
+            .with_dialect(AdvisorDialect::PostgreSQL);
+        assert_eq!(config.row_threshold, 500);
+        assert!((config.confidence_threshold - 0.7).abs() < 1e-9);
+        assert!((config.pool_pct_threshold - 25.0).abs() < 1e-9);
+        assert_eq!(config.dialect, AdvisorDialect::PostgreSQL);
+
+        let config2 = AdvisorConfig::new(100, 0.6, 20.0, AdvisorDialect::SQLite);
+        assert_eq!(config2.row_threshold, 100);
+        assert_eq!(config2.dialect, AdvisorDialect::SQLite);
+    }
+
+    #[test]
+    fn test_suggest_for_plan() {
+        let advisor = OptimizationAdvisor::with_defaults();
+        let p = plan(ScanType::FullTable, None, 10000);
+        let suggestions = advisor.suggest_for_plan(&p);
+        assert!(suggestions
+            .iter()
+            .any(|s| s.suggestion_type == crate::suggestion::SuggestionType::AddIndex));
+    }
+
+    #[test]
+    fn test_suggest_for_stats() {
+        let advisor = OptimizationAdvisor::with_defaults();
+        let stats = QueryStats::new();
+        for _ in 0..10 {
+            stats.record(2000, 5_000);
+        }
+        let suggestions = advisor.suggest_for_stats(&stats);
+        assert!(suggestions
+            .iter()
+            .any(|s| s.suggestion_type == crate::suggestion::SuggestionType::UsePagination));
+    }
+
+    #[test]
+    fn test_rule_count() {
+        assert_eq!(OptimizationAdvisor::rule_count(), 6);
+    }
+
+    #[test]
+    fn test_suggestion_type_all_and_is_ddl() {
+        let all = crate::suggestion::SuggestionType::all();
+        assert_eq!(all.len(), 6);
+        assert!(crate::suggestion::SuggestionType::AddIndex.is_ddl());
+        assert!(crate::suggestion::SuggestionType::DropIndex.is_ddl());
+        assert!(!crate::suggestion::SuggestionType::EnableCache.is_ddl());
+    }
+
+    #[test]
+    fn test_optimization_suggestion_helpers() {
+        use crate::suggestion::{OptimizationSuggestion, SuggestionType};
+        let s = OptimizationSuggestion::new(
+            SuggestionType::AddIndex,
+            "SELECT * FROM users",
+            "全表扫描",
+            "CREATE INDEX idx ON users(id)",
+            0.9,
+        );
+        assert!(s.is_high_confidence());
+        assert!(!s.has_improvement_estimate());
+        assert!(s.summary().contains("add-index"));
+        assert!(s.summary().contains("0.90"));
+
+        let low = OptimizationSuggestion::new(SuggestionType::EnableCache, "q", "d", "a", 0.3);
+        assert!(!low.is_high_confidence());
+        assert!(low.needs_manual_confirmation());
+    }
+
+    #[test]
+    fn test_advisor_dialect_from_str() {
+        use crate::dialect::AdvisorDialect;
+        assert_eq!(
+            AdvisorDialect::parse_name("mysql"),
+            Some(AdvisorDialect::MySQL)
+        );
+        assert_eq!(
+            AdvisorDialect::parse_name("postgresql"),
+            Some(AdvisorDialect::PostgreSQL)
+        );
+        assert_eq!(
+            AdvisorDialect::parse_name("sqlite"),
+            Some(AdvisorDialect::SQLite)
+        );
+        assert_eq!(
+            AdvisorDialect::parse_name("oracle"),
+            Some(AdvisorDialect::Oracle)
+        );
+        assert_eq!(
+            AdvisorDialect::parse_name("sqlserver"),
+            Some(AdvisorDialect::MSSQL)
+        );
+        assert_eq!(AdvisorDialect::parse_name("unknown"), None);
+        assert_eq!(AdvisorDialect::all().len(), 5);
     }
 }

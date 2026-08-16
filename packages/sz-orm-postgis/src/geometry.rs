@@ -54,6 +54,11 @@ impl Point {
     pub fn to_ewkt(&self) -> String {
         format!("SRID={};POINT({} {})", self.srid, self.x, self.y)
     }
+
+    /// 转为 WKT 字符串：`POINT(x y)`（不含 SRID 前缀）
+    pub fn to_wkt(&self) -> String {
+        format!("POINT({} {})", self.x, self.y)
+    }
 }
 
 /// 线串：由有序点组成

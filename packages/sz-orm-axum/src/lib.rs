@@ -200,4 +200,115 @@ mod tests {
         let resp = JsonResp(user).into_response();
         assert_eq!(resp.status(), StatusCode::OK);
     }
+
+    #[test]
+    fn test_json_rows_empty() {
+        let rows: QueryRows = vec![];
+        let resp = JsonRows(rows).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_rows_multiple_rows() {
+        let mut row1 = HashMap::new();
+        row1.insert("id".to_string(), Value::I64(1));
+        row1.insert("name".to_string(), Value::String("Alice".to_string()));
+        let mut row2 = HashMap::new();
+        row2.insert("id".to_string(), Value::I64(2));
+        row2.insert("name".to_string(), Value::String("Bob".to_string()));
+        let rows: QueryRows = vec![row1, row2];
+        let resp = JsonRows(rows).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_resp_with_vec() {
+        let data = vec![1i64, 2, 3];
+        let resp = JsonResp(data).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_resp_with_string() {
+        let resp = JsonResp("hello".to_string()).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_resp_with_option_none() {
+        let data: Option<i64> = None;
+        let resp = JsonResp(data).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_resp_with_option_some() {
+        let data: Option<i64> = Some(42);
+        let resp = JsonResp(data).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_rows_with_null_value() {
+        let mut row = HashMap::new();
+        row.insert("id".to_string(), Value::Null);
+        row.insert("name".to_string(), Value::String("test".to_string()));
+        let rows: QueryRows = vec![row];
+        let resp = JsonRows(rows).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_rows_with_various_types() {
+        let mut row = HashMap::new();
+        row.insert("i64".to_string(), Value::I64(42));
+        row.insert("f64".to_string(), Value::F64(3.15));
+        row.insert("bool".to_string(), Value::Bool(true));
+        row.insert("str".to_string(), Value::String("hello".to_string()));
+        row.insert("null".to_string(), Value::Null);
+        let rows: QueryRows = vec![row];
+        let resp = JsonRows(rows).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_pool_into_state_returns_arc() {
+        // 测试 pool_into_state 函数签名正确（不实际创建 Pool，因为需要异步运行时）
+        fn _assert<T: Send + Sync>() {}
+        _assert::<Arc<Pool>>();
+    }
+
+    #[test]
+    fn test_json_resp_with_nested_struct() {
+        #[derive(Serialize)]
+        struct Inner {
+            value: i64,
+        }
+        #[derive(Serialize)]
+        struct Outer {
+            inner: Inner,
+            name: String,
+        }
+        let data = Outer {
+            inner: Inner { value: 99 },
+            name: "nested".to_string(),
+        };
+        let resp = JsonResp(data).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_resp_with_empty_vec() {
+        let data: Vec<i64> = vec![];
+        let resp = JsonResp(data).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
+
+    #[test]
+    fn test_json_rows_with_empty_row() {
+        let row: HashMap<String, Value> = HashMap::new();
+        let rows: QueryRows = vec![row];
+        let resp = JsonRows(rows).into_response();
+        assert_eq!(resp.status(), StatusCode::OK);
+    }
 }

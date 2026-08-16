@@ -41,6 +41,21 @@ impl SuggestionType {
             SuggestionType::AdjustPoolSize => "adjust-pool-size",
         }
     }
+
+    pub fn all() -> &'static [SuggestionType] {
+        &[
+            SuggestionType::AddIndex,
+            SuggestionType::DropIndex,
+            SuggestionType::UsePagination,
+            SuggestionType::EnableCache,
+            SuggestionType::RewriteQuery,
+            SuggestionType::AdjustPoolSize,
+        ]
+    }
+
+    pub fn is_ddl(&self) -> bool {
+        matches!(self, SuggestionType::AddIndex | SuggestionType::DropIndex)
+    }
 }
 
 /// 统一优化建议结构
@@ -66,6 +81,41 @@ pub struct OptimizationSuggestion {
 }
 
 impl OptimizationSuggestion {
+    pub fn new(
+        suggestion_type: SuggestionType,
+        target_query: impl Into<String>,
+        description: impl Into<String>,
+        action: impl Into<String>,
+        confidence: f64,
+    ) -> Self {
+        Self {
+            suggestion_type,
+            target_query: target_query.into(),
+            description: description.into(),
+            action: action.into(),
+            confidence,
+            estimated_improvement: None,
+            conflict_note: None,
+        }
+    }
+
+    pub fn is_high_confidence(&self) -> bool {
+        self.confidence >= 0.8
+    }
+
+    pub fn has_improvement_estimate(&self) -> bool {
+        self.estimated_improvement.is_some()
+    }
+
+    pub fn summary(&self) -> String {
+        format!(
+            "[{}] {} (confidence={:.2})",
+            self.suggestion_type.as_str(),
+            self.description,
+            self.confidence
+        )
+    }
+
     /// 是否需要人工确认（置信度 < 0.5）
     pub fn needs_manual_confirmation(&self) -> bool {
         self.confidence < 0.5
@@ -203,6 +253,16 @@ pub enum TuningSuggestionType {
     Schema,
 }
 
+impl TuningSuggestionType {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TuningSuggestionType::Index => "index",
+            TuningSuggestionType::Rewrite => "rewrite",
+            TuningSuggestionType::Schema => "schema",
+        }
+    }
+}
+
 /// 风险等级（与 `sz_orm_ai::auto_tuning::RiskLevel` 字段兼容）
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum RiskLevel {
@@ -212,6 +272,16 @@ pub enum RiskLevel {
     Medium,
     /// 高风险（不自动执行）
     High,
+}
+
+impl RiskLevel {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            RiskLevel::Low => "low",
+            RiskLevel::Medium => "medium",
+            RiskLevel::High => "high",
+        }
+    }
 }
 
 /// 调优建议（与 `sz_orm_ai::auto_tuning::TuningSuggestion` 字段兼容）

@@ -9,11 +9,28 @@ pub enum CacheBackend {
     Memory,
 }
 
+impl CacheBackend {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            CacheBackend::Redis => "redis",
+            CacheBackend::Memory => "memory",
+        }
+    }
+}
+
 /// 搜索后端类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SearchBackend {
     /// 向量检索（复用 sz-orm-vector 混合搜索能力）
     Vector,
+}
+
+impl SearchBackend {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            SearchBackend::Vector => "vector",
+        }
+    }
 }
 
 /// 融合查询配置
@@ -34,6 +51,26 @@ impl Default for FusionConfig {
             cache: None,
             search: None,
         }
+    }
+}
+
+impl FusionConfig {
+    pub fn new(primary: impl Into<String>) -> Self {
+        Self {
+            primary: primary.into(),
+            cache: None,
+            search: None,
+        }
+    }
+
+    pub fn with_cache(mut self, backend: CacheBackend) -> Self {
+        self.cache = Some(backend);
+        self
+    }
+
+    pub fn with_search(mut self, backend: SearchBackend) -> Self {
+        self.search = Some(backend);
+        self
     }
 }
 
@@ -78,6 +115,14 @@ impl FusionQuery {
         self.limit = Some(limit);
         self
     }
+
+    pub fn table_name(&self) -> &str {
+        &self.table
+    }
+
+    pub fn has_eq_conditions(&self) -> bool {
+        !self.eq_conditions.is_empty()
+    }
 }
 
 /// 执行计划步骤
@@ -98,6 +143,18 @@ pub struct FusionPlan {
     pub steps: Vec<PlanStep>,
     /// 缓存键（可下推时存在）
     pub cache_key: Option<String>,
+}
+
+impl FusionPlan {
+    pub fn step_count(&self) -> usize {
+        self.steps.len()
+    }
+
+    pub fn has_cache_lookup(&self) -> bool {
+        self.steps
+            .iter()
+            .any(|s| matches!(s, PlanStep::CacheLookup { .. }))
+    }
 }
 
 /// 融合查询规划器（纯静态分析，无副作用）
@@ -229,5 +286,87 @@ mod tests {
         let q = FusionQuery::new("products").cond("search: 耳机");
         let plan = FusionPlanner::plan(&q, &config);
         assert_eq!(plan.steps.len(), 1);
+    }
+
+    #[test]
+    fn test_cache_backend_as_str() {
+        assert_eq!(CacheBackend::Redis.as_str(), "redis");
+        assert_eq!(CacheBackend::Memory.as_str(), "memory");
+    }
+
+    #[test]
+    fn test_search_backend_as_str() {
+        assert_eq!(SearchBackend::Vector.as_str(), "vector");
+    }
+
+    #[test]
+    fn test_fusion_config_builder() {
+        let config = FusionConfig::new("mysql")
+            .with_cache(CacheBackend::Redis)
+            .with_search(SearchBackend::Vector);
+        assert_eq!(config.primary, "mysql");
+        assert_eq!(config.cache, Some(CacheBackend::Redis));
+        assert_eq!(config.search, Some(SearchBackend::Vector));
+    }
+
+    #[test]
+    fn test_fusion_query_table_name() {
+        let q = FusionQuery::new("orders");
+        assert_eq!(q.table_name(), "orders");
+    }
+
+    #[test]
+    fn test_fusion_query_has_eq_conditions() {
+        let empty = FusionQuery::new("t");
+        assert!(!empty.has_eq_conditions());
+        let with_eq = FusionQuery::new("t").eq("id", "1");
+        assert!(with_eq.has_eq_conditions());
+    }
+
+    #[test]
+    fn test_fusion_plan_step_count() {
+        let config = FusionConfig::default();
+        let q = FusionQuery::new("t");
+        let plan = FusionPlanner::plan(&q, &config);
+        assert_eq!(plan.step_count(), 1);
+    }
+
+    #[test]
+    fn test_fusion_plan_has_cache_lookup() {
+        let no_cache = FusionConfig::default();
+        let q = FusionQuery::new("t").eq("id", "1");
+        let plan = FusionPlanner::plan(&q, &no_cache);
+        assert!(!plan.has_cache_lookup());
+
+        let with_cache = FusionConfig::default().with_cache(CacheBackend::Memory);
+        let plan2 = FusionPlanner::plan(&q, &with_cache);
+        assert!(plan2.has_cache_lookup());
+    }
+
+    #[test]
+    fn test_plan_with_both_cache_and_search() {
+        let config = FusionConfig::default()
+            .with_cache(CacheBackend::Memory)
+            .with_search(SearchBackend::Vector);
+        let q = FusionQuery::new("products")
+            .eq("category", "electronics")
+            .cond("search: phone")
+            .limit(10);
+        let plan = FusionPlanner::plan(&q, &config);
+        assert_eq!(plan.step_count(), 3); // CacheLookup + SearchPushdown + Primary
+        assert!(plan.has_cache_lookup());
+        assert!(plan.cache_key.is_some());
+    }
+
+    #[test]
+    fn test_build_cache_key_single_condition() {
+        let q = FusionQuery::new("users").eq("id", "42");
+        assert_eq!(build_cache_key(&q), "users:id=42");
+    }
+
+    #[test]
+    fn test_fusion_query_with_limit() {
+        let q = FusionQuery::new("t").eq("id", "1").limit(100);
+        assert_eq!(q.limit, Some(100));
     }
 }

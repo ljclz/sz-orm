@@ -360,4 +360,90 @@ mod tests {
         let outcome = scheduler.parallel(queries, config).await.unwrap();
         assert_eq!(outcome.success_count(), 1);
     }
+
+    type BoxedQuery =
+        Box<dyn FnOnce() -> BoxFuture<'static, Result<QueryOutcome<i64>, String>> + Send>;
+
+    fn boxed_ok(value: i64) -> BoxedQuery {
+        Box::new(move || Box::pin(async move { Ok(QueryOutcome::new(value, 1, 10)) }))
+    }
+
+    fn boxed_fail(err: &str) -> BoxedQuery {
+        let err = err.to_string();
+        Box::new(move || Box::pin(async move { Err(err) }))
+    }
+
+    fn boxed_slow(delay_ms: u64) -> BoxedQuery {
+        Box::new(move || {
+            Box::pin(async move {
+                tokio::time::sleep(Duration::from_millis(delay_ms)).await;
+                Ok(QueryOutcome::new(0i64, 1, delay_ms))
+            })
+        })
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn parallel_high_concurrency_50_queries() {
+        let scheduler = ParallelQueryScheduler::new();
+        let queries: Vec<BoxedQuery> = (0..50).map(boxed_ok).collect();
+        let config = ParallelQueryConfig::new().with_concurrency(8);
+        let outcome = scheduler.parallel(queries, config).await.unwrap();
+        assert_eq!(outcome.success_count(), 50, "all 50 queries should succeed");
+        assert_eq!(outcome.timed_out.len(), 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn parallel_concurrency_limit_respected() {
+        let scheduler = ParallelQueryScheduler::new();
+        // 并发上限 2，50 个查询全部成功（信号量不丢任务）
+        let queries: Vec<BoxedQuery> = (0..50).map(boxed_ok).collect();
+        let config = ParallelQueryConfig::new().with_concurrency(2);
+        let outcome = scheduler.parallel(queries, config).await.unwrap();
+        assert_eq!(outcome.success_count(), 50);
+    }
+
+    #[tokio::test]
+    async fn parallel_per_query_timeout_marks_timed_out() {
+        let scheduler = ParallelQueryScheduler::new();
+        // 单查询耗时 100ms，超时 10ms → 全部 timed_out
+        let queries: Vec<BoxedQuery> = vec![boxed_slow(100), boxed_slow(100)];
+        let config = ParallelQueryConfig::new().with_per_query_timeout_ms(10);
+        let outcome = scheduler.parallel(queries, config).await.unwrap();
+        assert_eq!(outcome.timed_out.len(), 2, "both queries should time out");
+        assert_eq!(outcome.success_count(), 0);
+    }
+
+    #[tokio::test]
+    async fn parallel_overall_timeout_returns_partial() {
+        let scheduler = ParallelQueryScheduler::new();
+        let queries: Vec<BoxedQuery> = vec![boxed_slow(200), boxed_ok(1)];
+        let config = ParallelQueryConfig::new().with_overall_timeout_ms(50);
+        let outcome = scheduler.parallel(queries, config).await.unwrap();
+        // 整体超时 → 结果数组全 None，timed_out 覆盖全部
+        assert_eq!(outcome.timed_out.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn parallel_mixed_success_failure() {
+        let scheduler = ParallelQueryScheduler::new();
+        let queries: Vec<BoxedQuery> = vec![boxed_ok(1), boxed_fail("boom"), boxed_ok(3)];
+        let config = ParallelQueryConfig::new();
+        let outcome = scheduler.parallel(queries, config).await.unwrap();
+        assert_eq!(outcome.success_count(), 2);
+        assert_eq!(outcome.failures.len(), 1);
+        assert!(outcome.failures[0].error.contains("boom"));
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 4)]
+    async fn parallel_stress_1000_queries() {
+        let scheduler = ParallelQueryScheduler::new();
+        let queries: Vec<BoxedQuery> = (0..1000).map(boxed_ok).collect();
+        let config = ParallelQueryConfig::new().with_concurrency(16);
+        let outcome = scheduler.parallel(queries, config).await.unwrap();
+        assert_eq!(
+            outcome.success_count(),
+            1000,
+            "stress test should not drop queries"
+        );
+    }
 }

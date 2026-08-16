@@ -10,6 +10,9 @@ keywords.workspace = true
 categories.workspace = true
 description = "actix-web framework integration for sz-orm"
 
+
+[package.metadata.cargo-machete]
+ignored = ['futures']
 [dependencies]
 sz-orm-core = { version = "4.1.0", path = "../sz-orm-core" }
 actix-web = "4"

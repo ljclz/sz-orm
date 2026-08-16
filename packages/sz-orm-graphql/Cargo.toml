@@ -25,6 +25,9 @@ graphql-complexity = []
 # v4.0.0 M8锛欸raphQL 娣卞害闆嗘垚锛坅sync-graphql Schema + DataLoader + Subscription + Relay + Federation + 宸ュ崟鍖栭敊璇級
 async-graphql-integration = ["real", "graphql-n1", "dep:sz-orm-queue"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['sz-orm-macros', 'sz-orm-queue']
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

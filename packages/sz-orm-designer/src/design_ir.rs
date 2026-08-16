@@ -450,4 +450,72 @@ mod tests {
         assert_eq!(to_pascal_case("order_items"), "OrderItems");
         assert_eq!(to_pascal_case("User"), "User");
     }
+
+    #[test]
+    fn test_to_rust_type_all_variants() {
+        assert_eq!(ColumnType::Int.to_rust_type(), "i32");
+        assert_eq!(ColumnType::BigInt.to_rust_type(), "i64");
+        assert_eq!(ColumnType::SmallInt.to_rust_type(), "i16");
+        assert_eq!(ColumnType::TinyInt.to_rust_type(), "i8");
+        assert_eq!(ColumnType::Varchar(None).to_rust_type(), "String");
+        assert_eq!(ColumnType::Text.to_rust_type(), "String");
+        assert_eq!(ColumnType::Boolean.to_rust_type(), "bool");
+        assert_eq!(ColumnType::Decimal(10, 2).to_rust_type(), "f64");
+        assert_eq!(ColumnType::Float.to_rust_type(), "f32");
+        assert_eq!(ColumnType::Double.to_rust_type(), "f64");
+        assert_eq!(ColumnType::Date.to_rust_type(), "chrono::NaiveDate");
+        assert_eq!(
+            ColumnType::DateTime.to_rust_type(),
+            "chrono::DateTime<chrono::Utc>"
+        );
+        assert_eq!(
+            ColumnType::Timestamp.to_rust_type(),
+            "chrono::DateTime<chrono::Utc>"
+        );
+        assert_eq!(ColumnType::Time.to_rust_type(), "chrono::NaiveTime");
+        assert_eq!(ColumnType::Json.to_rust_type(), "serde_json::Value");
+        assert_eq!(ColumnType::Binary.to_rust_type(), "Vec<u8>");
+        assert_eq!(ColumnType::Uuid.to_rust_type(), "uuid::Uuid");
+        assert_eq!(ColumnType::Custom("X".into()).to_rust_type(), "String");
+    }
+
+    #[test]
+    fn test_from_sql_type_aliases() {
+        assert_eq!(
+            ColumnType::from_sql_type("NVARCHAR(100)"),
+            ColumnType::Varchar(Some(100))
+        );
+        assert_eq!(ColumnType::from_sql_type("CLOB"), ColumnType::Text);
+        assert_eq!(ColumnType::from_sql_type("SERIAL"), ColumnType::BigInt);
+        assert_eq!(ColumnType::from_sql_type("BIGSERIAL"), ColumnType::BigInt);
+        assert_eq!(ColumnType::from_sql_type("INTEGER"), ColumnType::Int);
+        assert_eq!(ColumnType::from_sql_type("BOOL"), ColumnType::Boolean);
+        assert_eq!(
+            ColumnType::from_sql_type("NUMERIC(8,2)"),
+            ColumnType::Decimal(8, 2)
+        );
+        assert_eq!(ColumnType::from_sql_type("REAL"), ColumnType::Float);
+        assert_eq!(ColumnType::from_sql_type("BLOB"), ColumnType::Binary);
+        assert_eq!(ColumnType::from_sql_type("BYTEA"), ColumnType::Binary);
+        assert_eq!(
+            ColumnType::from_sql_type("UNKNOWN"),
+            ColumnType::Custom("UNKNOWN".into())
+        );
+    }
+
+    #[test]
+    fn test_cardinality_as_str() {
+        assert_eq!(Cardinality::OneToOne.as_str(), "1:1");
+        assert_eq!(Cardinality::OneToMany.as_str(), "1:N");
+        assert_eq!(Cardinality::ManyToOne.as_str(), "N:1");
+        assert_eq!(Cardinality::ManyToMany.as_str(), "N:N");
+    }
+
+    #[test]
+    fn test_pascal_case_edge_cases() {
+        assert_eq!(to_pascal_case(""), "");
+        assert_eq!(to_pascal_case("a"), "A");
+        assert_eq!(to_pascal_case("user_id_2"), "UserId2");
+        assert_eq!(to_pascal_case("__private"), "Private");
+    }
 }

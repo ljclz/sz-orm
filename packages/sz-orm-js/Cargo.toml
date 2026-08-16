@@ -14,6 +14,9 @@ categories = ["database", "api-bindings"]
 name = "sz_orm_js"
 crate-type = ["cdylib", "rlib"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['tokio']
 [dependencies]
 sz-orm-core = { workspace = true }
 napi = "2"

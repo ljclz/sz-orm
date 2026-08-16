@@ -935,6 +935,472 @@ impl Connection for MssqlConnection {
 }
 
 // ============================================================================
+// 连接串解析 API
+// ============================================================================
+
+/// SQL Server 连接串解析结果
+#[derive(Debug, Clone)]
+pub struct MssqlConnInfo {
+    server: String,
+    port: u16,
+    database: String,
+    user: String,
+    password: String,
+}
+
+impl MssqlConnInfo {
+    /// 获取服务器地址
+    #[must_use]
+    pub fn server(&self) -> &str {
+        &self.server
+    }
+
+    /// 获取端口
+    #[must_use]
+    pub fn port(&self) -> u16 {
+        self.port
+    }
+
+    /// 获取数据库名
+    #[must_use]
+    pub fn database(&self) -> &str {
+        &self.database
+    }
+
+    /// 获取用户名
+    #[must_use]
+    pub fn user(&self) -> &str {
+        &self.user
+    }
+
+    /// 获取密码
+    #[must_use]
+    pub fn password(&self) -> &str {
+        &self.password
+    }
+
+    /// 重新生成 DSN 连接串
+    #[must_use]
+    pub fn as_dsn(&self) -> String {
+        format!(
+            "server={};port={};database={};user={};password={}",
+            self.server, self.port, self.database, self.user, self.password
+        )
+    }
+}
+
+/// 解析 SQL Server 连接串
+///
+/// 支持格式：`server=host;port=1433;database=db;user=sa;password=pwd`
+/// 或 `server=host,port=1433;database=db;user=sa;password=pwd`
+///
+/// # Errors
+///
+/// 若缺少 `server` 或 `database` 字段返回 `DbError::Internal`。
+pub fn parse_conn_str(conn_str: &str) -> Result<MssqlConnInfo, DbError> {
+    let mut server = String::new();
+    let mut port: u16 = 1433;
+    let mut database = String::new();
+    let mut user = String::new();
+    let mut password = String::new();
+
+    for part in conn_str
+        .split(';')
+        .map(|s| s.trim())
+        .filter(|s| !s.is_empty())
+    {
+        let (key, val) = part
+            .split_once('=')
+            .or_else(|| part.split_once(','))
+            .ok_or_else(|| DbError::Internal(format!("invalid conn_str segment: {part}")))?;
+        let key = key.trim().to_lowercase();
+        let val = val.trim();
+        match key.as_str() {
+            "server" => server = val.to_string(),
+            "port" => port = val.parse().unwrap_or(1433),
+            "database" | "db" => database = val.to_string(),
+            "user" | "uid" => user = val.to_string(),
+            "password" | "pwd" => password = val.to_string(),
+            _ => {}
+        }
+    }
+
+    if server.is_empty() {
+        return Err(DbError::Internal("missing server in conn_str".to_string()));
+    }
+    if database.is_empty() {
+        return Err(DbError::Internal(
+            "missing database in conn_str".to_string(),
+        ));
+    }
+
+    Ok(MssqlConnInfo {
+        server,
+        port,
+        database,
+        user,
+        password,
+    })
+}
+
+// ============================================================================
+// SQL Server 方言辅助 API
+// ============================================================================
+
+/// SQL Server 方言辅助
+pub struct MssqlDialect;
+
+impl MssqlDialect {
+    /// 构造方言辅助器
+    #[must_use]
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 引用标识符（SQL Server 用方括号 `[name]`）
+    #[must_use]
+    pub fn quote_identifier(&self, name: &str) -> String {
+        format!("[{}]", name.replace(']', "]]"))
+    }
+
+    /// 生成 LIMIT/OFFSET 子句（SQL Server 用 `OFFSET ... FETCH NEXT` 语法）
+    ///
+    /// - 仅 `limit`：`TOP N`（兼容 SQL Server 2008+）
+    /// - `limit` + `offset`：`OFFSET N ROWS FETCH NEXT M ROWS ONLY`（SQL Server 2012+）
+    /// - 均无：空字符串
+    #[must_use]
+    pub fn limit_clause(&self, limit: Option<u64>, offset: Option<u64>) -> String {
+        match (limit, offset) {
+            (Some(l), None) => format!("TOP {l} "),
+            (Some(l), Some(o)) => {
+                format!("OFFSET {o} ROWS FETCH NEXT {l} ROWS ONLY")
+            }
+            (None, Some(o)) => format!("OFFSET {o} ROWS"),
+            (None, None) => String::new(),
+        }
+    }
+
+    /// 生成参数占位符（`@P1`, `@P2`, ...）
+    #[must_use]
+    pub fn placeholder(&self, index: usize) -> String {
+        format!("@P{index}")
+    }
+
+    /// 检查是否为 SQL Server 保留字
+    #[must_use]
+    pub fn is_reserved_keyword(&self, kw: &str) -> bool {
+        matches!(
+            kw.to_uppercase().as_str(),
+            "SELECT"
+                | "FROM"
+                | "WHERE"
+                | "INSERT"
+                | "UPDATE"
+                | "DELETE"
+                | "CREATE"
+                | "ALTER"
+                | "DROP"
+                | "TABLE"
+                | "INDEX"
+                | "VIEW"
+                | "JOIN"
+                | "INNER"
+                | "LEFT"
+                | "RIGHT"
+                | "OUTER"
+                | "ON"
+                | "AND"
+                | "OR"
+                | "NOT"
+                | "NULL"
+                | "ORDER"
+                | "GROUP"
+                | "HAVING"
+                | "BY"
+                | "AS"
+                | "DISTINCT"
+                | "TOP"
+                | "OFFSET"
+                | "FETCH"
+                | "NEXT"
+                | "ROWS"
+                | "ONLY"
+                | "BEGIN"
+                | "COMMIT"
+                | "ROLLBACK"
+                | "TRANSACTION"
+                | "INTO"
+                | "VALUES"
+                | "SET"
+                | "EXEC"
+                | "PROCEDURE"
+                | "FUNCTION"
+                | "RETURN"
+                | "IF"
+                | "ELSE"
+                | "WHILE"
+                | "DECLARE"
+                | "CURSOR"
+                | "OPEN"
+                | "CLOSE"
+                | "DEALLOCATE"
+                | "TRIGGER"
+                | "PRIMARY"
+                | "FOREIGN"
+                | "KEY"
+                | "REFERENCES"
+                | "CONSTRAINT"
+                | "DEFAULT"
+                | "CHECK"
+                | "UNIQUE"
+                | "CLUSTERED"
+                | "NONCLUSTERED"
+        )
+    }
+}
+
+impl Default for MssqlDialect {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ============================================================================
+// SQL Server 类型枚举 API
+// ============================================================================
+
+/// SQL Server 数据类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MssqlType {
+    Bigint,
+    Binary,
+    Bit,
+    Char,
+    Date,
+    Datetime,
+    Datetime2,
+    Datetimeoffset,
+    Decimal,
+    Float,
+    Image,
+    Int,
+    Money,
+    Nchar,
+    Ntext,
+    Numeric,
+    Nvarchar,
+    Real,
+    Smalldatetime,
+    Smallint,
+    Smallmoney,
+    Text,
+    Time,
+    Tinyint,
+    Uniqueidentifier,
+    Varbinary,
+    Varchar,
+    Xml,
+    Variant,
+    Null,
+}
+
+impl MssqlType {
+    /// 返回 SQL 类型名
+    #[must_use]
+    pub fn as_sql_type(&self) -> &'static str {
+        match self {
+            MssqlType::Bigint => "BIGINT",
+            MssqlType::Binary => "BINARY",
+            MssqlType::Bit => "BIT",
+            MssqlType::Char => "CHAR",
+            MssqlType::Date => "DATE",
+            MssqlType::Datetime => "DATETIME",
+            MssqlType::Datetime2 => "DATETIME2",
+            MssqlType::Datetimeoffset => "DATETIMEOFFSET",
+            MssqlType::Decimal => "DECIMAL",
+            MssqlType::Float => "FLOAT",
+            MssqlType::Image => "IMAGE",
+            MssqlType::Int => "INT",
+            MssqlType::Money => "MONEY",
+            MssqlType::Nchar => "NCHAR",
+            MssqlType::Ntext => "NTEXT",
+            MssqlType::Numeric => "NUMERIC",
+            MssqlType::Nvarchar => "NVARCHAR",
+            MssqlType::Real => "REAL",
+            MssqlType::Smalldatetime => "SMALLDATETIME",
+            MssqlType::Smallint => "SMALLINT",
+            MssqlType::Smallmoney => "SMALLMONEY",
+            MssqlType::Text => "TEXT",
+            MssqlType::Time => "TIME",
+            MssqlType::Tinyint => "TINYINT",
+            MssqlType::Uniqueidentifier => "UNIQUEIDENTIFIER",
+            MssqlType::Varbinary => "VARBINARY",
+            MssqlType::Varchar => "VARCHAR",
+            MssqlType::Xml => "XML",
+            MssqlType::Variant => "SQL_VARIANT",
+            MssqlType::Null => "NULL",
+        }
+    }
+
+    /// 是否为数值类型
+    #[must_use]
+    pub fn is_numeric(&self) -> bool {
+        matches!(
+            self,
+            MssqlType::Bigint
+                | MssqlType::Bit
+                | MssqlType::Decimal
+                | MssqlType::Float
+                | MssqlType::Int
+                | MssqlType::Money
+                | MssqlType::Numeric
+                | MssqlType::Real
+                | MssqlType::Smallint
+                | MssqlType::Smallmoney
+                | MssqlType::Tinyint
+        )
+    }
+
+    /// 是否为字符串类型
+    #[must_use]
+    pub fn is_string(&self) -> bool {
+        matches!(
+            self,
+            MssqlType::Char
+                | MssqlType::Nchar
+                | MssqlType::Ntext
+                | MssqlType::Nvarchar
+                | MssqlType::Text
+                | MssqlType::Varchar
+                | MssqlType::Xml
+        )
+    }
+
+    /// 是否为二进制类型
+    #[must_use]
+    pub fn is_binary(&self) -> bool {
+        matches!(
+            self,
+            MssqlType::Binary | MssqlType::Image | MssqlType::Varbinary
+        )
+    }
+
+    /// 是否为时间类型
+    #[must_use]
+    pub fn is_temporal(&self) -> bool {
+        matches!(
+            self,
+            MssqlType::Date
+                | MssqlType::Datetime
+                | MssqlType::Datetime2
+                | MssqlType::Datetimeoffset
+                | MssqlType::Smalldatetime
+                | MssqlType::Time
+        )
+    }
+
+    /// 从类型名解析
+    #[must_use]
+    pub fn parse_name(name: &str) -> Self {
+        match name.to_uppercase().as_str() {
+            "BIGINT" => MssqlType::Bigint,
+            "BINARY" => MssqlType::Binary,
+            "BIT" => MssqlType::Bit,
+            "CHAR" => MssqlType::Char,
+            "DATE" => MssqlType::Date,
+            "DATETIME" => MssqlType::Datetime,
+            "DATETIME2" => MssqlType::Datetime2,
+            "DATETIMEOFFSET" => MssqlType::Datetimeoffset,
+            "DECIMAL" => MssqlType::Decimal,
+            "FLOAT" => MssqlType::Float,
+            "IMAGE" => MssqlType::Image,
+            "INT" | "INTEGER" => MssqlType::Int,
+            "MONEY" => MssqlType::Money,
+            "NCHAR" => MssqlType::Nchar,
+            "NTEXT" => MssqlType::Ntext,
+            "NUMERIC" => MssqlType::Numeric,
+            "NVARCHAR" => MssqlType::Nvarchar,
+            "REAL" => MssqlType::Real,
+            "SMALLDATETIME" => MssqlType::Smalldatetime,
+            "SMALLINT" => MssqlType::Smallint,
+            "SMALLMONEY" => MssqlType::Smallmoney,
+            "TEXT" => MssqlType::Text,
+            "TIME" => MssqlType::Time,
+            "TINYINT" => MssqlType::Tinyint,
+            "UNIQUEIDENTIFIER" => MssqlType::Uniqueidentifier,
+            "VARBINARY" => MssqlType::Varbinary,
+            "VARCHAR" => MssqlType::Varchar,
+            "XML" => MssqlType::Xml,
+            "SQL_VARIANT" => MssqlType::Variant,
+            "NULL" => MssqlType::Null,
+            _ => MssqlType::Variant,
+        }
+    }
+}
+
+// ============================================================================
+// SQL Server 错误分类 API
+// ============================================================================
+
+/// SQL Server 错误分类
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum MssqlErrorCategory {
+    /// 主键/唯一键冲突（错误码 2627/2601）
+    DuplicateKey,
+    /// 约束违反（错误码 547）
+    ConstraintViolation,
+    /// NULL 值违反非空约束（错误码 515）
+    NullViolation,
+    /// 对象不存在（错误码 208）
+    InvalidObject,
+    /// 死锁（错误码 1205）
+    Deadlock,
+    /// 超时（错误码 -2）
+    Timeout,
+    /// 其他错误
+    Other,
+}
+
+impl MssqlErrorCategory {
+    /// 从 SQL Server 错误码分类
+    #[must_use]
+    pub fn from_code(code: i32) -> Self {
+        match code {
+            2627 | 2601 => MssqlErrorCategory::DuplicateKey,
+            547 => MssqlErrorCategory::ConstraintViolation,
+            515 => MssqlErrorCategory::NullViolation,
+            208 => MssqlErrorCategory::InvalidObject,
+            1205 => MssqlErrorCategory::Deadlock,
+            -2 => MssqlErrorCategory::Timeout,
+            _ => MssqlErrorCategory::Other,
+        }
+    }
+
+    /// 错误描述
+    #[must_use]
+    pub fn description(&self) -> &'static str {
+        match self {
+            MssqlErrorCategory::DuplicateKey => "duplicate key violation",
+            MssqlErrorCategory::ConstraintViolation => "constraint violation",
+            MssqlErrorCategory::NullViolation => "NULL value in non-null column",
+            MssqlErrorCategory::InvalidObject => "invalid object name",
+            MssqlErrorCategory::Deadlock => "deadlock detected",
+            MssqlErrorCategory::Timeout => "query timeout",
+            MssqlErrorCategory::Other => "unknown error",
+        }
+    }
+
+    /// 是否可重试（死锁/超时）
+    #[must_use]
+    pub fn is_retriable(&self) -> bool {
+        matches!(
+            self,
+            MssqlErrorCategory::Deadlock | MssqlErrorCategory::Timeout
+        )
+    }
+}
+
+// ============================================================================
 // 单元测试
 // ============================================================================
 
@@ -1085,5 +1551,303 @@ mod tests {
             ColumnData::String(Some(s)) => assert_eq!(s, "test"),
             _ => panic!("expected String(Some)"),
         }
+    }
+
+    #[test]
+    fn test_value_mapping_u16_as_i32() {
+        let param = value_to_mssql_param_owned(&Value::U16(65535));
+        assert!(matches!(param, MssqlParamOwned::I32(Some(65535))));
+    }
+
+    #[test]
+    fn test_value_mapping_u64_as_i64() {
+        let big: u64 = 1 << 40;
+        let param = value_to_mssql_param_owned(&Value::U64(big));
+        assert!(matches!(param, MssqlParamOwned::I64(Some(v)) if v == big as i64));
+    }
+
+    #[test]
+    fn test_value_mapping_decimal_as_string() {
+        let param = value_to_mssql_param_owned(&Value::Decimal("123.45".to_string()));
+        assert!(matches!(param, MssqlParamOwned::String(_)));
+    }
+
+    #[test]
+    fn test_value_mapping_json_as_string() {
+        let param = value_to_mssql_param_owned(&Value::Json(r#"{"a":1}"#.to_string()));
+        assert!(matches!(param, MssqlParamOwned::String(_)));
+    }
+
+    #[test]
+    fn test_value_mapping_array_as_json_string() {
+        let param = value_to_mssql_param_owned(&Value::Array(vec![Value::I32(1)]));
+        match param {
+            MssqlParamOwned::String(s) => assert!(s.contains("1")),
+            _ => panic!("expected String"),
+        }
+    }
+
+    #[test]
+    fn test_value_mapping_null() {
+        let param = value_to_mssql_param_owned(&Value::Null);
+        assert!(matches!(param, MssqlParamOwned::Null));
+    }
+
+    #[test]
+    fn test_value_mapping_i64_roundtrip() {
+        let param = value_to_mssql_param_owned(&Value::I64(-42));
+        assert!(matches!(param, MssqlParamOwned::I64(Some(-42))));
+    }
+
+    // ===== 连接串解析测试 =====
+
+    #[test]
+    fn test_parse_conn_str_full() {
+        let info =
+            parse_conn_str("server=localhost;port=1433;database=testdb;user=sa;password=pwd123")
+                .unwrap();
+        assert_eq!(info.server(), "localhost");
+        assert_eq!(info.port(), 1433);
+        assert_eq!(info.database(), "testdb");
+        assert_eq!(info.user(), "sa");
+        assert_eq!(info.password(), "pwd123");
+    }
+
+    #[test]
+    fn test_parse_conn_str_default_port() {
+        let info =
+            parse_conn_str("server=192.168.1.1;database=mydb;user=admin;password=secret").unwrap();
+        assert_eq!(info.server(), "192.168.1.1");
+        assert_eq!(info.port(), 1433, "default port should be 1433");
+    }
+
+    #[test]
+    fn test_parse_conn_str_missing_server() {
+        let result = parse_conn_str("database=testdb;user=sa;password=pwd");
+        assert!(result.is_err(), "missing server should error");
+    }
+
+    #[test]
+    fn test_parse_conn_str_missing_database() {
+        let result = parse_conn_str("server=localhost;user=sa;password=pwd");
+        assert!(result.is_err(), "missing database should error");
+    }
+
+    #[test]
+    fn test_parse_conn_str_as_dsn_roundtrip() {
+        let original = "server=host;port=1434;database=db;user=u;password=p";
+        let info = parse_conn_str(original).unwrap();
+        let dsn = info.as_dsn();
+        let info2 = parse_conn_str(&dsn).unwrap();
+        assert_eq!(info.server(), info2.server());
+        assert_eq!(info.port(), info2.port());
+        assert_eq!(info.database(), info2.database());
+    }
+
+    #[test]
+    fn test_parse_conn_str_alternate_keys() {
+        let info = parse_conn_str("server=h;database=d;uid=user1;pwd=pass1").unwrap();
+        assert_eq!(info.user(), "user1");
+        assert_eq!(info.password(), "pass1");
+    }
+
+    // ===== MssqlDialect 测试 =====
+
+    #[test]
+    fn test_dialect_quote_identifier() {
+        let d = MssqlDialect::new();
+        assert_eq!(d.quote_identifier("users"), "[users]");
+        assert_eq!(d.quote_identifier("order"), "[order]");
+    }
+
+    #[test]
+    fn test_dialect_quote_identifier_escape_bracket() {
+        let d = MssqlDialect::new();
+        assert_eq!(d.quote_identifier("a]b"), "[a]]b]");
+    }
+
+    #[test]
+    fn test_dialect_limit_clause_top() {
+        let d = MssqlDialect::new();
+        assert_eq!(d.limit_clause(Some(10), None), "TOP 10 ");
+    }
+
+    #[test]
+    fn test_dialect_limit_clause_offset_fetch() {
+        let d = MssqlDialect::new();
+        assert_eq!(
+            d.limit_clause(Some(10), Some(20)),
+            "OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"
+        );
+    }
+
+    #[test]
+    fn test_dialect_limit_clause_empty() {
+        let d = MssqlDialect::new();
+        assert_eq!(d.limit_clause(None, None), "");
+    }
+
+    #[test]
+    fn test_dialect_placeholder() {
+        let d = MssqlDialect::new();
+        assert_eq!(d.placeholder(1), "@P1");
+        assert_eq!(d.placeholder(3), "@P3");
+    }
+
+    #[test]
+    fn test_dialect_is_reserved_keyword() {
+        let d = MssqlDialect::new();
+        assert!(d.is_reserved_keyword("SELECT"));
+        assert!(d.is_reserved_keyword("select"));
+        assert!(d.is_reserved_keyword("TABLE"));
+        assert!(!d.is_reserved_keyword("users"));
+        assert!(!d.is_reserved_keyword("my_column"));
+    }
+
+    #[test]
+    fn test_dialect_default() {
+        let d = MssqlDialect;
+        assert_eq!(d.placeholder(1), "@P1");
+    }
+
+    // ===== MssqlType 测试 =====
+
+    #[test]
+    fn test_mssql_type_as_sql_type() {
+        assert_eq!(MssqlType::Int.as_sql_type(), "INT");
+        assert_eq!(MssqlType::Varchar.as_sql_type(), "VARCHAR");
+        assert_eq!(MssqlType::Datetime2.as_sql_type(), "DATETIME2");
+        assert_eq!(
+            MssqlType::Uniqueidentifier.as_sql_type(),
+            "UNIQUEIDENTIFIER"
+        );
+    }
+
+    #[test]
+    fn test_mssql_type_is_numeric() {
+        assert!(MssqlType::Int.is_numeric());
+        assert!(MssqlType::Bigint.is_numeric());
+        assert!(MssqlType::Decimal.is_numeric());
+        assert!(MssqlType::Money.is_numeric());
+        assert!(!MssqlType::Varchar.is_numeric());
+        assert!(!MssqlType::Date.is_numeric());
+    }
+
+    #[test]
+    fn test_mssql_type_is_string() {
+        assert!(MssqlType::Varchar.is_string());
+        assert!(MssqlType::Nvarchar.is_string());
+        assert!(MssqlType::Text.is_string());
+        assert!(MssqlType::Xml.is_string());
+        assert!(!MssqlType::Int.is_string());
+    }
+
+    #[test]
+    fn test_mssql_type_is_binary() {
+        assert!(MssqlType::Varbinary.is_binary());
+        assert!(MssqlType::Binary.is_binary());
+        assert!(MssqlType::Image.is_binary());
+        assert!(!MssqlType::Int.is_binary());
+    }
+
+    #[test]
+    fn test_mssql_type_is_temporal() {
+        assert!(MssqlType::Date.is_temporal());
+        assert!(MssqlType::Datetime.is_temporal());
+        assert!(MssqlType::Smalldatetime.is_temporal());
+        assert!(MssqlType::Time.is_temporal());
+        assert!(!MssqlType::Int.is_temporal());
+    }
+
+    #[test]
+    fn test_mssql_type_parse_name() {
+        assert_eq!(MssqlType::parse_name("INT"), MssqlType::Int);
+        assert_eq!(MssqlType::parse_name("varchar"), MssqlType::Varchar);
+        assert_eq!(MssqlType::parse_name("DATETIME2"), MssqlType::Datetime2);
+        assert_eq!(MssqlType::parse_name("INTEGER"), MssqlType::Int);
+        assert_eq!(MssqlType::parse_name("unknown"), MssqlType::Variant);
+    }
+
+    #[test]
+    fn test_mssql_type_money_and_smalldatetime() {
+        assert!(MssqlType::Money.is_numeric());
+        assert!(MssqlType::Smallmoney.is_numeric());
+        assert!(MssqlType::Smalldatetime.is_temporal());
+        assert_eq!(MssqlType::Money.as_sql_type(), "MONEY");
+        assert_eq!(MssqlType::Smalldatetime.as_sql_type(), "SMALLDATETIME");
+    }
+
+    #[test]
+    fn test_mssql_type_uniqueidentifier() {
+        assert!(!MssqlType::Uniqueidentifier.is_numeric());
+        assert!(!MssqlType::Uniqueidentifier.is_string());
+        assert!(!MssqlType::Uniqueidentifier.is_binary());
+        assert_eq!(
+            MssqlType::Uniqueidentifier.as_sql_type(),
+            "UNIQUEIDENTIFIER"
+        );
+    }
+
+    // ===== MssqlErrorCategory 测试 =====
+
+    #[test]
+    fn test_error_category_duplicate_key() {
+        assert_eq!(
+            MssqlErrorCategory::from_code(2627),
+            MssqlErrorCategory::DuplicateKey
+        );
+        assert_eq!(
+            MssqlErrorCategory::from_code(2601),
+            MssqlErrorCategory::DuplicateKey
+        );
+    }
+
+    #[test]
+    fn test_error_category_constraint() {
+        assert_eq!(
+            MssqlErrorCategory::from_code(547),
+            MssqlErrorCategory::ConstraintViolation
+        );
+    }
+
+    #[test]
+    fn test_error_category_deadlock_and_timeout() {
+        assert_eq!(
+            MssqlErrorCategory::from_code(1205),
+            MssqlErrorCategory::Deadlock
+        );
+        assert_eq!(
+            MssqlErrorCategory::from_code(-2),
+            MssqlErrorCategory::Timeout
+        );
+    }
+
+    #[test]
+    fn test_error_category_description() {
+        assert_eq!(
+            MssqlErrorCategory::DuplicateKey.description(),
+            "duplicate key violation"
+        );
+        assert_eq!(
+            MssqlErrorCategory::Deadlock.description(),
+            "deadlock detected"
+        );
+    }
+
+    #[test]
+    fn test_error_category_is_retriable() {
+        assert!(MssqlErrorCategory::Deadlock.is_retriable());
+        assert!(MssqlErrorCategory::Timeout.is_retriable());
+        assert!(!MssqlErrorCategory::DuplicateKey.is_retriable());
+        assert!(!MssqlErrorCategory::Other.is_retriable());
+    }
+
+    #[test]
+    fn test_error_category_other() {
+        assert_eq!(
+            MssqlErrorCategory::from_code(999),
+            MssqlErrorCategory::Other
+        );
+        assert_eq!(MssqlErrorCategory::Other.description(), "unknown error");
     }
 }

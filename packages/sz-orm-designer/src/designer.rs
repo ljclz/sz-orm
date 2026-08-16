@@ -164,4 +164,58 @@ mod tests {
             .unwrap_err();
         assert!(matches!(err, DesignerError::RoundTripInconsistency { .. }));
     }
+
+    #[test]
+    fn test_design_accessor() {
+        let design = sample_design();
+        let designer = SchemaDesigner::new(design);
+        assert_eq!(designer.design().tables.len(), 1);
+        assert_eq!(designer.design().tables[0].name, "users");
+    }
+
+    #[test]
+    fn test_add_table_success() {
+        let design = sample_design();
+        let mut designer = SchemaDesigner::new(design);
+        designer
+            .add_table(DesignTable::new(
+                "orders",
+                vec![DesignColumn::new("id", ColumnType::BigInt)],
+            ))
+            .unwrap();
+        assert_eq!(designer.design().tables.len(), 2);
+    }
+
+    #[test]
+    fn test_modify_table_success_and_not_found() {
+        let design = sample_design();
+        let mut designer = SchemaDesigner::new(design);
+        let new_table = DesignTable::new("users", vec![DesignColumn::new("id", ColumnType::Int)]);
+        designer.modify_table("users", new_table).unwrap();
+        assert_eq!(designer.design().tables[0].columns.len(), 1);
+
+        let err = designer
+            .modify_table("nonexistent", DesignTable::new("x", vec![]))
+            .unwrap_err();
+        assert!(matches!(err, DesignerError::RoundTripInconsistency { .. }));
+    }
+
+    #[test]
+    fn test_add_relation_success() {
+        let design = sample_design().with_table(DesignTable::new(
+            "orders",
+            vec![DesignColumn::new("id", ColumnType::BigInt)],
+        ));
+        let mut designer = SchemaDesigner::new(design);
+        designer
+            .add_relation(DesignRelation {
+                from_table: "users".to_string(),
+                to_table: "orders".to_string(),
+                from_column: "id".to_string(),
+                to_column: "user_id".to_string(),
+                cardinality: Cardinality::OneToMany,
+            })
+            .unwrap();
+        assert_eq!(designer.design().relations.len(), 1);
+    }
 }

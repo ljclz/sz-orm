@@ -123,4 +123,44 @@ mod tests {
         assert!(s.contains("-- UP:"));
         assert!(s.contains("-- DOWN:"));
     }
+
+    #[test]
+    fn test_export_png_error() {
+        let design = sample_design();
+        let result = DesignerExporter::export(&design, ExportFormat::ErPng, Dialect::MySql);
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            DesignerError::DdlGenerationPartial { .. }
+        ));
+    }
+
+    #[test]
+    fn test_export_rust_model() {
+        let design = sample_design();
+        let result = DesignerExporter::export(&design, ExportFormat::RustModel, Dialect::MySql);
+        assert!(result.is_ok());
+        let bytes = result.unwrap();
+        let s = String::from_utf8(bytes).unwrap();
+        assert!(s.contains("struct"));
+    }
+
+    #[test]
+    fn test_export_ddl_postgres() {
+        let design = sample_design();
+        let result = DesignerExporter::export(&design, ExportFormat::DdlSql, Dialect::PostgreSql);
+        assert!(result.is_ok());
+        let s = String::from_utf8(result.unwrap()).unwrap();
+        assert!(s.to_uppercase().contains("CREATE TABLE"));
+    }
+
+    #[test]
+    fn test_export_json_roundtrip() {
+        let design = sample_design();
+        let bytes =
+            DesignerExporter::export(&design, ExportFormat::JsonDesign, Dialect::MySql).unwrap();
+        let recovered: SchemaDesign = serde_json::from_slice(&bytes).unwrap();
+        assert_eq!(recovered.tables.len(), design.tables.len());
+        assert_eq!(recovered.tables[0].name, design.tables[0].name);
+    }
 }

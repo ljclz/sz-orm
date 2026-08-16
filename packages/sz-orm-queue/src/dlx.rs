@@ -464,7 +464,7 @@ mod tests {
         let policy = BackoffPolicy::RandomJitter;
         let v = policy.calculate(1, 1000, 60000);
         assert!(
-            v >= 500 && v <= 1500,
+            (500..=1500).contains(&v),
             "jitter should be in [500, 1500], got {v}"
         );
     }

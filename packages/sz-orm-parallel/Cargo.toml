@@ -15,6 +15,9 @@ default = []
 # v4.5.0 M1：并行查询执行器（并发度控制 + 四种合并策略 + 超时降级）
 parallel-query = ["dep:tokio", "dep:futures"]
 
+
+[package.metadata.cargo-machete]
+ignored = ['sz-orm-adaptive', 'sz-orm-core']
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"

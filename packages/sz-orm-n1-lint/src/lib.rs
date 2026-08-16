@@ -285,6 +285,266 @@ fn is_query_method(method: &str) -> bool {
         || method == "eager_load"
 }
 
+// ---------------------------------------------------------------------------
+// N1Severity — 严重度等级
+// ---------------------------------------------------------------------------
+
+/// N+1 检测结果的严重度
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub enum N1Severity {
+    /// 提示（可批量替代）
+    Info,
+    /// 警告（循环内条件查询）
+    Warning,
+    /// 错误（循环内直接查询）
+    Error,
+}
+
+impl N1Severity {
+    /// 人类可读名称
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            N1Severity::Info => "info",
+            N1Severity::Warning => "warning",
+            N1Severity::Error => "error",
+        }
+    }
+
+    /// 从模式推断严重度
+    pub fn from_pattern(pattern: N1Pattern) -> Self {
+        match pattern {
+            N1Pattern::QueryInLoop => N1Severity::Error,
+            N1Pattern::ConditionalQueryInLoop => N1Severity::Warning,
+            N1Pattern::MissingEagerLoadHint => N1Severity::Info,
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// N1Report — 检测报告聚合
+// ---------------------------------------------------------------------------
+
+/// N+1 检测报告：聚合多条检测结果
+#[derive(Debug, Clone, Default)]
+pub struct N1Report {
+    findings: Vec<N1Finding>,
+}
+
+impl N1Report {
+    /// 创建空报告
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 添加检测结果
+    pub fn add_finding(&mut self, finding: N1Finding) {
+        self.findings.push(finding);
+    }
+
+    /// 所有检测结果引用
+    pub fn findings(&self) -> &[N1Finding] {
+        &self.findings
+    }
+
+    /// 检测结果总数
+    pub fn count(&self) -> usize {
+        self.findings.len()
+    }
+
+    /// 按模式统计数量
+    pub fn count_by_pattern(&self, pattern: N1Pattern) -> usize {
+        self.findings
+            .iter()
+            .filter(|f| f.pattern == pattern)
+            .count()
+    }
+
+    /// 是否无检测结果（代码干净）
+    pub fn is_clean(&self) -> bool {
+        self.findings.is_empty()
+    }
+
+    /// 已发现的唯一模式列表
+    pub fn patterns_found(&self) -> Vec<N1Pattern> {
+        let mut seen = Vec::new();
+        for f in &self.findings {
+            if !seen.contains(&f.pattern) {
+                seen.push(f.pattern);
+            }
+        }
+        seen
+    }
+
+    /// 汇总字符串
+    pub fn to_summary_string(&self) -> String {
+        let mut out = format!("N+1 Query Report: {} finding(s)\n", self.count());
+        for f in &self.findings {
+            out.push_str(&format!(
+                "  [{}] {}:{} — {}\n",
+                f.pattern.as_str(),
+                f.file,
+                f.line,
+                f.message
+            ));
+        }
+        out
+    }
+}
+
+// ---------------------------------------------------------------------------
+// N1Config — 检测配置
+// ---------------------------------------------------------------------------
+
+/// N+1 检测配置：可忽略指定模式
+#[derive(Debug, Clone, Default)]
+pub struct N1Config {
+    ignored_patterns: Vec<N1Pattern>,
+}
+
+impl N1Config {
+    /// 创建默认配置（不忽略任何模式）
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 添加忽略模式（链式）
+    pub fn with_ignore_pattern(&mut self, pattern: N1Pattern) -> &mut Self {
+        if !self.ignored_patterns.contains(&pattern) {
+            self.ignored_patterns.push(pattern);
+        }
+        self
+    }
+
+    /// 检查模式是否被忽略
+    pub fn is_ignored(&self, pattern: N1Pattern) -> bool {
+        self.ignored_patterns.contains(&pattern)
+    }
+
+    /// 已忽略模式数
+    pub fn ignored_count(&self) -> usize {
+        self.ignored_patterns.len()
+    }
+}
+
+// ---------------------------------------------------------------------------
+// QueryMethod — 已知查询方法名
+// ---------------------------------------------------------------------------
+
+/// 已知查询方法枚举
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum QueryMethod {
+    /// `find_by_*` 系列
+    FindById,
+    /// `find_all`
+    FindAll,
+    /// `query`
+    Query,
+    /// `where_eq`
+    WhereEq,
+    /// `or_where_eq`
+    OrWhereEq,
+    /// `find_with_related`
+    FindWithRelated,
+    /// `eager_load`
+    EagerLoad,
+    /// 自定义方法名
+    Custom(String),
+}
+
+impl QueryMethod {
+    /// 方法名字符串
+    pub fn as_str(&self) -> &str {
+        match self {
+            QueryMethod::FindById => "find_by_id",
+            QueryMethod::FindAll => "find_all",
+            QueryMethod::Query => "query",
+            QueryMethod::WhereEq => "where_eq",
+            QueryMethod::OrWhereEq => "or_where_eq",
+            QueryMethod::FindWithRelated => "find_with_related",
+            QueryMethod::EagerLoad => "eager_load",
+            QueryMethod::Custom(name) => name,
+        }
+    }
+
+    /// 是否可批量替代（`where_in` / `eager_load` 可替代）
+    pub fn is_batchable(&self) -> bool {
+        matches!(
+            self,
+            QueryMethod::FindById
+                | QueryMethod::FindAll
+                | QueryMethod::WhereEq
+                | QueryMethod::FindWithRelated
+        )
+    }
+}
+
+// ---------------------------------------------------------------------------
+// LoopType — 循环类型
+// ---------------------------------------------------------------------------
+
+/// 检测到的循环类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LoopType {
+    /// `for` 循环
+    For,
+    /// `while` 循环
+    While,
+    /// `loop` 循环
+    Loop,
+}
+
+impl LoopType {
+    /// 人类可读名称
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            LoopType::For => "for",
+            LoopType::While => "while",
+            LoopType::Loop => "loop",
+        }
+    }
+}
+
+// ---------------------------------------------------------------------------
+// N1Suggestion — 修复建议
+// ---------------------------------------------------------------------------
+
+/// N+1 修复建议
+#[derive(Debug, Clone)]
+pub struct N1Suggestion {
+    pattern: N1Pattern,
+}
+
+impl N1Suggestion {
+    /// 从检测模式创建建议
+    pub fn new(pattern: N1Pattern) -> Self {
+        Self { pattern }
+    }
+
+    /// 建议描述
+    pub fn description(&self) -> &'static str {
+        match self.pattern {
+            N1Pattern::QueryInLoop => {
+                "replace loop+query with batch loading (where_in / eager_load)"
+            }
+            N1Pattern::ConditionalQueryInLoop => {
+                "extract conditional query outside loop, or pre-load all related data"
+            }
+            N1Pattern::MissingEagerLoadHint => {
+                "consider using eager_load to avoid potential N+1 when called in a loop"
+            }
+        }
+    }
+
+    /// 修复类型
+    pub fn fix_type(&self) -> &'static str {
+        match self.pattern {
+            N1Pattern::QueryInLoop => "batch-load",
+            N1Pattern::ConditionalQueryInLoop => "pre-load",
+            N1Pattern::MissingEagerLoadHint => "eager-load-hint",
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -408,5 +668,400 @@ fn compute(list: Vec<i32>) -> i32 {
             "target dir must be skipped"
         );
         let _ = std::fs::remove_dir_all(fixture_dir());
+    }
+
+    // --- N1Severity tests ---
+
+    #[test]
+    fn severity_from_pattern_query_in_loop() {
+        assert_eq!(
+            N1Severity::from_pattern(N1Pattern::QueryInLoop),
+            N1Severity::Error
+        );
+    }
+
+    #[test]
+    fn severity_from_pattern_conditional() {
+        assert_eq!(
+            N1Severity::from_pattern(N1Pattern::ConditionalQueryInLoop),
+            N1Severity::Warning
+        );
+    }
+
+    #[test]
+    fn severity_from_pattern_missing_eager_load() {
+        assert_eq!(
+            N1Severity::from_pattern(N1Pattern::MissingEagerLoadHint),
+            N1Severity::Info
+        );
+    }
+
+    #[test]
+    fn severity_as_str_nonempty() {
+        assert!(!N1Severity::Info.as_str().is_empty());
+        assert!(!N1Severity::Warning.as_str().is_empty());
+        assert!(!N1Severity::Error.as_str().is_empty());
+    }
+
+    #[test]
+    fn severity_ordering() {
+        assert!(N1Severity::Info < N1Severity::Warning);
+        assert!(N1Severity::Warning < N1Severity::Error);
+    }
+
+    // --- N1Report tests ---
+
+    #[test]
+    fn report_new_empty() {
+        let r = N1Report::new();
+        assert_eq!(r.count(), 0);
+        assert!(r.is_clean());
+        assert!(r.findings().is_empty());
+    }
+
+    #[test]
+    fn report_add_finding() {
+        let mut r = N1Report::new();
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::QueryInLoop,
+            file: "test.rs".to_string(),
+            line: 10,
+            message: "test".to_string(),
+        });
+        assert_eq!(r.count(), 1);
+        assert!(!r.is_clean());
+    }
+
+    #[test]
+    fn report_count_by_pattern() {
+        let mut r = N1Report::new();
+        for _ in 0..3 {
+            r.add_finding(N1Finding {
+                pattern: N1Pattern::QueryInLoop,
+                file: String::new(),
+                line: 0,
+                message: String::new(),
+            });
+        }
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::MissingEagerLoadHint,
+            file: String::new(),
+            line: 0,
+            message: String::new(),
+        });
+        assert_eq!(r.count_by_pattern(N1Pattern::QueryInLoop), 3);
+        assert_eq!(r.count_by_pattern(N1Pattern::MissingEagerLoadHint), 1);
+        assert_eq!(r.count_by_pattern(N1Pattern::ConditionalQueryInLoop), 0);
+    }
+
+    #[test]
+    fn report_to_summary_string() {
+        let mut r = N1Report::new();
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::QueryInLoop,
+            file: "a.rs".to_string(),
+            line: 5,
+            message: "test finding".to_string(),
+        });
+        let summary = r.to_summary_string();
+        assert!(summary.contains("1 finding(s)"));
+        assert!(summary.contains("a.rs"));
+        assert!(summary.contains("test finding"));
+    }
+
+    #[test]
+    fn report_patterns_found() {
+        let mut r = N1Report::new();
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::QueryInLoop,
+            file: String::new(),
+            line: 0,
+            message: String::new(),
+        });
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::QueryInLoop,
+            file: String::new(),
+            line: 0,
+            message: String::new(),
+        });
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::MissingEagerLoadHint,
+            file: String::new(),
+            line: 0,
+            message: String::new(),
+        });
+        let patterns = r.patterns_found();
+        assert_eq!(patterns.len(), 2);
+    }
+
+    #[test]
+    fn report_patterns_found_empty() {
+        let r = N1Report::new();
+        assert!(r.patterns_found().is_empty());
+    }
+
+    #[test]
+    fn report_is_clean_with_findings() {
+        let mut r = N1Report::new();
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::QueryInLoop,
+            file: String::new(),
+            line: 0,
+            message: String::new(),
+        });
+        assert!(!r.is_clean());
+    }
+
+    // --- N1Config tests ---
+
+    #[test]
+    fn config_new_no_ignored() {
+        let c = N1Config::new();
+        assert_eq!(c.ignored_count(), 0);
+        assert!(!c.is_ignored(N1Pattern::QueryInLoop));
+    }
+
+    #[test]
+    fn config_with_ignore_pattern() {
+        let mut c = N1Config::new();
+        c.with_ignore_pattern(N1Pattern::QueryInLoop);
+        assert!(c.is_ignored(N1Pattern::QueryInLoop));
+        assert_eq!(c.ignored_count(), 1);
+    }
+
+    #[test]
+    fn config_is_ignored_false() {
+        let mut c = N1Config::new();
+        c.with_ignore_pattern(N1Pattern::QueryInLoop);
+        assert!(!c.is_ignored(N1Pattern::ConditionalQueryInLoop));
+    }
+
+    #[test]
+    fn config_duplicate_ignore_not_counted() {
+        let mut c = N1Config::new();
+        c.with_ignore_pattern(N1Pattern::QueryInLoop);
+        c.with_ignore_pattern(N1Pattern::QueryInLoop);
+        assert_eq!(c.ignored_count(), 1);
+    }
+
+    #[test]
+    fn config_ignore_all_patterns() {
+        let mut c = N1Config::new();
+        c.with_ignore_pattern(N1Pattern::QueryInLoop);
+        c.with_ignore_pattern(N1Pattern::ConditionalQueryInLoop);
+        c.with_ignore_pattern(N1Pattern::MissingEagerLoadHint);
+        assert_eq!(c.ignored_count(), 3);
+    }
+
+    // --- QueryMethod tests ---
+
+    #[test]
+    fn query_method_as_str_find_by_id() {
+        assert_eq!(QueryMethod::FindById.as_str(), "find_by_id");
+    }
+
+    #[test]
+    fn query_method_as_str_query() {
+        assert_eq!(QueryMethod::Query.as_str(), "query");
+    }
+
+    #[test]
+    fn query_method_as_str_custom() {
+        let m = QueryMethod::Custom("my_query".to_string());
+        assert_eq!(m.as_str(), "my_query");
+    }
+
+    #[test]
+    fn query_method_is_batchable_find_all() {
+        assert!(QueryMethod::FindAll.is_batchable());
+    }
+
+    #[test]
+    fn query_method_is_batchable_where_eq() {
+        assert!(QueryMethod::WhereEq.is_batchable());
+    }
+
+    #[test]
+    fn query_method_is_batchable_eager_load() {
+        assert!(!QueryMethod::EagerLoad.is_batchable());
+    }
+
+    #[test]
+    fn query_method_is_batchable_or_where_eq() {
+        assert!(!QueryMethod::OrWhereEq.is_batchable());
+    }
+
+    // --- LoopType tests ---
+
+    #[test]
+    fn loop_type_as_str_for() {
+        assert_eq!(LoopType::For.as_str(), "for");
+    }
+
+    #[test]
+    fn loop_type_as_str_while() {
+        assert_eq!(LoopType::While.as_str(), "while");
+    }
+
+    #[test]
+    fn loop_type_as_str_loop() {
+        assert_eq!(LoopType::Loop.as_str(), "loop");
+    }
+
+    #[test]
+    fn loop_type_all_variants_distinct() {
+        assert_ne!(LoopType::For, LoopType::While);
+        assert_ne!(LoopType::While, LoopType::Loop);
+        assert_ne!(LoopType::For, LoopType::Loop);
+    }
+
+    // --- N1Suggestion tests ---
+
+    #[test]
+    fn suggestion_query_in_loop() {
+        let s = N1Suggestion::new(N1Pattern::QueryInLoop);
+        assert!(s.description().contains("batch"));
+        assert_eq!(s.fix_type(), "batch-load");
+    }
+
+    #[test]
+    fn suggestion_conditional() {
+        let s = N1Suggestion::new(N1Pattern::ConditionalQueryInLoop);
+        assert!(s.description().contains("pre-load"));
+        assert_eq!(s.fix_type(), "pre-load");
+    }
+
+    #[test]
+    fn suggestion_missing_eager_load() {
+        let s = N1Suggestion::new(N1Pattern::MissingEagerLoadHint);
+        assert!(s.description().contains("eager_load"));
+        assert_eq!(s.fix_type(), "eager-load-hint");
+    }
+
+    #[test]
+    fn suggestion_description_nonempty() {
+        for pattern in [
+            N1Pattern::QueryInLoop,
+            N1Pattern::ConditionalQueryInLoop,
+            N1Pattern::MissingEagerLoadHint,
+        ] {
+            assert!(!N1Suggestion::new(pattern).description().is_empty());
+        }
+    }
+
+    #[test]
+    fn suggestion_fix_type_nonempty() {
+        for pattern in [
+            N1Pattern::QueryInLoop,
+            N1Pattern::ConditionalQueryInLoop,
+            N1Pattern::MissingEagerLoadHint,
+        ] {
+            assert!(!N1Suggestion::new(pattern).fix_type().is_empty());
+        }
+    }
+
+    // --- Additional integration tests ---
+
+    #[test]
+    fn analyze_str_invalid_syntax() {
+        let findings = analyze_str("this is not valid rust", "bad.rs");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn analyze_str_empty() {
+        let findings = analyze_str("", "empty.rs");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn analyze_str_no_functions() {
+        let code = "const X: i32 = 42;";
+        let findings = analyze_str(code, "const.rs");
+        assert!(findings.is_empty());
+    }
+
+    #[test]
+    fn scan_dir_nonexistent() {
+        let results = scan_dir(Path::new("/nonexistent/path/that/does/not/exist"));
+        assert!(results.is_empty());
+    }
+
+    #[test]
+    fn scan_dir_empty_dir() {
+        let dir = fixture_dir().join("empty_subdir");
+        let _ = std::fs::create_dir_all(&dir);
+        let results = scan_dir(&dir);
+        assert!(results.is_empty());
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn analyze_fn_directly() {
+        let code =
+            "fn test_fn(items: Vec<i64>) { for item in items { let q = User::find_by_id(item); } }";
+        let file_syntax = syn::parse_file(code).unwrap();
+        if let syn::Item::Fn(item_fn) = &file_syntax.items[0] {
+            let findings = analyze_fn(item_fn);
+            assert!(findings.iter().any(|f| f.pattern == N1Pattern::QueryInLoop));
+        } else {
+            panic!("expected Item::Fn");
+        }
+    }
+
+    #[test]
+    fn report_findings_ref_returns_slice() {
+        let mut r = N1Report::new();
+        r.add_finding(N1Finding {
+            pattern: N1Pattern::QueryInLoop,
+            file: String::new(),
+            line: 1,
+            message: String::new(),
+        });
+        assert_eq!(r.findings().len(), 1);
+    }
+
+    #[test]
+    fn query_method_all_known_variants() {
+        let methods = [
+            QueryMethod::FindById,
+            QueryMethod::FindAll,
+            QueryMethod::Query,
+            QueryMethod::WhereEq,
+            QueryMethod::OrWhereEq,
+            QueryMethod::FindWithRelated,
+            QueryMethod::EagerLoad,
+        ];
+        for i in 0..methods.len() {
+            for j in (i + 1)..methods.len() {
+                assert_ne!(methods[i], methods[j]);
+            }
+        }
+    }
+
+    #[test]
+    fn suggestion_fix_type_distinct_per_pattern() {
+        let types: Vec<&str> = [
+            N1Suggestion::new(N1Pattern::QueryInLoop).fix_type(),
+            N1Suggestion::new(N1Pattern::ConditionalQueryInLoop).fix_type(),
+            N1Suggestion::new(N1Pattern::MissingEagerLoadHint).fix_type(),
+        ]
+        .into();
+        assert_eq!(types.len(), 3);
+        for i in 0..types.len() {
+            for j in (i + 1)..types.len() {
+                assert_ne!(types[i], types[j]);
+            }
+        }
+    }
+
+    #[test]
+    fn severity_all_variants() {
+        let variants = [N1Severity::Info, N1Severity::Warning, N1Severity::Error];
+        for i in 0..variants.len() {
+            for j in (i + 1)..variants.len() {
+                assert_ne!(variants[i], variants[j]);
+            }
+        }
     }
 }

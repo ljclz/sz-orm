@@ -4,6 +4,7 @@
 //! 提供平均值查询与决策阈值判断（`should_paginate` / `should_cache`）。
 //! 统计采集开销 < 1μs/次（纯原子累加，无锁无分配）。
 
+use std::collections::VecDeque;
 use std::sync::atomic::{AtomicU64, Ordering};
 
 /// 单条查询的运行统计（按 query_key 维度）
@@ -75,6 +76,80 @@ impl QueryStats {
     }
 }
 
+/// 滑动窗口统计：保留最近 N 个样本，提供均值/中位数/P95 百分位
+///
+/// 适用于对时间序列做短窗口统计（如最近 100 次查询的延迟分布），
+/// 旧样本自动淘汰，无需全量历史。
+#[derive(Debug, Clone)]
+pub struct SlidingWindowStats {
+    window_size: usize,
+    samples: VecDeque<u64>,
+}
+
+impl SlidingWindowStats {
+    /// 创建指定窗口大小的统计器
+    pub fn new(window_size: usize) -> Self {
+        Self {
+            window_size,
+            samples: VecDeque::with_capacity(window_size),
+        }
+    }
+
+    /// 添加一个样本（窗口满时淘汰最旧样本）
+    pub fn push(&mut self, value: u64) {
+        if self.samples.len() >= self.window_size {
+            self.samples.pop_front();
+        }
+        self.samples.push_back(value);
+    }
+
+    /// 当前样本数
+    pub fn count(&self) -> usize {
+        self.samples.len()
+    }
+
+    /// 窗口是否已满
+    pub fn is_full(&self) -> bool {
+        self.samples.len() >= self.window_size
+    }
+
+    /// 均值（空窗口返回 0.0）
+    pub fn mean(&self) -> f64 {
+        if self.samples.is_empty() {
+            0.0
+        } else {
+            let sum: u64 = self.samples.iter().sum();
+            sum as f64 / self.samples.len() as f64
+        }
+    }
+
+    /// 中位数（空窗口返回 0.0）
+    pub fn median(&self) -> f64 {
+        if self.samples.is_empty() {
+            return 0.0;
+        }
+        let mut sorted: Vec<u64> = self.samples.iter().copied().collect();
+        sorted.sort_unstable();
+        let n = sorted.len();
+        if n % 2 == 1 {
+            sorted[n / 2] as f64
+        } else {
+            (sorted[n / 2 - 1] + sorted[n / 2]) as f64 / 2.0
+        }
+    }
+
+    /// P95 百分位（空窗口返回 0.0）
+    pub fn p95(&self) -> f64 {
+        if self.samples.is_empty() {
+            return 0.0;
+        }
+        let mut sorted: Vec<u64> = self.samples.iter().copied().collect();
+        sorted.sort_unstable();
+        let idx = ((sorted.len() as f64 - 1.0) * 0.95).ceil() as usize;
+        sorted[idx.min(sorted.len() - 1)] as f64
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -141,5 +216,147 @@ mod tests {
         }
         assert_eq!(s.total_executions(), 800);
         assert_eq!(s.total_rows(), 800);
+    }
+
+    #[test]
+    fn zero_row_record_handled() {
+        let s = QueryStats::new();
+        s.record(0, 100);
+        assert_eq!(s.total_rows(), 0);
+        assert_eq!(s.avg_rows(), 0.0);
+    }
+
+    #[test]
+    fn cache_decision_requires_min_executions() {
+        // 少量执行不应触发缓存建议（样本不足）
+        let s = QueryStats::new();
+        s.record(50, 100);
+        assert!(!s.should_cache(50, 10), "one sample is not enough");
+    }
+
+    #[test]
+    fn paginate_decision_threshold() {
+        let s = QueryStats::new();
+        for _ in 0..10 {
+            s.record(5000, 100);
+        }
+        // avg_rows = 5000：超过 1000 阈值 → 建议分页；低于 10000 阈值 → 不建议
+        assert!(s.should_paginate(1000), "avg 5000 > 1000 should paginate");
+        assert!(!s.should_paginate(10000), "avg 5000 < 10000 should not");
+    }
+
+    #[test]
+    fn empty_stats_zero_avg_time() {
+        let s = QueryStats::new();
+        assert_eq!(s.avg_time_ms(), 0.0);
+    }
+
+    // --- SlidingWindowStats tests ---
+
+    #[test]
+    fn sliding_window_new_empty() {
+        let sw = SlidingWindowStats::new(10);
+        assert_eq!(sw.count(), 0);
+        assert!(!sw.is_full());
+    }
+
+    #[test]
+    fn sliding_window_push_increments_count() {
+        let mut sw = SlidingWindowStats::new(10);
+        sw.push(1);
+        sw.push(2);
+        assert_eq!(sw.count(), 2);
+    }
+
+    #[test]
+    fn sliding_window_mean_single() {
+        let mut sw = SlidingWindowStats::new(10);
+        sw.push(42);
+        assert!((sw.mean() - 42.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sliding_window_mean_multiple() {
+        let mut sw = SlidingWindowStats::new(10);
+        for v in [10, 20, 30] {
+            sw.push(v);
+        }
+        assert!((sw.mean() - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sliding_window_mean_empty_returns_zero() {
+        let sw = SlidingWindowStats::new(10);
+        assert_eq!(sw.mean(), 0.0);
+    }
+
+    #[test]
+    fn sliding_window_median_odd() {
+        let mut sw = SlidingWindowStats::new(10);
+        for v in [3, 1, 2] {
+            sw.push(v);
+        }
+        assert!((sw.median() - 2.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sliding_window_median_even() {
+        let mut sw = SlidingWindowStats::new(10);
+        for v in [1, 2, 3, 4] {
+            sw.push(v);
+        }
+        assert!((sw.median() - 2.5).abs() < 1e-9);
+    }
+
+    #[test]
+    fn sliding_window_median_empty() {
+        let sw = SlidingWindowStats::new(10);
+        assert_eq!(sw.median(), 0.0);
+    }
+
+    #[test]
+    fn sliding_window_p95_basic() {
+        let mut sw = SlidingWindowStats::new(100);
+        for v in 1..=100u64 {
+            sw.push(v);
+        }
+        let p = sw.p95();
+        assert!((94.0..=96.0).contains(&p), "p95={p} should be in [94, 96]");
+    }
+
+    #[test]
+    fn sliding_window_p95_empty() {
+        let sw = SlidingWindowStats::new(10);
+        assert_eq!(sw.p95(), 0.0);
+    }
+
+    #[test]
+    fn sliding_window_is_full() {
+        let mut sw = SlidingWindowStats::new(3);
+        sw.push(1);
+        sw.push(2);
+        assert!(!sw.is_full());
+        sw.push(3);
+        assert!(sw.is_full());
+    }
+
+    #[test]
+    fn sliding_window_evicts_oldest() {
+        let mut sw = SlidingWindowStats::new(3);
+        sw.push(10);
+        sw.push(20);
+        sw.push(30);
+        sw.push(40);
+        assert_eq!(sw.count(), 3);
+        assert!((sw.mean() - 30.0).abs() < 1e-9, "mean of [20,30,40] = 30");
+    }
+
+    #[test]
+    fn sliding_window_push_many_and_median() {
+        let mut sw = SlidingWindowStats::new(5);
+        for v in [5, 1, 4, 2, 3] {
+            sw.push(v);
+        }
+        assert!((sw.median() - 3.0).abs() < 1e-9);
     }
 }

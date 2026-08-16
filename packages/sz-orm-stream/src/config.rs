@@ -15,6 +15,16 @@ pub enum PaginationStrategy {
     ServerCursor,
 }
 
+impl PaginationStrategy {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            PaginationStrategy::Keyset => "keyset",
+            PaginationStrategy::LimitOffset => "limit-offset",
+            PaginationStrategy::ServerCursor => "server-cursor",
+        }
+    }
+}
+
 /// 排序方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum OrderDirection {
@@ -23,6 +33,15 @@ pub enum OrderDirection {
     Asc,
     /// 降序
     Desc,
+}
+
+impl OrderDirection {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            OrderDirection::Asc => "asc",
+            OrderDirection::Desc => "desc",
+        }
+    }
 }
 
 /// 流式结果集配置
@@ -98,6 +117,18 @@ impl StreamResultSetConfig {
         }
         Ok(())
     }
+
+    pub fn batch_size(&self) -> usize {
+        self.batch_size
+    }
+
+    pub fn backpressure_threshold(&self) -> usize {
+        self.backpressure_threshold
+    }
+
+    pub fn db_type(&self) -> DbType {
+        self.db_type
+    }
 }
 
 #[cfg(test)]
@@ -167,5 +198,28 @@ mod tests {
     fn batch_size_zero_clamped() {
         let config = StreamResultSetConfig::new(DbType::PostgreSQL).with_batch_size(0);
         assert_eq!(config.batch_size, 1);
+    }
+
+    #[test]
+    fn test_pagination_strategy_as_str() {
+        assert_eq!(PaginationStrategy::Keyset.as_str(), "keyset");
+        assert_eq!(PaginationStrategy::LimitOffset.as_str(), "limit-offset");
+        assert_eq!(PaginationStrategy::ServerCursor.as_str(), "server-cursor");
+    }
+
+    #[test]
+    fn test_order_direction_as_str() {
+        assert_eq!(OrderDirection::Asc.as_str(), "asc");
+        assert_eq!(OrderDirection::Desc.as_str(), "desc");
+    }
+
+    #[test]
+    fn test_config_getters() {
+        let config = StreamResultSetConfig::new(DbType::MySQL)
+            .with_batch_size(200)
+            .with_backpressure_threshold(2000);
+        assert_eq!(config.batch_size(), 200);
+        assert_eq!(config.backpressure_threshold(), 2000);
+        assert_eq!(config.db_type(), DbType::MySQL);
     }
 }

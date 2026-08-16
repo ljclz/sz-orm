@@ -7625,6 +7625,7 @@ dependencies = [
  "parking_lot",
  "serde_json",
  "sz-orm-core",
+ "sz-orm-sqlx",
  "tokio",
 ]
 
@@ -7632,6 +7633,7 @@ dependencies = [
 name = "sz-orm-cli"
 version = "4.9.0"
 dependencies = [
+ "async-trait",
  "chrono",
  "serde",
  "serde_json",
@@ -7714,7 +7716,6 @@ name = "sz-orm-cpp"
 version = "4.9.0"
 dependencies = [
  "sz-orm-cabi",
- "sz-orm-core",
 ]
 
 [[package]]
@@ -7846,7 +7847,6 @@ name = "sz-orm-go"
 version = "4.9.0"
 dependencies = [
  "sz-orm-cabi",
- "sz-orm-core",
 ]
 
 [[package]]
@@ -7909,8 +7909,8 @@ dependencies = [
 name = "sz-orm-java"
 version = "4.9.0"
 dependencies = [
+ "jni",
  "sz-orm-cabi",
- "sz-orm-core",
 ]
 
 [[package]]
@@ -8103,6 +8103,7 @@ dependencies = [
  "pyo3-asyncio",
  "serde_json",
  "sz-orm-core",
+ "sz-orm-sqlx",
  "tokio",
 ]
 
