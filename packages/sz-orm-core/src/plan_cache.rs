@@ -20,7 +20,8 @@ use parking_lot::RwLock;
 use sqlparser::ast::Statement;
 use sqlparser::dialect::GenericDialect;
 use sqlparser::parser::Parser;
-use xxhash_rust::xxh64::xxh64;
+use std::hash::Hasher;
+use twox_hash::XxHash64;
 
 // ─── SqlNormalizer ───────────────────────────────────────────────
 
@@ -163,7 +164,9 @@ impl PlanCacheKey {
     /// 2. 计算归一化 SQL 的 xxHash 64bit 哈希
     pub fn from_sql(sql: &str) -> Self {
         let sql_normalized = SqlNormalizer::normalize(sql);
-        let hash = xxh64(sql_normalized.as_bytes(), 0);
+        let mut h = XxHash64::with_seed(0);
+        h.write(sql_normalized.as_bytes());
+        let hash = h.finish();
         Self {
             hash,
             sql_normalized,

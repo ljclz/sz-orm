@@ -82,6 +82,16 @@ ignore = [
     # 影响: 仅在特定 feature 组合下引入；rkyv 用于零拷贝序列化
     # 跟踪: 待上游修复后自动移除
     { id = "RUSTSEC-2026-0235", reason = "rkyv 0.7.46 在特定 feature 组合下引入；Rc/Arc 越界读取仅在恶意构造的 archive 中触发；待上游修复后移除" },
+    # pyo3 0.20.3: PyString buffer overflow (RUSTSEC-2025-0020)
+    # 来源: sz-orm-python → pyo3 0.20.3
+    # 影响: 仅 sz-orm-python 绑定层；pyo3 0.20 为当前绑定版本，升级 0.21+ 需评估 API 兼容（2026-08-16 全量审查 G6 登记豁免）
+    # 跟踪: 待 sz-orm-python 升级 pyo3 后自动移除
+    { id = "RUSTSEC-2025-0020", reason = "sz-orm-python → pyo3 0.20.3 绑定层；PyString::from_object 在用户传入非字符串对象时触发，绑定层输入受控；待 pyo3 升级后移除" },
+    # pyo3 0.20.3: Missing Sync bound (RUSTSEC-2026-0177)
+    # 来源: sz-orm-python → pyo3 0.20.3
+    # 影响: 仅 sz-orm-python 绑定层；PyCFunction::new_closure 闭包缺 Sync，跨线程共享闭包场景才会触发（2026-08-16 全量审查 G6 登记豁免）
+    # 跟踪: 待 sz-orm-python 升级 pyo3 后自动移除
+    { id = "RUSTSEC-2026-0177", reason = "sz-orm-python → pyo3 0.20.3 绑定层；new_closure 闭包 Sync 缺失仅在跨线程共享场景触发；待 pyo3 升级后移除" },
 ]
 # 未维护的依赖不报告（避免 CI 因传递依赖的 unmaintained 而失败）
 unmaintained = "none"

@@ -59,7 +59,9 @@ rand = "0.8"
 sqlparser = "0.47"
 serde_yaml = "0.9"
 # v3.2.0：查询计划缓存键哈希（plan-cache feature）
-xxhash-rust = { version = "0.8", features = ["xxh64"] }
+# 2026-08-16 替换：xxhash-rust(BSL-1.0) → twox-hash(MIT/Apache-2.0)，XXH64 算法输出一致
+# 依据：docs/sz-orm-review-runbook.md 第十节（2026-08-16 全量审查 G6 决策）
+twox-hash = { version = "1.6" }
 # v3.2.0：SIMD 向量化加速（simd feature）
 wide = "0.7"
 # v4.7.0 架构债清零：布隆过滤器双实现合并为 sz-orm-core::bloom（公共模块），

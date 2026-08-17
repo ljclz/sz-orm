@@ -152,7 +152,12 @@ pub fn verify_sql_syntax(sql: &str, dialect: VerifyDialect) -> VerifyResult {
 
 /// 计算 SQL 的哈希值（用于缓存键）
 pub fn sql_hash(sql: &str) -> u64 {
-    xxhash_rust::xxh64::xxh64(sql.as_bytes(), 0)
+    {
+        use std::hash::Hasher;
+        let mut h = twox_hash::XxHash64::with_seed(0);
+        h.write(sql.as_bytes());
+        h.finish()
+    }
 }
 
 /// 验证 SQL 是否为只读查询（SELECT/EXPLAIN，不包含 INSERT/UPDATE/DELETE/DROP 等）

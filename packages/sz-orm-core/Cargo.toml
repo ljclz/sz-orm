@@ -27,7 +27,7 @@ rate-limit = ["sz-orm-limit"]
 # v3.2.0锛氳繛鎺ユ睜鑷姩棰勭儹澧炲己锛堟笎杩涘紡鍒嗘壒 + 澶氭睜缁熶竴 + 杩涘害鍙娴嬶級
 auto-prewarm = []
 # v3.2.0锛氭煡璇㈣鍒掔紦瀛橈紙SQL 瑙ｆ瀽/浼樺寲缁撴灉缂撳瓨 + LRU 娣樻卑 + 琛ㄧ骇澶辨晥锟?
-plan-cache = ["dep:sqlparser", "dep:xxhash-rust"]
+plan-cache = ["dep:sqlparser", "dep:twox-hash"]
 # v3.2.0锛氶浂鎷疯礉搴忓垪鍖栵紙BorrowedValue + ColumnarResultSet锟?
 zero-copy = []
 # v3.2.0锛歋IMD 鍔犻€燂紙鎵归噺鏁存暟瑙ｇ爜 + 鍒楁瘮锟?+ 鑷姩闄嶇骇锟?
@@ -59,7 +59,7 @@ typed-dsl = []
 # v3.7.0: stable锛堢被鍨嬪畨鍏ㄥ叧鑱旀煡璇紝缂栬瘧鏈熷閿牎楠岋級
 typed-relation = []
 # v3.7.0: stable锛坧roc-macro 缂栬瘧锟?SQL 楠岃瘉锟?
-sql-verify-proc = ["dep:sqlparser", "dep:xxhash-rust"]
+sql-verify-proc = ["dep:sqlparser", "dep:twox-hash"]
 # v3.6.0锛歈ueryBuilder 杩佺Щ宸ュ叿锛坙int + fix + 宸垎娴嬭瘯锟?
 qb-migration-tool = ["dep:syn", "dep:quote"]
 # v3.5.0锛歀1 缂撳瓨锛圫ession 绾у埆 Identity Map + LRU + AtomicU64 缁熻锟?
@@ -172,7 +172,7 @@ sz-orm-limit = { version = "4.1.0", path = "../sz-orm-limit", optional = true }
 redis = { workspace = true, optional = true }
 # v3.2.0锛氭煡璇㈣鍒掔紦瀛橈紙plan-cache feature锟?
 sqlparser = { workspace = true, optional = true }
-xxhash-rust = { workspace = true, optional = true }
+twox-hash = { workspace = true, optional = true }
 # v3.2.0锛歋IMD 鍔犻€燂紙simd feature锟?
 wide = { workspace = true, optional = true }
 # v3.3.0锛氬绉熸埛瀹¤澧炲己锛坢ulti-tenant-enhanced feature锟?

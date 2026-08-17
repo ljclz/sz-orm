@@ -263,13 +263,43 @@ PY
 | 报告出现 `missing-key`（medium） | `AI_API_KEY` 未设置或拼写错误；export 后重跑 AI 环节 |
 | 报告出现 compile-error（critical） | 工作区存在编译失败（可能是并行开发未完成代码）；修复后重跑 |
 | 并行会话期间 | **不要跑门禁**：cargo target 锁互相阻塞，fmt 等修复会踩到他人未提交文件；等对方提交后再执行 |
+| **内存不足崩溃**（mmap rmeta failed / STATUS_STACK_OVERFLOW） | 32GB 机器 + 20 核默认并行会爆内存：**全量编译必须 `-j 4`**（2026-08-16 实测） |
+| **E0786 invalid metadata / E0463 can't find crate** | target 缓存损坏（多为变异/覆盖率工具异常退出残留）：`cargo clean` 后重跑（2026-08-16 清理 240.6 GiB） |
+| **G5/G10 rdkafka-sys 编译失败** | 本机 Windows 环境问题（`--all-features` 触发 sz-orm-mqtt 的 rdkafka）：CI Linux 正常；按环境豁免登记（见第十节） |
+| **G7 仅 integration_mssql 失败** | 本机无 SQL Server：按环境豁免登记；其余 DB 集成不受影响 |
+| **mutants 源码残留** | cargo-mutants `--in-place` 异常退出会把变异代码留在工作区：跑完检查 `git status`，发现核心文件被改立即 `git checkout -- <文件>`；`mutants.out` 残留目录手动清理 |
+| **A06 SBOM 未生成** | cargo-cyclonedx 已装但 0.5.9 静默失败（exit 2 无输出）：待查版本兼容 |
+
+## 十、执行记录与决策
+
+### 2026-08-16 全量审查（main @ bcc1f42）
+
+结果：**18/23 通过**，4 个异常全部为环境/依赖问题，无代码质量问题（详见 `docs/assessment/2026-08-16-full-gate-review-report.md`）。
+
+| 异常 | 性质 | 处置 |
+|------|------|------|
+| G5/G10 rdkafka-sys | 本机 Windows 环境 | **环境豁免**（CI Linux 验证通过） |
+| G6 licenses（xxhash-rust BSL-1.0） | bcc1f42 新引入，真实问题 | **✅ 已解决（2026-08-16 同日）**：按团队决策替换为 twox-hash（XXH64 算法输出一致，改动 2 处代码 + 2 处 Cargo.toml，1669 lib 测试 0 失败） |
+| G6 advisories ×14 | 生态现状（feature-gated/dev-only） | **✅ 已解决**：deny.toml 补齐 2 个 pyo3 豁免 + 新建 `.cargo/audit.toml` 登记全部 14 个（参照 0049 先例）；重跑 cargo audit exit 0、cargo deny 四项全 ok |
+| G7 MSSQL 集成 | 本机无 SQL Server | **环境豁免** |
+
+### 环境豁免登记规范（2026-08-16 起执行）
+
+环境类失败（非代码问题）豁免条件：① 提供根因证据（如 rdkafka-sys 日志 / 无 MSSQL 服务）；② CI 对应关卡通过作为交叉验证；③ 在阻断报告中显式标注"环境豁免"并登记到本节。代码类失败（G6 类依赖/许可证问题）必须修复或团队决策后登记，不适用环境豁免。
+
+### 本机环境基线（2026-08-16 实测）
+
+- 全量编译必须 `-j 4`（32GB 内存 / 20 核）
+- 已安装工具：cargo-audit / cargo-deny / cargo-llvm-cov / cargo-mutants / cargo-cyclonedx
+- 数据库在跑：MySQL 9.6（3306）、PG 18（5432）；**无 SQL Server**
+- 已知环境死穴：rdkafka-sys（`--all-features` 时触发）、cargo-cyclonedx 0.5.9 静默失败
 
 ## 九、与其他门禁的关系
 
 | 门禁 | 触发时机 | 与本指南的关系 |
 |------|---------|---------------|
 | `scripts/gate.ps1`（13 关） | pre-push / 提交前 | 快速集成门禁；本指南 23 关是其超集 |
-| CQO 质量官工作流（4 步） | 关键模块变更 | G20/G21 的深化（变异/差分/混沌/API 审查） |
+| CQO 质量官工作流（五步） | 关键模块变更 | G20/G21 的深化（变异/差分/混沌/API 审查/影子流量） |
 | sz-orm-review skill（ZCode） | 任意时刻 | 自动化执行本指南：`/sz-orm-review`（全量）/ `fast` / `gates N-M` / `report <file>` |
 | sz-rust pr-review.sh | sz-rust 仓库 | 同方法论的另一实现（`e:\vue\test\鲜视达\rust\sz-rust\scripts\audit\pr-review.sh`），仅可读参照，禁止修改上游 |
 

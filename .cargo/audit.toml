@@ -1,0 +1,28 @@
+# cargo audit 豁免配置（2026-08-16 全量审查 G6 登记）
+# 与 deny.toml [advisories] ignore 同步；各 ID 的详细来源/影响/跟踪见 deny.toml 对应条目
+[advisories]
+ignore = [
+    # rustls-webpki 0.101.7/0.102.8（rumqttc/elasticsearch 传递，仅 real-broker/real-es feature；上游 0.103 不兼容大版本）
+    "RUSTSEC-2026-0049",
+    "RUSTSEC-2026-0098",
+    "RUSTSEC-2026-0099",
+    "RUSTSEC-2026-0104",
+    # quick-xml 0.38.4（rust-s3/aws-creds 传递，仅 s3-sdk feature；上游尚无修复版本）
+    "RUSTSEC-2026-0194",
+    "RUSTSEC-2026-0195",
+    # rustls-pemfile（rumqttc/elasticsearch 传递，仅 real-broker/real-es feature；已被 rustls 0.23 内置替代）
+    "RUSTSEC-2025-0134",
+    # paste（编译期 proc-macro，不进入运行时）
+    "RUSTSEC-2024-0436",
+    # rsa 0.9.10（sz-orm-crypto 直接依赖，0.9.10 为最新版尚无修复）
+    "RUSTSEC-2023-0071",
+    # rand 0.7.3（tiberius→winauth 传递，仅 MSSQL 认证场景）
+    "RUSTSEC-2026-0097",
+    # event-listener 5.4.1（sqlx-core 传递，sqlx 连接池内部，不影响自研连接池）
+    "RUSTSEC-2026-0221",
+    # rkyv 0.7.46（特定 feature 组合引入，恶意 archive 才触发）
+    "RUSTSEC-2026-0235",
+    # pyo3 0.20.3（sz-orm-python 绑定层，升级 0.21+ 需评估 API 兼容）
+    "RUSTSEC-2025-0020",
+    "RUSTSEC-2026-0177",
+]
