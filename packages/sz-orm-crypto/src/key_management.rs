@@ -986,6 +986,288 @@ impl fmt::Display for KeyError {
 impl std::error::Error for KeyError {}
 
 // ============================================================================
+// 密钥派生配置
+// ============================================================================
+
+/// 密钥派生函数参数
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct KeyDerivationConfig {
+    /// 派生函数名称（pbkdf2 / argon2id / scrypt）
+    pub algorithm: String,
+    /// 迭代次数
+    pub iterations: u32,
+    /// 盐长度（字节）
+    pub salt_len: usize,
+    /// 派生密钥长度（字节）
+    pub key_len: usize,
+    /// 内存参数（Argon2 专用，单位 KB）
+    pub memory_kb: Option<u32>,
+    /// 并行度（Argon2 专用）
+    pub parallelism: Option<u32>,
+}
+
+impl Default for KeyDerivationConfig {
+    fn default() -> Self {
+        Self {
+            algorithm: "pbkdf2".to_string(),
+            iterations: 600_000,
+            salt_len: 32,
+            key_len: 32,
+            memory_kb: None,
+            parallelism: None,
+        }
+    }
+}
+
+impl KeyDerivationConfig {
+    /// PBKDF2-HMAC-SHA256 配置
+    pub fn pbkdf2(iterations: u32) -> Self {
+        Self {
+            algorithm: "pbkdf2".to_string(),
+            iterations,
+            ..Default::default()
+        }
+    }
+
+    /// Argon2id 配置
+    pub fn argon2id(iterations: u32, memory_kb: u32, parallelism: u32) -> Self {
+        Self {
+            algorithm: "argon2id".to_string(),
+            iterations,
+            memory_kb: Some(memory_kb),
+            parallelism: Some(parallelism),
+            ..Default::default()
+        }
+    }
+
+    /// scrypt 配置
+    pub fn scrypt(iterations: u32) -> Self {
+        Self {
+            algorithm: "scrypt".to_string(),
+            iterations,
+            ..Default::default()
+        }
+    }
+
+    /// 是否为 Argon2
+    pub fn is_argon2(&self) -> bool {
+        self.algorithm == "argon2id"
+    }
+
+    /// 是否为 PBKDF2
+    pub fn is_pbkdf2(&self) -> bool {
+        self.algorithm == "pbkdf2"
+    }
+
+    /// 生成随机盐
+    pub fn generate_salt(&self) -> Vec<u8> {
+        let mut salt = vec![0u8; self.salt_len];
+        OsRng.fill_bytes(&mut salt);
+        salt
+    }
+}
+
+// ============================================================================
+// 随机数生成器
+// ============================================================================
+
+/// 加密安全随机数生成器
+pub struct NonceGenerator {
+    /// 随机数长度（字节）
+    nonce_len: usize,
+}
+
+impl NonceGenerator {
+    /// 创建 12 字节 GCM nonce 生成器
+    pub fn for_gcm() -> Self {
+        Self { nonce_len: 12 }
+    }
+
+    /// 创建 16 字节 ChaCha20 nonce 生成器
+    pub fn for_chacha20() -> Self {
+        Self { nonce_len: 16 }
+    }
+
+    /// 自定义长度
+    pub fn new(nonce_len: usize) -> Self {
+        Self { nonce_len }
+    }
+
+    /// 生成随机 nonce
+    pub fn generate(&self) -> Vec<u8> {
+        let mut nonce = vec![0u8; self.nonce_len];
+        OsRng.fill_bytes(&mut nonce);
+        nonce
+    }
+
+    /// nonce 长度
+    pub fn len(&self) -> usize {
+        self.nonce_len
+    }
+}
+
+// ============================================================================
+// 加密上下文
+// ============================================================================
+
+/// 加密上下文：携带关联数据（AEAD）和元数据
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EncryptionContext {
+    /// 关联数据（Additional Authenticated Data）
+    pub aad: Vec<u8>,
+    /// 上下文标签（用于区分不同加密场景）
+    pub label: String,
+    /// 租户 ID（多租户场景）
+    pub tenant_id: Option<String>,
+}
+
+impl Default for EncryptionContext {
+    fn default() -> Self {
+        Self {
+            aad: Vec::new(),
+            label: String::new(),
+            tenant_id: None,
+        }
+    }
+}
+
+impl EncryptionContext {
+    /// 创建空上下文
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置关联数据
+    pub fn with_aad(mut self, aad: Vec<u8>) -> Self {
+        self.aad = aad;
+        self
+    }
+
+    /// 设置标签
+    pub fn with_label(mut self, label: &str) -> Self {
+        self.label = label.to_string();
+        self
+    }
+
+    /// 设置租户 ID
+    pub fn with_tenant(mut self, tenant_id: &str) -> Self {
+        self.tenant_id = Some(tenant_id.to_string());
+        self
+    }
+
+    /// 是否有关联数据
+    pub fn has_aad(&self) -> bool {
+        !self.aad.is_empty()
+    }
+
+    /// 是否有租户
+    pub fn has_tenant(&self) -> bool {
+        self.tenant_id.is_some()
+    }
+}
+
+// ============================================================================
+// 密钥指纹
+// ============================================================================
+
+/// 密钥指纹：用于安全识别密钥（不暴露密钥本身）
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub struct KeyFingerprint {
+    /// SHA-256 指纹（十六进制）
+    pub sha256_hex: String,
+    /// 算法
+    pub algorithm: KeyAlgorithm,
+}
+
+impl KeyFingerprint {
+    /// 从密钥材料计算指纹
+    pub fn from_key_material(key: &[u8], algorithm: KeyAlgorithm) -> Self {
+        let mut hasher = Sha256::new();
+        hasher.update(key);
+        let hash = hasher.finalize();
+        let hex: String = hash.iter().map(|b| format!("{:02x}", b)).collect();
+        Self {
+            sha256_hex: hex,
+            algorithm,
+        }
+    }
+
+    /// 指纹前 8 个字符（用于日志显示）
+    pub fn short(&self) -> &str {
+        &self.sha256_hex[..8.min(self.sha256_hex.len())]
+    }
+
+    /// 指纹是否匹配
+    pub fn matches(&self, other: &Self) -> bool {
+        self.sha256_hex == other.sha256_hex && self.algorithm == other.algorithm
+    }
+}
+
+impl fmt::Display for KeyFingerprint {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.algorithm.as_str(), self.short())
+    }
+}
+
+// ============================================================================
+// 安全策略
+// ============================================================================
+
+/// 安全策略配置
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SecurityPolicy {
+    /// 最小密钥长度
+    pub min_key_length: usize,
+    /// 密钥最大使用次数（0 = 无限）
+    pub max_key_usage: u64,
+    /// 密钥最大年龄（秒，0 = 无限）
+    pub max_key_age_secs: u64,
+    /// 是否禁止明文存储
+    pub require_encryption_at_rest: bool,
+    /// 是否要求密钥轮换
+    pub require_key_rotation: bool,
+    /// 允许的算法列表
+    pub allowed_algorithms: Vec<KeyAlgorithm>,
+}
+
+impl Default for SecurityPolicy {
+    fn default() -> Self {
+        Self {
+            min_key_length: 32,
+            max_key_usage: 1_000_000,
+            max_key_age_secs: 86400 * 90,
+            require_encryption_at_rest: true,
+            require_key_rotation: true,
+            allowed_algorithms: vec![KeyAlgorithm::Aes256Gcm, KeyAlgorithm::HmacSha256],
+        }
+    }
+}
+
+impl SecurityPolicy {
+    /// 创建严格策略
+    pub fn strict() -> Self {
+        Self {
+            min_key_length: 32,
+            max_key_usage: 100_000,
+            max_key_age_secs: 86400 * 30,
+            require_encryption_at_rest: true,
+            require_key_rotation: true,
+            allowed_algorithms: vec![KeyAlgorithm::Aes256Gcm],
+        }
+    }
+
+    /// 检查算法是否允许
+    pub fn is_algorithm_allowed(&self, alg: KeyAlgorithm) -> bool {
+        self.allowed_algorithms.contains(&alg)
+    }
+
+    /// 检查密钥长度是否满足要求
+    pub fn is_key_length_ok(&self, key_len: usize) -> bool {
+        key_len >= self.min_key_length
+    }
+}
+
+// ============================================================================
 // 测试
 // ============================================================================
 
@@ -1520,5 +1802,154 @@ mod tests {
             key_id: "id1".to_string(),
         };
         assert!(err2.to_string().contains("id1"));
+    }
+
+    // ---- KeyDerivationConfig 测试 ----
+
+    #[test]
+    fn test_kdf_default() {
+        let cfg = KeyDerivationConfig::default();
+        assert_eq!(cfg.algorithm, "pbkdf2");
+        assert_eq!(cfg.key_len, 32);
+    }
+
+    #[test]
+    fn test_kdf_pbkdf2() {
+        let cfg = KeyDerivationConfig::pbkdf2(100_000);
+        assert!(cfg.is_pbkdf2());
+        assert!(!cfg.is_argon2());
+        assert_eq!(cfg.iterations, 100_000);
+    }
+
+    #[test]
+    fn test_kdf_argon2id() {
+        let cfg = KeyDerivationConfig::argon2id(3, 65536, 4);
+        assert!(cfg.is_argon2());
+        assert!(!cfg.is_pbkdf2());
+        assert_eq!(cfg.memory_kb, Some(65536));
+        assert_eq!(cfg.parallelism, Some(4));
+    }
+
+    #[test]
+    fn test_kdf_scrypt() {
+        let cfg = KeyDerivationConfig::scrypt(1024);
+        assert_eq!(cfg.algorithm, "scrypt");
+        assert_eq!(cfg.iterations, 1024);
+    }
+
+    #[test]
+    fn test_kdf_generate_salt() {
+        let cfg = KeyDerivationConfig::default();
+        let salt = cfg.generate_salt();
+        assert_eq!(salt.len(), cfg.salt_len);
+    }
+
+    // ---- NonceGenerator 测试 ----
+
+    #[test]
+    fn test_nonce_generator_gcm() {
+        let gen = NonceGenerator::for_gcm();
+        let nonce = gen.generate();
+        assert_eq!(nonce.len(), 12);
+    }
+
+    #[test]
+    fn test_nonce_generator_chacha20() {
+        let gen = NonceGenerator::for_chacha20();
+        let nonce = gen.generate();
+        assert_eq!(nonce.len(), 16);
+    }
+
+    #[test]
+    fn test_nonce_generator_custom() {
+        let gen = NonceGenerator::new(32);
+        assert_eq!(gen.len(), 32);
+        let nonce = gen.generate();
+        assert_eq!(nonce.len(), 32);
+    }
+
+    #[test]
+    fn test_nonce_generator_unique() {
+        let gen = NonceGenerator::for_gcm();
+        let n1 = gen.generate();
+        let n2 = gen.generate();
+        assert_ne!(n1, n2);
+    }
+
+    // ---- EncryptionContext 测试 ----
+
+    #[test]
+    fn test_encryption_context_default() {
+        let ctx = EncryptionContext::default();
+        assert!(!ctx.has_aad());
+        assert!(!ctx.has_tenant());
+    }
+
+    #[test]
+    fn test_encryption_context_builder() {
+        let ctx = EncryptionContext::new()
+            .with_aad(b"associated".to_vec())
+            .with_label("db")
+            .with_tenant("tenant1");
+        assert!(ctx.has_aad());
+        assert!(ctx.has_tenant());
+        assert_eq!(ctx.label, "db");
+        assert_eq!(ctx.tenant_id, Some("tenant1".to_string()));
+    }
+
+    // ---- KeyFingerprint 测试 ----
+
+    #[test]
+    fn test_key_fingerprint() {
+        let key = b"my-secret-key-1234567890123456";
+        let fp = KeyFingerprint::from_key_material(key, KeyAlgorithm::Aes256Gcm);
+        assert_eq!(fp.sha256_hex.len(), 64);
+        assert_eq!(fp.short().len(), 8);
+    }
+
+    #[test]
+    fn test_key_fingerprint_matches() {
+        let key = b"my-secret-key-1234567890123456";
+        let fp1 = KeyFingerprint::from_key_material(key, KeyAlgorithm::Aes256Gcm);
+        let fp2 = KeyFingerprint::from_key_material(key, KeyAlgorithm::Aes256Gcm);
+        assert!(fp1.matches(&fp2));
+    }
+
+    #[test]
+    fn test_key_fingerprint_not_matches() {
+        let fp1 = KeyFingerprint::from_key_material(b"key1", KeyAlgorithm::Aes256Gcm);
+        let fp2 = KeyFingerprint::from_key_material(b"key2", KeyAlgorithm::Aes256Gcm);
+        assert!(!fp1.matches(&fp2));
+    }
+
+    #[test]
+    fn test_key_fingerprint_display() {
+        let fp = KeyFingerprint::from_key_material(b"key", KeyAlgorithm::Aes256Gcm);
+        let s = format!("{}", fp);
+        assert!(s.contains("aes-256-gcm"));
+    }
+
+    // ---- SecurityPolicy 测试 ----
+
+    #[test]
+    fn test_security_policy_default() {
+        let policy = SecurityPolicy::default();
+        assert!(policy.require_encryption_at_rest);
+        assert!(policy.require_key_rotation);
+        assert!(policy.is_algorithm_allowed(KeyAlgorithm::Aes256Gcm));
+    }
+
+    #[test]
+    fn test_security_policy_strict() {
+        let policy = SecurityPolicy::strict();
+        assert!(policy.is_algorithm_allowed(KeyAlgorithm::Aes256Gcm));
+        assert!(!policy.is_algorithm_allowed(KeyAlgorithm::HmacSha256));
+    }
+
+    #[test]
+    fn test_security_policy_key_length() {
+        let policy = SecurityPolicy::default();
+        assert!(policy.is_key_length_ok(32));
+        assert!(!policy.is_key_length_ok(16));
     }
 }

@@ -5,10 +5,31 @@
 //! - [`JsonRows`] — 包装 `QueryRows` 实现 `Responder`
 //! - [`JsonResp<T>`] — 通用 JSON 响应包装
 //! - [`TransactionMiddleware`] — 事务中间件（请求成功提交，失败回滚）
+//! - [`Pagination`] — 分页参数辅助
+//! - [`ErrorResponse`] — 标准错误响应
+//! - [`HealthCheck`] — 健康检查
+//! - [`RouteInfo`] — 路由信息
 //!
 //! 由于 Rust 孤儿规则，无法直接为 `Arc<Pool>` 或 `QueryRows` 实现
 //! actix-web 的 `FromRequest`/`Responder`，因此使用 `PoolState` / `JsonRows`
 //! 包装类型（与 sz-orm-axum 风格保持一致）。
+
+mod auth;
+mod cors;
+mod response;
+mod validator;
+
+pub use auth::{AuthConfig, AuthResult, RoleChecker, TokenValidator};
+pub use cors::{CorsConfig, CorsOrigin};
+pub use response::{
+    ApiError, ApiResponse, ApiStatus, CacheControlConfig, CacheDirective, MiddlewareChainConfig,
+    MiddlewareEntry, MiddlewarePriority, PaginatedResponse, PaginationExtractor, PaginationMeta,
+    RateLimitConfig, RateLimitKey, RateLimitStrategy, ResponseHeaders, ResponseWrapper,
+    SecurityHeaders,
+};
+pub use validator::{
+    FieldValidator, RequestValidator, RuleType, ValidationError, ValidationResult, ValidationRule,
+};
 
 use actix_web::{
     dev::{forward_ready, Service, ServiceRequest, ServiceResponse, Transform},

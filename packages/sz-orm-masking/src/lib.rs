@@ -10,6 +10,23 @@
 
 use serde::{Deserialize, Serialize};
 
+pub mod audit;
+pub mod config;
+pub mod maskers;
+pub mod strategy;
+
+// 重导出新模块的主要类型
+pub use audit::{
+    rule_name, FieldReport, MaskingAuditEntry as DetailedAuditEntry,
+    MaskingAuditLog as DetailedAuditLog, MaskingReport, RuleReport,
+};
+pub use config::{FieldPattern, MaskingConfigManager, MaskingProfile, SensitiveFieldDetector};
+pub use maskers::{wildcard_match, HashAlgorithm, HashMasker, PartialDisplayMasker, PatternMasker};
+pub use strategy::{
+    FieldMaskingRule, MaskingCondition, MaskingPipeline, MaskingStrategyEngine, MaskingValidator,
+    PipelineStage,
+};
+
 /// Masking rules supported by [`DataMasker`].
 ///
 /// `Custom(String)` expects a configuration of the form `"prefix,suffix"`
@@ -17,7 +34,7 @@ use serde::{Deserialize, Serialize};
 /// values) to retain from the start and end of the input. Example:
 /// `Custom("3,2".to_string())` keeps the first 3 and last 2 characters and
 /// replaces everything in between with `*`.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum MaskingRule {
     Phone,
     Email,

@@ -21,6 +21,8 @@
 //! 注意：本包刻意零依赖 `sz-orm-core`，通过自带的 [`ExplainDialect`] 枚举
 //! 描述方言，避免 core → macros → explain → core 依赖循环。
 
+#[cfg(feature = "explain-analyzer")]
+pub mod analyzer;
 pub mod dialect;
 pub mod parsers;
 #[cfg(feature = "perf-baseline")]

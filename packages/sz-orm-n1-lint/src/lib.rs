@@ -21,8 +21,12 @@
 
 use std::path::Path;
 
+pub mod association;
+pub mod formatter;
+pub mod rule_engine;
+
 /// 检测出的 N+1 模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum N1Pattern {
     /// 循环体内直接查询调用
     QueryInLoop,
@@ -544,6 +548,17 @@ impl N1Suggestion {
         }
     }
 }
+
+// ---------------------------------------------------------------------------
+// 模块 re-export
+// ---------------------------------------------------------------------------
+
+pub use association::{
+    AssociationType, BatchLoadAdvisor, BatchLoadStrategy, BatchLoadSuggestion, QueryAssociation,
+    QueryAssociationAnalyzer,
+};
+pub use formatter::{FalsePositiveFilter, N1DetectionConfig, N1ReportFormatter, ReportFormat};
+pub use rule_engine::{DetectionRule, N1DetectionRuleEngine, RuleEngineStats, RuleMatchResult};
 
 #[cfg(test)]
 mod tests {

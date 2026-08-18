@@ -25,11 +25,21 @@
 #[cfg(feature = "db-fusion-v2")]
 pub mod cdc_sync;
 #[cfg(feature = "db-fusion")]
+pub mod conflict;
+#[cfg(feature = "db-fusion")]
 pub mod executor;
+#[cfg(feature = "db-fusion")]
+pub mod health_check;
 #[cfg(feature = "db-fusion-v2")]
 pub mod migration;
 #[cfg(feature = "db-fusion")]
 pub mod plan;
+#[cfg(feature = "db-fusion")]
+pub mod routing;
+#[cfg(feature = "db-fusion")]
+pub mod stats;
+#[cfg(feature = "db-fusion")]
+pub mod sync;
 #[cfg(feature = "db-fusion-v2")]
 pub mod ttl_cache;
 #[cfg(feature = "db-fusion-v2")]
@@ -38,12 +48,32 @@ pub mod vector_pushdown;
 #[cfg(feature = "db-fusion-v2")]
 pub use cdc_sync::{CdcSyncCoordinator, SyncOutcome};
 #[cfg(feature = "db-fusion")]
+pub use conflict::{
+    Conflict, ConflictLog, ConflictResolver, ConflictType, DataVersion, Resolution,
+    ResolutionStrategy,
+};
+#[cfg(feature = "db-fusion")]
 #[allow(deprecated)]
 pub use executor::{FusionCache, FusionExecutor, FusionOutcome, MemoryFusionCache};
+#[cfg(feature = "db-fusion")]
+pub use health_check::{
+    HealthCheckResult, HealthCheckScheduler, HealthChecker, HealthRecord, HealthStatus,
+};
 #[cfg(feature = "db-fusion-v2")]
 pub use migration::{migration_guide, migration_steps, MigrationStep};
 #[cfg(feature = "db-fusion")]
 pub use plan::{FusionPlan, FusionPlanner, FusionQuery, PlanStep};
+#[cfg(feature = "db-fusion")]
+pub use routing::{
+    AffinityRoutingStrategy, DataSource, QueryRouter, QueryType, RoutingDecision, RoutingStrategy,
+    SourceRole, WeightedRoundRobinStrategy,
+};
+#[cfg(feature = "db-fusion")]
+pub use stats::{FusionReport, FusionStats, FusionStatsCollector, SourceStats, TableStats};
+#[cfg(feature = "db-fusion")]
+pub use sync::{
+    DataSynchronizer, SyncDirection, SyncResult, SyncScheduler, SyncState, SyncStats, SyncTask,
+};
 #[cfg(feature = "db-fusion-v2")]
 pub use ttl_cache::TtlFusionCache;
 #[cfg(feature = "db-fusion-v2")]

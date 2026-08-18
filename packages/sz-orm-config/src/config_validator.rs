@@ -155,6 +155,25 @@ impl ConfigSchema {
         let report = self.validate(&filled);
         (filled, report)
     }
+
+    /// 从环境变量读取配置并校验
+    ///
+    /// 对每个字段，先查 env var，再查默认值，最后校验。
+    pub fn validate_env(&self) -> ConfigValidationReport {
+        let mut env_config: HashMap<String, String> = HashMap::new();
+        for field in &self.fields {
+            if let Ok(val) = std::env::var(&field.name) {
+                env_config.insert(field.name.clone(), val);
+            }
+        }
+        let (filled, _) = self.validate_and_fill_defaults(&env_config);
+        self.validate(&filled)
+    }
+
+    /// 返回所有字段名
+    pub fn field_names(&self) -> Vec<&str> {
+        self.fields.iter().map(|f| f.name.as_str()).collect()
+    }
 }
 
 /// 单字段校验结果
@@ -250,6 +269,11 @@ impl ConfigValidationReport {
     /// 按字段名过滤结果
     pub fn filter_by_field(&self, field: &str) -> Vec<&ValidationResult> {
         self.results.iter().filter(|r| r.field == field).collect()
+    }
+
+    /// 返回所有校验结果的引用
+    pub fn all_results(&self) -> &[ValidationResult] {
+        &self.results
     }
 }
 
@@ -597,5 +621,21 @@ mod tests {
         };
         assert_eq!(rep.filter_by_field("port").len(), 1);
         assert_eq!(rep.filter_by_field("missing").len(), 0);
+    }
+
+    #[test]
+    fn schema_field_names() {
+        let schema = ConfigSchema::new()
+            .add_field(FieldSchema::new("host"))
+            .add_field(FieldSchema::new("port"));
+        assert_eq!(schema.field_names(), vec!["host", "port"]);
+    }
+
+    #[test]
+    fn report_all_results() {
+        let rep = ConfigValidationReport {
+            results: vec![ValidationResult::passed("a")],
+        };
+        assert_eq!(rep.all_results().len(), 1);
     }
 }

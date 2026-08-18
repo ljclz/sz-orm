@@ -23,6 +23,20 @@
 //! 将阶段耗时写入既有 `sz-orm-tracing` 的 `Tracer` span。
 
 pub mod collector;
+pub mod config;
+pub mod diff;
+pub mod flame_node;
 pub mod render;
+pub mod stats;
 
 pub use collector::{Phase, QueryPhaseTiming, QueryTracer};
+pub use config::{
+    ColorPalette, ColorScheme, LayoutConfig, OutputFormat, RenderConfig, RenderOptions,
+};
+pub use diff::{DiffEntry, DiffMode, DiffResult, DiffType, FlameDiff};
+pub use flame_node::{
+    FlameGraphBuilder, FlameGraphData, FlameGraphFilter, FlameGraphMerger, FlameNode,
+};
+pub use stats::{
+    DepthDistribution, FlameStats, FrameStats, Hotspot, HotspotDetector, HotspotStrategy,
+};

@@ -938,6 +938,231 @@ impl fmt::Debug for LogRouter {
 }
 
 // ============================================================================
+// 日志速率限制器
+// ============================================================================
+
+/// 日志速率限制器：在时间窗口内最多允许 N 条日志通过
+pub struct RateLimitFilter {
+    /// 时间窗口（毫秒）
+    window_ms: u64,
+    /// 窗口内最大条数
+    max_count: u32,
+    /// 当前窗口起始时间
+    window_start: parking_lot::Mutex<Option<std::time::Instant>>,
+    /// 当前窗口内计数
+    count: parking_lot::Mutex<u32>,
+}
+
+impl RateLimitFilter {
+    /// 创建速率限制器
+    pub fn new(window_ms: u64, max_count: u32) -> Self {
+        Self {
+            window_ms,
+            max_count,
+            window_start: parking_lot::Mutex::new(None),
+            count: parking_lot::Mutex::new(0),
+        }
+    }
+
+    /// 每秒最多 N 条
+    pub fn per_second(max_per_sec: u32) -> Self {
+        Self::new(1000, max_per_sec)
+    }
+}
+
+impl LogFilter for RateLimitFilter {
+    fn should_keep(&self, _record: &LogRecord) -> bool {
+        let now = std::time::Instant::now();
+        let mut start = self.window_start.lock();
+        let mut count = self.count.lock();
+        match *start {
+            None => {
+                *start = Some(now);
+                *count = 1;
+                true
+            }
+            Some(s) => {
+                let elapsed = now.duration_since(s);
+                if elapsed.as_millis() as u64 >= self.window_ms {
+                    *start = Some(now);
+                    *count = 1;
+                    true
+                } else {
+                    *count += 1;
+                    *count <= self.max_count
+                }
+            }
+        }
+    }
+}
+
+// ============================================================================
+// 日志采样器
+// ============================================================================
+
+/// 日志采样器：按比例随机采样日志
+pub struct SamplingFilter {
+    /// 采样率（0.0-1.0，1.0 = 全部通过）
+    rate: f64,
+    /// 伪随机状态
+    state: parking_lot::Mutex<u64>,
+}
+
+impl SamplingFilter {
+    /// 创建采样器
+    ///
+    /// `rate` 会被 clamp 到 [0.0, 1.0]
+    pub fn new(rate: f64) -> Self {
+        Self {
+            rate: rate.clamp(0.0, 1.0),
+            state: parking_lot::Mutex::new(0x12345678),
+        }
+    }
+
+    /// 10% 采样
+    pub fn ten_percent() -> Self {
+        Self::new(0.1)
+    }
+
+    /// 1% 采样
+    pub fn one_percent() -> Self {
+        Self::new(0.01)
+    }
+
+    /// 获取采样率
+    pub fn rate(&self) -> f64 {
+        self.rate
+    }
+
+    /// 简单 LCG 伪随机
+    fn next_random(&self) -> f64 {
+        let mut state = self.state.lock();
+        *state = state
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        (*state >> 11) as f64 / (1u64 << 53) as f64
+    }
+}
+
+impl LogFilter for SamplingFilter {
+    fn should_keep(&self, _record: &LogRecord) -> bool {
+        self.next_random() < self.rate
+    }
+}
+
+// ============================================================================
+// 日志聚合器
+// ============================================================================
+
+/// 日志聚合器：相同消息的日志在时间窗口内只输出第一条和计数
+pub struct LogAggregator {
+    /// 时间窗口（毫秒）
+    window_ms: u64,
+    /// 聚合表：message -> (first_seen, count)
+    entries: parking_lot::Mutex<HashMap<String, (std::time::Instant, u32)>>,
+}
+
+impl LogAggregator {
+    /// 创建聚合器
+    pub fn new(window_ms: u64) -> Self {
+        Self {
+            window_ms,
+            entries: parking_lot::Mutex::new(HashMap::new()),
+        }
+    }
+
+    /// 处理一条日志，返回是否应输出
+    ///
+    /// 首次出现返回 true，窗口内重复出现返回 false，
+    /// 窗口过期后首次出现返回 true 并携带上一窗口的计数。
+    pub fn should_output(&self, message: &str) -> bool {
+        let now = std::time::Instant::now();
+        let mut entries = self.entries.lock();
+        match entries.get_mut(message) {
+            Some((first_seen, count)) => {
+                let elapsed = now.duration_since(*first_seen);
+                if elapsed.as_millis() as u64 >= self.window_ms {
+                    *first_seen = now;
+                    *count = 1;
+                    true
+                } else {
+                    *count += 1;
+                    false
+                }
+            }
+            None => {
+                entries.insert(message.to_string(), (now, 1));
+                true
+            }
+        }
+    }
+
+    /// 获取消息的当前窗口计数
+    pub fn count(&self, message: &str) -> u32 {
+        self.entries
+            .lock()
+            .get(message)
+            .map(|(_, c)| *c)
+            .unwrap_or(0)
+    }
+
+    /// 清除所有聚合条目
+    pub fn clear(&self) {
+        self.entries.lock().clear();
+    }
+}
+
+// ============================================================================
+// 日志缓冲器
+// ============================================================================
+
+/// 日志缓冲器：积累日志到阈值后批量输出
+pub struct LogBuffer {
+    /// 缓冲区容量
+    capacity: usize,
+    /// 缓冲的日志记录
+    buffer: parking_lot::Mutex<Vec<LogRecord>>,
+}
+
+impl LogBuffer {
+    /// 创建缓冲器
+    pub fn new(capacity: usize) -> Self {
+        Self {
+            capacity: capacity.max(1),
+            buffer: parking_lot::Mutex::new(Vec::new()),
+        }
+    }
+
+    /// 添加日志记录，返回是否达到 flush 阈值
+    pub fn push(&self, record: LogRecord) -> bool {
+        let mut buf = self.buffer.lock();
+        buf.push(record);
+        buf.len() >= self.capacity
+    }
+
+    /// 取出所有缓冲的日志（flush）
+    pub fn flush(&self) -> Vec<LogRecord> {
+        let mut buf = self.buffer.lock();
+        std::mem::take(&mut *buf)
+    }
+
+    /// 当前缓冲区大小
+    pub fn len(&self) -> usize {
+        self.buffer.lock().len()
+    }
+
+    /// 缓冲区是否为空
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// 缓冲区容量
+    pub fn capacity(&self) -> usize {
+        self.capacity
+    }
+}
+
+// ============================================================================
 // 测试
 // ============================================================================
 
@@ -1423,5 +1648,147 @@ mod tests {
         router.route_record(&LogRecord::new(LogLevel::Error, "a", "m"));
         assert_eq!(handle1.count(), 1);
         assert_eq!(handle2.count(), 0);
+    }
+
+    // ---- RateLimitFilter 测试 ----
+
+    #[test]
+    fn test_rate_limit_allows_within_limit() {
+        let filter = RateLimitFilter::per_second(5);
+        let record = LogRecord::new(LogLevel::Info, "app", "msg");
+        for _ in 0..5 {
+            assert!(filter.should_keep(&record));
+        }
+    }
+
+    #[test]
+    fn test_rate_limit_blocks_over_limit() {
+        let filter = RateLimitFilter::per_second(3);
+        let record = LogRecord::new(LogLevel::Info, "app", "msg");
+        for _ in 0..3 {
+            assert!(filter.should_keep(&record));
+        }
+        assert!(!filter.should_keep(&record));
+    }
+
+    #[test]
+    fn test_rate_limit_per_second_constructor() {
+        let f = RateLimitFilter::per_second(10);
+        assert_eq!(f.max_count, 10);
+        assert_eq!(f.window_ms, 1000);
+    }
+
+    // ---- SamplingFilter 测试 ----
+
+    #[test]
+    fn test_sampling_full_rate() {
+        let filter = SamplingFilter::new(1.0);
+        let record = LogRecord::new(LogLevel::Info, "app", "msg");
+        for _ in 0..100 {
+            assert!(filter.should_keep(&record));
+        }
+    }
+
+    #[test]
+    fn test_sampling_zero_rate() {
+        let filter = SamplingFilter::new(0.0);
+        let record = LogRecord::new(LogLevel::Info, "app", "msg");
+        for _ in 0..100 {
+            assert!(!filter.should_keep(&record));
+        }
+    }
+
+    #[test]
+    fn test_sampling_rate_clamped() {
+        let filter = SamplingFilter::new(2.0);
+        assert_eq!(filter.rate(), 1.0);
+        let filter2 = SamplingFilter::new(-1.0);
+        assert_eq!(filter2.rate(), 0.0);
+    }
+
+    #[test]
+    fn test_sampling_ten_percent() {
+        let filter = SamplingFilter::ten_percent();
+        assert!((filter.rate() - 0.1).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_sampling_one_percent() {
+        let filter = SamplingFilter::one_percent();
+        assert!((filter.rate() - 0.01).abs() < 1e-10);
+    }
+
+    // ---- LogAggregator 测试 ----
+
+    #[test]
+    fn test_aggregator_first_output() {
+        let agg = LogAggregator::new(1000);
+        assert!(agg.should_output("error: db connection failed"));
+    }
+
+    #[test]
+    fn test_aggregator_suppresses_duplicates() {
+        let agg = LogAggregator::new(1000);
+        assert!(agg.should_output("error: timeout"));
+        assert!(!agg.should_output("error: timeout"));
+        assert!(!agg.should_output("error: timeout"));
+        assert_eq!(agg.count("error: timeout"), 3);
+    }
+
+    #[test]
+    fn test_aggregator_different_messages() {
+        let agg = LogAggregator::new(1000);
+        assert!(agg.should_output("error A"));
+        assert!(agg.should_output("error B"));
+        assert!(!agg.should_output("error A"));
+        assert!(!agg.should_output("error B"));
+    }
+
+    #[test]
+    fn test_aggregator_clear() {
+        let agg = LogAggregator::new(1000);
+        agg.should_output("msg");
+        assert_eq!(agg.count("msg"), 1);
+        agg.clear();
+        assert_eq!(agg.count("msg"), 0);
+    }
+
+    #[test]
+    fn test_aggregator_count_unknown() {
+        let agg = LogAggregator::new(1000);
+        assert_eq!(agg.count("unknown"), 0);
+    }
+
+    // ---- LogBuffer 测试 ----
+
+    #[test]
+    fn test_log_buffer_push_and_flush() {
+        let buf = LogBuffer::new(3);
+        assert!(buf.is_empty());
+        buf.push(LogRecord::new(LogLevel::Info, "a", "1"));
+        buf.push(LogRecord::new(LogLevel::Info, "a", "2"));
+        assert_eq!(buf.len(), 2);
+        let flushed = buf.flush();
+        assert_eq!(flushed.len(), 2);
+        assert!(buf.is_empty());
+    }
+
+    #[test]
+    fn test_log_buffer_threshold() {
+        let buf = LogBuffer::new(2);
+        assert!(!buf.push(LogRecord::new(LogLevel::Info, "a", "1")));
+        assert!(buf.push(LogRecord::new(LogLevel::Info, "a", "2")));
+    }
+
+    #[test]
+    fn test_log_buffer_capacity() {
+        let buf = LogBuffer::new(5);
+        assert_eq!(buf.capacity(), 5);
+    }
+
+    #[test]
+    fn test_log_buffer_capacity_clamped() {
+        let buf = LogBuffer::new(0);
+        assert_eq!(buf.capacity(), 1);
     }
 }

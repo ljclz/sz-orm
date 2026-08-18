@@ -20,6 +20,26 @@
 //! - Oracle 23ai Free（127.0.0.1:1521/freepdb1.FALSE，用户 sz_orm_test）
 //! - CRUD 全场景基准测试通过（详见 docs/sz-orm/2026-07-25-性能测试报告.md）
 
+pub mod bulk_operations;
+pub mod cursor_manager;
+pub mod pool_config;
+pub mod stored_procedure;
+pub mod transaction_isolation;
+pub mod type_mapping;
+
+pub use bulk_operations::{BulkConfig, BulkErrorMode, BulkOpKind, BulkOperations, BulkResult};
+pub use cursor_manager::{
+    CursorConfig, CursorInstance, CursorManager, CursorState, FetchDirection,
+};
+pub use pool_config::{OraclePoolConfig, PoolStats};
+pub use stored_procedure::{
+    BatchProcedureCall, ParamMode, ParamType, ProcedureParam, StoredProcedureBuilder,
+};
+pub use transaction_isolation::{
+    AccessMode, BatchErrorAction, TransactionConfig, TransactionIsolation,
+};
+pub use type_mapping::{OracleColumnMeta, OracleTypeKind, TypeMapping, ValueKind};
+
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::future::Future;

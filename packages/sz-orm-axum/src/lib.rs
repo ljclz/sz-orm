@@ -6,6 +6,26 @@
 //! - [`JsonResp<T>`] — 通用 JSON 响应包装
 //! - [`transaction_layer`] — 事务中间件（请求成功提交，失败回滚）
 
+mod auth;
+mod cors;
+mod pagination;
+mod response;
+mod validation;
+
+pub use auth::{AuthConfig, AuthResult, RoleChecker, TokenValidator};
+pub use cors::{CorsConfig, CorsOrigin};
+pub use pagination::{
+    FilterCondition, FilterOp, FilterParams, Pagination, PaginationExtractor, QueryParams,
+    SortDirection, SortParams,
+};
+pub use response::{
+    ApiError, ApiResponse, ApiStatus, ErrorResponse, HealthCheck, HealthStatus, PaginatedResponse,
+    PaginationMeta, ResponseWrapper,
+};
+pub use validation::{
+    FieldValidator, RequestValidator, RuleType, ValidationError, ValidationResult, ValidationRule,
+};
+
 use axum::{
     body::Body,
     extract::State,

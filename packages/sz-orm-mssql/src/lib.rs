@@ -30,6 +30,26 @@
 //! # }
 //! ```
 
+pub mod bulk_insert;
+pub mod connection_config;
+pub mod index_optimization;
+pub mod transaction_config;
+pub mod tsql_stored_procedure;
+pub mod type_mapping;
+
+pub use bulk_insert::{BulkInsert, BulkInsertOptions, BulkInsertResult, BulkInsertStrategy};
+pub use connection_config::{
+    AuthenticationMode, ConnectionPoolConfig, EncryptionConfig, MssqlConnectionConfig, TlsVersion,
+};
+pub use index_optimization::{
+    IndexOptimizationAdvisor, IndexSuggestion, IndexType, IndexUsageStats, MissingIndexInfo,
+};
+pub use transaction_config::{DeadlockPriority, TransactionConfig, TransactionIsolation};
+pub use tsql_stored_procedure::{
+    TSqlBatchExec, TSqlParamDirection, TSqlParameter, TSqlStoredProcedure,
+};
+pub use type_mapping::{MssqlColumnMeta, MssqlTypeKind, MssqlTypeMapping, ValueKind};
+
 use async_trait::async_trait;
 use futures_util::StreamExt;
 use std::collections::HashMap;

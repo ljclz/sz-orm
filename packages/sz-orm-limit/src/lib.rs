@@ -10,6 +10,25 @@
 //!
 //! v0.2.1 修复 Critical S-3：引入 `DEFAULT_MAX_KEYS` 防止无限 key 导致 OOM。
 
+pub mod composite;
+pub mod concurrency;
+pub mod config_builder;
+pub mod leaky_bucket;
+pub mod metrics;
+
+pub use composite::{
+    CompositeLimiter, CompositeStrategy, FallbackLimiter, LimitKeyBuilder, RateLimitRule, RuleSet,
+};
+pub use concurrency::{
+    ConcurrencyGuard, ConcurrencyLimiter, ConcurrencyStats, TimedConcurrencyLimiter,
+};
+pub use config_builder::{
+    ConfigError, LimitAlgorithm, RateLimitConfig, RateLimitConfigBuilder, TieredConfigBuilder,
+    TieredRateLimitConfig,
+};
+pub use leaky_bucket::{LeakyBucketLimiter, LeakyBucketStats, SlidingWindowLogLimiter};
+pub use metrics::{Alert, MetricsSnapshot, RateLimitMetrics, RateLimitMonitor};
+
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};

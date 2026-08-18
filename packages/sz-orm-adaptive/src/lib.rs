@@ -21,11 +21,25 @@
 //! 本包零依赖 `sz-orm-core`：决策层只做统计与建议，具体执行路径
 //! （游标分页/缓存写入）由调用方复用既有实现完成，避免依赖循环。
 
+pub mod complexity;
 pub mod executor;
+pub mod param_tuner;
+pub mod planner;
 pub mod stats;
 
+pub use complexity::{
+    AdaptiveIndexSelector, ComplexityLevel, IndexInfo, QueryComplexityEvaluator, QueryFeatures,
+};
 pub use executor::{
     AdaptiveConfig, AdaptiveExecutor, BatchSizeTuner, ExecutionPath, IndexSelectionStrategy,
     JoinOrderStrategy, MemoryTtlCache, QueryOutcome, ResultCache,
+};
+pub use param_tuner::{
+    AdaptiveParameterTuner, PerformanceMetrics, SuggestionSeverity, TunableParam, TuningAdvisor,
+    TuningEvent, TuningImpactEvaluator, TuningPlan, TuningPlanStep, TuningSignal, TuningStats,
+    TuningStrategy, TuningSuggestion,
+};
+pub use planner::{
+    AdaptiveQueryPlanner, CachedPlan, ExecutionPlanCache, PlannerConfig, QueryPlan, TableMetadata,
 };
 pub use stats::{QueryStats, SlidingWindowStats};

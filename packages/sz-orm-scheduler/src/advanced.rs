@@ -920,6 +920,201 @@ impl Default for TaskStatsManager {
     }
 }
 
+// ====================================================================
+// 任务优先级
+// ====================================================================
+
+/// 任务优先级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+pub enum TaskPriority {
+    /// 低优先级
+    Low = 1,
+    /// 普通优先级
+    Normal = 5,
+    /// 高优先级
+    High = 10,
+    /// 紧急优先级
+    Urgent = 20,
+}
+
+impl Default for TaskPriority {
+    fn default() -> Self {
+        TaskPriority::Normal
+    }
+}
+
+impl TaskPriority {
+    /// 从数值创建优先级
+    pub fn from_value(v: u32) -> Self {
+        match v {
+            0..=4 => TaskPriority::Low,
+            5..=9 => TaskPriority::Normal,
+            10..=19 => TaskPriority::High,
+            _ => TaskPriority::Urgent,
+        }
+    }
+
+    /// 优先级名称
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            TaskPriority::Low => "low",
+            TaskPriority::Normal => "normal",
+            TaskPriority::High => "high",
+            TaskPriority::Urgent => "urgent",
+        }
+    }
+
+    /// 数值
+    pub fn value(&self) -> u32 {
+        *self as u32
+    }
+}
+
+// ====================================================================
+// 调度时间窗口
+// ====================================================================
+
+/// 调度时间窗口：限制任务只在指定时段执行
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ScheduleWindow {
+    /// 起始小时（0-23）
+    pub start_hour: u32,
+    /// 起始分钟（0-59）
+    pub start_minute: u32,
+    /// 结束小时（0-23）
+    pub end_hour: u32,
+    /// 结束分钟（0-59）
+    pub end_minute: u32,
+    /// 允许的星期（1=周一 ... 7=周日）
+    pub allowed_weekdays: Vec<u32>,
+}
+
+impl ScheduleWindow {
+    /// 创建时间窗口
+    pub fn new(start_hour: u32, end_hour: u32) -> Self {
+        Self {
+            start_hour,
+            start_minute: 0,
+            end_hour,
+            end_minute: 0,
+            allowed_weekdays: vec![1, 2, 3, 4, 5, 6, 7],
+        }
+    }
+
+    /// 设置分钟精度
+    pub fn with_minutes(mut self, start_min: u32, end_min: u32) -> Self {
+        self.start_minute = start_min;
+        self.end_minute = end_min;
+        self
+    }
+
+    /// 限制到工作日（周一至周五）
+    pub fn weekdays_only(mut self) -> Self {
+        self.allowed_weekdays = vec![1, 2, 3, 4, 5];
+        self
+    }
+
+    /// 限制到周末
+    pub fn weekends_only(mut self) -> Self {
+        self.allowed_weekdays = vec![6, 7];
+        self
+    }
+
+    /// 检查给定时间是否在窗口内
+    pub fn contains(&self, hour: u32, minute: u32, weekday: u32) -> bool {
+        if !self.allowed_weekdays.contains(&weekday) {
+            return false;
+        }
+        let start_mins = self.start_hour * 60 + self.start_minute;
+        let end_mins = self.end_hour * 60 + self.end_minute;
+        let check_mins = hour * 60 + minute;
+        if start_mins <= end_mins {
+            (start_mins..=end_mins).contains(&check_mins)
+        } else {
+            check_mins >= start_mins || check_mins <= end_mins
+        }
+    }
+}
+
+// ====================================================================
+// TaskStats 扩展方法
+// ====================================================================
+
+impl TaskStats {
+    /// 返回失败率（0.0 - 100.0）
+    pub fn failure_rate(&self) -> f64 {
+        if self.total_executions == 0 {
+            return 0.0;
+        }
+        (self.failed_executions as f64 / self.total_executions as f64) * 100.0
+    }
+
+    /// 是否从未执行
+    pub fn never_executed(&self) -> bool {
+        self.total_executions == 0
+    }
+
+    /// 是否全部成功
+    pub fn all_succeeded(&self) -> bool {
+        self.total_executions > 0 && self.failed_executions == 0
+    }
+
+    /// 是否全部失败
+    pub fn all_failed(&self) -> bool {
+        self.total_executions > 0 && self.successful_executions == 0
+    }
+}
+
+// ====================================================================
+// TaskStatsManager 扩展方法
+// ====================================================================
+
+impl TaskStatsManager {
+    /// 所有任务的总执行次数
+    pub fn total_executions(&self) -> u64 {
+        self.stats
+            .lock()
+            .map(|s| s.values().map(|st| st.total_executions).sum())
+            .unwrap_or(0)
+    }
+
+    /// 所有任务的总成功次数
+    pub fn total_successes(&self) -> u64 {
+        self.stats
+            .lock()
+            .map(|s| s.values().map(|st| st.successful_executions).sum())
+            .unwrap_or(0)
+    }
+
+    /// 重置所有任务统计
+    pub fn reset_all(&self) {
+        if let Ok(mut stats) = self.stats.lock() {
+            stats.clear();
+        }
+    }
+
+    /// 生成汇总报告
+    pub fn summary(&self) -> String {
+        let stats = match self.stats.lock() {
+            Ok(s) => s,
+            Err(_) => return "TaskStatsManager: lock poisoned".to_string(),
+        };
+        let mut out = format!("TaskStatsManager: {} task(s)\n", stats.len());
+        for (task_id, st) in stats.iter() {
+            out.push_str(&format!(
+                "  {} : total={}, success={}, fail={}, rate={:.1}%, avg={}ms\n",
+                task_id,
+                st.total_executions,
+                st.successful_executions,
+                st.failed_executions,
+                st.success_rate(),
+                st.avg_duration_ms()
+            ));
+        }
+        out
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1504,5 +1699,148 @@ mod tests {
         assert!(mgr.reset("task1"));
         assert!(mgr.get_stats("task1").is_none());
         assert!(!mgr.reset("nonexistent"));
+    }
+
+    // ---- TaskPriority 测试 ----
+
+    #[test]
+    fn test_task_priority_default() {
+        assert_eq!(TaskPriority::default(), TaskPriority::Normal);
+    }
+
+    #[test]
+    fn test_task_priority_from_value() {
+        assert_eq!(TaskPriority::from_value(0), TaskPriority::Low);
+        assert_eq!(TaskPriority::from_value(5), TaskPriority::Normal);
+        assert_eq!(TaskPriority::from_value(10), TaskPriority::High);
+        assert_eq!(TaskPriority::from_value(20), TaskPriority::Urgent);
+    }
+
+    #[test]
+    fn test_task_priority_as_str() {
+        assert_eq!(TaskPriority::Low.as_str(), "low");
+        assert_eq!(TaskPriority::Normal.as_str(), "normal");
+        assert_eq!(TaskPriority::High.as_str(), "high");
+        assert_eq!(TaskPriority::Urgent.as_str(), "urgent");
+    }
+
+    #[test]
+    fn test_task_priority_value() {
+        assert_eq!(TaskPriority::Low.value(), 1);
+        assert_eq!(TaskPriority::Normal.value(), 5);
+        assert_eq!(TaskPriority::High.value(), 10);
+        assert_eq!(TaskPriority::Urgent.value(), 20);
+    }
+
+    #[test]
+    fn test_task_priority_ordering() {
+        assert!(TaskPriority::Low < TaskPriority::Normal);
+        assert!(TaskPriority::Normal < TaskPriority::High);
+        assert!(TaskPriority::High < TaskPriority::Urgent);
+    }
+
+    // ---- ScheduleWindow 测试 ----
+
+    #[test]
+    fn test_schedule_window_contains() {
+        let window = ScheduleWindow::new(9, 17);
+        assert!(window.contains(10, 0, 1));
+        assert!(!window.contains(8, 0, 1));
+        assert!(!window.contains(18, 0, 1));
+    }
+
+    #[test]
+    fn test_schedule_window_weekdays_only() {
+        let window = ScheduleWindow::new(9, 17).weekdays_only();
+        assert!(window.contains(10, 0, 1));
+        assert!(!window.contains(10, 0, 7));
+    }
+
+    #[test]
+    fn test_schedule_window_weekends_only() {
+        let window = ScheduleWindow::new(9, 17).weekends_only();
+        assert!(!window.contains(10, 0, 1));
+        assert!(window.contains(10, 0, 7));
+    }
+
+    #[test]
+    fn test_schedule_window_with_minutes() {
+        let window = ScheduleWindow::new(9, 17).with_minutes(30, 30);
+        assert!(window.contains(10, 0, 1));
+        assert!(!window.contains(9, 0, 1));
+        assert!(window.contains(9, 30, 1));
+    }
+
+    // ---- TaskStats 扩展测试 ----
+
+    #[test]
+    fn test_task_stats_failure_rate() {
+        let mut stats = TaskStats::new();
+        assert_eq!(stats.failure_rate(), 0.0);
+        stats.record(true, 100);
+        stats.record(false, 100);
+        assert!((stats.failure_rate() - 50.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_task_stats_never_executed() {
+        let stats = TaskStats::new();
+        assert!(stats.never_executed());
+    }
+
+    #[test]
+    fn test_task_stats_all_succeeded() {
+        let mut stats = TaskStats::new();
+        stats.record(true, 100);
+        stats.record(true, 200);
+        assert!(stats.all_succeeded());
+        assert!(!stats.all_failed());
+    }
+
+    #[test]
+    fn test_task_stats_all_failed() {
+        let mut stats = TaskStats::new();
+        stats.record(false, 100);
+        stats.record(false, 200);
+        assert!(stats.all_failed());
+        assert!(!stats.all_succeeded());
+    }
+
+    // ---- TaskStatsManager 扩展测试 ----
+
+    #[test]
+    fn test_task_stats_manager_total_executions() {
+        let mgr = TaskStatsManager::new();
+        mgr.record("t1", true, 100);
+        mgr.record("t1", false, 200);
+        mgr.record("t2", true, 50);
+        assert_eq!(mgr.total_executions(), 3);
+        assert_eq!(mgr.total_successes(), 2);
+    }
+
+    #[test]
+    fn test_task_stats_manager_reset_all() {
+        let mgr = TaskStatsManager::new();
+        mgr.record("t1", true, 100);
+        mgr.record("t2", true, 200);
+        mgr.reset_all();
+        assert_eq!(mgr.tracked_tasks().len(), 0);
+    }
+
+    #[test]
+    fn test_task_stats_manager_summary() {
+        let mgr = TaskStatsManager::new();
+        mgr.record("t1", true, 100);
+        let s = mgr.summary();
+        assert!(s.contains("t1"));
+        assert!(s.contains("100.0%"));
+    }
+
+    #[test]
+    fn test_schedule_window_cross_midnight() {
+        let window = ScheduleWindow::new(22, 6);
+        assert!(window.contains(23, 0, 1));
+        assert!(window.contains(2, 0, 1));
+        assert!(!window.contains(12, 0, 1));
     }
 }

@@ -59,6 +59,28 @@ impl Point {
     pub fn to_wkt(&self) -> String {
         format!("POINT({} {})", self.x, self.y)
     }
+
+    /// 计算两点中点
+    pub fn midpoint(&self, other: &Point) -> Point {
+        Point::with_srid(
+            (self.x + other.x) / 2.0,
+            (self.y + other.y) / 2.0,
+            self.srid,
+        )
+    }
+
+    /// 计算到另一点的方位角（度数，0=正北，顺时针）
+    pub fn bearing(&self, other: &Point) -> f64 {
+        let to_rad = |deg: f64| deg * std::f64::consts::PI / 180.0;
+        let to_deg = |rad: f64| rad * 180.0 / std::f64::consts::PI;
+        let lat1 = to_rad(self.y);
+        let lat2 = to_rad(other.y);
+        let dlon = to_rad(other.x - self.x);
+        let y = dlon.sin() * lat2.cos();
+        let x = lat1.cos() * lat2.sin() - lat1.sin() * lat2.cos() * dlon.cos();
+        let bearing = to_deg(y.atan2(x));
+        (bearing + 360.0) % 360.0
+    }
 }
 
 /// 线串：由有序点组成
@@ -97,6 +119,21 @@ impl LineString {
             .map(|p| format!("{} {}", p.x, p.y))
             .collect();
         format!("SRID={};LINESTRING({})", self.srid, coords.join(", "))
+    }
+
+    /// 转 WKT 字符串（不含 SRID 前缀）
+    pub fn to_wkt(&self) -> String {
+        let coords: Vec<String> = self
+            .points
+            .iter()
+            .map(|p| format!("{} {}", p.x, p.y))
+            .collect();
+        format!("LINESTRING({})", coords.join(", "))
+    }
+
+    /// 点数
+    pub fn point_count(&self) -> usize {
+        self.points.len()
     }
 }
 
@@ -195,6 +232,41 @@ impl Polygon {
             .collect();
         format!("SRID={};POLYGON({})", self.srid, rings.join(", "))
     }
+
+    /// 转 WKT 字符串（不含 SRID 前缀）
+    pub fn to_wkt(&self) -> String {
+        let rings: Vec<String> = self
+            .rings
+            .iter()
+            .map(|ring| {
+                let coords: Vec<String> = ring.iter().map(|p| format!("{} {}", p.x, p.y)).collect();
+                format!("({})", coords.join(", "))
+            })
+            .collect();
+        format!("POLYGON({})", rings.join(", "))
+    }
+
+    /// 计算外环周长（欧氏）
+    pub fn perimeter(&self) -> f64 {
+        if self.rings.is_empty() {
+            return 0.0;
+        }
+        let outer = &self.rings[0];
+        if outer.len() < 2 {
+            return 0.0;
+        }
+        let mut perim = 0.0;
+        for i in 0..outer.len() {
+            let j = (i + 1) % outer.len();
+            perim += outer[i].euclidean_distance(&outer[j]);
+        }
+        perim
+    }
+
+    /// 环数（外环 + 洞数）
+    pub fn ring_count(&self) -> usize {
+        self.rings.len()
+    }
 }
 
 /// 几何类型枚举（统一容器）
@@ -265,6 +337,80 @@ impl Geometry {
             Geometry::MultiLineString(_) => "MultiLineString",
             Geometry::MultiPolygon(_) => "MultiPolygon",
         }
+    }
+
+    /// 转 WKT 字符串（不含 SRID 前缀）
+    pub fn to_wkt(&self) -> String {
+        match self {
+            Geometry::Point(p) => p.to_wkt(),
+            Geometry::LineString(ls) => ls.to_wkt(),
+            Geometry::Polygon(poly) => poly.to_wkt(),
+            Geometry::MultiPoint(pts) => {
+                let coords: Vec<String> = pts.iter().map(|p| format!("{} {}", p.x, p.y)).collect();
+                format!("MULTIPOINT({})", coords.join(", "))
+            }
+            Geometry::MultiLineString(lss) => {
+                let lines: Vec<String> = lss
+                    .iter()
+                    .map(|ls| {
+                        let coords: Vec<String> = ls
+                            .points
+                            .iter()
+                            .map(|p| format!("{} {}", p.x, p.y))
+                            .collect();
+                        format!("({})", coords.join(", "))
+                    })
+                    .collect();
+                format!("MULTILINESTRING({})", lines.join(", "))
+            }
+            Geometry::MultiPolygon(polys) => {
+                let polygons: Vec<String> = polys
+                    .iter()
+                    .map(|poly| {
+                        let rings: Vec<String> = poly
+                            .rings
+                            .iter()
+                            .map(|ring| {
+                                let coords: Vec<String> =
+                                    ring.iter().map(|p| format!("{} {}", p.x, p.y)).collect();
+                                format!("({})", coords.join(", "))
+                            })
+                            .collect();
+                        format!("({})", rings.join(", "))
+                    })
+                    .collect();
+                format!("MULTIPOLYGON({})", polygons.join(", "))
+            }
+        }
+    }
+
+    /// 计算几何体的包围盒 (min_x, min_y, max_x, max_y)
+    pub fn bounding_box(&self) -> Option<(f64, f64, f64, f64)> {
+        let points: Vec<&Point> = match self {
+            Geometry::Point(p) => vec![p],
+            Geometry::LineString(ls) => ls.points.iter().collect(),
+            Geometry::Polygon(poly) => poly.rings.iter().flatten().collect(),
+            Geometry::MultiPoint(pts) => pts.iter().collect(),
+            Geometry::MultiLineString(lss) => lss.iter().flat_map(|ls| ls.points.iter()).collect(),
+            Geometry::MultiPolygon(polys) => polys
+                .iter()
+                .flat_map(|p| p.rings.iter().flatten())
+                .collect(),
+        };
+        if points.is_empty() {
+            return None;
+        }
+        let mut min_x = points[0].x;
+        let mut min_y = points[0].y;
+        let mut max_x = points[0].x;
+        let mut max_y = points[0].y;
+        for p in &points[1..] {
+            min_x = min_x.min(p.x);
+            min_y = min_y.min(p.y);
+            max_x = max_x.max(p.x);
+            max_y = max_y.max(p.y);
+        }
+        Some((min_x, min_y, max_x, max_y))
     }
 
     /// 从 EWKT 字符串解析几何体
@@ -582,5 +728,122 @@ mod tests {
         let g = Geometry::Point(Point::new(116.404, 39.915));
         assert_eq!(g.to_ewkt(), "SRID=4326;POINT(116.404 39.915)");
         assert_eq!(g.type_name(), "Point");
+    }
+
+    #[test]
+    fn test_point_wkt() {
+        let p = Point::new(1.0, 2.0);
+        assert_eq!(p.to_wkt(), "POINT(1 2)");
+    }
+
+    #[test]
+    fn test_point_midpoint() {
+        let p1 = Point::new(0.0, 0.0);
+        let p2 = Point::new(4.0, 6.0);
+        let mid = p1.midpoint(&p2);
+        assert!((mid.x - 2.0).abs() < 1e-10);
+        assert!((mid.y - 3.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_point_bearing_north() {
+        let p1 = Point::new(0.0, 0.0);
+        let p2 = Point::new(0.0, 1.0);
+        let bearing = p1.bearing(&p2);
+        assert!((bearing - 0.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_point_bearing_east() {
+        let p1 = Point::new(0.0, 0.0);
+        let p2 = Point::new(1.0, 0.0);
+        let bearing = p1.bearing(&p2);
+        assert!((bearing - 90.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_linestring_wkt() {
+        let ls = LineString::new(vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)]);
+        assert_eq!(ls.to_wkt(), "LINESTRING(0 0, 1 1)");
+    }
+
+    #[test]
+    fn test_linestring_point_count() {
+        let ls = LineString::new(vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)]);
+        assert_eq!(ls.point_count(), 2);
+    }
+
+    #[test]
+    fn test_polygon_wkt() {
+        let poly = Polygon::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(4.0, 0.0),
+            Point::new(4.0, 3.0),
+            Point::new(0.0, 3.0),
+        ]);
+        assert!(poly.to_wkt().starts_with("POLYGON("));
+    }
+
+    #[test]
+    fn test_polygon_perimeter() {
+        let poly = Polygon::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(4.0, 0.0),
+            Point::new(4.0, 3.0),
+            Point::new(0.0, 3.0),
+        ]);
+        let perim = poly.perimeter();
+        assert!((perim - 14.0).abs() < 1e-10);
+    }
+
+    #[test]
+    fn test_polygon_ring_count() {
+        let poly = Polygon::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 0.0),
+            Point::new(0.0, 1.0),
+        ]);
+        assert_eq!(poly.ring_count(), 1);
+    }
+
+    #[test]
+    fn test_geometry_to_wkt_point() {
+        let g = Geometry::Point(Point::new(1.0, 2.0));
+        assert_eq!(g.to_wkt(), "POINT(1 2)");
+    }
+
+    #[test]
+    fn test_geometry_to_wkt_linestring() {
+        let g = Geometry::LineString(LineString::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(1.0, 1.0),
+        ]));
+        assert_eq!(g.to_wkt(), "LINESTRING(0 0, 1 1)");
+    }
+
+    #[test]
+    fn test_geometry_bounding_box_point() {
+        let g = Geometry::Point(Point::new(3.0, 5.0));
+        let bb = g.bounding_box().unwrap();
+        assert_eq!(bb, (3.0, 5.0, 3.0, 5.0));
+    }
+
+    #[test]
+    fn test_geometry_bounding_box_polygon() {
+        let poly = Polygon::new(vec![
+            Point::new(0.0, 0.0),
+            Point::new(4.0, 0.0),
+            Point::new(4.0, 3.0),
+            Point::new(0.0, 3.0),
+        ]);
+        let g = Geometry::Polygon(poly);
+        let bb = g.bounding_box().unwrap();
+        assert_eq!(bb, (0.0, 0.0, 4.0, 3.0));
+    }
+
+    #[test]
+    fn test_geometry_bounding_box_empty() {
+        let g = Geometry::MultiPoint(vec![]);
+        assert!(g.bounding_box().is_none());
     }
 }

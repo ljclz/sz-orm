@@ -82,7 +82,7 @@ impl RootCause {
 }
 
 /// 严重度等级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
 pub enum Severity {
     /// 信息（略超阈值）
     Info,

@@ -755,6 +755,7 @@ impl serde::Serialize for GrpcError {
 
 pub mod grpc_health;
 pub mod grpc_metrics;
+pub mod grpc_resilience;
 
 #[cfg(feature = "real")]
 mod real_grpc;

@@ -7825,6 +7825,8 @@ dependencies = [
 name = "sz-orm-flamegraph"
 version = "4.9.0"
 dependencies = [
+ "serde",
+ "serde_json",
  "sz-orm-tracing",
 ]
 

@@ -12,20 +12,32 @@
 //! - [`mapping`] — 结果类型化映射
 //! - [`error`] — GraphError 错误类型
 
+pub mod algorithm;
+pub mod community;
 pub mod connection;
 pub mod error;
+pub mod graph_stats;
 pub mod mapping;
 pub mod model;
+pub mod path_analysis;
 pub mod query;
+pub mod subgraph;
 pub mod validator;
 
+pub use algorithm::{DirectedGraph, NodeId, UndirectedGraph, Weight};
+pub use community::{
+    Community, CommunityDetectionResult, ConnectedComponentDetector, LabelPropagation,
+};
 pub use connection::{GraphConfig, GraphConnection, GraphPool, GraphPoolStatus};
 pub use error::GraphError;
+pub use graph_stats::{DegreeDistribution, GraphStats, GraphStatsCalculator};
 pub use mapping::{NodeMapper, RelationMapper, ResultMapper};
 pub use model::{
     GraphNodeModel, GraphPropertyDef, GraphRelationModel, GraphValueType, RelationDirection,
 };
+pub use path_analysis::{PathAnalyzer, ReachabilityMatrix};
 pub use query::{
     CypherQuery, CypherQueryBuilder, GraphNode, GraphPath, GraphRelationship, GraphResult,
 };
+pub use subgraph::{CommonSubgraphFinder, IsomorphismChecker, SubgraphMatcher};
 pub use validator::CypherValidator;

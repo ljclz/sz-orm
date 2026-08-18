@@ -213,6 +213,76 @@ impl ReplicationLagMonitor {
         }
         best.map(|(s, _)| s)
     }
+
+    /// 计算 slave 的最小延迟（基于历史）
+    pub fn min_lag(&self, slave: &str) -> Option<u64> {
+        match self.history.lock() {
+            Ok(history) => history
+                .get(slave)
+                .and_then(|v| v.iter().map(|s| s.lag_seconds).min()),
+            Err(_) => None,
+        }
+    }
+
+    /// 返回所有已知 slave 列表
+    pub fn all_slaves(&self) -> Vec<String> {
+        match self.history.lock() {
+            Ok(history) => history.keys().cloned().collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// 已知 slave 数量
+    pub fn slave_count(&self) -> usize {
+        match self.history.lock() {
+            Ok(history) => history.len(),
+            Err(_) => 0,
+        }
+    }
+
+    /// 延迟趋势：比较最近两次采样
+    ///
+    /// 返回正数表示延迟上升，负数表示下降，0 表示稳定或数据不足。
+    pub fn lag_trend(&self, slave: &str) -> i64 {
+        match self.history.lock() {
+            Ok(history) => {
+                if let Some(entries) = history.get(slave) {
+                    if entries.len() < 2 {
+                        return 0;
+                    }
+                    let last = entries.last().unwrap().lag_seconds as i64;
+                    let prev = entries[entries.len() - 2].lag_seconds as i64;
+                    last - prev
+                } else {
+                    0
+                }
+            }
+            Err(_) => 0,
+        }
+    }
+
+    /// 生成汇总报告字符串
+    pub fn summary(&self) -> String {
+        let history = match self.history.lock() {
+            Ok(h) => h,
+            Err(_) => return "ReplicationLagMonitor: lock poisoned".to_string(),
+        };
+        let mut out = format!(
+            "ReplicationLagMonitor: {} slave(s), threshold={}s\n",
+            history.len(),
+            self.threshold_secs
+        );
+        for (slave, entries) in history.iter() {
+            let latest = entries.last().map(|s| s.lag_seconds).unwrap_or(0);
+            let status = if latest > self.threshold_secs {
+                "LAGGING"
+            } else {
+                "OK"
+            };
+            out.push_str(&format!("  {} : lag={}s [{}]\n", slave, latest, status));
+        }
+        out
+    }
 }
 
 #[cfg(test)]
@@ -383,5 +453,81 @@ mod tests {
         let m = ReplicationLagMonitor::new(10).with_max_history(0);
         m.report("s1", 5);
         assert_eq!(m.history("s1").len(), 1);
+    }
+
+    #[test]
+    fn test_min_lag() {
+        let m = ReplicationLagMonitor::new(100);
+        m.report("s1", 30);
+        m.report("s1", 10);
+        m.report("s1", 50);
+        assert_eq!(m.min_lag("s1"), Some(10));
+    }
+
+    #[test]
+    fn test_min_lag_no_data() {
+        let m = ReplicationLagMonitor::new(100);
+        assert_eq!(m.min_lag("ghost"), None);
+    }
+
+    #[test]
+    fn test_all_slaves() {
+        let m = ReplicationLagMonitor::new(100);
+        m.report("s1", 5);
+        m.report("s2", 10);
+        let mut slaves = m.all_slaves();
+        slaves.sort();
+        assert_eq!(slaves, vec!["s1".to_string(), "s2".to_string()]);
+    }
+
+    #[test]
+    fn test_slave_count() {
+        let m = ReplicationLagMonitor::new(100);
+        m.report("s1", 5);
+        m.report("s2", 10);
+        assert_eq!(m.slave_count(), 2);
+    }
+
+    #[test]
+    fn test_lag_trend_rising() {
+        let m = ReplicationLagMonitor::new(100);
+        m.report("s1", 5);
+        m.report("s1", 10);
+        assert_eq!(m.lag_trend("s1"), 5);
+    }
+
+    #[test]
+    fn test_lag_trend_falling() {
+        let m = ReplicationLagMonitor::new(100);
+        m.report("s1", 20);
+        m.report("s1", 10);
+        assert_eq!(m.lag_trend("s1"), -10);
+    }
+
+    #[test]
+    fn test_lag_trend_stable() {
+        let m = ReplicationLagMonitor::new(100);
+        m.report("s1", 10);
+        m.report("s1", 10);
+        assert_eq!(m.lag_trend("s1"), 0);
+    }
+
+    #[test]
+    fn test_lag_trend_single_sample() {
+        let m = ReplicationLagMonitor::new(100);
+        m.report("s1", 10);
+        assert_eq!(m.lag_trend("s1"), 0);
+    }
+
+    #[test]
+    fn test_summary_contains_slave() {
+        let m = ReplicationLagMonitor::new(10);
+        m.report("s1", 5);
+        m.report("s2", 20);
+        let s = m.summary();
+        assert!(s.contains("s1"));
+        assert!(s.contains("s2"));
+        assert!(s.contains("OK"));
+        assert!(s.contains("LAGGING"));
     }
 }

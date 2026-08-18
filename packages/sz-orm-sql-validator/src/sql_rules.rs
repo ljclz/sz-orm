@@ -606,6 +606,91 @@ impl SqlRule for RequireLimitRule {
     }
 }
 
+/// 限制 SELECT 列数上限（防止超宽结果集）
+pub struct MaxColumnCountRule {
+    /// 最大允许列数
+    pub max_columns: usize,
+}
+
+impl Default for MaxColumnCountRule {
+    fn default() -> Self {
+        Self { max_columns: 20 }
+    }
+}
+
+impl SqlRule for MaxColumnCountRule {
+    fn name(&self) -> &str {
+        "max_column_count"
+    }
+
+    fn severity(&self) -> RuleSeverity {
+        RuleSeverity::Warning
+    }
+
+    fn check(&self, ctx: &RuleContext) -> Option<RuleViolation> {
+        if ctx.statement_type != SqlStatementType::Select {
+            return None;
+        }
+        let select_idx = ctx
+            .tokens
+            .iter()
+            .position(|t| matches!(t, SqlToken::Keyword(k) if k == "SELECT"))?;
+        let from_idx = ctx
+            .tokens
+            .iter()
+            .position(|t| matches!(t, SqlToken::Keyword(k) if k == "FROM"))?;
+        if from_idx <= select_idx {
+            return None;
+        }
+        let comma_count = ctx.tokens[select_idx + 1..from_idx]
+            .iter()
+            .filter(|t| matches!(t, SqlToken::Punctuation(',')))
+            .count();
+        let col_count = comma_count + 1;
+        if col_count > self.max_columns {
+            Some(RuleViolation::new(
+                self.name(),
+                self.severity(),
+                &format!("SELECT 列数 {} 超过上限 {}", col_count, self.max_columns),
+            ))
+        } else {
+            None
+        }
+    }
+}
+
+/// 禁止在 SELECT 中使用子查询（SELECT ... FROM (SELECT ...)）
+pub struct NoSubqueryRule;
+
+impl SqlRule for NoSubqueryRule {
+    fn name(&self) -> &str {
+        "no_subquery"
+    }
+
+    fn severity(&self) -> RuleSeverity {
+        RuleSeverity::Warning
+    }
+
+    fn check(&self, ctx: &RuleContext) -> Option<RuleViolation> {
+        if ctx.statement_type != SqlStatementType::Select {
+            return None;
+        }
+        for i in 0..ctx.tokens.len().saturating_sub(2) {
+            let is_from = matches!(&ctx.tokens[i], SqlToken::Keyword(k) if k == "FROM");
+            let is_open = matches!(ctx.tokens[i + 1], SqlToken::Punctuation('('));
+            let is_select = matches!(&ctx.tokens[i + 2], SqlToken::Keyword(k) if k == "SELECT");
+            if is_from && is_open && is_select {
+                return Some(RuleViolation::new(
+                    self.name(),
+                    self.severity(),
+                    "SELECT 语句中包含子查询，建议改用 JOIN",
+                ));
+            }
+        }
+        None
+    }
+}
+
 // ============================================================================
 // 规则报告
 // ============================================================================
@@ -1281,5 +1366,43 @@ mod tests {
             "SELECT * FROM a JOIN b ON 1=1 JOIN c ON 2=2 JOIN d ON 3=3 JOIN e ON 4=4 JOIN f ON 5=5";
         let report = engine.check(sql);
         assert!(report.has_violations());
+    }
+
+    // ---- MaxColumnCountRule 测试 ----
+
+    #[test]
+    fn test_max_column_count_pass() {
+        let rule = MaxColumnCountRule { max_columns: 5 };
+        let ctx = RuleContext::from_sql("SELECT a, b, c FROM users");
+        assert!(rule.check(&ctx).is_none());
+    }
+
+    #[test]
+    fn test_max_column_count_fail() {
+        let rule = MaxColumnCountRule { max_columns: 2 };
+        let ctx = RuleContext::from_sql("SELECT a, b, c, d FROM users");
+        assert!(rule.check(&ctx).is_some());
+    }
+
+    #[test]
+    fn test_max_column_count_default() {
+        let rule = MaxColumnCountRule::default();
+        assert_eq!(rule.max_columns, 20);
+    }
+
+    // ---- NoSubqueryRule 测试 ----
+
+    #[test]
+    fn test_no_subquery_clean() {
+        let rule = NoSubqueryRule;
+        let ctx = RuleContext::from_sql("SELECT id FROM users WHERE id = 1");
+        assert!(rule.check(&ctx).is_none());
+    }
+
+    #[test]
+    fn test_no_subquery_detected() {
+        let rule = NoSubqueryRule;
+        let ctx = RuleContext::from_sql("SELECT * FROM (SELECT id FROM users) AS sub");
+        assert!(rule.check(&ctx).is_some());
     }
 }

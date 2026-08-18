@@ -53,17 +53,17 @@ def setup_logging(debug: bool = False):
 # ============================================================
 config = {
     # Jira 实例地址
-    "JIRA_URL": "https://your-domain.atlassian.net",
+    "JIRA_URL": "https://ljclz.atlassian.net",
     # 邮箱（Cloud）或用户名（Server）
-    "JIRA_USER": "your-email@example.com",
+    "JIRA_USER": "zhangmingjie@ljclz.vip",
     # API Token（Cloud）或密码/PAT（Server）
-    "JIRA_TOKEN": "your-api-token",
+    "JIRA_TOKEN": "ATATT3xFfGF0NTl3rx3-woADTK_DQtlHIQkLg4Li70lxBse3Wb4eAwfc49YVZzlbhUvwPF39xEl775cLu68jY3NvcKcDocHWYvcspxhurWiilDz3RztveoxzukOGXgHHXsP4F0JV84G-eX2kHGctBnWi0aUlMeu6TSH_1X9d3AJjqy14BVyLD6w=4FB4CFA6",
     # 项目 Key
     "JIRA_PROJECT": "SZ",
     # 任务类型
     "JIRA_ISSUE_TYPE": "Task",
     # 默认经办人
-    "JIRA_ASSIGNEE": "your-email@example.com",
+    "JIRA_ASSIGNEE": "zhangmingjie@ljclz.vip",
     # 优先级映射
     "PRIORITY_MAP": {
         "高": "High",

@@ -329,7 +329,22 @@ impl CircuitBreaker {
         match self.circuits.lock() {
             Ok(circuits) => circuits
                 .iter()
-                .filter(|(_, sc)| sc.state == state)
+                .filter(|(_, sc)| {
+                    let effective = if sc.state == CircuitState::Open {
+                        if let Some(opened_at) = sc.opened_at {
+                            if opened_at.elapsed() >= self.config.recovery_timeout {
+                                CircuitState::HalfOpen
+                            } else {
+                                sc.state
+                            }
+                        } else {
+                            sc.state
+                        }
+                    } else {
+                        sc.state
+                    };
+                    effective == state
+                })
                 .map(|(k, _)| k.clone())
                 .collect(),
             Err(_) => Vec::new(),
@@ -360,6 +375,69 @@ impl CircuitBreaker {
             Ok(circuits) => circuits.get(slave).map(|sc| sc.success_count).unwrap_or(0),
             Err(_) => 0,
         }
+    }
+
+    /// 所有半开 slave
+    pub fn half_open_slaves(&self) -> Vec<String> {
+        self.list_by_state(CircuitState::HalfOpen)
+    }
+
+    /// 所有已注册 slave
+    pub fn registered_slaves(&self) -> Vec<String> {
+        match self.circuits.lock() {
+            Ok(circuits) => circuits.keys().cloned().collect(),
+            Err(_) => Vec::new(),
+        }
+    }
+
+    /// 已注册 slave 数量
+    pub fn slave_count(&self) -> usize {
+        match self.circuits.lock() {
+            Ok(circuits) => circuits.len(),
+            Err(_) => 0,
+        }
+    }
+
+    /// 健康分数（0.0-1.0）：正常 slave 占比
+    pub fn health_score(&self) -> f64 {
+        match self.circuits.lock() {
+            Ok(circuits) => {
+                if circuits.is_empty() {
+                    return 1.0;
+                }
+                let closed = circuits
+                    .values()
+                    .filter(|sc| sc.state == CircuitState::Closed)
+                    .count();
+                closed as f64 / circuits.len() as f64
+            }
+            Err(_) => 0.0,
+        }
+    }
+
+    /// 生成汇总报告字符串
+    pub fn summary(&self) -> String {
+        let circuits = match self.circuits.lock() {
+            Ok(c) => c,
+            Err(_) => return "CircuitBreaker: lock poisoned".to_string(),
+        };
+        let mut out = format!(
+            "CircuitBreaker: {} slave(s), total_req={}, rejected={}, rejection_rate={:.4}\n",
+            circuits.len(),
+            self.total_requests(),
+            self.rejected_requests(),
+            self.rejection_rate()
+        );
+        for (slave, sc) in circuits.iter() {
+            out.push_str(&format!(
+                "  {} : state={}, failures={}, successes={}\n",
+                slave,
+                sc.state.as_str(),
+                sc.failure_count,
+                sc.success_count
+            ));
+        }
+        out
     }
 }
 
@@ -584,6 +662,83 @@ mod tests {
         assert_eq!(cb.success_count("s1"), 1);
         cb.record_success("s1");
         assert_eq!(cb.success_count("s1"), 2);
+    }
+
+    #[test]
+    fn test_half_open_slaves() {
+        let cb = CircuitBreaker::new(1, Duration::from_millis(10));
+        cb.register("s1");
+        cb.register("s2");
+        cb.record_failure("s1");
+        thread::sleep(Duration::from_millis(15));
+        assert_eq!(cb.half_open_slaves(), vec!["s1".to_string()]);
+    }
+
+    #[test]
+    fn test_registered_slaves() {
+        let cb = CircuitBreaker::new(1, Duration::from_secs(60));
+        cb.register("s1");
+        cb.register("s2");
+        let mut slaves = cb.registered_slaves();
+        slaves.sort();
+        assert_eq!(slaves, vec!["s1".to_string(), "s2".to_string()]);
+    }
+
+    #[test]
+    fn test_slave_count() {
+        let cb = CircuitBreaker::new(1, Duration::from_secs(60));
+        cb.register("s1");
+        cb.register("s2");
+        assert_eq!(cb.slave_count(), 2);
+    }
+
+    #[test]
+    fn test_health_score_all_closed() {
+        let cb = CircuitBreaker::new(1, Duration::from_secs(60));
+        cb.register("s1");
+        cb.register("s2");
+        assert_eq!(cb.health_score(), 1.0);
+    }
+
+    #[test]
+    fn test_health_score_half_open() {
+        let cb = CircuitBreaker::new(1, Duration::from_secs(60));
+        cb.register("s1");
+        cb.register("s2");
+        cb.record_failure("s1");
+        assert!((0.4..=0.6).contains(&cb.health_score()));
+    }
+
+    #[test]
+    fn test_health_score_empty() {
+        let cb = CircuitBreaker::new(1, Duration::from_secs(60));
+        assert_eq!(cb.health_score(), 1.0);
+    }
+
+    #[test]
+    fn test_summary_contains_info() {
+        let cb = CircuitBreaker::new(1, Duration::from_secs(60));
+        cb.register("s1");
+        cb.record_failure("s1");
+        let s = cb.summary();
+        assert!(s.contains("s1"));
+        assert!(s.contains("open"));
+    }
+
+    #[test]
+    fn test_rejection_rate_no_requests() {
+        let cb = CircuitBreaker::new(1, Duration::from_secs(60));
+        assert_eq!(cb.rejection_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_force_open_then_reset() {
+        let cb = CircuitBreaker::new(10, Duration::from_secs(60));
+        cb.register("s1");
+        cb.force_open("s1");
+        assert!(!cb.allow_request("s1"));
+        cb.reset("s1");
+        assert!(cb.allow_request("s1"));
     }
 
     /// 配置覆盖的便捷 trait（仅测试用）
