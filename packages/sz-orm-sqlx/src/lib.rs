@@ -1,11 +1,11 @@
-//! SZ-ORM sqlx 适配器
+//! SZ-ORM sqlx adapter
 //!
-//! 为 sz-orm-core 提供 Connection 和 ConnectionFactory 的实现，
-//! 支持 MySQL、PostgreSQL、SQLite 三种数据库。
+//! Provides Connection and ConnectionFactory implementations for sz-orm-core,
+//! supporting MySQL, PostgreSQL, and SQLite.
 //!
-//! 不使用 sqlx::Any，而为每种后端单独实现，避免类型限制和生命周期问题。
+//! Does not use sqlx::Any; instead implements each backend separately to avoid type limitations and lifetime issues.
 //!
-//! # 示例
+//! # Examples
 //!
 //! ```no_run
 //! use sz_orm_core::{Pool, PoolConfigBuilder};

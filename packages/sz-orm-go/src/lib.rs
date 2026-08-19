@@ -1,22 +1,22 @@
 //! # SZ-ORM Go Bindings
 //!
-//! 通过 cgo / syscall 调用 sz-orm-cabi 的 C ABI，为 Go 提供 sz-orm-core 的
-//! Pool/Query API（SQLite 后端，真实可用）。
+//! Provides sz-orm-core's Pool/Query API to Go via cgo / syscall
+//! (SQLite backend, real and usable).
 //!
-//! Go 侧 wrapper（`go/szorm/`）使用 Windows `syscall.NewLazyDLL` 加载
-//! `sz_orm_go.dll` 并调用本 crate 导出的函数；非 Windows 平台使用 cgo。
+//! Go side wrapper (`go/szorm/`) uses Windows `syscall.NewLazyDLL` to load
+//! `sz_orm_go.dll` and call functions exported by this crate; non-Windows platforms use cgo.
 
 use std::ffi::{c_char, CStr, CString};
 
 use sz_orm_cabi::{PoolConfigC, QueryResultC, SzOrmPoolHandle, SzOrmTransactionHandle};
 
-/// 创建连接池（真实创建，SQLite 后端）
+/// Create connection pool (real creation, SQLite backend)
 ///
-/// 返回句柄，null 表示失败。
+/// Returns handle, null indicates failure.
 ///
 /// # Safety
 ///
-/// SAFETY: `dsn` 必须是有效的 NUL 结尾 C 字符串；`config` 可为 null（使用默认配置）。
+/// SAFETY: `dsn` must be a valid NUL-terminated C string; `config` may be null (use default config).
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_pool_new(
     dsn: *const c_char,
@@ -26,37 +26,37 @@ pub unsafe extern "C" fn sz_orm_go_pool_new(
     unsafe { sz_orm_cabi::sz_orm_pool_new(dsn, config) }
 }
 
-/// 释放连接池
+/// Free connection pool
 ///
 /// # Safety
 ///
-/// SAFETY: handle 必须是 `sz_orm_go_pool_new` 返回的有效句柄。
+/// SAFETY: handle must be a valid handle returned by `sz_orm_go_pool_new`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_pool_free(handle: SzOrmPoolHandle) {
     // SAFETY: 转发到 cabi，handle 有效性由调用方保证
     unsafe { sz_orm_cabi::sz_orm_pool_free(handle) }
 }
 
-/// 健康检查（真实 acquire + ping）
+/// Health check (real acquire + ping)
 ///
 /// # Safety
 ///
-/// SAFETY: handle 必须是 `sz_orm_go_pool_new` 返回的有效句柄。
+/// SAFETY: handle must be a valid handle returned by `sz_orm_go_pool_new`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_ping(handle: SzOrmPoolHandle) -> i32 {
     // SAFETY: 转发到 cabi，handle 有效性由调用方保证
     unsafe { sz_orm_cabi::sz_orm_ping(handle) }
 }
 
-/// 执行查询，返回 JSON 行数组
+/// Execute query, return JSON row array
 ///
-/// 成功时返回非空字符串指针（调用方用 `sz_orm_go_string_free` 释放），
-/// 失败返回 null。
+/// On success returns non-null string pointer (caller frees with `sz_orm_go_string_free`),
+/// on failure returns null.
 ///
 /// # Safety
 ///
-/// SAFETY: handle 必须是 `sz_orm_go_pool_new` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: handle must be a valid handle returned by `sz_orm_go_pool_new`;
+/// `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_query(
     handle: SzOrmPoolHandle,
@@ -95,11 +95,11 @@ pub unsafe extern "C" fn sz_orm_go_query(
     }
 }
 
-/// 释放 `sz_orm_go_query` 返回的字符串
+/// Free string returned by `sz_orm_go_query`
 ///
 /// # Safety
 ///
-/// SAFETY: `ptr` 必须是 `sz_orm_go_query` 返回的指针（或 null）。
+/// SAFETY: `ptr` must be a pointer returned by `sz_orm_go_query` (or null).
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_string_free(ptr: *mut c_char) {
     if ptr.is_null() {
@@ -111,16 +111,16 @@ pub unsafe extern "C" fn sz_orm_go_string_free(ptr: *mut c_char) {
     }
 }
 
-/// 执行写语句，返回影响行数（success=0 表示失败）
+/// Execute write statement, return affected row count (success=0 indicates failure)
 ///
-/// 返回堆分配的 `QueryResultC`（调用方用 `sz_orm_go_result_free` 释放），
-/// 失败时返回 null。按值返回结构体在 Windows x64 是 sret 约定，
-/// Go syscall 无法直接处理，故改为指针返回。
+/// Returns heap-allocated `QueryResultC` (caller frees with `sz_orm_go_result_free`),
+/// on failure returns null. Returning struct by value on Windows x64 uses sret convention,
+/// Go syscall cannot handle directly, so pointer return is used instead.
 ///
 /// # Safety
 ///
-/// SAFETY: handle 必须是 `sz_orm_go_pool_new` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: handle must be a valid handle returned by `sz_orm_go_pool_new`;
+/// `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_execute(
     handle: SzOrmPoolHandle,
@@ -134,11 +134,11 @@ pub unsafe extern "C" fn sz_orm_go_execute(
     Box::into_raw(Box::new(result))
 }
 
-/// 释放 `sz_orm_go_execute` 返回的结果
+/// Free result returned by `sz_orm_go_execute`
 ///
 /// # Safety
 ///
-/// SAFETY: `ptr` 必须是 `sz_orm_go_execute` 返回的指针（或 null）。
+/// SAFETY: `ptr` must be a pointer returned by `sz_orm_go_execute` (or null).
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_result_free(ptr: *mut QueryResultC) {
     if ptr.is_null() {
@@ -150,7 +150,7 @@ pub unsafe extern "C" fn sz_orm_go_result_free(ptr: *mut QueryResultC) {
     }
 }
 
-/// 获取版本号
+/// Get version number
 #[no_mangle]
 pub extern "C" fn sz_orm_go_version() -> u32 {
     sz_orm_cabi::sz_orm_version()
@@ -160,11 +160,11 @@ pub extern "C" fn sz_orm_go_version() -> u32 {
 // 事务 API 转发（REQ-BND-006）
 // ============================================================================
 
-/// 开始事务，返回事务句柄（null 表示失败）
+/// Begin transaction, return transaction handle (null indicates failure)
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_go_pool_new` 返回的有效句柄。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_go_pool_new`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_transaction_begin(
     handle: SzOrmPoolHandle,
@@ -173,12 +173,12 @@ pub unsafe extern "C" fn sz_orm_go_transaction_begin(
     unsafe { sz_orm_cabi::sz_orm_transaction_begin(handle) }
 }
 
-/// 在事务中执行 SQL，返回堆分配的 `QueryResultC`
+/// Execute SQL in transaction, return heap-allocated `QueryResultC`
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_go_transaction_begin` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be a valid handle returned by `sz_orm_go_transaction_begin`;
+/// `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_transaction_execute(
     tx_handle: SzOrmTransactionHandle,
@@ -192,33 +192,33 @@ pub unsafe extern "C" fn sz_orm_go_transaction_execute(
     Box::into_raw(Box::new(result))
 }
 
-/// 提交事务，返回 1=成功 0=失败
+/// Commit transaction, return 1=success 0=failure
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_go_transaction_begin` 返回的有效句柄。
+/// SAFETY: `tx_handle` must be a valid handle returned by `sz_orm_go_transaction_begin`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_transaction_commit(tx_handle: SzOrmTransactionHandle) -> i32 {
     // SAFETY: 转发到 cabi
     unsafe { sz_orm_cabi::sz_orm_transaction_commit(tx_handle) }
 }
 
-/// 回滚事务，返回 1=成功 0=失败
+/// Rollback transaction, return 1=success 0=failure
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_go_transaction_begin` 返回的有效句柄。
+/// SAFETY: `tx_handle` must be a valid handle returned by `sz_orm_go_transaction_begin`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_transaction_rollback(tx_handle: SzOrmTransactionHandle) -> i32 {
     // SAFETY: 转发到 cabi
     unsafe { sz_orm_cabi::sz_orm_transaction_rollback(tx_handle) }
 }
 
-/// 释放事务句柄（若仍活跃则自动回滚）
+/// Free transaction handle (auto rollback if still active)
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_go_transaction_begin` 返回的有效句柄。
+/// SAFETY: `tx_handle` must be a valid handle returned by `sz_orm_go_transaction_begin`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_transaction_free(tx_handle: SzOrmTransactionHandle) {
     // SAFETY: 转发到 cabi
@@ -229,11 +229,11 @@ pub unsafe extern "C" fn sz_orm_go_transaction_free(tx_handle: SzOrmTransactionH
 // 模型级 API 转发（REQ-BND-013）
 // ============================================================================
 
-/// 在 pool 上插入行，返回堆分配的 `QueryResultC`
+/// Insert row on pool, return heap-allocated `QueryResultC`
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须有效；`table`/`fields_json`/`values_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be valid; `table`/`fields_json`/`values_json` must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_insert(
     handle: SzOrmPoolHandle,
@@ -250,11 +250,11 @@ pub unsafe extern "C" fn sz_orm_go_model_insert(
     Box::into_raw(Box::new(result))
 }
 
-/// 在 pool 上更新行，返回堆分配的 `QueryResultC`
+/// Update row on pool, return heap-allocated `QueryResultC`
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须有效；各参数必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be valid; all parameters must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_update(
     handle: SzOrmPoolHandle,
@@ -273,11 +273,11 @@ pub unsafe extern "C" fn sz_orm_go_model_update(
     Box::into_raw(Box::new(result))
 }
 
-/// 在 pool 上删除行，返回堆分配的 `QueryResultC`
+/// Delete row on pool, return heap-allocated `QueryResultC`
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须有效；各参数必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be valid; all parameters must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_delete(
     handle: SzOrmPoolHandle,
@@ -294,11 +294,11 @@ pub unsafe extern "C" fn sz_orm_go_model_delete(
     Box::into_raw(Box::new(result))
 }
 
-/// 在 pool 上查询行，返回 JSON 行数组字符串（`sz_orm_go_string_free` 释放）
+/// Query row on pool, return JSON row array string (free with `sz_orm_go_string_free`)
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须有效；各参数必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be valid; all parameters must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_find(
     handle: SzOrmPoolHandle,
@@ -313,11 +313,11 @@ pub unsafe extern "C" fn sz_orm_go_model_find(
     unsafe { sz_orm_cabi::sz_orm_model_find(handle, table, where_clause, where_params_json) }
 }
 
-/// 在事务内插入行，返回堆分配的 `QueryResultC`
+/// Insert row in transaction, return heap-allocated `QueryResultC`
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须有效；各参数必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be valid; all parameters must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_insert_tx(
     tx_handle: SzOrmTransactionHandle,
@@ -334,11 +334,11 @@ pub unsafe extern "C" fn sz_orm_go_model_insert_tx(
     Box::into_raw(Box::new(result))
 }
 
-/// 在事务内更新行，返回堆分配的 `QueryResultC`
+/// Update row in transaction, return heap-allocated `QueryResultC`
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须有效；各参数必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be valid; all parameters must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_update_tx(
     tx_handle: SzOrmTransactionHandle,
@@ -363,11 +363,11 @@ pub unsafe extern "C" fn sz_orm_go_model_update_tx(
     Box::into_raw(Box::new(result))
 }
 
-/// 在事务内删除行，返回堆分配的 `QueryResultC`
+/// Delete row in transaction, return heap-allocated `QueryResultC`
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须有效；各参数必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be valid; all parameters must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_delete_tx(
     tx_handle: SzOrmTransactionHandle,
@@ -385,11 +385,11 @@ pub unsafe extern "C" fn sz_orm_go_model_delete_tx(
     Box::into_raw(Box::new(result))
 }
 
-/// 在事务内查询行，返回 JSON 行数组字符串（`sz_orm_go_string_free` 释放）
+/// Query row in transaction, return JSON row array string (free with `sz_orm_go_string_free`)
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须有效；各参数必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be valid; all parameters must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_go_model_find_tx(
     tx_handle: SzOrmTransactionHandle,

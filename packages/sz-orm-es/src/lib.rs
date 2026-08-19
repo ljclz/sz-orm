@@ -1,25 +1,25 @@
-//! # SZ-ORM ES — Elasticsearch 文档存储（**MOCK-ONLY，非生产可用**）
+//! # SZ-ORM ES — Elasticsearch Document Store (**MOCK-ONLY, not production-ready**)
 //!
-//! ⚠️ **重要警告：本 crate 仅为内存 Mock 实现，未集成真实 Elasticsearch 客户端。**
+//! ⚠️ **Important warning: This crate is only an in-memory Mock implementation, not integrated with real Elasticsearch client.**
 //!
-//! - 所有数据存储在进程内 `HashMap`，重启即丢失
-//! - 不支持分布式、副本、分片、持久化、TLS、认证等任何 ES 生产特性
-//! - 查询语义为简化版，不保证与真实 ES 行为一致
-//! - **请勿用于生产环境**——仅适用于单元测试与本地开发
+//! - All data stored in process-internal `HashMap`, lost on restart
+//! - Does not support distributed, replica, sharding, persistence, TLS, authentication or any ES production features
+//! - Query semantics are simplified, does not guarantee matching real ES behavior
+//! - **Do not use in production** — only suitable for unit tests and local development
 //!
-//! ## 替代方案
+//! ## Alternatives
 //!
-//! 如需真实 ES 集成，请：
-//! 1. 实现 [`EsSync`] trait（接入 `elasticsearch` 官方 crate）
-//! 2. 通过 [`EsSyncManager::with_backend`] 注入自定义后端
+//! For real ES integration, please:
+//! 1. Implement [`EsSync`] trait (integrate `elasticsearch` official crate)
+//! 2. Inject custom backend via [`EsSyncManager::with_backend`]
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`EsDocument`] — 文档模型
-//! - [`EsSearchRequest`] — 搜索请求
-//! - [`EsSync`] — 同步后端抽象（可被真实 ES 客户端实现）
-//! - [`InMemoryEsSync`] — **Mock 实现**（仅供测试）
-//! - [`EsSyncManager`] — 同步管理器（默认使用 Mock，可通过 `with_backend` 替换）
+//! - [`EsDocument`] — Document model
+//! - [`EsSearchRequest`] — Search request
+//! - [`EsSync`] — Sync backend abstraction (can be implemented by real ES client)
+//! - [`InMemoryEsSync`] — **Mock implementation** (for testing only)
+//! - [`EsSyncManager`] — Sync manager (uses Mock by default, replaceable via `with_backend`)
 
 #[cfg(feature = "real")]
 pub mod real_es;
@@ -266,16 +266,16 @@ impl EsSyncResult {
 
 pub struct EsSyncManager {
     index_mappings: HashMap<String, HashMap<String, EsFieldType>>,
-    /// 后端实现（默认为 `InMemoryEsSync` Mock，可通过 `with_backend` 注入真实 ES 客户端）
+    /// Backend implementation (default `InMemoryEsSync` Mock, inject real ES client via `with_backend`)
     backend: Box<dyn EsSync>,
-    /// Mock 后端引用（仅在 `new()` 默认构造时存在，用于支持 `count` 等 Mock 专属方法）
+    /// Mock backend reference (only exists in `new()` default construction, for `count` and other Mock-specific methods)
     mock_backend: Option<InMemoryEsSync>,
 }
 
 impl EsSyncManager {
-    /// 创建默认 Manager（**使用 Mock 后端，仅供测试**）。
+    /// Create default Manager (**uses Mock backend, for testing only**).
     ///
-    /// ⚠️ **生产环境请使用 [`EsSyncManager::with_backend`] 注入真实 ES 客户端实现。**
+    /// ⚠️ **For production, use [`EsSyncManager::with_backend`] to inject real ES client implementation.**
     pub fn new() -> Self {
         let mock = InMemoryEsSync::new();
         Self {
@@ -285,9 +285,9 @@ impl EsSyncManager {
         }
     }
 
-    /// 使用指定后端创建 Manager（用于注入真实 ES 客户端）。
+    /// Create Manager with specified backend (for injecting real ES client).
     ///
-    /// # 示例
+    /// # Examples
     ///
     /// ```ignore
     /// use sz_orm_es::{EsSyncManager, EsSync};
@@ -331,7 +331,7 @@ impl EsSyncManager {
 
     /// Returns the total number of documents stored in `index`.
     ///
-    /// ⚠️ 仅在默认 `new()` 构造（Mock 后端）时可用；使用 `with_backend` 注入自定义后端时返回 `EsError::BackendNotSupported`。
+    /// ⚠️ Only available with default `new()` construction (Mock backend); returns `EsError::BackendNotSupported` when custom backend injected via `with_backend`.
     pub fn count(&self, index: &str) -> Result<usize, EsError> {
         match &self.mock_backend {
             Some(mock) => mock.count(index),
@@ -353,25 +353,25 @@ impl Default for EsSyncManager {
 
 /// In-memory `EsSync` implementation backed by a `HashMap<index, HashMap<id, EsDocument>>`.
 ///
-/// ⚠️ **MOCK 实现——仅供单元测试与本地开发，请勿用于生产环境。**
+/// ⚠️ **MOCK implementation — for unit tests and local development only, do not use in production.**
 ///
-/// - 数据存储在进程内 `HashMap`，重启即丢失
-/// - 不支持分布式、副本、分片、持久化等任何 ES 生产特性
-/// - 查询语义为简化版，不保证与真实 ES 行为一致
+/// - Data stored in process-internal `HashMap`, lost on restart
+/// - Does not support distributed, replica, sharding, persistence or any ES production features
+/// - Query semantics are simplified, does not guarantee matching real ES behavior
 ///
 /// Suitable for unit tests and small in-process workloads.
 /// `search` supports `MatchAll`, `Term` (exact match), `Terms` (membership),
 /// `Range` (numeric/string bounds), and `Bool` (must/should/must_not).
 ///
-/// `Clone` 通过 `Arc` 共享内部状态——克隆的是引用而非数据副本。
+/// `Clone` shares internal state via `Arc` — clones the reference, not the data copy.
 #[derive(Clone)]
 pub struct InMemoryEsSync {
     documents: Arc<RwLock<HashMap<String, HashMap<String, EsDocument>>>>,
 }
 
-/// `MockEsSync` 是 [`InMemoryEsSync`] 的语义化别名，明确表达"测试用 Mock"含义。
+/// `MockEsSync` is a semantic alias for [`InMemoryEsSync`], explicitly expressing "test-only Mock" semantics.
 ///
-/// 在新代码中推荐使用 `MockEsSync` 替代 `InMemoryEsSync`，以让"非生产可用"的含义更清晰。
+/// New code should prefer `MockEsSync` over `InMemoryEsSync` to make "not production-ready" semantics clearer.
 pub type MockEsSync = InMemoryEsSync;
 
 impl InMemoryEsSync {
@@ -663,7 +663,7 @@ pub enum EsError {
     MappingError(String),
     QueryError(String),
     SyncError(String),
-    /// 当前后端不支持的操作（如 `EsSyncManager::with_backend` 注入自定义后端后调用 Mock 专属方法）
+    /// Operation not supported by current backend (e.g. calling Mock-specific method after injecting custom backend via `EsSyncManager::with_backend`)
     BackendNotSupported {
         operation: String,
         reason: String,
@@ -1078,10 +1078,10 @@ mod tests {
         assert_eq!(res.total, 1);
     }
 
-    /// 验证：`with_backend` 注入自定义后端后，`count` 应返回 `BackendNotSupported`
-    /// （因为 mock_backend 为 None）。
+    /// Verify: after injecting custom backend via `with_backend`, `count` should return `BackendNotSupported`
+    /// (because mock_backend is None).
     ///
-    /// 这确保用户在注入真实 ES 客户端时，不会被静默地回退到 Mock 行为。
+    /// This ensures that when a real ES client is injected, it does not silently fall back to Mock behavior.
     #[test]
     fn test_with_backend_count_returns_not_supported() {
         // 一个假后端：sync_to_es / delete_from_es / search 都返回 Ok（空结果）
@@ -1121,7 +1121,7 @@ mod tests {
         assert_eq!(sync_result.indexed, 0);
     }
 
-    /// 验证：默认 `new()` 构造的 Manager 仍可使用 `count`（Mock 后端可用）
+    /// Verify: Manager constructed with default `new()` can still use `count` (Mock backend available)
     #[test]
     fn test_default_new_count_works_with_mock() {
         let manager = EsSyncManager::new();
@@ -1130,7 +1130,7 @@ mod tests {
         assert_eq!(count, 0);
     }
 
-    /// 验证：`MockEsSync` 别名与 `InMemoryEsSync` 等价
+    /// Verify: `MockEsSync` alias is equivalent to `InMemoryEsSync`
     #[test]
     fn test_mock_es_sync_alias_equivalence() {
         let mock: MockEsSync = MockEsSync::new();

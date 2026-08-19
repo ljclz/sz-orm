@@ -1,7 +1,7 @@
-//! # sz-orm-stream — 异步流式结果集
+//! # sz-orm-stream — Async Streaming Result Set
 //!
-//! 基于 `stream-resultset` feature，支持大结果集流式返回，避免一次性加载到内存。
-//! v4.5.0 M3 实现 StreamResultSet + KeysetPaginator + 背压控制。
+//! Based on `stream-resultset` feature, supports streaming return of large result sets, avoiding loading everything into memory at once.
+//! v4.5.0 M3 implements StreamResultSet + KeysetPaginator + backpressure control.
 
 pub mod config;
 

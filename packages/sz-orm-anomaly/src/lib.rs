@@ -1,34 +1,34 @@
-//! # sz-orm-anomaly — 异常检测（Anomaly Detection）
+//! # sz-orm-anomaly — Anomaly Detection
 //!
-//! 基于 `anomaly-detection` feature，持续采集数据库运行指标（慢查询/错误率/连接池），
-//! 通过滑动窗口 + Welford 在线基线 + 统计规则 + 阈值检测异常模式（突增/耗尽/偏离基线），
-//! 输出结构化告警事件，支持告警去重（冷却期）、订阅回调、Prometheus 指标导出、健康度集成。
+//! Based on `anomaly-detection` feature, continuously collects database runtime metrics (slow query/error rate/connection pool),
+//! detects anomaly patterns (spike/exhaustion/baseline deviation) via sliding window + Welford online baseline + statistical rules + thresholds,
+//! outputs structured alert events, supports alert deduplication (cooldown), subscription callbacks, Prometheus metric export, and health integration.
 //!
-//! ## 设计原则
+//! ## Design Principles
 //!
-//! - **统计规则 + 阈值（非 ML）**：基于均值 + Nσ + 绝对阈值，简单可解释，无需训练数据
-//! - **异步/旁路采集**：指标采集不阻塞查询主路径（REQ-ANM-005）
-//! - **滑动窗口 + 时间淘汰**：保留最近 N 分钟数据（默认 30 分钟），内存上限 10 MB
-//! - **Welford 在线算法**：数值稳定，单次更新 O(1)，适合实时基线计算
-//! - **告警去重冷却期**：同类型异常 5 分钟内不重复告警，避免告警风暴
-//! - **feature gate 隔离**：默认不启用，不影响既有编译
+//! - **Statistical rules + thresholds (non-ML)**: Based on mean + Nσ + absolute threshold, simple and interpretable, no training data needed
+//! - **Async/bypass collection**: Metric collection does not block query main path (REQ-ANM-005)
+//! - **Sliding window + time eviction**: Retains last N minutes of data (default 30 minutes), memory limit 10 MB
+//! - **Welford online algorithm**: Numerically stable, single update O(1), suitable for real-time baseline computation
+//! - **Alert deduplication cooldown**: Same-type anomalies do not repeat alert within 5 minutes, avoiding alert storms
+//! - **Feature gate isolation**: Disabled by default, does not affect existing compilation
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`config`] — 阈值配置 + 热更新（`AnomalyConfig` + `ConfigStore`）
-//! - [`collector`] — 指标采集（`MetricCollector` + 三类指标 + SQL 摘要脱敏）
-//! - [`window`] — 滑动窗口（`SlidingWindow` + 时间淘汰 + 内存上限保护）
-//! - [`detector`] — 异常检测（`BaselineCalculator` Welford + `SpikeDetector` + 严重级别判定）
-//! - [`alert`] — 告警输出（`Alert` + `AlertDedup` 冷却期 + 订阅 API）
-//! - [`report`] — 报告导出（JSON + Markdown）
-//! - [`integration`] — 集成模块（Prometheus 指标导出 + 健康度集成）
-//! - [`error`] — 错误类型
+//! - [`config`] — Threshold config + hot reload (`AnomalyConfig` + `ConfigStore`)
+//! - [`collector`] — Metric collection (`MetricCollector` + 3 metric types + SQL summary masking)
+//! - [`window`] — Sliding window (`SlidingWindow` + time eviction + memory limit protection)
+//! - [`detector`] — Anomaly detection (`BaselineCalculator` Welford + `SpikeDetector` + severity level determination)
+//! - [`alert`] — Alert output (`Alert` + `AlertDedup` cooldown + subscription API)
+//! - [`report`] — Report export (JSON + Markdown)
+//! - [`integration`] — Integration module (Prometheus metric export + health integration)
+//! - [`error`] — Error type
 //!
-//! ## 复用
+//! ## Reuse
 //!
-//! - SQL 脱敏复用 `sz-orm-masking::DataMasker`（参数值 → 占位符）
+//! - SQL masking reuses `sz-orm-masking::DataMasker` (parameter values → placeholders)
 //!
-//! ## 快速开始
+//! ## Quick Start
 //!
 //! ```no_run
 //! use sz_orm_anomaly::{AnomalyDetector, AnomalyConfig};

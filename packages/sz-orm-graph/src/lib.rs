@@ -1,16 +1,16 @@
-//! # SZ-ORM Graph — Neo4j 图数据库支持
+//! # SZ-ORM Graph — Neo4j Graph Database Support
 //!
-//! 提供图数据库的连接、参数化 Cypher 查询、结果类型化映射、声明式建模能力。
-//! 不触碰 sz-orm-core/sz-orm-sqlx 既有 API。
+//! Provides graph database connection, parameterized Cypher queries, typed result mapping, and declarative modeling capabilities.
+//! Does not modify existing sz-orm-core/sz-orm-sqlx APIs.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`connection`] — Bolt 协议连接与连接池
-//! - [`query`] — Cypher 查询构造与执行
-//! - [`validator`] — 参数化校验 + SQL 透传拒绝
-//! - [`model`] — 声明式建模
-//! - [`mapping`] — 结果类型化映射
-//! - [`error`] — GraphError 错误类型
+//! - [`connection`] — Bolt protocol connection and connection pool
+//! - [`query`] — Cypher query construction and execution
+//! - [`validator`] — Parameterized validation + SQL passthrough rejection
+//! - [`model`] — Declarative modeling
+//! - [`mapping`] — Typed result mapping
+//! - [`error`] — GraphError error type
 
 pub mod algorithm;
 pub mod community;

@@ -1,23 +1,23 @@
-//! # sz-orm-n1-lint — N+1 查询静态检测器（v4.3.0 M2）
+//! # sz-orm-n1-lint — Static N+1 Query Detector (v4.3.0 M2)
 //!
-//! 在**开发期**发现 N+1 查询模式：用 `syn` 解析函数体 AST，
-//! 检测循环（for/while）内出现的查询调用（`find_by_*` / `where_eq` 链 /
-//! 关联查询方法），输出 [`N1Finding`]。
+//! Detects N+1 query patterns at **development time**: parses function body AST with `syn`,
+//! detects query calls (`find_by_*` / `where_eq` chains / association query methods)
+//! appearing inside loops (for/while), and outputs [`N1Finding`].
 //!
-//! 两种使用方式（共用同一分析逻辑 [`analyze_fn`]，避免重复实现）：
+//! Two usage modes (sharing the same analysis logic [`analyze_fn`], avoiding duplicate implementation):
 //!
-//! 1. **标注宏**：`#[detect_n_plus_one]`（`sz-orm-macros`，`n1-lint` feature）——
-//!    编译期对单函数分析并输出警告
-//! 2. **批量扫描**：`scan_dir`（CLI `sz-orm n1-lint --path=...`）——
-//!    递归扫描目录下全部 `.rs` 文件，输出 table/json 报告
+//! 1. **Attribute macro**: `#[detect_n_plus_one]` (`sz-orm-macros`, `n1-lint` feature) —
+//!    analyzes a single function at compile time and emits a warning
+//! 2. **Batch scanning**: `scan_dir` (CLI `sz-orm n1-lint --path=...`) —
+//!    recursively scans all `.rs` files under a directory, outputs table/json report
 //!
-//! 检测模式（保守策略，避免误报）：
-//! - [`N1Pattern::QueryInLoop`]：循环体内直接查询调用
-//! - [`N1Pattern::ConditionalQueryInLoop`]：循环体内 `if` 分支的查询调用
-//! - [`N1Pattern::MissingEagerLoadHint`]：循环内单条查询可用 `where_in` 批量替代
+//! Detection patterns (conservative strategy to avoid false positives):
+//! - [`N1Pattern::QueryInLoop`]: direct query call inside a loop body
+//! - [`N1Pattern::ConditionalQueryInLoop`]: query call inside an `if` branch within a loop body
+//! - [`N1Pattern::MissingEagerLoadHint`]: single query inside a loop that can be replaced with `where_in` batch loading
 //!
-//! 与运行时检测器 `sz-orm-core::entity_graph::N1QueryDetector` 互补：
-//! 静态检测在开发期发现问题，运行时检测兜底运行期模式。
+//! Complementary to the runtime detector `sz-orm-core::entity_graph::N1QueryDetector`:
+//! static detection finds problems at development time, runtime detection covers runtime patterns.
 
 use std::path::Path;
 
@@ -25,19 +25,19 @@ pub mod association;
 pub mod formatter;
 pub mod rule_engine;
 
-/// 检测出的 N+1 模式
+/// Detected N+1 pattern
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
 pub enum N1Pattern {
-    /// 循环体内直接查询调用
+    /// Direct query call inside a loop body
     QueryInLoop,
-    /// 循环体内条件分支（if）中的查询调用
+    /// Query call inside a conditional branch (if) within a loop body
     ConditionalQueryInLoop,
-    /// 循环内单条查询可用 `where_in` 批量替代
+    /// Single query inside a loop that can be replaced with `where_in` batch loading
     MissingEagerLoadHint,
 }
 
 impl N1Pattern {
-    /// 人类可读描述
+    /// Human-readable description
     pub fn as_str(&self) -> &'static str {
         match self {
             N1Pattern::QueryInLoop => "query-in-loop",
@@ -47,20 +47,20 @@ impl N1Pattern {
     }
 }
 
-/// 单条 N+1 检测结果
+/// Single N+1 detection result
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct N1Finding {
-    /// 模式
+    /// Pattern
     pub pattern: N1Pattern,
-    /// 所在文件（扫描时填充；单函数分析为空）
+    /// Source file (populated during scanning; empty for single-function analysis)
     pub file: String,
-    /// 行号（1 起）
+    /// Line number (1-based)
     pub line: usize,
-    /// 人类可读消息
+    /// Human-readable message
     pub message: String,
 }
 
-/// 分析单个函数体，返回全部 N+1 检测结果（不含文件信息）
+/// Analyze a single function body, returning all N+1 detection results (without file information)
 pub fn analyze_fn(item_fn: &syn::ItemFn) -> Vec<N1Finding> {
     let mut findings = Vec::new();
     let body = &item_fn.block;
@@ -68,7 +68,7 @@ pub fn analyze_fn(item_fn: &syn::ItemFn) -> Vec<N1Finding> {
     findings
 }
 
-/// 分析 Rust 源码字符串（测试/批量扫描用）
+/// Analyze a Rust source code string (for testing / batch scanning)
 pub fn analyze_str(code: &str, file: &str) -> Vec<N1Finding> {
     let Ok(file_syntax) = syn::parse_file(code) else {
         return Vec::new();
@@ -85,7 +85,7 @@ pub fn analyze_str(code: &str, file: &str) -> Vec<N1Finding> {
     findings
 }
 
-/// 递归扫描目录下全部 `.rs` 文件，返回 `(文件路径, 检测结果)`
+/// Recursively scan all `.rs` files under a directory, returning `(file path, detection results)`
 pub fn scan_dir(path: &Path) -> Vec<(String, Vec<N1Finding>)> {
     let mut results = Vec::new();
     if path.is_file() {
@@ -126,12 +126,12 @@ pub fn scan_dir(path: &Path) -> Vec<(String, Vec<N1Finding>)> {
     results
 }
 
-/// 深度遍历块，检测循环内查询调用
+/// Traverse block depth-first, detecting query calls inside loops
 fn scan_block(block: &syn::Block, findings: &mut Vec<N1Finding>, in_loop: bool) {
     scan_block_impl(block, findings, in_loop, false);
 }
 
-/// 深度遍历块（带条件分支标记）
+/// Traverse block depth-first (with conditional branch flag)
 fn scan_block_impl(
     block: &syn::Block,
     findings: &mut Vec<N1Finding>,
@@ -151,7 +151,7 @@ fn scan_block_impl(
     }
 }
 
-/// 遍历表达式树（带条件分支标记）
+/// Traverse expression tree (with conditional branch flag)
 fn scan_expr_impl(
     expr: &syn::Expr,
     findings: &mut Vec<N1Finding>,
@@ -278,7 +278,7 @@ fn scan_expr_impl(
     }
 }
 
-/// 查询方法名判断（保守白名单，避免误报普通方法）
+/// Query method name check (conservative whitelist to avoid false positives on ordinary methods)
 fn is_query_method(method: &str) -> bool {
     method.starts_with("find_by")
         || method == "find_all"
@@ -293,19 +293,19 @@ fn is_query_method(method: &str) -> bool {
 // N1Severity — 严重度等级
 // ---------------------------------------------------------------------------
 
-/// N+1 检测结果的严重度
+/// Severity of N+1 detection results
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum N1Severity {
-    /// 提示（可批量替代）
+    /// Info (can be replaced with batch loading)
     Info,
-    /// 警告（循环内条件查询）
+    /// Warning (conditional query inside a loop)
     Warning,
-    /// 错误（循环内直接查询）
+    /// Error (direct query inside a loop)
     Error,
 }
 
 impl N1Severity {
-    /// 人类可读名称
+    /// Human-readable name
     pub fn as_str(&self) -> &'static str {
         match self {
             N1Severity::Info => "info",
@@ -314,7 +314,7 @@ impl N1Severity {
         }
     }
 
-    /// 从模式推断严重度
+    /// Infer severity from pattern
     pub fn from_pattern(pattern: N1Pattern) -> Self {
         match pattern {
             N1Pattern::QueryInLoop => N1Severity::Error,
@@ -328,34 +328,34 @@ impl N1Severity {
 // N1Report — 检测报告聚合
 // ---------------------------------------------------------------------------
 
-/// N+1 检测报告：聚合多条检测结果
+/// N+1 detection report: aggregates multiple detection results
 #[derive(Debug, Clone, Default)]
 pub struct N1Report {
     findings: Vec<N1Finding>,
 }
 
 impl N1Report {
-    /// 创建空报告
+    /// Create empty report
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 添加检测结果
+    /// Add a detection result
     pub fn add_finding(&mut self, finding: N1Finding) {
         self.findings.push(finding);
     }
 
-    /// 所有检测结果引用
+    /// Reference to all detection results
     pub fn findings(&self) -> &[N1Finding] {
         &self.findings
     }
 
-    /// 检测结果总数
+    /// Total number of detection results
     pub fn count(&self) -> usize {
         self.findings.len()
     }
 
-    /// 按模式统计数量
+    /// Count by pattern
     pub fn count_by_pattern(&self, pattern: N1Pattern) -> usize {
         self.findings
             .iter()
@@ -363,12 +363,12 @@ impl N1Report {
             .count()
     }
 
-    /// 是否无检测结果（代码干净）
+    /// Whether there are no detection results (clean code)
     pub fn is_clean(&self) -> bool {
         self.findings.is_empty()
     }
 
-    /// 已发现的唯一模式列表
+    /// List of unique patterns found
     pub fn patterns_found(&self) -> Vec<N1Pattern> {
         let mut seen = Vec::new();
         for f in &self.findings {
@@ -379,7 +379,7 @@ impl N1Report {
         seen
     }
 
-    /// 汇总字符串
+    /// Summary string
     pub fn to_summary_string(&self) -> String {
         let mut out = format!("N+1 Query Report: {} finding(s)\n", self.count());
         for f in &self.findings {
@@ -399,19 +399,19 @@ impl N1Report {
 // N1Config — 检测配置
 // ---------------------------------------------------------------------------
 
-/// N+1 检测配置：可忽略指定模式
+/// N+1 detection config: can ignore specific patterns
 #[derive(Debug, Clone, Default)]
 pub struct N1Config {
     ignored_patterns: Vec<N1Pattern>,
 }
 
 impl N1Config {
-    /// 创建默认配置（不忽略任何模式）
+    /// Create default config (ignores no patterns)
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 添加忽略模式（链式）
+    /// Add an ignore pattern (chainable)
     pub fn with_ignore_pattern(&mut self, pattern: N1Pattern) -> &mut Self {
         if !self.ignored_patterns.contains(&pattern) {
             self.ignored_patterns.push(pattern);
@@ -419,12 +419,12 @@ impl N1Config {
         self
     }
 
-    /// 检查模式是否被忽略
+    /// Check whether a pattern is ignored
     pub fn is_ignored(&self, pattern: N1Pattern) -> bool {
         self.ignored_patterns.contains(&pattern)
     }
 
-    /// 已忽略模式数
+    /// Number of ignored patterns
     pub fn ignored_count(&self) -> usize {
         self.ignored_patterns.len()
     }
@@ -434,10 +434,10 @@ impl N1Config {
 // QueryMethod — 已知查询方法名
 // ---------------------------------------------------------------------------
 
-/// 已知查询方法枚举
+/// Known query method enum
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum QueryMethod {
-    /// `find_by_*` 系列
+    /// `find_by_*` family
     FindById,
     /// `find_all`
     FindAll,
@@ -451,12 +451,12 @@ pub enum QueryMethod {
     FindWithRelated,
     /// `eager_load`
     EagerLoad,
-    /// 自定义方法名
+    /// Custom method name
     Custom(String),
 }
 
 impl QueryMethod {
-    /// 方法名字符串
+    /// Method name string
     pub fn as_str(&self) -> &str {
         match self {
             QueryMethod::FindById => "find_by_id",
@@ -470,7 +470,7 @@ impl QueryMethod {
         }
     }
 
-    /// 是否可批量替代（`where_in` / `eager_load` 可替代）
+    /// Whether it can be replaced with batch loading (`where_in` / `eager_load` can replace)
     pub fn is_batchable(&self) -> bool {
         matches!(
             self,
@@ -486,19 +486,19 @@ impl QueryMethod {
 // LoopType — 循环类型
 // ---------------------------------------------------------------------------
 
-/// 检测到的循环类型
+/// Detected loop type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LoopType {
-    /// `for` 循环
+    /// `for` loop
     For,
-    /// `while` 循环
+    /// `while` loop
     While,
-    /// `loop` 循环
+    /// `loop` loop
     Loop,
 }
 
 impl LoopType {
-    /// 人类可读名称
+    /// Human-readable name
     pub fn as_str(&self) -> &'static str {
         match self {
             LoopType::For => "for",
@@ -512,19 +512,19 @@ impl LoopType {
 // N1Suggestion — 修复建议
 // ---------------------------------------------------------------------------
 
-/// N+1 修复建议
+/// N+1 fix suggestion
 #[derive(Debug, Clone)]
 pub struct N1Suggestion {
     pattern: N1Pattern,
 }
 
 impl N1Suggestion {
-    /// 从检测模式创建建议
+    /// Create suggestion from detection pattern
     pub fn new(pattern: N1Pattern) -> Self {
         Self { pattern }
     }
 
-    /// 建议描述
+    /// Suggestion description
     pub fn description(&self) -> &'static str {
         match self.pattern {
             N1Pattern::QueryInLoop => {
@@ -539,7 +539,7 @@ impl N1Suggestion {
         }
     }
 
-    /// 修复类型
+    /// Fix type
     pub fn fix_type(&self) -> &'static str {
         match self.pattern {
             N1Pattern::QueryInLoop => "batch-load",
@@ -565,7 +565,7 @@ mod tests {
     use super::*;
     use std::io::Write;
 
-    /// 构造测试 fixture 文件目录
+    /// Build test fixture file directory
     fn fixture_dir() -> std::path::PathBuf {
         let dir = std::env::temp_dir().join("sz-orm-n1-lint-fixtures");
         let _ = std::fs::create_dir_all(&dir);

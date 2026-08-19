@@ -1,7 +1,7 @@
-//! # sz-orm-parallel — 并行查询执行器
+//! # sz-orm-parallel — Parallel Query Executor
 //!
-//! 基于 `parallel-query` feature，将多个独立查询并行执行降低复杂场景整体延迟。
-//! v4.5.0 M1 实现 ParallelQueryScheduler + MergeStrategy + FailureStrategy。
+//! Based on `parallel-query` feature, executes multiple independent queries in parallel to reduce overall latency in complex scenarios.
+//! v4.5.0 M1 implements ParallelQueryScheduler + MergeStrategy + FailureStrategy.
 
 pub mod config;
 pub mod error;

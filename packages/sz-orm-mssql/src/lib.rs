@@ -1,19 +1,21 @@
-//! SZ-ORM Microsoft SQL Server 数据库适配器
+//! SZ-ORM Microsoft SQL Server database adapter
 //!
-//! 基于 `tiberius` crate (纯 Rust TDS 协议实现) 实现 sz-orm-core 的 `Connection` trait,
-//! 支持 SQL Server 2008+ (TDS 7.3+)。
+//! Implements the `Connection` trait of sz-orm-core based on the `tiberius` crate
+//! (pure Rust TDS protocol implementation), supporting SQL Server 2008+ (TDS 7.3+).
 //!
-//! # 设计说明
+//! # Design notes
 //!
-//! `tiberius` 是纯 Rust 异步库,基于 TDS (Tabular Data Stream) 协议直接与 SQL Server
-//! 通信,无需原生客户端库 (如 ODBC/OLEDB)。
+//! `tiberius` is a pure Rust asynchronous library that communicates directly with
+//! SQL Server via the TDS (Tabular Data Stream) protocol, without requiring native
+//! client libraries (such as ODBC/OLEDB).
 //!
-//! tiberius 0.12 使用 `futures_io` traits,需通过 `tokio-util::compat` 包装 tokio TcpStream。
+//! tiberius 0.12 uses `futures_io` traits, so tokio TcpStream must be wrapped via
+//! `tokio-util::compat`.
 //!
-//! SQL Server 占位符使用 `@P1, @P2, ...` 格式,本适配器自动将 SQL 中的 `?`
-//! 转换为 `@PN`。
+//! SQL Server placeholders use the `@P1, @P2, ...` format; this adapter automatically
+//! converts `?` in SQL to `@PN`.
 //!
-//! # 用法
+//! # Usage
 //!
 //! ```ignore
 //! use sz_orm_core::{Pool, PoolConfigBuilder};
@@ -65,14 +67,14 @@ use sz_orm_core::{
 };
 use tiberius::{ColumnData, Row as MssqlRow, ToSql};
 
-/// tiberius 0.12 使用 futures_io traits,需通过 tokio-util compat 包装 tokio TcpStream
+/// tiberius 0.12 uses futures_io traits; tokio TcpStream must be wrapped via tokio-util compat
 type CompatTcpStream = tokio_util::compat::Compat<TcpStream>;
 
 // 连接池内部状态用 `std::sync::Mutex` 保护：只在 `acquire()`（弹出空闲连接/更新
 // 计数）与 `Drop`（归还连接）时短暂持锁，不在锁内执行任何 `.await`，因此用同步
 // 互斥锁而非 `tokio::sync::Mutex`，避免跨 await 持锁且开销更低。
 
-/// 错误转换: tiberius::error::Error → DbError
+/// Error conversion: tiberius::error::Error → DbError
 fn map_tiberius_error(e: tiberius::error::Error) -> DbError {
     let msg = e.to_string();
     if msg.contains("Connection")
@@ -100,7 +102,8 @@ fn map_tiberius_error(e: tiberius::error::Error) -> DbError {
     }
 }
 
-/// 判断 SQL 是否需要走 simple_query 路径 (DDL/DCL/事务控制语句不走 prepared statement)
+/// Determines whether the SQL needs to go through the simple_query path
+/// (DDL/DCL/transaction control statements do not use prepared statements)
 fn needs_simple_query(sql: &str) -> bool {
     let upper = sql.trim_start().to_uppercase();
     upper.starts_with("CREATE ")
@@ -119,9 +122,9 @@ fn needs_simple_query(sql: &str) -> bool {
         || upper.starts_with("EXECUTE ")
 }
 
-/// 将 SQL 中的 `?` 占位符转换为 SQL Server 的 `@PN` 格式
+/// Converts `?` placeholders in SQL to SQL Server's `@PN` format
 ///
-/// 跳过字符串字面量内的 `?`,仅转换参数占位符。
+/// Skips `?` inside string literals; only converts parameter placeholders.
 fn convert_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len() + 16);
     let mut in_single_quote = false;
@@ -149,10 +152,10 @@ fn convert_placeholders(sql: &str) -> String {
     result
 }
 
-/// 拥有所有权的参数枚举,实现 tiberius::ToSql 用于 prepared statement 绑定。
+/// Owned parameter enum that implements tiberius::ToSql for prepared statement binding.
 ///
-/// tiberius 0.12 的 `Client::execute/query` 接受 `&[&dyn ToSql]`,
-/// 通过为 `MssqlParamOwned` 实现 `ToSql`,可直接作为参数传入。
+/// tiberius 0.12's `Client::execute/query` accepts `&[&dyn ToSql]`.
+/// By implementing `ToSql` for `MssqlParamOwned`, it can be passed directly as a parameter.
 enum MssqlParamOwned {
     Null,
     Bool(Option<bool>),
@@ -187,18 +190,19 @@ impl ToSql for MssqlParamOwned {
     }
 }
 
-/// 将 sz-orm Value 转换为 MssqlParamOwned (拥有所有权的参数)
+/// Converts a sz-orm Value into MssqlParamOwned (an owned parameter)
 ///
-/// # 性能说明
+/// # Performance notes
 ///
-/// `String`/`Bytes` 分支会 clone 底层数据。由于 `Value` 本身持有所有权，
-/// 而 `MssqlParamOwned` 也需要 owned 数据以跨越 async 边界（tiberius 的
-/// `Client::execute/query` 异步执行），此处的 clone 无法避免。
+/// The `String`/`Bytes` branches clone the underlying data. Because `Value` itself
+/// holds ownership and `MssqlParamOwned` also needs owned data to cross the async
+/// boundary (tiberius's `Client::execute/query` executes asynchronously), this clone
+/// is unavoidable.
 ///
-/// 如需降低单次调用的 clone 开销，建议：
-/// - 使用批量操作（`sz-orm-batch`）摊薄每次参数构造的成本；
-/// - 在循环外预构造参数并复用；
-/// - 对大文本/二进制字段考虑分页或流式处理。
+/// To reduce the per-call clone overhead, consider:
+/// - Using batch operations (`sz-orm-batch`) to amortize the cost of parameter construction;
+/// - Pre-constructing parameters outside the loop and reusing them;
+/// - Using pagination or streaming for large text/binary fields.
 fn value_to_mssql_param_owned(value: &Value) -> MssqlParamOwned {
     match value {
         Value::Null => MssqlParamOwned::Null,
@@ -233,13 +237,14 @@ fn value_to_mssql_param_owned(value: &Value) -> MssqlParamOwned {
     }
 }
 
-/// 将 tiberius Row 中指定列转换为 sz-orm Value
+/// Converts the specified column of a tiberius Row into a sz-orm Value
 ///
-/// tiberius 0.12 的 `FromSql` 为 `&str`/`&[u8]` 实现 (借用),`String`/`Vec<u8>` 仅实现 `FromSqlOwned`。
-/// `try_get` 需要 `FromSql<'a>`,因此使用 `&str`/`&[u8]` 并转为 owned。
+/// tiberius 0.12's `FromSql` is implemented for `&str`/`&[u8]` (borrowed);
+/// `String`/`Vec<u8>` only implement `FromSqlOwned`.
+/// `try_get` requires `FromSql<'a>`, so `&str`/`&[u8]` are used and then converted to owned.
 ///
-/// DECIMAL/NUMERIC/MONEY/SMALLMONEY 优先以 `rust_decimal::Decimal` 解码为
-/// `Value::Decimal`(字符串形式),避免 f64 精度丢失。
+/// DECIMAL/NUMERIC/MONEY/SMALLMONEY are preferentially decoded as
+/// `rust_decimal::Decimal` into `Value::Decimal` (string form) to avoid f64 precision loss.
 fn row_to_value(row: &MssqlRow, idx: usize) -> Value {
     // 1. 尝试 i64 (覆盖 BIT/TINYINT/SMALLINT/INT/BIGINT)
     if let Ok(v) = row.try_get::<i64, usize>(idx) {
@@ -272,50 +277,54 @@ fn row_to_value(row: &MssqlRow, idx: usize) -> Value {
     Value::Null
 }
 
-/// MSSQL 连接池内部状态
+/// MSSQL connection pool internal state
 struct MssqlPoolInner {
-    /// 空闲连接列表：`acquire()` 从尾部弹出，`Drop` 归还时推入尾部
+    /// Idle connection list: `acquire()` pops from the tail, `Drop` pushes to the tail on return
     idle: Vec<tiberius::Client<CompatTcpStream>>,
-    /// 已创建连接总数（空闲 + 在用），用于约束池大小上限
+    /// Total number of created connections (idle + in-use), used to constrain the pool size upper bound
     total: usize,
 }
 
-/// SQL Server 连接池句柄
+/// SQL Server connection pool handle
 ///
-/// v1.2.0 修复 P0：从单连接伪池（`Mutex<Option<Client>>`，并发度=1）改为
-/// 真正的连接池（`Mutex<MssqlPoolInner>` 持有多个空闲连接 + `Notify` 等待
-/// 机制），并发度 = `max_size`（默认 10）。
+/// v1.2.0 fixes P0: replaces the single-connection pseudo-pool (`Mutex<Option<Client>>`,
+/// concurrency=1) with a real connection pool (`Mutex<MssqlPoolInner>` holding multiple
+/// idle connections + a `Notify` wait mechanism), with concurrency = `max_size` (default 10).
 ///
-/// # 设计要点
+/// # Design highlights
 ///
-/// - **多连接并发**：`idle` 持有多个空闲连接，`acquire()` 弹出一个供调用方
-///   独占使用，查询结束后通过 `MssqlClientGuard::drop` 归还
-/// - **池大小约束**：`total` 跟踪已创建连接数（空闲+在用），`acquire()` 在
-///   `total < max_size` 时创建新连接，否则在 `Notify` 上等待归还
-/// - **锁粒度**：`std::sync::Mutex` 仅在弹出/归还/计数更新时短暂持有，不跨
-///   `.await`；`tiberius::Client::connect` 是异步建连，在锁外执行
-/// - **连接复用**：连接在 `Drop` 时归还到 `idle`，不关闭，避免反复建连开销
+/// - **Multi-connection concurrency**: `idle` holds multiple idle connections; `acquire()`
+///   pops one for the caller's exclusive use, and it is returned via `MssqlClientGuard::drop`
+///   after the query completes
+/// - **Pool size constraint**: `total` tracks the number of created connections (idle + in-use);
+///   `acquire()` creates a new connection when `total < max_size`, otherwise waits on `Notify`
+///   for a return
+/// - **Lock granularity**: `std::sync::Mutex` is held only briefly during pop/return/counter
+///   updates, never across `.await`; `tiberius::Client::connect` performs async connection
+///   establishment outside the lock
+/// - **Connection reuse**: connections are returned to `idle` on `Drop` without being closed,
+///   avoiding repeated connection establishment overhead
 pub struct MssqlPoolHandle {
     conn_str: String,
-    /// 连接池内部状态（空闲连接 + 总数）
+    /// Connection pool internal state (idle connections + total count)
     inner: Mutex<MssqlPoolInner>,
-    /// 连接归还通知：池满时 `acquire()` 在此 `notified().await`，`Drop` 时 `notify_one`
+    /// Connection return notification: when the pool is full, `acquire()` awaits `notified().await` here; `Drop` calls `notify_one`
     notify: Notify,
-    /// 连接池大小上限（默认 10）
+    /// Connection pool size upper bound (default 10)
     max_size: usize,
 }
 
 impl MssqlPoolHandle {
-    /// 创建新的 SQL Server 连接池（连接池上限默认 10）
+    /// Creates a new SQL Server connection pool (pool size upper bound defaults to 10)
     pub async fn connect(conn_str: &str) -> Result<Self, DbError> {
         Self::connect_with_max_size(conn_str, 10).await
     }
 
-    /// 创建新的 SQL Server 连接池（自定义连接池大小上限）
+    /// Creates a new SQL Server connection pool (custom pool size upper bound)
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `max_size`：连接池大小上限。传入 0 会被替换为默认值 10
+    /// - `max_size`: Pool size upper bound. Passing 0 is replaced with the default value 10
     pub async fn connect_with_max_size(conn_str: &str, max_size: usize) -> Result<Self, DbError> {
         let config = tiberius::Config::from_ado_string(conn_str)
             .map_err(|e| DbError::ConfigError(e.to_string()))?;
@@ -338,19 +347,19 @@ impl MssqlPoolHandle {
         })
     }
 
-    /// 从池中获取一个空闲连接（独占使用，`Drop` 时自动归还）
+    /// Acquires an idle connection from the pool (for exclusive use; automatically returned on `Drop`)
     ///
-    /// # 获取策略
+    /// # Acquire strategy
     ///
-    /// 1. 优先从 `idle` 弹出一个空闲连接
-    /// 2. 若 `idle` 为空且 `total < max_size`，创建新连接并递增 `total`
-    /// 3. 若 `total >= max_size`，在 `notify` 上等待，直到有连接归还
+    /// 1. First pops an idle connection from `idle`
+    /// 2. If `idle` is empty and `total < max_size`, creates a new connection and increments `total`
+    /// 3. If `total >= max_size`, waits on `notify` until a connection is returned
     ///
-    /// # 锁粒度
+    /// # Lock granularity
     ///
-    /// `std::sync::Mutex` 仅在弹出连接/更新计数时短暂持有，异步建连
-    /// （`TcpStream::connect` / `Client::connect`）在锁外 `.await`，
-    /// 不阻塞其他调用方的 `acquire()`。
+    /// `std::sync::Mutex` is held only briefly when popping a connection / updating counters;
+    /// async connection establishment (`TcpStream::connect` / `Client::connect`) is performed
+    /// outside the lock via `.await`, without blocking other callers' `acquire()`.
     pub async fn acquire(&self) -> Result<MssqlClientGuard<'_>, DbError> {
         loop {
             // 短暂持锁：弹出空闲连接或决定是否创建新连接
@@ -401,7 +410,7 @@ impl MssqlPoolHandle {
         }
     }
 
-    /// 建立一个新的 tiberius 客户端（私有辅助方法）
+    /// Establishes a new tiberius client (private helper method)
     async fn build_client(&self) -> Result<tiberius::Client<CompatTcpStream>, DbError> {
         let config = tiberius::Config::from_ado_string(&self.conn_str)
             .map_err(|e| DbError::ConfigError(e.to_string()))?;
@@ -418,20 +427,21 @@ impl MssqlPoolHandle {
         &self.conn_str
     }
 
-    /// 获取连接池大小上限
+    /// Returns the connection pool size upper bound
     pub fn max_size(&self) -> usize {
         self.max_size
     }
 }
 
-/// SQL Server 连接的独占守卫
+/// Exclusive guard for a SQL Server connection
 ///
-/// 持有从池中取出的客户端，`Drop` 时自动归还到池的 `idle` 列表并通知一个等待者。
-/// 通过 `Deref` / `DerefMut` 透明访问底层 `tiberius::Client`。
+/// Holds the client taken from the pool; on `Drop` it is automatically returned to the
+/// pool's `idle` list and one waiter is notified. The underlying `tiberius::Client` is
+/// accessed transparently via `Deref` / `DerefMut`.
 pub struct MssqlClientGuard<'a> {
-    /// 当前持有的客户端；`Drop` 时取出并归还，正常使用期间始终为 `Some`
+    /// The currently held client; taken out and returned on `Drop`, always `Some` during normal use
     client: Option<tiberius::Client<CompatTcpStream>>,
-    /// 池的引用，用于归还连接
+    /// Reference to the pool, used to return the connection
     pool: &'a MssqlPoolHandle,
 }
 
@@ -461,7 +471,7 @@ impl Drop for MssqlClientGuard<'_> {
     }
 }
 
-/// SQL Server 连接工厂
+/// SQL Server connection factory
 pub struct MssqlConnectionFactory {
     handle: Arc<MssqlPoolHandle>,
 }
@@ -484,7 +494,7 @@ impl ConnectionFactory for MssqlConnectionFactory {
     }
 }
 
-/// SQL Server 连接包装器
+/// SQL Server connection wrapper
 pub struct MssqlConnection {
     handle: Arc<MssqlPoolHandle>,
     connected: bool,
@@ -492,7 +502,7 @@ pub struct MssqlConnection {
 }
 
 impl MssqlConnection {
-    /// 标记连接错误（在 guard 释放后调用）
+    /// Marks a connection error (called after the guard is released)
     fn mark_connection_error_after(&mut self, e: &DbError) {
         if matches!(e, DbError::ConnectionError(_) | DbError::IoError(_)) {
             self.connected = false;
@@ -584,11 +594,12 @@ impl Connection for MssqlConnection {
         })
     }
 
-    /// G-SX-4：MSSQL 原生游标流式查询
+    /// G-SX-4: MSSQL native cursor streaming query
     ///
-    /// tiberius `simple_query` 返回 `QueryItem::Row` 的异步流，本方法直接
-    /// yield 每一行，避免默认实现将全部行收集到 Vec 再逐行返回。
-    /// 适用于大结果集场景，显著降低内存峰值。
+    /// tiberius `simple_query` returns an async stream of `QueryItem::Row`; this method
+    /// directly yields each row, avoiding the default implementation that collects all
+    /// rows into a Vec before returning them one by one.
+    /// Suitable for large result sets, significantly reducing peak memory.
     fn query_stream<'a>(
         &'a mut self,
         sql: &'a str,
@@ -727,11 +738,13 @@ impl Connection for MssqlConnection {
         })
     }
 
-    /// 位置式查询（SELECT，无参数）：返回 `(列名, 按列顺序的值矩阵)`
+    /// Positional query (SELECT, no parameters): returns `(column names, value matrix in column order)`
     ///
-    /// 绕过 `HashMap<String, Value>` 行映射，列名仅 `to_string` 一次后复用，
-    /// 每行值按列序号直接 `Vec::push`，无哈希计算与字符串克隆。
-    /// 适用于 SELECT ALL 大结果集场景，相比 [`query`](Connection::query) 可获得 30%~50% 性能提升。
+    /// Bypasses the `HashMap<String, Value>` row mapping; column names are `to_string`-ed once
+    /// and reused, and each row's values are pushed directly by column index into a `Vec`,
+    /// with no hashing or string cloning.
+    /// Suitable for SELECT ALL large result sets; compared to [`query`](Connection::query) this
+    /// can deliver a 30%~50% performance improvement.
     fn query_values<'a>(
         &'a mut self,
         sql: &'a str,
@@ -782,9 +795,9 @@ impl Connection for MssqlConnection {
         })
     }
 
-    /// 参数绑定位置式查询（SELECT）：叠加 prepared statement + 位置式映射双重优化
+    /// Parameter-bound positional query (SELECT): combines prepared statement + positional mapping dual optimization
     ///
-    /// 无参数时回退到 [`query_values`](Connection::query_values)。
+    /// Falls back to [`query_values`](Connection::query_values) when there are no parameters.
     fn query_values_with_params<'a>(
         &'a mut self,
         sql: &'a str,
@@ -955,10 +968,10 @@ impl Connection for MssqlConnection {
 }
 
 // ============================================================================
-// 连接串解析 API
+// Connection string parsing API
 // ============================================================================
 
-/// SQL Server 连接串解析结果
+/// SQL Server connection string parsing result
 #[derive(Debug, Clone)]
 pub struct MssqlConnInfo {
     server: String,
@@ -969,37 +982,37 @@ pub struct MssqlConnInfo {
 }
 
 impl MssqlConnInfo {
-    /// 获取服务器地址
+    /// Returns the server address
     #[must_use]
     pub fn server(&self) -> &str {
         &self.server
     }
 
-    /// 获取端口
+    /// Returns the port
     #[must_use]
     pub fn port(&self) -> u16 {
         self.port
     }
 
-    /// 获取数据库名
+    /// Returns the database name
     #[must_use]
     pub fn database(&self) -> &str {
         &self.database
     }
 
-    /// 获取用户名
+    /// Returns the user name
     #[must_use]
     pub fn user(&self) -> &str {
         &self.user
     }
 
-    /// 获取密码
+    /// Returns the password
     #[must_use]
     pub fn password(&self) -> &str {
         &self.password
     }
 
-    /// 重新生成 DSN 连接串
+    /// Regenerates the DSN connection string
     #[must_use]
     pub fn as_dsn(&self) -> String {
         format!(
@@ -1009,14 +1022,14 @@ impl MssqlConnInfo {
     }
 }
 
-/// 解析 SQL Server 连接串
+/// Parses a SQL Server connection string
 ///
-/// 支持格式：`server=host;port=1433;database=db;user=sa;password=pwd`
-/// 或 `server=host,port=1433;database=db;user=sa;password=pwd`
+/// Supported formats: `server=host;port=1433;database=db;user=sa;password=pwd`
+/// or `server=host,port=1433;database=db;user=sa;password=pwd`
 ///
 /// # Errors
 ///
-/// 若缺少 `server` 或 `database` 字段返回 `DbError::Internal`。
+/// Returns `DbError::Internal` if the `server` or `database` field is missing.
 pub fn parse_conn_str(conn_str: &str) -> Result<MssqlConnInfo, DbError> {
     let mut server = String::new();
     let mut port: u16 = 1433;
@@ -1064,30 +1077,30 @@ pub fn parse_conn_str(conn_str: &str) -> Result<MssqlConnInfo, DbError> {
 }
 
 // ============================================================================
-// SQL Server 方言辅助 API
+// SQL Server dialect helper API
 // ============================================================================
 
-/// SQL Server 方言辅助
+/// SQL Server dialect helper
 pub struct MssqlDialect;
 
 impl MssqlDialect {
-    /// 构造方言辅助器
+    /// Constructs a dialect helper
     #[must_use]
     pub fn new() -> Self {
         Self
     }
 
-    /// 引用标识符（SQL Server 用方括号 `[name]`）
+    /// Quotes an identifier (SQL Server uses square brackets `[name]`)
     #[must_use]
     pub fn quote_identifier(&self, name: &str) -> String {
         format!("[{}]", name.replace(']', "]]"))
     }
 
-    /// 生成 LIMIT/OFFSET 子句（SQL Server 用 `OFFSET ... FETCH NEXT` 语法）
+    /// Generates a LIMIT/OFFSET clause (SQL Server uses `OFFSET ... FETCH NEXT` syntax)
     ///
-    /// - 仅 `limit`：`TOP N`（兼容 SQL Server 2008+）
-    /// - `limit` + `offset`：`OFFSET N ROWS FETCH NEXT M ROWS ONLY`（SQL Server 2012+）
-    /// - 均无：空字符串
+    /// - `limit` only: `TOP N` (compatible with SQL Server 2008+)
+    /// - `limit` + `offset`: `OFFSET N ROWS FETCH NEXT M ROWS ONLY` (SQL Server 2012+)
+    /// - Neither: empty string
     #[must_use]
     pub fn limit_clause(&self, limit: Option<u64>, offset: Option<u64>) -> String {
         match (limit, offset) {
@@ -1100,13 +1113,13 @@ impl MssqlDialect {
         }
     }
 
-    /// 生成参数占位符（`@P1`, `@P2`, ...）
+    /// Generates a parameter placeholder (`@P1`, `@P2`, ...)
     #[must_use]
     pub fn placeholder(&self, index: usize) -> String {
         format!("@P{index}")
     }
 
-    /// 检查是否为 SQL Server 保留字
+    /// Checks whether the keyword is a SQL Server reserved word
     #[must_use]
     pub fn is_reserved_keyword(&self, kw: &str) -> bool {
         matches!(
@@ -1186,10 +1199,10 @@ impl Default for MssqlDialect {
 }
 
 // ============================================================================
-// SQL Server 类型枚举 API
+// SQL Server type enum API
 // ============================================================================
 
-/// SQL Server 数据类型
+/// SQL Server data types
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MssqlType {
     Bigint,
@@ -1225,7 +1238,7 @@ pub enum MssqlType {
 }
 
 impl MssqlType {
-    /// 返回 SQL 类型名
+    /// Returns the SQL type name
     #[must_use]
     pub fn as_sql_type(&self) -> &'static str {
         match self {
@@ -1262,7 +1275,7 @@ impl MssqlType {
         }
     }
 
-    /// 是否为数值类型
+    /// Whether it is a numeric type
     #[must_use]
     pub fn is_numeric(&self) -> bool {
         matches!(
@@ -1281,7 +1294,7 @@ impl MssqlType {
         )
     }
 
-    /// 是否为字符串类型
+    /// Whether it is a string type
     #[must_use]
     pub fn is_string(&self) -> bool {
         matches!(
@@ -1296,7 +1309,7 @@ impl MssqlType {
         )
     }
 
-    /// 是否为二进制类型
+    /// Whether it is a binary type
     #[must_use]
     pub fn is_binary(&self) -> bool {
         matches!(
@@ -1305,7 +1318,7 @@ impl MssqlType {
         )
     }
 
-    /// 是否为时间类型
+    /// Whether it is a temporal type
     #[must_use]
     pub fn is_temporal(&self) -> bool {
         matches!(
@@ -1319,7 +1332,7 @@ impl MssqlType {
         )
     }
 
-    /// 从类型名解析
+    /// Parses from a type name
     #[must_use]
     pub fn parse_name(name: &str) -> Self {
         match name.to_uppercase().as_str() {
@@ -1359,30 +1372,30 @@ impl MssqlType {
 }
 
 // ============================================================================
-// SQL Server 错误分类 API
+// SQL Server error category API
 // ============================================================================
 
-/// SQL Server 错误分类
+/// SQL Server error categories
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MssqlErrorCategory {
-    /// 主键/唯一键冲突（错误码 2627/2601）
+    /// Primary/unique key conflict (error codes 2627/2601)
     DuplicateKey,
-    /// 约束违反（错误码 547）
+    /// Constraint violation (error code 547)
     ConstraintViolation,
-    /// NULL 值违反非空约束（错误码 515）
+    /// NULL value violates a non-null constraint (error code 515)
     NullViolation,
-    /// 对象不存在（错误码 208）
+    /// Object does not exist (error code 208)
     InvalidObject,
-    /// 死锁（错误码 1205）
+    /// Deadlock (error code 1205)
     Deadlock,
-    /// 超时（错误码 -2）
+    /// Timeout (error code -2)
     Timeout,
-    /// 其他错误
+    /// Other errors
     Other,
 }
 
 impl MssqlErrorCategory {
-    /// 从 SQL Server 错误码分类
+    /// Categorizes from a SQL Server error code
     #[must_use]
     pub fn from_code(code: i32) -> Self {
         match code {
@@ -1396,7 +1409,7 @@ impl MssqlErrorCategory {
         }
     }
 
-    /// 错误描述
+    /// Error description
     #[must_use]
     pub fn description(&self) -> &'static str {
         match self {
@@ -1410,7 +1423,7 @@ impl MssqlErrorCategory {
         }
     }
 
-    /// 是否可重试（死锁/超时）
+    /// Whether it is retriable (deadlock/timeout)
     #[must_use]
     pub fn is_retriable(&self) -> bool {
         matches!(
@@ -1421,7 +1434,7 @@ impl MssqlErrorCategory {
 }
 
 // ============================================================================
-// 单元测试
+// Unit tests
 // ============================================================================
 
 #[cfg(test)]

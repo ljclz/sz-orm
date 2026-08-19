@@ -28,7 +28,7 @@ type HmacSha256 = Hmac<Sha256>;
 // SHA-256 (基于 RustCrypto sha2 crate, FIPS 180-4)
 // ============================================================================
 
-/// 计算 SHA-256 哈希（基于 RustCrypto sha2）
+/// Compute the SHA-256 hash (based on RustCrypto sha2).
 pub fn sha256(data: &[u8]) -> [u8; 32] {
     let mut hasher = Sha256::new();
     hasher.update(data);
@@ -38,12 +38,12 @@ pub fn sha256(data: &[u8]) -> [u8; 32] {
     out
 }
 
-/// 计算 SHA-256 并返回十六进制字符串
+/// Compute SHA-256 and return the result as a hexadecimal string.
 pub fn sha256_hex(data: &[u8]) -> String {
     sha256(data).iter().map(|b| format!("{:02x}", b)).collect()
 }
 
-/// HMAC-SHA256 (RFC 2104, 基于 RustCrypto hmac crate)
+/// HMAC-SHA256 (RFC 2104, based on RustCrypto hmac crate).
 pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     // HMAC-SHA256 按 RFC 2104 接受任意长度 key，RustCrypto 的 new_from_slice 对 HMAC 永远返回 Ok。
     // 用 match 处理避免 panic，虽然 Err 分支不可达（RustCrypto 不变量保证）。
@@ -62,7 +62,7 @@ pub fn hmac_sha256(key: &[u8], message: &[u8]) -> [u8; 32] {
     out
 }
 
-/// HMAC-SHA256 十六进制字符串
+/// HMAC-SHA256 hexadecimal string.
 pub fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
     hmac_sha256(key, message)
         .iter()
@@ -70,7 +70,7 @@ pub fn hmac_sha256_hex(key: &[u8], message: &[u8]) -> String {
         .collect()
 }
 
-/// 常量时间比较（基于 subtle crate），避免时序攻击
+/// Constant-time comparison (based on the subtle crate) to avoid timing attacks.
 fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
     a.ct_eq(b).into()
 }
@@ -84,16 +84,17 @@ pub trait Crypter: Send + Sync {
     fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError>;
 }
 
-/// AES-256-GCM 加密器（密码学安全）
+/// AES-256-GCM crypter (cryptographically secure).
 ///
-/// 使用 AES-256-GCM AEAD 算法，每次加密生成随机 12 字节 nonce。
-/// 密文格式：`nonce(12) || ciphertext || tag(16)`（由 aes-gcm crate 内部处理）。
+/// Uses the AES-256-GCM AEAD algorithm and generates a random 12-byte nonce on
+/// each encryption. Ciphertext format: `nonce(12) || ciphertext || tag(16)`
+/// (handled internally by the aes-gcm crate).
 pub struct AesGcmCrypter {
     cipher: Aes256Gcm,
 }
 
 impl AesGcmCrypter {
-    /// 从 32 字节密钥创建
+    /// Create from a 32-byte key.
     pub fn new(key: &[u8; 32]) -> Self {
         let key = Key::<Aes256Gcm>::from_slice(key);
         Self {
@@ -101,7 +102,7 @@ impl AesGcmCrypter {
         }
     }
 
-    /// 从任意长度密钥字符串创建（SHA-256 派生 32 字节密钥）
+    /// Create from a key string of arbitrary length (derives a 32-byte key via SHA-256).
     pub fn from_key_str(key: &str) -> Self {
         let hash = sha256(key.as_bytes());
         Self::new(&hash)
@@ -125,11 +126,12 @@ impl Crypter for AesGcmCrypter {
 }
 
 impl AesGcmCrypter {
-    /// AES-GCM 认证加密（带附加认证数据 AAD）
+    /// AES-GCM authenticated encryption (with Additional Authenticated Data, AAD).
     ///
-    /// 密文格式：`nonce(12) || ciphertext || tag(16)`
-    /// AAD（Additional Authenticated Data）不包含在密文中，但参与认证标签计算，
-    /// 解密时必须提供相同的 AAD 才能成功。
+    /// Ciphertext format: `nonce(12) || ciphertext || tag(16)`.
+    /// AAD (Additional Authenticated Data) is not included in the ciphertext but
+    /// participates in the authentication tag computation; the same AAD must be
+    /// provided during decryption to succeed.
     pub fn encrypt_with_aad(&self, plaintext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let nonce_bytes = Self::random_nonce();
         let nonce = Nonce::from_slice(&nonce_bytes);
@@ -147,9 +149,10 @@ impl AesGcmCrypter {
         Ok(result)
     }
 
-    /// AES-GCM 认证解密（带附加认证数据 AAD）
+    /// AES-GCM authenticated decryption (with Additional Authenticated Data, AAD).
     ///
-    /// 必须提供与加密时相同的 AAD，否则认证标签校验失败。
+    /// The same AAD used during encryption must be provided, otherwise the
+    /// authentication tag verification fails.
     pub fn decrypt_with_aad(&self, ciphertext: &[u8], aad: &[u8]) -> Result<Vec<u8>, CryptoError> {
         if ciphertext.len() < 12 {
             return Err(CryptoError::DecryptionFailed(
@@ -177,10 +180,10 @@ pub trait PasswordHasher: Send + Sync {
     fn verify(&self, password: &str, hash: &str) -> Result<bool, CryptoError>;
 }
 
-/// PBKDF2-HMAC-SHA256 密码哈希器（基于 RustCrypto pbkdf2 crate）
+/// PBKDF2-HMAC-SHA256 password hasher (based on RustCrypto pbkdf2 crate).
 ///
-/// 使用 PBKDF2-HMAC-SHA256 算法（RFC 8018）。
-/// 哈希格式：`$<iterations>$<salt_hex>$<hash_hex>`
+/// Uses the PBKDF2-HMAC-SHA256 algorithm (RFC 8018).
+/// Hash format: `$<iterations>$<salt_hex>$<hash_hex>`
 pub struct Pbkdf2Hasher {
     iterations: u32,
 }
@@ -202,9 +205,11 @@ impl Pbkdf2Hasher {
         }
     }
 
-    /// 迭代次数上下限（v4.8.0 修复 M-8）：
-    /// - 下限与生产默认值对齐，拒绝 c<100_000 的弱哈希（黑帽实证 c=1 被接受）；
-    /// - 上限防 `$4294967295$...` CPU DoS（单次校验可卡死数分钟）。
+    /// Iteration count upper and lower bounds (v4.8.0 fix for M-8):
+    /// - The lower bound aligns with the production default and rejects weak hashes
+    ///   with c<100_000 (black-hat demo showed c=1 was accepted).
+    /// - The upper bound prevents `$4294967295$...` CPU DoS (a single verify could
+    ///   stall for minutes).
     pub const MIN_ITERATIONS: u32 = 100_000;
     pub const MAX_ITERATIONS: u32 = 10_000_000;
 
@@ -292,16 +297,19 @@ pub trait ApiSigner: Send + Sync {
     fn verify(&self, params: &HashMap<String, String>, secret: &str, signature: &str) -> bool;
 }
 
-/// HMAC-SHA256 API 签名器
+/// HMAC-SHA256 API signer.
 ///
-/// 对参数按字典序排序后拼接成 query string，再用 HMAC-SHA256 签名。
+/// Sorts parameters in lexicographic order, joins them into a query string, and
+/// then signs the result with HMAC-SHA256.
 ///
-/// # 安全说明（v4.8.0 修复 H-1 参数走私）
+/// # Security notes (v4.8.0 fix for H-1 parameter smuggling)
 ///
-/// - key/value 均做 RFC 3986 percent-encoding 后再拼接，消除
-///   `{a:1,b:2}` 与 `{a:"1&b=2"}` 的规范串歧义（参数走私）；
-/// - **调用方必须**将时间戳/随机 nonce 作为参数之一参与签名，
-///   并在服务端校验时间窗，否则签名请求仍可被重放。
+/// - Both key and value are RFC 3986 percent-encoded before being joined,
+///   eliminating the canonical-string ambiguity between `{a:1,b:2}` and
+///   `{a:"1&b=2"}` (parameter smuggling).
+/// - **The caller must** include a timestamp/random nonce as one of the signed
+///   parameters and verify the time window on the server side; otherwise signed
+///   requests can still be replayed.
 pub struct HmacSigner;
 
 impl HmacSigner {
@@ -309,8 +317,9 @@ impl HmacSigner {
         Self
     }
 
-    /// RFC 3986 percent-encoding：仅保留 unreserved 字符（ALPHA/DIGIT/-/./_/~），
-    /// 其余字节按 `%XX` 大写十六进制编码。消除 `&`/`=` 等分隔符歧义。
+    /// RFC 3986 percent-encoding: keeps only unreserved characters
+    /// (ALPHA/DIGIT/-/./_/~); all other bytes are encoded as `%XX` uppercase
+    /// hexadecimal. Eliminates ambiguity of separators like `&` and `=`.
     fn percent_encode(s: &str) -> String {
         let mut out = String::with_capacity(s.len());
         for b in s.bytes() {
@@ -375,17 +384,18 @@ use rsa::oaep::Oaep;
 use rsa::{RsaPrivateKey, RsaPublicKey};
 use sha2::Sha256 as RsaSha256;
 
-/// RSA-OAEP 非对称加密器（基于 RustCrypto `rsa` crate）
+/// RSA-OAEP asymmetric crypter (based on RustCrypto `rsa` crate).
 ///
-/// 使用 RSA-OAEP with SHA-256 和 MGF1-SHA256 填充方案。
-/// 公钥加密，私钥解密，适用于小数据（如密钥交换、短消息加密）。
+/// Uses RSA-OAEP with SHA-256 and MGF1-SHA256 padding. Public key encrypts,
+/// private key decrypts; suitable for small data (e.g. key exchange, short
+/// message encryption).
 pub struct RsaOaepCrypter {
     public_key: RsaPublicKey,
     private_key: RsaPrivateKey,
 }
 
 impl RsaOaepCrypter {
-    /// 生成新的 RSA 密钥对（指定位数，推荐 2048 或 3072）
+    /// Generate a new RSA key pair with the given bit length (2048 or 3072 recommended).
     pub fn generate(key_bits: usize) -> Result<Self, CryptoError> {
         let mut rng = OsRng;
         let private_key = RsaPrivateKey::new(&mut rng, key_bits)
@@ -397,7 +407,7 @@ impl RsaOaepCrypter {
         })
     }
 
-    /// 从已有密钥对创建
+    /// Create from an existing key pair.
     pub fn from_keys(public_key: RsaPublicKey, private_key: RsaPrivateKey) -> Self {
         Self {
             public_key,
@@ -405,17 +415,17 @@ impl RsaOaepCrypter {
         }
     }
 
-    /// 返回公钥引用
+    /// Return a reference to the public key.
     pub fn public_key(&self) -> &RsaPublicKey {
         &self.public_key
     }
 
-    /// 返回私钥引用
+    /// Return a reference to the private key.
     pub fn private_key(&self) -> &RsaPrivateKey {
         &self.private_key
     }
 
-    /// 使用公钥加密数据（RSA-OAEP with SHA-256）
+    /// Encrypt data with the public key (RSA-OAEP with SHA-256).
     pub fn encrypt(&self, plaintext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let mut rng = OsRng;
         let padding = Oaep::new::<RsaSha256>();
@@ -424,7 +434,7 @@ impl RsaOaepCrypter {
             .map_err(|e| CryptoError::EncryptionFailed(e.to_string()))
     }
 
-    /// 使用私钥解密数据（RSA-OAEP with SHA-256）
+    /// Decrypt data with the private key (RSA-OAEP with SHA-256).
     pub fn decrypt(&self, ciphertext: &[u8]) -> Result<Vec<u8>, CryptoError> {
         let padding = Oaep::new::<RsaSha256>();
         self.private_key
@@ -447,28 +457,29 @@ impl Crypter for RsaOaepCrypter {
 // HMAC-SHA256 签名验证器
 // ============================================================================
 
-/// 签名验证器 trait：提供消息签名与验证接口
+/// Signature verifier trait: provides message signing and verification interfaces.
 pub trait SignatureVerifier: Send + Sync {
-    /// 对消息生成签名
+    /// Sign a message.
     fn sign(&self, message: &[u8]) -> Vec<u8>;
-    /// 验证消息签名（常量时间比较）
+    /// Verify a message signature (constant-time comparison).
     fn verify(&self, message: &[u8], signature: &[u8]) -> bool;
 }
 
-/// HMAC-SHA256 签名验证器
+/// HMAC-SHA256 signature verifier.
 ///
-/// 使用 HMAC-SHA256 算法对消息签名，验证时采用常量时间比较防止时序攻击。
+/// Signs messages with HMAC-SHA256 and uses constant-time comparison during
+/// verification to prevent timing attacks.
 pub struct HmacSignatureVerifier {
     key: Vec<u8>,
 }
 
 impl HmacSignatureVerifier {
-    /// 创建签名验证器，从任意长度密钥派生
+    /// Create a signature verifier, deriving from a key of arbitrary length.
     pub fn new(key: &[u8]) -> Self {
         Self { key: key.to_vec() }
     }
 
-    /// 从字符串密钥创建
+    /// Create from a string key.
     pub fn from_key_str(key: &str) -> Self {
         Self::new(key.as_bytes())
     }
@@ -489,7 +500,7 @@ impl SignatureVerifier for HmacSignatureVerifier {
 // 密钥轮换（Key Rotation）
 // ============================================================================
 
-/// 密钥版本：保存密钥及其版本号和创建时间
+/// Key version: stores a key along with its version number and creation time.
 #[derive(Clone)]
 struct KeyVersion {
     version: u32,
@@ -497,13 +508,13 @@ struct KeyVersion {
     created_at: u64,
 }
 
-/// 密钥轮换管理器
+/// Key rotation manager.
 ///
-/// 管理多个版本的密钥，支持：
-/// - 轮换生成新版本密钥
-/// - 用最新密钥签名
-/// - 用任意历史密钥验证（向后兼容）
-/// - 自动淘汰过期密钥
+/// Manages multiple versions of keys and supports:
+/// - rotating to generate a new key version
+/// - signing with the latest key
+/// - verifying with any historical key (backward compatibility)
+/// - automatic eviction of expired keys
 pub struct KeyRotationManager {
     keys: Vec<KeyVersion>,
     current_version: u32,
@@ -511,7 +522,7 @@ pub struct KeyRotationManager {
 }
 
 impl KeyRotationManager {
-    /// 创建密钥轮换管理器，指定最大保留版本数
+    /// Create a key rotation manager with the specified maximum number of retained versions.
     pub fn new(max_versions: usize) -> Self {
         Self {
             keys: vec![],
@@ -520,14 +531,14 @@ impl KeyRotationManager {
         }
     }
 
-    /// 初始化首个密钥版本
+    /// Initialize with the first key version.
     pub fn with_initial_key(key: Vec<u8>) -> Self {
         let mut mgr = Self::new(3);
         mgr.rotate_key(key);
         mgr
     }
 
-    /// 轮换到新密钥，返回新版本号
+    /// Rotate to a new key and return the new version number.
     pub fn rotate_key(&mut self, new_key: Vec<u8>) -> u32 {
         self.current_version += 1;
         let now = current_timestamp_secs();
@@ -543,7 +554,7 @@ impl KeyRotationManager {
         self.current_version
     }
 
-    /// 使用当前（最新）密钥签名
+    /// Sign with the current (latest) key.
     pub fn sign(&self, message: &[u8]) -> (u32, Vec<u8>) {
         if let Some(kv) = self.keys.last() {
             let sig = hmac_sha256(&kv.key, message).to_vec();
@@ -553,7 +564,7 @@ impl KeyRotationManager {
         }
     }
 
-    /// 验证签名（尝试所有保留的密钥版本）
+    /// Verify a signature (tries all retained key versions).
     pub fn verify(&self, message: &[u8], version: u32, signature: &[u8]) -> bool {
         for kv in &self.keys {
             if kv.version == version {
@@ -564,22 +575,23 @@ impl KeyRotationManager {
         false
     }
 
-    /// 返回当前密钥版本号
+    /// Return the current key version number.
     pub fn current_version(&self) -> u32 {
         self.current_version
     }
 
-    /// 返回保留的密钥版本数量
+    /// Return the number of retained key versions.
     pub fn version_count(&self) -> usize {
         self.keys.len()
     }
 
-    /// 返回所有保留的版本号
+    /// Return all retained version numbers.
     pub fn versions(&self) -> Vec<u32> {
         self.keys.iter().map(|kv| kv.version).collect()
     }
 
-    /// 返回指定版本密钥的创建时间（Unix 秒），不存在返回 None
+    /// Return the creation time (Unix seconds) of the key for the specified
+    /// version, or `None` if the version does not exist.
     pub fn key_created_at(&self, version: u32) -> Option<u64> {
         self.keys
             .iter()
@@ -603,37 +615,39 @@ fn current_timestamp_secs() -> u64 {
 use std::sync::RwLock;
 use std::time::Duration;
 
-/// 默认密钥轮换间隔：90 天
+/// Default key rotation interval: 90 days.
 const DEFAULT_ROTATION_INTERVAL_SECS: u64 = 90 * 24 * 60 * 60;
 
-/// 带版本的密钥
+/// Versioned key.
 #[derive(Debug, Clone)]
 pub struct VersionedKey {
-    /// 密钥版本
+    /// Key version.
     pub version: u32,
-    /// 密钥字节
+    /// Key bytes.
     pub key: Vec<u8>,
-    /// 创建时间
+    /// Creation time.
     pub created_at: std::time::SystemTime,
 }
 
-/// 密钥管理器（支持轮换）
+/// Key manager (supports rotation).
 ///
-/// 维护一个当前活跃密钥和最多 3 个历史密钥（用于解密过渡期），
-/// 支持按时间间隔自动轮换检查。所有字段使用 `RwLock` 保护，可安全跨线程共享。
+/// Maintains a current active key and at most 3 historical keys (for the
+/// decryption transition period), and supports automatic rotation checks at
+/// a fixed time interval. All fields are protected by `RwLock` and can be
+/// safely shared across threads.
 pub struct KeyManager {
-    /// 当前活跃密钥
+    /// Current active key.
     current: RwLock<VersionedKey>,
-    /// 旧密钥列表（用于解密过渡期）
+    /// List of old keys (for the decryption transition period).
     previous: RwLock<Vec<VersionedKey>>,
-    /// 密钥轮换间隔
+    /// Key rotation interval.
     rotation_interval: Duration,
-    /// 上次轮换时间
+    /// Last rotation time.
     last_rotation: RwLock<std::time::SystemTime>,
 }
 
 impl KeyManager {
-    /// 创建密钥管理器，使用给定的初始密钥（版本号从 1 开始）
+    /// Create a key manager with the given initial key (version numbering starts at 1).
     pub fn new(initial_key: Vec<u8>) -> Self {
         let now = std::time::SystemTime::now();
         Self {
@@ -648,13 +662,13 @@ impl KeyManager {
         }
     }
 
-    /// 设置轮换间隔
+    /// Set the rotation interval.
     pub fn with_rotation_interval(mut self, interval: Duration) -> Self {
         self.rotation_interval = interval;
         self
     }
 
-    /// 轮换密钥
+    /// Rotate the key.
     pub fn rotate(&self, new_key: Vec<u8>) -> Result<(), CryptoError> {
         let mut current = self.current.write().expect("KeyManager lock poisoned");
         let mut previous = self.previous.write().expect("KeyManager lock poisoned");
@@ -681,7 +695,7 @@ impl KeyManager {
         Ok(())
     }
 
-    /// 检查是否需要轮换
+    /// Check whether rotation is needed.
     pub fn needs_rotation(&self) -> bool {
         let last = *self
             .last_rotation
@@ -693,7 +707,7 @@ impl KeyManager {
             .unwrap_or(false)
     }
 
-    /// 获取当前密钥
+    /// Get the current key.
     pub fn current_key(&self) -> VersionedKey {
         self.current
             .read()
@@ -701,7 +715,7 @@ impl KeyManager {
             .clone()
     }
 
-    /// 按版本查找密钥
+    /// Look up a key by version.
     pub fn key_by_version(&self, version: u32) -> Option<VersionedKey> {
         if self
             .current
@@ -725,7 +739,7 @@ impl KeyManager {
             .cloned()
     }
 
-    /// 返回保留的旧密钥数量
+    /// Return the number of retained old keys.
     pub fn previous_count(&self) -> usize {
         self.previous
             .read()

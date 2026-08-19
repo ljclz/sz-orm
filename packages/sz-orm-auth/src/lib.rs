@@ -1,16 +1,16 @@
-//! # SZ-ORM Auth — 认证授权
+//! # SZ-ORM Auth — Authentication & Authorization
 //!
-//! 提供 JWT 令牌签发/校验与基于 RBAC 的权限控制（`Authorizer`/`RbacAuthorizer`），
-//! 涵盖用户、凭证与角色权限模型。
+//! Provides JWT token signing/verification and RBAC-based permission control (`Authorizer`/`RbacAuthorizer`),
+//! covering user, credential, and role-permission models.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`auth`] — 用户、凭证等基础模型
-//! - [`jwt`] — JSON Web Token 签发与校验
-//! - [`authorizer`] — RBAC 授权器（含角色层级）
-//! - [`oauth2`] — OAuth2 授权码流程（RFC 6749）
-//! - [`mfa`] — 多因素认证（TOTP, RFC 6238）
-//! - [`token_store`] — 刷新令牌存储（轮换 + 撤销 + 重放检测）
+//! - [`auth`] — User, credential and other basic models
+//! - [`jwt`] — JSON Web Token signing and verification
+//! - [`authorizer`] — RBAC authorizer (with role hierarchy)
+//! - [`oauth2`] — OAuth2 authorization code flow (RFC 6749)
+//! - [`mfa`] — Multi-factor authentication (TOTP, RFC 6238)
+//! - [`token_store`] — Refresh token storage (rotation + revocation + replay detection)
 
 pub mod auth;
 pub mod authorizer;
@@ -31,7 +31,7 @@ pub use token_store::{StoredToken, TokenFamilyError, TokenStore};
 mod tests {
     use super::*;
 
-    /// 测试用密码验证器（H-1 修复后 authenticate 必须配置 verifier）
+    /// Test password verifier (after H-1 fix, authenticate must configure verifier)
     struct MockVerifier;
     impl auth::PasswordVerifier for MockVerifier {
         fn verify_password(&self, _u: &str, _p: &str) -> Result<i64, AuthError> {

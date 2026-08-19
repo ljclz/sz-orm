@@ -1,6 +1,6 @@
-//! sz-orm JavaScript/Node.js 绑定（napi-rs）
+//! sz-orm JavaScript/Node.js bindings (napi-rs)
 //!
-//! 暴露 sz-orm-core 的四类核心 API：Model、QueryBuilder、Pool、Transaction。
+//! Exposes four core API categories of sz-orm-core: Model, QueryBuilder, Pool, Transaction.
 
 mod batch;
 mod enhanced;

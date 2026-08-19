@@ -1,18 +1,18 @@
-//! # SZ-ORM Tracing — 链路追踪
+//! # SZ-ORM Tracing — Distributed tracing
 //!
-//! 提供分布式链路追踪的 Span/Tracer 抽象，支持 OTLP exporter 上报，
-//! 用于跨服务调用链的采集与可视化。
+//! Provides Span/Tracer abstractions for distributed tracing, with OTLP exporter
+//! reporting support, for collection and visualization of cross-service call chains.
 //!
-//! ## 主要类型
+//! ## Main types
 //!
-//! - [`Span`] — 单个追踪片段
-//! - `Tracer` — 追踪器与导出器
+//! - [`Span`] — single trace segment
+//! - `Tracer` — tracer and exporter
 //!
-//! ## 采样与上下文传播（`sampling` 模块）
+//! ## Sampling and context propagation (`sampling` module)
 //!
-//! - [`sampling::Sampler`] / [`sampling::TraceIdRatioSampler`] — 采样策略
-//! - [`sampling::Baggage`] / [`sampling::BaggagePropagator`] — W3C Baggage 传播
-//! - [`sampling::BatchSpanExporter`] — 批量 Span 导出
+//! - [`sampling::Sampler`] / [`sampling::TraceIdRatioSampler`] — sampling strategies
+//! - [`sampling::Baggage`] / [`sampling::BaggagePropagator`] — W3C Baggage propagation
+//! - [`sampling::BatchSpanExporter`] — batch Span export
 
 pub mod sampling;
 
@@ -195,18 +195,18 @@ impl Tracer for SzTracer {
         }
     }
 
-    /// 注入 W3C TraceContext `traceparent` header
+    /// Injects the W3C TraceContext `traceparent` header
     ///
-    /// v0.2.2 修复 P2-2：从自定义 `trace-id`/`span-id`/`parent-span-id` header
-    /// 升级为 W3C TraceContext 标准的 `traceparent` header。
+    /// v0.2.2 fixes P2-2: upgrades from custom `trace-id`/`span-id`/`parent-span-id`
+    /// headers to the W3C TraceContext standard `traceparent` header.
     ///
-    /// 格式：`00-<trace_id>-<span_id>-<trace_flags>`
-    /// - `00`：版本号（W3C 规范固定为 `00`）
-    /// - `trace_id`：32 字符 hex（16 字节）
-    /// - `span_id`：16 字符 hex（8 字节）
-    /// - `trace_flags`：2 字符 hex（`01` 表示 sampled，`00` 表示未采样）
+    /// Format: `00-<trace_id>-<span_id>-<trace_flags>`
+    /// - `00`: version number (fixed to `00` by the W3C specification)
+    /// - `trace_id`: 32-char hex (16 bytes)
+    /// - `span_id`: 16-char hex (8 bytes)
+    /// - `trace_flags`: 2-char hex (`01` means sampled, `00` means not sampled)
     ///
-    /// 同时保留 `parent-span-id` header 以向后兼容旧版本的 extract。
+    /// The `parent-span-id` header is retained for backward compatibility with older extract.
     fn inject(&self, span: &Span) -> HashMap<String, String> {
         let mut headers = HashMap::new();
 
@@ -221,16 +221,16 @@ impl Tracer for SzTracer {
         headers
     }
 
-    /// 从 headers 中提取 Span
+    /// Extracts a Span from headers
     ///
-    /// v0.2.2 修复 P2-2：优先解析 W3C TraceContext `traceparent` header，
-    /// 若不存在则回退到 legacy 自定义 header（`trace-id`/`span-id`）。
+    /// v0.2.2 fixes P2-2: prioritizes parsing the W3C TraceContext `traceparent` header;
+    /// if it does not exist, falls back to legacy custom headers (`trace-id`/`span-id`).
     ///
-    /// W3C `traceparent` 格式：`00-<trace_id>-<span_id>-<trace_flags>`
-    /// - 版本号必须为 `00`
-    /// - trace_id 必须为 32 字符 hex
-    /// - span_id 必须为 16 字符 hex
-    /// - trace_flags 必须为 2 字符 hex
+    /// W3C `traceparent` format: `00-<trace_id>-<span_id>-<trace_flags>`
+    /// - The version number must be `00`
+    /// - trace_id must be 32-char hex
+    /// - span_id must be 16-char hex
+    /// - trace_flags must be 2-char hex
     fn extract(&self, headers: &HashMap<String, String>) -> Option<Span> {
         // 优先尝试 W3C traceparent
         if let Some(traceparent) = headers.get("traceparent") {
@@ -263,15 +263,15 @@ impl Tracer for SzTracer {
 }
 
 impl SzTracer {
-    /// 解析 W3C TraceContext `traceparent` header
+    /// Parses the W3C TraceContext `traceparent` header
     ///
-    /// 格式：`00-<trace_id>-<span_id>-<trace_flags>`
-    /// - 版本号必须为 `00`
-    /// - trace_id 必须为 32 字符 hex（不能全为 0）
-    /// - span_id 必须为 16 字符 hex（不能全为 0）
-    /// - trace_flags 必须为 2 字符 hex
+    /// Format: `00-<trace_id>-<span_id>-<trace_flags>`
+    /// - The version number must be `00`
+    /// - trace_id must be 32-char hex (not all zeros)
+    /// - span_id must be 16-char hex (not all zeros)
+    /// - trace_flags must be 2-char hex
     ///
-    /// 返回 `Some(Span)` 表示解析成功，`None` 表示格式不合法。
+    /// Returns `Some(Span)` on successful parsing, `None` if the format is invalid.
     fn parse_traceparent(traceparent: &str) -> Option<Span> {
         let parts: Vec<&str> = traceparent.split('-').collect();
         if parts.len() != 4 {
@@ -316,10 +316,10 @@ impl SzTracer {
         ))
     }
 
-    /// 注入 legacy 自定义 header（向后兼容）
+    /// Injects legacy custom headers (backward compatibility)
     ///
-    /// v0.2.2 修复 P2-2：保留旧版 header 格式以兼容旧客户端。
-    /// 新代码应使用 [`Tracer::inject`]（W3C TraceContext）。
+    /// v0.2.2 fixes P2-2: retains the old header format for compatibility with old clients.
+    /// New code should use [`Tracer::inject`] (W3C TraceContext).
     pub fn inject_legacy(&self, span: &Span) -> HashMap<String, String> {
         let mut headers = HashMap::new();
         headers.insert("trace-id".to_string(), span.trace_id.to_string());
@@ -332,10 +332,10 @@ impl SzTracer {
         headers
     }
 
-    /// 仅从 legacy header 中提取 Span（向后兼容）
+    /// Extracts a Span only from legacy headers (backward compatibility)
     ///
-    /// v0.2.2 修复 P2-2：保留旧版 header 解析以兼容旧客户端。
-    /// 新代码应使用 [`Tracer::extract`]（自动优先 W3C，回退 legacy）。
+    /// v0.2.2 fixes P2-2: retains the old header parsing for compatibility with old clients.
+    /// New code should use [`Tracer::extract`] (automatically prioritizes W3C, falls back to legacy).
     pub fn extract_legacy(&self, headers: &HashMap<String, String>) -> Option<Span> {
         let trace_id = headers.get("trace-id")?;
         let span_id = headers.get("span-id")?;
@@ -363,9 +363,10 @@ impl SzTracer {
 /// crate as a dependency. It is **not** a real OpenTelemetry implementation:
 ///
 /// - It does **not** export spans to an OTLP / Jaeger / Zipkin collector.
-/// - v0.2.2 修复 P2-2：**现已实现 W3C TraceContext `traceparent` header 传播**
-///   （`00-<trace_id>-<span_id>-<trace_flags>`），同时保留 `parent-span-id`
-///   header 以传递父 span 关系。`extract` 优先解析 W3C，回退到 legacy。
+/// - v0.2.2 fixes P2-2: **now implements W3C TraceContext `traceparent` header propagation**
+///   (`00-<trace_id>-<span_id>-<trace_flags>`), while retaining the `parent-span-id`
+///   header to convey the parent span relationship. `extract` prioritizes W3C parsing
+///   and falls back to legacy.
 /// - It does **not** perform sampling, baggage propagation, or context
 ///   extraction across `async` boundaries.
 /// - Span IDs are generated from `std::collections::hash_map::RandomState`
@@ -440,7 +441,7 @@ pub enum TracingError {
     SpanNotFound(String),
     InvalidTraceId(String),
     Internal(String),
-    /// OTLP exporter 初始化失败（feature = "otlp"）
+    /// OTLP exporter initialization failed (feature = "otlp")
     #[cfg(feature = "otlp")]
     OtlpInitFailed(String),
 }
@@ -470,11 +471,12 @@ impl serde::Serialize for TracingError {
 
 // ===================== L4 SLA Monitoring =====================
 
-/// 延迟分位数直方图。
+/// Latency percentile histogram.
 ///
-/// 使用排序数组实现，记录所有观测到的延迟样本，支持任意分位数查询。
-/// 适合金融级 SLA 监控场景下样本量可控的延迟统计；对于超大规模样本
-/// 应考虑 T-Digest 等近似算法以降低内存占用。
+/// Implemented with a sorted array, records all observed latency samples and supports
+/// arbitrary percentile queries. Suitable for financial-grade SLA monitoring scenarios
+/// where the sample size is controllable; for very large-scale samples, consider
+/// approximate algorithms such as T-Digest to reduce memory footprint.
 #[derive(Debug, Clone)]
 pub struct LatencyHistogram {
     samples: Vec<Duration>,
@@ -521,10 +523,10 @@ impl LatencyHistogram {
     }
 }
 
-/// 错误率计数器，基于滑动时间窗口统计错误率。
+/// Error rate counter, based on a sliding time window for error rate statistics.
 ///
-/// 窗口外的样本会在下一次 [`record`](Self::record) 调用时被驱逐，
-/// 保证 `rate()` 始终基于窗口内的最新样本计算。
+/// Samples outside the window are evicted on the next [`record`](Self::record) call,
+/// ensuring `rate()` is always computed from the latest samples within the window.
 #[derive(Debug)]
 pub struct ErrorRateCounter {
     window: Duration,
@@ -564,14 +566,16 @@ impl ErrorRateCounter {
     }
 }
 
-/// 错误预算（Error Budget），基于 SLO 目标和滑动时间窗口。
+/// Error budget, based on the SLO target and a sliding time window.
 ///
-/// 核心模型：每个错误消耗 `(1 - slo_target)` 单位的预算，预算容量为 1.0。
-/// 因此预算耗尽所需的错误数 = `1 / (1 - slo_target)`（例如 SLO=0.999 时为 1000 个错误）。
-/// 该模型假设窗口内基线流量为 `1/(1-SLO)` 个请求；这是金融级 SLA 监控中
-/// 常用的简化模型，适用于独立于流量统计的错误预算追踪。
+/// Core model: each error consumes `(1 - slo_target)` units of budget, and the budget
+/// capacity is 1.0. Therefore the number of errors required to exhaust the budget is
+/// `1 / (1 - slo_target)` (e.g., 1000 errors when SLO=0.999). This model assumes the
+/// baseline traffic within the window is `1/(1-SLO)` requests; it is a simplified model
+/// commonly used in financial-grade SLA monitoring, suitable for error budget tracking
+/// independent of traffic statistics.
 ///
-/// 窗口外的 `consume` 调用会在下一次记录时被驱逐。
+/// `consume` calls outside the window are evicted on the next record.
 #[derive(Debug)]
 pub struct ErrorBudget {
     slo_target: f64,
@@ -626,7 +630,7 @@ impl ErrorBudget {
     }
 }
 
-/// 告警级别。
+/// Alert level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AlertLevel {
     Info,
@@ -634,8 +638,8 @@ pub enum AlertLevel {
     Critical,
 }
 
-/// 告警事件，由 [`SaturationGauge`] / [`SlaMonitor`] 等组件在检测到异常时产生，
-/// 通过 [`AlertHook`] 分发到下游（日志、Webhook 等）。
+/// Alert event, produced by [`SaturationGauge`] / [`SlaMonitor`] and other components
+/// when an anomaly is detected, and dispatched downstream (logs, webhooks, etc.) via [`AlertHook`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Alert {
     pub level: AlertLevel,
@@ -644,10 +648,10 @@ pub struct Alert {
     pub operation: Option<String>,
 }
 
-/// 饱和度告警仪表盘。
+/// Saturation alert gauge.
 ///
-/// 跟踪单一饱和度数值（取值约定为 `[0.0, 1.0]`），当数值 `>= threshold`
-/// 时判定为饱和并触发 [`AlertLevel::Critical`] 告警。
+/// Tracks a single saturation value (conventionally in the range `[0.0, 1.0]`); when the
+/// value `>= threshold`, it is considered saturated and triggers an [`AlertLevel::Critical`] alert.
 #[derive(Debug)]
 pub struct SaturationGauge {
     threshold: f64,
@@ -687,17 +691,20 @@ impl SaturationGauge {
     }
 }
 
-/// 告警分发钩子。实现方可以将告警写入日志、发送到 Webhook、推送到 IM 等。
+/// Alert dispatch hook. Implementations can write alerts to logs, send them to a webhook,
+/// push them to IM, etc.
 ///
-/// 必须实现 `Send + Sync` 以便在多线程环境中作为 `Arc<dyn AlertHook>` 共享。
+/// Must implement `Send + Sync` so it can be shared as `Arc<dyn AlertHook>` in multi-threaded
+/// environments.
 pub trait AlertHook: Send + Sync {
-    /// 处理告警事件。成功返回 `Ok(())`，失败返回错误描述字符串。
+    /// Handles an alert event. Returns `Ok(())` on success, or an error description string on failure.
     fn notify(&self, alert: &Alert) -> Result<(), String>;
 }
 
-/// 将告警输出到标准错误流的简单实现。
+/// A simple implementation that writes alerts to the standard error stream.
 ///
-/// 不依赖外部 `log` crate，避免在测试或最小化部署场景下引入额外配置。
+/// Does not depend on the external `log` crate, avoiding extra configuration in test or
+/// minimal deployment scenarios.
 pub struct LogAlertHook;
 
 impl LogAlertHook {
@@ -722,24 +729,25 @@ impl AlertHook for LogAlertHook {
     }
 }
 
-/// 内存告警钩子（**非真实 Webhook**）：将告警存入内存，不进行任何网络发送。
+/// In-memory alert hook (**not a real webhook**): stores alerts in memory without any network sends.
 ///
-/// 类型名刻意改为 `InMemoryAlertHook`（原 `WebhookAlertHook` 名字暗示 HTTP 调用，
-/// 但实际只 push 到 Vec，会误导用户）。`identifier` 字段仅用于测试断言与调试，
-/// **不会被用于任何 HTTP 请求**。
+/// The type name is deliberately changed to `InMemoryAlertHook` (the original `WebhookAlertHook`
+/// name suggested HTTP calls, but it actually only pushes to a Vec, which would mislead users).
+/// The `identifier` field is used only for test assertions and debugging, and **is not used for
+/// any HTTP request**.
 ///
-/// 如需真实 Webhook 推送，请实现自定义 `AlertHook` 并在 `notify` 中使用
-/// `reqwest` 或 `hyper` 发起 HTTP 请求。
+/// For real webhook push, implement a custom `AlertHook` and use `reqwest` or `hyper` to make
+/// HTTP requests in `notify`.
 ///
-/// 用于测试和本地开发环境，可通过 [`sent_alerts`](Self::sent_alerts)
-/// 检查被分发过的告警。
+/// Used for testing and local development environments; dispatched alerts can be inspected via
+/// [`sent_alerts`](Self::sent_alerts).
 pub struct InMemoryAlertHook {
     identifier: String,
     sent: RwLock<Vec<Alert>>,
 }
 
 impl InMemoryAlertHook {
-    /// 创建内存告警钩子。`identifier` 仅作调试标识，不参与网络调用。
+    /// Creates an in-memory alert hook. `identifier` is only a debug label and does not participate in network calls.
     pub fn new(identifier: String) -> Self {
         Self {
             identifier,
@@ -747,7 +755,7 @@ impl InMemoryAlertHook {
         }
     }
 
-    /// 返回到目前为止已"发送"的告警快照（拷贝）。
+    /// Returns a snapshot (copy) of the alerts "sent" so far.
     pub fn sent_alerts(&self) -> Vec<Alert> {
         self.sent
             .read()
@@ -755,16 +763,16 @@ impl InMemoryAlertHook {
             .unwrap_or_default()
     }
 
-    /// 暴露配置的标识符，便于调用方调试或断言。
+    /// Exposes the configured identifier for caller debugging or assertions.
     pub fn identifier(&self) -> &str {
         &self.identifier
     }
 
-    /// 向后兼容：返回 identifier（原 url 字段的别名）。
+    /// Backward compatibility: returns the identifier (alias of the original url field).
     ///
-    /// # 已废弃
+    /// # Deprecated
     ///
-    /// 此方法仅为减少破坏性变更而保留，新代码应使用 [`identifier`](Self::identifier)。
+    /// This method is retained only to reduce breaking changes; new code should use [`identifier`](Self::identifier).
     #[deprecated(
         since = "1.2.0",
         note = "use `identifier()` instead; this hook does not perform HTTP"
@@ -786,10 +794,10 @@ impl AlertHook for InMemoryAlertHook {
     }
 }
 
-/// 单个操作的 SLA 统计聚合（由 [`SlaMonitor`] 的 `RwLock` 保护线程安全）。
+/// SLA statistics aggregation for a single operation (thread-safety provided by the `RwLock` of [`SlaMonitor`]).
 ///
-/// 同时维护延迟直方图与累计错误计数，避免 [`ErrorRateCounter`] 的滑动窗口
-/// 在长周期 SLA 报告中丢失历史样本。
+/// Maintains both the latency histogram and the cumulative error count, avoiding the loss of
+/// historical samples that [`ErrorRateCounter`]'s sliding window would cause in long-cycle SLA reports.
 struct OperationStats {
     latency: LatencyHistogram,
     total_count: usize,
@@ -822,31 +830,31 @@ impl OperationStats {
     }
 }
 
-/// SLA 监控报告快照，由 [`SlaMonitor::report`] 生成。
+/// SLA monitoring report snapshot, generated by [`SlaMonitor::report`].
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct SlaReport {
-    /// P50 延迟（毫秒）。
+    /// P50 latency (milliseconds).
     pub p50_ms: f64,
-    /// P95 延迟（毫秒）。
+    /// P95 latency (milliseconds).
     pub p95_ms: f64,
-    /// P99 延迟（毫秒）。
+    /// P99 latency (milliseconds).
     pub p99_ms: f64,
-    /// 错误率，范围 `[0.0, 1.0]`。
+    /// Error rate, in the range `[0.0, 1.0]`.
     pub error_rate: f64,
-    /// 总观测次数。
+    /// Total number of observations.
     pub total_count: usize,
-    /// SLO 目标成功率（如 `0.999`）。
+    /// SLO target success rate (e.g., `0.999`).
     pub slo_target: f64,
-    /// 剩余错误预算，范围 `[0.0, 1.0]`，`1.0` 表示预算完整。
+    /// Remaining error budget, in the range `[0.0, 1.0]`; `1.0` means the budget is intact.
     pub error_budget_remaining: f64,
-    /// 饱和度，范围 `[0.0, 1.0]`，`1.0` 表示错误预算已耗尽。
+    /// Saturation, in the range `[0.0, 1.0]`; `1.0` means the error budget is exhausted.
     pub saturation: f64,
 }
 
-/// SLA 监控器，按操作名聚合延迟与错误统计，并生成 [`SlaReport`]。
+/// SLA monitor, aggregates latency and error statistics by operation name, and generates [`SlaReport`].
 ///
-/// 内部使用 `RwLock<HashMap>` 实现线程安全，`observe` 通过 `&self` 提供
-/// 内部可变性，因此可通过 `Arc<SlaMonitor>` 在多线程中并发调用。
+/// Uses `RwLock<HashMap>` internally for thread safety; `observe` provides interior mutability via
+/// `&self`, so it can be called concurrently from multiple threads via `Arc<SlaMonitor>`.
 pub struct SlaMonitor {
     slo_target: f64,
     operations: RwLock<HashMap<String, OperationStats>>,
@@ -2027,11 +2035,11 @@ mod tests {
 // OTLP Exporter（feature = "otlp"）
 // ============================================================================
 
-/// OTLP exporter 配置
+/// OTLP exporter configuration
 ///
-/// 用于将 SZ-ORM tracing 的 Span 通过 OpenTelemetry OTLP 协议导出到 Collector。
+/// Exports SZ-ORM tracing Spans to a Collector via the OpenTelemetry OTLP protocol.
 ///
-/// # 示例
+/// # Examples
 ///
 /// ```no_run
 /// # #[cfg(feature = "otlp")] {
@@ -2047,11 +2055,11 @@ mod tests {
 #[cfg(feature = "otlp")]
 #[derive(Debug, Clone)]
 pub struct OtlpConfig {
-    /// OTLP gRPC endpoint（如 `http://localhost:4317`）
+    /// OTLP gRPC endpoint (e.g., `http://localhost:4317`)
     pub endpoint: String,
-    /// 服务名（出现在 trace 的 service.name 标签）
+    /// Service name (appears as the service.name tag in traces)
     pub service_name: String,
-    /// 导出超时（毫秒）
+    /// Export timeout (milliseconds)
     pub timeout_ms: u64,
 }
 
@@ -2066,15 +2074,15 @@ impl Default for OtlpConfig {
     }
 }
 
-/// 初始化 OTLP exporter
+/// Initialize the OTLP exporter
 ///
-/// 将 SZ-ORM 的 tracing 接入 OpenTelemetry，使 Span 自动导出到 Collector。
+/// Integrates SZ-ORM tracing with OpenTelemetry so that Spans are automatically exported to the Collector.
 ///
-/// # 错误
+/// # Errors
 ///
-/// - `TracingError::OtlpInitFailed`：初始化失败
+/// - `TracingError::OtlpInitFailed`: initialization failed
 ///
-/// # 示例
+/// # Examples
 ///
 /// ```no_run
 /// # #[cfg(feature = "otlp")] {
@@ -2116,9 +2124,9 @@ pub async fn init_otlp_exporter(config: OtlpConfig) -> Result<OtlpGuard, Tracing
     Ok(OtlpGuard { provider })
 }
 
-/// OTLP exporter 守卫
+/// OTLP exporter guard
 ///
-/// drop 时优雅关闭 exporter，确保所有 Span 已导出。
+/// Gracefully shuts down the exporter on drop, ensuring all Spans have been exported.
 #[cfg(feature = "otlp")]
 pub struct OtlpGuard {
     provider: opentelemetry_sdk::trace::TracerProvider,

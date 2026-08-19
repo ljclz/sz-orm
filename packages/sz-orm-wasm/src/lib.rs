@@ -1,13 +1,13 @@
-//! # SZ-ORM WASM — WASM 查询接口
+//! # SZ-ORM WASM — WASM Query Interface
 //!
-//! 提供面向浏览器端的轻量查询能力，内置内存数据库与 SQL 子集解析，
-//! 适合在不依赖后端的环境下做本地查询与演示。
+//! Provides lightweight query capabilities for browser-side use, with built-in in-memory database and SQL subset parsing,
+//! suitable for local querying and demonstrations without backend dependencies.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`WasmQuery`] — 查询请求（SQL + 参数）
-//! - 内存数据库 — 支持 SQL 子集的本地执行
-//! - [`advanced`] — 内存限制、WASI 沙箱、异步调度、模块缓存
+//! - [`WasmQuery`] — Query request (SQL + parameters)
+//! - In-memory database — Supports local execution of SQL subset
+//! - [`advanced`] — Memory limits, WASI sandbox, async scheduling, module cache
 
 pub mod advanced;
 
@@ -33,7 +33,7 @@ pub use advanced::{
 #[cfg(feature = "js")]
 pub use js_bindings::{JsQueryResult, JsWasmDatabase};
 
-/// WASM 查询请求
+/// WASM query request
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WasmQuery {
     pub sql: String,
@@ -56,11 +56,11 @@ impl WasmQuery {
     }
 }
 
-/// 内存数据库，支持简单的 SQL 子集
+/// In-memory database supporting a simple SQL subset
 ///
-/// 支持的 SQL：
+/// Supported SQL:
 /// - `SELECT * FROM <table>` / `SELECT * FROM <table> WHERE <col> = ?`
-/// - `INSERT INTO <table> (<cols>) VALUES (?, ?, ...)` (支持多行)
+/// - `INSERT INTO <table> (<cols>) VALUES (?, ?, ...)` (supports multiple rows)
 /// - `UPDATE <table> SET <col> = ? WHERE <col> = ?`
 /// - `DELETE FROM <table> WHERE <col> = ?`
 /// - `CREATE TABLE <name> (...)`
@@ -117,9 +117,9 @@ impl WasmDatabase {
         }
     }
 
-    /// 列出所有表名（P2-2 修复：为 memory_usage 提供只读访问接口）
+    /// List all table names (P2-2 fix: provides read-only access for memory_usage)
     ///
-    /// 返回表名的快照（排序后），不暴露内部锁。
+    /// Return a sorted snapshot of table names, does not expose internal lock.
     pub fn table_names(&self) -> Vec<String> {
         let tables = self
             .tables
@@ -131,9 +131,9 @@ impl WasmDatabase {
         names
     }
 
-    /// 获取指定表的行数（P2-2 修复：为 memory_usage 提供只读访问接口）
+    /// Get row count of specified table (P2-2 fix: provides read-only access for memory_usage)
     ///
-    /// 表不存在时返回 0。
+    /// Returns 0 if table does not exist.
     pub fn table_row_count(&self, table: &str) -> usize {
         self.tables
             .lock()
@@ -141,9 +141,9 @@ impl WasmDatabase {
             .unwrap_or(0)
     }
 
-    /// 获取指定表的行快照（P2-2 修复：为 memory_usage 提供只读访问接口）
+    /// Get row snapshot of specified table (P2-2 fix: provides read-only access for memory_usage)
     ///
-    /// 表不存在时返回空 Vec。返回行的克隆，调用方可安全计算序列化字节数。
+    /// Returns empty Vec if table does not exist. Returns cloned rows, caller can safely compute serialized byte count.
     pub fn table_rows(&self, table: &str) -> Vec<serde_json::Value> {
         self.tables
             .lock()
@@ -441,7 +441,7 @@ impl WasmDatabase {
         Ok(0)
     }
 
-    /// 用括号深度匹配解析值组："(?, ?), (?, ?)" -> ["?, ?", "?, ?"]
+    /// Parse value groups using parenthesis depth matching: "(?, ?), (?, ?)" -> ["?, ?", "?, ?"]
     fn parse_value_groups(values_part: &str) -> Vec<String> {
         let mut groups = Vec::new();
         let mut current = String::new();

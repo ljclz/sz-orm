@@ -1,19 +1,19 @@
-//! # SZ-ORM Health — 健康检查
+//! # SZ-ORM Health — Health Checks
 //!
-//! 提供资源健康状态聚合与运行时指标上报，包含连接数、慢查询、错误率与 p50/p95
-//! 延迟等 SLA 指标，用于探活与可观测性。
+//! Provides resource health status aggregation and runtime metric reporting, including connection count, slow query, error rate, and p50/p95
+//! latency and other SLA metrics, for liveness probes and observability.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`HealthStatus`] — 健康/不健康/未知
-//! - [`HealthReport`] — 单资源健康报告
+//! - [`HealthStatus`] — healthy/unhealthy/unknown
+//! - [`HealthReport`] — single resource health report
 //!
-//! ## 高级健康检查功能（`advanced` 模块）
+//! ## Advanced Health Check Features (`advanced` module)
 //!
-//! - [`advanced::HealthCheckCache`] — 带 TTL 的健康检查缓存
-//! - [`advanced::CascadingHealthChecker`] — 级联健康检查（依赖链）
-//! - [`advanced::ProbeManager`] — Readiness / Liveness 探针管理
-//! - [`advanced::TimeoutHealthChecker`] — 带超时的健康检查
+//! - [`advanced::HealthCheckCache`] — Health check cache with TTL
+//! - [`advanced::CascadingHealthChecker`] — Cascading health check (dependency chain)
+//! - [`advanced::ProbeManager`] — Readiness / Liveness probe management
+//! - [`advanced::TimeoutHealthChecker`] — Health check with timeout
 
 pub mod advanced;
 #[cfg(any(feature = "prod-health-endpoint", feature = "prod-probe-endpoint"))]
@@ -843,15 +843,15 @@ impl CircuitBreaker {
         }
     }
 
-    /// 手动重置断路器到 `Closed` 状态，清空失败计数与最后失败时间。
+    /// Manually reset circuit breaker to `Closed` state, clearing failure count and last failure time.
     ///
-    /// 与 `record_success` 的区别：
-    /// - `record_success`：请求成功后调用，语义上是“一次成功请求”的自然反馈；
-    /// - `reset`：管理员/运维主动强制重置，无视当前状态（含 `Open`），
-    ///   常用于故障排除后手动恢复、测试准备场景。
+    /// Difference from `record_success`:
+    /// - `record_success`: Called after request success, semantically natural feedback for "a successful request";
+    /// - `reset`: Administrator/ops proactively forces reset, ignoring current state (including `Open`),
+    ///   commonly used for manual recovery after troubleshooting, test preparation scenarios.
     ///
-    /// 返回是否实际发生了状态变更（`Open` 或 `HalfOpen` → `Closed` 视为变更，
-    /// 已处于 `Closed` 且无失败计数则返回 `false`）。
+    /// Returns whether an actual state transition occurred (`Open` or `HalfOpen` → `Closed` is considered a transition,
+    /// already in `Closed` with no failure count returns `false`).
     pub fn reset(&mut self) -> bool {
         let changed = self.state != CircuitState::Closed || self.consecutive_failures != 0;
         self.state = CircuitState::Closed;
@@ -902,16 +902,16 @@ impl BackupHealthProvider {
     }
 }
 
-/// 启动健康检查 HTTP server
+/// Start health check HTTP server
 ///
-/// 在指定地址暴露健康检查端点，返回各资源池的 `HealthReport` JSON 数组。
-/// HTTP 状态码：全部健康返回 200，任一不健康返回 503。
+/// Exposes health check endpoints at specified address, returns `HealthReport` JSON array for each resource pool.
+/// HTTP status code: 200 if all healthy, 503 if any unhealthy.
 ///
-/// # 参数
+/// # Parameters
 ///
-/// - `checker`: 健康检查器（ wrapped in `Arc` 以便跨 task 共享）
-/// - `pools`: 需要检查的资源池名称列表
-/// - `addr`: 监听地址
+/// - `checker`: Health checker (wrapped in `Arc` for cross-task sharing)
+/// - `pools`: List of resource pool names to check
+/// - `addr`: Listen address
 pub async fn start_health_server(
     checker: Arc<DefaultHealthChecker>,
     pools: Vec<String>,

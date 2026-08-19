@@ -1,19 +1,19 @@
-//! # SZ-ORM GraphQL — GraphQL Schema 解析与查询
+//! # SZ-ORM GraphQL — GraphQL Schema Parsing and Querying
 //!
-//! 提供 GraphQL Schema 定义、类型/字段/查询/变更构建与查询执行，
-//! 启用 `real` feature 后接入真实 GraphQL 引擎。
+//! Provides GraphQL Schema definition, type/field/query/mutation construction and query execution,
+//! connects to real GraphQL engine when `real` feature is enabled.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`GraphQLSchema`] — Schema 容器
-//! - [`GraphQLType`] / [`GraphQLField`] — 类型与字段定义
-//! - [`resolver::DbResolver`] — 真实 DB resolver trait（P2-1 修复 C-3：可注入真实数据源）
+//! - [`GraphQLSchema`] — Schema container
+//! - [`GraphQLType`] / [`GraphQLField`] — Type and field definition
+//! - [`resolver::DbResolver`] — Real DB resolver trait (P2-1 fix C-3: injectable real data source)
 //!
-//! ## P2-1 修复 C-3：DB resolver 注入
+//! ## P2-1 Fix C-3: DB Resolver Injection
 //!
-//! `GraphQLServer::with_db_resolver` 允许调用方注入真实 DB resolver，
-//! 启用后 GraphQL root field 通过 resolver 异步查询真实数据库，
-//! 未注入时回退到 mock 数据（向后兼容）。
+//! `GraphQLServer::with_db_resolver` allows the caller to inject a real DB resolver,
+//! when enabled, GraphQL root fields query the real database via resolver asynchronously,
+//! falls back to mock data when not injected (backward compatible).
 
 pub mod extensions;
 pub mod resolver;
@@ -208,10 +208,10 @@ impl GraphQLServer {
         self
     }
 
-    /// 注入真实 DB resolver — P2-1 修复 C-3
+    /// Inject real DB resolver — P2-1 fix C-3
     ///
-    /// 启用后，GraphQL root field 将通过 resolver 查询真实数据库，
-    /// 而非返回 mock 数据。
+    /// When enabled, GraphQL root fields will query the real database via resolver,
+    /// instead of returning mock data.
     #[cfg(feature = "real")]
     pub fn with_db_resolver(mut self, resolver: resolver::SharedDbResolver) -> Self {
         self.resolver = Some(resolver);

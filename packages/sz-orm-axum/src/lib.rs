@@ -1,10 +1,10 @@
-//! # SZ-ORM 的 axum 框架集成
+//! # SZ-ORM axum Framework Integration
 //!
-//! 提供：
-//! - [`PoolState`] — 连接池的 axum State 包装
-//! - [`JsonRows`] — 包装 `QueryRows` 实现 `IntoResponse`
-//! - [`JsonResp<T>`] — 通用 JSON 响应包装
-//! - [`transaction_layer`] — 事务中间件（请求成功提交，失败回滚）
+//! Provides:
+//! - [`PoolState`] — axum State wrapper for connection pool
+//! - [`JsonRows`] — Wraps `QueryRows` implementing `IntoResponse`
+//! - [`JsonResp<T>`] — Generic JSON response wrapper
+//! - [`transaction_layer`] — Transaction middleware (commit on success, rollback on failure)
 
 mod auth;
 mod cors;
@@ -43,35 +43,35 @@ use sz_orm_core::{Pool, QueryRows};
 // PoolState — 连接池的 axum State 包装
 // ============================================================================
 
-/// 连接池的 axum State 包装
+/// axum State wrapper for connection pool
 ///
-/// `Pool` 内部使用 `Arc` 共享，`PoolState` 提供轻量级 `Clone`，
-/// 便于在 `Router::with_state` 中使用。
+/// `Pool` uses `Arc` internally for sharing, `PoolState` provides lightweight `Clone`,
+/// for easy use in `Router::with_state`.
 #[derive(Clone)]
 pub struct PoolState {
     pool: Arc<Pool>,
 }
 
 impl PoolState {
-    /// 创建 PoolState
+    /// Create PoolState
     pub fn new(pool: Pool) -> Self {
         Self {
             pool: Arc::new(pool),
         }
     }
 
-    /// 从 Arc<Pool> 创建（避免重复 Arc 包装）
+    /// Create from Arc<Pool> (avoids duplicate Arc wrapping)
     pub fn from_arc(pool: Arc<Pool>) -> Self {
         Self { pool }
     }
 
-    /// 获取连接池引用
+    /// Get connection pool reference
     pub fn pool(&self) -> &Pool {
         &self.pool
     }
 }
 
-/// 将 Pool 直接转为 `Arc<Pool>`（便于直接用作 axum State）
+/// Convert Pool directly to `Arc<Pool>` (for direct use as axum State)
 pub fn pool_into_state(pool: Pool) -> Arc<Pool> {
     Arc::new(pool)
 }
@@ -80,10 +80,10 @@ pub fn pool_into_state(pool: Pool) -> Arc<Pool> {
 // JsonRows — 查询结果的 JSON 响应
 // ============================================================================
 
-/// 包装 `QueryRows` 实现 `IntoResponse`
+/// Wrap `QueryRows` implementing `IntoResponse`
 ///
-/// `QueryRows = Vec<HashMap<String, Value>>`，由于 `Value` 实现了 `Serialize`，
-/// 直接序列化为 JSON 数组。
+/// `QueryRows = Vec<HashMap<String, Value>>`, since `Value` implements `Serialize`,
+/// directly serialized as JSON array.
 pub struct JsonRows(pub QueryRows);
 
 impl IntoResponse for JsonRows {
@@ -103,9 +103,9 @@ impl IntoResponse for JsonRows {
 // JsonResp<T> — 通用 JSON 响应包装
 // ============================================================================
 
-/// 通用 JSON 响应包装
+/// Generic JSON response wrapper
 ///
-/// 对任何实现了 `Serialize` 的类型提供 `IntoResponse` 实现。
+/// Provides `IntoResponse` implementation for any type implementing `Serialize`.
 pub struct JsonResp<T: Serialize>(pub T);
 
 impl<T: Serialize> IntoResponse for JsonResp<T> {
@@ -118,14 +118,14 @@ impl<T: Serialize> IntoResponse for JsonResp<T> {
 // TransactionLayer — 事务中间件
 // ============================================================================
 
-/// 事务中间件
+/// Transaction middleware
 ///
-/// 在请求处理前从连接池获取连接并开启事务；
-/// 请求处理完成后：
-/// - 响应状态为 2xx → 提交事务
-/// - 响应状态非 2xx → 回滚事务
+/// Acquires connection from pool and starts transaction before request processing;
+/// After request processing:
+/// - Response status 2xx → commit transaction
+/// - Response status non-2xx → rollback transaction
 ///
-/// # 用法
+/// # Usage
 ///
 /// ```ignore
 /// use axum::middleware::from_fn_with_state;

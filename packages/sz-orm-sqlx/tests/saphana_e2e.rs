@@ -26,9 +26,15 @@ async fn saphana_connect_and_query_dummy() {
         return;
     }
     let mut conn = SapHanaConnection::connect(&url).await.expect("连接失败");
-    let rows = conn.query("SELECT 'hello' as MSG FROM DUMMY").await.expect("查询失败");
+    let rows = conn
+        .query("SELECT 'hello' as MSG FROM DUMMY")
+        .await
+        .expect("查询失败");
     assert_eq!(rows.len(), 1);
-    assert_eq!(rows[0].get("MSG"), Some(&sz_orm_core::Value::String("hello".to_string())));
+    assert_eq!(
+        rows[0].get("MSG"),
+        Some(&sz_orm_core::Value::String("hello".to_string()))
+    );
 }
 
 #[tokio::test]
@@ -42,9 +48,11 @@ async fn saphana_create_insert_select_transaction() {
 
     let table = "SZ_ORM_TASK003_E2E";
     conn.execute(&format!("DROP TABLE {table}")).await.ok();
-    conn.execute(&format!("CREATE TABLE {table} (ID INT PRIMARY KEY, NAME NVARCHAR(50))"))
-        .await
-        .expect("建表失败");
+    conn.execute(&format!(
+        "CREATE TABLE {table} (ID INT PRIMARY KEY, NAME NVARCHAR(50))"
+    ))
+    .await
+    .expect("建表失败");
 
     conn.begin_transaction().await.expect("开启事务失败");
     conn.execute(&format!("INSERT INTO {table} VALUES (1, 'alice')"))
@@ -60,8 +68,14 @@ async fn saphana_create_insert_select_transaction() {
         .await
         .expect("查询失败");
     assert_eq!(rows.len(), 2);
-    assert_eq!(rows[0].get("NAME"), Some(&sz_orm_core::Value::String("alice".to_string())));
-    assert_eq!(rows[1].get("NAME"), Some(&sz_orm_core::Value::String("bob".to_string())));
+    assert_eq!(
+        rows[0].get("NAME"),
+        Some(&sz_orm_core::Value::String("alice".to_string()))
+    );
+    assert_eq!(
+        rows[1].get("NAME"),
+        Some(&sz_orm_core::Value::String("bob".to_string()))
+    );
 
     conn.begin_transaction().await.expect("开启事务失败");
     conn.execute(&format!("INSERT INTO {table} VALUES (3, 'charlie')"))
@@ -73,9 +87,14 @@ async fn saphana_create_insert_select_transaction() {
         .query(&format!("SELECT COUNT(*) as CNT FROM {table}"))
         .await
         .expect("查询失败");
-    assert_eq!(rows[0].get("CNT"), Some(&sz_orm_core::Value::String("2".to_string())));
+    assert_eq!(
+        rows[0].get("CNT"),
+        Some(&sz_orm_core::Value::String("2".to_string()))
+    );
 
-    conn.execute(&format!("DROP TABLE {table}")).await.expect("清理失败");
+    conn.execute(&format!("DROP TABLE {table}"))
+        .await
+        .expect("清理失败");
 }
 
 #[tokio::test]

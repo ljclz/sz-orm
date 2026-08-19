@@ -1,12 +1,13 @@
-//! # SZ-ORM Audit — SQL 审计日志
+//! # SZ-ORM Audit — SQL Audit Log
 //!
-//! 提供 SQL 执行审计记录，对 password/token/credit_card 等敏感关键词进行
-//! 大小写不敏感脱敏，确保审计日志不泄露敏感信息。
+//! Provides SQL execution audit records and performs case-insensitive masking
+//! on sensitive keywords such as password/token/credit_card, ensuring that
+//! audit logs never leak sensitive information.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`SqlAuditContext`] — 审计上下文（SQL/用户/时间戳）
-//! - [`SqlAuditor`] — 审计执行器
+//! - [`SqlAuditContext`] — Audit context (SQL/user/timestamp)
+//! - [`SqlAuditor`] — Audit executor
 
 use serde::{Deserialize, Serialize};
 use std::sync::Mutex;
@@ -163,17 +164,18 @@ fn is_ident_char(b: u8) -> bool {
 // 审计规则配置（允许/拒绝列表）
 // ============================================================================
 
-/// 审计规则：允许/拒绝列表，用于决定是否记录某条 SQL 审计日志。
+/// Audit rules: allow/deny lists used to decide whether a given SQL statement
+/// should be recorded in the audit log.
 ///
-/// 规则评估顺序：
-/// 1. 若 SQL 命中拒绝列表中的任一模式 → 不记录
-/// 2. 若允许列表为空 → 记录所有未命中拒绝列表的 SQL
-/// 3. 若允许列表非空 → 仅记录命中允许列表的 SQL
+/// Rule evaluation order:
+/// 1. If the SQL matches any pattern in the deny list → not recorded
+/// 2. If the allow list is empty → record all SQL not denied
+/// 3. If the allow list is non-empty → record only SQL that matches the allow list
 #[derive(Debug, Clone, Default)]
 pub struct AuditRules {
-    /// 允许列表模式（大小写不敏感子串匹配），为空表示允许所有
+    /// Allow-list patterns (case-insensitive substring match); empty means allow all
     allow_patterns: Vec<String>,
-    /// 拒绝列表模式（大小写不敏感子串匹配），命中则拒绝
+    /// Deny-list patterns (case-insensitive substring match); a match means deny
     deny_patterns: Vec<String>,
 }
 
@@ -182,20 +184,20 @@ impl AuditRules {
         Self::default()
     }
 
-    /// 添加允许模式（大小写不敏感子串匹配）
+    /// Add an allow pattern (case-insensitive substring match)
     pub fn allow(mut self, pattern: impl Into<String>) -> Self {
         self.allow_patterns
             .push(pattern.into().to_ascii_lowercase());
         self
     }
 
-    /// 添加拒绝模式（大小写不敏感子串匹配）
+    /// Add a deny pattern (case-insensitive substring match)
     pub fn deny(mut self, pattern: impl Into<String>) -> Self {
         self.deny_patterns.push(pattern.into().to_ascii_lowercase());
         self
     }
 
-    /// 判断给定 SQL 是否应该被审计记录
+    /// Determine whether the given SQL should be audit-recorded
     pub fn should_audit(&self, sql: &str) -> bool {
         let lower = sql.to_ascii_lowercase();
         // 拒绝列表优先
@@ -212,12 +214,12 @@ impl AuditRules {
         self.allow_patterns.iter().any(|pat| lower.contains(pat))
     }
 
-    /// 返回允许模式数量
+    /// Return the number of allow patterns
     pub fn allow_count(&self) -> usize {
         self.allow_patterns.len()
     }
 
-    /// 返回拒绝模式数量
+    /// Return the number of deny patterns
     pub fn deny_count(&self) -> usize {
         self.deny_patterns.len()
     }
@@ -227,20 +229,23 @@ impl AuditRules {
 // 审计日志轮转策略（按大小/时间）
 // ============================================================================
 
-/// 审计日志轮转策略配置。
+/// Audit log rotation policy configuration.
 ///
-/// - `max_entries`：内存中最多保留的日志条数，超过后自动轮转（旧日志清空或落盘）
-/// - `max_age_ms`：日志最大存活时间（毫秒），超过后触发轮转
+/// - `max_entries`: maximum number of log entries retained in memory; once
+///   exceeded, rotation is triggered automatically (old logs are cleared or
+///   flushed to disk)
+/// - `max_age_ms`: maximum age of a log entry in milliseconds; once exceeded,
+///   rotation is triggered
 #[derive(Debug, Clone)]
 pub struct RotationPolicy {
-    /// 最大条目数（0 表示不限制）
+    /// Maximum entry count (0 means unlimited)
     pub max_entries: usize,
-    /// 最大存活时间毫秒（0 表示不限制）
+    /// Maximum age in milliseconds (0 means unlimited)
     pub max_age_ms: i64,
 }
 
 impl RotationPolicy {
-    /// 创建不限制的轮转策略
+    /// Create an unlimited rotation policy
     pub fn none() -> Self {
         Self {
             max_entries: 0,
@@ -248,7 +253,7 @@ impl RotationPolicy {
         }
     }
 
-    /// 按条目数轮转
+    /// Rotate by entry count
     pub fn by_size(max_entries: usize) -> Self {
         Self {
             max_entries,
@@ -256,7 +261,7 @@ impl RotationPolicy {
         }
     }
 
-    /// 按时间轮转（毫秒）
+    /// Rotate by age (milliseconds)
     pub fn by_age(max_age_ms: i64) -> Self {
         Self {
             max_entries: 0,
@@ -264,7 +269,7 @@ impl RotationPolicy {
         }
     }
 
-    /// 同时按条目数和时间轮转
+    /// Rotate by both entry count and age
     pub fn by_size_and_age(max_entries: usize, max_age_ms: i64) -> Self {
         Self {
             max_entries,
@@ -272,7 +277,7 @@ impl RotationPolicy {
         }
     }
 
-    /// 判断是否需要轮转
+    /// Determine whether rotation is needed
     fn needs_rotation(&self, entry_count: usize, oldest_ts: i64, now_ts: i64) -> bool {
         if self.max_entries > 0 && entry_count >= self.max_entries {
             return true;
@@ -294,16 +299,16 @@ impl Default for RotationPolicy {
 // 带轮转和规则的审计器
 // ============================================================================
 
-/// 带轮转策略和审计规则的增强审计器。
+/// Enhanced auditor with rotation policy and audit rules.
 ///
-/// 在 `SqlAuditor` 基础上增加：
-/// - 日志轮转（按大小/时间自动清理旧日志）
-/// - 审计规则（允许/拒绝列表过滤）
+/// Built on top of `SqlAuditor`, it adds:
+/// - Log rotation (automatic cleanup of old logs by size or age)
+/// - Audit rules (allow/deny list filtering)
 pub struct RotatingAuditor {
     logs: Mutex<Vec<SqlAuditContext>>,
     rules: AuditRules,
     policy: RotationPolicy,
-    /// 已轮转（清理）的次数
+    /// Number of rotations (cleanups) performed
     rotations: Mutex<usize>,
 }
 
@@ -317,17 +322,17 @@ impl RotatingAuditor {
         }
     }
 
-    /// 创建仅按大小轮转的审计器，无规则过滤
+    /// Create an auditor that rotates only by size, with no rule filtering
     pub fn with_max_entries(max_entries: usize) -> Self {
         Self::new(RotationPolicy::by_size(max_entries), AuditRules::new())
     }
 
-    /// 创建仅按时间轮转的审计器，无规则过滤
+    /// Create an auditor that rotates only by age, with no rule filtering
     pub fn with_max_age(max_age_ms: i64) -> Self {
         Self::new(RotationPolicy::by_age(max_age_ms), AuditRules::new())
     }
 
-    /// 记录审计日志，自动应用规则过滤和轮转策略
+    /// Record an audit log, automatically applying rule filtering and rotation policy
     pub fn log(&self, ctx: &SqlAuditContext) -> bool {
         // 规则过滤
         if !self.rules.should_audit(&ctx.sql) {
@@ -359,7 +364,7 @@ impl RotatingAuditor {
         true
     }
 
-    /// 返回当前日志快照
+    /// Return a snapshot of the current logs
     pub fn get_logs(&self) -> Vec<SqlAuditContext> {
         self.logs
             .lock()
@@ -367,7 +372,7 @@ impl RotatingAuditor {
             .clone()
     }
 
-    /// 返回已轮转次数
+    /// Return the number of rotations performed
     pub fn rotation_count(&self) -> usize {
         *self
             .rotations
@@ -375,7 +380,7 @@ impl RotatingAuditor {
             .expect("RotatingAuditor rotations lock poisoned (rotation_count)")
     }
 
-    /// 手动触发轮转（清空当前日志）
+    /// Manually trigger rotation (clears the current logs)
     pub fn rotate(&self) -> usize {
         let mut logs = self
             .logs
@@ -390,7 +395,7 @@ impl RotatingAuditor {
         count
     }
 
-    /// 返回当前日志条数
+    /// Return the current number of log entries
     pub fn len(&self) -> usize {
         self.logs
             .lock()
@@ -398,7 +403,7 @@ impl RotatingAuditor {
             .len()
     }
 
-    /// 是否为空
+    /// Whether the auditor is empty
     pub fn is_empty(&self) -> bool {
         self.logs
             .lock()
@@ -411,10 +416,12 @@ impl RotatingAuditor {
 // 异步审计写入器
 // ============================================================================
 
-/// 异步审计写入器：通过后台线程异步写入审计日志，避免阻塞主线程。
+/// Asynchronous audit writer: writes audit logs via a background thread to
+/// avoid blocking the main thread.
 ///
-/// 使用 `std::sync::mpsc` 通道将日志发送到后台线程，后台线程负责存储。
-/// 关闭时调用 `shutdown` 等待后台线程退出并返回所有已写入的日志。
+/// Uses an `std::sync::mpsc` channel to send logs to a background thread that
+/// handles storage. Call `shutdown` to wait for the background thread to exit
+/// and return all written logs.
 pub struct AsyncAuditWriter {
     sender: std::sync::mpsc::Sender<AsyncCommand>,
     handle: Mutex<Option<std::thread::JoinHandle<Vec<SqlAuditContext>>>>,
@@ -426,7 +433,7 @@ enum AsyncCommand {
 }
 
 impl AsyncAuditWriter {
-    /// 创建异步写入器，启动后台线程
+    /// Create an async writer and start the background thread
     pub fn new() -> Self {
         let (sender, receiver) = std::sync::mpsc::channel::<AsyncCommand>();
         let handle = std::thread::spawn(move || {
@@ -452,14 +459,14 @@ impl AsyncAuditWriter {
         }
     }
 
-    /// 异步记录审计日志（非阻塞）
+    /// Asynchronously record an audit log (non-blocking)
     pub fn log(&self, ctx: &SqlAuditContext) -> Result<(), String> {
         self.sender
             .send(AsyncCommand::Log(ctx.clone()))
             .map_err(|e| format!("AsyncAuditWriter channel closed: {}", e))
     }
 
-    /// 关闭后台线程并返回所有已写入的日志
+    /// Shut down the background thread and return all written logs
     pub fn shutdown(&self) -> Result<Vec<SqlAuditContext>, String> {
         let _ = self.sender.send(AsyncCommand::Shutdown);
         let mut handle_guard = self
@@ -486,18 +493,18 @@ impl Default for AsyncAuditWriter {
 // 审计日志查询过滤
 // ============================================================================
 
-/// 审计日志查询过滤器
+/// Audit log query filter
 #[derive(Debug, Clone, Default)]
 pub struct AuditQuery {
-    /// 按用户名过滤（精确匹配，None 表示不过滤）
+    /// Filter by username (exact match; None means no filter)
     pub user: Option<String>,
-    /// 时间范围起始（毫秒时间戳，None 表示不限制下限）
+    /// Time range start (millisecond timestamp; None means no lower bound)
     pub from_ts: Option<i64>,
-    /// 时间范围结束（毫秒时间戳，None 表示不限制上限）
+    /// Time range end (millisecond timestamp; None means no upper bound)
     pub to_ts: Option<i64>,
-    /// SQL 关键词过滤（大小写不敏感子串匹配，None 表示不过滤）
+    /// SQL keyword filter (case-insensitive substring match; None means no filter)
     pub sql_contains: Option<String>,
-    /// 限制返回条数（0 表示不限制）
+    /// Limit on the number of returned entries (0 means unlimited)
     pub limit: usize,
 }
 
@@ -506,32 +513,32 @@ impl AuditQuery {
         Self::default()
     }
 
-    /// 按用户名过滤
+    /// Filter by username
     pub fn by_user(mut self, user: impl Into<String>) -> Self {
         self.user = Some(user.into());
         self
     }
 
-    /// 按时间范围过滤（毫秒时间戳）
+    /// Filter by time range (millisecond timestamps)
     pub fn by_time_range(mut self, from: i64, to: i64) -> Self {
         self.from_ts = Some(from);
         self.to_ts = Some(to);
         self
     }
 
-    /// 按 SQL 关键词过滤（大小写不敏感）
+    /// Filter by SQL keyword (case-insensitive)
     pub fn by_sql_contains(mut self, keyword: impl Into<String>) -> Self {
         self.sql_contains = Some(keyword.into());
         self
     }
 
-    /// 限制返回条数
+    /// Limit the number of returned entries
     pub fn with_limit(mut self, limit: usize) -> Self {
         self.limit = limit;
         self
     }
 
-    /// 对日志列表执行查询过滤
+    /// Apply the query filter to a list of logs
     pub fn filter(&self, logs: &[SqlAuditContext]) -> Vec<SqlAuditContext> {
         let keyword_lower = self.sql_contains.as_ref().map(|s| s.to_ascii_lowercase());
         let mut result: Vec<SqlAuditContext> = logs
@@ -568,7 +575,7 @@ impl AuditQuery {
     }
 }
 
-/// 从 `SqlAuditor` 的日志中按条件查询
+/// Query logs from `SqlAuditor` by the given conditions
 pub fn query_logs(auditor: &SqlAuditor, query: &AuditQuery) -> Vec<SqlAuditContext> {
     let logs = auditor.get_logs();
     query.filter(&logs)
@@ -578,31 +585,35 @@ pub fn query_logs(auditor: &SqlAuditor, query: &AuditQuery) -> Vec<SqlAuditConte
 // 审计日志持久化存储
 // ============================================================================
 
-/// 审计日志持久化存储后端 trait
+/// Audit log persistent storage backend trait
 ///
-/// 抽象不同存储介质（文件、数据库、对象存储等）的审计日志持久化能力。
-/// 实现方需保证 `append` 的线程安全；存储前应自行调用 `mask_sensitive` 脱敏。
+/// Abstracts the persistent storage capability for audit logs across different
+/// storage media (file, database, object storage, etc.). Implementors must
+/// ensure that `append` is thread-safe; they should call `mask_sensitive`
+/// themselves before storage to mask sensitive data.
 pub trait AuditLogStore: Send + Sync {
-    /// 追加一条审计日志（已脱敏），返回是否成功
+    /// Append an audit log entry (already masked); returns whether it succeeded
     fn append(&self, entry: &SqlAuditContext) -> Result<(), String>;
-    /// 读取所有已持久化的审计日志
+    /// Read all persisted audit logs
     fn read_all(&self) -> Result<Vec<SqlAuditContext>, String>;
-    /// 清空持久化存储
+    /// Clear the persistent storage
     fn clear(&self) -> Result<(), String>;
 }
 
-/// 基于文件的审计日志持久化存储（JSONL 格式：每行一条 JSON）
+/// File-based audit log persistent storage (JSONL format: one JSON per line)
 ///
-/// 适用场景：单机部署、轻量级审计归档、开发调试。
-/// 生产环境高并发场景建议使用 `AsyncAuditWriter` + `FileAuditLogStore` 组合，
-/// 由后台线程串行写入避免锁竞争。
+/// Applicable scenarios: single-machine deployment, lightweight audit archiving,
+/// development debugging. For high-concurrency production scenarios, it is
+/// recommended to combine `AsyncAuditWriter` + `FileAuditLogStore` so that a
+/// background thread performs serial writes and avoids lock contention.
 pub struct FileAuditLogStore {
     path: String,
     write_lock: Mutex<()>,
 }
 
 impl FileAuditLogStore {
-    /// 创建文件审计日志存储，目标文件不存在时在首次 `append` 时自动创建
+    /// Create a file audit log store; the target file is created on the first
+    /// `append` if it does not exist
     pub fn new(path: impl Into<String>) -> Self {
         Self {
             path: path.into(),
@@ -610,14 +621,14 @@ impl FileAuditLogStore {
         }
     }
 
-    /// 返回存储文件路径
+    /// Return the storage file path
     pub fn path(&self) -> &str {
         &self.path
     }
 }
 
 impl AuditLogStore for FileAuditLogStore {
-    /// 追加一条审计日志（JSONL 格式，自动脱敏后写入）
+    /// Append an audit log entry (JSONL format; automatically masked before write)
     fn append(&self, entry: &SqlAuditContext) -> Result<(), String> {
         let _guard = self
             .write_lock
@@ -641,9 +652,10 @@ impl AuditLogStore for FileAuditLogStore {
         writeln!(file, "{}", line).map_err(|e| e.to_string())
     }
 
-    /// 读取所有已持久化的审计日志（按行解析 JSONL）
+    /// Read all persisted audit logs (parse JSONL line by line)
     ///
-    /// 文件不存在时返回空 vec（视为尚未持久化任何日志）。
+    /// Returns an empty vec when the file does not exist (treated as no logs
+    /// persisted yet).
     fn read_all(&self) -> Result<Vec<SqlAuditContext>, String> {
         let content = match std::fs::read_to_string(&self.path) {
             Ok(c) => c,
@@ -665,7 +677,7 @@ impl AuditLogStore for FileAuditLogStore {
         Ok(result)
     }
 
-    /// 清空持久化文件（删除文件，下次 append 会重新创建）
+    /// Clear the persistent file (deletes the file; the next append recreates it)
     fn clear(&self) -> Result<(), String> {
         let _guard = self
             .write_lock
@@ -686,37 +698,42 @@ impl AuditLogStore for FileAuditLogStore {
 // #11 修复：审计日志哈希链防篡改（Tamper-Evident Hash Chain）
 // ============================================================================
 
-/// 创世哈希（链首的前置哈希），固定为全零 64 字符十六进制串。
+/// Genesis hash (the previous hash of the chain head), fixed as an all-zero
+/// 64-character hexadecimal string.
 ///
-/// 所有哈希链的第一条记录以 `GENESIS_HASH` 作为 `prev_hash`，
-/// 便于验证链的起点未被裁剪。
+/// The first record of every hash chain uses `GENESIS_HASH` as its `prev_hash`,
+/// making it easy to verify that the chain start has not been truncated.
 pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
-/// 带哈希链的审计日志条目。
+/// Audit log entry with a hash chain.
 ///
-/// 每条记录包含：
-/// - `prev_hash`：上一条记录的 `current_hash`（首条为 `GENESIS_HASH`）
-/// - `current_hash`：本条记录的 SHA-256 哈希（基于 `prev_hash + entry` 计算）
-/// - `entry`：原始审计上下文（已脱敏）
+/// Each record contains:
+/// - `prev_hash`: the `current_hash` of the previous record (the first record
+///   uses `GENESIS_HASH`)
+/// - `current_hash`: the SHA-256 hash of this record (computed from
+///   `prev_hash + entry`)
+/// - `entry`: the original audit context (already masked)
 ///
-/// 任何对历史记录的篡改都会导致 `current_hash` 与下一条记录的 `prev_hash` 不匹配，
-/// 从而被 `verify_chain` 检测出来。
+/// Any tampering with a historical record causes `current_hash` to mismatch the
+/// `prev_hash` of the next record, which is detected by `verify_chain`.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct HashChainEntry {
-    /// 上一条记录的哈希（首条为 [`GENESIS_HASH`]）
+    /// Hash of the previous record (the first record uses [`GENESIS_HASH`])
     pub prev_hash: String,
-    /// 本条记录的哈希（SHA-256 十六进制串，64 字符）
+    /// Hash of this record (SHA-256 hexadecimal string, 64 characters)
     pub current_hash: String,
-    /// 原始审计上下文（已脱敏）
+    /// Original audit context (already masked)
     pub entry: SqlAuditContext,
 }
 
 impl HashChainEntry {
-    /// 计算单条记录的 `current_hash`。
+    /// Compute the `current_hash` of a single record.
     ///
-    /// 哈希输入为 `prev_hash || sql || user || timestamp` 的 UTF-8 字节拼接，
-    /// 使用 SHA-256 算法。这样任何字段被篡改都会导致哈希变化，
-    /// 进而影响下一条记录的 `prev_hash`，形成链式校验。
+    /// The hash input is the UTF-8 byte concatenation of
+    /// `prev_hash || sql || user || timestamp`, using the SHA-256 algorithm.
+    /// This way, tampering with any field changes the hash, which in turn
+    /// affects the `prev_hash` of the next record, forming a chain of
+    /// verification.
     fn compute_hash(prev_hash: &str, entry: &SqlAuditContext) -> String {
         use sha2::{Digest, Sha256};
         let mut hasher = Sha256::new();
@@ -730,7 +747,7 @@ impl HashChainEntry {
         hex_encode(&result)
     }
 
-    /// 创建链首记录（prev_hash = GENESIS_HASH）
+    /// Create the chain head record (prev_hash = GENESIS_HASH)
     pub fn genesis(entry: SqlAuditContext) -> Self {
         let prev_hash = GENESIS_HASH.to_string();
         let current_hash = Self::compute_hash(&prev_hash, &entry);
@@ -741,7 +758,7 @@ impl HashChainEntry {
         }
     }
 
-    /// 在指定前置哈希上追加一条记录
+    /// Append a record to the given previous hash
     pub fn append(prev_hash: &str, entry: SqlAuditContext) -> Self {
         let current_hash = Self::compute_hash(prev_hash, &entry);
         Self {
@@ -752,9 +769,10 @@ impl HashChainEntry {
     }
 }
 
-/// 将字节数组编码为小写十六进制字符串。
+/// Encode a byte array as a lowercase hexadecimal string.
 ///
-/// 与 `hex` crate 的 `encode` 行为一致，但避免引入额外依赖。
+/// Consistent with the behavior of the `hex` crate's `encode`, but avoids
+/// introducing an extra dependency.
 fn hex_encode(bytes: &[u8]) -> String {
     const HEX_CHARS: &[u8] = b"0123456789abcdef";
     let mut s = String::with_capacity(bytes.len() * 2);
@@ -765,17 +783,20 @@ fn hex_encode(bytes: &[u8]) -> String {
     s
 }
 
-/// 带哈希链的审计器：所有日志通过 SHA-256 链式哈希串联，支持篡改检测。
+/// Auditor with a hash chain: all logs are linked by SHA-256 chained hashes,
+/// supporting tamper detection.
 ///
-/// # 防篡改机制
+/// # Tamper-Evidence Mechanism
 ///
-/// 1. 每条记录的 `current_hash = SHA256(prev_hash || sql || user || timestamp)`
-/// 2. 下一条记录的 `prev_hash` 等于上一条的 `current_hash`
-/// 3. 任何对历史记录的修改会导致 `current_hash` 变化，
-///    进而与下一条的 `prev_hash` 不匹配
-/// 4. 删除中间记录会断开链；插入记录会改变后续所有哈希
+/// 1. Each record's `current_hash = SHA256(prev_hash || sql || user || timestamp)`
+/// 2. The `prev_hash` of the next record equals the `current_hash` of the
+///    previous record
+/// 3. Any modification to a historical record changes `current_hash`, which
+///    then mismatches the `prev_hash` of the next record
+/// 4. Deleting a middle record breaks the chain; inserting a record changes
+///    all subsequent hashes
 ///
-/// # 示例
+/// # Example
 ///
 /// ```
 /// use sz_orm_audit::{HashChainAuditor, SqlAuditContext};
@@ -786,11 +807,11 @@ fn hex_encode(bytes: &[u8]) -> String {
 ///     user: "admin".to_string(),
 ///     timestamp: 1000,
 /// });
-/// // 验证链完整性
+/// // Verify chain integrity
 /// assert!(auditor.verify().is_ok());
 /// ```
 pub struct HashChainAuditor {
-    /// 哈希链日志条目（按追加顺序存储）
+    /// Hash chain log entries (stored in append order)
     entries: Mutex<Vec<HashChainEntry>>,
 }
 
@@ -801,20 +822,21 @@ impl Default for HashChainAuditor {
 }
 
 impl HashChainAuditor {
-    /// 创建空的哈希链审计器
+    /// Create an empty hash chain auditor
     pub fn new() -> Self {
         Self {
             entries: Mutex::new(Vec::new()),
         }
     }
 
-    /// 追加一条审计日志到哈希链末尾。
+    /// Append an audit log to the end of the hash chain.
     ///
-    /// - 若链为空，使用 [`GENESIS_HASH`] 作为 `prev_hash`
-    /// - 否则使用上一条记录的 `current_hash` 作为 `prev_hash`
+    /// - If the chain is empty, uses [`GENESIS_HASH`] as `prev_hash`
+    /// - Otherwise uses the `current_hash` of the last record as `prev_hash`
     ///
-    /// SQL 会先经过 `mask_sensitive` 脱敏再写入链中，
-    /// 确保存储的审计日志不含敏感信息。
+    /// The SQL is first masked by `mask_sensitive` before being written to the
+    /// chain, ensuring that the stored audit logs contain no sensitive
+    /// information.
     pub fn log(&self, ctx: &SqlAuditContext) {
         let masked_sql = mask_sensitive(&ctx.sql);
         let entry = SqlAuditContext {
@@ -838,7 +860,7 @@ impl HashChainAuditor {
         entries.push(chain_entry);
     }
 
-    /// 返回所有日志条目的快照（克隆）
+    /// Return a snapshot (clone) of all log entries
     pub fn get_entries(&self) -> Vec<HashChainEntry> {
         self.entries
             .lock()
@@ -846,7 +868,7 @@ impl HashChainAuditor {
             .clone()
     }
 
-    /// 返回日志条目数量
+    /// Return the number of log entries
     pub fn len(&self) -> usize {
         self.entries
             .lock()
@@ -854,7 +876,7 @@ impl HashChainAuditor {
             .len()
     }
 
-    /// 是否为空
+    /// Whether the auditor is empty
     pub fn is_empty(&self) -> bool {
         self.entries
             .lock()
@@ -862,17 +884,20 @@ impl HashChainAuditor {
             .is_empty()
     }
 
-    /// 验证哈希链完整性。
+    /// Verify the integrity of the hash chain.
     ///
-    /// 检查内容：
-    /// 1. 首条记录的 `prev_hash` 等于 [`GENESIS_HASH`]
-    /// 2. 每条记录的 `current_hash` 等于 `compute_hash(prev_hash, entry)`
-    /// 3. 相邻记录的 `prev_hash` 等于前一条的 `current_hash`
+    /// Checks performed:
+    /// 1. The `prev_hash` of the first record equals [`GENESIS_HASH`]
+    /// 2. The `current_hash` of each record equals
+    ///    `compute_hash(prev_hash, entry)`
+    /// 3. The `prev_hash` of each adjacent record equals the `current_hash` of
+    ///    the previous record
     ///
-    /// # 返回值
+    /// # Return value
     ///
-    /// - `Ok(())`：链完整，未被篡改
-    /// - `Err(reason)`：链被篡改，`reason` 描述首个异常的位置与类型
+    /// - `Ok(())`: the chain is intact and has not been tampered with
+    /// - `Err(reason)`: the chain has been tampered with; `reason` describes
+    ///   the location and type of the first anomaly
     pub fn verify(&self) -> Result<(), String> {
         let entries = self
             .entries
@@ -909,9 +934,9 @@ impl HashChainAuditor {
         Ok(())
     }
 
-    /// 将哈希链持久化到 JSONL 文件（每行一条 JSON）。
+    /// Persist the hash chain to a JSONL file (one JSON per line).
     ///
-    /// 返回写入的条目数。
+    /// Returns the number of entries written.
     pub fn flush(&self, path: &str) -> Result<usize, String> {
         let entries = self
             .entries
@@ -928,10 +953,13 @@ impl HashChainAuditor {
 mod tests {
     use super::*;
 
-    /// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+    /// Test data directory: prefers F:\test\data (user convention), falls back
+    /// to the environment variable or system temp (CI/Linux).
     ///
-    /// 注意：仅检查目录存在不足以保证可用——还需验证可写性，
-    /// 以避免在受限沙箱环境（如 TRAE Sandbox）中因目录存在但不可写导致测试失败。
+    /// Note: checking only that the directory exists is not enough to guarantee
+    /// usability — write permission must also be verified, to avoid test
+    /// failures in restricted sandbox environments (e.g. TRAE Sandbox) where
+    /// the directory exists but is not writable.
     fn test_data_dir() -> std::path::PathBuf {
         let f_drive = std::path::Path::new("F:\\test\\data");
         if is_dir_writable(f_drive) {
@@ -946,7 +974,8 @@ mod tests {
         std::env::temp_dir()
     }
 
-    /// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+    /// Check whether the directory exists and is writable: try to create and
+    /// delete a probe file inside it
     fn is_dir_writable(dir: &std::path::Path) -> bool {
         if !dir.exists() {
             return false;

@@ -1,34 +1,34 @@
-//! SZ-ORM 可观测性模块
+//! SZ-ORM Observability Module
 //!
-//! 提供 Prometheus exporter、SLO 燃烧率监控等能力。
-//! OTLP 导出由 `sz-orm-tracing` 的 `otlp` feature 提供（本模块不含 OTLP）。
+//! Provides Prometheus exporter, SLO burn rate monitoring, and other capabilities.
+//! OTLP export is provided by the `otlp` feature of `sz-orm-tracing` (this module does not include OTLP).
 //!
-//! # 核心能力
+//! # Core Capabilities
 //!
-//! ## 1. MetricsRegistry（默认启用）
+//! ## 1. MetricsRegistry (enabled by default)
 //!
-//! 统一的指标注册中心，支持 Counter / Gauge / Histogram 三种类型，
-//! 内置线程安全（`RwLock`），可通过 `render()` 输出 Prometheus 文本格式。
+//! Unified metric registry, supporting Counter / Gauge / Histogram types,
+//! with built-in thread safety (`RwLock`), and can output Prometheus text format via `render()`.
 //!
 //! ## 2. Prometheus exporter
 //!
-//! 通过 `start_metrics_server` 在指定端口暴露 `/metrics` HTTP 端点，
-//! 供 Prometheus 拉取。基于 `tokio::net::TcpListener` 实现（不依赖 hyper）。
+//! Exposes the `/metrics` HTTP endpoint on the specified port via `start_metrics_server`,
+//! for Prometheus to scrape. Implemented based on `tokio::net::TcpListener` (does not depend on hyper).
 //!
-//! ## 3. SLO 燃烧率
+//! ## 3. SLO burn rate
 //!
-//! 基于 5m / 1h 两个窗口计算 SLO 燃烧率，支持多窗口告警。
+//! Computes SLO burn rate based on 5m / 1h windows, supporting multi-window alerts.
 //!
-//! # 快速入门
+//! # Quick Start
 //!
 //! ```no_run
 //! use sz_orm_observability::{MetricsRegistry, MetricKind};
 //! use std::time::Duration;
 //!
-//! // 创建指标注册中心
+//! // Create metric registry
 //! let registry = MetricsRegistry::new();
 //!
-//! // 注册指标
+//! // Register metrics
 //! let counter = registry.register_counter("sz_orm_pool_acquires_total", "Total pool acquire calls");
 //! let gauge = registry.register_gauge("sz_orm_pool_active_connections", "Current active connections");
 //! let histogram = registry.register_histogram(
@@ -37,12 +37,12 @@
 //!     vec![0.001, 0.01, 0.1, 1.0, 10.0],
 //! );
 //!
-//! // 更新指标
+//! // Update metrics
 //! counter.inc();
 //! gauge.set(5.0);
 //! histogram.observe(0.025);
 //!
-//! // 输出 Prometheus 文本格式
+//! // Output Prometheus text format
 //! let output = registry.render();
 //! println!("{}", output);
 //! ```
@@ -77,29 +77,29 @@ pub use summary::{
 #[cfg(feature = "query-logging")]
 pub use query_logger::{mask_params, LogLevel, QueryLogEntry, QueryLogger};
 
-/// 指标类型
+/// Metric type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum MetricKind {
-    /// 单调递增计数器（如总请求数）
+    /// Monotonically increasing counter (e.g. total request count)
     Counter,
-    /// 可增可减的瞬时值（如当前连接数）
+    /// Instantaneous value that can increase or decrease (e.g. current connection count)
     Gauge,
-    /// 直方图（如请求延迟分布）
+    /// Histogram (e.g. request latency distribution)
     Histogram,
 }
 
-/// 指标元数据
+/// Metric metadata
 #[derive(Debug, Clone)]
 pub struct MetricMeta {
-    /// 指标名（如 `sz_orm_pool_acquires_total`）
+    /// Metric name (e.g. `sz_orm_pool_acquires_total`)
     pub name: String,
-    /// 帮助文本
+    /// Help text
     pub help: String,
-    /// 指标类型
+    /// Metric type
     pub kind: MetricKind,
 }
 
-/// 计数器（单调递增）
+/// Counter (monotonically increasing)
 pub struct Counter {
     name: String,
     value: Arc<RwLock<f64>>,
@@ -107,28 +107,28 @@ pub struct Counter {
 }
 
 impl Counter {
-    /// 递增 1
+    /// Increment by 1
     pub fn inc(&self) {
         self.inc_by(1.0);
     }
 
-    /// 递增指定值
+    /// Increment by the specified value
     pub fn inc_by(&self, delta: f64) {
         let mut v = self.value.write();
         *v += delta;
     }
 
-    /// 当前值
+    /// Current value
     pub fn value(&self) -> f64 {
         *self.value.read()
     }
 
-    /// 指标名
+    /// Metric name
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// 渲染为 Prometheus 文本格式
+    /// Render to Prometheus text format
     pub fn render(&self) -> String {
         let v = self.value.read();
         if self.labels.is_empty() {
@@ -144,7 +144,7 @@ impl Counter {
     }
 }
 
-/// Gauge（可增可减）
+/// Gauge (can increase or decrease)
 pub struct Gauge {
     name: String,
     value: Arc<RwLock<f64>>,
@@ -152,39 +152,39 @@ pub struct Gauge {
 }
 
 impl Gauge {
-    /// 设置值
+    /// Set value
     pub fn set(&self, value: f64) {
         *self.value.write() = value;
     }
 
-    /// 递增
+    /// Increment
     pub fn inc(&self) {
         self.inc_by(1.0);
     }
 
-    /// 递增指定值
+    /// Increment by the specified value
     pub fn inc_by(&self, delta: f64) {
         let mut v = self.value.write();
         *v += delta;
     }
 
-    /// 递减指定值
+    /// Decrement by the specified value
     pub fn dec_by(&self, delta: f64) {
         let mut v = self.value.write();
         *v -= delta;
     }
 
-    /// 当前值
+    /// Current value
     pub fn value(&self) -> f64 {
         *self.value.read()
     }
 
-    /// 指标名
+    /// Metric name
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// 渲染为 Prometheus 文本格式
+    /// Render to Prometheus text format
     pub fn render(&self) -> String {
         let v = self.value.read();
         if self.labels.is_empty() {
@@ -200,7 +200,7 @@ impl Gauge {
     }
 }
 
-/// 直方图（延迟分布等）
+/// Histogram (latency distribution, etc.)
 pub struct Histogram {
     name: String,
     buckets: Vec<f64>,
@@ -210,7 +210,7 @@ pub struct Histogram {
 }
 
 impl Histogram {
-    /// 观察一个值
+    /// Observe a value
     pub fn observe(&self, value: f64) {
         let mut counts = self.counts.write();
         for (i, bucket) in self.buckets.iter().enumerate() {
@@ -228,22 +228,22 @@ impl Histogram {
         *count += 1;
     }
 
-    /// 总观察次数
+    /// Total observation count
     pub fn count(&self) -> u64 {
         *self.count.read()
     }
 
-    /// 所有观察值之和
+    /// Sum of all observed values
     pub fn sum(&self) -> f64 {
         *self.sum.read()
     }
 
-    /// 指标名
+    /// Metric name
     pub fn name(&self) -> &str {
         &self.name
     }
 
-    /// 渲染为 Prometheus 文本格式
+    /// Render to Prometheus text format
     pub fn render(&self) -> String {
         let counts = self.counts.read();
         let sum = self.sum.read();
@@ -262,7 +262,7 @@ impl Histogram {
     }
 }
 
-/// 指标注册中心
+/// Metric registry
 pub struct MetricsRegistry {
     counters: RwLock<HashMap<String, Arc<Counter>>>,
     gauges: RwLock<HashMap<String, Arc<Gauge>>>,
@@ -277,7 +277,7 @@ impl Default for MetricsRegistry {
 }
 
 impl MetricsRegistry {
-    /// 创建空注册中心
+    /// Create an empty registry
     pub fn new() -> Self {
         Self {
             counters: RwLock::new(HashMap::new()),
@@ -287,12 +287,12 @@ impl MetricsRegistry {
         }
     }
 
-    /// 注册 Counter
+    /// Register a Counter
     pub fn register_counter(&self, name: &str, help: &str) -> Arc<Counter> {
         self.register_counter_with_labels(name, help, HashMap::new())
     }
 
-    /// 注册带标签的 Counter
+    /// Register a Counter with labels
     pub fn register_counter_with_labels(
         &self,
         name: &str,
@@ -320,12 +320,12 @@ impl MetricsRegistry {
         counter
     }
 
-    /// 注册 Gauge
+    /// Register a Gauge
     pub fn register_gauge(&self, name: &str, help: &str) -> Arc<Gauge> {
         self.register_gauge_with_labels(name, help, HashMap::new())
     }
 
-    /// 注册带标签的 Gauge
+    /// Register a Gauge with labels
     pub fn register_gauge_with_labels(
         &self,
         name: &str,
@@ -353,7 +353,7 @@ impl MetricsRegistry {
         gauge
     }
 
-    /// 注册 Histogram
+    /// Register a Histogram
     pub fn register_histogram(&self, name: &str, help: &str, buckets: Vec<f64>) -> Arc<Histogram> {
         let mut histograms = self.histograms.write();
         if let Some(h) = histograms.get(name) {
@@ -384,7 +384,7 @@ impl MetricsRegistry {
         histogram
     }
 
-    /// 渲染所有指标为 Prometheus 文本格式
+    /// Render all metrics to Prometheus text format
     pub fn render(&self) -> String {
         let mut output = String::new();
 
@@ -427,10 +427,10 @@ impl MetricsRegistry {
     }
 }
 
-/// 启动 Prometheus metrics HTTP server
+/// Start the Prometheus metrics HTTP server
 ///
-/// 在指定地址暴露 `/metrics` 端点，返回 Prometheus 文本格式的指标数据。
-/// 每个连接在独立 tokio task 中处理。
+/// Exposes the `/metrics` endpoint at the specified address, returning metric data in Prometheus text format.
+/// Each connection is handled in an independent tokio task.
 pub async fn start_metrics_server(
     registry: Arc<MetricsRegistry>,
     addr: std::net::SocketAddr,
@@ -453,23 +453,23 @@ pub async fn start_metrics_server(
     }
 }
 
-/// v3.8.0：metrics 端点访问控制配置
+/// v3.8.0: metrics endpoint access control configuration
 #[cfg(feature = "prod-metrics-acl")]
 #[derive(Debug, Clone)]
 pub struct MetricsAccessControl {
-    /// 是否启用访问控制
+    /// Whether access control is enabled
     pub enabled: bool,
-    /// IP 白名单（CIDR 格式字符串，如 "10.0.0.0/8"）
+    /// IP whitelist (CIDR format strings, e.g. "10.0.0.0/8")
     pub ip_whitelist: Vec<String>,
-    /// Bearer Token 鉴权
+    /// Bearer Token authentication
     pub bearer_token: Option<String>,
-    /// Basic Auth 鉴权 (username, password)
+    /// Basic Auth authentication (username, password)
     pub basic_auth: Option<(String, String)>,
 }
 
 #[cfg(feature = "prod-metrics-acl")]
 impl MetricsAccessControl {
-    /// 创建禁用访问控制的配置
+    /// Create a configuration with access control disabled
     pub fn disabled() -> Self {
         Self {
             enabled: false,
@@ -479,7 +479,7 @@ impl MetricsAccessControl {
         }
     }
 
-    /// 检查 IP 是否在白名单中
+    /// Check whether the IP is in the whitelist
     pub fn check_ip_whitelist(peer_ip: &str, whitelist: &[String]) -> bool {
         if whitelist.is_empty() {
             return true;
@@ -492,7 +492,7 @@ impl MetricsAccessControl {
         false
     }
 
-    /// 检查 Bearer Token（常量时间比较）
+    /// Check Bearer Token (constant-time comparison)
     pub fn check_bearer_token(auth_header: Option<&str>, expected: &str) -> bool {
         use subtle::ConstantTimeEq;
         if let Some(header) = auth_header {
@@ -503,7 +503,7 @@ impl MetricsAccessControl {
         false
     }
 
-    /// 检查 Basic Auth（常量时间比较）
+    /// Check Basic Auth (constant-time comparison)
     pub fn check_basic_auth(
         auth_header: Option<&str>,
         expected_user: &str,
@@ -524,7 +524,7 @@ impl MetricsAccessControl {
         false
     }
 
-    /// 综合鉴权检查
+    /// Comprehensive authentication check
     pub fn check_access(&self, peer_ip: &str, auth_header: Option<&str>) -> bool {
         if !self.enabled {
             return true;
@@ -587,7 +587,7 @@ fn base64_decode(input: &str) -> Result<String, String> {
     String::from_utf8(bytes).map_err(|e| e.to_string())
 }
 
-/// v3.8.0：带访问控制的 metrics 端点
+/// v3.8.0: metrics endpoint with access control
 #[cfg(feature = "prod-metrics-acl")]
 pub async fn start_metrics_server_with_acl(
     registry: Arc<MetricsRegistry>,

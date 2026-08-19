@@ -78,9 +78,7 @@ impl Connection for SapHanaConnection {
         })
     }
 
-    fn commit<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn commit<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             self.conn.commit().await.map_err(map_err)?;
             self.conn.set_auto_commit(true).await;
@@ -106,9 +104,7 @@ impl Connection for SapHanaConnection {
         Box::pin(async move { !self.conn.is_broken().await })
     }
 
-    fn close<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             // hdbconnect_async Connection 在 Drop 时自动关闭
             Ok(())

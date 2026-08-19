@@ -146,21 +146,24 @@ pub struct UserResponse {
     pub email: String,
 }
 
-/// 用户服务 trait，定义 gRPC 服务端需要实现的方法。
+/// User service trait defining the methods a gRPC server must implement.
 ///
-/// 所有方法为同步签名，因为本 crate 的内存版通道（[`GrpcChannel`]）是同步的。
-/// 真实 tonic 版本通过 [`real_grpc`] 模块桥接到异步 tonic trait。
+/// All methods use synchronous signatures because this crate's in-memory channel
+/// ([`GrpcChannel`]) is synchronous. The real tonic variant is bridged to the
+/// asynchronous tonic trait via the [`real_grpc`] module.
 pub trait UserGrpcService: Send + Sync {
-    /// 按 id 查询单个用户。未找到时返回 [`GrpcError::MethodNotFound`]。
+    /// Query a single user by id. Returns [`GrpcError::MethodNotFound`] when not found.
     fn get_user(&self, request: UserRequest) -> Result<UserResponse, GrpcError>;
-    /// 返回全部用户列表（按 id 升序）。
+    /// Return the full user list (sorted by id in ascending order).
     fn list_users(&self) -> Result<Vec<UserResponse>, GrpcError>;
-    /// 以批量方式返回用户流数据。
+    /// Return user stream data in a batched fashion.
     ///
-    /// 由于 Rust trait object 不支持原生 async stream，这里返回 `Vec<UserResponse>`，
-    /// 由调用方（如 [`GrpcChannel::call_server_streaming`]）负责将其推入 [`GrpcStream`]。
+    /// Because Rust trait objects do not support native async streams, this returns
+    /// `Vec<UserResponse>`, and the caller (e.g. [`GrpcChannel::call_server_streaming`])
+    /// is responsible for pushing the items into a [`GrpcStream`].
     ///
-    /// 默认实现等价于 [`UserGrpcService::list_users`]，实现方可按需覆写以提供分批逻辑。
+    /// The default implementation is equivalent to [`UserGrpcService::list_users`];
+    /// implementers may override it to provide custom batching logic.
     fn stream_users(&self) -> Result<Vec<UserResponse>, GrpcError> {
         self.list_users()
     }
@@ -225,22 +228,25 @@ impl UserGrpcService for InMemoryUserService {
 // GrpcStream — 同步迭代器风格的流式响应容器
 // =========================================================================
 
-/// 同步迭代器风格的流式响应容器。
+/// Synchronous iterator-style streaming response container.
 ///
-/// 使用 `Mutex<Vec<T>>` 缓存待消费的元素，`AtomicBool` 标记流是否已关闭。
-/// 适用于 server-streaming 场景：服务端将结果批量推入，客户端逐个 `next()` 消费。
+/// Uses `Mutex<Vec<T>>` to buffer items pending consumption and an `AtomicBool`
+/// to mark whether the stream has been closed. Suitable for server-streaming
+/// scenarios: the server pushes results in batches, and the client consumes
+/// them one by one via `next()`.
 ///
-/// 设计为同步非阻塞：`next()` 在无数据时立即返回 `None`，不阻塞等待。
-/// 调用方可通过 [`GrpcStream::is_closed`] 判断流是否已结束。
+/// Designed to be synchronous and non-blocking: `next()` returns `None`
+/// immediately when no data is available, without blocking. The caller can
+/// use [`GrpcStream::is_closed`] to determine whether the stream has ended.
 pub struct GrpcStream<T> {
-    /// 待消费的元素队列，使用 Mutex 保证线程安全。
+    /// Queue of items pending consumption; uses Mutex for thread safety.
     items: Mutex<Vec<T>>,
-    /// 流是否已关闭的标记，一旦关闭不再接受新元素。
+    /// Flag indicating whether the stream is closed; once closed, no new items are accepted.
     closed: AtomicBool,
 }
 
 impl<T> GrpcStream<T> {
-    /// 创建一个空的、未关闭的流。
+    /// Create an empty, unclosed stream.
     pub fn new() -> Self {
         Self {
             items: Mutex::new(Vec::new()),
@@ -248,20 +254,23 @@ impl<T> GrpcStream<T> {
         }
     }
 
-    /// 向流中推送一个元素。
+    /// Push an item into the stream.
     ///
-    /// 即使流已关闭也会推入（调用方应自行检查 [`GrpcStream::is_closed`]）。
+    /// The item is pushed even if the stream is already closed (the caller should
+    /// check [`GrpcStream::is_closed`] itself).
     pub fn push(&self, item: T) {
         self.items.lock().push(item);
     }
 
-    /// 从流中取出下一个元素（FIFO 顺序）。
+    /// Take the next item from the stream (FIFO order).
     ///
-    /// - 有待消费元素时返回 `Some(item)`
-    /// - 队列为空时返回 `None`（无论是否已关闭）
+    /// - Returns `Some(item)` when there is a pending item.
+    /// - Returns `None` when the queue is empty (regardless of whether it is closed).
     ///
-    /// 调用方应结合 [`GrpcStream::is_closed`] 判断流是否真正结束：
-    /// `next() == None && is_closed() == true` 表示流已结束且无残留数据。
+    /// The caller should combine this with [`GrpcStream::is_closed`] to determine
+    /// whether the stream has truly ended:
+    /// `next() == None && is_closed() == true` means the stream has ended with no
+    /// remaining data.
     pub fn next(&self) -> Option<T> {
         let mut items = self.items.lock();
         if items.is_empty() {
@@ -272,12 +281,12 @@ impl<T> GrpcStream<T> {
         }
     }
 
-    /// 关闭流，标记不再有新数据到达。
+    /// Close the stream, marking that no new data will arrive.
     pub fn close(&self) {
         self.closed.store(true, Ordering::SeqCst);
     }
 
-    /// 查询流是否已关闭。
+    /// Query whether the stream is closed.
     pub fn is_closed(&self) -> bool {
         self.closed.load(Ordering::SeqCst)
     }
@@ -303,36 +312,41 @@ impl<T: std::fmt::Debug> std::fmt::Debug for GrpcStream<T> {
 // Interceptor — 请求拦截器机制
 // =========================================================================
 
-/// 拦截器请求上下文，携带本次 RPC 的方法名、服务名与 metadata。
+/// Interceptor request context carrying the method name, service name, and
+/// metadata of the current RPC.
 ///
-/// 拦截器通过此结构体获取调用上下文信息，用于鉴权、日志等场景。
+/// Interceptors access the invocation context through this struct, used for
+/// authentication, logging, and similar scenarios.
 #[derive(Debug, Clone)]
 pub struct InterceptorRequest {
-    /// 被调用的方法名，如 `GetUser`。
+    /// The method being invoked, e.g. `GetUser`.
     pub method: String,
-    /// 被调用的服务名，如 `UserService`。
+    /// The service being invoked, e.g. `UserService`.
     pub service_name: String,
-    /// 客户端携带的 metadata（来自 [`GrpcChannel`] 的 metadata 副本）。
+    /// Metadata sent by the client (a copy of the metadata from [`GrpcChannel`]).
     pub metadata: HashMap<String, String>,
 }
 
-/// 请求拦截器 trait。
+/// Request interceptor trait.
 ///
-/// 拦截器在 [`GrpcChannel::call_unary`] 实际发起 RPC 之前被调用。
-/// 任一拦截器返回 `Err` 都会中断后续拦截器与 RPC 调用，直接将错误返回给调用方。
-/// 拦截器失败不会被重试（鉴权失败重试无意义）。
+/// Interceptors are invoked before [`GrpcChannel::call_unary`] actually issues
+/// the RPC. If any interceptor returns `Err`, subsequent interceptors and the
+/// RPC call are skipped, and the error is returned directly to the caller.
+/// Interceptor failures are not retried (retrying an auth failure is pointless).
 ///
-/// 内置实现：
-/// - [`LoggingInterceptor`] — 记录调用日志到 stderr
-/// - [`AuthInterceptor`] — 校验 metadata 中的 `authorization` 字段
+/// Built-in implementations:
+/// - [`LoggingInterceptor`] — logs each call to stderr
+/// - [`AuthInterceptor`] — validates the `authorization` field in metadata
 pub trait Interceptor: Send + Sync {
-    /// 执行拦截逻辑。返回 `Err(GrpcError)` 表示拒绝本次请求。
+    /// Execute the interception logic. Returns `Err(GrpcError)` to reject the request.
     fn call(&self, request: &InterceptorRequest) -> Result<(), GrpcError>;
 }
 
-/// 日志拦截器：将每次 RPC 的服务名、方法名与 metadata 数量输出到 stderr。
+/// Logging interceptor: writes the service name, method name, and metadata count
+/// of each RPC to stderr.
 ///
-/// 使用 `eprintln!` 避免引入日志框架依赖。始终返回 `Ok`，不阻断调用。
+/// Uses `eprintln!` to avoid introducing a logging framework dependency. Always
+/// returns `Ok` and never blocks the call.
 #[derive(Debug, Clone, Default)]
 pub struct LoggingInterceptor;
 
@@ -348,17 +362,18 @@ impl Interceptor for LoggingInterceptor {
     }
 }
 
-/// 鉴权拦截器：校验 metadata 中 `authorization` 字段是否与预期 token 匹配。
+/// Authentication interceptor: validates that the `authorization` field in
+/// metadata matches the expected token.
 ///
-/// metadata 缺失或不匹配时返回 [`GrpcError::Unauthorized`]。
+/// Returns [`GrpcError::Unauthorized`] when metadata is missing or mismatched.
 #[derive(Debug, Clone)]
 pub struct AuthInterceptor {
-    /// 预期的授权 token（含前缀，如 `Bearer secret-token`）。
+    /// Expected authorization token (including prefix, e.g. `Bearer secret-token`).
     expected_token: String,
 }
 
 impl AuthInterceptor {
-    /// 创建一个鉴权拦截器，`token` 为期望的 `authorization` metadata 值。
+    /// Create an auth interceptor where `token` is the expected `authorization` metadata value.
     pub fn new(token: impl Into<String>) -> Self {
         Self {
             expected_token: token.into(),
@@ -382,21 +397,22 @@ impl Interceptor for AuthInterceptor {
 // RetryPolicy / TimeoutPolicy — 超时与重试策略
 // =========================================================================
 
-/// 可重试的错误类别枚举。
+/// Enum of retryable error categories.
 ///
-/// 用于 [`RetryPolicy::should_retry`] 判断某个 [`GrpcError`] 是否属于可重试错误。
+/// Used by [`RetryPolicy::should_retry`] to determine whether a [`GrpcError`]
+/// belongs to a retryable category.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum RetryableErrorKind {
-    /// 连接失败（服务器不可达）。
+    /// Connection failed (server unreachable).
     ConnectionFailed,
-    /// 调用超时。
+    /// Call timed out.
     Timeout,
-    /// 传输层错误。
+    /// Transport-layer error.
     Transport,
 }
 
 impl RetryableErrorKind {
-    /// 判断给定的错误是否属于本类别。
+    /// Determine whether the given error belongs to this category.
     fn matches(&self, error: &GrpcError) -> bool {
         matches!(
             (self, error),
@@ -407,21 +423,22 @@ impl RetryableErrorKind {
     }
 }
 
-/// 重试策略：定义最大重试次数、退避参数与可重试的错误类别。
+/// Retry policy: defines the maximum retry count, backoff parameters, and
+/// retryable error categories.
 ///
-/// 使用指数退避算法计算重试间隔：`delay = initial_delay * multiplier^attempt`，
-/// 上限为 `max_delay`。
+/// Uses an exponential backoff algorithm to compute the retry interval:
+/// `delay = initial_delay * multiplier^attempt`, capped at `max_delay`.
 #[derive(Debug, Clone)]
 pub struct RetryPolicy {
-    /// 最大重试次数（不含首次调用）。`0` 表示不重试。
+    /// Maximum retry count (excluding the initial call). `0` means no retries.
     pub max_retries: u32,
-    /// 首次重试前的等待毫秒数。
+    /// Milliseconds to wait before the first retry.
     pub initial_delay_ms: u64,
-    /// 单次重试的最大等待毫秒数。
+    /// Maximum milliseconds to wait for a single retry.
     pub max_delay_ms: u64,
-    /// 退避乘数，每次重试延迟乘以此系数。
+    /// Backoff multiplier; the delay is multiplied by this factor after each retry.
     pub multiplier: f64,
-    /// 可重试的错误类别列表。
+    /// List of retryable error categories.
     pub retryable_errors: Vec<RetryableErrorKind>,
 }
 
@@ -441,11 +458,13 @@ impl Default for RetryPolicy {
 }
 
 impl RetryPolicy {
-    /// 判断给定错误是否应该重试，并返回应等待的时长。
+    /// Determine whether the given error should be retried, and return the
+    /// duration to wait.
     ///
-    /// - `attempt` 为当前已完成的尝试次数（0 表示首次调用失败后）。
-    /// - 若 `attempt >= max_retries` 或错误不可重试，返回 `None`。
-    /// - 否则返回 `Some(delay)`，调用方应 sleep 后重试。
+    /// - `attempt` is the number of attempts already completed (0 means right
+    ///   after the first call failed).
+    /// - Returns `None` if `attempt >= max_retries` or the error is not retryable.
+    /// - Otherwise returns `Some(delay)`; the caller should sleep and then retry.
     pub fn should_retry(&self, error: &GrpcError, attempt: u32) -> Option<Duration> {
         // 已达到最大重试次数，不再重试。
         if attempt >= self.max_retries {
@@ -463,13 +482,15 @@ impl RetryPolicy {
     }
 }
 
-/// 超时策略：定义 RPC 调用的截止时间。
+/// Timeout policy: defines the deadline of an RPC call.
 ///
-/// 由于 [`GrpcChannel::call_unary`] 是同步实现，超时只能在调用前/后检查，
-/// 不能中断已发出的同步调用。策略会在每次重试前检查已耗时是否超过 deadline。
+/// Because [`GrpcChannel::call_unary`] is synchronous, the timeout can only be
+/// checked before/after the call and cannot interrupt an in-flight synchronous
+/// call. The policy checks whether the elapsed time has exceeded the deadline
+/// before each retry.
 #[derive(Debug, Clone)]
 pub struct TimeoutPolicy {
-    /// 从调用开始算起的最大允许时长。
+    /// Maximum allowed duration measured from the start of the call.
     pub deadline: Duration,
 }
 
@@ -482,15 +503,16 @@ impl Default for TimeoutPolicy {
 }
 
 impl TimeoutPolicy {
-    /// 创建一个指定 deadline 的超时策略。
+    /// Create a timeout policy with the specified deadline.
     pub fn new(deadline: Duration) -> Self {
         Self { deadline }
     }
 
-    /// 检查已耗时是否超过 deadline。
+    /// Check whether the elapsed time has exceeded the deadline.
     ///
-    /// 超过则返回 `Err(GrpcError::Timeout)`，否则返回 `Ok(())`。
-    /// 注意：使用 `>` 而非 `>=`，即 `elapsed == deadline` 视为未超时。
+    /// Returns `Err(GrpcError::Timeout)` if exceeded, otherwise `Ok(())`.
+    /// Note: uses `>` rather than `>=`, so `elapsed == deadline` is treated as
+    /// not timed out.
     pub fn check_elapsed(&self, elapsed: Duration) -> Result<(), GrpcError> {
         if elapsed > self.deadline {
             Err(GrpcError::Timeout(format!(
@@ -540,10 +562,11 @@ impl UserGrpcClient {
             .call_unary("UserService", "ListUsers", |svc| svc.list_users())
     }
 
-    /// 以 server-streaming 方式获取用户列表，返回 [`GrpcStream`]。
+    /// Fetch the user list via server-streaming, returning a [`GrpcStream`].
     ///
-    /// 内部通过 [`GrpcChannel::call_server_streaming`] 调用服务的 `stream_users` 方法，
-    /// 将结果推入流并关闭。调用方可逐个 `next()` 消费。
+    /// Internally calls the service's `stream_users` method via
+    /// [`GrpcChannel::call_server_streaming`], pushes the results into the
+    /// stream, and closes it. The caller may consume items one by one via `next()`.
     pub fn stream_users(&self) -> Result<GrpcStream<UserResponse>, GrpcError> {
         self.channel
             .call_server_streaming("UserService", "StreamUsers")
@@ -562,11 +585,11 @@ impl UserGrpcClient {
 pub struct GrpcChannel {
     address: String,
     metadata: HashMap<String, String>,
-    /// 拦截器链，按添加顺序执行。
+    /// Interceptor chain; executed in insertion order.
     interceptors: Vec<Arc<dyn Interceptor>>,
-    /// 重试策略，`None` 表示不重试。
+    /// Retry policy; `None` means no retries.
     retry_policy: Option<RetryPolicy>,
-    /// 超时策略，`None` 表示不检查超时。
+    /// Timeout policy; `None` means no timeout check.
     timeout_policy: Option<TimeoutPolicy>,
 }
 
@@ -586,19 +609,20 @@ impl GrpcChannel {
         self
     }
 
-    /// 添加一个拦截器到拦截器链末尾。拦截器按添加顺序依次执行。
+    /// Append an interceptor to the end of the interceptor chain. Interceptors
+    /// execute in insertion order.
     pub fn with_interceptor(mut self, interceptor: Arc<dyn Interceptor>) -> Self {
         self.interceptors.push(interceptor);
         self
     }
 
-    /// 设置重试策略。`call_unary` 会在可重试错误发生时按策略重试。
+    /// Set the retry policy. `call_unary` will retry on retryable errors per the policy.
     pub fn with_retry(mut self, policy: RetryPolicy) -> Self {
         self.retry_policy = Some(policy);
         self
     }
 
-    /// 设置超时策略。`call_unary` 会在每次尝试前检查是否已超时。
+    /// Set the timeout policy. `call_unary` will check the timeout before each attempt.
     pub fn with_timeout(mut self, policy: TimeoutPolicy) -> Self {
         self.timeout_policy = Some(policy);
         self
@@ -612,16 +636,19 @@ impl GrpcChannel {
         &self.metadata
     }
 
-    /// 发起一元（unary）RPC 调用。
+    /// Issue a unary RPC call.
     ///
-    /// 执行流程：
-    /// 1. 记录起始时间，按重试策略循环（无策略时仅一次）。
-    /// 2. 每次尝试前检查超时（若配置了 [`TimeoutPolicy`]）。
-    /// 3. 执行拦截器链（若配置了 [`Interceptor`]），任一失败立即返回错误（不重试）。
-    /// 4. 在全局注册表中查找服务并调用闭包 `f`。
-    /// 5. 调用成功返回结果；失败则按 [`RetryPolicy::should_retry`] 决定是否重试。
+    /// Execution flow:
+    /// 1. Record the start time and loop per the retry policy (once if no policy).
+    /// 2. Before each attempt, check the timeout (if [`TimeoutPolicy`] is configured).
+    /// 3. Execute the interceptor chain (if [`Interceptor`] is configured); any
+    ///    failure returns the error immediately (no retry).
+    /// 4. Look up the service in the global registry and invoke the closure `f`.
+    /// 5. On success, return the result; on failure, decide whether to retry
+    ///    via [`RetryPolicy::should_retry`].
     ///
-    /// 注意：超时为同步检查，无法中断正在执行的闭包调用。
+    /// Note: the timeout is a synchronous check and cannot interrupt an
+    /// in-flight closure call.
     pub fn call_unary<F, T>(
         &self,
         service_name: &str,
@@ -696,11 +723,12 @@ impl GrpcChannel {
         Err(last_error.unwrap_or_else(|| GrpcError::Transport("no attempt made".to_string())))
     }
 
-    /// 发起 server-streaming RPC 调用，返回 [`GrpcStream`]。
+    /// Issue a server-streaming RPC call, returning a [`GrpcStream`].
     ///
-    /// 内部复用 [`GrpcChannel::call_unary`] 调用服务的 `stream_users` 方法，
-    /// 将返回的 `Vec` 逐个推入 [`GrpcStream`] 后关闭流。
-    /// 拦截器、重试、超时策略同样生效。
+    /// Internally reuses [`GrpcChannel::call_unary`] to call the service's
+    /// `stream_users` method, pushes the returned `Vec` items one by one into
+    /// a [`GrpcStream`], and then closes the stream.
+    /// Interceptor, retry, and timeout policies also apply.
     pub fn call_server_streaming(
         &self,
         service_name: &str,
@@ -1372,7 +1400,8 @@ mod tests {
     fn test_interceptor_execution_order() {
         use parking_lot::Mutex;
 
-        /// 测试用拦截器：将自身名称追加到共享日志，用于验证执行顺序。
+        /// Test interceptor that appends its own name to a shared log, used to
+        /// verify execution order.
         struct OrderInterceptor {
             name: &'static str,
             log: Arc<Mutex<Vec<&'static str>>>,
@@ -1656,7 +1685,7 @@ mod tests {
     fn test_call_unary_retries_then_succeeds() {
         use std::sync::atomic::AtomicU32;
 
-        /// 模拟前 N 次调用失败、之后成功的服务。
+        /// Service that fails the first N calls and then succeeds.
         struct FlakyUserService {
             real: InMemoryUserService,
             fail_count: AtomicU32,
@@ -1711,7 +1740,8 @@ mod tests {
     fn test_call_unary_no_retry_on_method_not_found() {
         use std::sync::atomic::AtomicU32;
 
-        /// 返回 MethodNotFound 的服务，用于验证不可重试错误不会触发重试。
+        /// Service that returns MethodNotFound, used to verify that non-retryable
+        /// errors do not trigger retries.
         struct NotFoundService {
             call_count: AtomicU32,
         }

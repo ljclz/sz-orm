@@ -1,20 +1,20 @@
-//! # SZ-ORM AI — AI 能力包
+//! # SZ-ORM AI — AI Capability Package
 //!
-//! 提供自然语言转 SQL（NL2SQL）、检索增强生成（RAG）、文本 embedding 与向量搜索能力，
-//! 内置安全防护与 OpenAI 兼容 API 客户端（启用 `real` feature 时编译）。
+//! Provides natural language to SQL (NL2SQL), retrieval-augmented generation (RAG), text embedding and vector search capabilities,
+//! with built-in safety protection and OpenAI-compatible API client (compiled when `real` feature is enabled).
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`embedding`] — 文本向量化接口
-//! - [`nl2sql`] — 自然语言到 SQL 的转换
-//! - [`rag`] — 检索增强生成
-//! - [`vector`] — 向量存储与相似度检索
-//! - [`safety`] — 输入安全检查
-//! - [`sql_sanitizer`] — SQL 敏感字面量脱敏
+//! - [`embedding`] — Text vectorization interface
+//! - [`nl2sql`] — Natural language to SQL conversion
+//! - [`rag`] — Retrieval-augmented generation
+//! - [`vector`] — Vector store and similarity search
+//! - [`safety`] — Input safety check
+//! - [`sql_sanitizer`] — SQL sensitive literal masking
 //!
-//! 启用 `llm-optimizer` feature 时额外提供：
-//! - [`explain_parser`] — EXPLAIN 执行计划解析（5 方言）
-//! - [`query_plan_optimizer`] — 统一查询计划优化器（规则 + LLM）
+//! When `llm-optimizer` feature is enabled, additionally provides:
+//! - [`explain_parser`] — EXPLAIN execution plan parser (5 dialects)
+//! - [`query_plan_optimizer`] — Unified query plan optimizer (rules + LLM)
 
 pub mod embedding;
 pub mod error;

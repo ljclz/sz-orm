@@ -1,13 +1,13 @@
-//! # SZ-ORM Back — 备份恢复
+//! # SZ-ORM Back — Backup & Restore
 //!
-//! 提供数据库全量/增量备份、恢复与灾难恢复演练能力，覆盖完整备份-恢复往返与
-//! 损坏文件负向路径，用于验证 RTO 与完整性校验。
+//! Provides database full/incremental backup, restore, and disaster recovery drill capabilities, covering complete backup-restore round-trip and
+//! corrupted file negative paths, for validating RTO and integrity checks.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`backup`] — 备份执行
-//! - [`restore`] — 恢复执行
-//! - [`DrillScenario`] — 灾难演练场景（全量恢复/增量合并/损坏文件）
+//! - [`backup`] — Backup execution
+//! - [`restore`] — Restore execution
+//! - [`DrillScenario`] — Disaster drill scenario (full restore/incremental merge/corrupted files)
 
 pub mod advanced;
 pub mod backup;
@@ -352,7 +352,7 @@ impl Default for HealthStatus {
     }
 }
 
-/// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+/// Test data directory: prefer F:\test\data (user convention), fall back to environment variable or system temp (CI/Linux)
 fn test_data_base() -> std::path::PathBuf {
     let f_drive = std::path::Path::new("F:\\test\\data");
     if is_dir_writable(f_drive) {
@@ -367,7 +367,7 @@ fn test_data_base() -> std::path::PathBuf {
     std::env::temp_dir()
 }
 
-/// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+/// Check if directory exists and is writable: try creating and deleting a probe file in it
 fn is_dir_writable(dir: &std::path::Path) -> bool {
     if !dir.exists() {
         return false;

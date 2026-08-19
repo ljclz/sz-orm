@@ -1,14 +1,14 @@
-//! # sz-orm-fusion — 多数据库融合查询（POC，可选实验）
+//! # sz-orm-fusion — Multi-Database Fusion Query (POC, optional experiment)
 //!
-//! 透明多数据库操作：**主库 + 缓存 + 搜索** 的查询拆分、聚合与降级。
-//! 本包为 v4.3.0 M5 的可选实验（POC），核心价值是验证"融合查询"语义
-//! 是否值得转正；具体后端（Redis / 向量库）通过 trait 注入，不绑定实现。
+//! Transparent multi-database operations: query splitting, aggregation, and degradation for **primary + cache + search**.
+//! This package is an optional experiment (POC) for v4.3.0 M5; the core value is validating whether the "fusion query" semantics
+//! are worth promoting; specific backends (Redis / vector store) are injected via traits, not bound to implementations.
 //!
-//! 核心概念：
+//! Core concepts:
 //!
-//! - [`FusionQuery`]：结构化查询描述（表 + 参数化等值条件 + 其他条件）
-//! - [`FusionPlanner`]：静态分析 → [`FusionPlan`]（缓存下推 / 搜索下推 / 主库步骤）
-//! - [`FusionExecutor`]：按计划执行，缓存命中跳过主库，主库失败降级回缓存
+//! - [`FusionQuery`]: Structured query description (table + parameterized equality conditions + other conditions)
+//! - [`FusionPlanner`]: Static analysis → [`FusionPlan`] (cache pushdown / search pushdown / primary steps)
+//! - [`FusionExecutor`]: Execute by plan, cache hit skips primary, primary failure falls back to cache
 //!
 //! ```rust,ignore
 //! let config = FusionConfig {

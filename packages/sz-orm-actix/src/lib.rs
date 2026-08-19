@@ -1,18 +1,18 @@
-//! # SZ-ORM 的 actix-web 框架集成
+//! # SZ-ORM actix-web Framework Integration
 //!
-//! 提供：
-//! - [`PoolState`] — 连接池的 actix-web 应用数据包装（实现 `FromRequest`）
-//! - [`JsonRows`] — 包装 `QueryRows` 实现 `Responder`
-//! - [`JsonResp<T>`] — 通用 JSON 响应包装
-//! - [`TransactionMiddleware`] — 事务中间件（请求成功提交，失败回滚）
-//! - [`Pagination`] — 分页参数辅助
-//! - [`ErrorResponse`] — 标准错误响应
-//! - [`HealthCheck`] — 健康检查
-//! - [`RouteInfo`] — 路由信息
+//! Provides:
+//! - [`PoolState`] — actix-web application data wrapper for connection pool (implements `FromRequest`)
+//! - [`JsonRows`] — Wraps `QueryRows` implementing `Responder`
+//! - [`JsonResp<T>`] — Generic JSON response wrapper
+//! - [`TransactionMiddleware`] — Transaction middleware (commit on success, rollback on failure)
+//! - [`Pagination`] — Pagination parameter helper
+//! - [`ErrorResponse`] — Standard error response
+//! - [`HealthCheck`] — Health check
+//! - [`RouteInfo`] — Route info
 //!
-//! 由于 Rust 孤儿规则，无法直接为 `Arc<Pool>` 或 `QueryRows` 实现
-//! actix-web 的 `FromRequest`/`Responder`，因此使用 `PoolState` / `JsonRows`
-//! 包装类型（与 sz-orm-axum 风格保持一致）。
+//! Due to Rust's orphan rule, we cannot directly implement
+//! actix-web's `FromRequest`/`Responder` for `Arc<Pool>` or `QueryRows`, so we use `PoolState` / `JsonRows`
+//! wrapper types (consistent with sz-orm-axum style).
 
 mod auth;
 mod cors;
@@ -48,39 +48,39 @@ use tokio::sync::{Mutex, MutexGuard};
 // PoolState — 连接池的 actix-web 应用数据包装
 // ============================================================================
 
-/// 连接池的 actix-web 应用数据包装
+/// actix-web application data wrapper for connection pool
 ///
-/// `Pool` 内部使用 `Arc` 共享，`PoolState` 提供轻量级 `Clone`，
-/// 便于在 `App::app_data` 中注册，并实现 `FromRequest` 以便在 handler 中提取。
+/// `Pool` uses `Arc` internally for sharing, `PoolState` provides lightweight `Clone`,
+/// for easy registration in `App::app_data`, and implements `FromRequest` for extraction in handlers.
 #[derive(Clone)]
 pub struct PoolState {
     pool: Arc<Pool>,
 }
 
 impl PoolState {
-    /// 创建 PoolState
+    /// Create PoolState
     pub fn new(pool: Pool) -> Self {
         Self {
             pool: Arc::new(pool),
         }
     }
 
-    /// 从 `Arc<Pool>` 创建（避免重复 Arc 包装）
+    /// Create from `Arc<Pool>` (avoids duplicate Arc wrapping)
     pub fn from_arc(pool: Arc<Pool>) -> Self {
         Self { pool }
     }
 
-    /// 获取连接池引用
+    /// Get connection pool reference
     pub fn pool(&self) -> &Pool {
         &self.pool
     }
 
-    /// 获取 `Arc<Pool>` 克隆（便于直接传递给其他组件）
+    /// Get `Arc<Pool>` clone (for passing directly to other components)
     pub fn pool_arc(&self) -> Arc<Pool> {
         self.pool.clone()
     }
 
-    /// 消费 PoolState 返回 `Arc<Pool>`
+    /// Consume PoolState and return `Arc<Pool>`
     pub fn into_arc(self) -> Arc<Pool> {
         self.pool
     }
@@ -111,9 +111,9 @@ impl FromRequest for PoolState {
 // JsonRows — 查询结果的 JSON 响应
 // ============================================================================
 
-/// 包装 `QueryRows` 实现 `Responder`
+/// Wrap `QueryRows` implementing `Responder`
 ///
-/// `QueryRows = Vec<HashMap<String, Value>>`，逐字段转换为 JSON 对象数组。
+/// `QueryRows = Vec<HashMap<String, Value>>`, converted field-by-field to JSON object array.
 pub struct JsonRows(pub QueryRows);
 
 impl Responder for JsonRows {
@@ -135,10 +135,10 @@ impl Responder for JsonRows {
     }
 }
 
-/// `Value` 转换为 `serde_json::Value`
+/// Convert `Value` to `serde_json::Value`
 ///
-/// 手动映射以使 `Bytes` 输出十六进制字符串、`Decimal`/`Date` 等保留为字符串，
-/// 避免默认序列化把 `Vec<u8>` 展开为数字数组。
+/// Manual mapping so `Bytes` outputs hex string, `Decimal`/`Date` etc. kept as strings,
+/// avoiding default serialization expanding `Vec<u8>` to numeric array.
 fn value_to_json(v: &Value) -> serde_json::Value {
     match v {
         Value::Null => serde_json::Value::Null,
@@ -183,18 +183,18 @@ fn value_to_json(v: &Value) -> serde_json::Value {
 // JsonResp<T> — 通用 JSON 响应包装
 // ============================================================================
 
-/// 通用 JSON 响应包装
+/// Generic JSON response wrapper
 ///
-/// 对任何实现了 `Serialize` 的类型提供 `Responder` 实现。
+/// Provides `Responder` implementation for any type implementing `Serialize`.
 pub struct JsonResp<T: Serialize>(pub T);
 
 impl<T: Serialize> JsonResp<T> {
-    /// 创建 JSON 响应包装
+    /// Create JSON response wrapper
     pub fn new(value: T) -> Self {
         Self(value)
     }
 
-    /// 解包内部值
+    /// Unwrap inner value
     pub fn into_inner(self) -> T {
         self.0
     }
@@ -215,16 +215,16 @@ impl<T: Serialize> Responder for JsonResp<T> {
 // TransactionMiddleware — 事务中间件
 // ============================================================================
 
-/// 事务连接持有者
+/// Transaction connection holder
 ///
-/// 在 [`TransactionMiddleware`] 中创建，注入到 request extensions 供 handler
-/// 复用同一连接执行查询。handler 通过 `web::ReqData<TransactionConn>` 提取。
+/// Created in [`TransactionMiddleware`], injected into request extensions for handler
+/// to reuse the same connection for queries. Handler extracts via `web::ReqData<TransactionConn>`.
 ///
-/// 连接包装在 `Arc<Mutex<Option<PooledConnection>>>` 中：
-/// - `Some(conn)`：事务进行中，handler 可获取连接执行查询
-/// - `None`：事务已结束（中间件取回连接执行 commit/rollback）
+/// Connection wrapped in `Arc<Mutex<Option<PooledConnection>>>`:
+/// - `Some(conn)`: Transaction in progress, handler can acquire connection for queries
+/// - `None`: Transaction ended (middleware took back connection for commit/rollback)
 ///
-/// # 用法
+/// # Usage
 ///
 /// ```ignore
 /// use actix_web::web::ReqData;
@@ -244,20 +244,20 @@ pub struct TransactionConn {
 }
 
 impl TransactionConn {
-    /// 创建持有者（仅中间件内部使用）
+    /// Create holder (middleware internal use only)
     fn new(conn: PooledConnection) -> Self {
         Self {
             inner: Arc::new(Mutex::new(Some(conn))),
         }
     }
 
-    /// 获取连接的可变引用
+    /// Get mutable reference to connection
     ///
-    /// 返回 `MutexGuard<Option<PooledConnection>>`，调用方通过 `guard.as_mut()`
-    /// 获取 `&mut Option<PooledConnection>`，再 `.as_mut().unwrap()` 得到
+    /// Returns `MutexGuard<Option<PooledConnection>>`, caller via `guard.as_mut()`
+    /// gets `&mut Option<PooledConnection>`, then `.as_mut().unwrap()` to get
     /// `&mut PooledConnection`。
     ///
-    /// 如果中间件已取回连接（事务结束），返回 `None`。
+    /// If middleware has taken back connection (transaction ended), returns `None`.
     pub async fn conn(&self) -> Option<MutexGuard<'_, Option<PooledConnection>>> {
         let guard = self.inner.lock().await;
         if guard.is_none() {
@@ -290,17 +290,17 @@ impl FromRequest for TransactionConn {
     }
 }
 
-/// 事务中间件
+/// Transaction middleware
 ///
-/// 在请求处理前从连接池 acquire 连接并 `begin_transaction`，将连接注入
-/// `request extensions` 供 handler 复用；请求处理后根据 `ServiceResponse`
-/// 状态码 2xx 提交 / 否则回滚。
+/// Acquires connection from pool and `begin_transaction` before request processing, injects connection into
+/// `request extensions` for handler reuse; after request processing, based on `ServiceResponse`
+/// status code 2xx commit / otherwise rollback.
 ///
-/// **降级策略**：若 `app_data` 中未注册 `PoolState`，或 acquire 失败，
-/// 或 `begin_transaction` 失败，则退化为透传请求（不开启事务），并在
-/// 日志中记录警告。这保证未启用事务的场景仍可正常处理请求。
+/// **Fallback strategy**: If `PoolState` is not registered in `app_data`, or acquire fails,
+/// or `begin_transaction` fails, degrades to passthrough request (no transaction), and
+/// logs a warning. This ensures scenarios without transactions still process requests normally.
 ///
-/// # 用法
+/// # Usage
 ///
 /// ```ignore
 /// use actix_web::{web, App};
@@ -331,10 +331,10 @@ where
     }
 }
 
-/// 事务中间件服务
+/// Transaction middleware service
 ///
-/// 内部使用 `Rc<S>` 共享下游 service，以便在 async 块中调用 service
-/// （actix-web 的 `Service::Future` 不要求 `Send`，因此使用 `Rc` 而非 `Arc`）。
+/// Internally uses `Rc<S>` to share downstream service, for calling service in async blocks
+/// (actix-web's `Service::Future` does not require `Send`, so uses `Rc` instead of `Arc`).
 pub struct TransactionMiddlewareService<S> {
     service: Rc<S>,
 }
@@ -439,7 +439,7 @@ where
 // Pagination — 分页辅助
 // ============================================================================
 
-/// 分页参数辅助：计算 offset/limit、总页数、前后页判断
+/// Pagination parameter helper: compute offset/limit, total pages, next/prev page flags
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Pagination {
     page: u64,
@@ -447,7 +447,7 @@ pub struct Pagination {
 }
 
 impl Pagination {
-    /// 创建分页（page 从 1 开始，per_page 默认 20）
+    /// Create pagination (page starts from 1, per_page defaults to 20)
     pub fn new(page: u64, per_page: u64) -> Self {
         Self {
             page: page.max(1),
@@ -455,12 +455,12 @@ impl Pagination {
         }
     }
 
-    /// 当前页码
+    /// Current page number
     pub fn page(&self) -> u64 {
         self.page
     }
 
-    /// 每页行数
+    /// Rows per page
     pub fn per_page(&self) -> u64 {
         self.per_page
     }
@@ -475,7 +475,7 @@ impl Pagination {
         self.per_page
     }
 
-    /// 总页数
+    /// Total pages
     pub fn total_pages(&self, total: u64) -> u64 {
         if total == 0 {
             0
@@ -484,12 +484,12 @@ impl Pagination {
         }
     }
 
-    /// 是否有下一页
+    /// Whether there is a next page
     pub fn has_next(&self, total: u64) -> bool {
         self.page < self.total_pages(total)
     }
 
-    /// 是否有上一页
+    /// Whether there is a previous page
     pub fn has_prev(&self) -> bool {
         self.page > 1
     }
@@ -499,7 +499,7 @@ impl Pagination {
 // ErrorResponse — 标准错误响应
 // ============================================================================
 
-/// 标准错误响应：统一 code + message 格式
+/// Standard error response: unified code + message format
 #[derive(Debug, Clone)]
 pub struct ErrorResponse {
     code: u16,
@@ -516,34 +516,34 @@ impl Default for ErrorResponse {
 }
 
 impl ErrorResponse {
-    /// 创建默认错误响应（500）
+    /// Create default error response (500)
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 设置 HTTP 状态码（链式）
+    /// Set HTTP status code (chainable)
     pub fn with_code(mut self, code: u16) -> Self {
         self.code = code;
         self
     }
 
-    /// 设置错误消息（链式）
+    /// Set error message (chainable)
     pub fn with_message(mut self, msg: &str) -> Self {
         self.message = msg.to_string();
         self
     }
 
-    /// 状态码
+    /// Status code
     pub fn code(&self) -> u16 {
         self.code
     }
 
-    /// 错误消息
+    /// Error message
     pub fn message(&self) -> &str {
         &self.message
     }
 
-    /// JSON 字符串表示
+    /// JSON string representation
     pub fn to_json_string(&self) -> String {
         serde_json::json!({
             "code": self.code,
@@ -552,7 +552,7 @@ impl ErrorResponse {
         .to_string()
     }
 
-    /// 转换为 actix-web HttpResponse
+    /// Convert to actix-web HttpResponse
     pub fn to_http_response(&self) -> HttpResponse {
         let status = actix_web::http::StatusCode::from_u16(self.code)
             .unwrap_or(actix_web::http::StatusCode::INTERNAL_SERVER_ERROR);
@@ -567,29 +567,29 @@ impl ErrorResponse {
 // HealthCheck — 健康检查
 // ============================================================================
 
-/// 健康检查结果聚合
+/// Health check result aggregation
 #[derive(Debug, Clone, Default)]
 pub struct HealthCheck {
     checks: Vec<(String, bool)>,
 }
 
 impl HealthCheck {
-    /// 创建空健康检查
+    /// Create empty health check
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 添加检查结果
+    /// Add check result
     pub fn add_check(&mut self, name: &str, passed: bool) {
         self.checks.push((name.to_string(), passed));
     }
 
-    /// 检查项数
+    /// Number of check items
     pub fn check_count(&self) -> usize {
         self.checks.len()
     }
 
-    /// 是否全部通过
+    /// Whether all passed
     pub fn is_healthy(&self) -> bool {
         self.checks.iter().all(|(_, passed)| *passed)
     }
@@ -599,7 +599,7 @@ impl HealthCheck {
 // RouteInfo — 路由信息
 // ============================================================================
 
-/// 路由元信息：路径、方法、handler 名称
+/// Route metadata: path, method, handler name
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct RouteInfo {
     path: String,
@@ -608,7 +608,7 @@ pub struct RouteInfo {
 }
 
 impl RouteInfo {
-    /// 创建路由信息
+    /// Create route info
     pub fn new(path: &str, method: &str, handler_name: &str) -> Self {
         Self {
             path: path.to_string(),
@@ -617,22 +617,22 @@ impl RouteInfo {
         }
     }
 
-    /// 路径
+    /// Path
     pub fn path(&self) -> &str {
         &self.path
     }
 
-    /// HTTP 方法
+    /// HTTP method
     pub fn method(&self) -> &str {
         &self.method
     }
 
-    /// handler 名称
+    /// Handler name
     pub fn handler_name(&self) -> &str {
         &self.handler_name
     }
 
-    /// 描述字符串
+    /// Description string
     pub fn description(&self) -> String {
         format!("{} {} -> {}", self.method, self.path, self.handler_name)
     }

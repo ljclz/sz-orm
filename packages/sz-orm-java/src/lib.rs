@@ -1,10 +1,10 @@
 //! # SZ-ORM Java Bindings
 //!
-//! 通过 JNI 调用 sz-orm-cabi 的 C ABI，为 Java 提供 sz-orm-core 的
-//! Pool/Query API（SQLite 后端，真实可用）。
+//! Calls sz-orm-cabi's C ABI via JNI, providing Java with sz-orm-core's
+//! Pool/Query API (SQLite backend, real and usable).
 //!
-//! JNI 符号名遵循 javac -h 生成的 `sz_orm_java_SzOrmPool.h`：
-//! 包名 `sz_orm_java` 中的下划线转义为 `_1`。
+//! JNI symbol names follow javac -h generated `sz_orm_java_SzOrmPool.h`:
+//! Underscores in package name `sz_orm_java` are escaped as `_1`.
 
 use jni::objects::{JClass, JString};
 use jni::sys::{jint, jlong, jstring};
@@ -12,9 +12,9 @@ use jni::EnvUnowned;
 
 use std::ffi::CString;
 
-/// JNI 入口：创建连接池（真实创建，SQLite 后端）
+/// JNI entry: Create connection pool (real creation, SQLite backend)
 ///
-/// 返回句柄（jlong），0 表示失败。
+/// Returns handle (jlong), 0 indicates failure.
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_poolNew<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -39,11 +39,11 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_poolNew<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：释放连接池
+/// JNI entry: Free connection pool
 ///
 /// # Safety
 ///
-/// SAFETY: handle 必须是 `poolNew` 返回的有效句柄。
+/// SAFETY: handle must be a valid handle returned by `poolNew`.
 #[no_mangle]
 pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_poolFree<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -62,11 +62,11 @@ pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_poolFree<'local>(
     });
 }
 
-/// JNI 入口：健康检查（真实 acquire + ping）
+/// JNI entry: Health check (real acquire + ping)
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `poolNew` 返回的有效句柄，且未被 `poolFree` 释放。
+/// SAFETY: `handle` must be a valid handle returned by `poolNew`, and not freed by `poolFree`.
 #[no_mangle]
 pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_ping<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -86,14 +86,14 @@ pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_ping<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：执行查询，返回 JSON 行数组字符串
+/// JNI entry: Execute query, return JSON row array string
 ///
-/// 失败返回 null（Java 侧抛 IllegalStateException）。
+/// Returns null on failure (Java side throws IllegalStateException).
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `poolNew` 返回的有效句柄，且未被 `poolFree` 释放；
-/// `sql` 必须是 JNI 传入的有效 `JString`。
+/// SAFETY: `handle` must be a valid handle returned by `poolNew`, and not freed by `poolFree`;
+/// `sql` must be a valid `JString` passed from JNI.
 #[no_mangle]
 pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_query<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -136,12 +136,12 @@ pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_query<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：执行写语句，返回影响行数（-1 表示失败）
+/// JNI entry: Execute write statement, return affected row count (-1 indicates failure)
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `poolNew` 返回的有效句柄，且未被 `poolFree` 释放；
-/// `sql` 必须是 JNI 传入的有效 `JString`。
+/// SAFETY: `handle` must be a valid handle returned by `poolNew`, and not freed by `poolFree`;
+/// `sql` must be a valid `JString` passed from JNI.
 #[no_mangle]
 pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_execute<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -169,7 +169,7 @@ pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_execute<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：绑定版本号
+/// JNI entry: Bind version number
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_version<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -184,7 +184,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_version<'local>(
 // 事务 JNI 入口（REQ-BND-006）
 // ============================================================================
 
-/// JNI 入口：开始事务，返回事务句柄（0 表示失败）
+/// JNI entry: Begin transaction, return transaction handle (0 indicates failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_beginTransaction<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -205,7 +205,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_beginTransaction<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：提交事务，返回 1=成功 0=失败
+/// JNI entry: Commit transaction, return 1=success 0=failure
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_commitTransaction<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -228,7 +228,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_commitTransaction<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：回滚事务，返回 1=成功 0=失败
+/// JNI entry: Rollback transaction, return 1=success 0=failure
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_rollbackTransaction<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -251,11 +251,11 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_rollbackTransaction<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：释放事务句柄（若仍活跃则自动回滚）
+/// JNI entry: Free transaction handle (auto rollback if still active)
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `beginTransaction` 返回的有效句柄。
+/// SAFETY: `tx_handle` must be a valid handle returned by `beginTransaction`.
 #[no_mangle]
 pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_freeTransaction<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -278,7 +278,7 @@ pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_freeTransaction<'loca
 // 模型级 JNI 入口（REQ-BND-013）
 // ============================================================================
 
-/// JNI 入口：在 pool 上插入行，返回受影响行数（-1 表示失败）
+/// JNI entry: Insert row on pool, return affected row count (-1 indicates failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelInsert<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -317,7 +317,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelInsert<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：在 pool 上更新行，返回受影响行数（-1 表示失败）
+/// JNI entry: Update row on pool, return affected row count (-1 indicates failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelUpdate<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -361,7 +361,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelUpdate<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：在 pool 上删除行，返回受影响行数（-1 表示失败）
+/// JNI entry: Delete row on pool, return affected row count (-1 indicates failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelDelete<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -401,7 +401,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelDelete<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：在 pool 上查询行，返回 JSON 行数组字符串（失败返回空字符串）
+/// JNI entry: Query row on pool, return JSON row array string (empty string on failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelFind<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -450,7 +450,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelFind<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：在事务内插入行，返回受影响行数（-1 表示失败）
+/// JNI entry: Insert row in transaction, return affected row count (-1 indicates failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelInsertTx<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -489,7 +489,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelInsertTx<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：在事务内更新行，返回受影响行数（-1 表示失败）
+/// JNI entry: Update row in transaction, return affected row count (-1 indicates failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelUpdateTx<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -533,7 +533,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelUpdateTx<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：在事务内删除行，返回受影响行数（-1 表示失败）
+/// JNI entry: Delete row in transaction, return affected row count (-1 indicates failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelDeleteTx<'local>(
     mut unowned_env: EnvUnowned<'local>,
@@ -573,7 +573,7 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelDeleteTx<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
-/// JNI 入口：在事务内查询行，返回 JSON 行数组字符串（失败返回空字符串）
+/// JNI entry: Query row in transaction, return JSON row array string (empty string on failure)
 #[no_mangle]
 pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelFindTx<'local>(
     mut unowned_env: EnvUnowned<'local>,

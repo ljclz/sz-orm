@@ -1,12 +1,12 @@
-//! # SZ-ORM Masking — 数据脱敏
+//! # SZ-ORM Masking — Data Masking
 //!
-//! 提供手机号、邮箱、身份证、银行卡、姓名、地址等敏感字段脱敏，并支持自定义
-//! 前缀/后缀保留规则。实现 Unicode 安全，对短输入有合理兜底，不会 panic。
+//! Provides masking for sensitive fields such as phone number, email, ID card, bank card, name, address, and supports custom
+//! prefix/suffix retention rules. Unicode safe, with reasonable fallback for short input, does not panic.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`MaskingRule`] — 脱敏规则枚举
-//! - [`DataMasker`] — 脱敏执行器
+//! - [`MaskingRule`] — Masking rule enum
+//! - [`DataMasker`] — Masking executor
 
 use serde::{Deserialize, Serialize};
 
@@ -222,12 +222,12 @@ fn mask_address(value: &str, keep: usize) -> String {
     out
 }
 
-/// IP 地址脱敏：192.168.1.100 → 192.168.1.*
+/// IP address masking: 192.168.1.100 → 192.168.1.*
 ///
-/// IPv4：隐藏最后一段（最后一个 `.` 之后的内容）。
-/// IPv6：隐藏最后一个 `:` 组（最后一个冒号之后的内容）。
-/// 无法识别时原样返回。`.` 和 `:` 为 ASCII 单字节，`rfind` 返回的字节位置
-/// 一定是字符边界，切片安全。
+/// IPv4: Hide last segment (content after last `.`).
+/// IPv6: Hide last `:` group (content after last colon).
+/// Returns as-is if unrecognized. `.` and `:` are ASCII single bytes, `rfind` returns byte position
+/// that is always a character boundary, slice is safe.
 fn mask_ip(ip: &str) -> String {
     if let Some(last_dot) = ip.rfind('.') {
         format!("{}.*", &ip[..last_dot])
@@ -238,9 +238,9 @@ fn mask_ip(ip: &str) -> String {
     }
 }
 
-/// IMEI 脱敏：保留前 6 位和最后 1 位，中间用 `****` 替代
+/// IMEI masking: Keep first 6 digits and last 1 digit, replace middle with `****`
 ///
-/// IMEI 为 15 位数字（3GPP TS 23.003），按 Unicode 字符处理以保证安全。
+/// IMEI is 15 digits (3GPP TS 23.003), processed by Unicode characters for safety.
 fn mask_imei(imei: &str) -> String {
     let chars: Vec<char> = imei.chars().collect();
     if chars.len() < 7 {
@@ -255,10 +255,10 @@ fn mask_imei(imei: &str) -> String {
     out
 }
 
-/// 车牌号脱敏：京A12345 → 京A12**45
+/// License plate masking: 京A12345 → 京A12**45
 ///
-/// 保留前 (len-2) 个字符和最后 2 个字符，中间用 `**` 替代。
-/// 按 Unicode 字符处理，支持中文车牌（如"京A12345"）。
+/// Keep first (len-2) characters and last 2 characters, replace middle with `**`.
+/// Processed by Unicode characters, supports Chinese license plates (e.g. "京A12345").
 fn mask_plate(plate: &str) -> String {
     let chars: Vec<char> = plate.chars().collect();
     let len = chars.len();
@@ -300,45 +300,45 @@ fn parse_custom_spec(spec: &str) -> Option<(usize, usize)> {
 // 脱敏策略与审计工具
 // ---------------------------------------------------------------------------
 
-/// 脱敏策略：为多个字段定义脱敏规则，批量应用
+/// Masking strategy: define masking rules for multiple fields, applied in batch
 #[derive(Debug, Clone, Default)]
 pub struct MaskingPolicy {
     rules: std::collections::HashMap<String, MaskingRule>,
 }
 
 impl MaskingPolicy {
-    /// 创建空策略
+    /// Create empty strategy
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 添加字段脱敏规则（链式）
+    /// Add field masking rule (chainable)
     pub fn add_rule(&mut self, field: &str, rule: MaskingRule) -> &mut Self {
         self.rules.insert(field.to_string(), rule);
         self
     }
 
-    /// 获取某字段的脱敏规则
+    /// Get masking rule for a field
     pub fn get_rule(&self, field: &str) -> Option<&MaskingRule> {
         self.rules.get(field)
     }
 
-    /// 移除某字段的脱敏规则
+    /// Remove masking rule for a field
     pub fn remove_rule(&mut self, field: &str) -> Option<MaskingRule> {
         self.rules.remove(field)
     }
 
-    /// 已注册字段数
+    /// Number of registered fields
     pub fn field_count(&self) -> usize {
         self.rules.len()
     }
 
-    /// 获取所有规则引用
+    /// Get all rule references
     pub fn rules(&self) -> &std::collections::HashMap<String, MaskingRule> {
         &self.rules
     }
 
-    /// 对 HashMap 数据应用脱敏
+    /// Apply masking to HashMap data
     pub fn apply_to_map(
         &self,
         data: &std::collections::HashMap<String, String>,
@@ -346,13 +346,13 @@ impl MaskingPolicy {
         DataMasker::mask_map(&self.rules, data)
     }
 
-    /// 对 JSON 字符串应用脱敏
+    /// Apply masking to JSON string
     pub fn apply_to_json(&self, json: &str) -> String {
         DataMasker::mask_json(&self.rules, json)
     }
 }
 
-/// 脱敏审计条目：记录单次脱敏操作
+/// Masking audit entry: records a single masking operation
 #[derive(Debug, Clone)]
 pub struct MaskAuditEntry {
     field: String,
@@ -361,40 +361,40 @@ pub struct MaskAuditEntry {
 }
 
 impl MaskAuditEntry {
-    /// 字段名
+    /// Field name
     pub fn field(&self) -> &str {
         &self.field
     }
 
-    /// 原始值长度
+    /// Original value length
     pub fn original_len(&self) -> usize {
         self.original_len
     }
 
-    /// 脱敏后长度
+    /// Masked length
     pub fn masked_len(&self) -> usize {
         self.masked_len
     }
 
-    /// 是否被截断（脱敏后比原始短）
+    /// Whether truncated (masked is shorter than original)
     pub fn was_truncated(&self) -> bool {
         self.masked_len < self.original_len
     }
 }
 
-/// 脱敏审计日志：记录所有脱敏操作
+/// Masking audit log: records all masking operations
 #[derive(Debug, Clone, Default)]
 pub struct MaskAuditLog {
     entries: Vec<MaskAuditEntry>,
 }
 
 impl MaskAuditLog {
-    /// 创建空审计日志
+    /// Create empty audit log
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 记录一次脱敏操作
+    /// Record a masking operation
     pub fn log(&mut self, field: &str, original_len: usize, masked_len: usize) {
         self.entries.push(MaskAuditEntry {
             field: field.to_string(),
@@ -403,17 +403,17 @@ impl MaskAuditLog {
         });
     }
 
-    /// 所有审计条目
+    /// All audit entries
     pub fn entries(&self) -> &[MaskAuditEntry] {
         &self.entries
     }
 
-    /// 条目数
+    /// Entry count
     pub fn entry_count(&self) -> usize {
         self.entries.len()
     }
 
-    /// 被掩码的字符总数（original_len - masked_len 之和）
+    /// Total masked characters (sum of original_len - masked_len)
     pub fn total_masked_chars(&self) -> usize {
         self.entries
             .iter()
@@ -421,13 +421,13 @@ impl MaskAuditLog {
             .sum()
     }
 
-    /// 清空日志
+    /// Clear log
     pub fn clear(&mut self) {
         self.entries.clear();
     }
 }
 
-/// 脱敏配置：自定义掩码字符、最小掩码长度、兜底值
+/// Masking config: custom mask character, minimum mask length, fallback value
 #[derive(Debug, Clone)]
 pub struct MaskingConfig {
     mask_char: char,
@@ -446,73 +446,73 @@ impl Default for MaskingConfig {
 }
 
 impl MaskingConfig {
-    /// 创建默认配置
+    /// Create default config
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 掩码字符
+    /// Mask character
     pub fn mask_char(&self) -> char {
         self.mask_char
     }
 
-    /// 设置掩码字符（链式）
+    /// Set mask character (chainable)
     pub fn with_mask_char(mut self, c: char) -> Self {
         self.mask_char = c;
         self
     }
 
-    /// 最小掩码长度
+    /// Minimum mask length
     pub fn min_mask_length(&self) -> usize {
         self.min_mask_length
     }
 
-    /// 设置最小掩码长度（链式）
+    /// Set minimum mask length (chainable)
     pub fn with_min_mask_length(mut self, min: usize) -> Self {
         self.min_mask_length = min;
         self
     }
 
-    /// 兜底值
+    /// Fallback value
     pub fn fallback_value(&self) -> &str {
         &self.fallback
     }
 
-    /// 设置兜底值（链式）
+    /// Set fallback value (chainable)
     pub fn with_fallback_value(mut self, value: &str) -> Self {
         self.fallback = value.to_string();
         self
     }
 }
 
-/// 脱敏统计：按字段跟踪脱敏操作次数
+/// Masking statistics: tracks masking operation count per field
 #[derive(Debug, Clone, Default)]
 pub struct MaskingStats {
     counts: std::collections::HashMap<String, u64>,
 }
 
 impl MaskingStats {
-    /// 创建空统计
+    /// Create empty statistics
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 记录一次脱敏操作
+    /// Record a masking operation
     pub fn record(&mut self, field: &str) {
         *self.counts.entry(field.to_string()).or_insert(0) += 1;
     }
 
-    /// 总操作次数
+    /// Total operation count
     pub fn total_operations(&self) -> u64 {
         self.counts.values().sum()
     }
 
-    /// 某字段的操作次数
+    /// Operation count for a field
     pub fn field_operations(&self, field: &str) -> u64 {
         self.counts.get(field).copied().unwrap_or(0)
     }
 
-    /// 操作次数最多的字段
+    /// Field with most operations
     pub fn most_masked_field(&self) -> Option<&str> {
         self.counts
             .iter()

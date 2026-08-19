@@ -1,7 +1,7 @@
-//! sz-orm Python 绑定（PyO3）
+//! sz-orm Python bindings (PyO3)
 //!
-//! 暴露 sz-orm-core 的四类核心 API：Model、QueryBuilder、Pool、Transaction。
-//! 异步方法通过 pyo3-asyncio 桥接到 asyncio。
+//! Exposes four core API categories of sz-orm-core: Model, QueryBuilder, Pool, Transaction.
+//! Async methods are bridged to asyncio via pyo3-asyncio.
 
 use pyo3::prelude::*;
 

@@ -1,12 +1,12 @@
-//! SZ-ORM pgvector 扩展
+//! SZ-ORM pgvector Extension
 //!
-//! 提供 PostgreSQL pgvector 向量相似度搜索能力，支持三种实现：
+//! Provides PostgreSQL pgvector vector similarity search capabilities, supporting three implementations:
 //!
-//! - **内存实现**（`InMemoryVectorStore`）：纯 Rust 向量计算，不连接数据库，适用于测试和基准
-//! - **Stub 实现**（`StubVectorStore`）：所有方法返回 Unsupported，适用于调试占位
-//! - **真实实现**（`RealPgVectorStore`，需启用 `real-pg` feature）：通过 tokio-postgres 连接 PostgreSQL + pgvector
+//! - **In-memory implementation** (`InMemoryVectorStore`): Pure Rust vector computation, no database connection, suitable for testing and benchmarking
+//! - **Stub implementation** (`StubVectorStore`): All methods return Unsupported, suitable for debug placeholder
+//! - **Real implementation** (`RealPgVectorStore`, requires `real-pg` feature): Connects to PostgreSQL + pgvector via tokio-postgres
 //!
-//! # 快速入门
+//! # Quick Start
 //!
 //! ```rust
 //! use sz_orm_vector::{InMemoryVectorStore, PgVectorStore, VectorRecord, VectorMetric};
@@ -53,19 +53,19 @@ use async_trait::async_trait;
 use std::collections::HashMap;
 use std::str::FromStr;
 
-/// M-16 修复：top_k 最大限制
+/// M-16 fix: top_k maximum limit
 ///
-/// 限制 top_k 上限以防止：
-/// - 大 k 值导致内存爆炸（每个 SearchResult 包含完整向量）
-/// - 数据库/向量引擎执行超大 k 查询的性能问题
-/// - 恶意调用方通过 top_k=usize::MAX 触发 OOM
+/// Limit top_k upper bound to prevent:
+/// - Large k values causing memory explosion (each SearchResult contains full vector)
+/// - Performance issues with database/vector engine executing huge k queries
+/// - Malicious caller triggering OOM via top_k=usize::MAX
 pub const MAX_TOP_K: usize = 10_000;
 
-/// M-16 修复：校验 top_k 是否在合理范围内
+/// M-16 fix: Validate whether top_k is within reasonable range
 ///
-/// - `top_k = 0`：返回 `TopKExceeded` 错误（无意义的查询）
-/// - `top_k > MAX_TOP_K`：返回 `TopKExceeded` 错误
-/// - `1 <= top_k <= MAX_TOP_K`：返回 Ok
+/// - `top_k = 0`: Returns `TopKExceeded` error (meaningless query)
+/// - `top_k > MAX_TOP_K`: Returns `TopKExceeded` error
+/// - `1 <= top_k <= MAX_TOP_K`: Returns Ok
 pub fn validate_top_k(top_k: usize) -> Result<usize, VectorError> {
     if top_k == 0 {
         return Err(VectorError::TopKExceeded {
@@ -82,7 +82,7 @@ pub fn validate_top_k(top_k: usize) -> Result<usize, VectorError> {
     Ok(top_k)
 }
 
-/// 向量记录
+/// Vector record
 #[derive(Debug, Clone)]
 pub struct VectorRecord {
     pub id: String,
@@ -112,7 +112,7 @@ impl VectorRecord {
     }
 }
 
-/// 搜索结果
+/// Search result
 #[derive(Debug, Clone)]
 pub struct SearchResult {
     pub id: String,
@@ -144,7 +144,7 @@ impl SearchResult {
     }
 }
 
-/// 向量距离度量
+/// Vector distance metric
 #[derive(Debug, Clone, Copy, Default, PartialEq)]
 pub enum VectorMetric {
     #[default]
@@ -154,7 +154,7 @@ pub enum VectorMetric {
 }
 
 impl VectorMetric {
-    /// pgvector 操作符映射
+    /// pgvector operator mapping
     pub fn pg_operator(&self) -> &'static str {
         match self {
             VectorMetric::Cosine => "<=>",
@@ -185,13 +185,13 @@ impl FromStr for VectorMetric {
     }
 }
 
-/// Vector Store 核心 trait
+/// Vector Store core trait
 ///
-/// 提供向量集合的 CRUD 和相似度搜索能力。
-/// 所有方法均为 async，适用于真实数据库 I/O。
+/// Provides CRUD and similarity search capabilities for vector collections.
+/// All methods are async, suitable for real database I/O.
 #[async_trait]
 pub trait PgVectorStore: Send + Sync {
-    /// 创建集合
+    /// Create collection
     async fn create_collection(
         &self,
         name: &str,
@@ -199,17 +199,17 @@ pub trait PgVectorStore: Send + Sync {
         metric: Option<VectorMetric>,
     ) -> Result<(), VectorError>;
 
-    /// 删除集合
+    /// Delete collection
     async fn delete_collection(&self, name: &str) -> Result<(), VectorError>;
 
-    /// 插入向量记录（upsert 语义：相同 id 会覆盖）
+    /// Insert vector record (upsert semantics: same id overwrites)
     async fn insert(&self, collection: &str, records: Vec<VectorRecord>)
         -> Result<(), VectorError>;
 
-    /// 相似度搜索
+    /// Similarity search
     ///
-    /// M-16 修复：`top_k` 必须在 `[1, MAX_TOP_K]` 范围内。
-    /// 实现方应在执行搜索前调用 `validate_top_k(top_k)?` 进行校验。
+    /// M-16 fix: `top_k` must be in `[1, MAX_TOP_K]` range.
+    /// Implementations should call `validate_top_k(top_k)?` before executing search.
     async fn search(
         &self,
         collection: &str,
@@ -217,12 +217,12 @@ pub trait PgVectorStore: Send + Sync {
         top_k: usize,
     ) -> Result<Vec<SearchResult>, VectorError>;
 
-    /// 获取单个记录
+    /// Get single record
     async fn get(&self, collection: &str, id: &str) -> Result<Option<VectorRecord>, VectorError>;
 
-    /// 删除记录
+    /// Delete record
     async fn delete(&self, collection: &str, ids: Vec<String>) -> Result<u64, VectorError>;
 
-    /// 统计记录数
+    /// Count records
     async fn count(&self, collection: &str) -> Result<usize, VectorError>;
 }

@@ -1,17 +1,17 @@
-//! # SZ-ORM WebSocket — 实时推送
+//! # SZ-ORM WebSocket — Real-time Push
 //!
-//! 提供 WebSocket 长连接管理、消息推送与认证支持，可选启用 `server` feature
-//! 启动独立 WebSocket 服务。
+//! Provides WebSocket long-lived connection management, message push, and authentication support,
+//! optionally enable `server` feature to start a standalone WebSocket server.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`handler`] — 连接处理与会话管理
-//! - [`pusher`] — 消息推送器
-//! - [`heartbeat`] — 心跳机制（Ping/Pong）与连接保活
-//! - [`pool`] — 连接池管理（LRU 淘汰、容量限制）
-//! - [`compression`] — 消息压缩（permessage-deflate 模拟）
-//! - [`subprotocol`] — 子协议协商
-//! - [`server`] — WebSocket 服务端（feature = "server"）
+//! - [`handler`] — Connection handling and session management
+//! - [`pusher`] — Message pusher
+//! - [`heartbeat`] — Heartbeat mechanism (Ping/Pong) and connection keep-alive
+//! - [`pool`] — Connection pool management (LRU eviction, capacity limit)
+//! - [`compression`] — Message compression (permessage-deflate simulation)
+//! - [`subprotocol`] — Subprotocol negotiation
+//! - [`server`] — WebSocket server (feature = "server")
 
 pub mod compression;
 pub mod error;

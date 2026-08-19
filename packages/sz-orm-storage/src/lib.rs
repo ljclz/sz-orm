@@ -1,24 +1,24 @@
-//! # SZ-ORM Storage — 对象存储
+//! # SZ-ORM Storage — Object Storage
 //!
-//! 提供统一的对象存储抽象，支持 S3、阿里云 OSS、七牛 Kodo、华为 OBS、
-//! 腾讯 COS、又拍云以及本地文件系统，可通过 `StorageBuilder` 配置多 provider。
+//! Provides unified object storage abstraction, supports S3, Aliyun OSS, Qiniu Kodo, Huawei OBS,
+//! Tencent COS, UpYun, and local file system, configurable multi-provider via `StorageBuilder`.
 //!
-//! ## 生产可用性说明
+//! ## Production Readiness Notes
 //!
-//! 本 crate 中各 provider 的**生产可用性分级**如下：
+//! The **production readiness grading** for each provider in this crate is as follows:
 //!
-//! | Provider | 模块 | 状态 |
+//! | Provider | Module | Status |
 //! |---|---|---|
-//! | Local（本地文件系统） | [`local`] | ✅ 生产可用 |
-//! | S3（AWS S3 兼容） | `s3_sdk` 模块（feature = "s3-sdk"） | ✅ 生产可用（基于 `rust-s3` crate） |
-//! | Aliyun OSS | `real`（feature = "real-cloud"） | ✅ 生产可用（基于 OpenDAL） |
-//! | Tencent COS | `real`（feature = "real-cloud"） | ✅ 生产可用（基于 OpenDAL） |
-//! | Huawei OBS | `real`（feature = "real-cloud"） | ✅ 生产可用（基于 OpenDAL） |
-//! | UpYun | `real`（feature = "real-cloud"） | ✅ 生产可用（基于 OpenDAL） |
-//! | Qiniu Kodo | `real`（feature = "real-cloud"） | ✅ 生产可用（官方 REST API + HMAC-SHA1） |
-//! | 以上云（未启用 feature） | [`aliyun`] [`tencent`] [`qiniu`] [`huawei`] [`upyun`] [`s3`] | ⚠️ MOCK-ONLY（内存 HashMap） |
+//! | Local (local filesystem) | [`local`] | ✅ Production ready |
+//! | S3 (AWS S3 compatible) | `s3_sdk` module (feature = "s3-sdk") | ✅ Production ready (based on `rust-s3` crate) |
+//! | Aliyun OSS | `real` (feature = "real-cloud") | ✅ Production ready (based on OpenDAL) |
+//! | Tencent COS | `real` (feature = "real-cloud") | ✅ Production ready (based on OpenDAL) |
+//! | Huawei OBS | `real` (feature = "real-cloud") | ✅ Production ready (based on OpenDAL) |
+//! | UpYun | `real` (feature = "real-cloud") | ✅ Production ready (based on OpenDAL) |
+//! | Qiniu Kodo | `real` (feature = "real-cloud") | ✅ Production ready (official REST API + HMAC-SHA1) |
+//! | Above clouds (feature not enabled) | [`aliyun`] [`tencent`] [`qiniu`] [`huawei`] [`upyun`] [`s3`] | ⚠️ MOCK-ONLY (in-memory HashMap) |
 //!
-//! ## 使用真实云存储
+//! ## Using Real Cloud Storage
 //!
 //! ```toml
 //! [dependencies]
@@ -40,14 +40,14 @@
 //! # }
 //! ```
 //!
-//! 启用 `real-cloud` 后，`StorageBuilder::build()` 自动构造真实云客户端；
-//! 未配置凭据时返回 `StorageError::InvalidConfig`，不会静默降级为 Mock。
+//! When `real-cloud` is enabled, `StorageBuilder::build()` automatically constructs real cloud client;
+//! returns `StorageError::InvalidConfig` when credentials are not configured, does not silently degrade to Mock.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`storage`] — 统一 trait 与构建器
-//! - `real` — 真实云存储（feature = "real-cloud"）
-//! - [`s3`] / [`aliyun`] / [`huawei`] / [`tencent`] / [`qiniu`] / [`upyun`] / [`local`] — 各 provider 实现
+//! - [`storage`] — Unified trait and builder
+//! - `real` — Real cloud storage (feature = "real-cloud")
+//! - [`s3`] / [`aliyun`] / [`huawei`] / [`tencent`] / [`qiniu`] / [`upyun`] / [`local`] — Each provider implementation
 
 pub mod advanced;
 pub mod error;
@@ -110,10 +110,10 @@ pub use s3_sdk::S3SdkStorage;
 mod tests {
     use super::*;
 
-    /// 测试数据目录：优先 F:\test\data（用户规范），回退到环境变量或系统 temp（CI/Linux）
+    /// Test data directory: prefer F:\test\data (user convention), fall back to environment variable or system temp (CI/Linux)
     ///
-    /// 注意：仅检查目录存在不足以保证可用——还需验证可写性，
-    /// 以避免在受限沙箱环境中因目录存在但不可写导致测试失败。
+    /// Note: checking directory existence alone is insufficient to guarantee usability — writability must also be verified,
+    /// to avoid test failures in restricted sandbox environments where directory exists but is not writable.
     fn test_data_base() -> std::path::PathBuf {
         let f_drive = std::path::Path::new("F:\\test\\data");
         if is_dir_writable(f_drive) {
@@ -128,7 +128,7 @@ mod tests {
         std::env::temp_dir()
     }
 
-    /// 检查目录是否存在且可写：尝试在其中创建并删除一个探测文件
+    /// Check if directory exists and is writable: try creating and deleting a probe file in it
     fn is_dir_writable(dir: &std::path::Path) -> bool {
         if !dir.exists() {
             return false;

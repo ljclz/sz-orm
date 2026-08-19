@@ -382,29 +382,29 @@ pub fn validate(sql: &str) -> ValidationResult {
 // 深度扩展：基于 AST 的注入检测、白名单校验、SQL 复杂度评分、DDL 操作限制
 // ============================================================================
 
-/// SQL 令牌类型（简化 AST 分析用）。
+/// SQL token type (for simplified AST analysis).
 #[derive(Debug, Clone, PartialEq)]
 pub enum SqlToken {
-    /// 关键字（SELECT/FROM/WHERE 等）
+    /// Keyword (SELECT/FROM/WHERE etc.)
     Keyword(String),
-    /// 标识符（表名/列名）
+    /// Identifier (table name / column name)
     Identifier(String),
-    /// 字符串字面量
+    /// String literal
     StringLiteral(String),
-    /// 数字字面量
+    /// Number literal
     NumberLiteral(String),
-    /// 运算符
+    /// Operator
     Operator(String),
-    /// 标点（括号/逗号/分号）
+    /// Punctuation (parentheses / comma / semicolon)
     Punctuation(char),
-    /// 注释
+    /// Comment
     Comment(String),
 }
 
-/// 简易 SQL 词法分析器，将 SQL 字符串切分为令牌序列。
+/// Simple SQL lexer that splits a SQL string into a token sequence.
 ///
-/// 此分析器不依赖外部 SQL 解析库，仅做基础的词法切分，
-/// 用于后续的 AST 级注入检测与复杂度评分。
+/// This lexer does not depend on an external SQL parsing library; it only performs basic lexical splitting,
+/// for subsequent AST-level injection detection and complexity scoring.
 pub fn tokenize(sql: &str) -> Vec<SqlToken> {
     let mut tokens = Vec::new();
     let chars: Vec<char> = sql.chars().collect();
@@ -596,13 +596,13 @@ pub fn tokenize(sql: &str) -> Vec<SqlToken> {
     tokens
 }
 
-/// 基于 AST（令牌序列）的深度注入检测。
+/// Deep injection detection based on AST (token sequence).
 ///
-/// 比简单的字符串匹配更精确，检测以下模式：
-/// - 语句中混入 DDL/DML 关键字（如 SELECT 中出现 DROP/ALTER/TRUNCATE）
-/// - 多语句注入（分号后跟另一条语句）
-/// - EXEC / EXECUTE 调用（常用于注入攻击）
-/// - 布尔盲注模式（OR 后跟恒真条件）
+/// More precise than simple string matching; detects the following patterns:
+/// - DDL/DML keywords mixed into a statement (e.g. DROP/ALTER/TRUNCATE appearing in SELECT)
+/// - Multi-statement injection (semicolon followed by another statement)
+/// - EXEC / EXECUTE calls (commonly used in injection attacks)
+/// - Boolean blind injection pattern (OR followed by a tautology condition)
 pub fn detect_injection_ast(sql: &str) -> ValidationResult {
     let tokens = tokenize(sql);
     let keywords: Vec<&str> = tokens
@@ -676,17 +676,17 @@ pub fn detect_injection_ast(sql: &str) -> ValidationResult {
     Ok(())
 }
 
-/// 白名单校验器，限制 SQL 只能访问允许的表和列。
+/// Whitelist validator that restricts SQL to only access allowed tables and columns.
 #[derive(Debug, Clone, Default)]
 pub struct WhitelistValidator {
-    /// 允许的表名集合（小写）
+    /// Allowed table name set (lowercase)
     allowed_tables: std::collections::HashSet<String>,
-    /// 允许的列名集合（小写），None 表示允许所有列
+    /// Allowed column name set (lowercase), None means all columns are allowed
     allowed_columns: Option<std::collections::HashSet<String>>,
 }
 
 impl WhitelistValidator {
-    /// 创建空的白名单校验器（默认拒绝所有）。
+    /// Create an empty whitelist validator (denies all by default).
     pub fn new() -> Self {
         Self {
             allowed_tables: std::collections::HashSet::new(),
@@ -694,13 +694,13 @@ impl WhitelistValidator {
         }
     }
 
-    /// 添加允许的表名。
+    /// Add an allowed table name.
     pub fn allow_table(mut self, table: &str) -> Self {
         self.allowed_tables.insert(table.to_lowercase());
         self
     }
 
-    /// 添加多个允许的表名。
+    /// Add multiple allowed table names.
     pub fn allow_tables(mut self, tables: &[&str]) -> Self {
         for t in tables {
             self.allowed_tables.insert(t.to_lowercase());
@@ -708,7 +708,7 @@ impl WhitelistValidator {
         self
     }
 
-    /// 设置允许的列名集合。设置后，SQL 中引用的列必须在集合内。
+    /// Set the allowed column name set. After setting, columns referenced in SQL must be in the set.
     pub fn allow_columns(mut self, columns: &[&str]) -> Self {
         let set: std::collections::HashSet<String> =
             columns.iter().map(|c| c.to_lowercase()).collect();
@@ -716,10 +716,10 @@ impl WhitelistValidator {
         self
     }
 
-    /// 校验 SQL 中的表名是否在白名单内。
+    /// Validate that table names in SQL are within the whitelist.
     ///
-    /// 通过词法分析提取所有出现在 FROM / JOIN / INTO / UPDATE 后的标识符，
-    /// 检查它们是否在 `allowed_tables` 集合内。
+    /// Extracts all identifiers appearing after FROM / JOIN / INTO / UPDATE via lexical analysis,
+    /// and checks whether they are in the `allowed_tables` set.
     pub fn validate_tables(&self, sql: &str) -> ValidationResult {
         if self.allowed_tables.is_empty() {
             return Ok(()); // 未设置白名单则跳过
@@ -759,10 +759,10 @@ impl WhitelistValidator {
         Ok(())
     }
 
-    /// 校验 SQL 中的列名是否在白名单内。
+    /// Validate that column names in SQL are within the whitelist.
     ///
-    /// 提取 SELECT 后、WHERE 子句中、SET 后的标识符作为列名进行校验。
-    /// 注意：此校验为启发式，可能无法覆盖所有列引用场景。
+    /// Extracts identifiers after SELECT, in WHERE clauses, and after SET as column names for validation.
+    /// Note: this validation is heuristic and may not cover all column reference scenarios.
     pub fn validate_columns(&self, sql: &str) -> ValidationResult {
         let allowed = match &self.allowed_columns {
             Some(c) => c,
@@ -792,40 +792,40 @@ impl WhitelistValidator {
         Ok(())
     }
 
-    /// 同时校验表名和列名。
+    /// Validate both table names and column names.
     pub fn validate(&self, sql: &str) -> ValidationResult {
         self.validate_tables(sql)?;
         self.validate_columns(sql)
     }
 }
 
-/// SQL 复杂度评分结果。
+/// SQL complexity score result.
 #[derive(Debug, Clone)]
 pub struct SqlComplexityScore {
-    /// 总分（0-100，越高越复杂）
+    /// Total score (0-100, higher means more complex)
     pub score: u32,
-    /// JOIN 数量
+    /// JOIN count
     pub join_count: u32,
-    /// 子查询数量（括号内的 SELECT）
+    /// Subquery count (SELECT inside parentheses)
     pub subquery_count: u32,
-    /// WHERE 条件数量（AND/OR 数 + 1）
+    /// WHERE condition count (AND/OR count + 1)
     pub where_condition_count: u32,
-    /// UNION/INTERSECT/EXCEPT 数量
+    /// UNION/INTERSECT/EXCEPT count
     pub set_operation_count: u32,
-    /// GROUP BY 列数
+    /// GROUP BY column count
     pub group_by_count: u32,
-    /// 是否包含 HAVING
+    /// Whether HAVING is present
     pub has_having: bool,
-    /// 是否包含窗口函数
+    /// Whether a window function is present
     pub has_window_function: bool,
-    /// 是否包含 CTE
+    /// Whether a CTE is present
     pub has_cte: bool,
-    /// 令牌总数
+    /// Total token count
     pub token_count: u32,
 }
 
 impl SqlComplexityScore {
-    /// 根据各项指标计算总分。
+    /// Calculate total score from individual metrics.
     fn calculate(&mut self) {
         let mut score: u32 = 0;
         score += self.join_count * 5;
@@ -847,7 +847,7 @@ impl SqlComplexityScore {
         self.score = score.min(100);
     }
 
-    /// 复杂度等级。
+    /// Complexity level.
     pub fn level(&self) -> ComplexityLevel {
         match self.score {
             0..=20 => ComplexityLevel::Simple,
@@ -858,35 +858,35 @@ impl SqlComplexityScore {
     }
 }
 
-/// SQL 复杂度等级。
+/// SQL complexity level.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ComplexityLevel {
-    /// 简单（0-20）
+    /// Simple (0-20)
     Simple,
-    /// 中等（21-40）
+    /// Moderate (21-40)
     Moderate,
-    /// 复杂（41-60）
+    /// Complex (41-60)
     Complex,
-    /// 非常复杂（61-100）
+    /// Very complex (61-100)
     VeryComplex,
 }
 
 impl ComplexityLevel {
-    /// 返回等级的中文描述。
+    /// Returns the level description.
     pub fn description(&self) -> &'static str {
         match self {
-            ComplexityLevel::Simple => "简单",
-            ComplexityLevel::Moderate => "中等",
-            ComplexityLevel::Complex => "复杂",
-            ComplexityLevel::VeryComplex => "非常复杂",
+            ComplexityLevel::Simple => "simple",
+            ComplexityLevel::Moderate => "moderate",
+            ComplexityLevel::Complex => "complex",
+            ComplexityLevel::VeryComplex => "very complex",
         }
     }
 }
 
-/// 计算 SQL 语句的复杂度评分。
+/// Calculate the complexity score of a SQL statement.
 ///
-/// 通过词法分析统计 JOIN、子查询、WHERE 条件、集合运算等指标，
-/// 综合计算出一个 0-100 的复杂度分数。
+/// Counts JOIN, subquery, WHERE condition, set operation and other metrics via lexical analysis,
+/// and computes a 0-100 complexity score.
 pub fn score_complexity(sql: &str) -> SqlComplexityScore {
     let tokens = tokenize(sql);
     let token_count = tokens.len() as u32;
@@ -982,25 +982,25 @@ pub fn score_complexity(sql: &str) -> SqlComplexityScore {
     score
 }
 
-/// DDL 操作策略，控制允许的 DDL 操作类型。
+/// DDL operation policy that controls allowed DDL operation types.
 #[derive(Debug, Clone, Default)]
 pub struct DdlPolicy {
-    /// 是否允许 CREATE
+    /// Whether CREATE is allowed
     pub allow_create: bool,
-    /// 是否允许 DROP
+    /// Whether DROP is allowed
     pub allow_drop: bool,
-    /// 是否允许 ALTER
+    /// Whether ALTER is allowed
     pub allow_alter: bool,
-    /// 是否允许 TRUNCATE
+    /// Whether TRUNCATE is allowed
     pub allow_truncate: bool,
-    /// 是否允许 CREATE INDEX
+    /// Whether CREATE INDEX is allowed
     pub allow_create_index: bool,
-    /// 是否允许 DROP INDEX
+    /// Whether DROP INDEX is allowed
     pub allow_drop_index: bool,
 }
 
 impl DdlPolicy {
-    /// 创建允许所有 DDL 操作的策略（生产环境慎用）。
+    /// Create a policy that allows all DDL operations (use with caution in production).
     pub fn permissive() -> Self {
         Self {
             allow_create: true,
@@ -1012,12 +1012,12 @@ impl DdlPolicy {
         }
     }
 
-    /// 创建只读策略（禁止所有 DDL）。
+    /// Create a read-only policy (disallows all DDL).
     pub fn read_only() -> Self {
         Self::default()
     }
 
-    /// 创建允许 CREATE 和 ALTER 但禁止 DROP 和 TRUNCATE 的策略。
+    /// Create a policy that allows CREATE and ALTER but disallows DROP and TRUNCATE.
     pub fn safe_evolution() -> Self {
         Self {
             allow_create: true,
@@ -1029,7 +1029,7 @@ impl DdlPolicy {
         }
     }
 
-    /// 根据策略校验 DDL 语句是否被允许。
+    /// Validate whether a DDL statement is allowed under the policy.
     pub fn validate(&self, sql: &str) -> ValidationResult {
         let stmt_type = detect_statement_type(sql);
         let upper = sql.to_uppercase();

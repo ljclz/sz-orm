@@ -1,12 +1,13 @@
-//! # SZ-ORM Config — 配置中心
+//! # SZ-ORM Config — Configuration Center
 //!
-//! 提供配置中心抽象（Consul/Nacos 等），支持 get/set/delete/list/watch，
-//! 并可在配置变更时通过回调通知订阅者。
+//! Provides a configuration center abstraction (Consul/Nacos/etc.) supporting
+//! get/set/delete/list/watch, with callback notification to subscribers on
+//! configuration changes.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`ConfigCenter`] trait — 配置中心接口
-//! - [`ConfigChangeEvent`] — 配置变更事件
+//! - [`ConfigCenter`] trait — Configuration center interface
+//! - [`ConfigChangeEvent`] — Configuration change event
 
 #[cfg(feature = "real-consul")]
 pub mod consul_client;
@@ -228,16 +229,19 @@ impl ConfigCenter for NacosConfigCenter {
 // 配置热更新（Watch）— 轮询式监听配置变更
 // ====================================================================
 
-/// 配置热更新监听器：以固定间隔轮询配置中心，检测到值变更时通知订阅者
+/// Configuration hot-reload watcher: polls the configuration center at a fixed
+/// interval and notifies subscribers when value changes are detected.
 ///
-/// 由于当前实现为纯内存模型，Watch 通过记录上次快照并与当前值比较来检测变更。
-/// 在真实场景中可替换为 Consul/Nacos 的长轮询或 Watch API。
+/// Since the current implementation is a pure in-memory model, the watcher detects
+/// changes by recording the last snapshot and comparing it with the current values.
+/// In real-world scenarios this can be replaced with long polling or the Watch API
+/// of Consul/Nacos.
 pub struct ConfigWatcher {
-    /// 上次快照的配置键值对
+    /// Key-value pairs from the last snapshot
     last_snapshot: Mutex<HashMap<String, String>>,
-    /// 轮询间隔（毫秒）
+    /// Polling interval (in milliseconds)
     pub poll_interval_ms: u64,
-    /// 变更回调列表：(key, callback)
+    /// List of change callbacks: (key, callback)
     watchers: Mutex<Vec<(String, ConfigChangeCallback)>>,
 }
 
@@ -250,15 +254,16 @@ impl ConfigWatcher {
         }
     }
 
-    /// 注册一个 key 的变更监听
+    /// Register a change listener for a key
     pub fn watch(&self, key: &str, callback: ConfigChangeCallback) {
         if let Ok(mut watchers) = self.watchers.lock() {
             watchers.push((key.to_string(), callback));
         }
     }
 
-    /// 执行一次轮询检测：比较当前配置与上次快照，触发变更回调
-    /// 返回本次检测到的变更数量
+    /// Perform a single poll: compare the current configuration with the last
+    /// snapshot and trigger change callbacks.
+    /// Returns the number of changes detected in this poll.
     pub fn poll<C: ConfigCenter>(&self, center: &C) -> usize {
         let current: HashMap<String, String> = center
             .list()
@@ -302,7 +307,7 @@ impl ConfigWatcher {
         watcher_count
     }
 
-    /// 返回当前注册的 watcher 数量
+    /// Returns the number of currently registered watchers
     pub fn watcher_count(&self) -> usize {
         self.watchers.lock().map(|w| w.len()).unwrap_or(0)
     }
@@ -318,26 +323,29 @@ impl Default for ConfigWatcher {
 // 多源合并（文件 + 环境变量 + 远程）— 按优先级合并配置
 // ====================================================================
 
-/// 配置来源优先级：数值越大优先级越高，高优先级覆盖低优先级
+/// Configuration source priority: a higher value means higher priority, and
+/// higher priority overrides lower priority.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub enum ConfigSourcePriority {
-    /// 文件配置（最低优先级）
+    /// File configuration (lowest priority)
     File = 0,
-    /// 远程配置中心
+    /// Remote configuration center
     Remote = 1,
-    /// 环境变量（最高优先级）
+    /// Environment variables (highest priority)
     Env = 2,
 }
 
-/// 多源配置合并器：从文件、环境变量、远程配置中心收集配置并按优先级合并
+/// Multi-source configuration merger: collects configuration from files,
+/// environment variables, and a remote configuration center, then merges them
+/// by priority.
 pub struct MultiSourceConfig {
-    /// 文件配置
+    /// File configuration
     file_config: HashMap<String, String>,
-    /// 环境变量配置
+    /// Environment variable configuration
     env_config: HashMap<String, String>,
-    /// 远程配置中心配置
+    /// Remote configuration center configuration
     remote_config: HashMap<String, String>,
-    /// 合并后的缓存
+    /// Merged result cache
     merged: Mutex<Option<HashMap<String, String>>>,
 }
 
@@ -351,25 +359,25 @@ impl MultiSourceConfig {
         }
     }
 
-    /// 设置文件来源配置
+    /// Set the file-source configuration
     pub fn set_file_config(&mut self, config: HashMap<String, String>) {
         self.file_config = config;
         self.invalidate_cache();
     }
 
-    /// 设置环境变量来源配置
+    /// Set the environment-variable-source configuration
     pub fn set_env_config(&mut self, config: HashMap<String, String>) {
         self.env_config = config;
         self.invalidate_cache();
     }
 
-    /// 设置远程配置中心来源配置
+    /// Set the remote configuration center source configuration
     pub fn set_remote_config(&mut self, config: HashMap<String, String>) {
         self.remote_config = config;
         self.invalidate_cache();
     }
 
-    /// 从系统环境变量加载配置（前缀过滤）
+    /// Load configuration from system environment variables (with prefix filtering)
     pub fn load_env_vars(&mut self, prefix: &str) {
         for (key, value) in std::env::vars() {
             if let Some(stripped) = key.strip_prefix(prefix) {
@@ -380,7 +388,7 @@ impl MultiSourceConfig {
         self.invalidate_cache();
     }
 
-    /// 从 JSON 文件内容加载配置
+    /// Load configuration from JSON file content
     pub fn load_json(&mut self, json: &str) -> Result<(), String> {
         let parsed: HashMap<String, String> =
             serde_json::from_str(json).map_err(|e| format!("parse json error: {}", e))?;
@@ -389,7 +397,7 @@ impl MultiSourceConfig {
         Ok(())
     }
 
-    /// 合并所有来源并返回结果（高优先级覆盖低优先级）
+    /// Merge all sources and return the result (higher priority overrides lower)
     pub fn merge(&self) -> HashMap<String, String> {
         if let Ok(cache) = self.merged.lock() {
             if let Some(cached) = cache.as_ref() {
@@ -413,12 +421,12 @@ impl MultiSourceConfig {
         result
     }
 
-    /// 获取合并后的配置值
+    /// Get the merged configuration value
     pub fn get(&self, key: &str) -> Option<String> {
         self.merge().get(key).cloned()
     }
 
-    /// 返回某个 key 的来源优先级
+    /// Return the source priority of a key
     pub fn source_of(&self, key: &str) -> Option<ConfigSourcePriority> {
         if self.env_config.contains_key(key) {
             Some(ConfigSourcePriority::Env)
@@ -448,7 +456,7 @@ impl Default for MultiSourceConfig {
 // 配置验证（Schema Validation）
 // ====================================================================
 
-/// 配置字段类型约束
+/// Configuration field type constraint
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ConfigFieldType {
     String,
@@ -459,24 +467,24 @@ pub enum ConfigFieldType {
     Email,
 }
 
-/// 配置字段 schema 定义
+/// Configuration field schema definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConfigFieldSchema {
-    /// 字段名
+    /// Field name
     pub name: String,
-    /// 字段类型
+    /// Field type
     pub field_type: ConfigFieldType,
-    /// 是否必填
+    /// Whether the field is required
     pub required: bool,
-    /// 最小值（数值类型）
+    /// Minimum value (for numeric types)
     pub min: Option<f64>,
-    /// 最大值（数值类型）
+    /// Maximum value (for numeric types)
     pub max: Option<f64>,
-    /// 最小长度（字符串类型）
+    /// Minimum length (for string types)
     pub min_length: Option<usize>,
-    /// 最大长度（字符串类型）
+    /// Maximum length (for string types)
     pub max_length: Option<usize>,
-    /// 枚举允许值
+    /// Allowed enum values
     pub allowed_values: Option<Vec<String>>,
 }
 
@@ -517,25 +525,26 @@ impl ConfigFieldSchema {
     }
 }
 
-/// 配置 schema 验证器：根据字段定义验证配置值合法性
+/// Configuration schema validator: validates configuration values against field
+/// definitions.
 pub struct SchemaValidator {
     fields: Vec<ConfigFieldSchema>,
 }
 
-/// 验证错误
+/// Validation error
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ValidationError {
-    /// 必填字段缺失
+    /// Required field is missing
     MissingRequired(String),
-    /// 类型不匹配
+    /// Type mismatch
     TypeMismatch(String, String),
-    /// 数值超出范围
+    /// Numeric value out of range
     OutOfRange(String, String),
-    /// 长度超出限制
+    /// Length exceeds the limit
     LengthExceeded(String, String),
-    /// 值不在允许枚举内
+    /// Value is not in the allowed enum set
     NotAllowed(String, String),
-    /// 格式无效
+    /// Invalid format
     InvalidFormat(String, String),
 }
 
@@ -563,7 +572,8 @@ impl SchemaValidator {
         self.fields.push(schema);
     }
 
-    /// 验证配置 map，返回所有验证错误（空 Vec 表示通过）
+    /// Validate the configuration map, returning all validation errors
+    /// (an empty Vec means validation passed).
     pub fn validate(&self, config: &HashMap<String, String>) -> Vec<ValidationError> {
         let mut errors = Vec::new();
         for field in &self.fields {
@@ -698,16 +708,18 @@ impl Default for SchemaValidator {
 // 配置加密 — 对敏感配置值进行加解密
 // ====================================================================
 
-/// 配置加密器：使用 XOR + Base64 对敏感配置值进行对称加密
+/// Configuration encryptor: performs symmetric encryption on sensitive
+/// configuration values using XOR + Base64.
 ///
-/// 适用场景：数据库密码、API Key 等敏感配置不应明文存储在配置文件中。
-/// 加密格式：`ENC(base64(xor(plaintext, key)))`
+/// Applicable scenarios: database passwords, API keys, and other sensitive
+/// configuration should not be stored in plaintext in configuration files.
+/// Encryption format: `ENC(base64(xor(plaintext, key)))`
 pub struct ConfigEncryption {
-    /// 加密密钥
+    /// Encryption key
     key: Vec<u8>,
 }
 
-/// 加密值前缀，用于标识已加密的配置项
+/// Prefix for encrypted values, used to identify encrypted configuration items
 pub const ENCRYPTED_PREFIX: &str = "ENC(";
 pub const ENCRYPTED_SUFFIX: &str = ")";
 
@@ -718,7 +730,7 @@ impl ConfigEncryption {
         }
     }
 
-    /// 加密明文，返回 `ENC(base64)` 格式字符串
+    /// Encrypt plaintext, returning an `ENC(base64)` formatted string
     pub fn encrypt(&self, plaintext: &str) -> String {
         let bytes = plaintext.as_bytes();
         let encrypted: Vec<u8> = bytes
@@ -730,7 +742,7 @@ impl ConfigEncryption {
         format!("{}{}{}", ENCRYPTED_PREFIX, encoded, ENCRYPTED_SUFFIX)
     }
 
-    /// 解密 `ENC(base64)` 格式字符串，返回明文
+    /// Decrypt an `ENC(base64)` formatted string, returning the plaintext
     pub fn decrypt(&self, ciphertext: &str) -> Result<String, String> {
         let inner = ciphertext
             .strip_prefix(ENCRYPTED_PREFIX)
@@ -745,12 +757,12 @@ impl ConfigEncryption {
         String::from_utf8(decrypted).map_err(|e| format!("decrypt utf8 error: {}", e))
     }
 
-    /// 判断值是否已加密（以 ENC( 开头）
+    /// Check whether a value is encrypted (starts with ENC( )
     pub fn is_encrypted(value: &str) -> bool {
         value.starts_with(ENCRYPTED_PREFIX) && value.ends_with(ENCRYPTED_SUFFIX)
     }
 
-    /// 如果值已加密则解密，否则原样返回
+    /// Decrypt the value if it is encrypted; otherwise return it as-is
     pub fn decrypt_if_needed(&self, value: &str) -> Result<String, String> {
         if Self::is_encrypted(value) {
             self.decrypt(value)
@@ -759,7 +771,7 @@ impl ConfigEncryption {
         }
     }
 
-    /// 批量解密配置 map 中所有已加密的值
+    /// Batch-decrypt all encrypted values in a configuration map
     pub fn decrypt_config(
         &self,
         config: &HashMap<String, String>,
@@ -773,7 +785,7 @@ impl ConfigEncryption {
     }
 }
 
-/// 简易 Base64 编码（不依赖外部 crate）
+/// Simple Base64 encoding (without depending on an external crate)
 fn base64_encode(data: &[u8]) -> String {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
@@ -803,7 +815,7 @@ fn base64_encode(data: &[u8]) -> String {
     result
 }
 
-/// 简易 Base64 解码
+/// Simple Base64 decoding
 fn base64_decode(s: &str) -> Result<Vec<u8>, String> {
     const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
     fn char_to_val(c: u8) -> Result<u8, String> {

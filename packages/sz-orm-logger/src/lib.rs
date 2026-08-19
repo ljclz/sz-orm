@@ -1,20 +1,20 @@
-//! # SZ-ORM Logger — 结构化日志
+//! # SZ-ORM Logger — Structured Logging
 //!
-//! 提供多级别（Debug/Info/Warn/Error）、多输出目标的日志记录，支持异步写入与
-//! 结构化字段，可组合多个 Logger 实现输出到不同后端。
+//! Provides multi-level (Debug/Info/Warn/Error), multi-output-target logging, supports async writing and
+//! structured fields, can compose multiple Logger implementations to output to different backends.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`Logger`] trait — 日志器接口
-//! - [`LogLevel`] — 日志级别
-//! - [`LogEntry`] — 日志条目
+//! - [`Logger`] trait — Logger interface
+//! - [`LogLevel`] — Log level
+//! - [`LogEntry`] — Log entry
 //!
-//! ## 高级日志功能（`advanced` 模块）
+//! ## Advanced Logging Features (`advanced` module)
 //!
-//! - [`advanced::LogRotator`] — 日志轮转（按大小/时间）
-//! - [`advanced::MultiOutputLogger`] / [`advanced::LogSink`] — 多输出扇出
-//! - [`advanced::LevelFilter`] — 按 target 细粒度级别过滤
-//! - [`advanced::StructuredLogEntry`] / [`advanced::StructuredLogWriter`] — 结构化字段
+//! - [`advanced::LogRotator`] — Log rotation (by size/time)
+//! - [`advanced::MultiOutputLogger`] / [`advanced::LogSink`] — Multi-output fan-out
+//! - [`advanced::LevelFilter`] — Fine-grained level filtering by target
+//! - [`advanced::StructuredLogEntry`] / [`advanced::StructuredLogWriter`] — Structured fields
 
 pub mod advanced;
 pub mod log_pipeline;
@@ -49,7 +49,7 @@ pub trait Logger: Send + Sync {
     fn log(&self, level: LogLevel, msg: &str);
 }
 
-/// 环境类型
+/// Environment type
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum EnvKind {
     Development,
@@ -72,14 +72,14 @@ mod prod {
     use super::{EnvKind, LogLevel};
     use serde::{Deserialize, Serialize};
 
-    /// 日志生产配置错误
+    /// Log production config error
     #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
     pub enum LoggerProdError {
         #[error("log level {0} forbidden in production, minimum warn")]
         LevelForbidden(String),
     }
 
-    /// 日志生产配置：强制生产环境日志级别 warn 及以上
+    /// Log production config: force production environment log level warn and above
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct LoggerProdConfig {
         pub level: LogLevel,
@@ -91,7 +91,7 @@ mod prod {
             Self { level, env }
         }
 
-        /// 校验：生产环境拒绝 level < Warn（Trace/Debug/Info 被拒绝）
+        /// Validate: production environment rejects level < Warn (Trace/Debug/Info rejected)
         pub fn validate(&self) -> Result<(), LoggerProdError> {
             if self.env == EnvKind::Production && self.level < LogLevel::Warn {
                 return Err(LoggerProdError::LevelForbidden(

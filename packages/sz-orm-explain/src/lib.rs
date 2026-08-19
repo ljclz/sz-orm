@@ -1,25 +1,25 @@
-//! # sz-orm-explain — 跨方言 EXPLAIN 结果解析器
+//! # sz-orm-explain — Cross-Dialect EXPLAIN Result Parser
 //!
-//! 将 MySQL / PostgreSQL / SQLite / Oracle / MSSQL 的 `EXPLAIN` 输出解析为
-//! 统一的 [`ExplainPlan`]，用于：
+//! Parses `EXPLAIN` output from MySQL / PostgreSQL / SQLite / Oracle / MSSQL into
+//! a unified [`ExplainPlan`], used for:
 //!
-//! - 全表扫描检测（`ScanType::FullTable`）
-//! - 缺失索引检测（`index == None` 且扫描行数超阈值）
-//! - 执行计划回归检测（[`crate::regression`]，需 `explain-analyzer` feature）
+//! - Full table scan detection (`ScanType::FullTable`)
+//! - Missing index detection (`index == None` and scanned rows exceed threshold)
+//! - Execution plan regression detection ([`crate::regression`], requires `explain-analyzer` feature)
 //!
-//! 典型用法（配合 `sz-orm-macros` 的 `query!` 宏 db-verify 模式）：
+//! Typical usage (with `sz-orm-macros`'s `query!` macro db-verify mode):
 //!
 //! ```rust,ignore
 //! let plan = sz_orm_explain::parser_for(ExplainDialect::Postgres)?.parse(explain_raw)?;
 //! if plan.scan_type == ScanType::FullTable {
-//!     // 编译期/CI 警告：全表扫描
+//!     // Compile-time/CI warning: full table scan
 //! }
 //! ```
 //!
-//! 解析失败返回 [`ExplainError::Unparseable`]，不 panic，可降级为"无警告"。
+//! Parse failure returns [`ExplainError::Unparseable`], does not panic, can degrade to "no warnings".
 //!
-//! 注意：本包刻意零依赖 `sz-orm-core`，通过自带的 [`ExplainDialect`] 枚举
-//! 描述方言，避免 core → macros → explain → core 依赖循环。
+//! Note: This package intentionally has zero dependency on `sz-orm-core`, uses its own [`ExplainDialect`] enum
+//! to describe dialects, avoiding core → macros → explain → core dependency cycle.
 
 #[cfg(feature = "explain-analyzer")]
 pub mod analyzer;
@@ -30,18 +30,18 @@ pub mod perf_baseline;
 #[cfg(feature = "explain-analyzer")]
 pub mod regression;
 
-/// 支持的 EXPLAIN 解析方言（与数据库引擎对应，家族内格式兼容）
+/// Supported EXPLAIN parse dialects (corresponding to database engines, format compatible within family)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExplainDialect {
-    /// MySQL（及 MariaDB/TiDB/PolarDB/OceanBase）
+    /// MySQL (and MariaDB/TiDB/PolarDB/OceanBase)
     MySql,
-    /// PostgreSQL（及 CockroachDB/YugabyteDB）
+    /// PostgreSQL (and CockroachDB/YugabyteDB)
     Postgres,
-    /// SQLite（及 DuckDB）
+    /// SQLite (and DuckDB)
     Sqlite,
-    /// Oracle（及 Dameng）
+    /// Oracle (and Dameng)
     Oracle,
-    /// SQL Server（及 Sybase）
+    /// SQL Server (and Sybase)
     Mssql,
 }
 
@@ -78,27 +78,27 @@ impl ExplainDialect {
     }
 }
 
-/// 扫描类型分类（各方言扫描方式的统一抽象）
+/// Scan type classification (unified abstraction of scan methods across dialects)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[cfg_attr(
     feature = "explain-analyzer",
     derive(serde::Serialize, serde::Deserialize)
 )]
 pub enum ScanType {
-    /// 全表扫描（MySQL `ALL` / PG `Seq Scan` / SQLite `SCAN` / Oracle `TABLE ACCESS FULL` / MSSQL `Table Scan`）
+    /// Full table scan (MySQL `ALL` / PG `Seq Scan` / SQLite `SCAN` / Oracle `TABLE ACCESS FULL` / MSSQL `Table Scan`)
     FullTable,
-    /// 索引范围扫描（MySQL `range` / PG `Index Scan` / SQLite `SEARCH ... USING INDEX` / Oracle `INDEX RANGE SCAN` / MSSQL `Index Scan`）
+    /// Index range scan (MySQL `range` / PG `Index Scan` / SQLite `SEARCH ... USING INDEX` / Oracle `INDEX RANGE SCAN` / MSSQL `Index Scan`)
     IndexRange,
-    /// 索引等值/点查（MySQL `ref`/`eq_ref` / Oracle `INDEX UNIQUE SCAN`）
+    /// Index equality/point lookup (MySQL `ref`/`eq_ref` / Oracle `INDEX UNIQUE SCAN`)
     IndexLookup,
-    /// 主键/唯一索引点查（MySQL `const` / PG `Index Scan ... pkey` / MSSQL `Index Seek`）
+    /// Primary key/unique index point lookup (MySQL `const` / PG `Index Scan ... pkey` / MSSQL `Index Seek`)
     UniqueLookup,
-    /// 其他（物化、排序、聚合等）
+    /// Other (materialization, sorting, aggregation, etc.)
     Other,
 }
 
 impl ScanType {
-    /// 是否为全表扫描（性能警告触发条件）
+    /// Whether it is a full table scan (performance warning trigger condition)
     pub fn is_full_table_scan(&self) -> bool {
         matches!(self, ScanType::FullTable)
     }
@@ -146,22 +146,22 @@ impl ScanType {
     }
 }
 
-/// 解析后的执行计划摘要
+/// Parsed execution plan summary
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[cfg_attr(
     feature = "explain-analyzer",
     derive(serde::Serialize, serde::Deserialize)
 )]
 pub struct ExplainPlan {
-    /// 扫描类型
+    /// Scan type
     pub scan_type: ScanType,
-    /// 涉及的表名（未知时为 `"<unknown>"`）
+    /// Involved table name (`"<unknown>"` when unknown)
     pub table: String,
-    /// 使用的索引名（全表扫描/未知时为 `None`）
+    /// Index name used (`None` for full table scan/unknown)
     pub index: Option<String>,
-    /// 预估扫描行数
+    /// Estimated scanned row count
     pub rows: u64,
-    /// 额外信息（filter/using where 等）
+    /// Extra info (filter/using where, etc.)
     pub extra: Vec<String>,
 }
 
@@ -225,18 +225,18 @@ impl ExplainPlan {
         )
     }
 
-    /// 缺失索引判断：全表扫描或行数超阈值且未使用索引
+    /// Missing index check: full table scan or row count exceeds threshold and no index used
     pub fn missing_index(&self, row_threshold: u64) -> bool {
         self.index.is_none() && (self.scan_type.is_full_table_scan() || self.rows >= row_threshold)
     }
 }
 
-/// EXPLAIN 解析错误
+/// EXPLAIN parse error
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ExplainError {
-    /// 无法解析（非 EXPLAIN 输出 / 格式不识别）
+    /// Unparseable (not EXPLAIN output / format not recognized)
     Unparseable { reason: String },
-    /// 方言不受支持（无对应解析器）
+    /// Dialect not supported (no corresponding parser)
     UnsupportedDialect,
 }
 
@@ -265,9 +265,9 @@ impl ExplainError {
     }
 }
 
-/// 方言 EXPLAIN 解析器 trait
+/// Dialect EXPLAIN parser trait
 pub trait ExplainParser: Send + Sync + std::fmt::Debug {
-    /// 解析原始 EXPLAIN 输出为统一 [`ExplainPlan`]
+    /// Parse raw EXPLAIN output into unified [`ExplainPlan`]
     fn parse(&self, raw: &str) -> Result<ExplainPlan, ExplainError>;
 
     fn parse_or_default(&self, raw: &str) -> ExplainPlan {
@@ -281,7 +281,7 @@ pub trait ExplainParser: Send + Sync + std::fmt::Debug {
     }
 }
 
-/// 按方言分派解析器
+/// Dispatch parser by dialect
 pub fn parser_for(dialect: ExplainDialect) -> Result<Box<dyn ExplainParser>, ExplainError> {
     match dialect {
         ExplainDialect::MySql => Ok(Box::new(parsers::mysql::MySqlParser)),
@@ -292,7 +292,7 @@ pub fn parser_for(dialect: ExplainDialect) -> Result<Box<dyn ExplainParser>, Exp
     }
 }
 
-/// 便捷解析函数：按方言解析 EXPLAIN 输出
+/// Convenience parse function: parse EXPLAIN output by dialect
 pub fn parse_explain(dialect: ExplainDialect, raw: &str) -> Result<ExplainPlan, ExplainError> {
     let parser = parser_for(dialect)?;
     parser.parse(raw)

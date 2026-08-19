@@ -1,13 +1,13 @@
-//! # SZ-ORM DTX — 分布式事务
+//! # SZ-ORM DTX — Distributed Transactions
 //!
-//! 提供跨服务分布式事务协调能力，包含 Saga、TCC 与跨分片事务模式，
-//! 支持参与者状态机与回滚回调。
+//! Provides cross-service distributed transaction coordination capabilities, including Saga, TCC, and cross-shard transaction patterns,
+//! supports participant state machines and rollback callbacks.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`saga`] — Saga 长事务编排
-//! - [`tcc`] — Try-Confirm-Cancel 三阶段提交
-//! - [`cross_shard`] — 跨分片事务协调
+//! - [`saga`] — Saga long transaction orchestration
+//! - [`tcc`] — Try-Confirm-Cancel three-phase commit
+//! - [`cross_shard`] — Cross-shard transaction coordination
 
 use parking_lot::RwLock;
 use serde::{Deserialize, Serialize};
@@ -36,51 +36,51 @@ pub mod cross_lang;
 // TransactionLogStore — 事务日志持久化（用于崩溃恢复）
 // ============================================================================
 
-/// 分布式事务日志条目
+/// Distributed transaction log entry
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct TransactionLogEntry {
-    /// 事务 ID
+    /// Transaction ID
     pub tx_id: String,
-    /// 事务状态
+    /// Transaction state
     pub state: String,
-    /// 参与者列表
+    /// Participant list
     pub participants: Vec<String>,
-    /// 时间戳（Unix 毫秒）
+    /// Timestamp (Unix milliseconds)
     pub timestamp: String,
-    /// 操作类型（prepare/commit/rollback）
+    /// Operation type (prepare/commit/rollback)
     pub action: String,
 }
 
-/// 事务日志存储 trait
+/// Transaction log storage trait
 ///
-/// 手动解糖 async（不使用 `#[async_trait]`），与 `sz-orm-core` 的 `L2CacheBackend` 风格一致。
+/// Manually desugared async (not using `#[async_trait]`), consistent with `sz-orm-core`'s `L2CacheBackend` style.
 pub trait TransactionLogStore: Send + Sync {
-    /// 追加日志
+    /// Append log
     fn append<'a>(
         &'a self,
         entry: TransactionLogEntry,
     ) -> Pin<Box<dyn Future<Output = Result<(), String>> + Send + 'a>>;
 
-    /// 读取事务日志
+    /// Read transaction log
     fn read<'a>(
         &'a self,
         tx_id: &'a str,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<TransactionLogEntry>, String>> + Send + 'a>>;
 
-    /// 读取所有未完成事务（state 不为 Committed/RolledBack/Failed 的最新条目）
+    /// Read all unfinished transactions (latest entry where state is not Committed/RolledBack/Failed)
     fn read_pending<'a>(
         &'a self,
     ) -> Pin<Box<dyn Future<Output = Result<Vec<TransactionLogEntry>, String>> + Send + 'a>>;
 
-    /// 标记事务为终态（v4.8.0 修复 H-4）
+    /// Mark transaction as terminal state (v4.8.0 fix H-4)
     ///
-    /// 崩溃恢复完成后将已解决事务写回日志（state = Committed/RolledBack），
-    /// 防止 `read_pending` 下次恢复时重复处理同一事务。
+    /// After crash recovery, write resolved transactions back to log (state = Committed/RolledBack),
+    /// preventing `read_pending` from repeatedly processing the same transaction on next recovery.
     ///
-    /// 修复前恢复流程从未写回——已提交/已回滚事务仍在 pending 集合，
-    /// 每次恢复都会对已终态事务重复执行 commit/rollback 通知。
+    /// Before fix, recovery flow never wrote back — committed/rolled-back transactions remained in pending set,
+    /// each recovery would repeatedly execute commit/rollback notifications for terminal transactions.
     ///
-    /// 默认实现追加终态条目；存储实现可覆盖为原地更新以节省空间。
+    /// Default implementation appends terminal entry; storage implementation can override to update in-place to save space.
     fn finalize<'a>(
         &'a self,
         tx_id: &'a str,
@@ -103,7 +103,7 @@ pub trait TransactionLogStore: Send + Sync {
     }
 }
 
-/// 内存事务日志存储（开发测试用）
+/// In-memory transaction log storage (for development and testing)
 pub struct InMemoryTransactionLog {
     logs: tokio::sync::RwLock<Vec<TransactionLogEntry>>,
 }
@@ -165,7 +165,7 @@ impl TransactionLogStore for InMemoryTransactionLog {
         })
     }
 
-    /// 原地更新事务最新条目为终态（比默认追加更节省空间）
+    /// Update transaction's latest entry to terminal state in-place (more space-efficient than default append)
     fn finalize<'a>(
         &'a self,
         tx_id: &'a str,
@@ -184,10 +184,10 @@ impl TransactionLogStore for InMemoryTransactionLog {
     }
 }
 
-/// 同步调用 async trait 方法（用于 prepare/commit/rollback 同步上下文）
+/// Synchronously call async trait method (for prepare/commit/rollback in sync context)
 ///
-/// 优先使用当前 tokio 运行时 `block_on`；若无运行时（如纯同步测试上下文），
-/// 创建临时运行时执行。失败时返回 `None`，调用方可忽略日志写入失败。
+/// Prefer current tokio runtime `block_on`; if no runtime (e.g. pure sync test context),
+/// create temporary runtime to execute. Returns `None` on failure, caller can ignore log write failure.
 fn block_on_async<F>(fut: F) -> Option<F::Output>
 where
     F: Future + Send,
@@ -319,7 +319,7 @@ pub struct DistributedTransaction {
     pub id: String,
     state: TransactionState,
     participants: Vec<TransactionParticipant>,
-    /// 事务日志存储（可选，启用后会在 prepare/commit/rollback 写入日志）
+    /// Transaction log storage (optional, writes logs on prepare/commit/rollback when enabled)
     log_store: Option<Arc<dyn TransactionLogStore>>,
 }
 
@@ -333,13 +333,13 @@ impl DistributedTransaction {
         }
     }
 
-    /// 设置事务日志存储
+    /// Set transaction log storage
     pub fn with_log_store(mut self, store: Arc<dyn TransactionLogStore>) -> Self {
         self.log_store = Some(store);
         self
     }
 
-    /// 返回是否启用了日志存储
+    /// Returns whether log storage is enabled
     pub fn has_log_store(&self) -> bool {
         self.log_store.is_some()
     }
@@ -356,7 +356,7 @@ impl DistributedTransaction {
         self.participants.push(p);
     }
 
-    /// 写入一条事务日志（失败时不影响主流程）
+    /// Write a transaction log entry (failure does not affect main flow)
     fn write_log(&self, action: &str, state: &str) {
         let Some(store) = &self.log_store else {
             return;

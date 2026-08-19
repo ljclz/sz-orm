@@ -1,10 +1,10 @@
-//! # SZ-ORM Scheduler — 定时任务调度器
+//! # SZ-ORM Scheduler — Cron Task Scheduler
 //!
-//! 提供基于 cron 表达式的定时任务调度，支持任务启停、状态管理与回调执行。
+//! Provides cron expression-based scheduled task execution, supports task start/stop, state management, and callback execution.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`scheduler`] — 任务处理器 trait 与测试辅助实现
+//! - [`scheduler`] — Task handler trait and test auxiliary implementation
 
 use chrono::{Datelike, Timelike};
 use serde::{Deserialize, Serialize};
@@ -174,8 +174,8 @@ impl CronScheduler {
             && self.field_matches(&expr.month, dt.naive_utc().month())
     }
 
-    /// 检查 minute/hour/day/month 是否匹配（不检查 second）
-    /// 用于秒级精确扫描时，先筛选出 minute/hour/day/month 匹配的分钟
+    /// Check if minute/hour/day/month matches (does not check second)
+    /// Used for second-level precise scanning, first filter out minutes where minute/hour/day/month match
     fn matches_cron_ignoring_second(
         &self,
         expr: &CronExpr,
@@ -187,8 +187,8 @@ impl CronScheduler {
             && self.field_matches(&expr.month, dt.naive_utc().month())
     }
 
-    /// 将 cron 字段解析为有序的数值列表
-    /// 支持：* / 单值 / 逗号列表 / 范围 / 步长
+    /// Parse cron field into ordered numeric list
+    /// Supports: * / single value / comma list / range / step
     fn parse_field_values(
         &self,
         field: &str,
@@ -446,10 +446,10 @@ impl CronScheduler {
         }
     }
 
-    /// 触发所有到期任务并将执行结果记录到 `tracker`。
+    /// Trigger all due tasks and record execution results to `tracker`.
     ///
-    /// 与 `try_fire_due` 的区别：此方法会在每次任务触发后记录执行状态
-    /// （Succeeded / Failed / Skipped），便于后续查询任务健康度。
+    /// Difference from `try_fire_due`: this method records execution status after each task trigger
+    /// (Succeeded / Failed / Skipped), for subsequent task health queries.
     pub fn try_fire_due_tracked(
         &self,
         now: chrono::DateTime<chrono::Utc>,
@@ -503,12 +503,12 @@ impl CronScheduler {
         fired
     }
 
-    /// 返回已注册任务总数。
+    /// Returns total number of registered tasks.
     pub fn get_task_count(&self) -> usize {
         self.tasks.read().map(|tasks| tasks.len()).unwrap_or(0)
     }
 
-    /// 返回已启用任务数。
+    /// Returns number of enabled tasks.
     pub fn get_enabled_task_count(&self) -> usize {
         self.tasks
             .read()
@@ -516,7 +516,7 @@ impl CronScheduler {
             .unwrap_or(0)
     }
 
-    /// 返回所有任务的 `(id, priority)` 列表，按 priority 降序排列。
+    /// Returns `(id, priority)` list of all tasks, sorted by priority descending.
     pub fn get_task_priorities(&self) -> Vec<(String, i32)> {
         let mut result: Vec<(String, i32)> = self
             .tasks
@@ -627,7 +627,7 @@ impl Scheduler for CronScheduler {
     }
 }
 
-/// 任务执行状态。
+/// Task execution status.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum TaskStatus {
     Pending,
@@ -637,7 +637,7 @@ pub enum TaskStatus {
     Skipped,
 }
 
-/// 单次任务执行记录。
+/// Single task execution record.
 #[derive(Debug, Clone)]
 pub struct TaskExecutionRecord {
     pub task_id: String,
@@ -647,10 +647,10 @@ pub struct TaskExecutionRecord {
     pub duration_ms: u64,
 }
 
-/// 任务执行追踪器：记录每次任务触发的结果，支持按任务查询历史和统计。
+/// Task execution tracker: records the result of each task trigger, supports per-task history query and statistics.
 ///
-/// 独立组件，不修改 `CronScheduler` 内部状态。调用方可在 `try_fire_due`
-/// 之后手动记录，或使用 `CronScheduler::try_fire_due_tracked` 便捷方法。
+/// Independent component, does not modify `CronScheduler` internal state. Caller can manually record after `try_fire_due`
+/// or use `CronScheduler::try_fire_due_tracked` convenience method.
 pub struct TaskExecutionTracker {
     records: RwLock<Vec<TaskExecutionRecord>>,
     max_capacity: usize,
@@ -765,7 +765,7 @@ impl Default for TaskExecutionTracker {
     }
 }
 
-/// 任务健康度汇总。
+/// Task health summary.
 #[derive(Debug, Clone)]
 pub struct TaskHealthSummary {
     pub task_id: String,

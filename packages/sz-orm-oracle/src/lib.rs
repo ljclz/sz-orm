@@ -1,24 +1,27 @@
-//! SZ-ORM Oracle 数据库适配器
+//! SZ-ORM Oracle database adapter
 //!
-//! 基于 `oracle` crate (ODPI-C 绑定) 实现 sz-orm-core 的 `Connection` trait,
-//! 支持 Oracle 12c/19c/21c/23ai（实测 Oracle 23ai Free）。
+//! Implements the `Connection` trait of sz-orm-core based on the `oracle` crate
+//! (ODPI-C binding), supporting Oracle 12c/19c/21c/23ai (tested on Oracle 23ai Free).
 //!
-//! # 设计说明
+//! # Design notes
 //!
-//! `oracle` crate 是同步库,所有数据库调用通过专用阻塞线程池
-//! （`OracleBlockingPool`）的 `spawn_blocking` 包装为异步。
+//! The `oracle` crate is a synchronous library; all database calls are wrapped
+//! as asynchronous via `spawn_blocking` of a dedicated blocking thread pool
+//! (`OracleBlockingPool`).
 //!
-//! v1.1.0 优化 3：从 `tokio::task::spawn_blocking`（共享主 runtime 阻塞池）
-//! 改为 `OracleBlockingPool::spawn_blocking`（专用 runtime 阻塞池），
-//! 隔离 Oracle 阻塞操作与主 runtime 的其他异步任务，避免 Oracle 慢查询
-//! 拖累主 runtime。
+//! v1.1.0 optimization 3: switched from `tokio::task::spawn_blocking` (shared
+//! blocking pool of the main runtime) to `OracleBlockingPool::spawn_blocking`
+//! (dedicated runtime blocking pool), isolating Oracle blocking operations
+//! from other asynchronous tasks on the main runtime to prevent slow Oracle
+//! queries from dragging the main runtime.
 //!
-//! Oracle 占位符使用 `:1, :2, :3` 格式,本适配器自动将 SQL 中的 `?` 转换为 `:N`。
+//! Oracle placeholders use the `:1, :2, :3` format; this adapter automatically
+//! converts `?` in SQL to `:N`.
 //!
-//! # 实测环境
+//! # Tested environment
 //!
-//! - Oracle 23ai Free（127.0.0.1:1521/freepdb1.FALSE，用户 sz_orm_test）
-//! - CRUD 全场景基准测试通过（详见 docs/sz-orm/2026-07-25-性能测试报告.md）
+//! - Oracle 23ai Free (127.0.0.1:1521/freepdb1.FALSE, user sz_orm_test)
+//! - CRUD all-scenario benchmark passed (see docs/sz-orm/2026-07-25-performance-test-report.md)
 
 pub mod bulk_operations;
 pub mod cursor_manager;
@@ -57,16 +60,17 @@ use sz_orm_core::{
 // v1.1.0 优化 3：Oracle 专用阻塞线程池
 // ============================================================================
 
-/// Oracle 专用阻塞线程池配置
+/// Oracle dedicated blocking thread pool configuration
 ///
-/// 控制 `OracleBlockingPool` 的阻塞线程数上限。独立于主 tokio runtime
-/// 的阻塞池（默认 512 线程），用于隔离 Oracle 阻塞操作。
+/// Controls the upper bound of blocking threads for `OracleBlockingPool`.
+/// Independent from the blocking pool of the main tokio runtime (default
+/// 512 threads), used to isolate Oracle blocking operations.
 #[derive(Debug, Clone)]
 pub struct OracleBlockingPoolConfig {
-    /// 阻塞线程数上限
+    /// Upper bound of blocking threads
     ///
-    /// 默认 64，适用于大多数 OLTP 场景。可通过环境变量
-    /// `SZ_ORM_ORACLE_MAX_BLOCKING_THREADS` 覆盖。
+    /// Defaults to 64, suitable for most OLTP scenarios. Can be overridden via
+    /// the environment variable `SZ_ORM_ORACLE_MAX_BLOCKING_THREADS`.
     pub max_blocking_threads: usize,
 }
 
@@ -83,42 +87,49 @@ impl Default for OracleBlockingPoolConfig {
     }
 }
 
-/// Oracle 专用阻塞线程池
+/// Oracle dedicated blocking thread pool
 ///
-/// v1.1.0 优化 3：创建独立 tokio runtime（`multi_thread` + 自定义
-/// `max_blocking_threads`），所有 Oracle 阻塞操作通过此 runtime 的
-/// `spawn_blocking` 派发，与主 runtime 阻塞池隔离。
+/// v1.1.0 optimization 3: creates an independent tokio runtime (`multi_thread`
+/// + custom `max_blocking_threads`); all Oracle blocking operations are
+/// dispatched via `spawn_blocking` of this runtime, isolated from the
+/// blocking pool of the main runtime.
 ///
-/// # 设计要点
+/// # Design highlights
 ///
-/// - **独立 runtime**：1 个 worker thread + N 个 blocking thread，
-///   避免占用主 runtime 的 512 个 blocking thread 配额
-/// - **可配置池大小**：通过 `OracleBlockingPoolConfig` 或环境变量
-///   `SZ_ORM_ORACLE_MAX_BLOCKING_THREADS` 调整
-/// - **线程命名**：所有线程命名为 `sz-orm-oracle-blocking`，便于监控与诊断
-/// - **生命周期**：runtime 由 `_runtime` 字段持有，与 `OracleBlockingPool` 同生命周期
+/// - **Independent runtime**: 1 worker thread + N blocking threads, avoiding
+///   occupation of the 512 blocking thread quota of the main runtime
+/// - **Configurable pool size**: tunable via `OracleBlockingPoolConfig` or
+///   the environment variable `SZ_ORM_ORACLE_MAX_BLOCKING_THREADS`
+/// - **Thread naming**: all threads are named `sz-orm-oracle-blocking` for
+///   easier monitoring and diagnosis
+/// - **Lifetime**: the runtime is held by the `_runtime` field, sharing the
+///   same lifetime as `OracleBlockingPool`
 ///
-/// # 性能收益
+/// # Performance benefits
 ///
-/// - 主 runtime 阻塞池不再被 Oracle 阻塞操作占用，其他异步任务（如 HTTP
-///   请求、文件 IO）不受影响
-/// - Oracle 阻塞池可独立调优，OLTP 场景下 64 线程足够；OLAP 大查询场景
-///   可适当增大
+/// - The blocking pool of the main runtime is no longer occupied by Oracle
+///   blocking operations; other asynchronous tasks (such as HTTP requests,
+///   file IO) are unaffected
+/// - The Oracle blocking pool can be tuned independently; 64 threads are
+///   sufficient for OLTP scenarios, while OLAP large-query scenarios can
+///   increase it appropriately
 pub struct OracleBlockingPool {
-    /// runtime handle，用于派发 spawn_blocking 任务
+    /// runtime handle, used to dispatch spawn_blocking tasks
     handle: tokio::runtime::Handle,
-    /// 持有 runtime，确保阻塞任务能完成
-    /// 字段名前缀 `_` 表示不直接读取，仅用于保持生命周期
+    /// Holds the runtime to ensure blocking tasks can complete.
+    /// The `_` prefix indicates the field is not read directly; it only
+    /// keeps the lifetime.
     _runtime: tokio::runtime::Runtime,
 }
 
 impl OracleBlockingPool {
-    /// 创建专用阻塞线程池
+    /// Create a dedicated blocking thread pool
     ///
     /// # Panics
     ///
-    /// 如果 tokio runtime 创建失败（通常是系统资源不足），会 panic。
-    /// 这是 fail-fast 策略：在初始化阶段暴露问题，而非运行时降级。
+    /// Panics if tokio runtime creation fails (usually due to insufficient
+    /// system resources). This is a fail-fast strategy: surface the problem
+    /// at initialization rather than degrading at runtime.
     pub fn new(config: OracleBlockingPoolConfig) -> Self {
         let runtime = tokio::runtime::Builder::new_multi_thread()
             .worker_threads(1)
@@ -134,18 +145,19 @@ impl OracleBlockingPool {
         }
     }
 
-    /// 在专用阻塞线程池中执行阻塞任务
+    /// Execute a blocking task in the dedicated blocking thread pool
     ///
-    /// 与 `tokio::task::spawn_blocking` 签名一致，但任务派发到本池的
-    /// 专用 runtime，而非主 runtime 的共享阻塞池。
+    /// Has the same signature as `tokio::task::spawn_blocking`, but the task
+    /// is dispatched to the dedicated runtime of this pool rather than the
+    /// shared blocking pool of the main runtime.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `func`：阻塞函数，要求 `FnOnce + Send + 'static`
+    /// - `func`: blocking function, requires `FnOnce + Send + 'static`
     ///
-    /// # 返回
+    /// # Returns
     ///
-    /// `JoinHandle<T>`，可在任意 tokio runtime 中 await
+    /// `JoinHandle<T>`, which can be awaited in any tokio runtime
     pub fn spawn_blocking<F, T>(&self, func: F) -> tokio::task::JoinHandle<T>
     where
         F: FnOnce() -> T + Send + 'static,
@@ -164,7 +176,7 @@ impl std::fmt::Debug for OracleBlockingPool {
     }
 }
 
-/// 错误转换: oracle::Error -> DbError
+/// Error conversion: oracle::Error -> DbError
 fn map_oracle_error(e: oracle::Error) -> DbError {
     let msg = e.to_string();
     let kind = e.kind();
@@ -190,7 +202,7 @@ fn map_oracle_error(e: oracle::Error) -> DbError {
     }
 }
 
-/// 判断 SQL 是否需要原始执行(DDL/DCL 语句不走 prepared statement)
+/// Determine whether SQL needs raw execution (DDL/DCL statements bypass prepared statement)
 fn needs_raw_sql(sql: &str) -> bool {
     let upper = sql.trim_start().to_uppercase();
     upper.starts_with("CREATE ")
@@ -203,7 +215,7 @@ fn needs_raw_sql(sql: &str) -> bool {
         || upper.starts_with("DECLARE ")
 }
 
-/// 将 SQL 中的 `?` 占位符转换为 Oracle 的 `:N` 格式
+/// Convert `?` placeholders in SQL to Oracle's `:N` format
 fn convert_placeholders(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len() + 16);
     let mut in_single_quote = false;
@@ -232,7 +244,7 @@ fn convert_placeholders(sql: &str) -> String {
     result
 }
 
-/// 将 sz-orm Value 转换为 Oracle 绑定值
+/// Convert a sz-orm Value to an Oracle binding value
 fn value_to_oracle_to_sql(value: &Value) -> Box<dyn oracle::sql_type::ToSql + Send> {
     match value {
         Value::Null => Box::new(Option::<i64>::None),
@@ -266,14 +278,16 @@ fn value_to_oracle_to_sql(value: &Value) -> Box<dyn oracle::sql_type::ToSql + Se
     }
 }
 
-/// 优化版 Oracle 行映射：预提取列名与 OracleType 到 Vec,后续行复用引用,
-/// 并用 HashMap::with_capacity 预分配,避免每行每列重复调用
-/// `col_info.name().to_string()` 与 `col_info.oracle_type()`。
+/// Optimized Oracle row mapping: pre-extract column names and OracleType
+/// into a Vec for reuse by subsequent rows, and use HashMap::with_capacity
+/// to pre-allocate, avoiding repeated calls per row per column to
+/// `col_info.name().to_string()` and `col_info.oracle_type()`.
 ///
-/// 性能要点(对齐 sz-orm-sqlx 的 map_rows_optimized):
-/// - 列名与 OracleType 仅从 ResultSet 提取一次,后续行复用
-/// - HashMap 预分配 capacity = col_count,避免插入时 rehash
-/// - 对零行结果直接返回空 Vec,零开销
+/// Performance highlights (aligned with map_rows_optimized of sz-orm-sqlx):
+/// - Column names and OracleType are extracted from ResultSet only once and
+///   reused by subsequent rows
+/// - HashMap pre-allocates capacity = col_count, avoiding rehash on insertion
+/// - Returns an empty Vec directly for zero-row results, zero overhead
 fn map_oracle_rows_optimized(rows: oracle::ResultSet<'_, OracleRow>) -> Result<QueryRows, DbError> {
     let col_infos: Vec<oracle::ColumnInfo> = rows.column_info().to_vec();
     let col_count = col_infos.len();
@@ -300,13 +314,17 @@ fn map_oracle_rows_optimized(rows: oracle::ResultSet<'_, OracleRow>) -> Result<Q
     Ok(result)
 }
 
-/// 位置式 Oracle 行映射：返回 `(列名, 按列顺序的值矩阵)`，绕过 HashMap 开销。
+/// Positional Oracle row mapping: returns `(column names, value matrix in
+/// column order)`, bypassing HashMap overhead.
 ///
-/// 性能要点：
-/// - 列名与 OracleType 仅从 ResultSet 提取一次,后续行复用
-/// - 每行值按列序号直接 `Vec::push`,无哈希计算、无字符串克隆
-/// - `Vec::with_capacity` 预分配,避免动态扩容
-/// - 适用于 SELECT ALL 大结果集场景,比 `map_oracle_rows_optimized` 提升 30%~50%
+/// Performance highlights:
+/// - Column names and OracleType are extracted from ResultSet only once and
+///   reused by subsequent rows
+/// - Each row's values are pushed directly by column index via `Vec::push`,
+///   with no hash computation and no string clone
+/// - `Vec::with_capacity` pre-allocates to avoid dynamic resize
+/// - Suitable for SELECT ALL large result set scenarios, 30%~50% faster than
+///   `map_oracle_rows_optimized`
 fn map_oracle_rows_positional(
     rows: oracle::ResultSet<'_, OracleRow>,
 ) -> Result<QueryValues, DbError> {
@@ -334,10 +352,11 @@ fn map_oracle_rows_positional(
     Ok((names, values_matrix))
 }
 
-/// 将 Oracle 行值转换为 sz-orm Value
+/// Convert an Oracle row value to a sz-orm Value
 ///
-/// NUMBER 类型优先以 String 读取（`Value::Decimal`），避免 f64 精度丢失；
-/// Int64/UInt64 保持 i64 解码；Float/BinaryFloat/BinaryDouble 使用 f64。
+/// NUMBER type is read as String first (`Value::Decimal`) to avoid f64
+/// precision loss; Int64/UInt64 keep i64 decoding; Float/BinaryFloat/
+/// BinaryDouble use f64.
 fn oracle_row_to_value(row: &OracleRow, col_idx: usize, oracle_type: &OracleType) -> Value {
     match oracle_type {
         // NUMBER 可能含小数部分，以 String 读取保留完整精度
@@ -444,50 +463,60 @@ fn oracle_row_to_value(row: &OracleRow, col_idx: usize, oracle_type: &OracleType
     }
 }
 
-/// Oracle 连接池内部状态
+/// Oracle connection pool internal state
 struct OraclePoolInner {
-    /// 空闲连接列表：`acquire()` 从尾部弹出，`Drop` 归还时推入尾部
+    /// Idle connection list: `acquire()` pops from the tail, `Drop` pushes
+    /// back to the tail on return
     idle: Vec<OracleConn>,
-    /// 已创建连接总数（空闲 + 在用），用于约束池大小上限
+    /// Total number of created connections (idle + in-use), used to bound
+    /// the pool size upper limit
     total: usize,
 }
 
-/// Oracle 连接池句柄
+/// Oracle connection pool handle
 ///
-/// v1.2.0 修复 P0：从单连接伪池（`Mutex<Option<OracleConn>>`，并发度=1）
-/// 改为真正的连接池（`Mutex<OraclePoolInner>` 持有多个空闲连接 + `Condvar`
-/// 等待机制），并发度 = `max_size`（默认 10）。
+/// v1.2.0 P0 fix: changed from a single-connection pseudo-pool
+/// (`Mutex<Option<OracleConn>>`, concurrency=1) to a real connection pool
+/// (`Mutex<OraclePoolInner>` holding multiple idle connections + `Condvar`
+/// wait mechanism), with concurrency = `max_size` (default 10).
 ///
-/// # 设计要点
+/// # Design highlights
 ///
-/// - **多连接并发**：`idle` 持有多个空闲连接，`acquire()` 弹出一个供调用方
-///   独占使用，查询结束后通过 `OracleConnGuard::drop` 归还
-/// - **池大小约束**：`total` 跟踪已创建连接数（空闲+在用），`acquire()` 在
-///   `total < max_size` 时创建新连接，否则在 `Condvar` 上等待归还
-/// - **连接复用**：连接在 `Drop` 时归还到 `idle`，不关闭，避免反复建连开销
-/// - **阻塞安全**：`acquire()` 为同步阻塞调用，由 `OracleConnection` 的查询
-///   方法通过 `blocking_pool().spawn_blocking` 包装，`Condvar::wait` 阻塞的是
-///   专用阻塞线程，不影响主 tokio runtime
+/// - **Multi-connection concurrency**: `idle` holds multiple idle
+///   connections; `acquire()` pops one for exclusive use by the caller, and
+///   it is returned via `OracleConnGuard::drop` after the query completes
+/// - **Pool size bound**: `total` tracks the number of created connections
+///   (idle + in-use); `acquire()` creates a new connection when
+///   `total < max_size`, otherwise waits on `Condvar` for a return
+/// - **Connection reuse**: connections are returned to `idle` on `Drop`
+///   without being closed, avoiding repeated connection setup overhead
+/// - **Blocking safety**: `acquire()` is a synchronous blocking call,
+///   wrapped by the query methods of `OracleConnection` via
+///   `blocking_pool().spawn_blocking`; `Condvar::wait` blocks a dedicated
+///   blocking thread and does not affect the main tokio runtime
 pub struct OraclePoolHandle {
     username: String,
     password: String,
     connect_string: String,
-    /// 连接池内部状态（空闲连接 + 总数）
+    /// Connection pool internal state (idle connections + total)
     inner: Mutex<OraclePoolInner>,
-    /// 连接归还通知：池满时 `acquire()` 在此等待，`Drop` 时 `notify_one`
+    /// Connection return notification: `acquire()` waits here when the pool
+    /// is full, `Drop` calls `notify_one`
     condvar: Condvar,
-    /// 连接池大小上限（默认 10）
+    /// Connection pool size upper limit (default 10)
     max_size: usize,
-    /// v1.1.0 优化 3：Oracle 专用阻塞线程池
+    /// v1.1.0 optimization 3: Oracle dedicated blocking thread pool
     ///
-    /// 所有 `spawn_blocking` 调用通过此池派发，与主 tokio runtime 阻塞池隔离。
-    /// 池大小由 `OracleBlockingPoolConfig` 控制（默认 64，可通过环境变量
-    /// `SZ_ORM_ORACLE_MAX_BLOCKING_THREADS` 覆盖）。
+    /// All `spawn_blocking` calls are dispatched through this pool, isolated
+    /// from the blocking pool of the main tokio runtime. The pool size is
+    /// controlled by `OracleBlockingPoolConfig` (default 64, overridable via
+    /// the environment variable `SZ_ORM_ORACLE_MAX_BLOCKING_THREADS`).
     blocking_pool: OracleBlockingPool,
 }
 
 impl OraclePoolHandle {
-    /// 创建新的 Oracle 连接池（使用默认阻塞池配置，连接池上限默认 10）
+    /// Create a new Oracle connection pool (using default blocking pool
+    /// config, connection pool upper limit defaults to 10)
     pub fn connect(username: &str, password: &str, connect_string: &str) -> Result<Self, DbError> {
         Self::connect_with_pool(
             username,
@@ -497,10 +526,12 @@ impl OraclePoolHandle {
         )
     }
 
-    /// 创建新的 Oracle 连接池（自定义阻塞池配置，连接池上限默认 10）
+    /// Create a new Oracle connection pool (custom blocking pool config,
+    /// connection pool upper limit defaults to 10)
     ///
-    /// 适用于需要独立调优 Oracle 阻塞线程数的场景（如 OLAP 大查询）。
-    /// 如需自定义连接池大小，使用 [`OraclePoolHandle::connect_with_max_size`]。
+    /// Suitable for scenarios that need to tune the Oracle blocking thread
+    /// count independently (such as OLAP large queries). To customize the
+    /// connection pool size, use [`OraclePoolHandle::connect_with_max_size`].
     pub fn connect_with_pool(
         username: &str,
         password: &str,
@@ -510,11 +541,13 @@ impl OraclePoolHandle {
         Self::connect_with_max_size(username, password, connect_string, pool_config, 10)
     }
 
-    /// 创建新的 Oracle 连接池（自定义阻塞池配置与连接池大小上限）
+    /// Create a new Oracle connection pool (custom blocking pool config and
+    /// connection pool size upper limit)
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `max_size`：连接池大小上限。传入 0 会被替换为默认值 10
+    /// - `max_size`: connection pool size upper limit. Passing 0 is replaced
+    ///   with the default value 10
     pub fn connect_with_max_size(
         username: &str,
         password: &str,
@@ -541,19 +574,24 @@ impl OraclePoolHandle {
         })
     }
 
-    /// 从池中获取一个空闲连接（独占使用，`Drop` 时自动归还）
+    /// Acquire an idle connection from the pool (for exclusive use,
+    /// automatically returned on `Drop`)
     ///
-    /// # 获取策略
+    /// # Acquisition strategy
     ///
-    /// 1. 优先从 `idle` 弹出一个空闲连接
-    /// 2. 若 `idle` 为空且 `total < max_size`，创建新连接并递增 `total`
-    /// 3. 若 `total >= max_size`，在 `condvar` 上等待，直到有连接归还
+    /// 1. First pop an idle connection from `idle`
+    /// 2. If `idle` is empty and `total < max_size`, create a new connection
+    ///    and increment `total`
+    /// 3. If `total >= max_size`, wait on `condvar` until a connection is
+    ///    returned
     ///
-    /// # 阻塞语义
+    /// # Blocking semantics
     ///
-    /// 本方法为同步阻塞调用，应在 `spawn_blocking` 中调用（`OracleConnection`
-    /// 的所有查询方法已通过 `blocking_pool().spawn_blocking` 包装）。等待连接
-    /// 时阻塞的是专用阻塞线程，不影响主 tokio runtime。
+    /// This method is a synchronous blocking call and should be called inside
+    /// `spawn_blocking` (all query methods of `OracleConnection` are already
+    /// wrapped via `blocking_pool().spawn_blocking`). When waiting for a
+    /// connection, a dedicated blocking thread is blocked and does not affect
+    /// the main tokio runtime.
     pub fn acquire(&self) -> Result<OracleConnGuard<'_>, DbError> {
         let mut inner = self
             .inner
@@ -595,32 +633,35 @@ impl OraclePoolHandle {
         }
     }
 
-    /// 获取连接字符串
+    /// Get the connect string
     pub fn connect_string(&self) -> &str {
         &self.connect_string
     }
 
-    /// 获取连接池大小上限
+    /// Get the connection pool size upper limit
     pub fn max_size(&self) -> usize {
         self.max_size
     }
 
-    /// 获取专用阻塞线程池引用
+    /// Get a reference to the dedicated blocking thread pool
     ///
-    /// v1.1.0 优化 3：暴露专用阻塞池，供 `OracleConnection` 派发阻塞任务。
+    /// v1.1.0 optimization 3: expose the dedicated blocking pool for
+    /// `OracleConnection` to dispatch blocking tasks.
     pub fn blocking_pool(&self) -> &OracleBlockingPool {
         &self.blocking_pool
     }
 }
 
-/// Oracle 连接的独占守卫
+/// Exclusive guard for an Oracle connection
 ///
-/// 持有从池中取出的连接，`Drop` 时自动归还到池的 `idle` 列表并通知一个等待者。
-/// 通过 `Deref` / `DerefMut` 透明访问底层 `OracleConn`。
+/// Holds a connection taken from the pool; on `Drop` it is automatically
+/// returned to the pool's `idle` list and one waiter is notified. Provides
+/// transparent access to the underlying `OracleConn` via `Deref` / `DerefMut`.
 pub struct OracleConnGuard<'a> {
-    /// 当前持有的连接；`Drop` 时取出并归还，正常使用期间始终为 `Some`
+    /// The currently held connection; taken out and returned on `Drop`,
+    /// always `Some` during normal use
     conn: Option<OracleConn>,
-    /// 池的引用，用于归还连接
+    /// Reference to the pool, used to return the connection
     pool: &'a OraclePoolHandle,
 }
 
@@ -650,7 +691,7 @@ impl Drop for OracleConnGuard<'_> {
     }
 }
 
-/// Oracle 连接工厂
+/// Oracle connection factory
 pub struct OracleConnectionFactory {
     handle: Arc<OraclePoolHandle>,
 }
@@ -673,7 +714,7 @@ impl ConnectionFactory for OracleConnectionFactory {
     }
 }
 
-/// Oracle 连接包装器
+/// Oracle connection wrapper
 pub struct OracleConnection {
     handle: Arc<OraclePoolHandle>,
     connected: bool,
@@ -751,18 +792,23 @@ impl Connection for OracleConnection {
         })
     }
 
-    /// G-SX-4：Oracle 原生游标流式查询
+    /// G-SX-4: Oracle native cursor streaming query
     ///
-    /// `oracle` crate 为同步 API，`ResultSet` 是同步迭代器。本方法通过
-    /// `tokio::sync::mpsc` 通道桥接阻塞迭代与异步消费：
+    /// The `oracle` crate is a synchronous API and `ResultSet` is a
+    /// synchronous iterator. This method bridges blocking iteration and
+    /// asynchronous consumption via a `tokio::sync::mpsc` channel:
     ///
-    /// 1. 在专用阻塞线程池中获取连接、执行查询、迭代 `ResultSet`
-    /// 2. 每一行通过 mpsc 通道发送到异步端
-    /// 3. 异步端从通道接收并逐行 yield
+    /// 1. Acquire a connection, execute the query, and iterate the
+    ///    `ResultSet` in the dedicated blocking thread pool
+    /// 2. Send each row to the asynchronous side via an mpsc channel
+    /// 3. The asynchronous side receives from the channel and yields row by
+    ///    row
     ///
-    /// 相比默认实现（全量加载到 Vec 再逐行 yield），本方法避免了大结果集
-    /// 的内存峰值：阻塞线程逐行拉取，异步端逐行消费，通道缓冲区大小
-    /// 限制了同时在途的行数。
+    /// Compared with the default implementation (loading everything into a
+    /// Vec and then yielding row by row), this method avoids the memory peak
+    /// of large result sets: the blocking thread pulls row by row, the
+    /// asynchronous side consumes row by row, and the channel buffer size
+    /// limits the number of rows in flight at the same time.
     fn query_stream<'a>(
         &'a mut self,
         sql: &'a str,
@@ -931,9 +977,11 @@ impl Connection for OracleConnection {
         })
     }
 
-    /// Oracle 位置式查询（SELECT）：绕过 HashMap 行映射，返回列名 + 按列顺序的值矩阵。
+    /// Oracle positional query (SELECT): bypasses HashMap row mapping,
+    /// returns column names + a value matrix in column order.
     ///
-    /// 适用于 SELECT ALL 大结果集场景，比 `query` 提升 30%~50%。
+    /// Suitable for SELECT ALL large result set scenarios, 30%~50% faster
+    /// than `query`.
     fn query_values<'a>(
         &'a mut self,
         sql: &'a str,
@@ -965,7 +1013,8 @@ impl Connection for OracleConnection {
         })
     }
 
-    /// Oracle 参数绑定位置式查询（SELECT）：叠加 prepared statement + 位置式映射双重优化。
+    /// Oracle parameter-bound positional query (SELECT): stacks prepared
+    /// statement + positional mapping dual optimization.
     fn query_values_with_params<'a>(
         &'a mut self,
         sql: &'a str,
@@ -1008,11 +1057,14 @@ impl Connection for OracleConnection {
         })
     }
 
-    /// Oracle 批量插入：使用原生 Array DML（Batch API）一次性提交多行
+    /// Oracle bulk insert: uses native Array DML (Batch API) to submit
+    /// multiple rows in one shot
     ///
-    /// 通过 `conn.batch(sql, batch_size)` 创建批处理，逐行 `append_row` 后
-    /// `execute()` 提交。启用 `with_row_counts` 获取每行影响行数，求和返回。
-    /// 比默认实现的逐行 `execute_with_params` 循环减少 N-1 次网络往返。
+    /// Creates a batch via `conn.batch(sql, batch_size)`, appends rows one by
+    /// one via `append_row`, then commits via `execute()`. Enables
+    /// `with_row_counts` to get the affected row count per row and sums them
+    /// for the return. Reduces N-1 network round trips compared with the
+    /// default implementation's per-row `execute_with_params` loop.
     fn execute_batch_params<'a>(
         &'a mut self,
         sql: &'a str,
@@ -1217,7 +1269,7 @@ impl Connection for OracleConnection {
 // 连接串解析 API
 // ============================================================================
 
-/// Oracle 连接串解析结果
+/// Oracle connect string parse result
 #[derive(Debug, Clone)]
 pub struct OracleConnInfo {
     host: String,
@@ -1228,50 +1280,51 @@ pub struct OracleConnInfo {
 }
 
 impl OracleConnInfo {
-    /// 获取主机地址
+    /// Get the host address
     #[must_use]
     pub fn host(&self) -> &str {
         &self.host
     }
 
-    /// 获取端口
+    /// Get the port
     #[must_use]
     pub fn port(&self) -> u16 {
         self.port
     }
 
-    /// 获取服务名
+    /// Get the service name
     #[must_use]
     pub fn service_name(&self) -> &str {
         &self.service_name
     }
 
-    /// 获取用户名
+    /// Get the username
     #[must_use]
     pub fn username(&self) -> &str {
         &self.username
     }
 
-    /// 获取密码
+    /// Get the password
     #[must_use]
     pub fn password(&self) -> &str {
         &self.password
     }
 
-    /// 重新生成连接串（`host:port/service_name`）
+    /// Rebuild the connect string (`host:port/service_name`)
     #[must_use]
     pub fn as_connect_string(&self) -> String {
         format!("{}:{}/{}", self.host, self.port, self.service_name)
     }
 }
 
-/// 解析 Oracle 连接串
+/// Parse an Oracle connect string
 ///
-/// 支持格式：`host:port/service_name` 或 `host/service_name`（默认端口 1521）
+/// Supported formats: `host:port/service_name` or `host/service_name`
+/// (default port 1521)
 ///
 /// # Errors
 ///
-/// 若格式无效返回 `DbError::Internal`。
+/// Returns `DbError::Internal` if the format is invalid.
 pub fn parse_connect_string(conn_str: &str) -> Result<OracleConnInfo, DbError> {
     let (host_port, service_name) = conn_str.split_once('/').ok_or_else(|| {
         DbError::Internal("missing service_name (use host:port/service)".to_string())
@@ -1308,23 +1361,24 @@ pub fn parse_connect_string(conn_str: &str) -> Result<OracleConnInfo, DbError> {
 // Oracle 方言辅助 API
 // ============================================================================
 
-/// Oracle 方言辅助
+/// Oracle dialect helper
 pub struct OracleDialect;
 
 impl OracleDialect {
-    /// 构造方言辅助器
+    /// Construct a dialect helper
     #[must_use]
     pub fn new() -> Self {
         Self
     }
 
-    /// 引用标识符（Oracle 用双引号 `"name"`）
+    /// Quote an identifier (Oracle uses double quotes `"name"`)
     #[must_use]
     pub fn quote_identifier(&self, name: &str) -> String {
         format!("\"{}\"", name.replace('"', "\"\""))
     }
 
-    /// 生成 LIMIT/OFFSET 子句（Oracle 12c+ 用 `OFFSET ... ROWS FETCH NEXT`）
+    /// Generate a LIMIT/OFFSET clause (Oracle 12c+ uses
+    /// `OFFSET ... ROWS FETCH NEXT`)
     #[must_use]
     pub fn limit_clause(&self, limit: Option<u64>, offset: Option<u64>) -> String {
         match (limit, offset) {
@@ -1337,13 +1391,13 @@ impl OracleDialect {
         }
     }
 
-    /// 生成参数占位符（Oracle 用 `:1`, `:2`, ...）
+    /// Generate a parameter placeholder (Oracle uses `:1`, `:2`, ...)
     #[must_use]
     pub fn placeholder(&self, index: usize) -> String {
         format!(":{index}")
     }
 
-    /// 检查是否为 Oracle 保留字
+    /// Check whether it is an Oracle reserved word
     #[must_use]
     pub fn is_reserved_keyword(&self, kw: &str) -> bool {
         matches!(
@@ -1431,7 +1485,7 @@ impl Default for OracleDialect {
 // Oracle 类型枚举 API
 // ============================================================================
 
-/// Oracle 数据类型
+/// Oracle data type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OracleDataType {
     Number,
@@ -1460,7 +1514,7 @@ pub enum OracleDataType {
 }
 
 impl OracleDataType {
-    /// 返回 SQL 类型名
+    /// Return the SQL type name
     #[must_use]
     pub fn as_sql_type(&self) -> &'static str {
         match self {
@@ -1490,7 +1544,7 @@ impl OracleDataType {
         }
     }
 
-    /// 是否为数值类型
+    /// Whether it is a numeric type
     #[must_use]
     pub fn is_numeric(&self) -> bool {
         matches!(
@@ -1499,7 +1553,7 @@ impl OracleDataType {
         )
     }
 
-    /// 是否为字符串类型
+    /// Whether it is a string type
     #[must_use]
     pub fn is_string(&self) -> bool {
         matches!(
@@ -1513,7 +1567,7 @@ impl OracleDataType {
         )
     }
 
-    /// 是否为二进制类型
+    /// Whether it is a binary type
     #[must_use]
     pub fn is_binary(&self) -> bool {
         matches!(
@@ -1522,7 +1576,7 @@ impl OracleDataType {
         )
     }
 
-    /// 是否为时间类型
+    /// Whether it is a temporal type
     #[must_use]
     pub fn is_temporal(&self) -> bool {
         matches!(
@@ -1534,7 +1588,7 @@ impl OracleDataType {
         )
     }
 
-    /// 是否为 LOB 类型
+    /// Whether it is a LOB type
     #[must_use]
     pub fn is_lob(&self) -> bool {
         matches!(
@@ -1543,7 +1597,7 @@ impl OracleDataType {
         )
     }
 
-    /// 从类型名解析
+    /// Parse from a type name
     #[must_use]
     pub fn parse_name(name: &str) -> Self {
         let upper = name.to_uppercase();
@@ -1592,33 +1646,33 @@ impl OracleDataType {
 // Oracle 错误分类 API
 // ============================================================================
 
-/// Oracle 错误分类（基于 ORA- 错误码）
+/// Oracle error category (based on ORA- error codes)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum OracleErrorCategory {
-    /// 唯一约束违反（ORA-00001）
+    /// Unique constraint violation (ORA-00001)
     DuplicateKey,
-    /// 外键约束违反（ORA-02291）
+    /// Foreign key constraint violation (ORA-02291)
     ForeignKeyViolation,
-    /// 检查约束违反（ORA-02290）
+    /// Check constraint violation (ORA-02290)
     CheckConstraintViolation,
-    /// 值过大（ORA-01401）
+    /// Value too large (ORA-01401)
     ValueTooLarge,
-    /// 无效 SQL（ORA-00900）
+    /// Invalid SQL (ORA-00900)
     InvalidSql,
-    /// 对象不存在（ORA-00942）
+    /// Object does not exist (ORA-00942)
     ObjectNotFound,
-    /// 死锁（ORA-00060）
+    /// Deadlock (ORA-00060)
     Deadlock,
-    /// 资源忙（ORA-00054）
+    /// Resource busy (ORA-00054)
     ResourceBusy,
-    /// 超时
+    /// Timeout
     Timeout,
-    /// 其他
+    /// Other
     Other,
 }
 
 impl OracleErrorCategory {
-    /// 从 Oracle 错误码分类
+    /// Categorize from an Oracle error code
     #[must_use]
     pub fn from_code(code: i32) -> Self {
         match code {
@@ -1634,7 +1688,7 @@ impl OracleErrorCategory {
         }
     }
 
-    /// 错误描述
+    /// Error description
     #[must_use]
     pub fn description(&self) -> &'static str {
         match self {
@@ -1651,7 +1705,7 @@ impl OracleErrorCategory {
         }
     }
 
-    /// 是否可重试（死锁/资源忙/超时）
+    /// Whether it is retriable (deadlock/resource busy/timeout)
     #[must_use]
     pub fn is_retriable(&self) -> bool {
         matches!(
@@ -1667,7 +1721,7 @@ impl OracleErrorCategory {
 // PL/SQL 调用辅助 API
 // ============================================================================
 
-/// PL/SQL 调用构建器
+/// PL/SQL call builder
 #[derive(Debug, Clone)]
 pub struct PlSqlCall {
     name: String,
@@ -1677,7 +1731,7 @@ pub struct PlSqlCall {
 }
 
 impl PlSqlCall {
-    /// 构建存储过程调用
+    /// Build a stored procedure call
     #[must_use]
     pub fn procedure(name: &str) -> Self {
         Self {
@@ -1688,7 +1742,7 @@ impl PlSqlCall {
         }
     }
 
-    /// 构建函数调用
+    /// Build a function call
     #[must_use]
     pub fn function(name: &str, return_type: &str) -> Self {
         Self {
@@ -1699,14 +1753,14 @@ impl PlSqlCall {
         }
     }
 
-    /// 添加参数
+    /// Add a parameter
     #[must_use]
     pub fn param(mut self, name: &str, value: &str) -> Self {
         self.params.push((name.to_string(), value.to_string()));
         self
     }
 
-    /// 生成 PL/SQL 匿名块
+    /// Generate a PL/SQL anonymous block
     #[must_use]
     pub fn build(&self) -> String {
         let param_binds: Vec<String> = self

@@ -30,14 +30,17 @@ pub use cross_shard_tx::{
 pub use routing::{CompositeKeyExtractor, FieldExtractor, ShardKeyExtractor};
 pub use scatter::ScatterGather;
 
-/// FNV-1a 64-bit 确定性哈希函数（带 MurmurHash3 fmix64 终结化）
+/// FNV-1a 64-bit deterministic hash function (with MurmurHash3 fmix64 finalization).
 ///
-/// 用于分片路由，保证跨进程/重启后同一 key 的哈希结果一致。
-/// 不依赖任何随机种子，避免 `DefaultHasher`（基于 `RandomState`）的不确定性。
+/// Used for sharding routing to guarantee that the same key hashes to the same
+/// value across processes and restarts. Does not depend on any random seed,
+/// avoiding the nondeterminism of `DefaultHasher` (based on `RandomState`).
 ///
-/// 注意：纯 FNV-1a 对短字符串的雪崩特性较弱，相似前缀的 key（如 `key_0`、`key_1`）
-/// 哈希值高度相关，会导致一致性哈希环上分布严重不均。追加 fmix64 终结化步骤
-/// 打破这种结构相关性，使哈希值在 64-bit 空间中近似均匀分布。
+/// Note: pure FNV-1a has weak avalanche properties for short strings; keys with
+/// similar prefixes (e.g. `key_0`, `key_1`) produce highly correlated hashes,
+/// causing severely uneven distribution on the consistent-hash ring. The fmix64
+/// finalization step breaks this structural correlation so that hash values are
+/// approximately uniformly distributed in the 64-bit space.
 fn fnv1a_hash(data: &str) -> u64 {
     const FNV_OFFSET_BASIS: u64 = 0xcbf29ce484222325;
     const FNV_PRIME: u64 = 0x100000001b3;
@@ -55,60 +58,63 @@ fn fnv1a_hash(data: &str) -> u64 {
     hash
 }
 
-/// 分片策略
+/// Sharding strategy.
 ///
-/// 注意：v0.3.0 起扩展为非 `Copy` 枚举（新增 `Enum`/`List`/`Directory`/`Composite`
-/// 携带数据的变体）。`Hash`/`Range`/`Date` 三个原始变体的路由行为保持向后兼容。
+/// Note: from v0.3.0 this is extended to a non-`Copy` enum (with new
+/// `Enum`/`List`/`Directory`/`Composite` variants that carry data). The routing
+/// behavior of the three original variants `Hash`/`Range`/`Date` remains
+/// backward compatible.
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub enum ShardingStrategy {
-    /// 哈希分片：对 key 做哈希后取模选择 shard
+    /// Hash sharding: hash the key and select a shard by modulo.
     Hash,
-    /// 范围分片：按 key 的字节值范围选择 shard
+    /// Range sharding: select a shard by the byte-value range of the key.
     Range,
-    /// 日期分片：按 key 中包含的日期信息（YYYY-MM-DD）选择 shard
+    /// Date sharding: select a shard by the date information (YYYY-MM-DD) in the key.
     Date,
-    /// 枚举分片：显式 key → shard 映射，未匹配走默认 shard
+    /// Enum sharding: explicit key → shard mapping; unmatched keys go to the default shard.
     Enum {
-        /// 显式映射表
+        /// Explicit mapping table.
         mapping: HashMap<String, String>,
-        /// 未匹配时的默认 shard
+        /// Default shard when no match.
         default: Option<String>,
     },
-    /// 列表分片：key 在预定义集合中则路由到 target，否则走默认
+    /// List sharding: route to `target` if the key is in the predefined set, otherwise default.
     List {
-        /// 预定义 key 集合
+        /// Predefined key set.
         keys: HashSet<String>,
-        /// 命中时路由到的目标 shard
+        /// Target shard on hit.
         target: String,
-        /// 未命中时的默认 shard
+        /// Default shard on miss.
         default: Option<String>,
     },
-    /// 目录分片：动态查询路由表（key → shard）
+    /// Directory sharding: dynamically query a routing table (key → shard).
     Directory {
-        /// 动态路由表
+        /// Dynamic routing table.
         table: HashMap<String, String>,
     },
-    /// 复合分片：先按 primary 路由得到 group，再用 secondary 对 "group:key" 二级路由
+    /// Composite sharding: first route by `primary` to obtain a group, then route
+    /// "group:key" with `secondary` for the second-level routing.
     Composite {
-        /// 一级策略（决定 group）
+        /// Primary strategy (decides the group).
         primary: Box<ShardingStrategy>,
-        /// 一级策略使用的 shard 列表（即 group 标签集合）
+        /// Shard list used by the primary strategy (i.e. the set of group labels).
         primary_shards: Vec<String>,
-        /// 二级策略（在 group 内路由）
+        /// Secondary strategy (routes within the group).
         secondary: Box<ShardingStrategy>,
-        /// 二级策略使用的 shard 列表（最终 shard）
+        /// Shard list used by the secondary strategy (final shard).
         secondary_shards: Vec<String>,
     },
 }
 
-/// 分片路由错误
+/// Sharding routing error.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum ShardingError {
-    /// 未配置任何 shard，无法路由
+    /// No shard configured; cannot route.
     NoShardsConfigured,
-    /// `Enum`/`List`/`Directory` 策略未匹配到 key，且无默认 shard
+    /// `Enum`/`List`/`Directory` strategy did not match the key and no default shard is set.
     NoMappingForKey(String),
-    /// 工作线程 panic（用于 `ScatterGather` 并行场景）
+    /// Worker thread panicked (used in `ScatterGather` parallel scenarios).
     ThreadPanic,
 }
 
@@ -126,18 +132,18 @@ impl fmt::Display for ShardingError {
 
 impl Error for ShardingError {}
 
-/// 分片路由器
+/// Sharding router.
 ///
-/// 根据 `ShardingStrategy` 将 key 路由到对应的 shard。
-/// v0.3.0 起支持 `Enum`/`List`/`Directory`/`Composite` 等新策略。
+/// Routes a key to the corresponding shard according to `ShardingStrategy`.
+/// From v0.3.0 supports new strategies `Enum`/`List`/`Directory`/`Composite`.
 pub struct ShardingRouter {
     strategy: ShardingStrategy,
-    /// 仅 Hash/Range/Date 使用；其他策略自带数据，忽略此字段
+    /// Used only by Hash/Range/Date; other strategies carry their own data and ignore this field.
     shards: Vec<String>,
 }
 
 impl ShardingRouter {
-    /// 创建路由器（兼容旧 API：传入策略与 shard 列表）
+    /// Create a router (legacy API: takes a strategy and a shard list).
     pub fn new(strategy: ShardingStrategy, shards: Vec<&str>) -> Self {
         Self {
             strategy,
@@ -145,7 +151,7 @@ impl ShardingRouter {
         }
     }
 
-    /// 构造枚举分片路由器
+    /// Construct an enum-sharding router.
     pub fn new_enum(mapping: HashMap<String, String>, default: Option<String>) -> Self {
         Self {
             strategy: ShardingStrategy::Enum { mapping, default },
@@ -153,7 +159,7 @@ impl ShardingRouter {
         }
     }
 
-    /// 构造列表分片路由器
+    /// Construct a list-sharding router.
     pub fn new_list(keys: HashSet<String>, target: String, default: Option<String>) -> Self {
         Self {
             strategy: ShardingStrategy::List {
@@ -165,7 +171,7 @@ impl ShardingRouter {
         }
     }
 
-    /// 构造目录分片路由器
+    /// Construct a directory-sharding router.
     pub fn new_directory(table: HashMap<String, String>) -> Self {
         Self {
             strategy: ShardingStrategy::Directory { table },
@@ -173,7 +179,7 @@ impl ShardingRouter {
         }
     }
 
-    /// 构造复合分片路由器
+    /// Construct a composite-sharding router.
     pub fn new_composite(
         primary: ShardingStrategy,
         primary_shards: Vec<String>,
@@ -191,21 +197,24 @@ impl ShardingRouter {
         }
     }
 
-    /// 根据 key 路由到对应的 shard
+    /// Route a key to the corresponding shard.
     ///
     /// # Errors
     ///
-    /// - Hash/Range/Date 策略下 shards 为空时返回 [`ShardingError::NoShardsConfigured`]
-    /// - Enum/List/Directory 策略未匹配且无默认时返回 [`ShardingError::NoMappingForKey`]
+    /// - Returns [`ShardingError::NoShardsConfigured`] when `shards` is empty
+    ///   under Hash/Range/Date strategies.
+    /// - Returns [`ShardingError::NoMappingForKey`] when Enum/List/Directory
+    ///   strategies miss and no default is set.
     pub fn route(&self, key: &str) -> Result<&str, ShardingError> {
         route_strategy(&self.strategy, &self.shards, key)
     }
 
-    /// 通过数据对象 + 提取器路由：先从 `data` 提取 key，再 `route(key)`
+    /// Route via a data object and an extractor: first extract a key from `data`,
+    /// then call `route(key)`.
     ///
     /// # Errors
     ///
-    /// 提取失败或路由失败时返回对应 [`ShardingError`]。
+    /// Returns the corresponding [`ShardingError`] when extraction or routing fails.
     pub fn route_by_data(
         &self,
         data: &dyn std::any::Any,
@@ -215,27 +224,28 @@ impl ShardingRouter {
         self.route(&key)
     }
 
-    /// 返回所有 shard（用于广播查询；仅 Hash/Range/Date 有效）
+    /// Return all shards (for broadcast queries; only valid for Hash/Range/Date).
     pub fn query_all(&self) -> &[String] {
         &self.shards
     }
 
-    /// 返回当前策略（克隆）
+    /// Return the current strategy (cloned).
     pub fn strategy(&self) -> ShardingStrategy {
         self.strategy.clone()
     }
 
-    /// 返回 shard 数量
+    /// Return the number of shards.
     pub fn shard_count(&self) -> usize {
         self.shards.len()
     }
 }
 
-/// 通用路由分发：根据策略选择 shard
+/// Generic routing dispatch: select a shard according to the strategy.
 ///
-/// 作为自由函数实现，便于 `Composite` 递归调用时复用同一套逻辑。
-/// 输出生命周期 `'a` 绑定到 `strategy` 与 `shards`（结果借用其中之一），
-/// 与 `key` 的生命周期无关。
+/// Implemented as a free function so that `Composite` can reuse the same logic
+/// during recursive calls. The output lifetime `'a` is bound to `strategy` and
+/// `shards` (the result borrows from one of them) and is independent of the
+/// lifetime of `key`.
 fn route_strategy<'a>(
     strategy: &'a ShardingStrategy,
     shards: &'a [String],
@@ -301,27 +311,32 @@ fn route_strategy<'a>(
     }
 }
 
-/// 哈希路由：对 key 做哈希后取模选择 shard
+/// Hash routing: hash the key and select a shard by modulo.
 ///
-/// 返回值从 `shards` 借用（生命周期 `'a`），与 `key` 无关。
+/// The return value is borrowed from `shards` (lifetime `'a`) and is
+/// independent of `key`.
 fn route_hash<'a>(shards: &'a [String], key: &str) -> &'a str {
     let hash = fnv1a_hash(key);
     let idx = (hash as usize) % shards.len();
     &shards[idx]
 }
 
-/// 范围路由：按 key 的首字节将 keyspace [0, 256) 均分到各 shard
+/// Range routing: split the keyspace [0, 256) evenly across shards by the first
+/// byte of the key.
 ///
-/// 返回值从 `shards` 借用（生命周期 `'a`），与 `key` 无关。
+/// The return value is borrowed from `shards` (lifetime `'a`) and is
+/// independent of `key`.
 fn route_range<'a>(shards: &'a [String], key: &str) -> &'a str {
     let first_byte = key.bytes().next().unwrap_or(0) as usize;
     let idx = (first_byte * shards.len()) / 256;
     &shards[idx.min(shards.len() - 1)]
 }
 
-/// 日期路由：按 key 中包含的日期信息（YYYY-MM-DD）的"日"取模选择 shard
+/// Date routing: select a shard by taking the "day" component of the date
+/// information (YYYY-MM-DD) in the key modulo the number of shards.
 ///
-/// 返回值从 `shards` 借用（生命周期 `'a`），与 `key` 无关。
+/// The return value is borrowed from `shards` (lifetime `'a`) and is
+/// independent of `key`.
 fn route_date<'a>(shards: &'a [String], key: &str) -> &'a str {
     if let Some(date) = extract_date(key) {
         // 用日期中的"日"（day of month）取模
@@ -342,7 +357,7 @@ fn route_date<'a>(shards: &'a [String], key: &str) -> &'a str {
     &shards[idx]
 }
 
-/// 从字符串中提取 YYYY-MM-DD 格式的日期
+/// Extract a date in YYYY-MM-DD format from a string.
 fn extract_date(key: &str) -> Option<String> {
     let bytes = key.as_bytes();
     if bytes.len() < 10 {

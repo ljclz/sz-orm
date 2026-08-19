@@ -77,41 +77,41 @@ impl ModelDefinition {
         }
     }
 
-    /// 例："users" -> "User", "order_items" -> "OrderItem"
+    /// Example: "users" -> "User", "order_items" -> "OrderItem"
     pub fn pascal_case_name(&self) -> String {
         to_pascal_singular(&self.name)
     }
 
-    /// 返回表名的单数形式（简单启发式：去除末尾 's'）。
+    /// Return the singular form of the table name (simple heuristic: strip the trailing 's').
     pub fn singular_name(&self) -> String {
         let n = self.name.trim_end_matches('s');
         n.to_string()
     }
 
-    /// 添加字段（链式调用）
+    /// Add a field (chainable).
     pub fn with_field(mut self, field: FieldDef) -> Self {
         self.fields.push(field);
         self
     }
 
-    /// 添加索引（链式调用）
+    /// Add an index (chainable).
     pub fn with_index(mut self, index: &str) -> Self {
         self.indexes.push(index.to_string());
         self
     }
 
-    /// 添加关联关系（链式调用）
+    /// Add a relation (chainable).
     pub fn with_relation(mut self, relation: RelationDefinition) -> Self {
         self.relations.push(relation);
         self
     }
 
-    /// 查找指定名称的字段
+    /// Find a field by name.
     pub fn find_field(&self, name: &str) -> Option<&FieldDef> {
         self.fields.iter().find(|f| f.name == name)
     }
 
-    /// 获取主键字段（默认为 id）
+    /// Get the primary key field (defaults to id).
     pub fn primary_key(&self) -> Option<&FieldDef> {
         self.find_field("id")
     }
@@ -122,16 +122,16 @@ pub struct FieldDef {
     pub name: String,
     pub field_type: String,
     pub nullable: bool,
-    /// 字段注释/标签
+    /// Field comment/label.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub label: Option<String>,
-    /// 默认值（SQL 表达式或字面量）
+    /// Default value (SQL expression or literal).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_value: Option<String>,
-    /// 是否为主键
+    /// Whether this is a primary key.
     #[serde(default)]
     pub primary_key: bool,
-    /// 是否唯一
+    /// Whether this is unique.
     #[serde(default)]
     pub unique: bool,
 }
@@ -175,7 +175,7 @@ impl FieldDef {
         self
     }
 
-    /// 获取字段标签（优先 label，回退到 name）
+    /// Get the field label (prefers label, falls back to name).
     pub fn display_label(&self) -> &str {
         self.label.as_deref().unwrap_or(&self.name)
     }
@@ -199,24 +199,24 @@ impl RelationDefinition {
         }
     }
 
-    /// 判断是否为一对一关系
+    /// Whether this is a one-to-one relation.
     pub fn is_one_to_one(&self) -> bool {
         self.rel_type.eq_ignore_ascii_case("one_to_one")
     }
 
-    /// 判断是否为一对多关系
+    /// Whether this is a one-to-many relation.
     pub fn is_one_to_many(&self) -> bool {
         self.rel_type.eq_ignore_ascii_case("one_to_many")
     }
 
-    /// 判断是否为多对多关系
+    /// Whether this is a many-to-many relation.
     pub fn is_many_to_many(&self) -> bool {
         self.rel_type.eq_ignore_ascii_case("many_to_many")
     }
 }
 
-/// 将表名如 "users" 或 "order_items" 转换为 "User" / "OrderItem"
-/// 并去除末尾 's' 以单数化。
+/// Convert a table name such as "users" or "order_items" to "User" / "OrderItem"
+/// and strip the trailing 's' to singularize.
 fn to_pascal_singular(input: &str) -> String {
     let mut out = String::new();
     let mut cap_next = true;
@@ -242,15 +242,16 @@ fn to_pascal_singular(input: &str) -> String {
 // 字段类型映射（FieldTypeMapping）
 // ============================================================================
 
-/// 字段类型映射工具
+/// Field type mapping utility.
 ///
-/// 提供 SQL 类型 ↔ Rust 类型 ↔ HTML input 类型 ↔ JSON Schema 类型 的双向映射。
+/// Provides bidirectional mappings between SQL types, Rust types, HTML input
+/// types, and JSON Schema types.
 pub struct FieldTypeMapping;
 
 impl FieldTypeMapping {
-    /// 将 SQL 类型映射为 Rust 类型
+    /// Map a SQL type to a Rust type.
     ///
-    /// 例：BIGINT -> i64, VARCHAR -> String, TIMESTAMP -> chrono::NaiveDateTime
+    /// Example: BIGINT -> i64, VARCHAR -> String, TIMESTAMP -> chrono::NaiveDateTime
     pub fn sql_to_rust(sql_type: &str) -> &'static str {
         let upper = sql_type.to_uppercase();
         if upper.starts_with("BIGINT") || upper.starts_with("INT8") {
@@ -292,9 +293,9 @@ impl FieldTypeMapping {
         }
     }
 
-    /// 将 SQL 类型映射为 HTML input 类型
+    /// Map a SQL type to an HTML input type.
     ///
-    /// 例：VARCHAR -> text, INTEGER -> number, DATE -> date, BOOLEAN -> checkbox
+    /// Example: VARCHAR -> text, INTEGER -> number, DATE -> date, BOOLEAN -> checkbox
     pub fn sql_to_html_input(sql_type: &str) -> &'static str {
         let upper = sql_type.to_uppercase();
         if upper.starts_with("INT")
@@ -323,7 +324,7 @@ impl FieldTypeMapping {
         }
     }
 
-    /// 将 SQL 类型映射为 JSON Schema 类型
+    /// Map a SQL type to a JSON Schema type.
     pub fn sql_to_json_schema(sql_type: &str) -> &'static str {
         let upper = sql_type.to_uppercase();
         if upper.starts_with("INT") || upper.starts_with("BIGINT") || upper.starts_with("SMALLINT")
@@ -345,7 +346,7 @@ impl FieldTypeMapping {
         }
     }
 
-    /// 将 Rust 类型映射为 SQL 类型
+    /// Map a Rust type to a SQL type.
     pub fn rust_to_sql(rust_type: &str) -> &'static str {
         match rust_type {
             "i16" => "SMALLINT",
@@ -367,7 +368,7 @@ impl FieldTypeMapping {
         }
     }
 
-    /// 判断 SQL 类型是否为数值类型
+    /// Whether the SQL type is a numeric type.
     pub fn is_numeric(sql_type: &str) -> bool {
         let upper = sql_type.to_uppercase();
         upper.starts_with("INT")
@@ -380,7 +381,7 @@ impl FieldTypeMapping {
             || upper.starts_with("REAL")
     }
 
-    /// 判断 SQL 类型是否为日期/时间类型
+    /// Whether the SQL type is a date/time type.
     pub fn is_temporal(sql_type: &str) -> bool {
         let upper = sql_type.to_uppercase();
         upper.starts_with("DATE")
@@ -394,34 +395,34 @@ impl FieldTypeMapping {
 // 验证规则配置（ValidationRule / FieldValidation）
 // ============================================================================
 
-/// 验证规则枚举
+/// Validation rule enum.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum ValidationRule {
-    /// 必填
+    /// Required.
     Required,
-    /// 最小长度
+    /// Minimum length.
     MinLength { value: u32 },
-    /// 最大长度
+    /// Maximum length.
     MaxLength { value: u32 },
-    /// 最小值
+    /// Minimum value.
     Min { value: f64 },
-    /// 最大值
+    /// Maximum value.
     Max { value: f64 },
-    /// 正则表达式
+    /// Regular expression pattern.
     Pattern { regex: String },
-    /// 邮箱格式
+    /// Email format.
     Email,
-    /// URL 格式
+    /// URL format.
     Url,
-    /// 枚举值
+    /// Enumerated values.
     Enum { values: Vec<String> },
 }
 
 impl ValidationRule {
-    /// 验证给定值是否符合规则
+    /// Validate whether the given value satisfies the rule.
     ///
-    /// 返回 `Ok(())` 表示通过，`Err(message)` 表示失败。
+    /// Returns `Ok(())` on success, `Err(message)` on failure.
     pub fn validate(&self, value: &serde_json::Value) -> Result<(), String> {
         match self {
             Self::Required => {
@@ -506,7 +507,7 @@ impl ValidationRule {
         }
     }
 
-    /// 转换为 HTML 表单属性字符串
+    /// Convert to an HTML form attribute string.
     pub fn to_html_attribute(&self) -> Option<String> {
         match self {
             Self::Required => Some("required".to_string()),
@@ -525,7 +526,7 @@ impl ValidationRule {
     }
 }
 
-/// 字段验证规则集合
+/// Set of field validation rules.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FieldValidation {
     pub field_name: String,
@@ -540,13 +541,13 @@ impl FieldValidation {
         }
     }
 
-    /// 添加验证规则（链式调用）
+    /// Add a validation rule (chainable).
     pub fn with_rule(mut self, rule: ValidationRule) -> Self {
         self.rules.push(rule);
         self
     }
 
-    /// 验证给定值，返回所有错误信息
+    /// Validate the given value, returning all error messages.
     pub fn validate(&self, value: &serde_json::Value) -> Result<(), Vec<String>> {
         let errors: Vec<String> = self
             .rules
@@ -560,7 +561,7 @@ impl FieldValidation {
         }
     }
 
-    /// 生成所有规则的 HTML 属性字符串
+    /// Generate the HTML attribute string for all rules.
     pub fn to_html_attributes(&self) -> String {
         self.rules
             .iter()
@@ -574,7 +575,7 @@ impl FieldValidation {
 // 动态表单生成（FormField / FormGenerator）
 // ============================================================================
 
-/// 表单输入类型
+/// Form input type.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum InputType {
@@ -593,7 +594,7 @@ pub enum InputType {
 }
 
 impl InputType {
-    /// 转换为 HTML input type 属性值
+    /// Convert to the HTML input type attribute value.
     pub fn as_html_type(&self) -> &str {
         match self {
             Self::Text => "text",
@@ -612,7 +613,7 @@ impl InputType {
     }
 }
 
-/// 表单字段定义
+/// Form field definition.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct FormField {
     pub name: String,
@@ -622,7 +623,7 @@ pub struct FormField {
     pub validation: FieldValidation,
     pub default_value: Option<serde_json::Value>,
     pub placeholder: Option<String>,
-    /// Select 类型的选项列表：(value, label)
+    /// Option list for Select-type fields: (value, label).
     pub options: Vec<(String, String)>,
     pub help_text: Option<String>,
 }
@@ -674,7 +675,7 @@ impl FormField {
     }
 }
 
-/// HTML 转义：将特殊字符转义为 HTML 实体，防止 XSS
+/// HTML escape: escapes special characters into HTML entities to prevent XSS.
 fn escape_html(input: &str) -> String {
     let mut result = String::with_capacity(input.len());
     for ch in input.chars() {
@@ -690,11 +691,11 @@ fn escape_html(input: &str) -> String {
     result
 }
 
-/// 动态表单生成器
+/// Dynamic form generator.
 pub struct FormGenerator;
 
 impl FormGenerator {
-    /// 从模型定义生成表单字段列表
+    /// Generate a list of form fields from a model definition.
     pub fn from_model(model: &ModelDefinition) -> Vec<FormField> {
         model
             .fields
@@ -731,7 +732,7 @@ impl FormGenerator {
             .collect()
     }
 
-    /// 生成 HTML 表单
+    /// Generate an HTML form.
     pub fn generate_html_form(fields: &[FormField], action: &str, method: &str) -> String {
         let mut html = String::new();
         html.push_str(&format!(
@@ -751,7 +752,7 @@ impl FormGenerator {
         html
     }
 
-    /// 生成单个 HTML 表单字段
+    /// Generate a single HTML form field.
     pub fn generate_html_field(field: &FormField) -> String {
         let mut html = String::new();
         html.push_str("    <div class=\"form-group\">\n");
@@ -828,7 +829,7 @@ impl FormGenerator {
         html
     }
 
-    /// 生成 JSON Schema（用于 API 文档或前端校验）
+    /// Generate a JSON Schema (for API documentation or frontend validation).
     pub fn generate_json_schema(fields: &[FormField]) -> serde_json::Value {
         let mut properties = serde_json::Map::new();
         let mut required = vec![];
@@ -886,13 +887,14 @@ impl FormGenerator {
 // CRUD 模板引擎（CrudTemplateEngine）
 // ============================================================================
 
-/// CRUD 模板引擎
+/// CRUD template engine.
 ///
-/// 生成 SQL DDL、参数化 CRUD 语句、Rust 结构体与仓储层代码。
+/// Generates SQL DDL, parameterized CRUD statements, Rust structs, and
+/// repository layer code.
 pub struct CrudTemplateEngine;
 
 impl CrudTemplateEngine {
-    /// 生成 CREATE TABLE DDL 语句
+    /// Generate the CREATE TABLE DDL statement.
     pub fn generate_ddl(model: &ModelDefinition) -> String {
         let table = ModelDefinition::sanitize_identifier(&model.name);
         let mut sql = String::new();
@@ -953,7 +955,7 @@ impl CrudTemplateEngine {
         format!("'{}'", escaped)
     }
 
-    /// 生成 INSERT 语句（参数化）
+    /// Generate an INSERT statement (parameterized).
     pub fn generate_insert(model: &ModelDefinition) -> String {
         let table = ModelDefinition::sanitize_identifier(&model.name);
         let columns: Vec<String> = model
@@ -974,7 +976,7 @@ impl CrudTemplateEngine {
         )
     }
 
-    /// 生成 SELECT BY ID 语句
+    /// Generate a SELECT BY ID statement.
     pub fn generate_select_by_id(model: &ModelDefinition) -> String {
         let table = ModelDefinition::sanitize_identifier(&model.name);
         let columns: Vec<String> = model
@@ -989,7 +991,7 @@ impl CrudTemplateEngine {
         )
     }
 
-    /// 生成 SELECT ALL 语句（带分页）
+    /// Generate a SELECT ALL statement (with pagination).
     pub fn generate_select_all(model: &ModelDefinition) -> String {
         let table = ModelDefinition::sanitize_identifier(&model.name);
         let columns: Vec<String> = model
@@ -1004,7 +1006,7 @@ impl CrudTemplateEngine {
         )
     }
 
-    /// 生成 UPDATE 语句（参数化，排除主键）
+    /// Generate an UPDATE statement (parameterized, excludes the primary key).
     pub fn generate_update(model: &ModelDefinition) -> String {
         let table = ModelDefinition::sanitize_identifier(&model.name);
         let update_fields: Vec<&FieldDef> =
@@ -1032,19 +1034,19 @@ impl CrudTemplateEngine {
         )
     }
 
-    /// 生成 DELETE 语句
+    /// Generate a DELETE statement.
     pub fn generate_delete(model: &ModelDefinition) -> String {
         let table = ModelDefinition::sanitize_identifier(&model.name);
         format!("DELETE FROM \"{}\" WHERE \"id\" = $1;", table)
     }
 
-    /// 生成 COUNT 语句
+    /// Generate a COUNT statement.
     pub fn generate_count(model: &ModelDefinition) -> String {
         let table = ModelDefinition::sanitize_identifier(&model.name);
         format!("SELECT COUNT(*) AS total FROM \"{}\";", table)
     }
 
-    /// 生成 Rust 结构体定义
+    /// Generate a Rust struct definition.
     pub fn generate_rust_struct(model: &ModelDefinition) -> String {
         let pascal = model.pascal_case_name();
         let mut code = String::new();
@@ -1066,13 +1068,14 @@ impl CrudTemplateEngine {
         code
     }
 
-    /// 生成 Rust 仓储层代码（Repository 模式）
+    /// Generate Rust repository layer code (Repository pattern).
     ///
-    /// C-1 修复：生成真实可编译的 CRUD 代码，使用 `sqlx::query` 执行参数化 SQL，
-    /// 通过 `bind` 链绑定字段值。`create`/`update`/`delete` 返回 `PgQueryResult`，
-    /// `find_by_id` 返回 `Option<PgRow>`（调用方通过 `row.get` 读取字段）。
+    /// C-1 fix: generates real compilable CRUD code that uses `sqlx::query` to
+    /// execute parameterized SQL and binds field values via a `bind` chain.
+    /// `create`/`update`/`delete` return `PgQueryResult`; `find_by_id` returns
+    /// `Option<PgRow>` (the caller reads fields via `row.get`).
     ///
-    /// 生成的代码保证可编译通过，无需用户填充占位符。
+    /// The generated code is guaranteed to compile without users filling in placeholders.
     pub fn generate_rust_repository(model: &ModelDefinition) -> String {
         let pascal = model.pascal_case_name();
         let singular_lower = model.singular_name().to_lowercase();
@@ -1122,7 +1125,7 @@ impl CrudTemplateEngine {
             r#"pub struct {pascal}Repository;
 
 impl {pascal}Repository {{
-    /// 插入一条记录，返回执行结果
+    /// Insert a record and return the execution result.
     pub async fn create(
         pool: &sqlx::PgPool,
         {singular_lower}: &{pascal},
@@ -1133,7 +1136,7 @@ impl {pascal}Repository {{
             .await
     }}
 
-    /// 按 id 查询单条记录，返回原始 Row（调用方通过 row.get::<_, &str>("column") 读取）
+    /// Query a single record by id, returning the raw Row (the caller reads via row.get::<_, &str>("column")).
     pub async fn find_by_id(
         pool: &sqlx::PgPool,
         id: i64,
@@ -1145,7 +1148,7 @@ impl {pascal}Repository {{
             .await
     }}
 
-    /// 按 id 更新记录（非主键字段），返回执行结果
+    /// Update a record by id (non-primary-key fields) and return the execution result.
     pub async fn update(
         pool: &sqlx::PgPool,
         {singular_lower}: &{pascal},
@@ -1157,7 +1160,7 @@ impl {pascal}Repository {{
             .await
     }}
 
-    /// 按 id 删除记录，返回是否删除（rows_affected > 0）
+    /// Delete a record by id and return whether a row was deleted (rows_affected > 0).
     pub async fn delete(pool: &sqlx::PgPool, id: i64) -> Result<bool, sqlx::Error> {{
         // table: {table}
         let result = sqlx::query({delete_sql:?})
@@ -1187,8 +1190,8 @@ impl {pascal}Repository {{
 pub struct LowCodeEngine;
 
 impl LowCodeEngine {
-    /// 逆向工程：从表名列表生成 ModelDefinitions
-    /// 包含默认字段（id, name, created_at, updated_at）和索引。
+    /// Reverse engineering: generate ModelDefinitions from a list of table names.
+    /// Includes default fields (id, name, created_at, updated_at) and indexes.
     pub fn reverse_engineer(&self, tables: &[&str]) -> Vec<ModelDefinition> {
         tables
             .iter()
@@ -1207,11 +1210,12 @@ impl LowCodeEngine {
             .collect()
     }
 
-    /// 生成 SQL CRUD 语句（INSERT/SELECT/UPDATE/DELETE）
+    /// Generate SQL CRUD statements (INSERT/SELECT/UPDATE/DELETE).
     ///
-    /// # 安全性（门禁 9 修复）
+    /// # Safety (gate 9 fix)
     ///
-    /// 表名用双引号包裹（PostgreSQL 标准），防止含特殊字符或 SQL 关键字的表名逃逸注入。
+    /// Table names are wrapped in double quotes (PostgreSQL standard) to prevent
+    /// injection via table names containing special characters or SQL keywords.
     pub fn generate_crud(&self, model: &ModelDefinition) -> String {
         let mut sql = String::new();
         sql.push_str(&format!("-- CRUD for table {}\n", model.name));
@@ -1226,7 +1230,7 @@ impl LowCodeEngine {
         sql
     }
 
-    /// 生成 Rust handler 代码
+    /// Generate Rust handler code.
     pub fn generate_api(&self, model: &ModelDefinition) -> String {
         let pascal = model.pascal_case_name();
         let singular_lower = model.singular_name().to_lowercase();
@@ -1240,7 +1244,7 @@ use serde::{{Deserialize, Serialize}};
 use sqlx::PgPool;
 use std::sync::Arc;
 
-/// {pascal} 实体 — 对应数据库表 `{table}`
+/// {pascal} entity — corresponds to database table `{table}`.
 #[derive(Debug, Clone, Serialize, Deserialize, sqlx::FromRow)]
 pub struct {pascal} {{
     pub id: i64,
@@ -1249,7 +1253,7 @@ pub struct {pascal} {{
     pub updated_at: chrono::NaiveDateTime,
 }}
 
-/// 创建 {singular_lower} — 调用真实数据库 INSERT，返回创建的实体
+/// Create {singular_lower} — calls the real database INSERT and returns the created entity.
 pub async fn create_{singular_lower}(
     State(pool): State<Arc<PgPool>>,
     Json(payload): Json<{pascal}>,
@@ -1265,7 +1269,7 @@ pub async fn create_{singular_lower}(
     Ok(Json(row))
 }}
 
-/// 按 id 查询 {singular_lower} — 调用真实数据库 SELECT，404 处理
+/// Query {singular_lower} by id — calls the real database SELECT with 404 handling.
 pub async fn get_{singular_lower}(
     State(pool): State<Arc<PgPool>>,
     Path(id): Path<i64>,
@@ -1283,7 +1287,7 @@ pub async fn get_{singular_lower}(
     }}
 }}
 
-/// 按 id 更新 {singular_lower} — 调用真实数据库 UPDATE，404 处理
+/// Update {singular_lower} by id — calls the real database UPDATE with 404 handling.
 pub async fn update_{singular_lower}(
     State(pool): State<Arc<PgPool>>,
     Path(id): Path<i64>,
@@ -1304,7 +1308,7 @@ pub async fn update_{singular_lower}(
     }}
 }}
 
-/// 按 id 删除 {singular_lower} — 调用真实数据库 DELETE，404 处理
+/// Delete {singular_lower} by id — calls the real database DELETE with 404 handling.
 pub async fn delete_{singular_lower}(
     State(pool): State<Arc<PgPool>>,
     Path(id): Path<i64>,
@@ -1326,7 +1330,7 @@ pub async fn delete_{singular_lower}(
         )
     }
 
-    /// 生成 HTML 表单标记
+    /// Generate HTML form markup.
     pub fn generate_frontend(&self, model: &ModelDefinition) -> String {
         let pascal = model.pascal_case_name();
         let singular_lower = model.singular_name().to_lowercase();
@@ -1443,7 +1447,8 @@ mod tests {
         assert!(code.contains("pub async fn create_order_item"));
     }
 
-    /// M-3 修复验证：生成的 handler 代码应包含真实数据库调用，而非 mock 实现
+    /// M-3 fix verification: the generated handler code should contain real
+    /// database calls, not a mock implementation.
     #[test]
     fn test_generate_api_has_real_db_calls_not_mock() {
         let e = LowCodeEngine;

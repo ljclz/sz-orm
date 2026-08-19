@@ -1,18 +1,18 @@
-//! # SZ-ORM Swagger — OpenAPI/Swagger 规范生成
+//! # SZ-ORM Swagger — OpenAPI/Swagger specification generation
 //!
-//! 提供 OpenAPI 3.0 规范的构建与序列化，支持路径、方法、参数、响应、
-//! Schema 定义、SecurityScheme、Tags、Servers 与示例生成，输出可被
-//! Swagger UI 等工具直接消费。
+//! Provides building and serialization of OpenAPI 3.0 specifications, supporting paths,
+//! methods, parameters, responses, Schema definitions, SecurityScheme, Tags, Servers, and
+//! example generation; the output can be consumed directly by tools such as Swagger UI.
 //!
-//! ## 主要类型
+//! ## Main types
 //!
-//! - [`OpenAPISpec`] — 规范根对象
-//! - [`PathInfo`] — 单个 (path, method) 操作描述
-//! - [`Schema`] / [`SchemaRef`] / [`ObjectType`] / [`ArrayType`] — Schema 定义
-//! - [`SecurityScheme`] — 认证方案（Basic/Bearer/ApiKey/OAuth2）
-//! - [`Tag`] — 接口分组标签
-//! - [`Server`] — 环境服务器配置
-//! - [`ExampleBuilder`] — 基于 Schema 生成示例
+//! - [`OpenAPISpec`] — specification root object
+//! - [`PathInfo`] — single (path, method) operation description
+//! - [`Schema`] / [`SchemaRef`] / [`ObjectType`] / [`ArrayType`] — Schema definitions
+//! - [`SecurityScheme`] — authentication schemes (Basic/Bearer/ApiKey/OAuth2)
+//! - [`Tag`] — interface grouping tag
+//! - [`Server`] — environment server configuration
+//! - [`ExampleBuilder`] — generates examples based on Schema
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
@@ -21,42 +21,42 @@ use std::collections::HashMap;
 // 根对象 OpenAPISpec
 // ============================================================================
 
-/// OpenAPI 3.0 规范根对象
+/// OpenAPI 3.0 specification root object
 ///
-/// 完整结构包含 paths、components（schemas/securitySchemes）、tags、servers、info。
+/// The complete structure contains paths, components (schemas/securitySchemes), tags, servers, info.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct OpenAPISpec {
     pub openapi: String,
     pub info: serde_json::Value,
     pub paths: HashMap<String, serde_json::Value>,
-    /// 组件表（schemas、securitySchemes 等）
+    /// Components table (schemas, securitySchemes, etc.)
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub components: Option<Components>,
-    /// 接口分组标签列表
+    /// Interface grouping tag list
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub tags: Vec<Tag>,
-    /// 环境服务器列表
+    /// Environment server list
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub servers: Vec<Server>,
-    /// 全局安全要求
+    /// Global security requirements
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub security: Vec<SecurityRequirement>,
 }
 
 impl OpenAPISpec {
-    /// 序列化为格式化 JSON 字符串
+    /// Serializes to a pretty-printed JSON string
     pub fn to_json_string(&self) -> String {
         serde_json::to_string_pretty(self).unwrap_or_else(|_| "{}".to_string())
     }
 }
 
-/// 组件表，存放可复用的 Schema 与 SecurityScheme
+/// Components table, holds reusable Schema and SecurityScheme
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct Components {
-    /// 可复用的 Schema 定义
+    /// Reusable Schema definitions
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub schemas: HashMap<String, Schema>,
-    /// 可复用的 SecurityScheme 定义
+    /// Reusable SecurityScheme definitions
     #[serde(
         rename = "securitySchemes",
         default,
@@ -65,9 +65,9 @@ pub struct Components {
     pub security_schemes: HashMap<String, SecurityScheme>,
 }
 
-/// 安全要求：所需认证方案的键值对映射
+/// Security requirement: key-value mapping of required authentication schemes
 ///
-/// 例：`{"bearerAuth": []}` 表示需要 bearerAuth 方案
+/// Example: `{"bearerAuth": []}` means the bearerAuth scheme is required
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SecurityRequirement {
     #[serde(flatten)]
@@ -135,7 +135,7 @@ impl PathInfo {
         self
     }
 
-    /// 添加带 Schema 的响应
+    /// Adds a response with a Schema
     pub fn with_response_schema(mut self, code: &str, desc: &str, schema_ref: &str) -> Self {
         self.responses.insert(
             code.to_string(),
@@ -156,7 +156,7 @@ impl PathInfo {
         self
     }
 
-    /// 添加路径参数
+    /// Adds a path parameter
     pub fn with_path_param(self, name: &str, desc: &str, required: bool) -> Self {
         self.with_parameter(serde_json::json!({
             "name": name,
@@ -167,7 +167,7 @@ impl PathInfo {
         }))
     }
 
-    /// 添加查询参数
+    /// Adds a query parameter
     pub fn with_query_param(self, name: &str, desc: &str, required: bool) -> Self {
         self.with_parameter(serde_json::json!({
             "name": name,
@@ -178,49 +178,49 @@ impl PathInfo {
         }))
     }
 
-    /// 添加标签
+    /// Adds a tag
     pub fn with_tag(mut self, tag: &str) -> Self {
         self.tags.push(tag.to_string());
         self
     }
 
-    /// 设置请求体
+    /// Sets the request body
     pub fn with_request_body(mut self, body: RequestBody) -> Self {
         self.request_body = Some(body);
         self
     }
 
-    /// 设置请求体（简化版：引用 Schema）
+    /// Sets the request body (simplified: references a Schema)
     pub fn with_request_body_ref(self, desc: &str, schema_ref: &str, required: bool) -> Self {
         self.with_request_body(RequestBody::new(desc, schema_ref, required))
     }
 
-    /// 设置操作 ID
+    /// Sets the operation ID
     pub fn with_operation_id(mut self, id: &str) -> Self {
         self.operation_id = Some(id.to_string());
         self
     }
 
-    /// 设置安全要求
+    /// Sets the security requirement
     pub fn with_security(mut self, req: SecurityRequirement) -> Self {
         self.security.push(req);
         self
     }
 
-    /// 标记为已弃用
+    /// Marks as deprecated
     pub fn deprecated(mut self) -> Self {
         self.deprecated = Some(true);
         self
     }
 
-    /// 设置描述
+    /// Sets the description
     pub fn with_description(mut self, desc: &str) -> Self {
         self.description = Some(desc.to_string());
         self
     }
 }
 
-/// 请求体定义
+/// Request body definition
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct RequestBody {
     pub description: String,
@@ -248,7 +248,7 @@ impl RequestBody {
     }
 }
 
-/// 媒体类型（包含 Schema 与示例）
+/// Media type (contains Schema and examples)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MediaType {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -279,7 +279,7 @@ impl MediaType {
     }
 }
 
-/// 示例（OpenAPI 3.0 example 对象）
+/// Example (OpenAPI 3.0 example object)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Example {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -317,82 +317,82 @@ impl Example {
 // Schema 定义（SchemaRef / ObjectType / ArrayType）
 // ============================================================================
 
-/// Schema 定义，支持引用、对象、数组、基本类型
+/// Schema definition, supports reference, object, array, and primitive types
 ///
-/// - `Ref`：通过 `$ref` 引用 components.schemas 中定义的 Schema
-/// - `Object`：对象类型，包含 properties 和 required
-/// - `Array`：数组类型，包含 items
-/// - `Primitive`：基本类型（string/integer/number/boolean）
+/// - `Ref`: references a Schema defined in components.schemas via `$ref`
+/// - `Object`: object type, contains properties and required
+/// - `Array`: array type, contains items
+/// - `Primitive`: primitive type (string/integer/number/boolean)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum Schema {
-    /// 引用其他已定义的 Schema
+    /// References another already-defined Schema
     Ref {
         #[serde(rename = "$ref")]
         ref_path: String,
     },
-    /// 对象类型
+    /// Object type
     Object(ObjectType),
-    /// 数组类型
+    /// Array type
     Array(ArrayType),
-    /// 基本类型（string/integer/number/boolean）
+    /// Primitive type (string/integer/number/boolean)
     Primitive(PrimitiveSchema),
 }
 
 impl Schema {
-    /// 创建一个引用 Schema
+    /// Creates a reference Schema
     pub fn ref_to(name: &str) -> Self {
         Self::Ref {
             ref_path: format!("#/components/schemas/{}", name),
         }
     }
 
-    /// 创建一个对象 Schema
+    /// Creates an object Schema
     pub fn object(obj: ObjectType) -> Self {
         Self::Object(obj)
     }
 
-    /// 创建一个数组 Schema
+    /// Creates an array Schema
     pub fn array(arr: ArrayType) -> Self {
         Self::Array(arr)
     }
 
-    /// 创建一个字符串 Schema
+    /// Creates a string Schema
     pub fn string() -> Self {
         Self::Primitive(PrimitiveSchema::string())
     }
 
-    /// 创建一个整数 Schema
+    /// Creates an integer Schema
     pub fn integer() -> Self {
         Self::Primitive(PrimitiveSchema::integer())
     }
 
-    /// 创建一个数字 Schema
+    /// Creates a number Schema
     pub fn number() -> Self {
         Self::Primitive(PrimitiveSchema::number())
     }
 
-    /// 创建一个布尔 Schema
+    /// Creates a boolean Schema
     pub fn boolean() -> Self {
         Self::Primitive(PrimitiveSchema::boolean())
     }
 
-    /// 判断是否为引用类型
+    /// Determines whether it is a reference type
     pub fn is_ref(&self) -> bool {
         matches!(self, Schema::Ref { .. })
     }
 
-    /// 判断是否为对象类型
+    /// Determines whether it is an object type
     pub fn is_object(&self) -> bool {
         matches!(self, Schema::Object(_))
     }
 
-    /// 判断是否为数组类型
+    /// Determines whether it is an array type
     pub fn is_array(&self) -> bool {
         matches!(self, Schema::Array(_))
     }
 
-    /// 设置 format（仅对 Primitive 类型有效，其他类型返回原值）
+    /// Sets the format (only effective for Primitive types; other types return the original value)
     pub fn with_format(self, format: &str) -> Self {
         match self {
             Self::Primitive(p) => Self::Primitive(p.with_format(format)),
@@ -400,7 +400,7 @@ impl Schema {
         }
     }
 
-    /// 设置描述（仅对 Primitive 类型有效）
+    /// Sets the description (only effective for Primitive types)
     pub fn with_description(self, desc: &str) -> Self {
         match self {
             Self::Primitive(p) => Self::Primitive(p.with_description(desc)),
@@ -408,7 +408,7 @@ impl Schema {
         }
     }
 
-    /// 设置示例值（仅对 Primitive 类型有效）
+    /// Sets the example value (only effective for Primitive types)
     pub fn with_example(self, value: serde_json::Value) -> Self {
         match self {
             Self::Primitive(p) => Self::Primitive(p.with_example(value)),
@@ -416,7 +416,7 @@ impl Schema {
         }
     }
 
-    /// 设置默认值（仅对 Primitive 类型有效）
+    /// Sets the default value (only effective for Primitive types)
     pub fn with_default(self, value: serde_json::Value) -> Self {
         match self {
             Self::Primitive(p) => Self::Primitive(p.with_default(value)),
@@ -425,15 +425,15 @@ impl Schema {
     }
 }
 
-/// 对象类型 Schema
+/// Object type Schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ObjectType {
     #[serde(rename = "type")]
     pub schema_type: String,
-    /// 字段定义：name -> Schema
+    /// Field definitions: name -> Schema
     #[serde(default, skip_serializing_if = "HashMap::is_empty")]
     pub properties: HashMap<String, Schema>,
-    /// 必填字段列表
+    /// Required field list
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub required: Vec<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -453,26 +453,26 @@ impl ObjectType {
         }
     }
 
-    /// 添加字段（可选）
+    /// Adds a field (optional)
     pub fn with_property(mut self, name: &str, schema: Schema) -> Self {
         self.properties.insert(name.to_string(), schema);
         self
     }
 
-    /// 添加必填字段
+    /// Adds a required field
     pub fn with_required_property(mut self, name: &str, schema: Schema) -> Self {
         self.properties.insert(name.to_string(), schema);
         self.required.push(name.to_string());
         self
     }
 
-    /// 设置描述
+    /// Sets the description
     pub fn with_description(mut self, desc: &str) -> Self {
         self.description = Some(desc.to_string());
         self
     }
 
-    /// 设置额外属性（用于 Map 类型）
+    /// Sets additional properties (for Map types)
     pub fn with_additional_properties(mut self, schema: Schema) -> Self {
         self.additional_properties = Some(Box::new(schema));
         self
@@ -485,12 +485,12 @@ impl Default for ObjectType {
     }
 }
 
-/// 数组类型 Schema
+/// Array type Schema
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ArrayType {
     #[serde(rename = "type")]
     pub schema_type: String,
-    /// 数组元素 Schema
+    /// Array element Schema
     pub items: Box<Schema>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub min_items: Option<u32>,
@@ -535,7 +535,7 @@ impl ArrayType {
     }
 }
 
-/// 基本类型 Schema（string/integer/number/boolean）
+/// Primitive type Schema (string/integer/number/boolean)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PrimitiveSchema {
     #[serde(rename = "type")]
@@ -674,19 +674,19 @@ impl PrimitiveSchema {
 // SecurityScheme 认证方案
 // ============================================================================
 
-/// 认证方案，支持 HTTP（Basic/Bearer）、ApiKey、OAuth2
+/// Authentication scheme, supports HTTP (Basic/Bearer), ApiKey, OAuth2
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(tag = "type")]
 pub enum SecurityScheme {
-    /// HTTP 认证（Basic 或 Bearer）
+    /// HTTP authentication (Basic or Bearer)
     ///
-    /// OpenAPI 3.0 中 Basic 和 Bearer 都使用 `type: http`，
-    /// 通过 `scheme` 字段区分（`basic` 或 `bearer`）。
+    /// In OpenAPI 3.0, both Basic and Bearer use `type: http`,
+    /// distinguished by the `scheme` field (`basic` or `bearer`).
     #[serde(rename = "http")]
     Http {
-        /// 认证方案：`basic` 或 `bearer`
+        /// Authentication scheme: `basic` or `bearer`
         scheme: String,
-        /// Bearer 格式（仅 scheme=bearer 时使用，如 `JWT`）
+        /// Bearer format (used only when scheme=bearer, e.g., `JWT`)
         #[serde(
             rename = "bearerFormat",
             default,
@@ -696,7 +696,7 @@ pub enum SecurityScheme {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
     },
-    /// API Key 认证（Header / Query / Cookie）
+    /// API Key authentication (Header / Query / Cookie)
     #[serde(rename = "apiKey")]
     ApiKey {
         name: String,
@@ -705,7 +705,7 @@ pub enum SecurityScheme {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         description: Option<String>,
     },
-    /// OAuth2 认证
+    /// OAuth2 authentication
     #[serde(rename = "oauth2")]
     OAuth2 {
         flows: Box<OAuth2Flows>,
@@ -715,7 +715,7 @@ pub enum SecurityScheme {
 }
 
 impl SecurityScheme {
-    /// 创建 Basic 认证方案
+    /// Creates a Basic authentication scheme
     pub fn basic() -> Self {
         Self::Http {
             scheme: "basic".to_string(),
@@ -724,7 +724,7 @@ impl SecurityScheme {
         }
     }
 
-    /// 创建 Bearer Token 认证方案
+    /// Creates a Bearer Token authentication scheme
     pub fn bearer(jwt_format: bool) -> Self {
         Self::Http {
             scheme: "bearer".to_string(),
@@ -737,7 +737,7 @@ impl SecurityScheme {
         }
     }
 
-    /// 创建 API Key 认证方案
+    /// Creates an API Key authentication scheme
     pub fn api_key(name: &str, location: ApiKeyLocation) -> Self {
         Self::ApiKey {
             name: name.to_string(),
@@ -746,7 +746,7 @@ impl SecurityScheme {
         }
     }
 
-    /// 创建 OAuth2 认证方案
+    /// Creates an OAuth2 authentication scheme
     pub fn oauth2(flows: OAuth2Flows) -> Self {
         Self::OAuth2 {
             flows: Box::new(flows),
@@ -754,17 +754,17 @@ impl SecurityScheme {
         }
     }
 
-    /// 判断是否为 Basic 认证
+    /// Determines whether it is Basic authentication
     pub fn is_basic(&self) -> bool {
         matches!(self, Self::Http { scheme, .. } if scheme == "basic")
     }
 
-    /// 判断是否为 Bearer 认证
+    /// Determines whether it is Bearer authentication
     pub fn is_bearer(&self) -> bool {
         matches!(self, Self::Http { scheme, .. } if scheme == "bearer")
     }
 
-    /// 设置描述
+    /// Sets the description
     pub fn with_description(self, desc: &str) -> Self {
         match self {
             Self::Http {
@@ -789,7 +789,7 @@ impl SecurityScheme {
     }
 }
 
-/// API Key 位置
+/// API Key location
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
 pub enum ApiKeyLocation {
@@ -798,7 +798,7 @@ pub enum ApiKeyLocation {
     Cookie,
 }
 
-/// OAuth2 流程集合
+/// OAuth2 flow collection
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct OAuth2Flows {
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -837,7 +837,7 @@ impl OAuth2Flows {
     }
 }
 
-/// Implicit 流程
+/// Implicit flow
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ImplicitFlow {
     #[serde(rename = "authorizationUrl")]
@@ -851,7 +851,7 @@ pub struct ImplicitFlow {
     pub scopes: HashMap<String, String>,
 }
 
-/// Password 流程
+/// Password flow
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PasswordFlow {
     #[serde(rename = "tokenUrl")]
@@ -865,7 +865,7 @@ pub struct PasswordFlow {
     pub scopes: HashMap<String, String>,
 }
 
-/// Client Credentials 流程
+/// Client Credentials flow
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ClientCredentialsFlow {
     #[serde(rename = "tokenUrl")]
@@ -879,7 +879,7 @@ pub struct ClientCredentialsFlow {
     pub scopes: HashMap<String, String>,
 }
 
-/// Authorization Code 流程
+/// Authorization Code flow
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AuthorizationCodeFlow {
     #[serde(rename = "authorizationUrl")]
@@ -899,7 +899,7 @@ pub struct AuthorizationCodeFlow {
 // Tags 接口分组
 // ============================================================================
 
-/// 接口分组标签
+/// Interface grouping tag
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Tag {
     pub name: String,
@@ -929,7 +929,7 @@ impl Tag {
     }
 }
 
-/// 外部文档链接
+/// External documentation link
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ExternalDocs {
     pub url: String,
@@ -955,7 +955,7 @@ impl ExternalDocs {
 // Servers 环境配置
 // ============================================================================
 
-/// 环境服务器配置
+/// Environment server configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct Server {
     pub url: String,
@@ -985,7 +985,7 @@ impl Server {
     }
 }
 
-/// 服务器变量（用于 URL 模板替换）
+/// Server variable (used for URL template substitution)
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ServerVariable {
     #[serde(rename = "default")]
@@ -1020,16 +1020,16 @@ impl ServerVariable {
 // 示例生成器（基于 Schema 自动生成示例值）
 // ============================================================================
 
-/// 基于 Schema 生成示例值的生成器
+/// Generator that produces example values based on a Schema
 pub struct ExampleBuilder;
 
 impl ExampleBuilder {
-    /// 根据 Schema 生成示例值
+    /// Generates an example value based on the Schema
     ///
-    /// - 对象：递归生成所有字段的示例
-    /// - 数组：生成单元素数组
-    /// - 引用：返回 null（需调用方解析引用）
-    /// - 基本类型：根据 type/format 生成合理的默认值
+    /// - Object: recursively generates examples for all fields
+    /// - Array: generates a single-element array
+    /// - Reference: returns null (the caller needs to resolve the reference)
+    /// - Primitive: generates a reasonable default value based on type/format
     pub fn from_schema(schema: &Schema) -> serde_json::Value {
         match schema {
             Schema::Ref { .. } => serde_json::Value::Null,
@@ -1042,7 +1042,7 @@ impl ExampleBuilder {
         }
     }
 
-    /// 根据对象 Schema 生成示例对象
+    /// Generates an example object based on an object Schema
     pub fn from_object(obj: &ObjectType) -> serde_json::Value {
         let mut map = serde_json::Map::new();
         for (name, schema) in &obj.properties {
@@ -1051,7 +1051,7 @@ impl ExampleBuilder {
         serde_json::Value::Object(map)
     }
 
-    /// 根据基本类型 Schema 生成示例值
+    /// Generates an example value based on a primitive type Schema
     pub fn from_primitive(p: &PrimitiveSchema) -> serde_json::Value {
         // 优先返回 example 字段
         if let Some(example) = &p.example {
@@ -1125,43 +1125,43 @@ impl OpenAPIGenerator {
         self
     }
 
-    /// 注册 (path, method) 操作。同一 path 的多个 method 会合并到同一个 paths 条目。
+    /// Registers a (path, method) operation. Multiple methods for the same path are merged into the same paths entry.
     pub fn register_path(&mut self, path: &str, info: PathInfo) -> &mut Self {
         self.paths.push((path.to_string(), info));
         self
     }
 
-    /// 注册可复用的 Schema 定义
+    /// Registers a reusable Schema definition
     pub fn register_schema(&mut self, name: &str, schema: Schema) -> &mut Self {
         self.schemas.insert(name.to_string(), schema);
         self
     }
 
-    /// 注册可复用的 SecurityScheme
+    /// Registers a reusable SecurityScheme
     pub fn register_security_scheme(&mut self, name: &str, scheme: SecurityScheme) -> &mut Self {
         self.security_schemes.insert(name.to_string(), scheme);
         self
     }
 
-    /// 添加接口分组标签
+    /// Adds an interface grouping tag
     pub fn add_tag(&mut self, tag: Tag) -> &mut Self {
         self.tags.push(tag);
         self
     }
 
-    /// 添加环境服务器
+    /// Adds an environment server
     pub fn add_server(&mut self, server: Server) -> &mut Self {
         self.servers.push(server);
         self
     }
 
-    /// 设置全局安全要求
+    /// Sets the global security requirement
     pub fn with_global_security(mut self, req: SecurityRequirement) -> Self {
         self.security.push(req);
         self
     }
 
-    /// 生成 OpenAPISpec
+    /// Generates the OpenAPISpec
     pub fn generate(&self) -> OpenAPISpec {
         let mut paths: HashMap<String, serde_json::Value> = HashMap::new();
         for (path, info) in &self.paths {
@@ -1248,7 +1248,7 @@ impl SwaggerUi {
         format!("{}docs", self.mount_path)
     }
 
-    /// 渲染自包含的 Swagger UI HTML 页面，内嵌规范 JSON
+    /// Renders a self-contained Swagger UI HTML page with the spec JSON embedded
     pub fn render_html(&self) -> String {
         let spec_json = match &self.spec {
             Some(s) => s.to_json_string(),
@@ -1296,14 +1296,14 @@ impl SwaggerUi {
 // Model -> OpenAPI Schema 生成
 // ============================================================================
 
-/// 将 sz-orm `Model` 定义转换为 OpenAPI 3.0 对象 Schema。
+/// Converts a sz-orm `Model` definition into an OpenAPI 3.0 object Schema.
 ///
-/// 依据 [`sz_orm_core::Model::fields`] 返回的 (字段名, 类型字符串) 列表
-/// 生成 `ObjectType`，类型字符串遵循 sz-orm casts 约定（`"integer"` / `"float"` /
-/// `"boolean"` / `"string"` / `"datetime"` / `"date"` / `"time"` / `"json"` /
-/// `"array"` / `"bytes"`）。
+/// Generates an `ObjectType` based on the (field name, type string) list returned by
+/// [`sz_orm_core::Model::fields`]; the type string follows the sz-orm casts convention
+/// (`"integer"` / `"float"` / `"boolean"` / `"string"` / `"datetime"` / `"date"` /
+/// `"time"` / `"json"` / `"array"` / `"bytes"`).
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_core::Model;
@@ -1330,7 +1330,7 @@ pub fn model_to_openapi_schema<T: sz_orm_core::Model>() -> Schema {
     Schema::object(obj)
 }
 
-/// 将 sz-orm casts 类型字符串映射为 OpenAPI 基本类型 Schema。
+/// Maps a sz-orm casts type string to an OpenAPI primitive type Schema.
 fn cast_type_to_schema(type_str: &str) -> Schema {
     match type_str {
         "integer" => Schema::integer(),

@@ -1,16 +1,16 @@
-//! # SZ-ORM RW — 读写分离
+//! # SZ-ORM RW — Read-Write Splitting
 //!
-//! 提供 master/slave 读写分离路由，支持轮询、随机、最少连接三种负载均衡策略，
-//! 写请求路由至 master，读请求在 slave 集群间分配。
+//! Provides master/slave read-write splitting routing, supporting round-robin, random, and least-connections load balancing strategies.
+//! Write requests are routed to master, read requests are distributed across the slave cluster.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`ReadWriteRouter`] — 读写分离路由器
-//! - [`LoadBalanceStrategy`] — 负载均衡策略
-//! - [`HealthChecker`] — 健康检查与故障转移
-//! - [`WeightedSlave`] — 加权 slave 配置
-//! - [`ReadRationing`] — 读写比例控制
-//! - [`LatencyStats`] — 延迟统计
+//! - [`ReadWriteRouter`] — Read-write splitting router
+//! - [`LoadBalanceStrategy`] — Load balancing strategy
+//! - [`HealthChecker`] — Health check and failover
+//! - [`WeightedSlave`] — Weighted slave configuration
+//! - [`ReadRationing`] — Read-write ratio control
+//! - [`LatencyStats`] — Latency statistics
 
 use rand::Rng;
 use serde::{Deserialize, Serialize};
@@ -25,38 +25,38 @@ pub mod auto_failover;
 pub mod circuit_breaker;
 pub mod replication_lag;
 
-/// 负载均衡策略
+/// Load balancing strategy
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum LoadBalanceStrategy {
-    /// 轮询：依次分配请求到各 slave
+    /// Round-robin: distribute requests to each slave in turn
     RoundRobin,
-    /// 随机：基于系统时间熵随机选择 slave
+    /// Random: select slave randomly based on system time entropy
     Random,
-    /// 最少连接：选择当前活跃连接数最少的 slave
+    /// Least connections: select the slave with the fewest active connections
     LeastConnections,
-    /// 加权轮询：根据 slave 权重比例分配请求
+    /// Weighted round-robin: distribute requests according to slave weight ratio
     WeightedRoundRobin,
 }
 
-/// Slave 健康状态
+/// Slave health status
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 pub enum SlaveHealth {
-    /// 健康，可正常服务
+    /// Healthy, can serve normally
     Healthy,
-    /// 不健康，已被故障转移排除
+    /// Unhealthy, excluded by failover
     Unhealthy,
-    /// 临时不可用（如维护中）
+    /// Temporarily unavailable (e.g. under maintenance)
     Drained,
 }
 
-/// 加权 slave 配置
+/// Weighted slave configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct WeightedSlave {
-    /// slave 地址
+    /// Slave address
     pub addr: String,
-    /// 权重（>=1），权重越大被选中的概率越高
+    /// Weight (>=1); higher weight means higher selection probability
     pub weight: u32,
-    /// 当前健康状态
+    /// Current health status
     pub health: SlaveHealth,
 }
 
@@ -75,16 +75,16 @@ impl WeightedSlave {
     }
 }
 
-/// 单个 slave 的延迟统计快照
+/// Latency statistics snapshot for a single slave
 #[derive(Debug, Clone, Default, Serialize, Deserialize)]
 pub struct LatencySnapshot {
-    /// 已采样的请求总数
+    /// Total number of sampled requests
     pub samples: u64,
-    /// 最小延迟（纳秒）
+    /// Minimum latency (nanoseconds)
     pub min_ns: u64,
-    /// 最大延迟（纳秒）
+    /// Maximum latency (nanoseconds)
     pub max_ns: u64,
-    /// 累计延迟（纳秒），用于计算平均值
+    /// Cumulative latency (nanoseconds), used to compute the average
     pub sum_ns: u128,
 }
 
@@ -101,7 +101,7 @@ impl LatencySnapshot {
         self.sum_ns = self.sum_ns.saturating_add(ns);
     }
 
-    /// 平均延迟（纳秒），无样本时返回 0
+    /// Average latency (nanoseconds); returns 0 when there are no samples
     pub fn avg_ns(&self) -> u64 {
         if self.samples == 0 {
             0
@@ -115,7 +115,7 @@ impl LatencySnapshot {
     }
 }
 
-/// 延迟统计：为每个 slave 维护一份独立的 [`LatencySnapshot`]
+/// Latency statistics: maintains an independent [`LatencySnapshot`] for each slave
 #[derive(Debug, Default)]
 pub struct LatencyStats {
     inner: Mutex<HashMap<String, LatencySnapshot>>,
@@ -126,14 +126,14 @@ impl LatencyStats {
         Self::default()
     }
 
-    /// 记录一次 slave 的请求延迟
+    /// Record a request latency for a slave
     pub fn record(&self, slave: &str, latency: Duration) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.entry(slave.to_string()).or_default().record(latency);
         }
     }
 
-    /// 返回某个 slave 的快照副本
+    /// Return a snapshot copy for a given slave
     pub fn snapshot(&self, slave: &str) -> LatencySnapshot {
         match self.inner.lock() {
             Ok(inner) => inner.get(slave).cloned().unwrap_or_default(),
@@ -141,7 +141,7 @@ impl LatencyStats {
         }
     }
 
-    /// 列出所有 slave 的快照
+    /// List snapshots for all slaves
     pub fn all(&self) -> Vec<(String, LatencySnapshot)> {
         match self.inner.lock() {
             Ok(inner) => inner.iter().map(|(k, v)| (k.clone(), v.clone())).collect(),
@@ -149,7 +149,7 @@ impl LatencyStats {
         }
     }
 
-    /// 重置某个 slave 的统计
+    /// Reset statistics for a given slave
     pub fn reset(&self, slave: &str) {
         if let Ok(mut inner) = self.inner.lock() {
             inner.remove(slave);
@@ -157,13 +157,13 @@ impl LatencyStats {
     }
 }
 
-/// 读写比例控制器：按比例把读请求路由到 master（强一致读）或 slave（弱一致读）
+/// Read-write ratio controller: routes read requests to master (strong consistency read) or slave (weak consistency read) by ratio
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ReadRationing {
-    /// 0..=100，表示有多少比例的读走 master
-    /// 0 表示全部走 slave，100 表示全部走 master
+    /// 0..=100, indicates what ratio of reads go to master
+    /// 0 means all reads go to slave, 100 means all reads go to master
     pub master_read_percent: u8,
-    /// 内部计数器，用于轮询决定
+    /// Internal counter used for round-robin decisions
     #[serde(skip)]
     counter: AtomicU64,
 }
@@ -185,17 +185,17 @@ impl ReadRationing {
         }
     }
 
-    /// 默认 0% 走 master（全部走 slave）
+    /// Default 0% to master (all reads go to slave)
     pub fn default_slave_only() -> Self {
         Self::new(0)
     }
 
-    /// 默认 100% 走 master（强一致读）
+    /// Default 100% to master (strong consistency read)
     pub fn default_master_only() -> Self {
         Self::new(100)
     }
 
-    /// 决定本次读请求是否走 master
+    /// Decide whether this read request should go to master
     pub fn should_read_master(&self) -> bool {
         if self.master_read_percent == 0 {
             return false;
@@ -208,7 +208,7 @@ impl ReadRationing {
         (idx % 100) < self.master_read_percent as u64
     }
 
-    /// 修改比例（运行时热更新）
+    /// Update the ratio (runtime hot update)
     pub fn set_percent(&mut self, percent: u8) {
         self.master_read_percent = percent.min(100);
         self.counter.store(0, Ordering::Relaxed);
@@ -221,14 +221,14 @@ impl Default for ReadRationing {
     }
 }
 
-/// 健康检查器：跟踪每个 slave 的健康状态，并支持故障转移
+/// Health checker: tracks each slave's health status and supports failover
 pub struct HealthChecker {
     states: Mutex<HashMap<String, SlaveHealth>>,
-    /// 连续失败次数阈值，达到后标记为 Unhealthy
+    /// Consecutive failure count threshold; when reached, the slave is marked Unhealthy
     pub failure_threshold: u32,
-    /// 连续失败次数计数
+    /// Consecutive failure count
     failure_counts: Mutex<HashMap<String, u32>>,
-    /// 自动故障转移恢复时间（健康检查恢复后多久重新加入集群）
+    /// Auto failover recovery cooldown (how long after health check recovery before rejoining the cluster)
     pub recovery_cooldown: Duration,
 }
 
@@ -242,7 +242,7 @@ impl HealthChecker {
         }
     }
 
-    /// 注册一个 slave，初始状态为 Healthy
+    /// Register a slave with initial state Healthy
     pub fn register(&self, slave: &str) {
         if let Ok(mut states) = self.states.lock() {
             states
@@ -251,7 +251,7 @@ impl HealthChecker {
         }
     }
 
-    /// 标记 slave 为指定健康状态
+    /// Mark slave with the specified health status
     pub fn set_health(&self, slave: &str, health: SlaveHealth) {
         if let Ok(mut states) = self.states.lock() {
             states.insert(slave.to_string(), health);
@@ -263,8 +263,8 @@ impl HealthChecker {
         }
     }
 
-    /// 记录一次失败，达到阈值后自动标记为 Unhealthy
-    /// 返回 true 表示触发了故障转移
+    /// Record a failure; when threshold is reached, automatically mark as Unhealthy
+    /// Returns true if failover was triggered
     pub fn record_failure(&self, slave: &str) -> bool {
         let mut triggered = false;
         if let Ok(mut counts) = self.failure_counts.lock() {
@@ -280,19 +280,19 @@ impl HealthChecker {
         triggered
     }
 
-    /// 记录一次成功，重置失败计数
+    /// Record a success, resetting the failure count
     pub fn record_success(&self, slave: &str) {
         if let Ok(mut counts) = self.failure_counts.lock() {
             counts.remove(slave);
         }
     }
 
-    /// 查询 slave 健康状态，未注册返回 None
+    /// Query slave health status; returns None if not registered
     pub fn health(&self, slave: &str) -> Option<SlaveHealth> {
         self.states.lock().ok().and_then(|s| s.get(slave).copied())
     }
 
-    /// 列出所有处于指定状态的 slave
+    /// List all slaves in the specified state
     pub fn list_by_health(&self, health: SlaveHealth) -> Vec<String> {
         match self.states.lock() {
             Ok(states) => states
@@ -304,17 +304,17 @@ impl HealthChecker {
         }
     }
 
-    /// 返回所有健康 slave 列表
+    /// Return the list of all healthy slaves
     pub fn healthy_slaves(&self) -> Vec<String> {
         self.list_by_health(SlaveHealth::Healthy)
     }
 
-    /// 返回所有不健康 slave 列表
+    /// Return the list of all unhealthy slaves
     pub fn unhealthy_slaves(&self) -> Vec<String> {
         self.list_by_health(SlaveHealth::Unhealthy)
     }
 
-    /// 返回当前连续失败次数
+    /// Return the current consecutive failure count
     pub fn failure_count(&self, slave: &str) -> u32 {
         self.failure_counts
             .lock()
@@ -330,23 +330,23 @@ impl Default for HealthChecker {
     }
 }
 
-/// 读写分离路由器
+/// Read-write splitting router
 ///
-/// master 处理写请求，slave 集群处理读请求。
-/// 根据 `LoadBalanceStrategy` 在多个 slave 间分配读请求。
+/// Master handles write requests, slave cluster handles read requests.
+/// Distributes read requests across multiple slaves according to `LoadBalanceStrategy`.
 pub struct ReadWriteRouter {
     master: String,
     slaves: Vec<String>,
     strategy: LoadBalanceStrategy,
     round_robin_counter: AtomicUsize,
     connection_counts: Mutex<Vec<usize>>,
-    /// 加权 slave 配置（addr -> weight）
+    /// Weighted slave configuration (addr -> weight)
     weights: Mutex<HashMap<String, u32>>,
-    /// 健康检查器
+    /// Health checker
     health_checker: HealthChecker,
-    /// 延迟统计
+    /// Latency statistics
     latency_stats: LatencyStats,
-    /// 读写比例控制器（决定是否走 master 读）
+    /// Read-write ratio controller (decides whether to read from master)
     rationing: Mutex<ReadRationing>,
 }
 
@@ -372,20 +372,20 @@ impl ReadWriteRouter {
         }
     }
 
-    /// 返回 master 节点
+    /// Return the master node
     pub fn master(&self) -> &str {
         &self.master
     }
 
-    /// 返回 slave 列表
+    /// Return the slave list
     pub fn slaves(&self) -> &[String] {
         &self.slaves
     }
 
-    /// 根据当前策略选择一个 slave
+    /// Select a slave according to the current strategy
     ///
-    /// 如果 slaves 为空，回退到 master。
-    /// 如果启用健康检查，会跳过 Unhealthy/Drained 的 slave。
+    /// If slaves is empty, falls back to master.
+    /// If health check is enabled, skips Unhealthy/Drained slaves.
     pub fn slave(&self) -> &str {
         if self.slaves.is_empty() {
             return &self.master;
@@ -404,7 +404,7 @@ impl ReadWriteRouter {
         &self.master
     }
 
-    /// 在所有健康 slave 中按策略选择
+    /// Select among all healthy slaves according to the strategy
     fn select_healthy_slave(&self) -> Option<&str> {
         let healthy_indices: Vec<usize> = self
             .slaves
@@ -454,7 +454,7 @@ impl ReadWriteRouter {
         Some(&self.slaves[idx])
     }
 
-    /// 加权轮询：根据权重在 healthy_indices 中选择
+    /// Weighted round-robin: select from healthy_indices according to weights
     fn select_weighted_index(&self, healthy_indices: &[usize]) -> usize {
         let weights = match self.weights.lock() {
             Ok(w) => w,
@@ -479,17 +479,17 @@ impl ReadWriteRouter {
         healthy_indices[healthy_indices.len() - 1]
     }
 
-    /// 设置负载均衡策略
+    /// Set the load balancing strategy
     pub fn set_strategy(&mut self, strategy: LoadBalanceStrategy) {
         self.strategy = strategy;
     }
 
-    /// 获取当前策略
+    /// Get the current strategy
     pub fn strategy(&self) -> LoadBalanceStrategy {
         self.strategy
     }
 
-    /// 设置 slave 权重
+    /// Set slave weight
     pub fn set_weight(&self, slave: &str, weight: u32) -> Result<(), String> {
         if !self.slaves.iter().any(|s| s == slave) {
             return Err(format!("unknown slave: {}", slave));
@@ -500,27 +500,27 @@ impl ReadWriteRouter {
         Ok(())
     }
 
-    /// 获取 slave 权重
+    /// Get slave weight
     pub fn weight(&self, slave: &str) -> Option<u32> {
         self.weights.lock().ok().and_then(|w| w.get(slave).copied())
     }
 
-    /// 健康检查器引用
+    /// Health checker reference
     pub fn health_checker(&self) -> &HealthChecker {
         &self.health_checker
     }
 
-    /// 延迟统计引用
+    /// Latency statistics reference
     pub fn latency_stats(&self) -> &LatencyStats {
         &self.latency_stats
     }
 
-    /// 记录一次 slave 请求的延迟
+    /// Record the latency of a slave request
     pub fn record_latency(&self, slave: &str, latency: Duration) {
         self.latency_stats.record(slave, latency);
     }
 
-    /// 测量并记录一次 slave 调用的耗时
+    /// Measure and record the duration of a slave call
     pub fn measure<F, T>(&self, slave: &str, f: F) -> T
     where
         F: FnOnce() -> T,
@@ -531,14 +531,14 @@ impl ReadWriteRouter {
         result
     }
 
-    /// 配置读写比例
+    /// Configure the read-write ratio
     pub fn set_read_rationing(&self, percent: u8) {
         if let Ok(mut r) = self.rationing.lock() {
             r.set_percent(percent);
         }
     }
 
-    /// 获取当前读写比例
+    /// Get the current read-write ratio
     pub fn read_rationing_percent(&self) -> u8 {
         self.rationing
             .lock()
@@ -546,7 +546,7 @@ impl ReadWriteRouter {
             .unwrap_or(0)
     }
 
-    /// 在某个 slave 上获取连接（增加连接计数，用于 LeastConnections）
+    /// Acquire a connection on a given slave (increment connection count, used for LeastConnections)
     pub fn acquire(&self, slave: &str) -> Result<(), String> {
         if let Some(idx) = self.slaves.iter().position(|s| s == slave) {
             let mut counts = self
@@ -560,7 +560,7 @@ impl ReadWriteRouter {
         }
     }
 
-    /// 释放某个 slave 的连接（减少连接计数）
+    /// Release a connection on a given slave (decrement connection count)
     pub fn release(&self, slave: &str) -> Result<(), String> {
         if let Some(idx) = self.slaves.iter().position(|s| s == slave) {
             let mut counts = self
@@ -576,7 +576,7 @@ impl ReadWriteRouter {
         }
     }
 
-    /// 查询某个 slave 的当前连接数（用于测试和监控）
+    /// Query the current connection count of a slave (for testing and monitoring)
     pub fn connection_count(&self, slave: &str) -> Option<usize> {
         let idx = self.slaves.iter().position(|s| s == slave)?;
         let counts = self.connection_counts.lock().ok()?;

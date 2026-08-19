@@ -1,72 +1,72 @@
-//! # SZ-ORM — 鲜视达 ORM
+//! # SZ-ORM — Xianshida ORM
 //!
-//! Rust 异步 ORM 工作空间（原型阶段），兼容 ThinkORM 风格。
+//! Rust asynchronous ORM workspace (prototype stage), ThinkORM-style compatible.
 //!
-//! ## 架构概览
+//! ## Architecture Overview
 //!
-//! SZ-ORM 工作空间由 **43 个成员** 组成（41 个 sz-orm-* lib + cli + examples）：
+//! The SZ-ORM workspace consists of **43 members** (41 sz-orm-* libs + cli + examples):
 //!
-//! ### 核心引擎 (sz-orm-core)
-//! | 模块 | 功能 |
+//! ### Core Engine (sz-orm-core)
+//! | Module | Function |
 //! |------|------|
-//! | `model` | `Model` trait — 定义表名、主键、时间戳、软删除、关联关系 |
-//! | `query` | `QueryBuilder<M>` — 链式 API，支持 SELECT/INSERT/UPDATE/DELETE/聚合/分页/JOIN |
-//! | `dialect` | 多数据库方言 — MySQL (反引号)、PostgreSQL (双引号)、SQLite、Oracle 23ai |
-//! | `pool` | 异步连接池 — 可配置大小、超时、空闲回收、健康检查、最大生命周期 |
-//! | `transaction` | ACID 事务 — 隔离级别、保存点、`TransactionManager` 多事务管理 |
-//! | `migration` | 文件迁移系统 — up/down/rollback/reset/refresh，含 `SchemaBuilder` |
-//! | `cache` | 多级缓存 — `MemoryCache`、`MultiLevelCache`，支持 TTL |
-//! | `value` | 统一值类型 — 20 种变体 (整数/浮点/字符串/字节/UUID/日期/JSON/数组) |
-//! | `db_type` | 数据库类型枚举 — MySQL、PostgreSQL、SQLite、Oracle、Redis、MongoDB 等 11 种 |
-//! | `error` | 错误类型体系 — `DbError`(20 变体)、`PoolError`、`CacheError`、`TxError` |
+//! | `model` | `Model` trait — defines table name, primary key, timestamps, soft delete, relations |
+//! | `query` | `QueryBuilder<M>` — chainable API, supports SELECT/INSERT/UPDATE/DELETE/aggregation/pagination/JOIN |
+//! | `dialect` | Multi-database dialects — MySQL (backtick), PostgreSQL (double quote), SQLite, Oracle 23ai |
+//! | `pool` | Asynchronous connection pool — configurable size, timeout, idle reaping, health checks, max lifetime |
+//! | `transaction` | ACID transactions — isolation levels, savepoints, `TransactionManager` for multi-transaction management |
+//! | `migration` | File-based migration system — up/down/rollback/reset/refresh, with `SchemaBuilder` |
+//! | `cache` | Multi-level cache — `MemoryCache`, `MultiLevelCache`, with TTL support |
+//! | `value` | Unified value type — 20 variants (integer/float/string/bytes/UUID/date/JSON/array) |
+//! | `db_type` | Database type enum — MySQL, PostgreSQL, SQLite, Oracle, Redis, MongoDB and 11 total |
+//! | `error` | Error type system — `DbError` (20 variants), `PoolError`, `CacheError`, `TxError` |
 //!
-//! ### 数据库适配器
-//! - **sz-orm-sqlx** — sqlx 适配器，连接真实 MySQL/PostgreSQL/SQLite/Oracle
-//! - **sz-orm-sql-validator** — SQL 校验与注入检测
+//! ### Database Adapters
+//! - **sz-orm-sqlx** — sqlx adapter, connects to real MySQL/PostgreSQL/SQLite/Oracle
+//! - **sz-orm-sql-validator** — SQL validation and injection detection
 //!
-//! ### 扩展生态包 (18 个)
-//! | 包名 | 功能 |
+//! ### Extension Ecosystem Packages (18)
+//! | Package | Function |
 //! |------|------|
-//! | sz-orm-crypto | 加密原语 (AES-256-GCM, PBKDF2, HMAC-SHA256) |
-//! | sz-orm-auth | JWT 鉴权 (HS256) |
-//! | sz-orm-scheduler | Cron 定时任务调度 |
-//! | sz-orm-mqtt | MQTT 客户端 (rumqttc) |
-//! | sz-orm-websocket | WebSocket 服务端 (tokio-tungstenite) |
-//! | sz-orm-queue | 消息队列 (RabbitMQ/lapin, Kafka, NATS, ActiveMQ, RocketMQ, Pulsar) |
-//! | sz-orm-storage | 对象存储 (S3/阿里云/腾讯云/华为云/七牛/又拍云/本地) |
-//! | sz-orm-ai | AI 集成 (Embedding, RAG, Vector) |
-//! | sz-orm-grpc | gRPC 服务/客户端 |
-//! | sz-orm-graphql | GraphQL 查询支持 |
-//! | sz-orm-es | Elasticsearch 集成 |
-//! | sz-orm-tracing | 分布式追踪 |
-//! | sz-orm-logger | 日志系统 |
-//! | sz-orm-swagger | API 文档生成 |
-//! | sz-orm-masking | 数据脱敏 |
-//! | sz-orm-health | 健康检查 |
-//! | sz-orm-audit | 审计日志 |
-//! | sz-orm-batch | 批量操作 |
+//! | sz-orm-crypto | Crypto primitives (AES-256-GCM, PBKDF2, HMAC-SHA256) |
+//! | sz-orm-auth | JWT authentication (HS256) |
+//! | sz-orm-scheduler | Cron scheduled task dispatch |
+//! | sz-orm-mqtt | MQTT client (rumqttc) |
+//! | sz-orm-websocket | WebSocket server (tokio-tungstenite) |
+//! | sz-orm-queue | Message queue (RabbitMQ/lapin, Kafka, NATS, ActiveMQ, RocketMQ, Pulsar) |
+//! | sz-orm-storage | Object storage (S3/Alibaba Cloud/Tencent Cloud/Huawei Cloud/Qiniu/Upyun/Local) |
+//! | sz-orm-ai | AI integration (Embedding, RAG, Vector) |
+//! | sz-orm-grpc | gRPC server/client |
+//! | sz-orm-graphql | GraphQL query support |
+//! | sz-orm-es | Elasticsearch integration |
+//! | sz-orm-tracing | Distributed tracing |
+//! | sz-orm-logger | Logging system |
+//! | sz-orm-swagger | API documentation generation |
+//! | sz-orm-masking | Data masking |
+//! | sz-orm-health | Health checks |
+//! | sz-orm-audit | Audit log |
+//! | sz-orm-batch | Batch operations |
 //!
-//! ### 高级特性包 (6 个)
-//! | 包名 | 功能 |
+//! ### Advanced Feature Packages (6)
+//! | Package | Function |
 //! |------|------|
-//! | sz-orm-dtx | 分布式事务 |
-//! | sz-orm-rw | 读写分离 |
-//! | sz-orm-sharding | 分库分表 |
-//! | sz-orm-limit | 限流控制 |
-//! | sz-orm-config | 配置管理 |
-//! | sz-orm-mig | 迁移管理增强 |
+//! | sz-orm-dtx | Distributed transactions |
+//! | sz-orm-rw | Read-write splitting |
+//! | sz-orm-sharding | Sharding |
+//! | sz-orm-limit | Rate limiting |
+//! | sz-orm-config | Configuration management |
+//! | sz-orm-mig | Enhanced migration management |
 //!
-//! ### 平台支持
-//! - **sz-orm-wasm** — WebAssembly 编译目标
-//! - **sz-orm-lc** — 本地/边缘计算
-//! - **sz-orm-back** — 备份与恢复
+//! ### Platform Support
+//! - **sz-orm-wasm** — WebAssembly compile target
+//! - **sz-orm-lc** — Local/edge computing
+//! - **sz-orm-back** — Backup and restore
 //!
-//! ## 快速入门
+//! ## Quick Start
 //!
 //! ```rust,ignore
 //! use sz_orm_core::*;
 //!
-//! // 1. 定义模型
+//! // 1. Define the model
 //! #[derive(Clone)]
 //! struct User {
 //!     id: i64,
@@ -81,7 +81,7 @@
 //!     fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
 //! }
 //!
-//! // 2. 构建查询
+//! // 2. Build a query
 //! let dialect = get_dialect(DbType::MySQL).unwrap();
 //! let sql = QueryBuilder::<User>::new(dialect)
 //!     .table("users")
@@ -92,13 +92,13 @@
 //!     .limit(10)
 //!     .build_select();
 //!
-//! // 3. 执行前校验
+//! // 3. Validate before execution
 //! QueryBuilder::<User>::new(get_dialect(DbType::MySQL).unwrap())
 //!     .table("users")
 //!     .select(vec!["id", "name"])
-//!     .validate()?; // 校验 SQL 语法、注入、括号平衡
+//!     .validate()?; // Validate SQL syntax, injection, parenthesis balance
 //!
-//! // 4. 其他操作
+//! // 4. Other operations
 //! let mut data = std::collections::HashMap::new();
 //! data.insert("name".to_string(), Value::String("Alice".to_string()));
 //! data.insert("age".to_string(), Value::I64(25));
@@ -118,36 +118,36 @@
 //!     .build_delete();
 //! ```
 //!
-//! ## 支持的数据库
+//! ## Supported Databases
 //!
-//! | 数据库 | 方言实现 | 真实连接 | 引用方式 |
+//! | Database | Dialect Implementation | Real Connection | Quoting |
 //! |--------|---------|---------|---------|
-//! | MySQL | `MySqlDialect` (`` ` `` 反引号) | sz-orm-sqlx | ✅ |
-//! | PostgreSQL | `PostgreSqlDialect` (`"` 双引号) | sz-orm-sqlx | ✅ |
-//! | SQLite 3.35+ | `SqliteDialect` (`"` 双引号) | sz-orm-sqlx | ✅ |
-//! | Oracle 23ai | `OracleDialect` (类型自动映射) | sz-orm-sqlx | ✅ |
+//! | MySQL | `MySqlDialect` (`` ` `` backtick) | sz-orm-sqlx | ✅ |
+//! | PostgreSQL | `PostgreSqlDialect` (`"` double quote) | sz-orm-sqlx | ✅ |
+//! | SQLite 3.35+ | `SqliteDialect` (`"` double quote) | sz-orm-sqlx | ✅ |
+//! | Oracle 23ai | `OracleDialect` (automatic type mapping) | sz-orm-sqlx | ✅ |
 //!
-//! 通过 `get_dialect(DbType::MySQL)` 获取方言实例。每个方言处理：
-//! - 标识符引用风格
-//! - 字符串转义规则
-//! - 分页语法 (LIMIT/OFFSET vs OFFSET/FETCH)
-//! - JSON 提取函数 (JSON_EXTRACT vs #>> vs json_extract vs JSON_VALUE)
-//! - 全文搜索 (MATCH AGAINST vs to_tsvector vs CONTAINS)
-//! - 布尔转整数 (IF/CASE)
-//! - 自增关键字 (AUTO_INCREMENT/GENERATED BY DEFAULT AS IDENTITY)
+//! Obtain a dialect instance via `get_dialect(DbType::MySQL)`. Each dialect handles:
+//! - Identifier quoting style
+//! - String escaping rules
+//! - Pagination syntax (LIMIT/OFFSET vs OFFSET/FETCH)
+//! - JSON extraction functions (JSON_EXTRACT vs #>> vs json_extract vs JSON_VALUE)
+//! - Full-text search (MATCH AGAINST vs to_tsvector vs CONTAINS)
+//! - Boolean-to-integer conversion (IF/CASE)
+//! - Auto-increment keyword (AUTO_INCREMENT/GENERATED BY DEFAULT AS IDENTITY)
 //!
-//! ## 核心功能详解
+//! ## Core Features in Detail
 //!
 //! ### QueryBuilder API
 //!
-//! 大部分查询方法返回 `Self`，支持链式调用；`select`/`having` 等校验类方法
-//! 返回 `Result<Self>`（审计 M-5/M-6 后列名/聚合表达式经标识符校验）：
+//! Most query methods return `Self`, enabling chainable calls; validation methods like `select`/`having`
+//! return `Result<Self>` (after audit M-5/M-6, column names/aggregate expressions go through identifier validation):
 //!
 //! ```rust,ignore
-//! // 基础查询
+//! // Basic query
 //! QueryBuilder::<M>::new(dialect)
 //!     .table("users")
-//!     .select(vec!["id", "name"])?                 // 列名校验 + quote
+//!     .select(vec!["id", "name"])?                 // Column validation + quote
 //!     .where_eq("status", Value::String("active".to_string()))    // AND
 //!     .or_where_eq("role", Value::String("admin".to_string()))     // OR
 //!     .where_in("id", vec![Value::I64(1), Value::I64(2)])
@@ -156,7 +156,7 @@
 //!     .order_by("created_at")
 //!     .order_desc("id")
 //!     .group_by("status")
-//!     .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))?   // 参数化 HAVING
+//!     .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))?   // Parameterized HAVING
 //!     .limit(20)
 //!     .offset(40)
 //!     .page(3, 20)                       // page=3, page_size=20
@@ -164,7 +164,7 @@
 //!     .join_left("profiles", "users.id", "profiles.user_id")
 //!     .build_select();
 //!
-//! // 聚合函数
+//! // Aggregate functions
 //! builder.build_count();    // SELECT COUNT(*)
 //! builder.build_exists();   // SELECT EXISTS(...)
 //! builder.build_max("score");
@@ -173,17 +173,17 @@
 //! builder.build_avg("value");
 //! ```
 //!
-//! ### SQL 校验
+//! ### SQL Validation
 //!
 //! ```rust,ignore
-//! // 编译时 + 运行时双重校验
-//! builder.validate()?;              // 校验 SELECT
-//! builder.validate_insert(&data)?;  // 校验 INSERT（含空数据检测）
-//! builder.validate_update(&data)?;  // 校验 UPDATE（含空数据检测）
-//! builder.validate_delete()?;       // 校验 DELETE
+//! // Compile-time + runtime dual validation
+//! builder.validate()?;              // Validate SELECT
+//! builder.validate_insert(&data)?;  // Validate INSERT (including empty data check)
+//! builder.validate_update(&data)?;  // Validate UPDATE (including empty data check)
+//! builder.validate_delete()?;       // Validate DELETE
 //!
-//! // 校验内容包括：SQL 语法、注入检测、括号平衡、
-//! // 表名/列名合法性、JOIN 列名校验
+//! // Validation covers: SQL syntax, injection detection, parenthesis balance,
+//! // table/column name legitimacy, JOIN column validation
 //! ```
 //!
 //! ### Model Trait
@@ -192,57 +192,57 @@
 //! pub trait Model: Send + Sync + Sized + 'static {
 //!     type PrimaryKey: Send + Sync + Debug + Display + Clone + Default;
 //!
-//!     fn table_name() -> &'static str;          // 表名（必需）
-//!     fn pk_name() -> &'static str { "id" }     // 主键列名
-//!     fn pk(&self) -> Self::PrimaryKey;         // 获取主键值
-//!     fn set_pk(&mut self, pk: Self::PrimaryKey); // 设置主键值
-//!     fn foreign_key(relation: &str) -> String; // 外键命名 "user_id"
-//!     fn timestamp_fields() -> Option<TimestampFields>; // 自动时间戳
-//!     fn soft_delete_field() -> Option<&'static str>;   // 软删除字段
+//!     fn table_name() -> &'static str;          // Table name (required)
+//!     fn pk_name() -> &'static str { "id" }     // Primary key column name
+//!     fn pk(&self) -> Self::PrimaryKey;         // Get primary key value
+//!     fn set_pk(&mut self, pk: Self::PrimaryKey); // Set primary key value
+//!     fn foreign_key(relation: &str) -> String; // Foreign key naming "user_id"
+//!     fn timestamp_fields() -> Option<TimestampFields>; // Automatic timestamps
+//!     fn soft_delete_field() -> Option<&'static str>;   // Soft delete field
 //! }
 //!
-//! // ModelExt 扩展
+//! // ModelExt extension
 //! pub trait ModelExt: Model {
-//!     fn columns() -> Vec<&'static str>;     // 所有列
-//!     fn fillable() -> Vec<&'static str>;    // 可填充列
-//!     fn guarded() -> Vec<&'static str>;     // 保护列（默认含主键）
-//!     fn hidden() -> Vec<&'static str>;      // 隐藏列（不序列化）
-//!     fn relations() -> HashMap<&str, Relation>; // 关联关系
-//!     fn fill(&mut self, data: HashMap<String, Value>); // 批量赋值
-//!     fn to_json(&self) -> serde_json::Value; // 序列化
+//!     fn columns() -> Vec<&'static str>;     // All columns
+//!     fn fillable() -> Vec<&'static str>;    // Fillable columns
+//!     fn guarded() -> Vec<&'static str>;     // Guarded columns (includes primary key by default)
+//!     fn hidden() -> Vec<&'static str>;      // Hidden columns (not serialized)
+//!     fn relations() -> HashMap<&str, Relation>; // Relations
+//!     fn fill(&mut self, data: HashMap<String, Value>); // Mass assignment
+//!     fn to_json(&self) -> serde_json::Value; // Serialize
 //! }
 //!
-//! // 四种关联关系
-//! // BelongsTo   — 多对一（Order → User）
-//! // HasMany     — 一对多（User → Orders）
-//! // HasOne      — 一对一（User → Profile）
-//! // BelongsToMany — 多对多（User ↔ Role，通过中间表）
+//! // Four relation types
+//! // BelongsTo   — many-to-one (Order → User)
+//! // HasMany     — one-to-many (User → Orders)
+//! // HasOne      — one-to-one (User → Profile)
+//! // BelongsToMany — many-to-many (User ↔ Role, through junction table)
 //! ```
 //!
-//! ### 连接池
+//! ### Connection Pool
 //!
 //! ```rust,ignore
-//! // 通过 Builder 配置
+//! // Configure via Builder
 //! let config = PoolConfigBuilder::new()
-//!     .max_size(100)       // 最大连接数
-//!     .min_idle(10)        // 最小空闲连接
-//!     .acquire_timeout(30) // 获取超时（秒）
-//!     .idle_timeout(600)   // 空闲超时（秒）
-//!     .max_lifetime(1800)  // 最大生命周期（秒）
+//!     .max_size(100)       // Maximum connections
+//!     .min_idle(10)        // Minimum idle connections
+//!     .acquire_timeout(30) // Acquire timeout (seconds)
+//!     .idle_timeout(600)   // Idle timeout (seconds)
+//!     .max_lifetime(1800)  // Max lifetime (seconds)
 //!     .build()?;
 //!
 //! let pool = Pool::new(config, factory)?;
-//! let conn = pool.acquire().await?;  // 获取连接（带超时）
-//! pool.release(conn).await;         // 归还连接
+//! let conn = pool.acquire().await?;  // Acquire connection (with timeout)
+//! pool.release(conn).await;         // Release connection
 //! pool.status().await;               // PoolStatus { idle, active, max, min }
-//! pool.reap_idle().await;           // 回收空闲连接
-//! pool.close_all().await;           // 关闭所有连接
+//! pool.reap_idle().await;           // Reap idle connections
+//! pool.close_all().await;           // Close all connections
 //! ```
 //!
-//! ### 事务
+//! ### Transactions
 //!
 //! ```rust,ignore
-//! // 事务选项
+//! // Transaction options
 //! let opts = TransactOptions::default()
 //!     .with_isolation(IsolationLevel::Serializable)
 //!     .read_only()
@@ -252,7 +252,7 @@
 //! tx.execute("INSERT INTO users VALUES (1)").await?;
 //! tx.query("SELECT * FROM users").await?;
 //!
-//! // 保存点（嵌套事务）
+//! // Savepoints (nested transactions)
 //! let sp = tx.savepoint().await?;         // SAVEPOINT sp_N
 //! tx.rollback_to_savepoint(&sp).await?;   // ROLLBACK TO SAVEPOINT sp_N
 //! tx.release_savepoint(&sp).await?;       // RELEASE SAVEPOINT sp_N
@@ -260,7 +260,7 @@
 //! tx.commit().await?;
 //! // tx.rollback().await?;
 //!
-//! // TransactionManager：管理多个命名事务
+//! // TransactionManager: manages multiple named transactions
 //! let mgr = TransactionManager::new();
 //! mgr.begin("tx1", conn, opts).await?;
 //! mgr.commit("tx1").await?;
@@ -268,11 +268,11 @@
 //! mgr.state("tx1").await;  // Some(TransactionState::Committed)
 //! ```
 //!
-//! ### 迁移系统
+//! ### Migration System
 //!
 //! ```rust,ignore
-//! // 文件命名：<version>_<name>_up.sql / <version>_<name>_down.sql
-//! // 示例：001_create_users_up.sql, 001_create_users_down.sql
+//! // File naming: <version>_<name>_up.sql / <version>_<name>_down.sql
+//! // Example: 001_create_users_up.sql, 001_create_users_down.sql
 //!
 //! let resolver = FileMigrationResolver::new(PathBuf::from("./migrations"));
 //! let migrations = resolver.resolve(DbType::MySQL)?;
@@ -280,15 +280,15 @@
 //! let mut migrator = Migrator::new(MigrationContext::default())
 //!     .add_migrations(migrations);
 //!
-//! migrator.migrate().await?;                     // 执行所有待迁移
-//! migrator.up(Some("003")).await?;               // 执行到指定版本
-//! migrator.down(Some("001")).await?;             // 回滚到指定版本
-//! migrator.rollback("002").await?;               // 回滚单个迁移
-//! migrator.reset().await?;                       // 全部回滚 + 重新执行
-//! migrator.refresh().await?;                     // 同 reset
+//! migrator.migrate().await?;                     // Execute all pending migrations
+//! migrator.up(Some("003")).await?;               // Migrate up to specified version
+//! migrator.down(Some("001")).await?;             // Rollback to specified version
+//! migrator.rollback("002").await?;               // Rollback a single migration
+//! migrator.reset().await?;                       // Rollback all + re-execute
+//! migrator.refresh().await?;                     // Same as reset
 //! migrator.progress();                            // MigrationProgress { total, applied, pending }
 //!
-//! // SchemaBuilder：程序化建表
+//! // SchemaBuilder: programmatic table creation
 //! let sql = SchemaBuilder::new("users")
 //!     .add_column(ColumnDef::new("id", "INT").not_null().auto_increment())
 //!     .add_column(ColumnDef::new("name", "VARCHAR").length(255).not_null())
@@ -300,75 +300,75 @@
 //!     .build(DbType::MySQL);
 //! ```
 //!
-//! ### 值类型 (Value)
+//! ### Value Type
 //!
 //! ```rust,ignore
-//! // 20 种变体，覆盖所有数据库类型
+//! // 20 variants, covering all database types
 //! Value::Null | Bool(bool) | I8..I64 | U8..U64 | F32 | F64
 //! | String(String) | Bytes(Vec<u8>) | Uuid(String) | Date(String)
 //! | DateTime(String) | Time(String) | Json(String) | Array(Vec<Value>)
 //!
-//! // 类型转换
+//! // Type conversions
 //! value.as_str()    // Option<&str>
-//! value.as_i64()    // Option<i64>（支持 F32/F64/Bool/String→i64 转换）
+//! value.as_i64()    // Option<i64> (supports F32/F64/Bool/String→i64 conversion)
 //! value.as_f64()    // Option<f64>
-//! value.as_bool()   // Option<bool>（支持 "true"/"1"/"yes"/"on" 等）
+//! value.as_bool()   // Option<bool> (supports "true"/"1"/"yes"/"on" etc.)
 //! value.as_bytes()  // Option<&[u8]>
-//! value.to_param()  // Cow<str> — SQL 参数格式
+//! value.to_param()  // Cow<str> — SQL parameter format
 //!
-//! // From 实现
+//! // From implementations
 //! let v: Value = 42i64.into();
 //! let v: Value = "hello".into();
 //! let v: Value = vec![1u8, 2u8].into();
 //! ```
 //!
-//! ## 错误处理
+//! ## Error Handling
 //!
-//! 统一错误类型体系，每种错误携带唯一错误码：
+//! Unified error type system, each error carries a unique error code:
 //!
 //! ```rust,ignore
-//! // DbError — 20 种变体，错误码 DB001-DB020
+//! // DbError — 20 variants, error codes DB001-DB020
 //! DbError::QueryError("...")
 //! DbError::ConnectionRefused("...")
 //! DbError::ConnectionTimeout("...")
 //! DbError::NotFound("...")
 //! DbError::ConstraintViolation("...")
-//! // ... 等
+//! // ... etc.
 //!
-//! // PoolError — 6 种变体，错误码 PL001-PL006
+//! // PoolError — 6 variants, error codes PL001-PL006
 //! PoolError::Exhausted | Timeout | AlreadyAcquired | InvalidConfig | ...
 //!
-//! // CacheError — 6 种变体，错误码 CH001-CH006
-//! // TxError — 6 种变体（NotStarted, CommitFailed, SavepointError 等）
+//! // CacheError — 6 variants, error codes CH001-CH006
+//! // TxError — 6 variants (NotStarted, CommitFailed, SavepointError, etc.)
 //!
-//! // 便捷方法
-//! DbError::query("test failed")        // 创建查询错误
-//! DbError::connection("timeout")       // 创建连接错误
-//! DbError::not_found("user #42")       // 创建未找到错误
-//! err.is_retryable()                   // 是否可重试
+//! // Convenience methods
+//! DbError::query("test failed")        // Create query error
+//! DbError::connection("timeout")       // Create connection error
+//! DbError::not_found("user #42")       // Create not-found error
+//! err.is_retryable()                   // Whether retryable
 //! err.error_code()                     // "DB001"
 //! ```
 //!
-//! ## 验证方法
+//! ## Validation Methods
 //!
-//! SZ-ORM 通过 **7 线验证体系** 保证质量：
+//! SZ-ORM ensures quality through a **7-layer validation system**:
 //!
-//! | 验证方法 | 描述 | 测试文件 |
+//! | Method | Description | Test File |
 //! |---------|------|---------|
-//! | **TDD** | 核心模块 115+ 单元测试 | `core.rs` |
-//! | **集成** | 真实 MySQL/PG/SQLite/Oracle 端到端 | `integration_mysql.rs`, `integration_pg.rs`, `integration_sqlite.rs` |
-//! | **Jepsen** | 29 并发正确性测试 + 10 真实 DB Jepsen | `jepsen.rs`, `real_db_jepsen.rs` |
-//! | **Fuzz** | 11 边界/边缘案例发现 | `fuzz.rs` |
-//! | **Stress** | 77 性能基准测试 | `stress.rs`, `core_bench.rs` |
-//! | **Chaos** | 16 故障鲁棒性测试 | `chaos.rs` |
-//! | **Formal** | 14 形式化验证不变量 | `formal.rs` |
+//! | **TDD** | 115+ unit tests for core modules | `core.rs` |
+//! | **Integration** | End-to-end with real MySQL/PG/SQLite/Oracle | `integration_mysql.rs`, `integration_pg.rs`, `integration_sqlite.rs` |
+//! | **Jepsen** | 29 concurrency correctness tests + 10 real DB Jepsen | `jepsen.rs`, `real_db_jepsen.rs` |
+//! | **Fuzz** | 11 boundary/edge case discoveries | `fuzz.rs` |
+//! | **Stress** | 77 performance benchmarks | `stress.rs`, `core_bench.rs` |
+//! | **Chaos** | 16 fault robustness tests | `chaos.rs` |
+//! | **Formal** | 14 formal verification invariants | `formal.rs` |
 //!
-//! **总计：1,723 测试**（1,317 `#[test]` + 406 `#[tokio::test]`；部分需真实服务）
+//! **Total: 1,723 tests** (1,317 `#[test]` + 406 `#[tokio::test]`; some require real services)
 //!
-//! ## 类型别名与常量
+//! ## Type Aliases and Constants
 //!
 //! ```rust,ignore
-//! // 类型别名
+//! // Type aliases
 //! pub type Shared<T> = Arc<T>;
 //! pub type Boxed<T> = Box<T>;
 //! pub type DbResult<T> = Result<T, DbError>;
@@ -376,30 +376,30 @@
 //! pub type CacheResult<T> = Result<T, CacheError>;
 //! pub type TxResult<T> = Result<T, TxError>;
 //!
-//! // 默认常量
+//! // Default constants
 //! pub const DEFAULT_BATCH_SIZE: usize = 1000;
-//! pub const DEFAULT_ACQUIRE_TIMEOUT: u64 = 30;   // 秒
-//! pub const DEFAULT_IDLE_TIMEOUT: u64 = 600;      // 秒
-//! pub const DEFAULT_MAX_LIFETIME: u64 = 1800;     // 秒
+//! pub const DEFAULT_ACQUIRE_TIMEOUT: u64 = 30;   // seconds
+//! pub const DEFAULT_IDLE_TIMEOUT: u64 = 600;      // seconds
+//! pub const DEFAULT_MAX_LIFETIME: u64 = 1800;     // seconds
 //! pub const DEFAULT_MIN_IDLE: u32 = 5;
 //! pub const DEFAULT_MAX_SIZE: u32 = 100;
 //! ```
 //!
-//! ## 导出清单
+//! ## Export Manifest
 //!
-//! `use sz_orm_core::*;` 将导入以下模块的全部公共符号：
+//! `use sz_orm_core::*;` imports all public symbols from the following modules:
 //!
-//! - `async_trait` (重导出)、`bytes::Bytes`、`chrono::{DateTime, Utc}`、`serde::{Deserialize, Serialize}`
+//! - `async_trait` (re-exported), `bytes::Bytes`, `chrono::{DateTime, Utc}`, `serde::{Deserialize, Serialize}`
 //! - `cache::*` — `Cache`, `MemoryCache`, `MultiLevelCache`, `CacheStats`
-//! - `db_type::*` — `DbType` 枚举 (11 种数据库)
+//! - `db_type::*` — `DbType` enum (11 database types)
 //! - `dialect::*` — `Dialect`, `MySqlDialect`, `PostgreSqlDialect`, `SqliteDialect`, `OracleDialect`, `get_dialect()`
 //! - `error::*` — `DbError`, `PoolError`, `CacheError`, `TxError`
 //! - `migration::*` — `Migration`, `Migrator`, `SchemaBuilder`, `ColumnDef`, `IndexDef`, `ForeignKeyDef`
 //! - `model::*` — `Model`, `ModelExt`, `Relation`, `BelongsTo`, `HasMany`, `HasOne`, `BelongsToMany`
 //! - `pool::*` — `Pool`, `PoolConfig`, `PoolConfigBuilder`, `Connection`, `ConnectionFactory`, `PoolStatus`
-//! - `query::*` — `QueryBuilder<M>` (链式 SQL 构造器)
+//! - `query::*` — `QueryBuilder<M>` (chainable SQL builder)
 //! - `transaction::*` — `Transaction`, `TransactionManager`, `TransactOptions`, `IsolationLevel`
-//! - `value::*` — `Value` 枚举 (20 种变体)
+//! - `value::*` — `Value` enum (20 variants)
 
 // 文档完整性：全局启用 missing_docs lint（v3.6.0 已补齐全部 pub API 文档）
 #![warn(missing_docs)]
@@ -482,7 +482,7 @@ pub mod prod_ready_check;
 mod query;
 #[cfg(feature = "data-validation")]
 pub mod validation;
-/// 重导出 QueryBuilder 供外部使用
+/// Re-export QueryBuilder for external use
 pub use query::QueryBuilder;
 #[cfg(feature = "cache-coherence")]
 pub mod cache_coherence;

@@ -1,17 +1,17 @@
-//! # SZ-ORM MQTT — MQTT 协议支持
+//! # SZ-ORM MQTT — MQTT Protocol Support
 //!
-//! 提供 MQTT 消息中间件抽象，包含 broker 客户端、QoS 级别与主题通配符匹配，
-//! 启用 `real-broker` feature 后接入真实 MQTT broker。
+//! Provides MQTT message middleware abstraction, including broker client, QoS levels, and topic wildcard matching,
+//! connects to real MQTT broker when `real-broker` feature is enabled.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`broker`] — 客户端配置与插件入口
-//! - [`qos`] — 服务质量等级（0/1/2）
-//! - [`qos2`] — QoS 2 四次握手状态机
-//! - [`topics`] — 主题通配符匹配
-//! - [`will`] — 遗嘱消息（Last Will & Testament）
-//! - [`retained`] — 保留消息存储与匹配
-//! - [`shared`] — 共享订阅（Shared Subscriptions）
+//! - [`broker`] — Client config and plugin entry
+//! - [`qos`] — Quality of service levels (0/1/2)
+//! - [`qos2`] — QoS 2 four-way handshake state machine
+//! - [`topics`] — Topic wildcard matching
+//! - [`will`] — Last Will & Testament
+//! - [`retained`] — Retained message storage and matching
+//! - [`shared`] — Shared subscriptions
 
 pub mod broker;
 pub mod error;

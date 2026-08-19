@@ -1,12 +1,13 @@
-//! # SZ-ORM Batch — 批量操作
+//! # SZ-ORM Batch — Batch Operations
 //!
-//! 提供批量插入、更新与 UPSERT 能力，支持多值 INSERT、CASE WHEN UPDATE
-//! 与分片感知的批量执行，并返回生成的 SQL 供审计。
+//! Provides batch insert, update, and UPSERT capabilities, supporting
+//! multi-value INSERT, CASE WHEN UPDATE, and shard-aware batch execution,
+//! and returns the generated SQL for auditing.
 //!
-//! ## 主要类型
+//! ## Main Types
 //!
-//! - [`BatchResult`] — 批量操作结果
-//! - [`BatchOperations`] trait — 批量操作接口
+//! - [`BatchResult`] — Batch operation result
+//! - [`BatchOperations`] trait — Batch operation interface
 
 #[cfg(feature = "batch-stream")]
 pub mod stream;
@@ -47,7 +48,8 @@ pub use copy_parallel_shard::{
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 
-/// 批量操作结果。generated_sqls 持有实际生成的 SQL 语句，供调用方执行与审计。
+/// Batch operation result. `generated_sqls` holds the actual generated SQL
+/// statements for the caller to execute and audit.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchResult {
     pub inserted: usize,
@@ -79,7 +81,8 @@ pub trait BatchOperations: Send + Sync {
     fn batch_upsert(&self, table: &str, rows: Vec<Value>) -> BatchResult;
 }
 
-/// Upsert 语法模式：MySQL 风格（ON DUPLICATE KEY UPDATE）或 PostgreSQL 风格（ON CONFLICT DO UPDATE）。
+/// Upsert syntax mode: MySQL style (ON DUPLICATE KEY UPDATE) or PostgreSQL
+/// style (ON CONFLICT DO UPDATE).
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum UpsertMode {
     MysqlOnDuplicate,
@@ -92,20 +95,21 @@ pub enum UpsertMode {
     MssqlMerge,
 }
 
-/// 默认批量操作实现。生成多值 INSERT、CASE WHEN UPDATE、ON CONFLICT/ON DUPLICATE UPSERT。
+/// Default batch operation implementation. Generates multi-value INSERT,
+/// CASE WHEN UPDATE, and ON CONFLICT/ON DUPLICATE UPSERT.
 ///
-/// L-5 修复：补充示例文档
+/// L-5 fix: added example documentation
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_batch::{DefaultBatchOps, UpsertMode};
 /// use serde_json::json;
 ///
-/// // 创建默认配置（主键 "id", MySQL ON DUPLICATE 模式, 分片 1000）
+/// // Create default config (primary key "id", MySQL ON DUPLICATE mode, chunk size 1000)
 /// let ops = DefaultBatchOps::new();
 ///
-/// // 自定义主键和分片大小
+/// // Customize primary key and chunk size
 /// let ops = DefaultBatchOps::with_primary_key("user_id")
 ///     .with_chunk_size(500)
 ///     .with_upsert_mode(UpsertMode::PostgresOnConflict);
@@ -115,26 +119,29 @@ pub enum UpsertMode {
 ///     json!({ "user_id": 2, "name": "Bob" }),
 /// ];
 ///
-/// // 生成批量插入 SQL（实际调用需通过 BatchOperations trait）
+/// // Generate batch insert SQL (actual invocation requires the BatchOperations trait)
 /// // let sql = ops.batch_insert("users", &rows).unwrap();
 /// ```
 #[derive(Clone)]
 pub struct DefaultBatchOps {
     pub primary_key: String,
     pub upsert_mode: UpsertMode,
-    /// H-9 修复：批量插入分片大小
+    /// H-9 fix: batch insert chunk size
     ///
-    /// 当 `rows.len() > chunk_size` 时，`batch_insert` / `batch_upsert` 会将数据
-    /// 按 `chunk_size` 分片，每片生成独立的 SQL 语句。这避免了超大批量插入触发
-    /// 数据库参数限制（如 MySQL `max_allowed_packet`、PostgreSQL 参数占位符上限 65535）。
+    /// When `rows.len() > chunk_size`, `batch_insert` / `batch_upsert` splits
+    /// the data into chunks of `chunk_size`, each producing an independent SQL
+    /// statement. This avoids triggering database parameter limits on very
+    /// large batch inserts (e.g. MySQL `max_allowed_packet`, PostgreSQL
+    /// placeholder limit of 65535).
     ///
-    /// 默认 `DEFAULT_CHUNK_SIZE`（1000）。设为 0 等价于 1（每行一条 SQL）。
+    /// Defaults to `DEFAULT_CHUNK_SIZE` (1000). Setting to 0 is equivalent to 1
+    /// (one SQL per row).
     pub chunk_size: usize,
-    /// 回滚策略（默认 None）
+    /// Rollback strategy (default None)
     pub rollback_strategy: RollbackStrategy,
-    /// 进度回调（默认 None）
+    /// Progress callback (default None)
     pub progress_callback: Option<ProgressCallback>,
-    /// UPSERT 冲突目标（默认 None，使用主键）
+    /// UPSERT conflict target (default None, uses the primary key)
     pub conflict_target: Option<ConflictTarget>,
 }
 
@@ -154,7 +161,7 @@ impl std::fmt::Debug for DefaultBatchOps {
     }
 }
 
-/// H-9 默认分片大小
+/// H-9 default chunk size
 pub const DEFAULT_CHUNK_SIZE: usize = 1000;
 
 impl Default for DefaultBatchOps {
@@ -191,15 +198,16 @@ impl DefaultBatchOps {
         self
     }
 
-    /// H-9 修复：设置批量插入分片大小
+    /// H-9 fix: set the batch insert chunk size
     pub fn with_chunk_size(mut self, chunk_size: usize) -> Self {
         self.chunk_size = chunk_size.max(1);
         self
     }
 
-    /// H-9 修复：将切片按 chunk_size 分片
+    /// H-9 fix: split a slice into chunks of `chunk_size`
     ///
-    /// 返回索引迭代器，每个元素是 (start, end) 半开区间。
+    /// Returns an index iterator where each element is a (start, end)
+    /// half-open range.
     fn chunk_indices(&self, total: usize) -> impl Iterator<Item = (usize, usize)> {
         let chunk_size = self.chunk_size.max(1);
         (0..total).step_by(chunk_size).map(move |start| {
@@ -208,25 +216,29 @@ impl DefaultBatchOps {
         })
     }
 
-    /// 用反引号包裹标识符（MySQL 风格），转义内部反引号为双反引号。
+    /// Wrap an identifier in backticks (MySQL style), escaping inner backticks
+    /// as double backticks.
     ///
-    /// v1.2.1 修复 High H-3（CWE-89 SQL 注入）：原实现未转义列名中的反引号，
-    /// 当 JSON 数据来源不可信（如直接接受 API 请求体）时，攻击者可通过
-    /// JSON key 注入 SQL。MySQL 反引号转义规则：` -> ``（双反引号）。
+    /// v1.2.1 fix for High H-3 (CWE-89 SQL injection): the original
+    /// implementation did not escape backticks in column names. When the JSON
+    /// data source is untrusted (e.g. directly accepting an API request body),
+    /// an attacker could inject SQL via JSON keys. MySQL backtick escaping
+    /// rule: ` -> `` (double backtick).
     pub(crate) fn quote(name: &str) -> String {
         let escaped = name.replace('`', "``");
         format!("`{}`", escaped)
     }
 
-    /// 从 JSON 对象提取字段名。
+    /// Extract field names from a JSON object.
     ///
-    /// 列顺序取决于 serde_json 的 feature 配置：
-    /// - 默认（无 `preserve_order`）：使用 BTreeMap，按字典序
-    /// - 启用 `preserve_order`：使用 IndexMap，按插入序
+    /// Column order depends on the serde_json feature configuration:
+    /// - Default (no `preserve_order`): uses BTreeMap, lexicographic order
+    /// - With `preserve_order` enabled: uses IndexMap, insertion order
     ///
-    /// 在 workspace `--all-features` 编译下，其他包可能启用 `preserve_order`，
-    /// 通过 feature unification 传导到本包，导致列顺序变化。
-    /// 调用方不应假设特定的列顺序。
+    /// Under workspace `--all-features` compilation, other crates may enable
+    /// `preserve_order`, which propagates to this crate via feature unification
+    /// and changes the column order. Callers should not assume any particular
+    /// column order.
     fn extract_columns(row: &Value) -> Option<Vec<String>> {
         match row {
             Value::Object(map) => Some(map.keys().map(|k| k.to_string()).collect()),
@@ -234,7 +246,7 @@ impl DefaultBatchOps {
         }
     }
 
-    /// 返回非主键列。
+    /// Return the non-primary-key columns.
     fn non_pk_columns(&self, columns: &[String]) -> Vec<String> {
         columns
             .iter()
@@ -243,7 +255,7 @@ impl DefaultBatchOps {
             .collect()
     }
 
-    /// 校验 row 是否拥有所有指定列。
+    /// Check whether `row` has all the specified columns.
     fn row_has_all_columns(row: &Value, columns: &[String]) -> bool {
         match row {
             Value::Object(map) => columns.iter().all(|c| map.contains_key(c)),
@@ -251,13 +263,14 @@ impl DefaultBatchOps {
         }
     }
 
-    /// 生成单行占位符："(?, ?, ?)"。
+    /// Generate a single-row placeholder: "(?, ?, ?)".
     fn placeholder_row(col_count: usize) -> String {
         let placeholders = vec!["?"; col_count].join(", ");
         format!("({})", placeholders)
     }
 
-    /// 提取列定义并校验首行合法；失败时返回 None 并将所有 rows 计入 failed。
+    /// Extract column definitions and validate the first row; on failure
+    /// returns None and counts all rows as failed.
     fn validate_and_extract(&self, rows: &[Value]) -> Option<Vec<String>> {
         let first = rows.first()?;
         match Self::extract_columns(first) {
@@ -266,14 +279,15 @@ impl DefaultBatchOps {
         }
     }
 
-    /// 过滤出字段齐全的有效行，返回 (valid_refs, failed_count)。
+    /// Filter out valid rows that have all fields, returning
+    /// (valid_refs, failed_count).
     fn filter_valid_rows<'a>(&self, rows: &'a [Value], columns: &[String]) -> Vec<&'a Value> {
         rows.iter()
             .filter(|r| Self::row_has_all_columns(r, columns))
             .collect()
     }
 
-    /// 共用：生成 INSERT 头部与多值占位符部分。
+    /// Shared: generate the INSERT header and multi-value placeholder part.
     fn build_insert_clause(
         &self,
         table: &str,
@@ -472,38 +486,38 @@ impl BatchOperations for DefaultBatchOps {
 // 深度扩展：批量进度回调、回滚策略、UPSERT 冲突目标、分块处理编排
 // ============================================================================
 
-/// 批量操作阶段，用于进度回调报告。
+/// Batch operation stage, used for progress callback reporting.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum BatchStage {
-    /// 批量操作开始
+    /// Batch operation started
     Started,
-    /// 正在处理单个分块
+    /// Processing a single chunk
     ProcessingChunk,
-    /// 单个分块处理完成
+    /// Single chunk processing completed
     ChunkCompleted,
-    /// 全部分块处理完成
+    /// All chunks processing completed
     Finished,
 }
 
-/// 批量操作进度信息，传递给进度回调。
+/// Batch operation progress information, passed to the progress callback.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BatchProgress {
-    /// 当前分块索引（从 0 开始）
+    /// Current chunk index (starting from 0)
     pub chunk_index: usize,
-    /// 分块总数
+    /// Total number of chunks
     pub total_chunks: usize,
-    /// 当前分块行数
+    /// Number of rows in the current chunk
     pub chunk_rows: usize,
-    /// 已处理行数
+    /// Number of rows processed
     pub processed_rows: usize,
-    /// 总行数
+    /// Total number of rows
     pub total_rows: usize,
-    /// 当前阶段
+    /// Current stage
     pub stage: BatchStage,
 }
 
 impl BatchProgress {
-    /// 完成百分比（0.0 ~ 100.0）
+    /// Completion percentage (0.0 ~ 100.0)
     pub fn percent(&self) -> f64 {
         if self.total_rows == 0 {
             return 100.0;
@@ -511,49 +525,52 @@ impl BatchProgress {
         (self.processed_rows as f64 / self.total_rows as f64) * 100.0
     }
 
-    /// 是否已完成
+    /// Whether the operation is finished
     pub fn is_finished(&self) -> bool {
         self.stage == BatchStage::Finished
     }
 }
 
-/// 进度回调函数类型（线程安全、可共享）。
+/// Progress callback function type (thread-safe, shareable).
 pub type ProgressCallback = std::sync::Arc<dyn Fn(BatchProgress) + Send + Sync>;
 
-/// 批量操作回滚策略。
+/// Batch operation rollback strategy.
 ///
-/// 控制当某个分块失败时的行为：
-/// - `None`：失败的分块计入 `failed`，不影响已成功的分块
-/// - `Savepoint`：每个分块前生成 `SAVEPOINT` 语句，失败时回滚到 savepoint
-/// - `PerChunk`：任一分块失败则整批中止，后续分块不再执行
+/// Controls the behavior when a chunk fails:
+/// - `None`: the failed chunk is counted in `failed`; successful chunks are
+///   unaffected
+/// - `Savepoint`: a `SAVEPOINT` statement is generated before each chunk; on
+///   failure, rollback to the savepoint
+/// - `PerChunk`: if any chunk fails, the entire batch is aborted and no
+///   subsequent chunks are executed
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum RollbackStrategy {
-    /// 不回滚（默认）
+    /// No rollback (default)
     #[default]
     None,
-    /// Savepoint 回滚
+    /// Savepoint rollback
     Savepoint,
-    /// 整批中止
+    /// Abort the entire batch
     PerChunk,
 }
 
-/// UPSERT 冲突目标（ON CONFLICT 子句的目标）。
+/// UPSERT conflict target (the target of the ON CONFLICT clause).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum ConflictTarget {
-    /// 按列名冲突检测：`ON CONFLICT (col1, col2)`
+    /// Conflict detection by column names: `ON CONFLICT (col1, col2)`
     Columns(Vec<String>),
-    /// 按约束名冲突检测：`ON CONSTRAINT constraint_name`
+    /// Conflict detection by constraint name: `ON CONSTRAINT constraint_name`
     Constraint(String),
 }
 
-/// 带冲突目标的 UPSERT 结果。
+/// UPSERT result with a conflict target.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct UpsertResult {
-    /// 基础批量结果
+    /// Base batch result
     pub base: BatchResult,
-    /// 使用的冲突目标
+    /// Conflict target used
     pub conflict_target: Option<ConflictTarget>,
-    /// 生成的 SAVEPOINT / ROLLBACK TO SQL（Savepoint 策略时）
+    /// Generated SAVEPOINT / ROLLBACK TO SQL (when using the Savepoint strategy)
     pub transaction_sqls: Vec<String>,
 }
 
@@ -567,46 +584,48 @@ impl UpsertResult {
     }
 }
 
-/// 分块处理结果，记录每个分块的处理情况。
+/// Chunk processing result, recording the processing of each chunk.
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ChunkProcessResult {
-    /// 分块索引
+    /// Chunk index
     pub chunk_index: usize,
-    /// 分块行数
+    /// Number of rows in the chunk
     pub chunk_rows: usize,
-    /// 是否成功
+    /// Whether it succeeded
     pub success: bool,
-    /// 生成的 SQL
+    /// Generated SQL
     pub sql: Option<String>,
-    /// 错误信息（失败时）
+    /// Error message (on failure)
     pub error: Option<String>,
 }
 
 impl DefaultBatchOps {
-    /// 设置回滚策略（返回新的配置实例）。
+    /// Set the rollback strategy (returns a new config instance).
     ///
-    /// 注意：`RollbackStrategy` 仅影响 [`batch_upsert_with_options`] 等带选项方法。
+    /// Note: `RollbackStrategy` only affects option-aware methods such as
+    /// [`batch_upsert_with_options`].
     pub fn with_rollback_strategy(mut self, strategy: RollbackStrategy) -> Self {
         self.rollback_strategy = strategy;
         self
     }
 
-    /// 设置进度回调（返回新的配置实例）。
+    /// Set the progress callback (returns a new config instance).
     pub fn with_progress_callback(mut self, callback: ProgressCallback) -> Self {
         self.progress_callback = Some(callback);
         self
     }
 
-    /// 设置 UPSERT 冲突目标（返回新的配置实例）。
+    /// Set the UPSERT conflict target (returns a new config instance).
     ///
-    /// 仅 PostgreSQL `ON CONFLICT` 模式生效。设置后，`batch_upsert` 将使用
-    /// 指定的冲突目标而非默认的主键列。
+    /// Only effective with PostgreSQL `ON CONFLICT` mode. Once set,
+    /// `batch_upsert` will use the specified conflict target instead of the
+    /// default primary key column.
     pub fn with_conflict_target(mut self, target: ConflictTarget) -> Self {
         self.conflict_target = Some(target);
         self
     }
 
-    /// 生成 PostgreSQL ON CONFLICT 子句（带冲突目标）。
+    /// Generate a PostgreSQL ON CONFLICT clause (with conflict target).
     fn build_pg_conflict_clause(&self, non_pk: &[String], conflict: &ConflictTarget) -> String {
         if non_pk.is_empty() {
             return String::new();
@@ -632,25 +651,27 @@ impl DefaultBatchOps {
         )
     }
 
-    /// 生成 SAVEPOINT 语句。
+    /// Generate a SAVEPOINT statement.
     fn savepoint_sql(index: usize) -> String {
         format!("SAVEPOINT batch_chunk_{}", index)
     }
 
-    /// 生成 ROLLBACK TO SAVEPOINT 语句。
+    /// Generate a ROLLBACK TO SAVEPOINT statement.
     fn rollback_to_sql(index: usize) -> String {
         format!("ROLLBACK TO SAVEPOINT batch_chunk_{}", index)
     }
 
-    /// 生成 RELEASE SAVEPOINT 语句。
+    /// Generate a RELEASE SAVEPOINT statement.
     fn release_savepoint_sql(index: usize) -> String {
         format!("RELEASE SAVEPOINT batch_chunk_{}", index)
     }
 
-    /// 执行分块处理，对每个分块调用闭包生成 SQL，并收集结果。
+    /// Execute chunk processing: invoke the closure on each chunk to generate
+    /// SQL and collect the results.
     ///
-    /// 根据回滚策略生成额外的事务控制 SQL（SAVEPOINT / ROLLBACK TO）。
-    /// 根据进度回调在每个分块前后触发进度通知。
+    /// Based on the rollback strategy, generates additional transaction
+    /// control SQL (SAVEPOINT / ROLLBACK TO). Based on the progress callback,
+    /// triggers progress notifications before and after each chunk.
     pub fn chunk_process<F>(&self, rows: &[Value], mut sql_builder: F) -> Vec<ChunkProcessResult>
     where
         F: FnMut(&[&Value]) -> Result<String, String>,
@@ -747,9 +768,11 @@ impl DefaultBatchOps {
         results
     }
 
-    /// 带选项的批量 UPSERT：支持冲突目标、回滚策略、进度回调。
+    /// Batch UPSERT with options: supports conflict target, rollback strategy,
+    /// and progress callback.
     ///
-    /// 返回 `UpsertResult`，包含基础批量结果、冲突目标和事务控制 SQL。
+    /// Returns an `UpsertResult` containing the base batch result, the conflict
+    /// target, and the transaction control SQL.
     pub fn batch_upsert_with_options(&self, table: &str, rows: Vec<Value>) -> UpsertResult {
         let mut result = UpsertResult::new(BatchResult::new());
         if rows.is_empty() {
@@ -877,9 +900,11 @@ impl DefaultBatchOps {
         result
     }
 
-    /// 生成 PerChunk 回滚策略下，失败块对应的 ROLLBACK TO SQL。
+    /// Generate the ROLLBACK TO SQL for a failed chunk under the PerChunk
+    /// rollback strategy.
     ///
-    /// 调用方在执行分块 SQL 时，若某块执行失败，调用此方法获取回滚 SQL。
+    /// When the caller executes chunk SQL and a chunk fails, call this method
+    /// to obtain the rollback SQL.
     pub fn rollback_sql_for_chunk(&self, chunk_index: usize) -> String {
         Self::rollback_to_sql(chunk_index)
     }

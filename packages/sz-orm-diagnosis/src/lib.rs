@@ -1,22 +1,22 @@
-//! # sz-orm-diagnosis — 慢查询自动诊断报告
+//! # sz-orm-diagnosis — Slow Query Automatic Diagnosis Report
 //!
-//! 基于 `slow-query-diagnosis` feature，`SlowQueryDiagnoser` 基于阶段耗时占比
-//! 判定根因（PoolExhaustion/SqlInefficiency/LargeResultSet/BuildOverhead/MixedCause），
-//! 仅对 slow==true 触发，与优化建议联动。
+//! Based on `slow-query-diagnosis` feature, `SlowQueryDiagnoser` determines root cause based on phase timing ratios
+//! (PoolExhaustion/SqlInefficiency/LargeResultSet/BuildOverhead/MixedCause),
+//! only triggered when slow==true, linked with optimization suggestions.
 //!
-//! ## 主要模块
+//! ## Main Modules
 //!
-//! - [`root_cause`] — 根因分析（`RootCause` + `Severity` + `PhaseBreakdown` + `DiagnosisConfig`）
-//! - [`report`] — 诊断报告（`DiagnosisReport` + `SuggestionHint` + JSON/人类可读双格式输出）
-//! - [`diagnoser`] — 诊断器（`SlowQueryDiagnoser::diagnose` 仅对慢查询触发）
-//! - [`pool_diagnoser`] — 连接池诊断器（`ConnectionPoolDiagnoser` + `PoolLeakDetector`）
-//! - [`deadlock_detector`] — 死锁检测器与锁等待分析器
-//! - [`bottleneck_locator`] — 性能瓶颈定位器
-//! - [`advisor`] — 诊断建议引擎与慢查询报告生成器
+//! - [`root_cause`] — Root cause analysis (`RootCause` + `Severity` + `PhaseBreakdown` + `DiagnosisConfig`)
+//! - [`report`] — Diagnosis report (`DiagnosisReport` + `SuggestionHint` + JSON/human-readable dual format output)
+//! - [`diagnoser`] — Diagnoser (`SlowQueryDiagnoser::diagnose` only triggered for slow queries)
+//! - [`pool_diagnoser`] — Connection pool diagnoser (`ConnectionPoolDiagnoser` + `PoolLeakDetector`)
+//! - [`deadlock_detector`] — Deadlock detector and lock wait analyzer
+//! - [`bottleneck_locator`] — Performance bottleneck locator
+//! - [`advisor`] — Diagnosis advice engine and slow query report generator
 //!
-//! ## 复用
+//! ## Reuse
 //!
-//! - `Phase` 枚举 `packages/sz-orm-flamegraph/src/collector.rs:11`
+//! - `Phase` enum `packages/sz-orm-flamegraph/src/collector.rs:11`
 //! - `QueryPhaseTiming` `packages/sz-orm-flamegraph/src/collector.rs:39`
 //! - `QueryOutcome.slow` `packages/sz-orm-adaptive/src/executor.rs:116`
 //! - `AdaptiveConfig.slow_ms` `packages/sz-orm-adaptive/src/executor.rs:35`

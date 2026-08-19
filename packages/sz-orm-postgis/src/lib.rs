@@ -1,36 +1,36 @@
-//! SZ-ORM PostGIS 扩展
+//! SZ-ORM PostGIS Extension
 //!
-//! 提供 PostgreSQL PostGIS 空间几何查询能力，支持三种实现：
+//! Provides PostgreSQL PostGIS spatial geometry query capabilities, supporting three implementations:
 //!
-//! - **内存实现**（`Memory`）：纯 Rust 几何计算，不连接数据库，适用于测试和基准
-//! - **Stub 实现**（`Stub`）：生成 PostGIS SQL 字符串但不执行，适用于调试
-//! - **真实实现**（`RealPg`，需启用 `real-postgis` feature）：通过 tokio-postgres 连接 PostgreSQL
+//! - **In-memory implementation** (`Memory`): Pure Rust geometry computation, no database connection, suitable for testing and benchmarking
+//! - **Stub implementation** (`Stub`): Generates PostGIS SQL string but does not execute, suitable for debugging
+//! - **Real implementation** (`RealPg`, requires `real-postgis` feature): Connects to PostgreSQL via tokio-postgres
 //!
-//! # 支持的几何类型
+//! # Supported Geometry Types
 //!
-//! - `Point`：点
-//! - `LineString`：线串
-//! - `Polygon`：多边形（含洞）
-//! - `MultiPoint` / `MultiLineString` / `MultiPolygon`：多几何体
+//! - `Point`: Point
+//! - `LineString`: Line string
+//! - `Polygon`: Polygon (with holes)
+//! - `MultiPoint` / `MultiLineString` / `MultiPolygon`: Multi-geometry
 //!
-//! 所有几何类型携带 SRID（坐标参考系统 ID），默认 WGS84（SRID=4326）。
+//! All geometry types carry SRID (coordinate reference system ID), default WGS84 (SRID=4326).
 //!
-//! # 支持的空间操作
+//! # Supported Spatial Operations
 //!
-//! | 方法 | SQL 等价 | 说明 |
+//! | Method | SQL equivalent | Description |
 //! |------|---------|------|
-//! | `st_distance` | `ST_Distance` | 两点距离 |
-//! | `st_contains` | `ST_Contains` | 包含判断 |
-//! | `st_within` | `ST_Within` | 在内部判断 |
-//! | `st_intersects` | `ST_Intersects` | 相交判断 |
-//! | `st_area` | `ST_Area` | 面积计算 |
-//! | `st_length` | `ST_Length` | 长度计算 |
-//! | `st_buffer` | `ST_Buffer` | 缓冲区 |
-//! | `st_union` | `ST_Union` | 几何合并 |
-//! | `add_geometry_column` | `AddGeometryColumn` | 添加几何列 |
-//! | `create_spatial_index` | `CREATE INDEX ... USING GIST` | 空间索引 |
+//! | `st_distance` | `ST_Distance` | Distance between two points |
+//! | `st_contains` | `ST_Contains` | Contains check |
+//! | `st_within` | `ST_Within` | Within check |
+//! | `st_intersects` | `ST_Intersects` | Intersects check |
+//! | `st_area` | `ST_Area` | Area calculation |
+//! | `st_length` | `ST_Length` | Length calculation |
+//! | `st_buffer` | `ST_Buffer` | Buffer zone |
+//! | `st_union` | `ST_Union` | Geometry union |
+//! | `add_geometry_column` | `AddGeometryColumn` | Add geometry column |
+//! | `create_spatial_index` | `CREATE INDEX ... USING GIST` | Spatial index |
 //!
-//! # 快速入门
+//! # Quick Start
 //!
 //! ```rust
 //! use sz_orm_postgis::{PostgisBuilder, PostgisExt, PostgisProvider, Geometry, Point};

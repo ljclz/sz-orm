@@ -78,17 +78,18 @@ mod diagnostic;
 
 // ---- 自定义编译期诊断宏（typed-dsl 或 custom-diagnostic feature 隔离）----
 
-/// `#[type_check]` 属性宏 — 为函数添加类型检查诊断提示
+/// `#[type_check]` attribute macro — adds type-check diagnostic hints to a function
 ///
-/// 当函数体内的类型约束失败时，生成比 Rust 默认更清晰的诊断信息。
+/// When a type constraint inside the function body fails, generates clearer
+/// diagnostic messages than Rust's defaults.
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// #[type_check]
 /// fn my_query() {
-///     let expr = ColId.eq("hello"); // i64 列与 String 比较
-///     // 编译期将生成自定义诊断信息
+///     let expr = ColId.eq("hello"); // i64 column compared with String
+///     // Compile-time will generate custom diagnostic information
 /// }
 /// ```
 #[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
@@ -101,7 +102,7 @@ pub fn type_check(_attr: TokenStream, item: TokenStream) -> TokenStream {
     let fn_block = &input_fn.block;
 
     let expanded = quote! {
-        #[doc = concat!("类型检查函数 `", #fn_name, "`：若编译失败，请检查类型约束")]
+        #[doc = concat!("Type-check function `", #fn_name, "`: if compilation fails, please verify type constraints")]
         #fn_vis #fn_sig {
             #fn_block
         }
@@ -110,12 +111,12 @@ pub fn type_check(_attr: TokenStream, item: TokenStream) -> TokenStream {
     TokenStream::from(expanded)
 }
 
-/// `diagnostic_error!` 宏 — 生成带建议信息的编译期错误
+/// `diagnostic_error!` macro — generates a compile-time error with suggestion information
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
-/// diagnostic_error!("类型不匹配", "请使用 Cast 显式转换");
+/// diagnostic_error!("type mismatch", "please use Cast for explicit conversion");
 /// ```
 #[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
 #[proc_macro]
@@ -684,11 +685,12 @@ fn verify_with_real_db(sql: &str) -> Result<Vec<(String, String)>, String> {
 // 全表扫描与缺失索引，输出编译期警告（eprintln，stable Rust 无 Span::warning）。
 // ---------------------------------------------------------------------------
 
-/// 分析 EXPLAIN 输出，返回警告文案列表。
+/// Analyzes EXPLAIN output and returns a list of warning messages.
 ///
-/// 仅对 sqlx 路径（MySQL/PostgreSQL/SQLite）执行分析；Oracle/SQL Server
-/// 命令行验证路径跳过。解析失败降级为空列表（EXPLAIN 语法已由
-/// [`verify_with_real_db`] 验证，此处不阻断编译）。
+/// Only runs analysis on the sqlx path (MySQL/PostgreSQL/SQLite); the
+/// Oracle/SQL Server command-line verification path is skipped. On parse
+/// failure it degrades to an empty list (EXPLAIN syntax has already been
+/// validated by [`verify_with_real_db`], so this does not block compilation).
 #[cfg(feature = "db-verify")]
 fn analyze_explain(sql: &str) -> Vec<String> {
     let Ok(dsn) = std::env::var("DATABASE_URL") else {
@@ -714,7 +716,7 @@ fn analyze_explain(sql: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
-/// 获取 EXPLAIN 原始输出并解析为警告列表
+/// Fetches EXPLAIN raw output and parses it into a list of warnings
 #[cfg(feature = "db-verify")]
 async fn explain_analysis_raw(
     dsn: &str,
@@ -761,7 +763,7 @@ async fn explain_analysis_raw(
     Ok(warnings)
 }
 
-/// MySQL：EXPLAIN 表格行 → `| a | b | ... |` 文本（与 MySqlParser 输入兼容）
+/// MySQL: EXPLAIN table rows → `| a | b | ... |` text (compatible with MySqlParser input)
 #[cfg(feature = "db-verify")]
 async fn fetch_explain_mysql(dsn: &str, explain_sql: &str) -> Result<String, String> {
     let pool = sqlx::MySqlPool::connect(dsn)
@@ -781,7 +783,7 @@ async fn fetch_explain_mysql(dsn: &str, explain_sql: &str) -> Result<String, Str
     Ok(out)
 }
 
-/// PostgreSQL：EXPLAIN 文本行拼接
+/// PostgreSQL: EXPLAIN text lines concatenated
 #[cfg(feature = "db-verify")]
 async fn fetch_explain_postgres(dsn: &str, explain_sql: &str) -> Result<String, String> {
     let pool = sqlx::PgPool::connect(dsn)
@@ -798,7 +800,7 @@ async fn fetch_explain_postgres(dsn: &str, explain_sql: &str) -> Result<String, 
         .join("\n"))
 }
 
-/// SQLite：EXPLAIN QUERY PLAN 四列（id/parent/notused/detail）→ 数字前缀文本
+/// SQLite: EXPLAIN QUERY PLAN four columns (id/parent/notused/detail) → numeric-prefixed text
 #[cfg(feature = "db-verify")]
 async fn fetch_explain_sqlite(dsn: &str, explain_sql: &str) -> Result<String, String> {
     let pool = sqlx::SqlitePool::connect(dsn)
@@ -819,18 +821,19 @@ async fn fetch_explain_sqlite(dsn: &str, explain_sql: &str) -> Result<String, St
     Ok(out)
 }
 
-/// 离线缓存验证：从 `SZ_ORM_SQLX_CACHE` 指定的 JSON 文件中查找已验证的 SQL。
+/// Offline cache verification: looks up verified SQL from the JSON file specified by `SZ_ORM_SQLX_CACHE`.
 ///
-/// 缓存文件格式为 JSON 字符串数组，每行一条已验证 SQL：
+/// The cache file format is a JSON array of strings, one verified SQL per entry:
 /// ```json
 /// ["SELECT `id`, `name` FROM `users` WHERE `id` = ?", ...]
 /// ```
 ///
-/// 生成方式：在有 DB 的环境中运行 `cargo build --features db-verify`（`SZ_ORM_QUERY_VERIFY=1`），
-/// 或使用 `cargo sz-orm prepare` 工具扫描项目中的 `query!` 宏并生成缓存。
+/// To generate it: run `cargo build --features db-verify` (with `SZ_ORM_QUERY_VERIFY=1`) in an
+/// environment that has DB access, or use the `cargo sz-orm prepare` tool to scan `query!` macros
+/// in the project and generate the cache.
 ///
-/// CI 中只需设置 `SZ_ORM_QUERY_VERIFY=cache` + `SZ_ORM_SQLX_CACHE=.sz-orm/query-cache.json`
-/// 即可在不连接 DB 的情况下完成编译期 SQL 验证。
+/// In CI, simply set `SZ_ORM_QUERY_VERIFY=cache` + `SZ_ORM_SQLX_CACHE=.sz-orm/query-cache.json`
+/// to perform compile-time SQL verification without connecting to the DB.
 #[cfg(feature = "db-verify")]
 fn verify_with_cache(sql: &str) -> Result<(), String> {
     let cache_path = std::env::var("SZ_ORM_SQLX_CACHE").map_err(|_| {
@@ -869,7 +872,7 @@ fn verify_with_cache(sql: &str) -> Result<(), String> {
     }
 }
 
-/// 截断 SQL 用于错误消息显示
+/// Truncates SQL for error message display
 #[cfg(feature = "db-verify")]
 fn truncate_sql(sql: &str, max: usize) -> String {
     if sql.len() <= max {
@@ -889,10 +892,11 @@ enum DbKind {
     SqlServer,
 }
 
-/// 将 SQL 中的 `?` 占位符替换为 `NULL`，跳过字符串字面量内的 `?`。
+/// Replaces `?` placeholders in SQL with `NULL`, skipping `?` inside string literals.
 ///
-/// EXPLAIN 不实际执行查询，用 NULL 代替参数可验证语法和表/列存在性，
-/// 同时避免 sqlx 预处理语句要求绑定参数的问题。
+/// EXPLAIN does not actually execute the query; using NULL in place of parameters
+/// validates syntax and table/column existence while avoiding the sqlx prepared-statement
+/// requirement of binding parameters.
 #[cfg(feature = "db-verify")]
 fn replace_placeholders_with_null(sql: &str) -> String {
     let mut result = String::with_capacity(sql.len() + 16);
@@ -984,16 +988,16 @@ async fn verify_sqlite(dsn: &str, explain_sql: &str) -> Result<(), String> {
 // Gap 1 修复：列名/类型验证（在 EXPLAIN 语法验证通过后执行）
 // ========================================================================
 
-/// 从 SQL 中提取表名和列引用，并查询 information_schema 验证列存在性。
+/// Extracts table names and column references from SQL and queries information_schema to verify column existence.
 ///
-/// EXPLAIN 已验证语法和表存在性；此函数进一步验证：
-/// - SELECT/WHERE/ORDER BY/GROUP BY 中引用的列是否存在于对应表中
-/// - 不验证表别名限定的列（由 EXPLAIN 负责）
-/// - 仅对 `*` 以外的显式列名做验证
+/// EXPLAIN has already validated syntax and table existence; this function further verifies:
+/// - Whether columns referenced in SELECT/WHERE/ORDER BY/GROUP BY exist in the corresponding tables
+/// - Does not verify columns qualified by table aliases (handled by EXPLAIN)
+/// - Only verifies explicit column names other than `*`
 ///
-/// # 支持的 DB
+/// # Supported DBs
 ///
-/// MySQL / PostgreSQL / SQLite（Oracle/SQL Server 跳过此步骤）
+/// MySQL / PostgreSQL / SQLite (Oracle/SQL Server skip this step)
 #[cfg(feature = "db-verify")]
 async fn verify_columns(dsn: &str, db_kind: DbKind, sql: &str) -> Result<(), String> {
     // SQLite 的 information_schema 支持有限，跳过
@@ -1015,7 +1019,7 @@ async fn verify_columns(dsn: &str, db_kind: DbKind, sql: &str) -> Result<(), Str
     }
 }
 
-/// 从 SQL 的 FROM 子句中提取表名（支持别名和 JOIN）
+/// Extracts table names from the SQL FROM clause (supports aliases and JOIN)
 #[cfg(feature = "db-verify")]
 fn extract_tables(sql: &str) -> Vec<String> {
     let mut tables = Vec::new();
@@ -1126,7 +1130,7 @@ fn extract_tables(sql: &str) -> Vec<String> {
     tables
 }
 
-/// 从 SQL 中提取未限定的列名引用（SELECT/WHERE/ORDER BY/GROUP BY 中）
+/// Extracts unqualified column name references from SQL (in SELECT/WHERE/ORDER BY/GROUP BY)
 #[cfg(feature = "db-verify")]
 fn extract_columns(sql: &str) -> Vec<String> {
     let mut columns = Vec::new();
@@ -1381,9 +1385,9 @@ async fn verify_columns_postgres(
 // 结构体 `__sz_orm_column_types()` 期望值对比，不匹配即编译失败。
 // ---------------------------------------------------------------------------
 
-/// 获取 SELECT 列的实际 DB 类型列表 `(列名, DATA_TYPE/udt_name)`。
+/// Fetches the actual DB type list of SELECT columns `(column name, DATA_TYPE/udt_name)`.
 ///
-/// 仅 MySQL/PostgreSQL 支持（SQLite/Oracle/SQL Server 返回空列表，跳过类型级验证）。
+/// Only MySQL/PostgreSQL are supported (SQLite/Oracle/SQL Server return an empty list and skip type-level verification).
 #[cfg(feature = "db-verify")]
 async fn fetch_column_types(
     dsn: &str,
@@ -1481,16 +1485,16 @@ async fn fetch_column_types_postgres(
     Ok(result)
 }
 
-/// 生成编译期类型验证代码块：`{ const _: () = { ...检查... }; <查询表达式> }`。
+/// Generates a compile-time type validation code block: `{ const _: () = { ...checks... }; <query expression> }`.
 ///
-/// 验证逻辑在 const 上下文中执行（`panic!` 触发即编译失败，实现真正的编译期拦截）：
-/// 1. 列数必须与结构体字段数一致；
-/// 2. 每个 SELECT 列名必须存在于结构体字段中（与 `__sz_orm_column_types()` 对比）；
-/// 3. 每个列的实际 DB 类型必须与结构体字段类型兼容（`__sz_orm_const_types_compatible`）。
+/// The validation logic runs in a const context (`panic!` triggers a compilation failure, achieving true compile-time interception):
+/// 1. The column count must match the struct field count;
+/// 2. Each SELECT column name must exist among the struct fields (compared against `__sz_orm_column_types()`);
+/// 3. Each column's actual DB type must be compatible with the struct field type (`__sz_orm_const_types_compatible`).
 ///
-/// `record_type` 为 `query_as!` 第一个参数（如 `User` / `crate::User`），
-/// 生成的代码通过 `<记录类型>::__sz_orm_column_types()` 引用 derive 宏生成的
-/// const fn（因此记录类型必须 `#[derive(FromQueryResult)]`）。
+/// `record_type` is the first argument of `query_as!` (e.g. `User` / `crate::User`);
+/// the generated code references the const fn produced by the derive macro via
+/// `<record type>::__sz_orm_column_types()` (so the record type must `#[derive(FromQueryResult)]`).
 #[cfg(feature = "db-verify")]
 fn gen_compile_time_type_check(
     record_type: &str,
@@ -1523,7 +1527,7 @@ fn gen_compile_time_type_check(
     )
 }
 
-/// 常见 SQL 函数名列表（不应作为列名验证）
+/// Common SQL function name list (should not be verified as column names)
 #[cfg(feature = "db-verify")]
 fn is_sql_function(name: &str) -> bool {
     matches!(
@@ -1576,10 +1580,10 @@ fn is_sql_function(name: &str) -> bool {
     )
 }
 
-/// Oracle 编译期验证：通过 sqlplus 命令行工具执行 EXPLAIN PLAN FOR
+/// Oracle compile-time verification: runs EXPLAIN PLAN FOR via the sqlplus command-line tool
 ///
-/// DSN 格式：`oracle://user:pass@host:port/service`（可选 `?sysdba=1`）
-/// 例如：`oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1`
+/// DSN format: `oracle://user:pass@host:port/service` (optional `?sysdba=1`)
+/// e.g.: `oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1`
 #[cfg(feature = "db-verify")]
 fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let parsed = parse_oracle_dsn(dsn)?;
@@ -1627,10 +1631,10 @@ fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// SQL Server 编译期验证：通过 sqlcmd 命令行工具执行 SET SHOWPLAN_TEXT ON
+/// SQL Server compile-time verification: runs SET SHOWPLAN_TEXT ON via the sqlcmd command-line tool
 ///
-/// DSN 格式：`sqlserver://user:pass@host:port/db`
-/// 例如：`sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test`
+/// DSN format: `sqlserver://user:pass@host:port/db`
+/// e.g.: `sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test`
 #[cfg(feature = "db-verify")]
 fn verify_sqlserver(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let parsed = parse_sqlserver_dsn(dsn)?;
@@ -1664,7 +1668,7 @@ fn verify_sqlserver(dsn: &str, explain_sql: &str) -> Result<(), String> {
     Ok(())
 }
 
-/// Oracle DSN 解析结果
+/// Oracle DSN parse result
 #[cfg(feature = "db-verify")]
 struct OracleDsn {
     user: String,
@@ -1675,7 +1679,7 @@ struct OracleDsn {
     sysdba: bool,
 }
 
-/// 解析 oracle://user:pass@host:port/service?sysdba=1
+/// Parses oracle://user:pass@host:port/service?sysdba=1
 #[cfg(feature = "db-verify")]
 fn parse_oracle_dsn(dsn: &str) -> Result<OracleDsn, String> {
     let raw = dsn
@@ -1722,7 +1726,7 @@ fn parse_oracle_dsn(dsn: &str) -> Result<OracleDsn, String> {
     })
 }
 
-/// SQL Server DSN 解析结果
+/// SQL Server DSN parse result
 #[cfg(feature = "db-verify")]
 struct SqlServerDsn {
     user: String,
@@ -1732,7 +1736,7 @@ struct SqlServerDsn {
     database: String,
 }
 
-/// 解析 sqlserver://user:pass@host:port/db
+/// Parses sqlserver://user:pass@host:port/db
 #[cfg(feature = "db-verify")]
 fn parse_sqlserver_dsn(dsn: &str) -> Result<SqlServerDsn, String> {
     let raw = dsn
@@ -1793,25 +1797,25 @@ fn compile_error(span: Span, msg: &str) -> TokenStream {
 // typed_query! — Diesel 风格强类型 AST 宏
 // ---------------------------------------------------------------------------
 
-/// Diesel 风格强类型 AST 宏（与 `sql_string!` / `query!` 并存）。
+/// Diesel-style strongly-typed AST macro (coexists with `sql_string!` / `query!`).
 ///
-/// # 设计
+/// # Design
 ///
-/// 接收 `table { col1: Type, col2: Type, ... }` 声明，生成：
-/// 1. 一个 `table` 模块
-/// 2. 每列对应一个零大小标记类型（如 `table::id`）
-/// 3. 实现 `TypedColumn` trait，把列名 + Rust 类型提升到类型系统
+/// Accepts a `table { col1: Type, col2: Type, ... }` declaration and generates:
+/// 1. A `table` module
+/// 2. A zero-size marker type for each column (e.g. `table::id`)
+/// 3. An impl of the `TypedColumn` trait that lifts the column name + Rust type into the type system
 ///
-/// 这样，`typed_query!(SELECT id FROM users WHERE name = ?)` 在编译期就能：
-/// - 校验 `id` / `name` 列是否存在于 `users` 表声明中
-/// - 校验 `?` 参数的 Rust 类型与列声明的类型一致
+/// This way, `typed_query!(SELECT id FROM users WHERE name = ?)` can, at compile time:
+/// - Verify that `id` / `name` columns exist in the `users` table declaration
+/// - Verify that the Rust type of the `?` parameter matches the column's declared type
 ///
-/// # 用法
+/// # Usage
 ///
 /// ```ignore
 /// use sz_orm_macros::typed_query;
 ///
-/// // 1. 声明表 schema（编译期生成 column 标记类型）
+/// // 1. Declare table schema (compile-time generates column marker types)
 /// typed_query! {
 ///     table users {
 ///         id: i64,
@@ -1821,9 +1825,9 @@ fn compile_error(span: Span, msg: &str) -> TokenStream {
 ///     }
 /// }
 ///
-/// // 2. 编译期校验 SELECT：列名必须存在于 users 表
+/// // 2. Compile-time SELECT validation: column names must exist in the users table
 /// let sql = typed_query!(SELECT id, name FROM users WHERE age > ?);
-/// // ❌ 编译错误：unknown column 'foo' in table 'users'
+/// // ❌ compile error: unknown column 'foo' in table 'users'
 /// // let sql = typed_query!(SELECT foo FROM users);
 /// ```
 #[proc_macro]
@@ -1858,7 +1862,7 @@ pub fn typed_query(input: TokenStream) -> TokenStream {
     )
 }
 
-/// 解析 `table name { col: Type, ... }` 声明
+/// Parses a `table name { col: Type, ... }` declaration
 fn parse_table_decl(tokens: &[TokenTree]) -> TokenStream {
     // 期望格式：table <ident> { <ident> : <ident> [, ...] }
     let mut idx = 0;
@@ -1963,7 +1967,7 @@ fn parse_table_decl(tokens: &[TokenTree]) -> TokenStream {
     expanded.into()
 }
 
-/// 解析列声明列表：`col: Type, col2: Type2, ...`
+/// Parses a column declaration list: `col: Type, col2: Type2, ...`
 fn parse_column_list(tokens: &[TokenTree]) -> Result<Vec<(String, String)>, String> {
     let mut cols = Vec::new();
     let mut i = 0;
@@ -2026,9 +2030,9 @@ fn parse_column_list(tokens: &[TokenTree]) -> Result<Vec<(String, String)>, Stri
     Ok(cols)
 }
 
-/// 解析 `SELECT col1, col2 FROM table WHERE col = ?` 表达式
+/// Parses a `SELECT col1, col2 FROM table WHERE col = ?` expression
 ///
-/// 校验列名是否在表 schema 中（通过编译期常量查找）。
+/// Validates column names against the table schema (via compile-time constant lookup).
 fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
     // 收集所有 ident 与 literal，构造 SQL 字符串
     let mut sql_parts: Vec<String> = Vec::new();
@@ -2173,7 +2177,7 @@ fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
 /// }
 /// ```
 ///
-/// 生成与以下手动声明等价的代码：
+/// Generates code equivalent to the following manual declaration:
 /// ```ignore
 /// typed_query! {
 ///     table users {
@@ -2184,19 +2188,19 @@ fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
 /// }
 /// ```
 #[proc_macro]
-/// 类型化裸 SQL 查询宏（SQLx `query_as!` 风格）。
+/// Typed raw SQL query macro (SQLx `query_as!` style).
 ///
-/// 用法：`query_as!(RecordType, "SELECT col1, col2 FROM table WHERE id = ?")`
+/// Usage: `query_as!(RecordType, "SELECT col1, col2 FROM table WHERE id = ?")`
 ///
-/// 生成 `sz_orm_core::queryable::QueryAs::<RecordType>::new("SELECT ...")`。
-/// 在 `db-verify` feature + `SZ_ORM_QUERY_VERIFY=1` 环境下会连真 DB
-/// 执行 EXPLAIN 验证 SQL 合法性。
+/// Generates `sz_orm_core::queryable::QueryAs::<RecordType>::new("SELECT ...")`.
+/// When the `db-verify` feature + `SZ_ORM_QUERY_VERIFY=1` is set, connects to the real DB
+/// and runs EXPLAIN to verify SQL validity.
 ///
-/// **运行时列名验证**（P0-2）：`QueryAs::fetch_all` 会比对 DB 返回的列名
-/// 与 `RecordType::row_desc()`（由 `#[derive(FromQueryResult)]` 自动生成）。
-/// 若 SQL SELECT 列不在 struct 字段中，返回 `DbError::QueryError`。
+/// **Runtime column-name validation** (P0-2): `QueryAs::fetch_all` compares the column names
+/// returned by the DB against `RecordType::row_desc()` (auto-generated by `#[derive(FromQueryResult)]`).
+/// If a SELECT column is not among the struct fields, returns `DbError::QueryError`.
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// #[derive(FromQueryResult)]
@@ -2411,13 +2415,13 @@ pub fn schema(input: TokenStream) -> TokenStream {
     expanded.into()
 }
 
-/// 解析 SQL `CREATE TABLE` 语句，返回 (表名, Vec<(列名, Rust 类型字符串)>)。
+/// Parses a SQL `CREATE TABLE` statement and returns (table name, Vec<(column name, Rust type string)>).
 ///
-/// 支持以下语法：
+/// Supported syntax:
 /// - `CREATE TABLE [IF NOT EXISTS] <name> ( ... )`
-/// - 表名/列名可带反引号、双引号或无引号
-/// - 跳过 PRIMARY KEY / FOREIGN KEY / CONSTRAINT / UNIQUE / INDEX / KEY 约束行
-/// - 列定义按顶层逗号分隔（嵌套括号如 DECIMAL(10,2) 不拆分）
+/// - Table/column names may be backtick-quoted, double-quoted, or unquoted
+/// - Skips PRIMARY KEY / FOREIGN KEY / CONSTRAINT / UNIQUE / INDEX / KEY constraint lines
+/// - Column definitions are split by top-level commas (nested parentheses like DECIMAL(10,2) are not split)
 fn parse_create_table(sql: &str) -> Result<(String, Vec<(String, String)>), String> {
     let trimmed = sql.trim();
     let upper = trimmed.to_uppercase();
@@ -2496,8 +2500,8 @@ fn parse_create_table(sql: &str) -> Result<(String, Vec<(String, String)>), Stri
     Ok((table_name, columns))
 }
 
-/// 解析标识符：支持反引号、双引号或无引号。
-/// 返回 (标识符, 剩余字符串)。
+/// Parses an identifier: supports backtick-quoted, double-quoted, or unquoted forms.
+/// Returns (identifier, remaining string).
 fn parse_identifier(s: &str) -> Result<(String, &str), String> {
     let s = s.trim_start();
     if s.is_empty() {
@@ -2533,8 +2537,8 @@ fn parse_identifier(s: &str) -> Result<(String, &str), String> {
     }
 }
 
-/// 解析类型 token：取第一个标识符，可选跟随括号参数（如 VARCHAR(255) → VARCHAR）。
-/// 返回 (类型名, 剩余字符串)。
+/// Parses a type token: takes the first identifier, optionally followed by parenthesized parameters (e.g. VARCHAR(255) → VARCHAR).
+/// Returns (type name, remaining string).
 fn parse_type_token(s: &str) -> Result<(String, &str), String> {
     let s = s.trim_start();
     if s.is_empty() {
@@ -2560,7 +2564,7 @@ fn parse_type_token(s: &str) -> Result<(String, &str), String> {
     Ok((type_name, rest))
 }
 
-/// 按顶层逗号分隔字符串（不进入嵌套括号）。
+/// Splits a string by top-level commas (does not enter nested parentheses).
 fn split_top_level_commas(s: &str) -> Vec<String> {
     let mut parts = Vec::new();
     let mut depth: i32 = 0;
@@ -2592,10 +2596,11 @@ fn split_top_level_commas(s: &str) -> Vec<String> {
     parts
 }
 
-/// 将 SQL 类型映射为 Rust 类型字符串。
+/// Maps a SQL type to a Rust type string.
 ///
-/// 匹配规则：取类型名第一个 token（去掉括号参数），不区分大小写匹配。
-/// 未识别的类型默认映射为 `String`。若 `nullable == true`，用 `Option<T>` 包裹。
+/// Matching rule: takes the first token of the type name (dropping parenthesized parameters),
+/// matched case-insensitively. Unrecognized types default to `String`. If `nullable == true`,
+/// wraps in `Option<T>`.
 fn sql_type_to_rust(sql_type: &str, nullable: bool) -> String {
     let upper = sql_type.to_uppercase();
     let rust = match upper.as_str() {
@@ -2632,31 +2637,31 @@ fn sql_type_to_rust(sql_type: &str, nullable: bool) -> String {
 // `#[derive(Schema)]` — auto-generate table structure from a struct
 // ---------------------------------------------------------------------------
 
-/// 派生宏：自动从 Rust 结构体生成表结构信息。
+/// Derive macro: auto-generates table structure info from a Rust struct.
 ///
-/// 解析 `#[table(name = "...")]` 和 `#[column(...)]` 属性，
-/// 生成 `Schema` trait 实现，便于在运行时反射表名与列信息。
+/// Parses `#[table(name = "...")]` and `#[column(...)]` attributes
+/// and generates a `Schema` trait impl, enabling runtime reflection of table name and column info.
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
-/// - `#[table(name = "users")]` — 指定表名（默认使用结构体名的蛇形形式）
-/// - `#[column(name = "user_id")]` — 指定列名（默认使用字段名）
-/// - `#[column(type = "VARCHAR(255)")]` — 指定 SQL 类型
-/// - `#[column(primary_key)]` — 标记主键
-/// - `#[column(nullable)]` — 显式标记允许 NULL
-/// - `#[column(skip)]` — 跳过此字段，不生成 schema 条目
-/// - `#[column(default = "0")]` — 标记字段有默认值
+/// - `#[table(name = "users")]` — specifies the table name (defaults to the snake_case form of the struct name)
+/// - `#[column(name = "user_id")]` — specifies the column name (defaults to the field name)
+/// - `#[column(type = "VARCHAR(255)")]` — specifies the SQL type
+/// - `#[column(primary_key)]` — marks the primary key
+/// - `#[column(nullable)]` — explicitly marks the field as allowing NULL
+/// - `#[column(skip)]` — skips this field, no schema entry is generated
+/// - `#[column(default = "0")]` — marks the field as having a default value
 ///
-/// # 类型推断
+/// # Type inference
 ///
-/// 字段的 Rust 类型会自动映射为 SQL 类型：
+/// The field's Rust type is automatically mapped to a SQL type:
 /// - `i64`/`u64` → `BIGINT`
 /// - `i32`/`u32` → `INTEGER`
 /// - `String` → `TEXT`
 /// - `f64` → `DOUBLE`
 /// - `bool` → `BOOLEAN`
 /// - `Vec<u8>` → `BLOB`
-/// - `Option<T>` → 与 `T` 相同，但标记为 nullable
+/// - `Option<T>` → same as `T`, but marked as nullable
 #[proc_macro_derive(Schema, attributes(table, column))]
 pub fn derive_schema(input: TokenStream) -> TokenStream {
     let input = parse_macro_input!(input as syn::DeriveInput);
@@ -2667,18 +2672,18 @@ pub fn derive_schema(input: TokenStream) -> TokenStream {
 // `#[derive(GraphQLModel)]` — auto-generate `impl GraphQLModelInfo`
 // ---------------------------------------------------------------------------
 
-/// 派生宏：自动生成 `sz_orm_graphql::schema_gen::GraphQLModelInfo` 实现。
+/// Derive macro: auto-generates an `sz_orm_graphql::schema_gen::GraphQLModelInfo` impl.
 ///
-/// 从 `#[derive(GraphQLModel)]` 结构体提取字段元数据（字段名 + Rust 类型 + 可空性），
-/// 供 `SchemaGenerator::from_model` 使用。零运行时开销。
+/// Extracts field metadata (field name + Rust type + nullability) from a `#[derive(GraphQLModel)]` struct
+/// for use by `SchemaGenerator::from_model`. Zero runtime overhead.
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
-/// - `#[table(name = "users")]` — 指定表名（默认使用结构体名的 snake_case）
-/// - `#[column(skip)]` — 跳过此字段
-/// - `#[column(name = "custom_name")]` — 指定列名
+/// - `#[table(name = "users")]` — specifies the table name (defaults to the snake_case form of the struct name)
+/// - `#[column(skip)]` — skips this field
+/// - `#[column(name = "custom_name")]` — specifies the column name
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_macros::GraphQLModel;
@@ -2701,19 +2706,19 @@ pub fn derive_graphql_model(input: TokenStream) -> TokenStream {
 // `#[derive(Builder)]` — auto-generate builder pattern code
 // ---------------------------------------------------------------------------
 
-/// 派生宏：自动生成构造器模式代码。
+/// Derive macro: auto-generates builder pattern code.
 ///
-/// 为目标结构体生成一个 `XxxBuilder` 类型，包含：
-/// - `new()` 构造空 builder
-/// - 每个字段的 setter 方法
-/// - `build()` 方法返回 `Result<T, String>`
+/// Generates an `XxxBuilder` type for the target struct, including:
+/// - `new()` constructs an empty builder
+/// - A setter method for each field
+/// - A `build()` method that returns `Result<T, String>`
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
-/// - `#[builder(skip)]` — 跳过此字段（不生成 setter，使用 Default）
-/// - `#[builder(default = expr)]` — 指定默认值表达式
+/// - `#[builder(skip)]` — skips this field (no setter is generated, uses Default)
+/// - `#[builder(default = expr)]` — specifies the default value expression
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_macros::Builder;
@@ -2740,18 +2745,18 @@ pub fn derive_builder(input: TokenStream) -> TokenStream {
 // `#[derive(Entity)]` — auto-generate `impl Model for Struct`
 // ---------------------------------------------------------------------------
 
-/// 派生宏：自动生成 `sz_orm_core::Model` trait 实现。
+/// Derive macro: auto-generates an `sz_orm_core::Model` trait impl.
 ///
-/// 要求结构体恰好有一个 `#[column(primary_key)]` 字段，
-/// 该字段的类型即为 `Model::PrimaryKey`。
+/// Requires the struct to have exactly one `#[column(primary_key)]` field;
+/// that field's type becomes `Model::PrimaryKey`.
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
-/// - `#[table(name = "...")]` — 指定表名，默认蛇形结构体名
-/// - `#[column(primary_key)]` — 标记主键字段（必需，恰好一个）
-/// - `#[column(name = "...")]` — 覆盖主键列名（默认与字段名相同）
+/// - `#[table(name = "...")]` — specifies the table name, defaults to the snake_case struct name
+/// - `#[column(primary_key)]` — marks the primary key field (required, exactly one)
+/// - `#[column(name = "...")]` — overrides the primary key column name (defaults to the field name)
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_macros::Entity;
@@ -2777,16 +2782,16 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 // `#[derive(FromQueryResult)]` — auto-generate `impl FromQueryResult for Struct`
 // ---------------------------------------------------------------------------
 
-/// 派生宏：自动生成 `sz_orm_core::FromQueryResult` trait 实现。
+/// Derive macro: auto-generates an `sz_orm_core::FromQueryResult` trait impl.
 ///
-/// 从查询结果行（`HashMap<String, Value>`）反序列化为结构体实例。
-/// `Option<T>` 字段在列缺失或值为 NULL 时自动返回 `None`。
+/// Deserializes from a query result row (`HashMap<String, Value>`) into a struct instance.
+/// `Option<T>` fields automatically return `None` when the column is missing or the value is NULL.
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
-/// - `#[column(name = "...")]` — 覆盖列名映射（默认使用字段名）
+/// - `#[column(name = "...")]` — overrides the column name mapping (defaults to the field name)
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_macros::FromQueryResult;
@@ -2809,13 +2814,13 @@ pub fn derive_from_query_result(input: TokenStream) -> TokenStream {
 // `#[derive(ColumnEnum)]` — auto-generate column name enum (P2-2)
 // ---------------------------------------------------------------------------
 
-/// 派生宏：从结构体字段自动生成 `<StructName>Column` 列名枚举（P2-2）。
+/// Derive macro: auto-generates a `<StructName>Column` column-name enum from struct fields (P2-2).
 ///
-/// 每个字段生成一个变体（snake_case → CamelCase），通过 `ColumnTrait::as_str()`
-/// 返回数据库列名；`#[column(name = "...")]` 可覆盖列名（与 FromQueryResult 一致）。
-/// 同时实现 `std::fmt::Display`。
+/// Each field produces a variant (snake_case → CamelCase); `ColumnTrait::as_str()`
+/// returns the database column name; `#[column(name = "...")]` can override the column name
+/// (consistent with FromQueryResult). Also implements `std::fmt::Display`.
 ///
-/// # 示例
+/// # Example
 ///
 /// ```rust,ignore
 /// use sz_orm_macros::ColumnEnum;
@@ -2842,17 +2847,17 @@ pub fn derive_column_enum(input: TokenStream) -> TokenStream {
 // `#[derive(FromRow)]` — auto-generate `impl FromRow for Struct`
 // ---------------------------------------------------------------------------
 
-/// 派生宏：自动生成 `sz_orm_core::queryable::FromRow` trait 实现。
+/// Derive macro: auto-generates an `sz_orm_core::queryable::FromRow` trait impl.
 ///
-/// 从 `HashMap<String, Value>` 按列名反序列化为结构体实例。
-/// 与 `FromQueryResult` 的区别在于错误类型为 `QueryError`（含列信息），
-/// 适合需要精确错误定位的底层场景。
+/// Deserializes from a `HashMap<String, Value>` by column name into a struct instance.
+/// Differs from `FromQueryResult` in that the error type is `QueryError` (includes column info),
+/// suitable for low-level scenarios that need precise error localization.
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
-/// - `#[column(name = "...")]` — 覆盖列名映射（默认使用字段名）
+/// - `#[column(name = "...")]` — overrides the column name mapping (defaults to the field name)
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_macros::FromRow;
@@ -2875,19 +2880,19 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 // `#[derive(SqlType)]` — auto-generate `impl FromQueryResult + to_value()` for enums
 // ---------------------------------------------------------------------------
 
-/// 派生宏：为 Rust 枚举自动生成 `sz_orm_core::FromQueryResult` trait 实现
-/// 和 `to_value()` 方法。
+/// Derive macro: auto-generates an `sz_orm_core::FromQueryResult` trait impl
+/// and a `to_value()` method for a Rust enum.
 ///
-/// 这是 sz-orm 对 SQLx `#[derive(Type)]` 的等效实现：
-/// 让自定义枚举可以直接用于查询结果的字段映射和查询参数的绑定。
+/// This is sz-orm's equivalent of SQLx's `#[derive(Type)]`:
+/// it lets custom enums be used directly for query-result field mapping and query parameter binding.
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
-/// - `#[sql_type(rename_all = "snake_case")]` — 控制变体名的序列化格式
-///   （snake_case / SCREAMING_SNAKE_CASE / camelCase / PascalCase / lowercase / UPPERCASE）
-/// - `#[sql_type(rename = "...")]`（变体级）— 覆盖单个变体的序列化名
+/// - `#[sql_type(rename_all = "snake_case")]` — controls the serialization format of variant names
+///   (snake_case / SCREAMING_SNAKE_CASE / camelCase / PascalCase / lowercase / UPPERCASE)
+/// - `#[sql_type(rename = "...")]` (variant level) — overrides the serialization name of a single variant
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_macros::SqlType;
@@ -2910,10 +2915,10 @@ pub fn derive_sql_type(input: TokenStream) -> TokenStream {
 // `#[derive(Relation)]` — auto-generate `impl ModelExt` with relations()
 // ---------------------------------------------------------------------------
 
-/// 派生宏：自动生成 `sz_orm_core::model::ModelExt` trait 实现，
-/// 填充 `relations()` 映射，消除手写关系样板代码。
+/// Derive macro: auto-generates an `sz_orm_core::model::ModelExt` trait impl,
+/// populating the `relations()` map and eliminating hand-written relation boilerplate.
 ///
-/// # 支持的属性
+/// # Supported attributes
 ///
 /// - `#[relation(has_many = "orders", fk = "user_id", pk = "id")]`
 /// - `#[relation(belongs_to = "users", fk = "user_id", pk = "id")]`
@@ -2922,7 +2927,7 @@ pub fn derive_sql_type(input: TokenStream) -> TokenStream {
 /// - `#[relation(morph_many = "comments", morph_type = "commentable_type", morph_id = "commentable_id", morph_type_value = "Post")]`
 /// - `#[relation(morph_to, morph_type = "commentable_type", morph_id = "commentable_id")]`
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_macros::{Entity, Relation};
@@ -2934,10 +2939,10 @@ pub fn derive_sql_type(input: TokenStream) -> TokenStream {
 ///     id: i64,
 /// }
 ///
-/// // 自动生成：
+/// // Auto-generated:
 /// // impl ModelExt for User {
 /// //     fn relations() -> HashMap<&str, Relation> {
-/// //         // 包含 #[relation] 定义的关系
+/// //         // contains the relations declared via #[relation]
 /// //     }
 /// // }
 /// ```
@@ -2947,19 +2952,20 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
     derive::derive_relation_impl(input).into()
 }
 
-/// `#[derive(RelationTrait)]` — 自动生成 `RelationTrait` 实现（P-F-2, v2.1.0）
+/// `#[derive(RelationTrait)]` — auto-generates a `RelationTrait` impl (P-F-2, v2.1.0)
 ///
-/// 从 `#[relation(...)]` 属性生成 `RelationDef` 静量表 + `impl RelationTrait`。
-/// 与 `#[derive(Relation)]` 共享属性解析，但生成零分配的静态切片而非 `HashMap`。
+/// Generates a static `RelationDef` table + `impl RelationTrait` from `#[relation(...)]` attributes.
+/// Shares attribute parsing with `#[derive(Relation)]`, but generates a zero-allocation static slice
+/// instead of a `HashMap`.
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// #[derive(RelationTrait)]
 /// #[relation(has_many = "Order", fk = "user_id", pk = "id")]
 /// struct User { id: i64, name: String }
 ///
-/// // 自动生成：
+/// // Auto-generated:
 /// // static RELATIONS: &[RelationDef] = &[RelationDef::new("Order", "users", "orders", "id", "user_id", HasMany)];
 /// // impl RelationTrait for User { ... }
 /// ```
@@ -2973,19 +2979,19 @@ pub fn derive_relation_trait(input: TokenStream) -> TokenStream {
 // v3.9.0：数据验证派生宏（data-validation feature 隔离）
 // ---------------------------------------------------------------------------
 
-/// 派生 `Validate` trait 实现。
+/// Derives a `Validate` trait impl.
 ///
-/// 支持的 `#[validate(...)]` 规则：
-/// - `email` — 邮箱格式校验
-/// - `required` — 非空校验
-/// - `length(min=N, max=N)` — 长度范围校验
-/// - `range(min=N, max=N)` — 数值范围校验
-/// - `regex(pattern=r"...")` — 正则匹配校验
-/// - `contains(value="...")` — 包含子串校验
-/// - `does_not_contain(value="...")` — 不包含子串校验
-/// - `if = "condition"` — 条件校验
+/// Supported `#[validate(...)]` rules:
+/// - `email` — email format validation
+/// - `required` — non-empty validation
+/// - `length(min=N, max=N)` — length range validation
+/// - `range(min=N, max=N)` — numeric range validation
+/// - `regex(pattern=r"...")` — regex match validation
+/// - `contains(value="...")` — contains substring validation
+/// - `does_not_contain(value="...")` — does not contain substring validation
+/// - `if = "condition"` — conditional validation
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// #[derive(Validate)]
@@ -3009,19 +3015,19 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 // 通过 `compile-governance` feature（sz-orm-core）→ `governance-derive`（本包）启用。
 // ---------------------------------------------------------------------------
 
-/// 派生宏：为模型生成数据治理元数据，并**编译期强制** PII 标注合规。
+/// Derive macro: generates data-governance metadata for a model and **enforces compile-time** PII annotation compliance.
 ///
-/// # 支持属性
+/// # Supported attributes
 ///
-/// - `#[pii]` — 标记字段为个人敏感数据（PII）
-/// - `#[mask(strategy = "...")]` — 声明脱敏策略（hash / partial / replace / encrypt）
+/// - `#[pii]` — marks the field as personally identifiable information (PII)
+/// - `#[mask(strategy = "...")]` — declares a masking strategy (hash / partial / replace / encrypt)
 ///
-/// # 编译期强制规则
+/// # Compile-time enforcement rules
 ///
-/// 1. `#[pii]` 字段必须同时声明 `#[mask(strategy = "...")]`，否则 **编译失败**
-/// 2. `mask` 策略必须在白名单内（hash/partial/replace/encrypt），否则 **编译失败**
+/// 1. A `#[pii]` field must also declare `#[mask(strategy = "...")]`, otherwise **compilation fails**
+/// 2. The `mask` strategy must be within the whitelist (hash/partial/replace/encrypt), otherwise **compilation fails**
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_core::governance::GovernedModel;
@@ -3035,7 +3041,7 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 ///     #[pii]
 ///     #[mask(strategy = "hash")]
 ///     phone: String,
-///     name: String, // 非 PII，无需 mask
+///     name: String, // non-PII, no mask needed
 /// }
 ///
 /// assert_eq!(
@@ -3131,22 +3137,22 @@ pub fn derive_governed(input: TokenStream) -> TokenStream {
 // 分析逻辑复用 sz-orm-n1-lint（与 CLI 批量扫描共用，避免重复实现）。
 // ---------------------------------------------------------------------------
 
-/// 标注宏：分析函数体，检测 N+1 查询模式并输出编译期警告（非阻断）。
+/// Attribute macro: analyzes a function body, detects N+1 query patterns, and emits compile-time warnings (non-blocking).
 ///
-/// 检测模式（保守白名单，避免误报）：
-/// - 循环体内 `find_by_*` / `where_eq` / `query` 等查询调用 → `query-in-loop` 警告
-/// - 循环内条件分支中的查询调用 → `query-in-loop` 警告
+/// Detection patterns (conservative whitelist to avoid false positives):
+/// - `find_by_*` / `where_eq` / `query` and other query calls inside loop bodies → `query-in-loop` warning
+/// - Query calls inside conditional branches within loops → `query-in-loop` warning
 ///
-/// 警告通过 `eprintln!` 输出（`warning: [sz-orm-n1-lint] ...`），不阻断编译；
-/// 函数原样透传（零运行时影响）。
+/// Warnings are emitted via `eprintln!` (`warning: [sz-orm-n1-lint] ...`); they do not block compilation;
+/// the function is passed through unchanged (zero runtime impact).
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// #[detect_n_plus_one]
 /// fn process_users(users: Vec<User>) {
 ///     for user in users {
-///         let orders = Order::find_by_user(user.id); // ⚠️ 编译期警告：query-in-loop
+///         let orders = Order::find_by_user(user.id); // ⚠️ compile-time warning: query-in-loop
 ///     }
 /// }
 /// ```

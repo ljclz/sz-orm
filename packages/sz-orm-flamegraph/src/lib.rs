@@ -1,7 +1,7 @@
-//! # sz-orm-flamegraph — 查询性能火焰图
+//! # sz-orm-flamegraph — Query Performance Flamegraph
 //!
-//! 采集查询各阶段耗时（查询构造 / 参数绑定 / 连接池获取 / SQL 执行 / 结果映射），
-//! 输出 Brendan Gregg 折叠格式（`flamegraph.pl` 兼容）与内联 SVG 火焰图。
+//! Collects timing for each query phase (query construction / parameter binding / connection pool acquire / SQL execution / result mapping),
+//! outputs Brendan Gregg folded format (`flamegraph.pl` compatible) and inline SVG flamegraph.
 //!
 //! ```rust
 //! use sz_orm_flamegraph::{Phase, QueryTracer};
@@ -15,12 +15,12 @@
 //! assert_eq!(timings.len(), 2);
 //! ```
 //!
-//! 输出格式：
-//! - [`render::to_brendan_gregg`]：折叠栈格式，可直接喂给 `flamegraph.pl`
-//! - [`render::to_svg`]：自绘内联 SVG（无外部依赖）
+//! Output formats:
+//! - [`render::to_brendan_gregg`]: Folded stack format, can be directly fed to `flamegraph.pl`
+//! - [`render::to_svg`]: Self-rendered inline SVG (no external dependencies)
 //!
-//! `query-flamegraph` feature 启用后，可通过 [`collector::QueryTracer::with_tracer`]
-//! 将阶段耗时写入既有 `sz-orm-tracing` 的 `Tracer` span。
+//! When `query-flamegraph` feature is enabled, phase timing can be written to existing `sz-orm-tracing` `Tracer` spans
+//! via [`collector::QueryTracer::with_tracer`].
 
 pub mod collector;
 pub mod config;

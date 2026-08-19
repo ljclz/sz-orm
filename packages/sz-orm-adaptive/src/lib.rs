@@ -1,25 +1,25 @@
-//! # sz-orm-adaptive — 运行时自适应查询优化器
+//! # sz-orm-adaptive — Runtime Adaptive Query Optimizer
 //!
-//! 无 AI 依赖的轻量运行时自适应：采集查询统计（原子计数，无锁），
-//! 按阈值自动切换执行路径：
+//! Lightweight runtime adaptation without AI dependencies: collects query statistics (atomic counters, lock-free),
+//! automatically switches execution paths based on thresholds:
 //!
-//! - **自动分页**：平均行数超阈值 → 建议切换到游标分页
-//! - **热点缓存**：慢查询 + 高频执行 → 自动读缓存（需显式开启，防脏读）
-//! - **慢查询标记**：单次执行超时阈值 → 标记 slow 并返回结构化信息
+//! - **Auto pagination**: Average row count exceeds threshold → suggest switching to cursor pagination
+//! - **Hot cache**: Slow query + high frequency → auto read cache (requires explicit enable, prevents dirty read)
+//! - **Slow query marker**: Single execution timeout threshold → mark slow and return structured info
 //!
-//! 典型用法（配合既有 `sz-orm-core` 的 `cursor_stream` / `l2_cache`）：
+//! Typical usage (with existing `sz-orm-core` `cursor_stream` / `l2_cache`):
 //!
 //! ```rust,ignore
 //! let executor = AdaptiveExecutor::new(AdaptiveConfig::default());
 //! match executor.decide("find_users") {
-//!     ExecutionPath::Paginated => { /* 用 cursor_stream 游标分页 */ }
-//!     _ => { /* 正常查询 */ }
+//!     ExecutionPath::Paginated => { /* use cursor_stream for cursor pagination */ }
+//!     _ => { /* normal query */ }
 //! }
 //! executor.record("find_users", rows, elapsed_ms);
 //! ```
 //!
-//! 本包零依赖 `sz-orm-core`：决策层只做统计与建议，具体执行路径
-//! （游标分页/缓存写入）由调用方复用既有实现完成，避免依赖循环。
+//! This package has zero dependency on `sz-orm-core`: the decision layer only does statistics and suggestions,
+//! the actual execution paths (cursor pagination / cache write) are completed by the caller reusing existing implementations, avoiding circular dependencies.
 
 pub mod complexity;
 pub mod executor;

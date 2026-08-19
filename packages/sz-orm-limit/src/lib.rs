@@ -1,14 +1,15 @@
-//! # SZ-ORM Limit — 限流器
+//! # SZ-ORM Limit — Rate Limiter
 //!
-//! 提供令牌桶与滑动窗口限流，内置 OOM 防护（默认 max_keys=10000）。
+//! Provides token bucket and sliding window rate limiting, with built-in OOM protection
+//! (default max_keys=10000).
 //!
-//! ## 主要类型
+//! ## Main types
 //!
-//! - [`RateLimiter`] trait — 限流器接口
-//! - `TokenBucketLimiter` — 令牌桶实现
-//! - `SlidingWindowLimiter` — 滑动窗口实现
+//! - [`RateLimiter`] trait — rate limiter interface
+//! - `TokenBucketLimiter` — token bucket implementation
+//! - `SlidingWindowLimiter` — sliding window implementation
 //!
-//! v0.2.1 修复 Critical S-3：引入 `DEFAULT_MAX_KEYS` 防止无限 key 导致 OOM。
+//! v0.2.1 fixes Critical S-3: introduces `DEFAULT_MAX_KEYS` to prevent unbounded keys from causing OOM.
 
 pub mod composite;
 pub mod concurrency;
@@ -34,10 +35,10 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 use std::time::{Duration, Instant};
 
-/// 默认最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+/// Default maximum number of keys (added in v0.2.1, fixes Critical S-3 OOM DoS)
 ///
-/// 当 entries.len() 超过此值时，会强制淘汰一个 entry。
-/// 调用方可通过 `with_max_keys()` 调整。
+/// When entries.len() exceeds this value, an entry is forcibly evicted.
+/// Callers can adjust this via `with_max_keys()`.
 pub const DEFAULT_MAX_KEYS: usize = 10_000;
 
 pub trait RateLimiter: Send + Sync {
@@ -83,11 +84,11 @@ pub struct SlidingWindowRateLimiter {
     max_requests: Arc<AtomicU64>,
     window_size: Duration,
     entries: Arc<RwLock<HashMap<String, SlidingWindowEntry>>>,
-    /// 最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    /// Maximum number of keys (added in v0.2.1, fixes Critical S-3 OOM DoS)
     max_keys: usize,
-    /// v3.8.0: 已通过计数
+    /// v3.8.0: allowed count
     allowed_count: AtomicU64,
-    /// v3.8.0: 已拒绝计数
+    /// v3.8.0: rejected count
     rejected_count: AtomicU64,
 }
 
@@ -108,10 +109,10 @@ impl SlidingWindowRateLimiter {
         }
     }
 
-    /// 配置最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    /// Configures the maximum number of keys (added in v0.2.1, fixes Critical S-3 OOM DoS)
     ///
-    /// 当 entries.len() 超过 `max_keys` 时，会强制淘汰一个最旧的 entry。
-    /// 默认值为 `DEFAULT_MAX_KEYS`（10000）。
+    /// When entries.len() exceeds `max_keys`, the oldest entry is forcibly evicted.
+    /// The default value is `DEFAULT_MAX_KEYS` (10000).
     pub fn with_max_keys(mut self, max_keys: usize) -> Self {
         self.max_keys = max_keys;
         self
@@ -143,10 +144,11 @@ impl SlidingWindowRateLimiter {
             .retain(|&time| now.duration_since(time) < self.window_size);
     }
 
-    /// 强制淘汰超出 `max_keys` 的最旧 entry（v0.2.1 新增，修复 Critical S-3）
+    /// Forcibly evicts the oldest entries that exceed `max_keys` (added in v0.2.1, fixes Critical S-3)
     ///
-    /// 策略：遍历所有 entry，找到 `requests[0]`（窗口内最早请求时间）最小的那个并删除。
-    /// 复杂度 O(n)，但仅在 `entries.len() > max_keys` 时触发。
+    /// Strategy: iterates over all entries, finds the one with the smallest `requests[0]`
+    /// (earliest request time within the window), and deletes it.
+    /// Complexity is O(n), but it is only triggered when `entries.len() > max_keys`.
     fn enforce_max_keys(&self, entries: &mut HashMap<String, SlidingWindowEntry>) {
         while entries.len() > self.max_keys {
             // 找到最旧的 entry（requests.first() 时间最早）
@@ -164,13 +166,13 @@ impl SlidingWindowRateLimiter {
         }
     }
 
-    /// v3.8.0: 运行时动态调整容量（max_requests）
+    /// v3.8.0: dynamically adjust capacity (max_requests) at runtime
     #[cfg(feature = "prod-rate-limit-tuning")]
     pub fn set_capacity(&self, capacity: u64) {
         self.max_requests.store(capacity, Ordering::Relaxed);
     }
 
-    /// v3.8.0: 运行时动态调整速率（requests per second）
+    /// v3.8.0: dynamically adjust rate (requests per second) at runtime
     #[cfg(feature = "prod-rate-limit-tuning")]
     pub fn set_rate(&self, rate: u64) {
         let window_secs = self.window_size.as_secs().max(1);
@@ -178,13 +180,13 @@ impl SlidingWindowRateLimiter {
             .store(rate * window_secs, Ordering::Relaxed);
     }
 
-    /// v3.8.0: 查询当前容量
+    /// v3.8.0: query current capacity
     #[cfg(feature = "prod-rate-limit-tuning")]
     pub fn capacity(&self) -> u64 {
         self.max_requests.load(Ordering::Relaxed)
     }
 
-    /// v3.8.0: 查询统计信息
+    /// v3.8.0: query statistics
     #[cfg(feature = "prod-rate-limit-tuning")]
     pub fn stats(&self) -> RateLimitStats {
         RateLimitStats {
@@ -257,7 +259,7 @@ pub struct TokenBucketRateLimiter {
     capacity: f64,
     refill_rate: f64,
     entries: Arc<RwLock<HashMap<String, TokenBucketEntry>>>,
-    /// 最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    /// Maximum number of keys (added in v0.2.1, fixes Critical S-3 OOM DoS)
     max_keys: usize,
 }
 
@@ -277,7 +279,7 @@ impl TokenBucketRateLimiter {
         }
     }
 
-    /// 配置最大 key 数量（v0.2.1 新增，修复 Critical S-3 OOM DoS）
+    /// Configures the maximum number of keys (added in v0.2.1, fixes Critical S-3 OOM DoS)
     pub fn with_max_keys(mut self, max_keys: usize) -> Self {
         self.max_keys = max_keys;
         self
@@ -317,10 +319,10 @@ impl TokenBucketRateLimiter {
         entry.last_refill = now;
     }
 
-    /// 强制淘汰超出 `max_keys` 的最旧 entry（v0.2.1 新增，修复 Critical S-3）
+    /// Forcibly evicts the oldest entries that exceed `max_keys` (added in v0.2.1, fixes Critical S-3)
     ///
-    /// 策略：找到 `last_refill` 最早的 entry（即最久未访问的）并删除。
-    /// 复杂度 O(n)，但仅在 `entries.len() > max_keys` 时触发。
+    /// Strategy: finds the entry with the earliest `last_refill` (i.e., the least recently accessed) and deletes it.
+    /// Complexity is O(n), but it is only triggered when `entries.len() > max_keys`.
     fn enforce_max_keys(&self, entries: &mut HashMap<String, TokenBucketEntry>) {
         while entries.len() > self.max_keys {
             let oldest_key = entries
@@ -450,17 +452,17 @@ fn now_secs() -> i64 {
 // 缺点：存在边界突刺问题（窗口切换瞬间可能通过 2 倍阈值的请求）
 // ============================================================================
 
-/// 固定窗口限流器
+/// Fixed window rate limiter
 ///
-/// 将时间划分为固定大小的窗口，每个 key 在每个窗口内有独立的计数器。
-/// 当计数器超过 `max_requests` 时拒绝请求。
+/// Divides time into fixed-size windows; each key has an independent counter within each window.
+/// Requests are rejected when the counter exceeds `max_requests`.
 ///
-/// # 边界突刺
+/// # Boundary burst
 ///
-/// 固定窗口算法存在边界突刺问题：如果窗口结束前 1 秒通过了 max_requests
-/// 个请求，新窗口开始后第 1 秒又通过了 max_requests 个请求，则 2 秒内
-/// 通过了 2 * max_requests 个请求。如需更平滑的限流，请使用
-/// `SlidingWindowRateLimiter` 或 `TokenBucketRateLimiter`。
+/// The fixed window algorithm has the boundary burst problem: if max_requests requests pass
+/// in the last 1 second before the window ends, and another max_requests requests pass in the
+/// first 1 second of the new window, then 2 * max_requests requests pass within 2 seconds.
+/// For smoother rate limiting, use `SlidingWindowRateLimiter` or `TokenBucketRateLimiter`.
 pub struct FixedWindowRateLimiter {
     max_requests: u64,
     window_size: Duration,
@@ -475,10 +477,10 @@ struct FixedWindowEntry {
 }
 
 impl FixedWindowRateLimiter {
-    /// 创建固定窗口限流器
+    /// Creates a fixed window rate limiter
     ///
-    /// - `max_requests`：每个窗口内允许的最大请求数
-    /// - `window_size`：窗口大小（如 60 秒）
+    /// - `max_requests`: maximum number of requests allowed within each window
+    /// - `window_size`: window size (e.g., 60 seconds)
     pub fn new(max_requests: u64, window_size: Duration) -> Self {
         Self {
             max_requests,
@@ -488,7 +490,7 @@ impl FixedWindowRateLimiter {
         }
     }
 
-    /// 配置最大 key 数量（OOM 防护）
+    /// Configures the maximum number of keys (OOM protection)
     pub fn with_max_keys(mut self, max_keys: usize) -> Self {
         self.max_keys = max_keys;
         self
@@ -513,7 +515,7 @@ impl FixedWindowRateLimiter {
             .unwrap_or(0)
     }
 
-    /// 强制淘汰超出 `max_keys` 的最旧 entry
+    /// Forcibly evicts the oldest entries that exceed `max_keys`
     fn enforce_max_keys(&self, entries: &mut HashMap<String, FixedWindowEntry>) {
         while entries.len() > self.max_keys {
             let oldest_key = entries
@@ -598,25 +600,25 @@ impl RateLimiter for FixedWindowRateLimiter {
 // 3. 根据计数判断是否允许
 // ============================================================================
 
-/// 分布式后端 trait
+/// Distributed backend trait
 ///
-/// 抽象分布式存储后端（如 Redis），提供原子计数器操作。
-/// 内存实现 `InMemoryBackend` 可用于单机测试和开发。
+/// Abstracts a distributed storage backend (such as Redis) and provides atomic counter operations.
+/// The in-memory implementation `InMemoryBackend` can be used for single-machine testing and development.
 pub trait DistributedBackend: Send + Sync {
-    /// 原子递增并返回递增后的值
+    /// Atomically increments and returns the value after increment
     ///
-    /// 如果 key 不存在，创建并返回 1。
-    /// 如果 key 存在且未过期，递增并返回新值。
-    /// 如果 key 存在但已过期，重置为 1 并返回。
+    /// If the key does not exist, creates it and returns 1.
+    /// If the key exists and has not expired, increments and returns the new value.
+    /// If the key exists but has expired, resets to 1 and returns.
     ///
-    /// - `key`：限流键
-    /// - `window_secs`：窗口大小（秒），仅在 key 新建或过期时设置 TTL
-    /// - `window_start`：当前窗口起始时间（Unix 秒）
-    /// - `max_requests`：窗口内最大请求数
+    /// - `key`: rate limit key
+    /// - `window_secs`: window size (seconds); TTL is set only when the key is newly created or expired
+    /// - `window_start`: current window start time (Unix seconds)
+    /// - `max_requests`: maximum number of requests within the window
     ///
-    /// 返回 `(count, reset_at_secs)`：
-    /// - `count`：递增后的计数
-    /// - `reset_at_secs`：窗口重置时间（Unix 秒）
+    /// Returns `(count, reset_at_secs)`:
+    /// - `count`: the count after increment
+    /// - `reset_at_secs`: window reset time (Unix seconds)
     fn incr_and_get(
         &self,
         key: &str,
@@ -625,17 +627,17 @@ pub trait DistributedBackend: Send + Sync {
         max_requests: u64,
     ) -> Result<(u64, i64), RateLimitError>;
 
-    /// 获取当前计数（不递增）
+    /// Returns the current count (without incrementing)
     fn get(&self, key: &str) -> Result<Option<(u64, i64)>, RateLimitError>;
 
-    /// 重置 key（删除）
+    /// Resets the key (deletes it)
     fn reset_key(&self, key: &str) -> Result<(), RateLimitError>;
 }
 
-/// 内存后端（模拟 Redis）
+/// In-memory backend (simulates Redis)
 ///
-/// 使用 `RwLock<HashMap>` 存储计数器，模拟 Redis 的 INCR + EXPIRE 行为。
-/// 适用于单机场景和测试，不适用于真正的分布式环境。
+/// Uses `RwLock<HashMap>` to store counters, simulating Redis's INCR + EXPIRE behavior.
+/// Suitable for single-machine scenarios and testing; not suitable for real distributed environments.
 pub struct InMemoryBackend {
     entries: RwLock<HashMap<String, (u64, i64)>>, // key -> (count, window_start_secs)
 }
@@ -700,10 +702,10 @@ impl DistributedBackend for InMemoryBackend {
     }
 }
 
-/// 分布式限流器
+/// Distributed rate limiter
 ///
-/// 使用 `DistributedBackend` 实现跨实例共享的固定窗口限流。
-/// 适用于多实例部署场景。
+/// Uses `DistributedBackend` to implement cross-instance shared fixed window rate limiting.
+/// Suitable for multi-instance deployment scenarios.
 pub struct DistributedRateLimiter {
     backend: Arc<dyn DistributedBackend>,
     max_requests: u64,
@@ -711,11 +713,11 @@ pub struct DistributedRateLimiter {
 }
 
 impl DistributedRateLimiter {
-    /// 创建分布式限流器
+    /// Creates a distributed rate limiter
     ///
-    /// - `backend`：分布式后端（如 `InMemoryBackend`）
-    /// - `max_requests`：每个窗口内允许的最大请求数
-    /// - `window_secs`：窗口大小（秒）
+    /// - `backend`: distributed backend (e.g., `InMemoryBackend`)
+    /// - `max_requests`: maximum number of requests allowed within each window
+    /// - `window_secs`: window size (seconds)
     pub fn new(backend: Arc<dyn DistributedBackend>, max_requests: u64, window_secs: u64) -> Self {
         Self {
             backend,
@@ -724,7 +726,7 @@ impl DistributedRateLimiter {
         }
     }
 
-    /// 使用内存后端创建分布式限流器（便捷方法）
+    /// Creates a distributed rate limiter using an in-memory backend (convenience method)
     pub fn in_memory(max_requests: u64, window_secs: u64) -> Self {
         Self::new(Arc::new(InMemoryBackend::new()), max_requests, window_secs)
     }
@@ -761,33 +763,33 @@ impl RateLimiter for DistributedRateLimiter {
 // 和常见 API 网关（如 Kong、AWS API Gateway）的实践。
 // ============================================================================
 
-/// 限流响应头
+/// Rate limit response headers
 ///
-/// 生成标准的限流响应头，适用于 HTTP API 响应。
+/// Generates standard rate limit response headers, suitable for HTTP API responses.
 ///
-/// # 标准头
+/// # Standard headers
 ///
-/// - `X-RateLimit-Limit`：窗口内最大请求数
-/// - `X-RateLimit-Remaining`：剩余请求数
-/// - `X-RateLimit-Reset`：窗口重置时间（Unix 秒）
-/// - `Retry-After`：拒绝时建议的重试等待时间（秒），仅在拒绝时包含
+/// - `X-RateLimit-Limit`: maximum number of requests within the window
+/// - `X-RateLimit-Remaining`: remaining number of requests
+/// - `X-RateLimit-Reset`: window reset time (Unix seconds)
+/// - `Retry-After`: suggested retry wait time (seconds) when rejected; included only on rejection
 #[derive(Debug, Clone)]
 pub struct RateLimitHeaders {
-    /// 窗口内最大请求数
+    /// Maximum number of requests within the window
     pub limit: u64,
-    /// 剩余请求数
+    /// Remaining number of requests
     pub remaining: u64,
-    /// 窗口重置时间（Unix 秒）
+    /// Window reset time (Unix seconds)
     pub reset: i64,
-    /// 重试等待时间（秒），仅在被拒绝时设置
+    /// Retry wait time (seconds); set only when rejected
     pub retry_after: Option<u64>,
 }
 
 impl RateLimitHeaders {
-    /// 从限流结果创建响应头
+    /// Creates response headers from a rate limit result
     ///
-    /// - `result`：限流结果
-    /// - `limit`：窗口内最大请求数
+    /// - `result`: rate limit result
+    /// - `limit`: maximum number of requests within the window
     pub fn from_result(result: &RateLimitResult, limit: u64) -> Self {
         let reset_secs = result.reset_at / 1000;
         let now_secs_val = now_secs();
@@ -810,7 +812,7 @@ impl RateLimitHeaders {
         }
     }
 
-    /// 转换为 HTTP 头键值对
+    /// Converts to HTTP header key-value pairs
     pub fn to_headers(&self) -> Vec<(String, String)> {
         let mut headers = vec![
             ("X-RateLimit-Limit".to_string(), self.limit.to_string()),
@@ -826,7 +828,7 @@ impl RateLimitHeaders {
         headers
     }
 
-    /// 转换为 JSON 对象
+    /// Converts to a JSON object
     pub fn to_json(&self) -> serde_json::Value {
         let mut map = serde_json::json!({
             "X-RateLimit-Limit": self.limit,
@@ -840,21 +842,21 @@ impl RateLimitHeaders {
     }
 }
 
-/// 限流响应策略
+/// Rate limit response strategy
 ///
-/// 定义被限流时的响应行为。
+/// Defines the response behavior when rate limited.
 #[derive(Debug, Clone)]
 pub enum RateLimitResponseStrategy {
-    /// 返回 429 Too Many Requests
+    /// Returns 429 Too Many Requests
     TooManyRequests,
-    /// 返回 503 Service Unavailable
+    /// Returns 503 Service Unavailable
     ServiceUnavailable,
-    /// 自定义状态码
+    /// Custom status code
     Custom(u16),
 }
 
 impl RateLimitResponseStrategy {
-    /// 获取对应的 HTTP 状态码
+    /// Returns the corresponding HTTP status code
     pub fn status_code(&self) -> u16 {
         match self {
             RateLimitResponseStrategy::TooManyRequests => 429,
@@ -864,25 +866,26 @@ impl RateLimitResponseStrategy {
     }
 }
 
-/// 限流响应
+/// Rate limit response
 ///
-/// 封装被限流时的完整响应信息，包括状态码、头和响应体。
+/// Encapsulates the complete response information when rate limited, including status code,
+/// headers, and response body.
 #[derive(Debug, Clone)]
 pub struct RateLimitResponse {
-    /// HTTP 状态码
+    /// HTTP status code
     pub status_code: u16,
-    /// 响应头
+    /// Response headers
     pub headers: RateLimitHeaders,
-    /// JSON 响应体
+    /// JSON response body
     pub body: serde_json::Value,
 }
 
 impl RateLimitResponse {
-    /// 创建被限流的响应
+    /// Creates a rate-limited response
     ///
-    /// - `result`：限流结果（必须是 rejected）
-    /// - `limit`：窗口内最大请求数
-    /// - `strategy`：响应策略
+    /// - `result`: rate limit result (must be rejected)
+    /// - `limit`: maximum number of requests within the window
+    /// - `strategy`: response strategy
     pub fn rejected(
         result: &RateLimitResult,
         limit: u64,
@@ -903,7 +906,7 @@ impl RateLimitResponse {
         }
     }
 
-    /// 创建允许通过的响应（仅包含头，无响应体）
+    /// Creates an allowed response (contains only headers, no body)
     pub fn allowed(result: &RateLimitResult, limit: u64) -> Self {
         let headers = RateLimitHeaders::from_result(result, limit);
         Self {
@@ -920,21 +923,21 @@ impl RateLimitResponse {
 // 允许将多个限流器组合，实现多维度限流（如同时限制 IP 和用户）。
 // ============================================================================
 
-/// 多维度限流策略
+/// Multi-dimensional rate limiting strategy
 ///
-/// 对同一个请求应用多个限流器，只要任一限流器拒绝则拒绝。
-/// 适用于同时限制 IP 级别和用户级别的场景。
+/// Applies multiple limiters to the same request; rejects if any limiter rejects.
+/// Suitable for scenarios that simultaneously restrict at both the IP level and the user level.
 pub struct MultiRateLimiter {
     limiters: Vec<Arc<dyn RateLimiter>>,
 }
 
 impl MultiRateLimiter {
-    /// 创建多维度限流器
+    /// Creates a multi-dimensional rate limiter
     pub fn new(limiters: Vec<Arc<dyn RateLimiter>>) -> Self {
         Self { limiters }
     }
 
-    /// 添加限流器
+    /// Adds a rate limiter
     pub fn with_limiter(mut self, limiter: Arc<dyn RateLimiter>) -> Self {
         self.limiters.push(limiter);
         self
@@ -944,10 +947,10 @@ impl MultiRateLimiter {
         self.limiters.len()
     }
 
-    /// 检查所有限流器，返回最严格的结果
+    /// Checks all limiters and returns the strictest result
     ///
-    /// 如果任一限流器拒绝，则返回拒绝结果（取剩余最少的）。
-    /// 如果全部允许，则返回剩余最少的结果。
+    /// If any limiter rejects, returns a rejected result (with the fewest remaining).
+    /// If all allow, returns the result with the fewest remaining.
     pub fn check_all(&self, key: &str) -> Result<RateLimitResult, RateLimitError> {
         let mut best_result: Option<RateLimitResult> = None;
         for limiter in &self.limiters {
@@ -989,7 +992,7 @@ mod prod {
     use serde::{Deserialize, Serialize};
     use std::time::Duration;
 
-    /// 限流生产配置错误
+    /// Rate limit production configuration error
     #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
     pub enum RateLimitProdError {
         #[error("rate limit capacity must be positive")]
@@ -1002,7 +1005,7 @@ mod prod {
         MaxKeysTooSmall,
     }
 
-    /// 限流生产配置
+    /// Rate limit production configuration
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct RateLimitProdConfig {
         pub capacity: u64,
@@ -1032,7 +1035,7 @@ mod prod {
             }
         }
 
-        /// 校验阈值合理性
+        /// Validates the reasonableness of the thresholds
         pub fn validate(&self) -> Result<(), RateLimitProdError> {
             if self.capacity == 0 {
                 return Err(RateLimitProdError::CapacityNotPositive);
@@ -1050,7 +1053,7 @@ mod prod {
         }
     }
 
-    /// 限流统计信息
+    /// Rate limit statistics
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct RateLimitStats {
         pub capacity: u64,

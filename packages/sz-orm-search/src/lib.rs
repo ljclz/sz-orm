@@ -1,28 +1,28 @@
-//! SZ-ORM Search 扩展
+//! SZ-ORM Search Extension
 //!
-//! 提供多 provider 全文搜索能力，支持三种实现：
+//! Provides multi-provider full-text search capabilities, supporting three implementations:
 //!
-//! - **内存实现**（`Memory`）：线性扫描 + 子串匹配（无倒排索引），不连接真实搜索引擎
-//! - **Stub 实现**（`Stub`）：生成查询 JSON 但不执行
-//! - **真实 Elasticsearch**（需启用 `real-es` feature）：通过 elasticsearch crate 连接 ES
-//! - **真实 OpenSearch**（需启用 `real-opensearch` feature）：通过 opensearch crate 连接 OpenSearch
-//! - **真实 Meilisearch**（需启用 `real-meilisearch` feature）：通过 meilisearch-sdk crate 连接 Meilisearch
+//! - **In-memory implementation** (`Memory`): Linear scan + substring matching (no inverted index), no real search engine connection
+//! - **Stub implementation** (`Stub`): Generates query JSON but does not execute
+//! - **Real Elasticsearch** (requires `real-es` feature): Connects to ES via elasticsearch crate
+//! - **Real OpenSearch** (requires `real-opensearch` feature): Connects to OpenSearch via opensearch crate
+//! - **Real Meilisearch** (requires `real-meilisearch` feature): Connects to Meilisearch via meilisearch-sdk crate
 //!
-//! # 支持的操作
+//! # Supported Operations
 //!
-//! | 方法 | ES 等价 | 说明 |
+//! | Method | ES equivalent | Description |
 //! |------|---------|------|
-//! | `create_index` | `PUT /index` | 创建索引 |
-//! | `delete_index` | `DELETE /index` | 删除索引 |
-//! | `index_doc` | `POST /index/_doc/id` | 索引文档 |
-//! | `bulk_index` | `_bulk` | 批量索引 |
-//! | `get_doc` | `GET /index/_doc/id` | 获取文档 |
-//! | `delete_doc` | `DELETE /index/_doc/id` | 删除文档 |
-//! | `search` | `POST /index/_search` | 搜索 |
-//! | `count` | `POST /index/_count` | 计数 |
-//! | `refresh` | `POST /index/_refresh` | 刷新索引 |
+//! | `create_index` | `PUT /index` | Create index |
+//! | `delete_index` | `DELETE /index` | Delete index |
+//! | `index_doc` | `POST /index/_doc/id` | Index document |
+//! | `bulk_index` | `_bulk` | Bulk index |
+//! | `get_doc` | `GET /index/_doc/id` | Get document |
+//! | `delete_doc` | `DELETE /index/_doc/id` | Delete document |
+//! | `search` | `POST /index/_search` | Search |
+//! | `count` | `POST /index/_count` | Count |
+//! | `refresh` | `POST /index/_refresh` | Refresh index |
 //!
-//! # 快速入门
+//! # Quick Start
 //!
 //! ```rust
 //! use sz_orm_search::{SearchBuilder, SearchExt, SearchProvider, SearchQuery};

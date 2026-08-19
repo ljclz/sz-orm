@@ -1,14 +1,14 @@
-//! # SZ-ORM QueryBuilder — 独立 SQL 构造器（sea-query 风格）
+//! # SZ-ORM QueryBuilder — Standalone SQL Builder (sea-query style)
 //!
-//! 一个不绑定 Model 的纯 SQL 构造器，可独立编译、独立发布到 crates.io。
+//! A pure SQL builder that does not bind to Model, can be compiled independently and published to crates.io.
 //!
-//! 设计灵感来自 [sea-query](https://crates.io/crates/sea-query)：
-//! - 与 ORM 解耦：不依赖 `Model` trait，纯 SQL 构造
-//! - 多方言支持：通过 [`DbType`] 适配 MySQL/PostgreSQL/SQLite/Oracle
-//! - 链式 API：所有方法返回 `Self`
-//! - 零运行时开销：构造过程零数据库连接
+//! Design inspired by [sea-query](https://crates.io/crates/sea-query):
+//! - Decoupled from ORM: does not depend on `Model` trait, pure SQL construction
+//! - Multi-dialect support: adapts MySQL/PostgreSQL/SQLite/Oracle via [`DbType`]
+//! - Chainable API: all methods return `Self`
+//! - Zero runtime overhead: construction process requires zero database connections
 //!
-//! # 快速入门
+//! # Quick Start
 //!
 //! ```rust
 //! use sz_orm_core::DbType;
@@ -50,15 +50,15 @@
 //! assert!(sql.contains("DELETE FROM"));
 //! ```
 //!
-//! # 与 sz-orm-core::QueryBuilder 的区别
+//! # Differences from sz-orm-core::QueryBuilder
 //!
-//! | 特性 | `sz-orm-core::QueryBuilder<M>` | sz-orm-query-builder::Query |
-//! |------|------------------------------|----------------------------|
-//! | 绑定 Model | 是（`<M: Model>`） | 否 |
-//! | 类型安全 | 编译期表/列校验 | 运行时字符串 |
-//! | 适用场景 | ORM 完整流程 | 纯 SQL 构造、动态查询 |
-//! | 依赖 | sz-orm-core 全部 | 仅 dialect 模块 |
-//! | 独立发布 | 否 | 是 |
+//! | Feature | `sz-orm-core::QueryBuilder<M>` | sz-orm-query-builder::Query |
+//! |---------|------------------------------|----------------------------|
+//! | Binds Model | Yes (`<M: Model>`) | No |
+//! | Type safety | Compile-time table/column validation | Runtime strings |
+//! | Applicable scenarios | Full ORM workflow | Pure SQL construction, dynamic queries |
+//! | Dependencies | All of sz-orm-core | Only dialect module |
+//! | Independent publish | No | Yes |
 
 use sz_orm_core::{DbType, Value};
 
@@ -66,52 +66,54 @@ use sz_orm_core::{DbType, Value};
 // BuiltQuery — 参数化查询构造结果
 // ============================================================================
 
-/// 参数化查询构造结果
+/// Parameterized query construction result
 ///
-/// 包含带 `?` 占位符的 SQL 字符串与按序绑定的参数列表。
+/// Contains a SQL string with `?` placeholders and a list of parameters bound in order.
 ///
-/// # 安全性（P0 修复：SQL 注入防护）
+/// # Security (P0 fix: SQL injection prevention)
 ///
-/// 通过参数化绑定，将用户输入与 SQL 结构分离，从根源上杜绝 SQL 注入。
-/// 调用方应使用 `build_with_params()` 而非字符串拼接的 `where_clause()`，
-/// 尤其是当 WHERE 条件值来自不可信输入时。
+/// Through parameterized binding, user input is separated from the SQL structure,
+/// eliminating SQL injection at the root. Callers should use `build_with_params()`
+/// instead of string-concatenated `where_clause()`, especially when WHERE condition
+/// values come from untrusted input.
 #[derive(Debug, Clone, Default)]
 pub struct BuiltQuery {
-    /// 含 `?` 占位符的 SQL 语句
+    /// SQL statement with `?` placeholders
     pub sql: String,
-    /// 按出现顺序绑定的参数列表
+    /// List of parameters bound in order of appearance
     pub params: Vec<Value>,
 }
 
 impl BuiltQuery {
-    /// 取出 SQL 与参数两部分
+    /// Extract the SQL and parameters parts
     pub fn into_parts(self) -> (String, Vec<Value>) {
         (self.sql, self.params)
     }
 }
 
-/// 参数化 WHERE 条件（内部表示）
+/// Parameterized WHERE condition (internal representation)
 ///
-/// 相比 `wheres: Vec<String>` 的原始字符串拼接，本结构分离了 SQL 模板（含 `?`）
-/// 与参数值，从根本上避免 SQL 注入。
+/// Compared to the original string concatenation of `wheres: Vec<String>`, this structure
+/// separates the SQL template (with `?`) from parameter values, fundamentally avoiding SQL injection.
 ///
-/// # 方言感知引用（v1.0.1 修复）
+/// # Dialect-aware quoting (v1.0.1 fix)
 ///
-/// `column` 存储未引用的列名，在 `build_with_params` 时通过 `dialect.quote()`
-/// 按目标方言引用（PostgreSQL 双引号、MySQL 反引号），避免调用阶段提前用
-/// 反引号硬编码导致 PostgreSQL 方言测试失败。
+/// `column` stores the unquoted column name. At `build_with_params` time, it is quoted
+/// via `dialect.quote()` for the target dialect (PostgreSQL double quotes, MySQL backticks),
+/// avoiding premature hard-coding with backticks at the call site which would cause
+/// PostgreSQL dialect tests to fail.
 #[derive(Debug, Clone)]
 enum ParamWhere {
-    /// `AND <expr>` 条件
+    /// `AND <expr>` condition
     And {
-        /// 未引用的列名（空字符串表示平凡表达式如 `1 = 0`）
+        /// Unquoted column name (empty string represents a trivial expression like `1 = 0`)
         column: String,
-        /// 运算符 + 占位符部分（如 ` = ?`、` IN (?, ?)`、`1 = 0`）
+        /// Operator + placeholder part (e.g., ` = ?`, ` IN (?, ?)`, `1 = 0`)
         op: String,
-        /// 按出现顺序绑定的参数值
+        /// Parameter values bound in order of appearance
         values: Vec<Value>,
     },
-    /// `OR <expr>` 条件
+    /// `OR <expr>` condition
     Or {
         column: String,
         op: String,
@@ -119,14 +121,15 @@ enum ParamWhere {
     },
 }
 
-/// 用反引号包裹标识符并转义内部反引号（MySQL 标准：` → ``）
+/// Wrap an identifier with backticks and escape internal backticks (MySQL standard: ` → ``)
 ///
-/// # 安全性（门禁 9 修复）
+/// # Security (gate 9 fix)
 ///
-/// 不转义的反引号包裹允许恶意标识符通过 ` 逃逸注入。本函数将标识符内
-/// 的反引号加倍（MySQL 标准转义），确保拼接后的 SQL 不会被恶意标识符突破。
+/// Unescaped backtick wrapping allows malicious identifiers to break out via ` injection.
+/// This function doubles backticks within the identifier (MySQL standard escaping),
+/// ensuring the concatenated SQL cannot be broken by malicious identifiers.
 ///
-/// 支持带点号的限定标识符: `u.id` → `u`.`id`
+/// Supports dotted qualified identifiers: `u.id` → `u`.`id`
 fn quote_ident(s: &str) -> String {
     s.split('.')
         .map(|part| format!("`{}`", part.replace('`', "``")))
@@ -134,17 +137,18 @@ fn quote_ident(s: &str) -> String {
         .join(".")
 }
 
-/// 按目标方言引用列名，支持带点号的限定标识符
+/// Quote a column name for the target dialect, supporting dotted qualified identifiers
 ///
-/// 与 [`sz_orm_core::Dialect::quote`] 的区别：本函数会先按 `.` 拆分限定标识符
-/// （如 `t.id`），对每段分别应用方言引用后再用 `.` 连接，生成 `t`.`id`
-/// （MySQL）或 `"t"."id"`（PostgreSQL/SQLite）。直接使用 `dialect.quote()` 会
-/// 把整个 `t.id` 当作单个标识符引用，导致 `t`.`id` 形态的测试断言失败。
+/// Difference from [`sz_orm_core::Dialect::quote`]: this function first splits the qualified
+/// identifier by `.` (e.g., `t.id`), applies dialect quoting to each part, then joins them
+/// with `.`, producing `t`.`id` (MySQL) or `"t"."id"` (PostgreSQL/SQLite). Using
+/// `dialect.quote()` directly would quote the entire `t.id` as a single identifier,
+/// causing test assertions of the `t`.`id` form to fail.
 ///
-/// # 安全性
+/// # Security
 ///
-/// 每段标识符由 `dialect.quote()` 负责转义内部引号（MySQL `` ` `` → ` `` ` ``，
-/// PostgreSQL `"` → `""`），防止标识符逃逸注入。
+/// Each identifier segment is escaped for internal quotes by `dialect.quote()` (MySQL `` ` `` → ` `` ` ``,
+/// PostgreSQL `"` → `""`), preventing identifier escape injection.
 fn quote_column_dialect(dialect: &dyn sz_orm_core::Dialect, column: &str) -> String {
     column
         .split('.')
@@ -153,21 +157,23 @@ fn quote_column_dialect(dialect: &dyn sz_orm_core::Dialect, column: &str) -> Str
         .join(".")
 }
 
-/// 校验 WHERE 条件字符串，拒绝明显的 SQL 注入模式
+/// Validate a WHERE condition string, rejecting obvious SQL injection patterns
 ///
-/// v0.2.2 修复 C-6：公开 `where_clause(condition: &str)` 接受任意字符串，存在 SQL 注入风险。
-/// 本函数检测高危模式（分号+SQL 关键字、行注释、块注释），拒绝明显恶意输入。
+/// v0.2.2 fix C-6: the public `where_clause(condition: &str)` accepts arbitrary strings,
+/// posing a SQL injection risk. This function detects high-risk patterns (semicolon + SQL
+/// keyword, line comments, block comments) and rejects obviously malicious input.
 ///
-/// # 检测模式
+/// # Detection patterns
 ///
-/// - `;` 后跟 SQL 关键字（DROP/DELETE/UPDATE/INSERT/ALTER/TRUNCATE/EXEC/CREATE/GRANT/REVOKE）
-/// - `--` 行注释序列
-/// - `/*` 块注释起始
-/// - `*/` 块注释结束
+/// - `;` followed by a SQL keyword (DROP/DELETE/UPDATE/INSERT/ALTER/TRUNCATE/EXEC/CREATE/GRANT/REVOKE)
+/// - `--` line comment sequence
+/// - `/*` block comment start
+/// - `*/` block comment end
 ///
-/// # 注意
+/// # Note
 ///
-/// 此校验是基础防线，不能替代参数化查询。复杂 WHERE 条件应使用参数化 API。
+/// This validation is a baseline defense and cannot replace parameterized queries.
+/// Complex WHERE conditions should use the parameterized API.
 fn check_where_injection(condition: &str) {
     let upper = condition.to_uppercase();
     const SQL_KEYWORDS: &[&str] = &[
@@ -198,19 +204,20 @@ fn check_where_injection(condition: &str) {
     }
 }
 
-/// 查询构造器入口
+/// Query builder entry point
 ///
-/// # 渐进 Deprecation 说明（v3.5.0）
+/// # Gradual deprecation notice (v3.5.0)
 ///
-/// 自 v3.5.0 起，`sz-orm-query-builder` 进入渐进 deprecation 阶段。
-/// 请评估 [docs/query-builder-guide.md](../../../docs/query-builder-guide.md)
-/// 选择合适方案：
+/// Since v3.5.0, `sz-orm-query-builder` has entered gradual deprecation.
+/// Please evaluate [docs/query-builder-guide.md](../../../docs/query-builder-guide.md)
+/// to choose an appropriate approach:
 ///
-/// - **标准 CRUD**：推荐迁移到 `sz_orm_core::QueryBuilder<M>`（编译期类型安全）
-/// - **复杂 SQL（UNION/CTE/窗口函数）**：可继续使用本 crate（暂不删除）
+/// - **Standard CRUD**: recommended to migrate to `sz_orm_core::QueryBuilder<M>` (compile-time type safety)
+/// - **Complex SQL (UNION/CTE/window functions)**: may continue using this crate (not removed yet)
 ///
-/// 本 crate 在 v3.5.0 **不立即删除**，API 完全兼容，仅添加 `#[deprecated]` 警告。
-/// 计划在 v4.0.0 评估是否合并到 `sz-orm-core` 或保留独立。
+/// This crate is **not immediately removed** in v3.5.0; the API is fully compatible,
+/// only a `#[deprecated]` warning is added. A decision on whether to merge into
+/// `sz-orm-core` or keep it standalone will be evaluated in v4.0.0.
 #[deprecated(
     since = "3.5.0",
     note = "v3.5.0: 请评估 docs/query-builder-guide.md 选择合适方案。标准 CRUD 推荐迁移到 sz_orm_core::QueryBuilder<M>"
@@ -219,7 +226,7 @@ pub struct Query;
 
 #[allow(deprecated)]
 impl Query {
-    /// 创建 SELECT 查询
+    /// Create a SELECT query
     #[deprecated(
         since = "3.5.0",
         note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::select()。详见 docs/query-builder-guide.md"
@@ -228,7 +235,7 @@ impl Query {
         SelectQuery::new()
     }
 
-    /// 创建 INSERT 查询
+    /// Create an INSERT query
     #[deprecated(
         since = "3.5.0",
         note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::insert()。详见 docs/query-builder-guide.md"
@@ -237,7 +244,7 @@ impl Query {
         InsertQuery::new()
     }
 
-    /// 创建 UPDATE 查询
+    /// Create an UPDATE query
     #[deprecated(
         since = "3.5.0",
         note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::update()。详见 docs/query-builder-guide.md"
@@ -246,7 +253,7 @@ impl Query {
         UpdateQuery::new()
     }
 
-    /// 创建 DELETE 查询
+    /// Create a DELETE query
     #[deprecated(
         since = "3.5.0",
         note = "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::delete()。详见 docs/query-builder-guide.md"
@@ -256,20 +263,21 @@ impl Query {
     }
 }
 
-/// 参数化 JOIN ON 条件（P2 修复 #68：JOIN 注入风险）
+/// Parameterized JOIN ON condition (P2 fix #68: JOIN injection risk)
 ///
-/// 与原始字符串 `joins: Vec<String>` 相比，本结构分离了 SQL 模板与参数值，
-/// 防止用户输入通过 `format!("u.id = {}", user_input)` 注入到 ON 条件中。
+/// Compared to the original `joins: Vec<String>` strings, this structure separates the
+/// SQL template from parameter values, preventing user input from being injected into
+/// the ON condition via `format!("u.id = {}", user_input)`.
 #[derive(Debug, Clone)]
 enum JoinOn {
-    /// 原始字符串（向后兼容 `inner_join(table, on_str)`）
+    /// Raw string (backward compatible with `inner_join(table, on_str)`)
     Raw(String),
-    /// 列对列等值连接：`left_column = right_column`（无参数，纯标识符，已转义）
+    /// Column-to-column equality join: `left_column = right_column` (no parameters, pure identifiers, already escaped)
     ColumnEq {
         left_column: String,
         right_column: String,
     },
-    /// 参数化条件：`left_column op ?` with Value
+    /// Parameterized condition: `left_column op ?` with Value
     Param {
         left_column: String,
         op: String,
@@ -277,32 +285,32 @@ enum JoinOn {
     },
 }
 
-/// JOIN 子句（P2 修复 #68）
+/// JOIN clause (P2 fix #68)
 #[derive(Debug, Clone)]
 struct JoinClause {
-    /// JOIN 类型关键字（INNER JOIN / LEFT JOIN / RIGHT JOIN）
+    /// JOIN type keyword (INNER JOIN / LEFT JOIN / RIGHT JOIN)
     join_type: &'static str,
-    /// 表名部分（已通过 `quote_join_table` 转义）
+    /// Table name part (already escaped via `quote_join_table`)
     table: String,
-    /// ON 条件列表（支持多个条件，AND 连接）
+    /// ON condition list (supports multiple conditions, joined by AND)
     on: Vec<JoinOn>,
 }
 
-/// SELECT 查询构造器
+/// SELECT query builder
 #[derive(Debug, Clone, Default)]
 pub struct SelectQuery {
     columns: Vec<String>,
     from_table: Option<String>,
-    /// FROM 子查询：`(子查询 SQL, 别名)`。与 `from_table` 互斥，后调用者覆盖前者。
+    /// FROM subquery: `(subquery SQL, alias)`. Mutually exclusive with `from_table`; later caller overrides earlier.
     from_subquery: Option<(String, String)>,
-    /// 结构化 JOIN 子句（统一存储原始字符串与参数化 ON 条件，P2 修复 #68）
+    /// Structured JOIN clauses (uniformly stores raw strings and parameterized ON conditions, P2 fix #68)
     ///
-    /// 旧的 `inner_join(table, on_str)` API 通过 `JoinOn::Raw(on_str)` 入栈，
-    /// 与新的 `inner_join_on` / `inner_join_param` 共用同一渲染路径，
-    /// 避免双轨数据结构带来的渲染顺序与死代码问题。
+    /// The legacy `inner_join(table, on_str)` API pushes via `JoinOn::Raw(on_str)`,
+    /// sharing the same render path as the new `inner_join_on` / `inner_join_param`,
+    /// avoiding render order and dead code issues from dual-track data structures.
     join_clauses: Vec<JoinClause>,
     wheres: Vec<String>,
-    /// 参数化 WHERE 条件（P0 修复：与 `wheres` 互不干扰，渲染时先 `wheres` 后 `param_wheres`）
+    /// Parameterized WHERE conditions (P0 fix: does not interfere with `wheres`; at render time `wheres` first, then `param_wheres`)
     param_wheres: Vec<ParamWhere>,
     order_by: Vec<String>,
     group_by: Vec<String>,
@@ -310,35 +318,35 @@ pub struct SelectQuery {
     limit: Option<u64>,
     offset: Option<u64>,
     distinct: bool,
-    /// CTE（Common Table Expression）子句列表：(名称, 子查询 SQL, 是否递归)
+    /// CTE (Common Table Expression) clause list: (name, subquery SQL, is_recursive)
     ctes: Vec<(String, String, bool)>,
-    /// 窗口函数列：原始表达式（如 `ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)`）
+    /// Window function columns: raw expressions (e.g., `ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)`)
     window_columns: Vec<String>,
-    /// FOR UPDATE 锁提示
+    /// FOR UPDATE lock hint
     for_update: bool,
-    /// FOR UPDATE 的列限定（NOWAIT / SKIP LOCKED 等）
+    /// Column-qualified FOR UPDATE options (NOWAIT / SKIP LOCKED, etc.)
     for_update_options: Option<String>,
 }
 
 impl SelectQuery {
-    /// 创建空的 SELECT 查询
+    /// Create an empty SELECT query
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 设置 DISTINCT
+    /// Set DISTINCT
     pub fn distinct(mut self) -> Self {
         self.distinct = true;
         self
     }
 
-    /// 添加列
+    /// Add a column
     pub fn column(mut self, name: &str) -> Self {
         self.columns.push(name.to_string());
         self
     }
 
-    /// 添加多个列
+    /// Add multiple columns
     pub fn columns(mut self, names: &[&str]) -> Self {
         for n in names {
             self.columns.push(n.to_string());
@@ -346,26 +354,27 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `*` 列
+    /// Add a `*` column
     pub fn all_columns(self) -> Self {
         self.column("*")
     }
 
-    /// 设置 FROM 表
+    /// Set FROM table
     pub fn from(mut self, table: &str) -> Self {
         self.from_table = Some(table.to_string());
-        // 与 from_subquery 互斥，后调用者覆盖前者
+        // Mutually exclusive with from_subquery; later caller overrides earlier
         self.from_subquery = None;
         self
     }
 
-    /// 设置 FROM 子查询：`FROM (<subquery_sql>) AS <alias>`
+    /// Set FROM subquery: `FROM (<subquery_sql>) AS <alias>`
     ///
-    /// 与 [`from`](Self::from) 互斥，后调用者覆盖前者。
-    /// 子查询 SQL 由调用方负责构造（可由另一个 `SelectQuery::build` 生成），
-    /// 别名经 `dialect.quote()` 转义，防止标识符逃逸。
+    /// Mutually exclusive with [`from`](Self::from); later caller overrides earlier.
+    /// The subquery SQL is constructed by the caller (may be generated by another
+    /// `SelectQuery::build`), and the alias is escaped via `dialect.quote()` to
+    /// prevent identifier escape.
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```
     /// use sz_orm_core::DbType;
@@ -384,16 +393,17 @@ impl SelectQuery {
     /// ```
     pub fn from_subquery(mut self, subquery_sql: &str, alias: &str) -> Self {
         self.from_subquery = Some((subquery_sql.to_string(), alias.to_string()));
-        // 与 from_table 互斥，后调用者覆盖前者
+        // Mutually exclusive with from_table; later caller overrides earlier
         self.from_table = None;
         self
     }
 
-    /// 添加 INNER JOIN
+    /// Add an INNER JOIN
     ///
-    /// # 安全性（门禁 9 修复）
+    /// # Security (gate 9 fix)
     ///
-    /// 表名经 `quote_ident()` 转义。`on` 条件为表达式，调用方应确保不使用恶意输入构造。
+    /// The table name is escaped via `quote_ident()`. The `on` condition is an
+    /// expression; the caller should ensure it is not constructed with malicious input.
     pub fn inner_join(mut self, table: &str, on: &str) -> Self {
         self.join_clauses.push(JoinClause {
             join_type: "INNER JOIN",
@@ -403,11 +413,11 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 LEFT JOIN
+    /// Add a LEFT JOIN
     ///
-    /// # 安全性（门禁 9 修复）
+    /// # Security (gate 9 fix)
     ///
-    /// 同 `inner_join`，表名经 `quote_ident()` 转义。
+    /// Same as `inner_join`; the table name is escaped via `quote_ident()`.
     pub fn left_join(mut self, table: &str, on: &str) -> Self {
         self.join_clauses.push(JoinClause {
             join_type: "LEFT JOIN",
@@ -417,11 +427,11 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 RIGHT JOIN
+    /// Add a RIGHT JOIN
     ///
-    /// # 安全性（门禁 9 修复）
+    /// # Security (gate 9 fix)
     ///
-    /// 同 `inner_join`，表名经 `quote_ident()` 转义。
+    /// Same as `inner_join`; the table name is escaped via `quote_ident()`.
     pub fn right_join(mut self, table: &str, on: &str) -> Self {
         self.join_clauses.push(JoinClause {
             join_type: "RIGHT JOIN",
@@ -462,12 +472,12 @@ impl SelectQuery {
     // // built.params: [String("paid")]
     // ```
 
-    /// 添加 INNER JOIN，ON 条件为列对列等值连接（`left_col = right_col`）
+    /// Add an INNER JOIN with a column-to-column equality ON condition (`left_col = right_col`)
     ///
-    /// # 安全性
+    /// # Security
     ///
-    /// 列名经 `quote_column_dialect` 按方言转义，防止标识符逃逸。
-    /// 无参数值，纯标识符连接，最常见且最安全的 JOIN 形式。
+    /// Column names are escaped per dialect via `quote_column_dialect`, preventing identifier escape.
+    /// No parameter values; pure identifier join, the most common and safest JOIN form.
     pub fn inner_join_on(mut self, table: &str, left_col: &str, right_col: &str) -> Self {
         self.join_clauses.push(JoinClause {
             join_type: "INNER JOIN",
@@ -480,7 +490,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 LEFT JOIN，ON 条件为列对列等值连接
+    /// Add a LEFT JOIN with a column-to-column equality ON condition
     pub fn left_join_on(mut self, table: &str, left_col: &str, right_col: &str) -> Self {
         self.join_clauses.push(JoinClause {
             join_type: "LEFT JOIN",
@@ -493,7 +503,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 RIGHT JOIN，ON 条件为列对列等值连接
+    /// Add a RIGHT JOIN with a column-to-column equality ON condition
     pub fn right_join_on(mut self, table: &str, left_col: &str, right_col: &str) -> Self {
         self.join_clauses.push(JoinClause {
             join_type: "RIGHT JOIN",
@@ -506,14 +516,14 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 INNER JOIN，ON 条件为参数化表达式（`left_col op ?`）
+    /// Add an INNER JOIN with a parameterized expression ON condition (`left_col op ?`)
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `table`: JOIN 的表名（支持别名 `orders o`）
-    /// - `left_col`: 左侧列名（已转义）
-    /// - `op_expr`: 运算符 + 占位符部分（如 ` = ?`、` > ?`、` IN (?, ?)`）
-    /// - `value`: 单个参数值
+    /// - `table`: JOIN table name (supports alias `orders o`)
+    /// - `left_col`: left column name (already escaped)
+    /// - `op_expr`: operator + placeholder part (e.g., ` = ?`, ` > ?`, ` IN (?, ?)`)
+    /// - `value`: single parameter value
     pub fn inner_join_param(
         mut self,
         table: &str,
@@ -533,7 +543,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 LEFT JOIN，ON 条件为参数化表达式
+    /// Add a LEFT JOIN with a parameterized expression ON condition
     pub fn left_join_param(
         mut self,
         table: &str,
@@ -553,7 +563,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 RIGHT JOIN，ON 条件为参数化表达式
+    /// Add a RIGHT JOIN with a parameterized expression ON condition
     pub fn right_join_param(
         mut self,
         table: &str,
@@ -573,10 +583,11 @@ impl SelectQuery {
         self
     }
 
-    /// 渲染 JOIN 子句（含参数化 ON 条件）到 SQL 字符串
+    /// Render JOIN clauses (including parameterized ON conditions) into a SQL string
     ///
-    /// 统一渲染 `join_clauses`：包含原始字符串 ON 条件（`JoinOn::Raw`，向后兼容）
-    /// 与参数化 ON 条件（`ColumnEq` / `Param`）。参数化 JOIN 的参数会追加到 `params` 中。
+    /// Uniformly renders `join_clauses`: includes raw string ON conditions (`JoinOn::Raw`,
+    /// backward compatible) and parameterized ON conditions (`ColumnEq` / `Param`).
+    /// Parameters from parameterized JOINs are appended to `params`.
     fn render_joins(&self, dialect: &dyn sz_orm_core::Dialect, params: &mut Vec<Value>) -> String {
         let mut sql = String::new();
         for clause in &self.join_clauses {
@@ -614,7 +625,7 @@ impl SelectQuery {
         sql
     }
 
-    /// 对 JOIN 表名部分进行转义（支持别名：`orders o` → `` `orders` o ``）
+    /// Escape the JOIN table name part (supports alias: `orders o` → `` `orders` o ``)
     fn quote_join_table(table: &str) -> String {
         if let Some((tbl, alias)) = table.rsplit_once(' ') {
             if alias.to_uppercase() == "AS" {
@@ -629,12 +640,13 @@ impl SelectQuery {
         }
     }
 
-    /// 添加 WHERE 条件（AND 连接）
+    /// Add a WHERE condition (AND joined)
     ///
-    /// # 安全性（v0.2.2 修复 C-6）
+    /// # Security (v0.2.2 fix C-6)
     ///
-    /// 调用 `check_where_injection` 检测高危模式（分号+SQL 关键字、行注释、块注释）。
-    /// 复杂 WHERE 条件应使用参数化查询 API，避免直接拼接字符串。
+    /// Calls `check_where_injection` to detect high-risk patterns (semicolon + SQL keyword,
+    /// line comments, block comments). Complex WHERE conditions should use the parameterized
+    /// query API to avoid direct string concatenation.
     pub fn where_clause(mut self, condition: &str) -> Self {
         check_where_injection(condition);
         self.wheres.push(condition.to_string());
@@ -665,7 +677,7 @@ impl SelectQuery {
     // // built.params: [I32(18), String("active"), String("admin")]
     // ```
 
-    /// 添加 `column = ?` AND 条件
+    /// Add a `column = ?` AND condition
     pub fn where_eq(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -675,7 +687,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column <> ?` AND 条件
+    /// Add a `column <> ?` AND condition
     pub fn where_ne(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -685,7 +697,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column > ?` AND 条件
+    /// Add a `column > ?` AND condition
     pub fn where_gt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -695,7 +707,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column >= ?` AND 条件
+    /// Add a `column >= ?` AND condition
     pub fn where_ge(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -705,7 +717,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column < ?` AND 条件
+    /// Add a `column < ?` AND condition
     pub fn where_lt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -715,7 +727,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column <= ?` AND 条件
+    /// Add a `column <= ?` AND condition
     pub fn where_le(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -725,7 +737,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column LIKE ?` AND 条件
+    /// Add a `column LIKE ?` AND condition
     pub fn where_like(mut self, column: &str, pattern: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -735,9 +747,9 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column IN (?, ?, ...)` AND 条件
+    /// Add a `column IN (?, ?, ...)` AND condition
     ///
-    /// 空列表生成 `1 = 0`（恒假），避免生成非法的 `IN ()`。
+    /// An empty list produces `1 = 0` (always false), avoiding an invalid `IN ()`.
     pub fn where_in(mut self, column: &str, values: Vec<Value>) -> Self {
         let (column, op) = if values.is_empty() {
             (String::new(), "1 = 0".to_string())
@@ -753,9 +765,9 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column NOT IN (?, ?, ...)` AND 条件
+    /// Add a `column NOT IN (?, ?, ...)` AND condition
     ///
-    /// 空列表生成 `1 = 1`（恒真），避免生成非法的 `NOT IN ()`。
+    /// An empty list produces `1 = 1` (always true), avoiding an invalid `NOT IN ()`.
     pub fn where_not_in(mut self, column: &str, values: Vec<Value>) -> Self {
         let (column, op) = if values.is_empty() {
             (String::new(), "1 = 1".to_string())
@@ -771,7 +783,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column BETWEEN ? AND ?` AND 条件
+    /// Add a `column BETWEEN ? AND ?` AND condition
     pub fn where_between(mut self, column: &str, low: Value, high: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -781,7 +793,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column IS NULL` AND 条件
+    /// Add a `column IS NULL` AND condition
     pub fn where_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -791,7 +803,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column IS NOT NULL` AND 条件
+    /// Add a `column IS NOT NULL` AND condition
     pub fn where_not_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -801,7 +813,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column = ?` OR 条件
+    /// Add a `column = ?` OR condition
     pub fn or_where_eq(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -811,7 +823,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column <> ?` OR 条件
+    /// Add a `column <> ?` OR condition
     pub fn or_where_ne(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -821,7 +833,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column > ?` OR 条件
+    /// Add a `column > ?` OR condition
     pub fn or_where_gt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -831,7 +843,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column >= ?` OR 条件
+    /// Add a `column >= ?` OR condition
     pub fn or_where_ge(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -841,7 +853,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column < ?` OR 条件
+    /// Add a `column < ?` OR condition
     pub fn or_where_lt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -851,7 +863,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column <= ?` OR 条件
+    /// Add a `column <= ?` OR condition
     pub fn or_where_le(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -861,7 +873,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column LIKE ?` OR 条件
+    /// Add a `column LIKE ?` OR condition
     pub fn or_where_like(mut self, column: &str, pattern: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -871,7 +883,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column IN (?, ?, ...)` OR 条件
+    /// Add a `column IN (?, ?, ...)` OR condition
     pub fn or_where_in(mut self, column: &str, values: Vec<Value>) -> Self {
         let (column, op) = if values.is_empty() {
             (String::new(), "1 = 0".to_string())
@@ -887,7 +899,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column BETWEEN ? AND ?` OR 条件
+    /// Add a `column BETWEEN ? AND ?` OR condition
     pub fn or_where_between(mut self, column: &str, low: Value, high: Value) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -897,7 +909,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column IS NULL` OR 条件
+    /// Add a `column IS NULL` OR condition
     pub fn or_where_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -907,7 +919,7 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 `column IS NOT NULL` OR 条件
+    /// Add a `column IS NOT NULL` OR condition
     pub fn or_where_not_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::Or {
             column: column.to_string(),
@@ -917,23 +929,23 @@ impl SelectQuery {
         self
     }
 
-    /// 添加 GROUP BY
+    /// Add GROUP BY
     pub fn group_by(mut self, column: &str) -> Self {
         self.group_by.push(column.to_string());
         self
     }
 
-    /// 添加 HAVING
+    /// Add HAVING
     pub fn having(mut self, condition: &str) -> Self {
         self.having.push(condition.to_string());
         self
     }
 
-    /// 添加 ORDER BY
+    /// Add ORDER BY
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `column`: 列名
+    /// - `column`: column name
     /// - `asc`: true=ASC, false=DESC
     pub fn order_by(mut self, column: &str, asc: bool) -> Self {
         let dir = if asc { "ASC" } else { "DESC" };
@@ -941,77 +953,77 @@ impl SelectQuery {
         self
     }
 
-    /// 设置 LIMIT
+    /// Set LIMIT
     pub fn limit(mut self, n: u64) -> Self {
         self.limit = Some(n);
         self
     }
 
-    /// 设置 OFFSET
+    /// Set OFFSET
     pub fn offset(mut self, n: u64) -> Self {
         self.offset = Some(n);
         self
     }
 
-    /// 生成分页（同时设置 LIMIT 和 OFFSET）
+    /// Generate pagination (sets both LIMIT and OFFSET)
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `page`: 页码（从 1 开始）
-    /// - `size`: 每页大小
+    /// - `page`: page number (1-based)
+    /// - `size`: page size
     pub fn paginate(self, page: u64, size: u64) -> Self {
         let offset = (page.saturating_sub(1)) * size;
         self.limit(size).offset(offset)
     }
 
-    /// 添加 CTE（Common Table Expression / WITH 子句）。
+    /// Add a CTE (Common Table Expression / WITH clause).
     ///
-    /// 生成形如 `WITH name AS (subquery) SELECT ...` 的 SQL。
+    /// Generates SQL of the form `WITH name AS (subquery) SELECT ...`.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `name`: CTE 名称
-    /// - `subquery`: 子查询 SQL（完整的 SELECT 语句）
+    /// - `name`: CTE name
+    /// - `subquery`: subquery SQL (a complete SELECT statement)
     pub fn with_cte(mut self, name: &str, subquery: &str) -> Self {
         self.ctes
             .push((name.to_string(), subquery.to_string(), false));
         self
     }
 
-    /// 添加递归 CTE（`WITH RECURSIVE name AS (...) SELECT ...`）。
+    /// Add a recursive CTE (`WITH RECURSIVE name AS (...) SELECT ...`).
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `name`: CTE 名称
-    /// - `subquery`: 递归子查询 SQL
+    /// - `name`: CTE name
+    /// - `subquery`: recursive subquery SQL
     pub fn with_recursive_cte(mut self, name: &str, subquery: &str) -> Self {
         self.ctes
             .push((name.to_string(), subquery.to_string(), true));
         self
     }
 
-    /// 添加窗口函数列（作为 SELECT 列表的原始表达式）。
+    /// Add a window function column (as a raw expression in the SELECT list).
     ///
-    /// 调用方负责构造完整的窗口函数表达式，例如：
+    /// The caller is responsible for constructing the complete window function expression, e.g.:
     /// - `ROW_NUMBER() OVER (PARTITION BY dept ORDER BY salary DESC)`
     /// - `RANK() OVER (ORDER BY score DESC)`
     /// - `SUM(amount) OVER (PARTITION BY user_id ORDER BY created_at)`
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `expr`: 完整的窗口函数表达式
+    /// - `expr`: complete window function expression
     pub fn window_function(mut self, expr: &str) -> Self {
         self.window_columns.push(expr.to_string());
         self
     }
 
-    /// 添加 `ROW_NUMBER()` 窗口函数列。
+    /// Add a `ROW_NUMBER()` window function column.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `partition_by`: PARTITION BY 列（可为空）
-    /// - `order_by`: ORDER BY 列（如 `salary DESC`）
-    /// - `alias`: 结果列别名（如 `row_num`）
+    /// - `partition_by`: PARTITION BY column (may be empty)
+    /// - `order_by`: ORDER BY column (e.g., `salary DESC`)
+    /// - `alias`: result column alias (e.g., `row_num`)
     pub fn row_number(self, partition_by: &str, order_by: &str, alias: &str) -> Self {
         let partition_clause = if partition_by.is_empty() {
             String::new()
@@ -1025,13 +1037,13 @@ impl SelectQuery {
         self.window_function(&expr)
     }
 
-    /// 添加 `RANK()` 窗口函数列。
+    /// Add a `RANK()` window function column.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `partition_by`: PARTITION BY 列（可为空）
-    /// - `order_by`: ORDER BY 列
-    /// - `alias`: 结果列别名
+    /// - `partition_by`: PARTITION BY column (may be empty)
+    /// - `order_by`: ORDER BY column
+    /// - `alias`: result column alias
     pub fn rank(self, partition_by: &str, order_by: &str, alias: &str) -> Self {
         let partition_clause = if partition_by.is_empty() {
             String::new()
@@ -1045,13 +1057,13 @@ impl SelectQuery {
         self.window_function(&expr)
     }
 
-    /// 添加 `DENSE_RANK()` 窗口函数列。
+    /// Add a `DENSE_RANK()` window function column.
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `partition_by`: PARTITION BY 列（可为空）
-    /// - `order_by`: ORDER BY 列
-    /// - `alias`: 结果列别名
+    /// - `partition_by`: PARTITION BY column (may be empty)
+    /// - `order_by`: ORDER BY column
+    /// - `alias`: result column alias
     pub fn dense_rank(self, partition_by: &str, order_by: &str, alias: &str) -> Self {
         let partition_clause = if partition_by.is_empty() {
             String::new()
@@ -1065,53 +1077,53 @@ impl SelectQuery {
         self.window_function(&expr)
     }
 
-    /// 设置 FOR UPDATE 行锁。
+    /// Set FOR UPDATE row lock.
     ///
-    /// 在生成的 SQL 末尾追加 `FOR UPDATE`，用于悲观锁。
+    /// Appends `FOR UPDATE` to the end of the generated SQL, used for pessimistic lock.
     pub fn for_update(mut self) -> Self {
         self.for_update = true;
         self.for_update_options = None;
         self
     }
 
-    /// 设置 FOR UPDATE 并附带选项（如 `NOWAIT`、`SKIP LOCKED`）。
+    /// Set FOR UPDATE with options (e.g., `NOWAIT`, `SKIP LOCKED`).
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `options`: 选项字符串，如 `"NOWAIT"` 或 `"SKIP LOCKED"`
+    /// - `options`: options string, e.g., `"NOWAIT"` or `"SKIP LOCKED"`
     pub fn for_update_with_options(mut self, options: &str) -> Self {
         self.for_update = true;
         self.for_update_options = Some(options.to_string());
         self
     }
 
-    /// 将当前查询与另一个查询进行 UNION 集合运算。
+    /// Combine the current query with another query using UNION set operation.
     ///
-    /// 返回一个 [`SetQuery`]，可通过 `build()` 生成最终 SQL。
+    /// Returns a [`SetQuery`], which can be turned into the final SQL via `build()`.
     pub fn union(self, other: SelectQuery) -> SetQuery {
         SetQuery::new(self, SetOperator::Union, other)
     }
 
-    /// 将当前查询与另一个查询进行 UNION ALL 集合运算。
+    /// Combine the current query with another query using UNION ALL set operation.
     pub fn union_all(self, other: SelectQuery) -> SetQuery {
         SetQuery::new(self, SetOperator::UnionAll, other)
     }
 
-    /// 将当前查询与另一个查询进行 INTERSECT 集合运算。
+    /// Combine the current query with another query using INTERSECT set operation.
     pub fn intersect(self, other: SelectQuery) -> SetQuery {
         SetQuery::new(self, SetOperator::Intersect, other)
     }
 
-    /// 将当前查询与另一个查询进行 EXCEPT 集合运算。
+    /// Combine the current query with another query using EXCEPT set operation.
     pub fn except(self, other: SelectQuery) -> SetQuery {
         SetQuery::new(self, SetOperator::Except, other)
     }
 
-    /// 生成 SQL
+    /// Generate SQL
     ///
-    /// # 参数
+    /// # Parameters
     ///
-    /// - `db_type`: 数据库类型，用于选择方言
+    /// - `db_type`: database type, used to select the dialect
     pub fn build(self, db_type: DbType) -> String {
         let dialect = match sz_orm_core::get_dialect(db_type) {
             Ok(d) => d,
@@ -1249,21 +1261,21 @@ impl SelectQuery {
         sql
     }
 
-    /// 生成带参数的 SQL（参数化查询，P0 修复：SQL 注入防护）
+    /// Generate parameterized SQL (parameterized query, P0 fix: SQL injection prevention)
     ///
-    /// 返回 [`BuiltQuery`]，包含带 `?` 占位符的 SQL 与按序绑定的参数列表。
-    /// 与 [`build`](Self::build) 的区别：
-    /// - WHERE 条件可来自 `where_eq`/`where_in`/`where_between` 等参数化 API
-    /// - 用户输入作为参数绑定，而非字符串拼接到 SQL 中
+    /// Returns a [`BuiltQuery`], containing a SQL string with `?` placeholders and a
+    /// list of parameters bound in order. Differences from [`build`](Self::build):
+    /// - WHERE conditions can come from parameterized APIs like `where_eq`/`where_in`/`where_between`
+    /// - User input is bound as parameters rather than concatenated into the SQL string
     ///
-    /// # 混合使用规则
+    /// # Mixed usage rules
     ///
-    /// 当同时使用原始 `where_clause(&str)` 与参数化 `where_eq(column, value)` 时：
-    /// - 原始条件先渲染（无参数）
-    /// - 参数化条件后渲染（按顺序收集参数）
-    /// - 两者均按调用顺序保持 AND/OR 连接语义
+    /// When using both raw `where_clause(&str)` and parameterized `where_eq(column, value)`:
+    /// - Raw conditions render first (no parameters)
+    /// - Parameterized conditions render after (parameters collected in order)
+    /// - Both preserve AND/OR conjunction semantics in call order
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```
     /// use sz_orm_core::{DbType, Value};
@@ -1446,21 +1458,21 @@ impl SelectQuery {
 // 深度扩展：集合运算（UNION / INTERSECT / EXCEPT）
 // ============================================================================
 
-/// SQL 集合运算符类型。
+/// SQL set operator type.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SetOperator {
-    /// `UNION`：合并去重
+    /// `UNION`: merge with deduplication
     Union,
-    /// `UNION ALL`：合并不去重
+    /// `UNION ALL`: merge without deduplication
     UnionAll,
-    /// `INTERSECT`：交集
+    /// `INTERSECT`: intersection
     Intersect,
-    /// `EXCEPT`：差集（MySQL 8.0+ 称 `EXCEPT`，部分方言为 `MINUS`）
+    /// `EXCEPT`: difference (MySQL 8.0+ calls it `EXCEPT`; some dialects use `MINUS`)
     Except,
 }
 
 impl SetOperator {
-    /// 返回运算符对应的 SQL 关键字。
+    /// Returns the SQL keyword corresponding to the operator.
     pub fn as_sql(&self) -> &'static str {
         match self {
             SetOperator::Union => "UNION",
@@ -1471,9 +1483,9 @@ impl SetOperator {
     }
 }
 
-/// 集合运算查询，支持链式追加多个 SELECT 并以 UNION/INTERSECT/EXCEPT 连接。
+/// Set operation query, supports chaining multiple SELECTs joined by UNION/INTERSECT/EXCEPT.
 ///
-/// # 示例
+/// # Example
 ///
 /// ```ignore
 /// use sz_orm_core::DbType;
@@ -1486,20 +1498,20 @@ impl SetOperator {
 /// ```
 #[derive(Debug, Clone)]
 pub struct SetQuery {
-    /// 第一个 SELECT 查询
+    /// First SELECT query
     first: SelectQuery,
-    /// 后续的 (运算符, 查询) 对
+    /// Subsequent (operator, query) pairs
     rest: Vec<(SetOperator, SelectQuery)>,
-    /// 全局 ORDER BY（作用于整个集合运算结果）
+    /// Global ORDER BY (applies to the entire set operation result)
     order_by: Vec<String>,
-    /// 全局 LIMIT
+    /// Global LIMIT
     limit: Option<u64>,
-    /// 全局 OFFSET
+    /// Global OFFSET
     offset: Option<u64>,
 }
 
 impl SetQuery {
-    /// 创建一个集合运算查询。
+    /// Create a set operation query.
     pub fn new(first: SelectQuery, op: SetOperator, second: SelectQuery) -> Self {
         Self {
             first,
@@ -1510,52 +1522,53 @@ impl SetQuery {
         }
     }
 
-    /// 追加 UNION 查询。
+    /// Append a UNION query.
     pub fn union(mut self, other: SelectQuery) -> Self {
         self.rest.push((SetOperator::Union, other));
         self
     }
 
-    /// 追加 UNION ALL 查询。
+    /// Append a UNION ALL query.
     pub fn union_all(mut self, other: SelectQuery) -> Self {
         self.rest.push((SetOperator::UnionAll, other));
         self
     }
 
-    /// 追加 INTERSECT 查询。
+    /// Append an INTERSECT query.
     pub fn intersect(mut self, other: SelectQuery) -> Self {
         self.rest.push((SetOperator::Intersect, other));
         self
     }
 
-    /// 追加 EXCEPT 查询。
+    /// Append an EXCEPT query.
     pub fn except(mut self, other: SelectQuery) -> Self {
         self.rest.push((SetOperator::Except, other));
         self
     }
 
-    /// 设置全局 ORDER BY（作用于整个集合运算结果）。
+    /// Set global ORDER BY (applies to the entire set operation result).
     pub fn order_by(mut self, column: &str, asc: bool) -> Self {
         let dir = if asc { "ASC" } else { "DESC" };
         self.order_by.push(format!("{} {}", column, dir));
         self
     }
 
-    /// 设置全局 LIMIT。
+    /// Set global LIMIT.
     pub fn limit(mut self, n: u64) -> Self {
         self.limit = Some(n);
         self
     }
 
-    /// 设置全局 OFFSET。
+    /// Set global OFFSET.
     pub fn offset(mut self, n: u64) -> Self {
         self.offset = Some(n);
         self
     }
 
-    /// 生成 SQL。
+    /// Generate SQL.
     ///
-    /// 将所有子查询用对应的集合运算符连接，并在末尾追加全局 ORDER BY / LIMIT / OFFSET。
+    /// Joins all subqueries with the corresponding set operators, and appends
+    /// global ORDER BY / LIMIT / OFFSET at the end.
     pub fn build(self, db_type: DbType) -> String {
         let mut sql = self.first.build(db_type);
         for (op, query) in &self.rest {
@@ -1591,39 +1604,40 @@ impl SetQuery {
     }
 }
 
-/// Upsert（插入或更新）策略
+/// Upsert (insert or update) strategy
 ///
-/// 支持三种主流数据库的冲突处理语法：
-/// - PostgreSQL/SQLite：`ON CONFLICT ... DO NOTHING` / `DO UPDATE`
-/// - MySQL/MariaDB/TiDB：`ON DUPLICATE KEY UPDATE` / `REPLACE INTO`
+/// Supports conflict-handling syntax of three mainstream databases:
+/// - PostgreSQL/SQLite: `ON CONFLICT ... DO NOTHING` / `DO UPDATE`
+/// - MySQL/MariaDB/TiDB: `ON DUPLICATE KEY UPDATE` / `REPLACE INTO`
 ///
-/// # 方言兼容性
+/// # Dialect compatibility
 ///
-/// | 策略 | MySQL | PostgreSQL | SQLite |
-/// |------|-------|------------|--------|
+/// | Strategy | MySQL | PostgreSQL | SQLite |
+/// |----------|-------|------------|--------|
 /// | `OnConflictDoNothing` | ✗ | ✓ | ✓ |
 /// | `OnConflictDoUpdate` | ✗ | ✓ | ✓ |
 /// | `OnDuplicateKeyUpdate` | ✓ | ✗ | ✗ |
-/// | `Replace` | ✓ | ✗ | ✓（`INSERT OR REPLACE`）|
+/// | `Replace` | ✓ | ✗ | ✓ (`INSERT OR REPLACE`)|
 ///
-/// 不兼容的组合会在 `build_with_dialect` 中跳过 upsert 子句（不报错，由调用方确保方言匹配）。
+/// Incompatible combinations are skipped in `build_with_dialect` (no error; the caller
+/// must ensure dialect match).
 #[derive(Debug, Clone, Default)]
 pub enum UpsertStrategy {
-    /// 不使用 upsert（默认）
+    /// No upsert (default)
     #[default]
     None,
-    /// PostgreSQL/SQLite：`ON CONFLICT (cols) DO NOTHING`
+    /// PostgreSQL/SQLite: `ON CONFLICT (cols) DO NOTHING`
     OnConflictDoNothing(Vec<String>),
-    /// PostgreSQL/SQLite：`ON CONFLICT (cols) DO UPDATE SET col = expr, ...`
+    /// PostgreSQL/SQLite: `ON CONFLICT (cols) DO UPDATE SET col = expr, ...`
     /// `(conflict_cols, update_assignments)`
     OnConflictDoUpdate(Vec<String>, Vec<(String, String)>),
-    /// MySQL：`ON DUPLICATE KEY UPDATE col = expr, ...`
+    /// MySQL: `ON DUPLICATE KEY UPDATE col = expr, ...`
     OnDuplicateKeyUpdate(Vec<(String, String)>),
-    /// MySQL：`REPLACE INTO`（先删除冲突行再插入）
+    /// MySQL: `REPLACE INTO` (delete conflicting rows first, then insert)
     Replace,
 }
 
-/// 判断 DbType 是否为 MySQL 兼容方言
+/// Determine whether DbType is a MySQL-compatible dialect
 fn is_mysql_family(db_type: DbType) -> bool {
     matches!(
         db_type,
@@ -1631,7 +1645,7 @@ fn is_mysql_family(db_type: DbType) -> bool {
     )
 }
 
-/// 判断 DbType 是否为 PostgreSQL 兼容方言
+/// Determine whether DbType is a PostgreSQL-compatible dialect
 fn is_pg_family(db_type: DbType) -> bool {
     matches!(
         db_type,
@@ -1639,9 +1653,10 @@ fn is_pg_family(db_type: DbType) -> bool {
     ) || db_type == DbType::Sqlite
 }
 
-/// 渲染 upsert 子句（用于 build_with_dialect）
+/// Render the upsert clause (for build_with_dialect)
 ///
-/// 根据方言返回对应的 upsert SQL 片段；不兼容的组合返回 `None`（跳过）。
+/// Returns the corresponding upsert SQL fragment per dialect; incompatible combinations
+/// return `None` (skipped).
 fn render_upsert_clause(strategy: &UpsertStrategy, db_type: DbType) -> Option<String> {
     match strategy {
         UpsertStrategy::None => None,
@@ -1690,12 +1705,12 @@ fn render_upsert_clause(strategy: &UpsertStrategy, db_type: DbType) -> Option<St
     }
 }
 
-/// 渲染 RETURNING 子句（用于 build_with_dialect）
+/// Render the RETURNING clause (for build_with_dialect)
 ///
-/// RETURNING 是 PostgreSQL 和 SQLite 3.35+ 的语法，MySQL 不支持。
-/// - MySQL 家族：返回 `None`（跳过）
-/// - PostgreSQL/SQLite：返回 `RETURNING col1, col2, ...`
-/// - 列为 `*` 时不加引号，其余列名经 `dialect.quote()` 转义
+/// RETURNING is PostgreSQL and SQLite 3.35+ syntax; MySQL does not support it.
+/// - MySQL family: returns `None` (skipped)
+/// - PostgreSQL/SQLite: returns `RETURNING col1, col2, ...`
+/// - A column of `*` is not quoted; other column names are escaped via `dialect.quote()`
 fn render_returning_clause(columns: &Option<Vec<String>>, db_type: DbType) -> Option<String> {
     let cols = columns.as_ref()?;
     if cols.is_empty() {
@@ -1719,38 +1734,38 @@ fn render_returning_clause(columns: &Option<Vec<String>>, db_type: DbType) -> Op
     Some(format!("RETURNING {}", quoted.join(", ")))
 }
 
-/// INSERT 查询构造器
+/// INSERT query builder
 #[derive(Debug, Clone, Default)]
 pub struct InsertQuery {
     table: Option<String>,
     columns: Vec<String>,
     values: Vec<String>,
-    /// Upsert 策略（ON CONFLICT / ON DUPLICATE KEY UPDATE / REPLACE）
+    /// Upsert strategy (ON CONFLICT / ON DUPLICATE KEY UPDATE / REPLACE)
     upsert: UpsertStrategy,
-    /// RETURNING 子句列列表（PostgreSQL/SQLite 支持，MySQL 不支持）
+    /// RETURNING clause column list (supported by PostgreSQL/SQLite, not MySQL)
     returning: Option<Vec<String>>,
 }
 
 impl InsertQuery {
-    /// 创建空的 INSERT 查询
+    /// Create an empty INSERT query
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 设置目标表
+    /// Set the target table
     pub fn into_table(mut self, table: &str) -> Self {
         self.table = Some(table.to_string());
         self
     }
 
-    /// 添加列值对（值应为已转义的 SQL 字面量）
+    /// Add a column-value pair (value should be an already-escaped SQL literal)
     pub fn value(mut self, column: &str, value: &str) -> Self {
         self.columns.push(column.to_string());
         self.values.push(value.to_string());
         self
     }
 
-    /// 批量添加列值对
+    /// Batch add column-value pairs
     pub fn values(mut self, pairs: &[(&str, &str)]) -> Self {
         for (c, v) in pairs {
             self.columns.push(c.to_string());
@@ -1763,12 +1778,12 @@ impl InsertQuery {
     // Upsert 策略（ON CONFLICT / ON DUPLICATE KEY UPDATE / REPLACE）
     // ========================================================================
 
-    /// PostgreSQL/SQLite：`ON CONFLICT (cols) DO NOTHING`
+    /// PostgreSQL/SQLite: `ON CONFLICT (cols) DO NOTHING`
     ///
-    /// 冲突时忽略插入。适用于 PostgreSQL、SQLite 方言。
-    /// MySQL 方言下此设置被忽略（MySQL 不支持 ON CONFLICT 语法）。
+    /// Ignore insertion on conflict. Applicable to PostgreSQL and SQLite dialects.
+    /// Under MySQL dialect this setting is ignored (MySQL does not support ON CONFLICT syntax).
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```
     /// use sz_orm_core::DbType;
@@ -1789,12 +1804,12 @@ impl InsertQuery {
         self
     }
 
-    /// PostgreSQL/SQLite：`ON CONFLICT (cols) DO UPDATE SET col = expr, ...`
+    /// PostgreSQL/SQLite: `ON CONFLICT (cols) DO UPDATE SET col = expr, ...`
     ///
-    /// 冲突时更新指定列。`assignments` 为 `(列名, 表达式)` 对。
-    /// 表达式中可使用 `EXCLUDED.col` 引用待插入的值（PG/SQLite 标准）。
+    /// Update specified columns on conflict. `assignments` is a list of `(column, expression)` pairs.
+    /// Expressions may use `EXCLUDED.col` to reference the to-be-inserted value (PG/SQLite standard).
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```
     /// use sz_orm_core::DbType;
@@ -1828,12 +1843,13 @@ impl InsertQuery {
         self
     }
 
-    /// MySQL：`ON DUPLICATE KEY UPDATE col = expr, ...`
+    /// MySQL: `ON DUPLICATE KEY UPDATE col = expr, ...`
     ///
-    /// 主键/唯一键冲突时更新指定列。`assignments` 为 `(列名, 表达式)` 对。
-    /// 表达式中可使用 `VALUES(col)` 引用待插入的值（MySQL 语法）。
+    /// Update specified columns on primary/unique key conflict. `assignments` is a list of
+    /// `(column, expression)` pairs. Expressions may use `VALUES(col)` to reference the
+    /// to-be-inserted value (MySQL syntax).
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```
     /// use sz_orm_core::DbType;
@@ -1859,22 +1875,23 @@ impl InsertQuery {
         self
     }
 
-    /// MySQL：使用 `REPLACE INTO` 代替 `INSERT INTO`
+    /// MySQL: use `REPLACE INTO` instead of `INSERT INTO`
     ///
-    /// 主键/唯一键冲突时先删除旧行再插入新行。
-    /// 适用于 MySQL/MariaDB/TiDB 方言。
+    /// On primary/unique key conflict, delete the old row first then insert the new row.
+    /// Applicable to MySQL/MariaDB/TiDB dialects.
     pub fn replace(mut self) -> Self {
         self.upsert = UpsertStrategy::Replace;
         self
     }
 
-    /// 设置 RETURNING 子句（PostgreSQL/SQLite 3.35+ 支持）
+    /// Set the RETURNING clause (supported by PostgreSQL/SQLite 3.35+)
     ///
-    /// 在 INSERT 后返回指定列的值，常用于获取自增主键或默认值。
-    /// MySQL 不支持 RETURNING，在 `build()`（MySQL 风格）中会被忽略；
-    /// 在 `build_with_dialect()` 中仅 PostgreSQL/SQLite 方言渲染。
+    /// Returns the values of specified columns after INSERT, commonly used to obtain
+    /// auto-increment primary keys or default values. MySQL does not support RETURNING;
+    /// it is ignored in `build()` (MySQL style) and only rendered for PostgreSQL/SQLite
+    /// dialects in `build_with_dialect()`.
     ///
-    /// # 示例
+    /// # Example
     ///
     /// ```
     /// use sz_orm_core::DbType;
@@ -1892,23 +1909,24 @@ impl InsertQuery {
         self
     }
 
-    /// 设置 RETURNING *（返回所有列）
+    /// Set RETURNING * (return all columns)
     pub fn returning_all(mut self) -> Self {
         self.returning = Some(vec!["*".to_string()]);
         self
     }
 
-    /// 构建 INSERT SQL（无方言，硬编码反引号，MySQL 风格）
+    /// Build INSERT SQL (no dialect, hard-coded backticks, MySQL style)
     ///
-    /// # 安全性（门禁 9 修复）
+    /// # Security (gate 9 fix)
     ///
-    /// 标识符经 `quote_ident()` 转义后包裹反引号，防止含 `` ` `` 的恶意标识符逃逸。
+    /// Identifiers are escaped via `quote_ident()` and wrapped in backticks, preventing
+    /// malicious identifiers containing `` ` `` from breaking out.
     ///
-    /// # Upsert 行为
+    /// # Upsert behavior
     ///
-    /// - `Replace`：生成 `REPLACE INTO` 代替 `INSERT INTO`
-    /// - `OnDuplicateKeyUpdate`：追加 `ON DUPLICATE KEY UPDATE` 子句
-    /// - `OnConflictDoNothing`/`OnConflictDoUpdate`：跳过（MySQL 不支持）
+    /// - `Replace`: generates `REPLACE INTO` instead of `INSERT INTO`
+    /// - `OnDuplicateKeyUpdate`: appends `ON DUPLICATE KEY UPDATE` clause
+    /// - `OnConflictDoNothing`/`OnConflictDoUpdate`: skipped (MySQL does not support)
     pub fn build(self) -> String {
         let table = self.table.unwrap_or_default();
         if table.is_empty() || self.columns.is_empty() {
@@ -1944,13 +1962,13 @@ impl InsertQuery {
         sql
     }
 
-    /// 按指定方言生成 SQL
+    /// Generate SQL for the specified dialect
     ///
-    /// # Upsert 方言兼容性
+    /// # Upsert dialect compatibility
     ///
-    /// - MySQL 家族：支持 `OnDuplicateKeyUpdate`、`Replace`
-    /// - PostgreSQL/SQLite：支持 `OnConflictDoNothing`、`OnConflictDoUpdate`
-    /// - 不兼容的组合会跳过 upsert 子句（不报错）
+    /// - MySQL family: supports `OnDuplicateKeyUpdate`, `Replace`
+    /// - PostgreSQL/SQLite: supports `OnConflictDoNothing`, `OnConflictDoUpdate`
+    /// - Incompatible combinations skip the upsert clause (no error)
     pub fn build_with_dialect(self, db_type: DbType) -> String {
         let dialect = match sz_orm_core::get_dialect(db_type) {
             Ok(d) => d,
@@ -1994,37 +2012,37 @@ impl InsertQuery {
     }
 }
 
-/// UPDATE 查询构造器
+/// UPDATE query builder
 #[derive(Debug, Clone, Default)]
 pub struct UpdateQuery {
     table: Option<String>,
     sets: Vec<(String, String)>,
     wheres: Vec<String>,
-    /// 参数化 WHERE 条件（P0 修复：SQL 注入防护）
+    /// Parameterized WHERE conditions (P0 fix: SQL injection prevention)
     param_wheres: Vec<ParamWhere>,
-    /// RETURNING 子句列列表（PostgreSQL/SQLite 支持，MySQL 不支持）
+    /// RETURNING clause column list (supported by PostgreSQL/SQLite, not MySQL)
     returning: Option<Vec<String>>,
 }
 
 impl UpdateQuery {
-    /// 创建空的 UPDATE 查询
+    /// Create an empty UPDATE query
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 设置目标表
+    /// Set the target table
     pub fn table(mut self, table: &str) -> Self {
         self.table = Some(table.to_string());
         self
     }
 
-    /// 添加 SET 赋值（值应为已转义的 SQL 字面量）
+    /// Add a SET assignment (value should be an already-escaped SQL literal)
     pub fn set(mut self, column: &str, value: &str) -> Self {
         self.sets.push((column.to_string(), value.to_string()));
         self
     }
 
-    /// 批量添加 SET 赋值
+    /// Batch add SET assignments
     pub fn sets(mut self, pairs: &[(&str, &str)]) -> Self {
         for (c, v) in pairs {
             self.sets.push((c.to_string(), v.to_string()));
@@ -2032,18 +2050,18 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 WHERE 条件
+    /// Add a WHERE condition
     ///
-    /// # 安全性（v0.2.2 修复 C-6）
+    /// # Security (v0.2.2 fix C-6)
     ///
-    /// 调用 `check_where_injection` 检测高危模式。
+    /// Calls `check_where_injection` to detect high-risk patterns.
     pub fn where_clause(mut self, condition: &str) -> Self {
         check_where_injection(condition);
         self.wheres.push(condition.to_string());
         self
     }
 
-    /// 添加 `column = ?` AND 条件（P0 修复：参数化绑定）
+    /// Add a `column = ?` AND condition (P0 fix: parameterized binding)
     pub fn where_eq(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2053,7 +2071,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column <> ?` AND 条件
+    /// Add a `column <> ?` AND condition
     pub fn where_ne(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2063,7 +2081,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column > ?` AND 条件
+    /// Add a `column > ?` AND condition
     pub fn where_gt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2073,7 +2091,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column >= ?` AND 条件
+    /// Add a `column >= ?` AND condition
     pub fn where_ge(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2083,7 +2101,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column < ?` AND 条件
+    /// Add a `column < ?` AND condition
     pub fn where_lt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2093,7 +2111,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column <= ?` AND 条件
+    /// Add a `column <= ?` AND condition
     pub fn where_le(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2103,7 +2121,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column LIKE ?` AND 条件
+    /// Add a `column LIKE ?` AND condition
     pub fn where_like(mut self, column: &str, pattern: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2113,7 +2131,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column IN (?, ?, ...)` AND 条件
+    /// Add a `column IN (?, ?, ...)` AND condition
     pub fn where_in(mut self, column: &str, values: Vec<Value>) -> Self {
         let (column, op) = if values.is_empty() {
             (String::new(), "1 = 0".to_string())
@@ -2129,7 +2147,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column BETWEEN ? AND ?` AND 条件
+    /// Add a `column BETWEEN ? AND ?` AND condition
     pub fn where_between(mut self, column: &str, low: Value, high: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2139,7 +2157,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column IS NULL` AND 条件
+    /// Add a `column IS NULL` AND condition
     pub fn where_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2149,7 +2167,7 @@ impl UpdateQuery {
         self
     }
 
-    /// 添加 `column IS NOT NULL` AND 条件
+    /// Add a `column IS NOT NULL` AND condition
     pub fn where_not_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2159,26 +2177,28 @@ impl UpdateQuery {
         self
     }
 
-    /// 设置 RETURNING 子句（PostgreSQL/SQLite 3.35+ 支持）
+    /// Set the RETURNING clause (supported by PostgreSQL/SQLite 3.35+)
     ///
-    /// 在 UPDATE 后返回指定列的新值。MySQL 不支持 RETURNING，
-    /// 在 `build()`（MySQL 风格）和 `build_with_dialect()` 的 MySQL 方言下被忽略。
+    /// Returns the new values of specified columns after UPDATE. MySQL does not support
+    /// RETURNING; it is ignored in `build()` (MySQL style) and under MySQL dialect in
+    /// `build_with_dialect()`.
     pub fn returning(mut self, columns: &[&str]) -> Self {
         self.returning = Some(columns.iter().map(|s| s.to_string()).collect());
         self
     }
 
-    /// 设置 RETURNING *（返回所有列）
+    /// Set RETURNING * (return all columns)
     pub fn returning_all(mut self) -> Self {
         self.returning = Some(vec!["*".to_string()]);
         self
     }
 
-    /// 生成 SQL
+    /// Generate SQL
     ///
-    /// # 安全性（门禁 9 修复）
+    /// # Security (gate 9 fix)
     ///
-    /// 表名和列名经 `quote_ident()` 转义后包裹反引号，防止含 `` ` `` 的恶意标识符逃逸。
+    /// Table and column names are escaped via `quote_ident()` and wrapped in backticks,
+    /// preventing malicious identifiers containing `` ` `` from breaking out.
     pub fn build(self) -> String {
         let table = self.table.unwrap_or_default();
         if table.is_empty() || self.sets.is_empty() {
@@ -2201,7 +2221,7 @@ impl UpdateQuery {
         sql
     }
 
-    /// 按指定方言生成 SQL
+    /// Generate SQL for the specified dialect
     pub fn build_with_dialect(self, db_type: DbType) -> String {
         let dialect = match sz_orm_core::get_dialect(db_type) {
             Ok(d) => d,
@@ -2239,11 +2259,11 @@ impl UpdateQuery {
         sql
     }
 
-    /// 生成带参数的 SQL（参数化查询，P0 修复：SQL 注入防护）
+    /// Generate parameterized SQL (parameterized query, P0 fix: SQL injection prevention)
     ///
-    /// WHERE 条件可来自 `where_eq`/`where_in`/`where_between` 等参数化 API，
-    /// 用户输入作为参数绑定，而非字符串拼接。
-    /// 注意：SET 值仍为原始字符串，如需参数化 SET 请使用 ORM 的 `save()` 接口。
+    /// WHERE conditions can come from parameterized APIs like `where_eq`/`where_in`/`where_between`,
+    /// with user input bound as parameters rather than string concatenation.
+    /// Note: SET values are still raw strings; for parameterized SET, use the ORM's `save()` interface.
     pub fn build_with_params(self, db_type: DbType) -> BuiltQuery {
         let dialect = match sz_orm_core::get_dialect(db_type) {
             Ok(d) => d,
@@ -2316,41 +2336,41 @@ impl UpdateQuery {
     }
 }
 
-/// DELETE 查询构造器
+/// DELETE query builder
 #[derive(Debug, Clone, Default)]
 pub struct DeleteQuery {
     table: Option<String>,
     wheres: Vec<String>,
-    /// 参数化 WHERE 条件（P0 修复：SQL 注入防护）
+    /// Parameterized WHERE conditions (P0 fix: SQL injection prevention)
     param_wheres: Vec<ParamWhere>,
-    /// RETURNING 子句列列表（PostgreSQL/SQLite 支持，MySQL 不支持）
+    /// RETURNING clause column list (supported by PostgreSQL/SQLite, not MySQL)
     returning: Option<Vec<String>>,
 }
 
 impl DeleteQuery {
-    /// 创建空的 DELETE 查询
+    /// Create an empty DELETE query
     pub fn new() -> Self {
         Self::default()
     }
 
-    /// 设置目标表
+    /// Set the target table
     pub fn from_table(mut self, table: &str) -> Self {
         self.table = Some(table.to_string());
         self
     }
 
-    /// 添加 WHERE 条件
+    /// Add a WHERE condition
     ///
-    /// # 安全性（v0.2.2 修复 C-6）
+    /// # Security (v0.2.2 fix C-6)
     ///
-    /// 调用 `check_where_injection` 检测高危模式。
+    /// Calls `check_where_injection` to detect high-risk patterns.
     pub fn where_clause(mut self, condition: &str) -> Self {
         check_where_injection(condition);
         self.wheres.push(condition.to_string());
         self
     }
 
-    /// 添加 `column = ?` AND 条件（P0 修复：参数化绑定）
+    /// Add a `column = ?` AND condition (P0 fix: parameterized binding)
     pub fn where_eq(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2360,7 +2380,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column <> ?` AND 条件
+    /// Add a `column <> ?` AND condition
     pub fn where_ne(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2370,7 +2390,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column > ?` AND 条件
+    /// Add a `column > ?` AND condition
     pub fn where_gt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2380,7 +2400,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column >= ?` AND 条件
+    /// Add a `column >= ?` AND condition
     pub fn where_ge(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2390,7 +2410,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column < ?` AND 条件
+    /// Add a `column < ?` AND condition
     pub fn where_lt(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2400,7 +2420,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column <= ?` AND 条件
+    /// Add a `column <= ?` AND condition
     pub fn where_le(mut self, column: &str, value: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2410,7 +2430,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column LIKE ?` AND 条件
+    /// Add a `column LIKE ?` AND condition
     pub fn where_like(mut self, column: &str, pattern: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2420,7 +2440,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column IN (?, ?, ...)` AND 条件
+    /// Add a `column IN (?, ?, ...)` AND condition
     pub fn where_in(mut self, column: &str, values: Vec<Value>) -> Self {
         let (column, op) = if values.is_empty() {
             (String::new(), "1 = 0".to_string())
@@ -2436,7 +2456,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column BETWEEN ? AND ?` AND 条件
+    /// Add a `column BETWEEN ? AND ?` AND condition
     pub fn where_between(mut self, column: &str, low: Value, high: Value) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2446,7 +2466,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column IS NULL` AND 条件
+    /// Add a `column IS NULL` AND condition
     pub fn where_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2456,7 +2476,7 @@ impl DeleteQuery {
         self
     }
 
-    /// 添加 `column IS NOT NULL` AND 条件
+    /// Add a `column IS NOT NULL` AND condition
     pub fn where_not_null(mut self, column: &str) -> Self {
         self.param_wheres.push(ParamWhere::And {
             column: column.to_string(),
@@ -2466,26 +2486,28 @@ impl DeleteQuery {
         self
     }
 
-    /// 设置 RETURNING 子句（PostgreSQL/SQLite 3.35+ 支持）
+    /// Set the RETURNING clause (supported by PostgreSQL/SQLite 3.35+)
     ///
-    /// 在 DELETE 后返回被删除行的指定列值。MySQL 不支持 RETURNING，
-    /// 在 `build()`（MySQL 风格）和 `build_with_dialect()` 的 MySQL 方言下被忽略。
+    /// Returns the specified column values of deleted rows after DELETE. MySQL does not
+    /// support RETURNING; it is ignored in `build()` (MySQL style) and under MySQL dialect
+    /// in `build_with_dialect()`.
     pub fn returning(mut self, columns: &[&str]) -> Self {
         self.returning = Some(columns.iter().map(|s| s.to_string()).collect());
         self
     }
 
-    /// 设置 RETURNING *（返回所有列）
+    /// Set RETURNING * (return all columns)
     pub fn returning_all(mut self) -> Self {
         self.returning = Some(vec!["*".to_string()]);
         self
     }
 
-    /// 生成 SQL
+    /// Generate SQL
     ///
-    /// # 安全性（门禁 9 修复）
+    /// # Security (gate 9 fix)
     ///
-    /// 表名经 `quote_ident()` 转义后包裹反引号，防止含 `` ` `` 的恶意表名逃逸。
+    /// The table name is escaped via `quote_ident()` and wrapped in backticks, preventing
+    /// malicious table names containing `` ` `` from breaking out.
     pub fn build(self) -> String {
         let table = self.table.unwrap_or_default();
         if table.is_empty() {
@@ -2502,7 +2524,7 @@ impl DeleteQuery {
         sql
     }
 
-    /// 按指定方言生成 SQL
+    /// Generate SQL for the specified dialect
     pub fn build_with_dialect(self, db_type: DbType) -> String {
         let dialect = match sz_orm_core::get_dialect(db_type) {
             Ok(d) => d,
@@ -2530,10 +2552,10 @@ impl DeleteQuery {
         sql
     }
 
-    /// 生成带参数的 SQL（参数化查询，P0 修复：SQL 注入防护）
+    /// Generate parameterized SQL (parameterized query, P0 fix: SQL injection prevention)
     ///
-    /// WHERE 条件可来自 `where_eq`/`where_in`/`where_between` 等参数化 API，
-    /// 用户输入作为参数绑定，而非字符串拼接。
+    /// WHERE conditions can come from parameterized APIs like `where_eq`/`where_in`/`where_between`,
+    /// with user input bound as parameters rather than string concatenation.
     pub fn build_with_params(self, db_type: DbType) -> BuiltQuery {
         let dialect = match sz_orm_core::get_dialect(db_type) {
             Ok(d) => d,

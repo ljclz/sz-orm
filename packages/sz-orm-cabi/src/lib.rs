@@ -1,22 +1,25 @@
-//! # SZ-ORM C ABI — 跨语言 FFI 导出层
+//! # SZ-ORM C ABI — Cross-language FFI Export Layer
 //!
-//! 为 Go/Java/C++/Python 提供统一的 C ABI 接口，暴露 sz-orm-core 的
-//! Model/QueryBuilder/Pool/Transaction 核心 API。
+//! Provides a unified C ABI interface for Go/Java/C++/Python, exposing the
+//! core Model/QueryBuilder/Pool/Transaction APIs of sz-orm-core.
 //!
-//! ## 安全保证
+//! ## Safety Guarantees
 //!
-//! - FFI 内存由 Rust 侧分配/释放，语言侧仅持有句柄
-//! - panic 捕获转换为错误码，不跨语言边界 UB
-//! - unsafe 块均有 `// SAFETY:` 注释
+//! - FFI memory is allocated/freed on the Rust side; the language side only
+//!   holds handles
+//! - Panics are caught and converted to error codes; no UB crosses the
+//!   language boundary
+//! - All `unsafe` blocks have `// SAFETY:` comments
 //!
-//! ## 导出函数
+//! ## Exported Functions
 //!
-//! - [`sz_orm_pool_new`]：创建连接池（真实创建，基于 sz-orm-sqlx SQLite 后端）
-//! - [`sz_orm_pool_free`]：释放连接池
-//! - [`sz_orm_ping`]：连接池健康检查
-//! - [`sz_orm_query`]：执行查询，返回行 JSON
-//! - [`sz_orm_execute`]：执行写语句（INSERT/UPDATE/DELETE）
-//! - [`sz_orm_version`]：版本号
+//! - [`sz_orm_pool_new`]: create a connection pool (real creation, based on
+//!   the sz-orm-sqlx SQLite backend)
+//! - [`sz_orm_pool_free`]: free a connection pool
+//! - [`sz_orm_ping`]: connection pool health check
+//! - [`sz_orm_query`]: execute a query and return rows as JSON
+//! - [`sz_orm_execute`]: execute a write statement (INSERT/UPDATE/DELETE)
+//! - [`sz_orm_version`]: version number
 
 pub mod ffi_memory;
 pub mod panic_guard;
@@ -27,19 +30,19 @@ use std::sync::OnceLock;
 
 use sz_orm_core::{Pool, PoolConfig, PoolConfigBuilder, PooledConnection, Value};
 
-/// 连接池句柄
+/// Connection pool handle
 pub type SzOrmPoolHandle = *mut c_void;
 
-/// 查询构建器句柄
+/// Query builder handle
 pub type SzOrmQueryBuilderHandle = *mut c_void;
 
-/// 事务句柄
+/// Transaction handle
 pub type SzOrmTransactionHandle = *mut c_void;
 
-/// 模型句柄
+/// Model handle
 pub type SzOrmModelHandle = *mut c_void;
 
-/// 错误码
+/// Error code
 #[repr(i32)]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum SzOrmErrorCode {
@@ -92,7 +95,7 @@ impl SzOrmErrorCode {
     }
 }
 
-/// C ABI 兼容的连接池配置
+/// C ABI compatible connection pool configuration
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct PoolConfigC {
@@ -113,7 +116,7 @@ impl Default for PoolConfigC {
     }
 }
 
-/// C ABI 兼容的查询结果
+/// C ABI compatible query result
 #[repr(C)]
 #[derive(Debug, Clone, Copy)]
 pub struct QueryResultC {
@@ -145,15 +148,17 @@ impl QueryResultC {
     }
 }
 
-/// 查询行 JSON 结果（Rust 侧分配，`sz_orm_query_free` 释放）
+/// Query rows JSON result (allocated on the Rust side; freed via
+/// `sz_orm_query_free`)
 pub struct QueryJsonResult {
     pub success: i32,
     pub error_code: i32,
-    /// 行 JSON 的 C 字符串（`[{"col":val},...]`），成功时非空
+    /// C string of the rows JSON (`[{"col":val},...]`); non-null on success
     pub json: *mut c_char,
 }
 
-/// 全局 tokio runtime（C ABI 同步接口需要 block_on 执行异步池操作）
+/// Global tokio runtime (the C ABI synchronous interface needs block_on to
+/// execute async pool operations)
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| {
@@ -165,7 +170,7 @@ fn runtime() -> &'static tokio::runtime::Runtime {
     })
 }
 
-/// 将 PoolConfigC 转换为 sz-orm-core 的 PoolConfig
+/// Convert `PoolConfigC` to the `PoolConfig` of sz-orm-core
 fn to_core_config(c: &PoolConfigC) -> Result<PoolConfig, sz_orm_core::PoolError> {
     PoolConfigBuilder::new()
         .max_size(c.max_connections.max(1))
@@ -175,13 +180,13 @@ fn to_core_config(c: &PoolConfigC) -> Result<PoolConfig, sz_orm_core::PoolError>
         .build()
 }
 
-/// 创建连接池（SQLite 后端，真实创建）
+/// Create a connection pool (SQLite backend; real creation)
 ///
-/// dsn 支持 SQLite URL：`sqlite::memory:`、`sqlite://path/to/db.sqlite`
+/// `dsn` supports SQLite URLs: `sqlite::memory:`, `sqlite://path/to/db.sqlite`
 ///
 /// # Safety
 ///
-/// SAFETY: `dsn` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `dsn` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_pool_new(
     dsn: *const c_char,
@@ -227,11 +232,12 @@ pub unsafe extern "C" fn sz_orm_pool_new(
     }
 }
 
-/// 释放连接池
+/// Free a connection pool
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄，且未被释放过。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new` and
+/// not yet freed.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_pool_free(handle: SzOrmPoolHandle) {
     if handle.is_null() {
@@ -250,13 +256,13 @@ pub unsafe extern "C" fn sz_orm_pool_free(handle: SzOrmPoolHandle) {
     }));
 }
 
-/// 连接池健康检查（acquire + ping 真实探活）
+/// Connection pool health check (acquire + ping for real liveness probing)
 ///
-/// 返回 1 = 健康，0 = 不健康
+/// Returns 1 = healthy, 0 = unhealthy
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_ping(handle: SzOrmPoolHandle) -> i32 {
     if handle.is_null() {
@@ -279,15 +285,16 @@ pub unsafe extern "C" fn sz_orm_ping(handle: SzOrmPoolHandle) -> i32 {
     }
 }
 
-/// 执行查询，返回行 JSON
+/// Execute a query and return rows as JSON
 ///
-/// 成功时返回非空 `QueryJsonResult`，调用方用 `sz_orm_query_result_free` 释放。
-/// 返回 `nullptr` 表示参数无效或内部 panic。
+/// On success returns a non-null `QueryJsonResult`; the caller frees it with
+/// `sz_orm_query_result_free`. Returns `nullptr` on invalid arguments or
+/// internal panic.
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_query(
     handle: SzOrmPoolHandle,
@@ -341,11 +348,11 @@ fn err_result(code: SzOrmErrorCode) -> *mut QueryJsonResult {
     Box::into_raw(result)
 }
 
-/// 释放查询结果
+/// Free a query result
 ///
 /// # Safety
 ///
-/// SAFETY: `result` 必须是 `sz_orm_query` 返回的指针（或 nullptr）。
+/// SAFETY: `result` must be a pointer returned by `sz_orm_query` (or nullptr).
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_query_result_free(result: *mut QueryJsonResult) {
     if result.is_null() {
@@ -361,12 +368,13 @@ pub unsafe extern "C" fn sz_orm_query_result_free(result: *mut QueryJsonResult) 
     }
 }
 
-/// 执行写语句（INSERT/UPDATE/DELETE），返回影响行数
+/// Execute a write statement (INSERT/UPDATE/DELETE) and return the number of
+/// affected rows
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_execute(
     handle: SzOrmPoolHandle,
@@ -407,7 +415,7 @@ pub unsafe extern "C" fn sz_orm_execute(
     }
 }
 
-/// 获取版本号
+/// Get the version number
 #[no_mangle]
 pub extern "C" fn sz_orm_version() -> u32 {
     env!("CARGO_PKG_VERSION")
@@ -417,7 +425,7 @@ pub extern "C" fn sz_orm_version() -> u32 {
         .unwrap_or(1)
 }
 
-/// C ABI 兼容的连接池状态快照
+/// C ABI compatible connection pool status snapshot
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PoolStatsC {
@@ -428,7 +436,7 @@ pub struct PoolStatsC {
     pub waiters: u32,
 }
 
-/// C ABI 兼容的连接池累计指标
+/// C ABI compatible connection pool cumulative metrics
 #[repr(C)]
 #[derive(Debug, Clone, Copy, Default)]
 pub struct PoolMetricsC {
@@ -439,17 +447,17 @@ pub struct PoolMetricsC {
     pub connection_closed_count: u64,
 }
 
-/// C ABI 事务句柄内部存储
+/// C ABI transaction handle internal storage
 struct CabiTransaction {
     conn: Option<PooledConnection>,
     active: bool,
 }
 
-/// 获取连接池状态快照
+/// Get a connection pool status snapshot
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_pool_stats(handle: SzOrmPoolHandle) -> PoolStatsC {
     if handle.is_null() {
@@ -472,11 +480,11 @@ pub unsafe extern "C" fn sz_orm_pool_stats(handle: SzOrmPoolHandle) -> PoolStats
     }
 }
 
-/// 获取连接池累计指标
+/// Get connection pool cumulative metrics
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_pool_metrics(handle: SzOrmPoolHandle) -> PoolMetricsC {
     if handle.is_null() {
@@ -497,14 +505,16 @@ pub unsafe extern "C" fn sz_orm_pool_metrics(handle: SzOrmPoolHandle) -> PoolMet
     }
 }
 
-/// 批量执行多条 SQL（分号分隔），返回累计影响行数
+/// Batch-execute multiple SQL statements (semicolon-separated) and return the
+/// cumulative number of affected rows
 ///
-/// 任一条 SQL 失败则立即返回错误，后续 SQL 不执行。
+/// If any SQL statement fails, an error is returned immediately and
+/// subsequent SQL is not executed.
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_execute_batch(
     handle: SzOrmPoolHandle,
@@ -549,15 +559,16 @@ pub unsafe extern "C" fn sz_orm_execute_batch(
     }
 }
 
-/// 查询单行，返回第一行 JSON 对象（非数组）
+/// Query a single row and return the first row as a JSON object (not an array)
 ///
-/// 成功时返回非空 `QueryJsonResult`，调用方用 `sz_orm_query_result_free` 释放。
-/// 无结果行时 success=1 但 json 为 null。
+/// On success returns a non-null `QueryJsonResult`; the caller frees it with
+/// `sz_orm_query_result_free`. When there are no result rows, success=1 but
+/// json is null.
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_query_one(
     handle: SzOrmPoolHandle,
@@ -611,14 +622,14 @@ pub unsafe extern "C" fn sz_orm_query_one(
     Box::into_raw(result)
 }
 
-/// 检查表是否存在（SQLite 后端）
+/// Check whether a table exists (SQLite backend)
 ///
-/// 返回 1 = 存在，0 = 不存在，-1 = 错误
+/// Returns 1 = exists, 0 = does not exist, -1 = error
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `table` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `table` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_table_exists(handle: SzOrmPoolHandle, table: *const c_char) -> i32 {
     if handle.is_null() || table.is_null() {
@@ -653,14 +664,14 @@ pub unsafe extern "C" fn sz_orm_table_exists(handle: SzOrmPoolHandle, table: *co
     }
 }
 
-/// 统计表行数
+/// Count the number of rows in a table
 ///
-/// 返回行数，错误返回 -1
+/// Returns the row count; returns -1 on error
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `table` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `table` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_count(handle: SzOrmPoolHandle, table: *const c_char) -> i64 {
     if handle.is_null() || table.is_null() {
@@ -686,13 +697,14 @@ pub unsafe extern "C" fn sz_orm_count(handle: SzOrmPoolHandle, table: *const c_c
     }
 }
 
-/// 开始事务（独占一个连接直到 commit/rollback/free）
+/// Begin a transaction (holds an exclusive connection until
+/// commit/rollback/free)
 ///
-/// 返回非空句柄表示成功，nullptr 表示失败
+/// Returns a non-null handle on success, nullptr on failure
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_transaction_begin(
     handle: SzOrmPoolHandle,
@@ -724,12 +736,12 @@ pub unsafe extern "C" fn sz_orm_transaction_begin(
     }
 }
 
-/// 在事务中执行 SQL
+/// Execute SQL within a transaction
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
-/// `sql` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin`; `sql` must be a valid NUL-terminated C string.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_transaction_execute(
     tx_handle: SzOrmTransactionHandle,
@@ -770,13 +782,14 @@ pub unsafe extern "C" fn sz_orm_transaction_execute(
     }
 }
 
-/// 提交事务
+/// Commit a transaction
 ///
-/// 返回 1 = 成功，0 = 失败
+/// Returns 1 = success, 0 = failure
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_transaction_commit(tx_handle: SzOrmTransactionHandle) -> i32 {
     if tx_handle.is_null() {
@@ -805,13 +818,14 @@ pub unsafe extern "C" fn sz_orm_transaction_commit(tx_handle: SzOrmTransactionHa
     }
 }
 
-/// 回滚事务
+/// Roll back a transaction
 ///
-/// 返回 1 = 成功，0 = 失败
+/// Returns 1 = success, 0 = failure
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_transaction_rollback(tx_handle: SzOrmTransactionHandle) -> i32 {
     if tx_handle.is_null() {
@@ -840,11 +854,13 @@ pub unsafe extern "C" fn sz_orm_transaction_rollback(tx_handle: SzOrmTransaction
     }
 }
 
-/// 释放事务句柄（若事务仍活跃则自动回滚）
+/// Free a transaction handle (automatically rolls back if the transaction is
+/// still active)
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄，且未被释放过。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin` and not yet freed.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_transaction_free(tx_handle: SzOrmTransactionHandle) {
     if tx_handle.is_null() {
@@ -868,11 +884,12 @@ pub unsafe extern "C" fn sz_orm_transaction_free(tx_handle: SzOrmTransactionHand
     }));
 }
 
-/// 获取错误码描述字符串（调用方需用 `sz_orm_string_free` 释放）
+/// Get the error code description string (the caller must free it with
+/// `sz_orm_string_free`)
 ///
 /// # Safety
 ///
-/// SAFETY: 返回的指针需通过 `sz_orm_string_free` 释放。
+/// SAFETY: the returned pointer must be freed via `sz_orm_string_free`.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_error_description(code: i32) -> *mut c_char {
     let desc = SzOrmErrorCode::from_i32(code).description();
@@ -882,11 +899,12 @@ pub unsafe extern "C" fn sz_orm_error_description(code: i32) -> *mut c_char {
     }
 }
 
-/// 释放由 `sz_orm_error_description` 返回的字符串
+/// Free the string returned by `sz_orm_error_description`
 ///
 /// # Safety
 ///
-/// SAFETY: `s` 必须是 `sz_orm_error_description` 返回的指针（或 nullptr）。
+/// SAFETY: `s` must be a pointer returned by `sz_orm_error_description`
+/// (or nullptr).
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_string_free(s: *mut c_char) {
     if s.is_null() {
@@ -906,10 +924,12 @@ pub unsafe extern "C" fn sz_orm_string_free(s: *mut c_char) {
 // 值通过 execute_with_params/query_with_params 参数绑定（防 SQL 注入）。
 // ============================================================================
 
-/// 校验 SQL 标识符（表名/字段名）合法性。
+/// Validate the legality of a SQL identifier (table name / field name).
 ///
-/// 规则：非空，首字符为字母或下划线，其余字符为字母/数字/下划线。
-/// 拒绝含 `'`/`;`/`--`/空格等 SQL 注入向量的输入（REQ-BND-011）。
+/// Rules: non-empty; the first character is a letter or underscore; the
+/// remaining characters are letters/digits/underscores. Rejects inputs
+/// containing `'`/`;`/`--`/spaces and other SQL injection vectors
+/// (REQ-BND-011).
 fn validate_identifier(name: &str) -> Result<(), SzOrmErrorCode> {
     if name.is_empty() {
         return Err(SzOrmErrorCode::InvalidArgument);
@@ -928,7 +948,8 @@ fn validate_identifier(name: &str) -> Result<(), SzOrmErrorCode> {
     Ok(())
 }
 
-/// 将 `serde_json::Value` 转换为 `sz_orm_core::Value`（绑定参数用）。
+/// Convert a `serde_json::Value` to an `sz_orm_core::Value` (for binding
+/// parameters).
 fn json_to_value(v: &serde_json::Value) -> Value {
     match v {
         serde_json::Value::Null => Value::Null,
@@ -956,7 +977,8 @@ fn json_to_value(v: &serde_json::Value) -> Value {
     }
 }
 
-/// 解析字段名 JSON 数组 `["f1","f2"]` → `Vec<String>`，并校验每个字段名合法。
+/// Parse a field-name JSON array `["f1","f2"]` → `Vec<String>` and validate
+/// each field name.
 fn parse_fields_json(json: &str) -> Result<Vec<String>, SzOrmErrorCode> {
     let arr: Vec<String> =
         serde_json::from_str(json).map_err(|_| SzOrmErrorCode::InvalidArgument)?;
@@ -969,14 +991,15 @@ fn parse_fields_json(json: &str) -> Result<Vec<String>, SzOrmErrorCode> {
     Ok(arr)
 }
 
-/// 解析值 JSON 数组 `[v1,v2]` → `Vec<Value>`。
+/// Parse a values JSON array `[v1,v2]` → `Vec<Value>`.
 fn parse_values_json(json: &str) -> Result<Vec<Value>, SzOrmErrorCode> {
     let arr: Vec<serde_json::Value> =
         serde_json::from_str(json).map_err(|_| SzOrmErrorCode::InvalidArgument)?;
     Ok(arr.iter().map(json_to_value).collect())
 }
 
-/// 解析 set JSON 对象 `{"f":v}` → `Vec<(String, Value)>`，并校验字段名合法。
+/// Parse a set JSON object `{"f":v}` → `Vec<(String, Value)>` and validate
+/// the field names.
 fn parse_set_json(json: &str) -> Result<Vec<(String, Value)>, SzOrmErrorCode> {
     let obj: std::collections::HashMap<String, serde_json::Value> =
         serde_json::from_str(json).map_err(|_| SzOrmErrorCode::InvalidArgument)?;
@@ -991,7 +1014,8 @@ fn parse_set_json(json: &str) -> Result<Vec<(String, Value)>, SzOrmErrorCode> {
     Ok(out)
 }
 
-/// 构建 INSERT SQL（参数化）。表名/字段名已校验，值通过 `?` 占位符绑定。
+/// Build an INSERT SQL (parameterized). Table and field names are validated;
+/// values are bound via `?` placeholders.
 fn build_insert_sql(table: &str, fields: &[String]) -> String {
     let placeholders: Vec<&str> = fields.iter().map(|_| "?").collect();
     format!(
@@ -1002,7 +1026,8 @@ fn build_insert_sql(table: &str, fields: &[String]) -> String {
     )
 }
 
-/// 构建 UPDATE SQL（参数化）。set 值 + where 参数均通过 `?` 占位符绑定。
+/// Build an UPDATE SQL (parameterized). Both set values and where parameters
+/// are bound via `?` placeholders.
 fn build_update_sql(table: &str, set_fields: &[String], where_clause: &str) -> String {
     let sets: Vec<String> = set_fields.iter().map(|f| format!("{} = ?", f)).collect();
     if where_clause.is_empty() {
@@ -1017,7 +1042,8 @@ fn build_update_sql(table: &str, set_fields: &[String], where_clause: &str) -> S
     }
 }
 
-/// 构建 DELETE SQL（参数化）。where 参数通过 `?` 占位符绑定。
+/// Build a DELETE SQL (parameterized). Where parameters are bound via `?`
+/// placeholders.
 fn build_delete_sql(table: &str, where_clause: &str) -> String {
     if where_clause.is_empty() {
         format!("DELETE FROM {}", table)
@@ -1026,7 +1052,8 @@ fn build_delete_sql(table: &str, where_clause: &str) -> String {
     }
 }
 
-/// 构建 SELECT SQL（参数化）。where 参数通过 `?` 占位符绑定。
+/// Build a SELECT SQL (parameterized). Where parameters are bound via `?`
+/// placeholders.
 fn build_select_sql(table: &str, where_clause: &str) -> String {
     if where_clause.is_empty() {
         format!("SELECT * FROM {}", table)
@@ -1035,14 +1062,15 @@ fn build_select_sql(table: &str, where_clause: &str) -> String {
     }
 }
 
-/// 在 pool 上插入一行（参数化，REQ-BND-007）。
+/// Insert a row on a pool (parameterized, REQ-BND-007).
 ///
-/// `fields_json` 为字段名数组 `["name","age"]`，`values_json` 为对应值数组 `["Alice",30]`。
+/// `fields_json` is a field-name array `["name","age"]`; `values_json` is the
+/// corresponding values array `["Alice",30]`.
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `table`/`fields_json`/`values_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `table`/`fields_json`/`values_json` must be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_insert(
     handle: SzOrmPoolHandle,
@@ -1099,15 +1127,17 @@ pub unsafe extern "C" fn sz_orm_model_insert(
     }
 }
 
-/// 在 pool 上更新行（参数化，REQ-BND-007）。
+/// Update rows on a pool (parameterized, REQ-BND-007).
 ///
-/// `set_json` 为对象 `{"name":"Alice"}`，`where_clause` 为参数化条件 `id = ?`，
-/// `where_params_json` 为参数数组 `[1]`。
+/// `set_json` is an object `{"name":"Alice"}`; `where_clause` is a
+/// parameterized condition `id = ?`; `where_params_json` is a parameter
+/// array `[1]`.
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `table`/`set_json`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `table`/`set_json`/`where_clause`/`where_params_json` must be valid
+/// NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_update(
     handle: SzOrmPoolHandle,
@@ -1177,12 +1207,13 @@ pub unsafe extern "C" fn sz_orm_model_update(
     }
 }
 
-/// 在 pool 上删除行（参数化，REQ-BND-007）。
+/// Delete rows on a pool (parameterized, REQ-BND-007).
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `table`/`where_clause`/`where_params_json` must be valid NUL-terminated C
+/// strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_delete(
     handle: SzOrmPoolHandle,
@@ -1244,15 +1275,18 @@ pub unsafe extern "C" fn sz_orm_model_delete(
     }
 }
 
-/// 在 pool 上查询行，返回 JSON 行数组字符串（参数化，REQ-BND-007）。
+/// Query rows on a pool and return a JSON row-array string (parameterized,
+/// REQ-BND-007).
 ///
-/// 成功返回非空 `*mut c_char`（调用方用 `sz_orm_string_free` 释放），null 表示失败。
-/// 无匹配行返回 `[]`。
+/// On success returns a non-null `*mut c_char` (the caller frees it with
+/// `sz_orm_string_free`); null indicates failure. Returns `[]` when no rows
+/// match.
 ///
 /// # Safety
 ///
-/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
-/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `table`/`where_clause`/`where_params_json` must be valid NUL-terminated C
+/// strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_find(
     handle: SzOrmPoolHandle,
@@ -1316,12 +1350,13 @@ pub unsafe extern "C" fn sz_orm_model_find(
     }
 }
 
-/// 在事务内插入一行（参数化，REQ-BND-014）。
+/// Insert a row within a transaction (parameterized, REQ-BND-014).
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
-/// `table`/`fields_json`/`values_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin`; `table`/`fields_json`/`values_json` must be
+/// valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_insert_tx(
     tx_handle: SzOrmTransactionHandle,
@@ -1378,12 +1413,14 @@ pub unsafe extern "C" fn sz_orm_model_insert_tx(
     }
 }
 
-/// 在事务内更新行（参数化，REQ-BND-014）。
+/// Update rows within a transaction (parameterized, REQ-BND-014).
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
-/// `table`/`set_json`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin`;
+/// `table`/`set_json`/`where_clause`/`where_params_json` must be valid
+/// NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_update_tx(
     tx_handle: SzOrmTransactionHandle,
@@ -1453,12 +1490,13 @@ pub unsafe extern "C" fn sz_orm_model_update_tx(
     }
 }
 
-/// 在事务内删除行（参数化，REQ-BND-014）。
+/// Delete rows within a transaction (parameterized, REQ-BND-014).
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
-/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin`; `table`/`where_clause`/`where_params_json` must
+/// be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_delete_tx(
     tx_handle: SzOrmTransactionHandle,
@@ -1520,14 +1558,17 @@ pub unsafe extern "C" fn sz_orm_model_delete_tx(
     }
 }
 
-/// 在事务内查询行，返回 JSON 行数组字符串（参数化，REQ-BND-014）。
+/// Query rows within a transaction and return a JSON row-array string
+/// (parameterized, REQ-BND-014).
 ///
-/// 成功返回非空 `*mut c_char`（调用方用 `sz_orm_string_free` 释放），null 表示失败。
+/// On success returns a non-null `*mut c_char` (the caller frees it with
+/// `sz_orm_string_free`); null indicates failure.
 ///
 /// # Safety
 ///
-/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
-/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+/// SAFETY: `tx_handle` must be a valid handle returned by
+/// `sz_orm_transaction_begin`; `table`/`where_clause`/`where_params_json` must
+/// be valid NUL-terminated C strings.
 #[no_mangle]
 pub unsafe extern "C" fn sz_orm_model_find_tx(
     tx_handle: SzOrmTransactionHandle,
@@ -2276,7 +2317,7 @@ mod tests {
         );
     }
 
-    /// 模型测试辅助：创建带 name/age 列的表
+    /// Model test helper: create a table with name/age columns
     fn model_test_pool() -> SzOrmPoolHandle {
         let pool = test_pool();
         assert!(!pool.is_null());
@@ -2289,7 +2330,7 @@ mod tests {
         pool
     }
 
-    /// 释放 model_find 返回的字符串指针
+    /// Free the string pointer returned by model_find
     unsafe fn free_find_str(ptr: *mut c_char) -> String {
         if ptr.is_null() {
             return String::new();
