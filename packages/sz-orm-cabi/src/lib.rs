@@ -25,7 +25,7 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use sz_orm_core::{Pool, PoolConfig, PoolConfigBuilder, PooledConnection};
+use sz_orm_core::{Pool, PoolConfig, PoolConfigBuilder, PooledConnection, Value};
 
 /// 连接池句柄
 pub type SzOrmPoolHandle = *mut c_void;
@@ -898,6 +898,699 @@ pub unsafe extern "C" fn sz_orm_string_free(s: *mut c_char) {
     }
 }
 
+// ============================================================================
+// 模型级 API（REQ-BND-007 ~ REQ-BND-014）
+//
+// 4 个 pool 上的模型级导出 + 4 个 tx 上的模型级导出。
+// 表名/字段名经 validate_identifier 校验（防 SQL 注入），
+// 值通过 execute_with_params/query_with_params 参数绑定（防 SQL 注入）。
+// ============================================================================
+
+/// 校验 SQL 标识符（表名/字段名）合法性。
+///
+/// 规则：非空，首字符为字母或下划线，其余字符为字母/数字/下划线。
+/// 拒绝含 `'`/`;`/`--`/空格等 SQL 注入向量的输入（REQ-BND-011）。
+fn validate_identifier(name: &str) -> Result<(), SzOrmErrorCode> {
+    if name.is_empty() {
+        return Err(SzOrmErrorCode::InvalidArgument);
+    }
+    let mut chars = name.chars();
+    // SAFETY: name 非空，next() 必返回 Some
+    let first = chars.next().unwrap();
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return Err(SzOrmErrorCode::InvalidArgument);
+    }
+    for c in chars {
+        if !(c.is_ascii_alphanumeric() || c == '_') {
+            return Err(SzOrmErrorCode::InvalidArgument);
+        }
+    }
+    Ok(())
+}
+
+/// 将 `serde_json::Value` 转换为 `sz_orm_core::Value`（绑定参数用）。
+fn json_to_value(v: &serde_json::Value) -> Value {
+    match v {
+        serde_json::Value::Null => Value::Null,
+        serde_json::Value::Bool(b) => Value::Bool(*b),
+        serde_json::Value::Number(n) => {
+            if let Some(i) = n.as_i64() {
+                Value::I64(i)
+            } else if let Some(u) = n.as_u64() {
+                Value::U64(u)
+            } else if let Some(f) = n.as_f64() {
+                Value::F64(f)
+            } else {
+                Value::Null
+            }
+        }
+        serde_json::Value::String(s) => Value::String(s.clone()),
+        serde_json::Value::Array(arr) => Value::Array(arr.iter().map(json_to_value).collect()),
+        serde_json::Value::Object(obj) => {
+            let mut map = std::collections::HashMap::with_capacity(obj.len());
+            for (k, v) in obj {
+                map.insert(k.clone(), json_to_value(v));
+            }
+            Value::Object(map)
+        }
+    }
+}
+
+/// 解析字段名 JSON 数组 `["f1","f2"]` → `Vec<String>`，并校验每个字段名合法。
+fn parse_fields_json(json: &str) -> Result<Vec<String>, SzOrmErrorCode> {
+    let arr: Vec<String> =
+        serde_json::from_str(json).map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+    if arr.is_empty() {
+        return Err(SzOrmErrorCode::InvalidArgument);
+    }
+    for f in &arr {
+        validate_identifier(f)?;
+    }
+    Ok(arr)
+}
+
+/// 解析值 JSON 数组 `[v1,v2]` → `Vec<Value>`。
+fn parse_values_json(json: &str) -> Result<Vec<Value>, SzOrmErrorCode> {
+    let arr: Vec<serde_json::Value> =
+        serde_json::from_str(json).map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+    Ok(arr.iter().map(json_to_value).collect())
+}
+
+/// 解析 set JSON 对象 `{"f":v}` → `Vec<(String, Value)>`，并校验字段名合法。
+fn parse_set_json(json: &str) -> Result<Vec<(String, Value)>, SzOrmErrorCode> {
+    let obj: std::collections::HashMap<String, serde_json::Value> =
+        serde_json::from_str(json).map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+    if obj.is_empty() {
+        return Err(SzOrmErrorCode::InvalidArgument);
+    }
+    let mut out = Vec::with_capacity(obj.len());
+    for (k, v) in obj {
+        validate_identifier(&k)?;
+        out.push((k, json_to_value(&v)));
+    }
+    Ok(out)
+}
+
+/// 构建 INSERT SQL（参数化）。表名/字段名已校验，值通过 `?` 占位符绑定。
+fn build_insert_sql(table: &str, fields: &[String]) -> String {
+    let placeholders: Vec<&str> = fields.iter().map(|_| "?").collect();
+    format!(
+        "INSERT INTO {} ({}) VALUES ({})",
+        table,
+        fields.join(", "),
+        placeholders.join(", ")
+    )
+}
+
+/// 构建 UPDATE SQL（参数化）。set 值 + where 参数均通过 `?` 占位符绑定。
+fn build_update_sql(table: &str, set_fields: &[String], where_clause: &str) -> String {
+    let sets: Vec<String> = set_fields.iter().map(|f| format!("{} = ?", f)).collect();
+    if where_clause.is_empty() {
+        format!("UPDATE {} SET {}", table, sets.join(", "))
+    } else {
+        format!(
+            "UPDATE {} SET {} WHERE {}",
+            table,
+            sets.join(", "),
+            where_clause
+        )
+    }
+}
+
+/// 构建 DELETE SQL（参数化）。where 参数通过 `?` 占位符绑定。
+fn build_delete_sql(table: &str, where_clause: &str) -> String {
+    if where_clause.is_empty() {
+        format!("DELETE FROM {}", table)
+    } else {
+        format!("DELETE FROM {} WHERE {}", table, where_clause)
+    }
+}
+
+/// 构建 SELECT SQL（参数化）。where 参数通过 `?` 占位符绑定。
+fn build_select_sql(table: &str, where_clause: &str) -> String {
+    if where_clause.is_empty() {
+        format!("SELECT * FROM {}", table)
+    } else {
+        format!("SELECT * FROM {} WHERE {}", table, where_clause)
+    }
+}
+
+/// 在 pool 上插入一行（参数化，REQ-BND-007）。
+///
+/// `fields_json` 为字段名数组 `["name","age"]`，`values_json` 为对应值数组 `["Alice",30]`。
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
+/// `table`/`fields_json`/`values_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_insert(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    fields_json: *const c_char,
+    values_json: *const c_char,
+) -> QueryResultC {
+    if handle.is_null() || table.is_null() || fields_json.is_null() || values_json.is_null() {
+        return QueryResultC::error(SzOrmErrorCode::InvalidArgument);
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 handle 有效
+        let pool = unsafe { &*(handle as *const Pool) };
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let fields_s = unsafe { CStr::from_ptr(fields_json) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let values_s = unsafe { CStr::from_ptr(values_json) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+
+        validate_identifier(table_s)?;
+        let fields = parse_fields_json(fields_s)?;
+        let values = parse_values_json(values_s)?;
+        if fields.len() != values.len() {
+            return Err(SzOrmErrorCode::InvalidArgument);
+        }
+        let sql = build_insert_sql(table_s, &fields);
+
+        runtime().block_on(async {
+            let mut conn = pool
+                .acquire()
+                .await
+                .map_err(|_| SzOrmErrorCode::PoolExhausted)?;
+            conn.execute_with_params(&sql, &values)
+                .await
+                .map(|rows| QueryResultC {
+                    success: 1,
+                    error_code: SzOrmErrorCode::Ok.as_i32(),
+                    rows_affected: rows,
+                    last_insert_id: 0,
+                })
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(code)) => QueryResultC::error(code),
+        Err(_) => QueryResultC::error(SzOrmErrorCode::Panic),
+    }
+}
+
+/// 在 pool 上更新行（参数化，REQ-BND-007）。
+///
+/// `set_json` 为对象 `{"name":"Alice"}`，`where_clause` 为参数化条件 `id = ?`，
+/// `where_params_json` 为参数数组 `[1]`。
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
+/// `table`/`set_json`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_update(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    set_json: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> QueryResultC {
+    if handle.is_null() || table.is_null() || set_json.is_null() {
+        return QueryResultC::error(SzOrmErrorCode::InvalidArgument);
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 handle 有效
+        let pool = unsafe { &*(handle as *const Pool) };
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let set_s = unsafe { CStr::from_ptr(set_json) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let where_s = if where_clause.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(where_clause) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+                .to_string()
+        };
+        let where_params_s = if where_params_json.is_null() {
+            "[]"
+        } else {
+            unsafe { CStr::from_ptr(where_params_json) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+        };
+
+        validate_identifier(table_s)?;
+        let set_pairs = parse_set_json(set_s)?;
+        let where_params = parse_values_json(where_params_s)?;
+        let set_fields: Vec<String> = set_pairs.iter().map(|(f, _)| f.clone()).collect();
+        let mut all_params: Vec<Value> = set_pairs.into_iter().map(|(_, v)| v).collect();
+        all_params.extend(where_params);
+        let sql = build_update_sql(table_s, &set_fields, &where_s);
+
+        runtime().block_on(async {
+            let mut conn = pool
+                .acquire()
+                .await
+                .map_err(|_| SzOrmErrorCode::PoolExhausted)?;
+            conn.execute_with_params(&sql, &all_params)
+                .await
+                .map(|rows| QueryResultC {
+                    success: 1,
+                    error_code: SzOrmErrorCode::Ok.as_i32(),
+                    rows_affected: rows,
+                    last_insert_id: 0,
+                })
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(code)) => QueryResultC::error(code),
+        Err(_) => QueryResultC::error(SzOrmErrorCode::Panic),
+    }
+}
+
+/// 在 pool 上删除行（参数化，REQ-BND-007）。
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
+/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_delete(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> QueryResultC {
+    if handle.is_null() || table.is_null() {
+        return QueryResultC::error(SzOrmErrorCode::InvalidArgument);
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 handle 有效
+        let pool = unsafe { &*(handle as *const Pool) };
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let where_s = if where_clause.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(where_clause) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+                .to_string()
+        };
+        let where_params_s = if where_params_json.is_null() {
+            "[]"
+        } else {
+            unsafe { CStr::from_ptr(where_params_json) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+        };
+
+        validate_identifier(table_s)?;
+        let where_params = parse_values_json(where_params_s)?;
+        let sql = build_delete_sql(table_s, &where_s);
+
+        runtime().block_on(async {
+            let mut conn = pool
+                .acquire()
+                .await
+                .map_err(|_| SzOrmErrorCode::PoolExhausted)?;
+            conn.execute_with_params(&sql, &where_params)
+                .await
+                .map(|rows| QueryResultC {
+                    success: 1,
+                    error_code: SzOrmErrorCode::Ok.as_i32(),
+                    rows_affected: rows,
+                    last_insert_id: 0,
+                })
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(code)) => QueryResultC::error(code),
+        Err(_) => QueryResultC::error(SzOrmErrorCode::Panic),
+    }
+}
+
+/// 在 pool 上查询行，返回 JSON 行数组字符串（参数化，REQ-BND-007）。
+///
+/// 成功返回非空 `*mut c_char`（调用方用 `sz_orm_string_free` 释放），null 表示失败。
+/// 无匹配行返回 `[]`。
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须是 `sz_orm_pool_new` 返回的有效句柄；
+/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_find(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> *mut c_char {
+    if handle.is_null() || table.is_null() {
+        return std::ptr::null_mut();
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 handle 有效
+        let pool = unsafe { &*(handle as *const Pool) };
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let where_s = if where_clause.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(where_clause) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+                .to_string()
+        };
+        let where_params_s = if where_params_json.is_null() {
+            "[]"
+        } else {
+            unsafe { CStr::from_ptr(where_params_json) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+        };
+
+        validate_identifier(table_s)?;
+        let where_params = parse_values_json(where_params_s)?;
+        let sql = build_select_sql(table_s, &where_s);
+
+        runtime().block_on(async {
+            let mut conn = pool
+                .acquire()
+                .await
+                .map_err(|_| SzOrmErrorCode::PoolExhausted)?;
+            conn.query_with_params(&sql, &where_params)
+                .await
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    let rows = match result {
+        Ok(Ok(rows)) => rows,
+        _ => return std::ptr::null_mut(),
+    };
+
+    let json = match serde_json::to_string(&rows) {
+        Ok(j) => j,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match CString::new(json) {
+        Ok(c) => c.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// 在事务内插入一行（参数化，REQ-BND-014）。
+///
+/// # Safety
+///
+/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
+/// `table`/`fields_json`/`values_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_insert_tx(
+    tx_handle: SzOrmTransactionHandle,
+    table: *const c_char,
+    fields_json: *const c_char,
+    values_json: *const c_char,
+) -> QueryResultC {
+    if tx_handle.is_null() || table.is_null() || fields_json.is_null() || values_json.is_null() {
+        return QueryResultC::error(SzOrmErrorCode::InvalidArgument);
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 tx_handle 有效
+        let tx = unsafe { &mut *(tx_handle as *mut CabiTransaction) };
+        if !tx.active {
+            return Err(SzOrmErrorCode::TransactionAborted);
+        }
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let fields_s = unsafe { CStr::from_ptr(fields_json) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let values_s = unsafe { CStr::from_ptr(values_json) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+
+        validate_identifier(table_s)?;
+        let fields = parse_fields_json(fields_s)?;
+        let values = parse_values_json(values_s)?;
+        if fields.len() != values.len() {
+            return Err(SzOrmErrorCode::InvalidArgument);
+        }
+        let sql = build_insert_sql(table_s, &fields);
+
+        let conn = tx.conn.as_mut().ok_or(SzOrmErrorCode::TransactionAborted)?;
+        runtime().block_on(async {
+            conn.execute_with_params(&sql, &values)
+                .await
+                .map(|rows| QueryResultC {
+                    success: 1,
+                    error_code: SzOrmErrorCode::Ok.as_i32(),
+                    rows_affected: rows,
+                    last_insert_id: 0,
+                })
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(code)) => QueryResultC::error(code),
+        Err(_) => QueryResultC::error(SzOrmErrorCode::Panic),
+    }
+}
+
+/// 在事务内更新行（参数化，REQ-BND-014）。
+///
+/// # Safety
+///
+/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
+/// `table`/`set_json`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_update_tx(
+    tx_handle: SzOrmTransactionHandle,
+    table: *const c_char,
+    set_json: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> QueryResultC {
+    if tx_handle.is_null() || table.is_null() || set_json.is_null() {
+        return QueryResultC::error(SzOrmErrorCode::InvalidArgument);
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 tx_handle 有效
+        let tx = unsafe { &mut *(tx_handle as *mut CabiTransaction) };
+        if !tx.active {
+            return Err(SzOrmErrorCode::TransactionAborted);
+        }
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let set_s = unsafe { CStr::from_ptr(set_json) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let where_s = if where_clause.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(where_clause) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+                .to_string()
+        };
+        let where_params_s = if where_params_json.is_null() {
+            "[]"
+        } else {
+            unsafe { CStr::from_ptr(where_params_json) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+        };
+
+        validate_identifier(table_s)?;
+        let set_pairs = parse_set_json(set_s)?;
+        let where_params = parse_values_json(where_params_s)?;
+        let set_fields: Vec<String> = set_pairs.iter().map(|(f, _)| f.clone()).collect();
+        let mut all_params: Vec<Value> = set_pairs.into_iter().map(|(_, v)| v).collect();
+        all_params.extend(where_params);
+        let sql = build_update_sql(table_s, &set_fields, &where_s);
+
+        let conn = tx.conn.as_mut().ok_or(SzOrmErrorCode::TransactionAborted)?;
+        runtime().block_on(async {
+            conn.execute_with_params(&sql, &all_params)
+                .await
+                .map(|rows| QueryResultC {
+                    success: 1,
+                    error_code: SzOrmErrorCode::Ok.as_i32(),
+                    rows_affected: rows,
+                    last_insert_id: 0,
+                })
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(code)) => QueryResultC::error(code),
+        Err(_) => QueryResultC::error(SzOrmErrorCode::Panic),
+    }
+}
+
+/// 在事务内删除行（参数化，REQ-BND-014）。
+///
+/// # Safety
+///
+/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
+/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_delete_tx(
+    tx_handle: SzOrmTransactionHandle,
+    table: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> QueryResultC {
+    if tx_handle.is_null() || table.is_null() {
+        return QueryResultC::error(SzOrmErrorCode::InvalidArgument);
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 tx_handle 有效
+        let tx = unsafe { &mut *(tx_handle as *mut CabiTransaction) };
+        if !tx.active {
+            return Err(SzOrmErrorCode::TransactionAborted);
+        }
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let where_s = if where_clause.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(where_clause) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+                .to_string()
+        };
+        let where_params_s = if where_params_json.is_null() {
+            "[]"
+        } else {
+            unsafe { CStr::from_ptr(where_params_json) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+        };
+
+        validate_identifier(table_s)?;
+        let where_params = parse_values_json(where_params_s)?;
+        let sql = build_delete_sql(table_s, &where_s);
+
+        let conn = tx.conn.as_mut().ok_or(SzOrmErrorCode::TransactionAborted)?;
+        runtime().block_on(async {
+            conn.execute_with_params(&sql, &where_params)
+                .await
+                .map(|rows| QueryResultC {
+                    success: 1,
+                    error_code: SzOrmErrorCode::Ok.as_i32(),
+                    rows_affected: rows,
+                    last_insert_id: 0,
+                })
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    match result {
+        Ok(Ok(r)) => r,
+        Ok(Err(code)) => QueryResultC::error(code),
+        Err(_) => QueryResultC::error(SzOrmErrorCode::Panic),
+    }
+}
+
+/// 在事务内查询行，返回 JSON 行数组字符串（参数化，REQ-BND-014）。
+///
+/// 成功返回非空 `*mut c_char`（调用方用 `sz_orm_string_free` 释放），null 表示失败。
+///
+/// # Safety
+///
+/// SAFETY: `tx_handle` 必须是 `sz_orm_transaction_begin` 返回的有效句柄；
+/// `table`/`where_clause`/`where_params_json` 必须是有效的 NUL 结尾 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_model_find_tx(
+    tx_handle: SzOrmTransactionHandle,
+    table: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> *mut c_char {
+    if tx_handle.is_null() || table.is_null() {
+        return std::ptr::null_mut();
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 tx_handle 有效
+        let tx = unsafe { &mut *(tx_handle as *mut CabiTransaction) };
+        if !tx.active {
+            return Err(SzOrmErrorCode::TransactionAborted);
+        }
+        // SAFETY: 调用方保证 C 字符串有效
+        let table_s = unsafe { CStr::from_ptr(table) }
+            .to_str()
+            .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        let where_s = if where_clause.is_null() {
+            String::new()
+        } else {
+            unsafe { CStr::from_ptr(where_clause) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+                .to_string()
+        };
+        let where_params_s = if where_params_json.is_null() {
+            "[]"
+        } else {
+            unsafe { CStr::from_ptr(where_params_json) }
+                .to_str()
+                .map_err(|_| SzOrmErrorCode::InvalidArgument)?
+        };
+
+        validate_identifier(table_s)?;
+        let where_params = parse_values_json(where_params_s)?;
+        let sql = build_select_sql(table_s, &where_s);
+
+        let conn = tx.conn.as_mut().ok_or(SzOrmErrorCode::TransactionAborted)?;
+        runtime().block_on(async {
+            conn.query_with_params(&sql, &where_params)
+                .await
+                .map_err(|_| SzOrmErrorCode::QueryFailed)
+        })
+    }));
+
+    let rows = match result {
+        Ok(Ok(rows)) => rows,
+        _ => return std::ptr::null_mut(),
+    };
+
+    let json = match serde_json::to_string(&rows) {
+        Ok(j) => j,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    match CString::new(json) {
+        Ok(c) => c.into_raw(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1542,5 +2235,567 @@ mod tests {
     fn test_string_free_null_is_noop() {
         // SAFETY: null 指针合法调用
         unsafe { sz_orm_string_free(std::ptr::null_mut()) };
+    }
+
+    // ===== 新增测试：模型级 API（REQ-BND-007 ~ REQ-BND-014）=====
+
+    #[test]
+    fn test_validate_identifier_legal() {
+        assert_eq!(validate_identifier("users"), Ok(()));
+        assert_eq!(validate_identifier("_users"), Ok(()));
+        assert_eq!(validate_identifier("user_1"), Ok(()));
+        assert_eq!(validate_identifier("UserTable"), Ok(()));
+        assert_eq!(validate_identifier("a1b2c3"), Ok(()));
+    }
+
+    #[test]
+    fn test_validate_identifier_illegal() {
+        assert_eq!(
+            validate_identifier("users; DROP--"),
+            Err(SzOrmErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            validate_identifier("ta'ble"),
+            Err(SzOrmErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            validate_identifier("a b"),
+            Err(SzOrmErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            validate_identifier(""),
+            Err(SzOrmErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            validate_identifier("1table"),
+            Err(SzOrmErrorCode::InvalidArgument)
+        );
+        assert_eq!(
+            validate_identifier("table;drop"),
+            Err(SzOrmErrorCode::InvalidArgument)
+        );
+    }
+
+    /// 模型测试辅助：创建带 name/age 列的表
+    fn model_test_pool() -> SzOrmPoolHandle {
+        let pool = test_pool();
+        assert!(!pool.is_null());
+        let create =
+            CString::new("CREATE TABLE m_t (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)")
+                .unwrap();
+        // SAFETY: pool/sql 有效
+        let r = unsafe { sz_orm_execute(pool, create.as_ptr()) };
+        assert_eq!(r.success, 1, "CREATE should succeed");
+        pool
+    }
+
+    /// 释放 model_find 返回的字符串指针
+    unsafe fn free_find_str(ptr: *mut c_char) -> String {
+        if ptr.is_null() {
+            return String::new();
+        }
+        // SAFETY: ptr 有效
+        let s = unsafe { CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned();
+        // SAFETY: ptr 配对释放
+        unsafe { sz_orm_string_free(ptr) };
+        s
+    }
+
+    #[test]
+    fn test_model_insert_then_find_roundtrip() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["Alice",30]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        let r =
+            unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(r.success, 1, "insert should succeed, code={}", r.error_code);
+        assert_eq!(r.rows_affected, 1);
+
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["Alice"]"#).unwrap();
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert!(!ptr.is_null(), "find should return non-null");
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(json.contains("Alice"), "find should contain Alice: {json}");
+        assert!(json.contains("30"), "find should contain age 30: {json}");
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_update_then_find() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["Bob",25]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        let r =
+            unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(r.success, 1);
+
+        let set_json = CString::new(r#"{"age":26}"#).unwrap();
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["Bob"]"#).unwrap();
+        // SAFETY: pool/table/set/where 有效
+        let r = unsafe {
+            sz_orm_model_update(
+                pool,
+                table.as_ptr(),
+                set_json.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert_eq!(r.success, 1, "update should succeed, code={}", r.error_code);
+        assert_eq!(r.rows_affected, 1);
+
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert!(!ptr.is_null());
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json.contains("26"),
+            "find after update should contain age 26: {json}"
+        );
+        assert!(
+            !json.contains("25"),
+            "find should not contain old age 25: {json}"
+        );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_delete_then_find_empty() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["Carol",40]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        let r =
+            unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(r.success, 1);
+
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["Carol"]"#).unwrap();
+        // SAFETY: pool/table/where 有效
+        let r = unsafe {
+            sz_orm_model_delete(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert_eq!(r.success, 1, "delete should succeed, code={}", r.error_code);
+        assert_eq!(r.rows_affected, 1);
+
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert!(
+            !ptr.is_null(),
+            "find after delete should return non-null (empty array)"
+        );
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json == "[]" || json == "null" || json.is_empty(),
+            "find after delete should return empty array, got: {json}"
+        );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_insert_illegal_table_returns_error() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t; DROP--").unwrap();
+        let fields = CString::new(r#"["name"]"#).unwrap();
+        let values = CString::new(r#"["X"]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效（table 含注入向量）
+        let r =
+            unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(r.success, 0, "illegal table should fail");
+        assert_eq!(r.error_code, SzOrmErrorCode::InvalidArgument.as_i32());
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_insert_illegal_field_returns_error() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name;drop"]"#).unwrap();
+        let values = CString::new(r#"["X"]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效（fields 含注入向量）
+        let r =
+            unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(r.success, 0, "illegal field should fail");
+        assert_eq!(r.error_code, SzOrmErrorCode::InvalidArgument.as_i32());
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_insert_null_handle_returns_error() {
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name"]"#).unwrap();
+        let values = CString::new(r#"["X"]"#).unwrap();
+        // SAFETY: null 指针合法调用
+        let r = unsafe {
+            sz_orm_model_insert(
+                std::ptr::null_mut(),
+                table.as_ptr(),
+                fields.as_ptr(),
+                values.as_ptr(),
+            )
+        };
+        assert_eq!(r.success, 0);
+        assert_eq!(r.error_code, SzOrmErrorCode::InvalidArgument.as_i32());
+    }
+
+    #[test]
+    fn test_model_insert_fields_values_mismatch_returns_error() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["X"]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效（长度不匹配）
+        let r =
+            unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(r.success, 0, "mismatched fields/values should fail");
+        assert_eq!(r.error_code, SzOrmErrorCode::InvalidArgument.as_i32());
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_find_no_match_returns_empty_array() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["NonExistent"]"#).unwrap();
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert!(
+            !ptr.is_null(),
+            "find no match should return non-null (empty array)"
+        );
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json == "[]" || json == "null" || json.is_empty(),
+            "find no match should return empty array, got: {json}"
+        );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_find_all_no_where_clause() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let v1 = CString::new(r#"["A",1]"#).unwrap();
+        let v2 = CString::new(r#"["B",2]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), v1.as_ptr()) };
+        unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), v2.as_ptr()) };
+
+        // 无 where 子句，查询全部
+        // SAFETY: pool/table 有效，where_clause/where_params 为 null
+        let ptr =
+            unsafe { sz_orm_model_find(pool, table.as_ptr(), std::ptr::null(), std::ptr::null()) };
+        assert!(!ptr.is_null());
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(json.contains("A"), "find all should contain A: {json}");
+        assert!(json.contains("B"), "find all should contain B: {json}");
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    // ===== 事务内模型操作测试（REQ-BND-014）=====
+
+    #[test]
+    fn test_model_insert_tx_rollback_then_find_empty() {
+        let pool = model_test_pool();
+        // SAFETY: pool 有效
+        let tx = unsafe { sz_orm_transaction_begin(pool) };
+        assert!(!tx.is_null());
+
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["TxUser",99]"#).unwrap();
+        // SAFETY: tx/table/fields/values 有效
+        let r =
+            unsafe { sz_orm_model_insert_tx(tx, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(
+            r.success, 1,
+            "insert_tx should succeed, code={}",
+            r.error_code
+        );
+
+        // SAFETY: tx 有效
+        let rolled = unsafe { sz_orm_transaction_rollback(tx) };
+        assert_eq!(rolled, 1, "rollback should succeed");
+        // SAFETY: tx 有效
+        unsafe { sz_orm_transaction_free(tx) };
+
+        // 回滚后 find 应返回空
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["TxUser"]"#).unwrap();
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert!(!ptr.is_null());
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json == "[]" || json == "null" || json.is_empty(),
+            "find after rollback should be empty, got: {json}"
+        );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_insert_tx_commit_then_find() {
+        let pool = model_test_pool();
+        // SAFETY: pool 有效
+        let tx = unsafe { sz_orm_transaction_begin(pool) };
+        assert!(!tx.is_null());
+
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["CommitUser",50]"#).unwrap();
+        // SAFETY: tx/table/fields/values 有效
+        let r =
+            unsafe { sz_orm_model_insert_tx(tx, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+        assert_eq!(r.success, 1);
+
+        // SAFETY: tx 有效
+        let committed = unsafe { sz_orm_transaction_commit(tx) };
+        assert_eq!(committed, 1, "commit should succeed");
+        // SAFETY: tx 有效
+        unsafe { sz_orm_transaction_free(tx) };
+
+        // 提交后 find 应返回数据
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["CommitUser"]"#).unwrap();
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert!(!ptr.is_null());
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json.contains("CommitUser"),
+            "find after commit should contain CommitUser: {json}"
+        );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_update_tx_and_delete_tx() {
+        let pool = model_test_pool();
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["TxDel",10]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        unsafe { sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+
+        // 事务内 update
+        // SAFETY: pool 有效
+        let tx = unsafe { sz_orm_transaction_begin(pool) };
+        assert!(!tx.is_null());
+        let set_json = CString::new(r#"{"age":11}"#).unwrap();
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["TxDel"]"#).unwrap();
+        // SAFETY: tx/table/set/where 有效
+        let r = unsafe {
+            sz_orm_model_update_tx(
+                tx,
+                table.as_ptr(),
+                set_json.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert_eq!(
+            r.success, 1,
+            "update_tx should succeed, code={}",
+            r.error_code
+        );
+        // SAFETY: tx 有效
+        assert_eq!(unsafe { sz_orm_transaction_commit(tx) }, 1);
+        // SAFETY: tx 有效
+        unsafe { sz_orm_transaction_free(tx) };
+
+        // 验证 update 生效
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json.contains("11"),
+            "find after update_tx should contain age 11: {json}"
+        );
+
+        // 事务内 delete
+        // SAFETY: pool 有效
+        let tx2 = unsafe { sz_orm_transaction_begin(pool) };
+        assert!(!tx2.is_null());
+        // SAFETY: tx2/table/where 有效
+        let r = unsafe {
+            sz_orm_model_delete_tx(
+                tx2,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert_eq!(
+            r.success, 1,
+            "delete_tx should succeed, code={}",
+            r.error_code
+        );
+        // SAFETY: tx2 有效
+        assert_eq!(unsafe { sz_orm_transaction_commit(tx2) }, 1);
+        // SAFETY: tx2 有效
+        unsafe { sz_orm_transaction_free(tx2) };
+
+        // 验证 delete 生效
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json == "[]" || json == "null" || json.is_empty(),
+            "find after delete_tx should be empty, got: {json}"
+        );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_find_tx_in_transaction() {
+        let pool = model_test_pool();
+        // SAFETY: pool 有效
+        let tx = unsafe { sz_orm_transaction_begin(pool) };
+        assert!(!tx.is_null());
+
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["InTx",77]"#).unwrap();
+        // SAFETY: tx/table/fields/values 有效
+        unsafe { sz_orm_model_insert_tx(tx, table.as_ptr(), fields.as_ptr(), values.as_ptr()) };
+
+        // 事务内 find 应能看到未提交数据
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["InTx"]"#).unwrap();
+        // SAFETY: tx/table/where 有效
+        let ptr = unsafe {
+            sz_orm_model_find_tx(
+                tx,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert!(!ptr.is_null(), "find_tx should return non-null");
+        // SAFETY: ptr 有效
+        let json = unsafe { free_find_str(ptr) };
+        assert!(
+            json.contains("InTx"),
+            "find_tx in transaction should see uncommitted data: {json}"
+        );
+
+        // SAFETY: tx 有效
+        unsafe { sz_orm_transaction_rollback(tx) };
+        // SAFETY: tx 有效
+        unsafe { sz_orm_transaction_free(tx) };
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_model_insert_tx_null_handle_returns_error() {
+        let table = CString::new("m_t").unwrap();
+        let fields = CString::new(r#"["name"]"#).unwrap();
+        let values = CString::new(r#"["X"]"#).unwrap();
+        // SAFETY: null 指针合法调用
+        let r = unsafe {
+            sz_orm_model_insert_tx(
+                std::ptr::null_mut(),
+                table.as_ptr(),
+                fields.as_ptr(),
+                values.as_ptr(),
+            )
+        };
+        assert_eq!(r.success, 0);
+        assert_eq!(r.error_code, SzOrmErrorCode::InvalidArgument.as_i32());
     }
 }

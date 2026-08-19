@@ -1,0 +1,76 @@
+[08:57:29] OK: sz-orm-audit
+[08:57:35] OK: sz-orm-auth
+[08:57:41] OK: sz-orm-crypto
+[08:57:48] OK: sz-orm-es
+[08:57:56] SKIP: sz-orm-graph
+[08:57:57] OK: sz-orm-grpc
+[08:58:20] FAIL: sz-orm-health -    Compiling serde v1.0.229 |    Compiling chrono v0.4.44 |    Compiling sz-orm-health v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\target\package\sz-orm-health-4.9.0) |     Finished `dev` profile [unoptimized + debuginfo] target(s) in 10.78s |    Uploading sz-orm-health v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-health) | error: failed to publish sz-orm-health v4.9.0 to registry at https://crates.io | Caused by: |   [28] Timeout was reached (Operation too slow. Less than 10 bytes/sec transferred the last 30 seconds)
+[08:59:09] OK: sz-orm-limit
+[08:59:37] OK: sz-orm-logger
+[08:59:57] OK: sz-orm-masking
+[09:00:21] OK: sz-orm-mig
+[09:00:27] OK: sz-orm-mqtt
+[09:00:31] OK: sz-orm-n1-lint
+[09:00:35] OK: sz-orm-postgis
+[09:00:43] OK: sz-orm-rw
+[09:01:07] OK: sz-orm-scheduler
+[09:01:11] OK: sz-orm-search
+[09:01:17] OK: sz-orm-sharding
+[09:01:21] OK: sz-orm-sql-validator
+[09:01:25] OK: sz-orm-storage
+[09:01:46] OK: sz-orm-timeseries
+[09:01:52] OK: sz-orm-tracing
+[09:02:01] OK: sz-orm-websocket
+[09:02:09] OK: sz-orm-back
+[09:02:17] OK: sz-orm-anomaly
+[09:02:20] OK: sz-orm-config
+[09:02:25] OK: sz-orm-queue
+[09:02:37] OK: sz-orm-flamegraph
+[09:02:41] OK: sz-orm-diagnosis
+[09:02:45] OK: sz-orm-explain
+[09:03:05] OK: sz-orm-macros
+[09:03:16] OK: sz-orm-core
+[09:03:30] OK: sz-orm-graphql
+[09:03:37] OK: sz-orm-actix
+[09:03:58] OK: sz-orm-ai
+[09:04:04] OK: sz-orm-axum
+[09:04:16] OK: sz-orm-designer
+[09:04:20] SKIP: sz-orm-js
+[09:04:21] OK: sz-orm-mssql
+[09:04:34] FAIL: sz-orm-observability -    Verifying sz-orm-observability v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-observability) |    Compiling sz-orm-core v4.9.0 |    Compiling sz-orm-observability v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\target\package\sz-orm-observability-4.9.0) |     Finished `dev` profile [unoptimized + debuginfo] target(s) in 11.35s |    Uploading sz-orm-observability v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-observability) | error: failed to publish sz-orm-observability v4.9.0 to registry at https://crates.io | Caused by: |   [28] Timeout was reached (Operation too slow. Less than 10 bytes/sec transferred the last 30 seconds)
+[09:05:45] OK: sz-orm-oracle
+[09:05:54] OK: sz-orm-parallel
+[09:06:05] OK: sz-orm-query-builder
+[09:06:13] OK: sz-orm-stream
+[09:06:17] OK: sz-orm-advisor
+[09:06:25] OK: sz-orm-vector
+[09:06:32] OK: sz-orm-lc
+[09:06:36] OK: sz-orm-sqlx
+[09:06:51] FAIL: sz-orm-wasm -    Compiling sz-orm-wasm v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\target\package\sz-orm-wasm-4.9.0) |     Finished `dev` profile [unoptimized + debuginfo] target(s) in 3.44s |    Uploading sz-orm-wasm v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-wasm) | error: failed to publish sz-orm-wasm v4.9.0 to registry at https://crates.io | Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many updates to exis | ting crates in a short period of time. Please try again after Wed, 19 Aug 2026 01:07:17 GMT and see https://crates.io/d | ocs/rate-limits for more details.
+[09:06:55] FAIL: sz-orm-fusion -    Compiling sz-orm-fusion v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\target\package\sz-orm-fusion-4.9.0) |     Finished `dev` profile [unoptimized + debuginfo] target(s) in 2.73s |    Uploading sz-orm-fusion v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-fusion) | error: failed to publish sz-orm-fusion v4.9.0 to registry at https://crates.io | Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:08:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:12:46] FAIL: sz-orm-cabi -     + CategoryInfo          : NotSpecified: (    Updating crates.io index:String) [], RemoteException |     + FullyQualifiedErrorId : NativeCommandError | error: failed to verify manifest at `E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-cabi\Cargo.toml` | Caused by: |   all dependencies must have a version requirement specified when publishing. |   dependency `sz-orm-sqlx` does not specify a version |   Note: The published dependency will use the version from crates.io, |   the `path` specification will be removed from the dependency declaration.
+[09:12:47] OK: sz-orm-dtx
+[09:12:57] SKIP: sz-orm-python
+[09:12:58] OK: sz-orm-swagger
+[09:13:05] FAIL: sz-orm-cpp -     + CategoryInfo          : NotSpecified: (    Updating crates.io index:String) [], RemoteException |     + FullyQualifiedErrorId : NativeCommandError | error: failed to verify manifest at `E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-cpp\Cargo.toml` | Caused by: |   all dependencies must have a version requirement specified when publishing. |   dependency `sz-orm-cabi` does not specify a version |   Note: The published dependency will use the version from crates.io, |   the `path` specification will be removed from the dependency declaration.
+[09:13:06] FAIL: sz-orm-go -     + CategoryInfo          : NotSpecified: (    Updating crates.io index:String) [], RemoteException |     + FullyQualifiedErrorId : NativeCommandError | error: failed to verify manifest at `E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-go\Cargo.toml` | Caused by: |   all dependencies must have a version requirement specified when publishing. |   dependency `sz-orm-cabi` does not specify a version |   Note: The published dependency will use the version from crates.io, |   the `path` specification will be removed from the dependency declaration.
+[09:13:07] FAIL: sz-orm-java -     + CategoryInfo          : NotSpecified: (    Updating crates.io index:String) [], RemoteException |     + FullyQualifiedErrorId : NativeCommandError | error: failed to verify manifest at `E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-java\Cargo.toml` | Caused by: |   all dependencies must have a version requirement specified when publishing. |   dependency `sz-orm-cabi` does not specify a version |   Note: The published dependency will use the version from crates.io, |   the `path` specification will be removed from the dependency declaration.
+[09:13:08] OK: sz-orm-batch
+[09:16:03] OK(retry): sz-orm-health
+[09:16:33] OK(retry): sz-orm-observability
+[09:16:51] OK(retry): sz-orm-wasm
+[09:17:08] OK(retry): sz-orm-fusion
+[09:17:23] FAIL(retry): sz-orm-cabi -    Uploading sz-orm-cabi v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-cabi) | error: failed to publish sz-orm-cabi v4.9.0 to registry at https://crates.io | Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:18:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:17:46] FAIL(retry): sz-orm-cpp -     Updating crates.io index | error: failed to prepare local package for uploading | Caused by: |   no matching package named `sz-orm-cabi` found |   location searched: crates.io index |   required by package `sz-orm-cpp v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-cpp)`
+[09:18:04] FAIL(retry): sz-orm-go -     Updating crates.io index | error: failed to prepare local package for uploading | Caused by: |   no matching package named `sz-orm-cabi` found |   location searched: crates.io index |   required by package `sz-orm-go v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-go)`
+[09:18:15] FAIL(retry): sz-orm-java -     Updating crates.io index | error: failed to prepare local package for uploading | Caused by: |   no matching package named `sz-orm-cabi` found |   location searched: crates.io index |   required by package `sz-orm-java v4.9.0 (E:\vue\test\鲜视达\rust\sz-orm\packages\sz-orm-java)`
+[09:21:02] OK(retry2): sz-orm-cabi
+[09:21:29] FAIL(retry2): sz-orm-cpp - Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:28:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:21:55] FAIL(retry2): sz-orm-go - Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:28:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:22:21] FAIL(retry2): sz-orm-java - Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:28:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:31:17] OK(retry3): sz-orm-cpp
+[09:31:58] FAIL(retry3): sz-orm-go - Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:38:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:32:34] FAIL(retry3): sz-orm-java - Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:38:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:41:34] OK(retry4): sz-orm-go
+[09:42:57] FAIL(retry4): sz-orm-java - Caused by: |   the remote server responded with an error (status 429 Too Many Requests): You have published too many new crates in a |  short period of time. Please try again after Wed, 19 Aug 2026 01:48:58 GMT and see https://crates.io/docs/rate-limits  | for more details.
+[09:52:32] OK(retry5): sz-orm-java

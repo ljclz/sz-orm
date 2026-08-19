@@ -2614,16 +2614,22 @@ impl fmt::Display for dyn Dialect {
 // ============================================================================
 // v3.7.0 M4: Informix / SAP HANA / Firebird 方言实现
 // ============================================================================
-// 三种方言均为 "SQL generation only, no real DB driver"：
-// - Informix: informix_rust v0.0.4 不成熟（依赖 C SDK），无用户需求
-// - SAP HANA: hdbconnect v0.32.0 较成熟，但 sqlx 不支持，无用户需求
-// - Firebird: rsfbclient v0.27.0 较成熟，但 sqlx 不支持，无用户需求
+// v4.9.0 TASK-003 调研决策（基于 crates.io/GitHub 客观证据）：
+// - Informix: SQL generation only: 仅 SQL 生成，无真实驱动连接
+//   依据：唯一候选 informix_rust v0.0.4 alpha，最后提交 2024-10-21（>1 年），
+//         下载量 4049（recent 17），依赖 Informix CSDK（C native），无 docs.rs，stars 3
+// - SAP HANA: 已集成真实驱动 hdbconnect_async v0.32.0（feature dialect-saphana-driver）
+//   依据：v0.32.0 成熟，async + bb8 连接池 + tokio，下载量 92347（recent 17898），
+//         docs.rs 100% 文档，最后 push 2026-08-05，stars 43，license Apache-2.0
+// - Firebird: SQL generation only: 仅 SQL 生成，无真实驱动连接
+//   依据：主流驱动 rsfbclient v0.27.0 同步（无 async），异步候选 sqlx-firebirdsql v0.1.0
+//         不成熟（下载量 26，stars 0，2026-05-25 首发），sqlx-firebird v0.1.0-beta.1 已停更
 // ============================================================================
 
-/// Informix 方言实现（v3.7.0，SQL generation only）
+/// Informix 方言实现（v3.7.0，SQL generation only: 仅 SQL 生成，无真实驱动连接）
 ///
 /// IBM Informix 数据库方言，支持 SERIAL/ROW 类型。
-/// 无真 DB 驱动（informix_rust v0.0.4 不成熟），仅生成 SQL 语法。
+/// 无真 DB 驱动（informix_rust v0.0.4 alpha 不成熟，依赖 CSDK），仅生成 SQL 语法。
 #[cfg(feature = "dialect-informix")]
 #[derive(Debug, Clone)]
 pub struct InformixDialect;
@@ -2848,10 +2854,10 @@ fn map_to_informix_type(sql_type: &str) -> String {
     }
 }
 
-/// SAP HANA 方言实现（v3.7.0，SQL generation only）
+/// SAP HANA 方言实现（v3.7.0 SQL 生成层；v4.9.0 TASK-003 已集成真实驱动 hdbconnect_async v0.32.0）
 ///
 /// SAP HANA 内存数据库方言，支持计算列 + CE 函数。
-/// 无真 DB 驱动（sz-orm 使用 sqlx，sqlx 不支持 SAP HANA），仅生成 SQL 语法。
+/// 真实驱动桥接见 sz-orm-sqlx/src/saphana_adapter.rs（feature dialect-saphana-driver）。
 #[cfg(feature = "dialect-saphana")]
 #[derive(Debug, Clone)]
 pub struct SapHanaDialect;
@@ -3081,10 +3087,10 @@ fn map_to_saphana_type(sql_type: &str) -> String {
     }
 }
 
-/// Firebird 方言实现（v3.7.0，SQL generation only）
+/// Firebird 方言实现（v3.7.0，SQL generation only: 仅 SQL 生成，无真实驱动连接）
 ///
 /// Firebird 数据库方言，支持 GENERATOR/SEQUENCE + EXECUTE BLOCK。
-/// 无真 DB 驱动（sz-orm 使用 sqlx，sqlx 不支持 Firebird），仅生成 SQL 语法。
+/// 无真 DB 驱动（主流 rsfbclient v0.27.0 同步，异步候选不成熟），仅生成 SQL 语法。
 #[cfg(feature = "dialect-firebird")]
 #[derive(Debug, Clone)]
 pub struct FirebirdDialect;

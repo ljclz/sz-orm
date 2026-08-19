@@ -64,13 +64,13 @@ pub enum DbType {
     /// Redshift（AWS 云数仓数据库，v3.6.0 新增，PostgreSQL 兼容 + COPY/UNLOAD 特性）
     #[cfg(feature = "dialect-redshift")]
     Redshift,
-    /// Informix（IBM Informix 数据库，v3.7.0 新增，SQL generation only，SERIAL/ROW 类型）
+    /// Informix（IBM Informix 数据库，v3.7.0 新增，SQL generation only: 仅 SQL 生成，无真实驱动连接，SERIAL/ROW 类型）
     #[cfg(feature = "dialect-informix")]
     Informix,
-    /// SAP HANA（SAP HANA 内存数据库，v3.7.0 新增，SQL generation only，计算列 + CE 函数）
+    /// SAP HANA（SAP HANA 内存数据库，v3.7.0 新增；v4.9.0 TASK-003 已集成真实驱动 hdbconnect_async v0.32.0，feature dialect-saphana-driver，计算列 + CE 函数）
     #[cfg(feature = "dialect-saphana")]
     SapHana,
-    /// Firebird（Firebird 数据库，v3.7.0 新增，SQL generation only，GENERATOR/SEQUENCE + EXECUTE BLOCK）
+    /// Firebird（Firebird6 数据库，v3.7.0 新增，SQL generation only: 仅 SQL 生成，无真实驱动连接，GENERATOR/SEQUENCE + EXECUTE BLOCK）
     #[cfg(feature = "dialect-firebird")]
     Firebird,
 }

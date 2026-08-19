@@ -1,0 +1,29 @@
+[package]
+name = "sz-orm-anomaly"
+description = "Anomaly detection: metric collection (slow query/error/pool) + sliding window + Welford baseline + spike/exhaustion detection + alert dedup + Prometheus/health integration"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[features]
+default = []
+# 异常检测完整能力（指标采集 + 滑动窗口 + 突增/耗尽检测 + 告警 + 报告 + 集成）
+anomaly-detection = ["dep:serde", "dep:serde_json", "dep:sz-orm-masking"]
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"], optional = true }
+serde_json = { version = "1.0", optional = true }
+sz-orm-masking = { path = "../sz-orm-masking", version = "4.0.0", optional = true }
+parking_lot.workspace = true
+thiserror.workspace = true
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full", "test-util"] }
+
+[lints]
+workspace = true

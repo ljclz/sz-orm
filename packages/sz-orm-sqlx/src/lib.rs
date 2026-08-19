@@ -30,6 +30,8 @@ mod any;
 pub mod any_driver;
 pub mod enhanced;
 mod error;
+#[cfg(feature = "dialect-saphana-driver")]
+pub mod saphana_adapter;
 pub mod unified_pool;
 
 pub use any::{

@@ -520,6 +520,9 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 | MongoDB | NoSQL | — | 27017 |
 | VectorDB | 向量数据库 | sz-orm-vector | 19530 |
 | PureJsDb | JS 引擎 DB | — | — |
+| Informix | `InformixDialect`（SKIP FIRST 分页） | SQL generation only: 仅 SQL 生成，无真实驱动连接 | 9088 |
+| SAP HANA | `SapHanaDialect`（计算列 + CE 函数） | sz-orm-sqlx（`dialect-saphana-driver` feature，基于 `hdbconnect_async` v0.32.0） | 39015 |
+| Firebird | `FirebirdDialect`（GENERATOR/SEQUENCE + EXECUTE BLOCK） | SQL generation only: 仅 SQL 生成，无真实驱动连接 | 3050 |
 
 使用 `get_dialect(DbType::MySQL)` 获取方言实例。
 

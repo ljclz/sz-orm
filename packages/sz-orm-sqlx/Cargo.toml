@@ -25,6 +25,8 @@ parking_lot.workspace = true
 # v2.2.0: Oracle/MSSQL 后端 optional 依赖，通过 feature gate 启用
 sz-orm-oracle = { workspace = true, optional = true }
 sz-orm-mssql = { workspace = true, optional = true }
+# v4.9.0 TASK-003: SAP HANA 真实驱动（hdbconnect_async v0.32.0，纯 Rust async + bb8 连接池）
+hdbconnect_async = { version = "0.32", optional = true }
 
 [features]
 default = []
@@ -32,6 +34,8 @@ default = []
 oracle = ["dep:sz-orm-oracle"]
 # v2.2.0 A-1: 启用 MSSQL 后端支持（AnyPool 运行时切换）
 mssql = ["dep:sz-orm-mssql"]
+# v4.9.0 TASK-003: SAP HANA 真实驱动桥接（hdbconnect_async，默认不启用）
+dialect-saphana-driver = ["dep:hdbconnect_async"]
 # v3.2.0：转发 auto-prewarm feature 到 sz-orm-core
 auto-prewarm = ["sz-orm-core/auto-prewarm"]
 
@@ -62,6 +66,11 @@ path = "tests/benchmark.rs"
 [[test]]
 name = "differential_fuzz"
 path = "tests/differential_fuzz.rs"
+
+[[test]]
+name = "saphana_e2e"
+path = "tests/saphana_e2e.rs"
+required-features = ["dialect-saphana-driver"]
 
 [lints]
 workspace = true
