@@ -15,7 +15,7 @@ name = "sz_orm_java"
 crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-sz-orm-cabi = { path = "../sz-orm-cabi", version = "4.9.0" }
+sz-orm-cabi = { path = "../sz-orm-cabi", version = "5.0.0" }
 jni = "0.22"
 
 

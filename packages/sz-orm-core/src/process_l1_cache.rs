@@ -357,7 +357,7 @@ impl<T: Clone + Send + Sync + 'static> ProcessL1Cache<T> {
     }
 }
 
-#[cfg(feature = "cache-warmup-protection")]
+#[cfg(feature = "l1-cache")]
 impl<T: Clone + Send + Sync + 'static> ProcessL1Cache<T> {
     /// 预热缓存（接线 `CacheWarmer`，v4.7.0 幻影交付修复）
     ///

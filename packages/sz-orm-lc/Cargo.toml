@@ -19,7 +19,7 @@ serde_json = "1.0"
 # M-2 修复：Pattern 验证需要 regex crate 进行真实正则匹配
 regex = "1"
 # v4.8.0 REQ-V48-002：低代码双向同步（feature 隔离，默认关闭）
-sz-orm-designer = { version = "4.8.0", path = "../sz-orm-designer", optional = true }
+sz-orm-designer = { version = "5.0.0", path = "../sz-orm-designer", optional = true }
 tokio = { version = "1.40", features = ["sync"], optional = true }
 parking_lot = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }

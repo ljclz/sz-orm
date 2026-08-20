@@ -490,7 +490,7 @@ pub mod validation;
 pub use query::QueryBuilder;
 #[cfg(feature = "cache-coherence")]
 pub mod cache_coherence;
-#[cfg(feature = "cache-warmup-protection")]
+#[cfg(feature = "l1-cache")]
 #[allow(missing_docs)]
 pub mod cache_warmup_protection;
 #[cfg(feature = "connection-level-tenant")]
@@ -500,7 +500,7 @@ pub mod connection_tenant;
 pub mod forward_compat_sandbox;
 #[cfg(feature = "migration-branch")]
 pub mod migration_branch;
-#[cfg(feature = "process-l1-cache")]
+#[cfg(feature = "l1-cache")]
 pub mod process_l1_cache;
 #[cfg(feature = "qb-migration-tool")]
 pub mod qb_migration_fix;

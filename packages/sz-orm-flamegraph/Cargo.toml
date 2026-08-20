@@ -17,7 +17,7 @@ query-flamegraph = ["dep:sz-orm-tracing"]
 
 [dependencies]
 # 分布式追踪集成（可选，复用既有 Tracer trait）
-sz-orm-tracing = { version = "4.6.0", path = "../sz-orm-tracing", optional = true }
+sz-orm-tracing = { version = "5.0.0", path = "../sz-orm-tracing", optional = true }
 serde = { workspace = true }
 serde_json = { workspace = true }
 

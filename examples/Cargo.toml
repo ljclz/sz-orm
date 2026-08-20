@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 # v4.7.0 接线生产入口：启用配额/RLS/预热 feature，形成真实生产路径
 #（门禁 15 PHANTOM-2 检查：feature 有启用点即不再视为"默认不编译"）
-sz-orm-core = { path = "../packages/sz-orm-core", features = ["tenant-quota-rls-enhanced", "cache-warmup-protection"] }
+sz-orm-core = { path = "../packages/sz-orm-core", features = ["tenant-quota-rls-enhanced", "l1-cache"] }
 sz-orm-crypto = { path = "../packages/sz-orm-crypto" }
 sz-orm-auth = { path = "../packages/sz-orm-auth" }
 sz-orm-limit = { path = "../packages/sz-orm-limit" }

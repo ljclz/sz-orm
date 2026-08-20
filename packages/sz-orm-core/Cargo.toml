@@ -1,7 +1,7 @@
 [package]
 name = "sz-orm-core"
 description = "Core ORM engine: Model trait, ActiveRecord, QueryBuilder, Pool, Transaction, migration, and SQL dialect abstraction"
-version = "4.9.1"
+version = "5.0.0"
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -12,7 +12,7 @@ categories.workspace = true
 
 [features]
 # 榛樿鍚敤 Redis 鍒嗗竷寮忕紦瀛樺悗绔紙RedisBackend锛夛紝寮€绠卞嵆锟?
-default = ["redis"]
+default = ["redis", "simd", "l1-cache", "plan-cache", "zero-copy"]
 # v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
 owasp-pentest-suite = []
 testing = ["tokio/full"]
@@ -40,9 +40,7 @@ dist-cache = ["dep:rand", "dep:sz-orm-crypto"]
 perf-smallstring = ["dep:compact_str"]
 # v3.4.0锛歟num dispatch 浼樺寲锛坢atch 鍒嗗彂鏇夸唬 Box<dyn Dialect> vtable 鏌ユ壘锟?
 perf-enum-dispatch = []
-# v3.4.0锛歀2 缂撳瓨闆舵嫹璐濇帹骞匡紙BorrowedValue + ColumnarResultSet 鎺ㄥ箍锟?L2 缂撳瓨璺緞锟?
-perf-zero-copy-l2 = ["zero-copy"]
-# v3.4.0锛欱ox<str> 浼樺寲锛圴alue::BoxedStr 鍙樹綋锛岃妭锟?8 瀛楄妭/锟?capacity 瀛楁锟?
+
 perf-box-str = []
 # v3.4.0锛氱被鍨嬪畨鍏ㄥ垪寮曠敤锛圕olumn<T> + Schema derive 鍒楀悕甯搁噺锟?
 type-safe-columns = ["sz-orm-macros/type-safe-columns"]
@@ -128,14 +126,12 @@ n1-lint = ["sz-orm-macros/n1-lint"]
 zero-downtime-rollback = []
 # v4.6.0 M4：连接级多租户隔离（TenantPoolRegistry + 连接池级隔离）
 connection-level-tenant = ["multi-tenant-enhanced"]
-# v4.6.0 M5：进程级 L1 缓存（DashMap + TTL + 容量限制 + 缓存一致性）
-process-l1-cache = ["l1-cache", "cache-coherence"]
+
 # v4.7.0 M2：迁移前向兼容性检查与沙箱预演（前向兼容 + 影子表预演 + 依赖图分析）
 forward-compat-sandbox = ["zero-downtime-rollback", "migration-dry-run"]
 # v4.7.0 M4：租户资源配额与行级安全增强（配额 + RLS 自动注入 + 租户审计）
 tenant-quota-rls-enhanced = ["connection-level-tenant"]
-# v4.7.0 M5：缓存预热与穿透防护（预热 + 布隆过滤器 + singleflight）
-cache-warmup-protection = ["process-l1-cache"]
+
 # v4.9.0 TASK-004：异常检测（指标采集 + 滑动窗口 + 突增/耗尽检测 + 告警 + 报告）
 anomaly-detection = ["dep:sz-orm-anomaly"]
 # v4.9.1：性能优化组合（一键启用 SIMD 向量化 + L1 缓存 + 查询计划缓存 + 零拷贝）
@@ -157,12 +153,12 @@ parking_lot.workspace = true
 crossbeam-queue.workspace = true
 # 娴佸紡鏌ヨ锛欳onnection::query_stream 榛樿瀹炵幇闇€锟?futures::stream::empty
 futures.workspace = true
-sz-orm-sql-validator = { version = "4.1.0", path = "../sz-orm-sql-validator" }
-sz-orm-macros = { version = "4.1.0", path = "../sz-orm-macros" }
+sz-orm-sql-validator = { version = "5.0.0", path = "../sz-orm-sql-validator" }
+sz-orm-macros = { version = "5.0.0", path = "../sz-orm-macros" }
 # #88 淇锛氬彲閫夋柇璺櫒渚濊禆锛堝惎锟?circuit-breaker feature 鏃剁敓鏁堬級
-sz-orm-health = { version = "4.1.0", path = "../sz-orm-health", optional = true }
+sz-orm-health = { version = "5.0.0", path = "../sz-orm-health", optional = true }
 # #93 淇锛氬彲閫夐檺娴佸櫒渚濊禆锛堝惎锟?rate-limit feature 鏃剁敓鏁堬級
-sz-orm-limit = { version = "4.1.0", path = "../sz-orm-limit", optional = true }
+sz-orm-limit = { version = "5.0.0", path = "../sz-orm-limit", optional = true }
 # Fix #39锛歀2Cache RedisBackend 鐪熷疄瀹炵幇锛堝惎锟?redis feature 鏃剁敓鏁堬級
 # 浣跨敤 connection-manager 鑷姩閲嶈繛 + tokio-comp 寮傛 IO
 redis = { workspace = true, optional = true }
@@ -171,14 +167,14 @@ sqlparser = { workspace = true, optional = true }
 twox-hash = { workspace = true, optional = true }
 
 # v3.3.0锛氬绉熸埛瀹¤澧炲己锛坢ulti-tenant-enhanced feature锟?
-sz-orm-audit = { version = "4.1.0", path = "../sz-orm-audit", optional = true }
+sz-orm-audit = { version = "5.0.0", path = "../sz-orm-audit", optional = true }
 # v3.3.0锛氬垪绾ц劚鏁忓寮猴紙multi-tenant-enhanced feature锟?
-sz-orm-masking = { version = "4.1.0", path = "../sz-orm-masking", optional = true }
+sz-orm-masking = { version = "5.0.0", path = "../sz-orm-masking", optional = true }
 # v3.3.0锛氬垎甯冨紡缂撳瓨甯冮殕杩囨护鍣ㄩ槻鎶わ紙dist-cache feature锟?
 # v3.3.0锛氬垎甯冨紡缂撳瓨闅忔満 TTL 闆穿闃叉姢锛坉ist-cache feature锟?
 rand = { workspace = true, optional = true }
 # v3.3.0锛歐AL 鍔犲瘑锛坉ist-cache feature锟?
-sz-orm-crypto = { version = "4.1.0", path = "../sz-orm-crypto", optional = true }
+sz-orm-crypto = { version = "5.0.0", path = "../sz-orm-crypto", optional = true }
 # v3.4.0锛歋mallString 浼樺寲锛坧erf-smallstring feature锟?
 compact_str = { workspace = true, optional = true }
 # v3.6.0锛歈ueryBuilder 杩佺Щ宸ュ叿锛坬b-migration-tool feature锟?
@@ -192,7 +188,7 @@ serde_yaml = { workspace = true, optional = true }
 
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optional = true }
 # v4.9.0 TASK-004：异常检测模块（anomaly-detection feature）
-sz-orm-anomaly = { version = "4.0.0", path = "../sz-orm-anomaly", optional = true }
+sz-orm-anomaly = { version = "5.0.0", path = "../sz-orm-anomaly", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }

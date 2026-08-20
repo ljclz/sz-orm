@@ -3,7 +3,7 @@ members = ["packages/sz-orm-core", "packages/sz-orm-ai", "packages/sz-orm-mig", 
 resolver = "2"
 
 [workspace.package]
-version = "4.9.0"
+version = "5.0.0"
 edition = "2021"
 rust-version = "1.81"
 authors = ["SZ-ORM Team"]
@@ -78,12 +78,12 @@ deadpool-postgres = "0.12"
 metrics = "0.23"
 # 配合 .trae/skills/sz-orm-chaos-pool（资源泄漏检测）
 jemallocator = "0.5"
-sz-orm-core = { version = "4.6.0", path = "packages/sz-orm-core" }
-sz-orm-ai = { version = "4.0.0", path = "packages/sz-orm-ai" }
-sz-orm-oracle = { version = "4.0.0", path = "packages/sz-orm-oracle" }
-sz-orm-mssql = { version = "4.0.0", path = "packages/sz-orm-mssql" }
-sz-orm-sqlx = { version = "4.0.0", path = "packages/sz-orm-sqlx" }
-sz-orm-masking = { version = "4.0.0", path = "packages/sz-orm-masking" }
-sz-orm-explain = { version = "4.0.0", path = "packages/sz-orm-explain" }
-sz-orm-flamegraph = { version = "4.0.0", path = "packages/sz-orm-flamegraph" }
-sz-orm-n1-lint = { version = "4.0.0", path = "packages/sz-orm-n1-lint" }
+sz-orm-core = { version = "5.0.0", path = "packages/sz-orm-core" }
+sz-orm-ai = { version = "5.0.0", path = "packages/sz-orm-ai" }
+sz-orm-oracle = { version = "5.0.0", path = "packages/sz-orm-oracle" }
+sz-orm-mssql = { version = "5.0.0", path = "packages/sz-orm-mssql" }
+sz-orm-sqlx = { version = "5.0.0", path = "packages/sz-orm-sqlx" }
+sz-orm-masking = { version = "5.0.0", path = "packages/sz-orm-masking" }
+sz-orm-explain = { version = "5.0.0", path = "packages/sz-orm-explain" }
+sz-orm-flamegraph = { version = "5.0.0", path = "packages/sz-orm-flamegraph" }
+sz-orm-n1-lint = { version = "5.0.0", path = "packages/sz-orm-n1-lint" }

@@ -2815,9 +2815,9 @@ mod tests {
 
 /// zero-copy L2 缓存序列化
 ///
-/// 当 `perf-zero-copy-l2` feature 启用时，使用 `BorrowedValue` + `ColumnarResultSet`
+/// 当 `zero-copy` feature 启用时，使用 `BorrowedValue` + `ColumnarResultSet`
 /// 推广零拷贝序列化到 L2 缓存路径，减少序列化/反序列化过程中的内存分配。
-#[cfg(feature = "perf-zero-copy-l2")]
+#[cfg(feature = "zero-copy")]
 pub mod zero_copy {
     use crate::value::Value;
     use crate::value_borrowed::BorrowedValue;
@@ -2911,7 +2911,7 @@ pub mod zero_copy {
     }
 }
 
-#[cfg(all(test, feature = "perf-zero-copy-l2"))]
+#[cfg(all(test, feature = "zero-copy"))]
 mod zero_copy_tests {
     use super::zero_copy::*;
     use crate::value::Value;
