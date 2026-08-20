@@ -197,11 +197,11 @@ impl Default for QueryCache {
     }
 }
 
-	#[cfg(test)]
-	mod tests {
-	    use super::*;
-	    use crate::Value;
-	    use std::time::Duration;
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::Value;
+    use std::time::Duration;
 
     fn make_row(name: &str, age: i64) -> HashMap<String, Value> {
         let mut m = HashMap::new();

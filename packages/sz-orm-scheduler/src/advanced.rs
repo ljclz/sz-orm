@@ -925,8 +925,9 @@ impl Default for TaskStatsManager {
 // ====================================================================
 
 /// 任务优先级
-#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize, Default,
+)]
 pub enum TaskPriority {
     /// 低优先级
     Low = 1,
@@ -938,7 +939,6 @@ pub enum TaskPriority {
     /// 紧急优先级
     Urgent = 20,
 }
-
 
 impl TaskPriority {
     /// 从数值创建优先级
