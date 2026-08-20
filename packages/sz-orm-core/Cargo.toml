@@ -36,13 +36,7 @@ simd = []
 multi-tenant-enhanced = ["dep:sz-orm-audit", "dep:sz-orm-masking"]
 # v3.3.0锛氬垎甯冨紡缂撳瓨涓€鑷存€э紙璺ㄥ疄渚嬪け锟?+ Write-behind + 缂撳瓨鍑荤┛/闆穿闃叉姢锟?
 dist-cache = ["dep:rand", "dep:sz-orm-crypto"]
-# v3.4.0锛氭祴璇曡鐩栬ˉ榻愰棬绂佺煩闃垫爣璇嗭紙涓嶅紩鍏ヤ緷璧栵紝浠呯敤锟?feature 缁勫悎缂栬瘧闂ㄧ锟?
-test-coverage = []
-# v3.4.0锛氭灦鏋勬敼杩涢棬绂佺煩闃垫爣璇嗭紙涓嶅紩鍏ヤ緷璧栵紝浠呯敤锟?feature 缁勫悎缂栬瘧闂ㄧ锟?
-arch-improvement = []
-# v3.4.0锛氭枃妗ｈˉ鍏ㄩ棬绂佺煩闃垫爣璇嗭紙涓嶅紩鍏ヤ緷璧栵紝浠呯敤锟?feature 缁勫悎缂栬瘧闂ㄧ锟?
-doc-completion = []
-# v3.4.0锛歋mallString 浼樺寲锛圕ompactString 鏇夸唬 String锛岀煭瀛楃锟?锟?23 瀛楄妭鍐呰仈瀛樺偍锟?
+# v3.4.0锛歋mallString 浼樺寲锛圕ompactString 鏇夸唬 String锛岀煭瀛楃鐡?锟?23 瀛楄妭鍐呰仈瀛樺偍锟?
 perf-smallstring = ["dep:compact_str"]
 # v3.4.0锛歟num dispatch 浼樺寲锛坢atch 鍒嗗彂鏇夸唬 Box<dyn Dialect> vtable 鏌ユ壘锟?
 perf-enum-dispatch = []
@@ -53,7 +47,7 @@ perf-box-str = []
 # v3.4.0锛氱被鍨嬪畨鍏ㄥ垪寮曠敤锛圕olumn<T> + Schema derive 鍒楀悕甯搁噺锟?
 type-safe-columns = ["sz-orm-macros/type-safe-columns"]
 # v3.4.0锛氱被鍨嬪寲鍒楋紙Column<T> 鐙珛 feature锛屽厑璁镐粎鍚敤 Column<T> 涓嶅惎锟?Schema 鎵╁睍锟?
-typed-column = []
+
 # v3.4.0锛氱被鍨嬪寲 DSL锛坱yped_ast.rs Diesel 椋庢牸琛ㄨ揪锟?DSL锟?
 typed-dsl = []
 # v3.7.0: stable锛堢被鍨嬪畨鍏ㄥ叧鑱旀煡璇紝缂栬瘧鏈熷閿牎楠岋級
@@ -78,9 +72,7 @@ dialect-informix = []
 dialect-saphana = []
 # v3.7.0: Firebird 鏂硅█锛圫QL generation only锛孏ENERATOR/SEQUENCE + EXECUTE BLOCK锛屾棤锟?DB 椹卞姩锟?
 dialect-firebird = []
-# v3.4.0锛氳縼绉绘寚鍗楅棬绂佺煩闃垫爣璇嗭紙绾枃妗ｏ紝涓嶅紩鍏ヤ緷璧栵級
-migration-guide = []
-# v3.7.0锛氱湡锟?DB 绔埌绔祴璇曞浠讹紙杩炵湡锟?MySQL/PostgreSQL/SQLite/Oracle/MSSQL 楠岃瘉 8 绫绘牳蹇冭矾寰勶級
+# v3.7.0锛氱湡锟?DB 绔埌绔祴璇曞浠讹紙杩炴湡锟?MySQL/PostgreSQL/SQLite/Oracle/MSSQL 楠岃瘉 8 绫绘牳蹇冭矾寰勶級
 e2e-real-db = []
 # v3.8.0锛氱敓浜ч儴缃插氨缁鏌ユ竻鍗曪紙prod-ready feature gate 浣撶郴锟?4 涓瓙 feature锛岄粯璁ゅ叧闂級
 # 娉ㄦ剰锛氳法锟?feature 鍦ㄥ悇鑷寘涓嫭绔嬪畾涔夛紝sz-orm-core 浠呰仛鍚堣嚜韬唴锟?feature
