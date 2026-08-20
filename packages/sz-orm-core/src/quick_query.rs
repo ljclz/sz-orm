@@ -27,6 +27,7 @@ use crate::dialect::Dialect;
 use crate::query::QueryBuilder;
 use crate::query::{AggExpr, HavingOp};
 use crate::value::Value;
+use sz_orm_macros::api_stable;
 use std::collections::HashMap;
 
 /// 内部占位 Model：仅用于满足 `QueryBuilder<M>` 的泛型约束，不携带任何行为
@@ -78,6 +79,7 @@ impl Db {
         self.qb = self.qb.select_expr(columns);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化等值条件 `field = ?`（AND 关系）
     #[must_use]
@@ -85,6 +87,7 @@ impl Db {
         self.qb = self.qb.where_eq(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化不等条件 `field != ?`（AND 关系）
     #[must_use]
@@ -92,6 +95,7 @@ impl Db {
         self.qb = self.qb.where_ne(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化大于条件 `field > ?`（AND 关系）
     #[must_use]
@@ -99,6 +103,7 @@ impl Db {
         self.qb = self.qb.where_gt(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化大于等于条件 `field >= ?`（AND 关系）
     #[must_use]
@@ -106,6 +111,7 @@ impl Db {
         self.qb = self.qb.where_ge(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化小于条件 `field < ?`（AND 关系）
     #[must_use]
@@ -113,6 +119,7 @@ impl Db {
         self.qb = self.qb.where_lt(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化小于等于条件 `field <= ?`（AND 关系）
     #[must_use]
@@ -120,6 +127,7 @@ impl Db {
         self.qb = self.qb.where_le(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 LIKE 条件 `field LIKE ?`（AND 关系）
     #[must_use]
@@ -127,6 +135,7 @@ impl Db {
         self.qb = self.qb.where_like(field, pattern);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 等值条件 `OR field = ?`
     #[must_use]
@@ -134,6 +143,7 @@ impl Db {
         self.qb = self.qb.or_where_eq(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 不等条件 `OR field != ?`
     #[must_use]
@@ -141,6 +151,7 @@ impl Db {
         self.qb = self.qb.or_where_ne(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 大于条件 `OR field > ?`
     #[must_use]
@@ -148,6 +159,7 @@ impl Db {
         self.qb = self.qb.or_where_gt(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 大于等于条件 `OR field >= ?`
     #[must_use]
@@ -155,6 +167,7 @@ impl Db {
         self.qb = self.qb.or_where_ge(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 小于条件 `OR field < ?`
     #[must_use]
@@ -162,6 +175,7 @@ impl Db {
         self.qb = self.qb.or_where_lt(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 小于等于条件 `OR field <= ?`
     #[must_use]
@@ -169,6 +183,7 @@ impl Db {
         self.qb = self.qb.or_where_le(field, value);
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR LIKE 条件 `OR field LIKE ?`
     #[must_use]
@@ -176,6 +191,7 @@ impl Db {
         self.qb = self.qb.or_where_like(field, pattern);
         self
     }
+    #[api_stable]
 
     /// WHERE IN
     #[must_use]
@@ -190,6 +206,7 @@ impl Db {
         self.qb = self.qb.where_not_in(field, values);
         self
     }
+    #[api_stable]
 
     /// WHERE BETWEEN
     #[must_use]
@@ -197,6 +214,7 @@ impl Db {
         self.qb = self.qb.where_between(field, start, end);
         self
     }
+    #[api_stable]
 
     /// WHERE IS NULL
     #[must_use]
@@ -300,26 +318,31 @@ impl Db {
         self.qb = self.qb.join_right(table, on_left, on_right);
         self
     }
+    #[api_stable]
 
     /// 构建 SELECT SQL + 参数绑定（v5.0.0 统一签名）
     pub fn build_select(&self) -> (String, Vec<Value>) {
         self.qb.build_select()
     }
+    #[api_stable]
 
     /// 构建 INSERT SQL + 参数绑定（v5.0.0 统一签名）
     pub fn build_insert(&self, data: &HashMap<String, Value>) -> (String, Vec<Value>) {
         self.qb.build_insert(data)
     }
+    #[api_stable]
 
     /// 构建 UPDATE SQL + 参数绑定（v5.0.0 统一签名）
     pub fn build_update(&self, data: &HashMap<String, Value>) -> (String, Vec<Value>) {
         self.qb.build_update(data)
     }
+    #[api_stable]
 
     /// 构建 DELETE SQL + 参数绑定（v5.0.0 统一签名）
     pub fn build_delete(&self) -> (String, Vec<Value>) {
         self.qb.build_delete()
     }
+    #[api_stable]
 
     /// 生成纯 SELECT SQL（参数内联渲染，仅用于日志/调试）
     pub fn sql(&self) -> String {

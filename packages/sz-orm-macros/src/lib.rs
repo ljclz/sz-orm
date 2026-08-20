@@ -3253,6 +3253,50 @@ pub fn migrate(input: TokenStream) -> TokenStream {
 }
 
 // ---------------------------------------------------------------------------
+// v5.0.0 stability 标注宏 — 编译期属性宏，展开为 doc 属性，无运行时开销
+// ---------------------------------------------------------------------------
+
+/// 标记 API 为稳定（Stable）。`cargo doc` 渲染 ✅ 徽章。
+///
+/// # Example
+///
+/// ```ignore
+/// use sz_orm_macros::api_stable;
+///
+/// #[api_stable]
+/// pub fn build_select(&self) -> (String, Vec<Value>) { ... }
+/// ```
+#[proc_macro_attribute]
+pub fn api_stable(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(input as syn::Item);
+    let expanded = quote! {
+        #[doc = "**Stability**: ✅ Stable (since v5.0.0)"]
+        #item
+    };
+    TokenStream::from(expanded)
+}
+
+/// 标记 API 为测试版（Beta）。`cargo doc` 渲染 🧪 徽章。
+///
+/// # Example
+///
+/// ```ignore
+/// use sz_orm_macros::api_beta;
+///
+/// #[api_beta]
+/// pub fn where_eq_typed(&self, col: &str, val: TypedValue) { ... }
+/// ```
+#[proc_macro_attribute]
+pub fn api_beta(_args: TokenStream, input: TokenStream) -> TokenStream {
+    let item = parse_macro_input!(input as syn::Item);
+    let expanded = quote! {
+        #[doc = "**Stability**: 🧪 Beta (since v5.0.0)"]
+        #item
+    };
+    TokenStream::from(expanded)
+}
+
+// ---------------------------------------------------------------------------
 // Unit tests — cover helper functions used by both macros
 // ---------------------------------------------------------------------------
 

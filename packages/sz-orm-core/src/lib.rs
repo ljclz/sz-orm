@@ -559,6 +559,8 @@ pub use sz_orm_macros::query;
 pub use sz_orm_macros::query_as;
 pub use sz_orm_macros::schema;
 pub use sz_orm_macros::sql_string;
+pub use sz_orm_macros::api_stable;
+pub use sz_orm_macros::api_beta;
 pub use sz_orm_macros::typed_query;
 // FromQueryResult derive 宏（与 value.rs 中同名 trait 通过显式 use 遮蔽 glob 导出）
 #[cfg(feature = "n1-lint")]

@@ -28,6 +28,7 @@ use crate::dialect::LockType;
 use crate::model::Model;
 use crate::typed::TypedColumn;
 use crate::value::Value;
+use sz_orm_macros::{api_stable, api_beta};
 use std::fmt;
 use std::fmt::Write as _;
 use std::time::Duration;
@@ -743,6 +744,7 @@ impl<M: Model> QueryBuilder<M> {
     pub fn select_quoted(self, columns: Vec<&str>) -> Result<Self, crate::DbError> {
         self.select(columns)
     }
+    #[api_stable]
 
     /// P0-2：参数化等值条件 `field = ?`（AND 关系）。
     ///
@@ -793,6 +795,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::TypedExpr(sql, values));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化不等条件 `field != ?`（AND 关系）。
     pub fn where_ne(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -800,6 +803,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::Ne(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化大于条件 `field > ?`（AND 关系）。
     pub fn where_gt(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -807,6 +811,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::Gt(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化大于等于条件 `field >= ?`（AND 关系）。
     pub fn where_ge(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -814,6 +819,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::Ge(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化小于条件 `field < ?`（AND 关系）。
     pub fn where_lt(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -821,6 +827,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::Lt(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化小于等于条件 `field <= ?`（AND 关系）。
     pub fn where_le(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -828,6 +835,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::Le(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 LIKE 条件 `field LIKE ?`（AND 关系）。
     ///
@@ -845,6 +853,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::Like(field.into(), pattern));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 等值条件 `OR field = ?`。
     ///
@@ -854,6 +863,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::OrEq(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 不等条件 `OR field != ?`。
     pub fn or_where_ne(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -861,6 +871,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::OrNe(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 大于条件 `OR field > ?`。
     pub fn or_where_gt(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -868,6 +879,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::OrGt(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 大于等于条件 `OR field >= ?`。
     pub fn or_where_ge(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -875,6 +887,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::OrGe(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 小于条件 `OR field < ?`。
     pub fn or_where_lt(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -882,6 +895,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::OrLt(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR 小于等于条件 `OR field <= ?`。
     pub fn or_where_le(mut self, field: impl Into<String>, value: Value) -> Self {
@@ -889,6 +903,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::OrLe(field.into(), value));
         self
     }
+    #[api_stable]
 
     /// P0-2：参数化 OR LIKE 条件 `OR field LIKE ?`。
     pub fn or_where_like(mut self, field: impl Into<String>, pattern: Value) -> Self {
@@ -896,6 +911,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::OrLike(field.into(), pattern));
         self
     }
+    #[api_stable]
 
     /// 添加 IN 条件
     pub fn where_in(mut self, field: impl Into<String>, values: Vec<Value>) -> Self {
@@ -910,6 +926,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::NotIn(field.into(), values));
         self
     }
+    #[api_stable]
 
     /// 添加 BETWEEN 条件
     pub fn where_between(mut self, field: impl Into<String>, start: Value, end: Value) -> Self {
@@ -924,6 +941,7 @@ impl<M: Model> QueryBuilder<M> {
             .push(WhereCondition::NotBetween(field.into(), start, end));
         self
     }
+    #[api_stable]
 
     /// 添加 IS NULL 条件
     pub fn where_null(mut self, field: impl Into<String>) -> Self {
@@ -968,6 +986,7 @@ impl<M: Model> QueryBuilder<M> {
     // 以下方法接受实现 TypedColumn 的零大小标记类型，在编译期确保列名
     // 与表归属正确，避免字符串列名拼写错误逃逸到运行时。
     // -----------------------------------------------------------------------
+    #[api_beta]
 
     /// 类型安全 `where_eq`：通过 [`TypedColumn`] 标记类型指定列。
     ///
@@ -1419,6 +1438,7 @@ impl<M: Model> QueryBuilder<M> {
         self.select_columns.push(expr.render_as(&alias.into()));
         self
     }
+    #[api_stable]
 
     /// 构建 SELECT SQL 语句
     ///
@@ -1808,6 +1828,7 @@ impl<M: Model> QueryBuilder<M> {
         // SAFETY: group_strs 来自 WhereCondition::Eq/Gt 等参数化变体渲染，值已绑定为 ? 占位符或内联常量
         format!(" WHERE {}", group_strs.join(" AND "))
     }
+    #[api_stable]
 
     /// 构建 SELECT SQL + 参数绑定（v5.0.0 统一签名，返回 `(String, Vec<Value>)`）
     ///
@@ -1817,6 +1838,7 @@ impl<M: Model> QueryBuilder<M> {
     pub fn build_select(&self) -> (String, Vec<Value>) {
         self.build_select_with_params()
     }
+    #[api_stable]
 
     /// 构建 INSERT SQL + 参数绑定（v5.0.0 统一签名）
     #[tracing::instrument(skip(self, data), fields(op = "insert"))]
@@ -1829,6 +1851,7 @@ impl<M: Model> QueryBuilder<M> {
 
     /// 构建 INSERT SQL（纯 SQL，参数内联渲染）
 
+    #[api_stable]
     #[tracing::instrument(skip(self, data), fields(op = "insert"))]
     pub fn sql_insert(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
@@ -1855,6 +1878,7 @@ impl<M: Model> QueryBuilder<M> {
         ))
         .into_string()
     }
+    #[api_stable]
 
     /// 构建 UPDATE SQL + 参数绑定（v5.0.0 统一签名）
     #[tracing::instrument(skip(self, data), fields(op = "update"))]
@@ -1867,6 +1891,7 @@ impl<M: Model> QueryBuilder<M> {
 
     /// 构建 UPDATE SQL（纯 SQL，参数内联渲染）
 
+    #[api_stable]
     #[tracing::instrument(skip(self, data), fields(op = "update"))]
     pub fn sql_update(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
@@ -1898,6 +1923,7 @@ impl<M: Model> QueryBuilder<M> {
         sql.push_str(&self.build_where_clause());
         sql.into_string()
     }
+    #[api_stable]
 
     /// 构建 DELETE SQL 语句。
     ///
@@ -1917,6 +1943,7 @@ impl<M: Model> QueryBuilder<M> {
 
     /// 构建 DELETE SQL（纯 SQL，参数内联渲染）
 
+    #[api_stable]
     #[tracing::instrument(skip(self), fields(op = "delete"))]
     pub fn sql_delete(&self) -> String {
         let table = self
