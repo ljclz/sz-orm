@@ -102,7 +102,7 @@ impl BulkConfig {
         if total_rows == 0 {
             0
         } else {
-            (total_rows + self.batch_size - 1) / self.batch_size
+            total_rows.div_ceil(self.batch_size)
         }
     }
 }

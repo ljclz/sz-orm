@@ -93,14 +93,10 @@ pub const SIMD_THRESHOLD: usize = 1024;
 ///
 /// 将 `buf` 中的 `count` 个 i64（小端字节序列，每 8 字节一个）解码为 `Vec<i64>`。
 ///
-/// - `count >= 1024` 且 `avail != None` → SIMD 路径（wide::i64x4 向量批量解析）
-/// - `count < 1024` 或 `avail == None` → 标量降级
-pub fn batch_decode_integers(buf: &[u8], count: usize, avail: SimdAvailability) -> Vec<i64> {
-    if count >= SIMD_THRESHOLD && avail.is_available() {
-        simd_decode_integers(buf, count)
-    } else {
-        scalar_decode_integers(buf, count)
-    }
+/// 始终使用标量路径（编译器自动向量化已优于显式 SIMD，实测验证 2026-08-19）。
+/// `avail` 参数保留用于 API 兼容性。
+pub fn batch_decode_integers(buf: &[u8], count: usize, _avail: SimdAvailability) -> Vec<i64> {
+    scalar_decode_integers(buf, count)
 }
 
 /// 标量批量整数解码
@@ -114,44 +110,6 @@ pub fn scalar_decode_integers(buf: &[u8], count: usize) -> Vec<i64> {
         .collect()
 }
 
-#[cfg(feature = "simd")]
-fn simd_decode_integers(buf: &[u8], count: usize) -> Vec<i64> {
-    use wide::i64x4;
-
-    let n = count.min(buf.len() / 8);
-    let mut result = Vec::with_capacity(n);
-
-    let chunk_count = n / 4;
-    let remainder = n % 4;
-
-    for chunk in 0..chunk_count {
-        let base = chunk * 4;
-        let v0 = i64::from_le_bytes(buf[base * 8..base * 8 + 8].try_into().unwrap());
-        let v1 = i64::from_le_bytes(buf[(base + 1) * 8..(base + 1) * 8 + 8].try_into().unwrap());
-        let v2 = i64::from_le_bytes(buf[(base + 2) * 8..(base + 2) * 8 + 8].try_into().unwrap());
-        let v3 = i64::from_le_bytes(buf[(base + 3) * 8..(base + 3) * 8 + 8].try_into().unwrap());
-
-        let vec = i64x4::from([v0, v1, v2, v3]);
-        let arr: [i64; 4] = vec.into();
-        result.extend_from_slice(&arr);
-    }
-
-    for i in 0..remainder {
-        let idx = chunk_count * 4 + i;
-        let offset = idx * 8;
-        result.push(i64::from_le_bytes(
-            buf[offset..offset + 8].try_into().unwrap(),
-        ));
-    }
-
-    result
-}
-
-#[cfg(not(feature = "simd"))]
-fn simd_decode_integers(buf: &[u8], count: usize) -> Vec<i64> {
-    scalar_decode_integers(buf, count)
-}
-
 // ============================================================================
 // 批量比较
 // ============================================================================
@@ -160,14 +118,10 @@ fn simd_decode_integers(buf: &[u8], count: usize) -> Vec<i64> {
 ///
 /// 比较 `values` 中每个元素是否等于 `target`，返回布尔向量。
 ///
-/// - `values.len() >= 1024` 且 `avail != None` → SIMD 路径
-/// - 否则 → 标量降级
-pub fn batch_compare_eq(values: &[i64], target: i64, avail: SimdAvailability) -> Vec<bool> {
-    if values.len() >= SIMD_THRESHOLD && avail.is_available() {
-        simd_compare_eq(values, target)
-    } else {
-        scalar_compare_eq(values, target)
-    }
+/// 始终使用标量路径（编译器自动向量化已优于显式 SIMD，实测验证 2026-08-19）。
+/// `avail` 参数保留用于 API 兼容性。
+pub fn batch_compare_eq(values: &[i64], target: i64, _avail: SimdAvailability) -> Vec<bool> {
+    scalar_compare_eq(values, target)
 }
 
 /// 标量相等比较
@@ -175,49 +129,16 @@ pub fn scalar_compare_eq(values: &[i64], target: i64) -> Vec<bool> {
     values.iter().map(|&v| v == target).collect()
 }
 
-#[cfg(feature = "simd")]
-fn simd_compare_eq(values: &[i64], target: i64) -> Vec<bool> {
-    use wide::{i64x4, CmpEq};
-
-    let n = values.len();
-    let mut result = Vec::with_capacity(n);
-
-    let chunk_count = n / 4;
-    let remainder = n % 4;
-    let target_vec = i64x4::splat(target);
-
-    for chunk in 0..chunk_count {
-        let slice = &values[chunk * 4..chunk * 4 + 4];
-        let vec = i64x4::from([slice[0], slice[1], slice[2], slice[3]]);
-        let cmp = vec.cmp_eq(target_vec);
-        let mask: [i64; 4] = cmp.into();
-        for &m in &mask {
-            result.push(m != 0);
-        }
-    }
-
-    for i in 0..remainder {
-        let idx = chunk_count * 4 + i;
-        result.push(values[idx] == target);
-    }
-
-    result
-}
-
-#[cfg(not(feature = "simd"))]
-fn simd_compare_eq(values: &[i64], target: i64) -> Vec<bool> {
-    scalar_compare_eq(values, target)
-}
-
 /// 批量 IN 过滤
 ///
 /// 判断 `values` 中每个元素是否在 `set` 中，返回布尔向量。
 ///
-/// - `values.len() >= 1024` 且 `avail != None` → SIMD 路径
-/// - 否则 → 标量降级
-pub fn batch_compare_in(values: &[i64], set: &[i64], avail: SimdAvailability) -> Vec<bool> {
-    if values.len() >= SIMD_THRESHOLD && avail.is_available() {
-        simd_compare_in(values, set)
+/// 当 `set.len() >= 8` 时使用 `HashSet` 做 O(1) 查找（算法级优化，远超 SIMD）。
+/// 小集合直接线性扫描（避免 HashSet 建表开销）。
+pub fn batch_compare_in(values: &[i64], set: &[i64], _avail: SimdAvailability) -> Vec<bool> {
+    if set.len() >= 8 {
+        let hash_set: std::collections::HashSet<i64> = set.iter().copied().collect();
+        values.iter().map(|&v| hash_set.contains(&v)).collect()
     } else {
         scalar_compare_in(values, set)
     }
@@ -226,47 +147,6 @@ pub fn batch_compare_in(values: &[i64], set: &[i64], avail: SimdAvailability) ->
 /// 标量 IN 过滤
 pub fn scalar_compare_in(values: &[i64], set: &[i64]) -> Vec<bool> {
     values.iter().map(|&v| set.contains(&v)).collect()
-}
-
-#[cfg(feature = "simd")]
-fn simd_compare_in(values: &[i64], set: &[i64]) -> Vec<bool> {
-    use wide::{i64x4, CmpEq};
-
-    let n = values.len();
-    let mut result = Vec::with_capacity(n);
-
-    let chunk_count = n / 4;
-    let remainder = n % 4;
-
-    for chunk in 0..chunk_count {
-        let slice = &values[chunk * 4..chunk * 4 + 4];
-        let vec = i64x4::from([slice[0], slice[1], slice[2], slice[3]]);
-
-        let mut any_match = [false; 4];
-        for &s in set {
-            let target_vec = i64x4::splat(s);
-            let cmp = vec.cmp_eq(target_vec);
-            let mask: [i64; 4] = cmp.into();
-            for j in 0..4 {
-                if mask[j] != 0 {
-                    any_match[j] = true;
-                }
-            }
-        }
-        result.extend_from_slice(&any_match);
-    }
-
-    for i in 0..remainder {
-        let idx = chunk_count * 4 + i;
-        result.push(set.contains(&values[idx]));
-    }
-
-    result
-}
-
-#[cfg(not(feature = "simd"))]
-fn simd_compare_in(values: &[i64], set: &[i64]) -> Vec<bool> {
-    scalar_compare_in(values, set)
 }
 
 // ============================================================================

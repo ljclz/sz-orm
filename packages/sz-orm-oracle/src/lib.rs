@@ -91,8 +91,8 @@ impl Default for OracleBlockingPoolConfig {
 ///
 /// v1.1.0 optimization 3: creates an independent tokio runtime (`multi_thread`
 /// + custom `max_blocking_threads`); all Oracle blocking operations are
-/// dispatched via `spawn_blocking` of this runtime, isolated from the
-/// blocking pool of the main runtime.
+///   dispatched via `spawn_blocking` of this runtime, isolated from the
+///   blocking pool of the main runtime.
 ///
 /// # Design highlights
 ///

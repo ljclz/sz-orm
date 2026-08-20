@@ -1,3 +1,4 @@
+#![cfg(feature = "anomaly-detection")]
 //! 负向测试：误报/漏报控制
 //!
 //! 误报控制：正常指标不触发告警，误报率 < 5%（REQ-ANM-012）

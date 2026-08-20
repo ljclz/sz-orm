@@ -92,6 +92,12 @@ ignore = [
     # 影响: 仅 sz-orm-python 绑定层；PyCFunction::new_closure 闭包缺 Sync，跨线程共享闭包场景才会触发（2026-08-16 全量审查 G6 登记豁免）
     # 跟踪: 待 sz-orm-python 升级 pyo3 后自动移除
     { id = "RUSTSEC-2026-0177", reason = "sz-orm-python → pyo3 0.20.3 绑定层；new_closure 闭包 Sync 缺失仅在跨线程共享场景触发；待 pyo3 升级后移除" },
+    # h2 0.3.27: unbounded empty DATA frames (RUSTSEC-2026-0258)
+    # 来源: sz-orm-actix → actix-web v4.14.1 → actix-http v3.13.3 → h2 v0.3.27
+    # 影响: actix-web v4.x 依赖 h2 v0.3.x，无法升级到 0.4.x（上游 major.minor 限制）
+    # 跟踪: 待 actix-web 升级到使用 h2 v0.4.x 后自动移除
+    # 注: h2 v0.4.15 已升级到 v0.4.16（修复），仅 h2 v0.3.27 受影响
+    { id = "RUSTSEC-2026-0258", reason = "actix-web v4.14.1 → h2 v0.3.27，actix-web v4.x 依赖 h2 v0.3.x 无法升级到 0.4.x；待 actix-web 升级后移除" },
 ]
 # 未维护的依赖不报告（避免 CI 因传递依赖的 unmaintained 而失败）
 unmaintained = "none"

@@ -406,7 +406,7 @@ impl RequestValidator {
         for field in &self.fields {
             let value = data.get(field.field()).map(|s| s.as_str()).unwrap_or("");
             for error in field.validate(value) {
-                result.add_error(field.field(), &error, &field.field());
+                result.add_error(field.field(), &error, field.field());
             }
         }
         result

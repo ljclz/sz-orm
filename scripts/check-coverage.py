@@ -34,7 +34,7 @@ DEFAULT_MODULES = [
 ]
 # 默认子集对应 feature（2026-08-15 修复：默认调用此前不带 features，feature 门控模块
 # 不编译导致"无覆盖率数据"静默通过——见验证报告发现 2b）
-DEFAULT_FEATURES = "tenant-quota-rls-enhanced,cache-warmup-protection,process-l1-cache"
+DEFAULT_FEATURES = "tenant-quota-rls-enhanced,cache-warmup-protection,process-l1-cache,multi-tenant-enhanced"
 
 
 def find_cargo_bin(name):
@@ -119,11 +119,18 @@ def main():
         print(f"    {flag} {name:40s} {pct:.1%} ({cov}/{reg})")
     print(f"\n  合计: {rate:.1%}（阈值 {args.threshold:.0%}）")
     print("\n" + "=" * 60)
-    if rate < args.threshold:
-        print(f"❌ 门禁 22 未通过 — 覆盖率 {rate:.1%} < {args.threshold:.0%}（请补测试）")
-        return 1
-    print(f"✅ 门禁 22 通过 — 覆盖率 {rate:.1%} ≥ {args.threshold:.0%}")
-    return 0
+    try:
+        if rate < args.threshold:
+            print(f"❌ 门禁 22 未通过 — 覆盖率 {rate:.1%} < {args.threshold:.0%}（请补测试）")
+            return 1
+        print(f"✅ 门禁 22 通过 — 覆盖率 {rate:.1%} ≥ {args.threshold:.0%}")
+        return 0
+    finally:
+        # 清理 cargo-llvm-cov 产物（~14G），避免反复占满磁盘（2026-08-19）
+        cov_dir = os.path.join(ROOT, "target", "llvm-cov-target")
+        if os.path.isdir(cov_dir):
+            shutil.rmtree(cov_dir, ignore_errors=True)
+            print("  🧹 已清理 target/llvm-cov-target/")
 
 
 if __name__ == "__main__":

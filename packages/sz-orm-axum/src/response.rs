@@ -123,17 +123,14 @@ impl<T: Serialize> IntoResponse for ResponseWrapper<T> {
 
 /// API 响应状态
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ApiStatus {
+    #[default]
     Ok,
     Error,
     Partial,
 }
 
-impl Default for ApiStatus {
-    fn default() -> Self {
-        Self::Ok
-    }
-}
 
 impl ApiStatus {
     /// 是否成功

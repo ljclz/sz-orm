@@ -275,7 +275,7 @@ impl DiffResult {
     /// 按差值绝对值降序排序
     pub fn sorted_by_abs_delta(&self) -> Vec<&DiffEntry> {
         let mut entries: Vec<&DiffEntry> = self.entries.iter().collect();
-        entries.sort_by(|a, b| b.delta().abs().cmp(&a.delta().abs()));
+        entries.sort_by_key(|b| std::cmp::Reverse(b.delta().abs()));
         entries
     }
 
@@ -287,9 +287,7 @@ impl DiffResult {
     /// 生成差异报告
     pub fn report(&self) -> String {
         let mut out = String::new();
-        out.push_str(&format!(
-            "Flame Graph Diff Report\n=======================\n"
-        ));
+        out.push_str("Flame Graph Diff Report\n=======================\n");
         out.push_str(&format!("Baseline total: {} ms\n", self.total_baseline));
         out.push_str(&format!("Target total:   {} ms\n", self.total_target));
         out.push_str(&format!(
@@ -327,36 +325,25 @@ impl DiffResult {
 
 /// 差异比较模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum DiffMode {
     /// 按总值比较
+    #[default]
     TotalValue,
     /// 按自身值比较
     SelfValue,
 }
 
-impl Default for DiffMode {
-    fn default() -> Self {
-        Self::TotalValue
-    }
-}
 
 /// 火焰图差异比较器
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct FlameDiff {
     mode: DiffMode,
     include_unchanged: bool,
     min_delta: u64,
 }
 
-impl Default for FlameDiff {
-    fn default() -> Self {
-        Self {
-            mode: DiffMode::default(),
-            include_unchanged: false,
-            min_delta: 0,
-        }
-    }
-}
 
 impl FlameDiff {
     /// 创建比较器
@@ -426,7 +413,7 @@ impl FlameDiff {
             })
             .collect();
 
-        entries.sort_by(|a, b| b.delta().abs().cmp(&a.delta().abs()));
+        entries.sort_by_key(|b| std::cmp::Reverse(b.delta().abs()));
 
         DiffResult::new(entries, baseline.total_samples(), target.total_samples())
     }

@@ -156,11 +156,9 @@ impl RateLimitMetrics {
             } else {
                 metrics.rejected += 1;
             }
-            metrics.avg_latency_us = if metrics.requests > 0 {
-                (metrics.avg_latency_us * (metrics.requests - 1) + latency_us) / metrics.requests
-            } else {
-                latency_us
-            };
+            metrics.avg_latency_us = (metrics.avg_latency_us * (metrics.requests - 1) + latency_us)
+                .checked_div(metrics.requests)
+                .unwrap_or(latency_us);
         }
     }
 
@@ -187,7 +185,7 @@ impl RateLimitMetrics {
             } else {
                 0.0
             },
-            avg_latency_us: if total > 0 { total_latency / total } else { 0 },
+            avg_latency_us: total_latency.checked_div(total).unwrap_or(0),
             max_latency_us: if total > 0 { max_latency } else { 0 },
             min_latency_us: if total > 0 {
                 min_latency.min(max_latency)
@@ -604,8 +602,8 @@ mod tests {
     fn test_metrics_uptime() {
         let metrics = RateLimitMetrics::new();
         std::thread::sleep(Duration::from_millis(10));
-        let snap = metrics.snapshot();
-        assert!(snap.uptime_secs == 0 || snap.uptime_secs >= 0);
+        // uptime_secs is a u64 field — always >= 0 trivially; no meaningful assertion needed
+        let _snap = metrics.snapshot();
     }
 
     #[test]

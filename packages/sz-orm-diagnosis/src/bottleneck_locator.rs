@@ -275,6 +275,7 @@ struct StageAgg {
 #[derive(Debug, Clone)]
 pub struct BottleneckTrendAnalyzer {
     /// 窗口大小（毫秒）
+    #[allow(dead_code)]
     window_ms: u64,
     /// 历史定位结果：`(窗口起始时间, 瓶颈列表)`
     history: Vec<(u64, Vec<Bottleneck>)>,

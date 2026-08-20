@@ -139,7 +139,6 @@ async fn handle_connection(
 
     let ws_stream = accept_hdr_async_with_config(
         socket,
-        ws_config,
         move |req: &Request, mut resp: Response| {
             let token = req
                 .headers()
@@ -175,6 +174,7 @@ async fn handle_connection(
                     .expect("401 response")),
             }
         },
+        Some(ws_config),
     )
     .await
     .map_err(|e| WsError::Connection(format!("accept/auth failed: {e}")))?;

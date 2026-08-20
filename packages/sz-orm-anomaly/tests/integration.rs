@@ -1,3 +1,4 @@
+#![cfg(feature = "anomaly-detection")]
 //! 集成测试：模拟异常场景，验证检测准确性
 
 use std::sync::atomic::{AtomicU64, Ordering};

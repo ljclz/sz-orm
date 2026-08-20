@@ -217,7 +217,7 @@ impl BatchUpdateBuilder {
         let sqls: Vec<String> = self
             .rows
             .iter()
-            .map(|(pk, values)| {
+            .map(|(_pk, values)| {
                 let sets: Vec<String> = self
                     .set_columns
                     .iter()

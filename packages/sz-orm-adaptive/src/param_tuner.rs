@@ -96,20 +96,17 @@ impl TunableParam {
 
 /// 调优策略
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TuningStrategy {
     /// 保守策略：每次只调整 5%
     Conservative,
     /// 平衡策略：每次调整 15%
+    #[default]
     Balanced,
     /// 激进策略：每次调整 30%
     Aggressive,
 }
 
-impl Default for TuningStrategy {
-    fn default() -> Self {
-        TuningStrategy::Balanced
-    }
-}
 
 impl TuningStrategy {
     /// 返回调整步长比例（0.0 ~ 1.0）
@@ -221,6 +218,7 @@ impl TuningEvent {
 
 /// 调优统计
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct TuningStats {
     /// 总调优次数
     pub total_tunings: u64,
@@ -232,16 +230,6 @@ pub struct TuningStats {
     pub last_tuning_ms: u64,
 }
 
-impl Default for TuningStats {
-    fn default() -> Self {
-        Self {
-            total_tunings: 0,
-            effective_tunings: 0,
-            per_param_counts: HashMap::new(),
-            last_tuning_ms: 0,
-        }
-    }
-}
 
 impl TuningStats {
     /// 有效调优比率
@@ -328,8 +316,8 @@ impl AdaptiveParameterTuner {
 
     /// 手动设置参数值（会被 clamp 到合法范围）
     pub fn set(&self, param: TunableParam, value: u64) -> u64 {
-        let clamped = clamp_value(param, value);
-        clamped
+        
+        clamp_value(param, value)
     }
 
     /// 返回当前策略

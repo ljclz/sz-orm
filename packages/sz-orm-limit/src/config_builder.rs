@@ -76,21 +76,19 @@ impl RateLimitConfig {
             return Err(ConfigError::InvalidCapacity);
         }
         match self.algorithm {
-            LimitAlgorithm::TokenBucket | LimitAlgorithm::LeakyBucket => {
-                if self.rate < 0.0 {
+            LimitAlgorithm::TokenBucket | LimitAlgorithm::LeakyBucket
+                if self.rate < 0.0 => {
                     return Err(ConfigError::InvalidRate);
                 }
-            }
             _ => {}
         }
         match self.algorithm {
             LimitAlgorithm::FixedWindow
             | LimitAlgorithm::SlidingWindow
-            | LimitAlgorithm::SlidingWindowLog => {
-                if self.window_ms == 0 {
+            | LimitAlgorithm::SlidingWindowLog
+                if self.window_ms == 0 => {
                     return Err(ConfigError::InvalidWindow);
                 }
-            }
             _ => {}
         }
         if self.max_keys == 0 {

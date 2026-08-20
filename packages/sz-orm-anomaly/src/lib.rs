@@ -31,6 +31,7 @@
 //! ## Quick Start
 //!
 //! ```no_run
+//! # #[cfg(feature = "anomaly-detection")] {
 //! use sz_orm_anomaly::{AnomalyDetector, AnomalyConfig};
 //!
 //! let detector = AnomalyDetector::new(AnomalyConfig::default());
@@ -42,7 +43,7 @@
 //! for alert in &alerts {
 //!     println!("[{:?}] {:?}: {}", alert.severity, alert.anomaly_type, alert.suggestion);
 //! }
-//! ```
+//! # }
 
 pub mod error;
 

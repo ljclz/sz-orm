@@ -8,10 +8,12 @@ use std::time::Duration;
 
 /// SQL Server 事务隔离级别
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TransactionIsolation {
     /// 读未提交（NOLOCK）
     ReadUncommitted,
     /// 读已提交（默认）
+    #[default]
     ReadCommitted,
     /// 可重复读
     RepeatableRead,
@@ -90,11 +92,6 @@ impl TransactionIsolation {
     }
 }
 
-impl Default for TransactionIsolation {
-    fn default() -> Self {
-        TransactionIsolation::ReadCommitted
-    }
-}
 
 impl fmt::Display for TransactionIsolation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -104,10 +101,12 @@ impl fmt::Display for TransactionIsolation {
 
 /// 死锁优先级
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum DeadlockPriority {
     /// 低优先级（被选为牺牲者）
     Low,
     /// 正常优先级
+    #[default]
     Normal,
     /// 高优先级
     High,
@@ -130,11 +129,6 @@ impl DeadlockPriority {
     }
 }
 
-impl Default for DeadlockPriority {
-    fn default() -> Self {
-        DeadlockPriority::Normal
-    }
-}
 
 /// 事务配置
 #[derive(Debug, Clone)]

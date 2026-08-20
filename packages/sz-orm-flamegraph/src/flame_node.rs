@@ -137,7 +137,7 @@ impl FlameNode {
 
     /// 按值降序排序子节点
     pub fn sort_by_value_desc(&mut self) {
-        self.children.sort_by(|a, b| b.value.cmp(&a.value));
+        self.children.sort_by_key(|b| std::cmp::Reverse(b.value));
         for child in &mut self.children {
             child.sort_by_value_desc();
         }
@@ -385,15 +385,11 @@ impl FlameGraphBuilder {
 
 /// 火焰图合并器
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct FlameGraphMerger {
     builders: Vec<FlameGraphBuilder>,
 }
 
-impl Default for FlameGraphMerger {
-    fn default() -> Self {
-        Self { builders: vec![] }
-    }
-}
 
 impl FlameGraphMerger {
     /// 创建合并器
@@ -402,6 +398,7 @@ impl FlameGraphMerger {
     }
 
     /// 添加火焰图（链式）
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, builder: FlameGraphBuilder) -> Self {
         self.builders.push(builder);
         self
@@ -430,6 +427,7 @@ impl FlameGraphMerger {
 
 /// 火焰图过滤器
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct FlameGraphFilter {
     include: Vec<String>,
     exclude: Vec<String>,
@@ -437,16 +435,6 @@ pub struct FlameGraphFilter {
     max_depth: Option<usize>,
 }
 
-impl Default for FlameGraphFilter {
-    fn default() -> Self {
-        Self {
-            include: vec![],
-            exclude: vec![],
-            min_value: 0,
-            max_depth: None,
-        }
-    }
-}
 
 impl FlameGraphFilter {
     /// 创建过滤器

@@ -158,16 +158,13 @@ impl PaginationExtractor {
 
 /// 排序方向
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum SortDirection {
+    #[default]
     Asc,
     Desc,
 }
 
-impl Default for SortDirection {
-    fn default() -> Self {
-        Self::Asc
-    }
-}
 
 impl SortDirection {
     /// 转为字符串

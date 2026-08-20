@@ -4,7 +4,7 @@
 //! 锁等待分析器聚合等待事件提供统计与建议。
 //! 本模块不依赖 `slow-query-diagnosis` feature，可独立使用。
 
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 
 /// 锁等待事件
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -66,7 +66,6 @@ impl LockWaitAnalyzer {
     }
 
     /// 批量添加事件
-
     pub fn add_events(&mut self, events: Vec<LockWaitEvent>) {
         for event in events {
             self.add_event(event);
@@ -135,11 +134,10 @@ impl LockWaitAnalyzer {
         };
 
         for &node in &all_nodes {
-            if !visited.contains(&node) {
-                if self.dfs_find_cycle(node, &mut visited, &mut path, &mut path_set) {
+            if !visited.contains(&node)
+                && self.dfs_find_cycle(node, &mut visited, &mut path, &mut path_set) {
                     return Some(path);
                 }
-            }
         }
         None
     }
@@ -240,7 +238,7 @@ impl DeadlockDetector {
     pub fn complete_transaction(&mut self, tx_id: u64) {
         self.wait_graph.remove(&tx_id);
         // 移除其他事务等待 tx_id 的边
-        for (_, neighbors) in self.wait_graph.iter_mut() {
+        for neighbors in self.wait_graph.values_mut() {
             neighbors.remove(&tx_id);
         }
         // 清理空邻居
@@ -291,11 +289,10 @@ impl DeadlockDetector {
         };
 
         for &node in &all_nodes {
-            if !visited.contains(&node) {
-                if self.dfs_cycle(node, &mut visited, &mut path, &mut path_set) {
+            if !visited.contains(&node)
+                && self.dfs_cycle(node, &mut visited, &mut path, &mut path_set) {
                     return Some(path);
                 }
-            }
         }
         None
     }

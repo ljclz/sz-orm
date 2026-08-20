@@ -406,7 +406,7 @@
 
 // v3.9.0 M1-T3：derive(Validate) 宏生成 sz_orm_core 绝对路径，
 // crate 内部测试需 self 别名使该路径解析到当前 crate
-#[cfg(all(test, feature = "data-validation"))]
+#[cfg(test)]
 extern crate self as sz_orm_core;
 
 use std::sync::Arc;
@@ -427,6 +427,7 @@ pub mod behaviors;
 pub mod benchmark;
 pub mod bloom;
 mod cache;
+pub mod change_tracker;
 pub mod circuit_breaker;
 #[cfg(feature = "type-safe-columns")]
 pub mod column;
@@ -460,6 +461,8 @@ pub mod json_query;
 pub mod l1_cache;
 pub mod l2_cache;
 pub mod lambda;
+pub mod lazy_loader;
+pub mod linq;
 pub mod migration;
 #[cfg(feature = "migration-dry-run")]
 pub mod migration_dry_run;
@@ -480,6 +483,7 @@ pub mod prewarm;
 #[cfg(feature = "prod-ready")]
 pub mod prod_ready_check;
 mod query;
+pub mod query_cache;
 #[cfg(feature = "data-validation")]
 pub mod validation;
 /// Re-export QueryBuilder for external use
@@ -550,6 +554,7 @@ pub mod value_borrowed;
 // Re-export proc macros
 pub use queryable::Query;
 pub use queryable::QueryAs;
+pub use sz_orm_macros::migrate;
 pub use sz_orm_macros::query;
 pub use sz_orm_macros::query_as;
 pub use sz_orm_macros::schema;
@@ -562,6 +567,11 @@ pub use sz_orm_macros::FromQueryResult;
 pub use sz_orm_macros::RelationTrait;
 #[cfg(feature = "data-validation")]
 pub use sz_orm_macros::Validate;
+
+pub use change_tracker::{ChangeTracker, EntityEntry, EntityState};
+pub use lazy_loader::{LazyCollection, LazyLoader, LazyRef};
+pub use linq::LinqQuery;
+pub use query_cache::{QueryCache, QueryCacheKey, TimestampCache};
 
 pub use cache::*;
 pub use cycle_detection::{CycleDetector, CyclePolicy};

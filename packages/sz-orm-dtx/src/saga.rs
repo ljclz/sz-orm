@@ -1832,4 +1832,90 @@ mod tests {
         let result = saga.resume_compensation();
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_saga_5_node_partial_failure_cascade_compensation() {
+        // 5 节点 Saga：node1~3 成功，node4 故障，验证 node3→node2→node1 逆序补偿
+        let order = Arc::new(Mutex::new(Vec::<String>::new()));
+
+        let mut saga = Saga::new("5-node-cascade");
+
+        for i in 1..=3 {
+            let oa = order.clone();
+            let oc = order.clone();
+            saga.add_step(
+                SagaStep::new(&format!("node{}", i))
+                    .with_action(move || {
+                        oa.lock().push(format!("action{}", i));
+                        Ok(())
+                    })
+                    .with_compensation(move || {
+                        oc.lock().push(format!("comp{}", i));
+                        Ok(())
+                    }),
+            )
+            .unwrap();
+        }
+
+        saga.add_step(SagaStep::new("node4").with_action(|| Err("node4 crashed".to_string())))
+            .unwrap();
+
+        let result = saga.execute().unwrap();
+        assert!(matches!(result, SagaResult::Compensated { .. }));
+
+        let recorded = order.lock();
+        assert_eq!(
+            *recorded,
+            vec![
+                "action1".to_string(),
+                "action2".to_string(),
+                "action3".to_string(),
+                "comp3".to_string(),
+                "comp2".to_string(),
+                "comp1".to_string(),
+            ]
+        );
+    }
+
+    #[test]
+    fn test_saga_multi_node_with_partial_compensation_failure() {
+        // 4 节点 Saga：node1~3 成功，node4 故障
+        // node2 的补偿也失败 → 验证 saga 进入 CompensationFailed 状态
+        let mut saga = Saga::new("partial-comp-fail");
+
+        saga.add_step(
+            SagaStep::new("node1")
+                .with_action(|| Ok(()))
+                .with_compensation(|| Ok(())),
+        )
+        .unwrap();
+        saga.add_step(
+            SagaStep::new("node2")
+                .with_action(|| Ok(()))
+                .with_compensation(|| Err("node2 comp failed".to_string())),
+        )
+        .unwrap();
+        saga.add_step(
+            SagaStep::new("node3")
+                .with_action(|| Ok(()))
+                .with_compensation(|| Ok(())),
+        )
+        .unwrap();
+        saga.add_step(SagaStep::new("node4").with_action(|| Err("node4 failed".to_string())))
+            .unwrap();
+
+        let result = saga.execute().unwrap();
+        match result {
+            SagaResult::CompensationFailed {
+                failed_step,
+                compensation_failed_step,
+                ..
+            } => {
+                assert_eq!(failed_step, "node4");
+                assert_eq!(compensation_failed_step, "node2");
+            }
+            other => panic!("expected CompensationFailed, got {:?}", other),
+        }
+        assert_eq!(saga.state(), SagaState::CompensationFailed);
+    }
 }

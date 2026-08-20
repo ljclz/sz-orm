@@ -651,7 +651,7 @@ impl SqlRule for MaxColumnCountRule {
             Some(RuleViolation::new(
                 self.name(),
                 self.severity(),
-                &format!("SELECT 列数 {} 超过上限 {}", col_count, self.max_columns),
+                format!("SELECT 列数 {} 超过上限 {}", col_count, self.max_columns),
             ))
         } else {
             None

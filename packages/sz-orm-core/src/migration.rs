@@ -1069,6 +1069,7 @@ impl ForeignKeyDef {
 
 #[cfg(test)]
 mod tests {
+
     use super::*;
 
     #[test]
@@ -1187,5 +1188,19 @@ mod tests {
         let progress = MigrationProgress::new(10, 4);
         assert_eq!(progress.pending, 6);
         assert!((progress.percent_complete() - 40.0).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_migrate_macro() {
+        let m = crate::migrate!(
+            "001",
+            "create_users",
+            "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+            "DROP TABLE users"
+        );
+        assert_eq!(m.version, "001");
+        assert_eq!(m.name, "create_users");
+        assert!(m.sql_up.contains("CREATE TABLE"));
+        assert!(m.sql_down.contains("DROP TABLE"));
     }
 }

@@ -140,7 +140,7 @@ impl LabelPropagation {
         if total_edges == 0.0 {
             return 0.0;
         }
-        let node_community: HashMap<NodeId, usize> = {
+        let _node_community: HashMap<NodeId, usize> = {
             let mut map = HashMap::new();
             for community in communities {
                 for &node in &community.nodes {

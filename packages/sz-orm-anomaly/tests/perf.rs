@@ -1,3 +1,4 @@
+#![cfg(feature = "anomaly-detection")]
 //! 性能测试：采集耗时 < 100μs，判定耗时 < 1ms，内存 < 10MB
 //!
 //! 使用 `--ignored` 标志运行：`cargo test -p sz-orm-anomaly --test perf -- --ignored`

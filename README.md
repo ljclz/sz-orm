@@ -1,13 +1,13 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v4.3.0 · 60 workspace members · 9905+ tests · 27 SQL dialects · published on crates.io
+> v4.9.0 · 61 workspace members · 9905+ tests · 27 SQL dialects · published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-9905+-green.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-12557+-green.svg)](#tests)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#supported-databases)
-[![Packages](https://img.shields.io/badge/packages-60-purple.svg)](#workspace-structure)
+[![Packages](https://img.shields.io/badge/packages-61-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-4.9.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#overview)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#security-audit)
@@ -99,7 +99,7 @@ println!("{}", report.to_json().unwrap());
 |------|------|
 | Workspace members | **60** (58 sz-orm-* libs + cli + examples) |
 | Supported DB dialects | **17 SQL dialects** (8 native + 9 delegated, including 6 domestic computing) |
-| Test cases | **9905 passed, 0 failed** |
+| Test cases | **12557 passed, 0 failed** |
 | Code size | **~139,000 LOC** (after deep optimization, src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |

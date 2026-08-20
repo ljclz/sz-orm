@@ -4,7 +4,6 @@
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
-use std::time::Duration;
 
 use crate::{RateLimitError, RateLimitResult, RateLimiter};
 
@@ -382,6 +381,7 @@ impl Default for RuleSet {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::Duration;
     use crate::{SlidingWindowRateLimiter, TokenBucketRateLimiter};
 
     #[test]

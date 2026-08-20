@@ -926,10 +926,12 @@ impl Default for TaskStatsManager {
 
 /// 任务优先级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum TaskPriority {
     /// 低优先级
     Low = 1,
     /// 普通优先级
+    #[default]
     Normal = 5,
     /// 高优先级
     High = 10,
@@ -937,11 +939,6 @@ pub enum TaskPriority {
     Urgent = 20,
 }
 
-impl Default for TaskPriority {
-    fn default() -> Self {
-        TaskPriority::Normal
-    }
-}
 
 impl TaskPriority {
     /// 从数值创建优先级

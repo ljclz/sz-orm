@@ -453,17 +453,11 @@ pub enum ValueKind {
 
 /// 类型映射器
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct MssqlTypeMapping {
     custom_mappings: HashMap<String, ValueKind>,
 }
 
-impl Default for MssqlTypeMapping {
-    fn default() -> Self {
-        Self {
-            custom_mappings: HashMap::new(),
-        }
-    }
-}
 
 impl MssqlTypeMapping {
     /// 创建新的映射器

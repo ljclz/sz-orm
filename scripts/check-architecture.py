@@ -38,6 +38,7 @@ CORE_ALLOWLIST = {
     "sz-orm-audit", "sz-orm-crypto", "sz-orm-health", "sz-orm-limit",
     "sz-orm-macros", "sz-orm-masking", "sz-orm-n1-lint",
     "sz-orm-query-builder", "sz-orm-sql-validator",
+    "sz-orm-anomaly",  # 可选依赖 anomaly-detection feature，sz-orm-core 异常检测集成
 }
 
 

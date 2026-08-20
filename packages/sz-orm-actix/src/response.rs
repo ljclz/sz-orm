@@ -121,8 +121,10 @@ impl<T> ResponseWrapper<T> {
 
 /// API 响应状态
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ApiStatus {
     /// 成功
+    #[default]
     Ok,
     /// 失败
     Error,
@@ -130,11 +132,6 @@ pub enum ApiStatus {
     Partial,
 }
 
-impl Default for ApiStatus {
-    fn default() -> Self {
-        Self::Ok
-    }
-}
 
 impl ApiStatus {
     /// 是否成功
@@ -1046,12 +1043,14 @@ impl RateLimitConfig {
 
 /// 中间件优先级
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum MiddlewarePriority {
     /// 最低（最先执行）
     Lowest,
     /// 低
     Low,
     /// 普通
+    #[default]
     Normal,
     /// 高
     High,
@@ -1059,11 +1058,6 @@ pub enum MiddlewarePriority {
     Highest,
 }
 
-impl Default for MiddlewarePriority {
-    fn default() -> Self {
-        Self::Normal
-    }
-}
 
 impl MiddlewarePriority {
     /// 数值（用于排序）
@@ -1161,6 +1155,7 @@ impl MiddlewareChainConfig {
     }
 
     /// 添加中间件（链式）
+    #[allow(clippy::should_implement_trait)]
     pub fn add(mut self, entry: MiddlewareEntry) -> Self {
         self.entries.push(entry);
         self

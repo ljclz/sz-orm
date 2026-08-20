@@ -287,7 +287,7 @@ impl MaskingReport {
                 masked_chars,
             })
             .collect();
-        field_breakdown.sort_by(|a, b| b.count.cmp(&a.count));
+        field_breakdown.sort_by_key(|b| std::cmp::Reverse(b.count));
 
         let mut rule_map: HashMap<String, usize> = HashMap::new();
         for entry in entries {
@@ -297,7 +297,7 @@ impl MaskingReport {
             .into_iter()
             .map(|(rule, count)| RuleReport { rule, count })
             .collect();
-        rule_breakdown.sort_by(|a, b| b.count.cmp(&a.count));
+        rule_breakdown.sort_by_key(|b| std::cmp::Reverse(b.count));
 
         let unique_fields = field_breakdown.len();
 

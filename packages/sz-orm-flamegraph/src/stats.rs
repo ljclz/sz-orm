@@ -136,7 +136,7 @@ impl FlameStats {
             .filter(|(name, _)| name.as_str() != data.root().name())
             .map(|(_, stats)| (stats.total_value, stats.name.clone()))
             .collect();
-        top_frames.sort_by(|a, b| b.0.cmp(&a.0));
+        top_frames.sort_by_key(|b| std::cmp::Reverse(b.0));
         let top_frames: Vec<String> = top_frames
             .into_iter()
             .take(10)
@@ -287,8 +287,10 @@ impl Hotspot {
 
 /// 热点检测策略
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum HotspotStrategy {
     /// 按自身耗时
+    #[default]
     SelfTime,
     /// 按总耗时
     TotalTime,
@@ -296,11 +298,6 @@ pub enum HotspotStrategy {
     PercentageThreshold(u64),
 }
 
-impl Default for HotspotStrategy {
-    fn default() -> Self {
-        Self::SelfTime
-    }
-}
 
 /// 热点检测器
 #[derive(Debug, Clone)]
@@ -374,15 +371,15 @@ impl HotspotDetector {
 
         match self.strategy {
             HotspotStrategy::SelfTime => {
-                candidates.sort_by(|a, b| b.1.cmp(&a.1));
+                candidates.sort_by_key(|b| std::cmp::Reverse(b.1));
             }
             HotspotStrategy::TotalTime => {
-                candidates.sort_by(|a, b| b.2.cmp(&a.2));
+                candidates.sort_by_key(|b| std::cmp::Reverse(b.2));
             }
             HotspotStrategy::PercentageThreshold(pct) => {
                 let threshold = (pct as f64 / 100.0) * total;
                 candidates.retain(|(_, _, total_val)| *total_val as f64 >= threshold);
-                candidates.sort_by(|a, b| b.2.cmp(&a.2));
+                candidates.sort_by_key(|b| std::cmp::Reverse(b.2));
             }
         }
 

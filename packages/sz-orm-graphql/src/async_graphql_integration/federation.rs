@@ -237,4 +237,122 @@ mod tests {
         let result = gateway.cross_service_query("");
         assert!(result.is_err());
     }
+
+    #[test]
+    fn test_federation_3_service_e2e() {
+        let mut gateway = FederationGateway::new();
+        gateway.add_service(FederatedService {
+            name: "users".to_string(),
+            sdl: "type User @key(fields: \"id\") { id: ID! name: String email: String }"
+                .to_string(),
+            url: "http://localhost:4001".to_string(),
+        });
+        gateway.add_service(FederatedService {
+            name: "orders".to_string(),
+            sdl: "type Order @key(fields: \"id\") { id: ID! user_id: ID! amount: Float }"
+                .to_string(),
+            url: "http://localhost:4002".to_string(),
+        });
+        gateway.add_service(FederatedService {
+            name: "products".to_string(),
+            sdl: "type Product @key(fields: \"id\") { id: ID! name: String price: Float }"
+                .to_string(),
+            url: "http://localhost:4003".to_string(),
+        });
+
+        assert_eq!(gateway.services().len(), 3);
+        assert!(gateway.merged_sdl().contains("type User"));
+        assert!(gateway.merged_sdl().contains("type Order"));
+        assert!(gateway.merged_sdl().contains("type Product"));
+        assert!(gateway.merged_sdl().contains("@key"));
+
+        let user = gateway.resolve_entity("users", "User", "42").unwrap();
+        assert_eq!(user["__typename"], "User");
+        assert_eq!(user["id"], "42");
+        assert_eq!(user["_service"], "users");
+
+        let order = gateway.resolve_entity("orders", "Order", "100").unwrap();
+        assert_eq!(order["__typename"], "Order");
+        assert_eq!(order["_service"], "orders");
+
+        let product = gateway.resolve_entity("products", "Product", "7").unwrap();
+        assert_eq!(product["__typename"], "Product");
+        assert_eq!(product["_service"], "products");
+    }
+
+    #[test]
+    fn test_federation_cross_entity_resolution() {
+        let mut gateway = FederationGateway::new();
+        gateway.add_service(FederatedService {
+            name: "users".to_string(),
+            sdl: "type User @key(fields: \"id\") { id: ID! name: String }".to_string(),
+            url: "http://localhost:4001".to_string(),
+        });
+        gateway.add_service(FederatedService {
+            name: "orders".to_string(),
+            sdl: "type Order { id: ID! user: User @provides(fields: \"name\") }".to_string(),
+            url: "http://localhost:4002".to_string(),
+        });
+
+        // 从 orders 服务查询 order，然后通过 _entities 引用解析 User
+        let order = gateway.resolve_entity("orders", "Order", "1").unwrap();
+        assert_eq!(order["__typename"], "Order");
+
+        // 通过 _entities 解析 User 引用
+        let user = gateway.resolve_entity("users", "User", "99").unwrap();
+        assert_eq!(user["__typename"], "User");
+        assert_eq!(user["id"], "99");
+    }
+
+    #[test]
+    fn test_federation_service_composition() {
+        let mut gateway = FederationGateway::new();
+        gateway.add_service(FederatedService {
+            name: "users".to_string(),
+            sdl: "type User @key(fields: \"id\") { id: ID! name: String }".to_string(),
+            url: "http://localhost:4001".to_string(),
+        });
+        gateway.add_service(FederatedService {
+            name: "reviews".to_string(),
+            sdl: "type Review { id: ID! author: User author_id: ID! }".to_string(),
+            url: "http://localhost:4002".to_string(),
+        });
+
+        // 组合查询：查询 review 并自动从 users 服务获取 author
+        let result = gateway
+            .cross_service_query("{ reviews { id author { name } } }")
+            .unwrap();
+        assert!(result["query"].as_str().unwrap().contains("reviews"));
+        let services = result["services"].as_array().unwrap();
+        assert!(services.len() >= 2);
+    }
+
+    #[test]
+    fn test_federation_dynamic_service_add_remove() {
+        let mut gateway = FederationGateway::new();
+        gateway.add_service(FederatedService {
+            name: "users".to_string(),
+            sdl: "type User { id: ID! }".to_string(),
+            url: "http://localhost:4001".to_string(),
+        });
+
+        assert_eq!(gateway.services().len(), 1);
+
+        gateway.add_service(FederatedService {
+            name: "orders".to_string(),
+            sdl: "type Order { id: ID! }".to_string(),
+            url: "http://localhost:4002".to_string(),
+        });
+        assert_eq!(gateway.services().len(), 2);
+        assert!(gateway.merged_sdl().contains("type Order"));
+
+        gateway.remove_service("orders");
+        assert_eq!(gateway.services().len(), 1);
+        assert!(!gateway.merged_sdl().contains("type Order"));
+        assert!(gateway.merged_sdl().contains("type User"));
+
+        // users 服务查询仍正常
+        let user = gateway.resolve_entity("users", "User", "1").unwrap();
+        assert_eq!(user["__typename"], "User");
+    }
 }

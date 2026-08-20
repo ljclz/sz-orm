@@ -62,8 +62,7 @@ serde_yaml = "0.9"
 # 2026-08-16 替换：xxhash-rust(BSL-1.0) → twox-hash(MIT/Apache-2.0)，XXH64 算法输出一致
 # 依据：docs/sz-orm-review-runbook.md 第十节（2026-08-16 全量审查 G6 决策）
 twox-hash = { version = "1.6" }
-# v3.2.0：SIMD 向量化加速（simd feature）
-wide = "0.7"
+
 # v4.7.0 架构债清零：布隆过滤器双实现合并为 sz-orm-core::bloom（公共模块），
 # bloomfilter crate 依赖已移除（原 v3.3.0 dist-cache 使用）
 # v3.4.0：SmallString 优化（perf-smallstring feature，短字符串 ≤ 23 字节内联存储）

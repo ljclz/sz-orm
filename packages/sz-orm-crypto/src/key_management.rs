@@ -1104,6 +1104,11 @@ impl NonceGenerator {
     pub fn len(&self) -> usize {
         self.nonce_len
     }
+
+    /// 是否为空
+    pub fn is_empty(&self) -> bool {
+        self.nonce_len == 0
+    }
 }
 
 // ============================================================================
@@ -1112,6 +1117,7 @@ impl NonceGenerator {
 
 /// 加密上下文：携带关联数据（AEAD）和元数据
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct EncryptionContext {
     /// 关联数据（Additional Authenticated Data）
     pub aad: Vec<u8>,
@@ -1121,15 +1127,6 @@ pub struct EncryptionContext {
     pub tenant_id: Option<String>,
 }
 
-impl Default for EncryptionContext {
-    fn default() -> Self {
-        Self {
-            aad: Vec::new(),
-            label: String::new(),
-            tenant_id: None,
-        }
-    }
-}
 
 impl EncryptionContext {
     /// 创建空上下文

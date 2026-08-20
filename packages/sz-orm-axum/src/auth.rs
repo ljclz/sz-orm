@@ -15,6 +15,7 @@ use serde::{Deserialize, Serialize};
 
 /// 认证结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Default)]
 pub struct AuthResult {
     authenticated: bool,
     user_id: Option<String>,
@@ -22,16 +23,6 @@ pub struct AuthResult {
     token: Option<String>,
 }
 
-impl Default for AuthResult {
-    fn default() -> Self {
-        Self {
-            authenticated: false,
-            user_id: None,
-            roles: vec![],
-            token: None,
-        }
-    }
-}
 
 impl AuthResult {
     /// 创建匿名（未认证）结果

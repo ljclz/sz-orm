@@ -369,11 +369,13 @@ impl PoolConfig {
 
 /// 连接池配置构建器
 #[napi]
+#[allow(clippy::new_without_default)]
 pub struct PoolConfigBuilder {
     config: PoolConfig,
 }
 
 #[napi]
+#[allow(clippy::new_without_default)]
 impl PoolConfigBuilder {
     /// 创建默认配置构建器
     #[napi(constructor)]
@@ -505,6 +507,7 @@ impl ErrorCategory {
 
 /// 重试策略
 #[napi]
+#[allow(clippy::new_without_default)]
 pub struct RetryPolicy {
     max_retries: u32,
     base_delay_ms: i64,
@@ -513,8 +516,8 @@ pub struct RetryPolicy {
 }
 
 #[napi]
+#[allow(clippy::new_without_default)]
 impl RetryPolicy {
-    /// 创建默认重试策略（最多 3 次，基础延迟 100ms）
     #[napi(constructor)]
     pub fn new() -> Self {
         Self {
@@ -573,11 +576,13 @@ impl RetryPolicy {
 
 /// 错误处理器：分类错误、决定重试策略
 #[napi]
+#[allow(clippy::new_without_default)]
 pub struct ErrorHandler {
     policy: RetryPolicy,
 }
 
 #[napi]
+#[allow(clippy::new_without_default)]
 impl ErrorHandler {
     /// 创建错误处理器
     #[napi(constructor)]

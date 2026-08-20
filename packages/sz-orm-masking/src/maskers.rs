@@ -17,8 +17,10 @@ use serde::{Deserialize, Serialize};
 
 /// 哈希算法选择
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum HashAlgorithm {
     /// SipHash-1-3（std 默认，确定性，64 位）
+    #[default]
     SipHash,
     /// FNV-1a 32 位
     Fnv1a32,
@@ -26,11 +28,6 @@ pub enum HashAlgorithm {
     Fnv1a64,
 }
 
-impl Default for HashAlgorithm {
-    fn default() -> Self {
-        Self::SipHash
-    }
-}
 
 impl HashAlgorithm {
     /// 算法名
@@ -335,17 +332,11 @@ impl PartialDisplayMasker {
 ///
 /// 用于按字段名模式批量应用脱敏规则，例如 `user_*` 匹配所有以 `user_` 开头的字段。
 #[derive(Debug, Clone)]
+#[derive(Default)]
 pub struct PatternMasker {
     patterns: Vec<(String, crate::MaskingRule)>,
 }
 
-impl Default for PatternMasker {
-    fn default() -> Self {
-        Self {
-            patterns: Vec::new(),
-        }
-    }
-}
 
 impl PatternMasker {
     /// 创建空模式匹配器

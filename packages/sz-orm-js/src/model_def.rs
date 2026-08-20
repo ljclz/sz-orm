@@ -347,6 +347,7 @@ pub enum RelationType {
 
 /// 关系定义
 #[napi]
+#[allow(dead_code)]
 pub struct RelationDefinition {
     name: String,
     relation_type: RelationType,

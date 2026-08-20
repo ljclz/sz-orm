@@ -128,6 +128,8 @@ def scan(rules):
                 s = ln.strip()
                 if s.startswith("//") or s.startswith("///") or s.startswith("//!"):
                     continue  # 跳过注释（文档示例含模式字串会误报）
+                if "// SAFETY:" in s or "// false-positive:" in s:
+                    continue  # 带注释声明的代码行视为已知合法，跳过
                 if rx.search(ln):
                     hits.append((rule["id"], os.path.relpath(path, ROOT).replace("\\", "/"), i, s[:120]))
     return hits

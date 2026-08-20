@@ -3172,6 +3172,86 @@ pub fn detect_n_plus_one(_attr: TokenStream, item: TokenStream) -> TokenStream {
     quote::quote!(#item_fn).into()
 }
 
+/// `migrate!` 宏 — 编译时创建迁移并验证 SQL 语法
+///
+/// 对标 SQLx `migrate!` / Diesel `embed_migrations!`。
+///
+/// # 用法
+///
+/// ```ignore
+/// use sz_orm_macros::migrate;
+///
+/// let m = migrate!("001", "create_users",
+///     "CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT)",
+///     "DROP TABLE users");
+/// ```
+///
+/// 编译时验证 up/down SQL 语法，生成 `sz_orm_core::migration::Migration`。
+#[proc_macro]
+pub fn migrate(input: TokenStream) -> TokenStream {
+    use syn::parse::Parser;
+    let args = match syn::punctuated::Punctuated::<syn::LitStr, syn::Token![,]>::parse_terminated
+        .parse2(input.into())
+    {
+        Ok(args) => args,
+        Err(e) => return e.to_compile_error().into(),
+    };
+
+    if args.len() != 4 {
+        return syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "migrate! expects exactly 4 arguments: version, name, sql_up, sql_down",
+        )
+        .to_compile_error()
+        .into();
+    }
+
+    let args_vec: Vec<_> = args.into_iter().collect();
+    let sql_up = args_vec[2].value();
+    let sql_down = args_vec[3].value();
+
+    if let Err(e) = validate_balanced_parens(&sql_up) {
+        return syn::Error::new(args_vec[2].span(), format!("sql_up validation failed: {e}"))
+            .to_compile_error()
+            .into();
+    }
+    if let Err(e) = validate_string_literals_closed(&sql_up) {
+        return syn::Error::new(args_vec[2].span(), format!("sql_up validation failed: {e}"))
+            .to_compile_error()
+            .into();
+    }
+    if !sql_down.is_empty() {
+        if let Err(e) = validate_balanced_parens(&sql_down) {
+            return syn::Error::new(
+                args_vec[3].span(),
+                format!("sql_down validation failed: {e}"),
+            )
+            .to_compile_error()
+            .into();
+        }
+        if let Err(e) = validate_string_literals_closed(&sql_down) {
+            return syn::Error::new(
+                args_vec[3].span(),
+                format!("sql_down validation failed: {e}"),
+            )
+            .to_compile_error()
+            .into();
+        }
+    }
+
+    let version_lit = args_vec[0].clone();
+    let name_lit = args_vec[1].clone();
+    let up_lit = args_vec[2].clone();
+    let down_lit = args_vec[3].clone();
+
+    quote::quote! {
+        ::sz_orm_core::migration::Migration::new(
+            #version_lit, #name_lit, #up_lit, #down_lit,
+        )
+    }
+    .into()
+}
+
 // ---------------------------------------------------------------------------
 // Unit tests — cover helper functions used by both macros
 // ---------------------------------------------------------------------------

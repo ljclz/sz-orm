@@ -4,7 +4,7 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 
-use crate::algorithm::{DirectedGraph, NodeId, Weight};
+use crate::algorithm::{DirectedGraph, NodeId};
 
 /// 路径分析器
 pub struct PathAnalyzer;

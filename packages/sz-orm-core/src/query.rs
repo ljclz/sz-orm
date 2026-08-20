@@ -30,6 +30,7 @@ use crate::model::Model;
 use crate::typed::TypedColumn;
 use crate::value::Value;
 use std::fmt;
+use std::fmt::Write as _;
 use std::time::Duration;
 
 /// 用于构造 SQL 查询的查询构造器
@@ -1474,38 +1475,43 @@ impl<M: Model> QueryBuilder<M> {
         for join in &self.joins {
             match join {
                 JoinClause::Inner(t, l, r) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " INNER JOIN {} ON {} = {}",
                         self.dialect.quote(t),
                         self.dialect.quote(l),
                         self.dialect.quote(r)
-                    ));
+                    );
                 }
                 JoinClause::Left(t, l, r) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " LEFT JOIN {} ON {} = {}",
                         self.dialect.quote(t),
                         self.dialect.quote(l),
                         self.dialect.quote(r)
-                    ));
+                    );
                 }
                 JoinClause::Right(t, l, r) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " RIGHT JOIN {} ON {} = {}",
                         self.dialect.quote(t),
                         self.dialect.quote(l),
                         self.dialect.quote(r)
-                    ));
+                    );
                 }
                 JoinClause::Cross(t, on) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " CROSS JOIN {} ON {}",
                         self.dialect.quote(t),
                         self.dialect.quote(on)
-                    ));
+                    );
                 }
                 JoinClause::Relation(kind, ft, fk, tt, tk) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " {} {} ON {}.{} = {}.{}",
                         kind.as_sql(),
                         self.dialect.quote(tt),
@@ -1513,7 +1519,7 @@ impl<M: Model> QueryBuilder<M> {
                         self.dialect.quote(fk),
                         self.dialect.quote(tt),
                         self.dialect.quote(tk)
-                    ));
+                    );
                 }
             }
         }
@@ -1573,11 +1579,11 @@ impl<M: Model> QueryBuilder<M> {
         }
 
         if let Some(limit) = self.limit_value {
-            sql.push_str(&format!(" LIMIT {}", limit));
+            let _ = write!(sql, " LIMIT {}", limit);
         }
 
         if let Some(offset) = self.offset_value {
-            sql.push_str(&format!(" OFFSET {}", offset));
+            let _ = write!(sql, " OFFSET {}", offset);
         }
 
         sql.into_string()
@@ -2177,38 +2183,43 @@ impl<M: Model> QueryBuilder<M> {
         for join in &self.joins {
             match join {
                 JoinClause::Inner(t, l, r) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " INNER JOIN {} ON {} = {}",
                         self.dialect.quote(t),
                         self.dialect.quote(l),
                         self.dialect.quote(r)
-                    ));
+                    );
                 }
                 JoinClause::Left(t, l, r) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " LEFT JOIN {} ON {} = {}",
                         self.dialect.quote(t),
                         self.dialect.quote(l),
                         self.dialect.quote(r)
-                    ));
+                    );
                 }
                 JoinClause::Right(t, l, r) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " RIGHT JOIN {} ON {} = {}",
                         self.dialect.quote(t),
                         self.dialect.quote(l),
                         self.dialect.quote(r)
-                    ));
+                    );
                 }
                 JoinClause::Cross(t, on) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " CROSS JOIN {} ON {}",
                         self.dialect.quote(t),
                         self.dialect.quote(on)
-                    ));
+                    );
                 }
                 JoinClause::Relation(kind, ft, fk, tt, tk) => {
-                    sql.push_str(&format!(
+                    let _ = write!(
+                        sql,
                         " {} {} ON {}.{} = {}.{}",
                         kind.as_sql(),
                         self.dialect.quote(tt),
@@ -2216,7 +2227,7 @@ impl<M: Model> QueryBuilder<M> {
                         self.dialect.quote(fk),
                         self.dialect.quote(tt),
                         self.dialect.quote(tk)
-                    ));
+                    );
                 }
             }
         }
@@ -2274,10 +2285,10 @@ impl<M: Model> QueryBuilder<M> {
         }
 
         if let Some(limit) = self.limit_value {
-            sql.push_str(&format!(" LIMIT {}", limit));
+            let _ = write!(sql, " LIMIT {}", limit);
         }
         if let Some(offset) = self.offset_value {
-            sql.push_str(&format!(" OFFSET {}", offset));
+            let _ = write!(sql, " OFFSET {}", offset);
         }
 
         // P2-3：追加行锁子句（TASK-025/026）

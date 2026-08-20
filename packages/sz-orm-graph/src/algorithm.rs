@@ -30,8 +30,8 @@ impl DirectedGraph {
 
     /// 添加节点
     pub fn add_node(&mut self, node: NodeId) {
-        if !self.adjacency.contains_key(&node) {
-            self.adjacency.insert(node, Vec::new());
+        if let std::collections::hash_map::Entry::Vacant(e) = self.adjacency.entry(node) {
+            e.insert(Vec::new());
             self.node_count += 1;
         }
     }
@@ -157,11 +157,10 @@ impl DirectedGraph {
             let current = {
                 let mut best: Option<(NodeId, Weight)> = None;
                 for (&node, &d) in dist.iter() {
-                    if !visited.contains(&node) {
-                        if best.is_none() || d < best.unwrap().1 {
+                    if !visited.contains(&node)
+                        && (best.is_none() || d < best.unwrap().1) {
                             best = Some((node, d));
                         }
-                    }
                 }
                 best
             };
@@ -246,11 +245,10 @@ impl DirectedGraph {
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
         for &node in self.adjacency.keys() {
-            if !visited.contains(&node) {
-                if self.has_cycle_dfs(node, &mut visited, &mut rec_stack) {
+            if !visited.contains(&node)
+                && self.has_cycle_dfs(node, &mut visited, &mut rec_stack) {
                     return true;
                 }
-            }
         }
         false
     }

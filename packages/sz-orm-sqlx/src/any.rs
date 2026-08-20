@@ -1858,15 +1858,16 @@ impl Connection for SqlxPgConnection {
             }
             let cols = rows[0].columns();
             let mut col_names: Vec<String> = Vec::with_capacity(cols.len());
+            let mut col_types: Vec<ColType> = Vec::with_capacity(cols.len());
             for col in cols {
                 col_names.push(col.name().to_string());
+                col_types.push(ColType::parse_postgres(col.type_info().name()));
             }
             let mut result_rows: Vec<Vec<Value>> = Vec::with_capacity(rows.len());
-            for row in rows {
+            for row in &rows {
                 let mut row_values: Vec<Value> = Vec::with_capacity(col_names.len());
                 for (idx, _) in col_names.iter().enumerate() {
-                    let ordinal = row.columns()[idx].ordinal();
-                    row_values.push(row_to_value_pg(&row, ordinal));
+                    row_values.push(row_to_value_with_coltype_pg(row, idx, col_types[idx]));
                 }
                 result_rows.push(row_values);
             }

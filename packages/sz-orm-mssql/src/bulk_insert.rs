@@ -301,7 +301,7 @@ impl BulkInsert {
             .rows
             .iter()
             .map(|row| {
-                let vals: Vec<String> = row.iter().map(|v| v.clone()).collect();
+                let vals: Vec<String> = row.to_vec();
                 format!("({})", vals.join(", "))
             })
             .collect();
@@ -593,7 +593,7 @@ mod tests {
         let bi = BulkInsert::multi_row("users")
             .columns(&["a", "b"])
             .add_row(vec!["1".to_string(), "2".to_string()]);
-        assert_eq!(bi.estimated_memory_bytes(), 1 * 2 * 32);
+        assert_eq!(bi.estimated_memory_bytes(), 2 * 32);
     }
 
     #[test]

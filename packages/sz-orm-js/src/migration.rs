@@ -377,15 +377,15 @@ impl SchemaDiff {
         new_model: &ModelDefinition,
     ) -> Result<SchemaDiffResult> {
         let dialect = dialect_or_err(self.db_type)?;
-        let table = new_model.table_name();
+        let _table = new_model.table_name();
 
         let old_fields: Vec<String> = vec![]; // ModelDefinition 不暴露字段列表，用空集合
         let _ = old_fields;
 
         // 由于 ModelDefinition 不暴露内部字段列表，
         // 这里基于表名生成基础迁移
-        let mut added_columns = vec![];
-        let mut removed_columns = vec![];
+        let added_columns = vec![];
+        let removed_columns = vec![];
         let mut migration_sqls = vec![];
 
         // 如果表名不同，生成重命名

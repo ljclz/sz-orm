@@ -4,10 +4,10 @@
 //! 不依赖 async runtime，使用线程池执行。
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, Mutex, RwLock};
+use std::sync::{Arc, Mutex};
 use std::time::{Duration, Instant};
 
-use crate::config::{FailureStrategy, MergeStrategy, ParallelQueryConfig};
+use crate::config::{MergeStrategy, ParallelQueryConfig};
 use crate::outcome::{QueryFailure, QueryOutcome};
 use crate::parallel_stats::ParallelStatsCollector;
 
@@ -135,7 +135,7 @@ impl<T: Send + 'static> ParallelExecutor<T> {
             let outcomes = outcomes.clone();
             let failures = failures.clone();
             let stats = self.stats.clone();
-            let task_start = Instant::now();
+            let _task_start = Instant::now();
 
             let handle = std::thread::spawn(move || {
                 let task_start = Instant::now();
@@ -150,7 +150,7 @@ impl<T: Send + 'static> ParallelExecutor<T> {
                     }
                     Err(error) => {
                         let elapsed_ms = task_start.elapsed().as_millis() as u64;
-                        stats.record_query(None, false, false, elapsed_ms, 0);
+                        stats.record_query(None, false, false, elapsed_ms, 0); // SAFETY: error path — 0 rows returned
                         if let Ok(mut fail) = failures.lock() {
                             fail.push(QueryFailure::new(i, error));
                         }

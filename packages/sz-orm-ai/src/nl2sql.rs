@@ -307,6 +307,19 @@ impl SimpleNl2SqlEngine {
                         ));
                     }
                 }
+                // 也尝试单数形式（如 users → user_id）
+                let singular = Self::singularize(&t1.name.to_lowercase());
+                if singular != t1.name.to_lowercase() {
+                    let expected_fk_singular = format!("{}_{}", singular, col1.name);
+                    for col2 in &t2.columns {
+                        if col2.name.to_lowercase() == expected_fk_singular {
+                            return Some((
+                                format!("{}.{}", t1.name, col1.name),
+                                format!("{}.{}", t2.name, col2.name),
+                            ));
+                        }
+                    }
+                }
             }
         }
         // 模式 2: t1 中有 t2_name + _id → t1.t2_name_id = t2.id
@@ -321,9 +334,31 @@ impl SimpleNl2SqlEngine {
                         ));
                     }
                 }
+                // 也尝试单数形式
+                let singular = Self::singularize(&t2.name.to_lowercase());
+                if singular != t2.name.to_lowercase() {
+                    let expected_fk_singular = format!("{}_{}", singular, col2.name);
+                    for col1 in &t1.columns {
+                        if col1.name.to_lowercase() == expected_fk_singular {
+                            return Some((
+                                format!("{}.{}", t1.name, col1.name),
+                                format!("{}.{}", t2.name, col2.name),
+                            ));
+                        }
+                    }
+                }
             }
         }
         None
+    }
+
+    /// 简单的英文单数化（去除末尾的 s）
+    fn singularize(word: &str) -> String {
+        if word.ends_with('s') && word.len() > 1 {
+            word[..word.len() - 1].to_string()
+        } else {
+            word.to_string()
+        }
     }
 
     /// 从 WHERE 条件文本中提取参数化条件
@@ -2573,5 +2608,137 @@ mod tests {
     fn test_normalize_sql() {
         let normalized = QueryOptimizer::normalize_sql("SELECT  id\nFROM   users");
         assert_eq!(normalized, "SELECT id FROM users");
+    }
+
+    #[tokio::test]
+    async fn test_nl2sql_multi_table_join() {
+        let engine = SimpleNl2SqlEngine::new();
+        let schema = test_schema();
+        let result = engine
+            .generate("show users join orders", &schema)
+            .await
+            .unwrap();
+        assert!(result.sql.contains("FROM users"));
+        assert!(result.sql.contains("JOIN orders"));
+        assert!(result.sql.contains("ON"));
+    }
+
+    #[tokio::test]
+    async fn test_nl2sql_join_with_where_and_limit() {
+        let engine = SimpleNl2SqlEngine::new();
+        let schema = test_schema();
+        let result = engine
+            .generate("show users join orders where age > 25 limit 10", &schema)
+            .await
+            .unwrap();
+        assert!(result.sql.contains("JOIN orders"));
+        assert!(result.sql.contains("WHERE"));
+        assert!(result.sql.contains("LIMIT 10"));
+    }
+
+    #[tokio::test]
+    async fn test_nl2sql_join_with_aggregation() {
+        let engine = SimpleNl2SqlEngine::new();
+        let schema = test_schema();
+        let result = engine
+            .generate("total price from orders join users", &schema)
+            .await
+            .unwrap();
+        assert!(result.sql.contains("SUM"));
+        assert!(result.sql.contains("FROM orders"));
+    }
+
+    #[test]
+    fn test_analyze_three_table_join() {
+        let opt = QueryOptimizer::new();
+        let schema = test_schema();
+        let analysis = opt.analyze(
+            "SELECT u.id FROM users u JOIN orders o ON u.id = o.user_id JOIN products p ON o.product = p.name LIMIT 10",
+            &schema,
+        );
+        assert!(analysis.has_join);
+        assert!(analysis.detected_tables.contains(&"users".to_string()));
+        assert!(analysis.detected_tables.contains(&"orders".to_string()));
+        assert!(analysis.detected_tables.contains(&"products".to_string()));
+    }
+
+    #[test]
+    fn test_analyze_nested_subquery() {
+        let opt = QueryOptimizer::new();
+        let schema = test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users WHERE id IN (SELECT user_id FROM orders WHERE price > (SELECT AVG(price) FROM orders)) LIMIT 10",
+            &schema,
+        );
+        assert!(analysis.has_subquery);
+    }
+
+    #[test]
+    fn test_analyze_exists_subquery() {
+        let opt = QueryOptimizer::new();
+        let schema = test_schema();
+        let analysis = opt.analyze(
+            "SELECT u.name FROM users u WHERE EXISTS (SELECT 1 FROM orders o WHERE o.user_id = u.id) LIMIT 10",
+            &schema,
+        );
+        assert!(analysis.has_subquery);
+        assert!(analysis.detected_tables.contains(&"users".to_string()));
+        assert!(analysis.detected_tables.contains(&"orders".to_string()));
+    }
+
+    #[test]
+    fn test_analyze_derived_table_subquery() {
+        let opt = QueryOptimizer::new();
+        let schema = test_schema();
+        let analysis = opt.analyze(
+            "SELECT t.id FROM (SELECT id FROM users WHERE age > 18) t LIMIT 10",
+            &schema,
+        );
+        assert!(analysis.has_subquery);
+    }
+
+    #[test]
+    fn test_analyze_union_query() {
+        let opt = QueryOptimizer::new();
+        let schema = test_schema();
+        let analysis = opt.analyze(
+            "SELECT id FROM users UNION SELECT user_id FROM orders LIMIT 10",
+            &schema,
+        );
+        assert!(analysis.detected_tables.contains(&"users".to_string()));
+        assert!(analysis.detected_tables.contains(&"orders".to_string()));
+    }
+
+    #[test]
+    fn test_analyze_cte_with() {
+        let opt = QueryOptimizer::new();
+        let schema = test_schema();
+        let analysis = opt.analyze(
+            "WITH active_users AS (SELECT id FROM users WHERE age > 18) SELECT id FROM active_users LIMIT 10",
+            &schema,
+        );
+        assert!(analysis.detected_tables.contains(&"users".to_string()));
+    }
+
+    #[test]
+    fn test_analyze_complex_join_subquery_groupby_having() {
+        let opt = QueryOptimizer::new();
+        let schema = test_schema();
+        let analysis = opt.analyze(
+            "SELECT u.city, COUNT(o.id) AS order_count \
+             FROM users u JOIN orders o ON u.id = o.user_id \
+             WHERE u.age > 18 \
+             GROUP BY u.city \
+             HAVING COUNT(o.id) > 5 \
+             ORDER BY order_count DESC LIMIT 20",
+            &schema,
+        );
+        assert!(analysis.has_join);
+        assert!(analysis.has_where);
+        assert!(analysis.has_limit);
+        assert!(!analysis.uses_select_star);
+        assert!(analysis.detected_tables.contains(&"users".to_string()));
+        assert!(analysis.detected_tables.contains(&"orders".to_string()));
+        assert!(analysis.complexity_score > 30);
     }
 }

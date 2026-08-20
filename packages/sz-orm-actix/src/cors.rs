@@ -14,8 +14,10 @@ use serde::{Deserialize, Serialize};
 
 /// CORS 来源匹配策略
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum CorsOrigin {
     /// 允许所有来源（`*`）
+    #[default]
     Any,
     /// 允许指定来源列表
     Specific(Vec<String>),
@@ -23,11 +25,6 @@ pub enum CorsOrigin {
     Pattern(String),
 }
 
-impl Default for CorsOrigin {
-    fn default() -> Self {
-        Self::Any
-    }
-}
 
 impl CorsOrigin {
     /// 检查给定 origin 是否允许
@@ -385,9 +382,7 @@ mod tests {
     fn cors_config_with_exposed_header() {
         let config = CorsConfig::new().with_exposed_header("X-Total-Count");
         assert!(config
-            .expose_headers()
-            .iter()
-            .any(|h| *h == "X-Total-Count"));
+            .expose_headers().contains(&"X-Total-Count"));
     }
 
     #[test]

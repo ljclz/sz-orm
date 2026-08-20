@@ -14,8 +14,10 @@ use serde::{Deserialize, Serialize};
 
 /// 颜色方案
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum ColorScheme {
     /// 默认（暖色：红/橙/黄）
+    #[default]
     Default,
     /// 冷色（蓝/青/绿）
     Cool,
@@ -29,11 +31,6 @@ pub enum ColorScheme {
     Random,
 }
 
-impl Default for ColorScheme {
-    fn default() -> Self {
-        Self::Default
-    }
-}
 
 impl ColorScheme {
     /// 方案名
@@ -378,8 +375,10 @@ impl LayoutConfig {
 
 /// 输出格式
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Default)]
 pub enum OutputFormat {
     /// SVG
+    #[default]
     Svg,
     /// Brendan Gregg 折叠栈
     Folded,
@@ -391,11 +390,6 @@ pub enum OutputFormat {
     Text,
 }
 
-impl Default for OutputFormat {
-    fn default() -> Self {
-        Self::Svg
-    }
-}
 
 impl OutputFormat {
     /// 格式名

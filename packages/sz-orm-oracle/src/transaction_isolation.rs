@@ -11,8 +11,10 @@ use std::time::Duration;
 /// Oracle 实际只支持 READ COMMITTED 与 SERIALIZABLE（以及只读事务）。
 /// REPEATABLE READ 在 Oracle 中无直接对应，映射到 SERIALIZABLE。
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum TransactionIsolation {
     /// 读已提交（Oracle 默认）
+    #[default]
     ReadCommitted,
     /// 串行化
     Serializable,
@@ -86,16 +88,13 @@ impl fmt::Display for TransactionIsolation {
     }
 }
 
-impl Default for TransactionIsolation {
-    fn default() -> Self {
-        TransactionIsolation::ReadCommitted
-    }
-}
 
 /// 事务访问模式
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Default)]
 pub enum AccessMode {
     /// 读写模式
+    #[default]
     ReadWrite,
     /// 只读模式
     ReadOnly,
@@ -112,11 +111,6 @@ impl AccessMode {
     }
 }
 
-impl Default for AccessMode {
-    fn default() -> Self {
-        AccessMode::ReadWrite
-    }
-}
 
 /// 事务配置
 #[derive(Debug, Clone)]

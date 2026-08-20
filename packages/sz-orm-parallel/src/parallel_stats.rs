@@ -32,11 +32,7 @@ impl ParallelStats {
     }
 
     pub fn avg_latency_ms(&self) -> u64 {
-        if self.total_queries > 0 {
-            self.total_latency_ms / self.total_queries
-        } else {
-            0
-        }
+        self.total_latency_ms.checked_div(self.total_queries).unwrap_or(0)
     }
 
     pub fn task_completion_rate(&self) -> f64 {
@@ -84,11 +80,7 @@ impl QueryKeyStats {
     }
 
     pub fn avg_latency_ms(&self) -> u64 {
-        if self.count > 0 {
-            self.total_latency_ms / self.count
-        } else {
-            0
-        }
+        self.total_latency_ms.checked_div(self.count).unwrap_or(0)
     }
 }
 

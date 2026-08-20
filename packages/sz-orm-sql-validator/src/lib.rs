@@ -875,10 +875,10 @@ impl ComplexityLevel {
     /// Returns the level description.
     pub fn description(&self) -> &'static str {
         match self {
-            ComplexityLevel::Simple => "simple",
-            ComplexityLevel::Moderate => "moderate",
-            ComplexityLevel::Complex => "complex",
-            ComplexityLevel::VeryComplex => "very complex",
+            ComplexityLevel::Simple => "简单",
+            ComplexityLevel::Moderate => "中等",
+            ComplexityLevel::Complex => "复杂",
+            ComplexityLevel::VeryComplex => "非常复杂",
         }
     }
 }

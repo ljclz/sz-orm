@@ -31,7 +31,7 @@ plan-cache = ["dep:sqlparser", "dep:twox-hash"]
 # v3.2.0锛氶浂鎷疯礉搴忓垪鍖栵紙BorrowedValue + ColumnarResultSet锟?
 zero-copy = []
 # v3.2.0锛歋IMD 鍔犻€燂紙鎵归噺鏁存暟瑙ｇ爜 + 鍒楁瘮锟?+ 鑷姩闄嶇骇锟?
-simd = ["dep:wide"]
+simd = []
 # v3.3.0锛氬绉熸埛涓庢暟鎹殧绂诲寮猴紙绉熸埛涓婁笅鏂囪嚜鍔ㄦ敞锟?+ Schema 闅旂 + 杩炴帴姹犻殧锟?+ 琛岀骇瀹夊叏 + 鍒楃骇鑴辨晱 + 澶氱鎴峰璁★級
 multi-tenant-enhanced = ["dep:sz-orm-audit", "dep:sz-orm-masking"]
 # v3.3.0锛氬垎甯冨紡缂撳瓨涓€鑷存€э紙璺ㄥ疄渚嬪け锟?+ Write-behind + 缂撳瓨鍑荤┛/闆穿闃叉姢锟?
@@ -146,6 +146,8 @@ tenant-quota-rls-enhanced = ["connection-level-tenant"]
 cache-warmup-protection = ["process-l1-cache"]
 # v4.9.0 TASK-004：异常检测（指标采集 + 滑动窗口 + 突增/耗尽检测 + 告警 + 报告）
 anomaly-detection = ["dep:sz-orm-anomaly"]
+# v4.9.1：性能优化组合（一键启用 SIMD 向量化 + L1 缓存 + 查询计划缓存 + 零拷贝）
+performance = ["simd", "l1-cache", "plan-cache", "zero-copy"]
 
 [dependencies]
 async-trait.workspace = true
@@ -175,8 +177,7 @@ redis = { workspace = true, optional = true }
 # v3.2.0锛氭煡璇㈣鍒掔紦瀛橈紙plan-cache feature锟?
 sqlparser = { workspace = true, optional = true }
 twox-hash = { workspace = true, optional = true }
-# v3.2.0锛歋IMD 鍔犻€燂紙simd feature锟?
-wide = { workspace = true, optional = true }
+
 # v3.3.0锛氬绉熸埛瀹¤澧炲己锛坢ulti-tenant-enhanced feature锟?
 sz-orm-audit = { version = "4.1.0", path = "../sz-orm-audit", optional = true }
 # v3.3.0锛氬垪绾ц劚鏁忓寮猴紙multi-tenant-enhanced feature锟?
