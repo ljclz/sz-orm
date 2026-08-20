@@ -1820,13 +1820,16 @@ impl<M: Model> QueryBuilder<M> {
 
     /// 构建 INSERT SQL + 参数绑定（v5.0.0 统一签名）
     #[tracing::instrument(skip(self, data), fields(op = "insert"))]
-    pub fn build_insert(&self, data: &std::collections::HashMap<String, Value>) -> (String, Vec<Value>) {
+    pub fn build_insert(
+        &self,
+        data: &std::collections::HashMap<String, Value>,
+    ) -> (String, Vec<Value>) {
         self.build_insert_with_params(data)
     }
 
-    #[deprecated(since = "5.0.0", note = "use build_insert() instead, it now returns (String, Vec<Value>)")]
-    #[tracing::instrument(skip(self, data), fields(op = "insert"))]
     /// 构建 INSERT SQL（纯 SQL，参数内联渲染）
+
+    #[tracing::instrument(skip(self, data), fields(op = "insert"))]
     pub fn sql_insert(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
@@ -1855,13 +1858,16 @@ impl<M: Model> QueryBuilder<M> {
 
     /// 构建 UPDATE SQL + 参数绑定（v5.0.0 统一签名）
     #[tracing::instrument(skip(self, data), fields(op = "update"))]
-    pub fn build_update(&self, data: &std::collections::HashMap<String, Value>) -> (String, Vec<Value>) {
+    pub fn build_update(
+        &self,
+        data: &std::collections::HashMap<String, Value>,
+    ) -> (String, Vec<Value>) {
         self.build_update_with_params(data)
     }
 
-    #[deprecated(since = "5.0.0", note = "use build_update() instead, it now returns (String, Vec<Value>)")]
-    #[tracing::instrument(skip(self, data), fields(op = "update"))]
     /// 构建 UPDATE SQL（纯 SQL，参数内联渲染）
+
+    #[tracing::instrument(skip(self, data), fields(op = "update"))]
     pub fn sql_update(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
@@ -1909,7 +1915,8 @@ impl<M: Model> QueryBuilder<M> {
         self.build_delete_with_params()
     }
 
-    #[deprecated(since = "5.0.0", note = "use build_delete() instead, it now returns (String, Vec<Value>)")]
+    /// 构建 DELETE SQL（纯 SQL，参数内联渲染）
+
     #[tracing::instrument(skip(self), fields(op = "delete"))]
     pub fn sql_delete(&self) -> String {
         let table = self
@@ -2873,10 +2880,7 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
-        let sql = builder
-            .table("users")
-            .select(vec!["id", "name"])?
-            .sql();
+        let sql = builder.table("users").select(vec!["id", "name"])?.sql();
         assert!(sql.contains("SELECT `id`, `name` FROM"));
         assert!(sql.contains("`users`"));
         Ok(())
@@ -3036,10 +3040,7 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
-        let sql = builder
-            .table("users")
-            .where_null("deleted_at")
-            .sql();
+        let sql = builder.table("users").where_null("deleted_at").sql();
 
         assert!(sql.contains("IS NULL"));
         Ok(())
