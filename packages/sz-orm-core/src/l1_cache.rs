@@ -34,7 +34,7 @@
 //! ```
 
 use std::collections::HashMap;
-use std::collections::VecDeque;
+
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
@@ -85,10 +85,10 @@ impl L1CacheStats {
 ///
 /// 泛型参数 `T` 为缓存值类型，主键类型固定为 `i64`（与 `Model::PrimaryKey` 对齐）。
 pub struct L1Cache<T> {
-    /// Identity Map: 主键 → `Arc<T>`
-    data: HashMap<i64, Arc<T>>,
-    /// LRU 访问顺序队列（头部 = 最久未使用，尾部 = 最近使用）
-    lru_order: VecDeque<i64>,
+    /// Identity Map: 主键 → `Arc<T>` + 最后访问时间戳
+    data: HashMap<i64, (Arc<T>, u64)>,
+    /// 单调递增时间戳（用于 LRU 排序）
+    clock: u64,
     /// 容量上限
     capacity: usize,
     /// 命中次数（无锁原子计数）
@@ -106,7 +106,7 @@ impl<T> L1Cache<T> {
     pub fn new(capacity: usize) -> Self {
         Self {
             data: HashMap::with_capacity(capacity),
-            lru_order: VecDeque::with_capacity(capacity),
+            clock: 0,
             capacity: capacity.max(1),
             hits: AtomicU64::new(0),
             misses: AtomicU64::new(0),
@@ -121,36 +121,41 @@ impl<T> L1Cache<T> {
 
     /// 存入缓存项（Identity Map 语义：同主键返回同引用）
     ///
-    /// 如果主键已存在，更新值并移到 LRU 尾部（最近使用）。
-    /// 如果超过容量上限，淘汰 LRU 头部（最久未使用）条目。
+    /// 如果主键已存在，更新值并更新访问时间戳。
+    /// 如果超过容量上限，淘汰时间戳最小的条目（LRU）。
     pub fn put(&mut self, key: i64, value: Arc<T>) {
-        // 如果已存在，更新值并移到 LRU 尾部
-        if let std::collections::hash_map::Entry::Occupied(mut e) = self.data.entry(key) {
-            e.insert(value);
-            self.touch_lru(key);
+        self.clock += 1;
+
+        if let Some(entry) = self.data.get_mut(&key) {
+            entry.0 = value;
+            entry.1 = self.clock;
             return;
         }
 
-        // LRU 淘汰：超过容量时淘汰头部
         if self.data.len() >= self.capacity {
-            if let Some(victim) = self.lru_order.pop_front() {
+            let victim = self
+                .data
+                .iter()
+                .min_by_key(|(_, (_, ts))| *ts)
+                .map(|(k, _)| *k);
+            if let Some(victim) = victim {
                 self.data.remove(&victim);
                 self.evicts.fetch_add(1, Ordering::Relaxed);
             }
         }
 
-        self.data.insert(key, value);
-        self.lru_order.push_back(key);
+        self.data.insert(key, (value, self.clock));
     }
 
     /// 查询缓存项（Identity Map 语义：同主键返回同 Arc 引用）
     ///
-    /// 命中时更新 LRU 顺序（移到尾部），未命中时递增 miss 计数。
+    /// 命中时更新访问时间戳（O(1)），未命中时递增 miss 计数。
     pub fn get(&mut self, key: &i64) -> Option<Arc<T>> {
-        if let Some(value) = self.data.get(key).map(Arc::clone) {
+        if let Some(entry) = self.data.get_mut(key) {
+            self.clock += 1;
+            entry.1 = self.clock;
             self.hits.fetch_add(1, Ordering::Relaxed);
-            self.touch_lru(*key);
-            Some(value)
+            Some(Arc::clone(&entry.0))
         } else {
             self.misses.fetch_add(1, Ordering::Relaxed);
             None
@@ -159,15 +164,12 @@ impl<T> L1Cache<T> {
 
     /// 手动失效单个缓存项
     pub fn evict(&mut self, key: &i64) {
-        if self.data.remove(key).is_some() {
-            self.lru_order.retain(|k| k != key);
-        }
+        self.data.remove(key);
     }
 
     /// 清空所有缓存项
     pub fn clear(&mut self) {
         self.data.clear();
-        self.lru_order.clear();
     }
 
     /// 当前缓存条目数量
@@ -188,12 +190,6 @@ impl<T> L1Cache<T> {
             entry_count: self.data.len(),
             evict_count: self.evicts.load(Ordering::Relaxed),
         }
-    }
-
-    /// 将 key 移到 LRU 尾部（最近使用）
-    fn touch_lru(&mut self, key: i64) {
-        self.lru_order.retain(|k| *k != key);
-        self.lru_order.push_back(key);
     }
 }
 

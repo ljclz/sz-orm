@@ -265,7 +265,7 @@
 |------|------|--------|
 | **Informix/Firebird 无真实驱动** | Rust 生态无成熟 async 驱动 crate，已标注 SQL generation only | 低 |
 | **C++ 绑定缺本机 E2E** | sz-orm-cpp 16 tests，但本机无 g++ 工具链 | 低 |
-| **148 个 feature gate 未默认启用** | PHANTOM-2 警告级，需手动接入 | 低 |
+| **65 个 feature gate 未默认启用** | PHANTOM-2 警告级，需手动接入 | 低 |
 
 ---
 
@@ -274,7 +274,7 @@
 | 优先级 | 方向 | 状态 |
 |--------|------|------|
 | P1 | Informix/Firebird 真实驱动集成或明确标注 | 待评估（Rust 生态限制） |
-| P1 | PHANTOM-2 148 个 feature gate 评估启用 | 待评估 |
+| P1 | PHANTOM-2 65 个 feature gate 评估启用 | 已完成（2026-08-20） |
 | P2 | 社区扩展（贡献者指南 + RFC 流程） | 待完成 |
 | P2 | 补充 2-3 个生产案例 | sz-pay 已升级 @ 4.9.0 |
 

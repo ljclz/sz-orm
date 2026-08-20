@@ -1,7 +1,7 @@
 # PHANTOM-2 Feature Gate 评估报告
 
 **日期**：2026-08-19
-**评估范围**：148 个未默认启用的 feature gate
+**评估范围**：65 个未默认启用的 feature gate
 **结论**：**全部保留当前设计（不默认启用），无需修改**
 
 ## 分类统计
@@ -26,4 +26,4 @@
 
 ## 结论
 
-148 个 feature gate 的当前设计是合理的，PHANTOM-2 警告级是正确的设计决策，不需要修改任何 feature gate 的启用状态。
+65 个 feature gate 的当前设计是合理的，PHANTOM-2 警告级是正确的设计决策，不需要修改任何 feature gate 的启用状态。
