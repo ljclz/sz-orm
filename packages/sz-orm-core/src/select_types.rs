@@ -93,9 +93,9 @@ impl<M: Model> SelectOne<M> {
         }
     }
 
-    /// 生成 SELECT SQL（不含参数）
+    /// 生成 SELECT SQL（纯 SQL，参数内联渲染）
     pub fn build_select(&self) -> String {
-        self.inner.build_select()
+        self.inner.sql()
     }
 
     /// 生成 SELECT SQL 及参数绑定列表
@@ -194,9 +194,9 @@ impl<M: Model, N: TypedTable> SelectTwo<M, N> {
         self.inner.build_select_with_params()
     }
 
-    /// 生成 SELECT SQL（不含参数）
+    /// 生成 SELECT SQL（纯 SQL，参数内联渲染）
     pub fn build_select(&self) -> String {
-        self.inner.build_select()
+        self.inner.sql()
     }
 
     /// 透传：添加 WHERE = 条件
@@ -251,9 +251,9 @@ impl<M: Model, N: TypedTable, O: TypedTable> SelectThree<M, N, O> {
         self.inner.build_select_with_params()
     }
 
-    /// 生成 SELECT SQL（不含参数）
+    /// 生成 SELECT SQL（纯 SQL，参数内联渲染）
     pub fn build_select(&self) -> String {
-        self.inner.build_select()
+        self.inner.sql()
     }
 
     /// 透传：添加 WHERE = 条件

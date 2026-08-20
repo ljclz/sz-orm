@@ -46,7 +46,7 @@ fn main() {
         .order_by("created_at")
         .order_desc("id")
         .limit(10)
-        .build_select();
+        .sql();
     println!("SELECT:\n{}\n", select_sql);
 
     // ===== WHERE 复合条件 =====
@@ -60,7 +60,7 @@ fn main() {
         .where_between("age", Value::I64(18), Value::I64(65))
         .where_null("deleted_at")
         .page(3, 20)
-        .build_select();
+        .sql();
     println!("复杂 WHERE:\n{}\n", complex_sql);
 
     // ===== JOIN =====
@@ -70,7 +70,7 @@ fn main() {
         .join_inner("posts", "users.id", "posts.user_id")
         .join_left("profiles", "users.id", "profiles.user_id")
         .where_eq("users.status", Value::String("active".to_string()))
-        .build_select();
+        .sql();
     println!("JOIN:\n{}\n", join_sql);
 
     // ===== 聚合 =====
@@ -91,7 +91,7 @@ fn main() {
 
     let insert_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
-        .build_insert(&data);
+        .sql_insert(&data);
     println!("INSERT:\n{}\n", insert_sql);
 
     // ===== UPDATE =====
@@ -101,14 +101,14 @@ fn main() {
     let update_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .where_eq("id", Value::I64(1))
-        .build_update(&update_data);
+        .sql_update(&update_data);
     println!("UPDATE:\n{}\n", update_sql);
 
     // ===== DELETE =====
     let delete_sql = QueryBuilder::<User>::new(make_dialect())
         .table("users")
         .where_eq("id", Value::I64(1))
-        .build_delete();
+        .sql_delete();
     println!("DELETE:\n{}\n", delete_sql);
 
     // ===== 校验 =====

@@ -337,7 +337,7 @@ impl AppState {
 
         let sql = QueryBuilder::<User>::new(self.new_dialect())
             .table("users")
-            .build_insert(&data);
+            .sql_insert(&data);
 
         // 审计日志（password_hash 字段会被脱敏为 ******）
         self.audit(username, &sql);
@@ -426,7 +426,7 @@ impl AppState {
             .table("products")
             .where_eq("id", Value::I64(product_id))
             .where_ge("stock", Value::I64(quantity))
-            .build_update(&{
+            .sql_update(&{
                 let mut m = HashMap::new();
                 m.insert(
                     "stock".to_string(),
@@ -444,12 +444,12 @@ impl AppState {
 
         let insert_order_sql = QueryBuilder::<Order>::new(self.new_dialect())
             .table("orders")
-            .build_insert(&order_data);
+            .sql_insert(&order_data);
 
         let clear_cart_sql = QueryBuilder::<Order>::new(self.new_dialect())
             .table("cart_items")
             .where_eq("user_id", Value::I64(user_id))
-            .build_delete();
+            .sql_delete();
 
         // 审计日志（3 条 SQL）
         self.audit(user, &update_stock_sql);
@@ -473,7 +473,7 @@ impl AppState {
         let sql = QueryBuilder::<Order>::new(self.new_dialect())
             .table("orders")
             .where_eq("id", Value::I64(order_id))
-            .build_update(&data);
+            .sql_update(&data);
 
         self.audit(user, &sql);
         Ok(sql)

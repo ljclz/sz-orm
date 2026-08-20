@@ -301,24 +301,44 @@ impl Db {
         self
     }
 
-    /// 构建 SELECT SQL
-    pub fn build_select(&self) -> String {
+    /// 构建 SELECT SQL + 参数绑定（v5.0.0 统一签名）
+    pub fn build_select(&self) -> (String, Vec<Value>) {
         self.qb.build_select()
     }
 
-    /// 构建 INSERT SQL
-    pub fn build_insert(&self, data: &HashMap<String, Value>) -> String {
+    /// 构建 INSERT SQL + 参数绑定（v5.0.0 统一签名）
+    pub fn build_insert(&self, data: &HashMap<String, Value>) -> (String, Vec<Value>) {
         self.qb.build_insert(data)
     }
 
-    /// 构建 UPDATE SQL
-    pub fn build_update(&self, data: &HashMap<String, Value>) -> String {
+    /// 构建 UPDATE SQL + 参数绑定（v5.0.0 统一签名）
+    pub fn build_update(&self, data: &HashMap<String, Value>) -> (String, Vec<Value>) {
         self.qb.build_update(data)
     }
 
-    /// 构建 DELETE SQL
-    pub fn build_delete(&self) -> String {
+    /// 构建 DELETE SQL + 参数绑定（v5.0.0 统一签名）
+    pub fn build_delete(&self) -> (String, Vec<Value>) {
         self.qb.build_delete()
+    }
+
+    /// 生成纯 SELECT SQL（参数内联渲染，仅用于日志/调试）
+    pub fn sql(&self) -> String {
+        self.qb.sql()
+    }
+
+    /// 生成纯 INSERT SQL（参数内联渲染）
+    pub fn sql_insert(&self, data: &HashMap<String, Value>) -> String {
+        self.qb.sql_insert(data)
+    }
+
+    /// 生成纯 UPDATE SQL（参数内联渲染）
+    pub fn sql_update(&self, data: &HashMap<String, Value>) -> String {
+        self.qb.sql_update(data)
+    }
+
+    /// 生成纯 DELETE SQL（参数内联渲染）
+    pub fn sql_delete(&self) -> String {
+        self.qb.sql_delete()
     }
 
     /// 构建 COUNT SQL
@@ -369,7 +389,7 @@ mod tests {
 
     #[test]
     fn db_name_basic_select() {
-        let sql = Db::new(mysql()).name("users").build_select();
+        let sql = Db::new(mysql()).name("users").sql();
         assert_eq!(sql, "SELECT * FROM `users`");
     }
 
@@ -380,7 +400,7 @@ mod tests {
             .where_gt("age", Value::I64(18))
             .order_desc("id")
             .limit(10)
-            .build_select();
+            .sql();
         assert!(sql.contains("SELECT * FROM `users`"));
         assert!(sql.contains("WHERE `age` > 18"));
         assert!(sql.contains("ORDER BY `id` DESC"));
@@ -392,7 +412,7 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("Alice".to_string()));
         data.insert("age".to_string(), Value::I64(30));
-        let sql = Db::new(mysql()).name("users").build_insert(&data);
+        let sql = Db::new(mysql()).name("users").sql_insert(&data);
         assert!(sql.starts_with("INSERT INTO `users`"));
         assert!(sql.contains("`name`"));
         assert!(sql.contains("`age`"));
@@ -407,7 +427,7 @@ mod tests {
         let sql = Db::new(mysql())
             .name("users")
             .where_eq("id", Value::I64(1))
-            .build_update(&data);
+            .sql_update(&data);
         assert!(sql.starts_with("UPDATE `users` SET"));
         assert!(sql.contains("`name` = 'Bob'"));
         assert!(sql.contains("WHERE `id` = 1"));
@@ -418,7 +438,7 @@ mod tests {
         let sql = Db::new(mysql())
             .name("users")
             .where_eq("id", Value::I64(1))
-            .build_delete();
+            .sql_delete();
         assert!(sql.contains("DELETE FROM `users` WHERE `id` = 1"));
     }
 
@@ -438,7 +458,7 @@ mod tests {
         let sql = Db::new(mysql())
             .name("users")
             .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
-            .build_select();
+            .sql();
         assert!(sql.contains("WHERE `id` IN (1, 2, 3)"));
     }
 
@@ -447,13 +467,13 @@ mod tests {
         let sql = Db::new(mysql())
             .name("orders")
             .where_between("amount", Value::I64(100), Value::I64(1000))
-            .build_select();
+            .sql();
         assert!(sql.contains("`amount` BETWEEN 100 AND 1000"));
     }
 
     #[test]
     fn db_name_pg_dialect() {
-        let sql = Db::new(pg()).name("users").build_select();
+        let sql = Db::new(pg()).name("users").sql();
         assert_eq!(sql, "SELECT * FROM \"users\"");
     }
 
@@ -462,13 +482,13 @@ mod tests {
         let sql = Db::new(mysql())
             .name("orders")
             .join_inner("users", "orders.user_id", "users.id")
-            .build_select();
+            .sql();
         assert!(sql.contains("INNER JOIN `users` ON `orders.user_id` = `users.id`"));
     }
 
     #[test]
     fn db_name_pagination() {
-        let sql = Db::new(mysql()).name("users").page(3, 20).build_select();
+        let sql = Db::new(mysql()).name("users").page(3, 20).sql();
         // 第 3 页，每页 20 条 → LIMIT 20 OFFSET 40
         assert!(sql.contains("LIMIT 20"));
         assert!(sql.contains("OFFSET 40"));
@@ -492,7 +512,7 @@ mod tests {
             .name("users")
             .where_lt("age", Value::I64(18))
             .or_where_gt("age", Value::I64(65))
-            .build_select();
+            .sql();
         assert!(sql.contains("WHERE (`age` < 18 OR `age` > 65)"));
     }
 
@@ -504,7 +524,7 @@ mod tests {
             .group_by("user_id")
             .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
             .expect("valid aggregate")
-            .build_select();
+            .sql();
         assert!(sql.contains("GROUP BY `user_id`"));
         assert!(sql.contains("HAVING COUNT(*) > 5"));
     }

@@ -61,7 +61,7 @@ fn demonstrate_query_builder() {
         .where_gt("amount", Value::F64(100.0))
         .order_desc("created_at")
         .limit(20)
-        .build_select();
+        .sql();
 
     println!("查询待处理订单 SQL: {}", sql);
 }
@@ -78,7 +78,7 @@ fn demonstrate_insert() {
     data.insert("status".to_string(), Value::String("pending".to_string()));
     data.insert("merchant_id".to_string(), Value::I64(1));
 
-    let sql = QueryBuilder::<PaymentOrder>::new(dialect).build_insert(&data);
+    let sql = QueryBuilder::<PaymentOrder>::new(dialect).sql_insert(&data);
     println!("创建订单 SQL: {}", sql);
 }
 
@@ -90,7 +90,7 @@ fn demonstrate_update() {
 
     let sql = QueryBuilder::<PaymentOrder>::new(dialect)
         .where_eq("id", Value::I64(42))
-        .build_update(&data);
+        .sql_update(&data);
     println!("更新订单状态 SQL: {}", sql);
 }
 
@@ -99,7 +99,7 @@ fn demonstrate_soft_delete() {
 
     let sql = QueryBuilder::<PaymentOrder>::new(dialect)
         .where_eq("id", Value::I64(42))
-        .build_delete();
+        .sql_delete();
     println!("删除订单 SQL: {}", sql);
 }
 

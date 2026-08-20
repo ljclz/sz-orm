@@ -20,8 +20,7 @@
 //! - `where_like(field, pattern)`
 //!
 //! 这些方法使用 `?` 占位符 + `Value` 绑定，杜绝 SQL 注入。
-//! 原有 `where_cond(condition: impl Into<String>)` 因字符串拼接存在注入风险，
-//! 保留以兼容复杂表达式（如 `age > 18 AND status = 'active'`），但文档标记为不推荐。
+//! v5.0.0 已移除 `where_cond(condition: impl Into<String>)` 字符串拼接 API（注入风险）。
 
 use crate::db_type::DbType;
 use crate::dialect::Dialect;
@@ -1447,14 +1446,14 @@ impl<M: Model> QueryBuilder<M> {
     ///
     /// let sql = QueryBuilder::<User>::new(Box::new(MySqlDialect))
     ///     .select(vec!["id", "name"])
-    ///     .where_cond("age > 18")
+    ///     .where_gt("age", Value::I64(18))
     ///     .order_by("id DESC")
     ///     .limit(10)
-    ///     .build_select();
+    ///     .sql();
     /// // sql => "SELECT id, name FROM `users` WHERE age > 18 ORDER BY id DESC LIMIT 10"
     /// ```
     #[tracing::instrument(skip(self), fields(op = "select"))]
-    pub fn build_select(&self) -> String {
+    pub fn sql(&self) -> String {
         let table = self
             .table
             .clone()
@@ -1810,9 +1809,25 @@ impl<M: Model> QueryBuilder<M> {
         format!(" WHERE {}", group_strs.join(" AND "))
     }
 
+    /// 构建 SELECT SQL + 参数绑定（v5.0.0 统一签名，返回 `(String, Vec<Value>)`）
+    ///
+    /// v5.0.0 Breaking Change：`build_select()` 返回类型从 `String` 改为 `(String, Vec<Value>)`。
+    /// 如需纯 SQL 字符串（参数内联渲染），请使用 [`sql()`](Self::sql) 方法。
+    #[tracing::instrument(skip(self), fields(op = "select"))]
+    pub fn build_select(&self) -> (String, Vec<Value>) {
+        self.build_select_with_params()
+    }
+
+    /// 构建 INSERT SQL + 参数绑定（v5.0.0 统一签名）
     #[tracing::instrument(skip(self, data), fields(op = "insert"))]
-    /// 构建 INSERT SQL
-    pub fn build_insert(&self, data: &std::collections::HashMap<String, Value>) -> String {
+    pub fn build_insert(&self, data: &std::collections::HashMap<String, Value>) -> (String, Vec<Value>) {
+        self.build_insert_with_params(data)
+    }
+
+    #[deprecated(since = "5.0.0", note = "use build_insert() instead, it now returns (String, Vec<Value>)")]
+    #[tracing::instrument(skip(self, data), fields(op = "insert"))]
+    /// 构建 INSERT SQL（纯 SQL，参数内联渲染）
+    pub fn sql_insert(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
             .clone()
@@ -1838,9 +1853,16 @@ impl<M: Model> QueryBuilder<M> {
         .into_string()
     }
 
+    /// 构建 UPDATE SQL + 参数绑定（v5.0.0 统一签名）
     #[tracing::instrument(skip(self, data), fields(op = "update"))]
-    /// 构建 UPDATE SQL
-    pub fn build_update(&self, data: &std::collections::HashMap<String, Value>) -> String {
+    pub fn build_update(&self, data: &std::collections::HashMap<String, Value>) -> (String, Vec<Value>) {
+        self.build_update_with_params(data)
+    }
+
+    #[deprecated(since = "5.0.0", note = "use build_update() instead, it now returns (String, Vec<Value>)")]
+    #[tracing::instrument(skip(self, data), fields(op = "update"))]
+    /// 构建 UPDATE SQL（纯 SQL，参数内联渲染）
+    pub fn sql_update(&self, data: &std::collections::HashMap<String, Value>) -> String {
         let table = self
             .table
             .clone()
@@ -1881,8 +1903,15 @@ impl<M: Model> QueryBuilder<M> {
     /// 行为对齐：删除操作实际是软删除 UPDATE。
     ///
     /// 若需物理删除，请使用 [`build_force_delete`](Self::build_force_delete)。
+    /// 构建 DELETE SQL + 参数绑定（v5.0.0 统一签名）
     #[tracing::instrument(skip(self), fields(op = "delete"))]
-    pub fn build_delete(&self) -> String {
+    pub fn build_delete(&self) -> (String, Vec<Value>) {
+        self.build_delete_with_params()
+    }
+
+    #[deprecated(since = "5.0.0", note = "use build_delete() instead, it now returns (String, Vec<Value>)")]
+    #[tracing::instrument(skip(self), fields(op = "delete"))]
+    pub fn sql_delete(&self) -> String {
         let table = self
             .table
             .clone()
@@ -2642,7 +2671,7 @@ impl<M: Model> QueryBuilder<M> {
     /// 校验生成的 SELECT SQL 语句
     /// 检查 SQL 语法、JOIN 列名、表名合法性
     pub fn validate(&self) -> Result<(), Vec<sz_orm_sql_validator::SqlValidationError>> {
-        let sql = self.build_select();
+        let sql = self.sql();
         let mut errors = Vec::new();
 
         if let Err(e) = sz_orm_sql_validator::validate_select(&sql) {
@@ -2697,7 +2726,7 @@ impl<M: Model> QueryBuilder<M> {
         &self,
         data: &std::collections::HashMap<String, Value>,
     ) -> Result<(), Vec<sz_orm_sql_validator::SqlValidationError>> {
-        let sql = self.build_insert(data);
+        let sql = self.sql_insert(data);
         let mut errors = Vec::new();
 
         if sql.is_empty() {
@@ -2722,7 +2751,7 @@ impl<M: Model> QueryBuilder<M> {
         &self,
         data: &std::collections::HashMap<String, Value>,
     ) -> Result<(), Vec<sz_orm_sql_validator::SqlValidationError>> {
-        let sql = self.build_update(data);
+        let sql = self.sql_update(data);
         let mut errors = Vec::new();
 
         if sql.is_empty() {
@@ -2743,7 +2772,7 @@ impl<M: Model> QueryBuilder<M> {
 
     /// 校验生成的 DELETE SQL 语句
     pub fn validate_delete(&self) -> Result<(), Vec<sz_orm_sql_validator::SqlValidationError>> {
-        let sql = self.build_delete();
+        let sql = self.sql_delete();
         let mut errors = Vec::new();
 
         if let Err(e) = sz_orm_sql_validator::validate_delete(&sql) {
@@ -2847,7 +2876,7 @@ mod tests {
         let sql = builder
             .table("users")
             .select(vec!["id", "name"])?
-            .build_select();
+            .sql();
         assert!(sql.contains("SELECT `id`, `name` FROM"));
         assert!(sql.contains("`users`"));
         Ok(())
@@ -2862,7 +2891,7 @@ mod tests {
             .table("users")
             .where_eq("status", crate::value::Value::String("active".into()))
             .where_gt("age", crate::value::Value::I64(18))
-            .build_select();
+            .sql();
 
         assert!(sql.contains("WHERE"));
         assert!(sql.contains("`status` = 'active'"));
@@ -2879,7 +2908,7 @@ mod tests {
             .table("users")
             .order_by("created_at")
             .order_desc("id")
-            .build_select();
+            .sql();
 
         assert!(sql.contains("ORDER BY"));
         assert!(sql.contains("`created_at` ASC"));
@@ -2892,7 +2921,7 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
-        let sql = builder.table("users").limit(10).offset(20).build_select();
+        let sql = builder.table("users").limit(10).offset(20).sql();
 
         assert!(sql.contains("LIMIT 10"));
         assert!(sql.contains("OFFSET 20"));
@@ -2904,7 +2933,7 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
-        let sql = builder.table("users").page(3, 20).build_select();
+        let sql = builder.table("users").page(3, 20).sql();
 
         assert!(sql.contains("LIMIT 20"));
         assert!(sql.contains("OFFSET 40"));
@@ -2920,7 +2949,7 @@ mod tests {
         data.insert("name".to_string(), Value::String("test".to_string()));
         data.insert("age".to_string(), Value::I64(25));
 
-        let sql = builder.table("users").build_insert(&data);
+        let sql = builder.table("users").sql_insert(&data);
 
         assert!(sql.contains("INSERT INTO"));
         assert!(sql.contains("`name`"));
@@ -2939,7 +2968,7 @@ mod tests {
         let sql = builder
             .table("users")
             .where_eq("id", Value::I64(1))
-            .build_update(&data);
+            .sql_update(&data);
 
         assert!(sql.contains("UPDATE"));
         assert!(sql.contains("`name` = 'updated'"));
@@ -2955,7 +2984,7 @@ mod tests {
         let sql = builder
             .table("users")
             .where_eq("id", Value::I64(1))
-            .build_delete();
+            .sql_delete();
 
         assert!(sql.contains("DELETE FROM"));
         assert!(sql.contains("WHERE"));
@@ -2982,7 +3011,7 @@ mod tests {
         let sql = builder
             .table("users")
             .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
-            .build_select();
+            .sql();
 
         assert!(sql.contains("IN ("));
         Ok(())
@@ -2996,7 +3025,7 @@ mod tests {
         let sql = builder
             .table("users")
             .where_between("age", Value::I64(18), Value::I64(30))
-            .build_select();
+            .sql();
 
         assert!(sql.contains("BETWEEN"));
         Ok(())
@@ -3010,7 +3039,7 @@ mod tests {
         let sql = builder
             .table("users")
             .where_null("deleted_at")
-            .build_select();
+            .sql();
 
         assert!(sql.contains("IS NULL"));
         Ok(())
@@ -3024,7 +3053,7 @@ mod tests {
         let sql = builder
             .table("users")
             .join_inner("posts", "users.id", "posts.user_id")
-            .build_select();
+            .sql();
 
         assert!(sql.contains("INNER JOIN"));
         assert!(sql.contains("`posts`"));
@@ -3036,7 +3065,7 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
 
-        let sql = builder.table("users").group_by("status").build_select();
+        let sql = builder.table("users").group_by("status").sql();
 
         assert!(sql.contains("GROUP BY"));
         assert!(sql.contains("`status`"));
@@ -3196,7 +3225,7 @@ mod tests {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let builder = builder.table("users").select_quoted(vec!["id", "name"])?;
-        let sql = builder.build_select();
+        let sql = builder.sql();
         // 应自动 quote 列名
         assert!(sql.contains("SELECT `id`, `name` FROM"));
         assert!(sql.contains("`users`"));
@@ -3239,7 +3268,7 @@ mod tests {
         let dialect = get_dialect(DbType::PostgreSQL)?;
         let builder = QueryBuilder::<TestModel>::new(dialect);
         let builder = builder.table("users").select_quoted(vec!["id", "name"])?;
-        let sql = builder.build_select();
+        let sql = builder.sql();
         // PostgreSQL 使用双引号
         assert!(sql.contains("SELECT \"id\", \"name\" FROM"));
         assert!(sql.contains("\"users\""));
@@ -3275,7 +3304,7 @@ mod tests {
     fn test_p01_soft_delete_select_auto_filter() -> Result<(), crate::DbError> {
         let dialect = get_dialect(DbType::MySQL)?;
         let builder = QueryBuilder::<SoftDeleteModel>::new(dialect);
-        let sql = builder.table("soft_users").build_select();
+        let sql = builder.table("soft_users").sql();
         // 必须自动追加软删除过滤
         assert!(
             sql.contains("`deleted_at` IS NULL"),
@@ -3292,7 +3321,7 @@ mod tests {
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("status", Value::String("active".into()))
-            .build_select();
+            .sql();
         // 用户条件 + 软删除条件 同时存在
         assert!(sql.contains("`status` = "), "用户条件应保留: {}", sql);
         assert!(
@@ -3312,7 +3341,7 @@ mod tests {
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .without_soft_delete()
-            .build_select();
+            .sql();
         // 不应包含软删除过滤
         assert!(
             !sql.contains("`deleted_at` IS NULL"),
@@ -3337,7 +3366,7 @@ mod tests {
         let sql = QueryBuilder::<SoftDeleteModel>::new(dialect)
             .table("soft_users")
             .where_eq("id", Value::I64(42))
-            .build_delete();
+            .sql_delete();
         // 应生成 UPDATE 而非 DELETE
         assert!(
             sql.starts_with("UPDATE"),
@@ -3451,7 +3480,7 @@ mod tests {
         let sql = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("id", Value::I64(1))
-            .build_select();
+            .sql();
         assert!(
             !sql.contains("deleted_at"),
             "非软删除模型不应追加 deleted_at: {}",
@@ -3462,7 +3491,7 @@ mod tests {
         let del_sql = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("id", Value::I64(1))
-            .build_delete();
+            .sql_delete();
         assert!(
             del_sql.starts_with("DELETE FROM"),
             "非软删除模型 build_delete 应生成 DELETE: {}",
@@ -3691,7 +3720,7 @@ mod tests {
         let sql = QueryBuilder::<TestModel>::new(dialect)
             .table("users")
             .where_eq("name", Value::String("alice".into()))
-            .build_select();
+            .sql();
         // 无参数版本应内嵌值（依赖 to_param_with_dialect 转义）
         assert!(
             sql.contains("`name` = "),
@@ -4521,7 +4550,7 @@ mod tests {
         let builder = QueryBuilder::<TestModelWithColumns>::new(dialect)
             .table("users")
             .select_exclude(&["avatar", "blob_data"])?;
-        let sql = builder.build_select();
+        let sql = builder.sql();
         assert!(sql.contains("id"));
         assert!(sql.contains("name"));
         assert!(sql.contains("email"));
