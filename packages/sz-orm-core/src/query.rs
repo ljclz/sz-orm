@@ -28,10 +28,10 @@ use crate::dialect::LockType;
 use crate::model::Model;
 use crate::typed::TypedColumn;
 use crate::value::Value;
-use sz_orm_macros::{api_stable, api_beta};
 use std::fmt;
 use std::fmt::Write as _;
 use std::time::Duration;
+use sz_orm_macros::{api_beta, api_stable};
 
 /// 用于构造 SQL 查询的查询构造器
 pub struct QueryBuilder<M: Model> {

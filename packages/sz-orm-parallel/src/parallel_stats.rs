@@ -32,7 +32,9 @@ impl ParallelStats {
     }
 
     pub fn avg_latency_ms(&self) -> u64 {
-        self.total_latency_ms.checked_div(self.total_queries).unwrap_or(0)
+        self.total_latency_ms
+            .checked_div(self.total_queries)
+            .unwrap_or(0)
     }
 
     pub fn task_completion_rate(&self) -> f64 {

@@ -1,15 +1,15 @@
 [package]
 name = "sz-orm-graph"
 description = "Graph database support for sz-orm: Neo4j Cypher query, typed mapping, declarative modeling"
-version = "0.1.0"
-edition = "2021"
-rust-version = "1.81"
-authors = ["SZ-ORM Team"]
-license = "MIT"
-repository = "https://github.com/ljclz/sz-orm"
-homepage = "https://github.com/ljclz/sz-orm"
-keywords = ["orm", "graph", "neo4j", "cypher", "database"]
-categories = ["database"]
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
 
 
 [package.metadata.cargo-machete]

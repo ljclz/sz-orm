@@ -13,8 +13,7 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// CORS 来源匹配策略
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CorsOrigin {
     /// 允许所有来源（`*`）
     #[default]
@@ -24,7 +23,6 @@ pub enum CorsOrigin {
     /// 允许匹配通配符的来源（如 `https://*.example.com`）
     Pattern(String),
 }
-
 
 impl CorsOrigin {
     /// 检查给定 origin 是否允许
@@ -381,8 +379,7 @@ mod tests {
     #[test]
     fn cors_config_with_exposed_header() {
         let config = CorsConfig::new().with_exposed_header("X-Total-Count");
-        assert!(config
-            .expose_headers().contains(&"X-Total-Count"));
+        assert!(config.expose_headers().contains(&"X-Total-Count"));
     }
 
     #[test]

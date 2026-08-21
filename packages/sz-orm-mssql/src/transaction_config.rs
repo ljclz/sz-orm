@@ -7,8 +7,7 @@ use std::fmt;
 use std::time::Duration;
 
 /// SQL Server 事务隔离级别
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum TransactionIsolation {
     /// 读未提交（NOLOCK）
     ReadUncommitted,
@@ -92,7 +91,6 @@ impl TransactionIsolation {
     }
 }
 
-
 impl fmt::Display for TransactionIsolation {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         f.write_str(self.as_sql())
@@ -100,8 +98,7 @@ impl fmt::Display for TransactionIsolation {
 }
 
 /// 死锁优先级
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
 pub enum DeadlockPriority {
     /// 低优先级（被选为牺牲者）
     Low,
@@ -128,7 +125,6 @@ impl DeadlockPriority {
         }
     }
 }
-
 
 /// 事务配置
 #[derive(Debug, Clone)]

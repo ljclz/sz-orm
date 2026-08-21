@@ -8,9 +8,17 @@ use std::sync::RwLock;
 
 /// 任务优先级
 #[derive(
-    Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize,
+    Debug,
+    Clone,
+    Copy,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    serde::Serialize,
+    serde::Deserialize,
+    Default,
 )]
-#[derive(Default)]
 pub enum Priority {
     Low = 0,
     #[default]
@@ -18,7 +26,6 @@ pub enum Priority {
     High = 2,
     Critical = 3,
 }
-
 
 impl Priority {
     pub fn as_str(&self) -> &'static str {

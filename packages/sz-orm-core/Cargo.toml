@@ -136,6 +136,8 @@ tenant-quota-rls-enhanced = ["connection-level-tenant"]
 anomaly-detection = ["dep:sz-orm-anomaly"]
 # v4.9.1：性能优化组合（一键启用 SIMD 向量化 + L1 缓存 + 查询计划缓存 + 零拷贝）
 performance = ["simd", "l1-cache", "plan-cache", "zero-copy"]
+# v5.0.0：图数据库适配层（接入 sz-orm-graph InMemoryGraphEngine，提供 graph_query/graph_add_node/graph_add_relationship 入口）
+graph = ["dep:sz-orm-graph"]
 
 [dependencies]
 async-trait.workspace = true
@@ -189,6 +191,8 @@ serde_yaml = { workspace = true, optional = true }
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optional = true }
 # v4.9.0 TASK-004：异常检测模块（anomaly-detection feature）
 sz-orm-anomaly = { version = "5.0.0", path = "../sz-orm-anomaly", optional = true }
+# v5.0.0：图数据库适配层（graph feature）
+sz-orm-graph = { version = "5.0.0", path = "../sz-orm-graph", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -537,6 +541,12 @@ name = "regression_stream"
 path = "benches/regression_stream.rs"
 harness = false
 required-features = ["benchmark-suite"]
+
+# v5.0.0：图数据库适配层端到端测试（需 graph feature）
+[[test]]
+name = "graph_adapter_e2e"
+path = "tests/graph_adapter_e2e.rs"
+required-features = ["graph"]
 
 [package.metadata.docs.rs]
 all-features = true

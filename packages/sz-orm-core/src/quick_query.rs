@@ -27,8 +27,8 @@ use crate::dialect::Dialect;
 use crate::query::QueryBuilder;
 use crate::query::{AggExpr, HavingOp};
 use crate::value::Value;
-use sz_orm_macros::api_stable;
 use std::collections::HashMap;
+use sz_orm_macros::api_stable;
 
 /// 内部占位 Model：仅用于满足 `QueryBuilder<M>` 的泛型约束，不携带任何行为
 #[derive(Clone)]

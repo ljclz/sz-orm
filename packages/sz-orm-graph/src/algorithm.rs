@@ -157,10 +157,9 @@ impl DirectedGraph {
             let current = {
                 let mut best: Option<(NodeId, Weight)> = None;
                 for (&node, &d) in dist.iter() {
-                    if !visited.contains(&node)
-                        && (best.is_none() || d < best.unwrap().1) {
-                            best = Some((node, d));
-                        }
+                    if !visited.contains(&node) && (best.is_none() || d < best.unwrap().1) {
+                        best = Some((node, d));
+                    }
                 }
                 best
             };
@@ -245,10 +244,9 @@ impl DirectedGraph {
         let mut visited = HashSet::new();
         let mut rec_stack = HashSet::new();
         for &node in self.adjacency.keys() {
-            if !visited.contains(&node)
-                && self.has_cycle_dfs(node, &mut visited, &mut rec_stack) {
-                    return true;
-                }
+            if !visited.contains(&node) && self.has_cycle_dfs(node, &mut visited, &mut rec_stack) {
+                return true;
+            }
         }
         false
     }

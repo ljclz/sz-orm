@@ -15,6 +15,8 @@
 pub mod algorithm;
 pub mod community;
 pub mod connection;
+pub mod cypher_parser;
+pub mod engine;
 pub mod error;
 pub mod graph_stats;
 pub mod mapping;
@@ -29,6 +31,8 @@ pub use community::{
     Community, CommunityDetectionResult, ConnectedComponentDetector, LabelPropagation,
 };
 pub use connection::{GraphConfig, GraphConnection, GraphPool, GraphPoolStatus};
+pub use cypher_parser::{CypherSubsetParser, NodePattern, ParsedQuery, RelPattern, ReturnItem};
+pub use engine::InMemoryGraphEngine;
 pub use error::GraphError;
 pub use graph_stats::{DegreeDistribution, GraphStats, GraphStatsCalculator};
 pub use mapping::{NodeMapper, RelationMapper, ResultMapper};
@@ -37,7 +41,8 @@ pub use model::{
 };
 pub use path_analysis::{PathAnalyzer, ReachabilityMatrix};
 pub use query::{
-    CypherQuery, CypherQueryBuilder, GraphNode, GraphPath, GraphRelationship, GraphResult,
+    execute_query, CypherQuery, CypherQueryBuilder, GraphNode, GraphPath, GraphRelationship,
+    GraphResult,
 };
 pub use subgraph::{CommonSubgraphFinder, IsomorphismChecker, SubgraphMatcher};
 pub use validator::CypherValidator;

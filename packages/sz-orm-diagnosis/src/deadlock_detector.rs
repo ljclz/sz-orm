@@ -135,9 +135,10 @@ impl LockWaitAnalyzer {
 
         for &node in &all_nodes {
             if !visited.contains(&node)
-                && self.dfs_find_cycle(node, &mut visited, &mut path, &mut path_set) {
-                    return Some(path);
-                }
+                && self.dfs_find_cycle(node, &mut visited, &mut path, &mut path_set)
+            {
+                return Some(path);
+            }
         }
         None
     }
@@ -290,9 +291,10 @@ impl DeadlockDetector {
 
         for &node in &all_nodes {
             if !visited.contains(&node)
-                && self.dfs_cycle(node, &mut visited, &mut path, &mut path_set) {
-                    return Some(path);
-                }
+                && self.dfs_cycle(node, &mut visited, &mut path, &mut path_set)
+            {
+                return Some(path);
+            }
         }
         None
     }

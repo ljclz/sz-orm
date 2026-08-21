@@ -328,13 +328,11 @@ pub enum ValueKind {
 /// 类型映射器
 ///
 /// 在 OracleTypeKind 与 sz-orm Value 之间双向映射。
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct TypeMapping {
     /// 自定义类型映射（Oracle 类型名 -> ValueKind）
     custom_mappings: HashMap<String, ValueKind>,
 }
-
 
 impl TypeMapping {
     /// 创建新的类型映射器

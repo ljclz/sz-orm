@@ -324,8 +324,7 @@ impl DiffResult {
 // ============================================================================
 
 /// 差异比较模式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum DiffMode {
     /// 按总值比较
     #[default]
@@ -334,16 +333,13 @@ pub enum DiffMode {
     SelfValue,
 }
 
-
 /// 火焰图差异比较器
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FlameDiff {
     mode: DiffMode,
     include_unchanged: bool,
     min_delta: u64,
 }
-
 
 impl FlameDiff {
     /// 创建比较器

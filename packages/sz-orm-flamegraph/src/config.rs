@@ -13,8 +13,7 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// 颜色方案
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ColorScheme {
     /// 默认（暖色：红/橙/黄）
     #[default]
@@ -30,7 +29,6 @@ pub enum ColorScheme {
     /// 随机色
     Random,
 }
-
 
 impl ColorScheme {
     /// 方案名
@@ -374,8 +372,7 @@ impl LayoutConfig {
 // ============================================================================
 
 /// 输出格式
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum OutputFormat {
     /// SVG
     #[default]
@@ -389,7 +386,6 @@ pub enum OutputFormat {
     /// 文本
     Text,
 }
-
 
 impl OutputFormat {
     /// 格式名

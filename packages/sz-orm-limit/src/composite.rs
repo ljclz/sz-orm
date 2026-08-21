@@ -381,8 +381,8 @@ impl Default for RuleSet {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::time::Duration;
     use crate::{SlidingWindowRateLimiter, TokenBucketRateLimiter};
+    use std::time::Duration;
 
     #[test]
     fn test_composite_all_must_allow() {

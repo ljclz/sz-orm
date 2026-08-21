@@ -47,18 +47,20 @@ impl CypherValidator {
 
     /// 检测字面量拼接 → 返回 GraphError::ParameterizationError
     ///
-    /// 检测规则：Cypher 查询中字符串字面量（单引号包裹）且非参数占位符（$param）
+    /// 检测规则：Cypher 查询中字符串字面量（单引号或双引号包裹）且非参数占位符（$param）
     fn check_parameterization(cypher: &str) -> Result<(), GraphError> {
         let mut in_string = false;
+        let mut quote_char = '\0';
         let mut string_start = 0usize;
         let chars: Vec<char> = cypher.chars().collect();
 
         for (i, &ch) in chars.iter().enumerate() {
-            if ch == '\'' {
+            if matches!(ch, '\'' | '"') {
                 if !in_string {
                     in_string = true;
+                    quote_char = ch;
                     string_start = i;
-                } else {
+                } else if ch == quote_char {
                     let literal = &cypher[string_start + 1..i];
                     if literal.len() > 2 && !literal.starts_with('$') {
                         return Err(GraphError::ParameterizationError(format!(
@@ -67,6 +69,7 @@ impl CypherValidator {
                         )));
                     }
                     in_string = false;
+                    quote_char = '\0';
                 }
             }
         }

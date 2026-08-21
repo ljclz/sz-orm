@@ -157,14 +157,12 @@ impl PaginationExtractor {
 // ============================================================================
 
 /// 排序方向
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum SortDirection {
     #[default]
     Asc,
     Desc,
 }
-
 
 impl SortDirection {
     /// 转为字符串

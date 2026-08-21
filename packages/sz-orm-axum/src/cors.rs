@@ -12,15 +12,13 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// CORS 来源匹配策略
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum CorsOrigin {
     #[default]
     Any,
     Specific(Vec<String>),
     Pattern(String),
 }
-
 
 impl CorsOrigin {
     /// 检查给定 origin 是否允许

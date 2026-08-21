@@ -1116,8 +1116,7 @@ impl NonceGenerator {
 // ============================================================================
 
 /// 加密上下文：携带关联数据（AEAD）和元数据
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct EncryptionContext {
     /// 关联数据（Additional Authenticated Data）
     pub aad: Vec<u8>,
@@ -1126,7 +1125,6 @@ pub struct EncryptionContext {
     /// 租户 ID（多租户场景）
     pub tenant_id: Option<String>,
 }
-
 
 impl EncryptionContext {
     /// 创建空上下文

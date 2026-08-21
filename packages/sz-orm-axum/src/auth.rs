@@ -14,15 +14,13 @@ use serde::{Deserialize, Serialize};
 // ============================================================================
 
 /// 认证结果
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct AuthResult {
     authenticated: bool,
     user_id: Option<String>,
     roles: Vec<String>,
     token: Option<String>,
 }
-
 
 impl AuthResult {
     /// 创建匿名（未认证）结果

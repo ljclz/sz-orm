@@ -452,12 +452,10 @@ pub enum ValueKind {
 }
 
 /// 类型映射器
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct MssqlTypeMapping {
     custom_mappings: HashMap<String, ValueKind>,
 }
-
 
 impl MssqlTypeMapping {
     /// 创建新的映射器

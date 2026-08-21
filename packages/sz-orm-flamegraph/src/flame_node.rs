@@ -384,12 +384,10 @@ impl FlameGraphBuilder {
 // ============================================================================
 
 /// 火焰图合并器
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FlameGraphMerger {
     builders: Vec<FlameGraphBuilder>,
 }
-
 
 impl FlameGraphMerger {
     /// 创建合并器
@@ -426,15 +424,13 @@ impl FlameGraphMerger {
 // ============================================================================
 
 /// 火焰图过滤器
-#[derive(Debug, Clone)]
-#[derive(Default)]
+#[derive(Debug, Clone, Default)]
 pub struct FlameGraphFilter {
     include: Vec<String>,
     exclude: Vec<String>,
     min_value: u64,
     max_depth: Option<usize>,
 }
-
 
 impl FlameGraphFilter {
     /// 创建过滤器

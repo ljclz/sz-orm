@@ -98,10 +98,9 @@ impl SubgraphMatcher {
         for (&mapped_p, &mapped_t) in mapping.iter() {
             if let Some(p_neighbors) = pattern.neighbors(mapped_p) {
                 for &(p_neighbor, _) in p_neighbors {
-                    if p_neighbor == pattern_node
-                        && !target.has_edge(mapped_t, target_node) {
-                            return false;
-                        }
+                    if p_neighbor == pattern_node && !target.has_edge(mapped_t, target_node) {
+                        return false;
+                    }
                 }
             }
         }
@@ -169,9 +168,11 @@ impl CommonSubgraphFinder {
         for &n1 in &g1_nodes {
             for &n2 in &g2_nodes {
                 if g1.in_degree(n1) + g1.out_degree(n1) == g2.in_degree(n2) + g2.out_degree(n2)
-                    && !best_mapping.contains_key(&n1) && !best_mapping.values().any(|&v| v == n2) {
-                        best_mapping.insert(n1, n2);
-                    }
+                    && !best_mapping.contains_key(&n1)
+                    && !best_mapping.values().any(|&v| v == n2)
+                {
+                    best_mapping.insert(n1, n2);
+                }
             }
         }
         let mut result = DirectedGraph::new();

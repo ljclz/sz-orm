@@ -2,7 +2,9 @@
 //!
 //! GraphConfig + GraphConnection + GraphPool
 
+use crate::engine::InMemoryGraphEngine;
 use crate::error::{sanitize_dsn, GraphError};
+use crate::query::{GraphNode, GraphRelationship};
 use crossbeam_queue::ArrayQueue;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
@@ -53,11 +55,12 @@ impl GraphConfig {
     }
 }
 
-/// Bolt 连接句柄
+/// 图连接句柄
 #[derive(Debug)]
 pub struct GraphConnection {
     config: GraphConfig,
     connected: bool,
+    engine: Option<InMemoryGraphEngine>,
 }
 
 impl GraphConnection {
@@ -65,6 +68,7 @@ impl GraphConnection {
         Self {
             config,
             connected: false,
+            engine: None,
         }
     }
 
@@ -80,18 +84,55 @@ impl GraphConnection {
         if self.config.dsn.is_empty() {
             return Err(GraphError::ConnectionError("empty DSN".into()));
         }
-        if !self.config.dsn.starts_with("neo4j://") && !self.config.dsn.starts_with("bolt://") {
-            return Err(GraphError::ConnectionError(format!(
-                "invalid DSN scheme: {}",
-                self.config.sanitized_dsn()
-            )));
+        if self.config.dsn.starts_with("memory://") {
+            self.engine = Some(InMemoryGraphEngine::new());
+            self.connected = true;
+            return Ok(());
         }
-        self.connected = true;
-        Ok(())
+        if self.config.dsn.starts_with("neo4j://") || self.config.dsn.starts_with("bolt://") {
+            return Err(GraphError::DriverError(
+                "remote bolt backend not implemented in this phase, use memory:// for now".into(),
+            ));
+        }
+        Err(GraphError::ConnectionError(format!(
+            "invalid DSN scheme: {}",
+            self.config.sanitized_dsn()
+        )))
     }
 
     pub fn disconnect(&mut self) {
         self.connected = false;
+        self.engine = None;
+    }
+
+    pub fn engine(&self) -> Option<&InMemoryGraphEngine> {
+        self.engine.as_ref()
+    }
+
+    pub fn engine_mut(&mut self) -> Option<&mut InMemoryGraphEngine> {
+        self.engine.as_mut()
+    }
+
+    pub fn add_node(&mut self, node: GraphNode) -> Result<(), GraphError> {
+        if !self.connected {
+            return Err(GraphError::ConnectionError("not connected".into()));
+        }
+        let engine = self
+            .engine
+            .as_mut()
+            .ok_or_else(|| GraphError::ConnectionError("engine not initialized".into()))?;
+        engine.add_node(node)
+    }
+
+    pub fn add_relationship(&mut self, rel: GraphRelationship) -> Result<(), GraphError> {
+        if !self.connected {
+            return Err(GraphError::ConnectionError("not connected".into()));
+        }
+        let engine = self
+            .engine
+            .as_mut()
+            .ok_or_else(|| GraphError::ConnectionError("engine not initialized".into()))?;
+        engine.add_relationship(rel)
     }
 }
 
@@ -296,7 +337,7 @@ mod tests {
     use super::*;
 
     fn test_config() -> GraphConfig {
-        GraphConfig::new("neo4j://neo4j:test123@127.0.0.1:7687")
+        GraphConfig::new("memory://localhost")
     }
 
     #[tokio::test]
@@ -423,7 +464,7 @@ mod tests {
 
     #[test]
     fn test_graph_config_sanitized_dsn() {
-        let config = test_config();
+        let config = GraphConfig::new("neo4j://neo4j:test123@127.0.0.1:7687");
         let sanitized = config.sanitized_dsn();
         assert!(!sanitized.contains("test123"));
         assert!(sanitized.contains("***"));
@@ -449,8 +490,10 @@ mod tests {
     fn test_graph_connection_connect_bolt_scheme() {
         let config = GraphConfig::new("bolt://neo4j:pass@127.0.0.1:7687");
         let mut conn = GraphConnection::new(config);
-        assert!(conn.connect().is_ok());
-        assert!(conn.is_connected());
+        let result = conn.connect();
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), GraphError::DriverError(_)));
+        assert!(!conn.is_connected());
     }
 
     #[test]

@@ -498,6 +498,8 @@ pub mod connection_tenant;
 #[cfg(feature = "forward-compat-sandbox")]
 #[allow(missing_docs)]
 pub mod forward_compat_sandbox;
+#[cfg(feature = "graph")]
+pub mod graph_adapter;
 #[cfg(feature = "migration-branch")]
 pub mod migration_branch;
 #[cfg(feature = "l1-cache")]
@@ -554,13 +556,13 @@ pub mod value_borrowed;
 // Re-export proc macros
 pub use queryable::Query;
 pub use queryable::QueryAs;
+pub use sz_orm_macros::api_beta;
+pub use sz_orm_macros::api_stable;
 pub use sz_orm_macros::migrate;
 pub use sz_orm_macros::query;
 pub use sz_orm_macros::query_as;
 pub use sz_orm_macros::schema;
 pub use sz_orm_macros::sql_string;
-pub use sz_orm_macros::api_stable;
-pub use sz_orm_macros::api_beta;
 pub use sz_orm_macros::typed_query;
 // FromQueryResult derive 宏（与 value.rs 中同名 trait 通过显式 use 遮蔽 glob 导出）
 #[cfg(feature = "n1-lint")]

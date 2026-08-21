@@ -123,7 +123,11 @@ pub async fn execute_query(
     if query.cypher.is_empty() {
         return Err(GraphError::QueryError("empty query".into()));
     }
-    Ok(vec![])
+    crate::validator::CypherValidator::validate(query)?;
+    let engine = conn
+        .engine()
+        .ok_or_else(|| GraphError::ConnectionError("engine not initialized".into()))?;
+    engine.execute(query)
 }
 
 #[cfg(test)]

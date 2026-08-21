@@ -120,8 +120,7 @@ impl<T> ResponseWrapper<T> {
 // ============================================================================
 
 /// API 响应状态
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum ApiStatus {
     /// 成功
     #[default]
@@ -131,7 +130,6 @@ pub enum ApiStatus {
     /// 部分成功
     Partial,
 }
-
 
 impl ApiStatus {
     /// 是否成功
@@ -1042,8 +1040,7 @@ impl RateLimitConfig {
 // ============================================================================
 
 /// 中间件优先级
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Default)]
 pub enum MiddlewarePriority {
     /// 最低（最先执行）
     Lowest,
@@ -1057,7 +1054,6 @@ pub enum MiddlewarePriority {
     /// 最高（最后执行）
     Highest,
 }
-
 
 impl MiddlewarePriority {
     /// 数值（用于排序）

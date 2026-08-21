@@ -286,8 +286,7 @@ impl Hotspot {
 // ============================================================================
 
 /// 热点检测策略
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[derive(Default)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum HotspotStrategy {
     /// 按自身耗时
     #[default]
@@ -297,7 +296,6 @@ pub enum HotspotStrategy {
     /// 按总耗时百分比阈值
     PercentageThreshold(u64),
 }
-
 
 /// 热点检测器
 #[derive(Debug, Clone)]
