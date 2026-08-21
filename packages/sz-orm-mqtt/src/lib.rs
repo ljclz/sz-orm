@@ -1,4 +1,4 @@
-//! # SZ-ORM MQTT — MQTT Protocol Support
+//! # SZ-ORM MQTT — MQTT Protocol Support (experimental, not for production use)
 //!
 //! Provides MQTT message middleware abstraction, including broker client, QoS levels, and topic wildcard matching,
 //! connects to real MQTT broker when `real-broker` feature is enabled.

@@ -242,6 +242,18 @@ fn main() -> ExitCode {
         "designer:export" => cmd_designer_export(&rest),
         "openapi:reverse" => cmd_openapi_reverse(&rest),
         "n1-lint" => cmd_n1_lint(&rest),
+        "query-logging" => cmd_query_logging(&rest),
+        "cross-lang-dtx" => cmd_cross_lang_dtx(&rest),
+        "oracle" => cmd_oracle(&rest),
+        "mssql" => cmd_mssql(&rest),
+        "advisor" => cmd_advisor(&rest),
+        "stream" => cmd_stream(&rest),
+        "parallel" => cmd_parallel(&rest),
+        "flamegraph" => cmd_flamegraph(&rest),
+        "ai" => cmd_ai(&rest),
+        "vector" => cmd_vector(&rest),
+        "backup" => cmd_backup(&rest),
+        "migrate-tool" => cmd_migrate_tool(&rest),
         "phantom1-wiring" => phantom1_wiring::run_all().map_err(|e| e.to_string()),
         other => {
             eprintln!("未知命令: {}", other);
@@ -2511,6 +2523,265 @@ fn cmd_n1_lint(args: &[&str]) -> Result<(), String> {
 fn cmd_n1_lint(_args: &[&str]) -> Result<(), String> {
     Err(
         "n1-lint 命令需要启用 n1-lint feature: cargo run --features n1-lint -- n1-lint --path=src"
+            .into(),
+    )
+}
+
+// =====================================================================
+// query-logging — 结构化查询日志（需 query-logging feature）
+// =====================================================================
+
+#[cfg(feature = "query-logging")]
+fn cmd_query_logging(_args: &[&str]) -> Result<(), String> {
+    use sz_orm_observability::{QueryLogEntry, QueryLogger};
+    let logger = QueryLogger::new();
+    let entry = QueryLogEntry {
+        query_key: "test".into(),
+        sql: "SELECT 1".into(),
+        params: vec![],
+        total_elapsed_ms: 0,
+        phase_breakdown: vec![],
+        slow: false,
+        from_cache: false,
+        timestamp: chrono::Utc::now().to_rfc3339(),
+    };
+    logger.log(entry);
+    println!("query-logging: QueryLogger 已初始化并记录测试查询");
+    Ok(())
+}
+
+#[cfg(not(feature = "query-logging"))]
+fn cmd_query_logging(_args: &[&str]) -> Result<(), String> {
+    Err("query-logging 命令需要启用 query-logging feature: cargo run --features query-logging -- query-logging".into())
+}
+
+// =====================================================================
+// cross-lang-dtx — 跨语言分布式事务（需 cross-lang-dtx feature）
+// =====================================================================
+
+#[cfg(feature = "cross-lang-dtx")]
+fn cmd_cross_lang_dtx(_args: &[&str]) -> Result<(), String> {
+    println!("cross-lang-dtx: sz-orm-dtx cross-lang-dtx feature 已启用");
+    println!("可用功能: GrpcServiceDef / DtxCoordinator / 跨语言事务协调");
+    Ok(())
+}
+
+#[cfg(not(feature = "cross-lang-dtx"))]
+fn cmd_cross_lang_dtx(_args: &[&str]) -> Result<(), String> {
+    Err("cross-lang-dtx 命令需要启用 cross-lang-dtx feature: cargo run --features cross-lang-dtx -- cross-lang-dtx".into())
+}
+
+// =====================================================================
+// oracle — Oracle 数据库连接（需 oracle feature）
+// =====================================================================
+
+#[cfg(feature = "oracle")]
+fn cmd_oracle(_args: &[&str]) -> Result<(), String> {
+    println!("oracle: sz-orm-sqlx oracle feature 已启用");
+    println!("可用功能: Oracle 23ai 连接 / SQL 执行 / 事务管理");
+    Ok(())
+}
+
+#[cfg(not(feature = "oracle"))]
+fn cmd_oracle(_args: &[&str]) -> Result<(), String> {
+    Err("oracle 命令需要启用 oracle feature: cargo run --features oracle -- oracle".into())
+}
+
+// =====================================================================
+// mssql — SQL Server 数据库连接（需 mssql feature）
+// =====================================================================
+
+#[cfg(feature = "mssql")]
+fn cmd_mssql(_args: &[&str]) -> Result<(), String> {
+    println!("mssql: sz-orm-sqlx mssql feature 已启用");
+    println!("可用功能: SQL Server 连接 / SQL 执行 / 事务管理");
+    Ok(())
+}
+
+#[cfg(not(feature = "mssql"))]
+fn cmd_mssql(_args: &[&str]) -> Result<(), String> {
+    Err("mssql 命令需要启用 mssql feature: cargo run --features mssql -- mssql".into())
+}
+
+// =====================================================================
+// advisor — 查询优化顾问（需 query-advisor feature）
+// =====================================================================
+
+#[cfg(feature = "query-advisor")]
+fn cmd_advisor(_args: &[&str]) -> Result<(), String> {
+    use sz_orm_advisor::OptimizationAdvisor;
+    let advisor = OptimizationAdvisor::with_defaults();
+    let suggestions = advisor.suggest(None, None, None);
+    println!(
+        "advisor: OptimizationAdvisor 已初始化，规则数: {}",
+        OptimizationAdvisor::rule_count()
+    );
+    println!("分析结果: {} 条建议", suggestions.len());
+    Ok(())
+}
+
+#[cfg(not(feature = "query-advisor"))]
+fn cmd_advisor(_args: &[&str]) -> Result<(), String> {
+    Err(
+        "advisor 命令需要启用 query-advisor feature: cargo run --features query-advisor -- advisor"
+            .into(),
+    )
+}
+
+// =====================================================================
+// stream — 流式结果集（需 stream-resultset feature）
+// =====================================================================
+
+#[cfg(feature = "stream-resultset")]
+fn cmd_stream(_args: &[&str]) -> Result<(), String> {
+    use sz_orm_stream::{StreamResultSet, StreamResultSetConfig};
+    let config = StreamResultSetConfig::new(sz_orm_core::DbType::PostgreSQL).with_batch_size(10);
+    let _rs = StreamResultSet::new("SELECT * FROM users", config);
+    println!("stream: StreamResultSet 已初始化，批量大小: 10");
+    Ok(())
+}
+
+#[cfg(not(feature = "stream-resultset"))]
+fn cmd_stream(_args: &[&str]) -> Result<(), String> {
+    Err("stream 命令需要启用 stream-resultset feature: cargo run --features stream-resultset -- stream".into())
+}
+
+// =====================================================================
+// parallel — 并行查询（需 parallel-query feature）
+// =====================================================================
+
+#[cfg(feature = "parallel-query")]
+fn cmd_parallel(_args: &[&str]) -> Result<(), String> {
+    use sz_orm_parallel::{ParallelExecutor, ParallelQueryConfig};
+    let config = ParallelQueryConfig::new().with_concurrency(4);
+    let executor: ParallelExecutor<i32> = ParallelExecutor::new(config);
+    let result = executor.execute(5, |i| Ok((i as i32, 1)));
+    println!(
+        "parallel: ParallelExecutor 已执行 5 个任务，结果数: {}",
+        result.total_count()
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "parallel-query"))]
+fn cmd_parallel(_args: &[&str]) -> Result<(), String> {
+    Err("parallel 命令需要启用 parallel-query feature: cargo run --features parallel-query -- parallel".into())
+}
+
+// =====================================================================
+// flamegraph — 查询火焰图（需 flamegraph feature）
+// =====================================================================
+
+#[cfg(feature = "flamegraph")]
+fn cmd_flamegraph(_args: &[&str]) -> Result<(), String> {
+    use sz_orm_flamegraph::{Phase, QueryTracer};
+    let (result, timings) = QueryTracer::trace_execute(|rec| {
+        let sql = rec.record(Phase::Build, || "SELECT * FROM users".to_string());
+        let _rows = rec.record(Phase::SqlExecute, || 42usize);
+        sql
+    });
+    let svg = sz_orm_flamegraph::render::to_svg(&timings);
+    let folded = sz_orm_flamegraph::render::to_brendan_gregg(&timings);
+    println!(
+        "flamegraph: 查询结果={}, 阶段数={}, SVG长度={}, 折叠栈长度={}",
+        result,
+        timings.len(),
+        svg.len(),
+        folded.len()
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "flamegraph"))]
+fn cmd_flamegraph(_args: &[&str]) -> Result<(), String> {
+    Err(
+        "flamegraph 命令需要启用 flamegraph feature: cargo run --features flamegraph -- flamegraph"
+            .into(),
+    )
+}
+
+// =====================================================================
+// ai — AI 能力（需 ai-capability feature）
+// =====================================================================
+
+#[cfg(feature = "ai-capability")]
+fn cmd_ai(_args: &[&str]) -> Result<(), String> {
+    let sql = "SELECT * FROM users WHERE age > 25";
+    let safe = sz_orm_ai::safety::validate_select_only(sql);
+    let no_injection = sz_orm_ai::safety::validate_no_injection(sql);
+    let sanitized = sz_orm_ai::SqlSanitizer::sanitize(sql);
+    println!(
+        "ai: 安全检查(SELECT only)={}, 注入检查={}, 消毒结果={}",
+        safe, no_injection, sanitized
+    );
+    Ok(())
+}
+
+#[cfg(not(feature = "ai-capability"))]
+fn cmd_ai(_args: &[&str]) -> Result<(), String> {
+    Err("ai 命令需要启用 ai-capability feature: cargo run --features ai-capability -- ai".into())
+}
+
+// =====================================================================
+// vector — 向量搜索（需 vector-search feature）
+// =====================================================================
+
+#[cfg(feature = "vector-search")]
+fn cmd_vector(_args: &[&str]) -> Result<(), String> {
+    println!("vector: InMemoryVectorStore 可用于向量相似度搜索");
+    println!("使用示例: InMemoryVectorStore::new() -> create_collection -> insert -> search");
+    Ok(())
+}
+
+#[cfg(not(feature = "vector-search"))]
+fn cmd_vector(_args: &[&str]) -> Result<(), String> {
+    Err(
+        "vector 命令需要启用 vector-search feature: cargo run --features vector-search -- vector"
+            .into(),
+    )
+}
+
+// =====================================================================
+// backup — 灾备恢复（需 backup feature）
+// =====================================================================
+
+#[cfg(feature = "backup")]
+fn cmd_backup(_args: &[&str]) -> Result<(), String> {
+    use sz_orm_back::{DegradationPolicy, DisasterRecoveryDrill, HealthStatus};
+    let drill = DisasterRecoveryDrill::new();
+    let policy = DegradationPolicy::new();
+    let _ = drill;
+    let _ = policy;
+    println!("backup: DisasterRecoveryDrill 和 DegradationPolicy 已初始化");
+    Ok(())
+}
+
+#[cfg(not(feature = "backup"))]
+fn cmd_backup(_args: &[&str]) -> Result<(), String> {
+    Err("backup 命令需要启用 backup feature: cargo run --features backup -- backup".into())
+}
+
+// =====================================================================
+// migrate — 数据迁移（需 migrate feature）
+// =====================================================================
+
+#[cfg(feature = "migrate")]
+fn cmd_migrate_tool(_args: &[&str]) -> Result<(), String> {
+    use sz_orm_mig::{DatabaseConfig, MigConfig};
+    let source = DatabaseConfig::sqlite(":memory:");
+    let target = DatabaseConfig::sqlite(":memory:");
+    let config = MigConfig::new()
+        .with_source(source)
+        .with_target(target)
+        .with_dry_run(true);
+    println!("migrate: MigConfig 已初始化, dry_run={}", config.dry_run);
+    Ok(())
+}
+
+#[cfg(not(feature = "migrate"))]
+fn cmd_migrate_tool(_args: &[&str]) -> Result<(), String> {
+    Err(
+        "migrate-tool 命令需要启用 migrate feature: cargo run --features migrate -- migrate-tool"
             .into(),
     )
 }

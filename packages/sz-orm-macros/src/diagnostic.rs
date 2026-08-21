@@ -3,9 +3,8 @@
 //! 为 typed-dsl 类型不匹配提供比 Rust 默认更清晰的编译期错误信息。
 //! 诊断信息结构包含：错误位置、期望类型、实际类型、修复建议。
 
-#![allow(dead_code)]
-
 /// 诊断信息结构（编译期构建，运行时不会使用）
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub struct TypeMismatchDiagnostic {
     /// 错误位置（列名或表达式描述）
@@ -18,6 +17,7 @@ pub struct TypeMismatchDiagnostic {
     pub suggestion: String,
 }
 
+#[allow(dead_code)]
 impl TypeMismatchDiagnostic {
     /// 创建新的类型不匹配诊断
     pub fn new(location: &str, expected: &str, found: &str, suggestion: &str) -> Self {
@@ -39,6 +39,7 @@ impl TypeMismatchDiagnostic {
 }
 
 /// 常见诊断场景的预设建议信息
+#[allow(dead_code)]
 pub mod suggestions {
     /// Eq<C, T> 约束失败：列的 RustType 与比较值类型不匹配
     pub const TYPE_MISMATCH_EQ: &str = "请使用 Cast 显式转换，或检查列归属表";

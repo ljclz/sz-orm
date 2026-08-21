@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM MQTT Extension"
+description = "SZ-ORM MQTT Extension (experimental, MQTT middleware, not for production use)"
 
 [features]
 default = []

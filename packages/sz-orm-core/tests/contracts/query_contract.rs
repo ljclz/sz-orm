@@ -43,7 +43,7 @@ fn test_query_builder_chain_returns_self_contract() {
         .limit(20)
         .offset(40);
     // 链式调用后 build_select 应生成包含所有子句的 SQL
-    let sql = builder.build_select();
+    let (sql, _params) = builder.build_select();
     assert!(sql.contains("SELECT"), "应包含 SELECT: {}", sql);
     assert!(sql.contains("FROM"), "应包含 FROM: {}", sql);
     assert!(sql.contains("users"), "应包含表名 users: {}", sql);
@@ -61,7 +61,7 @@ fn test_query_builder_new_with_dialect_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
     let builder = QueryBuilder::<User>::new(d);
     // 新建 builder 未设置 table 时，build_select 应回退到 Model::table_name()
-    let sql = builder.build_select();
+    let (sql, _params) = builder.build_select();
     assert!(sql.contains("SELECT"), "应包含 SELECT: {}", sql);
     assert!(
         sql.contains("users"),
@@ -75,7 +75,7 @@ fn test_query_builder_new_with_dialect_contract() {
 #[test]
 fn test_build_select_basic_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select(vec!["id", "name"])
         .expect("valid columns")
@@ -91,7 +91,7 @@ fn test_build_select_basic_contract() {
 #[test]
 fn test_build_select_with_where_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .where_gt("age", Value::I64(18))
@@ -104,7 +104,7 @@ fn test_build_select_with_where_contract() {
 #[test]
 fn test_build_select_with_order_by_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .order_by("name")
@@ -120,7 +120,7 @@ fn test_build_select_with_order_by_contract() {
 #[test]
 fn test_build_select_with_limit_offset_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .limit(10)
@@ -136,7 +136,7 @@ fn test_build_select_with_limit_offset_contract() {
 #[test]
 fn test_build_select_with_page_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .page(3, 20) // 第 3 页，每页 20
@@ -149,7 +149,7 @@ fn test_build_select_with_page_contract() {
 #[test]
 fn test_build_select_with_where_in_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
@@ -164,7 +164,7 @@ fn test_build_select_with_where_in_contract() {
 #[test]
 fn test_build_select_with_where_between_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .where_between("age", Value::I64(18), Value::I64(30))
@@ -178,7 +178,7 @@ fn test_build_select_with_where_between_contract() {
 #[test]
 fn test_build_select_with_where_null_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .where_null("deleted_at")
@@ -190,7 +190,7 @@ fn test_build_select_with_where_null_contract() {
 #[test]
 fn test_build_select_with_join_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .join_inner("posts", "users.id", "posts.user_id")
@@ -203,7 +203,7 @@ fn test_build_select_with_join_contract() {
 #[test]
 fn test_build_select_with_left_join_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .join_left("profiles", "users.id", "profiles.user_id")
@@ -221,7 +221,7 @@ fn test_build_insert_basic_contract() {
     data.insert("name".to_string(), Value::String("Alice".to_string()));
     data.insert("age".to_string(), Value::I64(25));
 
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .build_insert(&data);
 
@@ -237,7 +237,7 @@ fn test_build_update_basic_contract() {
     let mut data = HashMap::new();
     data.insert("name".to_string(), Value::String("Bob".to_string()));
 
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .where_eq("id", Value::I64(1))
         .build_update(&data);
@@ -251,7 +251,7 @@ fn test_build_update_basic_contract() {
 #[test]
 fn test_build_delete_basic_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(d)
+    let (sql, _params) = QueryBuilder::<User>::new(d)
         .table("users")
         .where_eq("id", Value::I64(1))
         .build_delete();

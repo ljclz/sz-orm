@@ -1,4 +1,4 @@
-//! # SZ-ORM WASM — WASM Query Interface
+//! # SZ-ORM WASM — WASM Query Interface (experimental, not for production use)
 //!
 //! Provides lightweight query capabilities for browser-side use, with built-in in-memory database and SQL subset parsing,
 //! suitable for local querying and demonstrations without backend dependencies.

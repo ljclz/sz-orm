@@ -488,11 +488,15 @@ pub mod query_cache;
 pub mod validation;
 /// Re-export QueryBuilder for external use
 pub use query::QueryBuilder;
+#[cfg(feature = "adaptive-query")]
+pub mod adaptive_adapter;
 #[cfg(feature = "cache-coherence")]
 pub mod cache_coherence;
 #[cfg(feature = "l1-cache")]
 #[allow(missing_docs)]
 pub mod cache_warmup_protection;
+#[cfg(feature = "config-center")]
+pub mod config_adapter;
 #[cfg(feature = "connection-level-tenant")]
 pub mod connection_tenant;
 #[cfg(feature = "forward-compat-sandbox")]
@@ -500,6 +504,21 @@ pub mod connection_tenant;
 pub mod forward_compat_sandbox;
 #[cfg(feature = "graph")]
 pub mod graph_adapter;
+#[cfg(feature = "graphql")]
+pub mod graphql_adapter;
+#[cfg(feature = "structured-logging")]
+pub mod logger_adapter;
+#[cfg(feature = "postgis")]
+pub mod postgis_adapter;
+#[cfg(feature = "read-write-splitting")]
+pub mod rw_adapter;
+#[cfg(feature = "search")]
+pub mod search_adapter;
+#[cfg(feature = "timeseries")]
+pub mod timeseries_adapter;
+#[cfg(feature = "distributed-tracing")]
+pub mod tracing_adapter;
+
 #[cfg(feature = "migration-branch")]
 pub mod migration_branch;
 #[cfg(feature = "l1-cache")]

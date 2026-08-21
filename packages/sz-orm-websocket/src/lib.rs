@@ -1,4 +1,4 @@
-//! # SZ-ORM WebSocket — Real-time Push
+//! # SZ-ORM WebSocket — Real-time Push (experimental, not for production use)
 //!
 //! Provides WebSocket long-lived connection management, message push, and authentication support,
 //! optionally enable `server` feature to start a standalone WebSocket server.

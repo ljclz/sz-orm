@@ -38,6 +38,7 @@ multi-tenant-enhanced = ["dep:sz-orm-audit", "dep:sz-orm-masking"]
 dist-cache = ["dep:rand", "dep:sz-orm-crypto"]
 # v3.4.0锛歋mallString 浼樺寲锛圕ompactString 鏇夸唬 String锛岀煭瀛楃鐡?锟?23 瀛楄妭鍐呰仈瀛樺偍锟?
 perf-smallstring = ["dep:compact_str"]
+perf-zero-copy-l2 = []
 # v3.4.0锛歟num dispatch 浼樺寲锛坢atch 鍒嗗彂鏇夸唬 Box<dyn Dialect> vtable 鏌ユ壘锟?
 perf-enum-dispatch = []
 
@@ -138,6 +139,19 @@ anomaly-detection = ["dep:sz-orm-anomaly"]
 performance = ["simd", "l1-cache", "plan-cache", "zero-copy"]
 # v5.0.0：图数据库适配层（接入 sz-orm-graph InMemoryGraphEngine，提供 graph_query/graph_add_node/graph_add_relationship 入口）
 graph = ["dep:sz-orm-graph"]
+# v5.0.0：自适应查询适配层（接入 sz-orm-adaptive AdaptiveExecutor，提供 adaptive_decide/adaptive_record/adaptive_decision_count 入口）
+adaptive-query = ["dep:sz-orm-adaptive"]
+# v5.0.0：分布式追踪适配层（接入 sz-orm-tracing SzTracer，提供 tracing_start_span/tracing_end_span/tracing_span_count 入口）
+distributed-tracing = ["dep:sz-orm-tracing"]
+# v5.0.0 M4：P1 整包接入 core
+graphql = ["dep:sz-orm-graphql"]
+structured-logging = ["dep:sz-orm-logger"]
+postgis = ["dep:sz-orm-postgis"]
+timeseries = ["dep:sz-orm-timeseries"]
+search = ["dep:sz-orm-search"]
+read-write-splitting = ["dep:sz-orm-rw"]
+config-center = ["dep:sz-orm-config"]
+
 
 [dependencies]
 async-trait.workspace = true
@@ -193,6 +207,19 @@ criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optio
 sz-orm-anomaly = { version = "5.0.0", path = "../sz-orm-anomaly", optional = true }
 # v5.0.0：图数据库适配层（graph feature）
 sz-orm-graph = { version = "5.0.0", path = "../sz-orm-graph", optional = true }
+# v5.0.0：自适应查询适配层（adaptive-query feature）
+sz-orm-adaptive = { version = "5.0.0", path = "../sz-orm-adaptive", optional = true }
+# v5.0.0：分布式追踪适配层（distributed-tracing feature）
+sz-orm-tracing = { version = "5.0.0", path = "../sz-orm-tracing", optional = true }
+# v5.0.0 M4：P1 整包适配层
+sz-orm-graphql = { version = "5.0.0", path = "../sz-orm-graphql", optional = true }
+sz-orm-logger = { version = "5.0.0", path = "../sz-orm-logger", optional = true }
+sz-orm-postgis = { version = "5.0.0", path = "../sz-orm-postgis", optional = true }
+sz-orm-timeseries = { version = "5.0.0", path = "../sz-orm-timeseries", optional = true }
+sz-orm-search = { version = "5.0.0", path = "../sz-orm-search", optional = true }
+sz-orm-rw = { version = "5.0.0", path = "../sz-orm-rw", optional = true }
+sz-orm-config = { version = "5.0.0", path = "../sz-orm-config", optional = true }
+
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -547,6 +574,55 @@ required-features = ["benchmark-suite"]
 name = "graph_adapter_e2e"
 path = "tests/graph_adapter_e2e.rs"
 required-features = ["graph"]
+
+# v5.0.0：自适应查询适配层端到端测试（需 adaptive-query feature）
+[[test]]
+name = "adaptive_adapter_e2e"
+path = "tests/adaptive_adapter_e2e.rs"
+required-features = ["adaptive-query"]
+
+# v5.0.0：分布式追踪适配层端到端测试（需 distributed-tracing feature）
+[[test]]
+name = "tracing_adapter_e2e"
+path = "tests/tracing_adapter_e2e.rs"
+required-features = ["distributed-tracing"]
+
+# v5.0.0 M4：P1 整包适配层端到端测试
+[[test]]
+name = "graphql_adapter_e2e"
+path = "tests/graphql_adapter_e2e.rs"
+required-features = ["graphql"]
+
+[[test]]
+name = "logger_adapter_e2e"
+path = "tests/logger_adapter_e2e.rs"
+required-features = ["structured-logging"]
+
+[[test]]
+name = "postgis_adapter_e2e"
+path = "tests/postgis_adapter_e2e.rs"
+required-features = ["postgis"]
+
+[[test]]
+name = "timeseries_adapter_e2e"
+path = "tests/timeseries_adapter_e2e.rs"
+required-features = ["timeseries"]
+
+[[test]]
+name = "search_adapter_e2e"
+path = "tests/search_adapter_e2e.rs"
+required-features = ["search"]
+
+[[test]]
+name = "rw_adapter_e2e"
+path = "tests/rw_adapter_e2e.rs"
+required-features = ["read-write-splitting"]
+
+[[test]]
+name = "config_adapter_e2e"
+path = "tests/config_adapter_e2e.rs"
+required-features = ["config-center"]
+
 
 [package.metadata.docs.rs]
 all-features = true

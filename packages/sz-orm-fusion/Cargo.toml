@@ -1,6 +1,6 @@
 [package]
 name = "sz-orm-fusion"
-description = "Multi-database fusion query POC: cache-key pushdown / search pushdown / primary fallback with degradation"
+description = "Multi-database fusion query POC: cache-key pushdown / search pushdown / primary fallback with degradation (experimental, not for production use)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

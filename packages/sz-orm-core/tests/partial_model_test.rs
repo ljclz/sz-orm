@@ -33,7 +33,7 @@ impl Model for User {
 #[test]
 fn test_select_only_basic() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .column("id")
@@ -50,7 +50,7 @@ fn test_select_only_basic() {
 #[test]
 fn test_select_only_with_columns_vec() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .columns(vec!["id", "name", "email"])
@@ -61,7 +61,7 @@ fn test_select_only_with_columns_vec() {
 #[test]
 fn test_column_as_aggregation() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .column_as(Expr::count("id"), "total")
@@ -76,7 +76,7 @@ fn test_column_as_aggregation() {
 #[test]
 fn test_column_as_sum() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .column_as(Expr::sum("age"), "total_age")
@@ -87,7 +87,7 @@ fn test_column_as_sum() {
 #[test]
 fn test_select_only_with_group_by() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .column("age")
@@ -102,7 +102,7 @@ fn test_select_only_with_group_by() {
 #[test]
 fn test_select_only_no_column_falls_back_to_star() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .build_select();
@@ -139,7 +139,7 @@ fn test_expr_render_as() {
 #[test]
 fn test_select_only_postgresql() {
     let dialect = get_dialect(DbType::PostgreSQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .column("id")
@@ -152,7 +152,7 @@ fn test_select_only_postgresql() {
 #[test]
 fn test_select_only_with_where() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .select_only()
         .column("id")

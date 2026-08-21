@@ -1,6 +1,6 @@
 [package]
 name = "sz-orm-diagnosis"
-description = "Slow query auto-diagnosis: phase-based bottleneck localization with root-cause analysis and fix suggestions"
+description = "Slow query auto-diagnosis: phase-based bottleneck localization with root-cause analysis and fix suggestions (internal tool, not for external use)"
 version.workspace = true
 edition.workspace = true
 authors.workspace = true

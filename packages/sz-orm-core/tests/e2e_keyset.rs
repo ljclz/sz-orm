@@ -340,7 +340,7 @@ fn test_l3_13_keyset_after_no_params_version() {
     let builder = make_builder()
         .table("users")
         .keyset_after("id", Value::I64(100), 20);
-    let sql = builder.build_select();
+    let (sql, _params) = builder.build_select();
     let sql_clean = strip_quotes(&sql);
 
     assert!(sql_clean.contains("id >"), "应包含 'id >': {}", sql);
@@ -360,7 +360,7 @@ fn test_l3_14_keyset_before_no_params_version() {
     let builder = make_builder()
         .table("users")
         .keyset_before("id", Value::I64(100), 20);
-    let sql = builder.build_select();
+    let (sql, _params) = builder.build_select();
     let sql_clean = strip_quotes(&sql);
 
     assert!(sql_clean.contains("id <"), "应包含 'id <': {}", sql);

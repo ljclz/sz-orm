@@ -8,7 +8,7 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM WebSocket Extension (RFC 7692 permessage-deflate via flate2)"
+description = "SZ-ORM WebSocket Extension (RFC 7692 permessage-deflate via flate2) (experimental, WebSocket push, not for production use)"
 
 [features]
 default = []

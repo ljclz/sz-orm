@@ -38,7 +38,7 @@ fn new_qb() -> QueryBuilder<User> {
 #[test]
 fn test_diff_select_basic() {
     let old_sql = SelectQuery::new().from("users").build(DbType::MySQL);
-    let new_sql = new_qb().table("users").build_select();
+    let (new_sql, _params) = new_qb().table("users").build_select();
     assert!(
         old_sql.contains("SELECT") && old_sql.contains("users"),
         "old SQL: {}",
@@ -58,7 +58,7 @@ fn test_diff_select_where() {
         .where_eq("id", Value::I64(1))
         .build_with_params(DbType::MySQL);
     let old_sql = &old_built.sql;
-    let new_sql = new_qb()
+    let (new_sql, _params) = new_qb()
         .table("users")
         .where_eq("id", Value::I64(1))
         .build_select();
@@ -80,7 +80,7 @@ fn test_diff_select_order_by() {
         .from("users")
         .order_by("name", true)
         .build(DbType::MySQL);
-    let new_sql = new_qb().table("users").order_by("name").build_select();
+    let (new_sql, _params) = new_qb().table("users").order_by("name").build_select();
     assert!(old_sql.contains("ORDER BY"), "old SQL: {}", old_sql);
     assert!(new_sql.contains("ORDER BY"), "new SQL: {}", new_sql);
 }
@@ -91,7 +91,7 @@ fn test_diff_select_limit() {
         .from("users")
         .limit(10)
         .build(DbType::MySQL);
-    let new_sql = new_qb().table("users").limit(10).build_select();
+    let (new_sql, _params) = new_qb().table("users").limit(10).build_select();
     assert!(old_sql.contains("LIMIT"), "old SQL: {}", old_sql);
     assert!(new_sql.contains("LIMIT"), "new SQL: {}", new_sql);
 }
@@ -107,7 +107,7 @@ fn test_diff_insert_basic() {
 
     let mut data = std::collections::HashMap::new();
     data.insert("name".to_string(), Value::String("Alice".to_string()));
-    let new_sql = new_qb().table("users").build_insert(&data);
+    let (new_sql, _params) = new_qb().table("users").build_insert(&data);
 
     assert!(
         old_sql.contains("INSERT INTO") && old_sql.contains("users"),
@@ -134,7 +134,7 @@ fn test_diff_update_basic() {
 
     let mut data = std::collections::HashMap::new();
     data.insert("name".to_string(), Value::String("Bob".to_string()));
-    let new_sql = new_qb()
+    let (new_sql, _params) = new_qb()
         .table("users")
         .where_eq("id", Value::I64(1))
         .build_update(&data);
@@ -160,7 +160,7 @@ fn test_diff_delete_basic() {
         .where_eq("id", Value::I64(1))
         .build_with_params(DbType::MySQL);
     let old_sql = &old_built.sql;
-    let new_sql = new_qb()
+    let (new_sql, _params) = new_qb()
         .table("users")
         .where_eq("id", Value::I64(1))
         .build_delete();

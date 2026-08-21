@@ -103,7 +103,7 @@ fn m5_having_valid_count_renders() {
         .expect("valid aggregate");
 
     // 无参数版本：值经方言转义内联
-    let sql = qb.build_select();
+    let (sql, _params) = qb.build_select();
     assert!(sql.contains("HAVING COUNT(*) > 5"), "实际: {}", sql);
 
     // 参数版本：? 占位 + params
@@ -141,7 +141,7 @@ fn m5_having_multiple_conditions_and_joined() {
             Value::I64(1000),
         )
         .expect("valid aggregate");
-    let sql = qb.build_select();
+    let (sql, _params) = qb.build_select();
     assert!(
         sql.contains("HAVING COUNT(*) > 5 AND SUM(`total`) < 1000"),
         "实际: {}",
@@ -159,7 +159,7 @@ fn m5_quick_query_having_parametized() {
         .group_by("user_id")
         .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
         .expect("valid aggregate");
-    let sql = db.build_select();
+    let (sql, _params) = db.build_select();
     assert!(sql.contains("HAVING COUNT(*) > 5"), "实际: {}", sql);
 }
 
@@ -184,7 +184,7 @@ fn m6_select_star_must_use_expr() {
     // `*` 不是合法标识符，必须走 select_expr 逃生口
     assert!(mysql_builder().table("users").select(vec!["*"]).is_err());
     let qb = mysql_builder().table("users").select_expr(vec!["*"]);
-    assert!(qb.build_select().contains("SELECT * FROM"));
+    assert!(qb.build_select().0.contains("SELECT * FROM"));
 }
 
 #[test]
@@ -194,7 +194,7 @@ fn m6_select_valid_columns_quoted() {
         .table("users")
         .select(vec!["id", "name"])
         .expect("valid columns");
-    let sql = qb.build_select();
+    let (sql, _params) = qb.build_select();
     assert!(sql.contains("SELECT `id`, `name` FROM"), "实际: {}", sql);
 }
 
@@ -204,7 +204,7 @@ fn m6_select_expr_escape_hatch_raw() {
     let qb = mysql_builder()
         .table("users")
         .select_expr(vec!["user_id", "COUNT(*) as cnt"]);
-    let sql = qb.build_select();
+    let (sql, _params) = qb.build_select();
     assert!(
         sql.contains("SELECT user_id, COUNT(*) as cnt FROM"),
         "实际: {}",

@@ -2924,7 +2924,7 @@ mod zero_copy_tests {
             Value::Null,
             Value::Bool(true),
             Value::I64(42),
-            Value::F64(3.14),
+            Value::F64(3.15),
             Value::String("hello".to_string()),
             Value::I32(-100),
         ];

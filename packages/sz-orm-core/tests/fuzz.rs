@@ -309,10 +309,10 @@ fn fuzz_query_builder() {
 
         // 随机构建不同类型的 SQL
         let sql = match i % 6 {
-            0 => builder.build_select(),
+            0 => builder.build_select().0,
             1 => builder.build_count(),
             2 => builder.build_exists(),
-            3 => builder.build_delete(),
+            3 => builder.build_delete().0,
             4 => builder.build_max("id"),
             _ => builder.build_min("id"),
         };

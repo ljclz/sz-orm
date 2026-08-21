@@ -171,7 +171,7 @@ fn test_where_eq_col_with_query_builder() {
     let q = QueryBuilder::<User>::new(dialect)
         .where_eq_col(col, Value::I64(42))
         .limit(10);
-    let sql = q.build_select();
+    let (sql, _params) = q.build_select();
     assert!(sql.contains("id"));
     assert!(sql.contains("LIMIT 10"));
 }
@@ -185,7 +185,7 @@ fn test_where_eq_col_with_schema_constants() {
             Column::<User>::new(User::NAME),
             Value::String("Alice".to_string()),
         );
-    let sql = q.build_select();
+    let (sql, _params) = q.build_select();
     assert!(sql.contains("id"));
     assert!(sql.contains("name"));
 }
@@ -321,7 +321,7 @@ fn test_where_expr_with_query_builder() {
     let q = QueryBuilder::<User>::new(dialect)
         .where_expr(expr)
         .limit(10);
-    let sql = q.build_select();
+    let (sql, _params) = q.build_select();
     assert!(sql.contains("id"));
     assert!(sql.contains("age"));
     assert!(sql.contains("AND"));

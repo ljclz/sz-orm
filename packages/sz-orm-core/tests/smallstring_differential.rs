@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn diff_select_basic() {
         let q = make_query();
-        let sql = q.build_select();
+        let (sql, _params) = q.build_select();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("users"));
     }
@@ -45,7 +45,7 @@ mod tests {
         let q = make_query()
             .select(vec!["id", "name", "email"])
             .expect("valid columns");
-        let sql = q.build_select();
+        let (sql, _params) = q.build_select();
         assert!(sql.contains("id"));
         assert!(sql.contains("name"));
         assert!(sql.contains("email"));
@@ -54,7 +54,7 @@ mod tests {
     #[test]
     fn diff_select_where() {
         let q = make_query().where_eq("id", Value::I64(1));
-        let sql = q.build_select();
+        let (sql, _params) = q.build_select();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("id"));
         assert!(sql.contains("1"));
@@ -63,7 +63,7 @@ mod tests {
     #[test]
     fn diff_select_order_limit_offset() {
         let q = make_query().order_desc("id").limit(10).offset(20);
-        let sql = q.build_select();
+        let (sql, _params) = q.build_select();
         assert!(sql.contains("ORDER BY"));
         assert!(sql.contains("DESC"));
         assert!(sql.contains("LIMIT 10"));
@@ -74,14 +74,14 @@ mod tests {
     fn diff_select_long_string() {
         let long_name = "a".repeat(100);
         let q = make_query().where_eq("name", Value::String(long_name.clone()));
-        let sql = q.build_select();
+        let (sql, _params) = q.build_select();
         assert!(sql.contains(&long_name));
     }
 
     #[test]
     fn diff_select_short_string() {
         let q = make_query().where_eq("name", Value::String("abc".to_string()));
-        let sql = q.build_select();
+        let (sql, _params) = q.build_select();
         assert!(sql.contains("abc"));
     }
 
@@ -92,7 +92,7 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("test".to_string()));
         let q = make_query();
-        let sql = q.build_insert(&data);
+        let (sql, _params) = q.build_insert(&data);
         assert!(sql.contains("INSERT"));
         assert!(sql.contains("users"));
         assert!(sql.contains("test"));
@@ -104,7 +104,7 @@ mod tests {
         data.insert("name".to_string(), Value::String("alice".to_string()));
         data.insert("age".to_string(), Value::I64(30));
         let q = make_query();
-        let sql = q.build_insert(&data);
+        let (sql, _params) = q.build_insert(&data);
         assert!(sql.contains("INSERT"));
         assert!(sql.contains("users"));
         assert!(sql.contains("alice"));
@@ -118,7 +118,7 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("updated".to_string()));
         let q = make_query().where_eq("id", Value::I64(1));
-        let sql = q.build_update(&data);
+        let (sql, _params) = q.build_update(&data);
         assert!(sql.contains("UPDATE"));
         assert!(sql.contains("users"));
         assert!(sql.contains("updated"));
@@ -130,7 +130,7 @@ mod tests {
     #[test]
     fn diff_delete_basic() {
         let q = make_query().where_eq("id", Value::I64(1));
-        let sql = q.build_delete();
+        let (sql, _params) = q.build_delete();
         assert!(sql.contains("DELETE"));
         assert!(sql.contains("users"));
         assert!(sql.contains("id"));

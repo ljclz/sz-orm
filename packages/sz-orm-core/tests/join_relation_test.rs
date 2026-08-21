@@ -73,7 +73,7 @@ fn test_join_generates_left_join_for_has_many() {
         id: 1,
         name: "test".into(),
     };
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .join(&user)
         .build_select();
@@ -103,7 +103,7 @@ fn test_join_generates_left_join_for_has_many() {
 fn test_join_generates_inner_join_for_belongs_to() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
     let order = OrderEntity { id: 1, user_id: 1 };
-    let sql = QueryBuilder::<Order>::new(dialect)
+    let (sql, _params) = QueryBuilder::<Order>::new(dialect)
         .table("orders")
         .join(&order)
         .build_select();
@@ -118,7 +118,7 @@ fn test_join_generates_inner_join_for_belongs_to() {
 fn test_left_join_forced() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
     let order = OrderEntity { id: 1, user_id: 1 };
-    let sql = QueryBuilder::<Order>::new(dialect)
+    let (sql, _params) = QueryBuilder::<Order>::new(dialect)
         .table("orders")
         .left_join(&order)
         .build_select();
@@ -136,7 +136,7 @@ fn test_join_postgresql_dialect() {
         id: 1,
         name: "test".into(),
     };
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .join(&user)
         .build_select();
@@ -153,7 +153,7 @@ fn test_join_sqlite_dialect() {
         id: 1,
         name: "test".into(),
     };
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .join(&user)
         .build_select();
@@ -168,7 +168,7 @@ fn test_join_oracle_dialect() {
         id: 1,
         name: "test".into(),
     };
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .join(&user)
         .build_select();
@@ -183,7 +183,7 @@ fn test_join_mssql_dialect() {
         id: 1,
         name: "test".into(),
     };
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .join(&user)
         .build_select();
@@ -199,7 +199,7 @@ fn test_multi_join() {
         name: "test".into(),
     };
     let order = OrderEntity { id: 1, user_id: 1 };
-    let sql = QueryBuilder::<User>::new(dialect)
+    let (sql, _params) = QueryBuilder::<User>::new(dialect)
         .table("users")
         .join(&user)
         .join(&order)

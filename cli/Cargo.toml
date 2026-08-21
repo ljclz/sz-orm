@@ -25,6 +25,15 @@ sz-orm-observability = { version = "5.0.0", path = "../packages/sz-orm-observabi
 sz-orm-storage = { version = "5.0.0", path = "../packages/sz-orm-storage", features = ["cost-analysis", "multicloud-cost-forecast"] }
 sz-orm-batch = { version = "5.0.0", path = "../packages/sz-orm-batch", features = ["batch-v2", "batch-atomic", "copy-parallel-shard"] }
 sz-orm-queue = { version = "5.0.0", path = "../packages/sz-orm-queue", features = ["dlx-auto-redelivery", "delayed-priority-queue"] }
+sz-orm-dtx = { version = "5.0.0", path = "../packages/sz-orm-dtx", optional = true }
+sz-orm-advisor = { version = "5.0.0", path = "../packages/sz-orm-advisor", optional = true }
+sz-orm-stream = { version = "5.0.0", path = "../packages/sz-orm-stream", optional = true }
+sz-orm-parallel = { version = "5.0.0", path = "../packages/sz-orm-parallel", optional = true }
+sz-orm-flamegraph = { version = "5.0.0", path = "../packages/sz-orm-flamegraph", optional = true }
+sz-orm-ai = { version = "5.0.0", path = "../packages/sz-orm-ai", optional = true }
+sz-orm-vector = { version = "5.0.0", path = "../packages/sz-orm-vector", optional = true }
+sz-orm-back = { version = "5.0.0", path = "../packages/sz-orm-back", optional = true }
+sz-orm-mig = { version = "5.0.0", path = "../packages/sz-orm-mig", optional = true }
 tokio = { workspace = true, features = ["full"] }
 async-trait = "0.1"
 chrono = { workspace = true }
@@ -41,6 +50,22 @@ designer = ["dep:sz-orm-designer", "sz-orm-designer/schema-designer"]
 openapi-reverse = ["dep:sz-orm-swagger", "sz-orm-swagger/openapi-reverse"]
 # v4.3.0 M2：N+1 静态检测（sz-orm n1-lint --path=...）
 n1-lint = ["dep:sz-orm-n1-lint", "sz-orm-n1-lint/n1-lint"]
+# P3 幻影修复：feature 启用点（E 模式）
+query-logging = ["sz-orm-observability/query-logging"]
+cross-lang-dtx = ["dep:sz-orm-dtx", "sz-orm-dtx/cross-lang-dtx"]
+oracle = ["sz-orm-sqlx/oracle"]
+mssql = ["sz-orm-sqlx/mssql"]
+# P0 幻影修复：核心包接入 cli（B 模式）
+query-advisor = ["dep:sz-orm-advisor", "sz-orm-advisor/query-advisor"]
+stream-resultset = ["dep:sz-orm-stream", "sz-orm-stream/stream-resultset"]
+parallel-query = ["dep:sz-orm-parallel"]
+# P2 幻影修复：依赖链包接入 cli（B 模式）
+flamegraph = ["dep:sz-orm-flamegraph"]
+ai-capability = ["dep:sz-orm-ai"]
+vector-search = ["dep:sz-orm-vector"]
+# P1 幻影修复：整包接入 cli（B 模式）
+backup = ["dep:sz-orm-back"]
+migrate = ["dep:sz-orm-mig"]
 
 [lints]
 workspace = true

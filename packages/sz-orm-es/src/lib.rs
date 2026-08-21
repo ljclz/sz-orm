@@ -1,4 +1,4 @@
-//! # SZ-ORM ES — Elasticsearch Document Store (**MOCK-ONLY, not production-ready**)
+//! # SZ-ORM ES — Elasticsearch Document Store (**MOCK-ONLY, not production-ready, experimental, not for production use**)
 //!
 //! ⚠️ **Important warning: This crate is only an in-memory Mock implementation, not integrated with real Elasticsearch client.**
 //!

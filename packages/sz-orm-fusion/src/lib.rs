@@ -1,8 +1,10 @@
-//! # sz-orm-fusion — Multi-Database Fusion Query (POC, optional experiment)
+//! # sz-orm-fusion — Multi-Database Fusion Query (experimental, not for production use)
+//!
+//! **Experimental POC** — this package is an optional experiment for v4.3.0 M5.
+//! It is not intended for production use and may change or be removed in future versions.
 //!
 //! Transparent multi-database operations: query splitting, aggregation, and degradation for **primary + cache + search**.
-//! This package is an optional experiment (POC) for v4.3.0 M5; the core value is validating whether the "fusion query" semantics
-//! are worth promoting; specific backends (Redis / vector store) are injected via traits, not bound to implementations.
+//! Specific backends (Redis / vector store) are injected via traits, not bound to implementations.
 //!
 //! Core concepts:
 //!
