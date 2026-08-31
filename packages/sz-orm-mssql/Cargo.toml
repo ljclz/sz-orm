@@ -12,7 +12,7 @@ description = "SZ-ORM Microsoft SQL Server adapter using tiberius (TDS protocol)
 
 [dependencies]
 sz-orm-core = { workspace = true }
-tiberius = { version = "0.12", features = ["rust_decimal"] }
+tiberius = { package = "tiberius-ng", version = "0.13", features = ["rust_decimal"] }
 rust_decimal = "1.36"
 tokio = { workspace = true }
 async-trait = { workspace = true }
