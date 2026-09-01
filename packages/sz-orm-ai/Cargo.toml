@@ -31,7 +31,7 @@ ai-schema-extract = ["dep:sz-orm-core"]
 # v5.1.0：LLM 安全审计（规则引擎未识别时调用 LLM 二次判断）
 ai-security-audit = ["multi-llm"]
 # v5.1.0 P2：语义查询路由（SQL/向量/图谱/Agent/混合）
-ai-native-query = ["ai-nl2sql-enhanced", "multi-llm"]
+ai-native-query = ["ai-nl2sql-enhanced", "multi-llm", "dep:sz-orm-graph"]
 
 
 [package.metadata.cargo-machete]
@@ -54,6 +54,8 @@ parking_lot.workspace = true
 sz-orm-core = { version = "5.0.0", path = "../sz-orm-core", optional = true }
 # v3.3.0 M4锛歋QL 瑙ｆ瀽锛堢储寮曞缓锟?+ 閲嶅啓寤鸿锛宱ptional锟?
 sqlparser = { workspace = true, optional = true }
+# v5.1.0 P2：图谱查询集成（ai-native-query feature）
+sz-orm-graph = { version = "5.0.0", path = "../sz-orm-graph", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"

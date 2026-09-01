@@ -559,3 +559,89 @@ impl HybridQueryExecutor {
         })
     }
 }
+
+// ==================== sz-orm-graph 适配器 ====================
+
+#[cfg(feature = "ai-native-query")]
+mod graph_adapter {
+    use super::{GraphEdge, GraphNode, GraphQueryExecutor, SemanticQueryError};
+    use parking_lot::RwLock;
+    use std::sync::Arc;
+
+    /// 将 sz-orm-graph 的 InMemoryGraphEngine 适配为 GraphQueryExecutor
+    pub struct GraphEngineAdapter {
+        engine: Arc<RwLock<sz_orm_graph::InMemoryGraphEngine>>,
+    }
+
+    impl GraphEngineAdapter {
+        pub fn new(engine: Arc<RwLock<sz_orm_graph::InMemoryGraphEngine>>) -> Self {
+            Self { engine }
+        }
+    }
+
+    #[async_trait::async_trait]
+    impl GraphQueryExecutor for GraphEngineAdapter {
+        async fn execute(
+            &self,
+            cypher: &str,
+        ) -> Result<(Vec<GraphNode>, Vec<GraphEdge>), SemanticQueryError> {
+            let query = sz_orm_graph::CypherQuery::new(cypher);
+            let results = {
+                let engine = self.engine.read();
+                engine
+                    .execute(&query)
+                    .map_err(|e| SemanticQueryError::GraphFailed(e.to_string()))?
+            };
+
+            let mut nodes = Vec::new();
+            let mut edges = Vec::new();
+            for result in results {
+                match result {
+                    sz_orm_graph::GraphResult::Node { node } => {
+                        nodes.push(GraphNode {
+                            id: node.id,
+                            label: node.labels.first().cloned().unwrap_or_default(),
+                            properties: node.properties,
+                        });
+                    }
+                    sz_orm_graph::GraphResult::Relationship { relationship } => {
+                        edges.push(GraphEdge {
+                            from: relationship.start_node_id,
+                            to: relationship.end_node_id,
+                            relation: relationship.rel_type,
+                        });
+                    }
+                    sz_orm_graph::GraphResult::Path { path } => {
+                        for node in path.nodes {
+                            nodes.push(GraphNode {
+                                id: node.id,
+                                label: node.labels.first().cloned().unwrap_or_default(),
+                                properties: node.properties,
+                            });
+                        }
+                        for rel in path.relationships {
+                            edges.push(GraphEdge {
+                                from: rel.start_node_id,
+                                to: rel.end_node_id,
+                                relation: rel.rel_type,
+                            });
+                        }
+                    }
+                    sz_orm_graph::GraphResult::Scalar { .. } => {}
+                }
+            }
+
+            Ok((nodes, edges))
+        }
+
+        async fn nl_to_cypher(&self, query: &str) -> Result<String, SemanticQueryError> {
+            Ok(format!(
+                "MATCH (n) WHERE n.text CONTAINS '{}' RETURN n",
+                query
+            ))
+        }
+    }
+}
+
+#[cfg(feature = "ai-native-query")]
+pub use graph_adapter::GraphEngineAdapter;
