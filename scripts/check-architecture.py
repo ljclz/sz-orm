@@ -39,6 +39,17 @@ CORE_ALLOWLIST = {
     "sz-orm-macros", "sz-orm-masking", "sz-orm-n1-lint",
     "sz-orm-query-builder", "sz-orm-sql-validator",
     "sz-orm-anomaly",  # 可选依赖 anomaly-detection feature，sz-orm-core 异常检测集成
+    # 以下均为 feature 门控可选依赖：通过 feature gate 激活而非直接 dep 依赖
+    "sz-orm-adaptive",     # adaptive-query feature
+    "sz-orm-config",       # config-center feature
+    "sz-orm-graph",        # graph feature
+    "sz-orm-graphql",      # graphql feature
+    "sz-orm-logger",       # structured-logging feature
+    "sz-orm-postgis",      # postgis feature
+    "sz-orm-rw",           # read-write-splitting feature
+    "sz-orm-search",       # search feature
+    "sz-orm-timeseries",   # timeseries feature
+    "sz-orm-tracing",      # distributed-tracing feature
 }
 
 

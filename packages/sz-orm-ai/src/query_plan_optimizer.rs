@@ -983,3 +983,813 @@ mod tests {
         assert!(analysis.has_hints());
     }
 }
+
+// ==================== P2 TASK-015: PerformancePredictor ====================
+
+/// 表统计信息（用于性能预测）
+///
+/// 描述单张表的行数、列基数、索引选择性等统计信息，
+/// 供 [`PerformancePredictor`] 预测 SQL 执行耗时使用。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableStatistics {
+    /// 表名
+    pub table_name: String,
+    /// 表总行数
+    pub row_count: u64,
+    /// 各列的基数（不同值数量）
+    pub column_cardinality: std::collections::HashMap<String, u64>,
+    /// 各索引的选择性（0.0~1.0，1.0 = 唯一索引）
+    pub index_selectivity: std::collections::HashMap<String, f64>,
+    /// 平均行大小（字节）
+    pub avg_row_size_bytes: u64,
+}
+
+impl TableStatistics {
+    /// 创建一张表的统计信息
+    pub fn new(table_name: impl Into<String>, row_count: u64) -> Self {
+        Self {
+            table_name: table_name.into(),
+            row_count,
+            column_cardinality: std::collections::HashMap::new(),
+            index_selectivity: std::collections::HashMap::new(),
+            avg_row_size_bytes: 64,
+        }
+    }
+
+    /// 设置列基数
+    pub fn with_column_cardinality(mut self, column: impl Into<String>, cardinality: u64) -> Self {
+        self.column_cardinality.insert(column.into(), cardinality);
+        self
+    }
+
+    /// 设置索引选择性
+    pub fn with_index_selectivity(mut self, index: impl Into<String>, selectivity: f64) -> Self {
+        self.index_selectivity
+            .insert(index.into(), selectivity.clamp(0.0, 1.0));
+        self
+    }
+
+    /// 设置平均行大小
+    pub fn with_avg_row_size(mut self, size_bytes: u64) -> Self {
+        self.avg_row_size_bytes = size_bytes;
+        self
+    }
+}
+
+/// SQL 查询特征（从 SQL 文本提取）
+///
+/// 描述查询的结构特征，用于成本模型估算。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct QueryCharacteristics {
+    /// 涉及的表名
+    pub tables: Vec<String>,
+    /// WHERE 条件列
+    pub where_columns: Vec<String>,
+    /// JOIN 数量
+    pub join_count: usize,
+    /// 子查询数量
+    pub subquery_count: usize,
+    /// 是否使用 SELECT *
+    pub uses_select_star: bool,
+    /// LIMIT 值（None = 无 LIMIT）
+    pub limit: Option<u64>,
+    /// ORDER BY 列
+    pub order_by_columns: Vec<String>,
+    /// GROUP BY 列
+    pub group_by_columns: Vec<String>,
+}
+
+impl QueryCharacteristics {
+    /// 从 SQL 文本提取查询特征（简易解析）
+    ///
+    /// 采用大小写不敏感的字符串匹配提取表名、WHERE 列、JOIN 数等。
+    /// 不依赖 sqlparser（避免 feature 依赖），仅做启发式提取。
+    pub fn from_sql(sql: &str) -> Self {
+        let lower = sql.to_lowercase();
+        let uses_select_star = lower.contains("select *");
+
+        let tables = extract_tables(&lower);
+        let where_columns = extract_where_columns(&lower);
+        let join_count = lower.matches(" join ").count();
+        let subquery_count = lower.matches("select").count().saturating_sub(1);
+        let limit = extract_limit(&lower);
+        let order_by_columns = extract_order_by_columns(&lower);
+        let group_by_columns = extract_group_by_columns(&lower);
+
+        Self {
+            tables,
+            where_columns,
+            join_count,
+            subquery_count,
+            uses_select_star,
+            limit,
+            order_by_columns,
+            group_by_columns,
+        }
+    }
+}
+
+fn extract_tables(lower_sql: &str) -> Vec<String> {
+    let mut tables = Vec::new();
+    for keyword in ["from ", "join "] {
+        let mut pos = 0;
+        while let Some(idx) = lower_sql[pos..].find(keyword) {
+            let start = pos + idx + keyword.len();
+            let rest = &lower_sql[start..];
+            let table_end = rest
+                .find(|c: char| c.is_whitespace() || c == ',' || c == ';' || c == '(')
+                .unwrap_or(rest.len());
+            let table = rest[..table_end].trim();
+            if !table.is_empty()
+                && !table.starts_with('(')
+                && table != "where"
+                && table != "on"
+                && table != "as"
+            {
+                tables.push(table.to_string());
+            }
+            pos = start + table_end;
+            if pos >= lower_sql.len() {
+                break;
+            }
+        }
+    }
+    tables
+        .into_iter()
+        .collect::<std::collections::HashSet<_>>()
+        .into_iter()
+        .collect()
+}
+
+fn extract_where_columns(lower_sql: &str) -> Vec<String> {
+    let mut columns = Vec::new();
+    if let Some(where_idx) = lower_sql.find(" where ") {
+        let rest = &lower_sql[where_idx + 7..];
+        let end = rest
+            .find(" group by ")
+            .or_else(|| rest.find(" order by "))
+            .or_else(|| rest.find(" limit "))
+            .unwrap_or(rest.len());
+        let where_clause = &rest[..end];
+        for part in where_sql_split_conditions(where_clause) {
+            let cond = part.trim();
+            if let Some(eq_idx) = cond.find('=') {
+                let col = cond[..eq_idx].trim();
+                if is_valid_column_name(col) {
+                    columns.push(col.to_string());
+                }
+            }
+        }
+    }
+    columns
+}
+
+fn where_sql_split_conditions(clause: &str) -> Vec<String> {
+    let mut result = Vec::new();
+    let mut current = String::new();
+    let mut depth = 0i32;
+    for ch in clause.chars() {
+        match ch {
+            '(' => {
+                depth += 1;
+                current.push(ch);
+            }
+            ')' => {
+                depth -= 1;
+                current.push(ch);
+            }
+            ' ' if depth == 0 => {
+                if current.eq_ignore_ascii_case("and") || current.eq_ignore_ascii_case("or") {
+                    current.clear();
+                } else if !current.is_empty() {
+                    current.push(ch);
+                }
+            }
+            _ => current.push(ch),
+        }
+    }
+    if !current.is_empty() {
+        result.push(current);
+    }
+    result
+}
+
+fn is_valid_column_name(s: &str) -> bool {
+    !s.is_empty()
+        && !s.eq_ignore_ascii_case("and")
+        && !s.eq_ignore_ascii_case("or")
+        && !s.eq_ignore_ascii_case("not")
+        && s.chars()
+            .next()
+            .map(|c| c.is_alphabetic() || c == '_')
+            .unwrap_or(false)
+}
+
+fn extract_limit(lower_sql: &str) -> Option<u64> {
+    if let Some(idx) = lower_sql.rfind(" limit ") {
+        let rest = &lower_sql[idx + 7..];
+        let num_end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        rest[..num_end].parse().ok()
+    } else {
+        None
+    }
+}
+
+fn extract_order_by_columns(lower_sql: &str) -> Vec<String> {
+    extract_clause_columns(lower_sql, " order by ", " limit ")
+}
+
+fn extract_group_by_columns(lower_sql: &str) -> Vec<String> {
+    extract_clause_columns(lower_sql, " group by ", " having ")
+}
+
+fn extract_clause_columns(lower_sql: &str, keyword: &str, next_keyword: &str) -> Vec<String> {
+    if let Some(idx) = lower_sql.find(keyword) {
+        let rest = &lower_sql[idx + keyword.len()..];
+        let end = rest
+            .find(next_keyword)
+            .or_else(|| rest.find(" order by "))
+            .or_else(|| rest.find(" limit "))
+            .unwrap_or(rest.len());
+        rest[..end]
+            .split(',')
+            .map(|s| s.trim().to_string())
+            .filter(|s| !s.is_empty())
+            .collect()
+    } else {
+        Vec::new()
+    }
+}
+
+/// 性能预测结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct PerformancePrediction {
+    /// 预测执行耗时（毫秒）
+    pub estimated_ms: f64,
+    /// 预测扫描行数
+    pub estimated_rows_scanned: u64,
+    /// 预测是否走索引
+    pub uses_index: bool,
+    /// 成本评分（0-100，越高越差）
+    pub cost_score: f64,
+    /// 预测依据说明
+    pub rationale: String,
+}
+
+/// 性能预测器
+///
+/// 基于表统计信息 + 查询特征，用成本模型预测 SQL 执行性能。
+/// 用于比较重写前/重写后的候选 SQL，估算加速比。
+///
+/// # 成本模型
+///
+/// - 全表扫描：`rows * avg_row_size / scan_bandwidth`
+/// - 索引扫描：`selective_rows * avg_row_size / index_bandwidth`
+/// - JOIN：`left_rows * right_rows * join_factor`
+/// - 子查询：`subquery_count * base_cost`
+pub struct PerformancePredictor {
+    /// 顺序扫描带宽（MB/s，默认 100）
+    scan_bandwidth_mbps: f64,
+    /// 索引扫描带宽（MB/s，默认 500）
+    index_bandwidth_mbps: f64,
+    /// 每行处理开销（微秒，默认 0.1）
+    per_row_overhead_us: f64,
+    /// JOIN 笛卡尔积因子（默认 0.001）
+    join_factor: f64,
+}
+
+impl Default for PerformancePredictor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl PerformancePredictor {
+    /// 创建默认参数的性能预测器
+    pub fn new() -> Self {
+        Self {
+            scan_bandwidth_mbps: 100.0,
+            index_bandwidth_mbps: 500.0,
+            per_row_overhead_us: 0.1,
+            join_factor: 0.001,
+        }
+    }
+
+    /// 设置扫描带宽
+    pub fn with_scan_bandwidth(mut self, mbps: f64) -> Self {
+        self.scan_bandwidth_mbps = mbps.max(1.0);
+        self
+    }
+
+    /// 设置索引扫描带宽
+    pub fn with_index_bandwidth(mut self, mbps: f64) -> Self {
+        self.index_bandwidth_mbps = mbps.max(1.0);
+        self
+    }
+
+    /// 预测单条 SQL 的执行性能
+    ///
+    /// # 参数
+    /// - `sql`: SQL 文本
+    /// - `stats`: 涉及表的统计信息列表
+    ///
+    /// # 返回
+    ///
+    /// [`PerformancePrediction`] 包含预测耗时、扫描行数、是否走索引、成本评分。
+    pub fn predict(&self, sql: &str, stats: &[TableStatistics]) -> PerformancePrediction {
+        let chars = QueryCharacteristics::from_sql(sql);
+        self.predict_with_chars(&chars, stats)
+    }
+
+    fn predict_with_chars(
+        &self,
+        chars: &QueryCharacteristics,
+        stats: &[TableStatistics],
+    ) -> PerformancePrediction {
+        let table_stats: Vec<&TableStatistics> = chars
+            .tables
+            .iter()
+            .filter_map(|t| stats.iter().find(|s| s.table_name == *t))
+            .collect();
+
+        if table_stats.is_empty() {
+            return PerformancePrediction {
+                estimated_ms: 1.0,
+                estimated_rows_scanned: 1,
+                uses_index: false,
+                cost_score: 10.0,
+                rationale: "无表统计信息，使用默认估算".to_string(),
+            };
+        }
+
+        let mut total_rows_scanned: u64 = 0;
+        let mut total_bytes: f64 = 0.0;
+        let mut uses_index = false;
+        let mut rationale_parts: Vec<String> = Vec::new();
+
+        for stat in &table_stats {
+            let index_hit = self.find_index_for_where(chars, stat);
+            let (scanned, bytes, idx_used) = self.estimate_table_scan(chars, stat, &index_hit);
+            total_rows_scanned = total_rows_scanned.saturating_add(scanned);
+            total_bytes += bytes;
+            if idx_used {
+                uses_index = true;
+                rationale_parts.push(format!(
+                    "{}: 索引扫描 {} 行（选择性 {:.2}）",
+                    stat.table_name,
+                    scanned,
+                    index_hit.unwrap_or(0.0)
+                ));
+            } else {
+                rationale_parts.push(format!("{}: 全表扫描 {} 行", stat.table_name, scanned));
+            }
+        }
+
+        let scan_ms = total_bytes / (self.scan_bandwidth_mbps * 1024.0 * 1024.0) * 1000.0;
+        let row_overhead_ms = total_rows_scanned as f64 * self.per_row_overhead_us / 1000.0;
+        let mut estimated_ms = scan_ms + row_overhead_ms;
+
+        if chars.join_count > 0 {
+            let join_cost = self.estimate_join_cost(&table_stats, chars);
+            estimated_ms += join_cost;
+            rationale_parts.push(format!(
+                "{} 个 JOIN 增加成本 {:.2}ms",
+                chars.join_count, join_cost
+            ));
+        }
+
+        if chars.subquery_count > 0 {
+            let subquery_cost = chars.subquery_count as f64 * estimated_ms * 0.5;
+            estimated_ms += subquery_cost;
+            rationale_parts.push(format!(
+                "{} 个子查询增加成本 {:.2}ms",
+                chars.subquery_count, subquery_cost
+            ));
+        }
+
+        if chars.uses_select_star {
+            estimated_ms *= 1.2;
+            rationale_parts.push("SELECT * 增加 20% 开销".to_string());
+        }
+
+        if let Some(limit) = chars.limit {
+            if limit > 0 && total_rows_scanned > limit {
+                let limit_ratio = limit as f64 / total_rows_scanned as f64;
+                estimated_ms *= limit_ratio.max(0.1);
+                rationale_parts.push(format!(
+                    "LIMIT {} 缩减成本至 {:.0}%",
+                    limit,
+                    limit_ratio * 100.0
+                ));
+            }
+        }
+
+        let cost_score = self.compute_cost_score(estimated_ms, total_rows_scanned, uses_index);
+
+        PerformancePrediction {
+            estimated_ms,
+            estimated_rows_scanned: total_rows_scanned,
+            uses_index,
+            cost_score,
+            rationale: rationale_parts.join("; "),
+        }
+    }
+
+    fn find_index_for_where(
+        &self,
+        chars: &QueryCharacteristics,
+        stat: &TableStatistics,
+    ) -> Option<f64> {
+        for col in &chars.where_columns {
+            let col_name = col.split('.').last().unwrap_or(col);
+            if let Some(&selectivity) = stat.index_selectivity.get(col_name) {
+                return Some(selectivity);
+            }
+        }
+        None
+    }
+
+    fn estimate_table_scan(
+        &self,
+        _chars: &QueryCharacteristics,
+        stat: &TableStatistics,
+        index_selectivity: &Option<f64>,
+    ) -> (u64, f64, bool) {
+        let row_count = stat.row_count;
+        let row_bytes = stat.avg_row_size_bytes as f64;
+
+        match index_selectivity {
+            Some(selectivity) => {
+                let scanned = (row_count as f64 * (1.0 - selectivity)).max(1.0) as u64;
+                let bytes = scanned as f64 * row_bytes;
+                (scanned, bytes, true)
+            }
+            None => {
+                let bytes = row_count as f64 * row_bytes;
+                (row_count, bytes, false)
+            }
+        }
+    }
+
+    fn estimate_join_cost(
+        &self,
+        table_stats: &[&TableStatistics],
+        chars: &QueryCharacteristics,
+    ) -> f64 {
+        if table_stats.len() < 2 {
+            return 0.0;
+        }
+        let left_rows = table_stats[0].row_count as f64;
+        let right_rows = table_stats[1].row_count as f64;
+        let cartesian = left_rows * right_rows * self.join_factor;
+        cartesian * self.per_row_overhead_us / 1000.0 * chars.join_count as f64
+    }
+
+    fn compute_cost_score(&self, estimated_ms: f64, rows: u64, uses_index: bool) -> f64 {
+        let mut score = 0.0;
+        score += (estimated_ms.ln_1p() * 5.0).min(50.0);
+        score += (rows as f64).log10().max(0.0).min(30.0);
+        if !uses_index {
+            score += 15.0;
+        }
+        score.min(100.0)
+    }
+
+    /// 比较两条 SQL 的预测性能，返回加速比
+    ///
+    /// # 返回
+    ///
+    /// `(original_prediction, optimized_prediction, speedup_ratio)`
+    /// `speedup_ratio > 1.0` 表示优化版本更快。
+    pub fn compare(
+        &self,
+        original_sql: &str,
+        optimized_sql: &str,
+        stats: &[TableStatistics],
+    ) -> (PerformancePrediction, PerformancePrediction, f64) {
+        let orig = self.predict(original_sql, stats);
+        let opt = self.predict(optimized_sql, stats);
+        let speedup = if opt.estimated_ms > 0.0 {
+            orig.estimated_ms / opt.estimated_ms
+        } else {
+            f64::INFINITY
+        };
+        (orig, opt, speedup)
+    }
+}
+
+// ==================== P2 TASK-016: QueryABTestFramework ====================
+
+/// A/B 测试样本（单次查询耗时）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AbTestSample {
+    /// 耗时（毫秒）
+    pub elapsed_ms: f64,
+    /// 是否成功
+    pub success: bool,
+}
+
+/// A/B 测试统计摘要
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AbTestSummary {
+    /// 样本数
+    pub sample_count: usize,
+    /// 成功样本数
+    pub success_count: usize,
+    /// 平均耗时（毫秒）
+    pub mean_ms: f64,
+    /// 中位数 P50（毫秒）
+    pub p50_ms: f64,
+    /// P95（毫秒）
+    pub p95_ms: f64,
+    /// P99（毫秒）
+    pub p99_ms: f64,
+    /// 最小值（毫秒）
+    pub min_ms: f64,
+    /// 最大值（毫秒）
+    pub max_ms: f64,
+    /// 标准差（毫秒）
+    pub std_dev_ms: f64,
+}
+
+impl AbTestSummary {
+    /// 从样本列表计算统计摘要
+    pub fn from_samples(samples: &[AbTestSample]) -> Self {
+        let success_samples: Vec<f64> = samples
+            .iter()
+            .filter(|s| s.success)
+            .map(|s| s.elapsed_ms)
+            .collect();
+        let success_count = success_samples.len();
+        let sample_count = samples.len();
+
+        if success_samples.is_empty() {
+            return Self {
+                sample_count,
+                success_count: 0,
+                mean_ms: 0.0,
+                p50_ms: 0.0,
+                p95_ms: 0.0,
+                p99_ms: 0.0,
+                min_ms: 0.0,
+                max_ms: 0.0,
+                std_dev_ms: 0.0,
+            };
+        }
+
+        let mut sorted = success_samples.clone();
+        sorted.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+
+        let mean = sorted.iter().sum::<f64>() / sorted.len() as f64;
+        let variance = sorted.iter().map(|x| (x - mean).powi(2)).sum::<f64>() / sorted.len() as f64;
+        let std_dev = variance.sqrt();
+
+        Self {
+            sample_count,
+            success_count,
+            mean_ms: mean,
+            p50_ms: percentile(&sorted, 50.0),
+            p95_ms: percentile(&sorted, 95.0),
+            p99_ms: percentile(&sorted, 99.0),
+            min_ms: sorted[0],
+            max_ms: sorted[sorted.len() - 1],
+            std_dev_ms: std_dev,
+        }
+    }
+}
+
+fn percentile(sorted: &[f64], p: f64) -> f64 {
+    if sorted.is_empty() {
+        return 0.0;
+    }
+    let rank = (p / 100.0) * (sorted.len() - 1) as f64;
+    let lower = rank.floor() as usize;
+    let upper = rank.ceil() as usize;
+    if lower == upper {
+        sorted[lower]
+    } else {
+        let frac = rank - lower as f64;
+        sorted[lower] * (1.0 - frac) + sorted[upper] * frac
+    }
+}
+
+/// A/B 测试结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AbTestResult {
+    /// 原始版本统计
+    pub original: AbTestSummary,
+    /// 优化版本统计
+    pub optimized: AbTestSummary,
+    /// P50 加速比（original_p50 / optimized_p50）
+    pub p50_speedup: f64,
+    /// P95 加速比
+    pub p95_speedup: f64,
+    /// 平均加速比
+    pub mean_speedup: f64,
+    /// Welch t 检验的 t 统计量
+    pub t_statistic: f64,
+    /// Welch t 检验的自由度（Welch-Satterthwaite 近似）
+    pub degrees_of_freedom: f64,
+    /// 近似 p 值（双侧）
+    pub p_value: f64,
+    /// 是否统计显著（p < 0.05）
+    pub is_significant: bool,
+    /// 结论说明
+    pub conclusion: String,
+}
+
+/// A/B 测试框架
+///
+/// 对同一查询的原始版本与优化版本执行 N 次采样，
+/// 输出 P50/P95/p 值统计显著性对比。
+pub struct QueryABTestFramework {
+    /// 默认采样次数
+    default_sample_count: usize,
+    /// 显著性阈值
+    significance_threshold: f64,
+}
+
+impl Default for QueryABTestFramework {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl QueryABTestFramework {
+    /// 创建默认 A/B 测试框架（100 次采样，α=0.05）
+    pub fn new() -> Self {
+        Self {
+            default_sample_count: 100,
+            significance_threshold: 0.05,
+        }
+    }
+
+    /// 设置默认采样次数
+    pub fn with_sample_count(mut self, count: usize) -> Self {
+        self.default_sample_count = count.max(2);
+        self
+    }
+
+    /// 设置显著性阈值
+    pub fn with_significance_threshold(mut self, alpha: f64) -> Self {
+        self.significance_threshold = alpha;
+        self
+    }
+
+    /// 执行 A/B 测试
+    ///
+    /// # 参数
+    /// - `original_samples`: 原始版本的耗时样本
+    /// - `optimized_samples`: 优化版本的耗时样本
+    ///
+    /// # 返回
+    ///
+    /// [`AbTestResult`] 包含双版本统计摘要 + 加速比 + Welch t 检验 p 值。
+    pub fn run_ab_test(
+        &self,
+        original_samples: &[AbTestSample],
+        optimized_samples: &[AbTestSample],
+    ) -> AbTestResult {
+        let original = AbTestSummary::from_samples(original_samples);
+        let optimized = AbTestSummary::from_samples(optimized_samples);
+
+        let p50_speedup = if optimized.p50_ms > 0.0 {
+            original.p50_ms / optimized.p50_ms
+        } else {
+            f64::INFINITY
+        };
+        let p95_speedup = if optimized.p95_ms > 0.0 {
+            original.p95_ms / optimized.p95_ms
+        } else {
+            f64::INFINITY
+        };
+        let mean_speedup = if optimized.mean_ms > 0.0 {
+            original.mean_ms / optimized.mean_ms
+        } else {
+            f64::INFINITY
+        };
+
+        let (t_stat, df, p_value) = welch_t_test(&original, &optimized);
+
+        let is_significant = p_value < self.significance_threshold;
+
+        let conclusion =
+            self.build_conclusion(mean_speedup, p_value, is_significant, &original, &optimized);
+
+        AbTestResult {
+            original,
+            optimized,
+            p50_speedup,
+            p95_speedup,
+            mean_speedup,
+            t_statistic: t_stat,
+            degrees_of_freedom: df,
+            p_value,
+            is_significant,
+            conclusion,
+        }
+    }
+
+    fn build_conclusion(
+        &self,
+        mean_speedup: f64,
+        p_value: f64,
+        is_significant: bool,
+        original: &AbTestSummary,
+        optimized: &AbTestSummary,
+    ) -> String {
+        if !is_significant {
+            return format!(
+                "差异不显著（p={:.4} ≥ α={:.2}），无法断定优化版本性能有实质提升",
+                p_value, self.significance_threshold
+            );
+        }
+        if mean_speedup > 1.0 {
+            format!(
+                "优化版本显著更快（p={:.4}），平均加速比 {:.2}x（{:.2}ms → {:.2}ms）",
+                p_value, mean_speedup, original.mean_ms, optimized.mean_ms
+            )
+        } else {
+            format!(
+                "优化版本显著更慢（p={:.4}），平均减速比 {:.2}x（{:.2}ms → {:.2}ms）",
+                p_value,
+                1.0 / mean_speedup,
+                original.mean_ms,
+                optimized.mean_ms
+            )
+        }
+    }
+
+    /// 返回默认采样次数
+    pub fn default_sample_count(&self) -> usize {
+        self.default_sample_count
+    }
+}
+
+/// Welch t 检验（不假设等方差）
+///
+/// 返回 (t 统计量, 自由度, 双侧 p 值)
+fn welch_t_test(a: &AbTestSummary, b: &AbTestSummary) -> (f64, f64, f64) {
+    let n1 = a.success_count as f64;
+    let n2 = b.success_count as f64;
+    if n1 < 2.0 || n2 < 2.0 {
+        return (0.0, 0.0, 1.0);
+    }
+
+    let var1 = a.std_dev_ms.powi(2);
+    let var2 = b.std_dev_ms.powi(2);
+    let se1 = var1 / n1;
+    let se2 = var2 / n2;
+    let se = (se1 + se2).sqrt();
+    if se < 1e-12 {
+        return (0.0, 0.0, 1.0);
+    }
+
+    let t = (a.mean_ms - b.mean_ms) / se;
+    let df = (se1 + se2).powi(2) / (se1.powi(2) / (n1 - 1.0) + se2.powi(2) / (n2 - 1.0));
+
+    let p = two_sided_p_value(t, df);
+    (t, df, p)
+}
+
+/// 用正态近似计算双侧 p 值（大样本下 t 分布趋近正态）
+///
+/// 对自由度 df > 30 使用标准正态近似；否则用 t 分布的保守正态上界。
+/// 这是近似实现（避免引入统计 crate 依赖），对 A/B 测试足够精确。
+fn two_sided_p_value(t: f64, df: f64) -> f64 {
+    let abs_t = t.abs();
+    if abs_t < 1e-12 {
+        return 1.0;
+    }
+
+    let p_one_sided = if df > 30.0 {
+        normal_cdf(-abs_t)
+    } else {
+        let scale = (1.0 + abs_t.powi(2) / df).sqrt();
+        normal_cdf(-abs_t / scale)
+    };
+    (2.0 * p_one_sided).min(1.0)
+}
+
+/// 标准正态分布 CDF（使用 erf 近似）
+fn normal_cdf(x: f64) -> f64 {
+    0.5 * (1.0 + erf(x / std::f64::consts::SQRT_2))
+}
+
+/// 误差函数 erf（Abramowitz & Stegun 7.1.26 近似）
+fn erf(x: f64) -> f64 {
+    let a1 = 0.254829592_f64;
+    let a2 = -0.284496736_f64;
+    let a3 = 1.421413741_f64;
+    let a4 = -1.453152027_f64;
+    let a5 = 1.061405429_f64;
+    let p = 0.3275911_f64;
+
+    let sign = if x < 0.0 { -1.0 } else { 1.0 };
+    let abs_x = x.abs();
+    let t = 1.0 / (1.0 + p * abs_x);
+    let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-abs_x * abs_x).exp();
+    sign * y
+}

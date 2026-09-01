@@ -10,6 +10,10 @@ description = "SZ-ORM 鍛戒护琛屽伐鍏?鈥?杩佺Щ绠＄悊銆佹ā鍨?杩
 name = "sz-orm"
 path = "src/main.rs"
 
+[lib]
+name = "sz_orm_cli"
+path = "src/lib.rs"
+
 [dependencies]
 sz-orm-core = { version = "5.0.0", path = "../packages/sz-orm-core", features = [
     "dist-cache", "l1-cache", "connection-level-tenant",
@@ -69,3 +73,11 @@ migrate = ["dep:sz-orm-mig"]
 
 [lints]
 workspace = true
+
+[[test]]
+name = "cli_entity_gen_test"
+path = "tests/cli_entity_gen_test.rs"
+
+[[test]]
+name = "cli_doc_gen_test"
+path = "tests/cli_doc_gen_test.rs"

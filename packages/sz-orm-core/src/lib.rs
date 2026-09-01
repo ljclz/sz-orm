@@ -477,6 +477,7 @@ pub mod partial_model;
 pub mod phinx_migration;
 #[cfg(feature = "plan-cache")]
 pub mod plan_cache;
+pub mod plugin;
 mod pool;
 #[cfg(feature = "auto-prewarm")]
 pub mod prewarm;

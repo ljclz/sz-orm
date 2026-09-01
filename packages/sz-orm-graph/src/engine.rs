@@ -13,6 +13,7 @@ pub struct InMemoryGraphEngine {
     nodes: HashMap<String, GraphNode>,
     relationships: HashMap<String, GraphRelationship>,
     query_count: AtomicU64,
+    next_id: AtomicU64,
 }
 
 impl InMemoryGraphEngine {
@@ -21,7 +22,13 @@ impl InMemoryGraphEngine {
             nodes: HashMap::new(),
             relationships: HashMap::new(),
             query_count: AtomicU64::new(0),
+            next_id: AtomicU64::new(1),
         }
+    }
+
+    fn generate_id(&self) -> String {
+        let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        format!("auto_{}", id)
     }
 
     pub fn add_node(&mut self, node: GraphNode) -> Result<(), GraphError> {
@@ -86,6 +93,12 @@ impl InMemoryGraphEngine {
                 to,
                 return_items: _,
             } => self.match_relationship(from, rel, to),
+            ParsedQuery::CreateNode { .. }
+            | ParsedQuery::MergeNode { .. }
+            | ParsedQuery::Delete { .. }
+            | ParsedQuery::Set { .. } => Err(GraphError::QueryError(
+                "write operations require execute_mut(), use execute_mut() for CREATE/MERGE/DELETE/SET".into(),
+            )),
         }
     }
 
@@ -187,6 +200,148 @@ impl InMemoryGraphEngine {
 
     pub fn relationship_count(&self) -> usize {
         self.relationships.len()
+    }
+
+    pub fn execute_mut(
+        &mut self,
+        query: &crate::query::CypherQuery,
+    ) -> Result<Vec<GraphResult>, GraphError> {
+        self.query_count.fetch_add(1, Ordering::Relaxed);
+        let parsed = CypherSubsetParser::parse(&query.cypher, &query.parameters)?;
+
+        match parsed {
+            ParsedQuery::CreateNode {
+                alias: _,
+                label,
+                properties,
+            } => self.execute_create(label, properties, &query.parameters),
+            ParsedQuery::MergeNode {
+                alias: _,
+                label,
+                properties,
+            } => self.execute_merge(label, properties, &query.parameters),
+            ParsedQuery::Delete { alias } => self.execute_delete(alias),
+            ParsedQuery::Set {
+                alias,
+                prop,
+                param_name,
+            } => self.execute_set(alias, prop, param_name, &query.parameters),
+            ParsedQuery::MatchNode { .. } | ParsedQuery::MatchRelationship { .. } => {
+                self.execute(query)
+            }
+        }
+    }
+
+    fn execute_create(
+        &mut self,
+        label: String,
+        properties: Vec<(String, String)>,
+        params: &HashMap<String, serde_json::Value>,
+    ) -> Result<Vec<GraphResult>, GraphError> {
+        let id = self.generate_id();
+        let mut props = serde_json::Map::new();
+        for (prop_name, param_name) in &properties {
+            let value = params.get(param_name).ok_or_else(|| {
+                GraphError::QueryError(format!("parameter not found: ${}", param_name))
+            })?;
+            props.insert(prop_name.clone(), value.clone());
+        }
+        let node = GraphNode {
+            id,
+            labels: vec![label],
+            properties: serde_json::Value::Object(props),
+        };
+        self.add_node(node)?;
+        Ok(Vec::new())
+    }
+
+    fn execute_merge(
+        &mut self,
+        label: String,
+        properties: Vec<(String, String)>,
+        params: &HashMap<String, serde_json::Value>,
+    ) -> Result<Vec<GraphResult>, GraphError> {
+        for node in self.nodes.values() {
+            if !node.labels.iter().any(|l| l == &label) {
+                continue;
+            }
+            let mut all_match = true;
+            for (prop_name, param_name) in &properties {
+                let param_value = params.get(param_name).ok_or_else(|| {
+                    GraphError::QueryError(format!("parameter not found: ${}", param_name))
+                })?;
+                if node.properties.get(prop_name) != Some(param_value) {
+                    all_match = false;
+                    break;
+                }
+            }
+            if all_match {
+                return Ok(Vec::new());
+            }
+        }
+        self.execute_create(label, properties, params)
+    }
+
+    fn execute_delete(&mut self, alias: String) -> Result<Vec<GraphResult>, GraphError> {
+        let node_id = if self.nodes.contains_key(&alias) {
+            alias
+        } else {
+            let mut found = None;
+            for node in self.nodes.values() {
+                if node.properties.get("alias").and_then(|v| v.as_str()) == Some(&alias) {
+                    found = Some(node.id.clone());
+                    break;
+                }
+            }
+            found.ok_or_else(|| GraphError::QueryError(format!("node not found: {}", alias)))?
+        };
+
+        let mut rels_to_remove: Vec<String> = Vec::new();
+        for (rel_id, rel) in &self.relationships {
+            if rel.start_node_id == node_id || rel.end_node_id == node_id {
+                rels_to_remove.push(rel_id.clone());
+            }
+        }
+        for rel_id in rels_to_remove {
+            self.relationships.remove(&rel_id);
+        }
+        self.nodes.remove(&node_id);
+        Ok(Vec::new())
+    }
+
+    fn execute_set(
+        &mut self,
+        alias: String,
+        prop: String,
+        param_name: String,
+        params: &HashMap<String, serde_json::Value>,
+    ) -> Result<Vec<GraphResult>, GraphError> {
+        let value = params.get(&param_name).ok_or_else(|| {
+            GraphError::QueryError(format!("parameter not found: ${}", param_name))
+        })?;
+
+        let node_id = if self.nodes.contains_key(&alias) {
+            alias
+        } else {
+            let mut found = None;
+            for node in self.nodes.values() {
+                if node.properties.get("alias").and_then(|v| v.as_str()) == Some(&alias) {
+                    found = Some(node.id.clone());
+                    break;
+                }
+            }
+            found.ok_or_else(|| GraphError::QueryError(format!("node not found: {}", alias)))?
+        };
+
+        let node = self.nodes.get_mut(&node_id).unwrap();
+        if let Some(obj) = node.properties.as_object_mut() {
+            obj.insert(prop, value.clone());
+        } else {
+            let mut obj = serde_json::Map::new();
+            obj.insert(prop, value.clone());
+            node.properties = serde_json::Value::Object(obj);
+        }
+        Ok(Vec::new())
     }
 }
 

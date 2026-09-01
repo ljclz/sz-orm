@@ -30,6 +30,7 @@ use std::path::PathBuf;
 use std::process::ExitCode;
 
 use serde::Deserialize;
+use sz_orm_cli::{DocGenerator, EntityDefinition, EntityField, EntityGenerator};
 use sz_orm_core::dialect::get_dialect;
 use sz_orm_core::{
     Connection, DbType, FileMigrationResolver, MigrationContext, MigrationResolver, Migrator,
@@ -62,6 +63,7 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     schema:diff                   可视化 schema 差异（需 schema-diff-viz feature）
                                  支持 --format <text|json|html>（默认 text）
     generate entity <table>       从 DB 表反向生成 Model 代码（需 --dsn）
+    doc generate                   从 DB Schema 生成 Markdown 文档 + PlantUML ER 图（需 --dsn）
     prepare                       扫描项目 query! 宏，生成离线 SQL 验证缓存
     sql:validate <sql>            校验 SQL 语法 + 注入检测
     dialect list                  列出所有支持的方言
@@ -236,6 +238,7 @@ fn main() -> ExitCode {
         "schema:diff" => cmd_schema_diff(&rest, &config),
         "prepare" => cmd_prepare(&rest, &config),
         "generate" => cmd_generate(&rest),
+        "doc" => cmd_doc(&rest),
         "sql:validate" => cmd_sql_validate(&rest),
         "dialect" => cmd_dialect(&rest),
         "designer" => cmd_designer(&rest),
@@ -1811,9 +1814,24 @@ fn cmd_generate_entity(args: &[&str]) -> Result<(), String> {
         return Err(format!("表 {} 不存在或无列信息（dsn={}）", table, dsn));
     }
 
-    // 3. 生成 Rust Model 代码
+    // 3. 使用 EntityGenerator 生成 Rust Model 代码
     let struct_name = to_pascal_case(table);
-    let code = render_model_code(&struct_name, table, &columns);
+    let mut entity = EntityDefinition::new(&struct_name, table);
+    for col in &columns {
+        let mut field = EntityField::new(
+            &col.name,
+            EntityGenerator::infer_rust_type(&col.db_type),
+            &col.db_type,
+        );
+        if col.is_pk {
+            field = field.primary_key();
+        }
+        if col.nullable {
+            field = field.nullable();
+        }
+        entity = entity.with_field(field);
+    }
+    let code = EntityGenerator::new().generate(&entity);
 
     // 4. 写入文件
     fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
@@ -1826,6 +1844,74 @@ fn cmd_generate_entity(args: &[&str]) -> Result<(), String> {
     println!("  - 表:   {}", table);
     println!("  - 列数: {}", columns.len());
     println!("  - 输出: {}", path.display());
+    Ok(())
+}
+
+// =====================================================================
+// doc generate — 从 DB Schema 生成 Markdown 文档 + PlantUML ER 图
+// =====================================================================
+
+fn cmd_doc(args: &[&str]) -> Result<(), String> {
+    if args.is_empty() {
+        return Err("用法: sz-orm doc generate --dsn <url> [--output <dir>]".into());
+    }
+    match args[0] {
+        "generate" => cmd_doc_generate(&args[1..]),
+        other => Err(format!("未知子命令: doc {}", other)),
+    }
+}
+
+fn cmd_doc_generate(args: &[&str]) -> Result<(), String> {
+    let dsn = parse_option(args, "--dsn")
+        .ok_or_else(|| "缺少 --dsn 参数（例如 mysql://root:pass@host:port/db）".to_string())?;
+    let output_dir = parse_option(args, "--output").unwrap_or_else(|| "./docs".to_string());
+
+    let db_kind = detect_db_kind(&dsn)?;
+    let runtime =
+        tokio::runtime::Runtime::new().map_err(|e| format!("创建 tokio runtime 失败: {}", e))?;
+
+    let tables = runtime.block_on(fetch_all_tables(&dsn, db_kind))?;
+    if tables.is_empty() {
+        return Err(format!("数据库无表（dsn={}）", dsn));
+    }
+
+    let mut entities = Vec::new();
+    for t in &tables {
+        let columns = runtime.block_on(fetch_columns(&dsn, db_kind, &t.name))?;
+        let struct_name = to_pascal_case(&t.name);
+        let mut entity = EntityDefinition::new(&struct_name, &t.name);
+        for col in &columns {
+            let mut field = EntityField::new(
+                &col.name,
+                EntityGenerator::infer_rust_type(&col.db_type),
+                &col.db_type,
+            );
+            if col.is_pk {
+                field = field.primary_key();
+            }
+            if col.nullable {
+                field = field.nullable();
+            }
+            entity = entity.with_field(field);
+        }
+        entities.push(entity);
+    }
+
+    let doc = DocGenerator::new().generate_doc(&entities);
+
+    fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
+    let md_path = PathBuf::from(&output_dir).join("schema.md");
+    let puml_path = PathBuf::from(&output_dir).join("schema.puml");
+    fs::write(&md_path, &doc.markdown)
+        .map_err(|e| format!("写入 {} 失败: {}", md_path.display(), e))?;
+    fs::write(&puml_path, &doc.plantuml)
+        .map_err(|e| format!("写入 {} 失败: {}", puml_path.display(), e))?;
+
+    println!("已生成 Schema 文档:");
+    println!("  - DSN:    {}", dsn);
+    println!("  - 表数:   {}", entities.len());
+    println!("  - Markdown: {}", md_path.display());
+    println!("  - PlantUML: {}", puml_path.display());
     Ok(())
 }
 
@@ -1999,266 +2085,6 @@ fn extract_schema_from_dsn(dsn: &str) -> String {
     } else {
         String::new()
     }
-}
-
-/// 将 DB 列类型映射到 Rust 类型
-fn map_db_type_to_rust(db_type: &str, nullable: bool) -> &'static str {
-    let t = db_type.to_lowercase();
-    let base: &str = if t.contains("int") && t.contains("big") {
-        "i64"
-    } else if t.contains("int") || t.contains("tinyint") || t.contains("smallint") {
-        "i32"
-    } else if t.contains("bool") || t.contains("bit") {
-        "bool"
-    } else if t.contains("real")
-        || t.contains("float")
-        || t.contains("double")
-        || t.contains("numeric")
-        || t.contains("decimal")
-    {
-        "f64"
-    } else if t.contains("json")
-        || t.contains("jsonb")
-        || t.contains("date")
-        || t.contains("time")
-        || t.contains("timestamp")
-        || t.contains("text")
-        || t.contains("char")
-        || t.contains("varchar")
-        || t.contains("uuid")
-    {
-        "String"
-    } else if t.contains("blob") || t.contains("binary") || t.contains("bytea") {
-        "Vec<u8>"
-    } else {
-        "String"
-    };
-    if nullable {
-        match base {
-            "i64" => "Option<i64>",
-            "i32" => "Option<i32>",
-            "bool" => "Option<bool>",
-            "f64" => "Option<f64>",
-            "String" => "Option<String>",
-            "Vec<u8>" => "Option<Vec<u8>>",
-            _ => "Option<String>",
-        }
-    } else {
-        base
-    }
-}
-
-fn map_db_type_to_value_variant(db_type: &str) -> &'static str {
-    let t = db_type.to_lowercase();
-    if t.contains("int") && t.contains("big") {
-        "Value::I64"
-    } else if t.contains("int") || t.contains("tinyint") || t.contains("smallint") {
-        "Value::I32"
-    } else if t.contains("bool") || t.contains("bit") {
-        "Value::Bool"
-    } else if t.contains("real")
-        || t.contains("float")
-        || t.contains("double")
-        || t.contains("numeric")
-        || t.contains("decimal")
-    {
-        "Value::F64"
-    } else if t.contains("json") || t.contains("jsonb") {
-        "Value::Json"
-    } else if t.contains("blob") || t.contains("binary") || t.contains("bytea") {
-        "Value::Bytes"
-    } else if t.contains("date") || t.contains("time") || t.contains("timestamp") {
-        "Value::DateTime"
-    } else {
-        "Value::String"
-    }
-}
-
-fn render_model_code(struct_name: &str, table: &str, columns: &[ColumnInfo]) -> String {
-    // 1. 结构体字段
-    let mut fields = String::new();
-    for c in columns {
-        let rust_type = map_db_type_to_rust(&c.db_type, c.nullable);
-        fields.push_str(&format!("    pub {}: {},\n", c.name, rust_type));
-    }
-
-    // 2. columns() 列表
-    let cols_list: Vec<String> = columns.iter().map(|c| format!("\"{}\"", c.name)).collect();
-    let cols_join = cols_list.join(", ");
-
-    // 3. fillable() 列表（排除主键）
-    let fillable: Vec<String> = columns
-        .iter()
-        .filter(|c| !c.is_pk)
-        .map(|c| format!("\"{}\"", c.name))
-        .collect();
-    let fillable_join = fillable.join(", ");
-
-    // 4. get_column_value
-    let mut get_col = String::new();
-    for c in columns {
-        let variant = map_db_type_to_value_variant(&c.db_type);
-        // 处理 nullable 字段
-        let expr = if c.nullable {
-            match variant {
-                "Value::I64" => format!("self.{}.map(Value::I64)", c.name),
-                "Value::I32" => format!("self.{}.map(Value::I32)", c.name),
-                "Value::Bool" => format!("self.{}.map(Value::Bool)", c.name),
-                "Value::F64" => format!("self.{}.map(Value::F64)", c.name),
-                "Value::String" => format!("self.{}.clone().map(Value::String)", c.name),
-                "Value::DateTime" => format!("self.{}.clone().map(Value::DateTime)", c.name),
-                "Value::Json" => format!("self.{}.clone().map(Value::Json)", c.name),
-                "Value::Bytes" => format!("self.{}.clone().map(Value::Bytes)", c.name),
-                _ => format!("self.{}.clone().map(Value::String)", c.name),
-            }
-        } else {
-            match variant {
-                "Value::I64" => format!("Some(Value::I64(self.{}))", c.name),
-                "Value::I32" => format!("Some(Value::I32(self.{}))", c.name),
-                "Value::Bool" => format!("Some(Value::Bool(self.{}))", c.name),
-                "Value::F64" => format!("Some(Value::F64(self.{}))", c.name),
-                "Value::String" => format!("Some(Value::String(self.{}.clone()))", c.name),
-                "Value::DateTime" => format!("Some(Value::DateTime(self.{}.clone()))", c.name),
-                "Value::Json" => format!("Some(Value::Json(self.{}.clone()))", c.name),
-                "Value::Bytes" => format!("Some(Value::Bytes(self.{}.clone()))", c.name),
-                _ => format!("Some(Value::String(self.{}.clone()))", c.name),
-            }
-        };
-        get_col.push_str(&format!("            \"{}\" => {},\n", c.name, expr));
-    }
-
-    // 5. from_value
-    let mut from_val = String::new();
-    for c in columns {
-        let variant = map_db_type_to_value_variant(&c.db_type);
-        let parse = if c.nullable {
-            match variant {
-                "Value::I64" => format!("if let Some(Value::I64(v)) = map.get(\"{}\") {{ self.{} = Some(*v); }}", c.name, c.name),
-                "Value::I32" => format!("if let Some(Value::I32(v)) = map.get(\"{}\") {{ self.{} = Some(*v); }}", c.name, c.name),
-                "Value::Bool" => format!("if let Some(Value::Bool(v)) = map.get(\"{}\") {{ self.{} = Some(*v); }}", c.name, c.name),
-                "Value::F64" => format!("if let Some(Value::F64(v)) = map.get(\"{}\") {{ self.{} = Some(*v); }}", c.name, c.name),
-                "Value::String" | "Value::DateTime" | "Value::Json" =>
-                    format!("if let Some(Value::String(v)) = map.get(\"{}\") {{ self.{} = Some(v.clone()); }}", c.name, c.name),
-                "Value::Bytes" => format!("if let Some(Value::Bytes(v)) = map.get(\"{}\") {{ self.{} = Some(v.clone()); }}", c.name, c.name),
-                _ => format!("if let Some(Value::String(v)) = map.get(\"{}\") {{ self.{} = Some(v.clone()); }}", c.name, c.name),
-            }
-        } else {
-            match variant {
-                "Value::I64" => format!(
-                    "if let Some(Value::I64(v)) = map.get(\"{}\") {{ self.{} = *v; }}",
-                    c.name, c.name
-                ),
-                "Value::I32" => format!(
-                    "if let Some(Value::I32(v)) = map.get(\"{}\") {{ self.{} = *v; }}",
-                    c.name, c.name
-                ),
-                "Value::Bool" => format!(
-                    "if let Some(Value::Bool(v)) = map.get(\"{}\") {{ self.{} = *v; }}",
-                    c.name, c.name
-                ),
-                "Value::F64" => format!(
-                    "if let Some(Value::F64(v)) = map.get(\"{}\") {{ self.{} = *v; }}",
-                    c.name, c.name
-                ),
-                "Value::String" | "Value::DateTime" | "Value::Json" => format!(
-                    "if let Some(Value::String(v)) = map.get(\"{}\") {{ self.{} = v.clone(); }}",
-                    c.name, c.name
-                ),
-                "Value::Bytes" => format!(
-                    "if let Some(Value::Bytes(v)) = map.get(\"{}\") {{ self.{} = v.clone(); }}",
-                    c.name, c.name
-                ),
-                _ => format!(
-                    "if let Some(Value::String(v)) = map.get(\"{}\") {{ self.{} = v.clone(); }}",
-                    c.name, c.name
-                ),
-            }
-        };
-        from_val.push_str(&format!("            {}\n", parse));
-    }
-
-    // 6. 主键列名
-    let pk_col = columns
-        .iter()
-        .find(|c| c.is_pk)
-        .map(|c| c.name.as_str())
-        .unwrap_or("id");
-    let pk_field_type = columns
-        .iter()
-        .find(|c| c.is_pk)
-        .map(|c| map_db_type_to_rust(&c.db_type, false))
-        .unwrap_or("i64");
-
-    // 7. 生成完整代码
-    format!(
-        r#"//! Model: {struct_name}（由 sz-orm-cli generate entity 从表 `{table}` 反向生成）
-
-use sz_orm_core::model::{{Model, ModelExt, TimestampFields}};
-use sz_orm_core::value::Value;
-use std::collections::HashMap;
-
-/// {struct_name} 模型（自动生成自 DB 表 `{table}`）
-#[derive(Debug, Clone, Default)]
-pub struct {struct_name} {{
-{fields}}}
-
-impl Model for {struct_name} {{
-    type PrimaryKey = {pk_field_type};
-
-    fn table_name() -> &'static str {{
-        "{table}"
-    }}
-
-    fn pk_name() -> &'static str {{
-        "{pk_col}"
-    }}
-
-    fn pk(&self) -> Self::PrimaryKey {{
-        self.{pk_col}.clone()
-    }}
-
-    fn set_pk(&mut self, pk: Self::PrimaryKey) {{
-        self.{pk_col} = pk;
-    }}
-
-    fn timestamp_fields() -> Option<TimestampFields> {{
-        None
-    }}
-
-    fn soft_delete_field() -> Option<&'static str> {{
-        None
-    }}
-}}
-
-impl ModelExt for {struct_name} {{
-    fn columns() -> Vec<&'static str> {{
-        vec![{cols_join}]
-    }}
-
-    fn fillable() -> Vec<&'static str> {{
-        vec![{fillable_join}]
-    }}
-
-    fn get_column_value(&self, column: &str) -> Option<Value> {{
-        match column {{
-{get_col}            _ => None,
-        }}
-    }}
-
-    fn from_value(&mut self, map: HashMap<String, Value>) {{
-{from_val}    }}
-}}
-"#,
-        struct_name = struct_name,
-        table = table,
-        fields = fields,
-        pk_col = pk_col,
-        pk_field_type = pk_field_type,
-        cols_join = cols_join,
-        fillable_join = fillable_join,
-        get_col = get_col,
-        from_val = from_val,
-    )
 }
 
 fn to_pascal_case(s: &str) -> String {

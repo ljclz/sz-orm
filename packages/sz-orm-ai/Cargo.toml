@@ -26,6 +26,12 @@ ai-rewrite-advisor = ["dep:sqlparser"]
 multi-llm = ["dep:reqwest", "dep:base64", "dep:tracing"]
 # v4.0.0 M2锛欰I 鑷姩璋冧紭闂幆锛圖etect鈫扐dvise鈫扐pply鈫扸erify锛屽鐢ㄦ棦鏈変紭鍖栧櫒锟?
 ai-auto-tuning = ["llm-optimizer", "ai-index-advisor", "ai-rewrite-advisor"]
+# v5.1.0：NL2SQL Schema 自动提取（需传入 Connection，未启用时零编译开销）
+ai-schema-extract = ["dep:sz-orm-core"]
+# v5.1.0：LLM 安全审计（规则引擎未识别时调用 LLM 二次判断）
+ai-security-audit = ["multi-llm"]
+# v5.1.0 P2：语义查询路由（SQL/向量/图谱/Agent/混合）
+ai-native-query = ["ai-nl2sql-enhanced", "multi-llm"]
 
 
 [package.metadata.cargo-machete]
@@ -65,6 +71,81 @@ required-features = ["llm-optimizer"]
 name = "ai_m4"
 path = "tests/ai_m4.rs"
 required-features = ["ai-nl2sql-enhanced", "ai-index-advisor", "ai-rewrite-advisor"]
+
+[[test]]
+name = "schema_extract_test"
+path = "tests/schema_extract_test.rs"
+required-features = ["ai-schema-extract"]
+
+[[test]]
+name = "nl2sql_dialect_test"
+path = "tests/nl2sql_dialect_test.rs"
+required-features = ["ai-nl2sql-enhanced"]
+
+[[test]]
+name = "rewrite_llm_test"
+path = "tests/rewrite_llm_test.rs"
+required-features = ["ai-rewrite-advisor", "multi-llm"]
+
+[[test]]
+name = "multi_turn_nl2sql_test"
+path = "tests/multi_turn_nl2sql_test.rs"
+required-features = ["ai-nl2sql-enhanced"]
+
+[[test]]
+name = "sql_validator_test"
+path = "tests/sql_validator_test.rs"
+required-features = ["ai-nl2sql-enhanced"]
+
+[[test]]
+name = "workload_index_test"
+path = "tests/workload_index_test.rs"
+required-features = ["ai-index-advisor"]
+
+[[test]]
+name = "llm_security_audit_test"
+path = "tests/llm_security_audit_test.rs"
+required-features = ["ai-security-audit"]
+
+[[test]]
+name = "performance_predictor_test"
+path = "tests/performance_predictor_test.rs"
+required-features = ["llm-optimizer"]
+
+[[test]]
+name = "ab_test_test"
+path = "tests/ab_test_test.rs"
+required-features = ["llm-optimizer"]
+
+[[test]]
+name = "injection_pattern_learning_test"
+path = "tests/injection_pattern_learning_test.rs"
+required-features = ["ai-security-audit"]
+
+[[test]]
+name = "permission_audit_test"
+path = "tests/permission_audit_test.rs"
+required-features = ["ai-security-audit"]
+
+[[test]]
+name = "semantic_query_test"
+path = "tests/semantic_query_test.rs"
+required-features = ["ai-native-query"]
+
+[[test]]
+name = "graph_integration_test"
+path = "tests/graph_integration_test.rs"
+required-features = ["ai-native-query"]
+
+[[test]]
+name = "ai_agent_test"
+path = "tests/ai_agent_test.rs"
+required-features = ["ai-native-query"]
+
+[[test]]
+name = "hybrid_query_test"
+path = "tests/hybrid_query_test.rs"
+required-features = ["ai-native-query"]
 
 [lints]
 workspace = true

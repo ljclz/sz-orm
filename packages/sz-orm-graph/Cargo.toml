@@ -26,6 +26,7 @@ crossbeam-queue = { workspace = true }
 [features]
 default = []
 integration = []
+neo4j-driver = []
 
 [lints]
 workspace = true

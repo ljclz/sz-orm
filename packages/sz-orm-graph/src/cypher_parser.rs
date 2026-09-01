@@ -11,6 +11,7 @@ use crate::error::GraphError;
 use std::collections::HashMap;
 
 #[derive(Debug, Clone)]
+#[non_exhaustive]
 pub enum ParsedQuery {
     MatchNode {
         alias: String,
@@ -23,6 +24,24 @@ pub enum ParsedQuery {
         rel: RelPattern,
         to: NodePattern,
         return_items: Vec<ReturnItem>,
+    },
+    CreateNode {
+        alias: String,
+        label: String,
+        properties: Vec<(String, String)>,
+    },
+    MergeNode {
+        alias: String,
+        label: String,
+        properties: Vec<(String, String)>,
+    },
+    Delete {
+        alias: String,
+    },
+    Set {
+        alias: String,
+        prop: String,
+        param_name: String,
     },
 }
 
@@ -66,14 +85,6 @@ impl CypherSubsetParser {
         }
 
         let upper = cypher.to_uppercase();
-        for kw in &["CREATE", "MERGE", "DELETE", "SET "] {
-            if upper.contains(kw) {
-                return Err(GraphError::QueryError(format!(
-                    "unsupported syntax: {} is not supported in Cypher subset",
-                    kw.trim()
-                )));
-            }
-        }
 
         if upper.contains("SELECT") {
             return Err(GraphError::SqlNotSupported(
@@ -81,9 +92,26 @@ impl CypherSubsetParser {
             ));
         }
 
+        if upper.starts_with("CREATE") {
+            let after = cypher[6..].trim_start();
+            return Self::parse_create(after);
+        }
+        if upper.starts_with("MERGE") {
+            let after = cypher[5..].trim_start();
+            return Self::parse_merge(after);
+        }
+        if upper.starts_with("DELETE") {
+            let after = cypher[6..].trim_start();
+            return Self::parse_delete(after);
+        }
+        if upper.starts_with("SET") {
+            let after = cypher[3..].trim_start();
+            return Self::parse_set(after);
+        }
+
         if !upper.starts_with("MATCH") {
             return Err(GraphError::QueryError(format!(
-                "unsupported syntax: query must start with MATCH, got: {}",
+                "unsupported syntax: query must start with MATCH/CREATE/MERGE/DELETE/SET, got: {}",
                 &cypher[..cypher.len().min(20)]
             )));
         }
@@ -277,6 +305,177 @@ impl CypherSubsetParser {
 
         Ok(items)
     }
+
+    fn parse_create(rest: &str) -> Result<ParsedQuery, GraphError> {
+        let (node_pattern, properties) = Self::parse_node_with_properties(rest)?;
+        let label = node_pattern.label.ok_or_else(|| {
+            GraphError::QueryError(
+                "CREATE requires a node label, e.g. CREATE (n:Label {...})".into(),
+            )
+        })?;
+        Ok(ParsedQuery::CreateNode {
+            alias: node_pattern.alias,
+            label,
+            properties,
+        })
+    }
+
+    fn parse_merge(rest: &str) -> Result<ParsedQuery, GraphError> {
+        let (node_pattern, properties) = Self::parse_node_with_properties(rest)?;
+        let label = node_pattern.label.ok_or_else(|| {
+            GraphError::QueryError("MERGE requires a node label, e.g. MERGE (n:Label {...})".into())
+        })?;
+        Ok(ParsedQuery::MergeNode {
+            alias: node_pattern.alias,
+            label,
+            properties,
+        })
+    }
+
+    fn parse_delete(rest: &str) -> Result<ParsedQuery, GraphError> {
+        let rest = rest.trim();
+        if rest.is_empty() {
+            return Err(GraphError::QueryError(
+                "DELETE requires an alias, e.g. DELETE n".into(),
+            ));
+        }
+        let alias = rest
+            .split(|c: char| c.is_whitespace())
+            .next()
+            .unwrap_or("")
+            .to_string();
+        if alias.is_empty() {
+            return Err(GraphError::QueryError(
+                "DELETE alias cannot be empty".into(),
+            ));
+        }
+        Ok(ParsedQuery::Delete { alias })
+    }
+
+    fn parse_set(rest: &str) -> Result<ParsedQuery, GraphError> {
+        let rest = rest.trim();
+        let eq_pos = rest.find('=').ok_or_else(|| {
+            GraphError::QueryError("SET clause must contain '=', e.g. SET n.prop = $param".into())
+        })?;
+
+        let left = rest[..eq_pos].trim();
+        let right = rest[eq_pos + 1..].trim();
+
+        if !right.starts_with('$') {
+            return Err(GraphError::ParameterizationError(
+                "SET clause must use $param parameter, literal values are not allowed".into(),
+            ));
+        }
+        let param_name = right[1..].trim().to_string();
+        if param_name.is_empty() {
+            return Err(GraphError::QueryError(
+                "SET clause param name cannot be empty".into(),
+            ));
+        }
+
+        let dot_pos = left.find('.').ok_or_else(|| {
+            GraphError::QueryError("SET clause must use alias.prop format".into())
+        })?;
+        let alias = left[..dot_pos].trim().to_string();
+        let prop = left[dot_pos + 1..].trim().to_string();
+
+        if alias.is_empty() || prop.is_empty() {
+            return Err(GraphError::QueryError(
+                "SET clause alias and prop cannot be empty".into(),
+            ));
+        }
+
+        Ok(ParsedQuery::Set {
+            alias,
+            prop,
+            param_name,
+        })
+    }
+
+    fn parse_properties(content: &str) -> Result<Vec<(String, String)>, GraphError> {
+        let content = content.trim();
+        if content.is_empty() {
+            return Ok(Vec::new());
+        }
+        if !content.starts_with('{') || !content.ends_with('}') {
+            return Err(GraphError::QueryError(
+                "properties must be enclosed in {}, e.g. {prop: $param}".into(),
+            ));
+        }
+        let inner = &content[1..content.len() - 1];
+        let mut props = Vec::new();
+        for part in inner.split(',') {
+            let part = part.trim();
+            if part.is_empty() {
+                continue;
+            }
+            let colon_pos = part.find(':').ok_or_else(|| {
+                GraphError::QueryError("property must be prop: $param format".into())
+            })?;
+            let prop_name = part[..colon_pos].trim().to_string();
+            let param_part = part[colon_pos + 1..].trim();
+            if !param_part.starts_with('$') {
+                return Err(GraphError::ParameterizationError(format!(
+                    "property {} must use $param parameter, literal values are not allowed",
+                    prop_name
+                )));
+            }
+            let param_name = param_part[1..].trim().to_string();
+            if prop_name.is_empty() || param_name.is_empty() {
+                return Err(GraphError::QueryError(
+                    "property name and param name cannot be empty".into(),
+                ));
+            }
+            props.push((prop_name, param_name));
+        }
+        Ok(props)
+    }
+
+    fn parse_node_with_properties(
+        rest: &str,
+    ) -> Result<(NodePattern, Vec<(String, String)>), GraphError> {
+        let rest = rest.trim_start();
+        if !rest.starts_with('(') {
+            return Err(GraphError::QueryError(
+                "expected '(' for node pattern, e.g. (alias:Label {prop: $param})".into(),
+            ));
+        }
+        let close_pos = rest
+            .find(')')
+            .ok_or_else(|| GraphError::QueryError("expected ')' for node pattern".into()))?;
+
+        let content = &rest[1..close_pos];
+        let (alias, label, properties) = if let Some(brace_pos) = content.find('{') {
+            let before_brace = &content[..brace_pos];
+            let props_str = &content[brace_pos..];
+            let props = Self::parse_properties(props_str)?;
+            let colon_pos = before_brace
+                .find(':')
+                .ok_or_else(|| GraphError::QueryError("node pattern requires :Label".into()))?;
+            let alias = before_brace[..colon_pos].trim().to_string();
+            let label = before_brace[colon_pos + 1..].trim().to_string();
+            if alias.is_empty() || label.is_empty() {
+                return Err(GraphError::QueryError(
+                    "alias and label cannot be empty in node pattern".into(),
+                ));
+            }
+            (alias, Some(label), props)
+        } else {
+            let colon_pos = content
+                .find(':')
+                .ok_or_else(|| GraphError::QueryError("node pattern requires :Label".into()))?;
+            let alias = content[..colon_pos].trim().to_string();
+            let label = content[colon_pos + 1..].trim().to_string();
+            if alias.is_empty() || label.is_empty() {
+                return Err(GraphError::QueryError(
+                    "alias and label cannot be empty in node pattern".into(),
+                ));
+            }
+            (alias, Some(label), Vec::new())
+        };
+
+        Ok((NodePattern { alias, label }, properties))
+    }
 }
 
 #[cfg(test)]
@@ -348,9 +547,89 @@ mod tests {
     }
 
     #[test]
-    fn test_parse_reject_create() {
-        let result = CypherSubsetParser::parse("CREATE (n:Person {name: $name})", &empty_params());
+    fn test_parse_create_node() {
+        let q =
+            CypherSubsetParser::parse("CREATE (n:Person {name: $name})", &empty_params()).unwrap();
+        match q {
+            ParsedQuery::CreateNode {
+                alias,
+                label,
+                properties,
+            } => {
+                assert_eq!(alias, "n");
+                assert_eq!(label, "Person");
+                assert_eq!(properties, vec![("name".to_string(), "name".to_string())]);
+            }
+            _ => panic!("expected CreateNode"),
+        }
+    }
+
+    #[test]
+    fn test_parse_merge_node() {
+        let q =
+            CypherSubsetParser::parse("MERGE (n:Person {name: $name, age: $age})", &empty_params())
+                .unwrap();
+        match q {
+            ParsedQuery::MergeNode {
+                alias,
+                label,
+                properties,
+            } => {
+                assert_eq!(alias, "n");
+                assert_eq!(label, "Person");
+                assert_eq!(properties.len(), 2);
+            }
+            _ => panic!("expected MergeNode"),
+        }
+    }
+
+    #[test]
+    fn test_parse_delete() {
+        let q = CypherSubsetParser::parse("DELETE n", &empty_params()).unwrap();
+        match q {
+            ParsedQuery::Delete { alias } => {
+                assert_eq!(alias, "n");
+            }
+            _ => panic!("expected Delete"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set() {
+        let q = CypherSubsetParser::parse("SET n.name = $name", &empty_params()).unwrap();
+        match q {
+            ParsedQuery::Set {
+                alias,
+                prop,
+                param_name,
+            } => {
+                assert_eq!(alias, "n");
+                assert_eq!(prop, "name");
+                assert_eq!(param_name, "name");
+            }
+            _ => panic!("expected Set"),
+        }
+    }
+
+    #[test]
+    fn test_parse_set_reject_literal() {
+        let result = CypherSubsetParser::parse("SET n.name = \"Alice\"", &empty_params());
         assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            GraphError::ParameterizationError(_)
+        ));
+    }
+
+    #[test]
+    fn test_parse_create_reject_literal() {
+        let result =
+            CypherSubsetParser::parse("CREATE (n:Person {name: \"Alice\"})", &empty_params());
+        assert!(result.is_err());
+        assert!(matches!(
+            result.unwrap_err(),
+            GraphError::ParameterizationError(_)
+        ));
     }
 
     #[test]

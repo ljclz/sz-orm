@@ -1788,7 +1788,7 @@ impl SnowflakeDialect {
 // - 使用 delegate_dialect_to 宏委派 PG，再扩展特有方法
 // ============================================================================
 
-/// Redshift 方言实现（AWS 云数仓，委派 PG + COPY/UNLOAD 特性扩展）
+// Redshift 方言实现（AWS 云数仓，委派 PG + COPY/UNLOAD 特性扩展）
 // Redshift 委派 PostgreSqlDialect，再扩展 COPY/UNLOAD 特有方法
 #[cfg(feature = "dialect-redshift")]
 delegate_dialect_to!(RedshiftDialect, PostgreSqlDialect, DbType::Redshift);
@@ -2847,8 +2847,6 @@ fn map_to_informix_type(sql_type: &str) -> String {
         "DATETIME YEAR TO SECOND".to_string()
     } else if matches!(trimmed, "DATE") {
         "DATE".to_string()
-    } else if trimmed.starts_with("SERIAL") {
-        sql_type.to_string()
     } else {
         sql_type.to_string()
     }
@@ -2988,9 +2986,10 @@ impl Dialect for SapHanaDialect {
                 TableChange::AddColumn(col) => {
                     let hana_type = map_to_saphana_type(&col.sql_type);
                     let mut sql = format!(
-                        "ALTER TABLE {} ADD ({})",
+                        "ALTER TABLE {} ADD ({} {})",
                         self.quote(table),
-                        format!("{} {}", self.quote(&col.name), hana_type)
+                        self.quote(&col.name),
+                        hana_type
                     );
                     if !col.nullable {
                         sql.push_str(" NOT NULL");
@@ -3010,9 +3009,10 @@ impl Dialect for SapHanaDialect {
                 TableChange::ModifyColumn(col) => {
                     let hana_type = map_to_saphana_type(&col.sql_type);
                     format!(
-                        "ALTER TABLE {} ALTER ({})",
+                        "ALTER TABLE {} ALTER ({} {})",
                         self.quote(table),
-                        format!("{} {}", self.quote(&col.name), hana_type)
+                        self.quote(&col.name),
+                        hana_type
                     )
                 }
                 TableChange::AddIndex(name, cols) => {
@@ -3066,9 +3066,11 @@ fn map_to_saphana_type(sql_type: &str) -> String {
         "INTEGER".to_string()
     } else if matches!(trimmed, "TINYINT" | "SMALLINT") {
         "SMALLINT".to_string()
-    } else if trimmed.starts_with("VARCHAR") || trimmed.starts_with("NVARCHAR") {
-        sql_type.to_string()
-    } else if trimmed.starts_with("CHAR") || trimmed.starts_with("NCHAR") {
+    } else if trimmed.starts_with("VARCHAR")
+        || trimmed.starts_with("NVARCHAR")
+        || trimmed.starts_with("CHAR")
+        || trimmed.starts_with("NCHAR")
+    {
         sql_type.to_string()
     } else if matches!(trimmed, "TEXT" | "CLOB") {
         "NCLOB".to_string()

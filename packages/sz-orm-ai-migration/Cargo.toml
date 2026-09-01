@@ -1,0 +1,33 @@
+[package]
+name = "sz-orm-ai-migration"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "SZ-ORM AI Migration Generator - LLM-driven migration script generation with rollback verification"
+
+[features]
+default = []
+# v5.1.0：AI 迁移生成（LLM 生成 up/down 迁移脚本）
+ai-migration-gen = []
+
+[dependencies]
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["full"] }
+
+[[test]]
+name = "ai_migration_test"
+path = "tests/ai_migration_test.rs"
+required-features = ["ai-migration-gen"]
+
+[lints]
+workspace = true

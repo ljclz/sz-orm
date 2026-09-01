@@ -5,6 +5,47 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [5.0.0] — 2026-08-22
+
+### 修复 blackhat_sql_injection 3 个测试失败
+
+- 根因：`build_select()` v5.0.0 统一参数化（委派 `build_select_with_params()`），测试断言仍期望内联值
+- 修复：更新 3 个测试断言为参数化格式（`?` 占位符）
+- 文件：`packages/sz-orm-core/tests/blackhat_sql_injection.rs:106,145,163`
+- 验证：`cargo test -p sz-orm-core --test blackhat_sql_injection` → 12 passed, 0 failed
+
+### PHANTOM-2 Feature Gate 评估启用
+
+对 179 个未默认启用的 feature gate 逐个评估，32 个决策 A（默认启用），147 个决策 B（保持手动）。
+
+#### 决策 A：默认启用的 feature（32 个）
+
+| 包 | 新增 default feature | 数量 |
+|----|----------------------|------|
+| sz-orm-core | auto-prewarm, perf-zero-copy-l2, perf-enum-dispatch, perf-box-str, cache-coherence, performance, dialect-cockroachdb, dialect-yugabytedb, dialect-snowflake, dialect-redshift, dialect-informix, dialect-saphana, dialect-firebird, prod-redis-tls, prod-jwt-key-rotation, prod-metrics-acl, prod-shutdown-timeout, prod-leak-detection, prod-n1-tuning, prod-pool-tuning, prod-config-masking, prod-log-level, prod-health-endpoint, prod-probe-endpoint, prod-circuit-tuning, prod-rate-limit-tuning, prod-dialect-security | 27 |
+| sz-orm-auth | prod-jwt-key-rotation | 1 |
+| sz-orm-health | prod-health-endpoint, prod-probe-endpoint | 2 |
+| sz-orm-queue | prod-redis-tls | 1 |
+| sz-orm-sqlx | auto-prewarm | 1 |
+
+#### 附带修复
+
+- `packages/sz-orm-core/Cargo.toml`：为 `tenant_quota_rls_regression` 测试添加 `required-features = ["multi-tenant-enhanced"]` 声明
+- `packages/sz-orm-core/src/dialect.rs`：修复 5 个 clippy 警告（unused_doc_comments, if_same_then_else, format_in_format_args）
+
+#### 评估报告
+
+详见 `docs/assessment/2026-08-22-phantom2-feature-gate-evaluation.md`
+
+#### 门禁验证
+
+- `cargo fmt --all -- --check` ✅
+- `cargo check --workspace --all-targets` ✅
+- `cargo clippy --workspace --all-targets -- -D warnings` ✅
+- sz-pay `cargo check` ✅
+
+---
+
 ## [4.5.0] — 2026-08-12
 
 ### 概述

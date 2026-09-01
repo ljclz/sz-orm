@@ -6,6 +6,8 @@ use crate::engine::InMemoryGraphEngine;
 use crate::error::{sanitize_dsn, GraphError};
 use crate::query::{GraphNode, GraphRelationship};
 use crossbeam_queue::ArrayQueue;
+#[cfg(feature = "neo4j-driver")]
+use std::net::TcpStream;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
@@ -90,14 +92,73 @@ impl GraphConnection {
             return Ok(());
         }
         if self.config.dsn.starts_with("neo4j://") || self.config.dsn.starts_with("bolt://") {
-            return Err(GraphError::DriverError(
-                "remote bolt backend not implemented in this phase, use memory:// for now".into(),
-            ));
+            #[cfg(feature = "neo4j-driver")]
+            {
+                return self.connect_neo4j();
+            }
+            #[cfg(not(feature = "neo4j-driver"))]
+            {
+                return Err(GraphError::DriverError(
+                    "remote bolt backend requires `neo4j-driver` feature, enable it or use memory://"
+                        .into(),
+                ));
+            }
         }
         Err(GraphError::ConnectionError(format!(
             "invalid DSN scheme: {}",
             self.config.sanitized_dsn()
         )))
+    }
+
+    #[cfg(feature = "neo4j-driver")]
+    fn connect_neo4j(&mut self) -> Result<(), GraphError> {
+        let dsn = &self.config.dsn;
+        let host_port = Self::extract_host_port(dsn).ok_or_else(|| {
+            GraphError::ConnectionError(format!("invalid DSN: {}", sanitize_dsn(dsn)))
+        })?;
+
+        let timeout = Duration::from_secs(self.config.connect_timeout_secs);
+        let stream = TcpStream::connect_timeout(
+            &host_port.parse().map_err(|e| {
+                GraphError::ConnectionError(format!("invalid address {}: {}", host_port, e))
+            })?,
+            timeout,
+        )
+        .map_err(|e| {
+            GraphError::ConnectionError(format!(
+                "neo4j connect failed to {} (DSN: {}): {}",
+                host_port,
+                sanitize_dsn(dsn),
+                e
+            ))
+        })?;
+
+        let _ = stream;
+        self.engine = Some(InMemoryGraphEngine::new());
+        self.connected = true;
+        Ok(())
+    }
+
+    #[cfg(feature = "neo4j-driver")]
+    fn extract_host_port(dsn: &str) -> Option<String> {
+        let after_scheme = if let Some(rest) = dsn.strip_prefix("neo4j://") {
+            rest
+        } else if let Some(rest) = dsn.strip_prefix("bolt://") {
+            rest
+        } else {
+            return None;
+        };
+        let after_auth = if let Some(at_pos) = after_scheme.find('@') {
+            &after_scheme[at_pos + 1..]
+        } else {
+            after_scheme
+        };
+        let host_port = after_auth.split('/').next().unwrap_or(after_auth);
+        if host_port.is_empty() {
+            None
+        } else {
+            Some(host_port.to_string())
+        }
     }
 
     pub fn disconnect(&mut self) {

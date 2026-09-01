@@ -54,10 +54,10 @@ mod tests {
     #[test]
     fn diff_select_where() {
         let q = make_query().where_eq("id", Value::I64(1));
-        let (sql, _params) = q.build_select();
+        let (sql, params) = q.build_select();
         assert!(sql.contains("SELECT"));
         assert!(sql.contains("id"));
-        assert!(sql.contains("1"));
+        assert!(params.contains(&Value::I64(1)));
     }
 
     #[test]
@@ -74,15 +74,15 @@ mod tests {
     fn diff_select_long_string() {
         let long_name = "a".repeat(100);
         let q = make_query().where_eq("name", Value::String(long_name.clone()));
-        let (sql, _params) = q.build_select();
-        assert!(sql.contains(&long_name));
+        let (_sql, params) = q.build_select();
+        assert!(params.contains(&Value::String(long_name)));
     }
 
     #[test]
     fn diff_select_short_string() {
         let q = make_query().where_eq("name", Value::String("abc".to_string()));
-        let (sql, _params) = q.build_select();
-        assert!(sql.contains("abc"));
+        let (_sql, params) = q.build_select();
+        assert!(params.contains(&Value::String("abc".to_string())));
     }
 
     // ========== INSERT 差分测试 ==========
@@ -92,10 +92,10 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("test".to_string()));
         let q = make_query();
-        let (sql, _params) = q.build_insert(&data);
+        let (sql, params) = q.build_insert(&data);
         assert!(sql.contains("INSERT"));
         assert!(sql.contains("users"));
-        assert!(sql.contains("test"));
+        assert!(params.contains(&Value::String("test".to_string())));
     }
 
     #[test]
@@ -104,11 +104,11 @@ mod tests {
         data.insert("name".to_string(), Value::String("alice".to_string()));
         data.insert("age".to_string(), Value::I64(30));
         let q = make_query();
-        let (sql, _params) = q.build_insert(&data);
+        let (sql, params) = q.build_insert(&data);
         assert!(sql.contains("INSERT"));
         assert!(sql.contains("users"));
-        assert!(sql.contains("alice"));
-        assert!(sql.contains("30"));
+        assert!(params.contains(&Value::String("alice".to_string())));
+        assert!(params.contains(&Value::I64(30)));
     }
 
     // ========== UPDATE 差分测试 ==========
@@ -118,10 +118,10 @@ mod tests {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("updated".to_string()));
         let q = make_query().where_eq("id", Value::I64(1));
-        let (sql, _params) = q.build_update(&data);
+        let (sql, params) = q.build_update(&data);
         assert!(sql.contains("UPDATE"));
         assert!(sql.contains("users"));
-        assert!(sql.contains("updated"));
+        assert!(params.contains(&Value::String("updated".to_string())));
         assert!(sql.contains("id"));
     }
 

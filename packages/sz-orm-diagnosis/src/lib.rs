@@ -61,3 +61,22 @@ pub use root_cause::{
     analyze_root_cause, build_phase_breakdown, DiagnosisConfig, DiagnosisPhase, PhaseBreakdown,
     RootCause, Severity,
 };
+
+// v5.1.0：LLM 驱动故障诊断（llm-diagnosis feature gate 隔离）
+// 启用 llm-diagnosis feature 后规则引擎 MixedCause 时调用 LLM
+#[cfg(feature = "llm-diagnosis")]
+pub mod llm_diagnoser;
+#[cfg(feature = "llm-diagnosis")]
+pub use llm_diagnoser::{
+    DiagnosisResult, DiagnosisSource, FixSuggestion, LlmDiagnoser, LlmDiagnosisError,
+};
+
+// v5.1.0 P2：故障预测器（failure-prediction feature gate 隔离）
+// 基于性能指标时序数据预测未来故障
+#[cfg(feature = "failure-prediction")]
+pub mod failure_predictor;
+#[cfg(feature = "failure-prediction")]
+pub use failure_predictor::{
+    AlertSeverity, FailureAlert, FailurePrediction, FailurePredictor, FailurePredictorConfig,
+    MetricSample,
+};

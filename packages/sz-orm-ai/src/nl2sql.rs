@@ -14,6 +14,62 @@ use crate::safety;
 
 // ==================== 数据结构 ====================
 
+/// SQL 方言枚举（用于方言感知生成）
+///
+/// 独立于 `sz-orm-core::DbType`，避免强制依赖 sz-orm-core。
+/// 启用 `ai-schema-extract` feature 后可通过 `DbType` 转换。
+#[derive(
+    Debug, Clone, Copy, PartialEq, Eq, Hash, Default, serde::Serialize, serde::Deserialize,
+)]
+pub enum SqlDialect {
+    MySQL,
+    #[default]
+    PostgreSQL,
+    Sqlite,
+    Oracle,
+    SqlServer,
+}
+
+impl SqlDialect {
+    /// 生成分页 SQL 片段
+    ///
+    /// 各方言语法：
+    /// - MySQL: `LIMIT count OFFSET offset`
+    /// - PostgreSQL: `LIMIT count OFFSET offset`
+    /// - SQLite: `LIMIT count OFFSET offset`
+    /// - Oracle: `OFFSET offset ROWS FETCH NEXT count ROWS ONLY`（12c+）
+    /// - SQL Server: `OFFSET offset ROWS FETCH NEXT count ROWS ONLY`
+    pub fn limit_clause(&self, limit: usize, offset: usize) -> String {
+        match self {
+            Self::MySQL | Self::PostgreSQL | Self::Sqlite => {
+                if offset > 0 {
+                    format!("LIMIT {} OFFSET {}", limit, offset)
+                } else {
+                    format!("LIMIT {}", limit)
+                }
+            }
+            Self::Oracle | Self::SqlServer => {
+                format!("OFFSET {} ROWS FETCH NEXT {} ROWS ONLY", offset, limit)
+            }
+        }
+    }
+
+    /// 生成参数占位符
+    ///
+    /// - MySQL/SQLite: `?`
+    /// - PostgreSQL: `$1`, `$2`, ...
+    /// - Oracle: `:1`, `:2`, ...
+    /// - SQL Server: `@p1`, `@p2`, ...
+    pub fn param_placeholder(&self, index: usize) -> String {
+        match self {
+            Self::MySQL | Self::Sqlite => "?".to_string(),
+            Self::PostgreSQL => format!("${}", index),
+            Self::Oracle => format!(":{}", index),
+            Self::SqlServer => format!("@p{}", index),
+        }
+    }
+}
+
 /// NL→SQL 查询结果
 #[derive(Debug, Clone)]
 pub struct SqlQuery {
@@ -23,6 +79,8 @@ pub struct SqlQuery {
     pub explanation: String,
     /// 置信度（0.0 ~ 1.0）
     pub confidence: f32,
+    /// 目标方言（传入 dialect 参数后启用方言感知）
+    pub dialect: Option<SqlDialect>,
 }
 
 /// Schema 上下文，描述数据库中的表和列信息
@@ -96,6 +154,21 @@ pub trait Nl2SqlEngine: Send + Sync {
         nl_query: &str,
         schema: &SchemaContext,
     ) -> Result<SqlQuery, Nl2SqlError>;
+
+    /// 方言感知生成：按目标方言语法生成 SQL
+    ///
+    /// 默认实现调用 `generate` 并设置 `dialect` 字段。
+    /// `SimpleNl2SqlEngine` 和 `OpenAINl2SqlEngine` 覆盖此方法以生成方言语法。
+    async fn generate_with_dialect(
+        &self,
+        nl_query: &str,
+        schema: &SchemaContext,
+        dialect: SqlDialect,
+    ) -> Result<SqlQuery, Nl2SqlError> {
+        let mut result = self.generate(nl_query, schema).await?;
+        result.dialect = Some(dialect);
+        Ok(result)
+    }
 
     /// 验证生成的 SQL 是否安全可用
     ///
@@ -803,7 +876,45 @@ impl Nl2SqlEngine for SimpleNl2SqlEngine {
             sql,
             explanation,
             confidence,
+            dialect: None,
         })
+    }
+
+    async fn generate_with_dialect(
+        &self,
+        nl_query: &str,
+        schema: &SchemaContext,
+        dialect: SqlDialect,
+    ) -> Result<SqlQuery, Nl2SqlError> {
+        let mut result = self.generate(nl_query, schema).await?;
+        result.dialect = Some(dialect);
+
+        // Oracle / SQL Server 不支持 LIMIT 语法，需转换为 OFFSET ... FETCH
+        if matches!(dialect, SqlDialect::Oracle | SqlDialect::SqlServer) {
+            // 替换 "LIMIT $N OFFSET $M" → "OFFSET $M ROWS FETCH NEXT $N ROWS ONLY"
+            if let Some(pos) = result.sql.find("LIMIT ") {
+                let after_limit = &result.sql[pos + 6..];
+                // 尝试匹配 "LIMIT $N OFFSET $M" 格式
+                if let Some(offset_pos) = after_limit.find(" OFFSET ") {
+                    let limit_part = &after_limit[..offset_pos].trim();
+                    let offset_part = &after_limit[offset_pos + 8..].trim();
+                    let old_clause = format!("LIMIT {} OFFSET {}", limit_part, offset_part);
+                    let new_clause = format!(
+                        "OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
+                        offset_part, limit_part
+                    );
+                    result.sql = result.sql.replace(&old_clause, &new_clause);
+                } else {
+                    // 仅 "LIMIT $N" 无 OFFSET
+                    let limit_part = after_limit.trim();
+                    let old_clause = format!("LIMIT {}", limit_part);
+                    let new_clause = format!("OFFSET 0 ROWS FETCH NEXT {} ROWS ONLY", limit_part);
+                    result.sql = result.sql.replace(&old_clause, &new_clause);
+                }
+            }
+        }
+
+        Ok(result)
     }
 
     async fn validate(&self, query: &SqlQuery) -> Result<bool, Nl2SqlError> {
@@ -1102,6 +1213,7 @@ impl Nl2SqlEngine for OpenAINl2SqlEngine {
             sql: cleaned_sql.clone(),
             explanation: format!("由 {} 模型根据自然语言查询生成", self.model),
             confidence: 0.8,
+            dialect: None,
         };
 
         // 安全验证
@@ -2010,6 +2122,7 @@ mod tests {
             sql: "SELECT * FROM users".into(),
             explanation: "test".into(),
             confidence: 0.9,
+            dialect: None,
         };
         assert!(engine.validate(&query).await.unwrap());
     }
@@ -2021,6 +2134,7 @@ mod tests {
             sql: "SELECT * FROM users".into(),
             explanation: "test".into(),
             confidence: 1.5,
+            dialect: None,
         };
         let result = engine.validate(&query).await;
         assert!(result.is_err());
@@ -2033,6 +2147,7 @@ mod tests {
             sql: "DROP TABLE users".into(),
             explanation: "test".into(),
             confidence: 0.9,
+            dialect: None,
         };
         assert!(!engine.validate(&query).await.unwrap());
     }

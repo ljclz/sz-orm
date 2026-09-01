@@ -35,7 +35,7 @@ DEFAULT_FILES = [
 ]
 # 默认子集对应 feature（2026-08-15 修复：默认调用此前不带 features，
 # feature 门控模块不编译导致 cargo-mutants 必然失败——见验证报告发现 2）
-DEFAULT_FEATURES = "tenant-quota-rls-enhanced,cache-warmup-protection"
+DEFAULT_FEATURES = "tenant-quota-rls-enhanced,auto-prewarm"
 
 
 def find_cargo():

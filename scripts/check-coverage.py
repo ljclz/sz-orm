@@ -34,7 +34,7 @@ DEFAULT_MODULES = [
 ]
 # 默认子集对应 feature（2026-08-15 修复：默认调用此前不带 features，feature 门控模块
 # 不编译导致"无覆盖率数据"静默通过——见验证报告发现 2b）
-DEFAULT_FEATURES = "tenant-quota-rls-enhanced,cache-warmup-protection,process-l1-cache,multi-tenant-enhanced"
+DEFAULT_FEATURES = "tenant-quota-rls-enhanced,auto-prewarm,l1-cache,multi-tenant-enhanced"
 
 
 def find_cargo_bin(name):

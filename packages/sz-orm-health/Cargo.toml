@@ -11,7 +11,7 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = []
+default = ["prod-health-endpoint", "prod-probe-endpoint"]
 # v3.8.0：健康检查 HTTP 端点配置化
 prod-health-endpoint = []
 # v3.8.0：K8s readiness/liveness 探针端点

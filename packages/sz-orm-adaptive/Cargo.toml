@@ -14,10 +14,30 @@ categories.workspace = true
 default = []
 # v4.3.0 M4：自适应查询（统计采集 + 决策默认可用；结果缓存序列化由本 feature 启用）
 adaptive-query = ["dep:serde", "dep:serde_json"]
+# v5.1.0：LLM 驱动参数调优（规则引擎无法确定时调用 LLM）
+llm-tuning = ["dep:async-trait", "dep:thiserror"]
+# v5.1.0 P2：性能趋势预测器（基于历史时序数据预测未来趋势）
+trend-prediction = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
+# v5.1.0：LLM 调优（llm-tuning feature）
+async-trait = { version = "0.1", optional = true }
+thiserror = { version = "2.0", optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["full"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "llm_parameter_tuner_test"
+path = "tests/llm_parameter_tuner_test.rs"
+required-features = ["llm-tuning"]
+
+[[test]]
+name = "trend_predictor_test"
+path = "tests/trend_predictor_test.rs"
+required-features = ["trend-prediction"]

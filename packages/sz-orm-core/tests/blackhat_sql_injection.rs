@@ -102,9 +102,9 @@ fn m5_having_valid_count_renders() {
         .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
         .expect("valid aggregate");
 
-    // 无参数版本：值经方言转义内联
+    // build_select 统一参数化（v5.0.0：build_select 委派 build_select_with_params）
     let (sql, _params) = qb.build_select();
-    assert!(sql.contains("HAVING COUNT(*) > 5"), "实际: {}", sql);
+    assert!(sql.contains("HAVING COUNT(*) > ?"), "实际: {}", sql);
 
     // 参数版本：? 占位 + params
     let (sql, params) = qb.build_select_with_params();
@@ -143,7 +143,7 @@ fn m5_having_multiple_conditions_and_joined() {
         .expect("valid aggregate");
     let (sql, _params) = qb.build_select();
     assert!(
-        sql.contains("HAVING COUNT(*) > 5 AND SUM(`total`) < 1000"),
+        sql.contains("HAVING COUNT(*) > ? AND SUM(`total`) < ?"),
         "实际: {}",
         sql
     );
@@ -160,7 +160,7 @@ fn m5_quick_query_having_parametized() {
         .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
         .expect("valid aggregate");
     let (sql, _params) = db.build_select();
-    assert!(sql.contains("HAVING COUNT(*) > 5"), "实际: {}", sql);
+    assert!(sql.contains("HAVING COUNT(*) > ?"), "实际: {}", sql);
 }
 
 // ============================================================================

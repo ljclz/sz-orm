@@ -1,0 +1,34 @@
+[package]
+name = "sz-orm-ai-designer"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+description = "SZ-ORM AI Schema Designer - LLM-driven schema design, migration impact analysis, denormalization advice"
+
+[features]
+default = []
+# v5.1.0：AI Schema 设计（LLM 生成建议表结构/字段/关系/索引）
+ai-schema-design = ["dep:sqlparser"]
+
+[dependencies]
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+sqlparser = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { version = "1.40", features = ["full"] }
+
+[[test]]
+name = "ai_schema_design_test"
+path = "tests/ai_schema_design_test.rs"
+required-features = ["ai-schema-design"]
+
+[lints]
+workspace = true

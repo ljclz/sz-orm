@@ -153,6 +153,7 @@ fn a02_insecure_random_absent() {
         "sz-orm-core\\src\\dist_cache.rs",
         "sz-orm-core\\src\\l2_cache.rs",
         "sz-orm-rw\\src\\lib.rs",
+        "sz-orm-masking\\src\\maskers.rs", // 确定性哈希脱敏（非密码学用途）
     ];
     let mut violations = Vec::new();
 

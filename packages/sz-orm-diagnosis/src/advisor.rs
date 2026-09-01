@@ -371,7 +371,7 @@ impl SlowQueryReportGenerator {
     /// 按耗时降序排序的 Top-N 报告
     pub fn top_n_slowest(&self, n: usize) -> Vec<&DiagnosisReport> {
         let mut sorted: Vec<&DiagnosisReport> = self.reports.iter().collect();
-        sorted.sort_by(|a, b| b.total_elapsed_ms.cmp(&a.total_elapsed_ms));
+        sorted.sort_by_key(|a| std::cmp::Reverse(a.total_elapsed_ms));
         sorted.truncate(n);
         sorted
     }

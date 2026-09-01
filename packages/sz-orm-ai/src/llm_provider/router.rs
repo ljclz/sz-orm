@@ -65,9 +65,25 @@ impl LlmRouter {
         prompt: &str,
         config: &LlmRequestConfig,
     ) -> Result<LlmResponse, LlmError> {
+        let _span = tracing::info_span!(
+            "llm_complete",
+            provider = tracing::field::Empty,
+            model = tracing::field::Empty,
+        );
+        let _enter = _span.enter();
+
         let provider = self.current.read().clone();
+        tracing::Span::current().record("provider", provider.provider_name());
+        tracing::Span::current().record("model", provider.model());
         match provider.complete(prompt, config).await {
-            Ok(resp) => Ok(resp),
+            Ok(resp) => {
+                tracing::info!(
+                    prompt_tokens = resp.usage.prompt_tokens,
+                    completion_tokens = resp.usage.completion_tokens,
+                    "llm_complete_success"
+                );
+                Ok(resp)
+            }
             Err(primary_err) => {
                 let fb_config = self.fallback_config.read().clone();
                 if let Some(fb) = fb_config.as_ref() {

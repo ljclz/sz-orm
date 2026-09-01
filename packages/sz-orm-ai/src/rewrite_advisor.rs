@@ -88,6 +88,9 @@ pub enum RewriteError {
 /// 规则型分析 + 可选 LLM 建议。不自动重写。
 pub struct RewriteAdvisor {
     llm_enabled: bool,
+    /// LLM 路由器（传入 LlmRouter 后启用 LLM fallback）
+    #[cfg(feature = "multi-llm")]
+    llm_router: Option<std::sync::Arc<crate::llm_provider::LlmRouter>>,
 }
 
 impl Default for RewriteAdvisor {
@@ -99,12 +102,27 @@ impl Default for RewriteAdvisor {
 impl RewriteAdvisor {
     /// 创建规则型重写建议器
     pub fn new() -> Self {
-        Self { llm_enabled: false }
+        Self {
+            llm_enabled: false,
+            #[cfg(feature = "multi-llm")]
+            llm_router: None,
+        }
     }
 
     /// 启用 LLM 增强
     pub fn with_llm(mut self) -> Self {
         self.llm_enabled = true;
+        self
+    }
+
+    /// 传入 LlmRouter 后启用 LLM fallback
+    #[cfg(feature = "multi-llm")]
+    pub fn with_llm_router(
+        mut self,
+        router: std::sync::Arc<crate::llm_provider::LlmRouter>,
+    ) -> Self {
+        self.llm_enabled = true;
+        self.llm_router = Some(router);
         self
     }
 
@@ -147,6 +165,62 @@ impl RewriteAdvisor {
         }
 
         Ok(suggestions)
+    }
+
+    /// LLM fallback 重写建议：规则引擎无建议时调用 LLM
+    ///
+    /// 传入 LlmRouter 后启用（需 `multi-llm` feature）。
+    /// LLM 不可用时降级返回空建议 + 警告日志（不阻塞主流程）。
+    #[cfg(feature = "multi-llm")]
+    pub async fn advise_with_llm(
+        &self,
+        sql: &str,
+        schema: &SchemaContext,
+    ) -> Result<Vec<RewriteSuggestion>, RewriteError> {
+        let rule_suggestions = self.suggest(sql, schema).await?;
+
+        if !rule_suggestions.is_empty() {
+            return Ok(rule_suggestions);
+        }
+
+        let router = match &self.llm_router {
+            Some(r) => r,
+            None => return Ok(vec![]),
+        };
+
+        let prompt = format!(
+            "Analyze the following SQL query and suggest optimizations.\n\
+             SQL: {}\n\
+             Schema: {} tables\n\
+             Return only the rewritten SQL, or 'NO_OPTIMIZATION' if no improvement found.",
+            sql,
+            schema.tables.len()
+        );
+
+        let config = crate::llm_provider::LlmRequestConfig::default();
+        match router.complete(&prompt, &config).await {
+            Ok(resp) => {
+                let rewritten = resp.text.trim();
+                if rewritten.is_empty() || rewritten.eq_ignore_ascii_case("NO_OPTIMIZATION") {
+                    return Ok(vec![]);
+                }
+                Ok(vec![RewriteSuggestion {
+                    original_sql: sql.to_string(),
+                    rewritten_sql: rewritten.to_string(),
+                    transform_type: TransformType::JoinReorder,
+                    equivalence_proof: EquivalenceProof {
+                        proof_text: "LLM 生成重写建议，等价性未验证".to_string(),
+                        verified: false,
+                        unverified: true,
+                    },
+                    expected_benefit: BenefitEstimate::uncertain(2.0, 0.6),
+                }])
+            }
+            Err(e) => {
+                tracing::warn!("LLM rewrite fallback failed: {}", e);
+                Ok(vec![])
+            }
+        }
     }
 
     /// 生成审计记录

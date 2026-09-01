@@ -29,7 +29,7 @@ sz-orm-mssql = { workspace = true, optional = true }
 hdbconnect_async = { version = "0.32", optional = true }
 
 [features]
-default = []
+default = ["auto-prewarm"]
 # v2.2.0 A-1: 启用 Oracle 后端支持（AnyPool 运行时切换）
 oracle = ["dep:sz-orm-oracle"]
 # v2.2.0 A-1: 启用 MSSQL 后端支持（AnyPool 运行时切换）

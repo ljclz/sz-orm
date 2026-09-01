@@ -12,7 +12,7 @@ categories.workspace = true
 
 [features]
 # 榛樿鍚敤 Redis 鍒嗗竷寮忕紦瀛樺悗绔紙RedisBackend锛夛紝寮€绠卞嵆锟?
-default = ["redis", "simd", "l1-cache", "plan-cache", "zero-copy"]
+default = ["redis", "simd", "l1-cache", "plan-cache", "zero-copy", "auto-prewarm", "perf-zero-copy-l2", "perf-enum-dispatch", "perf-box-str", "dialect-cockroachdb", "dialect-yugabytedb", "dialect-snowflake", "dialect-redshift", "dialect-informix", "dialect-saphana", "dialect-firebird", "prod-redis-tls", "prod-jwt-key-rotation", "prod-metrics-acl", "prod-shutdown-timeout", "prod-leak-detection", "prod-n1-tuning", "prod-pool-tuning", "prod-config-masking", "prod-log-level", "prod-health-endpoint", "prod-probe-endpoint", "prod-circuit-tuning", "prod-rate-limit-tuning", "prod-dialect-security", "cache-coherence", "performance"]
 # v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
 owasp-pentest-suite = []
 testing = ["tokio/full"]
@@ -294,6 +294,12 @@ path = "tests/chaos_pool.rs"
 [[test]]
 name = "tenant_concurrency"
 path = "tests/tenant_concurrency.rs"
+required-features = ["multi-tenant-enhanced"]
+
+# F4/F5 变异盲区回归测试（需 multi-tenant-enhanced feature）
+[[test]]
+name = "tenant_quota_rls_regression"
+path = "tests/tenant_quota_rls_regression.rs"
 required-features = ["multi-tenant-enhanced"]
 
 # v3.2.0 鏌ヨ璁″垝缂撳瓨宸垎娴嬭瘯锛堥渶 plan-cache feature锟?

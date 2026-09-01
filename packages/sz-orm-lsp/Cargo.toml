@@ -1,0 +1,26 @@
+[package]
+name = "sz-orm-lsp"
+description = "SZ-ORM LSP server: completion, hover, diagnostics for VS Code extension"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "sz-orm-lsp"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "lsp_protocol_test"
+path = "tests/lsp_protocol_test.rs"

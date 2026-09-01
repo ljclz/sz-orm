@@ -2568,6 +2568,15 @@ dependencies = [
 ]
 
 [[package]]
+name = "sqlparser"
+version = "0.47.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "295e9930cd7a97e58ca2a070541a3ca502b17f5d1fa7157376d0fabd85324f25"
+dependencies = [
+ "log",
+]
+
+[[package]]
 name = "sqlx"
 version = "0.8.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -3052,7 +3061,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-core"
-version = "2.3.0"
+version = "5.0.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3063,16 +3072,18 @@ dependencies = [
  "redis",
  "serde",
  "serde_json",
+ "sqlparser",
  "sz-orm-macros",
  "sz-orm-sql-validator",
  "thiserror",
  "tokio",
  "tracing",
+ "twox-hash",
 ]
 
 [[package]]
 name = "sz-orm-macros"
-version = "2.3.0"
+version = "5.0.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3081,7 +3092,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-oracle"
-version = "2.3.0"
+version = "5.0.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3095,7 +3106,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-sql-validator"
-version = "2.3.0"
+version = "5.0.0"
 dependencies = [
  "regex",
  "thiserror",
@@ -3103,7 +3114,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-sqlx"
-version = "2.3.0"
+version = "5.0.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3319,6 +3330,17 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "db97caf9d906fbde555dd62fa95ddba9eecfd14cb388e4f491a66d74cd5fb79a"
 dependencies = [
  "once_cell",
+]
+
+[[package]]
+name = "twox-hash"
+version = "1.6.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "97fee6b57c6a41524a810daee9286c02d7752c4253064d0b05472833a438f675"
+dependencies = [
+ "cfg-if",
+ "rand 0.8.7",
+ "static_assertions",
 ]
 
 [[package]]

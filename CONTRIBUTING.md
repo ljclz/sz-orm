@@ -2,8 +2,8 @@
 
 > Thank you for considering a contribution to SZ-ORM! This document describes the workflow, coding standards, and review process for all contributors.
 
-> 适用版本：SZ-ORM v1.2.0（43 工作空间成员 / 5,530 测试 / 原型阶段）
-> 更新日期：2026-07-30
+> 适用版本：SZ-ORM v5.0.0（61 工作空间成员 / 12,677 测试 / 生产阶段）
+> 更新日期：2026-08-22
 
 ---
 
@@ -14,11 +14,12 @@
 - [Development Workflow](#development-workflow)
 - [Coding Standards](#coding-standards)
 - [Testing Requirements](#testing-requirements)
-- [The 10-Gate CI Pipeline](#the-10-gate-ci-pipeline)
+- [The 23-Gate CI Pipeline](#the-23-gate-ci-pipeline)
 - [Five-Dimensional Code Review](#five-dimensional-code-review)
 - [Commit Message Convention](#commit-message-convention)
 - [Pull Request Process](#pull-request-process)
 - [Release Process](#release-process)
+- [RFC Process](#rfc-process)
 - [Security Vulnerability Reporting](#security-vulnerability-reporting)
 - [Production Incident Runbook](#production-incident-runbook)
 - [License](#license)
@@ -80,7 +81,7 @@ cargo test -p sz-orm-sqlx -- --ignored
 5. **Commit**: Follow the [Commit Message Convention](#commit-message-convention).
 6. **Push & open PR**: Fill in the PR template; link the issue.
 7. **Address review feedback**: Push additional commits (do not squash until merge).
-8. **CI must pass**: All 10 gates must pass on the PR before merge.
+8. **CI must pass**: All 23 gates must pass on the PR before merge.
 
 ## Coding Standards
 
@@ -153,22 +154,35 @@ cargo test -p sz-orm-sqlx -- --ignored
 - p99_latency growth < 2x
 - error_count == 0
 
-## The 10-Gate CI Pipeline
+## The 23-Gate CI Pipeline
 
-All PRs must pass these 10 gates before merge:
+All PRs must pass these 23 gates before merge:
 
 | # | Gate | Command | Blocking |
 |---|------|---------|----------|
 | 1 | fmt | `cargo fmt --all -- --check` | ✅ |
-| 2 | check (3 OS × 2 Rust) | `cargo check --workspace --all-targets` with `RUSTFLAGS="-D warnings"` | ✅ |
+| 2 | check | `cargo check --workspace --all-targets` | ✅ |
 | 3 | clippy | `cargo clippy --workspace --all-targets -- -D warnings` | ✅ |
 | 4 | test | `cargo test --workspace` | ✅ |
-| 5 | doc | `cargo doc --workspace --no-deps --all-features` with `RUSTDOCFLAGS="-D warnings"` | ✅ |
-| 6 | audit | `cargo audit` (7 ignored advisories with documented reasons) | ✅ |
-| 7 | deny | `cargo deny check advisories bans licenses sources` | ✅ |
-| 8 | integration | `cargo test --workspace -- --ignored` with real DBs/containers | ✅ |
-| 9 | soak-smoke | 10-second soak test (degradation framework sanity check) | ✅ |
-| 10 | real-features-compile | `cargo check` with all `real-*` features on Linux | ✅ |
+| 5 | doc | `cargo doc --workspace --no-deps --all-features` | ✅ |
+| 6 | audit | `cargo audit` + `cargo deny check` | ✅ |
+| 7 | integration | `cargo test --workspace -- --ignored` | ✅ |
+| 8 | no-placeholder | `grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs'` | ✅ |
+| 9 | sql-injection | `scripts/check-sql-injection.ps1` | ✅ |
+| 10 | all-features | `cargo check --workspace --all-targets --all-features` | ✅ |
+| 11 | upstream-unchanged | `git diff --name-only HEAD` (ADR-0001) | ✅ |
+| 12 | doc-consistency | `python scripts/check-doc-consistency.py` | ✅ |
+| 13 | audit-verify | `bash scripts/audit-verify.sh <report.md>` | ✅ |
+| 14 | doc-sync | `python scripts/check-doc-sync.py --diff HEAD` | ✅ |
+| 15 | phantom-delivery | `python scripts/check-phantom-delivery.py` | ✅ |
+| 16 | semantic-patterns | `python scripts/check-semantic-patterns.py` | ✅ |
+| 17 | architecture | `python scripts/check-architecture.py` | ✅ |
+| 18 | metrics-real | `python scripts/check-metrics-real.py` | ✅ |
+| 19 | publish-consistency | `python scripts/check-publish-consistency.py` | ✅ |
+| 20 | mutation-coverage | `python scripts/check-mutation-coverage.py` (≥ 70%) | ✅ |
+| 21 | security-attacks | OWASP Top 10 + JWT + KAT + tenant tests | ✅ |
+| 22 | coverage | `python scripts/check-coverage.py` (≥ 60%) | ✅ |
+| 23 | unused-deps | `python scripts/check-unused-deps.py` | ⚠️ warn |
 
 ### Local Gate Script
 
@@ -180,7 +194,7 @@ All PRs must pass these 10 gates before merge:
 ./scripts/gate.sh
 ```
 
-This runs gates 1-7 locally. Gates 8-10 only run in CI (require Docker / cloud credentials).
+This runs gates 1-7 locally. Gates 8-23 require additional tooling (Python scripts, cargo-mutants, cargo-llvm-cov) and run in CI.
 
 ## Five-Dimensional Code Review
 
@@ -268,7 +282,7 @@ Co-Authored-By: Jane Doe <jane@example.com>
    - Test plan (what tests were added/modified)
    - Five-dimensional review checklist
    - Breaking changes (if any)
-3. **CI runs**: All 10 gates must pass.
+3. **CI runs**: All 23 gates must pass.
 4. **Review**: At least one maintainer approval required for merge.
 5. **Address feedback**: Push additional commits; do not force-push during review.
 6. **Squash & merge**: Maintainer squashes commits on merge (keeps history clean).
@@ -304,6 +318,71 @@ Releases are managed by maintainers. Version numbers follow [Semantic Versioning
 - **Never** hard-code version numbers in sub-package `Cargo.toml` files. Always use `version.workspace = true`.
 - **Never** update version in multiple places. The root `Cargo.toml` `[workspace.package]` section is the single source of truth.
 - **Always** update `CHANGELOG.md` when bumping version.
+
+## RFC Process
+
+For significant changes (new features, breaking API changes, architecture decisions), follow the RFC (Request for Comments) process:
+
+### When to Write an RFC
+
+| Change type | RFC required? |
+|-------------|---------------|
+| New package in workspace | ✅ Yes |
+| Breaking API change | ✅ Yes |
+| New feature gate (feature flag) | ✅ Yes |
+| Architecture decision (ADR) | ✅ Yes |
+| Bug fix | ❌ No (PR with regression test) |
+| Documentation improvement | ❌ No (direct PR) |
+| Performance optimization | ❌ No (PR with benchmark) |
+
+### RFC Workflow
+
+1. **Write RFC**: Copy `docs/rfc/template.md` to `docs/rfc/XXXX-<short-name>.md` (XXXX = next number, zero-padded).
+2. **Fill sections**: Summary, Motivation, Design, Alternatives, Risks, Open Questions.
+3. **Open PR**: Label `rfc` + `discussion`. The RFC PR is for discussion only — no code changes.
+4. **Review period**: Minimum 7 days for community feedback.
+5. **Decision**: Maintainer accepts (→ `accepted` label) or rejects (→ `rejected` label, close PR).
+6. **Implementation**: After acceptance, open a separate PR with code + tests, referencing the RFC number.
+7. **Archive**: Accepted RFCs move to `docs/rfc/accepted/`; rejected to `docs/rfc/rejected/`.
+
+### RFC Template
+
+```markdown
+# RFC-XXXX: <Title>
+
+- **Status**: draft | accepted | rejected
+- **Created**: YYYY-MM-DD
+- **Accepted**: YYYY-MM-DD (if accepted)
+
+## Summary
+<One paragraph describing the change>
+
+## Motivation
+<Why is this change needed? What problem does it solve?>
+
+## Design
+<How will the change be implemented? Include API sketches, data structures, etc.>
+
+## Alternatives
+<What other approaches were considered? Why were they rejected?>
+
+## Risks
+<What could go wrong? How do we mitigate?>
+
+## Open Questions
+<What needs to be resolved before acceptance?>
+```
+
+### ADR (Architecture Decision Records)
+
+For architecture-level decisions that don't need a full RFC, use ADRs:
+
+1. Copy `docs/adr/template.md` to `docs/adr/XXXX-<short-name>.md`.
+2. Fill: Context, Decision, Consequences.
+3. Open PR with the ADR file (no code changes needed).
+4. Maintainer review + merge.
+
+**ADR-0001 (铁律)**: 严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。任何改动必须通过 PR 贡献到上游。
 
 ## Security Vulnerability Reporting
 

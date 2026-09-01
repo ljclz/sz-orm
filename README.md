@@ -1,14 +1,14 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v4.9.0 · 61 workspace members · 9905+ tests · 27 SQL dialects · published on crates.io
+> v5.1.0 · 63 workspace members · 10200+ tests · 27 SQL dialects · published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-12557+-green.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-12971+-green.svg)](#tests)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#supported-databases)
-[![Packages](https://img.shields.io/badge/packages-61-purple.svg)](#workspace-structure)
-[![Version](https://img.shields.io/badge/version-4.9.0-blue.svg)](CHANGELOG.md)
+[![Packages](https://img.shields.io/badge/packages-63-purple.svg)](#workspace-structure)
+[![Version](https://img.shields.io/badge/version-5.1.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#overview)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#security-audit)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -42,6 +42,26 @@
 ## Overview
 
 SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v4.3.0 includes 56 workspace members (v4.3.0 adds sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion/sz-orm-n1-lint), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 9 new data governance and operations enhancements.
+
+### v5.1.0 AI Application Optimization (34 tasks, 293 new tests)
+
+| Category | Package | Description |
+|----------|---------|------|
+| Performance Prediction | sz-orm-ai | `PerformancePredictor`: query cost prediction based on table statistics + query characteristics |
+| A/B Testing | sz-orm-ai | `QueryABTestFramework`: Welch t-test statistical comparison of query plan variants |
+| Failure Prediction | sz-orm-diagnosis | `FailurePredictor`: anomaly detection with configurable thresholds + alert generation |
+| Trend Prediction | sz-orm-adaptive | `TrendPredictor`: linear regression / exponential smoothing / moving average |
+| Injection Pattern Learning | sz-orm-ai | `InjectionPatternStore::load_patterns/save_patterns`: persistent pattern file I/O |
+| Permission Audit | sz-orm-ai | `PermissionAuditor`: DB account permission audit + least-privilege recommendations |
+| Semantic Query Routing | sz-orm-ai | `SemanticQueryRouter`: intent analysis → route to SQL / graph / vector / hybrid |
+| Graph Query Integration | sz-orm-ai | `GraphQueryExecutor` trait: integrate sz-orm-graph for relationship traversal |
+| AI Agent | sz-orm-ai | `AiAgent` trait + `AnalysisAgent`: multi-step reasoning with tool use |
+| Hybrid Query | sz-orm-ai | `HybridQueryExecutor`: combine SQL + vector + graph results with RRF fusion |
+| Web GUI Studio | sz-orm-studio | `WebGuiServer`: axum-based data browser (table list / data edit / relations) |
+| Entity Generator | sz-orm-cli | `EntityGenerator`: DB schema → Rust entity code (struct + relations + derive macros) |
+| Doc Generator | sz-orm-cli | `DocGenerator`: DB schema → Markdown docs + PlantUML ER diagrams |
+| LSP Server | sz-orm-lsp | `LspServer`: completion / hover / diagnostics for sz-orm query DSL |
+| Plugin System | sz-orm-core | `SzOrmPlugin` trait + `PluginRegistry`: AI / dialect / middleware extensions |
 
 ### v4.1.0 New Capabilities (9 feature gates, off by default)
 
@@ -99,7 +119,7 @@ println!("{}", report.to_json().unwrap());
 |------|------|
 | Workspace members | **60** (58 sz-orm-* libs + cli + examples) |
 | Supported DB dialects | **17 SQL dialects** (8 native + 9 delegated, including 6 domestic computing) |
-| Test cases | **12557 passed, 0 failed** |
+| Test cases | **12678 passed, 0 failed** |
 | Code size | **~139,000 LOC** (after deep optimization, src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |

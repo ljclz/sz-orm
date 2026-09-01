@@ -55,6 +55,12 @@ pub struct BenefitEstimate {
     pub confidence: f32,
     /// 收益不确定标注（当统计数据不足时为 true）
     pub uncertain: bool,
+    /// 写入开销系数（>= 0.0，0 表示无额外写入开销，1 表示写入开销翻倍）
+    /// v5.1.0 新增，向后兼容（旧代码不感知，默认 0.0）
+    pub write_overhead: f64,
+    /// 存储开销（MB，>= 0.0）
+    /// v5.1.0 新增，向后兼容（旧代码不感知，默认 0.0）
+    pub storage_cost_mb: f64,
 }
 
 impl AiAdviceAuditRecord {
@@ -88,6 +94,8 @@ impl BenefitEstimate {
             speedup_ratio,
             confidence,
             uncertain: false,
+            write_overhead: 0.0,
+            storage_cost_mb: 0.0,
         }
     }
 
@@ -97,7 +105,28 @@ impl BenefitEstimate {
             speedup_ratio,
             confidence,
             uncertain: true,
+            write_overhead: 0.0,
+            storage_cost_mb: 0.0,
         }
+    }
+
+    /// 设置写入开销
+    pub fn with_write_overhead(mut self, overhead: f64) -> Self {
+        self.write_overhead = overhead;
+        self
+    }
+
+    /// 设置存储开销
+    pub fn with_storage_cost(mut self, cost_mb: f64) -> Self {
+        self.storage_cost_mb = cost_mb;
+        self
+    }
+
+    /// 综合评分（加速比 - 写入开销惩罚 - 存储开销惩罚）
+    ///
+    /// 用于索引组合优化时排序候选索引。
+    pub fn composite_score(&self) -> f64 {
+        self.speedup_ratio - self.write_overhead * 0.5 - self.storage_cost_mb * 0.01
     }
 }
 
@@ -153,11 +182,24 @@ mod tests {
         let be = BenefitEstimate::certain(3.5, 0.8);
         assert!((be.speedup_ratio - 3.5).abs() < 1e-6);
         assert!(!be.uncertain);
+        assert!((be.write_overhead - 0.0).abs() < 1e-6);
+        assert!((be.storage_cost_mb - 0.0).abs() < 1e-6);
     }
 
     #[test]
     fn test_benefit_estimate_uncertain() {
         let be = BenefitEstimate::uncertain(2.0, 0.5);
         assert!(be.uncertain);
+    }
+
+    #[test]
+    fn test_benefit_estimate_with_overhead_and_storage() {
+        let be = BenefitEstimate::certain(5.0, 0.9)
+            .with_write_overhead(0.3)
+            .with_storage_cost(10.0);
+        assert!((be.write_overhead - 0.3).abs() < 1e-6);
+        assert!((be.storage_cost_mb - 10.0).abs() < 1e-6);
+        // composite_score = 5.0 - 0.3*0.5 - 10.0*0.01 = 5.0 - 0.15 - 0.1 = 4.75
+        assert!((be.composite_score() - 4.75).abs() < 1e-6);
     }
 }

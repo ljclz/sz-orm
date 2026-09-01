@@ -149,30 +149,32 @@ fn test_build_select_with_page_contract() {
 #[test]
 fn test_build_select_with_where_in_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let (sql, _params) = QueryBuilder::<User>::new(d)
+    let (sql, params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
         .build_select();
 
     assert!(sql.contains("IN"));
-    assert!(sql.contains("1"));
-    assert!(sql.contains("2"));
-    assert!(sql.contains("3"));
+    // 参数化查询：值在 params 中而非 SQL 内联
+    assert!(params.contains(&Value::I64(1)));
+    assert!(params.contains(&Value::I64(2)));
+    assert!(params.contains(&Value::I64(3)));
 }
 
 #[test]
 fn test_build_select_with_where_between_contract() {
     let d = get_dialect(DbType::MySQL).unwrap();
-    let (sql, _params) = QueryBuilder::<User>::new(d)
+    let (sql, params) = QueryBuilder::<User>::new(d)
         .table("users")
         .select_expr(vec!["*"])
         .where_between("age", Value::I64(18), Value::I64(30))
         .build_select();
 
     assert!(sql.contains("BETWEEN"));
-    assert!(sql.contains("18"));
-    assert!(sql.contains("30"));
+    // 参数化查询：值在 params 中而非 SQL 内联
+    assert!(params.contains(&Value::I64(18)));
+    assert!(params.contains(&Value::I64(30)));
 }
 
 #[test]
