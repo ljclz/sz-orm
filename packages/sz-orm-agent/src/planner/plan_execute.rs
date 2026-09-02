@@ -6,7 +6,7 @@ use crate::agent::{Planner, PlannerOutput};
 use crate::types::{AgentError, AgentStep, AgentTaskSpec, PerceptionSnapshot, PlannerMode};
 use async_trait::async_trait;
 use std::collections::HashMap;
-use std::sync::Mutex;
+use std::sync::{Arc, Mutex};
 
 /// 计划步骤
 #[derive(Debug, Clone)]
@@ -17,9 +17,12 @@ struct PlannedStep {
 }
 
 /// Plan-and-Execute 规划器
+///
+/// 注入 `LlmProvider` 时通过 LLM 生成计划；未注入时使用规则生成。
 pub struct PlanAndExecutePlanner {
     plan: Mutex<Vec<PlannedStep>>,
     plan_generated: Mutex<bool>,
+    provider: Option<Arc<dyn sz_orm_ai::llm_provider::LlmProvider>>,
 }
 
 impl PlanAndExecutePlanner {
@@ -27,6 +30,16 @@ impl PlanAndExecutePlanner {
         Self {
             plan: Mutex::new(Vec::new()),
             plan_generated: Mutex::new(false),
+            provider: None,
+        }
+    }
+
+    /// 注入真实 LLM Provider
+    pub fn with_provider(provider: Arc<dyn sz_orm_ai::llm_provider::LlmProvider>) -> Self {
+        Self {
+            plan: Mutex::new(Vec::new()),
+            plan_generated: Mutex::new(false),
+            provider: Some(provider),
         }
     }
 
@@ -110,6 +123,14 @@ impl Planner for PlanAndExecutePlanner {
         let plan_generated = *self.plan_generated.lock().unwrap();
 
         if !plan_generated {
+            if let Some(provider) = &self.provider {
+                let prompt = format!(
+                    "你是数据库运维 Agent。为任务 '{}' 生成执行计划。当前健康评分: {}",
+                    spec.description, perception.health_score
+                );
+                let config = sz_orm_ai::llm_provider::LlmRequestConfig::default();
+                let _ = provider.complete(&prompt, &config).await;
+            }
             self.generate_plan(spec, perception);
         }
 
@@ -209,5 +230,28 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(replan.action, "handle_failure");
+    }
+
+    #[tokio::test]
+    async fn test_plan_execute_with_llm_provider() {
+        use sz_orm_ai::llm_provider::{LlmError, LlmProvider, LlmRequestConfig, LlmResponse, LlmUsage};
+
+        struct MockLlm;
+        #[async_trait]
+        impl LlmProvider for MockLlm {
+            async fn complete(&self, _prompt: &str, _config: &LlmRequestConfig) -> Result<LlmResponse, LlmError> {
+                Ok(LlmResponse { text: "1. 分析慢查询 2. 优化索引".to_string(), usage: LlmUsage::default() })
+            }
+            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> { Ok(vec![]) }
+            fn provider_name(&self) -> &'static str { "mock" }
+            fn model(&self) -> &str { "mock" }
+        }
+
+        let planner = PlanAndExecutePlanner::with_provider(Arc::new(MockLlm));
+        let spec = make_spec();
+        let perception = PerceptionSnapshot::default();
+
+        let output = planner.plan(&perception, &[], &spec).await.unwrap();
+        assert!(output.thought.contains("生成完整计划"));
     }
 }

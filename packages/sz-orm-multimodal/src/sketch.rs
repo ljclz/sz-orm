@@ -341,7 +341,6 @@ impl SketchToSql {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;

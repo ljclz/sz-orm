@@ -7,25 +7,36 @@ use crate::agent::{Planner, PlannerOutput};
 use crate::types::{AgentError, AgentStep, AgentTaskSpec, PerceptionSnapshot, PlannerMode};
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// ReAct 规划器
 ///
 /// 交替推理与行动：每步生成思考链 + 工具调用，观测结果后进入下一步。
-/// 当 LLM 不可用时降级为规则模式。
+/// 注入 `LlmProvider` 时通过 LLM 生成决策；未注入或 LLM 不可用时降级为规则模式。
 pub struct ReActPlanner {
-    /// LLM 提供者（可选，降级时为 None）
+    provider: Option<Arc<dyn sz_orm_ai::llm_provider::LlmProvider>>,
     llm_available: bool,
 }
 
 impl ReActPlanner {
     pub fn new() -> Self {
         Self {
+            provider: None,
+            llm_available: true,
+        }
+    }
+
+    /// 注入真实 LLM Provider
+    pub fn with_provider(provider: Arc<dyn sz_orm_ai::llm_provider::LlmProvider>) -> Self {
+        Self {
+            provider: Some(provider),
             llm_available: true,
         }
     }
 
     pub fn with_llm_disabled() -> Self {
         Self {
+            provider: None,
             llm_available: false,
         }
     }
@@ -75,6 +86,16 @@ impl ReActPlanner {
             action_params: HashMap::new(),
         }
     }
+
+    fn build_prompt(perception: &PerceptionSnapshot, history: &[AgentStep], spec: &AgentTaskSpec) -> String {
+        let ctx = if history.is_empty() {
+            format!("任务: {}，健康评分: {}", spec.description, perception.health_score)
+        } else {
+            let last = history.last().unwrap();
+            format!("任务: {}，上一步: {} -> {}，健康评分: {}", spec.description, last.action, last.result, perception.health_score)
+        };
+        format!("你是数据库运维 Agent。基于当前状态决定下一步行动。\n{}\n请输出思考链和行动名称。", ctx)
+    }
 }
 
 impl Default for ReActPlanner {
@@ -103,6 +124,15 @@ impl Planner for ReActPlanner {
 
         if !self.llm_available {
             return Ok(self.rule_based_plan(perception));
+        }
+
+        if let Some(provider) = &self.provider {
+            let prompt = Self::build_prompt(perception, history, spec);
+            let config = sz_orm_ai::llm_provider::LlmRequestConfig::default();
+            match provider.complete(&prompt, &config).await {
+                Ok(resp) => return Ok(self.parse_llm_output(&resp.text, perception)),
+                Err(_) => return Ok(self.rule_based_plan(perception)),
+            }
         }
 
         let context = if history.is_empty() {
@@ -212,5 +242,51 @@ mod tests {
             Err(AgentError::MaxStepsExceeded(_)) => {}
             _ => panic!("期望 MaxStepsExceeded"),
         }
+    }
+
+    #[tokio::test]
+    async fn test_react_with_real_llm_provider() {
+        use sz_orm_ai::llm_provider::{LlmError, LlmProvider, LlmRequestConfig, LlmResponse, LlmUsage};
+
+        struct MockLlm;
+        #[async_trait]
+        impl LlmProvider for MockLlm {
+            async fn complete(&self, _prompt: &str, _config: &LlmRequestConfig) -> Result<LlmResponse, LlmError> {
+                Ok(LlmResponse { text: "LLM 分析完成".to_string(), usage: LlmUsage::default() })
+            }
+            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> { Ok(vec![]) }
+            fn provider_name(&self) -> &'static str { "mock" }
+            fn model(&self) -> &str { "mock" }
+        }
+
+        let planner = ReActPlanner::with_provider(Arc::new(MockLlm));
+        let spec = make_spec(PlannerMode::ReAct);
+        let perception = PerceptionSnapshot::default();
+
+        let output = planner.plan(&perception, &[], &spec).await.unwrap();
+        assert!(output.thought.contains("LLM 推理"));
+    }
+
+    #[tokio::test]
+    async fn test_react_llm_error_falls_back_to_rules() {
+        use sz_orm_ai::llm_provider::{LlmError, LlmProvider, LlmRequestConfig, LlmResponse};
+
+        struct FailingLlm;
+        #[async_trait]
+        impl LlmProvider for FailingLlm {
+            async fn complete(&self, _prompt: &str, _config: &LlmRequestConfig) -> Result<LlmResponse, LlmError> {
+                Err(LlmError::ApiError { status: 500, message: "连接失败".to_string() })
+            }
+            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> { Ok(vec![]) }
+            fn provider_name(&self) -> &'static str { "failing" }
+            fn model(&self) -> &str { "failing" }
+        }
+
+        let planner = ReActPlanner::with_provider(Arc::new(FailingLlm));
+        let spec = make_spec(PlannerMode::ReAct);
+        let perception = PerceptionSnapshot::default();
+
+        let output = planner.plan(&perception, &[], &spec).await.unwrap();
+        assert!(output.thought.contains("规则降级"));
     }
 }
