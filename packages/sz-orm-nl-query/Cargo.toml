@@ -31,6 +31,13 @@ nl-query-visualizer = ["nl-query"]
 tokio = { workspace = true }
 serde_json = { workspace = true }
 sz-orm-sqlx = { version = "5.1.0", path = "../sz-orm-sqlx" }
+criterion = { version = "0.5", features = ["html_reports"] }
+
+[[bench]]
+name = "pipeline_bench"
+path = "benches/pipeline_bench.rs"
+required-features = ["nl-query"]
+harness = false
 
 [lints]
 workspace = true

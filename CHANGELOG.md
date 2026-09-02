@@ -5,6 +5,48 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [6.0.0] — 2026-09-02
+
+### 新增 5 个 AI 方向包
+
+| 包 | 功能 | 测试数 |
+|----|------|--------|
+| sz-orm-agent | AI Agent 自主运维（感知-决策-执行循环、工具调用、审批、权限、检查点） | 88 |
+| sz-orm-governance | AI 数据治理（字段级血缘、合规审计、质量规则） | 39 |
+| sz-orm-nl-query | NL 查询闭环（NL→SQL→执行→可视化→洞察、LLM generator） | 56 |
+| sz-orm-model-ops | 模型微调本地化（llama.cpp/vLLM 适配、A/B 测试、推理优化） | 39 |
+| sz-orm-multimodal | 多模态交互（语音、图表、ER 图、截图、草图、CV 接入） | 33 |
+
+### 新增 LLM 真实接入
+
+- `LlmNl2SqlGenerator`：包装 `LlmProvider` 实现 `Nl2SqlGenerator` trait（`packages/sz-orm-nl-query/src/llm_generator.rs`）
+- `ReActPlanner::with_provider`：注入真实 LlmProvider 驱动 Agent 决策（`packages/sz-orm-agent/src/planner/react.rs:27`）
+- `PlanAndExecutePlanner::with_provider`：注入真实 LlmProvider 生成执行计划（`packages/sz-orm-agent/src/planner/plan_execute.rs:31`）
+
+### 新增真实服务接入
+
+- MySQL 执行器：`NlQueryPipeline::with_executor` + `SqlExecutor` trait
+- CV 服务：`SketchToSqlConverter::with_cv_endpoint` + `recognize_async`
+- OCR 服务：`ScreenshotAnalyzer::with_ocr_endpoint` + `analyze_async`
+- Agent 工具执行器：`ToolRegistry::with_defaults_and_executor` 注入 4 个工具
+
+### 性能基准测试
+
+- `nl2sql_rule_based`: 289 ns
+- `nl2sql_rule_based_complex`: 410 ns
+- `pipeline_e2e_no_executor`: 311 ns
+
+### sz-pay 试点接入
+
+- sz-orm-nl-query: NL 查询服务（5 个集成测试）
+- sz-orm-agent: ReActPlanner 可用
+- sz-orm-governance: LineageBuilder 可用
+- sz-orm-multimodal: ScreenshotAnalyzer 可用
+
+### deprecated 标记
+
+- `Nl2SqlEvaluator::evaluate` → 使用 `evaluate_with_executor` 代替
+
 ## [5.0.0] — 2026-08-22
 
 ### 修复 blackhat_sql_injection 3 个测试失败
