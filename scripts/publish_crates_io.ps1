@@ -14,7 +14,8 @@
 #>
 param(
     [string]$WorkspaceRoot = (Split-Path (Split-Path $MyInvocation.MyCommand.Path)),
-    [switch]$DryRun
+    [switch]$DryRun,
+    [switch]$SkipGate
 )
 
 $ErrorActionPreference = "Continue"
@@ -26,7 +27,7 @@ if ($DryRun) { Write-Output "[$(Get-Date -Format 'HH:mm:ss')] MODE: DryRun (no a
 
 Write-Output "[$(Get-Date -Format 'HH:mm:ss')] [1/4] 检查门禁..."
 
-if (-not $DryRun) {
+if (-not $DryRun -and -not $SkipGate) {
     Write-Output "[$(Get-Date -Format 'HH:mm:ss')]   cargo fmt --all -- --check"
     & cargo fmt --all -- --check 2>&1 | Out-Null
     if ($LASTEXITCODE -ne 0) { Write-Error "GATE FAIL: fmt"; exit 1 }

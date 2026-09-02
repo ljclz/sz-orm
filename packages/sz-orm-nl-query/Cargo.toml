@@ -1,0 +1,45 @@
+[package]
+name = "sz-orm-nl-query"
+description = "Natural language query pipeline: NL2SQL -> execute -> visualize -> insight"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+sz-orm-ai = { version = "5.1.0", path = "../sz-orm-ai", optional = true }
+sz-orm-core = { version = "5.1.0", path = "../sz-orm-core", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+
+[features]
+default = []
+nl-query = ["dep:sz-orm-ai", "dep:sz-orm-core", "dep:serde", "dep:serde_json", "dep:async-trait", "dep:tokio", "dep:tracing", "dep:chrono", "sz-orm-ai/multi-llm", "sz-orm-ai/ai-security-audit"]
+nl-query-sandbox = ["nl-query"]
+nl-query-visualizer = ["nl-query"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "pipeline_e2e"
+path = "tests/pipeline_e2e.rs"
+required-features = ["nl-query"]
+
+[[test]]
+name = "sandbox"
+path = "tests/sandbox.rs"
+required-features = ["nl-query-sandbox"]

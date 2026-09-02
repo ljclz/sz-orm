@@ -1,0 +1,47 @@
+[package]
+name = "sz-orm-governance"
+description = "AI-driven data governance: lineage, quality, compliance, masking"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+sz-orm-ai = { version = "5.1.0", path = "../sz-orm-ai", optional = true }
+sz-orm-graph = { version = "5.1.0", path = "../sz-orm-graph", optional = true }
+sz-orm-masking = { version = "5.1.0", path = "../sz-orm-masking", optional = true }
+sz-orm-core = { version = "5.1.0", path = "../sz-orm-core", optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true }
+chrono = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+
+[features]
+default = []
+governance = ["dep:sz-orm-ai", "dep:sz-orm-masking", "dep:serde", "dep:serde_json", "dep:chrono", "dep:async-trait", "dep:tokio", "dep:tracing", "sz-orm-ai/multi-llm"]
+governance-lineage = ["governance", "dep:sz-orm-graph", "dep:sz-orm-core"]
+governance-compliance = ["governance"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "lineage_build"
+path = "tests/lineage_build.rs"
+required-features = ["governance-lineage"]
+
+[[test]]
+name = "compliance_audit"
+path = "tests/compliance_audit.rs"
+required-features = ["governance-compliance"]

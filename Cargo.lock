@@ -7652,6 +7652,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-agent"
+version = "5.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "parking_lot",
+ "serde",
+ "serde_json",
+ "sha2 0.10.9",
+ "sz-orm-ai",
+ "sz-orm-anomaly",
+ "sz-orm-audit",
+ "sz-orm-core",
+ "sz-orm-diagnosis",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sz-orm-ai"
 version = "5.1.0"
 dependencies = [
@@ -8032,6 +8052,23 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-governance"
+version = "5.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sz-orm-ai",
+ "sz-orm-core",
+ "sz-orm-graph",
+ "sz-orm-masking",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sz-orm-graph"
 version = "5.1.0"
 dependencies = [
@@ -8186,6 +8223,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-model-ops"
+version = "5.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sz-orm-ai",
+ "sz-orm-masking",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sz-orm-mqtt"
 version = "5.1.0"
 dependencies = [
@@ -8216,11 +8269,42 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-multimodal"
+version = "5.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "reqwest 0.12.28",
+ "serde",
+ "serde_json",
+ "sz-orm-ai",
+ "sz-orm-nl-query",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
+]
+
+[[package]]
 name = "sz-orm-n1-lint"
 version = "5.1.0"
 dependencies = [
  "proc-macro2 1.0.107",
  "syn 2.0.119",
+]
+
+[[package]]
+name = "sz-orm-nl-query"
+version = "5.1.0"
+dependencies = [
+ "async-trait",
+ "chrono",
+ "serde",
+ "serde_json",
+ "sz-orm-ai",
+ "sz-orm-core",
+ "thiserror 2.0.19",
+ "tokio",
+ "tracing",
 ]
 
 [[package]]

@@ -1,0 +1,47 @@
+[package]
+name = "sz-orm-multimodal"
+description = "Multimodal database interaction: voice, chart, ER diagram, screenshot"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+sz-orm-ai = { version = "5.1.0", path = "../sz-orm-ai", optional = true }
+sz-orm-nl-query = { version = "5.1.0", path = "../sz-orm-nl-query", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
+serde = { workspace = true, optional = true }
+serde_json = { workspace = true, optional = true }
+thiserror = { workspace = true }
+async-trait = { workspace = true, optional = true }
+tokio = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
+chrono = { workspace = true, optional = true }
+
+[features]
+default = []
+multimodal = ["dep:sz-orm-ai", "dep:serde", "dep:serde_json", "dep:async-trait", "dep:tokio", "dep:tracing", "dep:chrono", "sz-orm-ai/multi-llm"]
+multimodal-voice = ["multimodal", "dep:sz-orm-nl-query", "dep:reqwest", "sz-orm-nl-query/nl-query"]
+multimodal-er = ["multimodal"]
+multimodal-vision = ["multimodal", "dep:reqwest"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true
+
+[[test]]
+name = "voice_input"
+path = "tests/voice_input.rs"
+required-features = ["multimodal-voice"]
+
+[[test]]
+name = "chart_generator"
+path = "tests/chart_generator.rs"
+required-features = ["multimodal"]
