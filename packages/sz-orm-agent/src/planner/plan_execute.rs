@@ -234,17 +234,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_plan_execute_with_llm_provider() {
-        use sz_orm_ai::llm_provider::{LlmError, LlmProvider, LlmRequestConfig, LlmResponse, LlmUsage};
+        use sz_orm_ai::llm_provider::{
+            LlmError, LlmProvider, LlmRequestConfig, LlmResponse, LlmUsage,
+        };
 
         struct MockLlm;
         #[async_trait]
         impl LlmProvider for MockLlm {
-            async fn complete(&self, _prompt: &str, _config: &LlmRequestConfig) -> Result<LlmResponse, LlmError> {
-                Ok(LlmResponse { text: "1. 分析慢查询 2. 优化索引".to_string(), usage: LlmUsage::default() })
+            async fn complete(
+                &self,
+                _prompt: &str,
+                _config: &LlmRequestConfig,
+            ) -> Result<LlmResponse, LlmError> {
+                Ok(LlmResponse {
+                    text: "1. 分析慢查询 2. 优化索引".to_string(),
+                    usage: LlmUsage::default(),
+                })
             }
-            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> { Ok(vec![]) }
-            fn provider_name(&self) -> &'static str { "mock" }
-            fn model(&self) -> &str { "mock" }
+            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> {
+                Ok(vec![])
+            }
+            fn provider_name(&self) -> &'static str {
+                "mock"
+            }
+            fn model(&self) -> &str {
+                "mock"
+            }
         }
 
         let planner = PlanAndExecutePlanner::with_provider(Arc::new(MockLlm));

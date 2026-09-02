@@ -6,10 +6,10 @@
 
 use async_trait::async_trait;
 use serde_json::Value;
+use std::sync::Arc;
 use sz_orm_model_ops::evaluator::{EvalSample, Nl2SqlEvaluator, SqlExecutor};
 use sz_orm_sqlx::any_driver::AnyPool;
 use sz_orm_sqlx::sz_orm_core::Connection;
-use std::sync::Arc;
 
 struct MysqlExecutor {
     pool: AnyPool,
@@ -18,8 +18,15 @@ struct MysqlExecutor {
 #[async_trait]
 impl SqlExecutor for MysqlExecutor {
     async fn execute(&self, sql: &str) -> Result<Value, String> {
-        let mut conn = self.pool.create().await.map_err(|e| format!("连接失败: {e}"))?;
-        let rows = conn.query(sql).await.map_err(|e| format!("查询失败: {e}"))?;
+        let mut conn = self
+            .pool
+            .create()
+            .await
+            .map_err(|e| format!("连接失败: {e}"))?;
+        let rows = conn
+            .query(sql)
+            .await
+            .map_err(|e| format!("查询失败: {e}"))?;
 
         let json_rows: Vec<Value> = rows
             .iter()
@@ -68,20 +75,27 @@ async fn test_evaluator_with_real_mysql() {
     ];
 
     let result = evaluator
-        .evaluate_with_executor(&samples, |nl| {
-            if nl.contains("数量") {
-                Ok("SELECT COUNT(*) as cnt FROM sz_user".to_string())
-            } else {
-                Ok("SELECT user_id FROM sz_user LIMIT 3".to_string())
-            }
-        }, executor)
+        .evaluate_with_executor(
+            &samples,
+            |nl| {
+                if nl.contains("数量") {
+                    Ok("SELECT COUNT(*) as cnt FROM sz_user".to_string())
+                } else {
+                    Ok("SELECT user_id FROM sz_user LIMIT 3".to_string())
+                }
+            },
+            executor,
+        )
         .await
         .expect("评估失败");
 
     assert_eq!(result.total_samples, 2);
     assert_eq!(result.exact_match_accuracy, 1.0, "两个样本应精确匹配");
     assert!(result.failures.is_empty());
-    println!("评估结果: 精确匹配率 {:.2}%", result.exact_match_accuracy * 100.0);
+    println!(
+        "评估结果: 精确匹配率 {:.2}%",
+        result.exact_match_accuracy * 100.0
+    );
 }
 
 #[tokio::test]
@@ -105,9 +119,11 @@ async fn test_evaluator_with_executor_result_mismatch() {
     }];
 
     let result = evaluator
-        .evaluate_with_executor(&samples, |_| {
-            Ok("SELECT user_id FROM sz_user LIMIT 5".to_string())
-        }, executor)
+        .evaluate_with_executor(
+            &samples,
+            |_| Ok("SELECT user_id FROM sz_user LIMIT 5".to_string()),
+            executor,
+        )
         .await
         .expect("评估失败");
 

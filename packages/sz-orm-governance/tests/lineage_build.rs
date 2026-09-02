@@ -11,7 +11,7 @@ fn test_lineage_build_from_sql() {
 
 #[test]
 fn test_lineage_builder_default() {
-    let builder = LineageBuilder::default();
+    let builder = LineageBuilder::new();
     let graph: LineageGraph = builder.build_from_sql("SELECT id FROM users").unwrap();
     assert!(!graph.nodes.is_empty());
 }

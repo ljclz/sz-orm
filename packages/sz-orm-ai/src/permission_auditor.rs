@@ -258,7 +258,9 @@ impl PermissionAuditor {
                     account.username,
                     account.roles.join(", ")
                 ),
-                recommendation: "创建专用应用账户，仅授予必要的 SELECT 权限，禁止使用 root/admin/superuser".to_string(),
+                recommendation:
+                    "创建专用应用账户，仅授予必要的 SELECT 权限，禁止使用 root/admin/superuser"
+                        .to_string(),
             });
         }
     }

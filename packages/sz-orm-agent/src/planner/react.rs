@@ -87,14 +87,27 @@ impl ReActPlanner {
         }
     }
 
-    fn build_prompt(perception: &PerceptionSnapshot, history: &[AgentStep], spec: &AgentTaskSpec) -> String {
+    fn build_prompt(
+        perception: &PerceptionSnapshot,
+        history: &[AgentStep],
+        spec: &AgentTaskSpec,
+    ) -> String {
         let ctx = if history.is_empty() {
-            format!("任务: {}，健康评分: {}", spec.description, perception.health_score)
+            format!(
+                "任务: {}，健康评分: {}",
+                spec.description, perception.health_score
+            )
         } else {
             let last = history.last().unwrap();
-            format!("任务: {}，上一步: {} -> {}，健康评分: {}", spec.description, last.action, last.result, perception.health_score)
+            format!(
+                "任务: {}，上一步: {} -> {}，健康评分: {}",
+                spec.description, last.action, last.result, perception.health_score
+            )
         };
-        format!("你是数据库运维 Agent。基于当前状态决定下一步行动。\n{}\n请输出思考链和行动名称。", ctx)
+        format!(
+            "你是数据库运维 Agent。基于当前状态决定下一步行动。\n{}\n请输出思考链和行动名称。",
+            ctx
+        )
     }
 }
 
@@ -246,17 +259,32 @@ mod tests {
 
     #[tokio::test]
     async fn test_react_with_real_llm_provider() {
-        use sz_orm_ai::llm_provider::{LlmError, LlmProvider, LlmRequestConfig, LlmResponse, LlmUsage};
+        use sz_orm_ai::llm_provider::{
+            LlmError, LlmProvider, LlmRequestConfig, LlmResponse, LlmUsage,
+        };
 
         struct MockLlm;
         #[async_trait]
         impl LlmProvider for MockLlm {
-            async fn complete(&self, _prompt: &str, _config: &LlmRequestConfig) -> Result<LlmResponse, LlmError> {
-                Ok(LlmResponse { text: "LLM 分析完成".to_string(), usage: LlmUsage::default() })
+            async fn complete(
+                &self,
+                _prompt: &str,
+                _config: &LlmRequestConfig,
+            ) -> Result<LlmResponse, LlmError> {
+                Ok(LlmResponse {
+                    text: "LLM 分析完成".to_string(),
+                    usage: LlmUsage::default(),
+                })
             }
-            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> { Ok(vec![]) }
-            fn provider_name(&self) -> &'static str { "mock" }
-            fn model(&self) -> &str { "mock" }
+            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> {
+                Ok(vec![])
+            }
+            fn provider_name(&self) -> &'static str {
+                "mock"
+            }
+            fn model(&self) -> &str {
+                "mock"
+            }
         }
 
         let planner = ReActPlanner::with_provider(Arc::new(MockLlm));
@@ -274,12 +302,25 @@ mod tests {
         struct FailingLlm;
         #[async_trait]
         impl LlmProvider for FailingLlm {
-            async fn complete(&self, _prompt: &str, _config: &LlmRequestConfig) -> Result<LlmResponse, LlmError> {
-                Err(LlmError::ApiError { status: 500, message: "连接失败".to_string() })
+            async fn complete(
+                &self,
+                _prompt: &str,
+                _config: &LlmRequestConfig,
+            ) -> Result<LlmResponse, LlmError> {
+                Err(LlmError::ApiError {
+                    status: 500,
+                    message: "连接失败".to_string(),
+                })
             }
-            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> { Ok(vec![]) }
-            fn provider_name(&self) -> &'static str { "failing" }
-            fn model(&self) -> &str { "failing" }
+            async fn embed(&self, _text: &str) -> Result<Vec<f32>, LlmError> {
+                Ok(vec![])
+            }
+            fn provider_name(&self) -> &'static str {
+                "failing"
+            }
+            fn model(&self) -> &str {
+                "failing"
+            }
         }
 
         let planner = ReActPlanner::with_provider(Arc::new(FailingLlm));

@@ -163,7 +163,7 @@ impl LineageBuilder {
         if let Some(as_pos) = col.to_uppercase().rfind(" AS ") {
             col[as_pos + 4..].trim().to_string()
         } else {
-            col.split('.').last().unwrap_or(col).trim().to_string()
+            col.split('.').next_back().unwrap_or(col).trim().to_string()
         }
     }
 

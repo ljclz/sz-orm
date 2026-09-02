@@ -38,7 +38,6 @@ async fn test_allowed_tools_filter() {
     let safe_tool = QueryExecutionTool::new();
     let dangerous_tool = IndexCreationTool::new();
 
-
     guard.check("query_execution", &safe_tool);
     guard.check("index_creation", &dangerous_tool);
 

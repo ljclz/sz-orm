@@ -3,9 +3,9 @@
 #[cfg(feature = "nl-query")]
 pub mod history_learner;
 #[cfg(feature = "nl-query")]
-pub mod llm_generator;
-#[cfg(feature = "nl-query")]
 pub mod insight;
+#[cfg(feature = "nl-query")]
+pub mod llm_generator;
 #[cfg(feature = "nl-query")]
 pub mod pipeline;
 #[cfg(feature = "nl-query")]

@@ -79,12 +79,12 @@ impl ToolRegistry {
         registry.register(Arc::new(index_creation::IndexCreationTool::with_executor(
             executor.clone(),
         )));
-        registry.register(Arc::new(stats_collection::StatsCollectionTool::with_executor(
-            executor.clone(),
-        )));
-        registry.register(Arc::new(parameter_query::ParameterQueryTool::with_executor(
-            executor,
-        )));
+        registry.register(Arc::new(
+            stats_collection::StatsCollectionTool::with_executor(executor.clone()),
+        ));
+        registry.register(Arc::new(
+            parameter_query::ParameterQueryTool::with_executor(executor),
+        ));
         registry
     }
 

@@ -2,8 +2,8 @@
 
 use crate::pipeline::Nl2SqlGenerator;
 use crate::types::NlQueryError;
-use sz_orm_ai::llm_provider::{LlmProvider, LlmRequestConfig};
 use std::sync::Arc;
+use sz_orm_ai::llm_provider::{LlmProvider, LlmRequestConfig};
 
 /// 基于 LLM Provider 的 NL2SQL 生成器
 ///
