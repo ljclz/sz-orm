@@ -58,6 +58,12 @@ impl Nl2SqlEvaluator {
     }
 
     /// 评估 NL2SQL 引擎的准确率
+    ///
+    /// # 已废弃
+    /// 此方法使用模拟执行，无法验证真实数据库行为。
+    /// 请使用 [`evaluate_with_executor`](Self::evaluate_with_executor) 代替，
+    /// 后者通过注入 `SqlExecutor` 对真实数据库执行 SQL 并比较结果集。
+    #[deprecated(note = "使用 evaluate_with_executor 代替，后者支持真实数据库执行")]
     pub fn evaluate<F>(
         &self,
         samples: &[EvalSample],
@@ -295,6 +301,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_evaluate_exact_match() {
         let evaluator = Nl2SqlEvaluator::new();
         let samples = make_samples();
@@ -314,6 +321,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_evaluate_with_failures() {
         let evaluator = Nl2SqlEvaluator::new();
         let samples = make_samples();
@@ -332,6 +340,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_evaluate_generation_error() {
         let evaluator = Nl2SqlEvaluator::new();
         let samples = make_samples();
@@ -369,6 +378,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(deprecated)]
     fn test_empty_samples() {
         let evaluator = Nl2SqlEvaluator::new();
         let result = evaluator

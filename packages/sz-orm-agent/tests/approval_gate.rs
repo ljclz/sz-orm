@@ -16,7 +16,7 @@ fn make_gate() -> ApprovalGate {
         ),
         (
             "index_creation".to_string(),
-            Arc::new(IndexCreationTool) as Arc<dyn AgentTool>,
+            Arc::new(IndexCreationTool::new()) as Arc<dyn AgentTool>,
         ),
     ]);
     ApprovalGate::with_tools(tools, Duration::from_secs(300))

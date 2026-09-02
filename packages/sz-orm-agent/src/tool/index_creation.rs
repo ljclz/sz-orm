@@ -1,29 +1,35 @@
-//! 索引创建工具（Dangerous）— DDL 生成器
+//! 索引创建工具（Dangerous）— DDL 生成器 + 可选执行器
 //!
-//! 生成 CREATE INDEX DDL 语句，不直接执行。
-//! Dangerous 风险等级，需经过审批门后由 `ActionExecutor` 执行。
+//! 默认仅生成 CREATE INDEX DDL 语句（降级模式）。
+//! 注入 `SqlExecutor` 后直接执行 DDL 返回结果。
+//! Dangerous 风险等级，需经过审批门后执行。
 
-use crate::tool::{AgentTool, RiskLevel};
+use crate::tool::{AgentTool, RiskLevel, SqlExecutor};
 use crate::types::AgentError;
 use async_trait::async_trait;
 use std::collections::HashMap;
+use std::sync::Arc;
 
 /// 索引创建工具
 ///
 /// 生成 CREATE INDEX DDL。Dangerous 风险等级，需审批。
-pub struct IndexCreationTool;
+/// 注入 `SqlExecutor` 后直接执行 DDL 返回结果。
+pub struct IndexCreationTool {
+    executor: Option<Arc<dyn SqlExecutor>>,
+}
 
-#[async_trait]
-impl AgentTool for IndexCreationTool {
-    fn name(&self) -> &str {
-        "index_creation"
+impl IndexCreationTool {
+    pub fn new() -> Self {
+        Self { executor: None }
     }
 
-    fn risk_level(&self) -> RiskLevel {
-        RiskLevel::Dangerous
+    pub fn with_executor(executor: Arc<dyn SqlExecutor>) -> Self {
+        Self {
+            executor: Some(executor),
+        }
     }
 
-    async fn execute(&self, params: &HashMap<String, String>) -> Result<String, AgentError> {
+    fn generate_ddl(params: &HashMap<String, String>) -> Result<String, AgentError> {
         let table = params
             .get("table")
             .ok_or_else(|| AgentError::ToolExecutionFailed("缺少 table 参数".into()))?;
@@ -43,13 +49,40 @@ impl AgentTool for IndexCreationTool {
     }
 }
 
+impl Default for IndexCreationTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[async_trait]
+impl AgentTool for IndexCreationTool {
+    fn name(&self) -> &str {
+        "index_creation"
+    }
+
+    fn risk_level(&self) -> RiskLevel {
+        RiskLevel::Dangerous
+    }
+
+    async fn execute(&self, params: &HashMap<String, String>) -> Result<String, AgentError> {
+        let ddl = Self::generate_ddl(params)?;
+
+        if let Some(executor) = &self.executor {
+            executor.execute_sql(&ddl).await
+        } else {
+            Ok(ddl)
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
 
     #[tokio::test]
     async fn test_execute_generates_ddl() {
-        let tool = IndexCreationTool;
+        let tool = IndexCreationTool::new();
         let params = HashMap::from([
             ("table".to_string(), "users".to_string()),
             ("columns".to_string(), "email".to_string()),
@@ -62,7 +95,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_multi_columns() {
-        let tool = IndexCreationTool;
+        let tool = IndexCreationTool::new();
         let params = HashMap::from([
             ("table".to_string(), "orders".to_string()),
             ("columns".to_string(), "user_id,status".to_string()),
@@ -74,9 +107,29 @@ mod tests {
 
     #[tokio::test]
     async fn test_execute_missing_params() {
-        let tool = IndexCreationTool;
+        let tool = IndexCreationTool::new();
         assert!(tool.execute(&HashMap::new()).await.is_err());
         let params = HashMap::from([("table".to_string(), "users".to_string())]);
         assert!(tool.execute(&params).await.is_err());
+    }
+
+    struct StubExecutor;
+
+    #[async_trait]
+    impl SqlExecutor for StubExecutor {
+        async fn execute_sql(&self, sql: &str) -> Result<String, AgentError> {
+            Ok(format!(r#"{{"executed":"{sql}"}}"#))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_execute_with_executor() {
+        let tool = IndexCreationTool::with_executor(Arc::new(StubExecutor));
+        let params = HashMap::from([
+            ("table".to_string(), "users".to_string()),
+            ("columns".to_string(), "email".to_string()),
+        ]);
+        let result = tool.execute(&params).await.unwrap();
+        assert!(result.contains(r#""executed":"CREATE INDEX"#));
     }
 }

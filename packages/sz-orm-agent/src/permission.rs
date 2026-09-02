@@ -121,7 +121,7 @@ mod tests {
     #[tokio::test]
     async fn test_readonly_blocks_dangerous() {
         let mut guard = ToolPermissionGuard::new(PermissionBoundary::readonly());
-        let tool = IndexCreationTool;
+        let tool = IndexCreationTool::new();
         let params = HashMap::from([
             ("table".to_string(), "users".to_string()),
             ("columns".to_string(), "email".to_string()),
@@ -151,7 +151,7 @@ mod tests {
         let mut guard = ToolPermissionGuard::new(boundary);
 
         let safe_tool = QueryExecutionTool::new();
-        let dangerous_tool = IndexCreationTool;
+        let dangerous_tool = IndexCreationTool::new();
 
         guard.check("query_execution", &safe_tool);
         guard.check("index_creation", &dangerous_tool);
@@ -164,7 +164,7 @@ mod tests {
     async fn test_full_permission_allows_all() {
         let mut guard = ToolPermissionGuard::new(PermissionBoundary::full());
         let safe_tool = QueryExecutionTool::new();
-        let dangerous_tool = IndexCreationTool;
+        let dangerous_tool = IndexCreationTool::new();
 
         assert!(guard.check("query_execution", &safe_tool));
         assert!(guard.check("index_creation", &dangerous_tool));

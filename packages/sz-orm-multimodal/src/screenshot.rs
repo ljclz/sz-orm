@@ -358,8 +358,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_analyze_async_with_ocr_endpoint_unreachable() {
-        let analyzer = ScreenshotAnalyzer::default()
-            .with_ocr_endpoint("http://localhost:9999/ocr");
+        let analyzer = ScreenshotAnalyzer::default().with_ocr_endpoint("http://localhost:9999/ocr");
         let image_data = vec![1, 2, 3];
         // OCR 服务不可达时应返回错误
         assert!(analyzer.analyze_async(&image_data).await.is_err());

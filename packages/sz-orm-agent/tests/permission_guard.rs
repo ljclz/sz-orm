@@ -7,7 +7,7 @@ use sz_orm_agent::tool::{index_creation::IndexCreationTool, query_execution::Que
 #[tokio::test]
 async fn test_readonly_blocks_dangerous() {
     let mut guard = ToolPermissionGuard::new(PermissionBoundary::readonly());
-    let tool = IndexCreationTool;
+    let tool = IndexCreationTool::new();
     let params = HashMap::from([
         ("table".to_string(), "users".to_string()),
         ("columns".to_string(), "email".to_string()),
@@ -36,7 +36,7 @@ async fn test_allowed_tools_filter() {
     let mut guard = ToolPermissionGuard::new(boundary);
 
     let safe_tool = QueryExecutionTool::new();
-    let dangerous_tool = IndexCreationTool;
+    let dangerous_tool = IndexCreationTool::new();
 
 
     guard.check("query_execution", &safe_tool);

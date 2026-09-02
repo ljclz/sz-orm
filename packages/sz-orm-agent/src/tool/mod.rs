@@ -61,24 +61,30 @@ impl ToolRegistry {
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
         registry.register(Arc::new(query_execution::QueryExecutionTool::new()));
-        registry.register(Arc::new(index_creation::IndexCreationTool));
-        registry.register(Arc::new(stats_collection::StatsCollectionTool));
-        registry.register(Arc::new(parameter_query::ParameterQueryTool));
+        registry.register(Arc::new(index_creation::IndexCreationTool::new()));
+        registry.register(Arc::new(stats_collection::StatsCollectionTool::new()));
+        registry.register(Arc::new(parameter_query::ParameterQueryTool::new()));
         registry
     }
 
     /// 注册默认 4 类工具并注入 SQL 执行器
     ///
-    /// 注入后 `query_execution` 工具将直接执行 SQL 返回 JSON 结果，
+    /// 注入后所有工具将直接执行 SQL 返回 JSON 结果，
     /// 而非仅返回 SQL 字符串。
     pub fn with_defaults_and_executor(executor: Arc<dyn SqlExecutor>) -> Self {
         let mut registry = Self::new();
         registry.register(Arc::new(
             query_execution::QueryExecutionTool::with_executor(executor.clone()),
         ));
-        registry.register(Arc::new(index_creation::IndexCreationTool));
-        registry.register(Arc::new(stats_collection::StatsCollectionTool));
-        registry.register(Arc::new(parameter_query::ParameterQueryTool));
+        registry.register(Arc::new(index_creation::IndexCreationTool::with_executor(
+            executor.clone(),
+        )));
+        registry.register(Arc::new(stats_collection::StatsCollectionTool::with_executor(
+            executor.clone(),
+        )));
+        registry.register(Arc::new(parameter_query::ParameterQueryTool::with_executor(
+            executor,
+        )));
         registry
     }
 

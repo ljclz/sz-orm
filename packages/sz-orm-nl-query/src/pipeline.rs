@@ -15,6 +15,16 @@ pub trait SqlExecutor: Send + Sync {
     async fn execute(&self, sql: &str) -> Result<serde_json::Value, NlQueryError>;
 }
 
+/// NL2SQL 生成器接口
+///
+/// 用户可实现此 trait 注入 LLM 引擎，替换规则型 NL2SQL。
+/// 未注入时使用 `nl2sql_rule_based` 降级实现。
+#[async_trait]
+pub trait Nl2SqlGenerator: Send + Sync {
+    /// 将自然语言转换为 SQL
+    async fn generate(&self, nl: &str) -> Result<String, NlQueryError>;
+}
+
 /// 对话上下文（TASK-025）
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ConversationContext {
@@ -73,6 +83,7 @@ impl Default for ConversationContext {
 pub struct NlQueryPipeline {
     context: ConversationContext,
     executor: Option<Arc<dyn SqlExecutor>>,
+    generator: Option<Arc<dyn Nl2SqlGenerator>>,
 }
 
 impl NlQueryPipeline {
@@ -80,6 +91,7 @@ impl NlQueryPipeline {
         Self {
             context: ConversationContext::new(),
             executor: None,
+            generator: None,
         }
     }
 
@@ -89,13 +101,24 @@ impl NlQueryPipeline {
         self
     }
 
+    /// 注入 NL2SQL 生成器（如 LLM 引擎），替换规则型转换
+    pub fn with_llm_generator(mut self, generator: Arc<dyn Nl2SqlGenerator>) -> Self {
+        self.generator = Some(generator);
+        self
+    }
+
     /// 执行 NL 查询
     ///
-    /// 规则型 NL2SQL 生成 SQL，返回查询响应。
+    /// - 注入了 `Nl2SqlGenerator`（LLM 引擎）时：使用 LLM 生成 SQL
+    /// - 未注入 generator 时：使用规则型 NL2SQL 降级生成
     /// - 注入了 `SqlExecutor` 时：执行 SQL 返回真实 rows
     /// - 未注入执行器时：`rows` 为空数组（降级模式）
     pub async fn query(&self, nl: &str) -> Result<NlQueryResponse, NlQueryError> {
-        let sql = Self::nl2sql_rule_based(nl)?;
+        let sql = if let Some(generator) = &self.generator {
+            generator.generate(nl).await?
+        } else {
+            Self::nl2sql_rule_based(nl)?
+        };
 
         let rows = if let Some(executor) = &self.executor {
             executor.execute(&sql).await?
@@ -173,6 +196,7 @@ impl NlQueryPipeline {
     /// 从自然语言中检测目标表名
     ///
     /// 中文关键词 → 英文表名映射，支持常见的业务表名。
+    /// v6.0.0 优化：扩展至 20 个关键词，覆盖支付/财务/权限场景。
     fn detect_table(nl: &str) -> String {
         let mappings: &[(&str, &str)] = &[
             ("用户", "users"),
@@ -185,6 +209,16 @@ impl NlQueryPipeline {
             ("日志", "logs"),
             ("文章", "articles"),
             ("评论", "comments"),
+            ("支付", "payments"),
+            ("退款", "refunds"),
+            ("结算", "settlements"),
+            ("商户", "merchants"),
+            ("渠道", "channels"),
+            ("权限", "permissions"),
+            ("角色", "roles"),
+            ("菜单", "menus"),
+            ("配置", "configs"),
+            ("通知", "notifications"),
         ];
 
         for (keyword, table) in mappings {
@@ -275,5 +309,58 @@ mod tests {
             "应从'订单'提取表名 orders，实际: {}",
             resp.sql
         );
+    }
+
+    #[tokio::test]
+    async fn test_llm_generator_overrides_rule_based() {
+        struct MockGenerator;
+        #[async_trait]
+        impl Nl2SqlGenerator for MockGenerator {
+            async fn generate(&self, _nl: &str) -> Result<String, NlQueryError> {
+                Ok("SELECT 1 AS llm_active".to_string())
+            }
+        }
+
+        let pipeline = NlQueryPipeline::new().with_llm_generator(Arc::new(MockGenerator));
+        let resp = pipeline.query("查询所有用户").await.unwrap();
+        assert_eq!(
+            resp.sql, "SELECT 1 AS llm_active",
+            "注入 LLM generator 后应使用 generator 而非规则引擎"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_llm_generator_error_propagates() {
+        struct FailingGenerator;
+        #[async_trait]
+        impl Nl2SqlGenerator for FailingGenerator {
+            async fn generate(&self, _nl: &str) -> Result<String, NlQueryError> {
+                Err(NlQueryError::Nl2SqlFailed("LLM 不可用".to_string()))
+            }
+        }
+
+        let pipeline = NlQueryPipeline::new().with_llm_generator(Arc::new(FailingGenerator));
+        let result = pipeline.query("查询用户").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_detect_table_extended_keywords() {
+        let pipeline = NlQueryPipeline::new();
+
+        let resp = pipeline.query("查询支付记录").await.unwrap();
+        assert!(resp.sql.contains("FROM payments"));
+
+        let resp = pipeline.query("查看退款").await.unwrap();
+        assert!(resp.sql.contains("FROM refunds"));
+
+        let resp = pipeline.query("商户列表").await.unwrap();
+        assert!(resp.sql.contains("FROM merchants"));
+
+        let resp = pipeline.query("渠道信息").await.unwrap();
+        assert!(resp.sql.contains("FROM channels"));
+
+        let resp = pipeline.query("权限配置").await.unwrap();
+        assert!(resp.sql.contains("FROM permissions"));
     }
 }

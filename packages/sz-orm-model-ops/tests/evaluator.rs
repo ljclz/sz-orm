@@ -25,6 +25,7 @@ fn make_test_samples() -> Vec<EvalSample> {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_evaluate_all_correct() {
     let evaluator = Nl2SqlEvaluator::new();
     let samples = make_test_samples();
@@ -47,6 +48,7 @@ fn test_evaluate_all_correct() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_evaluate_with_sql_mismatch() {
     let evaluator = Nl2SqlEvaluator::new();
     let samples = make_test_samples();
@@ -66,6 +68,7 @@ fn test_evaluate_with_sql_mismatch() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_evaluate_with_generation_error() {
     let evaluator = Nl2SqlEvaluator::new();
     let samples = make_test_samples();
@@ -82,6 +85,7 @@ fn test_evaluate_with_generation_error() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_evaluate_partial_success() {
     let evaluator = Nl2SqlEvaluator::new();
     let samples = make_test_samples();
@@ -123,6 +127,7 @@ fn test_generate_report_content() {
 }
 
 #[test]
+#[allow(deprecated)]
 fn test_empty_samples() {
     let evaluator = Nl2SqlEvaluator::new();
     let result = evaluator

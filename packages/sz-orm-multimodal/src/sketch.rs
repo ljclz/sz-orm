@@ -3,6 +3,92 @@
 use crate::types::MultimodalError;
 use serde::{Deserialize, Serialize};
 
+/// CV 服务响应中的形状
+#[derive(Debug, Clone, Deserialize)]
+struct CvShape {
+    shape_type: String,
+    label: String,
+}
+
+/// CV 服务响应
+#[derive(Debug, Clone, Deserialize)]
+struct CvResponse {
+    shapes: Vec<CvShape>,
+    #[allow(dead_code)]
+    confidence: f64,
+}
+
+/// CV HTTP 客户端（接入真实 CV 服务）
+pub struct CvClient {
+    client: reqwest::Client,
+    endpoint: String,
+}
+
+impl CvClient {
+    pub fn new(endpoint: &str) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            endpoint: endpoint.to_string(),
+        }
+    }
+
+    async fn recognize(&self, sketch_data: &[u8]) -> Result<Vec<Shape>, MultimodalError> {
+        let base64 = base64_encode(sketch_data);
+        let body = serde_json::json!({ "image": base64 });
+
+        let resp = self
+            .client
+            .post(&self.endpoint)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_e| MultimodalError::RenderFallback)?;
+
+        let cv_resp: CvResponse = resp
+            .json()
+            .await
+            .map_err(|_e| MultimodalError::RenderFallback)?;
+
+        Ok(cv_resp
+            .shapes
+            .into_iter()
+            .map(|s| Shape {
+                shape_type: match s.shape_type.as_str() {
+                    "Table" => ShapeType::Table,
+                    "Column" => ShapeType::Column,
+                    "Relation" => ShapeType::Relation,
+                    _ => ShapeType::Table,
+                },
+                label: s.label,
+            })
+            .collect())
+    }
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((n >> 18) & 63) as usize] as char);
+        result.push(CHARS[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((n >> 6) & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(n & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
+}
+
 /// 草图识别结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct SketchRecognition {
@@ -48,20 +134,57 @@ pub struct SketchRelation {
 }
 
 /// 草图转 SQL 转换器
-pub struct SketchToSql;
+#[derive(Default)]
+pub struct SketchToSql {
+    cv: Option<CvClient>,
+}
 
 impl SketchToSql {
     pub fn new() -> Self {
-        Self
+        Self { cv: None }
     }
 
-    /// 识别草图
+    /// 注入 CV 服务端点（如 "http://localhost:8080/cv"）
+    pub fn with_cv_endpoint(mut self, endpoint: &str) -> Self {
+        self.cv = Some(CvClient::new(endpoint));
+        self
+    }
+
+    /// 识别草图（同步伪检测模式）
     pub fn recognize(&self, sketch_data: &[u8]) -> Result<SketchRecognition, MultimodalError> {
         if sketch_data.is_empty() {
             return Err(MultimodalError::RenderFallback);
         }
 
         let shapes = self.detect_shapes(sketch_data);
+        let schema = self.infer_schema(&shapes);
+        let confidence = self.compute_confidence(&shapes);
+
+        Ok(SketchRecognition {
+            detected_shapes: shapes,
+            inferred_schema: schema,
+            confidence,
+        })
+    }
+
+    /// 识别草图（异步真实 CV 模式）
+    ///
+    /// 注入 CV 端点时通过 HTTP 调用真实 CV 服务识别形状。
+    /// 未注入时退回到同步伪检测。
+    pub async fn recognize_async(
+        &self,
+        sketch_data: &[u8],
+    ) -> Result<SketchRecognition, MultimodalError> {
+        if sketch_data.is_empty() {
+            return Err(MultimodalError::RenderFallback);
+        }
+
+        let shapes = if let Some(cv) = &self.cv {
+            cv.recognize(sketch_data).await?
+        } else {
+            self.detect_shapes(sketch_data)
+        };
+
         let schema = self.infer_schema(&shapes);
         let confidence = self.compute_confidence(&shapes);
 
@@ -218,11 +341,6 @@ impl SketchToSql {
     }
 }
 
-impl Default for SketchToSql {
-    fn default() -> Self {
-        Self::new()
-    }
-}
 
 #[cfg(test)]
 mod tests {
@@ -312,5 +430,26 @@ mod tests {
         let data = vec![1, 2, 3];
         let sql = converter.sketch_to_sql(&data).unwrap();
         assert!(sql.contains("CREATE TABLE"));
+    }
+
+    #[tokio::test]
+    async fn test_recognize_async_without_cv() {
+        let converter = SketchToSql::new();
+        let data = vec![1, 2, 3, 4];
+        let result = converter.recognize_async(&data).await.unwrap();
+        assert!(!result.detected_shapes.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_recognize_async_empty_fails() {
+        let converter = SketchToSql::new();
+        assert!(converter.recognize_async(&[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_recognize_async_with_cv_endpoint_unreachable() {
+        let converter = SketchToSql::new().with_cv_endpoint("http://localhost:9999/cv");
+        let data = vec![1, 2, 3];
+        assert!(converter.recognize_async(&data).await.is_err());
     }
 }
