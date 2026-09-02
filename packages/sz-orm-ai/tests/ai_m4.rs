@@ -111,7 +111,7 @@ async fn test_ai_advice_zero_db_execution_intent() {
         .analyze("show all users where age > 25", &test_schema())
         .await
         .unwrap();
-    assert!(result.table.is_empty() || !result.table.is_empty());
+    assert_eq!(result.table, "users", "应正确识别查询目标表为 users");
     assert!(matches!(result.intent, QueryIntent::Select));
 }
 

@@ -70,7 +70,7 @@ impl NlQueryPipeline {
     }
 
     pub async fn query(&self, nl: &str) -> Result<NlQueryResponse, NlQueryError> {
-        let sql = Self::nl2sql_stub(nl)?;
+        let sql = Self::nl2sql_rule_based(nl)?;
         Ok(NlQueryResponse {
             sql: sql.clone(),
             sql_explanation: format!("将自然语言 '{}' 转换为 SQL", nl),
@@ -101,11 +101,46 @@ impl NlQueryPipeline {
         self.context.last_tables = tables;
     }
 
-    fn nl2sql_stub(nl: &str) -> Result<String, NlQueryError> {
+    /// 规则型 NL2SQL 转换
+    ///
+    /// 通过中文关键词映射表提取目标表名，生成基础 SELECT 语句。
+    /// 这是 LLM 不可用时的降级实现，生产环境应接入 NL2SqlEngine。
+    fn nl2sql_rule_based(nl: &str) -> Result<String, NlQueryError> {
         if nl.is_empty() {
             return Err(NlQueryError::Nl2SqlFailed("空查询".to_string()));
         }
-        Ok(format!("-- Generated from: {}\nSELECT * FROM data", nl))
+
+        let table = Self::detect_table(nl);
+        Ok(format!(
+            "-- Generated from: {}\nSELECT * FROM {}",
+            nl, table
+        ))
+    }
+
+    /// 从自然语言中检测目标表名
+    ///
+    /// 中文关键词 → 英文表名映射，支持常见的业务表名。
+    fn detect_table(nl: &str) -> String {
+        let mappings: &[(&str, &str)] = &[
+            ("用户", "users"),
+            ("订单", "orders"),
+            ("产品", "products"),
+            ("商品", "products"),
+            ("客户", "customers"),
+            ("销售", "sales"),
+            ("库存", "inventory"),
+            ("日志", "logs"),
+            ("文章", "articles"),
+            ("评论", "comments"),
+        ];
+
+        for (keyword, table) in mappings {
+            if nl.contains(keyword) {
+                return table.to_string();
+            }
+        }
+
+        "data".to_string()
     }
 }
 
@@ -165,5 +200,27 @@ mod tests {
         let pipeline = NlQueryPipeline::new();
         let result = pipeline.query("").await;
         assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_table_name_extraction() {
+        let pipeline = NlQueryPipeline::new();
+        let resp = pipeline.query("查询所有用户").await.unwrap();
+        assert!(
+            resp.sql.contains("FROM users"),
+            "应从'用户'提取表名 users，实际: {}",
+            resp.sql
+        );
+    }
+
+    #[tokio::test]
+    async fn test_table_name_orders() {
+        let pipeline = NlQueryPipeline::new();
+        let resp = pipeline.query("查看订单").await.unwrap();
+        assert!(
+            resp.sql.contains("FROM orders"),
+            "应从'订单'提取表名 orders，实际: {}",
+            resp.sql
+        );
     }
 }
