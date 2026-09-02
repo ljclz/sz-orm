@@ -32,6 +32,7 @@ model-ops-router = ["model-ops"]
 [dev-dependencies]
 tokio = { workspace = true }
 serde_json = { workspace = true }
+sz-orm-sqlx = { version = "5.1.0", path = "../sz-orm-sqlx" }
 
 [lints]
 workspace = true
@@ -69,4 +70,9 @@ required-features = ["model-ops"]
 [[test]]
 name = "ab_test"
 path = "tests/ab_test.rs"
+required-features = ["model-ops"]
+
+[[test]]
+name = "evaluator_mysql"
+path = "tests/evaluator_mysql.rs"
 required-features = ["model-ops"]

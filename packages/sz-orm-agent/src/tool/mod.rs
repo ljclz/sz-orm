@@ -13,6 +13,8 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::sync::Arc;
 
+pub use query_execution::QueryExecutionTool;
+
 /// 工具风险等级
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum RiskLevel {
@@ -33,6 +35,16 @@ pub trait AgentTool: Send + Sync {
     async fn execute(&self, params: &HashMap<String, String>) -> Result<String, AgentError>;
 }
 
+/// SQL 执行器接口
+///
+/// 用户可实现此 trait 注入真实数据库连接，使工具不仅生成 SQL 还直接执行。
+/// 未注入执行器时，工具仅返回生成的 SQL 字符串（降级模式）。
+#[async_trait]
+pub trait SqlExecutor: Send + Sync {
+    /// 执行 SQL，返回 JSON 格式的结果
+    async fn execute_sql(&self, sql: &str) -> Result<String, AgentError>;
+}
+
 /// 工具注册表
 pub struct ToolRegistry {
     tools: HashMap<String, Arc<dyn AgentTool>>,
@@ -48,7 +60,22 @@ impl ToolRegistry {
     /// 注册默认 4 类工具
     pub fn with_defaults() -> Self {
         let mut registry = Self::new();
-        registry.register(Arc::new(query_execution::QueryExecutionTool));
+        registry.register(Arc::new(query_execution::QueryExecutionTool::new()));
+        registry.register(Arc::new(index_creation::IndexCreationTool));
+        registry.register(Arc::new(stats_collection::StatsCollectionTool));
+        registry.register(Arc::new(parameter_query::ParameterQueryTool));
+        registry
+    }
+
+    /// 注册默认 4 类工具并注入 SQL 执行器
+    ///
+    /// 注入后 `query_execution` 工具将直接执行 SQL 返回 JSON 结果，
+    /// 而非仅返回 SQL 字符串。
+    pub fn with_defaults_and_executor(executor: Arc<dyn SqlExecutor>) -> Self {
+        let mut registry = Self::new();
+        registry.register(Arc::new(
+            query_execution::QueryExecutionTool::with_executor(executor.clone()),
+        ));
         registry.register(Arc::new(index_creation::IndexCreationTool));
         registry.register(Arc::new(stats_collection::StatsCollectionTool));
         registry.register(Arc::new(parameter_query::ParameterQueryTool));

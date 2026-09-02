@@ -258,9 +258,7 @@ impl PermissionAuditor {
                     account.username,
                     account.roles.join(", ")
                 ),
-                recommendation: format!(
-                    "创建专用应用账户，仅授予必要的 SELECT 权限，禁止使用 root/admin/superuser"
-                ),
+                recommendation: "创建专用应用账户，仅授予必要的 SELECT 权限，禁止使用 root/admin/superuser".to_string(),
             });
         }
     }
@@ -347,6 +345,6 @@ impl PermissionAuditor {
                 PermissionIssueSeverity::Info => score -= 5.0,
             }
         }
-        score.max(0.0).min(100.0)
+        score.clamp(0.0, 100.0)
     }
 }

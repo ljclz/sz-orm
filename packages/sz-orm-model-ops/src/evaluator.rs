@@ -1,7 +1,18 @@
 //! NL2SQL 评估框架（TASK-028）
 
 use crate::types::ModelOpsError;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// SQL 执行器接口
+///
+/// 用户可实现此 trait 注入真实数据库连接，使评估器能比较真实执行结果。
+#[async_trait]
+pub trait SqlExecutor: Send + Sync {
+    /// 执行 SQL，返回 JSON 格式的结果
+    async fn execute(&self, sql: &str) -> Result<serde_json::Value, String>;
+}
 
 /// 评估样本
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -89,6 +100,91 @@ impl Nl2SqlEvaluator {
                                 generated_sql,
                                 failure_type: FailureType::ResultMismatch,
                             });
+                        }
+                    }
+                }
+                Err(_) => {
+                    failures.push(EvalFailure {
+                        sample_index: idx,
+                        nl_query: sample.nl_query.clone(),
+                        expected_sql: sample.expected_sql.clone(),
+                        generated_sql: String::new(),
+                        failure_type: FailureType::GenerationFailed,
+                    });
+                }
+            }
+        }
+
+        let total = samples.len();
+        let execution_accuracy = if total > 0 {
+            exec_matches as f64 / total as f64
+        } else {
+            0.0
+        };
+        let exact_match_accuracy = if total > 0 {
+            exact_matches as f64 / total as f64
+        } else {
+            0.0
+        };
+
+        Ok(EvalResult {
+            total_samples: total,
+            execution_accuracy,
+            exact_match_accuracy,
+            failures,
+        })
+    }
+
+    /// 评估 NL2SQL 引擎准确率（注入真实 SQL 执行器）
+    ///
+    /// 与 `evaluate` 的区别：当 SQL 精确匹配失败时，用 `executor` 真实执行
+    /// 生成的 SQL 和期望 SQL，比较执行结果是否一致（执行准确率）。
+    pub async fn evaluate_with_executor<F>(
+        &self,
+        samples: &[EvalSample],
+        generate_fn: F,
+        executor: Arc<dyn SqlExecutor>,
+    ) -> Result<EvalResult, ModelOpsError>
+    where
+        F: Fn(&str) -> Result<String, String>,
+    {
+        let mut exact_matches = 0;
+        let mut exec_matches = 0;
+        let mut failures = Vec::new();
+
+        for (idx, sample) in samples.iter().enumerate() {
+            match generate_fn(&sample.nl_query) {
+                Ok(generated_sql) => {
+                    let normalized_expected = Self::normalize_sql(&sample.expected_sql);
+                    let normalized_generated = Self::normalize_sql(&generated_sql);
+
+                    if normalized_expected == normalized_generated {
+                        exact_matches += 1;
+                        exec_matches += 1;
+                    } else {
+                        let expected_exec = executor.execute(&sample.expected_sql).await;
+                        let generated_exec = executor.execute(&generated_sql).await;
+
+                        match (expected_exec, generated_exec) {
+                            (Ok(exp), Ok(gen)) if exp == gen => {
+                                exec_matches += 1;
+                                failures.push(EvalFailure {
+                                    sample_index: idx,
+                                    nl_query: sample.nl_query.clone(),
+                                    expected_sql: sample.expected_sql.clone(),
+                                    generated_sql,
+                                    failure_type: FailureType::SqlMismatch,
+                                });
+                            }
+                            _ => {
+                                failures.push(EvalFailure {
+                                    sample_index: idx,
+                                    nl_query: sample.nl_query.clone(),
+                                    expected_sql: sample.expected_sql.clone(),
+                                    generated_sql,
+                                    failure_type: FailureType::ResultMismatch,
+                                });
+                            }
                         }
                     }
                 }

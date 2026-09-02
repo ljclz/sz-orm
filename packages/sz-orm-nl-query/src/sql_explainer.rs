@@ -183,7 +183,7 @@ impl SqlExplainer {
         if let Some(w) = where_c {
             summary.push_str(&format!("，{}", w.explanation));
         }
-        summary.push_str("。");
+        summary.push('。');
         summary
     }
 }

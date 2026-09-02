@@ -103,7 +103,7 @@ impl HistoryLearner {
     /// 获取所有学习到的模式
     pub fn patterns(&self) -> Vec<&LearnedPattern> {
         let mut patterns: Vec<_> = self.patterns.values().collect();
-        patterns.sort_by(|a, b| b.frequency.cmp(&a.frequency));
+        patterns.sort_by_key(|a| std::cmp::Reverse(a.frequency));
         patterns
     }
 

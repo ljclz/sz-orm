@@ -3,7 +3,7 @@
 //! 当外部 LLM 服务不可用时，Agent 切换为基于规则的决策模式。
 
 use crate::agent::{Planner, PlannerOutput};
-use crate::types::{AgentError, AgentStep, AgentTaskSpec, PerceptionSnapshot, PlannerMode};
+use crate::types::{AgentError, AgentStep, AgentTaskSpec, PerceptionSnapshot};
 use async_trait::async_trait;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
@@ -114,6 +114,7 @@ impl Planner for RuleBasedFallbackPlanner {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::types::PlannerMode;
     use chrono::Utc;
 
     fn make_spec() -> AgentTaskSpec {

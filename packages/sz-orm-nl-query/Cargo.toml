@@ -30,6 +30,7 @@ nl-query-visualizer = ["nl-query"]
 [dev-dependencies]
 tokio = { workspace = true }
 serde_json = { workspace = true }
+sz-orm-sqlx = { version = "5.1.0", path = "../sz-orm-sqlx" }
 
 [lints]
 workspace = true
@@ -67,4 +68,9 @@ required-features = ["nl-query"]
 [[test]]
 name = "history_learner"
 path = "tests/history_learner.rs"
+required-features = ["nl-query"]
+
+[[test]]
+name = "pipeline_mysql"
+path = "tests/pipeline_mysql.rs"
 required-features = ["nl-query"]

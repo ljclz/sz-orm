@@ -151,7 +151,7 @@ mod tests {
         let tools: HashMap<String, Arc<dyn AgentTool>> = HashMap::from([
             (
                 "query_execution".to_string(),
-                Arc::new(QueryExecutionTool) as Arc<dyn AgentTool>,
+                Arc::new(QueryExecutionTool::new()) as Arc<dyn AgentTool>,
             ),
             (
                 "index_creation".to_string(),

@@ -5,7 +5,7 @@ use crate::types::AgentError;
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
-use std::sync::Arc;
+
 
 /// 权限边界配置
 #[derive(Debug, Clone)]
@@ -137,7 +137,7 @@ mod tests {
     #[tokio::test]
     async fn test_readonly_allows_safe() {
         let mut guard = ToolPermissionGuard::new(PermissionBoundary::readonly());
-        let tool = QueryExecutionTool;
+        let tool = QueryExecutionTool::new();
         let params = HashMap::from([("sql".to_string(), "SELECT 1".to_string())]);
 
         let result = guard.guarded_call("query_execution", &tool, &params).await;
@@ -151,7 +151,7 @@ mod tests {
             PermissionBoundary::new(HashSet::from(["query_execution".to_string()]), false);
         let mut guard = ToolPermissionGuard::new(boundary);
 
-        let safe_tool = QueryExecutionTool;
+        let safe_tool = QueryExecutionTool::new();
         let dangerous_tool = IndexCreationTool;
 
         guard.check("query_execution", &safe_tool);
@@ -164,7 +164,7 @@ mod tests {
     #[tokio::test]
     async fn test_full_permission_allows_all() {
         let mut guard = ToolPermissionGuard::new(PermissionBoundary::full());
-        let safe_tool = QueryExecutionTool;
+        let safe_tool = QueryExecutionTool::new();
         let dangerous_tool = IndexCreationTool;
 
         assert!(guard.check("query_execution", &safe_tool));

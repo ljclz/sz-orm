@@ -157,7 +157,7 @@ impl CheckpointManager {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::types::{AgentStep, PerceptionSnapshot, PlannerMode};
+    use crate::types::{AgentStep, PerceptionSnapshot};
 
     fn make_step(n: usize) -> AgentStep {
         AgentStep {

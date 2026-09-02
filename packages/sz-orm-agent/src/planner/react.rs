@@ -3,7 +3,7 @@
 //! 交替进行推理（Reasoning）与行动（Action）的多步规划。
 //! 每步 LLM 输出思考链（thought）+ 工具调用（action），观测结果后进入下一步。
 
-use crate::agent::{ActionExecutor, Planner, PlannerOutput};
+use crate::agent::{Planner, PlannerOutput};
 use crate::types::{AgentError, AgentStep, AgentTaskSpec, PerceptionSnapshot, PlannerMode};
 use async_trait::async_trait;
 use std::collections::HashMap;

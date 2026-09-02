@@ -22,7 +22,7 @@ async fn test_readonly_blocks_dangerous() {
 #[tokio::test]
 async fn test_readonly_allows_safe() {
     let mut guard = ToolPermissionGuard::new(PermissionBoundary::readonly());
-    let tool = QueryExecutionTool;
+    let tool = QueryExecutionTool::new();
     let params = HashMap::from([("sql".to_string(), "SELECT 1".to_string())]);
 
     let result = guard.guarded_call("query_execution", &tool, &params).await;
@@ -35,9 +35,9 @@ async fn test_allowed_tools_filter() {
     let boundary = PermissionBoundary::new(HashSet::from(["query_execution".to_string()]), false);
     let mut guard = ToolPermissionGuard::new(boundary);
 
-    let safe_tool = QueryExecutionTool;
+    let safe_tool = QueryExecutionTool::new();
     let dangerous_tool = IndexCreationTool;
-    let params: HashMap<String, String> = HashMap::new();
+
 
     guard.check("query_execution", &safe_tool);
     guard.check("index_creation", &dangerous_tool);

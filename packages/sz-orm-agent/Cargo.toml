@@ -54,6 +54,7 @@ agent-workflow = ["agent"]
 [dev-dependencies]
 tokio = { workspace = true }
 serde_json = { workspace = true }
+sz-orm-sqlx = { version = "5.1.0", path = "../sz-orm-sqlx" }
 
 [lints]
 workspace = true
@@ -111,4 +112,9 @@ required-features = ["agent"]
 [[test]]
 name = "trace_export"
 path = "tests/trace_export.rs"
+required-features = ["agent"]
+
+[[test]]
+name = "tool_mysql"
+path = "tests/tool_mysql.rs"
 required-features = ["agent"]

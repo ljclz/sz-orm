@@ -1,7 +1,19 @@
 //! NL 查询闭环主管线（TASK-008 + TASK-025 追问）
 
 use crate::types::{NlQueryError, NlQueryResponse};
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use std::sync::Arc;
+
+/// SQL 执行器接口
+///
+/// 用户可实现此 trait 注入真实数据库连接，使 `NlQueryPipeline::query` 返回真实 rows。
+/// 未注入执行器时，`query` 返回空 rows（降级模式）。
+#[async_trait]
+pub trait SqlExecutor: Send + Sync {
+    /// 执行 SQL，返回 JSON 格式的结果行集
+    async fn execute(&self, sql: &str) -> Result<serde_json::Value, NlQueryError>;
+}
 
 /// 对话上下文（TASK-025）
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -60,27 +72,62 @@ impl Default for ConversationContext {
 /// NL 查询管线
 pub struct NlQueryPipeline {
     context: ConversationContext,
+    executor: Option<Arc<dyn SqlExecutor>>,
 }
 
 impl NlQueryPipeline {
     pub fn new() -> Self {
         Self {
             context: ConversationContext::new(),
+            executor: None,
         }
+    }
+
+    /// 注入 SQL 执行器，使 `query` 返回真实数据库结果
+    pub fn with_executor(mut self, executor: Arc<dyn SqlExecutor>) -> Self {
+        self.executor = Some(executor);
+        self
     }
 
     /// 执行 NL 查询
     ///
     /// 规则型 NL2SQL 生成 SQL，返回查询响应。
-    /// **注意**：当前未接入数据库执行，`rows` 为空数组，
-    /// `visualization` 和 `insight` 为 None。
-    /// 生产环境应通过 `Nl2SqlEngine` 接入 LLM + 数据库执行。
+    /// - 注入了 `SqlExecutor` 时：执行 SQL 返回真实 rows
+    /// - 未注入执行器时：`rows` 为空数组（降级模式）
     pub async fn query(&self, nl: &str) -> Result<NlQueryResponse, NlQueryError> {
         let sql = Self::nl2sql_rule_based(nl)?;
+
+        let rows = if let Some(executor) = &self.executor {
+            executor.execute(&sql).await?
+        } else {
+            serde_json::Value::Array(vec![])
+        };
+
         Ok(NlQueryResponse {
             sql: sql.clone(),
             sql_explanation: format!("将自然语言 '{}' 转换为 SQL", nl),
-            rows: serde_json::Value::Array(vec![]),
+            rows,
+            visualization: None,
+            insight: None,
+            truncated: false,
+        })
+    }
+
+    /// 直接执行 SQL（跳过 NL2SQL 转换）
+    ///
+    /// 当用户已持有合法 SQL 时，绕过 NL2SQL 规则引擎，直接通过执行器执行。
+    /// 未注入执行器时返回 `Nl2SqlFailed` 错误。
+    pub async fn execute_sql(&self, sql: &str) -> Result<NlQueryResponse, NlQueryError> {
+        let executor = self.executor.as_ref().ok_or_else(|| {
+            NlQueryError::Nl2SqlFailed("execute_sql 需要注入 SqlExecutor".to_string())
+        })?;
+
+        let rows = executor.execute(sql).await?;
+
+        Ok(NlQueryResponse {
+            sql: sql.to_string(),
+            sql_explanation: "直接执行用户提供的 SQL".to_string(),
+            rows,
             visualization: None,
             insight: None,
             truncated: false,
@@ -175,7 +222,7 @@ mod tests {
 
         let refined = pipeline.refine("只看活跃用户").await.unwrap();
         assert!(refined.sql.contains("SELECT"));
-        assert!(pipeline.context().history.len() >= 1);
+        assert!(!pipeline.context().history.is_empty());
     }
 
     #[test]

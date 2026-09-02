@@ -1,6 +1,6 @@
 //! TASK-018 验证测试：LLM 降级
 
-use std::sync::Arc;
+
 use sz_orm_agent::fallback::LlmFallbackManager;
 
 #[test]
