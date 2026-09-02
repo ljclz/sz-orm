@@ -1,7 +1,7 @@
 [package]
 name = "sz-orm-core"
 description = "Core ORM engine: Model trait, ActiveRecord, QueryBuilder, Pool, Transaction, migration, and SQL dialect abstraction"
-version = "5.0.0"
+version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
@@ -169,12 +169,12 @@ parking_lot.workspace = true
 crossbeam-queue.workspace = true
 # 娴佸紡鏌ヨ锛欳onnection::query_stream 榛樿瀹炵幇闇€锟?futures::stream::empty
 futures.workspace = true
-sz-orm-sql-validator = { version = "5.0.0", path = "../sz-orm-sql-validator" }
-sz-orm-macros = { version = "5.0.0", path = "../sz-orm-macros" }
+sz-orm-sql-validator = { version = "5.1.0", path = "../sz-orm-sql-validator" }
+sz-orm-macros = { version = "5.1.0", path = "../sz-orm-macros" }
 # #88 淇锛氬彲閫夋柇璺櫒渚濊禆锛堝惎锟?circuit-breaker feature 鏃剁敓鏁堬級
-sz-orm-health = { version = "5.0.0", path = "../sz-orm-health", optional = true }
+sz-orm-health = { version = "5.1.0", path = "../sz-orm-health", optional = true }
 # #93 淇锛氬彲閫夐檺娴佸櫒渚濊禆锛堝惎锟?rate-limit feature 鏃剁敓鏁堬級
-sz-orm-limit = { version = "5.0.0", path = "../sz-orm-limit", optional = true }
+sz-orm-limit = { version = "5.1.0", path = "../sz-orm-limit", optional = true }
 # Fix #39锛歀2Cache RedisBackend 鐪熷疄瀹炵幇锛堝惎锟?redis feature 鏃剁敓鏁堬級
 # 浣跨敤 connection-manager 鑷姩閲嶈繛 + tokio-comp 寮傛 IO
 redis = { workspace = true, optional = true }
@@ -183,14 +183,14 @@ sqlparser = { workspace = true, optional = true }
 twox-hash = { workspace = true, optional = true }
 
 # v3.3.0锛氬绉熸埛瀹¤澧炲己锛坢ulti-tenant-enhanced feature锟?
-sz-orm-audit = { version = "5.0.0", path = "../sz-orm-audit", optional = true }
+sz-orm-audit = { version = "5.1.0", path = "../sz-orm-audit", optional = true }
 # v3.3.0锛氬垪绾ц劚鏁忓寮猴紙multi-tenant-enhanced feature锟?
-sz-orm-masking = { version = "5.0.0", path = "../sz-orm-masking", optional = true }
+sz-orm-masking = { version = "5.1.0", path = "../sz-orm-masking", optional = true }
 # v3.3.0锛氬垎甯冨紡缂撳瓨甯冮殕杩囨护鍣ㄩ槻鎶わ紙dist-cache feature锟?
 # v3.3.0锛氬垎甯冨紡缂撳瓨闅忔満 TTL 闆穿闃叉姢锛坉ist-cache feature锟?
 rand = { workspace = true, optional = true }
 # v3.3.0锛歐AL 鍔犲瘑锛坉ist-cache feature锟?
-sz-orm-crypto = { version = "5.0.0", path = "../sz-orm-crypto", optional = true }
+sz-orm-crypto = { version = "5.1.0", path = "../sz-orm-crypto", optional = true }
 # v3.4.0锛歋mallString 浼樺寲锛坧erf-smallstring feature锟?
 compact_str = { workspace = true, optional = true }
 # v3.6.0锛歈ueryBuilder 杩佺Щ宸ュ叿锛坬b-migration-tool feature锟?
@@ -204,21 +204,21 @@ serde_yaml = { workspace = true, optional = true }
 
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optional = true }
 # v4.9.0 TASK-004：异常检测模块（anomaly-detection feature）
-sz-orm-anomaly = { version = "5.0.0", path = "../sz-orm-anomaly", optional = true }
+sz-orm-anomaly = { version = "5.1.0", path = "../sz-orm-anomaly", optional = true }
 # v5.0.0：图数据库适配层（graph feature）
-sz-orm-graph = { version = "5.0.0", path = "../sz-orm-graph", optional = true }
+sz-orm-graph = { version = "5.1.0", path = "../sz-orm-graph", optional = true }
 # v5.0.0：自适应查询适配层（adaptive-query feature）
-sz-orm-adaptive = { version = "5.0.0", path = "../sz-orm-adaptive", optional = true }
+sz-orm-adaptive = { version = "5.1.0", path = "../sz-orm-adaptive", optional = true }
 # v5.0.0：分布式追踪适配层（distributed-tracing feature）
-sz-orm-tracing = { version = "5.0.0", path = "../sz-orm-tracing", optional = true }
+sz-orm-tracing = { version = "5.1.0", path = "../sz-orm-tracing", optional = true }
 # v5.0.0 M4：P1 整包适配层
-sz-orm-graphql = { version = "5.0.0", path = "../sz-orm-graphql", optional = true }
-sz-orm-logger = { version = "5.0.0", path = "../sz-orm-logger", optional = true }
-sz-orm-postgis = { version = "5.0.0", path = "../sz-orm-postgis", optional = true }
-sz-orm-timeseries = { version = "5.0.0", path = "../sz-orm-timeseries", optional = true }
-sz-orm-search = { version = "5.0.0", path = "../sz-orm-search", optional = true }
-sz-orm-rw = { version = "5.0.0", path = "../sz-orm-rw", optional = true }
-sz-orm-config = { version = "5.0.0", path = "../sz-orm-config", optional = true }
+sz-orm-graphql = { version = "5.1.0", path = "../sz-orm-graphql", optional = true }
+sz-orm-logger = { version = "5.1.0", path = "../sz-orm-logger", optional = true }
+sz-orm-postgis = { version = "5.1.0", path = "../sz-orm-postgis", optional = true }
+sz-orm-timeseries = { version = "5.1.0", path = "../sz-orm-timeseries", optional = true }
+sz-orm-search = { version = "5.1.0", path = "../sz-orm-search", optional = true }
+sz-orm-rw = { version = "5.1.0", path = "../sz-orm-rw", optional = true }
+sz-orm-config = { version = "5.1.0", path = "../sz-orm-config", optional = true }
 
 
 [dev-dependencies]

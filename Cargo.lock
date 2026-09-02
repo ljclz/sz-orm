@@ -7835,7 +7835,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-core"
-version = "5.0.0"
+version = "5.1.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -8151,7 +8151,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-macros"
-version = "5.0.0"
+version = "5.1.0"
 dependencies = [
  "proc-macro2 1.0.107",
  "quote 1.0.47",

@@ -20,11 +20,11 @@ query-intelligence-loop = ["query-advisor", "dep:sz-orm-flamegraph", "dep:sz-orm
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-sz-orm-explain = { path = "../sz-orm-explain", version = "5.0.0", optional = true }
-sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "5.0.0", optional = true }
-sz-orm-ai = { path = "../sz-orm-ai", version = "5.0.0", optional = true }
-sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "5.0.0", optional = true }
-sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "5.0.0", optional = true }
+sz-orm-explain = { path = "../sz-orm-explain", version = "5.1.0", optional = true }
+sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "5.1.0", optional = true }
+sz-orm-ai = { path = "../sz-orm-ai", version = "5.1.0", optional = true }
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "5.1.0", optional = true }
+sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "5.1.0", optional = true }
 
 [lints]
 workspace = true

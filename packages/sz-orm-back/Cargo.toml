@@ -24,7 +24,7 @@ flate2 = "1.0"
 sha2 = "0.10"
 # 楂樼骇澶囦唤鍔熻兘鎵€闇€锛歾std 鍘嬬缉 + AES-GCM 鍔犲瘑锛堝鐢?sz-orm-crypto锛?
 zstd = "0.13"
-sz-orm-crypto = { version = "5.0.0", path = "../sz-orm-crypto" }
+sz-orm-crypto = { version = "5.1.0", path = "../sz-orm-crypto" }
 
 [features]
 default = []

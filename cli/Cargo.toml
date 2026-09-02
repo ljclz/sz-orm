@@ -15,29 +15,29 @@ name = "sz_orm_cli"
 path = "src/lib.rs"
 
 [dependencies]
-sz-orm-core = { version = "5.0.0", path = "../packages/sz-orm-core", features = [
+sz-orm-core = { version = "5.1.0", path = "../packages/sz-orm-core", features = [
     "dist-cache", "l1-cache", "connection-level-tenant",
     "forward-compat-sandbox", "zero-downtime-rollback",
     "tenant-quota-rls-enhanced", "multi-tenant-enhanced",
 ] }
 sz-orm-sql-validator = { version = "5.0.0", path = "../packages/sz-orm-sql-validator" }
-sz-orm-sqlx = { version = "5.0.0", path = "../packages/sz-orm-sqlx" }
-sz-orm-designer = { version = "5.0.0", path = "../packages/sz-orm-designer", optional = true }
-sz-orm-swagger = { version = "5.0.0", path = "../packages/sz-orm-swagger", optional = true }
+sz-orm-sqlx = { version = "5.1.0", path = "../packages/sz-orm-sqlx" }
+sz-orm-designer = { version = "5.1.0", path = "../packages/sz-orm-designer", optional = true }
+sz-orm-swagger = { version = "5.1.0", path = "../packages/sz-orm-swagger", optional = true }
 sz-orm-n1-lint = { version = "5.0.0", path = "../packages/sz-orm-n1-lint", optional = true }
-sz-orm-observability = { version = "5.0.0", path = "../packages/sz-orm-observability", features = ["anomaly-detection", "anomaly-remediation-rca"] }
-sz-orm-storage = { version = "5.0.0", path = "../packages/sz-orm-storage", features = ["cost-analysis", "multicloud-cost-forecast"] }
-sz-orm-batch = { version = "5.0.0", path = "../packages/sz-orm-batch", features = ["batch-v2", "batch-atomic", "copy-parallel-shard"] }
-sz-orm-queue = { version = "5.0.0", path = "../packages/sz-orm-queue", features = ["dlx-auto-redelivery", "delayed-priority-queue"] }
-sz-orm-dtx = { version = "5.0.0", path = "../packages/sz-orm-dtx", optional = true }
-sz-orm-advisor = { version = "5.0.0", path = "../packages/sz-orm-advisor", optional = true }
-sz-orm-stream = { version = "5.0.0", path = "../packages/sz-orm-stream", optional = true }
-sz-orm-parallel = { version = "5.0.0", path = "../packages/sz-orm-parallel", optional = true }
-sz-orm-flamegraph = { version = "5.0.0", path = "../packages/sz-orm-flamegraph", optional = true }
-sz-orm-ai = { version = "5.0.0", path = "../packages/sz-orm-ai", optional = true }
-sz-orm-vector = { version = "5.0.0", path = "../packages/sz-orm-vector", optional = true }
-sz-orm-back = { version = "5.0.0", path = "../packages/sz-orm-back", optional = true }
-sz-orm-mig = { version = "5.0.0", path = "../packages/sz-orm-mig", optional = true }
+sz-orm-observability = { version = "5.1.0", path = "../packages/sz-orm-observability", features = ["anomaly-detection", "anomaly-remediation-rca"] }
+sz-orm-storage = { version = "5.1.0", path = "../packages/sz-orm-storage", features = ["cost-analysis", "multicloud-cost-forecast"] }
+sz-orm-batch = { version = "5.1.0", path = "../packages/sz-orm-batch", features = ["batch-v2", "batch-atomic", "copy-parallel-shard"] }
+sz-orm-queue = { version = "5.1.0", path = "../packages/sz-orm-queue", features = ["dlx-auto-redelivery", "delayed-priority-queue"] }
+sz-orm-dtx = { version = "5.1.0", path = "../packages/sz-orm-dtx", optional = true }
+sz-orm-advisor = { version = "5.1.0", path = "../packages/sz-orm-advisor", optional = true }
+sz-orm-stream = { version = "5.1.0", path = "../packages/sz-orm-stream", optional = true }
+sz-orm-parallel = { version = "5.1.0", path = "../packages/sz-orm-parallel", optional = true }
+sz-orm-flamegraph = { version = "5.1.0", path = "../packages/sz-orm-flamegraph", optional = true }
+sz-orm-ai = { version = "5.1.0", path = "../packages/sz-orm-ai", optional = true }
+sz-orm-vector = { version = "5.1.0", path = "../packages/sz-orm-vector", optional = true }
+sz-orm-back = { version = "5.1.0", path = "../packages/sz-orm-back", optional = true }
+sz-orm-mig = { version = "5.1.0", path = "../packages/sz-orm-mig", optional = true }
 tokio = { workspace = true, features = ["full"] }
 async-trait = "0.1"
 chrono = { workspace = true }
