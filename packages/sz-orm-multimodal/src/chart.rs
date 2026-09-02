@@ -1,5 +1,4 @@
-//! 图表自动生成（TASK-014 占位）
-#![allow(dead_code)]
+//! 图表自动生成（TASK-014）
 
 use crate::types::{ChartSpec, MultimodalError};
 

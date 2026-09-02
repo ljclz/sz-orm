@@ -45,3 +45,23 @@ required-features = ["governance-lineage"]
 name = "compliance_audit"
 path = "tests/compliance_audit.rs"
 required-features = ["governance-compliance"]
+
+[[test]]
+name = "quality_rule"
+path = "tests/quality_rule.rs"
+required-features = ["governance"]
+
+[[test]]
+name = "masking_recommend"
+path = "tests/masking_recommend.rs"
+required-features = ["governance"]
+
+[[test]]
+name = "data_catalog"
+path = "tests/data_catalog.rs"
+required-features = ["governance"]
+
+[[test]]
+name = "lineage_change"
+path = "tests/lineage_change.rs"
+required-features = ["governance-lineage"]

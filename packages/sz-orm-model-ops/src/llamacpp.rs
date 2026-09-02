@@ -1,5 +1,4 @@
-//! llama.cpp 推理后端（TASK-010 占位）
-#![allow(dead_code)]
+//! llama.cpp 推理后端（TASK-010）
 
 use crate::types::ModelOpsError;
 

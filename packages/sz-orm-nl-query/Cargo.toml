@@ -43,3 +43,28 @@ required-features = ["nl-query"]
 name = "sandbox"
 path = "tests/sandbox.rs"
 required-features = ["nl-query-sandbox"]
+
+[[test]]
+name = "visualizer"
+path = "tests/visualizer.rs"
+required-features = ["nl-query-visualizer"]
+
+[[test]]
+name = "insight"
+path = "tests/insight.rs"
+required-features = ["nl-query"]
+
+[[test]]
+name = "sql_explainer"
+path = "tests/sql_explainer.rs"
+required-features = ["nl-query"]
+
+[[test]]
+name = "refine"
+path = "tests/refine.rs"
+required-features = ["nl-query"]
+
+[[test]]
+name = "history_learner"
+path = "tests/history_learner.rs"
+required-features = ["nl-query"]

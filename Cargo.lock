@@ -7657,6 +7657,7 @@ version = "5.1.0"
 dependencies = [
  "async-trait",
  "chrono",
+ "futures 0.3.33",
  "parking_lot",
  "serde",
  "serde_json",

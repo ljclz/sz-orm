@@ -1,5 +1,4 @@
-//! 模型路由策略（TASK-011 占位）
-#![allow(dead_code)]
+//! 模型路由策略（TASK-011）
 
 use crate::types::{ModelOpsError, ModelRouterConfig};
 

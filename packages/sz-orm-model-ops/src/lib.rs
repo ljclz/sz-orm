@@ -1,7 +1,11 @@
 //! AI model operations: local inference, routing, finetuning, evaluation.
 
-#![cfg_attr(not(feature = "model-ops"), allow(unused_imports))]
-
+#[cfg(feature = "model-ops")]
+pub mod ab_test;
+#[cfg(feature = "model-ops")]
+pub mod evaluator;
+#[cfg(feature = "model-ops")]
+pub mod inference_opt;
 #[cfg(feature = "model-ops-llamacpp")]
 pub mod llamacpp;
 #[cfg(feature = "model-ops-router")]

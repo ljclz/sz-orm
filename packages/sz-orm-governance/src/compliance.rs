@@ -1,5 +1,4 @@
-//! 合规审计报告生成（TASK-007 占位，后续实现）
-#![allow(dead_code)]
+//! 合规审计报告生成（TASK-007）
 
 use crate::types::{GovernanceError, Regulation, RiskLevel};
 use serde::{Deserialize, Serialize};

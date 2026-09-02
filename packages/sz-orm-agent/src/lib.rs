@@ -12,13 +12,21 @@ pub mod approval;
 #[cfg(feature = "agent")]
 pub mod checkpoint;
 #[cfg(feature = "agent")]
+pub mod fallback;
+#[cfg(feature = "agent")]
 pub mod perception;
 #[cfg(feature = "agent")]
 pub mod permission;
 #[cfg(feature = "agent")]
+pub mod planner;
+#[cfg(feature = "agent")]
 pub mod tool;
 #[cfg(feature = "agent")]
+pub mod tracing;
+#[cfg(feature = "agent")]
 pub mod types;
+#[cfg(feature = "agent")]
+pub mod workflow;
 
 #[cfg(feature = "agent")]
 pub use agent::{AgentDriver, DatabaseAgent};
@@ -27,10 +35,16 @@ pub use approval::{ApprovalDecision, ApprovalGate, ApprovalRequest};
 #[cfg(feature = "agent")]
 pub use checkpoint::{Checkpoint, CheckpointManager, CheckpointStore};
 #[cfg(feature = "agent")]
+pub use fallback::{LlmFallbackManager, RuleBasedFallbackPlanner};
+#[cfg(feature = "agent")]
 pub use perception::PerceptionCollector;
 #[cfg(feature = "agent")]
 pub use permission::{PermissionBoundary, ToolPermissionGuard};
 #[cfg(feature = "agent")]
 pub use tool::{AgentTool, AuditLog, RiskLevel, ToolRegistry};
 #[cfg(feature = "agent")]
+pub use tracing::{DecisionTrace, DecisionTracer};
+#[cfg(feature = "agent")]
 pub use types::*;
+#[cfg(feature = "agent")]
+pub use workflow::{WorkflowOrchestrator, WorkflowResult, WorkflowTask};

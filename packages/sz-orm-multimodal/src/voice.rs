@@ -1,5 +1,4 @@
-//! 语音输入查询（TASK-013 占位）
-#![allow(dead_code)]
+//! 语音输入查询（TASK-013）
 
 use crate::types::MultimodalError;
 

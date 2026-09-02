@@ -45,3 +45,28 @@ required-features = ["multimodal-voice"]
 name = "chart_generator"
 path = "tests/chart_generator.rs"
 required-features = ["multimodal"]
+
+[[test]]
+name = "er_diagram"
+path = "tests/er_diagram.rs"
+required-features = ["multimodal-er"]
+
+[[test]]
+name = "dialog"
+path = "tests/dialog.rs"
+required-features = ["multimodal"]
+
+[[test]]
+name = "fallback"
+path = "tests/fallback.rs"
+required-features = ["multimodal"]
+
+[[test]]
+name = "screenshot"
+path = "tests/screenshot.rs"
+required-features = ["multimodal-vision"]
+
+[[test]]
+name = "sketch"
+path = "tests/sketch.rs"
+required-features = ["multimodal-vision"]

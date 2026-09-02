@@ -55,3 +55,18 @@ required-features = ["model-ops-router"]
 name = "finetune_dataset"
 path = "tests/finetune_dataset.rs"
 required-features = ["model-ops"]
+
+[[test]]
+name = "inference_opt"
+path = "tests/inference_opt.rs"
+required-features = ["model-ops"]
+
+[[test]]
+name = "evaluator"
+path = "tests/evaluator.rs"
+required-features = ["model-ops"]
+
+[[test]]
+name = "ab_test"
+path = "tests/ab_test.rs"
+required-features = ["model-ops"]
