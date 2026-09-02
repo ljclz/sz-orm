@@ -70,7 +70,7 @@ impl Nl2SqlEvaluator {
                         exec_matches += 1;
                     } else {
                         let expected_results = &sample.expected_results;
-                        let generated_results = Self::execute_stub(&generated_sql);
+                        let generated_results = Self::execute_simulated(&generated_sql);
 
                         if generated_results == *expected_results {
                             exec_matches += 1;
@@ -132,8 +132,11 @@ impl Nl2SqlEvaluator {
             .to_lowercase()
     }
 
-    /// 模拟 SQL 执行（实际应连接数据库）
-    fn execute_stub(sql: &str) -> serde_json::Value {
+    /// 模拟 SQL 执行（演示用，rows 恒空）
+    ///
+    /// **注意**：此方法为评估框架的模拟执行，不连接真实数据库。
+    /// 生产环境应注入真实执行函数以评估执行准确率。
+    fn execute_simulated(sql: &str) -> serde_json::Value {
         serde_json::json!({"sql": sql, "rows": []})
     }
 

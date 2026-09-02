@@ -68,6 +68,10 @@ impl ScreenshotAnalyzer {
         }
     }
 
+    /// 检测截图中的表名（演示用伪检测）
+    ///
+    /// **注意**：基于数据哈希取模选择表名，非真实 OCR。
+    /// 生产环境应接入 OCR/CV 服务（如 Tesseract、PaddleOCR）。
     fn detect_tables(&self, image_data: &[u8]) -> Vec<String> {
         let mut tables = Vec::new();
         let hash = image_data

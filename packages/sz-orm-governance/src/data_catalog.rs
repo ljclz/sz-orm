@@ -35,7 +35,7 @@ impl DataCatalogBuilder {
                 name: name.to_string(),
                 data_type: dtype.to_string(),
                 business_meaning: Self::infer_meaning(name),
-                quality_score: 0.85,
+                quality_score: Self::infer_quality(name, dtype),
             })
             .collect();
 
@@ -66,6 +66,25 @@ impl DataCatalogBuilder {
             "金额".to_string()
         } else {
             "业务字段".to_string()
+        }
+    }
+
+    /// 基于列名和数据类型推断质量分
+    ///
+    /// 主键/标识列: 0.95（高置信）
+    /// 时间戳列: 0.90（通常完整）
+    /// 非空列: 0.85
+    /// 可空列: 0.75
+    fn infer_quality(field: &str, dtype: &str) -> f64 {
+        let f = field.to_lowercase();
+        if f.contains("id") || f == "id" {
+            0.95
+        } else if f.contains("time") || f.contains("date") {
+            0.90
+        } else if dtype.to_uppercase().contains("NOT NULL") {
+            0.85
+        } else {
+            0.75
         }
     }
 }

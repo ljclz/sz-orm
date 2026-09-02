@@ -69,6 +69,12 @@ impl NlQueryPipeline {
         }
     }
 
+    /// 执行 NL 查询
+    ///
+    /// 规则型 NL2SQL 生成 SQL，返回查询响应。
+    /// **注意**：当前未接入数据库执行，`rows` 为空数组，
+    /// `visualization` 和 `insight` 为 None。
+    /// 生产环境应通过 `Nl2SqlEngine` 接入 LLM + 数据库执行。
     pub async fn query(&self, nl: &str) -> Result<NlQueryResponse, NlQueryError> {
         let sql = Self::nl2sql_rule_based(nl)?;
         Ok(NlQueryResponse {

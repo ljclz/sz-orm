@@ -24,9 +24,14 @@ fn test_build_catalog_with_business_meaning() {
 #[test]
 fn test_quality_score_is_average() {
     let builder = DataCatalogBuilder::new();
-    let catalog = builder.build("test_table", &[("a", "INT"), ("b", "INT"), ("c", "INT")]);
+    let catalog = builder.build(
+        "test_table",
+        &[("id", "BIGINT"), ("name", "VARCHAR"), ("data", "INT")],
+    );
+    // id: 0.95, name: 0.75, data: 0.75 → avg = 0.8166...
+    let expected = (0.95 + 0.75 + 0.75) / 3.0;
     assert!(
-        (catalog.quality_score - 0.85).abs() < 1e-10,
+        (catalog.quality_score - expected).abs() < 1e-10,
         "质量分数应为列分数平均值: {}",
         catalog.quality_score
     );

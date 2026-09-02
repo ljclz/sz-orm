@@ -24,6 +24,9 @@ pub struct CheckpointStore {
 }
 
 impl CheckpointStore {
+    /// 默认最大步数
+    pub const DEFAULT_MAX_STEPS: usize = 20;
+
     pub fn new() -> Self {
         Self {
             checkpoints: Mutex::new(HashMap::new()),
@@ -68,7 +71,20 @@ impl CheckpointStore {
     }
 
     /// 从检查点恢复任务
+    ///
+    /// `max_steps` 默认为 `DEFAULT_MAX_STEPS`（20），
+    /// 可通过 `resume_task_with_limit` 指定。
     pub async fn resume_task(&self, task_id: &str) -> Result<TaskHandle, AgentError> {
+        self.resume_task_with_limit(task_id, Self::DEFAULT_MAX_STEPS)
+            .await
+    }
+
+    /// 从检查点恢复任务，指定最大步数
+    pub async fn resume_task_with_limit(
+        &self,
+        task_id: &str,
+        max_steps: usize,
+    ) -> Result<TaskHandle, AgentError> {
         let checkpoint = self
             .load(task_id)
             .await?
@@ -78,7 +94,7 @@ impl CheckpointStore {
             task_id: checkpoint.task_id,
             status: checkpoint.status,
             steps_completed: checkpoint.step_number,
-            max_steps: 20,
+            max_steps,
         })
     }
 

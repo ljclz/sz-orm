@@ -124,6 +124,10 @@ impl SketchToSql {
         self.to_sql(&recognition)
     }
 
+    /// 检测草图中的形状（演示用伪检测）
+    ///
+    /// **注意**：基于数据哈希取模选择形状，非真实草图识别。
+    /// 生产环境应接入 CV 服务（如 OpenCV、MediaPipe）。
     fn detect_shapes(&self, data: &[u8]) -> Vec<Shape> {
         let hash = data.iter().fold(0u64, |acc, b| acc.wrapping_add(*b as u64));
 
