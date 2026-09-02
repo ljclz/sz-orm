@@ -1,7 +1,7 @@
 //! TASK-035 集成测试：草图转 SQL 端到端验证
 
 use sz_orm_multimodal::sketch::{
-    Shape, ShapeType, SketchRecognition, SketchSchema, SketchTable, SketchToSql,
+    ShapeType, SketchRecognition, SketchSchema, SketchTable, SketchToSql,
 };
 
 #[test]

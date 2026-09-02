@@ -6,7 +6,6 @@ use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::{HashMap, HashSet};
 
-
 /// 权限边界配置
 #[derive(Debug, Clone)]
 pub struct PermissionBoundary {

@@ -71,7 +71,7 @@ fn test_different_images_different_tables() {
     let result2 = analyzer.analyze(&[4, 5, 6]).unwrap();
     let result3 = analyzer.analyze(&[7, 8, 9]).unwrap();
 
-    let all_tables: Vec<_> = vec![&result1, &result2, &result3]
+    let all_tables: Vec<_> = [&result1, &result2, &result3]
         .iter()
         .flat_map(|r| r.detected_tables.iter())
         .collect();

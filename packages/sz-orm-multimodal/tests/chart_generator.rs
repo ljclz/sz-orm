@@ -1,7 +1,6 @@
 //! TASK-014 验证测试：图表自动生成
 
 use sz_orm_multimodal::chart::ChartGenerator;
-use sz_orm_multimodal::types::ChartSpec;
 
 #[test]
 fn test_chart_generator_default() {
@@ -13,7 +12,7 @@ fn test_chart_generator_default() {
 
 #[test]
 fn test_chart_generator_fallback_table() {
-    let generator = ChartGenerator::default();
+    let generator = ChartGenerator;
     let data = serde_json::json!([]);
     let spec = generator.generate(&data).unwrap();
     assert_eq!(spec.chart_type, "table", "空数据降级为表格");

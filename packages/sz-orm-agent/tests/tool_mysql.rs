@@ -5,12 +5,12 @@
 //! 通过环境变量 SZ_ORM_MYSQL_DSN 指定 DSN，未设置时跳过。
 
 use async_trait::async_trait;
+use std::collections::HashMap;
+use std::sync::Arc;
 use sz_orm_agent::tool::{AgentTool, QueryExecutionTool, SqlExecutor, ToolRegistry};
 use sz_orm_agent::types::AgentError;
 use sz_orm_sqlx::any_driver::AnyPool;
 use sz_orm_sqlx::sz_orm_core::Connection;
-use std::collections::HashMap;
-use std::sync::Arc;
 
 /// MySQL SQL 执行器：通过 sz-orm-sqlx AnyPool 执行 SQL
 struct MysqlExecutor {
@@ -106,10 +106,7 @@ async fn test_tool_registry_with_executor() {
 #[tokio::test]
 async fn test_query_execution_tool_without_executor_returns_sql() {
     let tool = QueryExecutionTool::new();
-    let params = HashMap::from([(
-        "sql".to_string(),
-        "SELECT 1".to_string(),
-    )]);
+    let params = HashMap::from([("sql".to_string(), "SELECT 1".to_string())]);
     let result = tool.execute(&params).await.unwrap();
     assert_eq!(result, "SELECT 1", "未注入执行器时应返回 SQL 字符串");
 }

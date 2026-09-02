@@ -3,6 +3,70 @@
 use crate::types::MultimodalError;
 use serde::{Deserialize, Serialize};
 
+/// OCR 服务响应
+#[derive(Debug, Clone, Deserialize)]
+struct OcrResponse {
+    tables: Vec<String>,
+    #[allow(dead_code)]
+    confidence: f64,
+}
+
+/// OCR HTTP 客户端（接入真实 OCR/CV 服务）
+pub struct OcrClient {
+    client: reqwest::Client,
+    endpoint: String,
+}
+
+impl OcrClient {
+    pub fn new(endpoint: &str) -> Self {
+        Self {
+            client: reqwest::Client::new(),
+            endpoint: endpoint.to_string(),
+        }
+    }
+
+    async fn recognize(&self, image_data: &[u8]) -> Result<OcrResponse, MultimodalError> {
+        let base64 = base64_encode(image_data);
+        let body = serde_json::json!({ "image": base64 });
+
+        let resp = self
+            .client
+            .post(&self.endpoint)
+            .json(&body)
+            .send()
+            .await
+            .map_err(|_e| MultimodalError::ScreenshotRecognizeFailed)?;
+
+        resp.json::<OcrResponse>()
+            .await
+            .map_err(|_e| MultimodalError::ScreenshotRecognizeFailed)
+    }
+}
+
+fn base64_encode(data: &[u8]) -> String {
+    const CHARS: &[u8] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut result = String::with_capacity(data.len().div_ceil(3) * 4);
+    for chunk in data.chunks(3) {
+        let b0 = chunk[0] as u32;
+        let b1 = if chunk.len() > 1 { chunk[1] as u32 } else { 0 };
+        let b2 = if chunk.len() > 2 { chunk[2] as u32 } else { 0 };
+        let n = (b0 << 16) | (b1 << 8) | b2;
+        result.push(CHARS[((n >> 18) & 63) as usize] as char);
+        result.push(CHARS[((n >> 12) & 63) as usize] as char);
+        if chunk.len() > 1 {
+            result.push(CHARS[((n >> 6) & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+        if chunk.len() > 2 {
+            result.push(CHARS[(n & 63) as usize] as char);
+        } else {
+            result.push('=');
+        }
+    }
+    result
+}
+
 /// 截图分析结果
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ScreenshotAnalysis {
@@ -24,20 +88,65 @@ pub struct DetectedColumn {
 /// 截图分析器
 pub struct ScreenshotAnalyzer {
     min_confidence: f64,
+    ocr: Option<OcrClient>,
 }
 
 impl ScreenshotAnalyzer {
     pub fn new(min_confidence: f64) -> Self {
-        Self { min_confidence }
+        Self {
+            min_confidence,
+            ocr: None,
+        }
     }
 
-    /// 分析截图（模拟 OCR + 表结构识别）
+    /// 注入 OCR 服务端点（如 "http://localhost:8080/ocr"）
+    pub fn with_ocr_endpoint(mut self, endpoint: &str) -> Self {
+        self.ocr = Some(OcrClient::new(endpoint));
+        self
+    }
+
+    /// 分析截图（同步伪检测模式）
     pub fn analyze(&self, image_data: &[u8]) -> Result<ScreenshotAnalysis, MultimodalError> {
         if image_data.is_empty() {
             return Err(MultimodalError::ScreenshotRecognizeFailed);
         }
 
         let detected_tables = self.detect_tables(image_data);
+        let detected_columns = self.detect_columns(&detected_tables);
+        let inferred_query = self.infer_query(&detected_tables, &detected_columns);
+        let confidence = self.compute_confidence(&detected_tables, &detected_columns);
+
+        if confidence < self.min_confidence {
+            return Err(MultimodalError::ScreenshotRecognizeFailed);
+        }
+
+        Ok(ScreenshotAnalysis {
+            detected_tables,
+            detected_columns,
+            inferred_query,
+            confidence,
+        })
+    }
+
+    /// 分析截图（异步真实 OCR 模式）
+    ///
+    /// 注入 OCR 端点时通过 HTTP 调用真实 OCR/CV 服务识别表结构。
+    /// 未注入时退回到同步伪检测。
+    pub async fn analyze_async(
+        &self,
+        image_data: &[u8],
+    ) -> Result<ScreenshotAnalysis, MultimodalError> {
+        if image_data.is_empty() {
+            return Err(MultimodalError::ScreenshotRecognizeFailed);
+        }
+
+        let detected_tables = if let Some(ocr) = &self.ocr {
+            let resp = ocr.recognize(image_data).await?;
+            resp.tables
+        } else {
+            self.detect_tables(image_data)
+        };
+
         let detected_columns = self.detect_columns(&detected_tables);
         let inferred_query = self.infer_query(&detected_tables, &detected_columns);
         let confidence = self.compute_confidence(&detected_tables, &detected_columns);
@@ -71,7 +180,7 @@ impl ScreenshotAnalyzer {
     /// 检测截图中的表名（演示用伪检测）
     ///
     /// **注意**：基于数据哈希取模选择表名，非真实 OCR。
-    /// 生产环境应接入 OCR/CV 服务（如 Tesseract、PaddleOCR）。
+    /// 生产环境应通过 `with_ocr_endpoint` 注入 OCR 服务。
     fn detect_tables(&self, image_data: &[u8]) -> Vec<String> {
         let mut tables = Vec::new();
         let hash = image_data
@@ -171,7 +280,10 @@ impl ScreenshotAnalyzer {
 
 impl Default for ScreenshotAnalyzer {
     fn default() -> Self {
-        Self::new(0.5)
+        Self {
+            min_confidence: 0.5,
+            ocr: None,
+        }
     }
 }
 
@@ -228,5 +340,28 @@ mod tests {
         let analyzer = ScreenshotAnalyzer::new(0.99);
         let image_data = vec![1];
         assert!(analyzer.analyze(&image_data).is_err());
+    }
+
+    #[tokio::test]
+    async fn test_analyze_async_without_ocr() {
+        let analyzer = ScreenshotAnalyzer::default();
+        let image_data = vec![1, 2, 3, 4, 5];
+        let result = analyzer.analyze_async(&image_data).await.unwrap();
+        assert!(!result.detected_tables.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_analyze_async_empty_fails() {
+        let analyzer = ScreenshotAnalyzer::default();
+        assert!(analyzer.analyze_async(&[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_analyze_async_with_ocr_endpoint_unreachable() {
+        let analyzer = ScreenshotAnalyzer::default()
+            .with_ocr_endpoint("http://localhost:9999/ocr");
+        let image_data = vec![1, 2, 3];
+        // OCR 服务不可达时应返回错误
+        assert!(analyzer.analyze_async(&image_data).await.is_err());
     }
 }
