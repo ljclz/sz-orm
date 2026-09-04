@@ -112,6 +112,9 @@ mod tests {
 
         assert!(response.result.is_some());
         let result = response.result.unwrap();
-        assert!(result["content"][0]["text"].as_str().unwrap().contains("SELECT"));
+        assert!(result["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("SELECT"));
     }
 }
