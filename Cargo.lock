@@ -8196,7 +8196,7 @@ dependencies = [
  "quote 1.0.47",
  "serde_json",
  "sqlx",
- "syn 2.0.119",
+ "syn 3.0.3",
  "sz-orm-core",
  "sz-orm-explain",
  "sz-orm-n1-lint",
