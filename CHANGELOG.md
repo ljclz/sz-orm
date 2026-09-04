@@ -5,6 +5,33 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [6.0.1] — 2026-09-04
+
+### MCP stdio 传输层
+
+- `StdioTransport`：JSON-RPC over stdio 传输，可被 Claude/Cursor 等 AI 客户端直接调用（`packages/sz-orm-mcp/src/stdio.rs`）
+- 4 测试通过（传输层创建 + 有效请求 + 无效 JSON + nl_query 调用）
+
+### sz-pay MCP 接入验证
+
+- sz-pay 添加 `ai-mcp` feature gate + `sz-orm-mcp` 依赖
+- 8 测试通过（MCP server 创建 + tools/list + nl_query + stdio 传输层）
+- 版本声明升级 5.x→6.0.0（path 依赖对齐 workspace）
+
+### AI 7 包 MySQL e2e 补齐
+
+| 包 | 测试文件 | 测试数 | 验证内容 |
+|----|----------|--------|----------|
+| sz-orm-ai | `tests/nl2sql_mysql_e2e.rs` | 2 | NL→SQL→MySQL 执行 + SQL 安全验证 |
+| sz-orm-governance | `tests/data_catalog_mysql.rs` | 2 | MySQL schema→数据目录 |
+| sz-orm-multimodal | `tests/er_diagram_mysql.rs` | 2 | MySQL schema→ER 图→DDL |
+| sz-orm-mcp | `tests/mcp_mysql_e2e.rs` | 2 | MCP 协议→nl_query→MySQL 执行 |
+
+### v6.2 SeaORM 2.0 对标
+
+- `docs/sz-orm-vs-seaorm-v6.md`：能力对照表
+- streaming/池指标可用性验证 3 测试通过
+
 ## [6.0.0] — 2026-09-02
 
 ### 新增 5 个 AI 方向包
