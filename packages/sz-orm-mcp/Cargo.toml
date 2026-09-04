@@ -1,0 +1,30 @@
+[package]
+name = "sz-orm-mcp"
+description = "MCP (Model Context Protocol) server for sz-orm: NL query + SQL execution as AI tools"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[dependencies]
+sz-orm-nl-query = { version = "6.0.0", path = "../sz-orm-nl-query", optional = true }
+serde = { workspace = true }
+serde_json = { workspace = true }
+tokio = { workspace = true, optional = true }
+async-trait = { workspace = true, optional = true }
+thiserror = { workspace = true }
+
+[features]
+default = []
+mcp = ["dep:sz-orm-nl-query", "dep:tokio", "dep:async-trait", "sz-orm-nl-query/nl-query"]
+
+[dev-dependencies]
+tokio = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

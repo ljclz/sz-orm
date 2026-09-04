@@ -8213,6 +8213,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "sz-orm-mcp"
+version = "6.0.0"
+dependencies = [
+ "async-trait",
+ "serde",
+ "serde_json",
+ "sz-orm-nl-query",
+ "thiserror 2.0.19",
+ "tokio",
+]
+
+[[package]]
 name = "sz-orm-mig"
 version = "6.0.0"
 dependencies = [
