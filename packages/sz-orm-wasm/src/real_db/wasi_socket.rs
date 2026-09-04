@@ -85,11 +85,12 @@ impl WasiSocketConnection {
     ///
     /// `buf` 为接收缓冲区，返回实际接收到的字节数。
     /// 在非 WASI 环境中模拟空响应。
-    pub fn recv(&mut self, buf: &mut [u8]) -> Result<usize, WasmRealDbError> {
+    pub fn recv(&mut self, _buf: &mut [u8]) -> Result<usize, WasmRealDbError> {
         if !self.connected {
             return Err(WasmRealDbError::ProxyUnavailable);
         }
-        let len = buf.len().min(0);
+        // WASI 代理占位接收路径：当前固定返回 0 字节（buf 内容未消费）
+        let len = 0usize;
         self.bytes_received += len as u64;
         Ok(len)
     }

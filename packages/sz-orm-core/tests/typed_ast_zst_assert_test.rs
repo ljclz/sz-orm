@@ -5,7 +5,6 @@
 
 #![cfg(feature = "typed-dsl")]
 
-use sz_orm_core::dialect::MySqlDialect;
 use sz_orm_core::typed::{TypedColumn, TypedTable};
 use sz_orm_core::typed_ast::*;
 

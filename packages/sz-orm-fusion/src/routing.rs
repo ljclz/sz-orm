@@ -7,7 +7,7 @@ use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, RwLock};
 
-use crate::health_check::{HealthChecker, HealthStatus};
+use crate::health_check::HealthChecker;
 
 /// 查询类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]

@@ -187,7 +187,7 @@ impl HealthChecker {
             if result.latency_ms > 0 {
                 record.avg_latency_ms = if record.total_checks > 0 {
                     (record.avg_latency_ms * (record.total_checks - 1) + result.latency_ms)
-                        / record.total_checks
+                        .div_ceil(record.total_checks)
                 } else {
                     result.latency_ms
                 };
@@ -217,7 +217,7 @@ impl HealthChecker {
                 let result = HealthCheckResult {
                     source: source.to_string(),
                     status,
-                    latency_ms: latency_ms,
+                    latency_ms,
                     message: String::new(),
                     timestamp_ms: now_ms(),
                 };

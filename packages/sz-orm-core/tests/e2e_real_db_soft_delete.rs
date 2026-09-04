@@ -4,8 +4,6 @@
 
 #![cfg(feature = "e2e-real-db")]
 
-use sqlx::Row;
-
 mod common;
 
 use common::cleanup::unique_table_name;

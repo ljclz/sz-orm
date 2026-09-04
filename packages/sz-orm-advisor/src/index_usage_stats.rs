@@ -226,7 +226,7 @@ impl IndexUsageStats {
     #[must_use]
     pub fn hot_indexes(&self, limit: usize) -> Vec<&IndexStats> {
         let mut indexes: Vec<&IndexStats> = self.stats.values().collect();
-        indexes.sort_by(|a, b| b.read_count.cmp(&a.read_count));
+        indexes.sort_by_key(|i| std::cmp::Reverse(i.read_count));
         indexes.into_iter().take(limit).collect()
     }
 

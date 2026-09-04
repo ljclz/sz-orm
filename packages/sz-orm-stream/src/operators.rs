@@ -466,7 +466,7 @@ impl StreamSorter {
     }
 
     /// 对一批数据排序
-    pub fn sort(&self, rows: &mut Vec<Value>) {
+    pub fn sort(&self, rows: &mut [Value]) {
         let field = self.field.clone();
         match self.direction {
             SortDirection::Asc => rows.sort_by(|a, b| {

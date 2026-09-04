@@ -494,7 +494,7 @@ mod tests {
 
         let participants = vec![make_participant("A"), make_participant("B")];
         let coordinator = CrossLangRecoveryCoordinator::new(
-            log_store,
+            log_store.clone(),
             participants,
             handler as Arc<dyn RemoteCallHandler>,
         );

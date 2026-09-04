@@ -13,7 +13,8 @@
 use crate::error::MqError;
 use crate::queue::{Message, MessageQueue};
 use async_trait::async_trait;
-use pulsar::{producer, Consumer, DeserializeMessage, MessageId, Pulsar, SubType, TokioExecutor};
+use pulsar::message::proto::MessageIdData;
+use pulsar::{producer, Consumer, DeserializeMessage, Pulsar, SubType, TokioExecutor};
 use std::collections::HashMap;
 use std::sync::Arc;
 use tokio::sync::{Mutex, RwLock};
@@ -24,8 +25,8 @@ pub struct RealPulsarQueue {
     pulsar: Option<Arc<Pulsar<TokioExecutor>>>,
     producer: Option<Arc<producer::Producer<TokioExecutor>>>,
     consumers: Arc<RwLock<HashMap<String, Arc<Mutex<Consumer<BytesMessage, TokioExecutor>>>>>>,
-    /// H-5 修复：message_id → (topic, MessageId) 映射，用于 ack 时定位 consumer
-    pending_acks: Arc<RwLock<HashMap<String, (String, MessageId)>>>,
+    /// H-5 修复：message_id → (topic, MessageIdData) 映射，用于 ack 时定位 consumer
+    pending_acks: Arc<RwLock<HashMap<String, (String, MessageIdData)>>>,
 }
 
 impl RealPulsarQueue {
@@ -77,13 +78,14 @@ impl Default for RealPulsarQueue {
     }
 }
 
-/// Pulsar 消息包装（用于反序列化）
+/// Pulsar 消息包装（用于反序列化，data 仅经 payload.data 消费）
+#[allow(dead_code)]
 struct BytesMessage(Vec<u8>);
 
 impl DeserializeMessage for BytesMessage {
     type Output = Result<BytesMessage, pulsar::Error>;
-    fn deserialize_message(payload: &pulsar::proto::Message) -> Self::Output {
-        Ok(BytesMessage(payload.payload.clone()))
+    fn deserialize_message(payload: &pulsar::Payload) -> Self::Output {
+        Ok(BytesMessage(payload.data.clone()))
     }
 }
 
@@ -156,8 +158,8 @@ impl MessageQueue for RealPulsarQueue {
         use futures::StreamExt;
         match tokio::time::timeout(std::time::Duration::from_millis(100), consumer.next()).await {
             Ok(Some(Ok(msg))) => {
-                let payload = msg.payload.0.clone();
-                let pulsar_msg_id = msg.message_id();
+                let payload = msg.payload.data.clone();
+                let pulsar_msg_id = msg.message_id().clone();
                 let msg_id_str = format!("{:?}", pulsar_msg_id);
                 // H-5 修复：暂存 message_id 用于后续 ack
                 self.pending_acks
@@ -171,6 +173,7 @@ impl MessageQueue for RealPulsarQueue {
                     timestamp: current_timestamp_millis(),
                     headers: HashMap::new(),
                     id: msg_id_str,
+                    retry_count: 0,
                 };
                 Ok(Some(message))
             }
@@ -205,7 +208,7 @@ impl MessageQueue for RealPulsarQueue {
 
         let mut consumer = consumer_arc.lock().await;
         consumer
-            .ack_with(pulsar_msg_id)
+            .ack_with_id(&topic, pulsar_msg_id)
             .await
             .map_err(|e| MqError::Publish(format!("Pulsar ack failed: {e}")))?;
         Ok(())

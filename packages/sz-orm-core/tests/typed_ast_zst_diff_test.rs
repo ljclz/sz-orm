@@ -4,7 +4,7 @@
 
 #![cfg(feature = "typed-dsl")]
 
-use sz_orm_core::dialect::{MySqlDialect, PostgreSqlDialect, SqlServerDialect};
+use sz_orm_core::dialect::{MySqlDialect, PostgreSqlDialect};
 use sz_orm_core::typed::{TypedColumn, TypedTable};
 use sz_orm_core::typed_ast::*;
 

@@ -91,7 +91,7 @@ impl ProdReadyConfig {
     }
 
     /// 从字符串解析配置
-    pub fn from_str(content: &str) -> Result<Self, ProdReadyError> {
+    pub fn parse_config(content: &str) -> Result<Self, ProdReadyError> {
         let config: ProdReadyConfig = toml::from_str(content)
             .map_err(|e| ProdReadyError::InvalidConfig(format!("TOML parse error: {}", e)))?;
         Ok(config)

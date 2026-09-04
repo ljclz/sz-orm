@@ -12,7 +12,7 @@
 //! - [`OptimizationReport`] / [`OptimizationSuggestion`] — 优化建议
 //! - [`BaselineComparison`] / [`ComparisonResult`] — 基线比较
 
-use crate::regression::{PlanBaseline, PlanRegression, PlanSnapshot};
+use crate::regression::{PlanBaseline, PlanRegression};
 use crate::{ExplainPlan, ScanType};
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
@@ -204,7 +204,7 @@ impl QueryPlanAnalyzer {
         }
 
         // 按严重度降序排列
-        issues.sort_by(|a, b| b.severity.cmp(&a.severity));
+        issues.sort_by_key(|i| std::cmp::Reverse(i.severity));
         issues
     }
 
@@ -310,18 +310,10 @@ impl IndexAdvice {
 }
 
 /// 索引建议器：基于 [`QueryPattern`] 生成 [`IndexAdvice`]。
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct IndexAdvisor {
     /// 已存在的索引（表名 → 索引列集合列表），用于避免重复建议。
     pub existing_indexes: HashMap<String, Vec<Vec<String>>>,
-}
-
-impl Default for IndexAdvisor {
-    fn default() -> Self {
-        Self {
-            existing_indexes: HashMap::new(),
-        }
-    }
 }
 
 impl IndexAdvisor {
@@ -676,7 +668,7 @@ impl CostEstimator {
     pub fn estimate(&self, plan: &ExplainPlan) -> CostEstimate {
         let rows = plan.rows as f64;
         let pages = if self.rows_per_page > 0 {
-            (plan.rows + self.rows_per_page - 1) / self.rows_per_page
+            plan.rows.div_ceil(self.rows_per_page)
         } else {
             plan.rows
         } as f64;
@@ -1324,6 +1316,8 @@ mod tests {
     }
 
     // ---- BaselineComparison (4 tests) ----
+
+    use crate::regression::PlanSnapshot;
 
     fn make_baseline(query_key: &str, p: ExplainPlan) -> PlanBaseline {
         let mut baseline = PlanBaseline::default();

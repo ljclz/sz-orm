@@ -1403,7 +1403,7 @@ impl PerformancePredictor {
         stat: &TableStatistics,
     ) -> Option<f64> {
         for col in &chars.where_columns {
-            let col_name = col.split('.').last().unwrap_or(col);
+            let col_name = col.split('.').next_back().unwrap_or(col);
             if let Some(&selectivity) = stat.index_selectivity.get(col_name) {
                 return Some(selectivity);
             }
@@ -1450,7 +1450,7 @@ impl PerformancePredictor {
     fn compute_cost_score(&self, estimated_ms: f64, rows: u64, uses_index: bool) -> f64 {
         let mut score = 0.0;
         score += (estimated_ms.ln_1p() * 5.0).min(50.0);
-        score += (rows as f64).log10().max(0.0).min(30.0);
+        score += (rows as f64).log10().clamp(0.0, 30.0);
         if !uses_index {
             score += 15.0;
         }

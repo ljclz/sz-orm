@@ -54,20 +54,29 @@ def find_cargo():
 def run_mutants(pkg, files, features):
     """运行 cargo-mutants（输出到 mutants.out），返回 (caught, missed, timeout)。"""
     out_dir = os.path.join(ROOT, "mutants.out")
-    cmd = [find_cargo(), "mutants", "-p", pkg, "-o", out_dir, "--in-place"]
+    # 测试串行（--test-threads=1）排除高负载下的计时敏感 flake，
+    # 否则 baseline 随机挂 1~5 个测试导致整轮失败（2026-09-03 审查实测）。
+    # 注意：--features/--file 是 mutants 自身参数必须在第一个 -- 之前；
+    # 第一个 -- 后的参数转交给内部 cargo test，第二个 -- 后的才是 test binary 参数
+    cmd = [
+        find_cargo(), "mutants", "-p", pkg, "-o", out_dir, "--in-place",
+    ]
     if features:
         cmd += ["--features", features]
     for f in files:
         cmd += ["--file", f]
+    cmd += ["--", "--", "--test-threads=1"]
     print("  $ " + " ".join(cmd))
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=5400)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=10800)
     # cargo-mutants 成功退出码为 0；变异体导致的测试失败不影响退出码
     def count(name):
-        p = os.path.join(out_dir, name)
-        if not os.path.isfile(p):
-            return 0
-        with open(p, encoding="utf-8", errors="replace") as fh:
-            return sum(1 for ln in fh if ln.strip())
+        # cargo-mutants 会在 -o 指定目录下再建一层 mutants.out 子目录
+        for cand in (os.path.join(out_dir, name),
+                     os.path.join(out_dir, "mutants.out", name)):
+            if os.path.isfile(cand):
+                with open(cand, encoding="utf-8", errors="replace") as fh:
+                    return sum(1 for ln in fh if ln.strip())
+        return 0
     caught = count("caught.txt")
     missed = count("missed.txt")
     timeout = count("timeout.txt")

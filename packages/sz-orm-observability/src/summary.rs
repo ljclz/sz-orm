@@ -373,7 +373,7 @@ impl PushgatewayExporter {
         // 真实 HTTP PUT 推送（仅 push-gateway feature 启用时）
         #[cfg(feature = "push-gateway")]
         {
-            return self.push_http(&text);
+            self.push_http(&text)
         }
 
         // 内存模式：直接返回成功

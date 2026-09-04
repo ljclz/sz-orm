@@ -1,7 +1,7 @@
 //! 路径 4：事务 benchmark（3 基准点）
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
 use std::sync::Arc;
-use sz_orm_core::{Connection, ConnectionFactory, Pool, PoolConfig};
+use sz_orm_core::{Connection, ConnectionFactory};
 
 mod helpers {
     use super::*;

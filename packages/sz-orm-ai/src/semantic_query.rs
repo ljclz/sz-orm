@@ -162,7 +162,7 @@ pub enum SemanticQueryError {
 
 /// 向量存储 trait
 #[async_trait::async_trait]
-pub trait VectorStore: Send + Sync {
+pub trait SemanticVectorStore: Send + Sync {
     /// 执行向量相似度查询
     async fn search(
         &self,
@@ -206,7 +206,7 @@ pub struct SemanticQueryRouter {
     /// NL2SQL 转换器
     nl2sql: Arc<dyn Nl2SqlConverter>,
     /// 向量存储（可选）
-    vector_store: Option<Arc<dyn VectorStore>>,
+    vector_store: Option<Arc<dyn SemanticVectorStore>>,
     /// 图谱执行器（可选）
     graph_executor: Option<Arc<dyn GraphQueryExecutor>>,
     /// AI Agent（可选）
@@ -225,7 +225,7 @@ impl SemanticQueryRouter {
     }
 
     /// 设置向量存储
-    pub fn with_vector_store(mut self, store: Arc<dyn VectorStore>) -> Self {
+    pub fn with_vector_store(mut self, store: Arc<dyn SemanticVectorStore>) -> Self {
         self.vector_store = Some(store);
         self
     }
@@ -518,12 +518,15 @@ fn extract_subject(task: &str) -> String {
 /// SQL 过滤后向量相似度排序（如"价格 < 100 且与'红色连衣裙'相似的商品"）。
 pub struct HybridQueryExecutor {
     nl2sql: Arc<dyn Nl2SqlConverter>,
-    vector_store: Arc<dyn VectorStore>,
+    vector_store: Arc<dyn SemanticVectorStore>,
 }
 
 impl HybridQueryExecutor {
     /// 创建混合查询执行器
-    pub fn new(nl2sql: Arc<dyn Nl2SqlConverter>, vector_store: Arc<dyn VectorStore>) -> Self {
+    pub fn new(
+        nl2sql: Arc<dyn Nl2SqlConverter>,
+        vector_store: Arc<dyn SemanticVectorStore>,
+    ) -> Self {
         Self {
             nl2sql,
             vector_store,

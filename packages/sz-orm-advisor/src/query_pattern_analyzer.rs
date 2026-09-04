@@ -330,7 +330,7 @@ impl QueryPatternAnalyzer {
     #[must_use]
     pub fn most_frequent_templates(&self, limit: usize) -> Vec<&QueryTemplate> {
         let mut templates: Vec<&QueryTemplate> = self.templates.values().collect();
-        templates.sort_by(|a, b| b.match_count.cmp(&a.match_count));
+        templates.sort_by_key(|t| std::cmp::Reverse(t.match_count));
         templates.into_iter().take(limit).collect()
     }
 
@@ -338,7 +338,7 @@ impl QueryPatternAnalyzer {
     #[must_use]
     pub fn most_expensive_templates(&self, limit: usize) -> Vec<&QueryTemplate> {
         let mut templates: Vec<&QueryTemplate> = self.templates.values().collect();
-        templates.sort_by(|a, b| b.total_elapsed_ms.cmp(&a.total_elapsed_ms));
+        templates.sort_by_key(|t| std::cmp::Reverse(t.total_elapsed_ms));
         templates.into_iter().take(limit).collect()
     }
 
@@ -352,7 +352,7 @@ impl QueryPatternAnalyzer {
             }
         }
         let mut tables: Vec<(String, u64)> = table_counts.into_iter().collect();
-        tables.sort_by(|a, b| b.1.cmp(&a.1));
+        tables.sort_by_key(|t| std::cmp::Reverse(t.1));
         tables
     }
 

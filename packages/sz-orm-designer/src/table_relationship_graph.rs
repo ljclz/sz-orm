@@ -218,10 +218,9 @@ impl TableRelationshipGraph {
         let mut visited = HashSet::new();
         let mut recursion_stack = HashSet::new();
         for table in &self.tables {
-            if !visited.contains(table) {
-                if self.dfs_cycle(table, &mut visited, &mut recursion_stack) {
-                    return true;
-                }
+            if !visited.contains(table) && self.dfs_cycle(table, &mut visited, &mut recursion_stack)
+            {
+                return true;
             }
         }
         false

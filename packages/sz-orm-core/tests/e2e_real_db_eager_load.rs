@@ -593,6 +593,7 @@ async fn test_n1_query_detector() {
     let detector = N1QueryDetector::new(N1DetectionConfig {
         threshold: 5,
         enabled: true,
+        ..Default::default()
     });
     detector.start_window();
 
@@ -626,6 +627,7 @@ async fn test_n1_query_detector_batch_ok() {
     let detector = N1QueryDetector::new(N1DetectionConfig {
         threshold: 5,
         enabled: true,
+        ..Default::default()
     });
     detector.start_window();
 

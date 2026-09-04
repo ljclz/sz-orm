@@ -18,7 +18,7 @@ use crate::error::MqError;
 use crate::queue::{Message, MessageQueue};
 use async_trait::async_trait;
 use rdkafka::config::{ClientConfig, RDKafkaLogLevel};
-use rdkafka::consumer::{CommitMode, StreamConsumer};
+use rdkafka::consumer::{CommitMode, Consumer, StreamConsumer};
 use rdkafka::message::Message as _;
 use rdkafka::producer::{FutureProducer, FutureRecord};
 use rdkafka::TopicPartitionList;
@@ -115,7 +115,7 @@ impl MessageQueue for RealKafkaQueue {
 
         let delivery = producer
             .send(
-                FutureRecord::to(topic).payload(message),
+                FutureRecord::<String, [u8]>::to(topic).payload(message),
                 std::time::Duration::from_secs(5),
             )
             .await;
@@ -153,6 +153,7 @@ impl MessageQueue for RealKafkaQueue {
                     timestamp: current_timestamp_millis(),
                     headers: HashMap::new(),
                     id: msg_id,
+                    retry_count: 0,
                 };
 
                 Ok(Some(message))

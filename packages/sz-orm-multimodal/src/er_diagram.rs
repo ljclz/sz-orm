@@ -203,15 +203,13 @@ impl ErDiagramInteractor {
             }
         }
 
-        if lower.contains("many-to-many") || lower.contains("多对多") {
-            if entities.len() >= 2 {
-                relationships.push(Relationship {
-                    from_entity: entities[0].name.clone(),
-                    to_entity: entities[1].name.clone(),
-                    from_cardinality: Cardinality::Many,
-                    to_cardinality: Cardinality::Many,
-                });
-            }
+        if (lower.contains("many-to-many") || lower.contains("多对多")) && entities.len() >= 2 {
+            relationships.push(Relationship {
+                from_entity: entities[0].name.clone(),
+                to_entity: entities[1].name.clone(),
+                from_cardinality: Cardinality::Many,
+                to_cardinality: Cardinality::Many,
+            });
         }
 
         relationships

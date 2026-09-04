@@ -1028,7 +1028,7 @@ fn cmd_seed_fixture(args: &[&str], config: &Option<CliConfig>) -> Result<(), Str
         }
     };
 
-    let allow_production = args.iter().any(|&a| a == "--allow-production");
+    let allow_production = args.contains(&"--allow-production");
 
     let templates = FixtureLoader::load_dir(&seeders_dir)
         .map_err(|e| format!("加载 fixture 目录 {} 失败: {}", seeders_dir, e))?;
@@ -2573,7 +2573,7 @@ fn cmd_vector(_args: &[&str]) -> Result<(), String> {
 
 #[cfg(feature = "backup")]
 fn cmd_backup(_args: &[&str]) -> Result<(), String> {
-    use sz_orm_back::{DegradationPolicy, DisasterRecoveryDrill, HealthStatus};
+    use sz_orm_back::{DegradationPolicy, DisasterRecoveryDrill};
     let drill = DisasterRecoveryDrill::new();
     let policy = DegradationPolicy::new();
     let _ = drill;

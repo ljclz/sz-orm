@@ -312,7 +312,7 @@ impl SlowQueryAnalyzer {
     #[must_use]
     pub fn top_slowest(&self, n: usize) -> Vec<&SlowQueryEntry> {
         let mut entries: Vec<&SlowQueryEntry> = self.entries.iter().collect();
-        entries.sort_by(|a, b| b.elapsed_ms.cmp(&a.elapsed_ms));
+        entries.sort_by_key(|e| std::cmp::Reverse(e.elapsed_ms));
         entries.into_iter().take(n).collect()
     }
 

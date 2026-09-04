@@ -1,7 +1,7 @@
 //! TASK-011 验证测试：模型路由策略
 
 use sz_orm_model_ops::router::ModelRouter;
-use sz_orm_model_ops::types::{ModelOpsError, ModelRouterConfig};
+use sz_orm_model_ops::types::ModelRouterConfig;
 
 #[test]
 fn test_route_simple_query() {

@@ -146,6 +146,8 @@ impl OptimizationSuggestion {
                 speedup_ratio: 1.0 + self.confidence * 10.0,
                 confidence: self.confidence as f32,
                 uncertain: self.confidence < 0.5,
+                write_overhead: 0.0,
+                storage_cost_mb: 0.0,
             },
             evidence: vec![QueryPattern {
                 sql_template: self.target_query.clone(),
@@ -176,6 +178,8 @@ impl OptimizationSuggestion {
                 speedup_ratio: 1.0 + self.confidence * 5.0,
                 confidence: self.confidence as f32,
                 uncertain: self.confidence < 0.5,
+                write_overhead: 0.0,
+                storage_cost_mb: 0.0,
             },
         })
     }

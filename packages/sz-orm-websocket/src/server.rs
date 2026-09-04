@@ -133,12 +133,14 @@ async fn handle_connection(
     let handler_cb = handler.clone();
 
     let ws_config = TungsteniteConfig::default()
-        .max_message_size(Some(1 * 1024 * 1024))
-        .max_frame_size(Some(1 * 1024 * 1024))
-        .max_write_buffer_size(1 * 1024 * 1024);
+        .max_message_size(Some(1024 * 1024))
+        .max_frame_size(Some(1024 * 1024))
+        .max_write_buffer_size(1024 * 1024);
 
     let ws_stream = accept_hdr_async_with_config(
         socket,
+        // Err 尺寸由 tokio-tungstenite 的 Response API 决定（136 字节），模块内无法缩减
+        #[allow(clippy::result_large_err)]
         move |req: &Request, mut resp: Response| {
             let token = req
                 .headers()

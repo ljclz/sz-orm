@@ -349,7 +349,7 @@ impl FailurePredictor {
                 AlertSeverity::Info => score -= 5.0,
             }
         }
-        score.max(0.0).min(100.0)
+        score.clamp(0.0, 100.0)
     }
 
     fn build_summary(

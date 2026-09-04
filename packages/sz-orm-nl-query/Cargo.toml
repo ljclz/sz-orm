@@ -11,8 +11,8 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-sz-orm-ai = { version = "5.1.0", path = "../sz-orm-ai", optional = true }
-sz-orm-core = { version = "5.1.0", path = "../sz-orm-core", optional = true }
+sz-orm-ai = { version = "6.0.0", path = "../sz-orm-ai", optional = true }
+sz-orm-core = { version = "6.0.0", path = "../sz-orm-core", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }
@@ -30,7 +30,7 @@ nl-query-visualizer = ["nl-query"]
 [dev-dependencies]
 tokio = { workspace = true }
 serde_json = { workspace = true }
-sz-orm-sqlx = { version = "5.1.0", path = "../sz-orm-sqlx" }
+sz-orm-sqlx = { version = "6.0.0", path = "../sz-orm-sqlx" }
 criterion = { version = "0.5", features = ["html_reports"] }
 
 [[bench]]

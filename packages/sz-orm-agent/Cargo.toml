@@ -11,11 +11,11 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-sz-orm-ai = { version = "5.1.0", path = "../sz-orm-ai", optional = true }
-sz-orm-diagnosis = { version = "5.1.0", path = "../sz-orm-diagnosis", optional = true }
-sz-orm-anomaly = { version = "5.1.0", path = "../sz-orm-anomaly", optional = true }
-sz-orm-audit = { version = "5.1.0", path = "../sz-orm-audit", optional = true }
-sz-orm-core = { version = "5.1.0", path = "../sz-orm-core", optional = true }
+sz-orm-ai = { version = "6.0.0", path = "../sz-orm-ai", optional = true }
+sz-orm-diagnosis = { version = "6.0.0", path = "../sz-orm-diagnosis", optional = true }
+sz-orm-anomaly = { version = "6.0.0", path = "../sz-orm-anomaly", optional = true }
+sz-orm-audit = { version = "6.0.0", path = "../sz-orm-audit", optional = true }
+sz-orm-core = { version = "6.0.0", path = "../sz-orm-core", optional = true }
 tokio = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 serde = { workspace = true, optional = true }
@@ -54,7 +54,7 @@ agent-workflow = ["agent"]
 [dev-dependencies]
 tokio = { workspace = true }
 serde_json = { workspace = true }
-sz-orm-sqlx = { version = "5.1.0", path = "../sz-orm-sqlx" }
+sz-orm-sqlx = { version = "6.0.0", path = "../sz-orm-sqlx" }
 
 [lints]
 workspace = true

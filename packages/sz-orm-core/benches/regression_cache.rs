@@ -18,7 +18,7 @@ fn l1_miss(c: &mut Criterion) {
 }
 
 fn l2_hit(c: &mut Criterion) {
-    let mut l1: HashMap<String, String> = HashMap::new();
+    let l1: HashMap<String, String> = HashMap::new();
     let mut l2: HashMap<String, String> = HashMap::new();
     l2.insert("key2".to_string(), "value2".to_string());
     c.bench_function("l2_hit", |b| {

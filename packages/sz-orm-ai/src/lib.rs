@@ -183,5 +183,5 @@ pub mod semantic_query;
 pub use semantic_query::{
     AgentError, AgentReport, AgentStep, AiAgent, AnalysisAgent, GraphEdge, GraphNode,
     GraphQueryExecutor, HybridMatch, HybridQueryExecutor, Nl2SqlConverter, SemanticIntent,
-    SemanticQueryError, SemanticQueryResult, SemanticQueryRouter, VectorMatch, VectorStore,
+    SemanticQueryError, SemanticQueryResult, SemanticQueryRouter, SemanticVectorStore, VectorMatch,
 };

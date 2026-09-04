@@ -87,8 +87,8 @@ fn test_ab_test_optimized_slower() {
 fn test_ab_test_with_failures() {
     let framework = QueryABTestFramework::new();
     let mut original = make_samples(50.0, 5.0, 100);
-    for i in 0..10 {
-        original[i].success = false;
+    for sample in original.iter_mut().take(10) {
+        sample.success = false;
     }
     let optimized = make_samples(30.0, 3.0, 100);
 

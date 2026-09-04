@@ -175,7 +175,7 @@ impl ConsistentHashRouter {
             .ring
             .range(hash..)
             .next()
-            .or_else(|| self.ring.iter().next())
+            .or(self.ring.iter().next())
             .map(|(_, v)| v.clone())
             .unwrap();
         Ok(node)

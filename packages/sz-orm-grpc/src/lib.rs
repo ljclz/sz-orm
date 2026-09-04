@@ -1100,7 +1100,7 @@ mod tests {
         server
             .backend()
             .add_user(build_user(42, "alice", "alice@example.com"));
-        let token = server.auth_token().to_string();
+        let _token = server.auth_token().to_string();
         let mut handle = server.start(bind_addr()).await.expect("server start");
         let addr = handle.local_addr();
 
@@ -1126,7 +1126,7 @@ mod tests {
         server.backend().add_user(build_user(3, "c", "c@x"));
         server.backend().add_user(build_user(1, "a", "a@x"));
         server.backend().add_user(build_user(2, "b", "b@x"));
-        let token = server.auth_token().to_string();
+        let _token = server.auth_token().to_string();
         let mut handle = server.start(bind_addr()).await.expect("server start");
         let addr = handle.local_addr();
 
@@ -1151,7 +1151,7 @@ mod tests {
 
         let server = RealGrpcServer::new();
         server.backend().add_user(build_user(1, "a", "a@x"));
-        let token = server.auth_token().to_string();
+        let _token = server.auth_token().to_string();
         let mut handle = server.start(bind_addr()).await.expect("server start");
         let addr = handle.local_addr();
 

@@ -6,9 +6,7 @@
 #![cfg(feature = "integration")]
 
 use std::time::Instant;
-use sz_orm_graph::{
-    CypherQuery, CypherQueryBuilder, CypherValidator, GraphConfig, GraphConnection,
-};
+use sz_orm_graph::{CypherQueryBuilder, CypherValidator, GraphConfig, GraphConnection};
 
 const DSN: &str = "neo4j://neo4j:test123@127.0.0.1:7687";
 const NODE_COUNT: usize = 1000;

@@ -23,13 +23,13 @@ impl<M: ModelExt + Validate> QueryBuilder<M> {
             .validate()
             .map_err(|e| crate::DbError::Validation(e.to_string()))?;
         let data = model.to_value();
-        let sql = self.build_insert(&data);
+        let (sql, params) = self.build_insert(&data);
         if sql.is_empty() {
             return Err(crate::DbError::InvalidInput(
                 "empty insert data after validation".to_string(),
             ));
         }
-        conn.execute(&sql).await
+        conn.execute_with_params(&sql, &params).await
     }
 
     /// 校验后 update（validate-on-write feature）
@@ -45,13 +45,13 @@ impl<M: ModelExt + Validate> QueryBuilder<M> {
             .validate()
             .map_err(|e| crate::DbError::Validation(e.to_string()))?;
         let data = model.to_value();
-        let sql = self.build_update(&data);
+        let (sql, params) = self.build_update(&data);
         if sql.is_empty() {
             return Err(crate::DbError::InvalidInput(
                 "empty update data after validation".to_string(),
             ));
         }
-        conn.execute(&sql).await
+        conn.execute_with_params(&sql, &params).await
     }
 }
 
@@ -61,7 +61,6 @@ mod tests {
     use crate::dialect::MySqlDialect;
     use crate::model::Model;
     use crate::query::QueryBuilder;
-    use crate::validation::Validate as _;
     use crate::value::Value;
     use std::collections::HashMap;
 
@@ -105,14 +104,10 @@ mod tests {
     // 为 TestUser 实现 Validate trait
     impl Validate for TestUser {
         fn validate(&self) -> Result<(), crate::validation::ValidationError> {
-            let mut results = Vec::new();
-            results.push(crate::validation::rules::validate_email(
-                "email",
-                &self.email,
-            ));
-            results.push(crate::validation::rules::validate_length(
-                "name", &self.name, 2, 50,
-            ));
+            let results = vec![
+                crate::validation::rules::validate_email("email", &self.email),
+                crate::validation::rules::validate_length("name", &self.name, 2, 50),
+            ];
             crate::validation::aggregate(results)
         }
     }

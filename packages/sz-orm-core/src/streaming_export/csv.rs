@@ -92,7 +92,7 @@ fn value_to_csv_string(v: &Value) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::streaming_export::{ExportConfig, ExportResult};
+    use crate::streaming_export::ExportConfig;
 
     #[test]
     fn test_csv_export_basic() {
@@ -146,6 +146,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::approx_constant)] // 3.14 是 CSV 文本断言值，非 PI 语义
     fn test_value_to_csv_string() {
         assert_eq!(value_to_csv_string(&Value::Null), "");
         assert_eq!(value_to_csv_string(&Value::I64(42)), "42");

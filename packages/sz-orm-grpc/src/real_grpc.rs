@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::sync::Arc;
 use tokio::task::JoinHandle;
 use tokio_stream::wrappers::TcpListenerStream;
-use tonic::service::{Interceptor as TonicInterceptor, InterceptorLayer, LayerExt};
+use tonic::service::{Interceptor as TonicInterceptor, InterceptorLayer};
 use tonic::transport::Server;
 
 // 引入 build.rs 中 tonic_prost_build 生成的代码。

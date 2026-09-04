@@ -16,6 +16,7 @@
 use sz_orm_core::governance::{compliance_report, with_retention, GovernedModel};
 
 /// 合法模型：全部 PII 字段均声明 mask 策略
+#[allow(dead_code)] // 宏展开仅做编译期校验，字段无需读取
 #[derive(sz_orm_macros::Governed)]
 struct User {
     id: i64,
@@ -29,6 +30,7 @@ struct User {
 }
 
 /// 空 PII 模型（无 pii 标注也应编译通过）
+#[allow(dead_code)]
 #[derive(sz_orm_macros::Governed)]
 struct AuditLog {
     id: i64,

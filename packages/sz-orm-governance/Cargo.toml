@@ -11,10 +11,10 @@ keywords.workspace = true
 categories.workspace = true
 
 [dependencies]
-sz-orm-ai = { version = "5.1.0", path = "../sz-orm-ai", optional = true }
-sz-orm-graph = { version = "5.1.0", path = "../sz-orm-graph", optional = true }
-sz-orm-masking = { version = "5.1.0", path = "../sz-orm-masking", optional = true }
-sz-orm-core = { version = "5.1.0", path = "../sz-orm-core", optional = true }
+sz-orm-ai = { version = "6.0.0", path = "../sz-orm-ai", optional = true }
+sz-orm-graph = { version = "6.0.0", path = "../sz-orm-graph", optional = true }
+sz-orm-masking = { version = "6.0.0", path = "../sz-orm-masking", optional = true }
+sz-orm-core = { version = "6.0.0", path = "../sz-orm-core", optional = true }
 serde = { workspace = true, optional = true }
 serde_json = { workspace = true, optional = true }
 thiserror = { workspace = true }

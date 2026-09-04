@@ -12,6 +12,9 @@ pub mod model_integration;
 mod derive_tests;
 
 /// 验证错误
+///
+/// 字段级含义由各 variant 的 `#[error(...)]` 文案描述（field/min/max/value 等）。
+#[allow(missing_docs)]
 #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
 pub enum ValidationError {
     /// 必填字段为空

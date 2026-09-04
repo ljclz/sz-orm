@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::{Arc, RwLock};
+use std::sync::RwLock;
 use std::time::{Duration, Instant};
 
 /// 融合统计信息
@@ -35,7 +35,7 @@ impl FusionStats {
 
     pub fn avg_latency_ms(&self) -> u64 {
         if self.total_queries > 0 {
-            self.total_latency_ms / self.total_queries
+            self.total_latency_ms.div_ceil(self.total_queries)
         } else {
             0
         }
@@ -70,7 +70,7 @@ pub struct SourceStats {
 impl SourceStats {
     pub fn avg_latency_ms(&self) -> u64 {
         if self.queries > 0 {
-            self.total_latency_ms / self.queries
+            self.total_latency_ms.div_ceil(self.queries)
         } else {
             0
         }
@@ -114,6 +114,9 @@ impl FusionStatsCollector {
         }
     }
 
+    // 8 参数为统计采集的完整信号面（缓存/降级/时延/行数/失败），调用方均内部使用；
+    // 引入参数对象会扩散到全部测试断言，保持扁平签名
+    #[allow(clippy::too_many_arguments)]
     pub fn record_query(
         &self,
         table: &str,
@@ -174,7 +177,7 @@ impl FusionStatsCollector {
                 stats.cache_misses += 1;
             }
             stats.avg_latency_ms = if stats.queries > 0 {
-                (stats.avg_latency_ms * (stats.queries - 1) + latency_ms) / stats.queries
+                (stats.avg_latency_ms * (stats.queries - 1) + latency_ms).div_ceil(stats.queries)
             } else {
                 latency_ms
             };

@@ -517,7 +517,7 @@ mod tests {
 
     #[test]
     fn test_multi_dialect_backend_supported_dialects() {
-        let dialects = vec![Dialect::MySql, Dialect::PostgreSql];
+        let dialects = [Dialect::MySql, Dialect::PostgreSql];
         assert!(dialects.contains(&Dialect::MySql));
         assert!(dialects.contains(&Dialect::PostgreSql));
     }

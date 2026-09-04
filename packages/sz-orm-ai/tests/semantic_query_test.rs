@@ -6,7 +6,7 @@ use std::sync::Arc;
 
 use sz_orm_ai::semantic_query::{
     AgentReport, AiAgent, Nl2SqlConverter, SemanticIntent, SemanticQueryError, SemanticQueryResult,
-    SemanticQueryRouter, VectorMatch, VectorStore,
+    SemanticQueryRouter, SemanticVectorStore, VectorMatch,
 };
 
 struct MockNl2Sql;
@@ -19,7 +19,7 @@ impl Nl2SqlConverter for MockNl2Sql {
 
 struct MockVectorStore;
 #[async_trait::async_trait]
-impl VectorStore for MockVectorStore {
+impl SemanticVectorStore for MockVectorStore {
     async fn search(
         &self,
         query: &str,

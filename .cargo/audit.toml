@@ -25,4 +25,8 @@ ignore = [
     # pyo3 0.20.3（sz-orm-python 绑定层，升级 0.21+ 需评估 API 兼容）
     "RUSTSEC-2025-0020",
     "RUSTSEC-2026-0177",
+    # h2 0.3.27: unbounded empty DATA frames（Low severity，DoS 类）
+    # 来源: sz-orm-actix → actix-web 4.14.1 → actix-http 3.x → h2 0.3.27；actix-http 3.13.5（最新）仍锁 h2 0.3.x，无升级路径
+    # 跟踪: 待 actix-web 升级到使用 h2 0.4.x 后自动移除（与 deny.toml 同步登记）
+    "RUSTSEC-2026-0258",
 ]

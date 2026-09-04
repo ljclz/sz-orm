@@ -232,12 +232,12 @@ fn set_expr_has_subquery(body: &sqlparser::ast::SetExpr) -> bool {
     use sqlparser::ast::SetExpr;
     match body {
         SetExpr::Select(select) => {
-            select.from.iter().any(|t| table_with_joins_has_subquery(t))
-                || select.selection.as_ref().map_or(false, expr_has_subquery)
+            select.from.iter().any(table_with_joins_has_subquery)
+                || select.selection.as_ref().is_some_and(expr_has_subquery)
                 || select
                     .projection
                     .iter()
-                    .any(|p| select_item_has_subquery(p))
+                    .any(select_item_has_subquery)
         }
         SetExpr::SetOperation { left, right, .. } => {
             set_expr_has_subquery(left) || set_expr_has_subquery(right)

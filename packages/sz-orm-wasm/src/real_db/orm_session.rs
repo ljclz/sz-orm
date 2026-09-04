@@ -301,6 +301,7 @@ impl WasmOrmLoopVerifier {
 // ============================================================================
 
 #[cfg(test)]
+#[allow(deprecated)]
 mod tests {
     use super::*;
     use sz_orm_core::Value;

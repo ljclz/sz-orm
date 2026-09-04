@@ -23,12 +23,9 @@ fn test_lineage_full_pipeline() {
     assert!(impacted
         .iter()
         .any(|n| n.id == LineageNodeId::new("report", "name")));
-    assert!(
-        impacted
-            .iter()
-            .any(|n| n.id == LineageNodeId::new("dashboard", "nameG"))
-            == false
-    );
+    assert!(!impacted
+        .iter()
+        .any(|n| n.id == LineageNodeId::new("dashboard", "nameG")));
     assert!(impacted
         .iter()
         .any(|n| n.id == LineageNodeId::new("dashboard", "name")));

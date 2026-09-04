@@ -178,6 +178,31 @@ impl PartialEq for WasmRealDbConnection {
 }
 
 #[cfg(test)]
+fn futures_executor_block_on<F: std::future::Future>(f: F) -> F::Output {
+    use std::pin::Pin;
+    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
+
+    fn dummy_raw_waker() -> RawWaker {
+        fn no_op(_: *const ()) {}
+        fn clone(_: *const ()) -> RawWaker {
+            dummy_raw_waker()
+        }
+        static V_TABLE: RawWakerVTable = RawWakerVTable::new(clone, no_op, no_op, no_op);
+        RawWaker::new(std::ptr::null(), &V_TABLE)
+    }
+
+    let waker = unsafe { Waker::from_raw(dummy_raw_waker()) };
+    let mut cx = Context::from_waker(&waker);
+    let mut future = Box::pin(f);
+    loop {
+        match Pin::as_mut(&mut future).poll(&mut cx) {
+            Poll::Ready(val) => return val,
+            Poll::Pending => {}
+        }
+    }
+}
+
+#[cfg(test)]
 mod tests {
     use super::*;
     use crate::WasmQuery;
@@ -326,30 +351,5 @@ mod tests {
         let req = conn.build_request(query, None);
         let result = futures_executor_block_on(conn.send_request_http(&req));
         assert!(matches!(result, Err(WasmRealDbError::ProxyUnavailable)));
-    }
-}
-
-#[cfg(test)]
-fn futures_executor_block_on<F: std::future::Future>(f: F) -> F::Output {
-    use std::pin::Pin;
-    use std::task::{Context, Poll, RawWaker, RawWakerVTable, Waker};
-
-    fn dummy_raw_waker() -> RawWaker {
-        fn no_op(_: *const ()) {}
-        fn clone(_: *const ()) -> RawWaker {
-            dummy_raw_waker()
-        }
-        static V_TABLE: RawWakerVTable = RawWakerVTable::new(clone, no_op, no_op, no_op);
-        RawWaker::new(std::ptr::null(), &V_TABLE)
-    }
-
-    let waker = unsafe { Waker::from_raw(dummy_raw_waker()) };
-    let mut cx = Context::from_waker(&waker);
-    let mut future = Box::pin(f);
-    loop {
-        match Pin::as_mut(&mut future).poll(&mut cx) {
-            Poll::Ready(val) => return val,
-            Poll::Pending => {}
-        }
     }
 }

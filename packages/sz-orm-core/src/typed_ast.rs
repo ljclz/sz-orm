@@ -807,9 +807,115 @@ pub trait TypedColumnExt: TypedColumn + Sized {
     fn ge<V: Clone + ToString>(self, value: V) -> Ge<Self, V> {
         Ge::new(self, value)
     }
+
+    /// 创建 `column LIKE ?` 表达式
+    fn like<V: Clone + ToString>(self, value: V) -> Like<Self, V> {
+        Like::new(self, value)
+    }
+
+    /// 创建 `column IN (?, ...)` 表达式
+    fn in_<V: Clone + ToString>(self, values: Vec<V>) -> In<Self, V> {
+        In::new(self, values)
+    }
 }
 
 impl<C: TypedColumn> TypedColumnExt for C {}
+
+// ============================================================================
+// 布尔表达式扩展（like/in_/and/or/not）
+// type_safe_columns 差分测试依赖的 DSL 组合 API
+// ============================================================================
+
+/// LIKE 模式匹配表达式 `column LIKE ?`
+pub struct Like<C: TypedColumn, V: Clone + ToString> {
+    column: std::marker::PhantomData<C>,
+    value: V,
+}
+
+impl<C: TypedColumn, V: Clone + ToString> Like<C, V> {
+    /// 创建 LIKE 匹配表达式
+    pub fn new(_col: C, value: V) -> Self {
+        Self {
+            column: std::marker::PhantomData,
+            value,
+        }
+    }
+}
+
+impl<C: TypedColumn, V: Clone + ToString> TypedExpression for Like<C, V> {
+    type SqlType = Bool;
+
+    fn to_sql(&self, dialect: &dyn Dialect) -> (String, Vec<String>) {
+        let col_sql = dialect.quote(C::NAME);
+        (format!("{} LIKE ?", col_sql), vec![self.value.to_string()])
+    }
+}
+
+/// IN 列表表达式 `column IN (?, ?, ...)`
+pub struct In<C: TypedColumn, V: Clone + ToString> {
+    column: std::marker::PhantomData<C>,
+    values: Vec<V>,
+}
+
+impl<C: TypedColumn, V: Clone + ToString> In<C, V> {
+    /// 创建 IN 列表表达式
+    pub fn new(_col: C, values: Vec<V>) -> Self {
+        Self {
+            column: std::marker::PhantomData,
+            values,
+        }
+    }
+}
+
+impl<C: TypedColumn, V: Clone + ToString> TypedExpression for In<C, V> {
+    type SqlType = Bool;
+
+    fn to_sql(&self, dialect: &dyn Dialect) -> (String, Vec<String>) {
+        let col_sql = dialect.quote(C::NAME);
+        let placeholders: Vec<&str> = self.values.iter().map(|_| "?").collect();
+        let params: Vec<String> = self.values.iter().map(|v| v.to_string()).collect();
+        (format!("{} IN ({})", col_sql, placeholders.join(", ")), params)
+    }
+}
+
+/// NOT 表达式 `NOT expr`
+pub struct Not<E: TypedExpression<SqlType = Bool>>(E);
+
+impl<E: TypedExpression<SqlType = Bool>> Not<E> {
+    /// 创建 NOT 表达式
+    pub fn new(expr: E) -> Self {
+        Self(expr)
+    }
+}
+
+impl<E: TypedExpression<SqlType = Bool>> TypedExpression for Not<E> {
+    type SqlType = Bool;
+
+    fn to_sql(&self, dialect: &dyn Dialect) -> (String, Vec<String>) {
+        let (sql, params) = self.0.to_sql(dialect);
+        (format!("NOT {}", sql), params)
+    }
+}
+
+/// 布尔表达式扩展：链式 and/or/not 组合
+pub trait BoolExpressionExt: TypedExpression<SqlType = Bool> + Sized {
+    /// 逻辑与组合 `self AND other`
+    fn and<R: TypedExpression<SqlType = Bool>>(self, other: R) -> And<Self, R> {
+        And::new(self, other)
+    }
+
+    /// 逻辑或组合 `self OR other`
+    fn or<R: TypedExpression<SqlType = Bool>>(self, other: R) -> Or<Self, R> {
+        Or::new(self, other)
+    }
+
+    /// 逻辑非 `NOT self`
+    fn not(self) -> Not<Self> {
+        Not::new(self)
+    }
+}
+
+impl<E: TypedExpression<SqlType = Bool>> BoolExpressionExt for E {}
 
 // ============================================================================
 // M2: 46 种新增表达式（typed-dsl feature gate）

@@ -141,13 +141,9 @@ impl GraphConnection {
 
     #[cfg(feature = "neo4j-driver")]
     fn extract_host_port(dsn: &str) -> Option<String> {
-        let after_scheme = if let Some(rest) = dsn.strip_prefix("neo4j://") {
-            rest
-        } else if let Some(rest) = dsn.strip_prefix("bolt://") {
-            rest
-        } else {
-            return None;
-        };
+        let after_scheme = dsn
+            .strip_prefix("neo4j://")
+            .or_else(|| dsn.strip_prefix("bolt://"))?;
         let after_auth = if let Some(at_pos) = after_scheme.find('@') {
             &after_scheme[at_pos + 1..]
         } else {
