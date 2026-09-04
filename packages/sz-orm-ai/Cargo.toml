@@ -59,6 +59,7 @@ sz-orm-graph = { version = "6.0.0", path = "../sz-orm-graph", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "chrono", "json"] }
 
 [[test]]
 name = "ai_tests"
@@ -148,6 +149,11 @@ required-features = ["ai-native-query"]
 name = "hybrid_query_test"
 path = "tests/hybrid_query_test.rs"
 required-features = ["ai-native-query"]
+
+[[test]]
+name = "nl2sql_mysql_e2e"
+path = "tests/nl2sql_mysql_e2e.rs"
+required-features = ["ai-nl2sql-enhanced"]
 
 [lints]
 workspace = true

@@ -9,4 +9,10 @@
 pub mod server;
 
 #[cfg(feature = "mcp")]
+pub mod stdio;
+
+#[cfg(feature = "mcp")]
 pub use server::McpServer;
+
+#[cfg(feature = "mcp")]
+pub use stdio::StdioTransport;

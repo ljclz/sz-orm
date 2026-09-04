@@ -32,6 +32,7 @@ multimodal-vision = ["multimodal", "dep:reqwest"]
 [dev-dependencies]
 tokio = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "chrono", "json"] }
 
 [lints]
 workspace = true
@@ -70,3 +71,8 @@ required-features = ["multimodal-vision"]
 name = "sketch"
 path = "tests/sketch.rs"
 required-features = ["multimodal-vision"]
+
+[[test]]
+name = "er_diagram_mysql"
+path = "tests/er_diagram_mysql.rs"
+required-features = ["multimodal-er"]

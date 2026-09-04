@@ -25,6 +25,12 @@ mcp = ["dep:sz-orm-nl-query", "dep:tokio", "dep:async-trait", "sz-orm-nl-query/n
 [dev-dependencies]
 tokio = { workspace = true }
 serde_json = { workspace = true }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "chrono", "json"] }
 
 [lints]
 workspace = true
+
+[[test]]
+name = "mcp_mysql_e2e"
+path = "tests/mcp_mysql_e2e.rs"
+required-features = ["mcp"]
