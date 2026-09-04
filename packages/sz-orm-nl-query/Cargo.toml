@@ -81,3 +81,8 @@ required-features = ["nl-query"]
 name = "pipeline_mysql"
 path = "tests/pipeline_mysql.rs"
 required-features = ["nl-query"]
+
+[[test]]
+name = "nl2sql_e2e_demo"
+path = "tests/nl2sql_e2e_demo.rs"
+required-features = ["nl-query"]
