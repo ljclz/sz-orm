@@ -52,7 +52,10 @@ async fn demo_nl2sql_e2e_full_pipeline() {
     let pipeline = NlQueryPipeline::new().with_executor(Arc::new(executor));
 
     // 直接执行 SQL（绕过 NL2SQL 规则引擎，验证执行器闭环）
-    let response = pipeline.execute_sql("SELECT * FROM sz_user LIMIT 5").await.unwrap();
+    let response = pipeline
+        .execute_sql("SELECT * FROM sz_user LIMIT 5")
+        .await
+        .unwrap();
 
     assert!(response.sql.contains("SELECT"));
     let rows = response.rows.as_array().expect("rows 应为数组");
