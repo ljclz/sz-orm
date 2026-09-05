@@ -628,6 +628,46 @@ impl PoolMetrics {
             self.acquire_wait_time / self.acquire_count as u32
         }
     }
+
+    /// 连接复用率：已复用连接次数占总获取次数的比例
+    ///
+    /// 复用次数 = acquire_count - connection_created_count（每次新建连接不算复用）。
+    /// - `acquire_count == 0` 时返回 `0.0`（数据不足）
+    /// - `connection_created_count > acquire_count` 时返回 `0.0`（防御性）
+    #[must_use]
+    pub fn connection_reuse_rate(&self) -> f64 {
+        if self.acquire_count == 0 || self.connection_created_count > self.acquire_count {
+            0.0
+        } else {
+            let reused = self.acquire_count - self.connection_created_count;
+            reused as f64 / self.acquire_count as f64
+        }
+    }
+}
+
+/// 连接池调优建议（启发式分析 `PoolMetrics` 后生成）
+///
+/// 由 `Pool::suggest_tuning()` 返回。所有 `Option` 字段为 `None` 表示该项无需调整。
+#[derive(Debug, Clone)]
+pub struct PoolTuningAdvice {
+    /// 建议的最大连接数
+    pub suggested_max_size: Option<u32>,
+    /// 建议的最小空闲连接数
+    pub suggested_min_idle: Option<u32>,
+    /// 建议的空闲连接超时
+    pub suggested_idle_timeout: Option<Duration>,
+    /// 调优原因说明
+    pub reason: String,
+}
+
+impl PoolTuningAdvice {
+    /// 判断池配置是否已最优（所有建议均为 `None`）
+    #[must_use]
+    pub fn is_optimal(&self) -> bool {
+        self.suggested_max_size.is_none()
+            && self.suggested_min_idle.is_none()
+            && self.suggested_idle_timeout.is_none()
+    }
 }
 
 /// 连接池配置构建器
@@ -1625,6 +1665,71 @@ impl Pool {
             connection_created_count: self.connection_created_count.load(Ordering::Acquire),
             connection_closed_count: self.connection_closed_count.load(Ordering::Acquire),
         }
+    }
+
+    /// 基于当前 `PoolMetrics` 生成启发式调优建议
+    ///
+    /// 决策逻辑：
+    /// - `acquire_count == 0` → 数据不足，所有建议 `None`
+    /// - 复用率 < 0.5 → 建议扩大 `max_size`
+    /// - 复用率 0.5~0.9 → 建议预热 `min_idle`
+    /// - 平均等待 > 100ms → 建议扩大 `max_size`
+    /// - 关闭率 > 创建率 50% → 建议延长 `idle_timeout`
+    #[must_use]
+    pub fn suggest_tuning(&self) -> PoolTuningAdvice {
+        let metrics = self.pool_metrics();
+        let current_max = self.dynamic_max_size.load(Ordering::Acquire);
+
+        if metrics.acquire_count == 0 {
+            return PoolTuningAdvice {
+                suggested_max_size: None,
+                suggested_min_idle: None,
+                suggested_idle_timeout: None,
+                reason: "数据不足".to_string(),
+            };
+        }
+
+        let reuse_rate = metrics.connection_reuse_rate();
+        let mut advice = PoolTuningAdvice {
+            suggested_max_size: None,
+            suggested_min_idle: None,
+            suggested_idle_timeout: None,
+            reason: String::new(),
+        };
+
+        if reuse_rate < 0.5 {
+            advice.suggested_max_size = Some(current_max.saturating_mul(2));
+            advice.reason = "复用率过低，池过小或回收过激".to_string();
+        } else if reuse_rate < 0.9 {
+            advice.suggested_min_idle = Some(current_max / 4);
+            advice.reason = "复用率偏低，预热不足".to_string();
+        }
+
+        let avg_wait = metrics.average_acquire_wait_time();
+        if avg_wait > Duration::from_millis(100) {
+            advice.suggested_max_size = Some(current_max.saturating_mul(2));
+            if !advice.reason.is_empty() {
+                advice.reason.push('；');
+            }
+            advice.reason.push_str("等待时长过高，池容量不足");
+        }
+
+        if metrics.connection_created_count > 0
+            && metrics.connection_closed_count as f64
+                > metrics.connection_created_count as f64 * 0.5
+        {
+            advice.suggested_idle_timeout = Some(self.config.idle_timeout * 2);
+            if !advice.reason.is_empty() {
+                advice.reason.push('；');
+            }
+            advice.reason.push_str("连接关闭过快，空闲回收过激");
+        }
+
+        if advice.reason.is_empty() {
+            advice.reason = "池配置合理".to_string();
+        }
+
+        advice
     }
 
     /// 观测层导出：Pool 指标 JSON 快照（v4.7.0 观测闭环——monitoring/grafana 数据源）
@@ -3746,5 +3851,87 @@ mod leak_prod_tests {
         let report = LeakReport::empty();
         assert_eq!(report.borrowed_count, 0);
         assert!(report.suspected_leaks.is_empty());
+    }
+
+    #[test]
+    fn connection_reuse_rate_zero() {
+        let metrics = PoolMetrics::default();
+        assert_eq!(metrics.connection_reuse_rate(), 0.0);
+    }
+
+    #[test]
+    fn connection_reuse_rate_full() {
+        let metrics = PoolMetrics {
+            acquire_count: 100,
+            connection_created_count: 1,
+            ..Default::default()
+        };
+        let rate = metrics.connection_reuse_rate();
+        assert!((rate - 0.99).abs() < 0.001, "复用率应接近 0.99，实际 {rate}");
+    }
+
+    #[test]
+    fn connection_reuse_rate_partial() {
+        let metrics = PoolMetrics {
+            acquire_count: 10,
+            connection_created_count: 2,
+            ..Default::default()
+        };
+        assert!((metrics.connection_reuse_rate() - 0.8).abs() < 0.001);
+    }
+
+    #[test]
+    fn pool_tuning_advice_is_optimal() {
+        let advice = PoolTuningAdvice {
+            suggested_max_size: None,
+            suggested_min_idle: None,
+            suggested_idle_timeout: None,
+            reason: "池配置合理".to_string(),
+        };
+        assert!(advice.is_optimal());
+
+        let not_optimal = PoolTuningAdvice {
+            suggested_max_size: Some(20),
+            suggested_min_idle: None,
+            suggested_idle_timeout: None,
+            reason: "test".to_string(),
+        };
+        assert!(!not_optimal.is_optimal());
+    }
+
+    #[test]
+    fn suggest_tuning_low_reuse() {
+        let metrics = PoolMetrics {
+            acquire_count: 100,
+            connection_created_count: 60,
+            ..Default::default()
+        };
+        let reuse = metrics.connection_reuse_rate();
+        assert!(reuse < 0.5, "复用率 {reuse} 应 < 0.5");
+    }
+
+    #[test]
+    fn suggest_tuning_optimal() {
+        let metrics = PoolMetrics {
+            acquire_count: 1000,
+            connection_created_count: 10,
+            acquire_wait_time: Duration::from_millis(10),
+            ..Default::default()
+        };
+        let reuse = metrics.connection_reuse_rate();
+        assert!(reuse >= 0.9, "复用率 {reuse} 应 >= 0.9");
+        let avg_wait = metrics.average_acquire_wait_time();
+        assert!(avg_wait <= Duration::from_millis(100));
+    }
+
+    #[test]
+    fn suggest_tuning_high_wait() {
+        let metrics = PoolMetrics {
+            acquire_count: 100,
+            acquire_wait_time: Duration::from_millis(200 * 100),
+            ..Default::default()
+        };
+        let avg_wait = metrics.average_acquire_wait_time();
+        assert!(avg_wait > Duration::from_millis(100), "平均等待 {avg_wait:?} 应 > 100ms");
     }
 }

@@ -108,6 +108,7 @@ prod-ready = [
 ]
 # v3.9.0锛歜enchmark 濂椾欢 + 鏁版嵁楠岃瘉 + 杩佺Щ dry-run + 娴佸紡瀵煎嚭锛坒eature gate 闅旂锛岄粯璁ゅ叧闂級
 benchmark-suite = ["dep:criterion"]
+bench-seaorm = ["dep:sea-orm"]
 data-validation = ["sz-orm-macros/data-validation", "dep:regex"]
 validate-on-write = ["data-validation"]
 migration-dry-run = ["dep:regex"]
@@ -155,6 +156,7 @@ config-center = ["dep:sz-orm-config"]
 
 [dependencies]
 async-trait.workspace = true
+sea-orm = { version = "1.1", optional = true }
 tracing.workspace = true
 thiserror.workspace = true
 serde.workspace = true
@@ -223,6 +225,7 @@ sz-orm-config = { version = "6.0.0", path = "../sz-orm-config", optional = true 
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+
 
 # M3-T3: 宸垎娴嬭瘯闇€锟?sz-orm-query-builder
 sz-orm-query-builder = { path = "../sz-orm-query-builder" }
@@ -552,6 +555,12 @@ harness = false
 required-features = ["benchmark-suite"]
 
 [[bench]]
+name = "regression_pool_steady"
+path = "benches/regression_pool_steady.rs"
+harness = false
+required-features = ["benchmark-suite"]
+
+[[bench]]
 name = "regression_cache"
 path = "benches/regression_cache.rs"
 harness = false
@@ -574,6 +583,18 @@ name = "regression_stream"
 path = "benches/regression_stream.rs"
 harness = false
 required-features = ["benchmark-suite"]
+
+[[bench]]
+name = "regression_sqlx_alignment"
+path = "benches/regression_sqlx_alignment.rs"
+harness = false
+required-features = ["benchmark-suite"]
+
+[[bench]]
+name = "regression_seaorm_alignment"
+path = "benches/regression_seaorm_alignment.rs"
+harness = false
+required-features = ["bench-seaorm"]
 
 # v5.0.0：图数据库适配层端到端测试（需 graph feature）
 [[test]]

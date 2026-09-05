@@ -2241,7 +2241,10 @@ impl<M: Model> QueryBuilder<M> {
             self.select_columns.join(", ")
         };
 
-        let mut sql = format!("SELECT {} FROM {}", columns, self.dialect.quote(&table));
+        let quoted_table = self.dialect.quote(&table);
+        let capacity = 16 + quoted_table.len() + columns.len() + 64;
+        let mut sql = String::with_capacity(capacity);
+        let _ = write!(sql, "SELECT {} FROM {}", columns, quoted_table);
 
         for join in &self.joins {
             match join {
@@ -3560,6 +3563,33 @@ mod tests {
         assert!(!sql.contains("'alice'"), "不应内嵌值到 SQL: {}", sql);
         assert_eq!(params.len(), 1);
         assert_eq!(params[0], Value::String("alice".into()));
+        Ok(())
+    }
+
+    /// v6.2 性能优化：验证 build_select_with_params 优化后参数化路径不退化。
+    ///
+    /// 使用含单引号的值 `O'Brien`，确认值走 `?` 占位符而非字符串拼接，
+    /// 杜绝 SQL 注入风险。
+    #[test]
+    fn build_select_with_params_no_string_concat() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, params) = QueryBuilder::<TestModel>::new(dialect)
+            .table("users")
+            .where_eq("name", Value::String("O'Brien".into()))
+            .build_select_with_params();
+        assert!(sql.contains("`name` = ?"), "应使用 ? 占位符: {}", sql);
+        assert!(
+            !sql.contains("O'Brien"),
+            "不应将值内嵌到 SQL（字符串拼接）: {}",
+            sql
+        );
+        assert!(
+            !sql.contains("O\\'Brien"),
+            "不应将转义值内嵌到 SQL: {}",
+            sql
+        );
+        assert_eq!(params.len(), 1, "应有 1 个参数: {:?}", params);
+        assert_eq!(params[0], Value::String("O'Brien".into()));
         Ok(())
     }
 

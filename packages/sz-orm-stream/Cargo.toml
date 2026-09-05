@@ -25,6 +25,18 @@ futures = { version = "0.3", optional = true }
 [dev-dependencies]
 tokio = { version = "1.40", features = ["full"] }
 futures = "0.3"
+criterion = { version = "0.5", features = ["async_tokio"] }
+
+[[bench]]
+name = "regression_stream_real"
+path = "benches/regression_stream_real.rs"
+harness = false
+required-features = ["stream-resultset"]
+
+[[test]]
+name = "v62_perf_stream"
+path = "tests/v62_perf_stream.rs"
+required-features = ["stream-resultset"]
 
 [lints]
 workspace = true
