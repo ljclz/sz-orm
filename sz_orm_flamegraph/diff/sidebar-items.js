@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DiffMode","DiffType"],"struct":["DiffEntry","DiffResult","FlameDiff"]};

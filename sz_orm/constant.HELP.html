@@ -1,0 +1,74 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="API documentation for the Rust `HELP` constant in crate `sz_orm`."><title>HELP in sz_orm - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc constant"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">HELP</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm/index.html">sz_orm</a><span class="version">6.3.0</span></h2></div><div class="sidebar-elems"><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">sz_orm</a></div><h1>Constant <span class="constant">HELP</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm/main.rs.html#43-116">Source</a> </span></div><pre class="rust item-decl"><code>pub(crate) const HELP: &amp;<a class="primitive" href="https://doc.rust-lang.org/1.98.1/std/primitive.str.html">str</a> = r#&quot;SZ-ORM 命令行工具
+
+用法:
+    sz-orm &lt;command&gt; [args] [--config &lt;file&gt;]
+
+命令:
+    info                          显示 ORM 概要信息
+    migrate                       执行所有待迁移（需 --dsn，或 --dry-run 仅打印 SQL）
+    migrate:status                查看迁移进度
+    migrate:rollback              回滚最后一个已应用迁移（需 --dsn）
+    migrate:fresh                 drop 所有表后重新迁移（开发环境用，需 --dsn）
+    make:migration &lt;name&gt;         生成迁移文件骨架（_up.sql / _down.sql）
+    make:model &lt;name&gt;             生成 Model 骨架代码（--pk-type 可指定主键类型）
+    make:seeder &lt;name&gt;            生成 Seeder 文件骨架（SQL 数据填充脚本）
+    make:fixture &lt;name&gt;           生成 Fixture YAML 模板（需 data-seeding feature）
+    seed                          执行所有 Seeder（需 --dsn）
+    seed:fixture                  按 Fixture 模板执行 seeding（需 --dsn，需 data-seeding feature）
+                                 支持 --env &lt;dev|test|staging|production&gt;
+                                 支持 --mode &lt;upsert|truncate&gt;
+                                 支持 --allow-production（允许生产环境）
+    schema:diff                   可视化 schema 差异（需 schema-diff-viz feature）
+                                 支持 --format &lt;text|json|html&gt;（默认 text）
+    generate entity &lt;table&gt;       从 DB 表反向生成 Model 代码（需 --dsn）
+    doc generate                   从 DB Schema 生成 Markdown 文档 + PlantUML ER 图（需 --dsn）
+    prepare                       扫描项目 query! 宏，生成离线 SQL 验证缓存
+    sql:validate &lt;sql&gt;            校验 SQL 语法 + 注入检测
+    dialect list                  列出所有支持的方言
+    dialect show &lt;db_type&gt;        显示指定方言详情
+    designer [--port &lt;n&gt;]         启动 Schema 设计器 Web UI（需 designer feature，默认端口 3000）
+    designer:export               从设计文件导出 DDL/迁移/Model/ER 图（需 designer feature）
+                                  --design &lt;file&gt; --format &lt;ddl|migration|model|svg|json&gt; --dialect &lt;mysql|postgresql|sqlite|oracle|mssql&gt;
+    openapi:reverse               OpenAPI → ORM 反向生成（需 openapi-reverse feature）
+                                  --spec &lt;file&gt; --dialect &lt;mysql|postgresql|sqlite|oracle|mssql&gt; [--trust-unsigned]
+    help, --help, -h              显示本帮助
+    --version, -V                 显示版本号
+
+选项:
+    --config &lt;file&gt;               配置文件路径（sz-orm.toml），提供默认值
+    --migrations &lt;dir&gt;            迁移文件目录（默认 ./migrations）
+    --seeders &lt;dir&gt;               Seeder 文件目录（默认 ./seeders）
+    --output &lt;dir&gt;                生成代码输出目录（默认 ./src/models 或 ./migrations）
+    --dsn &lt;url&gt;                   数据库连接字符串（migrate / generate entity / seed 必填）
+                                 例：mysql://root:pass@127.0.0.1:3306/db
+                                     postgres://user:pass@127.0.0.1:5432/db
+                                     sqlite://./test.db
+    --db-type &lt;type&gt;              数据库类型（mysql/postgres/sqlite/oracle/mssql）
+    --pk-type &lt;type&gt;              主键类型（make:model 用，默认 i64；支持 i32/i64/u32/u64/String/uuid）
+    --dry-run                     仅打印 SQL 不实际执行（migrate 命令）
+
+配置文件格式 (sz-orm.toml):
+    migrations_dir = &quot;./migrations&quot;
+    seeders_dir = &quot;./seeders&quot;
+    output_dir = &quot;./src/models&quot;
+    dsn = &quot;sqlite://./test.db&quot;
+    db_type = &quot;sqlite&quot;
+
+示例:
+    sz-orm info
+    sz-orm dialect list
+    sz-orm dialect show mysql
+    sz-orm make:migration create_users --output ./migrations
+    sz-orm make:model User --output ./src/models
+    sz-orm make:model User --pk-type i32
+    sz-orm make:seeder init_users
+    sz-orm seed --dsn sqlite://./test.db
+    sz-orm generate entity users --dsn mysql://root:&lt;your-password&gt;@127.0.0.1:3306/sz_orm_test --output ./src/models
+    sz-orm sql:validate &quot;SELECT * FROM users&quot;
+    sz-orm prepare --dsn mysql://root:pass@localhost/db
+    sz-orm migrate --dry-run
+    sz-orm migrate --dsn sqlite::memory:
+    sz-orm --config sz-orm.toml migrate
+    sz-orm migrate:rollback --dsn sqlite://./test.db
+    sz-orm migrate:fresh --dsn sqlite://./test.db
+&quot;#;</code></pre></section></div></main></body></html>

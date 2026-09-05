@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ForecastAlgorithm"],"struct":["AutoOptimizer","CapacityForecast","CapacityForecaster","CapacityPoint","CostComparisonReport","MultiCloudCostComparator","OptimizationExecutionResult","ProviderCostEstimate"]};

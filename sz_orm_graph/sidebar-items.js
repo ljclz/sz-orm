@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["algorithm","community","connection","cypher_parser","engine","error","graph_stats","mapping","model","path_analysis","query","subgraph","validator"]};

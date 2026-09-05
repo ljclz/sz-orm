@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["embedding","error","nl2sql","rag","safety","sql_sanitizer","vector"]};

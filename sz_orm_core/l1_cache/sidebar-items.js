@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["L1Cache","L1CacheStats","L1L2Coordinator"]};

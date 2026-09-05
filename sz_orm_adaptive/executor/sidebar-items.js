@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ExecutionPath","IndexSelectionStrategy","JoinOrderStrategy"],"struct":["AdaptiveConfig","AdaptiveExecutor","BatchSizeTuner","MemoryTtlCache","QueryOutcome"],"trait":["ResultCache"]};

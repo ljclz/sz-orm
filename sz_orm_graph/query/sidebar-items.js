@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["GraphResult"],"fn":["execute_query"],"struct":["CypherQuery","CypherQueryBuilder","GraphNode","GraphPath","GraphRelationship"]};

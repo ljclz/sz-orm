@@ -1,0 +1,30 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="L1 一级缓存（Level-1 Cache）— Session 级别 Identity Map"><title>sz_orm_core::l1_cache - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_core" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../sidebar-items.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc mod"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Module l1_cache</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../../sz_orm_core/index.html">sz_<wbr>orm_<wbr>core</a><span class="version">6.3.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Module l1_<wbr>cache</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#核心概念" title="核心概念">核心概念</a></li><li><a href="#l1l2db-查询协作" title="L1→L2→DB 查询协作">L1→L2→DB 查询协作</a></li><li><a href="#使用示例" title="使用示例">使用示例</a></li></ul><h3><a href="#structs">Module Items</a></h3><ul class="block"><li><a href="#structs" title="Structs">Structs</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="../index.html">In crate sz_<wbr>orm_<wbr>core</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="../index.html">sz_orm_core</a></div><h1>Module <span>l1_<wbr>cache</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../../src/sz_orm_core/l1_cache.rs.html#1-615">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>L1 一级缓存（Level-1 Cache）— Session 级别 Identity Map</p>
+<p>对应 tasks.md M2-T6~T8，design.md §5.1.2 M2-T11~T17。</p>
+<h2 id="核心概念"><a class="doc-anchor" href="#%E6%A0%B8%E5%BF%83%E6%A6%82%E5%BF%B5">§</a>核心概念</h2>
+<ul>
+<li><strong>L1Cache</strong>：Session 级别一级缓存（Identity Map），同主键查询返回同引用</li>
+<li><strong>Identity Map</strong>：相同主键的多次查询返回相同 <code>Arc&lt;T&gt;</code> 引用（<code>Arc::ptr_eq</code> 为 true）</li>
+<li><strong>LRU 淘汰</strong>：容量上限 + 最久未使用条目淘汰</li>
+<li><strong>AtomicU64 统计</strong>：无锁命中/未命中/淘汰计数</li>
+<li><strong>Session 绑定</strong>：生命周期与 Session 绑定，Drop 时自动清空，不跨 Session 共享</li>
+</ul>
+<p>与 L2 缓存（<code>crate::l2_cache::L2Cache</code>）的区别：</p>
+<ul>
+<li>L1：单次 Session 内有效，Identity Map 语义，Drop 自动清空</li>
+<li>L2：跨 Session 共享，进程级缓存，需显式失效</li>
+</ul>
+<h2 id="l1l2db-查询协作"><a class="doc-anchor" href="#l1l2db-%E6%9F%A5%E8%AF%A2%E5%8D%8F%E4%BD%9C">§</a>L1→L2→DB 查询协作</h2>
+<ol>
+<li>L1 命中 → 直接返回</li>
+<li>L1 未命中 → 查 L2 → L2 命中 → 回填 L1 → 返回</li>
+<li>L2 未命中 → 查 DB → 回填 L1 + L2 → 返回</li>
+</ol>
+<h2 id="使用示例"><a class="doc-anchor" href="#%E4%BD%BF%E7%94%A8%E7%A4%BA%E4%BE%8B">§</a>使用示例</h2>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_core::l1_cache::L1Cache;
+<span class="kw">use </span>std::sync::Arc;
+
+<span class="kw">let </span><span class="kw-2">mut </span>cache: L1Cache&lt;String&gt; = L1Cache::new(<span class="number">100</span>);
+cache.put(<span class="number">1</span>, Arc::new(<span class="string">"Alice"</span>.to_string()));
+<span class="kw">let </span>a = cache.get(<span class="kw-2">&amp;</span><span class="number">1</span>).unwrap();
+<span class="kw">let </span>b = cache.get(<span class="kw-2">&amp;</span><span class="number">1</span>).unwrap();
+<span class="macro">assert!</span>(Arc::ptr_eq(<span class="kw-2">&amp;</span>a, <span class="kw-2">&amp;</span>b)); <span class="comment">// Identity Map 语义</span></code></pre></div></div></details><h2 id="structs" class="section-header">Structs<a href="#structs" class="anchor">§</a></h2><dl class="item-table"><dt><a class="struct" href="struct.L1Cache.html" title="struct sz_orm_core::l1_cache::L1Cache">L1Cache</a></dt><dd>L1 一级缓存（Session 级别 Identity Map）</dd><dt><a class="struct" href="struct.L1CacheStats.html" title="struct sz_orm_core::l1_cache::L1CacheStats">L1Cache<wbr>Stats</a></dt><dd>L1 缓存统计快照</dd><dt><a class="struct" href="struct.L1L2Coordinator.html" title="struct sz_orm_core::l1_cache::L1L2Coordinator">L1L2<wbr>Coordinator</a></dt><dd>L1→L2→DB 三级查询协作器</dd></dl></section></div></main></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RelationType"],"struct":["EntityDefinition","EntityField","EntityGenerator","EntityRelation"]};

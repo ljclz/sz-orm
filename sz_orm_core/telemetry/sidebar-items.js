@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["PoolAcquireSpanGuard","QuerySpanGuard","Telemetry","TelemetryConfig","TelemetryMetrics","TelemetryMetricsSnapshot"]};

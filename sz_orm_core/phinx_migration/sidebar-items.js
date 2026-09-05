@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ColumnType"],"struct":["ColumnOptions","ForeignKeyOptions","IndexOptions","PhinxTable"]};

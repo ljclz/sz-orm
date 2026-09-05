@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SchedulerError","TaskStatus"],"mod":["advanced","scheduler"],"struct":["CronExpr","CronScheduler","ScheduledTask","TaskExecutionRecord","TaskExecutionTracker","TaskHealthSummary"],"trait":["Scheduler"]};

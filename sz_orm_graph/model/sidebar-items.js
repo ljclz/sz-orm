@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["GraphValueType","RelationDirection"],"fn":["extract_node_properties"],"struct":["GraphNodeModel","GraphPropertyDef","GraphRelationModel"]};

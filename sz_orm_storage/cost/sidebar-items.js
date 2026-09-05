@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CostError","CostOptimizationSuggestion","ReportFormat"],"struct":["BucketCost","CostAnalyzer","CostConfig","CostReport","ProviderCost"]};

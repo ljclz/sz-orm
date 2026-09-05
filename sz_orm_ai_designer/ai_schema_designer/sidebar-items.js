@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DesignError","MigrationRisk"],"struct":["AiSchemaDesigner","ColumnDefinition","DenormalizationAdvice","DesignResult","JoinPattern","MigrationImpactReport","RedundantColumn","SchemaDesign","TableDefinition"],"trait":["LlmSchemaProvider"]};

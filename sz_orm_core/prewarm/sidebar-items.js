@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["BackendPrewarmResult","PrewarmConfig","PrewarmProgress","PrewarmProgressSnapshot","PrewarmSummary","ProgressiveConfig"]};

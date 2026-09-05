@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ConflictResolution","CopyDialect","CopyParallelShardError","ShardStrategy"],"struct":["CopyBatchResult","CopyProtocolAdapter","ParallelShardExecutor","ShardConfig","ShardResult"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HotspotStrategy"],"struct":["DepthDistribution","FlameStats","FrameStats","Hotspot","HotspotDetector"]};

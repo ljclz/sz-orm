@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["GuardError","GuardPolicy"],"struct":["SafeSqlGuard"],"type":["GuardResult"]};

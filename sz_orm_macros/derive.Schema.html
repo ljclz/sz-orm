@@ -1,0 +1,31 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Derive macro: auto-generates table structure info from a Rust struct."><title>Schema in sz_orm_macros - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm_macros" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="sidebar-items.js"></script><script defer src="../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc derive"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Schema</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm_macros/index.html">sz_<wbr>orm_<wbr>macros</a><span class="version">6.3.0</span></h2></div><div class="sidebar-elems"><section id="rustdoc-toc"><h2 class="location"><a href="#">Schema</a></h2><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#supported-attributes" title="Supported attributes">Supported attributes</a></li><li><a href="#type-inference" title="Type inference">Type inference</a></li></ul></section><div id="rustdoc-modnav"><h2 class="in-crate"><a href="index.html">In crate sz_<wbr>orm_<wbr>macros</a></h2></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><div class="rustdoc-breadcrumbs"><a href="index.html">sz_orm_macros</a></div><h1>Derive Macro <span class="derive">Schema</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm_macros/lib.rs.html#2666-2669">Source</a> </span></div><pre class="rust item-decl"><code>#[derive(Schema)]
+{
+    <span class="comment">// Attributes available to this derive:</span>
+    #[table]
+    #[column]
+}
+</code></pre><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><p>Derive macro: auto-generates table structure info from a Rust struct.</p>
+<p>Parses <code>#[table(name = "...")]</code> and <code>#[column(...)]</code> attributes
+and generates a <code>Schema</code> trait impl, enabling runtime reflection of table name and column info.</p>
+<h2 id="supported-attributes"><a class="doc-anchor" href="#supported-attributes">§</a>Supported attributes</h2>
+<ul>
+<li><code>#[table(name = "users")]</code> — specifies the table name (defaults to the snake_case form of the struct name)</li>
+<li><code>#[column(name = "user_id")]</code> — specifies the column name (defaults to the field name)</li>
+<li><code>#[column(type = "VARCHAR(255)")]</code> — specifies the SQL type</li>
+<li><code>#[column(primary_key)]</code> — marks the primary key</li>
+<li><code>#[column(nullable)]</code> — explicitly marks the field as allowing NULL</li>
+<li><code>#[column(skip)]</code> — skips this field, no schema entry is generated</li>
+<li><code>#[column(default = "0")]</code> — marks the field as having a default value</li>
+</ul>
+<h2 id="type-inference"><a class="doc-anchor" href="#type-inference">§</a>Type inference</h2>
+<p>The field’s Rust type is automatically mapped to a SQL type:</p>
+<ul>
+<li><code>i64</code>/<code>u64</code> → <code>BIGINT</code></li>
+<li><code>i32</code>/<code>u32</code> → <code>INTEGER</code></li>
+<li><code>String</code> → <code>TEXT</code></li>
+<li><code>f64</code> → <code>DOUBLE</code></li>
+<li><code>bool</code> → <code>BOOLEAN</code></li>
+<li><code>Vec&lt;u8&gt;</code> → <code>BLOB</code></li>
+<li><code>Option&lt;T&gt;</code> → same as <code>T</code>, but marked as nullable</li>
+</ul>
+</div></details></section></div></main></body></html>

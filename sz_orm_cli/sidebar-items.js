@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["doc_generator","entity_generator"]};

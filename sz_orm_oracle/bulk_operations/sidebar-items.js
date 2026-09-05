@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BulkErrorMode","BulkOpKind"],"struct":["BulkConfig","BulkOperations","BulkResult"]};

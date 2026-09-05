@@ -1,0 +1,40 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="sz-orm-anomaly — Anomaly Detection"><title>sz_orm_anomaly - Rust</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../" data-static-root-path="../static.files/" data-current-crate="sz_orm_anomaly" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../static.files/storage-41dd4d93.js"></script><script defer src="../crates.js"></script><script defer src="../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../static.files/favicon-044be391.svg"></head><body class="rustdoc mod crate"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><rustdoc-topbar><h2><a href="#">Crate sz_orm_anomaly</a></h2></rustdoc-topbar><nav class="sidebar"><div class="sidebar-crate"><h2><a href="../sz_orm_anomaly/index.html">sz_<wbr>orm_<wbr>anomaly</a><span class="version">6.3.0</span></h2></div><div class="sidebar-elems"><ul class="block"><li><a id="all-types" href="all.html">All Items</a></li></ul><section id="rustdoc-toc"><h3><a href="#">Sections</a></h3><ul class="block top-toc"><li><a href="#sz-orm-anomaly--anomaly-detection" title="sz-orm-anomaly — Anomaly Detection">sz-orm-anomaly — Anomaly Detection</a><ul><li><a href="#design-principles" title="Design Principles">Design Principles</a></li><li><a href="#main-modules" title="Main Modules">Main Modules</a></li><li><a href="#reuse" title="Reuse">Reuse</a></li><li><a href="#quick-start" title="Quick Start">Quick Start</a></li></ul></li></ul><h3><a href="#reexports">Crate Items</a></h3><ul class="block"><li><a href="#reexports" title="Re-exports">Re-exports</a></li><li><a href="#modules" title="Modules">Modules</a></li></ul></section><div id="rustdoc-modnav"></div></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><div class="width-limiter"><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1>Crate <span>sz_<wbr>orm_<wbr>anomaly</span>&nbsp;<button id="copy-path" title="Copy item path to clipboard">Copy item path</button></h1><rustdoc-toolbar></rustdoc-toolbar><span class="sub-heading"><a class="src" href="../src/sz_orm_anomaly/lib.rs.html#1-84">Source</a> </span></div><details class="toggle top-doc" open><summary class="hideme"><span>Expand description</span></summary><div class="docblock"><h2 id="sz-orm-anomaly--anomaly-detection"><a class="doc-anchor" href="#sz-orm-anomaly--anomaly-detection">§</a>sz-orm-anomaly — Anomaly Detection</h2>
+<p>Based on <code>anomaly-detection</code> feature, continuously collects database runtime metrics (slow query/error rate/connection pool),
+detects anomaly patterns (spike/exhaustion/baseline deviation) via sliding window + Welford online baseline + statistical rules + thresholds,
+outputs structured alert events, supports alert deduplication (cooldown), subscription callbacks, Prometheus metric export, and health integration.</p>
+<h3 id="design-principles"><a class="doc-anchor" href="#design-principles">§</a>Design Principles</h3>
+<ul>
+<li><strong>Statistical rules + thresholds (non-ML)</strong>: Based on mean + Nσ + absolute threshold, simple and interpretable, no training data needed</li>
+<li><strong>Async/bypass collection</strong>: Metric collection does not block query main path (REQ-ANM-005)</li>
+<li><strong>Sliding window + time eviction</strong>: Retains last N minutes of data (default 30 minutes), memory limit 10 MB</li>
+<li><strong>Welford online algorithm</strong>: Numerically stable, single update O(1), suitable for real-time baseline computation</li>
+<li><strong>Alert deduplication cooldown</strong>: Same-type anomalies do not repeat alert within 5 minutes, avoiding alert storms</li>
+<li><strong>Feature gate isolation</strong>: Disabled by default, does not affect existing compilation</li>
+</ul>
+<h3 id="main-modules"><a class="doc-anchor" href="#main-modules">§</a>Main Modules</h3>
+<ul>
+<li>[<code>config</code>] — Threshold config + hot reload (<code>AnomalyConfig</code> + <code>ConfigStore</code>)</li>
+<li>[<code>collector</code>] — Metric collection (<code>MetricCollector</code> + 3 metric types + SQL summary masking)</li>
+<li>[<code>window</code>] — Sliding window (<code>SlidingWindow</code> + time eviction + memory limit protection)</li>
+<li>[<code>detector</code>] — Anomaly detection (<code>BaselineCalculator</code> Welford + <code>SpikeDetector</code> + severity level determination)</li>
+<li>[<code>alert</code>] — Alert output (<code>Alert</code> + <code>AlertDedup</code> cooldown + subscription API)</li>
+<li>[<code>report</code>] — Report export (JSON + Markdown)</li>
+<li>[<code>integration</code>] — Integration module (Prometheus metric export + health integration)</li>
+<li><a href="error/index.html" title="mod sz_orm_anomaly::error"><code>error</code></a> — Error type</li>
+</ul>
+<h3 id="reuse"><a class="doc-anchor" href="#reuse">§</a>Reuse</h3>
+<ul>
+<li>SQL masking reuses <code>sz-orm-masking::DataMasker</code> (parameter values → placeholders)</li>
+</ul>
+<h3 id="quick-start"><a class="doc-anchor" href="#quick-start">§</a>Quick Start</h3>
+<div class="example-wrap"><pre class="rust rust-example-rendered"><code><span class="kw">use </span>sz_orm_anomaly::{AnomalyDetector, AnomalyConfig};
+
+<span class="kw">let </span>detector = AnomalyDetector::new(AnomalyConfig::default());
+detector.record_slow_query(<span class="number">150</span>, <span class="string">"SELECT * FROM users WHERE id = ?"</span>, <span class="number">0</span>);
+detector.record_error(sz_orm_anomaly::ErrorType::SqlError, <span class="number">0</span>);
+detector.record_pool_usage(<span class="number">48</span>, <span class="number">2</span>, <span class="number">15</span>, <span class="number">1200</span>, <span class="number">0</span>);
+
+<span class="kw">let </span>alerts = detector.detect_anomalies();
+<span class="kw">for </span>alert <span class="kw">in </span><span class="kw-2">&amp;</span>alerts {
+    <span class="macro">println!</span>(<span class="string">"[{:?}] {:?}: {}"</span>, alert.severity, alert.anomaly_type, alert.suggestion);
+}</code></pre></div></div></details><h2 id="reexports" class="section-header">Re-exports<a href="#reexports" class="anchor">§</a></h2><dl class="item-table reexports"><dt id="reexport.AnomalyErrorKind"><code>pub use error::<a class="enum" href="error/enum.AnomalyErrorKind.html" title="enum sz_orm_anomaly::error::AnomalyErrorKind">AnomalyErrorKind</a>;</code></dt></dl><h2 id="modules" class="section-header">Modules<a href="#modules" class="anchor">§</a></h2><dl class="item-table"><dt><a class="mod" href="error/index.html" title="mod sz_orm_anomaly::error">error</a></dt><dd>异常检测错误类型</dd></dl></section></div></main></body></html>

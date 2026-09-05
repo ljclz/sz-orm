@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["deserialize_zero_copy","from_borrowed","serialize_zero_copy","to_borrowed"]};

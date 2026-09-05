@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HashAlgorithm"],"fn":["wildcard_match"],"struct":["HashMasker","PartialDisplayMasker","PatternMasker"]};

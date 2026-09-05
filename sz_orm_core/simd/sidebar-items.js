@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["SIMD_THRESHOLD"],"enum":["SimdAvailability"],"fn":["batch_compare_eq","batch_compare_in","batch_decode_integers","detect","scalar_compare_eq","scalar_compare_in","scalar_decode_integers"]};
