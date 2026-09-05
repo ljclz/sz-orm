@@ -9,14 +9,14 @@ mod seaorm_tests {
     #[tokio::test]
     #[ignore]
     async fn seaorm_query_build_runs() {
-        use sea_orm::query::Query;
-        use sea_orm::Expr;
+        use sea_orm::sea_query::{Expr, MysqlQueryBuilder, Query};
 
         let select = Query::select()
             .from("users")
             .and_where(Expr::col("id").eq(42))
             .to_owned();
-        assert!(select.to_string().contains("users"));
+        let sql = select.to_string(MysqlQueryBuilder);
+        assert!(sql.contains("users"));
     }
 }
 
