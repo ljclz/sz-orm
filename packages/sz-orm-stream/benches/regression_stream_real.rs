@@ -92,10 +92,7 @@ fn stream_real_backpressure(c: &mut Criterion) {
                 }
                 let _ = black_box(&batch);
             }
-            assert!(
-                batches > 0,
-                "应至少消费 1 批"
-            );
+            assert!(batches > 0, "应至少消费 1 批");
             black_box(over_threshold);
         })
     });

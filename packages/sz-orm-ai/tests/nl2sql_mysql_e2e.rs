@@ -5,18 +5,31 @@
 
 #![cfg(feature = "ai-nl2sql-enhanced")]
 
-use sz_orm_ai::nl2sql::{
-    ColumnInfo, Nl2SqlEngine, SchemaContext, SimpleNl2SqlEngine, TableInfo,
-};
+use sz_orm_ai::nl2sql::{ColumnInfo, Nl2SqlEngine, SchemaContext, SimpleNl2SqlEngine, TableInfo};
 
 fn shop_schema() -> SchemaContext {
     SchemaContext {
         tables: vec![TableInfo {
             name: "sz_user".to_string(),
             columns: vec![
-                ColumnInfo { name: "id".to_string(), data_type: "BIGINT".to_string(), nullable: false, is_primary_key: true },
-                ColumnInfo { name: "username".to_string(), data_type: "VARCHAR".to_string(), nullable: false, is_primary_key: false },
-                ColumnInfo { name: "email".to_string(), data_type: "VARCHAR".to_string(), nullable: true, is_primary_key: false },
+                ColumnInfo {
+                    name: "id".to_string(),
+                    data_type: "BIGINT".to_string(),
+                    nullable: false,
+                    is_primary_key: true,
+                },
+                ColumnInfo {
+                    name: "username".to_string(),
+                    data_type: "VARCHAR".to_string(),
+                    nullable: false,
+                    is_primary_key: false,
+                },
+                ColumnInfo {
+                    name: "email".to_string(),
+                    data_type: "VARCHAR".to_string(),
+                    nullable: true,
+                    is_primary_key: false,
+                },
             ],
         }],
     }

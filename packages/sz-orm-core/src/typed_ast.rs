@@ -874,7 +874,10 @@ impl<C: TypedColumn, V: Clone + ToString> TypedExpression for In<C, V> {
         let col_sql = dialect.quote(C::NAME);
         let placeholders: Vec<&str> = self.values.iter().map(|_| "?").collect();
         let params: Vec<String> = self.values.iter().map(|v| v.to_string()).collect();
-        (format!("{} IN ({})", col_sql, placeholders.join(", ")), params)
+        (
+            format!("{} IN ({})", col_sql, placeholders.join(", ")),
+            params,
+        )
     }
 }
 

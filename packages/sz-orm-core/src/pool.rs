@@ -3867,7 +3867,10 @@ mod leak_prod_tests {
             ..Default::default()
         };
         let rate = metrics.connection_reuse_rate();
-        assert!((rate - 0.99).abs() < 0.001, "复用率应接近 0.99，实际 {rate}");
+        assert!(
+            (rate - 0.99).abs() < 0.001,
+            "复用率应接近 0.99，实际 {rate}"
+        );
     }
 
     #[test]
@@ -3932,6 +3935,9 @@ mod leak_prod_tests {
             ..Default::default()
         };
         let avg_wait = metrics.average_acquire_wait_time();
-        assert!(avg_wait > Duration::from_millis(100), "平均等待 {avg_wait:?} 应 > 100ms");
+        assert!(
+            avg_wait > Duration::from_millis(100),
+            "平均等待 {avg_wait:?} 应 > 100ms"
+        );
     }
 }

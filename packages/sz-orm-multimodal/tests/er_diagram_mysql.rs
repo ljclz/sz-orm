@@ -60,10 +60,12 @@ async fn test_er_diagram_multiple_tables_from_mysql() {
         .await
         .expect("MySQL 连接失败");
 
-    let table_rows = sqlx::query("SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = 'shop' LIMIT 3")
-        .fetch_all(&pool)
-        .await
-        .expect("查询表列表失败");
+    let table_rows = sqlx::query(
+        "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = 'shop' LIMIT 3",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("查询表列表失败");
 
     assert!(!table_rows.is_empty(), "shop 库应有表");
 

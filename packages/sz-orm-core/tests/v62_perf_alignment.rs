@@ -27,8 +27,7 @@ mod sqlx_tests {
     async fn sqlx_query_build_runs() {
         use sqlx::Sqlite;
 
-        let query = sqlx::query::<Sqlite>("SELECT * FROM users WHERE id = ?")
-            .bind(42i64);
+        let query = sqlx::query::<Sqlite>("SELECT * FROM users WHERE id = ?").bind(42i64);
         let _ = query;
     }
 

@@ -1,97 +1,97 @@
 {
-  "version": "6.2.0",
-  "generated_at": "2026-09-05",
-  "description": "sz-orm v6.2.0 基准基线（实际测量值，release 模式，sample-size=20）",
-  "scenarios": [
-    {
-      "name": "pool_steady/pool_steady_acquire_release",
-      "mean_ns": 1119,
-      "p50_ns": 1119,
-      "p99_ns": 1182,
-      "p999_ns": 1182,
-      "throughput_ops_per_s": 894000,
-      "sample_count": 20
-    },
-    {
-      "name": "pool_steady/pool_reuse_rate_steady",
-      "mean_ns": 1175900,
-      "p50_ns": 1175900,
-      "p99_ns": 1290800,
-      "p999_ns": 1290800,
-      "throughput_ops_per_s": 851,
-      "sample_count": 20
-    },
-    {
-      "name": "v62_build_select_with_params/build_select_with_params_simple",
-      "mean_ns": 1240,
-      "p50_ns": 1240,
-      "p99_ns": 1279,
-      "p999_ns": 1279,
-      "throughput_ops_per_s": 806000,
-      "sample_count": 20
-    },
-    {
-      "name": "v62_build_select_with_params/build_select_with_params_complex",
-      "mean_ns": 5235,
-      "p50_ns": 5235,
-      "p99_ns": 5444,
-      "p999_ns": 5444,
-      "throughput_ops_per_s": 191000,
-      "sample_count": 20
-    },
-    {
-      "name": "build_batch_insert_1000",
-      "mean_ns": 462150,
-      "p50_ns": 462150,
-      "p99_ns": 488270,
-      "p999_ns": 488270,
-      "throughput_ops_per_s": 2164,
-      "sample_count": 20
-    },
-    {
-      "name": "build_batch_upsert_1000",
-      "mean_ns": 419660,
-      "p50_ns": 419660,
-      "p99_ns": 435060,
-      "p999_ns": 435060,
-      "throughput_ops_per_s": 2383,
-      "sample_count": 20
-    },
-    {
-      "name": "v62_stream_real/stream_real_batch_1000",
-      "mean_ns": 60455000,
-      "p50_ns": 60455000,
-      "p99_ns": 72959000,
-      "p999_ns": 72959000,
-      "throughput_ops_per_s": 1654000,
-      "sample_count": 20
-    },
-    {
-      "name": "stream_real_backpressure",
-      "mean_ns": 1843300,
-      "p50_ns": 1843300,
-      "p99_ns": 2005200,
-      "p999_ns": 2005200,
-      "throughput_ops_per_s": 543,
-      "sample_count": 20
-    },
-    {
-      "name": "v62_sqlx_alignment/sqlx_pool_acquire",
-      "mean_ns": 23746,
-      "p50_ns": 23746,
-      "p99_ns": 24937,
-      "p999_ns": 24937,
-      "throughput_ops_per_s": 42113,
-      "sample_count": 20
-    },
-    {
-      "name": "v62_sqlx_alignment/sqlx_query_build",
-      "mean_ns": 218,
-      "p50_ns": 218,
-      "p99_ns": 239,
-      "p999_ns": 239,
-      "throughput_ops_per_s": 4597000,
-      "sample_count": 20
-    }
-  ]
+    "version": "6.2.0",
+    "generated_at": "2026-09-05",
+    "description": "sz-orm v6.2.0 基准基线（实际测量值，release 模式，sample-size=20）",
+    "scenarios": [
+        {
+            "name": "pool_steady/pool_steady_acquire_release",
+            "mean_ns": 1119,
+            "p50_ns": 1119,
+            "p99_ns": 1182,
+            "p999_ns": 1182,
+            "throughput_ops_per_s": 894000,
+            "sample_count": 20
+        },
+        {
+            "name": "pool_steady/pool_reuse_rate_steady",
+            "mean_ns": 1175900,
+            "p50_ns": 1175900,
+            "p99_ns": 1290800,
+            "p999_ns": 1290800,
+            "throughput_ops_per_s": 851,
+            "sample_count": 20
+        },
+        {
+            "name": "v62_build_select_with_params/build_select_with_params_simple",
+            "mean_ns": 1240,
+            "p50_ns": 1240,
+            "p99_ns": 1279,
+            "p999_ns": 1279,
+            "throughput_ops_per_s": 806000,
+            "sample_count": 20
+        },
+        {
+            "name": "v62_build_select_with_params/build_select_with_params_complex",
+            "mean_ns": 5235,
+            "p50_ns": 5235,
+            "p99_ns": 5444,
+            "p999_ns": 5444,
+            "throughput_ops_per_s": 191000,
+            "sample_count": 20
+        },
+        {
+            "name": "build_batch_insert_1000",
+            "mean_ns": 462150,
+            "p50_ns": 462150,
+            "p99_ns": 488270,
+            "p999_ns": 488270,
+            "throughput_ops_per_s": 2164,
+            "sample_count": 20
+        },
+        {
+            "name": "build_batch_upsert_1000",
+            "mean_ns": 419660,
+            "p50_ns": 419660,
+            "p99_ns": 435060,
+            "p999_ns": 435060,
+            "throughput_ops_per_s": 2383,
+            "sample_count": 20
+        },
+        {
+            "name": "v62_stream_real/stream_real_batch_1000",
+            "mean_ns": 60455000,
+            "p50_ns": 60455000,
+            "p99_ns": 72959000,
+            "p999_ns": 72959000,
+            "throughput_ops_per_s": 1654000,
+            "sample_count": 20
+        },
+        {
+            "name": "stream_real_backpressure",
+            "mean_ns": 1843300,
+            "p50_ns": 1843300,
+            "p99_ns": 2005200,
+            "p999_ns": 2005200,
+            "throughput_ops_per_s": 543,
+            "sample_count": 20
+        },
+        {
+            "name": "v62_sqlx_alignment/sqlx_pool_acquire",
+            "mean_ns": 23746,
+            "p50_ns": 23746,
+            "p99_ns": 24937,
+            "p999_ns": 24937,
+            "throughput_ops_per_s": 42113,
+            "sample_count": 20
+        },
+        {
+            "name": "v62_sqlx_alignment/sqlx_query_build",
+            "mean_ns": 218,
+            "p50_ns": 218,
+            "p99_ns": 239,
+            "p999_ns": 239,
+            "throughput_ops_per_s": 4597000,
+            "sample_count": 20
+        }
+    ]
 }

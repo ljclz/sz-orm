@@ -271,7 +271,7 @@ impl<M: Model> QueryBuilder<M> {
     pub fn new(dialect: Box<dyn Dialect>) -> Self {
         Self {
             table: None,
-            select_columns: vec!["*".to_string()],
+            select_columns: Vec::new(),
             select_mode: crate::partial_model::SelectMode::All,
             where_conditions: Vec::new(),
             order_by: Vec::new(),
@@ -531,7 +531,7 @@ impl<M: Model> QueryBuilder<M> {
     pub fn clone_for_count(&self) -> Self {
         Self {
             table: self.table.clone(),
-            select_columns: vec!["*".to_string()],
+            select_columns: Vec::new(),
             select_mode: crate::partial_model::SelectMode::All,
             where_conditions: self.where_conditions.clone(),
             order_by: Vec::new(),
@@ -2063,105 +2063,327 @@ impl<M: Model> QueryBuilder<M> {
 
         let mut params = Vec::new();
 
-        let mut conditions: Vec<String> = self
-            .where_conditions
-            .iter()
-            .map(|cond| match cond {
-                WhereCondition::And(c) => c.clone(),
-                WhereCondition::Or(c) => format!("OR {}", c),
-                // P0-2：参数化条件使用 `?` 占位符
+        // 快速路径：无额外条件 + 无 OR → 直接写入 result，跳过 conditions Vec
+        let has_extra = soft_delete_cond.is_some()
+            || tenant_cond.is_some()
+            || rls_cond.is_some()
+            || self.keyset_cursor.is_some();
+        if !has_extra {
+            let has_or = self.where_conditions.iter().any(|c| {
+                matches!(
+                    c,
+                    WhereCondition::Or(_)
+                        | WhereCondition::OrEq(..)
+                        | WhereCondition::OrNe(..)
+                        | WhereCondition::OrGt(..)
+                        | WhereCondition::OrGe(..)
+                        | WhereCondition::OrLt(..)
+                        | WhereCondition::OrLe(..)
+                        | WhereCondition::OrLike(..)
+                )
+            });
+            if !has_or {
+                let mut result = String::with_capacity(7 + self.where_conditions.len() * 32);
+                result.push_str(" WHERE ");
+                for (i, cond) in self.where_conditions.iter().enumerate() {
+                    if i > 0 {
+                        result.push_str(" AND ");
+                    }
+                    match cond {
+                        WhereCondition::And(c) => result.push_str(c),
+                        WhereCondition::Eq(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" = ?");
+                        }
+                        WhereCondition::Ne(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" != ?");
+                        }
+                        WhereCondition::Gt(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" > ?");
+                        }
+                        WhereCondition::Ge(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" >= ?");
+                        }
+                        WhereCondition::Lt(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" < ?");
+                        }
+                        WhereCondition::Le(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" <= ?");
+                        }
+                        WhereCondition::Like(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" LIKE ?");
+                        }
+                        WhereCondition::In(f, vals) => {
+                            params.extend(vals.iter().cloned());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" IN (");
+                            for (j, _) in vals.iter().enumerate() {
+                                if j > 0 {
+                                    result.push_str(", ");
+                                }
+                                result.push('?');
+                            }
+                            result.push(')');
+                        }
+                        WhereCondition::NotIn(f, vals) => {
+                            params.extend(vals.iter().cloned());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" NOT IN (");
+                            for (j, _) in vals.iter().enumerate() {
+                                if j > 0 {
+                                    result.push_str(", ");
+                                }
+                                result.push('?');
+                            }
+                            result.push(')');
+                        }
+                        WhereCondition::Between(f, start, end) => {
+                            params.push(start.clone());
+                            params.push(end.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" BETWEEN ? AND ?");
+                        }
+                        WhereCondition::NotBetween(f, start, end) => {
+                            params.push(start.clone());
+                            params.push(end.clone());
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" NOT BETWEEN ? AND ?");
+                        }
+                        WhereCondition::Null(f) => {
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" IS NULL");
+                        }
+                        WhereCondition::NotNull(f) => {
+                            self.dialect.quote_into(f, &mut result);
+                            result.push_str(" IS NOT NULL");
+                        }
+                        WhereCondition::Exists(s) => {
+                            result.push_str("EXISTS (");
+                            result.push_str(s);
+                            result.push(')');
+                        }
+                        WhereCondition::NotExists(s) => {
+                            result.push_str("NOT EXISTS (");
+                            result.push_str(s);
+                            result.push(')');
+                        }
+                        WhereCondition::TypedExpr(sql, expr_params) => {
+                            params.extend(expr_params.iter().cloned());
+                            result.push_str(sql);
+                        }
+                        WhereCondition::Having(..) => {}
+                        _ => {}
+                    }
+                }
+                return (result, params);
+            }
+        }
+
+        let mut conditions: Vec<String> = Vec::with_capacity(self.where_conditions.len() + 4);
+        for cond in self.where_conditions.iter() {
+            match cond {
+                WhereCondition::And(c) => conditions.push(c.clone()),
+                WhereCondition::Or(c) => {
+                    let mut s = String::with_capacity(c.len() + 4);
+                    s.push_str("OR ");
+                    s.push_str(c);
+                    conditions.push(s);
+                }
                 WhereCondition::Eq(f, v) => {
                     params.push(v.clone());
-                    format!("{} = ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 5);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" = ?");
+                    conditions.push(s);
                 }
                 WhereCondition::Ne(f, v) => {
                     params.push(v.clone());
-                    format!("{} != ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 6);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" != ?");
+                    conditions.push(s);
                 }
                 WhereCondition::Gt(f, v) => {
                     params.push(v.clone());
-                    format!("{} > ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 5);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" > ?");
+                    conditions.push(s);
                 }
                 WhereCondition::Ge(f, v) => {
                     params.push(v.clone());
-                    format!("{} >= ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 6);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" >= ?");
+                    conditions.push(s);
                 }
                 WhereCondition::Lt(f, v) => {
                     params.push(v.clone());
-                    format!("{} < ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 5);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" < ?");
+                    conditions.push(s);
                 }
                 WhereCondition::Le(f, v) => {
                     params.push(v.clone());
-                    format!("{} <= ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 6);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" <= ?");
+                    conditions.push(s);
                 }
                 WhereCondition::Like(f, v) => {
                     params.push(v.clone());
-                    format!("{} LIKE ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 8);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" LIKE ?");
+                    conditions.push(s);
                 }
                 WhereCondition::OrEq(f, v) => {
                     params.push(v.clone());
-                    format!("OR {} = ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 8);
+                    s.push_str("OR ");
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" = ?");
+                    conditions.push(s);
                 }
                 WhereCondition::OrNe(f, v) => {
                     params.push(v.clone());
-                    format!("OR {} != ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 9);
+                    s.push_str("OR ");
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" != ?");
+                    conditions.push(s);
                 }
                 WhereCondition::OrGt(f, v) => {
                     params.push(v.clone());
-                    format!("OR {} > ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 8);
+                    s.push_str("OR ");
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" > ?");
+                    conditions.push(s);
                 }
                 WhereCondition::OrGe(f, v) => {
                     params.push(v.clone());
-                    format!("OR {} >= ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 9);
+                    s.push_str("OR ");
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" >= ?");
+                    conditions.push(s);
                 }
                 WhereCondition::OrLt(f, v) => {
                     params.push(v.clone());
-                    format!("OR {} < ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 8);
+                    s.push_str("OR ");
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" < ?");
+                    conditions.push(s);
                 }
                 WhereCondition::OrLe(f, v) => {
                     params.push(v.clone());
-                    format!("OR {} <= ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 9);
+                    s.push_str("OR ");
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" <= ?");
+                    conditions.push(s);
                 }
                 WhereCondition::OrLike(f, v) => {
                     params.push(v.clone());
-                    format!("OR {} LIKE ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 11);
+                    s.push_str("OR ");
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" LIKE ?");
+                    conditions.push(s);
                 }
                 WhereCondition::In(f, vals) => {
-                    let placeholders: Vec<&str> = vals.iter().map(|_| "?").collect();
                     params.extend(vals.iter().cloned());
-                    format!("{} IN ({})", self.dialect.quote(f), placeholders.join(", "))
+                    let mut s = String::with_capacity(f.len() + vals.len() * 2 + 7);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" IN (");
+                    for (i, _) in vals.iter().enumerate() {
+                        if i > 0 {
+                            s.push_str(", ");
+                        }
+                        s.push('?');
+                    }
+                    s.push(')');
+                    conditions.push(s);
                 }
                 WhereCondition::NotIn(f, vals) => {
-                    let placeholders: Vec<&str> = vals.iter().map(|_| "?").collect();
                     params.extend(vals.iter().cloned());
-                    format!(
-                        "{} NOT IN ({})",
-                        self.dialect.quote(f),
-                        placeholders.join(", ")
-                    )
+                    let mut s = String::with_capacity(f.len() + vals.len() * 2 + 11);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" NOT IN (");
+                    for (i, _) in vals.iter().enumerate() {
+                        if i > 0 {
+                            s.push_str(", ");
+                        }
+                        s.push('?');
+                    }
+                    s.push(')');
+                    conditions.push(s);
                 }
                 WhereCondition::Between(f, start, end) => {
                     params.push(start.clone());
                     params.push(end.clone());
-                    format!("{} BETWEEN ? AND ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 18);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" BETWEEN ? AND ?");
+                    conditions.push(s);
                 }
                 WhereCondition::NotBetween(f, start, end) => {
                     params.push(start.clone());
                     params.push(end.clone());
-                    format!("{} NOT BETWEEN ? AND ?", self.dialect.quote(f))
+                    let mut s = String::with_capacity(f.len() + 22);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" NOT BETWEEN ? AND ?");
+                    conditions.push(s);
                 }
-                WhereCondition::Null(f) => format!("{} IS NULL", self.dialect.quote(f)),
-                WhereCondition::NotNull(f) => format!("{} IS NOT NULL", self.dialect.quote(f)),
-                WhereCondition::Exists(s) => format!("EXISTS ({})", s),
-                WhereCondition::NotExists(s) => format!("NOT EXISTS ({})", s),
+                WhereCondition::Null(f) => {
+                    let mut s = String::with_capacity(f.len() + 9);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" IS NULL");
+                    conditions.push(s);
+                }
+                WhereCondition::NotNull(f) => {
+                    let mut s = String::with_capacity(f.len() + 13);
+                    self.dialect.quote_into(f, &mut s);
+                    s.push_str(" IS NOT NULL");
+                    conditions.push(s);
+                }
+                WhereCondition::Exists(s) => {
+                    let mut out = String::with_capacity(s.len() + 9);
+                    out.push_str("EXISTS (");
+                    out.push_str(s);
+                    out.push(')');
+                    conditions.push(out);
+                }
+                WhereCondition::NotExists(s) => {
+                    let mut out = String::with_capacity(s.len() + 13);
+                    out.push_str("NOT EXISTS (");
+                    out.push_str(s);
+                    out.push(')');
+                    conditions.push(out);
+                }
                 WhereCondition::TypedExpr(sql, expr_params) => {
                     params.extend(expr_params.iter().cloned());
-                    sql.clone()
+                    conditions.push(sql.clone());
                 }
-                // M-5：Having 仅出现在 HAVING 子句，防御性空串
-                WhereCondition::Having(..) => String::new(),
-            })
-            .collect();
+                WhereCondition::Having(..) => conditions.push(String::new()),
+            }
+        }
 
         // P0-1：追加软删除条件（作为最后一个 AND 条件，无参数）
         if let Some(sd_cond) = soft_delete_cond {
@@ -2183,15 +2405,32 @@ impl<M: Model> QueryBuilder<M> {
         // P2-5：追加 keyset 游标条件（在租户条件之后，参数化绑定）
         if let Some(ref cursor) = self.keyset_cursor {
             let op = match cursor.direction {
-                KeysetDirection::After => ">",
-                KeysetDirection::Before => "<",
+                KeysetDirection::After => " > ?",
+                KeysetDirection::Before => " < ?",
             };
-            conditions.push(format!("{} {} ?", self.dialect.quote(&cursor.field), op));
+            let mut s = String::with_capacity(cursor.field.len() + 5);
+            self.dialect.quote_into(&cursor.field, &mut s);
+            s.push_str(op);
+            conditions.push(s);
             params.push(cursor.value.clone());
         }
 
         if conditions.is_empty() {
             return (String::new(), params);
+        }
+
+        let has_or = conditions.iter().any(|c| c.starts_with("OR "));
+        if !has_or {
+            let mut result =
+                String::with_capacity(7 + conditions.iter().map(|s| s.len() + 5).sum::<usize>());
+            result.push_str(" WHERE ");
+            for (i, c) in conditions.iter().enumerate() {
+                if i > 0 {
+                    result.push_str(" AND ");
+                }
+                result.push_str(c);
+            }
+            return (result, params);
         }
 
         // OR 分组逻辑：与 build_where_clause 相同
@@ -2223,7 +2462,16 @@ impl<M: Model> QueryBuilder<M> {
             .collect();
 
         // SAFETY: group_strs 来自 WhereCondition::Eq/Gt 等参数化变体渲染，值已绑定为 ? 占位符
-        (format!(" WHERE {}", group_strs.join(" AND ")), params)
+        let mut result =
+            String::with_capacity(7 + group_strs.iter().map(|s| s.len() + 5).sum::<usize>());
+        result.push_str(" WHERE ");
+        for (i, g) in group_strs.iter().enumerate() {
+            if i > 0 {
+                result.push_str(" AND ");
+            }
+            result.push_str(g);
+        }
+        (result, params)
     }
 
     /// 构建 SELECT SQL（参数绑定版本）。
@@ -2231,89 +2479,246 @@ impl<M: Model> QueryBuilder<M> {
     /// WHERE 子句中的值使用 `?` 占位符，值通过 `params` 返回。
     /// 适用于 `Connection::query_with_params()`。
     pub fn build_select_with_params(&self) -> (String, Vec<Value>) {
-        let table = self
-            .table
-            .clone()
-            .unwrap_or_else(|| M::table_name().to_string());
-        let columns = if self.select_columns.is_empty() {
-            "*".to_string()
+        let table = self.table.as_deref().unwrap_or_else(|| M::table_name());
+
+        let columns_len = if self.select_columns.is_empty() {
+            1
         } else {
-            self.select_columns.join(", ")
+            self.select_columns
+                .iter()
+                .map(|c| c.len() + 2)
+                .sum::<usize>()
         };
 
-        let quoted_table = self.dialect.quote(&table);
-        let capacity = 16 + quoted_table.len() + columns.len() + 64;
+        let capacity = 16
+            + columns_len
+            + table.len()
+            + 2
+            + self.joins.len() * 48
+            + self.where_conditions.len() * 32
+            + self.group_by.len() * 24
+            + self.having_conditions.len() * 32
+            + self.order_by.len() * 24
+            + 32;
         let mut sql = String::with_capacity(capacity);
-        let _ = write!(sql, "SELECT {} FROM {}", columns, quoted_table);
+        sql.push_str("SELECT ");
+        if self.select_columns.is_empty() {
+            sql.push('*');
+        } else {
+            for (i, col) in self.select_columns.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(", ");
+                }
+                sql.push_str(col);
+            }
+        }
+        sql.push_str(" FROM ");
+        self.dialect.quote_into(table, &mut sql);
 
         for join in &self.joins {
             match join {
                 JoinClause::Inner(t, l, r) => {
-                    let _ = write!(
-                        sql,
-                        " INNER JOIN {} ON {} = {}",
-                        self.dialect.quote(t),
-                        self.dialect.quote(l),
-                        self.dialect.quote(r)
-                    );
+                    sql.push_str(" INNER JOIN ");
+                    self.dialect.quote_into(t, &mut sql);
+                    sql.push_str(" ON ");
+                    self.dialect.quote_into(l, &mut sql);
+                    sql.push_str(" = ");
+                    self.dialect.quote_into(r, &mut sql);
                 }
                 JoinClause::Left(t, l, r) => {
-                    let _ = write!(
-                        sql,
-                        " LEFT JOIN {} ON {} = {}",
-                        self.dialect.quote(t),
-                        self.dialect.quote(l),
-                        self.dialect.quote(r)
-                    );
+                    sql.push_str(" LEFT JOIN ");
+                    self.dialect.quote_into(t, &mut sql);
+                    sql.push_str(" ON ");
+                    self.dialect.quote_into(l, &mut sql);
+                    sql.push_str(" = ");
+                    self.dialect.quote_into(r, &mut sql);
                 }
                 JoinClause::Right(t, l, r) => {
-                    let _ = write!(
-                        sql,
-                        " RIGHT JOIN {} ON {} = {}",
-                        self.dialect.quote(t),
-                        self.dialect.quote(l),
-                        self.dialect.quote(r)
-                    );
+                    sql.push_str(" RIGHT JOIN ");
+                    self.dialect.quote_into(t, &mut sql);
+                    sql.push_str(" ON ");
+                    self.dialect.quote_into(l, &mut sql);
+                    sql.push_str(" = ");
+                    self.dialect.quote_into(r, &mut sql);
                 }
                 JoinClause::Cross(t, on) => {
-                    let _ = write!(
-                        sql,
-                        " CROSS JOIN {} ON {}",
-                        self.dialect.quote(t),
-                        self.dialect.quote(on)
-                    );
+                    sql.push_str(" CROSS JOIN ");
+                    self.dialect.quote_into(t, &mut sql);
+                    sql.push_str(" ON ");
+                    self.dialect.quote_into(on, &mut sql);
                 }
                 JoinClause::Relation(kind, ft, fk, tt, tk) => {
-                    let _ = write!(
-                        sql,
-                        " {} {} ON {}.{} = {}.{}",
-                        kind.as_sql(),
-                        self.dialect.quote(tt),
-                        self.dialect.quote(ft),
-                        self.dialect.quote(fk),
-                        self.dialect.quote(tt),
-                        self.dialect.quote(tk)
-                    );
+                    sql.push(' ');
+                    sql.push_str(kind.as_sql());
+                    sql.push(' ');
+                    self.dialect.quote_into(tt, &mut sql);
+                    sql.push_str(" ON ");
+                    self.dialect.quote_into(ft, &mut sql);
+                    sql.push('.');
+                    self.dialect.quote_into(fk, &mut sql);
+                    sql.push_str(" = ");
+                    self.dialect.quote_into(tt, &mut sql);
+                    sql.push('.');
+                    self.dialect.quote_into(tk, &mut sql);
                 }
             }
         }
 
         let mut params = Vec::new();
-        // P0-1：build_where_clause_with_params 内部已处理软删除条件
-        let (where_clause, where_params) = self.build_where_clause_with_params();
-        if !where_clause.is_empty() {
-            sql.push_str(&where_clause);
-            params = where_params;
+
+        // v6.3 快速路径：无软删除/租户/RLS/keyset + 无 OR → 直接写入 sql
+        let no_soft_delete = self.soft_delete_disabled || M::soft_delete_field().is_none();
+        let no_tenant =
+            self.tenant_disabled || M::tenant_field().is_none() || self.tenant_id_value.is_none();
+        #[cfg(feature = "tenant-quota-rls-enhanced")]
+        let no_rls = self.rls_enhancer.is_none();
+        #[cfg(not(feature = "tenant-quota-rls-enhanced"))]
+        let no_rls = true;
+        let no_keyset = self.keyset_cursor.is_none();
+
+        if no_soft_delete && no_tenant && no_rls && no_keyset && !self.where_conditions.is_empty() {
+            let has_or = self.where_conditions.iter().any(|c| {
+                matches!(
+                    c,
+                    WhereCondition::Or(_)
+                        | WhereCondition::OrEq(..)
+                        | WhereCondition::OrNe(..)
+                        | WhereCondition::OrGt(..)
+                        | WhereCondition::OrGe(..)
+                        | WhereCondition::OrLt(..)
+                        | WhereCondition::OrLe(..)
+                        | WhereCondition::OrLike(..)
+                )
+            });
+            if !has_or {
+                sql.push_str(" WHERE ");
+                for (i, cond) in self.where_conditions.iter().enumerate() {
+                    if i > 0 {
+                        sql.push_str(" AND ");
+                    }
+                    match cond {
+                        WhereCondition::And(c) => sql.push_str(c),
+                        WhereCondition::Eq(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" = ?");
+                        }
+                        WhereCondition::Ne(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" != ?");
+                        }
+                        WhereCondition::Gt(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" > ?");
+                        }
+                        WhereCondition::Ge(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" >= ?");
+                        }
+                        WhereCondition::Lt(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" < ?");
+                        }
+                        WhereCondition::Le(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" <= ?");
+                        }
+                        WhereCondition::Like(f, v) => {
+                            params.push(v.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" LIKE ?");
+                        }
+                        WhereCondition::In(f, vals) => {
+                            params.extend(vals.iter().cloned());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" IN (");
+                            for (j, _) in vals.iter().enumerate() {
+                                if j > 0 {
+                                    sql.push_str(", ");
+                                }
+                                sql.push('?');
+                            }
+                            sql.push(')');
+                        }
+                        WhereCondition::NotIn(f, vals) => {
+                            params.extend(vals.iter().cloned());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" NOT IN (");
+                            for (j, _) in vals.iter().enumerate() {
+                                if j > 0 {
+                                    sql.push_str(", ");
+                                }
+                                sql.push('?');
+                            }
+                            sql.push(')');
+                        }
+                        WhereCondition::Between(f, start, end) => {
+                            params.push(start.clone());
+                            params.push(end.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" BETWEEN ? AND ?");
+                        }
+                        WhereCondition::NotBetween(f, start, end) => {
+                            params.push(start.clone());
+                            params.push(end.clone());
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" NOT BETWEEN ? AND ?");
+                        }
+                        WhereCondition::Null(f) => {
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" IS NULL");
+                        }
+                        WhereCondition::NotNull(f) => {
+                            self.dialect.quote_into(f, &mut sql);
+                            sql.push_str(" IS NOT NULL");
+                        }
+                        WhereCondition::Exists(s) => {
+                            sql.push_str("EXISTS (");
+                            sql.push_str(s);
+                            sql.push(')');
+                        }
+                        WhereCondition::NotExists(s) => {
+                            sql.push_str("NOT EXISTS (");
+                            sql.push_str(s);
+                            sql.push(')');
+                        }
+                        WhereCondition::TypedExpr(sql_expr, expr_params) => {
+                            params.extend(expr_params.iter().cloned());
+                            sql.push_str(sql_expr);
+                        }
+                        WhereCondition::Having(..) => {}
+                        _ => {}
+                    }
+                }
+            } else {
+                let (where_clause, where_params) = self.build_where_clause_with_params();
+                if !where_clause.is_empty() {
+                    sql.push_str(&where_clause);
+                    params = where_params;
+                }
+            }
+        } else {
+            // P0-1：build_where_clause_with_params 内部已处理软删除条件
+            let (where_clause, where_params) = self.build_where_clause_with_params();
+            if !where_clause.is_empty() {
+                sql.push_str(&where_clause);
+                params = where_params;
+            }
         }
 
         if !self.group_by.is_empty() {
-            let cols: Vec<String> = self
-                .group_by
-                .iter()
-                .map(|c| self.dialect.quote(c))
-                .collect();
             sql.push_str(" GROUP BY ");
-            sql.push_str(&cols.join(", "));
+            for (i, c) in self.group_by.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(", ");
+                }
+                self.dialect.quote_into(c, &mut sql);
+            }
         }
 
         if !self.having_conditions.is_empty() {
@@ -2327,7 +2732,7 @@ impl<M: Model> QueryBuilder<M> {
                     // M-5：参数化 HAVING，值走绑定参数
                     WhereCondition::Having(agg, op, value) => {
                         params.push(value.clone());
-                        sql.push_str(&format!("{} {} ?", agg.render(&*self.dialect), op.as_sql()));
+                        let _ = write!(sql, "{} {} ?", agg.render(&*self.dialect), op.as_sql());
                     }
                     _ => {}
                 }
@@ -2335,19 +2740,17 @@ impl<M: Model> QueryBuilder<M> {
         }
 
         if !self.order_by.is_empty() {
-            let order_cols: Vec<String> = self
-                .order_by
-                .iter()
-                .map(|o| {
-                    let dir = match o.direction {
-                        OrderDirection::Asc => " ASC",
-                        OrderDirection::Desc => " DESC",
-                    };
-                    format!("{}{}", self.dialect.quote(&o.field), dir)
-                })
-                .collect();
             sql.push_str(" ORDER BY ");
-            sql.push_str(&order_cols.join(", "));
+            for (i, o) in self.order_by.iter().enumerate() {
+                if i > 0 {
+                    sql.push_str(", ");
+                }
+                self.dialect.quote_into(&o.field, &mut sql);
+                match o.direction {
+                    OrderDirection::Asc => sql.push_str(" ASC"),
+                    OrderDirection::Desc => sql.push_str(" DESC"),
+                }
+            }
         }
 
         if let Some(limit) = self.limit_value {

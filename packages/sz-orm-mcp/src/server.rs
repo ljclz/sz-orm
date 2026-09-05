@@ -5,8 +5,8 @@
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
-use sz_orm_nl_query::pipeline::{NlQueryPipeline, SqlExecutor};
 use std::sync::Arc;
+use sz_orm_nl_query::pipeline::{NlQueryPipeline, SqlExecutor};
 
 /// MCP 工具定义
 #[derive(Debug, Clone, Serialize)]
@@ -120,14 +120,15 @@ impl McpServer {
             .and_then(|v| v.as_str())
             .unwrap_or("");
 
-        let args = request.params.get("arguments").cloned().unwrap_or(Value::Null);
+        let args = request
+            .params
+            .get("arguments")
+            .cloned()
+            .unwrap_or(Value::Null);
 
         match tool_name {
             "nl_query" => {
-                let query = args
-                    .get("query")
-                    .and_then(|v| v.as_str())
-                    .unwrap_or("");
+                let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("");
                 match self.pipeline.query(query).await {
                     Ok(resp) => McpResponse {
                         jsonrpc: "2.0".to_string(),
@@ -243,7 +244,10 @@ mod tests {
         let response = server.handle_request(request).await;
         assert!(response.result.is_some());
         let result = response.result.unwrap();
-        assert!(result["content"][0]["text"].as_str().unwrap().contains("SELECT"));
+        assert!(result["content"][0]["text"]
+            .as_str()
+            .unwrap()
+            .contains("SELECT"));
     }
 
     #[tokio::test]

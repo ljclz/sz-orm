@@ -145,10 +145,7 @@ fn pool_reuse_rate_steady(c: &mut Criterion) {
 
             let metrics = pool.pool_metrics();
             let reuse_rate = metrics.connection_reuse_rate();
-            assert!(
-                reuse_rate >= 0.9,
-                "复用率应 ≥ 0.9，实际: {reuse_rate}"
-            );
+            assert!(reuse_rate >= 0.9, "复用率应 ≥ 0.9，实际: {reuse_rate}");
             black_box(reuse_rate);
 
             pool.close_all().await;
@@ -156,9 +153,5 @@ fn pool_reuse_rate_steady(c: &mut Criterion) {
     });
 }
 
-criterion_group!(
-    benches,
-    pool_steady_acquire_release,
-    pool_reuse_rate_steady
-);
+criterion_group!(benches, pool_steady_acquire_release, pool_reuse_rate_steady);
 criterion_main!(benches);

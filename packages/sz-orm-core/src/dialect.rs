@@ -30,6 +30,14 @@ pub trait Dialect: Send + Sync {
     /// 引用标识符（表名、列名等）
     fn quote(&self, identifier: &str) -> String;
 
+    /// 引用标识符直接写入 buf，避免中间 String 分配。
+    ///
+    /// 等价性契约：写入 buf 的字节序列必须等于 `self.quote(identifier)` 返回的 String 内容。
+    /// 默认实现回退到 `quote()`，各 dialect 可覆盖以消除分配。
+    fn quote_into(&self, identifier: &str, buf: &mut String) {
+        buf.push_str(&self.quote(identifier));
+    }
+
     /// L-4 修复：带校验的引用标识符
     ///
     /// 与 `quote()` 不同，此方法会先校验标识符：
@@ -238,6 +246,16 @@ impl Dialect for MySqlDialect {
 
     fn quote(&self, identifier: &str) -> String {
         format!("`{}`", identifier.replace('`', "``"))
+    }
+
+    fn quote_into(&self, identifier: &str, buf: &mut String) {
+        if identifier.contains('`') {
+            buf.push_str(&self.quote(identifier));
+        } else {
+            buf.push('`');
+            buf.push_str(identifier);
+            buf.push('`');
+        }
     }
 
     fn escape_string(&self, s: &str) -> String {
@@ -461,6 +479,16 @@ impl Dialect for PostgreSqlDialect {
 
     fn quote(&self, identifier: &str) -> String {
         format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn quote_into(&self, identifier: &str, buf: &mut String) {
+        if identifier.contains('"') {
+            buf.push_str(&self.quote(identifier));
+        } else {
+            buf.push('"');
+            buf.push_str(identifier);
+            buf.push('"');
+        }
     }
 
     fn escape_string(&self, s: &str) -> String {
@@ -687,6 +715,16 @@ impl Dialect for SqliteDialect {
 
     fn quote(&self, identifier: &str) -> String {
         format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn quote_into(&self, identifier: &str, buf: &mut String) {
+        if identifier.contains('"') {
+            buf.push_str(&self.quote(identifier));
+        } else {
+            buf.push('"');
+            buf.push_str(identifier);
+            buf.push('"');
+        }
     }
 
     fn escape_string(&self, s: &str) -> String {
@@ -963,6 +1001,16 @@ impl Dialect for OracleDialect {
     fn quote(&self, identifier: &str) -> String {
         // Oracle 标准使用双引号包裹标识符，内部双引号双写
         format!("\"{}\"", identifier.replace('"', "\"\""))
+    }
+
+    fn quote_into(&self, identifier: &str, buf: &mut String) {
+        if identifier.contains('"') {
+            buf.push_str(&self.quote(identifier));
+        } else {
+            buf.push('"');
+            buf.push_str(identifier);
+            buf.push('"');
+        }
     }
 
     fn escape_string(&self, s: &str) -> String {

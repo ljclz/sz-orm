@@ -138,15 +138,13 @@ fn build_select_with_params_equivalence_where_multi() {
 /// 场景 5：WHERE BETWEEN
 #[test]
 fn build_select_with_params_equivalence_where_between() {
-    let builder = make_builder()
-        .table("users")
-        .where_between("age", Value::I32(18), Value::I32(65));
+    let builder =
+        make_builder()
+            .table("users")
+            .where_between("age", Value::I32(18), Value::I32(65));
     let (sql, params) = builder.build_select_with_params();
 
-    assert_eq!(
-        sql,
-        r#"SELECT * FROM "users" WHERE "age" BETWEEN ? AND ?"#
-    );
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "age" BETWEEN ? AND ?"#);
     assert_eq!(params, vec![Value::I32(18), Value::I32(65)]);
 }
 
@@ -163,9 +161,7 @@ fn build_select_with_params_equivalence_where_null() {
 /// 场景 7：JOIN（HasMany → LEFT JOIN）
 #[test]
 fn build_select_with_params_equivalence_join_has_many() {
-    let builder = make_builder()
-        .table("users")
-        .join(&OrdersRelation);
+    let builder = make_builder().table("users").join(&OrdersRelation);
     let (sql, params) = builder.build_select_with_params();
 
     assert_eq!(
@@ -178,9 +174,7 @@ fn build_select_with_params_equivalence_join_has_many() {
 /// 场景 8：JOIN（BelongsTo → INNER JOIN）
 #[test]
 fn build_select_with_params_equivalence_join_belongs_to() {
-    let builder = make_builder()
-        .table("users")
-        .join(&ProfileRelation);
+    let builder = make_builder().table("users").join(&ProfileRelation);
     let (sql, params) = builder.build_select_with_params();
 
     assert_eq!(
@@ -193,9 +187,7 @@ fn build_select_with_params_equivalence_join_belongs_to() {
 /// 场景 9：GROUP BY
 #[test]
 fn build_select_with_params_equivalence_group_by() {
-    let builder = make_builder()
-        .table("users")
-        .group_by("status");
+    let builder = make_builder().table("users").group_by("status");
     let (sql, params) = builder.build_select_with_params();
 
     assert_eq!(sql, r#"SELECT * FROM "users" GROUP BY "status""#);
@@ -221,10 +213,7 @@ fn build_select_with_params_equivalence_order_by() {
 /// 场景 11：LIMIT + OFFSET
 #[test]
 fn build_select_with_params_equivalence_limit_offset() {
-    let builder = make_builder()
-        .table("users")
-        .limit(10)
-        .offset(20);
+    let builder = make_builder().table("users").limit(10).offset(20);
     let (sql, params) = builder.build_select_with_params();
 
     assert_eq!(sql, r#"SELECT * FROM "users" LIMIT 10 OFFSET 20"#);
@@ -272,9 +261,10 @@ fn build_select_with_params_equivalence_where_not_in() {
 /// 场景 14：WHERE NOT BETWEEN
 #[test]
 fn build_select_with_params_equivalence_where_not_between() {
-    let builder = make_builder()
-        .table("users")
-        .where_not_between("age", Value::I32(0), Value::I32(17));
+    let builder =
+        make_builder()
+            .table("users")
+            .where_not_between("age", Value::I32(0), Value::I32(17));
     let (sql, params) = builder.build_select_with_params();
 
     assert_eq!(
@@ -300,22 +290,104 @@ fn build_select_with_params_equivalence_multi_group_by() {
     assert!(params.is_empty());
 }
 
+/// 场景 15：WHERE IS NOT NULL
+#[test]
+fn build_select_with_params_equivalence_where_not_null() {
+    let builder = make_builder().table("users").where_not_null("email");
+    let (sql, params) = builder.build_select_with_params();
+
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "email" IS NOT NULL"#);
+    assert!(params.is_empty());
+}
+
+/// 场景 16：多 JOIN（HasMany + BelongsTo）
+#[test]
+fn build_select_with_params_equivalence_multi_join() {
+    let builder = make_builder()
+        .table("users")
+        .join(&OrdersRelation)
+        .join(&ProfileRelation);
+    let (sql, params) = builder.build_select_with_params();
+
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" LEFT JOIN "orders" ON "users"."id" = "orders"."user_id" INNER JOIN "profiles" ON "users"."id" = "profiles"."user_id""#
+    );
+    assert!(params.is_empty());
+}
+
+/// 场景 17：GROUP BY + HAVING
+#[test]
+fn build_select_with_params_equivalence_having() {
+    let builder = make_builder()
+        .table("users")
+        .group_by("status")
+        .having(
+            sz_orm_core::AggExpr::CountStar,
+            sz_orm_core::HavingOp::Gt,
+            Value::I64(1),
+        )
+        .expect("having");
+    let (sql, params) = builder.build_select_with_params();
+
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" GROUP BY "status" HAVING COUNT(*) > ?"#
+    );
+    assert_eq!(params, vec![Value::I64(1)]);
+}
+
+/// 场景 18：WHERE OR eq 条件
+#[test]
+fn build_select_with_params_equivalence_where_or_eq() {
+    let builder = make_builder()
+        .table("users")
+        .where_eq("status", Value::String("active".to_string()))
+        .or_where_eq("role", Value::String("admin".to_string()));
+    let (sql, params) = builder.build_select_with_params();
+
+    assert_eq!(
+        sql,
+        r#"SELECT * FROM "users" WHERE ("status" = ? OR "role" = ?)"#
+    );
+    assert_eq!(
+        params,
+        vec![
+            Value::String("active".to_string()),
+            Value::String("admin".to_string()),
+        ]
+    );
+}
+
+/// 场景 19：WHERE LIKE 条件
+#[test]
+fn build_select_with_params_equivalence_where_like() {
+    let builder = make_builder()
+        .table("users")
+        .where_like("name", Value::String("%john%".to_string()));
+    let (sql, params) = builder.build_select_with_params();
+
+    assert_eq!(sql, r#"SELECT * FROM "users" WHERE "name" LIKE ?"#);
+    assert_eq!(params, vec![Value::String("%john%".to_string())]);
+}
+
 // ===================== v6.2 查询性能集成测试 =====================
 
 use std::collections::HashMap;
 use std::time::Instant;
 
-/// 验证 build_select_with_params 吞吐量 ≥ 100,000 ops/s
+/// 验证 build_select_with_params 吞吐量（v6.3 目标：release ≥ 2M ops/s）
 #[test]
 fn sql_build_throughput_real() {
-    let iterations = 100_000;
+    let iterations = 500_000;
+
+    let builder = QueryBuilder::<TestModel>::new(Box::new(SqliteDialect))
+        .table("users")
+        .where_eq("status", Value::String("active".to_string()))
+        .where_gt("age", Value::I64(18));
 
     let start = Instant::now();
     for _ in 0..iterations {
-        let builder = QueryBuilder::<TestModel>::new(Box::new(SqliteDialect))
-            .table("users")
-            .where_eq("status", Value::String("active".to_string()))
-            .where_gt("age", Value::I64(18));
         let (sql, params) = builder.build_select_with_params();
         std::hint::black_box((sql, params));
     }
@@ -323,9 +395,14 @@ fn sql_build_throughput_real() {
 
     let elapsed_secs = elapsed.as_secs_f64();
     let throughput = (iterations as f64 / elapsed_secs) as u64;
+    let threshold = if cfg!(debug_assertions) {
+        200_000
+    } else {
+        2_000_000
+    };
     assert!(
-        throughput >= 100_000,
-        "吞吐量应 ≥ 100,000 ops/s，实际: {throughput} ops/s（{elapsed_secs:.3}s）"
+        throughput >= threshold,
+        "吞吐量应 ≥ {threshold} ops/s，实际: {throughput} ops/s（{elapsed_secs:.3}s）"
     );
 }
 

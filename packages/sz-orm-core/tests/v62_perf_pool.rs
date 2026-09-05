@@ -30,9 +30,8 @@ impl Connection for MockConnection {
         sql: &'a str,
     ) -> std::pin::Pin<
         Box<
-            dyn std::future::Future<
-                    Output = Result<sz_orm_core::QueryRows, sz_orm_core::DbError>,
-                > + Send
+            dyn std::future::Future<Output = Result<sz_orm_core::QueryRows, sz_orm_core::DbError>>
+                + Send
                 + 'a,
         >,
     > {
@@ -128,10 +127,7 @@ async fn pool_reuse_rate_real_db() {
 
     let metrics = pool.pool_metrics();
     let reuse_rate = metrics.connection_reuse_rate();
-    assert!(
-        reuse_rate >= 0.9,
-        "复用率应 ≥ 0.9，实际: {reuse_rate}"
-    );
+    assert!(reuse_rate >= 0.9, "复用率应 ≥ 0.9，实际: {reuse_rate}");
 
     pool.close_all().await;
 }
@@ -154,10 +150,7 @@ async fn pool_suggest_tuning_real_db() {
     }
 
     let advice = pool.suggest_tuning();
-    assert!(
-        !advice.reason.is_empty(),
-        "reason 不应为空"
-    );
+    assert!(!advice.reason.is_empty(), "reason 不应为空");
 
     pool.close_all().await;
 }
@@ -178,10 +171,7 @@ async fn pool_prewarm_partial_failure() {
     let pool = Pool::new(config, factory).expect("pool");
 
     let conn = pool.acquire().await;
-    assert!(
-        conn.is_ok(),
-        "池应仍可服务即使预热部分失败"
-    );
+    assert!(conn.is_ok(), "池应仍可服务即使预热部分失败");
 
     pool.close_all().await;
 }

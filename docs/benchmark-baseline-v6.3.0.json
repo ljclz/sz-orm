@@ -1,0 +1,100 @@
+{
+    "version": "6.3.0",
+    "timestamp": "2026-09-05",
+    "description": "v6.3.0 SQL 构建性能优化基线 — quote_into 零分配 + WHERE 快速路径 + select_columns 延迟初始化",
+    "benchmarks": {
+        "v62_build_select_with_params": {
+            "build_select_with_params_simple": {
+                "time_ns": 115.17,
+                "throughput_ops_per_sec": 8682900,
+                "target_ops_per_sec": 2000000,
+                "target_met": true
+            },
+            "build_select_with_params_simple_full": {
+                "time_ns": 282.18,
+                "throughput_ops_per_sec": 3543800,
+                "note": "包含 QueryBuilder 构造"
+            },
+            "build_select_with_params_complex": {
+                "time_ns": 449.97,
+                "throughput_ops_per_sec": 2222400,
+                "target_ops_per_sec": 1000000,
+                "target_met": true
+            },
+            "build_select_with_params_complex_full": {
+                "time_ns": 1327.70,
+                "throughput_ops_per_sec": 753190,
+                "note": "包含 QueryBuilder 构造"
+            }
+        },
+        "v62_sqlx_alignment": {
+            "sqlx_query_build": {
+                "time_ns": 184.19,
+                "throughput_ops_per_sec": 5429200
+            }
+        }
+    },
+    "performance_gaps": {
+        "simple_prebuilt_vs_sqlx": {
+            "sz_orm_ops_per_sec": 8682900,
+            "sqlx_ops_per_sec": 5429200,
+            "ratio": 0.63,
+            "target_ratio_max": 2.3,
+            "target_met": true,
+            "note": "sz-orm simple 预构建比 SQLx 快 37%"
+        },
+        "simple_full_vs_sqlx": {
+            "sz_orm_ops_per_sec": 3543800,
+            "sqlx_ops_per_sec": 5429200,
+            "ratio": 1.53,
+            "target_ratio_max": 2.3,
+            "target_met": true,
+            "note": "sz-orm simple 含构造与 SQLx 差距 1.53x"
+        }
+    },
+    "ignored_tests": {
+        "sz_orm_core_mysql": {
+            "passed": 22,
+            "failed": 0,
+            "timeout": 1,
+            "timeout_test": "test_mysql_concurrent_8tasks_10k_ops",
+            "note": "需设置 SZ_ORM_MYSQL_URL=mysql://root:test123@127.0.0.1:3306/sz_orm_test"
+        },
+        "sz_orm_core_postgresql": {
+            "passed": 18,
+            "failed": 0
+        },
+        "sz_orm_core_oracle": {
+            "passed": 10,
+            "failed": 0
+        },
+        "sz_orm_core_mssql": {
+            "passed": 0,
+            "failed": 8,
+            "note": "SQL Server 未运行于 127.0.0.1:1433"
+        },
+        "sz_orm_sqlx": {
+            "passed": 22,
+            "failed": 0
+        },
+        "sz_orm_auth": {
+            "passed": 1,
+            "failed": 0
+        }
+    },
+    "optimizations": [
+        "Dialect::quote_into trait 方法（零分配标识符引用）",
+        "build_select_with_params: table/columns 消除 clone + to_string",
+        "build_select_with_params: JOIN/GROUP BY/HAVING/ORDER BY 段用 quote_into",
+        "build_where_clause_with_params: 所有条件用 quote_into + String::with_capacity",
+        "build_where_clause_with_params: 无 OR 快速路径跳过 conditions Vec",
+        "build_select_with_params: WHERE 快速路径直接写入 sql，跳过 build_where_clause_with_params",
+        "select_columns 初始值改为 Vec::new()（消除构造时 String 分配）"
+    ],
+    "improvement_vs_v62": {
+        "simple_prebuilt": "从 780K → 8.68M ops/s (+1013%)",
+        "simple_full": "从 780K → 3.54M ops/s (+354%)",
+        "complex_prebuilt": "从 188K → 2.22M ops/s (+1080%)",
+        "complex_full": "从 188K → 753K ops/s (+300%)"
+    }
+}

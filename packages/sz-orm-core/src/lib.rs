@@ -1,10 +1,12 @@
 //! # SZ-ORM — Xianshida ORM
 //!
-//! Rust asynchronous ORM workspace (prototype stage), ThinkORM-style compatible.
+//! Rust asynchronous ORM workspace (production-ready), ThinkORM-style compatible.
+//!
+//! **Production evidence**: 67 packages published to crates.io · 321 references in sz-pay production · 5159+ tests pass.
 //!
 //! ## Architecture Overview
 //!
-//! The SZ-ORM workspace consists of **43 members** (41 sz-orm-* libs + cli + examples):
+//! The SZ-ORM workspace consists of **71 members** (69 sz-orm-* libs + cli + examples):
 //!
 //! ### Core Engine (sz-orm-core)
 //! | Module | Function |

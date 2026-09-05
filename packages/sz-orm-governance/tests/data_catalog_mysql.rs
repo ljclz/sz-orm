@@ -5,8 +5,8 @@
 
 #![cfg(feature = "governance")]
 
-use sz_orm_governance::data_catalog::DataCatalogBuilder;
 use sqlx::Row;
+use sz_orm_governance::data_catalog::DataCatalogBuilder;
 
 #[tokio::test]
 #[ignore = "需要真实 MySQL 127.0.0.1:3306 shop"]
@@ -49,10 +49,12 @@ async fn test_data_catalog_multiple_tables() {
         .await
         .expect("MySQL 连接失败");
 
-    let table_rows = sqlx::query("SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = 'shop' LIMIT 5")
-        .fetch_all(&pool)
-        .await
-        .expect("查询表列表失败");
+    let table_rows = sqlx::query(
+        "SELECT TABLE_NAME FROM information_schema.tables WHERE TABLE_SCHEMA = 'shop' LIMIT 5",
+    )
+    .fetch_all(&pool)
+    .await
+    .expect("查询表列表失败");
 
     assert!(!table_rows.is_empty(), "shop 库应有表");
 

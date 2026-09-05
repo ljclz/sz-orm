@@ -122,13 +122,6 @@ fn stream_batch_size_clamp() {
         .with_batch_size(0)
         .with_pagination_strategy(PaginationStrategy::LimitOffset);
 
-    assert_eq!(
-        config.batch_size(),
-        1,
-        "batch_size=0 应被 clamp 为 1"
-    );
-    assert!(
-        config.validate().is_ok(),
-        "clamp 后 validate() 应通过"
-    );
+    assert_eq!(config.batch_size(), 1, "batch_size=0 应被 clamp 为 1");
+    assert!(config.validate().is_ok(), "clamp 后 validate() 应通过");
 }
