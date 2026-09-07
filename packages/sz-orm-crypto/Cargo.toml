@@ -14,6 +14,8 @@ categories.workspace = true
 default = []
 # v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
 owasp-pentest-suite = []
+# v6.7.0：密钥轮换零停机（双密钥共存）
+field-encryption = []
 
 
 [package.metadata.cargo-machete]

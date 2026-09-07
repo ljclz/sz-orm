@@ -15,16 +15,27 @@ use sz_orm_core::relation_trait::{RelationDef, RelationKind};
 use sz_orm_core::smart_eager_loader::{LoadStrategy, SmartEagerLoader, StrategyResolver};
 use sz_orm_core::{Connection, Value};
 
-const PG_URL: &str = "postgres://postgres:szormtestpwd@127.0.0.1:5432/sz_orm_test";
+/// 默认 PostgreSQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_PG_URL` 覆盖。
+const PG_URL_DEFAULT: &str = "postgres://postgres:szormtestpwd@127.0.0.1:5432/sz_orm_test";
+
+fn pg_url() -> String {
+    std::env::var("SZ_ORM_PG_URL").unwrap_or_else(|_| PG_URL_DEFAULT.to_string())
+}
+
+static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn setup_pg() -> SqlxPgAdapter {
     let pool = PgPoolOptions::new()
         .max_connections(5)
-        .connect(PG_URL)
+        .connect(pg_url().as_str())
         .await
-        .expect("PostgreSQL 不可用: postgres://postgres:szormtestpwd@127.0.0.1:5432/sz_orm_test");
+        .expect("PostgreSQL 不可用（可用 SZ_ORM_PG_URL 覆盖连接）");
     let mut conn = SqlxPgAdapter::new(pool);
     let builder = TestSchemaBuilder::new(TestDialect::Postgres);
+    // 先清理上次运行残留的表与数据，保证 setup 幂等
+    for ddl in builder.teardown_ddl() {
+        let _ = conn.execute(&ddl).await;
+    }
     for ddl in builder.build_ddl() {
         conn.execute(&ddl).await.unwrap();
     }
@@ -64,6 +75,7 @@ fn extract_related_rows(
 #[tokio::test]
 #[ignore]
 async fn test_hasone_equivalent_pg() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_pg().await;
     let relation = RelationDef::new(
         "profile",
@@ -105,6 +117,7 @@ async fn test_hasone_equivalent_pg() {
 #[tokio::test]
 #[ignore]
 async fn test_hasmany_equivalent_pg() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_pg().await;
     let relation = RelationDef::new(
         "orders",
@@ -146,6 +159,7 @@ async fn test_hasmany_equivalent_pg() {
 #[tokio::test]
 #[ignore]
 async fn test_many_to_many_equivalent_pg() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_pg().await;
     let relation = RelationDef::new_many_to_many(
         "roles",
@@ -230,6 +244,7 @@ async fn test_intermediate_strategy_pg() {
 #[tokio::test]
 #[ignore]
 async fn test_nested_depth_pg() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_pg().await;
     let relation = RelationDef::new(
         "orders",

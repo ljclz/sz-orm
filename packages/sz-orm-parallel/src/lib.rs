@@ -14,6 +14,10 @@ pub mod sharder;
 pub mod task_scheduler;
 
 #[cfg(feature = "parallel-query")]
+pub mod macros;
+#[cfg(feature = "parallel-query")]
+pub mod parallel_queries;
+#[cfg(feature = "parallel-query")]
 pub mod scheduler;
 
 pub use config::{FailureStrategy, MergeStrategy, ParallelQueryConfig};
@@ -28,5 +32,7 @@ pub use parallelism::{ParallelismControl, ParallelismStats, ParallelismStrategy}
 pub use sharder::{DynamicSharder, Shard, ShardStrategy, TaskSharder};
 pub use task_scheduler::{Priority, ScheduleState, ScheduledTask, TaskScheduler};
 
+#[cfg(feature = "parallel-query")]
+pub use parallel_queries::parallel_queries;
 #[cfg(feature = "parallel-query")]
 pub use scheduler::{DefaultLike, ParallelQueryScheduler};

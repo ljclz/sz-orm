@@ -12,7 +12,7 @@ categories.workspace = true
 
 [features]
 # 榛樿鍚敤 Redis 鍒嗗竷寮忕紦瀛樺悗绔紙RedisBackend锛夛紝寮€绠卞嵆锟?
-default = ["redis", "simd", "l1-cache", "plan-cache", "zero-copy", "auto-prewarm", "perf-zero-copy-l2", "perf-enum-dispatch", "perf-box-str", "dialect-cockroachdb", "dialect-yugabytedb", "dialect-snowflake", "dialect-redshift", "dialect-informix", "dialect-saphana", "dialect-firebird", "prod-redis-tls", "prod-jwt-key-rotation", "prod-metrics-acl", "prod-shutdown-timeout", "prod-leak-detection", "prod-n1-tuning", "prod-pool-tuning", "prod-config-masking", "prod-log-level", "prod-health-endpoint", "prod-probe-endpoint", "prod-circuit-tuning", "prod-rate-limit-tuning", "prod-dialect-security", "cache-coherence", "performance"]
+default = ["redis", "simd", "l1-cache", "plan-cache", "zero-copy", "auto-prewarm", "perf-zero-copy-l2", "perf-enum-dispatch", "perf-box-str", "dialect-cockroachdb", "dialect-yugabytedb", "dialect-snowflake", "dialect-redshift", "dialect-informix", "dialect-saphana", "dialect-firebird", "prod-redis-tls", "prod-jwt-key-rotation", "prod-metrics-acl", "prod-shutdown-timeout", "prod-leak-detection", "prod-n1-tuning", "prod-pool-tuning", "prod-config-masking", "prod-log-level", "prod-health-endpoint", "prod-probe-endpoint", "prod-circuit-tuning", "prod-rate-limit-tuning", "prod-dialect-security", "cache-coherence", "performance", "prepared-stmt-cache", "async-row-stream", "query-result-cache", "saga-tx", "multi-tenant-pool"]
 # v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
 owasp-pentest-suite = []
 testing = ["tokio/full"]
@@ -152,6 +152,39 @@ timeseries = ["dep:sz-orm-timeseries"]
 search = ["dep:sz-orm-search"]
 read-write-splitting = ["dep:sz-orm-rw"]
 config-center = ["dep:sz-orm-config"]
+
+# v6.5.0：查询计划缓存（PreparedStatementCache，按连接分桶 + LRU + 表级失效）
+prepared-stmt-cache = []
+# v6.5.0：异步流式结果集（AsyncRowStream trait + CursorRowStream 降级）
+async-row-stream = []
+# v6.5.0：批量 DML 并行化（execute_batch_parallel，tokio 已是非 optional 依赖）
+parallel-batch = []
+# v6.6.0：查询结果缓存（QueryResultCache，TTL + LRU + 表级失效 + 统计）
+query-result-cache = []
+# v6.6.0：Saga 分布式事务（正向执行 + 补偿编排 + 超时）
+saga-tx = []
+# v6.6.0：多租户5连接池隔离（按租户隔离 + 动态扩缩容 + 配额限制）
+multi-tenant-pool = []
+# v6.7.0：分布式缓存集群（一致性哈希 + 故障转移 + 击穿/穿透/雪崩防护）
+dist-cache-cluster = ["dist-cache", "l1-cache"]
+# v6.7.0：读写分离/分库分表增强（权重路由 + 延迟回退 + 分片键推断 + 跨片聚合）
+rw-split-enhanced = ["dep:rand"]
+# v6.7.0：零停机迁移（expand-contract + 回滚自动化 + 预演 + 兼容性检查）
+zero-downtime-mig = []
+# v6.7.0：连接池弹性（动态扩缩容 + 健康检查 + 多级熔断 + 预热）
+pool-elastic = ["circuit-breaker", "auto-prewarm"]
+# v6.7.0：可观测性增强（慢查询 Top-N + 执行计划回归 + Prometheus + 告警）
+obs-enhanced = []
+# v6.7.0：Prometheus 指标导出
+prometheus-exporter = []
+# v6.7.0：字段级加密（AES-GCM + 密钥轮换）
+field-encryption = ["dep:sz-orm-crypto"]
+# v6.7.0：RBAC 增强（角色继承 + 权限组合）
+rbac-enhanced = []
+# v6.7.0：动态脱敏（规则引擎 + 上下文感知）
+dynamic-masking = []
+# v6.7.0：合规报告（审计链式哈希 + 合规检查 + 报告生成）
+compliance-report = []
 
 
 [dependencies]
@@ -649,6 +682,11 @@ required-features = ["read-write-splitting"]
 name = "config_adapter_e2e"
 path = "tests/config_adapter_e2e.rs"
 required-features = ["config-center"]
+
+[[test]]
+name = "cross_direction_integration"
+path = "tests/cross_direction_integration.rs"
+required-features = ["dist-cache-cluster", "rw-split-enhanced", "pool-elastic", "field-encryption"]
 
 
 [package.metadata.docs.rs]

@@ -1,4 +1,4 @@
-﻿﻿#!/usr/bin/env pwsh
+﻿#!/usr/bin/env pwsh
 <#
 .SYNOPSIS
 OWASP A06: 易受攻击和过时组件深化渗透测试（PowerShell）
@@ -12,7 +12,9 @@ param(
     [switch]$SkipSbom
 )
 
-$ErrorActionPreference = "Stop"
+# 注意：不能用 Stop——cargo audit/deny 会向 stderr 写进度，PS 5.1 在 2>&1 重定向下
+# 会把 stderr 行当 ErrorRecord 并终止脚本；结果判定统一走 $LASTEXITCODE。
+$ErrorActionPreference = "Continue"
 $exitCode = 0
 
 function Invoke-CveAudit {

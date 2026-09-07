@@ -30,6 +30,8 @@ mod any;
 pub mod any_driver;
 pub mod enhanced;
 mod error;
+#[cfg(feature = "async-row-stream")]
+pub mod row_stream_impl;
 #[cfg(feature = "dialect-saphana-driver")]
 pub mod saphana_adapter;
 pub mod unified_pool;
@@ -46,5 +48,8 @@ pub use enhanced::{
 };
 pub use error::map_sqlx_error;
 pub use unified_pool::UnifiedPool;
+
+#[cfg(feature = "async-row-stream")]
+pub use row_stream_impl::SqlxRowStream;
 
 pub use sz_orm_core;

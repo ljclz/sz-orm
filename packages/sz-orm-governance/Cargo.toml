@@ -28,6 +28,8 @@ default = []
 governance = ["dep:sz-orm-ai", "dep:sz-orm-masking", "dep:serde", "dep:serde_json", "dep:chrono", "dep:async-trait", "dep:tokio", "dep:tracing", "sz-orm-ai/multi-llm"]
 governance-lineage = ["governance", "dep:sz-orm-graph", "dep:sz-orm-core"]
 governance-compliance = ["governance"]
+# v6.7.0：合规报告生成（聚合审计/权限/加密/脱敏清单）
+compliance-report = ["dep:serde", "dep:serde_json"]
 
 [dev-dependencies]
 tokio = { workspace = true }

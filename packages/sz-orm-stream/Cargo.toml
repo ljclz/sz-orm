@@ -13,7 +13,7 @@ categories.workspace = true
 [features]
 default = []
 # v4.5.0 M3：异步流式结果集（游标分页 + keyset pagination + 背压控制）
-stream-resultset = ["dep:tokio", "dep:futures"]
+stream-resultset = ["dep:tokio", "dep:futures", "sz-orm-core/async-row-stream"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

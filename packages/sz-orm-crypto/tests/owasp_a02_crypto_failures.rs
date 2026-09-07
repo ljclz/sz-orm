@@ -144,6 +144,11 @@ fn a02_ecb_mode_not_used() {
 /// - `sz-orm-core/src/dist_cache.rs` — 缓存击穿守卫（非密钥）
 /// - `sz-orm-core/src/l2_cache.rs` — L2 缓存键（非密钥）
 /// - `sz-orm-rw/src/lib.rs` — 读写分离路由（非密钥）
+/// - `sz-orm-masking/src/maskers.rs` — 确定性哈希脱敏（非密码学用途）
+/// - `sz-orm-core/src/prepared_cache.rs` — SQL 归一化哈希缓存键（非密钥）
+/// - `sz-orm-core/src/query_result_cache.rs` — 查询结果缓存键（非密钥）
+/// - `sz-orm-core/src/dist_cache_cluster.rs` — 一致性哈希路由（须确定性，非密钥）
+/// - `sz-orm-masking/src/dynamic_masking.rs` — 确定性哈希脱敏（非密码学用途）
 #[test]
 fn a02_insecure_random_absent() {
     let files = collect_rust_src_files();
@@ -154,6 +159,10 @@ fn a02_insecure_random_absent() {
         "sz-orm-core\\src\\l2_cache.rs",
         "sz-orm-rw\\src\\lib.rs",
         "sz-orm-masking\\src\\maskers.rs", // 确定性哈希脱敏（非密码学用途）
+        "sz-orm-core\\src\\prepared_cache.rs",
+        "sz-orm-core\\src\\query_result_cache.rs",
+        "sz-orm-core\\src\\dist_cache_cluster.rs",
+        "sz-orm-masking\\src\\dynamic_masking.rs",
     ];
     let mut violations = Vec::new();
 

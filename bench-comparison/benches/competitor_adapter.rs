@@ -168,6 +168,14 @@ pub struct SzOrmAdapter {
     handle: Option<Arc<sz_orm_sqlx::SqlitePoolHandle>>,
 }
 
+struct BenchUserModel;
+impl sz_orm_core::Model for BenchUserModel {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str { "bench_users" }
+    fn pk(&self) -> Self::PrimaryKey { 0 }
+    fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+}
+
 impl SzOrmAdapter {
     pub fn new() -> Self {
         Self { pool: None, handle: None }
@@ -294,36 +302,48 @@ impl CompetitorAdapter for SzOrmAdapter {
 
     async fn insert_batch(&mut self, records: &[BenchRecord]) -> CompetitorCapability<usize> {
         let mut conn = match self.conn().await { Ok(c) => c, Err(e) => return CompetitorCapability::Error(e) };
-        let mut count = 0usize;
-        for rec in records {
-            match conn.execute_with_params(
-                "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
-                &[sz_orm_core::Value::String(rec.name.clone()), sz_orm_core::Value::String(rec.email.clone()), sz_orm_core::Value::I32(rec.age)],
-            ).await {
-                Ok(_) => count += 1,
+        if records.is_empty() {
+            return CompetitorCapability::Ok(0);
+        }
+        let qb = sz_orm_core::QueryBuilder::<BenchUserModel>::new(Box::new(sz_orm_core::dialect::SqliteDialect));
+        const CHUNK: usize = 300;
+        let mut total = 0usize;
+        for chunk in records.chunks(CHUNK) {
+            let rows: Vec<std::collections::HashMap<String, sz_orm_core::Value>> = chunk.iter().map(|rec| {
+                let mut row = std::collections::HashMap::new();
+                row.insert("name".to_string(), sz_orm_core::Value::String(rec.name.clone()));
+                row.insert("email".to_string(), sz_orm_core::Value::String(rec.email.clone()));
+                row.insert("age".to_string(), sz_orm_core::Value::I32(rec.age));
+                row
+            }).collect();
+            let (sql, params) = qb.build_batch_insert_with_params(&rows);
+            if sql.is_empty() {
+                continue;
+            }
+            match conn.execute_with_params(&sql, &params).await {
+                Ok(_) => total += chunk.len(),
                 Err(e) => return CompetitorCapability::Error(format!("batch insert: {}", e)),
             }
         }
-        CompetitorCapability::Ok(count)
+        CompetitorCapability::Ok(total)
     }
 
     async fn find_batch(&mut self, ids: &[i64]) -> CompetitorCapability<Vec<BenchRecord>> {
         let mut conn = match self.conn().await { Ok(c) => c, Err(e) => return CompetitorCapability::Error(e) };
-        let mut results = Vec::with_capacity(ids.len());
-        for &id in ids {
-            match conn.query_with_params("SELECT id, name, email, age FROM bench_users WHERE id = ?", &[sz_orm_core::Value::I64(id)]).await {
-                Ok(rows) => {
-                    if let Some(row) = rows.first() {
-                        let name = match row.get("name") { Some(sz_orm_core::Value::String(s)) => s.clone(), _ => String::new() };
-                        let email = match row.get("email") { Some(sz_orm_core::Value::String(s)) => s.clone(), _ => String::new() };
-                        let age = match row.get("age") { Some(sz_orm_core::Value::I32(n)) => *n, Some(v) => v.as_i64().unwrap_or(0) as i32, None => 0 };
-                        results.push(BenchRecord { id, name, email, age });
-                    }
-                }
-                Err(e) => return CompetitorCapability::Error(format!("batch find: {}", e)),
+        let qb = sz_orm_core::QueryBuilder::<BenchUserModel>::new(Box::new(sz_orm_core::dialect::SqliteDialect));
+        match qb.find_by_ids(&mut *conn, ids).await {
+            Ok(rows) => {
+                let results: Vec<BenchRecord> = rows.iter().map(|row| {
+                    let id = match row.get("id") { Some(sz_orm_core::Value::I64(n)) => *n, Some(v) => v.as_i64().unwrap_or(0), None => 0 };
+                    let name = match row.get("name") { Some(sz_orm_core::Value::String(s)) => s.clone(), _ => String::new() };
+                    let email = match row.get("email") { Some(sz_orm_core::Value::String(s)) => s.clone(), _ => String::new() };
+                    let age = match row.get("age") { Some(sz_orm_core::Value::I32(n)) => *n, Some(v) => v.as_i64().unwrap_or(0) as i32, None => 0 };
+                    BenchRecord { id, name, email, age }
+                }).collect();
+                CompetitorCapability::Ok(results)
             }
+            Err(e) => CompetitorCapability::Error(format!("batch find: {}", e)),
         }
-        CompetitorCapability::Ok(results)
     }
 
     async fn find_with_has_one(&mut self, id: i64) -> CompetitorCapability<Vec<BenchRecord>> {

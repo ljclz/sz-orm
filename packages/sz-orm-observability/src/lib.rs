@@ -69,6 +69,18 @@ pub mod anomaly;
 #[allow(missing_docs)]
 pub mod anomaly_remediation_rca;
 
+#[cfg(feature = "obs-enhanced")]
+#[allow(missing_docs)]
+pub mod plan_regression;
+
+#[cfg(feature = "obs-enhanced")]
+#[allow(missing_docs)]
+pub mod obs_alert_bridge;
+
+#[cfg(feature = "prometheus-exporter")]
+#[allow(missing_docs)]
+pub mod prometheus_exporter;
+
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{
     LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,

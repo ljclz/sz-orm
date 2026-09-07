@@ -18,7 +18,10 @@ sz-orm-scheduler = { path = "../packages/sz-orm-scheduler" }
 sz-orm-audit = { path = "../packages/sz-orm-audit" }
 sz-orm-dtx = { path = "../packages/sz-orm-dtx" }
 sz-orm-sharding = { path = "../packages/sz-orm-sharding" }
-sz-orm-sqlx = { path = "../packages/sz-orm-sqlx" }
+sz-orm-sqlx = { path = "../packages/sz-orm-sqlx", features = ["async-row-stream", "prepared-stmt-cache"] }
+sz-orm-parallel = { path = "../packages/sz-orm-parallel", features = ["parallel-query"] }
+sz-orm-stream = { path = "../packages/sz-orm-stream", features = ["stream-resultset"] }
+sz-orm-batch = { path = "../packages/sz-orm-batch", features = ["parallel-batch"] }
 sz-orm-macros = { path = "../packages/sz-orm-macros" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
@@ -72,6 +75,30 @@ path = "src/bin/sz_rust_integration_example.rs"
 [[bin]]
 name = "sz_pay_pattern"
 path = "src/bin/sz_pay_pattern.rs"
+
+[[bin]]
+name = "parallel_queries_demo"
+path = "src/bin/parallel_queries_demo.rs"
+
+[[bin]]
+name = "batch_parallel_demo"
+path = "src/bin/batch_parallel_demo.rs"
+
+[[bin]]
+name = "parallel_join_demo"
+path = "src/bin/parallel_join_demo.rs"
+
+[[bin]]
+name = "prepared_cache_demo"
+path = "src/bin/prepared_cache_demo.rs"
+
+[[bin]]
+name = "stream_unified_demo"
+path = "src/bin/stream_unified_demo.rs"
+
+[[bin]]
+name = "backpressure_stream_demo"
+path = "src/bin/backpressure_stream_demo.rs"
 
 [features]
 default = []

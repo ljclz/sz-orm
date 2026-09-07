@@ -435,6 +435,12 @@ pub mod circuit_breaker;
 pub mod column;
 #[cfg(feature = "zero-copy")]
 pub mod columnar;
+#[cfg(any(
+    feature = "prepared-stmt-cache",
+    feature = "async-row-stream",
+    feature = "parallel-batch"
+))]
+pub mod connection_ext;
 pub mod cursor_stream;
 pub mod cycle_detection;
 pub mod data_permission;
@@ -445,6 +451,9 @@ pub mod dialect_security;
 pub mod dirty_attributes;
 #[cfg(feature = "dist-cache")]
 pub mod dist_cache;
+#[cfg(feature = "dist-cache-cluster")]
+#[allow(missing_docs)]
+pub mod dist_cache_cluster;
 pub mod dynamic_filter;
 pub mod dynamic_sql;
 pub mod eager_loader;
@@ -470,6 +479,9 @@ pub mod migration;
 pub mod migration_dry_run;
 pub mod mock;
 mod model;
+#[cfg(feature = "multi-tenant-pool")]
+#[allow(missing_docs)]
+pub mod multi_tenant_pool;
 pub mod n1_eliminator;
 pub mod nested_active_model;
 pub mod observer;
@@ -481,12 +493,34 @@ pub mod phinx_migration;
 pub mod plan_cache;
 pub mod plugin;
 mod pool;
+#[cfg(feature = "prepared-stmt-cache")]
+pub mod prepared_cache;
 #[cfg(feature = "auto-prewarm")]
 pub mod prewarm;
 #[cfg(feature = "prod-ready")]
 pub mod prod_ready_check;
 mod query;
 pub mod query_cache;
+#[cfg(feature = "query-result-cache")]
+#[allow(missing_docs)]
+pub mod query_result_cache;
+#[cfg(feature = "async-row-stream")]
+pub mod row_stream;
+#[cfg(feature = "rw-split-enhanced")]
+#[allow(missing_docs)]
+pub mod rw_split_enhanced;
+#[cfg(feature = "saga-tx")]
+#[allow(missing_docs)]
+pub mod saga;
+
+#[cfg(feature = "pool-elastic")]
+#[allow(missing_docs)]
+pub mod pool_elastic;
+
+#[cfg(feature = "field-encryption")]
+#[allow(missing_docs)]
+pub mod field_cipher;
+
 #[cfg(feature = "data-validation")]
 pub mod validation;
 /// Re-export QueryBuilder for external use

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     ADR-0001 门禁检查：上游仓库未修改校验（Windows PowerShell 版）
 
@@ -20,7 +20,8 @@ param(
     [switch]$WarnOnly
 )
 
-$ErrorActionPreference = "Stop"
+# 不能用 Stop：git 会向 stderr 写 CRLF warning（2>&1 重定向下 PS 5.1 视为 ErrorRecord 终止脚本）
+$ErrorActionPreference = "Continue"
 
 # 切换到项目根
 $ScriptDir = $PSScriptRoot

@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     安装 SZ-ORM 本地 git hooks（pre-push 集成门禁）
 

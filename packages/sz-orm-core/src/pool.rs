@@ -1416,11 +1416,13 @@ impl Pool {
             }
         }
 
-        let deadline = Instant::now() + self.config.acquire_timeout;
+        let mut deadline: Option<Instant> = None;
         // 指数退避初始值（等待连接归还时的重试间隔）
         let mut backoff = Duration::from_millis(1);
         // 指数退避上限（避免等待者频繁唤醒消耗 CPU）
         const MAX_BACKOFF: Duration = Duration::from_millis(100);
+        // 栈上缓冲复用：循环外预分配，避免每次迭代堆分配
+        let mut to_close: Vec<PooledConnection> = Vec::with_capacity(4);
 
         loop {
             // v1.1.0 优化 2：从空闲连接中获取（无锁 pop）
@@ -1428,7 +1430,7 @@ impl Pool {
             // `ArrayQueue::pop()` 是单次 CAS 原子操作，无需 await Mutex 锁。
             // 仍保留 to_close Vec：检查过期/空闲过久/is_connected 失败的连接
             // 先收集到本地 Vec，循环结束后再批量 close（不在循环内 await）。
-            let mut to_close: Vec<PooledConnection> = Vec::new();
+            // v6.4.0 优化：to_close 在循环外预分配，drain 后容量复用，零堆分配。
             let acquired: Option<PooledConnection> = {
                 let mut found: Option<PooledConnection> = None;
                 while let Some(pooled) = self.idle.pop() {
@@ -1455,7 +1457,7 @@ impl Pool {
             };
 
             // 批量 close 过期连接（不持任何锁）
-            for pooled in to_close {
+            for pooled in to_close.drain(..) {
                 self.close_connection(pooled).await;
                 // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
                 self.total_count.fetch_sub(1, Ordering::SeqCst);
@@ -1550,14 +1552,15 @@ impl Pool {
 
             // 等待连接释放或超时（带指数退避）
             let now = Instant::now();
-            if now >= deadline {
+            let dl = deadline.get_or_insert_with(|| now + self.config.acquire_timeout);
+            if now >= *dl {
                 self.emit_event(PoolEvent::AcquireTimeout);
                 self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
                 return Err(PoolError::Timeout);
             }
             // 增加等待者计数
             self.waiters_count.fetch_add(1, Ordering::SeqCst);
-            let wait = std::cmp::min(backoff, deadline - now);
+            let wait = std::cmp::min(backoff, *dl - now);
             match tokio::time::timeout(wait, self.notify.notified()).await {
                 Ok(()) => {
                     // 收到通知，重置退避

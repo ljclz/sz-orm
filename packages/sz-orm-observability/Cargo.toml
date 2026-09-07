@@ -28,6 +28,10 @@ query-logging = ["dep:sz-orm-flamegraph", "dep:sz-orm-masking"]
 anomaly-detection = []
 # v4.7.0 M6：异常自愈与根因分析（自动修复 + RCA + 关联分析）
 anomaly-remediation-rca = ["anomaly-detection"]
+# v6.7.0：可观测性增强（执行计划回归 + 告警桥接）
+obs-enhanced = []
+# v6.7.0：Prometheus exposition format 导出
+prometheus-exporter = ["obs-enhanced"]
 
 
 [package.metadata.cargo-machete]

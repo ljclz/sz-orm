@@ -16,6 +16,8 @@ default = ["prod-jwt-key-rotation"]
 owasp-pentest-suite = []
 # v3.8.0：JWT 签名密钥轮换机制
 prod-jwt-key-rotation = []
+# v6.7.0：RBAC 角色继承与循环检测
+rbac-enhanced = []
 
 
 [package.metadata.cargo-machete]

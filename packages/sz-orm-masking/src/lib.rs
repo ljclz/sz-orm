@@ -15,6 +15,9 @@ pub mod config;
 pub mod maskers;
 pub mod strategy;
 
+#[cfg(feature = "dynamic-masking")]
+pub mod dynamic_masking;
+
 // 重导出新模块的主要类型
 pub use audit::{
     rule_name, FieldReport, MaskingAuditEntry as DetailedAuditEntry,

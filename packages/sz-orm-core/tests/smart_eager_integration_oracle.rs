@@ -17,9 +17,23 @@ use sz_orm_core::relation_trait::{RelationDef, RelationKind};
 use sz_orm_core::smart_eager_loader::{LoadStrategy, SmartEagerLoader, StrategyResolver};
 use sz_orm_core::{Connection, DbError, Value};
 
-const ORACLE_USER: &str = "sz_orm_test";
-const ORACLE_PASS: &str = "SzOrmTest2026";
-const ORACLE_CONN_STR: &str = "127.0.0.1:1521/freepdb1.FALSE";
+const ORACLE_USER_DEFAULT: &str = "sz_orm_test";
+const ORACLE_PASS_DEFAULT: &str = "SzOrmTest2026";
+// 与 integration_oracle.rs 保持一致的连接串（本机 23ai Free 监听器以 freepdb1.FALSE 注册）
+const ORACLE_CONN_STR_DEFAULT: &str = "127.0.0.1:1521/freepdb1.FALSE";
+
+fn oracle_user() -> String {
+    std::env::var("SZ_ORM_ORACLE_USER").unwrap_or_else(|_| ORACLE_USER_DEFAULT.to_string())
+}
+
+fn oracle_pass() -> String {
+    std::env::var("SZ_ORM_ORACLE_PASSWORD").unwrap_or_else(|_| ORACLE_PASS_DEFAULT.to_string())
+}
+
+fn oracle_conn_str() -> String {
+    std::env::var("SZ_ORM_ORACLE_CONNECT_STRING")
+        .unwrap_or_else(|_| ORACLE_CONN_STR_DEFAULT.to_string())
+}
 
 pub struct OracleConnection {
     conn: Mutex<OracleConn>,
@@ -195,11 +209,17 @@ impl Connection for OracleConnection {
     }
 }
 
+static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 fn setup_oracle() -> OracleConnection {
-    let conn = OracleConn::connect(ORACLE_USER, ORACLE_PASS, ORACLE_CONN_STR)
-        .expect("Oracle 不可用: 127.0.0.1:1521/freepdb1");
+    let conn = OracleConn::connect(oracle_user(), oracle_pass(), oracle_conn_str())
+        .expect("Oracle 不可用（可用 SZ_ORM_ORACLE_* 覆盖连接）");
     let adapter = OracleConnection::new(conn);
     let builder = TestSchemaBuilder::new(TestDialect::Oracle);
+    // 先清理上次运行残留的表与数据，保证 setup 幂等
+    for ddl in builder.teardown_ddl() {
+        let _ = adapter.conn.lock().unwrap().execute(&ddl, &[]);
+    }
     for ddl in builder.build_ddl() {
         adapter.conn.lock().unwrap().execute(&ddl, &[]).unwrap();
     }
@@ -232,6 +252,7 @@ fn extract_related_rows(
 #[tokio::test]
 #[ignore]
 async fn test_hasone_equivalent_oracle() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_oracle();
     let rel = RelationDef::new(
         "profile",
@@ -264,6 +285,7 @@ async fn test_hasone_equivalent_oracle() {
 #[tokio::test]
 #[ignore]
 async fn test_hasmany_equivalent_oracle() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_oracle();
     let rel = RelationDef::new(
         "orders",
@@ -296,6 +318,7 @@ async fn test_hasmany_equivalent_oracle() {
 #[tokio::test]
 #[ignore]
 async fn test_many_to_many_equivalent_oracle() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_oracle();
     let rel = RelationDef::new_many_to_many(
         "roles",
@@ -377,6 +400,7 @@ async fn test_intermediate_strategy_oracle() {
 #[tokio::test]
 #[ignore]
 async fn test_nested_depth_oracle() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_oracle();
     let rel = RelationDef::new(
         "orders",

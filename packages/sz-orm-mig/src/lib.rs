@@ -12,6 +12,10 @@ pub mod error;
 pub mod migrator;
 pub mod transformer;
 
+#[cfg(feature = "zero-downtime-mig")]
+#[allow(missing_docs)]
+pub mod expand_contract;
+
 pub use advanced::*;
 pub use error::MigError;
 pub use migrator::*;

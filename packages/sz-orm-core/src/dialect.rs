@@ -4715,6 +4715,17 @@ impl DialectKind {
             Self::MSSQL => Box::new(SqlServerDialect),
         }
     }
+
+    /// 引用标识符到 buf（match 分发，零分配，避免 vtable 查找）
+    pub fn quote_into(&self, identifier: &str, buf: &mut String) {
+        match self {
+            Self::MySQL => MySqlDialect.quote_into(identifier, buf),
+            Self::PostgreSQL => PostgreSqlDialect.quote_into(identifier, buf),
+            Self::SQLite => SqliteDialect.quote_into(identifier, buf),
+            Self::Oracle => OracleDialect.quote_into(identifier, buf),
+            Self::MSSQL => SqlServerDialect.quote_into(identifier, buf),
+        }
+    }
 }
 
 #[cfg(all(test, feature = "perf-enum-dispatch"))]
@@ -4775,6 +4786,25 @@ mod enum_dispatch_tests {
             let enum_result = kind.escape_string("it's");
             let box_result = kind.to_dialect().escape_string("it's");
             assert_eq!(enum_result, box_result);
+        }
+    }
+
+    #[test]
+    fn test_dialect_kind_quote_into() {
+        let kinds = [
+            DialectKind::MySQL,
+            DialectKind::PostgreSQL,
+            DialectKind::SQLite,
+            DialectKind::Oracle,
+            DialectKind::MSSQL,
+        ];
+        for kind in &kinds {
+            let mut buf = String::new();
+            kind.quote_into("users", &mut buf);
+            assert_eq!(buf, kind.quote("users"));
+            let mut buf2 = String::new();
+            kind.quote_into("order", &mut buf2);
+            assert_eq!(buf2, kind.quote("order"));
         }
     }
 }

@@ -18,6 +18,9 @@ pub mod lineage;
 #[cfg(feature = "data-quality")]
 pub mod data_quality;
 
+#[cfg(feature = "hash-chain-enhanced")]
+pub mod hash_chain_enhanced;
+
 #[cfg(feature = "lineage-viz")]
 pub use lineage::{downstream_impact, upstream_trace, ImpactEdge};
 #[cfg(feature = "data-lineage")]

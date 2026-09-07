@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     SZ-ORM 集成层强制门禁脚本（Windows PowerShell 版）
 

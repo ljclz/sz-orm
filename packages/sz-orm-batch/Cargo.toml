@@ -28,6 +28,8 @@ batch-v2 = ["dep:tokio", "dep:futures", "dep:sz-orm-core"]
 batch-atomic = ["batch-v2", "dep:sz-orm-dtx"]
 # v4.7.0 M3：批量 COPY 协议与并行分片执行（COPY 高速加载 + 并行分片 + 冲突解决）
 copy-parallel-shard = ["batch-atomic"]
+# v6.5.0：批量 DML 并行化（execute_batch_parallel）
+parallel-batch = ["dep:tokio", "dep:sz-orm-core", "sz-orm-core/parallel-batch"]
 
 [lints]
 workspace = true

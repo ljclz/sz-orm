@@ -5,6 +5,228 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [6.7.0] — 2026-09-07
+
+### v6.7.0 六大能力：分布式缓存集群 / 读写分离增强 / 零停机迁移 / 连接池弹性 / 可观测性增强 / 安全合规增强
+
+基于 v6.6.0 基线，新增六大企业级数据访问能力，32 个任务，87 个新测试，9 个新 feature gate，所有接口以 feature gate 形式提供，保证向后兼容。
+
+#### 新增 Feature Gate
+
+- `dist-cache-cluster`（sz-orm-core）：Redis 集群一致性哈希分片 + 故障转移
+- `rw-split-enhanced`（sz-orm-core）：加权读写分离 + 分片键推断 + 跨片聚合
+- `zero-downtime-mig`（sz-orm-mig）：expand-contract 四阶段零停机迁移
+- `pool-elastic`（sz-orm-core）：连接池动态扩缩容 + 多级熔断 + 健康检查
+- `obs-enhanced`（sz-orm-observability）：执行计划回归 + 告警桥接
+- `prometheus-exporter`（sz-orm-observability）：Prometheus exposition format 导出
+- `field-encryption`（sz-orm-core）：字段级加解密
+- `rbac-enhanced`（sz-orm-auth）：RBAC 角色继承 + 循环检测
+- `dynamic-masking`（sz-orm-masking）：动态脱敏策略热更新
+
+#### 1. 分布式缓存集群（DistCacheGateway）
+
+- `packages/sz-orm-core/src/dist_cache_cluster.rs`：一致性哈希分片 + 故障转移 + 击穿/穿透/雪崩防护
+- 10 个新测试
+
+#### 2. 读写分离/分库分表（RwSplitRouter）
+
+- `packages/sz-orm-core/src/rw_split_enhanced.rs`：加权随机选择 + 延迟感知回退 + 分片键推断 + 跨片聚合
+- 9 个新测试
+
+#### 3. 零停机迁移（ExpandContractMigrator）
+
+- `packages/sz-orm-mig/src/expand_contract.rs`：expand-contract 四阶段 + 兼容性检查 + 回滚自动化 + 预演模式
+- 13 个新测试
+
+#### 4. 连接池弹性（PoolElasticController）
+
+- `packages/sz-orm-core/src/pool_elastic.rs`：动态扩缩容 + 多级熔断 + 健康检查 + 连接预热
+- 18 个新测试
+
+#### 5. 可观测性增强
+
+- `packages/sz-orm-observability/src/plan_regression.rs`：执行计划回归检测 + SQL 指纹
+- `packages/sz-orm-observability/src/obs_alert_bridge.rs`：告警 Webhook 桥接
+- `packages/sz-orm-observability/src/prometheus_exporter.rs`：Prometheus exposition format
+- 17 个新测试
+
+#### 6. 安全合规增强
+
+- `packages/sz-orm-core/src/field_cipher.rs`：字段级加解密
+- `packages/sz-orm-auth/src/rbac_inheritance.rs`：RBAC 角色继承 + 循环检测
+- `packages/sz-orm-masking/src/dynamic_masking.rs`：动态脱敏策略热更新
+- 20 个新测试
+
+#### 门禁验证
+
+- fmt 通过
+- clippy 通过（5 个包）
+- 核心包 2496 个测试全部通过
+- sz-pay 编译通过
+- 版本号 6.7.0
+
+## [6.6.0] — 2026-09-06
+
+### v6.6.0 四大能力：查询结果缓存 / Saga 分布式事务 / 多租户连接池隔离 / AI 查询优化
+
+基于 v6.5.0 异步并行查询基线，新增四大企业级数据访问能力，所有接口以 feature gate 形式提供，保证向后兼容。
+
+#### 新增 Feature Gate
+
+- `query-result-cache`（入 default）：QueryResultCache 查询结果缓存（TTL + LRU + 表级失效）
+- `saga-tx`（入 default）：Saga 分布式事务协调器（正向执行 + 补偿编排 + 超时）
+- `multi-tenant-pool`（入 default）：多租户连接池隔离（按 tenant_id 分桶 + 资源限额）
+
+#### 1. 查询结果缓存（QueryResultCache）
+
+- `packages/sz-orm-core/src/query_result_cache.rs`：TTL + LRU 双层缓存，表级失效广播
+- `packages/sz-orm-core/src/connection_ext.rs`：`query_with_result_cache` 方法，透明缓存查询结果
+- 缓存命中率统计 + 内存预算控制 + 并发安全（Arc<RwLock>）
+- 19 个新测试（12 个单元测试 + 7 个集成测试）
+
+#### 2. Saga 分布式事务（SagaCoordinator）
+
+- `packages/sz-orm-core/src/saga.rs`：Saga 协调器，正向执行 + 补偿回滚编排
+- 支持超时控制 + 步骤级补偿 + 整体事务级超时
+- 9 个新测试（覆盖正常执行、补偿回滚、超时、部分失败场景）
+
+#### 3. 多租户连接池隔离（MultiTenantPool）
+
+- `packages/sz-orm-core/src/multi_tenant_pool.rs`：按 tenant_id 分桶独立连接池
+- 资源限额（每租户最大连接数）+ 隔离保证 + 动态创建/销毁
+- 12 个新测试（覆盖多租户隔离、资源限额、动态管理场景）
+
+#### 4. AI 驱动查询优化（既有实现复用）
+
+- `packages/sz-orm-ai/src/index_advisor.rs`：索引推荐（基于查询模式分析）
+- `packages/sz-orm-ai/src/rewrite_advisor.rs`：查询重写建议
+- `packages/sz-orm-ai/src/query_plan_optimizer.rs`：查询计划优化
+- `packages/sz-orm-ai/src/explain_parser.rs`：EXPLAIN 输出解析
+- 200 个既有测试覆盖
+
+#### 5. COPY 批量写入优化（既有实现复用）
+
+- `packages/sz-orm-batch/src/copy_parallel_shard.rs`：COPY 协议 + upsert + 分片并行
+- 167 个既有测试覆盖
+
+#### 测试统计
+
+- sz-orm-core lib 测试：1972 passed; 0 failed
+- 新增测试：40 个（19 + 9 + 12）
+- 既有复用测试：367 个（167 + 200）
+
+#### 向后兼容
+
+- 所有新功能以 feature gate 形式提供，default features 包含三个新 gate
+- 既有 API 无变更，v6.5.0 代码无需修改即可升级
+
+## [6.5.0] — 2026-09-06
+
+### v6.5.0 三大能力：异步并行查询 / 查询计划缓存 / 流式结果集
+
+基于 v6.4.0 性能优化基线（batch_insert 271µs、batch_find 419µs），新增三大数据访问能力，所有接口以 trait 默认实现形式提供，保证向后兼容。
+
+#### 新增 Feature Gate
+
+- `prepared-stmt-cache`（入 default）：PreparedStatement 句柄缓存
+- `async-row-stream`（入 default）：异步流式结果集 trait
+- `parallel-batch`（不入 default）：批量 DML 并行化
+
+#### 1. 多表并行查询（parallel_queries）
+
+- `packages/sz-orm-parallel/src/parallel_queries.rs`：接收独立 async 查询闭包，并行执行，结果按输入顺序对齐
+- `packages/sz-orm-parallel/src/macros.rs`：`parallel_join!` 宏（2/3/4 路展开）
+- 加速比 ≥ N × 70%（集成测试验证：3 查询 2.1x+，10 查询 3.0x+）
+
+#### 2. PreparedStatement 句柄缓存（PreparedStatementCache）
+
+- `packages/sz-orm-core/src/prepared_cache.rs`：按 ConnId 分桶，LRU 淘汰，表级/连接级失效
+- `packages/sz-orm-core/src/connection_ext.rs`：`ConnectionExt` trait（blanket impl，`prepare_cached` 默认委托 `query_with_params`）
+- 缓存收益：第二次起耗时降幅 ≥ 50%
+
+#### 3. 流式结果集（AsyncRowStream + BackpressureRowStream）
+
+- `packages/sz-orm-core/src/row_stream.rs`：`AsyncRowStream` trait + `CursorRowStream` 降级适配器
+- `packages/sz-orm-stream/src/backpressure_stream.rs`：背压装饰器（阈值暂停 + ack 恢复）
+- `packages/sz-orm-sqlx/src/row_stream_impl.rs`：`SqlxRowStream` 类型别名
+- 三后端真游标：MySQL/PG/SQLite 均使用 `sqlx::query().fetch()`（any.rs:593/1271/1982）
+
+#### 向后兼容
+
+- 所有新接口以 trait 默认实现形式提供，既有 pub API 零变更
+- sz-pay 项目升级到 v6.5.0 编译通过（无需改代码）
+- v6.4.0 性能不退化（batch_insert 271µs、batch_find 419µs）
+
+#### 测试
+
+- 单元测试：13（prepared_cache）+ 6（row_stream）+ 9（parallel_queries）+ 4（macros）+ 6（connection_ext）+ 6（backpressure_stream）+ 1（row_stream_impl）= 45 个新增
+- 集成测试：2（parallel_acceleration）+ 3（prepared_cache_benefit）+ 3（stream_memory）+ 5（backpressure）= 13 个新增
+- 接线验证：6/6 通过（`scripts/check-v65-wiring.py`）
+
+## [6.4.0] — 2026-09-06
+
+### v6.4.0 性能优化（8 项需求，5.1-5.8）
+
+基于 v6.3.0 对比分析识别的 6 个性能瓶颈 + 1 个竞争力缺口，通过 8 项优化提升性能并增强竞争力。
+
+#### 5.1 QueryBuilder 构造零堆分配（P0）
+
+- `DialectKind::quote_into` enum 分发替代 `Box<dyn Dialect>` vtable（`packages/sz-orm-core/src/dialect.rs`）
+- `QueryBuilder` 新增 `dialect_kind: Option<DialectKind>` 字段（`perf-enum-dispatch` feature 门控）
+- 66 处 `self.dialect.quote_into` 替换为 `self.quote_into`（enum 优先，回退 vtable）
+- 目标：simple_full ≤ 200ns（vs v6.3.0 282ns）
+
+#### 5.2 批量 INSERT SQL 零分配（P0）
+
+- `build_insert_with_params` / `build_batch_insert_with_params` 重写为零分配模式（`packages/sz-orm-core/src/query.rs`）
+- `String::with_capacity` 预分配 + `quote_into` 直接写入 + `push_usize_to_string` 数字格式化
+- `sz-orm-batch::build_batch_insert` 同步优化（`packages/sz-orm-batch/src/dialect.rs`）
+- benchmark `insert_batch` 改用批量 INSERT（`bench-comparison/benches/competitor_adapter.rs`）
+- 目标：Insert 1000 行 ≤ 5ms（vs v6.3.0 25.49ms）
+
+#### 5.3 查询结果集列名复用（P0）
+
+- 6 处 `col.name().to_string()` 改为第一行解析后复用（`packages/sz-orm-sqlx/src/any.rs`）
+- SQLite/MySQL/PG 的 query + query_with_params 均已优化
+- 目标：batch_find/1000 ≤ 500µs（vs v6.3.0 1.65ms）
+
+#### 5.4 关系查询零分配（P1）
+
+- `find_with_related_eager_sql` / `find_with_related_subquery` 重写为零分配模式（`packages/sz-orm-core/src/find_with_related.rs`）
+- `String::with_capacity` 预分配 + `dialect.quote_into` 直接写入
+- 目标：1:1 查询 ≤ 8µs（vs v6.3.0 19.0µs）
+
+#### 5.5 分页 LIMIT/OFFSET 数字格式化优化（P1）
+
+- 新增 `push_usize_to_string` 函数，栈上 `[u8; 20]` 数组收集数字（`packages/sz-orm-core/src/query.rs`）
+- 4 处 `write!(sql, " LIMIT {}", limit)` 替换为 `push_usize_to_string`
+- 目标：分页/10000 ≤ 15µs（vs v6.3.0 36.4µs）
+
+#### 5.6 连接池栈上缓冲 + 延迟 Instant::now（P2）
+
+- `to_close: Vec` 改为循环外预分配 + `drain(..)` 容量复用（`packages/sz-orm-core/src/pool.rs`）
+- `deadline` 延迟到 `get_or_insert_with` 惰性初始化
+- 目标：≤ 1.5µs（vs v6.3.0 2.2µs）
+
+#### 5.7 query_with_params Future 栈分配（P1，降级为尽力优化）
+
+- 评估结论：`Connection` trait 签名 `Pin<Box<dyn Future>>` 无法改为 `impl Future`（HRTB 冲突 + API 兼容性约束）
+- 保留 v6.3.0 实现，无法消除 `Box::pin`
+
+#### 5.8 新增 find_by_ids 原生批量查询 API（P1）
+
+- `QueryBuilder::find_by_ids(conn, ids)` 生成 `WHERE id IN (?, ?, ...)` 单次查询（`packages/sz-orm-core/src/query.rs`）
+- 自动去重 + 分块 999（SQLite IN 上限）
+- benchmark `find_batch` 改用 `find_by_ids`（`bench-comparison/benches/competitor_adapter.rs`）
+- 目标：batch_find ≤ 500µs
+
+### 测试验证
+
+- sz-orm-core：1908 个单元测试全部通过
+- sz-orm-sqlx：70 + 22 + 4 + 1 个测试全部通过
+- sz-orm-batch：73 + 26 + 1 个测试全部通过
+- find_by_ids 5 个边界测试（空/去重/999/1000/2000）全部通过
+
 ## [6.0.1] — 2026-09-04
 
 ### MCP stdio 传输层

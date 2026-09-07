@@ -11,6 +11,9 @@
 
 pub mod key_management;
 
+#[cfg(feature = "field-encryption")]
+pub mod key_rotation_enhanced;
+
 use std::collections::HashMap;
 
 use aes_gcm::aead::{Aead, KeyInit};

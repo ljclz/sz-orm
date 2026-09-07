@@ -269,13 +269,17 @@ impl Connection for SqlxSqliteConnection {
                 .iter()
                 .map(|col| ColType::parse_sqlite(col.type_info().name()))
                 .collect();
+            let col_names: Vec<String> = rows[0]
+                .columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect();
             let mut result = Vec::with_capacity(rows.len());
             for row in &rows {
                 let mut record = HashMap::with_capacity(col_types.len());
-                for (i, col) in row.columns().iter().enumerate() {
-                    let name = col.name().to_string();
+                for (i, name) in col_names.iter().enumerate() {
                     let value = row_to_value_with_coltype_sqlite(row, i, col_types[i]);
-                    record.insert(name, value);
+                    record.insert(name.clone(), value);
                 }
                 result.push(record);
             }
@@ -452,13 +456,17 @@ impl Connection for SqlxSqliteConnection {
                 .iter()
                 .map(|col| ColType::parse_sqlite(col.type_info().name()))
                 .collect();
+            let col_names: Vec<String> = rows[0]
+                .columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect();
             let mut result = Vec::with_capacity(rows.len());
             for row in &rows {
                 let mut record = HashMap::with_capacity(col_types.len());
-                for (i, col) in row.columns().iter().enumerate() {
-                    let name = col.name().to_string();
+                for (i, name) in col_names.iter().enumerate() {
                     let value = row_to_value_with_coltype_sqlite(row, i, col_types[i]);
-                    record.insert(name, value);
+                    record.insert(name.clone(), value);
                 }
                 result.push(record);
             }
@@ -953,13 +961,17 @@ impl Connection for SqlxMySqlConnection {
                 .iter()
                 .map(|col| ColType::parse_mysql(col.type_info().name()))
                 .collect();
+            let col_names: Vec<String> = rows[0]
+                .columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect();
             let mut result = Vec::with_capacity(rows.len());
             for row in &rows {
                 let mut record = HashMap::with_capacity(col_types.len());
-                for (i, col) in row.columns().iter().enumerate() {
-                    let name = col.name().to_string();
+                for (i, name) in col_names.iter().enumerate() {
                     let value = row_to_value_with_coltype_mysql(row, i, col_types[i]);
-                    record.insert(name, value);
+                    record.insert(name.clone(), value);
                 }
                 result.push(record);
             }
@@ -1123,16 +1135,20 @@ impl Connection for SqlxMySqlConnection {
             let rows_result = q.fetch_all(&mut *pool_conn).await;
             self.conn = Some(pool_conn);
             let rows = rows_result.map_err(map_sqlx_error)?;
+            if rows.is_empty() {
+                return Ok(Vec::new());
+            }
+            let col_names: Vec<String> = rows[0]
+                .columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect();
             let mut result = Vec::with_capacity(rows.len());
-            for row in rows {
-                // #13 修复：预分配 HashMap 容量，避免逐列 insert 时 rehash/growth
-                let columns = row.columns();
-                let mut record = HashMap::with_capacity(columns.len());
-                for col in columns {
-                    let name = col.name().to_string();
-                    let ordinal = col.ordinal();
-                    let value = row_to_value_mysql(&row, ordinal);
-                    record.insert(name, value);
+            for row in &rows {
+                let mut record = HashMap::with_capacity(col_names.len());
+                for (i, name) in col_names.iter().enumerate() {
+                    let value = row_to_value_mysql(row, i);
+                    record.insert(name.clone(), value);
                 }
                 result.push(record);
             }
@@ -1633,13 +1649,17 @@ impl Connection for SqlxPgConnection {
                 .iter()
                 .map(|col| ColType::parse_postgres(col.type_info().name()))
                 .collect();
+            let col_names: Vec<String> = rows[0]
+                .columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect();
             let mut result = Vec::with_capacity(rows.len());
             for row in &rows {
                 let mut record = HashMap::with_capacity(col_types.len());
-                for (i, col) in row.columns().iter().enumerate() {
-                    let name = col.name().to_string();
+                for (i, name) in col_names.iter().enumerate() {
                     let value = row_to_value_with_coltype_pg(row, i, col_types[i]);
-                    record.insert(name, value);
+                    record.insert(name.clone(), value);
                 }
                 result.push(record);
             }
@@ -1824,13 +1844,17 @@ impl Connection for SqlxPgConnection {
                 .iter()
                 .map(|col| ColType::parse_postgres(col.type_info().name()))
                 .collect();
+            let col_names: Vec<String> = rows[0]
+                .columns()
+                .iter()
+                .map(|col| col.name().to_string())
+                .collect();
             let mut result = Vec::with_capacity(rows.len());
             for row in &rows {
                 let mut record = HashMap::with_capacity(col_types.len());
-                for (i, col) in row.columns().iter().enumerate() {
-                    let name = col.name().to_string();
+                for (i, name) in col_names.iter().enumerate() {
                     let value = row_to_value_with_coltype_pg(row, i, col_types[i]);
-                    record.insert(name, value);
+                    record.insert(name.clone(), value);
                 }
                 result.push(record);
             }

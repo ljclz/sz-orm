@@ -100,7 +100,10 @@ SENSITIVE_CONTENT_PATTERNS: list[tuple[str, re.Pattern[str]]] = [
     ("Private key block", re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH |DSA |PGP )?PRIVATE KEY-----")),
     ("Generic password assignment", re.compile(r"(?i)password\s*[=:]\s*['\"]([^'\"]{8,})['\"]")),
     ("Generic secret assignment", re.compile(r"(?i)secret\s*[=:]\s*['\"]([^'\"]{8,})['\"]")),
-    ("crates.io token pattern", re.compile(r"[REDACTED]")),
+    # crates.io token：仅匹配明确上下文（cargo login 参数 / registry token 赋值），
+    # 2026-09-08 修复：原正则被占位符 "[REDACTED]" 污染，字符类匹配任意单字母导致海量误报
+    ("crates.io token in cargo login", re.compile(r"(?i)\bcargo\s+login\s+[A-Za-z0-9\-_]{20,}")),
+    ("crates.io token assignment", re.compile(r"(?i)(?:registry[_-]?token|crates[_-]?io[_-]?token)\s*[=:]\s*['\"]([A-Za-z0-9\-_]{20,})['\"]")),
 ]
 
 # 已知的假阳性（测试/示例中的假 token、文档示例、用户提供的发布 token）
@@ -125,6 +128,9 @@ KNOWN_FALSE_POSITIVES = {
     "szormtestpwd",  # 测试数据库密码
     "secret123",  # SQL 注入测试中的示例密码
     "postgres",  # 文档示例中 postgres 用户密码同为 postgres
+    "pwd",  # OWASP 测试夹具占位密码（mysql://user:pwd@ / postgres://user:pwd@）
+    "shared-api-secret",  # blackhat_poc 测试夹具假密钥
+    "this-is-a-very-strong-secret-32+bytes!!",  # owasp_a09 测试夹具假密钥
     "***",  # 脱敏后的密码占位符
     "***MASKED***",  # 脱敏后的密码占位符
     "{}",  # 格式化字符串占位符

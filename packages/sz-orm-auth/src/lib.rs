@@ -20,6 +20,9 @@ pub mod mfa;
 pub mod oauth2;
 pub mod token_store;
 
+#[cfg(feature = "rbac-enhanced")]
+pub mod rbac_inheritance;
+
 pub use auth::*;
 pub use authorizer::{Authorizer, RbacAuthorizer};
 pub use error::AuthError;

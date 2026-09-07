@@ -8,6 +8,8 @@ pub mod config;
 #[cfg(feature = "stream-resultset")]
 pub mod backpressure;
 #[cfg(feature = "stream-resultset")]
+pub mod backpressure_stream;
+#[cfg(feature = "stream-resultset")]
 pub mod batch_processor;
 #[cfg(feature = "stream-resultset")]
 pub mod keyset;

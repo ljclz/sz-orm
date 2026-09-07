@@ -2,6 +2,9 @@
 
 #[cfg(feature = "governance-compliance")]
 pub mod compliance;
+#[cfg(feature = "compliance-report")]
+#[allow(missing_docs)]
+pub mod compliance_report;
 #[cfg(feature = "governance")]
 pub mod data_catalog;
 #[cfg(feature = "governance-lineage")]

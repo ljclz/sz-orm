@@ -1,4 +1,4 @@
-<#
+﻿<#
 .SYNOPSIS
     审计证据自动验证脚本（sz-orm 版，Windows PowerShell）
 

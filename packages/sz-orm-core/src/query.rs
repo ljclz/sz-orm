@@ -46,6 +46,13 @@ pub struct QueryBuilder<M: Model> {
     offset_value: Option<usize>,
     joins: Vec<JoinClause>,
     dialect: Box<dyn Dialect>,
+    /// v6.4.0：方言种类枚举（用于 match 分发替代 vtable 查找）
+    ///
+    /// 当 `perf-enum-dispatch` feature 启用时，热路径优先用 `dialect_kind.quote_into()`
+    /// 替代 `dialect.quote_into()`，避免动态分发的 vtable 间接寻址开销。
+    /// 未知方言（`DialectKind::from_db_type` 返回 `None`）回退到 `dialect.quote_into()`。
+    #[cfg(feature = "perf-enum-dispatch")]
+    dialect_kind: Option<crate::dialect::DialectKind>,
     /// P0-1：是否禁用软删除过滤（true 表示禁用，查询包含已删除记录）
     soft_delete_disabled: bool,
     /// P0-3：当前租户 ID（运行时注入）。设置后自动追加 `WHERE {tenant_field} = ?`
@@ -266,9 +273,30 @@ enum JoinClause {
     ),
 }
 
+/// v6.4.0：将 usize 数字写入 buf，无中间分配（替代 `write!` 的 `format_args!` 机制）
+fn push_usize_to_string<W: fmt::Write>(n: usize, buf: &mut W) {
+    if n == 0 {
+        let _ = buf.write_char('0');
+        return;
+    }
+    let mut digits = [0u8; 20];
+    let mut len = 0;
+    let mut val = n;
+    while val > 0 {
+        digits[len] = b'0' + (val % 10) as u8;
+        val /= 10;
+        len += 1;
+    }
+    for i in (0..len).rev() {
+        let _ = buf.write_char(digits[i] as char);
+    }
+}
+
 impl<M: Model> QueryBuilder<M> {
     /// 创建查询构造器
     pub fn new(dialect: Box<dyn Dialect>) -> Self {
+        #[cfg(feature = "perf-enum-dispatch")]
+        let dialect_kind = crate::dialect::DialectKind::from_db_type(dialect.db_type());
         Self {
             table: None,
             select_columns: Vec::new(),
@@ -281,6 +309,8 @@ impl<M: Model> QueryBuilder<M> {
             offset_value: None,
             joins: Vec::new(),
             dialect,
+            #[cfg(feature = "perf-enum-dispatch")]
+            dialect_kind,
             soft_delete_disabled: false,
             tenant_id_value: None,
             tenant_disabled: false,
@@ -294,10 +324,20 @@ impl<M: Model> QueryBuilder<M> {
         }
     }
 
+    /// v6.4.0：引用标识符到 buf（优先 enum 分发，回退到 vtable）
+    #[inline]
+    fn quote_into(&self, identifier: &str, buf: &mut String) {
+        #[cfg(feature = "perf-enum-dispatch")]
+        if let Some(kind) = self.dialect_kind {
+            kind.quote_into(identifier, buf);
+            return;
+        }
+        self.quote_into(identifier, buf);
+    }
+
     /// 设置查询表名
     pub fn table(mut self, table: impl Into<String>) -> Self {
-        let table_name = table.into();
-        // v3.3.0 multi-tenant-enhanced：Schema 隔离策略下重写表名
+        let table_name = table.into(); // v3.3.0 multi-tenant-enhanced：Schema 隔离策略下重写表名
         #[cfg(feature = "multi-tenant-enhanced")]
         {
             if let Some(ctx) = crate::tenant_context::TenantContext::current() {
@@ -541,6 +581,8 @@ impl<M: Model> QueryBuilder<M> {
             offset_value: None,
             joins: self.joins.clone(),
             dialect: self.dialect.clone_box(),
+            #[cfg(feature = "perf-enum-dispatch")]
+            dialect_kind: self.dialect_kind,
             soft_delete_disabled: self.soft_delete_disabled,
             tenant_id_value: self.tenant_id_value,
             tenant_disabled: self.tenant_disabled,
@@ -1598,11 +1640,13 @@ impl<M: Model> QueryBuilder<M> {
         }
 
         if let Some(limit) = self.limit_value {
-            let _ = write!(sql, " LIMIT {}", limit);
+            sql.push_str(" LIMIT ");
+            push_usize_to_string(limit, &mut sql);
         }
 
         if let Some(offset) = self.offset_value {
-            let _ = write!(sql, " OFFSET {}", offset);
+            sql.push_str(" OFFSET ");
+            push_usize_to_string(offset, &mut sql);
         }
 
         sql.into_string()
@@ -2093,42 +2137,42 @@ impl<M: Model> QueryBuilder<M> {
                         WhereCondition::And(c) => result.push_str(c),
                         WhereCondition::Eq(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" = ?");
                         }
                         WhereCondition::Ne(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" != ?");
                         }
                         WhereCondition::Gt(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" > ?");
                         }
                         WhereCondition::Ge(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" >= ?");
                         }
                         WhereCondition::Lt(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" < ?");
                         }
                         WhereCondition::Le(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" <= ?");
                         }
                         WhereCondition::Like(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" LIKE ?");
                         }
                         WhereCondition::In(f, vals) => {
                             params.extend(vals.iter().cloned());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" IN (");
                             for (j, _) in vals.iter().enumerate() {
                                 if j > 0 {
@@ -2140,7 +2184,7 @@ impl<M: Model> QueryBuilder<M> {
                         }
                         WhereCondition::NotIn(f, vals) => {
                             params.extend(vals.iter().cloned());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" NOT IN (");
                             for (j, _) in vals.iter().enumerate() {
                                 if j > 0 {
@@ -2153,21 +2197,21 @@ impl<M: Model> QueryBuilder<M> {
                         WhereCondition::Between(f, start, end) => {
                             params.push(start.clone());
                             params.push(end.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" BETWEEN ? AND ?");
                         }
                         WhereCondition::NotBetween(f, start, end) => {
                             params.push(start.clone());
                             params.push(end.clone());
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" NOT BETWEEN ? AND ?");
                         }
                         WhereCondition::Null(f) => {
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" IS NULL");
                         }
                         WhereCondition::NotNull(f) => {
-                            self.dialect.quote_into(f, &mut result);
+                            self.quote_into(f, &mut result);
                             result.push_str(" IS NOT NULL");
                         }
                         WhereCondition::Exists(s) => {
@@ -2205,49 +2249,49 @@ impl<M: Model> QueryBuilder<M> {
                 WhereCondition::Eq(f, v) => {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 5);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" = ?");
                     conditions.push(s);
                 }
                 WhereCondition::Ne(f, v) => {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 6);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" != ?");
                     conditions.push(s);
                 }
                 WhereCondition::Gt(f, v) => {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 5);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" > ?");
                     conditions.push(s);
                 }
                 WhereCondition::Ge(f, v) => {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 6);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" >= ?");
                     conditions.push(s);
                 }
                 WhereCondition::Lt(f, v) => {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 5);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" < ?");
                     conditions.push(s);
                 }
                 WhereCondition::Le(f, v) => {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 6);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" <= ?");
                     conditions.push(s);
                 }
                 WhereCondition::Like(f, v) => {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 8);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" LIKE ?");
                     conditions.push(s);
                 }
@@ -2255,7 +2299,7 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 8);
                     s.push_str("OR ");
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" = ?");
                     conditions.push(s);
                 }
@@ -2263,7 +2307,7 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 9);
                     s.push_str("OR ");
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" != ?");
                     conditions.push(s);
                 }
@@ -2271,7 +2315,7 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 8);
                     s.push_str("OR ");
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" > ?");
                     conditions.push(s);
                 }
@@ -2279,7 +2323,7 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 9);
                     s.push_str("OR ");
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" >= ?");
                     conditions.push(s);
                 }
@@ -2287,7 +2331,7 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 8);
                     s.push_str("OR ");
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" < ?");
                     conditions.push(s);
                 }
@@ -2295,7 +2339,7 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 9);
                     s.push_str("OR ");
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" <= ?");
                     conditions.push(s);
                 }
@@ -2303,14 +2347,14 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(v.clone());
                     let mut s = String::with_capacity(f.len() + 11);
                     s.push_str("OR ");
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" LIKE ?");
                     conditions.push(s);
                 }
                 WhereCondition::In(f, vals) => {
                     params.extend(vals.iter().cloned());
                     let mut s = String::with_capacity(f.len() + vals.len() * 2 + 7);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" IN (");
                     for (i, _) in vals.iter().enumerate() {
                         if i > 0 {
@@ -2324,7 +2368,7 @@ impl<M: Model> QueryBuilder<M> {
                 WhereCondition::NotIn(f, vals) => {
                     params.extend(vals.iter().cloned());
                     let mut s = String::with_capacity(f.len() + vals.len() * 2 + 11);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" NOT IN (");
                     for (i, _) in vals.iter().enumerate() {
                         if i > 0 {
@@ -2339,7 +2383,7 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(start.clone());
                     params.push(end.clone());
                     let mut s = String::with_capacity(f.len() + 18);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" BETWEEN ? AND ?");
                     conditions.push(s);
                 }
@@ -2347,19 +2391,19 @@ impl<M: Model> QueryBuilder<M> {
                     params.push(start.clone());
                     params.push(end.clone());
                     let mut s = String::with_capacity(f.len() + 22);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" NOT BETWEEN ? AND ?");
                     conditions.push(s);
                 }
                 WhereCondition::Null(f) => {
                     let mut s = String::with_capacity(f.len() + 9);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" IS NULL");
                     conditions.push(s);
                 }
                 WhereCondition::NotNull(f) => {
                     let mut s = String::with_capacity(f.len() + 13);
-                    self.dialect.quote_into(f, &mut s);
+                    self.quote_into(f, &mut s);
                     s.push_str(" IS NOT NULL");
                     conditions.push(s);
                 }
@@ -2409,7 +2453,7 @@ impl<M: Model> QueryBuilder<M> {
                 KeysetDirection::Before => " < ?",
             };
             let mut s = String::with_capacity(cursor.field.len() + 5);
-            self.dialect.quote_into(&cursor.field, &mut s);
+            self.quote_into(&cursor.field, &mut s);
             s.push_str(op);
             conditions.push(s);
             params.push(cursor.value.clone());
@@ -2474,6 +2518,37 @@ impl<M: Model> QueryBuilder<M> {
         (result, params)
     }
 
+    /// 按 ID 批量查询（原生 `WHERE id IN (?, ?, ...)` 单次查询）。
+    ///
+    /// 自动去重 + 分块（每块 ≤ 999，SQLite IN 上限），返回所有匹配行。
+    /// 空_ids 返回空 Vec。返回 `Vec<HashMap<String, Value>>`（原始行），
+    /// 调用方自行用 `Model::from_value` 还原为 `Vec<M>`。
+    pub async fn find_by_ids(
+        &self,
+        conn: &mut dyn crate::pool::Connection,
+        ids: &[i64],
+    ) -> Result<Vec<std::collections::HashMap<String, Value>>, crate::DbError> {
+        if ids.is_empty() {
+            return Ok(Vec::new());
+        }
+        let unique_ids: Vec<i64> = {
+            let s: std::collections::HashSet<i64> = ids.iter().copied().collect();
+            s.into_iter().collect()
+        };
+        const CHUNK: usize = 999;
+        let mut all_rows = Vec::with_capacity(unique_ids.len());
+        for chunk in unique_ids.chunks(CHUNK) {
+            let id_values: Vec<Value> = chunk.iter().map(|&id| Value::I64(id)).collect();
+            let (sql, params) = QueryBuilder::<M>::new(self.dialect.clone_box())
+                .table(M::table_name())
+                .where_in(M::pk_name(), id_values)
+                .build_select_with_params();
+            let rows = conn.query_with_params(&sql, &params).await?;
+            all_rows.extend(rows);
+        }
+        Ok(all_rows)
+    }
+
     /// 构建 SELECT SQL（参数绑定版本）。
     ///
     /// WHERE 子句中的值使用 `?` 占位符，值通过 `params` 返回。
@@ -2513,53 +2588,53 @@ impl<M: Model> QueryBuilder<M> {
             }
         }
         sql.push_str(" FROM ");
-        self.dialect.quote_into(table, &mut sql);
+        self.quote_into(table, &mut sql);
 
         for join in &self.joins {
             match join {
                 JoinClause::Inner(t, l, r) => {
                     sql.push_str(" INNER JOIN ");
-                    self.dialect.quote_into(t, &mut sql);
+                    self.quote_into(t, &mut sql);
                     sql.push_str(" ON ");
-                    self.dialect.quote_into(l, &mut sql);
+                    self.quote_into(l, &mut sql);
                     sql.push_str(" = ");
-                    self.dialect.quote_into(r, &mut sql);
+                    self.quote_into(r, &mut sql);
                 }
                 JoinClause::Left(t, l, r) => {
                     sql.push_str(" LEFT JOIN ");
-                    self.dialect.quote_into(t, &mut sql);
+                    self.quote_into(t, &mut sql);
                     sql.push_str(" ON ");
-                    self.dialect.quote_into(l, &mut sql);
+                    self.quote_into(l, &mut sql);
                     sql.push_str(" = ");
-                    self.dialect.quote_into(r, &mut sql);
+                    self.quote_into(r, &mut sql);
                 }
                 JoinClause::Right(t, l, r) => {
                     sql.push_str(" RIGHT JOIN ");
-                    self.dialect.quote_into(t, &mut sql);
+                    self.quote_into(t, &mut sql);
                     sql.push_str(" ON ");
-                    self.dialect.quote_into(l, &mut sql);
+                    self.quote_into(l, &mut sql);
                     sql.push_str(" = ");
-                    self.dialect.quote_into(r, &mut sql);
+                    self.quote_into(r, &mut sql);
                 }
                 JoinClause::Cross(t, on) => {
                     sql.push_str(" CROSS JOIN ");
-                    self.dialect.quote_into(t, &mut sql);
+                    self.quote_into(t, &mut sql);
                     sql.push_str(" ON ");
-                    self.dialect.quote_into(on, &mut sql);
+                    self.quote_into(on, &mut sql);
                 }
                 JoinClause::Relation(kind, ft, fk, tt, tk) => {
                     sql.push(' ');
                     sql.push_str(kind.as_sql());
                     sql.push(' ');
-                    self.dialect.quote_into(tt, &mut sql);
+                    self.quote_into(tt, &mut sql);
                     sql.push_str(" ON ");
-                    self.dialect.quote_into(ft, &mut sql);
+                    self.quote_into(ft, &mut sql);
                     sql.push('.');
-                    self.dialect.quote_into(fk, &mut sql);
+                    self.quote_into(fk, &mut sql);
                     sql.push_str(" = ");
-                    self.dialect.quote_into(tt, &mut sql);
+                    self.quote_into(tt, &mut sql);
                     sql.push('.');
-                    self.dialect.quote_into(tk, &mut sql);
+                    self.quote_into(tk, &mut sql);
                 }
             }
         }
@@ -2600,42 +2675,42 @@ impl<M: Model> QueryBuilder<M> {
                         WhereCondition::And(c) => sql.push_str(c),
                         WhereCondition::Eq(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" = ?");
                         }
                         WhereCondition::Ne(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" != ?");
                         }
                         WhereCondition::Gt(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" > ?");
                         }
                         WhereCondition::Ge(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" >= ?");
                         }
                         WhereCondition::Lt(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" < ?");
                         }
                         WhereCondition::Le(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" <= ?");
                         }
                         WhereCondition::Like(f, v) => {
                             params.push(v.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" LIKE ?");
                         }
                         WhereCondition::In(f, vals) => {
                             params.extend(vals.iter().cloned());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" IN (");
                             for (j, _) in vals.iter().enumerate() {
                                 if j > 0 {
@@ -2647,7 +2722,7 @@ impl<M: Model> QueryBuilder<M> {
                         }
                         WhereCondition::NotIn(f, vals) => {
                             params.extend(vals.iter().cloned());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" NOT IN (");
                             for (j, _) in vals.iter().enumerate() {
                                 if j > 0 {
@@ -2660,21 +2735,21 @@ impl<M: Model> QueryBuilder<M> {
                         WhereCondition::Between(f, start, end) => {
                             params.push(start.clone());
                             params.push(end.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" BETWEEN ? AND ?");
                         }
                         WhereCondition::NotBetween(f, start, end) => {
                             params.push(start.clone());
                             params.push(end.clone());
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" NOT BETWEEN ? AND ?");
                         }
                         WhereCondition::Null(f) => {
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" IS NULL");
                         }
                         WhereCondition::NotNull(f) => {
-                            self.dialect.quote_into(f, &mut sql);
+                            self.quote_into(f, &mut sql);
                             sql.push_str(" IS NOT NULL");
                         }
                         WhereCondition::Exists(s) => {
@@ -2717,7 +2792,7 @@ impl<M: Model> QueryBuilder<M> {
                 if i > 0 {
                     sql.push_str(", ");
                 }
-                self.dialect.quote_into(c, &mut sql);
+                self.quote_into(c, &mut sql);
             }
         }
 
@@ -2745,7 +2820,7 @@ impl<M: Model> QueryBuilder<M> {
                 if i > 0 {
                     sql.push_str(", ");
                 }
-                self.dialect.quote_into(&o.field, &mut sql);
+                self.quote_into(&o.field, &mut sql);
                 match o.direction {
                     OrderDirection::Asc => sql.push_str(" ASC"),
                     OrderDirection::Desc => sql.push_str(" DESC"),
@@ -2754,10 +2829,12 @@ impl<M: Model> QueryBuilder<M> {
         }
 
         if let Some(limit) = self.limit_value {
-            let _ = write!(sql, " LIMIT {}", limit);
+            sql.push_str(" LIMIT ");
+            push_usize_to_string(limit, &mut sql);
         }
         if let Some(offset) = self.offset_value {
-            let _ = write!(sql, " OFFSET {}", offset);
+            sql.push_str(" OFFSET ");
+            push_usize_to_string(offset, &mut sql);
         }
 
         // P2-3：追加行锁子句（TASK-025/026）
@@ -2776,35 +2853,39 @@ impl<M: Model> QueryBuilder<M> {
         &self,
         data: &std::collections::HashMap<String, Value>,
     ) -> (String, Vec<Value>) {
-        let table = self
-            .table
-            .clone()
-            .unwrap_or_else(|| M::table_name().to_string());
+        let table = self.table.as_deref().unwrap_or_else(|| M::table_name());
         if data.is_empty() {
             return (String::new(), Vec::new());
         }
 
-        let mut columns = Vec::with_capacity(data.len());
         let mut params = Vec::with_capacity(data.len());
-        let placeholders: Vec<&str> = data.iter().map(|_| "?").collect();
-        for (k, v) in data.iter() {
-            columns.push(self.dialect.quote(k));
+        let capacity = 32 + table.len() + data.len() * 6;
+        let mut sql = String::with_capacity(capacity);
+
+        if self.insert_or_ignore {
+            sql.push_str(&self.dialect.build_insert_or_ignore_prefix(table));
+        } else {
+            sql.push_str("INSERT INTO ");
+            self.quote_into(table, &mut sql);
+        }
+        sql.push_str(" (");
+
+        for (i, (k, v)) in data.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            self.quote_into(k, &mut sql);
             params.push(v.clone());
         }
 
-        // P2-4：INSERT OR IGNORE 前缀（TASK-027/028）
-        let insert_clause = if self.insert_or_ignore {
-            self.dialect.build_insert_or_ignore_prefix(&table)
-        } else {
-            format!("INSERT INTO {}", self.dialect.quote(&table))
-        };
-
-        let sql = format!(
-            "{} ({}) VALUES ({})",
-            insert_clause,
-            columns.join(", "),
-            placeholders.join(", ")
-        );
+        sql.push_str(") VALUES (");
+        for i in 0..data.len() {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            sql.push('?');
+        }
+        sql.push(')');
         (sql, params)
     }
 
@@ -2818,49 +2899,61 @@ impl<M: Model> QueryBuilder<M> {
         &self,
         rows: &[std::collections::HashMap<String, Value>],
     ) -> (String, Vec<Value>) {
-        let table = self
-            .table
-            .clone()
-            .unwrap_or_else(|| M::table_name().to_string());
+        let table = self.table.as_deref().unwrap_or_else(|| M::table_name());
         if rows.is_empty() {
             return (String::new(), Vec::new());
         }
 
-        // 取第一行的列作为列顺序（所有行必须一致）
         let first_row = &rows[0];
-        let columns: Vec<String> = first_row.keys().cloned().collect();
-        let quoted_columns: Vec<String> = columns.iter().map(|c| self.dialect.quote(c)).collect();
-
-        let mut params = Vec::with_capacity(rows.len() * columns.len());
-        let mut value_groups: Vec<String> = Vec::with_capacity(rows.len());
+        let columns: Vec<&String> = first_row.keys().collect();
         let is_pg = self.dialect.db_type() == DbType::PostgreSQL;
+
+        let capacity = 32
+            + table.len()
+            + columns.iter().map(|c| c.len() + 2).sum::<usize>()
+            + rows.len() * (columns.len() * 3 + 4);
+        let mut sql = String::with_capacity(capacity);
+        let mut params = Vec::with_capacity(rows.len() * columns.len());
+
+        sql.push_str("INSERT INTO ");
+        self.quote_into(table, &mut sql);
+        sql.push_str(" (");
+        for (i, col) in columns.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            self.quote_into(col, &mut sql);
+        }
+        sql.push_str(") VALUES ");
+
         let mut param_idx = 1usize;
-        for row in rows {
-            let placeholders: Vec<String> = columns
-                .iter()
-                .map(|col| match row.get(col) {
+        for (row_i, row) in rows.iter().enumerate() {
+            if row_i > 0 {
+                sql.push_str(", ");
+            }
+            sql.push('(');
+            for (col_i, col) in columns.iter().enumerate() {
+                if col_i > 0 {
+                    sql.push_str(", ");
+                }
+                match row.get(*col) {
                     Some(v) => {
                         params.push(v.clone());
                         if is_pg {
-                            let p = format!("${}", param_idx);
+                            sql.push('$');
+                            push_usize_to_string(param_idx, &mut sql);
                             param_idx += 1;
-                            p
                         } else {
-                            "?".to_string()
+                            sql.push('?');
                         }
                     }
-                    None => "NULL".to_string(),
-                })
-                .collect();
-            value_groups.push(format!("({})", placeholders.join(", ")));
+                    None => {
+                        sql.push_str("NULL");
+                    }
+                }
+            }
+            sql.push(')');
         }
-
-        let sql = format!(
-            "INSERT INTO {} ({}) VALUES {}",
-            self.dialect.quote(&table),
-            quoted_columns.join(", "),
-            value_groups.join(", ")
-        );
         (sql, params)
     }
 
@@ -5124,5 +5217,194 @@ mod tests {
             2,
             "without ttl, loader should be called each time"
         );
+    }
+
+    #[test]
+    fn test_push_usize_to_string() {
+        let cases = [
+            0usize,
+            1,
+            9,
+            10,
+            99,
+            100,
+            999,
+            1000,
+            9999,
+            10000,
+            99999999,
+            usize::MAX,
+        ];
+        for n in cases {
+            let mut buf = String::new();
+            push_usize_to_string(n, &mut buf);
+            assert_eq!(buf, n.to_string(), "failed for n={}", n);
+        }
+    }
+
+    struct MockConnection {
+        data: Vec<std::collections::HashMap<String, Value>>,
+        query_call_count: std::sync::atomic::AtomicUsize,
+    }
+
+    impl MockConnection {
+        fn new(data: Vec<std::collections::HashMap<String, Value>>) -> Self {
+            Self {
+                data,
+                query_call_count: std::sync::atomic::AtomicUsize::new(0),
+            }
+        }
+
+        fn call_count(&self) -> usize {
+            self.query_call_count
+                .load(std::sync::atomic::Ordering::SeqCst)
+        }
+    }
+
+    impl crate::pool::Connection for MockConnection {
+        fn execute<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<u64, crate::DbError>> + Send + 'a>,
+        > {
+            let _ = sql;
+            Box::pin(async move { Ok(0) })
+        }
+        fn query<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<crate::pool::QueryRows, crate::DbError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            let _ = sql;
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
+            Box::pin(async move { Ok(()) })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
+            Box::pin(async move { Ok(()) })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
+            Box::pin(async move { Ok(()) })
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn ping<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<(), crate::DbError>> + Send + 'a>,
+        > {
+            Box::pin(async move { Ok(()) })
+        }
+        fn query_with_params<'a>(
+            &'a mut self,
+            sql: &'a str,
+            params: &'a [Value],
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<crate::pool::QueryRows, crate::DbError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            self.query_call_count
+                .fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            let _ = sql;
+            let id_set: std::collections::HashSet<i64> =
+                params.iter().filter_map(|v| v.as_i64()).collect();
+            let rows: Vec<std::collections::HashMap<String, Value>> = self
+                .data
+                .iter()
+                .filter(|row| {
+                    row.get("id")
+                        .and_then(|v| v.as_i64())
+                        .is_some_and(|id| id_set.contains(&id))
+                })
+                .cloned()
+                .collect();
+            Box::pin(async move { Ok(rows) })
+        }
+    }
+
+    fn make_test_rows(n: usize) -> Vec<std::collections::HashMap<String, Value>> {
+        (1..=n)
+            .map(|i| {
+                let mut row = std::collections::HashMap::new();
+                row.insert("id".to_string(), Value::I64(i as i64));
+                row.insert("name".to_string(), Value::String(format!("user{}", i)));
+                row
+            })
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn test_find_by_ids_empty() {
+        let mut conn = MockConnection::new(make_test_rows(10));
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::SqliteDialect));
+        let rows = qb.find_by_ids(&mut conn, &[]).await.unwrap();
+        assert!(rows.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_find_by_ids_dedup() {
+        let mut conn = MockConnection::new(make_test_rows(10));
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::SqliteDialect));
+        let rows = qb.find_by_ids(&mut conn, &[1, 1, 2, 2, 3]).await.unwrap();
+        assert_eq!(rows.len(), 3);
+        assert_eq!(conn.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_find_by_ids_chunk_999() {
+        let mut conn = MockConnection::new(make_test_rows(999));
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::SqliteDialect));
+        let ids: Vec<i64> = (1..=999).collect();
+        let rows = qb.find_by_ids(&mut conn, &ids).await.unwrap();
+        assert_eq!(rows.len(), 999);
+        assert_eq!(conn.call_count(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_find_by_ids_chunk_1000() {
+        let mut conn = MockConnection::new(make_test_rows(1000));
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::SqliteDialect));
+        let ids: Vec<i64> = (1..=1000).collect();
+        let rows = qb.find_by_ids(&mut conn, &ids).await.unwrap();
+        assert_eq!(rows.len(), 1000);
+        assert_eq!(conn.call_count(), 2);
+    }
+
+    #[tokio::test]
+    async fn test_find_by_ids_chunk_2000() {
+        let mut conn = MockConnection::new(make_test_rows(2000));
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::SqliteDialect));
+        let ids: Vec<i64> = (1..=2000).collect();
+        let rows = qb.find_by_ids(&mut conn, &ids).await.unwrap();
+        assert_eq!(rows.len(), 2000);
+        assert_eq!(conn.call_count(), 3);
     }
 }

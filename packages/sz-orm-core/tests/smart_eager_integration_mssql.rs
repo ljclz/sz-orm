@@ -18,11 +18,34 @@ use tiberius::{AuthMethod, Client, Config, ToSql};
 use tokio::sync::Mutex;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
-const MSSQL_HOST: &str = "127.0.0.1";
-const MSSQL_PORT: u16 = 1433;
-const MSSQL_USER: &str = "sa";
-const MSSQL_PASS: &str = "SzOrmTest2026";
-const MSSQL_DB: &str = "sz_orm_test";
+const MSSQL_HOST_DEFAULT: &str = "127.0.0.1";
+const MSSQL_PORT_DEFAULT: u16 = 1433;
+const MSSQL_USER_DEFAULT: &str = "sa";
+const MSSQL_PASS_DEFAULT: &str = "SzOrmTest2026";
+const MSSQL_DB_DEFAULT: &str = "sz_orm_test";
+
+fn mssql_host() -> String {
+    std::env::var("SZ_ORM_MSSQL_HOST").unwrap_or_else(|_| MSSQL_HOST_DEFAULT.to_string())
+}
+
+fn mssql_port() -> u16 {
+    std::env::var("SZ_ORM_MSSQL_PORT")
+        .ok()
+        .and_then(|v| v.parse().ok())
+        .unwrap_or(MSSQL_PORT_DEFAULT)
+}
+
+fn mssql_user() -> String {
+    std::env::var("SZ_ORM_MSSQL_USER").unwrap_or_else(|_| MSSQL_USER_DEFAULT.to_string())
+}
+
+fn mssql_pass() -> String {
+    std::env::var("SZ_ORM_MSSQL_PASSWORD").unwrap_or_else(|_| MSSQL_PASS_DEFAULT.to_string())
+}
+
+fn mssql_db() -> String {
+    std::env::var("SZ_ORM_MSSQL_DATABASE").unwrap_or_else(|_| MSSQL_DB_DEFAULT.to_string())
+}
 
 type MsClient = Client<tokio_util::compat::Compat<tokio::net::TcpStream>>;
 
@@ -208,21 +231,27 @@ impl Connection for MssqlConnection {
     }
 }
 
+static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
+
 async fn setup_mssql() -> MssqlConnection {
     let mut config = Config::new();
-    config.host(MSSQL_HOST);
-    config.port(MSSQL_PORT);
-    config.authentication(AuthMethod::sql_server(MSSQL_USER, MSSQL_PASS));
-    config.database(MSSQL_DB);
+    config.host(mssql_host());
+    config.port(mssql_port());
+    config.authentication(AuthMethod::sql_server(mssql_user(), mssql_pass()));
+    config.database(mssql_db());
     config.trust_cert();
     let tcp = tokio::net::TcpStream::connect(config.get_addr())
         .await
-        .expect("MSSQL 不可用: 127.0.0.1:1433");
+        .expect("MSSQL 不可用（可用 SZ_ORM_MSSQL_* 覆盖连接）");
     let client = Client::connect(config, tcp.compat_write())
         .await
         .expect("tiberius connect failed");
     let mut adapter = MssqlConnection::new(client);
     let builder = TestSchemaBuilder::new(TestDialect::MsSql);
+    // 先清理上次运行残留的表与数据，保证 setup 幂等
+    for ddl in builder.teardown_ddl() {
+        let _ = adapter.execute(&ddl).await;
+    }
     for ddl in builder.build_ddl() {
         adapter.execute(&ddl).await.unwrap();
     }
@@ -255,6 +284,7 @@ fn extract_related_rows(
 #[tokio::test]
 #[ignore]
 async fn test_hasone_equivalent_mssql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mssql().await;
     let rel = RelationDef::new(
         "profile",
@@ -287,6 +317,7 @@ async fn test_hasone_equivalent_mssql() {
 #[tokio::test]
 #[ignore]
 async fn test_hasmany_equivalent_mssql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mssql().await;
     let rel = RelationDef::new(
         "orders",
@@ -319,6 +350,7 @@ async fn test_hasmany_equivalent_mssql() {
 #[tokio::test]
 #[ignore]
 async fn test_many_to_many_equivalent_mssql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mssql().await;
     let rel = RelationDef::new_many_to_many(
         "roles",
@@ -400,6 +432,7 @@ async fn test_intermediate_strategy_mssql() {
 #[tokio::test]
 #[ignore]
 async fn test_nested_depth_mssql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mssql().await;
     let rel = RelationDef::new(
         "orders",

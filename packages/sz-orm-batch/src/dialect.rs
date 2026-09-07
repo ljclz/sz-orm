@@ -12,25 +12,69 @@ use crate::UpsertMode;
 
 /// 方言引用符号
 fn quote_identifier(db_type: DbType, name: &str) -> String {
+    let mut buf = String::with_capacity(name.len() + 2);
+    quote_identifier_into(db_type, name, &mut buf);
+    buf
+}
+
+/// 方言引用符号（零分配写入版）
+fn quote_identifier_into(db_type: DbType, name: &str, buf: &mut String) {
     match db_type {
         DbType::MySQL | DbType::MariaDB | DbType::OceanBase | DbType::TiDB => {
-            let escaped = name.replace('`', "``");
-            format!("`{}`", escaped)
+            buf.push('`');
+            for c in name.chars() {
+                if c == '`' {
+                    buf.push('`');
+                }
+                buf.push(c);
+            }
+            buf.push('`');
         }
         _ => {
-            let escaped = name.replace('"', "\"\"");
-            format!("\"{}\"", escaped)
+            buf.push('"');
+            for c in name.chars() {
+                if c == '"' {
+                    buf.push('"');
+                }
+                buf.push(c);
+            }
+            buf.push('"');
         }
     }
 }
 
 /// 方言占位符
 fn placeholder(db_type: DbType, index: usize) -> String {
+    let mut buf = String::with_capacity(4);
+    placeholder_into(db_type, index, &mut buf);
+    buf
+}
+
+/// 方言占位符（零分配写入版）
+fn placeholder_into(db_type: DbType, index: usize, buf: &mut String) {
     match db_type {
         DbType::PostgreSQL | DbType::GaussDB | DbType::Kingbase | DbType::PolarDB => {
-            format!("${}", index)
+            buf.push('$');
+            let mut tmp = [0u8; 20];
+            let mut n = index;
+            let mut len = 0;
+            if n == 0 {
+                tmp[0] = b'0';
+                len = 1;
+            } else {
+                while n > 0 {
+                    tmp[len] = b'0' + (n % 10) as u8;
+                    len += 1;
+                    n /= 10;
+                }
+            }
+            for i in (0..len).rev() {
+                buf.push(tmp[i] as char);
+            }
         }
-        _ => "?".to_string(),
+        _ => {
+            buf.push('?');
+        }
     }
 }
 
@@ -69,31 +113,40 @@ impl BatchDialect {
             }
         };
         let chunk_rows = &rows[start..end];
-        let cols_str = columns
-            .iter()
-            .map(|c| quote_identifier(db_type, c))
-            .collect::<Vec<_>>()
-            .join(", ");
-        let mut params = Vec::new();
-        let mut row_placeholders = Vec::new();
-        let mut ph_idx = 1;
-        for row in chunk_rows {
-            let mut phs = Vec::new();
-            for col in &columns {
-                phs.push(placeholder(db_type, ph_idx));
+        let col_count = columns.len();
+        let row_count = chunk_rows.len();
+        let capacity = 32 + table.len() + 2 + col_count * 32 + 8 + row_count * (col_count * 4 + 4);
+        let mut sql = String::with_capacity(capacity);
+        let mut params = Vec::with_capacity(row_count * col_count);
+
+        sql.push_str("INSERT INTO ");
+        quote_identifier_into(db_type, table, &mut sql);
+        sql.push_str(" (");
+        for (i, col) in columns.iter().enumerate() {
+            if i > 0 {
+                sql.push_str(", ");
+            }
+            quote_identifier_into(db_type, col, &mut sql);
+        }
+        sql.push_str(") VALUES ");
+
+        let mut ph_idx = 1usize;
+        for (row_i, row) in chunk_rows.iter().enumerate() {
+            if row_i > 0 {
+                sql.push_str(", ");
+            }
+            sql.push('(');
+            for (col_i, col) in columns.iter().enumerate() {
+                if col_i > 0 {
+                    sql.push_str(", ");
+                }
+                placeholder_into(db_type, ph_idx, &mut sql);
                 ph_idx += 1;
                 let val = row.get(col).cloned().unwrap_or(Value::Null);
                 params.push(val);
             }
-            let joined = phs.join(", ");
-            row_placeholders.push(format!("({})", joined));
+            sql.push(')');
         }
-        let sql = format!(
-            "INSERT INTO {} ({}) VALUES {}",
-            quote_identifier(db_type, table),
-            cols_str,
-            row_placeholders.join(", ")
-        );
         Ok((sql, params))
     }
 

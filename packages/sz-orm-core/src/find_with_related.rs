@@ -267,23 +267,24 @@ pub fn find_with_related_eager_sql(
     foreign_key: &str,
     main_where: Option<&str>,
 ) -> Result<(String, String), crate::DbError> {
-    // H-2 修复：校验表名/列名为合法标识符
     validate_find_identifiers(&[main_table, related_table, foreign_key])
         .map_err(crate::DbError::InvalidInput)?;
 
-    let main_sql = if let Some(w) = main_where {
-        // SAFETY: main_table 经 dialect.quote 转义；w 来自调用方 WhereCondition 渲染，值已参数化
-        format!("SELECT * FROM {} WHERE {}", dialect.quote(main_table), w)
-    } else {
-        format!("SELECT * FROM {}", dialect.quote(main_table))
-    };
+    let main_cap = 32 + main_table.len() + main_where.map(|w| w.len()).unwrap_or(0);
+    let mut main_sql = String::with_capacity(main_cap);
+    main_sql.push_str("SELECT * FROM ");
+    dialect.quote_into(main_table, &mut main_sql);
+    if let Some(w) = main_where {
+        main_sql.push_str(" WHERE ");
+        main_sql.push_str(w);
+    }
 
-    // 关联表 SQL 模板：调用方应将 ? 替换为实际主键列表（如 1,2,3）
-    let related_sql = format!(
-        "SELECT * FROM {} WHERE {} IN (?)",
-        dialect.quote(related_table),
-        dialect.quote(foreign_key),
-    );
+    let mut related_sql = String::with_capacity(48 + related_table.len() + foreign_key.len());
+    related_sql.push_str("SELECT * FROM ");
+    dialect.quote_into(related_table, &mut related_sql);
+    related_sql.push_str(" WHERE ");
+    dialect.quote_into(foreign_key, &mut related_sql);
+    related_sql.push_str(" IN (?)");
 
     Ok((main_sql, related_sql))
 }
@@ -306,30 +307,30 @@ pub fn find_with_related_subquery(
     primary_key: &str,
     related_where: Option<&str>,
 ) -> Result<String, crate::DbError> {
-    // H-2 修复：校验表名/列名为合法标识符
     validate_find_identifiers(&[main_table, related_table, foreign_key, primary_key])
         .map_err(crate::DbError::InvalidInput)?;
 
-    let inner = if let Some(w) = related_where {
-        format!(
-            "SELECT {} FROM {} WHERE {}",
-            dialect.quote(foreign_key),
-            dialect.quote(related_table),
-            w
-        )
-    } else {
-        format!(
-            "SELECT {} FROM {}",
-            dialect.quote(foreign_key),
-            dialect.quote(related_table)
-        )
-    };
-    Ok(format!(
-        "SELECT * FROM {} WHERE {} IN ({})",
-        dialect.quote(main_table),
-        dialect.quote(primary_key),
-        inner
-    ))
+    let cap = 64
+        + main_table.len()
+        + related_table.len()
+        + foreign_key.len()
+        + primary_key.len()
+        + related_where.map(|w| w.len()).unwrap_or(0);
+    let mut sql = String::with_capacity(cap);
+    sql.push_str("SELECT * FROM ");
+    dialect.quote_into(main_table, &mut sql);
+    sql.push_str(" WHERE ");
+    dialect.quote_into(primary_key, &mut sql);
+    sql.push_str(" IN (SELECT ");
+    dialect.quote_into(foreign_key, &mut sql);
+    sql.push_str(" FROM ");
+    dialect.quote_into(related_table, &mut sql);
+    if let Some(w) = related_where {
+        sql.push_str(" WHERE ");
+        sql.push_str(w);
+    }
+    sql.push(')');
+    Ok(sql)
 }
 
 // ============================================================================

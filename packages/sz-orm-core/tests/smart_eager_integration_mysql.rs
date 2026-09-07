@@ -15,16 +15,27 @@ use sz_orm_core::relation_trait::{RelationDef, RelationKind};
 use sz_orm_core::smart_eager_loader::{LoadStrategy, SmartEagerLoader, StrategyResolver};
 use sz_orm_core::{Connection, Value};
 
-const MYSQL_URL: &str = "mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test";
+/// 默认 MySQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_MYSQL_URL` 覆盖。
+const MYSQL_URL_DEFAULT: &str = "mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test";
+
+fn mysql_url() -> String {
+    std::env::var("SZ_ORM_MYSQL_URL").unwrap_or_else(|_| MYSQL_URL_DEFAULT.to_string())
+}
+
+static DB_LOCK: tokio::sync::Mutex<()> = tokio::sync::Mutex::const_new(());
 
 async fn setup_mysql() -> SqlxMySqlAdapter {
     let pool = MySqlPoolOptions::new()
         .max_connections(5)
-        .connect(MYSQL_URL)
+        .connect(mysql_url().as_str())
         .await
-        .expect("MySQL 不可用: mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test");
+        .expect("MySQL 不可用（可用 SZ_ORM_MYSQL_URL 覆盖连接）");
     let mut conn = SqlxMySqlAdapter::new(pool);
     let builder = TestSchemaBuilder::new(TestDialect::MySql);
+    // 先清理上次运行残留的表与数据，保证 setup 幂等
+    for ddl in builder.teardown_ddl() {
+        let _ = conn.execute(&ddl).await;
+    }
     for ddl in builder.build_ddl() {
         conn.execute(&ddl).await.unwrap();
     }
@@ -64,6 +75,7 @@ fn extract_related_rows(
 #[tokio::test]
 #[ignore]
 async fn test_hasone_equivalent_mysql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mysql().await;
     let relation = RelationDef::new(
         "profile",
@@ -105,6 +117,7 @@ async fn test_hasone_equivalent_mysql() {
 #[tokio::test]
 #[ignore]
 async fn test_hasmany_equivalent_mysql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mysql().await;
     let relation = RelationDef::new(
         "orders",
@@ -146,6 +159,7 @@ async fn test_hasmany_equivalent_mysql() {
 #[tokio::test]
 #[ignore]
 async fn test_many_to_many_equivalent_mysql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mysql().await;
     let relation = RelationDef::new_many_to_many(
         "roles",
@@ -230,6 +244,7 @@ async fn test_intermediate_strategy_mysql() {
 #[tokio::test]
 #[ignore]
 async fn test_nested_depth_mysql() {
+    let _db_lock = DB_LOCK.lock().await;
     let mut conn = setup_mysql().await;
     let relation = RelationDef::new(
         "orders",

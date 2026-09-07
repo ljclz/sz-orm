@@ -38,6 +38,10 @@ mssql = ["dep:sz-orm-mssql"]
 dialect-saphana-driver = ["dep:hdbconnect_async"]
 # v3.2.0：转发 auto-prewarm feature 到 sz-orm-core
 auto-prewarm = ["sz-orm-core/auto-prewarm"]
+# v6.5.0：异步流式结果集（SqlxRowStream 三后端真游标）
+async-row-stream = ["sz-orm-core/async-row-stream"]
+# v6.5.0：查询计划缓存（PreparedStatementCache 句柄复用）
+prepared-stmt-cache = ["sz-orm-core/prepared-stmt-cache"]
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
