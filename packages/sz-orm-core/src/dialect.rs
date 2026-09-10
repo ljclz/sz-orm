@@ -1546,6 +1546,9 @@ delegate_dialect_to!(MariaDbDialect, MySqlDialect, DbType::MariaDB);
 // TiDB：MySQL 兼容分布式数据库
 delegate_dialect_to!(TiDbDialect, MySqlDialect, DbType::TiDB);
 
+// OceanBase：MySQL 兼容分布式数据库
+delegate_dialect_to!(OceanBaseDialect, MySqlDialect, DbType::OceanBase);
+
 // KingbaseES：人大金仓，PostgreSQL 兼容方言
 delegate_dialect_to!(KingbaseDialect, PostgreSqlDialect, DbType::Kingbase);
 
@@ -2617,7 +2620,7 @@ pub fn get_dialect(db_type: DbType) -> Result<Box<dyn Dialect>, DbError> {
         )),
         DbType::ClickHouse => Ok(Box::new(ClickHouseDialect)),
         DbType::Oracle => Ok(Box::new(OracleDialect)),
-        DbType::OceanBase => Ok(Box::new(MySqlDialect)),
+        DbType::OceanBase => Ok(Box::new(OceanBaseDialect)),
         DbType::SqlServer => Ok(Box::new(SqlServerDialect)),
         DbType::VectorDb => Err(DbError::Unsupported(
             "Vector databases have specific APIs".to_string(),

@@ -185,11 +185,11 @@ fn test_get_dialect_new_chinese_dbs_supported_contract() {
 }
 
 #[test]
-fn test_get_dialect_oceanbase_returns_mysql_contract() {
-    // OceanBase 兼容 MySQL 协议，应返回 MySQL 方言
+fn test_get_dialect_oceanbase_returns_oceanbase_contract() {
+    // OceanBase 兼容 MySQL 协议，方言行为与 MySQL 一致但 db_type 为 OceanBase
     let d = get_dialect(DbType::OceanBase).unwrap();
-    assert_eq!(d.db_type(), DbType::MySQL);
-    // 应使用反引号引用
+    assert_eq!(d.db_type(), DbType::OceanBase);
+    // 应使用反引号引用（与 MySQL 一致）
     assert_eq!(d.quote("users"), "`users`");
 }
 
