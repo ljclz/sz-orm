@@ -26,6 +26,9 @@ pub mod query;
 pub mod subgraph;
 pub mod validator;
 
+#[cfg(feature = "graph-query-deep")]
+pub mod joint_projection;
+
 pub use algorithm::{DirectedGraph, NodeId, UndirectedGraph, Weight};
 pub use community::{
     Community, CommunityDetectionResult, ConnectedComponentDetector, LabelPropagation,

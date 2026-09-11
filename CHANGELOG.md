@@ -5,6 +5,76 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [6.8.0] — 2026-09-09
+
+### v6.8.0 五大能力：AI 智能化增强 / CDC 数据同步 / 向量图数据库 / 性能极致化 / 企业治理深化
+
+基于 v6.7.0 基线，新增五大方向数据访问能力，39 个任务（P0×22 / P1×14 / P2×3），300 个新测试，17 个新 feature gate（全部默认关闭），三波次交付（W1×8 + W2×18 + W3×13），所有接口以 feature gate 形式提供，保证向后兼容。
+
+#### 新增 Feature Gate（17 个，全部默认关闭）
+
+- `nl2sql-deep`（sz-orm-nl-query）：NL2SQL 深度语义增强
+- `cdc-mysql`（sz-orm-core）：MySQL Binlog 变更捕获
+- `cdc-postgres`（sz-orm-core）：PostgreSQL WAL 变更捕获
+- `cdc-sqlite`（sz-orm-core）：SQLite update-hook 变更捕获
+- `embedding-store`（sz-orm-vector）：向量嵌入存储
+- `zero-copy-deep`（sz-orm-core）：零拷贝结果集传输深化
+- `perf-diff`（sz-orm-core）：性能差分正确性测试套件
+- `perf-metrics`（sz-orm-core）：性能度量增强
+- `simd-deep`（sz-orm-core）：SIMD 深度优化
+- `executor-opt`（sz-orm-core）：执行器优化（谓词下推 + 投影裁剪）
+- `sla-monitor`（sz-orm-observability）：SLA 监控
+- `graph-query-deep`（sz-orm-graph）：图查询深度集成
+- `index-advisor-deep`（sz-orm-ai）：索引顾问深度增强
+- `auto-diagnose`（sz-orm-diagnosis）：自动诊断
+- `cost-governance`（sz-orm-governance）：成本治理核算
+- `sensitive-discover`（sz-orm-governance）：敏感数据自动发现
+- `pool-io-reuse`（sz-orm-core）：连接池 IO 复用
+- `io-uring`（sz-orm-core）：io_uring 集成评估与降级
+
+#### 1. AI 智能化增强
+
+- NL2SQL 深度语义增强（`nl2sql-deep`）：多轮对话上下文 + schema 自动提取
+- 索引顾问深度增强（`index-advisor-deep`）：工作负载分析 + 复合索引推荐
+- 自动诊断（`auto-diagnose`）：慢查询根因分析 + 修复建议
+
+#### 2. CDC 数据同步
+
+- MySQL Binlog 变更捕获（`cdc-mysql`）：binlog 解析 + 变更事件分发
+- PostgreSQL WAL 变更捕获（`cdc-postgres`）：WAL 流解析 + 逻辑解码
+- SQLite update-hook 变更捕获（`cdc-sqlite`）：update_hook 回调 + 变更事件
+- CDC 事件分发器 + checkpoint 管理 + 多 Sink 支持（缓存/搜索/脱敏/数据库同步）
+
+#### 3. 向量/图数据库支持
+
+- 向量嵌入存储（`embedding-store`）：PgVectorStore + 语义搜索
+- 图查询深度集成（`graph-query-deep`）：多跳路径查询 + 子图匹配 + 联合投影
+- RAG 适配（`sz-orm-ai`）：`RagEngine::query` 检索增强问答 + LLM 回调 + Top-K 空结果标注
+
+#### 4. 性能极致化
+
+- 零拷贝结果集传输深化（`zero-copy-deep`）：Bytes 引用计数切片 + 命中/回退统计
+- 性能差分正确性（`perf-diff`）：零拷贝 vs 拷贝、SIMD vs 标量结果一致性
+- SIMD 深度优化（`simd-deep`）：批量距离计算向量化
+- 执行器优化（`executor-opt`）：谓词下推 + 投影裁剪
+- 连接池 IO 复用（`pool-io-reuse`）：PreparedStatement 通道复用 + 1000 次查询高命中率
+- io_uring 集成评估（`io-uring`）：平台探测 + 降级 tokio + 零拷贝深化
+
+#### 5. 企业治理深化
+
+- SLA 监控（`sla-monitor`）：SLA 违规追踪 + 告警
+- 成本治理核算（`cost-governance`）：查询成本核算 + 超预算告警
+- 敏感数据自动发现（`sensitive-discover`）：字段级敏感度识别 + masking 联动
+- 数据血缘（`sz-orm-governance`）：血缘自动采集 + 可视化查询
+
+#### 交付验证
+
+- fmt ✅ `cargo fmt --all -- --check` 通过
+- clippy ✅ `cargo clippy -- -D warnings` 通过（sz-orm-core/ai/graph lib + tests）
+- test ✅ 300 个新测试全部通过，既有测试无回归
+- sz-pay 兼容 ✅ `cargo check -p sz-orm-core` 默认 feature 编译通过
+- 17 个新 feature gate 全部默认关闭，无新增外部依赖
+
 ## [6.7.0] — 2026-09-07
 
 ### v6.7.0 六大能力：分布式缓存集群 / 读写分离增强 / 零停机迁移 / 连接池弹性 / 可观测性增强 / 安全合规增强

@@ -336,6 +336,7 @@ async fn test_validated_engine_reject_safety_failure() {
                 explanation: "unsafe".to_string(),
                 confidence: 0.5,
                 dialect: None,
+                cache_hit: false,
             })
         }
 
@@ -389,6 +390,7 @@ async fn test_validated_engine_retry_on_syntax_failure() {
                 explanation: "retry".to_string(),
                 confidence: 0.8,
                 dialect: None,
+                cache_hit: false,
             })
         }
 
@@ -438,6 +440,7 @@ async fn test_validated_engine_max_retries_exhausted() {
                 explanation: "bad".to_string(),
                 confidence: 0.5,
                 dialect: None,
+                cache_hit: false,
             })
         }
 

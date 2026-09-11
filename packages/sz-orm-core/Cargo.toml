@@ -32,6 +32,8 @@ plan-cache = ["dep:sqlparser", "dep:twox-hash"]
 zero-copy = []
 # v3.2.0锛歋IMD 鍔犻€燂紙鎵归噺鏁存暟瑙ｇ爜 + 鍒楁瘮锟?+ 鑷姩闄嶇骇锟?
 simd = []
+# v6.8.0：SIMD 向量化聚合深度
+simd-deep = []
 # v3.3.0锛氬绉熸埛涓庢暟鎹殧绂诲寮猴紙绉熸埛涓婁笅鏂囪嚜鍔ㄦ敞锟?+ Schema 闅旂 + 杩炴帴姹犻殧锟?+ 琛岀骇瀹夊叏 + 鍒楃骇鑴辨晱 + 澶氱鎴峰璁★級
 multi-tenant-enhanced = ["dep:sz-orm-audit", "dep:sz-orm-masking"]
 # v3.3.0锛氬垎甯冨紡缂撳瓨涓€鑷存€э紙璺ㄥ疄渚嬪け锟?+ Write-behind + 缂撳瓨鍑荤┛/闆穿闃叉姢锟?
@@ -185,6 +187,22 @@ rbac-enhanced = []
 dynamic-masking = []
 # v6.7.0：合规报告（审计链式哈希 + 合规检查 + 报告生成）
 compliance-report = []
+# v6.8.0：零拷贝结果集传输深化（Bytes 引用计数切片 + 命中/回退统计）
+zero-copy-deep = ["zero-copy"]
+# v6.8.0：性能差分正确性测试套件（零拷贝 vs 拷贝、SIMD vs 标量结果一致性）
+perf-diff = ["zero-copy-deep", "simd"]
+# v6.8.0：CDC MySQL Binlog 变更捕获
+cdc-mysql = ["dep:sqlx", "dist-cache-cluster", "dep:sz-orm-masking", "dep:sz-orm-search"]
+# v6.8.0：CDC PostgreSQL WAL 变更捕获
+cdc-postgres = ["dep:sqlx"]
+# v6.8.0：CDC SQLite update-hook 变更捕获
+cdc-sqlite = ["dep:sqlx"]
+# v6.8.0：执行器优化（谓词下推 + 投影裁剪）
+executor-opt = ["dep:sqlparser"]
+# v6.8.0：连接池 IO 复用（PreparedStatement 通道复用）
+pool-io-reuse = ["prepared-stmt-cache", "pool-elastic"]
+# v6.8.0：io_uring 集成评估与降级（默认关闭，非 Linux 自动降级 tokio + 零拷贝深化）
+io-uring = ["zero-copy-deep"]
 
 
 [dependencies]
@@ -254,6 +272,8 @@ sz-orm-timeseries = { version = "6.0.0", path = "../sz-orm-timeseries", optional
 sz-orm-search = { version = "6.0.0", path = "../sz-orm-search", optional = true }
 sz-orm-rw = { version = "6.0.0", path = "../sz-orm-rw", optional = true }
 sz-orm-config = { version = "6.0.0", path = "../sz-orm-config", optional = true }
+# v6.8.0：CDC 变更捕获（cdc-mysql/cdc-postgres/cdc-sqlite feature）
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"], optional = true }
 
 
 [dev-dependencies]
@@ -687,6 +707,60 @@ required-features = ["config-center"]
 name = "cross_direction_integration"
 path = "tests/cross_direction_integration.rs"
 required-features = ["dist-cache-cluster", "rw-split-enhanced", "pool-elastic", "field-encryption"]
+
+[[test]]
+name = "cdc_search_sink_wiring"
+path = "tests/cdc_search_sink_wiring.rs"
+required-features = ["cdc-mysql"]
+
+[[test]]
+name = "cdc_dbsync_wiring"
+path = "tests/cdc_dbsync_wiring.rs"
+required-features = ["cdc-mysql"]
+
+[[test]]
+name = "executor_opt_wiring"
+path = "tests/executor_opt_wiring.rs"
+required-features = ["executor-opt"]
+
+[[test]]
+name = "pool_io_reuse_wiring"
+path = "tests/pool_io_reuse_wiring.rs"
+required-features = ["pool-io-reuse"]
+
+[[test]]
+name = "io_uring_probe_wiring"
+path = "tests/io_uring_probe_wiring.rs"
+required-features = ["io-uring"]
+
+[[test]]
+name = "cdc_sqlite_wiring"
+path = "tests/cdc_sqlite_wiring.rs"
+required-features = ["cdc-sqlite"]
+
+[[test]]
+name = "cdc_mask_sink_wiring"
+path = "tests/cdc_mask_sink_wiring.rs"
+required-features = ["cdc-mysql"]
+
+[[test]]
+name = "cdc_cache_sink_wiring"
+path = "tests/cdc_cache_sink_wiring.rs"
+required-features = ["cdc-mysql"]
+
+[[test]]
+name = "cdc_resume_wiring"
+path = "tests/cdc_resume_wiring.rs"
+required-features = ["cdc-mysql"]
+
+[[test]]
+name = "simd_deep_wiring"
+path = "tests/simd_deep_wiring.rs"
+required-features = ["simd-deep"]
+
+[[test]]
+name = "phantom1_wiring"
+path = "tests/phantom1_wiring.rs"
 
 
 [package.metadata.docs.rs]

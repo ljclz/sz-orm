@@ -56,3 +56,10 @@ pub use slow_query_analyzer::{SlowQueryAnalyzer, SlowQueryEntry, SlowQueryStats}
 pub mod intelligence_loop;
 #[cfg(feature = "query-intelligence-loop")]
 pub use intelligence_loop::{ExplainPlanSummary, IntelligenceLoop, LoopReport};
+
+#[cfg(feature = "index-advisor-deep")]
+pub mod replay_validator;
+#[cfg(feature = "index-advisor-deep")]
+pub use replay_validator::{
+    IndexCandidate, ReplayResult, ReplayValidator, WorkloadQuery, WorkloadSummary,
+};

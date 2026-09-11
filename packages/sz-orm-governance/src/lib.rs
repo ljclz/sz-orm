@@ -15,3 +15,15 @@ pub mod masking_recommend;
 pub mod quality_rule;
 #[cfg(feature = "governance")]
 pub mod types;
+
+#[cfg(feature = "sla-monitor")]
+#[allow(missing_docs)]
+pub mod sla_violation_tracker;
+
+#[cfg(feature = "cost-governance")]
+#[allow(missing_docs)]
+pub mod cost_accountant;
+
+#[cfg(feature = "sensitive-discover")]
+#[allow(missing_docs)]
+pub mod sensitive_discoverer;

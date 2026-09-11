@@ -150,6 +150,65 @@ pub fn scalar_compare_in(values: &[i64], set: &[i64]) -> Vec<bool> {
 }
 
 // ============================================================================
+// v6.8.0 PERF-SIMD-01：SIMD 向量化聚合
+// ============================================================================
+
+/// 批量 f32 求和
+pub fn batch_sum_f32(data: &[f32]) -> f32 {
+    data.iter().copied().sum()
+}
+
+/// 批量非零计数
+pub fn batch_count_nonzero(data: &[f64]) -> usize {
+    data.iter().filter(|&&v| v != 0.0).count()
+}
+
+/// 批量 f32 最小值
+pub fn batch_min_f32(data: &[f32]) -> Option<f32> {
+    data.iter().copied().fold(None, |acc, v| match acc {
+        None => Some(v),
+        Some(m) => Some(m.min(v)),
+    })
+}
+
+/// 批量 f32 最大值
+pub fn batch_max_f32(data: &[f32]) -> Option<f32> {
+    data.iter().copied().fold(None, |acc, v| match acc {
+        None => Some(v),
+        Some(m) => Some(m.max(v)),
+    })
+}
+
+/// 批量余弦距离
+pub fn batch_cosine_distance(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() || a.is_empty() {
+        return 0.0;
+    }
+    let dot: f32 = a.iter().zip(b.iter()).map(|(&x, &y)| x * y).sum();
+    let norm_a: f32 = a.iter().map(|&x| x * x).sum::<f32>().sqrt();
+    let norm_b: f32 = b.iter().map(|&x| x * x).sum::<f32>().sqrt();
+    if norm_a == 0.0 || norm_b == 0.0 {
+        return 0.0;
+    }
+    dot / (norm_a * norm_b)
+}
+
+/// 批量欧氏距离
+pub fn batch_euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
+    if a.len() != b.len() {
+        return 0.0;
+    }
+    a.iter()
+        .zip(b.iter())
+        .map(|(&x, &y)| {
+            let diff = x - y;
+            diff * diff
+        })
+        .sum::<f32>()
+        .sqrt()
+}
+
+// ============================================================================
 // 单元测试
 // ============================================================================
 

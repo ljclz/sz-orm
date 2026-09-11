@@ -155,5 +155,9 @@ name = "nl2sql_mysql_e2e"
 path = "tests/nl2sql_mysql_e2e.rs"
 required-features = ["ai-nl2sql-enhanced"]
 
+[[test]]
+name = "rag_wiring"
+path = "tests/rag_wiring.rs"
+
 [lints]
 workspace = true

@@ -307,6 +307,82 @@ impl PoolElasticController {
 }
 
 // ============================================================================
+// v6.8.0 PERF-POOL-01：连接池 IO 复用
+// ============================================================================
+
+/// 连接池 IO 复用通道
+///
+/// 在连接上复用 prepared statement 通道，减少重复 prepare 开销。
+/// 首次执行 SQL 时 prepare 并缓存句柄，后续执行直接复用缓存句柄。
+///
+/// 需启用 `pool-io-reuse` feature。
+#[cfg(feature = "pool-io-reuse")]
+pub struct IoReuseChannel {
+    cache: crate::prepared_cache::PreparedStatementCache,
+}
+
+#[cfg(feature = "pool-io-reuse")]
+impl IoReuseChannel {
+    /// 创建 IO 复用通道，内部持有 `PreparedStatementCache`
+    ///
+    /// `max_size_per_conn` 为每连接最大缓存句柄数（默认 256）
+    #[must_use]
+    pub fn new(max_size_per_conn: usize) -> Self {
+        Self {
+            cache: crate::prepared_cache::PreparedStatementCache::new(max_size_per_conn),
+        }
+    }
+
+    /// 复用 prepared statement 通道执行查询
+    ///
+    /// 流程：
+    /// 1. 查找缓存句柄 → 命中则直接执行返回
+    /// 2. 未命中 → 调用 `prepare_fn` 获取执行闭包 → 缓存 → 执行返回
+    ///
+    /// # 参数
+    /// - `conn_id`: 连接唯一标识
+    /// - `sql`: SQL 文本
+    /// - `params`: 参数列表
+    /// - `tables`: 涉及的表名列表（用于表级失效索引）
+    /// - `prepare_fn`: 首次执行时的 prepare 闭包，返回执行函数
+    pub async fn execute_reuse(
+        &self,
+        conn_id: crate::prepared_cache::ConnId,
+        sql: &str,
+        params: &[crate::value::Value],
+        tables: Vec<String>,
+        prepare_fn: impl FnOnce() -> crate::prepared_cache::ExecuteFn,
+    ) -> Result<crate::pool::QueryRows, crate::error::DbError> {
+        use crate::prepared_cache::PreparedLookup;
+
+        match self.cache.get_or_prepare(conn_id, sql, params).await? {
+            PreparedLookup::Hit(rows) => Ok(rows),
+            PreparedLookup::Miss => {
+                let execute_fn = prepare_fn();
+                self.cache
+                    .store_handle(conn_id, sql, tables, std::sync::Arc::clone(&execute_fn));
+                execute_fn(params).await
+            }
+        }
+    }
+
+    /// 返回缓存统计快照
+    pub fn stats(&self) -> crate::prepared_cache::PreparedStatementCacheStatsSnapshot {
+        self.cache.stats()
+    }
+
+    /// 失效连接级缓存（连接关闭时调用）
+    pub fn invalidate_conn(&self, conn_id: crate::prepared_cache::ConnId) {
+        self.cache.invalidate_conn(conn_id);
+    }
+
+    /// 失效表级缓存（表结构变更时调用）
+    pub fn invalidate_table(&self, table: &str) {
+        self.cache.invalidate_table(table);
+    }
+}
+
+// ============================================================================
 // 测试
 // ============================================================================
 

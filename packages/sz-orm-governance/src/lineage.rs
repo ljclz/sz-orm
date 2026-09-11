@@ -252,6 +252,178 @@ impl Default for LineageBuilder {
     }
 }
 
+/// 血缘边类型
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum LineageEdgeType {
+    Query,
+    Cdc,
+}
+
+/// 血缘边
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct LineageEdge {
+    pub from_table: String,
+    pub to_table: String,
+    pub from_field: String,
+    pub to_field: String,
+    pub edge_type: LineageEdgeType,
+}
+
+/// 血缘路径（上游来源链 + 下游消费链）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct LineagePath {
+    pub upstream: Vec<LineageEdge>,
+    pub downstream: Vec<LineageEdge>,
+}
+
+/// 血缘采集规则
+#[derive(Debug, Clone)]
+pub struct LineageRule {
+    pub name: String,
+    pub priority: u32,
+    pub source_pattern: String,
+    pub sink_pattern: String,
+}
+
+/// CDC 事件引用（简化结构，避免直接依赖 CDC feature）
+#[derive(Debug, Clone)]
+pub struct CdcEventRef {
+    pub source_table: String,
+    pub downstream: String,
+}
+
+/// 数据血缘自动采集器（v6.8.0 GOV-LINEAGE-01 + GOV-LINEAGE-02）
+pub struct LineageAutoCollector {
+    builder: LineageBuilder,
+    rules: Vec<LineageRule>,
+    edges: Vec<LineageEdge>,
+}
+
+impl LineageAutoCollector {
+    /// 创建血缘自动采集器
+    pub fn new(builder: LineageBuilder, rules: Vec<LineageRule>) -> Self {
+        Self {
+            builder,
+            rules,
+            edges: Vec::new(),
+        }
+    }
+
+    /// 查询执行后自动采集血缘
+    pub fn on_query_executed(
+        &mut self,
+        query: &str,
+        sources: Vec<String>,
+        sinks: Vec<String>,
+    ) -> Result<(), GovernanceError> {
+        let graph = self.builder.build_from_sql(query)?;
+        for node in &graph.nodes {
+            for source_col in &node.source_columns {
+                let (_, source_field) = Self::split_table_field(source_col);
+                let resolved_table =
+                    Self::resolve_source_table(source_col, &sources, &node.table_name);
+                for sink in &sinks {
+                    self.edges.push(LineageEdge {
+                        from_table: resolved_table.clone(),
+                        to_table: sink.clone(),
+                        from_field: source_field.clone(),
+                        to_field: node.column_name.clone(),
+                        edge_type: LineageEdgeType::Query,
+                    });
+                }
+            }
+            if node.source_columns.is_empty() {
+                for source in &sources {
+                    self.edges.push(LineageEdge {
+                        from_table: source.clone(),
+                        to_table: node.table_name.clone(),
+                        from_field: String::new(),
+                        to_field: node.column_name.clone(),
+                        edge_type: LineageEdgeType::Query,
+                    });
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// CDC 事件后自动采集血缘
+    pub fn on_cdc_event(&mut self, event: &CdcEventRef) -> Result<(), GovernanceError> {
+        self.edges.push(LineageEdge {
+            from_table: event.source_table.clone(),
+            to_table: event.downstream.clone(),
+            from_field: String::new(),
+            to_field: String::new(),
+            edge_type: LineageEdgeType::Cdc,
+        });
+        Ok(())
+    }
+
+    /// 查询指定字段的血缘路径
+    pub fn query_lineage(&self, table: &str, field: &str) -> LineagePath {
+        let upstream: Vec<LineageEdge> = self
+            .edges
+            .iter()
+            .filter(|e| e.to_table == table && (field.is_empty() || e.to_field == field))
+            .cloned()
+            .collect();
+
+        let downstream: Vec<LineageEdge> = self
+            .edges
+            .iter()
+            .filter(|e| e.from_table == table && (field.is_empty() || e.from_field == field))
+            .cloned()
+            .collect();
+
+        LineagePath {
+            upstream,
+            downstream,
+        }
+    }
+
+    /// 获取所有血缘边
+    pub fn edges(&self) -> &[LineageEdge] {
+        &self.edges
+    }
+
+    /// 规则冲突检测（按优先级取最高）
+    pub fn resolve_rule_conflicts(&self) -> Vec<&LineageRule> {
+        let mut by_name: std::collections::HashMap<&str, &LineageRule> =
+            std::collections::HashMap::new();
+        for rule in &self.rules {
+            match by_name.get(rule.name.as_str()) {
+                Some(existing) if existing.priority >= rule.priority => {}
+                _ => {
+                    by_name.insert(rule.name.as_str(), rule);
+                }
+            }
+        }
+        by_name.into_values().collect()
+    }
+
+    fn split_table_field(ref_str: &str) -> (String, String) {
+        if let Some(dot_pos) = ref_str.find('.') {
+            (
+                ref_str[..dot_pos].to_string(),
+                ref_str[dot_pos + 1..].to_string(),
+            )
+        } else {
+            (ref_str.to_string(), String::new())
+        }
+    }
+
+    fn resolve_source_table(source_col: &str, sources: &[String], fallback: &str) -> String {
+        let (alias, _) = Self::split_table_field(source_col);
+        if sources.iter().any(|s| s == &alias) {
+            return alias;
+        }
+        if !sources.is_empty() {
+            return sources[0].clone();
+        }
+        fallback.to_string()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

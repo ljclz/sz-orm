@@ -377,6 +377,7 @@ impl VectorStore for InMemoryVectorStore {
             if let Some(ref text) = record.text {
                 search_result = search_result.with_text(text.clone());
             }
+            search_result.metadata = record.metadata.clone();
             results.push(search_result);
         }
         Ok(results)

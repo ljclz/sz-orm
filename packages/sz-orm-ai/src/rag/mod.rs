@@ -2,6 +2,29 @@ use crate::embedding::EmbeddingModel;
 use crate::error::AiError;
 use crate::vector::VectorStore;
 
+/// RAG LLM 回调 trait（用于注入 LLM 回答能力）
+#[async_trait::async_trait]
+pub trait RagLlmCallback: Send + Sync {
+    /// 基于查询和上下文生成回答
+    async fn generate(&self, query: &str, context: &str) -> Result<String, AiError>;
+}
+
+/// RAG 回答结果
+#[derive(Debug, Clone)]
+pub struct RagResponse {
+    /// LLM 回答文本
+    pub answer: String,
+    /// 引用文档主键列表
+    pub source_ids: Vec<String>,
+    /// 是否无检索增强（Top-K 为空）
+    pub no_context: bool,
+    /// 警告信息（如 RAG_NO_CONTEXT）
+    pub warning: Option<String>,
+}
+
+/// RAG_NO_CONTEXT 标注常量
+pub const RAG_NO_CONTEXT: &str = "RAG_NO_CONTEXT";
+
 pub struct RagConfig {
     pub collection_name: String,
     pub chunk_size: usize,
@@ -153,8 +176,13 @@ where
         for chunk in chunks {
             let vector = self.embedding_model.embed(&chunk.content).await?;
 
-            let record = crate::vector::VectorRecord::new(chunk.id.clone(), vector)
-                .with_metadata(chunk.metadata);
+            let mut metadata = chunk.metadata.clone();
+            metadata.insert(
+                "_content".to_string(),
+                serde_json::Value::String(chunk.content.clone()),
+            );
+            let record =
+                crate::vector::VectorRecord::new(chunk.id.clone(), vector).with_metadata(metadata);
 
             self.vector_store
                 .insert(collection, vec![record])
@@ -272,6 +300,77 @@ where
             .delete(&self.config.collection_name, to_delete)
             .await
             .map_err(|e| AiError::Vector(e.to_string()))
+    }
+
+    /// RAG 问答：检索 Top-K 文档 → 拼接上下文 → 调用 LLM 生成回答
+    ///
+    /// 当检索结果为空（Top-K 为空）时，仍会调用 LLM（以空上下文），
+    /// 并在返回的 `RagResponse` 中标注 `no_context=true` 和 `warning=Some(RAG_NO_CONTEXT)`。
+    ///
+    /// # 参数
+    /// - `query`: 用户查询文本
+    /// - `filter`: 可选的元数据过滤条件（透传给向量检索）
+    /// - `llm`: LLM 回调实现
+    ///
+    /// # 返回
+    /// `RagResponse` 包含回答文本、引用文档主键列表、是否无上下文增强、警告信息
+    pub async fn query(
+        &self,
+        query: &str,
+        filter: Option<&str>,
+        llm: &(dyn RagLlmCallback + 'static),
+    ) -> Result<RagResponse, AiError> {
+        let results = match self.search(query, filter).await {
+            Ok(results) => results,
+            Err(AiError::Vector(msg)) if msg.contains("collection not found") => Vec::new(),
+            Err(e) => return Err(e),
+        };
+
+        let source_ids: Vec<String> = results
+            .iter()
+            .map(|r| {
+                r.metadata
+                    .get("source")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or(&r.id)
+                    .to_string()
+            })
+            .collect();
+
+        let no_context = results.is_empty();
+        let warning = if no_context {
+            Some(RAG_NO_CONTEXT.to_string())
+        } else {
+            None
+        };
+
+        let context = if no_context {
+            String::new()
+        } else {
+            results
+                .iter()
+                .map(|r| {
+                    if !r.content.is_empty() {
+                        r.content.as_str()
+                    } else {
+                        r.metadata
+                            .get("_content")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or_default()
+                    }
+                })
+                .collect::<Vec<_>>()
+                .join("\n\n---\n\n")
+        };
+
+        let answer = llm.generate(query, &context).await?;
+
+        Ok(RagResponse {
+            answer,
+            source_ids,
+            no_context,
+            warning,
+        })
     }
 }
 

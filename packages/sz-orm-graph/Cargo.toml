@@ -27,6 +27,18 @@ crossbeam-queue = { workspace = true }
 default = []
 integration = []
 neo4j-driver = []
+# v6.8.0：图查询深度集成
+graph-query-deep = []
 
 [lints]
 workspace = true
+
+[[test]]
+name = "graph_query_wiring"
+path = "tests/graph_query_wiring.rs"
+required-features = ["graph-query-deep"]
+
+[[test]]
+name = "graph_join_wiring"
+path = "tests/graph_join_wiring.rs"
+required-features = ["graph-query-deep"]

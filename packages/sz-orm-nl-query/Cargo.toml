@@ -20,12 +20,15 @@ async-trait = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 chrono = { workspace = true, optional = true }
+parking_lot = { workspace = true, optional = true }
 
 [features]
 default = []
 nl-query = ["dep:sz-orm-ai", "dep:sz-orm-core", "dep:serde", "dep:serde_json", "dep:async-trait", "dep:tokio", "dep:tracing", "dep:chrono", "sz-orm-ai/multi-llm", "sz-orm-ai/ai-security-audit"]
 nl-query-sandbox = ["nl-query"]
 nl-query-visualizer = ["nl-query"]
+# v6.8.0：NL2SQL 深度集成（方言渲染 + 结果缓存 + 安全扫描）
+nl2sql-deep = ["dep:sz-orm-ai", "dep:parking_lot"]
 
 [dev-dependencies]
 tokio = { workspace = true }
@@ -86,3 +89,18 @@ required-features = ["nl-query"]
 name = "nl2sql_e2e_demo"
 path = "tests/nl2sql_e2e_demo.rs"
 required-features = ["nl-query"]
+
+[[test]]
+name = "nl2sql_dialect_wiring"
+path = "tests/nl2sql_dialect_wiring.rs"
+required-features = ["nl2sql-deep"]
+
+[[test]]
+name = "nl2sql_cache_wiring"
+path = "tests/nl2sql_cache_wiring.rs"
+required-features = ["nl2sql-deep"]
+
+[[test]]
+name = "nl2sql_deep_wiring"
+path = "tests/nl2sql_deep_wiring.rs"
+required-features = ["nl2sql-deep"]

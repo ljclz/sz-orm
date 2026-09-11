@@ -81,6 +81,8 @@ pub struct SqlQuery {
     pub confidence: f32,
     /// 目标方言（传入 dialect 参数后启用方言感知）
     pub dialect: Option<SqlDialect>,
+    /// 是否命中缓存（v6.8.0）
+    pub cache_hit: bool,
 }
 
 /// Schema 上下文，描述数据库中的表和列信息
@@ -877,6 +879,7 @@ impl Nl2SqlEngine for SimpleNl2SqlEngine {
             explanation,
             confidence,
             dialect: None,
+            cache_hit: false,
         })
     }
 
@@ -1214,6 +1217,7 @@ impl Nl2SqlEngine for OpenAINl2SqlEngine {
             explanation: format!("由 {} 模型根据自然语言查询生成", self.model),
             confidence: 0.8,
             dialect: None,
+            cache_hit: false,
         };
 
         // 安全验证
@@ -2123,6 +2127,7 @@ mod tests {
             explanation: "test".into(),
             confidence: 0.9,
             dialect: None,
+            cache_hit: false,
         };
         assert!(engine.validate(&query).await.unwrap());
     }
@@ -2135,6 +2140,7 @@ mod tests {
             explanation: "test".into(),
             confidence: 1.5,
             dialect: None,
+            cache_hit: false,
         };
         let result = engine.validate(&query).await;
         assert!(result.is_err());
@@ -2148,6 +2154,7 @@ mod tests {
             explanation: "test".into(),
             confidence: 0.9,
             dialect: None,
+            cache_hit: false,
         };
         assert!(!engine.validate(&query).await.unwrap());
     }

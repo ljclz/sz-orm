@@ -80,3 +80,8 @@ pub use failure_predictor::{
     AlertSeverity, FailureAlert, FailurePrediction, FailurePredictor, FailurePredictorConfig,
     MetricSample,
 };
+
+#[cfg(feature = "auto-diagnose")]
+pub mod auto_diagnose_hook;
+#[cfg(feature = "auto-diagnose")]
+pub use auto_diagnose_hook::{AutoDiagnoseHook, DiagnoseResult, DiagnoseSeverity, IndexSuggestion};

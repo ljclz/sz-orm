@@ -15,6 +15,8 @@ default = []
 real-pg = ["dep:tokio-postgres"]
 # v4.0.0 M3：混合搜索（向量+全文+结构化三源融合 + RRF/加权/级联）
 hybrid-search = []
+# v6.8.0：Embedding 存储统一入口 + 降级处理
+embedding-store = []
 
 
 [package.metadata.cargo-machete]
@@ -34,6 +36,16 @@ tokio-test = "0.4"
 [[test]]
 name = "vector_tests"
 path = "tests/vector_tests.rs"
+
+[[test]]
+name = "vector_hybrid_wiring"
+path = "tests/vector_hybrid_wiring.rs"
+required-features = ["hybrid-search"]
+
+[[test]]
+name = "vector_search_wiring"
+path = "tests/vector_search_wiring.rs"
+required-features = ["embedding-store"]
 
 [lints]
 workspace = true

@@ -22,6 +22,8 @@ chrono = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
 tokio = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
+regex = { version = "1", optional = true }
+rand = { workspace = true, optional = true }
 
 [features]
 default = []
@@ -30,6 +32,12 @@ governance-lineage = ["governance", "dep:sz-orm-graph", "dep:sz-orm-core"]
 governance-compliance = ["governance"]
 # v6.7.0：合规报告生成（聚合审计/权限/加密/脱敏清单）
 compliance-report = ["dep:serde", "dep:serde_json"]
+# v6.8.0：SLA 监控
+sla-monitor = ["dep:serde", "dep:serde_json"]
+# v6.8.0：成本治理核算 + 超预算告警
+cost-governance = ["dep:serde", "dep:serde_json"]
+# v6.8.0：敏感数据自动发现 + 脱敏样例 + masking 联动
+sensitive-discover = ["governance", "dep:regex", "dep:rand"]
 
 [dev-dependencies]
 tokio = { workspace = true }
@@ -73,3 +81,48 @@ required-features = ["governance-lineage"]
 name = "data_catalog_mysql"
 path = "tests/data_catalog_mysql.rs"
 required-features = ["governance"]
+
+[[test]]
+name = "sla_monitor_wiring"
+path = "tests/sla_monitor_wiring.rs"
+required-features = ["sla-monitor"]
+
+[[test]]
+name = "sla_violation_wiring"
+path = "tests/sla_violation_wiring.rs"
+required-features = ["sla-monitor"]
+
+[[test]]
+name = "cost_governance_wiring"
+path = "tests/cost_governance_wiring.rs"
+required-features = ["cost-governance"]
+
+[[test]]
+name = "cost_budget_alert_wiring"
+path = "tests/cost_budget_alert_wiring.rs"
+required-features = ["cost-governance"]
+
+[[test]]
+name = "sensitive_discover_wiring"
+path = "tests/sensitive_discover_wiring.rs"
+required-features = ["sensitive-discover"]
+
+[[test]]
+name = "sensitive_sec_wiring"
+path = "tests/sensitive_sec_wiring.rs"
+required-features = ["sensitive-discover"]
+
+[[test]]
+name = "sensitive_masking_link_wiring"
+path = "tests/sensitive_masking_link_wiring.rs"
+required-features = ["sensitive-discover"]
+
+[[test]]
+name = "lineage_auto_wiring"
+path = "tests/lineage_auto_wiring.rs"
+required-features = ["governance-lineage"]
+
+[[test]]
+name = "lineage_query_wiring"
+path = "tests/lineage_query_wiring.rs"
+required-features = ["governance-lineage"]

@@ -21,6 +21,8 @@ pub enum VectorError {
     InvalidIdentifier(String),
     /// M-16 修复：top_k 超过最大限制
     TopKExceeded { requested: usize, max: usize },
+    /// v6.8.0：后端不可达（降级，进程不 panic）
+    BackendUnreachable { reason: String },
 }
 
 impl fmt::Display for VectorError {
@@ -45,6 +47,9 @@ impl fmt::Display for VectorError {
             VectorError::InvalidIdentifier(msg) => write!(f, "invalid identifier: {}", msg),
             VectorError::TopKExceeded { requested, max } => {
                 write!(f, "top_k {} exceeds maximum allowed {}", requested, max)
+            }
+            VectorError::BackendUnreachable { reason } => {
+                write!(f, "backend unreachable: {}", reason)
             }
         }
     }

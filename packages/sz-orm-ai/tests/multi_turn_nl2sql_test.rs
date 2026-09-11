@@ -61,6 +61,7 @@ impl Nl2SqlEngine for CountingMockEngine {
             explanation: "mock".to_string(),
             confidence: 0.9,
             dialect: None,
+            cache_hit: false,
         })
     }
 

@@ -32,6 +32,8 @@ anomaly-remediation-rca = ["anomaly-detection"]
 obs-enhanced = []
 # v6.7.0：Prometheus exposition format 导出
 prometheus-exporter = ["obs-enhanced"]
+# v6.8.0：性能 feature 命中率度量（四大优化路径 hit/miss 计数）
+perf-metrics = []
 
 
 [package.metadata.cargo-machete]

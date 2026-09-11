@@ -81,6 +81,10 @@ pub mod obs_alert_bridge;
 #[allow(missing_docs)]
 pub mod prometheus_exporter;
 
+#[cfg(feature = "perf-metrics")]
+#[allow(missing_docs)]
+pub mod perf_hit_metrics;
+
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{
     LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,

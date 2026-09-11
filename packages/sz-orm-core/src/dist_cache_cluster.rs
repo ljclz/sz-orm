@@ -216,6 +216,7 @@ pub struct DistCacheGateway {
     bloom: BloomFilterGuard,
     singleflight: CacheMutexGuard,
     unhealthy: Arc<RwLock<HashSet<String>>>,
+    invalidated_keys: Arc<RwLock<HashSet<String>>>,
     config: DistCacheClusterConfig,
 }
 
@@ -232,6 +233,7 @@ impl DistCacheGateway {
             bloom: BloomFilterGuard::default_config(),
             singleflight: CacheMutexGuard::new(),
             unhealthy: Arc::new(RwLock::new(HashSet::new())),
+            invalidated_keys: Arc::new(RwLock::new(HashSet::new())),
             config,
         }
     }
@@ -292,6 +294,37 @@ impl DistCacheGateway {
 
     pub fn config(&self) -> &DistCacheClusterConfig {
         &self.config
+    }
+
+    /// 失效指定 key（v6.8.0 CDC-CACHE-01）
+    pub fn invalidate(&self, key: &str) {
+        self.invalidated_keys
+            .write()
+            .unwrap()
+            .insert(key.to_string());
+    }
+
+    /// 批量失效 key（v6.8.0 CDC-CACHE-01）
+    pub fn invalidate_batch(&self, keys: &[String]) {
+        let mut set = self.invalidated_keys.write().unwrap();
+        for key in keys {
+            set.insert(key.clone());
+        }
+    }
+
+    /// 检查 key 是否已失效（v6.8.0 CDC-CACHE-01）
+    pub fn is_invalidated(&self, key: &str) -> bool {
+        self.invalidated_keys.read().unwrap().contains(key)
+    }
+
+    /// 清除失效标记（回源重新加载后调用）
+    pub fn clear_invalidation(&self, key: &str) {
+        self.invalidated_keys.write().unwrap().remove(key);
+    }
+
+    /// 返回已失效 key 数量
+    pub fn invalidated_count(&self) -> usize {
+        self.invalidated_keys.read().unwrap().len()
     }
 }
 

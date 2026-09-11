@@ -104,6 +104,50 @@ impl Default for MaskingRecommender {
     }
 }
 
+/// 敏感发现 → masking 规则建议联动（v6.8.0 GOV-SENSITIVE-02）
+#[cfg(feature = "sensitive-discover")]
+pub struct MaskingRecommendLink;
+
+#[cfg(feature = "sensitive-discover")]
+impl MaskingRecommendLink {
+    /// 从敏感发现报告生成 masking 规则建议
+    pub fn generate_recommendations(
+        report: &crate::sensitive_discoverer::ScanReport,
+    ) -> Vec<MaskingRecommendation> {
+        let mut recommendations = Vec::new();
+        for finding in &report.findings {
+            let (strategy, reason) = match &finding.suspected_type {
+                crate::sensitive_discoverer::SensitiveType::Phone => (
+                    MaskingStrategy::Mask,
+                    format!("字段 {} 疑似手机号，需掩码脱敏", finding.field),
+                ),
+                crate::sensitive_discoverer::SensitiveType::IdCard => (
+                    MaskingStrategy::Hash,
+                    format!("字段 {} 疑似身份证号，需哈希脱敏", finding.field),
+                ),
+                crate::sensitive_discoverer::SensitiveType::BankCard => (
+                    MaskingStrategy::Hash,
+                    format!("字段 {} 疑似银行卡号，需哈希脱敏", finding.field),
+                ),
+                crate::sensitive_discoverer::SensitiveType::Email => (
+                    MaskingStrategy::Mask,
+                    format!("字段 {} 疑似邮箱，需掩码脱敏", finding.field),
+                ),
+                crate::sensitive_discoverer::SensitiveType::Other => (
+                    MaskingStrategy::Replace,
+                    format!("字段 {} 疑似敏感数据，需替换脱敏", finding.field),
+                ),
+            };
+            recommendations.push(MaskingRecommendation {
+                field: finding.field.clone(),
+                strategy,
+                reason,
+            });
+        }
+        recommendations
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

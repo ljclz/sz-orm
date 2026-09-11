@@ -517,6 +517,10 @@ pub mod saga;
 #[allow(missing_docs)]
 pub mod pool_elastic;
 
+#[cfg(feature = "io-uring")]
+#[allow(missing_docs)]
+pub mod io_uring_probe;
+
 #[cfg(feature = "field-encryption")]
 #[allow(missing_docs)]
 pub mod field_cipher;
@@ -608,6 +612,21 @@ pub mod typed_relation;
 mod value;
 #[cfg(feature = "zero-copy")]
 pub mod value_borrowed;
+#[cfg(feature = "zero-copy-deep")]
+#[allow(missing_docs)]
+pub mod zero_copy_pipeline;
+
+#[cfg(any(
+    feature = "cdc-mysql",
+    feature = "cdc-postgres",
+    feature = "cdc-sqlite"
+))]
+#[allow(missing_docs)]
+pub mod cdc;
+
+#[cfg(feature = "executor-opt")]
+#[allow(missing_docs)]
+pub mod executor_passes;
 
 // Re-export proc macros
 pub use queryable::Query;

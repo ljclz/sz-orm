@@ -30,6 +30,9 @@ pub mod extensions;
 pub mod memory;
 pub mod stub;
 
+#[cfg(feature = "embedding-store")]
+pub mod embedding_store;
+
 #[cfg(feature = "real-pg")]
 pub mod real_pg;
 

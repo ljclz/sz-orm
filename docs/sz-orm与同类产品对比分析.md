@@ -1,6 +1,7 @@
 # SZ-ORM 与同类产品深度对比分析
+# doc-sync-skip
 
-> 版本：v6.4.0 | 评估日期：2026-09-06 | 基于实际代码全量审计
+> 版本：v6.8.0 | 评估日期：2026-09-10 | 基于实际代码全量审计
 > 对比对象（不限于 Rust）：Diesel 2.2.x / SeaORM 1.1.x / SQLx 0.8.x / Hibernate 6.6.x / Entity Framework Core 8.x / SQLAlchemy 2.0.x / Django ORM 4.2.x
 > 代码基线：`Cargo.toml` workspace.package.version = "6.4.0"（[Cargo.toml:6](file:///E:/vue/test/鲜视达/rust/sz-orm/Cargo.toml#L6)）
 >

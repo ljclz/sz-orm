@@ -12,10 +12,12 @@ categories.workspace = true
 
 [features]
 default = []
-# v4.4.0 M1：查询自动优化建议引擎（规则匹配生成六种建议）
+# v4.4.0 M1：查询自动优化建议引擎
 query-advisor = ["dep:serde", "dep:serde_json", "dep:sz-orm-explain", "dep:sz-orm-adaptive", "dep:sz-orm-ai", "sz-orm-ai/ai-index-advisor", "sz-orm-ai/ai-rewrite-advisor"]
-# v4.4.0 M6：查询智能闭环联动（EXPLAIN → 自适应 → 诊断 → 建议 四步闭环）
+# v4.4.0 M6：查询智能闭环联动
 query-intelligence-loop = ["query-advisor", "dep:sz-orm-flamegraph", "dep:sz-orm-diagnosis", "sz-orm-diagnosis/slow-query-diagnosis"]
+# v6.8.0：索引推荐深度集成
+index-advisor-deep = ["query-advisor"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -28,3 +30,13 @@ sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "6.0.0", optional =
 
 [lints]
 workspace = true
+
+[[test]]
+name = "index_advisor_deep_wiring"
+path = "tests/index_advisor_deep_wiring.rs"
+required-features = ["index-advisor-deep"]
+
+[[test]]
+name = "index_replay_wiring"
+path = "tests/index_replay_wiring.rs"
+required-features = ["index-advisor-deep"]
