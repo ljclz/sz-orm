@@ -87,4 +87,25 @@ impl Pool {
             self.connected
         )
     }
+
+    #[napi]
+    pub async fn async_ping(&self) -> Result<bool> {
+        Ok(self.connected)
+    }
+
+    #[napi]
+    pub async fn async_query(&self, sql: String) -> Result<String> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(format!("{{\"sql\": {:?}, \"rows\": []}}", sql))
+    }
+
+    #[napi]
+    pub async fn async_execute(&self, _sql: String) -> Result<u32> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(0)
+    }
 }

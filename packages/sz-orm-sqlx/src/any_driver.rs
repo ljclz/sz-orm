@@ -36,6 +36,8 @@ use sz_orm_core::{
     PostgreSqlDialect, QueryRows, SqlServerDialect, SqliteDialect,
 };
 
+use sz_orm_core::DbType;
+
 use crate::any::{
     MySqlPoolHandle, PgPoolHandle, SqlitePoolHandle, SqlxMySqlConnectionFactory,
     SqlxPgConnectionFactory, SqlxSqliteConnectionFactory,
@@ -93,6 +95,34 @@ impl AnyBackend {
                 "未知的 DSN scheme: {}（支持 mysql/postgres/sqlite/oracle/mssql）",
                 dsn
             )))
+        }
+    }
+
+    /// 从 [`DbType`] 转换为 [`AnyBackend`]
+    ///
+    /// 返回 `None` 的情况：DbType 对应的后端不在 sz-orm-sqlx 支持范围内
+    /// （如 Redis、MongoDB、ClickHouse 等非关系型数据库）。
+    ///
+    /// # 映射
+    ///
+    /// - `DbType::MySQL` / `DbType::MariaDB` / `DbType::TiDB` / `DbType::OceanBase` → MySql
+    /// - `DbType::PostgreSQL` / `DbType::Kingbase` / `DbType::PolarDB` / `DbType::GaussDB` → Postgres
+    /// - `DbType::Sqlite` → Sqlite
+    /// - `DbType::Oracle` / `DbType::Dameng` → Oracle
+    /// - `DbType::SqlServer` / `DbType::Sybase` / `DbType::GBase` → Mssql
+    /// - 其他 → None
+    pub fn from_db_type(db_type: DbType) -> Option<Self> {
+        match db_type {
+            DbType::MySQL | DbType::MariaDB | DbType::TiDB | DbType::OceanBase => {
+                Some(AnyBackend::MySql)
+            }
+            DbType::PostgreSQL | DbType::Kingbase | DbType::PolarDB | DbType::GaussDB => {
+                Some(AnyBackend::Postgres)
+            }
+            DbType::Sqlite => Some(AnyBackend::Sqlite),
+            DbType::Oracle | DbType::Dameng => Some(AnyBackend::Oracle),
+            DbType::SqlServer | DbType::Sybase | DbType::GBase => Some(AnyBackend::Mssql),
+            _ => None,
         }
     }
 
@@ -217,6 +247,108 @@ impl AnyPool {
             inner: conn,
         })
     }
+}
+
+/// 统一连接便利函数：按 DSN scheme 自动识别后端并创建连接
+///
+/// 这是 sz-orm-sqlx 对外提供的统一入口，下游项目（如 sz-rust）只需调用此函数，
+/// 无需为每种数据库编写独立的连接逻辑。Oracle/MSSQL 支持通过 feature gate 启用。
+///
+/// # 支持的 DSN scheme
+///
+/// - `mysql://` / `mariadb://` → MySQL
+/// - `postgres://` / `postgresql://` → PostgreSQL
+/// - `sqlite://` / `sqlite:` → SQLite
+/// - `oracle://` → Oracle（需启用 `oracle` feature）
+/// - `mssql://` / `sqlserver://` → MSSQL（需启用 `mssql` feature）
+///
+/// # 错误
+///
+/// - DSN scheme 不识别 → [`DbError::ConnectionRefused`]
+/// - Oracle/MSSQL 后端未启用对应 feature → [`DbError::ConnectionRefused`] 含提示
+/// - 连接失败 → [`DbError::ConnectionError`]
+///
+/// # 示例
+///
+/// ```no_run
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use sz_orm_core::Connection;
+/// let mut conn = sz_orm_sqlx::create_connection("sqlite::memory:").await?;
+/// conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)").await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn create_connection(dsn: &str) -> Result<Box<dyn Connection>, DbError> {
+    let pool = AnyPool::connect(dsn).await?;
+    let conn = pool.create().await?;
+    Ok(Box::new(conn))
+}
+
+/// 按 [`DbType`] 创建连接
+///
+/// 当 DSN 的 scheme 可能与 `db_type` 不一致时使用此函数。
+/// 会根据 `db_type` 修正 DSN 的 scheme 后再连接。
+///
+/// # 示例
+///
+/// ```no_run
+/// # #[tokio::main]
+/// # async fn main() -> Result<(), Box<dyn std::error::Error>> {
+/// use sz_orm_core::{Connection, DbType};
+/// let mut conn = sz_orm_sqlx::create_connection_by_type(
+///     DbType::Sqlite, "sqlite::memory:"
+/// ).await?;
+/// conn.execute("SELECT 1").await?;
+/// # Ok(())
+/// # }
+/// ```
+pub async fn create_connection_by_type(
+    db_type: DbType,
+    dsn: &str,
+) -> Result<Box<dyn Connection>, DbError> {
+    let backend = AnyBackend::from_db_type(db_type).ok_or_else(|| {
+        DbError::ConnectionRefused(format!(
+            "DbType {:?} 不在 sz-orm-sqlx 支持范围内（支持 MySQL/PostgreSQL/SQLite/Oracle/MSSQL 及兼容方言）",
+            db_type
+        ))
+    })?;
+    let normalized = normalize_dsn_scheme(backend, dsn);
+    create_connection(&normalized).await
+}
+
+/// 根据 [`AnyBackend`] 修正 DSN 的 scheme
+///
+/// 如果 DSN 已有正确的 scheme 则原样返回；
+/// 否则替换 scheme 部分以匹配目标后端。
+fn normalize_dsn_scheme(backend: AnyBackend, dsn: &str) -> String {
+    let expected_scheme = match backend {
+        AnyBackend::MySql => "mysql://",
+        AnyBackend::Postgres => "postgres://",
+        AnyBackend::Sqlite => "sqlite:",
+        AnyBackend::Oracle => "oracle://",
+        AnyBackend::Mssql => "mssql://",
+    };
+    let known_schemes = [
+        "mysql://",
+        "mariadb://",
+        "postgres://",
+        "postgresql://",
+        "sqlite://",
+        "sqlite:",
+        "oracle://",
+        "mssql://",
+        "sqlserver://",
+    ];
+    for scheme in &known_schemes {
+        if let Some(rest) = dsn.strip_prefix(scheme) {
+            if backend == AnyBackend::from_dsn(dsn).unwrap_or(AnyBackend::MySql) {
+                return dsn.to_string();
+            }
+            return format!("{}{}", expected_scheme, rest);
+        }
+    }
+    dsn.to_string()
 }
 
 /// 解析 Oracle DSN 为 (username, password, connect_string)
@@ -649,5 +781,136 @@ mod tests {
         let pool = AnyPool::connect("sqlite::memory:").await.unwrap();
         let d = pool.dialect();
         assert_eq!(d.db_type(), sz_orm_core::DbType::Sqlite);
+    }
+
+    // ---- v6.9.0: from_db_type / create_connection / create_connection_by_type ----
+
+    #[test]
+    fn test_from_db_type_supported() {
+        use sz_orm_core::DbType;
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::MySQL),
+            Some(AnyBackend::MySql)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::MariaDB),
+            Some(AnyBackend::MySql)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::TiDB),
+            Some(AnyBackend::MySql)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::OceanBase),
+            Some(AnyBackend::MySql)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::PostgreSQL),
+            Some(AnyBackend::Postgres)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::Kingbase),
+            Some(AnyBackend::Postgres)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::PolarDB),
+            Some(AnyBackend::Postgres)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::GaussDB),
+            Some(AnyBackend::Postgres)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::Sqlite),
+            Some(AnyBackend::Sqlite)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::Oracle),
+            Some(AnyBackend::Oracle)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::Dameng),
+            Some(AnyBackend::Oracle)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::SqlServer),
+            Some(AnyBackend::Mssql)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::Sybase),
+            Some(AnyBackend::Mssql)
+        );
+        assert_eq!(
+            AnyBackend::from_db_type(DbType::GBase),
+            Some(AnyBackend::Mssql)
+        );
+    }
+
+    #[test]
+    fn test_from_db_type_unsupported() {
+        use sz_orm_core::DbType;
+        assert_eq!(AnyBackend::from_db_type(DbType::Redis), None);
+        assert_eq!(AnyBackend::from_db_type(DbType::MongoDB), None);
+        assert_eq!(AnyBackend::from_db_type(DbType::ClickHouse), None);
+        assert_eq!(AnyBackend::from_db_type(DbType::VectorDb), None);
+    }
+
+    #[tokio::test]
+    async fn test_create_connection_sqlite() {
+        use sz_orm_core::Connection;
+        let mut conn = create_connection("sqlite::memory:").await.unwrap();
+        conn.execute("CREATE TABLE cc (id INTEGER PRIMARY KEY, v TEXT)")
+            .await
+            .unwrap();
+        conn.execute("INSERT INTO cc (v) VALUES ('ok')")
+            .await
+            .unwrap();
+        let rows = conn.query("SELECT * FROM cc").await.unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_create_connection_invalid_dsn() {
+        let result = create_connection("invalid://dsn").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_create_connection_by_type_sqlite() {
+        use sz_orm_core::{Connection, DbType};
+        let mut conn = create_connection_by_type(DbType::Sqlite, "sqlite::memory:")
+            .await
+            .unwrap();
+        conn.execute("SELECT 1").await.unwrap();
+    }
+
+    #[tokio::test]
+    async fn test_create_connection_by_type_unsupported() {
+        use sz_orm_core::DbType;
+        let result = create_connection_by_type(DbType::Redis, "redis://127.0.0.1").await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_normalize_dsn_scheme_already_correct() {
+        assert_eq!(
+            normalize_dsn_scheme(AnyBackend::MySql, "mysql://root:pass@host/db"),
+            "mysql://root:pass@host/db"
+        );
+        assert_eq!(
+            normalize_dsn_scheme(AnyBackend::Postgres, "postgres://user@host/db"),
+            "postgres://user@host/db"
+        );
+        assert_eq!(
+            normalize_dsn_scheme(AnyBackend::Oracle, "oracle://sys:pass@host/svc"),
+            "oracle://sys:pass@host/svc"
+        );
+    }
+
+    #[test]
+    fn test_normalize_dsn_scheme_fix_mismatch() {
+        let fixed = normalize_dsn_scheme(AnyBackend::MySql, "postgres://root:pass@host/db");
+        assert!(fixed.starts_with("mysql://"));
+        assert!(fixed.contains("root:pass@host/db"));
     }
 }

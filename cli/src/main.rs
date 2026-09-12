@@ -52,6 +52,8 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     migrate:rollback              回滚最后一个已应用迁移（需 --dsn）
     migrate:fresh                 drop 所有表后重新迁移（开发环境用，需 --dsn）
     make:migration <name>         生成迁移文件骨架（_up.sql / _down.sql）
+    migrate:derive-down --up <f>  从 up SQL 自动推导 down SQL
+    make:model:idempotent <names> 生成幂等 Model 代码（逗号分隔多个模型名）
     make:model <name>             生成 Model 骨架代码（--pk-type 可指定主键类型）
     make:seeder <name>            生成 Seeder 文件骨架（SQL 数据填充脚本）
     make:fixture <name>           生成 Fixture YAML 模板（需 data-seeding feature）
@@ -230,6 +232,8 @@ fn main() -> ExitCode {
         "migrate:rollback" => cmd_migrate_rollback(&rest, &config),
         "migrate:fresh" => cmd_migrate_fresh(&rest, &config),
         "make:migration" => cmd_make_migration(&rest, &config),
+        "migrate:derive-down" => cmd_migrate_derive_down(&rest),
+        "make:model:idempotent" => cmd_make_model_idempotent(&rest, &config),
         "make:model" => cmd_make_model(&rest, &config),
         "make:seeder" => cmd_make_seeder(&rest, &config),
         "make:fixture" => cmd_make_fixture(&rest, &config),
@@ -630,6 +634,89 @@ fn cmd_make_migration(args: &[&str], config: &Option<CliConfig>) -> Result<(), S
     println!("已生成迁移文件:");
     println!("  - {}", up_path.display());
     println!("  - {}", down_path.display());
+    Ok(())
+}
+
+// =====================================================================
+// migrate:derive-down — 从 up SQL 自动推导 down SQL
+// =====================================================================
+
+fn cmd_migrate_derive_down(args: &[&str]) -> Result<(), String> {
+    let up_file = parse_option(args, "--up")
+        .ok_or("用法: sz-orm migrate:derive-down --up <up.sql> [--output <down.sql>]")?;
+
+    let up_sql =
+        fs::read_to_string(&up_file).map_err(|e| format!("读取 {} 失败: {}", up_file, e))?;
+
+    let result = sz_orm_cli::derive_down(&up_sql);
+
+    if let Some(output) = parse_option(args, "--output") {
+        fs::write(&output, &result.down_sql).map_err(|e| format!("写入 {} 失败: {}", output, e))?;
+        println!("已生成 down 迁移: {}", output);
+    } else {
+        println!("{}", result.down_sql);
+    }
+
+    for warning in &result.warnings {
+        eprintln!("⚠ {}", warning);
+    }
+
+    if result.requires_manual {
+        eprintln!("⚠ 部分操作需要手动审查（INSERT/UPDATE/DELETE 无法自动推导逆操作）");
+    }
+
+    Ok(())
+}
+
+// =====================================================================
+// make:model:idempotent — 生成幂等 Model 代码
+// =====================================================================
+
+fn cmd_make_model_idempotent(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
+    if args.is_empty() || args[0].starts_with("--") {
+        return Err(
+            "用法: sz-orm make:model:idempotent <Model1,Model2,...> [--output <dir>]".into(),
+        );
+    }
+
+    let names: Vec<&str> = args[0].split(',').map(|s| s.trim()).collect();
+    let output_dir = resolve_option(args, "--output", config, |c| &c.output_dir)
+        .unwrap_or_else(|| "./src/models".to_string());
+
+    fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
+
+    let generator = EntityGenerator::new();
+    let entities: Vec<EntityDefinition> = names
+        .iter()
+        .map(|name| EntityDefinition {
+            name: name.to_string(),
+            table_name: name.to_lowercase(),
+            fields: vec![
+                EntityField {
+                    name: "id".to_string(),
+                    rust_type: "i64".to_string(),
+                    is_primary_key: true,
+                    nullable: false,
+                    db_type: "BIGINT".to_string(),
+                },
+                EntityField {
+                    name: "name".to_string(),
+                    rust_type: "String".to_string(),
+                    is_primary_key: false,
+                    nullable: false,
+                    db_type: "VARCHAR(255)".to_string(),
+                },
+            ],
+            relations: vec![],
+        })
+        .collect();
+
+    let code = generator.generate_all_idempotent(&entities);
+    let output_path = PathBuf::from(&output_dir).join("models_idempotent.rs");
+    fs::write(&output_path, &code)
+        .map_err(|e| format!("写入 {} 失败: {}", output_path.display(), e))?;
+
+    println!("已生成幂等 Model 代码: {}", output_path.display());
     Ok(())
 }
 

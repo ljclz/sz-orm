@@ -309,6 +309,8 @@ pub enum ProbeKind {
     Liveness,
     /// 就绪探针：是否准备好接收流量
     Readiness,
+    /// 启动探针：初始化是否完成
+    Startup,
 }
 
 /// 探针检查结果
@@ -334,6 +336,8 @@ pub struct ProbeManager {
     liveness: RwLock<HashMap<String, HealthSnapshot>>,
     /// readiness 探针状态
     readiness: RwLock<HashMap<String, HealthSnapshot>>,
+    /// startup 探针状态
+    startup: RwLock<HashMap<String, HealthSnapshot>>,
 }
 
 impl Default for ProbeManager {
@@ -348,6 +352,7 @@ impl ProbeManager {
         Self {
             liveness: RwLock::new(HashMap::new()),
             readiness: RwLock::new(HashMap::new()),
+            startup: RwLock::new(HashMap::new()),
         }
     }
 
@@ -361,6 +366,13 @@ impl ProbeManager {
     /// 设置 readiness 探针状态
     pub fn set_readiness(&self, name: &str, snapshot: HealthSnapshot) {
         if let Ok(mut map) = self.readiness.write() {
+            map.insert(name.to_string(), snapshot);
+        }
+    }
+
+    /// 设置 startup 探针状态
+    pub fn set_startup(&self, name: &str, snapshot: HealthSnapshot) {
+        if let Ok(mut map) = self.startup.write() {
             map.insert(name.to_string(), snapshot);
         }
     }
@@ -387,6 +399,17 @@ impl ProbeManager {
         }
     }
 
+    /// 查询单个探针的 startup 状态
+    pub fn check_startup(&self, name: &str) -> ProbeResult {
+        let snapshot = self.read_probe(ProbeKind::Startup, name);
+        ProbeResult {
+            kind: ProbeKind::Startup,
+            status: snapshot.status,
+            message: snapshot.message,
+            timestamp: chrono::Utc::now().to_rfc3339(),
+        }
+    }
+
     /// 查询所有 liveness 探针
     pub fn liveness_all(&self) -> Vec<ProbeResult> {
         self.all_probes(ProbeKind::Liveness)
@@ -395,6 +418,11 @@ impl ProbeManager {
     /// 查询所有 readiness 探针
     pub fn readiness_all(&self) -> Vec<ProbeResult> {
         self.all_probes(ProbeKind::Readiness)
+    }
+
+    /// 查询所有 startup 探针
+    pub fn startup_all(&self) -> Vec<ProbeResult> {
+        self.all_probes(ProbeKind::Startup)
     }
 
     /// 聚合 liveness 状态：任一不健康则整体不健康，任一未知则整体未知
@@ -407,11 +435,17 @@ impl ProbeManager {
         self.overall(ProbeKind::Readiness)
     }
 
+    /// 聚合 startup 状态：任一不健康则整体不健康，任一未知则整体未知
+    pub fn overall_startup(&self) -> HealthStatus {
+        self.overall(ProbeKind::Startup)
+    }
+
     /// 读取指定探针的状态快照
     fn read_probe(&self, kind: ProbeKind, name: &str) -> HealthSnapshot {
         let map = match kind {
             ProbeKind::Liveness => self.liveness.read(),
             ProbeKind::Readiness => self.readiness.read(),
+            ProbeKind::Startup => self.startup.read(),
         };
         match map {
             Ok(guard) => guard.get(name).cloned().unwrap_or_else(|| HealthSnapshot {
@@ -434,6 +468,7 @@ impl ProbeManager {
         let map = match kind {
             ProbeKind::Liveness => self.liveness.read(),
             ProbeKind::Readiness => self.readiness.read(),
+            ProbeKind::Startup => self.startup.read(),
         };
         let timestamp = chrono::Utc::now().to_rfc3339();
         match map {
@@ -460,6 +495,7 @@ impl ProbeManager {
         let map = match kind {
             ProbeKind::Liveness => self.liveness.read(),
             ProbeKind::Readiness => self.readiness.read(),
+            ProbeKind::Startup => self.startup.read(),
         };
         match map {
             Ok(guard) => {

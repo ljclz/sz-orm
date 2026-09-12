@@ -1,0 +1,72 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sz-orm-controller
+  namespace: sz-orm-system
+  labels:
+    app.kubernetes.io/name: sz-orm-operator
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: sz-orm-operator
+  template:
+    metadata:
+      labels:
+        app.kubernetes.io/name: sz-orm-operator
+    spec:
+      serviceAccountName: sz-orm-controller
+      containers:
+        - name: controller
+          image: sz-orm/operator:6.9.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: WATCH_NAMESPACE
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.namespace
+            - name: RECONCILE_INTERVAL
+              value: "30"
+          resources:
+            limits:
+              cpu: 500m
+              memory: 128Mi
+            requests:
+              cpu: 100m
+              memory: 64Mi
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: sz-orm-controller
+  namespace: sz-orm-system
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: sz-orm-controller
+  namespace: sz-orm-system
+rules:
+  - apiGroups: ["szorm.io"]
+    resources: ["szorminstances", "szorminstances/status"]
+    verbs: ["get", "list", "watch", "create", "update", "patch"]
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  - apiGroups: [""]
+    resources: ["configmaps", "secrets", "services"]
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: sz-orm-controller
+  namespace: sz-orm-system
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: sz-orm-controller
+subjects:
+  - kind: ServiceAccount
+    name: sz-orm-controller
+    namespace: sz-orm-system

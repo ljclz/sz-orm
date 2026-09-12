@@ -424,6 +424,8 @@ pub use serde::{Deserialize, Serialize};
 pub mod access_control;
 pub mod accessors;
 pub mod active_model;
+#[allow(missing_docs)]
+pub mod api_coverage;
 pub mod behaviors;
 #[cfg(feature = "benchmark-suite")]
 pub mod benchmark;

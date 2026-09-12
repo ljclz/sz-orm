@@ -8,7 +8,9 @@
 
 use std::ffi::{c_char, CStr, CString};
 
-use sz_orm_cabi::{PoolConfigC, QueryResultC, SzOrmPoolHandle, SzOrmTransactionHandle};
+use sz_orm_cabi::{
+    PoolConfigC, QueryResultC, SzOrmPoolHandle, SzOrmQueryBuilderHandle, SzOrmTransactionHandle,
+};
 
 /// Create connection pool (real creation, SQLite backend)
 ///
@@ -402,6 +404,218 @@ pub unsafe extern "C" fn sz_orm_go_model_find_tx(
     }
     // SAFETY: 转发到 cabi
     unsafe { sz_orm_cabi::sz_orm_model_find_tx(tx_handle, table, where_clause, where_params_json) }
+}
+
+// ============================================================================
+// QueryBuilder API 转发（v6.9.0 REQ-BND-QB）
+// ============================================================================
+
+/// Create QueryBuilder, return handle (null indicates failure)
+///
+/// # Safety
+///
+/// SAFETY: 返回的句柄必须通过 `sz_orm_go_qb_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_new(db_type: u32) -> SzOrmQueryBuilderHandle {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_new(db_type) }
+}
+
+/// Set table name on QueryBuilder, return 0=success 7=invalid argument
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效；`table` 必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_table(
+    qb: SzOrmQueryBuilderHandle,
+    table: *const c_char,
+) -> i32 {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_table(qb, table) }
+}
+
+/// Add WHERE eq condition, return 0=success 7=invalid argument
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效；`field` 和 `value_json` 必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_where_eq(
+    qb: SzOrmQueryBuilderHandle,
+    field: *const c_char,
+    value_json: *const c_char,
+) -> i32 {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_where_eq(qb, field, value_json) }
+}
+
+/// Add ORDER BY clause, return 0=success 7=invalid argument
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效；`field` 必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_order_by(
+    qb: SzOrmQueryBuilderHandle,
+    field: *const c_char,
+    desc: i32,
+) -> i32 {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_order_by(qb, field, desc) }
+}
+
+/// Set LIMIT, return 0=success 7=invalid argument
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_limit(qb: SzOrmQueryBuilderHandle, limit: u64) -> i32 {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_limit(qb, limit) }
+}
+
+/// Build SQL + params JSON, return C string (free with `sz_orm_go_qb_result_free`)
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_build(qb: SzOrmQueryBuilderHandle) -> *mut c_char {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_build(qb) }
+}
+
+/// Free QueryBuilder handle
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须是 `sz_orm_go_qb_new` 返回的句柄（或 null）。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_free(qb: SzOrmQueryBuilderHandle) {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_free(qb) }
+}
+
+/// Free build result string
+///
+/// # Safety
+///
+/// SAFETY: `result` 必须是 `sz_orm_go_qb_build` 返回的指针（或 null）。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_qb_result_free(result: *mut c_char) {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_qb_result_free(result) }
+}
+
+// ============================================================================
+// ActiveModel API 转发（v6.9.0 REQ-BND-AM）
+// ============================================================================
+
+/// ActiveModel create (insert), return heap-allocated `QueryResultC`
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须有效；所有字符串参数必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_active_model_create(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    fields_json: *const c_char,
+    values_json: *const c_char,
+) -> *mut QueryResultC {
+    if handle.is_null() || table.is_null() || fields_json.is_null() || values_json.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: 转发到 cabi
+    let result =
+        unsafe { sz_orm_cabi::sz_orm_model_insert(handle, table, fields_json, values_json) };
+    Box::into_raw(Box::new(result))
+}
+
+/// ActiveModel set (update), return heap-allocated `QueryResultC`
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须有效；所有字符串参数必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_active_model_set(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    set_json: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> *mut QueryResultC {
+    if handle.is_null() || table.is_null() || set_json.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: 转发到 cabi
+    let result = unsafe {
+        sz_orm_cabi::sz_orm_model_update(handle, table, set_json, where_clause, where_params_json)
+    };
+    Box::into_raw(Box::new(result))
+}
+
+/// ActiveModel get (find), return JSON string (free with `sz_orm_go_string_free`)
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须有效；所有字符串参数必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_active_model_get(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> *mut c_char {
+    if handle.is_null() || table.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_model_find(handle, table, where_clause, where_params_json) }
+}
+
+/// ActiveModel save (insert), return heap-allocated `QueryResultC`
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须有效；所有字符串参数必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_active_model_save(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    fields_json: *const c_char,
+    values_json: *const c_char,
+) -> *mut QueryResultC {
+    if handle.is_null() || table.is_null() || fields_json.is_null() || values_json.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: 转发到 cabi
+    let result =
+        unsafe { sz_orm_cabi::sz_orm_model_insert(handle, table, fields_json, values_json) };
+    Box::into_raw(Box::new(result))
+}
+
+/// ActiveModel delete, return heap-allocated `QueryResultC`
+///
+/// # Safety
+///
+/// SAFETY: `handle` 必须有效；所有字符串参数必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_go_active_model_delete(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+    where_clause: *const c_char,
+    where_params_json: *const c_char,
+) -> *mut QueryResultC {
+    if handle.is_null() || table.is_null() {
+        return std::ptr::null_mut();
+    }
+    // SAFETY: 转发到 cabi
+    let result =
+        unsafe { sz_orm_cabi::sz_orm_model_delete(handle, table, where_clause, where_params_json) };
+    Box::into_raw(Box::new(result))
 }
 
 #[cfg(test)]
@@ -882,6 +1096,182 @@ mod tests {
             json.contains("CommitUser"),
             "go find after commit should contain CommitUser: {json}"
         );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_go_pool_free(pool) };
+    }
+
+    // ===== v6.9.0 新增测试：QueryBuilder + ActiveModel 转发 =====
+
+    #[test]
+    fn test_go_qb_new_and_free() {
+        // SAFETY: db_type=0 (MySQL) 合法
+        let qb = unsafe { sz_orm_go_qb_new(0) };
+        assert!(!qb.is_null(), "qb_new should return non-null handle");
+        // SAFETY: qb 有效
+        unsafe { sz_orm_go_qb_free(qb) };
+    }
+
+    #[test]
+    fn test_go_qb_full_chain() {
+        // SAFETY: db_type=0 (MySQL) 合法
+        let qb = unsafe { sz_orm_go_qb_new(0) };
+        assert!(!qb.is_null());
+
+        let table = CString::new("users").unwrap();
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_go_qb_table(qb, table.as_ptr()) },
+            SzOrmErrorCode::Ok.as_i32()
+        );
+
+        let field = CString::new("status").unwrap();
+        let value = CString::new(r#""active""#).unwrap();
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_go_qb_where_eq(qb, field.as_ptr(), value.as_ptr()) },
+            SzOrmErrorCode::Ok.as_i32()
+        );
+
+        let order_field = CString::new("id").unwrap();
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_go_qb_order_by(qb, order_field.as_ptr(), 1) },
+            SzOrmErrorCode::Ok.as_i32()
+        );
+
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_go_qb_limit(qb, 10) },
+            SzOrmErrorCode::Ok.as_i32()
+        );
+
+        // SAFETY: qb 有效
+        let result_ptr = unsafe { sz_orm_go_qb_build(qb) };
+        assert!(!result_ptr.is_null(), "qb_build should return JSON");
+        // SAFETY: result_ptr 有效
+        let json = unsafe { CStr::from_ptr(result_ptr) }
+            .to_string_lossy()
+            .into_owned();
+        // SAFETY: result_ptr 配对释放
+        unsafe { sz_orm_go_qb_result_free(result_ptr) };
+
+        assert!(json.contains("users"), "SQL should contain table: {json}");
+        assert!(
+            json.contains("status"),
+            "SQL should contain where field: {json}"
+        );
+
+        // SAFETY: qb 有效
+        unsafe { sz_orm_go_qb_free(qb) };
+    }
+
+    #[test]
+    fn test_go_qb_invalid_db_type() {
+        // SAFETY: 无效 db_type 返回 null
+        let qb = unsafe { sz_orm_go_qb_new(999) };
+        assert!(qb.is_null(), "invalid db_type should return null");
+    }
+
+    #[test]
+    fn test_go_qb_free_null_is_noop() {
+        // SAFETY: null 指针 free 是安全空操作
+        unsafe { sz_orm_go_qb_free(std::ptr::null_mut()) };
+    }
+
+    #[test]
+    fn test_go_active_model_create_get_delete() {
+        let pool = model_test_pool();
+
+        let table = CString::new("gm_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["AMUser",42]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        let r = unsafe {
+            sz_orm_go_active_model_create(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr())
+        };
+        // SAFETY: r 有效
+        let r = unsafe { free_go_result(r) };
+        assert_eq!(r.success, 1, "active_model create should succeed");
+
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["AMUser"]"#).unwrap();
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_go_active_model_get(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: ptr 有效
+        let json = unsafe { free_go_str(ptr) };
+        assert!(json.contains("AMUser"), "get should find AMUser: {json}");
+
+        // SAFETY: pool/table/where 有效
+        let r = unsafe {
+            sz_orm_go_active_model_delete(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: r 有效
+        let r = unsafe { free_go_result(r) };
+        assert_eq!(r.success, 1, "active_model delete should succeed");
+
+        // SAFETY: pool 有效
+        unsafe { sz_orm_go_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_go_active_model_set_update() {
+        let pool = model_test_pool();
+
+        let table = CString::new("gm_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["SetUser",20]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        let r = unsafe {
+            sz_orm_go_active_model_save(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr())
+        };
+        // SAFETY: r 有效
+        unsafe { free_go_result(r) };
+
+        let set_json = CString::new(r#"{"age":21}"#).unwrap();
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["SetUser"]"#).unwrap();
+        // SAFETY: pool/table/set/where 有效
+        let r = unsafe {
+            sz_orm_go_active_model_set(
+                pool,
+                table.as_ptr(),
+                set_json.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: r 有效
+        let r = unsafe { free_go_result(r) };
+        assert_eq!(r.success, 1, "active_model set should succeed");
+
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_go_active_model_get(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: ptr 有效
+        let json = unsafe { free_go_str(ptr) };
+        assert!(
+            json.contains("21"),
+            "get after set should contain age 21: {json}"
+        );
+
         // SAFETY: pool 有效
         unsafe { sz_orm_go_pool_free(pool) };
     }

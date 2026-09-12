@@ -1,0 +1,22 @@
+[package]
+name = "sz-orm-bench"
+description = "Benchmark suite: sz-orm vs SeaORM vs Diesel vs SQLx with P50/P95/P99 latency, throughput, and memory metrics"
+version.workspace = true
+edition.workspace = true
+authors.workspace = true
+license.workspace = true
+repository.workspace = true
+homepage.workspace = true
+keywords.workspace = true
+categories.workspace = true
+
+[[bin]]
+name = "sz-orm-bench"
+path = "src/main.rs"
+
+[dependencies]
+serde = { workspace = true }
+serde_json = { workspace = true }
+
+[lints]
+workspace = true

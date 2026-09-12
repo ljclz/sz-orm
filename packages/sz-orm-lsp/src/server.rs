@@ -85,10 +85,12 @@ impl LspTextDocument {
 
 /// LSP 服务端
 ///
-/// 处理 LSP 协议请求：completion + hover + diagnostics。
+/// 处理 LSP 协议请求：completion + hover + diagnostics + definition。
 pub struct LspServer {
     documents: HashMap<String, LspTextDocument>,
     schema_keywords: Vec<String>,
+    definition_provider: crate::definition::DefinitionProvider,
+    incremental_diagnostics: crate::diagnostics::IncrementalDiagnostics,
 }
 
 impl Default for LspServer {
@@ -127,6 +129,8 @@ impl LspServer {
                 "where_in".to_string(),
                 "detect_n_plus_one".to_string(),
             ],
+            definition_provider: crate::definition::DefinitionProvider::new(),
+            incremental_diagnostics: crate::diagnostics::IncrementalDiagnostics::new(),
         }
     }
 
@@ -176,9 +180,13 @@ impl LspServer {
             })
             .collect();
 
+        let context_items = crate::completion::context_aware_completion(line, position.character);
+        let mut all_items = items;
+        all_items.extend(context_items);
+
         CompletionList {
             is_incomplete: false,
-            items,
+            items: all_items,
         }
     }
 
@@ -218,7 +226,34 @@ impl LspServer {
             self.check_sql_injection(line, line_idx as u32, &mut diagnostics);
         }
 
+        let coded = self.incremental_diagnostics.diagnose(&doc.text);
+        for cd in coded {
+            diagnostics.push(Diagnostic {
+                range: cd.diagnostic.range,
+                severity: cd.diagnostic.severity,
+                message: cd.diagnostic.message,
+                source: cd.diagnostic.source,
+            });
+        }
+
         diagnostics
+    }
+
+    /// textDocument/definition
+    pub fn goto_definition(
+        &self,
+        uri: &str,
+        position: &LspPosition,
+    ) -> Vec<crate::definition::Location> {
+        self.definition_provider.goto_definition(uri, position)
+    }
+
+    /// 注册模型源码以支持定义跳转
+    pub fn register_model_source(&mut self, uri: &str, source: &str) {
+        let models = crate::definition::DefinitionProvider::parse_from_source(uri, source);
+        for model in models {
+            self.definition_provider.register_model(model);
+        }
     }
 
     /// 处理 JSON-RPC 请求，返回 JSON-RPC 响应
@@ -243,6 +278,7 @@ impl LspServer {
                 "capabilities": {
                     "completionProvider": {},
                     "hoverProvider": {},
+                    "definitionProvider": {},
                     "textDocumentSync": 1
                 }
             }),
@@ -301,6 +337,26 @@ impl LspServer {
                         .unwrap_or(0) as u32,
                 };
                 serde_json::to_value(self.hover(uri, &position)).unwrap_or(serde_json::Value::Null)
+            }
+            "textDocument/definition" => {
+                let uri = params
+                    .get("textDocument")
+                    .and_then(|td| td.get("uri"))
+                    .and_then(|u| u.as_str())
+                    .unwrap_or("");
+                let pos = params.get("position");
+                let position = LspPosition {
+                    line: pos
+                        .and_then(|p| p.get("line"))
+                        .and_then(|l| l.as_u64())
+                        .unwrap_or(0) as u32,
+                    character: pos
+                        .and_then(|p| p.get("character"))
+                        .and_then(|c| c.as_u64())
+                        .unwrap_or(0) as u32,
+                };
+                serde_json::to_value(self.goto_definition(uri, &position))
+                    .unwrap_or(serde_json::Value::Null)
             }
             _ => serde_json::Value::Null,
         };
@@ -403,13 +459,27 @@ impl LspServer {
 
     fn get_keyword_doc(&self, keyword: &str) -> String {
         match keyword.to_uppercase().as_str() {
-            "SELECT" => "SELECT 语句用于查询数据。建议指定列名而非使用 *。".to_string(),
-            "WHERE_EQ" => {
-                "参数化等值查询：where_eq(\"column\", value)。防止 SQL 注入。".to_string()
+            "SELECT" => {
+                "SELECT 语句用于查询数据。建议指定列名而非使用 *。\n\n**签名**: `select(columns: &[&str])`\n\n**示例**: `query.select(&[\"id\", \"name\"]).from(\"users\")`".to_string()
             }
-            "WHERE_LIKE" => "参数化 LIKE 查询：where_like(\"column\", pattern)。".to_string(),
-            "WHERE_IN" => "参数化 IN 查询：where_in(\"column\", values)。".to_string(),
-            "DETECT_N_PLUS_ONE" => "#[detect_n_plus_one] 编译期 N+1 查询静态检测。".to_string(),
+            "WHERE_EQ" => {
+                "参数化等值查询：where_eq(\"column\", value)。防止 SQL 注入。\n\n**签名**: `where_eq(col: &str, value: impl Into<Value>) -> Self`\n\n**示例**: `query.where_eq(\"name\", \"Alice\")`".to_string()
+            }
+            "WHERE_LIKE" => {
+                "参数化 LIKE 查询：where_like(\"column\", pattern)。\n\n**签名**: `where_like(col: &str, pattern: &str) -> Self`\n\n**示例**: `query.where_like(\"name\", \"%son%\")`".to_string()
+            }
+            "WHERE_IN" => {
+                "参数化 IN 查询：where_in(\"column\", values)。\n\n**签名**: `where_in(col: &str, values: &[Value]) -> Self`\n\n**示例**: `query.where_in(\"id\", &[1, 2, 3])`".to_string()
+            }
+            "DETECT_N_PLUS_ONE" => {
+                "#[detect_n_plus_one] 编译期 N+1 查询静态检测。\n\n**用法**: 在函数上添加 `#[detect_n_plus_one]` 标注\n\n**示例**:\n```rust\n#[detect_n_plus_one]\nfn get_users(ids: &[i64]) -> Vec<User> { ... }\n```".to_string()
+            }
+            "ORDER_BY" => {
+                "排序：order_by(\"column\", desc)。\n\n**签名**: `order_by(col: &str, desc: bool) -> Self`\n\n**示例**: `query.order_by(\"created_at\", true)`".to_string()
+            }
+            "LIMIT" => {
+                "限制返回行数：limit(n)。\n\n**签名**: `limit(n: u64) -> Self`\n\n**示例**: `query.limit(100)`".to_string()
+            }
             _ => {
                 if self.schema_keywords.contains(&keyword.to_string()) {
                     format!("SZ-ORM 关键字: {}", keyword)

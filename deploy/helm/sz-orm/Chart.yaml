@@ -1,0 +1,13 @@
+apiVersion: v2
+name: sz-orm
+description: SZ-ORM Helm Chart - Cloud-native deployment with health probes, hot reload, and K8s Operator support
+type: application
+version: 0.1.0
+appVersion: "6.9.0"
+maintainers:
+  - name: sz-orm-team
+keywords:
+  - orm
+  - database
+  - rust
+  - cloud-native

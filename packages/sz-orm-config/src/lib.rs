@@ -17,6 +17,7 @@ pub mod nacos_client;
 pub mod prod_ready;
 
 pub mod config_validator;
+pub mod hot_reload;
 
 pub use config_validator::{
     ConfigSchema, ConfigValidationReport, FieldSchema, ValidationResult, ValidationRule,
@@ -347,6 +348,8 @@ pub struct MultiSourceConfig {
     remote_config: HashMap<String, String>,
     /// Merged result cache
     merged: Mutex<Option<HashMap<String, String>>>,
+    /// Hot reload manager for dynamic config updates
+    hot_reload: hot_reload::HotReloadManager,
 }
 
 impl MultiSourceConfig {
@@ -356,7 +359,22 @@ impl MultiSourceConfig {
             env_config: HashMap::new(),
             remote_config: HashMap::new(),
             merged: Mutex::new(None),
+            hot_reload: hot_reload::HotReloadManager::new(),
         }
+    }
+
+    /// 返回热更新管理器引用
+    pub fn hot_reload_manager(&self) -> &hot_reload::HotReloadManager {
+        &self.hot_reload
+    }
+
+    /// 通过热更新机制应用配置变更
+    pub fn apply_hot_reload(
+        &self,
+        changes: &HashMap<String, String>,
+        source: hot_reload::ReloadSource,
+    ) -> Result<hot_reload::ReloadEvent, Vec<String>> {
+        hot_reload::apply_with_validation(&self.hot_reload, changes, source)
     }
 
     /// Set the file-source configuration

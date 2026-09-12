@@ -41,7 +41,9 @@ pub use any::{
     SqlitePoolHandle, SqlxMySqlConnection, SqlxMySqlConnectionFactory, SqlxPgConnection,
     SqlxPgConnectionFactory, SqlxSqliteConnection, SqlxSqliteConnectionFactory,
 };
-pub use any_driver::{AnyBackend, AnyConnection, AnyPool};
+pub use any_driver::{
+    create_connection, create_connection_by_type, AnyBackend, AnyConnection, AnyPool,
+};
 pub use enhanced::{
     CacheStats, EnhancedPoolConfig, EnhancedPoolConfigBuilder, PreparedStatementCache,
     TransactionIsolation,

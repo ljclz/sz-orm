@@ -10,6 +10,7 @@
 //! - [`advanced`] — Memory limits, WASI sandbox, async scheduling, module cache
 
 pub mod advanced;
+pub mod dual_env;
 
 #[cfg(feature = "js")]
 pub mod js_bindings;
@@ -28,6 +29,11 @@ pub use advanced::{
     AsyncTask, AsyncTaskScheduler, CacheEntry, CacheStats, LimitedWasmDatabase, MemoryConfig,
     MemoryLimitError, MemoryUsage, ModuleCache, PathAccess, SandboxConfig, SandboxError,
     SandboxedFs, TaskResult, TaskStatus,
+};
+
+pub use dual_env::{
+    detect_environment, verify_sandbox_isolation, BuildTargetConfig, DualEnvConfig, RuntimeEnv,
+    SandboxVerificationResult, WasmBuildTarget,
 };
 
 #[cfg(feature = "js")]
@@ -70,9 +76,20 @@ pub struct WasmDatabase {
 
 impl WasmDatabase {
     pub fn new() -> Self {
+        let _env = detect_environment();
         Self {
             tables: Mutex::new(HashMap::new()),
         }
+    }
+
+    /// 返回当前运行时环境
+    pub fn environment(&self) -> RuntimeEnv {
+        detect_environment()
+    }
+
+    /// 验证沙箱隔离安全性，返回验证结果列表
+    pub fn verify_sandbox(&self, sandbox: &SandboxedFs) -> Vec<SandboxVerificationResult> {
+        verify_sandbox_isolation(sandbox)
     }
 
     pub fn query(&self, q: WasmQuery) -> Result<Vec<serde_json::Value>, String> {

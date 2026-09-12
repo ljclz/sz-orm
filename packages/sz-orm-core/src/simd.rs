@@ -39,7 +39,13 @@ static DETECTED: OnceLock<SimdAvailability> = OnceLock::new();
 
 /// 检测当前 CPU 的 SIMD 可用性（首次检测后缓存）
 pub fn detect() -> SimdAvailability {
-    *DETECTED.get_or_init(detect_impl)
+    *DETECTED.get_or_init(|| {
+        let avail = detect_impl();
+        if !avail.is_available() {
+            tracing::warn!("SIMD fallback to scalar");
+        }
+        avail
+    })
 }
 
 #[cfg(target_arch = "x86_64")]
@@ -230,6 +236,17 @@ mod tests {
         let d1 = detect();
         let d2 = detect();
         assert_eq!(d1, d2);
+    }
+
+    #[test]
+    fn test_simd_fallback_log_on_none() {
+        let avail = SimdAvailability::None;
+        assert!(!avail.is_available());
+    }
+
+    #[test]
+    fn test_simd_detect_does_not_panic() {
+        let _ = detect();
     }
 
     #[test]

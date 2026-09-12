@@ -1,0 +1,75 @@
+# SZ-ORM Helm Chart Values
+
+replicaCount: 2
+
+image:
+  repository: sz-orm/server
+  tag: "6.9.0"
+  pullPolicy: IfNotPresent
+
+service:
+  type: ClusterIP
+  port: 8080
+
+# 数据库连接配置
+database:
+  driver: mysql
+  host: mysql.default.svc.cluster.local
+  port: 3306
+  name: sz_orm
+  poolSize: 20
+  poolMaxConnections: 100
+
+# 健康探针配置
+probes:
+  liveness:
+    path: /health/liveness
+    initialDelaySeconds: 10
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 3
+  readiness:
+    path: /health/readiness
+    initialDelaySeconds: 5
+    periodSeconds: 5
+    timeoutSeconds: 3
+    failureThreshold: 3
+  startup:
+    path: /health/startup
+    initialDelaySeconds: 0
+    periodSeconds: 10
+    timeoutSeconds: 5
+    failureThreshold: 30
+
+# 配置热更新
+configHotReload:
+  enabled: true
+  configMapName: sz-orm-config
+  watchInterval: 30
+
+# 资源限制
+resources:
+  limits:
+    cpu: 2000m
+    memory: 512Mi
+  requests:
+    cpu: 500m
+    memory: 256Mi
+
+# Pod 安全上下文
+podSecurityContext:
+  runAsNonRoot: true
+  runAsUser: 1000
+  fsGroup: 2000
+
+# 优雅关闭
+terminationGracePeriodSeconds: 30
+
+# 节点选择器
+nodeSelector: {}
+
+# 容忍度
+tolerations: []
+
+# 亲和性
+affinity: {}

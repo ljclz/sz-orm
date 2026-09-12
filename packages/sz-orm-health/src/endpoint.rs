@@ -274,13 +274,15 @@ mod probe {
     use serde::{Deserialize, Serialize};
     use std::sync::Arc;
 
-    /// K8s readiness/liveness 探针端点配置
+    /// K8s readiness/liveness/startup 探针端点配置
     #[derive(Debug, Clone, Serialize, Deserialize)]
     pub struct ProbeEndpointConfig {
         /// readiness 端点路径，默认 `/ready`
         pub ready_path: String,
         /// liveness 端点路径，默认 `/live`
         pub live_path: String,
+        /// startup 端点路径，默认 `/startup`
+        pub startup_path: String,
         /// 监听端口
         pub port: u16,
         /// K8s initialDelaySeconds
@@ -300,32 +302,44 @@ mod probe {
             Self {
                 ready_path: ready_path.to_string(),
                 live_path: live_path.to_string(),
+                startup_path: "/startup".to_string(),
                 port,
                 initial_delay_seconds,
                 period_seconds,
             }
         }
 
-        /// 默认配置：ready_path=/ready, live_path=/live, port=8080, delay=10, period=5
+        /// 默认配置：ready_path=/ready, live_path=/live, startup_path=/startup, port=8080, delay=10, period=5
         pub fn default_for_port(port: u16) -> Self {
             Self {
                 ready_path: "/ready".to_string(),
                 live_path: "/live".to_string(),
+                startup_path: "/startup".to_string(),
                 port,
                 initial_delay_seconds: 10,
                 period_seconds: 5,
             }
         }
 
-        /// 生成 K8s livenessProbe/readinessProbe httpGet 配置片段
+        /// 设置 startup 路径
+        pub fn with_startup_path(mut self, path: &str) -> Self {
+            self.startup_path = path.to_string();
+            self
+        }
+
+        /// 生成 K8s livenessProbe/readinessProbe/startupProbe httpGet 配置片段
         pub fn to_k8s_yaml(&self) -> String {
             format!(
-                "livenessProbe:\n  httpGet:\n    path: {}\n    port: {}\n  initialDelaySeconds: {}\n  periodSeconds: {}\nreadinessProbe:\n  httpGet:\n    path: {}\n    port: {}\n  initialDelaySeconds: {}\n  periodSeconds: {}",
+                "livenessProbe:\n  httpGet:\n    path: {}\n    port: {}\n  initialDelaySeconds: {}\n  periodSeconds: {}\nreadinessProbe:\n  httpGet:\n    path: {}\n    port: {}\n  initialDelaySeconds: {}\n  periodSeconds: {}\nstartupProbe:\n  httpGet:\n    path: {}\n    port: {}\n  initialDelaySeconds: {}\n  periodSeconds: {}",
                 self.live_path,
                 self.port,
                 self.initial_delay_seconds,
                 self.period_seconds,
                 self.ready_path,
+                self.port,
+                self.initial_delay_seconds,
+                self.period_seconds,
+                self.startup_path,
                 self.port,
                 self.initial_delay_seconds,
                 self.period_seconds,
@@ -348,11 +362,12 @@ mod probe {
         }
     }
 
-    /// 启动 K8s readiness/liveness 探针端点
+    /// 启动 K8s readiness/liveness/startup 探针端点
     ///
-    /// TCP 监听 `config.port`，暴露两个独立 HTTP 端点：
+    /// TCP 监听 `config.port`，暴露三个独立 HTTP 端点：
     /// - GET `config.ready_path`：readiness 探针，反映依赖可用性
     /// - GET `config.live_path`：liveness 探针，仅反映进程级存活
+    /// - GET `config.startup_path`：startup 探针，反映初始化是否完成
     pub async fn start_probe_endpoint(
         config: ProbeEndpointConfig,
         probe_manager: Arc<ProbeManager>,
@@ -361,12 +376,14 @@ mod probe {
 
         let ready_path = config.ready_path.clone();
         let live_path = config.live_path.clone();
+        let startup_path = config.startup_path.clone();
 
         loop {
             let (mut stream, _) = listener.accept().await?;
             let pm = Arc::clone(&probe_manager);
             let ready_path = ready_path.clone();
             let live_path = live_path.clone();
+            let startup_path = startup_path.clone();
 
             tokio::spawn(async move {
                 let mut buf = [0u8; 4096];
@@ -392,6 +409,8 @@ mod probe {
                     (pm.overall_readiness(), "readiness")
                 } else if req_path == live_path {
                     (pm.overall_liveness(), "liveness")
+                } else if req_path == startup_path {
+                    (pm.overall_startup(), "startup")
                 } else {
                     let resp = "HTTP/1.1 404 Not Found\r\nContent-Length: 0\r\n\r\n";
                     let _ = tokio::io::AsyncWriteExt::write_all(&mut stream, resp.as_bytes()).await;
@@ -444,11 +463,39 @@ mod probe {
             let yaml = config.to_k8s_yaml();
             assert!(yaml.contains("livenessProbe"));
             assert!(yaml.contains("readinessProbe"));
+            assert!(yaml.contains("startupProbe"));
             assert!(yaml.contains("path: /live"));
             assert!(yaml.contains("path: /ready"));
+            assert!(yaml.contains("path: /startup"));
             assert!(yaml.contains("port: 18081"));
             assert!(yaml.contains("initialDelaySeconds: 10"));
             assert!(yaml.contains("periodSeconds: 5"));
+        }
+
+        #[test]
+        fn test_probe_config_with_startup_path() {
+            let config = ProbeEndpointConfig::new("/ready", "/live", 18081, 10, 5)
+                .with_startup_path("/health/startup");
+            assert_eq!(config.startup_path, "/health/startup");
+        }
+
+        #[test]
+        fn test_probe_manager_startup() {
+            let pm = ProbeManager::new();
+            pm.set_startup("app", HealthSnapshot::healthy());
+            assert_eq!(pm.overall_startup(), HealthStatus::Healthy);
+
+            pm.set_startup("cache", HealthSnapshot::unhealthy("loading"));
+            assert_eq!(pm.overall_startup(), HealthStatus::Unhealthy);
+        }
+
+        #[test]
+        fn test_probe_manager_startup_independent_from_liveness() {
+            let pm = ProbeManager::new();
+            pm.set_liveness("app", HealthSnapshot::healthy());
+            pm.set_startup("app", HealthSnapshot::unhealthy("initializing"));
+            assert_eq!(pm.overall_liveness(), HealthStatus::Healthy);
+            assert_eq!(pm.overall_startup(), HealthStatus::Unhealthy);
         }
 
         #[test]

@@ -28,7 +28,10 @@ use std::ffi::{c_char, c_void, CStr, CString};
 use std::sync::Arc;
 use std::sync::OnceLock;
 
-use sz_orm_core::{Pool, PoolConfig, PoolConfigBuilder, PooledConnection, Value};
+use sz_orm_core::{
+    get_dialect, DbType, Model, Pool, PoolConfig, PoolConfigBuilder, PooledConnection,
+    QueryBuilder, Value,
+};
 
 /// Connection pool handle
 pub type SzOrmPoolHandle = *mut c_void;
@@ -1632,6 +1635,269 @@ pub unsafe extern "C" fn sz_orm_model_find_tx(
     }
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+//  QueryBuilder C ABI — 链式构造 FFI
+// ────────────────────────────────────────────────────────────────────────────
+
+/// C ABI 占位 Model（QueryBuilder 类型参数需要具体 M: Model）
+struct CabiModel;
+
+impl Model for CabiModel {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str {
+        "cabi"
+    }
+    fn pk(&self) -> Self::PrimaryKey {
+        0
+    }
+    fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+}
+
+/// C ABI QueryBuilder 包装器
+struct CabiQueryBuilder {
+    builder: Option<QueryBuilder<CabiModel>>,
+}
+
+/// 将 u32 转换为 DbType
+fn db_type_from_u32(val: u32) -> Option<DbType> {
+    match val {
+        0 => Some(DbType::MySQL),
+        1 => Some(DbType::PostgreSQL),
+        2 => Some(DbType::Sqlite),
+        3 => Some(DbType::Redis),
+        4 => Some(DbType::MongoDB),
+        5 => Some(DbType::ClickHouse),
+        6 => Some(DbType::Oracle),
+        7 => Some(DbType::OceanBase),
+        8 => Some(DbType::SqlServer),
+        9 => Some(DbType::VectorDb),
+        10 => Some(DbType::PureJsDb),
+        11 => Some(DbType::Dameng),
+        12 => Some(DbType::Kingbase),
+        13 => Some(DbType::Db2),
+        _ => None,
+    }
+}
+
+/// 创建 QueryBuilder 句柄。
+///
+/// `db_type` 值：0=MySQL, 1=PostgreSQL, 2=SQLite, 6=Oracle, 8=SqlServer 等。
+///
+/// # Safety
+///
+/// SAFETY: 返回的句柄必须通过 `sz_orm_qb_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_new(db_type: u32) -> SzOrmQueryBuilderHandle {
+    let db = match db_type_from_u32(db_type) {
+        Some(d) => d,
+        None => return std::ptr::null_mut(),
+    };
+    let dialect = match get_dialect(db) {
+        Ok(d) => d,
+        Err(_) => return std::ptr::null_mut(),
+    };
+    let builder = QueryBuilder::<CabiModel>::new(dialect);
+    let wrapper = CabiQueryBuilder {
+        builder: Some(builder),
+    };
+    Box::into_raw(Box::new(wrapper)) as SzOrmQueryBuilderHandle
+}
+
+/// 设置表名。
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须是 `sz_orm_qb_new` 返回的有效句柄；`table` 必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_table(qb: SzOrmQueryBuilderHandle, table: *const c_char) -> i32 {
+    if qb.is_null() || table.is_null() {
+        return SzOrmErrorCode::InvalidArgument.as_i32();
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 qb 和 table 有效
+        let wrapper = unsafe { &mut *(qb as *mut CabiQueryBuilder) };
+        let table_str = unsafe { CStr::from_ptr(table) }.to_str().ok()?;
+        if let Some(builder) = wrapper.builder.take() {
+            wrapper.builder = Some(builder.table(table_str.to_string()));
+            Some(())
+        } else {
+            None
+        }
+    }));
+    match result {
+        Ok(Some(())) => SzOrmErrorCode::Ok.as_i32(),
+        Ok(None) => SzOrmErrorCode::InvalidArgument.as_i32(),
+        Err(_) => SzOrmErrorCode::Panic.as_i32(),
+    }
+}
+
+/// 添加 WHERE eq 条件（参数化）。
+///
+/// `value_json` 为原始 JSON 值字符串，如 `42`（整数）、`"active"`（字符串）、`true`（布尔）。
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效；`field` 和 `value_json` 必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_where_eq(
+    qb: SzOrmQueryBuilderHandle,
+    field: *const c_char,
+    value_json: *const c_char,
+) -> i32 {
+    if qb.is_null() || field.is_null() || value_json.is_null() {
+        return SzOrmErrorCode::InvalidArgument.as_i32();
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 qb/field/value_json 有效
+        let wrapper = unsafe { &mut *(qb as *mut CabiQueryBuilder) };
+        let field_str = unsafe { CStr::from_ptr(field) }.to_str().ok()?;
+        let value_str = unsafe { CStr::from_ptr(value_json) }.to_str().ok()?;
+        let json_val: serde_json::Value = serde_json::from_str(value_str).ok()?;
+        let value = json_to_value(&json_val);
+        if let Some(builder) = wrapper.builder.take() {
+            wrapper.builder = Some(builder.where_eq(field_str.to_string(), value));
+            Some(())
+        } else {
+            None
+        }
+    }));
+    match result {
+        Ok(Some(())) => SzOrmErrorCode::Ok.as_i32(),
+        Ok(None) => SzOrmErrorCode::InvalidArgument.as_i32(),
+        Err(_) => SzOrmErrorCode::Panic.as_i32(),
+    }
+}
+
+/// 添加 ORDER BY。
+///
+/// `desc` = 0 表示升序，非 0 表示降序。
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效；`field` 必须是有效的 NUL 终止 C 字符串。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_order_by(
+    qb: SzOrmQueryBuilderHandle,
+    field: *const c_char,
+    desc: i32,
+) -> i32 {
+    if qb.is_null() || field.is_null() {
+        return SzOrmErrorCode::InvalidArgument.as_i32();
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 qb/field 有效
+        let wrapper = unsafe { &mut *(qb as *mut CabiQueryBuilder) };
+        let field_str = unsafe { CStr::from_ptr(field) }.to_str().ok()?;
+        if let Some(builder) = wrapper.builder.take() {
+            let new_builder = if desc != 0 {
+                builder.order_desc(field_str.to_string())
+            } else {
+                builder.order_by(field_str.to_string())
+            };
+            wrapper.builder = Some(new_builder);
+            Some(())
+        } else {
+            None
+        }
+    }));
+    match result {
+        Ok(Some(())) => SzOrmErrorCode::Ok.as_i32(),
+        Ok(None) => SzOrmErrorCode::InvalidArgument.as_i32(),
+        Err(_) => SzOrmErrorCode::Panic.as_i32(),
+    }
+}
+
+/// 设置 LIMIT。
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_limit(qb: SzOrmQueryBuilderHandle, limit: u64) -> i32 {
+    if qb.is_null() {
+        return SzOrmErrorCode::InvalidArgument.as_i32();
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 qb 有效
+        let wrapper = unsafe { &mut *(qb as *mut CabiQueryBuilder) };
+        if let Some(builder) = wrapper.builder.take() {
+            wrapper.builder = Some(builder.limit(limit as usize));
+            Some(())
+        } else {
+            None
+        }
+    }));
+    match result {
+        Ok(Some(())) => SzOrmErrorCode::Ok.as_i32(),
+        Ok(None) => SzOrmErrorCode::InvalidArgument.as_i32(),
+        Err(_) => SzOrmErrorCode::Panic.as_i32(),
+    }
+}
+
+/// 构建 SQL + 参数 JSON。
+///
+/// 返回 JSON 字符串 `{"sql": "...", "params": [...]}`，调用方需用 `sz_orm_qb_result_free` 释放。
+/// 失败返回 null。
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须有效；返回的字符串必须通过 `sz_orm_qb_result_free` 释放。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_build(qb: SzOrmQueryBuilderHandle) -> *mut c_char {
+    if qb.is_null() {
+        return std::ptr::null_mut();
+    }
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // SAFETY: 调用方保证 qb 有效
+        let wrapper = unsafe { &*(qb as *const CabiQueryBuilder) };
+        let builder = wrapper.builder.as_ref()?;
+        let (sql, params) = builder.build_select();
+        let json = serde_json::json!({
+            "sql": sql,
+            "params": params,
+        });
+        let json_str = serde_json::to_string(&json).ok()?;
+        CString::new(json_str).ok().map(|c| c.into_raw())
+    }));
+    match result {
+        Ok(Some(ptr)) => ptr,
+        Ok(None) => std::ptr::null_mut(),
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// 释放 QueryBuilder 句柄。
+///
+/// # Safety
+///
+/// SAFETY: `qb` 必须是 `sz_orm_qb_new` 返回且尚未释放的句柄。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_free(qb: SzOrmQueryBuilderHandle) {
+    if qb.is_null() {
+        return;
+    }
+    // SAFETY: 调用方保证 qb 有效；此处消费 Box 触发 Drop
+    unsafe {
+        drop(Box::from_raw(qb as *mut CabiQueryBuilder));
+    }
+}
+
+/// 释放 `sz_orm_qb_build` 返回的字符串。
+///
+/// # Safety
+///
+/// SAFETY: `result` 必须是 `sz_orm_qb_build` 返回且尚未释放的指针。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_qb_result_free(result: *mut c_char) {
+    if result.is_null() {
+        return;
+    }
+    // SAFETY: 调用方保证 result 有效；此处消费 CString 触发 Drop
+    unsafe {
+        drop(CString::from_raw(result));
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -2838,5 +3104,168 @@ mod tests {
         };
         assert_eq!(r.success, 0);
         assert_eq!(r.error_code, SzOrmErrorCode::InvalidArgument.as_i32());
+    }
+
+    // ===== QueryBuilder C ABI 测试 =====
+
+    #[test]
+    fn test_qb_new_and_free() {
+        // SAFETY: 句柄由 sz_orm_qb_new 创建，sz_orm_qb_free 释放
+        let qb = unsafe { sz_orm_qb_new(0) };
+        assert!(!qb.is_null(), "sz_orm_qb_new(0) should return non-null");
+        // SAFETY: qb 有效
+        unsafe { sz_orm_qb_free(qb) };
+    }
+
+    #[test]
+    fn test_qb_new_invalid_db_type() {
+        // SAFETY: 无效 db_type 返回 null，无需释放
+        let qb = unsafe { sz_orm_qb_new(999) };
+        assert!(qb.is_null(), "invalid db_type should return null");
+    }
+
+    #[test]
+    fn test_qb_full_chain() {
+        // SAFETY: 句柄由 sz_orm_qb_new 创建
+        let qb = unsafe { sz_orm_qb_new(0) };
+        assert!(!qb.is_null());
+
+        let table = CString::new("users").unwrap();
+        let field = CString::new("status").unwrap();
+        let value = CString::new(r#""active""#).unwrap();
+        let order_field = CString::new("id").unwrap();
+
+        // SAFETY: qb/table 有效
+        let r = unsafe { sz_orm_qb_table(qb, table.as_ptr()) };
+        assert_eq!(r, SzOrmErrorCode::Ok.as_i32(), "table should succeed");
+
+        // SAFETY: qb/field/value 有效
+        let r = unsafe { sz_orm_qb_where_eq(qb, field.as_ptr(), value.as_ptr()) };
+        assert_eq!(r, SzOrmErrorCode::Ok.as_i32(), "where_eq should succeed");
+
+        // SAFETY: qb/order_field 有效
+        let r = unsafe { sz_orm_qb_order_by(qb, order_field.as_ptr(), 1) };
+        assert_eq!(r, SzOrmErrorCode::Ok.as_i32(), "order_by should succeed");
+
+        // SAFETY: qb 有效
+        let r = unsafe { sz_orm_qb_limit(qb, 10) };
+        assert_eq!(r, SzOrmErrorCode::Ok.as_i32(), "limit should succeed");
+
+        // SAFETY: qb 有效
+        let result_ptr = unsafe { sz_orm_qb_build(qb) };
+        assert!(!result_ptr.is_null(), "build should return non-null");
+
+        // SAFETY: result_ptr 有效
+        let result_json = unsafe { CStr::from_ptr(result_ptr) }
+            .to_str()
+            .expect("build result should be valid UTF-8");
+        let parsed: serde_json::Value =
+            serde_json::from_str(result_json).expect("build result should be valid JSON");
+
+        assert!(parsed["sql"].is_string(), "result should contain sql");
+        let sql = parsed["sql"].as_str().unwrap();
+        assert!(sql.contains("users"), "SQL should contain table name");
+        assert!(sql.contains("status"), "SQL should contain where field");
+        assert!(sql.contains("LIMIT"), "SQL should contain LIMIT");
+
+        // SAFETY: result_ptr 有效
+        unsafe { sz_orm_qb_result_free(result_ptr) };
+        // SAFETY: qb 有效
+        unsafe { sz_orm_qb_free(qb) };
+    }
+
+    #[test]
+    fn test_qb_multiple_build_consistent() {
+        // SAFETY: 句柄由 sz_orm_qb_new 创建
+        let qb = unsafe { sz_orm_qb_new(2) };
+        assert!(!qb.is_null());
+
+        let table = CString::new("t").unwrap();
+        // SAFETY: qb/table 有效
+        unsafe { sz_orm_qb_table(qb, table.as_ptr()) };
+
+        // SAFETY: qb 有效
+        let ptr1 = unsafe { sz_orm_qb_build(qb) };
+        assert!(!ptr1.is_null());
+        // SAFETY: ptr1 有效
+        let json1 = unsafe { CStr::from_ptr(ptr1) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        // SAFETY: ptr1 有效
+        unsafe { sz_orm_qb_result_free(ptr1) };
+
+        // SAFETY: qb 有效
+        let ptr2 = unsafe { sz_orm_qb_build(qb) };
+        assert!(!ptr2.is_null());
+        // SAFETY: ptr2 有效
+        let json2 = unsafe { CStr::from_ptr(ptr2) }
+            .to_str()
+            .unwrap()
+            .to_string();
+        // SAFETY: ptr2 有效
+        unsafe { sz_orm_qb_result_free(ptr2) };
+
+        assert_eq!(
+            json1, json2,
+            "multiple build should produce identical results"
+        );
+
+        // SAFETY: qb 有效
+        unsafe { sz_orm_qb_free(qb) };
+    }
+
+    #[test]
+    fn test_qb_null_arguments() {
+        // SAFETY: null qb 合法调用
+        let r = unsafe { sz_orm_qb_table(std::ptr::null_mut(), std::ptr::null()) };
+        assert_eq!(r, SzOrmErrorCode::InvalidArgument.as_i32());
+
+        // SAFETY: null qb 合法调用
+        let r = unsafe { sz_orm_qb_limit(std::ptr::null_mut(), 10) };
+        assert_eq!(r, SzOrmErrorCode::InvalidArgument.as_i32());
+
+        // SAFETY: null qb 合法调用
+        let ptr = unsafe { sz_orm_qb_build(std::ptr::null_mut()) };
+        assert!(ptr.is_null(), "build with null qb should return null");
+    }
+
+    #[test]
+    fn test_qb_free_null_is_noop() {
+        // SAFETY: null 指针调用 free 是安全的 no-op
+        unsafe { sz_orm_qb_free(std::ptr::null_mut()) };
+        // SAFETY: null 指针调用 result_free 是安全的 no-op
+        unsafe { sz_orm_qb_result_free(std::ptr::null_mut()) };
+    }
+
+    #[test]
+    fn test_qb_where_eq_with_integer() {
+        // SAFETY: 句柄由 sz_orm_qb_new 创建
+        let qb = unsafe { sz_orm_qb_new(0) };
+        assert!(!qb.is_null());
+
+        let table = CString::new("items").unwrap();
+        let field = CString::new("id").unwrap();
+        let value = CString::new("42").unwrap();
+
+        // SAFETY: qb/table 有效
+        unsafe { sz_orm_qb_table(qb, table.as_ptr()) };
+        // SAFETY: qb/field/value 有效
+        let r = unsafe { sz_orm_qb_where_eq(qb, field.as_ptr(), value.as_ptr()) };
+        assert_eq!(r, SzOrmErrorCode::Ok.as_i32());
+
+        // SAFETY: qb 有效
+        let ptr = unsafe { sz_orm_qb_build(qb) };
+        assert!(!ptr.is_null());
+        // SAFETY: ptr 有效
+        let json = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap();
+        assert!(json.contains("items"), "SQL should contain table");
+        assert!(json.contains("id"), "SQL should contain field");
+
+        // SAFETY: ptr/qb 有效
+        unsafe {
+            sz_orm_qb_result_free(ptr);
+            sz_orm_qb_free(qb);
+        }
     }
 }

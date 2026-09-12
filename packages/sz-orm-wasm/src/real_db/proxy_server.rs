@@ -450,6 +450,68 @@ impl MultiDialectProxyBackend {
 }
 
 // ============================================================================
+// HTTP 端点处理（v6.9.0 REQ-BND-WASM）
+// ============================================================================
+
+/// HTTP 响应
+#[derive(Debug, Clone)]
+pub struct HttpResponse {
+    /// HTTP 状态码
+    pub status_code: u16,
+    /// 响应体 JSON
+    pub body: String,
+}
+
+impl HttpResponse {
+    fn ok(body: &str) -> Self {
+        Self {
+            status_code: 200,
+            body: body.to_string(),
+        }
+    }
+
+    fn error(status_code: u16, message: &str) -> Self {
+        Self {
+            status_code,
+            body: format!(r#"{{"error":"{}"}}"#, message),
+        }
+    }
+}
+
+/// 将 WasmRealDbError 映射为 HTTP 状态码
+pub fn error_to_status_code(err: &WasmRealDbError) -> u16 {
+    match err {
+        WasmRealDbError::AuthFailed | WasmRealDbError::CredentialsNotExposed => 401,
+        WasmRealDbError::SqlRejected { .. } => 403,
+        WasmRealDbError::RateLimited => 429,
+        _ => 500,
+    }
+}
+
+impl WasmProxyServer {
+    /// 处理 HTTP POST /proxy/query 请求
+    ///
+    /// 输入为 ProxyRequest JSON，输出为 HttpResponse（含状态码和 JSON 体）。
+    pub async fn handle_http_request(&mut self, request_json: &str) -> HttpResponse {
+        let request: ProxyRequest = match serde_json::from_str(request_json) {
+            Ok(r) => r,
+            Err(e) => return HttpResponse::error(400, &format!("invalid request: {e}")),
+        };
+
+        match self.handle_request(request).await {
+            Ok(response) => {
+                let body = serde_json::to_string(&response).unwrap_or_else(|_| "{}".to_string());
+                HttpResponse::ok(&body)
+            }
+            Err(e) => {
+                let code = error_to_status_code(&e);
+                HttpResponse::error(code, &e.to_string())
+            }
+        }
+    }
+}
+
+// ============================================================================
 // 测试
 // ============================================================================
 
@@ -556,5 +618,45 @@ mod tests {
             WasmProxyServer::value_to_json(&Value::Bool(true)),
             serde_json::json!(true)
         );
+    }
+
+    #[test]
+    fn test_error_to_status_code_mapping() {
+        assert_eq!(error_to_status_code(&WasmRealDbError::AuthFailed), 401);
+        assert_eq!(
+            error_to_status_code(&WasmRealDbError::CredentialsNotExposed),
+            401
+        );
+        assert_eq!(
+            error_to_status_code(&WasmRealDbError::SqlRejected {
+                reason: "test".to_string()
+            }),
+            403
+        );
+        assert_eq!(error_to_status_code(&WasmRealDbError::RateLimited), 429);
+        assert_eq!(
+            error_to_status_code(&WasmRealDbError::QueryFailed {
+                reason: "test".to_string()
+            }),
+            500
+        );
+        assert_eq!(
+            error_to_status_code(&WasmRealDbError::ProxyUnavailable),
+            500
+        );
+    }
+
+    #[test]
+    fn test_http_response_ok() {
+        let resp = HttpResponse::ok(r#"{"status":"ok"}"#);
+        assert_eq!(resp.status_code, 200);
+        assert!(resp.body.contains("ok"));
+    }
+
+    #[test]
+    fn test_http_response_error() {
+        let resp = HttpResponse::error(401, "auth failed");
+        assert_eq!(resp.status_code, 401);
+        assert!(resp.body.contains("auth failed"));
     }
 }

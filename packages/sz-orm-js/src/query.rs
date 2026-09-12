@@ -194,6 +194,16 @@ impl QueryBuilder {
 
         Ok(SqlWithParams { sql, params })
     }
+
+    #[napi]
+    pub async fn async_build_select(&self) -> Result<SqlWithParams> {
+        self.build_select()
+    }
+
+    #[napi]
+    pub async fn async_build_delete(&self) -> Result<SqlWithParams> {
+        self.build_delete()
+    }
 }
 
 #[cfg(test)]

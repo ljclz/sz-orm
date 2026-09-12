@@ -19,7 +19,7 @@ crate-type = ["cdylib", "rlib"]
 ignored = ['tokio']
 [dependencies]
 sz-orm-core = { workspace = true }
-napi = "2"
+napi = { version = "2", features = ["tokio_rt"] }
 napi-derive = "2"
 tokio = { workspace = true }
 serde_json = { workspace = true }

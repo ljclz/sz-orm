@@ -1,0 +1,64 @@
+apiVersion: apiextensions.k8s.io/v1
+kind: CustomResourceDefinition
+metadata:
+  name: szorminstances.szorm.io
+spec:
+  group: szorm.io
+  names:
+    kind: SzOrmInstance
+    listKind: SzOrmInstanceList
+    plural: szorminstances
+    singular: szorminstance
+    shortNames:
+      - szorm
+  scope: Namespaced
+  versions:
+    - name: v1alpha1
+      served: true
+      storage: true
+      schema:
+        openAPIV3Schema:
+          type: object
+          properties:
+            spec:
+              type: object
+              properties:
+                replicas:
+                  type: integer
+                  minimum: 1
+                  default: 2
+                poolSize:
+                  type: integer
+                  minimum: 1
+                  default: 20
+                dbConnStr:
+                  type: string
+                  description: "Database connection string (reference to Secret)"
+                image:
+                  type: string
+                  default: "sz-orm/server:6.9.0"
+                probes:
+                  type: object
+                  properties:
+                    livenessPath:
+                      type: string
+                      default: "/health/liveness"
+                    readinessPath:
+                      type: string
+                      default: "/health/readiness"
+                    startupPath:
+                      type: string
+                      default: "/health/startup"
+            status:
+              type: object
+              properties:
+                readyReplicas:
+                  type: integer
+                phase:
+                  type: string
+                  enum: ["Pending", "Ready", "Failed"]
+                lastReconcileTime:
+                  type: string
+                  format: date-time
+      subresources:
+        status: {}

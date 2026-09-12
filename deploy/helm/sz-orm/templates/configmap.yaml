@@ -1,0 +1,16 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: {{ .Release.Name }}-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    app.kubernetes.io/name: sz-orm
+    app.kubernetes.io/instance: {{ .Release.Name }}
+data:
+  LOG_LEVEL: "info"
+  POOL_MAX_CONNECTIONS: {{ .Values.database.poolMaxConnections | quote }}
+  # hot-reload: true 表示可热更新
+  # hot-reload: false 表示需重启
+  LOG_LEVEL__HOT_RELOAD: "true"
+  POOL_MAX_CONNECTIONS__HOT_RELOAD: "true"
+  SERVER_PORT__HOT_RELOAD: "false"

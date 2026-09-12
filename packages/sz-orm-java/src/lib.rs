@@ -622,6 +622,427 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_modelFindTx<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+// ============================================================================
+// QueryBuilder JNI 入口（v6.9.0 REQ-BND-QB）
+// ============================================================================
+
+/// JNI entry: Create QueryBuilder, return handle (0 indicates failure)
+#[no_mangle]
+pub extern "system" fn Java_sz_1orm_1java_SzOrmQueryBuilder_qbNew<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    db_type: jint,
+) -> jlong {
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            // SAFETY: db_type 是 u32 范围内的整数
+            let handle = unsafe { sz_orm_cabi::sz_orm_qb_new(db_type as u32) };
+            Ok(handle as jlong)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Set table name on QueryBuilder, return 1=success 0=failure
+///
+/// # Safety
+///
+/// SAFETY: `qb` must be a valid handle returned by `qbNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmQueryBuilder_qbTable<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    qb: jlong,
+    table: JString<'local>,
+) -> jint {
+    if qb == 0 {
+        return 0;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jint> {
+            let table_s: String = table.to_string();
+            let c_table = CString::new(table_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: qb 来自 qbNew，c_table 有效
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_qb_table(
+                    qb as sz_orm_cabi::SzOrmQueryBuilderHandle,
+                    c_table.as_ptr(),
+                )
+            };
+            Ok(r)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Add WHERE eq condition, return 1=success 0=failure
+///
+/// # Safety
+///
+/// SAFETY: `qb` must be a valid handle returned by `qbNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmQueryBuilder_qbWhereEq<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    qb: jlong,
+    field: JString<'local>,
+    value_json: JString<'local>,
+) -> jint {
+    if qb == 0 {
+        return 0;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jint> {
+            let field_s: String = field.to_string();
+            let value_s: String = value_json.to_string();
+            let c_field = CString::new(field_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_value = CString::new(value_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: qb 来自 qbNew，C 字符串有效
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_qb_where_eq(
+                    qb as sz_orm_cabi::SzOrmQueryBuilderHandle,
+                    c_field.as_ptr(),
+                    c_value.as_ptr(),
+                )
+            };
+            Ok(r)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Add ORDER BY clause, return 1=success 0=failure
+///
+/// # Safety
+///
+/// SAFETY: `qb` must be a valid handle returned by `qbNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmQueryBuilder_qbOrderBy<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    qb: jlong,
+    field: JString<'local>,
+    desc: jint,
+) -> jint {
+    if qb == 0 {
+        return 0;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jint> {
+            let field_s: String = field.to_string();
+            let c_field = CString::new(field_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: qb 来自 qbNew，c_field 有效
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_qb_order_by(
+                    qb as sz_orm_cabi::SzOrmQueryBuilderHandle,
+                    c_field.as_ptr(),
+                    desc,
+                )
+            };
+            Ok(r)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Set LIMIT, return 1=success 0=failure
+///
+/// # Safety
+///
+/// SAFETY: `qb` must be a valid handle returned by `qbNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmQueryBuilder_qbLimit<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    qb: jlong,
+    limit: jlong,
+) -> jint {
+    if qb == 0 {
+        return 0;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jint> {
+            // SAFETY: qb 来自 qbNew
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_qb_limit(
+                    qb as sz_orm_cabi::SzOrmQueryBuilderHandle,
+                    limit as u64,
+                )
+            };
+            Ok(r)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Build SQL + params JSON, return JSON string (null on failure)
+///
+/// # Safety
+///
+/// SAFETY: `qb` must be a valid handle returned by `qbNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmQueryBuilder_qbBuild<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    qb: jlong,
+) -> jstring {
+    if qb == 0 {
+        return std::ptr::null_mut();
+    }
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jstring> {
+            // SAFETY: qb 来自 qbNew
+            let ptr =
+                unsafe { sz_orm_cabi::sz_orm_qb_build(qb as sz_orm_cabi::SzOrmQueryBuilderHandle) };
+            if ptr.is_null() {
+                return Ok(std::ptr::null_mut());
+            }
+            // SAFETY: ptr 由 sz_orm_qb_build 分配
+            let json = unsafe { std::ffi::CStr::from_ptr(ptr) }
+                .to_str()
+                .map(|s| s.to_string())
+                .unwrap_or_default();
+            // SAFETY: ptr 配对释放
+            unsafe { sz_orm_cabi::sz_orm_qb_result_free(ptr) };
+            let jstr = env.new_string(&json)?;
+            Ok(jstr.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Free QueryBuilder handle
+///
+/// # Safety
+///
+/// SAFETY: `qb` must be a valid handle returned by `qbNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmQueryBuilder_qbFree<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    qb: jlong,
+) {
+    if qb == 0 {
+        return;
+    }
+    let _ = unowned_env.with_env(|_env| -> jni::errors::Result<()> {
+        // SAFETY: 调用方保证 qb 来自 qbNew
+        unsafe {
+            sz_orm_cabi::sz_orm_qb_free(qb as sz_orm_cabi::SzOrmQueryBuilderHandle);
+        }
+        Ok(())
+    });
+}
+
+// ============================================================================
+// ActiveModel JNI 入口（v6.9.0 REQ-BND-AM）
+// ============================================================================
+
+/// JNI entry: ActiveModel create (insert), return affected rows (-1=failure)
+#[no_mangle]
+pub extern "system" fn Java_sz_1orm_1java_SzOrmActiveModel_create<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    pool_handle: jlong,
+    table: JString<'local>,
+    fields_json: JString<'local>,
+    values_json: JString<'local>,
+) -> jlong {
+    if pool_handle == 0 {
+        return -1;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            let table_s: String = table.to_string();
+            let fields_s: String = fields_json.to_string();
+            let values_s: String = values_json.to_string();
+            let c_table = CString::new(table_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_fields = CString::new(fields_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_values = CString::new(values_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: pool_handle 来自 poolNew，C 字符串有效
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_model_insert(
+                    pool_handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_table.as_ptr(),
+                    c_fields.as_ptr(),
+                    c_values.as_ptr(),
+                )
+            };
+            if r.success == 0 {
+                Ok(-1)
+            } else {
+                Ok(r.rows_affected as jlong)
+            }
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: ActiveModel set (update), return affected rows (-1=failure)
+#[no_mangle]
+pub extern "system" fn Java_sz_1orm_1java_SzOrmActiveModel_set<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    pool_handle: jlong,
+    table: JString<'local>,
+    set_json: JString<'local>,
+    where_clause: JString<'local>,
+    where_params_json: JString<'local>,
+) -> jlong {
+    if pool_handle == 0 {
+        return -1;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            let table_s: String = table.to_string();
+            let set_s: String = set_json.to_string();
+            let where_s: String = where_clause.to_string();
+            let where_params_s: String = where_params_json.to_string();
+            let c_table = CString::new(table_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_set = CString::new(set_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_where = CString::new(where_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_where_params =
+                CString::new(where_params_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: pool_handle 来自 poolNew，C 字符串有效
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_model_update(
+                    pool_handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_table.as_ptr(),
+                    c_set.as_ptr(),
+                    c_where.as_ptr(),
+                    c_where_params.as_ptr(),
+                )
+            };
+            if r.success == 0 {
+                Ok(-1)
+            } else {
+                Ok(r.rows_affected as jlong)
+            }
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: ActiveModel get (find), return JSON rows (null on failure)
+#[no_mangle]
+pub extern "system" fn Java_sz_1orm_1java_SzOrmActiveModel_get<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    pool_handle: jlong,
+    table: JString<'local>,
+    where_clause: JString<'local>,
+    where_params_json: JString<'local>,
+) -> jstring {
+    if pool_handle == 0 {
+        return std::ptr::null_mut();
+    }
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jstring> {
+            let table_s: String = table.to_string();
+            let where_s: String = where_clause.to_string();
+            let where_params_s: String = where_params_json.to_string();
+            let c_table = CString::new(table_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_where = CString::new(where_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_where_params =
+                CString::new(where_params_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: pool_handle 来自 poolNew，C 字符串有效
+            let ptr = unsafe {
+                sz_orm_cabi::sz_orm_model_find(
+                    pool_handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_table.as_ptr(),
+                    c_where.as_ptr(),
+                    c_where_params.as_ptr(),
+                )
+            };
+            let json = if ptr.is_null() {
+                String::new()
+            } else {
+                // SAFETY: ptr 有效
+                let s = unsafe { std::ffi::CStr::from_ptr(ptr) }
+                    .to_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default();
+                // SAFETY: ptr 配对释放
+                unsafe { sz_orm_cabi::sz_orm_string_free(ptr) };
+                s
+            };
+            let jstr = env.new_string(&json)?;
+            Ok(jstr.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: ActiveModel save (insert or update), return affected rows (-1=failure)
+#[no_mangle]
+pub extern "system" fn Java_sz_1orm_1java_SzOrmActiveModel_save<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    pool_handle: jlong,
+    table: JString<'local>,
+    fields_json: JString<'local>,
+    values_json: JString<'local>,
+) -> jlong {
+    if pool_handle == 0 {
+        return -1;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            let table_s: String = table.to_string();
+            let fields_s: String = fields_json.to_string();
+            let values_s: String = values_json.to_string();
+            let c_table = CString::new(table_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_fields = CString::new(fields_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_values = CString::new(values_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: pool_handle 来自 poolNew，C 字符串有效
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_model_insert(
+                    pool_handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_table.as_ptr(),
+                    c_fields.as_ptr(),
+                    c_values.as_ptr(),
+                )
+            };
+            if r.success == 0 {
+                Ok(-1)
+            } else {
+                Ok(r.rows_affected as jlong)
+            }
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: ActiveModel delete, return affected rows (-1=failure)
+#[no_mangle]
+pub extern "system" fn Java_sz_1orm_1java_SzOrmActiveModel_delete<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    pool_handle: jlong,
+    table: JString<'local>,
+    where_clause: JString<'local>,
+    where_params_json: JString<'local>,
+) -> jlong {
+    if pool_handle == 0 {
+        return -1;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            let table_s: String = table.to_string();
+            let where_s: String = where_clause.to_string();
+            let where_params_s: String = where_params_json.to_string();
+            let c_table = CString::new(table_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_where = CString::new(where_s).map_err(|_| jni::errors::Error::JavaException)?;
+            let c_where_params =
+                CString::new(where_params_s).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: pool_handle 来自 poolNew，C 字符串有效
+            let r = unsafe {
+                sz_orm_cabi::sz_orm_model_delete(
+                    pool_handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_table.as_ptr(),
+                    c_where.as_ptr(),
+                    c_where_params.as_ptr(),
+                )
+            };
+            if r.success == 0 {
+                Ok(-1)
+            } else {
+                Ok(r.rows_affected as jlong)
+            }
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;
@@ -980,6 +1401,185 @@ mod tests {
             json.contains("CommitUser"),
             "java find after commit should contain CommitUser: {json}"
         );
+        // SAFETY: pool 有效
+        unsafe { sz_orm_cabi::sz_orm_pool_free(pool) };
+    }
+
+    // ===== v6.9.0 新增测试：QueryBuilder + ActiveModel JNI 转发 =====
+
+    #[test]
+    fn test_java_qb_new_and_free() {
+        // SAFETY: db_type=1 (SQLite) 合法
+        let qb = unsafe { sz_orm_cabi::sz_orm_qb_new(1) };
+        assert!(!qb.is_null(), "qb_new should return non-null handle");
+        // SAFETY: qb 来自 qb_new
+        unsafe { sz_orm_cabi::sz_orm_qb_free(qb) };
+    }
+
+    #[test]
+    fn test_java_qb_full_chain() {
+        // SAFETY: db_type=0 (MySQL) 合法
+        let qb = unsafe { sz_orm_cabi::sz_orm_qb_new(0) };
+        assert!(!qb.is_null());
+
+        let table = CString::new("users").unwrap();
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_cabi::sz_orm_qb_table(qb, table.as_ptr()) },
+            sz_orm_cabi::SzOrmErrorCode::Ok.as_i32()
+        );
+
+        let field = CString::new("status").unwrap();
+        let value = CString::new(r#""active""#).unwrap();
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_cabi::sz_orm_qb_where_eq(qb, field.as_ptr(), value.as_ptr()) },
+            sz_orm_cabi::SzOrmErrorCode::Ok.as_i32()
+        );
+
+        let order_field = CString::new("id").unwrap();
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_cabi::sz_orm_qb_order_by(qb, order_field.as_ptr(), 1) },
+            sz_orm_cabi::SzOrmErrorCode::Ok.as_i32()
+        );
+
+        // SAFETY: qb 有效
+        assert_eq!(
+            unsafe { sz_orm_cabi::sz_orm_qb_limit(qb, 10) },
+            sz_orm_cabi::SzOrmErrorCode::Ok.as_i32()
+        );
+
+        // SAFETY: qb 有效
+        let result_ptr = unsafe { sz_orm_cabi::sz_orm_qb_build(qb) };
+        assert!(!result_ptr.is_null(), "qb_build should return JSON");
+        // SAFETY: result_ptr 有效
+        let json = unsafe { std::ffi::CStr::from_ptr(result_ptr) }
+            .to_string_lossy()
+            .into_owned();
+        // SAFETY: result_ptr 配对释放
+        unsafe { sz_orm_cabi::sz_orm_qb_result_free(result_ptr) };
+
+        assert!(
+            json.contains("users"),
+            "SQL should contain table name: {json}"
+        );
+        assert!(
+            json.contains("status"),
+            "SQL should contain where field: {json}"
+        );
+
+        // SAFETY: qb 有效
+        unsafe { sz_orm_cabi::sz_orm_qb_free(qb) };
+    }
+
+    #[test]
+    fn test_java_qb_invalid_db_type() {
+        // SAFETY: 无效 db_type 返回 null
+        let qb = unsafe { sz_orm_cabi::sz_orm_qb_new(999) };
+        assert!(qb.is_null(), "invalid db_type should return null");
+    }
+
+    #[test]
+    fn test_java_qb_free_null_is_noop() {
+        // SAFETY: null 指针 free 是安全空操作
+        unsafe { sz_orm_cabi::sz_orm_qb_free(std::ptr::null_mut()) };
+    }
+
+    #[test]
+    fn test_java_active_model_create_get_delete() {
+        let pool = model_test_pool();
+
+        let table = CString::new("jm_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["AMUser",42]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        let r = unsafe {
+            sz_orm_cabi::sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr())
+        };
+        assert_eq!(r.success, 1, "active_model create should succeed");
+
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["AMUser"]"#).unwrap();
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_cabi::sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: ptr 有效
+        let json = unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned();
+        // SAFETY: ptr 配对释放
+        unsafe { sz_orm_cabi::sz_orm_string_free(ptr) };
+        assert!(json.contains("AMUser"), "get should find AMUser: {json}");
+
+        // SAFETY: pool/table/where 有效
+        let r = unsafe {
+            sz_orm_cabi::sz_orm_model_delete(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert_eq!(r.success, 1, "active_model delete should succeed");
+
+        // SAFETY: pool 有效
+        unsafe { sz_orm_cabi::sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_java_active_model_set_update() {
+        let pool = model_test_pool();
+
+        let table = CString::new("jm_t").unwrap();
+        let fields = CString::new(r#"["name","age"]"#).unwrap();
+        let values = CString::new(r#"["SetUser",20]"#).unwrap();
+        // SAFETY: pool/table/fields/values 有效
+        unsafe {
+            sz_orm_cabi::sz_orm_model_insert(pool, table.as_ptr(), fields.as_ptr(), values.as_ptr())
+        };
+
+        let set_json = CString::new(r#"{"age":21}"#).unwrap();
+        let where_clause = CString::new("name = ?").unwrap();
+        let where_params = CString::new(r#"["SetUser"]"#).unwrap();
+        // SAFETY: pool/table/set/where 有效
+        let r = unsafe {
+            sz_orm_cabi::sz_orm_model_update(
+                pool,
+                table.as_ptr(),
+                set_json.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        assert_eq!(r.success, 1, "active_model set should succeed");
+
+        // SAFETY: pool/table/where 有效
+        let ptr = unsafe {
+            sz_orm_cabi::sz_orm_model_find(
+                pool,
+                table.as_ptr(),
+                where_clause.as_ptr(),
+                where_params.as_ptr(),
+            )
+        };
+        // SAFETY: ptr 有效
+        let json = unsafe { std::ffi::CStr::from_ptr(ptr) }
+            .to_string_lossy()
+            .into_owned();
+        // SAFETY: ptr 配对释放
+        unsafe { sz_orm_cabi::sz_orm_string_free(ptr) };
+        assert!(
+            json.contains("21"),
+            "get after set should contain age 21: {json}"
+        );
+
         // SAFETY: pool 有效
         unsafe { sz_orm_cabi::sz_orm_pool_free(pool) };
     }
