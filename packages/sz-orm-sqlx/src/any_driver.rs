@@ -857,7 +857,6 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_connection_sqlite() {
-        use sz_orm_core::Connection;
         let mut conn = create_connection("sqlite::memory:").await.unwrap();
         conn.execute("CREATE TABLE cc (id INTEGER PRIMARY KEY, v TEXT)")
             .await
@@ -877,7 +876,7 @@ mod tests {
 
     #[tokio::test]
     async fn test_create_connection_by_type_sqlite() {
-        use sz_orm_core::{Connection, DbType};
+        use sz_orm_core::DbType;
         let mut conn = create_connection_by_type(DbType::Sqlite, "sqlite::memory:")
             .await
             .unwrap();

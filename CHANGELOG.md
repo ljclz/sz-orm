@@ -5,6 +5,79 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [7.0.0] — 2026-09-13
+
+### v7.0.0 五大能力：多区域多活 / 实时流处理 / TDE 透明数据加密 / Serverless 适配 / 可组合性插件系统
+
+基于 v6.9.0 基线，新增五大方向数据访问能力，499 个新测试，7 个新 feature gate（全部默认关闭），不新增 crate（保持 72 包），所有接口以 feature gate 形式提供，保证向后兼容。
+
+#### 新增 Feature Gate（7 个，全部默认关闭）
+
+- `composable-plugin`（sz-orm-core）：可组合性插件系统（PanicSafeRegistry + PluginSigner + MiddlewareChain + ExtensionPointRegistry）
+- `tde-enhanced`（sz-orm-crypto）：TDE 透明数据加密增强（DekBuffer + KmsClient + ColumnEncryptionPolicy）
+- `tde-interceptor`（sz-orm-core）：TDE 拦截器（TdeInterceptor + encrypt_row/decrypt_row）
+- `multi-region`（sz-orm-fusion）：多区域多活（RegionTopology + GlobalRouter + Failover + ReplicationLag + EdgeNode + MultiVersion Conflict）
+- `serverless-adapt`（sz-orm-core）：Serverless 适配（ColdStartOptimizer + GracefulShutdown）
+- `serverless-metering`（sz-orm-observability）：按需计费度量（MeteringCollector + MeteringReport）
+- `stream-processing`（sz-orm-stream）：实时流处理（MaterializedView + StreamBatchJob + WindowAssigner + FlinkClient + BackpressureStrategy）
+
+#### 新增模块
+
+- `sz-orm-core/src/plugin.rs` 扩展：PanicSafeRegistry / PluginSigner / MiddlewareChain / PluginState / SignatureStatus
+- `sz-orm-core/src/hooks.rs` 扩展：ExtensionPoint / ExtensionHandler / ExtensionPointRegistry
+- `sz-orm-core/src/field_cipher.rs` 扩展：TdeInterceptor / TdeError
+- `sz-orm-core/src/prewarm.rs` 扩展：ColdStartOptimizer / ColdStartStats
+- `sz-orm-core/src/pool_elastic.rs` 扩展：GracefulShutdown / GracefulShutdownConfig / ShutdownError / CdcCheckpoint
+- `sz-orm-crypto/src/dek_buffer.rs`：DekBuffer / EncryptionAlgo
+- `sz-orm-crypto/src/kms_client.rs`：KmsClient / LocalKmsClient / DekCache / KmsDegradeManager / CachedKmsClient
+- `sz-orm-crypto/src/column_encryption.rs`：ColumnEncryptionPolicy / ColumnCryptoConfig
+- `sz-orm-fusion/src/region_topology.rs`：RegionTopology / RegionNode / RegionRole / DataAffinityPolicy / ReplicationMode
+- `sz-orm-fusion/src/global_router.rs`：GlobalRouter / RouteRequest / RouteDecision / ConsistencyLevel
+- `sz-orm-fusion/src/region_failover.rs`：RegionFailoverCoordinator / FailoverDecision / FailoverAuditLog
+- `sz-orm-fusion/src/replication_lag.rs`：ReplicationLagTracker / LagWindow / LinkType
+- `sz-orm-fusion/src/edge_node.rs`：EdgeNodeRouter / EdgeNode / GeoLocation / EdgeRoutingPolicy
+- `sz-orm-fusion/src/conflict.rs` 扩展：VectorClock / MultiVersion / Custom Resolver
+- `sz-orm-stream/src/materialized_view.rs`：MaterializedViewDef / ViewRefreshEngine / RefreshStrategy
+- `sz-orm-stream/src/unified_job.rs`：StreamBatchJob / JobDag / JobMode / Watermark
+- `sz-orm-stream/src/window.rs`：WindowAssigner / WindowConfig / WindowType / Watermark
+- `sz-orm-stream/src/flink_adapter.rs`：FlinkClient / FlinkError / JobStatus
+- `sz-orm-stream/src/backpressure.rs` 扩展：BackpressureStrategy
+- `sz-orm-observability/src/serverless_metering.rs`：MeteringCollector / MeteringReport / ReportStatus
+
+#### 新增依赖
+
+- `zeroize`（唯一全新引入，仅 sz-orm-crypto 使用，RustCrypto 审计过）
+- `parking_lot`（既有工作空间依赖，optional 引入 sz-orm-fusion / sz-orm-stream）
+- `tracing`（既有工作空间依赖，optional 引入 sz-orm-fusion）
+- `reqwest`（既有依赖，optional 引入 sz-orm-stream）
+
+#### 新增测试（499 个）
+
+| 任务组 | 方向 | 新增测试 |
+|--------|------|----------|
+| 2 | 可组合性插件系统 | 19 |
+| 3 | TDE 透明数据加密 | 38 |
+| 4 | 多区域多活 | 204 |
+| 5 | Serverless 适配 | 23 |
+| 6 | 实时流处理 | 215 |
+
+#### 新增示例
+
+- `&nbsp;`composable_plugin_demo.rs`：可组合性插件系统示例
+- `tde_demo.rs`：TDE 透明数据加密示例
+- `multi_region_demo.rs`：多区域多活示例
+- `serverless_demo.rs`：Serverless 适配示例
+- `stream_processing_demo.rs`：实时流处理示例
+
+#### 性能指标>指标
+
+- 多区域路由决策延迟 ≤ 5ms（P99）
+- 跨区域同步延迟：同城 ≤ 200ms / 跨洲 ≤$ 2s（P99）
+- 流处理端到端延迟 ≤ 1s（P99）
+- TDE 加解密开销 ≤ 10μs/行
+- Serverless 冷启动 P95 ≤ 150ms
+- 插件中间件链开销 ≤ 1ms（链长 ≤ 10）
+
 ## [6.8.0] — 2026-09-09
 
 ### v6.8.0 五大能力：AI 智能化增强 / CDC 数据同步 / 向量图数据库 / 性能极致化 / 企业治理深化

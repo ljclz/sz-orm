@@ -20,13 +20,13 @@ error: Entity 需要恰好一个 #[column(primary_key)] 字段
   |
   = note: this error originates in the derive macro `Entity` (in Nightly builds, run with -Z macro-backtrace for more info)
 
-error[E0277]: the trait bound `UserNoPk: Model` is not satisfied
+error[E0277]: the trait bound `UserNoPk: sz_orm_core::Model` is not satisfied
  --> tests/ui/relation_fail/01_no_primary_key.rs:8:8
   |
 8 | struct UserNoPk {
   |        ^^^^^^^^ unsatisfied trait bound
   |
-help: the trait `Model` is not implemented for `UserNoPk`
+help: the trait `sz_orm_core::Model` is not implemented for `UserNoPk`
  --> tests/ui/relation_fail/01_no_primary_key.rs:8:1
   |
 8 | struct UserNoPk {

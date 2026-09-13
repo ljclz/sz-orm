@@ -163,6 +163,7 @@ fn a02_insecure_random_absent() {
         "sz-orm-core\\src\\query_result_cache.rs",
         "sz-orm-core\\src\\dist_cache_cluster.rs",
         "sz-orm-masking\\src\\dynamic_masking.rs",
+        "sz-orm-nl-query\\src\\cached_pipeline.rs", // NL→SQL 内存缓存键（确定性哈希，非密码学用途）
     ];
     let mut violations = Vec::new();
 

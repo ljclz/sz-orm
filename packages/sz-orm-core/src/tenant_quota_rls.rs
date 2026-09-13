@@ -238,8 +238,8 @@ impl QuotaEnforcer {
             None => Ok(()),
             Some(q) => {
                 let limit = q.limit(resource);
+                // 资源未设上限（limit 为 None）时放行，与 `_` 兜底臂同语义
                 match limit {
-                    None => Ok(()),
                     Some(limit) if current >= limit => {
                         if matches!(self.strategy, QuotaEnforceStrategy::FailOpen) {
                             Ok(())
@@ -809,6 +809,36 @@ mod tests {
         enforcer.set_quota(quota);
         let result = enforcer.check_quota("t1", QuotaResource::Connection, 15);
         assert!(result.is_ok());
+    }
+
+    /// 配额已设置但目标资源未配置上限：无论当前用量多大都必须放行
+    /// （pin 住 `limit == None → Ok(())` 语义，对应 G20 曾存活的 None 分支变异）
+    #[test]
+    fn test_quota_enforcer_resource_without_limit() {
+        let enforcer = QuotaEnforcer::new();
+        let quota = TenantResourceQuota::new("t1").with_max_connections(10);
+        enforcer.set_quota(quota);
+        // Qps / Storage 未设上限：超大用量也放行
+        assert!(enforcer
+            .check_quota("t1", QuotaResource::Qps, u64::MAX)
+            .is_ok());
+        assert!(enforcer
+            .check_quota("t1", QuotaResource::Storage, u64::MAX)
+            .is_ok());
+        // 已设上限的资源仍然生效
+        assert!(enforcer
+            .check_quota("t1", QuotaResource::Connection, 10)
+            .is_err());
+    }
+
+    /// 其他租户的配额不应影响本租户：未设配额的租户始终放行
+    #[test]
+    fn test_quota_enforcer_unknown_tenant_with_others_configured() {
+        let enforcer = QuotaEnforcer::new();
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(1));
+        assert!(enforcer
+            .check_quota("t2", QuotaResource::Connection, u64::MAX)
+            .is_ok());
     }
 
     #[test]

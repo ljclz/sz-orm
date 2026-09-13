@@ -51,7 +51,7 @@ def find_cargo():
     return "cargo"
 
 
-def run_mutants(pkg, files, features):
+def run_mutants(pkg, files, features, timeout_seconds):
     """运行 cargo-mutants（输出到 mutants.out），返回 (caught, missed, timeout)。"""
     out_dir = os.path.join(ROOT, "mutants.out")
     # 测试串行（--test-threads=1）排除高负载下的计时敏感 flake，
@@ -67,7 +67,8 @@ def run_mutants(pkg, files, features):
         cmd += ["--file", f]
     cmd += ["--", "--", "--test-threads=1"]
     print("  $ " + " ".join(cmd))
-    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True, timeout=10800)
+    proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
+                          timeout=timeout_seconds)
     # cargo-mutants 成功退出码为 0；变异体导致的测试失败不影响退出码
     def count(name):
         # cargo-mutants 会在 -o 指定目录下再建一层 mutants.out 子目录
@@ -93,6 +94,8 @@ def main():
     ap.add_argument("--file", action="append", default=None, help="目标文件（可多次），默认内置子集")
     ap.add_argument("--features", default="", help="cargo features（如 multi-tenant-enhanced）")
     ap.add_argument("--threshold", type=float, default=0.7, help="杀率阈值（默认 0.7）")
+    ap.add_argument("--timeout", type=int, default=21600,
+                    help="cargo-mutants 运行超时秒数（默认 21600=6h；110 变异体 × --test-threads=1 实测约需 5~6h，2026-09-13 审查实测）")
     args = ap.parse_args()
     # 默认子集全部位于 feature 门控内：未显式指定 features 时自动使用 DEFAULT_FEATURES
     # （2026-08-15 修复：此前默认调用不带 features，cargo-mutants 必然失败——见验证报告发现 2）
@@ -104,7 +107,7 @@ def main():
     print("=" * 60)
     print(f"  目标: {args.package} {files}")
 
-    result = run_mutants(args.package, files, args.features)
+    result = run_mutants(args.package, files, args.features, args.timeout)
     if result is None:
         print("❌ 门禁 20 未通过 — 变异测试运行失败")
         return 1

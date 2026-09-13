@@ -71,12 +71,18 @@ def load_workspace_rust_version(cargo_toml: Path) -> str:
 
 
 def extract_doc_value(filepath: Path, pattern: re.Pattern) -> str | None:
-    """从文档文件中提取匹配值。"""
+    """从文档中提取匹配值。
+
+    统一约定：pattern 为「(前缀)(值)」两捕获组，值取第 2 组；
+    单捕获组的旧 pattern 取第 1 组（向后兼容）。
+    """
     if not filepath.exists():
         return None
     text = filepath.read_text(encoding="utf-8")
     m = pattern.search(text)
-    return m.group(1) if m else None
+    if not m:
+        return None
+    return m.group(2) if (m.lastindex and m.lastindex >= 2) else m.group(1)
 
 
 def check_field(name: str, actual: str, doc_value: str | None, filepath: Path, fix: bool) -> bool:
@@ -94,11 +100,25 @@ def check_field(name: str, actual: str, doc_value: str | None, filepath: Path, f
 
 
 def update_doc_value(filepath: Path, pattern: re.Pattern, new_value: str, label: str) -> bool:
-    """更新文档中的值。"""
+    """更新文档中的值。
+
+    仅替换第 2 个捕获组（旧值）的 span，保留匹配中的其余文本（前缀与尾随字符，
+    如 `工作空间：71（` 的全角括号——2026-09-13 修复：旧实现用 `\\g<1>新值` 整段
+    替换，会把未捕获的尾随字符一并吞掉，产生「7269 lib 包」这类损坏文本）。
+    """
     if not filepath.exists():
         return False
     text = filepath.read_text(encoding="utf-8")
-    new_text, count = pattern.subn(rf'\g<1>{new_value}', text)
+
+    def _sub(m: re.Match) -> str:
+        if not (m.lastindex and m.lastindex >= 2):
+            return m.group(0)
+        g0 = m.group(0)
+        start, end = m.span(2)
+        off = start - m.start(0)
+        return g0[:off] + new_value + g0[off + (end - start):]
+
+    new_text, count = pattern.subn(_sub, text)
     if count > 0:
         filepath.write_text(new_text, encoding="utf-8")
         print(f"  {GREEN}[FIXED]{RESET} {label} in {filepath.name}")
@@ -128,18 +148,19 @@ def main():
     # 定义所有需要检查的字段
     checks = [
         # (字段名, 实际值, 文件, 匹配 pattern, 修复 pattern)
+        # 统一约定：pattern 为「(前缀)(值)」两捕获组，修复时仅替换第 2 组
         ("版本号", version, AGENTS_MD,
-         re.compile(r'版本：(\d+\.\d+\.\d+)'),
+         re.compile(r'(版本：)(\d+\.\d+\.\d+)'),
          re.compile(r'(版本：)(\d+\.\d+\.\d+)')),
         ("包数量", str(pkg_count), AGENTS_MD,
-         re.compile(r'工作空间：(\d+)（'),
+         re.compile(r'(工作空间：)(\d+)（'),
          re.compile(r'(工作空间：)(\d+)（')),
         ("项目版本", version, PRACTICES_MD,
-         re.compile(r'\*\*项目版本\*\*：v(\d+\.\d+\.\d+)'),
+         re.compile(r'(\*\*项目版本\*\*：v)(\d+\.\d+\.\d+)'),
          re.compile(r'(\*\*项目版本\*\*：v)(\d+\.\d+\.\d+)')),
         ("workspace 包数量", str(pkg_count), PRACTICES_MD,
-         re.compile(r'(\d+) workspace 包'),
-         None),  # 这个 pattern 比较特殊，手动处理
+         re.compile(r'(\D*?)(\d+) workspace 包'),
+         re.compile(r'(\D*?)(\d+) workspace 包')),
     ]
 
     # 先做一轮检查

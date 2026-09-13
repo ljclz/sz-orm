@@ -1,14 +1,14 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v6.7.0 · 71 workspace members · 13530+ tests · 28 SQL dialects · sz-orm-core published on crates.io
+> v7.0.0 · 72 workspace members · 13530+ tests · 28 SQL dialects · sz-orm-core published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-14140+-green.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-14449+-green.svg)](#tests)
 [![Dialects](https://img.shields.io/badge/dialects-17-red.svg)](#supported-databases)
-[![Packages](https://img.shields.io/badge/packages-71-purple.svg)](#workspace-structure)
-[![Version](https://img.shields.io/badge/version-6.6.0-blue.svg)](CHANGELOG.md)
+[![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#workspace-structure)
+[![Version](https://img.shields.io/badge/version-7.0.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#overview)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#security-audit)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -119,7 +119,7 @@ println!("{}", report.to_json().unwrap());
 |------|------|
 | Workspace members | **71** (69 sz-orm-* libs + cli + examples) |
 | Supported DB dialects | **17 SQL dialects** (8 native + 9 delegated, including 6 domestic computing) |
-| Test cases | **14140 passed, 0 failed** |
+| Test cases | **14449 passed, 0 failed** |
 | Code size | **~139,000 LOC** (after deep optimization, src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |

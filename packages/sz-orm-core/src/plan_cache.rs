@@ -484,17 +484,19 @@ impl PlanCache {
     pub fn get_or_parse(&self, sql: &str) -> Result<Arc<Statement>, String> {
         let key = PlanCacheKey::from_sql(sql);
 
-        {
+        // 锁序约定：不得在持有 parse_cache 锁时获取 access_order 锁
+        // （未命中路径以相反顺序获取两把锁，否则并发命中/未命中会死锁）
+        let hit = {
             let cache = self.parse_cache.read();
-            if let Some(entry) = cache.get(&key.hash) {
-                if !entry.is_expired() {
-                    if let Some(ast) = &entry.ast {
-                        self.stats.parse_hits.fetch_add(1, Ordering::Relaxed);
-                        self.access_order.write().touch(key.hash);
-                        return Ok(ast.clone());
-                    }
-                }
+            match cache.get(&key.hash) {
+                Some(entry) if !entry.is_expired() => entry.ast.clone(),
+                _ => None,
             }
+        };
+        if let Some(ast) = hit {
+            self.stats.parse_hits.fetch_add(1, Ordering::Relaxed);
+            self.access_order.write().touch(key.hash);
+            return Ok(ast);
         }
 
         self.stats.parse_misses.fetch_add(1, Ordering::Relaxed);
@@ -509,6 +511,8 @@ impl PlanCache {
 
         {
             let mut access_order = self.access_order.write();
+            // 统一锁序：access_order → optimize_cache → parse_cache → table_index
+            let mut optimize_cache = self.optimize_cache.write();
             let mut cache = self.parse_cache.write();
             let mut table_index = self.table_index.write();
 
@@ -516,7 +520,7 @@ impl PlanCache {
                 if let Some(lru_hash) = access_order.lru_key() {
                     access_order.remove(lru_hash);
                     cache.remove(&lru_hash);
-                    self.optimize_cache.write().remove(&lru_hash);
+                    optimize_cache.remove(&lru_hash);
                     Self::remove_from_table_index(&mut table_index, lru_hash);
                     self.stats.evictions.fetch_add(1, Ordering::Relaxed);
                 }
@@ -547,17 +551,17 @@ impl PlanCache {
     pub fn get_or_optimize(&self, sql: &str) -> Option<Arc<String>> {
         let key = PlanCacheKey::from_sql(sql);
 
-        {
+        let hit = {
             let cache = self.optimize_cache.read();
-            if let Some(entry) = cache.get(&key.hash) {
-                if !entry.is_expired() {
-                    if let Some(analysis) = &entry.analysis {
-                        self.stats.optimize_hits.fetch_add(1, Ordering::Relaxed);
-                        self.access_order.write().touch(key.hash);
-                        return Some(analysis.clone());
-                    }
-                }
+            match cache.get(&key.hash) {
+                Some(entry) if !entry.is_expired() => entry.analysis.clone(),
+                _ => None,
             }
+        };
+        if let Some(analysis) = hit {
+            self.stats.optimize_hits.fetch_add(1, Ordering::Relaxed);
+            self.access_order.write().touch(key.hash);
+            return Some(analysis);
         }
 
         self.stats.optimize_misses.fetch_add(1, Ordering::Relaxed);
@@ -573,13 +577,14 @@ impl PlanCache {
 
         let mut access_order = self.access_order.write();
         let mut cache = self.optimize_cache.write();
+        let mut parse_cache = self.parse_cache.write();
         let mut table_index = self.table_index.write();
 
         if cache.len() >= self.max_size {
             if let Some(lru_hash) = access_order.lru_key() {
                 access_order.remove(lru_hash);
                 cache.remove(&lru_hash);
-                self.parse_cache.write().remove(&lru_hash);
+                parse_cache.remove(&lru_hash);
                 Self::remove_from_table_index(&mut table_index, lru_hash);
                 self.stats.evictions.fetch_add(1, Ordering::Relaxed);
             }
@@ -604,6 +609,10 @@ impl PlanCache {
     ///
     /// 失效所有引用指定表的缓存条目，返回失效条目数。
     pub fn invalidate_table(&self, table: &str) -> usize {
+        // 统一锁序：access_order → optimize_cache → parse_cache → table_index
+        let mut access_order = self.access_order.write();
+        let mut optimize_cache = self.optimize_cache.write();
+        let mut parse_cache = self.parse_cache.write();
         let mut table_index = self.table_index.write();
         let keys = table_index.remove(table).unwrap_or_default();
 
@@ -612,9 +621,6 @@ impl PlanCache {
         }
 
         let count = keys.len();
-        let mut access_order = self.access_order.write();
-        let mut parse_cache = self.parse_cache.write();
-        let mut optimize_cache = self.optimize_cache.write();
 
         for &hash in &keys {
             access_order.remove(hash);

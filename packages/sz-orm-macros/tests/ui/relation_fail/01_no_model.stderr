@@ -1,10 +1,10 @@
-error[E0277]: the trait bound `UserNoModel: Model` is not satisfied
+error[E0277]: the trait bound `UserNoModel: sz_orm_core::Model` is not satisfied
  --> tests/ui/relation_fail/01_no_model.rs:8:8
   |
 8 | struct UserNoModel {
   |        ^^^^^^^^^^^ unsatisfied trait bound
   |
-help: the trait `Model` is not implemented for `UserNoModel`
+help: the trait `sz_orm_core::Model` is not implemented for `UserNoModel`
  --> tests/ui/relation_fail/01_no_model.rs:8:1
   |
 8 | struct UserNoModel {
