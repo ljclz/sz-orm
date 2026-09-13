@@ -80,9 +80,10 @@ impl MssqlConnection {
             .map(|c| c.column_type())
             .unwrap_or(ColumnType::NVarchar);
         match ty {
-            ColumnType::Int2 | ColumnType::Int4 => {
-                row.get::<i32, _>(idx).map(Value::I32).unwrap_or(Value::Null)
-            }
+            ColumnType::Int2 | ColumnType::Int4 => row
+                .get::<i32, _>(idx)
+                .map(Value::I32)
+                .unwrap_or(Value::Null),
             ColumnType::Int8 | ColumnType::Intn => row
                 .get::<i64, _>(idx)
                 .map(Value::I64)

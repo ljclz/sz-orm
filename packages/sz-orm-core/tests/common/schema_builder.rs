@@ -169,7 +169,9 @@ impl TestSchemaBuilder {
                         .nth(2)
                         .unwrap_or_default()
                         .to_string();
-                    format!("SET IDENTITY_INSERT {table} ON; {sql}; SET IDENTITY_INSERT {table} OFF;")
+                    format!(
+                        "SET IDENTITY_INSERT {table} ON; {sql}; SET IDENTITY_INSERT {table} OFF;"
+                    )
                 })
                 .collect(),
             _ => raw,

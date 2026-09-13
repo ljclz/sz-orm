@@ -72,6 +72,7 @@ impl DekBuffer {
     /// 用 DEK 加密数据
     ///
     /// 支持 AES-256-GCM，其他算法返回 `CryptoError`。
+    /// 栈上临时 key 拷贝在用毕后清零（2026-09-14 安全审计修复）。
     pub fn encrypt(&self, plaintext: &[u8], algo: EncryptionAlgo) -> Result<Vec<u8>, CryptoError> {
         match algo {
             EncryptionAlgo::Aes256Gcm => {
@@ -84,7 +85,10 @@ impl DekBuffer {
                 let mut key = [0u8; 32];
                 key.copy_from_slice(&self.dek[..32]);
                 let crypter = AesGcmCrypter::new(&key);
-                crypter.encrypt(plaintext)
+                let result = crypter.encrypt(plaintext);
+                use zeroize::Zeroize;
+                key.zeroize();
+                result
             }
             EncryptionAlgo::ChaCha20Poly1305 | EncryptionAlgo::Sm4Gcm => {
                 Err(CryptoError::EncryptionFailed(format!(
@@ -96,6 +100,8 @@ impl DekBuffer {
     }
 
     /// 用 DEK 解密数据
+    ///
+    /// 栈上临时 key 拷贝在用毕后清零（2026-09-14 安全审计修复）。
     pub fn decrypt(&self, ciphertext: &[u8], algo: EncryptionAlgo) -> Result<Vec<u8>, CryptoError> {
         match algo {
             EncryptionAlgo::Aes256Gcm => {
@@ -108,7 +114,10 @@ impl DekBuffer {
                 let mut key = [0u8; 32];
                 key.copy_from_slice(&self.dek[..32]);
                 let crypter = AesGcmCrypter::new(&key);
-                crypter.decrypt(ciphertext)
+                let result = crypter.decrypt(ciphertext);
+                use zeroize::Zeroize;
+                key.zeroize();
+                result
             }
             EncryptionAlgo::ChaCha20Poly1305 | EncryptionAlgo::Sm4Gcm => {
                 Err(CryptoError::DecryptionFailed(format!(

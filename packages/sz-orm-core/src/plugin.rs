@@ -727,6 +727,42 @@ mod composable {
             assert!(latency <= Duration::from_millis(1));
         }
 
+        /// 中间件链开销声称的统计验证（AI 评审遗留项 2026-09-14）
+        ///
+        /// 声称：链长 ≤10 时单次链执行开销 ≤1ms。
+        /// 单次采样（`middleware_chain_latency`）易受调度抖动影响，这里跑 10,000 次
+        /// 取 P99 作为统计口径；no-op 中间件下 P99 若超过 1ms 即视为声称失效。
+        #[test]
+        fn middleware_chain_overhead_p99_under_1ms() {
+            let mut chain = MiddlewareChain::new();
+            for i in 0..10 {
+                chain
+                    .add(
+                        i,
+                        Arc::new(NoopMiddleware {
+                            name: format!("m{}", i),
+                        }),
+                    )
+                    .unwrap();
+            }
+            let sql = "SELECT id, name FROM users WHERE id = 42 AND status = 'active'";
+            let iterations = 10_000usize;
+            let mut latencies: Vec<Duration> = Vec::with_capacity(iterations);
+            for _ in 0..iterations {
+                let start = Instant::now();
+                let out = chain.before_query(sql).unwrap();
+                latencies.push(start.elapsed());
+                assert_eq!(out, sql, "no-op 链不得改写 SQL");
+            }
+            latencies.sort_unstable();
+            let p99 = latencies[iterations * 99 / 100];
+            assert!(
+                p99 <= Duration::from_millis(1),
+                "P99 链开销 {:?} 超过 1ms 声称（10,000 次采样）",
+                p99
+            );
+        }
+
         #[test]
         fn middleware_chain_empty() {
             let chain = MiddlewareChain::new();

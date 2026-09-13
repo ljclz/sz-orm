@@ -8,6 +8,7 @@ use std::time::{Duration, Instant};
 
 use async_trait::async_trait;
 use parking_lot::RwLock;
+use zeroize::Zeroizing;
 
 use crate::dek_buffer::DekBuffer;
 
@@ -56,8 +57,10 @@ pub trait KmsClient: Send + Sync {
 /// 本地 KMS 客户端（测试/开发用）
 ///
 /// 在内存中存储 DEK，按 `(column, version)` 索引。
+/// DEK 以 `Zeroizing<Vec<u8>>` 存储，Drop 时自动清零（2026-09-14 安全审计修复：
+/// 此前为裸 `Vec<u8>`，进程退出时密钥材料残留在已释放内存中）。
 pub struct LocalKmsClient {
-    keys: RwLock<HashMap<(String, u32), Vec<u8>>>,
+    keys: RwLock<HashMap<(String, u32), Zeroizing<Vec<u8>>>>,
     versions: RwLock<HashMap<String, u32>>,
 }
 
@@ -79,7 +82,9 @@ impl LocalKmsClient {
     /// 预置一个 DEK
     pub fn with_dek(column: &str, version: u32, dek: Vec<u8>) -> Self {
         let kms = Self::new();
-        kms.keys.write().insert((column.to_string(), version), dek);
+        kms.keys
+            .write()
+            .insert((column.to_string(), version), Zeroizing::new(dek));
         kms.versions.write().insert(column.to_string(), version);
         kms
     }
@@ -91,7 +96,7 @@ impl LocalKmsClient {
         rand::rngs::OsRng.fill_bytes(&mut key);
         self.keys
             .write()
-            .insert((column.to_string(), version), key.clone());
+            .insert((column.to_string(), version), Zeroizing::new(key.clone()));
         self.versions.write().insert(column.to_string(), version);
         DekBuffer::new(key)
     }
@@ -104,7 +109,7 @@ impl KmsClient for LocalKmsClient {
         self.keys
             .read()
             .get(&(key, version))
-            .map(|k| DekBuffer::new(k.clone()))
+            .map(|k| DekBuffer::new(k.to_vec()))
             .ok_or_else(|| KmsError::KeyVersionNotFound(format!("{}:v{}", column, version)))
     }
 
