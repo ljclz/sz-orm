@@ -703,6 +703,75 @@ mod tests {
         assert_eq!(guard.bloom_count(), 2);
     }
 
+    // ---- 2026-09-14 G20 存活变异补杀（5 个：Debug fmt ×3 + 计数器 ×2）----
+
+    /// 杀 `SingleFlight::in_flight_count → 0` 变异：断言计数真实反映在途键数
+    #[test]
+    fn test_single_flight_in_flight_count_tracks_map() {
+        let sf = SingleFlight::new();
+        assert_eq!(sf.in_flight_count(), 0);
+        {
+            let mut map = sf.in_flight.lock().unwrap_or_else(|e| e.into_inner());
+            map.insert("k1".to_string(), Arc::new(tokio::sync::Notify::new()));
+            map.insert("k2".to_string(), Arc::new(tokio::sync::Notify::new()));
+        }
+        assert_eq!(sf.in_flight_count(), 2, "in_flight_count 必须等于在途键数");
+    }
+
+    /// 杀 `CacheProtection::bloom_count → 1` 变异：
+    /// 既有断言恰好都是 1（put 1 条），变异值 1 逃逸；这里注册 2 条断言 == 2
+    #[tokio::test]
+    async fn test_cache_protection_bloom_count_multiple() {
+        let protection = CacheProtection::new(make_cache(), 1000);
+        assert_eq!(protection.bloom_count(), 0);
+        protection
+            .penetration
+            .put("users", Value::I64(1), "a".to_string())
+            .await
+            .unwrap();
+        protection
+            .penetration
+            .put("users", Value::I64(2), "b".to_string())
+            .await
+            .unwrap();
+        assert_eq!(
+            protection.bloom_count(),
+            2,
+            "bloom_count 必须透传底层布隆计数"
+        );
+    }
+
+    /// 杀 3 个 `Debug::fmt → Ok(Default::default())` 变异：变异体不写任何字段，
+    /// 输出为空串；断言类型名与字段名必须出现
+    #[test]
+    fn test_debug_fmt_contains_type_and_fields() {
+        let warmer = CacheWarmer::new(make_cache());
+        let s = format!("{warmer:?}");
+        assert!(s.contains("CacheWarmer"), "CacheWarmer Debug 输出异常: {s}");
+
+        let guard = PenetrationGuard::new(make_cache(), 100);
+        let s = format!("{guard:?}");
+        assert!(
+            s.contains("PenetrationGuard"),
+            "PenetrationGuard Debug 输出异常: {s}"
+        );
+        assert!(
+            s.contains("bloom_count"),
+            "PenetrationGuard Debug 应含 bloom_count 字段: {s}"
+        );
+
+        let protection = CacheProtection::new(make_cache(), 100);
+        let s = format!("{protection:?}");
+        assert!(
+            s.contains("CacheProtection"),
+            "CacheProtection Debug 输出异常: {s}"
+        );
+        assert!(
+            s.contains("bloom_count"),
+            "CacheProtection Debug 应含 bloom_count 字段: {s}"
+        );
+    }
+
     #[tokio::test]
     async fn test_single_flight_leader_executes() {
         let sf = SingleFlight::new();
