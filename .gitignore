@@ -53,3 +53,4 @@ node_modules/
 
 # 测试生成的人工产物
 *.proptest-regressions
+*.profraw

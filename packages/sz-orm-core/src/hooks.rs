@@ -681,6 +681,205 @@ impl ScopeRegistry {
 }
 
 // =====================================================================
+// v7.0.0 composable-plugin：ExtensionPointRegistry 扩展点注册表
+// =====================================================================
+
+#[cfg(feature = "composable-plugin")]
+mod extension_point {
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    use parking_lot::RwLock;
+
+    use super::{HookContext, HookResult};
+
+    /// 扩展点类型
+    ///
+    /// 定义插件可挂载的生命周期扩展点。
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+    pub enum ExtensionPoint {
+        /// 连接建立前
+        BeforeConnect,
+        /// SQL 生成后
+        AfterSqlGen,
+        /// 结果映射前
+        BeforeResultMap,
+        /// 插入前
+        BeforeInsert,
+        /// 更新前
+        BeforeUpdate,
+        /// 删除前
+        BeforeDelete,
+        /// 插入后
+        AfterInsert,
+        /// 更新后
+        AfterUpdate,
+        /// 删除后
+        AfterDelete,
+    }
+
+    /// 扩展点处理器 trait
+    pub trait ExtensionHandler: Send + Sync {
+        /// 处理器名称
+        fn name(&self) -> &str;
+
+        /// 处理扩展点事件
+        fn handle(&self, ctx: &mut HookContext) -> HookResult<()>;
+    }
+
+    /// 扩展点注册表
+    ///
+    /// 按扩展点分组注册处理器，触发时按注册顺序执行。
+    pub struct ExtensionPointRegistry {
+        handlers: RwLock<HashMap<ExtensionPoint, Vec<Arc<dyn ExtensionHandler>>>>,
+    }
+
+    impl Default for ExtensionPointRegistry {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    impl ExtensionPointRegistry {
+        /// 创建空注册表
+        pub fn new() -> Self {
+            Self {
+                handlers: RwLock::new(HashMap::new()),
+            }
+        }
+
+        /// 注册扩展点处理器
+        pub fn register(&self, point: ExtensionPoint, handler: Arc<dyn ExtensionHandler>) {
+            self.handlers
+                .write()
+                .entry(point)
+                .or_default()
+                .push(handler);
+        }
+
+        /// 触发扩展点的所有处理器（按注册顺序）
+        pub fn trigger(&self, point: ExtensionPoint, ctx: &mut HookContext) -> HookResult<()> {
+            let handlers = self.handlers.read();
+            if let Some(fns) = handlers.get(&point) {
+                let fns = fns.clone();
+                drop(handlers);
+                for f in &fns {
+                    f.handle(ctx)?;
+                }
+            }
+            Ok(())
+        }
+
+        /// 获取某扩展点的处理器数量
+        pub fn count(&self, point: ExtensionPoint) -> usize {
+            self.handlers
+                .read()
+                .get(&point)
+                .map(|v| v.len())
+                .unwrap_or(0)
+        }
+
+        /// 清除某扩展点的所有处理器
+        pub fn clear(&self, point: ExtensionPoint) {
+            self.handlers.write().remove(&point);
+        }
+    }
+
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+        use std::sync::atomic::{AtomicU32, Ordering};
+
+        struct CounterHandler {
+            name: String,
+            counter: Arc<AtomicU32>,
+        }
+
+        impl ExtensionHandler for CounterHandler {
+            fn name(&self) -> &str {
+                &self.name
+            }
+            fn handle(&self, _ctx: &mut HookContext) -> HookResult<()> {
+                self.counter.fetch_add(1, Ordering::SeqCst);
+                Ok(())
+            }
+        }
+
+        #[test]
+        fn extension_point_register_and_trigger() {
+            let reg = ExtensionPointRegistry::new();
+            let counter = Arc::new(AtomicU32::new(0));
+
+            reg.register(
+                ExtensionPoint::BeforeInsert,
+                Arc::new(CounterHandler {
+                    name: "h1".into(),
+                    counter: counter.clone(),
+                }),
+            );
+
+            assert_eq!(reg.count(ExtensionPoint::BeforeInsert), 1);
+            let mut ctx = HookContext::new();
+            reg.trigger(ExtensionPoint::BeforeInsert, &mut ctx).unwrap();
+            assert_eq!(counter.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn extension_point_multiple_handlers_ordered() {
+            let reg = ExtensionPointRegistry::new();
+            let c1 = Arc::new(AtomicU32::new(0));
+            let c2 = Arc::new(AtomicU32::new(0));
+
+            reg.register(
+                ExtensionPoint::AfterUpdate,
+                Arc::new(CounterHandler {
+                    name: "first".into(),
+                    counter: c1.clone(),
+                }),
+            );
+            reg.register(
+                ExtensionPoint::AfterUpdate,
+                Arc::new(CounterHandler {
+                    name: "second".into(),
+                    counter: c2.clone(),
+                }),
+            );
+
+            let mut ctx = HookContext::new();
+            reg.trigger(ExtensionPoint::AfterUpdate, &mut ctx).unwrap();
+            assert_eq!(c1.load(Ordering::SeqCst), 1);
+            assert_eq!(c2.load(Ordering::SeqCst), 1);
+        }
+
+        #[test]
+        fn extension_point_unregistered_returns_ok() {
+            let reg = ExtensionPointRegistry::new();
+            let mut ctx = HookContext::new();
+            assert!(reg.trigger(ExtensionPoint::BeforeConnect, &mut ctx).is_ok());
+        }
+
+        #[test]
+        fn extension_point_clear() {
+            let reg = ExtensionPointRegistry::new();
+            let counter = Arc::new(AtomicU32::new(0));
+            reg.register(
+                ExtensionPoint::BeforeDelete,
+                Arc::new(CounterHandler {
+                    name: "h".into(),
+                    counter,
+                }),
+            );
+            assert_eq!(reg.count(ExtensionPoint::BeforeDelete), 1);
+            reg.clear(ExtensionPoint::BeforeDelete);
+            assert_eq!(reg.count(ExtensionPoint::BeforeDelete), 0);
+        }
+    }
+}
+
+#[cfg(feature = "composable-plugin")]
+pub use extension_point::{ExtensionHandler, ExtensionPoint, ExtensionPointRegistry};
+
+// =====================================================================
 // 测试
 // =====================================================================
 

@@ -466,6 +466,8 @@ pub mod find_with_related;
 pub mod governance;
 pub mod guard;
 pub mod hooks;
+#[cfg(feature = "composable-plugin")]
+pub use hooks::{ExtensionHandler, ExtensionPoint, ExtensionPointRegistry};
 pub mod hydration_plugin;
 pub mod i18n;
 pub mod join_dsl;
@@ -494,6 +496,8 @@ pub mod phinx_migration;
 #[cfg(feature = "plan-cache")]
 pub mod plan_cache;
 pub mod plugin;
+#[cfg(feature = "composable-plugin")]
+pub use plugin::{MiddlewareChain, PanicSafeRegistry, PluginSigner, PluginState, SignatureStatus};
 mod pool;
 #[cfg(feature = "prepared-stmt-cache")]
 pub mod prepared_cache;
@@ -519,6 +523,13 @@ pub mod saga;
 #[allow(missing_docs)]
 pub mod pool_elastic;
 
+#[cfg(feature = "serverless-adapt")]
+pub use pool_elastic::{
+    CdcCheckpoint, GracefulShutdown, GracefulShutdownConfig, ShutdownError, ShutdownResult,
+};
+#[cfg(feature = "serverless-adapt")]
+pub use prewarm::{ColdStartOptimizer, ColdStartStats};
+
 #[cfg(feature = "io-uring")]
 #[allow(missing_docs)]
 pub mod io_uring_probe;
@@ -526,6 +537,13 @@ pub mod io_uring_probe;
 #[cfg(feature = "field-encryption")]
 #[allow(missing_docs)]
 pub mod field_cipher;
+#[cfg(feature = "tde-interceptor")]
+pub use field_cipher::{TdeError, TdeInterceptor};
+#[cfg(feature = "tde-interceptor")]
+pub use sz_orm_crypto::{
+    ColumnCryptoConfig, ColumnEncryptionPolicy, DekBuffer, EncryptionAlgo, KmsClient,
+    LocalKmsClient,
+};
 
 #[cfg(feature = "data-validation")]
 pub mod validation;

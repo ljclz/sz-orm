@@ -22,11 +22,11 @@ index-advisor-deep = ["query-advisor"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-sz-orm-explain = { path = "../sz-orm-explain", version = "6.0.0", optional = true }
-sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "6.0.0", optional = true }
-sz-orm-ai = { path = "../sz-orm-ai", version = "6.0.0", optional = true }
-sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "6.0.0", optional = true }
-sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "6.0.0", optional = true }
+sz-orm-explain = { path = "../sz-orm-explain", version = "7.0.0", optional = true }
+sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "7.0.0", optional = true }
+sz-orm-ai = { path = "../sz-orm-ai", version = "7.0.0", optional = true }
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "7.0.0", optional = true }
+sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "7.0.0", optional = true }
 
 [lints]
 workspace = true

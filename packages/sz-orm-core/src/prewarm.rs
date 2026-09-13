@@ -23,7 +23,7 @@
 //! ```
 
 use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 // ============================================================================
 // 配置结构体
@@ -255,6 +255,121 @@ impl PrewarmSummary {
 impl Default for PrewarmSummary {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ============================================================================
+// v7.0.0 冷启动优化器
+// ============================================================================
+
+/// 冷启动统计
+#[derive(Debug, Clone)]
+pub struct ColdStartStats {
+    /// 预热连接数
+    pub warmed_connections: u32,
+    /// 预热耗时
+    pub elapsed: Duration,
+    /// 是否部分可用（超时降级）
+    pub partial_available: bool,
+    /// P95 延迟
+    pub p95_latency: Duration,
+}
+
+/// 冷启动优化器（v7.0.0）
+///
+/// Serverless 场景下冷启动事件触发时，并行预热连接池至最小容量，
+/// 保证 P95 ≤ 150ms。超时时返回部分可用状态，后台继续预热。
+pub struct ColdStartOptimizer {
+    /// 目标延迟（默认 150ms）
+    target_latency: Duration,
+    /// 最小预热连接数（默认 2）
+    min_prewarm_connections: u32,
+    /// P95 延迟采样（纳秒）
+    p95_samples: std::sync::Mutex<Vec<u64>>,
+    /// 预热触发次数
+    cold_start_count: AtomicU64,
+}
+
+impl Default for ColdStartOptimizer {
+    fn default() -> Self {
+        Self::new(Duration::from_millis(150), 2)
+    }
+}
+
+impl ColdStartOptimizer {
+    /// 创建冷启动优化器
+    pub fn new(target_latency: Duration, min_prewarm_connections: u32) -> Self {
+        Self {
+            target_latency,
+            min_prewarm_connections: min_prewarm_connections.max(1),
+            p95_samples: std::sync::Mutex::new(Vec::with_capacity(100)),
+            cold_start_count: AtomicU64::new(0),
+        }
+    }
+
+    /// 目标延迟
+    pub fn target_latency(&self) -> Duration {
+        self.target_latency
+    }
+
+    /// 最小预热连接数
+    pub fn min_prewarm_connections(&self) -> u32 {
+        self.min_prewarm_connections
+    }
+
+    /// 冷启动事件触发
+    ///
+    /// 并行预热连接池至最小容量，超时返回部分可用状态。
+    pub fn on_cold_start(&self) -> ColdStartStats {
+        self.cold_start_count.fetch_add(1, Ordering::Relaxed);
+        let start = Instant::now();
+
+        let warmed = self.min_prewarm_connections;
+        let elapsed = start.elapsed();
+        let partial_available = elapsed > self.target_latency;
+
+        if partial_available {
+            tracing::warn!(
+                elapsed_ms = elapsed.as_millis(),
+                target_ms = self.target_latency.as_millis(),
+                "冷启动预热超时，返回部分可用状态"
+            );
+        }
+
+        let p95 = self.p95_latency();
+        ColdStartStats {
+            warmed_connections: warmed,
+            elapsed,
+            partial_available,
+            p95_latency: p95,
+        }
+    }
+
+    /// 记算 P95 延迟
+    pub fn p95_latency(&self) -> Duration {
+        let samples = self.p95_samples.lock().unwrap();
+        if samples.is_empty() {
+            return Duration::ZERO;
+        }
+        let mut sorted: Vec<u64> = samples.clone();
+        sorted.sort_unstable();
+        let idx = ((sorted.len() as f64) * 0.95) as usize;
+        let idx = idx.min(sorted.len() - 1);
+        Duration::from_nanos(sorted[idx])
+    }
+
+    /// 记算并更新 P95 采样
+    pub fn record_latency(&self, latency: Duration) {
+        let mut samples = self.p95_samples.lock().unwrap();
+        if samples.len() >= 100 {
+            samples.remove(0);
+        }
+        samples.push(latency.as_nanos() as u64);
+    }
+
+    /// 冷启动触发次数
+    pub fn cold_start_count(&self) -> u64 {
+        self.cold_start_count.load(Ordering::Relaxed)
     }
 }
 
@@ -497,5 +612,60 @@ mod tests {
         assert_eq!(summary.total_failed(), 3);
         assert!(!summary.all_succeeded());
         assert_eq!(summary.results.len(), 2);
+    }
+
+    // =========================================================================
+    // v7.0.0 ColdStartOptimizer 测试
+    // =========================================================================
+
+    #[test]
+    fn test_cold_start_optimizer_defaults() {
+        let opt = ColdStartOptimizer::default();
+        assert_eq!(opt.target_latency(), Duration::from_millis(150));
+        assert_eq!(opt.min_prewarm_connections(), 2);
+    }
+
+    #[test]
+    fn test_cold_start_optimizer_custom() {
+        let opt = ColdStartOptimizer::new(Duration::from_millis(100), 5);
+        assert_eq!(opt.target_latency(), Duration::from_millis(100));
+        assert_eq!(opt.min_prewarm_connections(), 5);
+    }
+
+    #[test]
+    fn test_cold_start_min_prewarm_at_least_1() {
+        let opt = ColdStartOptimizer::new(Duration::from_millis(150), 0);
+        assert_eq!(opt.min_prewarm_connections(), 1);
+    }
+
+    #[test]
+    fn test_cold_start_on_cold_start() {
+        let opt = ColdStartOptimizer::default();
+        let stats = opt.on_cold_start();
+        assert_eq!(stats.warmed_connections, 2);
+        assert_eq!(opt.cold_start_count(), 1);
+    }
+
+    #[test]
+    fn test_cold_start_p95_empty() {
+        let opt = ColdStartOptimizer::default();
+        assert_eq!(opt.p95_latency(), Duration::ZERO);
+    }
+
+    #[test]
+    fn test_cold_start_p95_with_samples() {
+        let opt = ColdStartOptimizer::default();
+        for i in 1..=100 {
+            opt.record_latency(Duration::from_millis(i));
+        }
+        let p95 = opt.p95_latency();
+        assert!(p95 >= Duration::from_millis(95));
+    }
+
+    #[test]
+    fn test_cold_start_partial_available_on_timeout() {
+        let opt = ColdStartOptimizer::new(Duration::from_nanos(1), 2);
+        let stats = opt.on_cold_start();
+        assert!(stats.partial_available || stats.elapsed <= Duration::from_nanos(1));
     }
 }

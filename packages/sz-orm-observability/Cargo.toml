@@ -34,6 +34,8 @@ obs-enhanced = []
 prometheus-exporter = ["obs-enhanced"]
 # v6.8.0：性能 feature 命中率度量（四大优化路径 hit/miss 计数）
 perf-metrics = []
+# v7.0.0：Serverless 按需计费度量收集器
+serverless-metering = []
 
 
 [package.metadata.cargo-machete]
@@ -54,10 +56,10 @@ reqwest = { version = "0.12", default-features = false, features = ["rustls-tls"
 base64 = { version = "0.22", optional = true }
 subtle = { version = "2.5", optional = true }
 # v4.0.0 M9锛氭湇鍔＄綉鏍奸檺娴佺啍鏂紙service-mesh feature锟?
-sz-orm-limit = { version = "6.0.0", path = "../sz-orm-limit", optional = true }
+sz-orm-limit = { version = "7.0.0", path = "../sz-orm-limit", optional = true }
 # v4.4.0 M4：结构化查询日志（query-logging feature）
-sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "6.0.0", optional = true }
-sz-orm-masking = { path = "../sz-orm-masking", version = "6.0.0", optional = true }
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "7.0.0", optional = true }
+sz-orm-masking = { path = "../sz-orm-masking", version = "7.0.0", optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }

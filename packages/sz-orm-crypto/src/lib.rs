@@ -14,6 +14,22 @@ pub mod key_management;
 #[cfg(feature = "field-encryption")]
 pub mod key_rotation_enhanced;
 
+#[cfg(feature = "tde-enhanced")]
+pub mod column_encryption;
+#[cfg(feature = "tde-enhanced")]
+pub mod dek_buffer;
+#[cfg(feature = "tde-enhanced")]
+pub mod kms_client;
+
+#[cfg(feature = "tde-enhanced")]
+pub use column_encryption::{ColumnCryptoConfig, ColumnEncryptionPolicy};
+#[cfg(feature = "tde-enhanced")]
+pub use dek_buffer::{DekBuffer, EncryptionAlgo};
+#[cfg(feature = "tde-enhanced")]
+pub use kms_client::{
+    CachedKmsClient, DekCache, KmsClient, KmsDegradeManager, KmsError, LocalKmsClient,
+};
+
 use std::collections::HashMap;
 
 use aes_gcm::aead::{Aead, KeyInit};

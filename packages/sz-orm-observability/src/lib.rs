@@ -85,6 +85,10 @@ pub mod prometheus_exporter;
 #[allow(missing_docs)]
 pub mod perf_hit_metrics;
 
+#[cfg(feature = "serverless-metering")]
+#[allow(missing_docs)]
+pub mod serverless_metering;
+
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{
     LabeledHistogram, PushSnapshot, PushgatewayConfig, PushgatewayExporter, Summary,
@@ -92,6 +96,9 @@ pub use summary::{
 
 #[cfg(feature = "query-logging")]
 pub use query_logger::{mask_params, LogLevel, QueryLogEntry, QueryLogger};
+
+#[cfg(feature = "serverless-metering")]
+pub use serverless_metering::{MeteringCollector, MeteringReport, ReportStatus};
 
 /// Metric type
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

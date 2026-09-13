@@ -2,7 +2,7 @@
 //!
 //! 轮换过渡期：新密钥写、旧密钥读，无引用后才删旧密钥。
 
-use std::collections::{HashMap, HashSet};
+use std::collections::HashMap;
 use std::sync::Mutex;
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -39,3 +39,27 @@ pub use operators::{
 pub use paginator::{PaginationState, PaginationStats, StreamPaginator, StreamPaginatorConfig};
 #[cfg(feature = "stream-resultset")]
 pub use result_set::StreamResultSet;
+// v7.0.0 stream-processing 模块
+#[cfg(feature = "stream-processing")]
+pub mod flink_adapter;
+#[cfg(feature = "stream-processing")]
+pub mod materialized_view;
+#[cfg(feature = "stream-processing")]
+pub mod unified_job;
+#[cfg(feature = "stream-processing")]
+pub mod window;
+
+#[cfg(feature = "stream-processing")]
+pub use backpressure::BackpressureStrategy;
+#[cfg(feature = "stream-processing")]
+pub use flink_adapter::{FlinkClient, FlinkError, JobArgs, JobStatus};
+#[cfg(feature = "stream-processing")]
+pub use materialized_view::{
+    MaterializedViewDef, RefreshStrategy, StreamError, ViewId, ViewRefreshEngine,
+};
+#[cfg(feature = "stream-processing")]
+pub use unified_job::{
+    JobDag, JobHandle, JobMode, StreamBatchJob, TimeRange, Watermark as JobWatermark,
+};
+#[cfg(feature = "stream-processing")]
+pub use window::{Event, Watermark, Window, WindowAssigner, WindowConfig, WindowType};

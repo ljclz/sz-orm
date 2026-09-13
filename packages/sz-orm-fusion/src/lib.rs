@@ -51,8 +51,8 @@ pub mod vector_pushdown;
 pub use cdc_sync::{CdcSyncCoordinator, SyncOutcome};
 #[cfg(feature = "db-fusion")]
 pub use conflict::{
-    Conflict, ConflictLog, ConflictResolver, ConflictType, DataVersion, Resolution,
-    ResolutionStrategy,
+    Conflict, ConflictLog, ConflictResolver, ConflictType, CustomResolveFn, DataVersion,
+    Resolution, ResolutionStrategy, VectorClock,
 };
 #[cfg(feature = "db-fusion")]
 #[allow(deprecated)]
@@ -80,3 +80,34 @@ pub use sync::{
 pub use ttl_cache::TtlFusionCache;
 #[cfg(feature = "db-fusion-v2")]
 pub use vector_pushdown::{VectorPushdownExecutor, VectorPushdownOutcome};
+// v7.0.0 multi-region 模块
+#[cfg(feature = "multi-region")]
+pub mod edge_node;
+#[cfg(feature = "multi-region")]
+pub mod global_router;
+#[cfg(feature = "multi-region")]
+pub mod region_failover;
+#[cfg(feature = "multi-region")]
+pub mod region_topology;
+#[cfg(feature = "multi-region")]
+pub mod replication_lag;
+
+#[cfg(feature = "multi-region")]
+pub use edge_node::{EdgeCacheStatus, EdgeNode, EdgeNodeRouter, EdgeRoutingPolicy, GeoLocation};
+#[cfg(feature = "multi-region")]
+pub use global_router::{
+    ConsistencyLevel, GlobalRouter, LatencyStats, RouteDecision, RouteError, RouteRequest,
+};
+#[cfg(feature = "multi-region")]
+pub use region_failover::{
+    FailoverAuditLog, FailoverDecision, FailoverError, RegionFailoverCoordinator, RTO_TARGET,
+};
+#[cfg(feature = "multi-region")]
+pub use region_topology::{
+    DataAffinityPolicy, MultiRegionHealthView, RegionHealth, RegionNode, RegionRole,
+    RegionTopology, ReplicationMode, TopologyError,
+};
+#[cfg(feature = "multi-region")]
+pub use replication_lag::{
+    LinkType, ReplicationLagTracker, CROSS_CONTINENT_THRESHOLD, SAME_CITY_THRESHOLD,
+};

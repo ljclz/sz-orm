@@ -16,6 +16,8 @@ default = []
 owasp-pentest-suite = []
 # v6.7.0：密钥轮换零停机（双密钥共存）
 field-encryption = []
+# v7.0.0：TDE 透明数据加密增强（DEK 安全缓冲 + KMS 客户端 + 列级策略）
+tde-enhanced = ["field-encryption", "dep:zeroize", "dep:async-trait", "dep:reqwest", "dep:parking_lot"]
 
 
 [package.metadata.cargo-machete]
@@ -31,8 +33,14 @@ rand = "0.8"
 subtle = "2.5"
 # RSA-OAEP 非对称加密（任务要求，RustCrypto audited crate）
 rsa = "0.9"
+# v7.0.0 tde-enhanced 依赖
+zeroize = { workspace = true, optional = true }
+async-trait = { version = "0.1", optional = true }
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
+parking_lot = { workspace = true, optional = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
 
 [lints]
 workspace = true

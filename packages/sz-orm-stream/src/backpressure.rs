@@ -8,6 +8,39 @@ use std::sync::Arc;
 
 use tokio::sync::Notify;
 
+/// v7.0.0 背压策略
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BackpressureStrategy {
+    /// 丢弃最旧事件
+    DropOldest,
+    /// 缓冲
+    Buffer,
+    /// 仅告警
+    #[default]
+    AlertOnly,
+}
+
+impl BackpressureStrategy {
+    /// 应用背压策略
+    ///
+    /// 返回处理后剩余事件数。
+    /// `pending`: 当前积压量，`threshold`: 背压阈值
+    pub fn apply(&self, pending: usize, threshold: usize) -> usize {
+        if pending <= threshold {
+            return pending;
+        }
+        match self {
+            BackpressureStrategy::DropOldest => threshold,
+            BackpressureStrategy::Buffer | BackpressureStrategy::AlertOnly => pending,
+        }
+    }
+
+    /// 是否应告警
+    pub fn should_alert(&self, pending: usize, threshold: usize) -> bool {
+        pending > threshold
+    }
+}
+
 /// 异步背压控制器
 pub struct AsyncBackpressureController {
     /// 背压阈值
@@ -201,5 +234,37 @@ mod tests {
     fn test_threshold_getter() {
         let controller = AsyncBackpressureController::new(42);
         assert_eq!(controller.threshold(), 42);
+    }
+
+    // =========================================================================
+    // v7.0.0 BackpressureStrategy 测试
+    // =========================================================================
+
+    #[test]
+    fn test_backpressure_strategy_drop_oldest() {
+        let strategy = BackpressureStrategy::DropOldest;
+        let result = strategy.apply(100, 80);
+        assert_eq!(result, 80);
+    }
+
+    #[test]
+    fn test_backpressure_strategy_buffer() {
+        let strategy = BackpressureStrategy::Buffer;
+        let result = strategy.apply(100, 80);
+        assert_eq!(result, 100);
+    }
+
+    #[test]
+    fn test_backpressure_strategy_alert_only() {
+        let strategy = BackpressureStrategy::AlertOnly;
+        let result = strategy.apply(100, 80);
+        assert_eq!(result, 100);
+    }
+
+    #[test]
+    fn test_backpressure_strategy_no_overflow() {
+        let strategy = BackpressureStrategy::DropOldest;
+        let result = strategy.apply(50, 100);
+        assert_eq!(result, 50);
     }
 }

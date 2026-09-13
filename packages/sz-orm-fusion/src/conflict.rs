@@ -5,7 +5,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::RwLock;
+use std::sync::{Arc, RwLock};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 /// 冲突类型
@@ -45,6 +45,10 @@ pub enum ResolutionStrategy {
     KeepConflict,
     /// 主源胜
     PrimaryWins,
+    /// 多版本共存（向量时钟）
+    MultiVersion,
+    /// 自定义策略
+    Custom,
 }
 
 impl ResolutionStrategy {
@@ -55,6 +59,8 @@ impl ResolutionStrategy {
             ResolutionStrategy::MergeFields => "merge_fields",
             ResolutionStrategy::KeepConflict => "keep_conflict",
             ResolutionStrategy::PrimaryWins => "primary_wins",
+            ResolutionStrategy::MultiVersion => "multi_version",
+            ResolutionStrategy::Custom => "custom",
         }
     }
 }
@@ -118,6 +124,59 @@ pub struct Resolution {
     pub conflict: Conflict,
 }
 
+/// 向量时钟，用于多版本冲突检测
+#[derive(Debug, Clone, Default, serde::Serialize)]
+pub struct VectorClock {
+    counters: HashMap<String, u64>,
+}
+
+impl VectorClock {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn increment(&mut self, node: &str) {
+        *self.counters.entry(node.to_string()).or_insert(0) += 1;
+    }
+
+    pub fn merge(&mut self, other: &VectorClock) {
+        for (k, &v) in &other.counters {
+            *self.counters.entry(k.clone()).or_insert(0) =
+                (*self.counters.get(k).unwrap_or(&0)).max(v);
+        }
+    }
+
+    pub fn compare(&self, other: &VectorClock) -> i32 {
+        let mut self_greater = false;
+        let mut other_greater = false;
+        for (k, &s) in &self.counters {
+            let o = other.counters.get(k).copied().unwrap_or(0);
+            if s > o {
+                self_greater = true;
+            } else if o > s {
+                other_greater = true;
+            }
+        }
+        for (k, &o) in &other.counters {
+            if !self.counters.contains_key(k) && o > 0 {
+                other_greater = true;
+            }
+        }
+        if self_greater && other_greater {
+            0
+        } else if self_greater {
+            1
+        } else if other_greater {
+            -1
+        } else {
+            0
+        }
+    }
+}
+
+/// 自定义冲突解决闭包类型
+pub type CustomResolveFn = Arc<dyn Fn(&Conflict) -> Resolution + Send + Sync>;
+
 /// 冲突解决器
 pub struct ConflictResolver {
     strategy: ResolutionStrategy,
@@ -125,6 +184,7 @@ pub struct ConflictResolver {
     primary_source: String,
     resolved_count: AtomicU64,
     unresolved_count: AtomicU64,
+    custom_handler: Option<CustomResolveFn>,
 }
 
 impl ConflictResolver {
@@ -135,7 +195,13 @@ impl ConflictResolver {
             primary_source: primary_source.to_string(),
             resolved_count: AtomicU64::new(0),
             unresolved_count: AtomicU64::new(0),
+            custom_handler: None,
         }
+    }
+
+    pub fn with_custom_handler(mut self, handler: CustomResolveFn) -> Self {
+        self.custom_handler = Some(handler);
+        self
     }
 
     pub fn set_priority(&self, source: &str, priority: u32) {
@@ -178,6 +244,8 @@ impl ConflictResolver {
             ResolutionStrategy::MergeFields => self.resolve_merge_fields(conflict),
             ResolutionStrategy::KeepConflict => self.resolve_keep_conflict(conflict),
             ResolutionStrategy::PrimaryWins => self.resolve_primary_wins(conflict),
+            ResolutionStrategy::MultiVersion => self.resolve_multi_version(conflict),
+            ResolutionStrategy::Custom => self.resolve_custom(conflict),
         }
     }
 
@@ -269,6 +337,41 @@ impl ConflictResolver {
             resolved_value: winner.value.clone(),
             winning_source: winner.source.clone(),
             conflict: conflict.clone(),
+        }
+    }
+
+    fn resolve_multi_version(&self, conflict: &Conflict) -> Resolution {
+        self.resolved_count.fetch_add(1, Ordering::Relaxed);
+        let siblings: Vec<serde_json::Value> =
+            conflict.versions.iter().map(|v| v.value.clone()).collect();
+        let winner = conflict
+            .versions
+            .iter()
+            .max_by_key(|v| v.version)
+            .unwrap_or(&conflict.versions[0]);
+        Resolution {
+            key: conflict.key.clone(),
+            strategy: ResolutionStrategy::MultiVersion,
+            resolved_value: serde_json::Value::Array(siblings),
+            winning_source: winner.source.clone(),
+            conflict: conflict.clone(),
+        }
+    }
+
+    fn resolve_custom(&self, conflict: &Conflict) -> Resolution {
+        if let Some(handler) = &self.custom_handler {
+            self.resolved_count.fetch_add(1, Ordering::Relaxed);
+            handler(conflict)
+        } else {
+            self.unresolved_count.fetch_add(1, Ordering::Relaxed);
+            let winner = &conflict.versions[0];
+            Resolution {
+                key: conflict.key.clone(),
+                strategy: ResolutionStrategy::Custom,
+                resolved_value: winner.value.clone(),
+                winning_source: winner.source.clone(),
+                conflict: conflict.clone(),
+            }
         }
     }
 
@@ -613,5 +716,90 @@ mod tests {
     fn test_resolver_strategy() {
         let resolver = ConflictResolver::new(ResolutionStrategy::MergeFields, "primary");
         assert_eq!(resolver.strategy(), ResolutionStrategy::MergeFields);
+    }
+
+    #[test]
+    fn test_vector_clock_basic() {
+        let mut a = VectorClock::new();
+        a.increment("node1");
+        a.increment("node1");
+        let mut b = VectorClock::new();
+        b.increment("node2");
+        assert_eq!(a.compare(&b), 0);
+    }
+
+    #[test]
+    fn test_vector_clock_causal_order() {
+        let mut a = VectorClock::new();
+        a.increment("node1");
+        let mut b = a.clone();
+        b.increment("node2");
+        assert_eq!(a.compare(&b), -1);
+        assert_eq!(b.compare(&a), 1);
+    }
+
+    #[test]
+    fn test_vector_clock_merge() {
+        let mut a = VectorClock::new();
+        a.increment("node1");
+        let mut b = VectorClock::new();
+        b.increment("node2");
+        let mut merged = a.clone();
+        merged.merge(&b);
+        assert_eq!(merged.compare(&a), 1);
+        assert_eq!(merged.compare(&b), 1);
+    }
+
+    #[test]
+    fn test_resolve_multi_version() {
+        let resolver = ConflictResolver::new(ResolutionStrategy::MultiVersion, "primary");
+        let versions = vec![
+            DataVersion::new("db1", serde_json::json!(1), 1),
+            DataVersion::new("db2", serde_json::json!(2), 2),
+        ];
+        let conflict = Conflict::new("k", ConflictType::ValueMismatch, versions);
+        let resolution = resolver.resolve(&conflict);
+        assert_eq!(resolution.strategy, ResolutionStrategy::MultiVersion);
+        assert!(resolution.resolved_value.is_array());
+        assert_eq!(resolution.resolved_value.as_array().unwrap().len(), 2);
+        assert_eq!(resolution.winning_source, "db2");
+    }
+
+    #[test]
+    fn test_resolve_custom_with_handler() {
+        let handler: CustomResolveFn = Arc::new(|conflict| Resolution {
+            key: conflict.key.clone(),
+            strategy: ResolutionStrategy::Custom,
+            resolved_value: serde_json::json!("custom_result"),
+            winning_source: "custom".to_string(),
+            conflict: conflict.clone(),
+        });
+        let resolver = ConflictResolver::new(ResolutionStrategy::Custom, "primary")
+            .with_custom_handler(handler);
+        let versions = vec![
+            DataVersion::new("db1", serde_json::json!(1), 1),
+            DataVersion::new("db2", serde_json::json!(2), 1),
+        ];
+        let conflict = Conflict::new("k", ConflictType::ValueMismatch, versions);
+        let resolution = resolver.resolve(&conflict);
+        assert_eq!(
+            resolution.resolved_value,
+            serde_json::json!("custom_result")
+        );
+        assert_eq!(resolution.winning_source, "custom");
+        assert_eq!(resolver.resolved_count(), 1);
+    }
+
+    #[test]
+    fn test_resolve_custom_without_handler() {
+        let resolver = ConflictResolver::new(ResolutionStrategy::Custom, "primary");
+        let versions = vec![
+            DataVersion::new("db1", serde_json::json!(1), 1),
+            DataVersion::new("db2", serde_json::json!(2), 1),
+        ];
+        let conflict = Conflict::new("k", ConflictType::ValueMismatch, versions);
+        let resolution = resolver.resolve(&conflict);
+        assert_eq!(resolution.strategy, ResolutionStrategy::Custom);
+        assert_eq!(resolver.unresolved_count(), 1);
     }
 }

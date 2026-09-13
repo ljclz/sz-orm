@@ -23,6 +23,8 @@ sz-orm-parallel = { path = "../packages/sz-orm-parallel", features = ["parallel-
 sz-orm-stream = { path = "../packages/sz-orm-stream", features = ["stream-resultset"] }
 sz-orm-batch = { path = "../packages/sz-orm-batch", features = ["parallel-batch"] }
 sz-orm-macros = { path = "../packages/sz-orm-macros" }
+sz-orm-fusion = { path = "../packages/sz-orm-fusion" }
+sz-orm-observability = { path = "../packages/sz-orm-observability" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
@@ -100,12 +102,47 @@ path = "src/bin/stream_unified_demo.rs"
 name = "backpressure_stream_demo"
 path = "src/bin/backpressure_stream_demo.rs"
 
+[[bin]]
+name = "composable_plugin_demo"
+path = "src/bin/composable_plugin_demo.rs"
+required-features = ["composable-plugin"]
+
+[[bin]]
+name = "tde_demo"
+path = "src/bin/tde_demo.rs"
+required-features = ["tde-interceptor"]
+
+[[bin]]
+name = "multi_region_demo"
+path = "src/bin/multi_region_demo.rs"
+required-features = ["multi-region"]
+
+[[bin]]
+name = "serverless_demo"
+path = "src/bin/serverless_demo.rs"
+required-features = ["serverless-adapt"]
+
+[[bin]]
+name = "stream_processing_demo"
+path = "src/bin/stream_processing_demo.rs"
+required-features = ["stream-processing"]
+
 [features]
 default = []
 # 启用 query! 宏的编译期连真 DB 验证能力
 db-verify = ["sz-orm-macros/db-verify"]
 # v3.4.0：sz-pay 生产案例示例
 sz-pay-example = []
+# v7.0.0：可组合性插件系统示例
+composable-plugin = ["sz-orm-core/composable-plugin"]
+# v7.0.0：TDE 透明数据加密示例
+tde-interceptor = ["sz-orm-core/tde-interceptor"]
+# v7.0.0：多区域多活示例
+multi-region = ["sz-orm-fusion/multi-region"]
+# v7.0.0：Serverless 适配示例
+serverless-adapt = ["sz-orm-core/serverless-adapt", "sz-orm-observability/serverless-metering"]
+# v7.0.0：实时流处理示例
+stream-processing = ["sz-orm-stream/stream-processing"]
 
 [lints]
 workspace = true

@@ -14,13 +14,18 @@ categories.workspace = true
 default = []
 # v4.5.0 M3：异步流式结果集（游标分页 + keyset pagination + 背压控制）
 stream-resultset = ["dep:tokio", "dep:futures", "sz-orm-core/async-row-stream"]
+# v7.0.0：实时流处理（物化视图 + 流批一体 + 窗口 + Flink 集成）
+stream-processing = ["stream-resultset", "dep:reqwest", "dep:parking_lot"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sz-orm-core = { path = "../sz-orm-core", version = "6.0.0" }
+sz-orm-core = { path = "../sz-orm-core", version = "7.0.0" }
 tokio = { version = "1.40", features = ["full"], optional = true }
 futures = { version = "0.3", optional = true }
+# v7.0.0 stream-processing 依赖
+reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
+parking_lot = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["full"] }
