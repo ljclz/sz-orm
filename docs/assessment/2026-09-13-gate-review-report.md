@@ -48,11 +48,21 @@
 6. **[P2] README 徽章数字过期**：tests 14140→14449（实测 14449 测试标注）、packages 71→72。按"数字禁止手写"原则用 `check-metrics-real.py --fix` 自动修正，复验 PASS。
 7. **[P3] OWASP A02 假阳性**：`packages/sz-orm-nl-query/src/cached_pipeline.rs` 用 `DefaultHasher` 计算内存缓存键（确定性、非密码学），与既有豁免同类。已登记入 `packages/sz-orm-crypto/tests/owasp_a02_crypto_failures.rs:166` 豁免表并附注释，A02 复跑 5/5。
 
-## G7 偏差说明（环境受限，非代码回归）
+## G7 偏差说明（已补齐环境，最终全绿）
 
-- MySQL 认证：测试内写死默认密码 `szormtestpwd` 与本机实际（`test123`，AGENTS.md 记载一致）不符，经 `SZ_ORM_MYSQL_URL` 环境变量修正后 MySQL 系集成测试全过。**建议**：测试默认值改为从环境读取并在 CI 固化，避免凭据漂移导致全量误报。
-- MSSQL 12 个失败：默认指向外部腾讯云主机（`sh-mssql-adrul9nm.sql.tencentcdb.com:22527`），当前网络不可达，本地无法自证；ClickHouse 3 + Redis 4：本机服务未启动（9004/6379 端口关闭）。
-- 1 个失败为 `cargo_mutants_baseline`（`packages/sz-orm-core/tests/mutation.rs:232`）：`#[ignore]` 设计占位测试故意 panic 提示走 G20 脚本，被 `--ignored` 全量扫描误捕获，非缺陷。
+**2026-09-14 环境补齐后复跑：167 通过 / 1 失败（唯一失败为设计占位 `cargo_mutants_baseline`），全部真实集成测试通过**（MySQL 系 + PG + Oracle + SQLite + DuckDB + MSSQL 8+7 + Redis 4 + ClickHouse 2）。环境路径：
+
+- Redis/ClickHouse 跑在服务器 `122.51.216.76` Docker（`szorm-redis-ext` 6380→6379、`szorm-clickhouse` 9004），安全组未开放，经 SSH 隧道 `127.0.0.1:6379`/`127.0.0.1:9004` 访问；ClickHouse 挂载的 `/tmp/ch_users.xml` 随服务器重启丢失已重建。
+- MSSQL 为腾讯云实例（此前网络不可达，本次可达）。
+- 复跑命令（`--tests` 选择器排除 doctest）：`cargo test --workspace --tests --no-fail-fast -- --ignored --test-threads=4`，凭据经 `SZ_ORM_MYSQL_URL`/`SZ_ORM_PG_URL`/`SZ_ORM_REDIS_URL`/`SZ_ORM_CLICKHOUSE_URL`/`SZ_ORM_MSSQL_*` 注入。
+
+**环境补齐过程中发现并修复 3 处真实 MSSQL 测试 bug（HEAD 既有，此前从未在真 SQL Server 上跑通过）：**
+
+1. `tests/common/schema_builder.rs:74-89`：MSSQL 方言生成了 `CREATE TABLE IF NOT EXISTS`——T-SQL 任何版本都不支持（错误 156）；改为 MSSQL 生成普通 `CREATE TABLE`（幂等性由前置 teardown 保证）。
+2. `tests/common/schema_builder.rs` seed_data：MSSQL `IDENTITY(1,1)` 列拒绝显式插入 id（错误 544）；MSSQL 方言下每条 INSERT 以批内 `SET IDENTITY_INSERT <t> ON; ...; OFF` 包裹。
+3. `tests/smart_eager_integration_mssql.rs:74-110,176+`：`try_get_mssql_value` 用逐类型试探 `row.get::<i32>`——tiberius 对类型不符的列直接 panic（BIGINT 列取 i32 报 Conversion 错误）；改为按 `ColumnType` 分派。同文件 `query_with_params` 增加统一 `?` → `@P1..@Pn` 占位符翻译（T-SQL 文本不支持 `?`，错误 102）。
+
+**首轮全量 `--ignored` 扫描的 120 个"doctest 失败"为工具伪影**：故意标记 `ignore` 的 doctest（依赖外部环境不可独立编译）被 blanket `--ignored` 强制执行；G7 的正确形态是加 `--tests` 选择器排除 doctest 目标。`cargo_mutants_baseline`（`packages/sz-orm-core/tests/mutation.rs:232`）同为故意 panic 占位，非缺陷。
 
 ## 遗留观察（不阻塞）
 

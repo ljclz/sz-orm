@@ -71,25 +71,44 @@ impl MssqlConnection {
     }
 
     fn try_get_mssql_value(row: &tiberius::Row, idx: usize) -> Value {
-        if let Some(v) = row.get::<i32, _>(idx) {
-            return Value::I32(v);
+        use tiberius::ColumnType;
+        // tiberius 的 Row::get::<T> 在列类型与 T 不符时会 panic（如对 BIGINT 列取 i32），
+        // 不能用"逐类型试探"写法，必须先按列类型分派
+        let ty = row
+            .columns()
+            .get(idx)
+            .map(|c| c.column_type())
+            .unwrap_or(ColumnType::NVarchar);
+        match ty {
+            ColumnType::Int2 | ColumnType::Int4 => {
+                row.get::<i32, _>(idx).map(Value::I32).unwrap_or(Value::Null)
+            }
+            ColumnType::Int8 | ColumnType::Intn => row
+                .get::<i64, _>(idx)
+                .map(Value::I64)
+                .unwrap_or(Value::Null),
+            ColumnType::Float4 | ColumnType::Float8 => row
+                .get::<f64, _>(idx)
+                .map(Value::F64)
+                .unwrap_or(Value::Null),
+            ColumnType::Bit => row
+                .get::<bool, _>(idx)
+                .map(Value::Bool)
+                .unwrap_or(Value::Null),
+            ColumnType::Guid => row
+                .get::<&str, _>(idx)
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or(Value::Null),
+            // 字符串族：NVarchar / BigVarChar / VarChar / Text / NText / NChar / Char / Xml 等
+            _ => row
+                .get::<&str, _>(idx)
+                .map(|s| Value::String(s.to_string()))
+                .unwrap_or_else(|| {
+                    row.get::<bool, _>(idx)
+                        .map(Value::Bool)
+                        .unwrap_or(Value::Null)
+                }),
         }
-        if let Some(v) = row.get::<i64, _>(idx) {
-            return Value::I64(v);
-        }
-        if let Some(v) = row.get::<f64, _>(idx) {
-            return Value::F64(v);
-        }
-        if let Some(v) = row.get::<&str, _>(idx) {
-            return Value::String(v.to_string());
-        }
-        if let Some(v) = row.get::<bool, _>(idx) {
-            return Value::Bool(v);
-        }
-        if let Some(v) = row.get::<&[u8], _>(idx) {
-            return Value::Bytes(v.to_vec());
-        }
-        Value::Null
     }
 
     fn value_to_tiberius(v: &Value) -> Box<dyn ToSql> {
@@ -162,10 +181,22 @@ impl Connection for MssqlConnection {
     {
         Box::pin(async move {
             let mut client = self.client.lock().await;
+            // tiberius 参数化约定为 @P1..@Pn，需把统一的 `?` 占位符翻译过去
+            // （SQL Server T-SQL 文本不支持 `?`，报 102 Incorrect syntax near '?'）
+            let mut translated = String::with_capacity(sql.len() + params.len() * 3);
+            let mut n = 0usize;
+            for ch in sql.chars() {
+                if ch == '?' {
+                    n += 1;
+                    translated.push_str(&format!("@P{n}"));
+                } else {
+                    translated.push(ch);
+                }
+            }
             let boxed: Vec<Box<dyn ToSql>> = params.iter().map(Self::value_to_tiberius).collect();
             let refs: Vec<&dyn ToSql> = boxed.iter().map(|b| b.as_ref()).collect();
             let stream = client
-                .query(sql, &refs)
+                .query(translated.as_str(), &refs)
                 .await
                 .map_err(|e| DbError::QueryError(e.to_string()))?;
             let rows = stream

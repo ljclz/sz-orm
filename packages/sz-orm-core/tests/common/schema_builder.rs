@@ -71,12 +71,19 @@ impl TestSchemaBuilder {
             TestDialect::MsSql => "BIGINT IDENTITY(1,1) PRIMARY KEY".to_string(),
         };
 
+        // T-SQL 任何版本都不支持 CREATE TABLE IF NOT EXISTS
+        // （错误 156 Incorrect syntax near 'IF'；幂等性由前置 teardown_ddl 保证）
+        let create = |sql: String| match self.dialect {
+            TestDialect::MsSql => sql.replace("CREATE TABLE IF NOT EXISTS", "CREATE TABLE"),
+            _ => sql,
+        };
+
         vec![
-            format!("CREATE TABLE IF NOT EXISTS users (id {auto_id}, name {text_type}, email {text_type})"),
-            format!("CREATE TABLE IF NOT EXISTS profiles (id {auto_id}, user_id {id_type}, bio {text_type})"),
-            format!("CREATE TABLE IF NOT EXISTS orders (id {auto_id}, user_id {id_type}, amount {id_type}, status {text_type})"),
-            format!("CREATE TABLE IF NOT EXISTS roles (id {auto_id}, name {text_type})"),
-            format!("CREATE TABLE IF NOT EXISTS user_roles (id {auto_id}, user_id {id_type}, role_id {id_type})"),
+            create(format!("CREATE TABLE IF NOT EXISTS users (id {auto_id}, name {text_type}, email {text_type})")),
+            create(format!("CREATE TABLE IF NOT EXISTS profiles (id {auto_id}, user_id {id_type}, bio {text_type})")),
+            create(format!("CREATE TABLE IF NOT EXISTS orders (id {auto_id}, user_id {id_type}, amount {id_type}, status {text_type})")),
+            create(format!("CREATE TABLE IF NOT EXISTS roles (id {auto_id}, name {text_type})")),
+            create(format!("CREATE TABLE IF NOT EXISTS user_roles (id {auto_id}, user_id {id_type}, role_id {id_type})")),
         ]
     }
 
@@ -106,7 +113,7 @@ impl TestSchemaBuilder {
     /// - user4：单条关联（1 order, 1 profile）
     /// - user1/user5：多条关联（多 orders, 多 roles）
     pub fn seed_data(&self) -> Vec<String> {
-        vec![
+        let raw: Vec<String> = vec![
             // users: 5 条
             "INSERT INTO users (id, name, email) VALUES (1, 'Alice', 'alice@test.com')".to_string(),
             "INSERT INTO users (id, name, email) VALUES (2, 'Bob', 'bob@test.com')".to_string(),
@@ -149,7 +156,24 @@ impl TestSchemaBuilder {
             "INSERT INTO user_roles (id, user_id, role_id) VALUES (4, 4, 2)".to_string(),
             "INSERT INTO user_roles (id, user_id, role_id) VALUES (5, 4, 3)".to_string(),
             "INSERT INTO user_roles (id, user_id, role_id) VALUES (6, 5, 1)".to_string(),
-        ]
+        ];
+
+        match self.dialect {
+            // SQL Server：IDENTITY 列显式插入需在批内开启 IDENTITY_INSERT
+            // （错误 544；其他方言 MySQL AUTO_INCREMENT / PG BIGSERIAL / Oracle BY DEFAULT 均允许）
+            TestDialect::MsSql => raw
+                .into_iter()
+                .map(|sql| {
+                    let table = sql
+                        .split_whitespace()
+                        .nth(2)
+                        .unwrap_or_default()
+                        .to_string();
+                    format!("SET IDENTITY_INSERT {table} ON; {sql}; SET IDENTITY_INSERT {table} OFF;")
+                })
+                .collect(),
+            _ => raw,
+        }
     }
 
     /// 获取预期的测试数据统计
