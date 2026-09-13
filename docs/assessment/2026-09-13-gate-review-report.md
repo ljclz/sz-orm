@@ -70,6 +70,22 @@
 - `check-mutation-coverage.py` 内置 10800s 超时对当前变异体规模（110 个体、`--test-threads=1`）不足，本次直跑约 6 小时完成；建议脚本超时参数化。
 - `llvm-cov-target` 目录存在来自旧路径 `C:/sz-rust-target` 的陈旧构建指纹，会导致 sys 包 `bindgen.rs` 缺失假失败（G22 重跑两次才通过）；建议对 llvm-cov-target 定期清理或迁移。
 
+## 后续执行记录（2026-09-14，遗留项全部闭环）
+
+| 事项 | 处置 | 提交 |
+|------|------|------|
+| G20 等价变异（quota None 分支） | 删冗余分支 + 2 定向测试；手动模拟超限分支删除变异 5 测试红确证可杀 | `135e33c` |
+| mutants 脚本超时 | `--timeout` 参数化（默认 6h） | `135e33c` |
+| doc-consistency --fix 括号吞噬 | 改为仅替换值捕获组 span + 补缺失修复 pattern | `135e33c` |
+| G7 环境补齐 | 服务器 Docker 容器启动（Redis/ClickHouse）+ SSH 双隧道 + 修复 3 处真实 MSSQL 测试 bug（CREATE TABLE IF NOT EXISTS / IDENTITY_INSERT / 列类型分派与 `?`→`@Pn` 翻译）；G7 终态 167/0 | `460f7ea` |
+| v7.0.0 在途工作 | 五大方向交付提交（72 文件 +5935） | `5079960` |
+| G20 剩余 5 个存活变异 | 补杀测试 ×3；变异模拟验证 5/5 全杀（mutant 态 3 测试红，还原后 33/33 绿） | `96fdf38` |
+| AI 评审遗留 #1（中间件链无 bench） | `middleware_chain_overhead_p99_under_1ms`（10k 采样 P99 ≤1ms）声称成立 | `23c3fec` |
+| AI 评审遗留 #2（TDE 密钥安全） | LocalKmsClient 存储 Zeroizing 化 + DekBuffer 栈 key 用毕清零；核证 TdeInterceptor fail-closed 无明文回退 | `23c3fec` |
+| AI 评审遗留 #3（多区域并发） | RegionFailoverCoordinator CAS 并发守卫 + FailoverInProgress 变体 + 8 线程争用测试 + 设计文档 `docs/multi-region-failover-concurrency.md` | `23c3fec` |
+
+**门禁终态：26/26 全绿**（G7 经环境补齐 + `--tests` 排除 doctest 伪影后 167 通过，唯一失败为设计占位 `cargo_mutants_baseline`）。
+
 ## 后续修复（2026-09-14 追加，按遗留观察执行）
 
 1. **G20 存活变异处置**：`QuotaEnforcer::check_quota` 内层 `None => Ok(())` 分支与 `_` 兜底臂语义等价（删除后 None 落入 `_` 仍返回 Ok），属**等价变异**，任何测试不可杀。处置：删除冗余分支（`packages/sz-orm-core/src/tenant_quota_rls.rs:239-241`）缩小变异面 + 新增 2 个定向测试 pin 住语义（`test_quota_enforcer_resource_without_limit`、`test_quota_enforcer_unknown_tenant_with_others_configured`）。杀伤力验证：手动模拟「超限分支删除」变异，5 个测试红（含 1 个新增），还原后 41/41 绿。
