@@ -1,0 +1,35 @@
+<!DOCTYPE html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1.0"><meta name="generator" content="rustdoc"><meta name="description" content="Source of the Rust file `packages/sz-orm-sqlx/src/row_stream_impl.rs`."><title>row_stream_impl.rs - source</title><script>if(window.location.protocol!=="file:")document.head.insertAdjacentHTML("beforeend","SourceSerif4-Regular-6b053e98.ttf.woff2,FiraSans-Italic-81dc35de.woff2,FiraSans-Regular-0fe48ade.woff2,FiraSans-MediumItalic-ccf7e434.woff2,FiraSans-Medium-e1aa3f0a.woff2,SourceCodePro-Regular-8badfe75.ttf.woff2,SourceCodePro-Semibold-aa29a496.ttf.woff2".split(",").map(f=>`<link rel="preload" as="font" type="font/woff2"href="../../static.files/${f}">`).join(""))</script><link rel="stylesheet" href="../../static.files/normalize-9960930a.css"><link rel="stylesheet" href="../../static.files/rustdoc-1ed95124.css"><meta name="rustdoc-vars" data-root-path="../../" data-static-root-path="../../static.files/" data-current-crate="sz_orm_sqlx" data-themes="" data-resource-suffix="" data-rustdoc-version="1.98.1 (48a229cea 2026-09-01)" data-channel="1.98.1" data-search-js="search-9944d736.js" data-stringdex-js="stringdex-2da4960a.js" data-settings-js="settings-170eb4bf.js" ><script src="../../static.files/storage-41dd4d93.js"></script><script defer src="../../static.files/src-script-813739b1.js"></script><script defer src="../../src-files.js"></script><script defer src="../../static.files/main-417ebf0a.js"></script><noscript><link rel="stylesheet" href="../../static.files/noscript-f7c3ffd8.css"></noscript><link rel="alternate icon" type="image/png" href="../../static.files/favicon-32x32-eab170b8.png"><link rel="icon" type="image/svg+xml" href="../../static.files/favicon-044be391.svg"></head><body class="rustdoc src"><a class="skip-main-content" href="#main-content">Skip to main content</a><!--[if lte IE 11]><div class="warning">This old browser is unsupported and will most likely display funky things.</div><![endif]--><nav class="sidebar"><div class="src-sidebar-title"><h2>Files</h2></div></nav><div class="sidebar-resizer" title="Drag to resize sidebar"></div><main><section id="main-content" class="content" tabindex="-1"><div class="main-heading"><h1><div class="sub-heading">sz_orm_sqlx/</div>row_stream_impl.rs</h1><rustdoc-toolbar></rustdoc-toolbar></div><div class="example-wrap digits-2"><pre class="rust"><code><a href=#1 id=1 data-nosnippet>1</a><span class="doccomment">//! v6.5.0 SqlxRowStream — SQLx 三后端流式结果集实现
+<a href=#2 id=2 data-nosnippet>2</a>//!
+<a href=#3 id=3 data-nosnippet>3</a>//! `SqlxRowStream` 是 `BoxedCursorRowStream` 的类型别名，
+<a href=#4 id=4 data-nosnippet>4</a>//! 包装 SQLx `query().fetch()` 真游标流。
+<a href=#5 id=5 data-nosnippet>5</a>//!
+<a href=#6 id=6 data-nosnippet>6</a>//! SQLx 三后端（SQLite/MySQL/PG）的 `query_stream` 已使用
+<a href=#7 id=7 data-nosnippet>7</a>//! `sqlx::query().fetch()` 真游标（any.rs:583/1261/1972），
+<a href=#8 id=8 data-nosnippet>8</a>//! `query_stream_unified` 的默认实现通过 `query_stream_cursor`
+<a href=#9 id=9 data-nosnippet>9</a>//! 间接提供真游标支持，无需为三后端单独实现 `ConnectionExt`。
+<a href=#10 id=10 data-nosnippet>10</a>
+<a href=#11 id=11 data-nosnippet>11</a></span><span class="kw">use </span>sz_orm_core::row_stream::BoxedCursorRowStream;
+<a href=#12 id=12 data-nosnippet>12</a>
+<a href=#13 id=13 data-nosnippet>13</a><span class="doccomment">/// SQLx 流式结果集（包装 `BoxedCursorRowStream`）
+<a href=#14 id=14 data-nosnippet>14</a>///
+<a href=#15 id=15 data-nosnippet>15</a>/// 使用方式：
+<a href=#16 id=16 data-nosnippet>16</a>/// ```ignore
+<a href=#17 id=17 data-nosnippet>17</a>/// let mut stream = conn.query_stream_unified("SELECT * FROM t", 1000)?;
+<a href=#18 id=18 data-nosnippet>18</a>/// while let Some(row) = stream.next_row().await {
+<a href=#19 id=19 data-nosnippet>19</a>///     let row = row?;
+<a href=#20 id=20 data-nosnippet>20</a>///     // 处理行
+<a href=#21 id=21 data-nosnippet>21</a>/// }
+<a href=#22 id=22 data-nosnippet>22</a>/// ```
+<a href=#23 id=23 data-nosnippet>23</a></span><span class="kw">pub type </span>SqlxRowStream&lt;<span class="lifetime">'a</span>&gt; = BoxedCursorRowStream&lt;<span class="lifetime">'a</span>&gt;;
+<a href=#24 id=24 data-nosnippet>24</a>
+<a href=#25 id=25 data-nosnippet>25</a><span class="attr">#[cfg(test)]
+<a href=#26 id=26 data-nosnippet>26</a></span><span class="kw">mod </span>tests {
+<a href=#27 id=27 data-nosnippet>27</a>    <span class="kw">use super</span>::<span class="kw-2">*</span>;
+<a href=#28 id=28 data-nosnippet>28</a>
+<a href=#29 id=29 data-nosnippet>29</a>    <span class="attr">#[test]
+<a href=#30 id=30 data-nosnippet>30</a>    </span><span class="kw">fn </span>test_sqlx_row_stream_type_alias() {
+<a href=#31 id=31 data-nosnippet>31</a>        <span class="kw">fn </span>assert_async_row_stream&lt;<span class="lifetime">'a</span>, S: sz_orm_core::row_stream::AsyncRowStream + <span class="lifetime">'a</span>&gt;() {}
+<a href=#32 id=32 data-nosnippet>32</a>        assert_async_row_stream::&lt;SqlxRowStream&lt;<span class="lifetime">'static</span>&gt;&gt;();
+<a href=#33 id=33 data-nosnippet>33</a>    }
+<a href=#34 id=34 data-nosnippet>34</a>}
+</code></pre></div></section></main></body></html>

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DegradationAction","DrillScenario"],"mod":["advanced","backup","error","restore"],"struct":["DegradationPolicy","DisasterRecoveryDrill","DrillReport","HealthStatus"]};

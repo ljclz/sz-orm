@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["PlanCache","PlanCacheEntry","PlanCacheKey","PlanCacheStats","PlanCacheStatsSnapshot","SqlNormalizer"]};

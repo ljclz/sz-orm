@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["NegotiationOutcome"],"struct":["NegotiationStats","ProtocolMetadata","SubProtocolRegistry","VersionedNegotiator"],"type":["ProtocolVersion"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ExplainDialect","ExplainError","ScanType"],"fn":["parse_explain","parser_for"],"mod":["dialect","parsers"],"struct":["ExplainPlan"],"trait":["ExplainParser"]};

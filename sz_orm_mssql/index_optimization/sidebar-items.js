@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["IndexType"],"struct":["IndexOptimizationAdvisor","IndexSuggestion","IndexUsageStats","MissingIndexInfo"]};

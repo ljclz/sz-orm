@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"macro":[["parallel_join",1]],"mod":["config","error","executor","macros","merger","outcome","parallel_queries","parallel_stats","parallelism","scheduler","sharder","task_scheduler"]};

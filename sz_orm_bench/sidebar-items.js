@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FrameworkType","WorkloadType"],"fn":["check_reproducibility","percentile","report_filename","run_full_benchmark","run_workload"],"struct":["BenchConfig","BenchReport","BenchResult","EnvMetadata","MemoryMetrics","SeededRng","SimdComparisonResult"]};

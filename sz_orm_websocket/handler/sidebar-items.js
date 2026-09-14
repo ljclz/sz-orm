@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MessageType"],"struct":["DefaultWebSocketHandler","WebSocketConnection","WebSocketMessage","WsContext","WsMessageBuilder"],"trait":["WebSocketHandler"],"type":["UserId"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LoadBalanceStrategy","SlaveHealth"],"mod":["circuit_breaker","replication_lag"],"struct":["HealthChecker","LatencySnapshot","LatencyStats","ReadRationing","ReadWriteRouter","WeightedSlave"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MigrationError"],"struct":["AiMigrationGenerator","DataImpactReport","MigrationResult","MigrationScript"],"trait":["LlmMigrationProvider"]};

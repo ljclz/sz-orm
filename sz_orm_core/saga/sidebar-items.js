@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SagaStatus"],"struct":["SagaCoordinator","SagaResult","SagaStep","SagaStore","TimeoutConfig"],"type":["SagaId","StepIndex"]};

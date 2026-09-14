@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["MAX_VECTOR_DIMENSION","MIN_VECTOR_DIMENSION"],"enum":["AnnIndexType"],"struct":["AnnIndexDef","AnnIndexRegistry","DimensionValidator","HnswParams","IvfflatParams","MemoryBatchOps","SimilarityAlgorithms","VectorNormalizer"],"trait":["BatchOpsExt"]};

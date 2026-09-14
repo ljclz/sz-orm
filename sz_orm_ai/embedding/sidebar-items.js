@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DimReductionStrategy"],"struct":["CachingEmbeddingModel","DimReductionEmbeddingModel","EmbeddingBatch","EmbeddingError","EmbeddingRecord","LoggingEmbeddingModel","NormalizedEmbeddingModel","SimpleEmbeddingModel"],"trait":["EmbeddingModel"]};

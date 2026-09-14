@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["CacheKey","CacheStats","CachedResult","QueryResultCache","QueryResultCacheConfig"]};

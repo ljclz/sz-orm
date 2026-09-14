@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CoherenceError","ConsistencyStrategy","InvalidationOp","MesiState"],"struct":["CacheCoherenceProtocol","CoherenceMetrics","InvalidationEvent","LocalBroadcaster","NoopBroadcaster"],"trait":["InvalidationBroadcaster"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CircuitBreakerProdError","CircuitState"],"struct":["CircuitBreakerProdConfig","CircuitBreakerStats","DefaultCircuitBreaker"],"trait":["CircuitBreaker"]};
