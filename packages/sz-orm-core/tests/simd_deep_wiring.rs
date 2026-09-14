@@ -4,7 +4,7 @@
 
 use sz_orm_core::simd::{
     batch_cosine_distance, batch_count_nonzero, batch_euclidean_distance, batch_max_f32,
-    batch_min_f32, batch_sum_f32, detect, SimdAvailability,
+    batch_min_f32, batch_sum_f32, detect,
 };
 
 #[test]

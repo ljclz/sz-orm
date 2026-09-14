@@ -413,8 +413,8 @@ mod tests {
         let gateway = DistCacheGateway::with_default();
         let base = Duration::from_secs(60);
         let jittered = gateway.ttl_with_jitter(base);
-        let min = Duration::from_millis((60_000 as f64 * 0.9) as u64);
-        let max = Duration::from_millis((60_000 as f64 * 1.1) as u64);
+        let min = Duration::from_millis((60_000_f64 * 0.9) as u64);
+        let max = Duration::from_millis((60_000_f64 * 1.1) as u64);
         assert!(jittered >= min && jittered <= max);
     }
 

@@ -541,15 +541,19 @@ mod tests {
 
     #[test]
     fn elastic_config_invalid_min() {
-        let mut config = ElasticConfig::default();
-        config.min_connections = 0;
+        let config = ElasticConfig {
+            min_connections: 0,
+            ..ElasticConfig::default()
+        };
         assert!(config.validate().is_err());
     }
 
     #[test]
     fn elastic_config_invalid_max() {
-        let mut config = ElasticConfig::default();
-        config.max_connections = 3;
+        let config = ElasticConfig {
+            max_connections: 3,
+            ..ElasticConfig::default()
+        };
         assert!(config.validate().is_err());
     }
 
