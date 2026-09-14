@@ -52,8 +52,8 @@ impl FulltextSearchSource for FailingFulltextSource {
     }
 }
 
+#[allow(dead_code)]
 struct MockStructuredSource {
-    #[allow(dead_code)]
     results: Vec<SourceResult>,
 }
 

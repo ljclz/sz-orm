@@ -433,7 +433,7 @@ mod tests {
     #[test]
     fn default_generator_equals_new() {
         let a = ComplianceReportGenerator::new();
-        let b = ComplianceReportGenerator::default();
+        let b = ComplianceReportGenerator;
         let summary = sample_summary();
         let ra = a
             .generate(&summary, &[], &[], &[], ReportFormat::Json)

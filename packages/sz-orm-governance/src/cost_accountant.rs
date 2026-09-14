@@ -340,7 +340,6 @@ mod tests {
                 io_count: 100,
                 connection_duration_ms: 5000,
                 storage_bytes: 1000000,
-                ..Default::default()
             },
         );
         let accountant = CostAccountant::new(make_config(), Box::new(metrics));

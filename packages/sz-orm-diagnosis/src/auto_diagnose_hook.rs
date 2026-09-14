@@ -266,15 +266,13 @@ fn extract_where_columns(query: &str) -> Option<Vec<String>> {
     let mut cols = vec![];
     for part in before_group.split("and").chain(before_group.split("or")) {
         let part = part.trim();
-        if let Some(col) = part
-            .split(|c: char| c == ' ' || c == '=' || c == '<' || c == '>' || c == '!')
-            .next()
-        {
+        if let Some(col) = part.split([' ', '=', '<', '>', '!']).next() {
             let col = col.trim();
-            if !col.is_empty() && col.chars().all(|c| c.is_alphanumeric() || c == '_') {
-                if !cols.contains(&col.to_string()) {
-                    cols.push(col.to_string());
-                }
+            if !col.is_empty()
+                && col.chars().all(|c| c.is_alphanumeric() || c == '_')
+                && !cols.contains(&col.to_string())
+            {
+                cols.push(col.to_string());
             }
         }
     }
@@ -291,7 +289,7 @@ fn extract_order_by_columns(query: &str) -> Option<Vec<String>> {
     let before_limit = after_order.split("limit").next().unwrap_or(after_order);
     let cols: Vec<String> = before_limit
         .split(',')
-        .map(|s| s.trim().split_whitespace().next().unwrap_or("").to_string())
+        .map(|s| s.split_whitespace().next().unwrap_or("").to_string())
         .filter(|s| !s.is_empty())
         .collect();
     if cols.is_empty() {
