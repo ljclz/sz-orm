@@ -16,7 +16,7 @@ use sz_orm_core::smart_eager_loader::{LoadStrategy, SmartEagerLoader, StrategyRe
 use sz_orm_core::{Connection, Value};
 
 /// 默认 MySQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_MYSQL_URL` 覆盖。
-const MYSQL_URL_DEFAULT: &str = "mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test";
+const MYSQL_URL_DEFAULT: &str = "mysql://root:test123@127.0.0.1:3306/sz_orm_test";
 
 fn mysql_url() -> String {
     std::env::var("SZ_ORM_MYSQL_URL").unwrap_or_else(|_| MYSQL_URL_DEFAULT.to_string())

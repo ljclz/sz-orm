@@ -16,7 +16,7 @@ use sz_orm_core::smart_eager_loader::{LoadStrategy, SmartEagerLoader, StrategyRe
 use sz_orm_core::{Connection, Value};
 
 /// 默认 PostgreSQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_PG_URL` 覆盖。
-const PG_URL_DEFAULT: &str = "postgres://postgres:szormtestpwd@127.0.0.1:5432/sz_orm_test";
+const PG_URL_DEFAULT: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
 
 fn pg_url() -> String {
     std::env::var("SZ_ORM_PG_URL").unwrap_or_else(|_| PG_URL_DEFAULT.to_string())

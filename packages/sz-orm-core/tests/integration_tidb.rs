@@ -12,7 +12,7 @@ use std::time::Duration;
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
 use sz_orm_core::DbType;
 
-const MYSQL_URL_DEFAULT: &str = "mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test";
+const MYSQL_URL_DEFAULT: &str = "mysql://root:test123@127.0.0.1:3306/sz_orm_test";
 
 fn mysql_url() -> String {
     std::env::var("SZ_ORM_MYSQL_URL").unwrap_or_else(|_| MYSQL_URL_DEFAULT.to_string())

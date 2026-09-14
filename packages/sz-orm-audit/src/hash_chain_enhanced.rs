@@ -81,7 +81,7 @@ impl HashChainEnhancedEntry {
         hasher.update(prev_hash.as_bytes());
         hasher.update(entry.subject.as_bytes());
         hasher.update(entry.object.as_bytes());
-        hasher.update(&entry.timestamp.to_le_bytes());
+        hasher.update(entry.timestamp.to_le_bytes());
         hasher.update(format!("{:?}", entry.op_type).as_bytes());
         hasher.update(format!("{:?}", entry.result).as_bytes());
         hasher.update(entry.source_ip.as_bytes());

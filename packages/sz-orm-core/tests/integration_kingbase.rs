@@ -12,7 +12,7 @@ use std::time::Duration;
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
 use sz_orm_core::DbType;
 
-const PG_URL_DEFAULT: &str = "postgres://postgres:szormtestpwd@127.0.0.1:5432/sz_orm_test";
+const PG_URL_DEFAULT: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
 
 fn pg_url() -> String {
     std::env::var("SZ_ORM_PG_URL").unwrap_or_else(|_| PG_URL_DEFAULT.to_string())
