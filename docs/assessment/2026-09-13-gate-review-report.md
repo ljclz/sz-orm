@@ -86,6 +86,13 @@
 
 **门禁终态：26/26 全绿**（G7 经环境补齐 + `--tests` 排除 doctest 伪影后 167 通过，唯一失败为设计占位 `cargo_mutants_baseline`）。
 
+## 发版登记（2026-09-14）
+
+- **CI-only 门禁本地无法复现**（对照 runbook 4.4 节，如实登记，待 CI 结果印证）：
+  fuzz（cargo-fuzz 长时模糊测试）、soak（长时间浸泡）、semgrep/codeql（静态安全扫描）、semver-check（cargo-semver-checks API 兼容性）——本地 23+3 关全绿不覆盖这些关卡；若 CI 红牌按 runbook "先确认是否 CI-only 关卡" 定位。
+- **pre-push 集成门禁**：13 关全过（`[ACCEPT]`），修复期间顺带修正 3 处 gate.ps1 与正规门禁语义不一致/环境缺陷（fmt 分包 os error 206、SQL 扫描委托正规脚本、多份 all-features clippy/doc 严格模式残留共 20 余处）。
+- **v7.0.0 tag**：本报告提交后打于 HEAD（全部审查修复 + 五大方向交付 + 环境补齐后的全绿状态）。
+
 ## 后续修复（2026-09-14 追加，按遗留观察执行）
 
 1. **G20 存活变异处置**：`QuotaEnforcer::check_quota` 内层 `None => Ok(())` 分支与 `_` 兜底臂语义等价（删除后 None 落入 `_` 仍返回 Ok），属**等价变异**，任何测试不可杀。处置：删除冗余分支（`packages/sz-orm-core/src/tenant_quota_rls.rs:239-241`）缩小变异面 + 新增 2 个定向测试 pin 住语义（`test_quota_enforcer_resource_without_limit`、`test_quota_enforcer_unknown_tenant_with_others_configured`）。杀伤力验证：手动模拟「超限分支删除」变异，5 个测试红（含 1 个新增），还原后 41/41 绿。
