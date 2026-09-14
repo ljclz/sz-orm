@@ -93,13 +93,33 @@ function Invoke-Step($name, $scriptBlock) {
 # ============================================================================
 # 关卡 1: 格式检查
 # ============================================================================
-$ok = Invoke-Step "格式检查 (cargo fmt --check)" {
-    cargo fmt --all -- --check
+# 注意：一次性 `cargo fmt --all -- --check` 在 70+ 包 workspace 下会触发
+# Windows 命令行长度上限（os error 206 文件名或扩展名太长），必须分包执行
+# （2026-09-14 修复，与门禁 G1 的验证方式一致）
+$ok = Invoke-Step "格式检查 (cargo fmt --check, 分包)" {
+    $fail = 0
+    # 不用 cargo metadata + ConvertFrom-Json（PS 5.1 对 315KB JSON 解析失败），
+    # 直接从 workspace members 读路径，cargo fmt --manifest-path 逐包检查
+    # （一次性 --all 在 70+ 包下触发 os error 206 命令行超长）
+    $toml = Get-Content (Join-Path $PSScriptRoot "..\Cargo.toml") -Raw
+    if ($toml -notmatch '(?s)members\s*=\s*\[([^\]]*)\]') { throw "Cargo.toml members 解析失败" }
+    $members = [regex]::Matches($Matches[1], '"([^"]+)"') | ForEach-Object { $_.Groups[1].Value }
+    $root = Resolve-Path (Join-Path $PSScriptRoot "..")
+    foreach ($m in $members) {
+        $manifest = Join-Path $root "$m\Cargo.toml"
+        if (-not (Test-Path $manifest)) { continue }
+        cargo fmt --manifest-path $manifest -- --check 2>$null
+        if ($LASTEXITCODE -ne 0) {
+            Write-Host "  FMT_FAIL: $m"
+            $fail = 1
+        }
+    }
+    if ($fail -ne 0) { exit 1 }
 }
-if (-not $ok) { 
+if (-not $ok) {
     Write-Host ""
-    Write-Host "提示: 运行 'cargo fmt --all' 自动修复格式" -ForegroundColor Yellow
-    exit 1 
+    Write-Host "提示: 运行 'cargo fmt --all' 自动修复格式（或按上方 FMT_FAIL 分包修复）" -ForegroundColor Yellow
+    exit 1
 }
 
 # ============================================================================
