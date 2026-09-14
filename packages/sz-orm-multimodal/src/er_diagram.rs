@@ -155,7 +155,7 @@ impl ErDiagramInteractor {
                             is_primary_key: *pk,
                             is_foreign_key: name.ends_with("_id") && !*pk,
                             references: if name.ends_with("_id") && !*pk {
-                                Some(name.trim_end_matches("_id").to_string() + "s")
+                                Some(format!("{}s", name.trim_end_matches("_id")))
                             } else {
                                 None
                             },

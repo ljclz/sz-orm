@@ -214,23 +214,13 @@ if (-not $ok) { exit 8 }
 # ============================================================================
 # 关卡 9: SQL 注入扫描
 # ============================================================================
-$ok = Invoke-Step "SQL 注入扫描" {
-    $sqlPatterns = @(
-        @{ Name = "format! SQL 拼接"; Pattern = 'format!\s*\(\s*"[^"]*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WHERE)[^"]*".*\{' },
-        @{ Name = "字符串插值 SQL"; Pattern = '"(?:[^"]*(?:SELECT|INSERT|UPDATE|DELETE|CREATE|DROP|ALTER|WHERE)[^"]*)\$\{?\w+\}?"' },
-        @{ Name = "SQL 字符串拼接"; Pattern = '\.to_string\(\s*\)\s*\+\s*"' },
-        @{ Name = "raw SQL 参数插值"; Pattern = '\.(?:execute|query|raw)\s*\(\s*format!' }
-    )
-    $found = $false
-    foreach ($pattern in $sqlPatterns) {
-        $m = Select-String -Path (Get-ChildItem -Recurse "*.rs" -Exclude "*target*").FullName -Pattern $pattern.Pattern
-        if ($m) {
-            Write-Host "[$($pattern.Name)] 发现 $($m.Count) 处" -ForegroundColor Red
-            $m | ForEach-Object { Write-Host "  $($_.Path):$($_.LineNumber)" }
-            $found = $true
-        }
-    }
-    if ($found) { exit 9 }
+# 2026-09-14 修复：原内联正则与正规门禁 9（scripts/check-sql-injection.ps1）
+# 语义不一致——任何命中即红牌（正规脚本为 REVIEW 非阻塞语义，53 项中绝大多数
+# 是错误消息拼接/测试用例等误报，G9 独立验证退出码 0）；且 Get-ChildItem -Recurse
+# 会扫进 gitignored 的第三方临时目录（.codeartsdoer）。改为委托正规脚本，
+# 判定以脚本退出码为准，与全量审查 G9 保持单一权威实现。
+$ok = Invoke-Step "SQL 注入扫描 (check-sql-injection.ps1)" {
+    & "$PSScriptRoot/check-sql-injection.ps1"
 }
 if (-not $ok) { exit 9 }
 
