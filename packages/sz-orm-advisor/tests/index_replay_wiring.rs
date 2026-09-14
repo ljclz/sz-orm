@@ -33,10 +33,12 @@ impl MockShadowDb {
         self
     }
 
+    #[allow(dead_code)] // 诊断探针：断言失败时人工检查用
     fn ddl_executed_count(&self) -> usize {
         self.ddl_executed.lock().unwrap().len()
     }
 
+    #[allow(dead_code)] // 诊断探针：断言失败时人工检查用
     fn ddl_rolled_back_count(&self) -> usize {
         self.ddl_rolled_back.lock().unwrap().len()
     }

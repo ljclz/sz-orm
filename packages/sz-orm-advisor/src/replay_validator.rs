@@ -171,7 +171,7 @@ impl ReplayValidator {
                     return ReplayResult {
                         candidate,
                         verified: true,
-                        measured_benefit_pct: benefit.max(0.0).min(100.0),
+                        measured_benefit_pct: benefit.clamp(0.0, 100.0),
                         replay_error: None,
                         static_only: false,
                     };
@@ -239,7 +239,7 @@ impl ReplayValidator {
                     let estimated_after = avg_before * selectivity;
                     let benefit = ((avg_before - estimated_after) / avg_before) * 100.0;
 
-                    (benefit.max(0.0).min(100.0), true, None)
+                    (benefit.clamp(0.0, 100.0), true, None)
                 }
             }
         } else {
