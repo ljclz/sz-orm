@@ -603,7 +603,7 @@ impl DefaultBatchOps {
     /// Set the rollback strategy (returns a new config instance).
     ///
     /// Note: `RollbackStrategy` only affects option-aware methods such as
-    /// [`batch_upsert_with_options`].
+    /// [`DefaultBatchOps::batch_upsert_with_options`].
     pub fn with_rollback_strategy(mut self, strategy: RollbackStrategy) -> Self {
         self.rollback_strategy = strategy;
         self

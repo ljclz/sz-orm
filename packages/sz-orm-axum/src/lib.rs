@@ -60,7 +60,7 @@ impl PoolState {
         }
     }
 
-    /// Create from Arc<Pool> (avoids duplicate Arc wrapping)
+    /// Create from `Arc<Pool>` (avoids duplicate `Arc` wrapping)
     pub fn from_arc(pool: Arc<Pool>) -> Self {
         Self { pool }
     }

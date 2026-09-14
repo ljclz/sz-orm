@@ -18,15 +18,15 @@ pub enum RustType {
     F64,
     /// bool
     Bool,
-    /// chrono::DateTime<Utc>
+    /// `chrono::DateTime<Utc>`
     DateTime,
     /// uuid::Uuid
     Uuid,
-    /// Vec<T>
+    /// `Vec<T>`
     Vec(Box<RustType>),
     /// 嵌套 struct（引用名）
     StructRef(String),
-    /// Option<T>
+    /// `Option<T>`
     Option(Box<RustType>),
 }
 
@@ -124,7 +124,7 @@ impl SchemaToModelMapper {
         RustType::Vec(Box::new(inner))
     }
 
-    /// 约束映射：OpenAPI Schema → Vec<Constraint>
+    /// 约束映射：OpenAPI Schema → `Vec<Constraint>`
     pub fn map_constraint(schema: &Schema, required: bool) -> Vec<Constraint> {
         let mut constraints = Vec::new();
 

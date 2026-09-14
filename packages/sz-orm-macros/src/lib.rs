@@ -8,7 +8,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_macros::sql_string;
 //!
 //! // Basic usage
@@ -448,7 +448,7 @@ fn validate_no_injection(sql: &str) -> Result<(), String> {
 ///   joins, etc.).
 /// - Otherwise, falls back to syntax-only validation.
 ///
-/// Emits a [`sz_orm_core::queryable::Query`] object wrapping the validated SQL.
+/// Emits a `sz_orm_core::queryable::Query` object wrapping the validated SQL.
 ///
 /// # Syntax
 ///

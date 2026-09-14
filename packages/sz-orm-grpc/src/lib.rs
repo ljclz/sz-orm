@@ -150,7 +150,7 @@ pub struct UserResponse {
 ///
 /// All methods use synchronous signatures because this crate's in-memory channel
 /// ([`GrpcChannel`]) is synchronous. The real tonic variant is bridged to the
-/// asynchronous tonic trait via the [`real_grpc`] module.
+/// asynchronous tonic trait via the `real_grpc` module.
 pub trait UserGrpcService: Send + Sync {
     /// Query a single user by id. Returns [`GrpcError::MethodNotFound`] when not found.
     fn get_user(&self, request: UserRequest) -> Result<UserResponse, GrpcError>;

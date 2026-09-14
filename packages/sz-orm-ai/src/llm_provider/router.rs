@@ -21,7 +21,7 @@ fn build_provider(config: &LlmConfig) -> Result<Arc<dyn LlmProvider>, LlmError> 
 
 /// LLM 路由器：运行时热切换 + 按能力路由 + fallback 链
 ///
-/// - `current`：当前活跃 provider（RwLock<Arc> 热切换）
+/// - `current`：当前活跃 provider（`RwLock<Arc<_>>` 热切换）
 /// - `capability_routes`：按能力路由表（如 NL2SQL→Claude，Embedding→OpenAI）
 /// - `fallback_config`：fallback 配置链（当前 provider 失败时尝试）
 pub struct LlmRouter {

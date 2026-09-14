@@ -46,7 +46,7 @@ use std::sync::Arc;
 pub struct ResolverContext {
     /// Root field 名称（如 "getUser"、"listUsers"）
     pub field_name: String,
-    /// 字段类型名（如 "User"、"[User!]!"）
+    /// 字段类型名（如 `User`、`[User!]!`）
     pub type_name: String,
     /// 是否为列表查询
     pub is_list: bool,

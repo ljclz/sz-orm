@@ -1,6 +1,6 @@
 //! 编译期数据治理（v4.3.0 M3-T3/T4，`compile-governance` feature）
 //!
-//! 由 [`GovernedModel`] trait + [`Governed`] 派生宏（sz-orm-macros）驱动：
+//! 由 [`GovernedModel`] trait + `Governed` 派生宏（sz-orm-macros）驱动：
 //!
 //! - **编译期强制**：`#[pii]` 字段必须声明 `#[mask(strategy = "...")]`，
 //!   策略必须在白名单内（hash/partial/replace/encrypt），违反即编译失败

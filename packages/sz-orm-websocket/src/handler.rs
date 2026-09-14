@@ -204,7 +204,7 @@ fn current_timestamp() -> i64 {
 ///
 /// # 安全说明（v4.8.0 修复 M-1）
 ///
-/// `message_log` 为有界环形缓冲（上限 [`MAX_MESSAGE_LOG`]，默认 10_000 条），
+/// `message_log` 为有界环形缓冲（上限 `MAX_MESSAGE_LOG`，默认 10_000 条），
 /// 修复前无界增长——未认证客户端持续发消息可耗尽内存（黑帽审计实证）。
 pub struct DefaultWebSocketHandler {
     connections: Arc<RwLock<HashMap<String, WebSocketConnection>>>,

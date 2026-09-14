@@ -7,9 +7,9 @@
 //! ## 功能
 //!
 //! - [`AiSchemaDesigner`] — AI Schema 设计器
-//! - [`design_schema`] — 根据业务需求生成建议 Schema
-//! - [`analyze_migration_impact`] — 分析 Schema 变更影响
-//! - [`denormalization_advice`] — 反范式化建议
+//! - `design_schema` — 根据业务需求生成建议 Schema
+//! - `analyze_migration_impact` — 分析 Schema 变更影响
+//! - `denormalization_advice` — 反范式化建议
 
 pub mod ai_schema_designer;
 

@@ -1,6 +1,6 @@
 //! 真实 Nacos HTTP API 客户端
 //!
-//! 基于 Nacos Open API：https://nacos.io/zh-cn/docs/open-api.html
+//! 基于 Nacos Open API：<https://nacos.io/zh-cn/docs/open-api.html>
 //!
 //! 支持：
 //! - `get_config` / `set_config` / `delete_config` — 配置读写

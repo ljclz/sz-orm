@@ -1,6 +1,6 @@
 //! 真实 Consul HTTP API 客户端
 //!
-//! 基于 Consul KV Store API v1：https://developer.hashicorp.com/consul/api-docs/kv
+//! 基于 Consul KV Store API v1：<https://developer.hashicorp.com/consul/api-docs/kv>
 //!
 //! 支持：
 //! - `get_config` / `set_config` / `delete_config` — KV 读写

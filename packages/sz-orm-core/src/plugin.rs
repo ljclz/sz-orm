@@ -458,7 +458,7 @@ mod composable {
     /// 有序中间件链
     ///
     /// 按 `order` 升序执行前置处理，降序执行后置处理。
-    /// 链长上限 [`MAX_CHAIN_LEN`]，超过返回 `PluginError::ChainTooLong`。
+    /// 链长上限 `MAX_CHAIN_LEN`，超过返回 `PluginError::ChainTooLong`。
     pub struct MiddlewareChain {
         chain: Vec<(i32, Arc<dyn MiddlewareExtension>)>,
         last_latency: RwLock<Option<Duration>>,

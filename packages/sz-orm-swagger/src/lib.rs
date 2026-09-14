@@ -8,7 +8,7 @@
 //!
 //! - [`OpenAPISpec`] — specification root object
 //! - [`PathInfo`] — single (path, method) operation description
-//! - [`Schema`] / [`SchemaRef`] / [`ObjectType`] / [`ArrayType`] — Schema definitions
+//! - [`Schema`] / [`ObjectType`] / [`ArrayType`] — Schema definitions
 //! - [`SecurityScheme`] — authentication schemes (Basic/Bearer/ApiKey/OAuth2)
 //! - [`Tag`] — interface grouping tag
 //! - [`Server`] — environment server configuration

@@ -14,7 +14,7 @@
 //! | f64 | Float |
 //! | bool | Boolean |
 //! | Option\<T\> | T（可空） |
-//! | Vec\<T\> | [T]（列表） |
+//! | Vec\<T\> | \[T\]（列表） |
 //! | NaiveDate | Date |
 //! | DateTime | DateTime |
 //! | Uuid | ID |
