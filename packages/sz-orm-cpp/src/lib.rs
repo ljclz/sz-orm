@@ -8,7 +8,8 @@
 use std::ffi::{c_char, CStr, CString};
 
 use sz_orm_cabi::{
-    PoolConfigC, QueryResultC, SzOrmPoolHandle, SzOrmQueryBuilderHandle, SzOrmTransactionHandle,
+    PoolConfigC, PoolMetricsC, PoolStatsC, QueryJsonResult, QueryResultC, SzOrmPoolHandle,
+    SzOrmQueryBuilderHandle, SzOrmTransactionHandle,
 };
 
 /// Create connection pool (real creation, SQLite backend)
@@ -607,6 +608,103 @@ pub unsafe extern "C" fn sz_orm_cpp_active_model_delete(
     let result =
         unsafe { sz_orm_cabi::sz_orm_model_delete(handle, table, where_clause, where_params_json) };
     Box::into_raw(Box::new(result))
+}
+
+/// Get pool statistics
+///
+/// # Safety
+///
+/// SAFETY: handle must be a valid handle returned by `sz_orm_cpp_pool_new`.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_pool_stats(handle: SzOrmPoolHandle) -> PoolStatsC {
+    // SAFETY: 转发到 cabi，handle 有效性由调用方保证
+    unsafe { sz_orm_cabi::sz_orm_pool_stats(handle) }
+}
+
+/// Get pool metrics
+///
+/// # Safety
+///
+/// SAFETY: handle must be a valid handle returned by `sz_orm_cpp_pool_new`.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_pool_metrics(handle: SzOrmPoolHandle) -> PoolMetricsC {
+    // SAFETY: 转发到 cabi，handle 有效性由调用方保证
+    unsafe { sz_orm_cabi::sz_orm_pool_metrics(handle) }
+}
+
+/// Query single row as JSON
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; sql must be a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_query_one(
+    handle: SzOrmPoolHandle,
+    sql: *const c_char,
+) -> *mut QueryJsonResult {
+    // SAFETY: 转发到 cabi，参数有效性由调用方保证
+    unsafe { sz_orm_cabi::sz_orm_query_one(handle, sql) }
+}
+
+/// Execute batch SQL
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; sql must be a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_execute_batch(
+    handle: SzOrmPoolHandle,
+    sql: *const c_char,
+) -> QueryResultC {
+    // SAFETY: 转发到 cabi，参数有效性由调用方保证
+    unsafe { sz_orm_cabi::sz_orm_execute_batch(handle, sql) }
+}
+
+/// Free query result
+///
+/// # Safety
+///
+/// SAFETY: result must be a valid pointer returned by `sz_orm_cpp_query_one`.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_query_result_free(result: *mut QueryJsonResult) {
+    // SAFETY: 转发到 cabi，result 有效性由调用方保证
+    unsafe { sz_orm_cabi::sz_orm_query_result_free(result) }
+}
+
+/// Get error description string
+///
+/// # Safety
+///
+/// SAFETY: Caller must free the returned string with `sz_orm_cpp_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_error_description(code: i32) -> *mut c_char {
+    // SAFETY: 转发到 cabi
+    unsafe { sz_orm_cabi::sz_orm_error_description(code) }
+}
+
+/// Check if table exists
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; table must be a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_table_exists(
+    handle: SzOrmPoolHandle,
+    table: *const c_char,
+) -> i32 {
+    // SAFETY: 转发到 cabi，参数有效性由调用方保证
+    unsafe { sz_orm_cabi::sz_orm_table_exists(handle, table) }
+}
+
+/// Count rows in table
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; table must be a valid NUL-terminated C string.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_cpp_count(handle: SzOrmPoolHandle, table: *const c_char) -> i64 {
+    // SAFETY: 转发到 cabi，参数有效性由调用方保证
+    unsafe { sz_orm_cabi::sz_orm_count(handle, table) }
 }
 
 #[cfg(test)]

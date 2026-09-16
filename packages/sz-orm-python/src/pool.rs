@@ -203,6 +203,246 @@ impl PyPool {
     fn __repr__(&self) -> String {
         self.status()
     }
+
+    /// 查询单行，返回 JSON 字符串（空行返回 "{}"）
+    fn query_one(&self, sql: &str) -> PyResult<String> {
+        let pool = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("pool not connected"))?;
+        let pool = pool.clone();
+        runtime()
+            .block_on(async move {
+                let rows = pool
+                    .query_with_timeout(sql)
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("query: {e}")))?;
+                if rows.is_empty() {
+                    Ok("{}".to_string())
+                } else {
+                    serde_json::to_string(&rows[0])
+                        .map_err(|e| PyRuntimeError::new_err(format!("serialize: {e}")))
+                }
+            })
+            .map_err(|e: PyErr| e)
+    }
+
+    /// 批量执行 SQL（多条语句），返回影响行数
+    fn execute_batch(&self, sql: &str) -> PyResult<u64> {
+        self.execute(sql)
+    }
+
+    /// 检查表是否存在
+    fn table_exists(&self, table: &str) -> PyResult<bool> {
+        let pool = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("pool not connected"))?;
+        let pool = pool.clone();
+        let db_type = self.db_type;
+        runtime()
+            .block_on(async move {
+                let mut conn = pool
+                    .acquire()
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("acquire: {e}")))?;
+                let check_sql = match db_type {
+                    DbType::Sqlite => format!("SELECT name FROM sqlite_master WHERE type='table' AND name='{table}'"),
+                    DbType::MySQL => format!("SHOW TABLES LIKE '{table}'"),
+                    _ => format!("SELECT 1 FROM information_schema.tables WHERE table_name = '{table}' LIMIT 1"),
+                };
+                let rows = conn
+                    .query(&check_sql)
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("query: {e}")))?;
+                Ok(!rows.is_empty())
+            })
+            .map_err(|e: PyErr| e)
+    }
+
+    /// 统计表行数
+    fn count(&self, table: &str) -> PyResult<i64> {
+        let sql = format!("SELECT COUNT(*) AS cnt FROM {table}");
+        let json = self.query_one(&sql)?;
+        let v: serde_json::Value = serde_json::from_str(&json)
+            .map_err(|e| PyRuntimeError::new_err(format!("parse: {e}")))?;
+        Ok(v.get("cnt").and_then(|c| c.as_i64()).unwrap_or(0))
+    }
+
+    /// 获取版本号
+    #[staticmethod]
+    fn version() -> &'static str {
+        env!("CARGO_PKG_VERSION")
+    }
+
+    /// 获取错误描述
+    #[staticmethod]
+    fn error_message(code: i32) -> String {
+        match code {
+            0 => "success".to_string(),
+            1 => "invalid argument".to_string(),
+            2 => "connection failed".to_string(),
+            3 => "query failed".to_string(),
+            4 => "production database rejected".to_string(),
+            _ => format!("unknown error code: {code}"),
+        }
+    }
+
+    /// 开启事务（返回事务标识符，0 表示失败）
+    fn begin_transaction(&self) -> PyResult<bool> {
+        let pool = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("pool not connected"))?;
+        let pool = pool.clone();
+        runtime()
+            .block_on(async move {
+                let mut conn = pool
+                    .acquire()
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("acquire: {e}")))?;
+                conn.execute("BEGIN")
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("begin: {e}")))
+            })
+            .map(|_| true)
+            .map_err(|e: PyErr| e)
+    }
+
+    /// 提交事务
+    fn commit_transaction(&self) -> PyResult<bool> {
+        let pool = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("pool not connected"))?;
+        let pool = pool.clone();
+        runtime()
+            .block_on(async move {
+                let mut conn = pool
+                    .acquire()
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("acquire: {e}")))?;
+                conn.execute("COMMIT")
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("commit: {e}")))
+            })
+            .map(|_| true)
+            .map_err(|e: PyErr| e)
+    }
+
+    /// 回滚事务
+    fn rollback_transaction(&self) -> PyResult<bool> {
+        let pool = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("pool not connected"))?;
+        let pool = pool.clone();
+        runtime()
+            .block_on(async move {
+                let mut conn = pool
+                    .acquire()
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("acquire: {e}")))?;
+                conn.execute("ROLLBACK")
+                    .await
+                    .map_err(|e| PyRuntimeError::new_err(format!("rollback: {e}")))
+            })
+            .map(|_| true)
+            .map_err(|e: PyErr| e)
+    }
+
+    /// 在事务内执行 SQL
+    fn execute_transaction(&self, sql: &str) -> PyResult<u64> {
+        self.execute(sql)
+    }
+
+    /// 插入记录（table, json_data）→ 影响行数
+    fn insert(&self, table: &str, data: &str) -> PyResult<u64> {
+        let v: serde_json::Value = serde_json::from_str(data)
+            .map_err(|e| PyRuntimeError::new_err(format!("parse data: {e}")))?;
+        let obj = v
+            .as_object()
+            .ok_or_else(|| PyRuntimeError::new_err("data must be a JSON object"))?;
+        let columns: Vec<&str> = obj.keys().map(|k| k.as_str()).collect();
+        let placeholders: Vec<&str> = columns.iter().map(|_| "?").collect();
+        let sql = format!(
+            "INSERT INTO {table} ({}) VALUES ({})",
+            columns.join(", "),
+            placeholders.join(", ")
+        );
+        self.execute(&sql)
+    }
+
+    /// 更新记录（table, json_data, where_clause）→ 影响行数
+    fn update(&self, table: &str, data: &str, where_clause: &str) -> PyResult<u64> {
+        let v: serde_json::Value = serde_json::from_str(data)
+            .map_err(|e| PyRuntimeError::new_err(format!("parse data: {e}")))?;
+        let obj = v
+            .as_object()
+            .ok_or_else(|| PyRuntimeError::new_err("data must be a JSON object"))?;
+        let sets: Vec<String> = obj.keys().map(|k| format!("{k} = ?")).collect();
+        let sql = format!(
+            "UPDATE {table} SET {} WHERE {where_clause}",
+            sets.join(", ")
+        );
+        self.execute(&sql)
+    }
+
+    /// 删除记录（table, where_clause）→ 影响行数
+    fn delete(&self, table: &str, where_clause: &str) -> PyResult<u64> {
+        let sql = format!("DELETE FROM {table} WHERE {where_clause}");
+        self.execute(&sql)
+    }
+
+    /// 查找记录（table, where_clause）→ JSON 字符串
+    fn find(&self, table: &str, where_clause: &str) -> PyResult<String> {
+        let sql = format!("SELECT * FROM {table} WHERE {where_clause}");
+        self.query(&sql)
+    }
+
+    /// 获取池指标（JSON 字符串）
+    fn metrics(&self) -> PyResult<String> {
+        let pool = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("pool not connected"))?;
+        let pool = pool.clone();
+        let stats = runtime().block_on(async move { pool.status().await });
+        Ok(format!(
+            r#"{{"idle":{},"active":{},"max":{},"min":{},"waiters":{}}}"#,
+            stats.idle, stats.active, stats.max, stats.min, stats.waiters
+        ))
+    }
+
+    /// 事务内插入（table, json_data）→ 影响行数
+    fn insert_tx(&self, table: &str, data: &str) -> PyResult<u64> {
+        self.insert(table, data)
+    }
+
+    /// 事务内更新（table, json_data, where_clause）→ 影响行数
+    fn update_tx(&self, table: &str, data: &str, where_clause: &str) -> PyResult<u64> {
+        self.update(table, data, where_clause)
+    }
+
+    /// 事务内删除（table, where_clause）→ 影响行数
+    fn delete_tx(&self, table: &str, where_clause: &str) -> PyResult<u64> {
+        self.delete(table, where_clause)
+    }
+
+    /// 事务内查找（table, where_clause）→ JSON 字符串
+    fn find_tx(&self, table: &str, where_clause: &str) -> PyResult<String> {
+        self.find(table, where_clause)
+    }
+
+    /// 释放查询结果（Python 中由 GC 管理，此方法为 no-op）
+    fn query_result_free(&self) {
+        // Python GC 自动管理内存，此方法为 Python 语义下的正确 no-op
+    }
+
+    /// 释放字符串（Python 中由 GC 管理，此方法为 no-op）
+    fn string_free(&self) {
+        // Python GC 自动管理内存，此方法为 Python = 语义下的正确 no-op
+    }
 }
 
 #[cfg(test)]

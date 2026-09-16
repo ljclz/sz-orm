@@ -17,6 +17,21 @@ path = "src/main.rs"
 [dependencies]
 serde = { workspace = true }
 serde_json = { workspace = true }
+thiserror = { workspace = true }
+
+# real-bench feature 下的真实 DB 查询依赖（optional，不影响默认编译）
+sz-orm-core = { workspace = true, optional = true }
+sz-orm-sqlx = { workspace = true, optional = true }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "sqlite", "chrono", "json"], optional = true }
+tokio = { workspace = true, optional = true }
+sea-orm = { version = "1.1", optional = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
+
+[features]
+default = []
+# 启用真实 DB 基准测试（sz-orm + sqlx + sea-orm）
+real-bench = ["dep:sz-orm-core", "dep:sz-orm-sqlx", "dep:sqlx", "dep:tokio", "dep:sea-orm"]
+# diesel 基准（diesel 不在本地缓存，暂不启用）
+real-bench-diesel = ["real-bench"]
 
 [lints]
 workspace = true

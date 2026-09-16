@@ -77,6 +77,17 @@ pub mod mysql;
 #[allow(missing_docs)]
 pub mod postgres;
 
+#[cfg(feature = "cdc-realtime-sync")]
+#[allow(missing_docs)]
+pub mod lag_monitor;
 #[cfg(feature = "cdc-sqlite")]
 #[allow(missing_docs)]
 pub mod sqlite;
+
+#[cfg(feature = "cdc-realtime-sync")]
+#[allow(missing_docs)]
+pub mod schema_evolution;
+
+#[cfg(feature = "cdc-realtime-sync")]
+#[allow(missing_docs)]
+pub mod snapshot_mode;

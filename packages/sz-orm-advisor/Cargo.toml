@@ -18,15 +18,20 @@ query-advisor = ["dep:serde", "dep:serde_json", "dep:sz-orm-explain", "dep:sz-or
 query-intelligence-loop = ["query-advisor", "dep:sz-orm-flamegraph", "dep:sz-orm-diagnosis", "sz-orm-diagnosis/slow-query-diagnosis"]
 # v6.8.0：索引推荐深度集成
 index-advisor-deep = ["query-advisor"]
+# v7.1.0：AI 自然语言查询（NlQueryGateway + 安全校验 + 结果格式化）
+ai-nl-query = ["query-advisor", "dep:parking_lot"]
+# v7.1.0：查询自调优闭环（索引推荐 + JOIN 重排 + A/B 测试 + 审批门控）
+query-auto-tuning = ["query-intelligence-loop", "index-advisor-deep"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
 serde_json = { version = "1.0", optional = true }
-sz-orm-explain = { path = "../sz-orm-explain", version = "7.0.0", optional = true }
-sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "7.0.0", optional = true }
-sz-orm-ai = { path = "../sz-orm-ai", version = "7.0.0", optional = true }
-sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "7.0.0", optional = true }
-sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "7.0.0", optional = true }
+sz-orm-explain = { path = "../sz-orm-explain", version = "7.1.0", optional = true }
+sz-orm-adaptive = { path = "../sz-orm-adaptive", version = "7.1.0", optional = true }
+sz-orm-ai = { path = "../sz-orm-ai", version = "7.1.0", optional = true }
+sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "7.1.0", optional = true }
+sz-orm-diagnosis = { path = "../sz-orm-diagnosis", version = "7.1.0", optional = true }
+parking_lot = { workspace = true, optional = true }
 
 [lints]
 workspace = true
@@ -40,3 +45,16 @@ required-features = ["index-advisor-deep"]
 name = "index_replay_wiring"
 path = "tests/index_replay_wiring.rs"
 required-features = ["index-advisor-deep"]
+[[test]]
+name = "nl_query_wiring"
+path = "tests/nl_query_wiring.rs"
+required-features = ["ai-nl-query"]
+
+[[test]]
+name = "nl_query_safety"
+path = "tests/nl_query_safety.rs"
+required-features = ["ai-nl-query"]
+[[test]]
+name = "auto_tuning_wiring"
+path = "tests/auto_tuning_wiring.rs"
+required-features = ["query-auto-tuning"]

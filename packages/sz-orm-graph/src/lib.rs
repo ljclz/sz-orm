@@ -29,6 +29,9 @@ pub mod validator;
 #[cfg(feature = "graph-query-deep")]
 pub mod joint_projection;
 
+#[cfg(feature = "graph-traversal")]
+pub mod traversal;
+
 pub use algorithm::{DirectedGraph, NodeId, UndirectedGraph, Weight};
 pub use community::{
     Community, CommunityDetectionResult, ConnectedComponentDetector, LabelPropagation,
@@ -48,4 +51,10 @@ pub use query::{
     GraphResult,
 };
 pub use subgraph::{CommonSubgraphFinder, IsomorphismChecker, SubgraphMatcher};
+#[cfg(feature = "graph-traversal")]
+pub use traversal::{
+    CompiledQuery, GraphResultHydrator, GraphTraversalCompiler, GraphTraversalDsl,
+    GraphTraversalExecutor, NestedNode, PathSegment, RelationEdge, RelationGraph, TraversalPath,
+    TraversalPathCache,
+};
 pub use validator::CypherValidator;

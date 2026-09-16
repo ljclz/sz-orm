@@ -23,6 +23,9 @@ pub mod token_store;
 #[cfg(feature = "rbac-enhanced")]
 pub mod rbac_inheritance;
 
+#[cfg(feature = "rbac-abac-enhanced")]
+pub mod abac;
+
 pub use auth::*;
 pub use authorizer::{Authorizer, RbacAuthorizer};
 pub use error::AuthError;

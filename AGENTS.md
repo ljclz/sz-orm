@@ -1,6 +1,6 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：7.0.0（workspace.package.version 集中管理）
+- 版本：7.2.0（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：72（70 lib 包 + cli + examples）；v5.1.0 新增 sz-orm-studio / sz-orm-lsp；v4.3.0 新增 sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor / sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel / sz-orm-stream；v4.6.0 不新增包，7 个 feature gate 扩展既有包；v4.7.0 不新增包，7 个 feature gate 扩展既有包）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）

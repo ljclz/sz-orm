@@ -5,6 +5,19 @@
 
 use serde::{Deserialize, Serialize};
 
+#[cfg(feature = "real-bench")]
+pub mod real_db;
+
+#[cfg(feature = "real-bench")]
+pub use real_db::{
+    run_workload_real, DatasetInitializer, RealDbExecutor, SeaOrmWorkload, SqlxWorkload,
+    SzOrmWorkload,
+};
+
+#[cfg(feature = "real-bench")]
+#[cfg(feature = "real-bench-diesel")]
+pub use real_db::DieselWorkload;
+
 /// 工作负载类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WorkloadType {
@@ -56,6 +69,39 @@ impl FrameworkType {
     }
 }
 
+/// 数据库后端类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
+pub enum DbBackend {
+    #[serde(rename = "sqlite")]
+    Sqlite,
+    #[serde(rename = "mysql")]
+    Mysql,
+}
+
+impl DbBackend {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Sqlite => "sqlite",
+            Self::Mysql => "mysql",
+        }
+    }
+}
+
+/// 基准测试错误
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum BenchError {
+    #[error("数据库连接失败: {0}")]
+    DbConnectFailed(String),
+    #[error("查询执行失败: {0}")]
+    QueryFailed(String),
+    #[error("无效连接串: {0}")]
+    InvalidConnectionString(String),
+    #[error("拒绝生产数据库: {0}")]
+    ProductionDatabaseRejected(String),
+    #[error("不可比工作负载: {0:?}")]
+    IncomparableWorkload(WorkloadType),
+}
+
 /// 基准测试配置
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BenchConfig {
@@ -71,6 +117,20 @@ pub struct BenchConfig {
     pub dataset_size: usize,
     /// 并发度
     pub concurrency: usize,
+    /// 数据库后端
+    #[serde(default = "default_db_backend")]
+    pub db_backend: DbBackend,
+    /// 数据库连接串
+    #[serde(default = "default_db_connection")]
+    pub db_connection: String,
+}
+
+fn default_db_backend() -> DbBackend {
+    DbBackend::Sqlite
+}
+
+fn default_db_connection() -> String {
+    "sqlite::memory:".to_string()
 }
 
 impl Default for BenchConfig {
@@ -88,7 +148,48 @@ impl BenchConfig {
             pool_size: 20,
             dataset_size: 10000,
             concurrency: 8,
+            db_backend: DbBackend::Sqlite,
+            db_connection: "sqlite::memory:".to_string(),
         }
+    }
+
+    /// 校验配置合法性
+    pub fn validate(&self) -> Result<(), BenchError> {
+        if self.seed == 0 {
+            return Err(BenchError::InvalidConnectionString("seed 不能为 0".into()));
+        }
+        if self.warmup_rounds < 1 {
+            return Err(BenchError::InvalidConnectionString(
+                "warmup_rounds 必须 >= 1".into(),
+            ));
+        }
+        if self.measure_rounds < 3 {
+            return Err(BenchError::InvalidConnectionString(
+                "measure_rounds 必须 >= 3".into(),
+            ));
+        }
+        if self.pool_size == 0 || self.pool_size > 100 {
+            return Err(BenchError::InvalidConnectionString(
+                "pool_size 必须在 1..=100".into(),
+            ));
+        }
+        if self.dataset_size < 100 {
+            return Err(BenchError::InvalidConnectionString(
+                "dataset_size 必须 >= 100".into(),
+            ));
+        }
+        let max_concurrency = num_cpus() as usize * 4;
+        if self.concurrency == 0 || self.concurrency > max_concurrency {
+            return Err(BenchError::InvalidConnectionString(format!(
+                "concurrency 必须在 1..={max_concurrency}"
+            )));
+        }
+        if self.db_connection.is_empty() {
+            return Err(BenchError::InvalidConnectionString(
+                "db_connection 不能为空".into(),
+            ));
+        }
+        Ok(())
     }
 }
 
@@ -115,6 +216,9 @@ pub struct BenchResult {
     pub alloc_bytes: u64,
     /// 原始延迟数组（μs）
     pub raw_latencies: Vec<u64>,
+    /// 是否真实 DB 查询
+    #[serde(default)]
+    pub is_real_db: bool,
 }
 
 impl BenchResult {
@@ -126,6 +230,7 @@ impl BenchResult {
         peak_rss_kb: u64,
         alloc_count: u64,
         alloc_bytes: u64,
+        is_real_db: bool,
     ) -> Self {
         let p50 = percentile(&latencies_us, 50.0);
         let p95 = percentile(&latencies_us, 95.0);
@@ -148,6 +253,7 @@ impl BenchResult {
             alloc_count,
             alloc_bytes,
             raw_latencies: latencies_us,
+            is_real_db,
         }
     }
 }
@@ -161,6 +267,7 @@ pub struct EnvMetadata {
     pub os_version: String,
     pub rust_version: String,
     pub feature_flags: Vec<String>,
+    pub git_commit: String,
 }
 
 impl Default for EnvMetadata {
@@ -172,8 +279,28 @@ impl Default for EnvMetadata {
             os_version: std::env::consts::OS.to_string(),
             rust_version: env!("CARGO_PKG_RUST_VERSION", "unknown").to_string(),
             feature_flags: vec![],
+            git_commit: capture_git_commit(),
         }
     }
+}
+
+fn capture_git_commit() -> String {
+    std::process::Command::new("git")
+        .args(["rev-parse", "HEAD"])
+        .output()
+        .ok()
+        .and_then(|o| {
+            if o.status.success() {
+                String::from_utf8(o.stdout).ok()
+            } else {
+                None
+            }
+        })
+        .map(|s| s.trim().to_string())
+        .unwrap_or_else(|| {
+            eprintln!("警告: 无法采集 git commit hash");
+            "unknown".to_string()
+        })
 }
 
 fn num_cpus() -> u32 {
@@ -195,8 +322,10 @@ pub struct BenchReport {
 impl BenchReport {
     /// 创建基准报告
     pub fn new(results: Vec<BenchResult>) -> Self {
+        let env = EnvMetadata::default();
         Self {
-            env_metadata: EnvMetadata::default(),
+            git_commit: env.git_commit.clone(),
+            env_metadata: env,
             results,
             sz_orm_version: env!("CARGO_PKG_VERSION").to_string(),
             framework_versions: vec![
@@ -205,7 +334,6 @@ impl BenchReport {
                 (FrameworkType::Diesel, "2.1".to_string()),
                 (FrameworkType::Sqlx, "0.9".to_string()),
             ],
-            git_commit: String::new(),
         }
     }
 
@@ -285,10 +413,59 @@ fn current_rss_kb() -> u64 {
         }
         0
     }
-    #[cfg(not(target_os = "linux"))]
+    #[cfg(target_os = "windows")]
+    {
+        let pid = std::process::id();
+        std::process::Command::new("wmic")
+            .args([
+                "process",
+                "where",
+                &format!("processid={pid}"),
+                "get",
+                "WorkingSetSize",
+            ])
+            .output()
+            .ok()
+            .and_then(|o| String::from_utf8(o.stdout).ok())
+            .and_then(|s| s.lines().nth(1).map(|l| l.trim().to_string()))
+            .and_then(|s| s.parse::<u64>().ok())
+            .map(|bytes| bytes / 1024)
+            .unwrap_or_else(|| {
+                eprintln!("警告: Windows RSS 采集失败");
+                0
+            })
+    }
+    #[cfg(not(any(target_os = "linux", target_os = "windows")))]
     {
         0
     }
+}
+
+/// 校验数据库连接串并返回后端类型
+pub fn validate_db_connection(connection: &str) -> Result<DbBackend, BenchError> {
+    if connection.is_empty() {
+        return Err(BenchError::InvalidConnectionString("连接串为空".into()));
+    }
+    if connection.starts_with("sqlite:") {
+        return Ok(DbBackend::Sqlite);
+    }
+    if connection.starts_with("mysql://") {
+        let lower = connection.to_lowercase();
+        if lower.contains("prod") || lower.contains("production") {
+            return Err(BenchError::ProductionDatabaseRejected(
+                "连接串含 prod/production".into(),
+            ));
+        }
+        if !connection.contains("sz_orm_test") {
+            return Err(BenchError::ProductionDatabaseRejected(
+                "MySQL 必须指向 sz_orm_test 库".into(),
+            ));
+        }
+        return Ok(DbBackend::Mysql);
+    }
+    Err(BenchError::InvalidConnectionString(format!(
+        "不支持的连接串: {connection}"
+    )))
 }
 
 /// 工作负载运行器：对指定框架和负载类型执行基准测试
@@ -321,6 +498,7 @@ pub fn run_workload(
         mem.peak_rss_kb,
         mem.alloc_count,
         mem.alloc_bytes,
+        false,
     )
 }
 
@@ -504,6 +682,7 @@ mod tests {
             1024,
             10,
             4096,
+            false,
         );
         assert!(result.p50_us > 0.0);
         assert!(result.p95_us >= result.p50_us);
@@ -542,6 +721,7 @@ mod tests {
                 0,
                 0,
                 0,
+                false,
             ),
             BenchResult::from_latencies(
                 FrameworkType::SzOrm,
@@ -550,6 +730,7 @@ mod tests {
                 0,
                 0,
                 0,
+                false,
             ),
         ];
         assert!(check_reproducibility(&results));
@@ -565,6 +746,7 @@ mod tests {
                 0,
                 0,
                 0,
+                false,
             ),
             BenchResult::from_latencies(
                 FrameworkType::SzOrm,
@@ -573,6 +755,7 @@ mod tests {
                 0,
                 0,
                 0,
+                false,
             ),
         ];
         assert!(!check_reproducibility(&results));

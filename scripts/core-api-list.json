@@ -1,0 +1,181 @@
+{
+    "description": "绑定层应导出的核心外部 API 清单（v7.2.0）",
+    "rationale": "sz-orm-core 含 2139 个 pub 符号，但大部分为内部实现。绑定层只需导出面向终端用户的核心 API。",
+    "apis": [
+        {
+            "name": "pool_new",
+            "category": "pool",
+            "description": "创建连接池"
+        },
+        {
+            "name": "pool_free",
+            "category": "pool",
+            "description": "释放连接池"
+        },
+        {
+            "name": "pool_stats",
+            "category": "pool",
+            "description": "获取池统计"
+        },
+        {
+            "name": "pool_metrics",
+            "category": "pool",
+            "description": "获取池指标"
+        },
+        {
+            "name": "ping",
+            "category": "pool",
+            "description": "测试连接"
+        },
+        {
+            "name": "query",
+            "category": "query",
+            "description": "执行查询"
+        },
+        {
+            "name": "query_one",
+            "category": "query",
+            "description": "查询单行"
+        },
+        {
+            "name": "execute",
+            "category": "query",
+            "description": "执行语句"
+        },
+        {
+            "name": "execute_batch",
+            "category": "query",
+            "description": "批量执行"
+        },
+        {
+            "name": "query_result_free",
+            "category": "query",
+            "description": "释放查询结果"
+        },
+        {
+            "name": "transaction_begin",
+            "category": "transaction",
+            "description": "开启事务"
+        },
+        {
+            "name": "transaction_execute",
+            "category": "transaction",
+            "description": "事务内执行"
+        },
+        {
+            "name": "transaction_commit",
+            "category": "transaction",
+            "description": "提交事务"
+        },
+        {
+            "name": "transaction_rollback",
+            "category": "transaction",
+            "description": "回滚事务"
+        },
+        {
+            "name": "transaction_free",
+            "category": "transaction",
+            "description": "释放事务"
+        },
+        {
+            "name": "model_insert",
+            "category": "model",
+            "description": "插入模型"
+        },
+        {
+            "name": "model_update",
+            "category": "model",
+            "description": "更新模型"
+        },
+        {
+            "name": "model_delete",
+            "category": "model",
+            "description": "删除模型"
+        },
+        {
+            "name": "model_find",
+            "category": "model",
+            "description": "查找模型"
+        },
+        {
+            "name": "model_insert_tx",
+            "category": "model",
+            "description": "事务内插入"
+        },
+        {
+            "name": "model_update_tx",
+            "category": "model",
+            "description": "事务内更新"
+        },
+        {
+            "name": "model_delete_tx",
+            "category": "model",
+            "description": "事务内删除"
+        },
+        {
+            "name": "model_find_tx",
+            "category": "model",
+            "description": "事务内查找"
+        },
+        {
+            "name": "qb_new",
+            "category": "query_builder",
+            "description": "创建查询构建器"
+        },
+        {
+            "name": "qb_table",
+            "category": "query_builder",
+            "description": "设置表名"
+        },
+        {
+            "name": "qb_where_eq",
+            "category": "query_builder",
+            "description": "添加等值条件"
+        },
+        {
+            "name": "qb_order_by",
+            "category": "query_builder",
+            "description": "添加排序"
+        },
+        {
+            "name": "qb_limit",
+            "category": "query_builder",
+            "description": "设置限制"
+        },
+        {
+            "name": "qb_build",
+            "category": "query_builder",
+            "description": "构建查询"
+        },
+        {
+            "name": "qb_free",
+            "category": "query_builder",
+            "description": "释放构建器"
+        },
+        {
+            "name": "version",
+            "category": "utility",
+            "description": "获取版本"
+        },
+        {
+            "name": "error_description",
+            "category": "utility",
+            "description": "获取错误描述"
+        },
+        {
+            "name": "string_free",
+            "category": "utility",
+            "description": "释放字符串"
+        },
+        {
+            "name": "table_exists",
+            "category": "utility",
+            "description": "检查表是否存在"
+        },
+        {
+            "name": "count",
+            "category": "utility",
+            "description": "计数"
+        }
+    ]
+}

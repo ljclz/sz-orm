@@ -16,11 +16,13 @@ default = []
 stream-resultset = ["dep:tokio", "dep:futures", "sz-orm-core/async-row-stream"]
 # v7.0.0：实时流处理（物化视图 + 流批一体 + 窗口 + Flink 集成）
 stream-processing = ["stream-resultset", "dep:reqwest", "dep:parking_lot"]
+# v7.1.0：CDC 实时数据同步（Kafka Sink + 断点续传 + Schema 变更适配）
+cdc-realtime-sync = ["stream-resultset", "sz-orm-core/cdc-realtime-sync"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sz-orm-core = { path = "../sz-orm-core", version = "7.0.0" }
+sz-orm-core = { path = "../sz-orm-core", version = "7.1.0" }
 tokio = { version = "1.40", features = ["full"], optional = true }
 futures = { version = "0.3", optional = true }
 # v7.0.0 stream-processing 依赖
@@ -31,6 +33,7 @@ parking_lot = { workspace = true, optional = true }
 tokio = { version = "1.40", features = ["full"] }
 futures = "0.3"
 criterion = { version = "0.5", features = ["async_tokio"] }
+async-trait = { workspace = true }
 
 [[bench]]
 name = "regression_stream_real"
@@ -42,6 +45,11 @@ required-features = ["stream-resultset"]
 name = "v62_perf_stream"
 path = "tests/v62_perf_stream.rs"
 required-features = ["stream-resultset"]
+
+[[test]]
+name = "cdc_sync_wiring"
+path = "tests/cdc_sync_wiring.rs"
+required-features = ["cdc-realtime-sync"]
 
 [lints]
 workspace = true

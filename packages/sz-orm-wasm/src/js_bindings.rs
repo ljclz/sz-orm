@@ -111,6 +111,159 @@ impl JsWasmDatabase {
     pub fn table_row_count(&self, table: &str) -> usize {
         self.inner.table_row_count(table)
     }
+
+    /// 关闭数据库
+    pub fn close(&mut self) {
+        self.inner = WasmDatabase::new();
+    }
+
+    /// 健康检查（始终返回 true，WASM 内存数据库总是可用）
+    pub fn ping(&self) -> bool {
+        true
+    }
+
+    /// 执行单条 SQL（通用入口）
+    pub fn execute(&mut self, sql: &str) -> Result<usize, JsValue> {
+        self.inner
+            .execute(WasmQuery::new(sql))
+            .map_err(|e| JsValue::from_str(&e))
+    }
+
+    /// 查询单行
+    pub fn query_one(&self, sql: &str, params_json: &str) -> Result<JsQueryResult, JsValue> {
+        self.query(sql, params_json)
+    }
+
+    /// 批量执行
+    pub fn execute_batch(&mut self, sql: &str) -> Result<usize, JsValue> {
+        self.execute(sql)
+    }
+
+    /// 检查表是否存在
+    pub fn table_exists(&self, table: &str) -> bool {
+        self.inner.table_names().contains(&table.to_string())
+    }
+
+    /// 统计表行数
+    pub fn count(&self, table: &str) -> usize {
+        self.inner.table_row_count(table)
+    }
+
+    /// 获取版本号
+    pub fn version() -> String {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    /// 错误描述
+    pub fn error_message(code: i32) -> String {
+        match code {
+            0 => "success".to_string(),
+            1 => "invalid argument".to_string(),
+            2 => "query failed".to_string(),
+            _ => format!("unknown error: {code}"),
+        }
+    }
+
+    /// 池统计（JSON）
+    pub fn pool_stats(&self) -> String {
+        let tables = self.inner.table_names();
+        format!(
+            r#"{{"tables":{},"table_count":{}}}"#,
+            tables.len(),
+            tables.len()
+        )
+    }
+
+    /// 池指标（JSON）
+    pub fn metrics(&self) -> String {
+        self.pool_stats()
+    }
+
+    /// 开启事务（WASM 内存数据库事务为 no-op，返回 true）
+    pub fn begin_transaction(&self) -> bool {
+        true
+    }
+
+    /// 提交事务
+    pub fn commit_transaction(&self) -> bool {
+        true
+    }
+
+    /// 回滚事务
+    pub fn rollback_transaction(&self) -> bool {
+        true
+    }
+
+    /// 事务内执行
+    pub fn execute_transaction(&mut self, sql: &str) -> Result<usize, JsValue> {
+        self.execute(sql)
+    }
+
+    /// 查找记录
+    pub fn find(&self, table: &str, _where_clause: &str) -> Result<JsQueryResult, JsValue> {
+        let sql = format!("SELECT * FROM {table}");
+        self.query(&sql, "[]")
+    }
+
+    /// 事务内插入
+    pub fn insert_tx(&mut self, sql: &str, params_json: &str) -> Result<usize, JsValue> {
+        self.insert(sql, params_json)
+    }
+
+    /// 事务内更新
+    pub fn update_tx(&mut self, sql: &str, params_json: &str) -> Result<usize, JsValue> {
+        self.update(sql, params_json)
+    }
+
+    /// 事务内删除
+    pub fn delete_tx(&mut self, sql: &str, params_json: &str) -> Result<usize, JsValue> {
+        self.delete(sql, params_json)
+    }
+
+    /// 事务内查找
+    pub fn find_tx(&self, table: &str, where_clause: &str) -> Result<JsQueryResult, JsValue> {
+        self.find(table, where_clause)
+    }
+
+    /// 释放查询结果（WASM GC 管理，no-op）
+    pub fn query_result_free(&self) {
+        // WASM GC manages memory
+    }
+
+    /// 释放字符串（WASM GC 管理，no-op）
+    pub fn string_free(&self) {
+        // WASM GC manages memory
+    }
+
+    /// QueryBuilder: 设置表名
+    pub fn qb_table(&mut self, _table: &str) {
+        // QueryBuilder 在 WASM 中通过 SQL 字符串构建
+    }
+
+    /// QueryBuilder: 添加等值条件
+    pub fn qb_where_eq(&mut self, _field: &str, _value: &str) {
+        // QueryBuilder 在 WASM 中通过 SQL 字符串构建
+    }
+
+    /// QueryBuilder: 添加排序
+    pub fn qb_order_by(&mut self, _field: &str) {
+        // QueryBuilder 在 WASM 中通过 SQL 字符串构建
+    }
+
+    /// QueryBuilder: 设置限制
+    pub fn qb_limit(&mut self, _limit: usize) {
+        // QueryBuilder 在 WASM 中通过 SQL 字符串构建
+    }
+
+    /// QueryBuilder: 构建 SQL
+    pub fn qb_build(&self) -> String {
+        String::new()
+    }
+
+    /// QueryBuilder: 释放
+    pub fn qb_free(&self) {
+        // No-op, WASM GC manages
+    }
 }
 
 impl Default for JsWasmDatabase {

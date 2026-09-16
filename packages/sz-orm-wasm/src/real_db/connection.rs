@@ -191,6 +191,10 @@ fn futures_executor_block_on<F: std::future::Future>(f: F) -> F::Output {
         RawWaker::new(std::ptr::null(), &V_TABLE)
     }
 
+    // SAFETY: `dummy_raw_waker()` 返回的 RawWaker 使用 static VTable，
+    // 所有 vtable 函数（clone/wake/wake_by_ref/drop）均为 no-op 或返回等价 dummy，
+    // 不解引用 null data 指针，满足 Waker::from_raw 的安全性契约。
+    // 用于 WASM 单线程环境同步 poll，无需真正唤醒。
     let waker = unsafe { Waker::from_raw(dummy_raw_waker()) };
     let mut cx = Context::from_waker(&waker);
     let mut future = Box::pin(f);

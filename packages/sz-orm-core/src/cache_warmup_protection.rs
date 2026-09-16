@@ -195,7 +195,7 @@ impl<T: Clone + Send + Sync + 'static> CacheWarmer<T> {
                     }
                 }
                 Err(_) => {
-                    result.failed_keys += 1;
+                    result.failed_keys -= /* ~ changed by cargo-mutants ~ */ 1;
                 }
             }
         }

@@ -1,0 +1,393 @@
+{
+  "env_metadata": {
+    "cpu_model": "unknown",
+    "cpu_cores": 20,
+    "memory_total_kb": 0,
+    "os_version": "windows",
+    "rust_version": "",
+    "feature_flags": [],
+    "git_commit": "578926448c4fafc09285411d1557a02152a65e17"
+  },
+  "results": [
+    {
+      "framework": "sz-orm",
+      "workload": "single_row_query",
+      "p50_us": 128.5,
+      "p95_us": 386.9999999999996,
+      "p99_us": 523.8000000000001,
+      "throughput_ops": 6901.311249137336,
+      "peak_rss_kb": 9364,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        153,
+        558,
+        178,
+        129,
+        132,
+        128,
+        57,
+        50,
+        32,
+        32
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sz-orm",
+      "workload": "batch_query",
+      "p50_us": 606.0,
+      "p95_us": 1057.3499999999995,
+      "p99_us": 1257.8700000000001,
+      "throughput_ops": 1481.9205690574986,
+      "peak_rss_kb": 9520,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        751,
+        1308,
+        568,
+        608,
+        571,
+        513,
+        617,
+        604,
+        622,
+        586
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sz-orm",
+      "workload": "complex_join",
+      "p50_us": 152.0,
+      "p95_us": 612.1999999999998,
+      "p99_us": 678.4399999999999,
+      "throughput_ops": 3995.2057530962843,
+      "peak_rss_kb": 9684,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        383,
+        695,
+        208,
+        113,
+        131,
+        40,
+        511,
+        161,
+        143,
+        118
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sz-orm",
+      "workload": "transaction",
+      "p50_us": 614.0,
+      "p95_us": 1162.349999999999,
+      "p99_us": 1449.27,
+      "throughput_ops": 1399.9720005599888,
+      "peak_rss_kb": 9672,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        724,
+        1521,
+        553,
+        575,
+        569,
+        601,
+        656,
+        716,
+        621,
+        607
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sz-orm",
+      "workload": "pool_concurrency",
+      "p50_us": 140.0,
+      "p95_us": 481.44999999999965,
+      "p99_us": 596.2900000000001,
+      "throughput_ops": 5356.186395286556,
+      "peak_rss_kb": 9700,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        306,
+        625,
+        176,
+        139,
+        140,
+        123,
+        140,
+        147,
+        38,
+        33
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sea-orm",
+      "workload": "single_row_query",
+      "p50_us": 141.0,
+      "p95_us": 465.0999999999996,
+      "p99_us": 595.4200000000001,
+      "throughput_ops": 4970.178926441352,
+      "peak_rss_kb": 11120,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        628,
+        266,
+        133,
+        189,
+        134,
+        148,
+        118,
+        158,
+        122,
+        116
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sea-orm",
+      "workload": "batch_query",
+      "p50_us": 451.0,
+      "p95_us": 737.2499999999995,
+      "p99_us": 886.6500000000001,
+      "throughput_ops": 2081.1654526534858,
+      "peak_rss_kb": 11040,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        924,
+        509,
+        465,
+        449,
+        452,
+        450,
+        456,
+        382,
+        388,
+        330
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sea-orm",
+      "workload": "complex_join",
+      "p50_us": 147.0,
+      "p95_us": 441.14999999999964,
+      "p99_us": 568.2300000000001,
+      "throughput_ops": 4892.367906066536,
+      "peak_rss_kb": 11128,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        600,
+        224,
+        247,
+        134,
+        153,
+        124,
+        127,
+        136,
+        141,
+        158
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sea-orm",
+      "workload": "transaction",
+      "p50_us": 359.0,
+      "p95_us": 648.9499999999996,
+      "p99_us": 781.7900000000001,
+      "throughput_ops": 2391.200382592061,
+      "peak_rss_kb": 11092,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        815,
+        446,
+        415,
+        353,
+        356,
+        370,
+        357,
+        361,
+        354,
+        355
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sea-orm",
+      "workload": "pool_concurrency",
+      "p50_us": 137.0,
+      "p95_us": 562.3499999999995,
+      "p99_us": 741.2700000000001,
+      "throughput_ops": 4595.588235294118,
+      "peak_rss_kb": 11188,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        786,
+        289,
+        143,
+        193,
+        146,
+        129,
+        120,
+        114,
+        131,
+        125
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sqlx",
+      "workload": "single_row_query",
+      "p50_us": 167.5,
+      "p95_us": 633.3499999999998,
+      "p99_us": 689.87,
+      "throughput_ops": 3974.56279809221,
+      "peak_rss_kb": 11192,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        704,
+        547,
+        96,
+        443,
+        179,
+        180,
+        156,
+        58,
+        85,
+        68
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sqlx",
+      "workload": "batch_query",
+      "p50_us": 245.5,
+      "p95_us": 1079.35,
+      "p99_us": 1099.8700000000001,
+      "throughput_ops": 2339.728591483388,
+      "peak_rss_kb": 11144,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        1048,
+        1105,
+        455,
+        254,
+        242,
+        241,
+        247,
+        242,
+        196,
+        244
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sqlx",
+      "workload": "complex_join",
+      "p50_us": 138.0,
+      "p95_us": 706.1999999999996,
+      "p99_us": 844.44,
+      "throughput_ops": 3859.5137012736395,
+      "peak_rss_kb": 11204,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        879,
+        495,
+        198,
+        67,
+        468,
+        164,
+        100,
+        112,
+        71,
+        37
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sqlx",
+      "workload": "transaction",
+      "p50_us": 297.5,
+      "p95_us": 740.9499999999997,
+      "p99_us": 837.79,
+      "throughput_ops": 2648.3050847457625,
+      "peak_rss_kb": 11224,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        862,
+        593,
+        296,
+        338,
+        231,
+        268,
+        287,
+        299,
+        322,
+        280
+      ],
+      "is_real_db": true
+    },
+    {
+      "framework": "sqlx",
+      "workload": "pool_concurrency",
+      "p50_us": 131.5,
+      "p95_us": 592.8,
+      "p99_us": 598.5600000000001,
+      "throughput_ops": 4621.072088724584,
+      "peak_rss_kb": 11280,
+      "alloc_count": 0,
+      "alloc_bytes": 0,
+      "raw_latencies": [
+        584,
+        600,
+        218,
+        140,
+        136,
+        127,
+        101,
+        100,
+        101,
+        57
+      ],
+      "is_real_db": true
+    }
+  ],
+  "sz_orm_version": "7.2.0",
+  "framework_versions": [
+    [
+      "sz-orm",
+      "7.2.0"
+    ],
+    [
+      "sea-orm",
+      "0.12"
+    ],
+    [
+      "diesel",
+      "2.1"
+    ],
+    [
+      "sqlx",
+      "0.9"
+    ]
+  ],
+  "git_commit": "578926448c4fafc09285411d1557a02152a65e17"
+}

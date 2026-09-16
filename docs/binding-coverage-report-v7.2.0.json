@@ -1,0 +1,78 @@
+[
+  {
+    "binding_name": "cabi",
+    "total_core_api": 35,
+    "covered_api": 35,
+    "coverage_ratio": 1.0,
+    "meets_threshold": true,
+    "gap_api_count": 0,
+    "gap_api_list": [],
+    "generated_by": "check-binding-coverage.py"
+  },
+  {
+    "binding_name": "java",
+    "total_core_api": 35,
+    "covered_api": 34,
+    "coverage_ratio": 0.9714,
+    "meets_threshold": true,
+    "gap_api_count": 1,
+    "gap_api_list": [
+      {
+        "api_path": "query_result_free",
+        "category": "query",
+        "description": "释放查询结果"
+      }
+    ],
+    "generated_by": "check-binding-coverage.py"
+  },
+  {
+    "binding_name": "python",
+    "total_core_api": 35,
+    "covered_api": 35,
+    "coverage_ratio": 1.0,
+    "meets_threshold": true,
+    "gap_api_count": 0,
+    "gap_api_list": [],
+    "generated_by": "check-binding-coverage.py"
+  },
+  {
+    "binding_name": "go",
+    "total_core_api": 35,
+    "covered_api": 35,
+    "coverage_ratio": 1.0,
+    "meets_threshold": true,
+    "gap_api_count": 0,
+    "gap_api_list": [],
+    "generated_by": "check-binding-coverage.py"
+  },
+  {
+    "binding_name": "cpp",
+    "total_core_api": 35,
+    "covered_api": 35,
+    "coverage_ratio": 1.0,
+    "meets_threshold": true,
+    "gap_api_count": 0,
+    "gap_api_list": [],
+    "generated_by": "check-binding-coverage.py"
+  },
+  {
+    "binding_name": "js",
+    "total_core_api": 35,
+    "covered_api": 35,
+    "coverage_ratio": 1.0,
+    "meets_threshold": true,
+    "gap_api_count": 0,
+    "gap_api_list": [],
+    "generated_by": "check-binding-coverage.py"
+  },
+  {
+    "binding_name": "wasm",
+    "total_core_api": 35,
+    "covered_api": 35,
+    "coverage_ratio": 1.0,
+    "meets_threshold": true,
+    "gap_api_count": 0,
+    "gap_api_list": [],
+    "generated_by": "check-binding-coverage.py"
+  }
+]

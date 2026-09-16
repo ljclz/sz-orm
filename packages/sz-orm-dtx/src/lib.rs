@@ -32,6 +32,10 @@ pub mod xa;
 #[cfg(feature = "cross-lang-dtx")]
 pub mod cross_lang;
 
+// v7.1.0：分布式协调（分布式锁 + Leader 选举 + 服务注册/发现）
+#[cfg(feature = "dist-coordination")]
+pub mod coordination;
+
 // ============================================================================
 // TransactionLogStore — 事务日志持久化（用于崩溃恢复）
 // ============================================================================

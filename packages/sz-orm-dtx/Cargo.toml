@@ -34,8 +34,10 @@ prost = { version = "0.14", optional = true }
 tonic = { version = "0.14", optional = true, features = ["tls-ring"] }
 tonic-prost = { version = "0.14", optional = true }
 tokio-stream = { version = "0.1", optional = true }
-sz-orm-grpc = { version = "7.0.0", path = "../sz-orm-grpc", optional = true }
+sz-orm-grpc = { version = "7.1.0", path = "../sz-orm-grpc", optional = true }
 reqwest = { version = "0.12", features = ["json"], optional = true }
+# v7.1.0：分布式协调（Redis 后端）
+redis = { workspace = true, optional = true }
 
 [build-dependencies]
 tonic-prost-build = { version = "0.14", optional = true }
@@ -51,6 +53,8 @@ xa = ["dep:sz-orm-sqlx", "dep:async-trait", "dep:thiserror", "dep:chrono", "dep:
 real-db = ["xa", "dep:sqlx"]
 # 跨语言分布式事务（gRPC/HTTP 参与者协议 + 适配器 + 补偿序列化 + 注册中心 + 告警 + 可观测 + 真实 tonic/reqwest 传输 + 崩溃恢复 + Saga/TCC 编排 + SDK 契约）
 cross-lang-dtx = ["dep:prost", "dep:tonic", "dep:tonic-prost", "dep:tokio-stream", "dep:sz-orm-grpc", "dep:async-trait", "dep:thiserror", "dep:chrono", "dep:tracing", "dep:reqwest", "dep:tonic-prost-build", "dep:protoc-bin-vendored", "tokio/time", "tokio/rt-multi-thread"]
+# v7.1.0：分布式协调（分布式锁 + Leader 选举 + 服务注册/发现）
+dist-coordination = ["dep:async-trait", "dep:thiserror", "dep:tracing", "dep:redis", "tokio/time", "tokio/macros"]
 
 [[test]]
 name = "blackhat_poc"
@@ -62,3 +66,15 @@ required-features = ["owasp-pentest-suite"]
 
 [lints]
 workspace = true
+[dev-dependencies]
+tokio = { version = "1.40", features = ["full", "test-util"] }
+
+[[test]]
+name = "coordination_lock_wiring"
+path = "tests/coordination_lock_wiring.rs"
+required-features = ["dist-coordination"]
+
+[[test]]
+name = "coordination_leader_wiring"
+path = "tests/coordination_leader_wiring.rs"
+required-features = ["dist-coordination"]

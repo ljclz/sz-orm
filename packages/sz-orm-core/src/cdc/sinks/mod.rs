@@ -23,3 +23,6 @@ pub mod search;
     feature = "cdc-sqlite"
 ))]
 pub mod db;
+/// Kafka sink：v7.1.0 CDC 实时同步
+#[cfg(feature = "cdc-realtime-sync")]
+pub mod kafka;

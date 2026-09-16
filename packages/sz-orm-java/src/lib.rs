@@ -1043,6 +1043,289 @@ pub extern "system" fn Java_sz_1orm_1java_SzOrmActiveModel_delete<'local>(
         .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
 }
 
+/// JNI entry: Get pool statistics as JSON
+///
+/// # Safety
+///
+/// SAFETY: handle must be a valid handle returned by `poolNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_poolStats<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jstring {
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jstring> {
+            // SAFETY: handle 来自 poolNew
+            let stats =
+                unsafe { sz_orm_cabi::sz_orm_pool_stats(handle as sz_orm_cabi::SzOrmPoolHandle) };
+            let json = format!(
+                r#"{{"idle":{},"active":{},"max":{},"min":{},"waiters":{}}}"#,
+                stats.idle, stats.active, stats.max, stats.min, stats.waiters
+            );
+            let jstr = env.new_string(&json)?;
+            Ok(jstr.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Get pool metrics as JSON
+///
+/// # Safety
+///
+/// SAFETY: handle must be a valid handle returned by `poolNew`.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_poolMetrics<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+) -> jstring {
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jstring> {
+            // SAFETY: handle 来自 poolNew
+            let m = unsafe {
+                sz_orm_cabi::sz_orm_pool_metrics(handle as sz_orm_cabi::SzOrmPoolHandle)
+            };
+            let json = format!(
+                r#"{{"acquire_count":{},"acquire_failed_count":{},"release_count":{},"connection_created_count":{},"connection_closed_count":{}}}"#,
+                m.acquire_count, m.acquire_failed_count, m.release_count,
+                m.connection_created_count, m.connection_closed_count
+            );
+            let jstr = env.new_string(&json)?;
+            Ok(jstr.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Query single row, return JSON string
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; sql must be a valid JString.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_queryOne<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    sql: JString<'local>,
+) -> jstring {
+    if handle == 0 {
+        return std::ptr::null_mut();
+    }
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jstring> {
+            let sql_str: String = sql.to_string();
+            let c_sql = CString::new(sql_str).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: handle 来自 poolNew，c_sql 有效
+            let result = unsafe {
+                sz_orm_cabi::sz_orm_query_one(
+                    handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_sql.as_ptr(),
+                )
+            };
+            if result.is_null() {
+                return Ok(std::ptr::null_mut());
+            }
+            // SAFETY: result 由 sz_orm_query_one 分配
+            let result_box = unsafe { Box::from_raw(result) };
+            let json = if !result_box.json.is_null() {
+                // SAFETY: json 是有效 NUL 结尾 C 字符串
+                unsafe { std::ffi::CStr::from_ptr(result_box.json) }
+                    .to_str()
+                    .map(|s| s.to_string())
+                    .unwrap_or_default()
+            } else {
+                String::new()
+            };
+            // SAFETY: 配对释放
+            unsafe {
+                sz_orm_cabi::sz_orm_query_result_free(Box::into_raw(result_box));
+            }
+            let jstr = env.new_string(&json)?;
+            Ok(jstr.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Execute batch SQL, return affected row count
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; sql must be a valid JString.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_executeBatch<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    sql: JString<'local>,
+) -> jlong {
+    if handle == 0 {
+        return -1;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            let sql_str: String = sql.to_string();
+            let c_sql = CString::new(sql_str).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: handle 来自 poolNew，c_sql 有效
+            let result = unsafe {
+                sz_orm_cabi::sz_orm_execute_batch(
+                    handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_sql.as_ptr(),
+                )
+            };
+            if result.success == 0 {
+                Ok(-1)
+            } else {
+                Ok(result.rows_affected as jlong)
+            }
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Execute SQL within transaction, return affected row count
+///
+/// # Safety
+///
+/// SAFETY: txHandle must be a valid transaction handle.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_transactionExecute<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    tx_handle: jlong,
+    sql: JString<'local>,
+) -> jlong {
+    if tx_handle == 0 {
+        return -1;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            let sql_str: String = sql.to_string();
+            let c_sql = CString::new(sql_str).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: tx_handle 来自 beginTransaction，c_sql 有效
+            let result = unsafe {
+                sz_orm_cabi::sz_orm_transaction_execute(
+                    tx_handle as sz_orm_cabi::SzOrmTransactionHandle,
+                    c_sql.as_ptr(),
+                )
+            };
+            if result.success == 0 {
+                Ok(-1)
+            } else {
+                Ok(result.rows_affected as jlong)
+            }
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Get error description string
+#[no_mangle]
+pub extern "system" fn Java_sz_1orm_1java_SzOrmPool_errorDescription<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    code: jint,
+) -> jstring {
+    unowned_env
+        .with_env(|env| -> jni::errors::Result<jstring> {
+            // SAFETY: error_description 总是安全调用
+            let ptr = unsafe { sz_orm_cabi::sz_orm_error_description(code) };
+            if ptr.is_null() {
+                let jstr = env.new_string("")?;
+                return Ok(jstr.into_raw());
+            }
+            // SAFETY: ptr 由 error_description 分配
+            let c_str = unsafe { std::ffi::CStr::from_ptr(ptr) };
+            let s = c_str.to_str().unwrap_or("").to_string();
+            // SAFETY: 配对释放
+            unsafe { sz_orm_cabi::sz_orm_string_free(ptr) };
+            let jstr = env.new_string(&s)?;
+            Ok(jstr.into_raw())
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Free native string
+///
+/// # Safety
+///
+/// SAFETY: ptr must be a valid pointer returned by native code.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_stringFree<'local>(
+    _unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    ptr: jlong,
+) {
+    if ptr == 0 {
+        return;
+    }
+    // SAFETY: ptr 来自 native 分配
+    unsafe { sz_orm_cabi::sz_orm_string_free(ptr as *mut std::ffi::c_char) };
+}
+
+/// JNI entry: Check if table exists (1=yes, 0=no)
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; table must be a valid JString.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_tableExists<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    table: JString<'local>,
+) -> jint {
+    if handle == 0 {
+        return 0;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jint> {
+            let table_str: String = table.to_string();
+            let c_table = CString::new(table_str).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: handle 来自 poolNew，c_table 有效
+            let exists = unsafe {
+                sz_orm_cabi::sz_orm_table_exists(
+                    handle as sz_orm_cabi::SzOrmPoolHandle,
+                    c_table.as_ptr(),
+                )
+            };
+            Ok(exists)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
+/// JNI entry: Count rows in table
+///
+/// # Safety
+///
+/// SAFETY: handle must be valid; table must be a valid JString.
+#[no_mangle]
+pub unsafe extern "system" fn Java_sz_1orm_1java_SzOrmPool_count<'local>(
+    mut unowned_env: EnvUnowned<'local>,
+    _class: JClass<'local>,
+    handle: jlong,
+    table: JString<'local>,
+) -> jlong {
+    if handle == 0 {
+        return -1;
+    }
+    unowned_env
+        .with_env(|_env| -> jni::errors::Result<jlong> {
+            let table_str: String = table.to_string();
+            let c_table = CString::new(table_str).map_err(|_| jni::errors::Error::JavaException)?;
+            // SAFETY: handle 来自 poolNew，c_table 有效
+            let count = unsafe {
+                sz_orm_cabi::sz_orm_count(handle as sz_orm_cabi::SzOrmPoolHandle, c_table.as_ptr())
+            };
+            Ok(count)
+        })
+        .resolve::<jni::errors::ThrowRuntimeExAndDefault>()
+}
+
 #[cfg(test)]
 mod tests {
     use std::ffi::CString;

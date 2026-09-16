@@ -63,3 +63,11 @@ pub use unified_job::{
 };
 #[cfg(feature = "stream-processing")]
 pub use window::{Event, Watermark, Window, WindowAssigner, WindowConfig, WindowType};
+// v7.1.0 CDC 实时数据同步
+#[cfg(feature = "cdc-realtime-sync")]
+pub mod cdc_sync;
+
+#[cfg(feature = "cdc-realtime-sync")]
+pub use cdc_sync::{
+    create_file_checkpoint, create_memory_checkpoint, CdcSyncConfig, CdcSyncCoordinator,
+};

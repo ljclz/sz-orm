@@ -29,6 +29,8 @@ integration = []
 neo4j-driver = []
 # v6.8.0：图查询深度集成
 graph-query-deep = []
+# v7.1.0：图遍历 API（点分路径 → JOIN SQL）
+graph-traversal = ["graph-query-deep"]
 
 [lints]
 workspace = true
@@ -42,3 +44,12 @@ required-features = ["graph-query-deep"]
 name = "graph_join_wiring"
 path = "tests/graph_join_wiring.rs"
 required-features = ["graph-query-deep"]
+[[test]]
+name = "traversal_wiring"
+path = "tests/traversal_wiring.rs"
+required-features = ["graph-traversal"]
+
+[[test]]
+name = "traversal_n1_guard"
+path = "tests/traversal_n1_guard.rs"
+required-features = ["graph-traversal"]

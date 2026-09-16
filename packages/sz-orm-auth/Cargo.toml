@@ -18,6 +18,8 @@ owasp-pentest-suite = []
 prod-jwt-key-rotation = []
 # v6.7.0：RBAC 角色继承与循环检测
 rbac-enhanced = []
+# v7.1.0：RBAC + ABAC 组合权限模型
+rbac-abac-enhanced = ["rbac-enhanced"]
 
 
 [package.metadata.cargo-machete]
@@ -56,3 +58,12 @@ required-features = ["owasp-pentest-suite"]
 [[test]]
 name = "owasp_csrf"
 required-features = ["owasp-pentest-suite"]
+[[test]]
+name = "abac_wiring"
+path = "tests/abac_wiring.rs"
+required-features = ["rbac-abac-enhanced"]
+
+[[test]]
+name = "composite_auth_wiring"
+path = "tests/composite_auth_wiring.rs"
+required-features = ["rbac-abac-enhanced"]

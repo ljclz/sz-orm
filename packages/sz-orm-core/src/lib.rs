@@ -639,10 +639,23 @@ pub mod zero_copy_pipeline;
 #[cfg(any(
     feature = "cdc-mysql",
     feature = "cdc-postgres",
-    feature = "cdc-sqlite"
+    feature = "cdc-sqlite",
+    feature = "cdc-realtime-sync"
 ))]
 #[allow(missing_docs)]
 pub mod cdc;
+
+#[cfg(feature = "rbac-abac-enhanced")]
+#[allow(missing_docs)]
+pub mod column_mask_interceptor;
+
+#[cfg(feature = "rbac-abac-enhanced")]
+#[allow(missing_docs)]
+pub mod row_level_policy;
+
+#[cfg(feature = "olap-vectorized")]
+#[allow(missing_docs)]
+pub mod olap;
 
 #[cfg(feature = "executor-opt")]
 #[allow(missing_docs)]

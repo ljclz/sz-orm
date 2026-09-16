@@ -20,6 +20,9 @@ pub mod parallel_queries;
 #[cfg(feature = "parallel-query")]
 pub mod scheduler;
 
+#[cfg(feature = "olap-vectorized")]
+pub mod vectorized;
+
 pub use config::{FailureStrategy, MergeStrategy, ParallelQueryConfig};
 pub use error::ParallelQueryError;
 pub use executor::{
@@ -36,3 +39,5 @@ pub use task_scheduler::{Priority, ScheduleState, ScheduledTask, TaskScheduler};
 pub use parallel_queries::parallel_queries;
 #[cfg(feature = "parallel-query")]
 pub use scheduler::{DefaultLike, ParallelQueryScheduler};
+#[cfg(feature = "olap-vectorized")]
+pub use vectorized::{ColumnarBatch, VectorizedExecutor, VectorizedOp, VectorizedResult};

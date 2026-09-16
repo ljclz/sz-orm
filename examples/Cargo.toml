@@ -25,6 +25,9 @@ sz-orm-batch = { path = "../packages/sz-orm-batch", features = ["parallel-batch"
 sz-orm-macros = { path = "../packages/sz-orm-macros" }
 sz-orm-fusion = { path = "../packages/sz-orm-fusion" }
 sz-orm-observability = { path = "../packages/sz-orm-observability" }
+sz-orm-graph = { path = "../packages/sz-orm-graph" }
+sz-orm-advisor = { path = "../packages/sz-orm-advisor" }
+sz-orm-explain = { path = "../packages/sz-orm-explain" }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
@@ -127,6 +130,41 @@ name = "stream_processing_demo"
 path = "src/bin/stream_processing_demo.rs"
 required-features = ["stream-processing"]
 
+[[bin]]
+name = "nl_query_demo"
+path = "src/bin/nl_query_demo.rs"
+required-features = ["ai-nl-query"]
+
+[[bin]]
+name = "graph_traversal_demo"
+path = "src/bin/graph_traversal_demo.rs"
+required-features = ["graph-traversal"]
+
+[[bin]]
+name = "cdc_realtime_sync_demo"
+path = "src/bin/cdc_realtime_sync_demo.rs"
+required-features = ["cdc-realtime-sync"]
+
+[[bin]]
+name = "dist_coordination_demo"
+path = "src/bin/dist_coordination_demo.rs"
+required-features = ["dist-coordination"]
+
+[[bin]]
+name = "rbac_abac_demo"
+path = "src/bin/rbac_abac_demo.rs"
+required-features = ["rbac-abac-enhanced"]
+
+[[bin]]
+name = "query_auto_tuning_demo"
+path = "src/bin/query_auto_tuning_demo.rs"
+required-features = ["query-auto-tuning"]
+
+[[bin]]
+name = "olap_vectorized_demo"
+path = "src/bin/olap_vectorized_demo.rs"
+required-features = ["olap-vectorized"]
+
 [features]
 default = []
 # 启用 query! 宏的编译期连真 DB 验证能力
@@ -143,6 +181,20 @@ multi-region = ["sz-orm-fusion/multi-region"]
 serverless-adapt = ["sz-orm-core/serverless-adapt", "sz-orm-observability/serverless-metering"]
 # v7.0.0：实时流处理示例
 stream-processing = ["sz-orm-stream/stream-processing"]
+# v7.1.0：AI 自然语言查询示例
+ai-nl-query = ["sz-orm-advisor/ai-nl-query"]
+# v7.1.0：图遍历查询示例
+graph-traversal = ["sz-orm-graph/graph-traversal"]
+# v7.1.0：CDC 实时数据同步示例
+cdc-realtime-sync = ["sz-orm-stream/cdc-realtime-sync", "sz-orm-core/cdc-realtime-sync"]
+# v7.1.0：分布式协调示例
+dist-coordination = ["sz-orm-dtx/dist-coordination"]
+# v7.1.0：RBAC + ABAC 权限模型增强示例
+rbac-abac-enhanced = ["sz-orm-auth/rbac-abac-enhanced", "sz-orm-core/rbac-abac-enhanced"]
+# v7.1.0：查询自调优示例
+query-auto-tuning = ["sz-orm-advisor/query-auto-tuning"]
+# v7.1.0：OLAP 向量化分析查询示例
+olap-vectorized = ["sz-orm-core/olap-vectorized", "sz-orm-parallel/olap-vectorized"]
 
 [lints]
 workspace = true

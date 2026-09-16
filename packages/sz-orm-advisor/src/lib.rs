@@ -63,3 +63,19 @@ pub mod replay_validator;
 pub use replay_validator::{
     IndexCandidate, ReplayResult, ReplayValidator, WorkloadQuery, WorkloadSummary,
 };
+#[cfg(feature = "ai-nl-query")]
+pub mod nl_query;
+#[cfg(feature = "ai-nl-query")]
+pub use nl_query::{
+    FormattedResult, IntentCache, LlmAdapterSlot, LlmHotSwapper, MultiTurnContext, NlQueryGateway,
+    NlQueryResult, NlQuerySafetyGate, NlResultFormatter, SafetyVerdict, TurnSummary,
+};
+#[cfg(feature = "query-auto-tuning")]
+pub mod auto_tuning;
+#[cfg(feature = "query-auto-tuning")]
+pub use auto_tuning::{
+    ApprovalGate, ApprovalGateConfig, ApprovalState, AutoTuningConfig, AutoTuningGateway,
+    ChangeKind, CooldownConfig, FeedbackLoop, JoinReorderAdvisor, JoinReorderResult, JoinTable,
+    PerformanceSample, PerformanceTrend, PlanSnapshot, TableStats, TuningAction,
+    TuningChangeAuditor, TuningChangeRecord, TuningCooldown, TuningLoopReport,
+};

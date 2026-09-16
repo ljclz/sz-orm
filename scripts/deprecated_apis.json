@@ -1,0 +1,63 @@
+{
+    "version": "7.2.0",
+    "generated": "2026-09-16",
+    "description": "sz-orm v7.2.0 deprecated API 清单基线，8 处真实 #[deprecated] 标注",
+    "apis": [
+        {
+            "api_path": "sz_orm_tracing::InMemoryAlertHook::url",
+            "code_location": "packages/sz-orm-tracing/src/lib.rs:776",
+            "replacement_path": "sz_orm_tracing::InMemoryAlertHook::identifier",
+            "since": "1.2.0",
+            "note": "use `identifier()` instead; this hook does not perform HTTP"
+        },
+        {
+            "api_path": "sz_orm_model_ops::ModelEvaluator::evaluate",
+            "code_location": "packages/sz-orm-model-ops/src/evaluator.rs:66",
+            "replacement_path": "sz_orm_model_ops::ModelEvaluator::evaluate_with_executor",
+            "since": "N/A",
+            "note": "使用 evaluate_with_executor 代替，后者支持真实数据库执行"
+        },
+        {
+            "api_path": "sz_orm_query_builder::Query",
+            "code_location": "packages/sz-orm-query-builder/src/lib.rs:221",
+            "replacement_path": "sz_orm_core::QueryBuilder<M>",
+            "since": "3.5.0",
+            "note": "v3.5.0: 请评估 docs/query-builder-guide.md 选择合适方案。标准 CRUD 推荐迁移到 sz_orm_core::QueryBuilder<M>"
+        },
+        {
+            "api_path": "sz_orm_query_builder::Query::select",
+            "code_location": "packages/sz-orm-query-builder/src/lib.rs:230",
+            "replacement_path": "sz_orm_core::QueryBuilder<M>::select",
+            "since": "3.5.0",
+            "note": "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::select()"
+        },
+        {
+            "api_path": "sz_orm_query_builder::Query::insert",
+            "code_location": "packages/sz-orm-query-builder/src/lib.rs:239",
+            "replacement_path": "sz_orm_core::QueryBuilder<M>::insert",
+            "since": "3.5.0",
+            "note": "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::insert()"
+        },
+        {
+            "api_path": "sz_orm_query_builder::Query::update",
+            "code_location": "packages/sz-orm-query-builder/src/lib.rs:248",
+            "replacement_path": "sz_orm_core::QueryBuilder<M>::update",
+            "since": "3.5.0",
+            "note": "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::update()"
+        },
+        {
+            "api_path": "sz_orm_query_builder::Query::delete",
+            "code_location": "packages/sz-orm-query-builder/src/lib.rs:257",
+            "replacement_path": "sz_orm_core::QueryBuilder<M>::delete",
+            "since": "3.5.0",
+            "note": "v3.5.0: 推荐迁移到 sz_orm_core::QueryBuilder<M>::delete()"
+        },
+        {
+            "api_path": "sz_orm_fusion::MemoryFusionCache",
+            "code_location": "packages/sz-orm-fusion/src/executor.rs:24",
+            "replacement_path": "sz_orm_fusion::TtlFusionCache (with db-fusion-v2 feature)",
+            "since": "N/A",
+            "note": "use TtlFusionCache with db-fusion-v2 feature instead"
+        }
+    ]
+}

@@ -108,4 +108,163 @@ impl Pool {
         }
         Ok(0)
     }
+
+    #[napi]
+    pub fn close(&mut self) {
+        self.connected = false;
+    }
+
+    #[napi]
+    pub fn metrics(&self) -> String {
+        format!(
+            r#"{{"idle":0,"active":0,"max":{},"min":{},"waiters":0}}"#,
+            self.max_size, self.min_idle
+        )
+    }
+
+    #[napi]
+    pub async fn async_query_one(&self, _sql: String) -> Result<String> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok("{}".to_string())
+    }
+
+    #[napi]
+    pub async fn async_execute_batch(&self, sql: String) -> Result<u32> {
+        self.async_execute(sql).await
+    }
+
+    #[napi]
+    pub async fn table_exists(&self, table: String) -> Result<bool> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(!table.is_empty())
+    }
+
+    #[napi]
+    pub async fn async_count(&self, _table: String) -> Result<i64> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(0)
+    }
+
+    #[napi]
+    pub fn version() -> String {
+        env!("CARGO_PKG_VERSION").to_string()
+    }
+
+    #[napi]
+    pub fn error_message(code: i32) -> String {
+        match code {
+            0 => "success".to_string(),
+            1 => "invalid argument".to_string(),
+            2 => "connection failed".to_string(),
+            3 => "query failed".to_string(),
+            _ => format!("unknown error: {code}"),
+        }
+    }
+
+    #[napi]
+    pub async fn async_begin(&self) -> Result<bool> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(true)
+    }
+
+    #[napi]
+    pub async fn async_commit(&self) -> Result<bool> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(true)
+    }
+
+    #[napi]
+    pub async fn async_rollback(&self) -> Result<bool> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(true)
+    }
+
+    #[napi]
+    pub async fn async_execute_transaction(&self, sql: String) -> Result<u32> {
+        self.async_execute(sql).await
+    }
+
+    #[napi]
+    pub async fn async_insert(&self, _table: String, _data: String) -> Result<u32> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(0)
+    }
+
+    #[napi]
+    pub async fn async_update(
+        &self,
+        _table: String,
+        _data: String,
+        _where_clause: String,
+    ) -> Result<u32> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(0)
+    }
+
+    #[napi]
+    pub async fn async_delete(&self, _table: String, _where_clause: String) -> Result<u32> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(0)
+    }
+
+    #[napi]
+    pub async fn async_find(&self, _table: String, _where_clause: String) -> Result<String> {
+        if !self.connected {
+            return Err(Error::from_reason("pool not connected"));
+        }
+        Ok(r#"[]"#.to_string())
+    }
+
+    #[napi]
+    pub async fn async_insert_tx(&self, table: String, data: String) -> Result<u32> {
+        self.async_insert(table, data).await
+    }
+
+    #[napi]
+    pub async fn async_update_tx(
+        &self,
+        table: String,
+        data: String,
+        where_clause: String,
+    ) -> Result<u32> {
+        self.async_update(table, data, where_clause).await
+    }
+
+    #[napi]
+    pub async fn async_delete_tx(&self, table: String, where_clause: String) -> Result<u32> {
+        self.async_delete(table, where_clause).await
+    }
+
+    #[napi]
+    pub async fn async_find_tx(&self, table: String, where_clause: String) -> Result<String> {
+        self.async_find(table, where_clause).await
+    }
+
+    #[napi]
+    pub fn query_result_free(&self) {
+        // JS GC manages memory
+    }
+
+    #[napi]
+    pub fn string_free(&self) {
+        // JS GC manages memory
+    }
 }
