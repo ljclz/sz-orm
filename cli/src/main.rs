@@ -75,6 +75,11 @@ const HELP: &str = r#"SZ-ORM 命令行工具
                                   --design <file> --format <ddl|migration|model|svg|json> --dialect <mysql|postgresql|sqlite|oracle|mssql>
     openapi:reverse               OpenAPI → ORM 反向生成（需 openapi-reverse feature）
                                   --spec <file> --dialect <mysql|postgresql|sqlite|oracle|mssql> [--trust-unsigned]
+    wasm build-config [--target <web|nodejs>]
+                                  生成 wasm-pack 构建命令（需 wasm-build feature）
+    config hot-reload --key <k> --value <v> [--source <signal|file|manual>]
+                                  应用配置热重载（需 hot-reload feature）
+    lsp                           启动 LSP 语言服务器（需 lsp-server feature）
     help, --help, -h              显示本帮助
     --version, -V                 显示版本号
 
@@ -248,6 +253,9 @@ fn main() -> ExitCode {
         "designer" => cmd_designer(&rest),
         "designer:export" => cmd_designer_export(&rest),
         "openapi:reverse" => cmd_openapi_reverse(&rest),
+        "wasm" => cmd_wasm(&rest),
+        "config" => cmd_config(&rest),
+        "lsp" => cmd_lsp(),
         "n1-lint" => cmd_n1_lint(&rest),
         "query-logging" => cmd_query_logging(&rest),
         "cross-lang-dtx" => cmd_cross_lang_dtx(&rest),
@@ -2697,4 +2705,147 @@ fn cmd_migrate_tool(_args: &[&str]) -> Result<(), String> {
         "migrate-tool 命令需要启用 migrate feature: cargo run --features migrate -- migrate-tool"
             .into(),
     )
+}
+// =====================================================================
+// wasm — WASM 双环境构建配置（需 wasm-build feature）
+// =====================================================================
+
+fn cmd_wasm(args: &[&str]) -> Result<(), String> {
+    if args.is_empty() {
+        return Err("用法: sz-orm wasm build-config [--target <web|nodejs>]".into());
+    }
+    match args[0] {
+        "build-config" => cmd_wasm_build_config(&args[1..]),
+        other => Err(format!("未知子命令: wasm {}", other)),
+    }
+}
+
+#[cfg(feature = "wasm-build")]
+fn cmd_wasm_build_config(args: &[&str]) -> Result<(), String> {
+    use sz_orm_wasm::{DualEnvConfig, WasmBuildTarget};
+
+    let target = match parse_option(args, "--target") {
+        Some(t) if t == "web" => WasmBuildTarget::Web,
+        Some(t) if t == "nodejs" => WasmBuildTarget::Nodejs,
+        Some(t) => return Err(format!("未知 target: {}（支持 web/nodejs）", t)),
+        None => WasmBuildTarget::Web,
+    };
+
+    let config = DualEnvConfig::new();
+    let command = config.build_command(target);
+    println!("wasm-pack 命令:");
+    println!("  {}", command);
+    println!("输出目录: {}", target.output_dir());
+    Ok(())
+}
+
+#[cfg(not(feature = "wasm-build"))]
+fn cmd_wasm_build_config(_args: &[&str]) -> Result<(), String> {
+    Err("wasm build-config 命令需要启用 wasm-build feature: cargo run --features wasm-build -- wasm build-config".into())
+}
+
+// =====================================================================
+// config — 配置热重载（需 hot-reload feature）
+// =====================================================================
+
+fn cmd_config(args: &[&str]) -> Result<(), String> {
+    if args.is_empty() {
+        return Err("用法: sz-orm config hot-reload --key <k> --value <v> [--source <signal|file|manual>]".into());
+    }
+    match args[0] {
+        "hot-reload" => cmd_config_hot_reload(&args[1..]),
+        other => Err(format!("未知子命令: config {}", other)),
+    }
+}
+
+#[cfg(feature = "hot-reload")]
+fn cmd_config_hot_reload(args: &[&str]) -> Result<(), String> {
+    use sz_orm_config::hot_reload::{HotReloadConfigItem, HotReloadManager, ReloadSource};
+
+    let key = parse_option(args, "--key").ok_or("缺少 --key 参数")?;
+    let value = parse_option(args, "--value").ok_or("缺少 --value 参数")?;
+    let source = match parse_option(args, "--source").as_deref() {
+        Some("signal") => ReloadSource::SignalSighup,
+        Some("file") => ReloadSource::FileWatch,
+        _ => ReloadSource::Manual,
+    };
+
+    let manager = HotReloadManager::new();
+    manager.register(HotReloadConfigItem::hot("pool.max_connections", "10"));
+    manager.register(HotReloadConfigItem::hot("log.level", "info"));
+    manager.register(HotReloadConfigItem::hot("server.port", "8080"));
+
+    let mut changes = std::collections::HashMap::new();
+    changes.insert(key.clone(), value.clone());
+    let event = manager.apply_changes(&changes, source);
+
+    println!("热重载结果:");
+    println!("  applied_count: {}", event.applied_count);
+    println!("  skipped_count: {}", event.skipped_count);
+    if !event.warnings.is_empty() {
+        println!("  warnings: {:?}", event.warnings);
+    }
+    Ok(())
+}
+
+#[cfg(not(feature = "hot-reload"))]
+fn cmd_config_hot_reload(_args: &[&str]) -> Result<(), String> {
+    Err("config hot-reload 命令需要启用 hot-reload feature: cargo run --features hot-reload -- config hot-reload --key <k> --value <v>".into())
+}
+
+// =====================================================================
+// lsp — LSP 语言服务器（需 lsp-server feature）
+// =====================================================================
+
+#[cfg(feature = "lsp-server")]
+fn cmd_lsp() -> Result<(), String> {
+    use std::io::{self, Read, Write};
+    use sz_orm_lsp::server::LspServer;
+
+    let stdin = io::stdin();
+    let mut stdout = io::stdout();
+    let mut server = LspServer::new();
+    let mut buf = Vec::new();
+
+    loop {
+        let mut byte = [0u8; 1];
+        match stdin.lock().read(&mut byte) {
+            Ok(0) => break,
+            Ok(_) => {
+                buf.push(byte[0]);
+                if buf.windows(4).any(|w| w == b"\r\n\r\n") {
+                    let header = String::from_utf8_lossy(&buf);
+                    if let Some(len) = parse_content_length(&header) {
+                        let mut body = vec![0u8; len];
+                        if stdin.lock().read_exact(&mut body).is_ok() {
+                            let request = String::from_utf8_lossy(&body);
+                            let response = server.handle_json_rpc(&request);
+                            let resp_bytes = response.as_bytes();
+                            write!(stdout, "Content-Length: {}\r\n\r\n", resp_bytes.len()).map_err(|e| e.to_string())?;
+                            stdout.write_all(resp_bytes).map_err(|e| e.to_string())?;
+                            stdout.flush().map_err(|e| e.to_string())?;
+                        }
+                    }
+                    buf.clear();
+                }
+            }
+            Err(_) => break,
+        }
+    }
+    Ok(())
+}
+
+#[cfg(feature = "lsp-server")]
+fn parse_content_length(header: &str) -> Option<usize> {
+    for line in header.lines() {
+        if let Some(rest) = line.strip_prefix("Content-Length:") {
+            return rest.trim().parse().ok();
+        }
+    }
+    None
+}
+
+#[cfg(not(feature = "lsp-server"))]
+fn cmd_lsp() -> Result<(), String> {
+    Err("lsp 命令需要启用 lsp-server feature: cargo run --features lsp-server -- lsp".into())
 }
