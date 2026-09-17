@@ -1058,7 +1058,7 @@ pub struct HaConfig {
     pub circuit_breaker_error_threshold: f64,
     /// 半开探测请求数（≥ 1）
     pub circuit_breaker_half_open_probes: u32,
-    /// 追踪采样率 ∈ [0,1]
+    /// 追踪采样率 ∈ \[0,1\]
     pub trace_sample_rate: f64,
     /// OTLP 导出端点（None 表示不导出）
     pub trace_otlp_endpoint: Option<String>,

@@ -103,7 +103,7 @@ fn test_serde_roundtrip() {
     };
     let json = serde_json::to_string(&config).unwrap();
     let de: AiConfig = serde_json::from_str(&json).unwrap();
-    assert_eq!(de.rewrite_enabled, true);
+    assert!(de.rewrite_enabled);
     assert_eq!(de.rewrite_path, RewritePath::Llm);
     assert_eq!(de.vector_ann_index, AiAnnIndexType::Ivf);
     assert!((de.vector_recall_threshold - 0.85).abs() < 1e-9);

@@ -28,7 +28,7 @@ fn main() {
             vec!["Charlie".into(), "35".into()],
         ],
     );
-    if let Some(formatted) = &result_with_data.formatted {
+    if let Some(_formatted) = &result_with_data.formatted {
         println!("\n格式化结果:");
         println!("{}", gateway.to_markdown(&result_with_data).unwrap());
     }

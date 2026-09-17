@@ -103,7 +103,7 @@ mod tests {
         monitor.record_event(now - 100);
         monitor.record_event(now - 300);
         let avg = monitor.avg_lag_ms();
-        assert!(avg >= 100 && avg <= 300);
+        assert!((100..=300).contains(&avg));
     }
 
     #[test]

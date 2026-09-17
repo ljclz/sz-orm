@@ -6,7 +6,7 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use sz_orm_dtx::coordination::{
-    CoordinationBackend, DistributedLock, InMemoryBackend, LeaderElection, LeaderState,
+    CoordinationBackend, DistributedLock, InMemoryBackend, LeaderElection,
     ServiceInstance, ServiceRegistry,
 };
 

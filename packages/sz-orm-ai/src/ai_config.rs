@@ -8,20 +8,15 @@
 use serde::{Deserialize, Serialize};
 
 /// 查询改写路径策略
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum RewritePath {
     /// 纯规则路径（≤ 50ms）
+    #[default]
     Rule,
     /// 纯 LLM 路径（≤ 3s）
     Llm,
     /// 规则 + LLM 混合路径（规则优先，无建议时回退 LLM）
     Hybrid,
-}
-
-impl Default for RewritePath {
-    fn default() -> Self {
-        Self::Rule
-    }
 }
 
 impl RewritePath {
@@ -36,20 +31,15 @@ impl RewritePath {
 }
 
 /// 向量 ANN 索引类型
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub enum AnnIndexType {
     /// HNSW 索引（层次化可导航小世界图，高精度）
+    #[default]
     Hnsw,
     /// IVF 索引（倒排文件 + 扁平量化）
     Ivf,
     /// 量化索引（乘积量化/标量量化，低存储高吞吐）
     Quantized,
-}
-
-impl Default for AnnIndexType {
-    fn default() -> Self {
-        Self::Hnsw
-    }
 }
 
 impl AnnIndexType {

@@ -205,7 +205,7 @@ async fn demo_nl2sql() -> AiDecision {
         AiDecisionType::Nl2sql,
         nl2,
         &result2.sql.sql,
-        &format!("intent={}", result2.intent.intent),
+        format!("intent={}", result2.intent.intent),
         result2.sql.confidence as f64,
         result2.latency_ms,
     )
@@ -250,7 +250,7 @@ async fn demo_vector_ann() -> AiDecision {
     AiDecision::new(
         AiDecisionType::VectorSearch,
         "ann_search docs tenant_a",
-        &format!("{} results, recall={:.1}%", result.records.len(), result.recall_rate * 100.0),
+        format!("{} results, recall={:.1}%", result.records.len(), result.recall_rate * 100.0),
         "InMemoryVectorStore AnnAccelerated",
         result.recall_rate,
         result.latency_ms,

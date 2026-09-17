@@ -145,7 +145,7 @@ mod tests {
 
     #[test]
     fn test_detect_new_table() {
-        let mut adapter = SchemaEvolutionAdapter::new();
+        let adapter = SchemaEvolutionAdapter::new();
         let schema = TableSchema {
             table_name: "users".into(),
             columns: vec![make_column("id", "INT"), make_column("name", "VARCHAR")],

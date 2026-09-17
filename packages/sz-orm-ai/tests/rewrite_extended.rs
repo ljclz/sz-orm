@@ -218,8 +218,7 @@ async fn test_rewrite_with_llm_uses_rule_path_first() {
     let sql = "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders)";
     let result = engine.rewrite_with_llm(sql).await;
     // 规则路径应命中子查询扁平化
-    if result.suggestion.is_some() {
-        let suggestion = result.suggestion.unwrap();
+    if let Some(suggestion) = result.suggestion {
         assert!(suggestion.rewritten_sql.contains("子查询展开"));
     }
 }
