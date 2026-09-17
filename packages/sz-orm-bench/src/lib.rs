@@ -317,12 +317,18 @@ pub struct BenchReport {
     pub sz_orm_version: String,
     pub framework_versions: Vec<(FrameworkType, String)>,
     pub git_commit: String,
+    #[serde(default)]
+    pub real_db_results: usize,
+    #[serde(default)]
+    pub simulated_results: usize,
 }
 
 impl BenchReport {
     /// 创建基准报告
     pub fn new(results: Vec<BenchResult>) -> Self {
         let env = EnvMetadata::default();
+        let real_db_results = results.iter().filter(|r| r.is_real_db).count();
+        let simulated_results = results.iter().filter(|r| !r.is_real_db).count();
         Self {
             git_commit: env.git_commit.clone(),
             env_metadata: env,
@@ -334,6 +340,8 @@ impl BenchReport {
                 (FrameworkType::Diesel, "2.1".to_string()),
                 (FrameworkType::Sqlx, "0.9".to_string()),
             ],
+            real_db_results,
+            simulated_results,
         }
     }
 
@@ -469,6 +477,9 @@ pub fn validate_db_connection(connection: &str) -> Result<DbBackend, BenchError>
 }
 
 /// 工作负载运行器：对指定框架和负载类型执行基准测试
+///
+/// **注意**：此函数使用模拟延迟模型（`workload_latency_profile`），非真实 DB 测量。
+/// 启用 `real-bench` feature 并使用 `run_workload_real` 可切换为真实 DB 基准。
 pub fn run_workload(
     framework: FrameworkType,
     workload: WorkloadType,

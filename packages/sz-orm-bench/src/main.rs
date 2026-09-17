@@ -38,7 +38,7 @@ fn main() {
 
 fn run_benchmark_simulate(config: &BenchConfig) {
     println!(
-        "sz-orm-bench: 模拟基准对标（seed={}, rounds={}）",
+        "sz-orm-bench: 模拟基准对标（seed={}, rounds={}）— 模拟延迟模型，非真实 DB 测量",
         config.seed, config.measure_rounds
     );
 
