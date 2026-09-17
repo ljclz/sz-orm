@@ -371,11 +371,11 @@ name = "tenant_concurrency"
 path = "tests/tenant_concurrency.rs"
 required-features = ["multi-tenant-enhanced"]
 
-# F4/F5 变异盲区回归测试（需 multi-tenant-enhanced feature）
+# F4/F5 变异盲区回归测试（需 tenant-quota-rls-enhanced feature，含 cache-warmup-protection）
 [[test]]
 name = "tenant_quota_rls_regression"
 path = "tests/tenant_quota_rls_regression.rs"
-required-features = ["multi-tenant-enhanced"]
+required-features = ["tenant-quota-rls-enhanced"]
 
 # v3.2.0 鏌ヨ璁″垝缂撳瓨宸垎娴嬭瘯锛堥渶 plan-cache feature锟?
 [[test]]
