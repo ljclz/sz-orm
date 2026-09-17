@@ -333,3 +333,180 @@ mod prod_tests {
         assert_eq!(cb.stats().total_trips, 2);
     }
 }
+// ============================================================================
+// v7.3.0 错误率熔断器（基于滑动窗口错误率阈值 + 可配半开探测）
+// ============================================================================
+
+/// 错误率熔断器（v7.3.0）
+///
+/// 基于滑动窗口错误率阈值（而非连续失败数）触发熔断。
+/// 可配半开探测数 `half_open_probes`：`HalfOpen` 状态下仅放行 N 个探测请求。
+///
+/// 状态机：Closed → Open（错误率超阈值）→ HalfOpen（reset_timeout 后，仅放行 N 个探测）
+/// → Closed（探测全部成功）/ Open（任一探测失败）
+pub struct ErrorRateCircuitBreaker {
+    /// 错误率阈值 ∈ (0,1)
+    error_threshold: f64,
+    /// 熔断后等待多久进入 HalfOpen
+    reset_timeout: Duration,
+    /// 半开探测请求数（≥ 1）
+    half_open_probes: u32,
+    /// 当前状态
+    state: CircuitState,
+    /// 滑动窗口：成功/失败记录（true=成功，false=失败）
+    window: std::collections::VecDeque<bool>,
+    /// 滑动窗口大小
+    window_size: usize,
+    /// HalfOpen 状态下已放行的探测数
+    probes_in_half_open: u32,
+    /// HalfOpen 状态下探测成功数
+    probe_successes: u32,
+    /// 上次失败时间（用于 reset_timeout 判断）
+    last_failure_at: Option<Instant>,
+    /// 总跳闸次数
+    total_trips: u64,
+}
+
+impl ErrorRateCircuitBreaker {
+    /// 创建错误率熔断器
+    ///
+    /// - `error_threshold`：错误率阈值 ∈ (0,1)，默认 0.5
+    /// - `reset_timeout`：熔断后等待多久进入 HalfOpen
+    /// - `half_open_probes`：半开探测请求数（≥ 1）
+    /// - `window_size`：滑动窗口大小（用于错误率统计）
+    pub fn new(
+        error_threshold: f64,
+        reset_timeout: Duration,
+        half_open_probes: u32,
+        window_size: usize,
+    ) -> Self {
+        Self {
+            error_threshold,
+            reset_timeout,
+            half_open_probes: half_open_probes.max(1),
+            state: CircuitState::Closed,
+            window: std::collections::VecDeque::with_capacity(window_size),
+            window_size,
+            probes_in_half_open: 0,
+            probe_successes: 0,
+            last_failure_at: None,
+            total_trips: 0,
+        }
+    }
+
+    /// 当前错误率（窗口内失败数 / 窗口大小）
+    pub fn error_rate(&self) -> f64 {
+        if self.window.is_empty() {
+            return 0.0;
+        }
+        let failures = self.window.iter().filter(|&&s| !s).count() as f64;
+        failures / self.window.len() as f64
+    }
+
+    /// 总跳闸次数
+    pub fn total_trips(&self) -> u64 {
+        self.total_trips
+    }
+
+    /// 滑动窗口当前样本数
+    pub fn window_samples(&self) -> usize {
+        self.window.len()
+    }
+
+    /// 记录一次请求结果（true=成功，false=失败）
+    fn record_result(&mut self, success: bool) {
+        // 滑动窗口维护
+        if self.window.len() >= self.window_size {
+            self.window.pop_front();
+        }
+        self.window.push_back(success);
+
+        if !success {
+            self.last_failure_at = Some(Instant::now());
+        }
+
+        match self.state {
+            CircuitState::Closed => {
+                // 检查错误率是否超阈值
+                if self.window.len() >= self.window_size && self.error_rate() > self.error_threshold
+                {
+                    self.state = CircuitState::Open;
+                    self.total_trips += 1;
+                }
+            }
+            CircuitState::HalfOpen => {
+                // can_execute 已计数 probes_in_half_open，这里只检查结果
+                if success {
+                    self.probe_successes += 1;
+                }
+                // 任一探测失败立即重回 Open
+                if !success {
+                    self.state = CircuitState::Open;
+                    self.probes_in_half_open = 0;
+                    self.probe_successes = 0;
+                } else if self.probes_in_half_open >= self.half_open_probes {
+                    // 所有探测成功，恢复 Closed
+                    self.state = CircuitState::Closed;
+                    self.probes_in_half_open = 0;
+                    self.probe_successes = 0;
+                    self.window.clear();
+                }
+            }
+            CircuitState::Open => {}
+        }
+    }
+}
+
+impl CircuitBreaker for ErrorRateCircuitBreaker {
+    fn can_execute(&mut self) -> bool {
+        match self.state {
+            CircuitState::Closed => true,
+            CircuitState::Open => {
+                let elapsed = self
+                    .last_failure_at
+                    .map(|t| t.elapsed())
+                    .unwrap_or(Duration::ZERO);
+                if elapsed >= self.reset_timeout {
+                    self.state = CircuitState::HalfOpen;
+                    // Open → HalfOpen 转换时放行第一个探测请求
+                    self.probes_in_half_open = 1;
+                    self.probe_successes = 0;
+                    true
+                } else {
+                    false
+                }
+            }
+            CircuitState::HalfOpen => {
+                // 仅放行 N 个探测请求，其余快速失败
+                if self.probes_in_half_open < self.half_open_probes {
+                    self.probes_in_half_open += 1;
+                    true
+                } else {
+                    false
+                }
+            }
+        }
+    }
+
+    fn record_success(&mut self) {
+        self.record_result(true);
+    }
+
+    fn record_failure(&mut self) {
+        self.record_result(false);
+    }
+
+    fn state(&self) -> CircuitState {
+        self.state
+    }
+
+    fn reset(&mut self) -> bool {
+        let changed = self.state != CircuitState::Closed || !self.window.is_empty();
+        self.state = CircuitState::Closed;
+        self.window.clear();
+        self.probes_in_half_open = 0;
+        self.probe_successes = 0;
+        self.last_failure_at = None;
+        changed
+    }
+}

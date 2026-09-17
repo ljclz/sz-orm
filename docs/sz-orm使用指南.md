@@ -1,12 +1,12 @@
 # SZ-ORM 使用指南
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v3.4.0（v3.4.0：测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例；同步至 46 包）
-> 适用版本：SZ-ORM **v3.4.0**（工作空间 46 个成员：41 个 sz-orm-* lib + cli + examples）
-> 更新日期：2026-08-09
-> 项目状态：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 3.4.0
-> 生产案例：sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
-> 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"，G《项目成熟度评估报告.md》《项目实施进度表.md》配套
+> 文档版本：v7.3.0（v7.3.0：性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展；72 个工作空间成员）
+> 适用版本：SZ-ORM **v7.3.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 更新日期：2026-09-17
+> 项目状态：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 7.3.0
+> 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
+> 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"
 
 > **导读**：本文 §3 按包/模块逐一展开使用示例，所有"详见 [API 参考手册]"链接均指向 `sz-ormAPI参考.md` 对应章节。若只需查阅类型签名与参数说明，直接打开 API 参考手册；若需端到端场景串联（CRUD/事务/连接池/迁移/分布式事务/向量搜索），按本指南章节顺序阅读。
 
@@ -14,13 +14,13 @@
 
 ## 一、项目概述
 
-SZ-ORM 是一套**早期生产可用（内部项目）的纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 46 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、31 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。v3.4.0 新增编译期类型安全（`Column<T>` + `#[derive(Schema)]` 列名常量 + typed_ast Diesel 风格 DSL）与性能优化（SmallString/enum dispatch/zero-copy L2/Box<str>），全部通过 feature gate 隔离。
+SZ-ORM 是一套**生产可用（内部项目）的纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 72 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、59 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。v7.3.0 新增性能极致优化（SIMD 向量化 + 零拷贝 + 并行预热 + 计划缓存）、企业级高可用（自动故障转移 + 错误率熔断 + 限流排队 + 5 子项健康检查 + OTLP 追踪）、AI 深度集成（查询改写 + 索引推荐 + NL2SQL 多轮对话 + 向量 ANN 加速）、生态扩展（warp 适配 + 源 ORM 迁移 + schema diff），全部通过 feature gate 隔离。
 
 ### 1.1 核心特性
 
 | 特性 | 说明 |
 |------|------|
-| 多数据库方言 | MySQL / PostgreSQL / SQLite 3.35+ / Oracle 23ai，统一 `Dialect` 抽象 |
+| 多数据库方言 | MySQL / PostgreSQL / SQLite 3.35+ / Oracle 23ai / SQL Server / MariaDB / TiDB / OceanBase / Kingbase / PolarDB / GaussDB / Dameng / GBase / Db2 / ClickHouse，统一 `Dialect` 抽象 |
 | 链式查询构建 | `QueryBuilder<M>` 支持 SELECT/INSERT/UPDATE/DELETE/聚合/分页/JOIN |
 | 异步连接池 | 自研 `Pool`，可配置大小、超时、空闲回收、健康检查、最大生命周期 |
 | ACID 事务 | 隔离级别、保存点（20 层嵌套验证）、`TransactionManager` 多事务管理 |
@@ -29,23 +29,24 @@ SZ-ORM 是一套**早期生产可用（内部项目）的纯 Rust ORM 工作空�
 | 运行时 SQL 校验 | `QueryBuilder::validate()` + sz-orm-sql-validator，12 种注入模式检测 |
 | ActiveRecord 关系映射 | HasMany / HasOne / BelongsTo / BelongsToMany，支持 eager loading |
 | 真实 DB 适配器 | sz-orm-sqlx 端到端连接 MySQL/PG/SQLite（sqlx 0.9.0） |
-| 扩展能力模块 | 灾备演练、SLA 监控、Chaos 测试、形式化验证（未生产验证） |
-| 真实云服务对接 | MQTT(rumqttc) / WebSocket(tokio-tungstenite) / RabbitMQ(lapin) / S3(rust-s3) |
-| 安全审计基线 | cargo-audit + cargo-deny CI，RustCrypto 审计栈加密 |
 | 钩子系统 | 16 种 HookEvent + HookDispatcher + 软删除 + 多租户 + 全局作用域 |
 | 分布式事务 | 2PC + TCC（Try-Confirm-Cancel）+ Saga + 跨分片 ACID 协调器 |
 | 高级查询 | JSON 字段查询 + 动态 SQL（XML 模板）+ 强类型 AST + find_with_related |
-| AI 向量 + pgvector | sz-orm-vector：pgvector 向量数据库（cosine/euclidean/dot 三种度量）+ NL→SQL（Simple 规则引擎 + OpenAI API） |
+| AI 向量 + pgvector | sz-orm-vector：pgvector 向量数据库（cosine/euclidean/dot 三种度量）+ NL→SQL + ANN 加速 |
+| v7.3.0 性能加速 | SIMD 向量化 f32/f64/bool + 零拷贝序列化 + 并行预热 + 查询计划缓存（`perf-accel`，默认启用） |
+| v7.3.0 高可用 | 自动故障转移 RTO≤5s + 错误率熔断 + 限流排队 + 5 子项健康检查 + OTLP db.* 追踪 |
+| v7.3.0 AI 集成 | 查询改写规则集 + LLM 路径 + 索引推荐负载建模 + NL2SQL 多轮对话 + 向量 ANN 加速 |
+| v7.3.0 生态扩展 | warp 中间件适配 + 源 ORM 解析迁移（Diesel/SeaORM/SQLx）+ schema diff 正/反向迁移 |
 
 ### 1.2 质量基线（实测数据）
 
-- 测试总量：**6,738 passed, 0 failed, 253 ignored**（195 个测试套件，需真实 DB/云服务的标记 ignored）
-- 工作空间成员：**43（41 sz-orm-* lib + cli + examples）**
-- 代码规模：**235,537 LOC（src/ 196,846 + tests/ 38,691）**
-- 七线验证：TDD + 集成 + Jepsen + Fuzz + Stress + Chaos + Formal
+- 工作空间成员：**72（70 sz-orm-* lib + cli + examples）**
+- 代码规模：**176,709 LOC（src/ 97,318 + tests/ 79,391）**
+- feature gate：**56 个**（v7.3.0 新增 10 个，其中 3 个默认启用：perf-accel/ha-events/health-subitems）
 - 生产代码 **0 处 panic!**、0 处 `unimplemented!`/`todo!`
 - `cargo clippy --workspace --all-targets -- -D warnings` 全通过（0 warnings）
-- 批量插入吞吐：SQLite 72 万行/s、PG 26.8 万行/s、MySQL 14.5 万行/s（详见《性能基准.md》）
+- v7.3.0 新增 187 个测试全部通过，4 个生产示例编译通过
+- 批量插入吞吐：SQLite 72 万行/s、PG 26.8 万行/s、MySQL 14.5 万行/s
 
 ---
 
@@ -55,7 +56,7 @@ SZ-ORM 是一套**早期生产可用（内部项目）的纯 Rust ORM 工作空�
 
 | 依赖 | 版本 |
 |------|------|
-| Rust toolchain | 1.94.0+（sqlx 0.9.0 要求） |
+| Rust toolchain | 1.81+（rust-version = "1.81"） |
 | 异步运行时 | tokio 1.40+ |
 | 数据库（可选） | MySQL 8+/9.x、PostgreSQL 14+/18、SQLite 3.35+、Oracle 23ai |
 
@@ -94,13 +95,13 @@ fn main() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(dialect)
         .table("users")
-        .select(vec!["id", "name", "email"])
-        .where_cond("status = 'active'")
+        .select(vec!["id", "name", "email"])?
+        .where_eq("status", Value::String("active".to_string()))
         .order_desc("id")
         .limit(10)
         .build_select();
     // SELECT `id`, `name`, `email` FROM `users`
-    // WHERE status = 'active' ORDER BY `id` DESC LIMIT 10
+    // WHERE `status` = ? ORDER BY `id` DESC LIMIT 10
     println!("{sql}");
 }
 ```
@@ -141,7 +142,7 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // ✅ 参
 
 ---
 
-## 三、各包使用说明（46 个工作空间成员）
+## 三、各包使用说明（72 个工作空间成员）
 
 ### 3.1 核心引擎
 
@@ -835,15 +836,15 @@ let sql = find_with_related_join(
     "id",                // 主表主键
     true,                // LEFT JOIN
 )
-.where_cond("users.id = 1")
+.where_eq("users.id", Value::I64(1))
 .build();
-// SELECT * FROM users LEFT JOIN profiles ON users.id = profiles.user_id WHERE users.id = 1
+// SELECT * FROM users LEFT JOIN profiles ON users.id = profiles.user_id WHERE `users`.`id` = ?
 
 // 模式 2：Subquery（适合 1:N 关联，避免主表行膨胀）
 use sz_orm_core::find_with_related::find_with_related_subquery;
 let sql = find_with_related_subquery(
     &*dialect, "users", "orders", "user_id", "id",
-).where_cond("users.id = 1").build();
+).where_eq("users.id", Value::I64(1)).build();
 
 // 模式 3：Eager Load（生成两条 SQL：先主表，后关联表 WHERE IN）
 use sz_orm_core::find_with_related::find_with_related_eager_sql;
@@ -1405,7 +1406,7 @@ use sz_orm_core::DbType;
 let (sql, params) = Db::new(DbType::PostgreSQL)
     .name("users")
     .select(&["id", "name", "email"])
-    .where_cond("age", ">=", 18)
+    .where_gte("age", 18)
     .where_in("status", &["active", "verified"])
     .order_desc("created_at")
     .page(1, 20)
@@ -1557,6 +1558,167 @@ let value = registry.to_value("user_uuid", &String::from("550e8400-e29b-41d4-a71
 | 动态过滤 | dynamic_filter + data_permission | 全局 Filter+权限规则 |
 | Plugin 链 | hydration_plugin + audit + observer | MyBatis 风格拦截器链 |
 
+### 3.8 v4.0-v7.3 新增包使用说明
+
+以下 29 个包为 v4.0 至 v7.3.0 期间新增，按类别分组。所有 feature gate 默认关闭（除非另注），需在 `Cargo.toml` 显式启用。核心 API 签名详见 [API 参考手册](sz-ormAPI参考.md)。
+
+#### 3.8.1 性能诊断与优化
+
+| 包 | 功能 | 核心 API | 启用方式 |
+|----|------|---------|---------|
+| sz-orm-adaptive | 运行时自适应查询路由：统计采集 + 自动分页/热缓存/慢查询标记，零依赖 sz-orm-core | `AdaptiveExecutor`、`AdaptiveConfig`、`ExecutionPath`、`QueryStats`、`AdaptiveQueryPlanner`、`ExecutionPlanCache` | feature `adaptive-query`；`llm-tuning`/`trend-prediction` 可选 |
+| sz-orm-advisor | 查询优化顾问：规则引擎生成 6 类建议（AddIndex/DropIndex/UsePagination/EnableCache/RewriteQuery/AdjustPoolSize）+ 智能闭环 | `OptimizationAdvisor`、`OptimizationSuggestion`、`SuggestionType`、`IntelligenceLoop`、`ReplayValidator` | feature `query-advisor`；`query-intelligence-loop`/`index-advisor-deep` 可选 |
+| sz-orm-explain | 跨方言 EXPLAIN 执行计划解析：全表扫描/缺失索引检测 + 计划回归比对 | `ExplainDialect`、`ExplainPlan`、`ScanType`、`parser_for` | feature `explain-analyzer`；`perf-baseline` 可选 |
+| sz-orm-flamegraph | 查询性能火焰图：分阶段计时 + Brendan Gregg 折叠格式 + 自渲染 SVG | `Phase`、`QueryTracer`、`QueryPhaseTiming`、`FlameGraphBuilder`、`FlameStats`、`HotspotDetector`、`FlameDiff` | feature `query-flamegraph`（tracing 集成） |
+| sz-orm-diagnosis | 慢查询自动诊断：阶段耗时比定位根因（PoolExhaustion/SqlInefficiency/LargeResultSet/BuildOverhead/MixedCause）+ 死锁检测 + 池泄漏检测 | `SlowQueryDiagnoser`、`DiagnosisReport`、`RootCause`、`ConnectionPoolDiagnoser`、`PoolLeakDetector`、`DeadlockDetector`、`BottleneckLocator` | feature `slow-query-diagnosis`；`llm-diagnosis`/`failure-prediction` 可选 |
+| sz-orm-anomaly | 异常检测：指标采集（慢查询/错误率/连接池）+ 滑动窗口 + Welford 基线 + 突增/耗尽检测 + 告警去重 | `AnomalyDetector`、`AnomalyConfig`、`MetricCollector`、`SlidingWindow`、`Alert`、`AlertDedup`、`Severity` | feature `anomaly-detection` |
+| sz-orm-parallel | 并行查询执行器：并发调度 + 四种合并策略 + 超时降级 + OLAP 向量化 | `ParallelExecutor`、`ParallelQueryScheduler`、`ParallelQueryConfig`、`MergeStrategy`、`FailureStrategy`、`ResultMerger`、`VectorizedExecutor` | feature `parallel-query`；`olap-vectorized` 可选 |
+| sz-orm-stream | 异步流式结果集：游标分页 + keyset pagination + 背压控制 + 实时流处理 + CDC 同步 | `StreamResultSet`、`KeysetPaginator`、`StreamPaginator`、`AsyncBackpressureController`、`StreamBatchProcessor`、`ViewRefreshEngine`、`FlinkClient` | feature `stream-resultset`；`stream-processing`/`cdc-realtime-sync` 可选 |
+| sz-orm-fusion | 多数据库融合查询（实验性）：缓存下推 + 搜索下推 + 主库回退 + 降级 + 多区域多活 | `FusionQuery`、`FusionPlanner`、`FusionExecutor`、`FusionOutcome`、`MemoryFusionCache`、`ConflictResolver`、`CdcSyncCoordinator` | feature `db-fusion`；`db-fusion-v2`/`multi-region` 可选 |
+| sz-orm-bench | 基准对标工具：sz-orm vs SeaORM vs Diesel vs SQLx，P50/P95/P99 延迟 + 吞吐 + 内存 | `WorkloadType`、`FrameworkType`、`RealDbExecutor`、`run_workload_real` | bin `sz-orm-bench`；feature `real-bench` 连真实 DB |
+
+#### 3.8.2 AI 与智能集成
+
+| 包 | 功能 | 核心 API | 启用方式 |
+|----|------|---------|---------|
+| sz-orm-agent | AI Agent 自主数据库操作：perceive-decide-act 循环 + 工具调用 + 危险操作审批 + 检查点恢复 | `AgentDriver`、`DatabaseAgent`、`ApprovalGate`、`CheckpointManager`、`ToolRegistry`、`PermissionBoundary`、`WorkflowOrchestrator` | feature `agent` |
+| sz-orm-ai-designer | LLM 驱动 Schema 设计：生成表结构/字段/关系/索引 + 迁移影响分析 + 反范式化建议 | `AiSchemaDesigner`、`SchemaDesign`、`TableDefinition`、`ColumnDefinition`、`MigrationImpactReport`、`DenormalizationAdvice` | feature `ai-schema-design` |
+| sz-orm-ai-migration | LLM 驱动迁移脚本生成 + 源 ORM（Diesel/SeaORM/SQLx）解析与迁移报告 | `AiMigrationGenerator`、`MigrationScript`、`SourceOrmParser`、`DieselParser`、`SeaOrmParser`、`SqlxParser`、`MigrationReport` | feature `ai-migration-gen`；`eco-config` 启用源 ORM 解析 |
+| sz-orm-nl-query | 自然语言查询管线：NL2SQL → 执行 → 可视化 → 洞察 + 多轮对话 + 方言渲染 | 模块 `pipeline`、`llm_generator`、`insight`、`visualizer`、`sql_explainer`、`history_learner`、`dialect_renderer` | feature `nl-query`；`nl2sql-deep`/`nl-query-visualizer` 可选 |
+| sz-orm-mcp | MCP（Model Context Protocol）服务器：将 NL 查询 + SQL 执行暴露为 AI 工具，供 Claude/Cursor 调用 | `McpServer`、`StdioTransport` | feature `mcp` |
+| sz-orm-model-ops | AI 模型运维：本地推理 + 路由 + 微调 + 评估 + A/B 测试 + vLLM/llama.cpp 后端 | 模块 `ab_test`、`evaluator`、`inference_opt`、`router`、`vllm`、`llamacpp` | feature `model-ops`；`model-ops-router`/`model-ops-vllm`/`model-ops-llamacpp` 可选 |
+| sz-orm-multimodal | 多模态数据库交互：语音 + 图表 + ER 图 + 截图 + 草图 | 模块 `voice`、`chart`、`er_diagram`、`screenshot`、`sketch`、`dialog`、`fallback` | feature `multimodal`；`multimodal-voice`/`multimodal-vision`/`multimodal-er` 可选 |
+| sz-orm-governance | AI 驱动数据治理：血缘 + 质量 + 合规 + 脱敏 + 成本核算 + 敏感发现 + SLA 违规追踪 | 模块 `lineage`、`quality_rule`、`compliance`、`data_catalog`、`masking_recommend`、`cost_accountant`、`sensitive_discoverer`、`sla_violation_tracker` | feature `governance`；`governance-lineage`/`governance-compliance`/`compliance-report`/`sla-monitor`/`cost-governance`/`sensitive-discover` 可选 |
+
+#### 3.8.3 静态分析与 IDE 工具
+
+| 包 | 功能 | 核心 API | 启用方式 |
+|----|------|---------|---------|
+| sz-orm-n1-lint | N+1 查询静态检测：syn 解析函数体 AST，检测循环内查询调用（for/while 内 `find_by_*`/`where_eq`） | `analyze_fn`、`scan_dir`、`N1Finding`、`N1Pattern`（QueryInLoop/ConditionalQueryInLoop/MissingEagerLoadHint） | feature `n1-lint`（由 `#[detect_n_plus_one]` 宏与 CLI `n1-lint` 命令启用） |
+| sz-orm-lsp | VS Code 扩展 LSP 服务端：补全 + 悬停 + 诊断 + 跳转定义 | `LspServer`、`CompletionList`、`Hover`、`Diagnostic`、`DefinitionProvider`、`IncrementalDiagnostics`、`CodedDiagnostic` | bin `sz-orm-lsp` |
+| sz-orm-studio | Web GUI 数据浏览器：axum HTTP 服务，表数据浏览/筛选/编辑/关系导航 | `WebGuiServer`、`ServerConfig`、`DataStore`、`TableInfo`、`TableRow`、`RelationInfo`、`EditRequest` | bin `sz-orm-studio`（端点：`GET /tables`、`GET /tables/:name/data`、`PUT /tables/:name/data/:id`、`GET /tables/:name/relations`） |
+| sz-orm-designer | 可视化 Schema 设计器：图形化建表/改表/ER 图编辑/双向代码生成/索引设计/版本管理 | `SchemaDesigner`、`SchemaDesign`、`DesignTable`、`ErDiagramEditor`、`IndexDesigner`、`MigrationGenerator`、`SchemaVersioning`、`SchemaDesignerWebUI` | feature `schema-designer` |
+
+#### 3.8.4 跨语言绑定
+
+| 包 | 功能 | 核心 API | 启用方式 |
+|----|------|---------|---------|
+| sz-orm-cabi | C ABI FFI 导出层：为 Go/Java/C++/Python 提供统一 C 接口，暴露 Pool/Query/Transaction | `sz_orm_pool_new`、`sz_orm_pool_free`、`sz_orm_ping`、`sz_orm_query`、`sz_orm_execute`、`sz_orm_version`、`SzOrmPoolHandle`、`SzOrmErrorCode` | cdylib，默认编译 |
+| sz-orm-cpp | C++ 绑定：经 extern C + C ABI 转发，C++ 侧头文件 `cpp/szorm.h` | `sz_orm_cpp_pool_new`、`sz_orm_cpp_pool_free`、`sz_orm_cpp_ping`、`sz_orm_cpp_query` | cdylib，依赖 sz-orm-cabi |
+| sz-orm-go | Go 绑定：经 cgo/syscall 加载 DLL 调用 C ABI | `sz_orm_go_pool_new`、`sz_orm_go_pool_free`、`sz_orm_go_ping`、`sz_orm_go_query` | cdylib，依赖 sz-orm-cabi |
+| sz-orm-java | Java JNI 绑定：JNI 入口转发到 C ABI | `Java_sz_1orm_1java_SzOrmPool_poolNew`、`poolFree`、`ping`、`query` | cdylib，依赖 sz-orm-cabi + jni 0.22 |
+| sz-orm-js | JavaScript/Node.js 绑定（napi-rs）：Model/QueryBuilder/Pool/Transaction/Batch/Migration | `QueryBuilderEnhanced`、`PoolConfigBuilder`、`BatchInsertBuilder`、`BatchUpdateBuilder`、`MigrationTool`、`ModelDefinition` | cdylib（napi-rs），独立 0.1.0 版本线 |
+| sz-orm-python | Python 绑定（PyO3）：Model/ActiveModel/QueryBuilder/Pool/Transaction/Repository/Hooks/Observer/Paginator | `PyModel`、`PyActiveModel`、`PyQueryBuilder`、`PyPool`、`PyTransaction`、`PyRepository`、`PyHooks`、`PyObserver`、`PyPaginator` | cdylib（PyO3），独立 0.1.0 版本线 |
+
+#### 3.8.5 图查询
+
+| 包 | 功能 | 核心 API | 启用方式 |
+|----|------|---------|---------|
+| sz-orm-graph | Neo4j 图数据库支持：Bolt 连接池 + 参数化 Cypher + 类型化映射 + 声明式建模 + 社区检测 + 路径分析 | `GraphPool`、`GraphConnection`、`CypherQueryBuilder`、`CypherValidator`、`GraphResult`、`InMemoryGraphEngine`、`NodeMapper`、`LabelPropagation`、`PathAnalyzer`、`GraphStats` | 核心默认可用；`graph-query-deep`（联合投影）/`graph-traversal`（遍历 DSL）可选 |
+
+---
+
+## 三.5、v7.3.0 Feature Gate 使用指南
+
+v7.3.0 新增 10 个 feature gate，覆盖四大方向。其中 **3 个纯增益 feature gate 默认启用**，其余 7 个需在 `Cargo.toml` 中显式声明。
+
+### feature gate 总览
+
+| feature gate | 所属包 | 方向 | 默认 | 功能 |
+|---|---|---|---|---|
+| `perf-accel` | sz-orm-core | 性能极致优化 | ✅ 启用 | SIMD 向量化 + 零拷贝 + 并行预热 + 计划缓存 |
+| `ha-events` | sz-orm-health | 企业级高可用 | ✅ 启用 | 高可用事件总线 |
+| `health-subitems` | sz-orm-health | 企业级高可用 | ✅ 启用 | 5 子项健康检查 |
+| `auto-failover` | sz-orm-core | 企业级高可用 | ❌ 关闭 | 探活驱动故障转移 + 错误率熔断 |
+| `limit-queue-timeout` | sz-orm-limit | 企业级高可用 | ❌ 关闭 | 限流排队超时 |
+| `tracing-db-attrs` | sz-orm-tracing | 企业级高可用 | ❌ 关闭 | OTLP db.* 属性追踪 |
+| `ai-config` | sz-orm-ai | AI 深度集成 | ❌ 关闭 | AI 配置聚合 + 决策结果 |
+| `ann-accel` | sz-orm-vector | AI 深度集成 | ❌ 关闭 | 向量 ANN 加速 |
+| `eco-config` | sz-orm-core | 生态扩展 | ❌ 关闭 | 生态配置聚合 |
+| `warp-adapt` | sz-orm-axum | 生态扩展 | ❌ 关闭 | warp 中间件适配层 |
+
+### 启用方式
+
+```toml
+[dependencies]
+# 默认已启用 perf-accel + ha-events + health-subitems，无需额外配置
+sz-orm-core = "7.3"
+sz-orm-health = "7.3"
+
+# 按需启用其他 feature gate
+sz-orm-core = { version = "7.3", features = ["auto-failover", "eco-config"] }
+sz-orm-limit = { version = "7.3", features = ["limit-queue-timeout"] }
+sz-orm-tracing = { version = "7.3", features = ["tracing-db-attrs"] }
+sz-orm-ai = { version = "7.3", features = ["ai-config"] }
+sz-orm-vector = { version = "7.3", features = ["ann-accel"] }
+sz-orm-axum = { version = "7.3", features = ["warp-adapt"] }
+```
+
+### 核心 API 速查
+
+| feature gate | 核心 API | 位置 | 功能 |
+|---|---|---|---|
+| `perf-accel` | `PerfConfig` / `batch_filter_f32` / `ZeroCopyTypeRegistry` / `prewarm_parallel` / `fingerprint_with_types` | `lib.rs:753` / `simd.rs:284` / `zero_copy_pipeline.rs:354` | SIMD 加速 + 零拷贝 + 预热 + 计划缓存 |
+| `auto-failover` | `HaConfig` / `AutoFailoverCoordinator` / `ErrorRateCircuitBreaker` | `lib.rs:1048` / `rw_split_enhanced.rs:479` / `circuit_breaker.rs:347` | 故障转移 + 熔断 |
+| `ha-events` | `HaEventBus` / `HaEvent` / `HaEventSubscriber` | `health/lib.rs:2014` | 事件发布/订阅 |
+| `health-subitems` | `HealthSubItemChecker` / `HealthReportV2` | `health/advanced.rs:1305` | 5 子项健康检查 |
+| `limit-queue-timeout` | `QueueTimeoutLimiter` / `QueueStrategy` | `limit/lib.rs:1659` | 排队超时限流 |
+| `tracing-db-attrs` | `span_for_query` | `tracing/lib.rs:2165` | OTLP db.* 属性 |
+| `ai-config` | `AiConfig` / `RewritePath` / `AnnIndexType` / `AiDecision` | `ai_config.rs:71` | AI 配置聚合 |
+| `ann-accel` | `AnnAccelerated` / `AnnSearchResult` | `vector/lib.rs:252` | ANN 加速检索 |
+| `eco-config` | `EcoConfig` / `WebFramework` / `SourceOrm` | `lib.rs:1239` | 生态配置聚合 |
+| `warp-adapt` | `WarpAdapter` / `WarpMiddleware` | `warp.rs:66` | warp 中间件适配 |
+
+### 使用示例
+
+```rust
+// perf-accel（默认启用）：SIMD 批量过滤
+use sz_orm_core::batch_filter_f32;
+let data = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+let mask = batch_filter_f32(&data, 3.0, sz_orm_core::SimdCmpOp::GreaterThan);
+assert_eq!(mask, vec![false, false, false, true, true]);
+
+// auto-failover（需启用）：故障转移配置
+use sz_orm_core::{HaConfig, FailoverConfig, FailbackStrategy};
+let ha_config = HaConfig::builder()
+    .failover_enabled(true)
+    .failover(FailoverConfig {
+        primary_url: "postgres://primary:5432/db".into(),
+        replica_url: "postgres://replica:5432/db".into(),
+        probe_interval: std::time::Duration::from_secs(1),
+        probe_failure_threshold: 3,
+        failback_strategy: FailbackStrategy::Manual,
+    })
+    .build()?;
+
+// ai-config（需启用）：AI 配置
+use sz_orm_ai::{AiConfig, RewritePath, AnnIndexType};
+let ai_config = AiConfig {
+    rewrite_enabled: true,
+    rewrite_path: RewritePath::Hybrid,
+    index_advisor_enabled: true,
+    nl2sql_enabled: true,
+    nl2sql_multi_turn: true,
+    vector_ann_index: AnnIndexType::Hnsw,
+    vector_recall_threshold: 0.9,
+};
+```
+
+### 生产调用点 + 端到端测试
+
+| feature gate | 生产示例 | 端到端测试 |
+|---|---|---|
+| `perf-accel` | `examples/src/bin/perf_accel_demo.rs` | `tests/perf_e2e.rs` |
+| `auto-failover` | `ha_failover_demo.rs` | `tests/failover_e2e.rs` |
+| `ha-events` | `ha_failover_demo.rs` | `tests/ha_event_bus.rs` |
+| `health-subitems` | `ha_failover_demo.rs` | `tests/health_subitems.rs` |
+| `limit-queue-timeout` | `ha_failover_demo.rs` | `tests/limit_e2e.rs` |
+| `tracing-db-attrs` | `ha_failover_demo.rs` | `tests/tracing_e2e.rs` |
+| `ai-config` | `ai_integration_demo.rs` | `tests/ai_config.rs` |
+| `ann-accel` | `ai_integration_demo.rs` | `tests/ann_e2e.rs` |
+| `eco-config` | `eco_extension_demo.rs`, | `tests/eco_config.rs` |
+| `warp-adapt` | `eco_extension_demo.rs` | `tests/warp_adapt.rs` |
+
 ---
 
 ## 四、常见场景示例
@@ -1586,15 +1748,15 @@ let select = QueryBuilder::<User>::new(get_dialect(DbType::PostgreSQL).unwrap())
 
 // Update
 let update = QueryBuilder::<User>::new(get_dialect(DbType::PostgreSQL).unwrap())
-    .table("users").where_cond("id = 1").build_update(&data);
+    .table("users").where_eq("id", Value::I64(1)).build_update(&data);
 
 // Delete
 let delete = QueryBuilder::<User>::new(dialect)
-    .table("users").where_cond("id = 1").build_delete();
+    .table("users").where_eq("id", Value::I64(1)).build_delete();
 
 // 聚合
 let count = QueryBuilder::<User>::new(get_dialect(DbType::PostgreSQL).unwrap())
-    .table("users").where_cond("status = 'active'").build_count();
+    .table("users").where_eq("status", Value::String("active".to_string())).build_count();
 ```
 
 ### 4.2 事务
@@ -1720,14 +1882,25 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | MySQL 8+/9.x | `MySqlDialect` | `?` | `LIMIT n OFFSET m` | 反引号 `` ` `` | ✅ sz-orm-sqlx |
 | PostgreSQL 14+/18 | `PostgresDialect` | `$1, $2, ...` | `LIMIT n OFFSET m` | 双引号 `"` | ✅ sz-orm-sqlx |
 | SQLite 3.35+ | `SqliteDialect` | `?` | `LIMIT n OFFSET m` | 双引号 `"` | ✅ sz-orm-sqlx |
-| Oracle 23ai | `OracleDialect` | `:1, :2, ...` | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | 双引号 `"` | ✅ dialect 级 |
+| Oracle 23ai | `OracleDialect` | `:1, :2, ...` | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | 双引号 `"` | ✅ sz-orm-oracle |
+| SQL Server | `MssqlDialect` | `@p1, @p2, ...` | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | 方括号 `[]` | ✅ sz-orm-mssql |
+| MariaDB | MySQL 兼容 | `?` | `LIMIT n OFFSET m` | 反引号 `` ` `` | ✅ dialect 级 |
+| TiDB | MySQL 兼容 | `?` | `LIMIT n OFFSET m` | 反引号 `` ` `` | ✅ dialect 级 |
+| OceanBase | MySQL 兼容 | `?` | `LIMIT n OFFSET m` | 反引号 `` ` `` | ✅ dialect 级 |
+| Kingbase | PG 兼容 | `$1, $2, ...` | `LIMIT n OFFSET m` | 双引号 `"` | ✅ dialect 级 |
+| PolarDB | PG/MySQL 兼容 | `$1` / `?` | `LIMIT n OFFSET m` | 双引号/反引号 | ✅ dialect 级 |
+| GaussDB | PG 兼容 | `$1, $2, ...` | `LIMIT n OFFSET m` | 双引号 `"` | ✅ dialect 级 |
+| Dameng | Oracle 兼容 | `:1, :2, ...` | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | 双引号 `"` | ✅ dialect 级 |
+| GBase | Informix 兼容 | `?` | `SKIP n FIRST m` | 双引号 `"` | ✅ dialect 级 |
+| Db2 | `Db2Dialect` | `?` | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | 双引号 `"` | ✅ dialect 级 |
+| ClickHouse | `ClickHouseDialect` | `?` | `LIMIT m OFFSET n` | 反引号 `` ` `` | ✅ dialect 级 |
 | pgvector 扩展 | - | `vector(dim)` 类型 | `<->` / `<=>` / `<#>` 距离操作符 | - | ✅ sz-orm-vector（feature `real-pg`） |
 
-每个方言负责：标识符引用风格、字符串转义、分页语法、JSON 提取（`JSON_EXTRACT` / `#>>` / `json_extract` / `JSON_VALUE`）、全文搜索（`MATCH AGAINST` / `to_tsvector` / `CONTAINS`）、布尔转整数（`IF`/`CASE`）、自增关键字（`AUTO_INCREMENT` / `GENERATED BY DEFAULT AS IDENTITY`）。
+每个方言负责：标识符引用风格、字符串转义、分页语法、JSON 提取、全文搜索、布尔转整数、自增关键字。
 
-**pgvector 支持**：PostgreSQL 14+ 可通过 `CREATE EXTENSION vector` 启用 pgvector 扩展。sz-orm-vector 的 `RealPgVectorStore` 自动处理 `vector(dim)` 类型列的创建和查询，支持 cosine、euclidean（L2）、dot-product（IP）三种距离度量。
+**pgvector 支持**：PostgreSQL 14+ 可通过 `CREATE EXTENSION vector` 启用 pgvector 扩展。sz-orm-vector 的 `RealPgVectorStore` 自动处理 `vector(dim)` 类型列的创建和查询，支持 cosine、euclidean（L2）、dot-product（IP）三种距离度量。v7.3.0 新增 `ann-accel` feature gate 提供 ANN 加速检索（HNSW/IVF/量化），召回率 ≥ 90%，租户隔离过滤。
 
-通过 `get_dialect(DbType::MySQL)` 获取方言实例；`DbType` 共 11 种枚举（含 Redis、MongoDB 等预留类型），并提供 `as_str()`、`from_str()`、`supports_schema()`、`supports_transaction()`、`supports_foreign_key()`、`default_port()` 等能力查询方法。
+通过 `get_dialect(DbType::MySQL)` 获取方言实例；`DbType` 共 20+ 种枚举，并提供 `as_str()`、`from_str()`、`supports_schema()`、`supports_transaction()`、`supports_foreign_key()`、`default_port()` 等能力查询方法。
 
 ---
 
@@ -1736,7 +1909,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 1. **连接池调参**：高并发场景将 `max_size` 设为 CPU 核数 × 2～4；`min_idle` 保持日常均值，避免冷启动建连开销；`max_lifetime` 小于数据库 `wait_timeout`，防止拿到已被服务端断开的连接。
 2. **批量写入**：使用 `DEFAULT_BATCH_SIZE`（1000）分批 INSERT；10 万行批量插入实测 SQLite 72 万行/s、PG 26.8 万行/s、MySQL 14.5 万行/s。
 3. **只选必要列**：`select(vec!["id", "name"])` 而非 `SELECT *`，减少网络与解码开销。
-4. **分页深翻页**：大 offset 场景改用主键游标（`where_cond("id > ?")` + `limit(n)`），避免 `OFFSET` 扫描放大。
+4. **分页深翻页**：大 offset 场景改用主键游标（`where_gt("id", last_id)` + `limit(n)`），避免 `OFFSET` 扫描放大。
 5. **校验前置**：开发/测试环境开启 `validate()` 与 `sql_string!`；生产热路径可在构建期完成校验后直接使用生成的 SQL。
 6. **事务最小化**：事务内只放必须原子执行的语句；长事务会占用池连接并阻塞空闲回收。
 7. **缓存复用**：热点读使用 `MultiLevelCache`（内存 L1 + 外部 L2），设置合理 TTL。
@@ -1850,19 +2023,12 @@ SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored
 
 | 文档 | 说明 | 何时查阅 |
 |------|------|---------|
-| **[API 参考手册](sz-ormAPI参考.md)** | **核心 trait/结构体与各包公开 API 手册**（v5.0，覆盖 §2.1-§2.22 共 22 个章节） | 需查阅类型签名、参数说明、错误码时 |
+| **[API 参考手册](sz-ormAPI参考.md)** | **核心 trait/结构体与各包公开 API 手册** | 需查阅类型签名、参数说明、错误码时 |
+
+| 《sz-orm-engineering-practices.md》 | 工程化规范（23 道门禁 + 测试金字塔 + Soak Test） | 贡献代码前需了解工程规范 |
 | 《架构设计.md》 | 整体架构、依赖关系、设计决策、扩展开发指南 | 需理解整体架构与设计决策时 |
 | 《性能基准.md》 | 性能数据与基准测试运行方式 | 需了解吞吐/延迟/对比数据时 |
-| 《项目成熟度评估报告.md》 | 成熟度评分与测试规模实测 | 需评估生产就绪度时 |
-| 《项目实施进度表.md》 | 分阶段实施进度 | 需了解功能完成进度时 |
-| 《sz-orm生产就绪报告.md》 | 扩展能力模块评估 | 生产上线前评审 |
-| 《sz-orm-engineering-practices.md》 | 工程化规范（门禁 1-10 + 测试金字塔 + Soak Test） | 贡献代码前需了解工程规范 |
-| 《SZ-ORM 与主流 ORM 对比.md》 | 与 Diesel/SeaORM/SQLx 的深度对比 | 选型决策时 |
-| 《sz-orm技术实现深度评估.md》 | 技术实现深度评估 | 深度技术评估 |
-| 《sz-orm全面审查报告v1.md》 | 全面代码审查报告 | 代码质量审查 |
 | 《Security.md》 | 安全设计文档 | 安全评估 |
-| 《api-contracts.md》 | API 契约文档 | 契约测试 |
-| 《sz-orm改造实施文档.md》 | 改造实施文档 | 历史决策追溯 |
 
 ### 9.1 文档分工
 

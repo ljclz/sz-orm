@@ -229,3 +229,83 @@ pub trait PgVectorStore: Send + Sync {
     /// Count records
     async fn count(&self, collection: &str) -> Result<usize, VectorError>;
 }
+// v7.3.0 任务 3.5：向量 ANN 加速与召回指标与租户隔离
+// 启用 ann-accel feature 时编译，默认不启用
+
+/// ANN 搜索结果（含召回率指标）
+#[derive(Debug, Clone)]
+pub struct AnnSearchResult {
+    /// 检索结果
+    pub records: Vec<SearchResult>,
+    /// 召回率（ANN 结果 vs 暴力 kNN，0.0 ~ 1.0）
+    pub recall_rate: f64,
+    /// 延迟（毫秒）
+    pub latency_ms: u64,
+}
+
+/// ANN 加速检索 trait（继承 PgVectorStore）
+///
+/// 提供 ANN 索引加速检索能力，支持租户隔离过滤和召回率指标。
+/// 内存实现使用精确 kNN（召回率 = 1.0），真实 ANN 加速需启用 pgvector HNSW/IVF 索引。
+#[cfg(feature = "ann-accel")]
+#[async_trait]
+pub trait AnnAccelerated: PgVectorStore {
+    /// ANN 加速检索
+    ///
+    /// # 参数
+    /// - `collection`: 集合名称
+    /// - `query`: 查询向量
+    /// - `top_k`: 返回结果数
+    /// - `tenant_id`: 租户 ID（可选，用于租户隔离过滤）
+    ///
+    /// # 返回值
+    /// - `Ok(AnnSearchResult)`: 检索结果 + 召回率 + 延迟
+    /// - `Err(VectorError)`: 检索失败
+    async fn ann_search(
+        &self,
+        collection: &str,
+        query: &[f32],
+        top_k: usize,
+        tenant_id: Option<&str>,
+    ) -> Result<AnnSearchResult, VectorError>;
+}
+
+#[cfg(feature = "ann-accel")]
+#[async_trait]
+impl AnnAccelerated for InMemoryVectorStore {
+    async fn ann_search(
+        &self,
+        collection: &str,
+        query: &[f32],
+        top_k: usize,
+        tenant_id: Option<&str>,
+    ) -> Result<AnnSearchResult, VectorError> {
+        use std::time::Instant;
+        let start = Instant::now();
+
+        // 精确 kNN 检索（内存实现中 ANN = kNN，召回率 = 1.0）
+        let mut results = self.search(collection, query, top_k).await?;
+
+        // 租户隔离过滤：只保留 metadata 中 tenant_id 匹配的记录
+        if let Some(tid) = tenant_id {
+            results.retain(|r| {
+                r.metadata
+                    .as_ref()
+                    .and_then(|m| m.get("tenant_id"))
+                    .and_then(|v| v.as_str())
+                    == Some(tid)
+            });
+        }
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+
+        // 召回率 = 1.0（内存实现使用精确 kNN）
+        let recall_rate = 1.0;
+
+        Ok(AnnSearchResult {
+            records: results,
+            recall_rate,
+            latency_ms,
+        })
+    }
+}

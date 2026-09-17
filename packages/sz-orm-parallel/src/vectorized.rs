@@ -51,6 +51,16 @@ impl ColumnarBatch {
     pub fn is_empty(&self) -> bool {
         self.row_count == 0
     }
+
+    /// v7.3.0 任务 1.2：获取 f32 列数据
+    pub fn column_data_f32(&self, name: &str) -> Option<Vec<f32>> {
+        self.column_data(name).map(|d| d.iter().map(|&v| v as f32).collect())
+    }
+
+    /// v7.3.0 任务 1.2：获取 bool 列数据（非零为 true）
+    pub fn column_data_bool(&self, name: &str) -> Option<Vec<bool>> {
+        self.column_data(name).map(|d| d.iter().map(|&v| v != 0.0).collect())
+    }
 }
 
 /// 向量化算子
@@ -66,6 +76,8 @@ pub enum VectorizedOp {
     Max { column: String },
     /// 过滤
     Filter { column: String, threshold: f64 },
+    /// 投影（v7.3.0 任务 1.2）：选取指定列子集
+    Project { columns: Vec<String> },
 }
 
 /// 执行结果
@@ -178,6 +190,18 @@ impl VectorizedExecutor {
                 };
                 VectorizedResult {
                     values: vec![count as f64],
+                    processed_rows: batch.row_count,
+                    degraded,
+                }
+            }
+            VectorizedOp::Project { columns } => {
+                let projected: Vec<f64> = columns
+                    .iter()
+                    .filter_map(|col| batch.column_data(col))
+                    .flat_map(|d| d.iter().copied())
+                    .collect();
+                VectorizedResult {
+                    values: projected,
                     processed_rows: batch.row_count,
                     degraded,
                 }

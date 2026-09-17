@@ -2,9 +2,9 @@
 
 > **读者画像**：PHP 工程师，擅长 ThinkPHP，没接触过 Rust，现在用 AI 驱动开发 sz-orm 项目
 > **目标**：从零基础到能用 AI 协作维护 sz-orm 代码
-> **更新日期**：2026-08-09 · 适用版本：v3.4.0+
-> **项目状态**：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 3.4.0
-> **生产案例**：sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
+> **更新日期**：2026-09-17 · 适用版本：v7.3.0+
+> **项目状态**：生产可用，sz-orm-core 已发布到 crates.io，当前工作空间版本 7.3.0（72 个成员：70 个 lib 包 + cli + examples）
+> **生产案例**：sz-pay 支付中台后端依赖 6 个核心 sz-orm 包（core/sqlx/config/auth/macros/queue）+ 16 个 optional 扩展包；new-wxapp（刘姐菜篮子）为第二个下游消费者
 
 ---
 
@@ -16,7 +16,7 @@
 - Rust 哪些语法是 PHP 没有的，必须先理解
 - 用 AI 协作开发 sz-orm 的正确姿势（怎么提问、怎么验证）
 
-每一章都配**可运行代码**，代码取自 [examples/src/bin/](../examples/src/bin/) 8 个示例，全部能 `cargo run` 跑起来。
+每一章都配**可运行代码**，代码取自 [examples/src/bin/](../examples/src/bin/) 示例，全部能 `cargo run` 跑起来。
 
 ---
 
@@ -215,13 +215,16 @@ cargo clippy --workspace --all-targets -- -D warnings   # 静态检查
 
 ```
 sz-orm/
-├── packages/             # 39 个工作空间成员（≈ Composer 包）
-│   ├── sz-orm-core/      # 核心引擎（≈ think-orm）
+├── packages/             # 70 个 lib 包（≈ Composer 包），按职能分 6 层
+│   ├── sz-orm-core/      # 核心引擎（≈ think-orm）：Model/QueryBuilder/Pool/Tx/Hooks/Migration
 │   ├── sz-orm-sqlx/      # 真实数据库适配（≈ think-orm 的 PDO driver）
-│   └── ...
-├── examples/src/bin/     # 8 个可运行示例（你的入门起点）
-├── docs/                 # 6 份文档 + 5 个 ADR
-├── Cargo.toml            # 工作空间清单（≈ 根 composer.json）
+│   ├── sz-orm-{ai,nl-query,agent,governance,multimodal,mcp,advisor}/  # AI 集成层（7 包）
+│   ├── sz-orm-{parallel,stream,fusion,dtx,rw,sharding}/  # 分布式/并行层（6 包）
+│   ├── sz-orm-{python,js,go,java,cpp,cabi,wasm}/  # 多语言绑定层（7 包）
+│   └── sz-orm-{studio,lsp,designer,explain,flamegraph}/  # 工具链层（5 包）
+├── examples/src/bin/     # 可运行示例（你的入门起点）
+├── docs/                 # 文档 + ADR
+├── Cargo.toml            # 工作空间清单（≈ 根 composer.json），version = "7.3.0"
 └── README.md
 ```
 
@@ -355,19 +358,20 @@ let dialect = get_dialect(DbType::MySQL).expect("MySQL 方言可用");
 let select_sql = QueryBuilder::<User>::new(dialect.clone())
     .table("users")
     .select(vec!["id", "name", "email"])
-    .where_cond("status = 'active'")
+    .where_eq("status", Value::String("active".into()))
     .order_by("created_at")
     .order_desc("id")
     .limit(10)
     .build_select();
-// → SELECT id, name, email FROM `users` WHERE status = 'active'
+// → SELECT id, name, email FROM `users` WHERE status = ?
 //   ORDER BY created_at ASC, id DESC LIMIT 10
+//   params: ["active"]
 
 // WHERE 复合条件
 let complex_sql = QueryBuilder::<User>::new(dialect.clone())
     .table("users")
-    .where_cond("status = 'active'")
-    .or_where("role = 'admin'")
+    .where_eq("status", Value::String("active".into()))
+    .or_where_eq("role", Value::String("admin".into()))
     .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)])
     .where_between("age", Value::I64(18), Value::I64(65))
     .where_null("deleted_at")
@@ -377,7 +381,7 @@ let complex_sql = QueryBuilder::<User>::new(dialect.clone())
 // 聚合
 let count_sql = QueryBuilder::<User>::new(dialect.clone())
     .table("users")
-    .where_cond("status = 'active'")
+    .where_eq("status", Value::String("active".into()))
     .build_count();
 
 // INSERT
@@ -394,13 +398,13 @@ let mut update_data = HashMap::new();
 update_data.insert("name".to_string(), Value::String("Bob".to_string()));
 let update_sql = QueryBuilder::<User>::new(dialect.clone())
     .table("users")
-    .where_cond("id = 1")
+    .where_eq("id", Value::I64(1))
     .build_update(&update_data);
 
 // DELETE
 let delete_sql = QueryBuilder::<User>::new(dialect.clone())
     .table("users")
-    .where_cond("id = 1")
+    .where_eq("id", Value::I64(1))
     .build_delete();
 ```
 
@@ -408,8 +412,10 @@ let delete_sql = QueryBuilder::<User>::new(dialect.clone())
 
 | ThinkPHP | sz-orm QueryBuilder | 说明 |
 |----------|---------------------|------|
-| `->where('status', 'active')` | `.where_cond("status = 'active'")` | **注意**：sz-orm 直接传完整条件字符串 |
-| `->whereOr('role', 'admin')` | `.or_where("role = 'admin'")` | OR 条件 |
+| `->where('status', 'active')` | `.where_eq("status", Value::String("active".into()))` | 参数化绑定，值收集到 params |
+| `->whereOr('role', 'admin')` | `.or_where_eq("role", Value::String("admin".into()))` | OR 条件，参数化 |
+| `->where('age', '>', 18)` | `.where_gt("age", Value::I64(18))` | 大于；另有 where_ge/where_lt/where_le/where_ne |
+| `->whereLike('name', 'A%')` | `.where_like("name", Value::String("A%".into()))` | LIKE |
 | `->whereIn('id', [1,2,3])` | `.where_in("id", vec![Value::I64(1), ...])` | IN |
 | `->whereBetween('age', [18,65])` | `.where_between("age", Value::I64(18), Value::I64(65))` | BETWEEN |
 | `->whereNull('deleted_at')` | `.where_null("deleted_at")` | IS NULL |
@@ -427,8 +433,8 @@ let delete_sql = QueryBuilder::<User>::new(dialect.clone())
 
 ### 3.4 关键差异（必须理解）
 
-1. **sz-orm 的 QueryBuilder 只生成 SQL，不执行**。要执行 SQL，需要 sz-orm-sqlx（第 5 章）。
-2. **where_cond 接收完整条件字符串**，不像 ThinkPHP 拆成字段+操作符+值。这是因为 sz-orm 假设你用参数化绑定（`?` 占位符）传值，条件里只写 SQL 片段。
+1. **sz-orm 的 QueryBuilder 只生成 SQL + params，不执行**。要执行 SQL，需要 sz-orm-sqlx（第 5 章）。
+2. **where_eq 接收字段名 + Value 参数化绑定**，生成的 SQL 用 `?` 占位符，值收集到 `params` 返回。`where_cond`/`or_where` 字符串拼接 API 已在 v5.0.0 移除（注入风险）。
 3. **Value 是强类型枚举**（第 4 章），不是 PHP 的弱类型。
 
 ### 3.5 SQL 校验（ThinkPHP 没有）
@@ -439,7 +445,7 @@ sz-orm 提供运行时校验，防止 SQL 注入：
 let result = QueryBuilder::<User>::new(dialect)
     .table("users")
     .select(vec!["id", "name"])
-    .where_cond("id = 1")
+    .where_eq("id", Value::I64(1))
     .validate();   // 返回 Result<(), DbError>
 ```
 
@@ -965,7 +971,7 @@ fn cancel_order(&self, user: &str, order_id: i64) -> Result<String, String> {
     data.insert("status".to_string(), Value::String("cancelled".to_string()));
     let sql = QueryBuilder::<Order>::new(self.new_dialect())
         .table("orders")
-        .where_cond(format!("id = {}", order_id).as_str())
+        .where_eq("id", Value::I64(order_id))
         .build_update(&data);
     Ok(sql)
 }
@@ -1099,7 +1105,7 @@ let sql = sql_string!("SELECT * FROM users WHERE name = ?"; params: "Alice");
 let result = QueryBuilder::<User>::new(dialect)
     .table("users")
     .select(vec!["id", "name"])
-    .where_cond("id = 1")
+    .where_eq("id", Value::I64(1))
     .validate()?;   // 返回 Result<(), DbError>
 ```
 
@@ -1203,7 +1209,7 @@ cargo doc --workspace --no-deps
 
 ### 14.3 阅读源码的顺序
 
-sz-orm 有 39 个包，不要乱看。推荐顺序：
+sz-orm 有 72 个工作空间成员，不要乱看。推荐顺序：
 
 1. **[examples/src/bin/quick_start.rs](../examples/src/bin/quick_start.rs)** — 30 分钟，了解 QueryBuilder
 2. **[examples/src/bin/model_definition.rs](../examples/src/bin/model_definition.rs)** — 1 小时，了解完整 Model
@@ -1304,12 +1310,90 @@ cargo run -p sz-orm-examples --bin production_dtx
 
 ---
 
+## 第 17 章 · v7.3.0 新能力速览（v4.0 → v7.3 增量）
+
+v3.4 到 v7.3 期间新增的能力，按 PHP 工程师视角分类。所有能力均以 feature gate 形式提供，默认关闭，按需启用。
+
+### 17.1 SIMD 向量化执行（OLAP 加速）
+
+`sz-orm-parallel` 的 `olap-vectorized` feature，批量列式执行聚合算子，利用 SIMD 指令加速。
+
+```rust
+// 启用：Cargo.toml 加 sz-orm-parallel = { features = ["olap-vectorized"] }
+use sz_orm_parallel::{ColumnarBatch, VectorizedExecutor, VectorizedOp};
+
+let batch = ColumnarBatch::from_rows(&rows);
+let result = VectorizedExecutor::execute(&batch, VectorizedOp::Sum("amount"));
+// 源码：packages/sz-orm-parallel/src/vectorized.rs:212 vectorized_sum
+```
+
+**PHP 类比**：类似 ClickHouse 的向量化执行，把逐行循环改成批量列运算。适合报表聚合，不适合 OLTP 点查。
+
+### 17.2 多区域故障转移（异地多活）
+
+`sz-orm-fusion` 的 `multi-region` feature，提供区域拓扑、全局路由、故障切换协调器。
+
+```rust
+// 启用：sz-orm-fusion = { features = ["multi-region"] }
+use sz_orm_fusion::{RegionFailoverCoordinator, FailoverDecision};
+
+let coordinator = RegionFailoverCoordinator::new(Arc::new(topology));
+let decision: FailoverDecision = coordinator.on_region_failure("region-cn-east")?;
+// 自动选择 failover_priority 最小的备区域，CAS 防脑裂
+// 源码：packages/sz-orm-fusion/src/region_failover.rs:92 on_region_failure
+```
+
+**PHP 类比**：类似 ThinkPHP 多数据库配置 + 故障转移中间件，但在 ORM 层实现，含 RTO 审计日志。
+
+### 17.3 AI 集成（NL2SQL / 索引顾问 / 多模态）
+
+7 个 AI 相关包，覆盖自然语言转 SQL、索引推荐、查询改写、多模态检索。
+
+```rust
+// NL2SQL：自然语言 → SQL
+use sz_orm_ai::nl2sql::{SimpleNl2SqlEngine, Nl2SqlEngine, SchemaContext};
+let engine = SimpleNl2SqlEngine::new();
+let sql = engine.generate("查询所有年龄大于 25 的用户", &schema).await?;
+// 源码：packages/sz-orm-ai/src/nl2sql.rs:262 generate
+
+// 索引顾问（ai-index-advisor feature）
+use sz_orm_ai::index_advisor::IndexAdvisor;
+let recommendations = advisor.analyze(&workload, &table_stats).await?;
+```
+
+**PHP 类比**：类似给 DBA 装了个 AI 助手，用自然语言查数据、自动建索引。feature gate 默认关闭，需手动启用。
+
+### 17.4 生态扩展（多语言绑定 + 工具链）
+
+| 层 | 包 | 说明 |
+|----|------|------|
+| 多语言绑定 | python / js / go / java / cpp / cabi / wasm | 让其他语言调用 sz-orm（类似 PHP-FFI） |
+| IDE 工具链 | studio / lsp / designer | IDE 插件、语言服务器、可视化设计器 |
+| 诊断工具 | explain / flamegraph / advisor / diagnosis | SQL 执行计划、火焰图、智能诊断 |
+| 治理 | governance / audit / masking | 数据血缘、审计日志、敏感字段脱敏 |
+
+**PHP 类比**：多语言绑定类似 PHP 扩展（php-ffi），让 Python/JS/Go 直接调用 Rust ORM；IDE 工具链类似 ThinkPHP 的 think-ide-helper，但提供完整 LSP。
+
+### 17.5 v7.0 五大方向（CHANGELOG 7.0.0 摘要）
+
+| 方向 | feature gate | 说明 |
+|------|-------------|------|
+| 可组合性插件 | `composable-plugin` | PanicSafeRegistry + 中间件链 |
+| TDE 透明加密 | `tde-enhanced` + `tde-interceptor` | 列级加密，KMS 托管 DEK |
+| 多区域多活 | `multi-region` | 区域拓扑 + 全局路由 + 故障转移 |
+| Serverless 适配 | `serverless-adapt` + `serverless-metering` | 冷启动优化 + 按需计费 |
+| 实时流处理 | `stream-processing` | 物化视图 + 窗口分配 + Flink 适配 |
+
+详见 [CHANGELOG.md §7.0.0](../CHANGELOG.md)。
+
+---
+
 ## 附录 A · ThinkPHP ↔ sz-orm 速查表
 
 | ThinkPHP | sz-orm | 文档位置 |
 |----------|--------|----------|
 | `Model::find(1)` | `QueryBuilder::build_select()` + 执行 | [§3](#第-3-章--crud-操作对照-thinkphp-dbmodel) |
-| `Model::where('id', 1)->find()` | `qb.where_cond("id = 1").build_select()` | [§3](#第-3-章--crud-操作对照-thinkphp-dbmodel) |
+| `Model::where('id', 1)->find()` | `qb.where_eq("id", Value::I64(1)).build_select()` | [§3](#第-3-章--crud-操作对照-thinkphp-dbmodel) |
 | `Model::create($data)` | `qb.build_insert(&data)` | [§3](#第-3-章--crud-操作对照-thinkphp-dbmodel) |
 | `Model::update($data)` | `qb.build_update(&data)` | [§3](#第-3-章--crud-操作对照-thinkphp-dbmodel) |
 | `Model::destroy(1)` | `qb.build_delete()` | [§3](#第-3-章--crud-操作对照-thinkphp-dbmodel) |
@@ -1331,7 +1415,7 @@ cargo run -p sz-orm-examples --bin production_dtx
 | 本教程 | 入门学习 | `docs/sz-orm学习路线图.md` |
 | 使用指南 | 端到端用法 | [sz-orm使用指南.md](sz-orm使用指南.md) |
 | API 参考 | API 速查 | [sz-ormAPI参考.md](sz-ormAPI参考.md) |
-| 架构设计 | 39 包架构 | [sz-orm架构设计.md](sz-orm架构设计.md) |
+| 架构设计 | 72 包架构 | [sz-orm架构设计.md](sz-orm架构设计.md) |
 | 工程实践 | 测试金字塔/Soak | [sz-orm-engineering-practices.md](sz-orm-engineering-practices.md) |
 | API 契约 | 公共 API 稳定性约束 | [api-contracts.md](api-contracts.md) |
 | ADR 索引 | 5 条架构决策 | [adr/README.md](adr/README.md) |
@@ -1339,7 +1423,7 @@ cargo run -p sz-orm-examples --bin production_dtx
 | 贡献指南 | 代码规范/PR 流程 | [../CONTRIBUTING.md](../CONTRIBUTING.md) |
 | 变更日志 | 版本变更 | [../CHANGELOG.md](../CHANGELOG.md) |
 | 项目 README | 项目概览 | [../README.md](../README.md) |
-| 示例代码 | 8 个可运行示例 | [../examples/src/bin/](../examples/src/bin/) |
+| 示例代码 | 可运行示例 | [../examples/src/bin/](../examples/src/bin/) |
 
 ---
 

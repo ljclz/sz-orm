@@ -18,6 +18,10 @@ pub struct ZeroCopyStats {
     zero_copy_hits: AtomicU64,
     /// 回退拷贝次数
     fallback_copies: AtomicU64,
+    /// v7.3.0 任务 1.3：峰值 RSS（字节）
+    peak_rss_bytes: AtomicU64,
+    /// v7.3.0 任务 1.3：分配次数
+    allocation_count: AtomicU64,
 }
 
 impl ZeroCopyStats {
@@ -53,6 +57,50 @@ impl ZeroCopyStats {
             self.zero_copy_hits() as f64 / total as f64
         }
     }
+
+    /// v7.3.0 任务 1.3：记录峰值 RSS（取最大值）
+    pub fn record_rss(&self, rss_bytes: u64) {
+        let mut current = self.peak_rss_bytes.load(Ordering::Relaxed);
+        while rss_bytes > current {
+            match self.peak_rss_bytes.compare_exchange_weak(
+                current,
+                rss_bytes,
+                Ordering::Relaxed,
+                Ordering::Relaxed,
+            ) {
+                Ok(_) => break,
+                Err(actual) => current = actual,
+            }
+        }
+    }
+
+    /// v7.3.0 任务 1.3：记录一次分配
+    pub fn record_allocation(&self) {
+        self.allocation_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.3.0 任务 1.3：峰值 RSS（字节）
+    pub fn peak_rss_bytes(&self) -> u64 {
+        self.peak_rss_bytes.load(Ordering::Relaxed)
+    }
+
+    /// v7.3.0 任务 1.3：分配次数
+    pub fn allocation_count(&self) -> u64 {
+        self.allocation_count.load(Ordering::Relaxed)
+    }
+
+    /// v7.3.0 任务 1.3：RSS 降低百分比（对比基准）
+    pub fn rss_reduction_pct(&self, baseline_rss: u64) -> f64 {
+        if baseline_rss == 0 {
+            return 0.0;
+        }
+        let current = self.peak_rss_bytes();
+        if current >= baseline_rss {
+            0.0
+        } else {
+            (baseline_rss - current) as f64 / baseline_rss as f64 * 100.0
+        }
+    }
 }
 
 impl Clone for ZeroCopyStats {
@@ -60,6 +108,8 @@ impl Clone for ZeroCopyStats {
         Self {
             zero_copy_hits: AtomicU64::new(self.zero_copy_hits()),
             fallback_copies: AtomicU64::new(self.fallback_copies()),
+            peak_rss_bytes: AtomicU64::new(self.peak_rss_bytes()),
+            allocation_count: AtomicU64::new(self.allocation_count()),
         }
     }
 }
@@ -268,6 +318,161 @@ impl ZeroCopyPipeline {
 impl Default for ZeroCopyPipeline {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ============================================================================
+// v7.3.0 任务 1.3：零拷贝类型注册表
+// ============================================================================
+
+/// 零拷贝类型标识（v7.3.0）
+///
+/// 标识支持零拷贝序列化的内置类型。
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub enum ZeroCopyTypeId {
+    /// i32
+    I32,
+    /// i64
+    I64,
+    /// f32
+    F32,
+    /// f64
+    F64,
+    /// bool
+    Bool,
+    /// String
+    String,
+    /// Bytes
+    Bytes,
+}
+
+/// 零拷贝类型注册表（v7.3.0）
+///
+/// 注册/查询类型是否支持零拷贝序列化。内置类型默认支持，
+/// 可通过 `register` 扩展（标记自定义类型支持零拷贝）。
+#[derive(Debug, Clone)]
+pub struct ZeroCopyTypeRegistry {
+    supported: std::collections::HashSet<ZeroCopyTypeId>,
+}
+
+impl Default for ZeroCopyTypeRegistry {
+    fn default() -> Self {
+        Self::with_builtins()
+    }
+}
+
+impl ZeroCopyTypeRegistry {
+    /// 创建包含所有内置类型的注册表
+    pub fn with_builtins() -> Self {
+        let mut supported = std::collections::HashSet::new();
+        supported.insert(ZeroCopyTypeId::I32);
+        supported.insert(ZeroCopyTypeId::I64);
+        supported.insert(ZeroCopyTypeId::F32);
+        supported.insert(ZeroCopyTypeId::F64);
+        supported.insert(ZeroCopyTypeId::Bool);
+        supported.insert(ZeroCopyTypeId::String);
+        supported.insert(ZeroCopyTypeId::Bytes);
+        Self { supported }
+    }
+
+    /// 创建空注册表
+    pub fn empty() -> Self {
+        Self {
+            supported: std::collections::HashSet::new(),
+        }
+    }
+
+    /// 注册类型支持零拷贝
+    pub fn register(&mut self, type_id: ZeroCopyTypeId) {
+        self.supported.insert(type_id);
+    }
+
+    /// 查询类型是否支持零拷贝
+    pub fn is_supported(&self, type_id: ZeroCopyTypeId) -> bool {
+        self.supported.contains(&type_id)
+    }
+
+    /// 已注册类型数
+    pub fn len(&self) -> usize {
+        self.supported.len()
+    }
+
+    /// 是否为空
+    pub fn is_empty(&self) -> bool {
+        self.supported.is_empty()
+    }
+}
+
+impl ZeroCopyPipeline {
+    /// v7.3.0 任务 1.3：使用类型注册表尝试零拷贝解析
+    ///
+    /// 对行中每列判断 Value 类型是否在注册表中支持零拷贝。
+    /// 全部列支持时返回 `Some(ZeroCopyRow)` 并记录 `zero_copy_hit`；
+    /// 任一列不支持时返回 `None`，记录 `fallback_copy` + 分配次数，
+    /// 触发回退传统 clone 路径。
+    pub fn try_parse_with_registry(
+        &self,
+        row: &std::collections::HashMap<String, Value>,
+        columns: &[String],
+        registry: &ZeroCopyTypeRegistry,
+    ) -> Option<ZeroCopyRow> {
+        let col_arc: Arc<Vec<String>> = Arc::new(columns.to_vec());
+        let mut buffer = Vec::new();
+        let mut offsets = Vec::with_capacity(columns.len());
+        let mut all_supported = true;
+
+        for col in columns.iter() {
+            let start = buffer.len();
+            if let Some(value) = row.get(col) {
+                let type_id = value_to_type_id(value);
+                if registry.is_supported(type_id) {
+                    match value {
+                        Value::String(s) => buffer.extend_from_slice(s.as_bytes()),
+                        Value::Bytes(b) => buffer.extend_from_slice(b),
+                        _ => {
+                            let formatted = format!("{}", value);
+                            buffer.extend_from_slice(formatted.as_bytes());
+                        }
+                    }
+                    self.stats.record_zero_copy_hit();
+                } else {
+                    all_supported = false;
+                    let formatted = format!("{}", value);
+                    buffer.extend_from_slice(formatted.as_bytes());
+                    self.stats.record_fallback_copy();
+                    self.stats.record_allocation();
+                }
+            } else {
+                self.stats.record_fallback_copy();
+                self.stats.record_allocation();
+            }
+            let len = buffer.len() - start;
+            offsets.push((start, len));
+        }
+
+        if all_supported {
+            Some(ZeroCopyRow {
+                columns: col_arc,
+                data: Bytes::from(buffer),
+                offsets,
+            })
+        } else {
+            None
+        }
+    }
+}
+
+/// 将 Value 映射到 ZeroCopyTypeId
+fn value_to_type_id(value: &Value) -> ZeroCopyTypeId {
+    match value {
+        Value::I32(_) => ZeroCopyTypeId::I32,
+        Value::I64(_) => ZeroCopyTypeId::I64,
+        Value::F32(_) => ZeroCopyTypeId::F32,
+        Value::F64(_) => ZeroCopyTypeId::F64,
+        Value::Bool(_) => ZeroCopyTypeId::Bool,
+        Value::String(_) => ZeroCopyTypeId::String,
+        Value::Bytes(_) => ZeroCopyTypeId::Bytes,
+        _ => ZeroCopyTypeId::String, // 其他类型回退为 String
     }
 }
 

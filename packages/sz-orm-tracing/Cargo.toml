@@ -20,6 +20,8 @@ otlp = [
     "dep:opentelemetry_sdk",
     "dep:tokio",
 ]
+# v7.3.0：OTLP db.* 属性与跨阶段 span 关联
+tracing-db-attrs = ["dep:tracing"]
 
 
 [package.metadata.cargo-machete]
@@ -35,8 +37,24 @@ opentelemetry_sdk = { version = "0.27", optional = true, features = ["rt-tokio"]
 tokio = { workspace = true, optional = true }
 # 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .write().unwrap() panic 风险
 parking_lot.workspace = true
+# v7.3.0：db.* 属性模块告警输出
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
+serde_json = "1.0"
+
+# v7.3.0 任务 2.6：db.* 属性测试
+[[test]]
+name = "db_attrs"
+path = "tests/db_attrs.rs"
+required-features = ["tracing-db-attrs"]
+
+# v7.3.0 任务 2.6：追踪端到端测试（真实 OTel Collector，需 --ignored）
+[[test]]
+name = "tracing_e2e"
+path = "tests/tracing_e2e.rs"
+required-features = ["tracing-db-attrs"]
 
 [lints]
 workspace = true

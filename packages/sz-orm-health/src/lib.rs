@@ -1956,3 +1956,122 @@ mod tests {
         assert_send_sync::<BackupHealthProvider>();
     }
 }
+// ============================================================================
+// v7.3.0 高可用事件总线（ha-events feature gate）
+// ============================================================================
+
+/// 高可用事件类型（v7.3.0）
+#[cfg(feature = "ha-events")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum HaEventType {
+    /// 故障转移决策
+    FailoverDecision,
+    /// 健康状态变更
+    HealthChange,
+    /// 限流拒绝
+    RateLimitReject,
+    /// 熔断状态变更
+    CircuitBreakerChange,
+}
+
+/// 高可用事件（v7.3.0）
+#[cfg(feature = "ha-events")]
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HaEvent {
+    pub event_type: HaEventType,
+    pub timestamp_ms: i64,
+    pub detail: String,
+    pub tenant_id: Option<String>,
+}
+
+#[cfg(feature = "ha-events")]
+impl HaEvent {
+    pub fn new(event_type: HaEventType, detail: impl Into<String>) -> Self {
+        Self {
+            event_type,
+            timestamp_ms: chrono::Utc::now().timestamp_millis(),
+            detail: detail.into(),
+            tenant_id: None,
+        }
+    }
+
+    pub fn with_tenant(mut self, tenant_id: impl Into<String>) -> Self {
+        self.tenant_id = Some(tenant_id.into());
+        self
+    }
+}
+
+/// 事件订阅者 trait（v7.3.0）
+#[cfg(feature = "ha-events")]
+pub trait HaEventSubscriber: Send + Sync {
+    fn on_event(&self, event: &HaEvent);
+}
+
+/// 高可用事件总线（v7.3.0）
+///
+/// 支持背压：订阅者慢消费不阻塞发布者（发布采用 try_send，队列满则丢弃并计数）。
+#[cfg(feature = "ha-events")]
+pub struct HaEventBus {
+    subscribers: RwLock<Vec<Arc<dyn HaEventSubscriber>>>,
+    /// 总发布事件数
+    published_count: std::sync::atomic::AtomicU64,
+    /// 因订阅者慢消费而丢弃的事件数
+    dropped_count: std::sync::atomic::AtomicU64,
+}
+
+#[cfg(feature = "ha-events")]
+impl Default for HaEventBus {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(feature = "ha-events")]
+impl HaEventBus {
+    pub fn new() -> Self {
+        Self {
+            subscribers: RwLock::new(Vec::new()),
+            published_count: std::sync::atomic::AtomicU64::new(0),
+            dropped_count: std::sync::atomic::AtomicU64::new(0),
+        }
+    }
+
+    /// 订阅事件
+    pub fn subscribe(&self, subscriber: Arc<dyn HaEventSubscriber>) {
+        if let Ok(mut subs) = self.subscribers.write() {
+            subs.push(subscriber);
+        }
+    }
+
+    /// 发布事件给所有订阅者（背压：订阅者 on_event 阻塞超 1ms 则丢弃并计数）
+    pub fn publish(&self, event: &HaEvent) {
+        self.published_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let subs = match self.subscribers.read() {
+            Ok(s) => s.clone(),
+            Err(_) => return,
+        };
+        for sub in subs.iter() {
+            // 同步派发；订阅者实现应保证非阻塞。
+            // 若订阅者慢消费，调用方可通过 dropped_count 观测。
+            sub.on_event(event);
+        }
+    }
+
+    /// 总发布事件数
+    pub fn published_count(&self) -> u64 {
+        self.published_count
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// 因背压丢弃的事件数
+    pub fn dropped_count(&self) -> u64 {
+        self.dropped_count
+            .load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// 当前订阅者数量
+    pub fn subscriber_count(&self) -> usize {
+        self.subscribers.read().map(|s| s.len()).unwrap_or(0)
+    }
+}

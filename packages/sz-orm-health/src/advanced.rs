@@ -1204,3 +1204,168 @@ mod tests {
         assert_send_sync::<ProbeManager>();
     }
 }
+// ============================================================================
+// v7.3.0 5 子项健康检查与聚合报告（health-subitems feature gate）
+// ============================================================================
+
+#[cfg(feature = "health-subitems")]
+mod subitems {
+    use crate::{HaEvent, HaEventBus, HaEventType, HealthStatus};
+    use std::collections::HashMap;
+    use std::sync::Arc;
+
+    /// 健康检查子项维度（v7.3.0）
+    #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, serde::Serialize, serde::Deserialize)]
+    pub enum HealthSubItem {
+        /// 连接池连接数
+        Connection,
+        /// 连接池饱和度
+        PoolSaturation,
+        /// 主备复制状态
+        PrimaryReplica,
+        /// 缓存命中率
+        CacheHitRate,
+        /// 限流熔断状态
+        RateLimitCircuit,
+    }
+
+    /// 5 子项健康聚合报告（v7.3.0）
+    #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+    pub struct HealthReportV2 {
+        /// 整体状态（由子项汇总）
+        pub overall: HealthStatus,
+        /// 各子项状态
+        pub sub_items: HashMap<HealthSubItem, HealthStatus>,
+        /// 各子项详情
+        pub details: HashMap<HealthSubItem, String>,
+    }
+
+    impl HealthReportV2 {
+        /// 创建空报告
+        pub fn new() -> Self {
+            Self {
+                overall: HealthStatus::Unknown,
+                sub_items: HashMap::new(),
+                details: HashMap::new(),
+            }
+        }
+
+        /// 设置子项状态
+        pub fn set_sub_item(&mut self, item: HealthSubItem, status: HealthStatus, detail: impl Into<String>) {
+            self.sub_items.insert(item, status);
+            self.details.insert(item, detail.into());
+            self.recompute_overall();
+        }
+
+        /// 汇总整体状态
+        ///
+        /// - 任一子项 Unhealthy → overall = Unhealthy
+        /// - 任一子项 Unknown（且无 Unhealthy）→ overall = Unknown
+        /// - 全部 Healthy → overall = Healthy
+        fn recompute_overall(&mut self) {
+            let mut any_unknown = false;
+            for status in self.sub_items.values() {
+                match status {
+                    HealthStatus::Unhealthy => {
+                        self.overall = HealthStatus::Unhealthy;
+                        return;
+                    }
+                    HealthStatus::Unknown => any_unknown = true,
+                    HealthStatus::Healthy => {}
+                }
+            }
+            self.overall = if any_unknown || self.sub_items.is_empty() {
+                HealthStatus::Unknown
+            } else {
+                HealthStatus::Healthy
+            };
+        }
+
+        /// 子项数量
+        pub fn sub_item_count(&self) -> usize {
+            self.sub_items.len()
+        }
+
+        /// 获取子项状态
+        pub fn sub_item_status(&self, item: HealthSubItem) -> Option<HealthStatus> {
+            self.sub_items.get(&item).cloned()
+        }
+    }
+
+    impl Default for HealthReportV2 {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+
+    /// 5 子项健康检查器（v7.3.0）
+    ///
+    /// 独立判定 5 个子项状态并汇总为整体状态。
+    /// 子项变更时通过 `HaEventBus` 发布 `HealthChange` 事件给订阅者。
+    pub struct HealthSubItemChecker {
+        event_bus: Option<Arc<HaEventBus>>,
+        last_report: std::sync::RwLock<HealthReportV2>,
+    }
+
+    impl HealthSubItemChecker {
+        /// 创建检查器（无事件总线）
+        pub fn new() -> Self {
+            Self {
+                event_bus: None,
+                last_report: std::sync::RwLock::new(HealthReportV2::new()),
+            }
+        }
+
+        /// 创建检查器（带事件总线）
+        pub fn with_event_bus(event_bus: Arc<HaEventBus>) -> Self {
+            Self {
+                event_bus: Some(event_bus),
+                last_report: std::sync::RwLock::new(HealthReportV2::new()),
+            }
+        }
+
+        /// 检查并更新子项状态
+        ///
+        /// 若子项状态发生变更，发布 `HealthChange` 事件。
+        pub fn check_and_update(
+            &self,
+            item: HealthSubItem,
+            status: HealthStatus,
+            detail: impl Into<String>,
+        ) {
+            let detail_str = detail.into();
+            let event = HaEvent::new(
+                HaEventType::HealthChange,
+                format!("{item:?}: {status:?} - {detail_str}"),
+            );
+            if let Some(bus) = &self.event_bus {
+                bus.publish(&event);
+            }
+            if let Ok(mut report) = self.last_report.write() {
+                report.set_sub_item(item, status, detail_str);
+            }
+        }
+
+        /// 当前报告快照
+        pub fn report(&self) -> HealthReportV2 {
+            self.last_report
+                .read()
+                .map(|r| r.clone())
+                .unwrap_or_default()
+        }
+
+        /// 整体状态
+        pub fn overall(&self) -> HealthStatus {
+            self.report().overall
+        }
+    }
+
+    impl Default for HealthSubItemChecker {
+        fn default() -> Self {
+            Self::new()
+        }
+    }
+}
+
+#[cfg(feature = "health-subitems")]
+pub use subitems::{HealthReportV2, HealthSubItem, HealthSubItemChecker};

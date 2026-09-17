@@ -14,12 +14,16 @@ description = "SZ-ORM AI Migration Generator - LLM-driven migration script gener
 default = []
 # v5.1.0：AI 迁移生成（LLM 生成 up/down 迁移脚本）
 ai-migration-gen = []
+# v7.3.0 任务 4.3：源 ORM 解析与迁移报告生成（复用 sz-orm-core 的 SourceOrm 枚举）
+eco-config = ["dep:sz-orm-core"]
 
 [dependencies]
 async-trait = "0.1"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 thiserror = "2.0"
+# v7.3.0 任务 4.3：eco-config feature gate 下复用 sz-orm-core 的 SourceOrm 枚举
+sz-orm-core = { version = "7.1.0", path = "../sz-orm-core", features = ["eco-config"], optional = true }
 
 [dev-dependencies]
 tokio = { version = "1.40", features = ["full"] }
@@ -28,6 +32,11 @@ tokio = { version = "1.40", features = ["full"] }
 name = "ai_migration_test"
 path = "tests/ai_migration_test.rs"
 required-features = ["ai-migration-gen"]
+
+# v7.3.0 任务 4.3：源 ORM 解析测试
+[[test]]
+name = "source_orm_parse"
+path = "tests/source_orm_parse.rs"
 
 [lints]
 workspace = true

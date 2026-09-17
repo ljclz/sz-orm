@@ -373,6 +373,197 @@ impl ColdStartOptimizer {
     }
 }
 
+// ============================================================================
+// v7.3.0 任务 1.4：异步并行连接池预热
+// ============================================================================
+
+/// 预热策略（v7.3.0）
+#[derive(Debug, Clone)]
+pub enum PrewarmStrategy {
+    /// 串行预建（一次一个）
+    Serial,
+    /// 并行预建，参数为并行度
+    Parallel(usize),
+    /// 渐进式分批预建
+    Progressive(ProgressiveConfig),
+}
+
+impl Default for PrewarmStrategy {
+    fn default() -> Self {
+        Self::Parallel(4)
+    }
+}
+
+/// 预热失败记录（v7.3.0）
+#[derive(Debug, Clone)]
+pub struct PrewarmFailure {
+    /// 失败原因
+    pub reason: String,
+    /// 时间戳
+    pub timestamp: Instant,
+}
+
+/// 预热结果（v7.3.0）
+#[derive(Debug, Clone)]
+pub struct PrewarmResult {
+    /// 成功预建数
+    pub success_count: u32,
+    /// 失败数
+    pub failure_count: u32,
+    /// 失败详情
+    pub failures: Vec<PrewarmFailure>,
+}
+
+impl PrewarmResult {
+    /// 创建空结果
+    pub fn new() -> Self {
+        Self {
+            success_count: 0,
+            failure_count: 0,
+            failures: Vec::new(),
+        }
+    }
+
+    /// 是否全部成功
+    pub fn all_succeeded(&self) -> bool {
+        self.failure_count == 0
+    }
+
+    /// 总数
+    pub fn total(&self) -> u32 {
+        self.success_count + self.failure_count
+    }
+}
+
+impl Default for PrewarmResult {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 异步并行连接池预热（v7.3.0）
+///
+/// 使用 `tokio::task::JoinSet` 并行预建 `count` 个连接。
+/// 先并行 acquire 所有连接（确保每次都创建新连接），再统一 release。
+/// 失败不阻塞启动，失败数与原因记入 `PrewarmResult.failures`。
+///
+/// # 生产调用点
+///
+/// `packages/sz-orm-core/src/prewarm.rs` `prewarm_parallel` 函数。
+pub async fn prewarm_parallel(
+    pool: &crate::pool::Pool,
+    count: usize,
+    strategy: PrewarmStrategy,
+) -> PrewarmResult {
+    let mut result = PrewarmResult::new();
+
+    match strategy {
+        PrewarmStrategy::Serial => {
+            let mut conns = Vec::with_capacity(count);
+            for _ in 0..count {
+                match pool.acquire().await {
+                    Ok(conn) => conns.push(conn),
+                    Err(e) => {
+                        result.failure_count += 1;
+                        result.failures.push(PrewarmFailure {
+                            reason: format!("{}", e),
+                            timestamp: Instant::now(),
+                        });
+                    }
+                }
+            }
+            result.success_count = conns.len() as u32;
+            for conn in conns {
+                pool.release(conn).await;
+            }
+        }
+        PrewarmStrategy::Parallel(parallelism) => {
+            let parallelism = parallelism.max(1);
+            let mut join_set = tokio::task::JoinSet::new();
+            let mut acquired = Vec::with_capacity(count);
+
+            for _ in 0..count {
+                let pool_clone = pool.clone();
+                join_set.spawn(async move { pool_clone.acquire().await });
+                if join_set.len() >= parallelism {
+                    if let Some(res) = join_set.join_next().await {
+                        PrewarmResult::collect_acquire_result(res, &mut acquired, &mut result);
+                    }
+                }
+            }
+            while let Some(res) = join_set.join_next().await {
+                PrewarmResult::collect_acquire_result(res, &mut acquired, &mut result);
+            }
+            for conn in acquired {
+                pool.release(conn).await;
+            }
+        }
+        PrewarmStrategy::Progressive(config) => {
+            let batch_size = config.batch_size as usize;
+            let batch_size = batch_size.max(1);
+            let mut remaining = count;
+            let deadline = Instant::now() + config.total_timeout;
+            let mut all_acquired = Vec::with_capacity(count);
+
+            while remaining > 0 && Instant::now() < deadline {
+                let this_batch = remaining.min(batch_size);
+                let mut join_set = tokio::task::JoinSet::new();
+
+                for _ in 0..this_batch {
+                    let pool_clone = pool.clone();
+                    join_set.spawn(async move { pool_clone.acquire().await });
+                }
+
+                let mut batch_acquired = Vec::with_capacity(this_batch);
+                while let Some(res) = join_set.join_next().await {
+                    PrewarmResult::collect_acquire_result(res, &mut batch_acquired, &mut result);
+                }
+                all_acquired.extend(batch_acquired);
+
+                remaining -= this_batch;
+                if remaining > 0 {
+                    tokio::time::sleep(config.interval).await;
+                }
+            }
+            for conn in all_acquired {
+                pool.release(conn).await;
+            }
+        }
+    }
+
+    result
+}
+
+impl PrewarmResult {
+    /// 从 JoinSet 结果收集 acquire 结果
+    fn collect_acquire_result(
+        res: Result<Result<crate::pool::PooledConnection, crate::PoolError>, tokio::task::JoinError>,
+        acquired: &mut Vec<crate::pool::PooledConnection>,
+        result: &mut PrewarmResult,
+    ) {
+        match res {
+            Ok(Ok(conn)) => {
+                acquired.push(conn);
+                result.success_count += 1;
+            }
+            Ok(Err(e)) => {
+                result.failure_count += 1;
+                result.failures.push(PrewarmFailure {
+                    reason: format!("{}", e),
+                    timestamp: Instant::now(),
+                });
+            }
+            Err(e) => {
+                result.failure_count += 1;
+                result.failures.push(PrewarmFailure {
+                    reason: format!("join error: {}", e),
+                    timestamp: Instant::now(),
+                });
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

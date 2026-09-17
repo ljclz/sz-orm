@@ -13,6 +13,11 @@ description = "axum framework integration for sz-orm"
 
 [package.metadata.cargo-machete]
 ignored = ['futures', 'tokio', 'tower']
+[features]
+default = []
+# v7.3.0 任务 4.2：warp 中间件适配层（泛型 trait，不新增 warp 依赖）
+warp-adapt = ["sz-orm-core/eco-config"]
+
 [dependencies]
 sz-orm-core = { version = "7.1.0", path = "../sz-orm-core" }
 axum = "0.7"
@@ -25,6 +30,12 @@ futures = "0.3"
 [lib]
 name = "sz_orm_axum"
 path = "src/lib.rs"
+
+# v7.3.0 任务 4.2：warp 中间件适配层测试
+[[test]]
+name = "warp_adapt"
+path = "tests/warp_adapt.rs"
+required-features = ["warp-adapt"]
 
 [lints]
 workspace = true

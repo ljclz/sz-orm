@@ -32,6 +32,8 @@ ai-schema-extract = ["dep:sz-orm-core"]
 ai-security-audit = ["multi-llm"]
 # v5.1.0 P2：语义查询路由（SQL/向量/图谱/Agent/混合）
 ai-native-query = ["ai-nl2sql-enhanced", "multi-llm", "dep:sz-orm-graph"]
+# v7.3.0 任务 3.1：AI 配置聚合与决策结果聚合
+ai-config = []
 
 
 [package.metadata.cargo-machete]
@@ -158,6 +160,35 @@ required-features = ["ai-nl2sql-enhanced"]
 [[test]]
 name = "rag_wiring"
 path = "tests/rag_wiring.rs"
+
+# v7.3.0 任务 3.1：AI 配置聚合测试
+[[test]]
+name = "ai_config"
+path = "tests/ai_config.rs"
+required-features = ["ai-config"]
+
+# v7.3.0 任务 3.2：扩展改写规则集测试
+[[test]]
+name = "rewrite_extended"
+path = "tests/rewrite_extended.rs"
+required-features = ["ai-rewrite-advisor"]
+
+[[test]]
+name = "rewrite_e2e"
+path = "tests/rewrite_e2e.rs"
+required-features = ["ai-rewrite-advisor"]
+
+# v7.3.0 任务 3.3：索引推荐负载建模测试
+[[test]]
+name = "index_advisor_workload"
+path = "tests/index_advisor_workload.rs"
+required-features = ["ai-index-advisor"]
+
+# v7.3.0 任务 3.4：NL2SQL 多轮对话测试
+[[test]]
+name = "nl2sql_multi_turn"
+path = "tests/nl2sql_multi_turn.rs"
+required-features = ["ai-nl2sql-enhanced"]
 
 [lints]
 workspace = true

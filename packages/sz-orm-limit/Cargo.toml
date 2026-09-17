@@ -14,6 +14,8 @@ categories.workspace = true
 default = []
 # v3.8.0：限流阈值生产调优
 prod-rate-limit-tuning = ["dep:thiserror"]
+# v7.3.0：限流排队超时与公平/加权/优先级策略
+limit-queue-timeout = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -21,6 +23,19 @@ serde_json = "1.0"
 thiserror = { workspace = true, optional = true }
 
 [dev-dependencies]
+tokio = { workspace = true }
+
+# v7.3.0 任务 2.4：限流排队超时测试
+[[test]]
+name = "queue_timeout_limiter"
+path = "tests/queue_timeout_limiter.rs"
+required-features = ["limit-queue-timeout"]
+
+# v7.3.0 任务 2.4：限流端到端测试（真实场景，需 --ignored）
+[[test]]
+name = "limit_e2e"
+path = "tests/limit_e2e.rs"
+required-features = ["limit-queue-timeout"]
 
 [lints]
 workspace = true

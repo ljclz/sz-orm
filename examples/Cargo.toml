@@ -10,7 +10,7 @@ publish = false
 [dependencies]
 # v4.7.0 接线生产入口：启用配额/RLS/预热 feature，形成真实生产路径
 #（门禁 15 PHANTOM-2 检查：feature 有启用点即不再视为"默认不编译"）
-sz-orm-core = { path = "../packages/sz-orm-core", features = ["tenant-quota-rls-enhanced", "l1-cache"] }
+sz-orm-core = { path = "../packages/sz-orm-core", features = ["tenant-quota-rls-enhanced", "l1-cache", "perf-accel"] }
 sz-orm-crypto = { path = "../packages/sz-orm-crypto" }
 sz-orm-auth = { path = "../packages/sz-orm-auth" }
 sz-orm-limit = { path = "../packages/sz-orm-limit" }
@@ -28,6 +28,15 @@ sz-orm-observability = { path = "../packages/sz-orm-observability" }
 sz-orm-graph = { path = "../packages/sz-orm-graph" }
 sz-orm-advisor = { path = "../packages/sz-orm-advisor" }
 sz-orm-explain = { path = "../packages/sz-orm-explain" }
+# v7.3.0 任务 4.5：生态扩展端到端接线（axum warp-adapt + ai-migration 源 ORM 解析）
+sz-orm-axum = { path = "../packages/sz-orm-axum", features = ["warp-adapt"] }
+sz-orm-ai-migration = { path = "../packages/sz-orm-ai-migration" }
+# v7.3.0 任务 3.6：AI 深度集成端到端演示（启用 ai-config + 改写 + 索引推荐 + NL2SQL + ANN）
+sz-orm-ai = { path = "../packages/sz-orm-ai", features = ["ai-config", "ai-rewrite-advisor", "ai-index-advisor"] }
+sz-orm-vector = { path = "../packages/sz-orm-vector", features = ["ann-accel"] }
+# v7.3.0 任务 2.7：高可用端到端接线（启用 auto-failover/ha-events/health-subitems/limit-queue-timeout/tracing-db-attrs）
+sz-orm-health = { path = "../packages/sz-orm-health", features = ["ha-events", "health-subitems"] }
+sz-orm-tracing = { path = "../packages/sz-orm-tracing", features = ["tracing-db-attrs"] }
 tokio = { workspace = true, features = ["full"] }
 serde_json = { workspace = true }
 async-trait = { workspace = true }
@@ -165,6 +174,23 @@ name = "olap_vectorized_demo"
 path = "src/bin/olap_vectorized_demo.rs"
 required-features = ["olap-vectorized"]
 
+# v7.3.0 任务 2.7：高可用故障转移演示示例
+[[bin]]
+name = "ha_failover_demo"
+path = "src/bin/ha_failover_demo.rs"
+required-features = ["ha-failover"]
+
+# v7.3.0 任务 4.5：生态扩展端到端演示示例
+[[bin]]
+name = "eco_extension_demo"
+path = "src/bin/eco_extension_demo.rs"
+required-features = ["eco-extension"]
+
+# v7.3.0 任务 3.6：AI 深度集成端到端演示示例
+[[bin]]
+name = "ai_integration_demo"
+path = "src/bin/ai_integration_demo.rs"
+
 [features]
 default = []
 # 启用 query! 宏的编译期连真 DB 验证能力
@@ -195,6 +221,14 @@ rbac-abac-enhanced = ["sz-orm-auth/rbac-abac-enhanced", "sz-orm-core/rbac-abac-e
 query-auto-tuning = ["sz-orm-advisor/query-auto-tuning"]
 # v7.1.0：OLAP 向量化分析查询示例
 olap-vectorized = ["sz-orm-core/olap-vectorized", "sz-orm-parallel/olap-vectorized"]
+# v7.3.0：高可用故障转移示例
+ha-failover = ["sz-orm-core/auto-failover", "sz-orm-limit/limit-queue-timeout"]
+# v7.3.0 任务 4.5：生态扩展示例（EcoConfig + warp 适配 + 源 ORM 迁移 + schema diff）
+eco-extension = [
+    "sz-orm-core/eco-config",
+    "sz-orm-core/schema-diff-viz",
+    "sz-orm-axum/warp-adapt",
+]
 
 [lints]
 workspace = true

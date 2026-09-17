@@ -11,6 +11,8 @@ mod cors;
 mod pagination;
 mod response;
 mod validation;
+#[cfg(feature = "warp-adapt")]
+pub mod warp;
 
 pub use auth::{AuthConfig, AuthResult, RoleChecker, TokenValidator};
 pub use cors::{CorsConfig, CorsOrigin};

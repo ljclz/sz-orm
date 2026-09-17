@@ -679,6 +679,156 @@ impl Default for PlanCache {
     }
 }
 
+// ============================================================================
+// v7.3.0 任务 1.5：参数类型指纹 + PlanCacheConfig + eviction_count
+// ============================================================================
+
+/// 查询计划缓存配置（v7.3.0）
+#[derive(Debug, Clone)]
+pub struct PlanCacheConfig {
+    /// 最大缓存条目数
+    pub capacity: usize,
+    /// TTL（默认 5 分钟）
+    pub ttl: Duration,
+    /// 指纹是否纳入参数类型
+    pub include_param_types: bool,
+}
+
+impl Default for PlanCacheConfig {
+    fn default() -> Self {
+        Self {
+            capacity: 256,
+            ttl: Duration::from_secs(300),
+            include_param_types: true,
+        }
+    }
+}
+
+impl PlanCacheConfig {
+    /// 创建默认配置
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 设置容量
+    pub fn with_capacity(mut self, capacity: usize) -> Self {
+        self.capacity = capacity;
+        self
+    }
+
+    /// 设置 TTL
+    pub fn with_ttl(mut self, ttl: Duration) -> Self {
+        self.ttl = ttl;
+        self
+    }
+
+    /// 设置是否纳入参数类型
+    pub fn with_param_types(mut self, include: bool) -> Self {
+        self.include_param_types = include;
+        self
+    }
+}
+
+/// 生成包含参数类型的查询指纹（v7.3.0）
+///
+/// 使用 xxHash64 对 SQL + 参数类型生成指纹。
+/// 相同 SQL 不同参数类型生成不同指纹，避免计划缓存错误命中。
+///
+/// # 生产调用点
+///
+/// `packages/sz-orm-core/src/plan_cache.rs` `fingerprint_with_types` 函数。
+pub fn fingerprint_with_types(sql: &str, param_types: &[crate::DbType]) -> u64 {
+    let mut hasher = XxHash64::with_seed(0);
+    hasher.write(sql.as_bytes());
+    for pt in param_types {
+        hasher.write(&[*pt as u8]);
+    }
+    hasher.finish()
+}
+
+impl PlanCache {
+    /// v7.3.0 任务 1.5：淘汰数原子计数器
+    pub fn eviction_count(&self) -> u64 {
+        self.stats.evictions.load(Ordering::Relaxed)
+    }
+
+    /// v7.3.0 任务 1.5：从 PlanCacheConfig 创建缓存
+    pub fn with_config(config: &PlanCacheConfig) -> Self {
+        Self::new(config.capacity, Some(config.ttl))
+    }
+
+    /// v7.3.0 任务 1.5：带参数类型指纹的 get_or_parse
+    ///
+    /// 相同 SQL 不同参数类型生成不同指纹，避免错误命中。
+    pub fn get_or_parse_with_types(
+        &self,
+        sql: &str,
+        param_types: &[crate::DbType],
+    ) -> Result<Arc<Statement>, String> {
+        let type_fingerprint = fingerprint_with_types(sql, param_types);
+
+
+        let hit = {
+            let cache = self.parse_cache.read();
+            match cache.get(&type_fingerprint) {
+                Some(entry) if !entry.is_expired() => entry.ast.clone(),
+                _ => None,
+            }
+        };
+        if let Some(ast) = hit {
+            self.stats.parse_hits.fetch_add(1, Ordering::Relaxed);
+            self.access_order.write().touch(type_fingerprint);
+            return Ok(ast);
+        }
+
+        self.stats.parse_misses.fetch_add(1, Ordering::Relaxed);
+
+        let dialect = GenericDialect {};
+        let statements = Parser::parse_sql(&dialect, sql).map_err(|e| e.to_string())?;
+        if statements.is_empty() {
+            return Err("empty SQL".to_string());
+        }
+        let ast = Arc::new(statements.into_iter().next().unwrap());
+        let tables = SqlNormalizer::extract_tables(sql);
+
+        {
+            let mut access_order = self.access_order.write();
+            let mut optimize_cache = self.optimize_cache.write();
+            let mut cache = self.parse_cache.write();
+            let mut table_index = self.table_index.write();
+
+            if cache.len() >= self.max_size {
+                if let Some(lru_hash) = access_order.lru_key() {
+                    access_order.remove(lru_hash);
+                    cache.remove(&lru_hash);
+                    optimize_cache.remove(&lru_hash);
+                    Self::remove_from_table_index(&mut table_index, lru_hash);
+                    self.stats.evictions.fetch_add(1, Ordering::Relaxed);
+                }
+            }
+
+            let entry = PlanCacheEntry {
+                ast: Some(ast.clone()),
+                analysis: None,
+                created_at: Instant::now(),
+                tables: tables.clone(),
+                ttl: self.default_ttl,
+            };
+            cache.insert(type_fingerprint, entry);
+            access_order.touch(type_fingerprint);
+
+            for table in &tables {
+                table_index
+                    .entry(table.clone())
+                    .or_default()
+                    .push(type_fingerprint);
+            }
+        }
+
+        Ok(ast)
+    }
+}
+
 // ─── 单元测试 ─────────────────────────────────────────────────────
 
 #[cfg(test)]

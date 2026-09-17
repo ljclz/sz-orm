@@ -317,6 +317,183 @@ impl IndexAdvisor {
     }
 }
 
+// v7.3.0 任务 3.3：扩展智能索引推荐负载建模与收益预估
+
+use std::collections::HashMap;
+
+/// 表统计信息
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct TableStats {
+    /// 行数
+    pub row_count: u64,
+    /// 已有索引列（列名列表）
+    pub existing_indexes: Vec<String>,
+}
+
+/// 负载模型（查询模式 + 表统计）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkloadModel {
+    /// 查询模式列表
+    pub patterns: Vec<QueryPattern>,
+    /// 表统计信息（表名 -> TableStats）
+    pub table_stats: HashMap<String, TableStats>,
+}
+
+/// 索引推荐结果（含收益预估）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct IndexRecommendation {
+    /// 索引建议
+    pub suggestion: IndexSuggestion,
+    /// 预估扫描行数降低比例（0.0 ~ 1.0，1.0 表示全表扫描变单行定位）
+    pub estimated_scan_reduction: f64,
+    /// 预估延迟降低比例（可负，负值表示索引维护开销 > 查询收益）
+    pub estimated_latency_reduction: f64,
+    /// 推荐理由（含负收益标注）
+    pub reason: String,
+}
+
+impl IndexAdvisor {
+    /// 基于负载建模的索引推荐
+    ///
+    /// 分析查询模式 + 表统计，预估每个候选索引的扫描降低比例和延迟降低比例。
+    /// 按 `estimated_latency_reduction` 降序排序，负收益在 `reason` 中标注。
+    ///
+    /// # 收益预估模型
+    /// - `scan_reduction = 1.0 - (1.0 / row_count)`（索引将全表扫描降为单行定位）
+    /// - `latency_reduction = scan_reduction * frequency_weight - maintenance_overhead`
+    /// - `maintenance_overhead = 0.1`（每次写入索引维护开销系数）
+    /// - 行数 < 100 时 `latency_reduction` 可能为负（索引维护开销 > 查询收益）
+    pub async fn recommend(
+        &self,
+        workload: &WorkloadModel,
+    ) -> Result<Vec<IndexRecommendation>, IndexError> {
+        if workload.patterns.is_empty() {
+            return Err(IndexError::NoQueryPatterns);
+        }
+
+        let dialect = GenericDialect {};
+        let mut recommendations = Vec::new();
+
+        for pattern in &workload.patterns {
+            let parsed = Parser::parse_sql(&dialect, &pattern.sql_template);
+            if parsed.is_err() {
+                continue;
+            }
+            let statements = parsed.unwrap();
+
+            for stmt in &statements {
+                if let Some((table, filter_cols, join_cols, _order_cols)) =
+                    Self::extract_query_info(stmt)
+                {
+                    let mut candidate_cols = Vec::new();
+                    candidate_cols.extend(filter_cols);
+                    candidate_cols.extend(join_cols);
+
+                    if candidate_cols.is_empty() {
+                        continue;
+                    }
+
+                    candidate_cols.sort();
+                    candidate_cols.dedup();
+
+                    // 检查列上是否已有索引
+                    let table_stats = workload.table_stats.get(&table);
+                    let existing_indexes = table_stats
+                        .map(|s| s.existing_indexes.as_slice())
+                        .unwrap_or(&[]);
+
+                    let already_indexed = candidate_cols
+                        .iter()
+                        .all(|c| existing_indexes.contains(c));
+                    if already_indexed {
+                        continue;
+                    }
+
+                    let row_count = table_stats.map(|s| s.row_count).unwrap_or(1000);
+                    let total_frequency: u64 =
+                        workload.patterns.iter().map(|p| p.frequency).sum();
+                    let frequency_weight = if total_frequency > 0 {
+                        pattern.frequency as f64 / total_frequency as f64
+                    } else {
+                        0.0
+                    };
+
+                    // 收益预估
+                    let scan_reduction = if row_count > 0 {
+                        1.0 - (1.0 / row_count as f64)
+                    } else {
+                        0.0
+                    };
+                    // 维护开销：行数越少开销越大（小表索引维护成本高于查询收益）
+                    let maintenance_overhead = 0.5 / (row_count as f64).sqrt().max(1.0);
+                    let query_benefit = scan_reduction * frequency_weight;
+                    let latency_reduction = query_benefit - maintenance_overhead;
+
+                    let index_type = IndexType::BTree;
+                    let col_list = candidate_cols.join(", ");
+                    let idx_name = format!("idx_{}_{}", table, candidate_cols.join("_"));
+                    let ddl_text = format!(
+                        "CREATE {} INDEX {} ON {} ({})",
+                        index_type.ddl_keyword(),
+                        idx_name,
+                        table,
+                        col_list
+                    );
+
+                    let confidence = if self.llm_enabled { 0.85 } else { 0.7 };
+                    let benefit = if latency_reduction > 0.0 {
+                        BenefitEstimate::certain(1.0 + latency_reduction, confidence)
+                    } else {
+                        BenefitEstimate::uncertain(1.0 + latency_reduction, confidence)
+                    };
+
+                    let reason = if latency_reduction < 0.0 {
+                        format!(
+                            "负收益：表 {} 行数 {} 过少，索引维护开销（{:.4}）> 查询收益（{:.4}），不建议创建",
+                            table,
+                            row_count,
+                            maintenance_overhead,
+                            query_benefit
+                        )
+                    } else {
+                        format!(
+                            "正收益：表 {} 行数 {}，预估扫描降低 {:.1}%，延迟降低 {:.1}%",
+                            table,
+                            row_count,
+                            scan_reduction * 100.0,
+                            latency_reduction * 100.0
+                        )
+                    };
+
+                    let suggestion = IndexSuggestion {
+                        index_columns: candidate_cols.clone(),
+                        index_type: index_type.clone(),
+                        ddl_text,
+                        expected_benefit: benefit,
+                        evidence: vec![pattern.clone()],
+                    };
+
+                    recommendations.push(IndexRecommendation {
+                        suggestion,
+                        estimated_scan_reduction: scan_reduction,
+                        estimated_latency_reduction: latency_reduction,
+                        reason,
+                    });
+                }
+            }
+        }
+
+        // 按延迟降低比例降序排序
+        recommendations.sort_by(|a, b| {
+            b.estimated_latency_reduction
+                .partial_cmp(&a.estimated_latency_reduction)
+                .unwrap_or(std::cmp::Ordering::Equal)
+        });
+
+        Ok(recommendations)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

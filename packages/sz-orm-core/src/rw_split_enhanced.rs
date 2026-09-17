@@ -403,3 +403,307 @@ mod tests {
         assert!(result.degraded, "高延迟应降级到主库");
     }
 }
+// ============================================================================
+// v7.3.0 自动主备故障转移协调器（auto-failover feature gate）
+// ============================================================================
+
+#[cfg(feature = "auto-failover")]
+mod failover {
+    use super::*;
+    use crate::{FailbackStrategy, FailoverConfig};
+    use std::sync::atomic::{AtomicBool, AtomicU32, AtomicU64, Ordering};
+    use std::time::Instant;
+
+    /// 故障转移错误
+    #[derive(Debug, Clone, PartialEq, Eq, thiserror::Error)]
+    pub enum FailoverError {
+        /// 故障转移正在进行中（并发防护）
+        #[error("failover already in progress")]
+        AlreadyInProgress,
+        /// 位点校验失败（备库落后主库，可能丢失事务）
+        #[error("replica LSN {replica_lsn} behind primary {primary_lsn}, potential data loss")]
+        ReplicaBehind {
+            replica_lsn: u64,
+            primary_lsn: u64,
+        },
+        /// 回切条件不满足
+        #[error("failback conditions not met: {0}")]
+        FailbackConditionsNotMet(String),
+        /// 探活失败
+        #[error("probe failed: {0}")]
+        ProbeFailed(String),
+    }
+
+    /// 故障转移决策
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct FailoverDecision {
+        /// 决策时间戳（毫秒）
+        pub timestamp_ms: i64,
+        /// 触发原因
+        pub reason: String,
+        /// 是否执行了切换
+        pub switched: bool,
+        /// 位点校验结果（None 表示未校验，Some 表示校验结果）
+        pub lsn_check: Option<LsnCheckResult>,
+    }
+
+    /// 位点校验结果
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct LsnCheckResult {
+        /// 主库故障时 LSN
+        pub primary_lsn: u64,
+        /// 备库当前 LSN
+        pub replica_lsn: u64,
+        /// 是否落后（true 表示可能丢失事务）
+        pub behind: bool,
+        /// 可能丢失的事务数（behind=true 时有意义）
+        pub potential_lost_txns: u64,
+    }
+
+    /// 探活结果
+    #[derive(Debug, Clone, Serialize, Deserialize)]
+    pub struct ProbeResult {
+        /// 是否成功
+        pub success: bool,
+        /// 探活时间戳（毫秒）
+        pub timestamp_ms: i64,
+        /// 失败原因（success=false 时有意义）
+        pub error: Option<String>,
+    }
+
+    /// 自动故障转移协调器（v7.3.0）
+    ///
+    /// 持有主备拓扑 + 探活循环 + 位点校验 + 回切策略 + 决策历史。
+    /// 复用 `failover_in_progress` AtomicBool CAS 进行并发防护。
+    /// RTO ≤ 5s（由 `FailoverConfig.probe_interval ≤ 5s` 保证）。
+    pub struct AutoFailoverCoordinator {
+        config: FailoverConfig,
+        /// 并发防护：CAS 保证同一时刻只有一个故障转移在进行
+        failover_in_progress: AtomicBool,
+        /// 当前是否已故障转移到备库
+        failed_over: AtomicBool,
+        /// 连续探活失败计数
+        consecutive_probe_failures: AtomicU32,
+        /// 决策历史
+        decision_history: RwLock<Vec<FailoverDecision>>,
+        /// 主库 LSN（故障位点）
+        primary_lsn: AtomicU64,
+        /// 备库 LSN
+        replica_lsn: AtomicU64,
+        /// 总探活次数
+        total_probes: AtomicU64,
+        /// 探活成功次数
+        successful_probes: AtomicU64,
+        /// 上次探活时间
+        last_probe_at: RwLock<Option<Instant>>,
+    }
+
+    impl AutoFailoverCoordinator {
+        /// 创建协调器
+        pub fn new(config: FailoverConfig) -> Self {
+            Self {
+                config,
+                failover_in_progress: AtomicBool::new(false),
+                failed_over: AtomicBool::new(false),
+                consecutive_probe_failures: AtomicU32::new(0),
+                decision_history: RwLock::new(Vec::new()),
+                primary_lsn: AtomicU64::new(0),
+                replica_lsn: AtomicU64::new(0),
+                total_probes: AtomicU64::new(0),
+                successful_probes: AtomicU64::new(0),
+                last_probe_at: RwLock::new(None),
+            }
+        }
+
+        /// 配置引用
+        pub fn config(&self) -> &FailoverConfig {
+            &self.config
+        }
+
+        /// 记录一次探活结果（由探活循环或外部探活器调用）
+        ///
+        /// 连续失败达 `probe_failure_threshold` 时自动触发故障转移。
+        pub fn record_probe(&self, result: ProbeResult) {
+            self.total_probes
+                .fetch_add(1, Ordering::SeqCst);
+            if let Ok(mut guard) = self.last_probe_at.write() {
+                *guard = Some(Instant::now());
+            }
+            if result.success {
+                self.successful_probes.fetch_add(1, Ordering::SeqCst);
+                self.consecutive_probe_failures.store(0, Ordering::SeqCst);
+            } else {
+                let failures = self
+                    .consecutive_probe_failures
+                    .fetch_add(1, Ordering::SeqCst)
+                    + 1;
+                if failures >= self.config.probe_failure_threshold
+                    && !self.failed_over.load(Ordering::SeqCst)
+                {
+                    // 达到阈值且未已故障转移，触发故障转移
+                    let _ = self.trigger_failover_internal(&result);
+                }
+            }
+        }
+
+        /// 触发故障转移（并发防护：CAS 保证同一时刻只有一个故障转移）
+        ///
+        /// 返回决策记录。若已有故障转移在进行中，返回 `AlreadyInProgress`。
+        pub fn trigger_failover(&self) -> Result<FailoverDecision, FailoverError> {
+            self.trigger_failover_internal(&ProbeResult {
+                success: false,
+                timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                error: Some("manual trigger".to_string()),
+            })
+        }
+
+        fn trigger_failover_internal(
+            &self,
+            probe: &ProbeResult,
+        ) -> Result<FailoverDecision, FailoverError> {
+            // CAS 并发防护
+            if self
+                .failover_in_progress
+                .compare_exchange(false, true, Ordering::SeqCst, Ordering::SeqCst)
+                .is_err()
+            {
+                return Err(FailoverError::AlreadyInProgress);
+            }
+
+            // 位点校验
+            let primary_lsn = self.primary_lsn.load(Ordering::SeqCst);
+            let replica_lsn = self.replica_lsn.load(Ordering::SeqCst);
+            let lsn_check = if primary_lsn > replica_lsn {
+                Some(LsnCheckResult {
+                    primary_lsn,
+                    replica_lsn,
+                    behind: true,
+                    potential_lost_txns: primary_lsn - replica_lsn,
+                })
+            } else {
+                Some(LsnCheckResult {
+                    primary_lsn,
+                    replica_lsn,
+                    behind: false,
+                    potential_lost_txns: 0,
+                })
+            };
+
+            // 执行切换
+            self.failed_over.store(true, Ordering::SeqCst);
+            self.consecutive_probe_failures.store(0, Ordering::SeqCst);
+
+            let decision = FailoverDecision {
+                timestamp_ms: chrono::Utc::now().timestamp_millis(),
+                reason: format!(
+                    "probe failed: {:?}, consecutive failures reached threshold {}",
+                    probe.error, self.config.probe_failure_threshold
+                ),
+                switched: true,
+                lsn_check: lsn_check.clone(),
+            };
+
+            // 记录决策历史
+            if let Ok(mut history) = self.decision_history.write() {
+                history.push(decision.clone());
+            }
+
+            // 释放 CAS 锁
+            self.failover_in_progress.store(false, Ordering::SeqCst);
+
+            // 位点落后时返回错误（不静默丢数据）
+            if let Some(check) = &lsn_check {
+                if check.behind {
+                    return Err(FailoverError::ReplicaBehind {
+                        replica_lsn: check.replica_lsn,
+                        primary_lsn: check.primary_lsn,
+                    });
+                }
+            }
+
+            Ok(decision)
+        }
+
+        /// 回切到主库
+        ///
+        /// - `Manual`：等待运维确认，直接执行回切
+        /// - `Auto`：经健康+一致性校验后自动回切
+        pub fn failback(&self, strategy: FailbackStrategy) -> Result<(), FailoverError> {
+            if !self.failed_over.load(Ordering::SeqCst) {
+                return Err(FailoverError::FailbackConditionsNotMet(
+                    "not in failed-over state".to_string(),
+                ));
+            }
+
+            match strategy {
+                FailbackStrategy::Manual => {
+                    // 运维确认后直接回切
+                    self.failed_over.store(false, Ordering::SeqCst);
+                    self.consecutive_probe_failures.store(0, Ordering::SeqCst);
+                    Ok(())
+                }
+                FailbackStrategy::Auto => {
+                    // 自动回切：校验主库健康（连续探活失败为 0）+ 位点一致性
+                    let failures = self.consecutive_probe_failures.load(Ordering::SeqCst);
+                    if failures > 0 {
+                        return Err(FailoverError::FailbackConditionsNotMet(format!(
+                            "primary still unhealthy: {failures} consecutive failures"
+                        )));
+                    }
+                    let primary_lsn = self.primary_lsn.load(Ordering::SeqCst);
+                    let replica_lsn = self.replica_lsn.load(Ordering::SeqCst);
+                    if replica_lsn < primary_lsn {
+                        return Err(FailoverError::FailbackConditionsNotMet(format!(
+                            "replica LSN {replica_lsn} behind primary {primary_lsn}"
+                        )));
+                    }
+                    self.failed_over.store(false, Ordering::SeqCst);
+                    Ok(())
+                }
+            }
+        }
+
+        /// 决策历史
+        pub fn decision_history(&self) -> Vec<FailoverDecision> {
+            self.decision_history
+                .read()
+                .map(|h| h.clone())
+                .unwrap_or_default()
+        }
+
+        /// 当前是否已故障转移
+        pub fn is_failed_over(&self) -> bool {
+            self.failed_over.load(Ordering::SeqCst)
+        }
+
+        /// 连续探活失败次数
+        pub fn consecutive_probe_failures(&self) -> u32 {
+            self.consecutive_probe_failures.load(Ordering::SeqCst)
+        }
+
+        /// 更新主库 LSN（由位点追踪器调用）
+        pub fn set_primary_lsn(&self, lsn: u64) {
+            self.primary_lsn.store(lsn, Ordering::SeqCst);
+        }
+
+        /// 更新备库 LSN（由位点追踪器调用）
+        pub fn set_replica_lsn(&self, lsn: u64) {
+            self.replica_lsn.store(lsn, Ordering::SeqCst);
+        }
+
+        /// 总探活次数
+        pub fn total_probes(&self) -> u64 {
+            self.total_probes.load(Ordering::SeqCst)
+        }
+
+        /// 探活成功次数
+        pub fn successful_probes(&self) -> u64 {
+            self.successful_probes.load(Ordering::SeqCst)
+        }
+    }
+}
+
+#[cfg(feature = "auto-failover")]
+pub use failover::{
+    AutoFailoverCoordinator, FailoverDecision, FailoverError, LsnCheckResult, ProbeResult,
+};

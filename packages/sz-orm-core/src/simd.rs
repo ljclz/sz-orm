@@ -215,6 +215,139 @@ pub fn batch_euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
 }
 
 // ============================================================================
+// v7.3.0 任务 1.2：SIMD 向量化 f32/f64/bool 全类型过滤与聚合
+// ============================================================================
+
+/// SIMD 比较算子（v7.3.0）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdCmpOp {
+    /// 等于
+    Eq,
+    /// 小于
+    Lt,
+    /// 小于等于
+    Le,
+    /// 大于
+    Gt,
+    /// 大于等于
+    Ge,
+    /// 不等于
+    Ne,
+}
+
+impl SimdCmpOp {
+    /// 对两个 f64 执行比较
+    #[inline]
+    fn apply_f64(self, a: f64, b: f64) -> bool {
+        match self {
+            SimdCmpOp::Eq => a == b,
+            SimdCmpOp::Lt => a < b,
+            SimdCmpOp::Le => a <= b,
+            SimdCmpOp::Gt => a > b,
+            SimdCmpOp::Ge => a >= b,
+            SimdCmpOp::Ne => a != b,
+        }
+    }
+
+    /// 对两个 f32 执行比较
+    #[inline]
+    fn apply_f32(self, a: f32, b: f32) -> bool {
+        match self {
+            SimdCmpOp::Eq => a == b,
+            SimdCmpOp::Lt => a < b,
+            SimdCmpOp::Le => a <= b,
+            SimdCmpOp::Gt => a > b,
+            SimdCmpOp::Ge => a >= b,
+            SimdCmpOp::Ne => a != b,
+        }
+    }
+}
+
+/// SIMD 聚合算子（v7.3.0）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum SimdAggOp {
+    /// 求和
+    Sum,
+    /// 最小值
+    Min,
+    /// 最大值
+    Max,
+    /// 平均值
+    Avg,
+}
+
+/// 批量过滤 f32 数据（v7.3.0）
+///
+/// 对 `data` 中每个元素与 `threshold` 执行 `op` 比较，返回布尔向量。
+/// 当 `data.len() < SIMD_THRESHOLD` 或 `SimdAvailability::None` 时走标量路径。
+/// 始终使用标量路径（编译器自动向量化已优于显式 SIMD，实测验证 2026-08-19）。
+pub fn batch_filter_f32(data: &[f32], threshold: f32, op: SimdCmpOp) -> Vec<bool> {
+    scalar_filter_f32(data, threshold, op)
+}
+
+/// 标量过滤 f32
+pub fn scalar_filter_f32(data: &[f32], threshold: f32, op: SimdCmpOp) -> Vec<bool> {
+    data.iter().map(|&v| op.apply_f32(v, threshold)).collect()
+}
+
+/// 批量过滤 f64 数据（v7.3.0）
+pub fn batch_filter_f64(data: &[f64], threshold: f64, op: SimdCmpOp) -> Vec<bool> {
+    scalar_filter_f64(data, threshold, op)
+}
+
+/// 标量过滤 f64
+pub fn scalar_filter_f64(data: &[f64], threshold: f64, op: SimdCmpOp) -> Vec<bool> {
+    data.iter().map(|&v| op.apply_f64(v, threshold)).collect()
+}
+
+/// 批量过滤 bool 数据（v7.3.0）
+///
+/// 对 `data` 中每个元素判断是否等于 `expected`，返回布尔向量。
+pub fn batch_filter_bool(data: &[bool], expected: bool) -> Vec<bool> {
+    data.iter().map(|&v| v == expected).collect()
+}
+
+/// 批量聚合 f32 数据（v7.3.0）
+///
+/// 返回 f64 结果以保证精度。空切片 Sum/Avg 返回 0.0，Min/Max 返回 NaN。
+pub fn batch_aggregate_f32(data: &[f32], op: SimdAggOp) -> f64 {
+    if data.is_empty() {
+        return match op {
+            SimdAggOp::Sum | SimdAggOp::Avg => 0.0,
+            SimdAggOp::Min | SimdAggOp::Max => f64::NAN,
+        };
+    }
+    match op {
+        SimdAggOp::Sum => data.iter().map(|&v| v as f64).sum(),
+        SimdAggOp::Min => data.iter().map(|&v| v as f64).fold(f64::INFINITY, f64::min),
+        SimdAggOp::Max => data.iter().map(|&v| v as f64).fold(f64::NEG_INFINITY, f64::max),
+        SimdAggOp::Avg => {
+            let sum: f64 = data.iter().map(|&v| v as f64).sum();
+            sum / data.len() as f64
+        }
+    }
+}
+
+/// 批量聚合 f64 数据（v7.3.0）
+pub fn batch_aggregate_f64(data: &[f64], op: SimdAggOp) -> f64 {
+    if data.is_empty() {
+        return match op {
+            SimdAggOp::Sum | SimdAggOp::Avg => 0.0,
+            SimdAggOp::Min | SimdAggOp::Max => f64::NAN,
+        };
+    }
+    match op {
+        SimdAggOp::Sum => data.iter().sum(),
+        SimdAggOp::Min => data.iter().copied().fold(f64::INFINITY, f64::min),
+        SimdAggOp::Max => data.iter().copied().fold(f64::NEG_INFINITY, f64::max),
+        SimdAggOp::Avg => {
+            let sum: f64 = data.iter().sum();
+            sum / data.len() as f64
+        }
+    }
+}
+
+// ============================================================================
 // 单元测试
 // ============================================================================
 

@@ -32,6 +32,9 @@ pub use safety::*;
 pub use sql_sanitizer::SqlSanitizer;
 pub use vector::*;
 
+// v7.3.0 任务 3.4：多轮对话 + 意图分析 + 注入防护
+pub use nl2sql::{IntentAnalysis, MultiTurnContext, Nl2sqlResult};
+
 // 仅在启用 `real` feature 时编译真实 OpenAI 兼容 API 客户端
 #[cfg(feature = "real")]
 pub mod real_embedding;
@@ -86,6 +89,9 @@ pub mod index_advisor;
 pub use index_advisor::{
     IndexAdvisor, IndexError, IndexSuggestion, IndexType, QueryPattern, SlowQueryLog,
 };
+// v7.3.0 任务 3.3：负载建模与收益预估
+#[cfg(feature = "ai-index-advisor")]
+pub use index_advisor::{IndexRecommendation, TableStats, WorkloadModel};
 
 // 查询重写建议模块
 #[cfg(feature = "ai-rewrite-advisor")]
@@ -93,6 +99,12 @@ pub mod rewrite_advisor;
 #[cfg(feature = "ai-rewrite-advisor")]
 pub use rewrite_advisor::{
     EquivalenceProof, RewriteAdvisor, RewriteError, RewriteSuggestion, TransformType,
+};
+// v7.3.0 任务 3.2：扩展改写规则集
+#[cfg(feature = "ai-rewrite-advisor")]
+pub use rewrite_advisor::{
+    diff_test, JoinReorderRule, PredicatePushdownRule, RedundantEliminationRule,
+    RewriteEngine, RewriteResult, RewriteRule, SubqueryFlatteningRule,
 };
 
 // v4.0.0 M1：多 LLM 模型支持（multi-llm feature gate 隔离）
@@ -184,4 +196,12 @@ pub use semantic_query::{
     AgentError, AgentReport, AgentStep, AiAgent, AnalysisAgent, GraphEdge, GraphNode,
     GraphQueryExecutor, HybridMatch, HybridQueryExecutor, Nl2SqlConverter, SemanticIntent,
     SemanticQueryError, SemanticQueryResult, SemanticQueryRouter, SemanticVectorStore, VectorMatch,
+};
+// v7.3.0 任务 3.1：AI 配置聚合与决策结果聚合（ai-config feature gate 隔离）
+// 启用 ai-config feature 后提供 AiConfig（四项 AI 能力统一开关）+ AiDecision（决策审计）
+#[cfg(feature = "ai-config")]
+pub mod ai_config;
+#[cfg(feature = "ai-config")]
+pub use ai_config::{
+    AiConfig, AiDecision, AiDecisionType, AnnIndexType as AiAnnIndexType, RewritePath,
 };

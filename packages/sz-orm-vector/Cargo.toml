@@ -17,6 +17,8 @@ real-pg = ["dep:tokio-postgres"]
 hybrid-search = []
 # v6.8.0：Embedding 存储统一入口 + 降级处理
 embedding-store = []
+# v7.3.0 任务 3.5：ANN 加速检索 + 召回率指标 + 租户隔离
+ann-accel = []
 
 
 [package.metadata.cargo-machete]
@@ -46,6 +48,16 @@ required-features = ["hybrid-search"]
 name = "vector_search_wiring"
 path = "tests/vector_search_wiring.rs"
 required-features = ["embedding-store"]
+
+[[test]]
+name = "ann_accel"
+path = "tests/ann_accel.rs"
+required-features = ["ann-accel"]
+
+[[test]]
+name = "ann_e2e"
+path = "tests/ann_e2e.rs"
+required-features = ["ann-accel", "real-pg"]
 
 [lints]
 workspace = true

@@ -1,16 +1,15 @@
 # SZ-ORM API 参考手册
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v3.4.0（v3.4.0：测试覆盖补齐 + 架构改进 + 性能优化 + 编译期类型安全 + 文档生态 + sz-pay 生产案例；同步至 46 包）
-> 适用版本：SZ-ORM **v3.4.0**（工作空间 46 个成员：44 个 lib + cli + examples）
-> 测试：6,738 passed / 0 failed / 253 ignored（195 个测试套件）
-> 代码规模：235,537 LOC（src/ 196,846 + tests/ 38,691）
-> 成熟度：早期生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io
-> 生产案例：sz-pay 支付中台后端依赖 7 个 sz-orm 包、297 处引用、5139 测试零回归
-> 更新日期：2026-08-09
+> 文档版本：v7.3.0（v7.3.0：性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展；72 个工作空间成员）
+> 适用版本：SZ-ORM **v7.3.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 代码规模：176,709 LOC（src/ 97,318 + tests/ 79,391）
+> 成熟度：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io
+> 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
+> 更新日期：2026-09-17
 > 文档定位：核心 trait/结构体说明 + 各包公开 API 速查 + 错误处理指南
 > **配套使用文档**：场景示例与端到端串联请查阅 [SZ-ORM 使用指南](sz-orm使用指南.md)；本文聚焦于类型签名与参数说明
-> **v3.4.0 新增 API**：`Column<T>` 类型安全列引用（`typed-column` feature）、`#[derive(Schema)]` 列名常量（`typed-schema` feature）、typed_ast Diesel 风格 DSL（`typed-dsl` feature）、`#[derive(FromQueryResult)]` 宏生成结果集映射
+> **v7.3.0 新增 API**：PerfConfig/HaConfig/AiConfig/EcoConfig 配置聚合 + SIMD 向量化 + AutoFailoverCoordinator + AnnAccelerated + WarpAdapter + SourceOrmParser
 
 ---
 
@@ -1369,6 +1368,455 @@ let (sql, binds) = parser.build_with_binds("find_users", &params).unwrap();
 | `TypeHandler<T>` | `trait { fn to_value(&self, value: &T) -> Value; fn from_value(&self, value: &Value) -> TypeHandlerResult<T>; fn type_id() / fn type_name() }` | Rust 类型 T 与 ORM Value 双向转换接口 |
 | `TypeHandlerRegistry` | `new() / register(name, handler) / bind(field, name) / unbind(field) / unregister(name) / has_handler(name) / is_bound(field) / handler_name_of(field) / handle<T>(field, value) / to_value<T>(field, value) / list_handlers() / list_bound_fields() / clear()` | 线程安全（RwLock）注册中心 |
 | `DateTimeHandler` / `UuidHandler` / `JsonHandler` / `DecimalHandler` / `BoolHandler` | — | 内置处理器 |
+
+### 2.23 v4.0-v7.3 新增包 API 速查
+
+> 本节补充 v4.0.0 之后新增的 28 个工作空间成员的公开 API。所有符号均来自各包 `src/lib.rs` 的 `pub use` 导出或子模块 `pub struct/trait/enum/fn`，未编造。
+
+#### 2.23.1 sz-orm-adaptive — 自适应查询路由
+
+运行期统计采集（原子计数/无锁）+ 阈值驱动的执行路径切换（自动游标分页/热缓存/慢查询标记），零依赖 `sz-orm-core`，决策与执行分离避免循环依赖。
+
+| 类型 | 说明 |
+|------|------|
+| `AdaptiveExecutor` / `AdaptiveConfig` / `ExecutionPath` / `QueryOutcome` | 决策器：`decide(query_name) -> ExecutionPath`、`record(query_name, rows, elapsed_ms)` |
+| `QueryStats` / `SlidingWindowStats` | 滑动窗口统计 |
+| `AdaptiveQueryPlanner` / `QueryPlan` / `CachedPlan` / `ExecutionPlanCache` / `PlannerConfig` / `TableMetadata` | 自适应计划缓存 |
+| `AdaptiveParameterTuner` / `TuningAdvisor` / `TuningSuggestion` / `TuningPlan` / `TuningSignal` / `TuningStats` / `PerformanceMetrics` / `SuggestionSeverity` / `TunableParam` | 参数调优建议 |
+| `QueryComplexityEvaluator` / `QueryFeatures` / `ComplexityLevel` / `AdaptiveIndexSelector` / `IndexInfo` | 复杂度评估 + 索引选择 |
+| `BatchSizeTuner` / `MemoryTtlCache` / `ResultCache` / `JoinOrderStrategy` / `IndexSelectionStrategy` | 批量/缓存/JOIN 顺序策略 |
+
+**Feature gate**：`llm-tuning`（LLM 驱动调优，导出 `LlmParameterTuner` / `LlmTuningProvider` / `LlmParameterAdvice` / `TuningResult` / `AppliedFrom` / `LlmTuningError`）、`trend-prediction`（趋势预测，导出 `TrendPredictor` / `TrendPrediction` / `TrendDataPoint` / `TrendMethod` / `TrendPredictorConfig`）。
+
+#### 2.23.2 sz-orm-advisor — 查询自动优化建议引擎
+
+规则引擎分析 EXPLAIN 计划 + 自适应统计，生成六类可执行优化建议（AddIndex/DropIndex/UsePagination/EnableCache/RewriteQuery/AdjustPoolSize），并可串联 EXPLAIN → adaptive → diagnosis → advice 四步闭环。
+
+| 类型 | 说明 |
+|------|------|
+| `OptimizationAdvisor` / `AdvisorConfig` | 建议引擎入口 |
+| `OptimizationSuggestion` / `SuggestionType` / `RiskLevel` / `TuningSuggestion` / `TuningSuggestionType` | 建议项 + 风险等级 |
+| `IndexUsageStats` / `IndexStats` / `IndexUsageReport` / `RedundantIndexPair` | 索引使用统计 + 冗余索引检测 |
+| `QueryHeatTracker` / `HeatReport` / `HeatQuerySummary` / `HeatSample` / `QueryHeatHistory` / `TimeWindow` / `ErrorTrend` | 查询热度追踪 |
+| `QueryPatternAnalyzer` / `QueryPatternKind` / `QueryRecord` / `QueryTemplate` | 查询模式归纳 |
+| `QueryPerformanceRanker` / `PerformanceReport` / `QueryMetrics` / `QuerySeverity` / `RankBy` / `RankEntry` | 性能排名 |
+| `SlowQueryAnalyzer` / `SlowQueryEntry` / `SlowQueryStats` | 慢查询分析 |
+
+**Feature gate**：`query-advisor`（上述全部）、`query-intelligence-loop`（`IntelligenceLoop` / `LoopReport` / `ExplainPlanSummary`）、`index-advisor-deep`（`ReplayValidator` / `IndexCandidate` / `ReplayResult` / `WorkloadQuery` / `WorkloadSummary`）、`ai-nl-query`（`NlQueryGateway` / `NlQueryResult` / `NlQuerySafetyGate` / `SafetyVerdict` / `LlmAdapterSlot` / `LlmHotSwapper` / `IntentCache` / `MultiTurnContext` / `TurnSummary` / `FormattedResult` / `NlResultFormatter`）、`query-auto-tuning`（`AutoTuningGateway` / `AutoTuningConfig` / `ApprovalGate` / `ApprovalGateConfig` / `ApprovalState` / `FeedbackLoop` / `JoinReorderAdvisor` / `JoinReorderResult` / `JoinTable` / `PerformanceSample` / `PerformanceTrend` / `PlanSnapshot` / `TableStats` / `TuningAction` / `TuningChangeAuditor` / `TuningChangeRecord` / `TuningCooldown` / `CooldownConfig` / `ChangeKind` / `TuningLoopReport`）。
+
+#### 2.23.3 sz-orm-agent — AI Agent 自主数据库操作
+
+perceive-decide-act 循环驱动器，集成诊断/异常检测/优化建议能力，支持工具调用协议、危险操作审批、权限边界拦截、状态持久化与检查点恢复。
+
+| 类型 | 说明 |
+|------|------|
+| `AgentDriver` / `DatabaseAgent` | Agent 主驱动 |
+| `ApprovalGate` / `ApprovalRequest` / `ApprovalDecision` | 危险操作审批 |
+| `CheckpointManager` / `Checkpoint` / `CheckpointStore` | 检查点持久化与恢复 |
+| `LlmFallbackManager` / `RuleBasedFallbackPlanner` | LLM 失败降级 |
+| `PerceptionCollector` | 状态感知采集 |
+| `PermissionBoundary` / `ToolPermissionGuard` | 权限边界拦截 |
+| `AgentTool` / `ToolRegistry` / `AuditLog` / `RiskLevel` | 工具注册与审计 |
+| `DecisionTracer` / `DecisionTrace` | 决策链路追踪 |
+| `WorkflowOrchestrator` / `WorkflowResult` / `WorkflowTask` | 工作流编排 |
+
+**Feature gate**：`agent`（启用全部模块，并拉起 `sz-orm-ai/multi-llm` + `ai-security-audit`）、`agent-react` / `agent-plan-execute` / `agent-workflow`（三种规划策略，均依赖 `agent`）。
+
+#### 2.23.4 sz-orm-ai-designer — LLM 驱动 Schema 设计器
+
+输入业务需求描述，生成建议表结构/字段/关系/索引；分析 Schema 变更影响；给出反范式化建议。
+
+| 类型 | 说明 |
+|------|------|
+| `AiSchemaDesigner` / `LlmSchemaProvider` | 设计器入口 + LLM 抽象 |
+| `SchemaDesign` / `TableDefinition` / `ColumnDefinition` | 设计产物 |
+| `DesignResult` / `DesignError` | 结果与错误 |
+| `MigrationImpactReport` / `MigrationRisk` / `RedundantColumn` | 变更影响分析 |
+| `DenormalizationAdvice` / `JoinPattern` | 反范式化建议 |
+
+**Feature gate**：`ai-schema-design`（启用 `sqlparser` 依赖）。
+
+#### 2.23.5 sz-orm-ai-migration — LLM 驱动迁移脚本生成
+
+输入 Schema 变更描述，生成 up/down 迁移脚本；v7.3.0 新增源 ORM 解析与迁移报告生成。
+
+| 类型 | 说明 |
+|------|------|
+| `AiMigrationGenerator` / `LlmMigrationProvider` | 生成器入口 + LLM 抽象 |
+| `MigrationScript` / `MigrationResult` / `MigrationError` / `DataImpactReport` | 迁移脚本与数据影响 |
+| `SourceOrmParser` / `SourceSchema` / `SourceOrm` / `MigrationReport` / `MigrationMapping` / `OrmMigrator` / `UnmappableItem` | 源 ORM 解析（v7.3.0） |
+| `TableDef` / `ColumnDef` / `RelationDef` / `DieselParser` / `SeaOrmParser` / `SqlxParser` | 三种 ORM 解析器 |
+
+**Feature gate**：`ai-migration-gen`、`eco-config`（复用 `sz-orm-core::SourceOrm` 枚举，提供 `core_source_orm_to_local` 转换桥梁）。
+
+#### 2.23.6 sz-orm-anomaly — 异常检测
+
+滑动窗口 + Welford 在线基线 + 统计规则 + 阈值，检测突增/耗尽/基线偏离，输出结构化告警事件，支持告警去重冷却、订阅回调、Prometheus 指标导出、健康集成。SQL 脱敏复用 `sz-orm-masking::DataMasker`。
+
+| 类型 | 说明 |
+|------|------|
+| `AnomalyDetector` / `AnomalyConfig` / `BaselineCalculator` / `SpikeDetector` | 检测器入口 + Welford 基线 |
+| `Alert` / `AlertDedup` / `AlertEmitter` / `AnomalyType` / `Baseline` / `Severity` / `SubscriptionId` | 告警 + 去重冷却 + 订阅 |
+| `MetricCollector` / `MetricType` / `SlowQueryMetric` / `ErrorMetric` / `ErrorType` / `PoolMetric` | 指标采集 |
+| `SlidingWindow` | 滑动窗口（时间淘汰 + 10 MB 内存上限） |
+| `ConfigStore` | 阈值热重载 |
+| `PrometheusExporter` / `HealthImpact` | Prometheus + 健康集成 |
+| `ReportExporter` / `TimeRange` | JSON / Markdown 报告 |
+| `AnomalyError` / `AnomalyErrorKind` | 错误类型 |
+
+**Feature gate**：`anomaly-detection`（启用全部模块）。
+
+#### 2.23.7 sz-orm-bench — 基准对标
+
+sz-orm vs SeaORM vs Diesel vs SQLx 四框架基准对比，包含 P50/P95/P99 延迟、吞吐量、内存指标、可复现保证（确定性伪随机 + git commit 采集）。
+
+| 类型 / 函数 | 说明 |
+|-------------|------|
+| `WorkloadType` | `SingleRowQuery` / `BatchQuery` / `ComplexJoin` / `Transaction` / `PoolConcurrency` |
+| `FrameworkType` | `SzOrm` / `SeaOrm` / `Diesel` / `Sqlx` |
+| `DbBackend` | `Sqlite` / `Mysql` |
+| `BenchConfig` / `BenchResult` / `BenchReport` / `EnvMetadata` | 配置 / 单次结果 / 报告 / 环境元数据 |
+| `SeededRng` / `MemoryMetrics` / `SimdComparisonResult` | 确定性 RNG / 内存采集 / SIMD 对比 |
+| `BenchError` | `DbConnectFailed` / `QueryFailed` / `InvalidConnectionString` / `ProductionDatabaseRejected` / `IncomparableWorkload` |
+| `run_workload` / `run_full_benchmark` / `validate_db_connection` / `report_filename` | 工作负载运行 / 全量基准 / 连接串校验（拒绝 prod） / 报告文件名 |
+
+**Feature gate**：`real-bench`（启用真实 DB 查询，导出 `run_workload_real` / `RealDbExecutor` / `DatasetInitializer` / `SzOrmWorkload` / `SqlxWorkload` / `SeaOrmWorkload`）、`real-bench-diesel`（追加 `DieselWorkload`）。
+
+#### 2.23.8 sz-orm-cabi — C ABI 跨语言 FFI 导出层
+
+为 Go/Java/C++/Python 提供统一 C ABI，暴露 `sz-orm-core` 的 Pool/Query/Transaction/Model/QueryBuilder API。FFI 内存由 Rust 侧分配/释放，panic 捕获为错误码，所有 `unsafe` 带 `// SAFETY:` 注释。
+
+| 类型 / 函数 | 说明 |
+|-------------|------|
+| `SzOrmPoolHandle` / `SzOrmQueryBuilderHandle` / `SzOrmTransactionHandle` / `SzOrmModelHandle` | 句柄类型别名（`*mut c_void`） |
+| `SzOrmErrorCode` | `Ok` / `NotFound` / `ConnectionFailed` / `QueryFailed` / `PoolExhausted` / `TransactionAborted` / `Panic` / `InvalidArgument` / `RuntimeNotInitialized` / `MemoryLeak` |
+| `PoolConfigC` / `QueryResultC` / `QueryJsonResult` / `PoolStatsC` / `PoolMetricsC` | `#[repr(C)]` 配置/结果结构 |
+| `sz_orm_pool_new` / `sz_orm_pool_free` / `sz_orm_ping` / `sz_orm_query` / `sz_orm_execute` / `sz_orm_version` | 核心 FFI（SQLite 真实后端） |
+| `sz_orm_pool_stats` / `sz_orm_pool_metrics` / `sz_orm_execute_batch` / `sz_orm_query_result_free` | 池状态/批量执行/结果释放 |
+
+`crate-type = ["cdylib", "rlib"]`。
+
+#### 2.23.9 sz-orm-cpp — C++ 绑定
+
+通过 `extern "C"` + C ABI 转发到 `sz-orm-cabi`，提供 Pool/Query/Transaction/Model/QueryBuilder/ActiveModel 全套 API。C++ 侧头文件 `cpp/szorm.h`（`szorm::Pool`）。
+
+| FFI 函数族 | 说明 |
+|------------|------|
+| `sz_orm_cpp_pool_new/free/ping/query/execute/version` | 池与查询 |
+| `sz_orm_cpp_transaction_begin/execute/commit/rollback/free` | 事务 |
+| `sz_orm_cpp_model_insert/update/delete/find` + `_tx` 后缀 | 模型级 CRUD（含事务版本） |
+| `sz_orm_cpp_qb_new/table/where_eq/order_by/limit/build/free` + `sz_orm_cpp_qb_result_free` | QueryBuilder |
+| `sz_orm_cpp_active_model_create/set/save/delete/find` | ActiveModel |
+| `sz_orm_cpp_string_free` / `sz_orm_cpp_result_free` | 字符串/结果释放 |
+
+`crate-type = ["cdylib", "rlib"]`。
+
+#### 2.23.10 sz-orm-designer — 可视化 Schema 设计器
+
+图形化建表/改表/ER 图编辑/双向代码生成，含数据类型选择器、反范式化顾问、索引设计器、迁移生成器、Schema 版本管理、表关系图、Web UI、脱敏联动。
+
+| 类型 | 说明 |
+|------|------|
+| `SchemaDesigner` / `DesignerError` | 设计器入口 |
+| `SchemaDesign` / `DesignTable` / `DesignColumn` / `DesignIndex` / `DesignRelation` / `Cardinality` / `ColumnType` | 设计 IR |
+| `ErDiagramEditor` / `LayoutAlgorithm` | ER 图编辑 |
+| `IndexDesigner` / `IndexDesignSuggestion` / `IndexSuggestionKind` / `QueryPattern` | 索引设计 |
+| `DenormalizationAdvisor` / `DenormalizationSuggestion` / `DenormalizationKind` / `JoinPattern` | 反范式化 |
+| `DataTypeSelector` / `TypeRecommendation` / `DataCharacteristics` / `DataPurpose` | 数据类型选择 |
+| `MigrationGenerator` / `MigrationScript` / `MigrationOp` / `ColumnDef` / `ForeignKeyDef` / `IndexDef` / `ReferenceAction` | 迁移生成 |
+| `SchemaVersioning` / `SchemaVersion` / `VersionStatus` | Schema 版本管理 |
+| `TableRelationshipGraph` / `RelationshipEdge` / `RelationKind` | 表关系图 |
+| `DesignerExporter` / `ExportFormat` / `SchemaDesignerWebUI` / `DesignerMasking` | 导出/Web UI/脱敏 |
+
+**Feature gate**：`schema-designer`（启用 `axum` + `syn` + `quote` + `sz-orm-core/prod-dialect-security` + `sz-orm-masking`）。
+
+#### 2.23.11 sz-orm-diagnosis — 慢查询自动诊断报告
+
+基于阶段耗时比例判定根因（PoolExhaustion/SqlInefficiency/LargeResultSet/BuildOverhead/MixedCause），仅 slow==true 时触发，联动优化建议。
+
+| 类型 | 说明 |
+|------|------|
+| `SlowQueryDiagnoser` | 诊断器入口 |
+| `RootCause` / `Severity` / `PhaseBreakdown` / `DiagnosisConfig` / `DiagnosisPhase` / `analyze_root_cause` / `build_phase_breakdown` | 根因分析 |
+| `DiagnosisReport` / `SuggestionHint` | 诊断报告（JSON + 人类可读双格式） |
+| `DiagnosisAdvisor` / `DiagnosisAdvice` / `AdviceType` / `ReportSummary` / `SlowQueryReportGenerator` | 建议引擎 + 慢查询报告生成 |
+| `ConnectionPoolDiagnoser` / `PoolDiagnosisResult` / `PoolHealthStatus` / `PoolSuggestion` / `PoolDiagnoserConfig` / `ConnectionPoolMetrics` / `PoolLeakDetector` / `PoolMetricsSampler` | 连接池诊断 + 泄漏检测 |
+| `DeadlockDetector` / `DeadlockPreventionStrategy` / `DeadlockResolution` / `LockWaitAnalyzer` / `LockWaitAnalysis` / `LockWaitEvent` | 死锁检测 + 锁等待分析 |
+| `BottleneckLocator` / `Bottleneck` / `BottleneckSeverity` / `BottleneckSample` / `BottleneckLocatorConfig` / `BottleneckTrendAnalyzer` | 瓶颈定位 |
+| `DiagnosisMetrics` / `DiagnosisSummary` / `BottleneckRanker` / `FixAction` | 度量聚合 |
+
+**Feature gate**：`slow-query-diagnosis`（上述全部）、`llm-diagnosis`（`LlmDiagnoser` / `DiagnosisResult` / `DiagnosisSource` / `FixSuggestion` / `LlmDiagnosisError`）、`failure-prediction`（`FailurePredictor` / `FailurePrediction` / `FailureAlert` / `AlertSeverity` / `FailurePredictorConfig` / `MetricSample`）、`auto-diagnose`（`AutoDiagnoseHook` / `DiagnoseResult` / `DiagnoseSeverity` / `IndexSuggestion`）。
+
+#### 2.23.12 sz-orm-explain — 跨方言 EXPLAIN 解析
+
+解析 MySQL/PostgreSQL/SQLite/Oracle/MSSQL 的 `EXPLAIN` 输出为统一 `ExplainPlan`，用于全表扫描检测、缺失索引检测、执行计划回归检测。零依赖 `sz-orm-core`（避免 core → macros → explain → core 依赖循环）。
+
+| 类型 / 函数 | 说明 |
+|-------------|------|
+| `ExplainDialect` | `MySql` / `Postgres` / `Sqlite` / `Oracle` / `Mssql`（含 `as_str` / `all` / `parse_name`） |
+| `ScanType` | `FullTable` / `IndexRange` / `IndexLookup` / `UniqueLookup` / `Other`（含 `is_full_table_scan` / `is_index_scan` / `is_index_lookup`） |
+| `ExplainPlan` | `scan_type` / `table` / `index` / `rows` / `extra`（含 `is_full_table_scan` / `has_index` / `is_large_result` / `missing_index` / `summary`） |
+| `ExplainError` | `Unparseable { reason }` / `UnsupportedDialect` |
+| `ExplainParser` | `trait { fn parse(&self, raw: &str) -> Result<ExplainPlan, ExplainError>; fn parse_or_default(...) }` |
+| `parser_for(dialect) -> Result<Box<dyn ExplainParser>, ExplainError>` | 方言分派 |
+| `parse_explain(dialect, raw) -> Result<ExplainPlan, ExplainError>` | 便捷解析 |
+
+**Feature gate**：`explain-analyzer`（启用 `analyzer` / `regression` 模块 + serde 序列化）、`perf-baseline`（启用 `perf_baseline` 模块，依赖 `sz-orm-flamegraph`）。
+
+#### 2.23.13 sz-orm-flamegraph — 查询性能火焰图
+
+采集各阶段耗时（查询构造/参数绑定/连接池 acquire/SQL 执行/结果映射），输出 Brendan Gregg folded 格式（`flamegraph.pl` 兼容）和内联 SVG。
+
+| 类型 | 说明 |
+|------|------|
+| `Phase` / `QueryPhaseTiming` / `QueryTracer` | 阶段枚举 + 计时 + 追踪器（`trace_execute` / `with_tracer`） |
+| `FlameGraphBuilder` / `FlameNode` / `FlameGraphData` / `FlameGraphFilter` / `FlameGraphMerger` | 火焰图构建/过滤/合并 |
+| `FlameStats` / `FrameStats` / `Hotspot` / `HotspotDetector` / `HotspotStrategy` / `DepthDistribution` | 统计 + 热点检测 |
+| `FlameDiff` / `DiffResult` / `DiffEntry` / `DiffType` / `DiffMode` | 火焰图 diff |
+| `RenderConfig` / `RenderOptions` / `OutputFormat` / `LayoutConfig` / `ColorScheme` / `ColorPalette` | 渲染配置 |
+| `render::to_brendan_gregg` / `render::to_svg` | folded / SVG 输出 |
+
+**Feature gate**：`query-flamegraph`（启用 `sz-orm-tracing` 集成，将阶段计时写入既有 `Tracer` span）。
+
+#### 2.23.14 sz-orm-fusion — 多数据库融合查询（实验性 POC）
+
+透明多数据库操作：查询拆分、聚合、降级，适用于"主库 + 缓存 + 搜索"场景。后端通过 trait 注入，不绑定具体实现。**实验性，不建议生产使用**。
+
+| 类型 | 说明 |
+|------|------|
+| `FusionQuery` / `FusionPlanner` / `FusionPlan` / `PlanStep` | 查询描述 + 静态计划 |
+| `FusionExecutor` / `FusionOutcome` / `FusionCache` / `MemoryFusionCache` | 执行器（缓存命中跳过主库，主库失败降级缓存） |
+| `QueryRouter` / `RoutingStrategy` / `RoutingDecision` / `QueryType` / `DataSource` / `SourceRole` / `AffinityRoutingStrategy` / `WeightedRoundRobinStrategy` | 路由策略 |
+| `ConflictResolver` / `Conflict` / `ConflictType` / `Resolution` / `ResolutionStrategy` / `VectorClock` / `DataVersion` / `ConflictLog` / `CustomResolveFn` | 冲突解决 + 向量时钟 |
+| `HealthCheckScheduler` / `HealthChecker` / `HealthCheckResult` / `HealthRecord` / `HealthStatus` | 健康检查 |
+| `DataSynchronizer` / `SyncScheduler` / `SyncTask` / `SyncResult` / `SyncState` / `SyncStats` / `SyncDirection` | 数据同步 |
+| `FusionStatsCollector` / `FusionStats` / `FusionReport` / `SourceStats` / `TableStats` | 统计 |
+
+**Feature gate**：`db-fusion`（上述全部）、`db-fusion-v2`（`TtlFusionCache` / `VectorPushdownExecutor` / `VectorPushdownOutcome` / `CdcSyncCoordinator` / `SyncOutcome` / `migration_steps` / `migration_guide` / `MigrationStep`）、`multi-region`（`GlobalRouter` / `RouteDecision` / `RouteRequest` / `RouteError` / `ConsistencyLevel` / `LatencyStats` / `RegionFailoverCoordinator` / `FailoverDecision` / `FailoverAuditLog` / `FailoverError` / `RTO_TARGET` / `RegionTopology` / `RegionNode` / `RegionRole` / `RegionHealth` / `MultiRegionHealthView` / `DataAffinityPolicy` / `ReplicationMode` / `TopologyError` / `ReplicationLagTracker` / `LinkType` / `SAME_CITY_THRESHOLD` / `CROSS_CONTINENT_THRESHOLD` / `EdgeNode` / `EdgeNodeRouter` / `EdgeRoutingPolicy` / `EdgeCacheStatus` / `GeoLocation`）。
+
+#### 2.23.15 sz-orm-go — Go 绑定
+
+通过 cgo / syscall 调用 C ABI，转发到 `sz-orm-cabi`。Go 侧 wrapper `go/szorm/` 在 Windows 用 `syscall.NewLazyDLL` 加载 `sz_orm_go.dll`，非 Windows 用 cgo。
+
+| FFI 函数族 | 说明 |
+|------------|------|
+| `sz_orm_go_pool_new/free/ping/query/execute/version` | 池与查询 |
+| `sz_orm_go_transaction_begin/execute/commit/rollback/free` | 事务 |
+| `sz_orm_go_model_insert/update/delete/find` + `_tx` 后缀 | 模型级 CRUD（含事务版本） |
+| `sz_orm_go_qb_new/table/where_eq/order_by/limit/build/free` + `sz_orm_go_qb_result_free` | QueryBuilder |
+| `sz_orm_go_string_free` / `sz_orm_go_result_free` | 字符串/结果释放 |
+
+`crate-type = ["cdylib", "rlib"]`。
+
+#### 2.23.16 sz-orm-governance — AI 驱动数据治理
+
+数据血缘、质量、合规、脱敏、SLA 监控、成本治理、敏感数据自动发现。
+
+| 模块 / 类型 | 说明 |
+|-------------|------|
+| `lineage` | `LineageBuilder` / `LineageGraph` / `LineageNode` / `LineageEdge` / `LineageEdgeType` / `LineagePath` / `LineageDiff` / `LineageCheckpoint` / `LineageRule` / `CdcEventRef` / `LineageAutoCollector` |
+| `data_catalog` | `DataCatalogBuilder` / `CatalogEntry` / `ColumnCatalog` |
+| `quality_rule` | `QualityRuleGenerator` / `QualityRule` / `QualityRuleType` / `QualityRuleSet` / `RuleConflict` / `ConflictType` |
+| `compliance` | `ComplianceAuditor` / `ComplianceReport` / `ComplianceFinding` |
+| `compliance_report` | `ComplianceReportGenerator` / `ComplianceReport` / `AuditSummary` / `PermissionChange` / `EncryptedFieldEntry` / `MaskingPolicyEntry` / `ReportFormat` / `ReportError` |
+| `masking_recommend` | `MaskingRecommender` / `MaskingRecommendation` / `MaskingStrategy` / `MaskingRecommendLink` |
+| `sla_violation_tracker` | `SlaViolationTracker` / `SlaTarget` / `SlaSample` / `SlaWindowReport` / `SlaAlert` |
+| `cost_accountant` | `CostAccountant` / `CostReport` / `CostEntry` / `CostDimension` / `ResourceUsage` / `BudgetConfig` / `PricingConfig` / `AlertBridge` (trait) / `MetricsSource` (trait) |
+| `sensitive_discoverer` | `SensitiveDiscoverer` / `ScanReport` / `Finding` / `SensitiveType` / `SensitiveRule` / `SampleStrategy` / `TableDataSource` (trait) / `SensitiveDiscoverError` |
+| `types` | `Regulation` / `RiskLevel` / `GovernanceError` |
+
+**Feature gate**：`governance`（核心：lineage/quality/compliance/masking/data_catalog/types）、`governance-lineage`（追加 `sz-orm-graph` + `sz-orm-core` 依赖）、`governance-compliance`、`compliance-report`、`sla-monitor`、`cost-governance`、`sensitive-discover`（追加 `regex` + `rand`）。
+
+#### 2.23.17 sz-orm-graph — Neo4j 图数据库支持
+
+图数据库连接、参数化 Cypher 查询、类型化结果映射、声明式建模，含图算法、社区检测、路径分析、子图匹配、图遍历 API。
+
+| 类型 | 说明 |
+|------|------|
+| `GraphConnection` / `GraphPool` / `GraphConfig` / `GraphPoolStatus` | Bolt 协议连接 + 连接池 |
+| `CypherQuery` / `CypherQueryBuilder` / `GraphResult` / `GraphNode` / `GraphRelationship` / `GraphPath` / `execute_query` | Cypher 查询构建与执行 |
+| `CypherValidator` / `CypherSubsetParser` / `ParsedQuery` / `NodePattern` / `RelPattern` / `ReturnItem` | 参数化校验 + 子集解析（拒绝 SQL passthrough） |
+| `GraphNodeModel` / `GraphRelationModel` / `GraphPropertyDef` / `GraphValueType` / `RelationDirection` | 声明式建模 |
+| `NodeMapper` / `RelationMapper` / `ResultMapper` | 类型化结果映射 |
+| `DirectedGraph` / `UndirectedGraph` / `NodeId` / `Weight` / `InMemoryGraphEngine` | 图数据结构 + 内存引擎 |
+| `LabelPropagation` / `Community` / `CommunityDetectionResult` / `ConnectedComponentDetector` | 社区检测 |
+| `GraphStats` / `GraphStatsCalculator` / `DegreeDistribution` | 图统计 |
+| `PathAnalyzer` / `ReachabilityMatrix` | 路径分析 |
+| `SubgraphMatcher` / `CommonSubgraphFinder` / `IsomorphismChecker` | 子图匹配 |
+| `GraphError` | 错误类型 |
+
+**Feature gate**：`graph-query-deep`（`joint_projection` 模块）、`graph-traversal`（`GraphTraversalDsl` / `GraphTraversalCompiler` / `GraphTraversalExecutor` / `CompiledQuery` / `GraphResultHydrator` / `NestedNode` / `PathSegment` / `RelationEdge` / `RelationGraph` / `TraversalPath` / `TraversalPathCache`，点分路径 → JOIN SQL）。
+
+#### 2.23.18 sz-orm-java — Java JNI 绑定
+
+通过 JNI 调用 `sz-orm-cabi` 的 C ABI，提供 Java 侧 Pool/Query/Transaction/Model API（SQLite 真实后端）。JNI 符号名遵循 `javac -h` 生成的 `sz_orm_java_SzOrmPool.h`，包名下划线转义为 `_1`。
+
+| JNI 入口 | 说明 |
+|----------|------|
+| `Java_sz_1orm_1java_SzOrmPool_poolNew/poolFree/ping/query/execute/version` | 池与查询 |
+| `Java_sz_1orm_1java_SzOrmPool_beginTransaction/commitTransaction/rollbackTransaction/freeTransaction` | 事务 |
+| `Java_sz_1orm_1java_SzOrmPool_modelInsert/modelUpdate/modelDelete/modelFind` | 模型级 CRUD |
+
+`crate-type = ["cdylib", "rlib"]`，依赖 `jni = "0.22"`。
+
+#### 2.23.19 sz-orm-js — JavaScript/Node.js 绑定（napi-rs）
+
+暴露 `sz-orm-core` 的 Model/QueryBuilder/Pool/Transaction 四类核心 API，含批量操作、增强查询、迁移工具、模型定义。
+
+| 类型 | 说明 |
+|------|------|
+| `BatchInsertBuilder` / `BatchInsertResult` / `BatchUpdateBuilder` / `BatchUpdateResult` / `BatchDeleteBuilder` / `BatchDeleteResult` / `BatchStats` | 批量操作 |
+| `QueryBuilderEnhanced` / `EnhancedQueryResult` / `JoinClause` / `JoinType` / `ErrorHandler` / `ErrorCategory` / `RetryPolicy` | 增强查询 |
+| `PoolConfig` / `PoolConfigBuilder` | 连接池配置 |
+| `MigrationTool` / `MigrationStep` / `MigrationAction` / `SchemaDiff` / `SchemaDiffResult` | 迁移工具 |
+| `ModelDefinition` / `FieldDefinition` / `FieldType` / `IndexDefinition` / `RelationDefinition` / `RelationType` | 模型定义 |
+
+`crate-type = ["cdylib", "rlib"]`，依赖 `napi = "2"` + `napi-derive = "2"`。独立版本线 `0.1.0`。
+
+#### 2.23.20 sz-orm-lsp — VS Code 扩展 LSP 服务端
+
+LSP 协议处理：textDocument/completion + hover + definition + diagnostics，复用 `sz-orm-cli` 的 AI 建议能力。
+
+| 类型 / 函数 | 说明 |
+|-------------|------|
+| `LspServer` / `LspTextDocument` | LSP 服务端 + 文档模型 |
+| `CompletionItem` / `CompletionList` / `Hover` / `LspPosition` / `LspRange` / `Diagnostic` / `DiagnosticSeverity` | LSP 协议类型 |
+| `CompletionContext` / `analyze_context` / `context_aware_completion` | 上下文感知补全 |
+| `DefinitionProvider` / `ModelDefinition` / `ModelField` / `Location` | 跳转定义 |
+| `CodedDiagnostic` / `DiagnosticCode` / `IncrementalDiagnostics` | 增量诊断 + 错误码 |
+
+二进制 `sz-orm-lsp`（`src/main.rs`）。
+
+#### 2.23.21 sz-orm-mcp — MCP 服务器
+
+实现 Model Context Protocol (MCP) 服务器，将 sz-orm 的 NL 查询和 SQL 执行暴露为 AI 工具，可被 Claude/Cursor 等 AI 客户端调用。
+
+| 类型 | 说明 |
+|------|------|
+| `McpServer` | MCP 服务器入口 |
+| `StdioTransport` | stdio 传输 |
+
+**Feature gate**：`mcp`（启用 `sz-orm-nl-query/nl-query` + tokio + async-trait）。
+
+#### 2.23.22 sz-orm-model-ops — AI 模型操作
+
+本地推理、路由、微调、评估，含 llama.cpp / vLLM 后端、A/B 测试、推理优化。
+
+| 模块 / 类型 | 说明 |
+|-------------|------|
+| `types` | `Quantization` / `ModelRouterConfig` / `ModelOpsError` |
+| `router` | `ModelRouter` |
+| `llamacpp` | `LlamaCppProvider` |
+| `vllm` | `VllmProvider` |
+| `inference_opt` | `InferenceOptimizer` / `InferenceOptConfig` / `InferenceOptResult` / `ConfigComparison` / `ConfigChoice` |
+| `evaluator` | `Nl2SqlEvaluator` / `EvalSample` / `EvalResult` / `EvalFailure` / `FailureType` / `SqlExecutor` (trait) |
+| `ab_test` | `AbTestFramework` / `AbTestConfig` / `AbTestSample` / `Variant` / `VariantStats` / `AbTestResult` |
+
+**Feature gate**：`model-ops`（核心）、`model-ops-llamacpp`（追加 `reqwest`）、`model-ops-vllm`（追加 `reqwest`）、`model-ops-router`。
+
+#### 2.23.23 sz-orm-multimodal — 多模态数据库交互
+
+语音、图表、ER 图、截图、手绘草图多模态交互。
+
+| 模块 / 类型 | 说明 |
+|-------------|------|
+| `types` | `Modality` / `ChartSpec` / `MultimodalError` |
+| `voice` | `VoiceInputHandler` |
+| `chart` | `ChartGenerator` |
+| `er_diagram` | `ErDiagram` / `ErDiagramInteractor` / `Entity` / `Field` / `Relationship` / `Cardinality` |
+| `dialog` | `MultimodalDialog` / `DialogMessage` / `MessageRole` / `ContextWindow` |
+| `fallback` | `ModalFallback` / `FallbackStrategy` / `FallbackResult` |
+| `screenshot` | `ScreenshotAnalyzer` / `ScreenshotAnalysis` / `DetectedColumn` / `OcrClient` |
+| `sketch` | `SketchToSql` / `SketchSchema` / `SketchTable` / `SketchRelation` / `SketchRecognition` / `Shape` / `ShapeType` / `CvClient` |
+
+**Feature gate**：`multimodal`（核心）、`multimodal-voice`（追加 `sz-orm-nl-query` + `reqwest`）、`multimodal-er`、`multimodal-vision`（追加 `reqwest`，启用 `screenshot` + `sketch`）。
+
+#### 2.23.24 sz-orm-n1-lint — N+1 查询静态检测
+
+开发期检测 N+1 查询模式：用 `syn` 解析函数体 AST，检测循环内查询调用（`find_by_*` / `where_eq` 链 / 关联查询方法），输出 `N1Finding`。两种用法：`#[detect_n_plus_one]` 标注宏（编译期单函数）+ `scan_dir` 批量扫描（CLI）。
+
+| 类型 / 函数 | 说明 |
+|-------------|------|
+| `N1Pattern` | `QueryInLoop` / `ConditionalQueryInLoop` / `MissingEagerLoadHint` |
+| `N1Finding` | `pattern` / `file` / `line` / `message` |
+| `N1Severity` | `Info` / `Warning` / `Error`（`from_pattern` 推断） |
+| `N1Report` | 聚合报告（`add_finding` / `count` / `count_by_pattern` / `is_clean` / `patterns_found` / `to_summary_string`） |
+| `N1Config` | 检测配置（`with_ignore_pattern` / `is_ignored`） |
+| `QueryMethod` | `FindById` / `FindAll` / `Query` / `WhereEq` / `OrWhereEq` / `FindWithRelated` / `EagerLoad` / `Custom(String)`（`is_batchable`） |
+| `analyze_fn(item_fn: &syn::ItemFn) -> Vec<N1Finding>` | 单函数分析 |
+| `analyze_str(code: &str, file: &str) -> Vec<N1Finding>` | 源码字符串分析 |
+| `scan_dir(path: &Path) -> Vec<(String, Vec<N1Finding>)>` | 递归目录扫描（跳过 target） |
+
+**Feature gate**：`n1-lint`（由 `sz-orm-macros/n1-lint` 标注宏与 CLI `sz-orm n1-lint` 命令启用）。
+
+#### 2.23.25 sz-orm-nl-query — 自然语言查询流水线
+
+NL2SQL → execute → visualize → insight，含历史学习、SQL 解释、可视化、安全扫描、方言渲染、结果缓存。
+
+| 模块 / 类型 | 说明 |
+|-------------|------|
+| `pipeline` | `NlQueryPipeline` / `Nl2SqlGenerator` (trait) / `SqlExecutor` (trait) / `ConversationContext` / `ConversationTurn` |
+| `llm_generator` | `LlmNl2SqlGenerator` |
+| `history_learner` | `HistoryLearner` / `QueryHistoryEntry` / `LearnedPattern` |
+| `insight` | `InsightExtractor` / `Insight` / `InsightType` |
+| `sql_explainer` | `SqlExplainer` / `SqlExplanation` / `ClauseExplanation` |
+| `visualizer` | `Visualizer` (trait) / `VisualizerSelector` / `VisualizationIntent` / `ChartType` / `BarVisualizer` / `LineVisualizer` / `PieVisualizer` / `ScatterVisualizer` / `TableVisualizer` |
+| `types` | `NlQueryResponse` / `VisualizationSpec` / `NlQueryError` |
+| `sec_scanner` | `NL2SQLSecScanner` / `ScanReport` / `SecViolation` |
+| `cached_pipeline` | `CachedNl2SqlPipeline<E>` / `Nl2SqlResult` / `Nl2SqlWarning` |
+| `dialect_renderer` | `DialectAwareNl2SqlRenderer<E>` |
+
+**Feature gate**：`nl-query`（核心，拉起 `sz-orm-ai/multi-llm` + `ai-security-audit`）、`nl-query-sandbox`、`nl-query-visualizer`、`nl2sql-deep`（方言渲染 + 结果缓存 + 安全扫描，依赖 `parking_lot`）。
+
+#### 2.23.26 sz-orm-parallel — 并行查询执行器
+
+并行执行多个独立查询以降低复杂场景整体延迟，含并发度控制、四种合并策略、超时降级、任务分片、优先级调度、OLAP 向量化执行。
+
+| 类型 | 说明 |
+|------|------|
+| `ParallelExecutor` / `BatchExecutor` / `ParallelTask` / `ParallelResult` / `ParallelismMonitor` | 并行执行器 |
+| `ParallelQueryScheduler` / `DefaultLike` | 调度器（`parallel-query` feature） |
+| `ParallelQueryConfig` / `MergeStrategy` / `FailureStrategy` | 配置 + 合并/失败策略 |
+| `ParallelQuery` / `ParallelQueryOutcome` / `QueryOutcome` / `QueryFailure` | 查询与结果 |
+| `ResultMerger` | 结果合并 |
+| `ParallelismControl` / `ParallelismStrategy` / `ParallelismStats` | 并发度控制 |
+| `TaskSharder` / `ShardStrategy` / `DynamicSharder` / `Shard` | 任务分片 |
+| `TaskScheduler` / `ScheduledTask` / `Priority` / `ScheduleState` | 优先级调度 |
+| `ParallelStatsCollector` / `ParallelStats` / `ParallelReport` / `QueryKeyStats` | 统计 |
+| `parallel_queries` | 便捷宏/函数（`parallel-query` feature） |
+
+**Feature gate**：`parallel-query`（启用 `tokio` + `futures` + `scheduler` + `parallel_queries`）、`olap-vectorized`（`VectorizedExecutor` / `VectorizedOp` / `VectorizedResult` / `ColumnarBatch`，依赖 `sz-orm-core/olap-vectorized`）。
+
+#### 2.23.27 sz-orm-python — Python 绑定（PyO3）
+
+暴露 `sz-orm-core` 的 Model/ActiveModel/QueryBuilder/Pool/Transaction/Repository/Hooks/Observer/Paginator 全部核心 API，async 方法通过 `pyo3-asyncio` 桥接到 asyncio。
+
+| PyClass | 说明 |
+|---------|------|
+| `PyModel` / `PyActiveModel` | 模型 + ActiveModel |
+| `PyQueryBuilder` | 查询构建器 |
+| `PyPool` / `PyTransaction` | 连接池 + 事务 |
+| `PyRepository` / `PyPageResult` | 仓储 + 分页结果 |
+| `PyHooks` / `PyObserver` / `PyHookEvent` | 钩子 + 观察者 |
+| `PyPaginator` | 分页器 |
+| `DbType` / `DbError` | 枚举/错误 |
+
+`crate-type = ["cdylib", "rlib"]`，依赖 `pyo3 = "0.20"` + `pyo3-asyncio = "0.20"`。独立版本线 `0.1.0`。
+
+#### 2.23.28 sz-orm-stream — 异步流式结果集
+
+游标分页流式返回大结果集，避免一次性全量加载，含 keyset pagination、背压控制、批处理、流式算子、物化视图、流批一体、窗口、Flink 集成、CDC 实时同步。
+
+| 类型 | 说明 |
+|------|------|
+| `StreamResultSet` | 流式结果集（`stream-resultset`） |
+| `StreamResultSetConfig` / `PaginationStrategy` / `OrderDirection` | 配置 |
+| `KeysetPaginator` / `StreamPaginator` / `StreamPaginatorConfig` / `PaginationState` / `PaginationStats` | keyset / 游标分页 |
+| `AsyncBackpressureController` / `BackpressureStrategy` | 背压控制 |
+| `StreamBatchProcessor` / `BatchProcessorConfig` / `BatchResult` / `BatchProcessingStats` | 批处理 |
+| `StreamAggregator` / `MultiAggregator` / `StreamFilter` / `StreamMapper` / `AggregateFunction` / `AggregateResult` / `FilterCondition` | 流式算子 |
+
+**Feature gate**：`stream-resultset`（上述全部，依赖 `tokio` + `futures` + `sz-orm-core/async-row-stream`）、`stream-processing`（`MaterializedViewDef` / `ViewRefreshEngine` / `ViewId` / `RefreshStrategy` / `StreamError` / `StreamBatchJob` / `JobDag` / `JobHandle` / `JobMode` / `TimeRange` / `JobWatermark` / `Window` / `WindowAssigner` / `WindowConfig` / `WindowType` / `Watermark` / `Event` / `FlinkClient` / `JobArgs` / `JobStatus` / `FlinkError`）、`cdc-realtime-sync`（`CdcSyncCoordinator` / `CdcSyncConfig` / `create_memory_checkpoint` / `create_file_checkpoint`，依赖 `sz-orm-core/cdc-realtime-sync`）。
 
 ---
 

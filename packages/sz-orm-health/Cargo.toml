@@ -11,11 +11,15 @@ keywords.workspace = true
 categories.workspace = true
 
 [features]
-default = ["prod-health-endpoint", "prod-probe-endpoint"]
+default = ["prod-health-endpoint", "prod-probe-endpoint", "ha-events", "health-subitems"]
 # v3.8.0：健康检查 HTTP 端点配置化
 prod-health-endpoint = []
 # v3.8.0：K8s readiness/liveness 探针端点
 prod-probe-endpoint = []
+# v7.3.0：高可用事件总线（HaEventBus/HaEvent/HaEventSubscriber）
+ha-events = []
+# v7.3.0：5 子项健康检查（HealthSubItem/HealthReportV2），依赖事件总线
+health-subitems = ["ha-events"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -25,3 +29,14 @@ tokio = { workspace = true }
 
 [lints]
 workspace = true
+# v7.3.0 任务 2.1：HaEventBus 测试
+[[test]]
+name = "ha_event_bus"
+path = "tests/ha_event_bus.rs"
+required-features = ["ha-events"]
+
+# v7.3.0 任务 2.5：5 子项健康检查测试
+[[test]]
+name = "health_subitems"
+path = "tests/health_subitems.rs"
+required-features = ["health-subitems"]

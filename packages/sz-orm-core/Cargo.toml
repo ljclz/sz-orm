@@ -12,7 +12,7 @@ categories.workspace = true
 
 [features]
 # 榛樿鍚敤 Redis 鍒嗗竷寮忕紦瀛樺悗绔紙RedisBackend锛夛紝寮€绠卞嵆锟?
-default = ["redis", "simd", "l1-cache", "plan-cache", "zero-copy", "auto-prewarm", "perf-zero-copy-l2", "perf-enum-dispatch", "perf-box-str", "dialect-cockroachdb", "dialect-yugabytedb", "dialect-snowflake", "dialect-redshift", "dialect-informix", "dialect-saphana", "dialect-firebird", "prod-redis-tls", "prod-jwt-key-rotation", "prod-metrics-acl", "prod-shutdown-timeout", "prod-leak-detection", "prod-n1-tuning", "prod-pool-tuning", "prod-config-masking", "prod-log-level", "prod-health-endpoint", "prod-probe-endpoint", "prod-circuit-tuning", "prod-rate-limit-tuning", "prod-dialect-security", "cache-coherence", "performance", "prepared-stmt-cache", "async-row-stream", "query-result-cache", "saga-tx", "multi-tenant-pool"]
+default = ["redis", "simd", "l1-cache", "plan-cache", "zero-copy", "auto-prewarm", "perf-zero-copy-l2", "perf-enum-dispatch", "perf-box-str", "dialect-cockroachdb", "dialect-yugabytedb", "dialect-snowflake", "dialect-redshift", "dialect-informix", "dialect-saphana", "dialect-firebird", "prod-redis-tls", "prod-jwt-key-rotation", "prod-metrics-acl", "prod-shutdown-timeout", "prod-leak-detection", "prod-n1-tuning", "prod-pool-tuning", "prod-config-masking", "prod-log-level", "prod-health-endpoint", "prod-probe-endpoint", "prod-circuit-tuning", "prod-rate-limit-tuning", "prod-dialect-security", "cache-coherence", "performance", "prepared-stmt-cache", "async-row-stream", "query-result-cache", "saga-tx", "multi-tenant-pool", "perf-accel"]
 # v4.9.0：OWASP Top 10 完整覆盖渗透测试套件（编译门控，默认关闭）
 owasp-pentest-suite = []
 testing = ["tokio/full"]
@@ -215,6 +215,12 @@ cdc-realtime-sync = []
 rbac-abac-enhanced = ["multi-tenant-enhanced"]
 # v7.1.0：OLAP 向量化分析查询（聚合下推 + Star Schema 优化 + 物化视图匹配）
 olap-vectorized = ["zero-copy", "simd", "executor-opt", "query-result-cache", "rw-split-enhanced"]
+# v7.3.0：性能加速聚合 feature gate（SIMD + 零拷贝 + 预热 + 计划缓存，默认不启用）
+perf-accel = ["simd", "zero-copy", "auto-prewarm", "plan-cache", "zero-copy-deep"]
+# v7.3.0：自动主备故障转移（默认关闭，不改变单库行为）
+auto-failover = ["rw-split-enhanced"]
+# v7.3.0 任务 4.1：生态扩展配置聚合（EcoConfig，默认关闭）
+eco-config = []
 
 
 [dependencies]
@@ -779,6 +785,77 @@ path = "tests/phantom1_wiring.rs"
 name = "olap_wiring"
 path = "tests/olap_wiring.rs"
 required-features = ["olap-vectorized"]
+
+# v7.3.0 任务 1.1：PerfConfig/PerfMetrics 基础设施测试
+[[test]]
+name = "perf_config"
+path = "tests/perf_config.rs"
+required-features = ["perf-accel"]
+
+# v7.3.0 任务 1.2：SIMD 向量化 f32/f64/bool 全类型差分测试
+[[test]]
+name = "simd_extended"
+path = "tests/simd_extended.rs"
+required-features = ["simd"]
+
+# v7.3.0 任务 1.3：零拷贝类型注册表与 RSS/分配指标测试
+[[test]]
+name = "zero_copy_registry"
+path = "tests/zero_copy_registry.rs"
+required-features = ["zero-copy-deep"]
+
+# v7.3.0 任务 1.4：异步并行连接池预热测试
+[[test]]
+name = "prewarm_parallel"
+path = "tests/prewarm_parallel.rs"
+required-features = ["auto-prewarm"]
+
+# v7.3.0 任务 1.5：查询计划缓存参数类型指纹与 TTL 淘汰测试
+[[test]]
+name = "plan_cache_extended"
+path = "tests/plan_cache_extended.rs"
+required-features = ["plan-cache"]
+
+# v7.3.0 任务 1.6：性能加速端到端测试
+[[test]]
+name = "perf_e2e"
+path = "tests/perf_e2e.rs"
+required-features = ["perf-accel"]
+
+# v7.3.0 任务 2.2：自动故障转移协调器测试
+[[test]]
+name = "auto_failover"
+path = "tests/auto_failover.rs"
+required-features = ["auto-failover"]
+
+# v7.3.0 任务 2.2：故障转移端到端测试（真实 DB，需 --ignored）
+[[test]]
+name = "failover_e2e"
+path = "tests/failover_e2e.rs"
+required-features = ["auto-failover"]
+
+# v7.3.0 任务 2.3：错误率熔断器测试
+[[test]]
+name = "error_rate_circuit_breaker"
+path = "tests/error_rate_circuit_breaker.rs"
+
+# v7.3.0 任务 4.1：EcoConfig 生态扩展配置测试
+[[test]]
+name = "eco_config"
+path = "tests/eco_config.rs"
+required-features = ["eco-config"]
+
+# v7.3.0 任务 4.4：SchemaDiffReportV2 正/反向迁移 SQL 与只读连接测试
+[[test]]
+name = "schema_diff_v2"
+path = "tests/schema_diff_v2.rs"
+required-features = ["schema-diff-viz"]
+
+# v7.3.0 任务 4.4：schema diff 端到端测试（真实两库，#[ignore]）
+[[test]]
+name = "schema_diff_e2e"
+path = "tests/schema_diff_e2e.rs"
+required-features = ["schema-diff-viz"]
 
 
 [package.metadata.docs.rs]

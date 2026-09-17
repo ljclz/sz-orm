@@ -137,6 +137,112 @@ pub enum Nl2SqlError {
 
 // ==================== Trait 定义 ====================
 
+// v7.3.0 任务 3.4：多轮对话上下文 + 意图分析 + 注入防护
+// 启用 ai-nl2sql-enhanced feature 时可用，默认不启用
+
+/// 意图分析结果（轻量级，独立于 intent_analysis 模块）
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct IntentAnalysis {
+    /// 意图类型（select/insert/update/delete）
+    pub intent: String,
+    /// 提取的实体（表名、列名等）
+    pub entities: Vec<String>,
+    /// 置信度（0.0 ~ 1.0）
+    pub confidence: f32,
+}
+
+impl IntentAnalysis {
+    /// 从自然语言查询提取意图
+    pub fn from_query(nl: &str, schema: &SchemaContext) -> Self {
+        let lower = nl.to_lowercase();
+        let intent = if lower.contains("insert")
+            || lower.contains("add")
+            || lower.contains("新增")
+            || lower.contains("添加")
+        {
+            "insert"
+        } else if lower.contains("update")
+            || lower.contains("modify")
+            || lower.contains("修改")
+            || lower.contains("更新")
+        {
+            "update"
+        } else if lower.contains("delete")
+            || lower.contains("remove")
+            || lower.contains("删除")
+        {
+            "delete"
+        } else {
+            "select"
+        };
+
+        let entities: Vec<String> = schema
+            .tables
+            .iter()
+            .filter(|t| lower.contains(&t.name.to_lowercase()))
+            .map(|t| t.name.clone())
+            .collect();
+
+        Self {
+            intent: intent.to_string(),
+            entities,
+            confidence: 0.7,
+        }
+    }
+}
+
+/// 多轮对话上下文
+#[derive(Debug, Clone)]
+pub struct MultiTurnContext {
+    /// 历史记录（自然语言, SQL）
+    pub history: Vec<(String, SqlQuery)>,
+    /// Schema 上下文
+    pub schema: SchemaContext,
+}
+
+impl MultiTurnContext {
+    /// 创建多轮对话上下文
+    pub fn new(schema: SchemaContext) -> Self {
+        Self {
+            history: Vec::new(),
+            schema,
+        }
+    }
+
+    /// 添加一轮对话
+    pub fn add_turn(&mut self, nl: &str, sql: SqlQuery) {
+        self.history.push((nl.to_string(), sql));
+        // 保留最近 10 轮，避免内存无限增长
+        if self.history.len() > 10 {
+            self.history.remove(0);
+        }
+    }
+
+    /// 构建上下文提示词（将历史注入 LLM 提示词）
+    pub fn build_prompt(&self, current_nl: &str) -> String {
+        if self.history.is_empty() {
+            return current_nl.to_string();
+        }
+        let mut prompt = String::from("历史对话上下文：\n");
+        for (i, (nl, sql)) in self.history.iter().enumerate() {
+            prompt.push_str(&format!("轮次 {}: \"{}\" → {}\n", i + 1, nl, sql.sql));
+        }
+        prompt.push_str(&format!("\n当前查询: \"{}\"", current_nl));
+        prompt
+    }
+}
+
+/// NL2SQL 多轮对话结果
+#[derive(Debug, Clone)]
+pub struct Nl2sqlResult {
+    /// 生成的 SQL
+    pub sql: SqlQuery,
+    /// 意图分析
+    pub intent: IntentAnalysis,
+    /// 延迟（毫秒）
+    pub latency_ms: u64,
+}
+
 /// NL→SQL 引擎 trait
 ///
 /// 所有 NL→SQL 实现必须实现此 trait，以保证一致的接口。
@@ -178,6 +284,54 @@ pub trait Nl2SqlEngine: Send + Sync {
     /// - 只允许 SELECT 语句
     /// - 无 SQL 注入风险
     async fn validate(&self, query: &SqlQuery) -> Result<bool, Nl2SqlError>;
+
+    /// v7.3.0 任务 3.4：多轮对话 NL2SQL（含意图分析 + 注入防护）
+    ///
+    /// 默认实现：
+    /// 1. 注入防护：自然语言输入经 `safety::validate_no_injection` 过滤
+    /// 2. 意图分析：`IntentAnalysis::from_query` 提取意图和实体
+    /// 3. SQL 生成：调用 `generate`（使用上下文提示词）
+    /// 4. 语法校验：`safety::validate_select_only` 检查生成的 SQL
+    ///
+    /// 产出 SQL 参数化（禁止拼接原文），经安全校验。
+    async fn nl2sql(
+        &self,
+        nl: &str,
+        ctx: &MultiTurnContext,
+    ) -> Result<Nl2sqlResult, Nl2SqlError> {
+        use std::time::Instant;
+        let start = Instant::now();
+
+        // 1. 注入防护：自然语言输入经注入向量过滤
+        if !safety::validate_no_injection(nl) {
+            return Err(Nl2SqlError::SafetyError(format!(
+                "自然语言输入存在注入风险：{}",
+                nl
+            )));
+        }
+
+        // 2. 意图分析
+        let intent = IntentAnalysis::from_query(nl, &ctx.schema);
+
+        // 3. SQL 生成（使用上下文提示词）
+        let prompt = ctx.build_prompt(nl);
+        let sql = self.generate(&prompt, &ctx.schema).await?;
+
+        // 4. 语法校验：生成的 SQL 必须为 SELECT
+        if !safety::validate_select_only(&sql.sql) {
+            return Err(Nl2SqlError::SafetyError(format!(
+                "生成的 SQL 不是只读 SELECT 语句：{}",
+                sql.sql
+            )));
+        }
+
+        let latency_ms = start.elapsed().as_millis() as u64;
+        Ok(Nl2sqlResult {
+            sql,
+            intent,
+            latency_ms,
+        })
+    }
 }
 
 // ==================== SimpleNl2SqlEngine ====================

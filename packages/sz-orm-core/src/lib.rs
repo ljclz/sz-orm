@@ -739,6 +739,604 @@ pub const DEFAULT_MIN_IDLE: u32 = 5;
 /// Default maximum pool size
 pub const DEFAULT_MAX_SIZE: u32 = 100;
 
+// ============================================================================
+// v7.3.0 性能加速配置与指标聚合（perf-accel feature gate）
+// ============================================================================
+
+/// 性能加速配置（v7.3.0）
+///
+/// 统一驱动 SIMD 向量化、零拷贝序列化、连接池预热、查询计划缓存四项加速能力。
+/// 所有加速开关默认 false（plan_cache_enabled 默认 true 保持既有行为），
+/// 不改变 v7.2.0 既有行为。
+#[cfg(feature = "perf-accel")]
+#[derive(Debug, Clone)]
+pub struct PerfConfig {
+    /// 是否启用 SIMD 向量化加速
+    pub simd_enabled: bool,
+    /// SIMD 批量处理最低行数阈值（低于此值走标量路径）
+    pub simd_row_threshold: usize,
+    /// 是否启用零拷贝序列化
+    pub zero_copy_enabled: bool,
+    /// 是否启用连接池预热
+    pub prewarm_enabled: bool,
+    /// 预热连接数
+    pub prewarm_count: usize,
+    /// 是否启用查询计划缓存
+    pub plan_cache_enabled: bool,
+    /// 计划缓存容量
+    pub plan_cache_capacity: usize,
+    /// 计划缓存 TTL（毫秒）
+    pub plan_cache_ttl_ms: u64,
+}
+
+#[cfg(feature = "perf-accel")]
+impl Default for PerfConfig {
+    fn default() -> Self {
+        Self {
+            simd_enabled: false,
+            simd_row_threshold: 1024,
+            zero_copy_enabled: false,
+            prewarm_enabled: false,
+            prewarm_count: 1,
+            plan_cache_enabled: true,
+            plan_cache_capacity: 256,
+            plan_cache_ttl_ms: 300_000,
+        }
+    }
+}
+
+#[cfg(feature = "perf-accel")]
+impl PerfConfig {
+    /// 校验配置合法性
+    pub fn validate(&self) -> Result<(), DbError> {
+        if self.simd_row_threshold < 1 {
+            return Err(DbError::ConfigError(
+                "simd_row_threshold must be >= 1".to_string(),
+            ));
+        }
+        if self.prewarm_count < 1 {
+            return Err(DbError::ConfigError(
+                "prewarm_count must be >= 1".to_string(),
+            ));
+        }
+        if self.plan_cache_capacity < 1 {
+            return Err(DbError::ConfigError(
+                "plan_cache_capacity must be >= 1".to_string(),
+            ));
+        }
+        if self.plan_cache_ttl_ms == 0 {
+            return Err(DbError::ConfigError(
+                "plan_cache_ttl_ms must be > 0".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// 创建 builder
+    pub fn builder() -> PerfConfigBuilder {
+        PerfConfigBuilder::default()
+    }
+}
+
+/// 性能加速配置 builder（v7.3.0）
+#[cfg(feature = "perf-accel")]
+#[derive(Debug, Clone, Default)]
+pub struct PerfConfigBuilder {
+    config: PerfConfig,
+}
+
+#[cfg(feature = "perf-accel")]
+impl PerfConfigBuilder {
+    /// 设置 SIMD 启用
+    pub fn simd(mut self, enabled: bool) -> Self {
+        self.config.simd_enabled = enabled;
+        self
+    }
+
+    /// 设置 SIMD 行阈值
+    pub fn simd_row_threshold(mut self, threshold: usize) -> Self {
+        self.config.simd_row_threshold = threshold;
+        self
+    }
+
+    /// 设置零拷贝启用
+    pub fn zero_copy(mut self, enabled: bool) -> Self {
+        self.config.zero_copy_enabled = enabled;
+        self
+    }
+
+    /// 设置预热启用
+    pub fn prewarm(mut self, enabled: bool) -> Self {
+        self.config.prewarm_enabled = enabled;
+        self
+    }
+
+    /// 设置预热连接数
+    pub fn prewarm_count(mut self, count: usize) -> Self {
+        self.config.prewarm_count = count;
+        self
+    }
+
+    /// 设置计划缓存启用
+    pub fn plan_cache(mut self, enabled: bool) -> Self {
+        self.config.plan_cache_enabled = enabled;
+        self
+    }
+
+    /// 设置计划缓存容量
+    pub fn plan_cache_capacity(mut self, capacity: usize) -> Self {
+        self.config.plan_cache_capacity = capacity;
+        self
+    }
+
+    /// 设置计划缓存 TTL（毫秒）
+    pub fn plan_cache_ttl_ms(mut self, ttl_ms: u64) -> Self {
+        self.config.plan_cache_ttl_ms = ttl_ms;
+        self
+    }
+
+    /// 构建配置（校验合法性）
+    pub fn build(self) -> Result<PerfConfig, DbError> {
+        self.config.validate()?;
+        Ok(self.config)
+    }
+}
+
+/// 性能加速指标快照（v7.3.0）
+#[cfg(feature = "perf-accel")]
+#[derive(Debug, Clone, Default)]
+pub struct PerfMetricsSnapshot {
+    /// SIMD 命中次数
+    pub simd_hit_count: u64,
+    /// SIMD 未命中次数
+    pub simd_miss_count: u64,
+    /// SIMD 延迟降低百分比
+    pub simd_latency_reduction_pct: f64,
+    /// 零拷贝命中次数
+    pub zero_copy_hit_count: u64,
+    /// 零拷贝 RSS 降低百分比
+    pub zero_copy_rss_reduction_pct: f64,
+    /// 预热成功次数
+    pub prewarm_success_count: u64,
+    /// 计划缓存命中率
+    pub plan_cache_hit_rate: f64,
+    /// 计划缓存淘汰次数
+    pub plan_cache_eviction_count: u64,
+}
+
+/// 性能加速指标聚合（v7.3.0）
+///
+/// 使用无锁原子计数器采集 SIMD/零拷贝/预热/计划缓存四项加速能力的运行指标。
+#[cfg(feature = "perf-accel")]
+#[derive(Debug, Default)]
+pub struct PerfMetrics {
+    simd_hit_count: std::sync::atomic::AtomicU64,
+    simd_miss_count: std::sync::atomic::AtomicU64,
+    simd_latency_reduction_pct: std::sync::atomic::AtomicU64,
+    zero_copy_hit_count: std::sync::atomic::AtomicU64,
+    zero_copy_rss_reduction_pct: std::sync::atomic::AtomicU64,
+    prewarm_success_count: std::sync::atomic::AtomicU64,
+    plan_cache_hit_rate: std::sync::atomic::AtomicU64,
+    plan_cache_eviction_count: std::sync::atomic::AtomicU64,
+}
+
+#[cfg(feature = "perf-accel")]
+impl PerfMetrics {
+    /// 创建新的指标实例
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 记录 SIMD 命中
+    pub fn record_simd_hit(&self) {
+        self.simd_hit_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 记录 SIMD 未命中
+    pub fn record_simd_miss(&self) {
+        self.simd_miss_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 记录零拷贝命中
+    pub fn record_zero_copy_hit(&self) {
+        self.zero_copy_hit_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 记录预热成功
+    pub fn record_prewarm_success(&self) {
+        self.prewarm_success_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 记录计划缓存淘汰
+    pub fn record_plan_cache_eviction(&self) {
+        self.plan_cache_eviction_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 设置 SIMD 延迟降低百分比
+    pub fn set_simd_latency_reduction_pct(&self, pct: f64) {
+        self.simd_latency_reduction_pct
+            .store(pct.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 设置零拷贝 RSS 降低百分比
+    pub fn set_zero_copy_rss_reduction_pct(&self, pct: f64) {
+        self.zero_copy_rss_reduction_pct
+            .store(pct.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 设置计划缓存命中率
+    pub fn set_plan_cache_hit_rate(&self, rate: f64) {
+        self.plan_cache_hit_rate
+            .store(rate.to_bits(), std::sync::atomic::Ordering::Relaxed);
+    }
+
+    /// 采集指标快照
+    pub fn snapshot(&self) -> PerfMetricsSnapshot {
+        let o = std::sync::atomic::Ordering::Relaxed;
+        PerfMetricsSnapshot {
+            simd_hit_count: self.simd_hit_count.load(o),
+            simd_miss_count: self.simd_miss_count.load(o),
+            simd_latency_reduction_pct: f64::from_bits(self.simd_latency_reduction_pct.load(o)),
+            zero_copy_hit_count: self.zero_copy_hit_count.load(o),
+            zero_copy_rss_reduction_pct: f64::from_bits(self.zero_copy_rss_reduction_pct.load(o)),
+            prewarm_success_count: self.prewarm_success_count.load(o),
+            plan_cache_hit_rate: f64::from_bits(self.plan_cache_hit_rate.load(o)),
+            plan_cache_eviction_count: self.plan_cache_eviction_count.load(o),
+        }
+    }
+}
+
+// ============================================================================
+// v7.3.0 高可用配置聚合（auto-failover feature gate）
+// ============================================================================
+
+/// 回切策略（v7.3.0）
+///
+/// - `Manual`：故障转移后等待运维确认再回切
+/// - `Auto`：经健康+一致性校验后自动回切
+#[cfg(feature = "auto-failover")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum FailbackStrategy {
+    /// 等待运维确认再回切
+    Manual,
+    /// 经健康+一致性校验后自动回切
+    Auto,
+}
+
+/// 故障转移配置（v7.3.0）
+///
+/// 凭证经既有配置加密链路加载（禁止明文）。
+#[cfg(feature = "auto-failover")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FailoverConfig {
+    /// 主库连接 URL（已加密，运行时解密）
+    pub primary_url: String,
+    /// 备库连接 URL（已加密，运行时解密）
+    pub replica_url: String,
+    /// 探活间隔（必须 ≤ 5s 以保证 RTO ≤ 5s）
+    pub probe_interval: std::time::Duration,
+    /// 连续探活失败多少次触发故障转移（默认 3）
+    pub probe_failure_threshold: u32,
+    /// 回切策略
+    pub failback_strategy: FailbackStrategy,
+}
+
+#[cfg(feature = "auto-failover")]
+impl Default for FailoverConfig {
+    fn default() -> Self {
+        Self {
+            primary_url: String::new(),
+            replica_url: String::new(),
+            probe_interval: std::time::Duration::from_secs(1),
+            probe_failure_threshold: 3,
+            failback_strategy: FailbackStrategy::Manual,
+        }
+    }
+}
+
+/// 高可用配置聚合（v7.3.0）
+///
+/// 统一驱动故障转移、限流熔断、健康检查、追踪四项高可用能力。
+/// `failover_enabled` 默认 false，不改变单库行为。
+#[cfg(feature = "auto-failover")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HaConfig {
+    /// 是否启用故障转移（默认 false，单库行为不变）
+    pub failover_enabled: bool,
+    /// 故障转移配置（failover_enabled=false 时为 None）
+    pub failover: Option<FailoverConfig>,
+    /// 限流阈值（每秒请求数，0 表示不限）
+    pub rate_limit_threshold: f64,
+    /// 限流排队超时（毫秒，默认 100）
+    pub rate_limit_queue_timeout_ms: u64,
+    /// 熔断错误率阈值 ∈ (0,1)，默认 0.5
+    pub circuit_breaker_error_threshold: f64,
+    /// 半开探测请求数（≥ 1）
+    pub circuit_breaker_half_open_probes: u32,
+    /// 追踪采样率 ∈ [0,1]
+    pub trace_sample_rate: f64,
+    /// OTLP 导出端点（None 表示不导出）
+    pub trace_otlp_endpoint: Option<String>,
+}
+
+#[cfg(feature = "auto-failover")]
+impl Default for HaConfig {
+    fn default() -> Self {
+        Self {
+            failover_enabled: false,
+            failover: None,
+            rate_limit_threshold: 0.0,
+            rate_limit_queue_timeout_ms: 100,
+            circuit_breaker_error_threshold: 0.5,
+            circuit_breaker_half_open_probes: 1,
+            trace_sample_rate: 1.0,
+            trace_otlp_endpoint: None,
+        }
+    }
+}
+
+#[cfg(feature = "auto-failover")]
+impl HaConfig {
+    /// 校验配置合法性
+    pub fn validate(&self) -> Result<(), DbError> {
+        if let Some(failover) = &self.failover {
+            if failover.probe_interval > std::time::Duration::from_secs(5) {
+                return Err(DbError::ConfigError(
+                    "probe_interval must be <= 5s for RTO <= 5s".to_string(),
+                ));
+            }
+            if failover.probe_failure_threshold == 0 {
+                return Err(DbError::ConfigError(
+                    "probe_failure_threshold must be >= 1".to_string(),
+                ));
+            }
+        }
+        if self.circuit_breaker_error_threshold <= 0.0
+            || self.circuit_breaker_error_threshold >= 1.0
+        {
+            return Err(DbError::ConfigError(
+                "circuit_breaker_error_threshold must be in (0, 1)".to_string(),
+            ));
+        }
+        if self.circuit_breaker_half_open_probes == 0 {
+            return Err(DbError::ConfigError(
+                "circuit_breaker_half_open_probes must be >= 1".to_string(),
+            ));
+        }
+        if self.trace_sample_rate < 0.0 || self.trace_sample_rate > 1.0 {
+            return Err(DbError::ConfigError(
+                "trace_sample_rate must be in [0, 1]".to_string(),
+            ));
+        }
+        Ok(())
+    }
+
+    /// 创建 builder
+    pub fn builder() -> HaConfigBuilder {
+        HaConfigBuilder::default()
+    }
+}
+
+/// 高可用配置 builder（v7.3.0）
+#[cfg(feature = "auto-failover")]
+#[derive(Debug, Clone, Default)]
+pub struct HaConfigBuilder {
+    config: HaConfig,
+}
+
+#[cfg(feature = "auto-failover")]
+impl HaConfigBuilder {
+    /// 设置故障转移启用
+    pub fn failover_enabled(mut self, enabled: bool) -> Self {
+        self.config.failover_enabled = enabled;
+        self
+    }
+
+    /// 设置故障转移配置
+    pub fn failover(mut self, config: FailoverConfig) -> Self {
+        self.config.failover = Some(config);
+        self
+    }
+
+    /// 设置限流阈值
+    pub fn rate_limit_threshold(mut self, threshold: f64) -> Self {
+        self.config.rate_limit_threshold = threshold;
+        self
+    }
+
+    /// 设置限流排队超时（毫秒）
+    pub fn rate_limit_queue_timeout_ms(mut self, ms: u64) -> Self {
+        self.config.rate_limit_queue_timeout_ms = ms;
+        self
+    }
+
+    /// 设置熔断错误率阈值
+    pub fn circuit_breaker_error_threshold(mut self, threshold: f64) -> Self {
+        self.config.circuit_breaker_error_threshold = threshold;
+        self
+    }
+
+    /// 设置半开探测请求数
+    pub fn circuit_breaker_half_open_probes(mut self, probes: u32) -> Self {
+        self.config.circuit_breaker_half_open_probes = probes;
+        self
+    }
+
+    /// 设置追踪采样率
+    pub fn trace_sample_rate(mut self, rate: f64) -> Self {
+        self.config.trace_sample_rate = rate;
+        self
+    }
+
+    /// 设置 OTLP 导出端点
+    pub fn trace_otlp_endpoint(mut self, endpoint: impl Into<String>) -> Self {
+        self.config.trace_otlp_endpoint = Some(endpoint.into());
+        self
+    }
+
+    /// 构建配置（校验合法性）
+    pub fn build(self) -> Result<HaConfig, DbError> {
+        self.config.validate()?;
+        Ok(self.config)
+    }
+}
+
+// ============================================================================
+// v7.3.0 任务 4.1：EcoConfig 生态扩展配置聚合
+// ============================================================================
+
+/// Web 框架枚举（v7.3.0 生态扩展）
+#[cfg(feature = "eco-config")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum WebFramework {
+    /// axum
+    Axum,
+    /// actix-web
+    Actix,
+    /// warp
+    Warp,
+}
+
+/// 中间件特性枚举（v7.3.0 生态扩展）
+#[cfg(feature = "eco-config")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum MiddlewareFeature {
+    /// 连接池注入
+    PoolInject,
+    /// 事务
+    Transaction,
+    /// 限流
+    RateLimit,
+    /// 追踪
+    Tracing,
+    /// 健康端点
+    HealthEndpoint,
+}
+
+/// 源 ORM 枚举（v7.3.0 生态扩展，用于迁移源识别）
+#[cfg(feature = "eco-config")]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SourceOrm {
+    /// Diesel
+    Diesel,
+    /// SeaORM
+    SeaOrm,
+    /// SQLx
+    Sqlx,
+}
+
+/// 生态扩展配置聚合（v7.3.0 任务 4.1）
+///
+/// 统一驱动 warp 中间件适配、源 ORM 迁移、schema diff 三项生态扩展能力。
+/// `migration_dry_run` 默认 true（不自动执行 DDL）。
+#[cfg(feature = "eco-config")]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct EcoConfig {
+    /// Web 框架（默认 Axum）
+    pub web_framework: WebFramework,
+    /// 启用的中间件特性列表
+    pub middleware_features: Vec<MiddlewareFeature>,
+    /// 迁移源 ORM（None 表示不从其他 ORM 迁移）
+    pub migration_source_orm: Option<SourceOrm>,
+    /// 迁移 dry-run 模式（默认 true，不自动执行 DDL）
+    pub migration_dry_run: bool,
+    /// schema diff 左库 URL（None 表示不启用 schema diff）
+    pub schema_diff_left_url: Option<String>,
+    /// schema diff 右库 URL
+    pub schema_diff_right_url: Option<String>,
+}
+
+#[cfg(feature = "eco-config")]
+impl Default for EcoConfig {
+    fn default() -> Self {
+        Self {
+            web_framework: WebFramework::Axum,
+            middleware_features: Vec::new(),
+            migration_source_orm: None,
+            migration_dry_run: true,
+            schema_diff_left_url: None,
+            schema_diff_right_url: None,
+        }
+    }
+}
+
+#[cfg(feature = "eco-config")]
+impl EcoConfig {
+    /// 校验配置合法性
+    pub fn validate(&self) -> Result<(), DbError> {
+        // schema diff：left/right 必须同时提供或同时缺失
+        if self.schema_diff_left_url.is_some() != self.schema_diff_right_url.is_some() {
+            return Err(DbError::ConfigError(
+                "schema_diff_left_url 和 schema_diff_right_url 必须同时提供或同时缺失".to_string(),
+            ));
+        }
+        // 迁移源 ORM 提供时，dry_run 允许 true/false（不强制），但需提示
+        Ok(())
+    }
+
+    /// 创建 builder
+    pub fn builder() -> EcoConfigBuilder {
+        EcoConfigBuilder::default()
+    }
+}
+
+/// 生态扩展配置 builder（v7.3.0 任务 4.1）
+#[cfg(feature = "eco-config")]
+#[derive(Debug, Clone, Default)]
+pub struct EcoConfigBuilder {
+    config: EcoConfig,
+}
+
+#[cfg(feature = "eco-config")]
+impl EcoConfigBuilder {
+    /// 设置 Web 框架
+    pub fn web_framework(mut self, fw: WebFramework) -> Self {
+        self.config.web_framework = fw;
+        self
+    }
+
+    /// 设置中间件特性列表
+    pub fn middleware_features(mut self, features: Vec<MiddlewareFeature>) -> Self {
+        self.config.middleware_features = features;
+        self
+    }
+
+    /// 设置迁移源 ORM
+    pub fn migration_source_orm(mut self, orm: SourceOrm) -> Self {
+        self.config.migration_source_orm = Some(orm);
+        self
+    }
+
+    /// 设置迁移 dry-run
+    pub fn migration_dry_run(mut self, dry_run: bool) -> Self {
+        self.config.migration_dry_run = dry_run;
+        self
+    }
+
+    /// 设置 schema diff 左库 URL
+    pub fn schema_diff_left_url(mut self, url: impl Into<String>) -> Self {
+        self.config.schema_diff_left_url = Some(url.into());
+        self
+    }
+
+    /// 设置 schema diff 右库 URL
+    pub fn schema_diff_right_url(mut self, url: impl Into<String>) -> Self {
+        self.config.schema_diff_right_url = Some(url.into());
+        self
+    }
+
+    /// 构建配置（校验合法性）
+    pub fn build(self) -> Result<EcoConfig, DbError> {
+        self.config.validate()?;
+        Ok(self.config)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

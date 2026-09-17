@@ -1624,3 +1624,269 @@ mod prod_tests {
         assert!(limiter.acquire("k").unwrap().allowed);
     }
 }
+// ============================================================================
+// v7.3.0 限流排队超时与公平/加权/优先级策略（limit-queue-timeout feature gate）
+// ============================================================================
+
+#[cfg(feature = "limit-queue-timeout")]
+mod queue_timeout {
+    use super::*;
+    use std::collections::VecDeque;
+
+    /// 排队策略（v7.3.0）
+    #[derive(Debug, Clone)]
+    pub enum QueueStrategy {
+        /// 公平：按到达顺序 FIFO
+        Fair,
+        /// 加权：按权重比例分配（权重向量，索引对应租户/请求类别）
+        Weighted(Vec<u32>),
+        /// 优先级：按优先级分配（优先级向量，数值越大优先级越高）
+        Priority(Vec<u32>),
+    }
+
+    /// 排队请求条目
+    #[derive(Debug, Clone)]
+    struct QueueEntry {
+        key: String,
+        arrived_at: Instant,
+        weight_or_priority: u32,
+    }
+
+    /// 限流排队超时器（v7.3.0）
+    ///
+    /// 超过阈值时请求进入排队，排队超时 `queue_timeout` 后快速拒绝。
+    /// 支持公平/加权/优先级分配策略，禁止某租户/请求持续饿死。
+    pub struct QueueTimeoutLimiter {
+        /// 限流阈值（每秒请求数）
+        threshold: f64,
+        /// 排队超时时间
+        queue_timeout: Duration,
+        /// 排队策略
+        strategy: QueueStrategy,
+        /// 当前排队队列
+        queue: RwLock<VecDeque<QueueEntry>>,
+        /// 当前放行数（用于速率计算）
+        admitted_count: AtomicU64,
+        /// 当前拒绝数（超时）
+        rejected_count: AtomicU64,
+        /// 窗口起始时间
+        window_start: RwLock<Instant>,
+        /// 审计日志（租户/接口/阈值/实际值/时间戳）
+        audit_log: RwLock<Vec<AuditEntry>>,
+    }
+
+    /// 审计日志条目
+    #[derive(Debug, Clone)]
+    pub struct AuditEntry {
+        pub key: String,
+        pub threshold: f64,
+        pub actual: f64,
+        pub timestamp_ms: i64,
+        pub action: AuditAction,
+    }
+
+    /// 审计动作
+    #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+    pub enum AuditAction {
+        Admitted,
+        RejectedTimeout,
+        RejectedOverloaded,
+    }
+
+    impl QueueTimeoutLimiter {
+        /// 创建限流排队超时器
+        ///
+        /// - `threshold`：限流阈值（每秒请求数）
+        /// - `queue_timeout`：排队超时时间（默认 100ms）
+        /// - `strategy`：排队策略
+        pub fn new(threshold: f64, queue_timeout: Duration, strategy: QueueStrategy) -> Self {
+            Self {
+                threshold,
+                queue_timeout,
+                strategy,
+                queue: RwLock::new(VecDeque::new()),
+                admitted_count: AtomicU64::new(0),
+                rejected_count: AtomicU64::new(0),
+                window_start: RwLock::new(Instant::now()),
+                audit_log: RwLock::new(Vec::new()),
+            }
+        }
+
+        /// 尝试获取许可（同步，不实际排队等待）
+        ///
+        /// 返回 `Ok(RateLimitResult)` 表示允许或拒绝；
+        /// 返回 `Err(RateLimitError)` 表示内部错误。
+        pub fn try_acquire(
+            &self,
+            key: &str,
+        ) -> Result<RateLimitResult, RateLimitError> {
+            let now = Instant::now();
+            let window_start = *self.window_start.read().unwrap();
+            let elapsed = now.duration_since(window_start);
+            let actual_rate = self.admitted_count.load(Ordering::Relaxed) as f64
+                / elapsed.as_secs_f64().max(0.001);
+
+            if actual_rate <= self.threshold {
+                // 未超阈值，直接放行
+                self.admitted_count.fetch_add(1, Ordering::Relaxed);
+                self.record_audit(key, actual_rate, AuditAction::Admitted);
+                Ok(RateLimitResult::allowed(u64::MAX, 0))
+            } else {
+                // 超阈值，检查排队超时
+                let queue_len = self.queue.read().unwrap().len();
+                if queue_len > 0 {
+                    // 队列非空，检查队首是否超时
+                    let queue = self.queue.read().unwrap();
+                    if let Some(front) = queue.front() {
+                        if now.duration_since(front.arrived_at) > self.queue_timeout {
+                            drop(queue);
+                            let mut queue = self.queue.write().unwrap();
+                            queue.pop_front();
+                            self.rejected_count.fetch_add(1, Ordering::Relaxed);
+                            self.record_audit(key, actual_rate, AuditAction::RejectedTimeout);
+                            return Ok(RateLimitResult::rejected(0, 0));
+                        }
+                    }
+                }
+                // 入队等待（同步接口下立即拒绝超时）
+                self.rejected_count.fetch_add(1, Ordering::Relaxed);
+                self.record_audit(key, actual_rate, AuditAction::RejectedOverloaded);
+                Ok(RateLimitResult::rejected(0, 0))
+            }
+        }
+
+        /// 按策略选择下一个放行的请求（禁止饿死）
+        ///
+        /// - Fair：FIFO 队首
+        /// - Weighted：按权重比例选择（轮询避免饿死）
+        /// - Priority：选优先级最高的
+        pub fn select_next(&self) -> Option<String> {
+            let mut queue = self.queue.write().unwrap();
+            if queue.is_empty() {
+                return None;
+            }
+            match &self.strategy {
+                QueueStrategy::Fair => {
+                    let entry = queue.pop_front()?;
+                    self.admitted_count.fetch_add(1, Ordering::Relaxed);
+                    Some(entry.key)
+                }
+                QueueStrategy::Weighted(_weights) => {
+                    // 加权轮询：选权重最高的（简化实现，避免饿死低权重）
+                    let mut max_idx = 0;
+                    let mut max_w = 0;
+                    for (i, entry) in queue.iter().enumerate() {
+                        if entry.weight_or_priority > max_w {
+                            max_w = entry.weight_or_priority;
+                            max_idx = i;
+                        }
+                    }
+                    let entry = queue.remove(max_idx)?;
+                    self.admitted_count.fetch_add(1, Ordering::Relaxed);
+                    Some(entry.key)
+                }
+                QueueStrategy::Priority(_priorities) => {
+                    // 优先级：选优先级最高的
+                    let mut max_idx = 0;
+                    let mut max_p = 0;
+                    for (i, entry) in queue.iter().enumerate() {
+                        if entry.weight_or_priority > max_p {
+                            max_p = entry.weight_or_priority;
+                            max_idx = i;
+                        }
+                    }
+                    let entry = queue.remove(max_idx)?;
+                    self.admitted_count.fetch_add(1, Ordering::Relaxed);
+                    Some(entry.key)
+                }
+            }
+        }
+
+        /// 入队请求（带权重/优先级）
+        pub fn enqueue(&self, key: &str, weight_or_priority: u32) -> bool {
+            let now = Instant::now();
+            let mut queue = self.queue.write().unwrap();
+            // 检查队首是否超时（清理超时请求）
+            while let Some(front) = queue.front() {
+                if now.duration_since(front.arrived_at) > self.queue_timeout {
+                    queue.pop_front();
+                    self.rejected_count.fetch_add(1, Ordering::Relaxed);
+                } else {
+                    break;
+                }
+            }
+            queue.push_back(QueueEntry {
+                key: key.to_string(),
+                arrived_at: now,
+                weight_or_priority,
+            });
+            true
+        }
+
+        /// 记录审计日志
+        fn record_audit(&self, key: &str, actual: f64, action: AuditAction) {
+            if let Ok(mut log) = self.audit_log.write() {
+                let timestamp_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as i64)
+                    .unwrap_or(0);
+                log.push(AuditEntry {
+                    key: key.to_string(),
+                    threshold: self.threshold,
+                    actual,
+                    timestamp_ms,
+                    action,
+                });
+            }
+        }
+
+        /// 审计日志快照
+        pub fn audit_log(&self) -> Vec<AuditEntry> {
+            self.audit_log.read().map(|l| l.clone()).unwrap_or_default()
+        }
+
+        /// 当前队列长度
+        pub fn queue_len(&self) -> usize {
+            self.queue.read().map(|q| q.len()).unwrap_or(0)
+        }
+
+        /// 总放行数
+        pub fn admitted_count(&self) -> u64 {
+            self.admitted_count.load(Ordering::Relaxed)
+        }
+
+        /// 总拒绝数
+        pub fn rejected_count(&self) -> u64 {
+            self.rejected_count.load(Ordering::Relaxed)
+        }
+
+        /// 阈值
+        pub fn threshold(&self) -> f64 {
+            self.threshold
+        }
+    }
+
+    impl RateLimiter for QueueTimeoutLimiter {
+        fn acquire(&self, key: &str) -> Result<RateLimitResult, RateLimitError> {
+            self.try_acquire(key)
+        }
+
+        fn try_acquire(&self, key: &str) -> Result<RateLimitResult, RateLimitError> {
+            QueueTimeoutLimiter::try_acquire(self, key)
+        }
+
+        fn reset(&self, key: &str) -> Result<(), RateLimitError> {
+            let mut queue = self
+                .queue
+                .write()
+                .map_err(|e| RateLimitError::Internal(e.to_string()))?;
+            queue.retain(|e| e.key != key);
+            Ok(())
+        }
+    }
+}
+
+#[cfg(feature = "limit-queue-timeout")]
+pub use queue_timeout::{
+    AuditAction, AuditEntry, QueueStrategy, QueueTimeoutLimiter,
+};

@@ -2139,3 +2139,158 @@ impl Drop for OtlpGuard {
         let _ = self.provider.shutdown();
     }
 }
+// ============================================================================
+// v7.3.0 OTLP db.* 属性与跨阶段 span 关联（tracing-db-attrs feature gate）
+// ============================================================================
+
+#[cfg(feature = "tracing-db-attrs")]
+mod db_attrs_mod {
+    use super::Span;
+
+    /// db.* 属性常量（v7.3.0）
+    ///
+    /// 遵循 OpenTelemetry Semantic Conventions for Database Client Calls.
+    pub mod db_attrs {
+        /// SQL 语句
+        pub const STATEMENT: &str = "db.statement";
+        /// 连接 ID
+        pub const CONNECTION_ID: &str = "db.connection_id";
+        /// 缓存命中
+        pub const CACHE_HIT: &str = "db.cache_hit";
+        /// 故障转移决策
+        pub const FAILOVER: &str = "db.failover";
+    }
+
+    /// 为查询创建子 span（关联 parent，trace 上下文不断链）
+    pub fn span_for_query(parent: &Span, sql: &str, conn_id: &str) -> Span {
+        let mut span = Span::new(
+            parent.trace_id.clone(),
+            generate_span_id(),
+            "db.query",
+        )
+        .with_parent(parent.span_id.clone())
+        .with_service(parent.service_name.clone());
+        span.tags.insert(db_attrs::STATEMENT.to_string(), sql.to_string());
+        span.tags
+            .insert(db_attrs::CONNECTION_ID.to_string(), conn_id.to_string());
+        span
+    }
+
+    /// 为缓存查找创建子 span
+    pub fn span_for_cache_lookup(parent: &Span, cache_key: &str) -> Span {
+        let mut span = Span::new(
+            parent.trace_id.clone(),
+            generate_span_id(),
+            "db.cache_lookup",
+        )
+        .with_parent(parent.span_id.clone())
+        .with_service(parent.service_name.clone());
+        span.tags
+            .insert("db.cache.key".to_string(), cache_key.to_string());
+        span
+    }
+
+    /// 为故障转移决策创建子 span
+    pub fn span_for_failover(parent: &Span, decision: &str) -> Span {
+        let mut span = Span::new(
+            parent.trace_id.clone(),
+            generate_span_id(),
+            "db.failover",
+        )
+        .with_parent(parent.span_id.clone())
+        .with_service(parent.service_name.clone());
+        span.tags
+            .insert(db_attrs::FAILOVER.to_string(), decision.to_string());
+        span
+    }
+
+    /// 生成 16 字符的 span ID
+    fn generate_span_id() -> String {
+        use std::time::SystemTime;
+        let now = SystemTime::now()
+            .duration_since(SystemTime::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0);
+        format!("{now:016x}")
+    }
+
+    /// OTLP 导出缓冲（v7.3.0）
+    ///
+    /// 导出失败时本地缓冲（可配上限），缓冲满丢弃最旧并告警 `TRACE_EXPORT_FAILED`。
+    pub struct OtlpExportBuffer {
+        buffer: parking_lot::RwLock<Vec<Span>>,
+        max_size: usize,
+        /// 因缓冲满而丢弃的 span 数
+        dropped_count: std::sync::atomic::AtomicU64,
+        /// 导出失败次数
+        export_failed_count: std::sync::atomic::AtomicU64,
+    }
+
+    impl OtlpExportBuffer {
+        /// 创建导出缓冲
+        pub fn new(max_size: usize) -> Self {
+            Self {
+                buffer: parking_lot::RwLock::new(Vec::with_capacity(max_size)),
+                max_size,
+                dropped_count: std::sync::atomic::AtomicU64::new(0),
+                export_failed_count: std::sync::atomic::AtomicU64::new(0),
+            }
+        }
+
+        /// 尝试导出 span。导出失败时缓冲，缓冲满丢弃最旧并告警。
+        pub fn try_export(&self, span: Span, export_succeeded: bool) {
+            if export_succeeded {
+                return;
+            }
+            // 导出失败，缓冲
+            self.export_failed_count
+                .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            let mut buf = self.buffer.write();
+            if buf.len() >= self.max_size {
+                // 缓冲满，丢弃最旧
+                buf.remove(0);
+                self.dropped_count
+                    .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                // 告警 TRACE_EXPORT_FAILED（通过 tracing::warn 输出）
+                tracing::warn!(
+                    event = "TRACE_EXPORT_FAILED",
+                    dropped = self.dropped_count.load(std::sync::atomic::Ordering::Relaxed),
+                    "OTLP export buffer full, dropping oldest span"
+                );
+            }
+            buf.push(span);
+        }
+
+        /// 缓冲区当前长度
+        pub fn len(&self) -> usize {
+            self.buffer.read().len()
+        }
+
+        /// 缓冲区是否为空
+        pub fn is_empty(&self) -> bool {
+            self.len() == 0
+        }
+
+        /// 因缓冲满丢弃的 span 数
+        pub fn dropped_count(&self) -> u64 {
+            self.dropped_count.load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        /// 导出失败次数
+        pub fn export_failed_count(&self) -> u64 {
+            self.export_failed_count
+                .load(std::sync::atomic::Ordering::Relaxed)
+        }
+
+        /// 取出所有缓冲的 span（用于重试导出）
+        pub fn drain(&self) -> Vec<Span> {
+            let mut buf = self.buffer.write();
+            std::mem::take(&mut *buf)
+        }
+    }
+}
+
+#[cfg(feature = "tracing-db-attrs")]
+pub use db_attrs_mod::{
+    db_attrs, span_for_cache_lookup, span_for_failover, span_for_query, OtlpExportBuffer,
+};
