@@ -31,6 +31,7 @@ fn test_config_hot_reload_e2e() {
     assert!(stdout.contains("applied_count"), "应包含 applied_count: {}", stdout);
 }
 
+#[cfg(feature = "lsp-server")]
 #[test]
 fn test_lsp_e2e() {
     use sz_orm_lsp::server::LspServer;
