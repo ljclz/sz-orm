@@ -6,8 +6,8 @@
 use std::time::Duration;
 
 use sz_orm_core::{
-    FailbackStrategy, FailoverConfig,
     rw_split_enhanced::{AutoFailoverCoordinator, FailoverError, ProbeResult},
+    FailbackStrategy, FailoverConfig,
 };
 
 fn make_config() -> FailoverConfig {

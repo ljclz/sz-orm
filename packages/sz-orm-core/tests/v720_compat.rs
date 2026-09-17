@@ -2,7 +2,7 @@
 //!
 //! 验证未显式启用任何 v7.3.0 新增开关时，行为与 v7.2.0 完全一致。
 
-use sz_orm_core::{DbType, DbError, PoolConfig, Value};
+use sz_orm_core::{DbError, DbType, PoolConfig, Value};
 
 /// 验证默认 PoolConfig 不含 v7.3.0 新增字段
 #[test]

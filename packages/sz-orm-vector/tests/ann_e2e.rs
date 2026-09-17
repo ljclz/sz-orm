@@ -21,12 +21,17 @@ use sz_orm_vector::{AnnAccelerated, InMemoryVectorStore, PgVectorStore, VectorRe
 #[ignore = "需要真实 pgvector 连接，设置 DATABASE_URL 环境变量"]
 async fn e2e_ann_recall_consistency_with_pgvector() {
     let store = InMemoryVectorStore::new();
-    store.create_collection("e2e_docs", 128, None).await.unwrap();
+    store
+        .create_collection("e2e_docs", 128, None)
+        .await
+        .unwrap();
 
     // 插入 1000 条 128 维向量
     let records: Vec<_> = (0..1000)
         .map(|i| {
-            let v: Vec<f32> = (0..128).map(|j| ((i * 128 + j) as f32).sin() / 10.0).collect();
+            let v: Vec<f32> = (0..128)
+                .map(|j| ((i * 128 + j) as f32).sin() / 10.0)
+                .collect();
             VectorRecord::new(format!("vec_{}", i), v)
         })
         .collect();
@@ -53,7 +58,10 @@ async fn e2e_ann_recall_consistency_with_pgvector() {
 #[ignore = "需要真实 pgvector 连接，设置 DATABASE_URL 环境变量"]
 async fn e2e_tenant_isolation_with_pgvector() {
     let store = InMemoryVectorStore::new();
-    store.create_collection("tenant_docs", 64, None).await.unwrap();
+    store
+        .create_collection("tenant_docs", 64, None)
+        .await
+        .unwrap();
 
     // 插入多租户数据
     let records: Vec<_> = (0..200)
@@ -64,7 +72,9 @@ async fn e2e_tenant_isolation_with_pgvector() {
                 "tenant_id".to_string(),
                 serde_json::Value::String(tenant.to_string()),
             );
-            let v: Vec<f32> = (0..64).map(|j| ((i * 64 + j) as f32).cos() / 10.0).collect();
+            let v: Vec<f32> = (0..64)
+                .map(|j| ((i * 64 + j) as f32).cos() / 10.0)
+                .collect();
             vec![VectorRecord::new(format!("{}_{}", tenant, i), v).with_metadata(meta)]
         })
         .collect();

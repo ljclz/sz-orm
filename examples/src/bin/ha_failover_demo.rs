@@ -24,7 +24,7 @@ use sz_orm_core::{FailbackStrategy, FailoverConfig, HaConfig};
 use sz_orm_health::advanced::{HealthSubItem, HealthSubItemChecker};
 use sz_orm_health::{HaEvent, HaEventBus, HaEventSubscriber, HaEventType, HealthStatus};
 use sz_orm_limit::{QueueStrategy, QueueTimeoutLimiter};
-use sz_orm_tracing::{Span, span_for_query};
+use sz_orm_tracing::{span_for_query, Span};
 
 /// 当前时间戳（毫秒）
 fn now_ms() -> i64 {
@@ -85,13 +85,19 @@ async fn main() {
         .trace_otlp_endpoint("http://localhost:4317")
         .build()
         .expect("HaConfig 校验失败");
-    println!("[配置] HaConfig 校验通过: failover_enabled={}", ha_config.failover_enabled);
+    println!(
+        "[配置] HaConfig 校验通过: failover_enabled={}",
+        ha_config.failover_enabled
+    );
 
     // 2. 事件总线 + 订阅者（生产调用点：ha_failover_demo.rs:45）
     let event_bus = Arc::new(HaEventBus::new());
     let counter = Arc::new(EventCounter::new());
     event_bus.subscribe(counter.clone());
-    println!("[事件] HaEventBus 订阅者已注册: {}", event_bus.subscriber_count());
+    println!(
+        "[事件] HaEventBus 订阅者已注册: {}",
+        event_bus.subscriber_count()
+    );
 
     // 3. 自动故障转移协调器（生产调用点：ha_failover_demo.rs:55）
     let failover_config = ha_config.failover.as_ref().unwrap().clone();
@@ -108,7 +114,10 @@ async fn main() {
             timestamp_ms: now_ms(),
             error: Some(format!("attempt {i}: connection refused")),
         });
-        println!("[探活] 失败 {i}/3, consecutive_failures={}", coord.consecutive_probe_failures());
+        println!(
+            "[探活] 失败 {i}/3, consecutive_failures={}",
+            coord.consecutive_probe_failures()
+        );
     }
     println!("[故障转移] is_failed_over={}", coord.is_failed_over());
 
@@ -120,11 +129,7 @@ async fn main() {
 
     // 4. 5 子项健康检查（生产调用点：ha_failover_demo.rs:80）
     let health_checker = HealthSubItemChecker::with_event_bus(event_bus.clone());
-    health_checker.check_and_update(
-        HealthSubItem::Connection,
-        HealthStatus::Healthy,
-        "10/100",
-    );
+    health_checker.check_and_update(HealthSubItem::Connection, HealthStatus::Healthy, "10/100");
     health_checker.check_and_update(
         HealthSubItem::PrimaryReplica,
         HealthStatus::Unhealthy,
@@ -156,14 +161,23 @@ async fn main() {
     for _ in 0..4 {
         cb.record_success();
     }
-    println!("[熔断] 错误率={:.2}, 状态={:?}", cb.error_rate(), cb.state());
+    println!(
+        "[熔断] 错误率={:.2}, 状态={:?}",
+        cb.error_rate(),
+        cb.state()
+    );
 
     // 7. 跨阶段追踪（生产调用点：ha_failover_demo.rs:110）
     let root = Span::new("trace-ha-demo", "span-root", "ha_demo");
     let query_span = span_for_query(&root, "SELECT * FROM users", "conn-42");
-    println!("\n[追踪] query span: trace_id={}, parent_id={:?}",
-        query_span.trace_id, query_span.parent_id);
-    println!("[追踪] db.statement={}", query_span.tags.get("db.statement").unwrap());
+    println!(
+        "\n[追踪] query span: trace_id={}, parent_id={:?}",
+        query_span.trace_id, query_span.parent_id
+    );
+    println!(
+        "[追踪] db.statement={}",
+        query_span.tags.get("db.statement").unwrap()
+    );
 
     // 8. 回切到主库
     println!("\n--- 模拟主库恢复，回切 ---");
@@ -174,19 +188,33 @@ async fn main() {
     });
     coord.set_replica_lsn(100);
     if coord.failback(FailbackStrategy::Auto).is_ok() {
-        println!("[回切] 成功回切到主库, is_failed_over={}", coord.is_failed_over());
+        println!(
+            "[回切] 成功回切到主库, is_failed_over={}",
+            coord.is_failed_over()
+        );
     }
 
     // 9. 事件统计
     println!("\n=== 演示完成 ===");
-    println!("[事件] FailoverDecision 事件数: {}", counter.failover_count.load(Ordering::Relaxed));
-    println!("[事件] HealthChange 事件数: {}", counter.health_change_count.load(Ordering::Relaxed));
+    println!(
+        "[事件] FailoverDecision 事件数: {}",
+        counter.failover_count.load(Ordering::Relaxed)
+    );
+    println!(
+        "[事件] HealthChange 事件数: {}",
+        counter.health_change_count.load(Ordering::Relaxed)
+    );
     println!("[事件] 总发布事件数: {}", event_bus.published_count());
 
     // 决策历史
     let history = coord.decision_history();
     println!("[故障转移] 决策历史记录数: {}", history.len());
     for (i, decision) in history.iter().enumerate() {
-        println!("  决策 {}: switched={}, reason={}", i + 1, decision.switched, decision.reason);
+        println!(
+            "  决策 {}: switched={}, reason={}",
+            i + 1,
+            decision.switched,
+            decision.reason
+        );
     }
 }

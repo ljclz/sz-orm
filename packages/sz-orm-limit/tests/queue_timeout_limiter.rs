@@ -4,9 +4,7 @@
 
 use std::time::Duration;
 
-use sz_orm_limit::{
-    AuditAction, QueueStrategy, QueueTimeoutLimiter, RateLimiter,
-};
+use sz_orm_limit::{AuditAction, QueueStrategy, QueueTimeoutLimiter, RateLimiter};
 
 #[test]
 fn test_under_threshold_admitted() {
@@ -22,7 +20,7 @@ fn test_over_threshold_rejected_with_audit() {
     // 阈值 1 qps，快速发起 5 个请求
     let limiter = QueueTimeoutLimiter::new(1.0, Duration::from_millis(100), QueueStrategy::Fair);
     let _ = limiter.try_acquire("k1").unwrap(); // 放行
-    // 等待一小段时间让 actual_rate 计算生效
+                                                // 等待一小段时间让 actual_rate 计算生效
     std::thread::sleep(Duration::from_millis(10));
     let result = limiter.try_acquire("k2").unwrap();
     assert!(!result.allowed);
@@ -39,11 +37,7 @@ fn test_over_threshold_rejected_with_audit() {
 
 #[test]
 fn test_queue_timeout_rejects_stale_entries() {
-    let limiter = QueueTimeoutLimiter::new(
-        1.0,
-        Duration::from_millis(50),
-        QueueStrategy::Fair,
-    );
+    let limiter = QueueTimeoutLimiter::new(1.0, Duration::from_millis(50), QueueStrategy::Fair);
     // 入队一个请求
     limiter.enqueue("stale", 1);
     assert_eq!(limiter.queue_len(), 1);

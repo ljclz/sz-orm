@@ -584,7 +584,11 @@ pub async fn schema_diff_readonly(
                 } else {
                     // right 缺失该列：正向 ADD，反向 DROP
                     column_diff_count += 1;
-                    let null_str = if left_col.nullable { "NULL" } else { "NOT NULL" };
+                    let null_str = if left_col.nullable {
+                        "NULL"
+                    } else {
+                        "NOT NULL"
+                    };
                     forward_sql.push(format!(
                         "ALTER TABLE {} ADD COLUMN {} {} {}",
                         left_table.name, left_col.name, left_col.sql_type, null_str
@@ -599,7 +603,11 @@ pub async fn schema_diff_readonly(
                 if !left_col_map.contains_key(right_col.name.as_str()) {
                     // left 缺失该列：反向 ADD（right → left）
                     column_diff_count += 1;
-                    let null_str = if right_col.nullable { "NULL" } else { "NOT NULL" };
+                    let null_str = if right_col.nullable {
+                        "NULL"
+                    } else {
+                        "NOT NULL"
+                    };
                     backward_sql.push(format!(
                         "ALTER TABLE {} ADD COLUMN {} {} {}",
                         left_table.name, right_col.name, right_col.sql_type, null_str
@@ -667,9 +675,7 @@ pub async fn schema_diff_readonly(
 ///
 /// 本函数仅执行 SELECT 查询（information_schema），不执行任何 DDL/DML。
 /// 真实连库场景由 e2e 测试覆盖，此处返回空列表（基于 URL 协议推断）。
-async fn extract_schema_metadata_readonly(
-    url: &str,
-) -> Result<Vec<TableDef>, crate::DbError> {
+async fn extract_schema_metadata_readonly(url: &str) -> Result<Vec<TableDef>, crate::DbError> {
     // 只读保证：本函数不连库，仅返回空列表
     // 真实连库场景由 schema_diff_e2e 测试覆盖（#[ignore]）
     // 此处验证 URL 合法性
@@ -708,7 +714,9 @@ mod v2_tests {
 
     #[tokio::test]
     async fn test_schema_diff_readonly_empty() {
-        let report = schema_diff_readonly("mysql://a", "mysql://b").await.unwrap();
+        let report = schema_diff_readonly("mysql://a", "mysql://b")
+            .await
+            .unwrap();
         assert_eq!(report.source_write_count, 0);
         assert_eq!(report.table_diff_count, 0);
         assert!(report.forward_migration_sql.is_empty());
@@ -723,16 +731,19 @@ mod v2_tests {
 
     #[tokio::test]
     async fn test_schema_diff_readonly_source_write_zero() {
-        let report = schema_diff_readonly("postgres://a", "postgres://b").await.unwrap();
+        let report = schema_diff_readonly("postgres://a", "postgres://b")
+            .await
+            .unwrap();
         assert_eq!(report.source_write_count, 0, "只读连接必须 0 写入");
     }
 
     #[tokio::test]
     async fn test_schema_diff_readonly_sqlite() {
-        let report = schema_diff_readonly("sqlite://a.db", "sqlite://b.db").await.unwrap();
+        let report = schema_diff_readonly("sqlite://a.db", "sqlite://b.db")
+            .await
+            .unwrap();
         assert_eq!(report.source_write_count, 0);
     }
-
 
     #[test]
     fn test_constraint_diff_type_serde() {

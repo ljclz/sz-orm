@@ -3,10 +3,8 @@
 #![cfg(feature = "zero-copy-deep")]
 
 use std::collections::HashMap;
+use sz_orm_core::zero_copy_pipeline::{ZeroCopyPipeline, ZeroCopyTypeId, ZeroCopyTypeRegistry};
 use sz_orm_core::Value;
-use sz_orm_core::zero_copy_pipeline::{
-    ZeroCopyPipeline, ZeroCopyTypeId, ZeroCopyTypeRegistry,
-};
 
 /// 支持类型命中零拷贝
 #[test]

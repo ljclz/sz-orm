@@ -6,12 +6,10 @@
 
 #![cfg(feature = "perf-accel")]
 
-use sz_orm_core::simd::{batch_aggregate_f64, batch_filter_f64, SimdAggOp, SimdCmpOp};
-use sz_orm_core::zero_copy_pipeline::{
-    ZeroCopyPipeline, ZeroCopyTypeId, ZeroCopyTypeRegistry,
-};
-use sz_orm_core::{DbType, PerfConfig, PerfConfigBuilder, PerfMetrics};
 use sz_orm_core::plan_cache::{fingerprint_with_types, PlanCache, PlanCacheConfig};
+use sz_orm_core::simd::{batch_aggregate_f64, batch_filter_f64, SimdAggOp, SimdCmpOp};
+use sz_orm_core::zero_copy_pipeline::{ZeroCopyPipeline, ZeroCopyTypeId, ZeroCopyTypeRegistry};
+use sz_orm_core::{DbType, PerfConfig, PerfConfigBuilder, PerfMetrics};
 
 /// SIMD 全链路：过滤 + 聚合 + 指标采集
 #[test]
@@ -40,7 +38,10 @@ fn perf_e2e_zero_copy_full_chain() {
 
     let mut row = std::collections::HashMap::new();
     row.insert("id".to_string(), sz_orm_core::Value::I64(1));
-    row.insert("name".to_string(), sz_orm_core::Value::String("test".into()));
+    row.insert(
+        "name".to_string(),
+        sz_orm_core::Value::String("test".into()),
+    );
     let columns = vec!["id".to_string(), "name".to_string()];
 
     let result = pipeline.try_parse_with_registry(&row, &columns, &registry);
@@ -59,8 +60,12 @@ fn perf_e2e_plan_cache_full_chain() {
     let cache = PlanCache::with_config(&config);
 
     let sql = "SELECT * FROM users WHERE id = ?";
-    let ast1 = cache.get_or_parse_with_types(sql, &[DbType::MySQL]).expect("parse");
-    let ast2 = cache.get_or_parse_with_types(sql, &[DbType::MySQL]).expect("parse");
+    let ast1 = cache
+        .get_or_parse_with_types(sql, &[DbType::MySQL])
+        .expect("parse");
+    let ast2 = cache
+        .get_or_parse_with_types(sql, &[DbType::MySQL])
+        .expect("parse");
     assert!(std::sync::Arc::ptr_eq(&ast1, &ast2), "相同类型应命中");
 
     let stats = cache.stats();

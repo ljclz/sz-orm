@@ -64,7 +64,10 @@ async fn main() {
         .expect("EcoConfig 构建失败");
     println!("[1] EcoConfig 配置聚合");
     println!("    web_framework = {:?}", cfg.web_framework);
-    println!("    middleware_features = {} 项", cfg.middleware_features.len());
+    println!(
+        "    middleware_features = {} 项",
+        cfg.middleware_features.len()
+    );
     println!("    migration_source_orm = {:?}", cfg.migration_source_orm);
     println!("    migration_dry_run = {}", cfg.migration_dry_run);
     println!();
@@ -103,19 +106,25 @@ async fn main() {
     println!();
 
     // 4. schema diff（只读连接）
-    if let (Some(left), Some(right)) = (
-        &cfg.schema_diff_left_url,
-        &cfg.schema_diff_right_url,
-    ) {
+    if let (Some(left), Some(right)) = (&cfg.schema_diff_left_url, &cfg.schema_diff_right_url) {
         let diff_report = schema_diff_readonly(left, right).await;
         println!("[4] schema diff 只读连接");
         match diff_report {
             Ok(r) => {
                 println!("    table_diff_count = {}", r.table_diff_count);
                 println!("    column_diff_count = {}", r.column_diff_count);
-                println!("    forward_migration_sql = {} 条", r.forward_migration_sql.len());
-                println!("    backward_migration_sql = {} 条", r.backward_migration_sql.len());
-                println!("    source_write_count = {}（只读保证）", r.source_write_count);
+                println!(
+                    "    forward_migration_sql = {} 条",
+                    r.forward_migration_sql.len()
+                );
+                println!(
+                    "    backward_migration_sql = {} 条",
+                    r.backward_migration_sql.len()
+                );
+                println!(
+                    "    source_write_count = {}（只读保证）",
+                    r.source_write_count
+                );
                 println!("    duration_ms = {}", r.duration_ms);
             }
             Err(e) => {

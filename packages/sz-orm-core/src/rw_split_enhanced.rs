@@ -422,10 +422,7 @@ mod failover {
         AlreadyInProgress,
         /// 位点校验失败（备库落后主库，可能丢失事务）
         #[error("replica LSN {replica_lsn} behind primary {primary_lsn}, potential data loss")]
-        ReplicaBehind {
-            replica_lsn: u64,
-            primary_lsn: u64,
-        },
+        ReplicaBehind { replica_lsn: u64, primary_lsn: u64 },
         /// 回切条件不满足
         #[error("failback conditions not met: {0}")]
         FailbackConditionsNotMet(String),
@@ -524,8 +521,7 @@ mod failover {
         ///
         /// 连续失败达 `probe_failure_threshold` 时自动触发故障转移。
         pub fn record_probe(&self, result: ProbeResult) {
-            self.total_probes
-                .fetch_add(1, Ordering::SeqCst);
+            self.total_probes.fetch_add(1, Ordering::SeqCst);
             if let Ok(mut guard) = self.last_probe_at.write() {
                 *guard = Some(Instant::now());
             }

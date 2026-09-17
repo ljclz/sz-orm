@@ -170,7 +170,10 @@ impl DieselParser {
                     .strip_prefix("pub struct ")
                     .or_else(|| trimmed.strip_prefix("struct "))
                     .unwrap_or("");
-                let name = after.split(|c: char| !c.is_alphanumeric() && c != '_').next().unwrap_or("");
+                let name = after
+                    .split(|c: char| !c.is_alphanumeric() && c != '_')
+                    .next()
+                    .unwrap_or("");
                 if name.is_empty() {
                     continue;
                 }
@@ -484,8 +487,7 @@ pub struct User {
         let user_table = schema.tables.iter().find(|t| t.name == "user").unwrap();
         assert!(!user_table.columns.is_empty());
         // 源项目文件未修改
-        let content_after =
-            fs::read_to_string(dir.join("src/models.rs")).unwrap();
+        let content_after = fs::read_to_string(dir.join("src/models.rs")).unwrap();
         assert_eq!(content_after, content);
         fs::remove_dir_all(&dir).ok();
     }
@@ -592,10 +594,7 @@ pub struct Empty {}
         assert_eq!(DieselParser::rust_type_to_sql("String"), "VARCHAR(255)");
         assert_eq!(DieselParser::rust_type_to_sql("f64"), "DOUBLE");
         assert_eq!(DieselParser::rust_type_to_sql("bool"), "BOOLEAN");
-        assert_eq!(
-            DieselParser::rust_type_to_sql("DateTime<Utc>"),
-            "TIMESTAMP"
-        );
+        assert_eq!(DieselParser::rust_type_to_sql("DateTime<Utc>"), "TIMESTAMP");
         assert_eq!(DieselParser::rust_type_to_sql("Uuid"), "UUID");
     }
 }

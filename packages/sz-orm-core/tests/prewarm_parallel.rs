@@ -11,9 +11,7 @@ use std::sync::atomic::{AtomicBool, AtomicU32, Ordering};
 use std::sync::Arc;
 
 use async_trait::async_trait;
-use sz_orm_core::prewarm::{
-    prewarm_parallel, PrewarmResult, PrewarmStrategy, ProgressiveConfig,
-};
+use sz_orm_core::prewarm::{prewarm_parallel, PrewarmResult, PrewarmStrategy, ProgressiveConfig};
 use sz_orm_core::{Connection, ConnectionFactory, Pool, PoolConfigBuilder};
 
 // ─── Mock Connection ──────────────────────────────────────────
@@ -39,7 +37,17 @@ impl Connection for MockConnection {
     fn query<'a>(
         &'a mut self,
         _sql: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<std::collections::HashMap<String, sz_orm_core::Value>>, sz_orm_core::DbError>> + Send + 'a>> {
+    ) -> Pin<
+        Box<
+            dyn Future<
+                    Output = Result<
+                        Vec<std::collections::HashMap<String, sz_orm_core::Value>>,
+                        sz_orm_core::DbError,
+                    >,
+                > + Send
+                + 'a,
+        >,
+    > {
         Box::pin(async { Ok(Vec::new()) })
     }
 
@@ -115,8 +123,12 @@ impl MockFactory {
 impl ConnectionFactory for MockFactory {
     async fn create(&self) -> Result<Box<dyn Connection>, sz_orm_core::DbError> {
         let count = self.call_count.fetch_add(1, Ordering::SeqCst);
-        if self.should_fail.load(Ordering::Relaxed) || count >= self.fail_after.load(Ordering::Relaxed) {
-            return Err(sz_orm_core::DbError::ConnectionRefused("mock failure".to_string()));
+        if self.should_fail.load(Ordering::Relaxed)
+            || count >= self.fail_after.load(Ordering::Relaxed)
+        {
+            return Err(sz_orm_core::DbError::ConnectionRefused(
+                "mock failure".to_string(),
+            ));
         }
         Ok(Box::new(MockConnection::new()))
     }
@@ -163,7 +175,11 @@ async fn progressive_prewarm_success() {
     let factory = Arc::new(MockFactory::always_success());
     let pool = build_pool(factory, 20);
 
-    let config = ProgressiveConfig::new(3, std::time::Duration::from_millis(1), std::time::Duration::from_secs(5));
+    let config = ProgressiveConfig::new(
+        3,
+        std::time::Duration::from_millis(1),
+        std::time::Duration::from_secs(5),
+    );
     let result = prewarm_parallel(&pool, 9, PrewarmStrategy::Progressive(config)).await;
     assert_eq!(result.success_count, 9, "应成功预建 9 连接");
     assert_eq!(result.failure_count, 0);

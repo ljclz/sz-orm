@@ -11,8 +11,7 @@ use std::time::Duration;
 
 use sz_orm_core::olap::{
     AggregateColumn, AggregateFunc, AggregatePushdown, DimensionTable, MaterializedView,
-    MaterializedViewMatcher, OlapQueryGateway, StarSchemaOptimizer,
-    WorkloadRouter, WorkloadType,
+    MaterializedViewMatcher, OlapQueryGateway, StarSchemaOptimizer, WorkloadRouter, WorkloadType,
 };
 
 fn gateway() -> OlapQueryGateway {

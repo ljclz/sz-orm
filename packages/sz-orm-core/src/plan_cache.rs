@@ -767,7 +767,6 @@ impl PlanCache {
     ) -> Result<Arc<Statement>, String> {
         let type_fingerprint = fingerprint_with_types(sql, param_types);
 
-
         let hit = {
             let cache = self.parse_cache.read();
             match cache.get(&type_fingerprint) {

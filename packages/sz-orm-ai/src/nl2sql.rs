@@ -167,10 +167,7 @@ impl IntentAnalysis {
             || lower.contains("更新")
         {
             "update"
-        } else if lower.contains("delete")
-            || lower.contains("remove")
-            || lower.contains("删除")
-        {
+        } else if lower.contains("delete") || lower.contains("remove") || lower.contains("删除") {
             "delete"
         } else {
             "select"
@@ -294,11 +291,7 @@ pub trait Nl2SqlEngine: Send + Sync {
     /// 4. 语法校验：`safety::validate_select_only` 检查生成的 SQL
     ///
     /// 产出 SQL 参数化（禁止拼接原文），经安全校验。
-    async fn nl2sql(
-        &self,
-        nl: &str,
-        ctx: &MultiTurnContext,
-    ) -> Result<Nl2sqlResult, Nl2SqlError> {
+    async fn nl2sql(&self, nl: &str, ctx: &MultiTurnContext) -> Result<Nl2sqlResult, Nl2SqlError> {
         use std::time::Instant;
         let start = Instant::now();
 

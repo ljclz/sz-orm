@@ -54,12 +54,14 @@ impl ColumnarBatch {
 
     /// v7.3.0 任务 1.2：获取 f32 列数据
     pub fn column_data_f32(&self, name: &str) -> Option<Vec<f32>> {
-        self.column_data(name).map(|d| d.iter().map(|&v| v as f32).collect())
+        self.column_data(name)
+            .map(|d| d.iter().map(|&v| v as f32).collect())
     }
 
     /// v7.3.0 任务 1.2：获取 bool 列数据（非零为 true）
     pub fn column_data_bool(&self, name: &str) -> Option<Vec<bool>> {
-        self.column_data(name).map(|d| d.iter().map(|&v| v != 0.0).collect())
+        self.column_data(name)
+            .map(|d| d.iter().map(|&v| v != 0.0).collect())
     }
 }
 

@@ -9,11 +9,11 @@
 //! - 危险 DDL 不自动执行：tests/source_orm_parse.rs:危险 DDL
 //! - 不可识别源 ORM 返回错误：tests/source_orm_parse.rs:错误返回
 
+use std::fs;
+use std::io::Write;
 use sz_orm_ai_migration::{
     DieselParser, OrmMigrator, SeaOrmParser, SourceOrm, SourceOrmParser, SqlxParser,
 };
-use std::fs;
-use std::io::Write;
 
 /// 创建临时源项目目录
 fn make_temp_project(content: &str) -> std::path::PathBuf {

@@ -149,10 +149,7 @@ async fn ann_latency_is_measured() {
     store.insert("docs", records).await.unwrap();
 
     let query: Vec<f32> = (0..128).map(|j| j as f32 / 1000.0).collect();
-    let result = store
-        .ann_search("docs", &query, 10, None)
-        .await
-        .unwrap();
+    let result = store.ann_search("docs", &query, 10, None).await.unwrap();
 
     assert_eq!(result.records.len(), 10);
     // 内存操作极快，延迟应很小（但非负）
@@ -210,5 +207,9 @@ async fn ann_top_k_larger_than_collection() {
         .await
         .unwrap();
 
-    assert_eq!(result.records.len(), 2, "top_k > 集合大小应返回全部匹配记录");
+    assert_eq!(
+        result.records.len(),
+        2,
+        "top_k > 集合大小应返回全部匹配记录"
+    );
 }

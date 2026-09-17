@@ -23,9 +23,7 @@ use sz_orm_ai::{
     },
     rewrite_advisor::RewriteEngine,
 };
-use sz_orm_vector::{
-    AnnAccelerated, InMemoryVectorStore, PgVectorStore, VectorRecord,
-};
+use sz_orm_vector::{AnnAccelerated, InMemoryVectorStore, PgVectorStore, VectorRecord};
 
 /// 构造演示用 Schema（users + orders 两表）
 fn build_schema() -> SchemaContext {
@@ -190,7 +188,10 @@ async fn demo_nl2sql() -> AiDecision {
     println!("第一轮: \"{}\"", nl1);
     let result1 = engine.nl2sql(nl1, &ctx).await.unwrap();
     println!("  生成 SQL: {}", result1.sql.sql);
-    println!("  意图: {}, 实体: {:?}", result1.intent.intent, result1.intent.entities);
+    println!(
+        "  意图: {}, 实体: {:?}",
+        result1.intent.intent, result1.intent.entities
+    );
     ctx.add_turn(nl1, result1.sql);
 
     // 第二轮（带上下文）
@@ -198,7 +199,10 @@ async fn demo_nl2sql() -> AiDecision {
     println!("第二轮: \"{}\"", nl2);
     let result2 = engine.nl2sql(nl2, &ctx).await.unwrap();
     println!("  生成 SQL: {}", result2.sql.sql);
-    println!("  意图: {}, 实体: {:?}", result2.intent.intent, result2.intent.entities);
+    println!(
+        "  意图: {}, 实体: {:?}",
+        result2.intent.intent, result2.intent.entities
+    );
     println!("  延迟: {}ms", result2.latency_ms);
 
     AiDecision::new(
@@ -250,7 +254,11 @@ async fn demo_vector_ann() -> AiDecision {
     AiDecision::new(
         AiDecisionType::VectorSearch,
         "ann_search docs tenant_a",
-        format!("{} results, recall={:.1}%", result.records.len(), result.recall_rate * 100.0),
+        format!(
+            "{} results, recall={:.1}%",
+            result.records.len(),
+            result.recall_rate * 100.0
+        ),
         "InMemoryVectorStore AnnAccelerated",
         result.recall_rate,
         result.latency_ms,
@@ -270,11 +278,21 @@ fn make_tenant_record(id: &str, vector: Vec<f32>, tenant_id: &str) -> VectorReco
 /// 打印 AiConfig 配置
 fn print_config(config: &AiConfig) {
     println!("\n=== AiConfig 配置 ===");
-    println!("  查询改写: {} (路径: {})", config.rewrite_enabled, config.rewrite_path.as_str());
+    println!(
+        "  查询改写: {} (路径: {})",
+        config.rewrite_enabled,
+        config.rewrite_path.as_str()
+    );
     println!("  索引推荐: {}", config.index_advisor_enabled);
-    println!("  NL2SQL: {} (多轮: {})", config.nl2sql_enabled, config.nl2sql_multi_turn);
+    println!(
+        "  NL2SQL: {} (多轮: {})",
+        config.nl2sql_enabled, config.nl2sql_multi_turn
+    );
     println!("  向量 ANN 索引: {}", config.vector_ann_index.as_str());
-    println!("  召回率阈值: {:.1}%", config.vector_recall_threshold * 100.0);
+    println!(
+        "  召回率阈值: {:.1}%",
+        config.vector_recall_threshold * 100.0
+    );
     println!("  配置合法: {}", config.validate().is_ok());
     println!("  任一能力启用: {}", config.any_enabled());
 }
@@ -317,11 +335,7 @@ async fn main() {
     println!("AiDecision 审计记录汇总（{} 条）", decisions.len());
     println!("========================================");
     for (i, d) in decisions.iter().enumerate() {
-        println!(
-            "\n[{}] 类型: {}",
-            i + 1,
-            d.decision_type.as_str()
-        );
+        println!("\n[{}] 类型: {}", i + 1, d.decision_type.as_str());
         println!("  输入: {}", d.input_summary);
         println!("  输出: {}", d.output);
         println!("  原因: {}", d.reason);

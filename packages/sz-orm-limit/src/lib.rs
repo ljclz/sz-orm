@@ -1716,10 +1716,7 @@ mod queue_timeout {
         ///
         /// 返回 `Ok(RateLimitResult)` 表示允许或拒绝；
         /// 返回 `Err(RateLimitError)` 表示内部错误。
-        pub fn try_acquire(
-            &self,
-            key: &str,
-        ) -> Result<RateLimitResult, RateLimitError> {
+        pub fn try_acquire(&self, key: &str) -> Result<RateLimitResult, RateLimitError> {
             let now = Instant::now();
             let window_start = *self.window_start.read().unwrap();
             let elapsed = now.duration_since(window_start);
@@ -1887,6 +1884,4 @@ mod queue_timeout {
 }
 
 #[cfg(feature = "limit-queue-timeout")]
-pub use queue_timeout::{
-    AuditAction, AuditEntry, QueueStrategy, QueueTimeoutLimiter,
-};
+pub use queue_timeout::{AuditAction, AuditEntry, QueueStrategy, QueueTimeoutLimiter};

@@ -2,9 +2,7 @@
 //!
 //! 验证：跨阶段 span 树 + OTLP 导出 + db.* 属性
 
-use sz_orm_tracing::{
-    Span, db_attrs, span_for_cache_lookup, span_for_failover, span_for_query,
-};
+use sz_orm_tracing::{db_attrs, span_for_cache_lookup, span_for_failover, span_for_query, Span};
 
 #[tokio::test]
 #[ignore = "需要真实 OTel Collector（localhost:4317）"]

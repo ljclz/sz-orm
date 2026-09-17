@@ -479,10 +479,7 @@ impl RewriteRule for SubqueryFlatteningRule {
         if lower.contains(" in (select") || lower.contains(" in(select") {
             return Some(RewriteSuggestion {
                 original_sql: sql.to_string(),
-                rewritten_sql: format!(
-                    "/* 子查询展开：IN (SELECT ...) → INNER JOIN */ {}",
-                    sql
-                ),
+                rewritten_sql: format!("/* 子查询展开：IN (SELECT ...) → INNER JOIN */ {}", sql),
                 transform_type: TransformType::SubqueryFlattening,
                 equivalence_proof: self.equivalence_proof(),
                 expected_benefit: BenefitEstimate::uncertain(2.0, 0.7),
@@ -518,10 +515,7 @@ impl RewriteRule for JoinReorderRule {
                     if join_count >= 1 {
                         return Some(RewriteSuggestion {
                             original_sql: sql.to_string(),
-                            rewritten_sql: format!(
-                                "/* JOIN 顺序建议：将小表置于内层 */ {}",
-                                sql
-                            ),
+                            rewritten_sql: format!("/* JOIN 顺序建议：将小表置于内层 */ {}", sql),
                             transform_type: TransformType::JoinReorder,
                             equivalence_proof: self.equivalence_proof(),
                             expected_benefit: BenefitEstimate::certain(1.5, 0.6),
@@ -832,12 +826,8 @@ pub fn diff_test(original_sql: &str, rewritten_sql: &str, _dataset: &[(&str, &st
                 return false;
             }
             // 两个 SQL 都是 SELECT 语句
-            let orig_is_select = orig
-                .iter()
-                .all(|s| matches!(s, Statement::Query(_)));
-            let rewrite_is_select = rewrite
-                .iter()
-                .all(|s| matches!(s, Statement::Query(_)));
+            let orig_is_select = orig.iter().all(|s| matches!(s, Statement::Query(_)));
+            let rewrite_is_select = rewrite.iter().all(|s| matches!(s, Statement::Query(_)));
             orig_is_select && rewrite_is_select
         }
         _ => false,

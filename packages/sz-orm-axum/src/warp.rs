@@ -226,8 +226,8 @@ mod tests {
 
     #[test]
     fn test_rate_limit_adapter() {
-        let adapter = WarpAdapter::new(vec![MiddlewareFeature::RateLimit])
-            .with_rate_limit_threshold(200.0);
+        let adapter =
+            WarpAdapter::new(vec![MiddlewareFeature::RateLimit]).with_rate_limit_threshold(200.0);
         let mw = TestMiddleware;
         assert_eq!(
             adapter.rate_limit_adapter(&mw),
@@ -237,8 +237,8 @@ mod tests {
 
     #[test]
     fn test_tracing_adapter() {
-        let adapter = WarpAdapter::new(vec![MiddlewareFeature::Tracing])
-            .with_trace_sample_rate(0.5);
+        let adapter =
+            WarpAdapter::new(vec![MiddlewareFeature::Tracing]).with_trace_sample_rate(0.5);
         let mw = TestMiddleware;
         assert_eq!(
             adapter.tracing_adapter(&mw),

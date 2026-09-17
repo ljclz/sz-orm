@@ -103,8 +103,8 @@ pub use rewrite_advisor::{
 // v7.3.0 任务 3.2：扩展改写规则集
 #[cfg(feature = "ai-rewrite-advisor")]
 pub use rewrite_advisor::{
-    diff_test, JoinReorderRule, PredicatePushdownRule, RedundantEliminationRule,
-    RewriteEngine, RewriteResult, RewriteRule, SubqueryFlatteningRule,
+    diff_test, JoinReorderRule, PredicatePushdownRule, RedundantEliminationRule, RewriteEngine,
+    RewriteResult, RewriteRule, SubqueryFlatteningRule,
 };
 
 // v4.0.0 M1：多 LLM 模型支持（multi-llm feature gate 隔离）

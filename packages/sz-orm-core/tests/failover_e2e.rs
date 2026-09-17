@@ -7,8 +7,8 @@
 use std::time::{Duration, Instant};
 
 use sz_orm_core::{
-    FailbackStrategy, FailoverConfig,
     rw_split_enhanced::{AutoFailoverCoordinator, ProbeResult},
+    FailbackStrategy, FailoverConfig,
 };
 
 fn make_ha_config() -> FailoverConfig {

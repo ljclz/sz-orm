@@ -6,8 +6,8 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::Arc;
 
 use sz_orm_health::{
-    HaEvent, HaEventBus, HaEventSubscriber, HaEventType, HealthStatus,
     advanced::{HealthSubItem, HealthSubItemChecker},
+    HaEvent, HaEventBus, HaEventSubscriber, HaEventType, HealthStatus,
 };
 
 /// 计数订阅者
@@ -32,26 +32,14 @@ impl HaEventSubscriber for CountingSubscriber {
 #[test]
 fn test_five_sub_items_independent_judgment() {
     let checker = HealthSubItemChecker::new();
-    checker.check_and_update(
-        HealthSubItem::Connection,
-        HealthStatus::Healthy,
-        "10/100",
-    );
-    checker.check_and_update(
-        HealthSubItem::PoolSaturation,
-        HealthStatus::Healthy,
-        "10%",
-    );
+    checker.check_and_update(HealthSubItem::Connection, HealthStatus::Healthy, "10/100");
+    checker.check_and_update(HealthSubItem::PoolSaturation, HealthStatus::Healthy, "10%");
     checker.check_and_update(
         HealthSubItem::PrimaryReplica,
         HealthStatus::Healthy,
         "lag=0",
     );
-    checker.check_and_update(
-        HealthSubItem::CacheHitRate,
-        HealthStatus::Healthy,
-        "95%",
-    );
+    checker.check_and_update(HealthSubItem::CacheHitRate, HealthStatus::Healthy, "95%");
     checker.check_and_update(
         HealthSubItem::RateLimitCircuit,
         HealthStatus::Healthy,
@@ -66,11 +54,7 @@ fn test_five_sub_items_independent_judgment() {
 #[test]
 fn test_overall_unhealthy_if_any_sub_item_unhealthy() {
     let checker = HealthSubItemChecker::new();
-    checker.check_and_update(
-        HealthSubItem::Connection,
-        HealthStatus::Healthy,
-        "ok",
-    );
+    checker.check_and_update(HealthSubItem::Connection, HealthStatus::Healthy, "ok");
     checker.check_and_update(
         HealthSubItem::PoolSaturation,
         HealthStatus::Unhealthy,
@@ -84,11 +68,7 @@ fn test_overall_unhealthy_if_any_sub_item_unhealthy() {
 #[test]
 fn test_overall_unknown_if_any_sub_item_unknown() {
     let checker = HealthSubItemChecker::new();
-    checker.check_and_update(
-        HealthSubItem::Connection,
-        HealthStatus::Healthy,
-        "ok",
-    );
+    checker.check_and_update(HealthSubItem::Connection, HealthStatus::Healthy, "ok");
     checker.check_and_update(
         HealthSubItem::CacheHitRate,
         HealthStatus::Unknown,
@@ -106,11 +86,7 @@ fn test_sub_item_change_triggers_event() {
     bus.subscribe(sub.clone());
 
     let checker = HealthSubItemChecker::with_event_bus(bus);
-    checker.check_and_update(
-        HealthSubItem::Connection,
-        HealthStatus::Healthy,
-        "ok",
-    );
+    checker.check_and_update(HealthSubItem::Connection, HealthStatus::Healthy, "ok");
     checker.check_and_update(
         HealthSubItem::PoolSaturation,
         HealthStatus::Unhealthy,
@@ -143,11 +119,7 @@ fn test_subscriber_receives_health_change_events() {
     bus.subscribe(capture.clone());
 
     let checker = HealthSubItemChecker::with_event_bus(bus);
-    checker.check_and_update(
-        HealthSubItem::Connection,
-        HealthStatus::Healthy,
-        "ok",
-    );
+    checker.check_and_update(HealthSubItem::Connection, HealthStatus::Healthy, "ok");
     checker.check_and_update(
         HealthSubItem::PrimaryReplica,
         HealthStatus::Unhealthy,
@@ -169,10 +141,7 @@ fn test_report_details_preserved() {
     );
 
     let report = checker.report();
-    let detail = report
-        .details
-        .get(&HealthSubItem::CacheHitRate)
-        .unwrap();
+    let detail = report.details.get(&HealthSubItem::CacheHitRate).unwrap();
     assert!(detail.contains("hit=950"));
     assert!(detail.contains("miss=50"));
 }

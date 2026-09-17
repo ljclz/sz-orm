@@ -158,13 +158,11 @@ async fn test_skip_existing_index() {
     let recommendations = advisor.recommend(&workload).await.unwrap();
 
     // products 表 name 列已有索引，不应重复推荐
-    let products_rec = recommendations
-        .iter()
-        .find(|r| r.suggestion.ddl_text.contains("products") && r.suggestion.index_columns.contains(&"name".to_string()));
-    assert!(
-        products_rec.is_none(),
-        "已有索引的列不应重复推荐"
-    );
+    let products_rec = recommendations.iter().find(|r| {
+        r.suggestion.ddl_text.contains("products")
+            && r.suggestion.index_columns.contains(&"name".to_string())
+    });
+    assert!(products_rec.is_none(), "已有索引的列不应重复推荐");
 }
 
 /// 空负载报错

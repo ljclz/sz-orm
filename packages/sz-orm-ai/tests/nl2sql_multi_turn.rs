@@ -8,8 +8,8 @@
 //! - 参数化
 
 use sz_orm_ai::{
-    IntentAnalysis, MultiTurnContext, Nl2SqlEngine, Nl2sqlResult, SchemaContext, SimpleNl2SqlEngine,
-    SqlQuery, TableInfo, ColumnInfo,
+    ColumnInfo, IntentAnalysis, MultiTurnContext, Nl2SqlEngine, Nl2sqlResult, SchemaContext,
+    SimpleNl2SqlEngine, SqlQuery, TableInfo,
 };
 
 /// 构造测试 Schema

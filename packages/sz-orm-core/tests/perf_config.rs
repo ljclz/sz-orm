@@ -6,7 +6,6 @@
 
 use sz_orm_core::{DbError, PerfConfig, PerfConfigBuilder, PerfMetrics};
 
-
 /// 验证默认值：加速全 false、plan_cache true
 #[test]
 fn perf_config_defaults_all_off_except_plan_cache() {
@@ -29,25 +28,37 @@ fn perf_config_validate_failures_return_config_error() {
         ..PerfConfig::default()
     };
     let err = bad.validate().unwrap_err();
-    assert!(matches!(err, DbError::ConfigError(_)), "simd_row_threshold=0 应返回 ConfigError");
+    assert!(
+        matches!(err, DbError::ConfigError(_)),
+        "simd_row_threshold=0 应返回 ConfigError"
+    );
 
     let bad = PerfConfig {
         prewarm_count: 0,
         ..PerfConfig::default()
     };
-    assert!(matches!(bad.validate().unwrap_err(), DbError::ConfigError(_)));
+    assert!(matches!(
+        bad.validate().unwrap_err(),
+        DbError::ConfigError(_)
+    ));
 
     let bad = PerfConfig {
         plan_cache_capacity: 0,
         ..PerfConfig::default()
     };
-    assert!(matches!(bad.validate().unwrap_err(), DbError::ConfigError(_)));
+    assert!(matches!(
+        bad.validate().unwrap_err(),
+        DbError::ConfigError(_)
+    ));
 
     let bad = PerfConfig {
         plan_cache_ttl_ms: 0,
         ..PerfConfig::default()
     };
-    assert!(matches!(bad.validate().unwrap_err(), DbError::ConfigError(_)));
+    assert!(matches!(
+        bad.validate().unwrap_err(),
+        DbError::ConfigError(_)
+    ));
 }
 
 /// 验证合法配置校验通过

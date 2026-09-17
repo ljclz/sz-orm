@@ -2163,14 +2163,11 @@ mod db_attrs_mod {
 
     /// 为查询创建子 span（关联 parent，trace 上下文不断链）
     pub fn span_for_query(parent: &Span, sql: &str, conn_id: &str) -> Span {
-        let mut span = Span::new(
-            parent.trace_id.clone(),
-            generate_span_id(),
-            "db.query",
-        )
-        .with_parent(parent.span_id.clone())
-        .with_service(parent.service_name.clone());
-        span.tags.insert(db_attrs::STATEMENT.to_string(), sql.to_string());
+        let mut span = Span::new(parent.trace_id.clone(), generate_span_id(), "db.query")
+            .with_parent(parent.span_id.clone())
+            .with_service(parent.service_name.clone());
+        span.tags
+            .insert(db_attrs::STATEMENT.to_string(), sql.to_string());
         span.tags
             .insert(db_attrs::CONNECTION_ID.to_string(), conn_id.to_string());
         span
@@ -2192,13 +2189,9 @@ mod db_attrs_mod {
 
     /// 为故障转移决策创建子 span
     pub fn span_for_failover(parent: &Span, decision: &str) -> Span {
-        let mut span = Span::new(
-            parent.trace_id.clone(),
-            generate_span_id(),
-            "db.failover",
-        )
-        .with_parent(parent.span_id.clone())
-        .with_service(parent.service_name.clone());
+        let mut span = Span::new(parent.trace_id.clone(), generate_span_id(), "db.failover")
+            .with_parent(parent.span_id.clone())
+            .with_service(parent.service_name.clone());
         span.tags
             .insert(db_attrs::FAILOVER.to_string(), decision.to_string());
         span
@@ -2254,7 +2247,9 @@ mod db_attrs_mod {
                 // 告警 TRACE_EXPORT_FAILED（通过 tracing::warn 输出）
                 tracing::warn!(
                     event = "TRACE_EXPORT_FAILED",
-                    dropped = self.dropped_count.load(std::sync::atomic::Ordering::Relaxed),
+                    dropped = self
+                        .dropped_count
+                        .load(std::sync::atomic::Ordering::Relaxed),
                     "OTLP export buffer full, dropping oldest span"
                 );
             }
@@ -2273,7 +2268,8 @@ mod db_attrs_mod {
 
         /// 因缓冲满丢弃的 span 数
         pub fn dropped_count(&self) -> u64 {
-            self.dropped_count.load(std::sync::atomic::Ordering::Relaxed)
+            self.dropped_count
+                .load(std::sync::atomic::Ordering::Relaxed)
         }
 
         /// 导出失败次数

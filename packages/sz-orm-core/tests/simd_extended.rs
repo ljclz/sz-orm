@@ -89,7 +89,11 @@ fn f32_aggregate_sum_matches_naive() {
     let data: Vec<f32> = (0..1000).map(|i| i as f32 * 0.1).collect();
     let simd_sum = batch_aggregate_f32(&data, SimdAggOp::Sum);
     let naive: f64 = data.iter().map(|&v| v as f64).sum();
-    assert!((simd_sum - naive).abs() < 1e-6, "sum diff={}", (simd_sum - naive).abs());
+    assert!(
+        (simd_sum - naive).abs() < 1e-6,
+        "sum diff={}",
+        (simd_sum - naive).abs()
+    );
 }
 
 #[test]

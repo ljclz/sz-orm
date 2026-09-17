@@ -9,11 +9,7 @@ use sz_orm_limit::{QueueStrategy, QueueTimeoutLimiter};
 #[tokio::test]
 #[ignore = "需要真实限流场景"]
 async fn limit_e2e_real_queue_and_audit() {
-    let limiter = QueueTimeoutLimiter::new(
-        10.0,
-        Duration::from_millis(100),
-        QueueStrategy::Fair,
-    );
+    let limiter = QueueTimeoutLimiter::new(10.0, Duration::from_millis(100), QueueStrategy::Fair);
 
     // 模拟突发流量
     let mut admitted = 0;

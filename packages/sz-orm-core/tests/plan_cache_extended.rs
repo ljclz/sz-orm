@@ -3,10 +3,8 @@
 #![cfg(feature = "plan-cache")]
 
 use std::time::Duration;
+use sz_orm_core::plan_cache::{fingerprint_with_types, PlanCache, PlanCacheConfig};
 use sz_orm_core::DbType;
-use sz_orm_core::plan_cache::{
-    fingerprint_with_types, PlanCache, PlanCacheConfig,
-};
 
 /// 相同 SQL 重复执行命中缓存
 #[test]
@@ -34,8 +32,14 @@ fn different_param_types_no_collision() {
 /// 相同 SQL 相同参数类型生成相同指纹
 #[test]
 fn same_sql_same_types_same_fingerprint() {
-    let fp1 = fingerprint_with_types("SELECT * FROM users WHERE id = ?", &[DbType::MySQL, DbType::PostgreSQL]);
-    let fp2 = fingerprint_with_types("SELECT * FROM users WHERE id = ?", &[DbType::MySQL, DbType::PostgreSQL]);
+    let fp1 = fingerprint_with_types(
+        "SELECT * FROM users WHERE id = ?",
+        &[DbType::MySQL, DbType::PostgreSQL],
+    );
+    let fp2 = fingerprint_with_types(
+        "SELECT * FROM users WHERE id = ?",
+        &[DbType::MySQL, DbType::PostgreSQL],
+    );
     assert_eq!(fp1, fp2);
 }
 
@@ -115,10 +119,19 @@ fn get_or_parse_with_types_distinguishes() {
     let cache = PlanCache::new(100, None);
     let sql = "SELECT * FROM users WHERE id = ?";
 
-    let ast1 = cache.get_or_parse_with_types(sql, &[DbType::MySQL]).expect("parse");
-    let ast2 = cache.get_or_parse_with_types(sql, &[DbType::MySQL]).expect("parse");
+    let ast1 = cache
+        .get_or_parse_with_types(sql, &[DbType::MySQL])
+        .expect("parse");
+    let ast2 = cache
+        .get_or_parse_with_types(sql, &[DbType::MySQL])
+        .expect("parse");
     assert!(std::sync::Arc::ptr_eq(&ast1, &ast2), "相同类型应命中");
 
-    let ast3 = cache.get_or_parse_with_types(sql, &[DbType::PostgreSQL]).expect("parse");
-    assert!(!std::sync::Arc::ptr_eq(&ast1, &ast3), "不同类型不应命中相同 AST");
+    let ast3 = cache
+        .get_or_parse_with_types(sql, &[DbType::PostgreSQL])
+        .expect("parse");
+    assert!(
+        !std::sync::Arc::ptr_eq(&ast1, &ast3),
+        "不同类型不应命中相同 AST"
+    );
 }

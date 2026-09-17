@@ -320,7 +320,10 @@ pub fn batch_aggregate_f32(data: &[f32], op: SimdAggOp) -> f64 {
     match op {
         SimdAggOp::Sum => data.iter().map(|&v| v as f64).sum(),
         SimdAggOp::Min => data.iter().map(|&v| v as f64).fold(f64::INFINITY, f64::min),
-        SimdAggOp::Max => data.iter().map(|&v| v as f64).fold(f64::NEG_INFINITY, f64::max),
+        SimdAggOp::Max => data
+            .iter()
+            .map(|&v| v as f64)
+            .fold(f64::NEG_INFINITY, f64::max),
         SimdAggOp::Avg => {
             let sum: f64 = data.iter().map(|&v| v as f64).sum();
             sum / data.len() as f64

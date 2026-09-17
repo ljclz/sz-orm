@@ -53,8 +53,14 @@ fn test_web_framework_serde() {
         let back: WebFramework = serde_json::from_str(&json).unwrap();
         assert_eq!(fw, back);
     }
-    assert_eq!(serde_json::to_string(&WebFramework::Axum).unwrap(), "\"Axum\"");
-    assert_eq!(serde_json::to_string(&WebFramework::Warp).unwrap(), "\"Warp\"");
+    assert_eq!(
+        serde_json::to_string(&WebFramework::Axum).unwrap(),
+        "\"Axum\""
+    );
+    assert_eq!(
+        serde_json::to_string(&WebFramework::Warp).unwrap(),
+        "\"Warp\""
+    );
 }
 
 /// MiddlewareFeature 枚举序列化/反序列化
@@ -80,7 +86,10 @@ fn test_source_orm_serde() {
         let back: SourceOrm = serde_json::from_str(&json).unwrap();
         assert_eq!(orm, back);
     }
-    assert_eq!(serde_json::to_string(&SourceOrm::Diesel).unwrap(), "\"Diesel\"");
+    assert_eq!(
+        serde_json::to_string(&SourceOrm::Diesel).unwrap(),
+        "\"Diesel\""
+    );
 }
 
 /// EcoConfigBuilder 构建
@@ -88,7 +97,10 @@ fn test_source_orm_serde() {
 fn test_eco_config_builder() {
     let cfg = EcoConfig::builder()
         .web_framework(WebFramework::Warp)
-        .middleware_features(vec![MiddlewareFeature::PoolInject, MiddlewareFeature::Tracing])
+        .middleware_features(vec![
+            MiddlewareFeature::PoolInject,
+            MiddlewareFeature::Tracing,
+        ])
         .migration_source_orm(SourceOrm::Diesel)
         .migration_dry_run(false)
         .schema_diff_left_url("mysql://left")

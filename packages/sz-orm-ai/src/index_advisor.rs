@@ -402,16 +402,14 @@ impl IndexAdvisor {
                         .map(|s| s.existing_indexes.as_slice())
                         .unwrap_or(&[]);
 
-                    let already_indexed = candidate_cols
-                        .iter()
-                        .all(|c| existing_indexes.contains(c));
+                    let already_indexed =
+                        candidate_cols.iter().all(|c| existing_indexes.contains(c));
                     if already_indexed {
                         continue;
                     }
 
                     let row_count = table_stats.map(|s| s.row_count).unwrap_or(1000);
-                    let total_frequency: u64 =
-                        workload.patterns.iter().map(|p| p.frequency).sum();
+                    let total_frequency: u64 = workload.patterns.iter().map(|p| p.frequency).sum();
                     let frequency_weight = if total_frequency > 0 {
                         pattern.frequency as f64 / total_frequency as f64
                     } else {

@@ -86,8 +86,8 @@ fn test_event_timestamp_and_detail() {
 
 #[test]
 fn test_event_with_tenant() {
-    let event = HaEvent::new(HaEventType::RateLimitReject, "exceeded 1000 qps")
-        .with_tenant("tenant-001");
+    let event =
+        HaEvent::new(HaEventType::RateLimitReject, "exceeded 1000 qps").with_tenant("tenant-001");
     assert_eq!(event.tenant_id.as_deref(), Some("tenant-001"));
     assert_eq!(event.event_type, HaEventType::RateLimitReject);
 }

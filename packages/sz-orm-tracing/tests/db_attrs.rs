@@ -3,7 +3,7 @@
 //! 验证：span 属性 + 跨阶段关联（parent_id 链）+ 采样率 + 导出失败缓冲
 
 use sz_orm_tracing::{
-    Span, OtlpExportBuffer, db_attrs, span_for_cache_lookup, span_for_failover, span_for_query,
+    db_attrs, span_for_cache_lookup, span_for_failover, span_for_query, OtlpExportBuffer, Span,
 };
 
 #[test]
@@ -39,10 +39,7 @@ fn test_span_for_cache_lookup() {
 
     assert_eq!(span.trace_id, "trace-002");
     assert_eq!(span.parent_id, Some("span-parent".to_string()));
-    assert_eq!(
-        span.tags.get("db.cache.key"),
-        Some(&"user:123".to_string())
-    );
+    assert_eq!(span.tags.get("db.cache.key"), Some(&"user:123".to_string()));
 }
 
 #[test]

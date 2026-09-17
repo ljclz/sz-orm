@@ -1251,7 +1251,12 @@ mod subitems {
         }
 
         /// 设置子项状态
-        pub fn set_sub_item(&mut self, item: HealthSubItem, status: HealthStatus, detail: impl Into<String>) {
+        pub fn set_sub_item(
+            &mut self,
+            item: HealthSubItem,
+            status: HealthStatus,
+            detail: impl Into<String>,
+        ) {
             self.sub_items.insert(item, status);
             self.details.insert(item, detail.into());
             self.recompute_overall();

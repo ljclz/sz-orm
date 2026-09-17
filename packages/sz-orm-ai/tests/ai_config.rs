@@ -6,7 +6,7 @@
 //! - Send + Sync 约束
 //! - 序列化/反序列化
 
-use sz_orm_ai::{AiConfig, AiDecision, AiDecisionType, AiAnnIndexType, RewritePath};
+use sz_orm_ai::{AiAnnIndexType, AiConfig, AiDecision, AiDecisionType, RewritePath};
 
 /// 验证默认配置所有开关为 false（不改变 v7.2.0 既有行为）
 #[test]

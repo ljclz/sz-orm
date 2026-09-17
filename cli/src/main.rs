@@ -2750,7 +2750,10 @@ fn cmd_wasm_build_config(_args: &[&str]) -> Result<(), String> {
 
 fn cmd_config(args: &[&str]) -> Result<(), String> {
     if args.is_empty() {
-        return Err("用法: sz-orm config hot-reload --key <k> --value <v> [--source <signal|file|manual>]".into());
+        return Err(
+            "用法: sz-orm config hot-reload --key <k> --value <v> [--source <signal|file|manual>]"
+                .into(),
+        );
     }
     match args[0] {
         "hot-reload" => cmd_config_hot_reload(&args[1..]),
@@ -2821,7 +2824,8 @@ fn cmd_lsp() -> Result<(), String> {
                             let request = String::from_utf8_lossy(&body);
                             let response = server.handle_json_rpc(&request);
                             let resp_bytes = response.as_bytes();
-                            write!(stdout, "Content-Length: {}\r\n\r\n", resp_bytes.len()).map_err(|e| e.to_string())?;
+                            write!(stdout, "Content-Length: {}\r\n\r\n", resp_bytes.len())
+                                .map_err(|e| e.to_string())?;
                             stdout.write_all(resp_bytes).map_err(|e| e.to_string())?;
                             stdout.flush().map_err(|e| e.to_string())?;
                         }

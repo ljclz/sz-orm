@@ -70,14 +70,8 @@ fn test_warp_adapter_all_methods() {
         Some("pool:primary".to_string())
     );
     assert_eq!(adapter.transaction_adapter(&mw), Some("tx".to_string()));
-    assert_eq!(
-        adapter.rate_limit_adapter(&mw),
-        Some("rl:500".to_string())
-    );
-    assert_eq!(
-        adapter.tracing_adapter(&mw),
-        Some("tr:0.25".to_string())
-    );
+    assert_eq!(adapter.rate_limit_adapter(&mw), Some("rl:500".to_string()));
+    assert_eq!(adapter.tracing_adapter(&mw), Some("tr:0.25".to_string()));
     assert_eq!(
         adapter.health_endpoint_adapter(&mw),
         Some("health".to_string())
@@ -119,7 +113,7 @@ fn test_warp_adapter_assemble() {
 #[test]
 fn test_axum_existing_signatures_unchanged() {
     use axum::response::IntoResponse;
-    use sz_orm_axum::{JsonResp, PoolState, transaction_layer};
+    use sz_orm_axum::{transaction_layer, JsonResp, PoolState};
 
     // PoolState: Clone（签名不变）
     fn _assert_pool_state_clone<T: Clone>() {}

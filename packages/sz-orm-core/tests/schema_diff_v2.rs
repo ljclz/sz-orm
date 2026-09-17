@@ -14,17 +14,18 @@ use sz_orm_core::schema_diff_viz::{
 /// 只读保证：source_write_count = 0
 #[tokio::test]
 async fn test_source_write_count_zero() {
-    let report = schema_diff_readonly("mysql://left", "mysql://right").await.unwrap();
-    assert_eq!(
-        report.source_write_count, 0,
-        "只读连接必须 0 写入"
-    );
+    let report = schema_diff_readonly("mysql://left", "mysql://right")
+        .await
+        .unwrap();
+    assert_eq!(report.source_write_count, 0, "只读连接必须 0 写入");
 }
 
 /// 正向/反向迁移 SQL 生成（空库：无差异）
 #[tokio::test]
 async fn test_empty_diff_no_sql() {
-    let report = schema_diff_readonly("mysql://a", "mysql://b").await.unwrap();
+    let report = schema_diff_readonly("mysql://a", "mysql://b")
+        .await
+        .unwrap();
     assert!(report.forward_migration_sql.is_empty());
     assert!(report.backward_migration_sql.is_empty());
     assert_eq!(report.table_diff_count, 0);
@@ -44,7 +45,9 @@ async fn test_invalid_url_protocol() {
 /// PostgreSQL URL 支持
 #[tokio::test]
 async fn test_postgres_url() {
-    let report = schema_diff_readonly("postgres://a", "postgres://b").await.unwrap();
+    let report = schema_diff_readonly("postgres://a", "postgres://b")
+        .await
+        .unwrap();
     assert_eq!(report.source_write_count, 0);
     assert_eq!(report.left_url, "postgres://a");
     assert_eq!(report.right_url, "postgres://b");
@@ -53,7 +56,9 @@ async fn test_postgres_url() {
 /// SQLite URL 支持
 #[tokio::test]
 async fn test_sqlite_url() {
-    let report = schema_diff_readonly("sqlite://a.db", "sqlite://b.db").await.unwrap();
+    let report = schema_diff_readonly("sqlite://a.db", "sqlite://b.db")
+        .await
+        .unwrap();
     assert_eq!(report.source_write_count, 0);
 }
 
@@ -121,7 +126,9 @@ fn test_type_diff_type() {
 /// duration_ms 非负
 #[tokio::test]
 async fn test_duration_non_negative() {
-    let report = schema_diff_readonly("mysql://a", "mysql://b").await.unwrap();
+    let report = schema_diff_readonly("mysql://a", "mysql://b")
+        .await
+        .unwrap();
     // duration_ms 可能是 0（太快），但不应溢出
     let _ = report.duration_ms;
 }

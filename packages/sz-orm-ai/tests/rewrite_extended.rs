@@ -8,11 +8,11 @@
 //! - 规则路径 ≤ 50ms
 //! - LLM 路径 ≤ 3s（无 multi-llm feature 时降级）
 
+use std::time::Instant;
 use sz_orm_ai::{
     diff_test, JoinReorderRule, PredicatePushdownRule, RedundantEliminationRule, RewriteEngine,
     RewriteRule, SubqueryFlatteningRule,
 };
-use std::time::Instant;
 
 /// 子查询扁平化规则匹配
 #[test]

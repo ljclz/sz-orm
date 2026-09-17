@@ -537,7 +537,10 @@ pub async fn prewarm_parallel(
 impl PrewarmResult {
     /// 从 JoinSet 结果收集 acquire 结果
     fn collect_acquire_result(
-        res: Result<Result<crate::pool::PooledConnection, crate::PoolError>, tokio::task::JoinError>,
+        res: Result<
+            Result<crate::pool::PooledConnection, crate::PoolError>,
+            tokio::task::JoinError,
+        >,
         acquired: &mut Vec<crate::pool::PooledConnection>,
         result: &mut PrewarmResult,
     ) {
