@@ -5,6 +5,55 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [7.4.0] — 2026-09-18
+
+### v7.4.0 七大方向：真实 DB 基准对标深化 / AI 能力深化 / 性能优化深化 / 覆盖率提升 / 下游兼容性验证 / 使用指南更新 / 版本整合
+
+基于 v7.3.0 基线，新增 35 个子任务，覆盖 7 大方向。不新增 crate（保持 72 包），不引入新依赖，所有新增 API 向后兼容。
+
+#### 组1 真实 DB 基准对标深化（10 子任务）
+
+- BenchConfig 新增 4 字段（compare_frameworks/init_once/save_baseline/compare_baseline）
+- BenchResult 新增 3 字段（db_backend/simd_speedup/dataset_size）
+- DbBackend::Postgres 新变体 + PostgreSQL 18 后端执行器
+- RegressionBaseline 持久化对比 + SimdComparisonResult::run_real() 真实 DB SIMD 实测
+- 多框架对标编排 + CLI 参数支持 + 端到端测试（4+2+2 passed）
+
+#### 组2 AI 能力深化（6 子任务）
+
+- TransformType 3 新变体（LimitPushdown/ConstantFolding/ColumnPruning）+ 3 改写规则
+- verify_equivalence_on_db() 真实 DB 等价性验证 + DbExecutor trait + EquivalenceVerificationResult
+- IndexRecommendation 偏差回填（actual_benefit_deviation + record_actual_benefit()）
+- Nl2sqlResult 注入过滤接线（injection_filtered + enforce_injection_filter()）
+- 端到端测试：rewrite_extended 31 + equivalence_verify 9 + nl2sql_injection_filter 10 passed
+
+#### 组3 性能优化深化（7 子任务）
+
+- BorrowedValue 4 新变体（DecimalBytes/JsonBytes/BytesRef/DateTimeInt）+ ZeroCopyStats 按类型统计
+- Pool::acquire_batch(n) 批量获取连接
+- PlanCache LRU-K(K=2) + 自适应容量调整（adjust_capacity()）
+- SIMD batch_compare_eq chunks_exact(8) 优化 + batch_compare_in 二分查找优化
+- PerfMetrics 性能指标暴露（OnceLock 全局单例 + 原子计数器 + Prometheus 格式）
+- 端到端测试：perf_metrics 5 + pool_batch 5 + plan_cache_lru_k 7 passed
+
+#### 组4 覆盖率提升（3 子任务）
+
+- 补齐关键模块边界测试：boundary_bench 8 + boundary_core 9 + boundary_ai 12 passed
+
+#### 组5 下游兼容性验证（4 子任务）
+
+- check-downstream-compat.py 统一验证脚本（CompatibilityReport JSON）
+- API 变更影响评估：21 个新增 API，0 修改，0 删除，全部向后兼容
+
+#### 新增 API（21 个，全部向后兼容）
+
+- `BorrowedValue::DecimalBytes(&'a [u8])` / `JsonBytes(&'a [u8])` / `BytesRef(&'a [u8])` / `DateTimeInt(i64)`
+- `Pool::acquire_batch(n5)` / `PlanCache::access_count()` / `lru_k()` / `parse_hit_rate()` / `adjust_capacity()` / `capacity()`
+- `PerfMetrics` (perf_metrics module) / `verify_equivalence_on_db()` / `DbExecutor` trait / `EquivalenceVerificationResult`
+- `LimitPushdownRule` / `ConstantFoldingRule` / `ColumnPruningRule`
+- `Nl2sqlResult::enforce_injection_filter()` / `injection_filtered`
+- `IndexRecommendation::record_actual_benefit()` / `actual_benefit_deviation`
+
 ## [7.0.0] — 2026-09-13
 
 ### v7.0.0 五大能力：多区域多活 / 实时流处理 / TDE 透明数据加密 / Serverless 适配 / 可组合性插件系统
