@@ -106,6 +106,14 @@ pub use rewrite_advisor::{
     diff_test, JoinReorderRule, PredicatePushdownRule, RedundantEliminationRule, RewriteEngine,
     RewriteResult, RewriteRule, SubqueryFlatteningRule,
 };
+// v7.4.0 任务 2.1：新增 3 条改写规则
+#[cfg(feature = "ai-rewrite-advisor")]
+pub use rewrite_advisor::{ColumnPruningRule, ConstantFoldingRule, LimitPushdownRule};
+// v7.4.0 任务 2.2：真实 DB 等价性验证
+#[cfg(feature = "ai-rewrite-advisor")]
+pub use rewrite_advisor::{
+    verify_equivalence_on_db, DbExecutor, EquivalenceVerificationResult,
+};
 
 // v4.0.0 M1：多 LLM 模型支持（multi-llm feature gate 隔离）
 #[cfg(feature = "multi-llm")]

@@ -61,7 +61,7 @@ sz-orm-graph = { version = "7.1.0", path = "../sz-orm-graph", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "chrono", "json"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "sqlite", "chrono", "json"] }
 
 [[test]]
 name = "ai_tests"
@@ -188,6 +188,18 @@ required-features = ["ai-index-advisor"]
 [[test]]
 name = "nl2sql_multi_turn"
 path = "tests/nl2sql_multi_turn.rs"
+required-features = ["ai-nl2sql-enhanced"]
+
+# v7.4.0 任务 2.6：真实 DB 等价性验证测试
+[[test]]
+name = "equivalence_verify_test"
+path = "tests/equivalence_verify_test.rs"
+required-features = ["ai-rewrite-advisor"]
+
+# v7.4.0 任务 2.6：NL2SQL 注入过滤测试
+[[test]]
+name = "nl2sql_injection_filter_test"
+path = "tests/nl2sql_injection_filter_test.rs"
 required-features = ["ai-nl2sql-enhanced"]
 
 [lints]

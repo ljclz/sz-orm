@@ -238,6 +238,24 @@ pub struct Nl2sqlResult {
     pub intent: IntentAnalysis,
     /// 延迟（毫秒）
     pub latency_ms: u64,
+    /// 注入过滤是否触发（v7.4.0 新增，true 表示安全检查过滤了危险内容）
+    pub injection_filtered: bool,
+}
+
+impl Nl2sqlResult {
+    /// 对生成的 SQL 强制执行注入过滤（v7.4.0 新增）
+    ///
+    /// 调用 `safety::validate_no_injection` + `SqlSanitizer::sanitize`，
+    /// 如果检测到注入向量则标记 `injection_filtered = true` 并清理 SQL。
+    pub fn enforce_injection_filter(&mut self) -> &mut Self {
+        let sql_str = &self.sql.sql;
+        if !crate::safety::validate_no_injection(sql_str) {
+            self.injection_filtered = true;
+            let sanitized = crate::sql_sanitizer::SqlSanitizer::sanitize(sql_str);
+            self.sql.sql = sanitized;
+        }
+        self
+    }
 }
 
 /// NL→SQL 引擎 trait
@@ -323,6 +341,7 @@ pub trait Nl2SqlEngine: Send + Sync {
             sql,
             intent,
             latency_ms,
+            injection_filtered: false,
         })
     }
 }

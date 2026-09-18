@@ -350,6 +350,29 @@ pub struct IndexRecommendation {
     pub estimated_latency_reduction: f64,
     /// 推荐理由（含负收益标注）
     pub reason: String,
+    /// 实际收益与预估偏差（v7.4.0 新增，None 表示未回填）
+    #[serde(default)]
+    pub actual_benefit_deviation: Option<f64>,
+}
+
+impl IndexRecommendation {
+    /// DBA 实测后回填实际收益与预估偏差（v7.4.0 新增）
+    ///
+    /// `actual_latency_reduction` 为实测延迟降低比例，偏差 >20% 标注警告。
+    pub fn record_actual_benefit(&mut self, actual_latency_reduction: f64) -> &mut Self {
+        if self.estimated_latency_reduction != 0.0 {
+            let deviation = ((actual_latency_reduction - self.estimated_latency_reduction)
+                / self.estimated_latency_reduction.abs())
+                * 100.0;
+            self.actual_benefit_deviation = Some(deviation);
+            if deviation.abs() > 20.0 {
+                self.reason.push_str(&format!(
+                    " [警告: 实际收益偏差 {deviation:.1}%，超过 ±20% 阈值]"
+                ));
+            }
+        }
+        self
+    }
 }
 
 impl IndexAdvisor {
@@ -476,6 +499,7 @@ impl IndexAdvisor {
                         estimated_scan_reduction: scan_reduction,
                         estimated_latency_reduction: latency_reduction,
                         reason,
+                        actual_benefit_deviation: None,
                     });
                 }
             }
