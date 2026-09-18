@@ -22,7 +22,7 @@ thiserror = { workspace = true }
 # real-bench feature 下的真实 DB 查询依赖（optional，不影响默认编译）
 sz-orm-core = { workspace = true, optional = true }
 sz-orm-sqlx = { workspace = true, optional = true }
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "sqlite", "chrono", "json"], optional = true }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"], optional = true }
 tokio = { workspace = true, optional = true }
 sea-orm = { version = "1.1", optional = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
 

@@ -171,6 +171,7 @@ fn parse_config(args: &[String]) -> BenchConfig {
                 match args[i + 1].as_str() {
                     "sqlite" => config.db_backend = sz_orm_bench::DbBackend::Sqlite,
                     "mysql" => config.db_backend = sz_orm_bench::DbBackend::Mysql,
+                    "postgres" => config.db_backend = sz_orm_bench::DbBackend::Postgres,
                     other => eprintln!("未知 db-backend: {other}，使用默认 sqlite"),
                 }
                 i += 2;
@@ -181,6 +182,32 @@ fn parse_config(args: &[String]) -> BenchConfig {
             }
             "--dataset-size" if i + 1 < args.len() => {
                 config.dataset_size = args[i + 1].parse().unwrap_or(10000);
+                i += 2;
+            }
+            "--compare" if i + 1 < args.len() => {
+                let frameworks: Vec<FrameworkType> = args[i + 1]
+                    .split(',')
+                    .filter_map(|s| match s.trim() {
+                        "sz-orm" => Some(FrameworkType::SzOrm),
+                        "sea-orm" => Some(FrameworkType::SeaOrm),
+                        "diesel" => Some(FrameworkType::Diesel),
+                        "sqlx" => Some(FrameworkType::Sqlx),
+                        _ => None,
+                    })
+                    .collect();
+                config.compare_frameworks = frameworks;
+                i += 2;
+            }
+            "--init-once" => {
+                config.init_once = true;
+                i += 1;
+            }
+            "--save-baseline" if i + 1 < args.len() => {
+                config.save_baseline = Some(args[i + 1].clone());
+                i += 2;
+            }
+            "--compare-baseline" if i + 1 < args.len() => {
+                config.compare_baseline = Some(args[i + 1].clone());
                 i += 2;
             }
             _ => i += 1,
@@ -201,9 +228,13 @@ fn print_help() {
     println!("    --rounds <n>            测量轮数（默认 10）");
     println!("    --pool-size <n>         连接池大小（默认 20）");
     println!("    --dataset-size <n>      数据集大小（默认 10000）");
-    println!("    --db-backend <type>     数据库后端: sqlite|mysql（默认 sqlite）");
+    println!("    --db-backend <type>     数据库后端: sqlite|mysql|postgres（默认 sqlite）");
     println!("    --db-connection <str>   数据库连接串（默认 sqlite::memory:）");
     println!("    --simulate              使用模拟延迟模型（旧路径）");
+    println!("    --compare <fw1,fw2,...> 对标框架列表（逗号分隔: sz-orm,sea-orm,diesel,sqlx）");
+    println!("    --init-once             启用 init-once 策略（一次性初始化后多次运行查询）");
+    println!("    --save-baseline <name>  保存基线到 bench-results/baseline_<name>.json");
+    println!("    --compare-baseline <name> 对比既有基线（退化 ≥10% 告警）");
     println!();
     println!("工作负载:");
     for wl in [

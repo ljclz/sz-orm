@@ -35,12 +35,16 @@ fn test_config(conn: String) -> BenchConfig {
     BenchConfig {
         seed: 42,
         warmup_rounds: 1,
-        measure_rounds: 3,
+        measure_rounds: 5,
         pool_size: 5,
         dataset_size: 200,
         concurrency: 2,
         db_backend: DbBackend::Sqlite,
         db_connection: conn,
+        compare_frameworks: vec![],
+        init_once: false,
+        save_baseline: None,
+        compare_baseline: None,
     }
 }
 
@@ -99,12 +103,16 @@ async fn test_run_workload_real_mysql() {
     let config = BenchConfig {
         seed: 42,
         warmup_rounds: 1,
-        measure_rounds: 3,
+        measure_rounds: 5,
         pool_size: 5,
         dataset_size: 200,
         concurrency: 2,
         db_backend: DbBackend::Mysql,
         db_connection: "mysql://root:test123@127.0.0.1:3306/sz_orm_test".to_string(),
+        compare_frameworks: vec![],
+        init_once: false,
+        save_baseline: None,
+        compare_baseline: None,
     };
 
     let frameworks = [FrameworkType::Sqlx, FrameworkType::SeaOrm];

@@ -41,6 +41,10 @@ fn reproducibility_config(conn: String) -> BenchConfig {
         concurrency: 2,
         db_backend: DbBackend::Sqlite,
         db_connection: conn,
+        compare_frameworks: vec![],
+        init_once: false,
+        save_baseline: None,
+        compare_baseline: None,
     }
 }
 

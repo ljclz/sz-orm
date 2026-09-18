@@ -8,6 +8,8 @@ use serde::{Deserialize, Serialize};
 #[cfg(feature = "real-bench")]
 pub mod real_db;
 
+pub mod regression_baseline;
+
 #[cfg(feature = "real-bench")]
 pub use real_db::{
     run_workload_real, DatasetInitializer, RealDbExecutor, SeaOrmWorkload, SqlxWorkload,
@@ -76,6 +78,8 @@ pub enum DbBackend {
     Sqlite,
     #[serde(rename = "mysql")]
     Mysql,
+    #[serde(rename = "postgres")]
+    Postgres,
 }
 
 impl DbBackend {
@@ -83,6 +87,7 @@ impl DbBackend {
         match self {
             Self::Sqlite => "sqlite",
             Self::Mysql => "mysql",
+            Self::Postgres => "postgres",
         }
     }
 }
@@ -123,6 +128,18 @@ pub struct BenchConfig {
     /// 数据库连接串
     #[serde(default = "default_db_connection")]
     pub db_connection: String,
+    /// 对标框架列表（多框架对标编排）
+    #[serde(default)]
+    pub compare_frameworks: Vec<FrameworkType>,
+    /// 是否启用 init-once 策略（一次性初始化数据集后多次运行查询取统计量）
+    #[serde(default)]
+    pub init_once: bool,
+    /// 保存基线到指定文件名（JSON 持久化）
+    #[serde(default)]
+    pub save_baseline: Option<String>,
+    /// 对比既有基线文件名（退化 ≥10% 告警）
+    #[serde(default)]
+    pub compare_baseline: Option<String>,
 }
 
 fn default_db_backend() -> DbBackend {
@@ -150,6 +167,10 @@ impl BenchConfig {
             concurrency: 8,
             db_backend: DbBackend::Sqlite,
             db_connection: "sqlite::memory:".to_string(),
+            compare_frameworks: vec![],
+            init_once: false,
+            save_baseline: None,
+            compare_baseline: None,
         }
     }
 
@@ -163,9 +184,9 @@ impl BenchConfig {
                 "warmup_rounds 必须 >= 1".into(),
             ));
         }
-        if self.measure_rounds < 3 {
+        if self.measure_rounds < 5 {
             return Err(BenchError::InvalidConnectionString(
-                "measure_rounds 必须 >= 3".into(),
+                "measure_rounds 必须 >= 5".into(),
             ));
         }
         if self.pool_size == 0 || self.pool_size > 100 {
@@ -188,6 +209,16 @@ impl BenchConfig {
             return Err(BenchError::InvalidConnectionString(
                 "db_connection 不能为空".into(),
             ));
+        }
+        for fw in &self.compare_frameworks {
+            if !matches!(
+                fw,
+                FrameworkType::SzOrm | FrameworkType::SeaOrm | FrameworkType::Diesel | FrameworkType::Sqlx
+            ) {
+                return Err(BenchError::InvalidConnectionString(format!(
+                    "compare_frameworks 含未知框架: {fw:?}"
+                )));
+            }
         }
         Ok(())
     }
@@ -219,6 +250,15 @@ pub struct BenchResult {
     /// 是否真实 DB 查询
     #[serde(default)]
     pub is_real_db: bool,
+    /// 数据库后端（v7.4.0 新增）
+    #[serde(default = "default_db_backend")]
+    pub db_backend: DbBackend,
+    /// SIMD 加速比（v7.4.0 新增，None 表示未测量）
+    #[serde(default)]
+    pub simd_speedup: Option<f64>,
+    /// 数据集大小（v7.4.0 新增）
+    #[serde(default)]
+    pub dataset_size: usize,
 }
 
 impl BenchResult {
@@ -254,6 +294,51 @@ impl BenchResult {
             alloc_bytes,
             raw_latencies: latencies_us,
             is_real_db,
+            db_backend: DbBackend::Sqlite,
+            simd_speedup: None,
+            dataset_size: 0,
+        }
+    }
+
+    /// 从延迟数组计算结果（扩展版，含 db_backend / simd_speedup / dataset_size）
+    #[allow(clippy::too_many_arguments)]
+    pub fn from_latencies_ext(
+        framework: FrameworkType,
+        workload: WorkloadType,
+        latencies_us: Vec<u64>,
+        peak_rss_kb: u64,
+        alloc_count: u64,
+        alloc_bytes: u64,
+        is_real_db: bool,
+        db_backend: DbBackend,
+        simd_speedup: Option<f64>,
+        dataset_size: usize,
+    ) -> Self {
+        let p50 = percentile(&latencies_us, 50.0);
+        let p95 = percentile(&latencies_us, 95.0);
+        let p99 = percentile(&latencies_us, 99.0);
+        let total_us: u64 = latencies_us.iter().sum();
+        let throughput = if total_us > 0 {
+            (latencies_us.len() as f64) * 1_000_000.0 / (total_us as f64)
+        } else {
+            0.0
+        };
+
+        Self {
+            framework,
+            workload,
+            p50_us: p50,
+            p95_us: p95,
+            p99_us: p99,
+            throughput_ops: throughput,
+            peak_rss_kb,
+            alloc_count,
+            alloc_bytes,
+            raw_latencies: latencies_us,
+            is_real_db,
+            db_backend,
+            simd_speedup,
+            dataset_size,
         }
     }
 }
@@ -470,6 +555,20 @@ pub fn validate_db_connection(connection: &str) -> Result<DbBackend, BenchError>
             ));
         }
         return Ok(DbBackend::Mysql);
+    }
+    if connection.starts_with("postgres://") || connection.starts_with("postgresql://") {
+        let lower = connection.to_lowercase();
+        if lower.contains("prod") || lower.contains("production") {
+            return Err(BenchError::ProductionDatabaseRejected(
+                "连接串含 prod/production".into(),
+            ));
+        }
+        if !connection.contains("sz_orm_test") {
+            return Err(BenchError::ProductionDatabaseRejected(
+                "PostgreSQL 必须指向 sz_orm_test 库".into(),
+            ));
+        }
+        return Ok(DbBackend::Postgres);
     }
     Err(BenchError::InvalidConnectionString(format!(
         "不支持的连接串: {connection}"
