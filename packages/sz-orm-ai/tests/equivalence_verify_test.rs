@@ -120,12 +120,16 @@ async fn test_equivalence_violation_fallback() {
     let original = "SELECT id FROM users WHERE age > 20";
     let rewritten = "SELECT id FROM users WHERE age > 30";
     let result = verify_equivalence_on_db(original, rewritten, &executor).await;
-    if !result.is_equivalent {
-        let warning = "REWRITE_EQUIVALENCE_VIOLATION";
-        assert_eq!(warning, "REWRITE_EQUIVALENCE_VIOLATION");
-        let fallback_sql = original;
-        assert_eq!(fallback_sql, "SELECT id FROM users WHERE age > 20");
-    }
+    assert!(!result.is_equivalent, "两条不等价的 SQL 应检测为不等价");
+    assert!(
+        result.diff_details.is_some(),
+        "不等价时 diff_details 必须有值"
+    );
+    assert!(
+        result.original_row_count != result.rewritten_row_count
+            || result.diff_details.as_ref().unwrap().contains("不匹配"),
+        "行数不同或 diff_details 含不匹配信息"
+    );
 }
 
 /// 原 SQL 执行失败
@@ -180,15 +184,25 @@ async fn test_rewrite_then_verify_constant_folding() {
     let engine = RewriteEngine::new();
     let sql = "SELECT id FROM users WHERE id = 1 + 1";
     let result = engine.rewrite(sql);
-    if let Some(suggestion) = result.suggestion {
-        if suggestion.transform_type == TransformType::ConstantFolding {
-            let verify = verify_equivalence_on_db(
-                &suggestion.original_sql,
-                &suggestion.rewritten_sql,
-                &executor,
-            )
-            .await;
-            assert!(verify.is_equivalent, "常量折叠应等价");
-        }
-    }
+    assert!(
+        result.suggestion.is_some(),
+        "常量折叠规则应匹配含 1+1 的 SQL"
+    );
+    let suggestion = result.suggestion.unwrap();
+    assert_eq!(
+        suggestion.transform_type,
+        TransformType::ConstantFolding,
+        "改写类型应为 ConstantFolding"
+    );
+    let verify = verify_equivalence_on_db(
+        &suggestion.original_sql,
+        &suggestion.rewritten_sql,
+        &executor,
+    )
+    .await;
+    assert!(
+        verify.is_equivalent,
+        "常量折叠改写应与原 SQL 等价，diff: {:?}",
+        verify.diff_details
+    );
 }

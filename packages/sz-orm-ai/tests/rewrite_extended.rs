@@ -127,21 +127,25 @@ fn test_rewrite_engine_rule_path_latency() {
 /// 安全校验回退：改写后 SQL 包含注入风险时回退
 #[test]
 fn test_safety_fallback_injection() {
-    // 构造一个会触发安全校验失败的场景：
-    // 改写后 SQL 包含 UNION（注入风险），应回退原 SQL
     let engine = RewriteEngine::new();
-    // 正常 SQL 改写应通过安全校验
     let sql = "SELECT * FROM orders o JOIN users u ON o.user_id = u.id WHERE o.status = 'pending'";
     let result = engine.rewrite(sql);
-    // 谓词下推改写后的 SQL 包含注释 /* ... */，safety::validate_no_injection 会检测到 /* 并返回 false
-    // 因此应触发安全回退
-    if result.suggestion.is_none() {
+    if result.suggestion.is_some() {
+        assert!(
+            result.fallback_reason.is_none(),
+            "改写成功时不应有 fallback_reason"
+        );
+    } else {
         assert!(
             result.fallback_reason.is_some(),
             "安全回退应记录 fallback_reason"
         );
         let reason = result.fallback_reason.unwrap();
-        assert!(reason.contains("安全校验失败") || reason.contains("回退"));
+        assert!(
+            reason.contains("安全校验失败") || reason.contains("回退"),
+            "fallback_reason 应含安全校验失败或回退，实际: {}",
+            reason
+        );
     }
 }
 
@@ -217,10 +221,16 @@ async fn test_rewrite_with_llm_uses_rule_path_first() {
     let engine = RewriteEngine::new();
     let sql = "SELECT * FROM users WHERE id IN (SELECT user_id FROM orders)";
     let result = engine.rewrite_with_llm(sql).await;
-    // 规则路径应命中子查询扁平化
-    if let Some(suggestion) = result.suggestion {
-        assert!(suggestion.rewritten_sql.contains("子查询展开"));
-    }
+    assert!(
+        result.suggestion.is_some(),
+        "子查询 SQL 应命中规则路径，suggestion 不应为 None"
+    );
+    let suggestion = result.suggestion.unwrap();
+    assert!(
+        suggestion.rewritten_sql.contains("子查询展开"),
+        "改写后 SQL 应含'子查询展开'，实际: {}",
+        suggestion.rewritten_sql
+    );
 }
 // v7.4.0 任务 2.6：新增 3 规则端到端测试
 
@@ -232,10 +242,16 @@ fn test_limit_pushdown_rule_match() {
     let rule = LimitPushdownRule;
     let sql = "SELECT * FROM (SELECT id, name FROM items) sub LIMIT 10";
     let suggestion = rule.apply(sql);
-    // 该 SQL 可能匹配也可能不匹配（取决于解析器），关键是规则不 panic
-    if let Some(s) = suggestion {
-        assert_eq!(s.transform_type, TransformType::LimitPushdown);
-    }
+    assert!(
+        suggestion.is_some(),
+        "LimitPushdown 规则应匹配含 LIMIT 的子查询 SQL"
+    );
+    let s = suggestion.unwrap();
+    assert_eq!(
+        s.transform_type,
+        TransformType::LimitPushdown,
+        "改写类型应为 LimitPushdown"
+    );
 }
 
 /// LimitPushdown 规则不匹配（无子查询）

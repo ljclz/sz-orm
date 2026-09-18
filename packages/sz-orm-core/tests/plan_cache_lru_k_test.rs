@@ -47,9 +47,8 @@ fn test_adjust_capacity_high_hit_rate() {
     }
     let changed = cache.adjust_capacity();
     let rate = cache.parse_hit_rate();
-    if rate > 0.8 {
-        assert!(changed || cache.capacity() >= 100);
-    }
+    assert!(rate > 0.8, "100 次相同 SQL 命中率应 > 80%，实际 {}", rate);
+    assert!(changed || cache.capacity() >= 100, "高命中率时容量不应缩小");
 }
 
 #[test]
@@ -61,9 +60,8 @@ fn test_adjust_capacity_low_hit_rate() {
     }
     let changed = cache.adjust_capacity();
     let rate = cache.parse_hit_rate();
-    if rate < 0.3 {
-        assert!(changed || cache.capacity() <= 100);
-    }
+    assert!(rate < 0.1, "50 次不同 SQL 命中率应 < 10%，实际 {}", rate);
+    assert!(changed || cache.capacity() <= 100, "低命中率时容量不应扩大");
 }
 
 #[test]
