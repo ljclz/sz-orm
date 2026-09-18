@@ -1,10 +1,10 @@
 # SZ-ORM 使用指南
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v7.3.0（v7.3.0：性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展；72 个工作空间成员）
-> 适用版本：SZ-ORM **v7.3.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
-> 更新日期：2026-09-17
-> 项目状态：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 7.3.0
+> 文档版本：v7.4.0（v7.4.0：真实 DB 基准对标深化 + AI 能力深化 + 性能优化深化 + 使用指南全面更新；72 个工作空间成员）
+> 适用版本：SZ-ORM **v7.4.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 更新日期：2026-09-18
+> 项目状态：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 7.4.0
 > 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
 > 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"
 
@@ -14,7 +14,7 @@
 
 ## 一、项目概述
 
-SZ-ORM 是一套**生产可用（内部项目）的纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 72 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、59 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。v7.3.0 新增性能极致优化（SIMD 向量化 + 零拷贝 + 并行预热 + 计划缓存）、企业级高可用（自动故障转移 + 错误率熔断 + 限流排队 + 5 子项健康检查 + OTLP 追踪）、AI 深度集成（查询改写 + 索引推荐 + NL2SQL 多轮对话 + 向量 ANN 加速）、生态扩展（warp 适配 + 源 ORM 迁移 + schema diff），全部通过 feature gate 隔离。
+SZ-ORM 是一套**生产可用（内部项目）的纯 Rust ORM 工作空间**，兼容 ThinkORM 风格的链式 API，由 72 个工作空间成员组成：1 个核心引擎（sz-orm-core）、2 个数据库适配/校验包（sz-orm-sqlx、sz-orm-sql-validator）、1 个编译时宏包（sz-orm-macros）、1 个查询构建器包（sz-orm-query-builder）、1 个可观测性包（sz-orm-observability）、1 个向量数据库包（sz-orm-vector）、3 个生态扩展包（sz-orm-postgis/sz-orm-timeseries/sz-orm-search）、59 个业务扩展生态包、1 个 CLI 工具（cli）、1 个示例集（examples）。v7.3.0 新增性能极致优化（SIMD 向量化 + 零拷贝 + 并行预热 + 计划缓存）、企业级高可用（自动故障转移 + 错误率熔断 + 限流排队 + 5 子项健康检查 + OTLP 追踪）、AI 深度集成（查询改写 + 索引推荐 + NL2SQL 多轮对话 + 向量 ANN 加速）、生态扩展（warp 适配 + 源 ORM 迁移 + schema diff），全部通过 feature gate 隔离。v7.4.0 新增真实 DB 基准对标深化（PostgreSQL 18 后端 + 回归基线持久化 + SIMD 真实对比 + 多框架对标编排）、AI 能力深化（3 条改写规则 + 等价性验证 + 索引推荐偏差回填 + NL2SQL 注入过滤）、性能优化深化（BorrowedValue 4 新变体 + 批量获取连接 + PlanCache LRU-K + SIMD chunks_exact(8) + PerfMetrics 全局单例）。
 
 ### 1.1 核心特性
 
@@ -37,15 +37,18 @@ SZ-ORM 是一套**生产可用（内部项目）的纯 Rust ORM 工作空间**�
 | v7.3.0 高可用 | 自动故障转移 RTO≤5s + 错误率熔断 + 限流排队 + 5 子项健康检查 + OTLP db.* 追踪 |
 | v7.3.0 AI 集成 | 查询改写规则集 + LLM 路径 + 索引推荐负载建模 + NL2SQL 多轮对话 + 向量 ANN 加速 |
 | v7.3.0 生态扩展 | warp 中间件适配 + 源 ORM 解析迁移（Diesel/SeaORM/SQLx）+ schema diff 正/反向迁移 |
+| v7.4.0 基准对标 | PostgreSQL 18 真实后端 + 回归基线持久化对比 + SIMD 真实 DB 对比 + 多框架对标编排 |
+| v7.4.0 AI 深化 | 3 条改写规则（LimitPushdown/ConstantFolding/ColumnPruning）+ 等价性验证 + 索引推荐偏差回填 + NL2SQL 注入过滤 |
+| v7.4.0 性能深化 | BorrowedValue 4 新变体 + 批量获取连接 `acquire_batch` + PlanCache LRU-K(K=2) + SIMD chunks_exact(8) + PerfMetrics 全局单例 |
 
 ### 1.2 质量基线（实测数据）
 
 - 工作空间成员：**72（70 sz-orm-* lib + cli + examples）**
-- 代码规模：**176,709 LOC（src/ 97,318 + tests/ 79,391）**
+- 代码规模：**176,709+ LOC（src/ 97,318+ + tests/ 79,391+）**
 - feature gate：**56 个**（v7.3.0 新增 10 个，其中 3 个默认启用：perf-accel/ha-events/health-subitems）
 - 生产代码 **0 处 panic!**、0 处 `unimplemented!`/`todo!`
 - `cargo clippy --workspace --all-targets -- -D warnings` 全通过（0 warnings）
-- v7.3.0 新增 187 个测试全部通过，4 个生产示例编译通过
+- v7.3.0 新增 187 个测试全部通过，v7.4.0 新增 100+ 个测试全部通过，4 个生产示例编译通过
 - 批量插入吞吐：SQLite 72 万行/s、PG 26.8 万行/s、MySQL 14.5 万行/s
 
 ---
@@ -1618,9 +1621,9 @@ let value = registry.to_value("user_uuid", &String::from("550e8400-e29b-41d4-a71
 
 ---
 
-## 三.5、v7.3.0 Feature Gate 使用指南
+## 三.5、Feature Gate 使用指南（v7.3.0 + v7.4.0）
 
-v7.3.0 新增 10 个 feature gate，覆盖四大方向。其中 **3 个纯增益 feature gate 默认启用**，其余 7 个需在 `Cargo.toml` 中显式声明。
+v7.3.0 新增 10 个 feature gate，覆盖四大方向。其中 **3 个纯增益 feature gate 默认启用**，其余 7 个需在 `Cargo.toml` 中显式声明。v7.4.0 不新增 feature gate，在既有 feature gate 下扩展能力。
 
 ### feature gate 总览
 
@@ -1642,16 +1645,16 @@ v7.3.0 新增 10 个 feature gate，覆盖四大方向。其中 **3 个纯增益
 ```toml
 [dependencies]
 # 默认已启用 perf-accel + ha-events + health-subitems，无需额外配置
-sz-orm-core = "7.3"
-sz-orm-health = "7.3"
+sz-orm-core = "7.4"
+sz-orm-health = "7.4"
 
 # 按需启用其他 feature gate
-sz-orm-core = { version = "7.3", features = ["auto-failover", "eco-config"] }
-sz-orm-limit = { version = "7.3", features = ["limit-queue-timeout"] }
-sz-orm-tracing = { version = "7.3", features = ["tracing-db-attrs"] }
-sz-orm-ai = { version = "7.3", features = ["ai-config"] }
-sz-orm-vector = { version = "7.3", features = ["ann-accel"] }
-sz-orm-axum = { version = "7.3", features = ["warp-adapt"] }
+sz-orm-core = { version = "7.4", features = ["auto-failover", "eco-config"] }
+sz-orm-limit = { version = "7.4", features = ["limit-queue-timeout"] }
+sz-orm-tracing = { version = "7.4", features = ["tracing-db-attrs"] }
+sz-orm-ai = { version = "7.4", features = ["ai-config"] }
+sz-orm-vector = { version = "7.4", features = ["ann-accel"] }
+sz-orm-axum = { version = "7.4", features = ["warp-adapt"] }
 ```
 
 ### 核心 API 速查
@@ -1720,6 +1723,270 @@ let ai_config = AiConfig {
 | `warp-adapt` | `eco_extension_demo.rs` | `tests/warp_adapt.rs` |
 
 ---
+
+## 三.6、v7.4.0 新增能力使用指南
+
+v7.4.0 在既有 feature gate 下扩展三大方向能力。以下每项附生产调用点 `file:line` 证据，标注"需手动接入"的组件未自动注入主流程。
+
+### 3.6.1 真实 DB 基准对标深化（sz-orm-bench）
+
+#### PostgreSQL 18 真实后端
+
+`DbBackend::Postgres` 变体支持连接 PostgreSQL 18 执行真实基准测试。
+
+- 定义：[packages/sz-orm-bench/src/lib.rs:82](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/lib.rs#L82)
+- CLI 入口：[packages/sz-orm-bench/src/main.rs:174](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/main.rs#L174)（`--db-backend postgres`）
+- 连接验证：[packages/sz-orm-bench/src/lib.rs:571](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/lib.rs#L571)
+
+```bash
+# 运行 PostgreSQL 真实基准
+cargo run -p sz-orm-bench -- --db-backend postgres --db-url "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test"
+```
+
+#### 回归基线持久化对比
+
+`RegressionBaseline` 支持将基准结果保存为 JSON 文件，后续运行时加载对比检测回归。
+
+- 定义：[packages/sz-orm-bench/src/regression_baseline.rs:14](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/regression_baseline.rs#L14)
+- `save_to_file()`：[regression_baseline.rs:71](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/regression_baseline.rs#L71)
+- `load_from_file()`：[regression_baseline.rs:80](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/regression_baseline.rs#L80)
+- **需手动接入**：CLI 未自动调用，用户在基准测试代码中按需调用
+
+```rust
+use sz_orm_bench::regression_baseline::RegressionBaseline;
+
+// 保存基线
+let baseline = RegressionBaseline::new();
+baseline.save_to_file("baseline_v7.4.0.json")?;
+
+// 加载并对比
+let loaded = RegressionBaseline::load_from_file("baseline_v7.4.0.json")?;
+```
+
+#### SIMD 真实 DB 对比
+
+`SimdComparisonResult::run_real()` 在真实 DB 上执行 SIMD 向量化对比基准。
+
+- 定义：[packages/sz-orm-bench/src/real_db.rs:902](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/real_db.rs#L902)
+- **需手动接入**：需真实 DB 连接，在测试中调用
+
+#### 多框架对标编排
+
+`run_workload_real_multi_framework()` 编排多框架（sz-orm / Diesel / SeaORM）真实 DB 对标。
+
+- 定义：[packages/sz-orm-bench/src/real_db.rs:1001](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/real_db.rs#L1001)
+- **需手动接入**：需真实 DB 连接 + Diesel feature gate
+
+### 3.6.2 AI 能力深化（sz-orm-ai）
+
+#### 3 条新改写规则
+
+v7.4.0 新增 3 条查询改写规则，在 `RewriteEngine::new()` 中自动注册：
+
+| 规则 | 变体 | 定义位置 | 说明 |
+|------|------|----------|------|
+| `LimitPushdownRule` | `LimitPushdown` | [rewrite_advisor.rs:600](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L600) | 将 LIMIT 下推到子查询 |
+| `ConstantFoldingRule` | `ConstantFolding` | [rewrite_advisor.rs:645](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L645) | 编译期常量折叠 |
+| `ColumnPruningRule` | `ColumnPruning` | [rewrite_advisor.rs:690](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L690) | 裁剪无用列投影 |
+
+- TransformType 变体定义：[rewrite_advisor.rs:32-36](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L32)
+- 注册入口：[rewrite_advisor.rs:779-781](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L779)
+
+```rust
+use sz_orm_ai::RewriteEngine;
+
+let engine = RewriteEngine::new(); // 自动注册 7 条规则（含 3 条新规则）
+let result = engine.rewrite(&sql, &dialect)?;
+```
+
+#### 等价性验证
+
+`verify_equivalence_on_db()` 在真实 DB 上验证改写前后 SQL 结果等价性。
+
+- 定义：[rewrite_advisor.rs:1037](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L1037)
+- `DbExecutor` trait：[rewrite_advisor.rs:981](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L981)
+- `EquivalenceVerificationResult`：[rewrite_advisor.rs:988](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L988)
+- **需手动接入**：改写引擎主流程未自动调用，用户在改写后按需验证
+
+```rust
+use sz_orm_ai::verify_equivalence_on_db;
+
+let result = verify_equivalence_on_db(&original_sql, &rewritten_sql, &db_executor).await?;
+if result.is_equivalent {
+    println!("改写验证通过");
+}
+```
+
+#### 索引推荐偏差回填
+
+`IndexRecommendation` 新增 `actual_benefit_deviation` 字段，`record_actual_benefit()` 方法回填实际收益偏差。
+
+- 字段定义：[index_advisor.rs:355](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/index_advisor.rs#L355)
+- `record_actual_benefit()`：[index_advisor.rs:362](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/index_advisor.rs#L362)
+- **需手动接入**：DBA 在索引上线后手动回填实际收益
+
+```rust
+// 索引上线后回填实际收益
+recommendation.record_actual_benefit(actual_benefit);
+let deviation = recommendation.actual_benefit_deviation; // Option<f64>
+```
+
+#### NL2SQL 注入过滤
+
+`Nl2sqlResult` 新增 `injection_filtered` 字段，`enforce_injection_filter()` 函数强制过滤注入风险。
+
+- 字段定义：[nl2sql.rs:242](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/nl2sql.rs#L242)
+- `enforce_injection_filter()`：[nl2sql.rs:250](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/nl2sql.rs#L250)
+- **需手动接入**：NL→SQL 生成主流程未自动调用，用户在生成后按需过滤
+
+```rust
+use sz_orm_ai::enforce_injection_filter;
+
+let mut result = nl2sql_engine.translate(&natural_language)?;
+enforce_injection_filter(&mut result);
+if result.injection_filtered {
+    println!("检测到注入风险，已过滤");
+}
+```
+
+### 3.6.3 性能优化深化（sz-orm-core）
+
+#### BorrowedValue 4 新变体
+
+零拷贝值枚举新增 4 个变体，扩展类型覆盖范围：
+
+| 变体 | 定义位置 | L2 缓存处理 |
+|------|----------|-------------|
+| `DecimalBytes` | [value_borrowed.rs:60](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/value_borrowed.rs#L60) | [l2_cache.rs:2887](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/l2_cache.rs#L2887) |
+| `JsonBytes` | [value_borrowed.rs:62](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/value_borrowed.rs#L62) | [l2_cache.rs:2888](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/l2_cache.rs#L2888) |
+| `BytesRef` | [value_borrowed.rs:64](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/value_borrowed.rs#L64) | [l2_cache.rs:2889](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/l2_cache.rs#L2889) |
+| `DateTimeInt` | [value_borrowed.rs:66](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/value_borrowed.rs#L66) | [l2_cache.rs:2890](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/l2_cache.rs#L2890) |
+
+#### 批量获取连接 `acquire_batch`
+
+`Pool::acquire_batch(n)` 一次性获取 n 个连接，减少反复 acquire 的开销。
+
+- 定义：[pool.rs:1587](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/pool.rs#L1587)
+- **需手动接入**：查询执行路径未自动调用，用户在批量操作时按需调用
+
+```rust
+let conns = pool.acquire_batch(10).await?; // 一次获取 10 个连接
+for conn in conns {
+    // 并行执行批量操作
+}
+```
+
+#### PlanCache LRU-K(K=2)
+
+查询计划缓存升级为 LRU-K(K=2) 算法，支持自适应容量调整。
+
+| 能力 | 定义位置 | 说明 |
+|------|----------|------|
+| `access_counts` 字段 | [plan_cache.rs:462](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/plan_cache.rs#L462) | 记录第 K 次访问时间 |
+| `adjust_capacity()` | [plan_cache.rs:871](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/plan_cache.rs#L871) | 根据命中率自适应调整容量 |
+| `parse_hit_rate()` | [plan_cache.rs:854](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/plan_cache.rs#L854) | 获取解析计划命中率 |
+
+- **需手动接入**：PlanCache 组件需用户手动创建并接入查询路径
+
+```rust
+use sz_orm_core::PlanCache;
+
+let mut cache = PlanCache::new(1000); // 容量 1000
+// ... 执行查询后缓存计划 ...
+cache.adjust_capacity(); // 根据命中率自动调整
+let hit_rate = cache.parse_hit_rate();
+```
+
+#### SIMD chunks_exact(8) 优化
+
+`batch_compare_eq` 和 `batch_compare_in` 使用 chunks_exact(8) 分块处理 + 二分查找优化。
+
+- `batch_compare_eq`：[simd.rs:130](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/simd.rs#L130)（chunks_exact(8) 在 simd.rs:132）
+- `batch_compare_in`：[simd.rs:161](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/simd.rs#L161)（二分查找在 simd.rs:172）
+- **需手动接入**：SIMD 批量比较函数未自动接入查询过滤路径，用户在批量过滤场景按需调用
+
+#### PerfMetrics 全局单例
+
+`PerfMetrics` 提供全局单例性能指标采集，支持 Prometheus 格式导出。
+
+- 模块声明：[lib.rs:640](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/lib.rs#L640)
+- `PerfMetrics` 结构体：[perf_metrics.rs:11](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/perf_metrics.rs#L11)
+- `PerfMetrics::global()`：[perf_metrics.rs:27](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/perf_metrics.rs#L27)
+- `PerfMetricsSnapshot`：[perf_metrics.rs:169](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/perf_metrics.rs#L169)
+- **需手动接入**：全局单例未被业务路径自动采集，用户在关键路径按需调用
+
+```rust
+use sz_orm_core::perf_metrics::PerfMetrics;
+
+let metrics = PerfMetrics::global();
+metrics.record_query_latency(Duration::from_millis(5));
+let snapshot = metrics.snapshot();
+let prometheus_text = snapshot.to_prometheus();
+```
+
+### 3.6.4 QueryBuilder 选择指南（合并自 query-builder-guide.md）
+
+SZ-ORM 提供两个查询构造器，适用于不同场景：
+
+| 查询构造器 | 路径 | 风格 | 类型安全 |
+|-----------|------|------|----------|
+| `QueryBuilder<M>` | [packages/sz-orm-core/src/query.rs:36](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/query.rs#L36) | ActiveRecord 风格，绑定 Model | 编译期校验 |
+| `Query` | [packages/sz-orm-query-builder/src/lib.rs:53](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-query-builder/src/lib.rs#L53) | sea-query 风格，独立 SQL 构造 | 运行时校验 |
+
+**推荐方案**：保持两个 QueryBuilder 独立（方案 B），对 `sz-orm-query-builder` 添加 `#[deprecated]` 渐进标注。
+
+**适用场景**：
+- 标准 CRUD / 类型安全 / 软删除 / 多租户 / N+1 检测 → `QueryBuilder<M>`
+- 复杂 SQL（UNION/CTE/窗口函数）/ 跨 ORM 使用 / 动态 SQL / 报表统计 → `Query`
+- **最佳实践**：混合使用，各取所长
+
+```rust
+// 标准 CRUD 用 QueryBuilder<M>
+let user = User::query(&pool).where_eq("id", 1).find_one().await?;
+
+// 复杂报表用 Query
+use sz_orm_query_builder::Query;
+let report_sql = Query::select()
+    .column("DATE(created_at)")
+    .column("COUNT(*)")
+    .from("orders")
+    .group_by("DATE(created_at)")
+    .to_sql(DbType::MySQL)?;
+```
+
+### 3.6.5 Typed Relation 编译期关联（合并自 typed-relation-guide.md）
+
+`typed_relation` 模块提供编译期类型安全的关联查询，通过关联类型约束在编译期校验外键类型匹配。三种关联类型均为 ZST（零大小类型），零运行时开销。需启用 `typed-relation` feature gate。
+
+```toml
+[dependencies]
+sz-orm-core = { version = "7.4", features = ["typed-relation"] }
+```
+
+```rust
+use sz_orm_core::typed_relation::{TypedTable, BelongsTo, HasMany, RelationQuery};
+
+struct UsersTable;
+impl TypedTable for UsersTable {
+    const NAME: &'static str = "users";
+    type PrimaryKey = i64;
+    type ForeignKey = ();
+}
+
+struct PostsTable;
+impl TypedTable for PostsTable {
+    const NAME: &'static str = "posts";
+    type PrimaryKey = i64;
+    type ForeignKey = i64; // user_id
+}
+
+// 编译期校验 PostsTable::ForeignKey == UsersTable::PrimaryKey
+type PostsBelongToUsers = BelongsTo<PostsTable, UsersTable>;
+let q = RelationQuery::<PostsBelongToUsers>::new();
+let sql = q.join_sql(); // => "JOIN users ON posts.user_id = users.id"
+```
+
+**Escape Hatch**：复杂关联（多态 MorphMany/MorphTo、动态关联）回退到 `EagerLoader`。
 
 ## 四、常见场景示例
 
@@ -1920,6 +2187,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 12. **pgvector 向量搜索**：对 embedding 列创建 ivfflat 索引（`CREATE INDEX ON vectors_{name} USING ivfflat (embedding vector_cosine_ops)`），大规模向量搜索性能提升 10-100 倍。
 13. **NL→SQL 使用建议**：SimpleNl2SqlEngine 适合固定模板场景（零延迟、零成本）；OpenAINl2SqlEngine 适合灵活查询，但需缓存常见查询模式以降低成本。
 14. **AI 安全**：使用 NL→SQL 时必须启用 `validate()` 安全检查，禁止直接将 LLM 输出作为 SQL 执行。
+15. **v7.4.0 批量获取连接**：高并发批量操作场景使用 `Pool::acquire_batch(n)` 一次性获取 n 个连接（[pool.rs:1587](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/pool.rs#L1587)），减少反复 acquire 的锁竞争开销。
+16. **v7.4.0 PlanCache LRU-K**：查询计划缓存使用 LRU-K(K=2) 算法（[plan_cache.rs:462](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/plan_cache.rs#L462)），比 LRU-1 更精准识别热查询；定期调用 `adjust_capacity()` 自适应调整容量。
+17. **v7.4.0 SIMD 批量比较**：大批量等值/IN 过滤场景使用 `batch_compare_eq` / `batch_compare_in`（[simd.rs:130](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/simd.rs#L130)），chunks_exact(8) 分块 + 二分查找优化。
+18. **v7.4.0 PerfMetrics 指标采集**：关键路径接入 `PerfMetrics::global()` 全局单例（[perf_metrics.rs:27](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/perf_metrics.rs#L27)），支持 Prometheus 格式导出，配合 Grafana 监控。
+19. **v7.4.0 回归基线对比**：CI 中使用 `RegressionBaseline` 保存/加载基准基线（[regression_baseline.rs:14](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-bench/src/regression_baseline.rs#L14)），自动检测性能回归。
 
 ---
 
@@ -2029,6 +2301,8 @@ SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored
 | 《架构设计.md》 | 整体架构、依赖关系、设计决策、扩展开发指南 | 需理解整体架构与设计决策时 |
 | 《性能基准.md》 | 性能数据与基准测试运行方式 | 需了解吞吐/延迟/对比数据时 |
 | 《Security.md》 | 安全设计文档 | 安全评估 |
+
+> **注**：`query-builder-guide.md` 和 `typed-relation-guide.md` 的内容已合并到本指南 §3.6.4 和 §3.6.5，原文件已删除。
 
 ### 9.1 文档分工
 
