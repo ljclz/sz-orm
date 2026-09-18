@@ -124,10 +124,25 @@ pub fn scalar_decode_integers(buf: &[u8], count: usize) -> Vec<i64> {
 ///
 /// 比较 `values` 中每个元素是否等于 `target`，返回布尔向量。
 ///
-/// 始终使用标量路径（编译器自动向量化已优于显式 SIMD，实测验证 2026-08-19）。
+/// v7.4.0 优化：预分配结果 + chunks_exact(8) 批量处理减少边界检查。
 /// `avail` 参数保留用于 API 兼容性。
+#[allow(clippy::chunks_exact_to_as_chunks)]
 pub fn batch_compare_eq(values: &[i64], target: i64, _avail: SimdAvailability) -> Vec<bool> {
-    scalar_compare_eq(values, target)
+    let mut result = Vec::with_capacity(values.len());
+    for chunk in values.chunks_exact(8) {
+        result.push(chunk[0] == target);
+        result.push(chunk[1] == target);
+        result.push(chunk[2] == target);
+        result.push(chunk[3] == target);
+        result.push(chunk[4] == target);
+        result.push(chunk[5] == target);
+        result.push(chunk[6] == target);
+        result.push(chunk[7] == target);
+    }
+    for &v in values.chunks_exact(8).remainder() {
+        result.push(v == target);
+    }
+    result
 }
 
 /// 标量相等比较
@@ -139,15 +154,29 @@ pub fn scalar_compare_eq(values: &[i64], target: i64) -> Vec<bool> {
 ///
 /// 判断 `values` 中每个元素是否在 `set` 中，返回布尔向量。
 ///
-/// 当 `set.len() >= 8` 时使用 `HashSet` 做 O(1) 查找（算法级优化，远超 SIMD）。
-/// 小集合直接线性扫描（避免 HashSet 建表开销）。
+/// v7.4.0 优化：
+/// - `set.len() >= 8`：HashSet O(1) 查找 + 预分配结果
+/// - `set.len() >= 3`：排序 + 二分查找 O(log n)
+/// - 小集合：线性扫描 + 预分配结果
 pub fn batch_compare_in(values: &[i64], set: &[i64], _avail: SimdAvailability) -> Vec<bool> {
+    let mut result = Vec::with_capacity(values.len());
     if set.len() >= 8 {
         let hash_set: std::collections::HashSet<i64> = set.iter().copied().collect();
-        values.iter().map(|&v| hash_set.contains(&v)).collect()
+        for &v in values {
+            result.push(hash_set.contains(&v));
+        }
+    } else if set.len() >= 3 {
+        let mut sorted_set: Vec<i64> = set.to_vec();
+        sorted_set.sort_unstable();
+        for &v in values {
+            result.push(sorted_set.binary_search(&v).is_ok());
+        }
     } else {
-        scalar_compare_in(values, set)
+        for &v in values {
+            result.push(set.contains(&v));
+        }
     }
+    result
 }
 
 /// 标量 IN 过滤

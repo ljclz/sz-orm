@@ -636,6 +636,9 @@ pub mod value_borrowed;
 #[allow(missing_docs)]
 pub mod zero_copy_pipeline;
 
+// v7.4.0 任务 3.5：性能指标暴露（perf_metrics 模块始终可用）
+pub mod perf_metrics;
+
 #[cfg(any(
     feature = "cdc-mysql",
     feature = "cdc-postgres",

@@ -56,6 +56,14 @@ pub enum BorrowedValue<'a> {
     Time(Cow<'a, str>),
     /// JSON（字符串形式）
     Json(Cow<'a, str>),
+    /// Decimal 原始字节表示（v7.4.0 新增，零拷贝避免 Cow wrapper）
+    DecimalBytes(&'a [u8]),
+    /// JSON 原始字节表示（v7.4.0 新增）
+    JsonBytes(&'a [u8]),
+    /// Bytes 直接引用（v7.4.0 新增，避免 Cow wrapper 开销）
+    BytesRef(&'a [u8]),
+    /// DateTime 整数表示（v7.4.0 新增，Unix timestamp）
+    DateTimeInt(i64),
     /// 数组
     Array(Vec<BorrowedValue<'a>>),
     /// 对象（键值对）
@@ -86,6 +94,10 @@ impl<'a> BorrowedValue<'a> {
             BorrowedValue::DateTime(v) => Value::DateTime(v.to_string()),
             BorrowedValue::Time(v) => Value::Time(v.to_string()),
             BorrowedValue::Json(v) => Value::Json(v.to_string()),
+            BorrowedValue::DecimalBytes(v) => Value::Decimal(String::from_utf8_lossy(v).to_string()),
+            BorrowedValue::JsonBytes(v) => Value::Json(String::from_utf8_lossy(v).to_string()),
+            BorrowedValue::BytesRef(v) => Value::Bytes(v.to_vec()),
+            BorrowedValue::DateTimeInt(v) => Value::DateTime(v.to_string()),
             BorrowedValue::Array(v) => Value::Array(v.iter().map(|b| b.to_owned_value()).collect()),
             BorrowedValue::Object(v) => Value::Object(
                 v.iter()
@@ -145,10 +157,13 @@ impl<'a> BorrowedValue<'a> {
         }
     }
 
-    /// 返回字节引用（如果是 Bytes 变体）
+    /// 返回字节引用（如果是 Bytes 类变体）
     pub fn as_bytes(&self) -> Option<&[u8]> {
         match self {
             BorrowedValue::Bytes(v) => Some(v.as_ref()),
+            BorrowedValue::DecimalBytes(v) => Some(v),
+            BorrowedValue::JsonBytes(v) => Some(v),
+            BorrowedValue::BytesRef(v) => Some(v),
             _ => None,
         }
     }
@@ -182,6 +197,10 @@ impl<'a> fmt::Display for BorrowedValue<'a> {
             BorrowedValue::DateTime(v) => write!(f, "{}", v),
             BorrowedValue::Time(v) => write!(f, "{}", v),
             BorrowedValue::Json(v) => write!(f, "{}", v),
+            BorrowedValue::DecimalBytes(v) => write!(f, "{:?}", v),
+            BorrowedValue::JsonBytes(v) => write!(f, "{:?}", v),
+            BorrowedValue::BytesRef(v) => write!(f, "{:?}", v),
+            BorrowedValue::DateTimeInt(v) => write!(f, "{}", v),
             BorrowedValue::Array(v) => write!(f, "{:?}", v),
             BorrowedValue::Object(v) => write!(f, "{:?}", v),
         }

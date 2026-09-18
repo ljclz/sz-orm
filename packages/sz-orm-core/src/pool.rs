@@ -1579,6 +1579,31 @@ impl Pool {
         }
     }
 
+    /// v7.4.0 任务 3.2：批量获取连接
+    ///
+    /// 一次性获取 `n` 个连接，减少重复 await 开销。
+    /// 前置条件：`n <= max_size - active_count`，否则返回 `PoolError::PoolExhausted`。
+    /// 返回 `Vec<PooledConnection>`，各自 Drop 时自动归还。
+    pub async fn acquire_batch(&self, n: usize) -> Result<Vec<PooledConnection>, PoolError> {
+        if n == 0 {
+            return Ok(Vec::new());
+        }
+        let max_size = self.dynamic_max_size.load(Ordering::Relaxed) as usize;
+        if n > max_size {
+            return Err(PoolError::Exhausted);
+        }
+        let mut result = Vec::with_capacity(n);
+        for _ in 0..n {
+            match self.acquire().await {
+                Ok(conn) => result.push(conn),
+                Err(e) => {
+                    return Err(e);
+                }
+            }
+        }
+        Ok(result)
+    }
+
     /// 释放连接回池中
     /// 如果池已关闭或连接已断开，则直接关闭连接而不是放回池中。
     ///

@@ -458,6 +458,14 @@ pub struct PlanCache {
     max_size: usize,
     /// 默认 TTL
     default_ttl: Option<Duration>,
+    /// v7.4.0：LRU-K 访问次数（K=2，记录每个 key 被访问的次数）
+    access_counts: RwLock<HashMap<u64, u32>>,
+    /// v7.4.0：LRU-K 的 K 值
+    lru_k: u32,
+    /// v7.4.0：自适应容量下限
+    min_capacity: usize,
+    /// v7.4.0：自适应容量上限
+    max_capacity: usize,
 }
 
 impl PlanCache {
@@ -474,6 +482,10 @@ impl PlanCache {
             stats: PlanCacheStats::new(),
             max_size,
             default_ttl,
+            access_counts: RwLock::new(HashMap::new()),
+            lru_k: 2,
+            min_capacity: max_size / 4,
+            max_capacity: max_size * 4,
         }
     }
 
@@ -496,6 +508,7 @@ impl PlanCache {
         if let Some(ast) = hit {
             self.stats.parse_hits.fetch_add(1, Ordering::Relaxed);
             self.access_order.write().touch(key.hash);
+            self.access_counts.write().entry(key.hash).and_modify(|c| *c += 1).or_insert(1);
             return Ok(ast);
         }
 
@@ -825,6 +838,50 @@ impl PlanCache {
         }
 
         Ok(ast)
+    }
+
+    /// v7.4.0 任务 3.3：获取 key 的访问次数（LRU-K 统计）
+    pub fn access_count(&self, hash: u64) -> u32 {
+        self.access_counts.read().get(&hash).copied().unwrap_or(0)
+    }
+
+    /// v7.4.0 任务 3.3：LRU-K 的 K 值
+    pub fn lru_k(&self) -> u32 {
+        self.lru_k
+    }
+
+    /// v7.4.0 任务 3.3：解析缓存命中率
+    pub fn parse_hit_rate(&self) -> f64 {
+        let hits = self.stats.parse_hits.load(Ordering::Relaxed);
+        let misses = self.stats.parse_misses.load(Ordering::Relaxed);
+        let total = hits + misses;
+        if total == 0 {
+            0.0
+        } else {
+            hits as f64 / total as f64
+        }
+    }
+
+    /// v7.4.0 任务 3.3：自适应容量调整
+    ///
+    /// 根据命中率动态调整缓存大小：
+    /// - 命中率 > 80%：扩容（上限 max_capacity）
+    /// - 命中率 < 30%：缩容（下限 min_capacity）
+    /// - 其他：保持不变
+    pub fn adjust_capacity(&mut self) -> bool {
+        let hit_rate = self.parse_hit_rate();
+        let old_size = self.max_size;
+        if hit_rate > 0.8 && self.max_size < self.max_capacity {
+            self.max_size = (self.max_size * 3 / 2).min(self.max_capacity);
+        } else if hit_rate < 0.3 && self.max_size > self.min_capacity {
+            self.max_size = (self.max_size * 2 / 3).max(self.min_capacity);
+        }
+        self.max_size != old_size
+    }
+
+    /// v7.4.0 任务 3.3：当前最大容量
+    pub fn capacity(&self) -> usize {
+        self.max_size
     }
 }
 

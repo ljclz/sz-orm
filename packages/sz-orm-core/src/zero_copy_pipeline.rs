@@ -22,6 +22,14 @@ pub struct ZeroCopyStats {
     peak_rss_bytes: AtomicU64,
     /// v7.3.0 任务 1.3：分配次数
     allocation_count: AtomicU64,
+    /// v7.4.0：DecimalBytes 类型未命中次数
+    decimal_bytes_misses: AtomicU64,
+    /// v7.4.0：JsonBytes 类型未命中次数
+    json_bytes_misses: AtomicU64,
+    /// v7.4.0：BytesRef 类型未命中次数
+    bytes_ref_misses: AtomicU64,
+    /// v7.4.0：DateTimeInt 类型未命中次数
+    datetime_int_misses: AtomicU64,
 }
 
 impl ZeroCopyStats {
@@ -101,6 +109,54 @@ impl ZeroCopyStats {
             (baseline_rss - current) as f64 / baseline_rss as f64 * 100.0
         }
     }
+
+    /// v7.4.0：记录 DecimalBytes 类型未命中
+    pub fn record_decimal_bytes_miss(&self) {
+        self.decimal_bytes_misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.4.0：记录 JsonBytes 类型未命中
+    pub fn record_json_bytes_miss(&self) {
+        self.json_bytes_misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.4.0：记录 BytesRef 类型未命中
+    pub fn record_bytes_ref_miss(&self) {
+        self.bytes_ref_misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.4.0：记录 DateTimeInt 类型未命中
+    pub fn record_datetime_int_miss(&self) {
+        self.datetime_int_misses.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.4.0：DecimalBytes 未命中次数
+    pub fn decimal_bytes_misses(&self) -> u64 {
+        self.decimal_bytes_misses.load(Ordering::Relaxed)
+    }
+
+    /// v7.4.0：JsonBytes 未命中次数
+    pub fn json_bytes_misses(&self) -> u64 {
+        self.json_bytes_misses.load(Ordering::Relaxed)
+    }
+
+    /// v7.4.0：BytesRef 未命中次数
+    pub fn bytes_ref_misses(&self) -> u64 {
+        self.bytes_ref_misses.load(Ordering::Relaxed)
+    }
+
+    /// v7.4.0：DateTimeInt 未命中次数
+    pub fn datetime_int_misses(&self) -> u64 {
+        self.datetime_int_misses.load(Ordering::Relaxed)
+    }
+
+    /// v7.4.0：按类型未命中总次数
+    pub fn total_type_misses(&self) -> u64 {
+        self.decimal_bytes_misses()
+            + self.json_bytes_misses()
+            + self.bytes_ref_misses()
+            + self.datetime_int_misses()
+    }
 }
 
 impl Clone for ZeroCopyStats {
@@ -110,6 +166,10 @@ impl Clone for ZeroCopyStats {
             fallback_copies: AtomicU64::new(self.fallback_copies()),
             peak_rss_bytes: AtomicU64::new(self.peak_rss_bytes()),
             allocation_count: AtomicU64::new(self.allocation_count()),
+            decimal_bytes_misses: AtomicU64::new(self.decimal_bytes_misses()),
+            json_bytes_misses: AtomicU64::new(self.json_bytes_misses()),
+            bytes_ref_misses: AtomicU64::new(self.bytes_ref_misses()),
+            datetime_int_misses: AtomicU64::new(self.datetime_int_misses()),
         }
     }
 }
