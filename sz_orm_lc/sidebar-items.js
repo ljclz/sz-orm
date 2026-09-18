@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["InputType","ValidationRule"],"struct":["CrudTemplateEngine","FieldDef","FieldTypeMapping","FieldValidation","FormField","FormGenerator","LowCodeEngine","ModelDefinition","RelationDefinition"]};

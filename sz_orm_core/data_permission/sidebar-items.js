@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PermissionError"],"fn":["append_where_clauses"],"struct":["CustomCondition","DataPermissionInterceptor","DepartmentScope","OwnerOnly","PermissionContext","TenantIsolation"],"trait":["PermissionRule"],"type":["ConditionGenerator","PermissionResult"]};

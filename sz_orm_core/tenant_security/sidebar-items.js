@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AuditResult","MaskingFunction","TenantAuditOperation"],"struct":["ColumnMaskingRule","ParameterizedCondition","PermissionPredicate","Principal","RowLevelSecurityPolicy","TenantAuditContext"]};

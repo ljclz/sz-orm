@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LifecycleAction","RefreshStatus","RefreshType","UploadStatus"],"fn":["estimate_remaining_seconds","format_size","object_age_days"],"struct":["BucketLifecycle","CdnRefresher","LifecycleEvaluationResult","LifecycleRule","MultipartUpload","MultipartUploadSnapshot","Part","RefreshRequest","ResumableUploadManager"]};

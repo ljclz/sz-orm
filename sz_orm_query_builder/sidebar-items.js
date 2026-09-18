@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SetOperator","UpsertStrategy"],"struct":["BuiltQuery","DeleteQuery","InsertQuery","Query","SelectQuery","SetQuery","UpdateQuery"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["build_schema","demo_index_advisor","demo_nl2sql","demo_rewrite","demo_vector_ann","main","make_tenant_record","print_config"]};

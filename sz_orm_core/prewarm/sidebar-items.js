@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PrewarmStrategy"],"fn":["prewarm_parallel"],"struct":["BackendPrewarmResult","ColdStartOptimizer","ColdStartStats","PrewarmConfig","PrewarmFailure","PrewarmProgress","PrewarmProgressSnapshot","PrewarmResult","PrewarmSummary","ProgressiveConfig"]};

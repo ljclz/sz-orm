@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ConnectionAffinityPolicy","ConnectionLevelIsolation","TenantError"],"struct":["ConnectionLevelTenantConfig","ConnectionTenantBinder","TenantBinding","TenantConnectionGuard"],"type":["ConnectionId"]};

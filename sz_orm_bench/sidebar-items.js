@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BenchError","DbBackend","FrameworkType","WorkloadType"],"fn":["check_reproducibility","percentile","report_filename","run_full_benchmark","run_workload","validate_db_connection"],"mod":["regression_baseline"],"struct":["BenchConfig","BenchReport","BenchResult","EnvMetadata","MemoryMetrics","SeededRng","SimdComparisonResult"]};

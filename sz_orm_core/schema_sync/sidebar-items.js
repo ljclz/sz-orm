@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Confirm"],"fn":["diff","introspect"],"struct":["ColumnDef","DestructiveSyncResult","MssqlDdlGenerator","MySqlDdlGenerator","OracleDdlGenerator","PgDdlGenerator","SchemaDiff","SchemaSync","SqliteDdlGenerator","SyncResult","TableDef"],"trait":["DataMigrationHook","DdlGenerator"]};

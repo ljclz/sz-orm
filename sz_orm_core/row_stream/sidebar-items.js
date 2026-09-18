@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["BoxedCursorRowStream","CursorRowStream"],"trait":["AsyncRowStream"],"type":["RowResult"]};

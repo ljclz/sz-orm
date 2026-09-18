@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["AdaptiveQueryPlanner","CachedPlan","ExecutionPlanCache","PlannerConfig","QueryPlan","TableMetadata"]};

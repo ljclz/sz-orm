@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ValidationRule"],"struct":["ConfigSchema","ConfigValidationReport","FieldSchema","ValidationResult"]};

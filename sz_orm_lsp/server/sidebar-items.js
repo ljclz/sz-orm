@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DiagnosticSeverity"],"struct":["CompletionItem","CompletionList","Diagnostic","Hover","LspPosition","LspRange","LspServer","LspTextDocument"]};

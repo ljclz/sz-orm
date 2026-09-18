@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DdlType","LockType"],"struct":["DryRunMigration","DryRunReport","ImpactReport","MigrationImpact"]};

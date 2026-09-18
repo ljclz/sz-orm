@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["IndexError","IndexType"],"struct":["IndexAdvisor","IndexRecommendation","IndexSuggestion","QueryPattern","SlowQueryLog","TableStats","WorkloadModel"]};

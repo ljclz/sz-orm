@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ConflictType","EtlStage","MigrationStatus"],"struct":["ConflictDetector","ConflictReport","EtlConfig","EtlStats","Migration","MigrationExecutionResult","MigrationExecutor","MigrationRecord","MigrationTracker"]};

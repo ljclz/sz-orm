@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["detect_low_usage_indexes","detect_unused_indexes"],"struct":["IndexCombinationOptimizer","IndexUsageStats","RedundantIndexInfo","TimeRange","WorkloadAdviceResult","WorkloadDrivenIndexAdvisor","WorkloadSummary"]};

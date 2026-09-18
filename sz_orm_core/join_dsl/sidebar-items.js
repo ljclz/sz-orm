@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["JoinKind"],"fn":["cross_join","full_join","inner_join","left_join","right_join"],"struct":["JoinBuilder","JoinBuilt","JoinOn"]};
