@@ -772,19 +772,15 @@ impl RealDbExecutor {
         self.warmup(framework, workload).await?;
 
         match framework {
-            FrameworkType::SzOrm => {
-                match backend {
-                    DbBackend::Sqlite => {
-                        let wl = SzOrmWorkload::new_sqlite(conn, pool_size).await?;
-                        wl.execute(workload, rounds).await
-                    }
-                    DbBackend::Mysql | DbBackend::Postgres => {
-                        Err(BenchError::QueryFailed(
-                            "sz-orm 后端暂不支持 MySQL/PostgreSQL 基准，请用 Sqlx 或 SeaOrm 框架".into(),
-                        ))
-                    }
+            FrameworkType::SzOrm => match backend {
+                DbBackend::Sqlite => {
+                    let wl = SzOrmWorkload::new_sqlite(conn, pool_size).await?;
+                    wl.execute(workload, rounds).await
                 }
-            }
+                DbBackend::Mysql | DbBackend::Postgres => Err(BenchError::QueryFailed(
+                    "sz-orm 后端暂不支持 MySQL/PostgreSQL 基准，请用 Sqlx 或 SeaOrm 框架".into(),
+                )),
+            },
             FrameworkType::Sqlx => {
                 let wl = match backend {
                     DbBackend::Sqlite => SqlxWorkload::new_sqlite(conn, pool_size).await?,

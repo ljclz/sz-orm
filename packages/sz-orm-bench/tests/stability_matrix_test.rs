@@ -15,10 +15,15 @@ fn test_stability_matrix_runner_default() {
 fn test_stability_matrix_entry_coverage() {
     let runner = StabilityMatrixRunner::new();
     let report = runner.run();
-    let workloads: std::collections::HashSet<_> = report.entries.iter().map(|e| e.workload.clone()).collect();
+    let workloads: std::collections::HashSet<_> =
+        report.entries.iter().map(|e| e.workload.clone()).collect();
     assert!(workloads.contains("single_row_query"));
     assert!(workloads.contains("simd_compare"));
-    let faults: std::collections::HashSet<_> = report.entries.iter().map(|e| e.fault_type.clone()).collect();
+    let faults: std::collections::HashSet<_> = report
+        .entries
+        .iter()
+        .map(|e| e.fault_type.clone())
+        .collect();
     assert!(faults.contains("connection_exhaust"));
     assert!(faults.contains("slow_query_storm"));
 }

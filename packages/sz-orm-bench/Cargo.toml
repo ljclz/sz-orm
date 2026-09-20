@@ -39,3 +39,6 @@ real-bench-diesel = ["real-bench"]
 
 [lints]
 workspace = true
+[[test]]
+name = "stability_matrix_test"
+required-features = ["stability-matrix"]

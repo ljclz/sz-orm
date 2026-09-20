@@ -52,7 +52,12 @@ pub struct WorkloadComparison {
 
 impl RegressionBaseline {
     /// 创建新基线
-    pub fn new(name: &str, config: BenchConfig, results: Vec<BenchResult>, db_version: &str) -> Self {
+    pub fn new(
+        name: &str,
+        config: BenchConfig,
+        results: Vec<BenchResult>,
+        db_version: &str,
+    ) -> Self {
         Self {
             baseline_name: name.to_string(),
             created_at: std::time::SystemTime::now()
@@ -89,10 +94,9 @@ impl RegressionBaseline {
         let mut has_regression = false;
 
         for baseline_result in &self.results {
-            if let Some(current) = current_results
-                .iter()
-                .find(|r| r.workload == baseline_result.workload && r.framework == baseline_result.framework)
-            {
+            if let Some(current) = current_results.iter().find(|r| {
+                r.workload == baseline_result.workload && r.framework == baseline_result.framework
+            }) {
                 let baseline_p95 = baseline_result.p95_us;
                 let current_p95 = current.p95_us;
                 let degradation_pct = if baseline_p95 > 0.0 {

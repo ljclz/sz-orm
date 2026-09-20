@@ -120,12 +120,7 @@ impl StabilityMatrixRunner {
 
         for wl in &self.workloads {
             for ft in &injector.config().fault_types {
-                let report = injector.collect_behavior(
-                    map_workload(wl),
-                    0.0,
-                    true,
-                    true,
-                );
+                let report = injector.collect_behavior(map_workload(wl), 0.0, true, true);
                 entries.push(MatrixEntry {
                     workload: wl.as_str().into(),
                     fault_type: ft.as_str().into(),

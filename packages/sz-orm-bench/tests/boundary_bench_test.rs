@@ -10,15 +10,19 @@ fn test_bench_config_default_values() {
 
 #[test]
 fn test_bench_config_validate_min_rounds() {
-    let mut config = BenchConfig::default();
-    config.measure_rounds = 3;
+    let config = BenchConfig {
+        measure_rounds: 3,
+        ..Default::default()
+    };
     assert!(config.validate().is_err(), "measure_rounds < 5 应校验失败");
 }
 
 #[test]
 fn test_bench_config_validate_valid() {
-    let mut config = BenchConfig::default();
-    config.measure_rounds = 10;
+    let config = BenchConfig {
+        measure_rounds: 10,
+        ..Default::default()
+    };
     assert!(config.validate().is_ok());
 }
 
@@ -45,14 +49,18 @@ fn test_db_backend_postgres_display() {
 
 #[test]
 fn test_bench_config_zero_rounds() {
-    let mut config = BenchConfig::default();
-    config.measure_rounds = 0;
+    let config = BenchConfig {
+        measure_rounds: 0,
+        ..Default::default()
+    };
     assert!(config.validate().is_err());
 }
 
 #[test]
 fn test_bench_config_max_rounds() {
-    let mut config = BenchConfig::default();
-    config.measure_rounds = 10000;
+    let config = BenchConfig {
+        measure_rounds: 10000,
+        ..Default::default()
+    };
     assert!(config.validate().is_ok());
 }

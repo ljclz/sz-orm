@@ -29,7 +29,8 @@ fn test_regression_baseline_e2e_save_load_compare() {
         make_result(WorkloadType::SingleRowQuery, vec![100, 150, 200]),
         make_result(WorkloadType::BatchQuery, vec![200, 300, 400]),
     ];
-    let baseline = RegressionBaseline::new("e2e_test", config.clone(), baseline_results, "sqlite 3.45");
+    let baseline =
+        RegressionBaseline::new("e2e_test", config.clone(), baseline_results, "sqlite 3.45");
 
     let saved_path = baseline.save_to_file(temp_dir.to_str().unwrap()).unwrap();
     assert!(saved_path.exists());
@@ -70,7 +71,10 @@ fn test_bench_config_new_fields_default() {
 fn test_bench_config_validate_measure_rounds_minimum_5() {
     let mut config = BenchConfig::new();
     config.measure_rounds = 4;
-    assert!(config.validate().is_err(), "measure_rounds=4 应失败（需 >= 5）");
+    assert!(
+        config.validate().is_err(),
+        "measure_rounds=4 应失败（需 >= 5）"
+    );
 
     config.measure_rounds = 5;
     assert!(config.validate().is_ok(), "measure_rounds=5 应通过");

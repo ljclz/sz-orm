@@ -4,7 +4,7 @@
 
 #![cfg(feature = "real-bench")]
 
-use sz_orm_bench::{real_db::DatasetInitializer, SimdComparisonResult, DbBackend};
+use sz_orm_bench::{real_db::DatasetInitializer, DbBackend, SimdComparisonResult};
 
 const SQLITE_CONNECTION: &str = "sqlite:///f:/cargo-target/bench_simd_test.db?mode=rwc";
 

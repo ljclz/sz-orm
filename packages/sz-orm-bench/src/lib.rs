@@ -14,7 +14,7 @@ pub use regression_baseline::RegressionBaseline;
 #[cfg(feature = "stability-matrix")]
 pub mod stability_matrix;
 #[cfg(feature = "stability-matrix")]
-pub use stability_matrix::{StabilityMatrixReport, StabilityMatrixRunner, MatrixEntry};
+pub use stability_matrix::{MatrixEntry, StabilityMatrixReport, StabilityMatrixRunner};
 
 #[cfg(feature = "real-bench")]
 pub use real_db::{
@@ -222,7 +222,10 @@ impl BenchConfig {
         for fw in &self.compare_frameworks {
             if !matches!(
                 fw,
-                FrameworkType::SzOrm | FrameworkType::SeaOrm | FrameworkType::Diesel | FrameworkType::Sqlx
+                FrameworkType::SzOrm
+                    | FrameworkType::SeaOrm
+                    | FrameworkType::Diesel
+                    | FrameworkType::Sqlx
             ) {
                 return Err(BenchError::InvalidConnectionString(format!(
                     "compare_frameworks 含未知框架: {fw:?}"
@@ -942,12 +945,12 @@ mod tests {
     fn test_run_full_benchmark() {
         let config = BenchConfig::new();
         let results = run_full_benchmark(&config);
-        assert_eq!(results.len(), 20);
+        assert_eq!(results.len(), 24);
         let sz_orm_count = results
             .iter()
             .filter(|r| r.framework == FrameworkType::SzOrm)
             .count();
-        assert_eq!(sz_orm_count, 5);
+        assert_eq!(sz_orm_count, 6);
     }
 
     #[test]
@@ -1052,7 +1055,8 @@ impl BottleneckAnalyzer {
             if result.p95_us > max_p95 {
                 max_p95 = result.p95_us;
                 bottleneck_workloads = vec![result.workload];
-            } else if result.p95_us == max_p95 && max_p95 > 0.0
+            } else if result.p95_us == max_p95
+                && max_p95 > 0.0
                 && !bottleneck_workloads.contains(&result.workload)
             {
                 bottleneck_workloads.push(result.workload);
