@@ -18,6 +18,9 @@
 pub mod advanced;
 #[cfg(any(feature = "prod-health-endpoint", feature = "prod-probe-endpoint"))]
 pub mod endpoint;
+// v7.7.0 任务 1.1：故障自愈协调器（SelfHealCoordinator）
+#[cfg(feature = "self-heal")]
+pub mod self_heal;
 
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

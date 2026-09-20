@@ -18,6 +18,10 @@ owasp-pentest-suite = []
 field-encryption = []
 # v7.0.0：TDE 透明数据加密增强（DEK 安全缓冲 + KMS 客户端 + 列级策略）
 tde-enhanced = ["field-encryption", "dep:zeroize", "dep:async-trait", "dep:reqwest", "dep:parking_lot"]
+# v7.8.0 量子安全准备：PQC 算法白名单 + trait 抽象 + 迁移评估
+pqc-ready = ["dep:tracing"]
+# v7.8.0 PQC 混合密钥协商
+pqc-hybrid-kex = ["pqc-ready"]
 
 
 [package.metadata.cargo-machete]
@@ -25,6 +29,7 @@ ignored = ['serde_json']
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+thiserror = { workspace = true }
 sha2 = "0.10"
 hmac = "0.12"
 aes-gcm = "0.10"
@@ -38,9 +43,43 @@ zeroize = { workspace = true, optional = true }
 async-trait = { version = "0.1", optional = true }
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "json"], optional = true }
 parking_lot = { workspace = true, optional = true }
+# v7.8.0 PQC 依赖
+tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+# v7.8.0 跨模块联动 e2e 测试
+sz-orm-ai = { path = "../sz-orm-ai", features = ["ai-autonomous-loop"] }
 
 [lints]
 workspace = true
+# v7.8.0 PQC 端到端测试
+[[test]]
+name = "e2e_hybrid_handshake"
+path = "tests/e2e_hybrid_handshake.rs"
+required-features = ["pqc-hybrid-kex"]
+
+[[test]]
+name = "e2e_pqc_degrade"
+path = "tests/e2e_pqc_degrade.rs"
+required-features = ["pqc-hybrid-kex"]
+
+[[test]]
+name = "e2e_migration_assess"
+path = "tests/e2e_migration_assess.rs"
+required-features = ["pqc-ready"]
+
+[[test]]
+name = "e2e_whitelist_reject"
+path = "tests/e2e_whitelist_reject.rs"
+required-features = ["pqc-ready"]
+
+[[test]]
+name = "e2e_signature_latency"
+path = "tests/e2e_signature_latency.rs"
+required-features = ["pqc-hybrid-kex"]
+# v7.8.0 跨模块联动 e2e 测试
+[[test]]
+name = "e2e_pqc_autonomous"
+path = "tests/e2e_pqc_autonomous.rs"
+required-features = ["pqc-hybrid-kex"]

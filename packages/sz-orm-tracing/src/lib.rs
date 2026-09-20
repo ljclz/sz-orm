@@ -16,6 +16,13 @@
 
 pub mod sampling;
 
+#[cfg(feature = "otlp-export")]
+pub mod otlp_exporter;
+#[cfg(feature = "otlp-export")]
+pub use otlp_exporter::{
+    BoundedSpanQueue, OtlpExporter, SpanBuilder, SpanContext, SpanName, SpanStatus, TraceSpan,
+};
+
 use chrono::{DateTime, Utc};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

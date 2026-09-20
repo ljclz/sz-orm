@@ -14,6 +14,8 @@ categories.workspace = true
 sz-orm-core = { workspace = true }
 async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }
+serde = { workspace = true }
+serde_json = { workspace = true }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal", "uuid"] }
 rust_decimal = "1.36"
 # 流式查询：try_stream! 宏实现 Connection::query_stream
@@ -42,6 +44,12 @@ auto-prewarm = ["sz-orm-core/auto-prewarm"]
 async-row-stream = ["sz-orm-core/async-row-stream"]
 # v6.5.0：查询计划缓存（PreparedStatementCache 句柄复用）
 prepared-stmt-cache = ["sz-orm-core/prepared-stmt-cache"]
+# v7.5.0：CockroachDB 真实 DB 验证测试（复用 postgres 协议，不新增驱动依赖）
+cockroachdb = []
+# v7.5.0：YugabyteDB 真实 DB 验证测试（复用 postgres 协议，不新增驱动依赖）
+yugabytedb = []
+# v7.6.0：数据库后端兼容性验证
+db-backend-compat = []
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
@@ -75,6 +83,20 @@ path = "tests/differential_fuzz.rs"
 name = "saphana_e2e"
 path = "tests/saphana_e2e.rs"
 required-features = ["dialect-saphana-driver"]
+
+[[test]]
+name = "cockroachdb_test"
+path = "tests/cockroachdb_test.rs"
+required-features = ["cockroachdb"]
+
+[[test]]
+name = "yugabytedb_test"
+path = "tests/yugabytedb_test.rs"
+required-features = ["yugabytedb"]
+
+[[test]]
+name = "distributed_db_compat_report_test"
+path = "tests/distributed_db_compat_report_test.rs"
 
 [lints]
 workspace = true

@@ -28,6 +28,19 @@ pub mod suspension;
 #[cfg(feature = "xa")]
 pub mod xa;
 
+// v7.6.0 3PC 三阶段提交（three-pc feature gate 隔离）
+#[cfg(feature = "three-pc")]
+pub mod three_pc;
+
+// v7.7.0 任务 3.1：跨事务一致性验证（cross-tx-consistency feature gate 隔离）
+#[cfg(feature = "cross-tx-consistency")]
+pub mod consistency_verifier;
+#[cfg(feature = "cross-tx-consistency")]
+pub use consistency_verifier::{
+    ConsistencyLevel, ConsistencyResult, ConsistencyViolation, CrossTxConsistencyVerifier,
+    TxProtocol, VerifyError,
+};
+
 // 跨语言分布式事务支持（feature 隔离，默认关闭）
 #[cfg(feature = "cross-lang-dtx")]
 pub mod cross_lang;

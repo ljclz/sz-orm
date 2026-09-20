@@ -30,6 +30,9 @@ pub use kms_client::{
     CachedKmsClient, DekCache, KmsClient, KmsDegradeManager, KmsError, LocalKmsClient,
 };
 
+#[cfg(feature = "pqc-ready")]
+pub mod pqc;
+
 use std::collections::HashMap;
 
 use aes_gcm::aead::{Aead, KeyInit};

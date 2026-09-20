@@ -25,9 +25,13 @@ sz-orm-sqlx = { workspace = true, optional = true }
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"], optional = true }
 tokio = { workspace = true, optional = true }
 sea-orm = { version = "1.1", optional = true, features = ["runtime-tokio-rustls", "sqlx-sqlite"] }
+# v7.5.0 stability-matrix 依赖
+sz-orm-fusion = { path = "../sz-orm-fusion", version = "7.1.0", optional = true }
 
 [features]
 default = []
+# v7.5.0 稳定性压测矩阵（默认关闭，依赖 sz-orm-fusion/chaos）
+stability-matrix = ["dep:sz-orm-fusion", "sz-orm-fusion/chaos"]
 # 启用真实 DB 基准测试（sz-orm + sqlx + sea-orm）
 real-bench = ["dep:sz-orm-core", "dep:sz-orm-sqlx", "dep:sqlx", "dep:tokio", "dep:sea-orm"]
 # diesel 基准（diesel 不在本地缓存，暂不启用）

@@ -182,3 +182,56 @@ mod tests {
         assert!(config.traffic.retry.is_none());
     }
 }
+// v7.7.0 任务 4.4：MeshTrafficGovernor 服务网格流量治理
+
+/// 服务网格流量治理器
+///
+/// Sidecar + 负载均衡 + 流量分割。
+pub struct MeshTrafficGovernor {
+    mesh_type: MeshType,
+}
+
+impl Default for MeshTrafficGovernor {
+    fn default() -> Self {
+        Self::new(MeshType::Istio)
+    }
+}
+
+impl MeshTrafficGovernor {
+    pub fn new(mesh_type: MeshType) -> Self {
+        Self { mesh_type }
+    }
+
+    /// 治理流量
+    pub fn govern_traffic(&self) -> MeshConfig {
+        MeshConfig::default()
+    }
+
+    pub fn mesh_type(&self) -> MeshType {
+        self.mesh_type
+    }
+}
+
+#[cfg(test)]
+mod v770_mesh_traffic_governor_tests {
+    use super::*;
+
+    #[test]
+    fn test_govern_traffic() {
+        let governor = MeshTrafficGovernor::new(MeshType::Istio);
+        let config = governor.govern_traffic();
+        assert!(config.traffic.canary.is_none());
+    }
+
+    #[test]
+    fn test_govern_traffic_default() {
+        let governor = MeshTrafficGovernor::default();
+        assert_eq!(governor.mesh_type(), MeshType::Istio);
+    }
+
+    #[test]
+    fn test_govern_traffic_linkerd() {
+        let governor = MeshTrafficGovernor::new(MeshType::Linkerd);
+        assert_eq!(governor.mesh_type(), MeshType::Linkerd);
+    }
+}

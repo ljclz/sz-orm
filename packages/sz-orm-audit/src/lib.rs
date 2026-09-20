@@ -21,6 +21,19 @@ pub mod data_quality;
 #[cfg(feature = "hash-chain-enhanced")]
 pub mod hash_chain_enhanced;
 
+#[cfg(feature = "compliance-report")]
+pub mod compliance_report;
+
+pub mod autonomous_audit;
+
+#[cfg(feature = "compliance-auto-check")]
+pub use compliance_report::{
+    AutoCheckResult, ComplianceAutoChecker, CompliancePosture, CompliancePostureTracker,
+    ComplianceViolation, ComplianceViolationAlerter,
+};
+
+pub use autonomous_audit::{AuditEntryBuilder, AutonomousAuditEntry, AutonomousDecisionAuditor};
+
 #[cfg(feature = "lineage-viz")]
 pub use lineage::{downstream_impact, upstream_trace, ImpactEdge};
 #[cfg(feature = "data-lineage")]

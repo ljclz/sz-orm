@@ -30,6 +30,14 @@ pub struct ZeroCopyStats {
     bytes_ref_misses: AtomicU64,
     /// v7.4.0：DateTimeInt 类型未命中次数
     datetime_int_misses: AtomicU64,
+    /// v7.6.0：ArrayRef5.0：ArrayRef 借用命中次数（零拷贝）
+    array_ref_hits: AtomicU64,
+    /// v7.6.0：ObjectRef 借用命中次数（零拷贝）
+    object_ref_hits: AtomicU64,
+    /// v7.6.0：Array 堆分配回退次数
+    array_heap_fallbacks: AtomicU64,
+    /// v7.6.0：Object 堆分配回退次数
+    object_heap_fallbacks: AtomicU64,
 }
 
 impl ZeroCopyStats {
@@ -157,6 +165,62 @@ impl ZeroCopyStats {
             + self.bytes_ref_misses()
             + self.datetime_int_misses()
     }
+
+    /// v7.6.0：记录 ArrayRef 借用命中（零拷贝）
+    pub fn record_array_ref_hit(&self) {
+        self.array_ref_hits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.6.0：记录 ObjectRef 借用命中（零拷贝）
+    pub fn record_object_ref_hit(&self) {
+        self.object_ref_hits.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.6.0：记录 Array 堆分配回退
+    pub fn record_array_heap_fallback(&self) {
+        self.array_heap_fallbacks.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.6.0：记录 Object 堆分配回退
+    pub fn record_object_heap_fallback(&self) {
+        self.object_heap_fallbacks.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// v7.6.0：ArrayRef 借用命中次数
+    pub fn array_ref_hits(&self) -> u64 {
+        self.array_ref_hits.load(Ordering::Relaxed)
+    }
+
+    /// v7.6.0：ObjectRef 借用命中次数
+    pub fn object_ref_hits(&self) -> u64 {
+        self.object_ref_hits.load(Ordering::Relaxed)
+    }
+
+    /// v7.6.0：Array 堆分配回退次数
+    pub fn array_heap_fallbacks(&self) -> u64 {
+        self.array_heap_fallbacks.load(Ordering::Relaxed)
+    }
+
+    /// v7.6.0：Object 堆分配回退次数
+    pub fn object_heap_fallbacks(&self) -> u64 {
+        self.object_heap_fallbacks.load(Ordering::Relaxed)
+    }
+
+    /// v7.6.0：堆分配降低率（0.0 ~ 1.0）
+    ///
+    /// 计算公式：`ref_hits / (ref_hits + heap_fallbacks)`
+    /// 其中 `ref_hits = array_ref_hits + object_ref_hits`，
+    /// `heap_fallbacks = array_heap_fallbacks + object_heap_fallbacks`。
+    pub fn heap_reduction_rate(&self) -> f64 {
+        let ref_hits = self.array_ref_hits() + self.object_ref_hits();
+        let heap_fallbacks = self.array_heap_fallbacks() + self.object_heap_fallbacks();
+        let total = ref_hits + heap_fallbacks;
+        if total == 0 {
+            0.0
+        } else {
+            ref_hits as f64 / total as f64
+        }
+    }
 }
 
 impl Clone for ZeroCopyStats {
@@ -170,6 +234,10 @@ impl Clone for ZeroCopyStats {
             json_bytes_misses: AtomicU64::new(self.json_bytes_misses()),
             bytes_ref_misses: AtomicU64::new(self.bytes_ref_misses()),
             datetime_int_misses: AtomicU64::new(self.datetime_int_misses()),
+            array_ref_hits: AtomicU64::new(self.array_ref_hits()),
+            object_ref_hits: AtomicU64::new(self.object_ref_hits()),
+            array_heap_fallbacks: AtomicU64::new(self.array_heap_fallbacks()),
+            object_heap_fallbacks: AtomicU64::new(self.object_heap_fallbacks()),
         }
     }
 }
@@ -646,5 +714,98 @@ mod tests {
         let stream = pipeline.stream_rows(rows, &columns);
         assert_eq!(stream.total_rows(), 10000);
         assert!(pipeline.stats().zero_copy_hits() > 0);
+    }
+
+    // ========================================================================
+    // v7.6.0 任务 1.3：ZeroCopyStats 扩展测试
+    // ========================================================================
+
+    #[test]
+    fn test_array_ref_hits_tracking() {
+        let stats = ZeroCopyStats::new();
+        stats.record_array_ref_hit();
+        stats.record_array_ref_hit();
+        stats.record_array_ref_hit();
+        assert_eq!(stats.array_ref_hits(), 3);
+    }
+
+    #[test]
+    fn test_object_ref_hits_tracking() {
+        let stats = ZeroCopyStats::new();
+        stats.record_object_ref_hit();
+        stats.record_object_ref_hit();
+        assert_eq!(stats.object_ref_hits(), 2);
+    }
+
+    #[test]
+    fn test_array_heap_fallbacks_tracking() {
+        let stats = ZeroCopyStats::new();
+        stats.record_array_heap_fallback();
+        assert_eq!(stats.array_heap_fallbacks(), 1);
+    }
+
+    #[test]
+    fn test_object_heap_fallbacks_tracking() {
+        let stats = ZeroCopyStats::new();
+        stats.record_object_heap_fallback();
+        stats.record_object_heap_fallback();
+        assert_eq!(stats.object_heap_fallbacks(), 2);
+    }
+
+    #[test]
+    fn test_heap_reduction_rate_empty() {
+        let stats = ZeroCopyStats::new();
+        assert_eq!(stats.heap_reduction_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_heap_reduction_rate_all_hits() {
+        let stats = ZeroCopyStats::new();
+        for _ in 0..8 {
+            stats.record_array_ref_hit();
+        }
+        for _ in 0..2 {
+            stats.record_object_ref_hit();
+        }
+        assert!((stats.heap_reduction_rate() - 1.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_heap_reduction_rate_mixed() {
+        let stats = ZeroCopyStats::new();
+        for _ in 0..8 {
+            stats.record_array_ref_hit();
+        }
+        for _ in 0..2 {
+            stats.record_array_heap_fallback();
+        }
+        let rate = stats.heap_reduction_rate();
+        assert!((rate - 0.8).abs() < 1e-9, "rate={}", rate);
+    }
+
+    #[test]
+    fn test_heap_reduction_rate_above_80_pct() {
+        let stats = ZeroCopyStats::new();
+        for _ in 0..85 {
+            stats.record_array_ref_hit();
+        }
+        for _ in 0..15 {
+            stats.record_array_heap_fallback();
+        }
+        assert!(stats.heap_reduction_rate() >= 0.80);
+    }
+
+    #[test]
+    fn test_zero_copy_stats_clone_preserves_v760_fields() {
+        let stats = ZeroCopyStats::new();
+        stats.record_array_ref_hit();
+        stats.record_object_ref_hit();
+        stats.record_array_heap_fallback();
+        stats.record_object_heap_fallback();
+        let cloned = stats.clone();
+        assert_eq!(cloned.array_ref_hits(), 1);
+        assert_eq!(cloned.object_ref_hits(), 1);
+        assert_eq!(cloned.array_heap_fallbacks(), 1);
+        assert_eq!(cloned.object_heap_fallbacks(), 1);
     }
 }

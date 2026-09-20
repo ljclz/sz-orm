@@ -14,6 +14,8 @@ categories.workspace = true
 default = []
 # 异常检测完整能力（指标采集 + 滑动窗口 + 突增/耗尽检测 + 告警 + 报告 + 集成）
 anomaly-detection = ["dep:serde", "dep:serde_json", "dep:sz-orm-masking"]
+# v7.7.0 任务 2.3：异常预测（容量瓶颈 + 延迟飙升 + 故障前兆）
+anomaly-predict = ["dep:serde", "dep:serde_json"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }
@@ -24,6 +26,12 @@ thiserror.workspace = true
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
+
+# v7.7.0 任务 2.7：异常预测端到端测试
+[[test]]
+name = "anomaly_predictor_test"
+path = "tests/anomaly_predictor_test.rs"
+required-features = ["anomaly-predict"]
 
 [lints]
 workspace = true

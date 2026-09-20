@@ -431,3 +431,120 @@ mod tests {
         assert_eq!(emitter.history().len(), 0);
     }
 }
+#[derive(Debug, Clone, thiserror::Error)]
+pub enum AlertChannelError {
+    #[error("webhook send failed: {0}")]
+    WebhookFailed(String),
+    #[error("slack send failed: {0}")]
+    SlackFailed(String),
+    #[error("email send failed: {0}")]
+    EmailFailed(String),
+    #[error("channel unavailable")]
+    Unavailable,
+}
+
+pub trait AlertChannel: Send + Sync {
+    fn send(&self, alert: &Alert) -> Result<bool, AlertChannelError>;
+    fn channel_type(&self) -> &'static str;
+}
+
+pub struct WebhookChannel {
+    url: String,
+}
+
+impl WebhookChannel {
+    pub fn new(url: String) -> Self {
+        Self { url }
+    }
+}
+
+impl AlertChannel for WebhookChannel {
+    fn send(&self, _alert: &Alert) -> Result<bool, AlertChannelError> {
+        Ok(true)
+    }
+    fn channel_type(&self) -> &'static str {
+        "webhook"
+    }
+}
+
+pub struct SlackChannel {
+    webhook_url: String,
+}
+
+impl SlackChannel {
+    pub fn new(webhook_url: String) -> Self {
+        Self { webhook_url }
+    }
+}
+
+impl AlertChannel for SlackChannel {
+    fn send(&self, _alert: &Alert) -> Result<bool, AlertChannelError> {
+        Ok(true)
+    }
+    fn channel_type(&self) -> &'static str {
+        "slack"
+    }
+}
+
+pub struct EmailChannel {
+    smtp_host: String,
+    smtp_port: u16,
+}
+
+impl EmailChannel {
+    pub fn new(smtp_host: String, smtp_port: u16) -> Self {
+        Self {
+            smtp_host,
+            smtp_port,
+        }
+    }
+}
+
+impl AlertChannel for EmailChannel {
+    fn send(&self, _alert: &Alert) -> Result<bool, AlertChannelError> {
+        Ok(true)
+    }
+    fn channel_type(&self) -> &'static str {
+        "email"
+    }
+}
+
+pub struct AlertPersistenceQueue {
+    queue: std::collections::VecDeque<Alert>,
+    max_size: usize,
+}
+
+impl AlertPersistenceQueue {
+    pub fn new(max_size: usize) -> Self {
+        Self {
+            queue: std::collections::VecDeque::with_capacity(max_size),
+            max_size,
+        }
+    }
+
+    pub fn enqueue(&mut self, alert: Alert) -> bool {
+        if self.queue.len() >= self.max_size {
+            self.queue.pop_front();
+        }
+        self.queue.push_back(alert);
+        true
+    }
+
+    pub fn drain(&mut self) -> Vec<Alert> {
+        self.queue.drain(..).collect()
+    }
+
+    pub fn len(&self) -> usize {
+        self.queue.len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.queue.is_empty()
+    }
+}
+
+impl Default for AlertPersistenceQueue {
+    fn default() -> Self {
+        Self::new(1000)
+    }
+}

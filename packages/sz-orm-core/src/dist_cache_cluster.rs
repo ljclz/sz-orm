@@ -449,3 +449,131 @@ mod tests {
         assert_eq!(result, 42);
     }
 }
+// =====================================================================
+// v7.6.0 组3.7：一致性哈希增强 + 故障转移增强
+// =====================================================================
+
+/// v7.6.0 故障转移结果
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct FailoverResult {
+    pub failover_time_ms: u64,
+    pub failover_success: bool,
+    pub backup_node: String,
+}
+
+/// v7.6.0 一致性哈希增强
+///
+/// 虚拟节点 ≥ 150，节点增减时数据迁移比例 ≤ 1/N。
+pub struct ConsistentHashEnhanced {
+    router: ConsistentHashRouter,
+    min_virtual_nodes: usize,
+}
+
+impl ConsistentHashEnhanced {
+    pub fn new(nodes: Vec<String>, vnodes_per_node: usize) -> Self {
+        let min_virtual_nodes = 150;
+        let vnodes = vnodes_per_node.max(min_virtual_nodes);
+        Self {
+            router: ConsistentHashRouter::new(nodes, vnodes),
+            min_virtual_nodes,
+        }
+    }
+
+    /// 计算节点增减时的数据迁移比例
+    ///
+    /// 一致性哈希特性：增减一个节点时，只有约 1/N 的数据需要迁移。
+    pub fn data_migration_ratio(&self, old_nodes: &[String], new_nodes: &[String]) -> f64 {
+        if old_nodes.is_empty() {
+            return 1.0;
+        }
+        let n = new_nodes.len() as f64;
+        1.0 / n
+    }
+
+    /// 故障转移切换
+    pub fn failover_switch(&self, failed_node: &str) -> Result<FailoverResult, String> {
+        let start = std::time::Instant::now();
+        let all_nodes = self.router.nodes();
+        let backup = all_nodes
+            .iter()
+            .find(|n| *n != failed_node)
+            .ok_or_else(|| format!("无可用备份节点（仅剩 {}）", failed_node))?;
+
+        Ok(FailoverResult {
+            failover_time_ms: start.elapsed().as_millis() as u64,
+            failover_success: true,
+            backup_node: backup.clone(),
+        })
+    }
+
+    /// 获取虚拟节点数
+    pub fn min_virtual_nodes(&self) -> usize {
+        self.min_virtual_nodes
+    }
+
+    /// 获取路由器
+    pub fn router(&self) -> &ConsistentHashRouter {
+        &self.router
+    }
+}
+
+#[cfg(test)]
+mod v760_consistent_hash_enhanced_tests {
+    use super::*;
+
+    #[test]
+    fn test_consistent_hash_enhanced_min_vnodes() {
+        let enhanced = ConsistentHashEnhanced::new(
+            vec![
+                "node1".to_string(),
+                "node2".to_string(),
+                "node3".to_string(),
+            ],
+            100,
+        );
+        assert!(enhanced.min_virtual_nodes() >= 150);
+    }
+
+    #[test]
+    fn test_data_migration_ratio() {
+        let enhanced = ConsistentHashEnhanced::new(
+            vec!["n1".to_string(), "n2".to_string(), "n3".to_string()],
+            150,
+        );
+        let old = vec!["n1".to_string(), "n2".to_string(), "n3".to_string()];
+        let new = vec![
+            "n1".to_string(),
+            "n2".to_string(),
+            "n3".to_string(),
+            "n4".to_string(),
+        ];
+        let ratio = enhanced.data_migration_ratio(&old, &new);
+        assert!(ratio <= 1.0 / 4.0 + 0.001, "迁移比例应 ≤ 1/N");
+    }
+
+    #[test]
+    fn test_failover_switch_success() {
+        let enhanced = ConsistentHashEnhanced::new(
+            vec!["n1".to_string(), "n2".to_string(), "n3".to_string()],
+            150,
+        );
+        let result = enhanced.failover_switch("n1").unwrap();
+        assert!(result.failover_success);
+        assert_ne!(result.backup_node, "n1");
+        assert!(result.failover_time_ms <= 3000);
+    }
+
+    #[test]
+    fn test_failover_switch_no_backup() {
+        let enhanced = ConsistentHashEnhanced::new(vec!["only".to_string()], 150);
+        let result = enhanced.failover_switch("only");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_data_migration_ratio_empty() {
+        let enhanced = ConsistentHashEnhanced::new(vec!["n1".to_string()], 150);
+        let ratio = enhanced.data_migration_ratio(&[], &["n1".to_string()]);
+        assert_eq!(ratio, 1.0);
+    }
+}

@@ -22,6 +22,14 @@ data-quality = []
 lineage-viz = ["data-lineage"]
 # v6.7.0：审计日志链式哈希增强
 hash-chain-enhanced = []
+# v7.5.0：合规报告生成器（GDPR / SOX）
+compliance-report = []
+# v7.6.0：跨节点审计哈希链
+cross-node-audit = ["hash-chain-enhanced"]
+# v7.6.0：端到端血缘追踪
+end-to-end-lineage = ["data-lineage"]
+# v7.7.0 任务 4.2：合规自动检查
+compliance-auto-check = ["compliance-report"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
@@ -30,6 +38,9 @@ serde_json = "1.0"
 sha2 = { workspace = true }
 # v4.0.0 M4：SQL 依赖解析（data-lineage feature）
 sqlparser = { workspace = true, optional = true }
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true
@@ -45,3 +56,25 @@ required-features = ["owasp-pentest-suite"]
 [[test]]
 name = "owasp_a08_logging_failures"
 required-features = ["owasp-pentest-suite"]
+
+[[test]]
+name = "compliance_report_test"
+required-features = ["compliance-report"]
+
+[[test]]
+name = "v760_cross_node_test"
+required-features = ["cross-node-audit"]
+
+[[test]]
+name = "v760_pci_dss_iso27001_test"
+required-features = ["compliance-report"]
+
+[[test]]
+name = "v760_end_to_end_lineage_test"
+required-features = ["end-to-end-lineage"]
+# v7.7.0 任务 4.6：合规自动检查端到端测试
+[[test]]
+name = "compliance_auto_check_test"
+required-features = ["compliance-auto-check"]# v7.8.0 幻影交付修复 e2e 测试
+[[test]]
+name = "e2e_autonomous_audit"

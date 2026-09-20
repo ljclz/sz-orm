@@ -8,19 +8,19 @@ repository.workspace = true
 homepage.workspace = true
 keywords.workspace = true
 categories.workspace = true
-description = "SZ-ORM 鍙娴嬫€фā鍧楋細Prometheus exporter (TcpListener) + SLO 鐕冪儳锟?+ Grafana 浠〃鐩樻ā鏉匡紱OTLP 瀵煎嚭璇蜂娇锟?sz-orm-tracing 锟?otlp feature"
+description = "SZ-ORM 可观测性模块：Prometheus exporter (TcpListener) + SLO 燃烧告警 + Grafana 仪表盘模板；OTLP 导出请使用 sz-orm-tracing 的 otlp feature"
 
 [features]
 default = []
-# 鍚敤 Prometheus exporter锛堟毚锟?/metrics HTTP 绔偣锛屽熀锟?tokio TcpListener锟?
-# 娉細start_metrics_server 濮嬬粓鍙敤锛屾 feature 淇濈暀渚涙湭鏉ユ墿灞曪紙锟?hyper 瀹炵幇锟?
+# 启用 Prometheus exporter（暴露 /metrics HTTP 端点，基于 tokio TcpListener）
+# 注：start_metrics_server 始终可用，此 feature 保留供未来扩展（如 hyper 实现）
 prometheus = []
-# 鍚敤鐪熷疄 Pushgateway HTTP PUT 鎺ㄩ€侊紙鍩轰簬 reqwest锟?
-# 鏈惎鐢ㄦ椂 PushgatewayExporter::push 浠呰褰曞埌鍐呭瓨锛堢敤浜庢祴璇曪級
+# 启用真实 Pushgateway HTTP PUT 推送（基于 reqwest）
+# 未启用时 PushgatewayExporter::push 仅记录到内存（用于测试）
 push-gateway = ["reqwest"]
-# v3.8.0锛歮etrics 绔偣璁块棶鎺у埗
+# v3.8.0：metrics 端点访问控制
 prod-metrics-acl = ["dep:base64", "dep:subtle"]
-# v4.0.0 M9锛氭湇鍔＄綉鏍奸泦鎴愶紙Istio/Linkerd + mTLS + 娴侀噺娌荤悊 + sidecar 娉ㄥ叆 + 鍙娴嬫€э級
+# v4.0.0 M9：服务网格集成（Istio/Linkerd + mTLS + 流量治理 + sidecar 注入 + 可观测性）
 service-mesh = ["dep:sz-orm-limit"]
 # v4.4.0 M4：结构化查询日志（QueryLogger + 采样率 + 级别控制 + 参数脱敏）
 query-logging = ["dep:sz-orm-flamegraph", "dep:sz-orm-masking"]
@@ -36,6 +36,12 @@ prometheus-exporter = ["obs-enhanced"]
 perf-metrics = []
 # v7.0.0：Serverless 按需计费度量收集器
 serverless-metering = []
+# v7.7.0 任务 4.4：云原生部署增强
+cloud-native-enhanced = ["service-mesh", "prometheus-exporter"]
+# v7.8.0 绿色计算：能耗采集 + 碳足迹核算 + 绿色调度 + ESG 报告
+green-computing = ["prometheus-exporter", "dep:sz-orm-masking"]
+# v7.8.0 SLI/SLO 自动化：SLI 采集 + SLO 达成率 + 错误预算 + 仪表盘
+slo-automation = []
 
 
 [package.metadata.cargo-machete]
@@ -50,12 +56,12 @@ serde_json = { workspace = true }
 chrono = { workspace = true }
 parking_lot = { workspace = true }
 tracing = { workspace = true }
-# 鐪熷疄 Pushgateway HTTP PUT 鎺ㄩ€侊紙鍙€夛紝閫氳繃 push-gateway feature 鍚敤锟?
+# 真实 Pushgateway HTTP PUT 推送（可选，通过 push-gateway feature 启用）
 reqwest = { version = "0.12", default-features = false, features = ["rustls-tls", "blocking"], optional = true }
-# v3.8.0锛歮etrics 璁块棶鎺у埗锛坧rod-metrics-acl feature锟?
+# v3.8.0：metrics 访问控制（prod-metrics-acl feature）
 base64 = { version = "0.22", optional = true }
 subtle = { version = "2.5", optional = true }
-# v4.0.0 M9锛氭湇鍔＄綉鏍奸檺娴佺啍鏂紙service-mesh feature锟?
+# v4.0.0 M9：服务网格限流熔断（service-mesh feature）
 sz-orm-limit = { version = "7.1.0", path = "../sz-orm-limit", optional = true }
 # v4.4.0 M4：结构化查询日志（query-logging feature）
 sz-orm-flamegraph = { path = "../sz-orm-flamegraph", version = "7.1.0", optional = true }
@@ -63,6 +69,8 @@ sz-orm-masking = { path = "../sz-orm-masking", version = "7.1.0", optional = tru
 
 [dev-dependencies]
 tokio = { workspace = true }
+# v7.8.0 跨模块联动 e2e 测试
+sz-orm-mig = { path = "../sz-orm-mig", features = ["gray-release"] }
 
 [lib]
 name = "sz_orm_observability"
@@ -74,3 +82,52 @@ workspace = true
 [[test]]
 name = "service_mesh_test"
 required-features = ["service-mesh"]
+# v7.7.0 任务 4.6：云原生部署增强端到端测试
+[[test]]
+name = "cloud_native_enhanced_test"
+required-features = ["cloud-native-enhanced"]
+# v7.8.0 绿色计算端到端测试
+[[test]]
+name = "e2e_energy_collect"
+required-features = ["green-computing"]
+
+[[test]]
+name = "e2e_carbon_calc"
+required-features = ["green-computing"]
+
+[[test]]
+name = "e2e_green_schedule"
+required-features = ["green-computing"]
+
+[[test]]
+name = "e2e_esg_report"
+required-features = ["green-computing"]
+
+[[test]]
+name = "e2e_breakpoint_resume"
+required-features = ["green-computing"]
+
+# v7.8.0 SLI/SLO 端到端测试
+[[test]]
+name = "e2e_sli_collect"
+required-features = ["slo-automation"]
+
+[[test]]
+name = "e2e_budget_exhausted"
+required-features = ["slo-automation"]
+
+[[test]]
+name = "e2e_dashboard_export"
+required-features = ["slo-automation"]
+
+[[test]]
+name = "e2e_sli_retention"
+required-features = ["slo-automation"]
+# v7.8.0 跨模块联动 e2e 测试
+[[test]]
+name = "e2e_green_gray"
+required-features = ["green-computing"]
+# v7.8.0 幻影交付修复 e2e 测试
+[[test]]
+name = "e2e_energy_mask"
+required-features = ["green-computing"]

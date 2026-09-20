@@ -9,6 +9,8 @@
 //! - [`LineageNode`] / [`LineageNodeId`] — 节点（table.column）
 //! - [`LineageEdge`] / [`EdgeType`] — 边（依赖关系）
 
+#[cfg(feature = "end-to-end-lineage")]
+pub mod end_to_end;
 pub mod export;
 pub mod graph;
 #[cfg(feature = "lineage-viz")]
@@ -16,6 +18,11 @@ pub mod impact;
 pub mod parser;
 pub mod tracker;
 
+#[cfg(feature = "end-to-end-lineage")]
+pub use end_to_end::{
+    ChangeSeverity, CompletenessResult, EndToEndLineage, EndToEndLineageTracker, ImpactAnalyzer,
+    ImpactResult, SchemaChange, SchemaChangeType,
+};
 pub use export::LineageExportFormat;
 pub use graph::{
     EdgeType, LineageEdge, LineageError, LineageGraph, LineageNode, LineageNodeId, NodeType,
@@ -23,4 +30,7 @@ pub use graph::{
 #[cfg(feature = "lineage-viz")]
 pub use impact::{downstream_impact, upstream_trace, ImpactEdge};
 pub use parser::{LineageDialect, LineageSqlParser};
-pub use tracker::{LineageTracker, LineageUpdate};
+pub use tracker::{
+    mask_sensitive_field_name, DataLineage, FieldLineageTracker, LineageTracker, LineageUpdate,
+    LINEAGE_INCOMPLETE,
+};

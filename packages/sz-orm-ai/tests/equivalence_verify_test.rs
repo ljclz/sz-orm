@@ -7,13 +7,13 @@
 //!
 //! 真实 DB 测试用 `--ignored` 标记，需连接 SQLite 临时文件。
 
+use sqlx::Row;
+use std::future::Future;
+use std::pin::Pin;
 use sz_orm_ai::{
     verify_equivalence_on_db, DbExecutor, EquivalenceVerificationResult, RewriteEngine,
     TransformType,
 };
-use std::future::Future;
-use std::pin::Pin;
-use sqlx::Row;
 
 /// SQLite 执行器（基于 sqlx）
 #[cfg(feature = "ai-rewrite-advisor")]
@@ -43,7 +43,10 @@ impl SqliteExecutor {
 
 #[cfg(feature = "ai-rewrite-advisor")]
 impl DbExecutor for SqliteExecutor {
-    fn execute(&self, sql: &str) -> Pin<Box<dyn Future<Output = Result<Vec<Vec<String>>, String>> + Send + '_>> {
+    fn execute(
+        &self,
+        sql: &str,
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<Vec<String>>, String>> + Send + '_>> {
         let sql = sql.to_string();
         Box::pin(async move {
             let rows = sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
@@ -141,7 +144,11 @@ async fn test_equivalence_verify_original_error() {
     let rewritten = "SELECT id FROM users";
     let result = verify_equivalence_on_db(original, rewritten, &executor).await;
     assert!(!result.is_equivalent);
-    assert!(result.diff_details.as_ref().unwrap().contains("原 SQL 执行失败"));
+    assert!(result
+        .diff_details
+        .as_ref()
+        .unwrap()
+        .contains("原 SQL 执行失败"));
 }
 
 /// 改写 SQL 执行失败
@@ -153,7 +160,11 @@ async fn test_equivalence_verify_rewritten_error() {
     let rewritten = "SELECT * FROM nonexistent_table";
     let result = verify_equivalence_on_db(original, rewritten, &executor).await;
     assert!(!result.is_equivalent);
-    assert!(result.diff_details.as_ref().unwrap().contains("改写 SQL 执行失败"));
+    assert!(result
+        .diff_details
+        .as_ref()
+        .unwrap()
+        .contains("改写 SQL 执行失败"));
 }
 
 /// EquivalenceVerificationResult::equivalent 构造

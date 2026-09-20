@@ -24,6 +24,8 @@ pub mod sla_violation_tracker;
 #[allow(missing_docs)]
 pub mod cost_accountant;
 
+#[cfg(feature = "data-lifecycle-mgmt")]
+pub mod lifecycle;
 #[cfg(feature = "sensitive-discover")]
 #[allow(missing_docs)]
 pub mod sensitive_discoverer;

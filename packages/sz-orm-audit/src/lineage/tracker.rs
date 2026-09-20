@@ -1,4 +1,6 @@
 //! LineageTracker：编排 SQL 解析 + 增量更新图 + 影响分析 + 溯源分析。
+//!
+//! v7.5.0 扩展字段级血缘追踪：`DataLineage` 结构 + 敏感字段名脱敏。
 
 use std::sync::{Arc, RwLock};
 
@@ -10,6 +12,166 @@ use super::parser::{LineageDialect, LineageSqlParser};
 pub struct LineageUpdate {
     pub edges_added: Vec<LineageEdge>,
     pub edges_skipped: usize,
+}
+
+// ============================================================================
+// v7.5.0 字段级血缘追踪
+// ============================================================================
+
+/// 敏感字段名集合（用于字段名脱敏）。
+const SENSITIVE_FIELD_NAMES: &[&str] = &[
+    "phone",
+    "email",
+    "id_card",
+    "idcard",
+    "bank_card",
+    "bankcard",
+    "password",
+    "pwd",
+    "secret",
+    "token",
+    "ssn",
+    "credit_card",
+    "creditcard",
+    "cvv",
+];
+
+/// 对敏感字段名进行脱敏：`phone` → `phone_masked`，非敏感字段原样返回。
+pub fn mask_sensitive_field_name(field: &str) -> String {
+    let lower = field.to_ascii_lowercase();
+    if SENSITIVE_FIELD_NAMES.contains(&lower.as_str()) {
+        format!("{}_masked", lower)
+    } else {
+        field.to_string()
+    }
+}
+
+/// 字段级血缘记录：记录目标字段来自哪个表/列，经过什么变换。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataLineage {
+    /// 目标字段（已脱敏，敏感字段名加 `_masked` 后缀）
+    pub target_field: String,
+    /// 源表名
+    pub source_table: String,
+    /// 源列名（已脱敏）
+    pub source_column: String,
+    /// 变换路径（如 "direct" / "hash" / "concat(a,b)"），描述从源到目标的变换
+    pub transform_path: String,
+    /// 是否为派生字段（表达式计算得到，非直接引用）
+    pub is_derived: bool,
+    /// 查询指纹（SQL 的归一化摘要，用于关联同一查询的多个血缘记录）
+    pub query_fingerprint: String,
+}
+
+impl DataLineage {
+    /// 创建直接引用的字段血缘（非派生）。
+    pub fn direct(
+        target_field: &str,
+        source_table: &str,
+        source_column: &str,
+        query_fingerprint: &str,
+    ) -> Self {
+        Self {
+            target_field: mask_sensitive_field_name(target_field),
+            source_table: source_table.to_string(),
+            source_column: mask_sensitive_field_name(source_column),
+            transform_path: "direct".to_string(),
+            is_derived: false,
+            query_fingerprint: query_fingerprint.to_string(),
+        }
+    }
+
+    /// 创建派生字段的血缘（表达式计算得到）。
+    pub fn derived(
+        target_field: &str,
+        source_table: &str,
+        source_column: &str,
+        transform_expr: &str,
+        query_fingerprint: &str,
+    ) -> Self {
+        Self {
+            target_field: mask_sensitive_field_name(target_field),
+            source_table: source_table.to_string(),
+            source_column: mask_sensitive_field_name(source_column),
+            transform_path: transform_expr.to_string(),
+            is_derived: true,
+            query_fingerprint: query_fingerprint.to_string(),
+        }
+    }
+
+    /// 是否为派生字段
+    pub fn is_derived(&self) -> bool {
+        self.is_derived
+    }
+
+    /// 是否无法追溯源列（源表或源列为空）
+    pub fn is_incomplete(&self) -> bool {
+        self.source_table.is_empty() || self.source_column.is_empty()
+    }
+}
+
+/// 字段级血缘完整性校验告警码
+pub const LINEAGE_INCOMPLETE: &str = "LINEAGE_INCOMPLETE";
+
+/// 字段级血缘追踪器：记录每个字段的来源（表/列/变换），支持完整性校验。
+#[derive(Debug, Clone, Default)]
+pub struct FieldLineageTracker {
+    lineages: Vec<DataLineage>,
+}
+
+impl FieldLineageTracker {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// 记录一条字段血缘
+    pub fn record(&mut self, lineage: DataLineage) -> Option<String> {
+        if lineage.is_incomplete() {
+            return Some(format!(
+                "{}: field '{}' has incomplete lineage (source_table='{}', source_column='{}')",
+                LINEAGE_INCOMPLETE,
+                lineage.target_field,
+                lineage.source_table,
+                lineage.source_column,
+            ));
+        }
+        self.lineages.push(lineage);
+        None
+    }
+
+    /// 获取所有血缘记录
+    pub fn lineages(&self) -> &[DataLineage] {
+        &self.lineages
+    }
+
+    /// 记录数
+    pub fn count(&self) -> usize {
+        self.lineages.len()
+    }
+
+    /// 完整性校验：查询结果中每个字段的来源（表/列/变换）均有记录。
+    ///
+    /// 返回缺失来源记录的字段名列表（空表示全部完整）。
+    pub fn check_completeness(&self, query_fields: &[&str]) -> Vec<String> {
+        let recorded: std::collections::HashSet<&str> = self
+            .lineages
+            .iter()
+            .map(|l| l.target_field.as_str())
+            .collect();
+        query_fields
+            .iter()
+            .filter(|f| !recorded.contains(**f))
+            .map(|f| f.to_string())
+            .collect()
+    }
+
+    /// 获取某字段的所有源（可能来自多个表/列）
+    pub fn sources_of(&self, target_field: &str) -> Vec<&DataLineage> {
+        self.lineages
+            .iter()
+            .filter(|l| l.target_field == target_field)
+            .collect()
+    }
 }
 
 /// lineage 追踪器
@@ -301,5 +463,107 @@ mod tests {
         assert!(result.is_ok());
 
         assert_eq!(tracker.edge_count(), 1);
+    }
+
+    // ----- v7.5.0 字段级血缘测试 -----
+
+    #[test]
+    fn test_mask_sensitive_field_name() {
+        assert_eq!(mask_sensitive_field_name("phone"), "phone_masked");
+        assert_eq!(mask_sensitive_field_name("email"), "email_masked");
+        assert_eq!(mask_sensitive_field_name("password"), "password_masked");
+        assert_eq!(mask_sensitive_field_name("name"), "name");
+        assert_eq!(mask_sensitive_field_name("age"), "age");
+    }
+
+    #[test]
+    fn test_mask_sensitive_field_name_case_insensitive() {
+        assert_eq!(mask_sensitive_field_name("Phone"), "phone_masked");
+        assert_eq!(mask_sensitive_field_name("EMAIL"), "email_masked");
+    }
+
+    #[test]
+    fn test_data_lineage_direct() {
+        let l = DataLineage::direct("name", "users", "name", "q1");
+        assert!(!l.is_derived());
+        assert!(!l.is_incomplete());
+        assert_eq!(l.transform_path, "direct");
+    }
+
+    #[test]
+    fn test_data_lineage_derived() {
+        let l = DataLineage::derived("full_name", "users", "name", "concat(first, last)", "q1");
+        assert!(l.is_derived());
+        assert_eq!(l.transform_path, "concat(first, last)");
+    }
+
+    #[test]
+    fn test_data_lineage_sensitive_field_masked() {
+        let l = DataLineage::direct("phone", "users", "phone", "q1");
+        assert_eq!(l.target_field, "phone_masked");
+        assert_eq!(l.source_column, "phone_masked");
+    }
+
+    #[test]
+    fn test_data_lineage_incomplete() {
+        let l = DataLineage::direct("name", "", "name", "q1");
+        assert!(l.is_incomplete());
+    }
+
+    #[test]
+    fn test_field_lineage_tracker_record() {
+        let mut tracker = FieldLineageTracker::new();
+        let warning = tracker.record(DataLineage::direct("name", "users", "name", "q1"));
+        assert!(warning.is_none());
+        assert_eq!(tracker.count(), 1);
+    }
+
+    #[test]
+    fn test_field_lineage_tracker_incomplete_warning() {
+        let mut tracker = FieldLineageTracker::new();
+        let warning = tracker.record(DataLineage::direct("name", "", "name", "q1"));
+        assert!(warning.is_some());
+        assert!(warning.unwrap().contains("LINEAGE_INCOMPLETE"));
+        assert_eq!(tracker.count(), 0);
+    }
+
+    #[test]
+    fn test_field_lineage_completeness_all_present() {
+        let mut tracker = FieldLineageTracker::new();
+        tracker.record(DataLineage::direct("name", "users", "name", "q1"));
+        tracker.record(DataLineage::direct("age", "users", "age", "q1"));
+        let missing = tracker.check_completeness(&["name", "age"]);
+        assert!(missing.is_empty());
+    }
+
+    #[test]
+    fn test_field_lineage_completeness_missing_fields() {
+        let mut tracker = FieldLineageTracker::new();
+        tracker.record(DataLineage::direct("name", "users", "name", "q1"));
+        let missing = tracker.check_completeness(&["name", "age", "email"]);
+        assert_eq!(missing, vec!["age", "email"]);
+    }
+
+    #[test]
+    fn test_field_lineage_sources_of() {
+        let mut tracker = FieldLineageTracker::new();
+        tracker.record(DataLineage::direct("name", "users", "name", "q1"));
+        tracker.record(DataLineage::direct(
+            "name",
+            "profiles",
+            "display_name",
+            "q1",
+        ));
+        let sources = tracker.sources_of("name");
+        assert_eq!(sources.len(), 2);
+    }
+
+    #[test]
+    fn test_field_lineage_sensitive_not_recorded_raw() {
+        let mut tracker = FieldLineageTracker::new();
+        tracker.record(DataLineage::direct("phone", "users", "phone", "q1"));
+        let lineages = tracker.lineages();
+        assert_eq!(lineages[0].target_field, "phone_masked");
+        assert_eq!(lineages[0].source_column, "phone_masked");
     }
 }

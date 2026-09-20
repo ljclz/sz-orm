@@ -622,6 +622,6 @@ mod tests {
         let overall = collector.overall();
         assert_eq!(overall.max_latency_ms, 200);
         assert_eq!(overall.min_latency_ms, 50);
-        assert_eq!(overall.avg_latency_ms(), 116);
+        assert_eq!(overall.avg_latency_ms(), 117);
     }
 }

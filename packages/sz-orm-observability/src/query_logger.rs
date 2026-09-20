@@ -44,22 +44,18 @@ pub enum LogLevel {
 /// 结构化查询日志条目
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueryLogEntry {
-    /// 查询标识
     pub query_key: String,
-    /// SQL 文本（Debug 级别含，Info/Warn 级别不含）
     pub sql: String,
-    /// 参数列表（已脱敏，Debug 级别含，Info/Warn 级别不含）
     pub params: Vec<String>,
-    /// 总耗时（毫秒）
     pub total_elapsed_ms: u64,
-    /// 阶段分解（可序列化，由 `QueryPhaseTiming` 转换）
     pub phase_breakdown: Vec<SerializablePhaseTiming>,
-    /// 是否慢查询
     pub slow: bool,
-    /// 是否命中缓存
     pub from_cache: bool,
-    /// 时间戳（ISO 8601）
     pub timestamp: String,
+    #[serde(default)]
+    pub trace_id: Option<String>,
+    #[serde(default)]
+    pub span_id: Option<String>,
 }
 
 impl QueryLogEntry {

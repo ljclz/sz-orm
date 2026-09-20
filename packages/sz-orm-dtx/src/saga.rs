@@ -1919,3 +1919,296 @@ mod tests {
         assert_eq!(saga.state(), SagaState::CompensationFailed);
     }
 }
+// =====================================================================
+// v7.6.0 组3.1+3.2：自动补偿生成 + 重试策略 + 幂等校验
+// =====================================================================
+
+/// v7.6.0 Saga 操作类型
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SagaOperationType {
+    Insert,
+    Update,
+    Delete,
+}
+
+/// v7.6.0 Saga 操作数据（用于自动补偿生成）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SagaOperationData {
+    /// 操作类型
+    pub op_type: SagaOperationType,
+    /// 表名
+    pub table: String,
+    /// 主键值（JSON 序列化）
+    pub primary_key: serde_json::Value,
+    /// 旧值（UPDATE/DELETE 补偿用，JSON 序列化）
+    pub old_values: Option<serde_json::Value>,
+    /// 新值（INSERT/UPDATE 正向用，JSON 序列化）
+    pub new_values: Option<serde_json::Value>,
+}
+
+/// v7.6.0 自动补偿生成器
+///
+/// 基于正向操作模式匹配自动生成补偿操作：
+/// - INSERT → DELETE
+/// - UPDATE → 反向 UPDATE（恢复旧值）
+/// - DELETE → INSERT（恢复旧值）
+pub struct AutoCompensationGenerator;
+
+impl AutoCompensationGenerator {
+    /// 根据正向操作生成补偿操作
+    pub fn generate_compensation(forward: &SagaOperationData) -> SagaOperationData {
+        match forward.op_type {
+            SagaOperationType::Insert => SagaOperationData {
+                op_type: SagaOperationType::Delete,
+                table: forward.table.clone(),
+                primary_key: forward.primary_key.clone(),
+                old_values: None,
+                new_values: None,
+            },
+            SagaOperationType::Update => SagaOperationData {
+                op_type: SagaOperationType::Update,
+                table: forward.table.clone(),
+                primary_key: forward.primary_key.clone(),
+                old_values: forward.new_values.clone(),
+                new_values: forward.old_values.clone(),
+            },
+            SagaOperationType::Delete => SagaOperationData {
+                op_type: SagaOperationType::Insert,
+                table: forward.table.clone(),
+                primary_key: forward.primary_key.clone(),
+                old_values: None,
+                new_values: forward.old_values.clone(),
+            },
+        }
+    }
+
+    /// 生成补偿 SQL（参数化）
+    pub fn generate_compensation_sql(forward: &SagaOperationData) -> String {
+        let comp = Self::generate_compensation(forward);
+        match comp.op_type {
+            SagaOperationType::Delete => {
+                format!("DELETE FROM {} WHERE id = $1", comp.table)
+            }
+            SagaOperationType::Update => {
+                format!("UPDATE {} SET data = $1 WHERE id = $2", comp.table)
+            }
+            SagaOperationType::Insert => {
+                format!("INSERT INTO {} (id, data) VALUES ($1, $2)", comp.table)
+            }
+        }
+    }
+}
+
+/// v7.6.0 退避策略
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub enum BackoffStrategy {
+    Fixed,
+    Exponential,
+    ExponentialWithJitter,
+}
+
+/// v7.6.0 补偿重试策略
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CompensationRetryPolicy {
+    pub max_retries: u32,
+    pub backoff_strategy: BackoffStrategy,
+    pub backoff_base_ms: u64,
+}
+
+impl Default for CompensationRetryPolicy {
+    fn default() -> Self {
+        Self {
+            max_retries: 3,
+            backoff_strategy: BackoffStrategy::Exponential,
+            backoff_base_ms: 100,
+        }
+    }
+}
+
+impl CompensationRetryPolicy {
+    pub fn new(max_retries: u32, strategy: BackoffStrategy, base_ms: u64) -> Self {
+        Self {
+            max_retries,
+            backoff_strategy: strategy,
+            backoff_base_ms: base_ms,
+        }
+    }
+
+    /// 计算第 n 次重试的退避时长
+    pub fn backoff_duration(&self, retry_count: u32) -> Duration {
+        let ms = match self.backoff_strategy {
+            BackoffStrategy::Fixed => self.backoff_base_ms,
+            BackoffStrategy::Exponential => self.backoff_base_ms * 2u64.saturating_pow(retry_count),
+            BackoffStrategy::ExponentialWithJitter => {
+                let base = self.backoff_base_ms * 2u64.saturating_pow(retry_count);
+                let jitter = (base / 4).max(1);
+                base + jitter
+            }
+        };
+        Duration::from_millis(ms)
+    }
+}
+
+/// v7.6.0 幂等校验器
+///
+/// 校验补偿操作幂等性（重复执行结果一致）。
+pub struct IdempotencyChecker;
+
+impl IdempotencyChecker {
+    /// 校验补偿操作是否幂等
+    ///
+    /// DELETE 幂等：重复删除同一行无副作用
+    /// UPDATE 幂等：设置固定值（非增量），重复执行结果一致
+    /// INSERT 非幂等：重复插入会报主键冲突（需 UPSERT）
+    pub fn check_idempotency(compensation: &SagaOperationData) -> bool {
+        match compensation.op_type {
+            SagaOperationType::Delete => true,
+            SagaOperationType::Update => true,
+            SagaOperationType::Insert => false,
+        }
+    }
+
+    /// 将非幂等操作转换为幂等操作（INSERT → UPSERT）
+    pub fn make_idempotent(compensation: &SagaOperationData) -> SagaOperationData {
+        if Self::check_idempotency(compensation) {
+            return compensation.clone();
+        }
+        SagaOperationData {
+            op_type: SagaOperationType::Update,
+            table: compensation.table.clone(),
+            primary_key: compensation.primary_key.clone(),
+            old_values: None,
+            new_values: compensation.new_values.clone(),
+        }
+    }
+}
+
+/// v7.6.0 Saga 增强结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SagaEnhancedResult {
+    pub transaction_id: String,
+    pub is_idempotent: bool,
+    pub compensation_latency_ms: u64,
+    pub retry_count: u32,
+    pub retry_config: CompensationRetryPolicy,
+    pub final_status: SagaState,
+}
+
+#[cfg(test)]
+mod v760_saga_enhanced_tests {
+    use super::*;
+
+    #[test]
+    fn test_auto_compensation_insert_to_delete() {
+        let forward = SagaOperationData {
+            op_type: SagaOperationType::Insert,
+            table: "users".to_string(),
+            primary_key: serde_json::json!(1),
+            old_values: None,
+            new_values: Some(serde_json::json!({"name": "Alice"})),
+        };
+        let comp = AutoCompensationGenerator::generate_compensation(&forward);
+        assert_eq!(comp.op_type, SagaOperationType::Delete);
+        assert_eq!(comp.table, "users");
+    }
+
+    #[test]
+    fn test_auto_compensation_update_reverse() {
+        let forward = SagaOperationData {
+            op_type: SagaOperationType::Update,
+            table: "users".to_string(),
+            primary_key: serde_json::json!(1),
+            old_values: Some(serde_json::json!({"name": "Alice"})),
+            new_values: Some(serde_json::json!({"name": "Bob"})),
+        };
+        let comp = AutoCompensationGenerator::generate_compensation(&forward);
+        assert_eq!(comp.op_type, SagaOperationType::Update);
+        assert_eq!(comp.old_values, Some(serde_json::json!({"name": "Bob"})));
+        assert_eq!(comp.new_values, Some(serde_json::json!({"name": "Alice"})));
+    }
+
+    #[test]
+    fn test_auto_compensation_delete_to_insert() {
+        let forward = SagaOperationData {
+            op_type: SagaOperationType::Delete,
+            table: "orders".to_string(),
+            primary_key: serde_json::json!(42),
+            old_values: Some(serde_json::json!({"total": 100})),
+            new_values: None,
+        };
+        let comp = AutoCompensationGenerator::generate_compensation(&forward);
+        assert_eq!(comp.op_type, SagaOperationType::Insert);
+        assert_eq!(comp.new_values, Some(serde_json::json!({"total": 100})));
+    }
+
+    #[test]
+    fn test_compensation_sql_parameterized() {
+        let forward = SagaOperationData {
+            op_type: SagaOperationType::Insert,
+            table: "users".to_string(),
+            primary_key: serde_json::json!(1),
+            old_values: None,
+            new_values: None,
+        };
+        let sql = AutoCompensationGenerator::generate_compensation_sql(&forward);
+        assert!(sql.contains("$1"));
+        assert!(sql.contains("DELETE"));
+    }
+
+    #[test]
+    fn test_retry_policy_fixed() {
+        let policy = CompensationRetryPolicy::new(3, BackoffStrategy::Fixed, 100);
+        assert_eq!(policy.backoff_duration(0), Duration::from_millis(100));
+        assert_eq!(policy.backoff_duration(1), Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_retry_policy_exponential() {
+        let policy = CompensationRetryPolicy::new(3, BackoffStrategy::Exponential, 100);
+        assert_eq!(policy.backoff_duration(0), Duration::from_millis(100));
+        assert_eq!(policy.backoff_duration(1), Duration::from_millis(200));
+        assert_eq!(policy.backoff_duration(2), Duration::from_millis(400));
+    }
+
+    #[test]
+    fn test_retry_policy_jitter() {
+        let policy = CompensationRetryPolicy::new(3, BackoffStrategy::ExponentialWithJitter, 100);
+        let d0 = policy.backoff_duration(0);
+        assert!(d0 >= Duration::from_millis(100));
+    }
+
+    #[test]
+    fn test_idempotency_check() {
+        let delete = SagaOperationData {
+            op_type: SagaOperationType::Delete,
+            table: "t".to_string(),
+            primary_key: serde_json::json!(1),
+            old_values: None,
+            new_values: None,
+        };
+        assert!(IdempotencyChecker::check_idempotency(&delete));
+
+        let insert = SagaOperationData {
+            op_type: SagaOperationType::Insert,
+            table: "t".to_string(),
+            primary_key: serde_json::json!(1),
+            old_values: None,
+            new_values: None,
+        };
+        assert!(!IdempotencyChecker::check_idempotency(&insert));
+    }
+
+    #[test]
+    fn test_make_idempotent() {
+        let insert = SagaOperationData {
+            op_type: SagaOperationType::Insert,
+            table: "t".to_string(),
+            primary_key: serde_json::json!(1),
+            old_values: None,
+            new_values: Some(serde_json::json!({"x": 1})),
+        };
+        let idempotent = IdempotencyChecker::make_idempotent(&insert);
+        assert!(IdempotencyChecker::check_idempotency(&idempotent));
+        assert_eq!(idempotent.op_type, SagaOperationType::Update);
+    }
+}

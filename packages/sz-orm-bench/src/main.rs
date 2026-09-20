@@ -88,6 +88,7 @@ fn run_benchmark_real(config: &BenchConfig) {
             WorkloadType::ComplexJoin,
             WorkloadType::Transaction,
             WorkloadType::PoolConcurrency,
+            WorkloadType::SimdCompare,
         ];
 
         let mut results = Vec::new();
@@ -243,6 +244,7 @@ fn print_help() {
         WorkloadType::ComplexJoin,
         WorkloadType::Transaction,
         WorkloadType::PoolConcurrency,
+        WorkloadType::SimdCompare,
     ] {
         println!("    {}", wl.as_str());
     }

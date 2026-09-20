@@ -111,9 +111,7 @@ pub use rewrite_advisor::{
 pub use rewrite_advisor::{ColumnPruningRule, ConstantFoldingRule, LimitPushdownRule};
 // v7.4.0 任务 2.2：真实 DB 等价性验证
 #[cfg(feature = "ai-rewrite-advisor")]
-pub use rewrite_advisor::{
-    verify_equivalence_on_db, DbExecutor, EquivalenceVerificationResult,
-};
+pub use rewrite_advisor::{verify_equivalence_on_db, DbExecutor, EquivalenceVerificationResult};
 
 // v4.0.0 M1：多 LLM 模型支持（multi-llm feature gate 隔离）
 #[cfg(feature = "multi-llm")]
@@ -212,4 +210,44 @@ pub mod ai_config;
 #[cfg(feature = "ai-config")]
 pub use ai_config::{
     AiConfig, AiDecision, AiDecisionType, AnnIndexType as AiAnnIndexType, RewritePath,
+};
+#[cfg(feature = "ai-index-apply")]
+pub use index_advisor::{AiIndexApplyResult, IndexApplyExecutor, RollbackRecord};
+
+// v7.7.0 任务 2.1：AiQueryOptimizer 导出
+#[cfg(feature = "ai-query-optimize")]
+pub use rewrite_advisor::{AiQueryOptimizationResult, AiQueryOptimizer, RewriteAction};
+
+// v7.7.0 任务 2.2：IndexLifecycleManager 导出
+#[cfg(feature = "ai-index-lifecycle")]
+pub use index_advisor::{
+    EvictionResult, IndexEvictor, IndexLifecycleManager, IndexMaintainer, LifecyclePhase,
+    LifecycleResult, MaintenanceResult, UsageStats,
+};
+
+#[cfg(feature = "ai-nl2sql-complex")]
+pub use multi_turn::{Ambiguity, Clarification, ClarificationEngine, ClarificationQuestion};
+#[cfg(feature = "ai-nl2sql-complex")]
+pub use nl2sql::{ComplexSqlGenerator, SqlComplexity};
+#[cfg(feature = "ai-plan-predict")]
+pub use query_plan_optimizer::{
+    HistoryBasedPredictor, PlanPredictionResult, PlanPredictor, QueryHistoryCollector,
+    QueryHistoryEntry,
+};
+// v7.7.0 任务 2.4：NL2SQL 深化导出
+#[cfg(feature = "ai-nl2sql-deepen")]
+pub use multi_turn::{ComplexQueryDecomposer, DecompositionResult};
+#[cfg(feature = "ai-nl2sql-deepen")]
+pub use nl2sql::{IntentResult, IntentType, IntentUnderstander};
+// v7.8.0 AI 自治闭环
+#[cfg(feature = "ai-autonomous-loop")]
+pub mod autonomous;
+#[cfg(feature = "ai-autonomous-loop")]
+pub use autonomous::{
+    ActionBoundary, AnomalyEvent, AutonomousAction, AutonomousActionExecutor,
+    AutonomousAuditRecord, AutonomousCircuitBreaker, AutonomousDecision, AutonomousError,
+    AutonomousOutcome, AutonomousPolicy, AutonomousPolicyEngine, AutonomousVerificationLoop,
+    BoundaryValidator, CircuitBreakerConfig, CircuitRuntimeState, CircuitState, ExecutionResult,
+    IdempotencyDeduplicator, LlmAdvisor, LlmSuggestion, PolicyMatcher, Severity, TriggerCondition,
+    VerificationResult,
 };

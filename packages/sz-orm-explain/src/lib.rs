@@ -6,6 +6,7 @@
 //! - Full table scan detection (`ScanType::FullTable`)
 //! - Missing index detection (`index == None` and scanned rows exceed threshold)
 //! - Execution plan regression detection ([`crate::regression`], requires `explain-analyzer` feature)
+//! - Slow query automatic governance ([`crate::slow_query_governance`], requires `slow-query-governance` feature)
 //!
 //! Typical usage (with `sz-orm-macros`'s `query!` macro db-verify mode):
 //!
@@ -29,6 +30,8 @@ pub mod parsers;
 pub mod perf_baseline;
 #[cfg(feature = "explain-analyzer")]
 pub mod regression;
+#[cfg(feature = "slow-query-governance")]
+pub mod slow_query_governance;
 
 /// Supported EXPLAIN parse dialects (corresponding to database engines, format compatible within family)
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

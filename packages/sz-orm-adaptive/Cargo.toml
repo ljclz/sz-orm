@@ -18,6 +18,10 @@ adaptive-query = ["dep:serde", "dep:serde_json"]
 llm-tuning = ["dep:async-trait", "dep:thiserror"]
 # v5.1.0 P2：性能趋势预测器（基于历史时序数据预测未来趋势）
 trend-prediction = ["dep:serde", "dep:serde_json"]
+# v7.6.0：自适应连接池调优（基于负载特征启发式公式自适应调整容量/空闲超时/健康检查间隔）
+adaptive-pool-tuning = []
+# v7.7.0：动态连接池深化调优（秒级响应 + 多池隔离）
+dynamic-pool-tuning = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"], optional = true }

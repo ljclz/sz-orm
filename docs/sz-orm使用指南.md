@@ -1,10 +1,10 @@
 # SZ-ORM 使用指南
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v7.4.0（v7.4.0：真实 DB 基准对标深化 + AI 能力深化 + 性能优化深化 + 使用指南全面更新；72 个工作空间成员）
-> 适用版本：SZ-ORM **v7.4.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
-> 更新日期：2026-09-18
-> 项目状态：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 7.4.0
+> 文档版本：v7.7.0（覆盖 v7.4.0~v7.7.0 演进：真实 DB 基准对标深化 + AI 能力深化 + 性能优化深化 + 生产稳定性加固 + 性能继续优化 + 自愈协调；72 个工作空间成员）
+> 适用版本：SZ-ORM **v7.7.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 更新日期：2026-09-20
+> 项目状态：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 7.7.0
 > 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
 > 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"
 
@@ -44,8 +44,8 @@ SZ-ORM 是一套**生产可用（内部项目）的纯 Rust ORM 工作空间**�
 ### 1.2 质量基线（实测数据）
 
 - 工作空间成员：**72（70 sz-orm-* lib + cli + examples）**
-- 代码规模：**176,709+ LOC（src/ 97,318+ + tests/ 79,391+）**
-- feature gate：**56 个**（v7.3.0 新增 10 个，其中 3 个默认启用：perf-accel/ha-events/health-subitems）
+- 代码规模：**519,067 LOC（src/ 432,358 + tests/ 86,709，2026-09-20 实测）**
+- feature gate：**420 个**（全工作区 70 包 `[features]` 段键实测，2026-09-20，其中 sz-orm-core 111 个；v7.3.0 新增 10 个扩展既有包，其中 3 个默认启用：perf-accel/ha-events/health-subitems）
 - 生产代码 **0 处 panic!**、0 处 `unimplemented!`/`todo!`
 - `cargo clippy --workspace --all-targets -- -D warnings` 全通过（0 warnings）
 - v7.3.0 新增 187 个测试全部通过，v7.4.0 新增 100+ 个测试全部通过，4 个生产示例编译通过
@@ -2324,3 +2324,803 @@ SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored
 | 错误码体系 | §7 故障排除 | §3 错误处理指南 |
 | 钩子系统 | §3.1.1 | §4 钩子系统 |
 | 工程化门禁 | §8 | 《sz-orm-engineering-practices.md》 |
+---
+
+## 10. v7.5.0 新增能力
+
+> 版本：v7.5.0 ｜ 基线：v7.4.0 ｜ 7 大方向 55 子任务
+
+### 10.1 生产稳定性加固（方向 1）
+
+#### 10.1.1 ChaosInjector 故障注入框架
+
+提供 ChaosInjector 故障注入框架（需手动接入 `chaos` feature gate）。
+
+```rust
+use sz_orm_fusion::chaos_injector::{ChaosConfig, ChaosInjector, FaultType};
+
+let config = ChaosConfig::default();
+let mut injector = ChaosInjector::new(config)?;
+injector.inject_fault(FaultType::ConnectionExhaust);
+let recovery_time = injector.recover_fault();
+```
+
+- 生产调用点：`packages/sz-orm-fusion/src/chaos_injector.rs:220`
+- feature gate：`chaos`（默认关闭）
+
+#### 10.1.2 DegradationHandler 降级路径
+
+提供 DegradationHandler 降级路径执行（需手动接入 `circuit-breaker` feature gate）。
+
+- 生产调用点：`packages/sz-orm-core/src/degradation.rs`
+- feature gate：`circuit-breaker`（默认关闭）
+
+#### 10.1.3 StabilityMatrixRunner 压测矩阵
+
+提供 StabilityMatrixRunner 压测矩阵（需手动接入 `stability-matrix` feature gate）。
+
+- 生产调用点：`packages/sz-orm-bench/src/stability_matrix.rs`
+- feature gate：`stability-matrix`（默认关闭）
+
+### 10.2 性能极致优化 2.0（方向 2）
+
+#### 10.2.1 LruKReplacer LRU-K 替换
+
+提供 LRU-K 替换算法用于查询计划缓存。
+
+- 生产调用点：`packages/sz-orm-core/src/plan_cache.rs:1189`
+
+#### 10.2.2 AdaptiveCacheCapacity 自适应容量
+
+提供自适应缓存容量调整。
+
+- 生产调用点：`packages/sz-orm-core/src/plan_cache.rs`
+
+#### 10.2.3 PoolParamRecommender 连接池参数推荐
+
+提供基于工作负载的连接池参数推荐。
+
+- 生产调用点：`packages/sz-orm-adaptive/src/param_tuner.rs`
+
+#### 10.2.4 BottleneckAnalyzer 瓶颈分析
+
+提供性能瓶颈分析报告。
+
+- 生产调用点：`packages/sz-orm-bench/src/lib.rs`
+
+### 10.3 AI 自动调优深化（方向 3）
+
+#### 10.3.1 IndexApplyExecutor 索引应用执行器
+
+提供 AI 推荐索引的应用执行器（需手动接入 `ai-index-apply` feature gate）。
+
+- 生产调用点：`packages/sz-orm-ai/src/index_advisor.rs`
+- feature gate：`ai-index-apply`（默认关闭）
+
+#### 10.3.2 PlanPredictor 查询计划预测
+
+提供查询计划预测器（需手动接入 `ai-plan-predict` feature gate）。
+
+- 生产调用点：`packages/sz-orm-ai/src/query_plan_optimizer.rs`
+- feature gate：`ai-plan-predict`（默认关闭）
+
+#### 10.3.3 AlertChannel 告警通道
+
+提供 Webhook/Slack/Email 告警通道实现。
+
+- 生产调用点：`packages/sz-orm-anomaly/src/alert.rs`
+
+#### 10.3.4 AccuracyEvaluator 精度评估
+
+提供异常检测精度评估器。
+
+- 生产调用点：`packages/sz-orm-anomaly/src/detector.rs`
+
+### 10.4 可观测性增强（方向 4）
+
+#### 10.4.1 OtlpExporter OTLP span 导出
+
+提供 OTLP span 导出器（需手动接入 `otlp-export` feature gate）。
+
+- 生产调用点：`packages/sz-orm-tracing/src/otlp_exporter.rs:114`
+- feature gate：`otlp-export`（默认关闭）
+
+#### 10.4.2 register_sz_orm_metrics Prometheus 指标注册
+
+提供 Prometheus 指标注册函数。
+
+- 生产调用点：`packages/sz-orm-observability/src/prometheus_exporter.rs`
+
+#### 10.4.3 QueryLogEntry trace 关联
+
+查询日志新增 trace_id/span_id 字段关联分布式追踪。
+
+- 生产调用点：`packages/sz-orm-observability/src/query_logger.rs`
+
+### 10.5 安全合规增强（方向 5）
+
+#### 10.5.1 MaskingRuleConfig 字段级脱敏
+
+提供字段级脱敏规则配置（需手动接入 `dynamic-masking` feature gate）。
+
+- 生产调用点：`packages/sz-orm-masking/src/dynamic_masking.rs`
+- feature gate：`dynamic-masking`（默认关闭）
+
+#### 10.5.2 AuditOpType 操作类型扩展
+
+审计操作类型新增 DDL/PermissionChange/MaskingConfigChange。
+
+- 生产调用点：`packages/sz-orm-audit/src/hash_chain_enhanced.rs`
+
+#### 10.5.3 ComplianceReportGenerator 合规报告
+
+提供 GDPR/SOX 合规报告生成器（需手动接入 `compliance-report` feature gate）。
+
+- 生产调用点：`packages/sz-orm-audit/src/compliance_report.rs:185`
+- feature gate：`compliance-report`（默认关闭）
+
+#### 10.5.4 字段级血缘追踪
+
+提供 DataLineage 字段级血缘追踪。
+
+- 生产调用点：`packages/sz-orm-audit/src/lineage/tracker.rs`
+
+### 10.6 生态扩展（方向 6）
+
+#### 10.6.1 CockroachDB 验证测试
+
+提供 CockroachDB 真实 DB 验证测试（需手动接入 `cockroachdb` feature gate）。
+
+- 测试文件：`packages/sz-orm-sqlx/tests/cockroachdb_test.rs`
+- feature gate：`cockroachdb`（默认关闭）
+- 运行方式：`cargo test -p sz-orm-sqlx --features cockroachdb --test cockroachdb_test -- --ignored`
+
+#### 10.6.2 YugabyteDB 验证测试
+
+提供 YugabyteDB 真实 DB 验证测试（需手动接入 `yugabytedb` feature gate）。
+
+- 测试文件：`packages/sz-orm-sqlx/tests/yugabytedb_test.rs`
+- feature gate：`yugabytedb`（默认关闭）
+- 运行方式：`cargo test -p sz-orm-sqlx --features yugabytedb --test yugabytedb_test -- --ignored`
+
+#### 10.6.3 DistributedDbCompatReport 兼容性报告
+
+提供分布式 DB 兼容性报告生成。
+
+- 生产调用点：`packages/sz-orm-sqlx/src/lib.rs`
+
+#### 10.6.4 BindingCoverageReport 绑定覆盖率
+
+提供多语言绑定 API 覆盖率报告。
+
+- 生产调用点：`packages/sz-orm-core/src/binding_coverage.rs`
+
+### 10.7 工程化收尾（方向 7）
+
+#### 10.7.1 边界与极端场景测试
+
+为 v7.5.0 新增的所有关键结构补齐边界测试（45 个测试通过）。
+
+#### 10.7.2 技术债报告脚本
+
+提供 `scripts/check-tech-debt.py` 技术债报告生成脚本。
+
+- 运行方式：`python scripts/check-tech-debt.py`
+
+### 10.8 v7.5.0 feature gate 汇总
+
+| feature gate | 包 | 默认 | 说明 |
+|-------------|---|------|------|
+| `chaos` | sz-orm-fusion | 关闭 | ChaosInjector 故障注入 |
+| `stability-matrix` | sz-orm-bench | 关闭 | StabilityMatrixRunner 压测矩阵 |
+| `ai-index-apply` | sz-orm-ai | 关闭 | IndexApplyExecutor 索引应用 |
+| `ai-plan-predict` | sz-orm-ai | 关闭 | PlanPredictor 计划预测 |
+| `otlp-export` | sz-orm-tracing | 关闭 | OtlpExporter OTLP 导出 |
+| `compliance-report` | sz-orm-audit | 关闭 | ComplianceReportGenerator 合规报告 |
+| `cockroachdb` | sz-orm-sqlx | 关闭 | CockroachDB 验证测试 |
+| `yugabytedb` | sz-orm-sqlx | 关闭 | YugabyteDB 验证测试 |
+## 11. v7.6.0 新增能力
+
+> 版本：v7.6.0 ｜ 基线：v7.5.0 ｜ 5 大方向 54 子任务
+
+### 11.1 性能继续优化
+
+#### SIMD 批量聚合深化
+
+SoA（Structure of Arrays）布局 + 分块对齐，目标聚合加速比 ≥ 2.5x。
+
+```rust
+use sz_orm_core::simd::SimdAggregator;
+
+let aggregator = SimdAggregator::new();
+let result = aggregator.batch_sum_soa(&columns)?;
+```
+
+生产调用点：`packages/sz-orm-core/src/simd.rs:130`
+
+#### IO_uring 异步 IO
+
+Linux IO_uring 异步 IO 集成（需手动接入，启用 `io-uring` feature）。
+
+```rust
+use sz_orm_core::io_uring_io::IoUringIo;
+
+let io = IoUringIo::new()?;
+```
+
+生产调用点：`packages/sz-orm-core/src/io_uring_io.rs:1`
+
+#### AdaptivePoolTuner 自适应连接池调优
+
+根据负载动态调整连接池大小（需手动接入，启用 `adaptive-pool-tuning` feature）。
+
+生产调用点：`packages/sz-orm-adaptive/src/lib.rs:1`
+
+### 11.2 AI 能力深化
+
+#### HistoryBasedPredictor 基于历史的查询计划预测
+
+复用历史执行统计预测最优计划。
+
+生产调用点：`packages/sz-orm-ai/src/query_plan_optimizer.rs:1809`
+
+#### ComplexSqlGenerator 复杂 SQL 生成
+
+支持多表 JOIN/子查询/CTE 生成（需手动接入，启用 `ai-nl2sql-complex` feature）。
+
+生产调用点：`packages/sz-orm-ai/src/nl2sql.rs:3070`
+
+#### MultiDimDetector 多维度联合异常检测
+
+多维度联合检测 + 阈值自动调优。
+
+生产调用点：`packages/sz-orm-anomaly/src/detector.rs:892`
+
+### 11.3 分布式增强
+
+#### AutoCompensationGenerator Saga 自动补偿
+
+自动生成 Saga 事务补偿逻辑（需手动接入，启用 `saga-enhanced` feature）。
+
+生产调用点：`packages/sz-orm-dtx/src/saga.rs:2088`
+
+#### ThreePcCoordinator 3PC 三阶段提交
+
+3PC 协议实现，减少 2PC 阻塞问题（需手动接入，启用 `three-pc` feature）。
+
+生产调用点：`packages/sz-orm-dtx/src/three_pc.rs:1`
+
+#### MultiRegionReplicator 多区域复制
+
+跨区域数据复制 + 冲突解决（需手动接入，启用 `multi-region-active` feature）。
+
+生产调用点：`packages/sz-orm-fusion/src/sync.rs:649`
+
+#### DynamicShardAdjuster 动态分片调整
+
+热点迁移 + 动态分片调整（需手动接入，启用 `dynamic-sharding` feature）。
+
+生产调用点：`packages/sz-orm-sharding/src/enhanced.rs:1097`
+
+### 11.4 安全合规深化
+
+#### ContextAwareMasker 上下文感知脱敏
+
+根据用户角色/操作类型/数据流向决定脱敏策略（需手动接入，启用 `context-aware-masking` feature）。
+
+```rust
+use sz_orm_masking::dynamic_masking::{ContextAwareMasker, MaskingContext, DataFlow};
+
+let masker = ContextAwareMasker::new(rules);
+let ctx = MaskingContext::new("user", "select", DataFlow::Outbound);
+let masked = masker.mask_with_context("13800138000", "phone", &ctx);
+```
+
+生产调用点：`packages/sz-orm-masking/src/dynamic_masking.rs:804`
+
+#### HotUpdateCoordinator 脱敏策略原子热更新
+
+无重启热更新脱敏策略，新策略对后续查询生效。
+
+生产调用点：`packages/sz-orm-masking/src/dynamic_masking.rs:834`
+
+#### CrossNodeHashChain 跨节点审计哈希链
+
+跨节点审计日志哈希链，全局完整性验证（需手动接入，启用 `cross-node-audit` feature）。
+
+```rust
+use sz_orm_audit::hash_chain_enhanced::{CrossNodeHashChain, CrossNodeAuditEntry};
+
+let chain = CrossNodeHashChain::new();
+chain.log(CrossNodeAuditEntry { node_id: "node-A".into(), epoch: 1, entry })?;
+let result = chain.verify_all_chains();
+assert!(result.is_valid());
+```
+
+生产调用点：`packages/sz-orm-audit/src/hash_chain_enhanced.rs:430`
+
+#### PCI-DSS / ISO27001 合规报告
+
+扩展合规框架支持 PCI-DSS 和 ISO/IEC 27001。
+
+```rust
+use sz_orm_audit::compliance_report::{ComplianceFramework, ComplianceReportGenerator};
+
+let gen = ComplianceReportGenerator::new();
+let report = gen.generate(ComplianceFramework::PciDss);
+println!("{}", report.to_markdown());
+```
+
+生产调用点：`packages/sz-orm-audit/src/compliance_report.rs:9`
+
+#### EndToEndLineageTracker 端到端血缘追踪
+
+从数据输入到最终消费的完整链路追踪（需手动接入，启用 `end-to-end-lineage` feature）。
+
+生产调用点：`packages/sz-orm-audit/src/lineage/end_to_end.rs:1`
+
+#### ImpactAnalyzer Schema 变更影响分析
+
+评估 DDL 变更对下游的影响范围和严重等级。
+
+生产调用点：`packages/sz-orm-audit/src/lineage/end_to_end.rs:180`
+
+### 11.5 生态扩展
+
+#### WasiSupport WASI 支持验证
+
+验证 WASI 接口可用性，检测不支持 WASM 的依赖（需手动接入，启用 `wasi-support` feature）。
+
+```rust
+use sz_orm_wasm::WasiSupport;
+
+let support = WasiSupport::new();
+let result = support.verify_wasi();
+```
+
+生产调用点：`packages/sz-orm-wasm/src/lib.rs:884`
+
+#### WasmPerfOptimizer WASM 性能优化
+
+编译目标优化 + 内存管理优化 + 原生性能对比。
+
+生产调用点：`packages/sz-orm-wasm/src/lib.rs:960`
+
+#### K8sOperatorSpec K8s Operator 定义
+
+产出 K8s Operator CRD 定义（需手动接入，启用 `k8s-operator` feature）。
+
+```rust
+use sz_orm_config::k8s_operator::K8sOperatorSpec;
+
+let spec = K8sOperatorSpec::generate_sz_orm_operator();
+println!("{}", spec.spec_yaml);
+```
+
+生产调用点：`packages/sz-orm-config/src/k8s_operator.rs:1`
+
+#### HelmChartTemplate Helm Chart 模板
+
+产出 Helm Chart 模板，一键部署。
+
+生产调用点：`packages/sz-orm-config/src/k8s_operator.rs:90`
+
+#### DbBackendCompatReport 数据库后端兼容性验证
+
+Oracle/MSSQL/PostGIS 兼容性验证（需手动接入，启用 `db-backend-compat` feature）。
+
+```rust
+use sz_orm_sqlx::generate_oracle_compat_report;
+
+let report = generate_oracle_compat_report();
+println!("兼容率: {:.1}%", report.compat_rate() * 100);
+```
+
+生产调用点：`packages/sz-orm-sqlx/src/lib.rs:170`
+
+### 11.6 v7.6.0 feature gate 汇总
+
+| feature gate | 包 | 默认 | 说明 |
+|-------------|---|------|------|
+| `io-uring` | sz-orm-core | 关闭 | IO_uring 异步 IO |
+| `adaptive-pool-tuning` | sz-orm-adaptive | 关闭 | AdaptivePoolTuner 自适应调优 |
+| `dist-cache-enhanced` | sz-orm-core | 关闭 | 分布式缓存集群增强 |
+| `ai-nl2sql-complex` | sz-orm-ai | 关闭 | ComplexSqlGenerator 复杂 SQL 生成 |
+| `saga-enhanced` | sz-orm-dtx | 关闭 | Saga 自动补偿增强 |
+| `three-pc` | sz-orm-dtx | 关闭 | 3PC 三阶段提交 |
+| `two-pc-enhanced` | sz-orm-dtx | 关闭 | 2PC 原子性增强 |
+| `multi-region-active` | sz-orm-fusion | 关闭 | 多区域主动复制 |
+| `dynamic-sharding` | sz-orm-sharding | 关闭 | 动态分片调整 |
+| `context-aware-masking` | sz-orm-masking | 关闭 | 上下文感知脱敏 |
+| `cross-node-audit` | sz-orm-audit | 关闭 | 跨节点审计哈希链 |
+| `end-to-end-lineage` | sz-orm-audit | 关闭 | 端到端血缘追踪 |
+| `wasi-support` | sz-orm-wasm | 关闭 | WASI 支持验证 |
+| `k8s-operator` | sz-orm-config | 关闭 | K8s Operator 定义 |
+| `db-backend-compat` | sz-orm-sqlx | 关闭 | 数据库后端兼容性验证 |
+
+### 11.7 v7.6.0 测试汇总
+
+- 组 1 性能继续优化：23 个端到端测试通过
+- 组 2 AI 能力深化：30 单元测试 + 15 端到端测试通过
+- 组 3 分布式增强：40 单元测试 + 16 端到端测试通过
+- 组 4 安全合规深化：8+7+7+13 单元测试 + 15 端到端测试通过
+- 组 5 生态扩展：7+8+8 单元测试通过
+## 12. v7.7.0 新增能力
+
+> 版本：v7.7.0 ｜ 基线：v7.0.0 ｜ 4 大方向 48 主任务 ｜ 17 个新增 feature gate（全部默认关闭）
+
+### 12.1 稳定性加固与性能瓶颈消除
+
+#### 12.1.1 自愈协调器（self-heal）
+
+**feature gate**：`self-heal`（sz-orm-health，默认关闭）
+
+提供 `SelfHealCoordinator` 组件（需手动接入），协调自动恢复决策。
+
+```rust
+use sz_orm_health::SelfHealCoordinator;
+let coordinator = SelfHealCoordinator::new();
+let result = coordinator.check_and_heal().await?;
+```
+
+生产调用点：[self_heal.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-health/src/self_heal.rs#L1)
+
+#### 12.1.2 慢查询治理（slow-query-governance）
+
+**feature gate**：`slow-query-governance`（sz-orm-explain，默认关闭）
+
+提供 `SlowQueryGovernor` 组件（需手动接入），识别全表扫描、缺失索引、N+1 模式。
+
+生产调用点：[slow_query_governance.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-explain/src/slow_query_governance.rs#L1)
+
+#### 12.1.3 动态连接池调优（dynamic-pool-tuning）
+
+**feature gate**：`dynamic-pool-tuning`（sz-orm-adaptive，默认关闭）
+
+提供 `DynamicPoolTuner` 组件（需手动接入），基于负载自动推荐连接池参数。
+
+生产调用点：[param_tuner.rs:1526](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-adaptive/src/param_tuner.rs#L1526)
+
+#### 12.1.4 缓存命中率优化（cache-hit-optimize）
+
+**feature gate**：`cache-hit-optimize`（sz-orm-core，默认关闭）
+
+提供 `CacheHitRateOptimizer` 组件（需手动接入），智能预加载 + 热点识别 + 失效策略优化。
+
+生产调用点：[query_result_cache.rs:745](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/query_result_cache.rs#L745)
+
+#### 12.1.5 查询计划自动优化（plan-auto-optimize）
+
+**feature gate**：`plan-auto-optimize`（sz-orm-ai，默认关闭，依赖 `ai-config` + `llm-optimizer`）
+
+提供 `QueryPlanAutoOptimizer` 组件（需手动接入），基于 LLM 优化查询计划。
+
+生产调用点：[query_plan_optimizer.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/query_plan_optimizer.rs#L1)
+
+### 12.2 AI 深度集成
+
+#### 12.2.1 AI 查询优化器（ai-query-optimize）
+
+**feature gate**：`ai-query-optimize`（sz-orm-ai，默认关闭，依赖 `ai-config` + `ai-rewrite-advisor`）
+
+提供 `AiQueryOptimizer` 组件（需手动接入），AI 驱动的查询重写优化。
+
+生产调用点：[rewrite_advisor.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/rewrite_advisor.rs#L1)
+
+#### 12.2.2 索引生命周期管理（ai-index-lifecycle）
+
+**feature gate**：`ai-index-lifecycle`（sz-orm-ai，默认关闭，依赖 `ai-config` + `ai-index-advisor`）
+
+提供 `IndexLifecycleManager` 组件（需手动接入），索引创建/维护/淘汰全生命周期管理。
+
+生产调用点：[index_advisor.rs:580](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/index_advisor.rs#L580)
+
+#### 12.2.3 异常预测（anomaly-predict）
+
+**feature gate**：`anomaly-predict`（sz-orm-anomaly，默认关闭）
+
+提供 `AnomalyPredictor` 组件（需手动接入），基于时间序列线性回归预测异常。
+
+```rust
+use sz_orm_anomaly::AnomalyPredictor;
+let predictor = AnomalyPredictor::new(PredictionConfig::default());
+let result = predictor.predict(&time_series_data)?;
+```
+
+生产调用点：[predictor.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-anomaly/src/predictor.rs#L1)
+
+#### 12.2.4 NL2SQL 深化（ai-nl2sql-deepen）
+
+**feature gate**：`ai-nl2sql-deepen`（sz-orm-ai，默认关闭，依赖 `ai-config` + `ai-nl2sql-complex`）
+
+提供 `IntentUnderstander` + `ComplexQueryDecomposer` 组件（需手动接入），意图理解 + 复杂查询分解。
+
+生产调用点：[nl2sql.rs:3550](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/nl2sql.rs#L3550)、[multi_turn.rs:500](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-ai/src/multi_turn.rs#L500)
+
+### 12.3 分布式高可用增强
+
+#### 12.3.1 跨事务一致性验证（cross-tx-consistency）
+
+**feature gate**：`cross-tx-consistency`（sz-orm-dtx，默认关闭）
+
+提供 `CrossTxConsistencyVerifier` 组件（需手动接入），验证跨事务一致性（2PC/3PC/Saga/TCC）。
+
+生产调用点：[consistency_verifier.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-dtx/src/consistency_verifier.rs#L1)
+
+#### 12.3.2 多区域增强（multi-region-enhanced）
+
+**feature gate**：`multi-region-enhanced`（sz-orm-fusion，默认关闭，依赖 `multi-region`）
+
+提供 `ConflictAutoResolver` + `GeoRouter` 组件（需手动接入），冲突自动解决 + 地理路由。
+
+生产调用点：[conflict.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-fusion/src/conflict.rs#L1)、[global_router.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-fusion/src/global_router.rs#L1)
+
+#### 12.3.3 CDC 增强（cdc-enhanced）
+
+**feature gate**：`cdc-enhanced`（sz-orm-fusion，默认关闭，依赖 `db-fusion-v2`）
+
+提供 `CdcIncrementalSyncer` + `CdcResumeCoordinator` + `CdcSchemaSyncer` 组件（需手动接入），增量同步 + 断点恢复 + Schema 变更同步。
+
+生产调用点：[cdc_sync.rs:300](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-fusion/src/cdc_sync.rs#L300)
+
+#### 12.3.4 故障转移增强（failover-enhanced）
+
+**feature gate**：`failover-enhanced`（sz-orm-fusion，默认关闭，依赖 `multi-region`）
+
+提供 `FailoverEnhancer` + `AutoRecoverCoordinator` 组件（需手动接入），多维度故障检测 + 自动恢复协调。
+
+生产调用点：[region_failover.rs:400](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-fusion/src/region_failover.rs#L400)
+
+### 12.4 安全合规深化与生态扩展
+
+#### 12.4.1 脱敏审计联动（masking-audit-link）
+
+**feature gate**：`masking-audit-link`（sz-orm-masking，默认关闭，依赖 `context-aware-masking`）
+
+提供 `MaskingAuditLinker` 组件（需手动接入），脱敏操作与审计日志原子联动。
+
+```rust
+use sz_orm_masking::MaskingAuditLinker;
+let linker = MaskingAuditLinker::new();
+let entry = linker.link_audit(&masking_operation).await?;
+```
+
+生产调用点：[audit.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-masking/src/audit.rs#L1)
+
+#### 12.4.2 合规自动检查（compliance-auto-check）
+
+**feature gate**：`compliance-auto-check`（sz-orm-audit，默认关闭，依赖 `compliance-report`）
+
+提供 `ComplianceAutoChecker` + `ComplianceViolationAlerter` + `CompliancePostureTracker` 组件（需手动接入），四框架（GDPR/SOX/HIPAA/PCI-DSS）自动检查 + 违规告警 + 合规态势追踪。
+
+生产调用点：[compliance_report.rs:750](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-audit/src/compliance_report.rs#L750)
+
+#### 12.4.3 绑定层性能对齐（binding-perf-align）
+
+**feature gate**：`binding-perf-align`（sz-orm-core，默认关闭）
+
+提供 `BindingPerfAligner` 组件（需手动接入），验证 CABI/Python/Java/Go/C++ 绑定层 API 覆盖率 100% + 性能对齐。
+
+生产调用点：[binding_coverage.rs:91](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/binding_coverage.rs#L91)
+
+#### 12.4.4 云原生部署增强（cloud-native-enhanced）
+
+**feature gate**：`cloud-native-enhanced`（sz-orm-observability，默认关闭，依赖 `service-mesh` + `prometheus-exporter`）
+
+提供 `MeshTrafficGovernor` + `CloudNativeObservabilityExporter` + `OperatorEnhancer` 组件（需手动接入），服务网格流量治理 + 可观测性导出 + Operator 增强。
+
+生产调用点：[service_mesh/mod.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-observability/src/service_mesh/mod.rs#L1)、[prometheus_exporter.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-observability/src/prometheus_exporter.rs#L1)
+
+### 12.5 v7.7.0 feature gate 汇总
+
+| feature gate | 包 | 默认 | 说明 |
+|-------------|---|------|------|
+| `self-heal` | sz-orm-health | 关闭 | SelfHealCoordinator 自愈协调 |
+| `slow-query-governance` | sz-orm-explain | 关闭 | SlowQueryGovernor 慢查询治理 |
+| `dynamic-pool-tuning` | sz-orm-adaptive | 关闭 | DynamicPoolTuner 动态连接池调优 |
+| `cache-hit-optimize` | sz-orm-core | 关闭 | CacheHitRateOptimizer 缓存命中率优化 |
+| `plan-auto-optimize` | sz-orm-ai | 关闭 | QueryPlanAutoOptimizer 查询计划自动优化 |
+| `ai-query-optimize` | sz-orm-ai | 关闭 | AiQueryOptimizer AI 查询优化 |
+| `ai-index-lifecycle` | sz-orm-ai | 关闭 | IndexLifecycleManager 索引生命周期管理 |
+| `anomaly-predict` | sz-orm-anomaly | 关闭 | AnomalyPredictor 异常预测 |
+| `ai-nl2sql-deepen` | sz-orm-ai | 关闭 | IntentUnderstander + ComplexQueryDecomposer |
+| `cross-tx-consistency` | sz-orm-dtx | 关闭 | CrossTxConsistencyVerifier 跨事务一致性验证 |
+| `multi-region-enhanced` | sz-orm-fusion | 关闭 | ConflictAutoResolver + GeoRouter |
+| `cdc-enhanced` | sz-orm-fusion | 关闭 | CDC 增量同步 + 断点恢复 + Schema 同步 |
+| `failover-enhanced` | sz-orm-fusion | 关闭 | FailoverEnhancer + AutoRecoverCoordinator |
+| `masking-audit-link` | sz-orm-masking | 关闭 | MaskingAuditLinker 脱敏审计联动 |
+| `compliance-auto-check` | sz-orm-audit | 关闭 | ComplianceAutoChecker 合规自动检查 |
+| `binding-perf-align` | sz-orm-core | 关闭 | BindingPerfAligner 绑定层性能对齐 |
+| `cloud-native-enhanced` | sz-orm-observability | 关闭 | 云原生部署增强 |
+
+### 12.6 v7.7.0 测试汇总
+
+- 组 1 稳定性加固：9 任务，全部单元 + 端到端测试通过
+- 组 2 AI 深度集成：67 单元测试 + 23 端到端测试通过
+- 组 3 分布式高可用增强：35 单元测试 + 10 端到端测试通过
+- 组 4 安全合规深化与生态扩展：26 单元测试 + 11 端到端测试通过
+- 组 5 版本整合：72 包不变，无新增依赖，17 feature gate 默认关闭，API 兼容
+- 组 6 工程化收尾：fmt + clippy + test 全绿，无占位实现，无 unsafe，无新技术债
+---
+
+## 13. v7.8.0 AI 自治治理与量子安全
+
+v7.8.0 新增 6 大方向、15 个 feature gate、286 个测试（含 18 个跨模块联动 e2e 测试），不新增 crate，所有 feature gate 默认关闭。
+
+### 13.1 AI 自治闭环（sz-orm-ai/autonomous/）
+
+自治策略引擎接收异常事件，在策略边界内自动完成"检测→决策→执行→验证"全链路，支持自动修复/扩缩容/调参执行，含熔断和幂等保护。
+
+**Feature gate**：`ai-autonomous-loop` / `ai-auto-remediation` / `ai-auto-scaling` / `ai-auto-tuning-exec`
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| AutonomousPolicyEngine | 自治策略引擎，支持热更新和 dry_run 模式 |
+| AutonomousCircuitBreaker | 熔断器，失败次数超阈值自动断开 |
+| IdempotencyDeduplicator | 幂等去重，基于事件 hash 去重 |
+| BoundaryValidator | 边界验证器，确保动作值在策略边界内 |
+| LlmAdvisor | LLM 建议器，支持降级到规则模式 |
+| AutonomousActionExecutor | 动作执行器 |
+| AutonomousVerificationLoop | 验证循环 |
+| AutonomousDecisionAuditor | 自治决策审计器（sz-orm-audit） |
+
+**使用示例**：
+
+```rust
+use sz_orm_ai::autonomous::*;
+
+let engine = AutonomousPolicyEngine::new();
+engine.load_from_config(vec![AutonomousPolicy {
+    name: "latency_remediation".to_string(),
+    version: "1.0".to_string(),
+    trigger: TriggerCondition {
+        event_type: "high_latency".to_string(),
+        severity_threshold: Severity::Warning,
+        context_match: HashMap::new(),
+    },
+    action: AutonomousAction::AutoRemediation,
+    boundary: ActionBoundary { min: 0.0, max: 100.0 },
+    circuit_breaker: CircuitBreakerConfig::default(),
+    enabled: true,
+}]);
+
+let event = AnomalyEvent {
+    event_type: "high_latency".to_string(),
+    timestamp: SystemTime::now(),
+    severity: Severity::Critical,
+    context: HashMap::new(),
+    event_hash: 12345,
+};
+let decision = engine.handle_event(&event, false).await.unwrap();
+```
+
+### 13.2 数据生命周期管理（sz-orm-governance/lifecycle/）
+
+提供规则引擎 + 冷热分离 + 归档 + TTL 清理全链路。规则引擎支持热更新，冷热分类基于访问频率和时间维度，归档执行器复用 CDC 增量同步通道，TTL 清理先写日志后物理删除。
+
+**Feature gate**：`data-lifecycle-mgmt` / `data-cold-hot-split` / `data-auto-archive`
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| LifecycleRuleEngine | 生命周期规则引擎，支持热更新 |
+| ColdHotClassifier | 冷热分类器，基于访问频率和时间 |
+| ColdHotMigrationScheduler | 冷热迁移调度器 |
+| ArchiveExecutor | 归档执行器，归档前验证数据完整性 |
+| ArchiveQueryProxy | 归档查询代理，透明查询归档数据 |
+| TtlCleanupExecutor | TTL 清理执行器，先写日志后删除 |
+| AccessPatternCollector | 访问模式采集器 |
+
+### 13.3 零停机演进增强（sz-orm-mig/）
+
+灰度发布编排 + 金丝雀发布 + 自动回滚 + 流量切换 + 数据隔离 + 进度追踪。
+
+**Feature gate**：`zero-downtime-evolve` / `gray-release` / `canary-release` / `auto-rollback`
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| GrayReleaseOrchestrator | 灰度发布编排器，支持百分比/Header/Cookie 流量切换 |
+| GrayTrafficRouter | 灰度流量路由器 |
+| CanaryReleaseManager | 金丝雀发布管理器 |
+| GrayHealthJudge | 灰度健康判定器 |
+| AutoRollbackTrigger | 自动回滚触发器，指标驱动 |
+| GrayDataIsolation | 灰度数据隔离守卫 |
+| GrayProgressTracker | 灰度进度追踪器 |
+
+**使用示例**：
+
+```rust
+use sz_orm_mig::gray_release::*;
+use sz_orm_mig::auto_rollback::AutoRollbackTrigger;
+
+let mut orch = GrayReleaseOrchestrator::new(GrayReleaseConfig::default());
+orch.start_release("rel-1");
+let trigger = AutoRollbackTrigger::new(0.05);
+// 错误率 8% 超过阈值 5%，自动回滚
+let rollback = trigger.check_and_trigger(0.08, "rel-1");
+assert!(rollback.is_some());
+```
+
+### 13.4 量子安全准备（sz-orm-crypto/pqc/）
+
+NIST 标准化后量子密码学算法白名单 + 混合密钥协商 + 降级管理 + 迁移评估。
+
+**Feature gate**：`pqc-ready` / `pqc-hybrid-kex`
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| PqcAlgorithmWhitelist | PQC 算法白名单（ML-KEM-768/1024、ML-DSA-65/87、SLH-DSA-128s/128f） |
+| HybridKeyExchange | 混合密钥协商（经典 + PQC 双通道） |
+| PqcDegradationManager | 降级管理器，记录降级审计日志 |
+| PqcMigrationAssessor | 迁移评估器，扫描经典密码学使用情况 |
+
+### 13.5 绿色计算（sz-orm-observability/green/）
+
+能耗采集 + 碳足迹核算 + 绿色调度 + ESG 报告 + 能耗脱敏 + 断点恢复。
+
+**Feature gate**：`green-computing`
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| EnergyMetricsCollector | 能耗指标采集器（CPU/内存/IO/网络） |
+| CarbonFootprintCalculator | 碳足迹计算器（Scope2 Market/Location） |
+| GreenScheduler | 绿色调度器，优先低碳排放实例 |
+| EsgReportGenerator | ESG 报告生成器 |
+| EnergyDataMasker | 能耗数据脱敏器 |
+| EnergyBreakpointResumer | 断点恢复器 |
+
+### 13.6 SLI/SLO 自动化（sz-orm-observability/slo_automation/）
+
+SLI 采集 + SLO 达成率 + 错误预算 + 仪表盘 + 保留期清理。
+
+**Feature gate**：`slo-automation`
+
+**核心组件**：
+
+| 组件 | 说明 |
+|------|------|
+| SliCollector | SLI 采集器（可用率/延迟/吞吐/正确性） |
+| SloAchievementCalculator | SLO 达成率计算器 |
+| ErrorBudgetTracker | 错误预算追踪器 |
+| SloDashboardExporter | SLO 仪表盘导出器（Grafana JSON） |
+| SliRetentionCleaner | SLI 保留期清理器 |
+
+### 13.7 v7.8.0 Feature Gate 列表
+
+| Feature Gate | 包 | 默认 | 说明 |
+|--------------|---|------|------|
+| `ai-autonomous-loop` | sz-orm-ai | 关闭 | AI 自治闭环全链路 |
+| `ai-auto-remediation` | sz-orm-ai | 关闭 | 自动修复执行 |
+| `ai-auto-scaling` | sz-orm-ai | 关闭 | 自动扩缩容执行 |
+| `ai-auto-tuning-exec` | sz-orm-ai | 关闭 | 自动调参执行 |
+| `data-lifecycle-mgmt` | sz-orm-governance | 关闭 | 数据生命周期管理全链路 |
+| `data-cold-hot-split` | sz-orm-governance | 关闭 | 冷热分离 |
+| `data-auto-archive` | sz-orm-governance | 关闭 | 自动归档 |
+| `zero-downtime-evolve` | sz-orm-mig | 关闭 | 零停机演进增强 |
+| `gray-release` | sz-orm-mig | 关闭 | 灰度发布 |
+| `canary-release` | sz-orm-mig | 关闭 | 金丝雀发布 |
+| `auto-rollback` | sz-orm-mig | 关闭 | 自动回滚 |
+| `pqc-ready` | sz-orm-crypto | 关闭 | PQC 算法白名单 + 迁移评估 |
+| `pqc-hybrid-kex` | sz-orm-crypto | 关闭 | 混合密钥协商 + 降级管理 |
+| `green-computing` | sz-orm-observability | 关闭 | 绿色计算 |
+| `slo-automation` | sz-orm-observability | 关闭 | SLI/SLO 自动化 |
+
+### 13.8 v7.8.0 测试汇总
+
+- 方向 1 AI 自治闭环：81 个测试通过（50 单元 + 7 审计 + 24 e2e）
+- 方向 2 数据生命周期管理：71 个测试通过（49 单元 + 22 e2e）
+- 方向 3 零停机演进增强：57 个测试通过（39 单元 + 18 e2e）
+- 方向 4 量子安全准备：35 个测试通过（23 单元 + 12 e2e）
+- 方向 5 绿色计算：25 个测试通过（20 单元 + 5 e2e）
+- 方向 6 SLI/SLO 自动化：17 个测试通过（13 单元 + 4 e2e）
+- 跨模块联动 e2e 测试：18 个测试通过
+- 工程化收尾：fmt + clippy + check 全绿，默认编译零影响，15 feature gate 默认关闭

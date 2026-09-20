@@ -20,6 +20,8 @@ prod-probe-endpoint = []
 ha-events = []
 # v7.3.0：5 子项健康检查（HealthSubItem/HealthReportV2），依赖事件总线
 health-subitems = ["ha-events"]
+# v7.7.0 任务 1.1：故障自愈协调器（SelfHealCoordinator），默认关闭
+self-heal = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

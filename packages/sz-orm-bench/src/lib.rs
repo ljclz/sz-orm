@@ -9,6 +9,12 @@ use serde::{Deserialize, Serialize};
 pub mod real_db;
 
 pub mod regression_baseline;
+pub use regression_baseline::RegressionBaseline;
+
+#[cfg(feature = "stability-matrix")]
+pub mod stability_matrix;
+#[cfg(feature = "stability-matrix")]
+pub use stability_matrix::{StabilityMatrixReport, StabilityMatrixRunner, MatrixEntry};
 
 #[cfg(feature = "real-bench")]
 pub use real_db::{
@@ -33,6 +39,8 @@ pub enum WorkloadType {
     Transaction,
     #[serde(rename = "pool_concurrency")]
     PoolConcurrency,
+    #[serde(rename = "simd_compare")]
+    SimdCompare,
 }
 
 impl WorkloadType {
@@ -43,6 +51,7 @@ impl WorkloadType {
             Self::ComplexJoin => "complex_join",
             Self::Transaction => "transaction",
             Self::PoolConcurrency => "pool_concurrency",
+            Self::SimdCompare => "simd_compare",
         }
     }
 }
@@ -619,6 +628,7 @@ fn workload_latency_profile(workload: WorkloadType) -> (u64, u64) {
         WorkloadType::ComplexJoin => (2000, 400),
         WorkloadType::Transaction => (300, 50),
         WorkloadType::PoolConcurrency => (20, 5),
+        WorkloadType::SimdCompare => (10, 2),
     }
 }
 
@@ -645,6 +655,7 @@ pub fn run_full_benchmark(config: &BenchConfig) -> Vec<BenchResult> {
         WorkloadType::ComplexJoin,
         WorkloadType::Transaction,
         WorkloadType::PoolConcurrency,
+        WorkloadType::SimdCompare,
     ];
 
     let mut results = Vec::new();
@@ -916,6 +927,7 @@ mod tests {
             WorkloadType::ComplexJoin,
             WorkloadType::Transaction,
             WorkloadType::PoolConcurrency,
+            WorkloadType::SimdCompare,
         ] {
             let result = run_workload(FrameworkType::SzOrm, wl, &config);
             assert!(
@@ -993,5 +1005,80 @@ mod tests {
         assert!(json.contains("sz-orm"));
         assert!(json.contains("single_row_query"));
         assert!(json.contains("batch_query"));
+    }
+}
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BottleneckPoint {
+    ConnectionPool,
+    Cache,
+    Simd,
+    ZeroCopy,
+    PlanCache,
+}
+
+impl BottleneckPoint {
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            BottleneckPoint::ConnectionPool => "connection_pool",
+            BottleneckPoint::Cache => "cache",
+            BottleneckPoint::Simd => "simd",
+            BottleneckPoint::ZeroCopy => "zero_copy",
+            BottleneckPoint::PlanCache => "plan_cache",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BottleneckReport {
+    pub bottleneck_workloads: Vec<WorkloadType>,
+    pub bottleneck_points: Vec<BottleneckPoint>,
+    pub optimization_directions: Vec<String>,
+}
+
+pub struct BottleneckAnalyzer;
+
+impl BottleneckAnalyzer {
+    pub fn analyze(baseline: &crate::regression_baseline::RegressionBaseline) -> BottleneckReport {
+        let mut bottleneck_workloads = Vec::new();
+        let mut max_p95 = 0.0_f64;
+        let mut bottleneck_points = vec![
+            BottleneckPoint::ConnectionPool,
+            BottleneckPoint::Cache,
+            BottleneckPoint::PlanCache,
+        ];
+        let mut optimization_directions = Vec::new();
+
+        for result in &baseline.results {
+            if result.p95_us > max_p95 {
+                max_p95 = result.p95_us;
+                bottleneck_workloads = vec![result.workload];
+            } else if result.p95_us == max_p95 && max_p95 > 0.0
+                && !bottleneck_workloads.contains(&result.workload)
+            {
+                bottleneck_workloads.push(result.workload);
+            }
+        }
+
+        if max_p95 > 1000.0 {
+            optimization_directions.push("连接池预热 + 连接复用率提升".into());
+            optimization_directions.push("查询计划缓存命中率提升至 ≥92%".into());
+        }
+        if max_p95 > 500.0 {
+            bottleneck_points.push(BottleneckPoint::Simd);
+            optimization_directions.push("SIMD 向量化加速（目标 ≥1.8x）".into());
+        }
+        if max_p95 > 200.0 {
+            bottleneck_points.push(BottleneckPoint::ZeroCopy);
+            optimization_directions.push("零拷贝覆盖扩展（目标 ≥70% 堆分配降低）".into());
+        }
+        if optimization_directions.is_empty() {
+            optimization_directions.push("当前性能良好，无显著瓶颈".into());
+        }
+
+        BottleneckReport {
+            bottleneck_workloads,
+            bottleneck_points,
+            optimization_directions,
+        }
     }
 }

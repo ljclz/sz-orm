@@ -43,6 +43,8 @@ js = ["dep:wasm-bindgen", "dep:js-sys"]
 persistence = ["dep:web-sys", "dep:thiserror", "js"]
 wasm-real-db = ["dep:reqwest", "dep:tokio-tungstenite", "dep:rmp-serde", "dep:thiserror", "dep:chrono", "dep:sz-orm-core", "dep:sz-orm-query-builder", "dep:tokio", "js", "sz-orm-core/prod-dialect-security"]
 wasi-socket = ["wasm-real-db"]
+# v7.6.0：WASI 支持验证 + WASM 性能优化
+wasi-support = []
 
 [dev-dependencies]
 wasm-bindgen-test = "0.2"

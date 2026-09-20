@@ -16,10 +16,17 @@ default = []
 owasp-pentest-suite = []
 # v6.7.0：动态脱敏策略热更新
 dynamic-masking = []
+# v7.6.0：上下文感知脱敏 + 原子热更新
+context-aware-masking = ["dynamic-masking"]
+# v7.7.0 任务 4.1：脱敏审计联动
+masking-audit-link = ["context-aware-masking"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+
+[dev-dependencies]
+tokio = { workspace = true, features = ["full"] }
 
 [lints]
 workspace = true
@@ -27,3 +34,13 @@ workspace = true
 [[test]]
 name = "owasp_a08_logging_failures"
 required-features = ["owasp-pentest-suite"]
+[[test]]
+name = "masking_rule_config_test"
+required-features = ["dynamic-masking"]
+[[test]]
+name = "v760_context_aware_test"
+required-features = ["context-aware-masking"]
+# v7.7.0 任务 4.6：脱敏审计联动端到端测试
+[[test]]
+name = "masking_audit_link_test"
+required-features = ["masking-audit-link"]

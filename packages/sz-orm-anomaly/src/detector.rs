@@ -794,3 +794,466 @@ mod tests {
         assert_eq!(alert.anomaly_type, AnomalyType::BaselineDrift);
     }
 }
+#[derive(Debug, Clone, Default)]
+pub struct AccuracyEvaluator {
+    pub true_positives: u64,
+    pub false_positives: u64,
+    pub true_negatives: u64,
+    pub false_negatives: u64,
+}
+
+#[derive(Debug, Clone)]
+pub struct AccuracyReport {
+    pub false_positive_rate: f64,
+    pub false_negative_rate: f64,
+    pub precision: f64,
+    pub recall: f64,
+    pub f1_score: f64,
+    pub needs_recalibration: bool,
+}
+
+impl AccuracyEvaluator {
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    pub fn record(&mut self, predicted_anomaly: bool, actual_anomaly: bool) {
+        match (predicted_anomaly, actual_anomaly) {
+            (true, true) => self.true_positives += 1,
+            (true, false) => self.false_positives += 1,
+            (false, true) => self.false_negatives += 1,
+            (false, false) => self.true_negatives += 1,
+        }
+    }
+
+    pub fn evaluate(&self) -> AccuracyReport {
+        let fp_rate = if self.false_positives + self.true_negatives > 0 {
+            self.false_positives as f64 / (self.false_positives + self.true_negatives) as f64
+        } else {
+            0.0
+        };
+        let fn_rate = if self.false_negatives + self.true_positives > 0 {
+            self.false_negatives as f64 / (self.false_negatives + self.true_positives) as f64
+        } else {
+            0.0
+        };
+        let precision = if self.true_positives + self.false_positives > 0 {
+            self.true_positives as f64 / (self.true_positives + self.false_positives) as f64
+        } else {
+            0.0
+        };
+        let recall = if self.true_positives + self.false_negatives > 0 {
+            self.true_positives as f64 / (self.true_positives + self.false_negatives) as f64
+        } else {
+            0.0
+        };
+        let f1 = if precision + recall > 0.0 {
+            2.0 * precision * recall / (precision + recall)
+        } else {
+            0.0
+        };
+        AccuracyReport {
+            false_positive_rate: fp_rate,
+            false_negative_rate: fn_rate,
+            precision,
+            recall,
+            f1_score: f1,
+            needs_recalibration: fp_rate > 0.05 || fn_rate > 0.05,
+        }
+    }
+}
+/// v7.6.0 多维度联合指标
+#[derive(Debug, Clone)]
+pub struct MultiDimMetrics {
+    /// 当前 QPS
+    pub qps: f64,
+    /// P95 延迟（毫秒）
+    pub latency_p95_ms: f64,
+    /// 错误率（0.0~1.0）
+    pub error_rate: f64,
+    /// 连接池利用率（0.0~1.0）
+    pub pool_utilization: f64,
+}
+
+/// v7.6.0 多维度联合异常检测结果
+#[derive(Debug, Clone)]
+pub struct AnomalyDetectionResult {
+    pub anomaly_type: AnomalyType,
+    pub is_anomaly: bool,
+    pub severity: Severity,
+    pub detail: String,
+    pub detected_dimensions: Vec<String>,
+}
+
+/// v7.6.0 多维度联合异常检测器
+///
+/// 在同一滑动窗口内对 QPS + 延迟 + 错误率 + 连接池利用率
+/// 执行多维度联合判定，减少单维度误报。
+pub struct MultiDimDetector {
+    dimensions: Vec<AnomalyType>,
+    qps_baseline: BaselineCalculator,
+    latency_baseline: BaselineCalculator,
+    error_baseline: BaselineCalculator,
+    pool_baseline: BaselineCalculator,
+}
+
+impl MultiDimDetector {
+    pub fn new(dimensions: Vec<AnomalyType>) -> Self {
+        Self {
+            dimensions,
+            qps_baseline: BaselineCalculator::new(),
+            latency_baseline: BaselineCalculator::new(),
+            error_baseline: BaselineCalculator::new(),
+            pool_baseline: BaselineCalculator::new(),
+        }
+    }
+
+    /// 更新基线样本
+    pub fn update_baselines(&mut self, metrics: &MultiDimMetrics) {
+        self.qps_baseline.add(metrics.qps);
+        self.latency_baseline.add(metrics.latency_p95_ms);
+        self.error_baseline.add(metrics.error_rate);
+        self.pool_baseline.add(metrics.pool_utilization);
+    }
+
+    /// 多维度联合检测
+    pub fn detect_multi_dim(&self, metrics: &MultiDimMetrics) -> Vec<AnomalyDetectionResult> {
+        let mut results = Vec::new();
+        let mut anomaly_count = 0u32;
+
+        if self.dimensions.contains(&AnomalyType::SlowQuerySpike) {
+            let is_anomaly = self.is_spike(&self.latency_baseline, metrics.latency_p95_ms);
+            if is_anomaly {
+                anomaly_count += 1;
+            }
+            results.push(AnomalyDetectionResult {
+                anomaly_type: AnomalyType::SlowQuerySpike,
+                is_anomaly,
+                severity: if is_anomaly {
+                    Severity::Warn
+                } else {
+                    Severity::Info
+                },
+                detail: format!(
+                    "latency_p95={:.1}ms baseline_mean={:.1}ms stddev={:.1}",
+                    metrics.latency_p95_ms,
+                    self.latency_baseline.mean(),
+                    self.latency_baseline.stddev()
+                ),
+                detected_dimensions: vec!["latency_p95".to_string()],
+            });
+        }
+
+        if self.dimensions.contains(&AnomalyType::ErrorRateSpike) {
+            let is_anomaly = self.is_spike(&self.error_baseline, metrics.error_rate);
+            if is_anomaly {
+                anomaly_count += 1;
+            }
+            results.push(AnomalyDetectionResult {
+                anomaly_type: AnomalyType::ErrorRateSpike,
+                is_anomaly,
+                severity: if is_anomaly {
+                    Severity::Warn
+                } else {
+                    Severity::Info
+                },
+                detail: format!(
+                    "error_rate={:.4} baseline_mean={:.4} stddev={:.4}",
+                    metrics.error_rate,
+                    self.error_baseline.mean(),
+                    self.error_baseline.stddev()
+                ),
+                detected_dimensions: vec!["error_rate".to_string()],
+            });
+        }
+
+        if self.dimensions.contains(&AnomalyType::PoolExhaustion) {
+            let is_anomaly = metrics.pool_utilization > 0.9
+                || self.is_spike(&self.pool_baseline, metrics.pool_utilization);
+            if is_anomaly {
+                anomaly_count += 1;
+            }
+            results.push(AnomalyDetectionResult {
+                anomaly_type: AnomalyType::PoolExhaustion,
+                is_anomaly,
+                severity: if is_anomaly {
+                    Severity::Critical
+                } else {
+                    Severity::Info
+                },
+                detail: format!(
+                    "pool_utilization={:.2} baseline_mean={:.2}",
+                    metrics.pool_utilization,
+                    self.pool_baseline.mean()
+                ),
+                detected_dimensions: vec!["pool_utilization".to_string()],
+            });
+        }
+
+        if anomaly_count >= 2 {
+            for r in &mut results {
+                if r.is_anomaly {
+                    r.severity = Severity::Critical;
+                    r.detail = format!(
+                        "{} [multi-dim correlated: {} dims]",
+                        r.detail, anomaly_count
+                    );
+                }
+            }
+        }
+
+        results
+    }
+
+    fn is_spike(&self, baseline: &BaselineCalculator, value: f64) -> bool {
+        if baseline.count() < 10 {
+            return false;
+        }
+        let mean = baseline.mean();
+        let stddev = baseline.stddev();
+        if stddev > 0.0 {
+            (value - mean) > 3.0 * stddev
+        } else {
+            false
+        }
+    }
+}
+
+/// v7.6.0 调优后的阈值
+#[derive(Debug, Clone)]
+pub struct TunedThreshold {
+    pub threshold: f64,
+    pub false_positive_rate: f64,
+    pub false_negative_rate: f64,
+    pub tuning_basis: String,
+}
+
+/// v7.6.0 阈值自动调优器
+///
+/// 基于 Welford 基线学习自动调优阈值，
+/// 误报率 > 2% 或漏报率 > 2% 时触发基线重新学习。
+pub struct ThresholdAutoTuner {
+    baseline: BaselineCalculator,
+    current_threshold: f64,
+    samples: Vec<f64>,
+}
+
+impl ThresholdAutoTuner {
+    pub fn new() -> Self {
+        Self {
+            baseline: BaselineCalculator::new(),
+            current_threshold: 0.0,
+            samples: Vec::new(),
+        }
+    }
+
+    /// 基于基线调优阈值
+    pub fn tune_threshold(&self, baseline: &BaselineCalculator) -> TunedThreshold {
+        if baseline.count() < 10 {
+            return TunedThreshold {
+                threshold: 0.0,
+                false_positive_rate: 0.0,
+                false_negative_rate: 0.0,
+                tuning_basis: "insufficient samples".to_string(),
+            };
+        }
+        let mean = baseline.mean();
+        let stddev = baseline.stddev();
+        let threshold = mean + 3.0 * stddev;
+
+        let fp_rate = if stddev > 0.0 {
+            let normal_cdf =
+                |x: f64| 0.5 * (1.0 + Self::erf((x - mean) / (stddev * 2.0_f64.sqrt())));
+            1.0 - normal_cdf(threshold)
+        } else {
+            0.0
+        };
+
+        TunedThreshold {
+            threshold,
+            false_positive_rate: fp_rate,
+            false_negative_rate: 0.0,
+            tuning_basis: format!(
+                "mean={:.4} stddev={:.4} threshold=mean+3σ={:.4}",
+                mean, stddev, threshold
+            ),
+        }
+    }
+
+    /// 重新学习基线
+    pub fn relearn_baseline(&mut self, recent_samples: &[f64]) {
+        self.baseline = BaselineCalculator::from_samples(recent_samples);
+        self.samples = recent_samples.to_vec();
+        let tuned = self.tune_threshold(&self.baseline);
+        self.current_threshold = tuned.threshold;
+    }
+
+    /// 获取当前阈值
+    pub fn current_threshold(&self) -> f64 {
+        self.current_threshold
+    }
+
+    /// 获取基线
+    pub fn baseline(&self) -> &BaselineCalculator {
+        &self.baseline
+    }
+
+    /// 评估误报/漏报率
+    pub fn evaluate(&self, predictions: &[(bool, bool)]) -> (f64, f64) {
+        let mut fp = 0u64;
+        let mut fn_ = 0u64;
+        let mut total_neg = 0u64;
+        let mut total_pos = 0u64;
+        for &(predicted, actual) in predictions {
+            if predicted && !actual {
+                fp += 1;
+            }
+            if !predicted && actual {
+                fn_ += 1;
+            }
+            if !actual {
+                total_neg += 1;
+            }
+            if actual {
+                total_pos += 1;
+            }
+        }
+        let fp_rate = if total_neg > 0 {
+            fp as f64 / total_neg as f64
+        } else {
+            0.0
+        };
+        let fn_rate = if total_pos > 0 {
+            fn_ as f64 / total_pos as f64
+        } else {
+            0.0
+        };
+        (fp_rate, fn_rate)
+    }
+
+    /// 误差函数近似（Abramowitz & Stegun 7.1.26）
+    fn erf(x: f64) -> f64 {
+        let a1 = 0.254829592;
+        let a2 = -0.284496736;
+        let a3 = 1.421413741;
+        let a4 = -1.453152027;
+        let a5 = 1.061405429;
+        let p = 0.3275911;
+        let sign = if x < 0.0 { -1.0 } else { 1.0 };
+        let abs_x = x.abs();
+        let t = 1.0 / (1.0 + p * abs_x);
+        let y = 1.0 - (((((a5 * t + a4) * t) + a3) * t + a2) * t + a1) * t * (-abs_x * abs_x).exp();
+        sign * y
+    }
+}
+
+impl Default for ThresholdAutoTuner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod v760_multi_dim_tests {
+    use super::*;
+
+    #[test]
+    fn test_multi_dim_detector_normal() {
+        let mut detector = MultiDimDetector::new(vec![
+            AnomalyType::SlowQuerySpike,
+            AnomalyType::ErrorRateSpike,
+            AnomalyType::PoolExhaustion,
+        ]);
+        for i in 0..100 {
+            detector.update_baselines(&MultiDimMetrics {
+                qps: 100.0,
+                latency_p95_ms: 10.0 + (i as f64 % 5.0),
+                error_rate: 0.01,
+                pool_utilization: 0.5,
+            });
+        }
+        let results = detector.detect_multi_dim(&MultiDimMetrics {
+            qps: 100.0,
+            latency_p95_ms: 12.0,
+            error_rate: 0.01,
+            pool_utilization: 0.5,
+        });
+        assert_eq!(results.len(), 3);
+        assert!(results.iter().all(|r| !r.is_anomaly));
+    }
+
+    #[test]
+    fn test_multi_dim_detector_anomaly() {
+        let mut detector = MultiDimDetector::new(vec![
+            AnomalyType::SlowQuerySpike,
+            AnomalyType::ErrorRateSpike,
+            AnomalyType::PoolExhaustion,
+        ]);
+        for i in 0..100 {
+            detector.update_baselines(&MultiDimMetrics {
+                qps: 100.0,
+                latency_p95_ms: 10.0 + (i as f64 % 5.0),
+                error_rate: 0.01 + (i as f64 % 3.0) * 0.001,
+                pool_utilization: 0.5,
+            });
+        }
+        let results = detector.detect_multi_dim(&MultiDimMetrics {
+            qps: 100.0,
+            latency_p95_ms: 100.0,
+            error_rate: 0.5,
+            pool_utilization: 0.5,
+        });
+        let anomalies: Vec<_> = results.iter().filter(|r| r.is_anomaly).collect();
+        assert!(anomalies.len() >= 2);
+        assert!(anomalies.iter().all(|r| r.severity == Severity::Critical));
+    }
+
+    #[test]
+    fn test_multi_dim_pool_exhaustion() {
+        let mut detector = MultiDimDetector::new(vec![AnomalyType::PoolExhaustion]);
+        for _ in 0..20 {
+            detector.update_baselines(&MultiDimMetrics {
+                qps: 100.0,
+                latency_p95_ms: 10.0,
+                error_rate: 0.01,
+                pool_utilization: 0.5,
+            });
+        }
+        let results = detector.detect_multi_dim(&MultiDimMetrics {
+            qps: 100.0,
+            latency_p95_ms: 10.0,
+            error_rate: 0.01,
+            pool_utilization: 0.95,
+        });
+        assert!(results[0].is_anomaly);
+        assert_eq!(results[0].severity, Severity::Critical);
+    }
+
+    #[test]
+    fn test_threshold_auto_tuner() {
+        let mut tuner = ThresholdAutoTuner::new();
+        let samples: Vec<f64> = (0..100).map(|i| 10.0 + (i as f64 % 10.0)).collect();
+        tuner.relearn_baseline(&samples);
+        let tuned = tuner.tune_threshold(tuner.baseline());
+        assert!(tuned.threshold > 10.0);
+        assert!(tuned.false_positive_rate <= 0.02);
+    }
+
+    #[test]
+    fn test_threshold_auto_tuner_evaluate() {
+        let tuner = ThresholdAutoTuner::new();
+        let predictions = vec![(true, true), (true, false), (false, true), (false, false)];
+        let (fp, fn_) = tuner.evaluate(&predictions);
+        assert!((fp - 0.5).abs() < 0.01);
+        assert!((fn_ - 0.5).abs() < 0.01);
+    }
+
+    #[test]
+    fn test_threshold_auto_tuner_insufficient() {
+        let tuner = ThresholdAutoTuner::new();
+        let baseline = BaselineCalculator::from_samples(&[1.0, 2.0]);
+        let tuned = tuner.tune_threshold(&baseline);
+        assert_eq!(tuned.threshold, 0.0);
+        assert!(tuned.tuning_basis.contains("insufficient"));
+    }
+}

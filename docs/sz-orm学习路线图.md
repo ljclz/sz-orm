@@ -2,8 +2,8 @@
 
 > **读者画像**：PHP 工程师，擅长 ThinkPHP，没接触过 Rust，现在用 AI 驱动开发 sz-orm 项目
 > **目标**：从零基础到能用 AI 协作维护 sz-orm 代码
-> **更新日期**：2026-09-17 · 适用版本：v7.3.0+
-> **项目状态**：生产可用，sz-orm-core 已发布到 crates.io，当前工作空间版本 7.3.0（72 个成员：70 个 lib 包 + cli + examples）
+> **更新日期**：2026-09-20 · 适用版本：v7.7.0+
+> **项目状态**：生产可用，sz-orm-core 已发布到 crates.io，当前工作空间版本 7.7.0（72 个成员：70 个 lib 包 + cli + examples）
 > **生产案例**：sz-pay 支付中台后端依赖 6 个核心 sz-orm 包（core/sqlx/config/auth/macros/queue）+ 16 个 optional 扩展包；new-wxapp（刘姐菜篮子）为第二个下游消费者
 
 ---

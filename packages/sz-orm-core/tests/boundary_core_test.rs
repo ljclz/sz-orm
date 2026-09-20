@@ -1,7 +1,7 @@
 //! v7.4.0 任务 4.1：BorrowedValue/SimdAvailability 边界测试
 
-use sz_orm_core::value_borrowed::BorrowedValue;
 use sz_orm_core::simd::SimdAvailability;
+use sz_orm_core::value_borrowed::BorrowedValue;
 
 #[test]
 fn test_borrowed_value_decimal_bytes() {

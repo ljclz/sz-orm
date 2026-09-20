@@ -81,6 +81,15 @@ pub mod obs_alert_bridge;
 #[allow(missing_docs)]
 pub mod prometheus_exporter;
 
+// v7.7.0 任务 4.4：云原生部署增强导出
+#[cfg(feature = "cloud-native-enhanced")]
+pub use prometheus_exporter::{
+    CloudNativeEnhancedResult, CloudNativeObservabilityExporter, EnhancedOperatorSpec,
+    ExportResult, ObservabilityType, OperatorEnhancer,
+};
+#[cfg(feature = "cloud-native-enhanced")]
+pub use service_mesh::MeshTrafficGovernor;
+
 #[cfg(feature = "perf-metrics")]
 #[allow(missing_docs)]
 pub mod perf_hit_metrics;
@@ -88,6 +97,14 @@ pub mod perf_hit_metrics;
 #[cfg(feature = "serverless-metering")]
 #[allow(missing_docs)]
 pub mod serverless_metering;
+
+#[cfg(feature = "green-computing")]
+#[allow(missing_docs)]
+pub mod green;
+
+#[cfg(feature = "slo-automation")]
+#[allow(missing_docs)]
+pub mod slo_automation;
 
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{

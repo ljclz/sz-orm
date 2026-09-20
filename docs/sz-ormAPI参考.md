@@ -1,15 +1,16 @@
 # SZ-ORM API 参考手册
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v7.3.0（v7.3.0：性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展；72 个工作空间成员）
-> 适用版本：SZ-ORM **v7.3.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
-> 代码规模：176,709 LOC（src/ 97,318 + tests/ 79,391）
+> 文档版本：v7.7.0（v7.3.0~v7.7.0 全量演进：性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展 + 生产稳定性加固 + 自愈协调；72 个工作空间成员）
+> 适用版本：SZ-ORM **v7.7.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 代码规模：519,067 LOC（src/ 432,358 + tests/ 86,709，2026-09-20 实测）
 > 成熟度：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io
 > 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
-> 更新日期：2026-09-17
+> 更新日期：2026-09-20
 > 文档定位：核心 trait/结构体说明 + 各包公开 API 速查 + 错误处理指南
 > **配套使用文档**：场景示例与端到端串联请查阅 [SZ-ORM 使用指南](sz-orm使用指南.md)；本文聚焦于类型签名与参数说明
 > **v7.3.0 新增 API**：PerfConfig/HaConfig/AiConfig/EcoConfig 配置聚合 + SIMD 向量化 + AutoFailoverCoordinator + AnnAccelerated + WarpAdapter + SourceOrmParser
+> **v7.4~v7.7 新增 API**：见文末「六、v7.4~v7.7 新增 API 速览」
 
 ---
 
@@ -2024,3 +2025,32 @@ let id = HookDispatcher::insert::<MyModel, _>(&mut ctx, |_ctx| {
 
 - **cli/**：SZ-ORM 命令行工具，提供迁移、Schema 导出、SQL 校验等子命令，便于在工程化流程中集成。
 - **examples/**：覆盖核心引擎、sqlx 适配器与扩展生态包的端到端示例集，可作为集成参考。
+
+---
+
+## 六、v7.4~v7.7 新增 API 速览（2026-09-20 增补）
+
+> 完整演进说明见 [SZ-ORM 使用指南](sz-orm使用指南.md) §10/11/12；此处仅列标识性新增，签名以源码为准。
+
+**v7.4.0（性能优化深化）**
+
+- `Pool::acquire_batch` — 批量获取连接（`sz-orm-core/src/pool.rs:1817`）
+- `BorrowedValue` 零拷贝值类型 4 个新变体（`sz-orm-core/src/value.rs`）
+- `PlanCache` LRU-K(K=2) 查询计划缓存（`sz-orm-core/src/plan_cache.rs`）
+- `PerfMetrics` 全局单例 + SIMD `chunks_exact(8)`
+
+**v7.5.0（生产稳定性加固，7 大方向 55 子任务）**
+
+- `ChaosInjector` 故障注入框架等稳定性组件
+
+**v7.6.0（性能继续优化，5 大方向 54 子任务）**
+
+- SIMD 批量聚合深化等
+
+**v7.7.0（稳定性加固与性能瓶颈消除，4 大方向 48 主任务）**
+
+- 自愈协调器（self-heal）等；17 个新增 feature gate（全部默认关闭）
+
+**v7.4~v7.7 新增 feature gate（定义于所属包 `Cargo.toml`）**
+
+- `limit-queue-timeout`（sz-orm-limit）/ `tracing-db-attrs`（sz-orm-tracing）/ `ai-config`（sz-orm-ai）/ `ann-accel`（sz-orm-vector）/ `warp-adapt`（sz-orm-axum）等

@@ -737,6 +737,29 @@ impl PoolConfigBuilder {
         self
     }
 
+    /// v7.6.0 任务 1.5：应用自适应调优参数
+    ///
+    /// 接收 `AdaptivePoolTuner` 生成的推荐参数，应用到连接池配置。
+    ///
+    /// # 参数
+    ///
+    /// - `capacity`：推荐连接池容量
+    /// - `idle_timeout_secs`：推荐空闲超时（秒）
+    /// - `acquire_timeout_ms`：推荐获取超时（毫秒）
+    pub fn with_adaptive_tuning(
+        mut self,
+        capacity: usize,
+        idle_timeout_secs: u64,
+        acquire_timeout_ms: u64,
+    ) -> Self {
+        if capacity > 0 {
+            self.config.max_size = capacity as u32;
+        }
+        self.config.idle_timeout = Duration::from_secs(idle_timeout_secs);
+        self.config.acquire_timeout = Duration::from_millis(acquire_timeout_ms);
+        self
+    }
+
     /// 设置连接池事件回调
     pub fn on_event(mut self, callback: PoolEventCallback) -> Self {
         self.config.on_event = Some(callback);
@@ -771,6 +794,213 @@ impl PoolConfigBuilder {
 impl Default for PoolConfigBuilder {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+// ============================================================================
+// v7.6.0 任务 1.6：PoolCircuitBreakerLink 熔断联动
+// ============================================================================
+
+/// 连接池-熔断器联动（v7.6.0）
+///
+/// 当熔断器触发（Open 状态）时自动缩减池容量，
+/// 熔断器恢复（HalfOpen → Closed）时恢复至调优参数。
+///
+/// 目标：故障期间错误率降低 ≥ 50%，避免故障期间连接耗尽。
+///
+/// # 使用方式
+///
+/// 调用方在 `CircuitBreaker` 状态变化时调用对应方法：
+/// - `CircuitState::Open` → `shrink_pool(factor)`
+/// - `CircuitState::Closed`（从 HalfOpen 恢复）→ `expand_pool()`
+pub struct PoolCircuitBreakerLink {
+    /// 原始池容量（调优参数）
+    original_capacity: u32,
+    /// 当前池容量
+    current_capacity: u32,
+    /// 缩容次数
+    shrink_count: std::sync::atomic::AtomicU64,
+    /// 扩容次数
+    expand_count: std::sync::atomic::AtomicU64,
+    /// 是否已缩容
+    is_shrunk: std::sync::atomic::AtomicBool,
+}
+
+impl std::fmt::Debug for PoolCircuitBreakerLink {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PoolCircuitBreakerLink")
+            .field("original_capacity", &self.original_capacity)
+            .field("current_capacity", &self.current_capacity)
+            .field(
+                "is_shrunk",
+                &self.is_shrunk.load(std::sync::atomic::Ordering::Relaxed),
+            )
+            .finish()
+    }
+}
+
+impl PoolCircuitBreakerLink {
+    /// 创建新的池-熔断器联动
+    ///
+    /// `original_capacity` 为调优后的池容量，故障恢复时恢复至此值。
+    pub fn new(original_capacity: u32) -> Self {
+        Self {
+            original_capacity,
+            current_capacity: original_capacity,
+            shrink_count: std::sync::atomic::AtomicU64::new(0),
+            expand_count: std::sync::atomic::AtomicU64::new(0),
+            is_shrunk: std::sync::atomic::AtomicBool::new(false),
+        }
+    }
+
+    /// 缩减池容量（熔断器 Open 时调用）
+    ///
+    /// `factor` 为缩容因子（0.0 ~ 1.0），例如 0.5 表示缩减至 50%。
+    /// 最小容量为 1，避免完全无连接可用。
+    pub fn shrink_pool(&mut self, factor: f64) -> u32 {
+        let factor = factor.clamp(0.1, 1.0);
+        let new_capacity = ((self.original_capacity as f64) * factor).round() as u32;
+        let new_capacity = new_capacity.max(1);
+        self.current_capacity = new_capacity;
+        self.shrink_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.is_shrunk
+            .store(true, std::sync::atomic::Ordering::Relaxed);
+        new_capacity
+    }
+
+    /// 恢复池容量至调优参数（熔断器 Closed 时调用）
+    pub fn expand_pool(&mut self) -> u32 {
+        self.current_capacity = self.original_capacity;
+        self.expand_count
+            .fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        self.is_shrunk
+            .store(false, std::sync::atomic::Ordering::Relaxed);
+        self.current_capacity
+    }
+
+    /// 当前池容量
+    pub fn current_capacity(&self) -> u32 {
+        self.current_capacity
+    }
+
+    /// 原始池容量
+    pub fn original_capacity(&self) -> u32 {
+        self.original_capacity
+    }
+
+    /// 缩容次数
+    pub fn shrink_count(&self) -> u64 {
+        self.shrink_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// 扩容次数
+    pub fn expand_count(&self) -> u64 {
+        self.expand_count.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// 是否已缩容
+    pub fn is_shrunk(&self) -> bool {
+        self.is_shrunk.load(std::sync::atomic::Ordering::Relaxed)
+    }
+
+    /// 熔断器状态变化回调
+    ///
+    /// 当 `is_open` 为 true 时缩容，为 false 时恢复。
+    /// 返回调整后的池容量。
+    pub fn on_circuit_state_change(&mut self, is_open: bool) -> u32 {
+        if is_open {
+            self.shrink_pool(0.5)
+        } else {
+            self.expand_pool()
+        }
+    }
+}
+
+#[cfg(test)]
+mod pool_circuit_breaker_link_tests {
+    use super::*;
+
+    #[test]
+    fn test_pool_circuit_breaker_link_new() {
+        let link = PoolCircuitBreakerLink::new(100);
+        assert_eq!(link.current_capacity(), 100);
+        assert_eq!(link.original_capacity(), 100);
+        assert!(!link.is_shrunk());
+    }
+
+    #[test]
+    fn test_shrink_pool_half() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        let new_cap = link.shrink_pool(0.5);
+        assert_eq!(new_cap, 50);
+        assert_eq!(link.current_capacity(), 50);
+        assert!(link.is_shrunk());
+        assert_eq!(link.shrink_count(), 1);
+    }
+
+    #[test]
+    fn test_shrink_pool_minimum_one() {
+        let mut link = PoolCircuitBreakerLink::new(2);
+        let new_cap = link.shrink_pool(0.1);
+        assert_eq!(new_cap, 1);
+    }
+
+    #[test]
+    fn test_expand_pool_restores_original() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        link.shrink_pool(0.3);
+        assert_eq!(link.current_capacity(), 30);
+        let restored = link.expand_pool();
+        assert_eq!(restored, 100);
+        assert!(!link.is_shrunk());
+        assert_eq!(link.expand_count(), 1);
+    }
+
+    #[test]
+    fn test_on_circuit_state_change_open() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        let cap = link.on_circuit_state_change(true);
+        assert_eq!(cap, 50);
+        assert!(link.is_shrunk());
+    }
+
+    #[test]
+    fn test_on_circuit_state_change_closed() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        link.on_circuit_state_change(true);
+        let cap = link.on_circuit_state_change(false);
+        assert_eq!(cap, 100);
+        assert!(!link.is_shrunk());
+    }
+
+    #[test]
+    fn test_shrink_factor_clamped() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        let cap = link.shrink_pool(0.0);
+        assert!(cap >= 10);
+        let cap2 = link.shrink_pool(2.0);
+        assert!(cap2 <= 100);
+    }
+
+    #[test]
+    fn test_multiple_shrink_expand_cycles() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        for _ in 0..3 {
+            link.on_circuit_state_change(true);
+            link.on_circuit_state_change(false);
+        }
+        assert_eq!(link.shrink_count(), 3);
+        assert_eq!(link.expand_count(), 3);
+        assert_eq!(link.current_capacity(), 100);
+    }
+
+    #[test]
+    fn test_debug_format() {
+        let link = PoolCircuitBreakerLink::new(50);
+        let s = format!("{:?}", link);
+        assert!(s.contains("PoolCircuitBreakerLink"));
+        assert!(s.contains("50"));
     }
 }
 

@@ -5,6 +5,67 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [7.8.0] — 2026-09-20
+
+### v7.8.0 六大方向：AI 自治闭环 / 数据生命周期管理 / 零停机演进增强 / 量子安全准备 / 绿色计算 / SLI/SLO 自动化
+
+基于 v7.7.0 基线，新增 6 大方向、15 个 feature gate、48 个源文件、286 个测试（含 18 个跨模块联动 e2e 测试）。不新增 crate（保持 72 包），所有新增 feature gate 默认关闭，API 向后兼容。
+
+#### 方向 1 — AI 自治闭环（sz-orm-ai/autonomous/ + sz-orm-audit/autonomous_audit）
+
+- 自治策略引擎 + 熔断器 + 幂等去重 + 边界验证器 + LLM 建议降级
+- 自治动作执行器 + 验证循环 + 策略热更新
+- AutonomousDecisionAuditor 自治决策审计器
+- 4 个 feature gate：ai-autonomous-loop / ai-auto-remediation / ai-auto-scaling / ai-auto-tuning-exec
+- 81 个测试通过（50 单元 + 7 审计 + 24 e2e）
+
+#### 方向 2 — 数据生命周期管理（sz-orm-governance/lifecycle/）
+
+- 规则引擎 + 冷热分类器 + 冷热迁移调度器 + 归档执行器 + 归档查询代理 + TTL 清理
+- 3 个 feature gate：data-lifecycle-mgmt / data-cold-hot-split / data-auto-archive
+- 71 个测试通过（49 单元 + 22 e2e）
+
+#### 方向 3 — 零停机演进增强（sz-orm-mig/）
+
+- 灰度发布编排器 + 流量路由器 + 金丝雀发布 + 健康判定 + 自动回滚 + 数据隔离 + 进度追踪
+- 4 个 feature gate：zero-downtime-evolve / gray-release / canary-release / auto-rollback
+- 57 个测试通过（39 单元 + 18 e2e）
+
+#### 方向 4 — 量子安全准备（sz-orm-crypto/pqc/）
+
+- NIST PQC 算法白名单 + 混合密钥协商 + 降级管理 + 迁移评估
+- 2 个 feature gate：pqc-ready / pqc-hybrid-kex
+- 35 个测试通过（23 单元 + 12 e2e）
+
+#### 方向 5 — 绿色计算（sz-orm-observability/green/）
+
+- 能耗采集 + 碳足迹核算 + 绿色调度 + ESG 报告 + 能耗脱敏 + 断点恢复
+- 1 个 feature gate：green-computing
+- 25 个测试通过（20 单元 + 5 e2e）
+
+#### 方向 6 — SLI/SLO 自动化（sz-orm-observability/slo_automation/）
+
+- SLI 采集 + SLO 达成率计算 + 错误预算 + 仪表盘导出 + 保留期清理
+- 1 个 feature gate：slo-automation
+- 17 个测试通过（13 单元 + 4 e2e）
+
+#### 跨模块联动 e2e 测试
+
+- e2e_autonomous_slo：自治闭环 + SLI/SLO 联动（3 测试）
+- e2e_gray_autonomous：灰度发布 + 自动回滚 + 自治闭环（3 测试）
+- e2e_green_gray：绿色计算 + 灰度调度（4 测试）
+- e2e_pqc_autonomous：PQC + 自治闭环安全（3 测试）
+- e2e_lifecycle_gray：生命周期 + 灰度发布（5 测试）
+
+#### 工程化收尾
+
+- cargo fmt --all：通过
+- cargo check --workspace：默认编译零影响
+- cargo clippy -- -D warnings：所有 6 个包通过
+- 15 个 feature gate 全部默认关闭
+- 无新增 crate、无新增依赖（sz-orm-crypto 新增 thiserror workspace 依赖除外）
+- 无占位实现、无 unsafe、无幻影交付
+
 ## [7.4.0] — 2026-09-18
 
 ### v7.4.0 七大方向：真实 DB 基准对标深化 / AI 能力深化 / 性能优化深化 / 覆盖率提升 / 下游兼容性验证 / 使用指南更新 / 版本整合

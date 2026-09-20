@@ -4,7 +4,7 @@ version.workspace = true
 edition.workspace = true
 authors.workspace = true
 license.workspace = true
-description = "SZ-ORM 鍛戒护琛屽伐鍏?鈥?杩佺Щ绠＄悊銆佹ā鍨?杩佺Щ浠ｇ爜鐢熸垚銆丼QL 鎵ц"
+description = "SZ-ORM 命令行工具 — 迁移管理、模型迁移代码生成、SQL 执行"
 
 [[bin]]
 name = "sz-orm"

@@ -68,6 +68,10 @@ pub enum BorrowedValue<'a> {
     Array(Vec<BorrowedValue<'a>>),
     /// 对象（键值对）
     Object(HashMap<String, BorrowedValue<'a>>),
+    /// v7.6.0：数组借用引用（零拷贝，避免 Vec 堆分配）
+    ArrayRef(&'a [BorrowedValue<'a>]),
+    /// v7.6.0：对象借用引用（零拷贝，避免 HashMap 堆分配）
+    ObjectRef(&'a [(&'a str, BorrowedValue<'a>)]),
 }
 
 impl<'a> BorrowedValue<'a> {
@@ -94,7 +98,9 @@ impl<'a> BorrowedValue<'a> {
             BorrowedValue::DateTime(v) => Value::DateTime(v.to_string()),
             BorrowedValue::Time(v) => Value::Time(v.to_string()),
             BorrowedValue::Json(v) => Value::Json(v.to_string()),
-            BorrowedValue::DecimalBytes(v) => Value::Decimal(String::from_utf8_lossy(v).to_string()),
+            BorrowedValue::DecimalBytes(v) => {
+                Value::Decimal(String::from_utf8_lossy(v).to_string())
+            }
             BorrowedValue::JsonBytes(v) => Value::Json(String::from_utf8_lossy(v).to_string()),
             BorrowedValue::BytesRef(v) => Value::Bytes(v.to_vec()),
             BorrowedValue::DateTimeInt(v) => Value::DateTime(v.to_string()),
@@ -102,6 +108,14 @@ impl<'a> BorrowedValue<'a> {
             BorrowedValue::Object(v) => Value::Object(
                 v.iter()
                     .map(|(k, b)| (k.clone(), b.to_owned_value()))
+                    .collect(),
+            ),
+            BorrowedValue::ArrayRef(v) => {
+                Value::Array(v.iter().map(|b| b.to_owned_value()).collect())
+            }
+            BorrowedValue::ObjectRef(v) => Value::Object(
+                v.iter()
+                    .map(|(k, b)| (k.to_string(), b.to_owned_value()))
                     .collect(),
             ),
         }
@@ -203,6 +217,8 @@ impl<'a> fmt::Display for BorrowedValue<'a> {
             BorrowedValue::DateTimeInt(v) => write!(f, "{}", v),
             BorrowedValue::Array(v) => write!(f, "{:?}", v),
             BorrowedValue::Object(v) => write!(f, "{:?}", v),
+            BorrowedValue::ArrayRef(v) => write!(f, "{:?}", v),
+            BorrowedValue::ObjectRef(v) => write!(f, "{:?}", v),
         }
     }
 }
@@ -443,5 +459,106 @@ mod tests {
 
         let entries: Vec<_> = row.iter().collect();
         assert_eq!(entries.len(), 2);
+    }
+
+    // ========================================================================
+    // v7.6.0 任务 1.3：ArrayRef / ObjectRef 零拷贝测试
+    // ========================================================================
+
+    #[test]
+    fn test_borrowed_value_array_ref() {
+        let elements = vec![
+            BorrowedValue::I32(1),
+            BorrowedValue::I32(2),
+            BorrowedValue::I32(3),
+        ];
+        let borrowed = BorrowedValue::ArrayRef(&elements);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(
+            owned,
+            Value::Array(vec![Value::I32(1), Value::I32(2), Value::I32(3)])
+        );
+    }
+
+    #[test]
+    fn test_borrowed_value_object_ref() {
+        let entries: Vec<(&str, BorrowedValue)> = vec![
+            ("a", BorrowedValue::I32(1)),
+            ("b", BorrowedValue::String(Cow::Borrowed("hello"))),
+        ];
+        let borrowed = BorrowedValue::ObjectRef(&entries);
+        let owned = borrowed.to_owned_value();
+        let expected = {
+            let mut m = HashMap::new();
+            m.insert("a".to_string(), Value::I32(1));
+            m.insert("b".to_string(), Value::String("hello".into()));
+            Value::Object(m)
+        };
+        assert_eq!(owned, expected);
+    }
+
+    #[test]
+    fn test_borrowed_value_array_ref_zero_copy() {
+        let elements = vec![BorrowedValue::I64(42), BorrowedValue::I64(99)];
+        let borrowed = BorrowedValue::ArrayRef(&elements);
+        if let BorrowedValue::ArrayRef(slice) = &borrowed {
+            assert_eq!(slice.len(), 2);
+            assert_eq!(slice[0], BorrowedValue::I64(42));
+        } else {
+            panic!("应为 ArrayRef");
+        }
+    }
+
+    #[test]
+    fn test_borrowed_value_object_ref_zero_copy() {
+        let entries: Vec<(&str, BorrowedValue)> = vec![("key", BorrowedValue::I32(100))];
+        let borrowed = BorrowedValue::ObjectRef(&entries);
+        if let BorrowedValue::ObjectRef(slice) = &borrowed {
+            assert_eq!(slice.len(), 1);
+            assert_eq!(slice[0].0, "key");
+            assert_eq!(slice[0].1, BorrowedValue::I32(100));
+        } else {
+            panic!("应为 ObjectRef");
+        }
+    }
+
+    #[test]
+    fn test_borrowed_value_array_ref_empty() {
+        let elements: Vec<BorrowedValue> = vec![];
+        let borrowed = BorrowedValue::ArrayRef(&elements);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(owned, Value::Array(vec![]));
+    }
+
+    #[test]
+    fn test_borrowed_value_object_ref_empty() {
+        let entries: Vec<(&str, BorrowedValue)> = vec![];
+        let borrowed = BorrowedValue::ObjectRef(&entries);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(owned, Value::Object(HashMap::new()));
+    }
+
+    #[test]
+    fn test_borrowed_value_array_ref_nested() {
+        let inner = vec![BorrowedValue::I32(10), BorrowedValue::I32(20)];
+        let outer = vec![BorrowedValue::ArrayRef(&inner), BorrowedValue::I32(30)];
+        let borrowed = BorrowedValue::ArrayRef(&outer);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(
+            owned,
+            Value::Array(vec![
+                Value::Array(vec![Value::I32(10), Value::I32(20)]),
+                Value::I32(30),
+            ])
+        );
+    }
+
+    #[test]
+    fn test_borrowed_value_array_ref_display() {
+        let elements = vec![BorrowedValue::I32(1), BorrowedValue::I32(2)];
+        let borrowed = BorrowedValue::ArrayRef(&elements);
+        let s = format!("{}", borrowed);
+        assert!(s.contains("1"));
+        assert!(s.contains("2"));
     }
 }

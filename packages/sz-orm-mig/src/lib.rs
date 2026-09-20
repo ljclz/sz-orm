@@ -16,6 +16,27 @@ pub mod transformer;
 #[allow(missing_docs)]
 pub mod expand_contract;
 
+#[cfg(feature = "gray-release")]
+pub mod gray_release;
+
+#[cfg(feature = "gray-release")]
+pub mod gray_traffic_router;
+
+#[cfg(feature = "gray-release")]
+pub mod gray_health_judge;
+
+#[cfg(feature = "gray-release")]
+pub mod gray_data_isolation;
+
+#[cfg(feature = "gray-release")]
+pub mod gray_progress_tracker;
+
+#[cfg(feature = "canary-release")]
+pub mod canary_release;
+
+#[cfg(feature = "auto-rollback")]
+pub mod auto_rollback;
+
 pub use advanced::*;
 pub use error::MigError;
 pub use migrator::*;

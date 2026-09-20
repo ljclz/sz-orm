@@ -35,10 +35,18 @@ fn test_perf_metrics_all_counters() {
 #[test]
 fn test_perf_metrics_hit_rates() {
     let m = PerfMetrics::default();
-    for _ in 0..8 { m.record_simd_hit(); }
-    for _ in 0..2 { m.record_simd_miss(); }
-    for _ in 0..9 { m.record_plan_cache_hit(); }
-    for _ in 0..1 { m.record_plan_cache_miss(); }
+    for _ in 0..8 {
+        m.record_simd_hit();
+    }
+    for _ in 0..2 {
+        m.record_simd_miss();
+    }
+    for _ in 0..9 {
+        m.record_plan_cache_hit();
+    }
+    for _ in 0..1 {
+        m.record_plan_cache_miss();
+    }
 
     let s = m.snapshot();
     assert!((s.simd_hit_rate - 0.8).abs() < 1e-9);

@@ -22,13 +22,13 @@ serde_json = "1.0"
 chrono = { workspace = true }
 flate2 = "1.0"
 sha2 = "0.10"
-# 楂樼骇澶囦唤鍔熻兘鎵€闇€锛歾std 鍘嬬缉 + AES-GCM 鍔犲瘑锛堝鐢?sz-orm-crypto锛?
+# 高级备份功能所需：zstd 压缩 + AES-GCM 加密（复用 sz-orm-crypto）
 zstd = "0.13"
 sz-orm-crypto = { version = "7.1.0", path = "../sz-orm-crypto" }
 
 [features]
 default = []
-# v4.1.0锛氬浠介獙璇佽嚜鍔ㄥ寲锛堝畬鏁存€ф牎楠?+ 鎭㈠婕旂粌 + 鏍￠獙鎶ュ憡锛?
+# v4.1.0：备份验证自动化（完整性校验 + 恢复演练 + 核验报告）
 backup-verify = []
 
 [dev-dependencies]

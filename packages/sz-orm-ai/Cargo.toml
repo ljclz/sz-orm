@@ -12,19 +12,19 @@ description = "SZ-ORM AI Extension - Embedding, Vector Store, RAG Engine"
 
 [features]
 default = []
-# 鍚敤鐪熷疄 OpenAI 鍏煎 API 瀹㈡埛绔紙HTTP 璋冪敤锟?
+# 启用真实 OpenAI 兼容 API 客户端（HTTP 调用）
 real = ["dep:reqwest", "dep:base64"]
-# 鍚敤 LLM 鏌ヨ璁″垝浼樺寲鍣紙渚濊禆 real feature 锟?reqwest HTTP 瀹㈡埛绔級
+# 启用 LLM 查询计划优化器（依赖 real feature 与 reqwest HTTP 客户端）
 llm-optimizer = ["real"]
-# v3.2.0锛氭煡璇㈣鍒掔紦瀛樿浆锟?
+# v3.2.0：查询计划缓存转发
 plan-cache = ["dep:sz-orm-core", "sz-orm-core/plan-cache"]
-# v3.3.0 M4锛欰I 鑷劧璇█鏌ヨ澧炲己
+# v3.3.0 M4：AI 自然语言查询增强
 ai-nl2sql-enhanced = []
 ai-index-advisor = ["dep:sqlparser"]
 ai-rewrite-advisor = ["dep:sqlparser"]
-# v4.0.0 M1锛氬 LLM 妯″瀷鏀寔锛圕laude/Gemini/Ollama/OpenAI + 鐑垏锟?+ fallback锟?
+# v4.0.0 M1：多 LLM 模型支持（Claude/Gemini/Ollama/OpenAI + 热切换 + fallback）
 multi-llm = ["dep:reqwest", "dep:base64", "dep:tracing"]
-# v4.0.0 M2锛欰I 鑷姩璋冧紭闂幆锛圖etect鈫扐dvise鈫扐pply鈫扸erify锛屽鐢ㄦ棦鏈変紭鍖栧櫒锟?
+# v4.0.0 M2：AI 自动调优闭环（Detect→Advise→Apply→Verify，复用既有优化器）
 ai-auto-tuning = ["llm-optimizer", "ai-index-advisor", "ai-rewrite-advisor"]
 # v5.1.0：NL2SQL Schema 自动提取（需传入 Connection，未启用时零编译开销）
 ai-schema-extract = ["dep:sz-orm-core"]
@@ -34,6 +34,28 @@ ai-security-audit = ["multi-llm"]
 ai-native-query = ["ai-nl2sql-enhanced", "multi-llm", "dep:sz-orm-graph"]
 # v7.3.0 任务 3.1：AI 配置聚合与决策结果聚合
 ai-config = []
+# v7.5.0 AI 索引落地执行器（默认关闭）
+ai-index-apply = ["ai-index-advisor"]
+# v7.5.0 AI 查询计划预测器（默认关闭）
+ai-plan-predict = ["ai-config", "llm-optimizer"]
+# v7.6.0 复杂 SQL + 多轮对话追问澄清（默认关闭）
+ai-nl2sql-complex = ["ai-config", "ai-nl2sql-enhanced"]
+# v7.7.0 查询计划自动优化（改写 + 索引提示 + 并行提示）
+plan-auto-optimize = ["ai-config", "llm-optimizer"]
+# v7.7.0 任务 2.1：AiQueryOptimizer AI 驱动查询优化（默认关闭）
+ai-query-optimize = ["ai-config", "ai-rewrite-advisor"]
+# v7.7.0 任务 2.2：索引全生命周期管理（默认关闭）
+ai-index-lifecycle = ["ai-config", "ai-index-advisor"]
+# v7.7.0 任务 2.4：NL2SQL 深化（意图理解 + 复杂查询分解）
+ai-nl2sql-deepen = ["ai-config", "ai-nl2sql-complex"]
+# v7.8.0 AI 自治闭环：策略引擎 + 边界校验 + 熔断 + 幂等 + 动作执行 + 验证循环
+ai-autonomous-loop = ["ai-config", "dep:sz-orm-anomaly", "sz-orm-anomaly/anomaly-predict", "dep:sz-orm-health", "sz-orm-health/self-heal", "dep:sz-orm-adaptive", "sz-orm-adaptive/adaptive-query", "dep:sz-orm-explain", "sz-orm-explain/slow-query-governance", "dep:sz-orm-audit"]
+# v7.8.0 AI 自治自动修复执行
+ai-auto-remediation = ["ai-autonomous-loop"]
+# v7.8.0 AI 自治自动扩缩容执行
+ai-auto-scaling = ["ai-autonomous-loop"]
+# v7.8.0 AI 自治自动调参执行
+ai-auto-tuning-exec = ["ai-autonomous-loop"]
 
 
 [package.metadata.cargo-machete]
@@ -44,24 +66,32 @@ tokio = { version = "1.40", features = ["full"] }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-# real feature 鍙€変緷锟?
+# real feature 可选依赖
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 base64 = { version = "0.22", optional = true }
 
-# v4.0.0 M1锛歠allback 闄嶇骇鏃ュ織锛坢ulti-llm feature锟?
+# v4.0.0 M1：fallback 降级日志（multi-llm feature）
 tracing = { workspace = true, optional = true }
-# 閿佹瘨鍖栦慨澶嶏細浣跨敤 parking_lot 鏇夸唬 std::sync锛屾秷锟?.write().unwrap() panic 椋庨櫓
+# 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .write().unwrap() panic 风险
 parking_lot.workspace = true
-# v3.2.0锛氭煡璇㈣鍒掔紦瀛橈紙plan-cache feature锛屽彲閫変緷璧栵級
+# v3.2.0：查询计划缓存（plan-cache feature，可选依赖）
 sz-orm-core = { version = "7.1.0", path = "../sz-orm-core", optional = true }
-# v3.3.0 M4锛歋QL 瑙ｆ瀽锛堢储寮曞缓锟?+ 閲嶅啓寤鸿锛宱ptional锟?
+# v3.3.0 M4：SQL 解析（索引建议 + 重写建议，optional）
 sqlparser = { workspace = true, optional = true }
 # v5.1.0 P2：图谱查询集成（ai-native-query feature）
 sz-orm-graph = { version = "7.1.0", path = "../sz-orm-graph", optional = true }
+# v7.8.0 AI 自治闭环依赖
+sz-orm-anomaly = { version = "7.1.0", path = "../sz-orm-anomaly", optional = true }
+sz-orm-health = { version = "7.1.0", path = "../sz-orm-health", optional = true }
+sz-orm-adaptive = { version = "7.1.0", path = "../sz-orm-adaptive", optional = true }
+sz-orm-explain = { version = "7.1.0", path = "../sz-orm-explain", optional = true }
+sz-orm-audit = { version = "7.1.0", path = "../sz-orm-audit", optional = true }
 
 [dev-dependencies]
 tokio-test = "0.4"
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "sqlite", "chrono", "json"] }
+# v7.8.0 跨模块联动 e2e 测试
+sz-orm-observability = { path = "../sz-orm-observability", features = ["slo-automation"] }
 
 [[test]]
 name = "ai_tests"
@@ -201,6 +231,42 @@ required-features = ["ai-rewrite-advisor"]
 name = "nl2sql_injection_filter_test"
 path = "tests/nl2sql_injection_filter_test.rs"
 required-features = ["ai-nl2sql-enhanced"]
+
+# v7.6.0 组2.7：HistoryBasedPredictor 端到端测试
+[[test]]
+name = "history_based_predictor_test"
+path = "tests/history_based_predictor_test.rs"
+required-features = ["ai-plan-predict"]
+
+# v7.6.0 组2.7：ComplexSql + Clarification 端到端测试
+[[test]]
+name = "complex_sql_test"
+path = "tests/complex_sql_test.rs"
+required-features = ["ai-nl2sql-complex"]
+
+# v7.7.0 任务 2.7：AiQueryOptimizer 端到端测试
+[[test]]
+name = "ai_query_optimizer_test"
+path = "tests/ai_query_optimizer_test.rs"
+required-features = ["ai-query-optimize"]
+
+# v7.7.0 任务 2.7：IndexLifecycleManager 端到端测试
+[[test]]
+name = "index_lifecycle_test"
+path = "tests/index_lifecycle_test.rs"
+required-features = ["ai-index-lifecycle"]
+
+# v7.7.0 任务 2.7：NL2SQL 深化端到端测试
+[[test]]
+name = "nl2sql_deepen_test"
+path = "tests/nl2sql_deepen_test.rs"
+required-features = ["ai-nl2sql-deepen"]
+
+# v7.8.0 跨模块联动 e2e 测试
+[[test]]
+name = "e2e_autonomous_slo"
+path = "tests/e2e_autonomous_slo.rs"
+required-features = ["ai-autonomous-loop"]
 
 [lints]
 workspace = true

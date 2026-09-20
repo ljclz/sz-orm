@@ -20,6 +20,8 @@ real-consul = ["dep:reqwest", "dep:tokio"]
 real-nacos = ["dep:reqwest", "dep:tokio"]
 # v3.8.0：生产配置脱敏验证
 prod-config-masking = ["dep:sz-orm-masking", "dep:toml"]
+# v7.6.0：K8s Operator 定义 + Helm Chart 模板
+k8s-operator = []
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

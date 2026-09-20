@@ -1,7 +1,7 @@
 //! v7.4.0 任务 3.7：PlanCache LRU-K 端到端测试
 
-use sz_orm_core::plan_cache::PlanCache;
 use std::time::Duration;
+use sz_orm_core::plan_cache::PlanCache;
 
 #[test]
 fn test_lru_k_access_count() {

@@ -15,6 +15,8 @@ pub mod consul_client;
 pub mod nacos_client;
 #[cfg(feature = "prod-config-masking")]
 pub mod prod_ready;
+#[cfg(feature = "k8s-operator")]
+pub mod k8s_operator;
 
 pub mod config_validator;
 pub mod hot_reload;

@@ -71,7 +71,10 @@ pub use collector::{
 #[cfg(feature = "anomaly-detection")]
 pub use config::{AnomalyConfig, ConfigStore};
 #[cfg(feature = "anomaly-detection")]
-pub use detector::{AnomalyDetector, BaselineCalculator, SpikeDetector};
+pub use detector::{
+    AnomalyDetectionResult, AnomalyDetector, BaselineCalculator, MultiDimDetector, MultiDimMetrics,
+    SpikeDetector, ThresholdAutoTuner, TunedThreshold,
+};
 #[cfg(feature = "anomaly-detection")]
 pub use error::AnomalyError;
 #[cfg(feature = "anomaly-detection")]
@@ -82,3 +85,11 @@ pub use report::{ReportExporter, TimeRange};
 pub use error::AnomalyErrorKind;
 #[cfg(feature = "anomaly-detection")]
 pub use window::SlidingWindow;
+// v7.7.0 任务 2.3：异常预测模块
+#[cfg(feature = "anomaly-predict")]
+pub mod predictor;
+#[cfg(feature = "anomaly-predict")]
+pub use predictor::{
+    AnomalyPredictor, PredictedAnomalyType, PredictionConfig, PredictionError, PredictionResult,
+    TimeSeriesData,
+};

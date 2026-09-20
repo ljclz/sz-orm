@@ -12,6 +12,8 @@ categories.workspace = true
 
 [features]
 default = []
+# v7.5.0 OTLP span 导出（轻量级，不依赖 opentelemetry crate）
+otlp-export = []
 # 启用 OTLP exporter，将 Span 导出到 OpenTelemetry Collector
 # 使用：cargo build --features otlp
 otlp = [

@@ -19,12 +19,73 @@ tokio = { version = "1.40", features = ["full"] }
 thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+# v7.8.0 零停机演进增强依赖
+sz-orm-health = { version = "7.1.0", path = "../sz-orm-health", optional = true }
+sz-orm-fusion = { version = "7.1.0", path = "../sz-orm-fusion", optional = true }
+sz-orm-dtx = { version = "7.1.0", path = "../sz-orm-dtx", optional = true }
+parking_lot = { workspace = true, optional = true }
+tracing = { workspace = true, optional = true }
 
 [features]
+default = []
 zero-downtime-mig = []
+# v7.8.0 零停机演进增强：灰度发布 + 金丝雀 + 自动回滚
+zero-downtime-evolve = ["zero-downtime-mig", "dep:sz-orm-health", "sz-orm-health/ha-events", "dep:sz-orm-fusion", "sz-orm-fusion/multi-region", "dep:sz-orm-dtx", "dep:parking_lot", "dep:tracing"]
+# v7.8.0 灰度发布
+gray-release = ["zero-downtime-evolve"]
+# v7.8.0 金丝雀发布
+canary-release = ["zero-downtime-evolve"]
+# v7.8.0 自动回滚
+auto-rollback = ["zero-downtime-evolve"]
 
 [dev-dependencies]
 tokio-test = "0.4"
+# v7.8.0 跨模块联动 e2e 测试
+sz-orm-ai = { path = "../sz-orm-ai", features = ["ai-autonomous-loop"] }
 
 [lints]
 workspace = true
+# v7.8.0 零停机演进端到端测试
+[[test]]
+name = "e2e_gray_advance"
+path = "tests/e2e_gray_advance.rs"
+required-features = ["gray-release"]
+
+[[test]]
+name = "e2e_canary_to_full"
+path = "tests/e2e_canary_to_full.rs"
+required-features = ["canary-release"]
+
+[[test]]
+name = "e2e_auto_rollback"
+path = "tests/e2e_auto_rollback.rs"
+required-features = ["auto-rollback"]
+
+[[test]]
+name = "e2e_pause_resume"
+path = "tests/e2e_pause_resume.rs"
+required-features = ["gray-release"]
+
+[[test]]
+name = "e2e_data_contamination"
+path = "tests/e2e_data_contamination.rs"
+required-features = ["gray-release"]
+
+[[test]]
+name = "e2e_rollback_failed"
+path = "tests/e2e_rollback_failed.rs"
+required-features = ["auto-rollback"]
+# v7.8.0 跨模块联动 e2e 测试
+[[test]]
+name = "e2e_gray_autonomous"
+path = "tests/e2e_gray_autonomous.rs"
+required-features = ["gray-release", "auto-rollback"]# v7.8.0 幻影交付修复 e2e 测试
+[[test]]
+name = "e2e_traffic_router"
+path = "tests/e2e_traffic_router.rs"
+required-features = ["gray-release"]
+
+[[test]]
+name = "e2e_progress_tracker"
+path = "tests/e2e_progress_tracker.rs"
+required-features = ["gray-release"]

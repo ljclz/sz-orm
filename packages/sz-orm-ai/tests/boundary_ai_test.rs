@@ -1,10 +1,12 @@
+#![cfg(feature = "ai-rewrite-advisor")]
+
 //! v7.4.0 任务 4.1：RewriteRule/IndexAdvice/Nl2sqlResult 边界测试
 
-use sz_orm_ai::{
-    ColumnPruningRule, ConstantFoldingRule, LimitPushdownRule, Nl2sqlResult, RewriteEngine,
-    RewriteRule, SqlQuery, TransformType, EquivalenceVerificationResult,
-};
 use sz_orm_ai::nl2sql::IntentAnalysis;
+use sz_orm_ai::{
+    ColumnPruningRule, ConstantFoldingRule, EquivalenceVerificationResult, LimitPushdownRule,
+    Nl2sqlResult, RewriteEngine, RewriteRule, SqlQuery, TransformType,
+};
 
 fn make_nl2sql_result(sql: &str, confidence: f32) -> Nl2sqlResult {
     Nl2sqlResult {
@@ -101,9 +103,15 @@ fn test_equivalence_result_not_equivalent_with_diff() {
 #[test]
 fn test_transform_type_all_variants_name() {
     assert_eq!(TransformType::PredicatePushdown.name(), "PredicatePushdown");
-    assert_eq!(TransformType::SubqueryFlattening.name(), "SubqueryFlattening");
+    assert_eq!(
+        TransformType::SubqueryFlattening.name(),
+        "SubqueryFlattening"
+    );
     assert_eq!(TransformType::JoinReorder.name(), "JoinReorder");
-    assert_eq!(TransformType::RedundantElimination.name(), "RedundantElimination");
+    assert_eq!(
+        TransformType::RedundantElimination.name(),
+        "RedundantElimination"
+    );
     assert_eq!(TransformType::LimitPushdown.name(), "LimitPushdown");
     assert_eq!(TransformType::ConstantFolding.name(), "ConstantFolding");
     assert_eq!(TransformType::ColumnPruning.name(), "ColumnPruning");

@@ -1,7 +1,7 @@
 # SZ-ORM 工程化实践规范
 
-> **目标项目**：SZ-ORM（鲜视达 ORM 框架，72 workspace 包，13442+ 测试（2026-09-06 实测））
-> **项目版本**：v7.4.0
+> **目标项目**：SZ-ORM（鲜视达 ORM 框架，72 workspace 包，16266+ 测试（2026-09-20 实测））
+> **项目版本**：v7.8.0
 > **文档用途**：锁定已有工程质量，防止后续修改引入退化
 > **维护规则**：任何修改 CI/CD 或新增门禁的 PR 必须同步更新本文档
 > **文档版本**：v3.1（2026-08-01）
@@ -734,3 +734,32 @@ cargo test --workspace
 > - 教训追溯表新增 C-7/C-8/C-9（标识符注入）和"API 签名变更未传播"条目
 > - 项目版本 v1.2.0 → v1.2.1
 > - 测试数据统一为 6,794+（覆盖 52 个 workspace 包，2026-08-12 实测）
+---
+
+## v7.8.0 Feature Gate 列表
+
+v7.8.0 新增 15 个 feature gate，全部默认关闭，分布如下：
+
+| Feature Gate | 包 | 默认 | 说明 |
+|--------------|---|------|------|
+| `ai-autonomous-loop` | sz-orm-ai | 关闭 | AI 自治闭环全链路 |
+| `ai-auto-remediation` | sz-orm-ai | 关闭 | 自动修复执行 |
+| `ai-auto-scaling` | sz-orm-ai | 关闭 | 自动扩缩容执行 |
+| `ai-auto-tuning-exec` | sz-orm-ai | 关闭 | 自动调参执行 |
+| `data-lifecycle-mgmt` | sz-orm-governance | 关闭 | 数据生命周期管理 |
+| `data-cold-hot-split` | sz-orm-governance | 关闭 | 冷热分离 |
+| `data-auto-archive` | sz-orm-governance | 关闭 | 自动归档 |
+| `zero-downtime-evolve` | sz-orm-mig | 关闭 | 零停机演进增强 |
+| `gray-release` | sz-orm-mig | 关闭 | 灰度发布 |
+| `canary-release` | sz-orm-mig | 关闭 | 金丝雀发布 |
+| `auto-rollback` | sz-orm-mig | 关闭 | 自动回滚 |
+| `pqc-ready` | sz-orm-crypto | 关闭 | PQC 算法白名单 + 迁移评估 |
+| `pqc-hybrid-kex` | sz-orm-crypto | 关闭 | 混合密钥协商 + 降级管理 |
+| `green-computing` | sz-orm-observability | 关闭 | 绿色计算 |
+| `slo-automation` | sz-orm-observability | 关闭 | SLI/SLO 自动化 |
+
+**全功能编译验证命令**：
+
+```bash
+cargo build --workspace --features sz-orm-ai/ai-autonomous-loop,sz-orm-ai/ai-auto-remediation,sz-orm-ai/ai-auto-scaling,sz-orm-ai/ai-auto-tuning-exec,sz-orm-governance/data-lifecycle-mgmt,sz-orm-governance/data-cold-hot-split,sz-orm-governance/data-auto-archive,sz-orm-mig/zero-downtime-evolve,sz-orm-mig/gray-release,sz-orm-mig/canary-release,sz-orm-mig/auto-rollback,sz-orm-crypto/pqc-ready,sz-orm-crypto/pqc-hybrid-kex,sz-orm-observability/green-computing,sz-orm-observability/slo-automation
+```

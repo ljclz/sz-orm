@@ -51,7 +51,8 @@ impl PerfMetrics {
 
     /// 记数：零拷贝分配减少（字节）
     pub fn record_alloc_reduction(&self, bytes: u64) {
-        self.zero_copy_alloc_reduction.fetch_add(bytes, Ordering::Relaxed);
+        self.zero_copy_alloc_reduction
+            .fetch_add(bytes, Ordering::Relaxed);
     }
 
     /// 计数：连接池 acquire
@@ -61,7 +62,8 @@ impl PerfMetrics {
 
     /// 计数：连接池 acquire 失败
     pub fn record_pool_acquire_failed(&self) {
-        self.pool_acquire_failed_count.fetch_add(1, Ordering::Relaxed);
+        self.pool_acquire_failed_count
+            .fetch_add(1, Ordering::Relaxed);
     }
 
     /// 计数：连接池吞吐（ops/s）
@@ -108,19 +110,36 @@ impl PerfMetrics {
             plan_cache_misses,
             plan_cache_hit_rate: {
                 let total = plan_cache_hits + plan_cache_misses;
-                if total == 0 { 0.0 } else { plan_cache_hits as f64 / total as f64 }
+                if total == 0 {
+                    0.0
+                } else {
+                    plan_cache_hits as f64 / total as f64
+                }
             },
             simd_hit_rate: {
                 let total = simd_hits + simd_misses;
-                if total == 0 { 0.0 } else { simd_hits as f64 / total as f64 }
+                if total == 0 {
+                    0.0
+                } else {
+                    simd_hits as f64 / total as f64
+                }
             },
             zero_copy_hit_rate: {
                 let total = zero_copy_hits + zero_copy_misses;
-                if total == 0 { 0.0 } else { zero_copy_hits as f64 / total as f64 }
+                if total == 0 {
+                    0.0
+                } else {
+                    zero_copy_hits as f64 / total as f64
+                }
             },
             pool_acquire_success_rate: {
-                let total = pool_acquire_count + self.pool_acquire_failed_count.load(Ordering::Relaxed);
-                if total == 0 { 0.0 } else { pool_acquire_count as f64 / total as f64 }
+                let total =
+                    pool_acquire_count + self.pool_acquire_failed_count.load(Ordering::Relaxed);
+                if total == 0 {
+                    0.0
+                } else {
+                    pool_acquire_count as f64 / total as f64
+                }
             },
         }
     }
@@ -156,10 +175,15 @@ impl PerfMetrics {
              # HELP sz_orm_pool_throughput_ops Pool throughput (ops/s)\n\
              # TYPE sz_orm_pool_throughput_ops gauge\n\
              sz_orm_pool_throughput_ops {}\n",
-            s.simd_hits, s.simd_misses,
-            s.zero_copy_hits, s.zero_copy_misses,
-            s.plan_cache_hits, s.plan_cache_misses, s.plan_cache_hit_rate,
-            s.pool_acquire_count, s.pool_throughput_ops,
+            s.simd_hits,
+            s.simd_misses,
+            s.zero_copy_hits,
+            s.zero_copy_misses,
+            s.plan_cache_hits,
+            s.plan_cache_misses,
+            s.plan_cache_hit_rate,
+            s.pool_acquire_count,
+            s.pool_throughput_ops,
         )
     }
 }

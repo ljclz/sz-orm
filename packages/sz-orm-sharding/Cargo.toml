@@ -14,6 +14,8 @@ categories.workspace = true
 default = []
 # v4.0.0 M5：分片自动 rebalance（最小搬迁 + 双写 + 断点续传 + 进度可观测）
 shard-rebalance = ["dep:tokio"]
+# v7.6.0：动态分片调整 + 热点迁移
+dynamic-sharding = []
 
 
 [package.metadata.cargo-machete]

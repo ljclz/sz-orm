@@ -81,6 +81,8 @@ pub use ttl_cache::TtlFusionCache;
 #[cfg(feature = "db-fusion-v2")]
 pub use vector_pushdown::{VectorPushdownExecutor, VectorPushdownOutcome};
 // v7.0.0 multi-region 模块
+#[cfg(feature = "chaos")]
+pub mod chaos_injector;
 #[cfg(feature = "multi-region")]
 pub mod edge_node;
 #[cfg(feature = "multi-region")]
@@ -92,6 +94,11 @@ pub mod region_topology;
 #[cfg(feature = "multi-region")]
 pub mod replication_lag;
 
+#[cfg(feature = "chaos")]
+pub use chaos_injector::{
+    ChaosConfig, ChaosInjector, CircuitState as ChaosCircuitState, CircuitTransition, FaultType,
+    RecoveryTimeMeasurer, StabilityReport, WorkloadType as ChaosWorkloadType,
+};
 #[cfg(feature = "multi-region")]
 pub use edge_node::{EdgeCacheStatus, EdgeNode, EdgeNodeRouter, EdgeRoutingPolicy, GeoLocation};
 #[cfg(feature = "multi-region")]
@@ -110,4 +117,23 @@ pub use region_topology::{
 #[cfg(feature = "multi-region")]
 pub use replication_lag::{
     LinkType, ReplicationLagTracker, CROSS_CONTINENT_THRESHOLD, SAME_CITY_THRESHOLD,
+};
+// v7.7.0 任务 3.2：ConflictAutoResolver + GeoRouter 导出
+#[cfg(feature = "multi-region-enhanced")]
+pub use conflict::{AutoResolutionResult, AutoResolutionStrategy, ConflictAutoResolver};
+#[cfg(feature = "multi-region-enhanced")]
+pub use global_router::GeoRouter;
+
+// v7.7.0 任务 3.3：CDC 增强导出
+#[cfg(feature = "cdc-enhanced")]
+pub use cdc_sync::{
+    CdcIncrementalSyncer, CdcResumeCoordinator, CdcSchemaSyncer, IncrementalSyncResult,
+    ResumeResult, SchemaSyncResult,
+};
+
+// v7.7.0 任务 3.4：FailoverEnhancer 导出
+#[cfg(feature = "failover-enhanced")]
+pub use region_failover::{
+    AutoRecoverCoordinator, DetectionDimension, FailoverEnhancedResult, FailoverEnhancer,
+    RecoverResult,
 };

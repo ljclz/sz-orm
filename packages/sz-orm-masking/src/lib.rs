@@ -17,12 +17,19 @@ pub mod strategy;
 
 #[cfg(feature = "dynamic-masking")]
 pub mod dynamic_masking;
+#[cfg(feature = "dynamic-masking")]
+pub use dynamic_masking::{
+    apply_strategy, EncryptAlgorithm, EncryptConfig, HashConfig, MaskConfig, MaskingHashAlgorithm,
+    MaskingPolicyConflict, MaskingRuleConfig, MaskingRuleSet, MaskingStrategy,
+};
 
 // 重导出新模块的主要类型
 pub use audit::{
     rule_name, FieldReport, MaskingAuditEntry as DetailedAuditEntry,
     MaskingAuditLog as DetailedAuditLog, MaskingReport, RuleReport,
 };
+#[cfg(feature = "masking-audit-link")]
+pub use audit::{MaskingAuditLinker, MaskingOperation};
 pub use config::{FieldPattern, MaskingConfigManager, MaskingProfile, SensitiveFieldDetector};
 pub use maskers::{wildcard_match, HashAlgorithm, HashMasker, PartialDisplayMasker, PatternMasker};
 pub use strategy::{

@@ -5,7 +5,7 @@
 //! - 注入向量触发过滤并清理
 //! - 参数化 SQL 不被误判
 
-use sz_orm_ai::{Nl2sqlResult, SqlQuery, IntentAnalysis};
+use sz_orm_ai::{IntentAnalysis, Nl2sqlResult, SqlQuery};
 
 /// 构造测试用 Nl2sqlResult
 fn make_result(sql: &str) -> Nl2sqlResult {

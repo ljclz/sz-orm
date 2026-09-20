@@ -1,10 +1,10 @@
 //! v7.4.0 任务 3.7：Pool 批量获取端到端测试
 
-use sz_orm_core::{Connection, ConnectionFactory, Pool, PoolConfig};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use sz_orm_core::{Connection, ConnectionFactory, Pool, PoolConfig};
 
 struct MockConnection {
     connected: bool,
@@ -27,7 +27,9 @@ impl Connection for MockConnection {
     fn query<'a>(
         &'a mut self,
         _sql: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<sz_orm_core::QueryRows, sz_orm_core::DbError>> + Send + 'a>> {
+    ) -> Pin<
+        Box<dyn Future<Output = Result<sz_orm_core::QueryRows, sz_orm_core::DbError>> + Send + 'a>,
+    > {
         Box::pin(async move { Ok(vec![]) })
     }
 

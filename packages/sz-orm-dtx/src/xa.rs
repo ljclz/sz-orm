@@ -718,3 +718,229 @@ mod tests {
         assert!(xa_result.is_ok());
     }
 }
+// =====================================================================
+// v7.6.0 组3.3：2PC 原子性增强
+// =====================================================================
+
+/// v7.6.0 2PC 超时配置
+#[derive(Debug, Clone)]
+pub struct TwoPcTimeoutConfig {
+    pub prepare_timeout: Duration,
+    pub commit_timeout: Duration,
+    pub abort_timeout: Duration,
+}
+
+impl Default for TwoPcTimeoutConfig {
+    fn default() -> Self {
+        Self {
+            prepare_timeout: Duration::from_secs(5),
+            commit_timeout: Duration::from_secs(3),
+            abort_timeout: Duration::from_secs(3),
+        }
+    }
+}
+
+/// v7.6.0 2PC 原子性验证结果
+#[derive(Debug, Clone)]
+pub struct TwoPcAtomicityResult {
+    pub transaction_id: String,
+    pub all_prepared: bool,
+    pub all_committed: bool,
+    pub all_rolled_back: bool,
+    pub is_atomic: bool,
+    pub commit_latency_ms: u64,
+    pub timed_out: bool,
+    pub failure_detail: Option<String>,
+}
+
+/// v7.6.0 2PC 原子性增强验证器
+///
+/// 复用既有 `XaCoordinator` + `XaResource` + `XaParticipant`，
+/// 完善 2PC 原子性验证 + 超时机制。
+pub struct TwoPcEnhanced {
+    timeout_config: TwoPcTimeoutConfig,
+}
+
+impl TwoPcEnhanced {
+    pub fn new(timeout_config: TwoPcTimeoutConfig) -> Self {
+        Self { timeout_config }
+    }
+
+    /// 验证 2PC 原子性：Prepare 全部就绪 → Commit 全部提交
+    /// 任一 Prepare 失败 → Rollback 全部回滚
+    pub fn verify_atomicity(
+        &self,
+        transaction_id: &str,
+        prepare_results: &[Result<(), String>],
+        commit_results: &[Result<(), String>],
+        rollback_results: &[Result<(), String>],
+    ) -> TwoPcAtomicityResult {
+        let start = std::time::Instant::now();
+
+        let all_prepared = prepare_results.iter().all(|r| r.is_ok());
+        let all_committed = commit_results.iter().all(|r| r.is_ok());
+        let all_rolled_back = rollback_results.iter().all(|r| r.is_ok());
+
+        let (is_atomic, failure_detail) = if all_prepared {
+            if all_committed {
+                (true, None)
+            } else {
+                (
+                    false,
+                    Some(format!(
+                        "Prepare 全部成功但 Commit 部分失败（{}/{} 成功）",
+                        commit_results.iter().filter(|r| r.is_ok()).count(),
+                        commit_results.len()
+                    )),
+                )
+            }
+        } else {
+            if all_rolled_back {
+                (
+                    true,
+                    Some(format!(
+                        "Prepare 部分失败，已全部回滚（{}/{} Prepare 成功）",
+                        prepare_results.iter().filter(|r| r.is_ok()).count(),
+                        prepare_results.len()
+                    )),
+                )
+            } else {
+                (
+                    false,
+                    Some(format!(
+                        "Prepare 失败且 Rollback 也失败（Prepare {}/{}，Rollback {}/{}）",
+                        prepare_results.iter().filter(|r| r.is_ok()).count(),
+                        prepare_results.len(),
+                        rollback_results.iter().filter(|r| r.is_ok()).count(),
+                        rollback_results.len()
+                    )),
+                )
+            }
+        };
+
+        if !is_atomic {
+            eprintln!(
+                "2PC_COORDINATOR_FAILURE: tx={} detail={:?}",
+                transaction_id, failure_detail
+            );
+        }
+
+        TwoPcAtomicityResult {
+            transaction_id: transaction_id.to_string(),
+            all_prepared,
+            all_committed,
+            all_rolled_back,
+            is_atomic,
+            commit_latency_ms: start.elapsed().as_millis() as u64,
+            timed_out: false,
+            failure_detail,
+        }
+    }
+
+    /// 检查参与者是否超时
+    pub fn check_timeout(&self, elapsed: Duration, phase: &str) -> Option<Duration> {
+        let timeout = match phase {
+            "prepare" => self.timeout_config.prepare_timeout,
+            "commit" => self.timeout_config.commit_timeout,
+            "abort" => self.timeout_config.abort_timeout,
+            _ => Duration::from_secs(5),
+        };
+        if elapsed > timeout {
+            eprintln!(
+                "2PC_COORDINATOR_FAILURE: phase={} elapsed={}ms timeout={}ms",
+                phase,
+                elapsed.as_millis(),
+                timeout.as_millis()
+            );
+            Some(elapsed - timeout)
+        } else {
+            None
+        }
+    }
+
+    /// 获取超时配置
+    pub fn timeout_config(&self) -> &TwoPcTimeoutConfig {
+        &self.timeout_config
+    }
+}
+
+#[cfg(test)]
+mod v760_two_pc_enhanced_tests {
+    use super::*;
+
+    #[test]
+    fn test_two_pc_atomicity_all_success() {
+        let enhanced = TwoPcEnhanced::new(TwoPcTimeoutConfig::default());
+        let result = enhanced.verify_atomicity(
+            "tx-1",
+            &[Ok(()), Ok(()), Ok(())],
+            &[Ok(()), Ok(()), Ok(())],
+            &[],
+        );
+        assert!(result.is_atomic);
+        assert!(result.all_prepared);
+        assert!(result.all_committed);
+        assert!(result.failure_detail.is_none());
+    }
+
+    #[test]
+    fn test_two_pc_atomicity_prepare_fail_rollback() {
+        let enhanced = TwoPcEnhanced::new(TwoPcTimeoutConfig::default());
+        let result = enhanced.verify_atomicity(
+            "tx-2",
+            &[Ok(()), Err("fail".to_string()), Ok(())],
+            &[],
+            &[Ok(()), Ok(()), Ok(())],
+        );
+        assert!(result.is_atomic);
+        assert!(!result.all_prepared);
+        assert!(result.all_rolled_back);
+    }
+
+    #[test]
+    fn test_two_pc_atomicity_double_failure() {
+        let enhanced = TwoPcEnhanced::new(TwoPcTimeoutConfig::default());
+        let result = enhanced.verify_atomicity(
+            "tx-3",
+            &[Ok(()), Err("fail".to_string())],
+            &[],
+            &[Ok(()), Err("rollback fail".to_string())],
+        );
+        assert!(!result.is_atomic);
+        assert!(result.failure_detail.is_some());
+    }
+
+    #[test]
+    fn test_two_pc_atomicity_commit_partial_failure() {
+        let enhanced = TwoPcEnhanced::new(TwoPcTimeoutConfig::default());
+        let result = enhanced.verify_atomicity(
+            "tx-4",
+            &[Ok(()), Ok(())],
+            &[Ok(()), Err("commit fail".to_string())],
+            &[],
+        );
+        assert!(!result.is_atomic);
+    }
+
+    #[test]
+    fn test_two_pc_timeout_check() {
+        let config = TwoPcTimeoutConfig {
+            prepare_timeout: Duration::from_millis(100),
+            commit_timeout: Duration::from_millis(50),
+            abort_timeout: Duration::from_millis(50),
+        };
+        let enhanced = TwoPcEnhanced::new(config);
+        assert!(enhanced
+            .check_timeout(Duration::from_millis(200), "prepare")
+            .is_some());
+        assert!(enhanced
+            .check_timeout(Duration::from_millis(50), "prepare")
+            .is_none());
+    }
+
+    #[test]
+    fn test_two_pc_timeout_config_default() {
+        let config = TwoPcTimeoutConfig::default();
+        assert!(config.prepare_timeout >= config.commit_timeout);
+    }
+}

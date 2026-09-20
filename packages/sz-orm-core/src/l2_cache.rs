@@ -2884,7 +2884,9 @@ pub mod zero_copy {
             BorrowedValue::DateTime(s) => Value::DateTime(s.to_string()),
             BorrowedValue::Time(s) => Value::Time(s.to_string()),
             BorrowedValue::Json(s) => Value::Json(s.to_string()),
-            BorrowedValue::DecimalBytes(b) => Value::Decimal(String::from_utf8_lossy(b).to_string()),
+            BorrowedValue::DecimalBytes(b) => {
+                Value::Decimal(String::from_utf8_lossy(b).to_string())
+            }
             BorrowedValue::JsonBytes(b) => Value::Json(String::from_utf8_lossy(b).to_string()),
             BorrowedValue::BytesRef(b) => Value::Bytes(b.to_vec()),
             BorrowedValue::DateTimeInt(v) => Value::DateTime(v.to_string()),
@@ -2896,6 +2898,17 @@ pub mod zero_copy {
                 let mut values = std::collections::HashMap::new();
                 for (k, v) in obj {
                     values.insert(k.clone(), from_borrowed(v));
+                }
+                Value::Object(values)
+            }
+            BorrowedValue::ArrayRef(arr) => {
+                let values: Vec<Value> = arr.iter().map(from_borrowed).collect();
+                Value::Array(values)
+            }
+            BorrowedValue::ObjectRef(obj) => {
+                let mut values = std::collections::HashMap::new();
+                for (k, v) in obj.iter() {
+                    values.insert(k.to_string(), from_borrowed(v));
                 }
                 Value::Object(values)
             }

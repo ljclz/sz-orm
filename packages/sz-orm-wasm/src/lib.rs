@@ -876,3 +876,246 @@ mod tests {
 
 #[cfg(feature = "wasm-real-db")]
 pub mod real_db;
+// ============================================================================
+// v7.6.0 WASI 支持验证 + WASM 性能优化
+// ============================================================================
+
+/// WASI 支持验证结果
+#[derive(Debug, Clone)]
+pub struct WasiVerifyResult {
+    pub wasi_supported: bool,
+    pub target_triple: String,
+    pub unsupported_deps: Vec<String>,
+    pub recommendations: Vec<String>,
+}
+
+impl WasiVerifyResult {
+    pub fn is_supported(&self) -> bool {
+        self.wasi_supported
+    }
+}
+
+/// WASI 支持验证器
+pub struct WasiSupport;
+
+impl WasiSupport {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 验证 WASI 接口可用性
+    pub fn verify_wasi(&self) -> WasiVerifyResult {
+        let target = std::env::var("TARGET").unwrap_or_else(|_| "wasm32-wasi".to_string());
+        let unsupported = Self::detect_unsupported_deps();
+        let wasi_supported = unsupported.is_empty();
+        let recommendations = if wasi_supported {
+            vec![]
+        } else {
+            unsupported
+                .iter()
+                .map(|d| format!("将 {} 放入 feature gate 或替换为 WASI 兼容替代", d))
+                .collect()
+        };
+        WasiVerifyResult {
+            wasi_supported,
+            target_triple: target,
+            unsupported_deps: unsupported,
+            recommendations,
+        }
+    }
+
+    /// 检测不支持 WASM 的依赖
+    pub fn detect_unsupported_deps() -> Vec<String> {
+        let known_unsupported: &[&str] = &["tokio-tungstenite", "reqwest"];
+        known_unsupported
+            .iter()
+            .copied()
+            .filter(|dep| {
+                #[cfg(feature = "wasm-real-db")]
+                {
+                    matches!(dep, "tokio-tungstenite" | "reqwest")
+                }
+                #[cfg(not(feature = "wasm-real-db"))]
+                {
+                    let _ = dep;
+                    false
+                }
+            })
+            .map(|s| s.to_string())
+            .collect()
+    }
+}
+
+impl Default for WasiSupport {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// WASM 编译目标配置
+#[derive(Debug, Clone)]
+pub struct CompileTargetConfig {
+    pub target: String,
+    pub opt_level: String,
+    pub features: Vec<String>,
+}
+
+impl CompileTargetConfig {
+    pub fn for_wasi() -> Self {
+        Self {
+            target: "wasm32-wasi".to_string(),
+            opt_level: "z".to_string(),
+            features: vec!["bulk-memory".to_string(), "reference-types".to_string()],
+        }
+    }
+}
+
+/// WASM 内存管理配置
+#[derive(Debug, Clone)]
+pub struct MemoryOptConfig {
+    pub initial_pages: u32,
+    pub max_pages: u32,
+    pub guard_size: u32,
+}
+
+impl MemoryOptConfig {
+    pub fn recommended() -> Self {
+        Self {
+            initial_pages: 16,
+            max_pages: 256,
+            guard_size: 4096,
+        }
+    }
+}
+
+/// WASM 与原生性能对比
+#[derive(Debug, Clone)]
+pub struct PerfComparison {
+    pub wasm_latency_ms: f64,
+    pub native_latency_ms: f64,
+    pub ratio: f64,
+    pub assessment: String,
+}
+
+impl PerfComparison {
+    pub fn assess(&self) -> &str {
+        if self.ratio < 1.5 {
+            "excellent"
+        } else if self.ratio < 3.0 {
+            "acceptable"
+        } else {
+            "needs-optimization"
+        }
+    }
+}
+
+/// WASM 性能优化器
+pub struct WasmPerfOptimizer;
+
+impl WasmPerfOptimizer {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 优化编译目标配置
+    pub fn optimize_compile_target(&self) -> CompileTargetConfig {
+        CompileTargetConfig::for_wasi()
+    }
+
+    /// 优化内存管理配置
+    pub fn optimize_memory(&self) -> MemoryOptConfig {
+        MemoryOptConfig::recommended()
+    }
+
+    /// 对比 WASM 与原生性能
+    pub fn compare_native_perf(
+        &self,
+        wasm_latency_ms: f64,
+        native_latency_ms: f64,
+    ) -> PerfComparison {
+        let ratio = if native_latency_ms > 0.0 {
+            wasm_latency_ms / native_latency_ms
+        } else {
+            0.0
+        };
+        let assessment = if ratio < 1.5 {
+            "WASM 性能接近原生".to_string()
+        } else if ratio < 3.0 {
+            "WASM 性能可接受".to_string()
+        } else {
+            "WASM 性能需优化".to_string()
+        };
+        PerfComparison {
+            wasm_latency_ms,
+            native_latency_ms,
+            ratio,
+            assessment,
+        }
+    }
+}
+
+impl Default for WasmPerfOptimizer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+#[cfg(test)]
+mod v760_wasi_tests {
+    use super::*;
+
+    #[test]
+    fn wasi_support_verify() {
+        let support = WasiSupport::new();
+        let result = support.verify_wasi();
+        assert!(!result.target_triple.is_empty());
+    }
+
+    #[test]
+    fn wasi_detect_unsupported_deps() {
+        let deps = WasiSupport::detect_unsupported_deps();
+        #[cfg(feature = "wasm-real-db")]
+        assert!(!deps.is_empty());
+        #[cfg(not(feature = "wasm-real-db"))]
+        assert!(deps.is_empty());
+    }
+
+    #[test]
+    fn wasm_perf_optimizer_compile_target() {
+        let opt = WasmPerfOptimizer::new();
+        let config = opt.optimize_compile_target();
+        assert_eq!(config.target, "wasm32-wasi");
+        assert_eq!(config.opt_level, "z");
+    }
+
+    #[test]
+    fn wasm_perf_optimizer_memory() {
+        let opt = WasmPerfOptimizer::new();
+        let config = opt.optimize_memory();
+        assert!(config.initial_pages > 0);
+        assert!(config.max_pages > config.initial_pages);
+    }
+
+    #[test]
+    fn wasm_perf_comparison_excellent() {
+        let opt = WasmPerfOptimizer::new();
+        let comp = opt.compare_native_perf(10.0, 8.0);
+        assert!(comp.ratio < 1.5);
+        assert_eq!(comp.assess(), "excellent");
+    }
+
+    #[test]
+    fn wasm_perf_comparison_needs_optimization() {
+        let opt = WasmPerfOptimizer::new();
+        let comp = opt.compare_native_perf(50.0, 10.0);
+        assert!(comp.ratio >= 3.0);
+        assert_eq!(comp.assess(), "needs-optimization");
+    }
+
+    #[test]
+    fn wasm_perf_comparison_zero_native() {
+        let opt = WasmPerfOptimizer::new();
+        let comp = opt.compare_native_perf(10.0, 0.0);
+        assert_eq!(comp.ratio, 0.0);
+    }
+}

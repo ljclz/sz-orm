@@ -55,6 +55,14 @@ real-db = ["xa", "dep:sqlx"]
 cross-lang-dtx = ["dep:prost", "dep:tonic", "dep:tonic-prost", "dep:tokio-stream", "dep:sz-orm-grpc", "dep:async-trait", "dep:thiserror", "dep:chrono", "dep:tracing", "dep:reqwest", "dep:tonic-prost-build", "dep:protoc-bin-vendored", "tokio/time", "tokio/rt-multi-thread"]
 # v7.1.0：分布式协调（分布式锁 + Leader 选举 + 服务注册/发现）
 dist-coordination = ["dep:async-trait", "dep:thiserror", "dep:tracing", "dep:redis", "tokio/time", "tokio/macros"]
+# v7.6.0：Saga 增强（自动补偿 + 重试 + 幂等）
+saga-enhanced = []
+# v7.6.0：2PC 原子性增强
+two-pc-enhanced = ["xa"]
+# v7.6.0：3PC 三阶段提交
+three-pc = ["xa"]
+# v7.7.0 任务 3.1：跨事务一致性验证
+cross-tx-consistency = ["dep:thiserror"]
 
 [[test]]
 name = "blackhat_poc"
@@ -78,3 +86,19 @@ required-features = ["dist-coordination"]
 name = "coordination_leader_wiring"
 path = "tests/coordination_leader_wiring.rs"
 required-features = ["dist-coordination"]
+
+# v7.6.0 组3.9：Saga 补偿增强端到端测试
+[[test]]
+name = "saga_compensation_enhanced_test"
+path = "tests/saga_compensation_enhanced_test.rs"
+
+# v7.6.0 组3.9：3PC 端到端测试
+[[test]]
+name = "three_pc_test"
+path = "tests/three_pc_test.rs"
+required-features = ["three-pc"]
+# v7.7.0 任务 3.6：跨事务一致性验证端到端测试
+[[test]]
+name = "cross_tx_consistency_test"
+path = "tests/cross_tx_consistency_test.rs"
+required-features = ["cross-tx-consistency"]

@@ -429,10 +429,17 @@ pub mod api_coverage;
 pub mod behaviors;
 #[cfg(feature = "benchmark-suite")]
 pub mod benchmark;
+#[allow(missing_docs)]
+pub mod binding_coverage;
 pub mod bloom;
 mod cache;
 pub mod change_tracker;
 pub mod circuit_breaker;
+#[cfg(feature = "circuit-breaker")]
+#[allow(missing_docs)]
+pub mod degradation;
+#[cfg(feature = "binding-perf-align")]
+pub use binding_coverage::{BindingLanguage, BindingPerfAligner, PerfAlignResult};
 #[cfg(feature = "type-safe-columns")]
 pub mod column;
 #[cfg(feature = "zero-copy")]
@@ -533,6 +540,11 @@ pub use prewarm::{ColdStartOptimizer, ColdStartStats};
 #[cfg(feature = "io-uring")]
 #[allow(missing_docs)]
 pub mod io_uring_probe;
+
+/// v7.6.0 任务 1.4：IO_uring 异步 IO 集成
+#[cfg(feature = "io-uring")]
+#[allow(missing_docs)]
+pub mod io_uring_io;
 
 #[cfg(feature = "field-encryption")]
 #[allow(missing_docs)]

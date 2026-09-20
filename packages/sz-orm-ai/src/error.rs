@@ -38,6 +38,14 @@ pub enum AiError {
     /// 配置错误（例如 API key 缺失、参数非法）
     #[error("Config error: {0}")]
     ConfigError(String),
+
+    /// v7.6.0 历史数据不足，无法预测
+    #[error("History insufficient: {0}")]
+    HistoryInsufficient(String),
+
+    /// v7.6.0 预测偏差过大
+    #[error("Prediction deviation: {0}")]
+    PredictionDeviation(String),
 }
 
 impl From<std::io::Error> for AiError {

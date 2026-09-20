@@ -508,7 +508,11 @@ impl PlanCache {
         if let Some(ast) = hit {
             self.stats.parse_hits.fetch_add(1, Ordering::Relaxed);
             self.access_order.write().touch(key.hash);
-            self.access_counts.write().entry(key.hash).and_modify(|c| *c += 1).or_insert(1);
+            self.access_counts
+                .write()
+                .entry(key.hash)
+                .and_modify(|c| *c += 1)
+                .or_insert(1);
             return Ok(ast);
         }
 
@@ -1177,5 +1181,144 @@ mod tests {
             cache.stats().parse_misses + cache.stats().parse_hits >= 10,
             "应有 10 次访问记录"
         );
+    }
+}
+/// LRU-K 替换器：基于最近 K 次访问时间戳淘汰最久未访问的键
+#[derive(Debug, Clone)]
+pub struct LruKReplacer {
+    k: usize,
+    capacity: usize,
+    access_history: std::collections::HashMap<u64, Vec<std::time::Instant>>,
+}
+
+impl LruKReplacer {
+    /// 创建 K 近邻 LRU 替换器，容量为 `capacity`
+    pub fn new(k: usize, capacity: usize) -> Self {
+        Self {
+            k,
+            capacity,
+            access_history: std::collections::HashMap::new(),
+        }
+    }
+
+    /// 记录键的访问时间戳
+    pub fn access(&mut self, key: u64) {
+        let history = self.access_history.entry(key).or_default();
+        history.push(std::time::Instant::now());
+        if history.len() > self.k {
+            history.remove(0);
+        }
+    }
+
+    /// 淘汰并返回最久未访问的键，未满容量时返回 None
+    pub fn evict(&mut self) -> Option<u64> {
+        if self.access_history.len() < self.capacity {
+            return None;
+        }
+        let mut oldest_key: Option<u64> = None;
+        let mut oldest_time: Option<std::time::Instant> = None;
+
+        for (&key, history) in &self.access_history {
+            let ref_time = if history.len() >= self.k {
+                history[0]
+            } else {
+                std::time::Instant::now()
+            };
+            if oldest_time.is_none() || ref_time < oldest_time.unwrap() {
+                oldest_time = Some(ref_time);
+                oldest_key = Some(key);
+            }
+        }
+
+        if let Some(key) = oldest_key {
+            self.access_history.remove(&key);
+        }
+        oldest_key
+    }
+
+    /// 返回命中率（访问次数 ≥ K 的键占比）
+    pub fn hit_rate(&self) -> f64 {
+        let total: usize = self.access_history.values().map(|h| h.len()).sum();
+        if total == 0 {
+            return 0.0;
+        }
+        let hits: usize = self
+            .access_history
+            .values()
+            .map(|h| if h.len() >= self.k { 1 } else { 0 })
+            .sum();
+        hits as f64 / self.access_history.len().max(1) as f64
+    }
+
+    /// 返回当前追踪的键数量
+    pub fn len(&self) -> usize {
+        self.access_history.len()
+    }
+
+    /// 返回是否为空
+    pub fn is_empty(&self) -> bool {
+        self.access_history.is_empty()
+    }
+}
+
+/// 自适应缓存容量：根据命中率窗口动态调整容量
+#[derive(Debug, Clone)]
+pub struct AdaptiveCacheCapacity {
+    min: usize,
+    max: usize,
+    current: usize,
+    hit_rate_window: std::collections::VecDeque<f64>,
+    window_size: usize,
+}
+
+impl AdaptiveCacheCapacity {
+    /// 创建自适应容量控制器，范围 [`min`, `max`]
+    pub fn new(min: usize, max: usize) -> Self {
+        Self {
+            min,
+            max,
+            current: min,
+            hit_rate_window: std::collections::VecDeque::new(),
+            window_size: 100,
+        }
+    }
+
+    /// 记录命中率采样到滑动窗口
+    pub fn record_hit_rate(&mut self, rate: f64) {
+        if self.hit_rate_window.len() >= self.window_size {
+            self.hit_rate_window.pop_front();
+        }
+        self.hit_rate_window.push_back(rate);
+    }
+
+    /// 根据平均命中率调整容量，返回是否发生变化
+    pub fn adapt(&mut self) -> bool {
+        if self.hit_rate_window.is_empty() {
+            return false;
+        }
+        let avg: f64 = self.hit_rate_window.iter().sum::<f64>() / self.hit_rate_window.len() as f64;
+        let old = self.current;
+        if avg < 0.85 {
+            self.current = (self.current as f64 * 1.5) as usize;
+        } else if avg > 0.95 {
+            self.current = (self.current as f64 * 0.8) as usize;
+        }
+        self.current = self.current.clamp(self.min, self.max);
+        self.current != old
+    }
+
+    /// 返回当前容量
+    pub fn current(&self) -> usize {
+        self.current
+    }
+
+    /// 返回最小容量
+    pub fn min(&self) -> usize {
+        self.min
+    }
+
+    /// 返回最大容量
+    pub fn max(&self) -> usize {
+        self.max
     }
 }
