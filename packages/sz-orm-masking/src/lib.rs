@@ -23,6 +23,14 @@ pub use dynamic_masking::{
     MaskingPolicyConflict, MaskingRuleConfig, MaskingRuleSet, MaskingStrategy,
 };
 
+#[cfg(feature = "masking-policy-engine")]
+pub mod policy_engine;
+#[cfg(feature = "masking-policy-engine")]
+pub use policy_engine::{
+    MaskingPolicy as MaskingPolicyRule, MaskingPolicyConfig, MaskingPolicyEngine, MaskingScene,
+    MaskingStrategyKind,
+};
+
 // 重导出新模块的主要类型
 pub use audit::{
     rule_name, FieldReport, MaskingAuditEntry as DetailedAuditEntry,

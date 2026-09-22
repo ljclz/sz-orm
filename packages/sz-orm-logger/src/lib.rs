@@ -19,6 +19,9 @@
 pub mod advanced;
 pub mod log_pipeline;
 
+#[cfg(feature = "log-aggregate")]
+pub mod aggregator;
+
 use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;

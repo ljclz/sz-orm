@@ -1,8 +1,6 @@
 #![cfg(feature = "otlp-export")]
 
-use sz_orm_tracing::{
-    BoundedSpanQueue, OtlpExporter, SpanBuilder, SpanName, SpanStatus,
-};
+use sz_orm_tracing::{BoundedSpanQueue, OtlpExporter, SpanBuilder, SpanName, SpanStatus};
 
 #[test]
 fn test_span_builder_root() {
@@ -60,7 +58,10 @@ fn test_otlp_exporter_sanitize_attributes() {
         .attribute("db.system", "mysql")
         .build();
     OtlpExporter::sanitize_attributes(&mut span);
-    assert_eq!(span.attributes.get("password"), Some(&"[REDACTED]".to_string()));
+    assert_eq!(
+        span.attributes.get("password"),
+        Some(&"[REDACTED]".to_string())
+    );
     assert_eq!(span.attributes.get("db.system"), Some(&"mysql".to_string()));
 }
 

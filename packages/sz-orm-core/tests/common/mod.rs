@@ -2,12 +2,13 @@
 //!
 //! 供 fuzz/stress/jepsen/soak 集成测试使用
 
-#![allow(dead_code)]
-
 pub mod cleanup;
+#[allow(dead_code)]
+pub mod e2e_env;
 pub mod equivalence;
 pub mod rusqlite_adapter;
 pub mod schema_builder;
+#[allow(dead_code)]
 pub mod soak;
 pub mod sqlx_mysql_adapter;
 pub mod sqlx_pg_adapter;

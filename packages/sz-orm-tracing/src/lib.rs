@@ -16,6 +16,9 @@
 
 pub mod sampling;
 
+#[cfg(feature = "dist-tracing")]
+pub mod end_to_end;
+
 #[cfg(feature = "otlp-export")]
 pub mod otlp_exporter;
 #[cfg(feature = "otlp-export")]

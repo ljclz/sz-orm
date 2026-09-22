@@ -251,3 +251,38 @@ pub use autonomous::{
     IdempotencyDeduplicator, LlmAdvisor, LlmSuggestion, PolicyMatcher, Severity, TriggerCondition,
     VerificationResult,
 };
+// v8.0.0 AI 能力深化
+#[cfg(feature = "ai-deep")]
+pub mod ai_deep;
+#[cfg(feature = "ai-deep")]
+pub use ai_deep::{
+    AiDeepError, AiDeepEventType, AnomalyPrediction, AnomalyPredictionReport, DenormSuggestion,
+    EquivalenceResult, IndexSuggestion as AiDeepIndexSuggestion, NlRewriteResult,
+    PartitionSuggestion, QueryPattern as AiDeepQueryPattern, SchemaDesignReport, TableSuggestion,
+    TimeSeriesData as AiDeepTimeSeriesData,
+};
+#[cfg(feature = "ai-anomaly-predict")]
+pub use ai_deep::{AnomalyPredictConfig, AnomalyPredictionEngine};
+#[cfg(feature = "ai-deep")]
+pub use ai_deep::{EquivalenceConfig, RewriteEquivalenceVerifier};
+#[cfg(feature = "ai-nl-rewrite")]
+pub use ai_deep::{NlRewriteConfig, NlRewritePipeline};
+#[cfg(feature = "ai-schema-design")]
+pub use ai_deep::{SchemaDesignAdvisor, SchemaDesignConfig};
+// v8.1.0 组3：AI 闭环自治生产化顶层导出
+#[cfg(feature = "ai-ab-testing")]
+pub use autonomous::xai::{
+    AbExperimentData, AbGroup, AbGroupData, AbSignificanceResult, AbStatSignificanceEngine,
+};
+#[cfg(feature = "ai-closed-loop")]
+pub use autonomous::{
+    AutonomousLoopBreakDetector, AutonomousTakeover, AutonomousTarget, BoundaryConstraint,
+    BreakReason, ClosedLoopError, ClosedLoopRecord, ClosedLoopScheduler, CostTarget, LatencyTarget,
+    LoopBreakAlert, LoopRecord, SloTarget, TakeoverError, TakeoverRecord,
+};
+#[cfg(feature = "ai-model-versioning")]
+pub use llm_provider::{
+    CanaryError, CanarySwitchResult, DefaultHealthChecker, HealthCheckResult, HealthChecker,
+    ModelVersionCanary, ModelVersionError, ModelVersionId, ModelVersionMeta, ModelVersionRegistry,
+    VersionRegistryEntry,
+};

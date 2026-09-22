@@ -14,6 +14,7 @@
 //! - Transaction drop 后状态变为 RolledBack
 //! - 并发事务互不影响
 
+#[allow(dead_code)]
 mod common;
 
 use common::{FaultyConnection, FaultyConnectionFactory, MockConnection, MockConnectionFactory};

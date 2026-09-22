@@ -11,6 +11,7 @@
 use std::sync::Arc;
 use std::time::Duration;
 
+#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;
@@ -287,4 +288,160 @@ async fn test_pg_cache_db_consistency() {
     .execute(&pool)
     .await
     .unwrap();
+}
+// ==================== v8.3.0: 缓存 e2e（3 数据库） ====================
+
+use common::e2e_env::{e2e_mysql_pool, e2e_pg_pool, E2eMysqlDb};
+
+#[tokio::test]
+async fn test_e2e_mysql_cache_hit() {
+    let pool = match e2e_mysql_pool(E2eMysqlDb::Test).await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_cache_mysql");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE `{}` (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255))",
+            table
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{}` (name) VALUES (?)", table).as_str(),
+    ))
+    .bind("Alice")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let row1: (String,) = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!("SELECT name FROM `{}` WHERE id = 1", table).as_str(),
+    ))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    let row2: (String,) = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!("SELECT name FROM `{}` WHERE id = 1", table).as_str(),
+    ))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row1.0, row2.0);
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{}`", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_pg_cache_invalidation() {
+    let pool = match e2e_pg_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_cache_pg");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE \"{}\" (id BIGSERIAL PRIMARY KEY, name TEXT)",
+            table
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO \"{}\" (name) VALUES ($1)", table).as_str(),
+    ))
+    .bind("Alice")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let row1: (String,) = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!("SELECT name FROM \"{}\" WHERE id = 1", table).as_str(),
+    ))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row1.0, "Alice");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("UPDATE \"{}\" SET name = $1 WHERE id = 1", table).as_str(),
+    ))
+    .bind("Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let row2: (String,) = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!("SELECT name FROM \"{}\" WHERE id = 1", table).as_str(),
+    ))
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row2.0, "Bob");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE \"{}\"", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+// ==================== v8.4.0: Oracle 缓存一致性 ====================
+
+#[tokio::test]
+async fn test_e2e_oracle_cache_hit() {
+    use std::sync::Arc;
+    use sz_orm_core::l1_cache::L1Cache;
+
+    let conn = match common::e2e_env::e2e_oracle_conn() {
+        Some(c) => c,
+        None => return,
+    };
+    let table = unique_table_name("e2e_cache_ora");
+    let table_lower = table.to_lowercase();
+
+    conn.execute(
+        &format!(
+            "CREATE TABLE \"{}\" (id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name VARCHAR2(255))",
+            table_lower
+        ),
+        &[],
+    )
+    .unwrap();
+    conn.execute(
+        &format!("INSERT INTO \"{}\" (name) VALUES (:1)", table_lower),
+        &[&"Alice"],
+    )
+    .unwrap();
+    conn.commit().unwrap();
+
+    let mut cache: L1Cache<String> = L1Cache::new(100);
+    cache.put(1, Arc::new("Alice".to_string()));
+
+    let cached = cache.get(&1).expect("cache miss");
+    assert_eq!(*cached, "Alice");
+
+    let rows = conn
+        .query(
+            &format!("SELECT name FROM \"{}\" WHERE id = :1", table_lower),
+            &[&1i64],
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let db_name: String = rows[0].get(0).unwrap();
+    assert_eq!(db_name, *cached);
+
+    conn.execute(&format!("DROP TABLE \"{}\"", table_lower), &[])
+        .unwrap();
 }

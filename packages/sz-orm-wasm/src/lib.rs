@@ -21,6 +21,10 @@ pub mod persistence;
 #[cfg(feature = "persistence")]
 pub mod error;
 
+// v8.0.0 组 6：K8s sidecar 适配器（cloudnative-sidecar feature gate）
+#[cfg(feature = "cloudnative-sidecar")]
+pub mod sidecar;
+
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::sync::Mutex;
@@ -933,7 +937,7 @@ impl WasiSupport {
             .filter(|dep| {
                 #[cfg(feature = "wasm-real-db")]
                 {
-                    matches!(dep, "tokio-tungstenite" | "reqwest")
+                    matches!(*dep, "tokio-tungstenite" | "reqwest")
                 }
                 #[cfg(not(feature = "wasm-real-db"))]
                 {

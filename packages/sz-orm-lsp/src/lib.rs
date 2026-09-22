@@ -8,6 +8,10 @@ pub mod definition;
 pub mod diagnostics;
 pub mod server;
 
+// v8.0.0 组 6：LSP 增强补全与 N+1 诊断（toolchain-lsp-enhance feature gate）
+#[cfg(feature = "toolchain-lsp-enhance")]
+pub mod enhanced;
+
 pub use completion::{analyze_context, context_aware_completion, CompletionContext};
 pub use definition::{DefinitionProvider, Location, ModelDefinition, ModelField};
 pub use diagnostics::{CodedDiagnostic, DiagnosticCode, IncrementalDiagnostics};

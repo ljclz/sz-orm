@@ -9,12 +9,10 @@
 use std::sync::Arc;
 use sz_orm_sqlx::PgPoolHandle;
 
-const COCKROACHDB_URL_DEFAULT: &str =
-    "postgres://root@127.0.0.1:26257/sz_orm_test?sslmode=disable";
+const COCKROACHDB_URL_DEFAULT: &str = "postgres://root@127.0.0.1:26257/sz_orm_test?sslmode=disable";
 
 fn cockroachdb_url() -> String {
-    std::env::var("SZ_ORM_COCKROACHDB_URL")
-        .unwrap_or_else(|_| COCKROACHDB_URL_DEFAULT.to_string())
+    std::env::var("SZ_ORM_COCKROACHDB_URL").unwrap_or_else(|_| COCKROACHDB_URL_DEFAULT.to_string())
 }
 
 fn unique_table(prefix: &str) -> String {
@@ -174,11 +172,10 @@ async fn cockroachdb_join_subquery_compatibility() {
             "SELECT c.name, SUM(o.amount) FROM {} c JOIN {} o ON c.id = o.customer_id GROUP BY c.name ORDER BY c.name",
             customers, orders
         );
-        let rows: Vec<(String, rust_decimal::Decimal)> =
-            sqlx::query_as(sqlx::AssertSqlSafe(&*sql))
-                .fetch_all(&mut *conn)
-                .await
-                .unwrap();
+        let rows: Vec<(String, rust_decimal::Decimal)> = sqlx::query_as(sqlx::AssertSqlSafe(&*sql))
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].0, "alice");
         assert_eq!(rows[1].0, "bob");
@@ -278,7 +275,10 @@ async fn cockroachdb_index_view_compatibility() {
             .execute(&mut *conn)
             .await
             .unwrap();
-        let sql = format!("CREATE INDEX idx_{}_category ON {} (category)", table, table);
+        let sql = format!(
+            "CREATE INDEX idx_{}_category ON {} (category)",
+            table, table
+        );
         sqlx::query(sqlx::AssertSqlSafe(&*sql))
             .execute(&mut *conn)
             .await
@@ -304,11 +304,10 @@ async fn cockroachdb_index_view_compatibility() {
     {
         let mut conn = pool_handle.pool().acquire().await.unwrap();
         let sql = format!("SELECT * FROM {} ORDER BY category", view);
-        let rows: Vec<(String, rust_decimal::Decimal)> =
-            sqlx::query_as(sqlx::AssertSqlSafe(&*sql))
-                .fetch_all(&mut *conn)
-                .await
-                .unwrap();
+        let rows: Vec<(String, rust_decimal::Decimal)> = sqlx::query_as(sqlx::AssertSqlSafe(&*sql))
+            .fetch_all(&mut *conn)
+            .await
+            .unwrap();
         assert_eq!(rows.len(), 2);
         assert_eq!(rows[0].0, "a");
         assert_eq!(rows[1].0, "b");

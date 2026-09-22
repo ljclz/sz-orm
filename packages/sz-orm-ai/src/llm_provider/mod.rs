@@ -19,6 +19,22 @@ pub use ollama::LocalLlamaProvider;
 pub use openai::OpenAIProvider;
 pub use router::LlmRouter;
 
+// v8.1.0 组3：模型版本管理
+#[cfg(feature = "ai-model-versioning")]
+pub mod version_canary;
+#[cfg(feature = "ai-model-versioning")]
+pub mod version_registry;
+
+#[cfg(feature = "ai-model-versioning")]
+pub use version_canary::{
+    CanaryError, CanarySwitchResult, DefaultHealthChecker, HealthCheckResult, HealthChecker,
+    ModelVersionCanary,
+};
+#[cfg(feature = "ai-model-versioning")]
+pub use version_registry::{
+    ModelVersionError, ModelVersionId, ModelVersionMeta, ModelVersionRegistry, VersionRegistryEntry,
+};
+
 use async_trait::async_trait;
 use std::time::Duration;
 

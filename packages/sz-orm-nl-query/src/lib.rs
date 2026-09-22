@@ -14,6 +14,10 @@ pub mod insight;
 pub mod llm_generator;
 #[cfg(feature = "nl-query")]
 pub mod pipeline;
+#[cfg(feature = "nl-query")]
+pub use pipeline::NlQueryPipeline;
+#[cfg(feature = "nl-query")]
+pub use types::{NlQueryError, NlQueryResponse, VisualizationSpec};
 #[cfg(feature = "nl2sql-deep")]
 #[allow(missing_docs)]
 pub mod sec_scanner;

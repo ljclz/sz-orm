@@ -219,6 +219,7 @@ impl AbacPolicy {
 }
 
 /// ABAC 策略引擎
+#[derive(Clone)]
 pub struct AbacPolicyEngine {
     policies: Vec<AbacPolicy>,
     default_effect: Effect,

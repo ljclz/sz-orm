@@ -1,8 +1,6 @@
 //! v7.6.0 组3.9：动态分片 + 分布式缓存增强端到端测试
 
-use sz_orm_sharding::enhanced::{
-    DynamicShardAdjuster, Hotspot, HotspotMigrator,
-};
+use sz_orm_sharding::enhanced::{DynamicShardAdjuster, Hotspot, HotspotMigrator};
 
 #[test]
 fn test_e2e_dynamic_shard_scale_up() {

@@ -34,6 +34,7 @@ impl AutonomousActionExecutor {
             AutonomousAction::SlowQueryGovernance => {
                 self.execute_slow_query_governance(params).await
             }
+            AutonomousAction::DegradeNonCore { .. } => self.execute_degrade_non_core(params).await,
         };
         let elapsed = start.elapsed();
         if elapsed > self.timeout {
@@ -112,6 +113,21 @@ impl AutonomousActionExecutor {
         Ok(format!(
             "SlowQueryGovernance executed for query: {}",
             query_id
+        ))
+    }
+
+    async fn execute_degrade_non_core(
+        &self,
+        params: &[(String, String)],
+    ) -> Result<String, AutonomousError> {
+        let features = params
+            .iter()
+            .find(|(k, _)| k == "features")
+            .map(|(_, v)| v.as_str())
+            .unwrap_or("");
+        Ok(format!(
+            "DegradeNonCore executed, degraded features: {}",
+            features
         ))
     }
 }

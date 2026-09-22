@@ -37,6 +37,9 @@ pub mod canary_release;
 #[cfg(feature = "auto-rollback")]
 pub mod auto_rollback;
 
+#[cfg(feature = "evolution-safety-net")]
+pub mod safety_net;
+
 pub use advanced::*;
 pub use error::MigError;
 pub use migrator::*;

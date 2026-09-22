@@ -18,6 +18,10 @@ mod repository;
 mod transaction;
 mod types;
 
+// v8.0.0 组 6：Python 异步流绑定（binding-async-stream feature gate）
+#[cfg(feature = "binding-async-stream")]
+pub mod async_stream;
+
 #[pymodule]
 fn sz_orm(_py: Python, m: &PyModule) -> PyResult<()> {
     m.add_class::<model::PyModel>()?;

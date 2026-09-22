@@ -13,6 +13,9 @@ pub mod rule_engine;
 pub mod ttl_cleanup;
 pub mod types;
 
+#[cfg(feature = "cross-storage-lifecycle")]
+pub mod cross_storage;
+
 pub use access_pattern_collector::AccessPatternCollector;
 pub use archive_executor::ArchiveExecutor;
 pub use archive_query_proxy::ArchiveQueryProxy;

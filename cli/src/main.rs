@@ -2465,6 +2465,8 @@ fn cmd_query_logging(_args: &[&str]) -> Result<(), String> {
         slow: false,
         from_cache: false,
         timestamp: chrono::Utc::now().to_rfc3339(),
+        trace_id: None,
+        span_id: None,
     };
     logger.log(entry);
     println!("query-logging: QueryLogger 已初始化并记录测试查询");

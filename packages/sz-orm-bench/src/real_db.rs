@@ -270,6 +270,19 @@ impl SzOrmWorkload {
                     .await
                     .map_err(|e| BenchError::QueryFailed(format!("sz-orm query failed: {e:?}")))?;
             }
+            WorkloadType::SimdCompare => {
+                let sql = "SELECT id FROM bench_users WHERE id >= ? AND id < ? ORDER BY id";
+                let params = [Value::I32(1), Value::I32(51)];
+                let rows = conn
+                    .query_with_params(sql, &params)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(format!("sz-orm query failed: {e:?}")))?;
+                if rows.len() < 1 {
+                    return Err(BenchError::QueryFailed(
+                        "SimdCompare: expected >= 1 row".into(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -428,6 +441,15 @@ impl SqlxWorkload {
                         .await
                         .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
             }
+            WorkloadType::SimdCompare => {
+                let _ =
+                    sqlx::query("SELECT id FROM bench_users WHERE id >= ? AND id < ? ORDER BY id")
+                        .bind(1_i64)
+                        .bind(51_i64)
+                        .fetch_all(pool)
+                        .await
+                        .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
         }
         Ok(())
     }
@@ -503,6 +525,15 @@ impl SqlxWorkload {
                     sqlx::query("SELECT id, name, email, created_at FROM bench_users WHERE id = ?")
                         .bind(1_i64)
                         .fetch_one(pool)
+                        .await
+                        .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::SimdCompare => {
+                let _ =
+                    sqlx::query("SELECT id FROM bench_users WHERE id >= ? AND id < ? ORDER BY id")
+                        .bind(1_i64)
+                        .bind(51_i64)
+                        .fetch_all(pool)
                         .await
                         .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
             }
@@ -584,6 +615,16 @@ impl SqlxWorkload {
                 )
                 .bind(1_i64)
                 .fetch_one(pool)
+                .await
+                .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::SimdCompare => {
+                let _ = sqlx::query(
+                    "SELECT id FROM bench_users WHERE id >= $1 AND id < $2 ORDER BY id",
+                )
+                .bind(1_i64)
+                .bind(51_i64)
+                .fetch_all(pool)
                 .await
                 .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
             }
@@ -704,6 +745,18 @@ impl SeaOrmWorkload {
                     self.conn.get_database_backend(),
                     "SELECT id, name, email, created_at FROM bench_users WHERE id = ?",
                     [1_i32.into()],
+                );
+                let _ = self
+                    .conn
+                    .query_all(stmt)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::SimdCompare => {
+                let stmt = sea_orm::Statement::from_sql_and_values(
+                    self.conn.get_database_backend(),
+                    "SELECT id FROM bench_users WHERE id >= ? AND id < ? ORDER BY id",
+                    [1_i32.into(), 51_i32.into()],
                 );
                 let _ = self
                     .conn

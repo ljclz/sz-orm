@@ -10,6 +10,7 @@
 
 use sqlx::Row;
 
+#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;
@@ -332,4 +333,178 @@ async fn test_schema_isolation_router() {
         rewritten,
         vec!["tenant_3_users".to_string(), "tenant_3_orders".to_string()]
     );
+}
+// ==================== v8.3.0: 多租户 e2e（3 数据库） ====================
+
+use common::e2e_env::{e2e_mysql_pool, e2e_pg_pool, E2eMysqlDb};
+
+#[tokio::test]
+async fn test_e2e_mysql_tenant_isolation() {
+    let pool = match e2e_mysql_pool(E2eMysqlDb::Test).await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_tenant_mysql");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE `{}` (id BIGINT AUTO_INCREMENT PRIMARY KEY, tenant_id INT, name VARCHAR(255))",
+            table
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    for (tenant, name) in [(1, "Alice"), (2, "Bob"), (1, "Charlie"), (2, "Dave")] {
+        sqlx::query(sqlx::AssertSqlSafe(
+            format!("INSERT INTO `{}` (tenant_id, name) VALUES (?, ?)", table).as_str(),
+        ))
+        .bind(tenant)
+        .bind(name)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let rows: Vec<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!(
+            "SELECT name FROM `{}` WHERE tenant_id = ? ORDER BY name",
+            table
+        )
+        .as_str(),
+    ))
+    .bind(1i32)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, "Alice");
+    assert_eq!(rows[1].0, "Charlie");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{}`", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_pg_tenant_isolation() {
+    let pool = match e2e_pg_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_tenant_pg");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE \"{}\" (id BIGSERIAL PRIMARY KEY, tenant_id INT, name TEXT)",
+            table
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    for (tenant, name) in [(1, "Alice"), (2, "Bob"), (1, "Charlie"), (2, "Dave")] {
+        sqlx::query(sqlx::AssertSqlSafe(
+            format!(
+                "INSERT INTO \"{}\" (tenant_id, name) VALUES ($1, $2)",
+                table
+            )
+            .as_str(),
+        ))
+        .bind(tenant)
+        .bind(name)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+
+    let rows: Vec<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!(
+            "SELECT name FROM \"{}\" WHERE tenant_id = $1 ORDER BY name",
+            table
+        )
+        .as_str(),
+    ))
+    .bind(2i32)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, "Bob");
+    assert_eq!(rows[1].0, "Dave");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE \"{}\"", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+// ==================== v8.4.0: Oracle 多租户隔离 ====================
+
+#[tokio::test]
+async fn test_e2e_oracle_tenant_isolation() {
+    let conn = match common::e2e_env::e2e_oracle_conn() {
+        Some(c) => c,
+        None => return,
+    };
+    let table = unique_table_name("e2e_mt_ora");
+    let table_lower = table.to_lowercase();
+
+    conn.execute(
+        &format!(
+            "CREATE TABLE \"{}\" (id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, tenant_id NUMBER, data VARCHAR2(255))",
+            table_lower
+        ),
+        &[],
+    )
+    .unwrap();
+
+    for tenant_id in 1..=2i64 {
+        for i in 1..=3 {
+            conn.execute(
+                &format!(
+                    "INSERT INTO \"{}\" (tenant_id, data) VALUES (:1, :2)",
+                    table_lower
+                ),
+                &[&tenant_id, &format!("tenant{}_data{}", tenant_id, i)],
+            )
+            .unwrap();
+        }
+    }
+    conn.commit().unwrap();
+
+    let rows = conn
+        .query(
+            &format!(
+                "SELECT data FROM \"{}\" WHERE tenant_id = :1 ORDER BY id",
+                table_lower
+            ),
+            &[&1i64],
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 3);
+
+    let rows = conn
+        .query(
+            &format!(
+                "SELECT data FROM \"{}\" WHERE tenant_id = :1 ORDER BY id",
+                table_lower
+            ),
+            &[&2i64],
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 3);
+
+    conn.execute(&format!("DROP TABLE \"{}\"", table_lower), &[])
+        .unwrap();
 }

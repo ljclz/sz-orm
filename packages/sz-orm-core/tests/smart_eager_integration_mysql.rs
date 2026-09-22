@@ -3,6 +3,7 @@
 //! 验证 SmartEagerLoader 与手动 EagerLoader 在 MySQL 下结果集等价。
 //! 需真实 MySQL 服务，标注 #[ignore]，通过 `cargo test -- --ignored` 触发。
 
+#[allow(dead_code)]
 mod common;
 
 use common::equivalence;

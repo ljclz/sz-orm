@@ -137,3 +137,27 @@ pub use region_failover::{
     AutoRecoverCoordinator, DetectionDimension, FailoverEnhancedResult, FailoverEnhancer,
     RecoverResult,
 };
+// v8.0.0 组4：双向同步（HLC + BiDirectionalSyncCoordinator）
+#[cfg(feature = "dist-sync-bi")]
+pub mod bi_sync;
+#[cfg(feature = "dist-sync-bi")]
+pub use bi_sync::{
+    BiDirectionalSyncCoordinator, BiSyncConfig, BiSyncResult, ConflictStrategy, DistEnhanceError,
+    DistError as BiSyncDistError, HlcClock, HlcConfig, HlcTimestamp,
+};
+// v8.1.0 组4：脑裂恢复器（split-brain-detect feature gate）
+#[cfg(feature = "split-brain-detect")]
+pub mod split_brain_recovery;
+#[cfg(feature = "split-brain-detect")]
+pub use split_brain_recovery::{
+    DistError as SplitBrainRecoveryDistError, PartitionData, RecoveryResult, SplitBrainRecovery,
+};
+
+// v8.1.0 组4：跨区域复制配置（cross-region-replicate feature gate）
+#[cfg(feature = "cross-region-replicate")]
+pub mod cross_region_replicate_config;
+#[cfg(feature = "cross-region-replicate")]
+pub use cross_region_replicate_config::{
+    CrossRegionReplicateConfig, DistError as CrossRegionReplicateDistError, ReplicateMode,
+    ReplicateTopology,
+};

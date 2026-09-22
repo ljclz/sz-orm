@@ -38,6 +38,7 @@
 
 #![cfg(test)]
 
+#[allow(dead_code)]
 mod common;
 
 use common::soak::{parse_duration_from_args, record_latency, SoakMonitor, SoakRegression};

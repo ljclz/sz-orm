@@ -49,6 +49,23 @@ pub mod cross_lang;
 #[cfg(feature = "dist-coordination")]
 pub mod coordination;
 
+// v8.0.0 组4：Saga 跨服务编排器
+#[cfg(feature = "dtx-saga-coordinator")]
+pub mod saga_coordinator;
+
+// v8.1.0 组4：一致性级别配置（consistency-tunable feature gate）
+#[cfg(feature = "consistency-tunable")]
+pub mod consistency_level_config;
+#[cfg(feature = "consistency-tunable")]
+pub use consistency_level_config::{
+    ConfigGranularity, ConsistencyLevel, ConsistencyLevelConfig, DistError as ConsistencyDistError,
+};
+#[cfg(feature = "dtx-saga-coordinator")]
+pub use saga_coordinator::{
+    AuthContext, CrossServiceSagaDef, DistError as SagaDistError, ParallelGroup, SagaCoordConfig,
+    SagaCoordResult, SagaCoordinator, SagaStepDef, TraceSpan,
+};
+
 // ============================================================================
 // TransactionLogStore — 事务日志持久化（用于崩溃恢复）
 // ============================================================================

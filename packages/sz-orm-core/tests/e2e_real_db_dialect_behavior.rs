@@ -6,6 +6,7 @@
 
 use sqlx::Row;
 
+#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;
@@ -368,6 +369,165 @@ async fn test_pg_identifier_quote() {
 
     sqlx::query(sqlx::AssertSqlSafe(
         (format!("DROP TABLE \"{}\"", table)).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+// ==================== v8.3.0: 方言行为 e2e（Oracle + UPSERT） ====================
+
+use common::e2e_env::{e2e_mysql_pool, e2e_oracle_conn, e2e_pg_pool, E2eMysqlDb};
+
+#[tokio::test]
+async fn test_e2e_oracle_dialect_identifier() {
+    let conn = match e2e_oracle_conn() {
+        Some(c) => c,
+        None => return,
+    };
+    let table = unique_table_name("e2e_dia_ora");
+    let table_lower = table.to_lowercase();
+    conn.execute(
+        &format!(
+            "CREATE TABLE \"{}\" (id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, \"userName\" VARCHAR2(255))",
+            table_lower
+        ),
+        &[],
+    )
+    .unwrap();
+    conn.execute(
+        &format!("INSERT INTO \"{}\" (\"userName\") VALUES (:1)", table_lower),
+        &[&"Alice"],
+    )
+    .unwrap();
+    conn.commit().unwrap();
+
+    let rows = conn
+        .query(
+            &format!("SELECT \"userName\" FROM \"{}\"", table_lower),
+            &[],
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    let name: String = rows[0].get(0).unwrap();
+    assert_eq!(name, "Alice");
+
+    conn.execute(&format!("DROP TABLE \"{}\"", table_lower), &[])
+        .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_mysql_dialect_upsert() {
+    let pool = match e2e_mysql_pool(E2eMysqlDb::Test).await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_upsert_mysql");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE `{}` (id INT PRIMARY KEY, name VARCHAR(255))",
+            table
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "INSERT INTO `{}` (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)",
+            table
+        )
+        .as_str(),
+    ))
+    .bind(1i32)
+    .bind("Alice")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "INSERT INTO `{}` (id, name) VALUES (?, ?) ON DUPLICATE KEY UPDATE name = VALUES(name)",
+            table
+        )
+        .as_str(),
+    ))
+    .bind(1i32)
+    .bind("Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let row: (String,) = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!("SELECT name FROM `{}` WHERE id = ?", table).as_str(),
+    ))
+    .bind(1i32)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, "Bob");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{}`", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_pg_dialect_upsert() {
+    let pool = match e2e_pg_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_upsert_pg");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("CREATE TABLE \"{}\" (id INT PRIMARY KEY, name TEXT)", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "INSERT INTO \"{}\" (id, name) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name",
+            table
+        )
+        .as_str(),
+    ))
+    .bind(1i32)
+    .bind("Alice")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "INSERT INTO \"{}\" (id, name) VALUES ($1, $2) ON CONFLICT (id) DO UPDATE SET name = EXCLUDED.name",
+            table
+        )
+        .as_str(),
+    ))
+    .bind(1i32)
+    .bind("Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let row: (String,) = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!("SELECT name FROM \"{}\" WHERE id = $1", table).as_str(),
+    ))
+    .bind(1i32)
+    .fetch_one(&pool)
+    .await
+    .unwrap();
+    assert_eq!(row.0, "Bob");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE \"{}\"", table).as_str(),
     ))
     .execute(&pool)
     .await

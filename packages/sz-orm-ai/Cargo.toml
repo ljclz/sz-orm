@@ -56,8 +56,21 @@ ai-auto-remediation = ["ai-autonomous-loop"]
 ai-auto-scaling = ["ai-autonomous-loop"]
 # v7.8.0 AI 自治自动调参执行
 ai-auto-tuning-exec = ["ai-autonomous-loop"]
+# v7.9.0 AI 自治闭环生产化：决策可解释性 + A/B 测试 + 冲突仲裁 + 回放
+autonomous-xai = ["ai-autonomous-loop"]
+# v7.9.0 A/B 测试编排（依赖 autonomous-xai）
+autonomous-ab-test = ["autonomous-xai"]
+# v8.0.0 AI 能力深化聚合
+ai-deep = ["ai-nl-rewrite", "ai-schema-design", "ai-anomaly-predict"]
+ai-nl-rewrite = ["dep:sz-orm-audit", "dep:sz-orm-masking", "sz-orm-masking/dynamic-masking", "llm-optimizer"]
+ai-schema-design = ["dep:sz-orm-audit", "dep:sz-orm-masking", "sz-orm-masking/dynamic-masking", "dep:sz-orm-ai-designer", "sz-orm-ai-designer/ai-schema-design", "ai-index-advisor"]
+ai-anomaly-predict = ["dep:sz-orm-audit", "dep:sz-orm-masking", "sz-orm-masking/dynamic-masking", "dep:sz-orm-anomaly", "sz-orm-anomaly/anomaly-predict"]
 
 
+ai-autonomous = ["ai-closed-loop", "ai-ab-testing", "ai-model-versioning"]
+ai-closed-loop = ["ai-autonomous-loop"]
+ai-ab-testing = ["autonomous-xai"]
+ai-model-versioning = ["multi-llm"]
 [package.metadata.cargo-machete]
 ignored = ['base64']
 [dependencies]
@@ -75,20 +88,26 @@ tracing = { workspace = true, optional = true }
 # 锁毒化修复：使用 parking_lot 替代 std::sync，消除 .write().unwrap() panic 风险
 parking_lot.workspace = true
 # v3.2.0：查询计划缓存（plan-cache feature，可选依赖）
-sz-orm-core = { version = "7.1.0", path = "../sz-orm-core", optional = true }
+sz-orm-core = { version = "8.2.0", path = "../sz-orm-core", optional = true }
 # v3.3.0 M4：SQL 解析（索引建议 + 重写建议，optional）
 sqlparser = { workspace = true, optional = true }
 # v5.1.0 P2：图谱查询集成（ai-native-query feature）
-sz-orm-graph = { version = "7.1.0", path = "../sz-orm-graph", optional = true }
+sz-orm-graph = { version = "8.2.0", path = "../sz-orm-graph", optional = true }
 # v7.8.0 AI 自治闭环依赖
-sz-orm-anomaly = { version = "7.1.0", path = "../sz-orm-anomaly", optional = true }
-sz-orm-health = { version = "7.1.0", path = "../sz-orm-health", optional = true }
-sz-orm-adaptive = { version = "7.1.0", path = "../sz-orm-adaptive", optional = true }
-sz-orm-explain = { version = "7.1.0", path = "../sz-orm-explain", optional = true }
-sz-orm-audit = { version = "7.1.0", path = "../sz-orm-audit", optional = true }
+sz-orm-anomaly = { version = "8.2.0", path = "../sz-orm-anomaly", optional = true }
+sz-orm-health = { version = "8.2.0", path = "../sz-orm-health", optional = true }
+sz-orm-adaptive = { version = "8.2.0", path = "../sz-orm-adaptive", optional = true }
+sz-orm-explain = { version = "8.2.0", path = "../sz-orm-explain", optional = true }
+sz-orm-audit = { version = "8.2.0", path = "../sz-orm-audit", optional = true }
+# v8.0.0 AI 能力深化依赖
+sz-orm-masking = { version = "8.2.0", path = "../sz-orm-masking", optional = true }
+sz-orm-ai-designer = { version = "8.2.0", path = "../sz-orm-ai-designer", optional = true }
+
+
 
 [dev-dependencies]
 tokio-test = "0.4"
+
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "sqlite", "chrono", "json"] }
 # v7.8.0 跨模块联动 e2e 测试
 sz-orm-observability = { path = "../sz-orm-observability", features = ["slo-automation"] }
@@ -267,6 +286,55 @@ required-features = ["ai-nl2sql-deepen"]
 name = "e2e_autonomous_slo"
 path = "tests/e2e_autonomous_slo.rs"
 required-features = ["ai-autonomous-loop"]
+
+# v7.9.0 AI 自治闭环生产化端到端接线测试
+[[test]]
+name = "xai_wiring"
+path = "tests/xai_wiring.rs"
+required-features = ["autonomous-ab-test"]
+
+# v8.0.0 AI 能力深化端到端接线测试
+[[test]]
+name = "ai_deep_wiring"
+path = "tests/ai_deep_wiring.rs"
+required-features = ["ai-deep"]
+
+# v7.8.0 跨模块联动 e2e 测试（需 ai-autonomous-loop feature）
+[[test]]
+name = "e2e_circuit_break"
+path = "tests/e2e_circuit_break.rs"
+required-features = ["ai-autonomous-loop"]
+
+[[test]]
+name = "e2e_audit_unavailable"
+path = "tests/e2e_audit_unavailable.rs"
+required-features = ["ai-autonomous-loop"]
+
+[[test]]
+name = "e2e_action_rollback"
+path = "tests/e2e_action_rollback.rs"
+required-features = ["ai-autonomous-loop"]
+
+[[test]]
+name = "e2e_llm_degrade"
+path = "tests/e2e_llm_degrade.rs"
+required-features = ["ai-autonomous-loop"]
+
+[[test]]
+name = "e2e_idempotency"
+path = "tests/e2e_idempotency.rs"
+required-features = ["ai-autonomous-loop"]
+
+[[test]]
+name = "e2e_autonomous_loop"
+path = "tests/e2e_autonomous_loop.rs"
+required-features = ["ai-autonomous-loop"]
+
+# v8.1.0 组3：AI 闭环自治生产化端到端接线测试
+[[test]]
+name = "ai_autonomous_wiring"
+path = "tests/ai_autonomous_wiring.rs"
+required-features = ["ai-autonomous"]
 
 [lints]
 workspace = true

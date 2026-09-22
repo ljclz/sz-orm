@@ -31,6 +31,7 @@
 #![cfg(test)]
 
 #[path = "common/mod.rs"]
+#[allow(dead_code)]
 mod common;
 
 #[path = "contracts/cache_contract.rs"]

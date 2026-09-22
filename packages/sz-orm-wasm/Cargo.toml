@@ -31,8 +31,8 @@ tokio-tungstenite = { version = "0.24", optional = true }
 rmp-serde = { version = "1.3", optional = true }
 chrono = { workspace = true, optional = true }
 # v4.8.0 REQ-V48-004：WASM 真实数据库连接闭环（代理后端连接池 + 查询构建器桥接）
-sz-orm-core = { version = "7.1.0", path = "../sz-orm-core", optional = true }
-sz-orm-query-builder = { version = "7.1.0", path = "../sz-orm-query-builder", optional = true }
+sz-orm-core = { version = "8.2.0", path = "../sz-orm-core", optional = true }
+sz-orm-query-builder = { version = "8.2.0", path = "../sz-orm-query-builder", optional = true }
 tokio = { version = "1.40", features = ["rt", "net"], optional = true }
 
 [features]
@@ -45,7 +45,10 @@ wasm-real-db = ["dep:reqwest", "dep:tokio-tungstenite", "dep:rmp-serde", "dep:th
 wasi-socket = ["wasm-real-db"]
 # v7.6.0：WASI 支持验证 + WASM 性能优化
 wasi-support = []
+# v8.0.0：K8s sidecar 适配器
+cloudnative-sidecar = ["wasi-support"]
 
+cloudnative-template = ["cloudnative-sidecar"]
 [dev-dependencies]
 wasm-bindgen-test = "0.2"
 async-trait = "0.1"

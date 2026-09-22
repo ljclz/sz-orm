@@ -4,6 +4,7 @@
 
 #![cfg(feature = "e2e-real-db")]
 
+#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;
@@ -185,4 +186,171 @@ async fn test_sqlite_soft_delete() {
         .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].0, "Bob");
+}
+// ==================== v8.3.0: 软删除 e2e（3 数据库） ====================
+
+use common::e2e_env::{e2e_mysql_pool, e2e_oracle_conn, e2e_pg_pool, E2eMysqlDb};
+
+#[tokio::test]
+async fn test_e2e_mysql_soft_delete_full() {
+    let pool = match e2e_mysql_pool(E2eMysqlDb::Test).await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_sd_mysql");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE `{}` (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255), deleted_at TIMESTAMP NULL)",
+            table
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{}` (name) VALUES (?), (?)", table).as_str(),
+    ))
+    .bind("Alice")
+    .bind("Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("UPDATE `{}` SET deleted_at = NOW() WHERE name = ?", table).as_str(),
+    ))
+    .bind("Alice")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows: Vec<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!(
+            "SELECT name FROM `{}` WHERE deleted_at IS NULL ORDER BY name",
+            table
+        )
+        .as_str(),
+    ))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "Bob");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{}`", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_pg_soft_delete_full() {
+    let pool = match e2e_pg_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+    let table = unique_table_name("e2e_sd_pg");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE \"{}\" (id BIGSERIAL PRIMARY KEY, name TEXT, deleted_at TIMESTAMP NULL)",
+            table
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO \"{}\" (name) VALUES ($1), ($2)", table).as_str(),
+    ))
+    .bind("Alice")
+    .bind("Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "UPDATE \"{}\" SET deleted_at = NOW() WHERE name = $1",
+            table
+        )
+        .as_str(),
+    ))
+    .bind("Alice")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows: Vec<(String,)> = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!(
+            "SELECT name FROM \"{}\" WHERE deleted_at IS NULL ORDER BY name",
+            table
+        )
+        .as_str(),
+    ))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].0, "Bob");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE \"{}\"", table).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_oracle_soft_delete_full() {
+    let conn = match e2e_oracle_conn() {
+        Some(c) => c,
+        None => return,
+    };
+    let table = unique_table_name("e2e_sd_ora");
+    let table_lower = table.to_lowercase();
+    conn.execute(
+        &format!(
+            "CREATE TABLE \"{}\" (id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name VARCHAR2(255), deleted_at TIMESTAMP NULL)",
+            table_lower
+        ),
+        &[],
+    )
+    .unwrap();
+    conn.execute(
+        &format!("INSERT INTO \"{}\" (name) VALUES (:1)", table_lower),
+        &[&"Alice"],
+    )
+    .unwrap();
+    conn.commit().unwrap();
+
+    conn.execute(
+        &format!(
+            "UPDATE \"{}\" SET deleted_at = SYSTIMESTAMP WHERE name = :1",
+            table_lower
+        ),
+        &[&"Alice"],
+    )
+    .unwrap();
+    conn.commit().unwrap();
+
+    let rows = conn
+        .query(
+            &format!(
+                "SELECT name FROM \"{}\" WHERE deleted_at IS NULL",
+                table_lower
+            ),
+            &[],
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 0);
+
+    conn.execute(&format!("DROP TABLE \"{}\"", table_lower), &[])
+        .unwrap();
 }

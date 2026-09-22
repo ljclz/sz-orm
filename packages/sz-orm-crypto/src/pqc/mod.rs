@@ -14,6 +14,9 @@ pub mod degradation_manager;
 
 pub mod migration_assessor;
 
+#[cfg(feature = "pqc-migration-exec")]
+pub mod exec;
+
 pub use whitelist::{PqcAlgorithm, PqcAlgorithmWhitelist};
 
 #[cfg(feature = "pqc-hybrid-kex")]
@@ -23,6 +26,15 @@ pub use hybrid_kex::{HybridKeyExchange, HybridSessionKey};
 pub use degradation_manager::PqcDegradationManager;
 
 pub use migration_assessor::{CryptoScenario, PqcMigrationAssessor, PqcMigrationReport};
+
+#[cfg(feature = "pqc-migration-exec")]
+pub use exec::{
+    AgilityAuditLog, AlgorithmAgilitySwitcher, PerformanceBaselineTracker, PerformanceReport,
+    PqcExecError, PqcMigrationExecutor, SceneMetrics,
+};
+
+#[cfg(feature = "pqc-key-rotation")]
+pub use exec::{KeyRotationManager, RotationRecord, RotationStatus};
 
 /// PQC 错误类型
 #[derive(Debug, thiserror::Error)]

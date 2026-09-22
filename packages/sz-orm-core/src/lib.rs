@@ -676,6 +676,29 @@ pub mod olap;
 #[allow(missing_docs)]
 pub mod executor_passes;
 
+// v8.0.0 组4：强一致缓存（dist-cache-coherent feature gate）
+#[cfg(feature = "dist-cache-coherent")]
+#[allow(missing_docs)]
+pub mod cache_coherent;
+#[cfg(feature = "dist-cache-coherent")]
+pub use cache_coherent::{
+    DistError as CacheDistError, StrongConsistencyCache, StrongConsistencyConfig,
+};
+
+// v8.0.0 组 6：插件市场与沙箱（plugin-marketplace feature gate）
+#[cfg(feature = "plugin-marketplace")]
+pub mod plugin_marketplace;
+
+// v8.1.0 组 6：SDK 自动生成管线（sdk-auto-gen feature gate）
+// 注：proc-macro crate 不允许 pub mod，故实现在 sz-orm-core 中
+#[cfg(feature = "sdk-auto-gen")]
+pub mod sdk_auto_gen;
+
+// v8.0.0 组 2：性能极致优化（perf-extreme feature gate）
+#[cfg(feature = "perf-extreme")]
+#[allow(missing_docs)]
+pub mod perf_extreme;
+
 // Re-export proc macros
 pub use queryable::Query;
 pub use queryable::QueryAs;

@@ -2,6 +2,7 @@
 //!
 //! 需真实 Oracle 23ai Free 服务，标注 #[ignore]。
 
+#[allow(dead_code)]
 mod common;
 
 use common::equivalence;

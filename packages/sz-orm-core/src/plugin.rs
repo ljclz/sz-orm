@@ -84,6 +84,14 @@ pub enum PluginError {
     RegistrationFailed(String),
     /// 中间件链过长
     ChainTooLong(String),
+    /// 签名验证失败（v8.1.0 组 6：插件市场运营）
+    SignatureInvalid(String),
+    /// 审核不通过（v8.1.0 组 6：插件市场运营）
+    ReviewRejected(String),
+    /// 计费篡改（v8.1.0 组 6：插件计费引擎）
+    BillingTampered(String),
+    /// 计费失败（v8.1.0 组 6：插件计费引擎）
+    BillingFailed(String),
 }
 
 impl std::fmt::Display for PluginError {
@@ -93,6 +101,16 @@ impl std::fmt::Display for PluginError {
             PluginError::ExecutionFailed(msg) => write!(f, "Execution failed: {}", msg),
             PluginError::RegistrationFailed(msg) => write!(f, "Registration failed: {}", msg),
             PluginError::ChainTooLong(msg) => write!(f, "Chain too long: {}", msg),
+            PluginError::SignatureInvalid(msg) => {
+                write!(f, "[PLUGIN_REVIEW_REJECTED] 签名验证失败: {}", msg)
+            }
+            PluginError::ReviewRejected(msg) => {
+                write!(f, "[PLUGIN_REVIEW_REJECTED] 审核不通过: {}", msg)
+            }
+            PluginError::BillingTampered(msg) => {
+                write!(f, "[BILLING_TAMPERED] 计费篡改: {}", msg)
+            }
+            PluginError::BillingFailed(msg) => write!(f, "[BILLING_FAILED] 计费失败: {}", msg),
         }
     }
 }

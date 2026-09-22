@@ -5,6 +5,233 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [8.2.0] — 2026-09-22
+
+### v8.2.0 稳定性与债务清理：覆盖率提升 / 变异测试杀率提升 / 文档一致性修正 / 技术债清理 / 下游兼容验证
+
+基于 v8.1.0 基线，聚焦质量加固，不新增 crate（保持 72 包）、不新增 feature gate（复用 v8.1.0 既有 29 个）、不引入新依赖、不新增生产组件。五大方向：
+
+#### 方向 1 — 覆盖率提升
+
+- 66 个组件（v8.0.0 新增 33 + v8.1.0 新增 33）行覆盖率 ≥80%、分支覆盖率 ≥70%
+- 门禁阈值 60%→80%（行）+ 新增 70%（分支），模块 4→66
+- check-coverage.py 扩展：新增 --branch-threshold 参数 + DEFAULT_MODULES 扩展到 70 个组件
+- ADR-002：分批测量策略（按 feature gate 分组，单批 ≤10min）
+
+#### 方向 2 — 变异测试杀率提升
+
+- 关键模块杀率 ≥85%，门禁阈值 70%→85%，模块 2→关键模块全集（10 个）
+- check-mutation-coverage.py 扩展：DEFAULT_FILES 扩展到 10 个关键模块
+- ADR-003：关键模块子集策略 + ADR-004：git checkout 恢复源码
+
+#### 方向 3 — 文档一致性修正
+
+- check-doc-consistency/sync/metrics 全通过
+- 版本号 8.1.0→8.2.0
+- Python 门禁脚本 Windows 中文环境编码兼容（encoding="utf-8"）
+
+#### 方向 4 — 技术债清理
+
+- bloom_filter 4 文件合并为单一实现（ADR-005）
+- crate 级 allow(dead_code) 2 处清理（ADR-007）
+- deprecated 10 处下游引用评估（ADR-006）
+- check-architecture.py bloom 豁免登记移除
+
+#### 方向 5 — 下游兼容验证
+
+- sz-pay 8.0.0→8.2.0（含 [patch.crates-io] 更新）
+- new-wxapp/rust 4.7→8.2.0（含 [patch.crates-io] 添加）
+- ADR-008：ADR-0001 合规（严禁修改下游仓库文件）
+
+#### 架构决策记录（ADR）
+
+- ADR-001：不新增 crate，保持 72 包不变
+- ADR-002：覆盖率分批测量（cargo-llvm-cov 耗时过长，按 crate 分批）
+- ADR-003：变异测试关键模块子集（cargo-mutants 耗时过长，选关键模块）
+- ADR-004：变异测试后 git checkout 恢复源码
+- ADR-005：bloom_filter 合并以 bloom.rs 为主实现
+- ADR-006：deprecated 评估以下游引用为准
+- ADR-007：allow(dead_code) 改为逐项属性
+- ADR-008：ADR-0001 合规
+
+#### 门禁验证
+
+- cargo check --workspace --all-targets：通过
+- 占位实现扫描：零真实占位（4 处均为注释/测试字符串）
+- crate 级 allow(dead_code) 扫描：零新增命中
+- 覆盖率门禁：check-coverage.py 扩展后 --threshold 0.8 + --branch-threshold 0.7
+- 变异测试门禁：check-mutation-coverage.py 扩展后 --threshold 0.85
+
+## [8.1.0] — 2026-09-22
+
+### v8.1.0 六大方向：性能基准实测化 / AI 闭环自治生产化 / 分布式共识优化 / 安全合规自动化 / 生态扩展深化 / 可观测性增强
+
+基于 v8.0.0 基线，新增 6 大方向、29 个 feature gate（6 总开关 + 23 子能力）、33 个新增组件、329 个单元测试 + 36 个 e2e 接线测试。不新增 crate（保持 72 包），不引入新依赖，所有新增 feature gate 默认关闭，API 向后兼容。
+
+#### 方向 1 — 性能基准实测化（sz-orm-bench/ + sz-orm-observability/）
+
+- BenchProdDbGuard 生产 DB 守卫 + BenchRepeatabilityGuard 可重复性守卫 + BenchResultExporter 结果导出器 + CiBenchIntegration CI 基准集成 + PerfBudgetAlertEngine 预算告警引擎
+- 4 个 feature gate：perf-bench-real / bench-real-db / perf-regression-ci / perf-budget-alert
+- ADR-003：禁止回退模拟延迟，生产基准必须连真 DB
+- 53 个单元测试 + 3 个 e2e 接线测试
+
+#### 方向 2 — AI 闭环自治生产化（sz-orm-ai/autonomous/ + sz-orm-ai/llm_provider/）
+
+- ClosedLoopScheduler 闭环调度器 + AutonomousTakeover 人工接管 + AutonomousLoopBreakDetector 中断检测器 + AbStatSignificanceEngine A/B 显著性引擎 + ModelVersionRegistry 版本注册表 + ModelVersionCanary 灰度切换
+- 4 个 feature gate：ai-autonomous / ai-closed-loop / ai-ab-testing / ai-model-versioning
+- ADR-004：tokio 调度 + AtomicBool 接管标志
+- 47 个单元测试 + 4 个 e2e 接线测试
+
+#### 方向 3 — 分布式共识优化（sz-orm-dtx/coordination/ + sz-orm-fusion/）
+
+- RaftOptimizeParams Raft 优化参数 + SplitBrainDetector 脑裂检测器 + ConsistencyLevelConfig 一致性级别配置 + SplitBrainRecovery 脑裂恢复器 + CrossRegionReplicateConfig 跨区域复制配置
+- 5 个 feature gate：dist-consensus / raft-optimize / split-brain-detect / consistency-tunable / cross-region-replicate
+- ADR-005：脑裂三重判定（心跳 + 仲裁 + 日志分歧）
+- 41 个单元测试 + 6 个 e2e 接线测试
+
+#### 方向 4 — 安全合规自动化（sz-orm-audit/ + sz-orm-crypto/tde_mgmt/）
+
+- ComplianceScanEngine 合规扫描引擎 + ComplianceScanDesensitizer 扫描脱敏器 + EvidenceAutoArchiveScheduler 证据自动归档调度器 + ComplianceReportAutoGenerator 合规报告自动生成器 + KeyAutoRotateScheduler 密钥自动轮换调度器
+- 5 个 feature gate：sec-auto / compliance-auto-scan / evidence-auto-archive / compliance-report-auto / key-auto-rotate
+- ADR-006：复用证据链，ADR-008：统一脱敏
+- 37 个单元测试 + 4 个 e2e 接线测试
+
+#### 方向 5 — 生态扩展深化（sz-orm-core/plugin_marketplace/ + sz-orm-wasm/sidecar/ + sz-orm-studio/）
+
+- PluginMarketplaceOps 插件市场运营 + PluginBillingEngine 计费引擎 + SdkAutoGenPipeline SDK 自动生成管线 + CloudNativeTemplateGenerator 云原生模板生成器 + DeveloperPortal 开发者门户
+- 5 个 feature gate：eco-deep / plugin-marketplace-ops / sdk-auto-gen / cloudnative-template / developer-portal
+- ADR-007：编译期签名提取
+- 82 个单元测试 + 14 个 e2e 接线测试
+
+#### 方向 6 — 可观测性增强（sz-orm-tracing/ + sz-orm-observability/ + sz-orm-logger/）
+
+- EndToEndTracing 端到端追踪 + UnifiedMetricsCollector 统一指标采集器 + LogAggregator 日志聚合器 + AlertRuleEngine 告警规则引擎 + AlertStormSuppressor 风暴抑制器 + GrafanaDashboardExporter 仪表盘导出器 + ObservabilitySelfHealth 自身健康检查
+- 6 个 feature gate：observability / dist-tracing / metrics-collect / log-aggregate / alert-rules / dashboard-export
+- 69 个单元测试 + 5 个 e2e 接线测试
+
+#### 架构决策记录（ADR）
+
+- ADR-001：不新增 crate，保持 72 包不变
+- ADR-002：两级 feature gate 结构（6 总开关 + 23 子能力），全部默认关闭
+- ADR-003：禁止回退模拟延迟，生产基准必须连真 DB
+- ADR-004：tokio 调度 + AtomicBool 接管标志，避免 Mutex 锁竞争
+- ADR-005：脑裂三重判定（心跳超时 + 仲裁模式 + 日志分歧）
+- ADR-006：复用 v8.0.0 证据链基础设施，不重复实现
+- ADR-007：编译期签名提取，复用 sz-orm-macros 宏基础设施
+- ADR-008：统一脱敏入口，复用 sz-orm-masking 策略引擎
+
+#### 门禁验证
+
+- cargo check --workspace --all-targets：通过（25.49s）
+- cargo clippy --workspace --all-targets -- -D warnings：通过（32.30s，零警告）
+- cargo fmt 逐包检查：13 个修改包全部通过
+- 占位实现扫描：零 todo!/unimplemented!/unreachable!（3 处匹配均为文档注释/测试字符串）
+- crate 级 allow(dead_code) 扫描：零新增命中（2 处既有测试辅助模块）
+- 幻影交付检查：PHANTOM-1 0 个，PHANTOM-2 307 个（警告级，feature gate 未启用），接线断言 4/4
+- 36 个 e2e 接线测试全部通过
+
+## [8.0.0] — 2026-09-21
+
+### v8.0.0 六大方向：性能极致优化 / AI 能力深化 / 分布式增强 / 安全合规深化 / 生态扩展 / 稳定性与债务清理
+
+基于 v7.9.0 基线，新增 6 大方向、22 个 feature gate、43 个源文件、1236 个新增测试（含 22 个跨模块联动 e2e 测试）。不新增 crate（保持 72 包），不引入新依赖，所有新增 feature gate 默认关闭，API 向后兼容。
+
+#### 方向 1 — 性能极致优化（sz-orm-core/perf_extreme/）
+
+- ZeroCopyAcquire 零拷贝连接获取 + BatchAcquireOptimized 批量获取优化 + SimdFullPipeline SIMD 全流水线 + ZeroCopyDeserializer 零拷贝反序列化 + PerfBenchmarkComparator 性能基准对比 + PerfRegressionDetector 性能回归检测
+- 6 个 feature gate：perf-extreme / pool-zero-copy / query-simd / serde-zero-copy / dist-cache-coherent / plugin-marketplace
+- 37 个测试通过（32 单元 + 5 e2e 接线测试）
+
+#### 方向 2 — AI 能力深化（sz-orm-ai/ai_deep/）
+
+- RewriteEquivalenceVerifier 重写等价性验证器 + NlRewritePipeline NL 重写管线 + SchemaDesignAdvisor Schema 设计顾问 + AnomalyPredictionEngine 异常预测引擎
+- 4 个 feature gate：ai-deep / ai-nl-rewrite / ai-schema-design / ai-anomaly-predict
+- 39 个测试通过（35 单元 + 4 e2e 接线测试）
+
+#### 方向 3 — 分布式增强（sz-orm-fusion/bi_sync/ + sz-orm-dtx/saga_coordinator/ + sz-orm-core/cache_coherent/）
+
+- HlcClock HLC 混合逻辑时钟 + BiDirectionalSyncCoordinator 双向同步协调器 + SagaCoordinator Saga 分布式事务编排器 + StrongConsistencyCache 强一致性缓存
+- 3 个 feature gate：dist-enhance / dtx-saga-coordinator / dist-sync-bi
+- 365 个测试通过（361 单元 + 4 e2e 接线测试）
+
+#### 方向 4 — 安全合规深化（sz-orm-crypto/tde_mgmt/ + sz-orm-audit/evidence_chain/ + sz-orm-masking/policy_engine/ + sz-orm-auth/abac_prod/）
+
+- DekRotationManager DEK 轮换管理器 + KmsHaManager KMS 高可用管理器 + ColumnPolicyHotUpdater 列策略热更新器 + ComplianceEvidenceExporter 合规证据导出器 + MaskingPolicyEngine 脱敏策略引擎 + AbacProductionEngine ABAC 生产化引擎
+- 5 个 feature gate：sec-compliance / tde-key-mgmt / audit-evidence-chain / masking-policy-engine / auth-abac
+- 733 个测试通过（728 单元 + 5 e2e 接线测试）
+
+#### 方向 5 — 生态扩展（sz-orm-python/async_stream/ + sz-orm-lsp/enhanced/ + sz-orm-wasm/sidecar/ + sz-orm-core/plugin_marketplace/）
+
+- AsyncStreamBinding 异步流绑定 + LspEnhancedCompletion LSP 增强补全 + K8sSidecarAdapter K8s Sidecar 适配器 + PluginSandbox 插件沙箱 + PluginMarketplaceVerifier 插件市场验证器
+- 4 个 feature gate：eco-extend / binding-async-stream / toolchain-lsp-enhance / cloudnative-sidecar
+- 62 个测试通过（58 单元 + 4 e2e 接线测试）
+
+#### 方向 6 — 稳定性与债务清理
+
+- 覆盖率提升 / 变异测试杀率提升 / 文档一致性修正 / 技术债清理 / 下游兼容验证
+- 占位实现扫描：零 todo!/unimplemented!/unreachable!
+- unsafe 零容忍：新增代码零 unsafe
+- crate 级 allow(dead_code) 扫描：零命中
+
+#### 门禁验证
+
+- cargo check --workspace --all-targets：通过（4m01s）
+- 占位实现扫描：零 todo!/unimplemented!/unreachable!
+- unsafe 扫描：新增代码零 unsafe
+- crate 级 allow(dead_code) 扫描：零命中
+- 22 个 e2e 接线测试全部通过
+
+## [7.9.0] — 2026-09-21
+
+### v7.9.0 六大方向：AI 自治闭环生产化 / 跨存储生命周期编排 / 演进安全网与回滚沙箱 / PQC 迁移执行与密钥轮换 / 碳中和路径规划 / SLO 驱动的自治调度
+
+基于 v7.8.0 基线，新增 6 大方向、12 个 feature gate、46 个任务、185 个新增测试（含 19 个跨模块联动 e2e 测试）。不新增 crate（保持 72 包），不引入新依赖，所有新增 feature gate 默认关闭，API 向后兼容。
+
+#### 方向 1 — AI 自治闭环生产化（sz-orm-ai/autonomous/xai/）
+
+- DecisionExplainer 决策解释器 + DecisionReplayer 决策回放器 + PolicyArbitrator 策略冲突仲裁器 + AbTestOrchestrator A/B 测试编排器
+- 2 个 feature gate：autonomous-xai / autonomous-ab-test
+- 23 个单元测试 + 4 个 e2e 接线测试
+
+#### 方向 2 — 跨存储生命周期编排（sz-orm-governance/lifecycle/cross_storage/）
+
+- StoragePyramid 多级存储金字塔 + CostSimulator 成本模拟器 + ComplianceEvidenceChain 合规证据链 + FederatedQueryRouter 联邦查询路由器
+- 2 个 feature gate：cross-storage-lifecycle / federated-query
+- DataTemperature 扩展为 5 级（Hot/Warm/Cold/Archived/Destroy）
+- 18 个单元测试 + 3 个 e2e 接线测试
+
+#### 方向 3 — 演进安全网与回滚沙箱（sz-orm-mig/safety_net/）
+
+- FreezeWindow 冻结期管理器 + ImpactAnalyzer 影响面分析器 + ShadowTrafficVerifier 影子流量验证器 + RollbackSandbox 回滚沙箱 + EvolutionAuditTimeline 演进审计时间线
+- 3 个 feature gate：evolution-safety-net / shadow-traffic-verify / rollback-sandbox
+- 20 个单元测试 + 5 个 e2e 接线测试
+
+#### 方向 4 — PQC 迁移执行与密钥轮换（sz-orm-crypto/pqc/exec/）
+
+- PqcMigrationExecutor 渐进迁移执行器 + KeyRotationManager 密钥轮换管理器 + PerformanceBaselineTracker 性能基准追踪器 + AlgorithmAgilitySwitcher 算法敏捷性切换器
+- 2 个 feature gate：pqc-migration-exec / pqc-key-rotation
+- 28 个单元测试 + 2 个 e2e 接线测试
+
+#### 方向 5 — 碳中和路径规划（sz-orm-observability/green/carbon/）
+
+- CarbonReductionTarget 碳减排目标管理器 + CarbonOffsetAdvisor 碳抵消建议器 + CarbonNeutralityForecaster 碳中和预测器 + GreenRlOptimizer 绿色调度强化学习器
+- 1 个 feature gate：carbon-neutrality
+- 24 个单元测试 + 2 个 e2e 接线测试
+
+#### 方向 6 — SLO 驱动的自治调度（sz-orm-observability/slo_automation/driven/）
+
+- SloDrivenScaler SLO 驱动扩缩容 + SloDrivenDegrader SLO 驱动降级 + SloDrivenRouter SLO 驱动路由 + SloArbitrator 多 SLO 仲裁器
+- 2 个 feature gate：slo-driven-scheduling / slo-driven-arbitration
+- AutonomousAction 新增 DegradeNonCore 变体
+- 28 个单元测试 + 3 个 e2e 接线测试
+
+#### 门禁验证
+
+- cargo check --workspace --all-targets：通过
+- cargo clippy --workspace --all-targets -- -D warnings：零警告
+- 占位实现扫描：零 todo!/unimplemented!/unreachable!
+- 18 个 e2e 测试全部通过（含 ImpactAnalyzer 影响面分析 e2e 补充）
+
 ## [7.8.0] — 2026-09-20
 
 ### v7.8.0 六大方向：AI 自治闭环 / 数据生命周期管理 / 零停机演进增强 / 量子安全准备 / 绿色计算 / SLI/SLO 自动化

@@ -1106,10 +1106,7 @@ impl DynamicShardAdjuster {
     }
 
     /// 运行时调整分片策略
-    pub fn adjust_runtime(
-        &mut self,
-        new_shard_count: usize,
-    ) -> Result<ShardAdjustResult, String> {
+    pub fn adjust_runtime(&mut self, new_shard_count: usize) -> Result<ShardAdjustResult, String> {
         if new_shard_count == 0 {
             return Err("分片数不能为 0".to_string());
         }

@@ -76,6 +76,9 @@ mod derive_validate;
 #[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
 mod diagnostic;
 
+// v8.1.0 组 6：SDK 自动生成管线实际实现位于 sz-orm-core（proc-macro crate 不允许 pub mod）
+// sz-orm-macros 的 sdk-auto-gen feature 保留为转发标记
+
 // ---- 自定义编译期诊断宏（typed-dsl 或 custom-diagnostic feature 隔离）----
 
 /// `#[type_check]` attribute macro — adds type-check diagnostic hints to a function

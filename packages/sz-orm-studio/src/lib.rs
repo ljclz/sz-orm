@@ -14,3 +14,11 @@ pub mod server;
 
 pub use handlers::{DataStore, EditRequest, RelationInfo, StudioData, TableInfo, TableRow};
 pub use server::{ServerConfig, WebGuiServer};
+// v8.1.0 组 6：开发者门户（developer-portal feature gate）
+#[cfg(feature = "developer-portal")]
+pub mod developer_portal;
+#[cfg(feature = "developer-portal")]
+pub use developer_portal::{
+    DeveloperPortal, EcoError as PortalEcoError, PortalHealthMetrics, PortalPage, PortalRequest,
+    PortalResponse,
+};

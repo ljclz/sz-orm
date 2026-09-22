@@ -20,9 +20,9 @@ thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 # v7.8.0 零停机演进增强依赖
-sz-orm-health = { version = "7.1.0", path = "../sz-orm-health", optional = true }
-sz-orm-fusion = { version = "7.1.0", path = "../sz-orm-fusion", optional = true }
-sz-orm-dtx = { version = "7.1.0", path = "../sz-orm-dtx", optional = true }
+sz-orm-health = { version = "8.2.0", path = "../sz-orm-health", optional = true }
+sz-orm-fusion = { version = "8.2.0", path = "../sz-orm-fusion", optional = true }
+sz-orm-dtx = { version = "8.2.0", path = "../sz-orm-dtx", optional = true }
 parking_lot = { workspace = true, optional = true }
 tracing = { workspace = true, optional = true }
 
@@ -37,6 +37,12 @@ gray-release = ["zero-downtime-evolve"]
 canary-release = ["zero-downtime-evolve"]
 # v7.8.0 自动回滚
 auto-rollback = ["zero-downtime-evolve"]
+# v7.9.0 演进安全网：冻结期 + 影响面分析 + 审计时间线
+evolution-safety-net = ["gray-release"]
+# v7.9.0 影子流量验证（依赖 evolution-safety-net）
+shadow-traffic-verify = ["evolution-safety-net"]
+# v7.9.0 回滚沙箱预演（依赖 evolution-safety-net）
+rollback-sandbox = ["evolution-safety-net"]
 
 [dev-dependencies]
 tokio-test = "0.4"
@@ -89,3 +95,8 @@ required-features = ["gray-release"]
 name = "e2e_progress_tracker"
 path = "tests/e2e_progress_tracker.rs"
 required-features = ["gray-release"]
+# v7.9.0 演进安全网端到端接线测试
+[[test]]
+name = "safety_net_wiring"
+path = "tests/safety_net_wiring.rs"
+required-features = ["rollback-sandbox", "shadow-traffic-verify"]

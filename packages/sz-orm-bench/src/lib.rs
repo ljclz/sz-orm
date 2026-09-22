@@ -26,6 +26,29 @@ pub use real_db::{
 #[cfg(feature = "real-bench-diesel")]
 pub use real_db::DieselWorkload;
 
+// v8.1.0 性能基准实测化模块导出（feature gate 门控）
+#[cfg(feature = "bench-real-db")]
+pub mod prod_db_guard;
+#[cfg(feature = "bench-real-db")]
+pub use prod_db_guard::BenchProdDbGuard;
+
+#[cfg(feature = "bench-real-db")]
+pub mod repeatability_guard;
+#[cfg(feature = "bench-real-db")]
+pub use repeatability_guard::{BenchRepeatabilityGuard, RepeatabilityReport};
+
+#[cfg(feature = "bench-real-db")]
+pub mod result_exporter;
+#[cfg(feature = "bench-real-db")]
+pub use result_exporter::{
+    render_bench_prometheus_metrics, BenchResultExporter, ExportFormat, ExportedBenchRecord,
+};
+
+#[cfg(feature = "perf-regression-ci")]
+pub mod ci_integration;
+#[cfg(feature = "perf-regression-ci")]
+pub use ci_integration::{BenchExecutor, CiBenchDecision, CiBenchIntegration, CiBenchReport};
+
 /// 工作负载类型
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum WorkloadType {
@@ -114,6 +137,78 @@ pub enum BenchError {
     ProductionDatabaseRejected(String),
     #[error("不可比工作负载: {0:?}")]
     IncomparableWorkload(WorkloadType),
+    #[error("生产 DB 被禁止执行基准: {0}")]
+    ProdDbForbidden(String),
+    #[error("基准配置缺失: {0}")]
+    ConfigMissing(String),
+    #[error("基准样本不足: 需要 {required} 次，实际 {actual} 次")]
+    InsufficientSamples { required: usize, actual: usize },
+    #[error("不支持的导出格式: {0}")]
+    UnsupportedFormat(String),
+    #[error("导出路径不可写: {0}")]
+    ExportPathNotWritable(String),
+    #[error("基线缺失: {0}")]
+    BaselineMissing(String),
+    #[error("真实 DB 不可用: {0}")]
+    DbUnavailable(String),
+}
+
+/// 基准 DB 连接配置（v8.1.0 新增，用于 CI 基准集成）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BenchDbConfig {
+    /// 数据库连接串
+    pub connection: String,
+    /// 是否显式标记为生产 DB
+    #[serde(default)]
+    pub is_production: bool,
+    /// 数据库版本（可选，运行时探测）
+    #[serde(default)]
+    pub db_version: Option<String>,
+}
+
+impl BenchDbConfig {
+    /// 创建新的基准 DB 配置
+    pub fn new(connection: impl Into<String>) -> Self {
+        Self {
+            connection: connection.into(),
+            is_production: false,
+            db_version: None,
+        }
+    }
+
+    /// 标记为生产 DB
+    pub fn with_production(mut self, is_prod: bool) -> Self {
+        self.is_production = is_prod;
+        self
+    }
+
+    /// 设置数据库版本
+    pub fn with_db_version(mut self, version: impl Into<String>) -> Self {
+        self.db_version = Some(version.into());
+        self
+    }
+}
+
+/// 基准 workload 定义（v8.1.0 新增，用于 CI 基准集成）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkloadDef {
+    /// 框架类型
+    pub framework: FrameworkType,
+    /// 工作负载类型
+    pub workload: WorkloadType,
+    /// 基准配置
+    pub config: BenchConfig,
+}
+
+impl WorkloadDef {
+    /// 创建新的 workload 定义
+    pub fn new(framework: FrameworkType, workload: WorkloadType, config: BenchConfig) -> Self {
+        Self {
+            framework,
+            workload,
+            config,
+        }
+    }
 }
 
 /// 基准测试配置

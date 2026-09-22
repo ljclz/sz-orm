@@ -14,6 +14,7 @@
 //! - 故障期间事务状态机保持正确（Active → RolledBack）
 //! - 故障恢复后池能正常服务新请求
 
+#[allow(dead_code)]
 mod common;
 
 use async_trait::async_trait;

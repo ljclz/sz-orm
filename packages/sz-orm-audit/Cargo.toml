@@ -30,7 +30,13 @@ cross-node-audit = ["hash-chain-enhanced"]
 end-to-end-lineage = ["data-lineage"]
 # v7.7.0 任务 4.2：合规自动检查
 compliance-auto-check = ["compliance-report"]
+# v8.0.0：合规证据链导出
+audit-evidence-chain = ["hash-chain-enhanced"]
 
+sec-auto = ["compliance-auto-scan", "evidence-auto-archive", "compliance-report-auto"]
+compliance-auto-scan = ["hash-chain-enhanced", "audit-evidence-chain"]
+evidence-auto-archive = ["audit-evidence-chain"]
+compliance-report-auto = ["compliance-auto-scan", "compliance-report"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -41,6 +47,7 @@ sqlparser = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true, features = ["full"] }
+sz-orm-crypto = { path = "../sz-orm-crypto", features = ["key-auto-rotate"] }
 
 [lints]
 workspace = true
@@ -77,4 +84,7 @@ required-features = ["end-to-end-lineage"]
 name = "compliance_auto_check_test"
 required-features = ["compliance-auto-check"]# v7.8.0 幻影交付修复 e2e 测试
 [[test]]
-name = "e2e_autonomous_audit"
+name = "e2e_autonomous_audit"# v8.1.0 安全合规自动化端到端接线测试
+[[test]]
+name = "sec_auto_wiring"
+required-features = ["sec-auto"]

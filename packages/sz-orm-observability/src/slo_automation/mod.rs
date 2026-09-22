@@ -7,6 +7,9 @@ pub mod dashboard;
 pub mod retention_cleaner;
 pub mod types;
 
+#[cfg(feature = "slo-driven-scheduling")]
+pub mod driven;
+
 pub use achievement_calculator::SloAchievementCalculator;
 pub use budget::ErrorBudgetTracker;
 pub use collector::SliCollector;

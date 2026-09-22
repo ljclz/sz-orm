@@ -15,32 +15,32 @@ name = "sz_orm_cli"
 path = "src/lib.rs"
 
 [dependencies]
-sz-orm-core = { version = "7.0.0", path = "../packages/sz-orm-core", features = [
+sz-orm-core = { version = "8.2.0", path = "../packages/sz-orm-core", features = [
     "dist-cache", "l1-cache", "connection-level-tenant",
     "forward-compat-sandbox", "zero-downtime-rollback",
     "tenant-quota-rls-enhanced", "multi-tenant-enhanced",
 ] }
-sz-orm-sql-validator = { version = "7.0.0", path = "../packages/sz-orm-sql-validator" }
-sz-orm-sqlx = { version = "7.0.0", path = "../packages/sz-orm-sqlx" }
-sz-orm-designer = { version = "7.0.0", path = "../packages/sz-orm-designer", optional = true }
-sz-orm-swagger = { version = "7.0.0", path = "../packages/sz-orm-swagger", optional = true }
-sz-orm-n1-lint = { version = "7.0.0", path = "../packages/sz-orm-n1-lint", optional = true }
-sz-orm-observability = { version = "7.0.0", path = "../packages/sz-orm-observability", features = ["anomaly-detection", "anomaly-remediation-rca"] }
-sz-orm-storage = { version = "7.0.0", path = "../packages/sz-orm-storage", features = ["cost-analysis", "multicloud-cost-forecast"] }
-sz-orm-batch = { version = "7.0.0", path = "../packages/sz-orm-batch", features = ["batch-v2", "batch-atomic", "copy-parallel-shard"] }
-sz-orm-queue = { version = "7.0.0", path = "../packages/sz-orm-queue", features = ["dlx-auto-redelivery", "delayed-priority-queue"] }
-sz-orm-dtx = { version = "7.0.0", path = "../packages/sz-orm-dtx", optional = true }
-sz-orm-advisor = { version = "7.0.0", path = "../packages/sz-orm-advisor", optional = true }
-sz-orm-stream = { version = "7.0.0", path = "../packages/sz-orm-stream", optional = true }
-sz-orm-parallel = { version = "7.0.0", path = "../packages/sz-orm-parallel", optional = true }
-sz-orm-flamegraph = { version = "7.0.0", path = "../packages/sz-orm-flamegraph", optional = true }
-sz-orm-ai = { version = "7.0.0", path = "../packages/sz-orm-ai", optional = true }
-sz-orm-vector = { version = "7.0.0", path = "../packages/sz-orm-vector", optional = true }
-sz-orm-back = { version = "7.0.0", path = "../packages/sz-orm-back", optional = true }
-sz-orm-mig = { version = "7.0.0", path = "../packages/sz-orm-mig", optional = true }
-sz-orm-wasm = { version = "7.0.0", path = "../packages/sz-orm-wasm", optional = true }
-sz-orm-config = { version = "7.0.0", path = "../packages/sz-orm-config", optional = true }
-sz-orm-lsp = { version = "7.0.0", path = "../packages/sz-orm-lsp", optional = true }
+sz-orm-sql-validator = { version = "8.2.0", path = "../packages/sz-orm-sql-validator" }
+sz-orm-sqlx = { version = "8.2.0", path = "../packages/sz-orm-sqlx" }
+sz-orm-designer = { version = "8.2.0", path = "../packages/sz-orm-designer", optional = true }
+sz-orm-swagger = { version = "8.2.0", path = "../packages/sz-orm-swagger", optional = true }
+sz-orm-n1-lint = { version = "8.2.0", path = "../packages/sz-orm-n1-lint", optional = true }
+sz-orm-observability = { version = "8.2.0", path = "../packages/sz-orm-observability", features = ["anomaly-detection", "anomaly-remediation-rca"] }
+sz-orm-storage = { version = "8.2.0", path = "../packages/sz-orm-storage", features = ["cost-analysis", "multicloud-cost-forecast"] }
+sz-orm-batch = { version = "8.2.0", path = "../packages/sz-orm-batch", features = ["batch-v2", "batch-atomic", "copy-parallel-shard"] }
+sz-orm-queue = { version = "8.2.0", path = "../packages/sz-orm-queue", features = ["dlx-auto-redelivery", "delayed-priority-queue"] }
+sz-orm-dtx = { version = "8.2.0", path = "../packages/sz-orm-dtx", optional = true }
+sz-orm-advisor = { version = "8.2.0", path = "../packages/sz-orm-advisor", optional = true }
+sz-orm-stream = { version = "8.2.0", path = "../packages/sz-orm-stream", optional = true }
+sz-orm-parallel = { version = "8.2.0", path = "../packages/sz-orm-parallel", optional = true }
+sz-orm-flamegraph = { version = "8.2.0", path = "../packages/sz-orm-flamegraph", optional = true }
+sz-orm-ai = { version = "8.2.0", path = "../packages/sz-orm-ai", optional = true }
+sz-orm-vector = { version = "8.2.0", path = "../packages/sz-orm-vector", optional = true }
+sz-orm-back = { version = "8.2.0", path = "../packages/sz-orm-back", optional = true }
+sz-orm-mig = { version = "8.2.0", path = "../packages/sz-orm-mig", optional = true }
+sz-orm-wasm = { version = "8.2.0", path = "../packages/sz-orm-wasm", optional = true }
+sz-orm-config = { version = "8.2.0", path = "../packages/sz-orm-config", optional = true }
+sz-orm-lsp = { version = "8.2.0", path = "../packages/sz-orm-lsp", optional = true }
 tokio = { workspace = true, features = ["full"] }
 async-trait = "0.1"
 chrono = { workspace = true }

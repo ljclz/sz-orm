@@ -24,7 +24,19 @@ pub mod hash_chain_enhanced;
 #[cfg(feature = "compliance-report")]
 pub mod compliance_report;
 
+#[cfg(feature = "audit-evidence-chain")]
+pub mod evidence_chain;
+
 pub mod autonomous_audit;
+
+#[cfg(feature = "compliance-report-auto")]
+pub mod compliance_report_auto_generator;
+#[cfg(feature = "compliance-auto-scan")]
+pub mod compliance_scan_desensitizer;
+#[cfg(feature = "compliance-auto-scan")]
+pub mod compliance_scan_engine;
+#[cfg(feature = "evidence-auto-archive")]
+pub mod evidence_auto_archive_scheduler;
 
 #[cfg(feature = "compliance-auto-check")]
 pub use compliance_report::{
@@ -33,6 +45,32 @@ pub use compliance_report::{
 };
 
 pub use autonomous_audit::{AuditEntryBuilder, AutonomousAuditEntry, AutonomousDecisionAuditor};
+
+#[cfg(feature = "compliance-report-auto")]
+pub use compliance_report_auto_generator::{
+    AutoComplianceReport, ComplianceReportAutoGenerator, ReportFormat, ReportGenError,
+};
+#[cfg(feature = "compliance-auto-scan")]
+pub use compliance_scan_desensitizer::{
+    ComplianceScanDesensitizer, DesensitizeError, DesensitizedFixSuggestion, DesensitizedReport,
+    DesensitizedViolation,
+};
+#[cfg(feature = "compliance-auto-scan")]
+pub use compliance_scan_engine::{
+    ComplianceScanEngine, ComplianceScanError, ComplianceScanInput, ComplianceScanReport,
+    ComplianceScanStatus, ComplianceScope, ComplianceViolation, FixSuggestion, ScanItem,
+    ViolationSeverity,
+};
+#[cfg(feature = "evidence-auto-archive")]
+pub use evidence_auto_archive_scheduler::{
+    ArchiveRecord, EvidenceArchiveError, EvidenceAutoArchiveScheduler,
+};
+
+#[cfg(feature = "audit-evidence-chain")]
+pub use evidence_chain::{
+    ComplianceEvidenceExporter, ComplianceStandard, EvidenceEntry, EvidenceExportConfig,
+    EvidencePackage,
+};
 
 #[cfg(feature = "lineage-viz")]
 pub use lineage::{downstream_impact, upstream_trace, ImpactEdge};
@@ -132,7 +170,7 @@ impl Default for SqlAuditor {
 
 /// Mask all sensitive keywords in `sql` with `******`. Matching is
 /// case-insensitive over the ASCII bytes of the string.
-fn mask_sensitive(sql: &str) -> String {
+pub(crate) fn mask_sensitive(sql: &str) -> String {
     let lower = sql.to_ascii_lowercase();
     let mut result = String::with_capacity(sql.len());
     let mut i = 0;

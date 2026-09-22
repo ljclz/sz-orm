@@ -197,6 +197,8 @@ mod tests {
             slow,
             from_cache: false,
             timestamp: "2026-08-12T10:00:00Z".into(),
+            trace_id: None,
+            span_id: None,
         }
     }
 

@@ -29,9 +29,18 @@ import sys
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
 # 内置关键模块子集（变更高频/语义敏感，优先保障测试质量）
+# v8.2.0 扩展：从 2 个模块扩展到关键模块全集（ADR-003）
 DEFAULT_FILES = [
     "packages/sz-orm-core/src/tenant_quota_rls.rs",   # 配额（P0 教训：release 只增不减）
     "packages/sz-orm-core/src/cache_warmup_protection.rs",  # 布隆/单飞（不漏判语义）
+    "packages/sz-orm-core/src/bloom.rs",              # 布隆过滤器（多线程不漏判）
+    "packages/sz-orm-core/src/pool.rs",               # 连接池（核心资源管理）
+    "packages/sz-orm-core/src/query.rs",              # 查询构建（SQL 注入防护）
+    "packages/sz-orm-core/src/migration.rs",          # 迁移（schema 演进安全）
+    "packages/sz-orm-core/src/transaction.rs",        # 事务（ACID 保证）
+    "packages/sz-orm-core/src/repository.rs",         # 仓储（CRUD 核心）
+    "packages/sz-orm-core/src/model.rs",              # 模型（序列化/反序列化）
+    "packages/sz-orm-core/src/hooks.rs",              # 钩子（生命周期回调）
 ]
 # 默认子集对应 feature（2026-08-15 修复：默认调用此前不带 features，
 # feature 门控模块不编译导致 cargo-mutants 必然失败——见验证报告发现 2）
@@ -68,6 +77,7 @@ def run_mutants(pkg, files, features, timeout_seconds):
     cmd += ["--", "--", "--test-threads=1"]
     print("  $ " + " ".join(cmd))
     proc = subprocess.run(cmd, cwd=ROOT, capture_output=True, text=True,
+                          encoding="utf-8", errors="replace",
                           timeout=timeout_seconds)
     # cargo-mutants 成功退出码为 0；变异体导致的测试失败不影响退出码
     def count(name):
@@ -93,7 +103,7 @@ def main():
     ap.add_argument("--package", default="sz-orm-core", help="目标包")
     ap.add_argument("--file", action="append", default=None, help="目标文件（可多次），默认内置子集")
     ap.add_argument("--features", default="", help="cargo features（如 multi-tenant-enhanced）")
-    ap.add_argument("--threshold", type=float, default=0.7, help="杀率阈值（默认 0.7）")
+    ap.add_argument("--threshold", type=float, default=0.85, help="杀率阈值（默认 0.85）")
     ap.add_argument("--timeout", type=int, default=21600,
                     help="cargo-mutants 运行超时秒数（默认 21600=6h；110 变异体 × --test-threads=1 实测约需 5~6h，2026-09-13 审查实测）")
     args = ap.parse_args()

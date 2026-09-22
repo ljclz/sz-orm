@@ -23,8 +23,6 @@
 //! - p99_latency_us 持续上升 → 慢退化
 //! - ops_per_sec 持续下降 → 性能衰减
 
-#![allow(dead_code)]
-
 use std::collections::VecDeque;
 use std::fs;
 use std::sync::atomic::{AtomicU64, Ordering};

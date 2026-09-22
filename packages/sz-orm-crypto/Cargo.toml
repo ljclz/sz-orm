@@ -22,10 +22,19 @@ tde-enhanced = ["field-encryption", "dep:zeroize", "dep:async-trait", "dep:reqwe
 pqc-ready = ["dep:tracing"]
 # v7.8.0 PQC 混合密钥协商
 pqc-hybrid-kex = ["pqc-ready"]
+# v7.9.0 PQC 迁移执行：渐进迁移 + 断点恢复 + 性能基准追踪 + 算法敏捷性
+pqc-migration-exec = ["pqc-hybrid-kex"]
+# v7.9.0 密钥轮换管理（依赖 pqc-migration-exec）
+pqc-key-rotation = ["pqc-migration-exec"]
+# v8.0.0：安全合规深化聚合（sec-compliance 启用全部子能力）
+tde-key-mgmt = ["tde-enhanced"]
+sec-compliance = ["tde-key-mgmt"]
 
 
+key-auto-rotate = ["sec-compliance"]
 [package.metadata.cargo-machete]
 ignored = ['serde_json']
+
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
@@ -48,8 +57,13 @@ tracing = { workspace = true, optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
+parking_lot = { workspace = true }
 # v7.8.0 跨模块联动 e2e 测试
 sz-orm-ai = { path = "../sz-orm-ai", features = ["ai-autonomous-loop"] }
+# v8.0.0 安全合规深化 e2e 接线测试
+sz-orm-audit = { path = "../sz-orm-audit", features = ["audit-evidence-chain"] }
+sz-orm-masking = { path = "../sz-orm-masking", features = ["masking-policy-engine"] }
+sz-orm-auth = { path = "../sz-orm-auth", features = ["auth-abac"] }
 
 [lints]
 workspace = true
@@ -83,3 +97,13 @@ required-features = ["pqc-hybrid-kex"]
 name = "e2e_pqc_autonomous"
 path = "tests/e2e_pqc_autonomous.rs"
 required-features = ["pqc-hybrid-kex"]
+# v7.9.0 PQC 迁移执行与密钥轮换端到端接线测试
+[[test]]
+name = "pqc_exec_wiring"
+path = "tests/pqc_exec_wiring.rs"
+required-features = ["pqc-key-rotation"]
+# v8.0.0 安全合规深化端到端接线测试
+[[test]]
+name = "sec_compliance_wiring"
+path = "tests/sec_compliance_wiring.rs"
+required-features = ["sec-compliance"]

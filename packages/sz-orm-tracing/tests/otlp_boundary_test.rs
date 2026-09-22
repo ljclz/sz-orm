@@ -4,9 +4,7 @@
 
 #![cfg(feature = "otlp-export")]
 
-use sz_orm_tracing::otlp_exporter::{
-    BoundedSpanQueue, OtlpExporter, SpanBuilder, SpanName,
-};
+use sz_orm_tracing::otlp_exporter::{BoundedSpanQueue, OtlpExporter, SpanBuilder, SpanName};
 
 #[test]
 fn test_bounded_queue_zero_capacity() {

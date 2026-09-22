@@ -42,7 +42,7 @@ impl ColdHotClassifier {
                 DataTemperature::Hot => hot_data.push(range),
                 DataTemperature::Warm => warm_data.push(range),
                 DataTemperature::Cold => cold_data.push(range),
-                DataTemperature::Archived => {}
+                _ => {}
             }
         }
 

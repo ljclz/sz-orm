@@ -8,6 +8,9 @@ pub mod report;
 pub mod scheduler;
 pub mod types;
 
+#[cfg(feature = "carbon-neutrality")]
+pub mod carbon;
+
 pub use breakpoint_resumer::EnergyBreakpointResumer;
 pub use calculator::CarbonFootprintCalculator;
 pub use collector::EnergyMetricsCollector;

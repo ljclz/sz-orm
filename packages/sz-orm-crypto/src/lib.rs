@@ -30,6 +30,20 @@ pub use kms_client::{
     CachedKmsClient, DekCache, KmsClient, KmsDegradeManager, KmsError, LocalKmsClient,
 };
 
+#[cfg(feature = "tde-key-mgmt")]
+pub mod tde_mgmt;
+#[cfg(feature = "tde-key-mgmt")]
+pub use tde_mgmt::{
+    ColumnPolicyConfig, ColumnPolicyHotUpdater, DekRotationConfig, DekRotationManager,
+    DekRotationRecord, DekRotationStatus, FailoverRecord, HotUpdateResult, KmsHaConfig,
+    KmsHaManager, KmsNode, SecError,
+};
+
+#[cfg(feature = "key-auto-rotate")]
+pub use tde_mgmt::key_auto_rotate_scheduler::{
+    KeyAutoRotateScheduler, KeyRotateError, RotationRecord,
+};
+
 #[cfg(feature = "pqc-ready")]
 pub mod pqc;
 

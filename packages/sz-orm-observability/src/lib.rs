@@ -94,6 +94,15 @@ pub use service_mesh::MeshTrafficGovernor;
 #[allow(missing_docs)]
 pub mod perf_hit_metrics;
 
+// v8.1.0 性能预算告警引擎（feature gate: perf-budget-alert）
+#[cfg(feature = "perf-budget-alert")]
+#[allow(missing_docs)]
+pub mod perf_budget_alert;
+#[cfg(feature = "perf-budget-alert")]
+pub use perf_budget_alert::{
+    ObsError, PerfBudget, PerfBudgetAlert, PerfBudgetAlertEngine, PerfMetric, RootCauseAnalysis,
+};
+
 #[cfg(feature = "serverless-metering")]
 #[allow(missing_docs)]
 pub mod serverless_metering;
@@ -105,6 +114,27 @@ pub mod green;
 #[cfg(feature = "slo-automation")]
 #[allow(missing_docs)]
 pub mod slo_automation;
+
+// v8.1.0 组 7：可观测性增强模块导出
+#[cfg(feature = "metrics-collect")]
+#[allow(missing_docs)]
+pub mod unified_collector;
+
+#[cfg(feature = "alert-rules")]
+#[allow(missing_docs)]
+pub mod alert_storm_suppressor;
+
+#[cfg(feature = "alert-rules")]
+#[allow(missing_docs)]
+pub mod alert_rule_engine;
+
+#[cfg(feature = "dashboard-export")]
+#[allow(missing_docs)]
+pub mod grafana_dashboard_exporter;
+
+#[cfg(feature = "observability")]
+#[allow(missing_docs)]
+pub mod self_health;
 
 pub use slo::{SloBurnRate, SloConfig, SloMonitor};
 pub use summary::{

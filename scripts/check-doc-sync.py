@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+# -*- coding: utf-8 -*-
 """
 SZ-ORM 文档同步更新检查脚本（门禁 14）
 

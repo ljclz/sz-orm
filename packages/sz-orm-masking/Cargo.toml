@@ -20,6 +20,8 @@ dynamic-masking = []
 context-aware-masking = ["dynamic-masking"]
 # v7.7.0 任务 4.1：脱敏审计联动
 masking-audit-link = ["context-aware-masking"]
+# v8.0.0：脱敏策略引擎
+masking-policy-engine = ["dynamic-masking"]
 
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }

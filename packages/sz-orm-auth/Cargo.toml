@@ -20,6 +20,8 @@ prod-jwt-key-rotation = []
 rbac-enhanced = []
 # v7.1.0：RBAC + ABAC 组合权限模型
 rbac-abac-enhanced = ["rbac-enhanced"]
+# v8.0.0：ABAC 生产化引擎
+auth-abac = ["rbac-abac-enhanced"]
 
 
 [package.metadata.cargo-machete]

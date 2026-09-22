@@ -26,12 +26,18 @@ pub mod rbac_inheritance;
 #[cfg(feature = "rbac-abac-enhanced")]
 pub mod abac;
 
+#[cfg(feature = "auth-abac")]
+pub mod abac_prod;
+
 pub use auth::*;
 pub use authorizer::{Authorizer, RbacAuthorizer};
 pub use error::AuthError;
 pub use mfa::{MfaManager, MfaSecret, TotpVerifier};
 pub use oauth2::{AuthorizationCode, AuthorizationRequest, OAuth2Server, TokenRequest};
 pub use token_store::{StoredToken, TokenFamilyError, TokenStore};
+
+#[cfg(feature = "auth-abac")]
+pub use abac_prod::{AbacAccessRequest, AbacProductionConfig, AbacProductionEngine, AuthzDecision};
 
 #[cfg(test)]
 mod tests {

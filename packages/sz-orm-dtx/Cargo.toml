@@ -34,10 +34,13 @@ prost = { version = "0.14", optional = true }
 tonic = { version = "0.14", optional = true, features = ["tls-ring"] }
 tonic-prost = { version = "0.14", optional = true }
 tokio-stream = { version = "0.1", optional = true }
-sz-orm-grpc = { version = "7.1.0", path = "../sz-orm-grpc", optional = true }
+sz-orm-grpc = { version = "8.2.0", path = "../sz-orm-grpc", optional = true }
 reqwest = { version = "0.12", features = ["json"], optional = true }
 # v7.1.0：分布式协调（Redis 后端）
 redis = { workspace = true, optional = true }
+# v8.0.0 组4：端到端接线测试需要 fusion（bi_sync）和 core（cache_coherent）
+sz-orm-fusion = { version = "8.2.0", path = "../sz-orm-fusion", optional = true }
+sz-orm-core = { version = "8.2.0", path = "../sz-orm-core", optional = true }
 
 [build-dependencies]
 tonic-prost-build = { version = "0.14", optional = true }
@@ -63,7 +66,14 @@ two-pc-enhanced = ["xa"]
 three-pc = ["xa"]
 # v7.7.0 任务 3.1：跨事务一致性验证
 cross-tx-consistency = ["dep:thiserror"]
+# v8.0.0：分布式增强聚合
+dist-enhance = []
+dtx-saga-coordinator = ["dist-enhance", "saga-enhanced", "dep:sz-orm-fusion", "dep:sz-orm-core", "sz-orm-fusion/dist-sync-bi", "sz-orm-core/dist-cache-coherent"]
 
+dist-consensus = ["raft-optimize", "split-brain-detect", "consistency-tunable", "dep:sz-orm-fusion", "sz-orm-fusion/cross-region-replicate", "sz-orm-fusion/split-brain-detect"]
+raft-optimize = ["dist-coordination"]
+split-brain-detect = ["dist-coordination"]
+consistency-tunable = []
 [[test]]
 name = "blackhat_poc"
 required-features = ["cross-lang-dtx"]
@@ -102,3 +112,13 @@ required-features = ["three-pc"]
 name = "cross_tx_consistency_test"
 path = "tests/cross_tx_consistency_test.rs"
 required-features = ["cross-tx-consistency"]
+# v8.0.0 组4：分布式增强端到端接线测试
+[[test]]
+name = "dist_enhance_wiring"
+path = "tests/dist_enhance_wiring.rs"
+required-features = ["dtx-saga-coordinator"]
+# v8.1.0 组4：分布式共识优化端到端接线测试
+[[test]]
+name = "dist_consensus_wiring"
+path = "tests/dist_consensus_wiring.rs"
+required-features = ["dist-consensus"]

@@ -10,6 +10,7 @@
 
 use sqlx::Row;
 
+#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;
@@ -677,4 +678,233 @@ async fn test_timeout_panics_on_expiry() {
         42
     })
     .await;
+}
+// ==================== v8.3.0: 预加载 e2e（3 数据库） ====================
+
+use common::e2e_env::{e2e_mysql_pool, e2e_pg_pool, E2eMysqlDb};
+
+#[tokio::test]
+async fn test_e2e_mysql_eager_load() {
+    let pool = match e2e_mysql_pool(E2eMysqlDb::Test).await {
+        Some(p) => p,
+        None => return,
+    };
+    let users = unique_table_name("e2e_el_u_mysql");
+    let profiles = unique_table_name("e2e_el_p_mysql");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE `{}` (id BIGINT AUTO_INCREMENT PRIMARY KEY, name VARCHAR(255))",
+            users
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE `{}` (id BIGINT AUTO_INCREMENT PRIMARY KEY, user_id BIGINT, bio TEXT)",
+            profiles
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{}` (name) VALUES (?), (?)", users).as_str(),
+    ))
+    .bind("Alice")
+    .bind("Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "INSERT INTO `{}` (user_id, bio) VALUES (?, ?), (?, ?)",
+            profiles
+        )
+        .as_str(),
+    ))
+    .bind(1i64)
+    .bind("Bio Alice")
+    .bind(2i64)
+    .bind("Bio Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows: Vec<(String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!(
+            "SELECT u.name, p.bio FROM `{}` u INNER JOIN `{}` p ON u.id = p.user_id ORDER BY u.name",
+            users, profiles
+        )
+        .as_str(),
+    ))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, "Alice");
+    assert_eq!(rows[0].1, "Bio Alice");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{}`", profiles).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{}`", users).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+
+#[tokio::test]
+async fn test_e2e_pg_eager_load() {
+    let pool = match e2e_pg_pool().await {
+        Some(p) => p,
+        None => return,
+    };
+    let users = unique_table_name("e2e_el_u_pg");
+    let profiles = unique_table_name("e2e_el_p_pg");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE \"{}\" (id BIGSERIAL PRIMARY KEY, name TEXT)",
+            users
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "CREATE TABLE \"{}\" (id BIGSERIAL PRIMARY KEY, user_id BIGINT, bio TEXT)",
+            profiles
+        )
+        .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO \"{}\" (name) VALUES ($1), ($2)", users).as_str(),
+    ))
+    .bind("Alice")
+    .bind("Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!(
+            "INSERT INTO \"{}\" (user_id, bio) VALUES ($1, $2), ($3, $4)",
+            profiles
+        )
+        .as_str(),
+    ))
+    .bind(1i64)
+    .bind("Bio Alice")
+    .bind(2i64)
+    .bind("Bio Bob")
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let rows: Vec<(String, String)> = sqlx::query_as(sqlx::AssertSqlSafe(
+        format!(
+            "SELECT u.name, p.bio FROM \"{}\" u INNER JOIN \"{}\" p ON u.id = p.user_id ORDER BY u.name",
+            users, profiles
+        )
+        .as_str(),
+    ))
+    .fetch_all(&pool)
+    .await
+    .unwrap();
+    assert_eq!(rows.len(), 2);
+    assert_eq!(rows[0].0, "Alice");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE \"{}\"", profiles).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE \"{}\"", users).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+}
+// ==================== v8.4.0: Oracle 预加载 JOIN ====================
+
+#[tokio::test]
+async fn test_e2e_oracle_eager_load() {
+    let conn = match common::e2e_env::e2e_oracle_conn() {
+        Some(c) => c,
+        None => return,
+    };
+    let users_tbl = unique_table_name("e2e_el_ora_u");
+    let posts_tbl = unique_table_name("e2e_el_ora_p");
+    let users_lower = users_tbl.to_lowercase();
+    let posts_lower = posts_tbl.to_lowercase();
+
+    conn.execute(
+        &format!(
+            "CREATE TABLE \"{}\" (id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, name VARCHAR2(255))",
+            users_lower
+        ),
+        &[],
+    )
+    .unwrap();
+    conn.execute(
+        &format!(
+            "CREATE TABLE \"{}\" (id NUMBER GENERATED ALWAYS AS IDENTITY PRIMARY KEY, user_id NUMBER, title VARCHAR2(255))",
+            posts_lower
+        ),
+        &[],
+    )
+    .unwrap();
+
+    conn.execute(
+        &format!("INSERT INTO \"{}\" (name) VALUES (:1)", users_lower),
+        &[&"Alice"],
+    )
+    .unwrap();
+    conn.execute(
+        &format!(
+            "INSERT INTO \"{}\" (user_id, title) VALUES (:1, :2)",
+            posts_lower
+        ),
+        &[&1i64, &"Post1"],
+    )
+    .unwrap();
+    conn.commit().unwrap();
+
+    let rows = conn
+        .query(
+            &format!(
+                "SELECT u.name, p.title FROM \"{}\" u JOIN \"{}\" p ON u.id = p.user_id ORDER BY p.id",
+                users_lower, posts_lower
+            ),
+            &[],
+        )
+        .unwrap()
+        .collect::<Result<Vec<_>, _>>()
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    let name: String = rows[0].get(0).unwrap();
+    let title: String = rows[0].get(1).unwrap();
+    assert_eq!(name, "Alice");
+    assert_eq!(title, "Post1");
+
+    conn.execute(&format!("DROP TABLE \"{}\"", posts_lower), &[])
+        .unwrap();
+    conn.execute(&format!("DROP TABLE \"{}\"", users_lower), &[])
+        .unwrap();
 }

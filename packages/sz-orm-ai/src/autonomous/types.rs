@@ -74,6 +74,10 @@ pub enum AutonomousAction {
     AutoScaling,
     AutoTuning,
     SlowQueryGovernance,
+    /// v7.9.0 降级非核心功能
+    DegradeNonCore {
+        features: Vec<String>,
+    },
 }
 
 /// 动作边界

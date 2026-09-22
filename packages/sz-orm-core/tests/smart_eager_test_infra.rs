@@ -3,6 +3,7 @@
 //! 引用 common::equivalence 和 common::schema_builder 模块，
 //! 验证等价性断言工具与测试数据构造器的正确性。
 
+#[allow(dead_code)]
 mod common;
 
 use common::equivalence;

@@ -152,7 +152,11 @@ impl DistributedDbCompatReport {
         if self.sql_compat_results.is_empty() {
             return 0.0;
         }
-        let compatible = self.sql_compat_results.iter().filter(|r| r.is_compatible).count();
+        let compatible = self
+            .sql_compat_results
+            .iter()
+            .filter(|r| r.is_compatible)
+            .count();
         compatible as f64 / self.sql_compat_results.len() as f64
     }
 
@@ -276,7 +280,9 @@ mod db_backend_compat {
         report.add_sql_result(BackendSqlCompatResult {
             sql: "SELECT * FROM users LIMIT 10".to_string(),
             compatible: false,
-            incompatible_reason: Some("Oracle 不支持 LIMIT，需用 ROWNUM 或 FETCH FIRST".to_string()),
+            incompatible_reason: Some(
+                "Oracle 不支持 LIMIT，需用 ROWNUM 或 FETCH FIRST".to_string(),
+            ),
             alternative_sql: Some("SELECT * FROM users WHERE ROWNUM <= 10".to_string()),
         });
         report.add_sql_result(BackendSqlCompatResult {
@@ -418,7 +424,7 @@ mod db_backend_compat {
 
 #[cfg(feature = "db-backend-compat")]
 pub use db_backend_compat::{
+    generate_mssql_compat_report, generate_oracle_compat_report, generate_postgis_compat_report,
     BackendBenchmark, BackendDbType, BackendSqlCompatResult, BackendTxBehavior,
-    DbBackendCompatReport, generate_mssql_compat_report, generate_oracle_compat_report,
-    generate_postgis_compat_report,
+    DbBackendCompatReport,
 };

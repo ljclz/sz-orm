@@ -75,6 +75,25 @@ pub enum DataTemperature {
     Warm,
     Cold,
     Archived,
+    Destroy,
+}
+
+impl DataTemperature {
+    /// 返回相邻下一级温度，Destroy 无下一级
+    pub fn next_tier(self) -> Option<Self> {
+        match self {
+            Self::Hot => Some(Self::Warm),
+            Self::Warm => Some(Self::Cold),
+            Self::Cold => Some(Self::Archived),
+            Self::Archived => Some(Self::Destroy),
+            Self::Destroy => None,
+        }
+    }
+
+    /// 校验是否可迁移到目标层级（仅允许相邻层级，禁止跨级跳转）
+    pub fn can_migrate_to(self, target: Self) -> bool {
+        self.next_tier() == Some(target)
+    }
 }
 
 /// 冷热分类结果

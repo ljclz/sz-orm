@@ -95,7 +95,8 @@ spec:
               valueFrom:
                 fieldRef:
                   fieldPath: metadata.namespace
-"#.to_string()
+"#
+        .to_string()
     }
 
     /// 验证 Operator 定义完整性
