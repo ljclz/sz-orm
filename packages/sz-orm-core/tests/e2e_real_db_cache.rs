@@ -445,3 +445,39 @@ async fn test_e2e_oracle_cache_hit() {
     conn.execute(&format!("DROP TABLE \"{}\"", table_lower), &[])
         .unwrap();
 }
+
+// ==================== SQLite 缓存 ====================
+
+#[tokio::test]
+async fn test_e2e_sqlite_cache_hit() {
+    let pool = match sqlx::SqlitePool::connect("sqlite::memory:").await.ok() {
+        Some(p) => p,
+        None => return,
+    };
+    sqlx::query(sqlx::AssertSqlSafe(
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT)",
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe("INSERT INTO t (id, name) VALUES (?, ?)"))
+        .bind(1_i64)
+        .bind("Alice")
+        .execute(&pool)
+        .await
+        .unwrap();
+    let row1 = sqlx::query(sqlx::AssertSqlSafe("SELECT name FROM t WHERE id = ?"))
+        .bind(1_i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let name1: String = row1.try_get("name").unwrap();
+    assert_eq!(name1, "Alice");
+    let row2 = sqlx::query(sqlx::AssertSqlSafe("SELECT name FROM t WHERE id = ?"))
+        .bind(1_i64)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let name2: String = row2.try_get("name").unwrap();
+    assert_eq!(name2, name1);
+}

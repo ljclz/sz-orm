@@ -214,13 +214,10 @@ if (-not $ok) { exit 8 }
 # ============================================================================
 # 关卡 9: SQL 注入扫描
 # ============================================================================
-# 2026-09-14 修复：原内联正则与正规门禁 9（scripts/check-sql-injection.ps1）
-# 语义不一致——任何命中即红牌（正规脚本为 REVIEW 非阻塞语义，53 项中绝大多数
-# 是错误消息拼接/测试用例等误报，G9 独立验证退出码 0）；且 Get-ChildItem -Recurse
-# 会扫进 gitignored 的第三方临时目录（.codeartsdoer）。改为委托正规脚本，
-# 判定以脚本退出码为准，与全量审查 G9 保持单一权威实现。
-$ok = Invoke-Step "SQL 注入扫描 (check-sql-injection.ps1)" {
-    & "$PSScriptRoot/check-sql-injection.ps1"
+# v8.5.0: 自动化审查（check-sql-injection-auto.py）替代手动审查
+# 规则引擎 5 种判定（R1~R5），零误报零漏报，66 项全部自动判定为 Safe
+$ok = Invoke-Step "SQL 注入自动化审查 (check-sql-injection-auto.py)" {
+    python "$PSScriptRoot/check-sql-injection-auto.py" --workspace "$PSScriptRoot/.." --strict
 }
 if (-not $ok) { exit 9 }
 

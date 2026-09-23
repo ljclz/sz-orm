@@ -249,3 +249,33 @@ async fn test_e2e_oracle_migration_idempotent() {
     conn.execute(&format!("DROP TABLE \"{}\"", table_lower), &[])
         .unwrap();
 }
+// ==================== SQLite 迁移 ====================
+
+#[tokio::test]
+async fn test_e2e_sqlite_migration_create_table() {
+    let pool = match sqlx::SqlitePool::connect("sqlite::memory:").await.ok() {
+        Some(p) => p,
+        None => return,
+    };
+    sqlx::query(sqlx::AssertSqlSafe(
+        "CREATE TABLE IF NOT EXISTS schema_version (version INTEGER PRIMARY KEY)",
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        "INSERT INTO schema_version (version) VALUES (?)",
+    ))
+    .bind(1_i64)
+    .execute(&pool)
+    .await
+    .unwrap();
+
+    let row = sqlx::query(sqlx::AssertSqlSafe("SELECT version FROM schema_version"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let version: i64 = row.try_get("version").unwrap();
+    assert_eq!(version, 1);
+}

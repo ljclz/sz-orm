@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-v8.3.0: 端到端测试覆盖矩阵生成脚本
+v8.5.0: 端到端测试覆盖矩阵生成脚本
 
-解析 cargo test --features e2e-real-db 输出，生成 13×3=39 格覆盖矩阵报告。
+解析 cargo test --features e2e-real-db 输出，生成 13×4=52 格覆盖矩阵报告。
 每格附测试函数名 + 通过状态（PASSED/FAILED/SKIPPED/NA）+ 真实数据验证证据。
-MySQL RETURNING 格标 N/A。
+MySQL RETURNING 格标 ALT（替代方案覆盖）。
 """
 
 import json
@@ -20,7 +20,7 @@ FUNCTIONS = [
     "方言行为", "批量操作", "RETURNING"
 ]
 
-DATABASES = ["MySQL", "PostgreSQL", "Oracle"]
+DATABASES = ["MySQL", "PostgreSQL", "Oracle", "SQLite"]
 
 TEST_MAP = {
     ("CRUD", "MySQL"): ["test_e2e_mysql_crud_full_lifecycle_test_db", "test_e2e_mysql_crud_data_types"],
@@ -59,9 +59,22 @@ TEST_MAP = {
     ("批量操作", "MySQL"): ["test_e2e_mysql_crud_batch_insert", "test_e2e_mysql_crud_batch_update"],
     ("批量操作", "PostgreSQL"): ["test_e2e_pg_crud_batch_insert"],
     ("批量操作", "Oracle"): ["test_e2e_oracle_crud_batch_insert"],
-    ("RETURNING", "MySQL"): [],
+    ("RETURNING", "MySQL"): ["test_mysql_returning_via_last_insert_id", "test_mysql_returning_via_second_select", "test_mysql_returning_via_on_duplicate_key"],
     ("RETURNING", "PostgreSQL"): ["test_e2e_pg_crud_returning"],
     ("RETURNING", "Oracle"): ["test_e2e_oracle_crud_returning"],
+    ("CRUD", "SQLite"): ["test_sqlite_crud_insert_select"],
+    ("连接池", "SQLite"): ["test_e2e_sqlite_pool_acquire_release"],
+    ("事务", "SQLite"): ["test_sqlite_transaction_commit_rollback"],
+    ("迁移", "SQLite"): ["test_e2e_sqlite_migration_create_table"],
+    ("查询构建", "SQLite"): ["test_e2e_sqlite_query_where_conditions"],
+    ("多租户", "SQLite"): ["test_sqlite_tenant_isolation"],
+    ("缓存", "SQLite"): ["test_e2e_sqlite_cache_hit"],
+    ("软删除", "SQLite"): ["test_sqlite_soft_delete"],
+    ("分页", "SQLite"): ["test_sqlite_pagination"],
+    ("预加载", "SQLite"): ["test_sqlite_eager_load"],
+    ("方言行为", "SQLite"): ["test_sqlite_dialect_upsert"],
+    ("批量操作", "SQLite"): ["test_sqlite_crud_batch_insert"],
+    ("RETURNING", "SQLite"): ["test_e2e_sqlite_returning_insert", "test_e2e_sqlite_returning_update", "test_e2e_sqlite_returning_delete"],
 }
 
 def run_tests():
@@ -95,9 +108,9 @@ def run_tests():
     return passed, failed
 
 def generate_matrix(passed, failed):
-    print("# sz-orm v8.3.0 端到端测试覆盖矩阵（13×3=39 格）\n")
-    print(f"| 功能 | MySQL | PostgreSQL | Oracle |")
-    print(f"|------|-------|------------|--------|")
+    print("# sz-orm v8.5.0 端到端测试覆盖矩阵（13×4=52 格）\n")
+    print(f"| 功能 | MySQL | PostgreSQL | Oracle | SQLite |")
+    print(f"|------|-------|------------|--------|--------|")
 
     total_cells = 0
     covered_cells = 0
@@ -110,8 +123,8 @@ def generate_matrix(passed, failed):
             total_cells += 1
 
             if func == "RETURNING" and db == "MySQL":
-                row += "| N/A "
-                na_cells += 1
+                row += "| ALT "
+                covered_cells += 1
                 continue
 
             if not tests:

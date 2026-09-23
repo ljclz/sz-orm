@@ -560,3 +560,34 @@ async fn test_e2e_oracle_query_aggregate() {
     conn.execute(&format!("DROP TABLE \"{}\"", table_lower), &[])
         .unwrap();
 }
+
+// ==================== SQLite 查询构建 ====================
+
+#[tokio::test]
+async fn test_e2e_sqlite_query_where_conditions() {
+    let pool = match sqlx::SqlitePool::connect("sqlite::memory:").await.ok() {
+        Some(p) => p,
+        None => return,
+    };
+    sqlx::query(sqlx::AssertSqlSafe(
+        "CREATE TABLE t (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)",
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
+    for i in 0..10i64 {
+        sqlx::query(sqlx::AssertSqlSafe("INSERT INTO t (id, name, age) VALUES (?, ?, ?)"))
+            .bind(i)
+            .bind(format!("user{}", i))
+            .bind(20 + i as i32)
+            .execute(&pool)
+            .await
+            .unwrap();
+    }
+    let rows = sqlx::query(sqlx::AssertSqlSafe("SELECT name FROM t WHERE age >= ? ORDER BY id"))
+        .bind(25_i32)
+        .fetch_all(&pool)
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 5);
+}

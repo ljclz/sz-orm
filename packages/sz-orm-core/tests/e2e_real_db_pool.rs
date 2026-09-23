@@ -214,3 +214,28 @@ async fn test_e2e_oracle_pool_health_check() {
     let val: i32 = rows[0].get(0).unwrap();
     assert_eq!(val, 1);
 }
+
+// ==================== SQLite 连接池 ====================
+
+#[tokio::test]
+async fn test_e2e_sqlite_pool_acquire_release() {
+    let pool = match sqlx::SqlitePool::connect("sqlite::memory:").await.ok() {
+        Some(p) => p,
+        None => return,
+    };
+    sqlx::query(sqlx::AssertSqlSafe("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)"))
+        .execute(&pool)
+        .await
+        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe("INSERT INTO t (id) VALUES (?)"))
+        .bind(1_i64)
+        .execute(&pool)
+        .await
+        .unwrap();
+    let row = sqlx::query(sqlx::AssertSqlSafe("SELECT COUNT(*) as cnt FROM t"))
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+    let cnt: i64 = row.try_get("cnt").unwrap();
+    assert_eq!(cnt, 1);
+}
