@@ -576,18 +576,22 @@ async fn test_e2e_sqlite_query_where_conditions() {
     .await
     .unwrap();
     for i in 0..10i64 {
-        sqlx::query(sqlx::AssertSqlSafe("INSERT INTO t (id, name, age) VALUES (?, ?, ?)"))
-            .bind(i)
-            .bind(format!("user{}", i))
-            .bind(20 + i as i32)
-            .execute(&pool)
-            .await
-            .unwrap();
-    }
-    let rows = sqlx::query(sqlx::AssertSqlSafe("SELECT name FROM t WHERE age >= ? ORDER BY id"))
-        .bind(25_i32)
-        .fetch_all(&pool)
+        sqlx::query(sqlx::AssertSqlSafe(
+            "INSERT INTO t (id, name, age) VALUES (?, ?, ?)",
+        ))
+        .bind(i)
+        .bind(format!("user{}", i))
+        .bind(20 + i as i32)
+        .execute(&pool)
         .await
         .unwrap();
+    }
+    let rows = sqlx::query(sqlx::AssertSqlSafe(
+        "SELECT name FROM t WHERE age >= ? ORDER BY id",
+    ))
+    .bind(25_i32)
+    .fetch_all(&pool)
+    .await
+    .unwrap();
     assert_eq!(rows.len(), 5);
 }

@@ -6,8 +6,8 @@
 
 #![cfg(feature = "e2e-real-db")]
 
-use sqlx::Row;
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
 #[allow(dead_code)]
 mod common;

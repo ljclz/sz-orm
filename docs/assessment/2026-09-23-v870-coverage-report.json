@@ -1,0 +1,18 @@
+{
+  "date": "2026-09-23 07:22:08 UTC",
+  "tool_version": "cargo-llvm-cov 0.9.1",
+  "coverage_percent": 88.59,
+  "lines_total": 186258,
+  "lines_hit": 165009,
+  "fail_under": 60,
+  "result": "PASS",
+  "excluded_packages": [
+    "sz-orm-python",
+    "sz-orm-java",
+    "sz-orm-js",
+    "sz-orm-cabi",
+    "sz-orm-go",
+    "sz-orm-cpp"
+  ],
+  "file_count": 451
+}

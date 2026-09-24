@@ -58,7 +58,8 @@ pub mod saga_coordinator;
 pub mod consistency_level_config;
 #[cfg(feature = "consistency-tunable")]
 pub use consistency_level_config::{
-    ConfigGranularity, ConsistencyLevel, ConsistencyLevelConfig, DistError as ConsistencyDistError,
+    ConfigGranularity, ConsistencyLevel as TunableConsistencyLevel, ConsistencyLevelConfig,
+    DistError as ConsistencyDistError,
 };
 #[cfg(feature = "dtx-saga-coordinator")]
 pub use saga_coordinator::{

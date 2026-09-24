@@ -173,6 +173,7 @@ fn parse_config(args: &[String]) -> BenchConfig {
                     "sqlite" => config.db_backend = sz_orm_bench::DbBackend::Sqlite,
                     "mysql" => config.db_backend = sz_orm_bench::DbBackend::Mysql,
                     "postgres" => config.db_backend = sz_orm_bench::DbBackend::Postgres,
+                    "oracle" => config.db_backend = sz_orm_bench::DbBackend::Oracle,
                     other => eprintln!("未知 db-backend: {other}，使用默认 sqlite"),
                 }
                 i += 2;

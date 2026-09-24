@@ -31,6 +31,7 @@ impl DatasetInitializer {
             DbBackend::Sqlite => Self::init_sqlite(connection, dataset_size).await,
             DbBackend::Mysql => Self::init_mysql(connection, dataset_size).await,
             DbBackend::Postgres => Self::init_postgres(connection, dataset_size).await,
+            DbBackend::Oracle => Self::init_oracle(connection, dataset_size).await,
         }
     }
 
@@ -127,7 +128,7 @@ impl DatasetInitializer {
 
         sqlx::query(
             "CREATE TABLE IF NOT EXISTS bench_users (\
-             id SERIAL PRIMARY KEY,\
+             id BIGSERIAL PRIMARY KEY,\
              name TEXT NOT NULL,\
              email TEXT NOT NULL,\
              created_at BIGINT NOT NULL)",
@@ -157,6 +158,82 @@ impl DatasetInitializer {
         }
 
         pool.close().await;
+        Ok(())
+    }
+
+    /// 初始化 Oracle 数据集（v8.6.0 新增）
+    ///
+    /// 连接 Oracle → CREATE TABLE IF NOT EXISTS → DELETE 清空 → 批量 INSERT
+    /// 表结构：id (NUMBER PRIMARY KEY) / name (VARCHAR2) / email (VARCHAR2) / created_at (NUMBER)
+    /// 占位符 :N（sz-orm-oracle 自动转换 ? 为 :N）
+    /// 一次性数据集初始化（init-once，ADR-008），所有 benchmark 共享
+    async fn init_oracle(connection: &str, dataset_size: usize) -> Result<(), BenchError> {
+        use sz_orm_core::ConnectionFactory;
+        use sz_orm_oracle::{OracleConnectionFactory, OraclePoolHandle};
+
+        // 解析连接串 oracle://user:password@host:port/service
+        let conn_str = connection.strip_prefix("oracle://").ok_or_else(|| {
+            BenchError::InvalidConnectionString(format!("无效 Oracle 连接串: {connection}"))
+        })?;
+
+        // 分离 user:password 和 host:port/service
+        let (auth, host_part) = conn_str.split_once('@').ok_or_else(|| {
+            BenchError::InvalidConnectionString("Oracle 连接串缺少 @ 分隔符".into())
+        })?;
+
+        let (username, password) = auth.split_once(':').ok_or_else(|| {
+            BenchError::InvalidConnectionString("Oracle 连接串缺少 user:password".into())
+        })?;
+
+        // 创建 Oracle 连接池
+        let handle = OraclePoolHandle::connect(username, password, host_part)
+            .map_err(|e| BenchError::DbConnectFailed(format!("Oracle 连接失败: {e}")))?;
+        let handle = Arc::new(handle);
+        let factory = OracleConnectionFactory::new(handle);
+        let mut conn = factory
+            .create()
+            .await
+            .map_err(|e| BenchError::DbConnectFailed(format!("Oracle 创建连接失败: {e}")))?;
+
+        // 建表
+        conn.execute(
+            "CREATE TABLE IF NOT EXISTS bench_users (\
+             id NUMBER PRIMARY KEY,\
+             name VARCHAR2(255) NOT NULL,\
+             email VARCHAR2(255) NOT NULL,\
+             created_at NUMBER NOT NULL)",
+        )
+        .await
+        .map_err(|e| BenchError::QueryFailed(format!("Oracle CREATE TABLE 失败: {e}")))?;
+
+        // 清空表
+        conn.execute("DELETE FROM bench_users")
+            .await
+            .map_err(|e| BenchError::QueryFailed(format!("Oracle DELETE 失败: {e}")))?;
+
+        // 批量插入
+        use sz_orm_core::Value;
+        for i in 1..=dataset_size {
+            let name = format!("user_{i}");
+            let email = format!("user_{i}@bench.test");
+            let params = [
+                Value::I64(i as i64),
+                Value::String(name),
+                Value::String(email),
+                Value::I64(i as i64),
+            ];
+            conn.execute_with_params(
+                "INSERT INTO bench_users (id, name, email, created_at) VALUES (?, ?, ?, ?)",
+                &params,
+            )
+            .await
+            .map_err(|e| BenchError::QueryFailed(format!("Oracle INSERT 失败: {e}")))?;
+        }
+
+        conn.commit()
+            .await
+            .map_err(|e| BenchError::QueryFailed(format!("Oracle COMMIT 失败: {e}")))?;
+        conn.close().await.ok();
         Ok(())
     }
 }
@@ -830,8 +907,8 @@ impl RealDbExecutor {
                     let wl = SzOrmWorkload::new_sqlite(conn, pool_size).await?;
                     wl.execute(workload, rounds).await
                 }
-                DbBackend::Mysql | DbBackend::Postgres => Err(BenchError::QueryFailed(
-                    "sz-orm 后端暂不支持 MySQL/PostgreSQL 基准，请用 Sqlx 或 SeaOrm 框架".into(),
+                DbBackend::Mysql | DbBackend::Postgres | DbBackend::Oracle => Err(BenchError::QueryFailed(
+                    "sz-orm 后端暂不支持 MySQL/PostgreSQL/Oracle 基准，请用 Sqlx 或 SeaOrm 框架".into(),
                 )),
             },
             FrameworkType::Sqlx => {
@@ -839,6 +916,9 @@ impl RealDbExecutor {
                     DbBackend::Sqlite => SqlxWorkload::new_sqlite(conn, pool_size).await?,
                     DbBackend::Mysql => SqlxWorkload::new_mysql(conn, pool_size).await?,
                     DbBackend::Postgres => SqlxWorkload::new_postgres(conn, pool_size).await?,
+                    DbBackend::Oracle => return Err(BenchError::QueryFailed(
+                        "Sqlx 后端暂不支持 Oracle 基准，请用 Sqlite/Mysql/Postgres".into(),
+                    )),
                 };
                 wl.execute(workload, rounds).await
             }
@@ -879,7 +959,7 @@ impl RealDbExecutor {
                         let wl = SzOrmWorkload::new_sqlite(conn, pool_size).await?;
                         let _ = wl.execute(workload, warmup_rounds).await?;
                     }
-                    DbBackend::Mysql | DbBackend::Postgres => {}
+                    DbBackend::Mysql | DbBackend::Postgres | DbBackend::Oracle => {}
                 }
             }
             FrameworkType::Sqlx => {
@@ -888,6 +968,7 @@ impl RealDbExecutor {
                     DbBackend::Sqlite => SqlxWorkload::new_sqlite(conn, pool_size).await?,
                     DbBackend::Mysql => SqlxWorkload::new_mysql(conn, pool_size).await?,
                     DbBackend::Postgres => SqlxWorkload::new_postgres(conn, pool_size).await?,
+                    DbBackend::Oracle => return Ok(()),
                 };
                 let _ = wl.execute(workload, warmup_rounds).await?;
             }
@@ -1039,6 +1120,9 @@ impl crate::SimdComparisonResult {
                 pool.close().await;
                 Ok(rows.iter().map(|r| r.get::<i64, _>("id")).collect())
             }
+            DbBackend::Oracle => Err(BenchError::QueryFailed(
+                "Oracle fetch_ids 将在 M3-T2 中实现".into(),
+            )),
         }
     }
 }

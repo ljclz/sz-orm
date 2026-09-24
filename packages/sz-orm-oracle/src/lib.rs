@@ -117,9 +117,10 @@ pub struct OracleBlockingPool {
     /// runtime handle, used to dispatch spawn_blocking tasks
     handle: tokio::runtime::Handle,
     /// Holds the runtime to ensure blocking tasks can complete.
-    /// The `_` prefix indicates the field is not read directly; it only
-    /// keeps the lifetime.
-    _runtime: tokio::runtime::Runtime,
+    /// Uses `Option` so `Drop` can `take()` it and drop it on a separate
+    /// thread, avoiding "Cannot drop a runtime in a context where blocking
+    /// is not allowed" panics when the pool is dropped inside an async context.
+    _runtime: Option<tokio::runtime::Runtime>,
 }
 
 impl OracleBlockingPool {
@@ -141,7 +142,7 @@ impl OracleBlockingPool {
         let handle = runtime.handle().clone();
         Self {
             handle,
-            _runtime: runtime,
+            _runtime: Some(runtime),
         }
     }
 
@@ -171,8 +172,18 @@ impl std::fmt::Debug for OracleBlockingPool {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("OracleBlockingPool")
             .field("handle", &"tokio::runtime::Handle")
-            .field("_runtime", &"tokio::runtime::Runtime")
+            .field("_runtime", &"Option<tokio::runtime::Runtime>")
             .finish()
+    }
+}
+
+impl Drop for OracleBlockingPool {
+    fn drop(&mut self) {
+        if let Some(runtime) = self._runtime.take() {
+            let _ = std::thread::Builder::new()
+                .name("sz-orm-oracle-runtime-drop".to_string())
+                .spawn(move || drop(runtime));
+        }
     }
 }
 
@@ -1139,27 +1150,11 @@ impl Connection for OracleConnection {
             if !self.connected {
                 return Err(DbError::ConnectionError("connection closed".to_string()));
             }
-            // v1.1.0 优化 3：通过专用阻塞线程池派发，隔离 Oracle 阻塞操作
-            let result = self
-                .handle
-                .blocking_pool()
-                .spawn_blocking({
-                    let handle = self.handle.clone();
-                    move || {
-                        let guard = handle.acquire()?;
-                        let conn = guard.deref();
-                        conn.execute("BEGIN", &[]).map_err(map_oracle_error)?;
-                        Ok::<(), DbError>(())
-                    }
-                })
-                .await
-                .map_err(|e| DbError::Internal(format!("spawn_blocking join error: {}", e)))?;
-            if result.is_ok() {
-                self.in_transaction = true;
-            } else if let Err(ref e) = result {
-                self.mark_connection_error(e);
-            }
-            result
+            // Oracle 事务隐式启动：首个 DML 语句自动开启事务，
+            // 无需也 不能执行 SQL "BEGIN"（Oracle 中 BEGIN 是 PL/SQL 块起始，
+            // 单独执行会报 ORA-06550）。仅设置标志位即可。
+            self.in_transaction = true;
+            Ok(())
         })
     }
 

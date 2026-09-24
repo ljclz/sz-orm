@@ -223,10 +223,12 @@ async fn test_e2e_sqlite_pool_acquire_release() {
         Some(p) => p,
         None => return,
     };
-    sqlx::query(sqlx::AssertSqlSafe("CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)"))
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        "CREATE TABLE IF NOT EXISTS t (id INTEGER PRIMARY KEY)",
+    ))
+    .execute(&pool)
+    .await
+    .unwrap();
     sqlx::query(sqlx::AssertSqlSafe("INSERT INTO t (id) VALUES (?)"))
         .bind(1_i64)
         .execute(&pool)

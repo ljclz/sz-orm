@@ -9,8 +9,8 @@
 
 #![cfg(feature = "e2e-real-db")]
 
-use sqlx::Row;
 use sqlx::AssertSqlSafe;
+use sqlx::Row;
 
 #[allow(dead_code)]
 mod common;
@@ -45,14 +45,19 @@ async fn test_mysql_returning_via_last_insert_id() {
         .await
         .unwrap();
 
-    let row: sqlx::mysql::MySqlRow =
-        sqlx::query("SELECT LAST_INSERT_ID() as id").fetch_one(&pool).await.unwrap();
+    let row: sqlx::mysql::MySqlRow = sqlx::query("SELECT LAST_INSERT_ID() as id")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let id: i64 = row.get("id");
     assert!(id > 0, "LAST_INSERT_ID() 应返回有效 ID");
 
     let select_sql = format!("SELECT name FROM `{}` WHERE id = ?", table);
-    let row2: sqlx::mysql::MySqlRow =
-        sqlx::query(AssertSqlSafe(select_sql.as_str())).bind(id).fetch_one(&pool).await.unwrap();
+    let row2: sqlx::mysql::MySqlRow = sqlx::query(AssertSqlSafe(select_sql.as_str()))
+        .bind(id)
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let name: String = row2.get("name");
     assert_eq!(name, "Alice");
 
@@ -91,9 +96,15 @@ async fn test_mysql_returning_via_second_select() {
         .await
         .unwrap();
 
-    let select_sql = format!("SELECT id, name, age FROM `{}` WHERE name = ? ORDER BY id DESC LIMIT 1", table);
-    let row: sqlx::mysql::MySqlRow =
-        sqlx::query(AssertSqlSafe(select_sql.as_str())).bind("Bob").fetch_one(&pool).await.unwrap();
+    let select_sql = format!(
+        "SELECT id, name, age FROM `{}` WHERE name = ? ORDER BY id DESC LIMIT 1",
+        table
+    );
+    let row: sqlx::mysql::MySqlRow = sqlx::query(AssertSqlSafe(select_sql.as_str()))
+        .bind("Bob")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let id: i64 = row.get("id");
     let name: String = row.get("name");
     let age: i32 = row.get("age");
@@ -140,8 +151,11 @@ async fn test_mysql_returning_via_on_duplicate_key() {
         .unwrap();
 
     let select_sql = format!("SELECT name FROM `{}` WHERE email = ?", table);
-    let row: sqlx::mysql::MySqlRow =
-        sqlx::query(AssertSqlSafe(select_sql.as_str())).bind("alice@example.com").fetch_one(&pool).await.unwrap();
+    let row: sqlx::mysql::MySqlRow = sqlx::query(AssertSqlSafe(select_sql.as_str()))
+        .bind("alice@example.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let name: String = row.get("name");
     assert_eq!(name, "Alice");
 
@@ -152,8 +166,11 @@ async fn test_mysql_returning_via_on_duplicate_key() {
         .await
         .unwrap();
 
-    let row2: sqlx::mysql::MySqlRow =
-        sqlx::query(AssertSqlSafe(select_sql.as_str())).bind("alice@example.com").fetch_one(&pool).await.unwrap();
+    let row2: sqlx::mysql::MySqlRow = sqlx::query(AssertSqlSafe(select_sql.as_str()))
+        .bind("alice@example.com")
+        .fetch_one(&pool)
+        .await
+        .unwrap();
     let name2: String = row2.get("name");
     assert_eq!(name2, "Alice Updated");
 

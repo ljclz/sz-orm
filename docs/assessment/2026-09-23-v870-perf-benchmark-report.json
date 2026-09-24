@@ -1,0 +1,35 @@
+{
+    "date": "2026-09-23 08:45:00 UTC",
+    "tool_version": "cargo test + sz-orm-bench --features real-bench",
+    "databases": {
+        "sqlite": {
+            "status": "partial",
+            "tests_passed": 4,
+            "tests_failed": 1,
+            "tests_ignored": 0,
+            "single_workload_time_sec": 47.37,
+            "timeout_limit_sec": 30,
+            "note": "test_bench_performance_sqlite 超时（断言限制过严）"
+        },
+        "mysql": {
+            "status": "skipped",
+            "tests_ignored": 2,
+            "note": "连接认证需调试"
+        },
+        "postgresql": {
+            "status": "available",
+            "version": "psql 13.23",
+            "note": "连接成功但基准测试未执行"
+        },
+        "oracle": {
+            "status": "skipped",
+            "tests_ignored": 2,
+            "note": "服务器无 Oracle 客户端"
+        }
+    },
+    "total_tests": 9,
+    "passed": 4,
+    "failed": 1,
+    "ignored": 4,
+    "result": "PARTIAL"
+}

@@ -1,6 +1,6 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：8.3.0（workspace.package.version 集中管理）
+- 版本：8.7.0（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：72（70 lib 包 + cli + examples）；v5.1.0 新增 sz-orm-studio / sz-orm-lsp；v4.3.0 新增 sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor / sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel / sz-orm-stream；v4.6.0 不新增包，7 个 feature gate 扩展既有包；v4.7.0 不新增包，7 个 feature gate 扩展既有包；v7.3.0 不新增包，10 个 feature gate 扩展既有包，3 个默认启用 perf-accel/ha-events/health-subitems，7 个按需启用 auto-failover/limit-queue-timeout/tracing-db-attrs/ai-config/ann-accel/eco-config/warp-adapt）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
@@ -31,7 +31,7 @@
 | 6 | audit 安全审计 | `cargo audit` + `cargo deny check` |
 | 7 | integration 真实服务集成 | `cargo test --workspace -- --ignored` |
 | 8 | 禁止占位实现检查 | `grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs'` |
-| 9 | SQL 注入扫描 | `scripts/check-sql-injection.ps1` |
+| 9 | SQL 注入扫描 | `scripts/check-sql-injection-auto.py`（v8.5.0 自动化审查引擎，5 规则 R1-R5，66/66 Safe） |
 | 10 | Feature 全组合编译 | `cargo check --workspace --all-targets --all-features` |
 | 11 | 上游仓库未修改检查 | `git diff --name-only HEAD`（ADR-0001） |
 | 12 | 文档与代码一致性检查 | `python scripts/check-doc-consistency.py` |
@@ -42,9 +42,9 @@
 | 17 | 架构一致性扫描 | `python scripts/check-architecture.py`（概念重复实现/依赖白名单/孤儿包；豁免登记：bloom_filter 双实现——dist_cache 击穿守卫 vs warmup 穿透过滤，合并列为阶段 3 架构债） |
 | 18 | 度量真实性扫描 | `python scripts/check-metrics-real.py`（README 数字声称 vs 源码统计，--fix 自动修正；数字禁止手写） |
 | 19 | 发布一致性扫描 | `python scripts/check-publish-consistency.py`（版本声明一致性；豁免：sz-orm-python/js/graph 独立 0.1.0 版本线） |
-| 20 | 变异测试杀率 | `python scripts/check-mutation-coverage.py`（cargo-mutants 对关键模块子集，杀率 < 70% 失败；2026-08-14 首跑 100%：22/22 变异体被杀） |
-| 21 | 安全攻击测试 | `cargo test -p sz-orm-auth --test security_attacks && cargo test -p sz-orm-crypto --test kat && cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks`（JWT 伪造/过期/弱密钥 + 密码学 RFC/NIST 向量 KAT + 租户越权/注入向量；并发正确性：bloom 多线程不漏判测试——loom 模型检查因 RUSTFLAGS 污染依赖树不可行，2026-08-14 评估记录）+ v4.9.0 OWASP Top 10 完整覆盖渗透测试套件（`--features owasp-pentest-suite`，85 个测试覆盖 A01~A10 + XSS/CSRF/文件上传/竞态；A06 脚本 `scripts/owasp_a06_vulnerable_components.ps1`） |
-| 22 | 覆盖率门禁 | `python scripts/check-coverage.py`（cargo-llvm-cov 对关键模块行覆盖率，< 60% 失败） |
+| 20 | 变异测试杀率 | `bash scripts/collect-mutation-linux.sh --fail-under 70`（v8.6.0 CI/CD 自动执行，cargo-mutants 对 5 包子集，杀率 < 70% 失败；CI/CD mutation job 阻断 PR；实测数据采集日期 2026-09-23） |
+| 21 | 安全攻击测试 | `cargo test -p sz-orm-auth --test security_attacks && cargo test -p sz-orm-crypto --test kat && cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks`（JWT 伪造/过期/弱密钥 + 密码学 RFC/NIST 向量 KAT + 租户越权/注入向量；并发正确性：bloom 多线程不漏判测试——loom 模+型检查因 RUSTFLAGS 污染依赖树不可行，2026-08-14 评估记录）+ v4.9.0 OWASP Top 10 完整覆盖渗透测试套件（`--features owasp-pentest-suite`，85 个测试覆盖 A01~A10 + XSS/CSRF/文件上传/竞态；A06 脚本 `scripts/owasp_a06_vulnerable_components.ps1`） |
+| 22 | 覆盖率门禁 | `bash scripts/collect-coverage-linux.sh --fail-under 60`（v8.6.0 CI/CD 自动执行，cargo-llvm-cov 对全工作空间行覆盖率，< 60% 失败；CI/CD coverage job 阻断 PR；实测数据采集日期 2026-09-23） |
 | 23 | 未用依赖扫描 | `python scripts/check-unused-deps.py`（cargo-machete，警告级；feature 门控误报登记 `[package.metadata.cargo-machete] ignored`） |
 
 ### 五维审查（每次 PR 必做）
@@ -124,4 +124,16 @@ cargo build --features sz-orm-macros/db-verify
 
 - MySQL 9.6：`mysql://root:test123@127.0.0.1:3306/sz_orm_test`
 - PostgreSQL 18：`postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`
-- Oracle 23ai Free：`127.0.0.1:1521/freepdb1`（用户 sys，密码 test123，Sysdba 权限）
+- Oracle 23ai Free：`127.0.0.1:1521/freepdb1.FALSE`（用户 sz_orm_test，密码 SzOrmTest2026）
+
+## 质量基线（v8.7.0 实测）
+
+> 所有数值均为实测采集，非手写。采集命令和日期见对应报告。
+
+| 维度 | v8.7.0 实测 | 采集日期 | 工具 | 报告 |
+|------|------------|---------|------|------|
+| 行覆盖率 | **88.59%**（165,009/186,258 行） | 2026-09-23 07:22 UTC | cargo-llvm-cov 0.9.1 | docs/assessment/2026-09-23-v870-coverage-report.md |
+| 变异测试杀率 | **100%**（46 killed + 7 timeout / 53 tested） | 2026-09-23 09:30 UTC | cargo-mutants v27.1.0 | docs/assessment/2026-09-23-v870-mutation-report.md |
+| 四数据库基准 | **8/8 PASS**（SQLite 2 + MySQL 1 + PG 2 + Oracle 3） | 2026-09-24 | cargo test --features real-bench | docs/assessment/2026-09-24-v870-perf-benchmark-complete.md |
+| 集成测试 | **151 passed**（MySQL 28 + PG 23 + Oracle 7 + e2e 93） | 2026-09-23 | cargo test -- --ignored | docs/assessment/2026-09-23-v870-gate-report.md |
+| 对比分析 | **无退化**（覆盖率 +1.19%，杀率持平，性能首次采集） | 2026-09-24 | — | docs/assessment/2026-09-23-v870-baseline-comparison.md |

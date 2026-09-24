@@ -18,6 +18,7 @@ import os
 import re
 import sys
 from pathlib import Path
+from typing import Optional
 
 try:
     import tomllib
@@ -71,7 +72,7 @@ def load_workspace_rust_version(cargo_toml: Path) -> str:
     return data.get("workspace", {}).get("package", {}).get("rust-version", "unknown")
 
 
-def extract_doc_value(filepath: Path, pattern: re.Pattern) -> str | None:
+def extract_doc_value(filepath: Path, pattern: re.Pattern) -> Optional[str]:
     """从文档中提取匹配值。
 
     统一约定：pattern 为「(前缀)(值)」两捕获组，值取第 2 组；
@@ -86,7 +87,7 @@ def extract_doc_value(filepath: Path, pattern: re.Pattern) -> str | None:
     return m.group(2) if (m.lastindex and m.lastindex >= 2) else m.group(1)
 
 
-def check_field(name: str, actual: str, doc_value: str | None, filepath: Path, fix: bool) -> bool:
+def check_field(name: str, actual: str, doc_value: Optional[str], filepath: Path, fix: bool) -> bool:
     """检查单个字段的一致性。"""
     if doc_value is None:
         print(f"  {YELLOW}[WARN]{RESET} {name}: 文档中未找到（{filepath.name}）")

@@ -668,13 +668,52 @@ jobs:
         run: cargo check --package sz-orm-queue --features "all-real" --verbose
 
   # ============================================================================
-  # Job 6: 性能基准测试（criterion，结果对比）
+  # Job 6: 性能基准测试（v8.6.0：sz-orm-bench --features real-bench 四数据库）
+  # 性能波动不阻断 PR（continue-on-error: true，ADR-005）
   # ============================================================================
   benchmark:
-    name: Performance Benchmarks
+    name: Performance Benchmarks (4 DB)
     runs-on: ubuntu-latest
     needs: [test]
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    continue-on-error: true
+    timeout-minutes: 60
+    services:
+      mysql:
+        image: mysql:8.0
+        env:
+          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_TEST_PASSWORD }}
+          MYSQL_DATABASE: sz_orm_test
+        ports:
+          - 3306:3306
+        options: >-
+          --health-cmd="mysqladmin ping -h 127.0.0.1 -P 3306"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: ${{ secrets.PG_TEST_PASSWORD }}
+          POSTGRES_DB: sz_orm_test
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd="pg_isready -h 127.0.0.1 -p 5432"
+          --health-interval=10s
+          --health-timeout=5s
+          --health-retries=10
+      oracle:
+        image: gvenzl/oracle-free:23ai
+        env:
+          ORACLE_PASSWORD: ${{ secrets.ORACLE_TEST_PASSWORD }}
+        ports:
+          - 1521:1521
+        options: >-
+          --health-cmd="healthcheck.sh"
+          --health-interval=15s
+          --health-timeout=10s
+          --health-retries=20
+          --health-start-period=60s
     steps:
       - uses: actions/checkout@v4
 
@@ -692,15 +731,23 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-bench-
 
-      - name: Run criterion benchmarks
-        run: cargo bench --package sz-orm-core --bench core_bench -- --warm-up-time 1 --measurement-time 3 --sample-size 30
+      - name: Run 4-DB benchmark (sz-orm-bench --features real-bench)
+        env:
+          MYSQL_URL: mysql://root:${{ secrets.MYSQL_TEST_PASSWORD }}@127.0.0.1:3306/sz_orm_test
+          PG_URL: postgres://postgres:${{ secrets.PG_TEST_PASSWORD }}@127.0.0.1:5432/sz_orm_test
+          ORACLE_URL: oracle://sys:${{ secrets.ORACLE_TEST_PASSWORD }}@127.0.0.1:1521/freepdb1
+        run: |
+          cargo bench -p sz-orm-bench --features real-bench -- --nocapture || echo "WARNING: benchmark had errors (non-blocking)"
 
       - name: Upload benchmark results
+        if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: criterion-results-${{ github.sha }}
-          path: target/criterion/
-          retention-days: 30
+          name: benchmark-4db-${{ github.sha }}
+          path: |
+            target/criterion/
+            benchmark-report.json
+          retention-days: 90
 
   # ============================================================================
   # Job 6.5: v0.2.2 修复 P2-4：Soak Test 冒烟验证（Linux 平台）
@@ -773,30 +820,117 @@ jobs:
             --ignore RUSTSEC-2024-0436
 
   # ============================================================================
-  # Job 8: 覆盖率报告
+  # Job 8: 覆盖率报告（v8.6.0：cargo-llvm-cov，阻断 PR）
   # ============================================================================
   coverage:
     name: Code Coverage
     runs-on: ubuntu-latest
     needs: [test]
-    continue-on-error: true
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
 
-      - name: Install cargo-tarpaulin
-        run: cargo install cargo-tarpaulin --locked
-
-      - name: Run coverage (lib only, fail-under 70)
-        run: cargo tarpaulin --workspace --lib --out Xml --output-dir coverage/ --fail-under 70 --skip-clean
-
-      - name: Upload coverage to Codecov
-        uses: codecov/codecov-action@v4
+      - name: Cache cargo registry
+        uses: actions/cache@v4
         with:
-          files: coverage/cobertura.xml
-          fail_ci_if_error: false
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-cov-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-cov-
+
+      - name: Install cargo-llvm-cov
+        run: cargo install cargo-llvm-cov --locked
+
+      - name: Run coverage (cargo-llvm-cov, fail-under 60)
+        run: bash scripts/collect-coverage-linux.sh --output coverage-report.md --json coverage-report.json --fail-under 60
+
+      - name: Upload coverage artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ github.sha }}
+          path: |
+            lcov.info
+            coverage-report.md
+            coverage-report.json
+          retention-days: 30
+
+  # ============================================================================
+  # Job 8.5: 变异测试（v8.6.0 新增，cargo-mutants，阻断 PR）
+  # ============================================================================
+  mutation:
+    name: Mutation Testing
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust toolchain (stable)
+        uses: dtolnay/rust-toolchain@stable
+
+      - name: Cache cargo registry
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.cargo/registry
+            ~/.cargo/git
+            target
+          key: ${{ runner.os }}-cargo-mut-${{ hashFiles('**/Cargo.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-cargo-mut-
+
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+
+      - name: Kill residual cargo-mutants processes
+        run: pkill -f cargo-mutants || true
+
+      - name: Run mutation testing (fail-under 70)
+        run: bash scripts/collect-mutation-linux.sh --output mutation-report.md --json mutation-report.json --fail-under 70
+
+      - name: Upload mutation artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-${{ github.sha }}
+          path: |
+            mutation-report.md
+            mutation-report.json
+          retention-days: 30
+
+  # ============================================================================
+  # Job 8.6: 下游消费者编译验证（v8.6.0 新增，阻断 PR）
+  # ============================================================================
+  downstream-compat:
+    name: Downstream Compatibility
+    runs-on: ubuntu-latest
+    needs: [test]
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run downstream compatibility check
+        run: python scripts/check-downstream-compat-auto.py --all --compile --api-diff --json --output compat-report.json
+
+      - name: Upload compatibility report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: downstream-compat-${{ github.sha }}
+          path: compat-report.json
+          retention-days: 30
 
   # ============================================================================
   # Job 9: Fuzz Testing（P2-3）

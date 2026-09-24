@@ -460,12 +460,14 @@ async fn test_e2e_sqlite_cache_hit() {
     .execute(&pool)
     .await
     .unwrap();
-    sqlx::query(sqlx::AssertSqlSafe("INSERT INTO t (id, name) VALUES (?, ?)"))
-        .bind(1_i64)
-        .bind("Alice")
-        .execute(&pool)
-        .await
-        .unwrap();
+    sqlx::query(sqlx::AssertSqlSafe(
+        "INSERT INTO t (id, name) VALUES (?, ?)",
+    ))
+    .bind(1_i64)
+    .bind("Alice")
+    .execute(&pool)
+    .await
+    .unwrap();
     let row1 = sqlx::query(sqlx::AssertSqlSafe("SELECT name FROM t WHERE id = ?"))
         .bind(1_i64)
         .fetch_one(&pool)

@@ -58,8 +58,8 @@ pub use compliance_scan_desensitizer::{
 #[cfg(feature = "compliance-auto-scan")]
 pub use compliance_scan_engine::{
     ComplianceScanEngine, ComplianceScanError, ComplianceScanInput, ComplianceScanReport,
-    ComplianceScanStatus, ComplianceScope, ComplianceViolation, FixSuggestion, ScanItem,
-    ViolationSeverity,
+    ComplianceScanStatus, ComplianceScope, ComplianceViolation as ScanComplianceViolation,
+    FixSuggestion, ScanItem, ViolationSeverity,
 };
 #[cfg(feature = "evidence-auto-archive")]
 pub use evidence_auto_archive_scheduler::{

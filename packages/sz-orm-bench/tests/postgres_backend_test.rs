@@ -2,12 +2,16 @@
 
 #![cfg(feature = "real-bench")]
 
+use std::sync::Mutex;
+
 use sz_orm_bench::{
     real_db::{run_workload_real, DatasetInitializer},
     BenchConfig, DbBackend, FrameworkType, WorkloadType,
 };
 
 const PG_CONNECTION: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
+
+static PG_TEST_LOCK: Mutex<()> = Mutex::new(());
 
 fn pg_config() -> BenchConfig {
     let mut config = BenchConfig::new();
@@ -22,6 +26,7 @@ fn pg_config() -> BenchConfig {
 #[tokio::test]
 #[ignore]
 async fn test_postgres_init_and_query() {
+    let _lock = PG_TEST_LOCK.lock().unwrap();
     let config = pg_config();
     DatasetInitializer::init(DbBackend::Postgres, PG_CONNECTION, config.dataset_size)
         .await
@@ -40,6 +45,7 @@ async fn test_postgres_init_and_query() {
 #[tokio::test]
 #[ignore]
 async fn test_postgres_batch_query() {
+    let _lock = PG_TEST_LOCK.lock().unwrap();
     let config = pg_config();
     DatasetInitializer::init(DbBackend::Postgres, PG_CONNECTION, config.dataset_size)
         .await

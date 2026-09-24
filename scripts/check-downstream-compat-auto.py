@@ -6,6 +6,7 @@ with sz-orm after version upgrades.
 
 Usage:
   python scripts/check-downstream-compat-auto.py --project sz-pay --compile --api-diff --json
+  python scripts/check-downstream-compat-auto.py --all --compile --api-diff --json --output compat.json
 """
 
 import argparse
@@ -94,13 +95,68 @@ def auto_check_project(name: str, config: dict, do_compile: bool, do_api_diff: b
     return report
 
 
+def report_to_dict(report: CompatReport) -> dict:
+    return {
+        "name": report.project,
+        "path": report.path,
+        "exists": report.exists,
+        "compile_ok": report.compile_ok,
+        "api_compatible": report.api_compatible,
+        "packages_checked": report.packages_checked,
+        "packages_compatible": report.packages_compatible,
+        "api_diff": report.api_diff,
+    }
+
+
 def main():
     parser = argparse.ArgumentParser(description="Downstream Compatibility Automated Verification")
-    parser.add_argument("--project", default="sz-pay", help="Project name")
+    parser.add_argument("--project", default="sz-pay", help="Project name (single project mode)")
+    parser.add_argument("--all", action="store_true", help="Check all projects (batch mode)")
     parser.add_argument("--compile", action="store_true", help="Check compilation")
     parser.add_argument("--api-diff", action="store_true", help="Check API compatibility")
     parser.add_argument("--json", action="store_true", help="Output JSON format")
+    parser.add_argument("--output", default=None, help="Output file path")
     args = parser.parse_args()
+
+    if args.all:
+        reports = []
+        all_pass = True
+        for name, config in PROJECTS.items():
+            print(f"=== Checking {name} ===")
+            report = auto_check_project(name, config, args.compile, args.api_diff)
+            reports.append(report)
+            if not report.exists:
+                print(f"  WARNING: {name} path not found: {config['path']}, skipping (non-failure)")
+            else:
+                if args.compile:
+                    print(f"  Compile: {'PASS' if report.compile_ok else 'FAIL'}")
+                    if not report.compile_ok:
+                        all_pass = False
+                if args.api_diff:
+                    print(f"  API Compatible: {'PASS' if report.api_compatible else 'FAIL'}")
+                    print(f"  Packages: {report.packages_compatible}/{report.packages_checked} compatible")
+
+        if args.json:
+            output_data = {
+                "projects": [report_to_dict(r) for r in reports],
+                "all_pass": all_pass,
+            }
+            output_str = json.dumps(output_data, indent=2, ensure_ascii=False)
+            if args.output:
+                Path(args.output).write_text(output_str, encoding="utf-8")
+                print(f"Report written to {args.output}")
+            else:
+                print(output_str)
+        else:
+            print(f"\n=== Summary ===")
+            for r in reports:
+                status = "SKIP" if not r.exists else ("PASS" if r.compile_ok else "FAIL")
+                print(f"  {r.project}: {status}")
+            print(f"  All pass: {all_pass}")
+
+        if not all_pass:
+            sys.exit(1)
+        return
 
     if args.project not in PROJECTS:
         print(f"Unknown project: {args.project}")
@@ -110,16 +166,12 @@ def main():
     report = auto_check_project(args.project, PROJECTS[args.project], args.compile, args.api_diff)
 
     if args.json:
-        print(json.dumps({
-            "project": report.project,
-            "path": report.path,
-            "exists": report.exists,
-            "compile_ok": report.compile_ok,
-            "api_compatible": report.api_compatible,
-            "packages_checked": report.packages_checked,
-            "packages_compatible": report.packages_compatible,
-            "api_diff": report.api_diff,
-        }, indent=2, ensure_ascii=False))
+        output_str = json.dumps(report_to_dict(report), indent=2, ensure_ascii=False)
+        if args.output:
+            Path(args.output).write_text(output_str, encoding="utf-8")
+            print(f"Report written to {args.output}")
+        else:
+            print(output_str)
     else:
         print(f"=== Downstream Compatibility: {report.project} ===")
         print(f"Path: {report.path}")

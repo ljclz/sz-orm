@@ -112,6 +112,8 @@ pub enum DbBackend {
     Mysql,
     #[serde(rename = "postgres")]
     Postgres,
+    #[serde(rename = "oracle")]
+    Oracle,
 }
 
 impl DbBackend {
@@ -120,6 +122,7 @@ impl DbBackend {
             Self::Sqlite => "sqlite",
             Self::Mysql => "mysql",
             Self::Postgres => "postgres",
+            Self::Oracle => "oracle",
         }
     }
 }
@@ -603,7 +606,7 @@ fn current_rss_kb() -> u64 {
         if let Ok(status) = std::fs::read_to_string("/proc/self/status") {
             for line in status.lines() {
                 if let Some(rest) = line.strip_prefix("VmRSS:") {
-                    if let Some(n) = rest.trim().split_whitespace().next() {
+                    if let Some(n) = rest.split_whitespace().next() {
                         if let Ok(kb) = n.parse::<u64>() {
                             return kb;
                         }
@@ -676,6 +679,15 @@ pub fn validate_db_connection(connection: &str) -> Result<DbBackend, BenchError>
             ));
         }
         return Ok(DbBackend::Postgres);
+    }
+    if connection.starts_with("oracle://") || connection.starts_with("oracle://") {
+        let lower = connection.to_lowercase();
+        if lower.contains("prod") || lower.contains("production") {
+            return Err(BenchError::ProductionDatabaseRejected(
+                "连接串含 prod/production".into(),
+            ));
+        }
+        return Ok(DbBackend::Oracle);
     }
     Err(BenchError::InvalidConnectionString(format!(
         "不支持的连接串: {connection}"
