@@ -328,6 +328,10 @@ impl Connection for SqlxSqliteConnection {
         self.connected
     }
 
+    fn in_transaction(&self) -> bool {
+        self.in_transaction
+    }
+
     fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             match self.execute("SELECT 1").await {
@@ -1020,6 +1024,10 @@ impl Connection for SqlxMySqlConnection {
         self.connected
     }
 
+    fn in_transaction(&self) -> bool {
+        self.in_transaction
+    }
+
     fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             match self.execute("SELECT 1").await {
@@ -1706,6 +1714,10 @@ impl Connection for SqlxPgConnection {
 
     fn is_connected(&self) -> bool {
         self.connected
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.in_transaction
     }
 
     fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {

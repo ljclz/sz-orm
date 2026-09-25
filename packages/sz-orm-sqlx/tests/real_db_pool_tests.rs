@@ -169,6 +169,76 @@ async fn mysql_transaction_commit_rollback() {
     pool.release(conn).await;
 }
 
+/// 回归测试（2026-09-25 下游 sz-rust 挂死缺陷）：事务中途 drop 连接，归还时自动回滚
+///
+/// 缺陷：release 路径不回滚未提交事务，开放事务随连接回池；MySQL 会话持续
+/// 持有行锁与 MDL 元数据锁，同池其他连接的 DROP TABLE 被永久阻塞。
+/// 验证：未提交即 drop → （1）泄漏行被自动回滚；（2）同池连接的 DDL 不再被阻塞。
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
+async fn mysql_drop_uncommitted_tx_auto_rollback_on_release() {
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
+    let table = unique_table("mysql_tx_leak");
+    let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle.clone()));
+    let config = PoolConfigBuilder::new().max_size(3).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute(&format!(
+        "CREATE TABLE {} (id INT PRIMARY KEY, val VARCHAR(50))",
+        table
+    ))
+    .await
+    .unwrap();
+    conn.execute(&format!(
+        "INSERT INTO {} (id, val) VALUES (1, 'kept')",
+        table
+    ))
+    .await
+    .unwrap();
+
+    // 事务中途 drop（不 commit/rollback），连接经 Drop spawn 异步归还
+    {
+        let mut c2 = pool.acquire().await.unwrap();
+        c2.begin_transaction().await.unwrap();
+        c2.execute(&format!(
+            "INSERT INTO {} (id, val) VALUES (2, 'leaked')",
+            table
+        ))
+        .await
+        .unwrap();
+        // 不 commit 直接 drop
+    }
+
+    // 给 Drop spawn 的异步归还（含自动回滚）执行窗口
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    // 断言 1：泄漏行已被归还路径自动回滚
+    let rows = conn
+        .query(&format!("SELECT COUNT(*) AS cnt FROM {}", table))
+        .await
+        .unwrap();
+    let cnt = rows[0]
+        .get("cnt")
+        .and_then(|v| v.as_i64())
+        .expect("应包含 cnt 字段");
+    assert_eq!(cnt, 1, "未提交事务应在连接归还时被自动回滚");
+
+    // 断言 2（缺陷核心症状）：同池连接的 DDL 不再被 MDL 阻塞；
+    // 修复前此 DROP 永久挂起（MySQL lock_wait_timeout 默认 1 年）
+    let dropped = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        conn.execute(&format!("DROP TABLE IF EXISTS {}", table)),
+    )
+    .await;
+    assert!(
+        dropped.is_ok(),
+        "DROP TABLE 被 MDL 阻塞超过 10s：归还路径未回滚未提交事务"
+    );
+
+    pool.release(conn).await;
+}
+
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
 async fn mysql_savepoint_nested() {
@@ -356,6 +426,69 @@ async fn pg_pool_concurrent_8_tasks() {
 
     let mut conn = pool.acquire().await.unwrap();
     let _ = conn.execute(&format!("DROP TABLE {}", table)).await;
+    pool.release(conn).await;
+}
+
+/// PG 回归测试（与 MySQL 版对齐）：事务中途 drop 连接，归还时自动回滚。
+/// PG 侧开放事务持有 ACCESS SHARE 锁，同池连接的 DROP TABLE（需 ACCESS EXCLUSIVE）
+/// 在修复前同样被永久阻塞。
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
+async fn pg_drop_uncommitted_tx_auto_rollback_on_release() {
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
+    let table = unique_table("pg_tx_leak");
+    let factory = Arc::new(SqlxPgConnectionFactory::new(pool_handle.clone()));
+    let config = PoolConfigBuilder::new().max_size(3).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute(&format!(
+        "CREATE TABLE {} (id BIGINT PRIMARY KEY, val TEXT)",
+        table
+    ))
+    .await
+    .unwrap();
+    conn.execute(&format!(
+        "INSERT INTO {} (id, val) VALUES (1, 'kept')",
+        table
+    ))
+    .await
+    .unwrap();
+
+    {
+        let mut c2 = pool.acquire().await.unwrap();
+        c2.begin_transaction().await.unwrap();
+        c2.execute(&format!(
+            "INSERT INTO {} (id, val) VALUES (2, 'leaked')",
+            table
+        ))
+        .await
+        .unwrap();
+        // 不 commit 直接 drop
+    }
+
+    tokio::time::sleep(std::time::Duration::from_millis(200)).await;
+
+    let rows = conn
+        .query(&format!("SELECT COUNT(*) AS cnt FROM {}", table))
+        .await
+        .unwrap();
+    let cnt = rows[0]
+        .get("cnt")
+        .and_then(|v| v.as_i64())
+        .expect("应包含 cnt 字段");
+    assert_eq!(cnt, 1, "未提交事务应在连接归还时被自动回滚");
+
+    let dropped = tokio::time::timeout(
+        std::time::Duration::from_secs(10),
+        conn.execute(&format!("DROP TABLE IF EXISTS {}", table)),
+    )
+    .await;
+    assert!(
+        dropped.is_ok(),
+        "DROP TABLE 被锁阻塞超过 10s：归还路径未回滚未提交事务"
+    );
+
     pool.release(conn).await;
 }
 

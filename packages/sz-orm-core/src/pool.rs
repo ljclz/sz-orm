@@ -79,6 +79,17 @@ pub trait Connection: Send + Sync {
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>>;
 
+    /// 连接是否处于未提交事务中
+    ///
+    /// 连接池在归还连接（显式 `release` 或 Drop 自动归还）时据此自动回滚
+    /// 未提交事务，防止开放事务泄漏回池（行锁与 MDL 元数据锁不释放，
+    /// 会阻塞同池其他连接的 DML/DDL）。
+    /// 默认返回 `false`（保持既有行为，不自动回滚）；跟踪事务状态的适配器
+    /// 应覆盖此方法，并在 `begin_transaction`/`commit`/`rollback` 中维护状态。
+    fn in_transaction(&self) -> bool {
+        false
+    }
+
     /// 参数绑定执行（INSERT/UPDATE/DELETE）
     ///
     /// 使用真实 prepared statement 绑定参数，避免 SQL 注入。
@@ -1848,6 +1859,10 @@ impl Pool {
     /// 接收 `PooledConnection` 以保留原始 `created_at`，避免 `max_lifetime`
     /// 在每次归还后被重置（Critical bug fix）。
     ///
+    /// 若连接仍处于未提交事务中（事务中途被归还，如调用方直接 drop），
+    /// 归还前自动回滚，防止开放事务泄漏回池；回滚失败或超时的连接
+    /// 直接关闭不入池。
+    ///
     /// 显式调用 release 后，`pooled.pool` 设为 None，避免 Drop 重复归还。
     #[tracing::instrument(skip(self, pooled))]
     pub async fn release(&self, mut pooled: PooledConnection) {
@@ -1873,6 +1888,38 @@ impl Pool {
 
         // 更新 last_used_at（归还时间），但保留 created_at（原始创建时间）
         pooled.last_used_at = Instant::now();
+
+        // 事务泄漏防护：归还前回滚未提交事务。
+        // 事务中途 drop PooledConnection 会把开放事务带回池：MySQL 会话持续
+        // 持有行锁与 MDL 元数据锁，阻塞同池其他连接的 DML/DDL 直至事务结束
+        // （下游 sz-rust db_integration_test 挂死根因，2026-09-25 定位）。
+        if pooled.conn.in_transaction() {
+            match tokio::time::timeout(self.config.connection_timeout, pooled.conn.rollback()).await
+            {
+                Ok(Ok(())) => {
+                    tracing::debug!(
+                        target: "sz_orm::pool",
+                        "rolled back uncommitted transaction on connection return"
+                    );
+                }
+                Ok(Err(e)) => {
+                    // 回滚失败：连接状态不可信，直接关闭不入池
+                    tracing::warn!(target: "sz_orm::pool", "rollback on release failed: {}", e);
+                    self.close_connection(pooled).await;
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    self.emit_event(PoolEvent::ConnectionClosed);
+                    return;
+                }
+                Err(_) => {
+                    // 回滚超时：连接状态不可信，直接关闭不入池
+                    tracing::warn!(target: "sz_orm::pool", "rollback on release timed out");
+                    self.close_connection(pooled).await;
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    self.emit_event(PoolEvent::ConnectionClosed);
+                    return;
+                }
+            }
+        }
 
         // v1.1.0 优化 2：无锁 push 替换 Mutex<VecDeque>::push_back
         //

@@ -950,6 +950,10 @@ impl Connection for MssqlConnection {
         self.connected
     }
 
+    fn in_transaction(&self) -> bool {
+        self.in_transaction
+    }
+
     fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
         Box::pin(async move {
             if !self.connected {
