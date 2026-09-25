@@ -1691,16 +1691,12 @@ impl Pool {
                         continue;
                     }
                     // v9.0.0 M5：known_good 快速路径
-                    // release 时标记 known_good=true 的连接跳过 is_connected 检查
-                    // （刚归还的连接可用性由使用方保证，减少内存访问开销）
-                    if !pooled.known_good {
-                        // 检查连接是否仍然连接
-                        // 注意：is_connected() 是同步内存检查，不涉及 I/O
-                        // v8.8.0：保留此检查以正确处理网络分区场景（chaos 测试依赖）
-                        if !pooled.conn.is_connected() {
-                            to_close.push(pooled);
-                            continue;
-                        }
+                    // 已移除 bypass：网络分区场景下 known_good 标记可能过期，
+                    // 导致返回已断开连接。is_connected() 是同步内存检查（无 I/O），
+                    // 开销极小，保留检查确保正确性。
+                    if !pooled.conn.is_connected() {
+                        to_close.push(pooled);
+                        continue;
                     }
                     found = Some(pooled);
                     break;

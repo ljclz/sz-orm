@@ -105,24 +105,22 @@ fn make_pool() -> (Pool, Arc<AtomicUsize>) {
 }
 
 #[tokio::test]
-async fn test_known_good_skips_is_connected_on_reacquire() {
+async fn test_known_good_always_checks_is_connected_on_reacquire() {
     let (pool, is_connected_calls) = make_pool();
 
-    // 首次 acquire：创建新连接，known_good=false，会调用 is_connected
     let conn1 = pool.acquire().await.unwrap();
     assert!(!conn1.known_good);
     pool.release(conn1).await;
 
     let calls_after_first = is_connected_calls.load(Ordering::Relaxed);
 
-    // 二次 acquire：从 idle 取出，known_good=true，应跳过 is_connected
     let conn2 = pool.acquire().await.unwrap();
     assert!(!conn2.known_good, "acquire 后 known_good 应被清除");
 
     let calls_after_second = is_connected_calls.load(Ordering::Relaxed);
-    assert_eq!(
-        calls_after_second, calls_after_first,
-        "known_good=true 时不应调用 is_connected"
+    assert!(
+        calls_after_second > calls_after_first,
+        "is_connected 应始终被调用（确保网络分区安全）"
     );
 
     pool.release(conn2).await;
@@ -130,18 +128,13 @@ async fn test_known_good_skips_is_connected_on_reacquire() {
 
 #[tokio::test]
 async fn test_known_good_set_on_release() {
-    let (pool, is_connected_calls) = make_pool();
+    let (pool, _is_connected_calls) = make_pool();
 
     let conn = pool.acquire().await.unwrap();
     assert!(!conn.known_good, "新 acquire 的连接 known_good 应为 false");
     pool.release(conn).await;
 
-    // 二次 acquire：known_good=true 在 idle 队列中，acquire 后清除为 false
-    // 通过 is_connected 调用次数间接验证 known_good=true（跳过了 is_connected）
-    let calls_before = is_connected_calls.load(Ordering::Relaxed);
     let conn2 = pool.acquire().await.unwrap();
-    let calls_after = is_connected_calls.load(Ordering::Relaxed);
-    assert_eq!(calls_after, calls_before, "known_good=true 时不应调用 is_connected");
     assert!(!conn2.known_good, "acquire 后 known_good 应被清除");
     pool.release(conn2).await;
 }
