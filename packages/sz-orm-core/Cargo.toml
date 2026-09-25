@@ -919,6 +919,10 @@ path = "tests/shadow_test.rs"
 name = "v900_whitehat"
 path = "tests/v900_whitehat.rs"
 
+[[test]]
+name = "v900_clonecheap"
+path = "tests/v900_clonecheap.rs"
+
 
 [package.metadata.docs.rs]
 all-features = true

@@ -394,6 +394,30 @@ pub fn rows_to<T: FromQueryResult>(rows: &crate::pool::QueryRows) -> Result<Vec<
 }
 
 impl Value {
+    /// v9.0.0 M8：低开销克隆
+    ///
+    /// 对 Copy 变体（Null/Bool/I8-I64/U8-U64/F32/F64）零堆分配直接复制，
+    /// 对非 Copy 变体（String/Bytes/Decimal/Array/Object 等）退化为 `clone`。
+    /// 语义等价于 `Clone::clone`，用于批量插入等高频路径减少不必要的堆分配。
+    #[inline]
+    pub fn clonecheap(&self) -> Self {
+        match self {
+            Value::Null => Value::Null,
+            Value::Bool(v) => Value::Bool(*v),
+            Value::I8(v) => Value::I8(*v),
+            Value::I16(v) => Value::I16(*v),
+            Value::I32(v) => Value::I32(*v),
+            Value::I64(v) => Value::I64(*v),
+            Value::U8(v) => Value::U8(*v),
+            Value::U16(v) => Value::U16(*v),
+            Value::U32(v) => Value::U32(*v),
+            Value::U64(v) => Value::U64(*v),
+            Value::F32(v) => Value::F32(*v),
+            Value::F64(v) => Value::F64(*v),
+            other => other.clone(),
+        }
+    }
+
     /// 判断是否为 null
     pub fn is_null(&self) -> bool {
         matches!(self, Value::Null)

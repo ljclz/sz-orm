@@ -2963,7 +2963,7 @@ impl<M: Model> QueryBuilder<M> {
                 }
                 match row.get(*col) {
                     Some(v) => {
-                        params.push(v.clone());
+                        params.push(v.clonecheap());
                         if is_pg {
                             sql.push('$');
                             push_usize_to_string(param_idx, &mut sql);
