@@ -30,5 +30,9 @@ async-stream = "0.3"
 name = "sz_orm_mssql"
 path = "src/lib.rs"
 
+[[test]]
+name = "type_mapping_test"
+path = "tests/type_mapping_test.rs"
+
 [lints]
 workspace = true
