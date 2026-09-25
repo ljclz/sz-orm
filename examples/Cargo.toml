@@ -191,6 +191,11 @@ required-features = ["eco-extension"]
 name = "ai_integration_demo"
 path = "src/bin/ai_integration_demo.rs"
 
+# v9.0.0 性能优化示例
+[[bin]]
+name = "v900_perf_demo"
+path = "src/bin/v900_perf_demo.rs"
+
 [features]
 default = []
 # 启用 query! 宏的编译期连真 DB 验证能力
