@@ -2072,37 +2072,42 @@ impl Pool {
     /// 回收空闲过久的连接
     #[tracing::instrument(skip(self))]
     pub async fn reap_idle(&self) {
-        // v1.1.0 优化 2：使用 `ArrayQueue::pop` 循环取出所有连接，过滤后再 push 回去。
-        // 无锁操作，无需 `Mutex::lock().await`。
-        // v8.8.0 优化：根据 idle 队列长度预分配 Vec 容量，减少扩容重分配。
-        let idle_len = self.idle.len();
-        // 1. 取出所有空闲连接到本地 Vec（预分配容量减少 realloc）
-        let mut all: Vec<PooledConnection> = Vec::with_capacity(idle_len);
-        while let Some(pooled) = self.idle.pop() {
-            all.push(pooled);
-        }
+        // v9.0.0 M9：选择性回收 — 仅 pop 需要检查的连接
+        self.reap_idle_selective().await;
+    }
 
-        // 2. 分类：保留 vs 关闭
-        // v8.8.0 优化：to_close 预分配容量为 all.len() / 4 + 1（假设大部分连接未过期）
-        let mut to_close: Vec<PooledConnection> = Vec::with_capacity(all.len() / 4 + 1);
-        for pooled in all {
+    /// v9.0.0 M9：选择性空闲连接回收
+    ///
+    /// 逐个 pop 连接检查，遇到未过期连接时停止（假设 FIFO 顺序，
+    /// 后续连接 push 时间更晚，更不可能过期）。减少不必要的 pop/push 循环。
+    async fn reap_idle_selective(&self) {
+        let mut to_close: Vec<PooledConnection> = Vec::with_capacity(4);
+        let mut kept: Vec<PooledConnection> = Vec::with_capacity(4);
+
+        // 逐个 pop 检查，遇到未过期连接时停止
+        while let Some(pooled) = self.idle.pop() {
             if pooled.is_idle_too_long(self.config.idle_timeout)
                 || pooled.is_expired(self.config.max_lifetime)
             {
                 to_close.push(pooled);
             } else {
-                // push 回队列（容量足够，因为之前刚从这里 pop 出来）
-                if let Err(rejected) = self.idle.push(pooled) {
-                    self.close_connection(rejected).await;
-                    self.total_count.fetch_sub(1, Ordering::SeqCst);
-                }
+                // 遇到未过期连接，push 回并停止
+                kept.push(pooled);
+                break;
             }
         }
 
-        // 3. 关闭过期连接
+        // push 回保留的连接
+        for pooled in kept {
+            if let Err(rejected) = self.idle.push(pooled) {
+                self.close_connection(rejected).await;
+                self.total_count.fetch_sub(1, Ordering::SeqCst);
+            }
+        }
+
+        // 关闭过期连接
         for pooled in to_close {
             self.close_connection(pooled).await;
-            // v0.2.1 修复 P-1：AtomicU32 替代 Mutex<u32>
             self.total_count.fetch_sub(1, Ordering::SeqCst);
         }
     }

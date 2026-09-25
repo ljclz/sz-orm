@@ -242,3 +242,86 @@ async fn test_known_good_multiple_cycles() {
         pool.release(conn).await;
     }
 }
+// === M9: reap_idle_selective 测试 ===
+
+#[tokio::test]
+async fn test_reap_idle_selective_keeps_valid_connections() {
+    let (pool, _is_connected_calls) = make_pool();
+
+    // 创建几个连接并归还
+    let conn1 = pool.acquire().await.unwrap();
+    pool.release(conn1).await;
+    let conn2 = pool.acquire().await.unwrap();
+    pool.release(conn2).await;
+
+    // reap_idle 应保留未过期连接
+    pool.reap_idle().await;
+
+    // 仍能 acquire 到连接
+    let conn = pool.acquire().await.unwrap();
+    pool.release(conn).await;
+}
+
+#[tokio::test]
+async fn test_reap_idle_selective_removes_expired() {
+    let is_connected_calls = Arc::new(AtomicUsize::new(0));
+    let factory = Arc::new(CountingMockFactory {
+        counter: Arc::new(AtomicUsize::new(0)),
+        is_connected_calls: is_connected_calls.clone(),
+    });
+    let config = PoolConfigBuilder::new()
+        .max_size(5)
+        .idle_timeout(1)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    // 创建并归还连接
+    let conn = pool.acquire().await.unwrap();
+    pool.release(conn).await;
+
+    // 等待空闲超时
+    tokio::time::sleep(std::time::Duration::from_millis(1100)).await;
+
+    // reap_idle 应回收过期连接
+    pool.reap_idle().await;
+
+    // acquire 应创建新连接
+    let conn2 = pool.acquire().await.unwrap();
+    pool.release(conn2).await;
+}
+
+#[tokio::test]
+async fn test_reap_idle_selective_no_connections() {
+    let (pool, _is_connected_calls) = make_pool();
+    // 空池 reap_idle 不应 panic
+    pool.reap_idle().await;
+}
+
+#[tokio::test]
+async fn test_reap_idle_selective_concurrent_safety() {
+    let (pool, _is_connected_calls) = make_pool();
+
+    // 并发 acquire/release + reap_idle
+    let pool_clone1 = pool.clone();
+    let handle1 = tokio::spawn(async move {
+        for _ in 0..5 {
+            let conn = pool_clone1.acquire().await.unwrap();
+            pool_clone1.release(conn).await;
+        }
+    });
+
+    let pool_clone2 = pool.clone();
+    let handle2 = tokio::spawn(async move {
+        for _ in 0..5 {
+            pool_clone2.reap_idle().await;
+        }
+    });
+
+    handle1.await.unwrap();
+    handle2.await.unwrap();
+
+    // 池仍能正常工作
+    let conn = pool.acquire().await.unwrap();
+    pool.release(conn).await;
+}
