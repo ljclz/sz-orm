@@ -34,13 +34,13 @@ prost = { version = "0.14", optional = true }
 tonic = { version = "0.14", optional = true, features = ["tls-ring"] }
 tonic-prost = { version = "0.14", optional = true }
 tokio-stream = { version = "0.1", optional = true }
-sz-orm-grpc = { version = "8.2.0", path = "../sz-orm-grpc", optional = true }
+sz-orm-grpc = { version = "9.0.0", path = "../sz-orm-grpc", optional = true }
 reqwest = { version = "0.12", features = ["json"], optional = true }
 # v7.1.0：分布式协调（Redis 后端）
 redis = { workspace = true, optional = true }
 # v8.0.0 组4：端到端接线测试需要 fusion（bi_sync）和 core（cache_coherent）
-sz-orm-fusion = { version = "8.2.0", path = "../sz-orm-fusion", optional = true }
-sz-orm-core = { version = "8.2.0", path = "../sz-orm-core", optional = true }
+sz-orm-fusion = { version = "9.0.0", path = "../sz-orm-fusion", optional = true }
+sz-orm-core = { version = "9.0.0", path = "../sz-orm-core", optional = true }
 
 [build-dependencies]
 tonic-prost-build = { version = "0.14", optional = true }

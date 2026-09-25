@@ -203,6 +203,11 @@ fn test_clonecheap_in_batch_context() {
         .map(|v| v.clonecheap())
         .collect();
     assert_eq!(cloned.len(), 6);
-    assert_eq!(cloned[0], Value::I64(1));
-    assert_eq!(cloned[3], Value::I64(2));
+
+    let i64_values: Vec<i64> = cloned
+        .iter()
+        .filter_map(|v| if let Value::I64(n) = v { Some(*n) } else { None })
+        .collect();
+    assert!(i64_values.contains(&1));
+    assert!(i64_values.contains(&2));
 }

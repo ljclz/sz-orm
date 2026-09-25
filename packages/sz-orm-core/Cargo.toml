@@ -258,12 +258,12 @@ parking_lot.workspace = true
 crossbeam-queue.workspace = true
 # 流式查询：Connection::query_stream 默认实现需要 futures::stream::empty
 futures.workspace = true
-sz-orm-sql-validator = { version = "8.2.0", path = "../sz-orm-sql-validator" }
-sz-orm-macros = { version = "8.2.0", path = "../sz-orm-macros" }
+sz-orm-sql-validator = { version = "9.0.0", path = "../sz-orm-sql-validator" }
+sz-orm-macros = { version = "9.0.0", path = "../sz-orm-macros" }
 # #88 修复：可选断路器依赖（启用 circuit-breaker feature 时生效）
-sz-orm-health = { version = "8.2.0", path = "../sz-orm-health", optional = true }
+sz-orm-health = { version = "9.0.0", path = "../sz-orm-health", optional = true }
 # #93 修复：可选限流器依赖（启用 rate-limit feature 时生效）
-sz-orm-limit = { version = "8.2.0", path = "../sz-orm-limit", optional = true }
+sz-orm-limit = { version = "9.0.0", path = "../sz-orm-limit", optional = true }
 # Fix #39：L2Cache RedisBackend 真实实现（启用 redis feature 时生效）
 # 使用 connection-manager 自动重连 + tokio-comp 异步 IO
 redis = { workspace = true, optional = true }
@@ -272,14 +272,14 @@ sqlparser = { workspace = true, optional = true }
 twox-hash = { workspace = true, optional = true }
 
 # v3.3.0：多租户审计增强（multi-tenant-enhanced feature）
-sz-orm-audit = { version = "8.2.0", path = "../sz-orm-audit", optional = true }
+sz-orm-audit = { version = "9.0.0", path = "../sz-orm-audit", optional = true }
 # v3.3.0：列级脱敏增强（multi-tenant-enhanced feature）
-sz-orm-masking = { version = "8.2.0", path = "../sz-orm-masking", optional = true }
+sz-orm-masking = { version = "9.0.0", path = "../sz-orm-masking", optional = true }
 # v3.3.0：分布式缓存布隆过滤器防护（dist-cache feature）
 # v3.3.0：分布式缓存随机 TTL 雪崩防护（dist-cache feature）
 rand = { workspace = true, optional = true }
 # v3.3.0：WAL 加密（dist-cache feature）
-sz-orm-crypto = { version = "8.2.0", path = "../sz-orm-crypto", optional = true }
+sz-orm-crypto = { version = "9.0.0", path = "../sz-orm-crypto", optional = true }
 
 # v3.4.0：SmallString 优化（perf-smallstring feature）
 compact_str = { workspace = true, optional = true }
@@ -294,21 +294,21 @@ serde_yaml = { workspace = true, optional = true }
 
 criterion = { version = "0.5", features = ["html_reports", "async_tokio"], optional = true }
 # v4.9.0 TASK-004：异常检测模块（anomaly-detection feature）
-sz-orm-anomaly = { version = "8.2.0", path = "../sz-orm-anomaly", optional = true }
+sz-orm-anomaly = { version = "9.0.0", path = "../sz-orm-anomaly", optional = true }
 # v5.0.0：图数据库适配层（graph feature）
-sz-orm-graph = { version = "8.2.0", path = "../sz-orm-graph", optional = true }
+sz-orm-graph = { version = "9.0.0", path = "../sz-orm-graph", optional = true }
 # v5.0.0：自适应查询适配层（adaptive-query feature）
-sz-orm-adaptive = { version = "8.2.0", path = "../sz-orm-adaptive", optional = true }
+sz-orm-adaptive = { version = "9.0.0", path = "../sz-orm-adaptive", optional = true }
 # v5.0.0：分布式追踪适配层（distributed-tracing feature）
-sz-orm-tracing = { version = "8.2.0", path = "../sz-orm-tracing", optional = true }
+sz-orm-tracing = { version = "9.0.0", path = "../sz-orm-tracing", optional = true }
 # v5.0.0 M4：P1 整包适配层
-sz-orm-graphql = { version = "8.2.0", path = "../sz-orm-graphql", optional = true }
-sz-orm-logger = { version = "8.2.0", path = "../sz-orm-logger", optional = true }
-sz-orm-postgis = { version = "8.2.0", path = "../sz-orm-postgis", optional = true }
-sz-orm-timeseries = { version = "8.2.0", path = "../sz-orm-timeseries", optional = true }
-sz-orm-search = { version = "8.2.0", path = "../sz-orm-search", optional = true }
-sz-orm-rw = { version = "8.2.0", path = "../sz-orm-rw", optional = true }
-sz-orm-config = { version = "8.2.0", path = "../sz-orm-config", optional = true }
+sz-orm-graphql = { version = "9.0.0", path = "../sz-orm-graphql", optional = true }
+sz-orm-logger = { version = "9.0.0", path = "../sz-orm-logger", optional = true }
+sz-orm-postgis = { version = "9.0.0", path = "../sz-orm-postgis", optional = true }
+sz-orm-timeseries = { version = "9.0.0", path = "../sz-orm-timeseries", optional = true }
+sz-orm-search = { version = "9.0.0", path = "../sz-orm-search", optional = true }
+sz-orm-rw = { version = "9.0.0", path = "../sz-orm-rw", optional = true }
+sz-orm-config = { version = "9.0.0", path = "../sz-orm-config", optional = true }
 # v6.8.0：CDC 变更捕获（cdc-mysql/cdc-postgres/cdc-sqlite feature）
 sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"], optional = true }
 

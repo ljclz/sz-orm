@@ -22,7 +22,7 @@ cdc-realtime-sync = ["stream-resultset", "sz-orm-core/cdc-realtime-sync"]
 [dependencies]
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-sz-orm-core = { path = "../sz-orm-core", version = "8.2.0" }
+sz-orm-core = { path = "../sz-orm-core", version = "9.0.0" }
 tokio = { version = "1.40", features = ["full"], optional = true }
 futures = { version = "0.3", optional = true }
 # v7.0.0 stream-processing 依赖

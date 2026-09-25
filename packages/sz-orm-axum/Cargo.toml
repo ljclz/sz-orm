@@ -19,7 +19,7 @@ default = []
 warp-adapt = ["sz-orm-core/eco-config"]
 
 [dependencies]
-sz-orm-core = { version = "8.2.0", path = "../sz-orm-core" }
+sz-orm-core = { version = "9.0.0", path = "../sz-orm-core" }
 axum = "0.7"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
