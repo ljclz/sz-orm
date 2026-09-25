@@ -98,5 +98,9 @@ required-features = ["yugabytedb"]
 name = "distributed_db_compat_report_test"
 path = "tests/distributed_db_compat_report_test.rs"
 
+[[test]]
+name = "unified_pool_test"
+path = "tests/unified_pool_test.rs"
+
 [lints]
 workspace = true

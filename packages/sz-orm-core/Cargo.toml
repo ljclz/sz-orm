@@ -911,6 +911,10 @@ name = "eco_extend_wiring"
 path = "tests/eco_extend_wiring.rs"
 required-features = ["plugin-marketplace"]
 
+[[test]]
+name = "shadow_test"
+path = "tests/shadow_test.rs"
+
 
 [package.metadata.docs.rs]
 all-features = true

@@ -35,3 +35,6 @@ workspace = true
 [[test]]
 name = "studio_e2e"
 path = "tests/studio_e2e.rs"
+[[test]]
+name = "server_unit_test"
+path = "tests/server_unit_test.rs"

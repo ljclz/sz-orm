@@ -37,5 +37,9 @@ name = "warp_adapt"
 path = "tests/warp_adapt.rs"
 required-features = ["warp-adapt"]
 
+[[test]]
+name = "validation_test"
+path = "tests/validation_test.rs"
+
 [lints]
 workspace = true
