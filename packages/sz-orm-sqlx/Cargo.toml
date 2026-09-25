@@ -54,6 +54,8 @@ db-backend-compat = []
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 proptest = { workspace = true }
+# 临时复现用（验证后删除）
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql"] }
 
 [lib]
 name = "sz_orm_sqlx"
@@ -97,6 +99,11 @@ required-features = ["yugabytedb"]
 [[test]]
 name = "distributed_db_compat_report_test"
 path = "tests/distributed_db_compat_report_test.rs"
+
+# 临时复现用（验证后删除）
+[[test]]
+name = "repro_hang_tmp"
+path = "tests/repro_hang_tmp.rs"
 
 [lints]
 workspace = true
