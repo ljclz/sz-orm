@@ -227,7 +227,8 @@ fn mutation_aware_null_to_param() {
 #[test]
 #[ignore = "requires cargo-mutants installation and ~30min runtime"]
 fn cargo_mutants_baseline() {
-    // 此测试需要 cargo-mutants 工具，在 CI 中通过脚本运行
-    // 本地运行: cargo test --test mutation cargo_mutants_baseline -- --ignored
-    panic!("run: cargo mutants -p sz-orm-core --all-features");
+    // 此测试需要 cargo-mutants 工具，在 CI 中通过脚本运行（G20 门禁：
+    // scripts/check-mutation-coverage.py）。显式运行本测试仅输出指引，
+    // 不应制造必然失败的哨兵（破坏 cargo test --workspace -- --ignored）。
+    eprintln!("run: cargo mutants -p sz-orm-core --all-features");
 }

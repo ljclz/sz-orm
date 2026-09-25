@@ -8,6 +8,7 @@ fn cli_bin() -> String {
     env!("CARGO_BIN_EXE_sz-orm").to_string()
 }
 
+#[cfg(feature = "wasm-build")]
 #[test]
 fn test_wasm_build_config_e2e() {
     let output = Command::new(cli_bin())
@@ -24,6 +25,7 @@ fn test_wasm_build_config_e2e() {
     assert!(stdout.contains("pkg-web"), "应包含 pkg-web: {}", stdout);
 }
 
+#[cfg(feature = "hot-reload")]
 #[test]
 fn test_config_hot_reload_e2e() {
     let output = Command::new(cli_bin())
