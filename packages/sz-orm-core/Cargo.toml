@@ -915,6 +915,10 @@ required-features = ["plugin-marketplace"]
 name = "shadow_test"
 path = "tests/shadow_test.rs"
 
+[[test]]
+name = "v900_whitehat"
+path = "tests/v900_whitehat.rs"
+
 
 [package.metadata.docs.rs]
 all-features = true

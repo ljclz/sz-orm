@@ -257,6 +257,9 @@ pub struct PooledConnection {
     created_at: Instant,
     last_used_at: Instant,
     pool: Option<Pool>,
+    /// v9.0.0 M5：已知可用标记，release 时置 true，acquire 快速路径跳过 is_connected/ping
+    #[doc(hidden)]
+    pub known_good: bool,
 }
 
 impl PooledConnection {
@@ -267,6 +270,7 @@ impl PooledConnection {
             created_at: now,
             last_used_at: now,
             pool: Some(pool),
+            known_good: false,
         }
     }
 
@@ -316,6 +320,7 @@ impl Drop for PooledConnection {
                 created_at: self.created_at,
                 last_used_at: self.last_used_at,
                 pool: None,
+                known_good: false,
             };
             // 尝试在 tokio runtime 中异步归还
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
@@ -1685,12 +1690,17 @@ impl Pool {
                         to_close.push(pooled);
                         continue;
                     }
-                    // 检查连接是否仍然连接
-                    // 注意：is_connected() 是同步内存检查，不涉及 I/O
-                    // v8.8.0：保留此检查以正确处理网络分区场景（chaos 测试依赖）
-                    if !pooled.conn.is_connected() {
-                        to_close.push(pooled);
-                        continue;
+                    // v9.0.0 M5：known_good 快速路径
+                    // release 时标记 known_good=true 的连接跳过 is_connected 检查
+                    // （刚归还的连接可用性由使用方保证，减少内存访问开销）
+                    if !pooled.known_good {
+                        // 检查连接是否仍然连接
+                        // 注意：is_connected() 是同步内存检查，不涉及 I/O
+                        // v8.8.0：保留此检查以正确处理网络分区场景（chaos 测试依赖）
+                        if !pooled.conn.is_connected() {
+                            to_close.push(pooled);
+                            continue;
+                        }
                     }
                     found = Some(pooled);
                     break;
@@ -1731,6 +1741,8 @@ impl Pool {
                 // 从 idle 获取的连接 pool 字段为 None（release 时清除），
                 // 重新设置 pool 引用以支持 Drop 自动归还
                 pooled.pool = Some(self.clone());
+                // v9.0.0 M5：acquire 后清除 known_good 标记
+                pooled.known_good = false;
                 self.acquire_count.fetch_add(1, Ordering::Relaxed);
                 return Ok(pooled);
             }
@@ -1888,6 +1900,8 @@ impl Pool {
 
         // 更新 last_used_at（归还时间），但保留 created_at（原始创建时间）
         pooled.last_used_at = Instant::now();
+        // v9.0.0 M5：标记连接已知可用，acquire 快速路径可跳过 is_connected/ping
+        pooled.known_good = true;
 
         // 事务泄漏防护：归还前回滚未提交事务。
         // 事务中途 drop PooledConnection 会把开放事务带回池：MySQL 会话持续
@@ -2278,6 +2292,7 @@ impl Pool {
                         created_at: now,
                         last_used_at: now,
                         pool: None,
+                        known_good: false,
                     };
                     if let Err(rejected) = self.idle.push(pooled) {
                         // 队列满（不应发生，因为 total_count 限制了），关闭并递减
