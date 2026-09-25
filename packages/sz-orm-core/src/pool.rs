@@ -1676,6 +1676,7 @@ impl Pool {
                     }
                     // 检查连接是否仍然连接
                     // 注意：is_connected() 是同步内存检查，不涉及 I/O
+                    // v8.8.0：保留此检查以正确处理网络分区场景（chaos 测试依赖）
                     if !pooled.conn.is_connected() {
                         to_close.push(pooled);
                         continue;
@@ -1695,18 +1696,25 @@ impl Pool {
 
             if let Some(mut pooled) = acquired {
                 // P1-1：test_before_acquire — 从空闲队列取出的连接先 ping 验证存活
+                // v8.8.0 优化：ping 采样 — 仅对空闲超过 30 秒的连接执行 ping。
+                // 刚归还的连接（空闲 < 30 秒）跳过 ping，减少网络 RTT 开销。
                 if self.config.test_before_acquire {
-                    let ping_timeout = self.config.connection_timeout / 2;
-                    let alive = match tokio::time::timeout(ping_timeout, pooled.conn.ping()).await {
-                        Ok(true) => true,
-                        Ok(false) => false,
-                        Err(_) => false, // ping 超时，连接可能卡住
-                    };
-                    if !alive {
-                        // ping 失败：关闭连接，回退计数，继续循环重新 acquire
-                        self.close_connection(pooled).await;
-                        self.total_count.fetch_sub(1, Ordering::SeqCst);
-                        continue;
+                    let ping_idle_threshold = Duration::from_secs(30);
+                    let needs_ping = pooled.last_used_at.elapsed() >= ping_idle_threshold;
+                    if needs_ping {
+                        let ping_timeout = self.config.connection_timeout / 2;
+                        let alive =
+                            match tokio::time::timeout(ping_timeout, pooled.conn.ping()).await {
+                                Ok(true) => true,
+                                Ok(false) => false,
+                                Err(_) => false, // ping 超时，连接可能卡住
+                            };
+                        if !alive {
+                            // ping 失败：关闭连接，回退计数，继续循环重新 acquire
+                            self.close_connection(pooled).await;
+                            self.total_count.fetch_sub(1, Ordering::SeqCst);
+                            continue;
+                        }
                     }
                 }
                 // 从 idle 获取的连接 pool 字段为 None（release 时清除），
@@ -1857,13 +1865,11 @@ impl Pool {
             return;
         }
 
-        // 检查连接是否仍然有效
-        if !pooled.conn.is_connected() {
-            self.close_connection(pooled).await;
-            self.total_count.fetch_sub(1, Ordering::SeqCst);
-            self.emit_event(PoolEvent::ConnectionClosed);
-            return;
-        }
+        // v8.8.0 优化：跳过 is_connected 检查。
+        // 连接刚使用完毕，可用性由 acquire 路径的 is_connected/ping 采样保障。
+        // 仅在池已关闭时直接关闭连接（已在上方 1852 行处理）。
+        // 原实现每次 release 都执行 is_connected()，即使连接刚执行完查询，
+        // 增加无谓的内存访问开销。
 
         // 更新 last_used_at（归还时间），但保留 created_at（原始创建时间）
         pooled.last_used_at = Instant::now();
@@ -1881,7 +1887,11 @@ impl Pool {
         } else {
             self.emit_event(PoolEvent::ConnectionReleased);
         }
-        self.notify.notify_one();
+        // v8.8.0 优化：条件 notify_one。
+        // 仅在有等待者时唤醒，避免无等待者时的无谓内核 futex 系统调用。
+        if self.waiters_count.load(Ordering::Acquire) > 0 {
+            self.notify.notify_one();
+        }
     }
 
     /// 获取池状态
@@ -2003,14 +2013,17 @@ impl Pool {
     pub async fn reap_idle(&self) {
         // v1.1.0 优化 2：使用 `ArrayQueue::pop` 循环取出所有连接，过滤后再 push 回去。
         // 无锁操作，无需 `Mutex::lock().await`。
-        // 1. 取出所有空闲连接到本地 Vec
-        let mut all: Vec<PooledConnection> = Vec::new();
+        // v8.8.0 优化：根据 idle 队列长度预分配 Vec 容量，减少扩容重分配。
+        let idle_len = self.idle.len();
+        // 1. 取出所有空闲连接到本地 Vec（预分配容量减少 realloc）
+        let mut all: Vec<PooledConnection> = Vec::with_capacity(idle_len);
         while let Some(pooled) = self.idle.pop() {
             all.push(pooled);
         }
 
         // 2. 分类：保留 vs 关闭
-        let mut to_close = Vec::new();
+        // v8.8.0 优化：to_close 预分配容量为 all.len() / 4 + 1（假设大部分连接未过期）
+        let mut to_close: Vec<PooledConnection> = Vec::with_capacity(all.len() / 4 + 1);
         for pooled in all {
             if pooled.is_idle_too_long(self.config.idle_timeout)
                 || pooled.is_expired(self.config.max_lifetime)

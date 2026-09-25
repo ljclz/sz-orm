@@ -64,6 +64,14 @@ pub enum WorkloadType {
     PoolConcurrency,
     #[serde(rename = "simd_compare")]
     SimdCompare,
+    #[serde(rename = "concurrent_read_write")]
+    ConcurrentReadWrite,
+    #[serde(rename = "pool_stress")]
+    PoolStress,
+    #[serde(rename = "long_transaction")]
+    LongTransaction,
+    #[serde(rename = "large_result_set")]
+    LargeResultSet,
 }
 
 impl WorkloadType {
@@ -75,6 +83,10 @@ impl WorkloadType {
             Self::Transaction => "transaction",
             Self::PoolConcurrency => "pool_concurrency",
             Self::SimdCompare => "simd_compare",
+            Self::ConcurrentReadWrite => "concurrent_read_write",
+            Self::PoolStress => "pool_stress",
+            Self::LongTransaction => "long_transaction",
+            Self::LargeResultSet => "large_result_set",
         }
     }
 }
@@ -739,6 +751,10 @@ fn workload_latency_profile(workload: WorkloadType) -> (u64, u64) {
         WorkloadType::Transaction => (300, 50),
         WorkloadType::PoolConcurrency => (20, 5),
         WorkloadType::SimdCompare => (10, 2),
+        WorkloadType::ConcurrentReadWrite => (100, 20),
+        WorkloadType::PoolStress => (15, 3),
+        WorkloadType::LongTransaction => (500, 100),
+        WorkloadType::LargeResultSet => (1000, 200),
     }
 }
 

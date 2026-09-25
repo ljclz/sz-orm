@@ -1,0 +1,86 @@
+/target
+fuzz/target
+fuzz/Cargo.lock
+*.log
+*.tmp
+test_output.txt
+
+# 敏感信息预防性排除
+.env
+.env.*
+*.key
+*.pem
+*.p12
+*.pfx
+secrets.json
+credentials.json
+
+# 开发过程文档（不发布到 GitHub）
+docs/audit/
+docs/benchmarks/
+docs/*审查报告*.md
+docs/*改造实施*.md
+docs/*技术实现*.md
+docs/*生产就绪*.md
+docs/*成熟度评估*.md
+docs/*性能基准*.md
+docs/*项目实施*.md
+docs/*对比*.md
+docs/*审计清单*.md
+docs/Security.md
+
+# Benchmark/build artifacts
+bench-comparison/target/
+bench-comparison/build-log.txt
+bench-comparison/bench-*.txt
+
+# Python 编译缓存（2026-08-13 清理误入库的 *.pyc）
+__pycache__/
+*.pyc
+
+# Publish logs
+scripts/publish-log*.txt
+
+# Mutation testing output artifacts
+mutants.out/
+mutants.out.old/
+
+# IDE 配置目录
+.trae/
+
+# Node.js 依赖
+node_modules/
+
+# 测试生成的人工产物
+*.proptest-regressions
+*.profraw
+
+# ===== ↑ 以上同步自 .gitignore（「从 .gitignore 同步」只重写以上部分）=====
+.git/
+.hg/
+.svn/
+bower_components/
+jspm_packages/
+site-packages/
+venv/
+coverage/
+htmlcov/
+lcov-report/
+cmakefiles/
+cmake-build-*/
+bazel-*/
+pods/
+deriveddata/
+storybook-static/
+playwright-report/
+test-results/
+allure-results/
+allure-report/
+cdk.out/
+*.egg-info/
+*.dist-info/
+eggs/
+pip-wheel-metadata/
+wheels/
+# ----- ↑ 以上为 ZCode 默认排除规则（自定义规则请写在本行下方，不会被同步/恢复改动）-----
+# 自定义规则写在下方（本行提示可删除）

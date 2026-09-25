@@ -360,6 +360,55 @@ impl SzOrmWorkload {
                     ));
                 }
             }
+            WorkloadType::ConcurrentReadWrite => {
+                let read_sql = "SELECT * FROM bench_users WHERE id = ?";
+                let write_sql = "UPDATE bench_users SET name = ? WHERE id = ?";
+                let r_params = [Value::I32(1)];
+                let _ = conn
+                    .query_with_params(read_sql, &r_params)
+                    .await
+                    .map_err(|e| {
+                        BenchError::QueryFailed(format!("concurrent read failed: {e:?}"))
+                    })?;
+                let w_params = [Value::String("bench_user_1".into()), Value::I32(1)];
+                let _ = conn
+                    .execute_with_params(write_sql, &w_params)
+                    .await
+                    .map_err(|e| {
+                        BenchError::QueryFailed(format!("concurrent write failed: {e:?}"))
+                    })?;
+            }
+            WorkloadType::PoolStress => {
+                let sql = "SELECT COUNT(*) FROM bench_users";
+                let _ = conn.query_with_params(sql, &[]).await.map_err(|e| {
+                    BenchError::QueryFailed(format!("pool stress query failed: {e:?}"))
+                })?;
+            }
+            WorkloadType::LongTransaction => {
+                conn.begin_transaction()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(format!("begin tx failed: {e:?}")))?;
+                let sql = "SELECT * FROM bench_users WHERE id = ?";
+                let params = [Value::I32(1)];
+                let _ = conn
+                    .query_with_params(sql, &params)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(format!("tx query failed: {e:?}")))?;
+                conn.commit()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(format!("commit failed: {e:?}")))?;
+            }
+            WorkloadType::LargeResultSet => {
+                let sql = "SELECT * FROM bench_users ORDER BY id";
+                let rows = conn.query_with_params(sql, &[]).await.map_err(|e| {
+                    BenchError::QueryFailed(format!("large result set query failed: {e:?}"))
+                })?;
+                if rows.len() < 1 {
+                    return Err(BenchError::QueryFailed(
+                        "LargeResultSet: expected >= 1 row".into(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -527,6 +576,50 @@ impl SqlxWorkload {
                         .await
                         .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
             }
+            WorkloadType::ConcurrentReadWrite => {
+                let _ = sqlx::query("SELECT id FROM bench_users WHERE id = ?")
+                    .bind(1_i64)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let _ = sqlx::query("UPDATE bench_users SET name = ? WHERE id = ?")
+                    .bind("bench_user_1")
+                    .bind(1_i64)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::PoolStress => {
+                let _ = sqlx::query("SELECT COUNT(*) FROM bench_users")
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LongTransaction => {
+                let mut tx = pool
+                    .begin()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let _ = sqlx::query("SELECT id FROM bench_users WHERE id = ?")
+                    .bind(1_i64)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LargeResultSet => {
+                let rows = sqlx::query("SELECT id FROM bench_users ORDER BY id")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                if rows.is_empty() {
+                    return Err(BenchError::QueryFailed(
+                        "LargeResultSet: expected >= 1 row".into(),
+                    ));
+                }
+            }
         }
         Ok(())
     }
@@ -613,6 +706,50 @@ impl SqlxWorkload {
                         .fetch_all(pool)
                         .await
                         .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::ConcurrentReadWrite => {
+                let _ = sqlx::query("SELECT id FROM bench_users WHERE id = ?")
+                    .bind(1_i64)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let _ = sqlx::query("UPDATE bench_users SET name = ? WHERE id = ?")
+                    .bind("bench_user_1")
+                    .bind(1_i64)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::PoolStress => {
+                let _ = sqlx::query("SELECT COUNT(*) FROM bench_users")
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LongTransaction => {
+                let mut tx = pool
+                    .begin()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let _ = sqlx::query("SELECT id FROM bench_users WHERE id = ?")
+                    .bind(1_i64)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LargeResultSet => {
+                let rows = sqlx::query("SELECT id FROM bench_users ORDER BY id")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                if rows.is_empty() {
+                    return Err(BenchError::QueryFailed(
+                        "LargeResultSet: expected >= 1 row".into(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -704,6 +841,50 @@ impl SqlxWorkload {
                 .fetch_all(pool)
                 .await
                 .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::ConcurrentReadWrite => {
+                let _ = sqlx::query("SELECT id FROM bench_users WHERE id = $1")
+                    .bind(1_i64)
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let _ = sqlx::query("UPDATE bench_users SET name = $1 WHERE id = $2")
+                    .bind("bench_user_1")
+                    .bind(1_i64)
+                    .execute(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::PoolStress => {
+                let _ = sqlx::query("SELECT COUNT(*) FROM bench_users")
+                    .fetch_one(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LongTransaction => {
+                let mut tx = pool
+                    .begin()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let _ = sqlx::query("SELECT id FROM bench_users WHERE id = $1")
+                    .bind(1_i64)
+                    .fetch_one(&mut *tx)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                tx.commit()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LargeResultSet => {
+                let rows = sqlx::query("SELECT id FROM bench_users ORDER BY id")
+                    .fetch_all(pool)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                if rows.is_empty() {
+                    return Err(BenchError::QueryFailed(
+                        "LargeResultSet: expected >= 1 row".into(),
+                    ));
+                }
             }
         }
         Ok(())
@@ -840,6 +1021,76 @@ impl SeaOrmWorkload {
                     .query_all(stmt)
                     .await
                     .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::ConcurrentReadWrite => {
+                let r_stmt = sea_orm::Statement::from_sql_and_values(
+                    self.conn.get_database_backend(),
+                    "SELECT id FROM bench_users WHERE id = ?",
+                    [1_i32.into()],
+                );
+                let _ = self
+                    .conn
+                    .query_all(r_stmt)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let w_stmt = sea_orm::Statement::from_sql_and_values(
+                    self.conn.get_database_backend(),
+                    "UPDATE bench_users SET name = ? WHERE id = ?",
+                    ["bench_user_1".into(), 1_i32.into()],
+                );
+                let _ = self
+                    .conn
+                    .execute(w_stmt)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::PoolStress => {
+                let stmt = sea_orm::Statement::from_sql_and_values(
+                    self.conn.get_database_backend(),
+                    "SELECT COUNT(*) FROM bench_users",
+                    [],
+                );
+                let _ = self
+                    .conn
+                    .query_one(stmt)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LongTransaction => {
+                let txn = self
+                    .conn
+                    .begin()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                let stmt = sea_orm::Statement::from_sql_and_values(
+                    txn.get_database_backend(),
+                    "SELECT id FROM bench_users WHERE id = ?",
+                    [1_i32.into()],
+                );
+                let _ = txn
+                    .query_all(stmt)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                txn.commit()
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+            }
+            WorkloadType::LargeResultSet => {
+                let stmt = sea_orm::Statement::from_sql_and_values(
+                    self.conn.get_database_backend(),
+                    "SELECT id FROM bench_users ORDER BY id",
+                    [],
+                );
+                let rows = self
+                    .conn
+                    .query_all(stmt)
+                    .await
+                    .map_err(|e| BenchError::QueryFailed(e.to_string()))?;
+                if rows.is_empty() {
+                    return Err(BenchError::QueryFailed(
+                        "LargeResultSet: expected >= 1 row".into(),
+                    ));
+                }
             }
         }
         Ok(())

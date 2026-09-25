@@ -699,6 +699,9 @@ pub mod sdk_auto_gen;
 #[allow(missing_docs)]
 pub mod perf_extreme;
 
+#[allow(missing_docs)]
+pub mod batch_advisor;
+
 // Re-export proc macros
 pub use queryable::Query;
 pub use queryable::QueryAs;

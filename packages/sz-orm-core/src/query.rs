@@ -2565,15 +2565,40 @@ impl<M: Model> QueryBuilder<M> {
                 .sum::<usize>()
         };
 
+        // v8.8.0 优化：精确预分配容量，减少 String 扩容重分配。
+        // 逐 join/order_by 计算实际字符串长度，替代粗略的 * 48 / * 24 估算。
+        // quote_into 对每个标识符添加 2 个引号字符（开+闭）。
+        let joins_len: usize = self
+            .joins
+            .iter()
+            .map(|j| match j {
+                JoinClause::Inner(t, l, r) => 19 + t.len() + l.len() + r.len() + 6,
+                JoinClause::Left(t, l, r) => 18 + t.len() + l.len() + r.len() + 6,
+                JoinClause::Right(t, l, r) => 19 + t.len() + l.len() + r.len() + 6,
+                JoinClause::Cross(t, on) => 16 + t.len() + on.len() + 4,
+                JoinClause::Relation(_, ft, fk, tt, tk) => {
+                    20 + ft.len() + fk.len() + tt.len() * 2 + tk.len() + 10
+                }
+            })
+            .sum();
+
+        let order_by_len: usize = self
+            .order_by
+            .iter()
+            .map(|o| o.field.len() + 6)
+            .sum::<usize>();
+
+        let group_by_len: usize = self.group_by.iter().map(|c| c.len() + 4).sum::<usize>();
+
         let capacity = 16
             + columns_len
             + table.len()
             + 2
-            + self.joins.len() * 48
+            + joins_len
             + self.where_conditions.len() * 32
-            + self.group_by.len() * 24
+            + group_by_len
             + self.having_conditions.len() * 32
-            + self.order_by.len() * 24
+            + order_by_len
             + 32;
         let mut sql = String::with_capacity(capacity);
         sql.push_str("SELECT ");
@@ -2910,8 +2935,8 @@ impl<M: Model> QueryBuilder<M> {
 
         let capacity = 32
             + table.len()
-            + columns.iter().map(|c| c.len() + 2).sum::<usize>()
-            + rows.len() * (columns.len() * 3 + 4);
+            + columns.iter().map(|c| c.len() + 4).sum::<usize>()
+            + rows.len() * (columns.len() * (if is_pg { 5 } else { 3 }) + 6);
         let mut sql = String::with_capacity(capacity);
         let mut params = Vec::with_capacity(rows.len() * columns.len());
 
