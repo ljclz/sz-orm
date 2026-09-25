@@ -31,5 +31,9 @@ parking_lot.workspace = true
 [dev-dependencies]
 tokio-test = "0.4"
 
+[[test]]
+name = "geometry_test"
+path = "tests/geometry_test.rs"
+
 [lints]
 workspace = true

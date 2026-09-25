@@ -87,3 +87,6 @@ path = "tests/cli_entity_gen_test.rs"
 [[test]]
 name = "cli_doc_gen_test"
 path = "tests/cli_doc_gen_test.rs"
+[[test]]
+name = "cli_entity_gen_ext_test"
+path = "tests/cli_entity_gen_ext_test.rs"
