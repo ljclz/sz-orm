@@ -2200,3 +2200,82 @@ pub async fn pg_bulk_insert(
     }
     conn.execute_with_params(&sql, &params).await
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_needs_raw_sql_begin() {
+        assert!(needs_raw_sql("BEGIN"));
+        assert!(needs_raw_sql("begin"));
+        assert!(needs_raw_sql("  BEGIN"));
+        assert!(needs_raw_sql("\tbegin"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_commit() {
+        assert!(needs_raw_sql("COMMIT"));
+        assert!(needs_raw_sql("commit"));
+        assert!(needs_raw_sql(" COMMIT WORK"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_rollback() {
+        assert!(needs_raw_sql("ROLLBACK"));
+        assert!(needs_raw_sql("rollback"));
+        assert!(needs_raw_sql(" ROLLBACK TO SAVEPOINT sp1"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_savepoint() {
+        assert!(needs_raw_sql("SAVEPOINT sp1"));
+        assert!(needs_raw_sql("savepoint s1"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_release() {
+        assert!(needs_raw_sql("RELEASE sp1"));
+        assert!(needs_raw_sql("release savepoint s1"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_set() {
+        assert!(needs_raw_sql("SET autocommit = 0"));
+        assert!(needs_raw_sql("set names utf8"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_use() {
+        assert!(needs_raw_sql("USE mydb"));
+        assert!(needs_raw_sql("use mydb"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_start_transaction() {
+        assert!(needs_raw_sql("START TRANSACTION"));
+        assert!(needs_raw_sql("start transaction"));
+        assert!(needs_raw_sql("  START TRANSACTION READ ONLY"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_normal_queries() {
+        assert!(!needs_raw_sql("SELECT * FROM users"));
+        assert!(!needs_raw_sql("INSERT INTO t VALUES (1)"));
+        assert!(!needs_raw_sql("UPDATE t SET x = 1"));
+        assert!(!needs_raw_sql("DELETE FROM t"));
+        assert!(!needs_raw_sql("CREATE TABLE t (id INT)"));
+        assert!(!needs_raw_sql("DROP TABLE t"));
+        assert!(!needs_raw_sql("ALTER TABLE t ADD COLUMN x INT"));
+    }
+
+    #[test]
+    fn test_needs_raw_sql_edge_cases() {
+        assert!(!needs_raw_sql(""));
+        assert!(!needs_raw_sql("   "));
+        assert!(!needs_raw_sql("SELECT"));
+        assert!(needs_raw_sql("BEGINNING"));
+        assert!(needs_raw_sql("COMMITTEE"));
+        assert!(!needs_raw_sql("INSERT"));
+        assert!(!needs_raw_sql("DELETE"));
+    }
+}
