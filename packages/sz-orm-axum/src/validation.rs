@@ -518,4 +518,153 @@ mod tests {
         let result = v.validate(&data);
         assert!(!result.is_valid());
     }
+
+    #[test]
+    fn rule_max_length() {
+        assert!(RuleType::MaxLength(5).check("abc").is_ok());
+        assert!(RuleType::MaxLength(5).check("abcdef").is_err());
+    }
+
+    #[test]
+    fn rule_min_value() {
+        assert!(RuleType::MinValue(10).check("15").is_ok());
+        assert!(RuleType::MinValue(10).check("5").is_err());
+        assert!(RuleType::MinValue(10).check("abc").is_err());
+    }
+
+    #[test]
+    fn rule_max_value() {
+        assert!(RuleType::MaxValue(100).check("50").is_ok());
+        assert!(RuleType::MaxValue(100).check("200").is_err());
+        assert!(RuleType::MaxValue(100).check("xyz").is_err());
+    }
+
+    #[test]
+    fn rule_pattern() {
+        assert!(RuleType::Pattern("abc".into()).check("xabcz").is_ok());
+        assert!(RuleType::Pattern("abc".into()).check("xyz").is_err());
+    }
+
+    #[test]
+    fn rule_one_of() {
+        let r = RuleType::OneOf(vec!["a".into(), "b".into(), "c".into()]);
+        assert!(r.check("a").is_ok());
+        assert!(r.check("c").is_ok());
+        assert!(r.check("d").is_err());
+    }
+
+    #[test]
+    fn rule_not_blank() {
+        assert!(RuleType::NotBlank.check("hello").is_ok());
+        assert!(RuleType::NotBlank.check("  ").is_err());
+        assert!(RuleType::NotBlank.check("").is_err());
+    }
+
+    #[test]
+    fn rule_name_all_variants() {
+        assert_eq!(RuleType::Required.name(), "required");
+        assert_eq!(RuleType::MinLength(3).name(), "min_length(3)");
+        assert_eq!(RuleType::MaxLength(5).name(), "max_length(5)");
+        assert_eq!(RuleType::MinValue(10).name(), "min_value(10)");
+        assert_eq!(RuleType::MaxValue(99).name(), "max_value(99)");
+        assert_eq!(RuleType::Pattern("x".into()).name(), "pattern(x)");
+        assert_eq!(RuleType::OneOf(vec![]).name(), "one_of");
+        assert_eq!(RuleType::Email.name(), "email");
+        assert_eq!(RuleType::Numeric.name(), "numeric");
+        assert_eq!(RuleType::NotBlank.name(), "not_blank");
+    }
+
+    #[test]
+    fn validation_rule_new_and_validate() {
+        let r = ValidationRule::new("name", RuleType::Required);
+        assert_eq!(r.field(), "name");
+        assert_eq!(r.rule(), &RuleType::Required);
+        assert!(r.validate("x").is_ok());
+        assert!(r.validate("").is_err());
+    }
+
+    #[test]
+    fn field_validator_all_chain_methods() {
+        let v = FieldValidator::new("f")
+            .required()
+            .min_length(2)
+            .max_length(10)
+            .email()
+            .numeric()
+            .one_of(vec!["a".into()])
+            .not_blank()
+            .min_value(0)
+            .max_value(100);
+        assert_eq!(v.field(), "f");
+        assert_eq!(v.rule_count(), 9);
+    }
+
+    #[test]
+    fn field_validator_validate_returns_errors() {
+        let v = FieldValidator::new("name").required().min_length(3);
+        let errors = v.validate("ab");
+        assert_eq!(errors.len(), 1);
+        let no_errors = v.validate("abc");
+        assert!(no_errors.is_empty());
+    }
+
+    #[test]
+    fn field_validator_to_rules() {
+        let v = FieldValidator::new("name").required().email();
+        let rules = v.to_rules();
+        assert_eq!(rules.len(), 2);
+        assert_eq!(rules[0].field(), "name");
+    }
+
+    #[test]
+    fn request_validator_counts_and_field() {
+        let v = RequestValidator::new()
+            .add_field(FieldValidator::new("a").required())
+            .add_field(FieldValidator::new("b").required().email());
+        assert_eq!(v.field_count(), 2);
+        assert_eq!(v.total_rule_count(), 3);
+    }
+
+    #[test]
+    fn request_validator_validate_field() {
+        let v = RequestValidator::new().add_field(FieldValidator::new("name").required());
+        assert!(v.validate_field("name", "").len() == 1);
+        assert!(v.validate_field("name", "x").is_empty());
+        assert!(v.validate_field("missing", "x").is_empty());
+    }
+
+    #[test]
+    fn request_validator_clear() {
+        let mut v = RequestValidator::new().add_field(FieldValidator::new("a").required());
+        assert_eq!(v.field_count(), 1);
+        v.clear();
+        assert_eq!(v.field_count(), 0);
+    }
+
+    #[test]
+    fn validation_result_errors_accessors() {
+        let r = ValidationResult::from_errors(vec![
+            ValidationError::new("a", "err1", "E1"),
+            ValidationError::new("a", "err2", "E2"),
+            ValidationError::new("b", "err3", "E3"),
+        ]);
+        assert_eq!(r.errors().len(), 3);
+        let a_errors = r.errors_for_field("a");
+        assert_eq!(a_errors.len(), 2);
+        let b_errors = r.errors_for_field("b");
+        assert_eq!(b_errors.len(), 1);
+        let none = r.errors_for_field("c");
+        assert!(none.is_empty());
+    }
+
+    #[test]
+    fn validation_result_to_json() {
+        let r = ValidationResult::success();
+        assert_eq!(r.to_json(), "[]");
+        let mut r2 = ValidationResult::success();
+        r2.add_error("name", "required", "REQ");
+        let json = r2.to_json();
+        assert!(json.contains("name"));
+        assert!(json.contains("required"));
+    }
 }
