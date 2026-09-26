@@ -1,5 +1,5 @@
-use sz_orm_timeseries::TimescaleError;
 use std::error::Error;
+use sz_orm_timeseries::TimescaleError;
 
 #[test]
 fn test_not_found() {
@@ -9,8 +9,14 @@ fn test_not_found() {
 
 #[test]
 fn test_invalid_time_range() {
-    let err = TimescaleError::InvalidTimeRange { start: "2026-01-02".into(), end: "2026-01-01".into() };
-    assert_eq!(err.to_string(), "invalid time range: start 2026-01-02 >= end 2026-01-01");
+    let err = TimescaleError::InvalidTimeRange {
+        start: "2026-01-02".into(),
+        end: "2026-01-01".into(),
+    };
+    assert_eq!(
+        err.to_string(),
+        "invalid time range: start 2026-01-02 >= end 2026-01-01"
+    );
 }
 
 #[test]
@@ -39,7 +45,7 @@ fn test_invalid_config() {
 
 #[test]
 fn test_from_io_error() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+    let io_err = std::io::Error::other("test");
     let err: TimescaleError = io_err.into();
     assert!(err.to_string().contains("query error"));
 }

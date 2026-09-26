@@ -17,11 +17,17 @@ async fn main() {
     println!("2. clonecheap 零堆分配克隆");
     let val = Value::I64(42);
     let cloned = val.clonecheap();
-    println!("   原值: {:?}, 克隆: {:?}（Copy 变体零堆分配）\n", val, cloned);
+    println!(
+        "   原值: {:?}, 克隆: {:?}（Copy 变体零堆分配）\n",
+        val, cloned
+    );
 
     let str_val = Value::String("hello".into());
     let str_cloned = str_val.clonecheap();
-    println!("   字符串值: {:?}, 克隆: {:?}（非 Copy 变体退化为 clone）\n", str_val, str_cloned);
+    println!(
+        "   字符串值: {:?}, 克隆: {:?}（非 Copy 变体退化为 clone）\n",
+        str_val, str_cloned
+    );
 
     // 3. reap_idle_selective
     println!("3. reap_idle_selective 选择性回收");

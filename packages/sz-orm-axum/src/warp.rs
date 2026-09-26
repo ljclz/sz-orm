@@ -11,7 +11,7 @@
 //!
 //! # 示例
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_axum::warp::{WarpAdapter, WarpMiddleware, WarpFilter};
 //! use sz_orm_core::{MiddlewareFeature, Pool};
 //!

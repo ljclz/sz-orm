@@ -1,5 +1,5 @@
-use sz_orm_search::SearchError;
 use std::error::Error;
+use sz_orm_search::SearchError;
 
 #[test]
 fn test_not_found() {
@@ -9,7 +9,10 @@ fn test_not_found() {
 
 #[test]
 fn test_doc_not_found() {
-    let err = SearchError::DocNotFound { index: "users".into(), id: "42".into() };
+    let err = SearchError::DocNotFound {
+        index: "users".into(),
+        id: "42".into(),
+    };
     assert_eq!(err.to_string(), "document not found: users/42");
 }
 
@@ -58,7 +61,7 @@ fn test_from_serde_json_error() {
 
 #[test]
 fn test_from_io_error() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+    let io_err = std::io::Error::other("test");
     let err: SearchError = io_err.into();
     assert!(err.to_string().contains("query error"));
 }

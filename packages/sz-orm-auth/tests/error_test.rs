@@ -1,5 +1,5 @@
-use sz_orm_auth::AuthError;
 use std::error::Error;
+use sz_orm_auth::AuthError;
 
 #[test]
 fn test_invalid_credentials() {

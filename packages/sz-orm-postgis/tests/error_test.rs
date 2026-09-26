@@ -1,5 +1,5 @@
-use sz_orm_postgis::PostgisError;
 use std::error::Error;
+use sz_orm_postgis::PostgisError;
 
 #[test]
 fn test_invalid_geometry() {
@@ -9,7 +9,10 @@ fn test_invalid_geometry() {
 
 #[test]
 fn test_srid_mismatch() {
-    let err = PostgisError::SridMismatch { expected: 4326, actual: 3857 };
+    let err = PostgisError::SridMismatch {
+        expected: 4326,
+        actual: 3857,
+    };
     assert_eq!(err.to_string(), "SRID mismatch: expected 4326, got 3857");
 }
 
@@ -39,13 +42,19 @@ fn test_invalid_config() {
 
 #[test]
 fn test_type_mismatch() {
-    let err = PostgisError::TypeMismatch { expected: "Point", actual: "LineString" };
-    assert_eq!(err.to_string(), "geometry type mismatch: expected Point, got LineString");
+    let err = PostgisError::TypeMismatch {
+        expected: "Point",
+        actual: "LineString",
+    };
+    assert_eq!(
+        err.to_string(),
+        "geometry type mismatch: expected Point, got LineString"
+    );
 }
 
 #[test]
 fn test_from_io_error() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+    let io_err = std::io::Error::other("test");
     let err: PostgisError = io_err.into();
     assert!(err.to_string().contains("query error"));
 }

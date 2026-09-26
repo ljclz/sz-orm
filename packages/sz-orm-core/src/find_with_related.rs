@@ -368,7 +368,7 @@ struct WithRelationItem {
 ///
 /// # 用法
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_core::find_with_related::WithRelation;
 /// use sz_orm_core::dialect::get_dialect;
 /// use sz_orm_core::DbType;

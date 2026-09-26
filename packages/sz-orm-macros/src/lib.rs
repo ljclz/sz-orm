@@ -35,7 +35,7 @@
 //!
 //! # Derive macros
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_macros::{Schema, Builder};
 //!
 //! #[derive(Schema)]
@@ -88,7 +88,7 @@ mod diagnostic;
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// #[type_check]
 /// fn my_query() {
 ///     let expr = ColId.eq("hello"); // i64 column compared with String
@@ -118,7 +118,7 @@ pub fn type_check(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// diagnostic_error!("type mismatch", "please use Cast for explicit conversion");
 /// ```
 #[cfg(any(feature = "typed-dsl", feature = "custom-diagnostic"))]
@@ -455,7 +455,7 @@ fn validate_no_injection(sql: &str) -> Result<(), String> {
 ///
 /// # Syntax
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_core::queryable::Query;
 /// let q = query!("SELECT id, name FROM users WHERE id = ?");
 /// let rows = q.fetch_all(&mut conn).await?;
@@ -1815,7 +1815,7 @@ fn compile_error(span: Span, msg: &str) -> TokenStream {
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::typed_query;
 ///
 /// // 1. Declare table schema (compile-time generates column marker types)
@@ -2172,7 +2172,7 @@ fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
 ///
 /// # Syntax
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::schema;
 ///
 /// schema! {
@@ -2181,7 +2181,7 @@ fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
 /// ```
 ///
 /// Generates code equivalent to the following manual declaration:
-/// ```ignore
+/// ```text
 /// typed_query! {
 ///     table users {
 ///         id: i64,
@@ -2205,7 +2205,7 @@ fn parse_typed_select(tokens: &[TokenTree]) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// #[derive(FromQueryResult)]
 /// struct User { id: i64, name: String }
 ///
@@ -2688,7 +2688,7 @@ pub fn derive_schema(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::GraphQLModel;
 ///
 /// #[derive(GraphQLModel)]
@@ -2723,7 +2723,7 @@ pub fn derive_graphql_model(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::Builder;
 ///
 /// #[derive(Builder)]
@@ -2761,7 +2761,7 @@ pub fn derive_builder(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::Entity;
 ///
 /// #[derive(Entity)]
@@ -2796,7 +2796,7 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::FromQueryResult;
 ///
 /// #[derive(FromQueryResult)]
@@ -2862,7 +2862,7 @@ pub fn derive_column_enum(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::FromRow;
 ///
 /// #[derive(FromRow)]
@@ -2897,7 +2897,7 @@ pub fn derive_from_row(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::SqlType;
 ///
 /// #[derive(SqlType)]
@@ -2932,7 +2932,7 @@ pub fn derive_sql_type(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::{Entity, Relation};
 ///
 /// #[derive(Entity, Relation)]
@@ -2963,7 +2963,7 @@ pub fn derive_relation(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// #[derive(RelationTrait)]
 /// #[relation(has_many = "Order", fk = "user_id", pk = "id")]
 /// struct User { id: i64, name: String }
@@ -2996,7 +2996,7 @@ pub fn derive_relation_trait(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// #[derive(Validate)]
 /// struct User {
 ///     #[validate(email)]
@@ -3032,7 +3032,7 @@ pub fn derive_validate(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_core::governance::GovernedModel;
 ///
 /// #[derive(Governed)]
@@ -3151,7 +3151,7 @@ pub fn derive_governed(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// #[detect_n_plus_one]
 /// fn process_users(users: Vec<User>) {
 ///     for user in users {
@@ -3181,7 +3181,7 @@ pub fn detect_n_plus_one(_attr: TokenStream, item: TokenStream) -> TokenStream {
 ///
 /// # 用法
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::migrate;
 ///
 /// let m = migrate!("001", "create_users",
@@ -3263,7 +3263,7 @@ pub fn migrate(input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::api_stable;
 ///
 /// #[api_stable]
@@ -3283,7 +3283,7 @@ pub fn api_stable(_args: TokenStream, input: TokenStream) -> TokenStream {
 ///
 /// # Example
 ///
-/// ```ignore
+/// ```text
 /// use sz_orm_macros::api_beta;
 ///
 /// #[api_beta]

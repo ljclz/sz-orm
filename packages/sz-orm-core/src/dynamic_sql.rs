@@ -12,7 +12,7 @@
 //!
 //! # 用法
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_core::dynamic_sql::{DynamicSqlParser, SqlParams};
 //! use std::collections::HashMap;
 //!

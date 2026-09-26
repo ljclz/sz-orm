@@ -1,5 +1,5 @@
-use sz_orm_websocket::WsError;
 use std::error::Error;
+use sz_orm_websocket::WsError;
 
 #[test]
 fn test_connection() {
@@ -33,7 +33,7 @@ fn test_protocol() {
 
 #[test]
 fn test_from_io_error() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+    let io_err = std::io::Error::other("test");
     let err: WsError = io_err.into();
     assert!(err.to_string().contains("Connection error"));
 }

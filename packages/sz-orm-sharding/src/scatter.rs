@@ -106,7 +106,7 @@ impl ScatterGather {
     ///
     /// # 示例
     ///
-    /// ```rust,ignore
+    /// ```text
     /// let results: Vec<Result<i32, _>> = vec![Ok(1), Ok(2), Ok(3)];
     /// let sum = ScatterGather::merge(results, |vs| Ok(vs.iter().sum())).unwrap();
     /// assert_eq!(sum, 6);

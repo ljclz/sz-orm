@@ -227,13 +227,13 @@ impl<T: Serialize> Responder for JsonResp<T> {
 /// # Usage
 ///
 /// ```ignore
-/// use actix_web::web::ReqData;
+/// use actix_web::{web::ReqData, HttpResponse, Responder};
 /// use sz_orm_actix::TransactionConn;
 ///
 /// async fn handler(tx: ReqData<TransactionConn>) -> impl Responder {
 ///     if let Some(mut guard) = tx.conn().await {
 ///         if let Some(conn) = guard.as_mut() {
-///             conn.execute("INSERT INTO users (name) VALUES ('Alice')").await?;
+///             let _ = conn.execute("INSERT INTO users (name) VALUES ('Alice')").await;
 ///         }
 ///     }
 ///     HttpResponse::Ok()
@@ -305,10 +305,13 @@ impl FromRequest for TransactionConn {
 /// ```ignore
 /// use actix_web::{web, App};
 /// use sz_orm_actix::{PoolState, TransactionMiddleware};
+/// use sz_orm_core::Pool;
 ///
-/// let app = App::new()
-///     .app_data(web::Data::new(PoolState::new(pool)))
-///     .wrap(TransactionMiddleware);
+/// fn build_app(pool: Pool) {
+///     let _ = App::new()
+///         .app_data(web::Data::new(PoolState::new(pool)))
+///         .wrap(TransactionMiddleware);
+/// }
 /// ```
 pub struct TransactionMiddleware;
 

@@ -72,13 +72,13 @@ fn test_clonecheap_u64() {
 
 #[test]
 fn test_clonecheap_f32() {
-    let v = Value::F32(3.14);
+    let v = Value::F32(1.234);
     assert_eq!(v.clonecheap(), v.clone());
 }
 
 #[test]
 fn test_clonecheap_f64() {
-    let v = Value::F64(3.14159265358979);
+    let v = Value::F64(1.234567);
     assert_eq!(v.clonecheap(), v.clone());
 }
 
@@ -196,7 +196,7 @@ fn test_clonecheap_in_batch_context() {
     row2.insert("name".to_string(), Value::String("Bob".to_string()));
     row2.insert("score".to_string(), Value::F64(87.3));
 
-    let rows = vec![row1, row2];
+    let rows = [row1, row2];
     let cloned: Vec<Value> = rows
         .iter()
         .flat_map(|row| row.values())
@@ -206,7 +206,13 @@ fn test_clonecheap_in_batch_context() {
 
     let i64_values: Vec<i64> = cloned
         .iter()
-        .filter_map(|v| if let Value::I64(n) = v { Some(*n) } else { None })
+        .filter_map(|v| {
+            if let Value::I64(n) = v {
+                Some(*n)
+            } else {
+                None
+            }
+        })
         .collect();
     assert!(i64_values.contains(&1));
     assert!(i64_values.contains(&2));

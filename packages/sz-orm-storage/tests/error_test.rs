@@ -1,5 +1,5 @@
-use sz_orm_storage::StorageError;
 use std::error::Error;
+use sz_orm_storage::StorageError;
 
 #[test]
 fn test_put() {
@@ -59,7 +59,7 @@ fn test_from_io_permission_denied() {
 
 #[test]
 fn test_from_io_other() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "test");
+    let io_err = std::io::Error::other("test");
     let err: StorageError = io_err.into();
     assert!(err.to_string().contains("Connection error"));
 }

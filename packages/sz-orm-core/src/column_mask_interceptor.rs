@@ -43,15 +43,23 @@ impl ColumnMaskRule {
     }
 
     /// 应用脱敏
-    pub fn apply(&self, value: &Value) -> Value {
+    ///
+    /// `hash_state` 为拦截器实例持有的随机哈希密钥（见 [`ColumnMaskInterceptor`]），
+    /// Hash 策略经 keyed SipHash 计算脱敏值：进程内确定性、跨进程不可预测，
+    /// 防止对低熵敏感值（手机号/证件号等）做字典枚举还原（OWASP A02）。
+    pub fn apply(
+        &self,
+        value: &Value,
+        hash_state: &std::collections::hash_map::RandomState,
+    ) -> Value {
         match value {
-            Value::String(s) => Value::String(self.mask_string(s)),
+            Value::String(s) => Value::String(self.mask_string(s, hash_state)),
             Value::Null => Value::Null,
-            other => Value::String(self.mask_string(&other.to_string())),
+            other => Value::String(self.mask_string(&other.to_string(), hash_state)),
         }
     }
 
-    fn mask_string(&self, s: &str) -> String {
+    fn mask_string(&self, s: &str, hash_state: &std::collections::hash_map::RandomState) -> String {
         match &self.strategy {
             MaskStrategy::Full => "***".to_string(),
             MaskStrategy::Prefix(n) => {
@@ -80,9 +88,8 @@ impl ColumnMaskRule {
                 }
             }
             MaskStrategy::Hash => {
-                use std::collections::hash_map::DefaultHasher;
                 use std::hash::Hasher;
-                let mut hasher = DefaultHasher::new();
+                let mut hasher = hash_state.build_hasher();
                 std::hash::Hash::hash(&s, &mut hasher);
                 format!("{:016x}", hasher.finish())
             }
@@ -94,6 +101,9 @@ impl ColumnMaskRule {
 /// 列级脱敏拦截器
 pub struct ColumnMaskInterceptor {
     rules: HashMap<String, Vec<ColumnMaskRule>>,
+    /// Hash 脱敏策略的 keyed 哈希密钥：构造时随机生成，进程内稳定、
+    /// 跨进程不可预测（防字典枚举，OWASP A02）
+    hash_state: std::collections::hash_map::RandomState,
 }
 
 impl ColumnMaskInterceptor {
@@ -101,6 +111,7 @@ impl ColumnMaskInterceptor {
     pub fn new() -> Self {
         Self {
             rules: HashMap::new(),
+            hash_state: std::collections::hash_map::RandomState::new(),
         }
     }
 
@@ -114,7 +125,7 @@ impl ColumnMaskInterceptor {
         if let Some(rules) = self.rules.get(table) {
             for rule in rules {
                 if let Some(value) = row.get_mut(&rule.column) {
-                    *value = rule.apply(value);
+                    *value = rule.apply(value, &self.hash_state);
                 }
             }
         }
@@ -147,14 +158,17 @@ mod tests {
     #[test]
     fn test_full_mask() {
         let rule = ColumnMaskRule::new("users", "password", MaskStrategy::Full);
-        let result = rule.apply(&Value::String("secret123".into()));
+        let result = rule.apply(&Value::String("secret123".into()), &RandomState::new());
         assert_eq!(result, Value::String("***".into()));
     }
 
     #[test]
     fn test_prefix_mask() {
         let rule = ColumnMaskRule::new("users", "email", MaskStrategy::Prefix(3));
-        let result = rule.apply(&Value::String("alice@example.com".into()));
+        let result = rule.apply(
+            &Value::String("alice@example.com".into()),
+            &RandomState::new(),
+        );
         assert!(result.as_str().unwrap().starts_with("ali"));
         assert!(result.as_str().unwrap().contains("*"));
     }
@@ -162,7 +176,7 @@ mod tests {
     #[test]
     fn test_suffix_mask() {
         let rule = ColumnMaskRule::new("users", "phone", MaskStrategy::Suffix(4));
-        let result = rule.apply(&Value::String("13812345678".into()));
+        let result = rule.apply(&Value::String("13812345678".into()), &RandomState::new());
         let s = result.as_str().unwrap();
         assert!(s.ends_with("5678"));
         assert!(s.contains("*"));
@@ -171,7 +185,7 @@ mod tests {
     #[test]
     fn test_replace_mask() {
         let rule = ColumnMaskRule::new("users", "ssn", MaskStrategy::Replace("[REDACTED]".into()));
-        let result = rule.apply(&Value::String("123-45-6789".into()));
+        let result = rule.apply(&Value::String("123-45-6789".into()), &RandomState::new());
         assert_eq!(result, Value::String("[REDACTED]".into()));
     }
 

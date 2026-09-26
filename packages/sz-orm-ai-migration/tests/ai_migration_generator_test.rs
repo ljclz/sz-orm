@@ -1,7 +1,7 @@
-use sz_orm_ai_migration::ai_migration_generator::{
-    AiMigrationGenerator, DataImpactReport, LlmMigrationProvider, MigrationError, MigrationScript,
-};
 use async_trait::async_trait;
+use sz_orm_ai_migration::ai_migration_generator::{
+    AiMigrationGenerator, LlmMigrationProvider, MigrationError, MigrationScript,
+};
 
 struct MockProvider;
 
@@ -37,7 +37,9 @@ fn test_analyze_data_impact_drop() {
     let gen = AiMigrationGenerator::new(Box::new(MockProvider));
     let report = gen.analyze_data_impact("drop table users");
     assert!(report.data_loss_risk);
-    assert!(report.suggested_actions.contains(&"备份数据后再执行".to_string()));
+    assert!(report
+        .suggested_actions
+        .contains(&"备份数据后再执行".to_string()));
 }
 
 #[test]
@@ -45,7 +47,9 @@ fn test_analyze_data_impact_not_null() {
     let gen = AiMigrationGenerator::new(Box::new(MockProvider));
     let report = gen.analyze_data_impact("add column email not null");
     assert!(report.data_loss_risk);
-    assert!(report.suggested_actions.contains(&"先处理现有空值数据".to_string()));
+    assert!(report
+        .suggested_actions
+        .contains(&"先处理现有空值数据".to_string()));
 }
 
 #[test]
@@ -55,5 +59,8 @@ fn test_migration_error_display() {
     let err = MigrationError::RollbackFailed("mismatch".into());
     assert_eq!(err.to_string(), "Rollback verification failed: mismatch");
     let err = MigrationError::HighRisk("drop".into());
-    assert_eq!(err.to_string(), "High risk migration requires confirmation: drop");
+    assert_eq!(
+        err.to_string(),
+        "High risk migration requires confirmation: drop"
+    );
 }

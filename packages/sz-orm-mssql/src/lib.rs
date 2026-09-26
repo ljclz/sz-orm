@@ -17,7 +17,7 @@
 //!
 //! # Usage
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_core::{Pool, PoolConfigBuilder};
 //! use sz_orm_mssql::{MssqlPoolHandle, MssqlConnectionFactory};
 //! use std::sync::Arc;

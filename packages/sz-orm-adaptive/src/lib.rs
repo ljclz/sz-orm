@@ -9,7 +9,7 @@
 //!
 //! Typical usage (with existing `sz-orm-core` `cursor_stream` / `l2_cache`):
 //!
-//! ```rust,ignore
+//! ```text
 //! let executor = AdaptiveExecutor::new(AdaptiveConfig::default());
 //! match executor.decide("find_users") {
 //!     ExecutionPath::Paginated => { /* use cursor_stream for cursor pagination */ }

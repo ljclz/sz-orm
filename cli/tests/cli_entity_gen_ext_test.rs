@@ -30,7 +30,9 @@ fn test_entity_field_nullable_chain() {
 
 #[test]
 fn test_entity_field_both_flags() {
-    let f = EntityField::new("id", "i64", "bigint").primary_key().nullable();
+    let f = EntityField::new("id", "i64", "bigint")
+        .primary_key()
+        .nullable();
     assert!(f.is_primary_key);
     assert!(f.nullable);
 }

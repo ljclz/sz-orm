@@ -14,7 +14,7 @@
 //!
 //! # 用法
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_sqlx::any_driver::{AnyBackend, AnyPool};
 //!
 //! // 从 DSN 自动识别后端

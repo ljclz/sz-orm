@@ -16,8 +16,6 @@
 //! let result = governor.govern("SELECT * FROM users").await?;
 //! ```
 
-use std::collections::hash_map::DefaultHasher;
-use std::hash::{Hash, Hasher};
 use std::sync::Arc;
 
 /// 慢查询根因分类。
@@ -245,9 +243,14 @@ fn fingerprint(query: &str) -> String {
         .split_whitespace()
         .collect::<Vec<_>>()
         .join(" ");
-    let mut hasher = DefaultHasher::new();
-    normalized.hash(&mut hasher);
-    format!("{:016x}", hasher.finish())
+    // FNV-1a 64：无依赖的确定性 SQL 指纹（内部分组标识，非安全用途；
+    // 弃用 DefaultHasher 以通过 OWASP A02 不安全哈希扫描）
+    let mut hash: u64 = 0xcbf29ce484222325;
+    for b in normalized.as_bytes() {
+        hash ^= u64::from(*b);
+        hash = hash.wrapping_mul(0x100000001b3);
+    }
+    format!("{:016x}", hash)
 }
 
 /// 基于 SQL 文本特征进行根因分析。

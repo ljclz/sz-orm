@@ -450,12 +450,18 @@ mod tests {
     use super::*;
     use std::fs;
     use std::io::Write;
+    use std::sync::atomic::{AtomicU64, Ordering};
+
+    /// 进程内唯一计数器：Windows SystemTime 粒度约 15.6ms，同批并行测试
+    /// 可能拿到相同时间戳导致临时目录碰撞（内容互相覆盖），必须叠加计数器
+    static TMP_DIR_COUNTER: AtomicU64 = AtomicU64::new(0);
 
     /// 创建临时源项目目录
     fn make_temp_project(content: &str) -> std::path::PathBuf {
         let dir = std::env::temp_dir().join(format!(
-            "sz_orm_test_{}_{}",
+            "sz_orm_test_{}_{}_{}",
             std::process::id(),
+            TMP_DIR_COUNTER.fetch_add(1, Ordering::Relaxed),
             std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap()

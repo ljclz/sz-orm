@@ -10,7 +10,7 @@
 //!
 //! # 使用示例
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_graphql::resolver::{DbResolver, ResolverContext};
 //! use std::sync::Arc;
 //!

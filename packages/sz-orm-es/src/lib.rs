@@ -289,7 +289,7 @@ impl EsSyncManager {
     ///
     /// # Examples
     ///
-    /// ```ignore
+    /// ```text
     /// use sz_orm_es::{EsSyncManager, EsSync};
     ///
     /// struct RealEsClient { /* elasticsearch::http::transport::Transport */ }

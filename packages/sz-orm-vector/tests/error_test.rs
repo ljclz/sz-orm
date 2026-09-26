@@ -1,5 +1,5 @@
-use sz_orm_vector::VectorError;
 use std::error::Error;
+use sz_orm_vector::VectorError;
 
 #[test]
 fn test_collection_not_found() {
@@ -9,7 +9,10 @@ fn test_collection_not_found() {
 
 #[test]
 fn test_dimension_mismatch() {
-    let err = VectorError::DimensionMismatch { expected: 128, actual: 256 };
+    let err = VectorError::DimensionMismatch {
+        expected: 128,
+        actual: 256,
+    };
     assert_eq!(err.to_string(), "dimension mismatch: expected 128, got 256");
 }
 
@@ -45,13 +48,18 @@ fn test_invalid_identifier() {
 
 #[test]
 fn test_top_k_exceeded() {
-    let err = VectorError::TopKExceeded { requested: 200, max: 100 };
+    let err = VectorError::TopKExceeded {
+        requested: 200,
+        max: 100,
+    };
     assert_eq!(err.to_string(), "top_k 200 exceeds maximum allowed 100");
 }
 
 #[test]
 fn test_backend_unreachable() {
-    let err = VectorError::BackendUnreachable { reason: "timeout".into() };
+    let err = VectorError::BackendUnreachable {
+        reason: "timeout".into(),
+    };
     assert_eq!(err.to_string(), "backend unreachable: timeout");
 }
 

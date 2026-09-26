@@ -1,8 +1,8 @@
-use sz_orm_ai_designer::ai_schema_designer::{
-    AiSchemaDesigner, ColumnDefinition, DesignError, JoinPattern, LlmSchemaProvider,
-    MigrationRisk, SchemaDesign, TableDefinition,
-};
 use async_trait::async_trait;
+use sz_orm_ai_designer::ai_schema_designer::{
+    AiSchemaDesigner, ColumnDefinition, DesignError, JoinPattern, LlmSchemaProvider, MigrationRisk,
+    SchemaDesign, TableDefinition,
+};
 
 struct MockProvider;
 
@@ -43,7 +43,11 @@ async fn test_design_schema() {
 #[test]
 fn test_analyze_migration_impact_no_change() {
     let designer = AiSchemaDesigner::new(Box::new(MockProvider));
-    let schema = SchemaDesign { tables: vec![], ddl_texts: vec![], rationale: "".into() };
+    let schema = SchemaDesign {
+        tables: vec![],
+        ddl_texts: vec![],
+        rationale: "".into(),
+    };
     let report = designer.analyze_migration_impact(&schema, &schema);
     assert_eq!(report.risk_level, MigrationRisk::Low);
     assert!(report.migration_steps.contains(&"无变更".to_string()));
@@ -52,12 +56,20 @@ fn test_analyze_migration_impact_no_change() {
 #[test]
 fn test_analyze_migration_impact_add_table() {
     let designer = AiSchemaDesigner::new(Box::new(MockProvider));
-    let old = SchemaDesign { tables: vec![], ddl_texts: vec![], rationale: "".into() };
+    let old = SchemaDesign {
+        tables: vec![],
+        ddl_texts: vec![],
+        rationale: "".into(),
+    };
     let new = SchemaDesign {
         tables: vec![TableDefinition {
-            name: "orders".into(), columns: vec![], indexes: vec![], comment: None,
+            name: "orders".into(),
+            columns: vec![],
+            indexes: vec![],
+            comment: None,
         }],
-        ddl_texts: vec![], rationale: "".into(),
+        ddl_texts: vec![],
+        rationale: "".into(),
     };
     let report = designer.analyze_migration_impact(&old, &new);
     assert_eq!(report.affected_queries, 1);
@@ -69,11 +81,19 @@ fn test_analyze_migration_impact_remove_table() {
     let designer = AiSchemaDesigner::new(Box::new(MockProvider));
     let old = SchemaDesign {
         tables: vec![TableDefinition {
-            name: "old".into(), columns: vec![], indexes: vec![], comment: None,
+            name: "old".into(),
+            columns: vec![],
+            indexes: vec![],
+            comment: None,
         }],
-        ddl_texts: vec![], rationale: "".into(),
+        ddl_texts: vec![],
+        rationale: "".into(),
     };
-    let new = SchemaDesign { tables: vec![], ddl_texts: vec![], rationale: "".into() };
+    let new = SchemaDesign {
+        tables: vec![],
+        ddl_texts: vec![],
+        rationale: "".into(),
+    };
     let report = designer.analyze_migration_impact(&old, &new);
     assert_eq!(report.affected_queries, 1);
     assert_eq!(report.risk_level, MigrationRisk::High);
@@ -105,6 +125,12 @@ fn test_denormalization_advice_with_joins() {
 #[test]
 fn test_design_error_display() {
     assert_eq!(DesignError::Llm("x".into()).to_string(), "LLM error: x");
-    assert_eq!(DesignError::Syntax("x".into()).to_string(), "DDL syntax error: x");
-    assert_eq!(DesignError::MaxRetries(3).to_string(), "Max retries (3) exhausted");
+    assert_eq!(
+        DesignError::Syntax("x".into()).to_string(),
+        "DDL syntax error: x"
+    );
+    assert_eq!(
+        DesignError::MaxRetries(3).to_string(),
+        "Max retries (3) exhausted"
+    );
 }

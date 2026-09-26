@@ -172,6 +172,12 @@ fn map_workload(wl: &WorkloadType) -> sz_orm_fusion::ChaosWorkloadType {
         WorkloadType::Transaction => sz_orm_fusion::ChaosWorkloadType::Transaction,
         WorkloadType::PoolConcurrency => sz_orm_fusion::ChaosWorkloadType::PoolConcurrency,
         WorkloadType::SimdCompare => sz_orm_fusion::ChaosWorkloadType::SimdCompare,
+        // v8.8.0 新增工作负载在 fusion 混沌侧无同名变体，按负载特征就近映射：
+        // 并发读写/池压测 → 池并发；长事务 → 事务；大结果集 → 复杂连接（重查询）
+        WorkloadType::ConcurrentReadWrite => sz_orm_fusion::ChaosWorkloadType::PoolConcurrency,
+        WorkloadType::PoolStress => sz_orm_fusion::ChaosWorkloadType::PoolConcurrency,
+        WorkloadType::LongTransaction => sz_orm_fusion::ChaosWorkloadType::Transaction,
+        WorkloadType::LargeResultSet => sz_orm_fusion::ChaosWorkloadType::ComplexJoin,
     }
 }
 

@@ -12,7 +12,7 @@
 //! - [`FusionPlanner`]: Static analysis → [`FusionPlan`] (cache pushdown / search pushdown / primary steps)
 //! - [`FusionExecutor`]: Execute by plan, cache hit skips primary, primary failure falls back to cache
 //!
-//! ```rust,ignore
+//! ```text
 //! let config = FusionConfig {
 //!     primary: "mysql".into(),
 //!     cache: Some(CacheBackend::Memory),

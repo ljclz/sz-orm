@@ -1,7 +1,7 @@
-use sz_orm_graphql::resolver::{DbResolver, ResolverContext};
 use serde_json::json;
-use std::pin::Pin;
 use std::future::Future;
+use std::pin::Pin;
+use sz_orm_graphql::resolver::{DbResolver, ResolverContext};
 
 struct MockResolver;
 

@@ -10,7 +10,7 @@
 //!
 //! Typical usage (with `sz-orm-macros`'s `query!` macro db-verify mode):
 //!
-//! ```rust,ignore
+//! ```text
 //! let plan = sz_orm_explain::parser_for(ExplainDialect::Postgres)?.parse(explain_raw)?;
 //! if plan.scan_type == ScanType::FullTable {
 //!     // Compile-time/CI warning: full table scan

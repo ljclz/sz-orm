@@ -1604,7 +1604,7 @@ pub struct AdaptiveTuningResult {
 ///
 /// # 示例
 ///
-/// ```rust,ignore
+/// ```text
 /// let tuner = AdaptivePoolTuner::new();
 /// let stats = WorkloadStats {
 ///     avg_concurrent_queries: 30.0,

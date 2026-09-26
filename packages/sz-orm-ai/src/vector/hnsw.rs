@@ -19,7 +19,7 @@
 //!
 //! # 示例
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_ai::vector::hnsw::{HnswIndex, HnswConfig, VectorMetric};
 //!
 //! let mut index = HnswIndex::new(HnswConfig::default().with_metric(VectorMetric::Cosine));

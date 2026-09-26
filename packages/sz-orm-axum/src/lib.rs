@@ -129,7 +129,7 @@ impl<T: Serialize> IntoResponse for JsonResp<T> {
 ///
 /// # Usage
 ///
-/// ```ignore
+/// ```text
 /// use axum::middleware::from_fn_with_state;
 /// use sz_orm_axum::{PoolState, transaction_layer};
 ///

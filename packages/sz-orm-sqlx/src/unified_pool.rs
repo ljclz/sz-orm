@@ -11,7 +11,7 @@
 //!
 //! # 用法
 //!
-//! ```ignore
+//! ```text
 //! use sz_orm_sqlx::UnifiedPool;
 //!
 //! // 从 DSN 自动识别后端，创建完整连接池
@@ -120,7 +120,7 @@ impl UnifiedPool {
     /// 从已有的 Pool 构造 UnifiedPool（零成本迁移）
     ///
     /// 供 sz-rust 从 `Arc<Pool>` 迁移到 `Arc<UnifiedPool>`：
-    /// ```ignore
+    /// ```text
     /// let unified = UnifiedPool::from_pool(existing_pool, AnyBackend::MySql);
     /// ```
     pub fn from_pool(pool: Pool, backend: AnyBackend) -> Self {

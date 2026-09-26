@@ -479,7 +479,10 @@ fn test_geometry_to_wkt_multipolygon() {
 
 #[test]
 fn test_geometry_to_ewkt_multipoint() {
-    let pts = vec![Point::with_srid(1.0, 2.0, 4326), Point::with_srid(3.0, 4.0, 4326)];
+    let pts = vec![
+        Point::with_srid(1.0, 2.0, 4326),
+        Point::with_srid(3.0, 4.0, 4326),
+    ];
     let g = Geometry::MultiPoint(pts);
     let ewkt = g.to_ewkt();
     assert!(ewkt.starts_with("SRID=4326;MULTIPOINT("));
@@ -495,7 +498,11 @@ fn test_geometry_to_ewkt_multilinestring() {
 
 #[test]
 fn test_geometry_bounding_box_multipoint() {
-    let pts = vec![Point::new(1.0, 5.0), Point::new(3.0, 2.0), Point::new(7.0, 8.0)];
+    let pts = vec![
+        Point::new(1.0, 5.0),
+        Point::new(3.0, 2.0),
+        Point::new(7.0, 8.0),
+    ];
     let g = Geometry::MultiPoint(pts);
     let bbox = g.bounding_box().unwrap();
     assert_eq!(bbox, (1.0, 2.0, 7.0, 8.0));
@@ -515,16 +522,28 @@ fn test_geometry_validate_srid_single_point() {
 
 #[test]
 fn test_geometry_validate_srid_multipolygon_consistent() {
-    let poly1 = Polygon::new(vec![Point::with_srid(0.0, 0.0, 4326), Point::with_srid(1.0, 1.0, 4326)]);
-    let poly2 = Polygon::new(vec![Point::with_srid(2.0, 2.0, 4326), Point::with_srid(3.0, 3.0, 4326)]);
+    let poly1 = Polygon::new(vec![
+        Point::with_srid(0.0, 0.0, 4326),
+        Point::with_srid(1.0, 1.0, 4326),
+    ]);
+    let poly2 = Polygon::new(vec![
+        Point::with_srid(2.0, 2.0, 4326),
+        Point::with_srid(3.0, 3.0, 4326),
+    ]);
     let g = Geometry::MultiPolygon(vec![poly1, poly2]);
     assert!(g.validate_srid().is_ok());
 }
 
 #[test]
 fn test_geometry_validate_srid_multilinestring_mismatch() {
-    let ls1 = LineString::new(vec![Point::with_srid(0.0, 0.0, 4326), Point::with_srid(1.0, 1.0, 4326)]);
-    let ls2 = LineString::new(vec![Point::with_srid(0.0, 0.0, 3857), Point::with_srid(1.0, 1.0, 3857)]);
+    let ls1 = LineString::new(vec![
+        Point::with_srid(0.0, 0.0, 4326),
+        Point::with_srid(1.0, 1.0, 4326),
+    ]);
+    let ls2 = LineString::new(vec![
+        Point::with_srid(0.0, 0.0, 3857),
+        Point::with_srid(1.0, 1.0, 3857),
+    ]);
     let g = Geometry::MultiLineString(vec![ls1, ls2]);
     assert!(g.validate_srid().is_err());
 }
