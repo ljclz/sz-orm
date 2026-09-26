@@ -446,6 +446,7 @@ fn values_equal(a: &Value, b: &Value) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::mock::MockConnection;
 
     #[test]
     fn test_values_equal_numeric_cross_type() {
@@ -467,5 +468,235 @@ mod tests {
         stats.comparisons.store(10, Ordering::Relaxed);
         stats.mismatches.store(1, Ordering::Relaxed);
         assert!((stats.mismatch_rate() - 0.1).abs() < 1e-9);
+    }
+
+    #[test]
+    fn test_shadow_comparison_latency_ratio() {
+        let c = ShadowComparison {
+            sql: "SELECT 1".into(),
+            orm_duration: Duration::from_millis(10),
+            raw_duration: Duration::from_millis(5),
+            orm_rows: 1,
+            raw_rows: 1,
+            consistent: true,
+            mismatch: None,
+        };
+        assert!((c.latency_ratio() - 2.0).abs() < 1e-9);
+
+        let c_zero = ShadowComparison {
+            sql: "SELECT 1".into(),
+            orm_duration: Duration::from_millis(10),
+            raw_duration: Duration::ZERO,
+            orm_rows: 1,
+            raw_rows: 1,
+            consistent: true,
+            mismatch: None,
+        };
+        assert_eq!(c_zero.latency_ratio(), 1.0);
+    }
+
+    #[test]
+    fn test_shadow_stats_avg() {
+        let stats = ShadowStats::default();
+        assert_eq!(stats.avg_orm_us(), 0);
+        assert_eq!(stats.avg_raw_us(), 0);
+
+        stats.comparisons.store(4, Ordering::Relaxed);
+        stats.orm_total_us.store(1000, Ordering::Relaxed);
+        stats.raw_total_us.store(500, Ordering::Relaxed);
+        assert_eq!(stats.avg_orm_us(), 250);
+        assert_eq!(stats.avg_raw_us(), 125);
+    }
+
+    #[test]
+    fn test_shadow_config_default() {
+        let cfg = ShadowConfig::default();
+        assert_eq!(cfg.timeout, Duration::from_secs(3));
+        assert!(!cfg.row_count_only);
+        assert_eq!(cfg.max_compare_rows, 10_000);
+    }
+
+    #[test]
+    fn test_values_equal_null_bool_string_bytes() {
+        assert!(values_equal(&Value::Null, &Value::Null));
+        assert!(!values_equal(&Value::Null, &Value::Bool(true)));
+        assert!(values_equal(&Value::Bool(true), &Value::Bool(true)));
+        assert!(!values_equal(&Value::Bool(true), &Value::Bool(false)));
+        assert!(values_equal(
+            &Value::String("a".into()),
+            &Value::String("a".into())
+        ));
+        assert!(!values_equal(
+            &Value::String("a".into()),
+            &Value::String("b".into())
+        ));
+        assert!(values_equal(
+            &Value::Bytes(vec![1, 2, 3]),
+            &Value::Bytes(vec![1, 2, 3])
+        ));
+        assert!(!values_equal(
+            &Value::Bytes(vec![1, 2, 3]),
+            &Value::Bytes(vec![1, 2, 4])
+        ));
+    }
+
+    #[test]
+    fn test_values_equal_unsigned_integers() {
+        assert!(values_equal(&Value::U8(1), &Value::U8(1)));
+        assert!(!values_equal(&Value::U8(1), &Value::U8(2)));
+        assert!(values_equal(&Value::U16(100), &Value::U16(100)));
+        assert!(!values_equal(&Value::U16(100), &Value::U16(200)));
+        assert!(values_equal(&Value::U32(1000), &Value::U32(1000)));
+        assert!(values_equal(&Value::U64(10000), &Value::U64(10000)));
+    }
+
+    #[test]
+    fn test_values_equal_float_f32_f32_f64_f64() {
+        assert!(values_equal(&Value::F32(3.14), &Value::F32(3.14)));
+        assert!(!values_equal(&Value::F32(3.14), &Value::F32(2.71)));
+        assert!(values_equal(&Value::F64(3.14159), &Value::F64(3.14159)));
+        assert!(!values_equal(&Value::F64(3.14), &Value::F64(2.71)));
+    }
+
+    #[test]
+    fn test_values_equal_i16_i32_cross_type() {
+        assert!(values_equal(&Value::I16(100), &Value::I32(100)));
+        assert!(values_equal(&Value::I32(100), &Value::I16(100)));
+        assert!(!values_equal(&Value::I16(100), &Value::I32(200)));
+        assert!(values_equal(&Value::I64(100), &Value::I32(100)));
+        assert!(!values_equal(&Value::I64(100), &Value::I32(200)));
+    }
+
+    #[test]
+    fn test_shadow_connection_new_and_stats() {
+        let orm = MockConnection::new();
+        let raw = MockConnection::new();
+        let shadow = ShadowConnection::new(orm, raw, ShadowConfig::default());
+        assert_eq!(shadow.stats().comparisons.load(Ordering::Relaxed), 0);
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 0);
+    }
+
+    #[test]
+    fn test_shadow_connection_with_mismatch_action() {
+        let orm = MockConnection::new();
+        let raw = MockConnection::new();
+        let shadow = ShadowConnection::new(orm, raw, ShadowConfig::default())
+            .with_mismatch_action(MismatchAction::Panic);
+        assert_eq!(shadow.on_mismatch, MismatchAction::Panic);
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_consistent() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        orm.expect_any().with_rows(vec![]);
+        raw.expect_any().with_rows(vec![]);
+        let mut shadow = ShadowConnection::new(orm, raw, ShadowConfig::default());
+        let rows = shadow.query_shadow("SELECT 1").await.unwrap();
+        assert_eq!(rows.len(), 0);
+        assert_eq!(shadow.stats().comparisons.load(Ordering::Relaxed), 1);
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_row_count_mismatch() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        orm.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(1))]]);
+        raw.expect_any().with_rows(vec![]);
+        let mut shadow = ShadowConnection::new(orm, raw, ShadowConfig::default());
+        let rows = shadow.query_shadow("SELECT * FROM t").await.unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_row_count_only_mode() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        orm.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(1))]]);
+        raw.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(2))]]);
+        let cfg = ShadowConfig {
+            row_count_only: true,
+            ..ShadowConfig::default()
+        };
+        let mut shadow = ShadowConnection::new(orm, raw, cfg);
+        shadow.query_shadow("SELECT * FROM t").await.unwrap();
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 0);
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_value_mismatch_record() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        orm.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(1))]]);
+        raw.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(2))]]);
+        let mut shadow = ShadowConnection::new(orm, raw, ShadowConfig::default())
+            .with_mismatch_action(MismatchAction::Record);
+        shadow.query_shadow("SELECT * FROM t").await.unwrap();
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_value_mismatch_panic() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        orm.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(1))]]);
+        raw.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(2))]]);
+        let mut shadow = ShadowConnection::new(orm, raw, ShadowConfig::default())
+            .with_mismatch_action(MismatchAction::Panic);
+        let result = shadow.query_shadow("SELECT * FROM t").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_column_count_mismatch() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        orm.expect_any().with_rows(vec![vec![
+            ("id", Value::I32(1)),
+            ("name", Value::String("a".into())),
+        ]]);
+        raw.expect_any()
+            .with_rows(vec![vec![("id", Value::I32(1))]]);
+        let mut shadow = ShadowConnection::new(orm, raw, ShadowConfig::default());
+        shadow.query_shadow("SELECT * FROM t").await.unwrap();
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_column_missing_in_raw() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        orm.expect_any()
+            .with_rows(vec![vec![("a", Value::I32(1)), ("b", Value::I32(2))]]);
+        raw.expect_any()
+            .with_rows(vec![vec![("a", Value::I32(1)), ("c", Value::I32(2))]]);
+        let mut shadow = ShadowConnection::new(orm, raw, ShadowConfig::default());
+        shadow.query_shadow("SELECT * FROM t").await.unwrap();
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 1);
+    }
+
+    #[tokio::test]
+    async fn test_shadow_query_consistent_with_data() {
+        let mut orm = MockConnection::new();
+        let mut raw = MockConnection::new();
+        let row = vec![
+            ("id", Value::I32(1)),
+            ("name", Value::String("Alice".into())),
+        ];
+        orm.expect_any().with_rows(vec![row.clone()]);
+        raw.expect_any().with_rows(vec![row]);
+        let mut shadow = ShadowConnection::new(orm, raw, ShadowConfig::default());
+        shadow.query_shadow("SELECT * FROM t").await.unwrap();
+        assert_eq!(shadow.stats().mismatches.load(Ordering::Relaxed), 0);
+        assert_eq!(shadow.stats().comparisons.load(Ordering::Relaxed), 1);
     }
 }
