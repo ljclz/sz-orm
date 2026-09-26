@@ -88,7 +88,7 @@ impl ColumnMaskRule {
                 }
             }
             MaskStrategy::Hash => {
-                use std::hash::Hasher;
+                use std::hash::{BuildHasher, Hasher};
                 let mut hasher = hash_state.build_hasher();
                 std::hash::Hash::hash(&s, &mut hasher);
                 format!("{:016x}", hasher.finish())
@@ -154,6 +154,7 @@ impl Default for ColumnMaskInterceptor {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::hash_map::RandomState;
 
     #[test]
     fn test_full_mask() {
