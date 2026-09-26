@@ -274,6 +274,8 @@ pub struct FaultyConnection {
     pub fail_on_commit: bool,
     /// 在 rollback 时失败
     pub fail_on_rollback: bool,
+    /// 事务状态跟踪（v9.0.0：供归还回滚故障注入测试观测）
+    in_transaction: bool,
 }
 
 impl FaultyConnection {
@@ -285,6 +287,7 @@ impl FaultyConnection {
             execute_count: 0,
             fail_on_commit: false,
             fail_on_rollback: false,
+            in_transaction: false,
         }
     }
 }
@@ -323,7 +326,10 @@ impl Connection for FaultyConnection {
     fn begin_transaction<'a>(
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
-        Box::pin(async move { Ok(()) })
+        Box::pin(async move {
+            self.in_transaction = true;
+            Ok(())
+        })
     }
 
     fn commit<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
@@ -331,6 +337,7 @@ impl Connection for FaultyConnection {
             if self.fail_on_commit {
                 return Err(DbError::Internal("injected commit fault".to_string()));
             }
+            self.in_transaction = false;
             Ok(())
         })
     }
@@ -342,12 +349,17 @@ impl Connection for FaultyConnection {
             if self.fail_on_rollback {
                 return Err(DbError::Internal("injected rollback fault".to_string()));
             }
+            self.in_transaction = false;
             Ok(())
         })
     }
 
     fn is_connected(&self) -> bool {
         self.connected
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.in_transaction
     }
 
     fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
@@ -386,6 +398,10 @@ pub struct FaultyConnectionFactory {
     /// 创建的第 N 个连接会是故障连接
     pub faulty_nth: u32,
     counter: Mutex<u32>,
+    /// v9.0.0：true 时所有连接均为 FaultyConnection（归还回滚故障注入用）
+    pub always_faulty: bool,
+    /// always_faulty 连接携带的回滚故障注入
+    pub fail_on_rollback: bool,
 }
 
 impl FaultyConnectionFactory {
@@ -394,6 +410,8 @@ impl FaultyConnectionFactory {
             db,
             faulty_nth,
             counter: Mutex::new(0),
+            always_faulty: false,
+            fail_on_rollback: false,
         }
     }
 }
@@ -407,6 +425,17 @@ impl ConnectionFactory for FaultyConnectionFactory {
             return Err(DbError::ConnectionError(
                 "injected factory fault".to_string(),
             ));
+        }
+        if self.always_faulty {
+            return Ok(Box::new(FaultyConnection {
+                db: self.db.clone(),
+                connected: true,
+                fail_on_execute_n: None,
+                execute_count: 0,
+                fail_on_commit: false,
+                fail_on_rollback: self.fail_on_rollback,
+                in_transaction: false,
+            }));
         }
         Ok(Box::new(MockConnection::new(self.db.clone())))
     }

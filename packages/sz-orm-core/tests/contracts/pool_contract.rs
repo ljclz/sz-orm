@@ -14,7 +14,7 @@ use sz_orm_core::Connection;
 use sz_orm_core::{DbType, PoolError, PoolStatus};
 use sz_orm_core::{Pool, PoolConfig, PoolConfigBuilder};
 
-use crate::common::{InMemoryDb, MockConnectionFactory};
+use crate::common::{FaultyConnectionFactory, InMemoryDb, MockConnectionFactory};
 
 // ===== 辅助函数 =====
 
@@ -266,6 +266,65 @@ async fn test_return_raw_rolls_back_open_tx_contract() {
     let conn = pool.acquire().await.unwrap();
     assert!(!conn.in_transaction(), "回滚后事务标志应清除");
     pool.release(conn).await;
+}
+
+// ===== §5.7 归还回滚故障注入契约（v9.0.0：回滚失败 → 连接关闭不入池） =====
+
+#[tokio::test]
+async fn test_release_rollback_failure_closes_connection_contract() {
+    let db = Arc::new(Mutex::new(InMemoryDb::new()));
+    let mut factory = FaultyConnectionFactory::new(db.clone(), 0);
+    factory.always_faulty = true;
+    factory.fail_on_rollback = true; // 注入：rollback 必失败
+    let config = PoolConfigBuilder::new()
+        .max_size(1)
+        .acquire_timeout(1)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, Arc::new(factory)).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.begin_transaction().await.unwrap();
+    pool.release(conn).await; // 归还时回滚失败 → 连接必须被关闭，不得入池
+
+    let status = pool.status().await;
+    assert_eq!(
+        status.active, 0,
+        "回滚失败的连接不得占用容量（修复前：毒化连接回池）"
+    );
+    assert_eq!(status.idle, 0, "回滚失败的连接不得进入空闲队列");
+
+    // 池仍可服务：下一个 acquire 创建新连接成功
+    let conn2 = pool.acquire().await.unwrap();
+    pool.release(conn2).await;
+}
+
+#[tokio::test]
+async fn test_return_raw_rollback_failure_rejects_contract() {
+    let db = Arc::new(Mutex::new(InMemoryDb::new()));
+    let mut factory = FaultyConnectionFactory::new(db.clone(), 0);
+    factory.always_faulty = true;
+    factory.fail_on_rollback = true;
+    let config = PoolConfigBuilder::new()
+        .max_size(2)
+        .acquire_timeout(1)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, Arc::new(factory)).unwrap();
+
+    let conn = pool.acquire().await.unwrap();
+    let mut raw = conn.into_inner();
+    raw.begin_transaction().await.unwrap();
+
+    match pool.return_raw(raw).await {
+        Err(PoolError::ConnectionFailed(_)) => { /* 契约满足 */ }
+        Err(other) => panic!("期望 PoolError::ConnectionFailed，实际: {:?}", other),
+        Ok(()) => panic!("回滚失败的 return_raw 必须失败，实际返回 Ok"),
+    }
+
+    let status = pool.status().await;
+    assert_eq!(status.active, 0, "回滚失败的连接不得占用容量");
+    assert_eq!(status.idle, 0, "回滚失败的连接不得进入空闲队列");
 }
 
 #[tokio::test]
