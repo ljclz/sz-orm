@@ -333,3 +333,101 @@ fn test_generate_all_idempotent_empty() {
     let code = gen.generate_all_idempotent(&[]);
     assert!(code.is_empty());
 }
+#[test]
+fn test_infer_rust_type_int() {
+    assert_eq!(EntityGenerator::infer_rust_type("INTEGER"), "i64");
+    assert_eq!(EntityGenerator::infer_rust_type("BIGINT"), "i64");
+    assert_eq!(EntityGenerator::infer_rust_type("smallint"), "i64");
+}
+
+#[test]
+fn test_infer_rust_type_bool() {
+    assert_eq!(EntityGenerator::infer_rust_type("BOOLEAN"), "bool");
+    assert_eq!(EntityGenerator::infer_rust_type("bool"), "bool");
+}
+
+#[test]
+fn test_infer_rust_type_float() {
+    assert_eq!(EntityGenerator::infer_rust_type("FLOAT"), "f64");
+    assert_eq!(EntityGenerator::infer_rust_type("float8"), "f64");
+}
+
+#[test]
+fn test_infer_rust_type_json() {
+    assert_eq!(EntityGenerator::infer_rust_type("JSON"), "serde_json::Value");
+    assert_eq!(EntityGenerator::infer_rust_type("jsonb"), "serde_json::Value");
+}
+
+#[test]
+fn test_infer_rust_type_string_default() {
+    assert_eq!(EntityGenerator::infer_rust_type("VARCHAR(255)"), "String");
+    assert_eq!(EntityGenerator::infer_rust_type("TEXT"), "String");
+    assert_eq!(EntityGenerator::infer_rust_type("CHAR(10)"), "String");
+    assert_eq!(EntityGenerator::infer_rust_type("DATE"), "String");
+    assert_eq!(EntityGenerator::infer_rust_type("TIMESTAMP"), "String");
+}
+
+#[test]
+fn test_generate_has_many_relation() {
+    let mut entity = EntityDefinition::new("User", "users");
+    entity = entity.with_relation(EntityRelation {
+        relation_type: RelationType::HasMany,
+        target_entity: "Order".to_string(),
+        local_field: "id".to_string(),
+        target_field: "user_id".to_string(),
+    });
+    let gen = EntityGenerator::new();
+    let code = gen.generate(&entity);
+    assert!(code.contains("fn orders(&self) -> Vec<Order>"));
+    assert!(code.contains("Vec::new()"));
+}
+
+#[test]
+fn test_generate_nullable_field() {
+    let mut entity = EntityDefinition::new("User", "users");
+    entity = entity.with_field(
+        EntityField::new("email", "String", "VARCHAR(255)").nullable(),
+    );
+    let gen = EntityGenerator::new();
+    let code = gen.generate(&entity);
+    assert!(code.contains("pub email: Option<String>"));
+}
+
+#[test]
+fn test_generate_primary_key_field() {
+    let mut entity = EntityDefinition::new("User", "users");
+    entity = entity.with_field(
+        EntityField::new("id", "i64", "BIGINT").primary_key(),
+    );
+    let gen = EntityGenerator::new();
+    let code = gen.generate(&entity);
+    assert!(code.contains("/// Primary key"));
+    assert!(code.contains("pub id: i64"));
+}
+
+#[test]
+fn test_generate_from_db_nullable_and_primary_key() {
+    let tables = vec![DbTableSchema {
+        name: "users".to_string(),
+        columns: vec![
+            DbColumnSchema {
+                name: "id".to_string(),
+                db_type: "BIGINT".to_string(),
+                is_primary_key: true,
+                is_nullable: false,
+            },
+            DbColumnSchema {
+                name: "email".to_string(),
+                db_type: "VARCHAR(255)".to_string(),
+                is_primary_key: false,
+                is_nullable: true,
+            },
+        ],
+        foreign_keys: vec![],
+    }];
+    let gen = EntityGenerator::new();
+    let code = gen.generate_from_db(&tables);
+    assert!(code.contains("pub id: i64"));
+    assert!(code.contains("pub email: Option<String>"));
+    assert!(code.contains("/// Primary key"));
+}
