@@ -585,7 +585,10 @@ fn test_geometry_from_ewkt_invalid_polygon_coord() {
 
 #[test]
 fn test_geometry_to_ewkt_multilinestring_extra() {
-    let ls1 = LineString::new(vec![Point::with_srid(0.0, 0.0, 4326), Point::with_srid(1.0, 1.0, 4326)]);
+    let ls1 = LineString::new(vec![
+        Point::with_srid(0.0, 0.0, 4326),
+        Point::with_srid(1.0, 1.0, 4326),
+    ]);
     let g = Geometry::MultiLineString(vec![ls1]);
     let ewkt = g.to_ewkt();
     assert!(ewkt.contains("MULTILINESTRING"));
@@ -644,7 +647,11 @@ fn test_geometry_bounding_box_linestring_multi() {
 
 #[test]
 fn test_geometry_bounding_box_multipoint_extra() {
-    let pts = vec![Point::new(1.0, 2.0), Point::new(3.0, 4.0), Point::new(0.0, 5.0)];
+    let pts = vec![
+        Point::new(1.0, 2.0),
+        Point::new(3.0, 4.0),
+        Point::new(0.0, 5.0),
+    ];
     let g = Geometry::MultiPoint(pts);
     let bbox = g.bounding_box().unwrap();
     assert_eq!(bbox.0, 0.0);

@@ -354,8 +354,14 @@ fn test_infer_rust_type_float() {
 
 #[test]
 fn test_infer_rust_type_json() {
-    assert_eq!(EntityGenerator::infer_rust_type("JSON"), "serde_json::Value");
-    assert_eq!(EntityGenerator::infer_rust_type("jsonb"), "serde_json::Value");
+    assert_eq!(
+        EntityGenerator::infer_rust_type("JSON"),
+        "serde_json::Value"
+    );
+    assert_eq!(
+        EntityGenerator::infer_rust_type("jsonb"),
+        "serde_json::Value"
+    );
 }
 
 #[test]
@@ -385,9 +391,7 @@ fn test_generate_has_many_relation() {
 #[test]
 fn test_generate_nullable_field() {
     let mut entity = EntityDefinition::new("User", "users");
-    entity = entity.with_field(
-        EntityField::new("email", "String", "VARCHAR(255)").nullable(),
-    );
+    entity = entity.with_field(EntityField::new("email", "String", "VARCHAR(255)").nullable());
     let gen = EntityGenerator::new();
     let code = gen.generate(&entity);
     assert!(code.contains("pub email: Option<String>"));
@@ -396,9 +400,7 @@ fn test_generate_nullable_field() {
 #[test]
 fn test_generate_primary_key_field() {
     let mut entity = EntityDefinition::new("User", "users");
-    entity = entity.with_field(
-        EntityField::new("id", "i64", "BIGINT").primary_key(),
-    );
+    entity = entity.with_field(EntityField::new("id", "i64", "BIGINT").primary_key());
     let gen = EntityGenerator::new();
     let code = gen.generate(&entity);
     assert!(code.contains("/// Primary key"));
