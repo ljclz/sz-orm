@@ -118,6 +118,73 @@ async fn test_pooled_connection_into_inner_contract() {
 
     // 验证连接可用
     assert!(conn.is_connected());
+
+    // 容量契约（v9.0.0）：移交时槽位立即释放，丢弃连接不泄漏池容量
+    let status = pool.status().await;
+    assert_eq!(
+        status.active, 0,
+        "into_inner 移交后 total_count 必须立即递减（否则永久容量泄漏）"
+    );
+
+    // 泄漏回归：反复 acquire → into_inner → 丢弃，池容量不得衰减
+    for _ in 0..3 {
+        let pooled = pool.acquire().await.unwrap();
+        let raw = pooled.into_inner();
+        drop(raw);
+        assert_eq!(pool.status().await.active, 0);
+    }
+}
+
+// ===== §5.5 Pool::return_raw 契约（v9.0.0 容量闭环） =====
+
+#[tokio::test]
+async fn test_return_raw_restores_slot_contract() {
+    let pool = make_pool(5);
+    let pooled = pool.acquire().await.unwrap();
+    let raw = pooled.into_inner();
+    assert_eq!(pool.status().await.active, 0, "移交后槽位已释放");
+
+    // 归还：槽位重新占用，连接进入空闲队列
+    pool.return_raw(raw).await.unwrap();
+    let status = pool.status().await;
+    assert_eq!(status.active, 1, "归还后槽位重新占用");
+    assert_eq!(status.idle, 1, "归还的连接进入空闲队列");
+
+    // 归还的连接可再次 acquire 且健康
+    let conn = pool.acquire().await.unwrap();
+    assert!(conn.is_connected());
+    pool.release(conn).await;
+}
+
+#[tokio::test]
+async fn test_return_raw_rejects_when_pool_full_contract() {
+    let pool = make_pool(1);
+
+    // 移交出一条裸连接，再让池创建新连接占满容量
+    let pooled = pool.acquire().await.unwrap();
+    let raw = pooled.into_inner(); // active: 1 → 0
+    let _replacement = pool.acquire().await.unwrap(); // active: 0 → 1（池满）
+
+    // 池满时归还：连接被直接关闭，返回 Exhausted
+    match pool.return_raw(raw).await {
+        Err(PoolError::Exhausted) => { /* 契约满足 */ }
+        Err(other) => panic!("期望 PoolError::Exhausted，实际: {:?}", other),
+        Ok(()) => panic!("池满时 return_raw 必须失败，实际返回 Ok"),
+    }
+}
+
+#[tokio::test]
+async fn test_return_raw_rejects_after_close_all_contract() {
+    let pool = make_pool(2);
+    let pooled = pool.acquire().await.unwrap();
+    let raw = pooled.into_inner();
+
+    pool.close_all().await;
+    match pool.return_raw(raw).await {
+        Err(PoolError::Closed) => { /* 契约满足 */ }
+        Err(other) => panic!("期望 PoolError::Closed，实际: {:?}", other),
+        Ok(()) => panic!("close_all 后 return_raw 必须失败，实际返回 Ok"),
+    }
 }
 
 #[tokio::test]

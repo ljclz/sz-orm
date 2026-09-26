@@ -291,10 +291,19 @@ impl PooledConnection {
     ///
     /// 用于将连接传递给 `Transaction::new` 等消费连接的 API。
     /// 调用此方法后，连接不再属于池，调用方需自行管理其生命周期。
+    ///
+    /// 槽位在移交时立即释放（`total_count` 递减）：调用方丢弃该连接、或
+    /// `Transaction` 结束后连接随之关闭，都不会造成池容量泄漏；
+    /// 若需复用连接，交回 [`Pool::return_raw`]（槽位重新占用）。
     pub fn into_inner(mut self) -> Box<dyn Connection> {
-        self.pool = None; // 标记无需归还
-                          // PooledConnection 实现了 Drop，不能直接 move conn，
-                          // 用 mem::replace 取出连接，放入 ClosedConnection 占位符
+        // 槽位随连接移交而释放：连接离开池包装后，池不再为其保留容量。
+        // 纯原子操作，无需 runtime 上下文。
+        if let Some(pool) = self.pool.take() {
+            pool.total_count.fetch_sub(1, Ordering::SeqCst);
+        }
+        // PooledConnection 实现了 Drop，不能直接 move conn，
+        // 用 mem::replace 取出连接，放入 ClosedConnection 占位符
+        // （pool 已置 None，Drop 不会重复递减）
         std::mem::replace(&mut self.conn, Box::new(ClosedConnection))
     }
 }
@@ -1951,6 +1960,93 @@ impl Pool {
         }
     }
 
+    /// 归还裸连接到池中（配合 [`PooledConnection::into_inner`] 使用）
+    ///
+    /// `into_inner()` 移交连接时槽位已释放；调用方用完连接（典型流程：
+    /// `Transaction::take_connection()` 取回）后通过此方法交回池复用，
+    /// 槽位重新占用（CAS 占位，与 acquire 创建路径同规则）。
+    ///
+    /// 归还前执行与 `release` 相同的卫生检查：连接若处于未提交事务中
+    /// 会先自动回滚。回滚失败/超时、池已关闭或池已满时，连接被直接
+    /// 关闭（所有权已移交，调用方无需再处理连接本身）。
+    ///
+    /// 注意：仅可归还来自本池 `into_inner()` 的连接；归还外来连接会
+    /// 扰动容量计数。
+    pub async fn return_raw(&self, mut conn: Box<dyn Connection>) -> Result<(), PoolError> {
+        if self.closed.load(Ordering::Acquire) {
+            let _ = conn.close().await;
+            return Err(PoolError::Closed);
+        }
+
+        // 卫生检查：未提交事务先回滚（与 release 路径同规则）
+        if conn.in_transaction() {
+            match tokio::time::timeout(self.config.connection_timeout, conn.rollback()).await {
+                Ok(Ok(())) => {
+                    tracing::debug!(
+                        target: "sz_orm::pool",
+                        "rolled back uncommitted transaction on raw connection return"
+                    );
+                }
+                Ok(Err(e)) => {
+                    // 回滚失败：连接状态不可信，直接关闭
+                    tracing::warn!(target: "sz_orm::pool", "rollback on return_raw failed: {}", e);
+                    let _ = conn.close().await;
+                    return Err(PoolError::ConnectionFailed(e.to_string()));
+                }
+                Err(_) => {
+                    // 回滚超时：连接状态不可信，直接关闭
+                    tracing::warn!(target: "sz_orm::pool", "rollback on return_raw timed out");
+                    let _ = conn.close().await;
+                    return Err(PoolError::ConnectionFailed(
+                        "rollback on return_raw timed out".to_string(),
+                    ));
+                }
+            }
+        }
+
+        // CAS 占位：槽位在 into_inner 时已释放，归还时重新占用。
+        // 池满则不回收（容量已被新连接占用），连接直接关闭。
+        let current_max = self.dynamic_max_size.load(Ordering::Acquire);
+        let mut reserved = false;
+        loop {
+            let current = self.total_count.load(Ordering::Acquire);
+            if current >= current_max {
+                break;
+            }
+            match self.total_count.compare_exchange(
+                current,
+                current + 1,
+                Ordering::SeqCst,
+                Ordering::Acquire,
+            ) {
+                Ok(_) => {
+                    reserved = true;
+                    break;
+                }
+                Err(_) => continue,
+            }
+        }
+        if !reserved {
+            let _ = conn.close().await;
+            return Err(PoolError::Exhausted);
+        }
+
+        let pooled = PooledConnection::new(conn, self.clone());
+        if let Err(rejected) = self.idle.push(pooled) {
+            // 队列满（理论不可达：total_count ≤ max_size = 队列容量），关闭并回退计数
+            self.close_connection(rejected).await;
+            self.total_count.fetch_sub(1, Ordering::SeqCst);
+            self.emit_event(PoolEvent::ConnectionClosed);
+            return Err(PoolError::Exhausted);
+        }
+        self.emit_event(PoolEvent::ConnectionReleased);
+        // 条件 notify_one（与 release 同规则）
+        if self.waiters_count.load(Ordering::Acquire) > 0 {
+            self.notify.notify_one();
+        }
+        Ok(())
+    }
+
     /// 获取池状态
     ///
     /// v1.1.0 优化 2：`idle` 长度从 `Mutex::lock().await` 改为 `ArrayQueue::len()`
@@ -2634,6 +2730,182 @@ mod tests {
         async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
             Ok(Box::new(MockConnection::new()))
         }
+    }
+
+    // === 存活变异体补杀测试（2026-09-26 审计 G20 移交项）===
+
+    /// 默认 Connection::in_transaction 必须为 false：
+    /// 未跟踪事务状态的适配器不应触发归还时自动回滚（杀 `-> true` 变异体）
+    #[test]
+    fn test_default_in_transaction_is_false() {
+        let conn = MockConnection::new();
+        assert!(!conn.in_transaction());
+    }
+
+    /// ClosedConnection::is_connected 必须为 false（杀 `-> true` 变异体）
+    #[test]
+    fn test_closed_connection_is_connected_false() {
+        let closed = ClosedConnection;
+        assert!(!closed.is_connected());
+    }
+
+    /// 固定影响行数连接：execute_with_params 恒返回 3，用于验证
+    /// 默认 execute_batch_params 的 `+=` 累加语义（杀 `-> -=`/`-> *=` 变异体）
+    struct FixedRowsConnection;
+
+    impl Connection for FixedRowsConnection {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(3) })
+        }
+
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<std::collections::HashMap<String, crate::value::Value>>,
+                            crate::DbError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move { Ok(vec![]) })
+        }
+
+        fn execute_with_params<'a>(
+            &'a mut self,
+            _sql: &'a str,
+            _params: &'a [crate::value::Value],
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(3) })
+        }
+
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    /// 默认 execute_batch_params 逐行累加影响行数：2 批 × 3 行 = 6
+    #[tokio::test]
+    async fn test_default_execute_batch_params_sums_rows() {
+        let mut conn = FixedRowsConnection;
+        let batch = vec![
+            vec![crate::value::Value::I64(1)],
+            vec![crate::value::Value::I64(2)],
+        ];
+        let total = conn
+            .execute_batch_params("INSERT INTO t VALUES (?)", &batch)
+            .await
+            .unwrap();
+        assert_eq!(total, 6, "2 批 × 3 行必须累加为 6（+= 语义）");
+    }
+
+    /// Clone 必须逐字段复制（杀 `-> Default::default()` 变异体）
+    #[test]
+    fn test_pool_config_clone_preserves_fields() {
+        let config = PoolConfigBuilder::new()
+            .max_size(7)
+            .min_idle(3)
+            .build()
+            .unwrap()
+            .with_prewarm(true);
+        let cloned = config.clone();
+        assert_eq!(cloned.max_size, 7);
+        assert_eq!(cloned.min_idle, 3);
+        assert!(cloned.prewarm);
+    }
+
+    /// validate 边界：min_idle == max_size 合法（杀 `>` → `>=` 变异体）
+    #[test]
+    fn test_pool_config_validate_min_idle_equal_max_is_ok() {
+        let config = PoolConfigBuilder::new()
+            .max_size(4)
+            .min_idle(4)
+            .build()
+            .unwrap();
+        assert!(config.validate().is_ok(), "min_idle == max_size 应合法");
+    }
+
+    /// with_prewarm 必须置位（杀 `-> Default::default()` 变异体）
+    #[test]
+    fn test_pool_config_with_prewarm_sets_flag() {
+        let config = PoolConfig::default().with_prewarm(true);
+        assert!(config.prewarm);
+        let off = PoolConfig::default().with_prewarm(false);
+        assert!(!off.prewarm);
+    }
+
+    /// warmup 契约：创建 min_idle 个连接入空闲队列（杀 body `-> Ok(())` 变异体）
+    #[tokio::test]
+    async fn test_warmup_creates_connections() {
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(0)
+            .build()
+            .unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        pool.warmup(3).await.unwrap();
+        let status = pool.status().await;
+        assert_eq!(status.idle, 3, "warmup(3) 后应有 3 个空闲连接");
+    }
+
+    /// warmup 契约：工厂失败不返回 Err（停止预热 + 计数器回退无泄漏）
+    struct FailingConnectionFactory;
+
+    #[async_trait::async_trait]
+    impl ConnectionFactory for FailingConnectionFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            Err(crate::DbError::ConnectionError("预谋失败".to_string()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_warmup_factory_error_stops_and_returns_ok() {
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .min_idle(0)
+            .build()
+            .unwrap();
+        let pool = Pool::new(config, Arc::new(FailingConnectionFactory)).unwrap();
+        let result = pool.warmup(2).await;
+        assert!(result.is_ok(), "创建失败应停止预热并返回 Ok（契约）");
+        let status = pool.status().await;
+        assert_eq!(status.idle, 0, "失败后不应有连接入队");
+        assert_eq!(status.active, 0, "total_count 必须回退，不得泄漏");
     }
 
     #[tokio::test]

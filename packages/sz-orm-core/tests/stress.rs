@@ -236,8 +236,15 @@ async fn stress_long_transaction() {
     drop(tx);
 
     let status = pool.status().await;
-    // 长事务的连接未归还，所以 active - idle == 1
-    assert_eq!(status.active - status.idle, 1, "long-tx conn not returned");
+    // v9.0.0 容量契约：into_inner 移交时槽位已释放——长事务连接不在池计数中，
+    // 4 个工作连接已全部归还 idle（active - idle == 0）。
+    // 修复前语义（active - idle == 1）正是容量泄漏缺陷：移交的连接永久占格。
+    assert_eq!(
+        status.active - status.idle,
+        0,
+        "long-tx conn 已随 into_inner 移交出池，不占池容量"
+    );
+    assert_eq!(status.active, 4, "4 个工作连接应全部归还 idle");
 }
 
 /// Stress 5：混合工作负载（短查询 + 长事务 + 写操作）

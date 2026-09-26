@@ -290,6 +290,106 @@ async fn mysql_stream_abandon_self_heals_on_reacquire() {
     pool.release(conn2).await;
 }
 
+/// 回归测试（2026-09-25 深度检查发现的设计缺口）：into_inner 移交不得泄漏池容量
+///
+/// 缺陷：into_inner 不递减 total_count 且无归还 API——Transaction 流程
+/// （acquire → into_inner → Transaction → 丢弃连接）每执行一次永久损失一格
+/// 容量，max_size 小的池很快 acquire Timeout。
+/// 修复：into_inner 移交时递减 total_count；新增 Pool::return_raw 归还 API。
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
+async fn mysql_into_inner_capacity_roundtrip() {
+    use sz_orm_core::{TransactOptions, Transaction};
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
+    let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle.clone()));
+    let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    // 泄漏回归：acquire → into_inner → 丢弃（修复前：active 永久占用）
+    for _ in 0..4 {
+        let conn = pool.acquire().await.unwrap();
+        let raw = conn.into_inner();
+        assert_eq!(
+            pool.status().await.active,
+            0,
+            "移交后槽位应立即释放（修复前：active 恒为 1，容量永久泄漏）"
+        );
+        drop(raw); // 不归还——连接随之关闭
+        assert_eq!(pool.status().await.active, 0, "丢弃后不得占用池容量");
+    }
+
+    // Transaction 流程闭环（stress.rs 模式）：acquire → into_inner → Transaction
+    // → commit → take_connection → return_raw
+    let table = unique_table("mysql_inner_tx");
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute(&format!("CREATE TABLE {} (id INT PRIMARY KEY)", table))
+        .await
+        .unwrap();
+    let mut raw = conn.into_inner();
+    raw.begin_transaction().await.unwrap();
+    raw.execute(&format!("INSERT INTO {} (id) VALUES (1)", table))
+        .await
+        .unwrap();
+    let mut tx = Transaction::new(raw, TransactOptions::default());
+    tx.commit().await.unwrap();
+    let raw2 = tx.take_connection().await.unwrap();
+    pool.return_raw(raw2).await.expect("归还应成功");
+    let st = pool.status().await;
+    assert_eq!(st.active, 1, "归还后槽位重新占用");
+    assert_eq!(st.idle, 1, "归还的连接应进入空闲队列");
+
+    // 归还的连接可复用且数据已提交可见
+    let mut conn2 = pool.acquire().await.unwrap();
+    let rows = conn2
+        .query(&format!("SELECT COUNT(*) AS cnt FROM {}", table))
+        .await
+        .unwrap();
+    let cnt = rows[0].get("cnt").and_then(|v| v.as_i64()).unwrap_or(-1);
+    assert_eq!(cnt, 1, "复用归还连接应健康且事务已提交");
+    conn2
+        .execute(&format!("DROP TABLE IF EXISTS {}", table))
+        .await
+        .ok();
+    pool.release(conn2).await;
+}
+
+/// return_raw 卫生检查：带未提交事务的裸连接归还时自动回滚（与 release 同规则）
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
+async fn mysql_return_raw_rolls_back_open_transaction() {
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
+    let table = unique_table("mysql_raw_tx");
+    let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle.clone()));
+    let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute(&format!("CREATE TABLE {} (id INT PRIMARY KEY)", table))
+        .await
+        .unwrap();
+    let mut raw = conn.into_inner();
+    raw.begin_transaction().await.unwrap();
+    raw.execute(&format!("INSERT INTO {} (id) VALUES (1)", table))
+        .await
+        .unwrap();
+    assert!(raw.in_transaction(), "归还前应处于未提交事务中");
+    pool.return_raw(raw).await.expect("归还应成功（自动回滚）");
+
+    let mut conn2 = pool.acquire().await.unwrap();
+    assert!(!conn2.in_transaction(), "归还时未提交事务应被自动回滚");
+    let rows = conn2
+        .query(&format!("SELECT COUNT(*) AS cnt FROM {}", table))
+        .await
+        .unwrap();
+    let cnt = rows[0].get("cnt").and_then(|v| v.as_i64()).unwrap_or(-1);
+    assert_eq!(cnt, 0, "未提交行应已回滚");
+    conn2
+        .execute(&format!("DROP TABLE IF EXISTS {}", table))
+        .await
+        .ok();
+    pool.release(conn2).await;
+}
+
 #[tokio::test]
 #[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
 async fn mysql_savepoint_nested() {
