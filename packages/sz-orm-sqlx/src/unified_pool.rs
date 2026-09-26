@@ -292,4 +292,67 @@ mod tests {
         let result = UnifiedPool::connect("invalid://dsn").await;
         assert!(result.is_err());
     }
+
+    #[tokio::test]
+    async fn test_unified_pool_prewarm() {
+        let pool = UnifiedPool::connect("sqlite::memory:").await.unwrap();
+        pool.prewarm().await;
+        let status = pool.status().await;
+        assert!(status.max > 0);
+    }
+
+    #[tokio::test]
+    async fn test_unified_pool_debug_format() {
+        let pool = UnifiedPool::connect("sqlite::memory:").await.unwrap();
+        let debug_str = format!("{:?}", pool);
+        assert!(debug_str.contains("UnifiedPool"));
+        assert!(debug_str.contains("Sqlite"));
+    }
+
+    #[tokio::test]
+    async fn test_unified_pool_close_all() {
+        let pool = UnifiedPool::connect("sqlite::memory:").await.unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        conn.execute("SELECT 1").await.unwrap();
+        drop(conn);
+        pool.close_all().await;
+    }
+
+    #[tokio::test]
+    async fn test_unified_pool_acquire_after_connect() {
+        let pool = UnifiedPool::connect("sqlite::memory:").await.unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        conn.execute("CREATE TABLE t (id INTEGER PRIMARY KEY)")
+            .await
+            .unwrap();
+        conn.execute("INSERT INTO t VALUES (1)").await.unwrap();
+        let rows = conn.query("SELECT * FROM t").await.unwrap();
+        assert_eq!(rows.len(), 1);
+    }
+
+    #[tokio::test]
+    async fn test_unified_pool_dialect_mysql() {
+        let pool = UnifiedPool::connect("sqlite::memory:").await.unwrap();
+        let d = pool.dialect();
+        assert_eq!(d.db_type(), sz_orm_core::DbType::Sqlite);
+    }
+
+    #[tokio::test]
+    async fn test_unified_pool_resize_to_larger() {
+        let pool = UnifiedPool::connect("sqlite::memory:").await.unwrap();
+        pool.resize(50);
+        let status = pool.status().await;
+        assert_eq!(status.max, 50);
+    }
+
+    #[tokio::test]
+    async fn test_unified_pool_from_pool_with_prewarm() {
+        let handle = Arc::new(SqlitePoolHandle::connect("sqlite::memory:").await.unwrap());
+        let factory = Arc::new(SqlxSqliteConnectionFactory::new(handle));
+        let config = PoolConfigBuilder::new().build().unwrap();
+        let pool = Pool::new(config, factory).unwrap();
+        let unified = UnifiedPool::from_pool(pool, AnyBackend::Sqlite);
+        unified.prewarm().await;
+        assert_eq!(unified.backend(), AnyBackend::Sqlite);
+    }
 }
