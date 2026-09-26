@@ -64,7 +64,7 @@ fn test_error_trait() {
 }
 #[test]
 fn test_from_io_error() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "fail");
+    let io_err = std::io::Error::other("fail");
     let mig: MigError = io_err.into();
     assert!(matches!(mig, MigError::Connection(_)));
 }

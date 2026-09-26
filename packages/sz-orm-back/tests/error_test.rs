@@ -86,7 +86,7 @@ fn test_from_io_error_permission_denied() {
 
 #[test]
 fn test_from_io_error_other() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "misc");
+    let io_err = std::io::Error::other("misc");
     let bk: BkError = io_err.into();
     assert!(matches!(bk, BkError::Backup(_)));
 }
