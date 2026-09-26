@@ -76,3 +76,7 @@ required-features = ["multimodal-vision"]
 name = "er_diagram_mysql"
 path = "tests/er_diagram_mysql.rs"
 required-features = ["multimodal-er"]
+
+# feature 门控依赖：cargo-machete 静态扫描不可见其 feature 引用（2026-09-26 审计 G23 登记豁免）
+[package.metadata.cargo-machete]
+ignored = ["async-trait", "sz-orm-ai", "sz-orm-nl-query", "tracing"]

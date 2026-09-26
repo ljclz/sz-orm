@@ -16,7 +16,6 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 tokio = { workspace = true, optional = true }
 async-trait = { workspace = true, optional = true }
-thiserror = { workspace = true }
 
 [features]
 default = []
@@ -34,3 +33,7 @@ workspace = true
 name = "mcp_mysql_e2e"
 path = "tests/mcp_mysql_e2e.rs"
 required-features = ["mcp"]
+
+# feature 门控依赖：cargo-machete 静态扫描不可见其 feature 引用（2026-09-26 审计 G23 登记豁免）
+[package.metadata.cargo-machete]
+ignored = ["async-trait"]

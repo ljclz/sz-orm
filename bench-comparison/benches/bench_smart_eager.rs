@@ -9,20 +9,43 @@
 mod smart_eager_harness;
 use smart_eager_harness::*;
 
-use criterion::{criterion_group, criterion_main, Criterion, BenchmarkId};
+use criterion::{criterion_group, criterion_main, BenchmarkId, Criterion};
+use std::time::{Duration, Instant};
 use sz_orm_core::eager_loader::EagerLoader;
-use sz_orm_core::smart_eager_loader::{SmartEagerLoader, StrategyResolver};
 use sz_orm_core::n1_eliminator::{N1Eliminator, PendingQuery};
 use sz_orm_core::relation_trait::{RelationDef, RelationKind};
+use sz_orm_core::smart_eager_loader::{SmartEagerLoader, StrategyResolver};
 use sz_orm_core::{Connection, Value};
-use std::time::{Duration, Instant};
 
 /// 任务 3.2：决策延迟基准 — P99 ≤ 100μs
 fn bench_decision_latency(c: &mut Criterion) {
     let relations: Vec<RelationDef> = vec![
-        RelationDef::new("profile", "users", "profiles", "id", "user_id", RelationKind::HasOne),
-        RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany),
-        RelationDef::new_many_to_many("roles", "users", "roles", "id", "id", "user_roles", "user_id", "role_id"),
+        RelationDef::new(
+            "profile",
+            "users",
+            "profiles",
+            "id",
+            "user_id",
+            RelationKind::HasOne,
+        ),
+        RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        ),
+        RelationDef::new_many_to_many(
+            "roles",
+            "users",
+            "roles",
+            "id",
+            "id",
+            "user_roles",
+            "user_id",
+            "role_id",
+        ),
     ];
 
     let resolver = StrategyResolver::new();
@@ -48,7 +71,14 @@ fn bench_decision_latency(c: &mut Criterion) {
 /// 任务 3.3：智能 vs 手动对比基准 — 退化 ≤ 10%
 fn bench_smart_vs_manual(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
-    let relation = RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany);
+    let relation = RelationDef::new(
+        "orders",
+        "users",
+        "orders",
+        "id",
+        "user_id",
+        RelationKind::HasMany,
+    );
 
     let mut group = c.benchmark_group("smart_vs_manual");
     group.sample_size(30);
@@ -64,7 +94,12 @@ fn bench_smart_vs_manual(c: &mut Criterion) {
                 rt.block_on(async {
                     for _ in 0..iters {
                         let loader = SmartEagerLoader::new(relation.clone());
-                        std::hint::black_box(loader.load(harness.conn(), "SELECT * FROM users").await.unwrap());
+                        std::hint::black_box(
+                            loader
+                                .load(harness.conn(), "SELECT * FROM users")
+                                .await
+                                .unwrap(),
+                        );
                     }
                 });
                 start.elapsed()
@@ -77,7 +112,12 @@ fn bench_smart_vs_manual(c: &mut Criterion) {
                 rt.block_on(async {
                     for _ in 0..iters {
                         let loader = EagerLoader::new(relation.clone());
-                        std::hint::black_box(loader.load_many(harness.conn(), "SELECT * FROM users").await.unwrap());
+                        std::hint::black_box(
+                            loader
+                                .load_many(harness.conn(), "SELECT * FROM users")
+                                .await
+                                .unwrap(),
+                        );
                     }
                 });
                 start.elapsed()
@@ -92,7 +132,14 @@ fn bench_smart_vs_manual(c: &mut Criterion) {
 /// 任务 3.4：N+1 消除对比基准
 fn bench_n1_elimination(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
-    let relation = RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany);
+    let relation = RelationDef::new(
+        "orders",
+        "users",
+        "orders",
+        "id",
+        "user_id",
+        RelationKind::HasMany,
+    );
 
     let mut group = c.benchmark_group("n1_elimination");
     group.sample_size(30);
@@ -111,10 +158,11 @@ fn bench_n1_elimination(c: &mut Criterion) {
                         let users = harness.conn().query("SELECT * FROM users").await.unwrap();
                         for user in &users {
                             let uid = user.get("id").cloned().unwrap_or(sz_orm_core::Value::Null);
-                            let _ = harness.conn().query_with_params(
-                                "SELECT * FROM orders WHERE user_id = ?",
-                                &[uid],
-                            ).await.unwrap();
+                            let _ = harness
+                                .conn()
+                                .query_with_params("SELECT * FROM orders WHERE user_id = ?", &[uid])
+                                .await
+                                .unwrap();
                         }
                         std::hint::black_box(users.len());
                     }
@@ -130,7 +178,12 @@ fn bench_n1_elimination(c: &mut Criterion) {
                 rt.block_on(async {
                     for _ in 0..iters {
                         let loader = SmartEagerLoader::new(relation.clone());
-                        std::hint::black_box(loader.load(harness.conn(), "SELECT * FROM users").await.unwrap());
+                        std::hint::black_box(
+                            loader
+                                .load(harness.conn(), "SELECT * FROM users")
+                                .await
+                                .unwrap(),
+                        );
                     }
                 });
                 start.elapsed()
@@ -167,5 +220,11 @@ fn bench_n1_detector(c: &mut Criterion) {
     group.finish();
 }
 
-criterion_group!(benches, bench_decision_latency, bench_smart_vs_manual, bench_n1_elimination, bench_n1_detector);
+criterion_group!(
+    benches,
+    bench_decision_latency,
+    bench_smart_vs_manual,
+    bench_n1_elimination,
+    bench_n1_detector
+);
 criterion_main!(benches);

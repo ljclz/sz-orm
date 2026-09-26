@@ -7,7 +7,7 @@
 - 绑定层依赖：sz-orm-cabi/sz-orm-java/sz-orm-go/sz-orm-cpp 依赖 sz-orm-sqlx（SQLite 后端）+ jni 0.22（Java）；sz-orm-python 依赖 sz-orm-sqlx + pyo3 0.20（PyPool 真实连接）；sz-orm-stream dev-dependencies 含 tokio/futures（集成测试）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
-- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 7.3.0（v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate；v6.7.0 分布式缓存集群 + 读写分离增强 + 零停机迁移 + 连接池弹性 + 可观测性增强 + 安全合规增强完整交付：32 个任务，87 个新增测试；v6.6.0 查询结果缓存 + Saga 分布式事务 + 多租户隔离 + AI 查询优化交付：20 个任务，45 个新增测试；v6.5.0 异步并行查询 + 查询计划缓存 + 流式结果集交付；v4.9.0 OWASP Top 10 完整覆盖渗透测试套件交付，85 个测试 + A06 脚本）
+- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 9.0.0（v9.0.0 覆盖率战役 M1~M21：361 新增测试 + 连接池 known_good 快速路径引入后经审计撤销 + reap_idle 选择性回收 + Value clonecheap + 工作空间版本升级；v8.8.0 连接池优化 + 精确容量估算 + BatchSizeAdvisor + crates.io 全量发布 8.8.0；v8.7.0 真实质量基线采集：覆盖率 88.59% + 杀率 100% + 四数据库基准 8/8 PASS；v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate）
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 防护：编译期 `#[detect_n_plus_one]` 静态检测（n1-lint）+ 运行时 `N1QueryDetector` 检测组件（需手动接入，未自动拦截）。
 
@@ -126,7 +126,21 @@ cargo build --features sz-orm-macros/db-verify
 - PostgreSQL 18：`postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`
 - Oracle 23ai Free：`127.0.0.1:1521/freepdb1.FALSE`（用户 sz_orm_test，密码 SzOrmTest2026）
 
-## 质量基线（v8.7.0 实测）
+### G7 集成测试本机排除清单（2026-09-26 审计核定）
+
+本机**未安装**以下服务且无法便捷安装（无 docker），G7 全量 `--ignored` 运行时按下表排除，全套件在具备服务的 CI 环境仍须执行：
+
+| 套件 | 依赖 | 测试数 | 本机处置 |
+|------|------|--------|---------|
+| `integration_clickhouse` | ClickHouse MySQL 兼容协议 127.0.0.1:9004 | 3 | `--skip clickhouse`（无 docker/无安装） |
+| `integration_mssql` | SQL Server 2019+ 127.0.0.1:1433 | 8 | `--skip mssql`（无服务安装） |
+| `integration_redis` | redis://127.0.0.1:6379/0 | 4 | `--skip redis`（无安装） |
+| `integration_gbase`（真实 DB 部分） | 腾讯云 GBase/SQL Server 实例 | 2 | 凭据已移出源码，需设置 `SZ_ORM_GBASE_HOST/PORT/USER/PASSWORD/DATABASE`，未配置自动跳过 |
+| `test_prepared_cache_hit_benefit` / `soak_pool_long_running_steady_state` | 无（时序敏感） | 2 | 高负载机器易误报，单独复跑验证 |
+
+已知坑：`cargo test -- --ignored` 会让 rustdoc 尝试编译 ```ignore 标注的示意 doc 块（feature 统一暴露后数量大）；G7 全量跑用 `cargo test --workspace --tests -- --ignored ...` 规避，不可编译的示意文档块用 ```text 标注。
+
+## 质量基线（v8.7.0 实测；v9.0.0 审计复测见下）
 
 > 所有数值均为实测采集，非手写。采集命令和日期见对应报告。
 
@@ -137,3 +151,14 @@ cargo build --features sz-orm-macros/db-verify
 | 四数据库基准 | **8/8 PASS**（SQLite 2 + MySQL 1 + PG 2 + Oracle 3） | 2026-09-24 | cargo test --features real-bench | docs/assessment/2026-09-24-v870-perf-benchmark-complete.md |
 | 集成测试 | **151 passed**（MySQL 28 + PG 23 + Oracle 7 + e2e 93） | 2026-09-23 | cargo test -- --ignored | docs/assessment/2026-09-23-v870-gate-report.md |
 | 对比分析 | **无退化**（覆盖率 +1.19%，杀率持平，性能首次采集） | 2026-09-24 | — | docs/assessment/2026-09-23-v870-baseline-comparison.md |
+
+### v9.0.0 审计复测（2026-09-26，worktree 全量 23 关）
+
+| 维度 | v9.0.0 实测 | 采集日期 | 工具 | 报告 |
+|------|------------|---------|------|------|
+| 单元/集成测试 | **12,830 passed / 0 failed**（478 套件） | 2026-09-26 | cargo test --workspace | docs/assessment/2026-09-26-gate-review-report.md |
+| 集成测试（真实服务） | **159 passed**（排除清单外全绿） | 2026-09-26 | cargo test --workspace --tests -- --ignored | docs/assessment/2026-09-26-gate-review-report.md |
+| 行覆盖率 | **90.2%**（分支 100%） | 2026-09-26 | cargo-llvm-cov 0.9.0 | docs/assessment/2026-09-26-gate-review-report.md |
+| 变异测试杀率 | **75%**（审计改动行 3 killed/4 viable；pool.rs 全文件 333 变异体超会话预算，部分轮 17/24） | 2026-09-26 | cargo-mutants v27.1.0 --in-diff | docs/assessment/2026-09-26-gate-review-report.md |
+
+已知教训：`cargo-mutants --in-place` 被强杀时会把活跃变异体残留在源码中（`/* ~ changed by cargo-mutants ~ */` 标记）——中断后必须 `grep -rln "changed by cargo-mutants"` 检查并 `git checkout` 恢复。

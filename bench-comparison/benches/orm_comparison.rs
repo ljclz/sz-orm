@@ -130,15 +130,13 @@ mod async_sqlx {
     }
 
     pub async fn insert_one(pool: &SqlitePool, name: &str, email: &str, age: i64) -> i64 {
-        let result = sqlx::query(
-            "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
-        )
-        .bind(name)
-        .bind(email)
-        .bind(age)
-        .execute(pool)
-        .await
-        .expect("insert");
+        let result = sqlx::query("INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)")
+            .bind(name)
+            .bind(email)
+            .bind(age)
+            .execute(pool)
+            .await
+            .expect("insert");
         result.last_insert_rowid()
     }
 
@@ -196,9 +194,9 @@ mod async_sqlx {
 
 mod sz_orm {
     use super::*;
+    use std::sync::Arc;
     use sz_orm_core::{Pool, PoolConfigBuilder, Value};
     use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
-    use std::sync::Arc;
 
     #[derive(Clone)]
     pub struct SzOrmCtx {
@@ -208,14 +206,24 @@ mod sz_orm {
 
     pub async fn setup() -> SzOrmCtx {
         // cache=shared 确保多连接共享同一 in-memory 数据库
-        let handle = Arc::new(SqlitePoolHandle::connect("sqlite::memory:?cache=shared").await.expect("connect"));
+        let handle = Arc::new(
+            SqlitePoolHandle::connect("sqlite::memory:?cache=shared")
+                .await
+                .expect("connect"),
+        );
         let factory = Arc::new(SqlxSqliteConnectionFactory::new(handle.clone()));
-        let config = PoolConfigBuilder::new().max_size(10).build().expect("config");
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .build()
+            .expect("config");
         let pool = Pool::new(config, factory).expect("pool");
         let mut conn = pool.acquire().await.expect("acquire");
         conn.execute(CREATE_TABLE_SQL).await.expect("create table");
         // conn drop 时自动归还（无需显式 release）
-        SzOrmCtx { pool, _handle: handle }
+        SzOrmCtx {
+            pool,
+            _handle: handle,
+        }
     }
 
     pub async fn teardown(ctx: SzOrmCtx) {
@@ -230,16 +238,26 @@ mod sz_orm {
     pub async fn insert_one(ctx: &SzOrmCtx, name: &str, email: &str, age: i64) {
         let sql = "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)";
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        conn.execute_with_params(sql, &[Value::String(name.to_string()), Value::String(email.to_string()), Value::I64(age)])
-            .await
-            .expect("insert");
+        conn.execute_with_params(
+            sql,
+            &[
+                Value::String(name.to_string()),
+                Value::String(email.to_string()),
+                Value::I64(age),
+            ],
+        )
+        .await
+        .expect("insert");
         // conn drop 时自动归还
     }
 
     pub async fn select_by_id(ctx: &SzOrmCtx, id: i64) -> (String, String, i64) {
         let sql = "SELECT name, email, age FROM bench_users WHERE id = ?";
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        let rows = conn.query_with_params(sql, &[Value::I64(id)]).await.expect("query");
+        let rows = conn
+            .query_with_params(sql, &[Value::I64(id)])
+            .await
+            .expect("query");
         // conn drop 时自动归还
         if let Some(row) = rows.first() {
             let name = match row.get("name") {
@@ -305,7 +323,9 @@ mod sz_orm {
     pub async fn delete_by_id(ctx: &SzOrmCtx, id: i64) {
         let sql = "DELETE FROM bench_users WHERE id = ?";
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        conn.execute_with_params(sql, &[Value::I64(id)]).await.expect("delete");
+        conn.execute_with_params(sql, &[Value::I64(id)])
+            .await
+            .expect("delete");
         // conn drop 时自动归还
     }
 }
@@ -317,9 +337,9 @@ mod sz_orm {
 
 mod sz_orm_params {
     use super::*;
+    use std::sync::Arc;
     use sz_orm_core::{Pool, PoolConfigBuilder, Value};
     use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
-    use std::sync::Arc;
 
     #[derive(Clone)]
     pub struct SzOrmParamsCtx {
@@ -334,7 +354,10 @@ mod sz_orm_params {
                 .expect("connect"),
         );
         let factory = Arc::new(SqlxSqliteConnectionFactory::new(handle.clone()));
-        let config = PoolConfigBuilder::new().max_size(10).build().expect("config");
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .build()
+            .expect("config");
         let pool = Pool::new(config, factory).expect("pool");
         let mut conn = pool.acquire().await.expect("acquire");
         conn.execute(CREATE_TABLE_SQL).await.expect("create table");
@@ -440,12 +463,9 @@ mod sz_orm_params {
 
     pub async fn delete_by_id(ctx: &SzOrmParamsCtx, id: i64) {
         let mut conn = ctx.pool.acquire().await.expect("acquire");
-        conn.execute_with_params(
-            "DELETE FROM bench_users WHERE id = ?",
-            &[Value::I64(id)],
-        )
-        .await
-        .expect("delete");
+        conn.execute_with_params("DELETE FROM bench_users WHERE id = ?", &[Value::I64(id)])
+            .await
+            .expect("delete");
     }
 }
 
@@ -467,9 +487,7 @@ mod diesel_orm {
     }
 
     pub fn teardown(conn: &mut SqliteConnection) {
-        diesel::sql_query(DROP_TABLE_SQL)
-            .execute(conn)
-            .ok();
+        diesel::sql_query(DROP_TABLE_SQL).execute(conn).ok();
     }
 
     pub fn insert_one(conn: &mut SqliteConnection, name: &str, email: &str, age: i64) {
@@ -516,11 +534,10 @@ mod diesel_orm {
             #[diesel(sql_type = Integer)]
             age: i32,
         }
-        let rows: Vec<UserRowAll> = diesel::sql_query(
-            "SELECT id, name, email, age FROM bench_users",
-        )
-        .get_results(conn)
-        .expect("query");
+        let rows: Vec<UserRowAll> =
+            diesel::sql_query("SELECT id, name, email, age FROM bench_users")
+                .get_results(conn)
+                .expect("query");
         rows.into_iter()
             .map(|r| (r.id, r.name, r.email, r.age as i64))
             .collect()
@@ -549,7 +566,9 @@ mod diesel_orm {
 
 mod sea_orm_async {
     use super::*;
-    use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
+    use sea_orm::{
+        ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement,
+    };
 
     pub async fn setup() -> DatabaseConnection {
         // cache=shared 确保多连接共享同一 in-memory 数据库
@@ -833,7 +852,9 @@ fn bench_select_by_id(c: &mut Criterion) {
                 black_box(r);
             }
         });
-        rt.block_on(async { async_sqlx::teardown(&pool).await; });
+        rt.block_on(async {
+            async_sqlx::teardown(&pool).await;
+        });
     });
 
     // SeaORM：setup + 插入数据在 b.iter 外
@@ -861,7 +882,9 @@ fn bench_select_by_id(c: &mut Criterion) {
                 black_box(r);
             }
         });
-        rt.block_on(async { sea_orm_async::teardown(&db).await; });
+        rt.block_on(async {
+            sea_orm_async::teardown(&db).await;
+        });
     });
 
     // SZ-ORM：setup + 插入数据在 b.iter 外
@@ -889,7 +912,9 @@ fn bench_select_by_id(c: &mut Criterion) {
                 black_box(r);
             }
         });
-        rt.block_on(async { sz_orm::teardown(ctx).await; });
+        rt.block_on(async {
+            sz_orm::teardown(ctx).await;
+        });
     });
 
     group.finish();
@@ -962,7 +987,9 @@ fn bench_select_all(c: &mut Criterion) {
                 black_box(rows);
             }
         });
-        rt.block_on(async { async_sqlx::teardown(&pool).await; });
+        rt.block_on(async {
+            async_sqlx::teardown(&pool).await;
+        });
     });
 
     // SeaORM
@@ -987,7 +1014,9 @@ fn bench_select_all(c: &mut Criterion) {
                 black_box(rows);
             }
         });
-        rt.block_on(async { sea_orm_async::teardown(&db).await; });
+        rt.block_on(async {
+            sea_orm_async::teardown(&db).await;
+        });
     });
 
     // SZ-ORM
@@ -1012,7 +1041,9 @@ fn bench_select_all(c: &mut Criterion) {
                 black_box(rows);
             }
         });
-        rt.block_on(async { sz_orm::teardown(ctx).await; });
+        rt.block_on(async {
+            sz_orm::teardown(ctx).await;
+        });
     });
 
     group.finish();
@@ -1091,7 +1122,9 @@ fn bench_update(c: &mut Criterion) {
                 async_sqlx::update_by_id(&pool, id, "updated_name").await;
             }
         });
-        rt.block_on(async { async_sqlx::teardown(&pool).await; });
+        rt.block_on(async {
+            async_sqlx::teardown(&pool).await;
+        });
     });
 
     // SeaORM
@@ -1118,7 +1151,9 @@ fn bench_update(c: &mut Criterion) {
                 sea_orm_async::update_by_id(&db, id, "updated_name").await;
             }
         });
-        rt.block_on(async { sea_orm_async::teardown(&db).await; });
+        rt.block_on(async {
+            sea_orm_async::teardown(&db).await;
+        });
     });
 
     // SZ-ORM
@@ -1145,7 +1180,9 @@ fn bench_update(c: &mut Criterion) {
                 sz_orm::update_by_id(&ctx, id, "updated_name").await;
             }
         });
-        rt.block_on(async { sz_orm::teardown(ctx).await; });
+        rt.block_on(async {
+            sz_orm::teardown(ctx).await;
+        });
     });
 
     group.finish();
@@ -1352,7 +1389,9 @@ fn bench_param_binding_comparison(c: &mut Criterion) {
                 }
             });
         });
-        rt.block_on(async { sz_orm::teardown(ctx_format).await; });
+        rt.block_on(async {
+            sz_orm::teardown(ctx_format).await;
+        });
 
         let ctx_params = rt.block_on(async {
             let ctx = sz_orm_params::setup().await;
@@ -1379,7 +1418,9 @@ fn bench_param_binding_comparison(c: &mut Criterion) {
                 }
             });
         });
-        rt.block_on(async { sz_orm_params::teardown(ctx_params).await; });
+        rt.block_on(async {
+            sz_orm_params::teardown(ctx_params).await;
+        });
 
         group.finish();
     }
@@ -1415,7 +1456,9 @@ fn bench_param_binding_comparison(c: &mut Criterion) {
                 }
             });
         });
-        rt.block_on(async { sz_orm::teardown(ctx_format).await; });
+        rt.block_on(async {
+            sz_orm::teardown(ctx_format).await;
+        });
 
         let ctx_params = rt.block_on(async {
             let ctx = sz_orm_params::setup().await;
@@ -1441,7 +1484,9 @@ fn bench_param_binding_comparison(c: &mut Criterion) {
                 }
             });
         });
-        rt.block_on(async { sz_orm_params::teardown(ctx_params).await; });
+        rt.block_on(async {
+            sz_orm_params::teardown(ctx_params).await;
+        });
 
         group.finish();
     }
@@ -1478,7 +1523,9 @@ fn bench_param_binding_comparison(c: &mut Criterion) {
                 }
             });
         });
-        rt.block_on(async { sz_orm::teardown(ctx_format).await; });
+        rt.block_on(async {
+            sz_orm::teardown(ctx_format).await;
+        });
 
         let ctx_params = rt.block_on(async {
             let ctx = sz_orm_params::setup().await;
@@ -1502,7 +1549,9 @@ fn bench_param_binding_comparison(c: &mut Criterion) {
                 }
             });
         });
-        rt.block_on(async { sz_orm_params::teardown(ctx_params).await; });
+        rt.block_on(async {
+            sz_orm_params::teardown(ctx_params).await;
+        });
 
         group.finish();
     }

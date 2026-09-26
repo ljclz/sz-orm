@@ -109,3 +109,6 @@ codegen-units = 1
 # 保持 bench-comparison 独立于 sz-orm 主 workspace
 [workspace]
 
+# libsqlite3-sys 为 diesel/sqlx/sea-orm 基准对比的原生库版本对齐钉（bundled）
+[package.metadata.cargo-machete]
+ignored = ["libsqlite3-sys"]

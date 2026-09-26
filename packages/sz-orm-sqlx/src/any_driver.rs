@@ -662,38 +662,23 @@ mod tests {
         let pool = AnyPool::connect("sqlite::memory:").await.unwrap();
         let mut conn = pool.create().await.unwrap();
 
-        assert!(
-            !conn.in_transaction(),
-            "新建连接不应处于事务中"
-        );
+        assert!(!conn.in_transaction(), "新建连接不应处于事务中");
 
         conn.begin_transaction().await.unwrap();
-        assert!(
-            conn.in_transaction(),
-            "begin 后应处于事务中"
-        );
+        assert!(conn.in_transaction(), "begin 后应处于事务中");
 
         conn.execute("CREATE TABLE tx_track (id INTEGER PRIMARY KEY)")
             .await
             .unwrap();
-        assert!(
-            conn.in_transaction(),
-            "事务内执行 SQL 后仍应处于事务中"
-        );
+        assert!(conn.in_transaction(), "事务内执行 SQL 后仍应处于事务中");
 
         conn.commit().await.unwrap();
-        assert!(
-            !conn.in_transaction(),
-            "commit 后不应处于事务中"
-        );
+        assert!(!conn.in_transaction(), "commit 后不应处于事务中");
 
         conn.begin_transaction().await.unwrap();
         assert!(conn.in_transaction());
         conn.rollback().await.unwrap();
-        assert!(
-            !conn.in_transaction(),
-            "rollback 后不应处于事务中"
-        );
+        assert!(!conn.in_transaction(), "rollback 后不应处于事务中");
     }
 
     #[tokio::test]

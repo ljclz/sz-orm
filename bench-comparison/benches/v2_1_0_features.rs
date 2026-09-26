@@ -7,15 +7,15 @@
 //! - Stream API（M6）vs 全量收集
 
 use criterion::{black_box, criterion_group, criterion_main, BenchmarkId, Criterion, Throughput};
+use sz_orm_core::active_model::ActiveModel;
 use sz_orm_core::eager_loader::eager_load_all;
 use sz_orm_core::mock::{MockConnection, MockRow};
 use sz_orm_core::nested_active_model::{ChildEntity, NestedActiveModel};
 use sz_orm_core::relation_trait::{RelationDef, RelationKind};
 use sz_orm_core::schema_sync::{diff, ColumnDef, TableDef};
-use sz_orm_core::Value;
 use sz_orm_core::Connection;
-use sz_orm_core::active_model::ActiveModel;
 use sz_orm_core::Model;
+use sz_orm_core::Value;
 
 // ============================================================================
 // 测试模型
@@ -170,10 +170,9 @@ fn bench_nested_save(c: &mut Criterion) {
                     let nested = NestedActiveModel::from_model(user, order_relation())
                         .with_children(children);
 
-                    let result =
-                        sz_orm_core::nested_active_model::nested_save(&mut mock, nested)
-                            .await
-                            .unwrap();
+                    let result = sz_orm_core::nested_active_model::nested_save(&mut mock, nested)
+                        .await
+                        .unwrap();
                     black_box(result);
                 });
         });
@@ -251,10 +250,9 @@ fn bench_stream_api(c: &mut Criterion) {
                     use futures::StreamExt;
                     use sz_orm_core::stream_api::StreamApiExt;
 
-                    let dialect = sz_orm_core::dialect::get_dialect(sz_orm_core::DbType::Sqlite)
-                        .unwrap();
-                    let query =
-                        sz_orm_core::QueryBuilder::<User>::new(dialect).table("users");
+                    let dialect =
+                        sz_orm_core::dialect::get_dialect(sz_orm_core::DbType::Sqlite).unwrap();
+                    let query = sz_orm_core::QueryBuilder::<User>::new(dialect).table("users");
 
                     let mut stream = query.stream_buffered(&mut mock);
                     let mut count = 0;

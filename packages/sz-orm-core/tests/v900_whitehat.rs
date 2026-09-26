@@ -3,16 +3,14 @@
 //! 验证 release 后 acquire 同一连接时 known_good=true 跳过 is_connected 检查，
 //! 以及并发 acquire/release 场景下 known_good 标记正确性。
 
+use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::atomic::{AtomicUsize, Ordering};
 use std::sync::Arc;
-use std::pin::Pin;
-use std::future::Future;
-use std::collections::HashMap;
 
-use sz_orm_core::{
-    Connection, ConnectionFactory, DbError, Pool, PoolConfigBuilder, Value,
-};
 use async_trait::async_trait;
+use sz_orm_core::{Connection, ConnectionFactory, DbError, Pool, PoolConfigBuilder, Value};
 
 /// Mock 连接，记录 is_connected 调用次数
 struct CountingMockConnection {
@@ -32,7 +30,8 @@ impl Connection for CountingMockConnection {
     fn query<'a>(
         &'a mut self,
         _sql: &'a str,
-    ) -> Pin<Box<dyn Future<Output = Result<Vec<HashMap<String, Value>>, DbError>> + Send + 'a>> {
+    ) -> Pin<Box<dyn Future<Output = Result<Vec<HashMap<String, Value>>, DbError>> + Send + 'a>>
+    {
         Box::pin(async { Ok(vec![]) })
     }
 
@@ -42,9 +41,7 @@ impl Connection for CountingMockConnection {
         Box::pin(async { Ok(()) })
     }
 
-    fn commit<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn commit<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async { Ok(()) })
     }
 
@@ -63,9 +60,7 @@ impl Connection for CountingMockConnection {
         Box::pin(async { true })
     }
 
-    fn close<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         self.connected = false;
         Box::pin(async { Ok(()) })
     }
@@ -96,10 +91,7 @@ fn make_pool() -> (Pool, Arc<AtomicUsize>) {
         counter: Arc::new(AtomicUsize::new(0)),
         is_connected_calls: is_connected_calls.clone(),
     });
-    let config = PoolConfigBuilder::new()
-        .max_size(5)
-        .build()
-        .unwrap();
+    let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
     let pool = Pool::new(config, factory).unwrap();
     (pool, is_connected_calls)
 }
@@ -231,7 +223,11 @@ async fn test_known_good_multiple_cycles() {
     // 多次 acquire/release 循环
     for i in 0..20 {
         let conn = pool.acquire().await.unwrap();
-        assert!(!conn.known_good, "第 {} 次 acquire 后 known_good 应为 false", i);
+        assert!(
+            !conn.known_good,
+            "第 {} 次 acquire 后 known_good 应为 false",
+            i
+        );
         pool.release(conn).await;
     }
 }

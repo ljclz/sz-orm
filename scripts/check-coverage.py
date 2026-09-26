@@ -158,7 +158,7 @@ CRATE_FEATURE_MAP = {
     "sz-orm-governance": "eco-extend,eco-deep",
     "sz-orm-mig": "zero-downtime-mig,zero-downtime-rollback",
     "sz-orm-bench": "perf-bench-real,bench-real-db,perf-regression-ci,perf-budget-alert",
-    "sz-orm-observability": "observability,metrics-collect,alert-rules,dashboard-export",
+    "sz-orm-observability": "observability,metrics-collect,alert-rules,dashboard-export,perf-budget-alert",
     "sz-orm-tracing": "dist-tracing",
     "sz-orm-logger": "log-aggregate",
     "sz-orm-studio": "developer-portal",

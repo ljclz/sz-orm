@@ -449,6 +449,20 @@ mod tests {
         assert!(!result.trace_spans.is_empty());
     }
 
+    /// 重复 orchestrate 同一 saga id：第二次命中 register 失败 → reset → 重注册
+    /// 分支（覆盖 :295-302 的重注册路径）
+    #[test]
+    fn test_orchestrate_re_register_existing_saga() {
+        let mgr = Arc::new(SagaManager::new());
+        let coord = SagaCoordinator::new(mgr, SagaCoordConfig::default());
+        let def = CrossServiceSagaDef::new("saga_dup").with_step(SagaStepDef::new("s1", "svc_a"));
+        let auth = AuthContext::new("user1", vec!["svc_a".into()]);
+        let first = coord.orchestrate(&def, &auth).unwrap();
+        assert!(first.success);
+        let second = coord.orchestrate(&def, &auth).unwrap();
+        assert!(second.success, "重复 orchestrate 应经 reset 后重注册成功");
+    }
+
     #[test]
     fn test_dist_error_display() {
         let e = DistError::Unauthorized("no perm".into());

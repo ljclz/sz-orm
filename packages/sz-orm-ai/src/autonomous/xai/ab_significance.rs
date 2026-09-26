@@ -184,15 +184,13 @@ impl AbStatSignificanceEngine {
         let a3 = 1.421413741_f64;
         let a4 = -1.453152027_f64;
         let a5 = 1.061405429_f64;
-        let x = t / std::f64::consts::SQRT_2;
-        let sign = if x >= 0.0 { 1.0 } else { -1.0 };
-        let ax = x.abs();
+        let ax = (t / std::f64::consts::SQRT_2).abs();
         let tt = 1.0 / (1.0 + p * ax);
         let erf = 1.0
             - (a1 * tt + a2 * tt * tt + a3 * tt.powi(3) + a4 * tt.powi(4) + a5 * tt.powi(5))
                 * (-ax * ax).exp();
-        let erf = sign * erf;
-        let cdf = 0.5 * (1.0 + erf);
+        // 双侧 p = 2(1 - Φ(|t|))：erf 必须取绝对值，否则负 t 时 cdf<0.5 → p>1
+        let cdf = 0.5 * (1.0 + erf.abs());
         2.0 * (1.0 - cdf)
     }
 
@@ -443,5 +441,48 @@ mod tests {
             }
             _ => panic!("Expected Significant for large sample"),
         }
+    }
+
+    // === 数值辅助函数锚定测试（2026-09-26 审计 G22 覆盖率移交项）===
+
+    #[test]
+    fn test_lgamma_known_values() {
+        let ev = AbStatSignificanceEngine::default();
+        // lgamma(5.0) = ln(24)
+        assert!((ev.lgamma(5.0) - 24f64.ln()).abs() < 1e-6);
+        // 反射分支：lgamma(0.5) = ln(sqrt(pi))
+        assert!((ev.lgamma(0.5) - (std::f64::consts::PI.sqrt()).ln()).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_incomplete_beta_boundaries_and_symmetry() {
+        let ev = AbStatSignificanceEngine::default();
+        assert_eq!(ev.incomplete_beta(0.0, 2.0, 2.0), 0.0);
+        assert_eq!(ev.incomplete_beta(1.0, 2.0, 2.0), 1.0);
+        // a=b=2 对称：x=0.5 → 0.5（连分数正支）
+        assert!((ev.incomplete_beta(0.5, 2.0, 2.0) - 0.5).abs() < 1e-6);
+        // x > (a+1)/(a+b+2) 的 else 支：Beta(2,2) CDF(0.75) = 3x²-2x³ = 0.84375
+        assert!((ev.incomplete_beta(0.75, 2.0, 2.0) - 0.84375).abs() < 1e-6);
+    }
+
+    #[test]
+    fn test_normal_two_sided_p_value_symmetry() {
+        let ev = AbStatSignificanceEngine::default();
+        assert!((ev.normal_two_sided_p_value(0.0) - 1.0).abs() < 1e-6);
+        assert!((ev.normal_two_sided_p_value(1.96) - 0.05).abs() < 1e-3);
+        // 负 t 分支（sign = -1）
+        assert!((ev.normal_two_sided_p_value(-1.96) - 0.05).abs() < 1e-3);
+    }
+
+    #[test]
+    fn test_two_sided_t_p_value_branches() {
+        let ev = AbStatSignificanceEngine::default();
+        // t≈0 → 1.0
+        assert!((ev.two_sided_t_p_value(0.0, 10.0) - 1.0).abs() < 1e-12);
+        // 小自由度走不完全 Beta 支
+        let p_small_df = ev.two_sided_t_p_value(2.0, 5.0);
+        assert!(p_small_df > 0.0 && p_small_df < 0.2, "p={p_small_df}");
+        // 大自由度走正态近似支：t=1.96, df=1000 → ≈0.05
+        assert!((ev.two_sided_t_p_value(1.96, 1000.0) - 0.05).abs() < 1e-2);
     }
 }

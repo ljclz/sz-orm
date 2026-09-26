@@ -27,7 +27,9 @@ use competitor_adapter::*;
 
 #[path = "benchmark_reporter.rs"]
 mod benchmark_reporter;
-use benchmark_reporter::{BenchmarkRecord, BenchmarkReporter, CriterionConfig, EnvironmentMetadata};
+use benchmark_reporter::{
+    BenchmarkRecord, BenchmarkReporter, CriterionConfig, EnvironmentMetadata,
+};
 
 use criterion::{criterion_group, criterion_main, Criterion};
 
@@ -110,7 +112,12 @@ fn generate_report_files(records: &[BenchmarkRecord], dialects: &[String]) {
     std::fs::write(&csv_path, reporter.generate_csv()).ok();
     std::fs::write(&json_path, reporter.generate_json()).ok();
 
-    for dsn_var in &["DATABASE_URL_MYSQL", "DATABASE_URL_POSTGRES", "DATABASE_URL_ORACLE", "DATABASE_URL_MSSQL"] {
+    for dsn_var in &[
+        "DATABASE_URL_MYSQL",
+        "DATABASE_URL_POSTGRES",
+        "DATABASE_URL_ORACLE",
+        "DATABASE_URL_MSSQL",
+    ] {
         if let Ok(dsn) = std::env::var(dsn_var) {
             eprintln!("{dsn_var}: {}", BenchmarkReporter::mask_dsn(&dsn));
         }
@@ -130,12 +137,25 @@ fn bench_crud_single(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
-            let name = format!("crud_single/{}/{}/{}", adapter.name(), active_dialect(), size);
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
+            let name = format!(
+                "crud_single/{}/{}/{}",
+                adapter.name(),
+                active_dialect(),
+                size
+            );
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for i in 0..iters as i64 { std::hint::black_box(adapter.insert_one(&BenchRecord::new(i + 1)).await); } });
+                    rt.block_on(async {
+                        for i in 0..iters as i64 {
+                            std::hint::black_box(
+                                adapter.insert_one(&BenchRecord::new(i + 1)).await,
+                            );
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -148,12 +168,18 @@ fn bench_crud_find(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
             let name = format!("crud_find/{}/{}/{}", adapter.name(), active_dialect(), size);
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for i in 0..iters as i64 { std::hint::black_box(adapter.find_one((i % size as i64) + 1).await); } });
+                    rt.block_on(async {
+                        for i in 0..iters as i64 {
+                            std::hint::black_box(adapter.find_one((i % size as i64) + 1).await);
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -166,13 +192,24 @@ fn bench_crud_batch(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
-            let name = format!("crud_batch/{}/{}/{}", adapter.name(), active_dialect(), size);
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
+            let name = format!(
+                "crud_batch/{}/{}/{}",
+                adapter.name(),
+                active_dialect(),
+                size
+            );
             let records: Vec<BenchRecord> = (1..=100).map(BenchRecord::new).collect();
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for _ in 0..iters { std::hint::black_box(adapter.insert_batch(&records).await); } });
+                    rt.block_on(async {
+                        for _ in 0..iters {
+                            std::hint::black_box(adapter.insert_batch(&records).await);
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -189,12 +226,25 @@ fn bench_relation_has_one(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
-            let name = format!("relation_has_one/{}/{}/{}", adapter.name(), active_dialect(), size);
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
+            let name = format!(
+                "relation_has_one/{}/{}/{}",
+                adapter.name(),
+                active_dialect(),
+                size
+            );
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for i in 0..iters as i64 { std::hint::black_box(adapter.find_with_has_one((i % size as i64) + 1).await); } });
+                    rt.block_on(async {
+                        for i in 0..iters as i64 {
+                            std::hint::black_box(
+                                adapter.find_with_has_one((i % size as i64) + 1).await,
+                            );
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -207,12 +257,25 @@ fn bench_relation_has_many(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
-            let name = format!("relation_has_many/{}/{}/{}", adapter.name(), active_dialect(), size);
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
+            let name = format!(
+                "relation_has_many/{}/{}/{}",
+                adapter.name(),
+                active_dialect(),
+                size
+            );
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for i in 0..iters as i64 { std::hint::black_box(adapter.find_with_has_many((i % size as i64) + 1).await); } });
+                    rt.block_on(async {
+                        for i in 0..iters as i64 {
+                            std::hint::black_box(
+                                adapter.find_with_has_many((i % size as i64) + 1).await,
+                            );
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -225,12 +288,23 @@ fn bench_relation_m2m(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
-            let name = format!("relation_m2m/{}/{}/{}", adapter.name(), active_dialect(), size);
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
+            let name = format!(
+                "relation_m2m/{}/{}/{}",
+                adapter.name(),
+                active_dialect(),
+                size
+            );
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for _ in 0..iters { std::hint::black_box(adapter.find_with_many_to_many(1).await); } });
+                    rt.block_on(async {
+                        for _ in 0..iters {
+                            std::hint::black_box(adapter.find_with_many_to_many(1).await);
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -247,12 +321,23 @@ fn bench_transaction(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
-            let name = format!("transaction/{}/{}/{}", adapter.name(), active_dialect(), size);
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
+            let name = format!(
+                "transaction/{}/{}/{}",
+                adapter.name(),
+                active_dialect(),
+                size
+            );
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for _ in 0..iters { std::hint::black_box(adapter.transaction_commit().await); } });
+                    rt.block_on(async {
+                        for _ in 0..iters {
+                            std::hint::black_box(adapter.transaction_commit().await);
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -269,12 +354,18 @@ fn bench_pool(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
             let name = format!("pool/{}/{}/{}", adapter.name(), active_dialect(), size);
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for _ in 0..iters { std::hint::black_box(adapter.pool_acquire().await); } });
+                    rt.block_on(async {
+                        for _ in 0..iters {
+                            std::hint::black_box(adapter.pool_acquire().await);
+                        }
+                    });
                     start.elapsed()
                 });
             });
@@ -291,12 +382,25 @@ fn bench_pagination(c: &mut Criterion) {
     let rt = tokio::runtime::Runtime::new().expect("rt");
     for &size in DATASET_SIZES {
         for mut adapter in create_all_adapters() {
-            if rt.block_on(adapter.setup(size)).is_err() { continue; }
-            let name = format!("pagination/{}/{}/{}", adapter.name(), active_dialect(), size);
+            if rt.block_on(adapter.setup(size)).is_err() {
+                continue;
+            }
+            let name = format!(
+                "pagination/{}/{}/{}",
+                adapter.name(),
+                active_dialect(),
+                size
+            );
             c.bench_function(&name, |b| {
                 b.iter_custom(|iters| {
                     let start = std::time::Instant::now();
-                    rt.block_on(async { for i in 0..iters as i64 { std::hint::black_box(adapter.paginate_offset(((i as usize) % size) / 2, 20).await); } });
+                    rt.block_on(async {
+                        for i in 0..iters as i64 {
+                            std::hint::black_box(
+                                adapter.paginate_offset(((i as usize) % size) / 2, 20).await,
+                            );
+                        }
+                    });
                     start.elapsed()
                 });
             });

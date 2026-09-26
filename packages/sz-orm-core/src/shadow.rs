@@ -552,10 +552,10 @@ mod tests {
 
     #[test]
     fn test_values_equal_float_f32_f32_f64_f64() {
-        assert!(values_equal(&Value::F32(3.14), &Value::F32(3.14)));
-        assert!(!values_equal(&Value::F32(3.14), &Value::F32(2.71)));
-        assert!(values_equal(&Value::F64(3.14159), &Value::F64(3.14159)));
-        assert!(!values_equal(&Value::F64(3.14), &Value::F64(2.71)));
+        assert!(values_equal(&Value::F32(1.25), &Value::F32(1.25)));
+        assert!(!values_equal(&Value::F32(1.25), &Value::F32(9.75)));
+        assert!(values_equal(&Value::F64(1.125), &Value::F64(1.125)));
+        assert!(!values_equal(&Value::F64(1.125), &Value::F64(7.5)));
     }
 
     #[test]

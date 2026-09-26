@@ -3356,7 +3356,11 @@ mod tests {
 
         let status = pool.status().await;
         assert_eq!(status.idle, 0, "into_inner 后连接不应归还");
-        assert_eq!(status.active, 1, "total_count 仍为 1（连接被外部持有）");
+        // c98179c 起 into_inner 槽位即时释放（连接移交后池不再保留容量）
+        assert_eq!(status.active, 0, "into_inner 槽位即时释放，total_count 归 0");
+
+        // 槽位已释放：应能再次 acquire 新连接（容量泄漏根治的验证点）
+        let _conn2 = pool.acquire().await?;
         Ok(())
     }
 

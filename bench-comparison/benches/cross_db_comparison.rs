@@ -42,11 +42,13 @@ use std::time::{Duration, Instant};
 
 #[allow(unused_imports)]
 use diesel::prelude::*;
-use sea_orm::{ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement};
+use sea_orm::{
+    ConnectOptions, ConnectionTrait, Database, DatabaseBackend, DatabaseConnection, Statement,
+};
 use sz_orm_core::{Pool as SzPool, PoolConfigBuilder, Value};
 use sz_orm_sqlx::{
-    MySqlPoolHandle, PgPoolHandle, SqlitePoolHandle, SqlxMySqlConnectionFactory, SqlxPgConnectionFactory,
-    SqlxSqliteConnectionFactory,
+    MySqlPoolHandle, PgPoolHandle, SqlitePoolHandle, SqlxMySqlConnectionFactory,
+    SqlxPgConnectionFactory, SqlxSqliteConnectionFactory,
 };
 
 #[cfg(feature = "oracle")]
@@ -172,7 +174,12 @@ fn print_header() {
 fn print_row(name: &str, times: &[Duration]) {
     let med = median(times.to_vec());
     let trials_str: Vec<String> = times.iter().map(|t| fmt_dur(*t)).collect();
-    println!("| {} | {} | {} |", name, trials_str.join(" | "), fmt_dur(med));
+    println!(
+        "| {} | {} | {} |",
+        name,
+        trials_str.join(" | "),
+        fmt_dur(med)
+    );
 }
 
 /// 屏蔽密码后输出 URL
@@ -195,7 +202,11 @@ fn mask_url(url: &str) -> String {
 }
 
 /// 批量插入 setup 数据（多行 VALUES 减少网络 RTT）
-async fn batch_insert_sqlite(sqlx_pool: &sqlx::SqlitePool, n: usize, batch_size: usize) -> Result<(), BoxError> {
+async fn batch_insert_sqlite(
+    sqlx_pool: &sqlx::SqlitePool,
+    n: usize,
+    batch_size: usize,
+) -> Result<(), BoxError> {
     let mut inserted = 0;
     while inserted < n {
         let batch_end = (inserted + batch_size).min(n);
@@ -204,16 +215,27 @@ async fn batch_insert_sqlite(sqlx_pool: &sqlx::SqlitePool, n: usize, batch_size:
             if i > inserted {
                 sql.push(',');
             }
-            sql.push_str(&format!("('user_{}', 'user_{}@test.com', {})", i, i, i % 100));
+            sql.push_str(&format!(
+                "('user_{}', 'user_{}@test.com', {})",
+                i,
+                i,
+                i % 100
+            ));
         }
         let sql_ref = sql;
-        sqlx::query(sqlx::AssertSqlSafe(&*sql_ref)).execute(sqlx_pool).await?;
+        sqlx::query(sqlx::AssertSqlSafe(&*sql_ref))
+            .execute(sqlx_pool)
+            .await?;
         inserted = batch_end;
     }
     Ok(())
 }
 
-async fn batch_insert_mysql(sqlx_pool: &sqlx::MySqlPool, n: usize, batch_size: usize) -> Result<(), BoxError> {
+async fn batch_insert_mysql(
+    sqlx_pool: &sqlx::MySqlPool,
+    n: usize,
+    batch_size: usize,
+) -> Result<(), BoxError> {
     let mut inserted = 0;
     while inserted < n {
         let batch_end = (inserted + batch_size).min(n);
@@ -222,16 +244,27 @@ async fn batch_insert_mysql(sqlx_pool: &sqlx::MySqlPool, n: usize, batch_size: u
             if i > inserted {
                 sql.push(',');
             }
-            sql.push_str(&format!("('user_{}', 'user_{}@test.com', {})", i, i, i % 100));
+            sql.push_str(&format!(
+                "('user_{}', 'user_{}@test.com', {})",
+                i,
+                i,
+                i % 100
+            ));
         }
         let sql_ref = sql;
-        sqlx::query(sqlx::AssertSqlSafe(&*sql_ref)).execute(sqlx_pool).await?;
+        sqlx::query(sqlx::AssertSqlSafe(&*sql_ref))
+            .execute(sqlx_pool)
+            .await?;
         inserted = batch_end;
     }
     Ok(())
 }
 
-async fn batch_insert_pg(sqlx_pool: &sqlx::PgPool, n: usize, batch_size: usize) -> Result<(), BoxError> {
+async fn batch_insert_pg(
+    sqlx_pool: &sqlx::PgPool,
+    n: usize,
+    batch_size: usize,
+) -> Result<(), BoxError> {
     let mut inserted = 0;
     while inserted < n {
         let batch_end = (inserted + batch_size).min(n);
@@ -240,10 +273,17 @@ async fn batch_insert_pg(sqlx_pool: &sqlx::PgPool, n: usize, batch_size: usize) 
             if i > inserted {
                 sql.push(',');
             }
-            sql.push_str(&format!("('user_{}', 'user_{}@test.com', {})", i, i, i % 100));
+            sql.push_str(&format!(
+                "('user_{}', 'user_{}@test.com', {})",
+                i,
+                i,
+                i % 100
+            ));
         }
         let sql_ref = sql;
-        sqlx::query(sqlx::AssertSqlSafe(&*sql_ref)).execute(sqlx_pool).await?;
+        sqlx::query(sqlx::AssertSqlSafe(&*sql_ref))
+            .execute(sqlx_pool)
+            .await?;
         inserted = batch_end;
     }
     Ok(())
@@ -258,7 +298,9 @@ fn batch_insert_oracle_stmt(n: usize, batch_size: usize) -> String {
         for i in inserted..batch_end {
             sql.push_str(&format!(
                 "INTO bench_users (name, email, age) VALUES ('user_{}', 'user_{}@test.com', {}) ",
-                i, i, i % 100
+                i,
+                i,
+                i % 100
             ));
         }
         inserted = batch_end;
@@ -273,14 +315,14 @@ fn batch_insert_oracle_stmt(n: usize, batch_size: usize) -> String {
 
 async fn run_sqlite_bench() -> Result<(), BoxError> {
     println!("## SQLite Benchmark (file DB + WAL, shared across ORMs)\n");
-    println!("Rows per scenario: {} (queries: {})\n", SQLITE_ROWS, SQLITE_QUERIES);
+    println!(
+        "Rows per scenario: {} (queries: {})\n",
+        SQLITE_ROWS, SQLITE_QUERIES
+    );
 
     // 使用临时文件 DB 替代 in-memory，让 sqlx/sea-orm/diesel 三个 ORM 共享同一份数据
     // in-memory + cache=shared 在 sqlx 0.9 + diesel + sea-orm 三方间存在兼容性问题
-    let tmp_path = std::env::temp_dir().join(format!(
-        "sz_orm_bench_{}.sqlite",
-        std::process::id()
-    ));
+    let tmp_path = std::env::temp_dir().join(format!("sz_orm_bench_{}.sqlite", std::process::id()));
     // 清理可能残留的旧文件
     let _ = std::fs::remove_file(&tmp_path);
 
@@ -313,10 +355,9 @@ async fn run_sqlite_bench() -> Result<(), BoxError> {
     let sea_db = Database::connect(sea_opt).await?;
 
     // Diesel SQLite（用相同文件路径，共享同一 DB）
-    let mut diesel_conn = diesel::sqlite::SqliteConnection::establish(&tmp_path.display().to_string())
-        .map_err(|e| -> BoxError {
-            format!("diesel sqlite connect failed: {}", e).into()
-        })?;
+    let mut diesel_conn =
+        diesel::sqlite::SqliteConnection::establish(&tmp_path.display().to_string())
+            .map_err(|e| -> BoxError { format!("diesel sqlite connect failed: {}", e).into() })?;
     diesel::sql_query(SQLITE_CREATE).execute(&mut diesel_conn)?;
 
     let n = SQLITE_ROWS;
@@ -333,7 +374,9 @@ async fn run_sqlite_bench() -> Result<(), BoxError> {
     sz_pool.close_all().await;
     sqlx_pool.close().await;
     let _ = sea_db.close().await;
-    diesel::sql_query(SQLITE_DROP).execute(&mut diesel_conn).ok();
+    diesel::sql_query(SQLITE_DROP)
+        .execute(&mut diesel_conn)
+        .ok();
     // 删除临时 DB 文件
     let _ = std::fs::remove_file(&tmp_path);
     let _ = std::fs::remove_file(format!("{}-wal", tmp_path.display()));
@@ -412,16 +455,17 @@ async fn bench_sqlite_insert(
         sqlx::query(SQLITE_TRUNCATE).execute(sqlx_pool).await?;
         let start = Instant::now();
         for i in 0..n {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Sqlite,
-                "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
-                vec![
-                    format!("user_{}", i).into(),
-                    format!("user_{}@test.com", i).into(),
-                    ((i % 100) as i32).into(),
-                ],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Sqlite,
+                    "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
+                    vec![
+                        format!("user_{}", i).into(),
+                        format!("user_{}@test.com", i).into(),
+                        ((i % 100) as i32).into(),
+                    ],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -506,9 +550,10 @@ async fn bench_sqlite_select_by_id(
                 #[diesel(sql_type = Integer)]
                 age: i32,
             }
-            let _row: UserRow = diesel::sql_query("SELECT name, email, age FROM bench_users WHERE id = ?")
-                .bind::<BigInt, _>(id)
-                .get_result(diesel_conn)?;
+            let _row: UserRow =
+                diesel::sql_query("SELECT name, email, age FROM bench_users WHERE id = ?")
+                    .bind::<BigInt, _>(id)
+                    .get_result(diesel_conn)?;
         }
         diesel_times.push(start.elapsed());
     }
@@ -609,8 +654,9 @@ async fn bench_sqlite_select_all(
             #[diesel(sql_type = Integer)]
             age: i32,
         }
-        let rows: Vec<UserRowAll> = diesel::sql_query("SELECT id, name, email, age FROM bench_users")
-            .get_results(diesel_conn)?;
+        let rows: Vec<UserRowAll> =
+            diesel::sql_query("SELECT id, name, email, age FROM bench_users")
+                .get_results(diesel_conn)?;
         diesel_times.push(start.elapsed());
         let _ = rows.len();
     }
@@ -713,12 +759,13 @@ async fn bench_sqlite_update(
         let start = Instant::now();
         for i in 0..updates {
             let id = (i % prepare_n) as i64 + 1;
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Sqlite,
-                "UPDATE bench_users SET name = ? WHERE id = ?",
-                vec!["updated_name".into(), id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Sqlite,
+                    "UPDATE bench_users SET name = ? WHERE id = ?",
+                    vec!["updated_name".into(), id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -746,11 +793,8 @@ async fn bench_sqlite_delete(
         let start = Instant::now();
         for id in 1..=(n as i64) {
             let mut conn = sz_pool.acquire().await?;
-            conn.execute_with_params(
-                "DELETE FROM bench_users WHERE id = ?",
-                &[Value::I64(id)],
-            )
-            .await?;
+            conn.execute_with_params("DELETE FROM bench_users WHERE id = ?", &[Value::I64(id)])
+                .await?;
         }
         sz_times.push(start.elapsed());
     }
@@ -800,12 +844,13 @@ async fn bench_sqlite_delete(
         batch_insert_sqlite(sqlx_pool, n, 500).await?;
         let start = Instant::now();
         for id in 1..=(n as i64) {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Sqlite,
-                "DELETE FROM bench_users WHERE id = ?",
-                vec![id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Sqlite,
+                    "DELETE FROM bench_users WHERE id = ?",
+                    vec![id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -829,7 +874,9 @@ async fn ensure_mysql_database(url: &str) -> Result<(), BoxError> {
                 .connect(&base_url)
                 .await?;
             let create_sql = format!("CREATE DATABASE IF NOT EXISTS `{}`", db_name);
-            sqlx::query(sqlx::AssertSqlSafe(&*create_sql)).execute(&pool).await?;
+            sqlx::query(sqlx::AssertSqlSafe(&*create_sql))
+                .execute(&pool)
+                .await?;
             pool.close().await;
             println!("[setup] MySQL database '{}' ensured", db_name);
         }
@@ -840,7 +887,10 @@ async fn ensure_mysql_database(url: &str) -> Result<(), BoxError> {
 async fn run_mysql_bench(url: &str) -> Result<(), BoxError> {
     println!("## MySQL Benchmark\n");
     println!("Connection: `{}`", mask_url(url));
-    println!("Rows per scenario: {} (queries: {})\n", REMOTE_ROWS, REMOTE_QUERIES);
+    println!(
+        "Rows per scenario: {} (queries: {})\n",
+        REMOTE_ROWS, REMOTE_QUERIES
+    );
 
     ensure_mysql_database(url).await?;
 
@@ -863,9 +913,8 @@ async fn run_mysql_bench(url: &str) -> Result<(), BoxError> {
 
     // Diesel MySQL
     #[cfg(feature = "diesel-mysql")]
-    let mut diesel_conn = diesel::mysql::MysqlConnection::establish(url).map_err(|e| -> BoxError {
-        format!("diesel mysql connect failed: {}", e).into()
-    })?;
+    let mut diesel_conn = diesel::mysql::MysqlConnection::establish(url)
+        .map_err(|e| -> BoxError { format!("diesel mysql connect failed: {}", e).into() })?;
     #[cfg(not(feature = "diesel-mysql"))]
     let mut diesel_conn: DieselMysqlConn = ();
 
@@ -882,7 +931,9 @@ async fn run_mysql_bench(url: &str) -> Result<(), BoxError> {
     bench_mysql_delete(&sz_pool, &sqlx_pool, &sea_db, &mut diesel_conn, n).await?;
 
     // 清理
-    sqlx::query("DROP TABLE IF EXISTS bench_users").execute(&sqlx_pool).await?;
+    sqlx::query("DROP TABLE IF EXISTS bench_users")
+        .execute(&sqlx_pool)
+        .await?;
     sz_pool.close_all().await;
     sqlx_pool.close().await;
     let _ = sea_db.close().await;
@@ -948,18 +999,20 @@ async fn bench_mysql_insert(
                 diesel::sql_query(MYSQL_TRUNCATE).execute(diesel_conn)?;
                 let start = Instant::now();
                 for i in 0..n {
-                    diesel::sql_query("INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)")
-                        .bind::<diesel::sql_types::Text, _>(format!("user_{}", i))
-                        .bind::<diesel::sql_types::Text, _>(format!("user_{}@test.com", i))
-                        .bind::<diesel::sql_types::Integer, _>((i % 100) as i32)
-                        .execute(diesel_conn)?;
+                    diesel::sql_query(
+                        "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
+                    )
+                    .bind::<diesel::sql_types::Text, _>(format!("user_{}", i))
+                    .bind::<diesel::sql_types::Text, _>(format!("user_{}@test.com", i))
+                    .bind::<diesel::sql_types::Integer, _>((i % 100) as i32)
+                    .execute(diesel_conn)?;
                 }
                 diesel_times.push(start.elapsed());
             }
             print_row("diesel", &diesel_times);
-    }
-    #[cfg(not(feature = "diesel-mysql"))]
-    print_diesel_skipped("diesel-mysql feature not enabled");
+        }
+        #[cfg(not(feature = "diesel-mysql"))]
+        print_diesel_skipped("diesel-mysql feature not enabled");
     }
     #[cfg(not(feature = "diesel-mysql"))]
     print_diesel_skipped("diesel-mysql feature not enabled");
@@ -970,16 +1023,17 @@ async fn bench_mysql_insert(
         sqlx::query(MYSQL_TRUNCATE).execute(sqlx_pool).await?;
         let start = Instant::now();
         for i in 0..n {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::MySql,
-                "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
-                vec![
-                    format!("user_{}", i).into(),
-                    format!("user_{}@test.com", i).into(),
-                    ((i % 100) as i32).into(),
-                ],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::MySql,
+                    "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
+                    vec![
+                        format!("user_{}", i).into(),
+                        format!("user_{}@test.com", i).into(),
+                        ((i % 100) as i32).into(),
+                    ],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1057,9 +1111,10 @@ async fn bench_mysql_select_by_id(
                     #[diesel(sql_type = Integer)]
                     age: i32,
                 }
-                let _row: UserRow = diesel::sql_query("SELECT name, email, age FROM bench_users WHERE id = ?")
-                    .bind::<BigInt, _>(id)
-                    .get_result(diesel_conn)?;
+                let _row: UserRow =
+                    diesel::sql_query("SELECT name, email, age FROM bench_users WHERE id = ?")
+                        .bind::<BigInt, _>(id)
+                        .get_result(diesel_conn)?;
             }
             diesel_times.push(start.elapsed());
         }
@@ -1159,8 +1214,9 @@ async fn bench_mysql_select_all(
                 #[diesel(sql_type = Integer)]
                 age: i32,
             }
-            let rows: Vec<UserRowAll> = diesel::sql_query("SELECT id, name, email, age FROM bench_users")
-                .get_results(diesel_conn)?;
+            let rows: Vec<UserRowAll> =
+                diesel::sql_query("SELECT id, name, email, age FROM bench_users")
+                    .get_results(diesel_conn)?;
             diesel_times.push(start.elapsed());
             let _ = rows.len();
         }
@@ -1265,12 +1321,13 @@ async fn bench_mysql_update(
         let start = Instant::now();
         for i in 0..updates {
             let id = (i % prepare_n) as i64 + 1;
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::MySql,
-                "UPDATE bench_users SET name = ? WHERE id = ?",
-                vec!["updated_name".into(), id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::MySql,
+                    "UPDATE bench_users SET name = ? WHERE id = ?",
+                    vec!["updated_name".into(), id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1339,9 +1396,9 @@ async fn bench_mysql_delete(
                 diesel_times.push(start.elapsed());
             }
             print_row("diesel", &diesel_times);
-    }
-    #[cfg(not(feature = "diesel-mysql"))]
-    print_diesel_skipped("diesel-mysql feature not enabled");
+        }
+        #[cfg(not(feature = "diesel-mysql"))]
+        print_diesel_skipped("diesel-mysql feature not enabled");
     }
     #[cfg(not(feature = "diesel-mysql"))]
     print_diesel_skipped("diesel-mysql feature not enabled");
@@ -1353,12 +1410,13 @@ async fn bench_mysql_delete(
         batch_insert_mysql(sqlx_pool, n, 100).await?;
         let start = Instant::now();
         for id in 1..=(n as i64) {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::MySql,
-                "DELETE FROM bench_users WHERE id = ?",
-                vec![id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::MySql,
+                    "DELETE FROM bench_users WHERE id = ?",
+                    vec![id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1381,15 +1439,16 @@ async fn ensure_pg_database(url: &str) -> Result<(), BoxError> {
                 .max_connections(1)
                 .connect(&base_url)
                 .await?;
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
-            )
-            .bind(db_name)
-            .fetch_one(&pool)
-            .await?;
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
+                    .bind(db_name)
+                    .fetch_one(&pool)
+                    .await?;
             if !exists {
                 let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
-                sqlx::query(sqlx::AssertSqlSafe(&*create_sql)).execute(&pool).await?;
+                sqlx::query(sqlx::AssertSqlSafe(&*create_sql))
+                    .execute(&pool)
+                    .await?;
                 println!("[setup] PostgreSQL database '{}' created", db_name);
             } else {
                 println!("[setup] PostgreSQL database '{}' exists", db_name);
@@ -1403,7 +1462,10 @@ async fn ensure_pg_database(url: &str) -> Result<(), BoxError> {
 async fn run_pg_bench(url: &str) -> Result<(), BoxError> {
     println!("## PostgreSQL Benchmark\n");
     println!("Connection: `{}`", mask_url(url));
-    println!("Rows per scenario: {} (queries: {})\n", REMOTE_ROWS, REMOTE_QUERIES);
+    println!(
+        "Rows per scenario: {} (queries: {})\n",
+        REMOTE_ROWS, REMOTE_QUERIES
+    );
 
     ensure_pg_database(url).await?;
 
@@ -1426,9 +1488,8 @@ async fn run_pg_bench(url: &str) -> Result<(), BoxError> {
 
     // Diesel PG
     #[cfg(feature = "diesel-postgres")]
-    let mut diesel_conn = diesel::pg::PgConnection::establish(url).map_err(|e| -> BoxError {
-        format!("diesel pg connect failed: {}", e).into()
-    })?;
+    let mut diesel_conn = diesel::pg::PgConnection::establish(url)
+        .map_err(|e| -> BoxError { format!("diesel pg connect failed: {}", e).into() })?;
     #[cfg(not(feature = "diesel-postgres"))]
     let mut diesel_conn: DieselPgConn = ();
 
@@ -1445,7 +1506,9 @@ async fn run_pg_bench(url: &str) -> Result<(), BoxError> {
     bench_pg_delete(&sz_pool, &sqlx_pool, &sea_db, &mut diesel_conn, n).await?;
 
     // 清理
-    sqlx::query("DROP TABLE IF EXISTS bench_users").execute(&sqlx_pool).await?;
+    sqlx::query("DROP TABLE IF EXISTS bench_users")
+        .execute(&sqlx_pool)
+        .await?;
     sz_pool.close_all().await;
     sqlx_pool.close().await;
     let _ = sea_db.close().await;
@@ -1511,18 +1574,20 @@ async fn bench_pg_insert(
                 diesel::sql_query(PG_TRUNCATE).execute(diesel_conn)?;
                 let start = Instant::now();
                 for i in 0..n {
-                    diesel::sql_query("INSERT INTO bench_users (name, email, age) VALUES ($1, $2, $3)")
-                        .bind::<diesel::sql_types::Text, _>(format!("user_{}", i))
-                        .bind::<diesel::sql_types::Text, _>(format!("user_{}@test.com", i))
-                        .bind::<diesel::sql_types::Integer, _>((i % 100) as i32)
-                        .execute(diesel_conn)?;
+                    diesel::sql_query(
+                        "INSERT INTO bench_users (name, email, age) VALUES ($1, $2, $3)",
+                    )
+                    .bind::<diesel::sql_types::Text, _>(format!("user_{}", i))
+                    .bind::<diesel::sql_types::Text, _>(format!("user_{}@test.com", i))
+                    .bind::<diesel::sql_types::Integer, _>((i % 100) as i32)
+                    .execute(diesel_conn)?;
                 }
                 diesel_times.push(start.elapsed());
             }
             print_row("diesel", &diesel_times);
-    }
-    #[cfg(not(feature = "diesel-postgres"))]
-    print_diesel_skipped("diesel-postgres feature not enabled");
+        }
+        #[cfg(not(feature = "diesel-postgres"))]
+        print_diesel_skipped("diesel-postgres feature not enabled");
     }
     #[cfg(not(feature = "diesel-postgres"))]
     print_diesel_skipped("diesel-postgres feature not enabled");
@@ -1533,16 +1598,17 @@ async fn bench_pg_insert(
         sqlx::query(PG_TRUNCATE).execute(sqlx_pool).await?;
         let start = Instant::now();
         for i in 0..n {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO bench_users (name, email, age) VALUES ($1, $2, $3)",
-                vec![
-                    format!("user_{}", i).into(),
-                    format!("user_{}@test.com", i).into(),
-                    ((i % 100) as i32).into(),
-                ],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "INSERT INTO bench_users (name, email, age) VALUES ($1, $2, $3)",
+                    vec![
+                        format!("user_{}", i).into(),
+                        format!("user_{}@test.com", i).into(),
+                        ((i % 100) as i32).into(),
+                    ],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1622,16 +1688,17 @@ async fn bench_pg_select_by_id(
                         #[diesel(sql_type = Integer)]
                         age: i32,
                     }
-                    let _row: UserRow = diesel::sql_query("SELECT name, email, age FROM bench_users WHERE id = $1")
-                        .bind::<BigInt, _>(id)
-                        .get_result(diesel_conn)?;
+                    let _row: UserRow =
+                        diesel::sql_query("SELECT name, email, age FROM bench_users WHERE id = $1")
+                            .bind::<BigInt, _>(id)
+                            .get_result(diesel_conn)?;
                 }
                 diesel_times.push(start.elapsed());
             }
             print_row("diesel", &diesel_times);
-    }
-    #[cfg(not(feature = "diesel-postgres"))]
-    print_diesel_skipped("diesel-postgres feature not enabled");
+        }
+        #[cfg(not(feature = "diesel-postgres"))]
+        print_diesel_skipped("diesel-postgres feature not enabled");
     }
     #[cfg(not(feature = "diesel-postgres"))]
     print_diesel_skipped("diesel-postgres feature not enabled");
@@ -1727,8 +1794,9 @@ async fn bench_pg_select_all(
                 #[diesel(sql_type = Integer)]
                 age: i32,
             }
-            let rows: Vec<UserRowAll> = diesel::sql_query("SELECT id, name, email, age FROM bench_users")
-                .get_results(diesel_conn)?;
+            let rows: Vec<UserRowAll> =
+                diesel::sql_query("SELECT id, name, email, age FROM bench_users")
+                    .get_results(diesel_conn)?;
             diesel_times.push(start.elapsed());
             let _ = rows.len();
         }
@@ -1825,9 +1893,9 @@ async fn bench_pg_update(
                 diesel_times.push(start.elapsed());
             }
             print_row("diesel", &diesel_times);
-    }
-    #[cfg(not(feature = "diesel-postgres"))]
-    print_diesel_skipped("diesel-postgres feature not enabled");
+        }
+        #[cfg(not(feature = "diesel-postgres"))]
+        print_diesel_skipped("diesel-postgres feature not enabled");
     }
     #[cfg(not(feature = "diesel-postgres"))]
     print_diesel_skipped("diesel-postgres feature not enabled");
@@ -1838,12 +1906,13 @@ async fn bench_pg_update(
         let start = Instant::now();
         for i in 0..updates {
             let id = (i % prepare_n) as i64 + 1;
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "UPDATE bench_users SET name = $1 WHERE id = $2",
-                vec!["updated_name".into(), id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE bench_users SET name = $1 WHERE id = $2",
+                    vec!["updated_name".into(), id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1912,9 +1981,9 @@ async fn bench_pg_delete(
                 diesel_times.push(start.elapsed());
             }
             print_row("diesel", &diesel_times);
-    }
-    #[cfg(not(feature = "diesel-postgres"))]
-    print_diesel_skipped("diesel-postgres feature not enabled");
+        }
+        #[cfg(not(feature = "diesel-postgres"))]
+        print_diesel_skipped("diesel-postgres feature not enabled");
     }
     #[cfg(not(feature = "diesel-postgres"))]
     print_diesel_skipped("diesel-postgres feature not enabled");
@@ -1926,12 +1995,13 @@ async fn bench_pg_delete(
         batch_insert_pg(sqlx_pool, n, 100).await?;
         let start = Instant::now();
         for id in 1..=(n as i64) {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "DELETE FROM bench_users WHERE id = $1",
-                vec![id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM bench_users WHERE id = $1",
+                    vec![id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1952,7 +2022,9 @@ fn parse_oracle_url(url: &str) -> Result<(String, String, String), BoxError> {
     let at_pos = url.rfind('@').ok_or("invalid oracle url: missing '@'")?;
     let user_pass = &url[..at_pos];
     let connect_string = &url[at_pos + 1..];
-    let slash_pos = user_pass.find('/').ok_or("invalid oracle url: missing '/' in user/pass")?;
+    let slash_pos = user_pass
+        .find('/')
+        .ok_or("invalid oracle url: missing '/' in user/pass")?;
     let username = user_pass[..slash_pos].to_string();
     let password = user_pass[slash_pos + 1..].to_string();
     Ok((username, password, connect_string.to_string()))
@@ -1962,13 +2034,22 @@ fn parse_oracle_url(url: &str) -> Result<(String, String, String), BoxError> {
 async fn run_oracle_bench(url: &str) -> Result<(), BoxError> {
     println!("## Oracle Benchmark\n");
     println!("Connection: `{}`", mask_url(url));
-    println!("Rows per scenario: {} (queries: {})\n", REMOTE_ROWS, REMOTE_QUERIES);
+    println!(
+        "Rows per scenario: {} (queries: {})\n",
+        REMOTE_ROWS, REMOTE_QUERIES
+    );
 
     let (username, password, connect_string) = parse_oracle_url(url)?;
 
     // SZ-ORM Oracle
-    let sz_handle = Arc::new(sz_orm_oracle::OraclePoolHandle::connect(&username, &password, &connect_string)?);
-    let sz_factory = Arc::new(sz_orm_oracle::OracleConnectionFactory::new(sz_handle.clone()));
+    let sz_handle = Arc::new(sz_orm_oracle::OraclePoolHandle::connect(
+        &username,
+        &password,
+        &connect_string,
+    )?);
+    let sz_factory = Arc::new(sz_orm_oracle::OracleConnectionFactory::new(
+        sz_handle.clone(),
+    ));
     let sz_config = PoolConfigBuilder::new().max_size(10).build()?;
     let sz_pool = SzPool::new(sz_config, sz_factory)?;
 
@@ -2039,7 +2120,8 @@ async fn bench_oracle_insert(
     for _ in 0..TRIALS {
         let conn = oracle::Connection::connect(username, password, connect_string)
             .map_err(|e| -> BoxError { format!("oracle connect failed: {}", e).into() })?;
-        conn.execute(ORACLE_TRUNCATE, &[]).map_err(|e| -> BoxError { e.to_string().into() })?;
+        conn.execute(ORACLE_TRUNCATE, &[])
+            .map_err(|e| -> BoxError { e.to_string().into() })?;
         let start = Instant::now();
         for i in 0..n {
             let stmt = conn
@@ -2091,7 +2173,9 @@ async fn bench_oracle_select_by_id(
         for i in chunk_start..chunk_end {
             sql.push_str(&format!(
                 "INTO bench_users (name, email, age) VALUES ('user_{}', 'user_{}@test.com', {}) ",
-                i, i, i % 100
+                i,
+                i,
+                i % 100
             ));
         }
         sql.push_str("SELECT 1 FROM DUAL");
@@ -2207,7 +2291,9 @@ async fn bench_oracle_select_all(
     for _ in 0..TRIALS {
         let conn = oracle::Connection::connect(username, password, connect_string)?;
         let start = Instant::now();
-        let stmt = conn.statement("SELECT id, name, email, age FROM bench_users").build()?;
+        let stmt = conn
+            .statement("SELECT id, name, email, age FROM bench_users")
+            .build()?;
         let rows = stmt.query(&[])?;
         let count = rows.count();
         raw_times.push(start.elapsed());
@@ -2359,7 +2445,9 @@ async fn bench_oracle_delete(
         }
         let start = Instant::now();
         for id in 1..=(n as i64) {
-            let stmt = conn.statement("DELETE FROM bench_users WHERE id = :1").build()?;
+            let stmt = conn
+                .statement("DELETE FROM bench_users WHERE id = :1")
+                .build()?;
             stmt.execute(&[], &[&id])?;
         }
         raw_times.push(start.elapsed());
@@ -2383,7 +2471,10 @@ async fn main() -> Result<(), BoxError> {
 
     println!("# Cross-DB × Cross-ORM Benchmark Results");
     println!();
-    println!("Generated: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "Generated: {}",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
     println!();
     println!("## Matrix");
     println!();
@@ -2410,9 +2501,27 @@ async fn main() -> Result<(), BoxError> {
     println!();
     println!("## Env");
     println!();
-    println!("- `DATABASE_URL_MYSQL` = `{}`", mysql_url.as_deref().map(mask_url).unwrap_or("(not set, skip)".into()));
-    println!("- `DATABASE_URL_POSTGRES` = `{}`", pg_url.as_deref().map(mask_url).unwrap_or("(not set, skip)".into()));
-    println!("- `DATABASE_URL_ORACLE` = `{}`", oracle_url.as_deref().map(mask_url).unwrap_or("(not set, skip)".into()));
+    println!(
+        "- `DATABASE_URL_MYSQL` = `{}`",
+        mysql_url
+            .as_deref()
+            .map(mask_url)
+            .unwrap_or("(not set, skip)".into())
+    );
+    println!(
+        "- `DATABASE_URL_POSTGRES` = `{}`",
+        pg_url
+            .as_deref()
+            .map(mask_url)
+            .unwrap_or("(not set, skip)".into())
+    );
+    println!(
+        "- `DATABASE_URL_ORACLE` = `{}`",
+        oracle_url
+            .as_deref()
+            .map(mask_url)
+            .unwrap_or("(not set, skip)".into())
+    );
     println!();
     println!("Pool: max_connections=10 (all ORMs)");
     println!("Trials per scenario: {} (median reported)", TRIALS);

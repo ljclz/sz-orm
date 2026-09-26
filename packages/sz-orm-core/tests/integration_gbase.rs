@@ -4,6 +4,9 @@
 //! 生成的 SQL 与 SqlServerDialect 一致。用 SQL Server 验证兼容性。
 //!
 //! 运行方式：cargo test -p sz-orm-core --test integration_gbase -- --ignored --nocapture
+//!
+//! 凭据不入库：真实 DB 用例需通过环境变量 `SZ_ORM_GBASE_HOST/PORT/USER/PASSWORD/DATABASE`
+//! 显式配置，未配置时用例自动跳过。
 
 use std::sync::atomic::{AtomicU64, Ordering};
 use sz_orm_core::dialect::{get_dialect, ColumnDef};
@@ -13,33 +16,39 @@ use tiberius::Client;
 use tiberius::Config;
 use tokio_util::compat::TokioAsyncWriteCompatExt;
 
-const MSSQL_HOST_DEFAULT: &str = "sh-mssql-adrul9nm.sql.tencentcdb.com";
-const MSSQL_PORT_DEFAULT: u16 = 22527;
-const MSSQL_USER_DEFAULT: &str = "test";
-const MSSQL_PASSWORD_DEFAULT: &str = "JkbC2jsaWAYDe2Gz";
+// 凭据一律走环境变量（SZ_ORM_GBASE_*），源码中不落任何真实主机/账号/密码。
+// 以下默认值均为占位符，仅用于编译通过；未配置环境变量时真实 DB 用例自动跳过。
+const MSSQL_HOST_DEFAULT: &str = "gbase.invalid";
+const MSSQL_PORT_DEFAULT: u16 = 1433;
+const MSSQL_USER_DEFAULT: &str = "sa";
+const MSSQL_PASSWORD_DEFAULT: &str = "<configure-via-env>";
 const MSSQL_DATABASE_DEFAULT: &str = "test";
 
+fn gbase_configured() -> bool {
+    std::env::var("SZ_ORM_GBASE_HOST").is_ok()
+}
+
 fn mssql_host() -> String {
-    std::env::var("SZ_ORM_MSSQL_HOST").unwrap_or_else(|_| MSSQL_HOST_DEFAULT.to_string())
+    std::env::var("SZ_ORM_GBASE_HOST").unwrap_or_else(|_| MSSQL_HOST_DEFAULT.to_string())
 }
 
 fn mssql_port() -> u16 {
-    std::env::var("SZ_ORM_MSSQL_PORT")
+    std::env::var("SZ_ORM_GBASE_PORT")
         .ok()
         .and_then(|v| v.parse().ok())
         .unwrap_or(MSSQL_PORT_DEFAULT)
 }
 
 fn mssql_user() -> String {
-    std::env::var("SZ_ORM_MSSQL_USER").unwrap_or_else(|_| MSSQL_USER_DEFAULT.to_string())
+    std::env::var("SZ_ORM_GBASE_USER").unwrap_or_else(|_| MSSQL_USER_DEFAULT.to_string())
 }
 
 fn mssql_password() -> String {
-    std::env::var("SZ_ORM_MSSQL_PASSWORD").unwrap_or_else(|_| MSSQL_PASSWORD_DEFAULT.to_string())
+    std::env::var("SZ_ORM_GBASE_PASSWORD").unwrap_or_else(|_| MSSQL_PASSWORD_DEFAULT.to_string())
 }
 
 fn mssql_database() -> String {
-    std::env::var("SZ_ORM_MSSQL_DATABASE").unwrap_or_else(|_| MSSQL_DATABASE_DEFAULT.to_string())
+    std::env::var("SZ_ORM_GBASE_DATABASE").unwrap_or_else(|_| MSSQL_DATABASE_DEFAULT.to_string())
 }
 
 async fn open_client() -> Client<tokio_util::compat::Compat<tokio::net::TcpStream>> {
@@ -165,8 +174,12 @@ fn test_gbase_dialect_not_sqlserver_db_type() {
 // ==================== 真实 DB 集成测试（SQL Server） ====================
 
 #[tokio::test]
-#[ignore = "需要 SQL Server 运行（设置 SZ_ORM_MSSQL_* 环境变量覆盖）"]
+#[ignore = "需要 GBase/SQL Server 运行（设置 SZ_ORM_GBASE_* 环境变量，未配置自动跳过）"]
 async fn test_gbase_crud_on_mssql() {
+    if !gbase_configured() {
+        eprintln!("跳过：GBase 云实例未配置（设置 SZ_ORM_GBASE_HOST 等启用）");
+        return;
+    }
     let mut client = open_client().await;
     let dialect = get_dialect(DbType::GBase).unwrap();
     let table = unique_table("crud");
@@ -228,8 +241,12 @@ async fn test_gbase_crud_on_mssql() {
 }
 
 #[tokio::test]
-#[ignore = "需要 SQL Server 运行（设置 SZ_ORM_MSSQL_* 环境变量覆盖）"]
+#[ignore = "需要 GBase/SQL Server 运行（设置 SZ_ORM_GBASE_* 环境变量，未配置自动跳过）"]
 async fn test_gbase_pagination_on_mssql() {
+    if !gbase_configured() {
+        eprintln!("跳过：GBase 云实例未配置（设置 SZ_ORM_GBASE_HOST 等启用）");
+        return;
+    }
     let mut client = open_client().await;
     let dialect = get_dialect(DbType::GBase).unwrap();
     let table = unique_table("page");

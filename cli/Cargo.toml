@@ -90,3 +90,7 @@ path = "tests/cli_doc_gen_test.rs"
 [[test]]
 name = "cli_entity_gen_ext_test"
 path = "tests/cli_entity_gen_ext_test.rs"
+
+# feature 门控依赖：cargo-machete 静态扫描不可见其 feature 引用（2026-09-26 审计 G23 登记豁免）
+[package.metadata.cargo-machete]
+ignored = ["sz-orm-dtx", "sz-orm-vector"]

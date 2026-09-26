@@ -72,7 +72,7 @@ ai-closed-loop = ["ai-autonomous-loop"]
 ai-ab-testing = ["autonomous-xai"]
 ai-model-versioning = ["multi-llm"]
 [package.metadata.cargo-machete]
-ignored = ['base64']
+ignored = ["base64", "sz-orm-adaptive", "sz-orm-explain", "sz-orm-health"]
 [dependencies]
 async-trait = "0.1"
 tokio = { version = "1.40", features = ["full"] }

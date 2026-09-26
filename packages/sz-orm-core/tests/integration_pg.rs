@@ -5,7 +5,7 @@
 //!
 //! 超大数据量场景：10 万条记录 CRUD、8 任务并发读写、批量插入性能基线。
 //!
-//! 测试数据库：postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test
+//! 测试数据库：postgres://postgres:test123@127.0.0.1:5432/sz_orm_test
 //!
 //! 运行方式：cargo test --package sz-orm-core --test integration_pg -- --ignored --nocapture
 

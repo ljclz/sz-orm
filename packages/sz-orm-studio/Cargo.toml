@@ -23,7 +23,6 @@ tokio = { workspace = true }
 tower-http = { version = "0.6", features = ["cors", "trace"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-tracing = { workspace = true }
 parking_lot = { workspace = true }
 
 [dev-dependencies]
@@ -38,3 +37,7 @@ path = "tests/studio_e2e.rs"
 [[test]]
 name = "server_unit_test"
 path = "tests/server_unit_test.rs"
+
+# feature 门控依赖：cargo-machete 静态扫描不可见其 feature 引用（2026-09-26 审计 G23 登记豁免）
+[package.metadata.cargo-machete]
+ignored = ["tracing"]

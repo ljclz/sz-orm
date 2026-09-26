@@ -135,13 +135,22 @@ fn print_header(trials: usize) {
 fn print_row(name: &str, times: &[Duration]) {
     let med = median(times.to_vec());
     let trials_str: Vec<String> = times.iter().map(|t| fmt_dur(*t)).collect();
-    println!("| {} | {} | {} |", name, trials_str.join(" | "), fmt_dur(med));
+    println!(
+        "| {} | {} | {} |",
+        name,
+        trials_str.join(" | "),
+        fmt_dur(med)
+    );
 }
 
 /// 批量插入数据用于 setup（MySQL，使用多行 VALUES 加速远程 DB 写入）
 ///
 /// 将 N 行拆分为 batch_size 行/批次，减少网络 RTT 次数。
-async fn batch_insert_mysql(sqlx_pool: &sqlx::MySqlPool, n: usize, batch_size: usize) -> Result<(), BoxError> {
+async fn batch_insert_mysql(
+    sqlx_pool: &sqlx::MySqlPool,
+    n: usize,
+    batch_size: usize,
+) -> Result<(), BoxError> {
     let mut inserted = 0;
     while inserted < n {
         let batch_end = (inserted + batch_size).min(n);
@@ -152,7 +161,9 @@ async fn batch_insert_mysql(sqlx_pool: &sqlx::MySqlPool, n: usize, batch_size: u
             }
             sql.push_str(&format!(
                 "('user_{}', 'user_{}@test.com', {})",
-                i, i, i % 100
+                i,
+                i,
+                i % 100
             ));
         }
         let sql_ref = sql;
@@ -165,7 +176,11 @@ async fn batch_insert_mysql(sqlx_pool: &sqlx::MySqlPool, n: usize, batch_size: u
 }
 
 /// 批量插入数据用于 setup（PostgreSQL，使用多行 VALUES 加速远程 DB 写入）
-async fn batch_insert_pg(sqlx_pool: &sqlx::PgPool, n: usize, batch_size: usize) -> Result<(), BoxError> {
+async fn batch_insert_pg(
+    sqlx_pool: &sqlx::PgPool,
+    n: usize,
+    batch_size: usize,
+) -> Result<(), BoxError> {
     let mut inserted = 0;
     while inserted < n {
         let batch_end = (inserted + batch_size).min(n);
@@ -176,7 +191,9 @@ async fn batch_insert_pg(sqlx_pool: &sqlx::PgPool, n: usize, batch_size: usize) 
             }
             sql.push_str(&format!(
                 "('user_{}', 'user_{}@test.com', {})",
-                i, i, i % 100
+                i,
+                i,
+                i % 100
             ));
         }
         let sql_ref = sql;
@@ -333,16 +350,17 @@ async fn bench_insert_mysql(
         sqlx::query(TRUNCATE_MYSQL).execute(sqlx_pool).await?;
         let start = Instant::now();
         for i in 0..n {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::MySql,
-                "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
-                vec![
-                    format!("user_{}", i).into(),
-                    format!("user_{}@test.com", i).into(),
-                    ((i % 100) as i32).into(),
-                ],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::MySql,
+                    "INSERT INTO bench_users (name, email, age) VALUES (?, ?, ?)",
+                    vec![
+                        format!("user_{}", i).into(),
+                        format!("user_{}@test.com", i).into(),
+                        ((i % 100) as i32).into(),
+                    ],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -441,7 +459,9 @@ async fn bench_select_all_mysql(
     for _ in 0..trials {
         let start = Instant::now();
         let mut conn = sz_pool.acquire().await?;
-        let rows = conn.query("SELECT id, name, email, age FROM bench_users").await?;
+        let rows = conn
+            .query("SELECT id, name, email, age FROM bench_users")
+            .await?;
         sz_times.push(start.elapsed());
         let _ = rows.len();
     }
@@ -537,12 +557,13 @@ async fn bench_update_mysql(
         let start = Instant::now();
         for i in 0..updates {
             let id = (i % prepare_n) as i64 + 1;
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::MySql,
-                "UPDATE bench_users SET name = ? WHERE id = ?",
-                vec!["updated_name".into(), id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::MySql,
+                    "UPDATE bench_users SET name = ? WHERE id = ?",
+                    vec!["updated_name".into(), id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -601,12 +622,13 @@ async fn bench_delete_mysql(
         batch_insert_mysql(sqlx_pool, n, 100).await?;
         let start = Instant::now();
         for id in 1..=(n as i64) {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::MySql,
-                "DELETE FROM bench_users WHERE id = ?",
-                vec![id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::MySql,
+                    "DELETE FROM bench_users WHERE id = ?",
+                    vec![id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -632,12 +654,11 @@ async fn ensure_pg_database(url: &str) -> Result<(), BoxError> {
                 .max_connections(1)
                 .connect(&base_url)
                 .await?;
-            let exists: bool = sqlx::query_scalar(
-                "SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)",
-            )
-            .bind(db_name)
-            .fetch_one(&pool)
-            .await?;
+            let exists: bool =
+                sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pg_database WHERE datname = $1)")
+                    .bind(db_name)
+                    .fetch_one(&pool)
+                    .await?;
             if !exists {
                 let create_sql = format!("CREATE DATABASE \"{}\"", db_name);
                 sqlx::query(sqlx::AssertSqlSafe(&*create_sql))
@@ -751,16 +772,17 @@ async fn bench_insert_pg(
         sqlx::query(TRUNCATE_PG).execute(sqlx_pool).await?;
         let start = Instant::now();
         for i in 0..n {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "INSERT INTO bench_users (name, email, age) VALUES ($1, $2, $3)",
-                vec![
-                    format!("user_{}", i).into(),
-                    format!("user_{}@test.com", i).into(),
-                    ((i % 100) as i32).into(),
-                ],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "INSERT INTO bench_users (name, email, age) VALUES ($1, $2, $3)",
+                    vec![
+                        format!("user_{}", i).into(),
+                        format!("user_{}@test.com", i).into(),
+                        ((i % 100) as i32).into(),
+                    ],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -859,7 +881,9 @@ async fn bench_select_all_pg(
     for _ in 0..trials {
         let start = Instant::now();
         let mut conn = sz_pool.acquire().await?;
-        let rows = conn.query("SELECT id, name, email, age FROM bench_users").await?;
+        let rows = conn
+            .query("SELECT id, name, email, age FROM bench_users")
+            .await?;
         sz_times.push(start.elapsed());
         let _ = rows.len();
     }
@@ -955,12 +979,13 @@ async fn bench_update_pg(
         let start = Instant::now();
         for i in 0..updates {
             let id = (i % prepare_n) as i64 + 1;
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "UPDATE bench_users SET name = $1 WHERE id = $2",
-                vec!["updated_name".into(), id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "UPDATE bench_users SET name = $1 WHERE id = $2",
+                    vec!["updated_name".into(), id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1018,12 +1043,13 @@ async fn bench_delete_pg(
         batch_insert_pg(sqlx_pool, n, 100).await?;
         let start = Instant::now();
         for id in 1..=(n as i64) {
-            sea_db.execute(Statement::from_sql_and_values(
-                DatabaseBackend::Postgres,
-                "DELETE FROM bench_users WHERE id = $1",
-                vec![id.into()],
-            ))
-            .await?;
+            sea_db
+                .execute(Statement::from_sql_and_values(
+                    DatabaseBackend::Postgres,
+                    "DELETE FROM bench_users WHERE id = $1",
+                    vec![id.into()],
+                ))
+                .await?;
         }
         sea_times.push(start.elapsed());
     }
@@ -1043,7 +1069,10 @@ async fn main() -> Result<(), BoxError> {
 
     println!("# SZ-ORM Benchmark Results (Real DBs)");
     println!();
-    println!("Generated: {}", chrono::Local::now().format("%Y-%m-%d %H:%M:%S"));
+    println!(
+        "Generated: {}",
+        chrono::Local::now().format("%Y-%m-%d %H:%M:%S")
+    );
     println!();
     println!("Scenarios (per DB, 3 ORMs: SZ-ORM / SQLx / SeaORM):");
     println!("- INSERT 1K          (远程 WAN 下 10K/100K 耗时过长，统一下调至 1K)");
