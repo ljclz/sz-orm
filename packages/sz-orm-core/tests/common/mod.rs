@@ -32,12 +32,15 @@ use tokio::sync::Mutex;
 pub struct InMemoryDb {
     /// 表名 -> 行列表（每行是字段名到值的映射）
     tables: std::collections::HashMap<String, Vec<std::collections::HashMap<String, Value>>>,
+    /// 归还路径自动回滚的调用计数（供归还回滚契约测试观测，v9.0.0）
+    pub rollback_calls: u64,
 }
 
 impl InMemoryDb {
     pub fn new() -> Self {
         Self {
             tables: std::collections::HashMap::new(),
+            rollback_calls: 0,
         }
     }
 
@@ -233,6 +236,8 @@ impl Connection for MockConnection {
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
+            self.db.lock().await.rollback_calls += 1;
+            self.executed_sql.push("ROLLBACK".to_string());
             self.in_transaction = false;
             Ok(())
         })
@@ -240,6 +245,10 @@ impl Connection for MockConnection {
 
     fn is_connected(&self) -> bool {
         self.connected
+    }
+
+    fn in_transaction(&self) -> bool {
+        self.in_transaction
     }
 
     fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {

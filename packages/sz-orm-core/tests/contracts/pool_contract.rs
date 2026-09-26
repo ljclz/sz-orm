@@ -187,6 +187,87 @@ async fn test_return_raw_rejects_after_close_all_contract() {
     }
 }
 
+// ===== §5.6 归还路径事务回滚契约（v9.0.0 MDL 挂死缺陷回归） =====
+
+#[tokio::test]
+async fn test_release_rolls_back_uncommitted_tx_contract() {
+    let db = Arc::new(Mutex::new(InMemoryDb::new()));
+    let factory = Arc::new(MockConnectionFactory::new(db.clone()));
+    let config = PoolConfigBuilder::new()
+        .max_size(1)
+        .acquire_timeout(1)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.begin_transaction().await.unwrap();
+    drop(conn); // Drop → spawn release → 归还回滚
+
+    tokio::time::sleep(Duration::from_millis(100)).await;
+    assert_eq!(
+        db.lock().await.rollback_calls,
+        1,
+        "带未提交事务的连接归还时必须自动回滚（MDL 挂死缺陷回归）"
+    );
+
+    // 回滚后的连接重回池中且事务标志已清；无事务的归还不得重复回滚
+    let conn = pool.acquire().await.unwrap();
+    assert!(!conn.in_transaction(), "回滚后事务标志应清除");
+    pool.release(conn).await;
+    assert_eq!(
+        db.lock().await.rollback_calls,
+        1,
+        "无事务的归还不得触发回滚"
+    );
+}
+
+#[tokio::test]
+async fn test_release_clean_connection_skips_rollback_contract() {
+    let db = Arc::new(Mutex::new(InMemoryDb::new()));
+    let factory = Arc::new(MockConnectionFactory::new(db.clone()));
+    let config = PoolConfigBuilder::new()
+        .max_size(1)
+        .acquire_timeout(1)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let conn = pool.acquire().await.unwrap();
+    pool.release(conn).await;
+    assert_eq!(
+        db.lock().await.rollback_calls,
+        0,
+        "无事务连接的归还不得触发回滚（防误杀）"
+    );
+}
+
+#[tokio::test]
+async fn test_return_raw_rolls_back_open_tx_contract() {
+    let db = Arc::new(Mutex::new(InMemoryDb::new()));
+    let factory = Arc::new(MockConnectionFactory::new(db.clone()));
+    let config = PoolConfigBuilder::new()
+        .max_size(1)
+        .acquire_timeout(1)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let conn = pool.acquire().await.unwrap();
+    let mut raw = conn.into_inner();
+    raw.begin_transaction().await.unwrap();
+    pool.return_raw(raw).await.unwrap();
+
+    assert_eq!(
+        db.lock().await.rollback_calls,
+        1,
+        "return_raw 必须回滚未提交事务"
+    );
+    let conn = pool.acquire().await.unwrap();
+    assert!(!conn.in_transaction(), "回滚后事务标志应清除");
+    pool.release(conn).await;
+}
+
 #[tokio::test]
 async fn test_pooled_connection_deref_to_dyn_connection_contract() {
     use std::ops::Deref;
