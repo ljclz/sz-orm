@@ -226,8 +226,10 @@ async fn mysql_drop_uncommitted_tx_auto_rollback_on_release() {
 
     // 断言 2（缺陷核心症状）：同池连接的 DDL 不再被 MDL 阻塞；
     // 修复前此 DROP 永久挂起（MySQL lock_wait_timeout 默认 1 年）
+    // 30s：高负载（如 CI 并行编译）下 10s 窗口会时序误报；回归语义是
+    // "永久挂死"，30s 依然充分（修复后实测 <0.3s）
     let dropped = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(30),
         conn.execute(&format!("DROP TABLE IF EXISTS {}", table)),
     )
     .await;
@@ -630,8 +632,10 @@ async fn pg_drop_uncommitted_tx_auto_rollback_on_release() {
         .expect("应包含 cnt 字段");
     assert_eq!(cnt, 1, "未提交事务应在连接归还时被自动回滚");
 
+    // 30s：高负载（如 CI 并行编译）下 10s 窗口会时序误报；回归语义是
+    // "永久挂死"，30s 依然充分（修复后实测 <0.3s）
     let dropped = tokio::time::timeout(
-        std::time::Duration::from_secs(10),
+        std::time::Duration::from_secs(30),
         conn.execute(&format!("DROP TABLE IF EXISTS {}", table)),
     )
     .await;
