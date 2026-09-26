@@ -124,15 +124,20 @@ fn row_to_value_with_coltype_sqlite(
             }
         }
         ColType::Unknown => {
-            // 未知类型，按 bool → i64 → f64 → String 顺序回退
-            if let Ok(v) = row.try_get::<Option<bool>, usize>(ordinal) {
-                return v.map(Value::Bool).unwrap_or(Value::Null);
-            }
+            // 未知类型（表达式/聚合列，SQLite type_info 返回空串），按
+            // i64 → f64 → bool → String 顺序回退（与 MySQL/PG 臂一致）。
+            // 修复前 bool 优先：任意非零整数被解码为 Bool(true)，下游
+            // as_i64() 恒为 1 —— COUNT(*)=50 被读成 1（2026-09-25 实测
+            // 复现的静默读损坏）。表达式布尔值读为 I64(0/1)，as_bool()
+            // 对整数类型语义不变。
             if let Ok(v) = row.try_get::<Option<i64>, usize>(ordinal) {
                 return v.map(Value::I64).unwrap_or(Value::Null);
             }
             if let Ok(v) = row.try_get::<Option<f64>, usize>(ordinal) {
                 return v.map(Value::F64).unwrap_or(Value::Null);
+            }
+            if let Ok(v) = row.try_get::<Option<bool>, usize>(ordinal) {
+                return v.map(Value::Bool).unwrap_or(Value::Null);
             }
             if let Ok(v) = row.try_get::<Option<String>, usize>(ordinal) {
                 return v.map(Value::String).unwrap_or(Value::Null);

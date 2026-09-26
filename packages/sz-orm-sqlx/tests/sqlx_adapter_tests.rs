@@ -3,7 +3,7 @@
 use std::collections::HashMap;
 use std::sync::Arc;
 use sz_orm_core::Value;
-use sz_orm_core::{ConnectionFactory, PoolConfigBuilder};
+use sz_orm_core::{ConnectionFactory, Pool, PoolConfigBuilder};
 use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
 
 async fn setup_sqlite_pool() -> Arc<SqlitePoolHandle> {
@@ -499,4 +499,127 @@ async fn test_sqlx_sqlite_query_with_params_value_types() {
 #[allow(dead_code)]
 fn _suppress_hashmap_warning() -> HashMap<String, Value> {
     HashMap::new()
+}
+
+/// 回归测试（2026-09-25 深度检查发现）：流式查询提前弃读 → 毒化连接不得回池
+///
+/// 缺陷：query_stream 将 PoolConnection 从包装器 take() 出去（self.conn = None），
+/// 提前 drop 流后包装器毒化但 connected 仍为 true，回池后下次 acquire 借出即报
+/// "connection already closed"。修复后 is_connected 纳入 conn.is_some()，
+/// acquire 路径过滤并关闭毒化连接（自愈）。
+/// 使用 SQLite 文件库（非 ignored，跨池连接可见；同时作为 is_connected
+/// 逻辑的变异测试杀手）。
+#[tokio::test]
+async fn test_sqlite_stream_abandon_self_heals_on_reacquire() {
+    use futures::StreamExt;
+    let db_url = format!(
+        "sqlite://{}/szorm_stream_leak_{}.db?mode=rwc",
+        std::env::temp_dir()
+            .display()
+            .to_string()
+            .replace('\\', "/"),
+        std::process::id()
+    );
+    let db_path = std::env::temp_dir().join(format!("szorm_stream_leak_{}.db", std::process::id()));
+    let pool_handle = SqlitePoolHandle::connect(&db_url)
+        .await
+        .expect("sqlite 文件库连接失败");
+    let factory = Arc::new(SqlxSqliteConnectionFactory::new(Arc::new(pool_handle)));
+    let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute("CREATE TABLE stream_leak (id INTEGER PRIMARY KEY)")
+        .await
+        .unwrap();
+    for i in 0..50i64 {
+        conn.execute(&format!("INSERT INTO stream_leak (id) VALUES ({})", i))
+            .await
+            .unwrap();
+    }
+
+    // 读 1 行后提前弃读：PoolConnection 已被 take 出包装器
+    {
+        let select_sql = "SELECT id FROM stream_leak".to_string();
+        let mut stream = conn.query_stream(&select_sql);
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first.get("id").and_then(|v| v.as_i64()), Some(0));
+        // drop(stream) —— 弃读
+    }
+    drop(conn); // 毒化包装器经 release 回池
+
+    // 重新 acquire：毒化连接应被过滤关闭，借出的是新建连接
+    let mut conn2 = pool.acquire().await.unwrap();
+    let rows = conn2
+        .query("SELECT COUNT(*) AS cnt FROM stream_leak")
+        .await
+        .unwrap();
+    let cnt = rows[0].get("cnt").and_then(|v| v.as_i64()).unwrap_or(-1);
+    assert_eq!(cnt, 50, "重借连接应可正常查询（毒化连接已被过滤关闭）");
+    conn2.execute("DROP TABLE stream_leak").await.ok();
+    pool.release(conn2).await;
+    let _ = std::fs::remove_file(&db_path);
+}
+
+/// 回归测试（2026-09-25 深度检查发现）：聚合表达式列不得被 bool 优先回退损坏
+///
+/// 缺陷：SQLite 表达式列（聚合等）type_info 返回空串 → ColType::Unknown →
+/// 回退链 bool 优先 → COUNT(*)=50 解码为 Bool(true) → as_i64() 读出 1
+/// （静默读损坏：所有非零整数聚合恒读为 1，0 读为 0，历史测试全是"期望 1"
+/// 故从未暴露）。修复后 i64 优先，与 MySQL/PG 臂一致。
+#[tokio::test]
+async fn test_sqlite_aggregate_expressions_not_corrupted() {
+    let factory = setup_sqlite_factory().await;
+    let mut conn = factory.create().await.unwrap();
+    conn.execute("CREATE TABLE agg_t (id INTEGER PRIMARY KEY, score INTEGER NOT NULL)")
+        .await
+        .unwrap();
+    for i in 0..8i64 {
+        conn.execute(&format!(
+            "INSERT INTO agg_t (id, score) VALUES ({}, {})",
+            i,
+            i * 10
+        ))
+        .await
+        .unwrap();
+    }
+
+    let rows = conn
+        .query("SELECT COUNT(*) AS cnt FROM agg_t")
+        .await
+        .unwrap();
+    assert_eq!(
+        rows[0].get("cnt").and_then(|v| v.as_i64()),
+        Some(8),
+        "COUNT(*) 不得被 bool 回退损坏为 1"
+    );
+
+    let rows = conn
+        .query("SELECT SUM(score) AS total FROM agg_t")
+        .await
+        .unwrap();
+    assert_eq!(
+        rows[0].get("total").and_then(|v| v.as_i64()),
+        Some(280),
+        "SUM 不得被损坏"
+    );
+
+    let rows = conn.query("SELECT MAX(id) AS m FROM agg_t").await.unwrap();
+    assert_eq!(
+        rows[0].get("m").and_then(|v| v.as_i64()),
+        Some(7),
+        "MAX 不得被损坏"
+    );
+
+    let rows = conn
+        .query("SELECT AVG(score) AS a FROM agg_t")
+        .await
+        .unwrap();
+    assert_eq!(
+        rows[0].get("a").and_then(|v| v.as_f64()),
+        Some(35.0),
+        "AVG 不得被损坏（280/8=35.0）"
+    );
+
+    conn.execute("DROP TABLE agg_t").await.ok();
 }
