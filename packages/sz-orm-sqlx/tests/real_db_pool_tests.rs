@@ -11,9 +11,9 @@ use sz_orm_sqlx::{
 };
 
 /// 默认 MySQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_MYSQL_URL` 覆盖以指向真实云数据库。
-const MYSQL_URL_DEFAULT: &str = "mysql://root:<your-password>@127.0.0.1:3306/sz_orm_test";
+const MYSQL_URL_DEFAULT: &str = "mysql://root:test123@127.0.0.1:3306/sz_orm_test";
 /// 默认 PostgreSQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_PG_URL` 覆盖以指向真实云数据库。
-const PG_URL_DEFAULT: &str = "postgres://postgres:<your-password>@127.0.0.1:5432/sz_orm_test";
+const PG_URL_DEFAULT: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
 
 fn mysql_url() -> String {
     std::env::var("SZ_ORM_MYSQL_URL").unwrap_or_else(|_| MYSQL_URL_DEFAULT.to_string())
@@ -237,6 +237,57 @@ async fn mysql_drop_uncommitted_tx_auto_rollback_on_release() {
     );
 
     pool.release(conn).await;
+}
+
+/// 回归测试（2026-09-25 深度检查发现）：流式查询提前弃读 → 毒化连接不得回池
+///
+/// 缺陷：query_stream 将 PoolConnection 从包装器 take() 出去（self.conn = None），
+/// 提前 drop 流后包装器毒化但 connected 仍为 true，回池后下次 acquire 借出即报
+/// "connection already closed"。修复后 is_connected 纳入 conn.is_some()，
+/// acquire 路径过滤并关闭毒化连接（自愈）。
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
+async fn mysql_stream_abandon_self_heals_on_reacquire() {
+    use futures::StreamExt;
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
+    let table = unique_table("mysql_stream_leak");
+    let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle.clone()));
+    let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute(&format!("CREATE TABLE {} (id INT PRIMARY KEY)", table))
+        .await
+        .unwrap();
+    for i in 0..50u32 {
+        conn.execute(&format!("INSERT INTO {} (id) VALUES ({})", table, i))
+            .await
+            .unwrap();
+    }
+
+    // 读 1 行后提前弃读：PoolConnection 已被 take 出包装器
+    {
+        let select_sql = format!("SELECT id FROM {}", table);
+        let mut stream = conn.query_stream(&select_sql);
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first.get("id").and_then(|v| v.as_i64()), Some(0));
+        // drop(stream) —— 弃读
+    }
+    drop(conn); // 毒化包装器经 release 回池
+
+    // 重新 acquire：毒化连接应被过滤关闭，借出的是新建连接
+    let mut conn2 = pool.acquire().await.unwrap();
+    let rows = conn2
+        .query(&format!("SELECT COUNT(*) AS cnt FROM {}", table))
+        .await
+        .unwrap();
+    let cnt = rows[0].get("cnt").and_then(|v| v.as_i64()).unwrap_or(-1);
+    assert_eq!(cnt, 50, "重借连接应可正常查询（毒化连接已被过滤关闭）");
+    conn2
+        .execute(&format!("DROP TABLE IF EXISTS {}", table))
+        .await
+        .ok();
+    pool.release(conn2).await;
 }
 
 #[tokio::test]
@@ -490,6 +541,51 @@ async fn pg_drop_uncommitted_tx_auto_rollback_on_release() {
     );
 
     pool.release(conn).await;
+}
+
+/// PG 回归测试（与 MySQL 弃读流测试对齐）：三后端 query_stream 同构 take() 模式，
+/// 毒化连接经 is_connected 修复后由 acquire 路径过滤自愈。
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
+async fn pg_stream_abandon_self_heals_on_reacquire() {
+    use futures::StreamExt;
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
+    let table = unique_table("pg_stream_leak");
+    let factory = Arc::new(SqlxPgConnectionFactory::new(pool_handle.clone()));
+    let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute(&format!("CREATE TABLE {} (id BIGINT PRIMARY KEY)", table))
+        .await
+        .unwrap();
+    for i in 0..50i64 {
+        conn.execute(&format!("INSERT INTO {} (id) VALUES ({})", table, i))
+            .await
+            .unwrap();
+    }
+
+    {
+        let select_sql = format!("SELECT id FROM {}", table);
+        let mut stream = conn.query_stream(&select_sql);
+        let first = stream.next().await.unwrap().unwrap();
+        assert_eq!(first.get("id").and_then(|v| v.as_i64()), Some(0));
+        // drop(stream) —— 弃读
+    }
+    drop(conn);
+
+    let mut conn2 = pool.acquire().await.unwrap();
+    let rows = conn2
+        .query(&format!("SELECT COUNT(*) AS cnt FROM {}", table))
+        .await
+        .unwrap();
+    let cnt = rows[0].get("cnt").and_then(|v| v.as_i64()).unwrap_or(-1);
+    assert_eq!(cnt, 50, "重借连接应可正常查询（毒化连接已被过滤关闭）");
+    conn2
+        .execute(&format!("DROP TABLE IF EXISTS {}", table))
+        .await
+        .ok();
+    pool.release(conn2).await;
 }
 
 #[tokio::test]

@@ -325,7 +325,10 @@ impl Connection for SqlxSqliteConnection {
     }
 
     fn is_connected(&self) -> bool {
-        self.connected
+        // 纳入 conn.is_some()：query_stream 提前弃读时 PoolConnection 已从包装器
+        // take() 出去（self.conn = None），毒化状态不得被判定为可用连接
+        // （否则回池后下次 acquire 借出即报 "connection already closed"）
+        self.connected && self.conn.is_some()
     }
 
     fn in_transaction(&self) -> bool {
@@ -1021,7 +1024,10 @@ impl Connection for SqlxMySqlConnection {
     }
 
     fn is_connected(&self) -> bool {
-        self.connected
+        // 纳入 conn.is_some()：query_stream 提前弃读时 PoolConnection 已从包装器
+        // take() 出去（self.conn = None），毒化状态不得被判定为可用连接
+        // （否则回池后下次 acquire 借出即报 "connection already closed"）
+        self.connected && self.conn.is_some()
     }
 
     fn in_transaction(&self) -> bool {
@@ -1713,7 +1719,10 @@ impl Connection for SqlxPgConnection {
     }
 
     fn is_connected(&self) -> bool {
-        self.connected
+        // 纳入 conn.is_some()：query_stream 提前弃读时 PoolConnection 已从包装器
+        // take() 出去（self.conn = None），毒化状态不得被判定为可用连接
+        // （否则回池后下次 acquire 借出即报 "connection already closed"）
+        self.connected && self.conn.is_some()
     }
 
     fn in_transaction(&self) -> bool {

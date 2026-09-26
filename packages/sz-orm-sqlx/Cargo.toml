@@ -54,6 +54,8 @@ db-backend-compat = []
 [dev-dependencies]
 tokio = { workspace = true, features = ["full", "test-util"] }
 proptest = { workspace = true }
+# 流式查询测试：StreamExt::next（与主依赖同一 workspace 版本，零额外编译）
+futures.workspace = true
 
 [lib]
 name = "sz_orm_sqlx"
