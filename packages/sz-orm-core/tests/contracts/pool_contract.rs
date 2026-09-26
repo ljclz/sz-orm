@@ -327,6 +327,53 @@ async fn test_return_raw_rollback_failure_rejects_contract() {
     assert_eq!(status.idle, 0, "回滚失败的连接不得进入空闲队列");
 }
 
+// ===== §5.8 连接复用与断连替换契约（v9.0.0：is_connected 判定双向锁定） =====
+
+#[tokio::test]
+async fn test_idle_connection_reused_not_recreated_contract() {
+    let pool = make_pool(1);
+
+    let conn = pool.acquire().await.unwrap();
+    pool.release(conn).await;
+    assert_eq!(
+        pool.pool_metrics().connection_created_count,
+        1,
+        "首次 acquire 恰创建 1 条连接"
+    );
+
+    // 再次 acquire 必须复用空闲连接，不得新建
+    // （is_connected 误判为 false 会把健康连接当作死连接丢弃重建）
+    let conn2 = pool.acquire().await.unwrap();
+    assert_eq!(
+        pool.pool_metrics().connection_created_count,
+        1,
+        "空闲连接必须被复用（is_connected 不得误杀健康连接）"
+    );
+    pool.release(conn2).await;
+}
+
+#[tokio::test]
+async fn test_disconnected_connection_replaced_on_acquire_contract() {
+    let pool = make_pool(1);
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.close().await.unwrap(); // 模拟连接在持有期间断开（mock: connected=false）
+    pool.release(conn).await;
+
+    // 死连接归还后，acquire 必须将其过滤关闭并新建补位（自愈），不得二次借出
+    let conn2 = pool.acquire().await.unwrap();
+    assert!(
+        conn2.is_connected(),
+        "借出的连接必须健康（死连接已被 acquire 路径过滤）"
+    );
+    assert_eq!(
+        pool.pool_metrics().connection_created_count,
+        2,
+        "断开的连接被替换：新建恰好 1 条补位"
+    );
+    pool.release(conn2).await;
+}
+
 #[tokio::test]
 async fn test_pooled_connection_deref_to_dyn_connection_contract() {
     use std::ops::Deref;
