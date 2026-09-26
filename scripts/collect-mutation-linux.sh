@@ -2,6 +2,8 @@
 # Collect mutation test results on Linux using cargo-mutants.
 #
 # Usage: bash scripts/collect-mutation-linux.sh --packages sz-orm-core --output <report.md> --fail-under 70
+#        [--include-ignored]  # 让 #[ignore] 的真 DB 测试（-- --include-ignored）参与杀变异体，
+#                             # 消灭 DB-gated 存活（需 CI 环境具备 MySQL/PG 等服务）
 #
 # Prerequisites: cargo-mutants installed (cargo install cargo-mutants)
 # Note: cargo-mutants modifies source code in-place. After completion,
@@ -15,6 +17,7 @@ OUTPUT=""
 BASELINE="70"
 FAIL_UNDER="70"
 JSON_OUTPUT=""
+INCLUDE_IGNORED="0"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -23,6 +26,7 @@ while [ $# -gt 0 ]; do
         --baseline) BASELINE="$2"; shift 2 ;;
         --fail-under) FAIL_UNDER="$2"; shift 2 ;;
         --json) JSON_OUTPUT="$2"; shift 2 ;;
+        --include-ignored) INCLUDE_IGNORED="1"; shift ;;
         *) shift ;;
     esac
 done
@@ -44,7 +48,15 @@ echo "Date: $DATE_UTC"
 echo "OS: $OS_INFO"
 echo "Packages: $PACKAGES"
 echo "Fail-under: ${FAIL_UNDER}%"
+echo "Include-ignored: ${INCLUDE_IGNORED}"
 echo ""
+
+# ignored 车道：真 DB 测试参与杀变异体（消灭 DB-gated 存活，见 2026-09-25 审计：
+# sz-orm-sqlx any.rs 9 个 DB-gated 存活全部被 --ignored 真回归套件杀死）
+MUTANT_ARGS=()
+if [ "$INCLUDE_IGNORED" = "1" ]; then
+    MUTANT_ARGS=(-- --include-ignored)
+fi
 
 IFS=',' read -ra PKG_ARRAY <<< "$PACKAGES"
 
@@ -58,7 +70,7 @@ echo "Running cargo-mutants..."
 for pkg in "${PKG_ARRAY[@]}"; do
     echo "  Testing $pkg..."
     # 移除 || true，cargo-mutants 失败时仍继续测试其他包但记录失败
-    cargo mutants --package "$pkg" --in-place 2>&1 || echo "  WARNING: $pkg had mutants errors"
+    cargo mutants --package "$pkg" --in-place "${MUTANT_ARGS[@]}" 2>&1 || echo "  WARNING: $pkg had mutants errors"
 
     # 解析 mutants.out/ 目录
     MUTANTS_DIR="mutants.out"
@@ -194,6 +206,7 @@ if [ -n "$OUTPUT" ]; then
         echo "- Tool: $TOOL_VERSION"
         echo "- OS: $OS_INFO"
         echo "- Packages: $PACKAGES"
+        echo "- Include-ignored: ${INCLUDE_IGNORED}"
         echo "- Baseline: ${BASELINE}%"
         echo "- Threshold: ${FAIL_UNDER}%"
         echo ""
