@@ -446,6 +446,10 @@ impl Connection for AnyConnection {
         self.inner.rollback()
     }
 
+    fn in_transaction(&self) -> bool {
+        self.inner.in_transaction()
+    }
+
     fn is_connected(&self) -> bool {
         self.inner.is_connected()
     }
@@ -651,6 +655,68 @@ mod tests {
 
         let rows = conn.query("SELECT * FROM tx_rb").await.unwrap();
         assert_eq!(rows.len(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_any_connection_in_transaction_state_tracking() {
+        let pool = AnyPool::connect("sqlite::memory:").await.unwrap();
+        let mut conn = pool.create().await.unwrap();
+
+        assert!(
+            !conn.in_transaction(),
+            "新建连接不应处于事务中"
+        );
+
+        conn.begin_transaction().await.unwrap();
+        assert!(
+            conn.in_transaction(),
+            "begin 后应处于事务中"
+        );
+
+        conn.execute("CREATE TABLE tx_track (id INTEGER PRIMARY KEY)")
+            .await
+            .unwrap();
+        assert!(
+            conn.in_transaction(),
+            "事务内执行 SQL 后仍应处于事务中"
+        );
+
+        conn.commit().await.unwrap();
+        assert!(
+            !conn.in_transaction(),
+            "commit 后不应处于事务中"
+        );
+
+        conn.begin_transaction().await.unwrap();
+        assert!(conn.in_transaction());
+        conn.rollback().await.unwrap();
+        assert!(
+            !conn.in_transaction(),
+            "rollback 后不应处于事务中"
+        );
+    }
+
+    #[tokio::test]
+    async fn test_any_connection_in_transaction_leak_detection() {
+        let pool = AnyPool::connect("sqlite::memory:").await.unwrap();
+        let mut conn = pool.create().await.unwrap();
+
+        conn.execute("CREATE TABLE tx_leak (id INTEGER PRIMARY KEY)")
+            .await
+            .unwrap();
+
+        conn.begin_transaction().await.unwrap();
+        conn.execute("INSERT INTO tx_leak (id) VALUES (1)")
+            .await
+            .unwrap();
+
+        assert!(
+            conn.in_transaction(),
+            "未提交事务应被检测到（泄漏防护前提）"
+        );
+
+        conn.rollback().await.unwrap();
+        assert!(!conn.in_transaction());
     }
 
     #[tokio::test]
