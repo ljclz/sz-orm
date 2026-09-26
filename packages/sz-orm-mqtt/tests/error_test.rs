@@ -49,6 +49,13 @@ fn test_from_io_error() {
 }
 
 #[test]
+fn test_from_serde_json_error() {
+    let json_err = serde_json::from_str::<serde_json::Value>("bad").unwrap_err();
+    let err: MqttError = json_err.into();
+    assert!(err.to_string().contains("MQTT publish error"));
+}
+
+#[test]
 fn test_error_trait() {
     let err = MqttError::Connection("x".into());
     assert!(err.source().is_none());

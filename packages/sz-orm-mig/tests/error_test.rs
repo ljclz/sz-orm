@@ -62,3 +62,16 @@ fn test_error_trait() {
     let err = MigError::Migration("x".into());
     assert!(err.source().is_none());
 }
+#[test]
+fn test_from_io_error() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "fail");
+    let mig: MigError = io_err.into();
+    assert!(matches!(mig, MigError::Connection(_)));
+}
+
+#[test]
+fn test_from_serde_json_error() {
+    let json_err = serde_json::from_str::<serde_json::Value>("bad").unwrap_err();
+    let mig: MigError = json_err.into();
+    assert!(matches!(mig, MigError::Validation(_)));
+}

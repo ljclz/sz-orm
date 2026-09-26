@@ -70,3 +70,23 @@ fn test_error_trait() {
     let err = BkError::Backup("x".into());
     assert!(err.source().is_none());
 }
+#[test]
+fn test_from_io_error_not_found() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::NotFound, "missing");
+    let bk: BkError = io_err.into();
+    assert!(matches!(bk, BkError::FileNotFound(_)));
+}
+
+#[test]
+fn test_from_io_error_permission_denied() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::PermissionDenied, "no access");
+    let bk: BkError = io_err.into();
+    assert!(matches!(bk, BkError::PermissionDenied(_)));
+}
+
+#[test]
+fn test_from_io_error_other() {
+    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "misc");
+    let bk: BkError = io_err.into();
+    assert!(matches!(bk, BkError::Backup(_)));
+}
