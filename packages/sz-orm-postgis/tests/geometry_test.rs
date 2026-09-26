@@ -547,3 +547,108 @@ fn test_geometry_validate_srid_multilinestring_mismatch() {
     let g = Geometry::MultiLineString(vec![ls1, ls2]);
     assert!(g.validate_srid().is_err());
 }
+#[test]
+fn test_geometry_from_ewkt_missing_paren() {
+    let result = Geometry::from_ewkt("SRID=4326;POINT 1 2");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_geometry_from_ewkt_unbalanced_parens() {
+    let result = Geometry::from_ewkt("SRID=4326;POINT(1 2");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_geometry_from_ewkt_invalid_coord() {
+    let result = Geometry::from_ewkt("SRID=4326;POINT(a b)");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_geometry_from_ewkt_single_coord() {
+    let result = Geometry::from_ewkt("SRID=4326;POINT(1)");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_geometry_from_ewkt_empty_linestring() {
+    let result = Geometry::from_ewkt("SRID=4326;LINESTRING()");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_geometry_from_ewkt_invalid_polygon_coord() {
+    let result = Geometry::from_ewkt("SRID=4326;POLYGON((0 0, x y, 0 0))");
+    assert!(result.is_err());
+}
+
+#[test]
+fn test_geometry_to_ewkt_multilinestring_extra() {
+    let ls1 = LineString::new(vec![Point::with_srid(0.0, 0.0, 4326), Point::with_srid(1.0, 1.0, 4326)]);
+    let g = Geometry::MultiLineString(vec![ls1]);
+    let ewkt = g.to_ewkt();
+    assert!(ewkt.contains("MULTILINESTRING"));
+    assert!(ewkt.contains("SRID=4326"));
+}
+
+#[test]
+fn test_geometry_to_ewkt_multipolygon_extra() {
+    let poly = Polygon::new(vec![
+        Point::with_srid(0.0, 0.0, 4326),
+        Point::with_srid(1.0, 0.0, 4326),
+        Point::with_srid(1.0, 1.0, 4326),
+        Point::with_srid(0.0, 0.0, 4326),
+    ]);
+    let g = Geometry::MultiPolygon(vec![poly]);
+    let ewkt = g.to_ewkt();
+    assert!(ewkt.contains("MULTIPOLYGON"));
+    assert!(ewkt.contains("SRID=4326"));
+}
+
+#[test]
+fn test_geometry_to_wkt_multilinestring_extra() {
+    let ls = LineString::new(vec![Point::new(0.0, 0.0), Point::new(1.0, 1.0)]);
+    let g = Geometry::MultiLineString(vec![ls]);
+    let wkt = g.to_wkt();
+    assert!(wkt.contains("MULTILINESTRING"));
+}
+
+#[test]
+fn test_geometry_to_wkt_multipolygon_extra() {
+    let poly = Polygon::new(vec![
+        Point::new(0.0, 0.0),
+        Point::new(1.0, 0.0),
+        Point::new(1.0, 1.0),
+        Point::new(0.0, 0.0),
+    ]);
+    let g = Geometry::MultiPolygon(vec![poly]);
+    let wkt = g.to_wkt();
+    assert!(wkt.contains("MULTIPOLYGON"));
+}
+
+#[test]
+fn test_geometry_bounding_box_linestring_multi() {
+    let ls = LineString::new(vec![
+        Point::new(3.0, 4.0),
+        Point::new(1.0, 2.0),
+        Point::new(5.0, 0.0),
+    ]);
+    let g = Geometry::LineString(ls);
+    let bbox = g.bounding_box().unwrap();
+    assert_eq!(bbox.0, 1.0);
+    assert_eq!(bbox.1, 0.0);
+    assert_eq!(bbox.2, 5.0);
+    assert_eq!(bbox.3, 4.0);
+}
+
+#[test]
+fn test_geometry_bounding_box_multipoint_extra() {
+    let pts = vec![Point::new(1.0, 2.0), Point::new(3.0, 4.0), Point::new(0.0, 5.0)];
+    let g = Geometry::MultiPoint(pts);
+    let bbox = g.bounding_box().unwrap();
+    assert_eq!(bbox.0, 0.0);
+    assert_eq!(bbox.1, 2.0);
+    assert_eq!(bbox.2, 3.0);
+    assert_eq!(bbox.3, 5.0);
+}
