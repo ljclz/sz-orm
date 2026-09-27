@@ -1021,4 +1021,33 @@ mod tests {
             2
         );
     }
+
+    #[test]
+    fn test_from_io_error_conversion() {
+        let io_err = std::io::Error::other("disk full");
+        let db_err: DbError = io_err.into();
+        assert!(matches!(db_err, DbError::IoError(_)));
+        assert!(db_err.to_string().contains("disk full"));
+    }
+
+    #[test]
+    fn test_from_serde_json_error_conversion() {
+        let serde_err = serde_json::from_str::<serde_json::Value>("{bad}").unwrap_err();
+        let db_err: DbError = serde_err.into();
+        assert!(matches!(db_err, DbError::SerdeError(_)));
+    }
+
+    #[test]
+    fn test_from_tryfrom_int_error_conversion() {
+        let int_err = u8::try_from(256u32).unwrap_err();
+        let db_err: DbError = int_err.into();
+        assert!(matches!(db_err, DbError::Internal(_)));
+    }
+
+    #[test]
+    fn test_from_from_utf8_error_conversion() {
+        let utf8_err = String::from_utf8(vec![0xFF, 0xFE]).unwrap_err();
+        let db_err: DbError = utf8_err.into();
+        assert!(matches!(db_err, DbError::Internal(_)));
+    }
 }
