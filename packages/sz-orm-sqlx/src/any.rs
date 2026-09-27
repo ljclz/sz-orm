@@ -320,8 +320,14 @@ impl Connection for SqlxSqliteConnection {
     ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             if self.in_transaction {
+                // 回滚失败时保留事务标志：非连接类错误下服务端事务可能仍开启，
+                // 若此刻清标志，连接带着开放事务回池将绕过归还路径的自动回滚
+                // （事务泄漏）。失败后由归还路径重试回滚或直接关闭连接。
+                // 语义与 Oracle/MSSQL 适配器一致。
                 let result = self.execute("ROLLBACK").await;
-                self.in_transaction = false;
+                if result.is_ok() {
+                    self.in_transaction = false;
+                }
                 result.map(|_| ())
             } else {
                 Ok(())
@@ -1019,8 +1025,14 @@ impl Connection for SqlxMySqlConnection {
     ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             if self.in_transaction {
+                // 回滚失败时保留事务标志：非连接类错误下服务端事务可能仍开启，
+                // 若此刻清标志，连接带着开放事务回池将绕过归还路径的自动回滚
+                // （事务泄漏）。失败后由归还路径重试回滚或直接关闭连接。
+                // 语义与 Oracle/MSSQL 适配器一致。
                 let result = self.execute("ROLLBACK").await;
-                self.in_transaction = false;
+                if result.is_ok() {
+                    self.in_transaction = false;
+                }
                 result.map(|_| ())
             } else {
                 Ok(())
@@ -1714,8 +1726,14 @@ impl Connection for SqlxPgConnection {
     ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             if self.in_transaction {
+                // 回滚失败时保留事务标志：非连接类错误下服务端事务可能仍开启，
+                // 若此刻清标志，连接带着开放事务回池将绕过归还路径的自动回滚
+                // （事务泄漏）。失败后由归还路径重试回滚或直接关闭连接。
+                // 语义与 Oracle/MSSQL 适配器一致。
                 let result = self.execute("ROLLBACK").await;
-                self.in_transaction = false;
+                if result.is_ok() {
+                    self.in_transaction = false;
+                }
                 result.map(|_| ())
             } else {
                 Ok(())
