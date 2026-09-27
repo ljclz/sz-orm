@@ -2,7 +2,13 @@
 //!
 //! 使用 `InMemoryVectorStore` 进行测试（不需要 PG 连接）。
 
-use sz_orm_vector::{InMemoryVectorStore, PgVectorStore, VectorMetric, VectorRecord};
+use std::collections::HashMap;
+use std::str::FromStr;
+
+use sz_orm_vector::{
+    validate_top_k, InMemoryVectorStore, PgVectorStore, SearchResult, VectorMetric, VectorRecord,
+    MAX_TOP_K,
+};
 
 #[tokio::test]
 async fn integration_create_collection_and_count() {
@@ -152,4 +158,74 @@ async fn integration_upsert_semantics() {
 
     let fetched = store.get("docs", "x").await.unwrap().unwrap();
     assert_eq!(fetched.vector, vec![0.0, 1.0]);
+}
+#[test]
+fn test_validate_top_k_zero_returns_error() {
+    assert!(validate_top_k(0).is_err());
+}
+
+#[test]
+fn test_validate_top_k_exceeds_max_returns_error() {
+    assert!(validate_top_k(MAX_TOP_K + 1).is_err());
+}
+
+#[test]
+fn test_validate_top_k_one_returns_ok() {
+    assert_eq!(validate_top_k(1).unwrap(), 1);
+}
+
+#[test]
+fn test_validate_top_k_at_max_returns_ok() {
+    assert_eq!(validate_top_k(MAX_TOP_K).unwrap(), MAX_TOP_K);
+}
+
+#[test]
+fn test_vector_metric_from_str_unknown_returns_error() {
+    assert!(VectorMetric::from_str("unknown").is_err());
+}
+
+#[test]
+fn test_vector_metric_from_str_all_valid() {
+    let cosine = VectorMetric::from_str("cosine").unwrap();
+    assert_eq!(cosine, VectorMetric::Cosine);
+    assert_eq!(cosine.pg_operator(), "<=>");
+    assert_eq!(cosine.as_str(), "cosine");
+
+    let euclidean = VectorMetric::from_str("euclidean").unwrap();
+    assert_eq!(euclidean, VectorMetric::Euclidean);
+    assert_eq!(euclidean.pg_operator(), "<->");
+
+    let dot = VectorMetric::from_str("dotproduct").unwrap();
+    assert_eq!(dot, VectorMetric::DotProduct);
+    assert_eq!(dot.pg_operator(), "<#>");
+}
+
+#[test]
+fn test_vector_record_with_score() {
+    let record = VectorRecord::new("r1", vec![1.0, 0.0]).with_score(0.95);
+    assert_eq!(record.id, "r1");
+    assert_eq!(record.score, Some(0.95));
+}
+
+#[test]
+fn test_vector_record_with_metadata() {
+    let mut meta = HashMap::new();
+    meta.insert("tenant".to_string(), serde_json::json!("acme"));
+    let record = VectorRecord::new("r1", vec![1.0]).with_metadata(meta);
+    assert!(record.metadata.is_some());
+}
+
+#[test]
+fn test_search_result_with_text() {
+    let result = SearchResult::new("r1", 0.9, vec![1.0]).with_text("hello");
+    assert_eq!(result.id, "r1");
+    assert_eq!(result.text.as_deref(), Some("hello"));
+}
+
+#[test]
+fn test_search_result_with_metadata() {
+    let mut meta = HashMap::new();
+    meta.insert("source".to_string(), serde_json::json!("doc"));
+    let result = SearchResult::new("r1", 0.9, vec![1.0]).with_metadata(meta);
+    assert!(result.metadata.is_some());
 }
