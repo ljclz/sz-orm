@@ -6,8 +6,8 @@ use std::collections::HashMap;
 use std::str::FromStr;
 
 use sz_orm_vector::{
-    validate_top_k, InMemoryVectorStore, PgVectorStore, SearchResult, VectorMetric, VectorRecord,
-    MAX_TOP_K,
+    validate_top_k, InMemoryVectorStore, PgVectorStore, SearchResult, VectorError, VectorMetric,
+    VectorRecord, MAX_TOP_K,
 };
 
 #[tokio::test]
@@ -228,4 +228,32 @@ fn test_search_result_with_metadata() {
     meta.insert("source".to_string(), serde_json::json!("doc"));
     let result = SearchResult::new("r1", 0.9, vec![1.0]).with_metadata(meta);
     assert!(result.metadata.is_some());
+}
+#[tokio::test]
+async fn test_inmemory_store_get_nonexistent_collection_returns_error() {
+    let store = InMemoryVectorStore::new();
+    let err = store.get("nonexistent", "r1").await;
+    assert!(matches!(err, Err(VectorError::CollectionNotFound(_))));
+}
+
+#[tokio::test]
+async fn test_inmemory_store_delete_nonexistent_collection_returns_error() {
+    let store = InMemoryVectorStore::new();
+    let err = store.delete("nonexistent", vec!["r1".to_string()]).await;
+    assert!(matches!(err, Err(VectorError::CollectionNotFound(_))));
+}
+
+#[tokio::test]
+async fn test_inmemory_store_insert_nonexistent_collection_returns_error() {
+    let store = InMemoryVectorStore::new();
+    let err = store
+        .insert("nonexistent", vec![VectorRecord::new("r1", vec![1.0])])
+        .await;
+    assert!(matches!(err, Err(VectorError::CollectionNotFound(_))));
+}
+
+#[tokio::test]
+async fn test_inmemory_store_count_nonexistent_returns_zero() {
+    let store = InMemoryVectorStore::new();
+    assert_eq!(store.count("nonexistent").await.unwrap(), 0);
 }

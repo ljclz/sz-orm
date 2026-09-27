@@ -4,13 +4,19 @@
 
 use chrono::{Duration, Utc};
 use sz_orm_timeseries::{
-    Aggregation, Metric, TimeseriesBuilder, TimeseriesExt, TimeseriesProvider,
+    Aggregation, DownsampleConfig, Metric, TimeseriesBuilder, TimeseriesExt, TimeseriesProvider,
 };
 
 fn wrapper() -> impl TimeseriesExt {
     TimeseriesBuilder::new(TimeseriesProvider::Memory)
         .build()
         .expect("build memory provider")
+}
+
+fn stub_wrapper() -> impl TimeseriesExt {
+    TimeseriesBuilder::new(TimeseriesProvider::Stub)
+        .build()
+        .expect("build stub provider")
 }
 
 #[tokio::test]
@@ -139,4 +145,92 @@ async fn integration_metric_tags_roundtrip() {
         .unwrap();
     assert_eq!(rows.len(), 1);
     assert_eq!(rows[0].tags.get("host").map(|s| s.as_str()), Some("node-1"));
+}
+#[tokio::test]
+async fn integration_stub_wrapper_insert_metric() {
+    let w = stub_wrapper();
+    w.create_hypertable("cpu", "ts").await.unwrap();
+    w.insert_metric(&Metric::new("cpu", Utc::now(), 0.75))
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn integration_stub_wrapper_query_range_returns_empty() {
+    let w = stub_wrapper();
+    let now = Utc::now();
+    let rows = w
+        .query_range("cpu", now - Duration::minutes(1), now + Duration::minutes(1))
+        .await
+        .unwrap();
+    assert!(rows.is_empty(), "stub query_range must return empty Vec");
+}
+
+#[tokio::test]
+async fn integration_stub_wrapper_time_bucket_returns_empty() {
+    let w = stub_wrapper();
+    let now = Utc::now();
+    let buckets = w
+        .time_bucket_aggregate("cpu", "5m", Aggregation::Avg, now, now + Duration::minutes(5))
+        .await
+        .unwrap();
+    assert!(
+        buckets.is_empty(),
+        "stub time_bucket_aggregate must return empty Vec"
+    );
+}
+
+#[tokio::test]
+async fn integration_stub_wrapper_create_continuous_aggregate() {
+    let w = stub_wrapper();
+    w.create_continuous_aggregate("cpu_1h_view", "SELECT time_bucket('1h', ts), avg(v) FROM m GROUP BY 1")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+async fn integration_stub_wrapper_downsample() {
+    let w = stub_wrapper();
+    let config = DownsampleConfig::new("cpu_raw", "cpu_1h", "1h", Aggregation::Avg);
+    w.downsample(&config).await.unwrap();
+}
+
+#[tokio::test]
+async fn integration_stub_wrapper_drop_metric() {
+    let w = stub_wrapper();
+    w.drop_metric("cpu").await.unwrap();
+}
+
+#[tokio::test]
+async fn integration_memory_wrapper_insert_metrics_batch() {
+    let w = wrapper();
+    w.create_hypertable("batch", "ts").await.unwrap();
+    let now = Utc::now();
+    let metrics = vec![
+        Metric::new("batch", now, 1.0),
+        Metric::new("batch", now + Duration::seconds(1), 2.0),
+        Metric::new("batch", now + Duration::seconds(2), 3.0),
+    ];
+    w.insert_metrics(&metrics).await.unwrap();
+    let rows = w
+        .query_range("batch", now - Duration::minutes(1), now + Duration::minutes(1))
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 3);
+}
+
+#[tokio::test]
+async fn integration_memory_downsample_empty_source_returns_ok() {
+    let w = wrapper();
+    w.create_hypertable("empty_src", "ts").await.unwrap();
+    let config = DownsampleConfig::new("empty_src", "downsampled", "1h", Aggregation::Avg);
+    w.downsample(&config).await.unwrap();
+}
+
+#[tokio::test]
+async fn integration_memory_create_continuous_aggregate() {
+    let w = wrapper();
+    w.create_continuous_aggregate("agg_view", "SELECT 1")
+        .await
+        .unwrap();
 }
