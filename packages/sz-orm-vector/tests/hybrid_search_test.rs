@@ -2,12 +2,16 @@
 
 use std::sync::Arc;
 use sz_orm_vector::hybrid_search::{
-    fusion::fuse, FilterPushdown, FulltextQuery, FulltextSearchSource, FusionStrategy,
-    HybridError, HybridQuery, HybridSearcher, SourceResult, StructuredQuery, VectorMetric,
-    VectorQuery, VectorSearchSource,
+    fusion::fuse, FilterPushdown, FulltextQuery, FulltextSearchSource, FusionStrategy, HybridError,
+    HybridQuery, HybridSearcher, SourceResult, StructuredQuery, VectorMetric, VectorQuery,
+    VectorSearchSource,
 };
 
-fn make_source(id: &str, score: f32, source: sz_orm_vector::hybrid_search::SearchResultSource) -> SourceResult {
+fn make_source(
+    id: &str,
+    score: f32,
+    source: sz_orm_vector::hybrid_search::SearchResultSource,
+) -> SourceResult {
     SourceResult {
         id: id.to_string(),
         score,
@@ -89,13 +93,7 @@ fn test_hybrid_search_fusion_cascade() {
 
 #[test]
 fn test_hybrid_search_fusion_empty_inputs() {
-    let results = fuse(
-        &[],
-        &[],
-        &[],
-        FusionStrategy::Rrf { k: 60 },
-        10,
-    );
+    let results = fuse(&[], &[], &[], FusionStrategy::Rrf { k: 60 }, 10);
     assert!(results.is_empty());
 }
 
@@ -114,7 +112,11 @@ fn test_hybrid_search_pushdown_to_vector() {
     };
     FilterPushdown::pushdown_to_vector(&filter, &mut vector_query);
     assert!(vector_query.filter.is_some());
-    assert!(vector_query.filter.as_ref().unwrap().contains("price < 1000"));
+    assert!(vector_query
+        .filter
+        .as_ref()
+        .unwrap()
+        .contains("price < 1000"));
 }
 
 #[test]
@@ -130,7 +132,10 @@ fn test_hybrid_search_pushdown_to_fulltext() {
         fields: vec!["title".to_string()],
     };
     FilterPushdown::pushdown_to_fulltext(&filter, &mut fulltext_query);
-    assert!(fulltext_query.fields.iter().any(|f| f.contains("__filter__")));
+    assert!(fulltext_query
+        .fields
+        .iter()
+        .any(|f| f.contains("__filter__")));
 }
 
 #[test]
@@ -206,11 +211,7 @@ async fn test_hybrid_search_searcher_score_fusion() {
 
 #[tokio::test]
 async fn test_hybrid_search_searcher_vector_only() {
-    let searcher = HybridSearcher::new(
-        Some(Arc::new(MockVectorSource)),
-        None,
-        None,
-    );
+    let searcher = HybridSearcher::new(Some(Arc::new(MockVectorSource)), None, None);
 
     let query = HybridQuery {
         vector: Some(VectorQuery {

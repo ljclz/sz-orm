@@ -1,9 +1,7 @@
 #![cfg(feature = "ann-accel")]
 
 use std::collections::HashMap;
-use sz_orm_vector::{
-    AnnAccelerated, InMemoryVectorStore, PgVectorStore, VectorRecord,
-};
+use sz_orm_vector::{AnnAccelerated, InMemoryVectorStore, PgVectorStore, VectorRecord};
 
 #[tokio::test]
 async fn test_ann_search_with_tenant_filter_returns_only_tenant_vectors() {
@@ -100,7 +98,10 @@ async fn test_ann_search_latency_recorded() {
         .await
         .unwrap();
     assert_eq!(result.records.len(), 1);
-    assert!(result.latency_ms < 1000, "latency should be < 1s for memory");
+    assert!(
+        result.latency_ms < 1000,
+        "latency should be < 1s for memory"
+    );
 }
 
 #[tokio::test]

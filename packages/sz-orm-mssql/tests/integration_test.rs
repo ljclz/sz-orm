@@ -5,7 +5,7 @@
 //! 运行: cargo test -p sz-orm-mssql --test integration_test -- --ignored
 
 use std::sync::Arc;
-use sz_orm_core::{Connection, ConnectionFactory};
+use sz_orm_core::ConnectionFactory;
 use sz_orm_mssql::{MssqlConnectionFactory, MssqlPoolHandle};
 
 fn dsn() -> Option<String> {

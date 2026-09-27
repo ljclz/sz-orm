@@ -4,7 +4,7 @@
 //! 运行: cargo test -p sz-orm-oracle --test integration_test -- --ignored
 
 use std::sync::Arc;
-use sz_orm_core::{Connection, ConnectionFactory};
+use sz_orm_core::ConnectionFactory;
 use sz_orm_oracle::{OracleConnectionFactory, OraclePoolHandle};
 
 fn pool() -> OracleConnectionFactory {
@@ -35,9 +35,11 @@ async fn test_oracle_sql_generation() {
     let factory = pool();
     let mut conn = factory.create().await.unwrap();
     conn.execute("DROP TABLE any_test_oracle").await.ok();
-    conn.execute("CREATE TABLE any_test_oracle (id NUMBER PRIMARY KEY, name VARCHAR2(255) NOT NULL)")
-        .await
-        .unwrap();
+    conn.execute(
+        "CREATE TABLE any_test_oracle (id NUMBER PRIMARY KEY, name VARCHAR2(255) NOT NULL)",
+    )
+    .await
+    .unwrap();
     conn.execute("INSERT INTO any_test_oracle (id, name) VALUES (1, 'alice')")
         .await
         .unwrap();
@@ -59,7 +61,9 @@ async fn test_oracle_transaction_isolation() {
         .await
         .unwrap();
     conn.begin_transaction().await.unwrap();
-    conn.execute("INSERT INTO any_tx_oracle (id) VALUES (1)").await.unwrap();
+    conn.execute("INSERT INTO any_tx_oracle (id) VALUES (1)")
+        .await
+        .unwrap();
     conn.rollback().await.unwrap();
     let rows = conn.query("SELECT id FROM any_tx_oracle").await.unwrap();
     assert_eq!(rows.len(), 0);
