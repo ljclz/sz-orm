@@ -33,7 +33,8 @@ use std::pin::Pin;
 use std::sync::Arc;
 use sz_orm_core::{
     Connection, ConnectionFactory, DbError, Dialect, MySqlDialect, OracleDialect,
-    PostgreSqlDialect, QueryRows, SqlServerDialect, SqliteDialect,
+    PostgreSqlDialect, QueryRows, QueryStreamItem, QueryValues, SqlServerDialect, SqliteDialect,
+    Value,
 };
 
 use sz_orm_core::DbType;
@@ -460,6 +461,59 @@ impl Connection for AnyConnection {
 
     fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         self.inner.close()
+    }
+
+    fn execute_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        params: &'a [Value],
+    ) -> Pin<Box<dyn Future<Output = Result<u64, DbError>> + Send + 'a>> {
+        self.inner.execute_with_params(sql, params)
+    }
+
+    fn query_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        params: &'a [Value],
+    ) -> Pin<Box<dyn Future<Output = Result<QueryRows, DbError>> + Send + 'a>> {
+        self.inner.query_with_params(sql, params)
+    }
+
+    fn query_values<'a>(
+        &'a mut self,
+        sql: &'a str,
+    ) -> Pin<Box<dyn Future<Output = Result<QueryValues, DbError>> + Send + 'a>> {
+        self.inner.query_values(sql)
+    }
+
+    fn query_values_with_params<'a>(
+        &'a mut self,
+        sql: &'a str,
+        params: &'a [Value],
+    ) -> Pin<Box<dyn Future<Output = Result<QueryValues, DbError>> + Send + 'a>> {
+        self.inner.query_values_with_params(sql, params)
+    }
+
+    fn query_stream<'a>(
+        &'a mut self,
+        sql: &'a str,
+    ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
+        self.inner.query_stream(sql)
+    }
+
+    fn query_stream_cursor<'a>(
+        &'a mut self,
+        sql: &'a str,
+        batch_size: usize,
+    ) -> Pin<Box<dyn futures::Stream<Item = QueryStreamItem> + Send + 'a>> {
+        self.inner.query_stream_cursor(sql, batch_size)
+    }
+
+    fn execute_batch<'a>(
+        &'a mut self,
+        sqls: &'a [String],
+    ) -> Pin<Box<dyn Future<Output = Result<u64, DbError>> + Send + 'a>> {
+        self.inner.execute_batch(sqls)
     }
 }
 
