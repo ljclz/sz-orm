@@ -211,9 +211,19 @@ fn resolve_db_type(args: &[&str], config: &Option<CliConfig>) -> Result<Option<D
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
+    match run(args) {
+        Ok(()) => ExitCode::SUCCESS,
+        Err(e) => {
+            eprintln!("错误: {}", e);
+            ExitCode::FAILURE
+        }
+    }
+}
+
+fn run(args: Vec<String>) -> Result<(), String> {
     if args.len() < 2 {
         println!("{}", HELP);
-        return ExitCode::SUCCESS;
+        return Ok(());
     }
 
     let command = args[1].as_str();
@@ -222,7 +232,7 @@ fn main() -> ExitCode {
     // 提取 --config 并加载配置文件
     let (config, rest) = extract_config(&raw_rest);
 
-    let exit = match command {
+    match command {
         "help" | "--help" | "-h" => {
             println!("{}", HELP);
             Ok(())
@@ -274,14 +284,6 @@ fn main() -> ExitCode {
             eprintln!("未知命令: {}", other);
             eprintln!("\n{}", HELP);
             std::process::exit(2)
-        }
-    };
-
-    match exit {
-        Ok(()) => ExitCode::SUCCESS,
-        Err(e) => {
-            eprintln!("错误: {}", e);
-            ExitCode::FAILURE
         }
     }
 }
@@ -2854,4 +2856,235 @@ fn parse_content_length(header: &str) -> Option<usize> {
 #[cfg(not(feature = "lsp-server"))]
 fn cmd_lsp() -> Result<(), String> {
     Err("lsp 命令需要启用 lsp-server feature: cargo run --features lsp-server -- lsp".into())
+}
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::fs;
+
+    fn argv(args: &[&str]) -> Vec<String> {
+        args.iter().map(|s| s.to_string()).collect()
+    }
+
+    #[test]
+    fn test_cli_no_args_returns_ok() {
+        assert!(run(argv(&["sz-orm"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_help_returns_ok() {
+        assert!(run(argv(&["sz-orm", "help"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_version_returns_ok() {
+        assert!(run(argv(&["sz-orm", "--version"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_info_returns_ok() {
+        assert!(run(argv(&["sz-orm", "info"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_dialect_list_returns_ok() {
+        assert!(run(argv(&["sz-orm", "dialect", "list"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_dialect_show_mysql_returns_ok() {
+        assert!(run(argv(&["sz-orm", "dialect", "show", "mysql"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_dialect_no_subcommand_returns_err() {
+        assert!(run(argv(&["sz-orm", "dialect"])).is_err());
+    }
+
+    #[test]
+    fn test_cli_dialect_unknown_subcommand_returns_err() {
+        assert!(run(argv(&["sz-orm", "dialect", "unknown"])).is_err());
+    }
+
+    #[test]
+    fn test_cli_sql_validate_valid_returns_ok() {
+        assert!(run(argv(&["sz-orm", "sql:validate", "SELECT id FROM users WHERE id = 1"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_sql_validate_no_args_returns_err() {
+        assert!(run(argv(&["sz-orm", "sql:validate"])).is_err());
+    }
+
+    #[test]
+    fn test_cli_migrate_no_migrations_dir_returns_err() {
+        let result = run(argv(&["sz-orm", "migrate", "--migrations", "/nonexistent/path/xyz"]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cli_migrate_status_no_migrations_dir_returns_err() {
+        let result = run(argv(&[
+            "sz-orm",
+            "migrate:status",
+            "--migrations",
+            "/nonexistent/path/xyz",
+        ]));
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cli_make_migration_writes_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "sz_orm_test_make_migration_{}",
+            std::process::id()
+        ));
+        fs::remove_dir_all(&tmp).ok();
+        let output = tmp.to_str().unwrap();
+        let result = run(argv(&[
+            "sz-orm",
+            "make:migration",
+            "test_table",
+            "--output",
+            output,
+        ]));
+        assert!(result.is_ok(), "make:migration should succeed: {:?}", result);
+        let entries: Vec<_> = fs::read_dir(&tmp).unwrap().collect();
+        assert!(entries.iter().any(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_str()
+                .unwrap()
+                .ends_with("_up.sql")
+        }));
+        assert!(entries.iter().any(|e| {
+            e.as_ref()
+                .unwrap()
+                .file_name()
+                .to_str()
+                .unwrap()
+                .ends_with("_down.sql")
+        }));
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_cli_make_migration_no_name_returns_err() {
+        assert!(run(argv(&["sz-orm", "make:migration"])).is_err());
+    }
+
+    #[test]
+    fn test_cli_make_seeder_writes_file() {
+        let tmp = std::env::temp_dir().join(format!(
+            "sz_orm_test_make_seeder_{}",
+            std::process::id()
+        ));
+        fs::remove_dir_all(&tmp).ok();
+        let output = tmp.to_str().unwrap();
+        let result = run(argv(&[
+            "sz-orm",
+            "make:seeder",
+            "init_users",
+            "--seeders",
+            output,
+        ]));
+        assert!(result.is_ok(), "make:seeder should succeed: {:?}", result);
+        let entries: Vec<_> = fs::read_dir(&tmp).unwrap().collect();
+        assert!(!entries.is_empty());
+        fs::remove_dir_all(&tmp).ok();
+    }
+
+    #[test]
+    fn test_cli_config_load_returns_ok() {
+        let tmp = std::env::temp_dir().join(format!(
+            "sz_orm_test_config_{}.toml",
+            std::process::id()
+        ));
+        fs::write(&tmp, "migrations_dir = \"./migrations\"\n").unwrap();
+        let config = load_config(tmp.to_str().unwrap());
+        assert!(config.is_ok());
+        assert_eq!(config.unwrap().migrations_dir, Some("./migrations".to_string()));
+        fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_cli_config_load_nonexistent_returns_err() {
+        assert!(load_config("/nonexistent/path/config.toml").is_err());
+    }
+
+    #[test]
+    fn test_cli_extract_config_no_config_flag() {
+        let (config, rest) = extract_config(&["migrate", "--dry-run"]);
+        assert!(config.is_none());
+        assert_eq!(rest, vec!["migrate", "--dry-run"]);
+    }
+
+    #[test]
+    fn test_cli_extract_config_with_config_flag() {
+        let tmp = std::env::temp_dir().join(format!(
+            "sz_orm_test_extract_cfg_{}.toml",
+            std::process::id()
+        ));
+        fs::write(&tmp, "dsn = \"sqlite::memory:\"\n").unwrap();
+        let config_path = tmp.to_str().unwrap();
+        let binding = ["--config", config_path, "migrate", "--dry-run"];
+        let (config, rest) = extract_config(&binding);
+        assert!(config.is_some());
+        assert_eq!(config.unwrap().dsn, Some("sqlite::memory:".to_string()));
+        assert_eq!(rest, vec!["migrate", "--dry-run"]);
+        fs::remove_file(&tmp).ok();
+    }
+
+    #[test]
+    fn test_cli_resolve_option_cli_overrides_config() {
+        let config = CliConfig {
+            migrations_dir: Some("./cfg_migrations".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_option(&["--migrations", "./cli_migrations"], "--migrations", &Some(config), |c| &c.migrations_dir);
+        assert_eq!(result, Some("./cli_migrations".to_string()));
+    }
+
+    #[test]
+    fn test_cli_resolve_option_falls_back_to_config() {
+        let config = CliConfig {
+            migrations_dir: Some("./cfg_migrations".to_string()),
+            ..Default::default()
+        };
+        let result = resolve_option(&[], "--migrations", &Some(config), |c| &c.migrations_dir);
+        assert_eq!(result, Some("./cfg_migrations".to_string()));
+    }
+
+    #[test]
+    fn test_cli_resolve_db_type_valid() {
+        let result = resolve_db_type(&["--db-type", "mysql"], &None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), Some(DbType::MySQL));
+    }
+
+    #[test]
+    fn test_cli_resolve_db_type_invalid() {
+        let result = resolve_db_type(&["--db-type", "invalid_db"], &None);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_cli_resolve_db_type_none() {
+        let result = resolve_db_type(&[], &None);
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), None);
+    }
+
+    #[test]
+    fn test_cli_parse_option_present() {
+        let result = parse_option(&["--dsn", "sqlite::memory:", "--dry-run"], "--dsn");
+        assert_eq!(result, Some("sqlite::memory:".to_string()));
+    }
+
+    #[test]
+    fn test_cli_parse_option_absent() {
+        let result = parse_option(&["--dry-run"], "--dsn");
+        assert!(result.is_none());
+    }
 }
