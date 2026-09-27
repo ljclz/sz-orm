@@ -2908,7 +2908,12 @@ mod tests {
 
     #[test]
     fn test_cli_sql_validate_valid_returns_ok() {
-        assert!(run(argv(&["sz-orm", "sql:validate", "SELECT id FROM users WHERE id = 1"])).is_ok());
+        assert!(run(argv(&[
+            "sz-orm",
+            "sql:validate",
+            "SELECT id FROM users WHERE id = 1"
+        ]))
+        .is_ok());
     }
 
     #[test]
@@ -2918,7 +2923,12 @@ mod tests {
 
     #[test]
     fn test_cli_migrate_no_migrations_dir_returns_err() {
-        let result = run(argv(&["sz-orm", "migrate", "--migrations", "/nonexistent/path/xyz"]));
+        let result = run(argv(&[
+            "sz-orm",
+            "migrate",
+            "--migrations",
+            "/nonexistent/path/xyz",
+        ]));
         assert!(result.is_err());
     }
 
@@ -2935,10 +2945,8 @@ mod tests {
 
     #[test]
     fn test_cli_make_migration_writes_file() {
-        let tmp = std::env::temp_dir().join(format!(
-            "sz_orm_test_make_migration_{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("sz_orm_test_make_migration_{}", std::process::id()));
         fs::remove_dir_all(&tmp).ok();
         let output = tmp.to_str().unwrap();
         let result = run(argv(&[
@@ -2948,7 +2956,11 @@ mod tests {
             "--output",
             output,
         ]));
-        assert!(result.is_ok(), "make:migration should succeed: {:?}", result);
+        assert!(
+            result.is_ok(),
+            "make:migration should succeed: {:?}",
+            result
+        );
         let entries: Vec<_> = fs::read_dir(&tmp).unwrap().collect();
         assert!(entries.iter().any(|e| {
             e.as_ref()
@@ -2976,10 +2988,8 @@ mod tests {
 
     #[test]
     fn test_cli_make_seeder_writes_file() {
-        let tmp = std::env::temp_dir().join(format!(
-            "sz_orm_test_make_seeder_{}",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("sz_orm_test_make_seeder_{}", std::process::id()));
         fs::remove_dir_all(&tmp).ok();
         let output = tmp.to_str().unwrap();
         let result = run(argv(&[
@@ -2997,14 +3007,15 @@ mod tests {
 
     #[test]
     fn test_cli_config_load_returns_ok() {
-        let tmp = std::env::temp_dir().join(format!(
-            "sz_orm_test_config_{}.toml",
-            std::process::id()
-        ));
+        let tmp =
+            std::env::temp_dir().join(format!("sz_orm_test_config_{}.toml", std::process::id()));
         fs::write(&tmp, "migrations_dir = \"./migrations\"\n").unwrap();
         let config = load_config(tmp.to_str().unwrap());
         assert!(config.is_ok());
-        assert_eq!(config.unwrap().migrations_dir, Some("./migrations".to_string()));
+        assert_eq!(
+            config.unwrap().migrations_dir,
+            Some("./migrations".to_string())
+        );
         fs::remove_file(&tmp).ok();
     }
 
@@ -3042,7 +3053,12 @@ mod tests {
             migrations_dir: Some("./cfg_migrations".to_string()),
             ..Default::default()
         };
-        let result = resolve_option(&["--migrations", "./cli_migrations"], "--migrations", &Some(config), |c| &c.migrations_dir);
+        let result = resolve_option(
+            &["--migrations", "./cli_migrations"],
+            "--migrations",
+            &Some(config),
+            |c| &c.migrations_dir,
+        );
         assert_eq!(result, Some("./cli_migrations".to_string()));
     }
 

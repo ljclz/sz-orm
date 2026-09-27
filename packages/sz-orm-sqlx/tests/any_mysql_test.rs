@@ -20,7 +20,9 @@ async fn test_any_backend_mysql_connect() {
 async fn test_any_connection_mysql_create_insert_query() {
     let pool = AnyPool::connect(DSN).await.unwrap();
     let mut conn = pool.create().await.unwrap();
-    conn.execute("DROP TABLE IF EXISTS any_test_t").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_test_t")
+        .await
+        .unwrap();
     conn.execute("CREATE TABLE any_test_t (id INT PRIMARY KEY, name VARCHAR(255) NOT NULL)")
         .await
         .unwrap();
@@ -32,7 +34,9 @@ async fn test_any_connection_mysql_create_insert_query() {
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    conn.execute("DROP TABLE IF EXISTS any_test_t").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_test_t")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -48,14 +52,20 @@ async fn test_any_connection_mysql_dialect_placeholder() {
 async fn test_any_connection_mysql_transaction() {
     let pool = AnyPool::connect(DSN).await.unwrap();
     let mut conn = pool.create().await.unwrap();
-    conn.execute("DROP TABLE IF EXISTS any_tx_test").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_tx_test")
+        .await
+        .unwrap();
     conn.execute("CREATE TABLE any_tx_test (id INT PRIMARY KEY)")
         .await
         .unwrap();
     conn.begin_transaction().await.unwrap();
-    conn.execute("INSERT INTO any_tx_test (id) VALUES (1)").await.unwrap();
+    conn.execute("INSERT INTO any_tx_test (id) VALUES (1)")
+        .await
+        .unwrap();
     conn.rollback().await.unwrap();
     let rows = conn.query("SELECT id FROM any_tx_test").await.unwrap();
     assert_eq!(rows.len(), 0);
-    conn.execute("DROP TABLE IF EXISTS any_tx_test").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_tx_test")
+        .await
+        .unwrap();
 }

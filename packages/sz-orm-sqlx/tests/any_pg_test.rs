@@ -20,7 +20,9 @@ async fn test_any_backend_postgres_connect() {
 async fn test_any_connection_pg_create_insert_query() {
     let pool = AnyPool::connect(DSN).await.unwrap();
     let mut conn = pool.create().await.unwrap();
-    conn.execute("DROP TABLE IF EXISTS any_pg_test").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_pg_test")
+        .await
+        .unwrap();
     conn.execute("CREATE TABLE any_pg_test (id SERIAL PRIMARY KEY, name TEXT NOT NULL)")
         .await
         .unwrap();
@@ -32,7 +34,9 @@ async fn test_any_connection_pg_create_insert_query() {
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    conn.execute("DROP TABLE IF EXISTS any_pg_test").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_pg_test")
+        .await
+        .unwrap();
 }
 
 #[tokio::test]
@@ -48,14 +52,20 @@ async fn test_any_connection_pg_dialect_placeholder() {
 async fn test_any_connection_pg_transaction() {
     let pool = AnyPool::connect(DSN).await.unwrap();
     let mut conn = pool.create().await.unwrap();
-    conn.execute("DROP TABLE IF EXISTS any_pg_tx").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_pg_tx")
+        .await
+        .unwrap();
     conn.execute("CREATE TABLE any_pg_tx (id INT PRIMARY KEY)")
         .await
         .unwrap();
     conn.begin_transaction().await.unwrap();
-    conn.execute("INSERT INTO any_pg_tx (id) VALUES (1)").await.unwrap();
+    conn.execute("INSERT INTO any_pg_tx (id) VALUES (1)")
+        .await
+        .unwrap();
     conn.commit().await.unwrap();
     let rows = conn.query("SELECT id FROM any_pg_tx").await.unwrap();
     assert_eq!(rows.len(), 1);
-    conn.execute("DROP TABLE IF EXISTS any_pg_tx").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS any_pg_tx")
+        .await
+        .unwrap();
 }

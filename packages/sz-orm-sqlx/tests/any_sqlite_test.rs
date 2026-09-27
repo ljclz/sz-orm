@@ -58,7 +58,10 @@ async fn test_any_connection_sqlite_insert_query() {
     conn.execute("INSERT INTO users (id, name) VALUES (2, 'bob')")
         .await
         .unwrap();
-    let rows = conn.query("SELECT id, name FROM users WHERE id = 1").await.unwrap();
+    let rows = conn
+        .query("SELECT id, name FROM users WHERE id = 1")
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1);
 }
 
@@ -70,9 +73,13 @@ async fn test_any_connection_sqlite_query_all() {
         .await
         .unwrap();
     for i in 1..=5 {
-        conn.execute(&format!("INSERT INTO items (id, val) VALUES ({}, {})", i, i * 10))
-            .await
-            .unwrap();
+        conn.execute(&format!(
+            "INSERT INTO items (id, val) VALUES ({}, {})",
+            i,
+            i * 10
+        ))
+        .await
+        .unwrap();
     }
     let rows = conn.query("SELECT id, val FROM items").await.unwrap();
     assert_eq!(rows.len(), 5);
@@ -93,7 +100,9 @@ async fn test_any_connection_sqlite_transaction() {
         .await
         .unwrap();
     conn.begin_transaction().await.unwrap();
-    conn.execute("INSERT INTO tx_test (id) VALUES (1)").await.unwrap();
+    conn.execute("INSERT INTO tx_test (id) VALUES (1)")
+        .await
+        .unwrap();
     conn.commit().await.unwrap();
     let rows = conn.query("SELECT id FROM tx_test").await.unwrap();
     assert_eq!(rows.len(), 1);
@@ -107,7 +116,9 @@ async fn test_any_connection_sqlite_transaction_rollback() {
         .await
         .unwrap();
     conn.begin_transaction().await.unwrap();
-    conn.execute("INSERT INTO tx_rb (id) VALUES (1)").await.unwrap();
+    conn.execute("INSERT INTO tx_rb (id) VALUES (1)")
+        .await
+        .unwrap();
     conn.rollback().await.unwrap();
     let rows = conn.query("SELECT id FROM tx_rb").await.unwrap();
     assert_eq!(rows.len(), 0);
@@ -135,7 +146,6 @@ async fn test_any_connection_sqlite_close() {
 
 #[tokio::test]
 async fn test_any_backend_from_db_type() {
-
     assert_eq!(
         AnyBackend::from_db_type(DbType::Sqlite),
         Some(AnyBackend::Sqlite)

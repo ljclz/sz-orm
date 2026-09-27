@@ -160,7 +160,11 @@ async fn integration_stub_wrapper_query_range_returns_empty() {
     let w = stub_wrapper();
     let now = Utc::now();
     let rows = w
-        .query_range("cpu", now - Duration::minutes(1), now + Duration::minutes(1))
+        .query_range(
+            "cpu",
+            now - Duration::minutes(1),
+            now + Duration::minutes(1),
+        )
         .await
         .unwrap();
     assert!(rows.is_empty(), "stub query_range must return empty Vec");
@@ -171,7 +175,13 @@ async fn integration_stub_wrapper_time_bucket_returns_empty() {
     let w = stub_wrapper();
     let now = Utc::now();
     let buckets = w
-        .time_bucket_aggregate("cpu", "5m", Aggregation::Avg, now, now + Duration::minutes(5))
+        .time_bucket_aggregate(
+            "cpu",
+            "5m",
+            Aggregation::Avg,
+            now,
+            now + Duration::minutes(5),
+        )
         .await
         .unwrap();
     assert!(
@@ -183,9 +193,12 @@ async fn integration_stub_wrapper_time_bucket_returns_empty() {
 #[tokio::test]
 async fn integration_stub_wrapper_create_continuous_aggregate() {
     let w = stub_wrapper();
-    w.create_continuous_aggregate("cpu_1h_view", "SELECT time_bucket('1h', ts), avg(v) FROM m GROUP BY 1")
-        .await
-        .unwrap();
+    w.create_continuous_aggregate(
+        "cpu_1h_view",
+        "SELECT time_bucket('1h', ts), avg(v) FROM m GROUP BY 1",
+    )
+    .await
+    .unwrap();
 }
 
 #[tokio::test]
@@ -213,7 +226,11 @@ async fn integration_memory_wrapper_insert_metrics_batch() {
     ];
     w.insert_metrics(&metrics).await.unwrap();
     let rows = w
-        .query_range("batch", now - Duration::minutes(1), now + Duration::minutes(1))
+        .query_range(
+            "batch",
+            now - Duration::minutes(1),
+            now + Duration::minutes(1),
+        )
         .await
         .unwrap();
     assert_eq!(rows.len(), 3);
