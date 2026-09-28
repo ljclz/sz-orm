@@ -560,7 +560,7 @@ pub use sz_orm_crypto::{
 #[cfg(feature = "data-validation")]
 pub mod validation;
 /// Re-export QueryBuilder for external use
-pub use query::QueryBuilder;
+pub use query::{AggExpr, HavingOp, QueryBuilder};
 #[cfg(feature = "adaptive-query")]
 pub mod adaptive_adapter;
 #[cfg(feature = "cache-coherence")]
