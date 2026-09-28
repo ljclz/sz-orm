@@ -3,22 +3,31 @@
 //! 需要本机 PostgreSQL 18: postgres://postgres:test123@127.0.0.1:5432/sz_orm_test
 //! 运行: cargo test -p sz-orm-sqlx --test any_pg_test -- --ignored
 
+use std::sync::OnceLock;
+
 use sz_orm_core::{Connection, Value};
 use sz_orm_sqlx::{AnyBackend, AnyPool};
 
-const DSN: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
+static DSN_CELL: OnceLock<String> = OnceLock::new();
+
+fn dsn() -> &'static str {
+    DSN_CELL.get_or_init(|| {
+        std::env::var("SZ_ORM_PG_URL")
+            .unwrap_or_else(|_| "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test".to_string())
+    })
+}
 
 #[tokio::test]
 #[ignore]
 async fn test_any_backend_postgres_connect() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     assert_eq!(pool.backend(), AnyBackend::Postgres);
 }
 
 #[tokio::test]
 #[ignore]
 async fn test_any_connection_pg_create_insert_query() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS any_pg_test")
         .await
@@ -42,7 +51,7 @@ async fn test_any_connection_pg_create_insert_query() {
 #[tokio::test]
 #[ignore]
 async fn test_any_connection_pg_dialect_placeholder() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let dialect = pool.dialect();
     assert_eq!(dialect.db_type(), sz_orm_core::DbType::PostgreSQL);
 }
@@ -50,7 +59,7 @@ async fn test_any_connection_pg_dialect_placeholder() {
 #[tokio::test]
 #[ignore]
 async fn test_any_connection_pg_transaction() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS any_pg_tx")
         .await
@@ -75,7 +84,7 @@ async fn test_any_connection_pg_transaction() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_after_close_returns_error() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.close().await.unwrap();
     let result = conn.execute("SELECT 1").await;
@@ -86,7 +95,7 @@ async fn test_pg_execute_after_close_returns_error() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_error_on_nonexistent_table() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let result = conn
         .execute("INSERT INTO nonexistent_v920 VALUES (1)")
@@ -97,7 +106,7 @@ async fn test_pg_execute_error_on_nonexistent_table() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_rows_affected() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_affected")
         .await
@@ -118,7 +127,7 @@ async fn test_pg_execute_rows_affected() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_needs_raw_sql_begin_commit() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_raw")
         .await
@@ -141,7 +150,7 @@ async fn test_pg_execute_needs_raw_sql_begin_commit() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_basic_select() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn.query("SELECT 1 AS one, 'hello' AS txt").await.unwrap();
     assert_eq!(rows.len(), 1);
@@ -152,7 +161,7 @@ async fn test_pg_query_basic_select() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_empty_result() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_empty")
         .await
@@ -173,7 +182,7 @@ async fn test_pg_query_empty_result() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_with_params_dollar_placeholders() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_params")
         .await
@@ -204,7 +213,7 @@ async fn test_pg_query_with_params_dollar_placeholders() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_with_params_various_types() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_multi")
         .await
@@ -233,7 +242,7 @@ async fn test_pg_execute_with_params_various_types() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_begin_transaction_and_in_transaction_flag() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     assert!(!conn.in_transaction());
     conn.begin_transaction().await.unwrap();
@@ -245,7 +254,7 @@ async fn test_pg_begin_transaction_and_in_transaction_flag() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_commit_clears_transaction_flag() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.begin_transaction().await.unwrap();
     assert!(conn.in_transaction());
@@ -256,7 +265,7 @@ async fn test_pg_commit_clears_transaction_flag() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_rollback_clears_transaction_flag() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.begin_transaction().await.unwrap();
     conn.rollback().await.unwrap();
@@ -266,7 +275,7 @@ async fn test_pg_rollback_clears_transaction_flag() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_double_begin_returns_error() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.begin_transaction().await.unwrap();
     let result = conn.begin_transaction().await;
@@ -277,7 +286,7 @@ async fn test_pg_double_begin_returns_error() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_is_connected_after_connect() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     assert!(conn.is_connected());
     conn.close().await.unwrap();
@@ -287,7 +296,7 @@ async fn test_pg_is_connected_after_connect() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_ping_returns_true() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     assert!(conn.ping().await);
 }
@@ -297,7 +306,7 @@ async fn test_pg_ping_returns_true() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_bool_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_bool")
         .await
@@ -319,7 +328,7 @@ async fn test_pg_query_bool_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_int2_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn.query("SELECT 32767::INT2 AS val").await.unwrap();
     assert_eq!(rows.len(), 1);
@@ -329,7 +338,7 @@ async fn test_pg_query_int2_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_int4_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn.query("SELECT 2147483647::INT4 AS val").await.unwrap();
     assert_eq!(rows.len(), 1);
@@ -339,7 +348,7 @@ async fn test_pg_query_int4_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_int8_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT 9223372036854775807::INT8 AS val")
@@ -352,7 +361,7 @@ async fn test_pg_query_int8_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_float4_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn.query("SELECT 3.14::FLOAT4 AS val").await.unwrap();
     assert_eq!(rows.len(), 1);
@@ -362,7 +371,7 @@ async fn test_pg_query_float4_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_float8_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT 2.718281828459045::FLOAT8 AS val")
@@ -375,7 +384,7 @@ async fn test_pg_query_float8_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_text_varchar_types() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT 'hello'::TEXT AS a, 'world'::VARCHAR(20) AS b")
@@ -389,7 +398,7 @@ async fn test_pg_query_text_varchar_types() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_numeric_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT 123456789.99::NUMERIC(20,2) AS val")
@@ -403,7 +412,7 @@ async fn test_pg_query_numeric_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_uuid_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT '550e8400-e29b-41d4-a716-446655440000'::UUID AS val")
@@ -416,7 +425,7 @@ async fn test_pg_query_uuid_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_jsonb_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT '{\"key\": \"value\"}'::JSONB AS val")
@@ -430,7 +439,7 @@ async fn test_pg_query_jsonb_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_bytea_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT E'\\\\xdeadbeef'::BYTEA AS val")
@@ -444,7 +453,7 @@ async fn test_pg_query_bytea_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_date_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT '2026-09-27'::DATE AS val")
@@ -458,7 +467,7 @@ async fn test_pg_query_date_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_timestamp_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT '2026-09-27 12:30:00'::TIMESTAMP AS val")
@@ -472,7 +481,7 @@ async fn test_pg_query_timestamp_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_timestamptz_type() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT '2026-09-27 12:30:00+00'::TIMESTAMPTZ AS val")
@@ -486,7 +495,7 @@ async fn test_pg_query_timestamptz_type() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_null_values() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let rows = conn
         .query("SELECT NULL::INT AS a, NULL::TEXT AS b")
@@ -502,7 +511,7 @@ async fn test_pg_query_null_values() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_bulk_insert_via_execute_with_params() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_bulk")
         .await
@@ -533,7 +542,7 @@ async fn test_pg_bulk_insert_via_execute_with_params() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_with_params_empty_falls_back() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_noparams")
         .await
@@ -554,7 +563,7 @@ async fn test_pg_execute_with_params_empty_falls_back() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_with_params_null_value() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_null_param")
         .await
@@ -582,7 +591,7 @@ async fn test_pg_execute_with_params_null_value() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_with_params_bool_value() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_bool_param")
         .await
@@ -610,7 +619,7 @@ async fn test_pg_execute_with_params_bool_value() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_with_params_i64_value() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_i64_param")
         .await
@@ -638,7 +647,7 @@ async fn test_pg_execute_with_params_i64_value() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_execute_with_params_bytes_value() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_bytes_param")
         .await
@@ -666,7 +675,7 @@ async fn test_pg_execute_with_params_bytes_value() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_query_with_params_multiple_results() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_multi_result")
         .await
@@ -693,7 +702,7 @@ async fn test_pg_query_with_params_multiple_results() {
 #[tokio::test]
 #[ignore]
 async fn test_pg_rollback_without_begin_is_noop() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.rollback().await.unwrap();
     assert!(!conn.in_transaction());

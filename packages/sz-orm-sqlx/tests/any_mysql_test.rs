@@ -3,22 +3,31 @@
 //! 需要本机 MySQL 9.6: mysql://root:test123@127.0.0.1:3306/sz_orm_test
 //! 运行: cargo test -p sz-orm-sqlx --test any_mysql_test -- --ignored
 
+use std::sync::OnceLock;
+
 use sz_orm_core::{Connection, Value};
 use sz_orm_sqlx::{AnyBackend, AnyPool};
 
-const DSN: &str = "mysql://root:test123@127.0.0.1:3306/sz_orm_test";
+static DSN_CELL: OnceLock<String> = OnceLock::new();
+
+fn dsn() -> &'static str {
+    DSN_CELL.get_or_init(|| {
+        std::env::var("SZ_ORM_MYSQL_URL")
+            .unwrap_or_else(|_| "mysql://root:test123@127.0.0.1:3306/sz_orm_test".to_string())
+    })
+}
 
 #[tokio::test]
 #[ignore]
 async fn test_any_backend_mysql_connect() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     assert_eq!(pool.backend(), AnyBackend::MySql);
 }
 
 #[tokio::test]
 #[ignore]
 async fn test_any_connection_mysql_create_insert_query() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS any_test_t")
         .await
@@ -42,7 +51,7 @@ async fn test_any_connection_mysql_create_insert_query() {
 #[tokio::test]
 #[ignore]
 async fn test_any_connection_mysql_dialect_placeholder() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let dialect = pool.dialect();
     assert_eq!(dialect.db_type(), sz_orm_core::DbType::MySQL);
 }
@@ -50,7 +59,7 @@ async fn test_any_connection_mysql_dialect_placeholder() {
 #[tokio::test]
 #[ignore]
 async fn test_any_connection_mysql_transaction() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS any_tx_test")
         .await
@@ -75,7 +84,7 @@ async fn test_any_connection_mysql_transaction() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_execute_after_close_returns_error() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.close().await.unwrap();
     let result = conn.execute("SELECT 1").await;
@@ -86,7 +95,7 @@ async fn test_mysql_execute_after_close_returns_error() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_execute_error_marks_disconnected() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     let result = conn
         .execute("INSERT INTO nonexistent_table_v920 VALUES (1)")
@@ -97,7 +106,7 @@ async fn test_mysql_execute_error_marks_disconnected() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_execute_rows_affected() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_affected")
         .await
@@ -118,7 +127,7 @@ async fn test_mysql_execute_rows_affected() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_execute_needs_raw_sql_path() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_raw")
         .await
@@ -143,7 +152,7 @@ async fn test_mysql_execute_needs_raw_sql_path() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_int_types() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_int")
         .await
@@ -171,7 +180,7 @@ async fn test_mysql_query_int_types() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_unsigned_types() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_unsigned")
         .await
@@ -196,7 +205,7 @@ async fn test_mysql_query_unsigned_types() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_float_double() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_float")
         .await
@@ -220,7 +229,7 @@ async fn test_mysql_query_float_double() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_varchar_text() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_str")
         .await
@@ -247,7 +256,7 @@ async fn test_mysql_query_varchar_text() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_blob_binary() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_blob")
         .await
@@ -271,7 +280,7 @@ async fn test_mysql_query_blob_binary() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_decimal() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_dec")
         .await
@@ -294,7 +303,7 @@ async fn test_mysql_query_decimal() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_date_datetime_time() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_date")
         .await
@@ -320,7 +329,7 @@ async fn test_mysql_query_date_datetime_time() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_null_values() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_null")
         .await
@@ -344,7 +353,7 @@ async fn test_mysql_query_null_values() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_empty_result() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_empty")
         .await
@@ -365,7 +374,7 @@ async fn test_mysql_query_empty_result() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_query_with_params() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_params")
         .await
@@ -398,7 +407,7 @@ async fn test_mysql_query_with_params() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_bulk_insert_via_execute_with_params() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_bulk")
         .await
@@ -429,7 +438,7 @@ async fn test_mysql_bulk_insert_via_execute_with_params() {
 #[tokio::test]
 #[ignore]
 async fn test_mysql_execute_with_params_empty_falls_back_to_execute() {
-    let pool = AnyPool::connect(DSN).await.unwrap();
+    let pool = AnyPool::connect(dsn()).await.unwrap();
     let mut conn = pool.create().await.unwrap();
     conn.execute("DROP TABLE IF EXISTS t_v920_noparams")
         .await
