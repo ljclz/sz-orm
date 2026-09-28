@@ -7,13 +7,17 @@
 
 ## 1. 总览
 
-| 维度 | v9.0.0 基线 | v9.2.0 实测 | 变化 |
-|------|------------|------------|------|
-| 行覆盖率 | 90.2% | **90.28%** | +0.08% |
-| 分支覆盖率 | 100%（审计声明） | **88.45%** | — |
-| 函数覆盖率 | — | **89.48%** | — |
-| 未覆盖行 | ~30,000 | **29,767** | -233 |
-| 新增测试 | 0 | **620** | +620 |
+| 维度 | v9.0.0 基线 | v9.2.0 纯单元 | v9.2.0 含集成 | 变化 |
+|------|------------|--------------|--------------|------|
+| 行覆盖率 | 90.2% | **90.28%** | **90.16%** | +0.08% / -0.04% |
+| 分支覆盖率 | 100%（审计声明） | **88.45%** | **88.35%** | — |
+| 函数覆盖率 | — | **89.48%** | **89.43%** | — |
+| 未覆盖行 | ~30,000 | **29,767** | **30,142** | -233 / +142 |
+| 新增测试 | 0 | **620** | **620** | +620 |
+
+> **含集成测试采集**：MySQL 8802 + PG 5432 真实 DB 连接，`--include-ignored` 模式
+> any.rs 覆盖率从 22.40% 提升到 **48.78%**（+26.38%），集成测试贡献显著
+> Oracle 集成测试 10 failed（服务器无 Oracle），MSSQL/Redis/ClickHouse/Gbase 跳过
 
 ## 2. 采集命令
 
@@ -67,28 +71,32 @@ cargo llvm-cov --workspace \
 - endpoint_test.rs: 5 tests（HealthEndpointConfig）
 - log_pipeline_test.rs: 17 tests（LogRecord/过滤器）
 
-## 4. 覆盖率缺口 TOP 10
+## 4. 覆盖率缺口 TOP 10（含集成测试采集）
 
 | 文件 | 总行数 | 未覆盖 | 覆盖率 |
 |------|--------|--------|--------|
-| sz-orm-sqlx/src/any.rs | 3245 | 2518 | 22.40% |
+| sz-orm-sqlx/src/any.rs | 3245 | 1662 | 48.78% |
+| sz-orm-core/src/dialect.rs | 5573 | 1633 | 70.70% |
 | sz-orm-core/src/query.rs | 6137 | 1441 | 76.52% |
-| sz-orm-core/src/dialect.rs | 5573 | 1199 | 78.49% |
-| sz-orm-oracle/src/lib.rs | 2083 | 1164 | 44.12% |
-| sz-orm-mssql/src/lib.rs | 1785 | 890 | 50.14% |
-| sz-orm-core/src/pool.rs | 3368 | 636 | 81.12% |
-| sz-orm-core/src/l2_cache.rs | 2766 | 613 | 77.84% |
+| sz-orm-mssql/src/lib.rs | 1785 | 1151 | 35.52% |
+| sz-orm-oracle/src/lib.rs | 2083 | 1125 | 46.00% |
+| sz-orm-core/src/l2_cache.rs | 2766 | 725 | 73.79% |
+| sz-orm-core/src/pool.rs | 3368 | 603 | 82.10% |
 | sz-orm-query-builder/src/lib.rs | 4485 | 511 | 88.61% |
-| sz-orm-core/src/schema_sync.rs | 1203 | 301 | 74.98% |
+| sz-orm-core/src/schema_sync.rs | 1203 | 343 | 71.49% |
 | sz-orm-core/src/model.rs | 1898 | 337 | 82.24% |
 
 ## 5. 未达 95% 原因分析
 
-1. **any.rs（2518 行未覆盖）**：MySQL/PG 实现需要真实 DB 连接，`#[ignore]` 测试在纯单元覆盖率采集中不运行
-2. **oracle/lib.rs（1164 行未覆盖）**：Oracle Connection/Pool 需要真实 Oracle DB
-3. **mssql/lib.rs（890 行未覆盖）**：MSSQL Connection/Pool 需要真实 MSSQL DB
-4. **query.rs/dialect.rs（2640 行未覆盖）**：分支覆盖不足，部分分支需要复杂 SQL 构造
-5. **pool.rs/l2_cache.rs（1249 行未覆盖）**：异步并发路径需要 tokio 运行时和真实连接
+1. **any.rs（1662 行未覆盖）**：MySQL/PG 集成测试已覆盖到 48.78%，但 SQLite/Oracle/MSSQL 后端实现仍需对应 DB
+2. **dialect.rs（1633 行未覆盖）**：冷门方言（Dameng/GBase/ClickHouse/Db2）实现分支未覆盖
+3. **query.rs（1441 行未覆盖）**：复杂 SQL 构造分支（CTE/窗口函数/递归等）未覆盖
+4. **mssql/lib.rs（1151 行未覆盖）**：MSSQL Connection/Pool 需要真实 MSSQL DB
+5. **oracle/lib.rs（1125 行未覆盖）**：Oracle Connection/Pool 需要真实 Oracle DB
+6. **l2_cache.rs/pool.rs（1328 行未覆盖）**：异步并发路径需要 tokio 运行时和真实连接
+
+> **结论**：TOP 5 缺口中 3 个（any.rs/mssql/oracle）需要真实 DB 连接，纯单元测试无法覆盖。
+> 要达到 95% 需覆盖额外 ~14,824 行，需大量集成测试 + 真实 DB 环境。
 
 ## 6. Git 提交记录
 
@@ -99,4 +107,5 @@ cargo llvm-cov --workspace \
 | `2bd16299` | M3 dialect.rs 方言差异覆盖 | 60 |
 | `6a38fd18` | M4~M8 oracle/mssql/pool/l2_cache/model/value/qb | 234 |
 | `07f1ed69` | M9 长尾模块纯单元测试补齐 | 227 |
+| `ef43d88e` | M11 any_test 环境变量支持 | 0 |
 | **总计** | | **620** |
