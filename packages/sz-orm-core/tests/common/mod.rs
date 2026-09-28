@@ -6,6 +6,7 @@ pub mod cleanup;
 #[allow(dead_code)]
 pub mod e2e_env;
 pub mod equivalence;
+pub mod pool_mock;
 pub mod rusqlite_adapter;
 pub mod schema_builder;
 #[allow(dead_code)]
