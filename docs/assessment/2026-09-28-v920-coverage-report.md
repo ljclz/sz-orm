@@ -16,8 +16,9 @@
 | 新增测试 | 0 | **829** | **829** | +829 |
 
 > **M16 新增**：query_misc_test 96 tests + qb_coverage_test 34 tests + schema_sync 15 tests = 145 tests
-> **Oracle IC 23.26 已安装**在服务器，本机 Oracle 集成测试 26 passed
-> **SSH 反向隧道**不稳定，服务器 Oracle 覆盖率采集未完成
+> **M17 Oracle XE 21c Docker**：ghcr.io/gvenzl/oracle-xe:21 运行在服务器 1521 端口
+> **Oracle 集成测试**：26 passed（22 connection + 4 pool），测试文件已改为支持环境变量覆盖
+> **覆盖率采集**：cargo-llvm-cov 0.9.1 + --ignore-run-fail 产生 binary ID 不匹配的 profdata，Oracle 覆盖率未合并成功
 
 ## 2. 采集命令
 
@@ -115,7 +116,10 @@ cargo llvm-cov --workspace [同上排除] --summary-only -- --include-ignored \
 
 ## 7. Oracle 集成测试状态
 
+- **服务器 Docker**：Oracle XE 21c（ghcr.io/gvenzl/oracle-xe:21），端口 1521，PDB XEPDB1
+- **测试用户**：sz_orm_test / SzOrmTest2026（APP_USER 自动创建）
+- **连接字符串**：`SZ_ORM_ORACLE_CONNECT_STRING=127.0.0.1:1521/XEPDB1`
+- **测试结果**：26 passed（22 connection + 4 pool），0 failed
+- **测试文件修改**：oracle_connection_test/oracle_pool_test/integration_test 添加 `SZ_ORM_ORACLE_*` 环境变量支持
+- **覆盖率采集问题**：cargo-llvm-cov 0.9.1 与 --ignore-run-fail 组合产生 binary ID 不匹配的 profdata（M17b 0% vs M16 74.3% for sz_orm_core），需升级 cargo-llvm-cov 或分步采集
 - **本机**：Oracle 23ai Free 127.0.0.1:1521/freepdb1.FALSE，26 tests passed
-- **服务器**：Oracle IC 23.26 已安装（/usr/lib/oracle/23/client64/lib/）
-- **SSH 反向隧道**：服务器 1521 → 本机 1521，但连接不稳定（超时断开）
-- **覆盖率采集**：服务器 Oracle 覆盖率未完成，需稳定的隧道或本机 cargo-llvm-cov

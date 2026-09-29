@@ -7,14 +7,23 @@ use std::sync::Arc;
 use sz_orm_core::{ConnectionFactory, Connection, Value};
 use sz_orm_oracle::{OracleConnectionFactory, OraclePoolHandle};
 
+fn oracle_user() -> String {
+    std::env::var("SZ_ORM_ORACLE_USER").unwrap_or_else(|_| "sz_orm_test".to_string())
+}
+
+fn oracle_password() -> String {
+    std::env::var("SZ_ORM_ORACLE_PASSWORD").unwrap_or_else(|_| "SzOrmTest2026".to_string())
+}
+
+fn oracle_cs() -> String {
+    std::env::var("SZ_ORM_ORACLE_CONNECT_STRING")
+        .unwrap_or_else(|_| "127.0.0.1:1521/freepdb1.FALSE".to_string())
+}
+
 async fn make_conn() -> Box<dyn Connection> {
     let handle = Arc::new(
-        OraclePoolHandle::connect(
-            "sz_orm_test",
-            "SzOrmTest2026",
-            "127.0.0.1:1521/freepdb1.FALSE",
-        )
-        .expect("connect oracle"),
+        OraclePoolHandle::connect(&oracle_user(), &oracle_password(), &oracle_cs())
+            .expect("connect oracle"),
     );
     let factory = OracleConnectionFactory::new(handle);
     factory.create().await.expect("create connection")
