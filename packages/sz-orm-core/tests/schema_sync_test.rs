@@ -366,3 +366,119 @@ fn test_diff_column_with_default() {
     assert_eq!(d.added_columns.len(), 1);
     assert_eq!(d.added_columns[0].1.default, Some("1".to_string()));
 }
+#[test]
+fn test_has_destructive_changes_empty() {
+    let d = SchemaDiff::default();
+    assert!(!d.has_destructive_changes());
+}
+
+#[test]
+fn test_has_destructive_changes_dropped_table() {
+    let d = diff(&[], &[table("old", vec![col("id", "BIGINT", false, true)])]);
+    assert!(d.has_destructive_changes());
+}
+
+#[test]
+fn test_has_destructive_changes_dropped_column() {
+    let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
+    let db = vec![table("users", vec![col("id", "BIGINT", false, true), col("old_col", "TEXT", true, false)])];
+    let d = diff(&entity, &db);
+    assert!(d.has_destructive_changes());
+}
+
+#[test]
+fn test_has_destructive_changes_added_only() {
+    let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
+    let d = diff(&entity, &[]);
+    assert!(!d.has_destructive_changes());
+}
+
+#[test]
+fn test_diff_against_added_table() {
+    let sync = SchemaSync::new(vec![table("users", vec![col("id", "BIGINT", false, true)])]);
+    let d = sync.diff_against(&[]);
+    assert_eq!(d.added_tables.len(), 1);
+}
+
+#[test]
+fn test_diff_against_dropped_table() {
+    let sync = SchemaSync::new(vec![]);
+    let db = vec![table("old", vec![col("id", "BIGINT", false, true)])];
+    let d = sync.diff_against(&db);
+    assert_eq!(d.dropped_tables.len(), 1);
+}
+
+#[test]
+fn test_diff_against_no_changes() {
+    let t = table("users", vec![col("id", "BIGINT", false, true)]);
+    let sync = SchemaSync::new(vec![t.clone()]);
+    let d = sync.diff_against(&[t]);
+    assert!(d.is_empty());
+}
+
+#[test]
+fn test_diff_against_added_column() {
+    let entity = vec![table("users", vec![col("id", "BIGINT", false, true), col("name", "TEXT", false, false)])];
+    let db = vec![table("users", vec![col("id", "BIGINT", false, true)])];
+    let sync = SchemaSync::new(entity);
+    let d = sync.diff_against(&db);
+    assert_eq!(d.added_columns.len(), 1);
+}
+
+#[test]
+fn test_diff_against_dropped_column() {
+    let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
+    let db = vec![table("users", vec![col("id", "BIGINT", false, true), col("old", "TEXT", true, false)])];
+    let sync = SchemaSync::new(entity);
+    let d = sync.diff_against(&db);
+    assert_eq!(d.dropped_columns.len(), 1);
+}
+
+#[test]
+fn test_diff_against_type_changed() {
+    let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
+    let db = vec![table("users", vec![col("id", "INT", false, true)])];
+    let sync = SchemaSync::new(entity);
+    let d = sync.diff_against(&db);
+    assert!(d.type_changed_columns.len() >= 1);
+}
+
+#[test]
+fn test_diff_against_multiple_tables() {
+    let entity = vec![
+        table("users", vec![col("id", "BIGINT", false, true)]),
+        table("posts", vec![col("id", "BIGINT", false, true)]),
+    ];
+    let db = vec![table("users", vec![col("id", "BIGINT", false, true)])];
+    let sync = SchemaSync::new(entity);
+    let d = sync.diff_against(&db);
+    assert_eq!(d.added_tables.len(), 1);
+    assert_eq!(d.added_tables[0].name, "posts");
+}
+
+#[test]
+
+fn test_is_empty_true() {
+    let d = SchemaDiff::default();
+    assert!(d.is_empty());
+}
+
+#[test]
+fn test_is_empty_false_with_added() {
+    let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
+    let d = diff(&entity, &[]);
+    assert!(!d.is_empty());
+}
+
+#[test]
+fn test_get_column_found() {
+    let t = table("users", vec![col("id", "BIGINT", false, true), col("name", "TEXT", false, false)]);
+    assert!(t.get_column("id").is_some());
+    assert!(t.get_column("name").is_some());
+}
+
+#[test]
+fn test_get_column_not_found() {
+    let t = table("users", vec![col("id", "BIGINT", false, true)]);
+    assert!(t.get_column("nonexistent").is_none());
+}
