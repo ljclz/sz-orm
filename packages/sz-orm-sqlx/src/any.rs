@@ -2585,4 +2585,121 @@ mod tests {
         let mut c = closed_pg();
         assert!(!c.ping().await);
     }
+
+    // ---- v9.2.0 M18: MySQL 扩展方法 conn=None ----
+
+    #[tokio::test]
+    async fn test_mysql_execute_with_params_closed() {
+        let mut c = closed_mysql();
+        assert!(c.execute_with_params("INSERT INTO t VALUES (?)", &[Value::I64(1)]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_execute_with_params_empty_delegates() {
+        let mut c = closed_mysql();
+        assert!(c.execute_with_params("INSERT INTO t VALUES (1)", &[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_query_with_params_closed() {
+        let mut c = closed_mysql();
+        assert!(c.query_with_params("SELECT * FROM t WHERE id = ?", &[Value::I64(1)]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_query_with_params_empty_delegates() {
+        let mut c = closed_mysql();
+        assert!(c.query_with_params("SELECT * FROM t", &[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_query_values_closed() {
+        let mut c = closed_mysql();
+        assert!(c.query_values("SELECT * FROM t").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_query_values_with_params_closed() {
+        let mut c = closed_mysql();
+        assert!(c.query_values_with_params("SELECT * FROM t WHERE id = ?", &[Value::I64(1)]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_query_values_with_params_empty_delegates() {
+        let mut c = closed_mysql();
+        assert!(c.query_values_with_params("SELECT * FROM t", &[]).await.is_err());
+    }
+
+    // ---- v9.2.0 M18: PG 扩展方法 conn=None ----
+
+    #[tokio::test]
+    async fn test_pg_execute_with_params_closed() {
+        let mut c = closed_pg();
+        assert!(c.execute_with_params("INSERT INTO t VALUES ($1)", &[Value::I64(1)]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_execute_with_params_empty_delegates() {
+        let mut c = closed_pg();
+        assert!(c.execute_with_params("INSERT INTO t VALUES (1)", &[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_query_with_params_closed() {
+        let mut c = closed_pg();
+        assert!(c.query_with_params("SELECT * FROM t WHERE id = $1", &[Value::I64(1)]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_query_with_params_empty_delegates() {
+        let mut c = closed_pg();
+        assert!(c.query_with_params("SELECT * FROM t", &[]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_query_values_closed() {
+        let mut c = closed_pg();
+        assert!(c.query_values("SELECT * FROM t").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_query_values_with_params_closed() {
+        let mut c = closed_pg();
+        assert!(c.query_values_with_params("SELECT * FROM t WHERE id = $1", &[Value::I64(1)]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_query_values_with_params_empty_delegates() {
+        let mut c = closed_pg();
+        assert!(c.query_values_with_params("SELECT * FROM t", &[]).await.is_err());
+    }
+
+    // ---- v9.2.0 M18: sqlite_backup conn=None ----
+
+    #[tokio::test]
+    async fn test_sqlite_backup_closed_conn() {
+        let mut c = closed_sqlite();
+        let result = sqlite_backup(&mut c, "/tmp/backup.db").await;
+        assert!(result.is_err());
+    }
+
+    // ---- v9.2.0 M18: SQLite query_values conn=None ----
+
+    #[tokio::test]
+    async fn test_sqlite_query_values_closed() {
+        let mut c = closed_sqlite();
+        assert!(c.query_values("SELECT * FROM t").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_query_values_with_params_closed() {
+        let mut c = closed_sqlite();
+        assert!(c.query_values_with_params("SELECT * FROM t WHERE id = ?", &[Value::I64(1)]).await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_query_values_with_params_empty_delegates() {
+        let mut c = closed_sqlite();
+        assert!(c.query_values_with_params("SELECT * FROM t", &[]).await.is_err());
+    }
 }
