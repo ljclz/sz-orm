@@ -1951,4 +1951,19 @@ mod tests {
         assert_eq!(visited.len(), 10);
         assert_eq!(visited, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     }
+
+    // ---- v9.2.0 M18: GenericKeyRepository::clear ----
+
+    #[test]
+    fn test_generic_key_repo_clear() {
+        let repo: GenericKeyRepository<User, i64> =
+            GenericKeyRepository::from_vec(vec![
+                User::new(1, "Alice", 30, "a@b.com"),
+                User::new(2, "Bob", 25, "b@b.com"),
+            ]);
+        assert!(!repo.is_empty());
+        repo.clear();
+        assert!(repo.is_empty());
+        assert_eq!(repo.len(), 0);
+    }
 }
