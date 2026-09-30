@@ -2301,4 +2301,288 @@ mod tests {
         assert!(!needs_raw_sql("INSERT"));
         assert!(!needs_raw_sql("DELETE"));
     }
+
+    // ---- v9.2.0 M18: validate_pg_channel_name 纯字符串校验 ----
+
+    #[test]
+    fn test_validate_pg_channel_name_valid() {
+        assert!(validate_pg_channel_name("my_channel").is_ok());
+        assert!(validate_pg_channel_name("abc123").is_ok());
+        assert!(validate_pg_channel_name("_test").is_ok());
+        assert!(validate_pg_channel_name("a_b_c").is_ok());
+    }
+
+    #[test]
+    fn test_validate_pg_channel_name_empty() {
+        let err = validate_pg_channel_name("").unwrap_err();
+        assert!(matches!(err, DbError::Internal(ref s) if s.contains("empty")));
+    }
+
+    #[test]
+    fn test_validate_pg_channel_name_invalid_chars() {
+        let err = validate_pg_channel_name("my-channel").unwrap_err();
+        assert!(matches!(err, DbError::Internal(ref s) if s.contains("invalid")));
+        assert!(validate_pg_channel_name("my.channel").is_err());
+        assert!(validate_pg_channel_name("my channel").is_err());
+        assert!(validate_pg_channel_name("my;channel").is_err());
+        assert!(validate_pg_channel_name("my'channel").is_err());
+    }
+
+    // ---- v9.2.0 M18: SqlxSqliteConnection conn=None 错误分支 ----
+
+    fn closed_sqlite() -> SqlxSqliteConnection {
+        SqlxSqliteConnection {
+            conn: None,
+            connected: false,
+            in_transaction: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_execute_closed() {
+        let mut c = closed_sqlite();
+        let result = c.execute("SELECT 1").await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("closed"));
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_query_closed() {
+        let mut c = closed_sqlite();
+        let result = c.query("SELECT 1").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_begin_tx_already_started() {
+        let mut c = SqlxSqliteConnection {
+            conn: None,
+            connected: false,
+            in_transaction: true,
+        };
+        let result = c.begin_transaction().await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().to_string().contains("already started"));
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_begin_tx_closed() {
+        let mut c = closed_sqlite();
+        let result = c.begin_transaction().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_commit_no_tx() {
+        let mut c = closed_sqlite();
+        let result = c.commit().await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_rollback_no_tx() {
+        let mut c = closed_sqlite();
+        let result = c.rollback().await;
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_sqlite_is_connected_false_when_conn_none() {
+        let c = closed_sqlite();
+        assert!(!c.is_connected());
+    }
+
+    #[test]
+    fn test_sqlite_is_connected_false_when_connected_false() {
+        let c = SqlxSqliteConnection {
+            conn: None,
+            connected: true,
+            in_transaction: false,
+        };
+        assert!(!c.is_connected());
+    }
+
+    #[test]
+    fn test_sqlite_in_transaction_flag() {
+        let c = SqlxSqliteConnection {
+            conn: None,
+            connected: false,
+            in_transaction: true,
+        };
+        assert!(c.in_transaction());
+        let c2 = closed_sqlite();
+        assert!(!c2.in_transaction());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_ping_closed() {
+        let mut c = closed_sqlite();
+        let result = c.ping().await;
+        assert!(!result);
+        assert!(!c.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_close_closed() {
+        let mut c = closed_sqlite();
+        let result = c.close().await;
+        assert!(result.is_ok());
+        assert!(!c.is_connected());
+        assert!(!c.in_transaction());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_execute_with_params_closed() {
+        let mut c = closed_sqlite();
+        let result = c.execute_with_params("INSERT INTO t VALUES (?)", &[Value::I64(1)]).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_execute_with_params_empty_delegates() {
+        let mut c = closed_sqlite();
+        let result = c.execute_with_params("INSERT INTO t VALUES (1)", &[]).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_query_with_params_empty_delegates() {
+        let mut c = closed_sqlite();
+        let result = c.query_with_params("SELECT * FROM t", &[]).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_sqlite_query_with_params_closed() {
+        let mut c = closed_sqlite();
+        let result = c.query_with_params("SELECT * FROM t WHERE id = ?", &[Value::I64(1)]).await;
+        assert!(result.is_err());
+    }
+
+    // ---- v9.2.0 M18: SqlxMySqlConnection conn=None 错误分支 ----
+
+    fn closed_mysql() -> SqlxMySqlConnection {
+        SqlxMySqlConnection {
+            conn: None,
+            connected: false,
+            in_transaction: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_mysql_execute_closed() {
+        let mut c = closed_mysql();
+        assert!(c.execute("SELECT 1").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_query_closed() {
+        let mut c = closed_mysql();
+        assert!(c.query("SELECT 1").await.is_err());
+    }
+
+    #[test]
+    fn test_mysql_is_connected_false() {
+        let c = closed_mysql();
+        assert!(!c.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_close_closed() {
+        let mut c = closed_mysql();
+        assert!(c.close().await.is_ok());
+        assert!(!c.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_commit_no_tx() {
+        let mut c = closed_mysql();
+        assert!(c.commit().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_rollback_no_tx() {
+        let mut c = closed_mysql();
+        assert!(c.rollback().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_begin_tx_already_started() {
+        let mut c = SqlxMySqlConnection {
+            conn: None,
+            connected: false,
+            in_transaction: true,
+        };
+        let result = c.begin_transaction().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_mysql_ping_closed() {
+        let mut c = closed_mysql();
+        assert!(!c.ping().await);
+    }
+
+    // ---- v9.2.0 M18: SqlxPgConnection conn=None 错误分支 ----
+
+    fn closed_pg() -> SqlxPgConnection {
+        SqlxPgConnection {
+            conn: None,
+            connected: false,
+            in_transaction: false,
+        }
+    }
+
+    #[tokio::test]
+    async fn test_pg_execute_closed() {
+        let mut c = closed_pg();
+        assert!(c.execute("SELECT 1").await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_query_closed() {
+        let mut c = closed_pg();
+        assert!(c.query("SELECT 1").await.is_err());
+    }
+
+    #[test]
+    fn test_pg_is_connected_false() {
+        let c = closed_pg();
+        assert!(!c.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_pg_close_closed() {
+        let mut c = closed_pg();
+        assert!(c.close().await.is_ok());
+        assert!(!c.is_connected());
+    }
+
+    #[tokio::test]
+    async fn test_pg_commit_no_tx() {
+        let mut c = closed_pg();
+        assert!(c.commit().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pg_rollback_no_tx() {
+        let mut c = closed_pg();
+        assert!(c.rollback().await.is_ok());
+    }
+
+    #[tokio::test]
+    async fn test_pg_begin_tx_already_started() {
+        let mut c = SqlxPgConnection {
+            conn: None,
+            connected: false,
+            in_transaction: true,
+        };
+        assert!(c.begin_transaction().await.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_ping_closed() {
+        let mut c = closed_pg();
+        assert!(!c.ping().await);
+    }
 }
