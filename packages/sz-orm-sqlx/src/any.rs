@@ -2702,4 +2702,36 @@ mod tests {
         let mut c = closed_sqlite();
         assert!(c.query_values_with_params("SELECT * FROM t", &[]).await.is_err());
     }
+
+    // ---- v9.2.0 M18: bulk_insert 空行 + conn=None ----
+
+    #[tokio::test]
+    async fn test_mysql_bulk_insert_empty_rows() {
+        let mut c = closed_mysql();
+        let result = mysql_bulk_insert(&mut c, "t", &["a", "b"], &[]).await;
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_mysql_bulk_insert_closed_conn() {
+        let mut c = closed_mysql();
+        let rows = vec![vec![Value::I64(1), Value::String("x".to_string())]];
+        let result = mysql_bulk_insert(&mut c, "t", &["a", "b"], &rows).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn test_pg_bulk_insert_empty_rows() {
+        let mut c = closed_pg();
+        let result = pg_bulk_insert(&mut c, "t", &["a", "b"], &[]).await;
+        assert_eq!(result.unwrap(), 0);
+    }
+
+    #[tokio::test]
+    async fn test_pg_bulk_insert_closed_conn() {
+        let mut c = closed_pg();
+        let rows = vec![vec![Value::I64(1), Value::String("x".to_string())]];
+        let result = pg_bulk_insert(&mut c, "t", &["a", "b"], &rows).await;
+        assert!(result.is_err());
+    }
 }
