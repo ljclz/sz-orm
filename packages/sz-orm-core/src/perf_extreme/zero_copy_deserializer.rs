@@ -150,6 +150,7 @@ impl ZeroCopyDeserializer {
 mod tests {
     use super::*;
     use crate::value_borrowed::BorrowedValue;
+    use crate::zero_copy_pipeline::ZeroCopyTypeId;
 
     #[test]
     fn deserialize_empty_buf_returns_null() {
@@ -217,5 +218,101 @@ mod tests {
         let buf = [0x04, b'x'];
         let val = deser.deserialize_borrowed(&buf);
         assert!(matches!(val, BorrowedValue::Bytes(_)));
+    }
+
+    #[test]
+    fn deserialize_i64_hit() {
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        let mut buf = vec![0x02];
+        buf.extend_from_slice(&42i64.to_be_bytes());
+        let val = deser.deserialize_borrowed(&buf);
+        assert!(matches!(val, BorrowedValue::I64(42)));
+    }
+
+    #[test]
+    fn deserialize_f64_hit() {
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        let mut buf = vec![0x03];
+        buf.extend_from_slice(&3.25f64.to_be_bytes());
+        let val = deser.deserialize_borrowed(&buf);
+        match val {
+            BorrowedValue::F64(v) => assert!((v - 3.25).abs() < 1e-9),
+            _ => panic!("应为 F64"),
+        }
+    }
+
+    #[test]
+    fn deserialize_i64_partial_payload() {
+        // payload 不足 8 字节时 take(8) 只取到末尾，高位为 0
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        let buf = [0x02, 0x01];
+        let val = deser.deserialize_borrowed(&buf);
+        assert!(matches!(val, BorrowedValue::I64(1)));
+    }
+
+    #[test]
+    fn deserialize_f64_partial_payload() {
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        let buf = [0x03, 0x00];
+        let val = deser.deserialize_borrowed(&buf);
+        assert!(matches!(val, BorrowedValue::F64(0.0)));
+    }
+
+    #[test]
+    fn deserialize_invalid_utf8_string_returns_empty() {
+        // 非法 UTF-8 时 from_utf8 失败 → unwrap_or("") 返回空字符串借用
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        let buf = [0x04, 0xFF, 0xFE];
+        let val = deser.deserialize_borrowed(&buf);
+        assert!(matches!(val, BorrowedValue::String(s) if s.is_empty()));
+    }
+
+    #[test]
+    fn config_method_returns_reference() {
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        assert_eq!(deser.config().hit_rate_target, 0.9);
+    }
+
+    #[test]
+    fn pipeline_method_returns_reference() {
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        // 多次调用返回同一实例引用
+        assert!(std::ptr::eq(deser.pipeline(), deser.pipeline()));
+    }
+
+    #[test]
+    fn registry_method_returns_reference() {
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        assert!(deser.registry().is_supported(ZeroCopyTypeId::Bool));
+        assert!(deser.registry().is_supported(ZeroCopyTypeId::Bytes));
+    }
+
+    /// G22 覆盖率：空注册表下所有类型标记（Bool/I64/F64/String/Bytes）均应
+    /// 回退拷贝路径（`_` 兜底分支），此前仅 String（0x04）被 `empty_registry_all_miss`
+    /// 覆盖，其余 guard 的 `is_supported == false` 分支未执行。
+    #[test]
+    fn empty_registry_all_types_miss() {
+        let deser = ZeroCopyDeserializer::with_registry(
+            ZeroCopyTypeRegistry::empty(),
+            ZeroCopyDeserConfig::default(),
+        );
+        for tag in [0x01u8, 0x02, 0x03, 0x04, 0x05] {
+            let buf = [tag, 0x01];
+            let val = deser.deserialize_borrowed(&buf);
+            assert!(
+                matches!(val, BorrowedValue::Bytes(_)),
+                "tag {tag:#04x} 在空注册表下应回退拷贝路径"
+            );
+        }
+    }
+
+    /// G22 覆盖率：Bool 类型 payload 为空时走 `unwrap_or(0)` 兜底分支返回 false，
+    /// 此前仅测试了 `[0x01, 0x01]`（payload 非空 → true）。
+    #[test]
+    fn deserialize_bool_empty_payload_returns_false() {
+        let deser = ZeroCopyDeserializer::new(ZeroCopyDeserConfig::default());
+        let buf = [0x01]; // 类型标记后无 payload
+        let val = deser.deserialize_borrowed(&buf);
+        assert!(matches!(val, BorrowedValue::Bool(false)));
     }
 }
