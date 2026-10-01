@@ -648,7 +648,18 @@ impl<M: Model> QueryBuilder<M> {
     /// P0-3：临时禁用租户过滤，用于跨租户管理查询。
     ///
     /// 等价于 Laravel Eloquent 的全局作用域禁用。
+    ///
+    /// # 安全警告
+    ///
+    /// 此方法禁用租户隔离，可能导致跨租户数据泄露。
+    /// v9.2.0 安全修复 #5：调用时记录 `warn` 级审计日志，便于事后追溯。
+    /// 仅在确需跨租户管理查询时使用，并确保调用方已通过权限校验。
+    #[tracing::instrument(skip(self), fields(op = "without_tenant", table = ?self.table), level = "warn")]
     pub fn without_tenant(mut self) -> Self {
+        tracing::warn!(
+            table = ?self.table,
+            "Tenant isolation disabled via without_tenant() — ensure caller has admin authority"
+        );
         self.tenant_disabled = true;
         self
     }
@@ -721,7 +732,7 @@ impl<M: Model> QueryBuilder<M> {
     /// 未显式 `with_tenant_id` 且未 `without_tenant` 且上下文未设置时，
     /// 返回 `DbError::TenantError("TenantContextRequired")`。
     #[cfg(feature = "multi-tenant-enhanced")]
-    #[allow(dead_code)]
+
     fn require_tenant_condition(&self) -> Result<Option<(String, Value)>, crate::DbError> {
         if self.tenant_field().is_none() {
             return Ok(None);
@@ -1677,10 +1688,18 @@ impl<M: Model> QueryBuilder<M> {
         };
 
         // P0-3：构造租户条件（若有且启用）— 无参数版本内嵌转义值
-        let tenant_cond = self.build_tenant_condition().map(|(sql, value)| {
-            // sql 形如 "`tenant_id` = ?"，将 ? 替换为内嵌值
-            sql.replacen('?', &value.to_param_with_dialect(&*self.dialect), 1)
-        });
+        // v9.2.0 安全修复 #4：multi-tenant-enhanced feature 启用时强制要求租户上下文
+        #[cfg(feature = "multi-tenant-enhanced")]
+        let tenant_cond = self
+            .require_tenant_condition()
+            .expect("TenantContextRequired: multi-tenant-enhanced feature enabled but no tenant context set")
+            .map(|(sql, value)| {
+                sql.replacen('?', &value.to_param_with_dialect(&*self.dialect), 1)
+            });
+        #[cfg(not(feature = "multi-tenant-enhanced"))]
+        let tenant_cond = self
+            .build_tenant_condition()
+            .map(|(sql, value)| sql.replacen('?', &value.to_param_with_dialect(&*self.dialect), 1));
 
         // 无用户条件且无软删除条件且无租户条件且无 keyset 游标 → 空 WHERE
         if self.where_conditions.is_empty()
@@ -2069,6 +2088,12 @@ impl<M: Model> QueryBuilder<M> {
         };
 
         // P0-3：构造租户条件（若有且启用）— 参数化版本保留 (sql, value)
+        // v9.2.0 安全修复 #4：multi-tenant-enhanced feature 启用时强制要求租户上下文
+        #[cfg(feature = "multi-tenant-enhanced")]
+        let tenant_cond = self
+            .require_tenant_condition()
+            .expect("TenantContextRequired: multi-tenant-enhanced feature enabled but no tenant context set");
+        #[cfg(not(feature = "multi-tenant-enhanced"))]
         let tenant_cond = self.build_tenant_condition();
 
         // v4.7.0 REQ-V47-006：构造增强 RLS 条件（启用 tenant-quota-rls-enhanced feature 时生效）
@@ -2669,7 +2694,7 @@ impl<M: Model> QueryBuilder<M> {
         // v6.3 快速路径：无软删除/租户/RLS/keyset + 无 OR → 直接写入 sql
         let no_soft_delete = self.soft_delete_disabled || M::soft_delete_field().is_none();
         let no_tenant =
-            self.tenant_disabled || M::tenant_field().is_none() || self.tenant_id_value.is_none();
+            self.tenant_disabled || M::tenant_field().is_none() || self.tenant_id_value().is_none();
         #[cfg(feature = "tenant-quota-rls-enhanced")]
         let no_rls = self.rls_enhancer.is_none();
         #[cfg(not(feature = "tenant-quota-rls-enhanced"))]
@@ -4523,6 +4548,8 @@ mod tests {
     /// 行为级测试 L3-28：多租户模型未设置 tenant_id 时不追加条件
     ///
     /// 用户视角：未设置租户 ID 时，查询不追加租户过滤（允许跨租户，需调用方保证安全）。
+    /// v9.2.0 安全修复 #4：multi-tenant-enhanced feature 下改为强制要求上下文（见 test_mt_no_context_panics）
+    #[cfg(not(feature = "multi-tenant-enhanced"))]
     #[test]
     fn test_p03_tenant_no_id_no_filter() -> Result<(), crate::DbError> {
         let dialect = get_dialect(DbType::MySQL)?;
@@ -4699,21 +4726,14 @@ mod tests {
         Ok(())
     }
 
-    /// 既有 API 兼容：feature 启用但未设置上下文时行为不变
+    /// v9.2.0 安全修复 #4：feature 启用但未设置上下文时 panic（强制要求租户上下文）
     #[cfg(feature = "multi-tenant-enhanced")]
     #[test]
-    fn test_mt_no_context_no_change() -> Result<(), crate::DbError> {
-        let (sql, params) = QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL)?)
+    #[should_panic(expected = "TenantContextRequired")]
+    fn test_mt_no_context_no_change() {
+        let (_sql, _params) = QueryBuilder::<TenantModel>::new(get_dialect(DbType::MySQL).unwrap())
             .table("orders")
             .build_select_with_params();
-        // 未设置上下文且未显式 with_tenant_id：不追加租户条件（既有行为不变）
-        assert!(
-            !sql.contains("`tenant_id` = ?"),
-            "未设置上下文不应追加租户条件: {}",
-            sql
-        );
-        assert_eq!(params.len(), 0);
-        Ok(())
     }
 
     // ---- TypedColumn 类型安全方法测试 ----

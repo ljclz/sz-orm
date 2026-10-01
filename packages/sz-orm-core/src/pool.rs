@@ -1603,8 +1603,8 @@ impl Pool {
     ///
     /// 所有连接关闭路径必须通过此方法，确保 `connection_closed_count`
     /// 与 `total_count` 递减的统计口径一致。
-    async fn close_connection(&self, pooled: PooledConnection) {
-        let mut pooled = pooled;
+    async fn close_connection(&self, mut pooled: PooledConnection) {
+        pooled.pool = None;
         let _ = pooled.conn.close().await;
         self.connection_closed_count.fetch_add(1, Ordering::Relaxed);
     }

@@ -547,6 +547,21 @@ impl TransactionManager {
         conn.begin_transaction()
             .await
             .map_err(|e| TxError::CommitFailed(e.to_string()))?;
+
+        // v9.2.0 安全修复 #2：应用隔离级别（之前 TransactOptions.isolation_level 被静默忽略）
+        if let Some(ref level) = options.isolation_level {
+            let sql = format!("SET TRANSACTION ISOLATION LEVEL {}", level);
+            conn.execute(&sql)
+                .await
+                .map_err(|e| TxError::CommitFailed(format!("SET ISOLATION LEVEL failed: {}", e)))?;
+        }
+        // v9.2.0 安全修复 #2：应用只读设置（之前 TransactOptions.read_only 被静默忽略）
+        if options.read_only {
+            conn.execute("SET TRANSACTION READ ONLY")
+                .await
+                .map_err(|e| TxError::CommitFailed(format!("SET READ ONLY failed: {}", e)))?;
+        }
+
         let tx = Transaction::new(conn, options);
         let mut txs = self.transactions.lock().await;
         txs.insert(id, tx);
