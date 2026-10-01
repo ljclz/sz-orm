@@ -3,8 +3,7 @@
 use sz_orm_core::dialect::MySqlDialect;
 use sz_orm_core::typed::{TypedColumn, TypedTable};
 use sz_orm_core::typed_ast::{
-    And, BigInt, Bool, BoolExpressionExt, Double, Eq, In, Like, Not, Or, Text, TypedColumnExt,
-    TypedExpression,
+    BigInt, BoolExpressionExt, In, Like, Not, Text, TypedColumnExt, TypedExpression,
 };
 
 struct UsersTable;
@@ -128,7 +127,10 @@ fn test_bool_ext_not() {
 #[test]
 fn test_bool_ext_chain_and_or_not() {
     let dialect = MySqlDialect;
-    let expr = ColId.eq(1i64).and(ColAge.gt(18i64)).or(ColName.like("%vip%"));
+    let expr = ColId
+        .eq(1i64)
+        .and(ColAge.gt(18i64))
+        .or(ColName.like("%vip%"));
     let (sql, params) = expr.to_sql(&dialect);
     assert!(sql.contains("OR"));
     assert_eq!(params.len(), 3);

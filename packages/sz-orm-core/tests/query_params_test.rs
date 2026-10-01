@@ -1,24 +1,44 @@
 //! v9.2.0 M14: query.rs build_select_with_params 参数化方法覆盖
 
 use std::collections::HashMap;
-use sz_orm_core::{DbType, Model, ModelExt, QueryBuilder, Value, dialect::get_dialect};
+use sz_orm_core::{dialect::get_dialect, DbType, Model, ModelExt, QueryBuilder, Value};
 
 #[derive(Clone, Debug)]
-struct User { id: i64 }
+struct User {
+    id: i64,
+}
 impl Model for User {
     type PrimaryKey = i64;
-    fn table_name() -> &'static str { "users" }
-    fn pk(&self) -> i64 { self.id }
-    fn set_pk(&mut self, pk: i64) { self.id = pk; }
+    fn table_name() -> &'static str {
+        "users"
+    }
+    fn pk(&self) -> i64 {
+        self.id
+    }
+    fn set_pk(&mut self, pk: i64) {
+        self.id = pk;
+    }
 }
 impl ModelExt for User {
-    fn columns() -> Vec<&'static str> { vec!["id", "name", "age", "email"] }
-    fn fillable() -> Vec<&'static str> { vec!["name", "age", "email"] }
-    fn guarded() -> Vec<&'static str> { vec!["id"] }
-    fn hidden() -> Vec<&'static str> { vec![] }
-    fn relations() -> std::collections::HashMap<&'static str, sz_orm_core::Relation> { Default::default() }
+    fn columns() -> Vec<&'static str> {
+        vec!["id", "name", "age", "email"]
+    }
+    fn fillable() -> Vec<&'static str> {
+        vec!["name", "age", "email"]
+    }
+    fn guarded() -> Vec<&'static str> {
+        vec!["id"]
+    }
+    fn hidden() -> Vec<&'static str> {
+        vec![]
+    }
+    fn relations() -> std::collections::HashMap<&'static str, sz_orm_core::Relation> {
+        Default::default()
+    }
     fn fill(&mut self, _: std::collections::HashMap<String, Value>) {}
-    fn to_json(&self) -> serde_json::Value { serde_json::json!({}) }
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
 }
 
 fn builder() -> QueryBuilder<User> {
@@ -137,18 +157,14 @@ fn test_select_with_params_where_not_between() {
 
 #[test]
 fn test_select_with_params_where_null() {
-    let (sql, params) = builder()
-        .where_null("email")
-        .build_select_with_params();
+    let (sql, params) = builder().where_null("email").build_select_with_params();
     assert!(sql.to_uppercase().contains("IS NULL"));
     assert!(params.is_empty());
 }
 
 #[test]
 fn test_select_with_params_where_not_null() {
-    let (sql, params) = builder()
-        .where_not_null("email")
-        .build_select_with_params();
+    let (sql, params) = builder().where_not_null("email").build_select_with_params();
     assert!(sql.to_uppercase().contains("IS NOT NULL"));
     assert!(params.is_empty());
 }
@@ -230,34 +246,25 @@ fn test_select_with_params_with_or_like() {
 
 #[test]
 fn test_select_with_params_order_by() {
-    let (sql, _) = builder()
-        .order_by("id")
-        .build_select_with_params();
+    let (sql, _) = builder().order_by("id").build_select_with_params();
     assert!(sql.to_uppercase().contains("ORDER BY"));
 }
 
 #[test]
 fn test_select_with_params_order_desc() {
-    let (sql, _) = builder()
-        .order_desc("id")
-        .build_select_with_params();
+    let (sql, _) = builder().order_desc("id").build_select_with_params();
     assert!(sql.to_uppercase().contains("DESC"));
 }
 
 #[test]
 fn test_select_with_params_group_by() {
-    let (sql, _) = builder()
-        .group_by("age")
-        .build_select_with_params();
+    let (sql, _) = builder().group_by("age").build_select_with_params();
     assert!(sql.to_uppercase().contains("GROUP BY"));
 }
 
 #[test]
 fn test_select_with_params_limit_offset() {
-    let (sql, _) = builder()
-        .limit(10)
-        .offset(20)
-        .build_select_with_params();
+    let (sql, _) = builder().limit(10).offset(20).build_select_with_params();
     assert!(sql.to_uppercase().contains("LIMIT"));
 }
 
@@ -297,8 +304,14 @@ fn test_insert_with_params() {
 #[test]
 fn test_batch_insert_with_params() {
     let data: Vec<HashMap<String, Value>> = vec![
-        HashMap::from([("id".to_string(), Value::I64(1)), ("name".to_string(), Value::String("a".to_string()))]),
-        HashMap::from([("id".to_string(), Value::I64(2)), ("name".to_string(), Value::String("b".to_string()))]),
+        HashMap::from([
+            ("id".to_string(), Value::I64(1)),
+            ("name".to_string(), Value::String("a".to_string())),
+        ]),
+        HashMap::from([
+            ("id".to_string(), Value::I64(2)),
+            ("name".to_string(), Value::String("b".to_string())),
+        ]),
     ];
     let (sql, params) = builder().build_batch_insert_with_params(&data);
     assert!(sql.to_uppercase().contains("INSERT"));
@@ -307,9 +320,10 @@ fn test_batch_insert_with_params() {
 
 #[test]
 fn test_batch_upsert_with_params() {
-    let data: Vec<HashMap<String, Value>> = vec![
-        HashMap::from([("id".to_string(), Value::I64(1)), ("name".to_string(), Value::String("a".to_string()))]),
-    ];
+    let data: Vec<HashMap<String, Value>> = vec![HashMap::from([
+        ("id".to_string(), Value::I64(1)),
+        ("name".to_string(), Value::String("a".to_string())),
+    ])];
     let result = builder().build_batch_upsert_with_params(&data, &["id"], &["name"]);
     if let Ok((sql, params)) = result {
         assert!(sql.to_uppercase().contains("INSERT") || sql.to_uppercase().contains("UPDATE"));
@@ -328,17 +342,13 @@ fn test_force_delete_with_params() {
 
 #[test]
 fn test_count_with_params() {
-    let sql = builder()
-        .where_eq("id", Value::I64(1))
-        .build_count();
+    let sql = builder().where_eq("id", Value::I64(1)).build_count();
     assert!(sql.to_uppercase().contains("COUNT"));
 }
 
 #[test]
 fn test_exists_with_params() {
-    let sql = builder()
-        .where_eq("id", Value::I64(1))
-        .build_exists();
+    let sql = builder().where_eq("id", Value::I64(1)).build_exists();
     assert!(sql.to_uppercase().contains("EXISTS") || sql.to_uppercase().contains("SELECT"));
 }
 
@@ -354,9 +364,7 @@ fn test_pg_select_with_params() {
 
 #[test]
 fn test_pg_update_with_params() {
-    let data = HashMap::from([
-        ("name".to_string(), Value::String("updated".to_string())),
-    ]);
+    let data = HashMap::from([("name".to_string(), Value::String("updated".to_string()))]);
     let (sql, params) = pg_builder()
         .where_eq("id", Value::I64(1))
         .build_update_with_params(&data);

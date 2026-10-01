@@ -147,6 +147,24 @@ impl BloomFilter {
 mod concurrent_tests {
     use super::*;
 
+    /// 变异目标：`BloomFilter::hash` 的位运算（`^=` → `|=`/`&=`、`>>` → `<<`）。
+    /// cargo-mutants 对 bloom.rs:132,137 生成的 5 个存活变异体（G20 移交项）。
+    /// 本测试以 KAT 向量锁定 FNV-1a 双哈希的确定性输出，任一运算被替换
+    /// 都会改变哈希值导致断言失败。
+    #[test]
+    fn bloom_hash_deterministic_vectors() {
+        let filter = BloomFilter::new(100, 0.01);
+        let cases: [(&str, u64, u64); 3] = [
+            ("key-1", 0x7113_5af2_95f2_7ea6, 0x55d8_ce3b_ef8f_2cda),
+            ("key-2", 0x7113_59f2_95f2_7cf3, 0xc733_cb5d_d91d_a17d),
+            ("sz-orm", 0x46f1_0ea1_0210_dcd1, 0x7741_bd54_f79c_d608),
+        ];
+        for (key, expect_h1, expect_h2) in cases {
+            let (h1, h2) = filter.hash(key);
+            assert_eq!((h1, h2), (expect_h1, expect_h2), "hash({key}) 向量偏离");
+        }
+    }
+
     /// 多线程并发写入不同 key，全部完成后 must_contain 必命中。
     /// 验证写锁内原子完成（add 返回即可见）。
     #[test]

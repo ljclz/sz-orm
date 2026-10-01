@@ -15,7 +15,6 @@
 //! I6: savepoint_counter 单调递增
 //! I7: 事务状态单调：Active → terminal，不可回退
 
-#[allow(dead_code)]
 mod common;
 
 use common::MockConnectionFactory;

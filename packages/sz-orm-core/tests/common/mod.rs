@@ -1,6 +1,11 @@
 //! 共享测试工具：模拟连接、连接工厂、数据库状态
 //!
 //! 供 fuzz/stress/jepsen/soak 集成测试使用
+//!
+//! 这些辅助项被不同测试文件分别引用，单个测试目标编译时必然出现"未使用"，
+//! 因此对共享测试模块统一允许 dead_code。
+
+#![allow(dead_code)]
 
 pub mod cleanup;
 #[allow(dead_code)]

@@ -3,8 +3,8 @@
 use std::sync::Arc;
 use std::time::Duration;
 use sz_orm_core::l2_cache::{
-    CacheKey, CacheKeyKind, InvalidationBus, InvalidationMessage, L2Cache, L2CacheStats,
-    LocalInvalidationBus, PerTableStats,
+    CacheKey, InvalidationBus, InvalidationMessage, L2Cache, L2CacheStats, LocalInvalidationBus,
+    PerTableStats,
 };
 use sz_orm_core::Value;
 
@@ -168,28 +168,36 @@ fn test_l2_cache_remaining_ttl() {
 
 #[test]
 fn test_l2_cache_stats_hit_rate() {
-    let mut stats = L2CacheStats::default();
-    stats.hits = 8;
-    stats.misses = 2;
+    let stats = L2CacheStats {
+        hits: 8,
+        misses: 2,
+        ..Default::default()
+    };
     assert!((stats.hit_rate() - 0.8).abs() < 0.01);
 }
 
 #[test]
 fn test_l2_cache_stats_miss_rate() {
-    let mut stats = L2CacheStats::default();
-    stats.hits = 8;
-    stats.misses = 2;
+    let stats = L2CacheStats {
+        hits: 8,
+        misses: 2,
+        ..Default::default()
+    };
     assert!((stats.miss_rate() - 0.2).abs() < 0.01);
 }
 
 #[test]
 fn test_l2_cache_stats_merge() {
-    let mut s1 = L2CacheStats::default();
-    s1.hits = 5;
-    s1.misses = 3;
-    let mut s2 = L2CacheStats::default();
-    s2.hits = 2;
-    s2.misses = 1;
+    let mut s1 = L2CacheStats {
+        hits: 5,
+        misses: 3,
+        ..Default::default()
+    };
+    let s2 = L2CacheStats {
+        hits: 2,
+        misses: 1,
+        ..Default::default()
+    };
     s1.merge(&s2);
     assert_eq!(s1.hits, 7);
     assert_eq!(s1.misses, 4);
@@ -197,9 +205,11 @@ fn test_l2_cache_stats_merge() {
 
 #[test]
 fn test_per_table_stats() {
-    let mut stats = PerTableStats::default();
-    stats.hits = 5;
-    stats.misses = 5;
+    let stats = PerTableStats {
+        hits: 5,
+        misses: 5,
+        ..Default::default()
+    };
     assert_eq!(stats.total_lookups(), 10);
     assert!((stats.hit_rate() - 0.5).abs() < 0.01);
 }

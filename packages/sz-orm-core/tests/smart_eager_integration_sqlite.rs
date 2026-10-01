@@ -3,7 +3,6 @@
 //! 验证 SmartEagerLoader 与手动 EagerLoader 在 SQLite 下结果集等价。
 //! 使用 rusqlite in-memory，无需外部依赖，默认执行（不标注 #[ignore]）。
 
-#[allow(dead_code)]
 mod common;
 
 use common::equivalence;

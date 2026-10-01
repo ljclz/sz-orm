@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use sz_orm_logger::log_pipeline::*;
 use sz_orm_logger::LogLevel;
-use std::collections::{HashMap, HashSet};
 
 #[test]
 fn test_log_record_new() {
@@ -13,8 +13,7 @@ fn test_log_record_new() {
 
 #[test]
 fn test_log_record_with_field() {
-    let record = LogRecord::new(LogLevel::Info, "module", "message")
-        .with_field("key", "value");
+    let record = LogRecord::new(LogLevel::Info, "module", "message").with_field("key", "value");
     assert_eq!(record.fields.get("key"), Some(&"value".to_string()));
 }
 
@@ -23,8 +22,7 @@ fn test_log_record_with_fields() {
     let mut fields = HashMap::new();
     fields.insert("a".to_string(), "1".to_string());
     fields.insert("b".to_string(), "2".to_string());
-    let record = LogRecord::new(LogLevel::Info, "module", "message")
-        .with_fields(fields);
+    let record = LogRecord::new(LogLevel::Info, "module", "message").with_fields(fields);
     assert_eq!(record.fields.len(), 2);
 }
 

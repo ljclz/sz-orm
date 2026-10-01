@@ -3,7 +3,7 @@
 //! 针对 sz-orm-core/src/query.rs 中 1540 行未覆盖代码，
 //! 覆盖各种 WHERE 条件、JOIN、分页、聚合、锁、租户、缓存等分支。
 
-use sz_orm_core::{get_dialect, DbType, ModelExt, QueryBuilder, Value};
+use sz_orm_core::{get_dialect, DbType, QueryBuilder, Value};
 
 #[derive(Clone)]
 struct User;
@@ -92,10 +92,7 @@ fn test_where_in_not_in() {
 
 #[test]
 fn test_where_in_empty() {
-    let (sql, _) = qb_sqlite()
-        .table("t")
-        .where_in("id", vec![])
-        .build_select();
+    let (sql, _) = qb_sqlite().table("t").where_in("id", vec![]).build_select();
     assert!(!sql.is_empty());
 }
 
@@ -142,8 +139,13 @@ fn test_soft_delete_disable() {
 
 #[test]
 fn test_cache_ttl() {
-    let builder = qb_sqlite().table("t").cache_ttl(std::time::Duration::from_secs(60));
-    assert_eq!(builder.get_cache_ttl(), Some(std::time::Duration::from_secs(60)));
+    let builder = qb_sqlite()
+        .table("t")
+        .cache_ttl(std::time::Duration::from_secs(60));
+    assert_eq!(
+        builder.get_cache_ttl(),
+        Some(std::time::Duration::from_secs(60))
+    );
 }
 
 #[test]
@@ -168,14 +170,20 @@ fn test_without_tenant() {
 
 #[test]
 fn test_build_count() {
-    let sql = qb_sqlite().table("t").where_eq("a", Value::I64(1)).build_count();
+    let sql = qb_sqlite()
+        .table("t")
+        .where_eq("a", Value::I64(1))
+        .build_count();
     assert!(sql.contains("COUNT"));
     assert!(sql.contains("t"));
 }
 
 #[test]
 fn test_build_exists() {
-    let sql = qb_sqlite().table("t").where_eq("a", Value::I64(1)).build_exists();
+    let sql = qb_sqlite()
+        .table("t")
+        .where_eq("a", Value::I64(1))
+        .build_exists();
     assert!(sql.contains("EXISTS"));
 }
 
@@ -260,13 +268,19 @@ fn test_sql_update() {
     use std::collections::HashMap;
     let mut data = HashMap::new();
     data.insert("name".to_string(), Value::String("updated".into()));
-    let sql = qb_sqlite().table("t").where_eq("id", Value::I64(1)).sql_update(&data);
+    let sql = qb_sqlite()
+        .table("t")
+        .where_eq("id", Value::I64(1))
+        .sql_update(&data);
     assert!(sql.contains("UPDATE"));
 }
 
 #[test]
 fn test_sql_delete() {
-    let sql = qb_sqlite().table("t").where_eq("id", Value::I64(1)).sql_delete();
+    let sql = qb_sqlite()
+        .table("t")
+        .where_eq("id", Value::I64(1))
+        .sql_delete();
     assert!(sql.contains("DELETE"));
 }
 
@@ -339,7 +353,9 @@ fn test_build_batch_insert_with_params() {
     let mut row2 = HashMap::new();
     row2.insert("name".to_string(), Value::String("b".into()));
     row2.insert("id".to_string(), Value::I64(2));
-    let (sql, params) = qb_sqlite().table("t").build_batch_insert_with_params(&[row1, row2]);
+    let (sql, params) = qb_sqlite()
+        .table("t")
+        .build_batch_insert_with_params(&[row1, row2]);
     assert!(sql.contains("INSERT"));
     assert!(params.len() >= 4);
 }
@@ -371,7 +387,10 @@ fn test_complex_query_all_features() {
         .where_eq("status", Value::String("active".into()))
         .where_gt("age", Value::I64(18))
         .where_like("name", Value::String("%test%".into()))
-        .where_in("role", vec![Value::String("admin".into()), Value::String("user".into())])
+        .where_in(
+            "role",
+            vec![Value::String("admin".into()), Value::String("user".into())],
+        )
         .order_by("created_at")
         .order_desc("id")
         .limit(20)

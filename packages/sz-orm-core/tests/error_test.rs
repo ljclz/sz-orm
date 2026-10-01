@@ -137,7 +137,9 @@ fn test_db_error_with_context_in_span() {
 
 #[test]
 fn test_db_error_root_cause() {
-    let e = DbError::query("test").with_context("ctx1").with_context("ctx2");
+    let e = DbError::query("test")
+        .with_context("ctx1")
+        .with_context("ctx2");
     let root = e.root_cause();
     assert_eq!(root.error_code(), "DB001");
 }
@@ -172,7 +174,7 @@ fn test_cache_error_display() {
 
 #[test]
 fn test_db_error_from_io() {
-    let io_err = std::io::Error::new(std::io::ErrorKind::Other, "io error");
+    let io_err = std::io::Error::other("io error");
     let db_err: DbError = io_err.into();
     assert_eq!(db_err.error_code(), "DB018");
 }

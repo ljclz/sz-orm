@@ -1951,5 +1951,4 @@ mod tests {
         assert_eq!(visited.len(), 10);
         assert_eq!(visited, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     }
-
 }

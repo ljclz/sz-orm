@@ -123,7 +123,9 @@ fn test_schema_builder_with_unique_index() {
 fn test_schema_builder_with_foreign_key() {
     let sb = SchemaBuilder::new("posts")
         .add_column(ColumnDef::new("user_id", "BIGINT").not_null())
-        .add_foreign_key(ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_delete("CASCADE"));
+        .add_foreign_key(
+            ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_delete("CASCADE"),
+        );
     let sql = sb.build(DbType::MySQL).unwrap();
     assert!(sql.contains("CONSTRAINT fk_user FOREIGN KEY (user_id) REFERENCES users (id)"));
     assert!(sql.contains("ON DELETE CASCADE"));
@@ -192,7 +194,9 @@ fn test_schema_builder_multiple_columns() {
 fn test_foreign_key_def_on_delete_set_null() {
     let sb = SchemaBuilder::new("posts")
         .add_column(ColumnDef::new("user_id", "BIGINT"))
-        .add_foreign_key(ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_delete("SET NULL"));
+        .add_foreign_key(
+            ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_delete("SET NULL"),
+        );
     let sql = sb.build(DbType::MySQL).unwrap();
     assert!(sql.contains("ON DELETE SET NULL"));
 }
@@ -201,7 +205,9 @@ fn test_foreign_key_def_on_delete_set_null() {
 fn test_foreign_key_def_on_update_cascade() {
     let sb = SchemaBuilder::new("posts")
         .add_column(ColumnDef::new("user_id", "BIGINT"))
-        .add_foreign_key(ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_update("CASCADE"));
+        .add_foreign_key(
+            ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_update("CASCADE"),
+        );
     let sql = sb.build(DbType::MySQL).unwrap();
     assert!(sql.contains("ON UPDATE CASCADE"));
 }

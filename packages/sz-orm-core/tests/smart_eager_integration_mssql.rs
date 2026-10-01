@@ -3,7 +3,6 @@
 //! 需真实 SQL Server 服务，标注 #[ignore]。
 //! 风险标记 R-01：远程连接不稳定，不可用时跳过。
 
-#[allow(dead_code)]
 mod common;
 
 use common::equivalence;

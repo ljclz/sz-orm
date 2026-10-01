@@ -3,8 +3,7 @@
 
 use sz_orm_core::dialect::{
     ClickHouseDialect, ColumnDef, Db2Dialect, DuckDBDialect, FirebirdDialect, InformixDialect,
-    MySqlDialect, PostgreSqlDialect, SapHanaDialect, SnowflakeDialect, SqliteDialect,
-    SqlServerDialect, TableChange,
+    MySqlDialect, PostgreSqlDialect, SapHanaDialect, SnowflakeDialect, SqliteDialect, TableChange,
 };
 use sz_orm_core::Dialect;
 
@@ -41,8 +40,13 @@ macro_rules! test_alter_table {
             let d = $dialect;
             for change in all_changes() {
                 let sql = d.build_alter_table("test_table", &[change]);
-                assert!(sql.contains("ALTER TABLE") || sql.contains("CREATE INDEX") || sql.contains("DROP INDEX") || sql.is_empty(),
-                    "unexpected SQL: {sql}");
+                assert!(
+                    sql.contains("ALTER TABLE")
+                        || sql.contains("CREATE INDEX")
+                        || sql.contains("DROP INDEX")
+                        || sql.is_empty(),
+                    "unexpected SQL: {sql}"
+                );
             }
         }
     };
@@ -207,7 +211,17 @@ fn test_dialect_kind_from_db_type_delegates() {
 
 #[test]
 fn test_exotic_dialects_create_table_types() {
-    let types = ["FLOAT", "REAL", "DOUBLE", "DATE", "DECIMAL(10,2)", "CHAR(10)", "TEXT", "BOOLEAN", "TIMESTAMP"];
+    let types = [
+        "FLOAT",
+        "REAL",
+        "DOUBLE",
+        "DATE",
+        "DECIMAL(10,2)",
+        "CHAR(10)",
+        "TEXT",
+        "BOOLEAN",
+        "TIMESTAMP",
+    ];
     let dialects: Vec<Box<dyn Dialect>> = vec![
         Box::new(ClickHouseDialect),
         Box::new(Db2Dialect),
@@ -220,7 +234,9 @@ fn test_exotic_dialects_create_table_types() {
     for d in &dialects {
         let cols: Vec<ColumnDef> = types.iter().map(|t| col("c", t)).collect();
         let sql = d.build_create_table("test_t", &cols);
-        assert!(sql.contains("CREATE") || !sql.is_empty(),
-            "build_create_table returned empty for a dialect");
+        assert!(
+            sql.contains("CREATE") || !sql.is_empty(),
+            "build_create_table returned empty for a dialect"
+        );
     }
 }

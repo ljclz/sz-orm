@@ -11,27 +11,17 @@ async fn test_l2_cache_get_or_load_query_hit_skips_loader() {
     let params = vec![Value::I64(1)];
     let rows: Vec<std::collections::HashMap<String, Value>> = vec![];
     cache
-        .get_or_load_query(
-            "users",
-            sql,
-            &params,
-            Duration::from_secs(60),
-            || async { Ok(rows.clone()) },
-        )
+        .get_or_load_query("users", sql, &params, Duration::from_secs(60), || async {
+            Ok(rows.clone())
+        })
         .await
         .unwrap();
     let result = cache
-        .get_or_load_query(
-            "users",
-            sql,
-            &params,
-            Duration::from_secs(60),
-            || async {
-                Err(sz_orm_core::DbError::Internal(
-                    "loader should not be called on hit".to_string(),
-                ))
-            },
-        )
+        .get_or_load_query("users", sql, &params, Duration::from_secs(60), || async {
+            Err(sz_orm_core::DbError::Internal(
+                "loader should not be called on hit".to_string(),
+            ))
+        })
         .await;
     assert!(result.is_ok(), "缓存命中不应调用 loader");
 }
@@ -46,29 +36,22 @@ async fn test_l2_cache_get_or_load_query_miss_invokes_loader() {
     row.insert("name".to_string(), Value::String("Alice".to_string()));
     let expected_rows = vec![row];
     let result = cache
-        .get_or_load_query(
-            "users",
-            sql,
-            &params,
-            Duration::from_secs(60),
-            || async { Ok(expected_rows.clone()) },
-        )
+        .get_or_load_query("users", sql, &params, Duration::from_secs(60), || async {
+            Ok(expected_rows.clone())
+        })
         .await
         .unwrap();
     assert_eq!(result.len(), 1);
-    assert_eq!(result[0].get("name"), Some(&Value::String("Alice".to_string())));
+    assert_eq!(
+        result[0].get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
     let cached = cache
-        .get_or_load_query(
-            "users",
-            sql,
-            &params,
-            Duration::from_secs(60),
-            || async {
-                Err(sz_orm_core::DbError::Internal(
-                    "should hit cache after backfill".to_string(),
-                ))
-            },
-        )
+        .get_or_load_query("users", sql, &params, Duration::from_secs(60), || async {
+            Err(sz_orm_core::DbError::Internal(
+                "should hit cache after backfill".to_string(),
+            ))
+        })
         .await
         .unwrap();
     assert_eq!(cached.len(), 1, "回填后应命中缓存");

@@ -5,7 +5,6 @@
 
 mod common;
 
-use std::time::Duration;
 use common::pool_mock;
 
 #[tokio::test]
@@ -31,8 +30,5 @@ async fn test_pool_return_raw_rejected_after_close_all() {
     let raw = conn.into_inner();
     pool.close_all().await;
     let result = pool.return_raw(raw).await;
-    assert!(
-        result.is_err(),
-        "close_all 后 return_raw 应失败"
-    );
+    assert!(result.is_err(), "close_all 后 return_raw 应失败");
 }

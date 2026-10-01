@@ -1,6 +1,6 @@
+use std::collections::HashMap;
 use sz_orm_core::result_map::*;
 use sz_orm_core::Value;
-use std::collections::HashMap;
 
 #[test]
 fn test_mapping_new() {
@@ -263,7 +263,10 @@ fn test_apply_result_map_simple() {
 
     let result = apply_result_map(&reg, "userMap", &row).unwrap();
     assert_eq!(result.get("id"), Some(&Value::I64(1)));
-    assert_eq!(result.get("name"), Some(&Value::String("Alice".to_string())));
+    assert_eq!(
+        result.get("name"),
+        Some(&Value::String("Alice".to_string()))
+    );
 }
 
 #[test]
@@ -293,7 +296,10 @@ fn test_apply_result_map_with_association() {
     cols.insert("user_id".to_string(), Value::I64(1));
     cols.insert("user_name".to_string(), Value::String("Alice".to_string()));
     cols.insert("dept_id".to_string(), Value::I64(10));
-    cols.insert("dept_name".to_string(), Value::String("Engineering".to_string()));
+    cols.insert(
+        "dept_name".to_string(),
+        Value::String("Engineering".to_string()),
+    );
     let row = RowData::new(cols);
 
     let result = apply_result_map(&reg, "userMap", &row).unwrap();

@@ -1,6 +1,6 @@
 //! v9.2.0 M3 T15: PostgreSqlDialect 方言测试
 
-use sz_orm_core::dialect::{ColumnDef, LockType, PostgreSqlDialect, TableChange};
+use sz_orm_core::dialect::{ColumnDef, LockType, PostgreSqlDialect};
 use sz_orm_core::Dialect;
 
 #[test]

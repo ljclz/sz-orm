@@ -33,7 +33,7 @@ fn test_value_as_f64_match() {
     assert_eq!(Value::F64(2.5).as_f64(), Some(2.5));
     assert_eq!(Value::F32(1.0).as_f64(), Some(1.0));
     assert_eq!(Value::I64(42).as_f64(), Some(42.0));
-    assert_eq!(Value::Decimal("3.14".to_string()).as_f64(), Some(3.14));
+    assert_eq!(Value::Decimal("3.25".to_string()).as_f64(), Some(3.25));
 }
 
 #[test]
@@ -62,7 +62,7 @@ fn test_value_as_bytes_match() {
     assert_eq!(Value::Bytes(vec![1, 2]).as_bytes(), Some(&[1u8, 2][..]));
     assert_eq!(
         Value::String("ab".to_string()).as_bytes(),
-        Some(&[b'a', b'b'][..])
+        Some(b"ab".as_slice())
     );
 }
 

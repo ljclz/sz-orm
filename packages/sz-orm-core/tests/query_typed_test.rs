@@ -38,6 +38,7 @@ impl TypedColumn for ColAge {
 // ---- mock model ----
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // 字段仅作为 Model schema 元数据，测试中不逐一读取
 struct User {
     id: i64,
     name: String,
@@ -214,9 +215,7 @@ fn test_typed_chain_select_multi() {
 
 #[test]
 fn test_typed_chain_group_and_order() {
-    let q = qb()
-        .group_by_typed::<ColAge>()
-        .order_by_typed::<ColAge>();
+    let q = qb().group_by_typed::<ColAge>().order_by_typed::<ColAge>();
     let (sql, _) = q.build_select_with_params();
     assert!(sql.contains("GROUP BY"));
     assert!(sql.contains("ORDER BY"));

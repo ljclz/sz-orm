@@ -29,7 +29,10 @@ fn test_l2_cache_stats_miss_rate_is_complement_of_hit_rate() {
     };
     let hit = stats.hit_rate();
     let miss = stats.miss_rate();
-    assert!((hit + miss - 1.0).abs() < 1e-9, "hit_rate + miss_rate 应 = 1.0");
+    assert!(
+        (hit + miss - 1.0).abs() < 1e-9,
+        "hit_rate + miss_rate 应 = 1.0"
+    );
     assert!((miss - 0.3).abs() < 1e-9);
 }
 

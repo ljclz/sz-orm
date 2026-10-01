@@ -4,10 +4,10 @@
 
 #![cfg(feature = "zero-copy")]
 
+use std::borrow::Cow;
 use sz_orm_core::l2_cache::zero_copy::{from_borrowed, serialize_zero_copy, to_borrowed};
 use sz_orm_core::value_borrowed::BorrowedValue;
 use sz_orm_core::Value;
-use std::borrow::Cow;
 
 #[test]
 fn test_zerocopy_to_borrowed_preserves_value_semantics() {
@@ -15,7 +15,7 @@ fn test_zerocopy_to_borrowed_preserves_value_semantics() {
         Value::Null,
         Value::Bool(true),
         Value::I64(42),
-        Value::F64(3.14),
+        Value::F64(3.25),
         Value::String("hello".to_string()),
         Value::I32(-7),
     ];

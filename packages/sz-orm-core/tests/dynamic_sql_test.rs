@@ -32,9 +32,9 @@ fn test_sql_params_set_int() {
 #[test]
 fn test_sql_params_set_float() {
     let mut p = SqlParams::new();
-    p.set_float("score", 3.14);
+    p.set_float("score", 3.25);
     match p.get("score") {
-        Some(ParamValue::Float(f)) => assert_eq!(*f, 3.14),
+        Some(ParamValue::Float(f)) => assert_eq!(*f, 3.25),
         _ => panic!("expected float"),
     }
 }
@@ -181,7 +181,10 @@ fn test_build_with_foreach() {
     let xml = r#"<select id="find_in">SELECT * FROM users WHERE id IN <foreach collection="ids" item="i" open="(" separator="," close=")">#{i}</foreach></select>"#;
     let parser = DynamicSqlParser::from_xml(xml).unwrap();
     let mut params = SqlParams::new();
-    params.set_array("ids", vec![ParamValue::Int(1), ParamValue::Int(2), ParamValue::Int(3)]);
+    params.set_array(
+        "ids",
+        vec![ParamValue::Int(1), ParamValue::Int(2), ParamValue::Int(3)],
+    );
     let sql = parser.build("find_in", &params).unwrap();
     assert!(sql.contains("(?,?,?)"));
 }
@@ -226,7 +229,8 @@ fn test_build_with_trim() {
 
 #[test]
 fn test_build_with_binds() {
-    let xml = r#"<select id="find">SELECT * FROM users WHERE name = #{name} AND age = #{age}</select>"#;
+    let xml =
+        r#"<select id="find">SELECT * FROM users WHERE name = #{name} AND age = #{age}</select>"#;
     let parser = DynamicSqlParser::from_xml(xml).unwrap();
     let mut params = SqlParams::new();
     params.set("name", "Alice");
@@ -287,4 +291,3 @@ fn test_build_delete_statement() {
     let sql = parser.build("del", &params).unwrap();
     assert!(sql.contains("DELETE FROM users"));
 }
-

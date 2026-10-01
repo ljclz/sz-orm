@@ -7,7 +7,7 @@ use sz_orm_mssql::{MssqlDialect, MssqlErrorCategory, MssqlType};
 #[test]
 fn test_mssql_dialect_new_default_equal() {
     let a = MssqlDialect::new();
-    let b = MssqlDialect::default();
+    let b = MssqlDialect;
     assert_eq!(a.quote_identifier("x"), b.quote_identifier("x"));
 }
 
@@ -113,20 +113,47 @@ fn test_mssql_type_parse_name_variants() {
 
 #[test]
 fn test_mssql_error_category_from_code_description_retriable() {
-    assert_eq!(MssqlErrorCategory::from_code(2627), MssqlErrorCategory::DuplicateKey);
-    assert_eq!(MssqlErrorCategory::from_code(2601), MssqlErrorCategory::DuplicateKey);
-    assert_eq!(MssqlErrorCategory::from_code(547), MssqlErrorCategory::ConstraintViolation);
-    assert_eq!(MssqlErrorCategory::from_code(515), MssqlErrorCategory::NullViolation);
-    assert_eq!(MssqlErrorCategory::from_code(208), MssqlErrorCategory::InvalidObject);
-    assert_eq!(MssqlErrorCategory::from_code(1205), MssqlErrorCategory::Deadlock);
-    assert_eq!(MssqlErrorCategory::from_code(-2), MssqlErrorCategory::Timeout);
-    assert_eq!(MssqlErrorCategory::from_code(999), MssqlErrorCategory::Other);
+    assert_eq!(
+        MssqlErrorCategory::from_code(2627),
+        MssqlErrorCategory::DuplicateKey
+    );
+    assert_eq!(
+        MssqlErrorCategory::from_code(2601),
+        MssqlErrorCategory::DuplicateKey
+    );
+    assert_eq!(
+        MssqlErrorCategory::from_code(547),
+        MssqlErrorCategory::ConstraintViolation
+    );
+    assert_eq!(
+        MssqlErrorCategory::from_code(515),
+        MssqlErrorCategory::NullViolation
+    );
+    assert_eq!(
+        MssqlErrorCategory::from_code(208),
+        MssqlErrorCategory::InvalidObject
+    );
+    assert_eq!(
+        MssqlErrorCategory::from_code(1205),
+        MssqlErrorCategory::Deadlock
+    );
+    assert_eq!(
+        MssqlErrorCategory::from_code(-2),
+        MssqlErrorCategory::Timeout
+    );
+    assert_eq!(
+        MssqlErrorCategory::from_code(999),
+        MssqlErrorCategory::Other
+    );
 
     assert!(MssqlErrorCategory::Deadlock.is_retriable());
     assert!(MssqlErrorCategory::Timeout.is_retriable());
     assert!(!MssqlErrorCategory::DuplicateKey.is_retriable());
     assert!(!MssqlErrorCategory::Other.is_retriable());
 
-    assert_eq!(MssqlErrorCategory::Deadlock.description(), "deadlock detected");
+    assert_eq!(
+        MssqlErrorCategory::Deadlock.description(),
+        "deadlock detected"
+    );
     assert_eq!(MssqlErrorCategory::Timeout.description(), "query timeout");
 }

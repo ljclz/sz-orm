@@ -45,9 +45,6 @@ fn test_l2_cache_invalidate_table_removes_all() {
     cache.invalidate_table("users");
     assert!(cache.get(&k1).is_none());
     assert!(cache.get(&k2).is_none());
-    assert!(
-        cache.get(&k3).is_some(),
-        "其他表的缓存不应受影响"
-    );
+    assert!(cache.get(&k3).is_some(), "其他表的缓存不应受影响");
     let _ = Duration::from_secs(1);
 }

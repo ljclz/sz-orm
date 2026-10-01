@@ -1,6 +1,6 @@
 use sz_orm_core::schema_sync::{
-    diff, ColumnDef, MssqlDdlGenerator, MySqlDdlGenerator, OracleDdlGenerator, PgDdlGenerator,
-    SchemaDiff, SchemaSync, SqliteDdlGenerator, TableDef, DdlGenerator,
+    diff, ColumnDef, DdlGenerator, MssqlDdlGenerator, MySqlDdlGenerator, OracleDdlGenerator,
+    PgDdlGenerator, SchemaDiff, SchemaSync, SqliteDdlGenerator, TableDef,
 };
 
 fn col(name: &str, sql_type: &str, nullable: bool, pk: bool) -> ColumnDef {
@@ -59,10 +59,13 @@ fn test_diff_dropped_table() {
 
 #[test]
 fn test_diff_added_column() {
-    let entity = vec![table("users", vec![
-        col("id", "BIGINT", false, true),
-        col("email", "VARCHAR(255)", false, false),
-    ])];
+    let entity = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("email", "VARCHAR(255)", false, false),
+        ],
+    )];
     let db = vec![table("users", vec![col("id", "BIGINT", false, true)])];
     let d = diff(&entity, &db);
     assert_eq!(d.added_columns.len(), 1);
@@ -73,10 +76,13 @@ fn test_diff_added_column() {
 #[test]
 fn test_diff_dropped_column() {
     let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
-    let db = vec![table("users", vec![
-        col("id", "BIGINT", false, true),
-        col("old_col", "VARCHAR(100)", true, false),
-    ])];
+    let db = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("old_col", "VARCHAR(100)", true, false),
+        ],
+    )];
     let d = diff(&entity, &db);
     assert_eq!(d.dropped_columns.len(), 1);
     assert_eq!(d.dropped_columns[0].0, "users");
@@ -96,22 +102,34 @@ fn test_diff_type_changed() {
 
 #[test]
 fn test_diff_nullable_changed() {
-    let entity = vec![table("users", vec![col("email", "VARCHAR(255)", false, false)])];
-    let db = vec![table("users", vec![col("email", "VARCHAR(255)", true, false)])];
+    let entity = vec![table(
+        "users",
+        vec![col("email", "VARCHAR(255)", false, false)],
+    )];
+    let db = vec![table(
+        "users",
+        vec![col("email", "VARCHAR(255)", true, false)],
+    )];
     let d = diff(&entity, &db);
     assert_eq!(d.type_changed_columns.len(), 1);
 }
 
 #[test]
 fn test_diff_renamed_column() {
-    let entity = vec![table("users", vec![
-        col("id", "BIGINT", false, true),
-        col("email2", "VARCHAR(255)", false, false),
-    ])];
-    let db = vec![table("users", vec![
-        col("id", "BIGINT", false, true),
-        col("email", "VARCHAR(255)", false, false),
-    ])];
+    let entity = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("email2", "VARCHAR(255)", false, false),
+        ],
+    )];
+    let db = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("email", "VARCHAR(255)", false, false),
+        ],
+    )];
     let d = diff(&entity, &db);
     assert_eq!(d.renamed_columns.len(), 1);
     assert_eq!(d.renamed_columns[0].0, "users");
@@ -135,10 +153,13 @@ fn test_diff_no_change() {
 #[test]
 fn test_mysql_ddl_generate_added_table() {
     let diff = SchemaDiff {
-        added_tables: vec![table("users", vec![
-            col("id", "BIGINT", false, true),
-            col("name", "VARCHAR(100)", false, false),
-        ])],
+        added_tables: vec![table(
+            "users",
+            vec![
+                col("id", "BIGINT", false, true),
+                col("name", "VARCHAR(100)", false, false),
+            ],
+        )],
         ..Default::default()
     };
     let gen = MySqlDdlGenerator;
@@ -152,13 +173,19 @@ fn test_mysql_ddl_generate_added_table() {
 #[test]
 fn test_mysql_ddl_generate_added_column() {
     let diff = SchemaDiff {
-        added_columns: vec![("users".to_string(), col("email", "VARCHAR(255)", false, false))],
+        added_columns: vec![(
+            "users".to_string(),
+            col("email", "VARCHAR(255)", false, false),
+        )],
         ..Default::default()
     };
     let gen = MySqlDdlGenerator;
     let ddl = gen.generate(&diff).unwrap();
     assert_eq!(ddl.len(), 1);
-    assert_eq!(ddl[0], "ALTER TABLE users ADD COLUMN email VARCHAR(255) NOT NULL");
+    assert_eq!(
+        ddl[0],
+        "ALTER TABLE users ADD COLUMN email VARCHAR(255) NOT NULL"
+    );
 }
 
 #[test]
@@ -180,13 +207,20 @@ fn test_mysql_ddl_generate_type_change() {
 #[test]
 fn test_mysql_ddl_generate_rename() {
     let diff = SchemaDiff {
-        renamed_columns: vec![("users".to_string(), "old_name".to_string(), "new_name".to_string())],
+        renamed_columns: vec![(
+            "users".to_string(),
+            "old_name".to_string(),
+            "new_name".to_string(),
+        )],
         ..Default::default()
     };
     let gen = MySqlDdlGenerator;
     let ddl = gen.generate(&diff).unwrap();
     assert_eq!(ddl.len(), 1);
-    assert_eq!(ddl[0], "ALTER TABLE users RENAME COLUMN old_name TO new_name");
+    assert_eq!(
+        ddl[0],
+        "ALTER TABLE users RENAME COLUMN old_name TO new_name"
+    );
 }
 
 #[test]
@@ -218,7 +252,10 @@ fn test_pg_ddl_generate_type_change() {
 #[test]
 fn test_sqlite_ddl_generate_added_column_with_default() {
     let diff = SchemaDiff {
-        added_columns: vec![("users".to_string(), ColumnDef::new("status", "INT", false, false, Some("0".to_string())))],
+        added_columns: vec![(
+            "users".to_string(),
+            ColumnDef::new("status", "INT", false, false, Some("0".to_string())),
+        )],
         ..Default::default()
     };
     let gen = SqliteDdlGenerator;
@@ -234,7 +271,10 @@ fn test_sqlite_ddl_generate_added_column_null_default() {
     };
     let gen = SqliteDdlGenerator;
     let ddl = gen.generate(&diff).unwrap();
-    assert_eq!(ddl[0], "ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL");
+    assert_eq!(
+        ddl[0],
+        "ALTER TABLE users ADD COLUMN email TEXT DEFAULT NULL"
+    );
 }
 
 #[test]
@@ -292,12 +332,19 @@ fn test_mssql_ddl_generate_added_column() {
 #[test]
 fn test_mssql_ddl_generate_rename() {
     let diff = SchemaDiff {
-        renamed_columns: vec![("users".to_string(), "old_name".to_string(), "new_name".to_string())],
+        renamed_columns: vec![(
+            "users".to_string(),
+            "old_name".to_string(),
+            "new_name".to_string(),
+        )],
         ..Default::default()
     };
     let gen = MssqlDdlGenerator;
     let ddl = gen.generate(&diff).unwrap();
-    assert_eq!(ddl[0], "EXEC sp_rename 'users.old_name', 'new_name', 'COLUMN'");
+    assert_eq!(
+        ddl[0],
+        "EXEC sp_rename 'users.old_name', 'new_name', 'COLUMN'"
+    );
 }
 
 #[test]
@@ -317,8 +364,7 @@ fn test_schema_sync_with_generator() {
 
 #[test]
 fn test_schema_sync_with_rename_threshold() {
-    let sync = SchemaSync::new(vec![])
-        .with_rename_threshold(3, 0.5);
+    let sync = SchemaSync::new(vec![]).with_rename_threshold(3, 0.5);
     let _ = sync;
 }
 
@@ -333,9 +379,16 @@ fn test_ddl_generate_empty_diff() {
 #[test]
 fn test_mysql_ddl_generate_with_default_value() {
     let diff = SchemaDiff {
-        added_tables: vec![table("logs", vec![
-            ColumnDef::new("level", "INT", false, false, Some("0".to_string())),
-        ])],
+        added_tables: vec![table(
+            "logs",
+            vec![ColumnDef::new(
+                "level",
+                "INT",
+                false,
+                false,
+                Some("0".to_string()),
+            )],
+        )],
         ..Default::default()
     };
     let gen = MySqlDdlGenerator;
@@ -357,10 +410,13 @@ fn test_diff_multiple_tables() {
 
 #[test]
 fn test_diff_column_with_default() {
-    let entity = vec![table("users", vec![
-        col("id", "BIGINT", false, true),
-        ColumnDef::new("status", "INT", false, false, Some("1".to_string())),
-    ])];
+    let entity = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            ColumnDef::new("status", "INT", false, false, Some("1".to_string())),
+        ],
+    )];
     let db = vec![table("users", vec![col("id", "BIGINT", false, true)])];
     let d = diff(&entity, &db);
     assert_eq!(d.added_columns.len(), 1);
@@ -381,7 +437,13 @@ fn test_has_destructive_changes_dropped_table() {
 #[test]
 fn test_has_destructive_changes_dropped_column() {
     let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
-    let db = vec![table("users", vec![col("id", "BIGINT", false, true), col("old_col", "TEXT", true, false)])];
+    let db = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("old_col", "TEXT", true, false),
+        ],
+    )];
     let d = diff(&entity, &db);
     assert!(d.has_destructive_changes());
 }
@@ -418,7 +480,13 @@ fn test_diff_against_no_changes() {
 
 #[test]
 fn test_diff_against_added_column() {
-    let entity = vec![table("users", vec![col("id", "BIGINT", false, true), col("name", "TEXT", false, false)])];
+    let entity = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("name", "TEXT", false, false),
+        ],
+    )];
     let db = vec![table("users", vec![col("id", "BIGINT", false, true)])];
     let sync = SchemaSync::new(entity);
     let d = sync.diff_against(&db);
@@ -428,7 +496,13 @@ fn test_diff_against_added_column() {
 #[test]
 fn test_diff_against_dropped_column() {
     let entity = vec![table("users", vec![col("id", "BIGINT", false, true)])];
-    let db = vec![table("users", vec![col("id", "BIGINT", false, true), col("old", "TEXT", true, false)])];
+    let db = vec![table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("old", "TEXT", true, false),
+        ],
+    )];
     let sync = SchemaSync::new(entity);
     let d = sync.diff_against(&db);
     assert_eq!(d.dropped_columns.len(), 1);
@@ -440,7 +514,7 @@ fn test_diff_against_type_changed() {
     let db = vec![table("users", vec![col("id", "INT", false, true)])];
     let sync = SchemaSync::new(entity);
     let d = sync.diff_against(&db);
-    assert!(d.type_changed_columns.len() >= 1);
+    assert!(!d.type_changed_columns.is_empty());
 }
 
 #[test]
@@ -472,7 +546,13 @@ fn test_is_empty_false_with_added() {
 
 #[test]
 fn test_get_column_found() {
-    let t = table("users", vec![col("id", "BIGINT", false, true), col("name", "TEXT", false, false)]);
+    let t = table(
+        "users",
+        vec![
+            col("id", "BIGINT", false, true),
+            col("name", "TEXT", false, false),
+        ],
+    );
     assert!(t.get_column("id").is_some());
     assert!(t.get_column("name").is_some());
 }

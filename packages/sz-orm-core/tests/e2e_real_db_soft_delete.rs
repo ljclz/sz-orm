@@ -4,7 +4,6 @@
 
 #![cfg(feature = "e2e-real-db")]
 
-#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;

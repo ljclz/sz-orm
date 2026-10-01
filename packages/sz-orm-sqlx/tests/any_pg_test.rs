@@ -12,8 +12,9 @@ static DSN_CELL: OnceLock<String> = OnceLock::new();
 
 fn dsn() -> &'static str {
     DSN_CELL.get_or_init(|| {
-        std::env::var("SZ_ORM_PG_URL")
-            .unwrap_or_else(|_| "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test".to_string())
+        std::env::var("SZ_ORM_PG_URL").unwrap_or_else(|_| {
+            "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test".to_string()
+        })
     })
 }
 
@@ -218,9 +219,11 @@ async fn test_pg_execute_with_params_various_types() {
     conn.execute("DROP TABLE IF EXISTS t_v920_multi")
         .await
         .unwrap();
-    conn.execute("CREATE TABLE t_v920_multi (id INT, val BIGINT, flag BOOLEAN, score DOUBLE PRECISION)")
-        .await
-        .unwrap();
+    conn.execute(
+        "CREATE TABLE t_v920_multi (id INT, val BIGINT, flag BOOLEAN, score DOUBLE PRECISION)",
+    )
+    .await
+    .unwrap();
     let affected = conn
         .execute_with_params(
             "INSERT INTO t_v920_multi (id, val, flag, score) VALUES ($1, $2, $3, $4)",
@@ -228,7 +231,7 @@ async fn test_pg_execute_with_params_various_types() {
                 Value::I32(1),
                 Value::I64(9999999999),
                 Value::Bool(true),
-                Value::F64(3.14),
+                Value::F64(3.25),
             ],
         )
         .await

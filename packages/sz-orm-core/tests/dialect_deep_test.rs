@@ -1,7 +1,7 @@
 //! dialect.rs 深度路径测试 — 覆盖各方言的 SQL 生成方法
 
-use sz_orm_core::{get_dialect, DbType, Dialect};
 use sz_orm_core::dialect::{ColumnDef, TableChange};
+use sz_orm_core::{get_dialect, DbType, Dialect};
 
 fn dialect(db: DbType) -> Box<dyn Dialect> {
     get_dialect(db).unwrap()
@@ -181,7 +181,13 @@ fn test_build_create_table_sqlite() {
 #[test]
 fn test_build_alter_table_add_column() {
     let d = dialect(DbType::MySQL);
-    let changes = vec![TableChange::AddColumn(col("email", "VARCHAR(255)", true, false, false))];
+    let changes = vec![TableChange::AddColumn(col(
+        "email",
+        "VARCHAR(255)",
+        true,
+        false,
+        false,
+    ))];
     let sql = d.build_alter_table("users", &changes);
     assert!(sql.contains("ALTER TABLE"));
     assert!(sql.contains("ADD"));
@@ -199,7 +205,10 @@ fn test_build_alter_table_drop_column() {
 #[test]
 fn test_build_alter_table_add_index() {
     let d = dialect(DbType::MySQL);
-    let changes = vec![TableChange::AddIndex("idx_email".into(), vec!["email".into()])];
+    let changes = vec![TableChange::AddIndex(
+        "idx_email".into(),
+        vec!["email".into()],
+    )];
     let sql = d.build_alter_table("users", &changes);
     assert!(sql.contains("INDEX") || sql.contains("index"));
 }
@@ -227,7 +236,13 @@ fn test_build_alter_table_add_foreign_key() {
 #[test]
 fn test_build_alter_table_modify_column() {
     let d = dialect(DbType::MySQL);
-    let changes = vec![TableChange::ModifyColumn(col("name", "VARCHAR(500)", false, false, false))];
+    let changes = vec![TableChange::ModifyColumn(col(
+        "name",
+        "VARCHAR(500)",
+        false,
+        false,
+        false,
+    ))];
     let sql = d.build_alter_table("users", &changes);
     assert!(sql.contains("ALTER TABLE"));
 }

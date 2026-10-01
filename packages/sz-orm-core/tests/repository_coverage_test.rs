@@ -36,11 +36,10 @@ impl EntityAttributes for User {
 
 #[test]
 fn test_generic_key_repo_clear() {
-    let repo: GenericKeyRepository<User, i64> =
-        GenericKeyRepository::from_vec(vec![
-            User::new(1, "Alice", 30, "a@b.com"),
-            User::new(2, "Bob", 25, "b@b.com"),
-        ]);
+    let repo: GenericKeyRepository<User, i64> = GenericKeyRepository::from_vec(vec![
+        User::new(1, "Alice", 30, "a@b.com"),
+        User::new(2, "Bob", 25, "b@b.com"),
+    ]);
     assert!(!repo.is_empty());
     repo.clear();
     assert!(repo.is_empty());

@@ -10,7 +10,6 @@
 #![cfg(test)]
 
 #[path = "common/mod.rs"]
-#[allow(dead_code)]
 mod common;
 
 use common::{InMemoryDb, TransactionalConnection};

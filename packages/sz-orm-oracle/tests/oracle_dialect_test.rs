@@ -1,15 +1,13 @@
 //! T21: Oracle 方言/类型/错误分类/PL-SQL 调用纯单元测试（18 tests）
 
-use sz_orm_oracle::{
-    OracleDataType, OracleDialect, OracleErrorCategory, PlSqlCall,
-};
+use sz_orm_oracle::{OracleDataType, OracleDialect, OracleErrorCategory, PlSqlCall};
 
 // --- OracleDialect (9 tests) ---
 
 #[test]
 fn test_dialect_new_default_equal() {
     let a = OracleDialect::new();
-    let b = OracleDialect::default();
+    let b = OracleDialect;
     assert_eq!(a.quote_identifier("x"), b.quote_identifier("x"));
 }
 
@@ -75,7 +73,10 @@ fn test_dialect_is_reserved_keyword_true_and_false() {
 fn test_data_type_as_sql_type_representative() {
     assert_eq!(OracleDataType::Number.as_sql_type(), "NUMBER");
     assert_eq!(OracleDataType::Varchar2.as_sql_type(), "VARCHAR2");
-    assert_eq!(OracleDataType::TimestampTz.as_sql_type(), "TIMESTAMP WITH TIME ZONE");
+    assert_eq!(
+        OracleDataType::TimestampTz.as_sql_type(),
+        "TIMESTAMP WITH TIME ZONE"
+    );
     assert_eq!(OracleDataType::LongRaw.as_sql_type(), "LONG RAW");
     assert_eq!(OracleDataType::Null.as_sql_type(), "NULL");
 }
@@ -128,9 +129,18 @@ fn test_data_type_is_lob() {
 #[test]
 fn test_data_type_parse_name_variants() {
     assert_eq!(OracleDataType::parse_name("NUMBER"), OracleDataType::Number);
-    assert_eq!(OracleDataType::parse_name("integer"), OracleDataType::Number);
-    assert_eq!(OracleDataType::parse_name("VARCHAR2"), OracleDataType::Varchar2);
-    assert_eq!(OracleDataType::parse_name("timestamp"), OracleDataType::Timestamp);
+    assert_eq!(
+        OracleDataType::parse_name("integer"),
+        OracleDataType::Number
+    );
+    assert_eq!(
+        OracleDataType::parse_name("VARCHAR2"),
+        OracleDataType::Varchar2
+    );
+    assert_eq!(
+        OracleDataType::parse_name("timestamp"),
+        OracleDataType::Timestamp
+    );
     assert_eq!(
         OracleDataType::parse_name("TIMESTAMP WITH TIME ZONE"),
         OracleDataType::TimestampTz
@@ -147,22 +157,52 @@ fn test_data_type_parse_name_variants() {
         OracleDataType::parse_name("INTERVAL DAY TO SECOND"),
         OracleDataType::IntervalDayToSecond
     );
-    assert_eq!(OracleDataType::parse_name("UNKNOWN"), OracleDataType::Varchar2);
+    assert_eq!(
+        OracleDataType::parse_name("UNKNOWN"),
+        OracleDataType::Varchar2
+    );
 }
 
 // --- OracleErrorCategory (1 test, comprehensive) ---
 
 #[test]
 fn test_error_category_from_code_description_retriable() {
-    assert_eq!(OracleErrorCategory::from_code(1), OracleErrorCategory::DuplicateKey);
-    assert_eq!(OracleErrorCategory::from_code(2291), OracleErrorCategory::ForeignKeyViolation);
-    assert_eq!(OracleErrorCategory::from_code(2290), OracleErrorCategory::CheckConstraintViolation);
-    assert_eq!(OracleErrorCategory::from_code(1401), OracleErrorCategory::ValueTooLarge);
-    assert_eq!(OracleErrorCategory::from_code(900), OracleErrorCategory::InvalidSql);
-    assert_eq!(OracleErrorCategory::from_code(942), OracleErrorCategory::ObjectNotFound);
-    assert_eq!(OracleErrorCategory::from_code(60), OracleErrorCategory::Deadlock);
-    assert_eq!(OracleErrorCategory::from_code(54), OracleErrorCategory::ResourceBusy);
-    assert_eq!(OracleErrorCategory::from_code(99999), OracleErrorCategory::Other);
+    assert_eq!(
+        OracleErrorCategory::from_code(1),
+        OracleErrorCategory::DuplicateKey
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(2291),
+        OracleErrorCategory::ForeignKeyViolation
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(2290),
+        OracleErrorCategory::CheckConstraintViolation
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(1401),
+        OracleErrorCategory::ValueTooLarge
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(900),
+        OracleErrorCategory::InvalidSql
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(942),
+        OracleErrorCategory::ObjectNotFound
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(60),
+        OracleErrorCategory::Deadlock
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(54),
+        OracleErrorCategory::ResourceBusy
+    );
+    assert_eq!(
+        OracleErrorCategory::from_code(99999),
+        OracleErrorCategory::Other
+    );
 
     assert!(!OracleErrorCategory::DuplicateKey.is_retriable());
     assert!(OracleErrorCategory::Deadlock.is_retriable());
@@ -171,7 +211,10 @@ fn test_error_category_from_code_description_retriable() {
     assert!(!OracleErrorCategory::Other.is_retriable());
 
     assert!(!OracleErrorCategory::DuplicateKey.description().is_empty());
-    assert_eq!(OracleErrorCategory::Deadlock.description(), "deadlock detected");
+    assert_eq!(
+        OracleErrorCategory::Deadlock.description(),
+        "deadlock detected"
+    );
 }
 
 // --- PlSqlCall (1 test, procedure + function) ---

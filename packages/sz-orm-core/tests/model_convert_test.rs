@@ -37,14 +37,17 @@ fn test_rows_to_values_multi_rows() {
 #[test]
 fn test_value_to_json_null_and_bool() {
     assert_eq!(value_to_json(Value::Null), serde_json::Value::Null);
-    assert_eq!(value_to_json(Value::Bool(true)), serde_json::Value::Bool(true));
+    assert_eq!(
+        value_to_json(Value::Bool(true)),
+        serde_json::Value::Bool(true)
+    );
 }
 
 #[test]
 fn test_value_to_json_int_and_float() {
     assert_eq!(value_to_json(Value::I64(42)), serde_json::json!(42));
     assert_eq!(value_to_json(Value::U64(99)), serde_json::json!(99));
-    assert_eq!(value_to_json(Value::F64(3.14)), serde_json::json!(3.14));
+    assert_eq!(value_to_json(Value::F64(3.25)), serde_json::json!(3.25));
 }
 
 #[test]

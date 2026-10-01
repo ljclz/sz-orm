@@ -5,7 +5,7 @@
 //! 运行: cargo test -p sz-orm-mssql --test mssql_connection_test -- --ignored
 
 use std::sync::Arc;
-use sz_orm_core::{ConnectionFactory, Connection, Value};
+use sz_orm_core::{Connection, ConnectionFactory, Value};
 use sz_orm_mssql::{MssqlConnectionFactory, MssqlPoolHandle};
 
 fn dsn() -> String {
@@ -21,7 +21,11 @@ fn dsn() -> String {
 }
 
 async fn make_conn() -> Box<dyn Connection> {
-    let handle = Arc::new(MssqlPoolHandle::connect(&dsn()).await.expect("connect mssql"));
+    let handle = Arc::new(
+        MssqlPoolHandle::connect(&dsn())
+            .await
+            .expect("connect mssql"),
+    );
     let factory = MssqlConnectionFactory::new(handle);
     factory.create().await.expect("create connection")
 }
@@ -285,10 +289,7 @@ async fn test_mssql_begin_transaction_and_rollback() {
         .unwrap();
     conn.rollback().await.unwrap();
     assert!(!conn.in_transaction());
-    let rows = conn
-        .query(&format!("SELECT id FROM {}", t))
-        .await
-        .unwrap();
+    let rows = conn.query(&format!("SELECT id FROM {}", t)).await.unwrap();
     assert_eq!(rows.len(), 0);
     drop_table(&mut *conn, t).await;
 }
@@ -300,15 +301,15 @@ async fn test_mssql_begin_transaction_and_commit() {
     let t = "t_v920_tx_commit";
     create_table(&mut *conn, t).await;
     conn.begin_transaction().await.unwrap();
-    conn.execute(&format!("INSERT INTO {} (id, name) VALUES (1, 'persist')", t))
-        .await
-        .unwrap();
+    conn.execute(&format!(
+        "INSERT INTO {} (id, name) VALUES (1, 'persist')",
+        t
+    ))
+    .await
+    .unwrap();
     conn.commit().await.unwrap();
     assert!(!conn.in_transaction());
-    let rows = conn
-        .query(&format!("SELECT id FROM {}", t))
-        .await
-        .unwrap();
+    let rows = conn.query(&format!("SELECT id FROM {}", t)).await.unwrap();
     assert_eq!(rows.len(), 1);
     drop_table(&mut *conn, t).await;
 }

@@ -2,11 +2,12 @@
 
 use std::collections::HashMap;
 use sz_orm_core::{
-    AggExpr, DbType, HavingOp, Model, ModelExt, QueryBuilder, Value,
-    dialect::get_dialect, partial_model::Expr,
+    dialect::get_dialect, partial_model::Expr, AggExpr, DbType, HavingOp, Model, ModelExt,
+    QueryBuilder, Value,
 };
 
 #[derive(Clone, Debug)]
+#[allow(dead_code)] // 字段仅作为 ModelExt schema 元数据，测试中不逐一读取
 struct User {
     id: i64,
     name: String,
@@ -16,20 +17,40 @@ struct User {
 
 impl Model for User {
     type PrimaryKey = i64;
-    fn table_name() -> &'static str { "users" }
-    fn pk(&self) -> i64 { self.id }
-    fn set_pk(&mut self, pk: i64) { self.id = pk; }
-    fn tenant_field() -> Option<&'static str> { Some("tenant_id") }
+    fn table_name() -> &'static str {
+        "users"
+    }
+    fn pk(&self) -> i64 {
+        self.id
+    }
+    fn set_pk(&mut self, pk: i64) {
+        self.id = pk;
+    }
+    fn tenant_field() -> Option<&'static str> {
+        Some("tenant_id")
+    }
 }
 
 impl ModelExt for User {
-    fn columns() -> Vec<&'static str> { vec!["id", "name", "email", "age"] }
-    fn fillable() -> Vec<&'static str> { vec!["name", "email", "age"] }
-    fn guarded() -> Vec<&'static str> { vec!["id"] }
-    fn hidden() -> Vec<&'static str> { vec![] }
-    fn relations() -> std::collections::HashMap<&'static str, sz_orm_core::Relation> { Default::default() }
+    fn columns() -> Vec<&'static str> {
+        vec!["id", "name", "email", "age"]
+    }
+    fn fillable() -> Vec<&'static str> {
+        vec!["name", "email", "age"]
+    }
+    fn guarded() -> Vec<&'static str> {
+        vec!["id"]
+    }
+    fn hidden() -> Vec<&'static str> {
+        vec![]
+    }
+    fn relations() -> std::collections::HashMap<&'static str, sz_orm_core::Relation> {
+        Default::default()
+    }
     fn fill(&mut self, _: HashMap<String, Value>) {}
-    fn to_json(&self) -> serde_json::Value { serde_json::json!({}) }
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
 }
 
 fn builder() -> QueryBuilder<User> {
@@ -41,7 +62,10 @@ fn builder_pg() -> QueryBuilder<User> {
 }
 
 fn mk_data(pairs: &[(&str, Value)]) -> HashMap<String, Value> {
-    pairs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect()
+    pairs
+        .iter()
+        .map(|(k, v)| (k.to_string(), v.clone()))
+        .collect()
 }
 
 #[test]
@@ -78,7 +102,9 @@ fn test_build_avg() {
 
 #[test]
 fn test_build_max_with_where() {
-    let sql = builder().where_eq("status", Value::String("active".into())).build_max("age");
+    let sql = builder()
+        .where_eq("status", Value::String("active".into()))
+        .build_max("age");
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("WHERE"));
     assert!(clean.to_uppercase().contains("MAX("));
@@ -134,7 +160,10 @@ fn test_validate_select_with_right_join_ok() {
 
 #[test]
 fn test_validate_insert_ok() {
-    let data = mk_data(&[("name", Value::String("Alice".into())), ("age", Value::I64(30))]);
+    let data = mk_data(&[
+        ("name", Value::String("Alice".into())),
+        ("age", Value::I64(30)),
+    ]);
     let result = builder().validate_insert(&data);
     assert!(result.is_ok());
 }
@@ -149,14 +178,18 @@ fn test_validate_insert_empty_data() {
 #[test]
 fn test_validate_update_ok() {
     let data = mk_data(&[("name", Value::String("Bob".into()))]);
-    let result = builder().where_eq("id", Value::I64(1)).validate_update(&data);
+    let result = builder()
+        .where_eq("id", Value::I64(1))
+        .validate_update(&data);
     assert!(result.is_ok());
 }
 
 #[test]
 fn test_validate_update_empty_data() {
     let data = HashMap::new();
-    let result = builder().where_eq("id", Value::I64(1)).validate_update(&data);
+    let result = builder()
+        .where_eq("id", Value::I64(1))
+        .validate_update(&data);
     assert!(result.is_err());
 }
 
@@ -191,7 +224,10 @@ fn test_select_expr() {
 
 #[test]
 fn test_sql_insert() {
-    let data = mk_data(&[("name", Value::String("Alice".into())), ("age", Value::I64(30))]);
+    let data = mk_data(&[
+        ("name", Value::String("Alice".into())),
+        ("age", Value::I64(30)),
+    ]);
     let sql = builder().sql_insert(&data);
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("INSERT INTO"));
@@ -470,7 +506,9 @@ fn test_build_force_delete_no_where() {
 
 #[test]
 fn test_build_force_delete_pg() {
-    let sql = builder_pg().where_eq("id", Value::I64(1)).build_force_delete();
+    let sql = builder_pg()
+        .where_eq("id", Value::I64(1))
+        .build_force_delete();
     assert!(sql.to_uppercase().contains("DELETE FROM"));
 }
 
@@ -499,10 +537,7 @@ fn test_page_first_page() {
 
 #[test]
 fn test_multiple_order_by() {
-    let (sql, _) = builder()
-        .order_by("name")
-        .order_desc("age")
-        .build_select();
+    let (sql, _) = builder().order_by("name").order_desc("age").build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("ORDER BY"));
     assert!(clean.to_uppercase().contains("DESC"));
@@ -549,7 +584,9 @@ fn test_sql_with_right_join() {
 
 #[test]
 fn test_build_count_with_where() {
-    let sql = builder().where_eq("status", Value::String("active".into())).build_count();
+    let sql = builder()
+        .where_eq("status", Value::String("active".into()))
+        .build_count();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("COUNT"));
     assert!(clean.to_uppercase().contains("WHERE"));
@@ -659,7 +696,8 @@ fn test_where_not_between() {
 #[test]
 fn test_complex_query_all_clauses() {
     let (sql, _) = builder()
-        .select(vec!["id", "name", "age"]).unwrap()
+        .select(vec!["id", "name", "age"])
+        .unwrap()
         .where_eq("status", Value::String("active".into()))
         .where_gt("age", Value::I64(18))
         .where_like("name", Value::String("%test%".into()))
@@ -700,11 +738,14 @@ fn test_sql_update_multiple_fields() {
 
 #[test]
 fn test_build_select_with_params_complex() {
-    let (sql, params) = builder()
+    let (_sql, params) = builder()
         .where_eq("status", Value::String("active".into()))
         .where_gt("age", Value::I64(18))
         .where_like("name", Value::String("%test%".into()))
-        .where_in("department", vec![Value::String("eng".into()), Value::String("sales".into())])
+        .where_in(
+            "department",
+            vec![Value::String("eng".into()), Value::String("sales".into())],
+        )
         .build_select_with_params();
     assert!(params.len() >= 4);
 }
@@ -760,8 +801,14 @@ fn test_build_force_delete_with_params() {
 #[test]
 fn test_build_batch_insert_with_params() {
     let rows = vec![
-        mk_data(&[("name", Value::String("Alice".into())), ("age", Value::I64(30))]),
-        mk_data(&[("name", Value::String("Bob".into())), ("age", Value::I64(25))]),
+        mk_data(&[
+            ("name", Value::String("Alice".into())),
+            ("age", Value::I64(30)),
+        ]),
+        mk_data(&[
+            ("name", Value::String("Bob".into())),
+            ("age", Value::I64(25)),
+        ]),
     ];
     let (sql, params) = builder().build_batch_insert_with_params(&rows);
     let clean = sql.replace('`', "");
@@ -772,7 +819,10 @@ fn test_build_batch_insert_with_params() {
 #[test]
 fn test_build_batch_upsert_with_params_mysql() {
     let rows = vec![
-        mk_data(&[("id", Value::I64(1)), ("name", Value::String("Alice".into()))]),
+        mk_data(&[
+            ("id", Value::I64(1)),
+            ("name", Value::String("Alice".into())),
+        ]),
         mk_data(&[("id", Value::I64(2)), ("name", Value::String("Bob".into()))]),
     ];
     let result = builder().build_batch_upsert_with_params(&rows, &["id"], &["name"]);
@@ -786,7 +836,10 @@ fn test_build_batch_upsert_with_params_mysql() {
 #[test]
 fn test_build_batch_upsert_with_params_pg() {
     let rows = vec![
-        mk_data(&[("id", Value::I64(1)), ("name", Value::String("Alice".into()))]),
+        mk_data(&[
+            ("id", Value::I64(1)),
+            ("name", Value::String("Alice".into())),
+        ]),
         mk_data(&[("id", Value::I64(2)), ("name", Value::String("Bob".into()))]),
     ];
     let result = builder_pg().build_batch_upsert_with_params(&rows, &["id"], &["name"]);
@@ -798,7 +851,8 @@ fn test_build_batch_upsert_with_params_pg() {
 #[test]
 fn test_validate_select_complex() {
     let result = builder()
-        .select(vec!["id", "name"]).unwrap()
+        .select(vec!["id", "name"])
+        .unwrap()
         .where_eq("status", Value::String("active".into()))
         .where_gt("age", Value::I64(18))
         .order_by("name")
@@ -809,9 +863,7 @@ fn test_validate_select_complex() {
 
 #[test]
 fn test_validate_select_pg() {
-    let result = builder_pg()
-        .where_eq("id", Value::I64(1))
-        .validate();
+    let result = builder_pg().where_eq("id", Value::I64(1)).validate();
     assert!(result.is_ok());
 }
 
@@ -820,7 +872,8 @@ fn test_clone_for_count_with_having() {
     let original = builder()
         .where_eq("status", Value::String("active".into()))
         .group_by("department")
-        .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5)).unwrap();
+        .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+        .unwrap();
     let cloned = original.clone_for_count();
     let (sql, _) = cloned.build_select();
     let clean = sql.replace('`', "");
@@ -831,7 +884,8 @@ fn test_clone_for_count_with_having() {
 fn test_having_count_star() {
     let (sql, _) = builder()
         .group_by("department")
-        .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5)).unwrap()
+        .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+        .unwrap()
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("HAVING"));
@@ -842,7 +896,12 @@ fn test_having_count_star() {
 fn test_having_sum() {
     let (sql, _) = builder()
         .group_by("department")
-        .having(AggExpr::Sum("age".to_string()), HavingOp::Ge, Value::I64(100)).unwrap()
+        .having(
+            AggExpr::Sum("age".to_string()),
+            HavingOp::Ge,
+            Value::I64(100),
+        )
+        .unwrap()
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("HAVING"));
@@ -853,7 +912,12 @@ fn test_having_sum() {
 fn test_having_avg() {
     let (sql, _) = builder()
         .group_by("department")
-        .having(AggExpr::Avg("age".to_string()), HavingOp::Lt, Value::I64(50)).unwrap()
+        .having(
+            AggExpr::Avg("age".to_string()),
+            HavingOp::Lt,
+            Value::I64(50),
+        )
+        .unwrap()
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("HAVING"));
@@ -864,7 +928,12 @@ fn test_having_avg() {
 fn test_having_max() {
     let (sql, _) = builder()
         .group_by("department")
-        .having(AggExpr::Max("age".to_string()), HavingOp::Eq, Value::I64(65)).unwrap()
+        .having(
+            AggExpr::Max("age".to_string()),
+            HavingOp::Eq,
+            Value::I64(65),
+        )
+        .unwrap()
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("HAVING"));
@@ -875,7 +944,8 @@ fn test_having_max() {
 fn test_having_min() {
     let (sql, _) = builder()
         .group_by("department")
-        .having(AggExpr::Min("age".to_string()), HavingOp::Ne, Value::I64(0)).unwrap()
+        .having(AggExpr::Min("age".to_string()), HavingOp::Ne, Value::I64(0))
+        .unwrap()
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("HAVING"));
@@ -886,8 +956,14 @@ fn test_having_min() {
 fn test_having_multiple() {
     let (sql, _) = builder()
         .group_by("department")
-        .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5)).unwrap()
-        .having(AggExpr::Sum("age".to_string()), HavingOp::Le, Value::I64(1000)).unwrap()
+        .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+        .unwrap()
+        .having(
+            AggExpr::Sum("age".to_string()),
+            HavingOp::Le,
+            Value::I64(1000),
+        )
+        .unwrap()
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("HAVING"));

@@ -157,15 +157,16 @@ async fn test_mysql_query_int_types() {
     conn.execute("DROP TABLE IF EXISTS t_v920_int")
         .await
         .unwrap();
-    conn.execute(
-        "CREATE TABLE t_v920_int (a TINYINT, b SMALLINT, c INT, d BIGINT)",
-    )
-    .await
-    .unwrap();
+    conn.execute("CREATE TABLE t_v920_int (a TINYINT, b SMALLINT, c INT, d BIGINT)")
+        .await
+        .unwrap();
     conn.execute("INSERT INTO t_v920_int VALUES (127, 32767, 2147483647, 9223372036854775807)")
         .await
         .unwrap();
-    let rows = conn.query("SELECT a, b, c, d FROM t_v920_int").await.unwrap();
+    let rows = conn
+        .query("SELECT a, b, c, d FROM t_v920_int")
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1);
     let row = &rows[0];
     assert!(!row.get("a").unwrap().is_null());
@@ -185,15 +186,14 @@ async fn test_mysql_query_unsigned_types() {
     conn.execute("DROP TABLE IF EXISTS t_v920_unsigned")
         .await
         .unwrap();
-    conn.execute(
-        "CREATE TABLE t_v920_unsigned (a INT UNSIGNED, b BIGINT UNSIGNED)",
-    )
-    .await
-    .unwrap();
+    conn.execute("CREATE TABLE t_v920_unsigned (a INT UNSIGNED, b BIGINT UNSIGNED)")
+        .await
+        .unwrap();
     conn.execute("INSERT INTO t_v920_unsigned VALUES (4294967295, 18446744073709551615)")
         .await
         .unwrap();
-    let rows = conn.query("SELECT a, b FROM t_v920_unsigned")
+    let rows = conn
+        .query("SELECT a, b FROM t_v920_unsigned")
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
@@ -234,11 +234,9 @@ async fn test_mysql_query_varchar_text() {
     conn.execute("DROP TABLE IF EXISTS t_v920_str")
         .await
         .unwrap();
-    conn.execute(
-        "CREATE TABLE t_v920_str (a VARCHAR(50), b TEXT, c CHAR(3))",
-    )
-    .await
-    .unwrap();
+    conn.execute("CREATE TABLE t_v920_str (a VARCHAR(50), b TEXT, c CHAR(3))")
+        .await
+        .unwrap();
     conn.execute("INSERT INTO t_v920_str VALUES ('hello', 'world text', 'abc')")
         .await
         .unwrap();
@@ -308,17 +306,15 @@ async fn test_mysql_query_date_datetime_time() {
     conn.execute("DROP TABLE IF EXISTS t_v920_date")
         .await
         .unwrap();
+    conn.execute("CREATE TABLE t_v920_date (a DATE, b DATETIME, c TIME)")
+        .await
+        .unwrap();
     conn.execute(
-        "CREATE TABLE t_v920_date (a DATE, b DATETIME, c TIME)",
+        "INSERT INTO t_v920_date VALUES ('2026-09-27', '2026-09-27 12:30:00', '08:00:00')",
     )
     .await
     .unwrap();
-    conn.execute("INSERT INTO t_v920_date VALUES ('2026-09-27', '2026-09-27 12:30:00', '08:00:00')")
-        .await
-        .unwrap();
-    let rows = conn.query("SELECT a, b, c FROM t_v920_date")
-        .await
-        .unwrap();
+    let rows = conn.query("SELECT a, b, c FROM t_v920_date").await.unwrap();
     assert_eq!(rows.len(), 1);
 
     conn.execute("DROP TABLE IF EXISTS t_v920_date")
@@ -447,10 +443,7 @@ async fn test_mysql_execute_with_params_empty_falls_back_to_execute() {
         .await
         .unwrap();
     let affected = conn
-        .execute_with_params(
-            "INSERT INTO t_v920_noparams (id) VALUES (42)",
-            &[],
-        )
+        .execute_with_params("INSERT INTO t_v920_noparams (id) VALUES (42)", &[])
         .await
         .unwrap();
     assert_eq!(affected, 1);

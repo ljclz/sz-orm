@@ -1,7 +1,7 @@
 //! v9.2.0 M16: query-builder 未覆盖方法补齐
 
 use sz_orm_core::{DbType, Value};
-use sz_orm_query_builder::{SelectQuery, InsertQuery, UpdateQuery, DeleteQuery};
+use sz_orm_query_builder::{DeleteQuery, InsertQuery, SelectQuery, UpdateQuery};
 
 #[test]
 fn test_all_columns() {
@@ -95,7 +95,10 @@ fn test_cte_with() {
     let sql = SelectQuery::new()
         .column("id")
         .from("active_users")
-        .with_cte("active_users", "SELECT id FROM users WHERE status = 'active'")
+        .with_cte(
+            "active_users",
+            "SELECT id FROM users WHERE status = 'active'",
+        )
         .build(DbType::MySQL);
     assert!(sql.to_uppercase().contains("WITH"));
     assert!(sql.contains("active_users"));
@@ -223,7 +226,10 @@ fn test_or_where_in() {
         .column("id")
         .from("users")
         .where_eq("status", Value::String("active".into()))
-        .or_where_in("dept", vec![Value::String("eng".into()), Value::String("sales".into())])
+        .or_where_in(
+            "dept",
+            vec![Value::String("eng".into()), Value::String("sales".into())],
+        )
         .build_with_params(DbType::MySQL);
     let (sql, _) = result.into_parts();
     assert!(sql.to_uppercase().contains("OR"));
@@ -310,12 +316,8 @@ fn test_complex_select_all_features() {
 
 #[test]
 fn test_union_query() {
-    let q1 = SelectQuery::new()
-        .column("id")
-        .from("users");
-    let q2 = SelectQuery::new()
-        .column("id")
-        .from("admins");
+    let q1 = SelectQuery::new().column("id").from("users");
+    let q2 = SelectQuery::new().column("id").from("admins");
     let sql = q1.union(q2).build(DbType::MySQL);
     assert!(sql.to_uppercase().contains("UNION"));
 }

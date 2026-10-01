@@ -33,7 +33,8 @@ fn test_oracle_pool_connect_with_pool_custom_config() {
     let config = OracleBlockingPoolConfig {
         max_blocking_threads: 32,
     };
-    let pool = OraclePoolHandle::connect_with_pool(&user(), &pwd(), &cs(), config).expect("connect");
+    let pool =
+        OraclePoolHandle::connect_with_pool(&user(), &pwd(), &cs(), config).expect("connect");
     assert_eq!(pool.max_size(), 10);
 }
 
@@ -42,8 +43,8 @@ fn test_oracle_pool_connect_with_pool_custom_config() {
 fn test_oracle_pool_connect_with_max_size() {
     let config = OracleBlockingPoolConfig::default();
     let cs = cs();
-    let pool =
-        OraclePoolHandle::connect_with_max_size(&user(), &pwd(), &cs, config.clone(), 5).expect("connect");
+    let pool = OraclePoolHandle::connect_with_max_size(&user(), &pwd(), &cs, config.clone(), 5)
+        .expect("connect");
     assert_eq!(pool.max_size(), 5);
 
     let pool_zero =

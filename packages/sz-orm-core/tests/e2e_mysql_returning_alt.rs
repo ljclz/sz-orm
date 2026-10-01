@@ -12,7 +12,6 @@
 use sqlx::AssertSqlSafe;
 use sqlx::Row;
 
-#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;

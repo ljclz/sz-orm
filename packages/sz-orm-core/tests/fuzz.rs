@@ -5,7 +5,6 @@
 
 #![allow(deprecated)]
 
-#[allow(dead_code)]
 mod common;
 
 use common::Rng;

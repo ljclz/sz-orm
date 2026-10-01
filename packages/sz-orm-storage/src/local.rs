@@ -94,11 +94,16 @@ mod tests {
     }
 
     fn temp_dir() -> std::path::PathBuf {
+        // 并行测试下仅靠纳秒时间戳可能产生相同目录名，导致测试间互相清理。
+        // 追加进程内原子计数器，确保每个测试获得唯一目录。
+        use std::sync::atomic::{AtomicU64, Ordering};
+        static COUNTER: AtomicU64 = AtomicU64::new(0);
         let nanos = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .unwrap_or_default()
             .as_nanos();
-        test_data_base().join(format!("local_storage_test_{:x}", nanos))
+        let n = COUNTER.fetch_add(1, Ordering::Relaxed);
+        test_data_base().join(format!("local_storage_test_{:x}_{}", nanos, n))
     }
 
     #[tokio::test]

@@ -1,9 +1,9 @@
+use std::collections::HashMap;
+use std::pin::Pin;
 use sz_orm_core::{
     ActiveRecord, Connection, HasMany, Model, ModelExt, Relation, RelationAccess, RelationLoader,
     Value,
 };
-use std::collections::HashMap;
-use std::pin::Pin;
 
 #[derive(Clone)]
 struct User {
@@ -162,7 +162,9 @@ async fn test_active_record_with_load() {
     };
     let mut conn = MockConn;
     let loaded = u.with("orders").load(&mut conn).await.unwrap();
-    let orders = loaded.get_relation("orders").expect("orders should be loaded");
+    let orders = loaded
+        .get_relation("orders")
+        .expect("orders should be loaded");
     match orders {
         Value::Array(items) => assert_eq!(items.len(), 1),
         other => panic!("expected Array, got {:?}", other),

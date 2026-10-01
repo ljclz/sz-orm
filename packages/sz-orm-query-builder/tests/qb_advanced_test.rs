@@ -17,7 +17,10 @@ fn test_with_recursive_cte() {
     let sql = SelectQuery::new()
         .column("id")
         .from("tree")
-        .with_recursive_cte("tree", "SELECT 1 UNION ALL SELECT n+1 FROM tree WHERE n < 10")
+        .with_recursive_cte(
+            "tree",
+            "SELECT 1 UNION ALL SELECT n+1 FROM tree WHERE n < 10",
+        )
         .build(DbType::PostgreSQL);
     assert!(sql.contains("WITH RECURSIVE tree AS"));
 }

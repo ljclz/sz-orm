@@ -2,8 +2,8 @@
 
 mod common;
 
-use std::time::Duration;
 use common::pool_mock;
+use std::time::Duration;
 
 #[tokio::test]
 async fn test_pool_reap_idle_removes_expired() {
@@ -22,8 +22,11 @@ async fn test_pool_reap_idle_removes_expired() {
         test_before_acquire: false,
         prewarm: false,
     };
-    let pool = sz_orm_core::Pool::new(config, std::sync::Arc::new(pool_mock::MockConnectionFactory))
-        .unwrap();
+    let pool = sz_orm_core::Pool::new(
+        config,
+        std::sync::Arc::new(pool_mock::MockConnectionFactory),
+    )
+    .unwrap();
     let conn = pool.acquire().await.unwrap();
     pool.release(conn).await;
     assert_eq!(pool.status().await.idle, 1);
@@ -49,8 +52,11 @@ async fn test_pool_reap_idle_keeps_fresh() {
         test_before_acquire: false,
         prewarm: false,
     };
-    let pool = sz_orm_core::Pool::new(config, std::sync::Arc::new(pool_mock::MockConnectionFactory))
-        .unwrap();
+    let pool = sz_orm_core::Pool::new(
+        config,
+        std::sync::Arc::new(pool_mock::MockConnectionFactory),
+    )
+    .unwrap();
     let conn = pool.acquire().await.unwrap();
     pool.release(conn).await;
     assert_eq!(pool.status().await.idle, 1);

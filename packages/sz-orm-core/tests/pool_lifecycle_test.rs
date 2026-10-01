@@ -2,9 +2,9 @@
 
 mod common;
 
+use common::pool_mock;
 use std::time::Duration;
 use sz_orm_core::PoolError;
-use common::pool_mock;
 
 #[tokio::test]
 async fn test_pool_health_check_returns_zero_when_all_alive() {

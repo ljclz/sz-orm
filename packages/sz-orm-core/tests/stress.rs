@@ -13,7 +13,6 @@
 //!       PoolStatus.idle 是"空闲连接数"，
 //!       借出连接数 = active - idle
 
-#[allow(dead_code)]
 mod common;
 
 use common::{MockConnectionFactory, Rng};

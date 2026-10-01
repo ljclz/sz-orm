@@ -2,9 +2,9 @@
 
 mod common;
 
+use common::pool_mock;
 use std::time::Duration;
 use sz_orm_core::PoolError;
-use common::pool_mock;
 
 #[tokio::test]
 async fn test_pool_acquire_release_idle_reuse() {
@@ -16,8 +16,7 @@ async fn test_pool_acquire_release_idle_reuse() {
     let metrics_after = pool.pool_metrics();
     pool.release(conn2).await;
     assert_eq!(
-        metrics_after.connection_created_count,
-        metrics_before.connection_created_count,
+        metrics_after.connection_created_count, metrics_before.connection_created_count,
         "复用空闲连接不应新建"
     );
     assert!(metrics_after.acquire_count >= metrics_before.acquire_count);
@@ -49,8 +48,11 @@ async fn test_pool_acquire_wait_timeout_when_exhausted() {
         test_before_acquire: false,
         prewarm: false,
     };
-    let pool = sz_orm_core::Pool::new(config, std::sync::Arc::new(pool_mock::MockConnectionFactory))
-        .unwrap();
+    let pool = sz_orm_core::Pool::new(
+        config,
+        std::sync::Arc::new(pool_mock::MockConnectionFactory),
+    )
+    .unwrap();
     let conn = pool.acquire().await.unwrap();
     let result = pool.acquire().await;
     assert!(matches!(result, Err(PoolError::Timeout)), "池满应超时");

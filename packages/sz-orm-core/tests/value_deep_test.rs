@@ -1,8 +1,8 @@
 //! value.rs 深度路径测试 — 覆盖 Value 类型各种方法分支
 
-use sz_orm_core::Value;
 use sz_orm_core::get_dialect;
 use sz_orm_core::DbType;
+use sz_orm_core::Value;
 
 #[test]
 fn test_value_is_methods() {
@@ -53,7 +53,10 @@ fn test_value_as_bool() {
 
 #[test]
 fn test_value_as_bytes() {
-    assert_eq!(Value::Bytes(vec![1, 2, 3]).as_bytes(), Some(&[1u8, 2, 3][..]));
+    assert_eq!(
+        Value::Bytes(vec![1, 2, 3]).as_bytes(),
+        Some(&[1u8, 2, 3][..])
+    );
     assert_eq!(Value::Null.as_bytes(), None);
 }
 

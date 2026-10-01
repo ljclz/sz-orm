@@ -67,9 +67,7 @@ impl Connection for MockConnection {
         Box::pin(async move { connected })
     }
 
-    fn close<'a>(
-        &'a mut self,
-    ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+    fn close<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
         Box::pin(async move {
             self.connected.store(false, Ordering::Relaxed);
             Ok(())

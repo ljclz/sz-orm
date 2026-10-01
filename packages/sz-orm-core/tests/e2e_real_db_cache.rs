@@ -11,7 +11,6 @@
 use std::sync::Arc;
 use std::time::Duration;
 
-#[allow(dead_code)]
 mod common;
 
 use common::cleanup::unique_table_name;

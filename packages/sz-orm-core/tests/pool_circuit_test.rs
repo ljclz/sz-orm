@@ -8,9 +8,9 @@
 
 mod common;
 
+use common::pool_mock;
 use std::time::Duration;
 use sz_orm_core::circuit_breaker::CircuitState;
-use common::pool_mock;
 
 #[tokio::test]
 async fn test_pool_configure_circuit_breaker_sets_threshold() {

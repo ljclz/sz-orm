@@ -54,10 +54,6 @@ async fn test_write_behind_spawn_auto_flush_runs_periodically() {
     writer.write(b"k", b"v", None).await.unwrap();
     let handle = writer.clone().spawn_auto_flush(Duration::from_millis(50));
     tokio::time::sleep(Duration::from_millis(150)).await;
-    assert_eq!(
-        writer.pending_count().await,
-        0,
-        "自动刷新应清空队列"
-    );
+    assert_eq!(writer.pending_count().await, 0, "自动刷新应清空队列");
     handle.abort();
 }

@@ -1,6 +1,6 @@
 //! v9.2.0 M2 T7: query.rs JOIN 子句生成测试
 
-use sz_orm_core::{DbType, Model, ModelExt, QueryBuilder, Value, dialect::get_dialect};
+use sz_orm_core::{dialect::get_dialect, DbType, Model, ModelExt, QueryBuilder, Value};
 
 #[derive(Clone, Debug)]
 struct User {

@@ -44,7 +44,12 @@ fn test_health_endpoint_config_empty_resources() {
 
 #[test]
 fn test_health_endpoint_config_clone() {
-    let config = HealthEndpointConfig::new("/health", 8080, vec!["pool1".to_string()], Duration::from_secs(5));
+    let config = HealthEndpointConfig::new(
+        "/health",
+        8080,
+        vec!["pool1".to_string()],
+        Duration::from_secs(5),
+    );
     let cloned = config.clone();
     assert_eq!(cloned.path, config.path);
     assert_eq!(cloned.port, config.port);

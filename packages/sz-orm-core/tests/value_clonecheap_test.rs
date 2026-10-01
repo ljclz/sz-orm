@@ -9,8 +9,8 @@ fn test_clonecheap_copy_variant() {
     let b = Value::Bool(true);
     assert_eq!(b.clonecheap(), Value::Bool(true));
     assert_eq!(Value::Null.clonecheap(), Value::Null);
-    let f = Value::F64(3.14);
-    assert_eq!(f.clonecheap(), Value::F64(3.14));
+    let f = Value::F64(3.25);
+    assert_eq!(f.clonecheap(), Value::F64(3.25));
 }
 
 #[test]

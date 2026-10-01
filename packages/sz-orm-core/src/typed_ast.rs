@@ -3093,5 +3093,4 @@ mod tests {
             assert_eq!(std::mem::size_of::<JsonExists<ColName, String>>(), 0);
         }
     }
-
 }

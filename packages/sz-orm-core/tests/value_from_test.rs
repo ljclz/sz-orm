@@ -48,10 +48,10 @@ fn test_from_value_f32() {
 
 #[test]
 fn test_from_value_bool() {
-    assert_eq!(bool::from_value(&Value::Bool(true)).unwrap(), true);
-    assert_eq!(bool::from_value(&Value::Bool(false)).unwrap(), false);
-    assert_eq!(bool::from_value(&Value::I64(1)).unwrap(), true);
-    assert_eq!(bool::from_value(&Value::I64(0)).unwrap(), false);
+    assert!(bool::from_value(&Value::Bool(true)).unwrap());
+    assert!(!bool::from_value(&Value::Bool(false)).unwrap());
+    assert!(bool::from_value(&Value::I64(1)).unwrap());
+    assert!(!bool::from_value(&Value::I64(0)).unwrap());
 }
 
 #[test]

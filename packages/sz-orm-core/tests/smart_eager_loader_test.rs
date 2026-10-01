@@ -1,11 +1,14 @@
-use sz_orm_core::relation_trait::{RelationDef, RelationKind, JoinKind};
+use sz_orm_core::relation_trait::{JoinKind, RelationDef, RelationKind};
 use sz_orm_core::smart_eager_loader::{LoadStrategy, StrategyResolver};
 
 #[test]
 fn test_load_strategy_estimated_query_count() {
     assert_eq!(LoadStrategy::Join.estimated_query_count(), 1);
     assert_eq!(LoadStrategy::DataLoader.estimated_query_count(), 2);
-    assert_eq!(LoadStrategy::IntermediateTableBatch.estimated_query_count(), 2);
+    assert_eq!(
+        LoadStrategy::IntermediateTableBatch.estimated_query_count(),
+        2
+    );
 }
 
 #[test]
@@ -24,7 +27,14 @@ fn test_join_kind_as_sql() {
 
 #[test]
 fn test_relation_def_new() {
-    let rel = RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany);
+    let rel = RelationDef::new(
+        "orders",
+        "users",
+        "orders",
+        "id",
+        "user_id",
+        RelationKind::HasMany,
+    );
     assert_eq!(rel.name, "orders");
     assert_eq!(rel.from_entity, "users");
     assert_eq!(rel.to_entity, "orders");
@@ -37,8 +47,14 @@ fn test_relation_def_new() {
 #[test]
 fn test_relation_def_new_many_to_many() {
     let rel = RelationDef::new_many_to_many(
-        "roles", "users", "roles", "id", "id",
-        "user_roles", "user_id", "role_id",
+        "roles",
+        "users",
+        "roles",
+        "id",
+        "id",
+        "user_roles",
+        "user_id",
+        "role_id",
     );
     assert_eq!(rel.kind, RelationKind::ManyToMany);
     assert_eq!(rel.join_table, Some("user_roles"));
@@ -55,7 +71,14 @@ fn test_strategy_resolver_new() {
 #[test]
 fn test_strategy_resolver_has_one() {
     let resolver = StrategyResolver::new();
-    let rel = RelationDef::new("profile", "users", "profiles", "id", "user_id", RelationKind::HasOne);
+    let rel = RelationDef::new(
+        "profile",
+        "users",
+        "profiles",
+        "id",
+        "user_id",
+        RelationKind::HasOne,
+    );
     let decision = resolver.resolve(&rel);
     assert_eq!(decision.strategy, LoadStrategy::Join);
     assert_eq!(decision.estimated_query_count, 1);
@@ -65,7 +88,14 @@ fn test_strategy_resolver_has_one() {
 #[test]
 fn test_strategy_resolver_belongs_to() {
     let resolver = StrategyResolver::new();
-    let rel = RelationDef::new("user", "orders", "users", "user_id", "id", RelationKind::BelongsTo);
+    let rel = RelationDef::new(
+        "user",
+        "orders",
+        "users",
+        "user_id",
+        "id",
+        RelationKind::BelongsTo,
+    );
     let decision = resolver.resolve(&rel);
     assert_eq!(decision.strategy, LoadStrategy::Join);
 }
@@ -73,7 +103,14 @@ fn test_strategy_resolver_belongs_to() {
 #[test]
 fn test_strategy_resolver_has_many() {
     let resolver = StrategyResolver::new();
-    let rel = RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany);
+    let rel = RelationDef::new(
+        "orders",
+        "users",
+        "orders",
+        "id",
+        "user_id",
+        RelationKind::HasMany,
+    );
     let decision = resolver.resolve(&rel);
     assert_eq!(decision.strategy, LoadStrategy::DataLoader);
     assert_eq!(decision.estimated_query_count, 2);
@@ -83,8 +120,14 @@ fn test_strategy_resolver_has_many() {
 fn test_strategy_resolver_many_to_many_with_join_table() {
     let resolver = StrategyResolver::new();
     let rel = RelationDef::new_many_to_many(
-        "roles", "users", "roles", "id", "id",
-        "user_roles", "user_id", "role_id",
+        "roles",
+        "users",
+        "roles",
+        "id",
+        "id",
+        "user_roles",
+        "user_id",
+        "role_id",
     );
     let decision = resolver.resolve(&rel);
     assert_eq!(decision.strategy, LoadStrategy::IntermediateTableBatch);
@@ -94,7 +137,14 @@ fn test_strategy_resolver_many_to_many_with_join_table() {
 #[test]
 fn test_strategy_resolver_many_to_many_without_join_table() {
     let resolver = StrategyResolver::new();
-    let rel = RelationDef::new("roles", "users", "roles", "id", "id", RelationKind::ManyToMany);
+    let rel = RelationDef::new(
+        "roles",
+        "users",
+        "roles",
+        "id",
+        "id",
+        RelationKind::ManyToMany,
+    );
     let decision = resolver.resolve(&rel);
     assert_eq!(decision.strategy, LoadStrategy::DataLoader);
 }
@@ -103,8 +153,22 @@ fn test_strategy_resolver_many_to_many_without_join_table() {
 fn test_strategy_resolver_resolve_chain() {
     let resolver = StrategyResolver::new();
     let rels = vec![
-        RelationDef::new("profile", "users", "profiles", "id", "user_id", RelationKind::HasOne),
-        RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany),
+        RelationDef::new(
+            "profile",
+            "users",
+            "profiles",
+            "id",
+            "user_id",
+            RelationKind::HasOne,
+        ),
+        RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        ),
     ];
     let decisions = resolver.resolve_chain(&rels);
     assert_eq!(decisions.len(), 2);
@@ -122,7 +186,14 @@ fn test_strategy_resolver_resolve_chain_empty() {
 #[test]
 fn test_strategy_decision_relation_kind() {
     let resolver = StrategyResolver::new();
-    let rel = RelationDef::new("profile", "users", "profiles", "id", "user_id", RelationKind::HasOne);
+    let rel = RelationDef::new(
+        "profile",
+        "users",
+        "profiles",
+        "id",
+        "user_id",
+        RelationKind::HasOne,
+    );
     let decision = resolver.resolve(&rel);
     assert_eq!(decision.relation_kind, RelationKind::HasOne);
 }
@@ -130,7 +201,14 @@ fn test_strategy_decision_relation_kind() {
 #[test]
 fn test_strategy_decision_reason_not_empty() {
     let resolver = StrategyResolver::new();
-    let rel = RelationDef::new("orders", "users", "orders", "id", "user_id", RelationKind::HasMany);
+    let rel = RelationDef::new(
+        "orders",
+        "users",
+        "orders",
+        "id",
+        "user_id",
+        RelationKind::HasMany,
+    );
     let decision = resolver.resolve(&rel);
     assert!(!decision.reason.is_empty());
 }

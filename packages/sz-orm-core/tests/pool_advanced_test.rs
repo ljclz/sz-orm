@@ -23,7 +23,10 @@ fn test_pool_metrics_normal() {
         connection_created_count: 3,
         ..Default::default()
     };
-    assert_eq!(metrics.average_acquire_wait_time(), Duration::from_millis(50));
+    assert_eq!(
+        metrics.average_acquire_wait_time(),
+        Duration::from_millis(50)
+    );
     let reuse = metrics.connection_reuse_rate();
     assert!((reuse - 0.7).abs() < 0.01);
 }
@@ -82,19 +85,13 @@ fn test_pool_config_validate_zero_max() {
 
 #[test]
 fn test_pool_config_validate_min_idle_exceeds_max() {
-    let result = PoolConfigBuilder::new()
-        .max_size(5)
-        .min_idle(10)
-        .build();
+    let result = PoolConfigBuilder::new().max_size(5).min_idle(10).build();
     assert!(result.is_err());
 }
 
 #[test]
 fn test_pool_config_builder_with_prewarm() {
-    let config = PoolConfigBuilder::new()
-        .max_size(10)
-        .prewarm(true)
-        .build();
+    let config = PoolConfigBuilder::new().max_size(10).prewarm(true).build();
     assert!(config.is_ok());
 }
 

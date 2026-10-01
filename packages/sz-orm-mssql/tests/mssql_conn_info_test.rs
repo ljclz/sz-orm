@@ -4,10 +4,8 @@ use sz_orm_mssql::parse_conn_str;
 
 #[test]
 fn test_parse_conn_str_full_format() {
-    let info = parse_conn_str(
-        "server=127.0.0.1;port=1433;database=testdb;user=sa;password=pwd123",
-    )
-    .unwrap();
+    let info = parse_conn_str("server=127.0.0.1;port=1433;database=testdb;user=sa;password=pwd123")
+        .unwrap();
     assert_eq!(info.server(), "127.0.0.1");
     assert_eq!(info.port(), 1433);
     assert_eq!(info.database(), "testdb");
@@ -21,8 +19,7 @@ fn test_parse_conn_str_full_format() {
 
 #[test]
 fn test_parse_conn_str_aliases_and_default_port() {
-    let info =
-        parse_conn_str("server=dbhost;database=mydb;uid=alice;pwd=secret").unwrap();
+    let info = parse_conn_str("server=dbhost;database=mydb;uid=alice;pwd=secret").unwrap();
     assert_eq!(info.server(), "dbhost");
     assert_eq!(info.port(), 1433);
     assert_eq!(info.database(), "mydb");
