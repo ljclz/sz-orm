@@ -902,8 +902,12 @@ impl L2Cache {
         // 检查缓存
         if let Some(Value::Json(json_str)) = self.get(&cache_key) {
             // 缓存命中：反序列化结果
-            if let Ok(rows) = serde_json::from_str::<crate::pool::QueryRows>(&json_str) {
-                return Ok(rows);
+            match serde_json::from_str::<crate::pool::QueryRows>(&json_str) {
+                Ok(rows) => return Ok(rows),
+                Err(e) => tracing::warn!(
+                    "L2 cache deserialization failed, falling back to loader: {}",
+                    e
+                ),
             }
         }
 
@@ -919,8 +923,11 @@ impl L2Cache {
         };
 
         // 序列化并缓存结果
-        if let Ok(json_str) = serde_json::to_string(&rows) {
-            self.put(&cache_key, Value::Json(json_str), Some(cache_ttl));
+        match serde_json::to_string(&rows) {
+            Ok(json_str) => {
+                self.put(&cache_key, Value::Json(json_str), Some(cache_ttl));
+            }
+            Err(e) => tracing::warn!("L2 cache serialization failed, skipping cache: {}", e),
         }
 
         Ok(rows)

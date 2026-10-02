@@ -209,10 +209,15 @@ impl OAuth2Server {
     }
 
     /// 验证客户端凭据
+    ///
+    /// v9.2.0 安全修复：使用恒定时间比较（`subtle::ConstantTimeEq`）防止时序攻击。
     pub fn validate_client(&self, client_id: &str, client_secret: &str) -> bool {
         self.clients
             .get(client_id)
-            .map(|secret| secret == client_secret)
+            .map(|secret| {
+                use subtle::ConstantTimeEq;
+                secret.as_bytes().ct_eq(client_secret.as_bytes()).into()
+            })
             .unwrap_or(false)
     }
 
