@@ -1,0 +1,5 @@
+# soak-kit 运行时缓存/大文件（不入库）
+crates.tar.gz
+crate_delta.txt
+server_cache.txt
+icon.png
