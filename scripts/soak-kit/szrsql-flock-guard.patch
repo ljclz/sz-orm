@@ -1,0 +1,17 @@
+diff --git a/crates/szrsql-bin/src/main.rs b/crates/szrsql-bin/src/main.rs
+index 18a9587..4727dd4 100644
+--- a/crates/szrsql-bin/src/main.rs
++++ b/crates/szrsql-bin/src/main.rs
+@@ -5629,8 +5629,10 @@ fn main_inner() -> anyhow::Result<()> {
+                         args.data_dir
+                     )
+                 })?;
+-            // lock_file 保持存活至 main 结束（不 drop）：句柄存活期 = 锁持有期。
+-            let _keep_lock_alive = lock_file;
++            // 故意 forget：锁句柄必须存活到进程结束（若 drop 则本块结束即
++            // 释放，双实例防线失效——服务器实测 inst2 的 flock 会成功）。
++            // 进程退出（含 kill -9）由内核自动释放锁。
++            std::mem::forget(lock_file);
+         }
+     }
+ 
