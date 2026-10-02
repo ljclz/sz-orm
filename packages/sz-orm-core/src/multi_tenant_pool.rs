@@ -103,10 +103,16 @@ impl MultiTenantPoolManager {
     /// 返回 `Ok(())` 表示允许，`Err(reason)` 表示拒绝。
     pub fn check_query(&self, tenant_id: TenantId) -> Result<(), String> {
         let mut entries = self.entries.lock().unwrap();
-        let entry = entries.entry(tenant_id).or_insert_with(|| TenantEntry {
-            quota: self.default_quota.clone(),
-            stats: TenantPoolStats::default(),
-            query_window: Vec::new(),
+        let entry = entries.entry(tenant_id).or_insert_with(|| {
+            tracing::warn!(
+                "Auto-registering unknown tenant {} with default quota",
+                tenant_id
+            );
+            TenantEntry {
+                quota: self.default_quota.clone(),
+                stats: TenantPoolStats::default(),
+                query_window: Vec::new(),
+            }
         });
 
         let now = Instant::now();
@@ -130,10 +136,16 @@ impl MultiTenantPoolManager {
     /// 获取连接（检查配额）
     pub fn acquire_connection(&self, tenant_id: TenantId) -> Result<(), String> {
         let mut entries = self.entries.lock().unwrap();
-        let entry = entries.entry(tenant_id).or_insert_with(|| TenantEntry {
-            quota: self.default_quota.clone(),
-            stats: TenantPoolStats::default(),
-            query_window: Vec::new(),
+        let entry = entries.entry(tenant_id).or_insert_with(|| {
+            tracing::warn!(
+                "Auto-registering unknown tenant {} with default quota",
+                tenant_id
+            );
+            TenantEntry {
+                quota: self.default_quota.clone(),
+                stats: TenantPoolStats::default(),
+                query_window: Vec::new(),
+            }
         });
 
         if entry.stats.active_connections >= entry.quota.max_connections {

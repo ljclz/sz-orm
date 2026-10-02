@@ -262,6 +262,13 @@ impl Transaction {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
         }
+        // v9.2.0 安全修复：检查事务超时（此前仅 commit 检查）
+        if let Some(deadline) = self.deadline {
+            if Instant::now() > deadline {
+                self.rollback().await.ok();
+                return Err(TxError::CommitFailed("Transaction timeout".to_string()));
+            }
+        }
         let mut conn_guard = self.conn.lock().await;
         let conn = conn_guard.as_mut().ok_or(TxError::ConnectionTaken)?;
         let result = conn
@@ -278,6 +285,13 @@ impl Transaction {
     ) -> Result<Vec<std::collections::HashMap<String, crate::value::Value>>, TxError> {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
+        }
+        // v9.2.0 安全修复：检查事务超时（此前仅 commit 检查）
+        if let Some(deadline) = self.deadline {
+            if Instant::now() > deadline {
+                self.rollback().await.ok();
+                return Err(TxError::CommitFailed("Transaction timeout".to_string()));
+            }
         }
         let mut conn_guard = self.conn.lock().await;
         let conn = conn_guard.as_mut().ok_or(TxError::ConnectionTaken)?;

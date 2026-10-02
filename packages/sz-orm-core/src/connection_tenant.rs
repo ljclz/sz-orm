@@ -159,8 +159,11 @@ impl ConnectionTenantBinder {
     }
 
     /// 生成 `SET app.tenant_id` SQL
+    ///
+    /// v9.2.0 安全修复：转义单引号防止 SQL 注入（CWE-89）。
     pub fn build_set_tenant_sql(&self, tenant_id: &str) -> String {
-        format!("SET app.tenant_id = '{}'", tenant_id)
+        let escaped = tenant_id.replace('\'', "''");
+        format!("SET app.tenant_id = '{}'", escaped)
     }
 
     /// 生成清理租户上下文 SQL

@@ -119,10 +119,18 @@ pub struct JwtEncoder {
 }
 
 impl JwtEncoder {
+    /// v9.2.0 安全修复：密钥长度 < 32 字节时发出警告（短密钥易受暴力破解）。
+    /// 生产环境应通过 `JwtAuthenticator::try_new` 创建（强制 32 字节）。
     pub fn new(secret: impl Into<String>) -> Self {
-        Self {
-            secret: secret.into(),
+        let secret = secret.into();
+        if secret.len() < 32 {
+            eprintln!(
+                "[warn] JwtEncoder::new: secret length {} < 32 bytes; \
+                 short secrets are vulnerable to brute-force attacks",
+                secret.len()
+            );
         }
+        Self { secret }
     }
 
     pub fn secret(&self) -> &str {

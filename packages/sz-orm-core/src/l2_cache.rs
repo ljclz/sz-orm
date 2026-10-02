@@ -623,6 +623,12 @@ impl L2Cache {
                     if let Ok(mut order) = self.access_order.write() {
                         order.remove(&victim);
                     }
+                    // v9.2.0 安全修复：同步清理 table_index 防止内存泄漏
+                    if let Ok(mut idx) = self.table_index.write() {
+                        for keys in idx.values_mut() {
+                            keys.retain(|k| k != &victim);
+                        }
+                    }
                 }
             }
             data.insert(key_str.clone(), entry);
@@ -720,6 +726,12 @@ impl L2Cache {
             // 锁毒化时跳过 LRU 顺序同步（不影响数据正确性）
             if let Ok(mut order) = self.access_order.write() {
                 order.remove(&key_str);
+            }
+            // v9.2.0 安全修复：同步清理 table_index 防止内存泄漏
+            if let Ok(mut idx) = self.table_index.write() {
+                if let Some(keys) = idx.get_mut(&table_name) {
+                    keys.retain(|k| k != &key_str);
+                }
             }
         }
         if removed {
