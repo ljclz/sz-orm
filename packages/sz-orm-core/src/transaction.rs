@@ -4,6 +4,8 @@
 
 use crate::error::{TransactionState, TxError};
 use crate::pool::Connection;
+use futures::FutureExt;
+use std::panic::{resume_unwind, AssertUnwindSafe};
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Mutex;
@@ -227,13 +229,7 @@ impl Transaction {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
         }
-        // 任务1：检查事务超时，超时则回滚并返回错误
-        if let Some(deadline) = self.deadline {
-            if Instant::now() > deadline {
-                self.rollback().await.ok();
-                return Err(TxError::CommitFailed("Transaction timeout".to_string()));
-            }
-        }
+        self.check_hold_timeout().await?;
         let mut conn_guard = self.conn.lock().await;
         let conn = conn_guard.as_mut().ok_or(TxError::ConnectionTaken)?;
         conn.commit()
@@ -262,13 +258,7 @@ impl Transaction {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
         }
-        // v9.2.0 安全修复：检查事务超时（此前仅 commit 检查）
-        if let Some(deadline) = self.deadline {
-            if Instant::now() > deadline {
-                self.rollback().await.ok();
-                return Err(TxError::CommitFailed("Transaction timeout".to_string()));
-            }
-        }
+        self.check_hold_timeout().await?;
         let mut conn_guard = self.conn.lock().await;
         let conn = conn_guard.as_mut().ok_or(TxError::ConnectionTaken)?;
         let result = conn
@@ -286,13 +276,7 @@ impl Transaction {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
         }
-        // v9.2.0 安全修复：检查事务超时（此前仅 commit 检查）
-        if let Some(deadline) = self.deadline {
-            if Instant::now() > deadline {
-                self.rollback().await.ok();
-                return Err(TxError::CommitFailed("Transaction timeout".to_string()));
-            }
-        }
+        self.check_hold_timeout().await?;
         let mut conn_guard = self.conn.lock().await;
         let conn = conn_guard.as_mut().ok_or(TxError::ConnectionTaken)?;
         let result = conn
@@ -330,6 +314,7 @@ impl Transaction {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
         }
+        self.check_hold_timeout().await?;
         // H-8 修复：嵌套深度检查
         // savepoint_counter 表示已创建的保存点数；新保存点的深度为 counter + 1
         let next_depth = self.savepoint_counter + 1;
@@ -360,6 +345,7 @@ impl Transaction {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
         }
+        self.check_hold_timeout().await?;
         validate_savepoint_name(name)?;
         let sql = format!("ROLLBACK TO SAVEPOINT {}", name);
         let mut conn_guard = self.conn.lock().await;
@@ -378,6 +364,7 @@ impl Transaction {
         if self.state != TransactionState::Active {
             return Err(TxError::NotActive(self.state));
         }
+        self.check_hold_timeout().await?;
         validate_savepoint_name(name)?;
         let sql = format!("RELEASE SAVEPOINT {}", name);
         let mut conn_guard = self.conn.lock().await;
@@ -410,6 +397,22 @@ impl Transaction {
     /// 获取事务选项
     pub fn options(&self) -> &TransactOptions {
         &self.options
+    }
+
+    /// v9.3.0：检查事务持有期是否超时
+    ///
+    /// 超时则 rollback 并返回 `CommitFailed("Transaction timeout")`；
+    /// 未配置 timeout（`deadline=None`）或未超时则返回 `Ok(())`。
+    ///
+    /// 边界语义：`Instant::now() > deadline` 严格大于，恰好等于不触发。
+    async fn check_hold_timeout(&mut self) -> Result<(), TxError> {
+        if let Some(deadline) = self.deadline {
+            if Instant::now() > deadline {
+                self.rollback().await.ok();
+                return Err(TxError::CommitFailed("Transaction timeout".to_string()));
+            }
+        }
+        Ok(())
     }
 }
 
@@ -511,6 +514,105 @@ where
         attempt: max_attempts,
         max_attempts,
     }))
+}
+
+/// v9.3.0：事务闭包模板（panic 安全回滚）
+///
+/// 自动 begin_transaction + 应用隔离级别/只读 + `catch_unwind` 执行闭包；
+/// 闭包返回 `Ok(Ok(v))` → commit，`Ok(Err(e))` → rollback → `Err(e)`，
+/// `Err(panic)` → rollback → `resume_unwind`（panic 不吞没）。
+///
+/// # panic 安全保证
+///
+/// - 闭包 panic → 自动 rollback → `resume_unwind` 传播原始 panic
+/// - rollback 失败 → `tracing::error!` 记录，panic 仍传播
+/// - 正常路径 → `catch_unwind` 零成本（无额外开销）
+pub async fn run_transaction<T>(
+    mut conn: Box<dyn Connection>,
+    options: TransactOptions,
+    f: impl for<'a> FnOnce(
+        &'a mut Transaction,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T, TxError>> + Send + 'a>,
+    >,
+) -> Result<T, TxError> {
+    conn.begin_transaction()
+        .await
+        .map_err(|e| TxError::CommitFailed(e.to_string()))?;
+    if let Some(ref level) = options.isolation_level {
+        let sql = format!("SET TRANSACTION ISOLATION LEVEL {}", level);
+        conn.execute(&sql)
+            .await
+            .map_err(|e| TxError::CommitFailed(format!("SET ISOLATION LEVEL failed: {}", e)))?;
+    }
+    if options.read_only {
+        conn.execute("SET TRANSACTION READ ONLY")
+            .await
+            .map_err(|e| TxError::CommitFailed(format!("SET READ ONLY failed: {}", e)))?;
+    }
+
+    let mut tx = Transaction::new(conn, options);
+
+    let result = AssertUnwindSafe(f(&mut tx)).catch_unwind().await;
+
+    match result {
+        Ok(Ok(value)) => {
+            tx.commit().await?;
+            Ok(value)
+        }
+        Ok(Err(e)) => {
+            if let Err(rb_err) = tx.rollback().await {
+                tracing::error!("rollback after business error failed: {}", rb_err);
+            }
+            Err(e)
+        }
+        Err(panic_payload) => {
+            if let Err(rb_err) = tx.rollback().await {
+                tracing::error!("rollback after panic failed: {}", rb_err);
+            }
+            resume_unwind(panic_payload);
+        }
+    }
+}
+
+/// v9.3.0：savepoint 闭包模板（panic 安全回滚到保存点）
+///
+/// 创建 savepoint + `catch_unwind` 执行闭包；闭包返回 `Ok(Ok(v))` → `release_savepoint`，
+/// `Ok(Err(e))` → `rollback_to_savepoint` → `Err(e)`，
+/// `Err(panic)` → `rollback_to_savepoint` → `resume_unwind`（外层事务不受影响）。
+pub async fn run_savepoint<T>(
+    tx: &mut Transaction,
+    f: impl for<'a> FnOnce(
+        &'a mut Transaction,
+    ) -> std::pin::Pin<
+        Box<dyn std::future::Future<Output = Result<T, TxError>> + Send + 'a>,
+    >,
+) -> Result<T, TxError> {
+    let sp = tx.savepoint().await?;
+
+    let result = AssertUnwindSafe(f(tx)).catch_unwind().await;
+
+    match result {
+        Ok(Ok(value)) => {
+            tx.release_savepoint(&sp).await?;
+            Ok(value)
+        }
+        Ok(Err(e)) => {
+            if let Err(rb_err) = tx.rollback_to_savepoint(&sp).await {
+                tracing::error!(
+                    "rollback_to_savepoint after business error failed: {}",
+                    rb_err
+                );
+            }
+            Err(e)
+        }
+        Err(panic_payload) => {
+            if let Err(rb_err) = tx.rollback_to_savepoint(&sp).await {
+                tracing::error!("rollback_to_savepoint after panic failed: {}", rb_err);
+            }
+            resume_unwind(panic_payload);
+        }
+    }
 }
 
 impl Drop for Transaction {

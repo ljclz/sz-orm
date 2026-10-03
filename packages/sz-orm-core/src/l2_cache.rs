@@ -58,6 +58,7 @@ use std::time::Duration;
 // tokio::time::Instant 支持 tokio::time::pause() 测试辅助，
 // 允许测试在不真实睡眠的情况下控制时间流逝。
 // 在非测试环境（未调用 pause）下，行为与 std::time::Instant 完全一致。
+use tokio::sync::broadcast;
 use tokio::time::Instant;
 
 // ============================================================================
@@ -536,6 +537,10 @@ pub struct L2Cache {
     max_size: usize,
     /// 缓存失效总线（可选，用于跨实例失效通知）
     invalidation_bus: Option<Arc<dyn InvalidationBus>>,
+    /// v9.3.0 SingleFlight 请求合并表：cache_key_string -> 在途加载协调器
+    /// 使用 tokio::sync::Mutex（非 std::sync::Mutex），允许 async 上下文持有
+    /// 不介入既有锁顺序（data→access_order→table_index→stats），独立加锁
+    inflight: tokio::sync::Mutex<HashMap<String, InflightLoad>>,
 }
 
 impl Default for L2Cache {
@@ -556,6 +561,7 @@ impl L2Cache {
             default_ttl: None,
             max_size: 10_000,
             invalidation_bus: None,
+            inflight: tokio::sync::Mutex::new(HashMap::new()),
         }
     }
 
@@ -923,26 +929,74 @@ impl L2Cache {
             }
         }
 
-        // 缓存未命中：执行查询
-        let rows = loader().await?;
-
-        // 确定缓存 TTL（空结果缩短为 1/10）
-        let cache_ttl = if rows.is_empty() {
-            // 空结果也缓存，TTL 缩短为 1/10（至少 1 秒）
-            std::cmp::max(ttl / 10, Duration::from_secs(1))
-        } else {
-            ttl
-        };
-
-        // 序列化并缓存结果
-        match serde_json::to_string(&rows) {
-            Ok(json_str) => {
-                self.put(&cache_key, Value::Json(json_str), Some(cache_ttl));
+        // v9.3.0 SingleFlight：检查是否有在途请求（Follower 路径）
+        let key_str = cache_key.to_string();
+        {
+            let inflight = self.inflight.lock().await;
+            if let Some(entry) = inflight.get(&key_str) {
+                let mut rx = entry.tx.subscribe();
+                drop(inflight); // 释放 inflight 锁，不阻塞不同键
+                match rx.recv().await {
+                    Ok(SharedOutcome::Success(rows)) => return Ok(rows),
+                    Ok(SharedOutcome::Failed(msg)) => {
+                        return Err(crate::DbError::QueryError(msg));
+                    }
+                    Err(broadcast::error::RecvError::Closed) => {
+                        return Err(crate::DbError::QueryError(
+                            "singleflight leader closed (panic or drop)".into(),
+                        ));
+                    }
+                    Err(broadcast::error::RecvError::Lagged(_)) => {
+                        // capacity=1 + 单 sender 单次 send，不会 Lagged
+                        // 防御性降级：直接回源加载（不写缓存，避免与 Leader 竞争）
+                        return loader().await;
+                    }
+                }
             }
-            Err(e) => tracing::warn!("L2 cache serialization failed, skipping cache: {}", e),
         }
 
-        Ok(rows)
+        // Leader 路径：创建 broadcast，插入 inflight 表
+        let (tx, _rx) = broadcast::channel(1);
+        {
+            let mut inflight = self.inflight.lock().await;
+            inflight.insert(key_str.clone(), InflightLoad { tx });
+        }
+
+        // Leader 执行回源加载（既有逻辑）
+        let load_result = loader().await;
+        let outcome = match &load_result {
+            Ok(rows) => {
+                // 确定缓存 TTL（空结果缩短为 1/10）
+                let cache_ttl = if rows.is_empty() {
+                    std::cmp::max(ttl / 10, Duration::from_secs(1))
+                } else {
+                    ttl
+                };
+                // 序列化并缓存结果
+                match serde_json::to_string(rows) {
+                    Ok(json_str) => {
+                        self.put(&cache_key, Value::Json(json_str), Some(cache_ttl));
+                    }
+                    Err(e) => {
+                        tracing::warn!("L2 cache serialization failed, skipping cache: {}", e)
+                    }
+                }
+                SharedOutcome::Success(rows.clone())
+            }
+            Err(e) => SharedOutcome::Failed(e.to_string()),
+        };
+
+        // 广播结果给 Follower + 移除 inflight 条目
+        {
+            let mut inflight = self.inflight.lock().await;
+            if let Some(entry) = inflight.remove(&key_str) {
+                let _ = entry.tx.send(outcome);
+                // send 忽略错误：若无 Follower（NoSubscribers），正常
+            }
+        }
+
+        // Leader 返回结果
+        load_result
     }
 
     /// TASK-023：失效查询缓存
@@ -1097,6 +1151,21 @@ impl L2Cache {
             None => Some(None),
         }
     }
+}
+
+/// v9.3.0 SingleFlight 在途加载协调器
+struct InflightLoad {
+    tx: broadcast::Sender<SharedOutcome>,
+}
+
+/// v9.3.0 加载结果共享载体
+///
+/// 用 String 携带错误信息，避免 DbError: Clone 约束（DbError 仅 derive(Debug)，error.rs:43）
+/// QueryRows: Clone 已满足（Vec<HashMap<String, Value>>，Value: Clone，value.rs:11）
+#[derive(Clone)]
+enum SharedOutcome {
+    Success(crate::pool::QueryRows),
+    Failed(String),
 }
 
 // ============================================================================

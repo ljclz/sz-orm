@@ -196,6 +196,16 @@ path = "src/bin/ai_integration_demo.rs"
 name = "v900_perf_demo"
 path = "src/bin/v900_perf_demo.rs"
 
+# v9.3.0 事务闭包模板演示（run_transaction / run_savepoint 生产接线）
+[[bin]]
+name = "transaction_run_demo"
+path = "src/bin/transaction_run_demo.rs"
+
+# v9.3.0 L2Cache SingleFlight 缓存击穿防护演示（生产接线）
+[[bin]]
+name = "l2_cache_singleflight_demo"
+path = "src/bin/l2_cache_singleflight_demo.rs"
+
 [features]
 default = []
 # 启用 query! 宏的编译期连真 DB 验证能力
