@@ -92,16 +92,17 @@ async fn attack_cross_tenant_table_access_attempt() {
 
 #[tokio::test]
 async fn attack_missing_context_no_tenant_filter() {
-    // 攻击前提：无 TenantContext、未显式 with_tenant_id → 查询不含租户条件
-    // 这是设计行为（README：跨租户查询调用方需自行确保安全），测试固化该边界，
-    // 防止未来"意外默认注入"或"意外强制"改变行为而不自知
+    // 攻击前提：调用方显式禁用租户过滤（without_tenant）→ 查询不含租户条件。
+    // v9.2.0 安全修复 #4 后，enhanced 模式下无上下文且未显式禁用时会被强制拦截
+    // （TenantContextRequired），因此本边界测试显式 without_tenant 验证"禁用后不注入"。
     let qb = builder()
         .table("orders")
-        .where_eq("status", Value::String("active".to_string()));
+        .where_eq("status", Value::String("active".to_string()))
+        .without_tenant();
     let (sql, _) = qb.build_select_with_params();
     assert!(
         !sql.contains("tenant"),
-        "无上下文时不得隐式注入租户条件（已知边界）: {sql}"
+        "显式禁用租户过滤后不得注入租户条件（已知边界）: {sql}"
     );
 }
 

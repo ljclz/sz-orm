@@ -54,3 +54,7 @@ node_modules/
 # 测试生成的人工产物
 *.proptest-regressions
 *.profraw
+
+# llvm-cov 覆盖率产物（本机采集）
+lcov.info
+*.lcov

@@ -54,11 +54,13 @@ impl ModelExt for User {
 }
 
 fn builder() -> QueryBuilder<User> {
-    QueryBuilder::<User>::new(get_dialect(DbType::MySQL).unwrap())
+    // v9.2.0 安全修复 #4：multi-tenant-enhanced 启用时强制要求租户上下文，
+    // 本测试仅验证 SQL 构建，不涉及租户过滤，故显式禁用租户约束。
+    QueryBuilder::<User>::new(get_dialect(DbType::MySQL).unwrap()).without_tenant()
 }
 
 fn builder_pg() -> QueryBuilder<User> {
-    QueryBuilder::<User>::new(get_dialect(DbType::PostgreSQL).unwrap())
+    QueryBuilder::<User>::new(get_dialect(DbType::PostgreSQL).unwrap()).without_tenant()
 }
 
 fn mk_data(pairs: &[(&str, Value)]) -> HashMap<String, Value> {
@@ -369,7 +371,8 @@ fn test_column_as_min() {
 
 #[test]
 fn test_with_tenant_id() {
-    let b = builder().with_tenant_id(42);
+    // 独立 builder：不调用 without_tenant()，显式 with_tenant_id 满足 enhanced 租户上下文要求
+    let b = QueryBuilder::<User>::new(get_dialect(DbType::MySQL).unwrap()).with_tenant_id(42);
     let (_, params) = b.build_select();
     assert!(params.contains(&Value::I64(42)));
 }
@@ -382,7 +385,8 @@ fn test_without_tenant() {
 
 #[test]
 fn test_is_tenant_disabled_default() {
-    let b = builder();
+    // 独立 builder：不调用 without_tenant()，验证默认租户过滤为启用状态
+    let b = QueryBuilder::<User>::new(get_dialect(DbType::MySQL).unwrap());
     assert!(!b.is_tenant_disabled());
 }
 

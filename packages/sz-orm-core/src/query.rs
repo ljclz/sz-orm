@@ -732,7 +732,6 @@ impl<M: Model> QueryBuilder<M> {
     /// 未显式 `with_tenant_id` 且未 `without_tenant` 且上下文未设置时，
     /// 返回 `DbError::TenantError("TenantContextRequired")`。
     #[cfg(feature = "multi-tenant-enhanced")]
-
     fn require_tenant_condition(&self) -> Result<Option<(String, Value)>, crate::DbError> {
         if self.tenant_field().is_none() {
             return Ok(None);
@@ -2693,6 +2692,12 @@ impl<M: Model> QueryBuilder<M> {
 
         // v6.3 快速路径：无软删除/租户/RLS/keyset + 无 OR → 直接写入 sql
         let no_soft_delete = self.soft_delete_disabled || M::soft_delete_field().is_none();
+        // v9.3.0 安全修复：multi-tenant-enhanced 下禁止快速路径绕过强制租户上下文检查。
+        // 未禁用且模型有 tenant_field 时必须走慢速路径调用 require_tenant_condition()，
+        // 否则无租户上下文的查询会在快速路径中被静默构建（绕过 v9.2.0 强制要求）。
+        #[cfg(feature = "multi-tenant-enhanced")]
+        let no_tenant = self.tenant_disabled || M::tenant_field().is_none();
+        #[cfg(not(feature = "multi-tenant-enhanced"))]
         let no_tenant =
             self.tenant_disabled || M::tenant_field().is_none() || self.tenant_id_value().is_none();
         #[cfg(feature = "tenant-quota-rls-enhanced")]

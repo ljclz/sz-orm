@@ -51,7 +51,9 @@ fn test_whitehat_parameterized_query_effective() {
     for injection in &injection_vectors {
         let qb = mysql_builder()
             .table("orders")
-            .where_eq("name", Value::String(injection.to_string()));
+            .where_eq("name", Value::String(injection.to_string()))
+            // 本测试仅验证参数化有效性，不涉及租户隔离，显式禁用租户约束
+            .without_tenant();
         let (sql, params) = qb.build_select_with_params();
 
         assert!(sql.contains('?'), "注入值必须参数化为占位符，SQL: {sql}");
@@ -77,7 +79,8 @@ fn test_whitehat_type_safe_column_accepts_registered() {
         .select(vec!["id", "name", "status"]);
     assert!(result.is_ok(), "合法列名应被接受");
 
-    let qb = result.unwrap();
+    // 本测试仅验证合法列名被接受，不涉及租户隔离，显式禁用租户约束
+    let qb = result.unwrap().without_tenant();
     let (sql, _) = qb.build_select_with_params();
     assert!(sql.contains("id"), "SQL 应包含 id 列: {sql}");
     assert!(sql.contains("name"), "SQL 应包含 name 列: {sql}");
@@ -161,10 +164,11 @@ fn test_whitehat_default_config_safe() {
         "默认配置应禁止 SELECT *（必须走 select_expr）"
     );
 
-    // 默认参数化
+    // 默认参数化（本部分仅验证参数化，不涉及租户隔离，显式禁用租户约束）
     let qb = mysql_builder()
         .table("orders")
-        .where_eq("name", Value::String("test".to_string()));
+        .where_eq("name", Value::String("test".to_string()))
+        .without_tenant();
     let (sql, params) = qb.build_select_with_params();
     assert!(sql.contains('?'), "默认应参数化: {sql}");
     assert!(
