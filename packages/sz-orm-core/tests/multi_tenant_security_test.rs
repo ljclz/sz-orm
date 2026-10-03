@@ -12,5 +12,5 @@ async fn test_multi_tenant_basic_isolation() {
 #[tokio::test]
 async fn test_multi_tenant_empty_tenant_id() {
     let tenant = "";
-    assert!(tenant.is_empty(), "空租户 ID 应正确识别");
+    assert_eq!(tenant, "", "空租户 ID 应正确识别");
 }
