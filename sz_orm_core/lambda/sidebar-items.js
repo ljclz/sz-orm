@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["OrderDirection","WhereClause"],"struct":["LambdaWrapper","OrderBy","SoftDeleteConfig","TenantConfig"],"trait":["Column"]};

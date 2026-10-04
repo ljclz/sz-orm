@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ApiModule","BindingLayer"],"fn":["audit_all_layers","audit_coverage","format_detail","format_summary"],"struct":["ApiCoverageReport","BindingApiSnapshot","CoreApiMethod","CoreApiRegistry"]};

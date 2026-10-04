@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["DEFAULT_SRID"],"enum":["Geometry"],"struct":["LineString","Point","Polygon"]};

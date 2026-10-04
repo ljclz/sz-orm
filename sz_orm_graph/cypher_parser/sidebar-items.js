@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ParsedQuery","ReturnItem"],"struct":["CypherSubsetParser","NodePattern","RelPattern","WhereClause"]};

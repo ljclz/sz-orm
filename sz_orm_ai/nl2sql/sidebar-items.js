@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HintSeverity","IntentType","Nl2SqlError","SqlComplexity","SqlDialect"],"struct":["ColumnInfo","ComplexSqlGenerator","IntentAnalysis","IntentResult","IntentUnderstander","MultiTurnContext","Nl2sqlResult","QueryAnalysis","QueryOptimizationHint","QueryOptimizer","SchemaContext","SimpleNl2SqlEngine","SqlQuery","TableInfo"],"trait":["Nl2SqlEngine"]};

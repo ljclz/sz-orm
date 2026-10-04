@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["demonstrate_error_handling","demonstrate_insert","demonstrate_parametrized_query","demonstrate_query_builder","demonstrate_soft_delete","demonstrate_update","main"],"struct":["Merchant","PaymentOrder"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ComplexityLevel"],"struct":["AdaptiveIndexSelector","IndexInfo","QueryComplexityEvaluator","QueryFeatures"]};

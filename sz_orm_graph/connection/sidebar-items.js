@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["GraphConfig","GraphConnection","GraphPool","GraphPoolStatus"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["LoadStrategy"],"struct":["DataLoaderStrategy","IntermediateTableStrategy","JoinStrategy","SmartEagerLoader","StrategyDecision","StrategyResolver"]};

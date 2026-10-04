@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["CounterJobHandler","RecordingJobHandler"],"trait":["JobHandler"]};

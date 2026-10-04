@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"attr":["api_beta","api_stable"],"derive":["Builder","ColumnEnum","Entity","FromQueryResult","FromRow","GraphQLModel","Relation","RelationTrait","Schema","SqlType"],"macro":["migrate","query","query_as","schema","sql_string","typed_query"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AccessMode","BatchErrorAction","TransactionIsolation"],"struct":["TransactionConfig"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BackoffPolicy","DlxRoutingStrategy","RedeliveryOutcome"],"struct":["DlxConfig","DlxEntry","RedeliveryLog","RedeliveryScheduler"]};

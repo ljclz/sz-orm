@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HealthStatus","RollbackError","ZeroDowntimeRollbackStrategy"],"struct":["AutoRollbackTrigger","HealthCheck","RollbackExecutor","RollbackLog","RollbackPlan","RollbackResult","RollbackWindow","ZeroDowntimeRollbackConfig"]};

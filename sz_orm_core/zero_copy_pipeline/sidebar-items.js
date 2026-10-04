@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ZeroCopyTypeId"],"struct":["ZeroCopyPipeline","ZeroCopyRow","ZeroCopyRowStream","ZeroCopyStats","ZeroCopyTypeRegistry"]};

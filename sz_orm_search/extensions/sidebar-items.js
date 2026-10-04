@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["HighlightFormat","TokenizerType"],"struct":["BoostScorer","FacetField","FacetResult","FacetValue","FacetedSearchResult","FieldBoost","HighlightConfig","Highlighter","MemoryFacetedSearch","Tokenizer","TokenizerConfig"],"trait":["FacetedSearchExt"]};

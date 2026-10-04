@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CompletionContext"],"fn":["analyze_context","context_aware_completion","query_builder_completions","select_clause_completions","where_clause_completions"]};

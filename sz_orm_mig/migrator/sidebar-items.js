@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["ColumnInfo","DataMigrator","DatabaseConfig","InMemoryTableStore","MigConfig","MigReport","RowData"],"trait":["TableReader","TableWriter"]};

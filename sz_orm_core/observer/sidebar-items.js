@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["Event","SubscriberError"],"struct":["AuditLogSubscriber","EventDispatcher"],"trait":["EventSubscriber","Observer"],"type":["SubscriberResult"]};

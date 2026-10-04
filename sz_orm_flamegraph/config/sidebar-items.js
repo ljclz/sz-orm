@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ColorScheme","OutputFormat"],"struct":["ColorPalette","LayoutConfig","RenderConfig","RenderOptions"]};

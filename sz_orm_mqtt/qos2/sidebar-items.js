@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PacketState"],"struct":["Qos2HandshakeSimulator","Qos2Packet","ReceiverState","SenderState"]};
