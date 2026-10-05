@@ -9,10 +9,8 @@
 use std::sync::Arc;
 
 use sz_orm_ai::ai_deep::{
-    AiDeepError, AnomalyPredictConfig, AnomalyPredictionEngine, AnomalyPredictionReport,
-    EquivalenceConfig, EquivalenceResult, NlRewriteConfig, NlRewritePipeline, QueryPattern,
-    RewriteEquivalenceVerifier, SchemaDesignAdvisor, SchemaDesignConfig, SchemaDesignReport,
-    TimeSeriesData,
+    AnomalyPredictionEngine, NlRewriteConfig, NlRewritePipeline, QueryPattern,
+    RewriteEquivalenceVerifier, SchemaDesignAdvisor, TimeSeriesData,
 };
 
 /// ① NlRewritePipeline 自然语言查询重写全链路
@@ -70,9 +68,7 @@ async fn test_wiring_nl_rewrite_pipeline_full_chain() {
 #[tokio::test]
 async fn test_wiring_schema_design_advisor_30_days() {
     use async_trait::async_trait;
-    use sz_orm_ai_designer::{
-        AiSchemaDesigner, DesignError, DesignResult, LlmSchemaProvider, SchemaDesign,
-    };
+    use sz_orm_ai_designer::{AiSchemaDesigner, DesignError, LlmSchemaProvider, SchemaDesign};
 
     struct MockProvider;
 
@@ -238,9 +234,11 @@ async fn test_wiring_rewrite_equivalence_verifier() {
         )
         .await
         .unwrap();
-    // 注意：非严格模式下，ORDER BY 可能改变行顺序，但内容相同
-    // 如果验证失败，说明行顺序不同导致非严格模式也失败
-    // 这里我们测试真正等价的 SQL
+    assert!(
+        equivalent_result.is_equivalent,
+        "等价 SQL 应验证通过: {:?}",
+        equivalent_result.diff_details
+    );
     let equivalent_result2 = verifier
         .verify(
             "SELECT id, name FROM users WHERE id > 0",

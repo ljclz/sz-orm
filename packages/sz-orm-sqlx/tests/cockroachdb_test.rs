@@ -349,7 +349,7 @@ async fn cockroachdb_distributed_tx_retry() {
             let mut tx = pool_handle.pool().begin().await?;
             let sql = format!("INSERT INTO {} (id, val) VALUES (1, $1)", table_owned);
             sqlx::query(sqlx::AssertSqlSafe(&*sql))
-                .bind(attempt as i32)
+                .bind(attempt)
                 .execute(&mut *tx)
                 .await?;
             tx.commit().await?;

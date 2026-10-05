@@ -234,7 +234,8 @@ async fn test_bench_result_completeness() {
 
 /// Oracle 测试串行锁：多个 Oracle 测试共享同一 bench_users 表，
 /// 并行 init 会导致 DDL 竞态
-static ORACLE_TEST_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+static ORACLE_TEST_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
+    std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
 /// Oracle 连接串（本机 23ai Free 监听器以 freepdb1.FALSE 注册）
 fn oracle_test_connection() -> String {
@@ -255,7 +256,7 @@ fn percentile(sorted: &[u64], p: f64) -> f64 {
 async fn test_oracle_init_and_crud() {
     use sz_orm_bench::DatasetInitializer;
 
-    let _lock = ORACLE_TEST_LOCK.lock().unwrap();
+    let _lock = ORACLE_TEST_LOCK.lock().await;
     let conn = oracle_test_connection();
     let dataset_size = 1000;
 
@@ -387,7 +388,7 @@ async fn test_oracle_transaction_commit_rollback() {
     use sz_orm_core::Value;
     use sz_orm_oracle::{OracleConnectionFactory, OraclePoolHandle};
 
-    let _lock = ORACLE_TEST_LOCK.lock().unwrap();
+    let _lock = ORACLE_TEST_LOCK.lock().await;
     let conn = oracle_test_connection();
     DatasetInitializer::init(DbBackend::Oracle, &conn, 100)
         .await
@@ -472,7 +473,7 @@ async fn test_oracle_aggregate_query() {
     use sz_orm_core::Value;
     use sz_orm_oracle::{OracleConnectionFactory, OraclePoolHandle};
 
-    let _lock = ORACLE_TEST_LOCK.lock().unwrap();
+    let _lock = ORACLE_TEST_LOCK.lock().await;
     let conn = oracle_test_connection();
     DatasetInitializer::init(DbBackend::Oracle, &conn, 500)
         .await

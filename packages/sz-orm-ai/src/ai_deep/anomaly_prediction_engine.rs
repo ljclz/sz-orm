@@ -279,8 +279,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_predict_low_confidence_flagged() {
-        let mut config = AnomalyPredictConfig::default();
-        config.min_confidence = 99.0; // 设置高阈值，使置信度必然低于阈值
+        let config = AnomalyPredictConfig {
+            min_confidence: 99.0, // 设置高阈值，使置信度必然低于阈值
+            ..Default::default()
+        };
 
         let predictor = Arc::new(AnomalyPredictor::default());
         let engine = AnomalyPredictionEngine::new(predictor, config);

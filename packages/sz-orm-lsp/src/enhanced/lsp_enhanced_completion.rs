@@ -3,7 +3,7 @@
 //! SQL 解析 → 上下文补全（表/字段/类型）→ N+1 检测诊断 → 建议改写。
 //! 复用 `completion.rs:144` 的 `context_aware_completion` 和 `diagnostics.rs` 的诊断能力。
 
-use crate::completion::{analyze_context, context_aware_completion, CompletionContext};
+use crate::completion::{analyze_context, context_aware_completion};
 use crate::diagnostics::DiagnosticCode;
 use crate::server::{CompletionItem, Diagnostic, DiagnosticSeverity, LspPosition, LspRange};
 use std::time::{Duration, Instant};
@@ -159,6 +159,7 @@ impl LspEnhancedCompletion {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::CompletionContext;
     use std::time::Duration;
 
     #[test]

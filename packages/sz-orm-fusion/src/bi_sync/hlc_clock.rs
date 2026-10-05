@@ -35,7 +35,7 @@ impl HlcTimestamp {
 
 impl PartialOrd for HlcTimestamp {
     fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
-        Some(self.compare(other))
+        Some(self.cmp(other))
     }
 }
 

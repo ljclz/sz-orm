@@ -980,7 +980,7 @@ use std::future::Future;
 ///
 /// 调用方提供具体实现（如 sqlx 执行器），源码不耦合具体 DB 驱动。
 pub trait DbExecutor: Send + Sync {
-    /// 执行 SQL 并返回结果集（每行为 Vec<String> 列值）
+    /// 执行 SQL 并返回结果集（每行为 `Vec<String>` 列值）
     fn execute(
         &self,
         sql: &str,

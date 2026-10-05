@@ -9,9 +9,7 @@
 //! - 漏报率 ≤ 2%
 //! - 检测延迟 ≤ 500ms
 
-use sz_orm_anomaly::{
-    AnomalyType, BaselineCalculator, MultiDimDetector, MultiDimMetrics, ThresholdAutoTuner,
-};
+use sz_orm_anomaly::{AnomalyType, MultiDimDetector, MultiDimMetrics, ThresholdAutoTuner};
 
 #[test]
 fn test_e2e_multi_dim_normal_traffic() {

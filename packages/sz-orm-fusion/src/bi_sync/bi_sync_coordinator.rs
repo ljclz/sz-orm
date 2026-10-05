@@ -199,6 +199,7 @@ impl BiDirectionalSyncCoordinator {
 
 #[cfg(test)]
 mod tests {
+    use super::super::hlc_clock::{HlcClock, HlcConfig};
     use super::*;
 
     #[test]
@@ -215,5 +216,57 @@ mod tests {
         assert_ne!(s1, s2);
         assert_ne!(s2, s3);
         assert_ne!(s1, s3);
+    }
+
+    #[tokio::test]
+    async fn test_sync_disconnected_degrades_to_ttl() {
+        // 降级模式：捕获器总是失败，start_sync 降级为 TTL 兜底并返回 Ok，
+        // 结果 synced_count 为 0 且带 "CDC capture failed, relying on TTL" 告警。
+        let hlc = Arc::new(HlcClock::new(HlcConfig::default()));
+        let coord = BiDirectionalSyncCoordinator::new_disconnected(hlc, BiSyncConfig::default());
+        let result = coord
+            .sync_bidirectional(ConflictStrategy::LastWriteWins)
+            .await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.synced_count, 0);
+        assert_eq!(r.conflicts_resolved, 0);
+        assert_eq!(r.conflicts_unresolved, 0);
+        assert!(
+            r.warnings
+                .iter()
+                .any(|w| w.contains("CDC capture failed, relying on TTL")),
+            "warnings 应含 TTL 降级告警: {:?}",
+            r.warnings
+        );
+    }
+
+    #[test]
+    fn test_resolve_conflicts_all_strategies() {
+        let hlc = Arc::new(HlcClock::new(HlcConfig::default()));
+        let coord = BiDirectionalSyncCoordinator::new_disconnected(hlc, BiSyncConfig::default());
+        let (r, u, w) = coord.resolve_conflicts(ConflictStrategy::LastWriteWins, 5);
+        assert_eq!((r, u), (5, 0));
+        assert!(w.is_empty());
+        let (r, u, _) = coord.resolve_conflicts(ConflictStrategy::Crdt, 3);
+        assert_eq!((r, u), (3, 0));
+        let (r, u, w) = coord.resolve_conflicts(ConflictStrategy::Custom, 2);
+        assert_eq!((r, u), (0, 2));
+        assert!(w
+            .iter()
+            .any(|x| x.contains("DIST_SYNC_CONFLICT_UNRESOLVED")));
+    }
+
+    #[test]
+    fn test_config_and_hlc_accessors() {
+        let hlc = Arc::new(HlcClock::new(HlcConfig::default()));
+        let coord = BiDirectionalSyncCoordinator::new_disconnected(
+            hlc.clone(),
+            BiSyncConfig {
+                max_resolve_latency_ms: 200,
+            },
+        );
+        assert_eq!(coord.config().max_resolve_latency_ms, 200);
+        assert!(std::ptr::eq(coord.hlc(), hlc.as_ref()));
     }
 }

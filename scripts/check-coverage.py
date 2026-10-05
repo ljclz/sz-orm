@@ -146,17 +146,17 @@ def get_crate_features(crate_name):
 CRATE_FEATURE_MAP = {
     "sz-orm-core": "tenant-quota-rls-enhanced,auto-prewarm,l1-cache,multi-tenant-enhanced,perf-extreme,pool-zero-copy,query-simd,serde-zero-copy,dist-cache-coherent,plugin-marketplace,plugin-marketplace-ops,sdk-auto-gen,eco-deep,perf-accel",
     "sz-orm-ai": "ai-deep,ai-nl-rewrite,ai-schema-design,ai-anomaly-predict,ai-autonomous,ai-closed-loop,ai-ab-testing,ai-model-versioning",
-    "sz-orm-fusion": "dist-sync-bi,split-brain-detect,cross-region-replicate,dist-enhance",
+    "sz-orm-fusion": "dist-sync-bi,split-brain-detect,cross-region-replicate",
     "sz-orm-dtx": "dtx-saga-coordinator,dist-consensus,raft-optimize,split-brain-detect,consistency-tunable",
-    "sz-orm-crypto": "sec-compliance,tde-key-mgmt,sec-auto,key-auto-rotate",
+    "sz-orm-crypto": "sec-compliance,tde-key-mgmt,key-auto-rotate",
     "sz-orm-audit": "audit-evidence-chain,compliance-auto-scan,evidence-auto-archive,compliance-report-auto",
     "sz-orm-masking": "masking-policy-engine",
     "sz-orm-auth": "auth-abac",
     "sz-orm-python": "binding-async-stream",
     "sz-orm-lsp": "toolchain-lsp-enhance",
     "sz-orm-wasm": "cloudnative-sidecar,cloudnative-template",
-    "sz-orm-governance": "eco-extend,eco-deep",
-    "sz-orm-mig": "zero-downtime-mig,zero-downtime-rollback",
+    "sz-orm-governance": "governance,cross-storage-lifecycle,federated-query,cost-governance",
+    "sz-orm-mig": "zero-downtime-mig,evolution-safety-net,shadow-traffic-verify,rollback-sandbox",
     "sz-orm-bench": "perf-bench-real,bench-real-db,perf-regression-ci,perf-budget-alert",
     "sz-orm-observability": "observability,metrics-collect,alert-rules,dashboard-export,perf-budget-alert",
     "sz-orm-tracing": "dist-tracing",
@@ -200,7 +200,10 @@ def main():
 
     for crate, crate_mods in sorted(crate_modules.items()):
         features = args.features or CRATE_FEATURE_MAP.get(crate, "")
-        cmd = [llvm_cov, "llvm-cov", "--package", crate, "--json", "--quiet"]
+        # Windows 下禁用自动生成的超长 --ignore-filename-regex（72 包 workspace 路径
+        # 使 llvm-cov 子进程命令行超过 CreateProcess 32767 字符限制触发 os error 206，
+        # 见 2026-10-05 G22 审计修复）。
+        cmd = [llvm_cov, "llvm-cov", "--package", crate, "--json", "--quiet", "--no-default-ignore-filename-regex"]
         if features:
             cmd += ["--features", features]
         print(f"\n  [{crate}] {len(crate_mods)} 模块, features: {features[:80]}...")
@@ -220,9 +223,13 @@ def main():
         for entry in data.get("data", [data]):
             files.extend(entry.get("files", []))
 
+        # 按完整相对路径匹配目标模块（避免跨 crate 同名文件误统计，如
+        # fusion 的 bi_sync_coordinator.rs 在 sz-orm-dtx 运行中被后缀误匹配）。
+        # Windows 下 --no-default-ignore-filename-regex 使 JSON 包含所有编译单元，
+        # 精确匹配尤为重要（2026-10-05 G22 审计修复）。
         for f in files:
             path = f.get("filename", "").replace("\\", "/")
-            if not any(path.endswith(m.split("/")[-1]) for m in crate_mods):
+            if not any(path.endswith(m) for m in crate_mods):
                 continue
             summary = f.get("summary", {}).get("lines", {})
             covered = summary.get("covered", 0)

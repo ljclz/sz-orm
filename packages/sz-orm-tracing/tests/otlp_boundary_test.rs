@@ -77,7 +77,7 @@ fn test_otlp_exporter_export_multiple_spans() {
 
 #[test]
 fn test_span_name_all_variants() {
-    let names = vec![
+    let names = [
         SpanName::QueryExecution,
         SpanName::ConnectionAcquire,
         SpanName::SqlExecute,

@@ -82,7 +82,7 @@ impl BatchAcquireOptimized {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::pool::{Pool, PoolConfigBuilder};
+    use crate::pool::{Connection, Pool, PoolConfigBuilder};
     use std::sync::Arc;
 
     struct MockConnection {
@@ -261,5 +261,22 @@ mod tests {
         assert!(matches!(err, Err(PoolError::InvalidConfig(_))));
         let ok = ba.acquire_batch_optimized(4).await;
         assert!(ok.is_ok());
+    }
+
+    #[tokio::test]
+    async fn mock_connection_all_methods_coverable() {
+        // 覆盖测试桩 MockConnection 的全部方法体（execute/query/事务/ping/close），
+        // 与 2026-10-01 zero_copy_acquire 修复同模式（G22 模块覆盖率补测）。
+        let mut c = MockConnection::new();
+        assert!(c.is_connected());
+        assert_eq!(c.execute("SELECT 1").await.unwrap(), 1);
+        assert!(c.query("SELECT 1").await.unwrap().is_empty());
+        c.begin_transaction().await.unwrap();
+        c.commit().await.unwrap();
+        c.begin_transaction().await.unwrap();
+        c.rollback().await.unwrap();
+        assert!(c.ping().await);
+        c.close().await.unwrap();
+        assert!(!c.is_connected());
     }
 }

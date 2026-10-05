@@ -62,6 +62,8 @@ impl RowStream {
     }
 
     /// 拉取下一行（首条 ≤ 10ms）
+    // `next` 为流式行拉取的业务命名，非 `Iterator` 实现，重命名会破坏公开 API
+    #[allow(clippy::should_implement_trait)]
     pub fn next(&mut self) -> Result<Option<StreamedRow>, EcoError> {
         if self.closed {
             return Err(EcoError::StreamBroken);

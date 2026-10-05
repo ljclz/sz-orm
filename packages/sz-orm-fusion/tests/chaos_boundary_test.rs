@@ -4,9 +4,7 @@
 
 #![cfg(feature = "chaos")]
 
-use sz_orm_fusion::chaos_injector::{
-    ChaosConfig, ChaosInjector, FaultType, StabilityReport, WorkloadType,
-};
+use sz_orm_fusion::chaos_injector::{ChaosConfig, ChaosInjector, FaultType, WorkloadType};
 
 #[test]
 fn test_chaos_config_empty_fault_types() {
@@ -82,7 +80,7 @@ fn test_chaos_config_default() {
 
 #[test]
 fn test_fault_type_all_variants() {
-    let faults = vec![
+    let faults = [
         FaultType::NetworkPartition,
         FaultType::NodeDown,
         FaultType::DiskFull,
@@ -99,7 +97,7 @@ fn test_fault_type_all_variants() {
 
 #[test]
 fn test_workload_type_all_variants() {
-    let workloads = vec![
+    let workloads = [
         WorkloadType::SingleRowQuery,
         WorkloadType::BatchQuery,
         WorkloadType::PoolConcurrency,

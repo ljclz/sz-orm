@@ -352,9 +352,11 @@ mod tests {
 
     #[tokio::test]
     async fn test_rewrite_injection_filtered() {
-        let mut config = NlRewriteConfig::default();
-        config.enable_injection_filter = true;
-        config.enable_equivalence_verify = false;
+        let config = NlRewriteConfig {
+            enable_injection_filter: true,
+            enable_equivalence_verify: false,
+            ..Default::default()
+        };
 
         let optimizer = Arc::new(UnifiedQueryOptimizer::new(OptimizerConfig::default()));
         let pipeline = NlRewritePipeline::new(optimizer, None, config, make_schema());
@@ -368,8 +370,10 @@ mod tests {
 
     #[tokio::test]
     async fn test_rewrite_equivalence_verify_disabled() {
-        let mut config = NlRewriteConfig::default();
-        config.enable_equivalence_verify = false;
+        let config = NlRewriteConfig {
+            enable_equivalence_verify: false,
+            ..Default::default()
+        };
 
         let optimizer = Arc::new(UnifiedQueryOptimizer::new(OptimizerConfig::default()));
         let pipeline = NlRewritePipeline::new(optimizer, None, config, make_schema());

@@ -70,7 +70,7 @@ async fn run_smoke_chain(backend: DbBackend, conn: &str) {
             "smoke {backend:?}/{wl:?}: is_real_db 应为 true"
         );
         assert!(
-            result.raw_latencies.len() >= 1,
+            !result.raw_latencies.is_empty(),
             "smoke {backend:?}/{wl:?}: 至少 1 次延迟采样"
         );
     }

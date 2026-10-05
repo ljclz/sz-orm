@@ -44,16 +44,26 @@ pub enum LogLevel {
 /// 结构化查询日志条目
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct QueryLogEntry {
+    /// 查询标识键（归一化后的 SQL 指纹）
     pub query_key: String,
+    /// 原始 SQL 文本（已脱敏）
     pub sql: String,
+    /// 绑定参数（已脱敏）
     pub params: Vec<String>,
+    /// 查询总耗时（毫秒）
     pub total_elapsed_ms: u64,
+    /// 各阶段耗时明细（如连接获取/执行/读取）
     pub phase_breakdown: Vec<SerializablePhaseTiming>,
+    /// 是否慢查询
     pub slow: bool,
+    /// 是否命中缓存
     pub from_cache: bool,
+    /// 日志时间戳（ISO 8601）
     pub timestamp: String,
+    /// 关联的 Trace ID（未启用追踪时为空）
     #[serde(default)]
     pub trace_id: Option<String>,
+    /// 关联的 Span ID（未启用追踪时为空）
     #[serde(default)]
     pub span_id: Option<String>,
 }

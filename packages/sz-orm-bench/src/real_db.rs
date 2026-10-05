@@ -354,7 +354,7 @@ impl SzOrmWorkload {
                     .query_with_params(sql, &params)
                     .await
                     .map_err(|e| BenchError::QueryFailed(format!("sz-orm query failed: {e:?}")))?;
-                if rows.len() < 1 {
+                if rows.is_empty() {
                     return Err(BenchError::QueryFailed(
                         "SimdCompare: expected >= 1 row".into(),
                     ));
@@ -403,7 +403,7 @@ impl SzOrmWorkload {
                 let rows = conn.query_with_params(sql, &[]).await.map_err(|e| {
                     BenchError::QueryFailed(format!("large result set query failed: {e:?}"))
                 })?;
-                if rows.len() < 1 {
+                if rows.is_empty() {
                     return Err(BenchError::QueryFailed(
                         "LargeResultSet: expected >= 1 row".into(),
                     ));

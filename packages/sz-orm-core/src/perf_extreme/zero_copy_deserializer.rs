@@ -1,6 +1,6 @@
 //! v8.0.0 任务 2.4：零拷贝反序列化
 //!
-//! 直接借用底层字节缓冲反序列化，消除 Vec<u8> 拷贝。
+//! 直接借用底层字节缓冲反序列化，消除 `Vec<u8>` 拷贝。
 //! 复用既有 `ZeroCopyPipeline`（`zero_copy_pipeline.rs:314`）和
 //! `BorrowedValue`（`value_borrowed.rs:17`）。
 //! 类型不支持零拷贝 → 回退拷贝路径（标记未命中）。

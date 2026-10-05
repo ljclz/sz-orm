@@ -266,36 +266,45 @@ impl SagaCoordinator {
         }
 
         // 2. 构建 Saga 并注册（所有步骤合并到一个 Saga）
-        let mut saga = Saga::new(&definition.id);
-        // 顺序步骤
-        for step in &definition.steps {
-            let saga_step = SagaStep::new(&step.name);
-            if let Err(e) = saga.add_step(saga_step) {
-                return Err(DistError::StepFailed(e));
-            }
-        }
-        // 并行步骤组（展平为顺序步骤，Saga 内部顺序执行）
-        for group in &definition.parallel_groups {
-            for step in &group.steps {
+        // 构建逻辑提取为闭包：重复注册分支需要重建完整 Saga（含全部步骤），
+        // 避免仅注册空 Saga 导致后续执行空步骤。
+        let build_saga = |definition: &CrossServiceSagaDef| -> Result<Saga, DistError> {
+            let mut saga = Saga::new(&definition.id);
+            // 顺序步骤
+            for step in &definition.steps {
                 let saga_step = SagaStep::new(&step.name);
                 if let Err(e) = saga.add_step(saga_step) {
                     return Err(DistError::StepFailed(e));
                 }
             }
-        }
-        // 条件分支步骤
-        for (branch_name, steps) in &definition.conditional_branches {
-            for step in steps {
-                let saga_step = SagaStep::new(&format!("{branch_name}:{}", step.name));
-                if let Err(e) = saga.add_step(saga_step) {
-                    return Err(DistError::StepFailed(e));
+            // 并行步骤组（展平为顺序步骤，Saga 内部顺序执行）
+            for group in &definition.parallel_groups {
+                for step in &group.steps {
+                    let saga_step = SagaStep::new(&step.name);
+                    if let Err(e) = saga.add_step(saga_step) {
+                        return Err(DistError::StepFailed(e));
+                    }
                 }
             }
-        }
+            // 条件分支步骤
+            for (branch_name, steps) in &definition.conditional_branches {
+                for step in steps {
+                    let saga_step = SagaStep::new(&format!("{branch_name}:{}", step.name));
+                    if let Err(e) = saga.add_step(saga_step) {
+                        return Err(DistError::StepFailed(e));
+                    }
+                }
+            }
+            Ok(saga)
+        };
+
+        let saga = build_saga(definition)?;
         if let Err(e) = self.manager.register(saga) {
-            // 已存在则重置后重新注册
-            let _ = self.manager.reset(&definition.id);
-            let saga = Saga::new(&definition.id);
+            // 已存在则删除旧实例后重新注册完整 Saga。
+            // 注意：reset 仅重置 Saga 内部状态、不删除管理器映射，无法复用同一 id
+            // 重新注册；必须 remove 后再 register，并重建带全部步骤的 Saga。
+            let _ = self.manager.remove(&definition.id);
+            let saga = build_saga(definition)?;
             if let Err(e2) = self.manager.register(saga) {
                 return Err(DistError::StepFailed(format!("{e}; retry: {e2}")));
             }

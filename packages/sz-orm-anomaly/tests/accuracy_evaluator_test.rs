@@ -1,6 +1,6 @@
 #![cfg(feature = "anomaly-detection")]
 
-use sz_orm_anomaly::detector::{AccuracyEvaluator, AccuracyReport};
+use sz_orm_anomaly::detector::AccuracyEvaluator;
 
 #[test]
 fn test_accuracy_evaluator_empty() {

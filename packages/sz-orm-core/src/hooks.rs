@@ -1394,6 +1394,7 @@ mod tests {
 
     #[test]
     fn hook_dispatcher_validate_standalone() {
+        let _guard = HOOK_TEST_LOCK.lock().unwrap();
         reset_after_calls();
         let mut ctx = HookContext::new();
         let result = HookDispatcher::validate::<DispatchTestModel>(&mut ctx);

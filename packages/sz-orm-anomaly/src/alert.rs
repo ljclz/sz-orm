@@ -448,6 +448,7 @@ pub trait AlertChannel: Send + Sync {
     fn channel_type(&self) -> &'static str;
 }
 
+#[allow(dead_code)] // 字段由 new 保存，当前 send 桩实现未读取；保留供真实 Webhook 发送实现使用
 pub struct WebhookChannel {
     url: String,
 }
@@ -467,6 +468,7 @@ impl AlertChannel for WebhookChannel {
     }
 }
 
+#[allow(dead_code)] // 字段由 new 保存，当前 send 桩实现未读取；保留供真实 Slack 发送实现使用
 pub struct SlackChannel {
     webhook_url: String,
 }
@@ -486,6 +488,7 @@ impl AlertChannel for SlackChannel {
     }
 }
 
+#[allow(dead_code)] // 字段由 new 保存，当前 send 桩实现未读取；保留供真实 Email 发送实现使用
 pub struct EmailChannel {
     smtp_host: String,
     smtp_port: u16,
