@@ -836,4 +836,261 @@ mod tests {
         let result = checker.check_from_impact(&impact);
         assert!(result.is_breaking());
     }
+
+    fn make_impact(version: &str, name: &str, ddl: DdlType, destructive: bool) -> MigrationImpact {
+        MigrationImpact {
+            version: version.to_string(),
+            name: name.to_string(),
+            ddl_type: ddl,
+            affected_tables: vec!["users".to_string()],
+            lock_type: crate::migration_dry_run::LockType::Table,
+            is_destructive: destructive,
+            rollback_possible: true,
+            estimated_rows: Some(100),
+        }
+    }
+
+    #[test]
+    fn t12_with_sandbox_verify_items_builder() {
+        let config = ForwardCompatConfig::new()
+            .with_sandbox_verify_items(vec![SandboxVerifyItem::QueryCompat]);
+        assert_eq!(config.sandbox_verify_items.len(), 1);
+        assert_eq!(
+            config.sandbox_verify_items[0],
+            SandboxVerifyItem::QueryCompat
+        );
+    }
+
+    #[test]
+    fn t12_sandbox_config_with_table_prefix_and_cleanup() {
+        let config = SandboxConfig::new()
+            .with_table_prefix("sh_")
+            .with_cleanup(false);
+        assert_eq!(config.table_prefix, "sh_");
+        assert!(!config.cleanup_on_exit);
+    }
+
+    #[test]
+    fn t12_forward_compat_checker_config_accessor() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        assert_eq!(checker.config().strictness, CompatStrictness::Strict);
+        assert_eq!(checker.config().sandbox_table_prefix, "shadow_");
+    }
+
+    #[test]
+    fn t12_sandbox_dry_runner_config_accessor() {
+        let runner = SandboxDryRunner::new(SandboxConfig::new());
+        assert_eq!(runner.config().table_prefix, "shadow_");
+        assert!(runner.config().cleanup_on_exit);
+    }
+
+    #[test]
+    fn t12_check_compatibility_drop_table_breaking() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        let migration = make_migration("001", "DROP TABLE users");
+        let result = checker.check_compatibility(&migration).unwrap();
+        assert!(result.is_breaking());
+        assert!(result
+            .breaking_changes
+            .contains(&BreakingChangeType::RenameTable));
+        assert!(!result.is_compatible);
+        assert!(result.suggested_strategy.contains("sandbox dry-run"));
+    }
+
+    #[test]
+    fn t12_check_compatibility_create_table_safe() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        let migration = make_migration("001", "CREATE TABLE users (id INT PRIMARY KEY)");
+        let result = checker.check_compatibility(&migration).unwrap();
+        assert!(!result.is_breaking());
+        assert!(result.is_compatible);
+        assert_eq!(result.suggested_strategy, "safe to proceed");
+    }
+
+    #[test]
+    fn t12_check_compatibility_other_sql_safe() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        let migration = make_migration("001", "SELECT * FROM users");
+        let result = checker.check_compatibility(&migration).unwrap();
+        assert!(!result.is_breaking());
+        assert!(result.evidence.is_empty());
+    }
+
+    #[test]
+    fn t12_check_compatibility_rename_table_breaking() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        let migration = make_migration("001", "ALTER TABLE users RENAME TO accounts");
+        let result = checker.check_compatibility(&migration).unwrap();
+        assert!(result.is_breaking());
+        assert!(result
+            .breaking_changes
+            .contains(&BreakingChangeType::RenameTable));
+    }
+
+    #[test]
+    fn t12_check_compatibility_breaking_changes_excluded() {
+        let config =
+            ForwardCompatConfig::new().with_breaking_changes(vec![BreakingChangeType::DropColumn]);
+        let checker = ForwardCompatChecker::new(config);
+        let migration = make_migration("001", "ALTER TABLE users ALTER COLUMN age TYPE BIGINT");
+        let result = checker.check_compatibility(&migration).unwrap();
+        assert!(!result.is_breaking());
+        assert!(result.is_compatible);
+    }
+
+    #[test]
+    fn t12_check_from_impact_drop_destructive() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        let impact = ImpactReport {
+            migrations: vec![make_impact("001", "drop_table", DdlType::Drop, true)],
+            destructive_count: 1,
+            non_rollbackable_count: 0,
+        };
+        let result = checker.check_from_impact(&impact);
+        assert!(result.is_breaking());
+        assert!(result
+            .breaking_changes
+            .contains(&BreakingChangeType::RenameTable));
+        assert!(result.evidence[0].contains("DROP"));
+    }
+
+    #[test]
+    fn t12_check_from_impact_non_destructive() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        let impact = ImpactReport {
+            migrations: vec![make_impact("001", "safe_add", DdlType::AlterDrop, false)],
+            destructive_count: 0,
+            non_rollbackable_count: 0,
+        };
+        let result = checker.check_from_impact(&impact);
+        assert!(!result.is_breaking());
+        assert!(result.is_compatible);
+    }
+
+    #[test]
+    fn t12_check_from_impact_other_ddl_destructive() {
+        let checker = ForwardCompatChecker::new(ForwardCompatConfig::new());
+        let impact = ImpactReport {
+            migrations: vec![make_impact("001", "other_op", DdlType::Other, true)],
+            destructive_count: 1,
+            non_rollbackable_count: 0,
+        };
+        let result = checker.check_from_impact(&impact);
+        assert!(!result.is_breaking());
+        assert!(result.evidence.is_empty());
+    }
+
+    #[test]
+    fn t12_sandbox_dry_run_empty_sql_fails_data_integrity() {
+        let runner = SandboxDryRunner::new(SandboxConfig::new());
+        let migration = make_migration("001", "");
+        let result = runner.dry_run_sandbox(&migration, "users").unwrap();
+        assert!(!result.passed);
+        let di = result
+            .verify_details
+            .iter()
+            .find(|d| d.item == SandboxVerifyItem::DataIntegrity)
+            .unwrap();
+        assert!(!di.passed);
+        assert!(di.message.contains("迁移 SQL 为空"));
+        assert!(result.reason.contains("failed"));
+    }
+
+    #[test]
+    fn t12_sandbox_dry_run_empty_verify_items() {
+        let config = SandboxConfig::new().with_verify_items(vec![]);
+        let runner = SandboxDryRunner::new(config);
+        let migration = make_migration("001", "ALTER TABLE users ADD COLUMN age INT");
+        let result = runner.dry_run_sandbox(&migration, "users").unwrap();
+        assert!(result.passed);
+        assert!(result.verify_details.is_empty());
+        assert_eq!(result.reason, "sandbox dry-run passed");
+    }
+
+    #[test]
+    fn t12_sandbox_dry_run_custom_prefix() {
+        let config = SandboxConfig::new().with_table_prefix("sh_");
+        let runner = SandboxDryRunner::new(config);
+        let migration = make_migration("001", "ALTER TABLE users ADD COLUMN age INT");
+        let result = runner.dry_run_sandbox(&migration, "users").unwrap();
+        assert_eq!(result.shadow_table, "sh_users");
+    }
+
+    #[test]
+    fn t12_extract_column_name_drop_only_and_unknown() {
+        let name = extract_column_name("DROP INDEX idx_name");
+        assert_eq!(name, "INDEX");
+        let unknown = extract_column_name("SELECT 1");
+        assert_eq!(unknown, "unknown");
+    }
+
+    #[test]
+    fn t12_extract_table_name_if_not_exists_and_none() {
+        let name = extract_table_name("CREATE TABLE IF NOT EXISTS users (id INT)");
+        assert_eq!(name, Some("users".to_string()));
+        let none = extract_table_name("ALTER TABLE users ADD COLUMN age INT");
+        assert_eq!(none, None);
+    }
+
+    #[test]
+    fn t12_extract_referenced_table_insert_and_none() {
+        let table = extract_referenced_table("INSERT INTO orders (id) VALUES (1)");
+        assert_eq!(table, Some("orders".to_string()));
+        let none = extract_referenced_table("SELECT * FROM users");
+        assert_eq!(none, None);
+    }
+
+    #[test]
+    fn t12_dependency_analyzer_insert_into_dependency() {
+        let mut analyzer = DependencyAnalyzer::new();
+        let migrations = vec![
+            make_migration("001", "CREATE TABLE orders (id INT PRIMARY KEY)"),
+            make_migration("002", "INSERT INTO orders (id) VALUES (1)"),
+        ];
+        analyzer.analyze_dependencies(&migrations).unwrap();
+        let order = analyzer.execution_order().unwrap();
+        let pos_001 = order.iter().position(|x| x == "001").unwrap();
+        let pos_002 = order.iter().position(|x| x == "002").unwrap();
+        assert!(pos_001 < pos_002);
+    }
+
+    #[test]
+    fn t12_dependency_analyzer_self_reference_skipped() {
+        let mut analyzer = DependencyAnalyzer::new();
+        let migrations = vec![
+            make_migration("001", "CREATE TABLE users (id INT)"),
+            make_migration("001", "ALTER TABLE users ADD COLUMN age INT"),
+        ];
+        analyzer.analyze_dependencies(&migrations).unwrap();
+        let order = analyzer.execution_order().unwrap();
+        assert_eq!(order.len(), 1);
+        assert_eq!(order[0], "001");
+    }
+
+    #[test]
+    fn t12_dependency_graph_and_analyzer_default_impl() {
+        let graph = MigrationDependencyGraph::default();
+        assert!(graph.nodes.is_empty());
+        assert!(graph.edges.is_empty());
+        let analyzer = DependencyAnalyzer::default();
+        assert!(analyzer.graph().nodes.is_empty());
+    }
+
+    #[test]
+    fn t12_compat_check_result_is_breaking_false() {
+        let result = CompatCheckResult {
+            breaking_changes: vec![],
+            affected_apps: vec![],
+            suggested_strategy: "safe".to_string(),
+            evidence: vec![],
+            is_compatible: true,
+        };
+        assert!(!result.is_breaking());
+    }
+
+    #[test]
+    fn t12_strictness_default_is_strict() {
+        let s = CompatStrictness::default();
+        assert_eq!(s, CompatStrictness::Strict);
+    }
 }

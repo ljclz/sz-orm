@@ -1662,6 +1662,186 @@ mod tests {
         // 应分 3 批（100+100+50），调用 loader 3 次
         assert_eq!(*query_count.lock().unwrap(), 3);
     }
+
+    // ===== v9.0.0 覆盖率战役新增测试（t26eg_*）=====
+
+    #[test]
+    fn t26eg_detect_cycles_self_loop() {
+        // 自循环：a → a
+        let mut g = EntityGraph::new();
+        g.add_edge("a", "a");
+        let res = g.detect_cycles();
+        assert!(res.is_err());
+        let cycle = res.unwrap_err();
+        assert_eq!(cycle.first(), Some(&"a".to_string()));
+        assert_eq!(cycle.last(), Some(&"a".to_string()));
+    }
+
+    #[test]
+    fn t26eg_detect_cycles_three_node_cycle() {
+        // 三节点循环：a → b → c → a（通过子图）
+        let mut g = EntityGraph::new();
+        g.add_edge("a", "b");
+        g.add_edge("b", "c");
+        g.add_edge("c", "a");
+        let res = g.detect_cycles();
+        assert!(res.is_err(), "三节点循环应被检测到");
+        let cycle = res.unwrap_err();
+        assert!(cycle.len() >= 3, "循环路径至少 3 个节点");
+        // 首尾应为同一节点
+        assert_eq!(cycle.first(), cycle.last());
+    }
+
+    #[test]
+    fn t26eg_detect_cycles_complex_subgraph_no_cycle() {
+        // 复杂带子图但无循环：root → a → {b, c}, root → d
+        let mut sub = EntityGraph::new();
+        sub.add_edge("a", "b");
+        sub.add_edge("a", "c");
+        let mut g = EntityGraph::new();
+        g.add_edge_with_graph("root", "a", sub);
+        g.add_edge("root", "d");
+        assert!(g.detect_cycles().is_ok(), "无循环图应通过检测");
+    }
+
+    #[test]
+    fn t26eg_detect_duplicate_edges_no_dup() {
+        let mut g = EntityGraph::new();
+        g.add_edge("user", "posts");
+        g.add_edge("user", "profile");
+        g.add_edge("post", "comments");
+        assert!(g.detect_duplicate_edges().is_ok(), "无重复边应返回 Ok");
+    }
+
+    #[test]
+    fn t26eg_detect_duplicate_edges_with_dup() {
+        let mut g = EntityGraph::new();
+        g.add_edge("user", "posts");
+        g.add_edge("user", "posts"); // 重复
+        g.add_edge("user", "profile");
+        g.add_edge("user", "profile"); // 重复
+        let res = g.detect_duplicate_edges();
+        assert!(res.is_err(), "有重复边应返回 Err");
+        let dups = res.unwrap_err();
+        assert_eq!(dups.len(), 2, "应检测到 2 对重复边");
+        assert!(dups.contains(&("user".to_string(), "posts".to_string())));
+        assert!(dups.contains(&("user".to_string(), "profile".to_string())));
+    }
+
+    #[test]
+    fn t26eg_detect_duplicate_edges_empty_graph() {
+        let g = EntityGraph::new();
+        assert!(g.detect_duplicate_edges().is_ok());
+    }
+
+    #[test]
+    fn t26eg_validate_pass() {
+        let mut g = EntityGraph::new();
+        g.add_edge("user", "posts");
+        g.add_edge("user", "profile");
+        assert!(g.validate().is_ok(), "无循环无重复应通过 validate");
+    }
+
+    #[test]
+    fn t26eg_validate_cycle_fails() {
+        let mut g = EntityGraph::new();
+        g.add_edge("a", "b");
+        g.add_edge("b", "a");
+        let res = g.validate();
+        assert!(res.is_err());
+        let msg = res.unwrap_err();
+        assert!(msg.contains("循环引用"), "错误信息应提及循环引用: {}", msg);
+    }
+
+    #[test]
+    fn t26eg_validate_duplicate_fails() {
+        let mut g = EntityGraph::new();
+        g.add_edge("user", "posts");
+        g.add_edge("user", "posts");
+        let res = g.validate();
+        assert!(res.is_err());
+        let msg = res.unwrap_err();
+        assert!(msg.contains("重复边"), "错误信息应提及重复边: {}", msg);
+        assert!(msg.contains("user->posts"), "错误信息应包含边信息: {}", msg);
+    }
+
+    #[test]
+    fn t26eg_batch_loader_batch_size_zero_uses_one() {
+        // batch_size=0 时内部用 max(1) 兜底，应能正常加载
+        let loader = BatchLoader::new(
+            0,
+            Box::new(|ids: &[i64]| ids.iter().map(|id| (*id, *id * 2)).collect()),
+        );
+        let result = loader.load_many(&[1, 2, 3, 4]);
+        assert_eq!(result.len(), 4);
+        assert_eq!(result.get(&3), Some(&6));
+        assert_eq!(loader.batch_size(), 0);
+    }
+
+    #[test]
+    fn t26eg_n1_detector_disabled_batch_load_noop() {
+        // 禁用检测时 record_batch_load 应为 no-op
+        let det = N1QueryDetector::new(N1DetectionConfig::new().with_enabled(false));
+        det.start_window();
+        det.record_batch_load("posts", 100);
+        assert_eq!(
+            det.current_batch_count("posts"),
+            0,
+            "禁用时批量计数不应增加"
+        );
+        let alerts = det.end_window();
+        assert!(alerts.is_empty());
+    }
+
+    #[test]
+    fn t26eg_n1_detector_batch_load_outside_window_ignored() {
+        // 窗口未开启时 record_batch_load 应被忽略
+        let det = N1QueryDetector::with_defaults();
+        // 未 start_window 直接调用
+        det.record_batch_load("posts", 50);
+        assert_eq!(
+            det.current_batch_count("posts"),
+            0,
+            "窗口外批量记录应被忽略"
+        );
+        assert!(!det.is_window_active());
+    }
+
+    #[test]
+    fn t26eg_all_relations_and_parent_fields_dedup() {
+        // 验证 all_relations / all_parent_fields 去重逻辑
+        let mut g = EntityGraph::new();
+        g.add_edge("user", "posts");
+        g.add_edge("user", "posts"); // 重复
+        g.add_edge("user", "profile");
+        g.add_edge("post", "comments");
+        g.add_edge("post", "comments"); // 重复
+
+        let rels = g.all_relations();
+        // 去重后应为 comments, posts, profile（排序）
+        assert_eq!(rels, vec!["comments", "posts", "profile"]);
+
+        let fields = g.all_parent_fields();
+        // 去重后应为 post, user（排序）
+        assert_eq!(fields, vec!["post", "user"]);
+    }
+
+    #[test]
+    fn t26eg_batch_count_and_range_edge_cases() {
+        // batch_count 边界
+        let cfg = BatchSizeConfig::new(50, BatchStrategy::Subquery);
+        assert_eq!(cfg.batch_count(0), 0);
+        assert_eq!(cfg.batch_count(1), 1);
+        assert_eq!(cfg.batch_count(50), 1);
+        assert_eq!(cfg.batch_count(51), 2);
+        assert_eq!(cfg.batch_count(100), 2);
+
+        // batch_range 边界：batch_index 超出 total 时返回空范围（start > end）
+        assert_eq!(cfg.batch_range(0, 30), 0..30);
+        assert!(cfg.batch_range(1, 30).is_empty()); // 越界：start=50, end=min(100,30)=30
+        assert_eq!(cfg.batch_range(2, 100), 100..100); // 越界：start=100, end=min(150,100)=100
+        assert_eq!(cfg.batch_range(0, 0), 0..0); // total=0
+    }
 }
 
 #[cfg(all(test, feature = "prod-n1-tuning"))]

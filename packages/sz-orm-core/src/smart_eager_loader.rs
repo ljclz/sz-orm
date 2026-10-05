@@ -1197,4 +1197,457 @@ mod tests {
         assert_eq!(rel.join_from_key, None);
         assert_eq!(rel.join_to_key, None);
     }
+
+    // ========================================================================
+    // v9.4.0 T6：smart_eager_loader.rs 补测（69.9% → ≥ 90%）
+    // ========================================================================
+
+    #[test]
+    fn test_t6_strategy_resolver_new() {
+        let resolver = StrategyResolver::new();
+        let _ = resolver;
+    }
+
+    #[test]
+    fn test_t6_strategy_resolver_default() {
+        let resolver = StrategyResolver;
+        let _ = resolver;
+    }
+
+    #[test]
+    fn test_t6_load_strategy_all_query_counts() {
+        assert_eq!(LoadStrategy::Join.estimated_query_count(), 1);
+        assert_eq!(LoadStrategy::DataLoader.estimated_query_count(), 2);
+        assert_eq!(
+            LoadStrategy::IntermediateTableBatch.estimated_query_count(),
+            2
+        );
+    }
+
+    #[test]
+    fn test_t6_join_strategy_new() {
+        let strategy = JoinStrategy::new();
+        let _ = strategy;
+    }
+
+    #[test]
+    fn test_t6_join_strategy_default() {
+        let strategy = JoinStrategy;
+        let _ = strategy;
+    }
+
+    #[test]
+    fn test_t6_join_strategy_build_join_sql_empty_where() {
+        let rel = RelationDef::new(
+            "profile",
+            "users",
+            "profiles",
+            "id",
+            "user_id",
+            RelationKind::HasOne,
+        );
+        let strategy = JoinStrategy::new();
+        let sql = strategy.build_join_sql(&rel, &["id", "name"], &["id", "bio"], "");
+        assert!(sql.contains("SELECT main.id AS main_id, main.name AS main_name, related.id AS related_id, related.bio AS related_bio"));
+        assert!(!sql.contains("WHERE"));
+    }
+
+    #[test]
+    fn test_t6_join_strategy_split_join_row_partial_null() {
+        let mut flat = HashMap::new();
+        flat.insert("main_id".to_string(), Value::I64(1));
+        flat.insert("main_name".to_string(), Value::String("Alice".to_string()));
+        flat.insert("related_id".to_string(), Value::Null);
+        flat.insert("related_bio".to_string(), Value::Null);
+        let (main, related) = JoinStrategy::split_join_row(&flat, &["id", "name"], &["id", "bio"]);
+        assert_eq!(main.get("id"), Some(&Value::I64(1)));
+        assert!(related.is_none());
+    }
+
+    #[test]
+    fn test_t6_join_strategy_split_join_row_with_data() {
+        let mut flat = HashMap::new();
+        flat.insert("main_id".to_string(), Value::I64(1));
+        flat.insert("related_id".to_string(), Value::I64(10));
+        flat.insert(
+            "related_bio".to_string(),
+            Value::String("Hello".to_string()),
+        );
+        let (main, related) = JoinStrategy::split_join_row(&flat, &["id"], &["id", "bio"]);
+        assert_eq!(main.get("id"), Some(&Value::I64(1)));
+        let rel = related.unwrap();
+        assert_eq!(rel.get("bio"), Some(&Value::String("Hello".to_string())));
+    }
+
+    #[test]
+    fn test_t6_data_loader_strategy_new() {
+        let strategy = DataLoaderStrategy::new();
+        let _ = strategy;
+    }
+
+    #[test]
+    fn test_t6_data_loader_strategy_default() {
+        let strategy = DataLoaderStrategy;
+        let _ = strategy;
+    }
+
+    #[test]
+    fn test_t6_data_loader_strategy_build_batch_sql_zero_params() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let strategy = DataLoaderStrategy::new();
+        let sql = strategy.build_batch_sql(&rel, &["id", "total"], 0);
+        assert!(sql.contains("SELECT id, total FROM orders WHERE user_id IN ()"));
+    }
+
+    #[test]
+    fn test_t6_data_loader_strategy_group_by_empty() {
+        let grouped = DataLoaderStrategy::group_by_foreign_key(vec![], "user_id");
+        assert!(grouped.is_empty());
+    }
+
+    #[test]
+    fn test_t6_data_loader_strategy_group_by_multiple_keys() {
+        let row1 = HashMap::from([
+            ("user_id".to_string(), Value::I64(1)),
+            ("id".to_string(), Value::I64(10)),
+        ]);
+        let row2 = HashMap::from([
+            ("user_id".to_string(), Value::I64(2)),
+            ("id".to_string(), Value::I64(20)),
+        ]);
+        let row3 = HashMap::from([
+            ("user_id".to_string(), Value::I64(1)),
+            ("id".to_string(), Value::I64(11)),
+        ]);
+        let grouped = DataLoaderStrategy::group_by_foreign_key(vec![row1, row2, row3], "user_id");
+        assert_eq!(grouped.len(), 2);
+        assert_eq!(grouped["i64:1"].len(), 2);
+        assert_eq!(grouped["i64:2"].len(), 1);
+    }
+
+    #[test]
+    fn test_t6_intermediate_table_strategy_new() {
+        let strategy = IntermediateTableStrategy::new();
+        let _ = strategy;
+    }
+
+    #[test]
+    fn test_t6_intermediate_table_strategy_default() {
+        let strategy = IntermediateTableStrategy;
+        let _ = strategy;
+    }
+
+    #[test]
+    fn test_t6_intermediate_table_strategy_build_sql_with_params() {
+        let rel = RelationDef::new_many_to_many(
+            "roles",
+            "users",
+            "roles",
+            "id",
+            "id",
+            "user_roles",
+            "user_id",
+            "role_id",
+        );
+        let strategy = IntermediateTableStrategy::new();
+        let sql = strategy
+            .build_intermediate_sql(&rel, &["id", "name"], 3)
+            .unwrap();
+        assert!(sql.contains("SELECT related.id, related.name"));
+        assert!(sql.contains("FROM user_roles AS jt"));
+        assert!(sql.contains("JOIN roles AS related"));
+        assert!(sql.contains("WHERE jt.user_id IN (?, ?, ?)"));
+    }
+
+    #[test]
+    fn test_t6_intermediate_table_strategy_missing_join_from_key() {
+        let mut rel = RelationDef::new_many_to_many(
+            "roles",
+            "users",
+            "roles",
+            "id",
+            "id",
+            "user_roles",
+            "user_id",
+            "role_id",
+        );
+        rel.join_from_key = None;
+        let strategy = IntermediateTableStrategy::new();
+        let result = strategy.build_intermediate_sql(&rel, &["id"], 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t6_intermediate_table_strategy_missing_join_to_key() {
+        let mut rel = RelationDef::new_many_to_many(
+            "roles",
+            "users",
+            "roles",
+            "id",
+            "id",
+            "user_roles",
+            "user_id",
+            "role_id",
+        );
+        rel.join_to_key = None;
+        let strategy = IntermediateTableStrategy::new();
+        let result = strategy.build_intermediate_sql(&rel, &["id"], 1);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t6_smart_eager_loader_with_cycle_policy() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = SmartEagerLoader::new(rel).with_cycle_policy(CyclePolicy::Error);
+        assert!(matches!(loader.cycle_policy, CyclePolicy::Error));
+    }
+
+    #[test]
+    fn test_t6_smart_eager_loader_decisions_empty() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = SmartEagerLoader::new(rel);
+        assert!(loader.decisions().is_empty());
+    }
+
+    #[test]
+    fn test_t6_smart_eager_loader_children_count_zero() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = SmartEagerLoader::new(rel);
+        assert_eq!(loader.children_count(), 0);
+    }
+
+    #[test]
+    fn test_t6_smart_eager_loader_with_deep_chain() {
+        let rel1 = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let rel2 = RelationDef::new(
+            "items",
+            "orders",
+            "items",
+            "id",
+            "order_id",
+            RelationKind::HasMany,
+        );
+        let rel3 = RelationDef::new(
+            "product",
+            "items",
+            "products",
+            "id",
+            "product_id",
+            RelationKind::BelongsTo,
+        );
+        let loader = SmartEagerLoader::new(rel1).with(rel2).with(rel3);
+        assert_eq!(loader.children_count(), 2);
+    }
+
+    #[test]
+    fn test_t6_strategy_decision_struct() {
+        let decision = StrategyDecision {
+            relation_name: "orders".to_string(),
+            relation_kind: RelationKind::HasMany,
+            strategy: LoadStrategy::DataLoader,
+            reason: "test reason".to_string(),
+            estimated_query_count: 2,
+        };
+        assert_eq!(decision.relation_name, "orders");
+        assert_eq!(decision.estimated_query_count, 2);
+    }
+
+    #[test]
+    fn test_t6_value_to_key_variants() {
+        let _ = value_to_key(&Value::Null);
+        let _ = value_to_key(&Value::Bool(true));
+        let _ = value_to_key(&Value::I8(1));
+        let _ = value_to_key(&Value::I16(1));
+        let _ = value_to_key(&Value::I32(1));
+        let _ = value_to_key(&Value::I64(1));
+        let _ = value_to_key(&Value::U8(1));
+        let _ = value_to_key(&Value::U16(1));
+        let _ = value_to_key(&Value::U32(1));
+        let _ = value_to_key(&Value::U64(1));
+        let _ = value_to_key(&Value::F32(1.0));
+        let _ = value_to_key(&Value::F64(1.0));
+        let _ = value_to_key(&Value::String("test".to_string()));
+        let _ = value_to_key(&Value::Bytes(vec![1, 2]));
+    }
+
+    #[test]
+
+    fn test_t6_strategy_resolver_has_one() {
+        let resolver = StrategyResolver::new();
+        let rel = RelationDef::new(
+            "profile",
+            "users",
+            "profiles",
+            "id",
+            "user_id",
+            RelationKind::HasOne,
+        );
+        let decision = resolver.resolve(&rel);
+        assert_eq!(decision.strategy, LoadStrategy::Join);
+        assert_eq!(decision.estimated_query_count, 1);
+        assert_eq!(decision.relation_name, "profile");
+    }
+
+    #[test]
+    fn test_t6_strategy_resolver_belongs_to() {
+        let resolver = StrategyResolver::new();
+        let rel = RelationDef::new(
+            "user",
+            "posts",
+            "users",
+            "user_id",
+            "id",
+            RelationKind::BelongsTo,
+        );
+        let decision = resolver.resolve(&rel);
+        assert_eq!(decision.strategy, LoadStrategy::Join);
+    }
+
+    #[test]
+    fn test_t6_strategy_resolver_has_many() {
+        let resolver = StrategyResolver::new();
+        let rel = RelationDef::new(
+            "posts",
+            "users",
+            "posts",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let decision = resolver.resolve(&rel);
+        assert_eq!(decision.strategy, LoadStrategy::DataLoader);
+        assert_eq!(decision.estimated_query_count, 2);
+    }
+
+    #[test]
+    fn test_t6_strategy_resolver_many_to_many_with_join_table() {
+        let resolver = StrategyResolver::new();
+        let rel = RelationDef::new_many_to_many(
+            "roles",
+            "users",
+            "roles",
+            "id",
+            "id",
+            "user_roles",
+            "user_id",
+            "role_id",
+        );
+        let decision = resolver.resolve(&rel);
+        assert_eq!(decision.strategy, LoadStrategy::IntermediateTableBatch);
+    }
+
+    #[test]
+    fn test_t6_strategy_resolver_many_to_many_without_join_table() {
+        let resolver = StrategyResolver::new();
+        let rel = RelationDef::new(
+            "tags",
+            "users",
+            "tags",
+            "id",
+            "user_id",
+            RelationKind::ManyToMany,
+        );
+        let decision = resolver.resolve(&rel);
+        assert_eq!(decision.strategy, LoadStrategy::DataLoader);
+    }
+
+    #[test]
+    fn test_t6_strategy_resolver_chain() {
+        let resolver = StrategyResolver::new();
+        let rels = vec![
+            RelationDef::new(
+                "profile",
+                "users",
+                "profiles",
+                "id",
+                "user_id",
+                RelationKind::HasOne,
+            ),
+            RelationDef::new(
+                "posts",
+                "users",
+                "posts",
+                "id",
+                "user_id",
+                RelationKind::HasMany,
+            ),
+        ];
+        let decisions = resolver.resolve_chain(&rels);
+        assert_eq!(decisions.len(), 2);
+        assert_eq!(decisions[0].strategy, LoadStrategy::Join);
+        assert_eq!(decisions[1].strategy, LoadStrategy::DataLoader);
+    }
+
+    #[test]
+
+    fn test_t6_smart_eager_loader_with_child() {
+        let rel = RelationDef::new(
+            "posts",
+            "users",
+            "posts",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let child_rel = RelationDef::new(
+            "comments",
+            "posts",
+            "comments",
+            "id",
+            "post_id",
+            RelationKind::HasMany,
+        );
+        let loader = SmartEagerLoader::new(rel).with(child_rel);
+        assert!(loader.children_count() >= 1);
+    }
+
+    #[test]
+    fn test_t6_value_to_key_all_variants() {
+        assert_eq!(value_to_key(&Value::Null), "null");
+        assert_eq!(value_to_key(&Value::Bool(true)), "bool:true");
+        assert_eq!(value_to_key(&Value::I8(1)), "i8:1");
+        assert_eq!(value_to_key(&Value::I16(1)), "i16:1");
+        assert_eq!(value_to_key(&Value::I32(1)), "i32:1");
+        assert_eq!(value_to_key(&Value::I64(1)), "i64:1");
+        assert_eq!(value_to_key(&Value::U8(1)), "u8:1");
+        assert_eq!(value_to_key(&Value::U16(1)), "u16:1");
+        assert_eq!(value_to_key(&Value::U32(1)), "u32:1");
+        assert_eq!(value_to_key(&Value::U64(1)), "u64:1");
+        assert_eq!(value_to_key(&Value::String("x".to_string())), "str:x");
+    }
 }

@@ -2837,6 +2837,435 @@ mod tests {
         assert_eq!(sql, "SELECT * FROM `users`");
     }
 
+    // ========================================================================
+    // v9.4.0 T3：typed_ast.rs 补测（46.9% → ≥ 80%）
+    // ========================================================================
+
+    /// T3.1a Literal<i8> 序列化
+    #[test]
+    fn test_t3_literal_i8_to_sql() {
+        let dialect = MySqlDialect;
+        let lit = Literal::new(42i8);
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec!["42"]);
+    }
+
+    /// T3.1b Literal<f64> 序列化
+    #[test]
+    fn test_t3_literal_f64_to_sql() {
+        let dialect = MySqlDialect;
+        let lit = Literal::new(3.5f64);
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params.len(), 1);
+    }
+
+    /// T3.1c Literal<f32> 序列化
+    #[test]
+    fn test_t3_literal_f32_to_sql() {
+        let dialect = MySqlDialect;
+        let lit = Literal::new(2.5f32);
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params.len(), 1);
+    }
+
+    /// T3.1d Literal<bool> 序列化
+    #[test]
+    fn test_t3_literal_bool_to_sql() {
+        let dialect = MySqlDialect;
+        let lit = Literal::new(true);
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec!["true"]);
+    }
+
+    /// T3.1e Literal<String> 序列化
+    #[test]
+    fn test_t3_literal_string_to_sql() {
+        let dialect = MySqlDialect;
+        let lit = Literal::new("hello".to_string());
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec!["hello"]);
+    }
+
+    /// T3.1f Literal<Vec<u8>> 序列化（hex 编码）
+    #[test]
+    fn test_t3_literal_vec_u8_to_sql() {
+        let dialect = MySqlDialect;
+        let lit = Literal::new(vec![0x01u8, 0x02, 0xFF]);
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec!["0102ff"]);
+    }
+
+    /// T3.1g Literal<Vec<u8>> 空向量
+    #[test]
+    fn test_t3_literal_empty_vec_u8_to_sql() {
+        let dialect = MySqlDialect;
+        let lit = Literal::new(Vec::<u8>::new());
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec![""]);
+    }
+
+    /// T3.2a Like 表达式 via TypedColumnExt
+    #[test]
+    fn test_t3_like_via_ext() {
+        let dialect = MySqlDialect;
+        let expr = ColName.like("%john%");
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`name` LIKE ?");
+        assert_eq!(params, vec!["%john%"]);
+    }
+
+    /// T3.2b Like 表达式直接构造
+    #[test]
+    fn test_t3_like_direct_constructor() {
+        let dialect = MySqlDialect;
+        let expr: Like<ColName, String> = Like::new(ColName, "%test%".to_string());
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`name` LIKE ?");
+        assert_eq!(params, vec!["%test%"]);
+    }
+
+    /// T3.3a In 表达式多值
+    #[test]
+    fn test_t3_in_multiple_values() {
+        let dialect = MySqlDialect;
+        let expr = ColId.in_(vec![1i64, 2, 3]);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` IN (?, ?, ?)");
+        assert_eq!(params, vec!["1", "2", "3"]);
+    }
+
+    /// T3.3b In 表达式单值
+    #[test]
+    fn test_t3_in_single_value() {
+        let dialect = MySqlDialect;
+        let expr = ColId.in_(vec![42i64]);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` IN (?)");
+        assert_eq!(params, vec!["42"]);
+    }
+
+    /// T3.3c In 表达式空值列表
+    #[test]
+    fn test_t3_in_empty_values() {
+        let dialect = MySqlDialect;
+        let expr = ColId.in_(Vec::<i64>::new());
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` IN ()");
+        assert!(params.is_empty());
+    }
+
+    /// T3.3d In 表达式字符串值
+    #[test]
+    fn test_t3_in_string_values() {
+        let dialect = MySqlDialect;
+        let expr = ColName.in_(vec!["alice".to_string(), "bob".to_string()]);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`name` IN (?, ?)");
+        assert_eq!(params, vec!["alice", "bob"]);
+    }
+
+    /// T3.4a Not 表达式
+    #[test]
+    fn test_t3_not_expression() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1i64).not();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "NOT `id` = ?");
+        assert_eq!(params, vec!["1"]);
+    }
+
+    /// T3.4b Not 直接构造
+    #[test]
+    fn test_t3_not_direct_constructor() {
+        let dialect = MySqlDialect;
+        let inner = ColAge.gt(18i64);
+        let expr = Not::new(inner);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "NOT `age` > ?");
+        assert_eq!(params, vec!["18"]);
+    }
+
+    /// T3.4c Not(Like) 表达式
+    #[test]
+    fn test_t3_not_like() {
+        let dialect = MySqlDialect;
+        let expr = ColName.like("%test%").not();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "NOT `name` LIKE ?");
+        assert_eq!(params, vec!["%test%"]);
+    }
+
+    /// T3.4d Not(In) 表达式
+    #[test]
+    fn test_t3_not_in() {
+        let dialect = MySqlDialect;
+        let expr = ColId.in_(vec![1i64, 2, 3]).not();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "NOT `id` IN (?, ?, ?)");
+        assert_eq!(params, vec!["1", "2", "3"]);
+    }
+
+    /// T3.4e Not(Not(expr)) 双重否定
+    #[test]
+    fn test_t3_double_not() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1i64).not().not();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "NOT NOT `id` = ?");
+        assert_eq!(params, vec!["1"]);
+    }
+
+    /// T3.5a BoolExpressionExt::and 链式调用
+    #[test]
+    fn test_t3_and_chain() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1i64).and(ColAge.gt(18i64));
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "(`id` = ? AND `age` > ?)");
+        assert_eq!(params, vec!["1", "18"]);
+    }
+
+    /// T3.5b BoolExpressionExt::or 链式调用
+    #[test]
+    fn test_t3_or_chain() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1i64).or(ColAge.gt(18i64));
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "(`id` = ? OR `age` > ?)");
+        assert_eq!(params, vec!["1", "18"]);
+    }
+
+    /// T3.5c And/Or/Not 嵌套组合
+    #[test]
+    fn test_t3_and_or_not_nested() {
+        let dialect = MySqlDialect;
+        let expr = ColId
+            .eq(1i64)
+            .and(ColAge.gt(18i64).not())
+            .or(ColName.like("%admin%"));
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "((`id` = ? AND NOT `age` > ?) OR `name` LIKE ?)");
+        assert_eq!(params, vec!["1", "18", "%admin%"]);
+    }
+
+    /// T3.6a ColumnExpr to_sql
+    #[test]
+    fn test_t3_column_expr_to_sql() {
+        let dialect = MySqlDialect;
+        let expr: ColumnExpr<ColId> = ColumnExpr::new();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`users.id`");
+        assert!(params.is_empty());
+    }
+
+    /// T3.6b ColumnExpr default
+    #[test]
+    fn test_t3_column_expr_default() {
+        let dialect = MySqlDialect;
+        let expr: ColumnExpr<ColName> = ColumnExpr::default();
+        let (sql, _) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`users.name`");
+    }
+
+    /// T3.7a TypedSelectQuery with And(Eq, Gt) filter
+    #[test]
+    fn test_t3_select_with_and_filter() {
+        let q = TypedSelectQuery::<UsersTable>::new().filter(ColId.eq(1i64).and(ColAge.gt(18i64)));
+        let dialect = MySqlDialect;
+        let (sql, params) = q.build(&dialect);
+        assert!(sql.contains("AND"));
+        assert_eq!(params, vec!["1", "18"]);
+    }
+
+    /// T3.7b TypedSelectQuery with Or(Eq, Gt) filter
+    #[test]
+    fn test_t3_select_with_or_filter() {
+        let q = TypedSelectQuery::<UsersTable>::new().filter(ColId.eq(1i64).or(ColAge.gt(18i64)));
+        let dialect = MySqlDialect;
+        let (sql, params) = q.build(&dialect);
+        assert!(sql.contains("OR"));
+        assert_eq!(params, vec!["1", "18"]);
+    }
+
+    /// T3.7c TypedSelectQuery with multiple Eq/Gt filters
+    #[test]
+    fn test_t3_select_with_mixed_eq_gt_filters() {
+        let q = TypedSelectQuery::<UsersTable>::new()
+            .filter(ColAge.gt(18i64))
+            .filter(ColId.eq(42i64))
+            .filter(ColName.ne("admin".to_string()));
+        let dialect = MySqlDialect;
+        let (sql, params) = q.build(&dialect);
+        assert!(sql.contains("WHERE"));
+        assert_eq!(params, vec!["18", "42", "admin"]);
+    }
+
+    /// T3.8a Literal with PostgreSQL dialect
+    #[test]
+    fn test_t3_literal_with_pg_dialect() {
+        use crate::dialect::PostgreSqlDialect;
+        let dialect = PostgreSqlDialect;
+        let lit = Literal::new(42i64);
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec!["42"]);
+    }
+
+    /// T3.8b Literal with SQLite dialect
+    #[test]
+    fn test_t3_literal_with_sqlite_dialect() {
+        use crate::dialect::SqliteDialect;
+        let dialect = SqliteDialect;
+        let lit = Literal::new("test".to_string());
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec!["test"]);
+    }
+
+    /// T3.8c Eq with PostgreSQL dialect (quoted identifiers)
+    #[test]
+    fn test_t3_eq_with_pg_dialect() {
+        use crate::dialect::PostgreSqlDialect;
+        let dialect = PostgreSqlDialect;
+        let expr = ColId.eq(42i64);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "\"id\" = ?");
+        assert_eq!(params, vec!["42"]);
+    }
+
+    /// T3.8d Like with SQLite dialect
+    #[test]
+    fn test_t3_like_with_sqlite_dialect() {
+        use crate::dialect::SqliteDialect;
+        let dialect = SqliteDialect;
+        let expr = ColName.like("%test%");
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "\"name\" LIKE ?");
+        assert_eq!(params, vec!["%test%"]);
+    }
+
+    /// T3.9a Nullable<BigInt> 是 SqlType
+    #[test]
+    fn test_t3_nullable_is_sql_type() {
+        fn _assert_sql_type<T: SqlType>() {}
+        _assert_sql_type::<Nullable<BigInt>>();
+        _assert_sql_type::<Nullable<Integer>>();
+        _assert_sql_type::<Nullable<Text>>();
+        _assert_sql_type::<Nullable<Double>>();
+        _assert_sql_type::<Nullable<Bool>>();
+        _assert_sql_type::<Nullable<Binary>>();
+    }
+
+    /// T3.9b Untyped 是 SqlType
+    #[test]
+    fn test_t3_untyped_is_sql_type() {
+        fn _assert_sql_type<T: SqlType>() {}
+        _assert_sql_type::<Untyped>();
+    }
+
+    /// T3.10a TypedSelectQuery with limit and Eq filter
+    #[test]
+    fn test_t3_select_with_limit_and_eq() {
+        let q = TypedSelectQuery::<UsersTable>::new()
+            .filter(ColId.eq(42i64))
+            .limit(10);
+        let dialect = MySqlDialect;
+        let (sql, params) = q.build(&dialect);
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("LIMIT"));
+        assert_eq!(params, vec!["42"]);
+    }
+
+    /// T3.10b TypedSelectQuery with limit/offset and Gt filter
+    #[test]
+    fn test_t3_select_with_offset_and_gt() {
+        let q = TypedSelectQuery::<UsersTable>::new()
+            .filter(ColAge.gt(18i64))
+            .limit(10)
+            .offset(5);
+        let dialect = MySqlDialect;
+        let (sql, params) = q.build(&dialect);
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("LIMIT"));
+        assert_eq!(params, vec!["18"]);
+    }
+
+    /// T3.11a And(Not(a), Not(b)) 嵌套
+    #[test]
+    fn test_t3_and_of_nots() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1i64).not().and(ColAge.gt(18i64).not());
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "(NOT `id` = ? AND NOT `age` > ?)");
+        assert_eq!(params, vec!["1", "18"]);
+    }
+
+    /// T3.11b Or(Not(a), Not(b)) 嵌套
+    #[test]
+    fn test_t3_or_of_nots() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1i64).not().or(ColAge.gt(18i64).not());
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "(NOT `id` = ? OR NOT `age` > ?)");
+        assert_eq!(params, vec!["1", "18"]);
+    }
+
+    /// T3.11c Not(And(a, b)) 否定合取
+    #[test]
+    fn test_t3_not_of_and() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1i64).and(ColAge.gt(18i64)).not();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "NOT (`id` = ? AND `age` > ?)");
+        assert_eq!(params, vec!["1", "18"]);
+    }
+
+    /// T3.12a ColumnExpr for Score (Integer type)
+    #[test]
+    fn test_t3_column_expr_score() {
+        let dialect = MySqlDialect;
+        let expr: ColumnExpr<ColScore> = ColumnExpr::new();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`users.score`");
+        assert!(params.is_empty());
+    }
+
+    /// T3.12b ColumnExpr for Height (Double type)
+    #[test]
+    fn test_t3_column_expr_height() {
+        let dialect = MySqlDialect;
+        let expr: ColumnExpr<ColHeight> = ColumnExpr::new();
+        let (sql, _) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`users.height`");
+    }
+
+    /// T3.13a In with i32 values
+    #[test]
+    fn test_t3_in_i32_values() {
+        let dialect = MySqlDialect;
+        let expr = ColScore.in_(vec![1i32, 2, 3]);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`score` IN (?, ?, ?)");
+        assert_eq!(params, vec!["1", "2", "3"]);
+    }
+
+    /// T3.13b Like with i64 value (ToString)
+    #[test]
+    fn test_t3_like_with_numeric() {
+        let dialect = MySqlDialect;
+        let expr = ColId.like(42i64);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` LIKE ?");
+        assert_eq!(params, vec!["42"]);
+    }
+
     // ---- M1-T1.3: CTE 表达式测试 ----
 
     #[cfg(feature = "typed-dsl")]
@@ -3092,5 +3521,182 @@ mod tests {
             assert_eq!(std::mem::size_of::<JsonContains<ColName, String>>(), 0);
             assert_eq!(std::mem::size_of::<JsonExists<ColName, String>>(), 0);
         }
+    }
+
+    #[test]
+    fn test_t6_ne_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.ne(42);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` <> ?");
+        assert_eq!(params, vec!["42".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_lt_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.lt(100);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` < ?");
+        assert_eq!(params, vec!["100".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_gt_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.gt(0);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` > ?");
+        assert_eq!(params, vec!["0".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_le_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.le(50);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` <= ?");
+        assert_eq!(params, vec!["50".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_ge_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.ge(1);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` >= ?");
+        assert_eq!(params, vec!["1".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_and_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1).and(ColName.eq("alice"));
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "(`id` = ? AND `name` = ?)");
+        assert_eq!(params, vec!["1".to_string(), "alice".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_or_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1).or(ColId.eq(2));
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "(`id` = ? OR `id` = ?)");
+        assert_eq!(params, vec!["1".to_string(), "2".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_not_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColId.eq(1).not();
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "NOT `id` = ?");
+        assert_eq!(params, vec!["1".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_in_empty() {
+        let dialect = MySqlDialect;
+        let expr = ColId.in_(vec![] as Vec<i32>);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` IN ()");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn test_t6_in_multiple_values() {
+        let dialect = MySqlDialect;
+        let expr = ColId.in_(vec![1, 2, 3]);
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`id` IN (?, ?, ?)");
+        assert_eq!(
+            params,
+            vec!["1".to_string(), "2".to_string(), "3".to_string()]
+        );
+    }
+
+    #[test]
+    fn test_t6_like_to_sql() {
+        let dialect = MySqlDialect;
+        let expr = ColName.like("%alice%");
+        let (sql, params) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`name` LIKE ?");
+        assert_eq!(params, vec!["%alice%".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_select_default() {
+        let dialect = MySqlDialect;
+        let q = TypedSelectQuery::<UsersTable>::default();
+        let (sql, params) = q.build(&dialect);
+        assert_eq!(sql, "SELECT * FROM `users`");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn test_t6_select_limit_clamp() {
+        let dialect = MySqlDialect;
+        let q = TypedSelectQuery::<UsersTable>::new().limit(usize::MAX);
+        let (sql, _) = q.build(&dialect);
+        assert!(sql.contains("LIMIT"));
+    }
+
+    #[test]
+    fn test_t6_select_offset_clamp() {
+        let dialect = MySqlDialect;
+        let q = TypedSelectQuery::<UsersTable>::new()
+            .limit(10)
+            .offset(usize::MAX);
+        let (sql, _) = q.build(&dialect);
+        assert!(sql.contains("OFFSET") || sql.contains("LIMIT"));
+    }
+
+    #[test]
+    fn test_t6_select_multiple_filters() {
+        let dialect = MySqlDialect;
+        let q = TypedSelectQuery::<UsersTable>::new()
+            .filter(ColId.eq(1))
+            .filter(ColName.eq("alice"))
+            .limit(10);
+        let (sql, params) = q.build(&dialect);
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("AND"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_t6_select_limit_with_offset() {
+        let dialect = MySqlDialect;
+        let q = TypedSelectQuery::<UsersTable>::new().limit(10).offset(20);
+        let (sql, _) = q.build(&dialect);
+        assert!(sql.contains("LIMIT"));
+    }
+
+    #[test]
+    fn test_t6_column_expr_new() {
+        let expr = ColumnExpr::<ColId>::new();
+        let dialect = MySqlDialect;
+        let (sql, _) = expr.to_sql(&dialect);
+        assert_eq!(sql, "`users.id`");
+    }
+
+    #[test]
+    fn test_t6_literal_to_sql() {
+        let lit = Literal::new(42);
+        let dialect = MySqlDialect;
+        let (sql, params) = lit.to_sql(&dialect);
+        assert_eq!(sql, "?");
+        assert_eq!(params, vec!["42".to_string()]);
+    }
+
+    #[test]
+    fn test_t6_max_limit_const() {
+        assert_eq!(TypedSelectQuery::<UsersTable>::MAX_LIMIT, 1_000_000);
+    }
+
+    #[test]
+    fn test_t6_max_offset_const() {
+        assert_eq!(TypedSelectQuery::<UsersTable>::MAX_OFFSET, 1_000_000_000);
     }
 }

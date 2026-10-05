@@ -665,6 +665,13 @@ mod tests {
         fn set_pk(&mut self, pk: Self::PrimaryKey) {
             self.id = pk;
         }
+        fn pk_as_value(&self) -> Value {
+            if self.id == 0 {
+                Value::Null
+            } else {
+                Value::I64(self.id)
+            }
+        }
     }
 
     fn make_relation() -> RelationDef {
@@ -779,5 +786,326 @@ mod tests {
         assert_eq!(strategies.len(), 4);
         assert_ne!(CascadeStrategy::Restrict, CascadeStrategy::Cascade);
         assert_ne!(CascadeStrategy::SetNull, CascadeStrategy::SetDefault);
+    }
+
+    // ========================================================================
+    // v9.0.0 覆盖率战役：t26nam_* 新增测试（target ≥ 75%）
+    // ========================================================================
+    use crate::mock::{FallbackBehavior, MockConnection};
+
+    fn make_user_with_name(id: i64, name: &str) -> ActiveModel<User> {
+        let mut user = ActiveModel::from_model(User {
+            id,
+            name: name.to_string(),
+        });
+        user.set("name", name.into());
+        user
+    }
+
+    fn make_deep_child(depth: usize) -> ChildEntity {
+        if depth == 0 {
+            ChildEntity::new("leaf", vec![])
+        } else {
+            ChildEntity::new("t", vec![]).with_children(vec![make_deep_child(depth - 1)])
+        }
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_save_success() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("INSERT INTO users (name) VALUES (?)", 1);
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::I64(1))]]);
+        mock.expect_execute("INSERT INTO orders (amount, user_id) VALUES (?, ?)", 1);
+
+        let order = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(100.0))]);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(0, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let result = nested_save(&mut mock, nested).await.unwrap();
+        assert_eq!(result.affected_rows, 2);
+        assert_eq!(result.parent_id, Some(Value::I64(1)));
+        assert!(mock.was_committed());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_save_depth_exceeds_limit() {
+        let mut mock = MockConnection::new();
+        let deep = make_deep_child(MAX_NESTED_DEPTH + 1);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(0, "Alice"), make_relation())
+                .with_children(vec![deep]);
+        let result = nested_save(&mut mock, nested).await;
+        assert!(matches!(result, Err(DbError::InvalidInput(_))));
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_save_parent_no_fields() {
+        let mut mock = MockConnection::new();
+        let user = ActiveModel::from_model(User::default());
+        let nested = NestedActiveModel::from_model(user, make_relation());
+        let result = nested_save(&mut mock, nested).await;
+        assert!(matches!(result, Err(DbError::QueryError(_))));
+        assert!(mock.was_rolled_back());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_save_parent_insert_fails() {
+        let mut mock = MockConnection::new().with_fallback(FallbackBehavior::Error);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(0, "Alice"), make_relation());
+        let result = nested_save(&mut mock, nested).await;
+        assert!(result.is_err());
+        assert!(mock.was_rolled_back());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_save_child_insert_fails() {
+        let mut mock = MockConnection::new().with_fallback(FallbackBehavior::Error);
+        mock.expect_execute("INSERT INTO users (name) VALUES (?)", 1);
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::I64(1))]]);
+
+        let order = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(100.0))]);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(0, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let result = nested_save(&mut mock, nested).await;
+        assert!(result.is_err());
+        assert!(mock.was_rolled_back());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_save_with_grandchildren() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("INSERT INTO users (name) VALUES (?)", 1);
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::I64(1))]]);
+        mock.expect_execute("INSERT INTO orders (amount, user_id) VALUES (?, ?)", 1);
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::I64(2))]]);
+        mock.expect_execute("INSERT INTO order_items (qty, order_id) VALUES (?, ?)", 1);
+
+        let item = ChildEntity::new("order_items", vec![("qty".to_string(), Value::I32(5))]);
+        let order_rel = RelationDef::new(
+            "items",
+            "orders",
+            "order_items",
+            "id",
+            "order_id",
+            RelationKind::HasMany,
+        );
+        let order = ChildEntity::new("orders", vec![("amount".to_string(), Value::F64(100.0))])
+            .with_children(vec![item])
+            .with_relation(order_rel);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(0, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let result = nested_save(&mut mock, nested).await.unwrap();
+        assert_eq!(result.affected_rows, 3);
+        assert!(mock.was_committed());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_save_child_fk_already_set() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("INSERT INTO users (name) VALUES (?)", 1);
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::I64(1))]]);
+        mock.expect_execute("INSERT INTO orders (amount, user_id) VALUES (?, ?)", 1);
+
+        let order = ChildEntity::new(
+            "orders",
+            vec![
+                ("amount".to_string(), Value::F64(100.0)),
+                ("user_id".to_string(), Value::I64(99)),
+            ],
+        );
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(0, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let result = nested_save(&mut mock, nested).await.unwrap();
+        assert_eq!(result.affected_rows, 2);
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_delete_success() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("DELETE FROM orders WHERE user_id = ?", 2);
+        mock.expect_execute("DELETE FROM users WHERE id = ?", 1);
+
+        let order = ChildEntity::new("orders", vec![]);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(1, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let rows = nested_delete(&mut mock, &nested).await.unwrap();
+        assert_eq!(rows, 3);
+        assert!(mock.was_committed());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_delete_no_pk() {
+        let mut mock = MockConnection::new();
+        let user = ActiveModel::from_model(User::default());
+        let nested = NestedActiveModel::from_model(user, make_relation());
+        let result = nested_delete(&mut mock, &nested).await;
+        assert!(result.is_err());
+        assert!(mock.was_rolled_back());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_delete_strategy_cascade() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("DELETE FROM orders WHERE user_id = ?", 1);
+        mock.expect_execute("DELETE FROM users WHERE id = ?", 1);
+
+        let order = ChildEntity::new("orders", vec![]);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(1, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let rows = nested_delete_with_strategy(&mut mock, &nested, CascadeStrategy::Cascade)
+            .await
+            .unwrap();
+        assert_eq!(rows, 2);
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_delete_strategy_restrict_has_children() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT COUNT(*) AS cnt FROM orders WHERE user_id = ?")
+            .with_rows(vec![vec![("cnt", Value::I64(3))]]);
+
+        let order = ChildEntity::new("orders", vec![]);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(1, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let result =
+            nested_delete_with_strategy(&mut mock, &nested, CascadeStrategy::Restrict).await;
+        assert!(result.is_err());
+        assert!(mock.was_rolled_back());
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_delete_strategy_restrict_no_children() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("DELETE FROM users WHERE id = ?", 1);
+
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(1, "Alice"), make_relation());
+        let rows = nested_delete_with_strategy(&mut mock, &nested, CascadeStrategy::Restrict)
+            .await
+            .unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_delete_strategy_set_null() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("UPDATE orders SET user_id = NULL WHERE user_id = ?", 2);
+        mock.expect_execute("DELETE FROM users WHERE id = ?", 1);
+
+        let order = ChildEntity::new("orders", vec![]);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(1, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let rows = nested_delete_with_strategy(&mut mock, &nested, CascadeStrategy::SetNull)
+            .await
+            .unwrap();
+        assert_eq!(rows, 3);
+    }
+
+    #[tokio::test]
+    async fn t26nam_nested_delete_strategy_set_default() {
+        let mut mock = MockConnection::new();
+        mock.expect_execute("UPDATE orders SET user_id = DEFAULT WHERE user_id = ?", 2);
+        mock.expect_execute("DELETE FROM users WHERE id = ?", 1);
+
+        let order = ChildEntity::new("orders", vec![]);
+        let nested =
+            NestedActiveModel::from_model(make_user_with_name(1, "Alice"), make_relation())
+                .with_children(vec![order]);
+        let rows = nested_delete_with_strategy(&mut mock, &nested, CascadeStrategy::SetDefault)
+            .await
+            .unwrap();
+        assert_eq!(rows, 3);
+    }
+
+    #[tokio::test]
+    async fn t26nam_get_last_insert_id_i32() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::I32(42))]]);
+        let id = get_last_insert_id(&mut mock).await.unwrap();
+        assert_eq!(id, 42);
+    }
+
+    #[tokio::test]
+    async fn t26nam_get_last_insert_id_u64() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::U64(99))]]);
+        let id = get_last_insert_id(&mut mock).await.unwrap();
+        assert_eq!(id, 99);
+    }
+
+    #[tokio::test]
+    async fn t26nam_get_last_insert_id_u32() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::U32(7))]]);
+        let id = get_last_insert_id(&mut mock).await.unwrap();
+        assert_eq!(id, 7);
+    }
+
+    #[tokio::test]
+    async fn t26nam_get_last_insert_id_no_result() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![]);
+        let result = get_last_insert_id(&mut mock).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn t26nam_get_last_insert_id_unexpected_type() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT LAST_INSERT_ID() as id")
+            .with_rows(vec![vec![("id", Value::Bool(true))]]);
+        let result = get_last_insert_id(&mut mock).await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn t26nam_child_entity_with_relation() {
+        let rel = RelationDef::new(
+            "items",
+            "orders",
+            "order_items",
+            "id",
+            "order_id",
+            RelationKind::HasMany,
+        );
+        let child = ChildEntity::new("orders", vec![]).with_relation(rel);
+        assert!(child.children().is_empty());
+    }
+
+    #[test]
+    fn t26nam_nested_active_model_parent_mut() {
+        let mut nested = NestedActiveModel::from_model(
+            ActiveModel::from_model(User::default()),
+            make_relation(),
+        );
+        nested.parent_mut().set("name", "Bob".into());
+        assert!(nested.parent().get("name").is_some());
+    }
+
+    #[test]
+    fn t26nam_nested_active_model_cascade_delete_false() {
+        let nested = NestedActiveModel::from_model(
+            ActiveModel::from_model(User::default()),
+            make_relation(),
+        )
+        .cascade_delete(false);
+        assert!(!nested.is_cascade_delete());
     }
 }

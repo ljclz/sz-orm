@@ -328,3 +328,161 @@ pub fn lint_source(source: &str) -> Vec<LintWarning> {
         .filter(|w| seen.insert((w.line, w.col)))
         .collect()
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t25_lint_source_clean_no_warnings() {
+        let source = "use std::collections::HashMap;\nfn main() { let m = HashMap::new(); }\n";
+        assert!(lint_source(source).is_empty());
+    }
+
+    #[test]
+    fn t25_lint_source_use_query_import() {
+        let source = "use sz_orm_query_builder::Query;";
+        let warnings = lint_source(source);
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(warnings[0].file, "<source>");
+        assert_eq!(warnings[0].line, 1);
+        assert!(warnings[0].message.contains("已废弃"));
+        assert!(warnings[0].suggestion.contains("替换"));
+    }
+
+    #[test]
+    fn t25_lint_source_use_query_rename() {
+        let source = "use sz_orm_query_builder::Query as OldQuery;";
+        let warnings = lint_source(source);
+        assert_eq!(warnings.len(), 1);
+        assert!(warnings[0].suggestion.contains("替换"));
+    }
+
+    #[test]
+    fn t25_lint_source_use_group_import() {
+        let source = "use sz_orm_query_builder::{Query, SelectQuery};";
+        let warnings = lint_source(source);
+        assert_eq!(warnings.len(), 1);
+    }
+
+    #[test]
+    fn t25_lint_source_use_glob_import() {
+        let source = "use sz_orm_query_builder::*;";
+        let warnings = lint_source(source);
+        assert_eq!(warnings.len(), 1);
+        // glob 路径 `sz_orm_query_builder::*` split 后为 2 段，走"替换"建议分支
+        assert!(warnings[0].suggestion.contains("替换"));
+    }
+
+    #[test]
+    fn t25_lint_source_path_usage_in_code() {
+        let source =
+            "fn main() { let q = sz_orm_query_builder::Query::select().from(\"users\"); }\n";
+        let warnings = lint_source(source);
+        assert!(!warnings.is_empty());
+        assert!(warnings[0].suggestion.contains("select"));
+    }
+
+    #[test]
+    fn t25_lint_source_invalid_syntax_returns_empty() {
+        let source = "use sz_orm_query_builder::Query this is not valid rust ###";
+        assert!(lint_source(source).is_empty());
+    }
+
+    #[test]
+    fn t25_lint_source_other_crate_not_matched() {
+        let source = "use other_crate::Query;";
+        assert!(lint_source(source).is_empty());
+    }
+
+    #[test]
+    fn t25_migration_lint_new_empty() {
+        let lint = MigrationLint::new();
+        assert!(lint.warnings().is_empty());
+    }
+
+    #[test]
+    fn t25_migration_lint_chain() {
+        let mut lint = MigrationLint::new();
+        let warnings = lint.lint("use sz_orm_query_builder::Query;");
+        assert_eq!(warnings.len(), 1);
+        assert_eq!(lint.warnings().len(), 1);
+        // 再次 lint 覆盖旧告警
+        let warnings2 = lint.lint("use std::collections::HashMap;");
+        assert!(warnings2.is_empty());
+        assert!(lint.warnings().is_empty());
+    }
+
+    #[test]
+    fn t25_lint_warning_format() {
+        let w = LintWarning {
+            file: "test.rs".to_string(),
+            line: 10,
+            col: 5,
+            message: "已废弃".to_string(),
+            suggestion: "请使用新版".to_string(),
+        };
+        let s = w.format();
+        assert!(s.contains("warning: 已废弃"));
+        assert!(s.contains("[test.rs:10:5]"));
+        assert!(s.contains("suggestion: 请使用新版"));
+    }
+
+    #[test]
+    fn t25_line_col_at_multiline() {
+        let source = "abc\ndef\nghi";
+        assert_eq!(line_col_at(source, 0), (1, 1));
+        assert_eq!(line_col_at(source, 4), (2, 1));
+        assert_eq!(line_col_at(source, 9), (3, 2));
+        // 超出长度的偏移仍返回末尾位置
+        assert_eq!(line_col_at(source, 100), (3, 93));
+    }
+
+    #[test]
+    fn t25_generate_suggestion_method_variants() {
+        assert!(generate_suggestion("sz_orm_query_builder::Query").contains("替换"));
+        assert!(generate_suggestion("sz_orm_query_builder::Query::select").contains("select"));
+        assert!(generate_suggestion("sz_orm_query_builder::Query::insert").contains("build_insert"));
+        assert!(generate_suggestion("sz_orm_query_builder::Query::update").contains("build_update"));
+        assert!(generate_suggestion("sz_orm_query_builder::Query::delete").contains("build_delete"));
+        assert!(generate_suggestion("sz_orm_query_builder::Query::custom").contains("custom"));
+        assert!(generate_suggestion("only_one").contains("文档"));
+    }
+
+    #[test]
+    fn t25_is_deprecated_query_segments_branches() {
+        assert!(!is_deprecated_query_segments(&[]));
+        assert!(!is_deprecated_query_segments(&[
+            "sz_orm_query_builder".to_string()
+        ]));
+        assert!(is_deprecated_query_segments(&[
+            "sz_orm_query_builder".to_string(),
+            "Query".to_string(),
+        ]));
+        assert!(!is_deprecated_query_segments(&[
+            "other_crate".to_string(),
+            "Query".to_string(),
+        ]));
+        assert!(is_deprecated_query_segments(&[
+            "sz_orm_query_builder".to_string(),
+            "Query".to_string(),
+            "select".to_string(),
+        ]));
+    }
+
+    #[test]
+    fn t25_find_next_position_used_and_not_found() {
+        let source = "abc abc";
+        let empty = HashSet::new();
+        assert_eq!(find_next_position(source, "abc", &empty), Some((1, 1)));
+
+        let mut used = HashSet::new();
+        used.insert((1, 1));
+        assert_eq!(find_next_position(source, "abc", &used), Some((1, 5)));
+
+        used.insert((1, 5));
+        assert_eq!(find_next_position(source, "abc", &used), None);
+
+        let empty2 = HashSet::new();
+        assert_eq!(find_next_position(source, "xyz", &empty2), None);
+    }
+}

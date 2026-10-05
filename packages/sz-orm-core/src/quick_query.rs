@@ -551,4 +551,247 @@ mod tests {
         assert!(sql.contains("GROUP BY `user_id`"));
         assert!(sql.contains("HAVING COUNT(*) > 5"));
     }
+
+    #[test]
+    fn t26qq_where_ne() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_ne("status", Value::String("deleted".into()))
+            .sql();
+        assert!(sql.contains("!="));
+    }
+
+    #[test]
+    fn t26qq_where_ge() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_ge("age", Value::I64(18))
+            .sql();
+        assert!(sql.contains(">="));
+    }
+
+    #[test]
+    fn t26qq_where_le() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_le("age", Value::I64(65))
+            .sql();
+        assert!(sql.contains("<="));
+    }
+
+    #[test]
+    fn t26qq_where_like() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_like("name", Value::String("%Alice%".into()))
+            .sql();
+        assert!(sql.contains("LIKE"));
+    }
+
+    #[test]
+    fn t26qq_or_where_eq() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_eq("a", Value::I64(1))
+            .or_where_eq("b", Value::I64(2))
+            .sql();
+        assert!(sql.contains("OR"));
+    }
+
+    #[test]
+    fn t26qq_or_where_ne() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_eq("a", Value::I64(1))
+            .or_where_ne("b", Value::I64(2))
+            .sql();
+        assert!(sql.contains("OR"));
+    }
+
+    #[test]
+    fn t26qq_or_where_ge() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_eq("a", Value::I64(1))
+            .or_where_ge("b", Value::I64(2))
+            .sql();
+        assert!(sql.contains("OR"));
+    }
+
+    #[test]
+    fn t26qq_or_where_le() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_eq("a", Value::I64(1))
+            .or_where_le("b", Value::I64(2))
+            .sql();
+        assert!(sql.contains("OR"));
+    }
+
+    #[test]
+    fn t26qq_or_where_like() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_eq("a", Value::I64(1))
+            .or_where_like("name", Value::String("%x%".into()))
+            .sql();
+        assert!(sql.contains("OR"));
+    }
+
+    #[test]
+    fn t26qq_where_not_in() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_not_in("id", vec![Value::I64(1), Value::I64(2)])
+            .sql();
+        assert!(sql.contains("NOT IN"));
+    }
+
+    #[test]
+    fn t26qq_where_null() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_null("deleted_at")
+            .sql();
+        assert!(sql.contains("IS NULL"));
+    }
+
+    #[test]
+    fn t26qq_where_not_null() {
+        let sql = Db::new(mysql()).name("users").where_not_null("email").sql();
+        assert!(sql.contains("IS NOT NULL"));
+    }
+
+    #[test]
+    fn t26qq_order_by_asc() {
+        let sql = Db::new(mysql()).name("users").order_by("name").sql();
+        assert!(sql.contains("ORDER BY `name`"));
+        assert!(!sql.contains("DESC"));
+    }
+
+    #[test]
+    fn t26qq_offset() {
+        let sql = Db::new(mysql()).name("users").limit(10).offset(20).sql();
+        assert!(sql.contains("OFFSET 20"));
+    }
+
+    #[test]
+    fn t26qq_join_left() {
+        let sql = Db::new(mysql())
+            .name("orders")
+            .join_left("users", "orders.user_id", "users.id")
+            .sql();
+        assert!(sql.contains("LEFT JOIN"));
+    }
+
+    #[test]
+    fn t26qq_join_right() {
+        let sql = Db::new(mysql())
+            .name("orders")
+            .join_right("users", "orders.user_id", "users.id")
+            .sql();
+        assert!(sql.contains("RIGHT JOIN"));
+    }
+
+    #[test]
+    fn t26qq_select_columns() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .select(vec!["id", "name"])
+            .expect("valid select")
+            .sql();
+        assert!(sql.contains("`id`"));
+        assert!(sql.contains("`name`"));
+    }
+
+    #[test]
+    fn t26qq_build_select_with_params() {
+        let (sql, params) = Db::new(mysql())
+            .name("users")
+            .where_eq("id", Value::I64(42))
+            .build_select();
+        assert!(sql.contains("WHERE"));
+        assert!(!params.is_empty());
+    }
+
+    #[test]
+    fn t26qq_build_insert_with_params() {
+        let mut data = HashMap::new();
+        data.insert("name".to_string(), Value::String("Alice".into()));
+        let (sql, params) = Db::new(mysql()).name("users").build_insert(&data);
+        assert!(sql.contains("INSERT"));
+        assert!(!params.is_empty());
+    }
+
+    #[test]
+    fn t26qq_build_update_with_params() {
+        let mut data = HashMap::new();
+        data.insert("name".to_string(), Value::String("Bob".into()));
+        let (sql, params) = Db::new(mysql())
+            .name("users")
+            .where_eq("id", Value::I64(1))
+            .build_update(&data);
+        assert!(sql.contains("UPDATE"));
+        assert!(!params.is_empty());
+    }
+
+    #[test]
+    fn t26qq_build_delete_with_params() {
+        let (sql, params) = Db::new(mysql())
+            .name("users")
+            .where_eq("id", Value::I64(1))
+            .build_delete();
+        assert!(sql.contains("DELETE"));
+        assert!(!params.is_empty());
+    }
+
+    #[test]
+    fn t26qq_pg_where() {
+        let sql = Db::new(pg())
+            .name("users")
+            .where_gt("age", Value::I64(18))
+            .sql();
+        assert!(sql.contains("\"users\""));
+        assert!(sql.contains("age"));
+    }
+
+    #[test]
+    fn t26qq_multiple_where_conditions() {
+        let sql = Db::new(mysql())
+            .name("users")
+            .where_eq("status", Value::String("active".into()))
+            .where_ge("age", Value::I64(18))
+            .where_le("age", Value::I64(65))
+            .sql();
+        assert!(sql.contains("status"));
+        assert!(sql.contains("age"));
+    }
+
+    #[test]
+    fn t26qq_group_by_only() {
+        let sql = Db::new(mysql())
+            .name("orders")
+            .select_expr(vec!["user_id"])
+            .group_by("user_id")
+            .sql();
+        assert!(sql.contains("GROUP BY"));
+    }
+
+    #[test]
+    fn t26qq_page_first() {
+        let sql = Db::new(mysql()).name("users").page(1, 20).sql();
+        assert!(sql.contains("LIMIT 20"));
+        assert!(sql.contains("OFFSET 0"));
+    }
+
+    #[test]
+    fn t26qq_having_multiple_ops() {
+        let sql = Db::new(mysql())
+            .name("orders")
+            .group_by("user_id")
+            .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+            .expect("valid")
+            .sql();
+        assert!(sql.contains("HAVING"));
+    }
 }

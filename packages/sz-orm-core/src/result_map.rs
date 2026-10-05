@@ -2308,4 +2308,452 @@ mod tests {
             Some(Value::I64(5))
         );
     }
+
+    // ===== v9.0.0 覆盖率补强测试（t26rm_*） =====
+
+    #[test]
+    fn t26rm_registry_is_empty() {
+        let registry = ResultMapRegistry::new();
+        assert!(registry.is_empty());
+        registry.register(ResultMap::new("m1", "T"));
+        assert!(!registry.is_empty());
+    }
+
+    #[test]
+    fn t26rm_row_data_is_empty() {
+        let row = RowData::empty();
+        assert!(row.is_empty());
+        let mut row2 = RowData::empty();
+        row2.set("a", Value::I64(1));
+        assert!(!row2.is_empty());
+    }
+
+    #[test]
+    fn t26rm_row_data_sorted_columns() {
+        let mut row = RowData::empty();
+        row.set("z", Value::I64(1));
+        row.set("a", Value::I64(2));
+        row.set("m", Value::I64(3));
+        let sorted = row.sorted_columns();
+        assert_eq!(sorted.len(), 3);
+        assert_eq!(sorted[0].0, "a");
+        assert_eq!(sorted[1].0, "m");
+        assert_eq!(sorted[2].0, "z");
+    }
+
+    #[test]
+    fn t26rm_row_data_iter() {
+        let mut row = RowData::empty();
+        row.set("a", Value::I64(1));
+        row.set("b", Value::I64(2));
+        let mut count = 0;
+        for (_, v) in row.iter() {
+            assert!(matches!(v, Value::I64(_)));
+            count += 1;
+        }
+        assert_eq!(count, 2);
+    }
+
+    #[test]
+    fn t26rm_error_display_all_variants() {
+        let e1 = ResultMapError::MapNotFound {
+            id: "x".to_string(),
+        };
+        assert_eq!(e1.to_string(), "ResultMap 'x' not registered");
+        let e2 = ResultMapError::RequiredColumnMissing {
+            column: "c".to_string(),
+        };
+        assert_eq!(e2.to_string(), "Required column 'c' missing in row");
+        let e3 = ResultMapError::NestedMappingFailed {
+            property: "p".to_string(),
+            reason: "r".to_string(),
+        };
+        assert_eq!(e3.to_string(), "Nested mapping failed for 'p': r");
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_discriminator_column_missing() {
+        let registry = ResultMapRegistry::new();
+        let mut base_map = ResultMap::new("baseMap", "User");
+        base_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .set_discriminator({
+                let mut d = Discriminator::new("user_type");
+                d.add_case(DiscriminatorCase::new(Value::I64(1), "adminMap"));
+                d
+            });
+        registry.register(base_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(7));
+        let attrs = apply_result_map(&registry, "baseMap", &row).unwrap();
+        assert_eq!(attrs.get("id"), Some(&Value::I64(7)));
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_discriminator_case_map_not_registered() {
+        let registry = ResultMapRegistry::new();
+        let mut base_map = ResultMap::new("baseMap", "User");
+        base_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_result_mapping(Mapping::new("name", "user_name"))
+            .set_discriminator({
+                let mut d = Discriminator::new("user_type");
+                d.add_case(DiscriminatorCase::new(Value::I64(1), "adminMap"));
+                d
+            });
+        registry.register(base_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("user_name", Value::String("Alice".to_string()));
+        row.set("user_type", Value::I64(1));
+
+        let attrs = apply_result_map(&registry, "baseMap", &row).unwrap();
+        assert_eq!(attrs.get("id"), Some(&Value::I64(1)));
+        assert_eq!(attrs.get("name"), Some(&Value::String("Alice".to_string())));
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_collection_not_null_column_skip() {
+        let registry = ResultMapRegistry::new();
+        let mut role_map = ResultMap::new("roleMap", "Role");
+        role_map
+            .add_id_mapping(Mapping::new("id", "role_id"))
+            .add_result_mapping(Mapping::new("name", "role_name"));
+        registry.register(role_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_collection(
+                NestedCollection::new("roles", "roleMap").with_not_null_column("role_id"),
+            );
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("role_id", Value::Null);
+        let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
+        assert!(!attrs.contains_key("roles"));
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_collection_with_prefix() {
+        let registry = ResultMapRegistry::new();
+        let mut role_map = ResultMap::new("roleMap", "Role");
+        role_map
+            .add_id_mapping(Mapping::new("id", "id"))
+            .add_result_mapping(Mapping::new("name", "name"));
+        registry.register(role_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_collection(NestedCollection::new("roles", "roleMap").with_prefix("r_"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("r_id", Value::I64(100));
+        row.set("r_name", Value::String("admin".to_string()));
+
+        let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
+        if let Some(Value::Array(items)) = attrs.get("roles") {
+            assert_eq!(items.len(), 1);
+            if let Value::Object(role_attrs) = &items[0] {
+                assert_eq!(role_attrs.get("id"), Some(&Value::I64(100)));
+                assert_eq!(
+                    role_attrs.get("name"),
+                    Some(&Value::String("admin".to_string()))
+                );
+            } else {
+                panic!("role should be an Object");
+            }
+        } else {
+            panic!("roles should be an Array");
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_collection_no_prefix() {
+        let registry = ResultMapRegistry::new();
+        let mut role_map = ResultMap::new("roleMap", "Role");
+        role_map
+            .add_id_mapping(Mapping::new("id", "role_id"))
+            .add_result_mapping(Mapping::new("name", "role_name"));
+        registry.register(role_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_collection(NestedCollection::new("roles", "roleMap"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("role_id", Value::I64(100));
+        row.set("role_name", Value::String("admin".to_string()));
+
+        let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
+        if let Some(Value::Array(items)) = attrs.get("roles") {
+            assert_eq!(items.len(), 1);
+        } else {
+            panic!("roles should be an Array");
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_many_no_id_mappings() {
+        let registry = ResultMapRegistry::new();
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map.add_result_mapping(Mapping::new("name", "user_name"));
+        registry.register(user_map);
+
+        let rows = vec![
+            {
+                let mut r = RowData::empty();
+                r.set("user_name", Value::String("Alice".to_string()));
+                r
+            },
+            {
+                let mut r = RowData::empty();
+                r.set("user_name", Value::String("Bob".to_string()));
+                r
+            },
+        ];
+
+        let result = apply_result_map_many(&registry, "userMap", &rows).unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_many_id_property_missing() {
+        let registry = ResultMapRegistry::new();
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_result_mapping(Mapping::new("name", "user_name"));
+        registry.register(user_map);
+
+        let rows = vec![
+            {
+                let mut r = RowData::empty();
+                r.set("user_name", Value::String("Alice".to_string()));
+                r
+            },
+            {
+                let mut r = RowData::empty();
+                r.set("user_name", Value::String("Bob".to_string()));
+                r
+            },
+        ];
+
+        let result = apply_result_map_many(&registry, "userMap", &rows).unwrap();
+        assert_eq!(result.len(), 1);
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_many_nested_mapping_failed() {
+        let registry = ResultMapRegistry::new();
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_association(NestedAssociation::new("dept", "deptMap"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        let err = apply_result_map_many(&registry, "userMap", &[row]).unwrap_err();
+        match err {
+            ResultMapError::NestedMappingFailed { property, .. } => {
+                assert_eq!(property, "dept");
+            }
+            _ => panic!("expected NestedMappingFailed"),
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_association_nested_error() {
+        let registry = ResultMapRegistry::new();
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_association(NestedAssociation::new("dept", "missingMap"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        let err = apply_result_map(&registry, "userMap", &row).unwrap_err();
+        match err {
+            ResultMapError::NestedMappingFailed { property, reason } => {
+                assert_eq!(property, "dept");
+                assert!(reason.contains("missingMap"));
+            }
+            _ => panic!("expected NestedMappingFailed"),
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_set_mapping_scalar_missing() {
+        let mut rsm = ResultSetMapping::new("countMapping");
+        rsm.add_scalar(ScalarResult::new("total", "i64"));
+        let row = RowData::empty();
+        let (entities, scalars) = apply_result_set_mapping(&rsm, &row);
+        assert!(entities.is_empty());
+        assert_eq!(scalars.len(), 1);
+        assert_eq!(scalars[0], Value::Null);
+    }
+
+    #[test]
+    fn t26rm_apply_result_set_mapping_entity_field_missing() {
+        let mut rsm = ResultSetMapping::new("userMapping");
+        let mut er = EntityResult::new("User");
+        er.add_field(FieldResult::new("id", "user_id"))
+            .add_field(FieldResult::new("name", "user_name"));
+        rsm.add_entity(er);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        let (entities, scalars) = apply_result_set_mapping(&rsm, &row);
+        assert_eq!(entities.len(), 1);
+        assert_eq!(entities[0].get("id"), Some(&Value::I64(1)));
+        assert!(!entities[0].contains_key("name"));
+        assert!(scalars.is_empty());
+    }
+
+    #[test]
+    fn t26rm_rsm_registry_is_empty() {
+        let reg = ResultSetMappingRegistry::new();
+        assert!(reg.is_empty());
+        reg.register(ResultSetMapping::new("m1"));
+        assert!(!reg.is_empty());
+    }
+
+    #[test]
+    fn t26rm_collection_with_not_null_column() {
+        let c = NestedCollection::new("roles", "roleMap").with_not_null_column("role_id");
+        assert_eq!(c.not_null_column.as_deref(), Some("role_id"));
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_many_map_not_found() {
+        let registry = ResultMapRegistry::new();
+        let mut row = RowData::empty();
+        row.set("a", Value::I64(1));
+        let err = apply_result_map_many(&registry, "missingMap", &[row]).unwrap_err();
+        match err {
+            ResultMapError::MapNotFound { id } => assert_eq!(id, "missingMap"),
+            _ => panic!("expected MapNotFound"),
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_association_prefix_error() {
+        let registry = ResultMapRegistry::new();
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_association(NestedAssociation::new("dept", "missingMap").with_prefix("d_"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("d_id", Value::I64(10));
+        let err = apply_result_map(&registry, "userMap", &row).unwrap_err();
+        match err {
+            ResultMapError::NestedMappingFailed { property, reason } => {
+                assert_eq!(property, "dept");
+                assert!(reason.contains("missingMap"));
+            }
+            _ => panic!("expected NestedMappingFailed"),
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_collection_prefix_error() {
+        let registry = ResultMapRegistry::new();
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_collection(NestedCollection::new("roles", "missingMap").with_prefix("r_"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("r_id", Value::I64(100));
+        let err = apply_result_map(&registry, "userMap", &row).unwrap_err();
+        match err {
+            ResultMapError::NestedMappingFailed { property, reason } => {
+                assert_eq!(property, "roles");
+                assert!(reason.contains("missingMap"));
+            }
+            _ => panic!("expected NestedMappingFailed"),
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_collection_no_prefix_error() {
+        let registry = ResultMapRegistry::new();
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_collection(NestedCollection::new("roles", "missingMap"));
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        let err = apply_result_map(&registry, "userMap", &row).unwrap_err();
+        match err {
+            ResultMapError::NestedMappingFailed { property, reason } => {
+                assert_eq!(property, "roles");
+                assert!(reason.contains("missingMap"));
+            }
+            _ => panic!("expected NestedMappingFailed"),
+        }
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_association_not_null_column_pass() {
+        let registry = ResultMapRegistry::new();
+        let mut dept_map = ResultMap::new("deptMap", "Dept");
+        dept_map.add_id_mapping(Mapping::new("id", "dept_id"));
+        registry.register(dept_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_association(
+                NestedAssociation::new("dept", "deptMap").with_not_null_column("dept_id"),
+            );
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("dept_id", Value::I64(10));
+        let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
+        assert!(attrs.contains_key("dept"));
+    }
+
+    #[test]
+    fn t26rm_apply_result_map_collection_not_null_column_pass() {
+        let registry = ResultMapRegistry::new();
+        let mut role_map = ResultMap::new("roleMap", "Role");
+        role_map.add_id_mapping(Mapping::new("id", "role_id"));
+        registry.register(role_map);
+
+        let mut user_map = ResultMap::new("userMap", "User");
+        user_map
+            .add_id_mapping(Mapping::new("id", "user_id"))
+            .add_collection(
+                NestedCollection::new("roles", "roleMap").with_not_null_column("role_id"),
+            );
+        registry.register(user_map);
+
+        let mut row = RowData::empty();
+        row.set("user_id", Value::I64(1));
+        row.set("role_id", Value::I64(100));
+        let attrs = apply_result_map(&registry, "userMap", &row).unwrap();
+        assert!(attrs.contains_key("roles"));
+    }
 }

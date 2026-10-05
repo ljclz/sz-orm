@@ -1117,4 +1117,186 @@ mod tests {
         assert_eq!(F32_BLOCK_SIZE, 64);
         assert_eq!(F64_BLOCK_SIZE, 64);
     }
+
+    // ========================================================================
+    // v9.0.0 覆盖率补强测试（t26simd_*）
+    // ========================================================================
+
+    #[test]
+    fn t26simd_batch_sum_f32() {
+        assert_eq!(batch_sum_f32(&[]), 0.0);
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(batch_sum_f32(&data), 15.0);
+        let large: Vec<f32> = (0..1000).map(|i| i as f32).collect();
+        assert_eq!(batch_sum_f32(&large), 499500.0);
+    }
+
+    #[test]
+    fn t26simd_batch_count_nonzero() {
+        assert_eq!(batch_count_nonzero(&[]), 0);
+        assert_eq!(batch_count_nonzero(&[0.0, 0.0, 0.0]), 0);
+        assert_eq!(batch_count_nonzero(&[0.0, 1.0, 0.0, 2.0]), 2);
+        assert_eq!(batch_count_nonzero(&[-1.0, 2.5, 3.0]), 3);
+    }
+
+    #[test]
+    fn t26simd_batch_min_max_f32() {
+        assert!(batch_min_f32(&[]).is_none());
+        assert!(batch_max_f32(&[]).is_none());
+        assert_eq!(batch_min_f32(&[5.0]), Some(5.0));
+        assert_eq!(batch_max_f32(&[5.0]), Some(5.0));
+        let data: Vec<f32> = vec![3.0, 1.0, 4.0, 1.0, 5.0, 9.0, 2.0, 6.0];
+        assert_eq!(batch_min_f32(&data), Some(1.0));
+        assert_eq!(batch_max_f32(&data), Some(9.0));
+    }
+
+    #[test]
+    fn t26simd_batch_cosine_distance_variants() {
+        assert_eq!(batch_cosine_distance(&[], &[]), 0.0);
+        assert_eq!(batch_cosine_distance(&[1.0], &[1.0, 2.0]), 0.0);
+        assert_eq!(batch_cosine_distance(&[0.0, 0.0], &[1.0, 1.0]), 0.0);
+        assert_eq!(batch_cosine_distance(&[1.0, 1.0], &[0.0, 0.0]), 0.0);
+        let v: Vec<f32> = vec![1.0, 2.0, 3.0];
+        let cos = batch_cosine_distance(&v, &v);
+        assert!((cos - 1.0).abs() < 1e-6);
+        let a: Vec<f32> = vec![1.0, 0.0];
+        let b: Vec<f32> = vec![0.0, 1.0];
+        assert!(batch_cosine_distance(&a, &b).abs() < 1e-6);
+    }
+
+    #[test]
+    fn t26simd_batch_euclidean_distance_variants() {
+        assert_eq!(batch_euclidean_distance(&[1.0], &[1.0, 2.0]), 0.0);
+        assert_eq!(batch_euclidean_distance(&[], &[]), 0.0);
+        assert_eq!(
+            batch_euclidean_distance(&[1.0, 2.0, 3.0], &[1.0, 2.0, 3.0]),
+            0.0
+        );
+        let dist = batch_euclidean_distance(&[0.0, 0.0], &[3.0, 4.0]);
+        assert!((dist - 5.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn t26simd_batch_filter_f32_all_ops() {
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let t = 3.0;
+        assert_eq!(
+            batch_filter_f32(&data, t, SimdCmpOp::Eq),
+            vec![false, false, true, false, false]
+        );
+        assert_eq!(
+            batch_filter_f32(&data, t, SimdCmpOp::Lt),
+            vec![true, true, false, false, false]
+        );
+        assert_eq!(
+            batch_filter_f32(&data, t, SimdCmpOp::Le),
+            vec![true, true, true, false, false]
+        );
+        assert_eq!(
+            batch_filter_f32(&data, t, SimdCmpOp::Gt),
+            vec![false, false, false, true, true]
+        );
+        assert_eq!(
+            batch_filter_f32(&data, t, SimdCmpOp::Ge),
+            vec![false, false, true, true, true]
+        );
+        assert_eq!(
+            batch_filter_f32(&data, t, SimdCmpOp::Ne),
+            vec![true, true, false, true, true]
+        );
+    }
+
+    #[test]
+    fn t26simd_batch_filter_f64_all_ops() {
+        let data: Vec<f64> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        let t = 3.0;
+        for op in [
+            SimdCmpOp::Eq,
+            SimdCmpOp::Lt,
+            SimdCmpOp::Le,
+            SimdCmpOp::Gt,
+            SimdCmpOp::Ge,
+            SimdCmpOp::Ne,
+        ] {
+            assert_eq!(
+                batch_filter_f64(&data, t, op),
+                scalar_filter_f64(&data, t, op)
+            );
+        }
+        assert_eq!(
+            batch_filter_f64(&data, t, SimdCmpOp::Eq),
+            vec![false, false, true, false, false]
+        );
+        assert_eq!(
+            batch_filter_f64(&data, t, SimdCmpOp::Gt),
+            vec![false, false, false, true, true]
+        );
+    }
+
+    #[test]
+    fn t26simd_batch_filter_bool_both() {
+        let data: Vec<bool> = vec![true, false, true, false, true];
+        assert_eq!(
+            batch_filter_bool(&data, true),
+            vec![true, false, true, false, true]
+        );
+        assert_eq!(
+            batch_filter_bool(&data, false),
+            vec![false, true, false, true, false]
+        );
+        assert!(batch_filter_bool(&[], true).is_empty());
+    }
+
+    #[test]
+    fn t26simd_batch_aggregate_f32_all_ops() {
+        assert_eq!(batch_aggregate_f32(&[], SimdAggOp::Sum), 0.0);
+        assert_eq!(batch_aggregate_f32(&[], SimdAggOp::Avg), 0.0);
+        assert!(batch_aggregate_f32(&[], SimdAggOp::Min).is_nan());
+        assert!(batch_aggregate_f32(&[], SimdAggOp::Max).is_nan());
+        let data: Vec<f32> = vec![1.0, 2.0, 3.0, 4.0, 5.0];
+        assert_eq!(batch_aggregate_f32(&data, SimdAggOp::Sum), 15.0);
+        assert_eq!(batch_aggregate_f32(&data, SimdAggOp::Min), 1.0);
+        assert_eq!(batch_aggregate_f32(&data, SimdAggOp::Max), 5.0);
+        assert_eq!(batch_aggregate_f32(&data, SimdAggOp::Avg), 3.0);
+    }
+
+    #[test]
+    fn t26simd_batch_aggregate_f64_all_ops() {
+        assert_eq!(batch_aggregate_f64(&[], SimdAggOp::Sum), 0.0);
+        assert_eq!(batch_aggregate_f64(&[], SimdAggOp::Avg), 0.0);
+        assert!(batch_aggregate_f64(&[], SimdAggOp::Min).is_nan());
+        assert!(batch_aggregate_f64(&[], SimdAggOp::Max).is_nan());
+        let data: Vec<f64> = vec![1.5, 2.5, 3.5, 4.5, 5.5];
+        assert_eq!(batch_aggregate_f64(&data, SimdAggOp::Sum), 17.5);
+        assert_eq!(batch_aggregate_f64(&data, SimdAggOp::Min), 1.5);
+        assert_eq!(batch_aggregate_f64(&data, SimdAggOp::Max), 5.5);
+        assert_eq!(batch_aggregate_f64(&data, SimdAggOp::Avg), 3.5);
+    }
+
+    #[test]
+    fn t26simd_batch_compare_in_hash_and_binary_paths() {
+        let values: Vec<i64> = (0..100).collect();
+        let set_large: Vec<i64> = (0..10).collect();
+        let result = batch_compare_in(&values, &set_large, SimdAvailability::Avx2);
+        for (i, &r) in result.iter().enumerate() {
+            assert_eq!(r, i < 10);
+        }
+        let set_mid: Vec<i64> = vec![5, 50, 95];
+        let result = batch_compare_in(&values, &set_mid, SimdAvailability::Avx2);
+        assert!(result[5] && result[50] && result[95]);
+        assert!(!result[6] && !result[49]);
+    }
+
+    #[test]
+    fn t26simd_batch_aggregate_enhanced_consistency_nan_inf() {
+        let data_nan: Vec<f32> = vec![1.0, f32::NAN, 3.0];
+        let result = batch_aggregate_enhanced_f32(&data_nan, SimdAggOp::Sum);
+        assert!(result.is_nan());
+        let data_inf: Vec<f32> = vec![1.0, f32::INFINITY, 3.0];
+        let result = batch_aggregate_enhanced_f32(&data_inf, SimdAggOp::Sum);
+        assert!(result.is_infinite() && result > 0.0);
+        let data_nan64: Vec<f64> = vec![1.0, f64::NAN, 3.0];
+        let result = batch_aggregate_enhanced_f64(&data_nan64, SimdAggOp::Sum);
+        assert!(result.is_nan());
+    }
 }

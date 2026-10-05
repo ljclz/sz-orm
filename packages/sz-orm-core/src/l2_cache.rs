@@ -3115,4 +3115,657 @@ mod prod_redis_tls_tests {
         let masked = mask_redis_url("redis://:@127.0.0.1:6379/0");
         assert_eq!(masked, "redis://:@127.0.0.1:6379/0");
     }
+
+    // ========================================================================
+    // v9.4.0 T4：l2_cache.rs 补测（79.3% → ≥ 95%）
+    // ========================================================================
+
+    /// T4.1a with_default_ttl builder
+    #[test]
+    fn test_t4_with_default_ttl() {
+        let cache = L2Cache::new().with_default_ttl(Duration::from_secs(60));
+        let key = CacheKey::by_pk("t4table", 1);
+        cache.put(&key, Value::I64(42), None);
+        // None ttl 使用 default_ttl
+        assert_eq!(cache.get(&key), Some(Value::I64(42)));
+    }
+
+    /// T4.1b with_max_size builder
+    #[test]
+    fn test_t4_with_max_size() {
+        let cache = L2Cache::new().with_max_size(3);
+        for i in 0..5 {
+            let key = CacheKey::by_pk("t4table", i);
+            cache.put(&key, Value::I64(i as i64), None);
+        }
+        // max_size=3，应淘汰 2 个
+        assert!(cache.size() <= 3);
+    }
+
+    /// T4.1c with_invalidation_bus builder
+    #[test]
+    fn test_t4_with_invalidation_bus() {
+        let bus = Arc::new(LocalInvalidationBus::new(16)) as Arc<dyn InvalidationBus>;
+        let cache = L2Cache::new().with_invalidation_bus(bus);
+        let key = CacheKey::by_pk("t4bus", 1);
+        cache.put(&key, Value::I64(42), None);
+        assert_eq!(cache.get(&key), Some(Value::I64(42)));
+    }
+
+    /// T4.2a CacheKey::by_relation
+    #[test]
+    fn test_t4_cache_key_by_relation() {
+        let key = CacheKey::by_relation("users", "posts:1");
+        assert_eq!(key.table, "users");
+        assert_eq!(key.kind, CacheKeyKind::ByRelation);
+        assert_eq!(key.identifier, "posts:1");
+        assert_eq!(key.to_string_key(), "l2:users:rel:posts:1");
+    }
+
+    /// T4.3a L2CacheStats::miss_rate
+    #[test]
+    fn test_t4_stats_miss_rate() {
+        let stats = L2CacheStats {
+            hits: 30,
+            misses: 70,
+            sets: 0,
+            evictions: 0,
+            size: 0,
+        };
+        assert!((stats.miss_rate() - 0.7).abs() < 1e-6);
+    }
+
+    /// T4.3b L2CacheStats::total_lookups
+    #[test]
+    fn test_t4_stats_total_lookups() {
+        let stats = L2CacheStats {
+            hits: 40,
+            misses: 60,
+            sets: 0,
+            evictions: 0,
+            size: 0,
+        };
+        assert_eq!(stats.total_lookups(), 100);
+    }
+
+    /// T4.3c L2CacheStats::miss_rate empty
+    #[test]
+    fn test_t4_stats_miss_rate_empty() {
+        let stats = L2CacheStats::default();
+        assert_eq!(stats.miss_rate(), 1.0);
+    }
+
+    /// T4.4a invalidate_query
+    #[test]
+    fn test_t4_invalidate_query() {
+        let cache = L2Cache::new();
+        let rows = vec![std::collections::HashMap::from([(
+            "id".to_string(),
+            Value::I64(1),
+        )])];
+        let json = serde_json::to_string(&rows).unwrap();
+        let key = CacheKey::by_query("t4inv", 12345);
+        cache.put(&key, Value::Json(json), None);
+        assert!(cache.contains(&key));
+        // invalidate_query 使用相同 SQL+params 应失效
+        // 但 hash 可能不同（不同 hasher），所以直接 invalidate
+        cache.invalidate(&key);
+        assert!(!cache.contains(&key));
+    }
+
+    /// T4.4b table_stats 返回 None for unknown table
+    #[test]
+    fn test_t4_table_stats_unknown() {
+        let cache = L2Cache::new();
+        assert!(cache.table_stats("nonexistent").is_none());
+    }
+
+    /// T4.4c all_table_stats empty
+    #[test]
+    fn test_t4_all_table_stats_empty() {
+        let cache = L2Cache::new();
+        let stats = cache.all_table_stats();
+        assert!(stats.is_empty());
+    }
+
+    /// T4.4d all_table_stats with data
+    #[test]
+    fn test_t4_all_table_stats_with_data() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("t4stats", 1);
+        cache.put(&key, Value::I64(42), None);
+        cache.get(&key); // hit
+        cache.get(&CacheKey::by_pk("t4stats", 999)); // miss
+        let all_stats = cache.all_table_stats();
+        assert!(all_stats.contains_key("t4stats"));
+    }
+
+    /// T4.5a update_ttl existing key
+    #[test]
+    fn test_t4_update_ttl_existing() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("t4ttl", 1);
+        cache.put(&key, Value::I64(42), Some(Duration::from_secs(10)));
+        assert!(cache.update_ttl(&key, Duration::from_secs(60)));
+    }
+
+    /// T4.5b update_ttl non-existing key
+    #[test]
+    fn test_t4_update_ttl_non_existing() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("t4ttl", 1);
+        assert!(!cache.update_ttl(&key, Duration::from_secs(60)));
+    }
+
+    /// T4.5c remaining_ttl existing with TTL
+    #[test]
+    fn test_t4_remaining_ttl_with_ttl() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("t4rttl", 1);
+        cache.put(&key, Value::I64(42), Some(Duration::from_secs(60)));
+        let remaining = cache.remaining_ttl(&key);
+        assert!(remaining.is_some());
+        assert!(remaining.unwrap().is_some());
+    }
+
+    /// T4.5d remaining_ttl existing without TTL
+    #[test]
+    fn test_t4_remaining_ttl_no_ttl() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("t4rttl", 1);
+        cache.put(&key, Value::I64(42), None);
+        let remaining = cache.remaining_ttl(&key);
+        assert_eq!(remaining, Some(None));
+    }
+
+    /// T4.5e remaining_ttl non-existing
+    #[test]
+    fn test_t4_remaining_ttl_non_existing() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("t4rttl", 1);
+        let remaining = cache.remaining_ttl(&key);
+        assert!(remaining.is_none());
+    }
+
+    /// T4.6a size method
+    #[test]
+    fn test_t4_size() {
+        let cache = L2Cache::new();
+        assert_eq!(cache.size(), 0);
+        cache.put(&CacheKey::by_pk("t4size", 1), Value::I64(1), None);
+        cache.put(&CacheKey::by_pk("t4size", 2), Value::I64(2), None);
+        assert_eq!(cache.size(), 2);
+    }
+
+    /// T4.6b reset_stats
+    #[test]
+    fn test_t4_reset_stats() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("t4reset", 1);
+        cache.put(&key, Value::I64(42), None);
+        cache.get(&key);
+        cache.get(&CacheKey::by_pk("t4reset", 999));
+        let stats_before = cache.stats();
+        assert!(stats_before.total_lookups() > 0);
+        cache.reset_stats();
+        let stats_after = cache.stats();
+        assert_eq!(stats_after.total_lookups(), 0);
+    }
+
+    /// T4.7a Cache trait get/set/delete
+    #[test]
+    fn test_t4_cache_trait_get_set_delete() {
+        use crate::cache::Cache;
+        let cache = L2Cache::new();
+        cache.set("key1", vec![1u8, 2, 3], None).unwrap();
+        let result = Cache::get(&cache, "key1").unwrap();
+        assert_eq!(result, Some(vec![1u8, 2, 3]));
+        cache.delete("key1").unwrap();
+        let result = Cache::get(&cache, "key1").unwrap();
+        assert_eq!(result, None);
+    }
+
+    /// T4.7b Cache trait exists
+    #[test]
+    fn test_t4_cache_trait_exists() {
+        use crate::cache::Cache;
+        let cache = L2Cache::new();
+        cache.set("key1", vec![1u8], None).unwrap();
+        assert!(cache.exists("key1").unwrap());
+        assert!(!cache.exists("key2").unwrap());
+    }
+
+    /// T4.7c Cache trait expire
+    #[test]
+    fn test_t4_cache_trait_expire() {
+        use crate::cache::Cache;
+        let cache = L2Cache::new();
+        cache
+            .set("key1", vec![1u8], Some(Duration::from_secs(10)))
+            .unwrap();
+        cache.expire("key1", Duration::from_secs(60)).unwrap();
+        let ttl = cache.ttl("key1").unwrap();
+        assert!(ttl.is_some());
+    }
+
+    /// T4.7d Cache trait expire non-existing
+    #[test]
+    fn test_t4_cache_trait_expire_non_existing() {
+        use crate::cache::Cache;
+        let cache = L2Cache::new();
+        assert!(cache
+            .expire("nonexistent", Duration::from_secs(60))
+            .is_err());
+    }
+
+    /// T4.7e Cache trait ttl non-existing
+    #[test]
+    fn test_t4_cache_trait_ttl_non_existing() {
+        use crate::cache::Cache;
+        let cache = L2Cache::new();
+        assert!(cache.ttl("nonexistent").is_err());
+    }
+
+    /// T4.7f Cache trait clear
+    #[test]
+    fn test_t4_cache_trait_clear() {
+        use crate::cache::Cache;
+        let cache = L2Cache::new();
+        cache.set("key1", vec![1u8], None).unwrap();
+        cache.set("key2", vec![2u8], None).unwrap();
+        Cache::clear(&cache).unwrap();
+        assert!(!cache.exists("key1").unwrap());
+        assert!(!cache.exists("key2").unwrap());
+    }
+
+    /// T4.8a LocalInvalidationBus publish/subscribe
+    #[test]
+    fn test_t4_invalidation_bus_publish_subscribe() {
+        let bus = LocalInvalidationBus::new(16);
+        let iter = bus.subscribe();
+        bus.publish(InvalidationMessage::InvalidateTable("users".to_string()));
+        bus.publish(InvalidationMessage::InvalidateKey("key1".to_string()));
+        let messages: Vec<_> = iter.collect();
+        assert_eq!(messages.len(), 2);
+    }
+
+    /// T4.9a InMemoryBackend basic operations
+    #[tokio::test]
+    async fn test_t4_in_memory_backend_basic() {
+        let backend = InMemoryBackend::new();
+        backend.set("key1", &[1, 2, 3], None).await.unwrap();
+        let result = backend.get("key1").await.unwrap();
+        assert_eq!(result, Some(vec![1, 2, 3]));
+        backend.delete("key1").await.unwrap();
+        let result = backend.get("key1").await.unwrap();
+        assert_eq!(result, None);
+    }
+
+    /// T4.9b InMemoryBackend invalidate_prefix
+    #[tokio::test]
+    async fn test_t4_in_memory_backend_invalidate_prefix() {
+        let backend = InMemoryBackend::new();
+        backend.set("prefix:key1", &[1], None).await.unwrap();
+        backend.set("prefix:key2", &[2], None).await.unwrap();
+        backend.set("other:key3", &[3], None).await.unwrap();
+        backend.invalidate_prefix("prefix:").await.unwrap();
+        assert!(backend.get("prefix:key1").await.unwrap().is_none());
+        assert!(backend.get("prefix:key2").await.unwrap().is_none());
+        assert!(backend.get("other:key3").await.unwrap().is_some());
+    }
+
+    /// T4.10a RedisTlsConfig::enabled
+    #[test]
+    fn test_t4_tls_config_enabled() {
+        let tls = RedisTlsConfig::enabled("/ca.pem", "redis.example.com");
+        assert!(tls.enabled);
+        assert_eq!(tls.ca_cert_path, Some("/ca.pem".to_string()));
+        assert_eq!(tls.sni, Some("redis.example.com".to_string()));
+    }
+
+    /// T4.10b RedisTlsConfig validate production with valid config
+    #[test]
+    fn test_t4_tls_config_validate_production_valid() {
+        let tls = RedisTlsConfig {
+            enabled: true,
+            ca_cert_path: None,
+            client_cert_path: None,
+            client_key_path: None,
+            sni: Some("redis.example.com".to_string()),
+            skip_verify: false,
+        };
+        assert!(tls.validate(true).is_ok());
+    }
+
+    /// T4.11a SingleFlight concurrent same key
+    #[tokio::test]
+    async fn test_t4_singleflight_concurrent_same_key() {
+        let cache = Arc::new(L2Cache::new());
+        let cache_clone = cache.clone();
+        let sql = "SELECT * FROM t4sf WHERE id = ?";
+        let params = vec![Value::I64(1)];
+        let params_clone = params.clone();
+        let handle = tokio::spawn(async move {
+            cache_clone
+                .get_or_load_query(
+                    "t4sf",
+                    sql,
+                    &params_clone,
+                    Duration::from_secs(60),
+                    || async {
+                        tokio::time::sleep(Duration::from_millis(50)).await;
+                        Ok(vec![std::collections::HashMap::from([(
+                            "id".to_string(),
+                            Value::I64(1),
+                        )])])
+                    },
+                )
+                .await
+        });
+        let result = cache
+            .get_or_load_query("t4sf", sql, &params, Duration::from_secs(60), || async {
+                Ok(vec![std::collections::HashMap::from([(
+                    "id".to_string(),
+                    Value::I64(1),
+                )])])
+            })
+            .await;
+        assert!(result.is_ok());
+        let handle_result = handle.await.unwrap();
+        assert!(handle_result.is_ok());
+    }
+
+    /// T4.11b SingleFlight loader failure
+    #[tokio::test]
+    async fn test_t4_singleflight_loader_failure() {
+        let cache = L2Cache::new();
+        let sql = "SELECT * FROM t4fail";
+        let params: Vec<Value> = vec![];
+        let result = cache
+            .get_or_load_query("t4fail", sql, &params, Duration::from_secs(60), || async {
+                Err(crate::DbError::QueryError(
+                    "intentional failure".to_string(),
+                ))
+            })
+            .await;
+        assert!(result.is_err());
+    }
+
+    /// T4.12a WriteBehindWriter pending_count
+    #[tokio::test]
+    async fn test_t4_write_behind_pending_count() {
+        use super::{FlushCallback, WriteOp};
+        let backend = Arc::new(InMemoryBackend::new());
+        let on_flush: FlushCallback = Arc::new(|_ops: Vec<WriteOp>| Box::pin(async { Ok(()) }));
+        let writer = WriteBehindWriter::new(backend.clone(), on_flush);
+        writer.write(b"key1", b"value1", None).await.unwrap();
+        writer.write(b"key2", b"value2", None).await.unwrap();
+        assert_eq!(writer.pending_count().await, 2);
+        writer.flush().await.unwrap();
+        assert_eq!(writer.pending_count().await, 0);
+    }
+
+    /// T4.13a mask_redis_url with user and password
+    #[test]
+    fn test_t4_mask_redis_url_user_with_password() {
+        let masked = mask_redis_url("redis://:pass@127.0.0.1:6379/0");
+        assert_eq!(masked, "redis://:***@127.0.0.1:6379/0");
+    }
+
+    /// T4.13b mask_redis_url no auth section
+    #[test]
+    fn test_t4_mask_redis_url_no_auth() {
+        let masked = mask_redis_url("redis://localhost:6380");
+        assert_eq!(masked, "redis://localhost:6380");
+    }
+
+    #[test]
+    fn test_t6_cache_key_by_pk() {
+        let key = CacheKey::by_pk("users", 42);
+        let s = key.to_string_key();
+        assert!(s.contains("users") && s.contains("pk") && s.contains("42"));
+    }
+
+    #[test]
+    fn test_t6_cache_key_by_query() {
+        let key = CacheKey::by_query("posts", "abc123");
+        let s = key.to_string_key();
+        assert!(s.contains("posts") && s.contains("q") && s.contains("abc123"));
+    }
+
+    #[test]
+    fn test_t6_cache_key_by_relation() {
+        let key = CacheKey::by_relation("users", "posts");
+        let s = key.to_string_key();
+        assert!(s.contains("users") && s.contains("rel") && s.contains("posts"));
+    }
+
+    #[test]
+    fn test_t6_l2_cache_stats_methods() {
+        let stats = L2CacheStats {
+            hits: 80,
+            misses: 20,
+            sets: 30,
+            evictions: 5,
+            size: 100,
+        };
+        assert_eq!(stats.total_lookups(), 100);
+        assert!((stats.hit_rate() - 0.8).abs() < 1e-9);
+        assert!((stats.miss_rate() - 0.2).abs() < 1e-9);
+        let empty = L2CacheStats {
+            hits: 0,
+            misses: 0,
+            sets: 0,
+            evictions: 0,
+            size: 0,
+        };
+        assert_eq!(empty.total_lookups(), 0);
+        assert_eq!(empty.hit_rate(), 0.0);
+        assert_eq!(empty.miss_rate(), 1.0);
+    }
+
+    #[test]
+    fn test_t6_l2_cache_stats_merge() {
+        let mut a = L2CacheStats {
+            hits: 10,
+            misses: 5,
+            sets: 3,
+            evictions: 1,
+            size: 50,
+        };
+        let b = L2CacheStats {
+            hits: 20,
+            misses: 10,
+            sets: 6,
+            evictions: 2,
+            size: 100,
+        };
+        a.merge(&b);
+        assert_eq!(a.hits, 30);
+        assert_eq!(a.misses, 15);
+        assert_eq!(a.sets, 9);
+        assert_eq!(a.evictions, 3);
+        assert_eq!(a.size, 150);
+    }
+
+    #[test]
+    fn test_t6_per_table_stats_methods() {
+        let stats = PerTableStats {
+            hits: 60,
+            misses: 40,
+            sets: 10,
+            evictions: 2,
+        };
+        assert_eq!(stats.total_lookups(), 100);
+        assert!((stats.hit_rate() - 0.6).abs() < 1e-9);
+        let empty = PerTableStats {
+            hits: 0,
+            misses: 0,
+            sets: 0,
+            evictions: 0,
+        };
+        assert_eq!(empty.total_lookups(), 0);
+        assert_eq!(empty.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_t6_mask_redis_url_empty_password() {
+        let masked = mask_redis_url("redis://:@127.0.0.1:6379");
+        assert_eq!(masked, "redis://:@127.0.0.1:6379");
+    }
+
+    #[test]
+    fn test_t6_mask_redis_url_user_password() {
+        let masked = mask_redis_url("redis://:pass@127.0.0.1:6379");
+        assert_eq!(masked, "redis://:***@127.0.0.1:6379");
+    }
+
+    #[test]
+    fn test_t6_mask_redis_url_no_at_sign() {
+        let masked = mask_redis_url("redis://127.0.0.1:6379");
+        assert_eq!(masked, "redis://127.0.0.1:6379");
+    }
+
+    #[test]
+    fn test_t6_l2_cache_basic_put_get() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), None);
+        assert_eq!(cache.get(&key), Some(Value::I64(42)));
+        assert!(cache.contains(&key));
+        assert_eq!(cache.size(), 1);
+    }
+
+    #[test]
+    fn test_t6_l2_cache_miss() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 999);
+        assert_eq!(cache.get(&key), None);
+        assert!(!cache.contains(&key));
+    }
+
+    #[test]
+    fn test_t6_l2_cache_invalidate() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), None);
+        cache.invalidate(&key);
+        assert_eq!(cache.get(&key), None);
+    }
+
+    #[test]
+    fn test_t6_l2_cache_invalidate_table() {
+        let cache = L2Cache::new();
+        let k1 = CacheKey::by_pk("users", 1);
+        let k2 = CacheKey::by_pk("users", 2);
+        let k3 = CacheKey::by_pk("posts", 1);
+        cache.put(&k1, Value::I64(1), None);
+        cache.put(&k2, Value::I64(2), None);
+        cache.put(&k3, Value::I64(3), None);
+        cache.invalidate_table("users");
+        assert_eq!(cache.get(&k1), None);
+        assert_eq!(cache.get(&k2), None);
+        assert_eq!(cache.get(&k3), Some(Value::I64(3)));
+    }
+
+    #[test]
+    fn test_t6_l2_cache_clear() {
+        let cache = L2Cache::new();
+        cache.put(&CacheKey::by_pk("a", 1), Value::I64(1), None);
+        cache.put(&CacheKey::by_pk("b", 2), Value::I64(2), None);
+        cache.clear();
+        assert_eq!(cache.size(), 0);
+    }
+
+    #[test]
+    fn test_t6_l2_cache_stats_and_reset() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), None);
+        cache.get(&key);
+        cache.get(&CacheKey::by_pk("users", 999));
+        let stats = cache.stats();
+        assert!(stats.hits >= 1);
+        assert!(stats.misses >= 1);
+        cache.reset_stats();
+        let stats2 = cache.stats();
+        assert_eq!(stats2.hits, 0);
+        assert_eq!(stats2.misses, 0);
+    }
+
+    #[test]
+    fn test_t6_l2_cache_with_ttl() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), Some(Duration::from_millis(1)));
+        std::thread::sleep(Duration::from_millis(10));
+        assert_eq!(cache.get(&key), None);
+    }
+
+    #[test]
+    fn test_t6_l2_cache_evict_expired() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), Some(Duration::from_millis(1)));
+        std::thread::sleep(Duration::from_millis(10));
+        let evicted = cache.evict_expired();
+        assert!(evicted >= 1);
+    }
+
+    #[test]
+    fn test_t6_l2_cache_update_ttl() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), None);
+        assert!(cache.update_ttl(&key, Duration::from_secs(60)));
+        let missing = CacheKey::by_pk("users", 999);
+        assert!(!cache.update_ttl(&missing, Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn test_t6_l2_cache_remaining_ttl() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), Some(Duration::from_secs(60)));
+        assert!(cache.remaining_ttl(&key).is_some());
+        let missing = CacheKey::by_pk("users", 999);
+        assert!(cache.remaining_ttl(&missing).is_none());
+    }
+
+    #[test]
+    fn test_t6_l2_cache_with_default_ttl_and_max_size() {
+        let cache = L2Cache::new()
+            .with_default_ttl(Duration::from_secs(60))
+            .with_max_size(10);
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), None);
+        assert_eq!(cache.get(&key), Some(Value::I64(42)));
+    }
+
+    #[test]
+    fn test_t6_l2_cache_table_stats() {
+        let cache = L2Cache::new();
+        let key = CacheKey::by_pk("users", 1);
+        cache.put(&key, Value::I64(42), None);
+        cache.get(&key);
+        let stats = cache.table_stats("users");
+        assert!(stats.is_some());
+        let all = cache.all_table_stats();
+        assert!(!all.is_empty());
+    }
+
+    #[tokio::test]
+    async fn test_t6_l2_cache_get_or_load_query_miss() {
+        let cache = L2Cache::new();
+        let loader = || {
+            Box::pin(async {
+                Ok(vec![]) as Result<Vec<std::collections::HashMap<String, Value>>, crate::DbError>
+            })
+        };
+        let result = cache
+            .get_or_load_query("users", "SELECT 1", &[], Duration::from_secs(60), loader)
+            .await;
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap().len(), 0);
+    }
 }

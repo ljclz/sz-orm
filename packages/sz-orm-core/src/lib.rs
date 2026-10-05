@@ -1490,4 +1490,422 @@ mod tests {
         let sql = sql_string!("SELECT * FROM (SELECT * FROM users) t");
         assert!(sql.contains("SELECT"));
     }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_default() {
+        let c = PerfConfig::default();
+        assert!(!c.simd_enabled);
+        assert_eq!(c.simd_row_threshold, 1024);
+        assert!(!c.zero_copy_enabled);
+        assert!(!c.prewarm_enabled);
+        assert_eq!(c.prewarm_count, 1);
+        assert!(c.plan_cache_enabled);
+        assert_eq!(c.plan_cache_capacity, 256);
+        assert_eq!(c.plan_cache_ttl_ms, 300_000);
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_validate_ok() {
+        let c = PerfConfig::default();
+        assert!(c.validate().is_ok());
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_validate_simd_threshold_zero() {
+        let c = PerfConfig {
+            simd_row_threshold: 0,
+            ..PerfConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_validate_prewarm_zero() {
+        let c = PerfConfig {
+            prewarm_count: 0,
+            ..PerfConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_validate_capacity_zero() {
+        let c = PerfConfig {
+            plan_cache_capacity: 0,
+            ..PerfConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_validate_ttl_zero() {
+        let c = PerfConfig {
+            plan_cache_ttl_ms: 0,
+            ..PerfConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_builder_full() {
+        let c = PerfConfig::builder()
+            .simd(true)
+            .simd_row_threshold(512)
+            .zero_copy(true)
+            .prewarm(true)
+            .prewarm_count(5)
+            .plan_cache(false)
+            .plan_cache_capacity(128)
+            .plan_cache_ttl_ms(60_000)
+            .build()
+            .unwrap();
+        assert!(c.simd_enabled);
+        assert_eq!(c.simd_row_threshold, 512);
+        assert!(c.zero_copy_enabled);
+        assert!(c.prewarm_enabled);
+        assert_eq!(c.prewarm_count, 5);
+        assert!(!c.plan_cache_enabled);
+        assert_eq!(c.plan_cache_capacity, 128);
+        assert_eq!(c.plan_cache_ttl_ms, 60_000);
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_config_builder_invalid() {
+        let r = PerfConfig::builder().simd_row_threshold(0).build();
+        assert!(r.is_err());
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_metrics_record_and_snapshot() {
+        let m = PerfMetrics::new();
+        m.record_simd_hit();
+        m.record_simd_hit();
+        m.record_simd_miss();
+        m.record_zero_copy_hit();
+        m.record_prewarm_success();
+        m.record_plan_cache_eviction();
+        m.set_simd_latency_reduction_pct(15.5);
+        m.set_zero_copy_rss_reduction_pct(30.0);
+        m.set_plan_cache_hit_rate(0.875);
+        let s = m.snapshot();
+        assert_eq!(s.simd_hit_count, 2);
+        assert_eq!(s.simd_miss_count, 1);
+        assert_eq!(s.zero_copy_hit_count, 1);
+        assert_eq!(s.prewarm_success_count, 1);
+        assert_eq!(s.plan_cache_eviction_count, 1);
+        assert_eq!(s.simd_latency_reduction_pct, 15.5);
+        assert_eq!(s.zero_copy_rss_reduction_pct, 30.0);
+        assert_eq!(s.plan_cache_hit_rate, 0.875);
+    }
+
+    #[cfg(feature = "perf-accel")]
+    #[test]
+    fn t26lib_perf_metrics_snapshot_default() {
+        let m = PerfMetrics::new();
+        let s = m.snapshot();
+        assert_eq!(s.simd_hit_count, 0);
+        assert_eq!(s.simd_miss_count, 0);
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_failover_config_default() {
+        let c = FailoverConfig::default();
+        assert!(c.primary_url.is_empty());
+        assert!(c.replica_url.is_empty());
+        assert_eq!(c.probe_interval, std::time::Duration::from_secs(1));
+        assert_eq!(c.probe_failure_threshold, 3);
+        assert_eq!(c.failback_strategy, FailbackStrategy::Manual);
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_failback_strategy_variants() {
+        assert_ne!(FailbackStrategy::Manual, FailbackStrategy::Auto);
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_default() {
+        let c = HaConfig::default();
+        assert!(!c.failover_enabled);
+        assert!(c.failover.is_none());
+        assert_eq!(c.rate_limit_threshold, 0.0);
+        assert_eq!(c.rate_limit_queue_timeout_ms, 100);
+        assert_eq!(c.circuit_breaker_error_threshold, 0.5);
+        assert_eq!(c.circuit_breaker_half_open_probes, 1);
+        assert_eq!(c.trace_sample_rate, 1.0);
+        assert!(c.trace_otlp_endpoint.is_none());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_ok() {
+        let c = HaConfig::default();
+        assert!(c.validate().is_ok());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_failover_probe_too_long() {
+        let c = HaConfig {
+            failover: Some(FailoverConfig {
+                probe_interval: std::time::Duration::from_secs(10),
+                ..FailoverConfig::default()
+            }),
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_failover_threshold_zero() {
+        let c = HaConfig {
+            failover: Some(FailoverConfig {
+                probe_failure_threshold: 0,
+                ..FailoverConfig::default()
+            }),
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_failover_ok() {
+        let c = HaConfig {
+            failover: Some(FailoverConfig::default()),
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_cb_threshold_zero() {
+        let c = HaConfig {
+            circuit_breaker_error_threshold: 0.0,
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_cb_threshold_one() {
+        let c = HaConfig {
+            circuit_breaker_error_threshold: 1.0,
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_cb_half_open_zero() {
+        let c = HaConfig {
+            circuit_breaker_half_open_probes: 0,
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_trace_negative() {
+        let c = HaConfig {
+            trace_sample_rate: -0.1,
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_validate_trace_over_one() {
+        let c = HaConfig {
+            trace_sample_rate: 1.5,
+            ..HaConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_builder_full() {
+        let c = HaConfig::builder()
+            .failover_enabled(true)
+            .failover(FailoverConfig::default())
+            .rate_limit_threshold(100.0)
+            .rate_limit_queue_timeout_ms(200)
+            .circuit_breaker_error_threshold(0.3)
+            .circuit_breaker_half_open_probes(3)
+            .trace_sample_rate(0.5)
+            .trace_otlp_endpoint("http://localhost:4317")
+            .build()
+            .unwrap();
+        assert!(c.failover_enabled);
+        assert!(c.failover.is_some());
+        assert_eq!(c.rate_limit_threshold, 100.0);
+        assert_eq!(c.rate_limit_queue_timeout_ms, 200);
+        assert_eq!(c.circuit_breaker_error_threshold, 0.3);
+        assert_eq!(c.circuit_breaker_half_open_probes, 3);
+        assert_eq!(c.trace_sample_rate, 0.5);
+        assert_eq!(
+            c.trace_otlp_endpoint.as_deref(),
+            Some("http://localhost:4317")
+        );
+    }
+
+    #[cfg(feature = "auto-failover")]
+    #[test]
+    fn t26lib_ha_config_builder_invalid() {
+        let r = HaConfig::builder()
+            .circuit_breaker_error_threshold(0.0)
+            .build();
+        assert!(r.is_err());
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_web_framework_variants() {
+        assert_ne!(WebFramework::Axum, WebFramework::Actix);
+        assert_ne!(WebFramework::Actix, WebFramework::Warp);
+        assert_ne!(WebFramework::Axum, WebFramework::Warp);
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_middleware_feature_variants() {
+        let features = [
+            MiddlewareFeature::PoolInject,
+            MiddlewareFeature::Transaction,
+            MiddlewareFeature::RateLimit,
+            MiddlewareFeature::Tracing,
+            MiddlewareFeature::HealthEndpoint,
+        ];
+        assert_eq!(features.len(), 5);
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_source_orm_variants() {
+        assert_ne!(SourceOrm::Diesel, SourceOrm::SeaOrm);
+        assert_ne!(SourceOrm::SeaOrm, SourceOrm::Sqlx);
+        assert_ne!(SourceOrm::Diesel, SourceOrm::Sqlx);
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_eco_config_default() {
+        let c = EcoConfig::default();
+        assert_eq!(c.web_framework, WebFramework::Axum);
+        assert!(c.middleware_features.is_empty());
+        assert!(c.migration_source_orm.is_none());
+        assert!(c.migration_dry_run);
+        assert!(c.schema_diff_left_url.is_none());
+        assert!(c.schema_diff_right_url.is_none());
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_eco_config_validate_ok() {
+        let c = EcoConfig::default();
+        assert!(c.validate().is_ok());
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_eco_config_validate_schema_diff_mismatch_left_only() {
+        let c = EcoConfig {
+            schema_diff_left_url: Some("a".to_string()),
+            ..EcoConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_eco_config_validate_schema_diff_mismatch_right_only() {
+        let c = EcoConfig {
+            schema_diff_right_url: Some("b".to_string()),
+            ..EcoConfig::default()
+        };
+        assert!(c.validate().is_err());
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_eco_config_validate_schema_diff_both() {
+        let c = EcoConfig {
+            schema_diff_left_url: Some("a".to_string()),
+            schema_diff_right_url: Some("b".to_string()),
+            ..EcoConfig::default()
+        };
+        assert!(c.validate().is_ok());
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_eco_config_builder_full() {
+        let c = EcoConfig::builder()
+            .web_framework(WebFramework::Warp)
+            .middleware_features(vec![
+                MiddlewareFeature::RateLimit,
+                MiddlewareFeature::Tracing,
+            ])
+            .migration_source_orm(SourceOrm::Diesel)
+            .migration_dry_run(false)
+            .schema_diff_left_url("left")
+            .schema_diff_right_url("right")
+            .build()
+            .unwrap();
+        assert_eq!(c.web_framework, WebFramework::Warp);
+        assert_eq!(c.middleware_features.len(), 2);
+        assert_eq!(c.migration_source_orm, Some(SourceOrm::Diesel));
+        assert!(!c.migration_dry_run);
+        assert_eq!(c.schema_diff_left_url.as_deref(), Some("left"));
+        assert_eq!(c.schema_diff_right_url.as_deref(), Some("right"));
+    }
+
+    #[cfg(feature = "eco-config")]
+    #[test]
+    fn t26lib_eco_config_builder_invalid() {
+        let r = EcoConfig::builder().schema_diff_left_url("a").build();
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn t26lib_type_aliases() {
+        let _: Shared<i32> = Shared::new(42);
+        let _: Boxed<i32> = Boxed::new(42);
+        let r: DbResult<i32> = Ok(42);
+        assert!(r.is_ok());
+        let pr: PoolResult<i32> = Ok(42);
+        assert!(pr.is_ok());
+        let cr: CacheResult<i32> = Ok(42);
+        assert!(cr.is_ok());
+        let tr: TxResult<i32> = Ok(42);
+        assert!(tr.is_ok());
+    }
+
+    #[test]
+    fn t26lib_constants() {
+        assert_eq!(DEFAULT_BATCH_SIZE, 1000);
+        assert_eq!(DEFAULT_ACQUIRE_TIMEOUT, 30);
+        assert_eq!(DEFAULT_IDLE_TIMEOUT, 600);
+        assert_eq!(DEFAULT_MAX_LIFETIME, 1800);
+        assert_eq!(DEFAULT_MIN_IDLE, 5);
+        assert_eq!(DEFAULT_MAX_SIZE, 100);
+    }
 }

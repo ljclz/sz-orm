@@ -1581,4 +1581,477 @@ mod tests {
             params
         );
     }
+
+    // ─── T11 新增测试（覆盖率补强）──────────────────────────────────
+
+    /// T11.1 RLS 策略自动附加 tenant_id：启用 RLS 后查询，SQL 自动附加 tenant_id 过滤条件
+    #[test]
+    fn t11_rls_policy_auto_attach_tenant_id() {
+        let enhancer = RlsPolicyEnhancer::new();
+        let principal = Principal::new(42, vec!["user".to_string()]);
+        let policy = EnhancedRlsPolicy::new("orders", principal).with_condition(
+            ParameterizedCondition::new("tenant_id = $1", vec![Value::I64(42)]),
+        );
+        enhancer.with_policy(policy).unwrap();
+
+        let cond = enhancer.enhance_query("orders", "42").unwrap().unwrap();
+        assert!(cond.sql_fragment.contains("tenant_id"));
+        assert_eq!(cond.params, vec![Value::I64(42)]);
+    }
+
+    /// T11.2 配额超限拒绝：租户资源使用超配额上限，操作被拒绝返回配额超限错误
+    #[test]
+    fn t11_quota_exceeded_rejected_with_error_detail() {
+        let enforcer = QuotaEnforcer::new();
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_qps(100));
+        let err = enforcer
+            .check_quota("t1", QuotaResource::Qps, 100)
+            .unwrap_err();
+        match err {
+            QuotaError::QuotaExceeded {
+                tenant_id,
+                resource,
+                limit,
+                current,
+            } => {
+                assert_eq!(tenant_id, "t1");
+                assert_eq!(resource, QuotaResource::Qps);
+                assert_eq!(limit, 100);
+                assert_eq!(current, 100);
+            }
+            other => panic!("expected QuotaExceeded, got {other:?}"),
+        }
+    }
+
+    /// T11.3 Principal 权限判定：user 拒绝 / admin 通过
+    #[test]
+    fn t11_principal_user_denied_admin_allowed() {
+        let user = Principal::new(1, vec!["user".to_string()]);
+        let admin = Principal::new(1, vec!["admin".to_string()]);
+        let predicate = PermissionPredicate::all().with_exempt(vec!["admin".to_string()]);
+        assert!(predicate.applies_to(&user.roles));
+        assert!(!predicate.applies_to(&admin.roles));
+        assert!(admin.has_role("admin"));
+        assert!(!user.has_role("admin"));
+    }
+
+    /// T11.4 RLS 策略与 QueryBuilder 接线（多条件 + 参数化绑定）
+    #[test]
+    fn t11_rls_policy_query_builder_multi_conditions() {
+        use crate::dialect::MySqlDialect;
+        use crate::model::Model;
+        use crate::query::QueryBuilder;
+        use std::sync::Arc;
+
+        struct OrderModel;
+        impl Model for OrderModel {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "orders"
+            }
+            fn pk(&self) -> i64 {
+                0
+            }
+            fn set_pk(&mut self, _pk: i64) {}
+        }
+
+        let enhancer = Arc::new(RlsPolicyEnhancer::new());
+        let policy = EnhancedRlsPolicy::new("orders", Principal::new(7, vec!["user".to_string()]))
+            .with_condition(ParameterizedCondition::new(
+                "tenant_id = $1",
+                vec![Value::I64(7)],
+            ))
+            .with_condition(ParameterizedCondition::new(
+                "dept_id IN ($1, $2)",
+                vec![Value::I64(10), Value::I64(20)],
+            ));
+        enhancer.with_policy(policy).unwrap();
+
+        let qb = QueryBuilder::<OrderModel>::new(Box::new(MySqlDialect))
+            .table("orders")
+            .with_tenant_id(7)
+            .with_rls_policy_enhancer(enhancer);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("tenant_id"));
+        assert!(params.contains(&Value::I64(7)));
+        assert!(params.contains(&Value::I64(10)));
+        assert!(params.contains(&Value::I64(20)));
+    }
+
+    /// to_legacy_policy 成功路径
+    #[test]
+    fn t11_enhanced_policy_to_legacy_ok() {
+        let principal = Principal::new(1, vec!["user".to_string()]);
+        let policy = EnhancedRlsPolicy::new("orders", principal).with_condition(
+            ParameterizedCondition::new("tenant_id = $1", vec![Value::I64(1)]),
+        );
+        let legacy = policy.to_legacy_policy().unwrap();
+        assert_eq!(legacy.table, "orders");
+        assert!(legacy.filter_condition.sql_fragment.contains("tenant_id"));
+    }
+
+    /// to_legacy_policy 错误路径：无条件
+    #[test]
+    fn t11_enhanced_policy_to_legacy_no_conditions_err() {
+        let principal = Principal::new(1, vec![]);
+        let policy = EnhancedRlsPolicy::new("orders", principal);
+        let err = policy.to_legacy_policy().unwrap_err();
+        assert!(matches!(err, QuotaError::RlsPolicyConflict(_)));
+        assert!(err.to_string().contains("no conditions"));
+    }
+
+    /// masking_rules 直接测试
+    #[test]
+    fn t11_rls_enhancer_masking_rules_direct() {
+        let enhancer = RlsPolicyEnhancer::new();
+        let principal = Principal::new(1, vec!["user".to_string()]);
+        let rule = ColumnMaskingRule::new(
+            "users",
+            "email",
+            MaskingFunction::Email,
+            PermissionPredicate::all(),
+        );
+        let policy = EnhancedRlsPolicy::new("users", principal)
+            .with_condition(ParameterizedCondition::new(
+                "tenant_id = $1",
+                vec![Value::I64(1)],
+            ))
+            .with_masking_rule(rule);
+        enhancer.with_policy(policy).unwrap();
+        let rules = enhancer.masking_rules("users");
+        assert_eq!(rules.len(), 1);
+        assert_eq!(rules[0].column, "email");
+    }
+
+    /// masking_rules 表无策略返回空
+    #[test]
+    fn t11_rls_enhancer_masking_rules_no_policy_empty() {
+        let enhancer = RlsPolicyEnhancer::new();
+        assert!(enhancer.masking_rules("unknown").is_empty());
+    }
+
+    /// mask_row 表无策略时为 no-op
+    #[test]
+    fn t11_rls_enhancer_mask_row_no_policy_noop() {
+        let enhancer = RlsPolicyEnhancer::new();
+        let mut row = HashMap::new();
+        row.insert("phone".to_string(), "13800138000".to_string());
+        enhancer.mask_row("unknown", &mut row);
+        assert_eq!(row.get("phone").unwrap(), "13800138000");
+    }
+
+    /// replace_placeholders 多位数字 $10
+    #[test]
+    fn t11_replace_placeholders_multi_digits() {
+        assert_eq!(replace_placeholders("$10"), "?");
+        assert_eq!(
+            replace_placeholders("a = $10 AND b = $2"),
+            "a = ? AND b = ?"
+        );
+    }
+
+    /// replace_placeholders 无占位符
+    #[test]
+    fn t11_replace_placeholders_no_placeholder() {
+        assert_eq!(replace_placeholders("a = 1"), "a = 1");
+        assert_eq!(replace_placeholders(""), "");
+    }
+
+    /// replace_placeholders $ 不跟数字
+    #[test]
+    fn t11_replace_placeholders_dollar_without_digit() {
+        assert_eq!(replace_placeholders("price = $amount"), "price = $amount");
+        assert_eq!(replace_placeholders("$"), "$");
+        assert_eq!(replace_placeholders("$abc"), "$abc");
+    }
+
+    /// QuotaError 实现 std::error::Error，source() 为 None
+    #[test]
+    fn t11_quota_error_is_std_error() {
+        use std::error::Error;
+        let err = QuotaError::QuotaCheckFailed("db down".to_string());
+        let _: &dyn Error = &err;
+        assert!(err.source().is_none());
+    }
+
+    /// TenantResourceQuota::default
+    #[test]
+    fn t11_tenant_resource_quota_default() {
+        let quota = TenantResourceQuota::default();
+        assert_eq!(quota.tenant_id, "default");
+        assert!(quota.max_connections.is_none());
+    }
+
+    /// QuotaEnforcer::default
+    #[test]
+    fn t11_quota_enforcer_default() {
+        let enforcer = QuotaEnforcer::default();
+        assert!(enforcer
+            .check_quota("any", QuotaResource::Connection, 1)
+            .is_ok());
+    }
+
+    /// RlsPolicyEnhancer::default + Debug
+    #[test]
+    fn t11_rls_policy_enhancer_default_and_debug() {
+        let enhancer = RlsPolicyEnhancer::default();
+        assert!(enhancer.get_policy("any").is_none());
+        let debug = format!("{enhancer:?}");
+        assert!(debug.contains("policy_count"));
+    }
+
+    /// TenantAuditLogger::default + Debug
+    #[test]
+    fn t11_tenant_audit_logger_default_and_debug() {
+        let logger = TenantAuditLogger::default();
+        assert!(logger.all_logs().is_empty());
+        let debug = format!("{logger:?}");
+        assert!(debug.contains("log_count"));
+    }
+
+    /// to_audit_context 各种 operation 映射（含未知 op 回退 ContextSet）
+    #[test]
+    fn t11_audit_entry_to_audit_context_all_operations() {
+        let cases = [
+            ("context_set", TenantAuditOperation::ContextSet),
+            ("context_switch", TenantAuditOperation::ContextSwitch),
+            (
+                "cross_tenant_denied",
+                TenantAuditOperation::CrossTenantDenied,
+            ),
+            ("row_level_filtered", TenantAuditOperation::RowLevelFiltered),
+            ("column_masked", TenantAuditOperation::ColumnMasked),
+            ("unknown_op", TenantAuditOperation::ContextSet),
+        ];
+        for (op_str, expected_op) in cases {
+            let entry = TenantAuditEntry {
+                tenant_id: "1".to_string(),
+                operation: op_str.to_string(),
+                timestamp: 0,
+                result: "success".to_string(),
+                detail: String::new(),
+                table: None,
+                quota_resource: None,
+            };
+            let ctx = entry.to_audit_context();
+            assert_eq!(ctx.operation, expected_op, "op_str={op_str}");
+        }
+    }
+
+    /// to_audit_context denied 结果
+    #[test]
+    fn t11_audit_entry_to_audit_context_denied_result() {
+        let entry = TenantAuditEntry {
+            tenant_id: "1".to_string(),
+            operation: "cross_tenant_denied".to_string(),
+            timestamp: 0,
+            result: "denied".to_string(),
+            detail: String::new(),
+            table: None,
+            quota_resource: None,
+        };
+        let ctx = entry.to_audit_context();
+        assert_eq!(ctx.result, AuditResult::Denied);
+    }
+
+    /// to_audit_context 无效租户 ID 回退 0
+    #[test]
+    fn t11_audit_entry_to_audit_context_invalid_tenant_id() {
+        let entry = TenantAuditEntry {
+            tenant_id: "not_a_number".to_string(),
+            operation: "context_set".to_string(),
+            timestamp: 0,
+            result: "success".to_string(),
+            detail: String::new(),
+            table: None,
+            quota_resource: None,
+        };
+        let ctx = entry.to_audit_context();
+        assert_eq!(ctx.tenant_id, 0);
+    }
+
+    /// check_and_record 在 FailOpen 策略下超限放行但仍记录使用
+    #[test]
+    fn t11_check_and_record_fail_open_passes_and_records() {
+        let enforcer = QuotaEnforcer::new().with_strategy(QuotaEnforceStrategy::FailOpen);
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(5));
+        enforcer.record_usage("t1", QuotaResource::Connection, 4);
+        assert!(enforcer
+            .check_and_record("t1", QuotaResource::Connection, 3)
+            .is_ok());
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Connection), 7);
+    }
+
+    /// release_usage Qps 饱和递减
+    #[test]
+    fn t11_release_usage_qps_saturating() {
+        let enforcer = QuotaEnforcer::new();
+        enforcer.record_usage("t1", QuotaResource::Qps, 10);
+        enforcer.release_usage("t1", QuotaResource::Qps, 3);
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Qps), 7);
+        enforcer.release_usage("t1", QuotaResource::Qps, 100);
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Qps), 0);
+    }
+
+    /// release_usage Storage 饱和递减
+    #[test]
+    fn t11_release_usage_storage_saturating() {
+        let enforcer = QuotaEnforcer::new();
+        enforcer.record_usage("t1", QuotaResource::Storage, 1000);
+        enforcer.release_usage("t1", QuotaResource::Storage, 400);
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Storage), 600);
+        enforcer.release_usage("t1", QuotaResource::Storage, u64::MAX);
+        assert_eq!(enforcer.current_usage("t1", QuotaResource::Storage), 0);
+    }
+
+    /// current_usage 未记录的租户返回 0
+    #[test]
+    fn t11_current_usage_unknown_tenant_zero() {
+        let enforcer = QuotaEnforcer::new();
+        assert_eq!(
+            enforcer.current_usage("ghost", QuotaResource::Connection),
+            0
+        );
+        assert_eq!(enforcer.current_usage("ghost", QuotaResource::Qps), 0);
+        assert_eq!(enforcer.current_usage("ghost", QuotaResource::Storage), 0);
+    }
+
+    /// enhance_query 多条件组合返回带 AND 的 SQL
+    #[test]
+    fn t11_enhance_query_multi_conditions_combined() {
+        let enhancer = RlsPolicyEnhancer::new();
+        let principal = Principal::new(1, vec!["user".to_string()]);
+        let policy = EnhancedRlsPolicy::new("orders", principal)
+            .with_condition(ParameterizedCondition::new(
+                "tenant_id = $1",
+                vec![Value::I64(1)],
+            ))
+            .with_condition(ParameterizedCondition::new(
+                "dept_id IN ($1, $2)",
+                vec![Value::I32(10), Value::I32(20)],
+            ));
+        enhancer.with_policy(policy).unwrap();
+        let cond = enhancer.enhance_query("orders", "1").unwrap().unwrap();
+        assert!(cond.sql_fragment.contains("AND"));
+        assert_eq!(cond.params.len(), 3);
+    }
+
+    /// QuotaResource 序列化往返
+    #[test]
+    fn t11_quota_resource_serde_roundtrip() {
+        for r in [
+            QuotaResource::Connection,
+            QuotaResource::Qps,
+            QuotaResource::Storage,
+        ] {
+            let json = serde_json::to_string(&r).unwrap();
+            let back: QuotaResource = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, r);
+        }
+    }
+
+    /// QuotaEnforceStrategy 序列化往返
+    #[test]
+    fn t11_quota_enforce_strategy_serde_roundtrip() {
+        for s in [
+            QuotaEnforceStrategy::FailClose,
+            QuotaEnforceStrategy::FailOpen,
+        ] {
+            let json = serde_json::to_string(&s).unwrap();
+            let back: QuotaEnforceStrategy = serde_json::from_str(&json).unwrap();
+            assert_eq!(back, s);
+        }
+    }
+
+    /// TenantResourceQuota 序列化往返
+    #[test]
+    fn t11_tenant_resource_quota_serde_roundtrip() {
+        let quota = TenantResourceQuota::new("t1")
+            .with_max_connections(10)
+            .with_max_qps(1000)
+            .with_max_storage(1024);
+        let json = serde_json::to_string(&quota).unwrap();
+        let back: TenantResourceQuota = serde_json::from_str(&json).unwrap();
+        assert_eq!(back.tenant_id, "t1");
+        assert_eq!(back.max_connections, Some(10));
+        assert_eq!(back.max_qps, Some(1000));
+        assert_eq!(back.max_storage, Some(1024));
+    }
+
+    /// set_quota 覆盖既有配额
+    #[test]
+    fn t11_set_quota_overwrites_existing() {
+        let enforcer = QuotaEnforcer::new();
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(5));
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(20));
+        let retrieved = enforcer.get_quota("t1").unwrap();
+        assert_eq!(retrieved.max_connections, Some(20));
+    }
+
+    /// set_audit_logger(None) 清除审计
+    #[test]
+    fn t11_set_audit_logger_none_clears() {
+        let enforcer = QuotaEnforcer::new();
+        let logger = Arc::new(TenantAuditLogger::new());
+        enforcer.set_audit_logger(Some(Arc::clone(&logger)));
+        enforcer.set_audit_logger(None);
+        enforcer.set_quota(TenantResourceQuota::new("t1").with_max_connections(1));
+        assert!(enforcer
+            .check_and_record("t1", QuotaResource::Connection, 2)
+            .is_err());
+        assert_eq!(logger.log_count("t1"), 0);
+    }
+
+    /// all_logs 保留插入顺序
+    #[test]
+    fn t11_audit_logger_all_logs_preserves_order() {
+        let logger = TenantAuditLogger::new();
+        for i in 0..5 {
+            logger
+                .log(TenantAuditEntry::new(
+                    "t1",
+                    TenantAuditOperation::ContextSet,
+                    AuditResult::Success,
+                    format!("entry {i}"),
+                ))
+                .unwrap();
+        }
+        let all = logger.all_logs();
+        for (idx, entry) in all.iter().enumerate() {
+            assert_eq!(entry.detail, format!("entry {idx}"));
+        }
+    }
+
+    /// 多脱敏规则 mask_row 全部应用
+    #[test]
+    fn t11_mask_row_applies_multiple_rules() {
+        let enhancer = RlsPolicyEnhancer::new();
+        let principal = Principal::new(1, vec!["user".to_string()]);
+        let policy = EnhancedRlsPolicy::new("users", principal)
+            .with_condition(ParameterizedCondition::new(
+                "tenant_id = $1",
+                vec![Value::I64(1)],
+            ))
+            .with_masking_rule(ColumnMaskingRule::new(
+                "users",
+                "phone",
+                MaskingFunction::Phone,
+                PermissionPredicate::all(),
+            ))
+            .with_masking_rule(ColumnMaskingRule::new(
+                "users",
+                "email",
+                MaskingFunction::Email,
+                PermissionPredicate::all(),
+            ));
+        enhancer.with_policy(policy).unwrap();
+        let mut row = HashMap::new();
+        row.insert("phone".to_string(), "13800138000".to_string());
+        row.insert("email".to_string(), "alice@example.com".to_string());
+        row.insert("name".to_string(), "Alice".to_string());
+        enhancer.mask_row("users", &mut row);
+        assert_ne!(row.get("phone").unwrap(), "13800138000");
+        assert_ne!(row.get("email").unwrap(), "alice@example.com");
+        assert_eq!(row.get("name").unwrap(), "Alice");
+    }
 }

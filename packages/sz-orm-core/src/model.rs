@@ -1912,4 +1912,484 @@ mod tests {
         assert_eq!(value_to_sql_string("back\\slash"), "'back\\\\slash'");
         assert_eq!(value_to_sql_string("nul\0byte"), "'nul\\0byte'");
     }
+
+    // ========================================================================
+    // v9.4.0 T5：model.rs 补测（81.1% → ≥ 95%）
+    // ========================================================================
+
+    #[test]
+    fn test_t5_timestamp_fields_new_none() {
+        let ts = TimestampFields::new(None, None);
+        assert!(ts.created_at.is_none());
+        assert!(ts.updated_at.is_none());
+        assert!(!ts.auto_now_insert);
+        assert!(!ts.auto_now_update);
+    }
+
+    #[test]
+    fn test_t5_timestamp_fields_new_some() {
+        let ts = TimestampFields::new(Some("created_at"), Some("updated_at"));
+        assert_eq!(ts.created_at, Some("created_at"));
+        assert_eq!(ts.updated_at, Some("updated_at"));
+        assert!(ts.auto_now_insert);
+        assert!(ts.auto_now_update);
+    }
+
+    #[test]
+    fn test_t5_timestamp_fields_new_partial() {
+        let ts = TimestampFields::new(Some("created_at"), None);
+        assert!(ts.auto_now_insert);
+        assert!(!ts.auto_now_update);
+    }
+
+    #[test]
+    fn test_t5_timestamp_fields_with_both() {
+        let ts = TimestampFields::with_both("created_at", "updated_at");
+        assert_eq!(ts.created_at, Some("created_at"));
+        assert_eq!(ts.updated_at, Some("updated_at"));
+        assert!(ts.auto_now_insert);
+        assert!(ts.auto_now_update);
+    }
+
+    #[test]
+    fn test_t5_value_to_json_null() {
+        assert_eq!(value_to_json(Value::Null), serde_json::Value::Null);
+    }
+
+    #[test]
+    fn test_t5_value_to_json_bool() {
+        assert_eq!(
+            value_to_json(Value::Bool(true)),
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(
+            value_to_json(Value::Bool(false)),
+            serde_json::Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn test_t5_value_to_json_integers() {
+        assert_eq!(value_to_json(Value::I8(42)), serde_json::json!(42i8));
+        assert_eq!(value_to_json(Value::I16(1000)), serde_json::json!(1000i16));
+        assert_eq!(
+            value_to_json(Value::I32(100000)),
+            serde_json::json!(100000i32)
+        );
+        assert_eq!(
+            value_to_json(Value::I64(9999999999)),
+            serde_json::json!(9999999999i64)
+        );
+        assert_eq!(value_to_json(Value::U8(255)), serde_json::json!(255u8));
+        assert_eq!(
+            value_to_json(Value::U16(65535)),
+            serde_json::json!(65535u16)
+        );
+        assert_eq!(
+            value_to_json(Value::U32(4294967295)),
+            serde_json::json!(4294967295u32)
+        );
+        assert_eq!(
+            value_to_json(Value::U64(18446744073709551615)),
+            serde_json::json!(18446744073709551615u64)
+        );
+    }
+
+    #[test]
+    fn test_t5_value_to_json_floats() {
+        assert_eq!(
+            value_to_json(Value::F32(3.5)),
+            serde_json::json!(3.5_f32 as f64)
+        );
+        assert_eq!(value_to_json(Value::F64(2.5)), serde_json::json!(2.5));
+    }
+
+    #[test]
+    fn test_t5_value_to_json_string() {
+        assert_eq!(
+            value_to_json(Value::String("hello".to_string())),
+            serde_json::json!("hello")
+        );
+    }
+
+    #[test]
+    fn test_t5_value_to_json_bytes() {
+        let result = value_to_json(Value::Bytes(vec![0x41, 0x42, 0x43]));
+        assert_eq!(result, serde_json::json!("414243"));
+    }
+
+    #[test]
+    fn test_t5_value_to_json_uuid_date_datetime_time() {
+        assert_eq!(
+            value_to_json(Value::Uuid("550e8400".to_string())),
+            serde_json::json!("550e8400")
+        );
+        assert_eq!(
+            value_to_json(Value::Date("2026-01-01".to_string())),
+            serde_json::json!("2026-01-01")
+        );
+        assert_eq!(
+            value_to_json(Value::DateTime("2026-01-01T00:00:00".to_string())),
+            serde_json::json!("2026-01-01T00:00:00")
+        );
+        assert_eq!(
+            value_to_json(Value::Time("12:30:00".to_string())),
+            serde_json::json!("12:30:00")
+        );
+    }
+
+    #[test]
+    fn test_t5_value_to_json_json_decimal() {
+        assert_eq!(
+            value_to_json(Value::Json("{\"k\":1}".to_string())),
+            serde_json::json!("{\"k\":1}")
+        );
+        assert_eq!(
+            value_to_json(Value::Decimal("123.45".to_string())),
+            serde_json::json!("123.45")
+        );
+    }
+
+    #[test]
+    fn test_t5_value_to_json_array() {
+        let arr = Value::Array(vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+        assert_eq!(value_to_json(arr), serde_json::json!([1, 2, 3]));
+    }
+
+    #[test]
+    fn test_t5_value_to_json_object() {
+        let mut map = std::collections::HashMap::new();
+        map.insert("name".to_string(), Value::String("Alice".to_string()));
+        map.insert("age".to_string(), Value::I64(30));
+        let result = value_to_json(Value::Object(map));
+        assert_eq!(result["name"], serde_json::json!("Alice"));
+        assert_eq!(result["age"], serde_json::json!(30));
+    }
+
+    #[test]
+    fn test_t5_relation_error_display() {
+        let e1 = RelationError::RelationNotFound("posts".to_string());
+        assert!(format!("{}", e1).contains("posts"));
+        let e2 = RelationError::QueryError("syntax error".to_string());
+        assert!(format!("{}", e2).contains("syntax error"));
+        let e3 = RelationError::NotLoaded("comments".to_string());
+        assert!(format!("{}", e3).contains("comments"));
+    }
+
+    #[test]
+    fn test_t5_belongs_to_struct() {
+        let bt = BelongsTo {
+            foreign_key: "user_id".to_string(),
+            parent_model: "users".to_string(),
+            parent_pk: "id".to_string(),
+        };
+        assert_eq!(bt.foreign_key, "user_id");
+        assert_eq!(bt.parent_model, "users");
+        assert_eq!(bt.parent_pk, "id");
+    }
+
+    #[test]
+    fn test_t5_has_many_struct() {
+        let hm = HasMany {
+            foreign_key: "user_id".to_string(),
+            child_model: "orders".to_string(),
+            child_pk: "id".to_string(),
+        };
+        assert_eq!(hm.foreign_key, "user_id");
+        assert_eq!(hm.child_model, "orders");
+        assert_eq!(hm.child_pk, "id");
+    }
+
+    #[test]
+    fn test_t5_has_one_struct() {
+        let ho = HasOne {
+            foreign_key: "user_id".to_string(),
+            child_model: "profiles".to_string(),
+            child_pk: "id".to_string(),
+        };
+        assert_eq!(ho.foreign_key, "user_id");
+        assert_eq!(ho.child_model, "profiles");
+        assert_eq!(ho.child_pk, "id");
+    }
+
+    #[test]
+    fn test_t5_belongs_to_many_struct() {
+        let btm = BelongsToMany {
+            junction_table: "user_roles".to_string(),
+            foreign_key: "user_id".to_string(),
+            other_key: "role_id".to_string(),
+            target_model: "roles".to_string(),
+            target_pk: "id".to_string(),
+        };
+        assert_eq!(btm.junction_table, "user_roles");
+        assert_eq!(btm.other_key, "role_id");
+        assert_eq!(btm.target_model, "roles");
+    }
+
+    #[test]
+    fn test_t5_relation_enum_variants() {
+        let r1 = Relation::BelongsTo(BelongsTo {
+            foreign_key: "user_id".to_string(),
+            parent_model: "users".to_string(),
+            parent_pk: "id".to_string(),
+        });
+        let r2 = Relation::HasMany(HasMany {
+            foreign_key: "user_id".to_string(),
+            child_model: "orders".to_string(),
+            child_pk: "id".to_string(),
+        });
+        let r3 = Relation::HasOne(HasOne {
+            foreign_key: "user_id".to_string(),
+            child_model: "profiles".to_string(),
+            child_pk: "id".to_string(),
+        });
+        let r4 = Relation::BelongsToMany(BelongsToMany {
+            junction_table: "user_roles".to_string(),
+            foreign_key: "user_id".to_string(),
+            other_key: "role_id".to_string(),
+            target_model: "roles".to_string(),
+            target_pk: "id".to_string(),
+        });
+        assert!(matches!(r1, Relation::BelongsTo(_)));
+        assert!(matches!(r2, Relation::HasMany(_)));
+        assert!(matches!(r3, Relation::HasOne(_)));
+        assert!(matches!(r4, Relation::BelongsToMany(_)));
+    }
+
+    #[test]
+    fn test_t5_is_valid_sql_identifier_65_chars() {
+        let long_id = "a".repeat(65);
+        assert!(!is_valid_sql_identifier(&long_id));
+    }
+
+    #[test]
+    fn test_t5_is_valid_sql_identifier_exactly_64_chars() {
+        let id64 = "a".repeat(64);
+        assert!(is_valid_sql_identifier(&id64));
+    }
+
+    #[test]
+    fn test_t5_is_valid_sql_identifier_starts_with_underscore() {
+        assert!(is_valid_sql_identifier("_private"));
+        assert!(is_valid_sql_identifier("_"));
+    }
+
+    #[test]
+    fn test_t5_is_valid_sql_identifier_starts_with_digit() {
+        assert!(!is_valid_sql_identifier("1abc"));
+        assert!(!is_valid_sql_identifier("9"));
+    }
+
+    #[test]
+    fn test_t5_escape_sql_value_empty() {
+        assert_eq!(escape_sql_value(""), "");
+    }
+
+    #[test]
+    fn test_t5_escape_sql_value_no_special() {
+        assert_eq!(escape_sql_value("hello world 123"), "hello world 123");
+    }
+
+    #[test]
+    fn test_t5_rows_to_values_single_row() {
+        let row = HashMap::from([
+            ("id".to_string(), Value::I64(1)),
+            ("name".to_string(), Value::String("test".to_string())),
+        ]);
+        let result = rows_to_values(vec![row]);
+        match result {
+            Value::Array(items) => {
+                assert_eq!(items.len(), 1);
+            }
+            _ => panic!("expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_t5_pk_to_sql_string_i32() {
+        let pk: i32 = 42;
+        assert_eq!(pk_to_sql_string(&pk), "42");
+    }
+
+    #[test]
+    fn test_t5_pk_to_sql_string_u64() {
+        let pk: u64 = 999999;
+        assert_eq!(pk_to_sql_string(&pk), "999999");
+    }
+
+    #[test]
+    fn test_t5_value_to_sql_string_empty() {
+        assert_eq!(value_to_sql_string(""), "''");
+    }
+
+    #[test]
+    fn test_t5_value_to_sql_string_no_special() {
+        assert_eq!(value_to_sql_string("hello"), "'hello'");
+    }
+
+    #[test]
+    fn test_t6_escape_sql_value_all_special() {
+        assert_eq!(escape_sql_value("it's"), "it''s");
+        assert_eq!(escape_sql_value("a\\b"), "a\\\\b");
+        assert_eq!(escape_sql_value("a\0b"), "a\\0b");
+        assert_eq!(escape_sql_value("a\nb"), "a\\nb");
+        assert_eq!(escape_sql_value("a\rb"), "a\\rb");
+        assert_eq!(escape_sql_value("a\x1ab"), "a\\Zb");
+        assert_eq!(escape_sql_value("a\"b"), "a\\\"b");
+        assert_eq!(escape_sql_value("a\x08b"), "a\\bb");
+        assert_eq!(escape_sql_value("plain"), "plain");
+        assert_eq!(escape_sql_value(""), "");
+    }
+
+    #[test]
+    fn test_t6_pk_to_sql_string_numeric_types() {
+        let pk_i8: i8 = -1;
+        assert_eq!(pk_to_sql_string(&pk_i8), "-1");
+        let pk_f64: f64 = 2.5;
+        assert_eq!(pk_to_sql_string(&pk_f64), "2.5");
+        let pk_str = "abc";
+        assert_eq!(pk_to_sql_string(&pk_str), "'abc'");
+        let pk_str_inj = "a'b";
+        assert_eq!(pk_to_sql_string(&pk_str_inj), "'a''b'");
+    }
+
+    #[test]
+    fn test_t6_value_to_sql_string_special() {
+        assert_eq!(value_to_sql_string("a'b"), "'a''b'");
+        assert_eq!(value_to_sql_string("a\nb"), "'a\\nb'");
+    }
+
+    #[test]
+    fn test_t6_is_valid_sql_identifier_cases() {
+        assert!(is_valid_sql_identifier("abc"));
+        assert!(is_valid_sql_identifier("_abc"));
+        assert!(is_valid_sql_identifier("a_1_b"));
+        assert!(is_valid_sql_identifier("a"));
+        assert!(!is_valid_sql_identifier(""));
+        assert!(!is_valid_sql_identifier("1abc"));
+        assert!(!is_valid_sql_identifier("a-b"));
+        assert!(!is_valid_sql_identifier("a b"));
+        assert!(!is_valid_sql_identifier("a.b"));
+        assert!(!is_valid_sql_identifier(&"a".repeat(65)));
+        let long = "a".repeat(64);
+        assert!(is_valid_sql_identifier(&long));
+    }
+
+    #[test]
+    fn test_t6_validate_relation_identifiers_ok() {
+        assert!(validate_relation_identifiers(&["users", "posts", "user_id"]).is_ok());
+    }
+
+    #[test]
+    fn test_t6_validate_relation_identifiers_invalid() {
+        let err = validate_relation_identifiers(&["users", "a-b"]).unwrap_err();
+        match err {
+            RelationError::QueryError(msg) => assert!(msg.contains("a-b")),
+            _ => panic!("expected QueryError"),
+        }
+    }
+
+    #[test]
+    fn test_t6_value_to_json_all_types() {
+        assert_eq!(value_to_json(Value::Null), serde_json::Value::Null);
+        assert_eq!(
+            value_to_json(Value::Bool(true)),
+            serde_json::Value::Bool(true)
+        );
+        assert_eq!(value_to_json(Value::I8(1)), serde_json::json!(1));
+        assert_eq!(value_to_json(Value::I16(2)), serde_json::json!(2));
+        assert_eq!(value_to_json(Value::I32(3)), serde_json::json!(3));
+        assert_eq!(value_to_json(Value::I64(4)), serde_json::json!(4));
+        assert_eq!(value_to_json(Value::U8(5)), serde_json::json!(5));
+        assert_eq!(value_to_json(Value::U16(6)), serde_json::json!(6));
+        assert_eq!(value_to_json(Value::U32(7)), serde_json::json!(7));
+        assert_eq!(value_to_json(Value::U64(8)), serde_json::json!(8));
+        assert_eq!(value_to_json(Value::F32(1.5)), serde_json::json!(1.5));
+        assert_eq!(value_to_json(Value::F64(2.5)), serde_json::json!(2.5));
+        assert_eq!(value_to_json(Value::F64(f64::NAN)), serde_json::Value::Null);
+        assert_eq!(
+            value_to_json(Value::String("s".to_string())),
+            serde_json::json!("s")
+        );
+        assert_eq!(
+            value_to_json(Value::Bytes(vec![0x41, 0x42])),
+            serde_json::json!("4142")
+        );
+        assert_eq!(value_to_json(Value::Bytes(vec![])), serde_json::json!(""));
+        assert_eq!(
+            value_to_json(Value::Uuid("u".to_string())),
+            serde_json::json!("u")
+        );
+        assert_eq!(
+            value_to_json(Value::Date("d".to_string())),
+            serde_json::json!("d")
+        );
+        assert_eq!(
+            value_to_json(Value::DateTime("dt".to_string())),
+            serde_json::json!("dt")
+        );
+        assert_eq!(
+            value_to_json(Value::Time("t".to_string())),
+            serde_json::json!("t")
+        );
+        assert_eq!(
+            value_to_json(Value::Json("j".to_string())),
+            serde_json::json!("j")
+        );
+        assert_eq!(
+            value_to_json(Value::Decimal("1.5".to_string())),
+            serde_json::json!("1.5")
+        );
+    }
+
+    #[test]
+    fn test_t6_value_to_json_array_and_object() {
+        let arr = Value::Array(vec![Value::I32(1), Value::Bool(true)]);
+        assert_eq!(value_to_json(arr), serde_json::json!([1, true]));
+        let mut m = std::collections::HashMap::new();
+        m.insert("k".to_string(), Value::I32(42));
+        assert_eq!(
+            value_to_json(Value::Object(m)),
+            serde_json::json!({"k": 42})
+        );
+    }
+
+    #[test]
+    fn test_t6_rows_to_values_empty() {
+        let rows: Vec<std::collections::HashMap<String, Value>> = vec![];
+        match rows_to_values(rows) {
+            Value::Array(items) => assert!(items.is_empty()),
+            _ => panic!("expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_t6_rows_to_values_with_data() {
+        let mut row = std::collections::HashMap::new();
+        row.insert("name".to_string(), Value::String("alice".to_string()));
+        row.insert("age".to_string(), Value::I32(30));
+        let result = rows_to_values(vec![row]);
+        match result {
+            Value::Array(items) => {
+                assert_eq!(items.len(), 1);
+                match &items[0] {
+                    Value::Object(m) => {
+                        assert_eq!(m.len(), 2);
+                        assert_eq!(m.get("name"), Some(&Value::String("alice".to_string())));
+                    }
+                    _ => panic!("expected Object"),
+                }
+            }
+            _ => panic!("expected Array"),
+        }
+    }
+
+    #[test]
+    fn test_t6_timestamp_fields_new_variants() {
+        let ts = TimestampFields::new(None, None);
+        assert!(ts.created_at.is_none());
+        assert!(ts.updated_at.is_none());
+        let ts = TimestampFields::new(Some("c"), None);
+        assert_eq!(ts.created_at, Some("c"));
+    }
 }

@@ -1181,4 +1181,539 @@ mod tests {
         assert_eq!(format!("{}", v), "'hello'");
         assert_eq!(v.to_param(), "'hello'");
     }
+
+    // ---- T26b：覆盖率提升测试 ----
+
+    #[test]
+    fn t26v_clonecheap_copy() {
+        assert_eq!(Value::Null.clonecheap(), Value::Null);
+        assert_eq!(Value::Bool(true).clonecheap(), Value::Bool(true));
+        assert_eq!(Value::I8(-1).clonecheap(), Value::I8(-1));
+        assert_eq!(Value::I16(-2).clonecheap(), Value::I16(-2));
+        assert_eq!(Value::I32(-3).clonecheap(), Value::I32(-3));
+        assert_eq!(Value::I64(-4).clonecheap(), Value::I64(-4));
+        assert_eq!(Value::U8(5).clonecheap(), Value::U8(5));
+        assert_eq!(Value::U16(6).clonecheap(), Value::U16(6));
+        assert_eq!(Value::U32(7).clonecheap(), Value::U32(7));
+        assert_eq!(Value::U64(8).clonecheap(), Value::U64(8));
+        assert_eq!(Value::F32(1.5).clonecheap(), Value::F32(1.5));
+        assert_eq!(Value::F64(2.5).clonecheap(), Value::F64(2.5));
+    }
+
+    #[test]
+    fn t26v_clonecheap_non_copy() {
+        let s = Value::String("hello".to_string());
+        assert_eq!(s.clonecheap(), s);
+        let b = Value::Bytes(vec![1, 2, 3]);
+        assert_eq!(b.clonecheap(), b);
+        let d = Value::Decimal("1.23".to_string());
+        assert_eq!(d.clonecheap(), d);
+        let arr = Value::Array(vec![Value::I64(1)]);
+        assert_eq!(arr.clonecheap(), arr);
+        let obj = Value::Object(std::collections::HashMap::from([(
+            "k".to_string(),
+            Value::I64(1),
+        )]));
+        assert_eq!(obj.clonecheap(), obj);
+        assert_eq!(
+            Value::Uuid("u".to_string()).clonecheap(),
+            Value::Uuid("u".to_string())
+        );
+        assert_eq!(
+            Value::Date("d".to_string()).clonecheap(),
+            Value::Date("d".to_string())
+        );
+        assert_eq!(
+            Value::DateTime("dt".to_string()).clonecheap(),
+            Value::DateTime("dt".to_string())
+        );
+        assert_eq!(
+            Value::Time("t".to_string()).clonecheap(),
+            Value::Time("t".to_string())
+        );
+        assert_eq!(
+            Value::Json("j".to_string()).clonecheap(),
+            Value::Json("j".to_string())
+        );
+    }
+
+    #[test]
+    fn t26v_is_predicates() {
+        assert!(Value::Bool(false).is_bool());
+        assert!(Value::I64(0).is_i64());
+        assert!(Value::F64(0.0).is_f64());
+        assert!(Value::String("x".to_string()).is_string());
+        assert!(Value::Bytes(vec![]).is_bytes());
+        assert!(Value::Object(std::collections::HashMap::new()).is_object());
+        assert!(!Value::Null.is_bool());
+        assert!(!Value::Bool(true).is_i64());
+        assert!(!Value::I64(1).is_f64());
+        assert!(!Value::F64(1.0).is_string());
+        assert!(!Value::String("y".to_string()).is_bytes());
+        assert!(!Value::Bytes(vec![1]).is_object());
+    }
+
+    #[test]
+    fn t26v_from_map() {
+        let map = std::collections::HashMap::from([("k".to_string(), Value::I64(1))]);
+        let v = Value::from_map(map);
+        assert!(v.is_object());
+        assert_eq!(v.to_param(), "NULL");
+    }
+
+    #[test]
+    fn t26v_as_str() {
+        assert_eq!(Value::String("hello".to_string()).as_str(), Some("hello"));
+        assert_eq!(Value::Decimal("1.23".to_string()).as_str(), Some("1.23"));
+        assert!(Value::I64(42).as_str().is_none());
+        assert!(Value::Null.as_str().is_none());
+    }
+
+    #[test]
+    fn t26v_as_i64_int_variants() {
+        assert_eq!(Value::I8(-1).as_i64(), Some(-1));
+        assert_eq!(Value::I16(-2).as_i64(), Some(-2));
+        assert_eq!(Value::I32(-3).as_i64(), Some(-3));
+        assert_eq!(Value::I64(42).as_i64(), Some(42));
+        assert_eq!(Value::U8(5).as_i64(), Some(5));
+        assert_eq!(Value::U16(6).as_i64(), Some(6));
+        assert_eq!(Value::U32(7).as_i64(), Some(7));
+        assert_eq!(Value::U64(8).as_i64(), Some(8));
+    }
+
+    #[test]
+    fn t26v_as_i64_u64_overflow() {
+        assert_eq!(Value::U64(u64::MAX).as_i64(), None);
+        assert_eq!(Value::U64(i64::MAX as u64).as_i64(), Some(i64::MAX));
+    }
+
+    #[test]
+    fn t26v_as_i64_float_bool() {
+        assert_eq!(Value::F32(1.5).as_i64(), Some(1));
+        assert_eq!(Value::F64(2.5).as_i64(), Some(2));
+        assert_eq!(Value::Bool(true).as_i64(), Some(1));
+        assert_eq!(Value::Bool(false).as_i64(), Some(0));
+    }
+
+    #[test]
+    fn t26v_as_i64_string_decimal() {
+        assert_eq!(Value::String("42".to_string()).as_i64(), Some(42));
+        assert!(Value::String("test".to_string()).as_i64().is_none());
+        assert_eq!(Value::Decimal("42".to_string()).as_i64(), Some(42));
+        assert!(Value::Decimal("1.23".to_string()).as_i64().is_none());
+    }
+
+    #[test]
+    fn t26v_as_i64_null_other() {
+        assert!(Value::Null.as_i64().is_none());
+        assert!(Value::Bytes(vec![1]).as_i64().is_none());
+        assert!(Value::Array(vec![]).as_i64().is_none());
+        assert!(Value::Date("d".to_string()).as_i64().is_none());
+    }
+
+    #[test]
+    fn t26v_as_f64_all() {
+        assert_eq!(Value::F32(1.5).as_f64(), Some(1.5));
+        assert_eq!(Value::F64(2.5).as_f64(), Some(2.5));
+        assert_eq!(Value::I8(-1).as_f64(), Some(-1.0));
+        assert_eq!(Value::I16(-2).as_f64(), Some(-2.0));
+        assert_eq!(Value::I32(-3).as_f64(), Some(-3.0));
+        assert_eq!(Value::I64(42).as_f64(), Some(42.0));
+        assert_eq!(Value::U8(5).as_f64(), Some(5.0));
+        assert_eq!(Value::U16(6).as_f64(), Some(6.0));
+        assert_eq!(Value::U32(7).as_f64(), Some(7.0));
+        assert_eq!(Value::U64(8).as_f64(), Some(8.0));
+        assert_eq!(Value::Bool(true).as_f64(), Some(1.0));
+        assert_eq!(Value::Bool(false).as_f64(), Some(0.0));
+        assert_eq!(Value::Decimal("1.5".to_string()).as_f64(), Some(1.5));
+        assert!(Value::Decimal("abc".to_string()).as_f64().is_none());
+        assert!(Value::Null.as_f64().is_none());
+        assert!(Value::String("1.5".to_string()).as_f64().is_none());
+        assert!(Value::Bytes(vec![]).as_f64().is_none());
+    }
+
+    #[test]
+    fn t26v_as_bool_int_float() {
+        assert_eq!(Value::Bool(true).as_bool(), Some(true));
+        assert_eq!(Value::Bool(false).as_bool(), Some(false));
+        assert_eq!(Value::I8(1).as_bool(), Some(true));
+        assert_eq!(Value::I8(0).as_bool(), Some(false));
+        assert_eq!(Value::I16(1).as_bool(), Some(true));
+        assert_eq!(Value::I32(1).as_bool(), Some(true));
+        assert_eq!(Value::I64(1).as_bool(), Some(true));
+        assert_eq!(Value::U8(1).as_bool(), Some(true));
+        assert_eq!(Value::U16(1).as_bool(), Some(true));
+        assert_eq!(Value::U32(1).as_bool(), Some(true));
+        assert_eq!(Value::U64(1).as_bool(), Some(true));
+        assert_eq!(Value::F32(1.5).as_bool(), Some(true));
+        assert_eq!(Value::F32(0.0).as_bool(), Some(false));
+        assert_eq!(Value::F64(1.5).as_bool(), Some(true));
+        assert_eq!(Value::F64(0.0).as_bool(), Some(false));
+    }
+
+    #[test]
+    fn t26v_as_bool_string() {
+        assert_eq!(Value::String("1".to_string()).as_bool(), Some(true));
+        assert_eq!(Value::String("true".to_string()).as_bool(), Some(true));
+        assert_eq!(Value::String("yes".to_string()).as_bool(), Some(true));
+        assert_eq!(Value::String("on".to_string()).as_bool(), Some(true));
+        assert_eq!(Value::String("TRUE".to_string()).as_bool(), Some(true));
+        assert_eq!(Value::String("0".to_string()).as_bool(), Some(false));
+        assert_eq!(Value::String("false".to_string()).as_bool(), Some(false));
+        assert_eq!(Value::String("no".to_string()).as_bool(), Some(false));
+        assert_eq!(Value::String("off".to_string()).as_bool(), Some(false));
+        assert!(Value::String("maybe".to_string()).as_bool().is_none());
+    }
+
+    #[test]
+    fn t26v_as_bool_null_other() {
+        assert_eq!(Value::Null.as_bool(), Some(false));
+        assert!(Value::Decimal("1".to_string()).as_bool().is_none());
+        assert!(Value::Bytes(vec![]).as_bool().is_none());
+        assert!(Value::Array(vec![]).as_bool().is_none());
+        assert!(Value::Object(std::collections::HashMap::new())
+            .as_bool()
+            .is_none());
+    }
+
+    #[test]
+    fn t26v_as_bytes() {
+        assert_eq!(
+            Value::Bytes(vec![1, 2, 3]).as_bytes(),
+            Some(&[1u8, 2, 3][..])
+        );
+        assert_eq!(
+            Value::String("abc".to_string()).as_bytes(),
+            Some(&b"abc"[..])
+        );
+        assert!(Value::I64(42).as_bytes().is_none());
+        assert!(Value::Null.as_bytes().is_none());
+    }
+
+    #[test]
+    fn t26v_to_param_numeric() {
+        assert_eq!(Value::Null.to_param(), "NULL");
+        assert_eq!(Value::Bool(true).to_param(), "TRUE");
+        assert_eq!(Value::Bool(false).to_param(), "FALSE");
+        assert_eq!(Value::I8(-1).to_param(), "-1");
+        assert_eq!(Value::I16(-2).to_param(), "-2");
+        assert_eq!(Value::I32(-3).to_param(), "-3");
+        assert_eq!(Value::I64(42).to_param(), "42");
+        assert_eq!(Value::U8(5).to_param(), "5");
+        assert_eq!(Value::U16(6).to_param(), "6");
+        assert_eq!(Value::U32(7).to_param(), "7");
+        assert_eq!(Value::U64(8).to_param(), "8");
+        assert_eq!(Value::F32(1.5).to_param(), "1.5");
+        assert_eq!(Value::F64(2.5).to_param(), "2.5");
+        assert_eq!(Value::Decimal("1.23".to_string()).to_param(), "1.23");
+    }
+
+    #[test]
+    fn t26v_to_param_string_like() {
+        assert_eq!(Value::String("test".to_string()).to_param(), "'test'");
+        assert_eq!(Value::String("it's".to_string()).to_param(), "'it''s'");
+        assert_eq!(Value::Uuid("u".to_string()).to_param(), "'u'");
+        assert_eq!(
+            Value::Date("2026-01-01".to_string()).to_param(),
+            "'2026-01-01'"
+        );
+        assert_eq!(
+            Value::DateTime("2026-01-01T00:00:00".to_string()).to_param(),
+            "'2026-01-01T00:00:00'"
+        );
+        assert_eq!(Value::Time("00:00:00".to_string()).to_param(), "'00:00:00'");
+        assert_eq!(
+            Value::Json("{\"a\":1}".to_string()).to_param(),
+            "'{\"a\":1}'"
+        );
+    }
+
+    #[test]
+    fn t26v_to_param_bytes() {
+        assert_eq!(Value::Bytes(vec![]).to_param(), "X''");
+        assert_eq!(Value::Bytes(vec![0x01, 0xff]).to_param(), "X'01ff'");
+    }
+
+    #[test]
+    fn t26v_to_param_array_object() {
+        let arr = Value::Array(vec![Value::I64(1), Value::String("a".to_string())]);
+        assert_eq!(arr.to_param(), "(1, 'a')");
+        let obj = Value::Object(std::collections::HashMap::from([(
+            "k".to_string(),
+            Value::I64(1),
+        )]));
+        assert_eq!(obj.to_param(), "NULL");
+    }
+
+    #[test]
+    fn t26v_to_param_with_dialect() {
+        use crate::dialect::MySqlDialect;
+        let dialect = MySqlDialect;
+        assert_eq!(Value::Null.to_param_with_dialect(&dialect), "NULL");
+        assert_eq!(Value::I64(42).to_param_with_dialect(&dialect), "42");
+        assert_eq!(Value::Bool(true).to_param_with_dialect(&dialect), "TRUE");
+        assert_eq!(
+            Value::String("hello'world".to_string()).to_param_with_dialect(&dialect),
+            "'hello\\'world'"
+        );
+        assert_eq!(
+            Value::Bytes(vec![0x01, 0xff]).to_param_with_dialect(&dialect),
+            "X'01ff'"
+        );
+        let arr = Value::Array(vec![Value::I64(1), Value::I64(2)]);
+        assert_eq!(arr.to_param_with_dialect(&dialect), "(1, 2)");
+        let obj = Value::Object(std::collections::HashMap::new());
+        assert_eq!(obj.to_param_with_dialect(&dialect), "NULL");
+    }
+
+    #[test]
+    fn t26v_display_all() {
+        assert_eq!(format!("{}", Value::Null), "NULL");
+        assert_eq!(format!("{}", Value::Bool(true)), "true");
+        assert_eq!(format!("{}", Value::Bool(false)), "false");
+        assert_eq!(format!("{}", Value::I8(-1)), "-1");
+        assert_eq!(format!("{}", Value::I16(-2)), "-2");
+        assert_eq!(format!("{}", Value::I32(-3)), "-3");
+        assert_eq!(format!("{}", Value::I64(42)), "42");
+        assert_eq!(format!("{}", Value::U8(5)), "5");
+        assert_eq!(format!("{}", Value::U16(6)), "6");
+        assert_eq!(format!("{}", Value::U32(7)), "7");
+        assert_eq!(format!("{}", Value::U64(8)), "8");
+        assert_eq!(format!("{}", Value::F32(1.5)), "1.5");
+        assert_eq!(format!("{}", Value::F64(2.5)), "2.5");
+        assert_eq!(format!("{}", Value::Decimal("1.23".to_string())), "1.23");
+        assert_eq!(format!("{}", Value::String("x".to_string())), "'x'");
+        assert_eq!(format!("{}", Value::Bytes(vec![0x01, 0xff])), "X'01ff'");
+        assert_eq!(format!("{}", Value::Uuid("u".to_string())), "'u'");
+        assert_eq!(format!("{}", Value::Date("d".to_string())), "'d'");
+        assert_eq!(format!("{}", Value::DateTime("dt".to_string())), "'dt'");
+        assert_eq!(format!("{}", Value::Time("t".to_string())), "'t'");
+        assert_eq!(format!("{}", Value::Json("j".to_string())), "'j'");
+        assert_eq!(
+            format!("{}", Value::Array(vec![Value::I64(1), Value::I64(2)])),
+            "(1, 2)"
+        );
+        let obj = Value::Object(std::collections::HashMap::from([(
+            "k".to_string(),
+            Value::I64(1),
+        )]));
+        assert_eq!(format!("{}", obj), "{k: 1}");
+    }
+
+    #[test]
+    fn t26v_from_integers() {
+        assert_eq!(Value::from(-1i8), Value::I8(-1));
+        assert_eq!(Value::from(-2i16), Value::I16(-2));
+        assert_eq!(Value::from(-3i32), Value::I32(-3));
+        assert_eq!(Value::from(42i64), Value::I64(42));
+        assert_eq!(Value::from(5u8), Value::U8(5));
+        assert_eq!(Value::from(6u16), Value::U16(6));
+        assert_eq!(Value::from(7u32), Value::U32(7));
+        assert_eq!(Value::from(8u64), Value::U64(8));
+        let v: Value = ().into();
+        assert_eq!(v, Value::Null);
+        let v: Value = true.into();
+        assert_eq!(v, Value::Bool(true));
+    }
+
+    #[test]
+    fn t26v_from_floats_strings() {
+        assert_eq!(Value::from(1.5f32), Value::F32(1.5));
+        assert_eq!(Value::from(2.5f64), Value::F64(2.5));
+        let v: Value = "hello".into();
+        assert_eq!(v, Value::String("hello".to_string()));
+        let v: Value = String::from("world").into();
+        assert_eq!(v, Value::String("world".to_string()));
+    }
+
+    #[test]
+    fn t26v_from_collections() {
+        let v: Value = vec![1u8, 2, 3].into();
+        assert_eq!(v, Value::Bytes(vec![1, 2, 3]));
+        let v: Value = [1u8, 2, 3].as_slice().into();
+        assert_eq!(v, Value::Bytes(vec![1, 2, 3]));
+        let arr: Vec<Value> = vec![Value::I64(1), Value::I64(2)];
+        let v: Value = arr.into();
+        assert_eq!(v, Value::Array(vec![Value::I64(1), Value::I64(2)]));
+    }
+
+    #[test]
+    fn t26v_from_value_int_errors() {
+        assert!(i64::from_value(&Value::Null).is_err());
+        assert!(i64::from_value(&Value::Bool(true)).is_err());
+        assert!(i64::from_value(&Value::String("x".to_string())).is_err());
+        assert!(i32::from_value(&Value::I64(42)).is_err());
+        assert!(u8::from_value(&Value::Null).is_err());
+        assert_eq!(i64::from_value(&Value::I64(42)), Ok(42));
+        assert_eq!(u32::from_value(&Value::U32(7)), Ok(7));
+    }
+
+    #[test]
+    fn t26v_from_value_float_errors() {
+        assert!(f64::from_value(&Value::Null).is_err());
+        assert!(f64::from_value(&Value::Bool(true)).is_err());
+        assert!(f32::from_value(&Value::I64(42)).is_err());
+        assert_eq!(f64::from_value(&Value::F64(2.5)), Ok(2.5));
+        assert_eq!(f32::from_value(&Value::F32(1.5)), Ok(1.5));
+    }
+
+    #[test]
+    fn t26v_from_value_bool_all() {
+        assert_eq!(bool::from_value(&Value::Bool(true)), Ok(true));
+        assert_eq!(bool::from_value(&Value::Bool(false)), Ok(false));
+        assert_eq!(bool::from_value(&Value::I64(1)), Ok(true));
+        assert_eq!(bool::from_value(&Value::I64(0)), Ok(false));
+        assert!(bool::from_value(&Value::Null).is_err());
+        assert!(bool::from_value(&Value::String("true".to_string())).is_err());
+    }
+
+    #[test]
+    fn t26v_from_value_string_all() {
+        assert_eq!(
+            String::from_value(&Value::String("x".to_string())),
+            Ok("x".to_string())
+        );
+        assert_eq!(
+            String::from_value(&Value::Decimal("1.23".to_string())),
+            Ok("1.23".to_string())
+        );
+        assert_eq!(
+            String::from_value(&Value::Uuid("u".to_string())),
+            Ok("u".to_string())
+        );
+        assert_eq!(
+            String::from_value(&Value::Date("d".to_string())),
+            Ok("d".to_string())
+        );
+        assert_eq!(
+            String::from_value(&Value::DateTime("dt".to_string())),
+            Ok("dt".to_string())
+        );
+        assert_eq!(
+            String::from_value(&Value::Time("t".to_string())),
+            Ok("t".to_string())
+        );
+        assert_eq!(
+            String::from_value(&Value::Json("j".to_string())),
+            Ok("j".to_string())
+        );
+        assert!(String::from_value(&Value::Null).is_err());
+        assert!(String::from_value(&Value::I64(42)).is_err());
+    }
+
+    #[test]
+    fn t26v_from_value_option_and_unit() {
+        assert_eq!(Option::<i64>::from_value(&Value::Null), Ok(None));
+        assert_eq!(Option::<i64>::from_value(&Value::I64(42)), Ok(Some(42)));
+        assert!(Option::<i64>::from_value(&Value::Bool(true)).is_err());
+        assert_eq!(<()>::from_value(&Value::Null), Ok(()));
+        assert_eq!(<()>::from_value(&Value::I64(42)), Ok(()));
+    }
+
+    #[test]
+    fn t26v_from_query_result_defaults() {
+        let row = std::collections::HashMap::new();
+        assert!(i64::from_query_result(&row).is_err());
+        assert!(i64::from_row(&row).is_err());
+        assert!(i64::row_desc().is_empty());
+        assert!(i64::column_types().is_empty());
+    }
+
+    #[test]
+    fn t26v_rows_to() {
+        let empty: crate::pool::QueryRows = vec![];
+        let result: Vec<i64> = rows_to::<i64>(&empty).unwrap();
+        assert!(result.is_empty());
+        let row = std::collections::HashMap::from([("id".to_string(), Value::I64(1))]);
+        let rows: crate::pool::QueryRows = vec![row];
+        assert!(rows_to::<i64>(&rows).is_err());
+    }
+
+    #[test]
+    fn t26v_col_type_parse_sqlite() {
+        assert_eq!(ColType::parse_sqlite(""), ColType::Unknown);
+        assert_eq!(ColType::parse_sqlite("INTEGER"), ColType::I64);
+        assert_eq!(ColType::parse_sqlite("INT"), ColType::I64);
+        assert_eq!(ColType::parse_sqlite("BIGINT"), ColType::I64);
+        assert_eq!(ColType::parse_sqlite("TINYINT"), ColType::I64);
+        assert_eq!(ColType::parse_sqlite("BOOLEAN"), ColType::Bool);
+        assert_eq!(ColType::parse_sqlite("REAL"), ColType::F64);
+        assert_eq!(ColType::parse_sqlite("DOUBLE"), ColType::F64);
+        assert_eq!(ColType::parse_sqlite("DECIMAL"), ColType::Decimal);
+        assert_eq!(ColType::parse_sqlite("TEXT"), ColType::String);
+        assert_eq!(ColType::parse_sqlite("BLOB"), ColType::Bytes);
+        assert_eq!(ColType::parse_sqlite("DATE"), ColType::Date);
+        assert_eq!(ColType::parse_sqlite("DATETIME"), ColType::DateTime);
+        assert_eq!(ColType::parse_sqlite("TIME"), ColType::Time);
+        assert_eq!(ColType::parse_sqlite("JSON"), ColType::Json);
+        assert_eq!(ColType::parse_sqlite("UNKNOWN"), ColType::Unknown);
+    }
+
+    #[test]
+    fn t26v_col_type_parse_mysql() {
+        assert_eq!(ColType::parse_mysql("TINYINT"), ColType::I8);
+        assert_eq!(ColType::parse_mysql("SMALLINT"), ColType::I16);
+        assert_eq!(ColType::parse_mysql("INT"), ColType::I32);
+        assert_eq!(ColType::parse_mysql("BIGINT"), ColType::I64);
+        assert_eq!(ColType::parse_mysql("YEAR"), ColType::I16);
+        assert_eq!(ColType::parse_mysql("FLOAT"), ColType::F32);
+        assert_eq!(ColType::parse_mysql("DOUBLE"), ColType::F64);
+        assert_eq!(ColType::parse_mysql("DECIMAL"), ColType::Decimal);
+        assert_eq!(ColType::parse_mysql("ENUM"), ColType::String);
+        assert_eq!(ColType::parse_mysql("LONGBLOB"), ColType::Bytes);
+        assert_eq!(ColType::parse_mysql("DATE"), ColType::Date);
+        assert_eq!(ColType::parse_mysql("DATETIME"), ColType::DateTime);
+        assert_eq!(ColType::parse_mysql("JSON"), ColType::Json);
+        assert_eq!(ColType::parse_mysql("BOOLEAN"), ColType::Bool);
+        assert_eq!(ColType::parse_mysql("UUID"), ColType::Uuid);
+    }
+
+    #[test]
+    fn t26v_col_type_parse_postgres() {
+        assert_eq!(ColType::parse_postgres("BOOL"), ColType::Bool);
+        assert_eq!(ColType::parse_postgres("INT2"), ColType::I16);
+        assert_eq!(ColType::parse_postgres("INT4"), ColType::I32);
+        assert_eq!(ColType::parse_postgres("INT8"), ColType::I64);
+        assert_eq!(ColType::parse_postgres("OID"), ColType::I32);
+        assert_eq!(ColType::parse_postgres("FLOAT4"), ColType::F32);
+        assert_eq!(ColType::parse_postgres("FLOAT8"), ColType::F64);
+        assert_eq!(ColType::parse_postgres("NUMERIC"), ColType::Decimal);
+        assert_eq!(ColType::parse_postgres("MONEY"), ColType::Decimal);
+        assert_eq!(ColType::parse_postgres("BPCHAR"), ColType::String);
+        assert_eq!(ColType::parse_postgres("CITEXT"), ColType::String);
+        assert_eq!(ColType::parse_postgres("BYTEA"), ColType::Bytes);
+        assert_eq!(ColType::parse_postgres("TIMETZ"), ColType::Time);
+        assert_eq!(ColType::parse_postgres("TIMESTAMPTZ"), ColType::DateTime);
+        assert_eq!(ColType::parse_postgres("JSONB"), ColType::Json);
+        assert_eq!(ColType::parse_postgres("UUID"), ColType::Uuid);
+    }
+
+    #[test]
+    fn t26v_const_str_eq_edge() {
+        assert!(__sz_orm_const_str_eq("a", "a"));
+        assert!(!__sz_orm_const_str_eq("a", "b"));
+        assert!(!__sz_orm_const_str_eq("ab", "ba"));
+        assert!(!__sz_orm_const_str_eq("abc", "ab"));
+    }
+
+    #[test]
+    fn t26v_const_types_compatible_categories() {
+        assert!(__sz_orm_const_types_compatible("TINYINT", "TINYINT"));
+        assert!(__sz_orm_const_types_compatible("SMALLINT", "INT2"));
+        assert!(__sz_orm_const_types_compatible(
+            "TINYINT UNSIGNED",
+            "TINYINT UNSIGNED"
+        ));
+        assert!(__sz_orm_const_types_compatible("FLOAT", "REAL"));
+        assert!(__sz_orm_const_types_compatible("DOUBLE", "FLOAT8"));
+        assert!(__sz_orm_const_types_compatible("MONEY", "DECIMAL"));
+        assert!(__sz_orm_const_types_compatible("BLOB", "BYTEA"));
+        assert!(__sz_orm_const_types_compatible("TIME", "TIMETZ"));
+        assert!(__sz_orm_const_types_compatible("UUID", "UUID"));
+        assert!(__sz_orm_const_types_compatible("BOOL", "BOOLEAN"));
+        assert!(!__sz_orm_const_types_compatible("TINYINT", "SMALLINT"));
+        assert!(!__sz_orm_const_types_compatible("FLOAT", "DOUBLE"));
+        assert!(!__sz_orm_const_types_compatible("DATE", "TIME"));
+        assert!(!__sz_orm_const_types_compatible("UUID", "TEXT"));
+    }
 }

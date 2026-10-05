@@ -808,4 +808,238 @@ mod tests {
         assert_eq!(cloned.array_heap_fallbacks(), 1);
         assert_eq!(cloned.object_heap_fallbacks(), 1);
     }
+
+    #[test]
+    fn t26zcp_stats_total_and_hit_rate_empty() {
+        let stats = ZeroCopyStats::new();
+        assert_eq!(stats.total(), 0);
+        assert_eq!(stats.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn t26zcp_stats_total_and_hit_rate_nonempty() {
+        let stats = ZeroCopyStats::new();
+        for _ in 0..3 {
+            stats.record_zero_copy_hit();
+        }
+        for _ in 0..1 {
+            stats.record_fallback_copy();
+        }
+        assert_eq!(stats.total(), 4);
+        assert!((stats.hit_rate() - 0.75).abs() < 1e-9);
+    }
+
+    #[test]
+    fn t26zcp_stats_rss_tracking() {
+        let stats = ZeroCopyStats::new();
+        stats.record_rss(1000);
+        stats.record_rss(500);
+        assert_eq!(stats.peak_rss_bytes(), 1000);
+        stats.record_rss(2000);
+        assert_eq!(stats.peak_rss_bytes(), 2000);
+    }
+
+    #[test]
+    fn t26zcp_stats_rss_reduction_pct() {
+        let stats = ZeroCopyStats::new();
+        stats.record_rss(800);
+        assert_eq!(stats.rss_reduction_pct(0), 0.0);
+        assert_eq!(stats.rss_reduction_pct(800), 0.0);
+        assert!((stats.rss_reduction_pct(1000) - 20.0).abs() < 1e-9);
+    }
+
+    #[test]
+    fn t26zcp_stats_allocation_count() {
+        let stats = ZeroCopyStats::new();
+        stats.record_allocation();
+        stats.record_allocation();
+        assert_eq!(stats.allocation_count(), 2);
+    }
+
+    #[test]
+    fn t26zcp_stats_type_misses() {
+        let stats = ZeroCopyStats::new();
+        stats.record_decimal_bytes_miss();
+        stats.record_decimal_bytes_miss();
+        stats.record_json_bytes_miss();
+        stats.record_bytes_ref_miss();
+        stats.record_datetime_int_miss();
+        assert_eq!(stats.decimal_bytes_misses(), 2);
+        assert_eq!(stats.json_bytes_misses(), 1);
+        assert_eq!(stats.bytes_ref_misses(), 1);
+        assert_eq!(stats.datetime_int_misses(), 1);
+        assert_eq!(stats.total_type_misses(), 5);
+    }
+
+    #[test]
+    fn t26zcp_row_get_not_found() {
+        let row = ZeroCopyRow {
+            columns: Arc::new(vec!["a".to_string()]),
+            data: Bytes::from(vec![1u8]),
+            offsets: vec![(0, 1)],
+        };
+        assert!(row.get("b").is_none());
+    }
+
+    #[test]
+    fn t26zcp_row_column_count() {
+        let row = ZeroCopyRow {
+            columns: Arc::new(vec!["a".to_string(), "b".to_string()]),
+            data: Bytes::from(vec![1u8, 2u8]),
+            offsets: vec![(0, 1), (1, 1)],
+        };
+        assert_eq!(row.column_count(), 2);
+    }
+
+    #[test]
+    fn t26zcp_stream_next_row_and_remaining() {
+        let pipeline = ZeroCopyPipeline::new();
+        let columns = vec!["id".to_string()];
+        let rows = make_rows(3, &["id"]);
+        let mut stream = pipeline.stream_rows(rows, &columns);
+        assert_eq!(stream.total_rows(), 3);
+        assert_eq!(stream.remaining(), 3);
+        assert!(stream.next_row().is_some());
+        assert_eq!(stream.remaining(), 2);
+        assert!(stream.next_row().is_some());
+        assert!(stream.next_row().is_some());
+        assert!(stream.next_row().is_none());
+        assert_eq!(stream.remaining(), 0);
+    }
+
+    #[test]
+    fn t26zcp_stream_stats() {
+        let pipeline = ZeroCopyPipeline::new();
+        let columns = vec!["id".to_string()];
+        let rows = make_rows(1, &["id"]);
+        let stream = pipeline.stream_rows(rows, &columns);
+        let _stats = stream.stats();
+    }
+
+    #[test]
+    fn t26zcp_pipeline_default() {
+        let pipeline = ZeroCopyPipeline::default();
+        assert_eq!(pipeline.stats().zero_copy_hits(), 0);
+    }
+
+    #[test]
+    fn t26zcp_type_registry_with_builtins() {
+        let reg = ZeroCopyTypeRegistry::with_builtins();
+        assert!(reg.is_supported(ZeroCopyTypeId::I32));
+        assert!(reg.is_supported(ZeroCopyTypeId::I64));
+        assert!(reg.is_supported(ZeroCopyTypeId::F32));
+        assert!(reg.is_supported(ZeroCopyTypeId::F64));
+        assert!(reg.is_supported(ZeroCopyTypeId::Bool));
+        assert!(reg.is_supported(ZeroCopyTypeId::String));
+        assert!(reg.is_supported(ZeroCopyTypeId::Bytes));
+        assert_eq!(reg.len(), 7);
+        assert!(!reg.is_empty());
+    }
+
+    #[test]
+    fn t26zcp_type_registry_empty() {
+        let reg = ZeroCopyTypeRegistry::empty();
+        assert!(reg.is_empty());
+        assert_eq!(reg.len(), 0);
+        assert!(!reg.is_supported(ZeroCopyTypeId::I32));
+    }
+
+    #[test]
+    fn t26zcp_type_registry_register() {
+        let mut reg = ZeroCopyTypeRegistry::empty();
+        reg.register(ZeroCopyTypeId::I32);
+        assert!(reg.is_supported(ZeroCopyTypeId::I32));
+        assert_eq!(reg.len(), 1);
+        reg.register(ZeroCopyTypeId::I32);
+        assert_eq!(reg.len(), 1);
+    }
+
+    #[test]
+    fn t26zcp_type_registry_default() {
+        let reg = ZeroCopyTypeRegistry::default();
+        assert_eq!(reg.len(), 7);
+    }
+
+    #[test]
+    fn t26zcp_try_parse_with_registry_all_supported() {
+        let pipeline = ZeroCopyPipeline::new();
+        let mut row = HashMap::new();
+        row.insert("name".to_string(), Value::String("hello".to_string()));
+        let columns = vec!["name".to_string()];
+        let reg = ZeroCopyTypeRegistry::with_builtins();
+        let result = pipeline.try_parse_with_registry(&row, &columns, &reg);
+        assert!(result.is_some());
+        let zc_row = result.unwrap();
+        assert_eq!(zc_row.get("name").unwrap(), b"hello");
+    }
+
+    #[test]
+    fn t26zcp_try_parse_with_registry_unsupported_type() {
+        let pipeline = ZeroCopyPipeline::new();
+        let mut row = HashMap::new();
+        row.insert("val".to_string(), Value::I64(42));
+        let columns = vec!["val".to_string()];
+        let mut reg = ZeroCopyTypeRegistry::with_builtins();
+        reg.register(ZeroCopyTypeId::I64);
+        let result = pipeline.try_parse_with_registry(&row, &columns, &reg);
+        assert!(result.is_some());
+    }
+
+    #[test]
+    fn t26zcp_try_parse_with_registry_type_not_in_registry() {
+        let pipeline = ZeroCopyPipeline::new();
+        let mut row = HashMap::new();
+        row.insert("val".to_string(), Value::I64(42));
+        let columns = vec!["val".to_string()];
+        let reg = ZeroCopyTypeRegistry::empty();
+        let result = pipeline.try_parse_with_registry(&row, &columns, &reg);
+        assert!(result.is_none());
+        assert!(pipeline.stats().fallback_copies() > 0);
+        assert!(pipeline.stats().allocation_count() > 0);
+    }
+
+    #[test]
+    fn t26zcp_try_parse_with_registry_missing_column() {
+        let pipeline = ZeroCopyPipeline::new();
+        let row = HashMap::new();
+        let columns = vec!["missing".to_string()];
+        let reg = ZeroCopyTypeRegistry::with_builtins();
+        let result = pipeline.try_parse_with_registry(&row, &columns, &reg);
+        assert!(result.is_some());
+        assert!(pipeline.stats().fallback_copies() > 0);
+    }
+
+    #[test]
+    fn t26zcp_try_parse_with_registry_bytes_value() {
+        let pipeline = ZeroCopyPipeline::new();
+        let mut row = HashMap::new();
+        row.insert("data".to_string(), Value::Bytes(vec![1u8, 2u8, 3u8]));
+        let columns = vec!["data".to_string()];
+        let reg = ZeroCopyTypeRegistry::with_builtins();
+        let result = pipeline.try_parse_with_registry(&row, &columns, &reg);
+        assert!(result.is_some());
+        assert_eq!(result.unwrap().get("data").unwrap(), &[1u8, 2u8, 3u8]);
+    }
+
+    #[test]
+    fn t26zcp_try_parse_with_registry_multiple_columns_mixed() {
+        let pipeline = ZeroCopyPipeline::new();
+        let mut row = HashMap::new();
+        row.insert("a".to_string(), Value::String("x".to_string()));
+        row.insert("b".to_string(), Value::I64(42));
+        let columns = vec!["a".to_string(), "b".to_string()];
+        let reg = ZeroCopyTypeRegistry::with_builtins();
+        let result = pipeline.try_parse_with_registry(&row, &columns, &reg);
+        assert!(result.is_some());
+        let zc_row = result.unwrap();
+        assert_eq!(zc_row.column_count(), 2);
+    }
+
+    #[test]
+    fn t26zcp_type_id_variants() {
+        assert_ne!(ZeroCopyTypeId::I32, ZeroCopyTypeId::I64);
+        assert_ne!(ZeroCopyTypeId::F32, ZeroCopyTypeId::F64);
+        assert_ne!(ZeroCopyTypeId::Bool, ZeroCopyTypeId::String);
+        assert_ne!(ZeroCopyTypeId::String, ZeroCopyTypeId::Bytes);
+    }
 }

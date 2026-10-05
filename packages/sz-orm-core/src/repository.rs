@@ -1951,4 +1951,408 @@ mod tests {
         assert_eq!(visited.len(), 10);
         assert_eq!(visited, vec![1, 2, 3, 4, 5, 6, 7, 8, 9, 10]);
     }
+
+    // ===== v9.0.0 覆盖率补全：t26rep_* 系列 =====
+
+    #[test]
+    fn t26rep_where_op_name_full() {
+        assert_eq!(WhereOp::Eq.name(), "eq");
+        assert_eq!(WhereOp::Ne.name(), "ne");
+        assert_eq!(WhereOp::Gt.name(), "gt");
+        assert_eq!(WhereOp::Ge.name(), "ge");
+        assert_eq!(WhereOp::Lt.name(), "lt");
+        assert_eq!(WhereOp::Le.name(), "le");
+        assert_eq!(WhereOp::Like.name(), "like");
+        assert_eq!(WhereOp::In.name(), "in");
+        assert_eq!(WhereOp::NotIn.name(), "not_in");
+        assert_eq!(WhereOp::IsNull.name(), "is_null");
+        assert_eq!(WhereOp::IsNotNull.name(), "is_not_null");
+        assert_eq!(WhereOp::Between.name(), "between");
+    }
+
+    #[test]
+    fn t26rep_value_matches_gt_cross_f64_i64() {
+        // F64 vs I64 的 Gt 交叉分支
+        assert!(value_matches(
+            &Value::F64(5.0),
+            WhereOp::Gt,
+            &Value::I64(3),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::F64(2.0),
+            WhereOp::Gt,
+            &Value::I64(3),
+            &[]
+        ));
+        // I64 vs F64 的 Gt 交叉分支
+        assert!(value_matches(
+            &Value::I64(5),
+            WhereOp::Gt,
+            &Value::F64(3.0),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::I64(2),
+            WhereOp::Gt,
+            &Value::F64(3.0),
+            &[]
+        ));
+        // Gt 不支持的类型组合返回 false
+        assert!(!value_matches(
+            &Value::Bool(true),
+            WhereOp::Gt,
+            &Value::Bool(false),
+            &[]
+        ));
+    }
+
+    #[test]
+    fn t26rep_value_matches_ge_lt_le_f64_string() {
+        // Ge F64
+        assert!(value_matches(
+            &Value::F64(5.0),
+            WhereOp::Ge,
+            &Value::F64(5.0),
+            &[]
+        ));
+        assert!(value_matches(
+            &Value::F64(6.0),
+            WhereOp::Ge,
+            &Value::F64(5.0),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::F64(4.0),
+            WhereOp::Ge,
+            &Value::F64(5.0),
+            &[]
+        ));
+        // Ge String
+        assert!(value_matches(
+            &Value::String("b".into()),
+            WhereOp::Ge,
+            &Value::String("a".into()),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::String("a".into()),
+            WhereOp::Ge,
+            &Value::String("b".into()),
+            &[]
+        ));
+        // Lt F64 + String
+        assert!(value_matches(
+            &Value::F64(4.0),
+            WhereOp::Lt,
+            &Value::F64(5.0),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::F64(5.0),
+            WhereOp::Lt,
+            &Value::F64(5.0),
+            &[]
+        ));
+        assert!(value_matches(
+            &Value::String("a".into()),
+            WhereOp::Lt,
+            &Value::String("b".into()),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::String("b".into()),
+            WhereOp::Lt,
+            &Value::String("a".into()),
+            &[]
+        ));
+        // Le F64 + String
+        assert!(value_matches(
+            &Value::F64(5.0),
+            WhereOp::Le,
+            &Value::F64(5.0),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::F64(6.0),
+            WhereOp::Le,
+            &Value::F64(5.0),
+            &[]
+        ));
+        assert!(value_matches(
+            &Value::String("a".into()),
+            WhereOp::Le,
+            &Value::String("b".into()),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::String("b".into()),
+            WhereOp::Le,
+            &Value::String("a".into()),
+            &[]
+        ));
+        // Ne
+        assert!(value_matches(
+            &Value::I64(1),
+            WhereOp::Ne,
+            &Value::I64(2),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::I64(1),
+            WhereOp::Ne,
+            &Value::I64(1),
+            &[]
+        ));
+        // IsNull / IsNotNull
+        assert!(value_matches(
+            &Value::Null,
+            WhereOp::IsNull,
+            &Value::Null,
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::I64(1),
+            WhereOp::IsNull,
+            &Value::Null,
+            &[]
+        ));
+        assert!(value_matches(
+            &Value::I64(1),
+            WhereOp::IsNotNull,
+            &Value::Null,
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::Null,
+            WhereOp::IsNotNull,
+            &Value::Null,
+            &[]
+        ));
+    }
+
+    #[test]
+    fn t26rep_value_matches_like_in_not_in() {
+        // Like 对非 String 类型返回 false
+        assert!(!value_matches(
+            &Value::I64(1),
+            WhereOp::Like,
+            &Value::I64(1),
+            &[]
+        ));
+        assert!(!value_matches(
+            &Value::F64(1.0),
+            WhereOp::Like,
+            &Value::F64(1.0),
+            &[]
+        ));
+        // In
+        assert!(value_matches(
+            &Value::I64(2),
+            WhereOp::In,
+            &Value::Null,
+            &[Value::I64(1), Value::I64(2)]
+        ));
+        assert!(!value_matches(
+            &Value::I64(3),
+            WhereOp::In,
+            &Value::Null,
+            &[Value::I64(1), Value::I64(2)]
+        ));
+        // NotIn
+        assert!(value_matches(
+            &Value::I64(3),
+            WhereOp::NotIn,
+            &Value::Null,
+            &[Value::I64(1), Value::I64(2)]
+        ));
+        assert!(!value_matches(
+            &Value::I64(2),
+            WhereOp::NotIn,
+            &Value::Null,
+            &[Value::I64(1), Value::I64(2)]
+        ));
+    }
+
+    #[test]
+    fn t26rep_value_matches_between_empty_extras() {
+        // Between extras 为空返回 false
+        assert!(!value_matches(
+            &Value::I64(5),
+            WhereOp::Between,
+            &Value::I64(1),
+            &[]
+        ));
+        // Between 正常命中
+        assert!(value_matches(
+            &Value::I64(5),
+            WhereOp::Between,
+            &Value::I64(1),
+            &[Value::I64(10)]
+        ));
+        // Below range
+        assert!(!value_matches(
+            &Value::I64(0),
+            WhereOp::Between,
+            &Value::I64(1),
+            &[Value::I64(10)]
+        ));
+        // Above range
+        assert!(!value_matches(
+            &Value::I64(11),
+            WhereOp::Between,
+            &Value::I64(1),
+            &[Value::I64(10)]
+        ));
+    }
+
+    #[test]
+    fn t26rep_find_by_missing_field_is_null_and_other() {
+        let repo = InMemoryRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "a@b.com"),
+            User::new(2, "Bob", 25, "b@b.com"),
+        ]);
+        // 不存在字段 + IsNull => true（所有实体都匹配）
+        let result = repo
+            .find_by(&[WhereCondition::null_check("nonexistent", WhereOp::IsNull)])
+            .unwrap();
+        assert_eq!(result.len(), 2);
+        // 不存在字段 + IsNotNull => false
+        let result = repo
+            .find_by(&[WhereCondition::null_check(
+                "nonexistent",
+                WhereOp::IsNotNull,
+            )])
+            .unwrap();
+        assert_eq!(result.len(), 0);
+        // 不存在字段 + Eq => false
+        let result = repo
+            .find_by(&[WhereCondition::new(
+                "nonexistent",
+                WhereOp::Eq,
+                Value::I64(1),
+            )])
+            .unwrap();
+        assert_eq!(result.len(), 0);
+    }
+
+    #[test]
+    fn t26rep_page_result_zero_total_and_no_next() {
+        // total=0 的分页
+        let pr: PageResult<i32> = PageResult::new(vec![], 0, 1, 10);
+        assert_eq!(pr.total_pages(), 0);
+        assert!(!pr.has_next());
+        assert!(!pr.has_prev());
+        // page >= total_pages 时无下一页
+        let pr2 = PageResult::new(vec![1, 2, 3], 30, 3, 10);
+        assert_eq!(pr2.total_pages(), 3);
+        assert!(!pr2.has_next());
+        assert!(pr2.has_prev());
+    }
+
+    #[test]
+    fn t26rep_generic_key_repo_clear_is_empty_from_vec_save_many() {
+        let repo: GenericKeyRepository<User, i64> = GenericKeyRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "a@b.com"),
+            User::new(2, "Bob", 25, "b@b.com"),
+        ]);
+        assert!(!repo.is_empty());
+        assert_eq!(repo.len(), 2);
+        repo.clear();
+        assert!(repo.is_empty());
+        assert_eq!(repo.len(), 0);
+        // save_many 默认实现
+        let saved = repo
+            .save_many(vec![
+                User::new(1, "Alice", 30, "a@b.com"),
+                User::new(2, "Bob", 25, "b@b.com"),
+            ])
+            .unwrap();
+        assert_eq!(saved.len(), 2);
+        assert_eq!(repo.len(), 2);
+        // save 更新已存在
+        repo.save(User::new(1, "Alice Updated", 31, "a2@b.com"))
+            .unwrap();
+        assert_eq!(repo.len(), 2);
+        let found = repo.find_by_id(&1).unwrap().unwrap();
+        assert_eq!(found.name, "Alice Updated");
+    }
+
+    #[test]
+    fn t26rep_generic_key_repo_find_one_by_count_by_delete_by() {
+        let repo: GenericKeyRepository<User, i64> = GenericKeyRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "a@b.com"),
+            User::new(2, "Bob", 30, "b@b.com"),
+            User::new(3, "Carol", 25, "c@b.com"),
+        ]);
+        // find_one_by 命中
+        let one = repo
+            .find_one_by(&[WhereCondition::new(
+                "name",
+                WhereOp::Eq,
+                Value::String("Bob".into()),
+            )])
+            .unwrap();
+        assert_eq!(one.unwrap().id, 2);
+        // find_one_by 未命中
+        let none = repo
+            .find_one_by(&[WhereCondition::new(
+                "name",
+                WhereOp::Eq,
+                Value::String("Missing".into()),
+            )])
+            .unwrap();
+        assert!(none.is_none());
+        // count_by
+        let count = repo
+            .count_by(&[WhereCondition::new("age", WhereOp::Eq, Value::I64(30))])
+            .unwrap();
+        assert_eq!(count, 2);
+        // delete_by
+        let deleted = repo
+            .delete_by(&[WhereCondition::new("age", WhereOp::Eq, Value::I64(30))])
+            .unwrap();
+        assert_eq!(deleted, 2);
+        assert_eq!(repo.len(), 1);
+    }
+
+    #[test]
+    fn t26rep_generic_key_repo_batch_update_and_or_filter_paginate_by() {
+        let repo: GenericKeyRepository<User, i64> = GenericKeyRepository::from_vec(vec![
+            User::new(1, "Alice", 30, "a@b.com"),
+            User::new(2, "Bob", 25, "b@b.com"),
+        ]);
+        // batch_update：1 存在更新，999 不存在跳过
+        let result = repo
+            .batch_update(vec![
+                User::new(1, "Alice Updated", 31, "a2@b.com"),
+                User::new(999, "Ghost", 1, "g@b.com"),
+            ])
+            .unwrap();
+        assert_eq!(result.updated_count(), 1);
+        assert_eq!(result.skipped, 1);
+        // find_by_with_or_filter：name 或 email 含 kw
+        let repo2: GenericKeyRepository<User, i64> = GenericKeyRepository::from_vec(vec![
+            User::new(1, "Alice_kw", 30, "a@b.com"),
+            User::new(2, "Bob", 25, "bob@kw.com"),
+            User::new(3, "Carol", 28, "c@b.com"),
+        ]);
+        let and: Vec<WhereCondition> = vec![];
+        let or = vec![
+            WhereCondition::new("name", WhereOp::Like, Value::String("%kw%".into())),
+            WhereCondition::new("email", WhereOp::Like, Value::String("%kw%".into())),
+        ];
+        let result = repo2.find_by_with_or_filter(&and, &or).unwrap();
+        assert_eq!(result.len(), 2);
+        // paginate_by
+        let page = repo2
+            .paginate_by(
+                &[WhereCondition::new("age", WhereOp::Ge, Value::I64(28))],
+                1,
+                10,
+            )
+            .unwrap();
+        assert_eq!(page.total, 2);
+        assert_eq!(page.items.len(), 2);
+    }
 }

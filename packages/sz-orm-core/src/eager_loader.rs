@@ -884,4 +884,272 @@ mod tests {
         assert_eq!(loader.children_count(), 1);
         assert_eq!(loader.child_names(), vec!["items"]);
     }
+
+    // ========================================================================
+    // v9.4.0 T10：eager_loader.rs 补测（66.9% → ≥ 90%）
+    // ========================================================================
+
+    #[test]
+    fn test_t10_nested_eager_result_leaf_row() {
+        let row = HashMap::from([("id".to_string(), Value::I64(1))]);
+        let leaf = NestedEagerResult::Leaf(row.clone());
+        assert_eq!(leaf.row(), &row);
+        assert!(leaf.children().is_empty());
+        assert!(leaf.is_leaf());
+    }
+
+    #[test]
+    fn test_t10_nested_eager_result_node_with_children() {
+        let row = HashMap::from([("id".to_string(), Value::I64(1))]);
+        let child_row = HashMap::from([("id".to_string(), Value::I64(10))]);
+        let child = NestedEagerResult::Leaf(child_row);
+        let node = NestedEagerResult::Node {
+            row: row.clone(),
+            children: vec![child],
+        };
+        assert_eq!(node.row(), &row);
+        assert_eq!(node.children().len(), 1);
+        assert!(!node.is_leaf());
+    }
+
+    #[test]
+    fn test_t10_nested_eager_result_node_empty_children() {
+        let row = HashMap::from([("id".to_string(), Value::I64(1))]);
+        let node = NestedEagerResult::Node {
+            row,
+            children: vec![],
+        };
+        assert!(node.children().is_empty());
+        assert!(!node.is_leaf());
+    }
+
+    #[test]
+    fn test_t10_nested_eager_result_deep_nesting() {
+        let row1 = HashMap::from([("id".to_string(), Value::I64(1))]);
+        let row2 = HashMap::from([("id".to_string(), Value::I64(2))]);
+        let row3 = HashMap::from([("id".to_string(), Value::I64(3))]);
+        let leaf3 = NestedEagerResult::Leaf(row3);
+        let node2 = NestedEagerResult::Node {
+            row: row2,
+            children: vec![leaf3],
+        };
+        let node1 = NestedEagerResult::Node {
+            row: row1,
+            children: vec![node2],
+        };
+        assert_eq!(node1.children().len(), 1);
+        assert_eq!(node1.children()[0].children().len(), 1);
+        assert!(node1.children()[0].children()[0].is_leaf());
+    }
+
+    #[test]
+    fn test_t10_eager_loader_smart_no_children() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel);
+        let smart = loader.smart();
+        assert_eq!(smart.children_count(), 0);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_smart_with_children() {
+        let rel1 = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let rel2 = RelationDef::new(
+            "items",
+            "orders",
+            "items",
+            "id",
+            "order_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel1).with(rel2);
+        let smart = loader.smart();
+        assert_eq!(smart.children_count(), 1);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_smart_preserves_cycle_policy() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel).with_cycle_policy(CyclePolicy::Error);
+        let _smart = loader.smart();
+    }
+
+    #[test]
+    fn test_t10_eager_loader_children_count_zero() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel);
+        assert_eq!(loader.children_count(), 0);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_child_names_empty() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel);
+        assert!(loader.child_names().is_empty());
+    }
+
+    #[test]
+    fn test_t10_eager_loader_child_names_multiple() {
+        let rel1 = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let rel2 = RelationDef::new(
+            "items",
+            "orders",
+            "items",
+            "id",
+            "order_id",
+            RelationKind::HasMany,
+        );
+        let rel3 = RelationDef::new(
+            "product",
+            "items",
+            "products",
+            "id",
+            "product_id",
+            RelationKind::BelongsTo,
+        );
+        let loader = EagerLoader::new(rel1).with(rel2).with(rel3);
+        assert_eq!(loader.child_names(), vec!["items", "product"]);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_deep_chain_5_levels() {
+        let rel1 = RelationDef::new("a", "t0", "t1", "id", "fk", RelationKind::HasMany);
+        let rel2 = RelationDef::new("b", "t1", "t2", "id", "fk", RelationKind::HasMany);
+        let rel3 = RelationDef::new("c", "t2", "t3", "id", "fk", RelationKind::HasMany);
+        let rel4 = RelationDef::new("d", "t3", "t4", "id", "fk", RelationKind::HasMany);
+        let loader = EagerLoader::new(rel1).with(rel2).with(rel3).with(rel4);
+        assert_eq!(loader.children_count(), 3);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_with_cycle_policy_truncate() {
+        let rel = RelationDef::new(
+            "orders",
+            "users",
+            "orders",
+            "id",
+            "user_id",
+            RelationKind::HasMany,
+        );
+        let loader = EagerLoader::new(rel).with_cycle_policy(CyclePolicy::Truncate);
+        let _ = loader;
+    }
+
+    #[test]
+    fn test_t10_value_to_key_all_variants() {
+        assert_eq!(value_to_key(&Value::Null), "null");
+        assert_eq!(value_to_key(&Value::Bool(true)), "bool:true");
+        assert_eq!(value_to_key(&Value::Bool(false)), "bool:false");
+        assert_eq!(value_to_key(&Value::I8(1)), "i8:1");
+        assert_eq!(value_to_key(&Value::I16(1)), "i16:1");
+        assert_eq!(value_to_key(&Value::I32(1)), "i32:1");
+        assert_eq!(value_to_key(&Value::I64(1)), "i64:1");
+        assert_eq!(value_to_key(&Value::U8(1)), "u8:1");
+        assert_eq!(value_to_key(&Value::U16(1)), "u16:1");
+        assert_eq!(value_to_key(&Value::U32(1)), "u32:1");
+        assert_eq!(value_to_key(&Value::U64(1)), "u64:1");
+        assert_eq!(value_to_key(&Value::F32(1.0)), "f32:1");
+        assert_eq!(value_to_key(&Value::F64(1.0)), "f64:1");
+        assert_eq!(value_to_key(&Value::String("abc".into())), "str:abc");
+    }
+
+    #[test]
+    fn test_t10_value_to_key_other() {
+        let key = value_to_key(&Value::Bytes(vec![1, 2]));
+        assert!(key.starts_with("other:"));
+    }
+
+    #[test]
+    fn test_t10_eager_result_type_alias() {
+        let row = HashMap::from([("id".to_string(), Value::I64(1))]);
+        let related = vec![HashMap::from([("id".to_string(), Value::I64(10))])];
+        let result: EagerResult = (row, related);
+        assert_eq!(result.0.len(), 1);
+        assert_eq!(result.1.len(), 1);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_with_has_one() {
+        let rel = RelationDef::new(
+            "profile",
+            "users",
+            "profiles",
+            "id",
+            "user_id",
+            RelationKind::HasOne,
+        );
+        let loader = EagerLoader::new(rel);
+        assert_eq!(loader.children_count(), 0);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_with_belongs_to() {
+        let rel = RelationDef::new(
+            "user",
+            "orders",
+            "users",
+            "id",
+            "user_id",
+            RelationKind::BelongsTo,
+        );
+        let loader = EagerLoader::new(rel);
+        assert_eq!(loader.children_count(), 0);
+    }
+
+    #[test]
+    fn test_t10_eager_loader_with_many_to_many() {
+        let rel = RelationDef::new_many_to_many(
+            "roles",
+            "users",
+            "roles",
+            "id",
+            "id",
+            "user_roles",
+            "user_id",
+            "role_id",
+        );
+        let loader = EagerLoader::new(rel);
+        assert_eq!(loader.children_count(), 0);
+    }
 }

@@ -402,6 +402,469 @@ mod tests {
         let result = router.route_read();
         assert!(result.degraded, "高延迟应降级到主库");
     }
+
+    // ===================== T15 新增测试（覆盖所有 pub fn/method 核心路径/边界/错误处理） =====================
+
+    #[test]
+    fn t15_select_empty_slaves_returns_none() {
+        let mut selector = WeightedRandomSelector::new();
+        assert!(selector.select(&[]).is_none());
+    }
+
+    #[test]
+    fn t15_select_all_zero_weights_returns_none() {
+        let mut selector = WeightedRandomSelector::new();
+        let slaves = vec![
+            WeightedSlave {
+                name: "A".into(),
+                weight: 0,
+                host: "h".into(),
+                port: 1,
+            },
+            WeightedSlave {
+                name: "B".into(),
+                weight: 0,
+                host: "h".into(),
+                port: 2,
+            },
+        ];
+        assert!(selector.select(&slaves).is_none());
+    }
+
+    #[test]
+    fn t15_select_single_slave_returns_zero() {
+        let mut selector = WeightedRandomSelector::new();
+        let slaves = vec![WeightedSlave {
+            name: "only".into(),
+            weight: 1,
+            host: "h".into(),
+            port: 1,
+        }];
+        for _ in 0..10 {
+            assert_eq!(selector.select(&slaves), Some(0));
+        }
+    }
+
+    #[test]
+    fn t15_select_multi_slaves_returns_valid_index() {
+        let mut selector = WeightedRandomSelector::new();
+        let slaves = vec![
+            WeightedSlave {
+                name: "A".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 1,
+            },
+            WeightedSlave {
+                name: "B".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 2,
+            },
+            WeightedSlave {
+                name: "C".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 3,
+            },
+        ];
+        for _ in 0..50 {
+            let idx = selector.select(&slaves).unwrap();
+            assert!(idx < 3);
+        }
+    }
+
+    #[test]
+    fn t15_lag_filter_all_filtered_returns_none() {
+        let mut selector = WeightedRandomSelector::new();
+        let slaves = vec![
+            WeightedSlave {
+                name: "A".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 1,
+            },
+            WeightedSlave {
+                name: "B".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 2,
+            },
+        ];
+        let mut lag = HashMap::new();
+        lag.insert("A".into(), 100u64);
+        lag.insert("B".into(), 200u64);
+        assert_eq!(selector.select_with_lag_filter(&slaves, 5, &lag), None);
+    }
+
+    #[test]
+    fn t15_lag_filter_no_stats_includes_all() {
+        let mut selector = WeightedRandomSelector::new();
+        let slaves = vec![
+            WeightedSlave {
+                name: "A".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 1,
+            },
+            WeightedSlave {
+                name: "B".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 2,
+            },
+        ];
+        let lag = HashMap::new();
+        let idx = selector.select_with_lag_filter(&slaves, 5, &lag);
+        assert!(idx.is_some());
+        assert!(idx.unwrap() < 2);
+    }
+
+    #[test]
+    fn t15_lag_filter_threshold_boundary_equal() {
+        let mut selector = WeightedRandomSelector::new();
+        let slaves = vec![WeightedSlave {
+            name: "A".into(),
+            weight: 1,
+            host: "h".into(),
+            port: 1,
+        }];
+        let mut lag = HashMap::new();
+        lag.insert("A".into(), 5u64);
+        let idx = selector.select_with_lag_filter(&slaves, 5, &lag);
+        assert_eq!(idx, Some(0));
+    }
+
+    #[test]
+    fn t15_lag_filter_empty_slaves_returns_none() {
+        let mut selector = WeightedRandomSelector::new();
+        let lag = HashMap::new();
+        assert_eq!(selector.select_with_lag_filter(&[], 5, &lag), None);
+    }
+
+    #[test]
+    fn t15_infer_compact_pattern_no_space() {
+        let mut inferer = ShardKeyInference::new();
+        inferer.register("orders", "merchant_id");
+        let result = inferer.infer("SELECT * FROM orders WHERE merchant_id=123");
+        assert_eq!(result, Some(("orders".into(), "merchant_id".into())));
+    }
+
+    #[test]
+    fn t15_infer_case_insensitive_table_match() {
+        let mut inferer = ShardKeyInference::new();
+        inferer.register("Orders", "merchant_id");
+        let result = inferer.infer("select * from ORDERS where merchant_id = ?");
+        assert_eq!(result, Some(("Orders".into(), "merchant_id".into())));
+    }
+
+    #[test]
+    fn t15_infer_table_match_but_key_missing() {
+        let mut inferer = ShardKeyInference::new();
+        inferer.register("orders", "merchant_id");
+        assert!(inferer
+            .infer("SELECT * FROM orders WHERE status = 1")
+            .is_none());
+    }
+
+    #[test]
+    fn t15_infer_multiple_registrations_first_wins() {
+        let mut inferer = ShardKeyInference::new();
+        inferer.register("orders", "merchant_id");
+        inferer.register("users", "user_id");
+        let result = inferer.infer("SELECT * FROM users WHERE user_id = ?");
+        assert_eq!(result, Some(("users".into(), "user_id".into())));
+        assert!(inferer
+            .infer("SELECT * FROM products WHERE id = ?")
+            .is_none());
+    }
+
+    #[test]
+    fn t15_merge_all_errors_returns_empty() {
+        let results = vec![
+            ScatterGatherResult {
+                shard: "s1".into(),
+                rows: vec![HashMap::from([("id".into(), crate::Value::I64(1))])],
+                error: Some("err1".into()),
+            },
+            ScatterGatherResult {
+                shard: "s2".into(),
+                rows: vec![HashMap::from([("id".into(), crate::Value::I64(2))])],
+                error: Some("err2".into()),
+            },
+        ];
+        let merged = ScatterGatherCollector::merge(results);
+        assert!(merged.is_empty());
+    }
+
+    #[test]
+    fn t15_merge_sorted_ascending() {
+        let results = vec![
+            ScatterGatherResult {
+                shard: "s1".into(),
+                rows: vec![HashMap::from([("v".into(), crate::Value::I64(3))])],
+                error: None,
+            },
+            ScatterGatherResult {
+                shard: "s2".into(),
+                rows: vec![HashMap::from([("v".into(), crate::Value::I64(1))])],
+                error: None,
+            },
+            ScatterGatherResult {
+                shard: "s3".into(),
+                rows: vec![HashMap::from([("v".into(), crate::Value::I64(2))])],
+                error: None,
+            },
+        ];
+        let merged = ScatterGatherCollector::merge_sorted(results, "v", false);
+        let vals: Vec<i64> = merged
+            .iter()
+            .map(|r| match r.get("v") {
+                Some(crate::Value::I64(x)) => *x,
+                _ => 0,
+            })
+            .collect();
+        assert_eq!(vals, vec![1, 2, 3]);
+    }
+
+    #[test]
+    fn t15_merge_sorted_descending() {
+        let results = vec![
+            ScatterGatherResult {
+                shard: "s1".into(),
+                rows: vec![HashMap::from([("v".into(), crate::Value::I64(1))])],
+                error: None,
+            },
+            ScatterGatherResult {
+                shard: "s2".into(),
+                rows: vec![HashMap::from([("v".into(), crate::Value::I64(3))])],
+                error: None,
+            },
+            ScatterGatherResult {
+                shard: "s3".into(),
+                rows: vec![HashMap::from([("v".into(), crate::Value::I64(2))])],
+                error: None,
+            },
+        ];
+        let merged = ScatterGatherCollector::merge_sorted(results, "v", true);
+        let vals: Vec<i64> = merged
+            .iter()
+            .map(|r| match r.get("v") {
+                Some(crate::Value::I64(x)) => *x,
+                _ => 0,
+            })
+            .collect();
+        assert_eq!(vals, vec![3, 2, 1]);
+    }
+
+    #[test]
+    fn t15_merge_sorted_non_i64_equal_order() {
+        let results = vec![
+            ScatterGatherResult {
+                shard: "s1".into(),
+                rows: vec![HashMap::from([(
+                    "v".into(),
+                    crate::Value::String("a".into()),
+                )])],
+                error: None,
+            },
+            ScatterGatherResult {
+                shard: "s2".into(),
+                rows: vec![HashMap::from([(
+                    "v".into(),
+                    crate::Value::String("b".into()),
+                )])],
+                error: None,
+            },
+        ];
+        let merged = ScatterGatherCollector::merge_sorted(results, "v", false);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn t15_merge_sorted_missing_key_equal_order() {
+        let results = vec![
+            ScatterGatherResult {
+                shard: "s1".into(),
+                rows: vec![HashMap::from([("id".into(), crate::Value::I64(1))])],
+                error: None,
+            },
+            ScatterGatherResult {
+                shard: "s2".into(),
+                rows: vec![HashMap::from([("id".into(), crate::Value::I64(2))])],
+                error: None,
+            },
+        ];
+        let merged = ScatterGatherCollector::merge_sorted(results, "missing_key", false);
+        assert_eq!(merged.len(), 2);
+    }
+
+    #[test]
+    fn t15_count_with_errors_excludes_failed_shards() {
+        let results = vec![
+            ScatterGatherResult {
+                shard: "s1".into(),
+                rows: vec![HashMap::new(), HashMap::new(), HashMap::new()],
+                error: None,
+            },
+            ScatterGatherResult {
+                shard: "s2".into(),
+                rows: vec![HashMap::new()],
+                error: Some("err".into()),
+            },
+        ];
+        assert_eq!(ScatterGatherCollector::count(&results), 3);
+    }
+
+    #[test]
+    fn t15_count_empty_input_returns_zero() {
+        let results: Vec<ScatterGatherResult> = vec![];
+        assert_eq!(ScatterGatherCollector::count(&results), 0);
+    }
+
+    #[test]
+    fn t15_route_read_no_slaves_degrades_to_master() {
+        let config = RwSplitConfig {
+            master: "primary".into(),
+            slaves: vec![],
+            lag_threshold_secs: 5,
+        };
+        let router = RwSplitRouter::new(config);
+        let result = router.route_read();
+        assert!(result.degraded);
+        assert!(result.is_master);
+        assert_eq!(result.target, "primary");
+    }
+
+    #[test]
+    fn t15_route_read_all_high_lag_degrades() {
+        let config = RwSplitConfig {
+            master: "primary".into(),
+            slaves: vec![
+                WeightedSlave {
+                    name: "s1".into(),
+                    weight: 1,
+                    host: "h".into(),
+                    port: 1,
+                },
+                WeightedSlave {
+                    name: "s2".into(),
+                    weight: 1,
+                    host: "h".into(),
+                    port: 2,
+                },
+            ],
+            lag_threshold_secs: 3,
+        };
+        let router = RwSplitRouter::new(config);
+        router.update_lag("s1", 10);
+        router.update_lag("s2", 20);
+        let result = router.route_read();
+        assert!(result.degraded);
+        assert!(result.is_master);
+        assert_eq!(result.target, "primary");
+    }
+
+    #[test]
+    fn t15_route_read_success_returns_slave_not_degraded() {
+        let config = RwSplitConfig {
+            master: "primary".into(),
+            slaves: vec![WeightedSlave {
+                name: "s1".into(),
+                weight: 1,
+                host: "h".into(),
+                port: 1,
+            }],
+            lag_threshold_secs: 5,
+        };
+        let router = RwSplitRouter::new(config);
+        let result = router.route_read();
+        assert!(!result.degraded);
+        assert!(!result.is_master);
+        assert_eq!(result.target, "s1");
+    }
+
+    #[test]
+    fn t15_route_write_target_is_master() {
+        let config = RwSplitConfig {
+            master: "writer".into(),
+            slaves: vec![],
+            lag_threshold_secs: 0,
+        };
+        let router = RwSplitRouter::new(config);
+        let result = router.route_write();
+        assert_eq!(result.target, "writer");
+        assert!(result.is_master);
+        assert!(!result.degraded);
+    }
+
+    #[test]
+    fn t15_update_lag_overwrites_previous() {
+        let router = RwSplitRouter::with_default();
+        router.update_lag("slave-1", 5);
+        let r1 = router.route_read();
+        assert!(!r1.degraded);
+        router.update_lag("slave-1", 100);
+        let r2 = router.route_read();
+        assert!(r2.degraded);
+    }
+
+    #[test]
+    fn t15_config_default_has_one_slave() {
+        let config = RwSplitConfig::default();
+        assert_eq!(config.master, "master");
+        assert_eq!(config.slaves.len(), 1);
+        assert_eq!(config.slaves[0].name, "slave-1");
+        assert_eq!(config.slaves[0].weight, 1);
+        assert_eq!(config.lag_threshold_secs, 5);
+    }
+
+    #[test]
+    fn t15_weighted_slave_struct_fields() {
+        let slave = WeightedSlave {
+            name: "s".into(),
+            weight: 7,
+            host: "10.0.0.1".into(),
+            port: 3306,
+        };
+        assert_eq!(slave.name, "s");
+        assert_eq!(slave.weight, 7);
+        assert_eq!(slave.host, "10.0.0.1");
+        assert_eq!(slave.port, 3306);
+    }
+
+    #[test]
+    fn t15_route_result_struct_fields() {
+        let result = RouteResult {
+            target: "t".into(),
+            is_master: true,
+            degraded: false,
+        };
+        assert_eq!(result.target, "t");
+        assert!(result.is_master);
+        assert!(!result.degraded);
+        let cloned = result.clone();
+        assert_eq!(cloned.target, "t");
+    }
+
+    #[test]
+    fn t15_shard_key_inference_default_empty() {
+        let inferer = ShardKeyInference::default();
+        assert!(inferer.table_shard_keys.is_empty());
+        assert!(inferer.infer("SELECT * FROM x").is_none());
+    }
+
+    #[test]
+    fn t15_weighted_random_selector_default_works() {
+        let mut selector = WeightedRandomSelector::default();
+        let slaves = vec![WeightedSlave {
+            name: "A".into(),
+            weight: 1,
+            host: "h".into(),
+            port: 1,
+        }];
+        assert_eq!(selector.select(&slaves), Some(0));
+    }
 }
 // ============================================================================
 // v7.3.0 自动主备故障转移协调器（auto-failover feature gate）

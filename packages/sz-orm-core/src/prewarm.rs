@@ -862,4 +862,157 @@ mod tests {
         let stats = opt.on_cold_start();
         assert!(stats.partial_available || stats.elapsed <= Duration::from_nanos(1));
     }
+
+    #[test]
+    fn t26pw_prewarm_strategy_default() {
+        let s = PrewarmStrategy::default();
+        assert!(matches!(s, PrewarmStrategy::Parallel(4)));
+    }
+
+    #[test]
+    fn t26pw_prewarm_strategy_variants() {
+        let s1 = PrewarmStrategy::Serial;
+        let s2 = PrewarmStrategy::Parallel(8);
+        let s3 = PrewarmStrategy::Progressive(ProgressiveConfig::default());
+        assert!(matches!(s1, PrewarmStrategy::Serial));
+        assert!(matches!(s2, PrewarmStrategy::Parallel(8)));
+        assert!(matches!(s3, PrewarmStrategy::Progressive(_)));
+    }
+
+    #[test]
+    fn t26pw_prewarm_result_new() {
+        let r = PrewarmResult::new();
+        assert_eq!(r.success_count, 0);
+        assert_eq!(r.failure_count, 0);
+        assert!(r.failures.is_empty());
+        assert!(r.all_succeeded());
+        assert_eq!(r.total(), 0);
+    }
+
+    #[test]
+    fn t26pw_prewarm_result_default() {
+        let r = PrewarmResult::default();
+        assert_eq!(r.success_count, 0);
+    }
+
+    #[test]
+    fn t26pw_prewarm_result_with_failures() {
+        let r = PrewarmResult {
+            success_count: 3,
+            failure_count: 2,
+            failures: vec![
+                PrewarmFailure {
+                    reason: "timeout".into(),
+                    timestamp: Instant::now(),
+                },
+                PrewarmFailure {
+                    reason: "refused".into(),
+                    timestamp: Instant::now(),
+                },
+            ],
+        };
+        assert!(!r.all_succeeded());
+        assert_eq!(r.total(), 5);
+        assert_eq!(r.failures.len(), 2);
+    }
+
+    #[test]
+    fn t26pw_prewarm_result_all_succeeded() {
+        let r = PrewarmResult {
+            success_count: 5,
+            failure_count: 0,
+            failures: vec![],
+        };
+        assert!(r.all_succeeded());
+        assert_eq!(r.total(), 5);
+    }
+
+    #[test]
+    fn t26pw_prewarm_failure_construction() {
+        let f = PrewarmFailure {
+            reason: "conn refused".into(),
+            timestamp: Instant::now(),
+        };
+        assert_eq!(f.reason, "conn refused");
+    }
+
+    #[test]
+    fn t26pw_cold_start_multiple_calls() {
+        let opt = ColdStartOptimizer::default();
+        opt.on_cold_start();
+        opt.on_cold_start();
+        opt.on_cold_start();
+        assert_eq!(opt.cold_start_count(), 3);
+    }
+
+    #[test]
+    fn t26pw_cold_start_record_latency_overflow_capacity() {
+        let opt = ColdStartOptimizer::default();
+        for i in 1..=150 {
+            opt.record_latency(Duration::from_millis(i));
+        }
+        let p95 = opt.p95_latency();
+        assert!(p95 > Duration::ZERO);
+    }
+
+    #[test]
+    fn t26pw_cold_start_stats_fields() {
+        let opt = ColdStartOptimizer::new(Duration::from_millis(200), 5);
+        let stats = opt.on_cold_start();
+        assert_eq!(stats.warmed_connections, 5);
+    }
+
+    #[test]
+    fn t26pw_prewarm_config_with_progressive() {
+        let config = PrewarmConfig::new()
+            .with_auto_prewarm(true)
+            .with_progressive(ProgressiveConfig::new(
+                3,
+                Duration::from_millis(5),
+                Duration::from_secs(10),
+            ));
+        assert!(config.auto_prewarm);
+        assert!(config.progressive.is_some());
+        let prog = config.progressive.unwrap();
+        assert_eq!(prog.batch_size, 3);
+    }
+
+    #[test]
+    fn t26pw_prewarm_summary_default() {
+        let s = PrewarmSummary::default();
+        assert_eq!(s.total_warmed(), 0);
+        assert_eq!(s.total_failed(), 0);
+    }
+
+    #[test]
+    fn t26pw_prewarm_summary_single_backend() {
+        let mut s = PrewarmSummary::new();
+        s.add(BackendPrewarmResult {
+            backend: "mysql".into(),
+            warmed: 10,
+            failed: 0,
+            elapsed: Duration::from_millis(100),
+            errors: vec![],
+        });
+        assert_eq!(s.total_warmed(), 10);
+        assert!(s.all_succeeded());
+    }
+
+    #[test]
+    fn t26pw_prewarm_progress_snapshot_clone() {
+        let progress = PrewarmProgress::new(5);
+        progress.record_success();
+        let snap = progress.snapshot();
+        let snap2 = snap.clone();
+        assert_eq!(snap.warmed, snap2.warmed);
+        assert_eq!(snap.target, snap2.target);
+    }
+
+    #[test]
+    fn t26pw_cold_start_stats_clone() {
+        let opt = ColdStartOptimizer::default();
+        let stats = opt.on_cold_start();
+        let stats2 = stats.clone();
+        assert_eq!(stats.warmed_connections, stats2.warmed_connections);
+    }
 }

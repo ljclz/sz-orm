@@ -116,6 +116,7 @@ fn hex_decode(s: &str) -> Result<Vec<u8>, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use proptest::prelude::*;
 
     #[test]
     fn encrypt_decrypt_roundtrip() {
@@ -207,6 +208,253 @@ mod tests {
         let config = FieldCipherConfig::default();
         let cipher = FieldCipher::new(config);
         assert!(cipher.config().encrypted_fields.is_empty());
+    }
+
+    fn t21_single_field_cipher(
+        table: &str,
+        field: &str,
+        key_id: &str,
+        key: Vec<u8>,
+    ) -> FieldCipher {
+        let config = FieldCipherConfig {
+            encrypted_fields: vec![EncryptedField {
+                table: table.to_string(),
+                field: field.to_string(),
+                algorithm: CipherAlgorithm::Aes256Gcm,
+                key_id: key_id.to_string(),
+            }],
+        };
+        let cipher = FieldCipher::new(config);
+        cipher.add_key(key_id, key);
+        cipher
+    }
+
+    #[test]
+    fn t21_encrypt_decrypt_roundtrip_basic() {
+        let cipher = t21_single_field_cipher("orders", "card_no", "k1", vec![0x5a; 32]);
+        let original = "6225881234567890";
+        let encrypted = cipher
+            .process("orders", "card_no", original, CipherOp::Encrypt)
+            .unwrap();
+        let decrypted = cipher
+            .process("orders", "card_no", &encrypted, CipherOp::Decrypt)
+            .unwrap();
+        assert_eq!(decrypted, original);
+    }
+
+    #[test]
+    fn t21_encrypt_decrypt_roundtrip_empty_string() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let encrypted = cipher.process("t", "f", "", CipherOp::Encrypt).unwrap();
+        assert_eq!(encrypted, "");
+        let decrypted = cipher
+            .process("t", "f", &encrypted, CipherOp::Decrypt)
+            .unwrap();
+        assert_eq!(decrypted, "");
+    }
+
+    #[test]
+    fn t21_encrypt_decrypt_roundtrip_unicode() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let original = "你好，世界！🌍";
+        let encrypted = cipher
+            .process("t", "f", original, CipherOp::Encrypt)
+            .unwrap();
+        let decrypted = cipher
+            .process("t", "f", &encrypted, CipherOp::Decrypt)
+            .unwrap();
+        assert_eq!(decrypted, original);
+    }
+
+    #[test]
+    fn t21_encrypt_decrypt_roundtrip_long_text() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let original = "a".repeat(1000);
+        let encrypted = cipher
+            .process("t", "f", &original, CipherOp::Encrypt)
+            .unwrap();
+        let decrypted = cipher
+            .process("t", "f", &encrypted, CipherOp::Decrypt)
+            .unwrap();
+        assert_eq!(decrypted, original);
+    }
+
+    #[test]
+    fn t21_encrypt_decrypt_roundtrip_special_chars() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let original = r#"!@#$%^&*()_+-=[]{}|;':",./<>?\`~"#;
+        let encrypted = cipher
+            .process("t", "f", original, CipherOp::Encrypt)
+            .unwrap();
+        let decrypted = cipher
+            .process("t", "f", &encrypted, CipherOp::Decrypt)
+            .unwrap();
+        assert_eq!(decrypted, original);
+    }
+
+    #[test]
+    fn t21_ciphertext_differs_from_plaintext() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let original = "sensitive_data";
+        let encrypted = cipher
+            .process("t", "f", original, CipherOp::Encrypt)
+            .unwrap();
+        assert_ne!(encrypted, original);
+    }
+
+    #[test]
+    fn t21_ciphertext_deterministic_same_key() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let original = "same_plaintext";
+        let enc1 = cipher
+            .process("t", "f", original, CipherOp::Encrypt)
+            .unwrap();
+        let enc2 = cipher
+            .process("t", "f", original, CipherOp::Encrypt)
+            .unwrap();
+        assert_eq!(enc1, enc2);
+    }
+
+    #[test]
+    fn t21_ciphertext_different_keys_different_output() {
+        let config = FieldCipherConfig {
+            encrypted_fields: vec![
+                EncryptedField {
+                    table: "t".to_string(),
+                    field: "f1".to_string(),
+                    algorithm: CipherAlgorithm::Aes256Gcm,
+                    key_id: "k1".to_string(),
+                },
+                EncryptedField {
+                    table: "t".to_string(),
+                    field: "f2".to_string(),
+                    algorithm: CipherAlgorithm::Aes256Gcm,
+                    key_id: "k2".to_string(),
+                },
+            ],
+        };
+        let cipher = FieldCipher::new(config);
+        cipher.add_key("k1", vec![0x11; 32]);
+        cipher.add_key("k2", vec![0x22; 32]);
+        let original = "same_plaintext";
+        let enc1 = cipher
+            .process("t", "f1", original, CipherOp::Encrypt)
+            .unwrap();
+        let enc2 = cipher
+            .process("t", "f2", original, CipherOp::Encrypt)
+            .unwrap();
+        assert_ne!(enc1, enc2);
+    }
+
+    #[test]
+    fn t21_decrypt_invalid_hex_odd_length() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let result = cipher.process("t", "f", "abc", CipherOp::Decrypt);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("hex 解码失败"));
+    }
+
+    #[test]
+    fn t21_decrypt_invalid_hex_bad_chars() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let result = cipher.process("t", "f", "zzzz", CipherOp::Decrypt);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("hex 解码失败"));
+    }
+
+    #[test]
+    fn t21_decrypt_invalid_utf8() {
+        let key = vec![0x42; 32];
+        let invalid_utf8: Vec<u8> = vec![0xff, 0xfe, 0xfd];
+        let cipher_bytes: Vec<u8> = invalid_utf8
+            .iter()
+            .zip(key.iter())
+            .map(|(d, k)| d ^ k)
+            .collect();
+        let cipher_hex = hex_encode(&cipher_bytes);
+        let cipher = t21_single_field_cipher("t", "f", "k1", key);
+        let result = cipher.process("t", "f", &cipher_hex, CipherOp::Decrypt);
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("UTF-8 解码失败"));
+    }
+
+    #[test]
+    fn t21_xor_encrypt_empty_key_passthrough() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![]);
+        let original = "passthrough_data";
+        let encrypted = cipher
+            .process("t", "f", original, CipherOp::Encrypt)
+            .unwrap();
+        assert_ne!(encrypted, original);
+        let decrypted = cipher
+            .process("t", "f", &encrypted, CipherOp::Decrypt)
+            .unwrap();
+        assert_eq!(decrypted, original);
+    }
+
+    #[test]
+    fn t21_hex_encode_decode_empty() {
+        assert_eq!(hex_encode(&[]), "");
+        assert_eq!(hex_decode("").unwrap(), Vec::<u8>::new());
+    }
+
+    #[test]
+    fn t21_hex_decode_odd_length_errors() {
+        assert!(hex_decode("a").is_err());
+        assert!(hex_decode("abc").is_err());
+    }
+
+    #[test]
+    fn t21_hex_decode_invalid_chars_errors() {
+        assert!(hex_decode("xy").is_err());
+        assert!(hex_decode("0g").is_err());
+    }
+
+    #[test]
+    fn t21_field_config_find_hit_and_miss() {
+        let config = FieldCipherConfig {
+            encrypted_fields: vec![
+                EncryptedField {
+                    table: "users".to_string(),
+                    field: "phone".to_string(),
+                    algorithm: CipherAlgorithm::Aes256Gcm,
+                    key_id: "k1".to_string(),
+                },
+                EncryptedField {
+                    table: "orders".to_string(),
+                    field: "card".to_string(),
+                    algorithm: CipherAlgorithm::Aes256Gcm,
+                    key_id: "k2".to_string(),
+                },
+            ],
+        };
+        assert!(config.find("users", "phone").is_some());
+        assert!(config.find("orders", "card").is_some());
+        assert!(config.find("users", "card").is_none());
+        assert!(config.find("missing", "phone").is_none());
+    }
+
+    #[test]
+    fn t21_add_key_overwrite() {
+        let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+        let enc1 = cipher.process("t", "f", "data", CipherOp::Encrypt).unwrap();
+        cipher.add_key("k1", vec![0x99; 32]);
+        let enc2 = cipher.process("t", "f", "data", CipherOp::Encrypt).unwrap();
+        assert_ne!(enc1, enc2);
+    }
+
+    proptest! {
+        #[test]
+        fn t21_prop_field_cipher_encrypt_decrypt_roundtrip(pt in ".{0,200}") {
+            let cipher = t21_single_field_cipher("t", "f", "k1", vec![0x42; 32]);
+            let encrypted = cipher
+                .process("t", "f", &pt, CipherOp::Encrypt)
+                .unwrap();
+            let decrypted = cipher
+                .process("t", "f", &encrypted, CipherOp::Decrypt)
+                .unwrap();
+            prop_assert_eq!(decrypted, pt);
+        }
     }
 }
 // =====================================================================

@@ -818,4 +818,240 @@ mod tests {
         let advice = gs.scale_up_advice(10, 5);
         assert!(advice.is_none());
     }
+
+    // =========================================================================
+    // T18 新增测试：弹性池自动扩缩容核心逻辑 + 边界 + 错误处理
+    // =========================================================================
+
+    #[test]
+    fn t18_config_validate_min_too_large() {
+        let config = ElasticConfig {
+            min_connections: 101,
+            ..ElasticConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn t18_config_validate_max_too_large() {
+        let config = ElasticConfig {
+            max_connections: 1001,
+            ..ElasticConfig::default()
+        };
+        assert!(config.validate().is_err());
+    }
+
+    #[test]
+    fn t18_config_validate_scale_interval_bounds() {
+        let short = ElasticConfig {
+            scale_interval: Duration::from_millis(500),
+            ..ElasticConfig::default()
+        };
+        assert!(short.validate().is_err());
+        let long = ElasticConfig {
+            scale_interval: Duration::from_secs(61),
+            ..ElasticConfig::default()
+        };
+        assert!(long.validate().is_err());
+    }
+
+    #[test]
+    fn t18_config_validate_health_check_bounds() {
+        let short = ElasticConfig {
+            health_check_interval: Duration::from_secs(5),
+            ..ElasticConfig::default()
+        };
+        assert!(short.validate().is_err());
+        let long = ElasticConfig {
+            health_check_interval: Duration::from_secs(301),
+            ..ElasticConfig::default()
+        };
+        assert!(long.validate().is_err());
+    }
+
+    #[test]
+    fn t18_tiered_circuit_node_blocks_any() {
+        let cb = TieredCircuitBreaker::new(1, Duration::from_secs(60));
+        cb.record_failure(CircuitTier::Node);
+        assert_eq!(cb.state(CircuitTier::Node), CircuitState::Open);
+        assert!(!cb.can_execute_any());
+        assert!(cb.can_execute(CircuitTier::Connection));
+        assert!(cb.can_execute(CircuitTier::Global));
+    }
+
+    #[test]
+    fn t18_tiered_circuit_connection_blocks_any() {
+        let cb = TieredCircuitBreaker::new(1, Duration::from_secs(60));
+        cb.record_failure(CircuitTier::Connection);
+        assert_eq!(cb.state(CircuitTier::Connection), CircuitState::Open);
+        assert!(!cb.can_execute_any());
+        assert!(cb.can_execute(CircuitTier::Node));
+        assert!(cb.can_execute(CircuitTier::Global));
+    }
+
+    #[test]
+    fn t18_health_check_unknown_conn_defaults() {
+        let checker = ConnectionHealthChecker::new(3);
+        assert_eq!(checker.failure_count("unknown"), 0);
+        assert!(!checker.should_evict("unknown"));
+    }
+
+    #[test]
+    fn t18_health_check_multiple_conns_independent() {
+        let checker = ConnectionHealthChecker::new(2);
+        assert!(!checker.record_failure("a"));
+        assert!(!checker.record_failure("b"));
+        assert!(checker.record_failure("a"));
+        assert_eq!(checker.failure_count("b"), 1);
+        assert!(!checker.should_evict("b"));
+        assert!(checker.should_evict("a"));
+    }
+
+    #[test]
+    fn t18_pool_stats_active_connections() {
+        let stats = PoolStats {
+            total_connections: 10,
+            idle_connections: 3,
+            waiting_requests: 0,
+        };
+        assert_eq!(stats.active_connections(), 7);
+    }
+
+    #[test]
+    fn t18_pool_stats_active_saturating() {
+        let stats = PoolStats {
+            total_connections: 2,
+            idle_connections: 10,
+            waiting_requests: 0,
+        };
+        assert_eq!(stats.active_connections(), 0);
+    }
+
+    #[test]
+    fn t18_should_scale_up_down_boundary() {
+        let config = ElasticConfig::default();
+        let stats = PoolStats {
+            total_connections: 30,
+            idle_connections: 20,
+            waiting_requests: 10,
+        };
+        assert!(!PoolElasticController::should_scale_up(&stats, &config));
+        assert!(!PoolElasticController::should_scale_down(&stats, &config));
+    }
+
+    #[test]
+    fn t18_evaluate_scale_up_priority_over_down() {
+        let controller = PoolElasticController::new(ElasticConfig::default());
+        *controller.current_size.lock().unwrap() = 10;
+        let stats = PoolStats {
+            total_connections: 30,
+            idle_connections: 25,
+            waiting_requests: 15,
+        };
+        let event = controller.evaluate_and_scale(&stats).unwrap();
+        assert_eq!(event.reason, ScaleReason::HighLoad);
+        assert!(event.to > event.from);
+    }
+
+    #[test]
+    fn t18_evaluate_scale_up_saturates_at_max() {
+        let config = ElasticConfig {
+            min_connections: 1,
+            max_connections: 15,
+            scale_up_threshold: 5,
+            scale_down_threshold: 20,
+            scale_interval: Duration::from_secs(1),
+            health_check_interval: Duration::from_secs(30),
+            health_check_sql: "SELECT 1".into(),
+        };
+        let controller = PoolElasticController::new(config);
+        let stats = PoolStats {
+            total_connections: 5,
+            idle_connections: 0,
+            waiting_requests: 100,
+        };
+        let e1 = controller.evaluate_and_scale(&stats).unwrap();
+        assert_eq!(e1.to, 15);
+        let e2 = controller.evaluate_and_scale(&stats);
+        assert!(e2.is_none());
+        assert_eq!(controller.current_size(), 15);
+    }
+
+    #[test]
+    fn t18_prewarm_within_range() {
+        let controller = PoolElasticController::new(ElasticConfig::default());
+        let warmed = controller.prewarm(25);
+        assert_eq!(warmed, 25);
+        assert_eq!(controller.current_size(), 25);
+    }
+
+    #[test]
+    fn t18_prewarm_below_min_clamps() {
+        let config = ElasticConfig {
+            min_connections: 5,
+            max_connections: 50,
+            scale_up_threshold: 10,
+            scale_down_threshold: 20,
+            scale_interval: Duration::from_secs(1),
+            health_check_interval: Duration::from_secs(30),
+            health_check_sql: "SELECT 1".into(),
+        };
+        let controller = PoolElasticController::new(config);
+        let warmed = controller.prewarm(1);
+        assert_eq!(warmed, 5);
+        assert_eq!(controller.current_size(), 5);
+    }
+
+    #[test]
+    fn t18_health_checker_via_controller() {
+        let controller = PoolElasticController::new(ElasticConfig::default());
+        let hc = controller.health_checker();
+        assert!(!hc.record_failure("c1"));
+        assert_eq!(hc.failure_count("c1"), 1);
+        assert!(!hc.should_evict("c1"));
+    }
+
+    #[test]
+    fn t18_shutdown_error_display() {
+        let e1 = ShutdownError::CheckpointTimeout;
+        assert_eq!(e1.to_string(), "Checkpoint timeout");
+        let e2 = ShutdownError::ConnectionReleaseFailed("boom".into());
+        assert_eq!(e2.to_string(), "Connection release failed: boom");
+    }
+
+    #[test]
+    fn t18_shutdown_mark_idle_threshold() {
+        let config = GracefulShutdownConfig {
+            checkpoint_timeout: Duration::from_secs(5),
+            idle_release_threshold: Duration::from_millis(2),
+        };
+        let gs = GracefulShutdown::new(config);
+        assert!(!gs.should_release_idle());
+        gs.mark_idle();
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(gs.should_release_idle());
+    }
+
+    #[test]
+    fn t18_shutdown_scale_up_advice_exact_value() {
+        let gs = GracefulShutdown::default();
+        let advice = gs.scale_up_advice(5, 10).unwrap();
+        assert_eq!(advice, 15);
+        let advice2 = gs.scale_up_advice(3, 4).unwrap();
+        assert_eq!(advice2, 6);
+        assert!(gs.scale_up_advice(7, 7).is_none());
+    }
+
+    #[test]
+    fn t18_graceful_shutdown_custom_config() {
+        let config = GracefulShutdownConfig {
+            checkpoint_timeout: Duration::from_secs(10),
+            idle_release_threshold: Duration::from_secs(120),
+        };
+        let gs = GracefulShutdown::new(config);
+        assert_eq!(gs.config().checkpoint_timeout, Duration::from_secs(10));
+        assert_eq!(gs.config().idle_release_threshold, Duration::from_secs(120));
+        let result = gs.on_scale_to_zero(8, &[]).unwrap();
+        assert_eq!(result.released_connections, 8);
+    }
 }

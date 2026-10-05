@@ -1224,4 +1224,375 @@ mod tests {
         assert_eq!(sync.rename_max_distance, 5);
         assert!((sync.rename_max_ratio - 0.5).abs() < f64::EPSILON);
     }
+
+    // T26g 新增测试 — 提升覆盖率
+
+    /// 测试用 MockConnection：记录执行过的 SQL 与事务调用
+    struct T26ssMockConn {
+        executed: Vec<String>,
+        begin_count: u32,
+        commit_count: u32,
+        rollback_count: u32,
+    }
+
+    impl T26ssMockConn {
+        fn new() -> Self {
+            Self {
+                executed: Vec::new(),
+                begin_count: 0,
+                commit_count: 0,
+                rollback_count: 0,
+            }
+        }
+    }
+
+    impl Connection for T26ssMockConn {
+        fn execute<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64, DbError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.executed.push(sql.to_string());
+                Ok(1)
+            })
+        }
+
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> std::pin::Pin<
+            Box<
+                dyn std::future::Future<Output = Result<crate::pool::QueryRows, DbError>>
+                    + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move { Ok(Vec::new()) })
+        }
+
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.begin_count += 1;
+                Ok(())
+            })
+        }
+
+        fn commit<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.commit_count += 1;
+                Ok(())
+            })
+        }
+
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.rollback_count += 1;
+                Ok(())
+            })
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn ping<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+
+        fn close<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    #[test]
+    fn t26ss_get_column_found_and_missing() {
+        let table = make_table(
+            "users",
+            vec![
+                make_column("id", "BIGINT"),
+                make_column("email", "VARCHAR(255)"),
+            ],
+        );
+        assert!(table.get_column("id").is_some());
+        assert!(table.get_column("email").is_some());
+        assert!(table.get_column("missing").is_none());
+    }
+
+    #[test]
+    fn t26ss_destructive_dropped_table_only() {
+        let diff_result = SchemaDiff {
+            dropped_tables: vec!["legacy".to_string()],
+            ..Default::default()
+        };
+        assert!(diff_result.has_destructive_changes());
+    }
+
+    #[test]
+    fn t26ss_is_empty_all_fields_populated() {
+        let diff_result = SchemaDiff {
+            added_tables: vec![make_table("a", vec![make_column("id", "BIGINT")])],
+            dropped_tables: vec!["b".to_string()],
+            added_columns: vec![("c".to_string(), make_column("x", "INT"))],
+            dropped_columns: vec![("d".to_string(), "y".to_string())],
+            type_changed_columns: vec![(
+                "e".to_string(),
+                make_column("z", "INT"),
+                make_column("z", "BIGINT"),
+            )],
+            renamed_columns: vec![("f".to_string(), "old".to_string(), "new".to_string())],
+        };
+        assert!(!diff_result.is_empty());
+    }
+
+    #[test]
+    fn t26ss_mysql_ddl_type_change_and_rename() {
+        let diff_result = SchemaDiff {
+            type_changed_columns: vec![(
+                "users".to_string(),
+                ColumnDef::new("age", "INT", true, false, None),
+                ColumnDef::new("age", "BIGINT", false, false, None),
+            )],
+            renamed_columns: vec![(
+                "users".to_string(),
+                "old_name".to_string(),
+                "new_name".to_string(),
+            )],
+            ..Default::default()
+        };
+        let ddl = MySqlDdlGenerator.generate(&diff_result).unwrap();
+        assert_eq!(ddl.len(), 2);
+        assert!(ddl[0].contains("ALTER TABLE users MODIFY COLUMN age BIGINT NOT NULL"));
+        assert!(ddl[1].contains("ALTER TABLE users RENAME COLUMN old_name TO new_name"));
+    }
+
+    #[test]
+    fn t26ss_pg_ddl_add_table_column_rename() {
+        let diff_result = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "BIGINT")])],
+            added_columns: vec![(
+                "u".to_string(),
+                ColumnDef::new("email", "VARCHAR(255)", false, false, None),
+            )],
+            renamed_columns: vec![("v".to_string(), "a".to_string(), "b".to_string())],
+            ..Default::default()
+        };
+        let ddl = PgDdlGenerator.generate(&diff_result).unwrap();
+        assert_eq!(ddl.len(), 3);
+        assert!(ddl[0].contains("CREATE TABLE t"));
+        assert!(ddl[1].contains("ALTER TABLE u ADD COLUMN email VARCHAR(255) NOT NULL"));
+        assert!(ddl[2].contains("ALTER TABLE v RENAME COLUMN a TO b"));
+    }
+
+    #[test]
+    fn t26ss_sqlite_ddl_add_table_column_rename_with_default() {
+        let diff_result = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "BIGINT")])],
+            added_columns: vec![(
+                "u".to_string(),
+                ColumnDef::new("age", "INT", true, false, Some("0".to_string())),
+            )],
+            renamed_columns: vec![("v".to_string(), "a".to_string(), "b".to_string())],
+            ..Default::default()
+        };
+        let ddl = SqliteDdlGenerator.generate(&diff_result).unwrap();
+        assert_eq!(ddl.len(), 3);
+        assert!(ddl[0].contains("CREATE TABLE t"));
+        assert!(ddl[1].contains("ALTER TABLE u ADD COLUMN age INT DEFAULT 0"));
+        assert!(ddl[2].contains("ALTER TABLE v RENAME COLUMN a TO b"));
+    }
+
+    #[test]
+    fn t26ss_sqlite_ddl_add_column_default_null() {
+        let diff_result = SchemaDiff {
+            added_columns: vec![(
+                "u".to_string(),
+                ColumnDef::new("age", "INT", true, false, None),
+            )],
+            ..Default::default()
+        };
+        let ddl = SqliteDdlGenerator.generate(&diff_result).unwrap();
+        assert_eq!(ddl.len(), 1);
+        assert!(ddl[0].contains("ALTER TABLE u ADD COLUMN age INT DEFAULT NULL"));
+    }
+
+    #[test]
+    fn t26ss_oracle_ddl_all_branches() {
+        let diff_result = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "BIGINT")])],
+            added_columns: vec![(
+                "u".to_string(),
+                ColumnDef::new("email", "VARCHAR2(255)", false, true, None),
+            )],
+            type_changed_columns: vec![(
+                "v".to_string(),
+                ColumnDef::new("age", "INT", true, false, None),
+                ColumnDef::new("age", "BIGINT", false, false, None),
+            )],
+            renamed_columns: vec![("w".to_string(), "a".to_string(), "b".to_string())],
+            ..Default::default()
+        };
+        let ddl = OracleDdlGenerator.generate(&diff_result).unwrap();
+        assert_eq!(ddl.len(), 4);
+        assert!(ddl[0].contains("CREATE TABLE t"));
+        assert!(ddl[1].contains("ALTER TABLE u ADD (email VARCHAR2(255) NOT NULL PRIMARY KEY)"));
+        assert!(ddl[2].contains("ALTER TABLE v MODIFY (age BIGINT NOT NULL)"));
+        assert!(ddl[3].contains("ALTER TABLE w RENAME COLUMN a TO b"));
+    }
+
+    #[test]
+    fn t26ss_mssql_ddl_all_branches() {
+        let diff_result = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "BIGINT")])],
+            added_columns: vec![(
+                "u".to_string(),
+                ColumnDef::new("email", "VARCHAR(255)", false, false, None),
+            )],
+            type_changed_columns: vec![(
+                "v".to_string(),
+                ColumnDef::new("age", "INT", true, false, None),
+                ColumnDef::new("age", "BIGINT", false, false, None),
+            )],
+            renamed_columns: vec![("w".to_string(), "a".to_string(), "b".to_string())],
+            ..Default::default()
+        };
+        let ddl = MssqlDdlGenerator.generate(&diff_result).unwrap();
+        assert_eq!(ddl.len(), 4);
+        assert!(ddl[0].contains("CREATE TABLE t"));
+        assert!(ddl[1].contains("ALTER TABLE u ADD email VARCHAR(255) NOT NULL"));
+        assert!(ddl[2].contains("ALTER TABLE v ALTER COLUMN age BIGINT NOT NULL"));
+        assert!(ddl[3].contains("EXEC sp_rename 'w.a', 'b', 'COLUMN'"));
+    }
+
+    #[test]
+    fn t26ss_create_table_with_default_value() {
+        let diff_result = SchemaDiff {
+            added_tables: vec![make_table(
+                "users",
+                vec![ColumnDef::new(
+                    "status",
+                    "INT",
+                    false,
+                    false,
+                    Some("1".to_string()),
+                )],
+            )],
+            ..Default::default()
+        };
+        let ddl = MySqlDdlGenerator.generate(&diff_result).unwrap();
+        assert_eq!(ddl.len(), 1);
+        assert!(ddl[0].contains("status INT NOT NULL DEFAULT 1"));
+    }
+
+    #[test]
+    fn t26ss_sync_with_generator_custom() {
+        let sync = SchemaSync::with_generator(vec![], Box::new(PgDdlGenerator));
+        assert_eq!(sync.rename_max_distance, 2);
+        let diff_result = sync.diff_against(&[]);
+        assert!(diff_result.is_empty());
+    }
+
+    #[test]
+    fn t26ss_diff_against_add_table_and_drop_table() {
+        let entity = vec![make_table("users", vec![make_column("id", "BIGINT")])];
+        let db = vec![make_table("legacy", vec![make_column("id", "BIGINT")])];
+        let sync = SchemaSync::new(entity);
+        let result = sync.diff_against(&db);
+        assert_eq!(result.added_tables.len(), 1);
+        assert_eq!(result.added_tables[0].name, "users");
+        assert_eq!(result.dropped_tables, vec!["legacy".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn t26ss_introspect_returns_empty() {
+        let mut conn = T26ssMockConn::new();
+        let tables = introspect(&mut conn).await.unwrap();
+        assert!(tables.is_empty());
+    }
+
+    #[tokio::test]
+    async fn t26ss_sync_dry_run_empty_db() {
+        let entity = vec![make_table("users", vec![make_column("id", "BIGINT")])];
+        let sync = SchemaSync::new(entity);
+        let mut conn = T26ssMockConn::new();
+        let ddl = sync.sync_dry_run(&mut conn).await.unwrap();
+        assert_eq!(ddl.len(), 1);
+        assert!(ddl[0].contains("CREATE TABLE users"));
+    }
+
+    #[tokio::test]
+    async fn t26ss_sync_dry_run_empty_entity_empty_ddl() {
+        let entity: Vec<TableDef> = vec![];
+        let sync = SchemaSync::new(entity);
+        let mut conn = T26ssMockConn::new();
+        let ddl = sync.sync_dry_run(&mut conn).await.unwrap();
+        assert!(ddl.is_empty());
+    }
+
+    #[tokio::test]
+    async fn t26ss_sync_no_diff_empty_ddl() {
+        let entity = vec![make_table("users", vec![make_column("id", "BIGINT")])];
+        let sync = SchemaSync::new(entity);
+        let mut conn = T26ssMockConn::new();
+        let result = sync.sync(&mut conn).await.unwrap();
+        assert_eq!(result.executed_ddl.len(), 1);
+        assert_eq!(result.affected_tables, vec!["users".to_string()]);
+        assert_eq!(conn.begin_count, 1);
+        assert_eq!(conn.commit_count, 1);
+    }
+
+    #[tokio::test]
+    async fn t26ss_destructive_sync_no_confirm_rejected() {
+        let entity: Vec<TableDef> = vec![];
+        let sync = SchemaSync::new(entity);
+        let mut conn = T26ssMockConn::new();
+        let result = sync.destructive_sync(&mut conn, Confirm::No, None).await;
+        assert!(result.is_err());
+        assert!(matches!(result.unwrap_err(), DbError::InvalidInput(_)));
+    }
+
+    #[tokio::test]
+    async fn t26ss_destructive_sync_empty_result() {
+        let entity: Vec<TableDef> = vec![];
+        let sync = SchemaSync::new(entity);
+        let mut conn = T26ssMockConn::new();
+        let result = sync
+            .destructive_sync(&mut conn, Confirm::Yes, None)
+            .await
+            .unwrap();
+        assert!(result.executed_ddl.is_empty());
+        assert_eq!(result.hooks_called, 0);
+        assert_eq!(result.audit_entries, 0);
+    }
+
+    #[tokio::test]
+    async fn t26ss_destructive_sync_with_ddl_no_hook() {
+        let entity = vec![make_table("new_table", vec![make_column("id", "BIGINT")])];
+        let sync = SchemaSync::new(entity);
+        let mut conn = T26ssMockConn::new();
+        let result = sync
+            .destructive_sync(&mut conn, Confirm::Yes, None)
+            .await
+            .unwrap();
+        assert_eq!(result.executed_ddl.len(), 1);
+        assert!(result.executed_ddl[0].contains("CREATE TABLE new_table"));
+        assert_eq!(result.hooks_called, 0);
+        assert_eq!(result.audit_entries, 1);
+        assert_eq!(conn.begin_count, 1);
+        assert_eq!(conn.commit_count, 1);
+    }
 }

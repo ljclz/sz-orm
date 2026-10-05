@@ -1050,4 +1050,425 @@ mod tests {
         let db_err: DbError = utf8_err.into();
         assert!(matches!(db_err, DbError::Internal(_)));
     }
+
+    #[test]
+    fn t26err_display_all_variants() {
+        assert_eq!(
+            format!("{}", DbError::ConnectionError("e".into())),
+            "Connection error: e"
+        );
+        assert_eq!(
+            format!("{}", DbError::ConnectionRefused("r".into())),
+            "Connection refused: r"
+        );
+        assert_eq!(
+            format!("{}", DbError::ConnectionTimeout("t".into())),
+            "Connection timeout: t"
+        );
+        assert_eq!(
+            format!("{}", DbError::MigrationError("m".into())),
+            "Migration error: m"
+        );
+        assert_eq!(
+            format!("{}", DbError::Unsupported("u".into())),
+            "Unsupported: u"
+        );
+        assert_eq!(
+            format!("{}", DbError::ConfigError("c".into())),
+            "Configuration error: c"
+        );
+        assert_eq!(
+            format!("{}", DbError::SerdeError("s".into())),
+            "Serialization error: s"
+        );
+        assert_eq!(
+            format!("{}", DbError::AlreadyExists("a".into())),
+            "Already exists: a"
+        );
+        assert_eq!(
+            format!("{}", DbError::ConstraintViolation("cv".into())),
+            "Constraint violation: cv"
+        );
+        assert_eq!(
+            format!("{}", DbError::UniqueViolation("uq".into())),
+            "Unique constraint violation: uq"
+        );
+        assert_eq!(
+            format!("{}", DbError::ForeignKeyViolation("fk".into())),
+            "Foreign key constraint violation: fk"
+        );
+        assert_eq!(
+            format!("{}", DbError::NullValue("n".into())),
+            "Null value: n"
+        );
+        assert_eq!(
+            format!("{}", DbError::InvalidInput("i".into())),
+            "Invalid input: i"
+        );
+        assert_eq!(
+            format!("{}", DbError::Internal("in".into())),
+            "Internal error: in"
+        );
+        assert_eq!(format!("{}", DbError::IoError("io".into())), "IO error: io");
+        assert_eq!(format!("{}", DbError::Hook("h".into())), "Hook error: h");
+        assert_eq!(
+            format!("{}", DbError::TenantError("t".into())),
+            "Tenant error: t"
+        );
+        assert_eq!(
+            format!("{}", DbError::Validation("v".into())),
+            "Validation error: v"
+        );
+    }
+
+    #[test]
+    fn t26err_error_code_all_variants() {
+        assert_eq!(DbError::ConnectionError("".into()).error_code(), "DB002");
+        assert_eq!(DbError::ConnectionRefused("".into()).error_code(), "DB003");
+        assert_eq!(DbError::ConnectionTimeout("".into()).error_code(), "DB004");
+        assert_eq!(DbError::MigrationError("".into()).error_code(), "DB008");
+        assert_eq!(DbError::Unsupported("".into()).error_code(), "DB009");
+        assert_eq!(DbError::ConfigError("".into()).error_code(), "DB010");
+        assert_eq!(DbError::SerdeError("".into()).error_code(), "DB011");
+        assert_eq!(DbError::AlreadyExists("".into()).error_code(), "DB013");
+        assert_eq!(
+            DbError::ConstraintViolation("".into()).error_code(),
+            "DB014"
+        );
+        assert_eq!(DbError::UniqueViolation("".into()).error_code(), "DB022");
+        assert_eq!(
+            DbError::ForeignKeyViolation("".into()).error_code(),
+            "DB023"
+        );
+        assert_eq!(DbError::NullValue("".into()).error_code(), "DB015");
+        assert_eq!(DbError::InvalidInput("".into()).error_code(), "DB016");
+        assert_eq!(DbError::Internal("".into()).error_code(), "DB017");
+        assert_eq!(DbError::IoError("".into()).error_code(), "DB018");
+        assert_eq!(DbError::Hook("".into()).error_code(), "DB019");
+        assert_eq!(DbError::TenantError("".into()).error_code(), "DB020");
+        assert_eq!(DbError::Validation("".into()).error_code(), "DB021");
+        assert_eq!(DbError::TxError(TxError::NotStarted).error_code(), "DB007");
+    }
+
+    #[test]
+    fn t26err_is_retryable_connection_error() {
+        assert!(DbError::ConnectionError("e".into()).is_retryable());
+        assert!(DbError::ConnectionTimeout("t".into()).is_retryable());
+        assert!(DbError::PoolError(PoolError::Timeout).is_retryable());
+    }
+
+    #[test]
+    fn t26err_is_retryable_non_retryable() {
+        assert!(!DbError::QueryError("q".into()).is_retryable());
+        assert!(!DbError::NotFound("n".into()).is_retryable());
+        assert!(!DbError::InvalidInput("i".into()).is_retryable());
+        assert!(!DbError::PoolError(PoolError::Exhausted).is_retryable());
+    }
+
+    #[test]
+    fn t26err_is_retryable_contextual() {
+        let err = DbError::ConnectionError("e".into()).with_context("op");
+        assert!(err.is_retryable());
+        let err2 = DbError::QueryError("q".into()).with_context("op");
+        assert!(!err2.is_retryable());
+    }
+
+    #[test]
+    fn t26err_error_context_new() {
+        let ctx = ErrorContext::new("test_op");
+        assert_eq!(ctx.context, "test_op");
+        assert!(ctx.span.is_none());
+        assert!(ctx.previous.is_none());
+    }
+
+    #[test]
+    fn t26err_error_context_with_span() {
+        let ctx = ErrorContext::new("op").with_span("my_span");
+        assert_eq!(ctx.span.as_deref(), Some("my_span"));
+    }
+
+    #[test]
+    fn t26err_error_context_with_previous() {
+        let inner = ErrorContext::new("inner");
+        let outer = ErrorContext::new("outer").with_previous(inner);
+        assert_eq!(outer.context, "outer");
+        assert!(outer.previous.is_some());
+        assert_eq!(outer.previous.as_ref().unwrap().context, "inner");
+    }
+
+    #[test]
+    fn t26err_error_context_iter() {
+        let inner = ErrorContext::new("inner");
+        let outer = ErrorContext::new("outer").with_previous(inner);
+        let chain: Vec<_> = outer.iter().collect();
+        assert_eq!(chain.len(), 2);
+        assert_eq!(chain[0].context, "outer");
+        assert_eq!(chain[1].context, "inner");
+    }
+
+    #[test]
+    fn t26err_error_context_format_chain() {
+        let ctx = ErrorContext::new("op1").with_span("span1");
+        let formatted = ctx.format_chain();
+        assert!(formatted.contains("[0]"));
+        assert!(formatted.contains("op1"));
+        assert!(formatted.contains("span: span1"));
+    }
+
+    #[test]
+    fn t26err_error_context_format_chain_multi_level() {
+        let inner = ErrorContext::new("inner_op");
+        let outer = ErrorContext::new("outer_op").with_previous(inner);
+        let formatted = outer.format_chain();
+        assert!(formatted.contains("[0] outer_op"));
+        assert!(formatted.contains("[1] inner_op"));
+    }
+
+    #[test]
+    fn t26err_with_context_in_span() {
+        let err = DbError::QueryError("q".into()).with_context_in_span("op", "span");
+        let ctx = err.context().unwrap();
+        assert_eq!(ctx.context, "op");
+        assert_eq!(ctx.span.as_deref(), Some("span"));
+    }
+
+    #[test]
+    fn t26err_with_context_in_span_nested() {
+        let err = DbError::QueryError("q".into())
+            .with_context("inner")
+            .with_context_in_span("outer", "span");
+        let ctx = err.context().unwrap();
+        assert_eq!(ctx.context, "outer");
+        assert_eq!(ctx.previous.as_ref().unwrap().context, "inner");
+    }
+
+    #[test]
+    fn t26err_format_context_chain_empty() {
+        let err = DbError::QueryError("q".into());
+        assert_eq!(err.format_context_chain(), "");
+    }
+
+    #[test]
+    fn t26err_format_context_chain_with_context() {
+        let err = DbError::QueryError("q".into()).with_context("op");
+        let chain = err.format_context_chain();
+        assert!(chain.contains("op"));
+    }
+
+    #[test]
+    fn t26err_root_cause_non_contextual() {
+        let err = DbError::QueryError("q".into());
+        assert!(matches!(err.root_cause(), DbError::QueryError(_)));
+    }
+
+    #[test]
+    fn t26err_root_cause_deeply_nested() {
+        let err = DbError::ConnectionError("e".into())
+            .with_context("op1")
+            .with_context("op2")
+            .with_context("op3");
+        assert!(matches!(err.root_cause(), DbError::ConnectionError(_)));
+    }
+
+    #[test]
+    fn t26err_context_none_for_non_contextual() {
+        let err = DbError::QueryError("q".into());
+        assert!(err.context().is_none());
+    }
+
+    #[test]
+    fn t26err_display_contextual() {
+        let err = DbError::QueryError("q".into()).with_context("fetching user");
+        let s = format!("{}", err);
+        assert!(s.contains("fetching user"));
+        assert!(s.contains("Query error"));
+    }
+
+    #[test]
+    fn t26err_pool_error_display_all_variants() {
+        assert_eq!(
+            format!("{}", PoolError::Exhausted),
+            "Connection pool exhausted"
+        );
+        assert_eq!(
+            format!("{}", PoolError::AlreadyAcquired),
+            "Connection already acquired"
+        );
+        assert_eq!(
+            format!("{}", PoolError::NotAcquired),
+            "Connection not acquired"
+        );
+        assert!(
+            format!("{}", PoolError::ConnectionFailed("e".into())).contains("Connection failed")
+        );
+        assert!(format!("{}", PoolError::InvalidConfig("c".into())).contains("Invalid pool config"));
+        assert!(format!("{}", PoolError::Internal("i".into())).contains("Internal pool error"));
+        assert_eq!(format!("{}", PoolError::Closed), "Connection pool closed");
+        assert_eq!(
+            format!("{}", PoolError::CircuitOpen),
+            "Circuit breaker open"
+        );
+        assert!(format!(
+            "{}",
+            PoolError::RateLimited {
+                remaining: 0,
+                reset_at: 100
+            }
+        )
+        .contains("Rate limited"));
+    }
+
+    #[test]
+    fn t26err_pool_error_code_all_variants() {
+        assert_eq!(PoolError::Exhausted.error_code(), "PL001");
+        assert_eq!(PoolError::Timeout.error_code(), "PL002");
+        assert_eq!(PoolError::AlreadyAcquired.error_code(), "PL003");
+        assert_eq!(PoolError::NotAcquired.error_code(), "PL004");
+        assert_eq!(PoolError::InvalidConfig("".into()).error_code(), "PL005");
+        assert_eq!(PoolError::Internal("".into()).error_code(), "PL006");
+        assert_eq!(PoolError::Closed.error_code(), "PL007");
+        assert_eq!(PoolError::ConnectionFailed("".into()).error_code(), "PL008");
+        assert_eq!(PoolError::CircuitOpen.error_code(), "PL009");
+        assert_eq!(
+            PoolError::RateLimited {
+                remaining: 0,
+                reset_at: 0
+            }
+            .error_code(),
+            "PL010"
+        );
+    }
+
+    #[test]
+    fn t26err_pool_error_source() {
+        let err = DbError::PoolError(PoolError::Exhausted);
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn t26err_tx_error_display() {
+        assert_eq!(
+            format!("{}", TxError::NotStarted),
+            "Transaction not started"
+        );
+        assert_eq!(
+            format!("{}", TxError::AlreadyStarted),
+            "Transaction already started"
+        );
+        assert!(format!("{}", TxError::CommitFailed("e".into())).contains("commit failed"));
+        assert!(format!("{}", TxError::RollbackFailed("e".into())).contains("rollback failed"));
+        assert!(format!("{}", TxError::SavepointError("e".into())).contains("Savepoint error"));
+        assert_eq!(
+            format!("{}", TxError::NestedNotSupported),
+            "Nested transactions not supported"
+        );
+        assert!(
+            format!("{}", TxError::NotActive(TransactionState::Committed)).contains("not active")
+        );
+        assert!(
+            format!("{}", TxError::InvalidSavepointName("bad".to_string()))
+                .contains("Invalid savepoint")
+        );
+        assert_eq!(
+            format!("{}", TxError::ConnectionTaken),
+            "Transaction connection already taken"
+        );
+        assert!(format!(
+            "{}",
+            TxError::MaxNestingDepthExceeded {
+                current_depth: 5,
+                max_depth: 3
+            }
+        )
+        .contains("exceeds"));
+        assert!(format!(
+            "{}",
+            TxError::DeadlockDetected {
+                attempt: 1,
+                max_attempts: 3
+            }
+        )
+        .contains("Deadlock"));
+    }
+
+    #[test]
+    fn t26err_transaction_state_display() {
+        assert_eq!(format!("{}", TransactionState::Active), "Active");
+        assert_eq!(format!("{}", TransactionState::Committed), "Committed");
+        assert_eq!(format!("{}", TransactionState::RolledBack), "RolledBack");
+    }
+
+    #[test]
+    fn t26err_cache_error_code_all() {
+        assert_eq!(CacheError::NotFound("".into()).error_code(), "CH001");
+        assert_eq!(
+            CacheError::SerializationError("".into()).error_code(),
+            "CH002"
+        );
+        assert_eq!(
+            CacheError::DeserializationError("".into()).error_code(),
+            "CH003"
+        );
+        assert_eq!(CacheError::ConnectionError("".into()).error_code(), "CH004");
+        assert_eq!(CacheError::Timeout("".into()).error_code(), "CH005");
+        assert_eq!(CacheError::Internal("".into()).error_code(), "CH006");
+    }
+
+    #[test]
+    fn t26err_tx_error_source() {
+        let err = DbError::TxError(TxError::NotStarted);
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn t26err_cache_error_display_all() {
+        assert!(format!("{}", CacheError::NotFound("k".into())).contains("not found"));
+        assert!(format!("{}", CacheError::Internal("e".into())).contains("Cache internal error"));
+        assert!(format!("{}", CacheError::SerializationError("s".into())).contains("serialization"));
+        assert!(
+            format!("{}", CacheError::DeserializationError("d".into())).contains("deserialization")
+        );
+        assert!(format!("{}", CacheError::ConnectionError("c".into())).contains("connection"));
+        assert!(format!("{}", CacheError::Timeout("t".into())).contains("timeout"));
+    }
+
+    #[test]
+    fn t26err_cache_error_source() {
+        let err = DbError::CacheError(CacheError::NotFound("k".into()));
+        assert!(err.source().is_some());
+    }
+
+    #[test]
+    fn t26err_from_poison_error() {
+        use std::sync::{Arc, Mutex};
+        let m = Arc::new(Mutex::new(0));
+        let m2 = m.clone();
+        let _ = std::panic::catch_unwind(|| {
+            let _g = m2.lock().unwrap();
+            panic!("poison");
+        });
+        let result = m.lock();
+        if let Err(poison_err) = result {
+            let db_err: DbError = poison_err.into();
+            assert!(matches!(db_err, DbError::Internal(_)));
+        }
+    }
+
+    #[test]
+    fn t26err_error_code_contextual_delegates() {
+        let err = DbError::QueryError("q".into()).with_context("op");
+        assert_eq!(err.error_code(), "DB001");
+    }
+
+    #[test]
+    fn t26err_http_status_contextual_delegates() {
+        let err = DbError::NotFound("n".into()).with_context("op");
+        assert_eq!(err.http_status(), 404);
+    }
+
+    #[test]
+    fn t26err_grpc_status_contextual_delegates() {
+        let err = DbError::NotFound("n".into()).with_context("op");
+        assert_eq!(err.grpc_status_code(), 5);
+    }
 }

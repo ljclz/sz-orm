@@ -1786,4 +1786,165 @@ mod tests {
         // 按列名排序：a, b, c
         assert_eq!(result[0], vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
     }
+
+    // ===== v9.0.0 新增测试（t26hp_*） =====
+
+    #[test]
+    fn t26hp_hydration_error_display() {
+        let err = HydrationError::SingleScalarRequiresSingleRow { actual_rows: 3 };
+        assert_eq!(
+            err.to_string(),
+            "SingleScalar mode requires exactly 1 row, got 3"
+        );
+        let err = HydrationError::ColumnNotFound {
+            column: "foo".to_string(),
+        };
+        assert_eq!(err.to_string(), "column 'foo' not found");
+        let err = HydrationError::EmptyRow;
+        assert_eq!(err.to_string(), "row has no columns");
+    }
+
+    #[test]
+    fn t26hp_hydrate_column_mode_empty_row_error() {
+        let row = RowData::empty();
+        let err = hydrate(&[row], HydrationMode::Column).unwrap_err();
+        assert!(matches!(err, HydrationError::EmptyRow));
+    }
+
+    #[test]
+    fn t26hp_hydrate_object_array_mode_via_hydrate() {
+        let mut row1 = RowData::empty();
+        row1.set("id", Value::I64(1));
+        let result = hydrate(&[row1], HydrationMode::Object).unwrap();
+        assert_eq!(result, vec![Value::I64(1)]);
+
+        let mut row2 = RowData::empty();
+        row2.set("id", Value::I64(1));
+        let result = hydrate(&[row2], HydrationMode::Array).unwrap();
+        assert_eq!(result, vec![Value::I64(1)]);
+    }
+
+    #[test]
+    fn t26hp_plugin_context_with_start_time() {
+        let now = Instant::now();
+        let ctx = PluginContext::new(ExecutionStage::BeforeQuery, "SELECT 1").with_start_time(now);
+        assert_eq!(ctx.started_at, Some(now));
+    }
+
+    #[test]
+    fn t26hp_plugin_chain_debug_format() {
+        let chain = PluginChain::new();
+        chain.register(Box::new(SqlLogPlugin::new()));
+        chain.register(Box::new(AuditPlugin::new()));
+        let debug_str = format!("{:?}", chain);
+        assert!(debug_str.contains("sql_log"));
+        assert!(debug_str.contains("audit"));
+    }
+
+    #[test]
+    fn t26hp_sql_log_plugin_default_and_before_update() {
+        let plugin = SqlLogPlugin::default();
+        let mut ctx = PluginContext::new(ExecutionStage::BeforeUpdate, "UPDATE users SET name='x'");
+        let decision = plugin.intercept(&mut ctx);
+        assert_eq!(decision, PluginDecision::Continue);
+        let logs = plugin.logs();
+        assert!(logs[0].contains("UPDATE"));
+        assert!(logs[0].contains("before_update"));
+    }
+
+    #[test]
+    fn t26hp_slow_query_plugin_kill_threshold_after_query() {
+        let plugin = SlowQueryPlugin::new(Duration::from_millis(100))
+            .with_kill_threshold(Duration::from_millis(500));
+        let mut ctx = PluginContext::new(ExecutionStage::AfterQuery, "SELECT * FROM big")
+            .with_elapsed(Duration::from_millis(800));
+        let decision = plugin.intercept(&mut ctx);
+        assert_eq!(decision, PluginDecision::Kill);
+        assert_eq!(plugin.count(), 1);
+    }
+
+    #[test]
+    fn t26hp_slow_query_plugin_kill_threshold_before_query() {
+        let plugin = SlowQueryPlugin::new(Duration::from_millis(100))
+            .with_kill_threshold(Duration::from_millis(500));
+        let mut ctx = PluginContext::new(ExecutionStage::BeforeQuery, "SELECT 1")
+            .with_elapsed(Duration::from_millis(800));
+        let decision = plugin.intercept(&mut ctx);
+        assert_eq!(decision, PluginDecision::Kill);
+    }
+
+    #[test]
+    fn t26hp_slow_query_plugin_after_update_slow() {
+        let plugin = SlowQueryPlugin::new(Duration::from_millis(100));
+        let mut ctx = PluginContext::new(ExecutionStage::AfterUpdate, "UPDATE users SET ...")
+            .with_elapsed(Duration::from_millis(300));
+        let decision = plugin.intercept(&mut ctx);
+        assert_eq!(decision, PluginDecision::Continue);
+        assert_eq!(plugin.count(), 1);
+    }
+
+    #[test]
+    fn t26hp_slow_query_plugin_unsubscribed_stage() {
+        let plugin = SlowQueryPlugin::new(Duration::from_millis(100));
+        let mut ctx = PluginContext::new(ExecutionStage::BeforeCommit, "COMMIT")
+            .with_elapsed(Duration::from_millis(500));
+        let decision = plugin.intercept(&mut ctx);
+        assert_eq!(decision, PluginDecision::Continue);
+        assert_eq!(plugin.count(), 0);
+    }
+
+    #[test]
+    fn t26hp_mask_sql_sensitive_values() {
+        let sql = "SELECT * FROM users WHERE password='secret123'";
+        assert_eq!(mask_sql(sql), "SELECT * FROM users WHERE password='***'");
+
+        let sql = "UPDATE users SET token='abc' WHERE passwd='pwd'";
+        assert_eq!(
+            mask_sql(sql),
+            "UPDATE users SET token='***' WHERE passwd='***'"
+        );
+
+        let sql = "WHERE PASSWORD='secret'";
+        assert_eq!(mask_sql(sql), "WHERE PASSWORD='***'");
+
+        let sql = "SELECT * FROM users WHERE id=1";
+        assert_eq!(mask_sql(sql), sql);
+    }
+
+    #[test]
+    fn t26hp_mask_sql_boundary_cases() {
+        let sql = "passworded='value'";
+        assert_eq!(mask_sql(sql), sql);
+
+        let sql = "secret_key='value'";
+        assert_eq!(mask_sql(sql), sql);
+
+        let sql = "password=123";
+        assert_eq!(mask_sql(sql), sql);
+
+        assert_eq!(mask_sql(""), "");
+    }
+
+    #[test]
+    fn t26hp_audit_plugin_default_impl() {
+        let plugin = AuditPlugin::default();
+        assert_eq!(plugin.count(), 0);
+        let mut ctx = PluginContext::new(ExecutionStage::AfterUpdate, "INSERT INTO t VALUES(1)");
+        let decision = plugin.intercept(&mut ctx);
+        assert_eq!(decision, PluginDecision::Continue);
+        assert_eq!(plugin.count(), 1);
+    }
+
+    #[test]
+    fn t26hp_plugin_chain_execute_kill() {
+        let chain = PluginChain::new();
+        chain.register(Box::new(
+            SlowQueryPlugin::new(Duration::from_millis(100))
+                .with_kill_threshold(Duration::from_millis(500)),
+        ));
+        let mut ctx = PluginContext::new(ExecutionStage::AfterQuery, "SELECT * FROM big")
+            .with_elapsed(Duration::from_millis(800));
+        let decision = chain.execute(&mut ctx);
+        assert_eq!(decision, PluginDecision::Kill);
+    }
 }

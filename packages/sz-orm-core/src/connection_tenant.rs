@@ -604,4 +604,196 @@ mod tests {
         let all = binder.all_bindings();
         assert_eq!(all.len(), 3);
     }
+
+    #[test]
+    fn t24_tenant_error_display_tampering_and_cleanup() {
+        let err = TenantError::TamperingRejected;
+        assert!(err.to_string().contains("tampering"));
+        let err = TenantError::CleanupFailed;
+        assert!(err.to_string().contains("cleanup"));
+    }
+
+    #[test]
+    fn t24_config_and_pool_accessors() {
+        let pool = make_pool();
+        let config = ConnectionLevelTenantConfig::new(DbType::MySQL)
+            .with_isolation(ConnectionLevelIsolation::SchemaIsolation)
+            .with_affinity_timeout_ms(3_000);
+        let binder = ConnectionTenantBinder::new(pool.clone(), config);
+        assert_eq!(binder.config().db_type, DbType::MySQL);
+        assert_eq!(
+            binder.config().isolation,
+            ConnectionLevelIsolation::SchemaIsolation
+        );
+        assert_eq!(binder.config().affinity_timeout_ms, 3_000);
+        assert!(Arc::ptr_eq(binder.pool(), &pool));
+    }
+
+    #[test]
+    fn t24_build_set_tenant_sql_quote_escape() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::PostgreSQL));
+        let sql = binder.build_set_tenant_sql("a'b");
+        assert_eq!(sql, "SET app.tenant_id = 'a''b'");
+        let sql2 = binder.build_set_tenant_sql("");
+        assert_eq!(sql2, "SET app.tenant_id = ''");
+    }
+
+    #[test]
+    fn t24_unbind_nonexistent_tenant_and_connection() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::PostgreSQL));
+        let conn_id = binder.bind_connection("tenant_1");
+        assert_eq!(binder.binding_count("tenant_1"), 1);
+        binder.unbind_connection("tenant_1", conn_id + 100);
+        assert_eq!(binder.binding_count("tenant_1"), 1);
+        binder.unbind_connection("tenant_nonexistent", conn_id);
+        assert_eq!(binder.binding_count("tenant_nonexistent"), 0);
+        assert_eq!(binder.binding_count("tenant_1"), 1);
+    }
+
+    #[test]
+    fn t24_find_bound_connections_nonexistent() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::PostgreSQL));
+        let conns = binder.find_bound_connections("never_bound");
+        assert!(conns.is_empty());
+    }
+
+    #[test]
+    fn t24_resolve_isolation_mysql_no_fallback() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::MySQL));
+        assert_eq!(
+            binder.resolve_isolation(),
+            ConnectionLevelIsolation::SetTenantId
+        );
+    }
+
+    #[test]
+    fn t24_resolve_isolation_oracle_fallback() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::Oracle));
+        assert_eq!(
+            binder.resolve_isolation(),
+            ConnectionLevelIsolation::SchemaIsolation
+        );
+    }
+
+    #[test]
+    fn t24_resolve_isolation_connection_binding_no_fallback() {
+        let pool = make_pool();
+        let config = ConnectionLevelTenantConfig::new(DbType::Sqlite)
+            .with_isolation(ConnectionLevelIsolation::ConnectionBinding);
+        let binder = ConnectionTenantBinder::new(pool, config);
+        assert_eq!(
+            binder.resolve_isolation(),
+            ConnectionLevelIsolation::ConnectionBinding
+        );
+    }
+
+    #[test]
+    fn t24_guard_release_twice_idempotent() {
+        let pool = make_pool();
+        let binder = Arc::new(ConnectionTenantBinder::new(
+            pool,
+            ConnectionLevelTenantConfig::new(DbType::PostgreSQL),
+        ));
+        let conn_id = binder.bind_connection("tenant_1");
+        let mut guard = TenantConnectionGuard::new(binder.clone(), "tenant_1".to_string(), conn_id);
+        guard.release().unwrap();
+        assert!(!guard.is_active());
+        assert_eq!(binder.binding_count("tenant_1"), 0);
+        guard.release().unwrap();
+        assert!(!guard.is_active());
+        assert_eq!(binder.binding_count("tenant_1"), 0);
+    }
+
+    #[test]
+    fn t24_guard_release_then_drop_no_double_unbind() {
+        let pool = make_pool();
+        let binder = Arc::new(ConnectionTenantBinder::new(
+            pool,
+            ConnectionLevelTenantConfig::new(DbType::PostgreSQL),
+        ));
+        let conn_id = binder.bind_connection("tenant_1");
+        let mut guard = TenantConnectionGuard::new(binder.clone(), "tenant_1".to_string(), conn_id);
+        guard.release().unwrap();
+        assert_eq!(binder.binding_count("tenant_1"), 0);
+        drop(guard);
+        assert_eq!(binder.binding_count("tenant_1"), 0);
+    }
+
+    #[test]
+    fn t24_all_bindings_content_multiple_tenants() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::PostgreSQL));
+        let c1 = binder.bind_connection("tenant_a");
+        let c2 = binder.bind_connection("tenant_b");
+        let all = binder.all_bindings();
+        assert_eq!(all.len(), 2);
+        let tenant_ids: Vec<&str> = all.iter().map(|b| b.tenant_id.as_str()).collect();
+        assert!(tenant_ids.contains(&"tenant_a"));
+        assert!(tenant_ids.contains(&"tenant_b"));
+        let conn_ids: Vec<ConnectionId> = all.iter().map(|b| b.connection_id).collect();
+        assert!(conn_ids.contains(&c1));
+        assert!(conn_ids.contains(&c2));
+    }
+
+    #[test]
+    fn t24_bind_connection_id_monotonic() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::PostgreSQL));
+        let ids: Vec<ConnectionId> = (0..5).map(|_| binder.bind_connection("t")).collect();
+        for i in 1..ids.len() {
+            assert_eq!(ids[i], ids[i - 1] + 1);
+        }
+    }
+
+    #[test]
+    fn t24_tenant_connection_isolation_cross_tenant_invisible() {
+        let pool = make_pool();
+        let binder =
+            ConnectionTenantBinder::new(pool, ConnectionLevelTenantConfig::new(DbType::PostgreSQL));
+        let conn_a = binder.bind_connection("tenant_a");
+        let conn_b = binder.bind_connection("tenant_b");
+        let conn_a2 = binder.bind_connection("tenant_a");
+        assert_ne!(conn_a, conn_b);
+        assert_ne!(conn_b, conn_a2);
+        let conns_a = binder.find_bound_connections("tenant_a");
+        let conns_b = binder.find_bound_connections("tenant_b");
+        assert!(conns_a.contains(&conn_a));
+        assert!(conns_a.contains(&conn_a2));
+        assert!(!conns_a.contains(&conn_b));
+        assert!(conns_b.contains(&conn_b));
+        assert!(!conns_b.contains(&conn_a));
+        assert!(!conns_b.contains(&conn_a2));
+        assert_eq!(binder.binding_count("tenant_a"), 2);
+        assert_eq!(binder.binding_count("tenant_b"), 1);
+        binder.unbind_connection("tenant_a", conn_a);
+        let conns_a_after = binder.find_bound_connections("tenant_a");
+        assert!(!conns_a_after.contains(&conn_a));
+        assert!(conns_a_after.contains(&conn_a2));
+        assert_eq!(binder.binding_count("tenant_a"), 1);
+        assert_eq!(binder.binding_count("tenant_b"), 1);
+    }
+
+    #[test]
+    fn t24_guard_clear_tenant_sql_matches_binder() {
+        let pool = make_pool();
+        let binder = Arc::new(ConnectionTenantBinder::new(
+            pool,
+            ConnectionLevelTenantConfig::new(DbType::MySQL),
+        ));
+        let guard = TenantConnectionGuard::new(binder.clone(), "t_x".to_string(), 7);
+        assert_eq!(guard.clear_tenant_sql(), binder.build_clear_tenant_sql());
+        assert_eq!(guard.clear_tenant_sql(), "SET app.tenant_id = NULL");
+    }
 }

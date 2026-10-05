@@ -714,4 +714,171 @@ mod tests {
         let syntax = VerifyMode::SyntaxOnly;
         assert_ne!(full, syntax);
     }
+
+    #[test]
+    fn t19_verify_result_ok_fields() {
+        let result = VerifyResult::ok("SELECT 1");
+        assert!(result.is_valid);
+        assert!(result.errors.is_empty());
+        assert_eq!(result.sql, "SELECT 1");
+    }
+
+    #[test]
+    fn t19_verify_result_fail_multiple_errors() {
+        let errors = vec![
+            "syntax error".to_string(),
+            "missing table".to_string(),
+            "bad column".to_string(),
+        ];
+        let result = VerifyResult::fail("BAD SQL", errors);
+        assert!(!result.is_valid);
+        assert_eq!(result.errors.len(), 3);
+        assert_eq!(result.sql, "BAD SQL");
+        assert_eq!(result.errors[0], "syntax error");
+        assert_eq!(result.errors[2], "bad column");
+    }
+
+    #[test]
+    fn t19_verify_result_push_error_accumulates() {
+        let mut result = VerifyResult::ok("SELECT 1");
+        assert!(result.is_valid);
+        result.push_error("first issue".to_string());
+        result.push_error("second issue".to_string());
+        assert!(!result.is_valid);
+        assert_eq!(result.errors.len(), 2);
+        assert_eq!(result.errors[0], "first issue");
+        assert_eq!(result.errors[1], "second issue");
+    }
+
+    #[test]
+    fn t19_sql_path_name_all_variants() {
+        assert_eq!(SqlPath::Select.name(), "SELECT");
+        assert_eq!(SqlPath::Insert.name(), "INSERT");
+        assert_eq!(SqlPath::Update.name(), "UPDATE");
+        assert_eq!(SqlPath::Delete.name(), "DELETE");
+        assert_eq!(SqlPath::Join.name(), "JOIN");
+        assert_eq!(SqlPath::Subquery.name(), "Subquery");
+        assert_eq!(SqlPath::Cte.name(), "CTE");
+        assert_eq!(SqlPath::WindowFunction.name(), "WindowFunction");
+        assert_eq!(SqlPath::Unknown.name(), "Unknown");
+    }
+
+    #[test]
+    fn t19_verify_dialect_eq_and_copy() {
+        let a = VerifyDialect::MySql;
+        let b = a;
+        assert_eq!(a, b);
+        assert_eq!(VerifyDialect::PostgreSql, VerifyDialect::PostgreSql);
+        assert_ne!(VerifyDialect::Sqlite, VerifyDialect::MySql);
+    }
+
+    #[test]
+    fn t19_verify_sql_syntax_pg_complex_join() {
+        let sql = "SELECT u.id, p.title FROM users u LEFT JOIN posts p ON u.id = p.user_id WHERE u.id > $1 ORDER BY u.id";
+        let result = verify_sql_syntax(sql, VerifyDialect::PostgreSql);
+        assert!(
+            result.is_valid,
+            "PG complex JOIN should pass: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn t19_verify_sql_syntax_sqlite_multi_param() {
+        let sql = "SELECT id, name FROM users WHERE id = ? AND name LIKE ?";
+        let result = verify_sql_syntax(sql, VerifyDialect::Sqlite);
+        assert!(
+            result.is_valid,
+            "SQLite multi-param should pass: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn t19_verify_sql_syntax_pg_invalid_returns_error() {
+        let sql = "SELECT * FROM users WHERE";
+        let result = verify_sql_syntax(sql, VerifyDialect::PostgreSql);
+        assert!(!result.is_valid);
+        assert_eq!(result.errors.len(), 1);
+        assert!(result.errors[0].contains("SQL 语法错误"));
+    }
+
+    #[test]
+    fn t19_is_read_only_leading_whitespace() {
+        assert!(is_read_only("   SELECT * FROM users"));
+        assert!(is_read_only("\t\tEXPLAIN SELECT * FROM users"));
+        assert!(is_read_only("\nWITH cte AS (SELECT 1) SELECT * FROM cte"));
+        assert!(!is_read_only("   INSERT INTO users VALUES (1)"));
+        assert!(!is_read_only("\tDELETE FROM users"));
+    }
+
+    #[test]
+    fn t19_is_read_only_lowercase() {
+        assert!(is_read_only("select * from users"));
+        assert!(is_read_only("explain select * from users"));
+        assert!(is_read_only("with cte as (select 1) select * from cte"));
+        assert!(!is_read_only("update users set name = 'x'"));
+        assert!(!is_read_only("delete from users"));
+    }
+
+    #[test]
+    fn t19_classify_right_join_path() {
+        let sql = "SELECT u.name FROM users u RIGHT JOIN posts p ON u.id = p.user_id";
+        assert_eq!(classify_sql_path(sql), SqlPath::Join);
+    }
+
+    #[test]
+    fn t19_classify_subquery_exists_clause() {
+        let sql =
+            "SELECT * FROM users WHERE EXISTS (SELECT 1 FROM posts WHERE posts.user_id = users.id)";
+        assert_eq!(classify_sql_path(sql), SqlPath::Subquery);
+    }
+
+    #[test]
+    fn t19_classify_unknown_garbage_sql() {
+        assert_eq!(classify_sql_path("THIS IS NOT SQL"), SqlPath::Unknown);
+        assert_eq!(classify_sql_path(""), SqlPath::Unknown);
+    }
+
+    #[test]
+    fn t19_build_explain_complex_sql_all_dialects() {
+        let sql =
+            "SELECT u.id, p.title FROM users u JOIN posts p ON u.id = p.user_id WHERE u.id > 100";
+        let mysql_explain = build_explain_sql(sql, VerifyDialect::MySql);
+        assert!(mysql_explain.starts_with("EXPLAIN "));
+        assert!(mysql_explain.contains("JOIN"));
+        let pg_explain = build_explain_sql(sql, VerifyDialect::PostgreSql);
+        assert!(pg_explain.starts_with("EXPLAIN "));
+        assert_eq!(mysql_explain, pg_explain);
+        let sqlite_explain = build_explain_sql(sql, VerifyDialect::Sqlite);
+        assert!(sqlite_explain.starts_with("EXPLAIN QUERY PLAN "));
+    }
+
+    #[test]
+    fn t19_verify_full_with_cte_path() {
+        let sql = "WITH cte AS (SELECT id FROM users) SELECT * FROM cte";
+        let result = verify_full(sql, VerifyDialect::MySql);
+        assert!(
+            result.is_valid,
+            "CTE verify_full should pass: {:?}",
+            result.errors
+        );
+    }
+
+    #[test]
+    fn t19_verify_full_unknown_returns_error() {
+        let sql = "CREATE TABLE foo (id INT NOT NULL)";
+        let result = verify_full(sql, VerifyDialect::MySql);
+        assert!(!result.is_valid);
+        assert!(!result.errors.is_empty());
+    }
+
+    #[test]
+    fn t19_check_path_coverage_empty_input() {
+        let sqls: &[&str] = &[];
+        let uncovered = check_path_coverage(sqls);
+        assert_eq!(uncovered.len(), 8);
+        assert!(uncovered.contains(&SqlPath::Select));
+        assert!(uncovered.contains(&SqlPath::WindowFunction));
+    }
 }

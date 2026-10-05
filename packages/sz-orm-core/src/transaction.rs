@@ -1461,4 +1461,416 @@ mod tests {
         assert!(msg.contains("3"));
         assert!(msg.contains("Deadlock"));
     }
+
+    // ==================== T26d 覆盖率提升测试 ====================
+
+    /// 可配置失败的模拟连接，用于测试错误传播路径
+    struct FailingMockConnection {
+        fail_commit: bool,
+        fail_rollback: bool,
+        fail_execute: bool,
+        fail_query: bool,
+    }
+
+    impl FailingMockConnection {
+        fn new() -> Self {
+            Self {
+                fail_commit: false,
+                fail_rollback: false,
+                fail_execute: false,
+                fail_query: false,
+            }
+        }
+    }
+
+    impl Connection for FailingMockConnection {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                if self.fail_execute {
+                    Err(crate::DbError::Internal("execute failed".to_string()))
+                } else {
+                    Ok(1)
+                }
+            })
+        }
+
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<std::collections::HashMap<String, crate::value::Value>>,
+                            crate::DbError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                if self.fail_query {
+                    Err(crate::DbError::Internal("query failed".to_string()))
+                } else {
+                    Ok(vec![])
+                }
+            })
+        }
+
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                if self.fail_commit {
+                    Err(crate::DbError::Internal("commit failed".to_string()))
+                } else {
+                    Ok(())
+                }
+            })
+        }
+
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                if self.fail_rollback {
+                    Err(crate::DbError::Internal("rollback failed".to_string()))
+                } else {
+                    Ok(())
+                }
+            })
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async { true })
+        }
+
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    #[test]
+    fn t26tx_isolation_level_display_all() {
+        assert_eq!(
+            IsolationLevel::ReadUncommitted.to_string(),
+            "READ UNCOMMITTED"
+        );
+        assert_eq!(
+            IsolationLevel::RepeatableRead.to_string(),
+            "REPEATABLE READ"
+        );
+        assert_eq!(IsolationLevel::Snapshot.to_string(), "SNAPSHOT");
+    }
+
+    #[test]
+    fn t26tx_propagation_behavior_all_variants() {
+        let opts = TransactOptions::default().with_propagation(PropagationBehavior::Mandatory);
+        assert_eq!(opts.propagation, PropagationBehavior::Mandatory);
+
+        let opts2 = TransactOptions::default().with_propagation(PropagationBehavior::RequiresNew);
+        assert_eq!(opts2.propagation, PropagationBehavior::RequiresNew);
+
+        assert_ne!(PropagationBehavior::Required, PropagationBehavior::Never);
+        assert_ne!(PropagationBehavior::Supports, PropagationBehavior::Nested);
+        assert_eq!(
+            PropagationBehavior::default(),
+            PropagationBehavior::Required
+        );
+    }
+
+    #[test]
+    fn t26tx_auto_commit_off() {
+        assert_ne!(AutoCommit::On, AutoCommit::Off);
+        assert_eq!(AutoCommit::Off, AutoCommit::Off);
+    }
+
+    #[tokio::test]
+    async fn t26tx_commit_failure_returns_commit_failed() {
+        let conn = Box::new(FailingMockConnection {
+            fail_commit: true,
+            ..FailingMockConnection::new()
+        });
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        let result = tx.commit().await;
+        assert!(result.is_err());
+        match result {
+            Err(TxError::CommitFailed(msg)) => assert!(msg.contains("commit failed")),
+            _ => panic!("Expected CommitFailed"),
+        }
+        assert_eq!(tx.state(), TransactionState::Active);
+    }
+
+    #[tokio::test]
+    async fn t26tx_rollback_failure_returns_rollback_failed() {
+        let conn = Box::new(FailingMockConnection {
+            fail_rollback: true,
+            ..FailingMockConnection::new()
+        });
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        let result = tx.rollback().await;
+        assert!(result.is_err());
+        match result {
+            Err(TxError::RollbackFailed(msg)) => assert!(msg.contains("rollback failed")),
+            _ => panic!("Expected RollbackFailed"),
+        }
+    }
+
+    #[tokio::test]
+    async fn t26tx_execute_failure_propagates() {
+        let conn = Box::new(FailingMockConnection {
+            fail_execute: true,
+            ..FailingMockConnection::new()
+        });
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        let result = tx.execute("INSERT INTO t VALUES (1)").await;
+        assert!(matches!(result, Err(TxError::CommitFailed(_))));
+    }
+
+    #[tokio::test]
+    async fn t26tx_query_failure_propagates() {
+        let conn = Box::new(FailingMockConnection {
+            fail_query: true,
+            ..FailingMockConnection::new()
+        });
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        let result = tx.query("SELECT * FROM t").await;
+        assert!(matches!(result, Err(TxError::CommitFailed(_))));
+    }
+
+    #[tokio::test]
+    async fn t26tx_savepoint_ops_after_commit_not_active() -> Result<(), TxError> {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        tx.commit().await?;
+        assert!(matches!(tx.savepoint().await, Err(TxError::NotActive(_))));
+        assert!(matches!(
+            tx.rollback_to_savepoint("sp_1").await,
+            Err(TxError::NotActive(_))
+        ));
+        assert!(matches!(
+            tx.release_savepoint("sp_1").await,
+            Err(TxError::NotActive(_))
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn t26tx_savepoint_ops_execute_failure() {
+        let conn = Box::new(FailingMockConnection {
+            fail_execute: true,
+            ..FailingMockConnection::new()
+        });
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        assert!(matches!(
+            tx.savepoint().await,
+            Err(TxError::SavepointError(_))
+        ));
+        assert!(matches!(
+            tx.rollback_to_savepoint("sp_1").await,
+            Err(TxError::SavepointError(_))
+        ));
+        assert!(matches!(
+            tx.release_savepoint("sp_1").await,
+            Err(TxError::SavepointError(_))
+        ));
+    }
+
+    #[tokio::test]
+    async fn t26tx_take_connection_after_rollback() -> Result<(), TxError> {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        tx.rollback().await?;
+        let conn = tx.take_connection().await?;
+        assert!(conn.is_connected());
+        Ok(())
+    }
+
+    #[test]
+    fn t26tx_options_accessor() {
+        let conn = Box::new(MockConnection::new());
+        let opts = TransactOptions::default()
+            .with_isolation(IsolationLevel::Snapshot)
+            .read_only()
+            .with_timeout(Duration::from_secs(10))
+            .with_max_nesting_depth(5)
+            .with_propagation(PropagationBehavior::Nested);
+        let tx = Transaction::new(conn, opts);
+        let o = tx.options();
+        assert_eq!(o.isolation_level, Some(IsolationLevel::Snapshot));
+        assert!(o.read_only);
+        assert_eq!(o.timeout, Some(Duration::from_secs(10)));
+        assert_eq!(o.max_nesting_depth, 5);
+        assert_eq!(o.propagation, PropagationBehavior::Nested);
+    }
+
+    #[tokio::test]
+    async fn t26tx_check_hold_timeout_expires() {
+        let conn = Box::new(MockConnection::new());
+        let opts = TransactOptions::default().with_timeout(Duration::from_millis(1));
+        let mut tx = Transaction::new(conn, opts);
+        tokio::time::sleep(Duration::from_millis(10)).await;
+        let result = tx.execute("SELECT 1").await;
+        assert!(result.is_err());
+        match result {
+            Err(TxError::CommitFailed(msg)) => assert!(msg.contains("timeout")),
+            _ => panic!("Expected timeout CommitFailed"),
+        }
+        assert_eq!(tx.state(), TransactionState::RolledBack);
+    }
+
+    #[tokio::test]
+    async fn t26tx_run_transaction_success() -> Result<(), TxError> {
+        let conn = Box::new(MockConnection::new());
+        let result: i32 = run_transaction(conn, TransactOptions::default(), |tx| {
+            Box::pin(async move {
+                tx.execute("INSERT INTO t VALUES (1)").await?;
+                Ok(42)
+            })
+        })
+        .await?;
+        assert_eq!(result, 42);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn t26tx_run_transaction_business_error_rolls_back() {
+        let conn = Box::new(MockConnection::new());
+        let result: Result<i32, TxError> =
+            run_transaction(conn, TransactOptions::default(), |_tx| {
+                Box::pin(async { Err(TxError::NotStarted) })
+            })
+            .await;
+        assert!(matches!(result, Err(TxError::NotStarted)));
+    }
+
+    #[tokio::test]
+    async fn t26tx_run_transaction_panic_propagates() {
+        use futures::FutureExt;
+        use std::panic::AssertUnwindSafe;
+        let conn = Box::new(MockConnection::new());
+        let fut = run_transaction::<()>(conn, TransactOptions::default(), |_tx| {
+            Box::pin(async { panic!("test panic") })
+        });
+        let result = AssertUnwindSafe(fut).catch_unwind().await;
+        assert!(result.is_err(), "panic should propagate");
+    }
+
+    #[tokio::test]
+    async fn t26tx_run_transaction_isolation_and_readonly() -> Result<(), TxError> {
+        let conn = Box::new(MockConnection::new());
+        let opts = TransactOptions::default()
+            .with_isolation(IsolationLevel::Serializable)
+            .read_only();
+        let result: i32 = run_transaction(conn, opts, |_tx| Box::pin(async { Ok(42) })).await?;
+        assert_eq!(result, 42);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn t26tx_run_savepoint_success() -> Result<(), TxError> {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        let result: i32 = run_savepoint(&mut tx, |tx| {
+            Box::pin(async move {
+                tx.execute("INSERT INTO t VALUES (1)").await?;
+                Ok(42)
+            })
+        })
+        .await?;
+        assert_eq!(result, 42);
+        assert!(tx.is_active());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn t26tx_run_savepoint_business_error() {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        let result: Result<i32, TxError> =
+            run_savepoint(&mut tx, |_tx| Box::pin(async { Err(TxError::NotStarted) })).await;
+        assert!(matches!(result, Err(TxError::NotStarted)));
+    }
+
+    #[tokio::test]
+    async fn t26tx_run_savepoint_panic_propagates() {
+        use futures::FutureExt;
+        use std::panic::AssertUnwindSafe;
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        let fut = run_savepoint::<()>(&mut tx, |_tx| Box::pin(async { panic!("test panic") }));
+        let result = AssertUnwindSafe(fut).catch_unwind().await;
+        assert!(result.is_err(), "panic should propagate");
+    }
+
+    #[tokio::test]
+    async fn t26tx_transaction_manager_rollback_not_found() {
+        let mgr = TransactionManager::new();
+        let result = mgr.rollback("nonexistent").await;
+        assert!(matches!(result, Err(TxError::SavepointError(_))));
+    }
+
+    #[tokio::test]
+    async fn t26tx_transaction_manager_begin_with_isolation_and_readonly() -> Result<(), TxError> {
+        let mgr = TransactionManager::new();
+        let conn = Box::new(MockConnection::new());
+        let opts = TransactOptions::default()
+            .with_isolation(IsolationLevel::Serializable)
+            .read_only();
+        mgr.begin("tx_iso_ro".to_string(), conn, opts).await?;
+        assert_eq!(mgr.state("tx_iso_ro").await, Some(TransactionState::Active));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn t26tx_transaction_manager_default() {
+        let mgr = TransactionManager::default();
+        assert!(mgr.list().await.is_empty());
+    }
+
+    #[tokio::test]
+    async fn t26tx_retry_on_deadlock_max_attempts_zero() {
+        let result: Result<u32, TxError> =
+            retry_on_deadlock(0, Duration::from_millis(1), |_| async { Ok(42u32) }).await;
+        assert!(matches!(
+            result,
+            Err(TxError::DeadlockDetected {
+                attempt: 0,
+                max_attempts: 0
+            })
+        ));
+    }
+
+    #[tokio::test]
+    async fn t26tx_drop_after_commit_no_spawn() -> Result<(), TxError> {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        tx.commit().await?;
+        drop(tx);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn t26tx_validate_savepoint_name_underscore_start() -> Result<(), TxError> {
+        let conn = Box::new(MockConnection::new());
+        let mut tx = Transaction::new(conn, TransactOptions::default());
+        tx.rollback_to_savepoint("_sp_1").await?;
+        tx.release_savepoint("_sp_2").await?;
+        Ok(())
+    }
 }

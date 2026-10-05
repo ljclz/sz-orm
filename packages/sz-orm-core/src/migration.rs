@@ -1203,4 +1203,484 @@ mod tests {
         assert!(m.sql_up.contains("CREATE TABLE"));
         assert!(m.sql_down.contains("DROP TABLE"));
     }
+
+    // ==================== T26a 新增测试 ====================
+    use crate::mock::FallbackBehavior;
+    use crate::mock::MockConnection;
+    use crate::Value;
+    use std::fs;
+    use std::path::PathBuf;
+
+    fn t26m_temp_dir(name: &str) -> PathBuf {
+        let dir =
+            std::env::temp_dir().join(format!("sz_orm_mig_test_{}_{}", std::process::id(), name));
+        let _ = fs::remove_dir_all(&dir);
+        fs::create_dir_all(&dir).unwrap();
+        dir
+    }
+
+    #[test]
+    fn t26m_migration_with_executed_at_and_clone() {
+        let now = chrono::Utc::now();
+        let m = Migration::new("001", "init", "UP", "DOWN")
+            .with_batch(2)
+            .with_executed_at(now);
+        assert_eq!(m.batch, 2);
+        assert_eq!(m.executed_at, Some(now));
+        let cloned = m.clone();
+        assert_eq!(cloned.version, m.version);
+        assert_eq!(cloned.batch, m.batch);
+    }
+
+    #[test]
+    fn t26m_migration_debug_format() {
+        let m = Migration::new("001", "init", "UP", "DOWN").with_batch(1);
+        let s = format!("{:?}", m);
+        assert!(s.contains("Migration"));
+        assert!(s.contains("version"));
+        assert!(s.contains("001"));
+        assert!(s.contains("batch"));
+        assert!(!s.contains("UP"));
+    }
+
+    #[test]
+    fn t26m_parse_filename_with_and_without_underscore() {
+        let (v, n) = parse_migration_filename("001_create_users");
+        assert_eq!(v, "001");
+        assert_eq!(n, "create_users");
+        let (v2, n2) = parse_migration_filename("init");
+        assert_eq!(v2, "init");
+        assert_eq!(n2, "init");
+    }
+
+    #[test]
+    fn t26m_validate_version_invalid() {
+        assert!(validate_migration_version("").is_err());
+        assert!(validate_migration_version(&"a".repeat(256)).is_err());
+        assert!(validate_migration_version("v1; DROP").is_err());
+        assert!(validate_migration_version("v1' OR 1=1").is_err());
+        assert!(validate_migration_version("v1 space").is_err());
+        assert!(validate_migration_version("v1--x").is_err());
+    }
+
+    #[test]
+    fn t26m_validate_version_valid_forms() {
+        assert!(validate_migration_version("001").is_ok());
+        assert!(validate_migration_version("20240101").is_ok());
+        assert!(validate_migration_version("v1.0").is_ok());
+        assert!(validate_migration_version("create_users").is_ok());
+        assert!(validate_migration_version("v1-0-beta").is_ok());
+    }
+
+    #[test]
+    fn t26m_supports_ddl_transactions_all_types() {
+        assert!(supports_ddl_transactions(DbType::PostgreSQL));
+        assert!(supports_ddl_transactions(DbType::Sqlite));
+        assert!(!supports_ddl_transactions(DbType::MySQL));
+        assert!(!supports_ddl_transactions(DbType::Oracle));
+        assert!(!supports_ddl_transactions(DbType::SqlServer));
+        assert!(!supports_ddl_transactions(DbType::Redis));
+    }
+
+    #[test]
+    fn t26m_migration_context_with_db_type() {
+        let ctx = MigrationContext::default().with_db_type(DbType::MySQL);
+        assert_eq!(ctx.db_type, Some(DbType::MySQL));
+        assert_eq!(ctx.table_name, "__migrations");
+        assert!(ctx.connection.is_none());
+    }
+
+    #[test]
+    fn t26m_migrator_add_and_get_migrations() {
+        let ctx = MigrationContext::default();
+        let migrations = vec![
+            Migration::new("001", "a", "UP", "DOWN"),
+            Migration::new("002", "b", "UP", "DOWN"),
+        ];
+        let migrator = Migrator::new(ctx).add_migrations(migrations);
+        assert_eq!(migrator.get_migrations().len(), 2);
+    }
+
+    #[test]
+    fn t26m_migrator_pending_applied() {
+        let ctx = MigrationContext::default();
+        let migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP", "DOWN").with_batch(1))
+            .add_migration(Migration::new("002", "b", "UP", "DOWN"));
+        assert_eq!(migrator.get_pending_migrations().len(), 1);
+        assert_eq!(migrator.get_applied_migrations().len(), 1);
+    }
+
+    #[test]
+    fn t26m_migrator_check_version_conflicts_ok() {
+        let ctx = MigrationContext::default();
+        let migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP", "DOWN"))
+            .add_migration(Migration::new("002", "b", "UP", "DOWN"));
+        assert!(migrator.check_version_conflicts().is_ok());
+    }
+
+    #[test]
+    fn t26m_migrator_check_version_conflicts_dup() {
+        let ctx = MigrationContext::default();
+        let migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP", "DOWN"))
+            .add_migration(Migration::new("001", "b", "UP", "DOWN"));
+        assert!(migrator.check_version_conflicts().is_err());
+    }
+
+    #[test]
+    fn t26m_migrator_progress() {
+        let ctx = MigrationContext::default();
+        let migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP", "DOWN").with_batch(1))
+            .add_migration(Migration::new("002", "b", "UP", "DOWN"));
+        let p = migrator.progress();
+        assert_eq!(p.total, 2);
+        assert_eq!(p.applied, 1);
+        assert_eq!(p.pending, 1);
+    }
+
+    #[test]
+    fn t26m_build_create_table_sql_variants() {
+        let m_default = Migrator::new(MigrationContext::default());
+        let sql = m_default.build_create_migrations_table_sql();
+        assert!(sql.contains("CREATE TABLE IF NOT EXISTS __migrations"));
+        assert!(sql.contains("TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP"));
+
+        let m_ss = Migrator::new(MigrationContext::default().with_db_type(DbType::SqlServer));
+        let sql_ss = m_ss.build_create_migrations_table_sql();
+        assert!(sql_ss.contains("DATETIME DEFAULT GETDATE()"));
+
+        let m_or = Migrator::new(MigrationContext::default().with_db_type(DbType::Oracle));
+        let sql_or = m_or.build_create_migrations_table_sql();
+        assert!(sql_or.contains("TIMESTAMP DEFAULT CURRENT_TIMESTAMP"));
+        assert!(!sql_or.contains("NOT NULL DEFAULT"));
+    }
+
+    #[tokio::test]
+    async fn t26m_migrate_no_connection() {
+        let ctx = MigrationContext::default();
+        let mut migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP1", "DOWN1"))
+            .add_migration(Migration::new("002", "b", "UP2", "DOWN2"));
+        let applied = migrator.migrate().await.unwrap();
+        assert_eq!(applied, vec!["001".to_string(), "002".to_string()]);
+        assert_eq!(migrator.get_applied_migrations().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn t26m_migrate_empty_pending() {
+        let ctx = MigrationContext::default();
+        let mut migrator = Migrator::new(ctx);
+        let applied = migrator.migrate().await.unwrap();
+        assert!(applied.is_empty());
+    }
+
+    #[tokio::test]
+    async fn t26m_up_no_connection() {
+        let ctx = MigrationContext::default();
+        let mut migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP1", "DOWN1"))
+            .add_migration(Migration::new("002", "b", "UP2", "DOWN2"))
+            .add_migration(Migration::new("003", "c", "UP3", "DOWN3"));
+        let applied = migrator.up(Some("002")).await.unwrap();
+        assert_eq!(applied, vec!["001".to_string(), "002".to_string()]);
+        let applied_all = migrator.up(None).await.unwrap();
+        assert_eq!(applied_all.len(), 3);
+    }
+
+    #[tokio::test]
+    async fn t26m_down_with_mock_connection() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT version, batch FROM __migrations")
+            .with_rows(vec![
+                vec![
+                    ("version", Value::from("001")),
+                    ("batch", Value::from(1i32)),
+                ],
+                vec![
+                    ("version", Value::from("002")),
+                    ("batch", Value::from(1i32)),
+                ],
+                vec![
+                    ("version", Value::from("003")),
+                    ("batch", Value::from(1i32)),
+                ],
+            ]);
+        let ctx = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(mock)),
+            db_type: Some(DbType::MySQL),
+        };
+        let mut migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP1", "DOWN1"))
+            .add_migration(Migration::new("002", "b", "UP2", "DOWN2"))
+            .add_migration(Migration::new("003", "c", "UP3", "DOWN3"));
+        let rolled = migrator.down(Some("001")).await.unwrap();
+        assert_eq!(rolled, vec!["003".to_string(), "002".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn t26m_rollback_not_found() {
+        let ctx = MigrationContext::default();
+        let mut migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP", "DOWN").with_batch(1));
+        let result = migrator.rollback("999").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn t26m_rollback_not_applied() {
+        let ctx = MigrationContext::default();
+        let mut migrator =
+            Migrator::new(ctx).add_migration(Migration::new("001", "a", "UP", "DOWN"));
+        let result = migrator.rollback("001").await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn t26m_reset_no_connection() {
+        let ctx = MigrationContext::default();
+        let mut migrator = Migrator::new(ctx)
+            .add_migration(Migration::new("001", "a", "UP1", "DOWN1").with_batch(1))
+            .add_migration(Migration::new("002", "b", "UP2", "DOWN2"));
+        let applied = migrator.reset().await.unwrap();
+        assert_eq!(applied.len(), 2);
+        let applied2 = migrator.refresh().await.unwrap();
+        assert_eq!(applied2.len(), 2);
+    }
+
+    #[tokio::test]
+    async fn t26m_migrate_with_mock_connection() {
+        let ctx = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(MockConnection::new())),
+            db_type: Some(DbType::MySQL),
+        };
+        let mut migrator = Migrator::new(ctx).add_migration(Migration::new(
+            "001",
+            "init",
+            "CREATE TABLE t (id INT)",
+            "DROP TABLE t",
+        ));
+        let applied = migrator.migrate().await.unwrap();
+        assert_eq!(applied, vec!["001".to_string()]);
+    }
+
+    #[tokio::test]
+    async fn t26m_migrate_with_transaction() {
+        let ctx = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(MockConnection::new())),
+            db_type: Some(DbType::Sqlite),
+        };
+        let mut migrator = Migrator::new(ctx).add_migration(Migration::new(
+            "001",
+            "init",
+            "CREATE TABLE t (id INT)",
+            "DROP TABLE t",
+        ));
+        let applied = migrator.migrate().await.unwrap();
+        assert_eq!(applied, vec!["001".to_string()]);
+        assert_eq!(migrator.get_applied_migrations().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn t26m_migrate_transaction_rollback_on_failure() {
+        let create_sql = Migrator::new(MigrationContext::default().with_db_type(DbType::Sqlite))
+            .build_create_migrations_table_sql();
+        let mut mock = MockConnection::new().with_fallback(FallbackBehavior::Error);
+        mock.expect_execute(&create_sql, 0);
+        mock.expect_query("SELECT version, batch FROM __migrations")
+            .with_rows(vec![]);
+        let ctx = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(mock)),
+            db_type: Some(DbType::Sqlite),
+        };
+        let mut migrator = Migrator::new(ctx).add_migration(Migration::new(
+            "001",
+            "init",
+            "CREATE TABLE t (id INT)",
+            "DROP TABLE t",
+        ));
+        let result = migrator.migrate().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn t26m_rollback_with_mock_connection() {
+        let mut mock = MockConnection::new();
+        mock.expect_query("SELECT version, batch FROM __migrations")
+            .with_rows(vec![vec![
+                ("version", Value::from("001")),
+                ("batch", Value::from(1i32)),
+            ]]);
+        let ctx = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(mock)),
+            db_type: Some(DbType::MySQL),
+        };
+        let mut migrator = Migrator::new(ctx).add_migration(Migration::new(
+            "001",
+            "init",
+            "CREATE TABLE t (id INT)",
+            "DROP TABLE t",
+        ));
+        let result = migrator.rollback("001").await;
+        assert!(result.is_ok());
+        assert_eq!(migrator.get_pending_migrations().len(), 1);
+    }
+
+    #[tokio::test]
+    async fn t26m_migrate_invalid_version_with_connection() {
+        let ctx = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(MockConnection::new())),
+            db_type: Some(DbType::MySQL),
+        };
+        let mut migrator =
+            Migrator::new(ctx).add_migration(Migration::new("v1'", "init", "", "DOWN"));
+        let result = migrator.migrate().await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn t26m_migrate_invalid_name_with_connection() {
+        let ctx = MigrationContext {
+            table_name: "__migrations".to_string(),
+            connection: Some(Box::new(MockConnection::new())),
+            db_type: Some(DbType::MySQL),
+        };
+        let mut migrator =
+            Migrator::new(ctx).add_migration(Migration::new("001", "bad;name", "", "DOWN"));
+        let result = migrator.migrate().await;
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn t26m_file_resolver_nonexistent_dir() {
+        let nonexistent = std::env::temp_dir()
+            .join(format!("sz_orm_test_nonexistent_{}", std::process::id()))
+            .join("subdir");
+        let resolver = FileMigrationResolver::new(nonexistent);
+        assert!(resolver.resolve(DbType::MySQL).is_err());
+    }
+
+    #[test]
+    fn t26m_file_resolver_empty_dir() {
+        let dir = t26m_temp_dir("empty");
+        let resolver = FileMigrationResolver::new(dir.clone());
+        let migrations = resolver.resolve(DbType::MySQL).unwrap();
+        assert!(migrations.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t26m_file_resolver_simple_sql() {
+        let dir = t26m_temp_dir("simple");
+        fs::write(dir.join("001_init.sql"), "CREATE TABLE t (id INT);").unwrap();
+        let resolver = FileMigrationResolver::new(dir.clone());
+        let migrations = resolver.resolve(DbType::MySQL).unwrap();
+        assert_eq!(migrations.len(), 1);
+        assert_eq!(migrations[0].version, "001");
+        assert_eq!(migrations[0].name, "init");
+        assert!(migrations[0].sql_up.contains("CREATE TABLE"));
+        assert!(migrations[0].sql_down.is_empty());
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t26m_file_resolver_up_down() {
+        let dir = t26m_temp_dir("updown");
+        fs::write(dir.join("001_init_up.sql"), "CREATE TABLE t (id INT);").unwrap();
+        fs::write(dir.join("001_init_down.sql"), "DROP TABLE t;").unwrap();
+        let resolver = FileMigrationResolver::new(dir.clone());
+        let migrations = resolver.resolve(DbType::MySQL).unwrap();
+        assert_eq!(migrations.len(), 1);
+        assert_eq!(migrations[0].version, "001");
+        assert!(migrations[0].sql_up.contains("CREATE TABLE"));
+        assert!(migrations[0].sql_down.contains("DROP TABLE"));
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t26m_schema_builder_full() {
+        let idx = IndexDef::new("idx_email", vec!["email"]).unique();
+        let fk = ForeignKeyDef::new("fk_user", "user_id", "users", "id").on_delete("CASCADE");
+        let schema = SchemaBuilder::new("orders")
+            .if_not_exists(false)
+            .add_column(ColumnDef::new("id", "INT").not_null().auto_increment())
+            .add_column(ColumnDef::new("user_id", "INT").not_null())
+            .add_index(idx)
+            .add_foreign_key(fk);
+        let sql = schema.build(DbType::MySQL).unwrap();
+        assert!(sql.contains("CREATE TABLE orders"));
+        assert!(!sql.contains("IF NOT EXISTS"));
+        assert!(sql.contains("KEY idx_email"));
+        assert!(sql.contains("FOREIGN KEY"));
+    }
+
+    #[test]
+    fn t26m_column_def_build_variants() {
+        let col_mysql = ColumnDef::new("id", "INT").not_null().auto_increment();
+        assert!(col_mysql.build(DbType::MySQL).contains("AUTO_INCREMENT"));
+
+        let col_pg = ColumnDef::new("id", "INT").not_null().auto_increment();
+        assert!(col_pg
+            .build(DbType::PostgreSQL)
+            .contains("GENERATED BY DEFAULT AS IDENTITY"));
+
+        let col_sqlite = ColumnDef::new("id", "INT").not_null().auto_increment();
+        assert!(col_sqlite.build(DbType::Sqlite).contains("AUTOINCREMENT"));
+
+        let col_oracle = ColumnDef::new("id", "INT").not_null().auto_increment();
+        let oracle_sql = col_oracle.build(DbType::Oracle);
+        assert!(!oracle_sql.contains("AUTO_INCREMENT"));
+        assert!(!oracle_sql.contains("AUTOINCREMENT"));
+
+        let col_full = ColumnDef::new("status", "VARCHAR")
+            .length(50)
+            .default("'active'")
+            .unique()
+            .comment("user status");
+        let sql = col_full.build(DbType::MySQL);
+        assert!(sql.contains("(50)"));
+        assert!(sql.contains("DEFAULT 'active'"));
+        assert!(sql.contains("UNIQUE"));
+        assert_eq!(col_full.comment, Some("user status".to_string()));
+    }
+
+    #[test]
+    fn t26m_index_def_non_unique() {
+        let idx = IndexDef::new("idx_name", vec!["name", "email"]);
+        let sql = idx.build(DbType::MySQL);
+        assert!(sql.contains("KEY idx_name"));
+        assert!(!sql.contains("UNIQUE"));
+        assert!(sql.contains("name, email"));
+    }
+
+    #[test]
+    fn t26m_foreign_key_on_update() {
+        let fk = ForeignKeyDef::new("fk_user", "user_id", "users", "id")
+            .on_delete("CASCADE")
+            .on_update("SET NULL");
+        let sql = fk.build(DbType::MySQL).unwrap();
+        assert!(sql.contains("ON DELETE CASCADE"));
+        assert!(sql.contains("ON UPDATE SET NULL"));
+    }
+
+    #[test]
+    fn t26m_progress_percent_complete_zero_total() {
+        let p = MigrationProgress::new(0, 0);
+        assert_eq!(p.percent_complete(), 100.0);
+    }
+
+    #[test]
+    fn t26m_migration_direction_eq() {
+        assert_eq!(MigrationDirection::Up, MigrationDirection::Up);
+        assert_ne!(MigrationDirection::Up, MigrationDirection::Down);
+        assert_eq!(MigrationDirection::Down, MigrationDirection::Down);
+    }
 }

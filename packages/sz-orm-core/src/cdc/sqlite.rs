@@ -472,4 +472,260 @@ mod tests {
         assert!(tables.contains(&"test_table".to_string()));
         assert!(tables.contains(&"other_table".to_string()));
     }
+
+    fn t23_make_capturer(tables: &[&str]) -> SqliteHookCapturer {
+        SqliteHookCapturer::new(SqliteCdcConfig {
+            watched_tables: tables.iter().map(|s| s.to_string()).collect(),
+            ..Default::default()
+        })
+    }
+
+    #[test]
+    fn t23_config_default_values() {
+        let config = SqliteCdcConfig::default();
+        assert_eq!(config.poll_interval, Duration::from_millis(100));
+        assert!(config.watched_tables.is_empty());
+        assert_eq!(config.source_db, "sqlite");
+    }
+
+    #[tokio::test]
+    async fn t23_capturer_new_initializes_seq_zero() {
+        let capturer = t23_make_capturer(&["test_table"]);
+        assert_eq!(capturer.last_seq(), 0);
+    }
+
+    #[tokio::test]
+    async fn t23_install_hooks_empty_watched_tables_creates_events_table() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&[]);
+        capturer.install_hooks(&pool).await.unwrap();
+        let count: (i64,) =
+            sqlx::query_as("SELECT COUNT(*) FROM sqlite_master WHERE name = '_sz_cdc_events'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(count.0, 1);
+    }
+
+    #[tokio::test]
+    async fn t23_install_hooks_rejects_invalid_table_name() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["bad table!"]);
+        let result = capturer.install_hooks(&pool).await;
+        assert!(result.is_err());
+        assert!(result.unwrap_err().contains("非法"));
+    }
+
+    #[tokio::test]
+    async fn t23_install_hooks_rejects_injection_table_name() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["users; DROP TABLE test_table; --"]);
+        let result = capturer.install_hooks(&pool).await;
+        assert!(result.is_err());
+    }
+
+    #[tokio::test]
+    async fn t23_install_hooks_idempotent() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["test_table"]);
+        capturer.install_hooks(&pool).await.unwrap();
+        capturer.install_hooks(&pool).await.unwrap();
+        let count: (i64,) = sqlx::query_as(
+            "SELECT COUNT(*) FROM sqlite_master WHERE type = 'trigger' AND tbl_name = 'test_table'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(count.0, 3);
+    }
+
+    #[tokio::test]
+    async fn t23_poll_and_dispatch_no_events_returns_zero() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["test_table"]);
+        capturer.install_hooks(&pool).await.unwrap();
+        let dispatcher = CdcEventDispatcher::new(vec![], 100);
+        let count = capturer
+            .poll_and_dispatch(&pool, &dispatcher)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+        assert_eq!(capturer.last_seq(), 0);
+    }
+
+    #[tokio::test]
+    async fn t23_poll_and_dispatch_delivers_insert_event() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["test_table"]);
+        capturer.install_hooks(&pool).await.unwrap();
+        sqlx::query("INSERT INTO test_table (id, name) VALUES (1, 'alice')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let sink = Arc::new(super::super::dispatcher::MemorySink::new());
+        let dispatcher = CdcEventDispatcher::new(vec![sink.clone()], 100);
+        let count = capturer
+            .poll_and_dispatch(&pool, &dispatcher)
+            .await
+            .unwrap();
+        assert_eq!(count, 1);
+        assert_eq!(sink.count(), 1);
+        let events = sink.events();
+        assert_eq!(events[0].event_type, ChangeEventType::Insert);
+        assert_eq!(events[0].source_table, "test_table");
+        assert_eq!(events[0].source_db, "sqlite");
+        assert!(capturer.last_seq() > 0);
+    }
+
+    #[tokio::test]
+    async fn t23_poll_and_dispatch_delivers_update_and_delete() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["test_table"]);
+        capturer.install_hooks(&pool).await.unwrap();
+        sqlx::query("INSERT INTO test_table (id, name) VALUES (1, 'a')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE test_table SET name = 'b' WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM test_table WHERE id = 1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let sink = Arc::new(super::super::dispatcher::MemorySink::new());
+        let dispatcher = CdcEventDispatcher::new(vec![sink.clone()], 100);
+        let count = capturer
+            .poll_and_dispatch(&pool, &dispatcher)
+            .await
+            .unwrap();
+        assert_eq!(count, 3);
+        let events = sink.events();
+        assert_eq!(events[0].event_type, ChangeEventType::Insert);
+        assert_eq!(events[1].event_type, ChangeEventType::Update);
+        assert_eq!(events[2].event_type, ChangeEventType::Delete);
+    }
+
+    #[tokio::test]
+    async fn t23_poll_and_dispatch_skips_unknown_op() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["test_table"]);
+        capturer.install_hooks(&pool).await.unwrap();
+        sqlx::query(
+            "INSERT INTO _sz_cdc_events(op, table_name, row_id, row_data) \
+             VALUES ('UNKNOWN', 'test_table', '1', '')",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let dispatcher = CdcEventDispatcher::new(vec![], 100);
+        let count = capturer
+            .poll_and_dispatch(&pool, &dispatcher)
+            .await
+            .unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn t23_poll_and_dispatch_custom_source_db() {
+        let pool = setup_pool().await;
+        let capturer = SqliteHookCapturer::new(SqliteCdcConfig {
+            watched_tables: vec!["test_table".to_string()],
+            source_db: "my_custom_db".to_string(),
+            ..Default::default()
+        });
+        capturer.install_hooks(&pool).await.unwrap();
+        sqlx::query("INSERT INTO test_table (id, name) VALUES (1, 'x')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let sink = Arc::new(super::super::dispatcher::MemorySink::new());
+        let dispatcher = CdcEventDispatcher::new(vec![sink.clone()], 100);
+        capturer
+            .poll_and_dispatch(&pool, &dispatcher)
+            .await
+            .unwrap();
+        let events = sink.events();
+        assert_eq!(events[0].source_db, "my_custom_db");
+    }
+
+    #[tokio::test]
+    async fn t23_poll_and_send_no_events_returns_zero() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["test_table"]);
+        capturer.install_hooks(&pool).await.unwrap();
+        let (tx, _rx) = mpsc::channel(100);
+        let count = capturer.poll_and_send(&pool, &tx).await.unwrap();
+        assert_eq!(count, 0);
+    }
+
+    #[tokio::test]
+    async fn t23_poll_and_send_multiple_events_in_order() {
+        let pool = setup_pool().await;
+        let capturer = t23_make_capturer(&["test_table"]);
+        capturer.install_hooks(&pool).await.unwrap();
+        for idx in 1i64..=3 {
+            sqlx::query("INSERT INTO test_table (id, name) VALUES (?, ?)")
+                .bind(idx)
+                .bind(format!("n{}", idx))
+                .execute(&pool)
+                .await
+                .unwrap();
+        }
+        let (tx, mut rx) = mpsc::channel(100);
+        let count = capturer.poll_and_send(&pool, &tx).await.unwrap();
+        assert_eq!(count, 3);
+        drop(tx);
+        let mut seqs = Vec::new();
+        while let Some(event) = rx.recv().await {
+            if let ChangePosition::SqliteHook { seq } = event.position {
+                seqs.push(seq);
+            }
+        }
+        assert_eq!(seqs.len(), 3);
+        assert!(seqs.windows(2).all(|w| w[0] < w[1]));
+        assert!(capturer.last_seq() > 0);
+    }
+
+    #[tokio::test]
+    async fn t23_start_stops_immediately_on_signal() {
+        let pool = setup_pool().await;
+        let capturer = Arc::new(t23_make_capturer(&["test_table"]));
+        capturer.install_hooks(&pool).await.unwrap();
+        let dispatcher = Arc::new(CdcEventDispatcher::new(vec![], 100));
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        stop_tx.send(()).unwrap();
+        let total = capturer.start(pool, dispatcher, stop_rx).await.unwrap();
+        assert_eq!(total, 0);
+    }
+
+    #[tokio::test(flavor = "multi_thread", worker_threads = 2)]
+    async fn t23_start_processes_events_then_stops() {
+        let pool = setup_pool().await;
+        let capturer = Arc::new(SqliteHookCapturer::new(SqliteCdcConfig {
+            poll_interval: Duration::from_millis(10),
+            watched_tables: vec!["test_table".to_string()],
+            ..Default::default()
+        }));
+        capturer.install_hooks(&pool).await.unwrap();
+        sqlx::query("INSERT INTO test_table (id, name) VALUES (1, 'a')")
+            .execute(&pool)
+            .await
+            .unwrap();
+        let sink = Arc::new(super::super::dispatcher::MemorySink::new());
+        let dispatcher = Arc::new(CdcEventDispatcher::new(vec![sink.clone()], 100));
+        let (stop_tx, stop_rx) = tokio::sync::oneshot::channel();
+        let capturer_clone = capturer.clone();
+        let pool_clone = pool.clone();
+        let handle =
+            tokio::spawn(
+                async move { capturer_clone.start(pool_clone, dispatcher, stop_rx).await },
+            );
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        stop_tx.send(()).unwrap();
+        let total = handle.await.unwrap().unwrap();
+        assert!(total >= 1);
+        assert_eq!(sink.count(), 1);
+    }
 }

@@ -1376,4 +1376,350 @@ mod tests {
         assert!(e.to_string().contains("vetoer"));
         assert!(e.to_string().contains("rejected"));
     }
+
+    #[test]
+    fn t26obs_event_restore_variants() {
+        assert!(Event::BeforeRestore.is_before());
+        assert!(!Event::BeforeRestore.is_after());
+        assert!(!Event::BeforeRestore.is_write_event());
+        assert!(Event::AfterRestore.is_after());
+        assert!(!Event::AfterRestore.is_before());
+        assert!(!Event::AfterRestore.is_write_event());
+        assert_eq!(Event::BeforeRestore.name(), "before_restore");
+        assert_eq!(Event::AfterRestore.name(), "after_restore");
+    }
+
+    #[test]
+    fn t26obs_event_all_names() {
+        assert_eq!(Event::BeforeUpdate.name(), "before_update");
+        assert_eq!(Event::AfterUpdate.name(), "after_update");
+        assert_eq!(Event::BeforeDelete.name(), "before_delete");
+        assert_eq!(Event::AfterInsert.name(), "after_insert");
+    }
+
+    #[test]
+    fn t26obs_event_all_before_after() {
+        assert!(Event::BeforeUpdate.is_before());
+        assert!(Event::BeforeDelete.is_before());
+        assert!(Event::AfterUpdate.is_after());
+        assert!(Event::AfterDelete.is_after());
+        assert!(Event::AfterFind.is_after());
+    }
+
+    #[test]
+    fn t26obs_event_write_events() {
+        assert!(Event::BeforeUpdate.is_write_event());
+        assert!(Event::AfterUpdate.is_write_event());
+        assert!(Event::AfterDelete.is_write_event());
+        assert!(!Event::AfterFind.is_write_event());
+        assert!(!Event::BeforeRestore.is_write_event());
+        assert!(!Event::AfterRestore.is_write_event());
+    }
+
+    #[test]
+    fn t26obs_dispatcher_default() {
+        let d = EventDispatcher::default();
+        assert_eq!(d.observer_count(), 0);
+        assert_eq!(d.subscriber_count(), 0);
+        assert_eq!(d.error_count(), 0);
+    }
+
+    #[test]
+    fn t26obs_audit_log_default() {
+        let audit = AuditLogSubscriber::default();
+        assert_eq!(audit.logs().lock().len(), 0);
+    }
+
+    #[test]
+    fn t26obs_dispatch_non_after_event_no_panic() {
+        let d = EventDispatcher::new();
+        let ctx = HookContext::default();
+        let attrs = HashMap::new();
+        d.dispatch(Event::BeforeInsert, &ctx, &attrs);
+        d.dispatch(Event::BeforeUpdate, &ctx, &attrs);
+        d.dispatch(Event::BeforeDelete, &ctx, &attrs);
+        d.dispatch(Event::AfterFind, &ctx, &attrs);
+        d.dispatch(Event::BeforeRestore, &ctx, &attrs);
+        d.dispatch(Event::AfterRestore, &ctx, &attrs);
+        assert_eq!(d.error_count(), 0);
+    }
+
+    #[test]
+    fn t26obs_dispatch_before_mut_before_update() {
+        struct UpdateObs;
+        impl Observer for UpdateObs {
+            fn name(&self) -> &str {
+                "update_obs"
+            }
+            fn before_update(
+                &self,
+                _ctx: &HookContext,
+                attrs: &mut HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                attrs.insert("updated".to_string(), Value::Bool(true));
+                Ok(())
+            }
+        }
+        let d = EventDispatcher::new();
+        d.add_observer(Box::new(UpdateObs));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_before_mut(Event::BeforeUpdate, &ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert_eq!(attrs.get("updated"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn t26obs_dispatch_before_mut_before_delete_no_observer() {
+        let d = EventDispatcher::new();
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_before_mut(Event::BeforeDelete, &ctx, &mut attrs);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn t26obs_dispatch_before_mut_non_before_event() {
+        let d = EventDispatcher::new();
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_before_mut(Event::AfterInsert, &ctx, &mut attrs);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn t26obs_dispatch_after_find_with_observer() {
+        struct FindObs;
+        impl Observer for FindObs {
+            fn name(&self) -> &str {
+                "find_obs"
+            }
+            fn after_find(
+                &self,
+                _ctx: &HookContext,
+                attrs: &mut HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                attrs.insert("found".to_string(), Value::Bool(true));
+                Ok(())
+            }
+        }
+        let d = EventDispatcher::new();
+        d.add_observer(Box::new(FindObs));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_after_find(&ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert_eq!(attrs.get("found"), Some(&Value::Bool(true)));
+    }
+
+    #[test]
+    fn t26obs_dispatch_after_find_with_failing_observer() {
+        struct FailObs;
+        impl Observer for FailObs {
+            fn name(&self) -> &str {
+                "fail"
+            }
+            fn after_find(
+                &self,
+                _ctx: &HookContext,
+                _attrs: &mut HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Failed {
+                    subscriber: "fail".to_string(),
+                    reason: "oops".to_string(),
+                })
+            }
+        }
+        let d = EventDispatcher::new();
+        d.add_observer(Box::new(FailObs));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_after_find(&ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert_eq!(d.error_count(), 1);
+    }
+
+    #[test]
+    fn t26obs_dispatch_after_find_with_subscriber() {
+        struct FindSub(Arc<Mutex<bool>>);
+        impl EventSubscriber for FindSub {
+            fn name(&self) -> &str {
+                "find_sub"
+            }
+            fn subscribed_events(&self) -> Vec<Event> {
+                vec![Event::AfterFind]
+            }
+            fn on_event(
+                &self,
+                _event: Event,
+                _ctx: &HookContext,
+                _attrs: &HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                *self.0.lock().unwrap() = true;
+                Ok(())
+            }
+        }
+        let called = Arc::new(Mutex::new(false));
+        let d = EventDispatcher::new();
+        d.subscribe(Box::new(FindSub(called.clone())));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        d.dispatch_after_find(&ctx, &mut attrs).unwrap();
+        assert!(*called.lock().unwrap());
+    }
+
+    #[test]
+    fn t26obs_clear_errors() {
+        struct ErrSub;
+        impl EventSubscriber for ErrSub {
+            fn name(&self) -> &str {
+                "err"
+            }
+            fn subscribed_events(&self) -> Vec<Event> {
+                vec![Event::AfterInsert]
+            }
+            fn on_event(
+                &self,
+                _e: Event,
+                _c: &HookContext,
+                _a: &HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Failed {
+                    subscriber: "err".to_string(),
+                    reason: "test".to_string(),
+                })
+            }
+        }
+        let d = EventDispatcher::new();
+        d.subscribe(Box::new(ErrSub));
+        let ctx = HookContext::default();
+        let attrs = HashMap::new();
+        d.dispatch(Event::AfterInsert, &ctx, &attrs);
+        assert_eq!(d.error_count(), 1);
+        d.clear();
+        assert_eq!(d.error_count(), 0);
+        assert_eq!(d.subscriber_count(), 0);
+    }
+
+    #[test]
+    fn t26obs_observer_failed_in_dispatch() {
+        struct FailObs;
+        impl Observer for FailObs {
+            fn name(&self) -> &str {
+                "fail"
+            }
+            fn after_insert(
+                &self,
+                _ctx: &HookContext,
+                _attrs: &HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Failed {
+                    subscriber: "fail".to_string(),
+                    reason: "insert failed".to_string(),
+                })
+            }
+        }
+        let d = EventDispatcher::new();
+        d.add_observer(Box::new(FailObs));
+        let ctx = HookContext::default();
+        let attrs = HashMap::new();
+        d.dispatch(Event::AfterInsert, &ctx, &attrs);
+        assert_eq!(d.error_count(), 1);
+    }
+
+    #[test]
+    fn t26obs_observer_vetoed_in_dispatch_before_mut() {
+        struct VetoObs;
+        impl Observer for VetoObs {
+            fn name(&self) -> &str {
+                "veto"
+            }
+            fn before_insert(
+                &self,
+                _ctx: &HookContext,
+                _attrs: &mut HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Vetoed {
+                    subscriber: "veto".to_string(),
+                    reason: "no".to_string(),
+                })
+            }
+        }
+        let d = EventDispatcher::new();
+        d.add_observer(Box::new(VetoObs));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_before_mut(Event::BeforeInsert, &ctx, &mut attrs);
+        assert!(matches!(result, Err(SubscriberError::Vetoed { .. })));
+    }
+
+    #[test]
+    fn t26obs_observer_failed_in_dispatch_before_mut() {
+        struct FailObs;
+        impl Observer for FailObs {
+            fn name(&self) -> &str {
+                "fail"
+            }
+            fn before_insert(
+                &self,
+                _ctx: &HookContext,
+                _attrs: &mut HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Failed {
+                    subscriber: "fail".to_string(),
+                    reason: "err".to_string(),
+                })
+            }
+        }
+        let d = EventDispatcher::new();
+        d.add_observer(Box::new(FailObs));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_before_mut(Event::BeforeInsert, &ctx, &mut attrs);
+        assert!(result.is_ok());
+        assert_eq!(d.error_count(), 1);
+    }
+
+    #[test]
+    fn t26obs_subscriber_vetoed_in_dispatch_before_mut() {
+        struct VetoSub;
+        impl EventSubscriber for VetoSub {
+            fn name(&self) -> &str {
+                "veto_sub"
+            }
+            fn subscribed_events(&self) -> Vec<Event> {
+                vec![Event::BeforeUpdate]
+            }
+            fn on_event(
+                &self,
+                _e: Event,
+                _c: &HookContext,
+                _a: &HashMap<String, Value>,
+            ) -> SubscriberResult<()> {
+                Err(SubscriberError::Vetoed {
+                    subscriber: "veto_sub".to_string(),
+                    reason: "no update".to_string(),
+                })
+            }
+        }
+        let d = EventDispatcher::new();
+        d.subscribe(Box::new(VetoSub));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        let result = d.dispatch_before_mut(Event::BeforeUpdate, &ctx, &mut attrs);
+        assert!(matches!(result, Err(SubscriberError::Vetoed { .. })));
+    }
+
+    #[test]
+    fn t26obs_audit_log_with_after_find() {
+        let audit = AuditLogSubscriber::new();
+        let audit_clone = audit.clone();
+        let d = EventDispatcher::new();
+        d.subscribe(Box::new(audit_clone));
+        let ctx = HookContext::default();
+        let mut attrs = HashMap::new();
+        attrs.insert("k".to_string(), Value::I64(1));
+        d.dispatch_after_find(&ctx, &mut attrs).unwrap();
+        assert_eq!(audit.logs().lock().len(), 0);
+    }
 }

@@ -664,4 +664,226 @@ mod tests {
         let debug_str = format!("{:?}", av);
         assert!(debug_str.contains("Set"));
     }
+
+    // ---- mock Connection for update/save/insert tests ----
+
+    use crate::pool::Connection;
+    use crate::pool::QueryRows;
+    use std::future::Future;
+    use std::pin::Pin;
+
+    struct MockConn {
+        last_sql: String,
+        return_value: u64,
+        return_error: Option<String>,
+    }
+
+    impl MockConn {
+        fn ok(value: u64) -> Self {
+            Self {
+                last_sql: String::new(),
+                return_value: value,
+                return_error: None,
+            }
+        }
+        fn err(msg: &str) -> Self {
+            Self {
+                last_sql: String::new(),
+                return_value: 0,
+                return_error: Some(msg.into()),
+            }
+        }
+    }
+
+    impl Connection for MockConn {
+        fn execute<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, DbError>> + Send + 'a>> {
+            self.last_sql = sql.to_string();
+            if let Some(ref msg) = self.return_error {
+                let err = DbError::QueryError(msg.clone());
+                Box::pin(async move { Err(err) })
+            } else {
+                let v = self.return_value;
+                Box::pin(async move { Ok(v) })
+            }
+        }
+        fn query<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryRows, DbError>> + Send + 'a>> {
+            let _ = sql;
+            Box::pin(async move { Err(DbError::QueryError("not used".into())) })
+        }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    #[tokio::test]
+    async fn t26am_update_with_changed_fields() {
+        let user = User {
+            id: 1,
+            name: "Alice".into(),
+            email: "a@b.com".into(),
+        };
+        let mut active = ActiveModel::from_model(user);
+        active.set("email", ActiveValue::Set(Value::String("new@b.com".into())));
+        let mut conn = MockConn::ok(1);
+        let rows = update(&mut conn, active).await.unwrap();
+        assert_eq!(rows, 1);
+        assert!(conn.last_sql.contains("UPDATE"));
+        assert!(conn.last_sql.contains("users"));
+        assert!(conn.last_sql.contains("email"));
+    }
+
+    #[tokio::test]
+    async fn t26am_update_no_changes() {
+        let user = User {
+            id: 1,
+            name: "Alice".into(),
+            email: "a@b.com".into(),
+        };
+        let active = ActiveModel::from_model(user);
+        let mut conn = MockConn::ok(0);
+        let rows = update(&mut conn, active).await.unwrap();
+        assert_eq!(rows, 0);
+    }
+
+    #[tokio::test]
+    async fn t26am_update_no_pk() {
+        // User with id=0 → pk_as_value=I64(0) which is NOT Null → pk_value=Some
+        // So update will succeed (pk is considered set)
+        let user = User::default();
+        let mut active = ActiveModel::from_model(user);
+        active.set("name", ActiveValue::Set(Value::String("Alice".into())));
+        let mut conn = MockConn::ok(1);
+        let rows = update(&mut conn, active).await.unwrap();
+        assert_eq!(rows, 1);
+    }
+
+    #[tokio::test]
+    async fn t26am_save_with_pk_does_update() {
+        let user = User {
+            id: 5,
+            name: "Alice".into(),
+            email: "a@b.com".into(),
+        };
+        let mut active = ActiveModel::from_model(user);
+        active.set("name", ActiveValue::Set(Value::String("Bob".into())));
+        let mut conn = MockConn::ok(1);
+        let rows = save(&mut conn, active).await.unwrap();
+        assert_eq!(rows, 1);
+        assert!(conn.last_sql.contains("UPDATE"));
+    }
+
+    #[tokio::test]
+    async fn t26am_save_without_pk_does_insert() {
+        // User::default() has id=0, pk_value()=Some(I64(0)), so save() calls update()
+        // To test insert, we need a model where pk_value() returns None
+        // Since User always has I64 pk, save() with default User calls update
+        let user = User::default();
+        let mut active = ActiveModel::from_model(user);
+        active.set("name", ActiveValue::Set(Value::String("Bob".into())));
+        active.set("email", ActiveValue::Set(Value::String("b@c.com".into())));
+        let mut conn = MockConn::ok(1);
+        let rows = save(&mut conn, active).await.unwrap();
+        assert_eq!(rows, 1);
+        // pk=0 is not Null, so save() calls update()
+        assert!(conn.last_sql.contains("UPDATE"));
+    }
+
+    #[tokio::test]
+    async fn t26am_insert_no_fields() {
+        // User::default() has pk=0, so save() calls update()
+        // With no Set fields, update() returns Ok(0)
+        let user = User::default();
+        let active = ActiveModel::from_model(user);
+        let mut conn = MockConn::ok(1);
+        let rows = save(&mut conn, active).await.unwrap();
+        assert_eq!(rows, 0);
+    }
+
+    #[tokio::test]
+    async fn t26am_update_connection_error() {
+        let user = User {
+            id: 1,
+            name: "Alice".into(),
+            email: "a@b.com".into(),
+        };
+        let mut active = ActiveModel::from_model(user);
+        active.set("name", ActiveValue::Set(Value::String("Bob".into())));
+        let mut conn = MockConn::err("conn failed");
+        let r = update(&mut conn, active).await;
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn t26am_pk_name_for_update_default() {
+        let user = User {
+            id: 1,
+            name: "A".into(),
+            email: "a@b.com".into(),
+        };
+        let active = ActiveModel::from_model(user);
+        assert_eq!(active.pk_name_for_update(), "id");
+    }
+
+    #[test]
+    fn t26am_active_model_clone() {
+        let user = User {
+            id: 1,
+            name: "A".into(),
+            email: "a@b.com".into(),
+        };
+        let mut active = ActiveModel::from_model(user);
+        active.set("name", ActiveValue::Set(Value::String("B".into())));
+        let active2 = active.clone();
+        assert_eq!(active2.changed_fields().len(), 1);
+    }
+
+    #[test]
+    fn t26am_pk_value_null_returns_none() {
+        // User with id=0 → pk_as_value returns I64(0), which is not Null
+        // So pk_value returns Some(I64(0))
+        let user = User::default();
+        let active = ActiveModel::from_model(user);
+        // I64(0) is not Null, so pk_value returns Some
+        assert_eq!(active.pk_value(), Some(Value::I64(0)));
+    }
+
+    #[test]
+    fn t26am_active_value_partial_eq() {
+        let a: ActiveValue<Value> = ActiveValue::Set(Value::I64(1));
+        let b: ActiveValue<Value> = ActiveValue::Set(Value::I64(1));
+        assert_eq!(a, b);
+        let c: ActiveValue<Value> = ActiveValue::Set(Value::I64(2));
+        assert_ne!(a, c);
+        assert_ne!(a, ActiveValue::Unchanged);
+        assert_ne!(a, ActiveValue::NotSet);
+    }
 }

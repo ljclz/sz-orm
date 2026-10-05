@@ -368,3 +368,324 @@ pub fn fix_source(source: &str, dry_run: bool) -> FixResult {
         needs_review,
     }
 }
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn t26qb_empty_source() {
+        let r = fix_source("", false);
+        assert!(r.changes.is_empty());
+        assert!(!r.needs_review);
+        assert_eq!(r.fixed, "");
+    }
+
+    #[test]
+    fn t26qb_no_changes_needed() {
+        let src = "let x = 1 + 2;\n";
+        let r = fix_source(src, false);
+        assert!(r.changes.is_empty());
+        assert!(!r.needs_review);
+        assert_eq!(r.fixed, src);
+    }
+
+    #[test]
+    fn t26qb_query_select_replacement() {
+        let src = "let q = Query::select();\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains("QueryBuilder"));
+        assert_eq!(r.changes.len(), 1);
+        assert!(r.changes[0].auto);
+    }
+
+    #[test]
+    fn t26qb_query_insert_replacement() {
+        let src = "let q = Query::insert();\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains("QueryBuilder::<Model>::new(dialect)"));
+        assert_eq!(r.changes.len(), 1);
+    }
+
+    #[test]
+    fn t26qb_query_update_replacement() {
+        let src = "let q = Query::update();\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains("QueryBuilder::<Model>::new(dialect)"));
+    }
+
+    #[test]
+    fn t26qb_query_delete_replacement() {
+        let src = "let q = Query::delete();\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains("QueryBuilder::<Model>::new(dialect)"));
+    }
+
+    #[test]
+    fn t26qb_full_path_query_select() {
+        let src = "let q = sz_orm_query_builder::Query::select();\n";
+        let r = fix_source(src, false);
+        assert!(r
+            .fixed
+            .contains("QueryBuilder::<Model>::new(dialect).select(vec![])"));
+        assert_eq!(r.changes.len(), 1);
+    }
+
+    #[test]
+    fn t26qb_full_path_query_insert() {
+        let src = "let q = sz_orm_query_builder::Query::insert();\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains("QueryBuilder::<Model>::new(dialect)"));
+    }
+
+    #[test]
+    fn t26qb_from_table_method() {
+        let src = "let q = Query::select().from(\"users\");\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".table(\"users\")"));
+        assert!(!r.fixed.contains(".from("));
+    }
+
+    #[test]
+    fn t26qb_into_table_method() {
+        let src = "let q = Query::insert().into_table(\"users\");\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".table(\"users\")"));
+    }
+
+    #[test]
+    fn t26qb_from_table_explicit() {
+        let src = "let q = Query::select().from_table(\"users\");\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".table(\"users\")"));
+    }
+
+    #[test]
+    fn t26qb_order_by_true() {
+        let src = "let q = Query::select().order_by(\"id\", true);\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".order_by(\"id\")"));
+    }
+
+    #[test]
+    fn t26qb_order_by_false() {
+        let src = "let q = Query::select().order_by(\"id\", false);\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".order_desc(\"id\")"));
+    }
+
+    #[test]
+    fn t26qb_order_by_single_arg_no_change() {
+        let src = "let q = Query::select().order_by(\"id\");\n";
+        let r = fix_source(src, false);
+        // order_by with single arg should not be replaced (no ", true/false")
+        let order_changes: Vec<_> = r
+            .changes
+            .iter()
+            .filter(|c| c.original.contains(".order_by("))
+            .collect();
+        assert!(order_changes.is_empty());
+    }
+
+    #[test]
+    fn t26qb_where_clause_needs_review() {
+        let src = "let q = Query::select().where_clause(\"x = 1\");\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+        assert!(r.changes.iter().any(|c| !c.auto));
+    }
+
+    #[test]
+    fn t26qb_column_needs_review() {
+        let src = "let q = Query::select().column(\"id\");\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+        assert!(r.changes.iter().any(|c| !c.auto));
+    }
+
+    #[test]
+    fn t26qb_union_complex_construct() {
+        let src = "let q = q1.union(q2);\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+    }
+
+    #[test]
+    fn t26qb_union_all_complex_construct() {
+        let src = "let q = q1.union_all(q2);\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+    }
+
+    #[test]
+    fn t26qb_with_cte_complex_construct() {
+        let src = "let q = Query::select().with_cte(\"t\", sub);\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+    }
+
+    #[test]
+    fn t26qb_with_recursive_cte_complex_construct() {
+        let src = "let q = Query::select().with_recursive_cte(\"t\", sub);\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+    }
+
+    #[test]
+    fn t26qb_over_complex_construct() {
+        let src = "let q = \"SELECT x OVER ()\";\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+    }
+
+    #[test]
+    fn t26qb_over_method_complex_construct() {
+        let src = "let q = expr.over();\n";
+        let r = fix_source(src, false);
+        assert!(r.needs_review);
+    }
+
+    #[test]
+    fn t26qb_dry_run_preserves_source() {
+        let src = "let q = Query::select().from(\"users\");\n";
+        let r = fix_source(src, true);
+        assert_eq!(r.fixed, src);
+        assert!(!r.changes.is_empty());
+    }
+
+    #[test]
+    fn t26qb_apply_changes_modifies_source() {
+        let src = "let q = Query::select().from(\"users\");\n";
+        let r = fix_source(src, false);
+        assert_ne!(r.fixed, src);
+    }
+
+    #[test]
+    fn t26qb_multiple_changes_one_line() {
+        let src = "let q = Query::select().from(\"users\");\n";
+        let r = fix_source(src, false);
+        assert!(r.changes.len() >= 2);
+    }
+
+    #[test]
+    fn t26qb_multi_line_source() {
+        let src = "let q1 = Query::select().from(\"users\");\nlet q2 = Query::insert().into_table(\"logs\");\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".table(\"users\")"));
+        assert!(r.fixed.contains(".table(\"logs\")"));
+        assert!(r.changes.len() >= 4);
+    }
+
+    #[test]
+    fn t26qb_source_with_trailing_newline() {
+        let src = "let q = Query::select();\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.ends_with('\n'));
+    }
+
+    #[test]
+    fn t26qb_source_without_trailing_newline() {
+        let src = "let q = Query::select();";
+        let r = fix_source(src, false);
+        assert!(!r.fixed.ends_with('\n'));
+    }
+
+    #[test]
+    fn t26qb_fix_result_diff_auto_change() {
+        let src = "let q = Query::select();\n";
+        let r = fix_source(src, true);
+        let diff = r.diff();
+        assert!(diff.contains("- L1:"));
+    }
+
+    #[test]
+    fn t26qb_fix_result_diff_review_change() {
+        let src = "let q = Query::select().where_clause(\"x = 1\");\n";
+        let r = fix_source(src, true);
+        let diff = r.diff();
+        assert!(diff.contains("? L1:"));
+        assert!(diff.contains("! 需人工审查"));
+    }
+
+    #[test]
+    fn t26qb_fix_result_diff_no_changes() {
+        let r = fix_source("let x = 1;", true);
+        assert_eq!(r.diff(), "");
+    }
+
+    #[test]
+    fn t26qb_migration_fix_new_dry_run() {
+        let mf = MigrationFix::new(true);
+        assert!(mf.dry_run);
+        let src = "let q = Query::select();\n";
+        let r = mf.fix(src);
+        assert_eq!(r.fixed, src);
+    }
+
+    #[test]
+    fn t26qb_migration_fix_new_apply() {
+        let mf = MigrationFix::new(false);
+        assert!(!mf.dry_run);
+        let src = "let q = Query::select();\n";
+        let r = mf.fix(src);
+        assert!(r.fixed.contains("QueryBuilder"));
+    }
+
+    #[test]
+    fn t26qb_fix_change_equality() {
+        let c1 = FixChange {
+            line: 1,
+            original: "a".into(),
+            replacement: "b".into(),
+            auto: true,
+        };
+        let c2 = FixChange {
+            line: 1,
+            original: "a".into(),
+            replacement: "b".into(),
+            auto: true,
+        };
+        assert_eq!(c1, c2);
+    }
+
+    #[test]
+    fn t26qb_fix_result_clone() {
+        let r = fix_source("let q = Query::select();\n", false);
+        let r2 = r.clone();
+        assert_eq!(r.changes.len(), r2.changes.len());
+        assert_eq!(r.fixed, r2.fixed);
+    }
+
+    #[test]
+    fn t26qb_multiple_order_by_on_same_line() {
+        let src = "let q = Query::select().order_by(\"a\", true).order_by(\"b\", false);\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".order_by(\"a\")"));
+        assert!(r.fixed.contains(".order_desc(\"b\")"));
+    }
+
+    #[test]
+    fn t26qb_nested_parens_in_order_by() {
+        let src = "let q = Query::select().order_by(func(x, y), true);\n";
+        let r = fix_source(src, false);
+        assert!(r.fixed.contains(".order_by(func(x, y))"));
+    }
+
+    #[test]
+    fn t26qb_fix_result_original_preserved() {
+        let src = "let q = Query::select().from(\"users\");\n";
+        let r = fix_source(src, false);
+        assert_eq!(r.original, src);
+    }
+
+    #[test]
+    fn t26qb_all_query_constructs_on_one_line() {
+        let src = "let a = Query::select(); let b = Query::insert(); let c = Query::update(); let d = Query::delete();\n";
+        let r = fix_source(src, false);
+        let query_changes: Vec<_> = r
+            .changes
+            .iter()
+            .filter(|c| c.original.contains("Query::"))
+            .collect();
+        assert_eq!(query_changes.len(), 4);
+    }
+}

@@ -886,6 +886,7 @@ pub use extension_point::{ExtensionHandler, ExtensionPoint, ExtensionPointRegist
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::model::Model;
 
     #[test]
     fn hook_context_builder() {
@@ -1252,6 +1253,7 @@ mod tests {
 
         let mut ctx = HookContext::new();
         let result = HookDispatcher::insert::<ErrorModel, _>(&mut ctx, |_ctx| Ok(1_i64));
+        assert_eq!(ErrorModel::table_name(), "error_model");
         assert!(result.is_err());
         // before_write 失败，不应执行实际操作
     }
@@ -1284,6 +1286,7 @@ mod tests {
         });
         assert!(result.is_err());
         // before_validate 失败，实际 INSERT 不应执行
+        assert_eq!(ValidationFailModel::table_name(), "validation_fail");
         assert_eq!(
             called.load(std::sync::atomic::Ordering::SeqCst),
             0,
@@ -1381,6 +1384,7 @@ mod tests {
             Ok(())
         });
         assert!(result.is_err());
+        assert_eq!(FindFailModel::table_name(), "find_fail");
         assert_eq!(
             called.load(std::sync::atomic::Ordering::SeqCst),
             0,
@@ -1475,5 +1479,504 @@ mod tests {
         let err = DbError::Validation("name required".into());
         assert_eq!(err.error_code(), "DB021");
         assert_eq!(format!("{}", err), "Validation error: name required");
+    }
+
+    // ===== T26h 新增测试：覆盖未覆盖区域 =====
+
+    #[test]
+    fn t26h_hook_context_default_derive() {
+        let ctx = HookContext::default();
+        assert_eq!(ctx.tenant_id, None);
+        assert_eq!(ctx.operator_id, None);
+        assert_eq!(ctx.timestamp, 0);
+        assert!(ctx.metadata.is_empty());
+    }
+
+    #[test]
+    fn t26h_hook_event_is_before_all_variants() {
+        let before_events = [
+            HookEvent::BeforeInsert,
+            HookEvent::BeforeUpdate,
+            HookEvent::BeforeDelete,
+            HookEvent::BeforeWrite,
+            HookEvent::BeforeSave,
+            HookEvent::BeforeRestore,
+            HookEvent::BeforeFind,
+            HookEvent::BeforeValidate,
+        ];
+        for e in before_events {
+            assert!(e.is_before(), "{:?} 应为 before", e);
+            assert!(!e.is_after(), "{:?} 不应为 after", e);
+        }
+    }
+
+    #[test]
+    fn t26h_hook_event_is_after_all_variants() {
+        let after_events = [
+            HookEvent::AfterInsert,
+            HookEvent::AfterUpdate,
+            HookEvent::AfterDelete,
+            HookEvent::AfterWrite,
+            HookEvent::AfterSave,
+            HookEvent::AfterRestore,
+            HookEvent::AfterFind,
+            HookEvent::AfterValidate,
+        ];
+        for e in after_events {
+            assert!(e.is_after(), "{:?} 应为 after", e);
+            assert!(!e.is_before(), "{:?} 不应为 before", e);
+        }
+    }
+
+    #[test]
+    fn t26h_hook_event_is_write_level_negative_cases() {
+        // 非写入事件应返回 false
+        assert!(!HookEvent::AfterInsert.is_write_level());
+        assert!(!HookEvent::BeforeUpdate.is_write_level());
+        assert!(!HookEvent::AfterUpdate.is_write_level());
+        assert!(!HookEvent::BeforeDelete.is_write_level());
+        assert!(!HookEvent::AfterDelete.is_write_level());
+        assert!(!HookEvent::BeforeFind.is_write_level());
+        assert!(!HookEvent::AfterFind.is_write_level());
+        assert!(!HookEvent::BeforeValidate.is_write_level());
+        assert!(!HookEvent::AfterValidate.is_write_level());
+        assert!(!HookEvent::BeforeRestore.is_write_level());
+        assert!(!HookEvent::AfterRestore.is_write_level());
+    }
+
+    // 用于 SoftDeleteScope / SoftDelete trait 测试的 Model
+    struct SoftDeleteTestModel;
+    impl crate::model::Model for SoftDeleteTestModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "soft_delete_test"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+    impl SoftDelete for SoftDeleteTestModel {
+        fn soft_delete_field() -> &'static str {
+            "deleted_at"
+        }
+        fn is_deleted(&self) -> bool {
+            false
+        }
+    }
+
+    #[test]
+    fn t26h_soft_delete_scope_apply_scope() {
+        type Scope = (SoftDeleteScope, SoftDeleteTestModel);
+        assert_eq!(<Scope as GlobalScope>::scope_name(), "soft_delete");
+        let ctx = HookContext::new();
+        let (sql, params) = <Scope as GlobalScope>::apply_scope(&ctx).unwrap();
+        assert_eq!(sql, "deleted_at IS NULL");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn t26h_soft_delete_trait_impl() {
+        assert_eq!(
+            <SoftDeleteTestModel as SoftDelete>::soft_delete_field(),
+            "deleted_at"
+        );
+        let model = SoftDeleteTestModel;
+        assert!(!model.is_deleted());
+    }
+
+    // 用于 TenantScope / TenantModel 测试的 Model
+    struct TenantTestModel;
+    impl crate::model::Model for TenantTestModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "tenant_test"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+    impl TenantModel for TenantTestModel {
+        fn tenant_id(&self) -> i64 {
+            0
+        }
+        fn set_tenant_id(&mut self, _tenant_id: i64) {}
+    }
+
+    #[test]
+    fn t26h_tenant_model_default_tenant_field() {
+        // TenantModel::tenant_field 默认实现应返回 "tenant_id"
+        assert_eq!(
+            <TenantTestModel as TenantModel>::tenant_field(),
+            "tenant_id"
+        );
+    }
+
+    #[test]
+    fn t26h_tenant_scope_apply_scope_with_tenant() {
+        type Scope = (TenantScope, TenantTestModel);
+        assert_eq!(<Scope as GlobalScope>::scope_name(), "tenant");
+        let ctx = HookContext::new().with_tenant(99);
+        let (sql, params) = <Scope as GlobalScope>::apply_scope(&ctx).unwrap();
+        assert_eq!(sql, "tenant_id = ?");
+        assert_eq!(params.len(), 1);
+        match &params[0] {
+            crate::value::Value::I64(v) => assert_eq!(*v, 99),
+            other => panic!("期望 I64(99)，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn t26h_tenant_scope_apply_scope_without_tenant() {
+        type Scope = (TenantScope, TenantTestModel);
+        let ctx = HookContext::new();
+        let result = <Scope as GlobalScope>::apply_scope(&ctx);
+        assert!(
+            result.is_none(),
+            "无 tenant_id 时应返回 None（允许跨租户查询）"
+        );
+    }
+
+    #[test]
+    fn t26h_hook_registry_default_impl() {
+        let registry = HookRegistry::default();
+        let ctx = HookContext::new();
+        assert!(registry.dispatch(HookEvent::BeforeInsert, &ctx).is_ok());
+        assert_eq!(registry.count(HookEvent::BeforeInsert), 0);
+    }
+
+    #[test]
+    fn t26h_scope_registry_default_impl() {
+        let registry = ScopeRegistry::default();
+        assert!(registry.is_enabled("soft_delete"));
+        assert!(registry.is_enabled("tenant"));
+    }
+
+    #[test]
+    fn t26h_hook_dispatcher_delete_short_circuit_on_before_delete_error() {
+        struct DeleteFailModel;
+        impl crate::model::Model for DeleteFailModel {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "delete_fail"
+            }
+            fn pk(&self) -> Self::PrimaryKey {
+                0
+            }
+            fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+        }
+        impl Hookable for DeleteFailModel {
+            fn before_delete(_ctx: &mut HookContext, _id: &Self::PrimaryKey) -> HookResult<()> {
+                Err(DbError::Hook("before_delete blocked".into()))
+            }
+        }
+        let mut ctx = HookContext::new();
+        let called = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let c = Arc::clone(&called);
+        let result = HookDispatcher::delete::<DeleteFailModel, _>(&mut ctx, &1_i64, move |_ctx| {
+            c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert_eq!(DeleteFailModel::table_name(), "delete_fail");
+        assert_eq!(
+            called.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "before_delete 失败应短路 DELETE"
+        );
+    }
+
+    #[test]
+    fn t26h_hook_dispatcher_restore_short_circuit_on_before_restore_error() {
+        struct RestoreFailModel;
+        impl crate::model::Model for RestoreFailModel {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "restore_fail"
+            }
+            fn pk(&self) -> Self::PrimaryKey {
+                0
+            }
+            fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+        }
+        impl Hookable for RestoreFailModel {
+            fn before_restore(_ctx: &mut HookContext, _id: &Self::PrimaryKey) -> HookResult<()> {
+                Err(DbError::Hook("before_restore blocked".into()))
+            }
+        }
+        let mut ctx = HookContext::new();
+        let called = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let c = Arc::clone(&called);
+        let result =
+            HookDispatcher::restore::<RestoreFailModel, _>(&mut ctx, &1_i64, move |_ctx| {
+                c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+                Ok(())
+            });
+        assert!(result.is_err());
+        assert_eq!(RestoreFailModel::table_name(), "restore_fail");
+        assert_eq!(
+            called.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "before_restore 失败应短路 RESTORE"
+        );
+    }
+
+    #[test]
+    fn t26h_hook_dispatcher_update_short_circuit_on_before_update_error() {
+        struct UpdateFailModel;
+        impl crate::model::Model for UpdateFailModel {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "update_fail"
+            }
+            fn pk(&self) -> Self::PrimaryKey {
+                0
+            }
+            fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+        }
+        impl Hookable for UpdateFailModel {
+            fn before_update(_ctx: &mut HookContext, _id: &Self::PrimaryKey) -> HookResult<()> {
+                Err(DbError::Hook("before_update blocked".into()))
+            }
+        }
+        let mut ctx = HookContext::new();
+        let called = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let c = Arc::clone(&called);
+        let result = HookDispatcher::update::<UpdateFailModel, _>(&mut ctx, &1_i64, move |_ctx| {
+            c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(())
+        });
+        assert!(result.is_err());
+        assert_eq!(UpdateFailModel::table_name(), "update_fail");
+        assert_eq!(
+            called.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "before_update 失败应短路 UPDATE"
+        );
+    }
+
+    #[test]
+    fn t26h_hook_dispatcher_insert_short_circuit_on_before_save_error() {
+        struct SaveFailModel;
+        impl crate::model::Model for SaveFailModel {
+            type PrimaryKey = i64;
+            fn table_name() -> &'static str {
+                "save_fail"
+            }
+            fn pk(&self) -> Self::PrimaryKey {
+                0
+            }
+            fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+        }
+        impl Hookable for SaveFailModel {
+            fn before_save(_ctx: &mut HookContext) -> HookResult<()> {
+                Err(DbError::Hook("before_save blocked".into()))
+            }
+        }
+        let mut ctx = HookContext::new();
+        let called = Arc::new(std::sync::atomic::AtomicU32::new(0));
+        let c = Arc::clone(&called);
+        let result = HookDispatcher::insert::<SaveFailModel, _>(&mut ctx, move |_ctx| {
+            c.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+            Ok(1_i64)
+        });
+        assert!(result.is_err());
+        assert_eq!(SaveFailModel::table_name(), "save_fail");
+        assert_eq!(
+            called.load(std::sync::atomic::Ordering::SeqCst),
+            0,
+            "before_save 失败应短路 INSERT"
+        );
+    }
+
+    // 用于 Hookable 默认 no-op 实现测试的 Model
+    struct DefaultHookableModel;
+    impl crate::model::Model for DefaultHookableModel {
+        type PrimaryKey = i64;
+        fn table_name() -> &'static str {
+            "default_hookable"
+        }
+        fn pk(&self) -> Self::PrimaryKey {
+            0
+        }
+        fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+    }
+    impl Hookable for DefaultHookableModel {}
+
+    #[test]
+    fn t26h_hookable_default_impl_all_no_op() {
+        let mut ctx = HookContext::new();
+        // 默认 before 钩子均应为 no-op
+        assert!(DefaultHookableModel::before_insert(&mut ctx).is_ok());
+        assert!(DefaultHookableModel::before_update(&mut ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::before_delete(&mut ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::before_write(&mut ctx).is_ok());
+        assert!(DefaultHookableModel::before_save(&mut ctx).is_ok());
+        assert!(DefaultHookableModel::before_restore(&mut ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::before_find(&mut ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::before_validate(&mut ctx).is_ok());
+        assert!(DefaultHookableModel::validate(&mut ctx).is_ok());
+        // 默认 after 钩子均应为 no-op
+        assert!(DefaultHookableModel::after_insert(&ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::after_update(&ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::after_delete(&ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::after_write(&ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::after_save(&ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::after_restore(&ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::after_find(&ctx, &1_i64).is_ok());
+        assert!(DefaultHookableModel::after_validate(&ctx).is_ok());
+        // 通过 dispatcher 验证完整流程（默认 no-op 不应阻断）
+        let id =
+            HookDispatcher::insert::<DefaultHookableModel, _>(&mut ctx, |_| Ok(7_i64)).unwrap();
+        assert_eq!(id, 7);
+        HookDispatcher::update::<DefaultHookableModel, _>(&mut ctx, &7_i64, |_| Ok(())).unwrap();
+        HookDispatcher::delete::<DefaultHookableModel, _>(&mut ctx, &7_i64, |_| Ok(())).unwrap();
+        HookDispatcher::restore::<DefaultHookableModel, _>(&mut ctx, &7_i64, |_| Ok(())).unwrap();
+        HookDispatcher::find::<DefaultHookableModel, _>(&mut ctx, &7_i64, |_| Ok(())).unwrap();
+        HookDispatcher::validate::<DefaultHookableModel>(&mut ctx).unwrap();
+    }
+
+    #[test]
+    fn t26h_test_helper_models_trait_methods() {
+        // 覆盖各测试辅助 struct 的 Model/TenantModel trait 方法
+        assert_eq!(DispatchTestModel::table_name(), "dispatch_test");
+        assert_eq!(SoftDeleteTestModel::table_name(), "soft_delete_test");
+        assert_eq!(TenantTestModel::table_name(), "tenant_test");
+        assert_eq!(DefaultHookableModel::table_name(), "default_hookable");
+
+        let mut dm = DispatchTestModel;
+        assert_eq!(dm.pk(), 0);
+        dm.set_pk(0);
+
+        let mut sm = SoftDeleteTestModel;
+        assert_eq!(sm.pk(), 0);
+        sm.set_pk(0);
+
+        let mut tm = TenantTestModel;
+        assert_eq!(tm.pk(), 0);
+        tm.set_pk(0);
+        assert_eq!(tm.tenant_id(), 0);
+        tm.set_tenant_id(42);
+
+        let mut hm = DefaultHookableModel;
+        assert_eq!(hm.pk(), 0);
+        hm.set_pk(0);
+    }
+
+    #[test]
+    fn test_t6_hook_context_builders() {
+        let ctx = HookContext::new()
+            .with_tenant(42)
+            .with_operator(99)
+            .with_timestamp(12345);
+        assert_eq!(ctx.tenant_id, Some(42));
+        assert_eq!(ctx.operator_id, Some(99));
+        assert_eq!(ctx.timestamp, 12345);
+    }
+
+    #[test]
+    fn test_t6_hook_context_meta() {
+        let mut ctx = HookContext::new();
+        ctx.set_meta("key1", "value1");
+        assert_eq!(ctx.get_meta("key1"), Some(&"value1".to_string()));
+        assert_eq!(ctx.get_meta("nonexistent"), None);
+    }
+
+    #[test]
+    fn test_t6_hook_registry_count_and_clear() {
+        let registry = HookRegistry::new();
+        let hook: HookFn = Arc::new(|_ctx| Ok(()));
+        registry.register(HookEvent::BeforeInsert, hook.clone());
+        registry.register(HookEvent::BeforeInsert, hook.clone());
+        assert_eq!(registry.count(HookEvent::BeforeInsert), 2);
+        assert_eq!(registry.count(HookEvent::BeforeUpdate), 0);
+        registry.clear(HookEvent::BeforeInsert);
+        assert_eq!(registry.count(HookEvent::BeforeInsert), 0);
+    }
+
+    #[test]
+    fn test_t6_hook_registry_clear_all() {
+        let registry = HookRegistry::new();
+        let hook: HookFn = Arc::new(|_ctx| Ok(()));
+        registry.register(HookEvent::BeforeInsert, hook.clone());
+        registry.register(HookEvent::BeforeUpdate, hook.clone());
+        registry.clear_all();
+        assert_eq!(registry.count(HookEvent::BeforeInsert), 0);
+        assert_eq!(registry.count(HookEvent::BeforeUpdate), 0);
+    }
+
+    #[test]
+    fn test_t6_hook_registry_dispatch_empty() {
+        let registry = HookRegistry::new();
+        let ctx = HookContext::new();
+        let result = registry.dispatch(HookEvent::BeforeInsert, &ctx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_t6_hook_registry_dispatch_multiple() {
+        let registry = HookRegistry::new();
+        let hook1: HookFn = Arc::new(|_ctx| Ok(()));
+        let hook2: HookFn = Arc::new(|_ctx| Ok(()));
+        registry.register(HookEvent::BeforeInsert, hook1);
+        registry.register(HookEvent::BeforeInsert, hook2);
+        let ctx = HookContext::new();
+        let result = registry.dispatch(HookEvent::BeforeInsert, &ctx);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn test_t6_scope_registry_basic() {
+        let registry = ScopeRegistry::new();
+        assert!(registry.is_enabled("soft_delete"));
+        registry.disable("soft_delete");
+        assert!(!registry.is_enabled("soft_delete"));
+        registry.enable("soft_delete");
+        assert!(registry.is_enabled("soft_delete"));
+    }
+
+    #[test]
+    fn test_t6_scope_registry_disable_idempotent() {
+        let registry = ScopeRegistry::new();
+        registry.disable("scope1");
+        registry.disable("scope1");
+        assert!(!registry.is_enabled("scope1"));
+    }
+
+    #[test]
+    fn test_t6_scope_registry_without_scope() {
+        let registry = ScopeRegistry::new();
+        let result = registry.without_scope("soft_delete", || {
+            assert!(!registry.is_enabled("soft_delete"));
+            42
+        });
+        assert_eq!(result, 42);
+        assert!(registry.is_enabled("soft_delete"));
+    }
+
+    #[test]
+    fn test_t6_scope_registry_default() {
+        let registry = ScopeRegistry::default();
+        assert!(registry.is_enabled("any_scope"));
+    }
+
+    #[test]
+    fn test_t6_hook_event_is_methods() {
+        assert!(HookEvent::BeforeInsert.is_before());
+        assert!(!HookEvent::AfterInsert.is_before());
+        assert!(HookEvent::AfterInsert.is_after());
+        assert!(!HookEvent::BeforeInsert.is_after());
+        assert!(HookEvent::BeforeWrite.is_write_level());
+        assert!(HookEvent::AfterWrite.is_write_level());
+        assert!(HookEvent::BeforeSave.is_write_level());
+        assert!(HookEvent::AfterSave.is_write_level());
+        assert!(HookEvent::BeforeFind.is_find_level());
+        assert!(HookEvent::AfterFind.is_find_level());
+        assert!(HookEvent::BeforeValidate.is_validate_level());
+        assert!(HookEvent::AfterValidate.is_validate_level());
+        assert!(HookEvent::BeforeWrite.is_fine_grained());
+        assert!(HookEvent::BeforeFind.is_fine_grained());
+        assert!(HookEvent::BeforeValidate.is_fine_grained());
     }
 }

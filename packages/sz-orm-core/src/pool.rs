@@ -4299,6 +4299,827 @@ mod tests {
         let result = pool.acquire().await;
         assert!(result.is_err());
     }
+
+    // ========================================================================
+    // v9.4.0 T2：pool.rs 补测（76.7% → ≥ 95%）
+    // ========================================================================
+
+    /// T2.1a resize 缩容后阻止新连接创建
+    #[tokio::test]
+    async fn test_t2_resize_shrink_blocks_new_acquire() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn1 = pool.acquire().await.unwrap();
+        let conn2 = pool.acquire().await.unwrap();
+        pool.release(conn1).await;
+        pool.release(conn2).await;
+        pool.resize(1);
+        assert_eq!(pool.max_size(), 1);
+        let _c = pool.acquire().await.unwrap();
+    }
+
+    /// T2.1b resize 扩容后允许更多连接
+    #[tokio::test]
+    async fn test_t2_resize_expand_allows_more() {
+        let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let _c1 = pool.acquire().await.unwrap();
+        pool.resize(3);
+        let _c2 = pool.acquire().await.unwrap();
+        let _c3 = pool.acquire().await.unwrap();
+    }
+
+    /// T2.1c set_max_size 与 max_size 读写一致
+    #[tokio::test]
+    async fn test_t2_set_max_size_and_max_size_roundtrip() {
+        let config = PoolConfigBuilder::new().max_size(10).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        pool.set_max_size(42);
+        assert_eq!(pool.max_size(), 42);
+    }
+
+    /// T2.2a acquire_batch(0) 返回空 Vec
+    #[tokio::test]
+    async fn test_t2_acquire_batch_zero_returns_empty() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conns = pool.acquire_batch(0).await.unwrap();
+        assert!(conns.is_empty());
+    }
+
+    /// T2.2b acquire_batch(n > max_size) 返回 Exhausted
+    #[tokio::test]
+    async fn test_t2_acquire_batch_exceeds_max_returns_exhausted() {
+        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let result = pool.acquire_batch(5).await;
+        assert!(matches!(result, Err(PoolError::Exhausted)));
+    }
+
+    /// T2.2c acquire_batch 正常获取多个连接
+    #[tokio::test]
+    async fn test_t2_acquire_batch_normal() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conns = pool.acquire_batch(3).await.unwrap();
+        assert_eq!(conns.len(), 3);
+        let status = pool.status().await;
+        assert_eq!(status.active, 3);
+    }
+
+    /// T2.3a suggest_tuning 数据不足（acquire_count == 0）
+    #[tokio::test]
+    async fn test_t2_suggest_tuning_no_data() {
+        let config = PoolConfigBuilder::new().max_size(10).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let advice = pool.suggest_tuning();
+        assert!(advice.is_optimal(), "无 acquire 数据时建议应为空");
+        assert!(advice.reason.contains("数据不足"));
+    }
+
+    /// T2.3b suggest_tuning 复用率低（建议扩大 max_size）
+    #[tokio::test]
+    async fn test_t2_suggest_tuning_low_reuse() {
+        let config = PoolConfigBuilder::new().max_size(10).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        // acquire + release 一次（复用率 0%，因为每次都是新建）
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+        let advice = pool.suggest_tuning();
+        // acquire_count=1, created=1, reuse_rate=0.0 < 0.5
+        assert!(
+            advice.suggested_max_size.is_some(),
+            "复用率低应建议扩大 max_size"
+        );
+    }
+
+    /// T2.3c suggest_tuning 池配置合理（高复用率）
+    #[tokio::test]
+    async fn test_t2_suggest_tuning_optimal() {
+        let config = PoolConfigBuilder::new().max_size(10).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        // 多次 acquire/release 复用同一连接
+        for _ in 0..10 {
+            let conn = pool.acquire().await.unwrap();
+            pool.release(conn).await;
+        }
+        let advice = pool.suggest_tuning();
+        // reuse_rate = (10-1)/10 = 0.9，不 < 0.9，应无 suggested_max_size
+        assert!(advice.suggested_max_size.is_none(), "高复用率不应建议扩容");
+    }
+
+    /// T2.3d suggest_tuning 连接关闭过快（建议延长 idle_timeout）
+    #[tokio::test]
+    async fn test_t2_suggest_tuning_closed_too_fast() {
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 0,
+            acquire_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(600),
+            max_lifetime: Duration::from_secs(1800),
+            connection_timeout: Duration::from_secs(10),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+            prewarm: false,
+        };
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+        pool.close_all().await;
+        // closed_count=1, created_count=1, 1 > 1*0.5 → 建议延长 idle_timeout
+        // 但 close_all 后 acquire_count 仍为 1，reuse_rate=0 < 0.5
+        let advice = pool.suggest_tuning();
+        // 关闭率 > 50% 应建议延长 idle_timeout
+        assert!(
+            advice.suggested_idle_timeout.is_some(),
+            "关闭过快应建议延长 idle_timeout"
+        );
+    }
+
+    /// T2.4a metrics_snapshot_json 返回有效 JSON
+    #[tokio::test]
+    async fn test_t2_metrics_snapshot_json() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+        let json = pool.metrics_snapshot_json();
+        assert!(
+            json.contains("acquire_count"),
+            "JSON 应含 acquire_count 字段"
+        );
+        assert!(
+            json.contains("release_count"),
+            "JSON 应含 release_count 字段"
+        );
+    }
+
+    /// T2.4b query_with_timeout 正常执行
+    #[tokio::test]
+    async fn test_t2_query_with_timeout_normal() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let result = pool.query_with_timeout("SELECT 1").await;
+        assert!(result.is_ok(), "正常查询应成功");
+    }
+
+    /// T2.4c query_with_timeout 池关闭时返回错误
+    #[tokio::test]
+    async fn test_t2_query_with_timeout_pool_closed() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        pool.close_all().await;
+        let result = pool.query_with_timeout("SELECT 1").await;
+        assert!(result.is_err(), "池关闭后查询应失败");
+    }
+
+    /// T2.5a PooledConnection::created_at 返回创建时间
+    #[tokio::test]
+    async fn test_t2_pooled_connection_created_at() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        let _created = conn.created_at();
+        // created_at 应为过去或现在的某个时间点
+        pool.release(conn).await;
+    }
+
+    /// T2.5b Pool Clone 共享状态
+    #[tokio::test]
+    async fn test_t2_pool_clone_shares_state() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let pool2 = pool.clone();
+        let conn = pool.acquire().await.unwrap();
+        let status = pool2.status().await;
+        assert_eq!(status.active, 1, "克隆的池应共享同一状态");
+        pool.release(conn).await;
+    }
+
+    /// T2.5c release 到已关闭池直接关闭连接
+    #[tokio::test]
+    async fn test_t2_release_to_closed_pool_closes_connection() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.close_all().await;
+        pool.release(conn).await;
+        let status = pool.status().await;
+        assert_eq!(status.idle, 0, "关闭池 release 不应入队");
+        assert_eq!(status.active, 0, "total_count 应归 0");
+    }
+
+    /// T2.6a ClosedConnection 各方法返回错误
+    #[tokio::test]
+    async fn test_t2_closed_connection_methods_return_error() {
+        let mut closed = ClosedConnection;
+        assert!(closed.execute("SELECT 1").await.is_err());
+        assert!(closed.query("SELECT 1").await.is_err());
+        assert!(closed.begin_transaction().await.is_err());
+        assert!(closed.commit().await.is_ok());
+        assert!(closed.rollback().await.is_ok());
+        assert!(!closed.is_connected());
+        assert!(!closed.ping().await);
+    }
+
+    /// T2.6b PoolMetrics::connection_reuse_rate 零数据
+    #[tokio::test]
+    async fn test_t2_reuse_rate_zero_data() {
+        let metrics = PoolMetrics::default();
+        assert_eq!(metrics.connection_reuse_rate(), 0.0);
+    }
+
+    /// T2.6c PoolMetrics::connection_reuse_rate 防御性
+    #[tokio::test]
+    async fn test_t2_reuse_rate_defensive() {
+        let metrics = PoolMetrics {
+            acquire_count: 5,
+            acquire_failed_count: 0,
+            acquire_wait_time: Duration::ZERO,
+            release_count: 5,
+            connection_created_count: 10, // > acquire_count
+            connection_closed_count: 0,
+        };
+        assert_eq!(
+            metrics.connection_reuse_rate(),
+            0.0,
+            "created > acquire 时应返回 0"
+        );
+    }
+
+    /// T2.6d PoolMetrics::connection_reuse_rate 正常计算
+    #[tokio::test]
+    async fn test_t2_reuse_rate_normal() {
+        let metrics = PoolMetrics {
+            acquire_count: 10,
+            acquire_failed_count: 0,
+            acquire_wait_time: Duration::ZERO,
+            release_count: 10,
+            connection_created_count: 3,
+            connection_closed_count: 0,
+        };
+        // reused = 10 - 3 = 7, rate = 7/10 = 0.7
+        assert!((metrics.connection_reuse_rate() - 0.7).abs() < 1e-6);
+    }
+
+    /// T2.7a PoolStatus waiters 字段
+    #[tokio::test]
+    async fn test_t2_pool_status_waiters_field() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let status = pool.status().await;
+        assert_eq!(status.waiters, 0, "无等待时 waiters 应为 0");
+    }
+
+    /// T2.7b PoolConfigBuilder tls 配置
+    #[tokio::test]
+    async fn test_t2_builder_tls() {
+        let tls = TlsConfig {
+            enabled: true,
+            ca_cert_path: Some("/ca.pem".to_string()),
+            client_cert_path: None,
+            client_key_path: None,
+            min_version: TlsVersion::Tls13,
+        };
+        let config = PoolConfigBuilder::new()
+            .max_size(5)
+            .tls(tls)
+            .build()
+            .unwrap();
+        assert!(config.tls.is_some());
+        assert!(config.tls.as_ref().unwrap().enabled);
+        assert_eq!(config.tls.as_ref().unwrap().min_version, TlsVersion::Tls13);
+    }
+
+    /// T2.7c PoolConfigBuilder query_timeout / max_rows / memory_limit
+    #[tokio::test]
+    async fn test_t2_builder_optional_fields() {
+        let config = PoolConfigBuilder::new()
+            .max_size(5)
+            .query_timeout(Duration::from_secs(60))
+            .max_rows(1000)
+            .memory_limit(1024 * 1024)
+            .build()
+            .unwrap();
+        assert_eq!(config.query_timeout, Some(Duration::from_secs(60)));
+        assert_eq!(config.max_rows, Some(1000));
+        assert_eq!(config.memory_limit, Some(1024 * 1024));
+    }
+
+    /// T2.7d PoolConfigBuilder with_adaptive_tuning
+    #[tokio::test]
+    async fn test_t2_builder_adaptive_tuning() {
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .with_adaptive_tuning(20, 300, 5000)
+            .build()
+            .unwrap();
+        assert_eq!(config.max_size, 20);
+        assert_eq!(config.idle_timeout, Duration::from_secs(300));
+        assert_eq!(config.acquire_timeout, Duration::from_millis(5000));
+    }
+
+    /// T2.7e PoolConfigBuilder with_adaptive_tuning capacity=0 不改 max_size
+    #[tokio::test]
+    async fn test_t2_builder_adaptive_tuning_zero_capacity() {
+        let config = PoolConfigBuilder::new()
+            .max_size(10)
+            .with_adaptive_tuning(0, 300, 5000)
+            .build()
+            .unwrap();
+        assert_eq!(config.max_size, 10, "capacity=0 不应修改 max_size");
+    }
+
+    /// T2.7f PoolConfigBuilder on_event 回调
+    #[tokio::test]
+    async fn test_t2_builder_on_event() {
+        let counter = Arc::new(AtomicU32::new(0));
+        let counter_clone = counter.clone();
+        let callback: PoolEventCallback = Arc::new(move |_event| {
+            counter_clone.fetch_add(1, Ordering::SeqCst);
+        });
+        let config = PoolConfigBuilder::new()
+            .max_size(5)
+            .on_event(callback)
+            .build()
+            .unwrap();
+        assert!(config.on_event.is_some());
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let _conn = pool.acquire().await.unwrap();
+        assert!(counter.load(Ordering::SeqCst) > 0, "事件回调应被触发");
+    }
+
+    /// T2.8a TlsConfig / TlsVersion 默认值
+    #[tokio::test]
+    async fn test_t2_tls_defaults() {
+        let tls = TlsConfig::default();
+        assert!(!tls.enabled);
+        assert_eq!(tls.min_version, TlsVersion::Tls12);
+    }
+
+    /// T2.8b warmup 受 max_size 上限
+    #[tokio::test]
+    async fn test_t2_warmup_respects_max_size() {
+        let config = PoolConfigBuilder::new().max_size(3).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        pool.warmup(10).await.unwrap();
+        let status = pool.status().await;
+        assert!(status.idle <= 3, "warmup 不应超过 max_size");
+    }
+
+    /// T2.8c warmup 工厂失败时停止并返回 Ok
+    #[tokio::test]
+    async fn test_t2_warmup_factory_failure_stops() {
+        let config = PoolConfigBuilder::new().max_size(10).build().unwrap();
+        let pool = Pool::new(config, Arc::new(FailingConnectionFactory)).unwrap();
+        let result = pool.warmup(5).await;
+        assert!(result.is_ok(), "工厂失败应返回 Ok（停止预热）");
+        let status = pool.status().await;
+        assert_eq!(status.idle, 0, "失败时不应有连接入队");
+    }
+
+    /// T2.9a close_all 后 release 连接被直接关闭
+    #[tokio::test]
+    async fn test_t2_close_all_then_release_closes() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn1 = pool.acquire().await.unwrap();
+        let conn2 = pool.acquire().await.unwrap();
+        pool.close_all().await;
+        pool.release(conn1).await;
+        pool.release(conn2).await;
+        let status = pool.status().await;
+        assert_eq!(status.idle, 0);
+        assert_eq!(status.active, 0);
+    }
+
+    /// T2.9b reap_idle 混合过期与未过期（选择性回收）
+    #[tokio::test]
+    async fn test_t2_reap_idle_mixed_expired_and_fresh() {
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 0,
+            acquire_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_millis(50),
+            max_lifetime: Duration::from_secs(1800),
+            connection_timeout: Duration::from_secs(10),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+            prewarm: false,
+        };
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+        tokio::time::sleep(Duration::from_millis(60)).await;
+        let conn2 = pool.acquire().await.unwrap();
+        pool.release(conn2).await;
+        // 此时 idle 有 1 个新连接（刚归还），1 个已过期（已 pop 关闭）
+        // reap_idle 遇到未过期的应停止
+        pool.reap_idle().await;
+        let status = pool.status().await;
+        assert!(status.idle <= 1, "reap_idle 后最多保留 1 个未过期连接");
+    }
+
+    /// T2.9c health_check 剔除 is_connected=false 的连接
+    /// 使用可断开的 mock 连接
+    struct DisconnectableConn {
+        connected: bool,
+    }
+
+    impl Connection for DisconnectableConn {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(1) })
+        }
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(vec![]) })
+        }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            let c = self.connected;
+            Box::pin(async move { c })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.connected = false;
+                Ok(())
+            })
+        }
+    }
+
+    struct DisconnectableFactory;
+
+    #[async_trait]
+    impl ConnectionFactory for DisconnectableFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            Ok(Box::new(DisconnectableConn { connected: true }))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_t2_health_check_removes_disconnected() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(DisconnectableFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+        // 手动取出连接并标记断开，再放回
+        let mut pooled = pool.idle.pop().unwrap();
+        // 通过 close 标记断开
+        pooled.conn.close().await.unwrap();
+        // 放回池中（直接 push，绕过 release 逻辑）
+        let _ = pool.idle.push(pooled);
+        let removed = pool.health_check().await;
+        assert!(removed >= 1, "health_check 应剔除已断开连接");
+    }
+
+    /// T2.10a acquire 连接创建超时
+    struct SlowFactory;
+
+    #[async_trait]
+    impl ConnectionFactory for SlowFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            tokio::time::sleep(Duration::from_secs(10)).await;
+            Ok(Box::new(MockConnection::new()))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_t2_acquire_factory_timeout() {
+        let config = PoolConfig {
+            max_size: 5,
+            min_idle: 0,
+            acquire_timeout: Duration::from_secs(30),
+            idle_timeout: Duration::from_secs(600),
+            max_lifetime: Duration::from_secs(1800),
+            connection_timeout: Duration::from_millis(50),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+            prewarm: false,
+        };
+        let pool = Pool::new(config, Arc::new(SlowFactory)).unwrap();
+        let result = pool.acquire().await;
+        assert!(
+            matches!(result, Err(PoolError::Timeout)),
+            "工厂超时应返回 Timeout"
+        );
+    }
+
+    /// T2.10b test_before_acquire=true ping 成功
+    #[tokio::test]
+    async fn test_t2_test_before_acquire_ping_success() {
+        let config = PoolConfigBuilder::new()
+            .max_size(5)
+            .test_before_acquire(true)
+            .build()
+            .unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+        // 再次 acquire，应触发 ping（但 MockConnection ping 返回 true）
+        tokio::time::sleep(Duration::from_secs(31)).await; // 超过 ping_idle_threshold
+        let conn2 = pool.acquire().await.unwrap();
+        pool.release(conn2).await;
+    }
+
+    /// T2.10c test_before_acquire=true ping 失败时跳过连接
+    struct PingFailConn;
+
+    impl Connection for PingFailConn {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(1) })
+        }
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(vec![]) })
+        }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async { false })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+    }
+
+    struct PingFailFactory;
+
+    #[async_trait]
+    impl ConnectionFactory for PingFailFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            Ok(Box::new(PingFailConn))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_t2_test_before_acquire_ping_fail_skips() {
+        let config = PoolConfigBuilder::new()
+            .max_size(5)
+            .test_before_acquire(true)
+            .build()
+            .unwrap();
+        let pool = Pool::new(config, Arc::new(PingFailFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+        tokio::time::sleep(Duration::from_secs(31)).await;
+        // ping 返回 false，连接应被跳过，新连接创建
+        let conn2 = pool.acquire().await.unwrap();
+        pool.release(conn2).await;
+    }
+
+    /// T2.11a release 自动回滚未提交事务
+    struct InTransactionConn {
+        in_txn: bool,
+    }
+
+    impl Connection for InTransactionConn {
+        fn execute<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(1) })
+        }
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<QueryRows, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(vec![]) })
+        }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.in_txn = true;
+                Ok(())
+            })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.in_txn = false;
+                Ok(())
+            })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.in_txn = false;
+                Ok(())
+            })
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async { true })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async { Ok(()) })
+        }
+        fn in_transaction(&self) -> bool {
+            self.in_txn
+        }
+    }
+
+    struct InTransactionFactory;
+
+    #[async_trait]
+    impl ConnectionFactory for InTransactionFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            Ok(Box::new(InTransactionConn { in_txn: false }))
+        }
+    }
+
+    #[tokio::test]
+    async fn test_t2_release_rolls_back_in_transaction() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(InTransactionFactory)).unwrap();
+        let mut conn = pool.acquire().await.unwrap();
+        conn.begin_transaction().await.unwrap();
+        // conn.in_transaction() == true，release 时应自动回滚
+        pool.release(conn).await;
+        // 连接应被回滚后归还到池中
+        let status = pool.status().await;
+        assert_eq!(status.idle, 1, "回滚后连接应归还到池中");
+    }
+
+    /// T2.12a PoolTuningAdvice is_optimal
+    #[tokio::test]
+    async fn test_t2_tuning_advice_is_optimal() {
+        let optimal = PoolTuningAdvice {
+            suggested_max_size: None,
+            suggested_min_idle: None,
+            suggested_idle_timeout: None,
+            reason: "optimal".to_string(),
+        };
+        assert!(optimal.is_optimal());
+        let non_optimal = PoolTuningAdvice {
+            suggested_max_size: Some(100),
+            suggested_min_idle: None,
+            suggested_idle_timeout: None,
+            reason: "expand".to_string(),
+        };
+        assert!(!non_optimal.is_optimal());
+    }
+
+    /// T2.12b PoolConfig validate idle_timeout 超界
+    #[tokio::test]
+    async fn test_t2_validate_idle_timeout_overflow() {
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 1,
+            acquire_timeout: Duration::from_secs(1),
+            idle_timeout: Duration::from_secs(u64::MAX),
+            max_lifetime: Duration::from_secs(1),
+            connection_timeout: Duration::from_secs(5),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+            prewarm: false,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    /// T2.12c PoolConfig validate max_lifetime 超界
+    #[tokio::test]
+    async fn test_t2_validate_max_lifetime_overflow() {
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 1,
+            acquire_timeout: Duration::from_secs(1),
+            idle_timeout: Duration::from_secs(1),
+            max_lifetime: Duration::from_secs(u64::MAX),
+            connection_timeout: Duration::from_secs(5),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+            prewarm: false,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    /// T2.12d PoolConfig validate connection_timeout 超界
+    #[tokio::test]
+    async fn test_t2_validate_connection_timeout_overflow() {
+        let config = PoolConfig {
+            max_size: 10,
+            min_idle: 1,
+            acquire_timeout: Duration::from_secs(1),
+            idle_timeout: Duration::from_secs(1),
+            max_lifetime: Duration::from_secs(1),
+            connection_timeout: Duration::from_secs(u64::MAX),
+            tls: None,
+            query_timeout: None,
+            max_rows: None,
+            memory_limit: None,
+            on_event: None,
+            test_before_acquire: false,
+            prewarm: false,
+        };
+        assert!(config.validate().is_err());
+    }
+
+    /// T2.13a Pool::acquire 连续 acquire/release 复用
+    #[tokio::test]
+    async fn test_t2_acquire_release_reuse_cycle() {
+        let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+        let pool = Pool::new(config, Arc::new(CountingFactory::new())).unwrap();
+        let c1 = pool.acquire().await.unwrap();
+        pool.release(c1).await;
+        let c2 = pool.acquire().await.unwrap();
+        pool.release(c2).await;
+        let c3 = pool.acquire().await.unwrap();
+        pool.release(c3).await;
+        // 三次 acquire 但只创建 1 个连接（复用）
+        let metrics = pool.pool_metrics();
+        assert_eq!(metrics.acquire_count, 3);
+        assert_eq!(metrics.connection_created_count, 1);
+    }
+
+    /// T2.13b Pool::shutdown 等待在途连接归还
+    #[tokio::test]
+    async fn test_t2_shutdown_waits_for_in_flight() {
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, Arc::new(MockConnectionFactory)).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        let pool_clone = pool.clone();
+        tokio::spawn(async move {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+            pool_clone.release(conn).await;
+        });
+        pool.shutdown_with_timeout(Duration::from_secs(2)).await;
+        assert!(pool.closed.load(Ordering::SeqCst));
+        assert_eq!(pool.total_count.load(Ordering::SeqCst), 0);
+    }
 }
 
 #[cfg(all(test, feature = "prod-pool-tuning"))]
@@ -4552,5 +5373,113 @@ mod leak_prod_tests {
             avg_wait > Duration::from_millis(100),
             "平均等待 {avg_wait:?} 应 > 100ms"
         );
+    }
+
+    #[test]
+    fn test_t6_pool_config_builder_all_setters() {
+        let callback: PoolEventCallback = Arc::new(|_event| {});
+        let config = PoolConfigBuilder::new()
+            .max_size(20)
+            .min_idle(5)
+            .acquire_timeout(30)
+            .idle_timeout(600)
+            .max_lifetime(3600)
+            .query_timeout(Duration::from_secs(10))
+            .max_rows(1000)
+            .memory_limit(1024 * 1024)
+            .with_adaptive_tuning(15, 300, 5000)
+            .on_event(callback)
+            .test_before_acquire(true)
+            .prewarm(true)
+            .build()
+            .unwrap();
+        assert_eq!(config.max_size, 15);
+        assert!(config.test_before_acquire);
+        assert!(config.prewarm);
+    }
+
+    #[test]
+    fn test_t6_pool_config_builder_default() {
+        let builder = PoolConfigBuilder::default();
+        let config = builder.build().unwrap();
+        assert!(config.max_size > 0);
+    }
+
+    #[test]
+    fn test_t6_pool_config_builder_tls() {
+        let tls = TlsConfig {
+            enabled: true,
+            ca_cert_path: None,
+            client_cert_path: None,
+            client_key_path: None,
+            min_version: TlsVersion::Tls12,
+        };
+        let config = PoolConfigBuilder::new().tls(tls).build().unwrap();
+        assert!(config.tls.is_some());
+    }
+
+    #[test]
+    fn test_t6_pool_config_builder_with_adaptive_tuning_zero_capacity() {
+        let config = PoolConfigBuilder::new()
+            .max_size(20)
+            .with_adaptive_tuning(0, 300, 5000)
+            .build()
+            .unwrap();
+        assert_eq!(config.max_size, 20);
+    }
+
+    #[test]
+    fn test_t6_pool_circuit_breaker_link_basic() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        assert_eq!(link.current_capacity(), 100);
+        assert_eq!(link.original_capacity(), 100);
+        assert!(!link.is_shrunk());
+        let shrunk = link.shrink_pool(0.5);
+        assert_eq!(shrunk, 50);
+        assert_eq!(link.current_capacity(), 50);
+        assert!(link.is_shrunk());
+        assert_eq!(link.shrink_count(), 1);
+        let expanded = link.expand_pool();
+        assert_eq!(expanded, 100);
+        assert_eq!(link.current_capacity(), 100);
+        assert_eq!(link.expand_count(), 1);
+    }
+
+    #[test]
+    fn test_t6_pool_circuit_breaker_link_on_state_change() {
+        let mut link = PoolCircuitBreakerLink::new(100);
+        let capacity = link.on_circuit_state_change(true);
+        assert!(capacity < 100);
+        let capacity = link.on_circuit_state_change(false);
+        assert_eq!(capacity, 100);
+    }
+
+    #[test]
+
+    fn test_t6_pool_metrics_connection_reuse_rate() {
+        let metrics = PoolMetrics {
+            acquire_count: 100,
+            connection_created_count: 10,
+            ..Default::default()
+        };
+        let rate = metrics.connection_reuse_rate();
+        assert!((rate - 0.9).abs() < 1e-9);
+        let empty = PoolMetrics::default();
+        assert_eq!(empty.connection_reuse_rate(), 0.0);
+    }
+
+    #[test]
+    fn test_t6_pool_metrics_average_acquire_wait_time() {
+        let metrics = PoolMetrics {
+            acquire_count: 10,
+            acquire_wait_time: Duration::from_millis(100),
+            ..Default::default()
+        };
+        assert_eq!(
+            metrics.average_acquire_wait_time(),
+            Duration::from_millis(10)
+        );
+        let empty = PoolMetrics::default();
+        assert_eq!(empty.average_acquire_wait_time(), Duration::ZERO);
     }
 }

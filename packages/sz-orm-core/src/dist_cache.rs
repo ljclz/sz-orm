@@ -1045,4 +1045,302 @@ mod tests {
         let crc3 = crc64(b"world");
         assert_ne!(crc1, crc3);
     }
+
+    // ─── T13：分布式缓存覆盖率提升（节点间一致性 + 读写核心路径）──
+
+    #[test]
+    fn t13_consistency_level_strong_variant() {
+        let level = ConsistencyLevel::Strong;
+        assert_eq!(level, ConsistencyLevel::Strong);
+        assert_ne!(level, ConsistencyLevel::Eventual);
+    }
+
+    #[test]
+    fn t13_node_addr_new_host_port() {
+        let addr = NodeAddr::new("10.0.0.1", 6379);
+        assert_eq!(addr.host, "10.0.0.1");
+        assert_eq!(addr.port, 6379);
+    }
+
+    #[test]
+    fn t13_redis_pubsub_disconnected_instance_id() {
+        let bus = RedisPubSubInvalidationBus::disconnected("node-a");
+        assert_eq!(bus.instance_id(), "node-a");
+    }
+
+    #[test]
+    fn t13_redis_pubsub_with_channel() {
+        let bus = RedisPubSubInvalidationBus::disconnected("node-a").with_channel("custom-ch");
+        bus.publish(InvalidationMessage::InvalidateAll);
+        let messages: Vec<_> = bus.subscribe().collect();
+        assert_eq!(messages.len(), 0);
+    }
+
+    #[test]
+    fn t13_redis_pubsub_disconnected_publish_key() {
+        let bus = RedisPubSubInvalidationBus::disconnected("node-a");
+        bus.publish(InvalidationMessage::InvalidateKey("k1".to_string()));
+        let messages: Vec<_> = bus.subscribe().collect();
+        assert_eq!(messages.len(), 0);
+    }
+
+    #[test]
+    fn t13_redis_pubsub_push_received_key_subscribe() {
+        let bus = RedisPubSubInvalidationBus::disconnected("node-a");
+        bus.push_received(InvalidationMessage::InvalidateKey("k1".to_string()));
+        let messages: Vec<_> = bus.subscribe().collect();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0], InvalidationMessage::InvalidateKey(_)));
+    }
+
+    #[test]
+    fn t13_redis_pubsub_deserialize_table_other_instance() {
+        let msg = InvalidationMessage::InvalidateTable("orders".to_string());
+        let json = RedisPubSubInvalidationBus::serialize_message(&msg, "instance-1");
+        let result = RedisPubSubInvalidationBus::deserialize_message(&json, "instance-2");
+        assert!(matches!(
+            result,
+            Some(InvalidationMessage::InvalidateTable(_))
+        ));
+    }
+
+    #[test]
+    fn t13_redis_pubsub_deserialize_all_other_instance() {
+        let msg = InvalidationMessage::InvalidateAll;
+        let json = RedisPubSubInvalidationBus::serialize_message(&msg, "instance-1");
+        let result = RedisPubSubInvalidationBus::deserialize_message(&json, "instance-2");
+        assert!(matches!(result, Some(InvalidationMessage::InvalidateAll)));
+    }
+
+    #[test]
+    fn t13_redis_pubsub_deserialize_invalid_json() {
+        let result = RedisPubSubInvalidationBus::deserialize_message("not-json", "instance-1");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn t13_redis_pubsub_deserialize_unknown_type() {
+        let json = r#"{"type":"unknown","src":"instance-1"}"#;
+        let result = RedisPubSubInvalidationBus::deserialize_message(json, "instance-2");
+        assert!(result.is_none());
+    }
+
+    #[test]
+    fn t13_gossip_instance_id() {
+        let bus = GossipInvalidationBus::new(vec![], b"secret".to_vec(), "gossip-node-1");
+        assert_eq!(bus.instance_id(), "gossip-node-1");
+    }
+
+    #[test]
+    fn t13_gossip_publish_key_message() {
+        let bus = GossipInvalidationBus::new(
+            vec![NodeAddr::new("127.0.0.1", 8080)],
+            b"secret".to_vec(),
+            "gossip-node-1",
+        );
+        bus.publish(InvalidationMessage::InvalidateKey("k1".to_string()));
+        let messages: Vec<_> = bus.subscribe().collect();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(messages[0], InvalidationMessage::InvalidateKey(_)));
+    }
+
+    #[test]
+    fn t13_gossip_receive_writes_to_buffer() {
+        let bus = GossipInvalidationBus::new(vec![], b"secret".to_vec(), "gossip-node-1");
+        let msg = InvalidationMessage::InvalidateTable("users".to_string());
+        let tag = bus.compute_hmac(&msg);
+        assert!(bus.receive(msg.clone(), 100, &tag));
+        let messages: Vec<_> = bus.subscribe().collect();
+        assert_eq!(messages.len(), 1);
+        assert!(matches!(
+            messages[0],
+            InvalidationMessage::InvalidateTable(_)
+        ));
+    }
+
+    #[test]
+    fn t13_gossip_receive_multiple_distinct_ids() {
+        let bus = GossipInvalidationBus::new(vec![], b"secret".to_vec(), "gossip-node-1");
+        let msg = InvalidationMessage::InvalidateAll;
+        let tag = bus.compute_hmac(&msg);
+        assert!(bus.receive(msg.clone(), 1, &tag));
+        assert!(bus.receive(msg.clone(), 2, &tag));
+        assert!(bus.receive(msg, 3, &tag));
+        let messages: Vec<_> = bus.subscribe().collect();
+        assert_eq!(messages.len(), 3);
+    }
+
+    #[test]
+    fn t13_write_behind_config_builder_all_fields() {
+        let config = WriteBehindConfig::builder()
+            .batch_size(200)
+            .flush_interval(Duration::from_millis(500))
+            .wal_path(PathBuf::from("wal/all.log"))
+            .encryption_key(b"key".to_vec())
+            .fallback_to_sync(false)
+            .build();
+        assert_eq!(config.batch_size, 200);
+        assert_eq!(config.flush_interval, Duration::from_millis(500));
+        assert_eq!(config.wal_path, PathBuf::from("wal/all.log"));
+        assert_eq!(config.encryption_key, b"key".to_vec());
+        assert!(!config.fallback_to_sync);
+    }
+
+    #[test]
+    fn t13_write_op_with_data_delete() {
+        let op = WriteOp::new(WriteOpType::Delete, "users", Value::I64(7)).with_data(vec![(
+            "name".to_string(),
+            Value::String("alice".to_string()),
+        )]);
+        assert_eq!(op.op_type, WriteOpType::Delete);
+        assert_eq!(op.table, "users");
+        assert_eq!(op.pk, Value::I64(7));
+        assert_eq!(op.data.len(), 1);
+    }
+
+    #[test]
+    fn t13_write_behind_queue_truncate_wal() {
+        let temp_dir = std::env::temp_dir().join("sz-orm-test-wal-t13-truncate");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let config = WriteBehindConfig::builder()
+            .batch_size(10)
+            .wal_path(temp_dir.join("test.log"))
+            .build();
+        let queue = WriteBehindQueue::new(config).unwrap();
+        for i in 0..3 {
+            queue
+                .enqueue(WriteOp::new(WriteOpType::Insert, "t", Value::I64(i)))
+                .unwrap();
+        }
+        queue.truncate_wal().unwrap();
+        let replayed = queue.replay().unwrap();
+        assert_eq!(replayed.len(), 0);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn t13_write_behind_queue_config_accessor() {
+        let temp_dir = std::env::temp_dir().join("sz-orm-test-wal-t13-config");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let config = WriteBehindConfig::builder()
+            .batch_size(25)
+            .wal_path(temp_dir.join("test.log"))
+            .build();
+        let queue = WriteBehindQueue::new(config).unwrap();
+        assert_eq!(queue.config().batch_size, 25);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn t13_write_behind_queue_drain_empty_batch() {
+        let temp_dir = std::env::temp_dir().join("sz-orm-test-wal-t13-drain-empty");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let config = WriteBehindConfig::builder()
+            .batch_size(10)
+            .wal_path(temp_dir.join("test.log"))
+            .build();
+        let queue = WriteBehindQueue::new(config).unwrap();
+        let batch = queue.drain_batch();
+        assert_eq!(batch.len(), 0);
+        assert_eq!(queue.pending_count(), 0);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn t13_write_behind_queue_enqueue_with_encryption_replay() {
+        let temp_dir = std::env::temp_dir().join("sz-orm-test-wal-t13-enc");
+        let _ = std::fs::remove_dir_all(&temp_dir);
+        let config = WriteBehindConfig::builder()
+            .batch_size(10)
+            .wal_path(temp_dir.join("test.log"))
+            .encryption_key(b"test-key-t13".to_vec())
+            .build();
+        let queue = WriteBehindQueue::new(config).unwrap();
+        for i in 0..4 {
+            queue
+                .enqueue(WriteOp::new(WriteOpType::Update, "orders", Value::I64(i)))
+                .unwrap();
+        }
+        let replayed = queue.replay().unwrap();
+        assert_eq!(replayed.len(), 4);
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn t13_bloom_filter_default_config() {
+        let guard = BloomFilterGuard::default_config();
+        assert_eq!(guard.count(), 0);
+        guard.add("x");
+        assert!(guard.might_contain("x"));
+        assert_eq!(guard.count(), 1);
+    }
+
+    #[test]
+    fn t13_bloom_filter_rebuild() {
+        let guard = BloomFilterGuard::new(100, 0.01);
+        guard.add("old1");
+        guard.add("old2");
+        assert_eq!(guard.count(), 2);
+        guard.rebuild(vec!["new1".to_string(), "new2".to_string(), "new3".to_string()].into_iter());
+        assert_eq!(guard.count(), 5);
+        assert!(guard.might_contain("new1"));
+    }
+
+    #[test]
+    fn t13_bloom_filter_might_contain_absent_key() {
+        let guard = BloomFilterGuard::new(1000, 0.01);
+        guard.add("present");
+        assert!(guard.might_contain("present"));
+        assert!(!guard.might_contain("definitely-not-added-key-xyz"));
+    }
+
+    #[tokio::test]
+    async fn t13_cache_mutex_guard_default_impl() {
+        let guard = CacheMutexGuard::default();
+        let result = guard.with_guard("k", async { 42 }).await;
+        assert_eq!(result, 42);
+    }
+
+    #[test]
+    fn t13_cache_mutex_guard_get_mutex_same_key() {
+        let guard = CacheMutexGuard::new();
+        let m1 = guard.get_mutex("k1");
+        let m2 = guard.get_mutex("k1");
+        assert!(Arc::ptr_eq(&m1, &m2));
+    }
+
+    #[test]
+    fn t13_cache_mutex_guard_get_mutex_different_key() {
+        let guard = CacheMutexGuard::new();
+        let m1 = guard.get_mutex("k1");
+        let m2 = guard.get_mutex("k2");
+        assert!(!Arc::ptr_eq(&m1, &m2));
+    }
+
+    #[test]
+    fn t13_random_ttl_jitter_custom_range() {
+        let base = Duration::from_millis(1000);
+        for _ in 0..100 {
+            let jittered = RandomTtlJitter::jitter(base, 0.5);
+            let ms = jittered.as_millis();
+            assert!(
+                (500..=1500).contains(&ms),
+                "TTL 抖动应在 ±50% 范围内: {}ms",
+                ms
+            );
+        }
+    }
+
+    #[test]
+    fn t13_random_ttl_jitter_zero_base() {
+        let base = Duration::from_millis(0);
+        let jittered = RandomTtlJitter::default_jitter(base);
+        assert!(jittered.as_millis() >= 1);
+    }
+
+    #[test]
+    fn t13_crc64_empty_input() {
+        let crc = crc64(b"");
+        assert_eq!(crc, 0);
+    }
 }

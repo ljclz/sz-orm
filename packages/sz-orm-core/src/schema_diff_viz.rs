@@ -434,6 +434,283 @@ mod tests {
         let html = SchemaDiffVisualizer::render_html(&report);
         assert!(html.contains("无变更"));
     }
+
+    #[test]
+    fn t14_analyze_added_table_only() {
+        let diff = SchemaDiff {
+            added_tables: vec![make_table("users", vec![make_column("id", "BIGINT")])],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert_eq!(report.added_tables_count, 1);
+        assert_eq!(report.changes.len(), 1);
+        assert_eq!(report.changes[0].change_type, ChangeType::AddedTable);
+        assert_eq!(report.changes[0].severity, Severity::Safe);
+        assert!(!report.has_destructive);
+    }
+
+    #[test]
+    fn t14_analyze_dropped_table_only() {
+        let diff = SchemaDiff {
+            dropped_tables: vec!["old".to_string()],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert_eq!(report.dropped_tables_count, 1);
+        assert_eq!(report.changes.len(), 1);
+        assert_eq!(report.changes[0].change_type, ChangeType::DroppedTable);
+        assert_eq!(report.changes[0].severity, Severity::Destructive);
+        assert!(report.has_destructive);
+    }
+
+    #[test]
+    fn t14_analyze_added_column_only() {
+        let diff = SchemaDiff {
+            added_columns: vec![("orders".to_string(), make_column("status", "VARCHAR(20)"))],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert_eq!(report.added_columns_count, 1);
+        assert_eq!(report.changes[0].change_type, ChangeType::AddedColumn);
+        assert_eq!(report.changes[0].severity, Severity::Safe);
+        assert_eq!(report.changes[0].column.as_deref(), Some("status"));
+    }
+
+    #[test]
+    fn t14_analyze_dropped_column_only() {
+        let diff = SchemaDiff {
+            dropped_columns: vec![("orders".to_string(), "legacy".to_string())],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert_eq!(report.dropped_columns_count, 1);
+        assert_eq!(report.changes[0].change_type, ChangeType::DroppedColumn);
+        assert_eq!(report.changes[0].severity, Severity::Destructive);
+        assert!(report.has_destructive);
+    }
+
+    #[test]
+    fn t14_analyze_type_changed_only() {
+        let diff = SchemaDiff {
+            type_changed_columns: vec![(
+                "users".to_string(),
+                make_column("age", "INT"),
+                make_column("age", "BIGINT"),
+            )],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert_eq!(report.type_changed_count, 1);
+        assert_eq!(report.changes[0].change_type, ChangeType::TypeChanged);
+        assert_eq!(report.changes[0].severity, Severity::Safe);
+    }
+
+    #[test]
+    fn t14_analyze_renamed_only() {
+        let diff = SchemaDiff {
+            renamed_columns: vec![(
+                "users".to_string(),
+                "name".to_string(),
+                "full_name".to_string(),
+            )],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert_eq!(report.renamed_count, 1);
+        assert_eq!(report.changes[0].change_type, ChangeType::Renamed);
+        assert_eq!(report.changes[0].column.as_deref(), Some("full_name"));
+    }
+
+    #[test]
+    fn t14_analyze_multiple_added_tables() {
+        let diff = SchemaDiff {
+            added_tables: vec![
+                make_table("a", vec![make_column("id", "INT")]),
+                make_table("b", vec![make_column("id", "INT")]),
+            ],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert_eq!(report.added_tables_count, 2);
+        assert_eq!(report.changes.len(), 2);
+    }
+
+    #[test]
+    fn t14_analyze_change_type_variants() {
+        let diff = sample_diff();
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let types: Vec<&ChangeType> = report.changes.iter().map(|c| &c.change_type).collect();
+        assert!(types.contains(&&ChangeType::AddedTable));
+        assert!(types.contains(&&ChangeType::DroppedTable));
+        assert!(types.contains(&&ChangeType::AddedColumn));
+        assert!(types.contains(&&ChangeType::DroppedColumn));
+        assert!(types.contains(&&ChangeType::TypeChanged));
+        assert!(types.contains(&&ChangeType::Renamed));
+    }
+
+    #[test]
+    fn t14_analyze_column_none_for_table_level() {
+        let diff = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "INT")])],
+            dropped_tables: vec!["old".to_string()],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        for item in &report.changes {
+            assert!(item.column.is_none(), "表级变更 column 应为 None");
+        }
+    }
+
+    #[test]
+    fn t14_analyze_column_some_for_column_level() {
+        let diff = sample_diff();
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let column_level: Vec<_> = report
+            .changes
+            .iter()
+            .filter(|c| {
+                matches!(
+                    c.change_type,
+                    ChangeType::AddedColumn
+                        | ChangeType::DroppedColumn
+                        | ChangeType::TypeChanged
+                        | ChangeType::Renamed
+                )
+            })
+            .collect();
+        assert_eq!(column_level.len(), 4);
+        for item in &column_level {
+            assert!(item.column.is_some(), "列级变更 column 应为 Some");
+        }
+    }
+
+    #[test]
+    fn t14_analyze_description_content() {
+        let diff = SchemaDiff {
+            added_columns: vec![("orders".to_string(), make_column("status", "VARCHAR(20)"))],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        assert!(report.changes[0].description.contains("orders.status"));
+        assert!(report.changes[0].description.contains("VARCHAR(20)"));
+        assert!(report.changes[0].description.contains("nullable"));
+    }
+
+    #[test]
+    fn t14_render_text_no_destructive() {
+        let diff = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "INT")])],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let text = SchemaDiffVisualizer::render_text(&report);
+        assert!(text.contains("摘要"));
+        assert!(!text.contains("⚠ 警告"));
+    }
+
+    #[test]
+    fn t14_render_text_safe_icon() {
+        let diff = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "INT")])],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let text = SchemaDiffVisualizer::render_text(&report);
+        assert!(text.contains("✓"));
+    }
+
+    #[test]
+    fn t14_render_json_structure() {
+        let diff = sample_diff();
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let json = SchemaDiffVisualizer::render_json(&report);
+        let parsed: serde_json::Value = serde_json::from_str(&json).unwrap();
+        assert_eq!(parsed["added_columns_count"], 1);
+        assert_eq!(parsed["type_changed_count"], 1);
+        assert_eq!(parsed["renamed_count"], 1);
+        let first = &parsed["changes"][0];
+        assert!(first["table"].is_string());
+        assert!(first["description"].is_string());
+    }
+
+    #[test]
+    fn t14_render_html_destructive_class() {
+        let diff = SchemaDiff {
+            dropped_tables: vec!["old".to_string()],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let html = SchemaDiffVisualizer::render_html(&report);
+        assert!(html.contains("class=\"destructive\""));
+        assert!(html.contains("⚠"));
+    }
+
+    #[test]
+    fn t14_render_html_safe_class() {
+        let diff = SchemaDiff {
+            added_tables: vec![make_table("t", vec![make_column("id", "INT")])],
+            ..SchemaDiff::default()
+        };
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let html = SchemaDiffVisualizer::render_html(&report);
+        assert!(html.contains("class=\"safe\""));
+        assert!(html.contains("✓"));
+    }
+
+    #[test]
+    fn t14_render_html_table_rows() {
+        let diff = sample_diff();
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let html = SchemaDiffVisualizer::render_html(&report);
+        let tr_count = html.matches("<tr class=").count();
+        assert_eq!(tr_count, 6);
+    }
+
+    #[test]
+    fn t14_render_dispatch_all_formats() {
+        let diff = sample_diff();
+        let report = SchemaDiffVisualizer::analyze(&diff);
+        let text = SchemaDiffVisualizer::render(&report, OutputFormat::Text);
+        let json = SchemaDiffVisualizer::render(&report, OutputFormat::Json);
+        let html = SchemaDiffVisualizer::render(&report, OutputFormat::Html);
+        assert!(text.contains("Schema Diff Report"));
+        assert!(json.contains("changes"));
+        assert!(html.contains("<table>"));
+    }
+
+    #[test]
+    fn t14_output_format_eq() {
+        assert_eq!(OutputFormat::Text, OutputFormat::Text);
+        assert_ne!(OutputFormat::Text, OutputFormat::Json);
+        assert_ne!(OutputFormat::Json, OutputFormat::Html);
+        assert_ne!(OutputFormat::Text, OutputFormat::Html);
+    }
+
+    #[test]
+    fn t14_change_type_serde() {
+        let variants = vec![
+            ChangeType::AddedTable,
+            ChangeType::DroppedTable,
+            ChangeType::AddedColumn,
+            ChangeType::DroppedColumn,
+            ChangeType::TypeChanged,
+            ChangeType::Renamed,
+            ChangeType::AddedConstraint,
+            ChangeType::DroppedConstraint,
+            ChangeType::IndexDiff,
+        ];
+        for v in &variants {
+            let json = serde_json::to_string(v).unwrap();
+            assert!(!json.is_empty());
+        }
+    }
+
+    #[test]
+    fn t14_severity_serde() {
+        let safe_json = serde_json::to_string(&Severity::Safe).unwrap();
+        let destructive_json = serde_json::to_string(&Severity::Destructive).unwrap();
+        assert_ne!(safe_json, destructive_json);
+    }
 }
 // ============================================================================
 // v7.3.0 任务 4.4：SchemaDiffReportV2 正/反向迁移 SQL 与只读连接

@@ -5457,4 +5457,1237 @@ mod tests {
         assert_eq!(rows.len(), 2000);
         assert_eq!(conn.call_count(), 3);
     }
+
+    // ===== v9.4.0 T1: query.rs 补测（81.3% → ≥ 95%）=====
+
+    #[test]
+    fn test_v940_t1_1_nested_and_or_parentheses() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("a", Value::I64(1))
+            .where_eq("b", Value::I64(2))
+            .or_where_eq("c", Value::I64(3))
+            .where_eq("d", Value::I64(4));
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("WHERE"), "sql: {}", sql);
+        assert!(params.len() >= 4, "params: {:?}", params);
+    }
+
+    #[test]
+    fn test_v940_t1_1b_complex_or_chain() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .where_eq("a", Value::I64(1))
+            .or_where_eq("b", Value::I64(2))
+            .or_where_eq("c", Value::I64(3));
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("OR"), "sql: {}", sql);
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn test_v940_t1_2_where_in_param_binding() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("IN"), "sql: {}", sql);
+        assert_eq!(params.len(), 3, "params: {:?}", params);
+    }
+
+    #[test]
+    fn test_v940_t1_2b_where_not_in_param_binding() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .where_not_in("id", vec![Value::I64(1), Value::I64(2)]);
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("NOT IN"), "sql: {}", sql);
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_v940_t1_2c_where_between_param_binding() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .where_between("age", Value::I64(18), Value::I64(65));
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("BETWEEN"), "sql: {}", sql);
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_v940_t1_3_join_inner() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .join_inner("users", "user_id", "id");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("INNER JOIN"), "sql: {}", sql);
+        assert!(sql.contains("users"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_3b_join_left() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .join_left("users", "user_id", "id");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("LEFT JOIN"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_3c_join_right() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .join_right("users", "user_id", "id");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("RIGHT JOIN"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_4_group_by_having() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .group_by("user_id")
+            .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+            .unwrap();
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("GROUP BY"), "sql: {}", sql);
+        assert!(sql.contains("HAVING"), "sql: {}", sql);
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_v940_t1_4b_group_by_multiple() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .group_by("user_id")
+            .group_by("status");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("GROUP BY"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_5_select_star_default() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("SELECT"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_5b_select_explicit_columns() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .select(vec!["id", "name", "email"])
+            .unwrap();
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("id"), "sql: {}", sql);
+        assert!(sql.contains("name"), "sql: {}", sql);
+        assert!(sql.contains("email"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_6_invalid_column_semicolon_rejected() {
+        let result = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .select(vec!["id; DROP TABLE users"]);
+        assert!(result.is_err(), "含分号列名应被拒绝");
+    }
+
+    #[test]
+    fn test_v940_t1_6b_invalid_column_quote_rejected() {
+        let result = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .select(vec!["name' OR '1'='1"]);
+        assert!(result.is_err(), "含单引号列名应被拒绝");
+    }
+
+    #[test]
+    fn test_v940_t1_7_empty_where_query() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let (sql, params) = qb.build_select();
+        assert!(!sql.contains("WHERE"), "无 WHERE 条件: sql: {}", sql);
+        assert_eq!(params.len(), 0);
+    }
+
+    #[test]
+    fn test_v940_t1_8_all_where_operators() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .where_eq("a", Value::I64(1))
+            .where_ne("b", Value::I64(2))
+            .where_gt("c", Value::I64(3))
+            .where_ge("d", Value::I64(4))
+            .where_lt("e", Value::I64(5))
+            .where_le("f", Value::I64(6))
+            .where_like("g", Value::String("%pattern%".to_string()));
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("WHERE"), "sql: {}", sql);
+        assert_eq!(params.len(), 7, "params: {:?}", params);
+    }
+
+    #[test]
+    fn test_v940_t1_8b_or_where_operators() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .where_eq("a", Value::I64(1))
+            .or_where_ne("b", Value::I64(2))
+            .or_where_gt("c", Value::I64(3))
+            .or_where_ge("d", Value::I64(4))
+            .or_where_lt("e", Value::I64(5))
+            .or_where_le("f", Value::I64(6))
+            .or_where_like("g", Value::String("%x%".to_string()));
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("OR"), "sql: {}", sql);
+        assert_eq!(params.len(), 7);
+    }
+
+    #[test]
+    fn test_v940_t1_8c_order_by_limit_offset() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .order_by("name")
+            .limit(10)
+            .offset(20);
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("ORDER BY"), "sql: {}", sql);
+        assert!(sql.contains("LIMIT"), "sql: {}", sql);
+        assert!(sql.contains("OFFSET"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8d_order_desc() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .order_desc("created_at");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("ORDER BY"), "sql: {}", sql);
+        assert!(sql.contains("DESC"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8e_build_insert() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("Alice".to_string()));
+        data.insert("email".to_string(), Value::String("a@b.c".to_string()));
+        let (sql, params) = qb.build_insert(&data);
+        assert!(sql.contains("INSERT"), "sql: {}", sql);
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_v940_t1_8f_build_update() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("Bob".to_string()));
+        let (sql, params) = qb.build_update(&data);
+        assert!(sql.contains("UPDATE"), "sql: {}", sql);
+        assert!(sql.contains("WHERE"), "sql: {}", sql);
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn test_v940_t1_8g_build_delete() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let (sql, params) = qb.build_delete();
+        assert!(sql.contains("DELETE"), "sql: {}", sql);
+        assert!(sql.contains("WHERE"), "sql: {}", sql);
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_v940_t1_8h_sqlite_dialect() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::SqliteDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("SELECT"), "sql: {}", sql);
+        assert!(
+            sql.contains("\"users\"") || sql.contains("users"),
+            "sql: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_v940_t1_8i_postgresql_dialect() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::PostgreSqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("SELECT"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8j_tenant_id() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .with_tenant_id(100)
+            .where_eq("id", Value::I64(1));
+        let (sql, _params) = qb.build_select();
+        assert!(sql.contains("WHERE"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8k_without_tenant() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .with_tenant_id(100)
+            .without_tenant()
+            .where_eq("id", Value::I64(1));
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("WHERE"), "sql: {}", sql);
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn test_v940_t1_8l_cache_ttl() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .cache_ttl(std::time::Duration::from_secs(300));
+        assert_eq!(
+            qb.get_cache_ttl(),
+            Some(std::time::Duration::from_secs(300))
+        );
+    }
+
+    #[test]
+    fn test_v940_t1_8m_without_soft_delete() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .without_soft_delete();
+        assert!(qb.is_soft_delete_disabled());
+    }
+
+    #[test]
+    fn test_v940_t1_8n_clone_for_count() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::I64(1));
+        let count_qb = qb.clone_for_count();
+        let (sql, _) = count_qb.build_select();
+        assert!(sql.contains("SELECT"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8o_insert_or_ignore() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .insert_or_ignore();
+        assert!(qb.is_insert_or_ignore());
+    }
+
+    #[test]
+    fn test_v940_t1_8p_lock_for_update_mysql() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_for_update()
+            .unwrap();
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("FOR UPDATE"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8q_lock_shared_postgresql() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::PostgreSqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .lock_shared()
+            .unwrap();
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("FOR SHARE"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8r_select_expr() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .select_expr(vec!["COUNT(*) AS cnt"]);
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("COUNT"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8s_where_null() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("deleted_at", Value::Null);
+        let (sql, params) = qb.build_select();
+        assert!(sql.contains("WHERE"), "sql: {}", sql);
+        assert!(
+            sql.contains("IS NULL") || !params.is_empty(),
+            "sql: {}",
+            sql
+        );
+    }
+
+    #[test]
+    fn test_v940_t1_8t_multiple_joins() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .join_inner("users", "user_id", "id")
+            .join_left("products", "product_id", "id");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("INNER JOIN"), "sql: {}", sql);
+        assert!(sql.contains("LEFT JOIN"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn test_v940_t1_8u_build_force_delete() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let sql = qb.build_force_delete();
+        assert!(sql.contains("DELETE"), "sql: {}", sql);
+    }
+
+    #[test]
+    fn t26q_batch_insert_with_params_mysql() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let mut row1 = std::collections::HashMap::new();
+        row1.insert("name".to_string(), Value::String("a".to_string()));
+        row1.insert("age".to_string(), Value::I64(1));
+        let mut row2 = std::collections::HashMap::new();
+        row2.insert("name".to_string(), Value::String("b".to_string()));
+        row2.insert("age".to_string(), Value::I64(2));
+        let (sql, params) = qb.build_batch_insert_with_params(&[row1, row2]);
+        assert!(sql.contains("INSERT INTO"));
+        assert!(sql.contains("?"));
+        assert_eq!(params.len(), 4);
+    }
+
+    #[test]
+    fn t26q_batch_insert_with_params_pg() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::PostgreSqlDialect))
+            .table("users");
+        let mut row1 = std::collections::HashMap::new();
+        row1.insert("name".to_string(), Value::String("a".to_string()));
+        let (sql, params) = qb.build_batch_insert_with_params(&[row1]);
+        assert!(sql.contains("INSERT INTO"));
+        assert!(sql.contains("$1"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_batch_insert_with_params_empty() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let (sql, params) = qb.build_batch_insert_with_params(&[]);
+        assert!(sql.is_empty());
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn t26q_batch_upsert_with_params_mysql() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let mut row1 = std::collections::HashMap::new();
+        row1.insert("id".to_string(), Value::I64(1));
+        row1.insert("name".to_string(), Value::String("a".to_string()));
+        let result = qb.build_batch_upsert_with_params(&[row1], &["id"], &["name"]);
+        assert!(result.is_ok());
+        let (sql, params) = result.unwrap();
+        assert!(sql.contains("INSERT"));
+        assert!(sql.contains("ON DUPLICATE KEY UPDATE"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn t26q_batch_upsert_with_params_empty() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let result = qb.build_batch_upsert_with_params(&[], &["id"], &["name"]);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn t26q_batch_upsert_with_params_sqlite() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::SqliteDialect)).table("users");
+        let mut row1 = std::collections::HashMap::new();
+        row1.insert("id".to_string(), Value::I64(1));
+        row1.insert("name".to_string(), Value::String("a".to_string()));
+        let result = qb.build_batch_upsert_with_params(&[row1], &["id"], &["name"]);
+        assert!(result.is_ok());
+        let (sql, _) = result.unwrap();
+        assert!(sql.contains("INSERT"));
+        assert!(sql.contains("ON CONFLICT"));
+    }
+
+    #[test]
+    fn t26q_keyset_after_basic() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .keyset_after("id", Value::I64(100), 20);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("id > ?") || sql.contains("`id` > ?"));
+        assert!(sql.to_uppercase().contains("ORDER BY"));
+        assert!(sql.contains("LIMIT 20"));
+        assert_eq!(params, vec![Value::I64(100)]);
+    }
+
+    #[test]
+    fn t26q_keyset_before_basic() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .keyset_before("id", Value::I64(50), 10);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("id < ?") || sql.contains("`id` < ?"));
+        assert!(sql.to_uppercase().contains("DESC"));
+        assert!(sql.contains("LIMIT 10"));
+        assert_eq!(params, vec![Value::I64(50)]);
+    }
+
+    #[test]
+    fn t26q_keyset_after_with_existing_order() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .order_desc("id")
+            .keyset_after("id", Value::I64(100), 20);
+        let (sql, _) = qb.build_select_with_params();
+        assert!(sql.to_uppercase().contains("ASC"));
+    }
+
+    #[test]
+    fn t26q_select_only_and_column() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .select_only()
+            .column("name");
+        let sql = qb.build_select();
+        assert!(sql.0.contains("name"));
+    }
+
+    #[test]
+    fn t26q_columns_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .select_only()
+            .columns(vec!["name", "email"]);
+        let sql = qb.build_select();
+        assert!(sql.0.contains("name"));
+        assert!(sql.0.contains("email"));
+    }
+
+    #[test]
+    fn t26q_where_not_between() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_not_between("age", Value::I64(18), Value::I64(30));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("NOT BETWEEN"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn t26q_where_not_in() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_not_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("NOT IN"));
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn t26q_or_where_like() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".to_string()))
+            .or_where_like("name", Value::String("%admin%".to_string()));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("OR"));
+        assert!(sql.contains("LIKE"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn t26q_or_where_ne_gt_lt_le() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .or_where_ne("status", Value::String("banned".to_string()))
+            .or_where_gt("age", Value::I64(18))
+            .or_where_lt("age", Value::I64(65))
+            .or_where_le("score", Value::I64(100));
+        let (sql, _) = qb.build_select_with_params();
+        assert!(sql.contains("OR"));
+    }
+
+    #[test]
+    fn t26q_join_right_basic() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .join_right("profiles", "users.id", "profiles.user_id");
+        let sql = qb.build_select();
+        assert!(sql.0.to_uppercase().contains("RIGHT JOIN"));
+    }
+
+    #[test]
+    fn t26q_insert_or_ignore_flag() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .insert_or_ignore();
+        assert!(qb.is_insert_or_ignore());
+    }
+
+    #[test]
+    fn t26q_lock_type_check() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .lock_for_update()
+            .unwrap();
+        assert!(qb.get_lock_type().is_some());
+    }
+
+    #[test]
+    fn t26q_cache_ttl_get() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .cache_ttl(std::time::Duration::from_secs(60));
+        assert_eq!(qb.get_cache_ttl(), Some(std::time::Duration::from_secs(60)));
+    }
+
+    #[test]
+    fn t26q_is_soft_delete_disabled() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .without_soft_delete();
+        assert!(qb.is_soft_delete_disabled());
+    }
+
+    #[test]
+    fn t26q_is_tenant_disabled() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .without_tenant();
+        assert!(qb.is_tenant_disabled());
+    }
+
+    #[test]
+    fn t26q_build_count_with_table() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".to_string()));
+        let sql = qb.build_count();
+        assert!(sql.to_uppercase().contains("COUNT"));
+        assert!(sql.contains("users"));
+    }
+
+    #[test]
+    fn t26q_build_exists_with_table() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let sql = qb.build_exists();
+        assert!(sql.to_uppercase().contains("EXISTS"));
+    }
+
+    #[test]
+    fn t26q_build_max_min_sum_avg() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        assert!(qb.build_max("score").to_uppercase().contains("MAX"));
+        assert!(qb.build_min("score").to_uppercase().contains("MIN"));
+        assert!(qb.build_sum("score").to_uppercase().contains("SUM"));
+        assert!(qb.build_avg("score").to_uppercase().contains("AVG"));
+    }
+
+    #[test]
+    fn t26q_build_select_with_params_pg() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::PostgreSqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1))
+            .where_eq("name", Value::String("a".to_string()));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("?") || sql.contains("$"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn t26q_build_update_with_params_pg() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::PostgreSqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("updated".to_string()));
+        let (sql, params) = qb.build_update_with_params(&data);
+        assert!(sql.contains("UPDATE"));
+        assert!(params.len() >= 2);
+    }
+
+    #[test]
+    fn t26q_build_delete_with_params_pg() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::PostgreSqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let (sql, params) = qb.build_delete_with_params();
+        assert!(sql.contains("DELETE"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_build_force_delete_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let (sql, params) = qb.build_force_delete_with_params();
+        assert!(sql.contains("DELETE"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_sql_insert_method() {
+        let qb =
+            QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect)).table("users");
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("a".to_string()));
+        let sql = qb.sql_insert(&data);
+        assert!(sql.contains("INSERT"));
+    }
+
+    #[test]
+    fn t26q_sql_update_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let mut data = std::collections::HashMap::new();
+        data.insert("name".to_string(), Value::String("b".to_string()));
+        let sql = qb.sql_update(&data);
+        assert!(sql.contains("UPDATE"));
+    }
+
+    #[test]
+    fn t26q_sql_delete_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("id", Value::I64(1));
+        let sql = qb.sql_delete();
+        assert!(sql.contains("DELETE"));
+    }
+
+    #[test]
+    fn t26q_page_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .page(3, 20);
+        let sql = qb.build_select();
+        assert!(sql.0.contains("LIMIT 20"));
+        assert!(sql.0.contains("OFFSET 40"));
+    }
+
+    #[test]
+    fn t26q_clone_for_count_preserves_table() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".to_string()));
+        let count_qb = qb.clone_for_count();
+        let sql = count_qb.build_count();
+        assert!(sql.contains("users"));
+    }
+
+    #[test]
+    fn t26q_with_tenant_id_sets_tenant() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .with_tenant_id(42);
+        let _ = qb.build_select_with_params();
+    }
+
+    #[test]
+    fn t26q_fast_path_where_ne_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_ne("status", Value::String("banned".into()));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" != ?"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_gt_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_gt("age", Value::I64(18));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" > ?"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_ge_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_ge("age", Value::I64(18));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" >= ?"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_lt_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_lt("age", Value::I64(65));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" < ?"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_le_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_le("age", Value::I64(65));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" <= ?"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_like_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_like("name", Value::String("%john%".into()));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" LIKE ?"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_between_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_between("age", Value::I64(18), Value::I64(65));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" BETWEEN ? AND ?"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_not_between_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_not_between("age", Value::I64(18), Value::I64(65));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" NOT BETWEEN ? AND ?"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_null_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_null("deleted_at");
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" IS NULL"));
+        assert_eq!(params.len(), 0);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_not_null_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_not_null("email");
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" IS NOT NULL"));
+        assert_eq!(params.len(), 0);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_in_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_in("id", vec![Value::I64(1), Value::I64(2), Value::I64(3)]);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" IN (?, ?, ?)"));
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn t26q_fast_path_where_not_in_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_not_in("id", vec![Value::I64(1), Value::I64(2)]);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" NOT IN (?, ?)"));
+        assert_eq!(params.len(), 2);
+    }
+
+    #[test]
+    fn t26q_fast_path_having_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .group_by("dept")
+            .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+            .unwrap();
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" HAVING "));
+        assert!(sql.contains("COUNT(*)"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_fast_path_multiple_conditions_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".into()))
+            .where_ne("role", Value::String("admin".into()))
+            .where_gt("age", Value::I64(18))
+            .where_lt("age", Value::I64(65))
+            .where_like("name", Value::String("%test%".into()))
+            .where_null("deleted_at");
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" = ?"));
+        assert!(sql.contains(" != ?"));
+        assert!(sql.contains(" > ?"));
+        assert!(sql.contains(" < ?"));
+        assert!(sql.contains(" LIKE ?"));
+        assert!(sql.contains(" IS NULL"));
+        assert_eq!(params.len(), 5);
+    }
+
+    #[test]
+    fn t26q_regular_path_where_ne_with_or() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".into()))
+            .or_where_eq("role", Value::String("admin".into()))
+            .where_ne("dept", Value::String("hr".into()));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" != ?"));
+        assert!(sql.contains("OR "));
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn t26q_regular_path_all_where_variants_with_or() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .or_where_eq("a", Value::I64(1))
+            .where_ne("b", Value::I64(2))
+            .where_gt("c", Value::I64(3))
+            .where_ge("d", Value::I64(4))
+            .where_lt("e", Value::I64(5))
+            .where_le("f", Value::I64(6))
+            .where_like("g", Value::String("%x%".into()))
+            .where_between("h", Value::I64(1), Value::I64(10))
+            .where_not_between("i", Value::I64(2), Value::I64(8))
+            .where_null("j")
+            .where_not_null("k")
+            .where_in("l", vec![Value::I64(1), Value::I64(2)])
+            .where_not_in("m", vec![Value::I64(3), Value::I64(4)]);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" != ?"));
+        assert!(sql.contains(" > ?"));
+        assert!(sql.contains(" >= ?"));
+        assert!(sql.contains(" < ?"));
+        assert!(sql.contains(" <= ?"));
+        assert!(sql.contains(" LIKE ?"));
+        assert!(sql.contains(" BETWEEN ? AND ?"));
+        assert!(sql.contains(" NOT BETWEEN ? AND ?"));
+        assert!(sql.contains(" IS NULL"));
+        assert!(sql.contains(" IS NOT NULL"));
+        assert!(sql.contains(" IN (?, ?)"));
+        assert!(sql.contains(" NOT IN (?, ?)"));
+        assert_eq!(params.len(), 15);
+    }
+
+    #[test]
+    fn t26q_regular_path_or_variants() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("a", Value::I64(1))
+            .or_where_ne("b", Value::I64(2))
+            .or_where_gt("c", Value::I64(3))
+            .or_where_ge("d", Value::I64(4))
+            .or_where_lt("e", Value::I64(5))
+            .or_where_le("f", Value::I64(6))
+            .or_where_like("g", Value::String("%x%".into()));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("OR "));
+        assert_eq!(params.len(), 7);
+    }
+
+    #[test]
+    fn t26q_regular_path_having_with_or() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".into()))
+            .or_where_eq("role", Value::String("admin".into()))
+            .group_by("dept")
+            .having(
+                AggExpr::Sum("salary".to_string()),
+                HavingOp::Gt,
+                Value::I64(100000),
+            )
+            .unwrap();
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" HAVING "));
+        assert!(sql.contains("SUM("));
+        assert_eq!(params.len(), 3);
+    }
+
+    #[test]
+    fn t26q_build_select_inner_join() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .join_inner("orders", "users.id", "orders.user_id");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains(" INNER JOIN "));
+    }
+
+    #[test]
+    fn t26q_build_select_left_join_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .join_left("orders", "users.id", "orders.user_id");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains(" LEFT JOIN "));
+    }
+
+    #[test]
+    fn t26q_build_select_right_join_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .join_right("orders", "users.id", "orders.user_id");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains(" RIGHT JOIN "));
+    }
+
+    #[test]
+    fn t26q_build_select_with_params_inner_join() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .join_inner("orders", "users.id", "orders.user_id");
+        let (sql, _) = qb.build_select_with_params();
+        assert!(sql.contains(" INNER JOIN "));
+    }
+
+    #[test]
+    fn t26q_build_select_with_params_left_join_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .join_left("orders", "users.id", "orders.user_id");
+        let (sql, _) = qb.build_select_with_params();
+        assert!(sql.contains(" LEFT JOIN "));
+    }
+
+    #[test]
+    fn t26q_build_select_with_params_right_join_method() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .join_right("orders", "users.id", "orders.user_id");
+        let (sql, _) = qb.build_select_with_params();
+        assert!(sql.contains(" RIGHT JOIN "));
+    }
+
+    #[test]
+    fn t26q_agg_expr_validate_all() {
+        assert!(AggExpr::CountStar.validate().is_ok());
+        assert!(AggExpr::Sum("salary".to_string()).validate().is_ok());
+        assert!(AggExpr::Avg("age".to_string()).validate().is_ok());
+        assert!(AggExpr::Min("age".to_string()).validate().is_ok());
+        assert!(AggExpr::Max("age".to_string()).validate().is_ok());
+        assert!(AggExpr::Sum("bad'col".to_string()).validate().is_err());
+    }
+
+    #[test]
+    fn t26q_having_op_all_variants() {
+        assert_eq!(HavingOp::Eq.as_sql(), "=");
+        assert_eq!(HavingOp::Ne.as_sql(), "!=");
+        assert_eq!(HavingOp::Gt.as_sql(), ">");
+        assert_eq!(HavingOp::Ge.as_sql(), ">=");
+        assert_eq!(HavingOp::Lt.as_sql(), "<");
+        assert_eq!(HavingOp::Le.as_sql(), "<=");
+    }
+
+    #[test]
+    fn t26q_having_all_agg_types() {
+        let dialect = Box::new(crate::dialect::MySqlDialect);
+        let qb = QueryBuilder::<TestModel>::new(dialect)
+            .table("orders")
+            .group_by("dept")
+            .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+            .unwrap()
+            .having(
+                AggExpr::Sum("amount".to_string()),
+                HavingOp::Ge,
+                Value::I64(1000),
+            )
+            .unwrap()
+            .having(
+                AggExpr::Avg("amount".to_string()),
+                HavingOp::Lt,
+                Value::I64(500),
+            )
+            .unwrap()
+            .having(
+                AggExpr::Min("amount".to_string()),
+                HavingOp::Ne,
+                Value::I64(0),
+            )
+            .unwrap()
+            .having(
+                AggExpr::Max("amount".to_string()),
+                HavingOp::Le,
+                Value::I64(9999),
+            )
+            .unwrap();
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("COUNT(*)"));
+        assert!(sql.contains("SUM("));
+        assert!(sql.contains("AVG("));
+        assert!(sql.contains("MIN("));
+        assert!(sql.contains("MAX("));
+    }
+
+    #[test]
+    fn t26q_having_all_ops_with_params() {
+        let dialect = Box::new(crate::dialect::MySqlDialect);
+        let qb = QueryBuilder::<TestModel>::new(dialect)
+            .table("orders")
+            .group_by("dept")
+            .having(AggExpr::CountStar, HavingOp::Eq, Value::I64(10))
+            .unwrap()
+            .having(AggExpr::CountStar, HavingOp::Ne, Value::I64(0))
+            .unwrap()
+            .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+            .unwrap()
+            .having(AggExpr::CountStar, HavingOp::Ge, Value::I64(1))
+            .unwrap()
+            .having(AggExpr::CountStar, HavingOp::Lt, Value::I64(100))
+            .unwrap()
+            .having(AggExpr::CountStar, HavingOp::Le, Value::I64(50))
+            .unwrap();
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("="));
+        assert!(sql.contains("!="));
+        assert!(sql.contains(">"));
+        assert!(sql.contains(">="));
+        assert!(sql.contains("<"));
+        assert!(sql.contains("<="));
+        assert_eq!(params.len(), 6);
+    }
+
+    #[test]
+    fn t26q_fast_path_in_build_select() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".into()))
+            .where_ne("role", Value::String("banned".into()))
+            .where_gt("age", Value::I64(18))
+            .where_between("score", Value::I64(0), Value::I64(100))
+            .where_null("deleted_at");
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("AND"));
+    }
+
+    #[test]
+    fn t26q_regular_path_in_build_select() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_eq("status", Value::String("active".into()))
+            .or_where_eq("role", Value::String("admin".into()))
+            .where_ne("dept", Value::String("hr".into()));
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("OR"));
+    }
+
+    #[test]
+    fn t26q_build_select_having_no_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .group_by("dept")
+            .having(AggExpr::CountStar, HavingOp::Gt, Value::I64(5))
+            .unwrap();
+        let (sql, _) = qb.build_select();
+        assert!(sql.contains(" HAVING "));
+        assert!(sql.contains("COUNT(*)"));
+    }
+
+    #[test]
+    fn t26q_where_in_empty_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_in("id", vec![]);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" IN ()"));
+        assert_eq!(params.len(), 0);
+    }
+
+    #[test]
+    fn t26q_where_not_in_empty_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_not_in("id", vec![]);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" NOT IN ()"));
+        assert_eq!(params.len(), 0);
+    }
+
+    #[test]
+    fn t26q_fast_path_single_in_with_params() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("users")
+            .where_in("id", vec![Value::I64(42)]);
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains(" IN (?)"));
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26q_combo_where_and_having_fast_path() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .where_eq("status", Value::String("paid".into()))
+            .where_between("amount", Value::I64(100), Value::I64(1000))
+            .group_by("customer_id")
+            .having(
+                AggExpr::Sum("amount".to_string()),
+                HavingOp::Gt,
+                Value::I64(5000),
+            )
+            .unwrap();
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("BETWEEN"));
+        assert!(sql.contains("GROUP BY"));
+        assert!(sql.contains("HAVING"));
+        assert_eq!(params.len(), 4);
+    }
+
+    #[test]
+    fn t26q_combo_where_and_having_regular_path() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("orders")
+            .where_eq("status", Value::String("paid".into()))
+            .or_where_eq("status", Value::String("pending".into()))
+            .where_between("amount", Value::I64(100), Value::I64(1000))
+            .group_by("customer_id")
+            .having(
+                AggExpr::Avg("amount".to_string()),
+                HavingOp::Le,
+                Value::I64(500),
+            )
+            .unwrap();
+        let (sql, params) = qb.build_select_with_params();
+        assert!(sql.contains("WHERE"));
+        assert!(sql.contains("OR"));
+        assert!(sql.contains("BETWEEN"));
+        assert!(sql.contains("GROUP BY"));
+        assert!(sql.contains("HAVING"));
+        assert_eq!(params.len(), 5);
+    }
 }

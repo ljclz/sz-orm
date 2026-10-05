@@ -795,3 +795,353 @@ mod composable {
 pub use composable::{
     MiddlewareChain, PanicSafeRegistry, PluginSigner, PluginState, SignatureStatus,
 };
+// ========================================================================
+// v9.4.0 T8：plugin.rs 补测（35.5% → ≥ 80%）
+// ========================================================================
+
+#[cfg(test)]
+mod t8_tests {
+    use super::*;
+    use std::sync::Arc;
+
+    struct DummyAiPlugin {
+        metadata: PluginMetadata,
+    }
+
+    impl AiExtension for DummyAiPlugin {
+        fn name(&self) -> &str {
+            "dummy_ai"
+        }
+        fn execute(&self, input: &str) -> Result<String, PluginError> {
+            Ok(format!("processed: {}", input))
+        }
+    }
+
+    impl SzOrmPlugin for DummyAiPlugin {
+        fn metadata(&self) -> &PluginMetadata {
+            &self.metadata
+        }
+        fn ai_extension(&self) -> Option<&dyn AiExtension> {
+            Some(self)
+        }
+    }
+
+    struct DummyDialectPlugin {
+        metadata: PluginMetadata,
+    }
+
+    impl DialectExtension for DummyDialectPlugin {
+        fn dialect_name(&self) -> &str {
+            "custom"
+        }
+        fn translate(&self, sql: &str) -> Result<String, PluginError> {
+            Ok(sql.replace("SELECT", "SELECT /* custom */"))
+        }
+    }
+
+    impl SzOrmPlugin for DummyDialectPlugin {
+        fn metadata(&self) -> &PluginMetadata {
+            &self.metadata
+        }
+        fn dialect_extension(&self) -> Option<&dyn DialectExtension> {
+            Some(self)
+        }
+    }
+
+    struct DummyMiddlewarePlugin {
+        metadata: PluginMetadata,
+    }
+
+    impl MiddlewareExtension for DummyMiddlewarePlugin {
+        fn name(&self) -> &str {
+            "dummy_mw"
+        }
+        fn before_query(&self, sql: &str) -> Result<String, PluginError> {
+            Ok(format!("/* before */ {}", sql))
+        }
+        fn after_query(&self, sql: &str, result: &str) -> Result<String, PluginError> {
+            Ok(format!("{} /* after {} */", result, sql))
+        }
+    }
+
+    impl SzOrmPlugin for DummyMiddlewarePlugin {
+        fn metadata(&self) -> &PluginMetadata {
+            &self.metadata
+        }
+        fn middleware_extension(&self) -> Option<&dyn MiddlewareExtension> {
+            Some(self)
+        }
+    }
+
+    struct PlainPlugin {
+        metadata: PluginMetadata,
+    }
+
+    impl SzOrmPlugin for PlainPlugin {
+        fn metadata(&self) -> &PluginMetadata {
+            &self.metadata
+        }
+    }
+
+    struct InitFailPlugin {
+        metadata: PluginMetadata,
+    }
+
+    impl SzOrmPlugin for InitFailPlugin {
+        fn metadata(&self) -> &PluginMetadata {
+            &self.metadata
+        }
+        fn init(&self) -> Result<(), PluginError> {
+            Err(PluginError::ExecutionFailed("init failed".to_string()))
+        }
+    }
+
+    #[test]
+    fn test_t8_plugin_metadata_new() {
+        let meta = PluginMetadata::new("test-plugin", "1.0.0", "a test plugin");
+        assert_eq!(meta.name, "test-plugin");
+        assert_eq!(meta.version, "1.0.0");
+        assert_eq!(meta.description, "a test plugin");
+        assert_eq!(meta.author, "");
+    }
+
+    #[test]
+    fn test_t8_plugin_metadata_with_author() {
+        let meta = PluginMetadata::new("p", "2.0", "desc").with_author("Alice");
+        assert_eq!(meta.author, "Alice");
+    }
+
+    #[test]
+    fn test_t8_plugin_error_display_all_variants() {
+        assert!(format!("{}", PluginError::NotFound("x".into())).contains("not found"));
+        assert!(
+            format!("{}", PluginError::ExecutionFailed("x".into())).contains("Execution failed")
+        );
+        assert!(format!("{}", PluginError::RegistrationFailed("x".into()))
+            .contains("Registration failed"));
+        assert!(format!("{}", PluginError::ChainTooLong("x".into())).contains("Chain too long"));
+        assert!(format!("{}", PluginError::SignatureInvalid("x".into())).contains("签名"));
+        assert!(format!("{}", PluginError::ReviewRejected("x".into())).contains("审核"));
+        assert!(format!("{}", PluginError::BillingTampered("x".into())).contains("计费篡改"));
+        assert!(format!("{}", PluginError::BillingFailed("x".into())).contains("计费失败"));
+    }
+
+    #[test]
+    fn test_t8_registry_new() {
+        let reg = PluginRegistry::new();
+        assert!(reg.is_empty());
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn test_t8_registry_default() {
+        let reg = PluginRegistry::default();
+        assert!(reg.is_empty());
+    }
+
+    #[test]
+    fn test_t8_registry_register_and_get() {
+        let reg = PluginRegistry::new();
+        let plugin = Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("p1", "1.0", "plain"),
+        });
+        reg.register(plugin).unwrap();
+        assert_eq!(reg.len(), 1);
+        assert!(reg.get("p1").is_some());
+        assert!(reg.get("nonexistent").is_none());
+    }
+
+    #[test]
+    fn test_t8_registry_register_duplicate() {
+        let reg = PluginRegistry::new();
+        let p1 = Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("dup", "1.0", ""),
+        });
+        let p2 = Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("dup", "2.0", ""),
+        });
+        reg.register(p1).unwrap();
+        let result = reg.register(p2);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_registry_unregister() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("temp", "1.0", ""),
+        }))
+        .unwrap();
+        assert_eq!(reg.len(), 1);
+        reg.unregister("temp").unwrap();
+        assert_eq!(reg.len(), 0);
+    }
+
+    #[test]
+    fn test_t8_registry_unregister_not_found() {
+        let reg = PluginRegistry::new();
+        let result = reg.unregister("nonexistent");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_registry_list() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("a", "1", ""),
+        }))
+        .unwrap();
+        reg.register(Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("b", "1", ""),
+        }))
+        .unwrap();
+        let names = reg.list();
+        assert_eq!(names.len(), 2);
+        assert!(names.contains(&"a".to_string()));
+        assert!(names.contains(&"b".to_string()));
+    }
+
+    #[test]
+    fn test_t8_registry_init_fail() {
+        let reg = PluginRegistry::new();
+        let plugin = Arc::new(InitFailPlugin {
+            metadata: PluginMetadata::new("fail", "1.0", ""),
+        });
+        let result = reg.register(plugin);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_execute_ai_success() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(DummyAiPlugin {
+            metadata: PluginMetadata::new("ai", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.execute_ai("ai", "hello").unwrap();
+        assert_eq!(result, "processed: hello");
+    }
+
+    #[test]
+    fn test_t8_execute_ai_plugin_not_found() {
+        let reg = PluginRegistry::new();
+        let result = reg.execute_ai("nonexistent", "input");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_execute_ai_no_extension() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("plain", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.execute_ai("plain", "input");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_translate_dialect_success() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(DummyDialectPlugin {
+            metadata: PluginMetadata::new("dialect", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.translate_dialect("dialect", "SELECT * FROM t").unwrap();
+        assert!(result.contains("/* custom */"));
+    }
+
+    #[test]
+    fn test_t8_translate_dialect_not_found() {
+        let reg = PluginRegistry::new();
+        let result = reg.translate_dialect("nonexistent", "SELECT 1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_translate_dialect_no_extension() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("plain", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.translate_dialect("plain", "SELECT 1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_before_query_success() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(DummyMiddlewarePlugin {
+            metadata: PluginMetadata::new("mw", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.before_query("mw", "SELECT 1").unwrap();
+        assert!(result.contains("/* before */"));
+    }
+
+    #[test]
+    fn test_t8_before_query_not_found() {
+        let reg = PluginRegistry::new();
+        let result = reg.before_query("nonexistent", "SELECT 1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_before_query_no_extension() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("plain", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.before_query("plain", "SELECT 1");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_after_query_success() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(DummyMiddlewarePlugin {
+            metadata: PluginMetadata::new("mw", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.after_query("mw", "SELECT 1", "result").unwrap();
+        assert!(result.contains("/* after"));
+    }
+
+    #[test]
+    fn test_t8_after_query_not_found() {
+        let reg = PluginRegistry::new();
+        let result = reg.after_query("nonexistent", "SELECT 1", "result");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_after_query_no_extension() {
+        let reg = PluginRegistry::new();
+        reg.register(Arc::new(PlainPlugin {
+            metadata: PluginMetadata::new("plain", "1.0", ""),
+        }))
+        .unwrap();
+        let result = reg.after_query("plain", "SELECT 1", "result");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t8_plugin_default_init() {
+        let plugin = PlainPlugin {
+            metadata: PluginMetadata::new("p", "1", ""),
+        };
+        assert!(plugin.init().is_ok());
+    }
+
+    #[test]
+    fn test_t8_plugin_default_no_extensions() {
+        let plugin = PlainPlugin {
+            metadata: PluginMetadata::new("p", "1", ""),
+        };
+        assert!(plugin.ai_extension().is_none());
+        assert!(plugin.dialect_extension().is_none());
+        assert!(plugin.middleware_extension().is_none());
+    }
+}

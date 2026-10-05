@@ -1342,4 +1342,211 @@ mod tests {
         };
         assert!(err.to_string().contains("test reason"));
     }
+
+    // ===== v9.0.0 覆盖率战役：t26th_* 新增测试 =====
+
+    #[test]
+    fn t26th_decimal_from_value_all_int_types() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("decimal", Box::new(DecimalHandler));
+        registry.bind("price", "decimal");
+        let cases: &[(Value, i64)] = &[
+            (Value::I16(7), 7),
+            (Value::I8(3), 3),
+            (Value::U64(99), 99),
+            (Value::U32(50), 50),
+            (Value::U16(20), 20),
+            (Value::U8(5), 5),
+        ];
+        for (val, expect) in cases {
+            let parsed: i64 = registry.handle("price", val).unwrap();
+            assert_eq!(parsed, *expect);
+        }
+    }
+
+    #[test]
+    fn t26th_decimal_from_value_float_types() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("decimal", Box::new(DecimalHandler));
+        registry.bind("price", "decimal");
+        let parsed: i64 = registry.handle("price", &Value::F64(99.9)).unwrap();
+        assert_eq!(parsed, 99);
+        let parsed: i64 = registry.handle("price", &Value::F32(10.5_f32)).unwrap();
+        assert_eq!(parsed, 10);
+    }
+
+    #[test]
+    fn t26th_decimal_from_value_string_parse_paths() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("decimal", Box::new(DecimalHandler));
+        registry.bind("price", "decimal");
+        // String 解析为 i64 成功
+        let parsed: i64 = registry
+            .handle("price", &Value::String("42".to_string()))
+            .unwrap();
+        assert_eq!(parsed, 42);
+        // String 先按 i64 失败，再按 f64 成功
+        let parsed: i64 = registry
+            .handle("price", &Value::String("12.7".to_string()))
+            .unwrap();
+        assert_eq!(parsed, 12);
+        // String 解析失败
+        let result: TypeHandlerResult<i64> =
+            registry.handle("price", &Value::String("abc".to_string()));
+        assert!(matches!(
+            result,
+            Err(TypeHandlerError::ConversionFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn t26th_decimal_from_value_unsupported_types() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("decimal", Box::new(DecimalHandler));
+        registry.bind("price", "decimal");
+        let cases = [
+            Value::Bool(true),
+            Value::DateTime("2026-01-01".to_string()),
+            Value::Array(vec![Value::I64(1)]),
+            Value::Uuid("x".to_string()),
+            Value::Json("{}".to_string()),
+        ];
+        for val in cases {
+            let result: TypeHandlerResult<i64> = registry.handle("price", &val);
+            assert!(matches!(
+                result,
+                Err(TypeHandlerError::ConversionFailed { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn t26th_bool_from_value_int_types_and_null() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("bool", Box::new(BoolHandler));
+        registry.bind("active", "bool");
+        assert!(registry.handle::<bool>("active", &Value::I32(1)).unwrap());
+        assert!(!registry.handle::<bool>("active", &Value::I32(0)).unwrap());
+        assert!(registry.handle::<bool>("active", &Value::U64(2)).unwrap());
+        assert!(!registry.handle::<bool>("active", &Value::U64(0)).unwrap());
+        assert!(registry.handle::<bool>("active", &Value::U32(1)).unwrap());
+        assert!(!registry.handle::<bool>("active", &Value::U32(0)).unwrap());
+        assert!(!registry.handle::<bool>("active", &Value::Null).unwrap());
+        // 空字符串应为 false
+        assert!(!registry
+            .handle::<bool>("active", &Value::String(String::new()))
+            .unwrap());
+    }
+
+    #[test]
+    fn t26th_bool_from_value_unsupported_types() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("bool", Box::new(BoolHandler));
+        registry.bind("active", "bool");
+        let cases = [
+            Value::F64(1.0),
+            Value::DateTime("2026-01-01".to_string()),
+            Value::Array(vec![Value::I64(1)]),
+        ];
+        for val in cases {
+            let result: TypeHandlerResult<bool> = registry.handle("active", &val);
+            assert!(matches!(
+                result,
+                Err(TypeHandlerError::ConversionFailed { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn t26th_uuid_json_handler_edge_cases() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("uuid", Box::new(UuidHandler));
+        registry.register("json", Box::new(JsonHandler));
+        registry.bind("id", "uuid");
+        registry.bind("settings", "json");
+        // Uuid Null -> 空字符串
+        let parsed: String = registry.handle("id", &Value::Null).unwrap();
+        assert_eq!(parsed, "");
+        // Uuid 不支持类型
+        let result: TypeHandlerResult<String> = registry.handle("id", &Value::I64(1));
+        assert!(matches!(
+            result,
+            Err(TypeHandlerError::ConversionFailed { .. })
+        ));
+        // Json String -> 原样返回
+        let parsed: String = registry
+            .handle("settings", &Value::String(r#"{"a":1}"#.to_string()))
+            .unwrap();
+        assert_eq!(parsed, r#"{"a":1}"#);
+        // Json 不支持类型
+        let result: TypeHandlerResult<String> = registry.handle("settings", &Value::I64(1));
+        assert!(matches!(
+            result,
+            Err(TypeHandlerError::ConversionFailed { .. })
+        ));
+    }
+
+    #[test]
+    fn t26th_datetime_handler_other_invalid_types() {
+        let registry = TypeHandlerRegistry::new();
+        registry.register("datetime", Box::new(DateTimeHandler));
+        registry.bind("ts", "datetime");
+        let cases = [
+            Value::Bool(true),
+            Value::F64(1.0),
+            Value::Array(vec![Value::I64(1)]),
+            Value::Uuid("x".to_string()),
+        ];
+        for val in cases {
+            let result: TypeHandlerResult<String> = registry.handle("ts", &val);
+            assert!(matches!(
+                result,
+                Err(TypeHandlerError::ConversionFailed { .. })
+            ));
+        }
+    }
+
+    #[test]
+    fn t26th_default_and_type_handler_trait_methods() {
+        // Default trait
+        let registry = TypeHandlerRegistry::default();
+        assert!(registry.list_handlers().is_empty());
+        // type_id / type_name 默认方法
+        let handler = DateTimeHandler;
+        assert_eq!(TypeHandler::type_id(&handler), TypeId::of::<String>());
+        assert!(handler.type_name().contains("String"));
+        let handler = DecimalHandler;
+        assert_eq!(TypeHandler::type_id(&handler), TypeId::of::<i64>());
+        assert!(handler.type_name().contains("i64"));
+    }
+
+    #[test]
+    fn t26th_handler_not_found_when_bound_to_missing() {
+        let registry = TypeHandlerRegistry::new();
+        // bind 到未注册的 handler
+        registry.bind("field", "nonexistent");
+        let result: TypeHandlerResult<String> = registry.handle("field", &Value::Null);
+        assert!(matches!(
+            result,
+            Err(TypeHandlerError::HandlerNotFound { .. })
+        ));
+        let result: TypeHandlerResult<Value> = registry.to_value("field", &String::from("x"));
+        assert!(matches!(
+            result,
+            Err(TypeHandlerError::HandlerNotFound { .. })
+        ));
+    }
+
+    #[test]
+    fn t26th_erased_type_handler_impl() {
+        let boxed: Box<dyn TypeHandler<String>> = Box::new(DateTimeHandler);
+        assert_eq!(boxed.erased_type_id(), TypeId::of::<String>());
+        assert!(boxed.erased_type_name().contains("String"));
+        let any = boxed.as_any();
+        assert!(any.downcast_ref::<Box<dyn TypeHandler<String>>>().is_some());
+        // 不同的 T 应产生不同的 TypeId
+        let boxed_i64: Box<dyn TypeHandler<i64>> = Box::new(DecimalHandler);
+        assert_ne!(boxed_i64.erased_type_id(), TypeId::of::<String>());
+        assert_eq!(boxed_i64.erased_type_id(), TypeId::of::<i64>());
+    }
 }

@@ -994,4 +994,214 @@ mod tests {
         );
         assert_eq!(super::value_to_sql_type_name(&Value::Null), "NULL");
     }
+
+    #[test]
+    fn t26qa_query_display() {
+        let q = Query::new("SELECT 1");
+        assert_eq!(format!("{}", q), "SELECT 1");
+    }
+
+    #[test]
+    fn t26qa_query_as_display() {
+        let q = QueryAs::<UserRow>::new("SELECT id FROM t");
+        assert_eq!(format!("{}", q), "SELECT id FROM t");
+    }
+
+    #[test]
+    fn t26qa_tuple_2_count_mismatch() {
+        let result = <(Value, Value)>::from_values(vec![Value::I64(1)]);
+        assert!(matches!(
+            result,
+            Err(QueryError::ColumnCountMismatch {
+                expected: 2,
+                actual: 1
+            })
+        ));
+    }
+
+    #[test]
+    fn t26qa_tuple_3_count_mismatch() {
+        let result = <(Value, Value, Value)>::from_values(vec![Value::I64(1), Value::I64(2)]);
+        assert!(matches!(
+            result,
+            Err(QueryError::ColumnCountMismatch {
+                expected: 3,
+                actual: 2
+            })
+        ));
+    }
+
+    #[test]
+    fn t26qa_value_queryable_empty() {
+        let result = Value::from_values(vec![]);
+        assert!(matches!(
+            result,
+            Err(QueryError::ColumnCountMismatch {
+                expected: 1,
+                actual: 0
+            })
+        ));
+    }
+
+    #[test]
+    fn t26qa_query_error_error_trait() {
+        let e = QueryError::Custom("test".into());
+        assert!(std::error::Error::source(&e).is_none());
+    }
+
+    #[test]
+    fn t26qa_query_error_clone() {
+        let e1 = QueryError::ColumnCountMismatch {
+            expected: 1,
+            actual: 2,
+        };
+        let e2 = e1.clone();
+        assert_eq!(e1, e2);
+    }
+
+    #[test]
+    fn t26qa_value_to_sql_type_name_all_variants() {
+        use crate::value::Value;
+        assert_eq!(super::value_to_sql_type_name(&Value::I8(1)), "TINYINT");
+        assert_eq!(super::value_to_sql_type_name(&Value::U8(1)), "TINYINT");
+        assert_eq!(super::value_to_sql_type_name(&Value::I16(1)), "SMALLINT");
+        assert_eq!(super::value_to_sql_type_name(&Value::U16(1)), "SMALLINT");
+        assert_eq!(super::value_to_sql_type_name(&Value::I32(1)), "INT");
+        assert_eq!(super::value_to_sql_type_name(&Value::U32(1)), "INT");
+        assert_eq!(super::value_to_sql_type_name(&Value::U64(1)), "BIGINT");
+        assert_eq!(super::value_to_sql_type_name(&Value::F32(1.0)), "FLOAT");
+        assert_eq!(
+            super::value_to_sql_type_name(&Value::String("x".into())),
+            "VARCHAR"
+        );
+        assert_eq!(
+            super::value_to_sql_type_name(&Value::Uuid("x".into())),
+            "VARCHAR"
+        );
+        assert_eq!(
+            super::value_to_sql_type_name(&Value::Date("x".into())),
+            "VARCHAR"
+        );
+        assert_eq!(
+            super::value_to_sql_type_name(&Value::DateTime("x".into())),
+            "VARCHAR"
+        );
+        assert_eq!(
+            super::value_to_sql_type_name(&Value::Time("x".into())),
+            "VARCHAR"
+        );
+        assert_eq!(
+            super::value_to_sql_type_name(&Value::Json("x".into())),
+            "VARCHAR"
+        );
+        assert_eq!(super::value_to_sql_type_name(&Value::Array(vec![])), "JSON");
+        let mut m = HashMap::new();
+        m.insert("k".to_string(), Value::I64(1));
+        assert_eq!(super::value_to_sql_type_name(&Value::Object(m)), "JSON");
+    }
+
+    #[test]
+    fn t26qa_value_as_i64_various_types() {
+        assert_eq!(value_as_i64(&Value::I32(42)), Some(42));
+        assert_eq!(value_as_i64(&Value::I16(42)), Some(42));
+        assert_eq!(value_as_i64(&Value::I8(42)), Some(42));
+        assert_eq!(value_as_i64(&Value::U64(42)), Some(42));
+        assert_eq!(value_as_i64(&Value::Bool(true)), Some(1));
+        assert_eq!(value_as_i64(&Value::Null), None);
+    }
+
+    #[test]
+    fn t26qa_value_as_f64_various_types() {
+        assert_eq!(value_as_f64(&Value::F32(1.5)), Some(1.5));
+        assert_eq!(value_as_f64(&Value::I64(42)), Some(42.0));
+        assert_eq!(value_as_f64(&Value::Null), None);
+    }
+
+    #[test]
+    fn t26qa_value_as_string_various() {
+        assert_eq!(value_as_string(&Value::Null), None);
+        assert_eq!(value_as_string(&Value::I64(42)), None);
+        assert_eq!(
+            value_as_string(&Value::String("42".to_string())),
+            Some("42".to_string())
+        );
+    }
+
+    #[test]
+    fn t26qa_value_as_bool_various() {
+        assert_eq!(value_as_bool(&Value::Bool(false)), Some(false));
+        assert_eq!(value_as_bool(&Value::Bool(true)), Some(true));
+        assert_eq!(value_as_bool(&Value::Null), Some(false));
+        assert_eq!(value_as_bool(&Value::I64(0)), Some(false));
+        assert_eq!(value_as_bool(&Value::I64(1)), Some(true));
+    }
+
+    #[test]
+    fn t26qa_value_as_nullable_i64_null() {
+        assert_eq!(value_as_nullable_i64(&Value::Null), None);
+    }
+
+    #[test]
+    fn t26qa_value_as_nullable_string_null() {
+        assert_eq!(value_as_nullable_string(&Value::Null), None);
+    }
+
+    #[test]
+    fn t26qa_row_desc_index_of_not_found() {
+        let desc = RowDesc::new(vec!["id".into()]);
+        assert_eq!(desc.index_of("missing"), None);
+    }
+
+    #[test]
+    fn t26qa_user_row_from_row_type_mismatch() {
+        let mut map = HashMap::new();
+        map.insert("id".into(), Value::String("not_int".into()));
+        map.insert("name".into(), Value::String("Alice".into()));
+        let result = UserRow::from_row(map);
+        assert!(matches!(result, Err(QueryError::TypeMismatch { .. })));
+    }
+
+    #[test]
+    fn t26qa_user_row_from_values_with_desc_success() {
+        let desc = RowDesc::new(vec!["id".into(), "name".into()]);
+        let result =
+            UserRow::from_values_with_desc(vec![Value::I64(1), Value::String("A".into())], &desc);
+        assert!(result.is_ok());
+    }
+
+    #[test]
+    fn t26qa_validate_columns_exact_match() {
+        let actual = vec!["a", "b", "c"];
+        let expected = vec!["c", "b", "a"];
+        assert!(validate_columns(&actual, &expected).is_ok());
+    }
+
+    #[test]
+    fn t26qa_validate_column_types_float_vs_int_compatible() {
+        let mut row = HashMap::new();
+        row.insert("val".to_string(), Value::F64(1.0));
+        let expected = vec![("val", "INT")];
+        let result = validate_column_types(&row, &expected);
+        // F64 vs INT → ColType::Float vs ColType::Int → mismatch
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn t26qa_validate_column_types_int_vs_float_compatible() {
+        let mut row = HashMap::new();
+        row.insert("val".to_string(), Value::I64(1));
+        let expected = vec![("val", "DOUBLE")];
+        let result = validate_column_types(&row, &expected);
+        // I64 vs DOUBLE → ColType::Int vs ColType::Float → mismatch
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn t26qa_validate_column_types_string_vs_int_mismatch() {
+        let mut row = HashMap::new();
+        row.insert("val".to_string(), Value::String("x".into()));
+        let expected = vec![("val", "BIGINT")];
+        let result = validate_column_types(&row, &expected);
+        assert!(result.is_err());
+    }
 }

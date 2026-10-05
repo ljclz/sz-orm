@@ -1182,6 +1182,426 @@ mod tests {
             "应有 10 次访问记录"
         );
     }
+
+    // ─── T26c 新增测试（覆盖率 74.12% → ≥90%） ─────────────────────
+
+    #[test]
+    fn t26pc_normalize_empty_sql() {
+        let normalized = SqlNormalizer::normalize("");
+        assert!(normalized.is_empty(), "空 SQL 归一化应为空");
+    }
+
+    #[test]
+    fn t26pc_normalize_multi_statement() {
+        let sql = "SELECT * FROM a; SELECT * FROM b";
+        let normalized = SqlNormalizer::normalize(sql);
+        assert!(normalized.contains("SELECT"), "多语句归一化应包含 SELECT");
+    }
+
+    #[test]
+    fn t26pc_extract_tables_no_table_fallback() {
+        let tables = SqlNormalizer::extract_tables("this is not valid sql");
+        assert!(tables.is_empty(), "无表 SQL 应返回空列表");
+    }
+
+    #[test]
+    fn t26pc_extract_tables_complex_join() {
+        let sql =
+            "SELECT * FROM users u JOIN orders o ON u.id = o.uid JOIN items i ON o.id = i.oid";
+        let tables = SqlNormalizer::extract_tables(sql);
+        assert!(tables.contains(&"users".to_string()));
+        assert!(tables.contains(&"orders".to_string()));
+        assert!(tables.contains(&"items".to_string()));
+    }
+
+    #[test]
+    fn t26pc_plan_cache_key_eq_trait() {
+        let k1 = PlanCacheKey::from_sql("SELECT * FROM users");
+        let k2 = PlanCacheKey::from_sql("select * from users");
+        assert_eq!(k1, k2, "相同 SQL 不同大小写应相等");
+    }
+
+    #[test]
+    fn t26pc_plan_cache_key_hash_trait() {
+        use std::collections::hash_map::DefaultHasher;
+        use std::hash::{Hash, Hasher};
+        let k1 = PlanCacheKey::from_sql("SELECT * FROM users");
+        let k2 = PlanCacheKey::from_sql("SELECT * FROM users");
+        let mut h1 = DefaultHasher::new();
+        let mut h2 = DefaultHasher::new();
+        k1.hash(&mut h1);
+        k2.hash(&mut h2);
+        assert_eq!(h1.finish(), h2.finish(), "相同 key 应产生相同 hash");
+    }
+
+    #[test]
+    fn t26pc_plan_cache_entry_no_ttl_not_expired() {
+        let entry = PlanCacheEntry {
+            ast: None,
+            analysis: None,
+            created_at: Instant::now(),
+            tables: vec![],
+            ttl: None,
+        };
+        assert!(!entry.is_expired(), "无 TTL 不应过期");
+    }
+
+    #[test]
+    fn t26pc_plan_cache_entry_with_ttl_expired() {
+        let entry = PlanCacheEntry {
+            ast: None,
+            analysis: None,
+            created_at: Instant::now(),
+            tables: vec![],
+            ttl: Some(Duration::from_nanos(1)),
+        };
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(entry.is_expired(), "TTL 过期应返回 true");
+    }
+
+    #[test]
+    fn t26pc_plan_cache_stats_default() {
+        let stats = PlanCacheStats::default();
+        assert_eq!(stats.parse_hits(), 0);
+        assert_eq!(stats.parse_misses(), 0);
+        assert_eq!(stats.optimize_hits(), 0);
+        assert_eq!(stats.optimize_misses(), 0);
+        assert_eq!(stats.evictions(), 0);
+        assert_eq!(stats.parse_hit_rate(), 0.0);
+        assert_eq!(stats.optimize_hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn t26pc_plan_cache_stats_optimize_rates() {
+        let cache = PlanCache::new(100, None);
+        let sql = "SELECT * FROM users";
+        assert!(cache.get_or_optimize(sql).is_none());
+        cache.store_optimize(sql, Arc::new("plan".to_string()));
+        assert!(cache.get_or_optimize(sql).is_some());
+        let stats = cache.stats();
+        assert_eq!(stats.optimize_hits, 1);
+        assert_eq!(stats.optimize_misses, 1);
+        assert!((stats.optimize_hit_rate - 0.5).abs() < 0.001);
+    }
+
+    #[test]
+    fn t26pc_plan_cache_config_default_values() {
+        let config = PlanCacheConfig::default();
+        assert_eq!(config.capacity, 256);
+        assert_eq!(config.ttl, Duration::from_secs(300));
+        assert!(config.include_param_types);
+        let config2 = PlanCacheConfig::new();
+        assert_eq!(config2.capacity, 256);
+    }
+
+    #[test]
+    fn t26pc_plan_cache_config_builders() {
+        let config = PlanCacheConfig::new()
+            .with_capacity(512)
+            .with_ttl(Duration::from_secs(600))
+            .with_param_types(false);
+        assert_eq!(config.capacity, 512);
+        assert_eq!(config.ttl, Duration::from_secs(600));
+        assert!(!config.include_param_types);
+    }
+
+    #[test]
+    fn t26pc_fingerprint_with_types_same() {
+        let types = [crate::DbType::MySQL, crate::DbType::Sqlite];
+        let f1 = fingerprint_with_types("SELECT * FROM users", &types);
+        let f2 = fingerprint_with_types("SELECT * FROM users", &types);
+        assert_eq!(f1, f2, "相同 SQL + 相同类型应产生相同指纹");
+    }
+
+    #[test]
+    fn t26pc_fingerprint_with_types_differ() {
+        let sql = "SELECT * FROM users";
+        let f1 = fingerprint_with_types(sql, &[crate::DbType::MySQL]);
+        let f2 = fingerprint_with_types(sql, &[crate::DbType::PostgreSQL]);
+        assert_ne!(f1, f2, "不同参数类型应产生不同指纹");
+    }
+
+    #[test]
+    fn t26pc_fingerprint_with_types_empty() {
+        let f1 = fingerprint_with_types("SELECT 1", &[]);
+        let f2 = fingerprint_with_types("SELECT 1", &[]);
+        assert_eq!(f1, f2);
+    }
+
+    #[test]
+    fn t26pc_eviction_count_method() {
+        let cache = PlanCache::new(2, None);
+        cache.get_or_parse("SELECT * FROM t1").expect("parse");
+        cache.get_or_parse("SELECT * FROM t2").expect("parse");
+        cache.get_or_parse("SELECT * FROM t3").expect("parse");
+        assert!(cache.eviction_count() >= 1, "应有淘汰计数");
+    }
+
+    #[test]
+    fn t26pc_with_config_construction() {
+        let config = PlanCacheConfig::new().with_capacity(64);
+        let cache = PlanCache::with_config(&config);
+        assert_eq!(cache.size(), 0);
+        assert_eq!(cache.capacity(), 64);
+    }
+
+    #[test]
+    fn t26pc_get_or_parse_with_types_miss_then_hit() {
+        let cache = PlanCache::new(100, None);
+        let sql = "SELECT * FROM users WHERE id = ?";
+        let types = [crate::DbType::MySQL];
+        let ast1 = cache.get_or_parse_with_types(sql, &types).expect("parse");
+        assert_eq!(cache.stats().parse_misses, 1);
+        let ast2 = cache.get_or_parse_with_types(sql, &types).expect("parse");
+        assert_eq!(cache.stats().parse_hits, 1);
+        assert!(Arc::ptr_eq(&ast1, &ast2), "命中应返回相同 Arc");
+    }
+
+    #[test]
+    fn t26pc_get_or_parse_with_types_different_types() {
+        let cache = PlanCache::new(100, None);
+        let sql = "SELECT * FROM users WHERE id = ?";
+        cache
+            .get_or_parse_with_types(sql, &[crate::DbType::MySQL])
+            .expect("parse");
+        cache
+            .get_or_parse_with_types(sql, &[crate::DbType::PostgreSQL])
+            .expect("parse");
+        assert_eq!(cache.stats().parse_misses, 2, "不同类型应各 miss 一次");
+        assert_eq!(cache.stats().parse_hits, 0);
+    }
+
+    #[test]
+    fn t26pc_access_count_tracking() {
+        let cache = PlanCache::new(100, None);
+        let sql = "SELECT * FROM users";
+        cache.get_or_parse(sql).expect("parse");
+        cache.get_or_parse(sql).expect("parse");
+        cache.get_or_parse(sql).expect("parse");
+        let key = PlanCacheKey::from_sql(sql);
+        assert_eq!(cache.access_count(key.hash), 2, "应记录 2 次命中访问");
+    }
+
+    #[test]
+    fn t26pc_access_count_zero_for_unknown() {
+        let cache = PlanCache::new(100, None);
+        assert_eq!(cache.access_count(999999), 0, "未知 key 应返回 0");
+    }
+
+    #[test]
+    fn t26pc_lru_k_value() {
+        let cache = PlanCache::new(100, None);
+        assert_eq!(cache.lru_k(), 2, "默认 LRU-K 的 K 应为 2");
+    }
+
+    #[test]
+    fn t26pc_parse_hit_rate_method() {
+        let cache = PlanCache::new(100, None);
+        let sql = "SELECT * FROM users";
+        cache.get_or_parse(sql).expect("parse");
+        cache.get_or_parse(sql).expect("parse");
+        let rate = cache.parse_hit_rate();
+        assert!((rate - 0.5).abs() < 0.001, "1 hit / 2 total = 0.5");
+    }
+
+    #[test]
+    fn t26pc_parse_hit_rate_empty() {
+        let cache = PlanCache::new(100, None);
+        assert_eq!(cache.parse_hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn t26pc_adjust_capacity_expand() {
+        let mut cache = PlanCache::new(100, None);
+        let sql = "SELECT * FROM users";
+        cache.get_or_parse(sql).expect("parse");
+        for _ in 0..5 {
+            cache.get_or_parse(sql).expect("parse");
+        }
+        let old_cap = cache.capacity();
+        let changed = cache.adjust_capacity();
+        assert!(changed, "命中率 5/6>0.8 应扩容");
+        assert!(cache.capacity() > old_cap);
+    }
+
+    #[test]
+    fn t26pc_adjust_capacity_shrink() {
+        let mut cache = PlanCache::new(100, None);
+        for i in 1..=10u32 {
+            let sql = format!("SELECT * FROM t{}", i);
+            cache.get_or_parse(&sql).expect("parse");
+        }
+        let old_cap = cache.capacity();
+        let changed = cache.adjust_capacity();
+        assert!(changed, "命中率 0/10<0.3 应缩容");
+        assert!(cache.capacity() < old_cap);
+    }
+
+    #[test]
+    fn t26pc_adjust_capacity_noop() {
+        let mut cache = PlanCache::new(100, None);
+        let sql = "SELECT * FROM users";
+        cache.get_or_parse(sql).expect("parse");
+        cache.get_or_parse(sql).expect("parse");
+        let changed = cache.adjust_capacity();
+        assert!(!changed, "命中率 0.5 在 [0.3,0.8] 区间不应调整");
+    }
+
+    #[test]
+    fn t26pc_capacity_method() {
+        let cache = PlanCache::new(42, None);
+        assert_eq!(cache.capacity(), 42);
+    }
+
+    #[test]
+    fn t26pc_lru_k_replacer_new_and_access() {
+        let mut replacer = LruKReplacer::new(2, 4);
+        assert!(replacer.is_empty());
+        replacer.access(1);
+        assert!(!replacer.is_empty());
+        assert_eq!(replacer.len(), 1);
+    }
+
+    #[test]
+    fn t26pc_lru_k_replacer_evict() {
+        let mut replacer = LruKReplacer::new(2, 2);
+        replacer.access(1);
+        replacer.access(2);
+        let evicted = replacer.evict();
+        assert!(evicted.is_some(), "满容量应能淘汰");
+        assert_eq!(replacer.len(), 1);
+    }
+
+    #[test]
+    fn t26pc_lru_k_replacer_evict_under_capacity() {
+        let mut replacer = LruKReplacer::new(2, 4);
+        replacer.access(1);
+        assert!(replacer.evict().is_none(), "未满容量应返回 None");
+    }
+
+    #[test]
+    fn t26pc_lru_k_replacer_hit_rate() {
+        let mut replacer = LruKReplacer::new(2, 4);
+        replacer.access(1);
+        replacer.access(1);
+        replacer.access(2);
+        let rate = replacer.hit_rate();
+        assert!(rate > 0.0, "应有命中率");
+    }
+
+    #[test]
+    fn t26pc_lru_k_replacer_hit_rate_empty() {
+        let replacer = LruKReplacer::new(2, 4);
+        assert_eq!(replacer.hit_rate(), 0.0);
+    }
+
+    #[test]
+    fn t26pc_lru_k_replacer_access_trims_history() {
+        let mut replacer = LruKReplacer::new(2, 4);
+        for _ in 0..5 {
+            replacer.access(1);
+        }
+        // K=2，历史应只保留最近 2 次
+        assert_eq!(replacer.len(), 1);
+    }
+
+    #[test]
+    fn t26pc_adaptive_cache_new() {
+        let acc = AdaptiveCacheCapacity::new(10, 100);
+        assert_eq!(acc.min(), 10);
+        assert_eq!(acc.max(), 100);
+        assert_eq!(acc.current(), 10);
+    }
+
+    #[test]
+    fn t26pc_adaptive_cache_adapt_low_rate_expand() {
+        let mut acc = AdaptiveCacheCapacity::new(10, 1000);
+        acc.record_hit_rate(0.5);
+        let changed = acc.adapt();
+        assert!(changed, "低命中率 0.5<0.85 应扩容");
+        assert!(acc.current() > 10);
+    }
+
+    #[test]
+    fn t26pc_adaptive_cache_adapt_empty() {
+        let mut acc = AdaptiveCacheCapacity::new(10, 100);
+        let changed = acc.adapt();
+        assert!(!changed, "空窗口不应调整");
+        assert_eq!(acc.current(), 10);
+    }
+
+    #[test]
+    fn t26pc_adaptive_cache_adapt_at_max() {
+        let mut acc = AdaptiveCacheCapacity::new(10, 10);
+        acc.record_hit_rate(0.5);
+        let changed = acc.adapt();
+        assert!(!changed, "已达 max 不应扩容");
+        assert_eq!(acc.current(), 10);
+    }
+
+    #[test]
+    fn t26pc_adaptive_cache_record_window_evicts_old() {
+        let mut acc = AdaptiveCacheCapacity::new(10, 1000);
+        for _ in 0..150 {
+            acc.record_hit_rate(0.5);
+        }
+        // 窗口大小 100，应只保留最近 100 条
+        let changed = acc.adapt();
+        assert!(changed, "窗口满后仍应能调整");
+    }
+
+    #[test]
+    fn t26pc_store_optimize_with_eviction() {
+        let cache = PlanCache::new(2, None);
+        cache.store_optimize("SELECT * FROM t1", Arc::new("p1".to_string()));
+        cache.store_optimize("SELECT * FROM t2", Arc::new("p2".to_string()));
+        cache.store_optimize("SELECT * FROM t3", Arc::new("p3".to_string()));
+        assert!(cache.stats().evictions >= 1, "应触发淘汰");
+    }
+
+    #[test]
+    fn t26pc_invalidate_table_shared_table() {
+        let cache = PlanCache::new(100, None);
+        cache
+            .get_or_parse("SELECT * FROM users JOIN orders ON users.id = orders.uid")
+            .expect("parse");
+        cache.get_or_parse("SELECT * FROM users").expect("parse");
+        assert_eq!(cache.size(), 2);
+        let evicted = cache.invalidate_table("users");
+        assert_eq!(evicted, 2, "应失效 2 条引用 users 的条目");
+        assert_eq!(cache.size(), 0);
+    }
+
+    #[test]
+    fn t26pc_get_or_optimize_ttl_expired() {
+        let cache = PlanCache::new(100, Some(Duration::from_nanos(1)));
+        let sql = "SELECT * FROM users";
+        assert!(cache.get_or_optimize(sql).is_none());
+        cache.store_optimize(sql, Arc::new("plan".to_string()));
+        std::thread::sleep(Duration::from_millis(5));
+        assert!(cache.get_or_optimize(sql).is_none(), "TTL 过期后应 miss");
+    }
+
+    #[test]
+    fn t26pc_get_or_parse_with_types_ttl_expired() {
+        let cache = PlanCache::new(100, Some(Duration::from_nanos(1)));
+        let sql = "SELECT * FROM users";
+        let types = [crate::DbType::MySQL];
+        cache.get_or_parse_with_types(sql, &types).expect("parse");
+        std::thread::sleep(Duration::from_millis(5));
+        cache.get_or_parse_with_types(sql, &types).expect("parse");
+        assert!(cache.stats().parse_misses >= 2, "TTL 过期后应重新 miss");
+    }
+
+    #[test]
+    fn t26pc_invalidate_all_clears_stats_size() {
+        let cache = PlanCache::new(100, None);
+        cache.get_or_parse("SELECT * FROM users").expect("parse");
+        cache.store_optimize("SELECT * FROM users", Arc::new("p".to_string()));
+        assert_eq!(cache.size(), 1);
+        cache.invalidate_all();
+        assert_eq!(cache.size(), 0);
+    }
 }
 /// LRU-K 替换器：基于最近 K 次访问时间戳淘汰最久未访问的键
 #[derive(Debug, Clone)]

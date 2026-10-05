@@ -1172,4 +1172,918 @@ mod tests {
         assert_eq!(r.mutator_count(), 0);
         assert_eq!(r.cast_count(), 0);
     }
+
+    // ========================================================================
+    // v9.4.0 T9：accessors.rs 补测（74.3% → ≥ 90%）
+    // ========================================================================
+
+    #[test]
+    fn test_t9_cast_type_name_all() {
+        assert_eq!(CastType::Integer.name(), "integer");
+        assert_eq!(CastType::Float.name(), "float");
+        assert_eq!(CastType::Boolean.name(), "boolean");
+        assert_eq!(CastType::String.name(), "string");
+        assert_eq!(CastType::Json.name(), "json");
+        assert_eq!(CastType::DateTime.name(), "datetime");
+        assert_eq!(CastType::Date.name(), "date");
+        assert_eq!(CastType::Time.name(), "time");
+        assert_eq!(CastType::Bytes.name(), "bytes");
+        assert_eq!(CastType::Array.name(), "array");
+    }
+
+    #[test]
+    fn test_t9_cast_read_null_for_all_types() {
+        for cast in [
+            CastType::Integer,
+            CastType::Float,
+            CastType::Boolean,
+            CastType::String,
+            CastType::DateTime,
+            CastType::Date,
+            CastType::Time,
+            CastType::Bytes,
+        ] {
+            assert_eq!(AttributeCaster::cast_read(Value::Null, cast), Value::Null);
+        }
+    }
+
+    #[test]
+    fn test_t9_cast_write_null_for_datetime() {
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Null, CastType::DateTime),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Null, CastType::Date),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Null, CastType::Time),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_integer_from_unsigned() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(42), CastType::Integer),
+            Value::I64(42)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(99), CastType::Integer),
+            Value::I64(99)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U8(5), CastType::Integer),
+            Value::I64(5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U16(10), CastType::Integer),
+            Value::I64(10)
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_integer_from_f32() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F32(3.7), CastType::Integer),
+            Value::I64(3)
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_float_from_unsigned() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(42), CastType::Float),
+            Value::F64(42.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(99), CastType::Float),
+            Value::F64(99.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U8(5), CastType::Float),
+            Value::F64(5.0)
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_boolean_from_unsigned_and_float() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(0), CastType::Boolean),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F32(1.0), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F64(0.0), CastType::Boolean),
+            Value::Bool(false)
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_boolean_storage_from_unsigned() {
+        assert_eq!(
+            AttributeCaster::cast_write(Value::U32(1), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::U64(0), CastType::Boolean),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::F32(1.0), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::F64(0.0), CastType::Boolean),
+            Value::I64(0)
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_boolean_storage_from_string_no() {
+        assert_eq!(
+            AttributeCaster::cast_write(Value::String("no".into()), CastType::Boolean),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::String("false".into()), CastType::Boolean),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::String("yes".into()), CastType::Boolean),
+            Value::I64(1)
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_string_from_unsigned_and_float() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(99), CastType::String),
+            Value::String("99".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F32(3.5), CastType::String),
+            Value::String("3.5".into())
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_string_from_other() {
+        let result = AttributeCaster::cast_read(Value::Bytes(vec![1, 2]), CastType::String);
+        assert!(matches!(result, Value::String(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_json_from_non_string() {
+        let result = AttributeCaster::cast_read(Value::I64(42), CastType::Json);
+        assert!(matches!(result, Value::Json(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_json_storage_from_string() {
+        let result = AttributeCaster::cast_write(Value::String("hello".into()), CastType::Json);
+        assert!(matches!(result, Value::Json(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_datetime_from_non_string() {
+        let result = AttributeCaster::cast_read(Value::I64(42), CastType::DateTime);
+        assert!(matches!(result, Value::DateTime(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_datetime_storage() {
+        let result = AttributeCaster::cast_write(
+            Value::String("2026-01-01T00:00:00".into()),
+            CastType::DateTime,
+        );
+        assert!(matches!(result, Value::DateTime(_)));
+        let result2 = AttributeCaster::cast_write(Value::I64(42), CastType::DateTime);
+        assert!(matches!(result2, Value::DateTime(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_date_from_non_string() {
+        let result = AttributeCaster::cast_read(Value::I64(42), CastType::Date);
+        assert!(matches!(result, Value::Date(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_date_storage() {
+        let result =
+            AttributeCaster::cast_write(Value::String("2026-01-01".into()), CastType::Date);
+        assert!(matches!(result, Value::Date(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_time_from_non_string() {
+        let result = AttributeCaster::cast_read(Value::I64(42), CastType::Time);
+        assert!(matches!(result, Value::Time(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_time_storage() {
+        let result = AttributeCaster::cast_write(Value::String("12:30:00".into()), CastType::Time);
+        assert!(matches!(result, Value::Time(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_bytes_from_null() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Bytes),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_bytes_from_other() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I64(42), CastType::Bytes),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_array_from_i64() {
+        let result = AttributeCaster::cast_read(Value::I64(42), CastType::Array);
+        assert!(matches!(result, Value::Array(_)));
+    }
+
+    #[test]
+    fn test_t9_cast_array_from_null() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Array),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t9_cast_array_storage_from_non_array() {
+        let result = AttributeCaster::cast_write(Value::I64(42), CastType::Array);
+        assert!(matches!(result, Value::Json(_)));
+    }
+
+    #[test]
+    fn test_t9_registry_has_accessor() {
+        let mut r = AccessorRegistry::new();
+        r.register_accessor(Box::new(ClosureAccessor::new("name", |v| v)));
+        assert!(r.has_accessor("name"));
+        assert!(!r.has_accessor("other"));
+    }
+
+    #[test]
+    fn test_t9_registry_has_mutator() {
+        let mut r = AccessorRegistry::new();
+        r.register_mutator(Box::new(ClosureMutator::new("name", |v| v)));
+        assert!(r.has_mutator("name"));
+        assert!(!r.has_mutator("other"));
+    }
+
+    #[test]
+    fn test_t9_registry_has_cast() {
+        let mut r = AccessorRegistry::new();
+        r.register_cast("status", CastType::Boolean);
+        assert!(r.has_cast("status"));
+        assert!(!r.has_cast("other"));
+    }
+
+    #[test]
+    fn test_t9_registry_counts() {
+        let mut r = AccessorRegistry::new();
+        r.register_accessor(Box::new(ClosureAccessor::new("a1", |v| v)));
+        r.register_accessor(Box::new(ClosureAccessor::new("a2", |v| v)));
+        r.register_mutator(Box::new(ClosureMutator::new("m1", |v| v)));
+        r.register_cast("c1", CastType::Integer);
+        assert_eq!(r.accessor_count(), 2);
+        assert_eq!(r.mutator_count(), 1);
+        assert_eq!(r.cast_count(), 1);
+    }
+
+    #[test]
+    fn test_t9_registry_read_only_cast_no_accessor() {
+        let mut r = AccessorRegistry::new();
+        r.register_cast("age", CastType::Integer);
+        let result = r.read("age", Value::String("42".into()));
+        assert_eq!(result, Value::I64(42));
+    }
+
+    #[test]
+    fn test_t9_registry_read_only_accessor_no_cast() {
+        let mut r = AccessorRegistry::new();
+        r.register_accessor(Box::new(ClosureAccessor::new("name", |v| {
+            if let Value::String(s) = v {
+                Value::String(s.to_uppercase())
+            } else {
+                v
+            }
+        })));
+        let result = r.read("name", Value::String("alice".into()));
+        assert_eq!(result, Value::String("ALICE".into()));
+    }
+
+    #[test]
+    fn test_t9_registry_write_only_cast_no_mutator() {
+        let mut r = AccessorRegistry::new();
+        r.register_cast("active", CastType::Boolean);
+        let result = r.write("active", Value::Bool(true));
+        assert_eq!(result, Value::I64(1));
+    }
+
+    #[test]
+    fn test_t9_registry_write_only_mutator_no_cast() {
+        let mut r = AccessorRegistry::new();
+        r.register_mutator(Box::new(ClosureMutator::new("name", |v| {
+            if let Value::String(s) = v {
+                Value::String(s.trim().to_string())
+            } else {
+                v
+            }
+        })));
+        let result = r.write("name", Value::String("  hello  ".into()));
+        assert_eq!(result, Value::String("hello".into()));
+    }
+
+    #[test]
+    fn test_t6_cast_integer_all_int_types() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I8(1), CastType::Integer),
+            Value::I8(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I16(2), CastType::Integer),
+            Value::I16(2)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I32(3), CastType::Integer),
+            Value::I32(3)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I64(4), CastType::Integer),
+            Value::I64(4)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U8(5), CastType::Integer),
+            Value::I64(5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U16(6), CastType::Integer),
+            Value::I64(6)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(7), CastType::Integer),
+            Value::I64(7)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(8), CastType::Integer),
+            Value::I64(8)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F32(9.0), CastType::Integer),
+            Value::I64(9)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F64(10.0), CastType::Integer),
+            Value::I64(10)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bool(true), CastType::Integer),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bool(false), CastType::Integer),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Integer),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bytes(vec![1]), CastType::Integer),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t6_cast_float_all_types() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F32(1.5), CastType::Float),
+            Value::F32(1.5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F64(2.5), CastType::Float),
+            Value::F64(2.5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I64(3), CastType::Float),
+            Value::F64(3.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I32(4), CastType::Float),
+            Value::F64(4.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I8(5), CastType::Float),
+            Value::F64(5.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I16(6), CastType::Float),
+            Value::F64(6.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(7), CastType::Float),
+            Value::F64(7.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(8), CastType::Float),
+            Value::F64(8.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U8(9), CastType::Float),
+            Value::F64(9.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U16(10), CastType::Float),
+            Value::F64(10.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bool(true), CastType::Float),
+            Value::F64(1.0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("9.99".into()), CastType::Float),
+            Value::F64(9.99)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("abc".into()), CastType::Float),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Float),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t6_cast_boolean_all_types() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bool(true), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I64(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I64(0), CastType::Boolean),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I32(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I8(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I16(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U8(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U16(1), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F32(1.0), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F64(0.0), CastType::Boolean),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("TRUE".into()), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("yes".into()), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("on".into()), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("y".into()), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("t".into()), CastType::Boolean),
+            Value::Bool(true)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("no".into()), CastType::Boolean),
+            Value::Bool(false)
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Boolean),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bytes(vec![]), CastType::Boolean),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t6_cast_boolean_storage_all_types() {
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Bool(true), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Bool(false), CastType::Boolean),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::I64(5), CastType::Boolean),
+            Value::I64(5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::I32(5), CastType::Boolean),
+            Value::I32(5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::I8(5), CastType::Boolean),
+            Value::I8(5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::I16(5), CastType::Boolean),
+            Value::I16(5)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::U32(1), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::U32(0), CastType::Boolean),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::U64(1), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::U8(1), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::U16(1), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::F32(1.0), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::F64(0.0), CastType::Boolean),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::String("true".into()), CastType::Boolean),
+            Value::I64(1)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::String("false".into()), CastType::Boolean),
+            Value::I64(0)
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Null, CastType::Boolean),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Bytes(vec![]), CastType::Boolean),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t6_cast_string_all_types() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("s".into()), CastType::String),
+            Value::String("s".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I64(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I32(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I8(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I16(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U32(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U64(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U8(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::U16(42), CastType::String),
+            Value::String("42".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F32(1.5), CastType::String),
+            Value::String("1.5".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::F64(2.5), CastType::String),
+            Value::String("2.5".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bool(true), CastType::String),
+            Value::String("true".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::String),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t6_cast_json_variants() {
+        let valid_json = Value::String(r#"{"a":1}"#.to_string());
+        match AttributeCaster::cast_read(valid_json, CastType::Json) {
+            Value::Json(_) => {}
+            other => panic!("expected Json, got {:?}", other),
+        }
+        let invalid_json = Value::String("not json".to_string());
+        assert_eq!(
+            AttributeCaster::cast_read(invalid_json, CastType::Json),
+            Value::String("not json".into())
+        );
+        let existing = Value::Json(r#"{"b":2}"#.to_string());
+        match AttributeCaster::cast_read(existing, CastType::Json) {
+            Value::Json(s) => assert_eq!(s, r#"{"b":2}"#),
+            other => panic!("expected Json, got {:?}", other),
+        }
+        let other_val = Value::I64(42);
+        match AttributeCaster::cast_read(other_val, CastType::Json) {
+            Value::Json(_) => {}
+            other => panic!("expected Json, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_t6_cast_json_storage_variants() {
+        let j = Value::Json(r#"{"a":1}"#.to_string());
+        match AttributeCaster::cast_write(j, CastType::Json) {
+            Value::Json(s) => assert_eq!(s, r#"{"a":1}"#),
+            other => panic!("expected Json, got {:?}", other),
+        }
+        let s = Value::String("x".to_string());
+        match AttributeCaster::cast_write(s, CastType::Json) {
+            Value::Json(v) => assert_eq!(v, "x"),
+            other => panic!("expected Json, got {:?}", other),
+        }
+        let i = Value::I64(42);
+        match AttributeCaster::cast_write(i, CastType::Json) {
+            Value::Json(_) => {}
+            other => panic!("expected Json, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_t6_cast_datetime_date_time() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::DateTime("2024-01-01".into()), CastType::DateTime),
+            Value::DateTime("2024-01-01".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("2024-01-01".into()), CastType::DateTime),
+            Value::DateTime("2024-01-01".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::DateTime),
+            Value::Null
+        );
+        match AttributeCaster::cast_read(Value::I64(42), CastType::DateTime) {
+            Value::DateTime(_) => {}
+            other => panic!("expected DateTime, got {:?}", other),
+        }
+        assert_eq!(
+            AttributeCaster::cast_write(Value::DateTime("x".into()), CastType::DateTime),
+            Value::DateTime("x".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::String("x".into()), CastType::DateTime),
+            Value::DateTime("x".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Null, CastType::DateTime),
+            Value::Null
+        );
+
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Date("2024-01-01".into()), CastType::Date),
+            Value::Date("2024-01-01".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("2024-01-01".into()), CastType::Date),
+            Value::Date("2024-01-01".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Date),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Date("x".into()), CastType::Date),
+            Value::Date("x".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Null, CastType::Date),
+            Value::Null
+        );
+
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Time("12:00".into()), CastType::Time),
+            Value::Time("12:00".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("12:00".into()), CastType::Time),
+            Value::Time("12:00".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Time),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Time("x".into()), CastType::Time),
+            Value::Time("x".into())
+        );
+        assert_eq!(
+            AttributeCaster::cast_write(Value::Null, CastType::Time),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t6_cast_bytes() {
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Bytes(vec![1, 2]), CastType::Bytes),
+            Value::Bytes(vec![1, 2])
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::String("ab".into()), CastType::Bytes),
+            Value::Bytes(vec![97, 98])
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Bytes),
+            Value::Null
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::I64(42), CastType::Bytes),
+            Value::Null
+        );
+    }
+
+    #[test]
+    fn test_t6_cast_array_variants() {
+        let arr = Value::Array(vec![Value::I32(1), Value::I32(2)]);
+        assert_eq!(
+            AttributeCaster::cast_read(arr, CastType::Array),
+            Value::Array(vec![Value::I32(1), Value::I32(2)])
+        );
+        let json_arr = Value::Json(r#"[1, 2, 3]"#.to_string());
+        assert_eq!(
+            AttributeCaster::cast_read(json_arr, CastType::Array),
+            Value::Array(vec![Value::I64(1), Value::I64(2), Value::I64(3)])
+        );
+        let json_non_arr = Value::Json(r#"{"a":1}"#.to_string());
+        match AttributeCaster::cast_read(json_non_arr, CastType::Array) {
+            Value::Array(items) => assert_eq!(items.len(), 1),
+            other => panic!("expected Array, got {:?}", other),
+        }
+        let str_arr = Value::String(r#"[1, 2]"#.to_string());
+        assert_eq!(
+            AttributeCaster::cast_read(str_arr, CastType::Array),
+            Value::Array(vec![Value::I64(1), Value::I64(2)])
+        );
+        let str_non_arr = Value::String("hello".to_string());
+        assert_eq!(
+            AttributeCaster::cast_read(str_non_arr, CastType::Array),
+            Value::Array(vec![Value::String("hello".into())])
+        );
+        assert_eq!(
+            AttributeCaster::cast_read(Value::Null, CastType::Array),
+            Value::Null
+        );
+        let other = AttributeCaster::cast_read(Value::I64(42), CastType::Array);
+        assert_eq!(other, Value::Array(vec![Value::I64(42)]));
+    }
+
+    #[test]
+    fn test_t6_cast_array_storage() {
+        let arr = Value::Array(vec![Value::I32(1), Value::Bool(true)]);
+        match AttributeCaster::cast_write(arr, CastType::Array) {
+            Value::Json(s) => assert!(s.contains("1")),
+            other => panic!("expected Json, got {:?}", other),
+        }
+        let other = AttributeCaster::cast_write(Value::I64(42), CastType::Array);
+        match other {
+            Value::Json(_) => {}
+            o => panic!("expected Json, got {:?}", o),
+        }
+    }
+
+    #[test]
+    fn test_t6_registry_counts_and_has() {
+        let mut r = AccessorRegistry::new();
+        r.register_accessor(Box::new(ClosureAccessor::new("a", |v| v)));
+        r.register_mutator(Box::new(ClosureMutator::new("b", |v| v)));
+        r.register_cast("c", CastType::Integer);
+        assert!(r.has_accessor("a"));
+        assert!(!r.has_accessor("b"));
+        assert!(r.has_mutator("b"));
+        assert!(!r.has_mutator("a"));
+        assert!(r.has_cast("c"));
+        assert!(!r.has_cast("a"));
+        assert_eq!(r.get_cast("c"), Some(CastType::Integer));
+        assert_eq!(r.get_cast("a"), None);
+        assert_eq!(r.accessor_count(), 1);
+        assert_eq!(r.mutator_count(), 1);
+        assert_eq!(r.cast_count(), 1);
+    }
+
+    #[test]
+    fn test_t6_registry_default() {
+        let r = AccessorRegistry::default();
+        assert_eq!(r.accessor_count(), 0);
+        assert_eq!(r.mutator_count(), 0);
+        assert_eq!(r.cast_count(), 0);
+    }
+
+    #[test]
+    fn test_t6_registry_cast_read_no_cast() {
+        let r = AccessorRegistry::new();
+        assert_eq!(r.cast_read("x", Value::I64(42)), Value::I64(42));
+    }
+
+    #[test]
+    fn test_t6_registry_read_no_accessor() {
+        let r = AccessorRegistry::new();
+        assert_eq!(r.read("x", Value::I64(42)), Value::I64(42));
+    }
+
+    #[test]
+    fn test_t6_registry_cast_write_both() {
+        let mut r = AccessorRegistry::new();
+        r.register_mutator(Box::new(ClosureMutator::new("name", |v| {
+            if let Value::String(s) = v {
+                Value::String(s.to_uppercase())
+            } else {
+                v
+            }
+        })));
+        r.register_cast("name", CastType::String);
+        let result = r.write("name", Value::String("hi".into()));
+        assert_eq!(result, Value::String("HI".into()));
+    }
 }

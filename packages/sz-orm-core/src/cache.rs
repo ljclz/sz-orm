@@ -668,4 +668,292 @@ mod tests {
         let val = cache.get("key1").unwrap();
         assert_eq!(val, Some(b"value1".to_vec()));
     }
+
+    #[test]
+    fn t26cache_memory_cache_expire() {
+        let cache = MemoryCache::new();
+        cache.set("k", b"v".to_vec(), None).unwrap();
+        cache.expire("k", Duration::from_secs(60)).unwrap();
+        assert!(cache.get("k").unwrap().is_some());
+    }
+
+    #[test]
+    fn t26cache_memory_cache_expire_nonexistent() {
+        let cache = MemoryCache::new();
+        let r = cache.expire("missing", Duration::from_secs(60));
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn t26cache_memory_cache_ttl() {
+        let cache = MemoryCache::new();
+        cache
+            .set("k", b"v".to_vec(), Some(Duration::from_secs(100)))
+            .unwrap();
+        let ttl = cache.ttl("k").unwrap();
+        assert!(ttl.is_some());
+    }
+
+    #[test]
+    fn t26cache_memory_cache_ttl_no_ttl_set() {
+        let cache = MemoryCache::new();
+        cache.set("k", b"v".to_vec(), None).unwrap();
+        let ttl = cache.ttl("k").unwrap();
+        assert!(ttl.is_none());
+    }
+
+    #[test]
+    fn t26cache_memory_cache_ttl_nonexistent() {
+        let cache = MemoryCache::new();
+        let r = cache.ttl("missing");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn t26cache_memory_cache_get_expired() {
+        let cache = MemoryCache::new();
+        cache
+            .set("k", b"v".to_vec(), Some(Duration::from_millis(1)))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+        assert_eq!(cache.get("k").unwrap(), None);
+    }
+
+    #[test]
+    fn t26cache_memory_cache_exists_expired() {
+        let cache = MemoryCache::new();
+        cache
+            .set("k", b"v".to_vec(), Some(Duration::from_millis(1)))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+        assert!(!cache.exists("k").unwrap());
+    }
+
+    #[test]
+    fn t26cache_memory_cache_ttl_expired() {
+        let cache = MemoryCache::new();
+        cache
+            .set("k", b"v".to_vec(), Some(Duration::from_millis(1)))
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(10));
+        assert_eq!(cache.ttl("k").unwrap(), None);
+    }
+
+    #[test]
+    fn t26cache_memory_cache_with_ttl_default() {
+        let cache = MemoryCache::with_ttl(Duration::from_secs(100));
+        cache.set("k", b"v".to_vec(), None).unwrap();
+        let ttl = cache.ttl("k").unwrap();
+        assert!(ttl.is_some());
+    }
+
+    #[test]
+    fn t26cache_memory_cache_default() {
+        let cache = MemoryCache::default();
+        cache.set("k", b"v".to_vec(), None).unwrap();
+        assert_eq!(cache.get("k").unwrap(), Some(b"v".to_vec()));
+    }
+
+    #[test]
+    fn t26cache_read_through_cache_hit() {
+        let cache = MemoryCache::new();
+        cache.set("k", b"v".to_vec(), None).unwrap();
+        let r = read_through(&cache, "k", None, || panic!("should not call loader"));
+        assert_eq!(r.unwrap(), Some(b"v".to_vec()));
+    }
+
+    #[test]
+    fn t26cache_read_through_cache_miss_load_some() {
+        let cache = MemoryCache::new();
+        let r = read_through(&cache, "k", None, || Ok(Some(b"loaded".to_vec())));
+        assert_eq!(r.unwrap(), Some(b"loaded".to_vec()));
+        assert_eq!(cache.get("k").unwrap(), Some(b"loaded".to_vec()));
+    }
+
+    #[test]
+    fn t26cache_read_through_cache_miss_load_none() {
+        let cache = MemoryCache::new();
+        let r = read_through(&cache, "k", None, || Ok(None));
+        assert_eq!(r.unwrap(), None);
+        assert_eq!(cache.get("k").unwrap(), None);
+    }
+
+    #[test]
+    fn t26cache_read_through_loader_error() {
+        let cache = MemoryCache::new();
+        let r = read_through(&cache, "k", None, || {
+            Err(CacheError::Internal("err".into()))
+        });
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn t26cache_write_through_success() {
+        let cache = MemoryCache::new();
+        let mut written = false;
+        let r = write_through(&cache, "k", b"v".to_vec(), None, |_, _| {
+            written = true;
+            Ok(())
+        });
+        assert!(r.is_ok());
+        assert!(written);
+        assert_eq!(cache.get("k").unwrap(), Some(b"v".to_vec()));
+    }
+
+    #[test]
+    fn t26cache_write_through_writer_error() {
+        let cache = MemoryCache::new();
+        let r = write_through(&cache, "k", b"v".to_vec(), None, |_, _| {
+            Err(CacheError::Internal("err".into()))
+        });
+        assert!(r.is_err());
+        assert_eq!(cache.get("k").unwrap(), None);
+    }
+
+    #[test]
+    fn t26cache_write_around_success() {
+        let cache = MemoryCache::new();
+        cache.set("k", b"old".to_vec(), None).unwrap();
+        let mut written = false;
+        let r = write_around(&cache, "k", |_| {
+            written = true;
+            Ok(())
+        });
+        assert!(r.is_ok());
+        assert!(written);
+        assert_eq!(cache.get("k").unwrap(), None);
+    }
+
+    #[test]
+    fn t26cache_write_around_writer_error() {
+        let cache = MemoryCache::new();
+        let r = write_around(&cache, "k", |_| Err(CacheError::Internal("err".into())));
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn t26cache_multi_level_exists() {
+        let c1 = MemoryCache::new();
+        let c2 = MemoryCache::new();
+        let m = MultiLevelCache::new()
+            .add_cache(Box::new(c1))
+            .add_cache(Box::new(c2));
+        m.set("k", b"v".to_vec(), None).unwrap();
+        assert!(m.exists("k").unwrap());
+        assert!(!m.exists("missing").unwrap());
+    }
+
+    #[test]
+    fn t26cache_multi_level_clear() {
+        let c1 = MemoryCache::new();
+        let c2 = MemoryCache::new();
+        let m = MultiLevelCache::new()
+            .add_cache(Box::new(c1))
+            .add_cache(Box::new(c2));
+        m.set("k", b"v".to_vec(), None).unwrap();
+        m.clear().unwrap();
+        assert_eq!(m.get("k").unwrap(), None);
+    }
+
+    #[test]
+    fn t26cache_multi_level_expire() {
+        let c1 = MemoryCache::new();
+        let c2 = MemoryCache::new();
+        let m = MultiLevelCache::new()
+            .add_cache(Box::new(c1))
+            .add_cache(Box::new(c2));
+        m.set("k", b"v".to_vec(), None).unwrap();
+        m.expire("k", Duration::from_secs(60)).unwrap();
+        assert!(m.get("k").unwrap().is_some());
+    }
+
+    #[test]
+    fn t26cache_multi_level_ttl() {
+        let c1 = MemoryCache::new();
+        let c2 = MemoryCache::new();
+        let m = MultiLevelCache::new()
+            .add_cache(Box::new(c1))
+            .add_cache(Box::new(c2));
+        m.set("k", b"v".to_vec(), Some(Duration::from_secs(100)))
+            .unwrap();
+        let ttl = m.ttl("k").unwrap();
+        assert!(ttl.is_some());
+    }
+
+    #[test]
+    fn t26cache_multi_level_ttl_no_caches() {
+        let m = MultiLevelCache::new();
+        let r = m.ttl("k");
+        assert!(r.is_err());
+    }
+
+    #[test]
+    fn t26cache_multi_level_get_backfill() {
+        let c1 = MemoryCache::new();
+        let c2 = MemoryCache::new();
+        c2.set("k", b"v".to_vec(), None).unwrap();
+        let c1_clone = c1.clone();
+        let m = MultiLevelCache::new()
+            .add_cache(Box::new(c1))
+            .add_cache(Box::new(c2));
+        let val = m.get("k").unwrap();
+        assert_eq!(val, Some(b"v".to_vec()));
+        assert_eq!(c1_clone.get("k").unwrap(), Some(b"v".to_vec()));
+    }
+
+    #[test]
+    fn t26cache_multi_level_default() {
+        let m = MultiLevelCache::default();
+        assert_eq!(m.get("k").unwrap(), None);
+    }
+
+    #[test]
+    fn t26cache_negative_cache_exists() {
+        let inner = MemoryCache::new();
+        inner.set("k", b"v".to_vec(), None).unwrap();
+        let cache = NegativeCache::new(inner);
+        assert!(cache.exists("k").unwrap());
+        assert!(!cache.exists("missing").unwrap());
+    }
+
+    #[test]
+    fn t26cache_negative_cache_expire() {
+        let inner = MemoryCache::new();
+        inner.set("k", b"v".to_vec(), None).unwrap();
+        let cache = NegativeCache::new(inner);
+        cache.expire("k", Duration::from_secs(60)).unwrap();
+        assert!(cache.get("k").unwrap().is_some());
+    }
+
+    #[test]
+    fn t26cache_negative_cache_ttl() {
+        let inner = MemoryCache::new();
+        inner
+            .set("k", b"v".to_vec(), Some(Duration::from_secs(100)))
+            .unwrap();
+        let cache = NegativeCache::new(inner);
+        assert!(cache.ttl("k").unwrap().is_some());
+    }
+
+    #[test]
+    fn t26cache_negative_cache_default_ttl() {
+        let inner = MemoryCache::new();
+        let cache = NegativeCache::new(inner);
+        cache.get_or_negative("missing").unwrap();
+        // Should be in negative cache with 60s default TTL
+        assert_eq!(
+            cache.get_or_negative("missing").unwrap(),
+            CacheLookup::NotFound
+        );
+    }
+
+    #[test]
+    fn t26cache_cache_lookup_variants() {
+        assert_eq!(
+            CacheLookup::Found(b"v".to_vec()),
+            CacheLookup::Found(b"v".to_vec())
+        );
+        assert_ne!(CacheLookup::Miss, CacheLookup::NotFound);
+        assert_ne!(CacheLookup::Found(b"v".to_vec()), CacheLookup::Miss);
+    }
 }

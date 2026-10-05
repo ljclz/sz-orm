@@ -1351,4 +1351,265 @@ mod tests {
         assert!(sql.contains("ORDER BY u.id"));
         assert_eq!(binds.len(), 2);
     }
+
+    // ---- T26e 新增测试 ----
+
+    #[test]
+    fn t26ds_display_error_variants() {
+        assert_eq!(
+            DynamicSqlError::ParseError("bad".into()).to_string(),
+            "XML 解析错误: bad"
+        );
+        assert_eq!(
+            DynamicSqlError::StatementNotFound("x".into()).to_string(),
+            "找不到语句 ID: x"
+        );
+        assert_eq!(
+            DynamicSqlError::EvalError("e".into()).to_string(),
+            "表达式求值错误: e"
+        );
+        assert_eq!(
+            DynamicSqlError::MissingParam("p".into()).to_string(),
+            "缺少参数: p"
+        );
+    }
+
+    #[test]
+    fn t26ds_sql_params_float_and_names() {
+        let mut p = SqlParams::new();
+        p.set_float("score", 1.5);
+        p.set_array("ids", vec![ParamValue::Int(1)]);
+        assert!(matches!(p.get("score"), Some(ParamValue::Float(_))));
+        let names = p.names();
+        assert!(names.contains(&"score".to_string()));
+        assert!(names.contains(&"ids".to_string()));
+    }
+
+    #[test]
+    fn t26ds_param_to_string_via_interpolation() {
+        let xml = r#"<select id="q">SELECT '${n}|${f}|${b}|${arr}'</select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set_null("n");
+        p.set_float("f", 1.5);
+        p.set_bool("b", true);
+        p.set_array("arr", vec![ParamValue::Int(1)]);
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("NULL|1.5|TRUE|[]"));
+    }
+
+    #[test]
+    fn t26ds_escape_sql_string_special_chars() {
+        let xml = r#"<select id="q">SELECT '${s}'</select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set("s", "a'b\\c\n\r\0d");
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("a''b\\\\c\\n\\r\\0d"));
+    }
+
+    #[test]
+    fn t26ds_eval_test_or_branch() {
+        let xml = r#"<select id="q">SELECT * FROM users <if test="name != null or age != null">WHERE 1=1</if></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let p = SqlParams::new();
+        assert!(!parser.build("q", &p).unwrap().contains("WHERE"));
+        let mut p = SqlParams::new();
+        p.set("name", "Alice");
+        assert!(parser.build("q", &p).unwrap().contains("WHERE 1=1"));
+    }
+
+    #[test]
+    fn t26ds_eval_test_string_not_equals() {
+        let xml = r#"<select id="q">SELECT * FROM users <if test="role != 'admin'">WHERE is_user = 1</if></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set("role", "user");
+        assert!(parser.build("q", &p).unwrap().contains("WHERE is_user = 1"));
+        let mut p = SqlParams::new();
+        p.set("role", "admin");
+        assert!(!parser.build("q", &p).unwrap().contains("WHERE is_user"));
+        let p = SqlParams::new();
+        assert!(parser.build("q", &p).unwrap().contains("WHERE is_user = 1"));
+    }
+
+    #[test]
+    fn t26ds_eval_test_numeric_le_ge_lt() {
+        let xml_ge = r#"<select id="q">SELECT * FROM users <if test="age &gt;= 18">WHERE adult = 1</if></select>"#;
+        let parser_ge = DynamicSqlParser::from_xml(xml_ge).unwrap();
+        let mut p = SqlParams::new();
+        p.set_int("age", 18);
+        assert!(parser_ge
+            .build("q", &p)
+            .unwrap()
+            .contains("WHERE adult = 1"));
+        let mut p = SqlParams::new();
+        p.set_int("age", 17);
+        assert!(!parser_ge.build("q", &p).unwrap().contains("WHERE adult"));
+
+        let xml_le = r#"<select id="q">SELECT * FROM users <if test="age &lt;= 65">WHERE young = 1</if></select>"#;
+        let parser_le = DynamicSqlParser::from_xml(xml_le).unwrap();
+        let mut p = SqlParams::new();
+        p.set_int("age", 65);
+        assert!(parser_le
+            .build("q", &p)
+            .unwrap()
+            .contains("WHERE young = 1"));
+
+        let xml_lt = r#"<select id="q">SELECT * FROM users <if test="age &lt; 65">WHERE young = 1</if></select>"#;
+        let parser_lt = DynamicSqlParser::from_xml(xml_lt).unwrap();
+        let mut p = SqlParams::new();
+        p.set_int("age", 64);
+        assert!(parser_lt
+            .build("q", &p)
+            .unwrap()
+            .contains("WHERE young = 1"));
+    }
+
+    #[test]
+    fn t26ds_eval_test_error_unparseable() {
+        let xml =
+            r#"<select id="q">SELECT * FROM users <if test="some garbage">WHERE 1=1</if></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let p = SqlParams::new();
+        let result = parser.build("q", &p);
+        assert!(matches!(result, Err(DynamicSqlError::EvalError(_))));
+    }
+
+    #[test]
+    fn t26ds_foreach_with_open_close() {
+        let xml = r#"<select id="q">SELECT * FROM users WHERE id IN <foreach collection="ids" item="id" separator="," open="(" close=")">#{id}</foreach></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set_array("ids", vec![ParamValue::Int(1), ParamValue::Int(2)]);
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("IN (?,?)"));
+    }
+
+    #[test]
+    fn t26ds_foreach_mixed_types() {
+        let xml = r#"<select id="q">SELECT <foreach collection="items" item="i" separator=",">#{i}</foreach></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set_array(
+            "items",
+            vec![
+                ParamValue::Float(1.5),
+                ParamValue::Bool(true),
+                ParamValue::Null,
+            ],
+        );
+        let (sql, binds) = parser.build_with_binds("q", &p).unwrap();
+        assert_eq!(binds.len(), 3);
+        assert!(sql.contains("?"));
+        assert!(matches!(binds[0], ParamValue::Float(_)));
+        assert!(matches!(binds[1], ParamValue::Bool(true)));
+        assert!(matches!(binds[2], ParamValue::Null));
+    }
+
+    #[test]
+    fn t26ds_trim_with_suffix_and_overrides() {
+        let xml = r#"<select id="q">SELECT * FROM users <trim prefix="WHERE" suffix="ORDER BY id" prefixOverrides="AND" suffixOverrides=","><if test="name != null">AND name = #{name},</if></trim></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set("name", "Alice");
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("WHERE name = ?"));
+        assert!(sql.contains("ORDER BY id"));
+    }
+
+    #[test]
+    fn t26ds_choose_no_match_no_otherwise() {
+        let xml = r#"<select id="q">SELECT * FROM users WHERE 1=1 <choose><when test="role == 'admin'">AND is_admin = 1</when></choose></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set("role", "user");
+        let sql = parser.build("q", &p).unwrap();
+        assert!(!sql.contains("is_admin"));
+    }
+
+    #[test]
+    fn t26ds_unclosed_param_and_interpolation_brace() {
+        let xml1 = r#"<select id="q">SELECT * FROM users WHERE id = #{id</select>"#;
+        let parser1 = DynamicSqlParser::from_xml(xml1).unwrap();
+        let mut p = SqlParams::new();
+        p.set_int("id", 1);
+        assert!(matches!(
+            parser1.build("q", &p),
+            Err(DynamicSqlError::ParseError(_))
+        ));
+
+        let xml2 = r#"<select id="q">SELECT * FROM ${table</select>"#;
+        let parser2 = DynamicSqlParser::from_xml(xml2).unwrap();
+        let mut p = SqlParams::new();
+        p.set("table", "users");
+        assert!(matches!(
+            parser2.build("q", &p),
+            Err(DynamicSqlError::ParseError(_))
+        ));
+    }
+
+    #[test]
+    fn t26ds_xml_comment_skip() {
+        let xml =
+            r#"<select id="q">SELECT * FROM users <!-- this is a comment --> WHERE 1=1</select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let p = SqlParams::new();
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("SELECT * FROM users WHERE 1=1"));
+        assert!(!sql.contains("comment"));
+    }
+
+    #[test]
+    fn t26ds_xml_self_closing_tag() {
+        let xml = r#"<select id="q">SELECT * FROM users <where/> WHERE 1=1</select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let p = SqlParams::new();
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("SELECT * FROM users WHERE 1=1"));
+    }
+
+    #[test]
+    fn t26ds_xml_tag_mismatch_error() {
+        let xml = r#"<select id="q">SELECT 1</insert>"#;
+        let result = DynamicSqlParser::from_xml(xml);
+        assert!(matches!(result, Err(DynamicSqlError::ParseError(_))));
+    }
+
+    #[test]
+    fn t26ds_xml_attr_value_unquoted_error() {
+        let xml = r#"<select id=q>SELECT 1</select>"#;
+        let result = DynamicSqlParser::from_xml(xml);
+        assert!(matches!(result, Err(DynamicSqlError::ParseError(_))));
+    }
+
+    #[test]
+    fn t26ds_where_strips_leading_or() {
+        let xml = r#"<select id="q">SELECT * FROM users <where><if test="name != null">OR name = #{name}</if></where></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set("name", "Alice");
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("WHERE name = ?"));
+        assert!(!sql.contains("WHERE OR"));
+    }
+
+    #[test]
+    fn t26ds_set_empty_no_set_clause() {
+        let xml = r#"<update id="u">UPDATE users <set><if test="name != null">name = #{name},</if></set> WHERE id = #{id}</update>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let mut p = SqlParams::new();
+        p.set_int("id", 1);
+        let sql = parser.build("u", &p).unwrap();
+        assert!(!sql.contains("SET"));
+    }
+
+    #[test]
+    fn t26ds_unknown_tag_recursion() {
+        let xml = r#"<select id="q">SELECT * FROM users <custom>WHERE 1=1</custom></select>"#;
+        let parser = DynamicSqlParser::from_xml(xml).unwrap();
+        let p = SqlParams::new();
+        let sql = parser.build("q", &p).unwrap();
+        assert!(sql.contains("WHERE 1=1"));
+    }
 }

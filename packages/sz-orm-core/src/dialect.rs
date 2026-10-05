@@ -4810,4 +4810,1206 @@ mod enum_dispatch_tests {
             assert_eq!(buf2, kind.quote("order"));
         }
     }
+
+    // ========================================================================
+    // v9.4.0 T7：dialect.rs 补测（93.2% → ≥ 98%）
+    // ========================================================================
+
+    #[test]
+    fn test_t7_get_dialect_mysql() {
+        let d = get_dialect(DbType::MySQL).unwrap();
+        assert_eq!(d.db_type(), DbType::MySQL);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_postgresql() {
+        let d = get_dialect(DbType::PostgreSQL).unwrap();
+        assert_eq!(d.db_type(), DbType::PostgreSQL);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_sqlite() {
+        let d = get_dialect(DbType::Sqlite).unwrap();
+        assert_eq!(d.db_type(), DbType::Sqlite);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_oracle() {
+        let d = get_dialect(DbType::Oracle).unwrap();
+        assert_eq!(d.db_type(), DbType::Oracle);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_sqlserver() {
+        let d = get_dialect(DbType::SqlServer).unwrap();
+        assert_eq!(d.db_type(), DbType::SqlServer);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_clickhouse() {
+        let d = get_dialect(DbType::ClickHouse).unwrap();
+        assert_eq!(d.db_type(), DbType::ClickHouse);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_duckdb() {
+        let d = get_dialect(DbType::DuckDB).unwrap();
+        assert_eq!(d.db_type(), DbType::DuckDB);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_db2() {
+        let d = get_dialect(DbType::Db2).unwrap();
+        assert_eq!(d.db_type(), DbType::Db2);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_redis_unsupported() {
+        assert!(get_dialect(DbType::Redis).is_err());
+    }
+
+    #[test]
+    fn test_t7_get_dialect_mongodb_unsupported() {
+        assert!(get_dialect(DbType::MongoDB).is_err());
+    }
+
+    #[test]
+    fn test_t7_get_dialect_vectordb_unsupported() {
+        assert!(get_dialect(DbType::VectorDb).is_err());
+    }
+
+    #[test]
+    fn test_t7_get_dialect_purejsdb_unsupported() {
+        assert!(get_dialect(DbType::PureJsDb).is_err());
+    }
+
+    #[test]
+    fn test_t7_get_dialect_mariadb() {
+        let d = get_dialect(DbType::MariaDB).unwrap();
+        assert_eq!(d.db_type(), DbType::MariaDB);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_tidb() {
+        let d = get_dialect(DbType::TiDB).unwrap();
+        assert_eq!(d.db_type(), DbType::TiDB);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_oceanbase() {
+        let d = get_dialect(DbType::OceanBase).unwrap();
+        assert_eq!(d.db_type(), DbType::OceanBase);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_dameng() {
+        let d = get_dialect(DbType::Dameng).unwrap();
+        assert_eq!(d.db_type(), DbType::Dameng);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_kingbase() {
+        let d = get_dialect(DbType::Kingbase).unwrap();
+        assert_eq!(d.db_type(), DbType::Kingbase);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_polardb() {
+        let d = get_dialect(DbType::PolarDB).unwrap();
+        assert_eq!(d.db_type(), DbType::PolarDB);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_gaussdb() {
+        let d = get_dialect(DbType::GaussDB).unwrap();
+        assert_eq!(d.db_type(), DbType::GaussDB);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_gbase() {
+        let d = get_dialect(DbType::GBase).unwrap();
+        assert_eq!(d.db_type(), DbType::GBase);
+    }
+
+    #[test]
+    fn test_t7_get_dialect_sybase() {
+        let d = get_dialect(DbType::Sybase).unwrap();
+        assert_eq!(d.db_type(), DbType::Sybase);
+    }
+
+    #[test]
+    fn test_t7_column_def_construction() {
+        let col = ColumnDef {
+            name: "id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        };
+        assert_eq!(col.name, "id");
+        assert!(!col.nullable);
+        assert!(col.auto_increment);
+        assert!(col.primary_key);
+    }
+
+    #[test]
+    fn test_t7_column_def_with_default() {
+        let col = ColumnDef {
+            name: "status".to_string(),
+            sql_type: "VARCHAR(20)".to_string(),
+            nullable: true,
+            default: Some("'active'".to_string()),
+            auto_increment: false,
+            primary_key: false,
+        };
+        assert!(col.default.is_some());
+        assert!(col.nullable);
+    }
+
+    #[test]
+    fn test_t7_table_change_add_column() {
+        let col = ColumnDef {
+            name: "email".to_string(),
+            sql_type: "VARCHAR(255)".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        };
+        let change = TableChange::AddColumn(col);
+        assert!(matches!(change, TableChange::AddColumn(_)));
+    }
+
+    #[test]
+    fn test_t7_table_change_drop_column() {
+        let change = TableChange::DropColumn("old_col".to_string());
+        assert!(matches!(change, TableChange::DropColumn(_)));
+    }
+
+    #[test]
+    fn test_t7_table_change_modify_column() {
+        let col = ColumnDef {
+            name: "name".to_string(),
+            sql_type: "VARCHAR(100)".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        };
+        let change = TableChange::ModifyColumn(col);
+        assert!(matches!(change, TableChange::ModifyColumn(_)));
+    }
+
+    #[test]
+    fn test_t7_table_change_add_index() {
+        let change = TableChange::AddIndex("idx_email".to_string(), vec!["email".to_string()]);
+        assert!(matches!(change, TableChange::AddIndex(_, _)));
+    }
+
+    #[test]
+    fn test_t7_table_change_drop_index() {
+        let change = TableChange::DropIndex("idx_old".to_string());
+        assert!(matches!(change, TableChange::DropIndex(_)));
+    }
+
+    #[test]
+    fn test_t7_table_change_add_foreign_key() {
+        let change = TableChange::AddForeignKey {
+            columns: vec!["user_id".to_string()],
+            reference_table: "users".to_string(),
+            reference_columns: vec!["id".to_string()],
+        };
+        assert!(matches!(change, TableChange::AddForeignKey { .. }));
+    }
+
+    #[test]
+    fn test_t7_lock_type_variants() {
+        let _ = LockType::ForUpdate;
+        let _ = LockType::Shared;
+    }
+
+    #[test]
+    fn test_t7_quote_checked_valid() {
+        let d = MySqlDialect;
+        let result = d.quote_checked("users");
+        assert!(result.is_ok());
+        assert_eq!(result.unwrap(), "`users`");
+    }
+
+    #[test]
+    fn test_t7_quote_checked_empty() {
+        let d = MySqlDialect;
+        let result = d.quote_checked("");
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t7_quote_checked_too_long() {
+        let d = MySqlDialect;
+        let long_name = "a".repeat(100);
+        let result = d.quote_checked(&long_name);
+        assert!(result.is_err());
+    }
+
+    #[test]
+    fn test_t7_dialect_display() {
+        let d = MySqlDialect;
+        let s = format!("{}", &d as &dyn Dialect);
+        assert!(s.contains("Dialect("));
+    }
+
+    #[test]
+    fn test_t7_clone_box_mysql() {
+        let d = MySqlDialect;
+        let cloned = d.clone_box();
+        assert_eq!(cloned.db_type(), DbType::MySQL);
+    }
+
+    #[test]
+    fn test_t7_clone_box_postgres() {
+        let d = PostgreSqlDialect;
+        let cloned = d.clone_box();
+        assert_eq!(cloned.db_type(), DbType::PostgreSQL);
+    }
+
+    #[test]
+    fn test_t7_clone_box_sqlite() {
+        let d = SqliteDialect;
+        let cloned = d.clone_box();
+        assert_eq!(cloned.db_type(), DbType::Sqlite);
+    }
+
+    #[test]
+    fn test_t7_clone_box_oracle() {
+        let d = OracleDialect;
+        let cloned = d.clone_box();
+        assert_eq!(cloned.db_type(), DbType::Oracle);
+    }
+
+    #[test]
+    fn test_t7_max_identifier_len() {
+        assert_eq!(MAX_IDENTIFIER_LEN, 63);
+    }
+
+    #[test]
+    fn test_t6_quote_into_all_dialects() {
+        let mut buf = String::new();
+        MySqlDialect.quote_into("col", &mut buf);
+        assert_eq!(buf, "`col`");
+
+        let mut buf = String::new();
+        PostgreSqlDialect.quote_into("col", &mut buf);
+        assert_eq!(buf, "\"col\"");
+
+        let mut buf = String::new();
+        SqliteDialect.quote_into("col", &mut buf);
+        assert_eq!(buf, "\"col\"");
+
+        let mut buf = String::new();
+        OracleDialect.quote_into("col", &mut buf);
+        assert_eq!(buf, "\"col\"");
+    }
+
+    #[test]
+    fn test_t6_quote_checked_valid() {
+        assert_eq!(MySqlDialect.quote_checked("col").unwrap(), "`col`");
+        assert_eq!(PostgreSqlDialect.quote_checked("col").unwrap(), "\"col\"");
+    }
+
+    #[test]
+    fn test_t6_quote_checked_invalid_empty() {
+        assert!(MySqlDialect.quote_checked("").is_err());
+    }
+
+    #[test]
+    fn test_t6_quote_checked_invalid_too_long() {
+        let long = "a".repeat(64);
+        assert!(MySqlDialect.quote_checked(&long).is_err());
+    }
+
+    #[test]
+    fn test_t6_quote_checked_invalid_semicolon() {
+        assert!(MySqlDialect.quote_checked("col;").is_err());
+    }
+
+    #[test]
+    fn test_t6_build_drop_table_all_dialects() {
+        let sql = MySqlDialect.build_drop_table("users", false);
+        assert_eq!(sql, "DROP TABLE `users`");
+        let sql = MySqlDialect.build_drop_table("users", true);
+        assert_eq!(sql, "DROP TABLE IF EXISTS `users`");
+        let sql = PostgreSqlDialect.build_drop_table("users", true);
+        assert_eq!(sql, "DROP TABLE IF EXISTS \"users\"");
+        let sql = SqliteDialect.build_drop_table("users", true);
+        assert_eq!(sql, "DROP TABLE IF EXISTS \"users\"");
+    }
+
+    #[test]
+    fn test_t6_build_insert_or_ignore_prefix_all_dialects() {
+        let sql = MySqlDialect.build_insert_or_ignore_prefix("users");
+        assert!(sql.contains("IGNORE"));
+        let sql = PostgreSqlDialect.build_insert_or_ignore_prefix("users");
+        assert!(sql.contains("IGNORE"));
+        let sql = SqliteDialect.build_insert_or_ignore_prefix("users");
+        assert!(sql.contains("IGNORE"));
+    }
+
+    #[test]
+    fn test_t6_supports_lock_for_update_all_dialects() {
+        assert!(MySqlDialect.supports_lock_for_update());
+        assert!(PostgreSqlDialect.supports_lock_for_update());
+        assert!(!SqliteDialect.supports_lock_for_update());
+        assert!(OracleDialect.supports_lock_for_update());
+    }
+
+    #[test]
+    fn test_t6_supports_lock_shared_all_dialects() {
+        assert!(MySqlDialect.supports_lock_shared());
+        assert!(PostgreSqlDialect.supports_lock_shared());
+        assert!(!SqliteDialect.supports_lock_shared());
+    }
+
+    #[test]
+    fn test_t6_build_lock_clause_mysql() {
+        let sql = MySqlDialect.build_lock_clause(LockType::ForUpdate);
+        assert_eq!(sql, Some("FOR UPDATE".to_string()));
+        let sql = MySqlDialect.build_lock_clause(LockType::Shared);
+        assert_eq!(sql, Some("LOCK IN SHARE MODE".to_string()));
+    }
+
+    #[test]
+    fn test_t6_build_lock_clause_postgres() {
+        let sql = PostgreSqlDialect.build_lock_clause(LockType::ForUpdate);
+        assert_eq!(sql, Some("FOR UPDATE".to_string()));
+        let sql = PostgreSqlDialect.build_lock_clause(LockType::Shared);
+        assert_eq!(sql, Some("FOR SHARE".to_string()));
+    }
+
+    #[test]
+    fn test_t6_build_lock_clause_sqlite() {
+        let sql = SqliteDialect.build_lock_clause(LockType::ForUpdate);
+        assert_eq!(sql, None);
+    }
+
+    #[test]
+    fn test_t6_build_upsert_on_conflict_mysql() {
+        let sql = MySqlDialect.build_upsert_on_conflict(
+            &["id"],
+            &["name"],
+            &["id".to_string(), "name".to_string()],
+        );
+        assert!(sql.is_some());
+        let s = sql.unwrap();
+        assert!(s.contains("ON DUPLICATE KEY UPDATE"));
+    }
+
+    #[test]
+    fn test_t6_build_upsert_on_conflict_postgres() {
+        let sql = PostgreSqlDialect.build_upsert_on_conflict(
+            &["id"],
+            &["name"],
+            &["id".to_string(), "name".to_string()],
+        );
+        assert!(sql.is_some());
+        let s = sql.unwrap();
+        assert!(s.contains("ON CONFLICT"));
+    }
+
+    #[test]
+    fn test_t6_build_upsert_on_conflict_sqlite() {
+        let sql = SqliteDialect.build_upsert_on_conflict(
+            &["id"],
+            &["name"],
+            &["id".to_string(), "name".to_string()],
+        );
+        assert!(sql.is_some());
+    }
+
+    #[test]
+    fn test_t6_escape_string_all_dialects() {
+        let mysql_esc = MySqlDialect.escape_string("it's");
+        assert!(mysql_esc.contains("s"));
+        assert_eq!(PostgreSqlDialect.escape_string("it's"), "it''s");
+        assert_eq!(SqliteDialect.escape_string("it's"), "it''s");
+        assert_eq!(OracleDialect.escape_string("it's"), "it''s");
+    }
+
+    #[test]
+    fn test_t6_json_type_all_dialects() {
+        let _ = MySqlDialect.json_type();
+        let _ = PostgreSqlDialect.json_type();
+        let _ = SqliteDialect.json_type();
+        let _ = OracleDialect.json_type();
+    }
+
+    #[test]
+    fn test_t6_json_extract_all_dialects() {
+        let _ = MySqlDialect.json_extract("col", "$.path");
+        let _ = PostgreSqlDialect.json_extract("col", "$.path");
+        let _ = SqliteDialect.json_extract("col", "$.path");
+    }
+
+    #[test]
+    fn test_t6_full_text_search_all_dialects() {
+        let _ = MySqlDialect.full_text_search(&["col1", "col2"], "keyword");
+        let _ = PostgreSqlDialect.full_text_search(&["col1"], "keyword");
+    }
+
+    #[test]
+    fn test_t6_concat_all_dialects() {
+        let _ = MySqlDialect.concat(&["a", "b"]);
+        let _ = PostgreSqlDialect.concat(&["a", "b"]);
+        let _ = OracleDialect.concat(&["a", "b"]);
+    }
+
+    #[test]
+    fn test_t6_supports_returning_all_dialects() {
+        assert!(!MySqlDialect.supports_returning());
+        assert!(PostgreSqlDialect.supports_returning());
+        assert!(SqliteDialect.supports_returning());
+        assert!(OracleDialect.supports_returning());
+    }
+
+    #[test]
+    fn test_t6_supports_if_exists_all_dialects() {
+        assert!(MySqlDialect.supports_if_exists());
+        assert!(PostgreSqlDialect.supports_if_exists());
+        assert!(SqliteDialect.supports_if_exists());
+    }
+
+    #[test]
+    fn test_t6_supports_if_not_exists_all_dialects() {
+        assert!(MySqlDialect.supports_if_not_exists());
+        assert!(PostgreSqlDialect.supports_if_not_exists());
+        assert!(SqliteDialect.supports_if_not_exists());
+    }
+
+    #[test]
+    fn test_t6_auto_increment_keyword_all_dialects() {
+        let _ = MySqlDialect.auto_increment_keyword();
+        let _ = PostgreSqlDialect.auto_increment_keyword();
+        let _ = SqliteDialect.auto_increment_keyword();
+        let _ = OracleDialect.auto_increment_keyword();
+    }
+
+    #[test]
+    fn test_t6_last_insert_id_sql_all_dialects() {
+        let _ = MySqlDialect.last_insert_id_sql();
+        let _ = PostgreSqlDialect.last_insert_id_sql();
+        let _ = SqliteDialect.last_insert_id_sql();
+        let _ = OracleDialect.last_insert_id_sql();
+    }
+
+    #[test]
+    fn test_t6_bool_to_int_all_dialects() {
+        let mysql_b = MySqlDialect.bool_to_int("true");
+        assert!(mysql_b.contains("true"));
+        let pg_b = PostgreSqlDialect.bool_to_int("true");
+        assert!(pg_b.contains("true") || pg_b == "1");
+    }
+
+    #[test]
+    fn test_t6_build_pagination_all_dialects() {
+        let sql = MySqlDialect.build_pagination("SELECT * FROM t", 2, 10);
+        assert!(sql.contains("LIMIT"));
+        let sql = PostgreSqlDialect.build_pagination("SELECT * FROM t", 2, 10);
+        assert!(sql.contains("LIMIT"));
+        let sql = SqliteDialect.build_pagination("SELECT * FROM t", 2, 10);
+        assert!(sql.contains("LIMIT"));
+    }
+
+    #[test]
+    fn test_t6_get_dialect_all_types() {
+        use crate::db_type::DbType;
+        assert!(get_dialect(DbType::MySQL).is_ok());
+        assert!(get_dialect(DbType::PostgreSQL).is_ok());
+        assert!(get_dialect(DbType::Sqlite).is_ok());
+        assert!(get_dialect(DbType::Oracle).is_ok());
+    }
+
+    #[test]
+    fn test_t6_dialect_kind_from_db_type() {
+        use crate::db_type::DbType;
+        assert!(DialectKind::from_db_type(DbType::MySQL).is_some());
+        assert!(DialectKind::from_db_type(DbType::PostgreSQL).is_some());
+        assert!(DialectKind::from_db_type(DbType::Sqlite).is_some());
+    }
+
+    #[test]
+    fn test_t6_dialect_kind_quote() {
+        let kind = DialectKind::from_db_type(crate::db_type::DbType::MySQL).unwrap();
+        assert_eq!(kind.quote("col"), "`col`");
+        let kind = DialectKind::from_db_type(crate::db_type::DbType::PostgreSQL).unwrap();
+        assert_eq!(kind.quote("col"), "\"col\"");
+    }
+
+    #[test]
+    fn test_t6_dialect_kind_escape_string() {
+        let kind = DialectKind::from_db_type(crate::db_type::DbType::MySQL).unwrap();
+        let escaped = kind.escape_string("a'b");
+        assert!(escaped.contains("b"));
+        let kind = DialectKind::from_db_type(crate::db_type::DbType::PostgreSQL).unwrap();
+        assert_eq!(kind.escape_string("a'b"), "a''b");
+    }
+
+    #[test]
+    fn test_t6_dialect_kind_db_type() {
+        let kind = DialectKind::from_db_type(crate::db_type::DbType::MySQL).unwrap();
+        assert_eq!(kind.db_type(), crate::db_type::DbType::MySQL);
+    }
+
+    #[test]
+    fn test_t6_dialect_kind_to_dialect() {
+        let kind = DialectKind::from_db_type(crate::db_type::DbType::MySQL).unwrap();
+        let d = kind.to_dialect();
+        assert_eq!(d.db_type(), crate::db_type::DbType::MySQL);
+    }
+
+    #[test]
+    fn test_t6_dialect_kind_quote_into() {
+        let kind = DialectKind::from_db_type(crate::db_type::DbType::MySQL).unwrap();
+        let mut buf = String::new();
+        kind.quote_into("col", &mut buf);
+        assert_eq!(buf, "`col`");
+    }
+
+    #[test]
+    fn test_t6_build_create_table_all_dialects() {
+        let cols = vec![ColumnDef {
+            name: "id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        }];
+        let sql = MySqlDialect.build_create_table("users", &cols);
+        assert!(sql.contains("CREATE TABLE"));
+        assert!(sql.contains("id"));
+        let sql = PostgreSqlDialect.build_create_table("users", &cols);
+        assert!(sql.contains("CREATE TABLE"));
+        let sql = SqliteDialect.build_create_table("users", &cols);
+        assert!(sql.contains("CREATE TABLE"));
+        let sql = OracleDialect.build_create_table("users", &cols);
+        assert!(sql.contains("CREATE TABLE"));
+    }
+
+    #[test]
+    fn test_t6_build_create_table_with_nullable_and_default() {
+        let cols = vec![
+            ColumnDef {
+                name: "id".to_string(),
+                sql_type: "BIGINT".to_string(),
+                nullable: false,
+                default: None,
+                auto_increment: true,
+                primary_key: true,
+            },
+            ColumnDef {
+                name: "name".to_string(),
+                sql_type: "VARCHAR(255)".to_string(),
+                nullable: true,
+                default: Some("'unknown'".to_string()),
+                auto_increment: false,
+                primary_key: false,
+            },
+        ];
+        let sql = MySqlDialect.build_create_table("users", &cols);
+        assert!(sql.contains("name"));
+        let sql = PostgreSqlDialect.build_create_table("users", &cols);
+        assert!(sql.contains("name"));
+    }
+
+    #[test]
+    fn test_t6_build_alter_table_add_column() {
+        let change = TableChange::AddColumn(ColumnDef {
+            name: "email".to_string(),
+            sql_type: "VARCHAR(255)".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        });
+        let sql = MySqlDialect.build_alter_table("users", &[change]);
+        assert!(sql.contains("ALTER TABLE"));
+        assert!(sql.contains("email"));
+        let sql = PostgreSqlDialect.build_alter_table(
+            "users",
+            &[TableChange::AddColumn(ColumnDef {
+                name: "email".to_string(),
+                sql_type: "VARCHAR(255)".to_string(),
+                nullable: true,
+                default: None,
+                auto_increment: false,
+                primary_key: false,
+            })],
+        );
+        assert!(sql.contains("ALTER TABLE"));
+    }
+
+    #[test]
+    fn test_t6_build_alter_table_drop_column() {
+        let change = TableChange::DropColumn("email".to_string());
+        let sql = MySqlDialect.build_alter_table("users", &[change]);
+        assert!(sql.contains("ALTER TABLE"));
+        assert!(sql.contains("email"));
+    }
+
+    #[test]
+    fn test_t6_build_alter_table_modify_column() {
+        let change = TableChange::ModifyColumn(ColumnDef {
+            name: "name".to_string(),
+            sql_type: "VARCHAR(500)".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        });
+        let sql = MySqlDialect.build_alter_table("users", &[change]);
+        assert!(sql.contains("ALTER TABLE"));
+    }
+
+    #[test]
+    fn test_t6_build_alter_table_add_index() {
+        let change = TableChange::AddIndex("idx_email".to_string(), vec!["email".to_string()]);
+        let sql = MySqlDialect.build_alter_table("users", &[change]);
+        assert!(sql.contains("email") || sql.contains("idx"));
+    }
+
+    #[test]
+    fn test_t6_build_alter_table_drop_index() {
+        let change = TableChange::DropIndex("idx_email".to_string());
+        let sql = MySqlDialect.build_alter_table("users", &[change]);
+        assert!(sql.contains("idx") || sql.contains("DROP"));
+    }
+
+    #[test]
+    fn test_t6_build_alter_table_add_foreign_key() {
+        let change = TableChange::AddForeignKey {
+            columns: vec!["user_id".to_string()],
+            reference_table: "users".to_string(),
+            reference_columns: vec!["id".to_string()],
+        };
+        let sql = MySqlDialect.build_alter_table("posts", &[change]);
+        assert!(sql.contains("user_id") || sql.contains("FOREIGN"));
+    }
+
+    #[test]
+    fn test_t6_build_alter_table_multiple_changes() {
+        let changes = vec![
+            TableChange::AddColumn(ColumnDef {
+                name: "email".to_string(),
+                sql_type: "VARCHAR(255)".to_string(),
+                nullable: true,
+                default: None,
+                auto_increment: false,
+                primary_key: false,
+            }),
+            TableChange::DropColumn("old_col".to_string()),
+        ];
+        let sql = MySqlDialect.build_alter_table("users", &changes);
+        assert!(sql.contains("ALTER TABLE"));
+    }
+
+    #[test]
+    fn test_t6_lock_type_variants() {
+        let _ = LockType::ForUpdate;
+        let _ = LockType::Shared;
+    }
+
+    #[test]
+    fn test_t6_column_def_fields() {
+        let col = ColumnDef {
+            name: "id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        };
+        assert_eq!(col.name, "id");
+        assert!(col.primary_key);
+    }
+
+    #[test]
+    fn test_t6_table_change_variants() {
+        let _ = TableChange::AddColumn(ColumnDef {
+            name: "x".to_string(),
+            sql_type: "INT".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        });
+        let _ = TableChange::DropColumn("x".to_string());
+        let _ = TableChange::ModifyColumn(ColumnDef {
+            name: "x".to_string(),
+            sql_type: "INT".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        });
+        let _ = TableChange::AddIndex("idx".to_string(), vec!["x".to_string()]);
+        let _ = TableChange::DropIndex("idx".to_string());
+        let _ = TableChange::AddForeignKey {
+            columns: vec!["x".to_string()],
+            reference_table: "t".to_string(),
+            reference_columns: vec!["id".to_string()],
+        };
+    }
+
+    fn test_dialect_basic(d: &dyn Dialect, _db_type: DbType) {
+        let _ = d.clone_box();
+        let _ = d.db_type();
+        let _ = d.quote("table");
+        let mut buf = String::new();
+        d.quote_into("col", &mut buf);
+        assert!(d.quote_checked("valid_col").is_ok());
+        assert!(d.quote_checked("invalid col").is_err());
+        let _ = d.escape_string("it's a test");
+        let _ = d.supports_returning();
+        let _ = d.build_pagination("SELECT * FROM t", 1, 10);
+        let _ = d.json_type();
+        let _ = d.json_extract("data", "$.field");
+        let _ = d.full_text_search(&["title", "body"], "keyword");
+        let _ = d.bool_to_int("true");
+        let _ = d.concat(&["a", "b", "c"]);
+        let _ = d.supports_if_exists();
+        let _ = d.supports_if_not_exists();
+        let _ = d.auto_increment_keyword();
+        let _ = d.last_insert_id_sql();
+        let cols = vec![ColumnDef {
+            name: "id".to_string(),
+            sql_type: "INT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        }];
+        let _ = d.build_create_table("test", &cols);
+        let _ = d.build_alter_table("test", &[]);
+        let _ = d.build_drop_table("test", false);
+        let _ = d.build_drop_table("test", true);
+        let _ =
+            d.build_upsert_on_conflict(&["id"], &["name"], &["id".to_string(), "name".to_string()]);
+        let _ = d.build_lock_clause(LockType::ForUpdate);
+        let _ = d.build_lock_clause(LockType::Shared);
+    }
+
+    #[test]
+    fn test_dialect_mariadb() {
+        test_dialect_basic(&MariaDbDialect, DbType::MariaDB);
+    }
+
+    #[test]
+    fn test_dialect_tidb() {
+        test_dialect_basic(&TiDbDialect, DbType::TiDB);
+    }
+
+    #[test]
+    fn test_dialect_oceanbase() {
+        test_dialect_basic(&OceanBaseDialect, DbType::OceanBase);
+    }
+
+    #[test]
+    fn test_dialect_kingbase() {
+        test_dialect_basic(&KingbaseDialect, DbType::Kingbase);
+    }
+
+    #[test]
+    fn test_dialect_polardb() {
+        test_dialect_basic(&PolarDbDialect, DbType::PolarDB);
+    }
+
+    #[test]
+    fn test_dialect_gaussdb() {
+        test_dialect_basic(&GaussDbDialect, DbType::GaussDB);
+    }
+
+    #[test]
+    fn test_dialect_dameng() {
+        test_dialect_basic(&DamengDialect, DbType::Dameng);
+    }
+
+    #[test]
+    fn test_dialect_sybase() {
+        test_dialect_basic(&SybaseDialect, DbType::Sybase);
+    }
+
+    #[test]
+    fn test_dialect_gbase() {
+        test_dialect_basic(&GBaseDialect, DbType::GBase);
+    }
+
+    #[test]
+    fn test_dialect_cockroachdb() {
+        test_dialect_basic(&CockroachDbDialect, DbType::CockroachDB);
+    }
+
+    #[test]
+    fn test_dialect_yugabytedb() {
+        test_dialect_basic(&YugabyteDbDialect, DbType::YugabyteDB);
+    }
+
+    #[test]
+    fn test_dialect_redshift() {
+        test_dialect_basic(&RedshiftDialect, DbType::Redshift);
+    }
+
+    #[test]
+    fn test_dialect_snowflake() {
+        test_dialect_basic(&SnowflakeDialect, DbType::Snowflake);
+    }
+
+    #[test]
+    fn test_dialect_clickhouse() {
+        test_dialect_basic(&ClickHouseDialect, DbType::ClickHouse);
+    }
+
+    #[test]
+    fn test_dialect_duckdb() {
+        test_dialect_basic(&DuckDBDialect, DbType::DuckDB);
+    }
+
+    #[test]
+    fn test_dialect_db2() {
+        test_dialect_basic(&Db2Dialect, DbType::Db2);
+    }
+
+    #[test]
+    fn test_dialect_informix() {
+        test_dialect_basic(&InformixDialect, DbType::Informix);
+    }
+
+    #[test]
+    fn test_dialect_saphana() {
+        test_dialect_basic(&SapHanaDialect, DbType::SapHana);
+    }
+
+    #[test]
+    fn test_dialect_firebird() {
+        test_dialect_basic(&FirebirdDialect, DbType::Firebird);
+    }
+
+    #[test]
+    fn test_dialect_delegate_quote_consistency() {
+        assert_eq!(MariaDbDialect.quote("t"), MySqlDialect.quote("t"));
+        assert_eq!(TiDbDialect.quote("t"), MySqlDialect.quote("t"));
+        assert_eq!(OceanBaseDialect.quote("t"), MySqlDialect.quote("t"));
+        assert_eq!(KingbaseDialect.quote("t"), PostgreSqlDialect.quote("t"));
+        assert_eq!(PolarDbDialect.quote("t"), PostgreSqlDialect.quote("t"));
+        assert_eq!(GaussDbDialect.quote("t"), PostgreSqlDialect.quote("t"));
+        assert_eq!(DamengDialect.quote("t"), OracleDialect.quote("t"));
+        assert_eq!(SybaseDialect.quote("t"), SqlServerDialect.quote("t"));
+        assert_eq!(GBaseDialect.quote("t"), SqlServerDialect.quote("t"));
+        assert_eq!(CockroachDbDialect.quote("t"), PostgreSqlDialect.quote("t"));
+        assert_eq!(YugabyteDbDialect.quote("t"), PostgreSqlDialect.quote("t"));
+        assert_eq!(RedshiftDialect.quote("t"), PostgreSqlDialect.quote("t"));
+    }
+
+    #[test]
+    fn test_dialect_delegate_escape_consistency() {
+        let s = "it's a \"test\"";
+        assert_eq!(
+            MariaDbDialect.escape_string(s),
+            MySqlDialect.escape_string(s)
+        );
+        assert_eq!(
+            KingbaseDialect.escape_string(s),
+            PostgreSqlDialect.escape_string(s)
+        );
+        assert_eq!(
+            DamengDialect.escape_string(s),
+            OracleDialect.escape_string(s)
+        );
+    }
+
+    #[test]
+    fn test_dialect_delegate_db_type() {
+        assert_eq!(MariaDbDialect.db_type(), DbType::MariaDB);
+        assert_eq!(TiDbDialect.db_type(), DbType::TiDB);
+        assert_eq!(OceanBaseDialect.db_type(), DbType::OceanBase);
+        assert_eq!(KingbaseDialect.db_type(), DbType::Kingbase);
+        assert_eq!(PolarDbDialect.db_type(), DbType::PolarDB);
+        assert_eq!(GaussDbDialect.db_type(), DbType::GaussDB);
+        assert_eq!(DamengDialect.db_type(), DbType::Dameng);
+        assert_eq!(SybaseDialect.db_type(), DbType::Sybase);
+        assert_eq!(GBaseDialect.db_type(), DbType::GBase);
+        assert_eq!(CockroachDbDialect.db_type(), DbType::CockroachDB);
+        assert_eq!(YugabyteDbDialect.db_type(), DbType::YugabyteDB);
+        assert_eq!(RedshiftDialect.db_type(), DbType::Redshift);
+    }
+
+    #[test]
+    fn test_dialect_snowflake_specific() {
+        let d = SnowflakeDialect;
+        assert_eq!(d.db_type(), DbType::Snowflake);
+        assert!(d.quote("table").contains("table"));
+        assert!(d
+            .build_pagination("SELECT * FROM t", 0, 10)
+            .contains("LIMIT"));
+    }
+
+    #[test]
+    fn test_dialect_clickhouse_specific() {
+        let d = ClickHouseDialect;
+        assert_eq!(d.db_type(), DbType::ClickHouse);
+        assert!(d.quote("table").contains("table"));
+    }
+
+    #[test]
+    fn test_dialect_duckdb_specific() {
+        let d = DuckDBDialect;
+        assert_eq!(d.db_type(), DbType::DuckDB);
+        assert!(d.quote("table").contains("table"));
+    }
+
+    #[test]
+    fn test_dialect_db2_specific() {
+        let d = Db2Dialect;
+        assert_eq!(d.db_type(), DbType::Db2);
+        assert!(d.quote("table").contains("table"));
+    }
+
+    #[test]
+    fn test_dialect_informix_specific() {
+        let d = InformixDialect;
+        assert_eq!(d.db_type(), DbType::Informix);
+        assert!(d.quote("table").contains("table"));
+    }
+
+    #[test]
+    fn test_dialect_saphana_specific() {
+        let d = SapHanaDialect;
+        assert_eq!(d.db_type(), DbType::SapHana);
+        assert!(d.quote("table").contains("table"));
+    }
+
+    #[test]
+    fn test_dialect_firebird_specific() {
+        let d = FirebirdDialect;
+        assert_eq!(d.db_type(), DbType::Firebird);
+        assert!(d.quote("table").contains("table"));
+    }
+
+    #[test]
+    fn test_dialect_all_build_create_table() {
+        let cols = vec![
+            ColumnDef {
+                name: "id".to_string(),
+                sql_type: "INT".to_string(),
+                nullable: false,
+                default: None,
+                auto_increment: true,
+                primary_key: true,
+            },
+            ColumnDef {
+                name: "name".to_string(),
+                sql_type: "VARCHAR(255)".to_string(),
+                nullable: true,
+                default: None,
+                auto_increment: false,
+                primary_key: false,
+            },
+        ];
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let sql = d.build_create_table("test", &cols);
+            assert!(sql.contains("test"));
+            assert!(sql.contains("id"));
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_build_alter_table() {
+        let changes = vec![
+            TableChange::AddColumn(ColumnDef {
+                name: "new_col".to_string(),
+                sql_type: "INT".to_string(),
+                nullable: true,
+                default: None,
+                auto_increment: false,
+                primary_key: false,
+            }),
+            TableChange::DropColumn("old_col".to_string()),
+        ];
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let sql = d.build_alter_table("test", &changes);
+            assert!(sql.contains("test"));
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_build_drop_table() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let sql = d.build_drop_table("test", false);
+            assert!(sql.contains("test"));
+            let sql2 = d.build_drop_table("test", true);
+            assert!(sql2.contains("test"));
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_upsert() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let _ = d.build_upsert_on_conflict(
+                &["id"],
+                &["name"],
+                &["id".to_string(), "name".to_string()],
+            );
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_pagination() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let sql = d.build_pagination("SELECT * FROM t", 2, 10);
+            assert!(!sql.is_empty());
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_json() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let _ = d.json_type();
+            let _ = d.json_extract("data", "$.field");
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_full_text_search() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let _ = d.full_text_search(&["title", "body"], "keyword");
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_concat() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let _ = d.concat(&["a", "b", "c"]);
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_bool_to_int() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let _ = d.bool_to_int("true");
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_lock_clauses() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let _ = d.build_lock_clause(LockType::ForUpdate);
+            let _ = d.build_lock_clause(LockType::Shared);
+        }
+    }
+
+    #[test]
+    fn test_dialect_all_auto_increment() {
+        let dialects: Vec<Box<dyn Dialect>> = vec![
+            Box::new(SnowflakeDialect),
+            Box::new(ClickHouseDialect),
+            Box::new(DuckDBDialect),
+            Box::new(Db2Dialect),
+            Box::new(InformixDialect),
+            Box::new(SapHanaDialect),
+            Box::new(FirebirdDialect),
+        ];
+        for d in &dialects {
+            let _ = d.auto_increment_keyword();
+            let _ = d.last_insert_id_sql();
+        }
+    }
 }

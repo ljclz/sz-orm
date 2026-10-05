@@ -569,4 +569,327 @@ mod core_link_protector_tests {
             "simplified_result"
         );
     }
+
+    // ========================================================================
+    // T22 新增测试：覆盖 degradation.rs 全部 pub fn/method 核心路径与边界
+    // ========================================================================
+
+    #[test]
+    fn t22_degradation_strategy_as_str_all_variants() {
+        assert_eq!(DegradationStrategy::ReturnCache.as_str(), "return_cache");
+        assert_eq!(
+            DegradationStrategy::ReturnDefault.as_str(),
+            "return_default"
+        );
+        assert_eq!(DegradationStrategy::FastFail.as_str(), "fast_fail");
+        assert_eq!(DegradationStrategy::Cache.as_str(), "cache");
+        assert_eq!(DegradationStrategy::DefaultValue.as_str(), "default_value");
+        assert_eq!(
+            DegradationStrategy::SimplifiedResult.as_str(),
+            "simplified_result"
+        );
+    }
+
+    #[test]
+    fn t22_degradation_result_from_cache_basic() {
+        let row: HashMap<String, String> =
+            [("k".to_string(), "v".to_string())].into_iter().collect();
+        let result = DegradationResult::from_cache(vec![row.clone()]);
+        assert!(result.is_degraded);
+        assert!(!result.mismatch_warning);
+        assert_eq!(
+            result.degradation_strategy,
+            DegradationStrategy::ReturnCache
+        );
+        let data = result.data.expect("data should be Some");
+        assert_eq!(data.len(), 1);
+        assert_eq!(data[0].get("k").map(String::as_str), Some("v"));
+    }
+
+    #[test]
+    fn t22_degradation_result_from_default_basic() {
+        let result = DegradationResult::from_default();
+        assert!(result.is_degraded);
+        assert!(!result.mismatch_warning);
+        assert_eq!(
+            result.degradation_strategy,
+            DegradationStrategy::ReturnDefault
+        );
+        assert_eq!(result.data.expect("data should be Some").len(), 0);
+    }
+
+    #[test]
+    fn t22_degradation_result_fast_fail_basic() {
+        let result = DegradationResult::fast_fail();
+        assert!(result.is_degraded);
+        assert!(!result.mismatch_warning);
+        assert_eq!(result.degradation_strategy, DegradationStrategy::FastFail);
+        assert!(result.data.is_none());
+    }
+
+    #[test]
+    fn t22_degradation_result_with_mismatch_warning_chain() {
+        let result = DegradationResult::from_default().with_mismatch_warning();
+        assert!(result.mismatch_warning);
+        assert!(result.is_degraded);
+        let result = DegradationResult::fast_fail().with_mismatch_warning();
+        assert!(result.mismatch_warning);
+        assert!(result.data.is_none());
+    }
+
+    #[test]
+    fn t22_cache_degradation_new_and_default_handle_miss() {
+        let handler = CacheDegradation::new();
+        assert_eq!(handler.strategy(), DegradationStrategy::ReturnCache);
+        let err = handler.handle("fp_missing").unwrap_err();
+        assert_eq!(err, DegradationError::CacheMiss("fp_missing".to_string()));
+
+        let default_handler = CacheDegradation::default();
+        assert_eq!(
+            default_handler.handle("any").unwrap_err(),
+            DegradationError::CacheMiss("any".to_string())
+        );
+    }
+
+    #[test]
+    fn t22_cache_degradation_with_cache_prepopulated_hit() {
+        let row: HashMap<String, String> =
+            [("col".to_string(), "1".to_string())].into_iter().collect();
+        let mut map: HashMap<String, Vec<HashMap<String, String>>> = HashMap::new();
+        map.insert("fp1".to_string(), vec![row]);
+        let handler = CacheDegradation::with_cache(map);
+        let result = handler.handle("fp1").unwrap();
+        assert!(result.is_degraded);
+        assert_eq!(
+            result.degradation_strategy,
+            DegradationStrategy::ReturnCache
+        );
+        assert_eq!(
+            result.data.as_ref().unwrap()[0]
+                .get("col")
+                .map(String::as_str),
+            Some("1")
+        );
+        // 未命中分支
+        let err = handler.handle("fp2").unwrap_err();
+        assert_eq!(err, DegradationError::CacheMiss("fp2".to_string()));
+    }
+
+    #[test]
+    fn t22_cache_degradation_insert_then_handle_hit() {
+        let mut handler = CacheDegradation::new();
+        let row: HashMap<String, String> =
+            [("a".to_string(), "b".to_string())].into_iter().collect();
+        handler.insert("fp_insert".to_string(), vec![row]);
+        let result = handler.handle("fp_insert").unwrap();
+        assert!(result.is_degraded);
+        assert_eq!(
+            result.data.as_ref().unwrap()[0]
+                .get("a")
+                .map(String::as_str),
+            Some("b")
+        );
+    }
+
+    #[test]
+    fn t22_default_degradation_handle_and_strategy() {
+        let handler = DefaultDegradation::new();
+        assert_eq!(handler.strategy(), DegradationStrategy::ReturnDefault);
+        let result = handler.handle("any_fp").unwrap();
+        assert!(result.is_degraded);
+        assert!(result.data.as_ref().unwrap().is_empty());
+        assert_eq!(
+            result.degradation_strategy,
+            DegradationStrategy::ReturnDefault
+        );
+
+        let default_handler = DefaultDegradation::new();
+        assert_eq!(
+            default_handler.strategy(),
+            DegradationStrategy::ReturnDefault
+        );
+    }
+
+    #[test]
+    fn t22_fast_fail_degradation_handle_and_strategy() {
+        let handler = FastFailDegradation::new();
+        assert_eq!(handler.strategy(), DegradationStrategy::FastFail);
+        let err = handler.handle("any_fp").unwrap_err();
+        assert_eq!(err, DegradationError::FastFail);
+
+        let default_handler = FastFailDegradation::new();
+        assert_eq!(default_handler.strategy(), DegradationStrategy::FastFail);
+        assert_eq!(
+            default_handler.handle("x").unwrap_err(),
+            DegradationError::FastFail
+        );
+    }
+
+    #[test]
+    fn t22_execute_with_degradation_normal_success() {
+        let handler = DefaultDegradation::new();
+        let row: HashMap<String, String> =
+            [("id".to_string(), "42".to_string())].into_iter().collect();
+        let result = execute_with_degradation(true, &handler, "fp", || Ok(vec![row])).unwrap();
+        assert!(!result.is_degraded);
+        assert!(!result.mismatch_warning);
+        assert_eq!(
+            result.degradation_strategy,
+            DegradationStrategy::ReturnDefault
+        );
+        assert_eq!(
+            result.data.as_ref().unwrap()[0]
+                .get("id")
+                .map(String::as_str),
+            Some("42")
+        );
+    }
+
+    #[test]
+    fn t22_execute_with_degradation_normal_error_fallback_to_handler() {
+        let handler = DefaultDegradation::new();
+        let result =
+            execute_with_degradation(true, &handler, "fp", || Err("db down".to_string())).unwrap();
+        assert!(result.is_degraded);
+        assert_eq!(
+            result.degradation_strategy,
+            DegradationStrategy::ReturnDefault
+        );
+        assert!(result.data.as_ref().unwrap().is_empty());
+    }
+
+    #[test]
+    fn t22_execute_with_degradation_cannot_execute_degrades() {
+        let handler = FastFailDegradation::new();
+        let result = execute_with_degradation(false, &handler, "fp", || Ok(vec![]));
+        assert!(result.is_err());
+        assert_eq!(result.unwrap_err(), DegradationError::FastFail);
+    }
+
+    #[test]
+    fn t22_execute_with_degradation_cannot_execute_with_cache_handler_miss() {
+        let handler = CacheDegradation::new();
+        let result = execute_with_degradation(false, &handler, "fp_x", || Ok(vec![]));
+        assert!(result.is_err());
+        assert_eq!(
+            result.unwrap_err(),
+            DegradationError::CacheMiss("fp_x".to_string())
+        );
+    }
+
+    #[test]
+    fn t22_degradation_error_variants_display() {
+        let cache_miss = DegradationError::CacheMiss("qfp".to_string());
+        assert_eq!(
+            cache_miss.to_string(),
+            "cache miss for query fingerprint: qfp"
+        );
+        let fast_fail = DegradationError::FastFail;
+        assert_eq!(fast_fail.to_string(), "fast fail: circuit breaker open");
+        let mismatch = DegradationError::DataMismatch("qfp2".to_string());
+        assert_eq!(
+            mismatch.to_string(),
+            "degradation data mismatch for query fingerprint: qfp2"
+        );
+    }
+
+    #[test]
+    fn t22_degrade_error_core_link_not_degradable_display() {
+        let err = DegradeError::CoreLinkNotDegradable("payment/charge".to_string());
+        assert_eq!(
+            err.to_string(),
+            "core link request cannot be degraded: payment/charge"
+        );
+    }
+
+    /// T22.1 降级策略按优先级关闭非核心功能：触发资源紧张降级，
+    /// 断言非核心功能被降级（返回合理降级值），核心功能保持可用（拒绝降级、走原始路径）。
+    #[tokio::test]
+    async fn t22_priority_degrade_non_core_while_core_preserved() {
+        let protector = CoreLinkProtector::new();
+
+        // 资源紧张：断路器熔断（连续失败达阈值）
+        let breaker = DefaultCircuitBreaker::new(2, Duration::from_secs(60));
+        let protector = protector.with_circuit_breaker(breaker);
+        protector.record_failure();
+        protector.record_failure();
+        assert_eq!(protector.state(), CircuitState::Open);
+        assert!(!protector.can_execute());
+
+        // 非核心请求被降级（按优先级选择 Cache 策略，未命中返回空集合）
+        let non_core = protector
+            .degrade_non_core("report/list", DegradationStrategy::Cache)
+            .await
+            .unwrap();
+        assert_eq!(non_core, serde_json::Value::Array(vec![]));
+
+        // 非核心请求按 DefaultValue 策略降级
+        let non_core_default = protector
+            .degrade_non_core("stats/summary", DegradationStrategy::DefaultValue)
+            .await
+            .unwrap();
+        assert_eq!(non_core_default, serde_json::Value::Array(vec![]));
+
+        // 非核心请求按 SimplifiedResult 策略降级
+        let non_core_simplified = protector
+            .degrade_non_core("recommend/feed", DegradationStrategy::SimplifiedResult)
+            .await
+            .unwrap();
+        assert_eq!(non_core_simplified["simplified"], true);
+
+        // 核心功能保持可用：核心链路请求拒绝降级，调用方应走原始执行路径
+        let core_payment = protector
+            .degrade_non_core("payment/charge", DegradationStrategy::Cache)
+            .await;
+        assert!(core_payment.is_err());
+        assert_eq!(
+            core_payment.unwrap_err(),
+            DegradeError::CoreLinkNotDegradable("payment/charge".to_string())
+        );
+
+        let core_order = protector
+            .degrade_non_core("order/create", DegradationStrategy::DefaultValue)
+            .await;
+        assert!(core_order.is_err());
+
+        // 核心链路识别仍然有效（即使断路器 Open，核心请求也不被降级）
+        assert!(protector.is_core_link("payment/charge"));
+        assert!(protector.is_core_link("order/create"));
+        assert!(!protector.is_core_link("report/list"));
+    }
+
+    #[tokio::test]
+    async fn t22_priority_degrade_non_core_cache_hit_preserved() {
+        // 资源紧张降级时，若缓存命中，非核心功能返回缓存值（优先级最高，避免空响应）
+        let protector = CoreLinkProtector::new();
+        protector.set_cache(
+            "report/list".to_string(),
+            serde_json::json!({"items": [1, 2, 3]}),
+        );
+        let value = protector
+            .degrade_non_core("report/list", DegradationStrategy::Cache)
+            .await
+            .unwrap();
+        assert_eq!(value, serde_json::json!({"items": [1, 2, 3]}));
+
+        // ReturnCache 等价策略同样命中
+        let value_legacy = protector
+            .degrade_non_core("report/list", DegradationStrategy::ReturnCache)
+            .await
+            .unwrap();
+        assert_eq!(value_legacy, serde_json::json!({"items": [1, 2, 3]}));
+    }
+
+    #[tokio::test]
+    async fn t22_priority_degrade_fast_fail_strategy_returns_simplified() {
+        // FastFail 策略在保护器语境下不返回错误，而是返回简化结果
+        let protector = CoreLinkProtector::new();
+        let value = protector
+            .degrade_non_core("analytics/track", DegradationStrategy::FastFail)
+            .await
+            .unwrap();
+        assert_eq!(value["simplified"], true);
+        assert_eq!(value["fast_fail"], true);
+        assert_eq!(value["request"], "analytics/track");
+    }
 }

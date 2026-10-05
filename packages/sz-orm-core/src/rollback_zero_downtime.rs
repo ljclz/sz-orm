@@ -890,4 +890,287 @@ mod tests {
         assert!(trigger.is_running());
         trigger.stop();
     }
+
+    // ===== T16 新增测试（零停机回滚覆盖率补强） =====
+
+    #[test]
+    fn t16_rollback_error_all_display_variants() {
+        let err = RollbackError::RollbackFailed("syntax error".to_string());
+        assert!(err.to_string().contains("rollback SQL execution failed"));
+        assert!(err.to_string().contains("syntax error"));
+        let err = RollbackError::HealthCheckFailed("timeout".to_string());
+        assert!(err.to_string().contains("health check failed"));
+        assert!(err.to_string().contains("timeout"));
+        let err = RollbackError::NotConfigured("missing window".to_string());
+        assert!(err.to_string().contains("not configured"));
+        assert!(err.to_string().contains("missing window"));
+    }
+
+    #[test]
+    fn t16_rollback_error_from_db_error() {
+        let db_err = DbError::MigrationError("version 003 not found".to_string());
+        let rollback_err: RollbackError = db_err.into();
+        match rollback_err {
+            RollbackError::RollbackFailed(msg) => assert!(msg.contains("version 003 not found")),
+            _ => panic!("expected RollbackFailed variant"),
+        }
+    }
+
+    #[test]
+    fn t16_rollback_error_serde_roundtrip() {
+        let errors = vec![
+            RollbackError::WindowExpired,
+            RollbackError::ConsistencyCheckFailed("mismatch".to_string()),
+            RollbackError::RollbackFailed("fail".to_string()),
+            RollbackError::HealthCheckFailed("timeout".to_string()),
+            RollbackError::NotConfigured("missing".to_string()),
+        ];
+        for err in &errors {
+            let json = serde_json::to_string(err).unwrap();
+            let decoded: RollbackError = serde_json::from_str(&json).unwrap();
+            assert_eq!(*err, decoded);
+        }
+    }
+
+    #[test]
+    fn t16_health_status_serde_roundtrip() {
+        let healthy = HealthStatus::Healthy;
+        let json = serde_json::to_string(&healthy).unwrap();
+        assert_eq!(healthy, serde_json::from_str(&json).unwrap());
+
+        let unhealthy = HealthStatus::Unhealthy {
+            error_rate: 0.12,
+            response_time_ms: 8_000,
+        };
+        let json = serde_json::to_string(&unhealthy).unwrap();
+        assert_eq!(unhealthy, serde_json::from_str(&json).unwrap());
+    }
+
+    #[test]
+    fn t16_config_default_trait_eq_new() {
+        let config1 = ZeroDowntimeRollbackConfig::default();
+        let config2 = ZeroDowntimeRollbackConfig::new();
+        assert_eq!(config1.strategy, config2.strategy);
+        assert_eq!(config1.rollback_window_ms, config2.rollback_window_ms);
+        assert_eq!(
+            config1.health_check_interval_ms,
+            config2.health_check_interval_ms
+        );
+        assert_eq!(
+            config1.health_check_failure_threshold,
+            config2.health_check_failure_threshold
+        );
+        assert_eq!(
+            config1.response_time_threshold_ms,
+            config2.response_time_threshold_ms
+        );
+    }
+
+    #[test]
+    fn t16_rollback_window_accessors() {
+        let window = RollbackWindow::new(180_000);
+        assert_eq!(window.window_ms(), 180_000);
+        assert!(window.deployed_at() > 0);
+    }
+
+    #[test]
+    fn t16_rollback_plan_with_migrations() {
+        let m1 = Migration::new(
+            "001",
+            "create_users",
+            "CREATE TABLE users (id INT)",
+            "DROP TABLE users",
+        );
+        let m2 = Migration::new(
+            "002",
+            "add_email",
+            "ALTER TABLE users ADD email TEXT",
+            "ALTER TABLE users DROP COLUMN email",
+        );
+        let plan = RollbackPlan::new("001", ZeroDowntimeRollbackStrategy::ShadowTable)
+            .with_migrations(vec![m1, m2]);
+        assert_eq!(plan.target_version, "001");
+        assert_eq!(plan.strategy, ZeroDowntimeRollbackStrategy::ShadowTable);
+        assert_eq!(plan.migrations_to_rollback.len(), 2);
+        assert_eq!(plan.migrations_to_rollback[1].version, "002");
+    }
+
+    #[tokio::test]
+    async fn t16_health_check_new_defaults() {
+        let config = ZeroDowntimeRollbackConfig::new();
+        let hc = HealthCheck::new(&config);
+        assert_eq!(hc.consecutive_failures(), 0);
+        assert!(!hc.should_trigger_rollback());
+    }
+
+    #[tokio::test]
+    async fn t16_health_check_error_rate_equal_threshold_is_healthy() {
+        let config = ZeroDowntimeRollbackConfig::new();
+        let mut hc = HealthCheck::new(&config);
+        hc.set_metrics(0.05, 100);
+        let status = hc.check().await.unwrap();
+        assert_eq!(status, HealthStatus::Healthy);
+        assert_eq!(hc.consecutive_failures(), 0);
+    }
+
+    #[tokio::test]
+    async fn t16_health_check_response_time_equal_threshold_is_healthy() {
+        let config = ZeroDowntimeRollbackConfig::new();
+        let mut hc = HealthCheck::new(&config);
+        hc.set_metrics(0.01, 5_000);
+        let status = hc.check().await.unwrap();
+        assert_eq!(status, HealthStatus::Healthy);
+        assert_eq!(hc.consecutive_failures(), 0);
+    }
+
+    #[tokio::test]
+    async fn t16_rollback_executor_migrator_accessors() {
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        assert_eq!(executor.migrator().get_migrations().len(), 2);
+        assert_eq!(executor.migrator_mut().get_migrations().len(), 2);
+    }
+
+    #[tokio::test]
+    async fn t16_rollback_executor_shadow_table_empty_down_sql() {
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let migration = Migration::new("003", "noop", "SELECT 1", "");
+        let plan = RollbackPlan::new("003", ZeroDowntimeRollbackStrategy::ShadowTable)
+            .with_migrations(vec![migration]);
+        let result = executor.execute(&plan).await;
+        assert!(result.is_ok());
+        assert!(result.unwrap().success);
+    }
+
+    #[tokio::test]
+    async fn t16_rollback_executor_reverse_migration_empty_target() {
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let plan = RollbackPlan::new("", ZeroDowntimeRollbackStrategy::ReverseMigration);
+        let result = executor.execute(&plan).await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert!(r.version.is_empty());
+        assert!(r.success);
+    }
+
+    #[tokio::test]
+    async fn t16_auto_trigger_with_metrics_builder() {
+        let config = ZeroDowntimeRollbackConfig::new();
+        let window = RollbackWindow::new(300_000);
+        let mut trigger = AutoRollbackTrigger::new(config, window).with_metrics(0.1, 100);
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let plan = RollbackPlan::new("001", ZeroDowntimeRollbackStrategy::ReverseMigration);
+        let _ = trigger.evaluate_and_trigger(&plan, &mut executor).await;
+        assert_eq!(trigger.health_check().consecutive_failures(), 1);
+    }
+
+    #[tokio::test]
+    async fn t16_auto_trigger_health_check_mut_accessor() {
+        let config = ZeroDowntimeRollbackConfig::new();
+        let window = RollbackWindow::new(300_000);
+        let mut trigger = AutoRollbackTrigger::new(config, window);
+        trigger.health_check_mut().set_metrics(0.1, 100);
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let plan = RollbackPlan::new("001", ZeroDowntimeRollbackStrategy::ReverseMigration);
+        let _ = trigger.evaluate_and_trigger(&plan, &mut executor).await;
+        assert_eq!(trigger.health_check().consecutive_failures(), 1);
+    }
+
+    #[test]
+    fn t16_auto_trigger_window_config_accessors() {
+        let config = ZeroDowntimeRollbackConfig::new()
+            .with_rollback_window_ms(120_000)
+            .with_health_check_interval_ms(2_000);
+        let window = RollbackWindow::new(120_000);
+        let trigger = AutoRollbackTrigger::new(config, window);
+        assert_eq!(trigger.config().rollback_window_ms, 120_000);
+        assert_eq!(trigger.config().health_check_interval_ms, 2_000);
+        assert_eq!(trigger.window().window_ms(), 120_000);
+        assert!(trigger.window().is_within_window());
+    }
+
+    #[tokio::test]
+    async fn t16_auto_trigger_run_loop_not_running_returns_immediately() {
+        let config = ZeroDowntimeRollbackConfig::new();
+        let window = RollbackWindow::new(300_000);
+        let mut trigger = AutoRollbackTrigger::new(config, window);
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let plan = RollbackPlan::new("001", ZeroDowntimeRollbackStrategy::ReverseMigration);
+        assert!(!trigger.is_running());
+        let result = trigger.run_loop(&plan, &mut executor).await;
+        assert!(result.is_ok());
+    }
+
+    #[tokio::test]
+    async fn t16_auto_trigger_evaluate_blue_green_strategy() {
+        let config = ZeroDowntimeRollbackConfig::new().with_health_check_failure_threshold(1);
+        let window = RollbackWindow::new(300_000);
+        let mut trigger = AutoRollbackTrigger::new(config, window);
+        trigger.set_metrics(0.1, 100);
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let plan = RollbackPlan::new("001", ZeroDowntimeRollbackStrategy::BlueGreen);
+        let result = trigger.evaluate_and_trigger(&plan, &mut executor).await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.strategy, ZeroDowntimeRollbackStrategy::BlueGreen);
+        assert!(r.success);
+        let logs = trigger.get_logs();
+        assert_eq!(logs.len(), 1);
+        assert_eq!(logs[0].strategy, ZeroDowntimeRollbackStrategy::BlueGreen);
+    }
+
+    #[tokio::test]
+    async fn t16_auto_trigger_evaluate_shadow_table_strategy() {
+        let config = ZeroDowntimeRollbackConfig::new().with_health_check_failure_threshold(1);
+        let window = RollbackWindow::new(300_000);
+        let mut trigger = AutoRollbackTrigger::new(config, window);
+        trigger.set_metrics(0.1, 100);
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let plan = RollbackPlan::new("001", ZeroDowntimeRollbackStrategy::ShadowTable)
+            .with_migrations(vec![]);
+        let result = trigger.evaluate_and_trigger(&plan, &mut executor).await;
+        assert!(result.is_ok());
+        let r = result.unwrap();
+        assert_eq!(r.strategy, ZeroDowntimeRollbackStrategy::ShadowTable);
+        assert!(r.success);
+        assert_eq!(trigger.get_logs().len(), 1);
+    }
+
+    #[test]
+    fn t16_rollback_result_serde_roundtrip() {
+        let result = RollbackResult {
+            version: "002".to_string(),
+            strategy: ZeroDowntimeRollbackStrategy::BlueGreen,
+            elapsed_ms: 1_500,
+            success: true,
+        };
+        let json = serde_json::to_string(&result).unwrap();
+        let decoded: RollbackResult = serde_json::from_str(&json).unwrap();
+        assert_eq!(decoded.version, "002");
+        assert_eq!(decoded.strategy, ZeroDowntimeRollbackStrategy::BlueGreen);
+        assert_eq!(decoded.elapsed_ms, 1_500);
+        assert!(decoded.success);
+    }
+
+    #[tokio::test]
+    async fn t16_auto_trigger_log_capacity_capped_at_10000() {
+        let config = ZeroDowntimeRollbackConfig::new().with_health_check_failure_threshold(1);
+        let window = RollbackWindow::new(300_000);
+        let mut trigger = AutoRollbackTrigger::new(config, window);
+        trigger.set_metrics(0.1, 100);
+        let migrator = make_migrator();
+        let mut executor = RollbackExecutor::new(migrator);
+        let plan = RollbackPlan::new("001", ZeroDowntimeRollbackStrategy::BlueGreen);
+        for _ in 0..10_001 {
+            let _ = trigger.evaluate_and_trigger(&plan, &mut executor).await;
+        }
+        assert_eq!(trigger.get_logs().len(), 10_000);
+    }
 }

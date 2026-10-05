@@ -605,4 +605,226 @@ pub fn insert(table: String, data: Vec<u8>) -> i64 {
         let err2 = SdkGenError::SignatureMismatch("diff".to_string());
         assert!(format!("{}", err2).contains("SDK_GEN_SIGNATURE_MISMATCH"));
     }
+
+    #[test]
+    fn t17_error_display_unsupported_language() {
+        let err = SdkGenError::UnsupportedLanguage("ruby".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("SDK_GEN_UNSUPPORTED_LANGUAGE"));
+        assert!(msg.contains("ruby"));
+    }
+
+    #[test]
+    fn t17_error_display_empty_api() {
+        let err = SdkGenError::EmptyApiDefinition;
+        let msg = format!("{}", err);
+        assert!(msg.contains("SDK_GEN_EMPTY_API"));
+        assert!(msg.contains("API 定义为空"));
+    }
+
+    #[test]
+    fn t17_error_display_security_scan_failed() {
+        let err = SdkGenError::SecurityScanFailed("leak".to_string());
+        let msg = format!("{}", err);
+        assert!(msg.contains("SDK_GEN_SECURITY_SCAN_FAILED"));
+        assert!(msg.contains("leak"));
+    }
+
+    #[test]
+    fn t17_language_parse_str_aliases() {
+        assert_eq!(SdkLanguage::parse_str("py"), Some(SdkLanguage::Python));
+        assert_eq!(SdkLanguage::parse_str("ts"), Some(SdkLanguage::TypeScript));
+        assert_eq!(SdkLanguage::parse_str("cpp"), Some(SdkLanguage::Cpp));
+    }
+
+    #[test]
+    fn t17_language_parse_str_empty_and_unknown() {
+        assert_eq!(SdkLanguage::parse_str(""), None);
+        assert_eq!(SdkLanguage::parse_str("rust"), None);
+        assert_eq!(SdkLanguage::parse_str("kotlin"), None);
+    }
+
+    #[test]
+    fn t17_language_parse_str_mixed_case() {
+        assert_eq!(SdkLanguage::parse_str("PyThOn"), Some(SdkLanguage::Python));
+        assert_eq!(SdkLanguage::parse_str("JAVA"), Some(SdkLanguage::Java));
+        assert_eq!(SdkLanguage::parse_str("Go"), Some(SdkLanguage::Go));
+        assert_eq!(SdkLanguage::parse_str("CPP"), Some(SdkLanguage::Cpp));
+        assert_eq!(SdkLanguage::parse_str("TS"), Some(SdkLanguage::TypeScript));
+    }
+
+    #[test]
+    fn t17_api_def_new_empty() {
+        let def = ApiDefinition::new("empty_def");
+        assert_eq!(def.name, "empty_def");
+        assert!(def.signatures.is_empty());
+    }
+
+    #[test]
+    fn t17_api_def_add_signature_chain() {
+        let mut def = ApiDefinition::new("chain");
+        def.add_signature(ApiSignature {
+            name: "f1".to_string(),
+            params: vec![],
+            return_type: "()".to_string(),
+            doc: String::new(),
+        })
+        .add_signature(ApiSignature {
+            name: "f2".to_string(),
+            params: vec![],
+            return_type: "()".to_string(),
+            doc: String::new(),
+        });
+        assert_eq!(def.signatures.len(), 2);
+        assert_eq!(def.signatures[0].name, "f1");
+        assert_eq!(def.signatures[1].name, "f2");
+    }
+
+    #[test]
+    fn t17_from_rust_source_empty() {
+        let def = ApiDefinition::from_rust_source("empty", "");
+        assert!(def.signatures.is_empty());
+        assert_eq!(def.name, "empty");
+    }
+
+    #[test]
+    fn t17_from_rust_source_no_pub_fn() {
+        let source = "fn private() {}\nstruct Foo;\n";
+        let def = ApiDefinition::from_rust_source("no_pub", source);
+        assert!(def.signatures.is_empty());
+    }
+
+    #[test]
+    fn t17_from_rust_source_self_params_filtered() {
+        let source = "pub fn method(&self, x: i32) -> bool { true }\n";
+        let def = ApiDefinition::from_rust_source("self_test", source);
+        assert_eq!(def.signatures.len(), 1);
+        assert_eq!(def.signatures[0].name, "method");
+        assert_eq!(def.signatures[0].params.len(), 1);
+        assert_eq!(def.signatures[0].params[0].0, "x");
+        assert_eq!(def.signatures[0].params[0].1, "i32");
+        assert_eq!(def.signatures[0].return_type, "bool");
+    }
+
+    #[test]
+    fn t17_from_rust_source_no_return_type() {
+        let source = "pub fn fire_and_forget(x: i32) { }\n";
+        let def = ApiDefinition::from_rust_source("no_ret", source);
+        assert_eq!(def.signatures.len(), 1);
+        assert_eq!(def.signatures[0].return_type, "()");
+    }
+
+    #[test]
+    fn t17_from_rust_source_return_type_with_brace_semicolon() {
+        let source =
+            "pub fn with_brace() -> String { String::new() }\npub fn with_semi() -> i64;\n";
+        let def = ApiDefinition::from_rust_source("ret_types", source);
+        assert_eq!(def.signatures.len(), 2);
+        assert_eq!(def.signatures[0].return_type, "String");
+        assert_eq!(def.signatures[1].return_type, "i64");
+    }
+
+    #[test]
+    fn t17_pipeline_accessors() {
+        let def = make_api_def();
+        let langs = vec![SdkLanguage::Python, SdkLanguage::Go];
+        let pipeline = SdkAutoGenPipeline::new(def, langs);
+        assert_eq!(pipeline.api_def().name, "sz-orm-core");
+        assert_eq!(pipeline.api_def().signatures.len(), 2);
+        assert_eq!(pipeline.target_languages().len(), 2);
+        assert_eq!(pipeline.target_languages()[0], SdkLanguage::Python);
+        assert_eq!(pipeline.target_languages()[1], SdkLanguage::Go);
+    }
+
+    #[test]
+    fn t17_security_scan_failure_path() {
+        let mut def = ApiDefinition::new("leak");
+        def.add_signature(ApiSignature {
+            name: "__internal".to_string(),
+            params: vec![],
+            return_type: "()".to_string(),
+            doc: String::new(),
+        });
+        let pipeline = SdkAutoGenPipeline::new(def, vec![SdkLanguage::Python]);
+        let err = pipeline.generate().unwrap_err();
+        assert!(matches!(err, SdkGenError::SecurityScanFailed(_)));
+        let msg = format!("{}", err);
+        assert!(msg.contains("__internal"));
+    }
+
+    #[test]
+    fn t17_type_mapping_all_languages() {
+        let mut def = ApiDefinition::new("types");
+        def.add_signature(ApiSignature {
+            name: "op".to_string(),
+            params: vec![
+                ("a".to_string(), "i32".to_string()),
+                ("b".to_string(), "f64".to_string()),
+                ("c".to_string(), "bool".to_string()),
+                ("d".to_string(), "&str".to_string()),
+                ("e".to_string(), "Vec<u8>".to_string()),
+            ],
+            return_type: "i64".to_string(),
+            doc: String::new(),
+        });
+        let langs = vec![
+            SdkLanguage::Python,
+            SdkLanguage::Java,
+            SdkLanguage::Go,
+            SdkLanguage::Cpp,
+            SdkLanguage::TypeScript,
+        ];
+        let pipeline = SdkAutoGenPipeline::new(def, langs);
+        let artifacts = pipeline.generate().unwrap();
+        let java_code = &artifacts[1].code;
+        assert!(java_code
+            .contains("public static long op(long a, double b, boolean c, String d, Object e)"));
+        let go_code = &artifacts[2].code;
+        assert!(
+            go_code.contains("func op(a int32, b float64, c bool, d string, e interface{}) int64")
+        );
+        let cpp_code = &artifacts[3].code;
+        assert!(
+            cpp_code.contains("int64_t op(int32_t a, double b, bool c, std::string d, void* e);")
+        );
+        let ts_code = &artifacts[4].code;
+        assert!(ts_code.contains(
+            "export function op(a: number, b: number, c: boolean, d: string, e: any): number"
+        ));
+    }
+
+    #[test]
+    fn t17_sdk_schema_field_mapping() {
+        let source = r#"
+pub fn create_user(name: String, age: i32) -> i64 {
+    0
+}
+
+pub fn get_user(id: i64) -> String {
+    String::new()
+}
+
+pub fn delete_user(id: i64) -> bool {
+    true
+}
+"#;
+        let def = ApiDefinition::from_rust_source("user_api", source);
+        let pipeline = SdkAutoGenPipeline::new(def, vec![SdkLanguage::Python]);
+        let artifacts = pipeline.generate().unwrap();
+        let py_code = &artifacts[0].code;
+        assert!(py_code.contains("def create_user(name, age):"));
+        assert!(py_code.contains("def get_user(id):"));
+        assert!(py_code.contains("def delete_user(id):"));
+        assert_eq!(artifacts[0].function_count, 3);
+        let api = pipeline.api_def();
+        assert_eq!(api.signatures.len(), 3);
+        let expected_names = ["create_user", "get_user", "delete_user"];
+        for (sig, expected) in api.signatures.iter().zip(expected_names.iter()) {
+            assert_eq!(sig.name, *expected);
+            assert!(py_code.contains(&sig.name));
+        }
+        assert_eq!(api.signatures[0].params.len(), 2);
+        assert_eq!(api.signatures[1].params.len(), 1);
+        assert_eq!(api.signatures[2].params.len(), 1);
+    }
 }

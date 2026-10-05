@@ -561,4 +561,209 @@ mod tests {
         assert!(s.contains("1"));
         assert!(s.contains("2"));
     }
+
+    #[test]
+    fn t26vb_decimal_bytes_to_owned() {
+        let bytes = b"123.45";
+        let borrowed = BorrowedValue::DecimalBytes(bytes);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(owned, Value::Decimal("123.45".into()));
+    }
+
+    #[test]
+    fn t26vb_json_bytes_to_owned() {
+        let bytes = br#"{"k":"v"}"#;
+        let borrowed = BorrowedValue::JsonBytes(bytes);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(owned, Value::Json(r#"{"k":"v"}"#.into()));
+    }
+
+    #[test]
+    fn t26vb_bytes_ref_to_owned() {
+        let bytes = [1u8, 2, 3];
+        let borrowed = BorrowedValue::BytesRef(&bytes);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(owned, Value::Bytes(vec![1, 2, 3]));
+    }
+
+    #[test]
+    fn t26vb_datetime_int_to_owned() {
+        let borrowed = BorrowedValue::DateTimeInt(1700000000);
+        let owned = borrowed.to_owned_value();
+        assert_eq!(owned, Value::DateTime("1700000000".into()));
+    }
+
+    #[test]
+    fn t26vb_decimal_bytes_as_bytes() {
+        let bytes = b"123.45";
+        let borrowed = BorrowedValue::DecimalBytes(bytes);
+        assert_eq!(borrowed.as_bytes(), Some(&b"123.45"[..]));
+    }
+
+    #[test]
+    fn t26vb_json_bytes_as_bytes() {
+        let bytes = br#"{"k":1}"#;
+        let borrowed = BorrowedValue::JsonBytes(bytes);
+        assert_eq!(borrowed.as_bytes(), Some(&br#"{"k":1}"#[..]));
+    }
+
+    #[test]
+    fn t26vb_bytes_ref_as_bytes() {
+        let bytes = [1u8, 2, 3];
+        let borrowed = BorrowedValue::BytesRef(&bytes);
+        assert_eq!(borrowed.as_bytes(), Some(&[1u8, 2, 3][..]));
+    }
+
+    #[test]
+    fn t26vb_as_str_all_string_variants() {
+        let dec = BorrowedValue::Decimal(Cow::Borrowed("3.14"));
+        assert_eq!(dec.as_str(), Some("3.14"));
+        let uid = BorrowedValue::Uuid(Cow::Borrowed("550e8400"));
+        assert_eq!(uid.as_str(), Some("550e8400"));
+        let dt = BorrowedValue::Date(Cow::Borrowed("2026-01-01"));
+        assert_eq!(dt.as_str(), Some("2026-01-01"));
+        let dti = BorrowedValue::DateTime(Cow::Borrowed("2026-01-01T00:00:00"));
+        assert_eq!(dti.as_str(), Some("2026-01-01T00:00:00"));
+        let tm = BorrowedValue::Time(Cow::Borrowed("12:00:00"));
+        assert_eq!(tm.as_str(), Some("12:00:00"));
+        let js = BorrowedValue::Json(Cow::Borrowed("{}"));
+        assert_eq!(js.as_str(), Some("{}"));
+    }
+
+    #[test]
+    fn t26vb_display_all_numeric_variants() {
+        assert_eq!(format!("{}", BorrowedValue::Null), "NULL");
+        assert_eq!(format!("{}", BorrowedValue::Bool(true)), "true");
+        assert_eq!(format!("{}", BorrowedValue::I8(1)), "1");
+        assert_eq!(format!("{}", BorrowedValue::I16(2)), "2");
+        assert_eq!(format!("{}", BorrowedValue::I32(3)), "3");
+        assert_eq!(format!("{}", BorrowedValue::I64(4)), "4");
+        assert_eq!(format!("{}", BorrowedValue::U8(5)), "5");
+        assert_eq!(format!("{}", BorrowedValue::U16(6)), "6");
+        assert_eq!(format!("{}", BorrowedValue::U32(7)), "7");
+        assert_eq!(format!("{}", BorrowedValue::U64(8)), "8");
+        assert_eq!(format!("{}", BorrowedValue::F32(1.5)), "1.5");
+        assert_eq!(format!("{}", BorrowedValue::F64(2.5)), "2.5");
+    }
+
+    #[test]
+    fn t26vb_display_string_variants() {
+        assert_eq!(
+            format!("{}", BorrowedValue::Decimal(Cow::Borrowed("3.14"))),
+            "3.14"
+        );
+        assert_eq!(
+            format!("{}", BorrowedValue::String(Cow::Borrowed("hi"))),
+            "hi"
+        );
+        assert_eq!(
+            format!("{}", BorrowedValue::Uuid(Cow::Borrowed("uid"))),
+            "uid"
+        );
+        assert_eq!(format!("{}", BorrowedValue::Date(Cow::Borrowed("d"))), "d");
+        assert_eq!(
+            format!("{}", BorrowedValue::DateTime(Cow::Borrowed("dt"))),
+            "dt"
+        );
+        assert_eq!(format!("{}", BorrowedValue::Time(Cow::Borrowed("t"))), "t");
+        assert_eq!(format!("{}", BorrowedValue::Json(Cow::Borrowed("j"))), "j");
+    }
+
+    #[test]
+    fn t26vb_display_bytes_variants() {
+        let s = format!("{}", BorrowedValue::Bytes(Cow::Borrowed(&[1u8, 2][..])));
+        assert!(s.contains("1"));
+        let s = format!("{}", BorrowedValue::DecimalBytes(b"x"));
+        assert!(s.contains("120")); // 'x' = 120 in decimal
+        let s = format!("{}", BorrowedValue::JsonBytes(b"j"));
+        assert!(s.contains("106")); // 'j' = 106 in decimal
+        let s = format!("{}", BorrowedValue::BytesRef(&[1u8]));
+        assert!(s.contains("1"));
+    }
+
+    #[test]
+    fn t26vb_display_datetime_int() {
+        assert_eq!(format!("{}", BorrowedValue::DateTimeInt(42)), "42");
+    }
+
+    #[test]
+    fn t26vb_display_array_and_object() {
+        let arr = vec![BorrowedValue::I32(1)];
+        let s = format!("{}", BorrowedValue::Array(arr));
+        assert!(s.contains("1"));
+        let mut m = HashMap::new();
+        m.insert("k".to_string(), BorrowedValue::I32(1));
+        let s = format!("{}", BorrowedValue::Object(m));
+        assert!(s.contains("k"));
+    }
+
+    #[test]
+    fn t26vb_display_object_ref() {
+        let entries: Vec<(&str, BorrowedValue)> = vec![("k", BorrowedValue::I32(1))];
+        let s = format!("{}", BorrowedValue::ObjectRef(&entries));
+        assert!(s.contains("k"));
+    }
+
+    #[test]
+    fn t26vb_eq_value_decimal_bytes() {
+        let borrowed = BorrowedValue::DecimalBytes(b"3.14");
+        assert!(borrowed.eq_value(&Value::Decimal("3.14".into())));
+    }
+
+    #[test]
+    fn t26vb_eq_value_json_bytes() {
+        let borrowed = BorrowedValue::JsonBytes(br#"{"k":1}"#);
+        assert!(borrowed.eq_value(&Value::Json(r#"{"k":1}"#.into())));
+    }
+
+    #[test]
+    fn t26vb_eq_value_bytes_ref() {
+        let borrowed = BorrowedValue::BytesRef(&[1u8, 2, 3]);
+        assert!(borrowed.eq_value(&Value::Bytes(vec![1, 2, 3])));
+    }
+
+    #[test]
+    fn t26vb_eq_value_datetime_int() {
+        let borrowed = BorrowedValue::DateTimeInt(42);
+        assert!(borrowed.eq_value(&Value::DateTime("42".into())));
+    }
+
+    #[test]
+    fn t26vb_borrowed_row_data_default() {
+        let row = BorrowedRowData::default();
+        assert!(row.is_empty());
+    }
+
+    #[test]
+    fn t26vb_borrowed_row_data_is_not_null() {
+        let mut row = BorrowedRowData::new();
+        row.set("a", BorrowedValue::I32(1));
+        row.set("b", BorrowedValue::Null);
+        assert!(row.is_not_null("a"));
+        assert!(!row.is_not_null("b"));
+        assert!(!row.is_not_null("missing"));
+    }
+
+    #[test]
+    fn t26vb_borrowed_row_data_len_and_empty() {
+        let mut row = BorrowedRowData::new();
+        assert!(row.is_empty());
+        row.set("a", BorrowedValue::I32(1));
+        assert!(!row.is_empty());
+        assert_eq!(row.len(), 1);
+    }
+
+    #[test]
+    fn t26vb_borrowed_value_clone() {
+        let bv = BorrowedValue::I32(42);
+        let bv2 = bv.clone();
+        assert_eq!(bv, bv2);
+    }
+
+    #[test]
+    fn t26vb_borrowed_value_partial_eq() {
+        assert_eq!(BorrowedValue::I32(1), BorrowedValue::I32(1));
+        assert_ne!(BorrowedValue::I32(1), BorrowedValue::I32(2));
+        assert_ne!(BorrowedValue::I32(1), BorrowedValue::Null);
+    }
 }
