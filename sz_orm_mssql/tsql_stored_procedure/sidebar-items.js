@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TSqlParamDirection"],"struct":["TSqlBatchExec","TSqlParameter","TSqlStoredProcedure"]};

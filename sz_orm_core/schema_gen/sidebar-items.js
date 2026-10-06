@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["sql_type_to_rust"],"struct":["ColumnSchema","SchemaGenerator","TableSchema"]};

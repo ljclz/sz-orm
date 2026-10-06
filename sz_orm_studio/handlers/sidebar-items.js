@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["edit_record","get_table_data","get_table_relations","get_tables"],"struct":["EditRequest","FilterParams","RelationInfo","StudioData","TableInfo","TableRow"],"type":["DataStore"]};

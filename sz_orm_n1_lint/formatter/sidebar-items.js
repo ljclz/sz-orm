@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ReportFormat"],"struct":["FalsePositiveFilter","N1DetectionConfig","N1ReportFormatter"]};

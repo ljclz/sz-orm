@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AiDecisionType","AnnIndexType","RewritePath"],"struct":["AiConfig","AiDecision"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["StorageProvider","StorageWrapper"],"struct":["AliyunConfig","HuaweiConfig","QiniuConfig","S3Config","StorageBuilder","StorageConfig","TencentConfig","UpYunConfig"],"trait":["Storage"]};

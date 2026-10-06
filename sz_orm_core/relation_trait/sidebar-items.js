@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["JoinKind","RelationKind"],"struct":["RelationDef"],"trait":["RelationTrait"]};

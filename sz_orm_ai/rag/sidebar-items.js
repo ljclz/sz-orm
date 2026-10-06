@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"constant":["RAG_NO_CONTEXT"],"enum":["TokenCountStrategy","TruncationStrategy"],"struct":["Chunk","ContextWindowConfig","ContextWindowManager","ContextWindowResult","Document","RagConfig","RagEngine","RagResponse","RagSearchResult"],"trait":["RagLlmCallback"]};

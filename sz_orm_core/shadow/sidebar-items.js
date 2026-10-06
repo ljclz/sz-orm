@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MismatchAction"],"struct":["ShadowComparison","ShadowConfig","ShadowConnection","ShadowStats"]};

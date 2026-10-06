@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TransactionIsolation"],"struct":["CacheStats","EnhancedPoolConfig","EnhancedPoolConfigBuilder","PreparedStatementCache"]};

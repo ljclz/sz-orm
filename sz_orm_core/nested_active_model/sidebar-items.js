@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CascadeStrategy"],"fn":["nested_delete","nested_delete_with_strategy","nested_save"],"struct":["ChildEntity","NestedActiveModel","SaveResult"]};

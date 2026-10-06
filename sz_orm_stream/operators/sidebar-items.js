@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AggregateFunction","FilterCondition","SortDirection"],"struct":["AggregateResult","MultiAggregator","StreamAggregator","StreamDeduplicator","StreamFilter","StreamLimiter","StreamMapper","StreamSorter"]};

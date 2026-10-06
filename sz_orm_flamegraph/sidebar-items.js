@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["collector","config","diff","flame_node","render","stats"]};

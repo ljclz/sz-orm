@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PreparedLookup"],"fn":["extract_tables_simple"],"struct":["PreparedStatementCache","PreparedStatementCacheStats","PreparedStatementCacheStatsSnapshot"],"type":["ConnId","ExecuteFn"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["InvalidationStrategy"],"struct":["AccessStats","CacheHitRateOptimizationResult","CacheHitRateOptimizer","CacheKey","CacheStats","CachedResult","HotspotKey","InvalidationResult","PreloadResult","QueryPattern","QueryResultCache","QueryResultCacheConfig"]};

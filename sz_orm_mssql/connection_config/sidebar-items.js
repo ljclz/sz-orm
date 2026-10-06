@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AuthenticationMode","TlsVersion"],"struct":["ConnectionPoolConfig","EncryptionConfig","MssqlConnectionConfig"]};

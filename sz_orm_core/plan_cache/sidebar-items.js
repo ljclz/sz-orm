@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"fn":["fingerprint_with_types"],"struct":["AdaptiveCacheCapacity","LruKReplacer","PlanCache","PlanCacheConfig","PlanCacheEntry","PlanCacheKey","PlanCacheStats","PlanCacheStatsSnapshot","SqlNormalizer"]};

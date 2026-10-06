@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RuleSeverity"],"struct":["ForbiddenKeywordRule","MaxColumnCountRule","MaxJoinCountRule","MaxTableCountRule","NoSelectStarRule","NoSubqueryRule","NoUnionRule","RegexRule","RequireLimitRule","RequireWhereInDeleteRule","RequireWhereInUpdateRule","RuleContext","RuleEngine","RulePresets","RuleReport","RuleViolation"],"trait":["SqlRule"]};
