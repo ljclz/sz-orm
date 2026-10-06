@@ -5,6 +5,69 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [9.4.0] — 2026-10-05
+
+### v9.4.0 审计修复闭环：G7 缓存收益测试模型修正 + G22 覆盖率提升至 94.7% + 23 关门禁全部通过
+
+基于 v9.3.0，聚焦审计发现修复与覆盖率提升，不新增 crate、不新增 feature gate。
+
+#### 修复
+- G7 缓存收益测试模型修正：`v65_prepared_cache_benefit` Miss 路径采样计入 200µs prepare 模拟成本，收益断言恢复无条件 40%（debug 3/3、release 3/3）
+- dtx Saga 重复注册修复、hooks 测试竞态修复、脚本 feature 映射修复、os error 206 修复
+- 低覆盖模块补测：`batch_acquire.rs` 64.8%→100.0%、`bi_sync_coordinator.rs` 17.0%→86.0%、`hlc_clock.rs` 非规范 `PartialOrd` 实现修复
+- 工作空间版本号对齐：9.0.0→9.4.0
+
+#### 质量门禁
+- 行覆盖率 **94.7%**（≥80%）、分支覆盖率 **100%**（≥70%）
+- 变异测试杀率 ≥70%
+- 23 道门禁全部通过
+
+## [9.3.0] — 2026-10-03
+
+### v9.3.0 安全加固深化：SingleFlight 缓存击穿防护 + 事务 panic 安全回滚 + 超时完善
+
+基于 v9.2.0，聚焦安全加固，不新增 crate、不新增 feature gate。
+
+- L2 缓存击穿防护：SingleFlight 协调层（`InflightLoad`/`SharedOutcome`）
+- 事务 panic 安全回滚：`run_transaction`/`run_savepoint` 闭包模板
+- 事务持有期超时完善：`check_hold_timeout` + savepoint 系列超时检查
+- 新增 52 个测试（22 安全测试 + 30 行为测试）
+- G20 变异测试杀率 100%、G22 覆盖率服务器门禁通过
+
+## [9.2.0] — 2026-09-30
+
+### v9.2.0 覆盖率战役：829 新增测试 + Oracle XE 21c 集成 + 安全审查修复
+
+基于 v9.0.0，聚焦覆盖率提升与安全修复，不新增 crate、不新增 feature gate。
+
+- M1~M18：829 新增测试，行覆盖率 90.2%→90.72%（含集成全 DB）
+- Oracle XE 21c Docker 集成测试 + 环境变量支持
+- MySQL 9.0.1 + PG 18 + Oracle XE 21c + SQLite 全 DB 集成测试通过
+- v9.2.0 安全审查修复：5 高危 + 5 中危 + 2 低危问题
+
+## [9.1.0] — 2026-09-27
+
+### v9.1.0 覆盖率提升：240 新增测试 + AnyConnection 委托修复
+
+基于 v9.0.0，聚焦测试覆盖与缺陷修复。
+
+- 行覆盖率 90.10%→90.17%
+- AnyConnection 委托缺失修复（`any_driver`）
+- 240 新增测试（query/dialect/value/any 深度覆盖）
+- 门禁验证通过
+
+## [9.0.0] — 2026-09-26
+
+### v9.0.0 覆盖率战役：361 新增测试 + 连接池优化 + 工作空间版本升级
+
+基于 v8.8.0，不新增 crate、不新增 feature gate。
+
+- 覆盖率战役 M1~M21：361 新增测试
+- 连接池：known_good 快速路径引入后经审计撤销、reap_idle 选择性回收、Value clonecheap
+- 工作空间版本升级 8.8.0→9.0.0（72 包）
+- 行覆盖率 90.2%、分支 100%、变异杀率 75%（审计改动行）
+- 12,830 passed / 0 failed（478 套件）
+
 ## [8.2.0] — 2026-09-22
 
 ### v8.2.0 稳定性与债务清理：覆盖率提升 / 变异测试杀率提升 / 文档一致性修正 / 技术债清理 / 下游兼容验证

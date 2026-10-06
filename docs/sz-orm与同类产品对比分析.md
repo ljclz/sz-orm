@@ -231,7 +231,7 @@
 
 | 绑定 | SZ-ORM | Diesel | SeaORM | SQLx | Hibernate | EF Core | SQLAlchemy | Django ORM |
 |------|--------|--------|--------|------|-----------|---------|------------|------------|
-| C ABI | ✅ [cabi](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cabi/src/lib.rs) 36 `#[no_mangle]` 导出 | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
+| C ABI | ✅ [cabi](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cabi/src/lib.rs) 36 `#[no_mangle]` 导出（含事务 `begin/commit/rollback/execute/free`、model 事务变体 `insert_tx/update_tx/delete_tx/find_tx`、批量 `execute_batch`） | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
 | Java/JNI | ✅ [java](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-java/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
 | Go/CGO | ✅ [go](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-go/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
 | C++/extern-C | ✅ [cpp](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cpp/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |

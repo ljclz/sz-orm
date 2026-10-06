@@ -131,4 +131,35 @@ mod tests {
         assert_eq!(p.total, 0);
         assert_eq!(p.total_pages(), 0);
     }
+
+    #[test]
+    fn test_paginator_has_prev_true() {
+        let p = PyPaginator::new(Some(100), Some(2), Some(10));
+        assert!(p.has_prev());
+        assert!(p.has_next());
+    }
+
+    #[test]
+    fn test_paginator_set_total_updates_pages() {
+        let mut p = PyPaginator::new(Some(5), Some(1), Some(10));
+        assert_eq!(p.total_pages(), 1);
+        p.set_total(50);
+        assert_eq!(p.total_pages(), 5);
+    }
+
+    #[test]
+    fn test_paginator_per_page_zero() {
+        let p = PyPaginator::new(Some(100), Some(1), Some(0));
+        assert_eq!(p.total_pages(), 0);
+        assert!(!p.has_next());
+        assert_eq!(p.offset(), 0);
+    }
+
+    #[test]
+    fn test_paginator_last_page_no_next() {
+        let p = PyPaginator::new(Some(30), Some(3), Some(10));
+        assert_eq!(p.total_pages(), 3);
+        assert!(!p.has_next());
+        assert!(p.has_prev());
+    }
 }

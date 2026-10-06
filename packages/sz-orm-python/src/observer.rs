@@ -80,10 +80,57 @@ impl PyObserver {
 mod tests {
     use super::*;
 
+    fn init_python() {
+        pyo3::prepare_freethreaded_python();
+    }
+
     #[test]
     fn test_observer_new() {
         let o = PyObserver::new();
         assert_eq!(o.total_subscribers(), 0);
         assert_eq!(o.error_count(), 0);
+    }
+
+    #[test]
+    fn test_observer_subscribe_count() {
+        init_python();
+        pyo3::Python::with_gil(|py| {
+            let mut o = PyObserver::new();
+            let cb = py.None();
+            o.subscribe("insert", cb.clone());
+            o.subscribe("insert", cb.clone());
+            o.subscribe("update", cb.clone());
+            assert_eq!(o.subscriber_count("insert"), 2);
+            assert_eq!(o.subscriber_count("update"), 1);
+            assert_eq!(o.total_subscribers(), 3);
+        });
+    }
+
+    #[test]
+    fn test_observer_unsubscribe() {
+        init_python();
+        pyo3::Python::with_gil(|py| {
+            let mut o = PyObserver::new();
+            let cb = py.None();
+            o.subscribe("insert", cb.clone());
+            o.subscribe("insert", cb.clone());
+            o.unsubscribe("insert");
+            assert_eq!(o.subscriber_count("insert"), 0);
+            assert_eq!(o.total_subscribers(), 0);
+        });
+    }
+
+    #[test]
+    fn test_observer_clear() {
+        init_python();
+        pyo3::Python::with_gil(|py| {
+            let mut o = PyObserver::new();
+            let cb = py.None();
+            o.subscribe("insert", cb.clone());
+            o.subscribe("update", cb.clone());
+            o.clear();
+            assert_eq!(o.total_subscribers(), 0);
+            assert_eq!(o.error_count(), 0);
+        });
     }
 }

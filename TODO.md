@@ -1,25 +1,19 @@
 # sz-orm 待办清单
 
 > 自动生成：2026-08-16
-> 最后更新：2026-08-16
+> 最后更新：2026-10-06
 
 ## 文档同步
 
-### 待办：对比文档同步 cabi 新 API
+### ✅ 已完成：对比文档同步 cabi 新 API
 
 **来源**：门禁 14 文档同步检查触发
 
-**背景**：
-- `sz-orm-cabi/src/lib.rs` 新增 transaction/batch API
-- 对比文档 `docs/sz-orm与同类产品对比分析.md` 未同步更新
+**状态**：✅ 已完成（2026-10-06）
 
-**状态**：等待并行会话收敛后统一处理
-
-**原因**：
-- 对比文档正被并行会话用 PowerShell 口径修改
-- 按 ADR-0001 原则，不覆盖并行会话的修改
-
-**预计处理时间**：并行会话完成后 1 个工作日内
+**完成说明**：
+- `docs/sz-orm与同类产品对比分析.md` §4.1 C ABI 行已补充 transaction/batch API 描述（事务 `begin/commit/rollback/execute/free`、model 事务变体 `insert_tx/update_tx/delete_tx/find_tx`、批量 `execute_batch`）
+- cabi 36 个 `#[no_mangle]` 导出与文档一致
 
 ---
 
@@ -33,8 +27,8 @@
 - 34 个包的 63 个未用依赖已登记到 `[package.metadata.cargo-machete]`
 - 门禁 23 从 66 个警告降至 1 个（bench-comparison 包的 libsqlite3-sys）
 
-**剩余 1 个警告**：
-- `bench-comparison` 包的 `libsqlite3-sys`：需确认后移除或保留
+**剩余 1 个警告**：✅ 已解决（2026-10-06）
+- `bench-comparison` 包的 `libsqlite3-sys`：源码无引用，已从 `bench-comparison/Cargo.toml` 移除直接依赖及冗余的 cargo-machete 豁免登记；该包编译验证通过
 
 ---
 

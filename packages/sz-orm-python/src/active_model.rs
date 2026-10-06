@@ -150,4 +150,41 @@ mod tests {
         assert!(!m.is_modified());
         assert!(m.changed_fields().is_empty());
     }
+
+    #[test]
+    fn test_active_model_mark_unchanged() {
+        let mut m = PyActiveModel::new("users".to_string(), None, None);
+        m.fields.insert(
+            "name".to_string(),
+            PyActiveValue::Set(Value::String("Alice".into())),
+        );
+        m.mark_unchanged("name");
+        assert!(!m.is_modified());
+        assert!(m.changed_fields().is_empty());
+    }
+
+    #[test]
+    fn test_active_model_is_new_false() {
+        let m = PyActiveModel::new("users".to_string(), Some("uid".to_string()), Some(false));
+        assert!(!m.is_new());
+        assert_eq!(m.pk_name, "uid");
+    }
+
+    #[test]
+    fn test_active_model_changed_fields_order() {
+        let mut m = PyActiveModel::new("users".to_string(), None, None);
+        m.fields.insert(
+            "a".to_string(),
+            PyActiveValue::Set(Value::String("1".into())),
+        );
+        m.fields.insert("b".to_string(), PyActiveValue::Unchanged);
+        m.fields.insert(
+            "c".to_string(),
+            PyActiveValue::Set(Value::String("3".into())),
+        );
+        let changed = m.changed_fields();
+        assert!(changed.contains(&"a".to_string()));
+        assert!(changed.contains(&"c".to_string()));
+        assert_eq!(changed.len(), 2);
+    }
 }

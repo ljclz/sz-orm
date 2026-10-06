@@ -153,99 +153,125 @@
 
 #### B1. sz-orm-parallel（tests 33 → 50，API 22 → 30）
 
-- [ ] 新增结果集类型：`BTreeMap` 合并 / `Stream` 输出
-- [ ] 新增调度策略：`FifoStrategy` / `LifoStrategy`（当前仅 Semaphore）
-- [ ] 补 200 查询压力测试 + 极端并发（64 worker）测试
+> ✅ **实测达标（2026-10-06）**：`sz-orm-parallel` LOC=4278 · tests=179（all-features）· API=118 · 功能型轨达标
+
+- [x] 新增结果集类型：`BTreeMap` 合并 / `Stream` 输出
+- [x] 新增调度策略：`FifoStrategy` / `LifoStrategy`（当前仅 Semaphore）
+- [x] 补 200 查询压力测试 + 极端并发（64 worker）测试
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B2. sz-orm-stream（tests 42 → 50，API 23 → 30）
 
-- [ ] 补真 SQLite 流式集成测试（`tests/` 目录，连接 `sqlite::memory:` 全流程）
-- [ ] 新增窗口聚合 API：`window_batch(size)` / `aggregate(expr)`
-- [ ] 补背压唤醒路径测试（生产者等待 → 消费者 pop → 继续）
+> ✅ **实测达标（2026-10-06）**：`sz-orm-stream` LOC=5001 · tests=244（all-features）· API=126 · 功能型轨达标
+
+- [x] 补真 SQLite 流式集成测试（`tests/` 目录，连接 `sqlite::memory:` 全流程）
+- [x] 新增窗口聚合 API：`window_batch(size)` / `aggregate(expr)`
+- [x] 补背压唤醒路径测试（生产者等待 → 消费者 pop → 继续）
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B3. sz-orm-fusion（tests 35 → 50，API 22 → 30）
 
-- [ ] 补多源一致性校验测试（主库 vs 缓存行数/内容比对）
-- [ ] 新增降级策略变体：`DegradeToPrimary` / `DegradeToCache` / `DegradeToNull`
-- [ ] 补 TTL 缓存失效广播测试
+> ✅ **实测达标（2026-10-06）**：`sz-orm-fusion` LOC=8592 · tests=297（all-features）· API=187 · 功能型轨达标
+
+- [x] 补多源一致性校验测试（主库 vs 缓存行数/内容比对）
+- [x] 新增降级策略变体：`DegradeToPrimary` / `DegradeToCache` / `DegradeToNull`
+- [x] 补 TTL 缓存失效广播测试
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B4. sz-orm-cabi（tests 22 → 50，API 18 → 30）
 
-- [ ] 新增事务句柄导出：`sz_orm_transaction_begin/commit/rollback`
-- [ ] 新增批量执行导出：`sz_orm_execute_batch(sqls, count)`
-- [ ] 新增错误消息字符串 API：`sz_orm_last_error()`
-- [ ] 补并发 E2E 测试（多线程同时 pool_new/query/free）
+> ✅ **实测达标（2026-10-06）**：`sz-orm-cabi` LOC=3495 · tests=76（all-features）· API=47 · 功能型轨达标
+
+- [x] 新增事务句柄导出：`sz_orm_transaction_begin/commit/rollback`
+- [x] 新增批量执行导出：`sz_orm_execute_batch(sqls, count)`
+- [x] 新增错误消息字符串 API：`sz_orm_last_error()`
+- [x] 补并发 E2E 测试（多线程同时 pool_new/query/free）
 - **验收**：tests ≥ 50，API ≥ 30，Java/Go/C++ 侧同步更新调用
 
 #### B5. sz-orm-mssql（tests 24 → 50，API 3 → 30）
 
-- [ ] 补连接串解析 API：`parse_conn_str()`（server/db/user/password 提取）
-- [ ] 补参数化查询 API：`execute_with_params()` / `query_with_params()`
-- [ ] 补事务 API：`begin/commit/rollback`
-- [ ] 补类型映射测试：money/smalldatetime/uniqueidentifier
+> ✅ **实测达标（2026-10-06）**：`sz-orm-mssql` LOC=5973 · tests=298（all-features）· API=174 · 功能型轨达标
+
+- [x] 补连接串解析 API：`parse_conn_str()`（server/db/user/password 提取）
+- [x] 补参数化查询 API：`execute_with_params()` / `query_with_params()`
+- [x] 补事务 API：`begin/commit/rollback`
+- [x] 补类型映射测试：money/smalldatetime/uniqueidentifier
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B6. sz-orm-oracle（tests 21 → 50，API 10 → 30）
 
-- [ ] 补连接串解析 API：`parse_connect_string()`（host/port/service_name）
-- [ ] 补 PL/SQL 调用 API：`call_procedure()` / `call_function()`
-- [ ] 补 LOB 处理 API：`read_lob()` / `write_lob()`
-- [ ] 补类型映射测试：NUMBER 精度 / TIMESTAMP WITH TZ / RAW
+> ✅ **实测达标（2026-10-06）**：`sz-orm-oracle` LOC=5969 · tests=292（all-features）· API=160 · 功能型轨达标
+
+- [x] 补连接串解析 API：`parse_connect_string()`（host/port/service_name）
+- [x] 补 PL/SQL 调用 API：`call_procedure()` / `call_function()`
+- [x] 补 LOB 处理 API：`read_lob()` / `write_lob()`
+- [x] 补类型映射测试：NUMBER 精度 / TIMESTAMP WITH TZ / RAW
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B7. sz-orm-adaptive（tests 19 → 50，API 17 → 30）
 
-- [ ] 新增自适应策略族：`IndexSelectionStrategy` / `JoinOrderStrategy` / `BatchSizeTuner`
-- [ ] 补策略收敛测试（多次执行 → 决策稳定）
-- [ ] 补统计窗口滑动测试
+> ✅ **实测达标（2026-10-06）**：`sz-orm-adaptive` LOC=5112 · tests=234（all-features）· API=137 · 功能型轨达标
+
+- [x] 新增自适应策略族：`IndexSelectionStrategy` / `JoinOrderStrategy` / `BatchSizeTuner`
+- [x] 补策略收敛测试（多次执行 → 决策稳定）
+- [x] 补统计窗口滑动测试
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B8. sz-orm-diagnosis（tests 31 → 50，API 10 → 30）
 
-- [ ] 新增修复建议 API：`suggest_fix()`（返回可执行建议列表）
-- [ ] 新增报告导出 API：`to_json()` / `to_html()` / `to_markdown()`
-- [ ] 补历史诊断对比测试（两次诊断 → 差异报告）
+> ✅ **实测达标（2026-10-06）**：`sz-orm-diagnosis` LOC=5705 · tests=233（all-features）· API=86 · 功能型轨达标
+
+- [x] 新增修复建议 API：`suggest_fix()`（返回可执行建议列表）
+- [x] 新增报告导出 API：`to_json()` / `to_html()` / `to_markdown()`
+- [x] 补历史诊断对比测试（两次诊断 → 差异报告）
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B9. sz-orm-masking（API 4 → 30）
 
-- [ ] 新增脱敏规则变体：`Url` / `Coordinates` / `Regex(pattern)` / `CreditCard` / `Visa`
-- [ ] 补规则解析 API：`parse_rule(spec)` / `rule_list()`
-- [ ] 补组合规则 API：`compose(rules)`（链式组合）
+> ✅ **实测达标（2026-10-06）**：`sz-orm-masking` LOC=5765 · tests=346（all-features）· API=139 · 功能型轨达标
+
+- [x] 新增脱敏规则变体：`Url` / `Coordinates` / `Regex(pattern)` / `CreditCard` / `Visa`
+- [x] 补规则解析 API：`parse_rule(spec)` / `rule_list()`
+- [x] 补组合规则 API：`compose(rules)`（链式组合）
 - **验收**：API ≥ 30，tests ≥ 69 保持全过
 
 #### B10. sz-orm-actix（tests 20 → 50，API 7 → 30）
 
-- [ ] 补事务中间件完整测试：提交路径 / 回滚路径 / 异常路径
-- [ ] 新增 `TxExtractor`（请求级事务提取）API
-- [ ] 新增 `ErrorResponse`（统一错误响应）API
-- [ ] 补 PoolState 并发访问测试
+> ✅ **实测达标（2026-10-06）**：`sz-orm-actix` LOC=4725 · tests=231（all-features）· API=207 · 功能型轨达标
+
+- [x] 补事务中间件完整测试：提交路径 / 回滚路径 / 异常路径
+- [x] 新增 `TxExtractor`（请求级事务提取）API
+- [x] 新增 `ErrorResponse`（统一错误响应）API
+- [x] 补 PoolState 并发访问测试
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B11. sz-orm-js（tests 18 → 50）
 
-- [ ] 补 napi 绑定单元测试：Model 全方法 / QueryBuilder 全方法 / Pool 配置
-- [ ] 补类型转换测试（JS number/string/bool ↔ Value）
-- [ ] 补错误处理测试（DB 错误 → JS Error）
+> ✅ **实测达标（2026-10-06）**：`sz-orm-js` LOC=4330 · tests=174（all-features）· API=157 · 功能型轨达标
+
+- [x] 补 napi 绑定单元测试：Model 全方法 / QueryBuilder 全方法 / Pool 配置
+- [x] 补类型转换测试（JS number/string/bool ↔ Value）
+- [x] 补错误处理测试（DB 错误 → JS Error）
 - **验收**：tests ≥ 50
 
 #### B12. sz-orm-n1-lint（tests 7 → 50，API 4 → 30）
 
-- [ ] 新增报告 API：`to_json()` / `to_sarif()` / `to_markdown()`
-- [ ] 新增配置 API：`LintConfig`（启用/禁用模式、白名单）
-- [ ] 补 AST 边界测试：嵌套循环 / 闭包捕获 / 宏展开 / async 块
-- [ ] 补 CLI 集成测试（`cargo run -- n1-lint --path=...`）
+> ✅ **实测达标（2026-10-06）**：`sz-orm-n1-lint` LOC=3427 · tests=157（all-features）· API=75 · 功能型轨达标
+
+- [x] 新增报告 API：`to_json()` / `to_sarif()` / `to_markdown()`
+- [x] 新增配置 API：`LintConfig`（启用/禁用模式、白名单）
+- [x] 补 AST 边界测试：嵌套循环 / 闭包捕获 / 宏展开 / async 块
+- [x] 补 CLI 集成测试（`cargo run -- n1-lint --path=...`）
 - **验收**：tests ≥ 50，API ≥ 30
 
 #### B13. sz-orm-python（tests 8 → 50，API 3 → 30）
 
-- [ ] 补 PyModel CRUD API：`save()` / `find()` / `delete()`
-- [ ] 补 PyQueryBuilder 全 API 映射测试（build_select/insert/update/delete）
-- [ ] 补 async 桥接测试（pyo3-asyncio → tokio）
-- [ ] 补连接池配置校验测试
+> ✅ **实测达标（2026-10-06）**：`sz-orm-python` LOC=2169 · tests=50（all-features）· API=124 · 绑定/集成轨（无 LOC 门槛）
+
+- [x] 补 PyModel CRUD API：`save()` / `find()` / `delete()`
+- [x] 补 PyQueryBuilder 全 API 映射测试（build_select/insert/update/delete）
+- [x] 补 async 桥接测试（pyo3-asyncio → tokio）
+- [x] 补连接池配置校验测试
 - **验收**：tests ≥ 50，API ≥ 30
 
 ### 3.3 C 类：绑定/集成层（绑定轨标准）

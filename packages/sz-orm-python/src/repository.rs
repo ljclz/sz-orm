@@ -171,4 +171,36 @@ mod tests {
         assert!(r.is_empty());
         assert_eq!(r.total_pages(), 0);
     }
+
+    #[test]
+    fn test_page_result_has_prev() {
+        let r = PyPageResult {
+            items: vec![],
+            total: 25,
+            page: 2,
+            page_size: 10,
+        };
+        assert!(r.has_prev());
+        assert!(r.has_next());
+    }
+
+    #[test]
+    fn test_page_result_items_len() {
+        let r = PyPageResult {
+            items: vec![HashMap::from([("id".to_string(), Value::I64(1))])],
+            total: 1,
+            page: 1,
+            page_size: 10,
+        };
+        assert!(!r.is_empty());
+        assert_eq!(r.len(), 1);
+    }
+
+    #[test]
+    fn test_repository_pk_name() {
+        let r = PyRepository::new("orders".to_string(), Some("order_id".to_string()));
+        assert_eq!(r.pk_name, "order_id");
+        let d = PyRepository::new("orders".to_string(), None);
+        assert_eq!(d.pk_name, "id");
+    }
 }

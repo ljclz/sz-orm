@@ -2,8 +2,8 @@
 
 > Thank you for considering a contribution to SZ-ORM! This document describes the workflow, coding standards, and review process for all contributors.
 
-> 适用版本：SZ-ORM v9.0.0（72 工作空间成员 / 396+ 新增测试 / 生产阶段）
-> 更新日期：2026-09-26
+> 适用版本：SZ-ORM v9.4.0（72 工作空间成员 / 20424+ 测试 / 生产阶段）
+> 更新日期：2026-10-06
 
 ---
 

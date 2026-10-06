@@ -1,13 +1,13 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：9.0.0（workspace.package.version 集中管理）
+- 版本：9.4.0（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：72（70 lib 包 + cli + examples）；v5.1.0 新增 sz-orm-studio / sz-orm-lsp；v4.3.0 新增 sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor / sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel / sz-orm-stream；v4.6.0 不新增包，7 个 feature gate 扩展既有包；v4.7.0 不新增包，7 个 feature gate 扩展既有包；v7.3.0 不新增包，10 个 feature gate 扩展既有包，3 个默认启用 perf-accel/ha-events/health-subitems，7 个按需启用 auto-failover/limit-queue-timeout/tracing-db-attrs/ai-config/ann-accel/eco-config/warp-adapt）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
 - 绑定层依赖：sz-orm-cabi/sz-orm-java/sz-orm-go/sz-orm-cpp 依赖 sz-orm-sqlx（SQLite 后端）+ jni 0.22（Java）；sz-orm-python 依赖 sz-orm-sqlx + pyo3 0.20（PyPool 真实连接）；sz-orm-stream dev-dependencies 含 tokio/futures（集成测试）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
-- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 9.0.0（v9.0.0 覆盖率战役 M1~M21：361 新增测试 + 连接池 known_good 快速路径引入后经审计撤销 + reap_idle 选择性回收 + Value clonecheap + 工作空间版本升级；v8.8.0 连接池优化 + 精确容量估算 + BatchSizeAdvisor + crates.io 全量发布 8.8.0；v8.7.0 真实质量基线采集：覆盖率 88.59% + 杀率 100% + 四数据库基准 8/8 PASS；v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate）
+- 已发布：sz-orm-core 1.0.0 已发布到 crates.io（2026-07-23），当前代码版本 9.4.0（v9.4.0 审计修复闭环：G7 缓存收益测试模型修正 + G22 覆盖率 94.7% + 23 关门禁全部通过；v9.3.0 安全加固深化：SingleFlight 缓存击穿防护 + 事务 panic 安全回滚 + 52 测试；v9.2.0 覆盖率战役：829 新增测试 + Oracle XE 21c 集成 + 安全审查修复；v9.1.0 覆盖率提升：240 新增测试 + AnyConnection 委托修复；v9.0.0 覆盖率战役 M1~M21：361 新增测试 + 连接池 known_good 快速路径引入后经审计撤销 + reap_idle 选择性回收 + Value clonecheap + 工作空间版本升级；v8.8.0 连接池优化 + 精确容量估算 + BatchSizeAdvisor + crates.io 全量发布 8.8.0；v8.7.0 真实质量基线采集：覆盖率 88.59% + 杀率 100% + 四数据库基准 8/8 PASS；v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate）
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 防护：编译期 `#[detect_n_plus_one]` 静态检测（n1-lint）+ 运行时 `N1QueryDetector` 检测组件（需手动接入，未自动拦截）。
 
@@ -126,17 +126,18 @@ cargo build --features sz-orm-macros/db-verify
 - PostgreSQL 18：`postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`
 - Oracle 23ai Free：`127.0.0.1:1521/freepdb1.FALSE`（用户 sz_orm_test，密码 SzOrmTest2026）
 
-### G7 集成测试本机排除清单（2026-09-26 审计核定）
+### G7 集成测试本机排除清单（2026-10-06 评估更新；初版 2026-09-26 审计核定）
 
-本机**未安装**以下服务且无法便捷安装（无 docker），G7 全量 `--ignored` 运行时按下表排除，全套件在具备服务的 CI 环境仍须执行：
+本机**未安装**以下服务且无法便捷安装（无 docker），G7 全量 `--ignored` 运行时按下表排除，全套件在具备服务的 CI 环境仍须执行。2026-10-06 实测更新：**Redis 已就绪**（本机 6379 服务运行中，`integration_redis` 4/4 通过）；**ClickHouse 可经 122 服务器 Docker + SSH 隧道实测跑通（3/3 通过）**，本机无需安装；MSSQL 腾讯云实例已下线（域名 NXDOMAIN），服务器 mcr 镜像大文件拉取网络不可达，本机仅有 LocalDB（命名管道），仍需自备 SQL Server 实例。详见 `docs/assessment/2026-10-06-local-integration-services-evaluation.md` 与隧道实测记录 `docs/assessment/2026-10-06-integration-tunnel-verification.md`。
 
 | 套件 | 依赖 | 测试数 | 本机处置 |
 |------|------|--------|---------|
-| `integration_clickhouse` | ClickHouse MySQL 兼容协议 127.0.0.1:9004 | 3 | `--skip clickhouse`（无 docker/无安装） |
-| `integration_mssql` | SQL Server 2019+ 127.0.0.1:1433 | 8 | `--skip mssql`（无服务安装） |
-| `integration_redis` | redis://127.0.0.1:6379/0 | 4 | `--skip redis`（无安装） |
+| `integration_clickhouse` | ClickHouse MySQL 兼容协议 | 3 | 默认 `--skip clickhouse`；可经 122 服务器 Docker 容器 + SSH 隧道实测（2026-10-06 验证 3/3 通过，见隧道实测记录） |
+| `integration_mssql` | SQL Server 2019+ TCP 1433 + SQL 认证 | 8 | `--skip mssql`（腾讯云实例已下线；服务器 mcr 镜像网络不可达；本机仅有 LocalDB 2019 命名管道，不满足 TCP + SQL 认证，需自备实例） |
 | `integration_gbase`（真实 DB 部分） | 腾讯云 GBase/SQL Server 实例 | 2 | 凭据已移出源码，需设置 `SZ_ORM_GBASE_HOST/PORT/USER/PASSWORD/DATABASE`，未配置自动跳过 |
 | `test_prepared_cache_hit_benefit` / `soak_pool_long_running_steady_state` | 无（时序敏感） | 2 | 高负载机器易误报，单独复跑验证 |
+
+**已就绪（2026-10-06）**：`integration_redis`（本机 `redis://127.0.0.1:6379/0` 与 122 服务器容器 `6380` 端口 SSH 隧道双路径均验证）—— 4/4 通过，从排除清单移除。
 
 已知坑：`cargo test -- --ignored` 会让 rustdoc 尝试编译 ```ignore 标注的示意 doc 块（feature 统一暴露后数量大）；G7 全量跑用 `cargo test --workspace --tests -- --ignored ...` 规避，不可编译的示意文档块用 ```text 标注。
 
