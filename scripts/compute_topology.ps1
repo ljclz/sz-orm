@@ -24,7 +24,7 @@ if (-not (Test-Path $rootToml)) {
     exit 1
 }
 
-$rootContent = Get-Content $rootToml -Raw
+$rootContent = Get-Content $rootToml -Raw -Encoding UTF8
 
 $members = @()
 if ($rootContent -match 'members\s*=\s*\[([^\]]+)\]') {
@@ -39,7 +39,7 @@ foreach ($member in $members) {
     $tomlPath = Join-Path $WorkspaceRoot "$member\Cargo.toml"
     if (-not (Test-Path $tomlPath)) { continue }
 
-    $content = Get-Content $tomlPath -Raw
+    $content = Get-Content $tomlPath -Raw -Encoding UTF8
 
     $pkgName = $null
     if ($content -match '(?m)^\[package\][\s\S]*?name\s*=\s*"([^"]+)"') {
@@ -57,7 +57,7 @@ foreach ($member in $members) {
         '(?m)^\[dependencies[\.\w]*\][\s\S]*?(?=^\[|\z)'
     )
 
-    $depSections = [regex]::Matches($content, '(?m)^\[dependencies(\.[\w-]+)?\][\s\S]*?(?=^\[[^\]]*\]|\z)')
+    $depSections = [regex]::Matches($content, '(?m)^\[(?:dev-|build-)?dependencies(\.[\w-]+)?\][\s\S]*?(?=^\[[^\]]*\]|\z)')
 
     foreach ($section in $depSections) {
         $sectionText = $section.Value
@@ -123,9 +123,30 @@ while ($queue.Count -gt 0) {
 }
 
 if ($result.Count -ne $allPkgs.Count) {
-    $remaining = $allPkgs | Where-Object { $result -notcontains $_ }
-    Write-Error "Circular dependency detected! Packages involved: $($remaining -join ', ')"
-    exit 1
+    Write-Warning "Circular dependency detected (likely dev-dependency cycles). Falling back to iterative greedy ordering."
+    $done = @{}
+    foreach ($pkg in $result) { $done[$pkg] = $true }
+    $remaining = $allPkgs | Where-Object { -not $done.ContainsKey($_) } | Sort-Object
+
+    while ($remaining.Count -gt 0) {
+        $progressed = $false
+        foreach ($pkg in $remaining) {
+            $deps = @($pkgToDeps[$pkg])
+            $unmet = @($deps | Where-Object { -not $done.ContainsKey($_) })
+            if ($unmet.Count -eq 0) {
+                $result += $pkg
+                $done[$pkg] = $true
+                $remaining = @($remaining | Where-Object { $_ -ne $pkg })
+                $progressed = $true
+                break
+            }
+        }
+        if (-not $progressed) {
+            Write-Warning "Deadlock in remaining packages (mutual dev-dependency cycles): $($remaining -join ', '). Emitting alphabetically."
+            $result += $remaining
+            break
+        }
+    }
 }
 
 foreach ($pkg in $result) {

@@ -98,7 +98,7 @@ foreach ($pkg in $pkgArray) {
         }
     }
     if (Test-Path $tomlPath) {
-        $tomlContent = Get-Content $tomlPath -Raw
+        $tomlContent = Get-Content $tomlPath -Raw -Encoding UTF8
         if ($tomlContent -match 'publish\s*=\s*false') {
             Write-Output "$prefix SKIP $pkg (publish = false)"
             $skipped += $pkg
@@ -114,7 +114,7 @@ foreach ($pkg in $pkgArray) {
         Write-Output "$prefix SKIP $pkg (already exists on crates.io)"
         $skipped += $pkg
     }
-    elseif ($outputStr -match "Published $pkg" -or $outputStr -match "Uploading $pkg" -or $LASTEXITCODE -eq 0) {
+    elseif ($outputStr -match "Published $pkg") {
         Write-Output "$prefix OK $pkg"
         $published += $pkg
         Start-Sleep -Seconds 3
@@ -124,7 +124,7 @@ foreach ($pkg in $pkgArray) {
         Start-Sleep -Seconds 60
         $output = & cargo publish -p $pkg --allow-dirty 2>&1
         $outputStr = ($output | Out-String)
-        if ($outputStr -match "already exists" -or $LASTEXITCODE -eq 0) {
+        if ($outputStr -match "already exists" -or $outputStr -match "Published $pkg") {
             Write-Output "$prefix OK $pkg (retry)"
             $published += $pkg
         } else {
