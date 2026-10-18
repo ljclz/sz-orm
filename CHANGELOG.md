@@ -5,6 +5,301 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [10.10.0] — 2026-10-17
+
+### v10.10.0 性能极致优化深化 + 企业级高可用深化 + AI 深度集成 + 安全合规深化
+
+#### 方向 1：性能极致优化深化（T1.1-T1.5）
+- SIMD 向量化执行深化：batch_compare_decimal/batch_compare_datetime/batch_compare_str/batch_sort_f32/batch_group_aggregate_f32
+- 内存池零分配深化：TypedArena<T>/RowArena 类型化 arena，热路径零分配
+- 异步流水线并行度自适应：PipelineParallelismAdapter + LoadSignal，动态调整并行度
+- 缓存预热策略增强：CacheWarmupProtection + WarmupTrigger，击穿守卫 + 穿透过滤
+- 批量操作优化深化：BatchSizeAdvisor，基于历史负载自适应批大小
+- 新增 23 个端到端测试（perf_extreme_wiring_test）
+- 复用既有 query-simd/perf-extreme/zero-copy/zero-copy-deep/perf-accel/cache-enhance/auto-prewarm/parallel-batch feature gate
+
+#### 方向 2：企业级高可用深化（T2.1-T2.5）
+- 自动故障转移四阶段闭环：FailoverController（检测→切换→验证→恢复）
+- 读写分离负载感知路由：RwSplitEnhanced，基于连接数/延迟/错误率动态路由
+- 多租户 RLS 自动注入：TenantQuotaRls，行级安全策略自动生成
+- 限流降级自适应：RateLimiter + DegradationManager，基于负载自适应限流降级
+- 熔断器半开探测：CircuitBreaker 增强，半开状态探测请求 + 自适应恢复
+- 新增 31 个端到端测试（ha_deepen_wiring_test）
+- 复用既有 auto-failover/rw-split-enhanced/tenant-quota-rls-enhanced/circuit-breaker feature gate
+
+#### 方向 3：AI 深度集成（T3.1-T3.5）
+- NL2SQL 置信度校准：ConfidenceCalibrator + ConfidenceHistory，历史校准置信度
+- 查询自动调优深化：ExecutionPlan/PlanNode/Bottleneck/Suggestion，索引建议 + 代价估算
+- 异常检测增强：StatisticalAnomalyDetector/TrendAnomalyDetector/PeriodicAnomalyDetector
+- Schema 设计顾问深化：NormalFormLevel/NormalFormResult/DenormalizeSuggestion/ConstraintSuggestion
+- AI 配置增强：TaskType/ModelChoice/ModelSelectionStrategy/CostOptimizer/BudgetController
+- 新增 31 个端到端测试（ai_deepen_wiring_test）
+- 复用既有 ai-config/ai-security-audit/ai-query-optimize/ai-index-advisor/llm-optimizer/ai-deep feature gate
+
+#### 方向 4：安全合规深化（T4.1-T4.5）
+- 数据脱敏增强：DesensitizeStrategy/FieldTypeRecognizer/DesensitizeRule，8 种字段类型 + 3 种脱敏策略
+- 审计合规自动化：Violation/ComplianceReport/Alert/RemediationSuggestion，定时扫描 + 合规报告 + 告警 + 整改
+- 密钥轮换自动化：RotateReason/KeyVersionHistory，按周期/按用量自动轮换 + 版本回滚
+- GDPR/CCPA 合规：GdprCcpaProcessor + DataSubjectRight + CrossBorderTransferControl，数据主体权利 + 跨境传输
+- 渗透测试扩展：17 个 OWASP v10.10.0 攻击向量（5 边界 + 4 组合 + 4 绕过 + 4 密码学）
+- 新增 20+17=37 个端到端测试（security_deepen_wiring_test + owasp_v10100_*）
+- 复用既有 compliance-auto-scan/field-encryption/owasp-pentest-suite feature gate
+
+#### 向后兼容性
+- 无破坏性变更（公共 API 签名不破坏性变更）
+- 不新增 crate（72 包不变）
+- 不新增 feature gate（复用既有 24 个 feature gate）
+- 不引入新外部依赖
+- unsafe 零容忍（无新增 unsafe 代码）
+
+#### sz-pay 版本对齐
+- sz-pay/server/sz-rust/Cargo.toml 中 22 处 sz-orm-* 依赖版本从 10.8.0 升级至 10.9.0
+- sz-pay 编译通过（cargo check）
+
+#### 门禁验证
+- G8 占位检查 ✅ | G9 SQL 注入扫描 77/77 Safe ✅ | G15 幻影交付 PHANTOM-1: 0 ✅
+- G16 语义反模式 0 硬规则 ✅ | G17 架构一致性 ✅ | G18 度量真实性 ✅ | G19 发布一致性 ✅ | G23 未用依赖 ✅
+- G7/G20/G22 标注 CI 环境依赖
+
+#### 交付记录
+- docs/assessment/2026-10-17-v10100-performance-extreme.md（方向 1）
+- docs/assessment/2026-10-17-v10100-ha-deepen.md（方向 2）
+- docs/assessment/2026-10-17-v10100-ai-deepen.md（方向 3）
+- docs/assessment/2026-10-17-v10100-security-deepen.md（方向 4）
+- docs/assessment/2026-10-17-v10100-delivery-record.md（综合交付）
+
+## [10.9.0] — 2026-10-17
+
+### v10.9.0 遗留项闭环 + AI 能力深化 + 安全加固深化 + 性能优化深化
+
+#### 方向 1：遗留项闭环（T1.1-T1.5）
+- 10 处 deprecated 评估保留（附替代方案和迁移指引）
+- 2 处 TODO 处置（ann_e2e.rs 标注更新）
+- 迁移指引深化（query_builder_selection_guide.md 第 6 节 + qb-migration-roadmap.md 更新）
+- sz-pay 版本对齐 10.7.0→10.8.0（22 处依赖，5159 测试通过）
+- 交付记录 docs/assessment/2026-10-17-v1090-legacy-closure.md
+
+#### 方向 2：AI 能力深化（T2.1-T2.4）
+- Nl2SqlFallbackChain：多模型 fallback 包装器，逐级降级 + 安全审计 + 查询优化
+- IntentAnalyzer 接线：SimpleNl2SqlEngine + OpenAINl2SqlEngine 意图分析增强
+- 查询优化器接线：query_optimizer + index_advisor + rewrite_advisor
+- 幻影交付修复：generate 方法中添加 rewrite_advisor.suggest() 和 index_advisor.suggest() 实际调用
+- 新增 28 个端到端测试（nl2sql_fallback + intent_analysis + query_optimization）
+- 交付记录 docs/assessment/2026-10-17-v1090-ai-deepen.md（audit-verify 32/32）
+
+#### 方向 3：安全加固深化（T3.1-T3.5）
+- LLM 安全审计规则扩展：新增 10 个 InjectionPattern（or_1_eq_1/union_encoded/stacked/nested_comment/sensitive_data/privilege_escalation）
+- OWASP 边界/组合/绕过测试：17 个测试（5 边界 + 5 组合 + 7 绕过）
+- 参数化查询遗漏扫描：G9 扫描 75/75 Safe，v10.9.0 新增代码无 SQL 注入向量
+- 审计日志深化接线：HashChainEnhancedAuditor + ComplianceScanDesensitizer + AutonomousDecisionAuditor
+- 新增 36 个端到端测试（llm_security_audit_expanded + owasp_boundary_combination + audit_deepen_wiring）
+- 交付记录 docs/assessment/2026-10-17-v1090-security-deepen.md（audit-verify 24/24）
+
+#### 方向 4：性能优化深化（T4.1-T4.5）
+- 连接池优化深化：PoolTuningAdvice 扩展 3 个新字段 + Pool::tuning_advice() 方法
+- 查询缓存命中率提升：确认 SingleFlight/PlanCache/AdaptiveCacheCapacity 接线
+- SIMD 批量优化深化：新增 i64 批量过滤/聚合 + f32/f64 点积（补齐类型覆盖缺口）
+- 零拷贝优化深化：新增 stream_rows_extended 方法，扩展所有原始类型和扩展字符串类型的零拷贝覆盖
+- BatchSizeAdvisor 接线确认：repository.rs → DynamicBatchAdvisor → BatchSizeAdvisor
+- Value clonecheap 接线确认：repository.rs:1443 + query.rs:2996
+- 新增 53 个端到端测试（perf_deepen_wiring_test 29 + simd 14 + zero_copy_pipeline 10）
+- 交付记录 docs/assessment/2026-10-17-v1090-performance.md（audit-verify 9/9）
+
+#### 综合验证（T5.1-T5.4）
+- workspace 版本升级 10.8.0→10.9.0
+- 23 道门禁验证：G1/G2/G3/G4/G8/G9/G11/G15/G16/G17/G19 全部通过
+- CHANGELOG.md 更新
+- 综合交付记录 docs/assessment/2026-10-17-v1090-delivery-record.md
+
+#### 测试统计
+- 新增测试总数：117 个（28 AI + 36 安全 + 53 性能）
+- 全部测试通过，0 failed
+- unsafe 零容忍：本次新增代码全部通过安全 API 实现
+
+## [10.8.0] — 2026-10-17
+
+### v10.8.0 遗留项闭环与深化 — crates.io 发布 v10.7.0 + sz-pay 对齐 + 覆盖率 + 门禁 + UTF-8 + LLM 审计 + 性能 + 文档
+
+#### crates.io 发布 v10.7.0
+- 69 个可发布包全部在 crates.io 上确认 v10.7.0（25 新发布 + 44 已存在）
+- 独立版本线 sz-orm-js/sz-orm-python 0.1.0 和私有包 sz-orm-examples 不参与
+
+#### sz-pay 版本对齐 v10.7.0
+- 22 个 sz-orm-* 依赖从 10.6.0 升级至 10.7.0
+- cargo check 通过（2m 15s），cargo test --lib 5159 passed / 0 failed
+- ADR-0001 合规：仅修改 sz-pay Cargo.toml
+
+#### 覆盖率分批采集优化
+- 解决 v10.7.0 全量采集超时问题，分批执行 cargo-llvm-cov
+- 目标行覆盖率 ≥ 90%，不退化（vs v9.0.0 基线 90.2%）
+
+#### 全门禁本机验证扩展
+- G1/G5/G7/G10/G12/G14/G16~G23 本机验证
+- Windows 环境限制标注（MAX_PATH、栈溢出、超时）
+
+#### UTF-8 处理全面扫描修复
+- 扫描全部 `as char` 用法，修复 UTF-8 字节级截断缺陷
+- 延续 v10.7.0 sql_sanitizer.rs 修复模式
+
+#### LLM 安全审计扩展接线
+- OpenAINl2SqlEngine 接入 LlmSecurityAuditor
+- 泛型包装器通过委托自动传递审计能力
+
+#### 性能基准实际采集
+- vs v10.5.0 基线，连接池/查询缓存性能不退化
+- 并发正确性验证
+
+#### 文档一致性验证
+- G12 文档与代码一致性、G14 文档同步更新、G18 度量真实性
+- 数字禁止手写，必须来自工具输出
+
+## [10.7.0] — 2026-10-16
+
+### v10.7.0 综合交付 — crates.io 发布 + sz-pay 对齐 + 覆盖率 + 性能 + 安全 + AI 深化
+
+#### crates.io 发布 v10.6.0
+- 70 个包全部发布到 crates.io v10.6.0（按依赖拓扑分轮发布）
+- 发布顺序：n1-lint → tracing → flamegraph → explain → macros → sql-validator → core → 其余 63 包
+
+#### sz-pay 版本对齐
+- 22 个 sz-orm-* 依赖从 10.3.0 升级至 10.6.0
+- sz-pay 编译验证通过（3m 47s），ADR-0001 合规（仅修改 sz-pay Cargo.toml）
+
+#### 覆盖率提升
+- 目标行覆盖率 ≥ 90%，不退化（vs v9.0.0 基线 90.2%）
+- 补充测试验证行为副作用，禁止幻影测试
+
+#### 性能优化不退化验证
+- 连接池/查询缓存性能不退化（vs v10.5.0 基线）
+- 并发正确性验证，unsafe 零容忍
+
+#### 安全加固深化
+- 延续 v10.6.0 零漏洞基线（cargo audit 0 漏洞）
+- OWASP Top 10 遗漏场景补全，TDE KAT 向量深化
+
+#### AI 能力深化
+- NL2SQL 三重安全检查管线串联（sql_sanitizer → sql_validator → permission_auditor）
+- 查询计划优化/索引推荐/智能诊断端到端测试
+- LLM 安全审计接线验证
+
+## [10.6.0] — 2026-10-16
+
+### v10.6.0 安全漏洞修复 — rustls 0.21.12 漏洞链消除
+
+消除门禁 6（cargo audit）剩余的 2 个 rustls 0.21.12 安全漏洞（RUSTSEC-2026-0346 + RUSTSEC-2026-0349），达到 cargo audit 零漏洞。将 sz-orm-search 的 ElasticsearchProvider 底层 HTTP 客户端从 elasticsearch crate 8.5.0-alpha.1 替换为 reqwest 0.12 直连 ES REST API，公共 API 签名零变更。
+
+#### 漏洞链分析
+- 引入路径：`sz-orm-search → elasticsearch 8.5.0-alpha.1 → reqwest 0.11.27 → hyper-rustls 0.24.2 → rustls 0.21.12`
+- 漏洞 ID：RUSTSEC-2026-0346 + RUSTSEC-2026-0349
+- 根因：elasticsearch crate 8.5.0-alpha.1 依赖 reqwest 0.11，reqwest 0.11 依赖 hyper-rustls 0.24，hyper-rustls 0.24 绑定 rustls 0.21（含安全漏洞）
+
+#### 变更
+- **移除** `packages/sz-orm-search/Cargo.toml` elasticsearch 依赖声明（`elasticsearch = { version = "8.5.0-alpha.1", ... }`）
+- **新增** `packages/sz-orm-search/Cargo.toml` reqwest 0.12 optional 依赖（`reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }`）
+- **修改** `packages/sz-orm-search/Cargo.toml` real-es feature（`real-es = ["dep:reqwest", "dep:url"]`，原 `real-es = ["elasticsearch"]`）
+- **修改** `packages/sz-orm-search/Cargo.toml` real-opensearch feature（`real-opensearch = ["opensearch", "dep:url"]`，原 `real-opensearch = ["opensearch", "url"]`，修复 cargo dep: 前缀要求）
+- **重写** `packages/sz-orm-search/src/elasticsearch_provider.rs` ElasticsearchProvider：`client: Elasticsearch` → `client: reqwest::Client` + `base_url: String` + `username: Option<String>` + `password: Option<String>`，8 个方法全部改为 reqwest HTTP 直调 ES REST API
+- **更新** `packages/sz-orm-search/src/lib.rs` 模块文档注释（elasticsearch crate → reqwest 0.12 REST API）
+- **升级** `Cargo.toml` workspace.package.version 10.3.0 → 10.6.0（72 成员自动继承）
+- **更新** `Cargo.lock` 依赖树：移除 elasticsearch 8.5.0-alpha.1 + reqwest 0.11.27 + hyper-rustls 0.24.2 + rustls 0.21.12 + tokio-rustls 0.24.1 + webpki-roots 0.25.4 + winreg 0.50.0
+
+#### 验证结果
+- cargo audit：**0 漏洞**（3 个 allowed warnings：unsafe-libyaml unmaintained + chacha20/zip yanked，均为预存在非漏洞）
+- Cargo.lock：rustls 仅 0.23.46、reqwest 0.12.28 + 0.13.4、hyper-rustls 0.27.9、elasticsearch 0 条目
+- cargo check --workspace --all-targets：✅ 72 成员全部编译通过
+- cargo clippy --workspace --all-targets -- -D warnings：✅ 0 warning
+- cargo test -p sz-orm-search：✅ 25 passed + 1 doc-test
+- cargo test -p sz-orm-search --features real-opensearch：✅ 25 passed + 1 doc-test
+- cargo test -p sz-orm-core --lib：✅ 3522 passed
+- cargo doc -p sz-orm-search --no-deps --all-features：✅
+
+#### 约束满足
+- 不新增 crate（workspace.members = 72 不变）
+- 不新增 feature gate（real-es/real-opensearch/real-meilisearch 三个不变）
+- 不引入新外部依赖（reqwest 0.12 + url 2.5 已被工作空间其他包使用）
+- 向后兼容（公共 API 签名零变更：ElasticsearchProvider::new / SearchExt trait 8 方法 / ElasticsearchConfig 不变）
+- unsafe 零容忍（无 unsafe 代码引入）
+- ADR-0001 铁律（未修改 sz-pay 任何文件）
+
+## [10.3.0] — 2026-10-14
+
+### v10.3.0 自愈能力统一 + 自动接线零配置便利 + 收益持续采集 + 运维统一视图 + sz-pay 升级路径验证
+
+基于 v10.2.0，聚焦五大方向，不新增 crate、不新增 feature gate、不引入新外部依赖。新增 39 个测试（并发 4 + 边界 7 + e2e 28），全部通过。
+
+#### 新增
+- **M1 基础配置类型扩展**：`UnifiedHealConfig`/`HealEventSource`/`UnifiedHealEvent`（unified_heal.rs）+ `ProfitCollectorConfig`/`ProfitSnapshot`/`ProfitCollector`（profit_collector.rs）+ `OpsSnapshot`/`ProfitSummary`/`SelfHealSummary`/`AtomicUpdateSummary`/`LoopHealthSummary`/`OpsAlert`/`AlertSource`/`AlertSeverity`（ops_snapshot.rs），PoolConfig 新增 2 字段 + Builder 方法 + Default
+- **M2 自愈能力统一**：AutoHealer doc comment 扩展"连接级自愈"术语（pool.rs）+ SelfHealEngine doc comment 扩展"DB 级自愈"术语（self_heal.rs）+ Pool::new() 统一自愈逻辑 + `unified_heal_config()`/`unified_heal_event_history()` getter + 退避融合 `compute_fused_heal_interval`
+- **M3 自动接线零配置便利**：`default_auto_wire_factory()` 便利函数（auto_wire_factory.rs）+ lib.rs 预导出，下游一行代码启用自动接线
+- **M4 收益持续采集**：`ProfitCollector`（AtomicU64 无锁）+ Pool 集成（record_linkage_hit/skip 同步累积）+ `profit_collector()`/`profit_snapshot()`/`profit_trend()` getter
+- **M5 运维统一视图**：`ops_snapshot()` 方法聚合五大方向摘要 + 告警聚合（AutoWire 失败/命中率<50%/自愈失败/回滚失败/健康度<60）
+- **M6 稳定性加固测试**：4 个并发安全性测试 + 7 个边界条件测试
+- **M7 e2e 接线验证**：23 个 core e2e + 5 个 observability e2e = 28 个，验证行为副作用
+- **M8 sz-pay 升级路径验证**：HealerConfig 添加 Serialize/Deserialize derive（auto-healer feature 兼容）+ AutoHealer::start 签名不变 + sz-pay 未使用 v10.x 新增配置（grep 0 匹配）
+
+#### 修复
+- `HealerConfig` 缺少 `Serialize`/`Deserialize` derive，导致 `UnifiedHealConfig` 在 `auto-healer` feature 下编译失败（pool.rs:5006）
+
+#### 测试
+- sz-orm-core lib：3527 passed（含 auto-healer feature）
+- sz-orm-core v10.3.0 新增：concurrency_safety_v1030（4）+ boundary_conditions_v1030（7）+ wiring_e2e_v1030（23）= 34 passed
+- sz-orm-observability v10.3.0 新增：wiring_e2e_v1030（5）= 5 passed
+- sz-orm-observability lib：69 passed
+- 无占位实现（todo!/unimplemented!/unreachable! 0 匹配）
+- 无幻影测试（let _result / >= 0.0 0 匹配）
+
+## [10.2.0] — 2026-10-14
+
+### v10.2.0 自动接线深化 + 联动收益量化 + 闭环健康度监控 + 故障自愈 + 原子热更新与回滚
+
+基于 v10.1.0，聚焦五大方向深化，不新增 crate、不新增 feature gate、不引入新外部依赖。
+
+#### 新增
+- **M1 基础配置类型扩展**：`AutoWireConfig`/`AutoWireFactory`/`AutoWireStatus`/`ProfitQuantEngine`/`SelfHealEngine`/`AtomicBatchUpdater`/`LoopHealthMonitor`/`LoopHealthConfig` 等类型，PoolConfig 新增 6 字段 + Builder 方法 + Default
+- **M2 自动接线深化**：`ObservabilityAutoWireFactory` 工厂实现，Pool::new() 自动接线逻辑（工厂注入 + 回调合并 + 状态记录），`auto_wire_status()`/`compliance_handle()` getter
+- **M3 联动收益量化**：`ProfitQuantEngine` with `run_benchmark`/`check_threshold`，Pool 集成 + `profit_quant_engine()` getter，5 个单元测试
+- **M4 闭环健康度监控**：`LoopHealthMonitor` with `compute_health_score`/六维指标采集，Pool 集成 + `loop_health_config()` getter，6 个单元测试
+- **M5 故障自愈**：`SelfHealEngine` with `compute_backoff`/`auto_reconnect`/`auto_circuit_breaker_probe`，伪随机抖动 + 事件脱敏，Pool 集成 + `self_heal_event_history()` getter，8 个单元测试
+- **M6 原子热更新与回滚**：`AtomicBatchUpdater` with `snapshot`/`rollback`/`batch_update`，超时控制 + 配置验证，Pool 集成 + `atomic_batch_event_history()` getter，6 个单元测试
+- **M7 稳定性加固测试**：4 个并发测试 + 8 个边界测试 + 1 个闭环健康度并发测试
+- **M8 e2e 接线验证**：38 个 e2e 测试（自动接线 8 + 收益量化 6 + 闭环健康度 7 + 故障自愈 9 + 原子热更新 8）
+- **M9 sz-pay 兼容验证**：编译兼容性确认通过
+
+#### 质量门禁
+- sz-orm-core lib 测试 **3486 passed**
+- sz-orm-observability lib 测试 **69 passed**
+- 新增测试文件 **51 passed**（concurrency 4 + loop_health 1 + boundary 8 + e2e 38）
+- clippy 0 警告（core + observability + sqlx），fmt 通过
+- 修复既有 clippy 问题：concurrency_safety.rs unnecessary_unwrap + wiring_e2e.rs unused_import/bool_comparison
+
+#### 向后兼容
+- 所有新增类型为独立 pub struct/enum，不修改既有 API 签名
+- PoolConfig 新增 6 字段在 Default 中默认禁用，不影响既有调用方
+- 不新增 crate（72 不变）、不新增 feature gate、不引入新外部依赖
+- 独立版本线（sz-orm-python/js/graph 0.1.0）不变
+
+## [9.8.0] — 2026-10-09
+
+### v9.8.0 运行时自适应调优闭环：连接池自适应 + 执行计划自适应 + 可观测性自适应闭环
+
+基于 v9.7.0，聚焦运行时自适应调优闭环，不新增 crate、不新增 feature gate、不引入新外部依赖。
+
+#### 新增
+- **T1 连接池自适应调优**：`ResizeDecision`/`AdaptiveResizeHandle`/`AdjustmentHistory` 等类型，`start_adaptive_resize`/`adjustment_history` 方法，安全边界与风暴保护，19 个单元测试
+- **T2 执行计划自适应优化**：`PlanExecutionBaseline`/`PlanExecutionRegressionDetector`/`PlanSwitcher`/`IndexAdvisor` 等类型，回归检测（回归样本不计入基线）+ 切换限速 + 索引建议，15 个单元测试
+- **T3 可观测性自适应闭环**：`TuningSuggestion`/`AutoApplier`/`AdaptiveTuningLoop`/`TuningAuditLogger` 等类型，RCA→建议→自动应用→审计闭环，13 个单元测试（需 `--features anomaly-remediation-rca`）
+- **T4 基准测试**：3 个测试文件，10 个基准测试
+- **T5 端到端**：8 个 e2e 测试，sz-pay 兼容性验证 5,159 passed
+
+#### 质量门禁
+- 工作空间测试 **15,809 passed, 0 failed, 463 ignored**
+- clippy 0 警告，fmt 通过，全 feature 编译通过
+- sz-pay 兼容性：5,159 passed, 0 failed
+
+#### 向后兼容
+- 所有新增类型为独立 pub struct/enum，不修改既有 API 签名
+- 独立版本线（sz-orm-python/js/graph 0.1.0）不变
+
 ## [9.4.0] — 2026-10-05
 
 ### v9.4.0 审计修复闭环：G7 缓存收益测试模型修正 + G22 覆盖率提升至 94.7% + 23 关门禁全部通过
@@ -2028,6 +2323,17 @@ v3.0.0 是 SZ-ORM 的长期目标迭代版本，包含 6 大方向交付物，�
 
 - 1h soak test：13.8 亿 operations，0 errors，1.16% throughput decay，43μs→41μs P99 latency
 - 7 组 criterion 基准测试
+
+<!-- 
+版本缺口说明（2026-10-18 记录）：
+CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+ 个版本规格。
+以下版本有 specs 但无 CHANGELOG 条目（多为小版本/修复版本，特性详见对应 specs/design.md）：
+- v7.1.0, v7.2.0, v7.3.0, v7.5.0, v7.6.0, v7.7.0
+- v8.3.0-v8.8.0, v8.4.0-v8.7.0
+- v9.5.0, v9.6.0, v9.7.0, v9.9.0
+- v10.0.0, v10.1.0, v10.4.0, v10.5.0
+后续版本迭代时逐步补充。
+-->
 
 ## [Unreleased]
 

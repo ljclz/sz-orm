@@ -129,9 +129,9 @@ println!("{}", report.to_json().unwrap());
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0** (production code) |
 | `cargo clippy -D warnings` | ✅ 0 warnings (`[workspace.lints]` enforced) |
 
-## v3.4.0 New Features (2026-08-09)
+## Historical: v3.4.0 New Features (2026-08-09)
 
-> Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
+> **Note**: This section describes the v3.4.0 release features. For the latest features (v10.10.0), see [CHANGELOG.md](CHANGELOG.md). Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
 
 ### Test Coverage Backfill (`test-coverage`)
 
