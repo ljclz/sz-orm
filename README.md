@@ -1,11 +1,11 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v9.4.0 · 72 workspace members · 20424+ tests · 28 SQL dialects · sz-orm-core published on crates.io
+> v10.10.0 · 72 workspace members · 21569+ tests · 28 SQL dialects · sz-orm-core published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-20437+-green.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-21569+-green.svg)](#tests)
 [![Dialects](https://img.shields.io/badge/dialects-28-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-9.4.0-blue.svg)](CHANGELOG.md)
@@ -119,8 +119,8 @@ println!("{}", report.to_json().unwrap());
 |------|------|
 | Workspace members | **72** (70 sz-orm-* libs + cli + examples) |
 | Supported DB dialects | **28 SQL dialects** |
-| Test cases | **20437 passed, 0 failed** |
-| Code size | **~139,000 LOC** (after deep optimization, src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000) |
+| Test cases | **21569 passed, 0 failed** |
+| Code size | **~639,200 LOC** (src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |
 | Minimum Rust version | 1.94.0+ (sqlx 0.9.0 requirement) |
