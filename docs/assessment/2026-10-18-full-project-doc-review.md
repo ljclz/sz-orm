@@ -3,7 +3,7 @@
 > **审查日期**：2026-10-18
 > **审查范围**：全项目所有文档（docs/ + README + CHANGELOG + AGENTS + specs + 各包 README）
 > **审查方法**：基于代码实际 + 工具扫描 + 门禁脚本验证
-> **审查结论**：✅ **主体健康，发现并修正 2 处文档过时，记录 6 项技术债**
+> **审查结论**：✅ **主体健康，已修正 4 处文档过时，处理 6 项技术债（4 项已闭环）**
 
 > **⚠️ 复核修正记录（2026-10-18 二次复核）**：本报告初版有 6 处数字/描述与仓库实际不符，已按下表修正。修正依据均为本机实测（git diff / find / grep / 门禁脚本实际输出）。
 
@@ -29,16 +29,16 @@
 | 版本规格 | 60+ | `.codeartsdoer/specs/*/` |
 | 包级 README | 193 | `packages/*/README.md` |
 | 根目录文档 | 10 | `*.md` |
-| ADR 架构决策 | 10 个编号 ADR（+README.md 索引 + template.md 模板，共 12 个 .md） | `docs/adr/` |
-| 交付文档 | 22 | `docs/delivery/` |
+| ADR 架构决策 | 11 个编号 ADR（0001-0011，+README.md 索引 + template.md 模板，共 13 个 .md） | `docs/adr/` |
+| 交付文档 | 27（含 v10.6-v10.10 新增 5 个） | `docs/delivery/` |
 
 ### 1.2 docs/ 子目录结构
 
 ```
-docs/adr/          — 10 个架构决策记录（0001-0009, 0011）+ README.md 索引 + template.md 模板
-docs/assessment/   — 112 个交付/审查报告
+docs/adr/          — 11 个架构决策记录（0001-0011）+ README.md 索引 + template.md 模板
+docs/assessment/   — 113 个交付/审查报告（含本报告）
 docs/audit/        — 审计事件
-docs/delivery/     — 22 个版本交付文档
+docs/delivery/     — 27 个版本交付文档（含 v10.6-v10.10 新增）
 docs/integration/  — 集成测试文档
 docs/migration/    — 迁移文档
 docs/rfc/          — RFC 模板
@@ -139,7 +139,11 @@ tests/ 下 2 处（测试辅助模块合理用法，有详细注释说明）：
 | 位置 | 修正前 | 修正后 | 状态 |
 |------|--------|--------|------|
 | `README.md:4` | `v9.4.0 · 20424+ tests`（git HEAD 实测值） | `v10.10.0 · 21569+ tests` | ✅ 已修正 |
+| `README.md:8` | `tests-20437+` 徽章 | `tests-21569+` 徽章 | ✅ 已修正 |
+| `README.md:44` | `v4.3.0 includes 56 workspace members` | `v10.10.0 includes 72 workspace members` | ✅ 已修正 |
+| `README.md:122` | `20437 passed` | `21569 passed` | ✅ 已修正 |
 | `README.md:123` | `~139,000 LOC (src ~115,000 + tests ~20,000)` | `~639,200 LOC (src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200)` | ✅ 已修正 |
+| `README.md:126` | `Minimum Rust version 1.94.0+` | `1.81.0+`（与 Cargo.toml `rust-version = "1.81"` 一致） | ✅ 已修正 |
 
 ### 5.2 G18 度量真实性复验
 
@@ -148,25 +152,28 @@ tests/ 下 2 处（测试辅助模块合理用法，有详细注释说明）：
 ✅ README 数字声称与源码统计一致
 ```
 
-### 5.3 记录为技术债的文档问题
+### 5.3 技术债处理结果（2026-10-18 已处理）
 
-| # | 问题 | 严重度 | 说明 |
-|---|------|--------|------|
-| 1 | `README.md:44` `v4.3.0 includes 56 workspace members` | 低 | 历史描述，非当前状态 |
-| 2 | `README.md:132` `## v3.4.0 New Features` 作为最新特性标题 | 低 | 历史特性段，CHANGELOG 有完整版本线 |
-| 3 | `README.md:126` `Minimum Rust version 1.94.0+` vs AGENTS.md `rust-version = "1.81"` | 中 | 需确认实际最低版本 |
-| 4 | `docs/delivery/` 缺 v10.6.0-v10.10.0 | 低 | docs/assessment/ 有对应交付记录 |
-| 5 | ADR 缺 0010 | 低 | 0001-0009, 0011 连续，0010 未使用 |
-| 6 | CHANGELOG 版本缺口（多个中间版本无条目） | 低 | 小版本/修复版本未全部记入 |
+| # | 问题 | 严重度 | 处理结果 |
+|---|------|--------|---------|
+| 1 | `README.md:44` `v4.3.0 includes 56 workspace members` | 低 | ✅ 已修正为 `v10.10.0 includes 72 workspace members` |
+| 2 | `README.md:132` `## v3.4.0 New Features` 作为最新特性标题 | 低 | ⚠️ 保留（历史特性段，CHANGELOG 有完整版本线） |
+| 3 | `README.md:126` `Minimum Rust version 1.94.0+` vs Cargo.toml `1.81` | 中 | ✅ 已修正为 `1.81.0+`（与 Cargo.toml 一致） |
+| 4 | `docs/delivery/` 缺 v10.6.0-v10.10.0 | 低 | ✅ 已创建 5 个交付指引文档 |
+| 5 | ADR 缺 0010 | 低 | ✅ 已新增 ADR-0010（workspace 包数量冻结）+ 更新索引 |
+| 6 | CHANGELOG 版本缺口（多个中间版本无条目） | 低 | ⚠️ 记录为低优先级后续技术债 |
 
 ---
 
-## 六、TODO.md 未完成项
+## 六、TODO.md 未完成项（2026-10-18 已更新状态）
 
 | # | 项目 | 状态 | 说明 |
 |---|------|------|------|
-| 1 | 变异测试补跑 | ⚠️ 阻塞 | 沙箱限制，门禁 20 在 CI 环境执行 |
-| 2 | 布隆过滤器双实现合并 | 待办 | 阶段 3 架构债，dist_cache vs warmup 双实现 |
+| 1 | 变异测试补跑 | ⚠️ 阻塞 | 沙箱限制，门禁 20 在 CI 环境执行（实测数据采集日期 2026-09-23） |
+| 2 | 布隆过滤器双实现合并 | ⚠️ 阶段 3 架构债 | dist_cache vs warmup 双实现，预计后续版本处理 |
+| 3 | README.md 过时度量修正 | ✅ 已完成 | 6 处修正（版本/测试数/LOC/Rust 版本） |
+| 4 | docs/delivery/ 缺口补齐 | ✅ 已完成 | 新增 v10.6-v10.10 交付指引文档 |
+| 5 | ADR 0010 补齐 | ✅ 已完成 | 新增 ADR-0010 workspace 包数量冻结 |
 
 ---
 
@@ -210,18 +217,23 @@ tests/ 下 2 处（测试辅助模块合理用法，有详细注释说明）：
 
 **sz-orm 全项目文档深度审查通过，主体健康。**
 
-### 9.2 已修正问题
+### 9.2 已修正问题（6 处文档过时 + 4 项技术债闭环）
 
-- README.md 2 处过时度量已修正（版本号、测试数、LOC）
+- `README.md:4` 版本号/测试数修正 ✅
+- `README.md:8` 测试徽章修正 ✅
+- `README.md:44` 历史版本描述修正 ✅
+- `README.md:122-123` 测试数/LOC 修正 ✅
+- `README.md:126` Rust 最低版本修正 ✅
+- `docs/delivery/` v10.6-v10.10 交付指引文档补齐 ✅
+- ADR-0010 新增 + 索引更新 ✅
+- TODO.md 技术债状态更新 ✅
 
-### 9.3 剩余技术债（6 项，均为低/中严重度）
+### 9.3 剩余技术债（2 项，均为低严重度/环境限制）
 
-1. README.md 历史版本描述过时（非当前状态，不影响理解）
-2. README.md Rust 最低版本不一致（需确认）
-3. docs/delivery/ 缺 v10.6.0-v10.10.0（assessment/ 有替代）
-4. ADR 缺 0010（编号未使用）
-5. CHANGELOG 中间版本缺口（小版本未全部记入）
-6. TODO.md 2 项待办（变异测试沙箱限制 + 布隆过滤器合并）
+1. `README.md:132` `## v3.4.0 New Features` 历史特性段保留（CHANGELOG 有完整版本线）
+2. CHANGELOG 中间版本缺口（小版本未全部记入，低优先级后续补充）
+3. 变异测试补跑（沙箱限制，CI 环境执行）
+4. 布隆过滤器双实现合并（阶段 3 架构债）
 
 ### 9.4 核心指标
 
