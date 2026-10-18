@@ -41,7 +41,7 @@
 
 ## Overview
 
-SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v4.3.0 includes 56 workspace members (v4.3.0 adds sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion/sz-orm-n1-lint), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 9 new data governance and operations enhancements.
+SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.10.0 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 517 feature gates for modular composition.
 
 ### v5.1.0 AI Application Optimization (34 tasks, 293 new tests)
 
@@ -123,7 +123,7 @@ println!("{}", report.to_json().unwrap());
 | Code size | **~639,200 LOC** (src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |
-| Minimum Rust version | 1.94.0+ (sqlx 0.9.0 requirement) |
+| Minimum Rust version | 1.81.0+ (Cargo.toml rust-version = "1.81") |
 | sqlx version | 0.9.0 |
 | Known bugs | **0** |
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0** (production code) |
