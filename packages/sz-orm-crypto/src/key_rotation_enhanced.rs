@@ -52,11 +52,10 @@ impl KeyRotationEnhanced {
                 status: KeyStatus::Active,
             },
         );
-        let mut history = Vec::new();
-        history.push(VersionEntry {
+        let history = vec![VersionEntry {
             key_id: initial_key_id.to_string(),
             rotated_at: 0,
-        });
+        }];
         Self {
             keys: Mutex::new(keys),
             write_key_id: Mutex::new(initial_key_id.to_string()),
