@@ -11,7 +11,7 @@
 
 use sz_orm_ai::{
     AiDecision, AiDecisionType, AuditEntry, DecisionExplainer, DecisionPath, DecisionStep,
-    FeatureImportance, RiskAssessment, RiskFactor, RiskLevel, RollbackPlan, RollbackStep,
+    FeatureImportance, RiskAssessment, RiskFactor, AiRiskLevel, RollbackPlan, RollbackStep,
     VerifyCondition,
 };
 
@@ -45,7 +45,7 @@ fn make_full_explainer() -> DecisionExplainer {
             ],
         },
         RiskAssessment {
-            level: RiskLevel::Low,
+            level: AiRiskLevel::Low,
             factors: vec![RiskFactor {
                 factor: "non_unique_index".to_string(),
                 weight: 0.2,
@@ -81,7 +81,7 @@ fn test_decision_explainer_completeness() {
             }],
         },
         RiskAssessment {
-            level: RiskLevel::Low,
+            level: AiRiskLevel::Low,
             factors: vec![],
             score: 0.0,
         },
@@ -112,7 +112,7 @@ fn test_decision_explainer_completeness() {
             }],
         },
         RiskAssessment {
-            level: RiskLevel::Low,
+            level: AiRiskLevel::Low,
             factors: vec![],
             score: 0.0,
         },
@@ -155,7 +155,7 @@ fn test_decision_explain_audit_trail() {
     assert_eq!(audit.feature_importance[0].feature, "query_frequency");
     assert!((audit.feature_importance[0].importance - 0.85).abs() < 1e-9);
     assert_eq!(audit.decision_path.steps.len(), 3);
-    assert_eq!(audit.risk_assessment.level, RiskLevel::Low);
+    assert_eq!(audit.risk_assessment.level, AiRiskLevel::Low);
     assert!((audit.risk_assessment.score - 0.2).abs() < 1e-9);
     assert_eq!(audit.rollback_plan.steps.len(), 1);
     assert_eq!(
@@ -229,7 +229,7 @@ fn test_decision_rollback_consistency() {
 
     assert_eq!(
         audit.risk_assessment.level,
-        RiskLevel::Low,
+        AiRiskLevel::Low,
         "低风险决策的回滚方案应标记为 Low"
     );
     assert!(
@@ -275,7 +275,7 @@ fn test_decision_without_explainer_no_audit() {
         vec![],
         DecisionPath { steps: vec![] },
         RiskAssessment {
-            level: RiskLevel::Low,
+            level: AiRiskLevel::Low,
             factors: vec![],
             score: 0.0,
         },

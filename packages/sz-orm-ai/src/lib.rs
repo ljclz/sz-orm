@@ -211,7 +211,7 @@ pub mod ai_config;
 pub use ai_config::{
     AiConfig, AiDecision, AiDecisionType, AnnIndexType as AiAnnIndexType, AuditEntry,
     DecisionExplainer, DecisionPath, DecisionStep, FeatureImportance, RewritePath, RiskAssessment,
-    RiskFactor, RiskLevel, RollbackPlan, RollbackStep, VerifyCondition,
+    RiskFactor, RiskLevel as AiRiskLevel, RollbackPlan, RollbackStep, VerifyCondition,
 };
 #[cfg(feature = "ai-index-apply")]
 pub use index_advisor::{AiIndexApplyResult, IndexApplyExecutor, RollbackRecord};
