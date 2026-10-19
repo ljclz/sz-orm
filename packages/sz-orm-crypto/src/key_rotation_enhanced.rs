@@ -4,6 +4,7 @@
 
 use std::collections::HashMap;
 use std::sync::Mutex;
+use std::time::{Duration, Instant};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum KeyStatus {
@@ -19,10 +20,25 @@ pub struct ActiveKey {
     pub status: KeyStatus,
 }
 
+#[derive(Debug, Clone)]
+pub struct VersionEntry {
+    pub key_id: String,
+    pub rotated_at: usize,
+}
+
+#[derive(Debug, Clone)]
+pub struct VersionHistory {
+    pub versions: Vec<VersionEntry>,
+}
+
 pub struct KeyRotationEnhanced {
     keys: Mutex<HashMap<String, ActiveKey>>,
     write_key_id: Mutex<String>,
     reference_counts: Mutex<HashMap<String, u64>>,
+    usage_count: Mutex<u64>,
+    rotation_history: Mutex<Vec<VersionEntry>>,
+    rotation_counter: Mutex<usize>,
+    last_rotation: Mutex<Option<Instant>>,
 }
 
 impl KeyRotationEnhanced {
@@ -36,10 +52,19 @@ impl KeyRotationEnhanced {
                 status: KeyStatus::Active,
             },
         );
+        let mut history = Vec::new();
+        history.push(VersionEntry {
+            key_id: initial_key_id.to_string(),
+            rotated_at: 0,
+        });
         Self {
             keys: Mutex::new(keys),
             write_key_id: Mutex::new(initial_key_id.to_string()),
             reference_counts: Mutex::new(HashMap::new()),
+            usage_count: Mutex::new(0),
+            rotation_history: Mutex::new(history),
+            rotation_counter: Mutex::new(0),
+            last_rotation: Mutex::new(Some(Instant::now())),
         }
     }
 
@@ -61,7 +86,70 @@ impl KeyRotationEnhanced {
             },
         );
         *self.write_key_id.lock().unwrap() = new_key_id.to_string();
+        let mut counter = self.rotation_counter.lock().unwrap();
+        *counter += 1;
+        self.rotation_history.lock().unwrap().push(VersionEntry {
+            key_id: new_key_id.to_string(),
+            rotated_at: *counter,
+        });
         Ok(())
+    }
+
+    pub fn record_usage(&self) {
+        *self.usage_count.lock().unwrap() += 1;
+    }
+
+    pub fn auto_rotate_by_period(
+        &self,
+        period: Duration,
+        new_key_id: &str,
+        new_key: Vec<u8>,
+    ) -> Result<(), String> {
+        let last = self.last_rotation.lock().unwrap();
+        if let Some(t) = *last {
+            if t.elapsed() < period {
+                return Err("未到轮换周期".to_string());
+            }
+        }
+        drop(last);
+        self.rotate_key(new_key_id, new_key)?;
+        *self.last_rotation.lock().unwrap() = Some(Instant::now());
+        Ok(())
+    }
+
+    pub fn auto_rotate_by_usage(
+        &self,
+        threshold: u64,
+        new_key_id: &str,
+        new_key: Vec<u8>,
+    ) -> Result<(), String> {
+        let count = *self.usage_count.lock().unwrap();
+        if count < threshold {
+            return Err("使用次数未达阈值".to_string());
+        }
+        self.rotate_key(new_key_id, new_key)?;
+        *self.usage_count.lock().unwrap() = 0;
+        Ok(())
+    }
+
+    pub fn key_rollback(&self, target_key_id: &str) -> Result<(), String> {
+        let keys = self.keys.lock().unwrap();
+        if !keys.contains_key(target_key_id) {
+            return Err(format!("密钥 {} 不存在", target_key_id));
+        }
+        let key_status = keys.get(target_key_id).unwrap().status.clone();
+        if key_status == KeyStatus::Retired {
+            return Err(format!("密钥 {} 已退役", target_key_id));
+        }
+        drop(keys);
+        *self.write_key_id.lock().unwrap() = target_key_id.to_string();
+        Ok(())
+    }
+
+    pub fn version_history(&self) -> VersionHistory {
+        VersionHistory {
+            versions: self.rotation_history.lock().unwrap().clone(),
+        }
     }
 
     pub fn encrypt_with_write_key(&self, plaintext: &[u8]) -> Result<(String, Vec<u8>), String> {

@@ -6,6 +6,8 @@
 //! - 脱敏：非 admin 敏感字段被屏蔽，admin 直通
 //! - 自动化审计：record 后 entry_count 增加，不可用时拒绝
 
+#![cfg(all(feature = "compliance-auto-scan", feature = "hash-chain-enhanced"))]
+
 use sz_orm_audit::autonomous_audit::{AutonomousAuditEntry, AutonomousDecisionAuditor};
 use sz_orm_audit::compliance_scan_desensitizer::ComplianceScanDesensitizer;
 use sz_orm_audit::compliance_scan_engine::{
