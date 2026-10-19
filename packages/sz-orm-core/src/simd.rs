@@ -101,11 +101,13 @@ pub const SIMD_THRESHOLD: usize = 1024;
 ///
 /// 始终使用标量路径（编译器自动向量化已优于显式 SIMD，实测验证 2026-08-19）。
 /// `avail` 参数保留用于 API 兼容性。
+#[inline]
 pub fn batch_decode_integers(buf: &[u8], count: usize, _avail: SimdAvailability) -> Vec<i64> {
     scalar_decode_integers(buf, count)
 }
 
 /// 标量批量整数解码
+#[inline]
 pub fn scalar_decode_integers(buf: &[u8], count: usize) -> Vec<i64> {
     let n = count.min(buf.len() / 8);
     (0..n)
@@ -127,6 +129,7 @@ pub fn scalar_decode_integers(buf: &[u8], count: usize) -> Vec<i64> {
 /// v7.4.0 优化：预分配结果 + chunks_exact(8) 批量处理减少边界检查。
 /// `avail` 参数保留用于 API 兼容性。
 #[allow(clippy::chunks_exact_to_as_chunks)]
+#[inline]
 pub fn batch_compare_eq(values: &[i64], target: i64, _avail: SimdAvailability) -> Vec<bool> {
     let mut result = Vec::with_capacity(values.len());
     for chunk in values.chunks_exact(8) {
@@ -146,6 +149,7 @@ pub fn batch_compare_eq(values: &[i64], target: i64, _avail: SimdAvailability) -
 }
 
 /// 标量相等比较
+#[inline]
 pub fn scalar_compare_eq(values: &[i64], target: i64) -> Vec<bool> {
     values.iter().map(|&v| v == target).collect()
 }
@@ -158,6 +162,10 @@ pub fn scalar_compare_eq(values: &[i64], target: i64) -> Vec<bool> {
 /// - `set.len() >= 8`：HashSet O(1) 查找 + 预分配结果
 /// - `set.len() >= 3`：排序 + 二分查找 O(log n)
 /// - 小集合：线性扫描 + 预分配结果
+///
+/// v10.11.0 T1.1 分支消除：小集合线性扫描提取为 #[cold] 冷分支，
+/// 高频分支（大集合 HashSet）前置，减少分支预测失败。
+#[inline]
 pub fn batch_compare_in(values: &[i64], set: &[i64], _avail: SimdAvailability) -> Vec<bool> {
     let mut result = Vec::with_capacity(values.len());
     if set.len() >= 8 {
@@ -172,14 +180,22 @@ pub fn batch_compare_in(values: &[i64], set: &[i64], _avail: SimdAvailability) -
             result.push(sorted_set.binary_search(&v).is_ok());
         }
     } else {
-        for &v in values {
-            result.push(set.contains(&v));
-        }
+        batch_compare_in_small_set(values, set, &mut result);
     }
     result
 }
 
+/// 小集合线性扫描（冷分支，set.len() < 3）
+#[cold]
+#[inline]
+fn batch_compare_in_small_set(values: &[i64], set: &[i64], result: &mut Vec<bool>) {
+    for &v in values {
+        result.push(set.contains(&v));
+    }
+}
+
 /// 标量 IN 过滤
+#[inline]
 pub fn scalar_compare_in(values: &[i64], set: &[i64]) -> Vec<bool> {
     values.iter().map(|&v| set.contains(&v)).collect()
 }
@@ -189,16 +205,19 @@ pub fn scalar_compare_in(values: &[i64], set: &[i64]) -> Vec<bool> {
 // ============================================================================
 
 /// 批量 f32 求和
+#[inline]
 pub fn batch_sum_f32(data: &[f32]) -> f32 {
     data.iter().copied().sum()
 }
 
 /// 批量非零计数
+#[inline]
 pub fn batch_count_nonzero(data: &[f64]) -> usize {
     data.iter().filter(|&&v| v != 0.0).count()
 }
 
 /// 批量 f32 最小值
+#[inline]
 pub fn batch_min_f32(data: &[f32]) -> Option<f32> {
     data.iter().copied().fold(None, |acc, v| match acc {
         None => Some(v),
@@ -207,6 +226,7 @@ pub fn batch_min_f32(data: &[f32]) -> Option<f32> {
 }
 
 /// 批量 f32 最大值
+#[inline]
 pub fn batch_max_f32(data: &[f32]) -> Option<f32> {
     data.iter().copied().fold(None, |acc, v| match acc {
         None => Some(v),
@@ -215,6 +235,7 @@ pub fn batch_max_f32(data: &[f32]) -> Option<f32> {
 }
 
 /// 批量余弦距离
+#[inline]
 pub fn batch_cosine_distance(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() || a.is_empty() {
         return 0.0;
@@ -229,6 +250,7 @@ pub fn batch_cosine_distance(a: &[f32], b: &[f32]) -> f32 {
 }
 
 /// 批量欧氏距离
+#[inline]
 pub fn batch_euclidean_distance(a: &[f32], b: &[f32]) -> f32 {
     if a.len() != b.len() {
         return 0.0;
@@ -310,21 +332,25 @@ pub enum SimdAggOp {
 /// 对 `data` 中每个元素与 `threshold` 执行 `op` 比较，返回布尔向量。
 /// 当 `data.len() < SIMD_THRESHOLD` 或 `SimdAvailability::None` 时走标量路径。
 /// 始终使用标量路径（编译器自动向量化已优于显式 SIMD，实测验证 2026-08-19）。
+#[inline]
 pub fn batch_filter_f32(data: &[f32], threshold: f32, op: SimdCmpOp) -> Vec<bool> {
     scalar_filter_f32(data, threshold, op)
 }
 
 /// 标量过滤 f32
+#[inline]
 pub fn scalar_filter_f32(data: &[f32], threshold: f32, op: SimdCmpOp) -> Vec<bool> {
     data.iter().map(|&v| op.apply_f32(v, threshold)).collect()
 }
 
 /// 批量过滤 f64 数据（v7.3.0）
+#[inline]
 pub fn batch_filter_f64(data: &[f64], threshold: f64, op: SimdCmpOp) -> Vec<bool> {
     scalar_filter_f64(data, threshold, op)
 }
 
 /// 标量过滤 f64
+#[inline]
 pub fn scalar_filter_f64(data: &[f64], threshold: f64, op: SimdCmpOp) -> Vec<bool> {
     data.iter().map(|&v| op.apply_f64(v, threshold)).collect()
 }
@@ -332,6 +358,7 @@ pub fn scalar_filter_f64(data: &[f64], threshold: f64, op: SimdCmpOp) -> Vec<boo
 /// 批量过滤 bool 数据（v7.3.0）
 ///
 /// 对 `data` 中每个元素判断是否等于 `expected`，返回布尔向量。
+#[inline]
 pub fn batch_filter_bool(data: &[bool], expected: bool) -> Vec<bool> {
     data.iter().map(|&v| v == expected).collect()
 }
@@ -339,6 +366,7 @@ pub fn batch_filter_bool(data: &[bool], expected: bool) -> Vec<bool> {
 /// 批量聚合 f32 数据（v7.3.0）
 ///
 /// 返回 f64 结果以保证精度。空切片 Sum/Avg 返回 0.0，Min/Max 返回 NaN。
+#[inline]
 pub fn batch_aggregate_f32(data: &[f32], op: SimdAggOp) -> f64 {
     if data.is_empty() {
         return match op {
@@ -361,6 +389,7 @@ pub fn batch_aggregate_f32(data: &[f32], op: SimdAggOp) -> f64 {
 }
 
 /// 批量聚合 f64 数据（v7.3.0）
+#[inline]
 pub fn batch_aggregate_f64(data: &[f64], op: SimdAggOp) -> f64 {
     if data.is_empty() {
         return match op {
@@ -398,6 +427,7 @@ const F64_BLOCK_SIZE: usize = 64;
 /// 使用 SoA 布局 + 64 字节缓存行对齐分块 + 4 路累加器避免假依赖。
 /// 加速比 ≥ 2.5x（相比 v7.5.0 的 1.8x）。
 /// 结果与标量路径不一致时回退标量并告警 `ACCELERATION_RESULT_MISMATCH`。
+#[inline]
 pub fn batch_aggregate_enhanced_f32(data: &[f32], op: SimdAggOp) -> f64 {
     if data.is_empty() {
         return match op {
@@ -423,6 +453,7 @@ pub fn batch_aggregate_enhanced_f32(data: &[f32], op: SimdAggOp) -> f64 {
 ///
 /// 使用 SoA 布局 + 64 字节缓存行对齐分块 + 4 路累加器避免假依赖。
 /// 加速比 ≥ 2.5x（相比 v7.5.0 的 1.8x）。
+#[inline]
 pub fn batch_aggregate_enhanced_f64(data: &[f64], op: SimdAggOp) -> f64 {
     if data.is_empty() {
         return match op {
@@ -629,6 +660,7 @@ fn enhanced_max_f64(data: &[f64]) -> f64 {
 /// 相比 `Vec<bool>` 降低内存占用 8x，加速比 ≥ 2.2x。
 /// 位图提取索引与标量过滤结果集一致。
 #[allow(clippy::chunks_exact_to_as_chunks, clippy::needless_range_loop)]
+#[inline]
 pub fn batch_filter_bitmap_f32(data: &[f32], threshold: f32, op: SimdCmpOp) -> Vec<u64> {
     let bitmap_len = data.len().div_ceil(64);
     let mut bitmap = Vec::with_capacity(bitmap_len);
@@ -662,6 +694,7 @@ pub fn batch_filter_bitmap_f32(data: &[f32], threshold: f32, op: SimdCmpOp) -> V
 /// 返回位图（`Vec<u64>` 位压缩，每 bit 表示一个元素是否匹配）。
 /// 相比 `Vec<bool>` 降低内存占用 8x，加速比 ≥ 2.2x。
 #[allow(clippy::chunks_exact_to_as_chunks, clippy::needless_range_loop)]
+#[inline]
 pub fn batch_filter_bitmap_f64(data: &[f64], threshold: f64, op: SimdCmpOp) -> Vec<u64> {
     let bitmap_len = data.len().div_ceil(64);
     let mut bitmap = Vec::with_capacity(bitmap_len);
@@ -694,6 +727,7 @@ pub fn batch_filter_bitmap_f64(data: &[f64], threshold: f64, op: SimdCmpOp) -> V
 ///
 /// 从位压缩位图提取匹配元素的索引列表。
 /// 使用 `trailing_zeros` + 位清除技巧高效遍历设置位。
+#[inline]
 pub fn bitmap_to_indices(bitmap: &[u64]) -> Vec<usize> {
     let mut indices = Vec::new();
     for (block_idx, &bits) in bitmap.iter().enumerate() {

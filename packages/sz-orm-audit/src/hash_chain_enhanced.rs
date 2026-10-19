@@ -5,6 +5,7 @@
 
 use std::sync::Mutex;
 
+use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -180,6 +181,407 @@ impl HashChainEnhancedAuditor {
 }
 
 impl Default for HashChainEnhancedAuditor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+// ==================== v10.11.0 T4.4: 零知识审计 ====================
+
+/// 敏感关键词列表（复用 lib.rs 的脱敏逻辑）
+const ZK_SENSITIVE_KEYWORDS: &[&str] = &[
+    "password",
+    "pwd",
+    "secret",
+    "token",
+    "api_key",
+    "access_key",
+    "credit_card",
+    "cvv",
+    "ssn",
+];
+
+/// 脱敏后的审计条目（不包含敏感数据）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DesensitizedEntry {
+    pub subject: String,
+    pub object: String,
+    pub timestamp: i64,
+    pub op_type: String,
+    pub result: String,
+    pub source_ip: String,
+    pub desensitized_sql: String,
+}
+
+impl DesensitizedEntry {
+    pub fn from_enhanced(entry: &EnhancedAuditEntry) -> Self {
+        Self {
+            subject: entry.subject.clone(),
+            object: entry.object.clone(),
+            timestamp: entry.timestamp,
+            op_type: format!("{:?}", entry.op_type),
+            result: format!("{:?}", entry.result),
+            source_ip: entry.source_ip.clone(),
+            desensitized_sql: zk_mask_sql(&entry.sql),
+        }
+    }
+
+    pub fn contains_sensitive(&self) -> bool {
+        let lower = self.desensitized_sql.to_ascii_lowercase();
+        ZK_SENSITIVE_KEYWORDS
+            .iter()
+            .any(|kw| lower.contains(kw))
+    }
+}
+
+/// 零知识脱敏：将 SQL 中的敏感关键词及其关联值替换为 ******
+fn zk_mask_sql(sql: &str) -> String {
+    let lower = sql.to_ascii_lowercase();
+    let mut result = String::with_capacity(sql.len());
+    let bytes = sql.as_bytes();
+    let lower_bytes = lower.as_bytes();
+    let mut i = 0;
+    while i < bytes.len() {
+        let mut matched: Option<usize> = None;
+        for kw in ZK_SENSITIVE_KEYWORDS {
+            let kb = kw.as_bytes();
+            if i + kb.len() <= bytes.len() && &lower_bytes[i..i + kb.len()] == kb {
+                let prev_ok = i == 0 || !is_ident(bytes[i - 1]);
+                let next = i + kb.len();
+                let next_ok = next >= bytes.len() || !is_ident(bytes[next]);
+                if prev_ok && next_ok {
+                    matched = Some(kb.len());
+                    break;
+                }
+            }
+        }
+        if let Some(kw_len) = matched {
+            result.push_str("******");
+            let kw_end = i + kw_len;
+            let mut j = kw_end;
+            while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                result.push(bytes[j] as char);
+                j += 1;
+            }
+            if j < bytes.len() && bytes[j] == b'=' {
+                result.push('=');
+                j += 1;
+                while j < bytes.len() && (bytes[j] == b' ' || bytes[j] == b'\t') {
+                    result.push(bytes[j] as char);
+                    j += 1;
+                }
+                if j < bytes.len() && (bytes[j] == b'\'' || bytes[j] == b'"') {
+                    let quote = bytes[j];
+                    result.push(quote as char);
+                    j += 1;
+                    while j < bytes.len() && bytes[j] != quote {
+                        j += 1;
+                    }
+                    result.push_str("******");
+                    if j < bytes.len() {
+                        result.push(quote as char);
+                        j += 1;
+                    }
+                    i = j;
+                } else {
+                    i = j;
+                }
+            } else {
+                i = kw_end;
+            }
+        } else {
+            let ch = sql[i..].chars().next().unwrap();
+            result.push(ch);
+            i += ch.len_utf8();
+        }
+    }
+    result
+}
+
+fn is_ident(b: u8) -> bool {
+    b.is_ascii_alphanumeric() || b == b'_'
+}
+
+/// 默克尔证明节点
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerkleNode {
+    pub sibling_hash: String,
+    pub is_left: bool,
+}
+
+/// 默克尔证明
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MerkleProof {
+    pub root_hash: String,
+    pub leaf_hash: String,
+    pub path: Vec<MerkleNode>,
+    pub leaf_index: usize,
+}
+
+/// 默克尔证明生成器
+pub struct MerkleProofGenerator;
+
+impl MerkleProofGenerator {
+    /// 计算叶子哈希
+    fn leaf_hash(entry: &DesensitizedEntry) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(entry.subject.as_bytes());
+        hasher.update(entry.object.as_bytes());
+        hasher.update(entry.timestamp.to_le_bytes());
+        hasher.update(entry.op_type.as_bytes());
+        hasher.update(entry.result.as_bytes());
+        hasher.update(entry.source_ip.as_bytes());
+        hasher.update(entry.desensitized_sql.as_bytes());
+        hex_string(&hasher.finalize())
+    }
+
+    /// 计算中间节点哈希
+    fn parent_hash(left: &str, right: &str) -> String {
+        let mut hasher = Sha256::new();
+        hasher.update(left.as_bytes());
+        hasher.update(right.as_bytes());
+        hex_string(&hasher.finalize())
+    }
+
+    /// 构建默克尔树并返回 root hash
+    pub fn build_root(entries: &[DesensitizedEntry]) -> String {
+        if entries.is_empty() {
+            return "0".repeat(64);
+        }
+        let mut layer: Vec<String> = entries.iter().map(Self::leaf_hash).collect();
+        while layer.len() > 1 {
+            let mut next = Vec::with_capacity(layer.len().div_ceil(2));
+            let mut i = 0;
+            while i < layer.len() {
+                let left = &layer[i];
+                let right = if i + 1 < layer.len() {
+                    &layer[i + 1]
+                } else {
+                    left
+                };
+                next.push(Self::parent_hash(left, right));
+                i += 2;
+            }
+            layer = next;
+        }
+        layer[0].clone()
+    }
+
+    /// 为指定索引的条目生成默克尔证明
+    pub fn generate_proof(
+        entries: &[DesensitizedEntry],
+        leaf_index: usize,
+    ) -> Result<MerkleProof, ZkAuditError> {
+        if entries.is_empty() {
+            return Err(ZkAuditError::EmptyChain);
+        }
+        if leaf_index >= entries.len() {
+            return Err(ZkAuditError::IndexOutOfRange);
+        }
+
+        let leaf_hash = Self::leaf_hash(&entries[leaf_index]);
+        let mut layer: Vec<String> = entries.iter().map(Self::leaf_hash).collect();
+        let mut path = Vec::new();
+        let mut idx = leaf_index;
+
+        while layer.len() > 1 {
+            let sibling_idx = if idx.is_multiple_of(2) {
+                if idx + 1 < layer.len() {
+                    idx + 1
+                } else {
+                    idx
+                }
+            } else {
+                idx - 1
+            };
+            let is_left = idx % 2 == 1;
+            path.push(MerkleNode {
+                sibling_hash: layer[sibling_idx].clone(),
+                is_left,
+            });
+
+            let mut next = Vec::with_capacity(layer.len().div_ceil(2));
+            let mut i = 0;
+            while i < layer.len() {
+                let left = &layer[i];
+                let right = if i + 1 < layer.len() {
+                    &layer[i + 1]
+                } else {
+                    left
+                };
+                next.push(Self::parent_hash(left, right));
+                i += 2;
+            }
+            layer = next;
+            idx /= 2;
+        }
+
+        Ok(MerkleProof {
+            root_hash: layer[0].clone(),
+            leaf_hash,
+            path,
+            leaf_index,
+        })
+    }
+}
+
+/// 默克尔证明验证器
+pub struct MerkleVerifier;
+
+impl MerkleVerifier {
+    /// 验证默克尔证明
+    pub fn verify(proof: &MerkleProof, expected_root: &str) -> bool {
+        let mut computed = proof.leaf_hash.clone();
+        for node in &proof.path {
+            computed = if node.is_left {
+                MerkleProofGenerator::parent_hash(&node.sibling_hash, &computed)
+            } else {
+                MerkleProofGenerator::parent_hash(&computed, &node.sibling_hash)
+            };
+        }
+        computed == expected_root
+    }
+}
+
+/// 零知识审计结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ZkAuditResult {
+    pub desensitized_entry: DesensitizedEntry,
+    pub merkle_proof: MerkleProof,
+    pub chain_hash: String,
+    pub entry_index: usize,
+}
+
+/// 零知识审计错误
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ZkAuditError {
+    EmptyChain,
+    IndexOutOfRange,
+    VerifyFailed,
+    WriteFailed,
+}
+
+impl std::fmt::Display for ZkAuditError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ZkAuditError::EmptyChain => write!(f, "Empty chain"),
+            ZkAuditError::IndexOutOfRange => write!(f, "Index out of range"),
+            ZkAuditError::VerifyFailed => write!(f, "Merkle proof verification failed"),
+            ZkAuditError::WriteFailed => write!(f, "Audit write failed"),
+        }
+    }
+}
+
+impl std::error::Error for ZkAuditError {}
+
+/// 审计脱敏器
+pub struct AuditDesensitizer;
+
+impl AuditDesensitizer {
+    pub fn desensitize(entry: &EnhancedAuditEntry) -> DesensitizedEntry {
+        DesensitizedEntry::from_enhanced(entry)
+    }
+
+    pub fn desensitize_sql(sql: &str) -> String {
+        zk_mask_sql(sql)
+    }
+}
+
+fn hex_string(bytes: &[u8]) -> String {
+    bytes.iter().map(|b| format!("{:02x}", b)).collect()
+}
+
+/// 零知识审计器
+///
+/// 审计日志不泄露敏感数据（脱敏后入审计）+ 可验证审计完整性（哈希链 + 默克尔证明）。
+/// 复用 `HashChainEnhancedAuditor`（line 110）。
+pub struct ZeroKnowledgeAuditor {
+    chain: HashChainEnhancedAuditor,
+    desensitized_entries: Mutex<Vec<DesensitizedEntry>>,
+}
+
+impl ZeroKnowledgeAuditor {
+    pub fn new() -> Self {
+        Self {
+            chain: HashChainEnhancedAuditor::new(),
+            desensitized_entries: Mutex::new(Vec::new()),
+        }
+    }
+
+    /// 零知识审计入链
+    ///
+    /// 1. 脱敏：敏感数据替换为 ******
+    /// 2. 入哈希链：防篡改
+    /// 3. 生成默克尔证明：可验证完整性
+    pub fn log_zero_knowledge(
+        &self,
+        entry: EnhancedAuditEntry,
+    ) -> Result<ZkAuditResult, ZkAuditError> {
+        let desensitized = AuditDesensitizer::desensitize(&entry);
+
+        self.chain
+            .log(entry)
+            .map_err(|_| ZkAuditError::WriteFailed)?;
+
+        let entries = {
+            let mut e = self.desensitized_entries.lock().unwrap();
+            e.push(desensitized.clone());
+            e.clone()
+        };
+
+        let entry_index = entries.len() - 1;
+        let merkle_proof = MerkleProofGenerator::generate_proof(&entries, entry_index)
+            .map_err(|_| ZkAuditError::IndexOutOfRange)?;
+
+        let chain_hash = self
+            .chain
+            .get_entries()
+            .last()
+            .map(|e| e.hash.clone())
+            .unwrap_or_else(|| "0".repeat(64));
+
+        Ok(ZkAuditResult {
+            desensitized_entry: desensitized,
+            merkle_proof,
+            chain_hash,
+            entry_index,
+        })
+    }
+
+    /// 验证默克尔证明完整性（验证证明内部一致性：leaf + path → root）
+    pub fn verify_integrity(&self, proof: &MerkleProof) -> Result<bool, ZkAuditError> {
+        Ok(MerkleVerifier::verify(proof, &proof.root_hash))
+    }
+
+    /// 验证哈希链完整性
+    pub fn verify_chain(&self) -> bool {
+        self.chain.verify_chain()
+    }
+
+    /// 获取当前默克尔根
+    pub fn merkle_root(&self) -> String {
+        let entries = self.desensitized_entries.lock().unwrap();
+        MerkleProofGenerator::build_root(&entries)
+    }
+
+    pub fn len(&self) -> usize {
+        self.desensitized_entries.lock().unwrap().len()
+    }
+
+    pub fn is_empty(&self) -> bool {
+        self.desensitized_entries.lock().unwrap().is_empty()
+    }
+
+    pub fn get_desensitized_entries(&self) -> Vec<DesensitizedEntry> {
+        self.desensitized_entries.lock().unwrap().clone()
+    }
+
+    pub fn chain(&self) -> &HashChainEnhancedAuditor {
+        &self.chain
+    }
+}
+
+impl Default for ZeroKnowledgeAuditor {
     fn default() -> Self {
         Self::new()
     }

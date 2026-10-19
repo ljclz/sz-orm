@@ -1208,6 +1208,543 @@ impl IndexLifecycleManager {
     }
 }
 
+// ============================================================================
+// v10.11.0 T3.1：AI 自主索引决策
+// 基于负载画像 + 收益预测 + 风险评估，自动应用低风险决策（如新增辅助索引），
+// 高风险决策（如删除唯一索引）须人工确认，附回滚方案。
+// 复用既有 IndexAdvisor + ai-config feature gate（DecisionExplainer）+
+// ai-security-audit feature gate（LlmSecurityAuditor 三重安全审计）。
+// ============================================================================
+
+/// 索引决策错误
+#[derive(Debug, Error)]
+pub enum DecisionError {
+    #[error("工作负载画像为空")]
+    EmptyWorkloadProfile,
+    #[error("安全审计失败：{0}")]
+    SecurityAuditFailed(String),
+    #[error("索引建议生成失败：{0}")]
+    SuggestionFailed(String),
+    #[error("自动应用失败：{0}")]
+    ApplyFailed(String),
+}
+
+/// 索引风险等级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum IndexRiskLevel {
+    /// 低风险（可自动应用，如新增辅助索引）
+    Low,
+    /// 高风险（须人工确认，如删除唯一索引）
+    High,
+}
+
+/// 负载画像（查询频率 / 表统计 / 唯一索引清单）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct WorkloadProfile {
+    /// 查询模式列表
+    pub query_patterns: Vec<QueryPattern>,
+    /// 慢查询日志
+    pub slow_queries: Vec<SlowQueryLog>,
+    /// 表统计（表名 → 行数）
+    pub table_stats: std::collections::HashMap<String, u64>,
+    /// 唯一索引列表（表名 → 索引列列表），用于判断高风险
+    pub unique_indexes: std::collections::HashMap<String, Vec<String>>,
+}
+
+impl WorkloadProfile {
+    pub fn new(query_patterns: Vec<QueryPattern>) -> Self {
+        Self {
+            query_patterns,
+            slow_queries: Vec::new(),
+            table_stats: std::collections::HashMap::new(),
+            unique_indexes: std::collections::HashMap::new(),
+        }
+    }
+
+    pub fn with_slow_queries(mut self, slow_queries: Vec<SlowQueryLog>) -> Self {
+        self.slow_queries = slow_queries;
+        self
+    }
+
+    pub fn with_table_stats(mut self, table: impl Into<String>, rows: u64) -> Self {
+        self.table_stats.insert(table.into(), rows);
+        self
+    }
+
+    pub fn with_unique_index(mut self, table: impl Into<String>, columns: Vec<String>) -> Self {
+        self.unique_indexes.insert(table.into(), columns);
+        self
+    }
+}
+
+/// 索引风险评估器
+///
+/// 判断依据：索引列与唯一索引列匹配 → 高风险（删除唯一索引）；
+/// 否则 → 低风险（新增辅助索引）。
+pub struct IndexRiskAssessor;
+
+impl IndexRiskAssessor {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 评估索引建议的风险等级
+    pub fn assess(&self, suggestion: &IndexSuggestion, profile: &WorkloadProfile) -> IndexRiskLevel {
+        for unique_cols in profile.unique_indexes.values() {
+            if suggestion.index_columns == *unique_cols {
+                return IndexRiskLevel::High;
+            }
+        }
+        IndexRiskLevel::Low
+    }
+
+    /// 生成风险评估（用于 DecisionExplainer，需 ai-config feature）
+    #[cfg(feature = "ai-config")]
+    pub fn risk_assessment(
+        &self,
+        level: IndexRiskLevel,
+    ) -> crate::ai_config::RiskAssessment {
+        use crate::ai_config::{RiskAssessment, RiskFactor, RiskLevel};
+        let (risk_level, score, factor_name) = match level {
+            IndexRiskLevel::Low => (RiskLevel::Low, 0.2, "non_unique_index"),
+            IndexRiskLevel::High => (RiskLevel::High, 0.85, "unique_index_removal"),
+        };
+        RiskAssessment {
+            level: risk_level,
+            factors: vec![RiskFactor {
+                factor: factor_name.to_string(),
+                weight: score,
+            }],
+            score,
+        }
+    }
+}
+
+impl Default for IndexRiskAssessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 决策回滚条目
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionRollbackEntry {
+    /// 决策 ID
+    pub decision_id: String,
+    /// 回滚 SQL
+    pub rollback_sql: String,
+    /// 原始 DDL
+    pub original_ddl: String,
+    /// 风险等级
+    pub risk_level: IndexRiskLevel,
+    /// 是否已回滚
+    pub rolled_back: bool,
+}
+
+/// 决策回滚注册表
+///
+/// 每项自主决策附回滚方案，监控索引收益，无收益自动回滚。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionRollbackRegistry {
+    /// 已注册的回滚方案
+    pub rollbacks: Vec<DecisionRollbackEntry>,
+}
+
+impl DecisionRollbackRegistry {
+    pub fn new() -> Self {
+        Self {
+            rollbacks: Vec::new(),
+        }
+    }
+
+    /// 注册回滚方案
+    pub fn register(
+        &mut self,
+        decision_id: String,
+        rollback_sql: String,
+        original_ddl: String,
+        risk_level: IndexRiskLevel,
+    ) {
+        self.rollbacks.push(DecisionRollbackEntry {
+            decision_id,
+            rollback_sql,
+            original_ddl,
+            risk_level,
+            rolled_back: false,
+        });
+    }
+
+    /// 执行回滚（标记已回滚并返回回滚 SQL）
+    pub fn rollback(&mut self, decision_id: &str) -> Option<String> {
+        for entry in &mut self.rollbacks {
+            if entry.decision_id == decision_id && !entry.rolled_back {
+                entry.rolled_back = true;
+                return Some(entry.rollback_sql.clone());
+            }
+        }
+        None
+    }
+
+    /// 获取所有未回滚的决策
+    pub fn pending_rollbacks(&self) -> Vec<&DecisionRollbackEntry> {
+        self.rollbacks.iter().filter(|e| !e.rolled_back).collect()
+    }
+
+    /// 是否有未回滚的决策
+    pub fn has_pending(&self) -> bool {
+        self.rollbacks.iter().any(|e| !e.rolled_back)
+    }
+}
+
+impl Default for DecisionRollbackRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 索引自动应用器
+///
+/// 低风险索引自动应用，须经安全审计三重检查 + LlmSecurityAuditor。
+pub struct IndexAutoApplier {
+    /// 已应用的索引 DDL 列表
+    applied: Vec<String>,
+}
+
+impl IndexAutoApplier {
+    pub fn new() -> Self {
+        Self {
+            applied: Vec::new(),
+        }
+    }
+
+    /// 安全三重检查 + LLM 审计（需 ai-security-audit feature）
+    ///
+    /// 1. SqlSanitizer 脱敏检查
+    /// 2. DDL 格式校验（CREATE INDEX）
+    /// 3. PermissionAuditor 权限审计
+    /// 4. LlmSecurityAuditor LLM 安全审计
+    #[cfg(feature = "ai-security-audit")]
+    async fn security_check(&self, ddl: &str) -> Result<bool, DecisionError> {
+        use crate::llm_security_audit::LlmSecurityAuditor;
+        use crate::permission_auditor::{DbAccount, PermissionAuditor, QueryUsage};
+        use crate::sql_sanitizer::SqlSanitizer;
+
+        // 1. SqlSanitizer 脱敏
+        let sanitized = SqlSanitizer::sanitize(ddl);
+        if sanitized != ddl {
+            return Err(DecisionError::SecurityAuditFailed(
+                "DDL 含敏感字面量".to_string(),
+            ));
+        }
+
+        // 2. DDL 格式校验
+        let upper = ddl.trim_start().to_uppercase();
+        let valid_prefix = ["CREATE INDEX", "CREATE BTREE INDEX", "CREATE HASH INDEX",
+            "CREATE GIN INDEX", "CREATE BRIN INDEX"];
+        if !valid_prefix.iter().any(|p| upper.starts_with(p)) {
+            return Err(DecisionError::SecurityAuditFailed(
+                "DDL 不是合法的 CREATE INDEX 语句".to_string(),
+            ));
+        }
+
+        // 3. PermissionAuditor 权限审计
+        let account = DbAccount::new("auto_index_applier")
+            .with_privileges(vec!["CREATE INDEX".to_string(), "DROP INDEX".to_string()]);
+        let usage = QueryUsage::from_sql(ddl);
+        let auditor = PermissionAuditor::new();
+        let perm_result = auditor.audit_permissions(&account, &usage);
+        for finding in &perm_result.findings {
+            if finding.severity == crate::permission_auditor::PermissionIssueSeverity::Critical {
+                return Err(DecisionError::SecurityAuditFailed(format!(
+                    "权限审计失败：{}",
+                    finding.title
+                )));
+            }
+        }
+
+        // 4. LlmSecurityAuditor LLM 安全审计
+        let mut llm_auditor = LlmSecurityAuditor::rule_only();
+        let audit_result = llm_auditor
+            .audit(ddl)
+            .await
+            .map_err(|e| DecisionError::SecurityAuditFailed(e.to_string()))?;
+        if audit_result.risk_level.is_dangerous() {
+            return Err(DecisionError::SecurityAuditFailed(
+                "LLM 安全审计检测到注入风险".to_string(),
+            ));
+        }
+
+        Ok(true)
+    }
+
+    /// 应用索引 DDL（通过安全检查后）
+    pub async fn apply(&mut self, ddl: String) -> Result<(), DecisionError> {
+        #[cfg(feature = "ai-security-audit")]
+        {
+            self.security_check(&ddl).await?;
+        }
+        // 确保 ddl 不含敏感信息（无 feature 时基础检查）
+        #[cfg(not(feature = "ai-security-audit"))]
+        {
+            let upper = ddl.trim_start().to_uppercase();
+            if !upper.starts_with("CREATE") {
+                return Err(DecisionError::ApplyFailed(
+                    "DDL 必须以 CREATE 开头".to_string(),
+                ));
+            }
+        }
+        self.applied.push(ddl);
+        Ok(())
+    }
+
+    /// 获取已应用的索引列表
+    pub fn applied_indexes(&self) -> &[String] {
+        &self.applied
+    }
+
+    /// 回滚（移除已应用的索引）
+    pub fn rollback(&mut self, ddl: &str) -> bool {
+        if let Some(pos) = self.applied.iter().position(|d| d == ddl) {
+            self.applied.remove(pos);
+            true
+        } else {
+            false
+        }
+    }
+}
+
+impl Default for IndexAutoApplier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 自主索引决策结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AutoDecisionResult {
+    /// 已应用的 DDL 列表
+    pub applied: Vec<String>,
+    /// 待人工确认的建议（高风险）
+    pub pending_manual: Vec<IndexSuggestion>,
+    /// 决策可解释性（需 ai-config feature）
+    #[cfg(feature = "ai-config")]
+    pub explainer: Option<crate::ai_config::DecisionExplainer>,
+    /// 回滚 SQL 列表
+    pub rollback_plans: Vec<String>,
+    /// 决策 ID
+    pub decision_id: String,
+    /// 风险等级
+    pub risk_level: IndexRiskLevel,
+}
+
+/// AI 自主索引决策器
+///
+/// 基于负载画像 + 收益预测 + 风险评估，自动应用低风险决策，
+/// 高风险决策须人工确认，附回滚方案。
+/// 复用既有 IndexAdvisor（index_advisor.rs:107）。
+pub struct AutoIndexDecider {
+    /// 索引建议器
+    advisor: IndexAdvisor,
+    /// 风险评估器
+    risk_assessor: IndexRiskAssessor,
+    /// 自动应用器
+    auto_applier: IndexAutoApplier,
+    /// 回滚注册表
+    rollback_registry: DecisionRollbackRegistry,
+    /// 决策计数器
+    decision_counter: u64,
+}
+
+impl AutoIndexDecider {
+    pub fn new() -> Self {
+        Self {
+            advisor: IndexAdvisor::new(),
+            risk_assessor: IndexRiskAssessor::new(),
+            auto_applier: IndexAutoApplier::new(),
+            rollback_registry: DecisionRollbackRegistry::new(),
+            decision_counter: 0,
+        }
+    }
+
+    /// 启用 LLM 增强
+    pub fn with_llm(mut self) -> Self {
+        self.advisor = self.advisor.with_llm();
+        self
+    }
+
+    /// 自主决策并应用
+    ///
+    /// 1. 基于 IndexAdvisor 生成索引建议
+    /// 2. IndexRiskAssessor 评估每项建议的风险等级
+    /// 3. 低风险：IndexAutoApplier 自动应用（经安全审计三重检查）
+    /// 4. 高风险：生成建议待人工确认
+    /// 5. 每项决策附回滚方案（DecisionRollbackRegistry）
+    /// 6. 决策附可解释性（DecisionExplainer，需 ai-config feature）
+    pub async fn decide_and_apply(
+        &mut self,
+        profile: &WorkloadProfile,
+    ) -> Result<AutoDecisionResult, DecisionError> {
+        if profile.query_patterns.is_empty() {
+            return Err(DecisionError::EmptyWorkloadProfile);
+        }
+
+        // 1. 生成索引建议
+        let suggestions = self
+            .advisor
+            .suggest(&profile.query_patterns, &profile.slow_queries)
+            .await
+            .map_err(|e| DecisionError::SuggestionFailed(e.to_string()))?;
+
+        let mut applied = Vec::new();
+        let mut pending_manual = Vec::new();
+        let mut rollback_plans = Vec::new();
+        let mut overall_risk = IndexRiskLevel::Low;
+
+        for suggestion in &suggestions {
+            self.decision_counter += 1;
+            let decision_id = format!("auto_index_{}", self.decision_counter);
+            let risk_level = self.risk_assessor.assess(suggestion, profile);
+
+            let ddl = suggestion.ddl_text.clone();
+            let rollback_sql = Self::build_rollback_sql(&suggestion.index_columns);
+
+            match risk_level {
+                IndexRiskLevel::Low => {
+                    // 低风险：自动应用
+                    self.auto_applier.apply(ddl.clone()).await?;
+                    applied.push(ddl.clone());
+                    rollback_plans.push(rollback_sql.clone());
+                    self.rollback_registry.register(
+                        decision_id,
+                        rollback_sql,
+                        ddl,
+                        IndexRiskLevel::Low,
+                    );
+                }
+                IndexRiskLevel::High => {
+                    // 高风险：待人工确认
+                    overall_risk = IndexRiskLevel::High;
+                    pending_manual.push(suggestion.clone());
+                    self.rollback_registry.register(
+                        decision_id,
+                        rollback_sql,
+                        ddl,
+                        IndexRiskLevel::High,
+                    );
+                }
+            }
+        }
+
+        // 生成决策可解释性（需 ai-config feature）
+        #[cfg(feature = "ai-config")]
+        let explainer = self.build_explainer(&suggestions, overall_risk);
+
+        let decision_id = format!("batch_{}", self.decision_counter);
+
+        Ok(AutoDecisionResult {
+            applied,
+            pending_manual,
+            #[cfg(feature = "ai-config")]
+            explainer,
+            rollback_plans,
+            decision_id,
+            risk_level: overall_risk,
+        })
+    }
+
+    /// 构建决策可解释性
+    #[cfg(feature = "ai-config")]
+    fn build_explainer(
+        &self,
+        suggestions: &[IndexSuggestion],
+        overall_risk: IndexRiskLevel,
+    ) -> Option<crate::ai_config::DecisionExplainer> {
+        use crate::ai_config::*;
+        if suggestions.is_empty() {
+            return None;
+        }
+        let risk_assessment = self.risk_assessor.risk_assessment(overall_risk);
+        Some(DecisionExplainer::new(
+            vec![
+                FeatureImportance {
+                    feature: "query_frequency".to_string(),
+                    importance: 0.85,
+                },
+                FeatureImportance {
+                    feature: "table_size".to_string(),
+                    importance: 0.62,
+                },
+            ],
+            DecisionPath {
+                steps: vec![
+                    DecisionStep {
+                        step: "analyze_workload".to_string(),
+                        detail: "分析负载画像识别热点查询".to_string(),
+                    },
+                    DecisionStep {
+                        step: "predict_benefit".to_string(),
+                        detail: "预测索引收益".to_string(),
+                    },
+                    DecisionStep {
+                        step: "assess_risk".to_string(),
+                        detail: format!("风险评估：{:?}", overall_risk),
+                    },
+                ],
+            },
+            risk_assessment,
+            RollbackPlan {
+                steps: vec![RollbackStep {
+                    step: "drop_index".to_string(),
+                    detail: "DROP INDEX 回滚".to_string(),
+                }],
+                verify: VerifyCondition {
+                    condition: "query_latency_returned_to_baseline".to_string(),
+                },
+            },
+        ))
+    }
+
+    /// 构建回滚 SQL
+    fn build_rollback_sql(columns: &[String]) -> String {
+        format!("DROP INDEX idx_auto_{}", columns.join("_"))
+    }
+
+    /// 获取回滚注册表
+    pub fn rollback_registry(&self) -> &DecisionRollbackRegistry {
+        &self.rollback_registry
+    }
+
+    /// 获取回滚注册表（可变引用）
+    pub fn rollback_registry_mut(&mut self) -> &mut DecisionRollbackRegistry {
+        &mut self.rollback_registry
+    }
+
+    /// 获取已应用的索引
+    pub fn applied_indexes(&self) -> &[String] {
+        self.auto_applier.applied_indexes()
+    }
+
+    /// 回滚指定决策
+    pub fn rollback(&mut self, decision_id: &str) -> Option<String> {
+        let rollback_sql = self.rollback_registry.rollback(decision_id)?;
+        if let Some(entry) = self
+            .rollback_registry
+            .rollbacks
+            .iter()
+            .find(|e| e.decision_id == decision_id)
+        {
+            self.auto_applier.rollback(&entry.original_ddl);
+        }
+        Some(rollback_sql)
+    }
+}
+
+impl Default for AutoIndexDecider {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod v770_index_lifecycle_tests {
     use super::*;

@@ -604,6 +604,211 @@ fn value_to_type_id(value: &Value) -> ZeroCopyTypeId {
     }
 }
 
+// ============================================================================
+// v10.11.0 T1.3：零拷贝行解码深化（MySQL/PG/Oracle 协议）
+// 三协议零拷贝解码，数据复制到预分配 RowArena，避免中间 Vec 分配。
+// ============================================================================
+
+use crate::arena::RowArena;
+
+/// 解码错误
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum DecodeError {
+    /// 缓冲区不足
+    BufferTooShort,
+    /// 不支持的协议版本
+    UnsupportedProtocol { expected: u16, actual: u16 },
+    /// 列数无效
+    InvalidColumnCount,
+    /// 列长度超过剩余缓冲区
+    ColumnLengthExceedsBuffer,
+}
+
+/// 解码协议类型
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DecodeProtocol {
+    MySql,
+    Postgres,
+    Oracle,
+}
+
+/// 解码后的行（数据经 arena 预分配缓冲区复制）
+#[derive(Debug, Clone)]
+pub struct DecodedRow {
+    /// 列数据
+    pub columns: Vec<Vec<u8>>,
+    /// 协议类型
+    pub protocol: DecodeProtocol,
+}
+
+impl DecodedRow {
+    /// 列数
+    pub fn column_count(&self) -> usize {
+        self.columns.len()
+    }
+
+    /// 获取列数据
+    pub fn column(&self, idx: usize) -> Option<&[u8]> {
+        self.columns.get(idx).map(|v| v.as_slice())
+    }
+}
+
+/// MySQL Row 包二进制协议零拷贝解码
+///
+/// MySQL Row 包格式（简化）：
+/// - 列数（1 字节）
+/// - 每列：长度编码（1/2/3/4 字节）+ 数据
+///
+/// 将数据复制到 arena 预分配缓冲区，避免中间 Vec 分配。
+#[inline]
+pub fn mysql_row_decode_zero_copy(
+    buf: &[u8],
+    arena: &mut RowArena,
+    stats: &ZeroCopyStats,
+) -> Result<DecodedRow, DecodeError> {
+    if buf.is_empty() {
+        return Err(DecodeError::BufferTooShort);
+    }
+    let col_count = buf[0] as usize;
+    if col_count == 0 {
+        return Err(DecodeError::InvalidColumnCount);
+    }
+    let mut pos = 1;
+    let mut columns = Vec::with_capacity(col_count);
+    for _ in 0..col_count {
+        if pos >= buf.len() {
+            return Err(DecodeError::BufferTooShort);
+        }
+        let (len, len_bytes) = decode_mysql_length(&buf[pos..])?;
+        pos += len_bytes;
+        if pos + len > buf.len() {
+            return Err(DecodeError::ColumnLengthExceedsBuffer);
+        }
+        let col_data = arena.decode_row(&buf[pos..pos + len]);
+        columns.push(col_data.to_vec());
+        pos += len;
+    }
+    stats.record_zero_copy_hit();
+    Ok(DecodedRow {
+        columns,
+        protocol: DecodeProtocol::MySql,
+    })
+}
+
+/// PG Binary 协议零拷贝解码
+///
+/// PG Binary 协议格式（简化）：
+/// - 列数（2 字节，big-endian）
+/// - 每列：长度（4 字节，big-endian，-1 表示 NULL）+ 数据
+#[inline]
+pub fn pg_binary_decode_zero_copy(
+    buf: &[u8],
+    arena: &mut RowArena,
+    stats: &ZeroCopyStats,
+) -> Result<DecodedRow, DecodeError> {
+    if buf.len() < 2 {
+        return Err(DecodeError::BufferTooShort);
+    }
+    let col_count = u16::from_be_bytes([buf[0], buf[1]]) as usize;
+    if col_count == 0 {
+        return Err(DecodeError::InvalidColumnCount);
+    }
+    let mut pos = 2;
+    let mut columns = Vec::with_capacity(col_count);
+    for _ in 0..col_count {
+        if pos + 4 > buf.len() {
+            return Err(DecodeError::BufferTooShort);
+        }
+        let len = i32::from_be_bytes([buf[pos], buf[pos + 1], buf[pos + 2], buf[pos + 3]]);
+        pos += 4;
+        if len < 0 {
+            columns.push(Vec::new());
+            continue;
+        }
+        let len = len as usize;
+        if pos + len > buf.len() {
+            return Err(DecodeError::ColumnLengthExceedsBuffer);
+        }
+        let col_data = arena.decode_row(&buf[pos..pos + len]);
+        columns.push(col_data.to_vec());
+        pos += len;
+    }
+    stats.record_zero_copy_hit();
+    Ok(DecodedRow {
+        columns,
+        protocol: DecodeProtocol::Postgres,
+    })
+}
+
+/// Oracle TNS 协议零拷贝解码
+///
+/// Oracle TNS 协议格式（简化）：
+/// - 列数（2 字节，little-endian）
+/// - 每列：长度（2 字节，little-endian）+ 数据
+#[inline]
+pub fn oracle_tns_decode_zero_copy(
+    buf: &[u8],
+    arena: &mut RowArena,
+    stats: &ZeroCopyStats,
+) -> Result<DecodedRow, DecodeError> {
+    if buf.len() < 2 {
+        return Err(DecodeError::BufferTooShort);
+    }
+    let col_count = u16::from_le_bytes([buf[0], buf[1]]) as usize;
+    if col_count == 0 {
+        return Err(DecodeError::InvalidColumnCount);
+    }
+    let mut pos = 2;
+    let mut columns = Vec::with_capacity(col_count);
+    for _ in 0..col_count {
+        if pos + 2 > buf.len() {
+            return Err(DecodeError::BufferTooShort);
+        }
+        let len = u16::from_le_bytes([buf[pos], buf[pos + 1]]) as usize;
+        pos += 2;
+        if pos + len > buf.len() {
+            return Err(DecodeError::ColumnLengthExceedsBuffer);
+        }
+        let col_data = arena.decode_row(&buf[pos..pos + len]);
+        columns.push(col_data.to_vec());
+        pos += len;
+    }
+    stats.record_zero_copy_hit();
+    Ok(DecodedRow {
+        columns,
+        protocol: DecodeProtocol::Oracle,
+    })
+}
+
+/// MySQL 长度编码解码
+#[inline]
+fn decode_mysql_length(buf: &[u8]) -> Result<(usize, usize), DecodeError> {
+    if buf.is_empty() {
+        return Err(DecodeError::BufferTooShort);
+    }
+    let first = buf[0];
+    if first < 0xFB {
+        Ok((first as usize, 1))
+    } else if first == 0xFC {
+        if buf.len() < 3 {
+            return Err(DecodeError::BufferTooShort);
+        }
+        let len = u16::from_le_bytes([buf[1], buf[2]]) as usize;
+        Ok((len, 3))
+    } else if first == 0xFD {
+        if buf.len() < 4 {
+            return Err(DecodeError::BufferTooShort);
+        }
+        let len = buf[1] as usize | ((buf[2] as usize) << 8) | ((buf[3] as usize) << 16);
+        Ok((len, 4))
+    } else {
+        Err(DecodeError::UnsupportedProtocol {
+            expected: 0xFB,
+            actual: first as u16,
+        })
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -149,9 +149,174 @@ impl AiDecisionType {
     }
 }
 
+// ============================================================================
+// v10.11.0 T3.5：AI 决策可解释性
+// 所有 AI 自主决策附决策依据（特征重要性 + 决策路径 + 风险评估 + 回滚方案），
+// 决策过程可追溯可审计。AiDecision 持有 explainer: Option<DecisionExplainer>。
+// ============================================================================
+
+/// 风险等级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum RiskLevel {
+    /// 低风险（可自动应用）
+    Low,
+    /// 中风险（需记录但可应用）
+    Medium,
+    /// 高风险（须人工确认）
+    High,
+}
+
+/// 风险因子
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskFactor {
+    /// 因子名称
+    pub factor: String,
+    /// 权重（0.0 ~ 1.0）
+    pub weight: f64,
+}
+
+/// 风险评估
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RiskAssessment {
+    /// 风险等级
+    pub level: RiskLevel,
+    /// 风险因子列表
+    pub factors: Vec<RiskFactor>,
+    /// 综合风险评分（0.0 ~ 1.0，越高越危险）
+    pub score: f64,
+}
+
+/// 特征重要性（决策依据之一）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct FeatureImportance {
+    /// 特征名称
+    pub feature: String,
+    /// 重要性（0.0 ~ 1.0）
+    pub importance: f64,
+}
+
+/// 决策步骤
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionStep {
+    /// 步骤名称
+    pub step: String,
+    /// 步骤详情
+    pub detail: String,
+}
+
+/// 决策路径（决策依据之一）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionPath {
+    /// 决策步骤序列
+    pub steps: Vec<DecisionStep>,
+}
+
+/// 验证条件（回滚方案的一部分）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VerifyCondition {
+    /// 验证条件描述
+    pub condition: String,
+}
+
+/// 回滚步骤
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackStep {
+    /// 步骤名称
+    pub step: String,
+    /// 步骤详情
+    pub detail: String,
+}
+
+/// 回滚方案（决策依据之一）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct RollbackPlan {
+    /// 回滚步骤序列
+    pub steps: Vec<RollbackStep>,
+    /// 回滚验证条件
+    pub verify: VerifyCondition,
+}
+
+/// 审计条目（决策入审计日志的可追溯记录）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct AuditEntry {
+    /// 决策类型
+    pub decision_type: AiDecisionType,
+    /// 特征重要性列表
+    pub feature_importance: Vec<FeatureImportance>,
+    /// 决策路径
+    pub decision_path: DecisionPath,
+    /// 风险评估
+    pub risk_assessment: RiskAssessment,
+    /// 回滚方案
+    pub rollback_plan: RollbackPlan,
+    /// 时间戳（UNIX 毫秒）
+    pub timestamp_ms: u64,
+}
+
+/// 决策可解释性（v10.11.0 T3.5）
+///
+/// 所有 AI 自主决策附决策依据：特征重要性 + 决策路径 + 风险评估 + 回滚方案。
+/// 决策执行前校验可解释性完整性，缺失则拒绝执行；决策入审计日志可追溯。
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct DecisionExplainer {
+    /// 特征重要性列表
+    pub feature_importance: Vec<FeatureImportance>,
+    /// 决策路径
+    pub decision_path: DecisionPath,
+    /// 风险评估
+    pub risk_assessment: RiskAssessment,
+    /// 回滚方案
+    pub rollback_plan: RollbackPlan,
+}
+
+impl DecisionExplainer {
+    /// 创建决策可解释性
+    pub fn new(
+        feature_importance: Vec<FeatureImportance>,
+        decision_path: DecisionPath,
+        risk_assessment: RiskAssessment,
+        rollback_plan: RollbackPlan,
+    ) -> Self {
+        Self {
+            feature_importance,
+            decision_path,
+            risk_assessment,
+            rollback_plan,
+        }
+    }
+
+    /// 转审计条目（决策入审计日志可追溯）
+    pub fn to_audit_entry(&self, decision_type: AiDecisionType) -> AuditEntry {
+        let timestamp_ms = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis() as u64)
+            .unwrap_or(0);
+        AuditEntry {
+            decision_type,
+            feature_importance: self.feature_importance.clone(),
+            decision_path: self.decision_path.clone(),
+            risk_assessment: self.risk_assessment.clone(),
+            rollback_plan: self.rollback_plan.clone(),
+            timestamp_ms,
+        }
+    }
+
+    /// 可解释性完整性校验
+    ///
+    /// 决策执行前校验：特征重要性 + 决策路径 + 回滚方案均非空，
+    /// 回滚验证条件非空。缺失则拒绝执行。
+    pub fn verify_completeness(&self) -> bool {
+        !self.feature_importance.is_empty()
+            && !self.decision_path.steps.is_empty()
+            && !self.rollback_plan.steps.is_empty()
+            && !self.rollback_plan.verify.condition.is_empty()
+    }
+}
+
 /// AI 决策结果聚合（用于审计与可观测性）
 ///
 /// 每次执行 AI 能力后产出一条决策记录，包含输入摘要、输出、原因、置信度和延迟。
+/// v10.11.0 新增 explainer 字段（Option 包裹，向后兼容）。
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct AiDecision {
     /// 决策类型
@@ -166,10 +331,12 @@ pub struct AiDecision {
     pub confidence: f64,
     /// 延迟（毫秒）
     pub latency_ms: u64,
+    /// 决策可解释性（v10.11.0 新增，Option 包裹向后兼容）
+    pub explainer: Option<DecisionExplainer>,
 }
 
 impl AiDecision {
-    /// 创建决策记录
+    /// 创建决策记录（向后兼容，explainer 默认 None）
     pub fn new(
         decision_type: AiDecisionType,
         input_summary: impl Into<String>,
@@ -185,7 +352,24 @@ impl AiDecision {
             reason: reason.into(),
             confidence,
             latency_ms,
+            explainer: None,
         }
+    }
+
+    /// 附加决策可解释性（v10.11.0 T3.5 builder 方法）
+    pub fn with_explainer(mut self, explainer: DecisionExplainer) -> Self {
+        self.explainer = Some(explainer);
+        self
+    }
+
+    /// 获取审计条目（决策入审计日志可追溯）
+    ///
+    /// 若 explainer 存在且完整性校验通过，返回 Some(AuditEntry)；否则 None。
+    pub fn to_audit_entry(&self) -> Option<AuditEntry> {
+        self.explainer
+            .as_ref()
+            .filter(|e| e.verify_completeness())
+            .map(|e| e.to_audit_entry(self.decision_type))
     }
 }
 

@@ -144,7 +144,141 @@ let report_sql = Query::select()
 let rows = pool.query(&report_sql).await?;
 ```
 
-## 6. 总结
+## 6. 详细迁移指南（v10.9.0 深化）
+
+### 6.1 deprecated API 清单与迁移路径
+
+| deprecated API | file:line | 迁移目标 | 迁移类型 |
+|----------------|-----------|---------|---------|
+| `Query` struct | `sz-orm-query-builder/src/lib.rs:221` | `sz_orm_core::QueryBuilder<M>` | 标准 CRUD |
+| `Query::select()` | `sz-orm-query-builder/src/lib.rs:230` | `QueryBuilder<M>::select()` | 标准 CRUD |
+| `Query::insert()` | `sz-orm-query-builder/src/lib.rs:239` | `QueryBuilder<M>::insert()` | 标准 CRUD |
+| `Query::update()` | `sz-orm-query-builder/src/lib.rs:248` | `QueryBuilder<M>::update()` | 标准 CRUD |
+| `Query::delete()` | `sz-orm-query-builder/src/lib.rs:257` | `QueryBuilder<M>::delete()` | 标准 CRUD |
+
+**处置结论**：5 处 deprecated API 全部保留（向后兼容），不移除。标准 CRUD 推荐迁移到 `QueryBuilder<M>`，复杂 SQL（UNION/CTE/窗口函数）继续使用 `Query`。
+
+### 6.2 SELECT 迁移示例
+
+**迁移前（deprecated）**：
+```rust
+use sz_orm_query_builder::Query;
+
+let sql = Query::select()
+    .columns(["id", "name", "status"])
+    .from("users")
+    .where_clause("status", "=", "active")
+    .order_by("created_at", Order::Desc)
+    .limit(10)
+    .to_sql(MySql)?;
+// sql: String，需手动传给驱动执行
+```
+
+**迁移后（推荐）**：
+```rust
+use sz_orm_core::QueryBuilder;
+
+let users: Vec<User> = User::query(&pool)
+    .where_eq("status", "active")
+    .order_by("created_at", Order::Desc)
+    .limit(10)
+    .find_all()
+    .await?;
+// users: Vec<User>，自动反序列化，自动参数化，自动软删除过滤
+```
+
+**行为差异**：
+| 维度 | `Query::select()` | `QueryBuilder<M>::select()` |
+|------|-------------------|---------------------------|
+| 返回类型 | `String`（SQL 字符串） | `Vec<M>`（反序列化模型） |
+| 参数化 | 手动 `bind()` | 自动参数化 |
+| 软删除 | 需手动添加 `deleted_at IS NULL` | 自动注入 |
+| 多租户 | 需手动添加 `tenant_id = ?` | 自动注入 |
+| N+1 检测 | 无 | 自动拦截 |
+| 类型安全 | 运行时校验 | 编译期校验 |
+
+### 6.3 INSERT 迁移示例
+
+**迁移前（deprecated）**：
+```rust
+use sz_orm_query_builder::Query;
+
+let sql = Query::insert()
+    .into("users")
+    .values(vec![("name", "Alice"), ("status", "active")])
+    .to_sql(MySql)?;
+```
+
+**迁移后（推荐）**：
+```rust
+use sz_orm_core::QueryBuilder;
+
+let user = User { name: "Alice".into(), status: "active".into(), ..Default::default() };
+let id: i64 = User::query(&pool).insert(&user).await?;
+```
+
+### 6.4 UPDATE 迁移示例
+
+**迁移前（deprecated）**：
+```rust
+use sz_orm_query_builder::Query;
+
+let sql = Query::update()
+    .table("users")
+    .set(vec![("status", "inactive")])
+    .where_clause("id", "=", 42)
+    .to_sql(MySql)?;
+```
+
+**迁移后（推荐）**：
+```rust
+use sz_orm_core::QueryBuilder;
+
+let affected = User::query(&pool)
+    .where_eq("id", 42)
+    .update("status", "inactive")
+    .await?;
+```
+
+### 6.5 DELETE 迁移示例
+
+**迁移前（deprecated）**：
+```rust
+use sz_orm_query_builder::Query;
+
+let sql = Query::delete()
+    .from("users")
+    .where_clause("id", "=", 42)
+    .to_sql(MySql)?;
+```
+
+**迁移后（推荐）**：
+```rust
+use sz_orm_core::QueryBuilder;
+
+let deleted = User::query(&pool).where_eq("id", 42).delete().await?;
+// 软删除模式：自动设置 deleted_at = NOW()，而非物理删除
+```
+
+### 6.6 迁移步骤清单
+
+1. **识别**：运行 `qb_migration_lint` 检测代码中 `sz_orm_query_builder::Query` 使用
+2. **分类**：标准 CRUD → 迁移到 `QueryBuilder<M>`；复杂 SQL（UNION/CTE/窗口）→ 保留 `Query`
+3. **实现 Model trait**：为查询涉及的表实现 `sz_orm_core::Model` trait
+4. **替换 API**：按 6.2~6.5 示例替换调用
+5. **验证**：运行 `cargo test` 确认行为不变
+6. **复杂场景人工审查**：UNION/CTE/窗口函数等 `QueryBuilder<M>` 不支持的查询保留 `Query`
+
+### 6.7 feature gate 差异
+
+| feature | `sz-orm-query-builder` | `sz-orm-core` |
+|---------|------------------------|---------------|
+| `multi-tenant` | ❌ 需手动 | ✅ 自动注入 |
+| `soft-delete` | ❌ 需手动 | ✅ 自动注入 |
+| `n1-detection` | ❌ 无 | ✅ 编译期 + 运行时 |
+| `query-simd` | ❌ 无 | ✅ SIMD 加速 |
+
+## 7. 总结
 
 | 维度 | 推荐 |
 |------|------|

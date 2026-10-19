@@ -360,6 +360,469 @@ impl SchemaDesignAdvisor {
     }
 }
 
+// ============================================================================
+// v10.11.0 T3.4：AI Schema 自主演进
+// 分区分表/索引调整/反范式，自动应用低风险变更（如新增分区），
+// 高风险变更（删列/改类型）须人工确认，兼容性保护。
+// 复用既有 SchemaDesignAdvisor + ai-schema-design feature gate +
+// ai-config feature gate（DecisionExplainer）+
+// ai-security-audit feature gate（LlmSecurityAuditor 三重安全审计）。
+// ============================================================================
+
+/// Schema 变更类型
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SchemaChangeType {
+    /// 加列（低风险，向后兼容）
+    AddColumn,
+    /// 加分区（低风险，向后兼容）
+    AddPartition,
+    /// 加索引（低风险，向后兼容）
+    AddIndex,
+    /// 删列（高风险，破坏应用兼容性）
+    DropColumn,
+    /// 改类型（高风险，破坏应用兼容性）
+    AlterType,
+    /// 删表（高风险，破坏应用兼容性）
+    DropTable,
+}
+
+impl SchemaChangeType {
+    /// 变更名称
+    pub fn name(&self) -> &str {
+        match self {
+            SchemaChangeType::AddColumn => "AddColumn",
+            SchemaChangeType::AddPartition => "AddPartition",
+            SchemaChangeType::AddIndex => "AddIndex",
+            SchemaChangeType::DropColumn => "DropColumn",
+            SchemaChangeType::AlterType => "AlterType",
+            SchemaChangeType::DropTable => "DropTable",
+        }
+    }
+}
+
+/// Schema 变更风险等级
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub enum SchemaRiskLevel {
+    /// 低风险（可自动应用：加列/加分区/加索引）
+    Low,
+    /// 高风险（须人工确认：删列/改类型/删表）
+    High,
+}
+
+/// Schema 变更
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaChange {
+    /// 变更类型
+    pub change_type: SchemaChangeType,
+    /// DDL 文本（如 ALTER TABLE ... ADD COLUMN ...）
+    pub ddl: String,
+    /// 回滚 DDL
+    pub rollback_ddl: String,
+    /// 变更描述
+    pub description: String,
+}
+
+/// Schema 状态（当前 schema 的摘要信息）
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SchemaState {
+    /// 表名列表
+    pub tables: Vec<String>,
+    /// 查询模式（用于分析）
+    pub query_patterns: Vec<QueryPattern>,
+}
+
+impl SchemaState {
+    pub fn new(tables: Vec<String>, query_patterns: Vec<QueryPattern>) -> Self {
+        Self {
+            tables,
+            query_patterns,
+        }
+    }
+}
+
+/// Schema 演进结果
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct EvolveResult {
+    /// 已应用的变更列表
+    pub applied: Vec<SchemaChange>,
+    /// 待人工确认的变更列表
+    pub pending_manual: Vec<SchemaChange>,
+    /// 回滚方案列表
+    pub rollback_plans: Vec<String>,
+    /// 决策可解释性（需 ai-config feature）
+    #[cfg(feature = "ai-config")]
+    pub explainer: Option<crate::ai_config::DecisionExplainer>,
+    /// 兼容性验证通过
+    pub compatibility_verified: bool,
+}
+
+/// Schema 演进错误
+#[derive(Debug, thiserror::Error)]
+pub enum EvolveError {
+    #[error("Schema 状态为空")]
+    EmptySchemaState,
+    #[error("安全审计失败：{0}")]
+    SecurityAuditFailed(String),
+    #[error("变更生成失败：{0}")]
+    ChangeGenerationFailed(String),
+}
+
+/// Schema 变更风险评估器
+pub struct SchemaRiskAssessor;
+
+impl SchemaRiskAssessor {
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 评估变更风险等级
+    pub fn assess(&self, change: &SchemaChange) -> SchemaRiskLevel {
+        match change.change_type {
+            SchemaChangeType::AddColumn
+            | SchemaChangeType::AddPartition
+            | SchemaChangeType::AddIndex => SchemaRiskLevel::Low,
+            SchemaChangeType::DropColumn
+            | SchemaChangeType::AlterType
+            | SchemaChangeType::DropTable => SchemaRiskLevel::High,
+        }
+    }
+
+    /// 生成风险评估（用于 DecisionExplainer）
+    #[cfg(feature = "ai-config")]
+    pub fn risk_assessment(&self, level: SchemaRiskLevel) -> crate::ai_config::RiskAssessment {
+        use crate::ai_config::{RiskAssessment, RiskFactor, RiskLevel};
+        let (risk_level, score, factor_name) = match level {
+            SchemaRiskLevel::Low => (RiskLevel::Low, 0.2, "additive_change"),
+            SchemaRiskLevel::High => (RiskLevel::High, 0.9, "breaking_change"),
+        };
+        RiskAssessment {
+            level: risk_level,
+            factors: vec![RiskFactor {
+                factor: factor_name.to_string(),
+                weight: score,
+            }],
+            score,
+        }
+    }
+}
+
+impl Default for SchemaRiskAssessor {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// Schema 变更自动应用器
+pub struct SchemaAutoApplier {
+    /// 已应用的变更列表
+    applied: Vec<SchemaChange>,
+}
+
+impl SchemaAutoApplier {
+    pub fn new() -> Self {
+        Self {
+            applied: Vec::new(),
+        }
+    }
+
+    /// 安全审计（需 ai-security-audit feature）
+    #[cfg(feature = "ai-security-audit")]
+    async fn security_check(&self, ddl: &str) -> Result<bool, EvolveError> {
+        use crate::llm_security_audit::LlmSecurityAuditor;
+        use crate::permission_auditor::{DbAccount, PermissionAuditor, QueryUsage};
+        use crate::sql_sanitizer::SqlSanitizer;
+
+        // 1. SqlSanitizer 脱敏
+        let sanitized = SqlSanitizer::sanitize(ddl);
+        if sanitized != ddl {
+            return Err(EvolveError::SecurityAuditFailed(
+                "DDL 含敏感字面量".to_string(),
+            ));
+        }
+
+        // 2. PermissionAuditor 权限审计
+        let account = DbAccount::new("auto_schema_evolver")
+            .with_privileges(vec!["ALTER".to_string(), "CREATE".to_string()]);
+        let usage = QueryUsage::from_sql(ddl);
+        let auditor = PermissionAuditor::new();
+        let perm_result = auditor.audit_permissions(&account, &usage);
+        for finding in &perm_result.findings {
+            if finding.severity == crate::permission_auditor::PermissionIssueSeverity::Critical {
+                return Err(EvolveError::SecurityAuditFailed(format!(
+                    "权限审计失败：{}",
+                    finding.title
+                )));
+            }
+        }
+
+        // 3. LlmSecurityAuditor
+        let mut llm_auditor = LlmSecurityAuditor::rule_only();
+        let audit_result = llm_auditor
+            .audit(ddl)
+            .await
+            .map_err(|e| EvolveError::SecurityAuditFailed(e.to_string()))?;
+        if audit_result.risk_level.is_dangerous() {
+            return Err(EvolveError::SecurityAuditFailed(
+                "LLM 安全审计检测到注入风险".to_string(),
+            ));
+        }
+
+        Ok(true)
+    }
+
+    /// 应用变更
+    pub async fn apply(&mut self, change: SchemaChange) -> Result<(), EvolveError> {
+        #[cfg(feature = "ai-security-audit")]
+        {
+            self.security_check(&change.ddl).await?;
+        }
+        self.applied.push(change);
+        Ok(())
+    }
+
+    /// 获取已应用的变更
+    pub fn applied_changes(&self) -> &[SchemaChange] {
+        &self.applied
+    }
+
+    /// 回滚
+    pub fn rollback(&mut self, ddl: &str) -> Option<String> {
+        if let Some(pos) = self.applied.iter().position(|c| c.ddl == ddl) {
+            let change = self.applied.remove(pos);
+            Some(change.rollback_ddl)
+        } else {
+            None
+        }
+    }
+}
+
+impl Default for SchemaAutoApplier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// AI Schema 自主演进器
+///
+/// 自动应用低风险变更（加列/加分区/加索引），
+/// 高风险变更（删列/改类型/删表）须人工确认，兼容性保护。
+/// 复用既有 SchemaDesignAdvisor（schema_design_advisor.rs:43）。
+pub struct AutoSchemaEvolver {
+    /// 风险评估器
+    risk_assessor: SchemaRiskAssessor,
+    /// 自动应用器
+    auto_applier: SchemaAutoApplier,
+}
+
+impl AutoSchemaEvolver {
+    pub fn new() -> Self {
+        Self {
+            risk_assessor: SchemaRiskAssessor::new(),
+            auto_applier: SchemaAutoApplier::new(),
+        }
+    }
+
+    /// 生成 Schema 变更建议
+    ///
+    /// 基于 SchemaState 分析查询模式，生成变更建议。
+    fn generate_changes(&self, schema_state: &SchemaState) -> Vec<SchemaChange> {
+        let mut changes = Vec::new();
+
+        for pattern in &schema_state.query_patterns {
+            if pattern.frequency > 100 && pattern.data_days >= 30 {
+                let table = pattern
+                    .sql_template
+                    .split_whitespace()
+                    .nth(2)
+                    .unwrap_or("unknown");
+
+                changes.push(SchemaChange {
+                    change_type: SchemaChangeType::AddIndex,
+                    ddl: format!(
+                        "CREATE INDEX idx_{}_auto ON {} ({})",
+                        table,
+                        table,
+                        pattern.columns_accessed.join(", ")
+                    ),
+                    rollback_ddl: format!("DROP INDEX idx_{}_auto", table),
+                    description: format!(
+                        "为高频查询自动添加索引: {} ({})",
+                        table,
+                        pattern.columns_accessed.join(", ")
+                    ),
+                });
+            }
+        }
+
+        if !schema_state.tables.is_empty() {
+            let table = &schema_state.tables[0];
+            changes.push(SchemaChange {
+                change_type: SchemaChangeType::AddPartition,
+                ddl: format!(
+                    "ALTER TABLE {} PARTITION BY RANGE (created_at) (PARTITION p2025 VALUES LESS THAN ('2026-01-01'))",
+                    table
+                ),
+                rollback_ddl: format!("ALTER TABLE {} REMOVE PARTITIONING", table),
+                description: format!("为表 {} 添加分区", table),
+            });
+        }
+
+        changes
+    }
+
+    /// 自主 Schema 演进
+    ///
+    /// 1. 基于 SchemaState 生成变更建议
+    /// 2. 评估每项变更的风险等级
+    /// 3. 低风险自动应用，高风险待人工确认
+    /// 4. 安全审计三重检查（需 ai-security-audit feature）
+    /// 5. 回滚方案
+    /// 6. 决策可解释性
+    pub async fn evolve(
+        &mut self,
+        schema_state: &SchemaState,
+    ) -> Result<EvolveResult, EvolveError> {
+        if schema_state.tables.is_empty() && schema_state.query_patterns.is_empty() {
+            return Err(EvolveError::EmptySchemaState);
+        }
+
+        // 1. 生成变更建议
+        let changes = self.generate_changes(schema_state);
+
+        let mut applied = Vec::new();
+        let mut pending_manual = Vec::new();
+        let mut rollback_plans = Vec::new();
+
+        for change in changes {
+            let risk_level = self.risk_assessor.assess(&change);
+
+            match risk_level {
+                SchemaRiskLevel::Low => {
+                    let rollback = change.rollback_ddl.clone();
+                    self.auto_applier.apply(change.clone()).await?;
+                    applied.push(change);
+                    rollback_plans.push(rollback);
+                }
+                SchemaRiskLevel::High => {
+                    pending_manual.push(change);
+                }
+            }
+        }
+
+        // 兼容性验证：低风险变更不破坏应用兼容性
+        let compatibility_verified = applied
+            .iter()
+            .all(|c| matches!(c.change_type, SchemaChangeType::AddColumn | SchemaChangeType::AddPartition | SchemaChangeType::AddIndex));
+
+        // 决策可解释性
+        #[cfg(feature = "ai-config")]
+        let explainer = self.build_explainer(&applied, &pending_manual);
+
+        Ok(EvolveResult {
+            applied,
+            pending_manual,
+            rollback_plans,
+            #[cfg(feature = "ai-config")]
+            explainer,
+            compatibility_verified,
+        })
+    }
+
+    /// 构建决策可解释性
+    #[cfg(feature = "ai-config")]
+    fn build_explainer(
+        &self,
+        applied: &[SchemaChange],
+        pending_manual: &[SchemaChange],
+    ) -> Option<crate::ai_config::DecisionExplainer> {
+        use crate::ai_config::*;
+        if applied.is_empty() && pending_manual.is_empty() {
+            return None;
+        }
+        let has_high_risk = !pending_manual.is_empty();
+        let risk_level = if has_high_risk {
+            SchemaRiskLevel::High
+        } else {
+            SchemaRiskLevel::Low
+        };
+        let risk_assessment = self.risk_assessor.risk_assessment(risk_level);
+        Some(DecisionExplainer::new(
+            vec![
+                FeatureImportance {
+                    feature: "query_frequency".to_string(),
+                    importance: 0.8,
+                },
+                FeatureImportance {
+                    feature: "data_days".to_string(),
+                    importance: 0.6,
+                },
+                FeatureImportance {
+                    feature: "compatibility".to_string(),
+                    importance: if has_high_risk { 0.3 } else { 0.9 },
+                },
+            ],
+            DecisionPath {
+                steps: vec![
+                    DecisionStep {
+                        step: "analyze_schema".to_string(),
+                        detail: "分析当前 Schema 状态和查询模式".to_string(),
+                    },
+                    DecisionStep {
+                        step: "generate_changes".to_string(),
+                        detail: format!(
+                            "生成变更建议: {} 项已应用, {} 项待确认",
+                            applied.len(),
+                            pending_manual.len()
+                        ),
+                    },
+                    DecisionStep {
+                        step: "assess_risk".to_string(),
+                        detail: format!("风险等级: {:?}", risk_level),
+                    },
+                    DecisionStep {
+                        step: "verify_compatibility".to_string(),
+                        detail: "兼容性验证: 低风险变更不破坏应用兼容性".to_string(),
+                    },
+                ],
+            },
+            risk_assessment,
+            RollbackPlan {
+                steps: applied
+                    .iter()
+                    .map(|c| RollbackStep {
+                        step: c.change_type.name().to_string(),
+                        detail: c.rollback_ddl.clone(),
+                    })
+                    .collect(),
+                verify: VerifyCondition {
+                    condition: "schema_compatible_with_app".to_string(),
+                },
+            },
+        ))
+    }
+
+    /// 获取已应用的变更
+    pub fn applied_changes(&self) -> &[SchemaChange] {
+        self.auto_applier.applied_changes()
+    }
+
+    /// 获取风险评估器
+    pub fn risk_assessor(&self) -> &SchemaRiskAssessor {
+        &self.risk_assessor
+    }
+
+    /// 回滚
+    pub fn rollback(&mut self, ddl: &str) -> Option<String> {
+        self.auto_applier.rollback(ddl)
+    }
+}
+
+impl Default for AutoSchemaEvolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

@@ -35,6 +35,14 @@ pub mod compliance_report_auto_generator;
 pub mod compliance_scan_desensitizer;
 #[cfg(feature = "compliance-auto-scan")]
 pub mod compliance_scan_engine;
+#[cfg(feature = "compliance-auto-scan")]
+pub mod zero_trust_access;
+#[cfg(feature = "compliance-auto-scan")]
+pub mod compliance_auto_checker;
+#[cfg(feature = "compliance-auto-scan")]
+pub mod gdpr_ccpa;
+#[cfg(feature = "compliance-auto-scan")]
+pub mod supply_chain_security;
 #[cfg(feature = "evidence-auto-archive")]
 pub mod evidence_auto_archive_scheduler;
 
@@ -60,6 +68,38 @@ pub use compliance_scan_engine::{
     ComplianceScanEngine, ComplianceScanError, ComplianceScanInput, ComplianceScanReport,
     ComplianceScanStatus, ComplianceScope, ComplianceViolation as ScanComplianceViolation,
     FixSuggestion, ScanItem, ViolationSeverity,
+};
+// v10.11.0 T4.1：零信任访问验证导出
+#[cfg(feature = "compliance-auto-scan")]
+pub use zero_trust_access::{
+    AccessContext, AccessRequest, BehaviorProfile, DenyReason, DeviceFingerprint, DeviceVerifier,
+    DynamicPermission, ContextVerifier, ErrorCode, VerifyError, VerifyResult, ZeroTrustVerifier,
+};
+// v10.11.0 T4.2：持续合规监控导出
+#[cfg(feature = "compliance-auto-scan")]
+pub use compliance_auto_checker::{
+    AutoRemediator, ContinuousComplianceMonitor, DataAccessEvent, DataAccessEventType,
+    EventDrivenScanner, MonitorError, MonitorResult, RemediationAction, RemediationActionType,
+    RemediationError, RemediationResult,
+};
+// v10.11.0 T4.3：数据生命周期自动化导出
+#[cfg(feature = "compliance-auto-scan")]
+pub use gdpr_ccpa::{
+    AutoArchiver, AutoDestroyer, DestroyAuditTrail, LifecycleAutoManager, LifecycleError,
+    LifecycleResult, LifecycleState, LifecycleStatus, RetentionChecker, RetentionConfig,
+};
+// v10.11.0 T4.4：零知识审计导出
+#[cfg(feature = "hash-chain-enhanced")]
+pub use hash_chain_enhanced::{
+    AuditDesensitizer, DesensitizedEntry, MerkleNode, MerkleProof, MerkleProofGenerator,
+    MerkleVerifier, ZkAuditError, ZkAuditResult, ZeroKnowledgeAuditor,
+};
+// v10.11.0 T4.5：供应链安全导出
+#[cfg(feature = "compliance-auto-scan")]
+pub use supply_chain_security::{
+    MonitorError as SupplyChainMonitorError, ReproducibleBuildVerifier, ReproducibleResult, Sbom,
+    SbomComponent, SbomError, SbomFormat, SbomGenerator, VerifyError as SupplyChainVerifyError,
+    Vulnerability, VulnerabilityMonitor, VulnerabilityReport, VulnerabilitySeverity,
 };
 #[cfg(feature = "evidence-auto-archive")]
 pub use evidence_auto_archive_scheduler::{

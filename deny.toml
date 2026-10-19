@@ -46,6 +46,16 @@ ignore = [
     { id = "RUSTSEC-2026-0099", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-webpki 0.102.8/0.101.7，上游 0.103 为不兼容大版本；仅影响 real-broker / real-es feature" },
     # rustls-webpki: CRL parsing panic 漏洞 (RUSTSEC-2026-0104)
     { id = "RUSTSEC-2026-0104", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-webpki 0.102.8/0.101.7，上游 0.103 为不兼容大版本；仅影响 real-broker / real-es feature" },
+    # rustls 0.21.12: Debug impl 泄露 TLS 会话密钥 (RUSTSEC-2026-0346)
+    # 来源: sz-orm-search (real-es feature) → elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12
+    # 影响: 仅在启用 real-es feature 时引入；Debug 泄露需自定义 ClientSessionStore 并格式化输出才会触发，默认编译不参与；工作区 rustls 0.23 线已升级 0.23.46（修复版）
+    # 跟踪: 待 elasticsearch 升级至依赖 reqwest 0.12 / rustls 0.23+ 后自动移除
+    { id = "RUSTSEC-2026-0346", reason = "elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12 传递依赖，上游 reqwest 0.12 / rustls 0.23 为不兼容大版本；仅影响 real-es feature；工作区 rustls 0.23 线已升级 0.23.46" },
+    # rustls 0.21.12: ServerHello 降级攻击 (RUSTSEC-2026-0349)
+    # 来源: sz-orm-search (real-es feature) → elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12
+    # 影响: 仅在启用 real-es feature 时引入；后量子机密性降级（harvest now, decrypt later），无密钥泄露/认证绕过；默认编译不参与
+    # 跟踪: 待 elasticsearch 升级至依赖 reqwest 0.12 / rustls 0.23+ 后自动移除
+    { id = "RUSTSEC-2026-0349", reason = "elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12 传递依赖，上游 reqwest 0.12 / rustls 0.23 为不兼容大版本；仅影响 real-es feature；工作区 rustls 0.23 线已升级 0.23.46" },
     # quick-xml 0.38.4: 二次时间复杂度解析漏洞 (RUSTSEC-2026-0194)
     # 来源: sz-orm-storage (s3-sdk feature) → rust-s3 0.37.2 → aws-creds 0.39.1 → quick-xml 0.38.4
     # 影响: 仅在启用 s3-sdk feature 时引入；服务端可控输入；上游 rust-s3 0.37.2 / aws-creds 0.39.1 均为最新版，尚未升级 quick-xml

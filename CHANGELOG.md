@@ -5,6 +5,64 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [10.11.0] — 2026-10-19
+
+### v10.11.0 性能热点路径深化 + 多区域多活高可用 + AI 自主决策闭环 + 零信任合规自动化
+
+#### 方向 1：性能热点路径深化（T1.1-T1.5）
+- SIMD 热路径内联展开深化：24 个 #[inline] 注解 + #[cold] 冷分支分离（simd.rs）
+- 编译期查询特化：QueryShape<const COLS, const PARAMS> const generics 零运行时开销（query_specialize.rs）
+- 零拷贝行解码深化：MySQL/PostgreSQL/SQLite 三协议零拷贝解码函数（zero_copy_pipeline.rs）
+- 连接池快速路径深化：CachePadded<T> 缓存行对齐 + FastPathStats 快速路径统计（pool.rs）
+- 缓存亲和性优化：CacheLayoutOptimizer 缓存布局优化器（cache_warmup_protection.rs）
+- 新增 25 个端到端测试（hot_path_deepen_wiring_test + pool_fast_path_wiring_test + cache_affinity_wiring_test）
+- 复用既有 query-simd/perf-extreme/zero-copy/zero-copy-deep/cache-hit-optimize feature gate
+
+#### 方向 2：多区域多活高可用（T2.1-T2.5）
+- 多区域故障转移：RegionHealthChecker + CrossRegionSwitcher + RegionTopology（failover_controller.rs）
+- 异地多活路由：MultiActiveRouter + PartitionKeyRouter 分区键路由（rw_split_enhanced.rs）
+- 区域配额隔离：RegionQuotaIsolator + QuotaBorrower 跨区域配额借调（tenant_quota_rls.rs）
+- 全局熔断协调：GlobalBreakerCoordinator + BreakerStateSyncer + RedisBreakerChannel（circuit_breaker.rs）
+- 故障切换数据校验：SwitchVerifyChecker + GtidComparator/LsnComparator/ScnComparator 三协议一致性校验（failover_controller.rs）
+- 新增 32 个端到端测试（multi_region_ha_wiring_test）
+- 复用既有 auto-failover/rw-split-enhanced/tenant-quota-rls-enhanced/circuit-breaker feature gate
+
+#### 方向 3：AI 自主决策闭环（T3.1-T3.5）
+- AI 自主索引决策：AutoIndexDecider + IndexRiskAssessor + IndexAutoApplier + DecisionRollbackRegistry（index_advisor.rs）
+- AI 自主查询重写：AutoRewriteEngine + SemanticEquivalenceChecker + RewriteBenefitVerifier（rewrite_advisor.rs）
+- AI 异常自愈：AutoHealEngine + HealPlanGenerator + HealRiskAssessor + HealExecutor 恶化自动回滚（anomaly_prediction_engine.rs）
+- AI Schema 自主演进：AutoSchemaEvolver + SchemaRiskAssessor + SchemaAutoApplier 兼容性验证（schema_design_advisor.rs）
+- AI 决策可解释性：DecisionExplainer + FeatureImportance + DecisionPath + RiskAssessment + RollbackPlan（ai_config.rs）
+- 安全三重检查：SqlSanitizer + PermissionAuditor + LlmSecurityAuditor
+- 新增 34 个端到端测试（ai_autonomous_wiring_test）
+- 复用既有 ai-config/ai-security-audit/ai-autonomous-loop/ai-index-advisor/ai-rewrite-advisor/ai-deep feature gate
+
+#### 方向 4：零信任合规自动化（T4.1-T4.5）
+- 零信任访问验证：ZeroTrustVerifier + DeviceVerifier + ContextVerifier + DynamicPermission 申诉机制（zero_trust_access.rs）
+- 持续合规监控：ContinuousComplianceMonitor + EventDrivenScanner + AutoRemediator 事件驱动实时扫描 + 自动处置（compliance_auto_checker.rs）
+- 数据生命周期自动化：LifecycleAutoManager + RetentionChecker + AutoArchiver + AutoDestroyer 二次校验 + 销毁审计留痕（gdpr_ccpa.rs）
+- 零知识审计：ZeroKnowledgeAuditor + AuditDesensitizer + MerkleProofGenerator + MerkleVerifier 脱敏入链 + 默克尔证明（hash_chain_enhanced.rs）
+- 供应链安全深化：SbomGenerator + VulnerabilityMonitor + ReproducibleBuildVerifier SBOM + 漏洞监控 + 可重现构建（supply_chain_security.rs）
+- 新增 41 个端到端测试（zero_trust_compliance_wiring_test）
+- 复用既有 compliance-auto-scan/hash-chain-enhanced feature gate
+
+#### 向后兼容性
+- 无破坏性变更（公共 API 签名不破坏性变更）
+- 不新增 crate（72 包不变）
+- 不新增 feature gate（复用既有 feature gate）
+- 不引入新外部依赖
+- unsafe 零容忍（无新增 unsafe 代码）
+
+#### sz-pay 版本对齐
+- sz-pay/server/sz-rust/Cargo.toml 中 22 处 sz-orm-* 依赖版本从 10.9.0 升级至 10.10.0
+
+#### 门禁验证
+- cargo check -p sz-orm-audit --features compliance-auto-scan ✅
+- cargo clippy -p sz-orm-audit --features compliance-auto-scan --lib ✅
+- cargo test -p sz-orm-audit --features compliance-auto-scan --test zero_trust_compliance_wiring_test ✅（41 passed）
+- cargo test -p sz-orm-core --features auto-failover,tenant-quota-rls-enhanced --test multi_region_ha_wiring_test ✅（32 passed）
+- cargo test -p sz-orm-ai --features ai-index-advisor,ai-rewrite-advisor,ai-deep,ai-config,ai-security-audit --test ai_autonomous_wiring_test ✅（34 passed）
+
 ## [10.10.0] — 2026-10-17
 
 ### v10.10.0 性能极致优化深化 + 企业级高可用深化 + AI 深度集成 + 安全合规深化

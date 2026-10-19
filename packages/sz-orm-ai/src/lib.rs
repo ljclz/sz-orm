@@ -209,10 +209,27 @@ pub use semantic_query::{
 pub mod ai_config;
 #[cfg(feature = "ai-config")]
 pub use ai_config::{
-    AiConfig, AiDecision, AiDecisionType, AnnIndexType as AiAnnIndexType, RewritePath,
+    AiConfig, AiDecision, AiDecisionType, AnnIndexType as AiAnnIndexType, AuditEntry,
+    DecisionExplainer, DecisionPath, DecisionStep, FeatureImportance, RewritePath, RiskAssessment,
+    RiskFactor, RiskLevel, RollbackPlan, RollbackStep, VerifyCondition,
 };
 #[cfg(feature = "ai-index-apply")]
 pub use index_advisor::{AiIndexApplyResult, IndexApplyExecutor, RollbackRecord};
+
+// v10.11.0 T3.1：AI 自主索引决策导出（复用 ai-index-advisor + ai-config feature gate）
+#[cfg(all(feature = "ai-index-advisor", feature = "ai-config"))]
+pub use index_advisor::{
+    AutoDecisionResult, AutoIndexDecider, DecisionError, DecisionRollbackEntry,
+    DecisionRollbackRegistry, IndexAutoApplier, IndexRiskAssessor, IndexRiskLevel,
+    WorkloadProfile,
+};
+
+// v10.11.0 T3.2：AI 自主查询重写导出（复用 ai-rewrite-advisor + ai-config feature gate）
+#[cfg(all(feature = "ai-rewrite-advisor", feature = "ai-config"))]
+pub use rewrite_advisor::{
+    AutoRewriteEngine, AutoRewriteResult, BenefitVerifyResult, EquivalenceCheckResult,
+    RewriteBenefitVerifier, RewriteRiskLevel, SemanticEquivalenceChecker,
+};
 
 // v7.7.0 任务 2.1：AiQueryOptimizer 导出
 #[cfg(feature = "ai-query-optimize")]
@@ -263,12 +280,24 @@ pub use ai_deep::{
 };
 #[cfg(feature = "ai-anomaly-predict")]
 pub use ai_deep::{AnomalyPredictConfig, AnomalyPredictionEngine};
+// v10.11.0 T3.3：AI 异常自愈导出（复用 ai-deep + ai-config feature gate）
+#[cfg(all(feature = "ai-deep", feature = "ai-config"))]
+pub use ai_deep::anomaly_prediction_engine::{
+    AutoHealEngine, HealAction, HealError, HealExecutor, HealMetrics, HealPlan, HealPlanGenerator,
+    HealResult, HealRiskAssessor, HealRiskLevel,
+};
 #[cfg(feature = "ai-deep")]
 pub use ai_deep::{EquivalenceConfig, RewriteEquivalenceVerifier};
 #[cfg(feature = "ai-nl-rewrite")]
 pub use ai_deep::{NlRewriteConfig, NlRewritePipeline};
 #[cfg(feature = "ai-schema-design")]
 pub use ai_deep::{SchemaDesignAdvisor, SchemaDesignConfig};
+// v10.11.0 T3.4：AI Schema 自主演进导出（复用 ai-deep + ai-config feature gate）
+#[cfg(all(feature = "ai-deep", feature = "ai-config"))]
+pub use ai_deep::schema_design_advisor::{
+    AutoSchemaEvolver, EvolveError, EvolveResult, SchemaAutoApplier, SchemaChange, SchemaChangeType,
+    SchemaRiskAssessor, SchemaRiskLevel, SchemaState,
+};
 // v8.1.0 组3：AI 闭环自治生产化顶层导出
 #[cfg(feature = "ai-ab-testing")]
 pub use autonomous::xai::{

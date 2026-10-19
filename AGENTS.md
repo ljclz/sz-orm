@@ -1,6 +1,6 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：9.4.0（workspace.package.version 集中管理）
+- 版本：10.8.0（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：72（70 lib 包 + cli + examples）；v5.1.0 新增 sz-orm-studio / sz-orm-lsp；v4.3.0 新增 sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor / sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel / sz-orm-stream；v4.6.0 不新增包，7 个 feature gate 扩展既有包；v4.7.0 不新增包，7 个 feature gate 扩展既有包；v7.3.0 不新增包，10 个 feature gate 扩展既有包，3 个默认启用 perf-accel/ha-events/health-subitems，7 个按需启用 auto-failover/limit-queue-timeout/tracing-db-attrs/ai-config/ann-accel/eco-config/warp-adapt）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
@@ -64,6 +64,7 @@
 9. Feature 隔离
 10. 教训记忆（阅读防御追溯表）
 11. 禁止幻影交付：宣称"自动/强制/默认/集成"的能力必须附生产调用点证据（file:line）；"模块存在 + 测试通过"≠"已交付"（门禁 15）；feature gate 无启用点时文档必须用"提供 X 组件（需手动接入）"措辞，禁止用"强制执行/自动注入/自动拦截/启动预热/默认生效"等集成语义描述零调用模块（依据 2026-08-13 审计：docs/assessment/2026-08-13-production-zero-call-audit.md）
+12. 禁止幻影测试（v10.0.0 审计新增）：测试必须验证行为副作用，不能只验证初始值/配置值；禁止 `let _result = ...` 丢弃操作结果；禁止永真断言（如 `confidence >= 0.0`）；新增配置类型必须在同一 PR 中添加生产消费点（Pool::new() 读取 config 创建组件 + getter 方法）；修复模式：Pool 添加 `Option<Arc<Component>>` 字段 → `Pool::new()` 根据 `config.enabled` 创建 → 添加 getter → 测试通过 getter 验证行为
 
 ### 审计合规铁律（生死线）
 

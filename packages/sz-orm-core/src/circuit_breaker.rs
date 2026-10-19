@@ -198,6 +198,254 @@ mod prod {
 #[cfg(feature = "prod-circuit-tuning")]
 pub use prod::{CircuitBreakerProdConfig, CircuitBreakerProdError, CircuitBreakerStats};
 
+// ============================================================================
+// v10.11.0 T2.4：全局熔断协调（GlobalBreakerCoordinator + RedisBreakerChannel）
+// ============================================================================
+
+use std::collections::HashMap;
+use std::sync::Arc;
+
+/// 全局熔断状态
+///
+/// 跨实例共享的熔断状态快照。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GlobalBreakerState {
+    /// 断路器状态
+    pub circuit_state: CircuitState,
+    /// 实例 ID
+    pub instance_id: String,
+    /// 时间戳（毫秒）
+    pub timestamp_ms: u64,
+}
+
+/// 同步错误
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SyncError {
+    /// Redis 不可用（降级为本地熔断）
+    RedisUnavailable,
+    /// 发布失败
+    PublishFailed(String),
+    /// 订阅失败
+    SubscribeFailed(String),
+}
+
+/// Redis pub/sub 通道（抽象接口）
+///
+/// 实际生产中使用 Redis 0.27 连接，测试中用内存模拟。
+pub trait BreakerChannel: Send + Sync {
+    /// 发布熔断状态
+    fn publish_state(&self, state: &GlobalBreakerState) -> Result<(), SyncError>;
+    /// 订阅最新状态（拉取所有实例的最新状态）
+    fn subscribe_states(&self) -> Result<HashMap<String, GlobalBreakerState>, SyncError>;
+}
+
+/// 内存通道（测试和降级使用）
+pub struct RedisBreakerChannel {
+    /// 实例状态表（instance_id → state）
+    states: std::sync::Mutex<HashMap<String, GlobalBreakerState>>,
+    /// 是否可用
+    available: std::sync::atomic::AtomicBool,
+}
+
+impl RedisBreakerChannel {
+    /// 创建内存 Redis 通道
+    pub fn new() -> Self {
+        Self {
+            states: std::sync::Mutex::new(HashMap::new()),
+            available: std::sync::atomic::AtomicBool::new(true),
+        }
+    }
+
+    /// 标记为不可用（模拟 Redis 故障）
+    pub fn mark_unavailable(&self) {
+        self.available
+            .store(false, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 标记为可用
+    pub fn mark_available(&self) {
+        self.available
+            .store(true, std::sync::atomic::Ordering::SeqCst);
+    }
+
+    /// 是否可用
+    pub fn is_available(&self) -> bool {
+        self.available.load(std::sync::atomic::Ordering::SeqCst)
+    }
+}
+
+impl Default for RedisBreakerChannel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl BreakerChannel for RedisBreakerChannel {
+    fn publish_state(&self, state: &GlobalBreakerState) -> Result<(), SyncError> {
+        if !self.is_available() {
+            return Err(SyncError::RedisUnavailable);
+        }
+        let mut states = self.states.lock().unwrap();
+        states.insert(state.instance_id.clone(), state.clone());
+        Ok(())
+    }
+
+    fn subscribe_states(&self) -> Result<HashMap<String, GlobalBreakerState>, SyncError> {
+        if !self.is_available() {
+            return Err(SyncError::RedisUnavailable);
+        }
+        let states = self.states.lock().unwrap();
+        Ok(states.clone())
+    }
+}
+
+/// 熔断状态同步器
+///
+/// 通过 BreakerChannel 同步熔断状态，支持定期全量同步。
+pub struct BreakerStateSyncer {
+    channel: Arc<dyn BreakerChannel>,
+    /// 本实例 ID
+    instance_id: String,
+}
+
+impl BreakerStateSyncer {
+    /// 创建状态同步器
+    pub fn new(channel: Arc<dyn BreakerChannel>, instance_id: impl Into<String>) -> Self {
+        Self {
+            channel,
+            instance_id: instance_id.into(),
+        }
+    }
+
+
+    /// 发布本地状态
+    pub fn publish(&self, state: CircuitState) -> Result<(), SyncError> {
+        let global_state = GlobalBreakerState {
+            circuit_state: state,
+            instance_id: self.instance_id.clone(),
+            timestamp_ms: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map(|d| d.as_millis() as u64)
+                .unwrap_or(0),
+        };
+        self.channel.publish_state(&global_state)
+    }
+
+    /// 拉取所有实例状态
+    pub fn sync(&self) -> Result<HashMap<String, GlobalBreakerState>, SyncError> {
+        self.channel.subscribe_states()
+    }
+
+    /// 检查是否有其他实例已熔断
+    pub fn any_instance_open(&self) -> Result<bool, SyncError> {
+        let states = self.sync()?;
+        Ok(states
+            .values()
+            .any(|s| s.instance_id != self.instance_id && s.circuit_state == CircuitState::Open))
+    }
+
+    /// 实例 ID
+    pub fn instance_id(&self) -> &str {
+        &self.instance_id
+    }
+}
+
+/// 全局熔断协调器
+///
+/// 协调跨实例/跨区域熔断：本地熔断 + Redis 状态同步 + 协调恢复。
+pub struct GlobalBreakerCoordinator {
+    local_breaker: DefaultCircuitBreaker,
+    state_syncer: BreakerStateSyncer,
+    /// 同步间隔
+    sync_interval: Duration,
+}
+
+impl GlobalBreakerCoordinator {
+    /// 创建全局熔断协调器
+    pub fn new(
+        local_breaker: DefaultCircuitBreaker,
+        channel: Arc<dyn BreakerChannel>,
+        instance_id: impl Into<String>,
+    ) -> Self {
+        Self {
+            local_breaker,
+            state_syncer: BreakerStateSyncer::new(channel, instance_id),
+            sync_interval: Duration::from_secs(10),
+        }
+    }
+
+    /// 设置同步间隔
+    pub fn with_sync_interval(mut self, interval: Duration) -> Self {
+        self.sync_interval = interval;
+        self
+    }
+
+    /// 同步间隔
+    pub fn sync_interval(&self) -> Duration {
+        self.sync_interval
+    }
+
+    /// 是否允许请求
+    ///
+    /// 先检查本地熔断器，再检查全局状态（其他实例是否已熔断）。
+    pub fn allow_request(&mut self) -> bool {
+        if !self.local_breaker.can_execute() {
+            return false;
+        }
+        !matches!(self.state_syncer.any_instance_open(), Ok(true))
+    }
+
+    /// 记录成功
+    ///
+    /// 本地记录成功，并通过通道发布恢复状态（协调恢复）。
+    pub fn record_success(&mut self) {
+        self.local_breaker.record_success();
+        let _ = self.state_syncer.publish(self.local_breaker.state());
+    }
+
+    /// 记录失败
+    ///
+    /// 本地记录失败，并通过通道发布熔断状态。
+    pub fn record_failure(&mut self) {
+        self.local_breaker.record_failure();
+        let _ = self.state_syncer.publish(self.local_breaker.state());
+    }
+
+    /// 同步状态（定期全量同步）
+    ///
+    /// 拉取所有实例的最新状态，如果其他实例已恢复而本地仍熔断，则协调恢复。
+    pub fn sync_state(&mut self) -> Result<(), SyncError> {
+        let states = self.state_syncer.sync()?;
+        let local_state = self.local_breaker.state();
+
+        if local_state == CircuitState::Open {
+            let others_recovered = states
+                .values()
+                .filter(|s| s.instance_id != self.state_syncer.instance_id())
+                .all(|s| s.circuit_state != CircuitState::Open);
+            let has_other_instances = states
+                .values()
+                .any(|s| s.instance_id != self.state_syncer.instance_id());
+
+            if has_other_instances && others_recovered {
+                self.local_breaker.reset();
+            }
+        }
+
+        Ok(())
+    }
+
+    /// 本地断路器状态
+    pub fn state(&self) -> CircuitState {
+        self.local_breaker.state()
+    }
+
+    /// 实例 ID
+    pub fn instance_id(&self) -> &str {
+        self.state_syncer.instance_id()
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

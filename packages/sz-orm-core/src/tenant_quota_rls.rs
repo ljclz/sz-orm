@@ -170,6 +170,8 @@ pub struct QuotaEnforcer {
     strategy: QuotaEnforceStrategy,
     /// v4.7.0 审计接入：配额事件审计日志器（超限拒绝时记录，可配置关闭）
     audit: Arc<Mutex<Option<Arc<TenantAuditLogger>>>>,
+    /// v10.11.0 T2.3：区域配额（Option 包裹，向后兼容）
+    region_quotas: Arc<Mutex<Option<HashMap<String, RegionQuota>>>>,
 }
 
 impl QuotaEnforcer {
@@ -179,6 +181,7 @@ impl QuotaEnforcer {
             usage: Arc::new(Mutex::new(HashMap::new())),
             strategy: QuotaEnforceStrategy::default(),
             audit: Arc::new(Mutex::new(None)),
+            region_quotas: Arc::new(Mutex::new(None)),
         }
     }
 
@@ -294,6 +297,16 @@ impl QuotaEnforcer {
             QuotaResource::Qps => u.qps,
             QuotaResource::Storage => u.storage,
         })
+    }
+
+    /// v10.11.0 T2.3：设置区域配额
+    pub fn set_region_quotas(&self, quotas: HashMap<String, RegionQuota>) {
+        *self.region_quotas.lock().unwrap_or_else(|e| e.into_inner()) = Some(quotas);
+    }
+
+    /// v10.11.0 T2.3：获取区域配额
+    pub fn region_quotas(&self) -> Option<HashMap<String, RegionQuota>> {
+        self.region_quotas.lock().unwrap_or_else(|e| e.into_inner()).clone()
     }
 
     /// 检查并记录（原子操作）
@@ -677,6 +690,321 @@ fn replace_placeholders(sql: &str) -> String {
         }
     }
     result
+}
+
+// ============================================================================
+// v10.11.0 T2.3：区域配额隔离（RegionQuotaIsolator + QuotaBorrower）
+// ============================================================================
+
+/// 借用限制
+///
+/// 控制跨区域配额.借用的上限和最低保留配额。
+#[derive(Debug, Clone)]
+pub struct BorrowLimit {
+    /// 最大可借出量
+    max_borrow: u64,
+    /// 最低保留配额（借出后必须保留）
+    min_reserve: u64,
+}
+
+impl BorrowLimit {
+    /// 创建借用限制
+    pub fn new(max_borrow: u64, min_reserve: u64) -> Self {
+        Self {
+            max_borrow,
+            min_reserve,
+        }
+    }
+
+    /// 最大可借出量
+    pub fn max_borrow(&self) -> u64 {
+        self.max_borrow
+    }
+
+    /// 最低保留配额
+    pub fn min_reserve(&self) -> u64 {
+        self.min_reserve
+    }
+
+    /// 检查是否可以借出指定数量
+    ///
+    /// `current_available` 为当前可用配额，借出后不得低于 `min_reserve`。
+    pub fn can_borrow(&self, current_available: u64, amount: u64) -> bool {
+        amount <= self.max_borrow && current_available.saturating_sub(amount) >= self.min_reserve
+    }
+}
+
+impl Default for BorrowLimit {
+    fn default() -> Self {
+        Self::new(10, 5)
+    }
+}
+
+/// 区域配额
+///
+/// 每区域独立的连接数/查询数/内存配额。
+#[derive(Debug, Clone)]
+pub struct RegionQuota {
+    /// 区域 ID
+    pub region_id: String,
+    /// 最大连接数
+    pub max_connections: u64,
+    /// 最大查询数（QPS）
+    pub max_queries: u64,
+    /// 最大内存（字节）
+    pub max_memory: u64,
+    /// 当前连接数
+    current_connections: u64,
+    /// 当前查询数
+    current_queries: u64,
+    /// 当前内存使用
+    current_memory: u64,
+    /// 借用限制
+    pub borrow_limit: BorrowLimit,
+}
+
+impl RegionQuota {
+    /// 创建区域配额
+    pub fn new(region_id: impl Into<String>, max_connections: u64, max_queries: u64, max_memory: u64) -> Self {
+        Self {
+            region_id: region_id.into(),
+            max_connections,
+            max_queries,
+            max_memory,
+            current_connections: 0,
+            current_queries: 0,
+            current_memory: 0,
+            borrow_limit: BorrowLimit::default(),
+        }
+    }
+
+    /// 设置借用限制
+    pub fn with_borrow_limit(mut self, limit: BorrowLimit) -> Self {
+        self.borrow_limit = limit;
+        self
+    }
+
+    /// 当前连接数
+    pub fn current_connections(&self) -> u64 {
+        self.current_connections
+    }
+
+    /// 当前查询数
+    pub fn current_queries(&self) -> u64 {
+        self.current_queries
+    }
+
+    /// 当前内存使用
+    pub fn current_memory(&self) -> u64 {
+        self.current_memory
+    }
+
+    /// 检查连接数是否超限
+    pub fn is_connections_exceeded(&self) -> bool {
+        self.current_connections >= self.max_connections
+    }
+
+    /// 检查查询数是否超限
+    pub fn is_queries_exceeded(&self) -> bool {
+        self.current_queries >= self.max_queries
+    }
+
+    /// 检查内存是否超限
+    pub fn is_memory_exceeded(&self) -> bool {
+        self.current_memory >= self.max_memory
+    }
+
+    /// 消费连接配额
+    pub fn consume_connection(&mut self) -> bool {
+        if self.is_connections_exceeded() {
+            return false;
+        }
+        self.current_connections += 1;
+        true
+    }
+
+    /// 释放连接配额
+    pub fn release_connection(&mut self) {
+        self.current_connections = self.current_connections.saturating_sub(1);
+    }
+
+    /// 消费查询配额
+    pub fn consume_query(&mut self) -> bool {
+        if self.is_queries_exceeded() {
+            return false;
+        }
+        self.current_queries += 1;
+        true
+    }
+
+    /// 释放查询配额
+    pub fn release_query(&mut self) {
+        self.current_queries = self.current_queries.saturating_sub(1);
+    }
+
+    /// 消费内存配额
+    pub fn consume_memory(&mut self, amount: u64) -> bool {
+        if self.current_memory + amount > self.max_memory {
+            return false;
+        }
+        self.current_memory += amount;
+        true
+    }
+
+    /// 释放内存配额
+    pub fn release_memory(&mut self, amount: u64) {
+        self.current_memory = self.current_memory.saturating_sub(amount);
+    }
+
+    /// 可借出连接数
+    pub fn available_for_borrow_connections(&self) -> u64 {
+        self.max_connections.saturating_sub(self.current_connections)
+    }
+}
+
+/// 区域配额隔离器
+///
+/// 每区域独立配额隔离 + 跨区域配额借用。
+#[derive(Debug, Clone)]
+pub struct RegionQuotaIsolator {
+    /// 区域配额表
+    quotas: HashMap<String, RegionQuota>,
+}
+
+impl RegionQuotaIsolator {
+    /// 创建区域配额隔离器
+    pub fn new() -> Self {
+        Self {
+            quotas: HashMap::new(),
+        }
+    }
+
+    /// 注册区域配额
+    pub fn register(&mut self, quota: RegionQuota) {
+        self.quotas.insert(quota.region_id.clone(), quota);
+    }
+
+    /// 获取区域配额
+    pub fn get(&self, region_id: &str) -> Option<&RegionQuota> {
+        self.quotas.get(region_id)
+    }
+
+    /// 获取区域配额（可变）
+    pub fn get_mut(&mut self, region_id: &str) -> Option<&mut RegionQuota> {
+        self.quotas.get_mut(region_id)
+    }
+
+    /// 区域数
+    pub fn region_count(&self) -> usize {
+        self.quotas.len()
+    }
+
+    /// 消费连接配额
+    pub fn consume_connection(&mut self, region_id: &str) -> bool {
+        self.quotas
+            .get_mut(region_id)
+            .map(|q| q.consume_connection())
+            .unwrap_or(false)
+    }
+
+    /// 释放连接配额
+    pub fn release_connection(&mut self, region_id: &str) {
+        if let Some(q) = self.quotas.get_mut(region_id) {
+            q.release_connection();
+        }
+    }
+
+    /// 消费查询配额
+    pub fn consume_query(&mut self, region_id: &str) -> bool {
+        self.quotas
+            .get_mut(region_id)
+            .map(|q| q.consume_query())
+            .unwrap_or(false)
+    }
+}
+
+impl Default for RegionQuotaIsolator {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 跨区域配额借用器
+///
+/// 低负载区域可借给高负载区域，含上限和最低保留配额。
+#[derive(Debug, Clone)]
+pub struct QuotaBorrower {
+    /// 借用记录：(from_region, to_region) → 借用量
+    borrows: HashMap<(String, String), u64>,
+}
+
+impl QuotaBorrower {
+    /// 创建配额借用器
+    pub fn new() -> Self {
+        Self {
+            borrows: HashMap::new(),
+        }
+    }
+
+    /// 借用配额
+    ///
+    /// 从 `from_region` 借 `amount` 个连接配额到 `to_region`。
+    /// 借出后必须保留 `min_reserve`，且不超过 `max_borrow`。
+    pub fn borrow(
+        &mut self,
+        isolator: &mut RegionQuotaIsolator,
+        from_region: &str,
+        to_region: &str,
+        amount: u64,
+    ) -> Result<u64, String> {
+        let from_quota = isolator
+            .get(from_region)
+            .ok_or_else(|| format!("区域 {} 不存在", from_region))?;
+
+        let available = from_quota.available_for_borrow_connections();
+        let limit = &from_quota.borrow_limit;
+
+        if !limit.can_borrow(available, amount) {
+            return Err(format!(
+                "区域 {} 无法借出 {} 配额（可用 {}，最大借出 {}，最低保留 {}）",
+                from_region, amount, available, limit.max_borrow(), limit.min_reserve()
+            ));
+        }
+
+        let _ = from_quota;
+
+        let key = (from_region.to_string(), to_region.to_string());
+        *self.borrows.entry(key.clone()).or_insert(0) += amount;
+
+        Ok(amount)
+    }
+
+    /// 归还借用配额
+    pub fn return_borrow(&mut self, from_region: &str, to_region: &str, amount: u64) {
+        let key = (from_region.to_string(), to_region.to_string());
+        if let Some(borrowed) = self.borrows.get_mut(&key) {
+            *borrowed = borrowed.saturating_sub(amount);
+        }
+    }
+
+    /// 获取借用量
+    pub fn borrowed_amount(&self, from_region: &str, to_region: &str) -> u64 {
+        self.borrows
+            .get(&(from_region.to_string(), to_region.to_string()))
+            .copied()
+            .unwrap_or(0)
+    }
+
+    /// 总借用量
+    pub fn total_borrowed(&self) -> u64 {
+        self.borrows.values().sum()
+    }
+}
+
+impl Default for QuotaBorrower {
+    fn default() -> Self {
+        Self::new()
+    }
 }
 
 #[cfg(test)]

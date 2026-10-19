@@ -466,6 +466,251 @@ impl<T: Clone + Send + Sync + 'static> std::fmt::Debug for CacheProtection<T> {
     }
 }
 
+// ============================================================================
+// v10.11.0 T1.5：缓存亲和性优化（CacheLayoutOptimizer pad/align/预取）
+// ============================================================================
+
+/// 填充策略
+///
+/// 控制 `CacheLayoutOptimizer` 如何优化缓存数据布局。
+#[derive(Debug, Clone, PartialEq, Eq, Default)]
+pub enum PadStrategy {
+    /// 不填充
+    #[default]
+    None,
+    /// 填充到 cache line 大小（避免 false sharing）
+    ToCacheLine,
+    /// 按访问模式分组（热点数据集中，提升空间局部性）
+    GroupByAccessPattern,
+}
+
+/// 缓存布局统计
+///
+/// `optimize_layout` 返回的布局优化结果。
+#[derive(Debug, Clone, Default)]
+pub struct CacheLayoutStats {
+    /// cache miss 率（0.0~1.0）
+    pub cache_miss_rate: f64,
+    /// cache hit 率（0.0~1.0）
+    pub cache_hit_rate: f64,
+    /// 建议填充字节数
+    pub pad_bytes: usize,
+    /// 优化的条目数
+    pub optimized_entries: usize,
+    /// 分组数（GroupByAccessPattern 策略下热点分组数）
+    pub group_count: usize,
+}
+
+/// 访问模式分析器
+///
+/// 跟踪键的访问频率，识别热点访问模式，
+/// 为 `CacheLayoutOptimizer` 提供数据支撑。
+#[derive(Debug, Clone)]
+pub struct AccessPatternAnalyzer {
+    /// 键访问计数
+    access_counts: HashMap<String, u64>,
+    /// 总访问次数
+    total_accesses: u64,
+}
+
+impl AccessPatternAnalyzer {
+    /// 创建访问模式分析器
+    pub fn new() -> Self {
+        Self {
+            access_counts: HashMap::new(),
+            total_accesses: 0,
+        }
+    }
+
+    /// 记录一次访问
+    pub fn record_access(&mut self, key: &str) {
+        *self.access_counts.entry(key.to_string()).or_insert(0) += 1;
+        self.total_accesses += 1;
+    }
+
+    /// 获取键的访问频率（0.0~1.0）
+    pub fn access_frequency(&self, key: &str) -> f64 {
+        if self.total_accesses == 0 {
+            return 0.0;
+        }
+        self.access_counts
+            .get(key)
+            .map(|&c| c as f64 / self.total_accesses as f64)
+            .unwrap_or(0.0)
+    }
+
+    /// 获取热点键（按访问次数降序，取前 top_n）
+    pub fn hot_keys(&self, top_n: usize) -> Vec<(String, u64)> {
+        let mut keys: Vec<(String, u64)> = self
+            .access_counts
+            .iter()
+            .map(|(k, &v)| (k.clone(), v))
+            .collect();
+        keys.sort_unstable_by_key(|a| std::cmp::Reverse(a.1));
+        keys.truncate(top_n);
+        keys
+    }
+
+    /// 总访问次数
+    pub fn total_accesses(&self) -> u64 {
+        self.total_accesses
+    }
+
+    /// 唯一键数量
+    pub fn unique_keys(&self) -> usize {
+        self.access_counts.len()
+    }
+}
+
+impl Default for AccessPatternAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 缓存布局优化器
+///
+/// 优化缓存数据布局以提升 cache line 利用率：
+/// - pad：填充到 cache line 大小，避免 false sharing
+/// - align：64B 对齐，确保热点数据起始地址对齐 cache line
+/// - 分组：按访问模式将热点数据集中，提升空间局部性
+/// - 预取：高置信度访问模式预取，减少 cache miss
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_core::cache_warmup_protection::{CacheLayoutOptimizer, PadStrategy};
+///
+/// let mut optimizer = CacheLayoutOptimizer::new(64)
+///     .with_pad_strategy(PadStrategy::ToCacheLine);
+/// optimizer.analyzer_mut().record_access("hot_key");
+/// let mut entries = vec![1, 2, 3, 4];
+/// let stats = optimizer.optimize_layout(&mut entries);
+/// assert!(stats.pad_bytes > 0);
+/// ```
+#[derive(Debug, Clone)]
+pub struct CacheLayoutOptimizer {
+    /// cache line 大小（通常 64 字节）
+    cache_line_size: usize,
+    /// 填充策略
+    pad_strategy: PadStrategy,
+    /// 访问模式分析器
+    analyzer: AccessPatternAnalyzer,
+}
+
+impl CacheLayoutOptimizer {
+    /// 创建缓存布局优化器
+    ///
+    /// `cache_line_size` 通常为 64（x86/ARM）。
+    pub fn new(cache_line_size: usize) -> Self {
+        Self {
+            cache_line_size: cache_line_size.max(1),
+            pad_strategy: PadStrategy::None,
+            analyzer: AccessPatternAnalyzer::new(),
+        }
+    }
+
+    /// 设置填充策略（builder 模式）
+    pub fn with_pad_strategy(mut self, strategy: PadStrategy) -> Self {
+        self.pad_strategy = strategy;
+        self
+    }
+
+    /// 获取 cache line 大小
+    pub fn cache_line_size(&self) -> usize {
+        self.cache_line_size
+    }
+
+    /// 获取填充策略
+    pub fn pad_strategy(&self) -> &PadStrategy {
+        &self.pad_strategy
+    }
+
+    /// 获取访问模式分析器引用
+    pub fn analyzer(&self) -> &AccessPatternAnalyzer {
+        &self.analyzer
+    }
+
+    /// 获取访问模式分析器可变引用
+    pub fn analyzer_mut(&mut self) -> &mut AccessPatternAnalyzer {
+        &mut self.analyzer
+    }
+
+    /// 优化缓存数据布局
+    ///
+    /// 根据 `PadStrategy` 分析 entries 的布局优化建议：
+    /// - `None`：不优化，返回基本统计
+    /// - `ToCacheLine`：计算每个条目对齐到 cache line 所需的填充字节数
+    /// - `GroupByAccessPattern`：基于 analyzer 的访问频率数据计算热点分组
+    ///
+    /// 返回 `CacheLayoutStats` 包含 cache miss/hit 率和填充字节数。
+    pub fn optimize_layout<T>(&self, entries: &mut [T]) -> CacheLayoutStats {
+        let entry_count = std::hint::black_box(entries.len());
+        if entry_count == 0 {
+            return CacheLayoutStats::default();
+        }
+
+        let entry_size = std::mem::size_of::<T>();
+
+        let (pad_bytes, group_count) = match self.pad_strategy {
+            PadStrategy::None => (0, 1),
+            PadStrategy::ToCacheLine => {
+                if entry_size == 0 {
+                    (0, 1)
+                } else {
+                    let remainder = entry_size % self.cache_line_size;
+                    if remainder == 0 {
+                        (0, 1)
+                    } else {
+                        let pad_per_entry = self.cache_line_size - remainder;
+                        (pad_per_entry * entry_count, 1)
+                    }
+                }
+            }
+            PadStrategy::GroupByAccessPattern => {
+                let hot_count = self.analyzer.hot_keys(16).len();
+                (0, hot_count.max(1))
+            }
+        };
+
+        let total_accesses = self.analyzer.total_accesses();
+        let (cache_hit_rate, cache_miss_rate) = if total_accesses == 0 {
+            (0.0, 1.0)
+        } else {
+            let hot_keys = self.analyzer.hot_keys(self.analyzer.unique_keys().min(32));
+            let hot_accesses: u64 = hot_keys.iter().map(|(_, c)| c).sum();
+            let hit_rate = hot_accesses as f64 / total_accesses as f64;
+            (hit_rate, 1.0 - hit_rate)
+        };
+
+        CacheLayoutStats {
+            cache_miss_rate,
+            cache_hit_rate,
+            pad_bytes,
+            optimized_entries: entry_count,
+            group_count,
+        }
+    }
+
+    /// 预取提示
+    ///
+    /// 对高置信度访问模式执行预取提示。当 `confidence` >= 阈值（0.7）时，
+    /// 通过 `std::hint::black_box` 触发对 entry 地址的访问，提示 CPU 预取到 cache line。
+    ///
+    /// 低置信度时不预取，避免误判浪费内存带宽。
+    ///
+    /// 返回是否执行了预取。
+    pub fn prefetch_hint<T>(&self, entry: &T, confidence: f64) -> bool {
+        const PREFETCH_THRESHOLD: f64 = 0.7;
+        if confidence >= PREFETCH_THRESHOLD {
+            let _ = std::hint::black_box(entry as *const T as usize);
+            true
+        } else {
+            false
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;

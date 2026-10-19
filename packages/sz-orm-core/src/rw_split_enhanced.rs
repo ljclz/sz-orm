@@ -268,6 +268,257 @@ pub struct RouteResult {
 }
 
 // ============================================================================
+// v10.11.0 T2.2：异地多活路由（MultiActiveRouter + PartitionKeyRouter）
+// ============================================================================
+
+/// 分区策略
+#[derive(Debug, Clone)]
+pub enum PartitionStrategy {
+    /// 哈希分区（按桶数取模）
+    Hash { buckets: usize },
+    /// 范围分区（按范围边界映射）
+    Range {
+        ranges: Vec<(i64, String)>,
+    },
+    /// 列表分区（显式映射）
+    List {
+        mapping: HashMap<String, String>,
+    },
+}
+
+/// 分区键映射
+#[derive(Debug, Clone)]
+pub struct PartitionKeyMapping {
+    /// 分区键 → 区域 ID 缓存（一致性校验用）
+    mapping: HashMap<String, String>,
+    /// 分区策略
+    strategy: PartitionStrategy,
+}
+
+impl PartitionKeyMapping {
+    /// 创建分区键映射
+    pub fn new(strategy: PartitionStrategy) -> Self {
+        Self {
+            mapping: HashMap::new(),
+            strategy,
+        }
+    }
+
+    /// 策略
+    pub fn strategy(&self) -> &PartitionStrategy {
+        &self.strategy
+    }
+
+    /// 显式注册分区键 → 区域映射
+    pub fn register(&mut self, partition_key: &str, region_id: &str) {
+        self.mapping
+            .insert(partition_key.to_string(), region_id.to_string());
+    }
+
+    /// 查找分区键对应的区域（先查显式映射，再按策略计算）
+    pub fn resolve_region(&self, partition_key: &str) -> Option<String> {
+        if let Some(region) = self.mapping.get(partition_key) {
+            return Some(region.clone());
+        }
+        match &self.strategy {
+            PartitionStrategy::Hash { buckets } => {
+                if *buckets == 0 {
+                    return None;
+                }
+                let hash = partition_key
+                    .bytes()
+                    .fold(0u64, |acc, b| acc.wrapping_mul(31).wrapping_add(b as u64));
+                Some(format!("region-{}", hash % *buckets as u64))
+            }
+            PartitionStrategy::Range { ranges } => {
+                let key_val: i64 = partition_key.parse().ok()?;
+                ranges
+                    .iter()
+                    .find(|(bound, _)| key_val < *bound)
+                    .map(|(_, region)| region.clone())
+            }
+            PartitionStrategy::List { mapping } => mapping.get(partition_key).cloned(),
+        }
+    }
+
+    /// 已注册的显式映射数量
+    pub fn registered_count(&self) -> usize {
+        self.mapping.len()
+    }
+}
+
+/// 区域主节点
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RegionMaster {
+    pub region_id: String,
+    pub master_node: String,
+}
+
+/// 路由错误
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum RouteError {
+    /// 分区键未映射到任何区域
+    UnmappedPartitionKey(String),
+    /// 区域无可用主节点
+    NoMasterForRegion(String),
+    /// 路由一致性冲突（同一分区键映射到不同区域）
+    PartitionConsistencyConflict {
+        partition_key: String,
+        expected: String,
+        actual: String,
+    },
+}
+
+/// 分区键路由器
+#[derive(Debug, Clone)]
+pub struct PartitionKeyRouter {
+    mapping: PartitionKeyMapping,
+    /// 路由一致性缓存（partition_key → last routed region）
+    consistency_cache: HashMap<String, String>,
+}
+
+impl PartitionKeyRouter {
+    /// 创建分区键路由器
+    pub fn new(strategy: PartitionStrategy) -> Self {
+        Self {
+            mapping: PartitionKeyMapping::new(strategy),
+            consistency_cache: HashMap::new(),
+        }
+    }
+
+    /// 映射引用
+    pub fn mapping(&self) -> &PartitionKeyMapping {
+        &self.mapping
+    }
+
+    /// 映射可变引用
+    pub fn mapping_mut(&mut self) -> &mut PartitionKeyMapping {
+        &mut self.mapping
+    }
+
+    /// 路由分区键到区域 ID
+    pub fn route(&mut self, partition_key: &str) -> Result<String, RouteError> {
+        let region = self.mapping.resolve_region(partition_key).ok_or_else(|| {
+            RouteError::UnmappedPartitionKey(partition_key.to_string())
+        })?;
+
+        if let Some(prev_region) = self.consistency_cache.get(partition_key) {
+            if prev_region != &region {
+                return Err(RouteError::PartitionConsistencyConflict {
+                    partition_key: partition_key.to_string(),
+                    expected: prev_region.clone(),
+                    actual: region,
+                });
+            }
+        }
+        self.consistency_cache
+            .insert(partition_key.to_string(), region.clone());
+        Ok(region)
+    }
+
+    /// 校验分区一致性（同一分区键是否始终路由到同一区域）
+    pub fn validate_consistency(&self, partition_key: &str) -> bool {
+        if let Some(cached) = self.consistency_cache.get(partition_key) {
+            if let Some(current) = self.mapping.resolve_region(partition_key) {
+                return cached == &current;
+            }
+        }
+        true
+    }
+}
+
+/// 区域主节点解析器
+#[derive(Debug, Clone)]
+pub struct RegionMasterResolver {
+    /// 区域 ID → 主节点地址
+    masters: HashMap<String, String>,
+}
+
+impl RegionMasterResolver {
+    /// 创建区域主节点解析器
+    pub fn new() -> Self {
+        Self {
+            masters: HashMap::new(),
+        }
+    }
+
+    /// 注册区域主节点
+    pub fn register(&mut self, region_id: &str, master_node: &str) {
+        self.masters
+            .insert(region_id.to_string(), master_node.to_string());
+    }
+
+    /// 解析区域主节点
+    pub fn resolve(&self, region_id: &str) -> Result<RegionMaster, RouteError> {
+        self.masters
+            .get(region_id)
+            .map(|node| RegionMaster {
+                region_id: region_id.to_string(),
+                master_node: node.clone(),
+            })
+            .ok_or_else(|| RouteError::NoMasterForRegion(region_id.to_string()))
+    }
+
+    /// 已注册区域数
+    pub fn region_count(&self) -> usize {
+        self.masters.len()
+    }
+}
+
+impl Default for RegionMasterResolver {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 异地多活路由器
+///
+/// 按分区键路由写请求到对应区域主节点，避免跨区域写冲突。
+#[derive(Debug, Clone)]
+pub struct MultiActiveRouter {
+    partition_router: PartitionKeyRouter,
+    region_master_resolver: RegionMasterResolver,
+}
+
+impl MultiActiveRouter {
+    /// 创建异地多活路由器
+    pub fn new(strategy: PartitionStrategy) -> Self {
+        Self {
+            partition_router: PartitionKeyRouter::new(strategy),
+            region_master_resolver: RegionMasterResolver::new(),
+        }
+    }
+
+    /// 分区路由器可变引用
+    pub fn partition_router_mut(&mut self) -> &mut PartitionKeyRouter {
+        &mut self.partition_router
+    }
+
+    /// 区域主节点解析器可变引用
+    pub fn region_master_resolver_mut(&mut self) -> &mut RegionMasterResolver {
+        &mut self.region_master_resolver
+    }
+
+    /// 路由写请求到对应区域主节点
+    ///
+    /// `partition_key` 用于确定目标区域，`write_req` 为写请求标识。
+    pub fn route_write(
+        &mut self,
+        partition_key: &str,
+        write_req: &str,
+    ) -> Result<RegionMaster, RouteError> {
+        let _ = std::hint::black_box(write_req);
+        let region_id = self.partition_router.route(partition_key)?;
+        self.region_master_resolver.resolve(&region_id)
+    }
+
+    /// 校验分区一致性
+    pub fn validate_partition_consistency(&self, partition_key: &str) -> bool {
+        self.partition_router.validate_consistency(partition_key)
+    }
+}
+
+// ============================================================================
 // 测试
 // ============================================================================
 

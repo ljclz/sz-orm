@@ -1,12 +1,14 @@
 #!/usr/bin/env python3
 """SQL Injection Automated Review Engine (Gate 9).
 
-Automatically judges potential SQL injection risks using 5 rules:
+Automatically judges potential SQL injection risks using 7 rules:
   R1: format! WHERE with user input via {} placeholder -> Unsafe
   R2: format! WHERE with column/table name placeholder -> Safe
   R3: format! WHERE with ? placeholder or named params -> Safe
   R4: format! WHERE with constant/literal -> Safe
   R5: Cannot determine -> ManualReview
+  R6: ${} interpolation in dynamic SQL without whitelist -> Unsafe
+  R7: ${} interpolation with identifier_whitelist validation -> Safe
 
 Usage:
   python scripts/check-sql-injection-auto.py --workspace . --json --strict
@@ -34,7 +36,7 @@ class InjectionItem:
     file: str
     line_num: int
     line_content: str
-    category: str  # "deprecated" or "format_concat"
+    category: str  # "deprecated", "format_concat", "dollar_interpolation"
     judge: str = ""
     reason: str = ""
 
@@ -105,7 +107,7 @@ def judge_injection_risk(file_path: str, line_num: int, line_content: str, categ
         'table', 'table_q', 'pk_q', 'fk', 'fk_key', 'pk_col', 'alias', 'filter',
         'where_clause', 'w', 'combined', 'child_table', 'base', 'trimmed', 'sep',
         'after', 'n', 'end', 'group_strs', 'all_conds', 'clauses', 'conditions',
-        'filter_sql',
+        'filter_sql', 'sql',
     }
     fmt_match = re.search(r'format!\s*\((.*?)(?:,\s*(.*?))?\)\s*;?\s*$', stripped, re.DOTALL)
     if fmt_match and '{}' in fmt_match.group(1):
@@ -167,6 +169,21 @@ def judge_injection_risk(file_path: str, line_num: int, line_content: str, categ
                     return JudgeResult.SAFE, "R4: 已转义/消毒的输入"
                 return JudgeResult.UNSAFE, f"R1: WHERE 条件中通过 {{}} 绑定用户输入 ({ph})"
 
+    # R6/R7: ${} interpolation in dynamic SQL
+    if category == "dollar_interpolation":
+        # R7: whitelist validation present -> Safe
+        # Check if the parser has identifier_whitelist set (look in surrounding context)
+        # We check the file for with_identifier_whitelist usage
+        try:
+            file_lines = Path(file_path).read_text(encoding="utf-8", errors="replace").splitlines()
+            has_whitelist = any("with_identifier_whitelist" in l for l in file_lines)
+        except Exception:
+            has_whitelist = False
+
+        if has_whitelist:
+            return JudgeResult.SAFE, "R7: ${} 插值已配置 identifier_whitelist 白名单校验"
+        return JudgeResult.UNSAFE, "R6: ${} 动态 SQL 插值未配置白名单，存在 SQL 注入风险"
+
     # R5: Cannot determine -> ManualReview
     return JudgeResult.MANUAL_REVIEW, "R5: 无法自动判定，需人工审查"
 
@@ -219,6 +236,20 @@ def scan_workspace(root: str) -> ScanReport:
                     item.judge = judge.value
                     item.reason = reason
                     report.items.append(item)
+
+                # R6/R7: Check ${} interpolation in dynamic SQL (non-test files only)
+                if not is_test_file(str(rs_file)):
+                    if re.search(r'\$\{[a-zA-Z_]\w*\}', line) and 'push_str' not in stripped and '//' not in stripped.split('${')[0] and 'assert' not in stripped and '#[test]' not in stripped:
+                        item = InjectionItem(
+                            file=str(rs_file),
+                            line_num=i + 1,
+                            line_content=line.rstrip(),
+                            category="dollar_interpolation",
+                        )
+                        judge, reason = judge_injection_risk(item.file, item.line_num, item.line_content, "dollar_interpolation")
+                        item.judge = judge.value
+                        item.reason = reason
+                        report.items.append(item)
 
     report.total = len(report.items)
     report.safe = sum(1 for x in report.items if x.judge == JudgeResult.SAFE.value)

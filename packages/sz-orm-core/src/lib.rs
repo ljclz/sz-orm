@@ -572,6 +572,9 @@ pub mod cache_warmup_protection;
 pub mod config_adapter;
 #[cfg(feature = "connection-level-tenant")]
 pub mod connection_tenant;
+#[cfg(feature = "auto-failover")]
+#[allow(missing_docs)]
+pub mod failover_controller;
 #[cfg(feature = "forward-compat-sandbox")]
 #[allow(missing_docs)]
 pub mod forward_compat_sandbox;
@@ -617,8 +620,13 @@ pub mod schema_sync;
 pub mod seeding;
 pub mod select_types;
 pub mod shadow;
+/// Arena 分配器（bump allocation，批量行处理）
+pub mod arena;
 #[cfg(feature = "simd")]
 pub mod simd;
+// v10.11.0 T1.2：编译期查询特化（const generics）
+#[cfg(feature = "perf-extreme")]
+pub mod query_specialize;
 pub mod smart_eager_loader;
 pub mod sql_buffer;
 pub mod sql_safety;

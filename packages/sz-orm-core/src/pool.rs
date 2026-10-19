@@ -23,6 +23,124 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
+// ============================================================================
+// v10.11.0 T1.4：连接池快速路径深化
+// CachePadded 64B 对齐避免 false sharing + FastPathStats 取/还连接分离统计
+// ============================================================================
+
+/// Cache line 对齐 wrapper（64B），避免 false sharing
+///
+/// 将热点统计数据包装在 64B 对齐的内存中，确保不同 CPU 核心的
+/// 原子操作不共享同一 cache line，减少 cache miss。
+#[repr(align(64))]
+#[derive(Debug)]
+pub struct CachePadded<T> {
+    value: T,
+}
+
+impl<T> CachePadded<T> {
+    /// 创建 CachePadded wrapper
+    #[inline]
+    pub const fn new(value: T) -> Self {
+        Self { value }
+    }
+
+    /// 获取内部值引用
+    #[inline]
+    pub const fn get(&self) -> &T {
+        &self.value
+    }
+
+    /// 获取内部值可变引用
+    #[inline]
+    pub fn get_mut(&mut self) -> &mut T {
+        &mut self.value
+    }
+}
+
+/// 快速路径统计（取/还连接分离统计，避免 cache line 争用）
+///
+/// acquire_count 和 release_count 分别包装在 CachePadded 中，
+/// 确保取连接和还连接的原子操作不共享 cache line。
+#[derive(Debug)]
+pub struct FastPathStats {
+    /// 取连接计数（64B 对齐，避免与 release 争用 cache line）
+    acquire_count: CachePadded<AtomicU64>,
+    /// 还连接计数（64B 对齐）
+    release_count: CachePadded<AtomicU64>,
+    /// cache miss 计数（快速路径未命中，回退慢路径）
+    cache_miss_count: CachePadded<AtomicU64>,
+}
+
+impl FastPathStats {
+    /// 创建快速路径统计
+    pub fn new() -> Self {
+        Self {
+            acquire_count: CachePadded::new(AtomicU64::new(0)),
+            release_count: CachePadded::new(AtomicU64::new(0)),
+            cache_miss_count: CachePadded::new(AtomicU64::new(0)),
+        }
+    }
+
+    /// 记取连接
+    #[inline]
+    pub fn record_acquire(&self) {
+        self.acquire_count.get().fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 计还连接
+    #[inline]
+    pub fn record_release(&self) {
+        self.release_count.get().fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 计 cache miss（快速路径未命中）
+    #[inline]
+    pub fn record_cache_miss(&self) {
+        self.cache_miss_count.get().fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 获取取连接次数
+    #[inline]
+    pub fn acquire_count(&self) -> u64 {
+        self.acquire_count.get().load(Ordering::Relaxed)
+    }
+
+    /// 获取还连接次数
+    #[inline]
+    pub fn release_count(&self) -> u64 {
+        self.release_count.get().load(Ordering::Relaxed)
+    }
+
+    /// 获取 cache miss 次数
+    #[inline]
+    pub fn cache_miss_count(&self) -> u64 {
+        self.cache_miss_count.get().load(Ordering::Relaxed)
+    }
+}
+
+impl Default for FastPathStats {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl Clone for FastPathStats {
+    fn clone(&self) -> Self {
+        Self {
+            acquire_count: CachePadded::new(AtomicU64::new(
+                self.acquire_count.get().load(Ordering::Relaxed),
+            )),
+            release_count: CachePadded::new(AtomicU64::new(
+                self.release_count.get().load(Ordering::Relaxed),
+            )),
+            cache_miss_count: CachePadded::new(AtomicU64::new(
+                self.cache_miss_count.get().load(Ordering::Relaxed),
+            )),
+        }
+    }
+}
+
 // P1-4 修复：CircuitBreaker/RateLimiter 抽象已提升到核心层，
 // 仅在启用相应 feature 时导入（避免 default feature 下的 unused imports）
 // 注意：trait 方法（can_execute/record_success 等）需要 trait 在 scope 中
@@ -1105,6 +1223,8 @@ pub struct Pool {
     connection_created_count: Arc<AtomicU64>,
     /// 累计关闭连接数
     connection_closed_count: Arc<AtomicU64>,
+    /// v10.11.0 T1.4：快速路径统计（CachePadded 64B 对齐，取/还连接分离统计）
+    fast_path_stats: Arc<FastPathStats>,
 }
 
 /// Pool 克隆：仅增加 Arc 引用计数，成本极低
@@ -1135,6 +1255,7 @@ impl Clone for Pool {
             release_count: self.release_count.clone(),
             connection_created_count: self.connection_created_count.clone(),
             connection_closed_count: self.connection_closed_count.clone(),
+            fast_path_stats: Arc::clone(&self.fast_path_stats),
         }
     }
 }
@@ -1199,6 +1320,7 @@ impl Pool {
             release_count: Arc::new(AtomicU64::new(0)),
             connection_created_count: Arc::new(AtomicU64::new(0)),
             connection_closed_count: Arc::new(AtomicU64::new(0)),
+            fast_path_stats: Arc::new(FastPathStats::new()),
         })
     }
 
@@ -1630,6 +1752,8 @@ impl Pool {
     /// ```
     #[tracing::instrument(skip(self), fields(max_size = self.config.max_size, acquire_timeout = ?self.config.acquire_timeout))]
     pub async fn acquire(&self) -> Result<PooledConnection, PoolError> {
+        // v10.11.0 T1.4：快速路径统计（CachePadded 64B 对齐）
+        self.fast_path_stats.record_acquire();
         // close_all 后拒绝新 acquire
         if self.closed.load(Ordering::Acquire) {
             self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
@@ -1751,6 +1875,9 @@ impl Pool {
                 self.acquire_count.fetch_add(1, Ordering::Relaxed);
                 return Ok(pooled);
             }
+
+            // v10.11.0 T1.4：快速路径未命中（idle 队列无可用连接），回退慢路径
+            self.fast_path_stats.record_cache_miss();
 
             // 尝试创建新连接
             // v0.2.1 修复 P-1：用 AtomicU32::compare_exchange 替代 Mutex<u32>
@@ -1883,6 +2010,8 @@ impl Pool {
     /// 显式调用 release 后，`pooled.pool` 设为 None，避免 Drop 重复归还。
     #[tracing::instrument(skip(self, pooled))]
     pub async fn release(&self, mut pooled: PooledConnection) {
+        // v10.11.0 T1.4：快速路径统计（CachePadded 64B 对齐，与 acquire 分离避免 false sharing）
+        self.fast_path_stats.record_release();
         // 标记已显式归还，避免 Drop 重复归还
         pooled.pool = None;
         // Prometheus 风格统计：每次 release 调用计一次（含直接关闭路径）
@@ -2359,6 +2488,15 @@ impl Pool {
     /// 获取当前动态 max_size
     pub fn max_size(&self) -> u32 {
         self.dynamic_max_size.load(Ordering::Acquire)
+    }
+
+    /// v10.11.0 T1.4：获取快速路径统计（CachePadded 64B 对齐，取/还连接分离统计）
+    ///
+    /// 用于观测快速路径命中率（acquire_count - cache_miss_count） / acquire_count，
+    /// 诊断连接池性能瓶颈。cache_miss_count 高表示 idle 队列频繁耗尽，
+    /// 可能需要增大 max_size 或预热连接数。
+    pub fn fast_path_stats(&self) -> &FastPathStats {
+        &self.fast_path_stats
     }
 
     /// 预热连接池：创建指定数量的连接放入空闲队列
