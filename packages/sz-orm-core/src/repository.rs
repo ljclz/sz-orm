@@ -310,6 +310,8 @@ pub enum RepositoryError {
     DatabaseError(String),
     /// 实体无效（如缺主键）
     InvalidEntity(String),
+    /// 参数无效（如空批、页码为 0）
+    InvalidParams(String),
     /// 其他错误
     Other(String),
 }
@@ -320,6 +322,7 @@ impl std::fmt::Display for RepositoryError {
             RepositoryError::NotFound => write!(f, "entity not found"),
             RepositoryError::DatabaseError(msg) => write!(f, "database error: {}", msg),
             RepositoryError::InvalidEntity(msg) => write!(f, "invalid entity: {}", msg),
+            RepositoryError::InvalidParams(msg) => write!(f, "invalid params: {}", msg),
             RepositoryError::Other(msg) => write!(f, "repository error: {}", msg),
         }
     }

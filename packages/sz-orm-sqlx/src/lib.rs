@@ -28,13 +28,22 @@
 
 mod any;
 pub mod any_driver;
+pub mod batch_executor;
 pub mod enhanced;
 mod error;
 #[cfg(feature = "async-row-stream")]
 pub mod row_stream_impl;
 #[cfg(feature = "dialect-saphana-driver")]
 pub mod saphana_adapter;
+#[cfg(feature = "slow-query-capture")]
+pub mod slow_query_guard;
+pub mod sql_repository;
 pub mod unified_pool;
+
+#[cfg(feature = "slow-query-capture")]
+pub use slow_query_guard::SlowQueryGuard;
+pub use batch_executor::BatchExecutor;
+pub use sql_repository::SqlRepository;
 
 pub use any::{
     mysql_bulk_insert, pg_bulk_insert, sqlite_backup, MySqlPoolHandle, PgExtensions, PgPoolHandle,

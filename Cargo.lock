@@ -9036,6 +9036,7 @@ dependencies = [
  "sqlx 0.9.0",
  "sz-orm-core",
  "sz-orm-mssql",
+ "sz-orm-observability",
  "sz-orm-oracle",
  "tokio",
 ]
