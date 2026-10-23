@@ -122,8 +122,8 @@ if [ ! -s "$MERGED_LCOV" ]; then
 fi
 
 echo "Parsing merged lcov..."
-LINES_TOTAL=$(awk '/^LF:/ { total += $2 } END { print total + 0 }' "$MERGED_LCOV")
-LINES_HIT=$(awk '/^LH:/ { hit += $2 } END { print hit + 0 }' "$MERGED_LCOV")
+LINES_TOTAL=$(awk -F: '/^LF:/ { total += $2 } END { print total + 0 }' "$MERGED_LCOV")
+LINES_HIT=$(awk -F: '/^LH:/ { hit += $2 } END { print hit + 0 }' "$MERGED_LCOV")
 
 if [ "$LINES_TOTAL" -eq 0 ]; then
     echo "ERROR: LINES_TOTAL is 0"
@@ -151,7 +151,7 @@ if [ "$PASS" = "false" ] && [ "$FAIL_UNDER" -gt 0 ]; then
     echo "FAIL: Coverage ${COVERAGE_PERCENT}% < threshold ${FAIL_UNDER}%"
     echo ""
     echo "Top 20 least covered files:"
-    awk '
+    awk -F: '
         /^SF:/ { file = substr($0, 4) }
         /^LF:/ { lf = $2 }
         /^LH:/ { lh = $2; if (lf > 0) printf "%.2f%% %s (%d/%d)\n", (lh/lf)*100, file, lh, lf }
