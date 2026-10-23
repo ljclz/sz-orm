@@ -108,6 +108,15 @@ ignore = [
     # 跟踪: 待 actix-web 升级到使用 h2 v0.4.x 后自动移除
     # 注: h2 v0.4.15 已升级到 v0.4.16（修复），仅 h2 v0.3.27 受影响
     { id = "RUSTSEC-2026-0258", reason = "actix-web v4.14.1 → h2 v0.3.27，actix-web v4.x 依赖 h2 v0.3.x 无法升级到 0.4.x；待 actix-web 升级后移除" },
+    # zip 6.0.0: SUID/SGID 权限提升 (RUSTSEC-2026-0367)
+    # 来源: libduckdb-sys v1.10505.0 [build-dependencies] → zip v6.0.0
+    # 影响: zip 仅在 libduckdb-sys 构建脚本中用于解压 DuckDB 官方源码包（从 crates.io 下载的固定 tarball），不接受攻击者控制的 ZIP 输入
+    # 跟踪: 待 libduckdb-sys 升级 zip 依赖至 9.0.0+ 后自动移除
+    { id = "RUSTSEC-2026-0367", reason = "libduckdb-sys build-dep → zip 6.0.0，仅解压 DuckDB 官方源码包（可信输入），不接受攻击者控制 ZIP；待 libduckdb-sys 升级 zip 至 9.0+ 后移除" },
+    # zip 6.0.0: 符号链接逃逸 (RUSTSEC-2026-0368)
+    { id = "RUSTSEC-2026-0368", reason = "libduckdb-sys build-dep → zip 6.0.0，仅解压 DuckDB 官方源码包（可信输入），不接受攻击者控制 ZIP；待 libduckdb-sys 升级 zip 至 9.0+ 后移除" },
+    # zip 6.0.0: Unix 权限通过符号链接 (RUSTSEC-2026-0369)
+    { id = "RUSTSEC-2026-0369", reason = "libduckdb-sys build-dep → zip 6.0.0，仅解压 DuckDB 官方源码包（可信输入），不接受攻击者控制 ZIP；待 libduckdb-sys 升级 zip 至 9.0+ 后移除" },
 ]
 # 未维护的依赖不报告（避免 CI 因传递依赖的 unmaintained 而失败）
 unmaintained = "none"

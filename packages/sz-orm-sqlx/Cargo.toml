@@ -30,7 +30,7 @@ sz-orm-mssql = { workspace = true, optional = true }
 # v4.9.0 TASK-003: SAP HANA 真实驱动（hdbconnect_async v0.32.0，纯 Rust async + bb8 连接池）
 hdbconnect_async = { version = "0.32", optional = true }
 # v9.5.0 SlowQueryGuard 依赖 observability 的 QueryLogger
-sz-orm-observability = { path = "../sz-orm-observability", version = "10.11.0", optional = true, features = ["query-logging"] }
+sz-orm-observability = { path = "../sz-orm-observability", version = "10.12.0", optional = true, features = ["query-logging"] }
 
 [features]
 default = ["auto-prewarm"]

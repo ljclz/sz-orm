@@ -5,6 +5,42 @@
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
 
+## [10.12.0] — 2026-10-20
+
+### v10.12.0 性能+稳定性深化：连接池自适应调优 + 查询计划缓存增强 + 故障恢复加速
+
+#### 方向 1：连接池自适应调优（T1.1-T1.5）
+- 多维信号采集：MultiSignalCollector 采集 QPS/P99/错误率/等待时长/CPU 5 维负载信号（pool_elastic.rs）
+- 综合负载评分：LoadScorer 加权求和 + Low/Mid/High/Overload 4 等级映射（pool_elastic.rs）
+- 动态水位线：DynamicWaterline + HysteresisWindow 抖动抑制（pool_elastic.rs）
+- 冷启动预热：HistoryPrewarmDriver 基于历史数据快速达到最优状态（prewarm.rs）
+- 读写分离独立调优：RwSplitAdaptiveTuner 读池+写池互不干扰（rw_split_enhanced.rs）
+- 复用既有 pool-elastic/prod-pool-tuning/rw-split-enhanced/auto-prewarm feature gate
+
+#### 方向 2：查询计划缓存增强（T2.1-T2.5）
+- LFU 频率追踪：LfuTracker 周期衰减防溢出（plan_cache.rs）
+- 多策略淘汰：MultiStrategyEvictor TTL→大小→LFU→LRU 四策略（plan_cache.rs）
+- 命中率监控自动调优：HitRateMonitor 冷启动豁免（prepared_cache.rs）
+- 跨连接计划共享：CrossConnPlanShare 上下文一致性校验（plan_cache.rs）
+- 热点 SQL 预热：PlanCachePrewarm 预热命中率 >80%（warmup_pipeline.rs）
+- 复用既有 plan-cache/prepared-stmt-cache/cache-enhance/cache-hit-optimize feature gate
+
+#### 方向 3：故障恢复加速（T3.1-T3.5）
+- 亚百毫秒切换：FastSwitchCoordinator 并行心跳+预选备节点 <100ms（failover_controller.rs）
+- 半开连接探测剔除：HalfOpenProbe 连续N次失败才剔除（pool_elastic.rs）
+- 事务补偿重试增强：TxRetryPolicy 指数退避+抖动+Saga补偿（saga.rs）
+- 多活 RTO 优化：RtoOptimizer 就近备区域+并行切换 <200ms（failover_controller.rs）
+- 故障恢复协调器：FailoverRecoveryCoordinator 时序保证+位点校验（failover_controller.rs）
+- 复用既有 auto-failover/circuit-breaker/saga-tx/ha-events feature gate
+
+#### 综合验证与交付（T4.1-T4.5）
+- workspace 版本升级 10.11.0→10.12.0
+- sz-pay 版本对齐 10.11.0→10.12.0
+- 跨方向集成测试 + 性能监控导出
+- 23 道门禁全量验证
+- 新增 262 个测试（254 方向测试 + 8 跨方向集成测试）
+- 交付记录文档
+
 ## [10.11.0] — 2026-10-19
 
 ### v10.11.0 性能热点路径深化 + 多区域多活高可用 + AI 自主决策闭环 + 零信任合规自动化

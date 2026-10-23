@@ -286,3 +286,234 @@ mod tests {
         assert!((s.pool_acquire_success_rate - 2.0 / 3.0).abs() < 1e-9);
     }
 }
+// ============================================================================
+// v10.12.0 T4.3：自适应调优 + 故障恢复指标扩展
+// ============================================================================
+
+/// 自适应调优指标快照
+#[derive(Debug, Clone, Default)]
+pub struct AdaptiveMetricsSnapshot {
+    /// 水位线调整次数
+    pub waterline_changes: u64,
+    /// 信号采样次数
+    pub signal_samples: u64,
+    /// 负载评分次数
+    pub load_scores: u64,
+    /// 扩容次数
+    pub scale_up_count: u64,
+    /// 缩容次数
+    pub scale_down_count: u64,
+    /// 预热次数
+    pub prewarm_count: u64,
+    /// 读写分离调优次数
+    pub rw_tune_count: u64,
+}
+
+/// 故障恢复指标快照
+#[derive(Debug, Clone, Default)]
+pub struct FailoverMetricsSnapshot {
+    /// 故障检测次数
+    pub failover_detections: u64,
+    /// 故障确认次数
+    pub failover_confirms: u64,
+    /// 故障切换次数
+    pub failover_switches: u64,
+    /// 事务重试次数
+    pub tx_retries: u64,
+    /// 补偿操作次数
+    pub compensate_count: u64,
+    /// 半开探测次数
+    pub half_open_probes: u64,
+    /// RTO 优化次数
+    pub rto_optimizations: u64,
+    /// 恢复协调次数
+    pub recovery_coordinations: u64,
+}
+
+/// 自适应调优 + 故障恢复指标采集器
+#[derive(Debug, Default)]
+pub struct AdaptiveFailoverMetrics {
+    waterline_changes: AtomicU64,
+    signal_samples: AtomicU64,
+    load_scores: AtomicU64,
+    scale_up_count: AtomicU64,
+    scale_down_count: AtomicU64,
+    prewarm_count: AtomicU64,
+    rw_tune_count: AtomicU64,
+    failover_detections: AtomicU64,
+    failover_confirms: AtomicU64,
+    failover_switches: AtomicU64,
+    tx_retries: AtomicU64,
+    compensate_count: AtomicU64,
+    half_open_probes: AtomicU64,
+    rto_optimizations: AtomicU64,
+    recovery_coordinations: AtomicU64,
+}
+
+impl AdaptiveFailoverMetrics {
+    /// 全局单例
+    pub fn global() -> &'static AdaptiveFailoverMetrics {
+        static METRICS: OnceLock<AdaptiveFailoverMetrics> = OnceLock::new();
+        METRICS.get_or_init(AdaptiveFailoverMetrics::default)
+    }
+
+    /// 记录水位线调整
+    pub fn record_waterline_change(&self) {
+        self.waterline_changes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录信号采样
+    pub fn record_signal_sample(&self) {
+        self.signal_samples.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录负载评分
+    pub fn record_load_score(&self) {
+        self.load_scores.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录扩容
+    pub fn record_scale_up(&self) {
+        self.scale_up_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录缩容
+    pub fn record_scale_down(&self) {
+        self.scale_down_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录预热
+    pub fn record_prewarm(&self) {
+        self.prewarm_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录读写分离调优
+    pub fn record_rw_tune(&self) {
+        self.rw_tune_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录故障检测
+    pub fn record_failover_detection(&self) {
+        self.failover_detections.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录故障确认
+    pub fn record_failover_confirm(&self) {
+        self.failover_confirms.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录故障切换
+    pub fn record_failover_switch(&self) {
+        self.failover_switches.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录事务重试
+    pub fn record_tx_retry(&self) {
+        self.tx_retries.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录补偿操作
+    pub fn record_compensate(&self) {
+        self.compensate_count.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录半开探测
+    pub fn record_half_open_probe(&self) {
+        self.half_open_probes.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录 RTO 优化
+    pub fn record_rto_optimization(&self) {
+        self.rto_optimizations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 记录恢复协调
+    pub fn record_recovery_coordination(&self) {
+        self.recovery_coordinations.fetch_add(1, Ordering::Relaxed);
+    }
+
+    /// 自适应调优指标快照
+    pub fn adaptive_snapshot(&self) -> AdaptiveMetricsSnapshot {
+        AdaptiveMetricsSnapshot {
+            waterline_changes: self.waterline_changes.load(Ordering::Relaxed),
+            signal_samples: self.signal_samples.load(Ordering::Relaxed),
+            load_scores: self.load_scores.load(Ordering::Relaxed),
+            scale_up_count: self.scale_up_count.load(Ordering::Relaxed),
+            scale_down_count: self.scale_down_count.load(Ordering::Relaxed),
+            prewarm_count: self.prewarm_count.load(Ordering::Relaxed),
+            rw_tune_count: self.rw_tune_count.load(Ordering::Relaxed),
+        }
+    }
+
+    /// 故障恢复指标快照
+    pub fn failover_snapshot(&self) -> FailoverMetricsSnapshot {
+        FailoverMetricsSnapshot {
+            failover_detections: self.failover_detections.load(Ordering::Relaxed),
+            failover_confirms: self.failover_confirms.load(Ordering::Relaxed),
+            failover_switches: self.failover_switches.load(Ordering::Relaxed),
+            tx_retries: self.tx_retries.load(Ordering::Relaxed),
+            compensate_count: self.compensate_count.load(Ordering::Relaxed),
+            half_open_probes: self.half_open_probes.load(Ordering::Relaxed),
+            rto_optimizations: self.rto_optimizations.load(Ordering::Relaxed),
+            recovery_coordinations: self.recovery_coordinations.load(Ordering::Relaxed),
+        }
+    }
+}
+
+#[cfg(test)]
+mod adaptive_failover_tests {
+    use super::*;
+
+    #[test]
+    fn test_adaptive_metrics_record() {
+        let m = AdaptiveFailoverMetrics::default();
+        m.record_waterline_change();
+        m.record_waterline_change();
+        m.record_signal_sample();
+        m.record_load_score();
+        m.record_scale_up();
+        m.record_scale_down();
+        m.record_prewarm();
+        m.record_rw_tune();
+
+        let s = m.adaptive_snapshot();
+        assert_eq!(s.waterline_changes, 2);
+        assert_eq!(s.signal_samples, 1);
+        assert_eq!(s.load_scores, 1);
+        assert_eq!(s.scale_up_count, 1);
+        assert_eq!(s.scale_down_count, 1);
+        assert_eq!(s.prewarm_count, 1);
+        assert_eq!(s.rw_tune_count, 1);
+    }
+
+    #[test]
+    fn test_failover_metrics_record() {
+        let m = AdaptiveFailoverMetrics::default();
+        m.record_failover_detection();
+        m.record_failover_confirm();
+        m.record_failover_switch();
+        m.record_tx_retry();
+        m.record_compensate();
+        m.record_half_open_probe();
+        m.record_rto_optimization();
+        m.record_recovery_coordination();
+
+        let s = m.failover_snapshot();
+        assert_eq!(s.failover_detections, 1);
+        assert_eq!(s.failover_confirms, 1);
+        assert_eq!(s.failover_switches, 1);
+        assert_eq!(s.tx_retries, 1);
+        assert_eq!(s.compensate_count, 1);
+        assert_eq!(s.half_open_probes, 1);
+        assert_eq!(s.rto_optimizations, 1);
+        assert_eq!(s.recovery_coordinations, 1);
+    }
+
+    #[test]
+    fn test_global_singleton() {
+        let m1 = AdaptiveFailoverMetrics::global();
+        let m2 = AdaptiveFailoverMetrics::global();
+        m1.record_waterline_change();
+        assert!(m2.adaptive_snapshot().waterline_changes >= 1);
+    }
+}

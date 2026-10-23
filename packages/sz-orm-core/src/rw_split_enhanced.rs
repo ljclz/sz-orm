@@ -208,6 +208,8 @@ pub struct RwSplitRouter {
     config: RwSplitConfig,
     selector: RwLock<WeightedRandomSelector>,
     lag_stats: RwLock<HashMap<String, u64>>,
+    #[cfg(feature = "pool-elastic")]
+    adaptive_tuner: Option<RwSplitAdaptiveTuner>,
 }
 
 impl RwSplitRouter {
@@ -216,7 +218,29 @@ impl RwSplitRouter {
             config,
             selector: RwLock::new(WeightedRandomSelector::new()),
             lag_stats: RwLock::new(HashMap::new()),
+            #[cfg(feature = "pool-elastic")]
+            adaptive_tuner: None,
         }
+    }
+
+    /// 创建带自适应调优器的读写分离路由器
+    #[cfg(feature = "pool-elastic")]
+    pub fn new_with_adaptive_tuner(
+        config: RwSplitConfig,
+        adaptive_tuner: RwSplitAdaptiveTuner,
+    ) -> Self {
+        Self {
+            config,
+            selector: RwLock::new(WeightedRandomSelector::new()),
+            lag_stats: RwLock::new(HashMap::new()),
+            adaptive_tuner: Some(adaptive_tuner),
+        }
+    }
+
+    /// 自适应调优器引用
+    #[cfg(feature = "pool-elastic")]
+    pub fn adaptive_tuner(&self) -> Option<&RwSplitAdaptiveTuner> {
+        self.adaptive_tuner.as_ref()
     }
 
     pub fn with_default() -> Self {
@@ -258,6 +282,63 @@ impl RwSplitRouter {
             .unwrap()
             .insert(slave.to_string(), lag_secs);
     }
+
+    /// 记录读操作到自适应调优器
+    #[cfg(feature = "pool-elastic")]
+    pub fn record_read_op(
+        &self,
+        latency: std::time::Duration,
+        wait_duration: std::time::Duration,
+        is_error: bool,
+    ) {
+        if let Some(ref tuner) = self.adaptive_tuner {
+            tuner
+                .read_pool_tuner()
+                .record_op(latency, wait_duration, is_error);
+        }
+    }
+
+    /// 记录写操作到自适应调优器
+    #[cfg(feature = "pool-elastic")]
+    pub fn record_write_op(
+        &self,
+        latency: std::time::Duration,
+        wait_duration: std::time::Duration,
+        is_error: bool,
+    ) {
+        if let Some(ref tuner) = self.adaptive_tuner {
+            tuner
+                .write_pool_tuner()
+                .record_op(latency, wait_duration, is_error);
+        }
+    }
+
+    /// 调优读池
+    #[cfg(feature = "pool-elastic")]
+    pub async fn tune_read_pool(&self) -> Option<crate::pool_elastic::WaterlineAdjustment> {
+        if let Some(ref tuner) = self.adaptive_tuner {
+            return tuner.tune_read_pool().await;
+        }
+        None
+    }
+
+    /// 调优写池
+    #[cfg(feature = "pool-elastic")]
+    pub async fn tune_write_pool(&self) -> Option<crate::pool_elastic::WaterlineAdjustment> {
+        if let Some(ref tuner) = self.adaptive_tuner {
+            return tuner.tune_write_pool().await;
+        }
+        None
+    }
+
+    /// 检查全局连接数限制
+    #[cfg(feature = "pool-elastic")]
+    pub fn check_global_limit(&self, read_conns: u32, write_conns: u32) -> GlobalCoordResult {
+        if let Some(ref tuner) = self.adaptive_tuner {
+            return tuner.check_global_limit(read_conns, write_conns);
+        }
+        GlobalCoordResult::WithinLimit
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -277,13 +358,9 @@ pub enum PartitionStrategy {
     /// 哈希分区（按桶数取模）
     Hash { buckets: usize },
     /// 范围分区（按范围边界映射）
-    Range {
-        ranges: Vec<(i64, String)>,
-    },
+    Range { ranges: Vec<(i64, String)> },
     /// 列表分区（显式映射）
-    List {
-        mapping: HashMap<String, String>,
-    },
+    List { mapping: HashMap<String, String> },
 }
 
 /// 分区键映射
@@ -398,9 +475,10 @@ impl PartitionKeyRouter {
 
     /// 路由分区键到区域 ID
     pub fn route(&mut self, partition_key: &str) -> Result<String, RouteError> {
-        let region = self.mapping.resolve_region(partition_key).ok_or_else(|| {
-            RouteError::UnmappedPartitionKey(partition_key.to_string())
-        })?;
+        let region = self
+            .mapping
+            .resolve_region(partition_key)
+            .ok_or_else(|| RouteError::UnmappedPartitionKey(partition_key.to_string()))?;
 
         if let Some(prev_region) = self.consistency_cache.get(partition_key) {
             if prev_region != &region {
@@ -1416,4 +1494,300 @@ mod failover {
 #[cfg(feature = "auto-failover")]
 pub use failover::{
     AutoFailoverCoordinator, FailoverDecision, FailoverError, LsnCheckResult, ProbeResult,
+};
+// ============================================================================
+// v10.12.0 T1.5：读写分离池独立调优
+// ============================================================================
+
+#[cfg(feature = "pool-elastic")]
+mod adaptive_tuner {
+    use super::RwSplitConfig;
+    use crate::pool_elastic::{
+        DynamicWaterline, LoadScorer, MultiSignalCollector, SignalConfig, SignalWeight,
+        WaterlineAdjustment, WaterlineConfig,
+    };
+    use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+    use std::time::Duration;
+
+    /// 读池独立调优器
+    pub struct ReadPoolTuner {
+        signal_collector: MultiSignalCollector,
+        load_scorer: LoadScorer,
+        waterline: DynamicWaterline,
+        current_size: AtomicU32,
+    }
+
+    impl ReadPoolTuner {
+        pub fn new(signal_config: SignalConfig, waterline_config: WaterlineConfig) -> Self {
+            Self {
+                signal_collector: MultiSignalCollector::new(signal_config),
+                load_scorer: LoadScorer::new(SignalWeight::default()),
+                waterline: DynamicWaterline::new(waterline_config),
+                current_size: AtomicU32::new(0),
+            }
+        }
+
+        pub fn record_op(&self, latency: Duration, wait_duration: Duration, is_error: bool) {
+            self.signal_collector
+                .record_op(latency, wait_duration, is_error);
+        }
+
+        pub async fn tune(&self) -> Option<WaterlineAdjustment> {
+            let signal = self.signal_collector.collect();
+            let score = self.load_scorer.compute_score(&signal);
+            self.waterline.adjust(&score)
+        }
+
+        pub fn current_size(&self) -> u32 {
+            self.current_size.load(Ordering::Relaxed)
+        }
+
+        pub fn set_current_size(&self, size: u32) {
+            self.current_size.store(size, Ordering::Relaxed);
+        }
+
+        pub fn current_max(&self) -> u32 {
+            self.waterline.current_max()
+        }
+
+        pub fn current_min(&self) -> u32 {
+            self.waterline.current_min()
+        }
+    }
+
+    impl std::fmt::Debug for ReadPoolTuner {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("ReadPoolTuner")
+                .field("current_size", &self.current_size())
+                .field("current_min", &self.current_min())
+                .field("current_max", &self.current_max())
+                .finish()
+        }
+    }
+
+    /// 写池独立调优器
+    pub struct WritePoolTuner {
+        signal_collector: MultiSignalCollector,
+        load_scorer: LoadScorer,
+        waterline: DynamicWaterline,
+        current_size: AtomicU32,
+    }
+
+    impl WritePoolTuner {
+        pub fn new(signal_config: SignalConfig, waterline_config: WaterlineConfig) -> Self {
+            Self {
+                signal_collector: MultiSignalCollector::new(signal_config),
+                load_scorer: LoadScorer::new(SignalWeight::default()),
+                waterline: DynamicWaterline::new(waterline_config),
+                current_size: AtomicU32::new(0),
+            }
+        }
+
+        pub fn record_op(&self, latency: Duration, wait_duration: Duration, is_error: bool) {
+            self.signal_collector
+                .record_op(latency, wait_duration, is_error);
+        }
+
+        pub async fn tune(&self) -> Option<WaterlineAdjustment> {
+            let signal = self.signal_collector.collect();
+            let score = self.load_scorer.compute_score(&signal);
+            self.waterline.adjust(&score)
+        }
+
+        pub fn current_size(&self) -> u32 {
+            self.current_size.load(Ordering::Relaxed)
+        }
+
+        pub fn set_current_size(&self, size: u32) {
+            self.current_size.store(size, Ordering::Relaxed);
+        }
+
+        pub fn current_max(&self) -> u32 {
+            self.waterline.current_max()
+        }
+
+        pub fn current_min(&self) -> u32 {
+            self.waterline.current_min()
+        }
+    }
+
+    impl std::fmt::Debug for WritePoolTuner {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("WritePoolTuner")
+                .field("current_size", &self.current_size())
+                .field("current_min", &self.current_min())
+                .field("current_max", &self.current_max())
+                .finish()
+        }
+    }
+
+    /// 全局连接数协调结果
+    #[derive(Debug, Clone, PartialEq, Eq)]
+    pub enum GlobalCoordResult {
+        /// 在限制范围内
+        WithinLimit,
+        /// 超出限制，需要缩减
+        OverLimit {
+            /// 读池应缩减的连接数
+            reduce_read: u32,
+            /// 写池应缩减的连接数
+            reduce_write: u32,
+        },
+    }
+
+    /// 全局连接数协调器
+    ///
+    /// 保证 读池 + 写池 总连接数 ≤ 数据库上限。
+    pub struct GlobalConnCoordinator {
+        db_max_connections: u32,
+        total_reductions: AtomicU64,
+    }
+
+    impl GlobalConnCoordinator {
+        pub fn new(db_max_connections: u32) -> Self {
+            Self {
+                db_max_connections,
+                total_reductions: AtomicU64::new(0),
+            }
+        }
+
+        /// 检查全局连接数是否超限
+        ///
+        /// 超限时按负载比例缩减：低负载池先缩减。
+        pub fn check_limit(&self, read_conns: u32, write_conns: u32) -> GlobalCoordResult {
+            let total = read_conns + write_conns;
+            if total <= self.db_max_connections {
+                return GlobalCoordResult::WithinLimit;
+            }
+
+            let excess = total - self.db_max_connections;
+            let reduce_read = if read_conns > write_conns {
+                excess.min(read_conns)
+            } else {
+                excess / 2
+            };
+            let reduce_write = excess - reduce_read;
+
+            self.total_reductions.fetch_add(1, Ordering::Relaxed);
+
+            GlobalCoordResult::OverLimit {
+                reduce_read,
+                reduce_write,
+            }
+        }
+
+        pub fn db_max_connections(&self) -> u32 {
+            self.db_max_connections
+        }
+
+        pub fn total_reductions(&self) -> u64 {
+            self.total_reductions.load(Ordering::Relaxed)
+        }
+    }
+
+    impl std::fmt::Debug for GlobalConnCoordinator {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("GlobalConnCoordinator")
+                .field("db_max_connections", &self.db_max_connections)
+                .field("total_reductions", &self.total_reductions())
+                .finish()
+        }
+    }
+
+    /// 读写分离自适应调优器
+    ///
+    /// 读池和写池独立自适应调优，互不干扰，
+    /// 全局连接数上限协调（读池+写池总连接数 ≤ 数据库上限）。
+    pub struct RwSplitAdaptiveTuner {
+        read_pool_tuner: ReadPoolTuner,
+        write_pool_tuner: WritePoolTuner,
+        global_coordinator: GlobalConnCoordinator,
+        tune_count: AtomicU64,
+    }
+
+    impl RwSplitAdaptiveTuner {
+        pub fn new(
+            read_signal_config: SignalConfig,
+            read_waterline_config: WaterlineConfig,
+            write_signal_config: SignalConfig,
+            write_waterline_config: WaterlineConfig,
+            db_max_connections: u32,
+        ) -> Self {
+            Self {
+                read_pool_tuner: ReadPoolTuner::new(read_signal_config, read_waterline_config),
+                write_pool_tuner: WritePoolTuner::new(write_signal_config, write_waterline_config),
+                global_coordinator: GlobalConnCoordinator::new(db_max_connections),
+                tune_count: AtomicU64::new(0),
+            }
+        }
+
+        pub async fn tune_read_pool(&self) -> Option<WaterlineAdjustment> {
+            self.tune_count.fetch_add(1, Ordering::Relaxed);
+            self.read_pool_tuner.tune().await
+        }
+
+        pub async fn tune_write_pool(&self) -> Option<WaterlineAdjustment> {
+            self.tune_count.fetch_add(1, Ordering::Relaxed);
+            self.write_pool_tuner.tune().await
+        }
+
+        pub fn check_global_limit(&self, read_conns: u32, write_conns: u32) -> GlobalCoordResult {
+            self.global_coordinator.check_limit(read_conns, write_conns)
+        }
+
+        pub fn read_pool_tuner(&self) -> &ReadPoolTuner {
+            &self.read_pool_tuner
+        }
+
+        pub fn write_pool_tuner(&self) -> &WritePoolTuner {
+            &self.write_pool_tuner
+        }
+
+        pub fn global_coordinator(&self) -> &GlobalConnCoordinator {
+            &self.global_coordinator
+        }
+
+        pub fn tune_count(&self) -> u64 {
+            self.tune_count.load(Ordering::Relaxed)
+        }
+    }
+
+    impl std::fmt::Debug for RwSplitAdaptiveTuner {
+        fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+            f.debug_struct("RwSplitAdaptiveTuner")
+                .field("read_pool_tuner", &self.read_pool_tuner)
+                .field("write_pool_tuner", &self.write_pool_tuner)
+                .field("global_coordinator", &self.global_coordinator)
+                .field("tune_count", &self.tune_count())
+                .finish()
+        }
+    }
+
+    impl RwSplitConfig {
+        /// 创建带自适应调优器的 RwSplitConfig 扩展
+        pub fn with_adaptive_tuner(
+            master: &str,
+            slaves: Vec<super::WeightedSlave>,
+            db_max_connections: u32,
+        ) -> (Self, RwSplitAdaptiveTuner) {
+            let config = Self {
+                master: master.into(),
+                slaves,
+                lag_threshold_secs: 5,
+            };
+            let tuner = RwSplitAdaptiveTuner::new(
+                SignalConfig::default(),
+                WaterlineConfig::default(),
+                SignalConfig::default(),
+                WaterlineConfig::default(),
+                db_max_connections,
+            );
+            (config, tuner)
+        }
+    }
+}
+
+#[cfg(feature = "pool-elastic")]
+pub use adaptive_tuner::{
+    GlobalConnCoordinator, GlobalCoordResult, ReadPoolTuner, RwSplitAdaptiveTuner, WritePoolTuner,
 };

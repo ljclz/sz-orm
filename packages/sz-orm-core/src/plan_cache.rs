@@ -215,6 +215,19 @@ impl PlanCacheEntry {
             false
         }
     }
+
+    /// 估算计划大小（字节）
+    ///
+    /// AST 和 analysis 的近似内存占用。
+    pub fn sql_normalized_len(&self) -> usize {
+        let ast_len = self.ast.as_ref().map(|a| a.to_string().len()).unwrap_or(0);
+        let analysis_len = self
+            .analysis
+            .as_ref()
+            .map(|a| a.as_str().len())
+            .unwrap_or(0);
+        ast_len + analysis_len + self.tables.iter().map(|t| t.len()).sum::<usize>()
+    }
 }
 
 // ─── PlanCacheStats ──────────────────────────────────────────────
@@ -466,6 +479,10 @@ pub struct PlanCache {
     min_capacity: usize,
     /// v7.4.0：自适应容量上限
     max_capacity: usize,
+    /// v10.12.0 T2.2：多策略淘汰器
+    multi_strategy_evictor: Option<MultiStrategyEvictor>,
+    /// v10.12.0 T2.3：命中率监控器
+    hit_rate_monitor: Option<HitRateMonitor>,
 }
 
 impl PlanCache {
@@ -486,7 +503,85 @@ impl PlanCache {
             lru_k: 2,
             min_capacity: max_size / 4,
             max_capacity: max_size * 4,
+            multi_strategy_evictor: None,
+            hit_rate_monitor: None,
         }
+    }
+
+    /// v10.12.0 T2.2：创建带多策略淘汰器的查询计划缓存
+    pub fn new_with_evictors(
+        max_size: usize,
+        default_ttl: Option<Duration>,
+        ttl_config: TtlEvictConfig,
+        size_limit_config: SizeLimitConfig,
+    ) -> Self {
+        Self {
+            parse_cache: RwLock::new(HashMap::new()),
+            optimize_cache: RwLock::new(HashMap::new()),
+            access_order: RwLock::new(LruOrder64::new()),
+            table_index: RwLock::new(HashMap::new()),
+            stats: PlanCacheStats::new(),
+            max_size,
+            default_ttl,
+            access_counts: RwLock::new(HashMap::new()),
+            lru_k: 2,
+            min_capacity: max_size / 4,
+            max_capacity: max_size * 4,
+            multi_strategy_evictor: Some(MultiStrategyEvictor::new(ttl_config, size_limit_config)),
+            hit_rate_monitor: None,
+        }
+    }
+
+    /// v10.12.0 T2.3：启用命中率监控
+    pub fn with_hit_rate_monitor(mut self, monitor: HitRateMonitor) -> Self {
+        self.hit_rate_monitor = Some(monitor);
+        self
+    }
+
+    /// v10.12.0 T2.3：命中率监控器引用
+    pub fn hit_rate_monitor(&self) -> Option<&HitRateMonitor> {
+        self.hit_rate_monitor.as_ref()
+    }
+
+    /// v10.12.0 T2.2：主动 TTL 淘汰过期条目
+    ///
+    /// 周期性扫描缓存，主动淘汰过期条目。返回淘汰条目数。
+    pub fn evict_expired(&self) -> usize {
+        let evictor = match &self.multi_strategy_evictor {
+            Some(e) => e,
+            None => return 0,
+        };
+        if !evictor.should_ttl_evict() {
+            return 0;
+        }
+
+        let mut access_order = self.access_order.write();
+        let mut optimize_cache = self.optimize_cache.write();
+        let mut parse_cache = self.parse_cache.write();
+        let mut table_index = self.table_index.write();
+
+        let expired_hashes: Vec<u64> = parse_cache
+            .iter()
+            .filter(|(_, e)| e.is_expired())
+            .map(|(&k, _)| k)
+            .collect();
+
+        let count = expired_hashes.len();
+        for &hash in &expired_hashes {
+            access_order.remove(hash);
+            parse_cache.remove(&hash);
+            optimize_cache.remove(&hash);
+            Self::remove_from_table_index(&mut table_index, hash);
+        }
+        self.stats
+            .evictions
+            .fetch_add(count as u64, Ordering::Relaxed);
+        count
+    }
+
+    /// v10.12.0 T2.2：多策略淘汰器引用
+    pub fn multi_strategy_evictor(&self) -> Option<&MultiStrategyEvictor> {
+        self.multi_strategy_evictor.as_ref()
     }
 
     /// 获取或解析 SQL
@@ -513,10 +608,19 @@ impl PlanCache {
                 .entry(key.hash)
                 .and_modify(|c| *c += 1)
                 .or_insert(1);
+            if let Some(evictor) = &self.multi_strategy_evictor {
+                evictor.access(&key.hash.to_string());
+            }
+            if let Some(monitor) = &self.hit_rate_monitor {
+                monitor.record_hit_rate(1.0);
+            }
             return Ok(ast);
         }
 
         self.stats.parse_misses.fetch_add(1, Ordering::Relaxed);
+        if let Some(monitor) = &self.hit_rate_monitor {
+            monitor.record_hit_rate(0.0);
+        }
 
         let dialect = GenericDialect {};
         let statements = Parser::parse_sql(&dialect, sql).map_err(|e| e.to_string())?;
@@ -534,11 +638,21 @@ impl PlanCache {
             let mut table_index = self.table_index.write();
 
             if cache.len() >= self.max_size {
-                if let Some(lru_hash) = access_order.lru_key() {
-                    access_order.remove(lru_hash);
-                    cache.remove(&lru_hash);
-                    optimize_cache.remove(&lru_hash);
-                    Self::remove_from_table_index(&mut table_index, lru_hash);
+                let evict_hash = if let Some(evictor) = &self.multi_strategy_evictor {
+                    let memory_bytes: usize = cache.values().map(|e| e.sql_normalized_len()).sum();
+                    let candidates = evictor.evict(&cache, cache.len(), memory_bytes);
+                    candidates
+                        .first()
+                        .copied()
+                        .or_else(|| access_order.lru_key())
+                } else {
+                    access_order.lru_key()
+                };
+                if let Some(evict_hash) = evict_hash {
+                    access_order.remove(evict_hash);
+                    cache.remove(&evict_hash);
+                    optimize_cache.remove(&evict_hash);
+                    Self::remove_from_table_index(&mut table_index, evict_hash);
                     self.stats.evictions.fetch_add(1, Ordering::Relaxed);
                 }
             }
@@ -598,11 +712,21 @@ impl PlanCache {
         let mut table_index = self.table_index.write();
 
         if cache.len() >= self.max_size {
-            if let Some(lru_hash) = access_order.lru_key() {
-                access_order.remove(lru_hash);
-                cache.remove(&lru_hash);
-                parse_cache.remove(&lru_hash);
-                Self::remove_from_table_index(&mut table_index, lru_hash);
+            let evict_hash = if let Some(evictor) = &self.multi_strategy_evictor {
+                let memory_bytes: usize = cache.values().map(|e| e.sql_normalized_len()).sum();
+                let candidates = evictor.evict(&cache, cache.len(), memory_bytes);
+                candidates
+                    .first()
+                    .copied()
+                    .or_else(|| access_order.lru_key())
+            } else {
+                access_order.lru_key()
+            };
+            if let Some(evict_hash) = evict_hash {
+                access_order.remove(evict_hash);
+                cache.remove(&evict_hash);
+                parse_cache.remove(&evict_hash);
+                Self::remove_from_table_index(&mut table_index, evict_hash);
                 self.stats.evictions.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -1740,5 +1864,869 @@ impl AdaptiveCacheCapacity {
     /// 返回最大容量
     pub fn max(&self) -> usize {
         self.max
+    }
+}
+// ============================================================================
+// v10.12.0 T2.1：LFU 频率追踪
+// ============================================================================
+
+/// LFU 频率追踪器
+///
+/// 追踪每个缓存键的访问频率，支持周期衰减防止溢出。
+/// 用于多策略淘汰中的 LFU 策略：低频键优先淘汰。
+pub struct LfuTracker {
+    frequencies: parking_lot::RwLock<HashMap<String, u64>>,
+    total_accesses: AtomicU64,
+    decay_factor: u64,
+}
+
+impl LfuTracker {
+    /// 创建 LFU 频率追踪器
+    pub fn new() -> Self {
+        Self {
+            frequencies: parking_lot::RwLock::new(HashMap::new()),
+            total_accesses: AtomicU64::new(0),
+            decay_factor: 2,
+        }
+    }
+
+    /// 记录一次键访问（频率 +1）
+    pub fn access(&self, key: &str) {
+        self.total_accesses.fetch_add(1, Ordering::Relaxed);
+        let mut freqs = self.frequencies.write();
+        *freqs.entry(key.to_string()).or_insert(0) += 1;
+    }
+
+    /// 获取键的当前频率
+    pub fn frequency(&self, key: &str) -> u64 {
+        self.frequencies.read().get(key).copied().unwrap_or(0)
+    }
+
+    /// 周期衰减：所有频率除以 decay_factor，防止计数器溢出
+    pub fn decay(&self) {
+        let mut freqs = self.frequencies.write();
+        for freq in freqs.values_mut() {
+            *freq /= self.decay_factor;
+        }
+    }
+
+    /// 返回频率最低的 N 个键（淘汰候选）
+    pub fn evict_candidates(&self, n: usize) -> Vec<String> {
+        let freqs = self.frequencies.read();
+        let mut entries: Vec<(&String, &u64)> = freqs.iter().collect();
+        entries.sort_by_key(|(_, freq)| *freq);
+        entries.iter().take(n).map(|(k, _)| k.to_string()).collect()
+    }
+
+    /// 移除键
+    pub fn remove(&self, key: &str) {
+        self.frequencies.write().remove(key);
+    }
+
+    /// 追踪的键数量
+    pub fn len(&self) -> usize {
+        self.frequencies.read().len()
+    }
+
+    /// 是否为空
+    pub fn is_empty(&self) -> bool {
+        self.frequencies.read().is_empty()
+    }
+
+    /// 总访问次数
+    pub fn total_accesses(&self) -> u64 {
+        self.total_accesses.load(Ordering::Relaxed)
+    }
+}
+
+impl Default for LfuTracker {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+// ============================================================================
+// v10.12.0 T2.2：多策略淘汰（TTL → 大小限制 → LFU → LRU）
+// ============================================================================
+
+/// TTL 淘汰配置
+#[derive(Debug, Clone)]
+pub struct TtlEvictConfig {
+    /// 默认 TTL（条目超时自动淘汰）
+    pub default_ttl: Duration,
+    /// 主动淘汰检查间隔
+    pub evict_interval: Duration,
+}
+
+impl Default for TtlEvictConfig {
+    fn default() -> Self {
+        Self {
+            default_ttl: Duration::from_secs(300),
+            evict_interval: Duration::from_secs(60),
+        }
+    }
+}
+
+/// TTL 主动周期淘汰器
+///
+/// 周期性扫描缓存，主动淘汰过期条目（非仅 get 时惰性判定）。
+pub struct TtlEvictor {
+    config: TtlEvictConfig,
+    last_evict_time: parking_lot::Mutex<Instant>,
+}
+
+impl TtlEvictor {
+    /// 创建 TTL 淘汰器
+    pub fn new(config: TtlEvictConfig) -> Self {
+        Self {
+            config,
+            last_evict_time: parking_lot::Mutex::new(Instant::now()),
+        }
+    }
+
+    /// 检查是否到达淘汰周期
+    pub fn should_evict(&self) -> bool {
+        let last = self.last_evict_time.lock();
+        last.elapsed() >= self.config.evict_interval
+    }
+
+    /// 执行 TTL 淘汰，返回被淘汰的键列表
+    pub fn evict_expired(&self, entries: &HashMap<u64, PlanCacheEntry>) -> Vec<u64> {
+        let mut evicted = Vec::new();
+        for (&hash, entry) in entries {
+            if entry.is_expired() {
+                evicted.push(hash);
+            }
+        }
+        *self.last_evict_time.lock() = Instant::now();
+        evicted
+    }
+
+    /// 默认 TTL
+    pub fn default_ttl(&self) -> Duration {
+        self.config.default_ttl
+    }
+
+    /// 淘汰间隔
+    pub fn evict_interval(&self) -> Duration {
+        self.config.evict_interval
+    }
+}
+
+/// 大小限制淘汰配置
+#[derive(Debug, Clone)]
+pub struct SizeLimitConfig {
+    /// 最大条目数
+    pub max_entries: usize,
+    /// 最大内存占用（字节）
+    pub max_memory_bytes: usize,
+}
+
+impl Default for SizeLimitConfig {
+    fn default() -> Self {
+        Self {
+            max_entries: 1024,
+            max_memory_bytes: 64 * 1024 * 1024,
+        }
+    }
+}
+
+/// 大小限制淘汰器
+///
+/// 按内存占用/综合权重淘汰：超容量时按 EvictWeight 权重淘汰最低权重条目。
+pub struct SizeLimitEvictor {
+    config: SizeLimitConfig,
+}
+
+impl SizeLimitEvictor {
+    /// 创建大小限制淘汰器
+    pub fn new(config: SizeLimitConfig) -> Self {
+        Self { config }
+    }
+
+    /// 检查是否超容量
+    pub fn is_over_limit(&self, entry_count: usize, memory_bytes: usize) -> bool {
+        entry_count > self.config.max_entries || memory_bytes > self.config.max_memory_bytes
+    }
+
+    /// 按权重选择淘汰候选：返回权重最低的键
+    pub fn select_evict_candidate(&self, weights: &HashMap<u64, EvictWeight>) -> Option<u64> {
+        weights
+            .iter()
+            .min_by_key(|(_, w)| w.composite_score())
+            .map(|(&k, _)| k)
+    }
+
+    /// 最大条目数
+    pub fn max_entries(&self) -> usize {
+        self.config.max_entries
+    }
+
+    /// 最大内存字节
+    pub fn max_memory_bytes(&self) -> usize {
+        self.config.max_memory_bytes
+    }
+}
+
+/// 综合淘汰权重
+///
+/// 权重 = LFU 频率 + TTL 剩余比例 + 计划大小因子。
+/// 权重越低越优先淘汰。
+#[derive(Debug, Clone)]
+pub struct EvictWeight {
+    /// LFU 访问频率
+    pub lfu_freq: u64,
+    /// TTL 剩余比例（0.0~1.0，1.0 = 刚创建，0.0 = 即将过期）
+    pub ttl_remaining_ratio: f64,
+    /// 计划大小因子（字节，越小越优先淘汰）
+    pub plan_size_bytes: usize,
+}
+
+impl EvictWeight {
+    /// 创建淘汰权重
+    pub fn new(lfu_freq: u64, ttl_remaining_ratio: f64, plan_size_bytes: usize) -> Self {
+        Self {
+            lfu_freq,
+            ttl_remaining_ratio: ttl_remaining_ratio.clamp(0.0, 1.0),
+            plan_size_bytes,
+        }
+    }
+
+    /// 综合评分（越低越优先淘汰）
+    ///
+    /// 评分 = lfu_freq * 10 + ttl_remaining_ratio * 100 + plan_size_bytes / 1024
+    /// 频率权重最高（热点不淘汰），TTL 剩余次之（快过期优先淘汰），大小最低。
+    pub fn composite_score(&self) -> i64 {
+        let freq_score = self.lfu_freq as i64 * 10;
+        let ttl_score = (self.ttl_remaining_ratio * 100.0) as i64;
+        let size_score = (self.plan_size_bytes / 1024) as i64;
+        freq_score + ttl_score + size_score
+    }
+}
+
+/// 多策略叠加淘汰器
+///
+/// 淘汰优先级：TTL 过期 → 大小限制 → LFU → LRU
+pub struct MultiStrategyEvictor {
+    ttl_evictor: TtlEvictor,
+    size_limit_evictor: SizeLimitEvictor,
+    lfu_tracker: LfuTracker,
+}
+
+impl MultiStrategyEvictor {
+    /// 创建多策略淘汰器
+    pub fn new(ttl_config: TtlEvictConfig, size_limit_config: SizeLimitConfig) -> Self {
+        Self {
+            ttl_evictor: TtlEvictor::new(ttl_config),
+            size_limit_evictor: SizeLimitEvictor::new(size_limit_config),
+            lfu_tracker: LfuTracker::new(),
+        }
+    }
+
+    /// 多策略淘汰：按优先级依次检查，返回被淘汰的键
+    ///
+    /// 1. TTL 过期优先：主动淘汰所有过期条目
+    /// 2. 大小限制：超容量时按权重淘汰
+    /// 3. LFU：低频优先
+    /// 4. LRU：最久未访问优先（由调用方 access_order 处理）
+    pub fn evict(
+        &self,
+        entries: &HashMap<u64, PlanCacheEntry>,
+        entry_count: usize,
+        memory_bytes: usize,
+    ) -> Vec<u64> {
+        let mut evicted = Vec::new();
+
+        // 策略 1：TTL 过期优先
+        let ttl_expired = self.ttl_evictor.evict_expired(entries);
+        if !ttl_expired.is_empty() {
+            evicted.extend(ttl_expired);
+            return evicted;
+        }
+
+        // 策略 2：大小限制
+        if self
+            .size_limit_evictor
+            .is_over_limit(entry_count, memory_bytes)
+        {
+            let weights: HashMap<u64, EvictWeight> = entries
+                .iter()
+                .map(|(&k, e)| {
+                    let freq = self.lfu_tracker.frequency(&k.to_string());
+                    let ttl_remaining = e
+                        .ttl
+                        .map(|ttl| {
+                            let elapsed = e.created_at.elapsed();
+                            if elapsed >= ttl {
+                                0.0
+                            } else {
+                                1.0 - (elapsed.as_secs_f64() / ttl.as_secs_f64())
+                            }
+                        })
+                        .unwrap_or(1.0);
+                    let plan_size = e.sql_normalized_len();
+                    (k, EvictWeight::new(freq, ttl_remaining, plan_size))
+                })
+                .collect();
+
+            if let Some(candidate) = self.size_limit_evictor.select_evict_candidate(&weights) {
+                evicted.push(candidate);
+                return evicted;
+            }
+        }
+
+        // 策略 3：LFU 低频优先
+        if entry_count > 0 {
+            let candidates = self.lfu_tracker.evict_candidates(1);
+            if let Some(key) = candidates.first() {
+                if let Ok(hash) = key.parse::<u64>() {
+                    evicted.push(hash);
+                    return evicted;
+                }
+            }
+        }
+
+        evicted
+    }
+
+    /// 记录键访问（LFU 追踪）
+    pub fn access(&self, key: &str) {
+        self.lfu_tracker.access(key);
+    }
+
+    /// 频率衰减
+    pub fn decay(&self) {
+        self.lfu_tracker.decay();
+    }
+
+    /// 检查是否到达 TTL 淘汰周期
+    pub fn should_ttl_evict(&self) -> bool {
+        self.ttl_evictor.should_evict()
+    }
+
+    /// TTL 淘汰器引用
+    pub fn ttl_evictor(&self) -> &TtlEvictor {
+        &self.ttl_evictor
+    }
+
+    /// 大小限制淘汰器引用
+    pub fn size_limit_evictor(&self) -> &SizeLimitEvictor {
+        &self.size_limit_evictor
+    }
+
+    /// LFU 追踪器引用
+    pub fn lfu_tracker(&self) -> &LfuTracker {
+        &self.lfu_tracker
+    }
+}
+// ============================================================================
+// v10.12.0 T2.3：命中率监控与自动调优
+// ============================================================================
+
+use std::collections::VecDeque;
+
+/// 命中率调优配置
+#[derive(Debug, Clone)]
+pub struct HitRateTuningConfig {
+    /// 低命中率阈值（低于此值触发调优）
+    pub low_hit_threshold: f64,
+    /// 监控窗口（窗口外的数据不计入）
+    pub monitor_window: Duration,
+    /// 冷启动豁免期（此期间内不调优）
+    pub cold_start_exempt_duration: Duration,
+}
+
+impl Default for HitRateTuningConfig {
+    fn default() -> Self {
+        Self {
+            low_hit_threshold: 0.5,
+            monitor_window: Duration::from_secs(60),
+            cold_start_exempt_duration: Duration::from_secs(300),
+        }
+    }
+}
+
+/// 调优动作
+#[derive(Debug, Clone, PartialEq)]
+pub enum TuningAction {
+    /// 扩容缓存
+    ExpandCapacity {
+        /// 原容量
+        from: usize,
+        /// 新容量
+        to: usize,
+    },
+    /// 调整淘汰策略
+    AdjustStrategy {
+        /// 原策略
+        from: String,
+        /// 新策略
+        to: String,
+    },
+    /// 优化 SQL 归一化
+    OptimizeNormalization,
+}
+
+/// 命中率分析结果
+#[derive(Debug, Clone, PartialEq)]
+pub enum HitRateIssue {
+    /// 容量不足（命中率低 + 淘汰频繁）
+    CapacityInsufficient,
+    /// 淘汰过激（命中率低 + 淘汰次数高）
+    EvictionTooAggressive,
+    /// SQL 未归一化（命中率低 + 淘汰少 → 不同 SQL 模板过多）
+    SqlNotNormalized,
+    /// 无问题
+    NoIssue,
+}
+
+/// 命中率分析器
+///
+/// 分析命中率低的原因：容量不足/淘汰过激/SQL 未归一化。
+pub struct HitRateAnalyzer;
+
+impl HitRateAnalyzer {
+    /// 创建命中率分析器
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 分析命中率低的原因
+    ///
+    /// - `avg_hit_rate`：平均命中率
+    /// - `eviction_count`：淘汰次数
+    /// - `cache_size`：当前缓存大小
+    /// - `unique_sql_count`：不同 SQL 模板数
+    pub fn analyze(
+        &self,
+        avg_hit_rate: f64,
+        eviction_count: u64,
+        cache_size: usize,
+        unique_sql_count: usize,
+    ) -> HitRateIssue {
+        if avg_hit_rate >= 0.5 {
+            return HitRateIssue::NoIssue;
+        }
+
+        if unique_sql_count > cache_size * 2 {
+            return HitRateIssue::SqlNotNormalized;
+        }
+
+        if eviction_count > 100 && eviction_count > cache_size as u64 {
+            return HitRateIssue::EvictionTooAggressive;
+        }
+
+        HitRateIssue::CapacityInsufficient
+    }
+}
+
+impl Default for HitRateAnalyzer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 命中率调优器
+///
+/// 根据分析结果生成调优动作。
+pub struct HitRateTuner;
+
+impl HitRateTuner {
+    /// 创建调优器
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 生成调优动作
+    pub fn tune(&self, issue: &HitRateIssue, current_capacity: usize) -> Option<TuningAction> {
+        match issue {
+            HitRateIssue::CapacityInsufficient => {
+                let new_capacity = current_capacity * 2;
+                Some(TuningAction::ExpandCapacity {
+                    from: current_capacity,
+                    to: new_capacity,
+                })
+            }
+            HitRateIssue::EvictionTooAggressive => Some(TuningAction::AdjustStrategy {
+                from: "LFU".to_string(),
+                to: "LRU".to_string(),
+            }),
+            HitRateIssue::SqlNotNormalized => Some(TuningAction::OptimizeNormalization),
+            HitRateIssue::NoIssue => None,
+        }
+    }
+}
+
+impl Default for HitRateTuner {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 命中率监控器
+///
+/// 命中率监控闭环：命中率持续低于阈值 → 自动分析原因 → 自动调整参数。
+/// 冷启动期豁免（命中率自然低）。
+pub struct HitRateMonitor {
+    config: HitRateTuningConfig,
+    hit_rate_history: parking_lot::Mutex<VecDeque<(Instant, f64)>>,
+    cold_start_end: parking_lot::Mutex<Option<Instant>>,
+    analyzer: HitRateAnalyzer,
+    tuner: HitRateTuner,
+}
+
+impl HitRateMonitor {
+    /// 创建命中率监控器
+    pub fn new(config: HitRateTuningConfig) -> Self {
+        let cold_start_end = Instant::now() + config.cold_start_exempt_duration;
+        Self {
+            config,
+            hit_rate_history: parking_lot::Mutex::new(VecDeque::new()),
+            cold_start_end: parking_lot::Mutex::new(Some(cold_start_end)),
+            analyzer: HitRateAnalyzer::new(),
+            tuner: HitRateTuner::new(),
+        }
+    }
+
+    /// 记算当前命中率
+    pub fn current_hit_rate(&self) -> f64 {
+        let history = self.hit_rate_history.lock();
+        if history.is_empty() {
+            return 0.0;
+        }
+        let sum: f64 = history.iter().map(|(_, r)| r).sum();
+        sum / history.len() as f64
+    }
+
+    /// 记录命中率
+    pub fn record_hit_rate(&self, rate: f64) {
+        let now = Instant::now();
+        let mut history = self.hit_rate_history.lock();
+        history.push_back((now, rate.clamp(0.0, 1.0)));
+
+        let cutoff = now - self.config.monitor_window;
+        while let Some(&(t, _)) = history.front() {
+            if t < cutoff {
+                history.pop_front();
+            } else {
+                break;
+            }
+        }
+    }
+
+    /// 检查并调优
+    ///
+    /// 返回调优动作（如果有）。冷启动期内不调优。
+    pub fn check_and_tune(
+        &self,
+        eviction_count: u64,
+        cache_size: usize,
+        unique_sql_count: usize,
+    ) -> Option<TuningAction> {
+        let cold_start = self.cold_start_end.lock();
+        if let Some(end) = *cold_start {
+            if Instant::now() < end {
+                return None;
+            }
+        }
+        drop(cold_start);
+
+        let avg_hit_rate = self.current_hit_rate();
+        if avg_hit_rate >= self.config.low_hit_threshold {
+            return None;
+        }
+
+        let issue =
+            self.analyzer
+                .analyze(avg_hit_rate, eviction_count, cache_size, unique_sql_count);
+        self.tuner.tune(&issue, cache_size)
+    }
+
+    /// 是否在冷启动期
+    pub fn is_cold_start(&self) -> bool {
+        let cold_start = self.cold_start_end.lock();
+        if let Some(end) = *cold_start {
+            Instant::now() < end
+        } else {
+            false
+        }
+    }
+
+    /// 历史记录数
+    pub fn history_len(&self) -> usize {
+        self.hit_rate_history.lock().len()
+    }
+
+    /// 配置引用
+    pub fn config(&self) -> &HitRateTuningConfig {
+        &self.config
+    }
+
+    /// 强制结束冷启动期（用于测试）
+    pub fn end_cold_start(&self) {
+        *self.cold_start_end.lock() = None;
+    }
+}
+// ============================================================================
+// v10.12.0 T2.5：计划缓存预热与冷启动加速
+// ============================================================================
+
+/// 热点 SQL 历史数据
+///
+/// 记录历史热点 SQL 及其访问频率，用于冷启动时预加载计划缓存。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct HotSqlHistory {
+    /// 热点 SQL 列表（归一化后）
+    pub hot_sqls: Vec<String>,
+    /// 对应的访问频率
+    pub access_freqs: Vec<u64>,
+    /// 最后更新时间（Unix 秒）
+    pub last_updated: u64,
+}
+
+impl HotSqlHistory {
+    /// 创建空的历史
+    pub fn new() -> Self {
+        Self {
+            hot_sqls: Vec::new(),
+            access_freqs: Vec::new(),
+            last_updated: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+
+    /// 添加热点 SQL
+    pub fn add(&mut self, sql: impl Into<String>, freq: u64) {
+        self.hot_sqls.push(sql.into());
+        self.access_freqs.push(freq);
+    }
+
+    /// 衰减历史数据
+    ///
+    /// 衰减因子 0.5：访问频率减半。
+    pub fn decay(&self, decay_factor: f64) -> HotSqlHistory {
+        HotSqlHistory {
+            hot_sqls: self.hot_sqls.clone(),
+            access_freqs: self
+                .access_freqs
+                .iter()
+                .map(|&f| (f as f64 * decay_factor) as u64)
+                .collect(),
+            last_updated: self.last_updated,
+        }
+    }
+
+    /// 合并另一份历史（去重 + 频率累加）
+    pub fn merge(&self, other: &HotSqlHistory) -> HotSqlHistory {
+        let mut sqls = self.hot_sqls.clone();
+        let mut freqs = self.access_freqs.clone();
+
+        for (i, sql) in other.hot_sqls.iter().enumerate() {
+            if let Some(pos) = sqls.iter().position(|s| s == sql) {
+                freqs[pos] += other.access_freqs[i];
+            } else {
+                sqls.push(sql.clone());
+                freqs.push(other.access_freqs[i]);
+            }
+        }
+
+        HotSqlHistory {
+            hot_sqls: sqls,
+            access_freqs: freqs,
+            last_updated: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+
+    /// 过滤低频 SQL
+    pub fn filter_low_freq(&self, min_freq: u64) -> HotSqlHistory {
+        let mut sqls = Vec::new();
+        let mut freqs = Vec::new();
+        for (i, sql) in self.hot_sqls.iter().enumerate() {
+            if self.access_freqs[i] >= min_freq {
+                sqls.push(sql.clone());
+                freqs.push(self.access_freqs[i]);
+            }
+        }
+        HotSqlHistory {
+            hot_sqls: sqls,
+            access_freqs: freqs,
+            last_updated: self.last_updated,
+        }
+    }
+
+    /// TopK 选取（按访问频率降序取前 K）
+    pub fn topk(&self, k: usize) -> Vec<(String, u64)> {
+        let mut indices: Vec<usize> = (0..self.hot_sqls.len()).collect();
+        indices.sort_by(|&a, &b| self.access_freqs[b].cmp(&self.access_freqs[a]));
+        indices.truncate(k);
+        indices
+            .into_iter()
+            .map(|i| (self.hot_sqls[i].clone(), self.access_freqs[i]))
+            .collect()
+    }
+
+    /// 条目数
+    pub fn len(&self) -> usize {
+        self.hot_sqls.len()
+    }
+
+    /// 是否为空
+    pub fn is_empty(&self) -> bool {
+        self.hot_sqls.is_empty()
+    }
+}
+
+impl Default for HotSqlHistory {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 计划缓存预热配置
+#[derive(Debug, Clone)]
+pub struct PlanPrewarmConfig {
+    /// TopK 热点 SQL 选取数
+    pub topk: usize,
+    /// 衰减因子（0.0~1.0）
+    pub decay_factor: f64,
+    /// 历史数据文件路径
+    pub history_path: std::path::PathBuf,
+}
+
+impl Default for PlanPrewarmConfig {
+    fn default() -> Self {
+        Self {
+            topk: 100,
+            decay_factor: 0.5,
+            history_path: std::path::PathBuf::from("hot_sql_history.json"),
+        }
+    }
+}
+
+/// 计划缓存预热驱动器
+///
+/// 冷启动时按历史热点 SQL 指纹预加载计划缓存，
+/// 避免冷启动期解析优化开销突增。
+/// 预热失败跳过不影响启动。
+pub struct PlanCachePrewarm {
+    config: PlanPrewarmConfig,
+    /// 已加载的历史
+    history: std::sync::Mutex<Option<HotSqlHistory>>,
+    /// 预热次数统计
+    prewarm_count: AtomicU64,
+}
+
+impl std::fmt::Debug for PlanCachePrewarm {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("PlanCachePrewarm")
+            .field("config", &self.config)
+            .field("prewarm_count", &self.prewarm_count.load(Ordering::Relaxed))
+            .finish_non_exhaustive()
+    }
+}
+
+impl PlanCachePrewarm {
+    /// 创建计划缓存预热驱动器
+    pub fn new(config: PlanPrewarmConfig) -> Self {
+        Self {
+            config,
+            history: std::sync::Mutex::new(None),
+            prewarm_count: AtomicU64::new(0),
+        }
+    }
+
+    /// 加载热点 SQL 历史
+    ///
+    /// 文件不存在或损坏时返回 None。
+    pub fn load_hot_sql_history(&self) -> Option<HotSqlHistory> {
+        if !self.config.history_path.exists() {
+            return None;
+        }
+
+        match std::fs::read_to_string(&self.config.history_path) {
+            Ok(content) => match serde_json::from_str::<HotSqlHistory>(&content) {
+                Ok(history) => {
+                    *self.history.lock().unwrap() = Some(history.clone());
+                    Some(history)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = ?self.config.history_path,
+                        error = %e,
+                        "热点 SQL 历史文件损坏，跳过预热"
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    path = ?self.config.history_path,
+                    error = %e,
+                    "热点 SQL 历史文件读取失败，跳过预热"
+                );
+                None
+            }
+        }
+    }
+
+    /// 预热计划缓存
+    ///
+    /// 按历史热点 SQL 的 TopK 预加载计划缓存。
+    /// 返回预加载的条目数。
+    pub fn prewarm_plan_cache(&self, cache: &PlanCache) -> usize {
+        self.prewarm_count.fetch_add(1, Ordering::Relaxed);
+
+        let history = match self.load_hot_sql_history() {
+            Some(h) => h,
+            None => return 0,
+        };
+
+        let topk = history.topk(self.config.topk);
+        let mut loaded = 0;
+
+        for (sql, _freq) in &topk {
+            if cache.get_or_parse(sql).is_ok() {
+                loaded += 1;
+            }
+        }
+
+        loaded
+    }
+
+    /// 保存热点 SQL 历史
+    pub fn save_hot_sql_history(&self, history: &HotSqlHistory) -> Result<(), String> {
+        if let Some(parent) = self.config.history_path.parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("创建历史目录失败: {e}"))?;
+            }
+        }
+
+        let content =
+            serde_json::to_string(history).map_err(|e| format!("序列化历史数据失败: {e}"))?;
+
+        std::fs::write(&self.config.history_path, content)
+            .map_err(|e| format!("写入历史文件失败: {e}"))?;
+
+        *self.history.lock().unwrap() = Some(history.clone());
+        Ok(())
+    }
+
+    /// 配置引用
+    pub fn config(&self) -> &PlanPrewarmConfig {
+        &self.config
+    }
+
+    /// 预热次数
+    pub fn prewarm_count(&self) -> u64 {
+        self.prewarm_count.load(Ordering::Relaxed)
+    }
+
+    /// 获取已加载的历史
+    pub fn cached_history(&self) -> Option<HotSqlHistory> {
+        self.history.lock().unwrap().clone()
     }
 }

@@ -56,6 +56,8 @@ pub struct PreparedStatementCache {
     stats: PreparedStatementCacheStats,
     /// 每连接最大缓存数
     max_size_per_conn: usize,
+    /// 跨连接计划共享（v10.12.0 T2.4）
+    cross_conn_share: Option<CrossConnPlanShare>,
 }
 
 /// 连接级句柄桶
@@ -151,7 +153,25 @@ impl PreparedStatementCache {
             buckets: RwLock::new(HashMap::new()),
             stats: PreparedStatementCacheStats::new(),
             max_size_per_conn,
+            cross_conn_share: None,
         }
+    }
+
+    /// 创建带跨连接计划共享的缓存
+    #[must_use]
+    pub fn new_with_cross_share(max_size_per_conn: usize) -> Self {
+        Self {
+            buckets: RwLock::new(HashMap::new()),
+            stats: PreparedStatementCacheStats::new(),
+            max_size_per_conn,
+            cross_conn_share: Some(CrossConnPlanShare::new()),
+        }
+    }
+
+    /// 获取跨连接计划共享引用
+    #[must_use]
+    pub fn cross_conn_share(&self) -> Option<&CrossConnPlanShare> {
+        self.cross_conn_share.as_ref()
     }
 
     /// 查找或执行缓存句柄
@@ -198,6 +218,37 @@ impl PreparedStatementCache {
         Ok(PreparedLookup::Miss)
     }
 
+    /// 查找或执行缓存句柄（带连接上下文，支持跨连接共享）
+    ///
+    /// 当 `cross_conn_share` 启用且上下文一致时，同 SQL 指纹的计划跨连接复用。
+    /// 上下文不一致时不共享，走独立解析（返回 Miss）。
+    pub async fn get_or_prepare_with_context(
+        &self,
+        conn_id: ConnId,
+        sql: &str,
+        params: &[Value],
+        conn_context: &ConnContext,
+    ) -> Result<PreparedLookup, DbError> {
+        let sql_hash = compute_sql_hash(sql);
+
+        if let Some(ref share) = self.cross_conn_share {
+            if let Some(execute_fn) = share.get_shared_plan(sql_hash, conn_context) {
+                match execute_fn(params).await {
+                    Ok(rows) => {
+                        self.stats.record_hit();
+                        return Ok(PreparedLookup::Hit(rows));
+                    }
+                    Err(e) => {
+                        self.stats.record_degradation();
+                        return Err(e);
+                    }
+                }
+            }
+        }
+
+        self.get_or_prepare(conn_id, sql, params).await
+    }
+
     /// 存储句柄（prepare 后调用）
     ///
     /// 若 bucket 已满，LRU 淘汰最久未使用的条目。
@@ -241,12 +292,32 @@ impl PreparedStatementCache {
             .insert(sql_hash, PreparedStatementEntry { execute_fn });
     }
 
+    /// 存储句柄并同步到跨连接共享（prepare 后调用）
+    ///
+    /// 先存入连接级 bucket，再存入跨连接共享（若启用）。
+    pub fn store_handle_with_context(
+        &self,
+        conn_id: ConnId,
+        sql: &str,
+        tables: Vec<String>,
+        execute_fn: ExecuteFn,
+        conn_context: ConnContext,
+    ) {
+        self.store_handle(conn_id, sql, tables, execute_fn.clone());
+
+        if let Some(ref share) = self.cross_conn_share {
+            let sql_hash = compute_sql_hash(sql);
+            share.store_shared_plan(sql_hash, execute_fn, conn_context);
+        }
+    }
+
     /// 表级失效：清除该表关联的所有句柄
     ///
-    /// 返回失效条目数
+    /// 返回失效条目数（含跨连接共享条目）
     pub fn invalidate_table(&self, table: &str) -> usize {
         let mut buckets = self.buckets.write();
         let mut total = 0;
+        let mut invalidated_hashes = Vec::new();
 
         for bucket in buckets.values_mut() {
             if let Some(hashes) = bucket.table_index.remove(table) {
@@ -255,6 +326,15 @@ impl PreparedStatementCache {
                     bucket.lru.remove(hash);
                 }
                 total += hashes.len();
+                invalidated_hashes.extend(hashes);
+            }
+        }
+
+        if let Some(ref share) = self.cross_conn_share {
+            for hash in &invalidated_hashes {
+                if share.invalidate_by_fingerprint(*hash) {
+                    total += 1;
+                }
             }
         }
 
@@ -326,6 +406,203 @@ impl PreparedStatementCache {
     }
 }
 
+/// 连接级上下文（影响查询计划的选择）
+///
+/// 同 SQL 指纹在不同连接间共享计划时，需校验上下文一致性。
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub struct ConnContext {
+    /// 搜索路径（PostgreSQL search_path / MySQL schema）
+    pub search_path: String,
+    /// 当前 schema
+    pub schema: String,
+    /// 字符集编码
+    pub charset: String,
+}
+
+impl ConnContext {
+    /// 创建连接上下文
+    #[must_use]
+    pub fn new(search_path: &str, schema: &str, charset: &str) -> Self {
+        Self {
+            search_path: search_path.to_string(),
+            schema: schema.to_string(),
+            charset: charset.to_string(),
+        }
+    }
+
+    /// 默认上下文（public schema, utf8）
+    #[must_use]
+    pub fn default_context() -> Self {
+        Self {
+            search_path: "public".to_string(),
+            schema: "public".to_string(),
+            charset: "utf8".to_string(),
+        }
+    }
+}
+
+impl Default for ConnContext {
+    fn default() -> Self {
+        Self::default_context()
+    }
+}
+
+/// 连接级上下文一致性校验器
+pub struct ConnContextValidator;
+
+impl ConnContextValidator {
+    /// 校验两个连接上下文是否一致（search_path/schema/charset 全匹配）
+    #[must_use]
+    pub fn check_consistency(ctx1: &ConnContext, ctx2: &ConnContext) -> bool {
+        ctx1 == ctx2
+    }
+
+    /// 实例方法：校验上下文一致性
+    #[must_use]
+    pub fn validate(&self, ctx1: &ConnContext, ctx2: &ConnContext) -> bool {
+        Self::check_consistency(ctx1, ctx2)
+    }
+}
+
+/// 跨连接共享的计划条目
+struct SharedPlanEntry {
+    /// 句柄执行闭包
+    execute_fn: ExecuteFn,
+    /// 创建时的连接上下文
+    context: ConnContext,
+    /// 创建时间
+    create_time: Instant,
+}
+
+/// 跨连接计划共享
+///
+/// 同 SQL 指纹（归一化后 SQL hash）的查询计划可在不同连接间复用。
+/// 计划不绑定连接，仅句柄绑定连接。共享时校验连接级上下文一致性
+/// （search_path/schema/charset），不一致不共享走独立解析。
+pub struct CrossConnPlanShare {
+    /// SQL hash → 共享条目
+    shared_plans: RwLock<HashMap<u64, SharedPlanEntry>>,
+    /// 上下文校验器
+    context_validator: ConnContextValidator,
+    /// 统计：共享命中次数
+    shared_hits: AtomicU64,
+    /// 统计：上下文不一致拒绝次数
+    context_mismatches: AtomicU64,
+}
+
+impl CrossConnPlanShare {
+    /// 创建跨连接计划共享
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            shared_plans: RwLock::new(HashMap::new()),
+            context_validator: ConnContextValidator,
+            shared_hits: AtomicU64::new(0),
+            context_mismatches: AtomicU64::new(0),
+        }
+    }
+
+    /// 获取共享计划
+    ///
+    /// 上下文一致时返回共享句柄，不一致时返回 None（走独立解析）。
+    #[must_use]
+    pub fn get_shared_plan(
+        &self,
+        fingerprint: u64,
+        conn_context: &ConnContext,
+    ) -> Option<ExecuteFn> {
+        let plans = self.shared_plans.read();
+        if let Some(entry) = plans.get(&fingerprint) {
+            if self
+                .context_validator
+                .validate(&entry.context, conn_context)
+            {
+                self.shared_hits.fetch_add(1, Ordering::Relaxed);
+                Some(Arc::clone(&entry.execute_fn))
+            } else {
+                self.context_mismatches.fetch_add(1, Ordering::Relaxed);
+                None
+            }
+        } else {
+            None
+        }
+    }
+
+    /// 存储共享计划
+    pub fn store_shared_plan(
+        &self,
+        fingerprint: u64,
+        execute_fn: ExecuteFn,
+        conn_context: ConnContext,
+    ) {
+        let mut plans = self.shared_plans.write();
+        plans.insert(
+            fingerprint,
+            SharedPlanEntry {
+                execute_fn,
+                context: conn_context,
+                create_time: Instant::now(),
+            },
+        );
+    }
+
+    /// 按指纹失效共享计划
+    ///
+    /// 返回是否实际移除了条目
+    pub fn invalidate_by_fingerprint(&self, fingerprint: u64) -> bool {
+        let mut plans = self.shared_plans.write();
+        plans.remove(&fingerprint).is_some()
+    }
+
+    /// 共享命中次数
+    #[must_use]
+    pub fn shared_hits(&self) -> u64 {
+        self.shared_hits.load(Ordering::Relaxed)
+    }
+
+    /// 上下文不一致拒绝次数
+    #[must_use]
+    pub fn context_mismatches(&self) -> u64 {
+        self.context_mismatches.load(Ordering::Relaxed)
+    }
+
+    /// 当前共享条目数
+    #[must_use]
+    pub fn len(&self) -> usize {
+        self.shared_plans.read().len()
+    }
+
+    /// 是否为空
+    #[must_use]
+    pub fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
+
+    /// 获取共享条目的上下文（调试/测试用，反幻影验证）
+    #[must_use]
+    pub fn get_entry_context(&self, fingerprint: u64) -> Option<ConnContext> {
+        self.shared_plans
+            .read()
+            .get(&fingerprint)
+            .map(|e| e.context.clone())
+    }
+
+    /// 获取共享条目的创建时间（调试/测试用）
+    #[must_use]
+    pub fn get_entry_create_time(&self, fingerprint: u64) -> Option<Instant> {
+        self.shared_plans
+            .read()
+            .get(&fingerprint)
+            .map(|e| e.create_time)
+    }
+}
+
+impl Default for CrossConnPlanShare {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 impl PreparedStatementBucket {
     fn new() -> Self {
         Self {
@@ -347,7 +624,8 @@ impl Default for PreparedStatementCache {
 }
 
 /// 计算 SQL hash（归一化后）
-fn compute_sql_hash(sql: &str) -> u64 {
+#[must_use]
+pub fn compute_sql_hash(sql: &str) -> u64 {
     let normalized = sql.trim().to_lowercase();
     let mut hasher = std::collections::hash_map::DefaultHasher::new();
     normalized.hash(&mut hasher);

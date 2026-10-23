@@ -1,7 +1,7 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v10.11.0 · 72 workspace members · 20928+ tests · 28 SQL dialects · sz-orm-core published on crates.io
+> v10.12.0 · 72 workspace members · 20928+ tests · 28 SQL dialects · sz-orm-core published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)

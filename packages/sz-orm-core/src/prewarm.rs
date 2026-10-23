@@ -288,6 +288,8 @@ pub struct ColdStartOptimizer {
     p95_samples: std::sync::Mutex<Vec<u64>>,
     /// 预热触发次数
     cold_start_count: AtomicU64,
+    /// 历史预热驱动器（v10.12.0 T1.4）
+    history_driver: Option<HistoryPrewarmDriver>,
 }
 
 impl Default for ColdStartOptimizer {
@@ -304,7 +306,28 @@ impl ColdStartOptimizer {
             min_prewarm_connections: min_prewarm_connections.max(1),
             p95_samples: std::sync::Mutex::new(Vec::with_capacity(100)),
             cold_start_count: AtomicU64::new(0),
+            history_driver: None,
         }
+    }
+
+    /// 创建带历史预热的冷启动优化器
+    pub fn new_with_history_driver(
+        target_latency: Duration,
+        min_prewarm_connections: u32,
+        history_path: std::path::PathBuf,
+    ) -> Self {
+        Self {
+            target_latency,
+            min_prewarm_connections: min_prewarm_connections.max(1),
+            p95_samples: std::sync::Mutex::new(Vec::with_capacity(100)),
+            cold_start_count: AtomicU64::new(0),
+            history_driver: Some(HistoryPrewarmDriver::new(history_path)),
+        }
+    }
+
+    /// 历史预热驱动器引用
+    pub fn history_driver(&self) -> Option<&HistoryPrewarmDriver> {
+        self.history_driver.as_ref()
     }
 
     /// 目标延迟
@@ -320,11 +343,17 @@ impl ColdStartOptimizer {
     /// 冷启动事件触发
     ///
     /// 并行预热连接池至最小容量，超时返回部分可用状态。
+    /// 当历史预热驱动器启用且有历史数据时，按历史最优连接数预热。
     pub fn on_cold_start(&self) -> ColdStartStats {
         self.cold_start_count.fetch_add(1, Ordering::Relaxed);
         let start = Instant::now();
 
-        let warmed = self.min_prewarm_connections;
+        let warmed = if let Some(ref driver) = self.history_driver {
+            driver.prewarm_by_history_sync(self.min_prewarm_connections)
+        } else {
+            self.min_prewarm_connections
+        };
+
         let elapsed = start.elapsed();
         let partial_available = elapsed > self.target_latency;
 
@@ -370,6 +399,227 @@ impl ColdStartOptimizer {
     /// 冷启动触发次数
     pub fn cold_start_count(&self) -> u64 {
         self.cold_start_count.load(Ordering::Relaxed)
+    }
+}
+
+// ============================================================================
+// v10.12.0 T1.4：历史预热驱动
+// ============================================================================
+
+/// 最优连接数记录
+///
+/// 记录某次运行中采集的最优连接数及其负载上下文。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct OptimalConnRecord {
+    /// 最优连接数
+    pub conn_count: u32,
+    /// 采集时间戳（Unix 秒）
+    pub collected_at: u64,
+    /// 当时的 QPS
+    pub qps: f64,
+    /// 当时的 P99 延迟（毫秒）
+    pub p99_latency_ms: u64,
+}
+
+/// 预热历史数据
+///
+/// 上次运行采集的最优连接数和热点 SQL 指纹，用于快速冷启动预热。
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct WarmupHistory {
+    /// 最优连接数
+    pub optimal_conn_count: u32,
+    /// 热点 SQL 指纹列表
+    pub hot_sql_fingerprints: Vec<u64>,
+    /// 最后更新时间（Unix 秒）
+    pub last_updated: u64,
+}
+
+impl WarmupHistory {
+    /// 创建新的预热历史
+    pub fn new(optimal_conn_count: u32) -> Self {
+        Self {
+            optimal_conn_count,
+            hot_sql_fingerprints: Vec::new(),
+            last_updated: std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .unwrap_or_default()
+                .as_secs(),
+        }
+    }
+
+    /// 添加热点 SQL 指纹
+    pub fn with_hot_sql(mut self, fingerprints: Vec<u64>) -> Self {
+        self.hot_sql_fingerprints = fingerprints;
+        self
+    }
+
+    /// 合并另一份历史（近期数据权重更高）
+    ///
+    /// 衰减因子 0.5：旧数据权重减半。
+    pub fn merge(&self, other: &WarmupHistory) -> WarmupHistory {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let self_age = now.saturating_sub(self.last_updated);
+        let other_age = now.saturating_sub(other.last_updated);
+
+        let (primary, secondary) = if self_age <= other_age {
+            (self, other)
+        } else {
+            (other, self)
+        };
+
+        let merged_count = ((primary.optimal_conn_count as f64) * 0.7
+            + (secondary.optimal_conn_count as f64) * 0.3) as u32;
+
+        let mut fingerprints = primary.hot_sql_fingerprints.clone();
+        for fp in &secondary.hot_sql_fingerprints {
+            if !fingerprints.contains(fp) {
+                fingerprints.push(*fp);
+            }
+        }
+
+        WarmupHistory {
+            optimal_conn_count: merged_count,
+            hot_sql_fingerprints: fingerprints,
+            last_updated: now,
+        }
+    }
+
+    /// 衰减历史数据
+    ///
+    /// 衰减因子 0.5：连接数减半（模拟旧数据权重降低）。
+    pub fn decay(&self) -> WarmupHistory {
+        WarmupHistory {
+            optimal_conn_count: (self.optimal_conn_count as f64 * 0.5) as u32,
+            hot_sql_fingerprints: self.hot_sql_fingerprints.clone(),
+            last_updated: self.last_updated,
+        }
+    }
+}
+
+impl Default for WarmupHistory {
+    fn default() -> Self {
+        Self::new(2)
+    }
+}
+
+/// 历史预热驱动器
+///
+/// 按历史预热数据（上次运行采集的最优连接数/热点 SQL）快速达到最优状态。
+/// 无历史数据时退化为默认预热。历史文件损坏时回退默认并告警。
+pub struct HistoryPrewarmDriver {
+    /// 已加载的历史数据
+    history: std::sync::Mutex<Option<WarmupHistory>>,
+    /// 历史数据文件路径
+    history_path: std::path::PathBuf,
+}
+
+impl std::fmt::Debug for HistoryPrewarmDriver {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("HistoryPrewarmDriver")
+            .field("history", &self.history.lock().unwrap())
+            .field("history_path", &self.history_path)
+            .finish()
+    }
+}
+
+impl HistoryPrewarmDriver {
+    /// 创建历史预热驱动器
+    pub fn new(history_path: std::path::PathBuf) -> Self {
+        Self {
+            history: std::sync::Mutex::new(None),
+            history_path,
+        }
+    }
+
+    /// 加载历史数据（同步）
+    ///
+    /// 文件不存在或损坏时返回 None 并告警。
+    pub fn load_history_sync(&self) -> Option<WarmupHistory> {
+        if !self.history_path.exists() {
+            return None;
+        }
+
+        match std::fs::read_to_string(&self.history_path) {
+            Ok(content) => match serde_json::from_str::<WarmupHistory>(&content) {
+                Ok(history) => {
+                    *self.history.lock().unwrap() = Some(history.clone());
+                    Some(history)
+                }
+                Err(e) => {
+                    tracing::warn!(
+                        path = ?self.history_path,
+                        error = %e,
+                        "历史预热文件损坏，回退默认预热"
+                    );
+                    None
+                }
+            },
+            Err(e) => {
+                tracing::warn!(
+                    path = ?self.history_path,
+                    error = %e,
+                    "历史预热文件读取失败，回退默认预热"
+                );
+                None
+            }
+        }
+    }
+
+    /// 加载历史数据（异步）
+    pub async fn load_history(&self) -> Option<WarmupHistory> {
+        self.load_history_sync()
+    }
+
+    /// 保存历史数据
+    pub fn save_history_sync(&self, history: &WarmupHistory) -> Result<(), String> {
+        if let Some(parent) = self.history_path.parent() {
+            if !parent.exists() {
+                std::fs::create_dir_all(parent).map_err(|e| format!("创建历史目录失败: {e}"))?;
+            }
+        }
+
+        let content =
+            serde_json::to_string(history).map_err(|e| format!("序列化历史数据失败: {e}"))?;
+
+        std::fs::write(&self.history_path, content)
+            .map_err(|e| format!("写入历史文件失败: {e}"))?;
+
+        *self.history.lock().unwrap() = Some(history.clone());
+        Ok(())
+    }
+
+    /// 保存历史数据（异步）
+    pub async fn save_history(&self, history: &WarmupHistory) -> Result<(), String> {
+        self.save_history_sync(history)
+    }
+
+    /// 按历史预热
+    ///
+    /// 有历史数据时返回历史最优连接数，无历史时返回 default_count。
+    pub fn prewarm_by_history_sync(&self, default_count: u32) -> u32 {
+        if let Some(history) = self.load_history_sync() {
+            history.optimal_conn_count.max(1)
+        } else {
+            default_count
+        }
+    }
+
+    /// 按历史预热（异步）
+    pub async fn prewarm_by_history(&self, default_count: u32) -> u32 {
+        self.prewarm_by_history_sync(default_count)
+    }
+
+    /// 历史文件路径
+    pub fn history_path(&self) -> &std::path::Path {
+        &self.history_path
+    }
+
+    /// 获取已加载的历史数据
+    pub fn cached_history(&self) -> Option<WarmupHistory> {
+        self.history.lock().unwrap().clone()
     }
 }
 

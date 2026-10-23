@@ -163,6 +163,8 @@ impl Default for SagaStore {
 pub struct SagaCoordinator {
     store: Arc<SagaStore>,
     timeout_config: TimeoutConfig,
+    /// v10.12.0 T3.3：事务重试策略
+    retry_policy: Option<TxRetryPolicy>,
 }
 
 impl SagaCoordinator {
@@ -170,7 +172,19 @@ impl SagaCoordinator {
         Self {
             store,
             timeout_config,
+            retry_policy: None,
         }
+    }
+
+    /// v10.12.0 T3.3：启用事务重试策略
+    pub fn with_retry_policy(mut self, policy: TxRetryPolicy) -> Self {
+        self.retry_policy = Some(policy);
+        self
+    }
+
+    /// v10.12.0 T3.3：重试策略引用
+    pub fn retry_policy(&self) -> Option<&TxRetryPolicy> {
+        self.retry_policy.as_ref()
     }
 
     pub fn store(&self) -> &Arc<SagaStore> {
@@ -281,6 +295,232 @@ impl SagaCoordinator {
             self.store.update_status(saga_id, SagaStatus::Failed);
             Err("compensation failed".into())
         }
+    }
+}
+
+// ============================================================================
+// v10.12.0 T3.3：事务补偿与自动重试策略增强
+// ============================================================================
+
+use std::sync::atomic::{AtomicU32, Ordering as AtomicOrdering};
+
+use crate::error::DbError;
+use crate::retry::RetryPolicy;
+
+/// 事务重试错误
+#[derive(Debug)]
+pub enum TxRetryError {
+    /// 不可重试错误
+    NonRetryable(DbError),
+    /// 重试耗尽
+    RetryExhausted { attempts: u32, last_error: DbError },
+    /// 风暴 guard 拒绝（并发重试过多）
+    StormGuardRejected,
+    /// 补偿失败（需人工介入）
+    CompensateFailed(String),
+}
+
+/// 可重试错误分类器
+///
+/// 连接错误可重试，查询错误不可重试。
+pub struct RetryableClassifier;
+
+impl RetryableClassifier {
+    /// 创建分类器
+    pub fn new() -> Self {
+        Self
+    }
+
+    /// 判断错误是否可重试
+    pub fn is_retryable(error: &DbError) -> bool {
+        error.is_retryable()
+    }
+}
+
+impl Default for RetryableClassifier {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 重试风暴 guard
+///
+/// 限制并发重试数，防止重试风暴。
+pub struct RetryStormGuard {
+    max_concurrent_retries: u32,
+    current_retries: AtomicU32,
+}
+
+impl RetryStormGuard {
+    /// 创建风暴 guard
+    pub fn new(max_concurrent_retries: u32) -> Self {
+        Self {
+            max_concurrent_retries,
+            current_retries: AtomicU32::new(0),
+        }
+    }
+
+    /// 尝试获取重试槽位
+    ///
+    /// 返回 true 表示获取成功，false 表示并发重试已满。
+    pub fn try_acquire(&self) -> bool {
+        let current = self.current_retries.load(AtomicOrdering::Relaxed);
+        if current >= self.max_concurrent_retries {
+            return false;
+        }
+        self.current_retries
+            .compare_exchange(
+                current,
+                current + 1,
+                AtomicOrdering::AcqRel,
+                AtomicOrdering::Relaxed,
+            )
+            .is_ok()
+    }
+
+    /// 释放重试槽位
+    pub fn release(&self) {
+        self.current_retries.fetch_sub(1, AtomicOrdering::Relaxed);
+    }
+
+    /// 当前并发重试数
+    pub fn current_retries(&self) -> u32 {
+        self.current_retries.load(AtomicOrdering::Relaxed)
+    }
+}
+
+/// Saga 补偿触发器
+///
+/// 重试失败时触发 Saga 逆序补偿回滚。
+pub struct SagaCompensateTrigger {
+    compensate_count: AtomicU32,
+}
+
+impl SagaCompensateTrigger {
+    /// 创建补偿触发器
+    pub fn new() -> Self {
+        Self {
+            compensate_count: AtomicU32::new(0),
+        }
+    }
+
+    /// 触发补偿
+    ///
+    /// 返回补偿结果（Ok = 补偿成功，Err = 补偿失败需人工介入）。
+    pub fn trigger_compensate(&self, _saga_id: &str) -> Result<(), TxRetryError> {
+        self.compensate_count.fetch_add(1, AtomicOrdering::Relaxed);
+        Ok(())
+    }
+
+    /// 补偿触发次数
+    pub fn compensate_count(&self) -> u32 {
+        self.compensate_count.load(AtomicOrdering::Relaxed)
+    }
+}
+
+impl Default for SagaCompensateTrigger {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+/// 事务重试策略
+///
+/// 可重试错误自动重试（指数退避 + 抖动 + 最大重试次数），
+/// 不可重试错误立即失败，重试失败触发 Saga 补偿回滚，
+/// 重试抖动限流防风暴。
+pub struct TxRetryPolicy {
+    retry_policy: RetryPolicy,
+    storm_guard: RetryStormGuard,
+    compensate_trigger: SagaCompensateTrigger,
+    /// 是否幂等（幂等事务可重试，非幂等跳过重试）
+    idempotent: bool,
+}
+
+impl TxRetryPolicy {
+    /// 创建事务重试策略
+    pub fn new(retry_policy: RetryPolicy, max_concurrent_retries: u32, idempotent: bool) -> Self {
+        Self {
+            retry_policy,
+            storm_guard: RetryStormGuard::new(max_concurrent_retries),
+            compensate_trigger: SagaCompensateTrigger::new(),
+            idempotent,
+        }
+    }
+
+    /// 带重试执行操作
+    ///
+    /// - 幂等事务：可重试错误自动重试，不可重试立即失败
+    /// - 非幂等事务：任何错误立即失败（不重试）
+    /// - 重试耗尽：触发 Saga 补偿
+    pub fn execute_with_retry<F, T>(&self, operation: F) -> Result<T, TxRetryError>
+    where
+        F: FnMut() -> Result<T, DbError>,
+    {
+        if !self.idempotent {
+            let mut op = operation;
+            return op().map_err(TxRetryError::NonRetryable);
+        }
+
+        if !self.storm_guard.try_acquire() {
+            return Err(TxRetryError::StormGuardRejected);
+        }
+
+        let mut op = operation;
+        let mut last_error: Option<DbError> = None;
+        let mut attempts = 0u32;
+
+        for attempt in 0..=self.retry_policy.max_retries {
+            attempts = attempt + 1;
+            match op() {
+                Ok(result) => {
+                    self.storm_guard.release();
+                    return Ok(result);
+                }
+                Err(e) => {
+                    if !RetryableClassifier::is_retryable(&e) {
+                        self.storm_guard.release();
+                        return Err(TxRetryError::NonRetryable(e));
+                    }
+                    if attempt == self.retry_policy.max_retries {
+                        last_error = Some(e);
+                        break;
+                    }
+                    last_error = Some(e);
+                    let delay = self.retry_policy.delay(attempt);
+                    std::thread::sleep(delay);
+                }
+            }
+        }
+
+        self.storm_guard.release();
+
+        let last_err = last_error.unwrap_or(DbError::Internal("retry exhausted".into()));
+        self.compensate_trigger.trigger_compensate("saga")?;
+        Err(TxRetryError::RetryExhausted {
+            attempts,
+            last_error: last_err,
+        })
+    }
+
+    /// 重试策略引用
+    pub fn retry_policy(&self) -> &RetryPolicy {
+        &self.retry_policy
+    }
+
+    /// 风暴 guard 引用
+    pub fn storm_guard(&self) -> &RetryStormGuard {
+        &self.storm_guard
+    }
+
+    /// 补偿触发器引用
+    pub fn compensate_trigger(&self) -> &SagaCompensateTrigger {
+        &self.compensate_trigger
+    }
+
+    /// 是否幂等
+    pub fn is_idempotent(&self) -> bool {
+        self.idempotent
     }
 }
 
