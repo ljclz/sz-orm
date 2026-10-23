@@ -64,7 +64,7 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: ${{ matrix.python-version }}
 
@@ -139,7 +139,7 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.10'
 
@@ -170,7 +170,7 @@ jobs:
         with:
           workspaces: ". -> target"
 
-      - uses: actions/setup-python@v5
+      - uses: actions/setup-python@v7
         with:
           python-version: '3.10'
 
