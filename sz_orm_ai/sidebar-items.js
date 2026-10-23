@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"mod":["advice_common","ai_config","embedding","error","index_advisor","nl2sql","rag","rewrite_advisor","safety","sql_sanitizer","vector","workload_index"]};

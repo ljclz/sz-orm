@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AiDecisionType","AnnIndexType","RewritePath","RiskLevel"],"struct":["AiConfig","AiDecision","AuditEntry","DecisionExplainer","DecisionPath","DecisionStep","FeatureImportance","RiskAssessment","RiskFactor","RollbackPlan","RollbackStep","VerifyCondition"]};

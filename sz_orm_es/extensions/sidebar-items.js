@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AggregationType","AliasAction","BulkAction","SuggesterType"],"struct":["AggBucket","AggRange","Aggregation","AggregationResult","AliasDefinition","AliasManager","BulkExecutor","BulkItemResult","BulkResult","MemoryAggregator","MemorySuggester","SuggestOption","SuggestRequest","SuggestResult"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RuntimeEnv","WasmBuildTarget"],"fn":["detect_environment","verify_sandbox_isolation"],"struct":["BuildTargetConfig","DualEnvConfig","SandboxVerificationResult"]};

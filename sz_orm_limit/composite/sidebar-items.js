@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CompositeStrategy"],"struct":["CompositeLimiter","FallbackLimiter","LimitKeyBuilder","RateLimitRule","RuleSet"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SagaStatus","TxRetryError"],"struct":["RetryStormGuard","RetryableClassifier","SagaCompensateTrigger","SagaCoordinator","SagaResult","SagaStep","SagaStore","TimeoutConfig","TxRetryPolicy"],"type":["SagaId","StepIndex"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["SourceOrm"],"struct":["ColumnDef","DieselParser","MigrationMapping","MigrationReport","OrmMigrator","RelationDef","SeaOrmParser","SourceSchema","SqlxParser","TableDef","UnmappableItem"],"trait":["SourceOrmParser"]};

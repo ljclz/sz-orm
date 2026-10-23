@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BulkInsertStrategy"],"struct":["BulkInsert","BulkInsertOptions","BulkInsertResult"]};

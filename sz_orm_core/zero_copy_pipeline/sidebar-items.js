@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["DecodeError","DecodeProtocol","ZeroCopyTypeId"],"fn":["mysql_row_decode_zero_copy","oracle_tns_decode_zero_copy","pg_binary_decode_zero_copy"],"struct":["DecodedRow","ZeroCopyPipeline","ZeroCopyRow","ZeroCopyRowStream","ZeroCopyStats","ZeroCopyTypeRegistry"]};

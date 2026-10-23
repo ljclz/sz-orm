@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AtomicityGuarantee","BatchAtomicError","BatchOperation"],"struct":["BatchAtomicConfig","BatchAtomicResult","BatchTransactionCoordinator","SagaCompensator"]};

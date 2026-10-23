@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MssqlErrorCategory","MssqlType"],"fn":["parse_conn_str"],"mod":["bulk_insert","connection_config","index_optimization","transaction_config","tsql_stored_procedure","type_mapping"],"struct":["MssqlClientGuard","MssqlConnInfo","MssqlConnection","MssqlConnectionFactory","MssqlDialect","MssqlPoolHandle"]};

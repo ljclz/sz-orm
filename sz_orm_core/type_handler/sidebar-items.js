@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["TypeHandlerError"],"struct":["ArrayHandler","BoolHandler","DateTimeHandler","DecimalHandler","JsonHandler","TypeHandlerRegistry","UuidHandler"],"trait":["ErasedTypeHandler","TypeHandler"],"type":["TypeHandlerResult"]};

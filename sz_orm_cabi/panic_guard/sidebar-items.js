@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FfiResult"],"fn":["catch_panic","catch_panic_or_default"]};

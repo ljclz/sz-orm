@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FallbackBehavior"],"struct":["MockConnection","QueryExpectationBuilder"],"type":["MockRow"]};

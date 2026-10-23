@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["MessageKey"],"fn":["clear","register","set_catalog","translate"],"type":["MessageCatalog"]};

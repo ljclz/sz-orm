@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BatchExecutorError"],"struct":["BatchExecutionResult","BatchExecutor","BatchExecutorConfig","ChunkExecutionDetail"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["EnhancedShardingError"],"struct":["CompositeRouter","ConsistentHashRouter","DynamicShardAdjuster","Hotspot","HotspotMigrator","ListRouter","MigrationResult","RangeConfigRouter","RangeShardConfig","ShardAdjustResult","ShardGroup"]};

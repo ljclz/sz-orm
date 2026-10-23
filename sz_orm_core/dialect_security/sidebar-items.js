@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CheckStatus","Dialect"],"struct":["DialectSecurityConfig","DialectSecurityReport","DialectSecurityResult","DialectSecurityVerifier"]};

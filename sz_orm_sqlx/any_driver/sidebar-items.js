@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["AnyBackend"],"fn":["create_connection","create_connection_by_type"],"struct":["AnyConnection","AnyPool"]};

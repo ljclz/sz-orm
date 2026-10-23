@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["FailureStrategy","MergeStrategy"],"struct":["ParallelQueryConfig"]};

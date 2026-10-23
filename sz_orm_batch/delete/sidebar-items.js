@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BatchDeleteError"],"fn":["batch_delete"],"struct":["BatchDeleteRequest","BatchDeleteResult"]};

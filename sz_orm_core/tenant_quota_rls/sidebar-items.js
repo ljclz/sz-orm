@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["QuotaEnforceStrategy","QuotaError","QuotaResource"],"struct":["BorrowLimit","EnhancedRlsPolicy","QuotaBorrower","QuotaEnforcer","RegionQuota","RegionQuotaIsolator","RlsPolicyEnhancer","TenantAuditEntry","TenantAuditLogger","TenantResourceQuota"]};

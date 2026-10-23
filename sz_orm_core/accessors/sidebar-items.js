@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CastType"],"struct":["AccessorRegistry","AttributeCaster","ClosureAccessor","ClosureMutator"],"trait":["Accessor","Mutator"]};

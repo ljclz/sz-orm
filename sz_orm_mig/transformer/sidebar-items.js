@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["ChainTransformer","ColumnMapper","FilterTransformer","TypeTransformer"],"trait":["DataTransformer"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["CacheError","PadStrategy","WarmupStrategy"],"struct":["AccessPatternAnalyzer","CacheLayoutOptimizer","CacheLayoutStats","CacheProtection","CacheWarmer","PenetrationGuard","SingleFlight","WarmupConfig","WarmupResult"]};

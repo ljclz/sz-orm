@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["MultiTenantPoolManager","TenantPoolStats","TenantQuota"],"type":["TenantId"]};

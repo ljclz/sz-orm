@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["ParamMode","ParamType"],"struct":["BatchProcedureCall","ProcedureParam","StoredProcedureBuilder"]};

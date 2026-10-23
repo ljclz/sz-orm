@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["Claims","Credentials","JwtAuthenticator","Token","User"],"trait":["PasswordVerifier"]};

@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["RelationType"],"struct":["DbColumnSchema","DbForeignKey","DbTableSchema","EntityDefinition","EntityField","EntityGenerator","EntityRelation"]};

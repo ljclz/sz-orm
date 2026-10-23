@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["PoolHealthStatus","PoolSuggestion"],"struct":["ConnectionPoolDiagnoser","ConnectionPoolMetrics","PoolDiagnoserConfig","PoolDiagnosisResult","PoolLeakDetector","PoolMetricsSampler"]};

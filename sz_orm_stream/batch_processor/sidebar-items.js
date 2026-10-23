@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"struct":["BatchProcessingStats","BatchProcessorConfig","BatchResult","StreamBatchProcessor"]};

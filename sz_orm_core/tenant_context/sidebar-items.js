@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["IsolationStrategy"],"struct":["SchemaIsolationRouter","TenantContext","TenantContextGuard","TenantPermissions","TenantPoolGuard","TenantPoolRegistry"]};

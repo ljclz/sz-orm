@@ -1,0 +1,1 @@
+window.SIDEBAR_ITEMS = {"enum":["BreakingChangeType","CompatStrictness","SandboxVerifyItem"],"struct":["CompatCheckResult","DependencyAnalyzer","ForwardCompatChecker","ForwardCompatConfig","MigrationDependencyGraph","SandboxConfig","SandboxDryRunner","SandboxResult","VerifyDetail"]};
