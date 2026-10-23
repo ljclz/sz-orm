@@ -1,11 +1,11 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v10.12.0 · 72 workspace members · 20928+ tests · 28 SQL dialects · sz-orm-core published on crates.io
+> v10.12.0 · 72 workspace members · 21133+ tests · 28 SQL dialects · sz-orm-core published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-20928+-green.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-21133+-green.svg)](#tests)
 [![Dialects](https://img.shields.io/badge/dialects-28-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-9.4.0-blue.svg)](CHANGELOG.md)
@@ -41,7 +41,7 @@
 
 ## Overview
 
-SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.11.0 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 517 feature gates for modular composition.
+SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.12.0 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 517 feature gates for modular composition.
 
 ### v5.1.0 AI Application Optimization (34 tasks, 293 new tests)
 
@@ -119,7 +119,7 @@ println!("{}", report.to_json().unwrap());
 |------|------|
 | Workspace members | **72** (70 sz-orm-* libs + cli + examples) |
 | Supported DB dialects | **28 SQL dialects** |
-| Test cases | **20928 passed, 0 failed** |
+| Test cases | **21133 passed, 0 failed** |
 | Code size | **~639,200 LOC** (src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |
@@ -131,7 +131,7 @@ println!("{}", report.to_json().unwrap());
 
 ## Historical: v3.4.0 New Features (2026-08-09)
 
-> **Note**: This section describes the v3.4.0 release features. For the latest features (v10.11.0), see [CHANGELOG.md](CHANGELOG.md). Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
+> **Note**: This section describes the v3.4.0 release features. For the latest features (v10.12.0), see [CHANGELOG.md](CHANGELOG.md). Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
 
 ### Test Coverage Backfill (`test-coverage`)
 
