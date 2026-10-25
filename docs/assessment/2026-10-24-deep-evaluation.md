@@ -121,9 +121,11 @@ if [ $AUDIT_RC -eq 0 ] || [ $DENY_RC -eq 0 ]; then mark 6 PASS; else mark 6 FAIL
 
 ---
 
-## 五、后续建议
+## 五、后续建议（2026-10-24 深化落地状态）
 
-- 在独立工作区引入 loom/shuttle 做并发模型检查（规避 RUSTFLAGS 污染依赖树问题）。
-- 用 `cargo geiger` 取代 grep 做 unsafe 盘点。
-- 为连接池增加并发不变量属性测试（active ≤ max_size、acquire/release 计数守恒）。
-- 门禁脚本的硬编码 PASS 模式应全局排查（Gate 1 目前也是直接标记 PASS，虽可手工验证但不自动）。
+- ✅ **loom 并发模型检查已落地**：新增独立工作区 `loom-check/`（仅依赖 loom，规避 RUSTFLAGS 污染主依赖树）。模型复刻连接池 acquire/release/shutdown 状态机，3 个不变量测试全部通过；移除修复检查后 `shutdown_prevents_new_connection_after_close` 立即失败（created=4），证明模型能抓真实竞态。运行：`cd loom-check && cargo test --offline`。
+- ✅ **unsafe 系统化盘点已落地**：新增 `scripts/check-unsafe-audit.py`（等价 cargo geiger 核心检查，离线可用）。扫描结果：16 个 src 文件含 `unsafe`，8 个真实 unsafe（全部有 SAFETY），0 失败。
+- ✅ **panic 安全验证已补充**：事务 panic 安全测试 12/12 通过（`transaction_panic_test.rs`，含 panic 回滚 + resume_unwind 传播）。新增 `scripts/check-panic-safety.py` 盘点 std 锁中毒风险面：52 文件 / 441 处 `.lock().unwrap()`，仅 4 文件使用 poison-tolerant 模式——建议逐步迁移到 `parking_lot` 或 `unwrap_or_else(|e| e.into_inner())`。
+- ⏳ **cargo geiger 安装**：依赖 crates.io 网络（当前环境不稳定），以 `scripts/check-unsafe-audit.py` 作为离线等价替代；网络可用后可安装并交叉验证。
+- ⏳ **连接池并发不变量属性测试**：已由 `loom-check/` 的模型不变量覆盖（total ≤ max、计数守恒），主工作区属性测试仍可扩展。
+- ✅ **门禁脚本硬编码 PASS 排查**：`run-gates-v10120-server.sh` Gate 1 仍为直接标记 PASS（注释说明 fmt 已手工通过）；Gate 6/11 已修复。

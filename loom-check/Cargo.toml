@@ -1,0 +1,10 @@
+[package]
+name = "sz-orm-loom-check"
+version = "0.1.0"
+edition = "2021"
+description = "sz-orm 连接池并发状态机的 loom 模型检查（独立工作区，避免污染主依赖树）"
+
+[workspace]
+
+[dependencies]
+loom = "0.7"

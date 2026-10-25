@@ -1,6 +1,7 @@
 /target
 fuzz/target
 fuzz/Cargo.lock
+loom-check/target
 *.log
 *.tmp
 test_output.txt
