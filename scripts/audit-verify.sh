@@ -99,6 +99,48 @@ while IFS= read -r line; do
       echo "⚠️  src/${BASH_REMATCH[1]}:$lineno — 未找到对应文件（跳过）"
       WARN=$((WARN + 1))
     fi
+
+  # 匹配仓库根级文件：deny.toml / Cargo.toml / Cargo.lock / AGENTS.md / rust-toolchain.toml
+  elif [[ "$line" =~ (deny\.toml|Cargo\.toml|Cargo\.lock|AGENTS\.md|rust-toolchain\.toml):([0-9]+)(-([0-9]+))? ]]; then
+    root_file="${BASH_REMATCH[1]}"
+    lineno="${BASH_REMATCH[2]}"
+
+    if [[ -f "$root_file" ]]; then
+      total_lines=$(wc -l < "$root_file")
+      if (( lineno <= total_lines )); then
+        echo "✅ $root_file:$lineno (共 $total_lines 行)"
+        PASS=$((PASS + 1))
+      else
+        echo "❌ $root_file:$lineno — 行号超出范围（文件共 $total_lines 行）"
+        FAIL=$((FAIL + 1))
+      fi
+    else
+      echo "❌ $root_file:$lineno — 文件不存在"
+      FAIL=$((FAIL + 1))
+    fi
+
+  # 匹配裸 .rs 文件名形式 smallvec.rs:40 —— 在 packages/ 下唯一解析
+  elif [[ "$line" =~ ([a-zA-Z0-9_][a-zA-Z0-9_/-]*\.rs):([0-9]+) ]]; then
+    bare_file="${BASH_REMATCH[1]}"
+    lineno="${BASH_REMATCH[2]}"
+    matches=$(find packages -path "*/$bare_file" -not -path '*/target/*' 2>/dev/null | wc -l)
+    if [[ "$matches" -eq 1 ]]; then
+      found=$(find packages -path "*/$bare_file" -not -path '*/target/*' 2>/dev/null | head -1)
+      total_lines=$(wc -l < "$found")
+      if (( lineno <= total_lines )); then
+        echo "✅ $found:$lineno (共 $total_lines 行)"
+        PASS=$((PASS + 1))
+      else
+        echo "❌ $found:$lineno — 行号超出范围（文件共 $total_lines 行）"
+        FAIL=$((FAIL + 1))
+      fi
+    elif [[ "$matches" -gt 1 ]]; then
+      echo "⚠️  $bare_file:$lineno — 找到 $matches 个同名文件（歧义，跳过）"
+      WARN=$((WARN + 1))
+    else
+      echo "⚠️  $bare_file:$lineno — 未找到对应文件（跳过）"
+      WARN=$((WARN + 1))
+    fi
   fi
 done < "$REPORT"
 

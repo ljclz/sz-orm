@@ -1804,6 +1804,15 @@ impl Pool {
         let mut to_close: Vec<PooledConnection> = Vec::with_capacity(4);
 
         loop {
+            // 深度评测修复（2026-10-24）：池关闭后拒绝仍在循环中的等待者。
+            // shutdown/close_all 置位 closed 并唤醒等待者后，等待者回到循环顶部
+            // 时必须复查 closed；否则可能在 close_all 递减 total_count 之后
+            // CAS 成功新建连接（或弹出 close_all 清空前的空闲连接）。
+            if self.closed.load(Ordering::Acquire) {
+                self.acquire_failed_count.fetch_add(1, Ordering::Relaxed);
+                return Err(PoolError::Closed);
+            }
+
             // v1.1.0 优化 2：从空闲连接中获取（无锁 pop）
             //
             // `ArrayQueue::pop()` 是单次 CAS 原子操作，无需 await Mutex 锁。
@@ -1901,6 +1910,12 @@ impl Pool {
             };
 
             if created.is_some() {
+                // 深度评测修复（2026-10-24）：CAS 成功后、发起异步创建前再次确认
+                // 池未关闭，收窄 shutdown 与 acquire 之间的竞态窗口。
+                if self.closed.load(Ordering::Acquire) {
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    return Err(PoolError::Closed);
+                }
                 match tokio::time::timeout(self.config.connection_timeout, self.factory.create())
                     .await
                 {

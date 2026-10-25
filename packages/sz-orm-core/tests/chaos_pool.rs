@@ -778,3 +778,88 @@ async fn chaos_pool_factory_failure_no_counter_leak() {
     let status = pool.status().await;
     assert_eq!(status.idle, 1, "成功创建后 idle 应为 1");
 }
+
+// ===================== 深度评测回归测试（2026-10-24） =====================
+
+/// 记录创建次数的连接工厂（深度评测回归测试用）
+struct CountingConnectionFactory {
+    created: Arc<AtomicU32>,
+}
+
+impl CountingConnectionFactory {
+    fn new() -> Self {
+        Self {
+            created: Arc::new(AtomicU32::new(0)),
+        }
+    }
+}
+
+#[async_trait]
+impl ConnectionFactory for CountingConnectionFactory {
+    async fn create(&self) -> Result<Box<dyn Connection>, DbError> {
+        self.created.fetch_add(1, Ordering::SeqCst);
+        Ok(Box::new(MockConnection::new(Arc::new(AtomicU32::new(0)))))
+    }
+}
+
+/// 混沌场景 6：shutdown 竞态——等待中的 acquire 不得在池关闭后新建连接
+///
+/// 复现背景（2026-10-24 深度评测确认）：`Pool::acquire` 原只在入口检查 `closed`，
+/// 等待循环内部没有复查。shutdown 置位 closed 并唤醒等待者后，若 close_all 已将
+/// total_count 减至低于 max_size，等待者会 CAS 成功并在已关闭的池上新建连接。
+///
+/// 本测试用单线程 runtime 制造确定性交错：
+/// 1. 池满（total=3=max），一个 acquire 等待者阻塞；
+/// 2. 主任务归还一个连接（idle=1）；
+/// 3. 立即 shutdown：closed=true → notify_waiters → close_all 清空 idle（total→2）；
+/// 4. 主任务在 shutdown 等待循环中让出，等待者才被调度；
+///    - 修复前：回到循环顶部（不检查 closed），CAS 2<3 新建连接 → created=4；
+///    - 修复后：循环顶部复查 closed，返回 PoolError::Closed → created=3。
+#[tokio::test]
+async fn chaos_pool_shutdown_race_no_new_connection() {
+    let factory = Arc::new(CountingConnectionFactory::new());
+    let config = PoolConfigBuilder::new()
+        .max_size(3)
+        .min_idle(0)
+        .acquire_timeout(2000)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, factory.clone()).unwrap();
+
+    let conn_a = pool.acquire().await.expect("conn_a 获取失败");
+    let conn_b = pool.acquire().await.expect("conn_b 获取失败");
+    let conn_c = pool.acquire().await.expect("conn_c 获取失败");
+    assert_eq!(
+        factory.created.load(Ordering::SeqCst),
+        3,
+        "初始应创建 3 个连接"
+    );
+
+    // 等待中的 acquire（池已满，应阻塞）
+    let pool2 = pool.clone();
+    let waiter = tokio::spawn(async move { pool2.acquire().await.is_ok() });
+
+    // 让等待者被调度并进入等待状态
+    tokio::task::yield_now().await;
+
+    // 归还一个连接（idle=1），随后立即 shutdown
+    // 单线程调度保证：release 与 close_all 同步完成，等待者在 shutdown 的
+    // sleep 让出前不会运行，因此无法在 close_all 之前消费归还的连接。
+    pool.release(conn_c).await;
+    pool.shutdown_with_timeout(Duration::from_millis(20)).await;
+
+    let created_after_shutdown = factory.created.load(Ordering::SeqCst);
+    let waiter_ok = waiter.await.expect("waiter task 不应 panic");
+
+    // 修复后：shutdown 后不得新建连接，等待者应收到 PoolError::Closed
+    assert_eq!(
+        created_after_shutdown, 3,
+        "shutdown 后不得新建连接（created={}）",
+        created_after_shutdown
+    );
+    assert!(!waiter_ok, "shutdown 后等待中的 acquire 不应成功获取连接");
+
+    // 清理剩余持有连接
+    drop(conn_a);
+    drop(conn_b);
+}
