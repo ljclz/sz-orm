@@ -154,7 +154,7 @@ G7 共执行 6 轮渐进式排查，每轮都比上一轮走得更远（122 → 
 
 ### 发现项（移交，不阻塞）
 
-1. `integration_gbase.rs:16-20` 硬编码腾讯云实例凭据（sh-mssql-adrul9nm.sql.tencentcdb.com:22527，test/JkbC2jsaWAYDe2Gz）——安全坏味道 + 本地门禁依赖外部网络服务，脆弱
+1. `integration_gbase.rs:16-20` 硬编码腾讯云实例凭据（sh-mssql-adrul9nm.sql.tencentcdb.com:22527，test/<your-password>）——安全坏味道 + 本地门禁依赖外部网络服务，脆弱
 2. mutation.rs `cargo_mutants_baseline` 哨兵测试原为无条件 `panic!`，使权威 G7 命令必然红——已修复为 `eprintln!` 提示后通过（真正的变异覆盖率由 G20 脚本把关），修复被 `7d89a26` 吸收
 
 ## 审计中止（基线丢失）

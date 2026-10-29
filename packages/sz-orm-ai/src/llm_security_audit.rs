@@ -156,7 +156,90 @@ impl InjectionPatternStore {
                 discovered_at: 0,
                 hit_count: 0,
             },
+            // —— v10.13.0 新增 10 条（2026-10-27 H-2 修复：与
+            // tests/llm_security_audit_expanded_test.rs 的断言一致）——
+            // 注意：check() 按数组顺序首中返回，扩展规则必须排在既有 4 条之后，
+            // 以保持 `or_1_eq_1` 等既有规则的匹配优先级（见 injection_pattern_learning_test.rs）。
+            InjectionPattern {
+                name: "or_1_eq_1_variant".to_string(),
+                // 前导空格避免误匹配 "xor 1=1" 等含 "or 1=1" 子串的合法表达式
+                pattern: " or 1=1".to_string(),
+                risk_level: RiskLevel::Critical,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "union_injection_encoded".to_string(),
+                pattern: "%27%20union select".to_string(),
+                risk_level: RiskLevel::Critical,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "stacked_injection_variant".to_string(),
+                pattern: ";drop table".to_string(),
+                risk_level: RiskLevel::Critical,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "comment_injection_nested".to_string(),
+                pattern: "/*".to_string(),
+                risk_level: RiskLevel::Medium,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_password".to_string(),
+                pattern: "password".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_secret".to_string(),
+                pattern: "secret".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_token".to_string(),
+                pattern: "token".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "privilege_escalation_drop".to_string(),
+                pattern: "drop table".to_string(),
+                risk_level: RiskLevel::Critical,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "privilege_escalation_alter".to_string(),
+                pattern: "alter table".to_string(),
+                risk_level: RiskLevel::Critical,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "privilege_escalation_grant".to_string(),
+                pattern: "grant ".to_string(),
+                risk_level: RiskLevel::Critical,
+                discovered_at: 0,
+                hit_count: 0,
+            },
         ]
+    }
+
+    /// 用指定模式列表创建存储（供 [`LlmSecurityAuditor::rule_only_excluding`] 使用）
+    pub fn from_patterns(patterns: Vec<InjectionPattern>) -> Self {
+        Self {
+            patterns,
+            store_path: None,
+        }
     }
 
     /// 检查输入是否匹配已知模式
@@ -306,6 +389,23 @@ impl LlmSecurityAuditor {
             pattern_store: InjectionPatternStore::new(store_path)?,
             llm_provider: Some(llm_provider),
         })
+    }
+
+    /// 创建仅规则引擎的审计器，并按规则名排除指定规则
+    ///
+    /// 供内部 DDL 生成器（IndexAutoApplier / SchemaAutoApplier）使用：其输入是程序
+    /// 生成的合法 DDL（如 `ALTER TABLE ... ADD COLUMN`、对 `token` 列建索引），
+    /// 不应被 DDL 动词（privilege_escalation_*）与敏感列名（sensitive_data_*）规则
+    /// 拦截；注入类规则（or/union/stacked/comment）仍然生效。
+    pub fn rule_only_excluding(excluded_rules: &[&str]) -> Self {
+        let patterns: Vec<InjectionPattern> = InjectionPatternStore::builtin_patterns()
+            .into_iter()
+            .filter(|p| !excluded_rules.contains(&p.name.as_str()))
+            .collect();
+        Self {
+            pattern_store: InjectionPatternStore::from_patterns(patterns),
+            llm_provider: None,
+        }
     }
 
     /// 审计输入

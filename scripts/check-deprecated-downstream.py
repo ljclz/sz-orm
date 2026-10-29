@@ -9,12 +9,28 @@
         --output docs/deprecated-removal-report-v7.2.0.json
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import re
 import subprocess
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _safe_output_path(path: str) -> Path:
+    """将报告输出路径限制在仓库内（防路径穿越）。"""
+    p = Path(path)
+    if not p.is_absolute():
+        p = ROOT / p
+    p = p.resolve()
+    root = ROOT.resolve()
+    if p != root and root not in p.parents:
+        raise ValueError(f"输出路径超出仓库范围（仅允许写入 {root} 内）: {path}")
+    return p
 
 
 def extract_symbol_names(api_path: str) -> list[str]:
@@ -167,8 +183,8 @@ def main():
             "removable": all_migrated,
         })
 
-    # 输出报告
-    output_path = Path(args.output)
+    # 输出报告（路径限定在仓库内，防穿越）
+    output_path = _safe_output_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)

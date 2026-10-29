@@ -1289,7 +1289,11 @@ impl IndexRiskAssessor {
     }
 
     /// 评估索引建议的风险等级
-    pub fn assess(&self, suggestion: &IndexSuggestion, profile: &WorkloadProfile) -> IndexRiskLevel {
+    pub fn assess(
+        &self,
+        suggestion: &IndexSuggestion,
+        profile: &WorkloadProfile,
+    ) -> IndexRiskLevel {
         for unique_cols in profile.unique_indexes.values() {
             if suggestion.index_columns == *unique_cols {
                 return IndexRiskLevel::High;
@@ -1300,10 +1304,7 @@ impl IndexRiskAssessor {
 
     /// 生成风险评估（用于 DecisionExplainer，需 ai-config feature）
     #[cfg(feature = "ai-config")]
-    pub fn risk_assessment(
-        &self,
-        level: IndexRiskLevel,
-    ) -> crate::ai_config::RiskAssessment {
+    pub fn risk_assessment(&self, level: IndexRiskLevel) -> crate::ai_config::RiskAssessment {
         use crate::ai_config::{RiskAssessment, RiskFactor, RiskLevel};
         let (risk_level, score, factor_name) = match level {
             IndexRiskLevel::Low => (RiskLevel::Low, 0.2, "non_unique_index"),
@@ -1439,8 +1440,13 @@ impl IndexAutoApplier {
 
         // 2. DDL 格式校验
         let upper = ddl.trim_start().to_uppercase();
-        let valid_prefix = ["CREATE INDEX", "CREATE BTREE INDEX", "CREATE HASH INDEX",
-            "CREATE GIN INDEX", "CREATE BRIN INDEX"];
+        let valid_prefix = [
+            "CREATE INDEX",
+            "CREATE BTREE INDEX",
+            "CREATE HASH INDEX",
+            "CREATE GIN INDEX",
+            "CREATE BRIN INDEX",
+        ];
         if !valid_prefix.iter().any(|p| upper.starts_with(p)) {
             return Err(DecisionError::SecurityAuditFailed(
                 "DDL 不是合法的 CREATE INDEX 语句".to_string(),
@@ -1463,7 +1469,17 @@ impl IndexAutoApplier {
         }
 
         // 4. LlmSecurityAuditor LLM 安全审计
-        let mut llm_auditor = LlmSecurityAuditor::rule_only();
+        // 4. LlmSecurityAuditor LLM 安全审计
+        // 输入为程序生成的 CREATE INDEX DDL，表/列名可能含 token/password 等业务词，
+        // 排除 DDL 动词与敏感列名规则，仅保留注入类规则（or/union/stacked/comment）
+        let mut llm_auditor = LlmSecurityAuditor::rule_only_excluding(&[
+            "privilege_escalation_alter",
+            "privilege_escalation_drop",
+            "privilege_escalation_grant",
+            "sensitive_data_password",
+            "sensitive_data_secret",
+            "sensitive_data_token",
+        ]);
         let audit_result = llm_auditor
             .audit(ddl)
             .await

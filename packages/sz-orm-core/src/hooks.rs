@@ -496,10 +496,11 @@ impl<M: SoftDelete> GlobalScope for (SoftDeleteScope, M) {
 // TenantScope — 多租户全局作用域
 // =====================================================================
 
-/// 多租户全局作用域
+/// 多租户全局作用域（默认拒绝，R9 起为默认语义）
 ///
 /// 自动追加 `AND tenant_id = ?` 到所有查询，绑定 `ctx.tenant_id`。
-/// 若 `ctx.tenant_id` 为 None，则不追加条件（允许跨租户查询，需调用方自行保证安全）。
+/// R9：`ctx.tenant_id` 为 `None` 时追加恒假条件 `1 = 0`——查询返回空集，
+/// 不再放行全表。跨租户管理查询须显式使用 [`PermissiveTenantScope`]。
 pub struct TenantScope;
 
 /// 多租户 Model trait
@@ -524,12 +525,60 @@ impl<M: TenantModel> GlobalScope for (TenantScope, M) {
     }
 
     fn apply_scope(ctx: &HookContext) -> Option<(String, Vec<crate::value::Value>)> {
+        match ctx.tenant_id {
+            Some(tid) => Some((
+                format!("{} = ?", <M as TenantModel>::tenant_field()),
+                vec![crate::value::Value::I64(tid)],
+            )),
+            // R9 默认拒绝：无租户上下文时查询恒返回空集
+            None => Some(("1 = 0".to_string(), vec![])),
+        }
+    }
+}
+
+/// 宽松多租户全局作用域（显式 opt-in）
+///
+/// R9 起 `TenantScope` 默认拒绝无租户上下文的查询；需要跨租户批量处理
+/// （报表、运维修复等）时显式选用本作用域：`ctx.tenant_id` 为 `None`
+/// 时不追加任何条件，调用方必须自行保证授权。
+pub struct PermissiveTenantScope;
+
+impl<M: TenantModel> GlobalScope for (PermissiveTenantScope, M) {
+    fn scope_name() -> &'static str {
+        "permissive_tenant"
+    }
+
+    fn apply_scope(ctx: &HookContext) -> Option<(String, Vec<crate::value::Value>)> {
         ctx.tenant_id.map(|tid| {
             (
                 format!("{} = ?", <M as TenantModel>::tenant_field()),
                 vec![crate::value::Value::I64(tid)],
             )
         })
+    }
+}
+
+/// 严格多租户全局作用域
+///
+/// 与 [`TenantScope`] 语义一致（R9 起 `TenantScope` 即默认拒绝）：当
+/// `ctx.tenant_id` 为 `None` 时，追加恒假条件 `1 = 0`，使查询**默认拒绝**
+/// 跨租户访问（返回空结果集），而非放行全表。保留此类型以兼容既有代码。
+pub struct StrictTenantScope;
+
+impl<M: TenantModel> GlobalScope for (StrictTenantScope, M) {
+    fn scope_name() -> &'static str {
+        "strict_tenant"
+    }
+
+    fn apply_scope(ctx: &HookContext) -> Option<(String, Vec<crate::value::Value>)> {
+        match ctx.tenant_id {
+            Some(tid) => Some((
+                format!("{} = ?", <M as TenantModel>::tenant_field()),
+                vec![crate::value::Value::I64(tid)],
+            )),
+            // 默认拒绝：恒假条件使查询恒返回空集
+            None => Some(("1 = 0".to_string(), vec![])),
+        }
     }
 }
 
@@ -1630,13 +1679,56 @@ mod tests {
 
     #[test]
     fn t26h_tenant_scope_apply_scope_without_tenant() {
+        // R9：TenantScope 默认拒绝——无 tenant_id 时返回恒假条件（查询空集）
         type Scope = (TenantScope, TenantTestModel);
         let ctx = HookContext::new();
         let result = <Scope as GlobalScope>::apply_scope(&ctx);
+        let (sql, params) = result.expect("R9：无 tenant_id 时必须返回恒假条件（默认拒绝）");
+        assert_eq!(sql, "1 = 0");
+        assert!(params.is_empty());
+    }
+
+    #[test]
+    fn t26h_permissive_tenant_scope_without_tenant_allows() {
+        // 宽松作用域为显式 opt-in：无 tenant_id 时不追加条件
+        type Scope = (PermissiveTenantScope, TenantTestModel);
+        assert_eq!(<Scope as GlobalScope>::scope_name(), "permissive_tenant");
+        let ctx = HookContext::new();
+        assert!(<Scope as GlobalScope>::apply_scope(&ctx).is_none());
+
+        let ctx = HookContext::new().with_tenant(7);
+        let (sql, params) = <Scope as GlobalScope>::apply_scope(&ctx).unwrap();
+        assert_eq!(sql, "tenant_id = ?");
+        assert_eq!(params.len(), 1);
+    }
+
+    #[test]
+    fn t26h_strict_tenant_scope_apply_scope_with_tenant() {
+        type Scope = (StrictTenantScope, TenantTestModel);
+        assert_eq!(<Scope as GlobalScope>::scope_name(), "strict_tenant");
+        let ctx = HookContext::new().with_tenant(99);
+        let (sql, params) = <Scope as GlobalScope>::apply_scope(&ctx).unwrap();
+        assert_eq!(sql, "tenant_id = ?");
+        assert_eq!(params.len(), 1);
+        match &params[0] {
+            crate::value::Value::I64(v) => assert_eq!(*v, 99),
+            other => panic!("期望 I64(99)，得到 {:?}", other),
+        }
+    }
+
+    #[test]
+    fn t26h_strict_tenant_scope_apply_scope_without_tenant() {
+        // R-H01 收敛：StrictTenantScope 在无 tenant_id 时必须返回恒假条件（默认拒绝）
+        type Scope = (StrictTenantScope, TenantTestModel);
+        let ctx = HookContext::new();
+        let result = <Scope as GlobalScope>::apply_scope(&ctx);
         assert!(
-            result.is_none(),
-            "无 tenant_id 时应返回 None（允许跨租户查询）"
+            result.is_some(),
+            "StrictTenantScope 在无 tenant_id 时必须返回条件（默认拒绝）"
         );
+        let (sql, params) = result.unwrap();
+        assert_eq!(sql, "1 = 0");
+        assert!(params.is_empty());
     }
 
     #[test]

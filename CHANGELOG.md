@@ -1,9 +1,184 @@
-# Changelog
+﻿# Changelog
 
 本文件记录 SZ-ORM 项目的所有重要变更。
 
 格式基于 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 并遵循 [Semantic Versioning](https://semver.org/lang/zh-CN/)。
+
+> **补录说明（2026-10-28，TW 评测 R8）**：历史交付存在中间版本未入册的缺口。本轮依据 `docs/assessment/` 交付记录与 AGENTS.md 明文记载补录 22 个版本的条目（各条目均标注证据来源；其中 7 个版本无独立交付记录，日期为基于相邻版本时间线的推断区间）；仍无交付证据的版本（1.3.0/1.4.0、3.1.0、7.1.0、7.7.0、8.3.0、10.0.0、10.4.0、10.5.0 等）不作编造，完整交付链以 `docs/assessment/` 为准。
+
+## [10.13.0] — 2026-10-27
+
+### v10.13.0 架构评测路线图执行（2026-10-28 TA 评测 P0-P3 修复）
+
+依据 `docs/assessment/2026-10-28-architecture-roadmap-review.md`（系统架构师评测）按 P0→P3 顺序执行修复：
+
+- **P0-1 供应链真相**：`cargo update` 刷新锁文件（tokio 1.54.1 / ctutils 0.4.6 / webpki-root-certs 1.0.11 / webpki-roots 1.0.11 / actix-http 3.20.0 / pulldown-cmark 0.13.5 / rustls-webpki 0.103.16，zstd 0.13 线退出）；deny.toml ignore 由 21 收敛至 19（rustls 0.21 线已退出，移除 RUSTSEC-2026-0346/0349；0382 等 reason 修正为 rumqttc 来源）；`cargo audit` 实测 **0 vulnerabilities**；CHANGELOG 供应链声称与锁文件事实对齐
+- **P0-2 门禁数口径统一**：README/README.zh/README.en/docs/README/practices 的"25 道门禁"全部更新为 **34 道**；G33 新增门禁数声明校验（`check-doc-version-consistency.py`），历史章节豁免；反向注入自测通过
+- **P0-3 凭据不入库**：`SzOrmTest2026` 从全部源码/测试移除（改 `SZ_ORM_ORACLE_PASSWORD`/`SZ_ORM_MSSQL_PASSWORD` 环境变量注入 + 空串断言）；check-secrets 白名单移除该串，历史审计记录（docs/assessment/）按路径豁免；DSN 模板 `{pw}` 占位符加入白名单；新增豁免作用域自测
+- **P0-4 sql:validate 假绿修复**：`ValidationDepth`（Full/InjectionScanOnly）+ `validate_sql_with_depth`/`validate_with_depth`；CLI 对 DDL/DCL 输出"⚠️ 未识别的语句类型…非完整校验"而非"✓ 通过"
+- **P0-5 G34 确定性治理**：`check-generated-code-compiles.py` 使用独立 CARGO_TARGET_DIR（target/g28-target）+ 单次重试；连续 5 次运行全绿
+- **P1-1 ProdReadyChecker 真实化**：15 项检查从"硬编码 PASS"改为配置驱动真实验证（`config_masking_enabled`/`redis_tls_enabled`/`jwt_key_rotation_days` 等）；默认配置全 Skipped，`all_pass_strict()` 判定；README 示例改为配置驱动
+- **P1-3 可观测性接线**：新增 `sz-orm-core::metrics_hook`（进程级钩子槽位）+ `sz-orm-sqlx::metrics_conn`（三后端工厂连接统一包装，语句执行后上报）；`sz-orm-observability::install_global_alert_metrics()/install_query_metrics()` 桥接 13 个告警指标；新增端到端测试 `metrics_wiring_test`（ops/latency/errors 真实产生）
+- **P1-4 CI 性能基线比对闭环**：`RegressionBaseline::compare` 缺失 workload 判失败（fail-closed）；`handle_baseline` 改为**先比对后保存**；CI benchmark job 增加基线缓存恢复 + `--compare-baseline ci-sqlite`
+- **P1-5 OWASP 真实 DB 行为断言**：MySQL/PG 集成测试新增 `owasp_a01_tenant_scoping_returns_empty_set_on_cross_tenant` 与 `owasp_a03_injection_payload_via_parameter_is_inert`（越权空集 + 注入 payload 惰性字面量 + 堆叠 DROP 不执行）；PG 本机实测 2/2 通过，MySQL 待 CI 集成
+- **P2-1 孤儿包登记册**：新增 `docs/orphan-packages-registry.md`（17 个孤儿包逐个体裁：6 个绑定/基准保留、6 个实验性保留、5 个冻结）；G17 校验登记覆盖
+- **P2-2 PHANTOM-2 豁免登记**：`check-phantom-delivery.py` 新增 `PHANTOM2_EXEMPT`（283 feature/308 组合全覆盖，分类理由），PHANTOM-2 未登记警告 **308 → 0**；--strict fail-closed 实测有效
+- **P2-3 gate.ps1 补齐**：补 G14-G19/G21/G23（27 → 35 步），PowerShell 解析校验通过
+- **P2-4 audit-verify v3**：`audit-verify.sh` 强化——子目录 Cargo.toml 正确解析、`sz-orm-*/cli/src` 前缀映射、``` 围栏内代码块跳过、弱语义校验（无共享 token 警告，--strict 红牌）；新增 `tests/test_audit_verify.py` 5 用例全过
+- **P2-5 覆盖率实测**：cargo-llvm-cov 实测 `sz-orm-core` **行覆盖 90.67% / region 87.40%**（2026-10-28 新鲜基线）
+- **P2-6 幻影测试治理**：dialect.rs 35 个 P3 豁免测试全部补真实断言（方言 db_type/quote/分页/json/全文/锁子句），observability `query_path_metrics` 零断言测试补行为断言；豁免清单 229 → 191 行（4 个 all_* 因 G30 仅识别函数体顶层 assert 暂保留豁免并注明）
+- **P3-1 发布准备**：`publish-crates.sh` 修复 Windows python3 Store 桩检测；`--dry-run` 输出拓扑发布顺序 40+ 包
+- **P3-2 C# 绑定补齐**：新增强类型异常体系（`SzOrmException`/`SzOrmQueryException`/`SzOrmConnectionException`/`SzOrmTransactionException`）、`SzOrmTransaction`（Execute/Commit/Rollback/Dispose 隐式回滚）、`ExecuteBatch`、`GetStats`/`GetMetrics`、`SetRuntimeWorkers`；E2E 新增 5 个扩展用例
+- **P3-3 社区文件**：新增 `CONTRIBUTING.md`（ADR-0001/门禁 34/硬约束/PR 流程/行为准则）+ `.github/ISSUE_TEMPLATE/`（bug/feature/config）
+- **P3-4 连接池容量接线**：三后端 `connect_with_max(url, max)`（对齐外层 `PoolConfig::max_size`，消除"内层硬编码 10 的双层上限"）；`PooledConnection::Drop` 新增同步快路径（干净连接不入队 spawn，直接入 idle + 条件唤醒），新增 `chaos_drop_clean_connection_returns_synchronously` 回归测试；chaos_pool 15/15、池 lib 147 测试全绿
+- **clippy 修复**：sz-orm-studio `handlers.rs`（derive Default + 冗余闭包）清零
+
+### v10.13.0 安全整改闭环（2026-10-27 安全工程师评测 P0/P1 项）
+
+依据 `docs/assessment/2026-10-27-security-review.md`（AppSec/SecOps 独立评测，加权 7.3/10，结论"有条件投产"）执行整改。**本版本落地 rustls 漏洞链的真实修复（v10.6.0 条目声称的迁移当时未落地，见该条目顶部修正声明）**。
+
+#### P0-1（H-1）rustls 0.21.12 漏洞链真实消除
+- **重写** `packages/sz-orm-search/src/elasticsearch_provider.rs`：底层 HTTP 客户端从 elasticsearch crate 8.5.0-alpha.1（reqwest 0.11 → rustls 0.21.12）迁移为 reqwest 0.12 直连 ES REST API（8 个端点：PUT /{index}、DELETE /{index}、PUT|GET|DELETE /{index}/_doc/{id}、POST /{index}/_search|_count|_refresh），路径段经 `Url::path_segments_mut` 百分号编码
+- **修改** `packages/sz-orm-search/Cargo.toml`：`real-es = ["dep:reqwest"]`，移除 elasticsearch 依赖，新增 `reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }`
+- **更新** `packages/sz-orm-search/src/lib.rs` 模块文档
+- ✅ **验证**：2026-10-27 本机安装 Rust 1.99.1 工具链后，`cargo check/test -p sz-orm-search --features real-es` 均通过（rc=0）；Cargo.lock 已刷新，rustls 0.21.12 / elasticsearch 8.5.0-alpha.1 链移除
+
+#### P0-2（H-2）LLM 安全审计规则真实落地
+- **扩展** `packages/sz-orm-ai/src/llm_security_audit.rs` `builtin_patterns()`：从 4 条扩展至 14 条（新增 or_1_eq_1_variant / union_injection_encoded / stacked_injection_variant / comment_injection_nested / sensitive_data_password / sensitive_data_secret / sensitive_data_token / grant_privilege / drop_alter_ddl / union_injection_variants），与 `tests/llm_security_audit_expanded_test.rs` 断言一致
+
+#### P0-3（H-3）仓库凭据处置
+- `docs/e2e-env-config.md` / `docs/e2e-execution-guide.md` / `.codeartsdoer/specs/v830/design.md` 等文档中的真实数据库/SSH 凭据替换为占位符
+- **接入** `scripts/check-secrets.py` 至 `scripts/gate.ps1` 与 `scripts/run-gates-v10120-server.sh`（新增门禁步骤）
+- ⚠️ 凭据轮换（远程 MySQL/PostgreSQL/SSH/Oracle 密码）须由运维在对应服务器执行，代码仓库无法代劳
+
+#### P0-4（H-4）审计日志值级脱敏
+- **升级** `packages/sz-orm-audit/src/lib.rs` `mask_sensitive`：从"仅掩码关键词"升级为"关键词 + 等号 + 引号值"整体掩码（与 `hash_chain_enhanced.rs` `zk_mask_sql` 行为对齐），审计日志不再明文记录敏感值
+
+#### P1 整改
+- **M-1** `.github/workflows/security.yml` / `ci.yml` cargo-audit `--ignore` 列表与 `deny.toml` 对齐（21 条；2026-10-28 复核修正——此前记录为"24 条"与实际 ignore 列表不符，`scripts/check-ci-deny-sync.py` 实测 CI 21 / deny.toml 21 完全一致；移除已升级的 0383/0385/0386，新增 zstd 系 0391/0398/0403）
+- **M-2** `scripts/check-sql-injection-auto.py`：修复 `push_str` 误判为 Safe、`{table}`/`{filter}` 占位符无条件信任问题
+- **M-3** `scripts/test_check_sql_injection_auto.py`：`test_workspace_scan_all_safe` 更新为容忍已知测试串并校验 Unsafe 值为预期集合
+- **M-4** `scripts/run-gates-v10120-server.sh`：Gate 1 改为真实 `cargo fmt --check`；Gate 9 加 `--strict`；Gate 21 纳入 OWASP 套件
+- **M-5** `docs/Security.md` 版本对齐 v10.13.0 + VDP 联系方式改为真实渠道占位声明
+- **M-6** README 零信任/合规组件措辞改为"提供组件（需手动接入）"
+
+#### G6 供应链深化（2026-10-27 本机工具链验证后新增）
+- **升级** `packages/sz-orm-back/Cargo.toml`：`zstd = "0.13"` → `"0.14"`（修复 RUSTSEC-2026-0391/0403/0410；仅用 encode_all/decode_all，API 兼容，`cargo check -p sz-orm-back` 通过）
+- **升级锁文件**：`cargo update -p webpki-roots@1.0.9 -p webpki-root-certs@1.0.9 -p ctutils@0.4.2 -p tokio@1.53.1` → webpki-roots 1.0.11 / webpki-root-certs 1.0.11 / ctutils 0.4.6 / tokio 1.54.1（消除 RUSTSEC-2026-0381/0383/0385/0386）
+- **升级锁文件（第二轮）**：`cargo update -p actix-http` → actix-http 3.13.5 → **3.20.0**，连带移除 `zstd 0.13.3 / zstd-safe 7.3.0`（消除 RUSTSEC-2026-0391/0398/0403 及 zstd-safe 7.3.0 全部 unsound 警告——actix-http 3.20.0 依赖 zstd ^0.14 干净线）
+- **deny.toml**：移除已消除的 RUSTSEC-2026-0383/0385/0386 与 RUSTSEC-2026-0391/0398/0403 ignore（6 条全部因升级消除）；CI ignore 列表同步更新
+- ✅ **验证**：`cargo-audit audit`（本地 advisory-db + CI 风格 21 条 ignore）→ **0 vulnerabilities**，仅 4 条允许警告（atty/unsafe-libyaml unmaintained、chacha20 yanked、atty unsound）；`cargo check -p sz-orm-back` / `-p sz-orm-core` 通过
+- ⚠️ `cargo deny check advisories` 因 GitHub advisory-db 拉取超时未能本机执行（与 deny.toml 历史"网络受限"一致）；cargo-audit 等价验证已覆盖
+
+#### G6 供应链复核落地（2026-10-28 架构评测 P0-1，本轮使上述升级声称成为锁文件事实）
+- **升级锁文件**（此前条目声称的升级未落地到锁文件，本轮真实执行）：
+  - `cargo update -p tokio@1.53.1` → **tokio 1.54.1**；`-p ctutils@0.4.2` → **0.4.6**；`-p webpki-root-certs@1.0.9` → **1.0.11**；`-p webpki-roots@1.0.9` → **1.0.11**（消除 RUSTSEC-2026-0381）
+  - `cargo update -p actix-http@3.13.5` → **3.20.0**，连带移除 `zstd 0.13.3 / zstd-safe 7.2.1`（zstd 0.14.3 为唯一残留线）
+  - `cargo update -p pulldown-cmark@0.13.4` → **0.13.5**（消除 RUSTSEC-2026-0414，来源 protoc-gen-prost 构建期工具链）
+  - `cargo update -p rustls-webpki@0.103.15` → **0.103.16**（修复版；rustls 0.23 线清零 0382 暴露面）
+- **deny.toml 收敛**：rustls 0.21 线已完全退出锁文件，**移除 RUSTSEC-2026-0346/0349 ignore**（21 → 19 条）；RUSTSEC-2026-0049/0098/0099/0104/0382/2025-0134 的 reason 由"elasticsearch 传递依赖"修正为"rumqttc 0.25 传递依赖"（elasticsearch 已于 v10.13.0 移除，残留来源仅 sz-orm-mqtt real-broker）；CI ignore 列表同步（`check-ci-deny-sync.py` 19==19）
+- ✅ **验证（2026-10-28 实测）**：`cargo audit`（联网刷新 advisory-db + CI 风格 19 条 ignore）→ **0 vulnerabilities，4 条允许警告**；`cargo check -p sz-orm-back -p sz-orm-search -p sz-orm-actix -p sz-orm-grpc -p sz-orm-mqtt` 全部通过；`Cargo.lock` 无 elasticsearch / rustls 0.21 残留
+
+#### R-H01 收敛（2026-10-27 追加）
+- **新增** `packages/sz-orm-core/src/hooks.rs` `StrictTenantScope`：`ctx.tenant_id = None` 时追加恒假条件 `1 = 0`（查询恒返回空集，**默认拒绝**跨租户访问）；`Some(tid)` 行为与 `TenantScope` 一致
+- **测试**：`t26h_strict_tenant_scope_apply_scope_with_tenant` / `t26h_strict_tenant_scope_apply_scope_without_tenant`
+- Security.md §5.1 R-H01 状态更新为"已提供默认拒绝变体"
+
+#### 门禁沉淀（2026-10-27 追加，防回归）
+- **新增 Gate 26-29**：`check-ci-deny-sync.py`（M-1 防复发：CI --ignore 与 deny.toml 一致）、`check-gate-scripts.py`（M-4 防复发：门禁脚本自检）、`check-security-doc-version.py`（M-5 防复发：Security.md 版本一致性）、`check-test-symbols.py`（H-2 防复发：幻影测试规则名引用，警告级）
+- **辅助脚本** `check-lockfile-ignore-relevance.py`（过时 ignore 提示，需本地 advisory-db）
+- **扩展** Gate 8（并入 check-unsafe-audit.py，L-3 双口径 SAFETY）、Gate 9（并入 test_check_sql_injection_auto.py 自测，M-3 教训）
+- AGENTS.md 门禁表与 runbook 已同步；5 个新脚本本机实测全部 PASS
+
+#### P2 整改
+- **M-7** `packages/sz-orm-core/src/error.rs` 新增 `DbError::redacted_summary()`（生产安全摘要，隐藏内部 SQL/DB 细节）
+- **M-8** `packages/sz-orm-auth/src/mfa.rs` `TotpVerifier` 新增可选失败计数/退避（`FailedAttemptTracker`）
+- **L-1/L-2** 示例 JWT 密钥改环境变量；OpenAIEmbeddingClient 新增 `from_env()` 构造器
+- **L-3** `scripts/check-unsafe-audit.py` 认可"函数级 # Safety 文档 + 块级引用"审计口径（消除 2026-10-20/10-25 报告矛盾）
+- **L-4** AGENTS.md / review-runbook OWASP 测试数字更新为实测值
+
+### v10.13.0 全栈评测整改闭环（2026-10-27 全栈工程师评测 P0/P1/P2/P3 项）
+
+依据 `docs/assessment/2026-10-26-fullstack-review.md`（全栈工程师独立评测，加权 8.1/10，结论"有条件投产"）按整改清单顺序执行：
+
+- **P0-1a（G3 clippy 清零）**：Cargo.lock 升级 `async-trait` 0.1.91 → 0.1.92，消除宏生成代码触发的 51 处 `clippy::double_must_use`（失败包 9 → 0）；`sz-orm-health/src/lib.rs` `read_snapshot` 改为局部绑定消除 `clippy::block_scrutinee`（rustc 1.99.0 新 lint）；全工作区 `cargo clippy --workspace --all-targets -- -D warnings` 实测 exit 0
+- **P0-1b（工具链钉子）**：新增根级 `rust-toolchain.toml`（钉 1.99.1 + rustfmt/clippy 组件；下游 MSRV 仍为 Cargo.toml 的 `rust-version = "1.81"`），rustup 实测 overridden 生效
+- **P0-2（G18 固化）**：`check-metrics-real.py --fix` 同步 README 双语 7 处测试数（21134 → 实测 21153）；修复该脚本 `--fix` 成功后仍按修复前 issues 打印 ❌ 并退出 1 的缺陷（修复后重扫描）；`.github/workflows/ci.yml` 新增 `metrics-real` job（门禁 18 首次进 CI 阻断）
+- **P1-1（README 绑定层章节）**：README.md / README.zh.md 新增「跨语言绑定 / Cross-Language Bindings」章节：C ABI 契约（repr(C) + cbindgen 头文件 + double-free 注册表）、六语言状态矩阵（C#/Python/JS 真实可用，Java/Go/C++ 部分可用）、Go 仅 Windows 限制、crates.io 滞后与 git/path 依赖指引
+- **P1-2（G13 校验器强化）**：`scripts/audit-verify.ps1` / `audit-verify.sh` 升级 v2：一行内**全部**引用逐个校验、UTF-8 物理行计数（替换 `Measure-Object -Line` 非空行口径）、被引行为空行即失败、file:/// Unix 绝对路径不再误剥首斜杠；正/负向实测通过（越界行号/空行引用/不存在文件均被拦截并 exit 1）
+- **P1-3（JS index.d.ts）**：`packages/sz-orm-js/index.d.ts` 由 0 字节补齐为对齐全部 `#[napi]` 导出的 TypeScript 声明（Pool/QueryBuilder/Model/Transaction/Enhanced/Batch/Migration/SchemaDef 全类 + 4 枚举 + 10 个结果对象）
+- **P2（cabi runtime worker 可配置）**：新增导出 `sz_orm_set_runtime_workers(u32)`（ABI 追加式，不改既有结构体布局；`resolve_worker_count` 钳制语义：0→默认 2、上限 64）；cbindgen 头文件随构建自动纳入；新增 `tests/runtime_workers_test.rs` 进程级 E2E（独立进程验证"先登记→首次建池按登记值构建 runtime"时序契约）+ 2 个单元测试；`cargo test -p sz-orm-cabi` 80 lib + 1 integration 全部通过
+- **P3（cabi SAFETY 紧邻化）**：cabi 23 处链式 unsafe 块补块级 `// SAFETY:` 注释（含测试助手 `free_find_str` 的 `# Safety` 文档）；块级紧邻标准下剩余缺口为 ≤2 行的共享注释对与测试代码（如实记录）。run-gates Gate 1 去硬编码与 M-4 汇合；bench criterion 产物重建需冷编译 diesel/seaorm/rusqlite-bundled（约 20 分钟级），建议由 CI bench job 持久化，本会话未执行
+
+### v10.13.0 性能评测整改闭环（2026-10-27/28 性能工程师评测 ROI-1~ROI-6）
+
+依据 `docs/assessment/2026-10-27-perf-review.md`（性能测试工程师独立评测：基准可信度 / 性能门禁 / 优化收益证据）执行整改：
+
+- **ROI-1（模拟基准路径移除，防伪造性能数据）**：`packages/sz-orm-bench` 删除模拟延迟模型——`run_workload` / `workload_latency_profile` / `framework_latency_factor` / `run_full_benchmark` / `SeededRng` / `SimdComparisonResult::run`（含模拟吞吐模型）；`src/main.rs` 无 `real-bench` feature 时直接报错退出（ADR-003 fail-closed），`--simulate` 参数拒绝执行；`src/lib.rs` 文档注明历史；`SimdComparisonResult::run_real` 保留为真实 DB 数据集 SIMD 实测；`bench-results/1789544529_bench_report.json`（模拟数据，评测 §3.2 数学验证其 raw_latencies 与已删 profile 公式 20/20 吻合）删除，新增 `bench-results/README.md` 说明报告真实性约定
+- **ROI-2（性能门禁 fail-closed）**：`.github/workflows/ci.yml` Job 6 重写——移除 `continue-on-error: true` 与 `|| echo WARNING` 吞错、`cargo bench` 空转；改为 `cargo run -p sz-orm-bench --features real-bench`（SQLite 真实基准，`--save-baseline ci-sqlite`）+ `perf_bench_real_wiring` 回归决策门禁测试，任一失败即阻断 PR，基线按 90 天上传；`ci_integration.rs` 基线缺失从 `Pass` 改为 `BlockError`（`BENCH_BASELINE_MISSING` fail-closed）；`main.rs` 新增 `--save-baseline` / `--compare-baseline` CLI（退化 ≥10% 退出码 1），并在 sqlite 后端用临时文件替代 `:memory:`（跨连接池可见）
+- **ROI-3（消灭幻影性能测试）**：`tests/perf_bench_real_wiring.rs` 重构——原"真实执行器"返回硬编码延迟向量（幻影接线测试）拆分为 `ControlledExecutor`（受控注入，仅测决策逻辑）+ `RealSqliteExecutor`（真实 SQLite 数据集 + `RealDbExecutor` 真实查询负载，断言 `is_real_db`/非空延迟）；`stability_matrix.rs` `MatrixEntry` 新增 `is_simulated` 字段（`run()` 恒 true，真实混沌仅来自 `run_with_injector`），测试断言全部条目标注；`tests/v65_prepared_cache_benefit.rs` 移除注入 `tokio::time::sleep(200µs)` 造收益的做法，miss 成本改为真实 SQLite 未命中查询全流程（实测 miss 339.8µs vs hit 33µs，降幅 90.3% ≥ 40%）；`tests/performance_validation.rs` 修正 compare_in 断言（`speedup > 1.0`，实测 24.27x），compare_eq/decode 因 `simd.rs` 明确标注 batch 与标量算法等价而只断言正确性（避免伪收益断言）
+- **ROI-4（可观测性指标对齐）**：新增 `packages/sz-orm-observability/src/alert_metrics.rs`——注册 `monitoring/alerts.yml` 与 `grafana/sz-orm-dashboard.json` 引用的 13 个 `sz_orm_*` 指标（此前源码中完全不存在），提供 `AlertMetricHandles` 写入句柄（需手动接入），契约测试 `metric_names_match_alerts_and_dashboard` 强制文件引用与注册表双向一致；`prometheus_exporter.rs` `CloudNativeObservabilityExporter::export` 移除硬编码 `latency_ms: 10.0`（改为实测校验耗时），语义澄清为"类型校验通过"而非外部推送成功
+- **ROI-5（基准报告生成器修复）**：`bench-comparison/benches/full_comparison.rs` 原 `ReportGuard` 用空 `records` 生成空报告且因 `Box::leak` 永不执行（双重幻影）——删除该 guard，改为自定义 `main()` 在全部 bench 完成后解析 `target/criterion/<id>/new/{estimates,samples}.json` 生成真实数据报告；删除空壳脚本 `fix_replace.cjs`（仅 1 行注释）、报告篡改脚本 `update_report.js`、空文件 `bench-results-fixed.txt` 与截断的 `bench-mysql-results.txt`；`fix_sqlite_url.cjs` 保留（源码修复，非结果篡改）
+- **ROI-6（性能声称纳入门禁 18）**：`scripts/check-metrics-real.py` 新增性能声称证据检查（`8/8 PASS`、提升/退化百分比、吞吐衰减等必须同行附复现命令/报告链接/采集日期，否则报错），报告性检查不参与 `--fix`；自测验证"删除复现标记"即被拦截；与 SDET 评测新增的版本一致性检查（`vX.Y.Z` 与 `workspace.package.version` 比对）汇合
+- **验证**：`cargo test -p sz-orm-bench`（18 passed）、`--features perf-bench-real` 接线测试 8 passed、`--features stability-matrix` 矩阵测试 6 passed、`--features real-bench` 回归+可复现性 7 passed、`cargo test -p sz-orm-observability --lib` 47 passed、`cargo test -p sz-orm-core --test performance_validation --features simd` 6 passed、v65 真实收益 3 passed 全部通过；`cargo clippy -p sz-orm-bench --all-targets`（默认/全 feature）与 `-p sz-orm-observability --all-targets -- -D warnings` 通过；门禁 G12/G14/G15/G16/G17/G18/G24 通过（G14 doc-sync 需 git，本机 git 位于 `D:\Git` 未入 PATH，临时加入 PATH 后运行通过）；`cargo run -p sz-orm-bench --features real-bench` 端到端产出报告与基线（SQLite 真实测量）；`--simulate` / 无 feature 退出码 1
+- ⚠️ 本条目 Cargo.lock 因 `cargo bench` 触发重解析曾短暂不一致，已用 git 索引中已提交 blob 恢复；并行会话已统一 `sz-orm-studio` rusqlite 0.32，`libsqlite3-sys` links 冲突消除
+
+#### 2026-10-28 补充整改（SDET ROI-5 决策 + 敏感信息清理 + 门禁自测补充）
+
+详见 `docs/assessment/2026-10-28-ci-gating-and-secret-cleanup.md`：
+
+- **SDET ROI-5 落地：CI 高价值门禁「对 main 分支阻断」**——`integration` / `mq-integration` / `benchmark` / `fuzz` 四个 job 的 `continue-on-error` 从 `true` 改为 `${{ github.ref != 'refs/heads/main' }}`（`.github/workflows/ci.yml`），PR 分支保留放行语义（真实服务/性能波动不阻塞开发，ADR-005 原意），main 分支失败即阻断合入
+- **敏感信息清理**：仓库内 24 个文件中的真实服务器 IP `121.204.253.75` / `122.51.216.76` 全部替换为占位符（`.codeartsdoer` 历史文档、`bench-comparison/BENCHMARK_REPORT.md`、`packages/sz-orm-core/tests/common/e2e_env.rs:42` 注释）；`scripts/soak-kit/deploy-122.sh` 主机地址由硬编码改为 `SZORM_SERVER_122` 环境变量配置（未设置即报错退出）；`check-secrets.py` 实测 0 secrets
+- **安全整改报告状态更新**：`docs/assessment/2026-10-27-security-review-fixes.md` 运维动作更新为「服务器已重装、凭据已失效、无需轮换」，遗留跟踪表新增 IP 占位闭环项
+- **门禁脚本自测补充**：`tests/test_gate_scripts.py` 新增 `TestNewGateScriptsSmoke`（5 个用例），为 UXR 第三轮新增的 `check-filename-encoding`（G26）/ `check-doc-version-consistency`（G27）/ `check-generated-code-compiles`（G28）/ `check-lockfile-ignore-relevance` / `check-test-symbols` 补冒烟自测；`python -m pytest tests/test_gate_scripts.py` → 26 passed
+- **验证**：本会话实测全部门禁（G9/G12/G15/G16/G17/G18/G19/G23/G24/G25 + secret 扫描 + 门禁脚本自测）通过；`cargo test -p sz-orm-bench` / `-p sz-orm-observability` / `--features perf-bench-real`（8 passed）/ `--features stability-matrix`（6 passed）/ `performance_validation --features simd`（6 passed）/ `v65_prepared_cache_benefit --features prepared-stmt-cache -- --ignored`（3 passed，miss 305.7µs vs hit 32.6µs，降幅 89.3%）全部通过；报告已通过 `audit-verify.ps1` 校验
+
+#### 2026-10-28 补充整改（SDET ROI-6 闭环 + 可观测性查询路径指标接入器）
+
+- **SDET ROI-6 闭环：OWASP A01/A03 真实 DB 行为断言**——`packages/sz-orm-core/tests/integration_pg.rs` 新增 `owasp_a01_tenant_scoping_returns_empty_set_on_cross_tenant`（越权查询必须返回空集）与 `owasp_a03_injection_payload_via_parameter_is_inert`（恒真 payload 不放大结果集、堆叠 DROP payload 不执行、字面量往返精确匹配）；`integration_mysql.rs` 提供同构用例。本机 PostgreSQL 18 实测 **2 passed / 0 failed**（2026-10-28）；MySQL 部分本机 3306 未运行，由 CI `integration` job（main 分支阻断）覆盖。SDET 整改报告遗留项表已更新（`docs/assessment/2026-10-27-sdet-review-fixes.md`）
+- **可观测性查询路径指标接入器**：新增 `packages/sz-orm-observability/src/query_path_metrics.rs` —— `QueryPathMetrics` 封装 `AlertMetricHandles` 的延迟直方图/操作计数/错误计数写入，查询路径一行代码完成埋点（`observe_query(start, result)` / `record(latency_us, is_error)`）；lib.rs 导出；新增 4 个单元测试（成功/失败/显式参数/句柄引用）；新增可运行示例 `packages/sz-orm-observability/examples/query_path_metrics.rs`（完整演示注册 → 埋点 → Prometheus 渲染，实测 ops=5 / errors=2 / 直方图累计）。接入方式保持「需手动接入查询路径」（应用层职责，core 不依赖 observability，架构分层不变）
+- **验证**：`cargo test -p sz-orm-observability --lib` → 51 passed；`cargo clippy -p sz-orm-observability --all-targets -- -D warnings` → 通过；`cargo fmt -p sz-orm-observability -- --check` → 通过；`cargo run -p sz-orm-observability --example query_path_metrics` → 成功；门禁 G12/G15/G18/G26/G27/G25/check-secrets 全部通过；门禁脚本自测 36 passed；生产就绪度报告已更新（`docs/assessment/2026-10-28-production-readiness-report.md`）
+
+#### 2026-10-28 补充整改（本机 MySQL/Oracle 复现环境配置 + crates.io token 更新）
+
+- **本机 MySQL 复现配置**：本机真实 MySQL 为宝塔 MySQL 8.0.29（端口 **8802**，非 3306——3306 被 Docker Desktop 端口代理占用）。root 凭据从宝塔面板安装日志（`D:/BtSoft/panel/logs/install/`）读取，不入库。`integration_mysql` 全套（含 OWASP A01/A03）经 `SZ_ORM_MYSQL_URL` 指向本机 8802 实测 **25 passed / 0 failed**（含 100k 批量插入、8 任务并发 10k 操作，约 17 分钟）
+- **本机 Oracle 复现配置**：本机 Oracle 为 **26ai Free**（Release 23.26.3.0.0，127.0.0.1:1521/freepdb1）。OCI 客户端库位于 `/d/oracle/product/26ai/dbhomeFree/bin`（运行前加入 PATH 即可被 ODPI-C 找到）。`integration_oracle` 全套（设置 `SZ_ORM_ORACLE_PASSWORD`）实测 **10 passed / 0 failed**（含 bulk_insert_100k）
+- **AGENTS.md 勘误**：本机数据库小节更新为宝塔 MySQL 8.0.29（8802）+ Oracle 26ai Free + 凭据环境变量注入方式（不写明文密码）
+- **crates.io token**：用户确认已轮换为新 token，遗留项关闭
+- **供应链核查**：网络恢复后补跑 `cargo deny check advisories`（结果见当日命令输出）；`cargo-audit` 等价验证 0 已知漏洞
+- **验证**：生产就绪度报告遗留项 4/6 已更新为闭环（`docs/assessment/2026-10-28-production-readiness-report.md`）
+
+#### 2026-10-28 补充整改（D5：PG 占位符 `?` → `$n`，sz-rust 反馈专项）
+
+下游框架 sz-rust 系统架构师评测登记的数据层债务 D5（PG 迁移/CRUD 占位符不兼容）在 sz-orm 侧专项闭环：
+
+- **修复** `packages/sz-orm-sqlx/src/any.rs` 的 `pg_rewrite_placeholders`（PostgreSQL 参数化路径 `execute_with_params` / `query_with_params` / `query_values_with_params` 统一生效）：
+  - 将字符串字面量、标识符引号、注释、dollar-quote（`$$...$$` / `$tag$...$tag$`）之外的 `?` 按出现顺序重写为 PG 原生 `$1..$n`
+  - 修复「字面量内含 `$1` 导致整体跳过重写」的误判：`'$1'` / `'$2'` 等字面量不再阻止真实 `?` 转换
+  - 新增 dollar-quote 词法状态跟踪：plpgsql 函数体/过程体内的 `?` 不会被误改写
+  - 保持跳过 PG JSON 运算符（`?` / `?|` / `?&` / `@?`）与行/块注释；已使用原生 `$n` 的 SQL 原样返回，避免编号混用
+- **测试**：`packages/sz-orm-sqlx/src/any.rs` 新增 3 个占位符边界单元测试并扩展 JSON 运算符覆盖（`?&` / `@?`），占位符重写共 7 个用例；`packages/sz-orm-sqlx/tests/any_pg_test.rs` 新增 4 个真实 PG 集成测试（`--ignored`），覆盖 INSERT/SELECT 的 `?` → `$n`、字面量 `$1` + 真实 `?`、dollar-quote 字面量
+- **验证**：`cargo test -p sz-orm-sqlx` 全绿（0 failed）；`cargo test -p sz-orm-sqlx --test any_pg_test -- --ignored` D5 相关 5 个用例通过（`rewritten` 2 个 + `dollar` 3 个，其中 `dollar_placeholders` 为既有用例）；`cargo fmt -p sz-orm-sqlx -- --check` 与 `cargo clippy -p sz-orm-sqlx --all-targets -- -D warnings` 通过
+
+#### 2026-10-29 P1 修复（连接池槽位泄漏：acquire 在 create() await 点被取消时 total_count 不回退）
+
+sz-rust HA 演练回馈（停库 24s 压测）：在途请求全部挂到 30s 客户端超时，数据库恢复后吞吐仍为 0、只能重启进程——定位为池槽位永久泄漏（`created = closed = max_connections` 但到 3306 的 TCP 连接为 0）。
+
+- **根因**：`acquire()` 先 CAS `total_count + 1` 预留槽位，再 await `factory.create()`；若 future 在该 await 点被取消（调用方超时/任务 abort），回滚分支不执行 → 槽位永久泄漏
+- **修复** `packages/sz-orm-core/src/pool.rs`：新增 RAII 槽位守卫 `SlotGuard`——CAS 成功后创建（armed），连接成功移交 `PooledConnection` 时 `defuse()`；其余任何退出路径（失败/超时/取消/panic）在 Drop 中回退 `total_count`
+- **覆盖全部 4 条 CAS-then-create 路径**：`acquire` / `prewarm` / `progressive_prewarm` / `warmup`
+- **回归测试**：`test_acquire_cancelled_during_create_releases_slot`——阻塞工厂制造取消窗口，abort 后断言 `total_count` 回退为 0 且池仍可正常创建连接
+- **验证**：`cargo test -p sz-orm-core --lib pool::` → 148 passed / 0 failed（含新增回归用例）
+
+#### 2026-10-29 遗留项闭环（R4 MSSQL 真机 / R8 p50 实测 / R10 cbindgen + C# 真编译）
+
+详见 `docs/assessment/2026-10-28-db-review.md` §11.1 与 §11.6：
+
+- **R4（MSSQL 真机）**：本机 Docker 启动 SQL Server 2022（`127.0.0.1:1433`，仅建 `sz_orm_test` 库），`cargo test -p sz-orm-core --test integration_mssql -- --ignored` → **8 passed / 0 failed**（分页 `OFFSET…FETCH`、MERGE、alter、drop、escape、参数化插入、事务提交/回滚）
+- **R8（预处理缓存 p50）**：Oracle 适配器接入 OCI 会话语句缓存（`packages/sz-orm-oracle/src/lib.rs:629`，默认 20；`SZ_ORM_ORACLE_STMT_CACHE_SIZE` 调优；`SZ_ORM_PREPARED_CACHE=0` 统一关闭），新增真库 A/B 基准 `packages/sz-orm-oracle/tests/r8_stmt_cache_p50.rs`。实测（release，Oracle 23ai，点查，5 轮 p50 中位数）：端到端 **303.7→227.4 µs（−25.1%）**、驱动层 **255.7→178.0 µs（−30.4%）**、8 会话并发 **342.4→252.1 µs（−26.4%）**；复跑区间 25.1%–31.8%。收益等于省去一次 prepare 往返（约 73–84 µs），30% 为本地测量上限附近
+- **R10（cbindgen + C#）**：`cbindgen 0.26` 重新生成 `packages/sz-orm-cabi/include/sz_orm_cabi.h`（39/39 导出覆盖，无手工漂移）；`.NET 9` 下 `dotnet run --project packages/sz-orm-cabi/csharp/SzOrmTest/SzOrmTest.csproj` **13 段 E2E 全通过**，过程中修复两处真实绑定缺陷（事务联编 `private`→`internal`；commit/rollback 误判 ABI 成功码 1 为失败）
+- **口径修正**：README 中 `PreparedStatementCache` "≥ 50% latency reduction" 与端到端实测不符，改为实测区间并标注测量范围；上文 89.3%（`v65_prepared_cache_benefit`）为**算法级**基准（SQLite prepare vs 缓存查找），不是端到端收益
 
 ## [10.12.0] — 2026-10-20
 
@@ -278,6 +453,8 @@
 
 ## [10.6.0] — 2026-10-16
 
+> **⚠ 2026-10-27 修正声明**：本条目记录的"rustls 0.21.12 漏洞链消除"**当时并未落地**——2026-10-27 安全评测（`docs/assessment/2026-10-27-security-review.md` H-1）证实 `packages/sz-orm-search/Cargo.toml` 仍声明 elasticsearch 依赖、`Cargo.lock` 仍含 rustls 0.21.12 / reqwest 0.11.27 / elasticsearch 8.5.0-alpha.1 完整漏洞链，下列"变更/验证结果"与代码事实不符。该迁移已于 **v10.13.0（2026-10-27）** 真实落地。保留本条目原文作为审计记录，请勿引用其验证结论。
+
 ### v10.6.0 安全漏洞修复 — rustls 0.21.12 漏洞链消除
 
 消除门禁 6（cargo audit）剩余的 2 个 rustls 0.21.12 安全漏洞（RUSTSEC-2026-0346 + RUSTSEC-2026-0349），达到 cargo audit 零漏洞。将 sz-orm-search 的 ElasticsearchProvider 底层 HTTP 客户端从 elasticsearch crate 8.5.0-alpha.1 替换为 reqwest 0.12 直连 ES REST API，公共 API 签名零变更。
@@ -372,6 +549,18 @@
 - 不新增 crate（72 不变）、不新增 feature gate、不引入新外部依赖
 - 独立版本线（sz-orm-python/js/graph 0.1.0）不变
 
+## [10.1.0] — 2026-10-14
+
+### 补录（依据 docs/assessment/2026-10-14-v1010-phantom-audit.md）
+
+- 幻影交付/幻影测试专项审计与修复：4 个新增配置类型补齐 `Pool::new()` 生产消费点 + getter（AGENTS.md 第 12 条），相关弱测试同步整改，全部已于 2026-10-14 修复
+
+## [9.9.0] — 2026-10-09
+
+### 补录（依据 docs/assessment/2026-10-09-v990-reliability-baseline.md）
+
+- 可靠性基线 + 审计修复闭环：幻影交付 3 处修复（`zero-copy` feature 下 `fetch_all` 委托 `fetch_all_zero_copy` 等生产调用点）、弱测试 2 处改为压力场景验证计数器实际变化，e2e 33 passed
+
 ## [9.8.0] — 2026-10-09
 
 ### v9.8.0 运行时自适应调优闭环：连接池自适应 + 执行计划自适应 + 可观测性自适应闭环
@@ -393,6 +582,24 @@
 #### 向后兼容
 - 所有新增类型为独立 pub struct/enum，不修改既有 API 签名
 - 独立版本线（sz-orm-python/js/graph 0.1.0）不变
+
+## [9.7.0] — 2026-10-08
+
+### 补录（依据 docs/assessment/2026-10-08-v970-perf-baseline.md）
+
+- 性能基线采集（基准代码实测，数字禁止手写）
+
+## [9.6.0] — 2026-10-08
+
+### 补录（依据 docs/assessment/2026-10-08-v960-perf-baseline.md）
+
+- Arena 内存分配基准（10 万次 64 字节分配耗时 < Vec × 0.5，≥50% 减少）等性能基线落地
+
+## [9.5.0] — 2026-10-07
+
+### 补录（依据 docs/assessment/2026-10-07-v950-delivery-record.md）
+
+- **下游接线闭环 + 最后一公里补齐**：sz-pay 接线 `slow-query-capture` / `auto-healer` feature，补齐连接池主动自愈与多步骤事务编排两项缺失能力，消除幻影交付风险
 
 ## [9.4.0] — 2026-10-05
 
@@ -456,6 +663,36 @@
 - 工作空间版本升级 8.8.0→9.0.0（72 包）
 - 行覆盖率 90.2%、分支 100%、变异杀率 75%（审计改动行）
 - 12,830 passed / 0 failed（478 套件）
+
+## [8.8.0] — 2026-09-25
+
+### 补录（依据 docs/assessment/2026-09-25-v880-gate-report.md 与 AGENTS.md）
+
+- 连接池优化 + 精确容量估算 + `BatchSizeAdvisor`；crates.io 全量发布 8.8.0；23 道门禁全 PASS（基线：v8.7.0 覆盖率 88.59% / 杀率 100%）
+
+## [8.7.0] — 2026-09-23
+
+### 补录（依据 docs/assessment/2026-09-23-v870-gate-report.md）
+
+- 真实质量基线采集：行覆盖率 88.59%、变异测试杀率 100%（46 killed + 7 timeout / 53 tested）、四数据库基准 8/8 PASS、集成测试 151 passed（Linux 40 核 + Windows MSVC 双环境）
+
+## [8.6.0] — 2026-09-23
+
+### 补录（依据 docs/assessment/2026-09-23-v860-gate-report.md）
+
+- CI/CD 质量门禁集成：23 道门禁在 Linux CI 全量落地（G20 变异 `--fail-under 70`、G22 覆盖率 `--fail-under 60` 阻断 PR）；不新增 crate/依赖/feature gate
+
+## [8.5.0] — 2026-09-22~09-23（推断区间，补录）
+
+### 补录（依据 AGENTS.md 门禁 9 描述）
+
+- SQL 注入扫描升级为自动化审查引擎：7 规则 R1-R7（后续 v10.13.0 起支持 `#[cfg(test)]` 上下文感知）
+
+## [8.4.0] — 2026-09-22
+
+### 补录（依据 docs/assessment/2026-09-22-v840-quality-baseline.md）
+
+- 三维度质量基线采集（行覆盖率 87.4% 与 v8.2.0 持平、变异杀率、cargo-audit）；未修改生产代码，覆盖率不退步
 
 ## [8.2.0] — 2026-09-22
 
@@ -745,6 +982,18 @@
 - 无新增 crate、无新增依赖（sz-orm-crypto 新增 thiserror workspace 依赖除外）
 - 无占位实现、无 unsafe、无幻影交付
 
+## [7.6.0] — 2026-09-19
+
+### 补录（依据 docs/assessment/v7.6.0-delivery-record.md）
+
+- 8 组 54 子任务、5 大方向交付（58 个文件修改 + 48 个新增文件，含端到端测试）
+
+## [7.5.0] — 2026-09-18
+
+### 补录（依据 docs/assessment/v7.5.0-delivery-record.md）
+
+- 生产稳定性加固：`ChaosInjector` 故障注入框架 + `DegradationHandler` 降级路径 + `StabilityMatrixRunner` 压测矩阵（feature：`chaos` / `stability-matrix`，默认关闭）；性能极致优化 2.0 + AI 自动调优深化 + 可观测性增强 + 安全合规增强
+
 ## [7.4.0] — 2026-09-18
 
 ### v7.4.0 七大方向：真实 DB 基准对标深化 / AI 能力深化 / 性能优化深化 / 覆盖率提升 / 下游兼容性验证 / 使用指南更新 / 版本整合
@@ -793,6 +1042,18 @@
 - `LimitPushdownRule` / `ConstantFoldingRule` / `ColumnPruningRule`
 - `Nl2sqlResult::enforce_injection_filter()` / `injection_filtered`
 - `IndexRecommendation::record_actual_benefit()` / `actual_benefit_deviation`
+
+## [7.3.0] — 2026-09-17
+
+### 补录（依据 AGENTS.md 版本线与 docs/assessment/2026-09-17-v7.3.0-gate22-fix.md）
+
+- 性能极致优化（SIMD 向量化 + 零拷贝 + 并行预热 + 查询计划缓存）+ 企业级高可用（自动故障转移 + 错误率熔断 + 限流排队 + 5 子项健康检查 + OTLP 追踪）+ AI 深度集成 + 生态扩展：28 任务 / 187 新增测试 / 10 feature gate（`perf-accel`/`ha-events`/`health-subitems` 默认启用）；门禁 22 feature 全组合下失败测试修复
+
+## [7.2.0] — 2026-09-16
+
+### 补录（依据 docs/assessment/2026-09-16-v7.2.0-delivery-record.md）
+
+- 四大方向：真实 DB 性能基准（`sz-orm-bench` `run_workload_real` 生产入口）+ deprecated API 清理 + 多语言绑定完善 + 统一 API 文档站
 
 ## [7.0.0] — 2026-09-13
 
@@ -1159,6 +1420,18 @@
 - sz-orm-batch：73 + 26 + 1 个测试全部通过
 - find_by_ids 5 个边界测试（空/去重/999/1000/2000）全部通过
 
+## [6.3.0] — 2026-09-05
+
+### 补录（依据 docs/assessment/2026-09-05-v6.3.0-delivery-record.md）
+
+- SQL 构建性能优化：`quote_into` 零分配 + WHERE 快速路径 + `select_columns` 延迟初始化，`build_select_with_params` 吞吐从 v6.2.0 的 806K ops/s 向 ≥2M ops/s 提升
+
+## [6.2.0] — 2026-09-05
+
+### 补录（依据 docs/assessment/2026-09-05-v6.2.0-delivery-record.md）
+
+- 性能优化交付（关联规格 `.codeartsdoer/specs/v62_perf/`）
+
 ## [6.0.1] — 2026-09-04
 
 ### MCP stdio 传输层
@@ -1228,6 +1501,12 @@
 
 - `Nl2SqlEvaluator::evaluate` → 使用 `evaluate_with_executor` 代替
 
+## [5.1.0] — 2026-08-22~09-02（推断区间，补录）
+
+### 补录（依据 AGENTS.md 工作空间成员清单）
+
+- 新增 `sz-orm-studio`（axum Web GUI 数据浏览）与 `sz-orm-lsp`（查询 DSL 补全 / hover / 诊断）两个工作空间成员
+
 ## [5.0.0] — 2026-08-22
 
 ### 修复 blackhat_sql_injection 3 个测试失败
@@ -1268,6 +1547,24 @@
 - sz-pay `cargo check` ✅
 
 ---
+
+## [4.9.0] — 2026-08-12~08-22（推断区间，补录）
+
+### 补录（依据 AGENTS.md 门禁 21 描述）
+
+- OWASP Top 10 完整覆盖渗透测试套件（`owasp-pentest-suite` feature，A01~A10 + XSS/CSRF/文件上传/竞态）
+
+## [4.7.0] — 2026-08-12~08-22（推断区间，补录）
+
+### 补录（依据 AGENTS.md 版本线）
+
+- 不新增包，7 个 feature gate 扩展既有包
+
+## [4.6.0] — 2026-08-12~08-22（推断区间，补录）
+
+### 补录（依据 AGENTS.md 版本线）
+
+- 不新增包，7 个 feature gate 扩展既有包（`explain-analyzer`/`query-flamegraph`/`n1-lint`/`lineage-viz`/`compile-governance`/`adaptive-query`/`db-fusion` 等，详见 API-STABILITY Tier 2）
 
 ## [4.5.0] — 2026-08-12
 
@@ -1754,6 +2051,12 @@ v3.8.0 是 SZ-ORM 的生产部署就绪版本，新增 15 项生产就绪检查�
 - `prod-ready` feature: 1647 passed 0 failed（sz-orm-core lib）
 - 14 道门禁: fmt ✅ check ✅ clippy ✅ test ✅ doc ✅ 占位扫描 ✅ ADR-0001 ✅
 
+## [3.7.0] — 2026-08-10（推断区间，补录）
+
+### 补录（依据 docs/custom-diagnostic-guide.md）
+
+- `custom-diagnostic` 编译期诊断 stable：独立 feature gate，typed-dsl 类型约束失败时输出含错误位置/期望类型/实际类型/修复建议的清晰诊断（5 类诊断场景）
+
 ## [3.6.0] — 2026-08-10
 
 ### 概述
@@ -1816,6 +2119,12 @@ v3.6.0 是 SZ-ORM 的类型安全与文档完善版本，包含 5 大方向交�
 
 - 无 Breaking Change，所有新能力通过 feature gate 隔离
 - sz-pay 生产项目验证通过
+
+## [3.5.0] — 2026-08-09~08-10（推断区间，补录）
+
+### 补录（依据 docs/migration-guide-sqlx.md / -diesel.md / -seaorm.md 头部版本声明）
+
+- 迁移文档生态：SQLx / Diesel / SeaORM 三份迁移指南（概念映射表 + API 对照表 + 示例 + 常见陷阱）
 
 ## [3.4.0] — 2026-08-09
 

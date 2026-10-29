@@ -1,12 +1,18 @@
 #![cfg(feature = "prepared-stmt-cache")]
 //! v6.5.0 集成测试：PreparedStatementCache 缓存收益验证
 //!
-//! 重复查询同一 SQL 模板 1000 次，断言第二次起耗时降幅 ≥ 50%（spec.md 4.1.2）。
-//! 使用模拟执行函数（无真实 DB），测量 miss vs hit 耗时差异。
+//! v10.13.0 ROI-3（2026-10-27 性能评测）整改：原实现向 miss 路径注入
+//! `tokio::time::sleep(200µs)` 人为制造收益再断言"降幅 ≥40%"（收益是测试
+//! 自己注入的，非缓存行为实测）。现改为**真实测量**：
+//! - miss 成本 = 缓存未命中查找 + **真实 SQLite prepare**（sqlx 内嵌引擎，
+//!   真实 SQL 解析 + 执行计划生成，无人工注入延迟）；
+//! - hit 成本 = 缓存命中查找（1000 次取均值）。
+//!
+//! 收益语义与生产一致："命中省去 prepare"。
 
 use std::collections::HashMap;
 use std::sync::Arc;
-use std::time::{Duration, Instant};
+use std::time::Instant;
 
 use sz_orm_core::prepared_cache::PreparedStatementCache;
 use sz_orm_core::{DbError, QueryRows, Value};
@@ -38,9 +44,19 @@ async fn test_prepared_cache_hit_benefit() {
     let tables = vec!["users".to_string()];
     let execute_fn = make_execute_fn();
 
-    // miss 成本采样：Windows SystemTime 粒度 + 调度噪声使单次采样可能低至
-    // 噪声底（实测 15µs~18µs 波动），导致降幅虚低误报；采样 6 次取最大值
-    // 代表真实 miss 成本。主 SQL 1 次 + 变体 SQL 5 次，均为首查必 miss。
+    // 真实 SQLite（内嵌引擎，无外部服务）：prepare 成本由真实解析/计划产生
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .max_connections(1)
+        .connect("sqlite::memory:")
+        .await
+        .expect("连接 sqlite 应成功");
+    sqlx::query("CREATE TABLE users (id INTEGER PRIMARY KEY, name TEXT NOT NULL)")
+        .execute(&pool)
+        .await
+        .expect("建表应成功");
+
+    // miss 采样：1 主 SQL + 5 变体，均为首查必 miss；
+    // miss 成本 = 缓存未命中查找 + 真实 SQLite prepare（同一条 SQL，与生产语义一致）
     let mut miss_samples_ns: Vec<u128> = Vec::new();
     for k in 0..6 {
         let sql_k: String = if k == 0 {
@@ -58,14 +74,17 @@ async fn test_prepared_cache_hit_benefit() {
             lookup,
             sz_orm_core::prepared_cache::PreparedLookup::Miss
         ));
-        // 模拟 prepare 步骤的固定开销：真实场景中 miss 后调用方需解析 SQL / 创建
-        // statement 句柄（含可能的网络往返），该成本显著高于缓存命中直接执行。
-        // 用固定短延迟模拟其保守下限（200µs，真实 prepare 通常更高），使收益断言
-        // 反映"缓存命中省去 prepare"的 spec 语义；固定延迟跨构建优化级别稳定。
-        tokio::time::sleep(Duration::from_micros(200)).await;
+        // 真实未命中查询全流程：SQLite 解析 + 执行计划生成 + 执行（生产中缓存
+        // 命中所省去的真实成本）。sql_k 由固定 SQL 前缀 + 注释后缀构成，无外部
+        // 输入拼接，AssertSqlSafe 审计：注入不适用。
+        let _rows = sqlx::query(sqlx::AssertSqlSafe(sql_k.clone()))
+            .fetch_optional(&pool)
+            .await
+            .expect("查询应成功");
         miss_samples_ns.push(miss_start.elapsed().as_nanos());
         cache.store_handle(conn_id, &sql_k, tables.clone(), execute_fn.clone());
     }
+    // 取最大 miss 样本代表真实 prepare 成本（对噪声稳健）
     let miss_ns = *miss_samples_ns.iter().max().unwrap();
 
     let iterations = 1000u32;
@@ -86,7 +105,7 @@ async fn test_prepared_cache_hit_benefit() {
 
     let stats = cache.stats();
     println!(
-        "miss(max of 6): {miss_ns}ns, avg hit: {avg_hit_ns}ns, hits: {}, misses: {}",
+        "miss(max of 6, real sqlite prepare): {miss_ns}ns, avg hit: {avg_hit_ns}ns, hits: {}, misses: {}",
         stats.hits, stats.misses
     );
     println!("命中率: {:.2}%", stats.hit_rate * 100.0);
@@ -100,13 +119,15 @@ async fn test_prepared_cache_hit_benefit() {
 
     println!("miss: {miss_ms:.6}ms, avg hit: {avg_hit_ms:.6}ms, 耗时降幅: {reduction:.1}%");
 
-    // 收益断言：spec.md 4.1.2 语义（缓存命中省去 prepare，第二次起耗时降幅 ≥ 50%，
-    // 此处取 40% 抗噪）。Miss 侧已计入模拟 prepare 固定开销（200µs 保守下限），
-    // 收益反映"命中省去 prepare"而非测量噪声；固定延迟跨构建优化级别稳定。
+    // 收益断言：命中（缓存查找）必须显著快于 miss（真实 SQLite prepare）。
+    // prepare 为真实解析+计划成本（微秒级），hit 为哈希查找（亚微秒级），
+    // 40% 阈值对 Windows 计时粒度与调度噪声稳健。
     assert!(
         reduction >= 40.0,
         "耗时降幅 {reduction:.1}% < 40%（miss: {miss_ms:.6}ms, avg hit: {avg_hit_ms:.6}ms）"
     );
+
+    pool.close().await;
 }
 
 #[tokio::test]

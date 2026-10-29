@@ -6,7 +6,7 @@
     在 push / 合并 / 部署前强制执行全项目集成验证。
     任何一步失败立即停止并返回非零退出码。
 
-    包含 10 道关卡 + 3 道新增关卡：
+    包含关卡 1~13 与 24~34（编号与 scripts/run-gates-v10120-server.sh 一致）：
       1. cargo fmt --check        格式检查
       2. cargo check --workspace  全项目编译检查（含 all-features）
       3. cargo clippy             严格模式（-D warnings）
@@ -14,12 +14,23 @@
       5. cargo doc                文档构建（捕获断裂的 doc 链接）
       6. API 变更扫描             检测公共 API 签名变化（如果有的话）
       7. 契约测试                 单独跑契约测试套件
-      8. 禁止占位实现检查         扫描 todo!/unimplemented!/unreachable!
-      9. SQL 注入扫描             扫描 SQL 拼接模式
+      8. 禁止占位实现检查         扫描 todo!/unimplemented!/unreachable! + unsafe 审计
+      9. SQL 注入扫描             扫描 SQL 拼接模式 + 凭据扫描 + 扫描器自测
       10. Feature 全组合编译      cargo check --all-features
       11. ADR-0001 上游未修改检查  核心包修改必须附带文档更新
       12. 文档一致性检查          验证文档数据与实际代码一致
       13. 审计证据验证            验证审计报告中 file:line 证据真实性
+      24. 示例清单同步检查        README 示例表格 ↔ examples/src/bin 双向一致
+      25. 文档代码可编译性检查    文档示例引用的 API/宏必须真实存在
+      26. CI 与 deny.toml ignore 一致性
+      27. 门禁脚本自检
+      28. 安全文档版本一致性
+      29. 幻影测试引用检测
+      30. 幻影测试扫描            永真断言/字面量断言/零断言函数
+      31. CI 阻断语义审计         continue-on-error job 必须登记豁免表
+      32. 文件名编码合法性
+      33. 文档版本声明一致性
+      34. 代码生成器产物编译验证
 
 .EXAMPLE
     ./scripts/gate.ps1
@@ -199,8 +210,9 @@ if (-not $SkipTests) {
 }
 
 # ============================================================================
-# 关卡 8: 禁止占位实现检查
+# 关卡 8: 禁止占位实现检查 + unsafe 合规审计
 # ============================================================================
+# v10.13.0 (2026-10-27): 并入 check-unsafe-audit.py（L-3 双口径 SAFETY 审计）
 $ok = Invoke-Step "禁止占位实现检查" {
     $matches = Select-String -Path (Get-ChildItem -Recurse "*.rs" -Exclude "*target*").FullName -Pattern '\b(todo!|unimplemented!|unreachable!)\b'
     if ($matches) {
@@ -209,15 +221,31 @@ $ok = Invoke-Step "禁止占位实现检查" {
         exit 8
     }
 }
+if ($ok) {
+    $ok = Invoke-Step "unsafe 合规审计 (check-unsafe-audit.py)" {
+        python "$PSScriptRoot/check-unsafe-audit.py"
+    }
+}
 if (-not $ok) { exit 8 }
 
 # ============================================================================
-# 关卡 9: SQL 注入扫描
+# 关卡 9: SQL 注入扫描 + secrets 扫描 + G9 扫描器自测
 # ============================================================================
 # v8.5.0: 自动化审查（check-sql-injection-auto.py）替代手动审查
-# 规则引擎 5 种判定（R1~R5），零误报零漏报，66 项全部自动判定为 Safe
+# v10.13.0 (2026-10-27): 关卡 9 并入 check-secrets.py 凭据扫描（H-3 整改）与
+#   test_check_sql_injection_auto.py 扫描器自测（M-3 教训：自测必须接入门禁），全部通过才 PASS
 $ok = Invoke-Step "SQL 注入自动化审查 (check-sql-injection-auto.py)" {
     python "$PSScriptRoot/check-sql-injection-auto.py" --workspace "$PSScriptRoot/.." --strict
+}
+if ($ok) {
+    $ok = Invoke-Step "G9 扫描器自测 (test_check_sql_injection_auto.py)" {
+        python "$PSScriptRoot/test_check_sql_injection_auto.py"
+    }
+}
+if ($ok) {
+    $ok = Invoke-Step "凭据泄露扫描 (check-secrets.py)" {
+        python "$PSScriptRoot/check-secrets.py"
+    }
 }
 if (-not $ok) { exit 9 }
 
@@ -258,6 +286,143 @@ if ($auditReports) {
         if (-not $ok) { exit 13 }
     }
 }
+
+# ============================================================================
+# 关卡 24: 示例清单同步（README Examples 表格 ↔ examples/src/bin 双向一致）
+# ============================================================================
+$ok = Invoke-Step "示例清单同步检查 (check-examples-readme.py)" {
+    python "$PSScriptRoot/check-examples-readme.py"
+}
+if (-not $ok) { exit 24 }
+
+# ============================================================================
+# 关卡 25: 文档代码可编译性（文档示例引用的 API/宏必须真实存在）
+# ============================================================================
+$ok = Invoke-Step "文档代码可编译性检查 (check-doc-code-compiles.py)" {
+    python "$PSScriptRoot/check-doc-code-compiles.py"
+}
+if (-not $ok) { exit 25 }
+
+# ============================================================================
+# 关卡 26: CI 与 deny.toml ignore 一致性（v10.13.0 / M-1 防复发）
+# ============================================================================
+$ok = Invoke-Step "CI 与 deny.toml ignore 一致性 (check-ci-deny-sync.py)" {
+    python "$PSScriptRoot/check-ci-deny-sync.py"
+}
+if (-not $ok) { exit 26 }
+
+# ============================================================================
+# 关卡 27: 门禁脚本自检（v10.13.0 / M-4 防复发）
+# ============================================================================
+$ok = Invoke-Step "门禁脚本自检 (check-gate-scripts.py)" {
+    python "$PSScriptRoot/check-gate-scripts.py"
+}
+if (-not $ok) { exit 27 }
+
+# ============================================================================
+# 关卡 28: 安全文档版本一致性（v10.13.0 / M-5 防复发）
+# ============================================================================
+$ok = Invoke-Step "安全文档版本一致性 (check-security-doc-version.py)" {
+    python "$PSScriptRoot/check-security-doc-version.py"
+}
+if (-not $ok) { exit 28 }
+
+# ============================================================================
+# 关卡 29: 幻影测试引用检测（v10.13.0 / H-2 防复发，警告级）
+# ============================================================================
+$ok = Invoke-Step "幻影测试引用检测 (check-test-symbols.py)" {
+    python "$PSScriptRoot/check-test-symbols.py"
+}
+if (-not $ok) { exit 29 }
+
+# ============================================================================
+# 关卡 30: 幻影测试扫描（永真断言 / 字面量断言 / 零断言函数 / 差分命名）
+# ============================================================================
+$ok = Invoke-Step "幻影测试扫描 (check-phantom-tests.py)" {
+    python "$PSScriptRoot/check-phantom-tests.py"
+}
+if (-not $ok) { exit 30 }
+
+# ============================================================================
+# 关卡 31: CI 阻断语义审计（continue-on-error job 必须登记豁免表）
+# ============================================================================
+$ok = Invoke-Step "CI 阻断语义审计 (check-ci-blocking.py)" {
+    python "$PSScriptRoot/check-ci-blocking.py"
+}
+if (-not $ok) { exit 31 }
+
+# ============================================================================
+# 关卡 32: 文件名编码合法性（2026-10-28 编号统一：此前与关卡 26 重号）
+# ============================================================================
+$ok = Invoke-Step "文件名编码合法性 (check-filename-encoding.py)" {
+    python "$PSScriptRoot/check-filename-encoding.py"
+}
+if (-not $ok) { exit 32 }
+
+# ============================================================================
+# 关卡 33: 文档版本声明一致性（2026-10-28 编号统一：此前与关卡 27 重号）
+# ============================================================================
+$ok = Invoke-Step "文档版本声明一致性 (check-doc-version-consistency.py)" {
+    python "$PSScriptRoot/check-doc-version-consistency.py"
+}
+if (-not $ok) { exit 33 }
+
+# ============================================================================
+# 关卡 34: 代码生成器产物编译验证（2026-10-28 编号统一：此前与关卡 28 重号）
+# ============================================================================
+$ok = Invoke-Step "代码生成器产物编译验证 (check-generated-code-compiles.py)" {
+    python "$PSScriptRoot/check-generated-code-compiles.py"
+}
+if (-not $ok) { exit 34 }
+
+# ============================================================================
+# 2026-10-28 P2-3：补齐本地缺失的 G14-G19/G21/G23（V3-24 遗留——
+# 此前 gate.ps1 只有 26 步，本地全绿不代表服务器 34 道全绿）
+# ============================================================================
+$ok = Invoke-Step "G14 文档同步更新检查 (check-doc-sync.py --diff HEAD)" {
+    python "$PSScriptRoot/check-doc-sync.py" --diff HEAD
+}
+if (-not $ok) { exit 14 }
+
+$ok = Invoke-Step "G15 幻影交付检查 (check-phantom-delivery.py)" {
+    python "$PSScriptRoot/check-phantom-delivery.py"
+}
+if (-not $ok) { exit 15 }
+
+$ok = Invoke-Step "G16 语义反模式扫描 (check-semantic-patterns.py)" {
+    python "$PSScriptRoot/check-semantic-patterns.py"
+}
+if (-not $ok) { exit 16 }
+
+$ok = Invoke-Step "G17 架构一致性扫描 (check-architecture.py)" {
+    python "$PSScriptRoot/check-architecture.py"
+}
+if (-not $ok) { exit 17 }
+
+$ok = Invoke-Step "G18 度量真实性扫描 (check-metrics-real.py)" {
+    python "$PSScriptRoot/check-metrics-real.py"
+}
+if (-not $ok) { exit 18 }
+
+$ok = Invoke-Step "G19 发布一致性扫描 (check-publish-consistency.py)" {
+    python "$PSScriptRoot/check-publish-consistency.py"
+}
+if (-not $ok) { exit 19 }
+
+$ok = Invoke-Step "G21 安全攻击测试 (auth security_attacks + crypto kat)" {
+    cargo test -p sz-orm-auth --test security_attacks
+    if ($LASTEXITCODE -ne 0) { return $false }
+    cargo test -p sz-orm-crypto --test kat
+    if ($LASTEXITCODE -ne 0) { return $false }
+    cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks
+    return ($LASTEXITCODE -eq 0)
+}
+if (-not $ok) { exit 21 }
+
+$ok = Invoke-Step "G23 未用依赖扫描 (check-unused-deps.py)" {
+    python "$PSScriptRoot/check-unused-deps.py"
+}
+if (-not $ok) { exit 23 }
 
 # ============================================================================
 # 汇总

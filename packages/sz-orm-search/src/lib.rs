@@ -4,7 +4,7 @@
 //!
 //! - **In-memory implementation** (`Memory`): Linear scan + substring matching (no inverted index), no real search engine connection
 //! - **Stub implementation** (`Stub`): Generates query JSON but does not execute
-//! - **Real Elasticsearch** (requires `real-es` feature): Connects to ES via elasticsearch crate
+//! - **Real Elasticsearch** (requires `real-es` feature): Connects to ES REST API via reqwest (rustls 0.23)
 //! - **Real OpenSearch** (requires `real-opensearch` feature): Connects to OpenSearch via opensearch crate
 //! - **Real Meilisearch** (requires `real-meilisearch` feature): Connects to Meilisearch via meilisearch-sdk crate
 //!

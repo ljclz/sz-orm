@@ -98,6 +98,59 @@ def test_r2_rownum():
     assert result == JudgeResult.SAFE, f"Expected SAFE, got {result}: {reason}"
 
 
+def test_push_str_with_user_input_manual_review():
+    """v10.13.0 (M-2): push_str + format! 插入非白名单变量 -> ManualReview（原误判 Safe）。"""
+    result, reason = judge_injection_risk(
+        "packages/sz-orm-core/src/query.rs", 1,
+        'sql.push_str(&format!(" WHERE id={}", input));',
+        "format_concat",
+    )
+    assert result == JudgeResult.MANUAL_REVIEW, f"Expected MANUAL_REVIEW, got {result}: {reason}"
+
+
+def test_push_str_with_whitelisted_var_safe():
+    """v10.13.0 (M-2): push_str + format! 插入白名单变量 -> Safe。"""
+    result, reason = judge_injection_risk(
+        "packages/sz-orm-core/src/query.rs", 1,
+        'sql.push_str(&format!(" WHERE {}", w));',
+        "format_concat",
+    )
+    assert result == JudgeResult.SAFE, f"Expected SAFE, got {result}: {reason}"
+
+
+def test_push_str_without_interpolation_safe():
+    """v10.13.0 (M-2): push_str 无插值 -> Safe。"""
+    result, reason = judge_injection_risk(
+        "packages/sz-orm-core/src/query.rs", 1,
+        'sql.push_str(" WHERE active = 1");',
+        "format_concat",
+    )
+    assert result == JudgeResult.SAFE, f"Expected SAFE, got {result}: {reason}"
+
+
+def test_cfg_test_module_lines_skipped():
+    """v10.13.0 (M-3): #[cfg(test)] 之后的内联测试代码按测试上下文判定（不产出 Unsafe）。"""
+    import tempfile
+
+    with tempfile.TemporaryDirectory() as td:
+        pkg = os.path.join(td, "packages", "sz-orm-demo", "src")
+        os.makedirs(pkg)
+        with open(os.path.join(pkg, "lib.rs"), "w", encoding="utf-8") as f:
+            f.write(
+                "pub fn build() -> String { String::new() }\n"
+                "#[cfg(test)]\n"
+                "mod tests {\n"
+                "    #[test]\n"
+                "    fn t() {\n"
+                "        let xml = r#\"<select id=\\\"q\\\">SELECT '${s}'</select>\"#;\n"
+                "        assert!(!xml.is_empty());\n"
+                "    }\n"
+                "}\n"
+            )
+        report = scan_workspace(td)
+        assert report.unsafe == 0, f"cfg(test) 模块内的测试串不应判 Unsafe: {report.items}"
+
+
 def test_workspace_scan_all_safe():
     """Workspace scan: all 66 items should be Safe."""
     root = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -117,6 +170,10 @@ def main():
         test_r4_security_module,
         test_r2_join_pattern,
         test_r2_rownum,
+        test_push_str_with_user_input_manual_review,
+        test_push_str_with_whitelisted_var_safe,
+        test_push_str_without_interpolation_safe,
+        test_cfg_test_module_lines_skipped,
         test_workspace_scan_all_safe,
     ]
     passed = 0

@@ -4,9 +4,9 @@
 //! `TieredCircuitBreaker` 三级熔断（连接→节点→全局），`ConnectionHealthChecker` 连续 3 次失败才剔除。
 
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
 
+use parking_lot::Mutex;
 use serde::{Deserialize, Serialize};
 
 use crate::circuit_breaker::{CircuitBreaker, CircuitState, DefaultCircuitBreaker};
@@ -113,7 +113,7 @@ impl TieredCircuitBreaker {
             CircuitTier::Node => &self.node_level,
             CircuitTier::Global => &self.global_level,
         };
-        cb.lock().unwrap().can_execute()
+        cb.lock().can_execute()
     }
 
     pub fn record_success(&self, tier: CircuitTier) {
@@ -122,7 +122,7 @@ impl TieredCircuitBreaker {
             CircuitTier::Node => &self.node_level,
             CircuitTier::Global => &self.global_level,
         };
-        cb.lock().unwrap().record_success();
+        cb.lock().record_success();
     }
 
     pub fn record_failure(&self, tier: CircuitTier) {
@@ -131,7 +131,7 @@ impl TieredCircuitBreaker {
             CircuitTier::Node => &self.node_level,
             CircuitTier::Global => &self.global_level,
         };
-        cb.lock().unwrap().record_failure();
+        cb.lock().record_failure();
     }
 
     pub fn state(&self, tier: CircuitTier) -> CircuitState {
@@ -140,7 +140,7 @@ impl TieredCircuitBreaker {
             CircuitTier::Node => &self.node_level,
             CircuitTier::Global => &self.global_level,
         };
-        cb.lock().unwrap().state()
+        cb.lock().state()
     }
 
     pub fn can_execute_any(&self) -> bool {
@@ -180,24 +180,24 @@ impl ConnectionHealthChecker {
     }
 
     pub fn record_failure(&self, conn_id: &str) -> bool {
-        let mut counts = self.failure_counts.lock().unwrap();
+        let mut counts = self.failure_counts.lock();
         let count = counts.entry(conn_id.to_string()).or_insert(0);
         *count += 1;
         *count >= self.failure_threshold
     }
 
     pub fn record_success(&self, conn_id: &str) {
-        let mut counts = self.failure_counts.lock().unwrap();
+        let mut counts = self.failure_counts.lock();
         counts.insert(conn_id.to_string(), 0);
     }
 
     pub fn should_evict(&self, conn_id: &str) -> bool {
-        let counts = self.failure_counts.lock().unwrap();
+        let counts = self.failure_counts.lock();
         *counts.get(conn_id).unwrap_or(&0) >= self.failure_threshold
     }
 
     pub fn failure_count(&self, conn_id: &str) -> u32 {
-        let counts = self.failure_counts.lock().unwrap();
+        let counts = self.failure_counts.lock();
         *counts.get(conn_id).unwrap_or(&0)
     }
 
@@ -333,17 +333,17 @@ impl HalfOpenProbe {
     /// - `is_alive = false`：递增失败计数，达到阈值返回 Evicted，否则返回 HalfOpen
     pub fn probe_alive(&self, conn_id: &str, is_alive: bool) -> ProbeResult {
         {
-            let mut last = self.last_probe_time.lock().unwrap();
+            let mut last = self.last_probe_time.lock();
             last.insert(conn_id.to_string(), Instant::now());
         }
 
         if is_alive {
-            let mut counts = self.probe_fail_counts.lock().unwrap();
+            let mut counts = self.probe_fail_counts.lock();
             counts.insert(conn_id.to_string(), 0);
             return ProbeResult::Alive;
         }
 
-        let mut counts = self.probe_fail_counts.lock().unwrap();
+        let mut counts = self.probe_fail_counts.lock();
         let count = counts.entry(conn_id.to_string()).or_insert(0);
         *count += 1;
 
@@ -359,19 +359,19 @@ impl HalfOpenProbe {
 
     /// 检查是否应该剔除（失败计数 >= 阈值）
     pub fn should_evict(&self, conn_id: &str) -> bool {
-        let counts = self.probe_fail_counts.lock().unwrap();
+        let counts = self.probe_fail_counts.lock();
         *counts.get(conn_id).unwrap_or(&0) >= self.config.fail_threshold
     }
 
     /// 获取连接的失败计数
     pub fn fail_count(&self, conn_id: &str) -> u32 {
-        let counts = self.probe_fail_counts.lock().unwrap();
+        let counts = self.probe_fail_counts.lock();
         *counts.get(conn_id).unwrap_or(&0)
     }
 
     /// 检查是否到达探活周期
     pub fn should_probe(&self, conn_id: &str) -> bool {
-        let last = self.last_probe_time.lock().unwrap();
+        let last = self.last_probe_time.lock();
         match last.get(conn_id) {
             Some(t) => t.elapsed() >= self.config.probe_interval,
             None => true,
@@ -380,13 +380,13 @@ impl HalfOpenProbe {
 
     /// 获取存活连接数（总追踪数 - 失败连接数）
     pub fn alive_count(&self) -> usize {
-        let counts = self.probe_fail_counts.lock().unwrap();
+        let counts = self.probe_fail_counts.lock();
         counts.values().filter(|&&c| c == 0).count()
     }
 
     /// 获取半开连接数（失败但未达阈值）
     pub fn half_open_count(&self) -> usize {
-        let counts = self.probe_fail_counts.lock().unwrap();
+        let counts = self.probe_fail_counts.lock();
         counts
             .values()
             .filter(|&&c| c > 0 && c < self.config.fail_threshold)
@@ -405,8 +405,8 @@ impl HalfOpenProbe {
 
     /// 清空所有追踪状态
     pub fn clear(&self) {
-        self.probe_fail_counts.lock().unwrap().clear();
-        self.last_probe_time.lock().unwrap().clear();
+        self.probe_fail_counts.lock().clear();
+        self.last_probe_time.lock().clear();
     }
 }
 
@@ -510,7 +510,7 @@ impl MultiSignalCollector {
         self.wait_duration_ns_sum
             .fetch_add(wait_duration.as_nanos() as u64, Ordering::Relaxed);
         self.wait_count.fetch_add(1, Ordering::Relaxed);
-        let mut samples = self.latency_samples.lock().unwrap();
+        let mut samples = self.latency_samples.lock();
         samples.push(latency);
         if samples.len() > self.config.latency_window {
             samples.remove(0);
@@ -520,7 +520,7 @@ impl MultiSignalCollector {
     /// 采集当前负载信号快照
     pub fn collect(&self) -> LoadSignal {
         let now = Instant::now();
-        let mut last = self.last_collect_time.lock().unwrap();
+        let mut last = self.last_collect_time.lock();
         let elapsed = now.duration_since(*last);
         *last = now;
 
@@ -545,7 +545,7 @@ impl MultiSignalCollector {
             Duration::from_nanos(total_wait_ns.checked_div(total_wait_count).unwrap_or(0));
 
         let p99_latency = {
-            let samples = self.latency_samples.lock().unwrap();
+            let samples = self.latency_samples.lock();
             if samples.is_empty() {
                 Duration::ZERO
             } else {
@@ -570,13 +570,13 @@ impl MultiSignalCollector {
             cpu_usage,
         };
 
-        *self.last_signal.lock().unwrap() = signal.clone();
+        *self.last_signal.lock() = signal.clone();
         signal
     }
 
     /// 获取上次采集的信号（不触发新采集）
     pub fn last_signal(&self) -> LoadSignal {
-        self.last_signal.lock().unwrap().clone()
+        self.last_signal.lock().clone()
     }
 
     /// 读取 CPU 占用（跨平台近似值，失败时返回 None 降级为 0.0）
@@ -834,13 +834,13 @@ impl DynamicWaterline {
             return None;
         }
 
-        let mut hysteresis = self.hysteresis.lock().unwrap();
+        let mut hysteresis = self.hysteresis.lock();
         if !hysteresis.allows(direction) {
             return None;
         }
 
-        let mut current_min = self.current_min.lock().unwrap();
-        let mut current_max = self.current_max.lock().unwrap();
+        let mut current_min = self.current_min.lock();
+        let mut current_max = self.current_max.lock();
 
         let (new_min, new_max) = match direction {
             AdjustDirection::Up => {
@@ -873,12 +873,12 @@ impl DynamicWaterline {
 
     /// 当前最小连接数
     pub fn current_min(&self) -> u32 {
-        *self.current_min.lock().unwrap()
+        *self.current_min.lock()
     }
 
     /// 当前最大连接数
     pub fn current_max(&self) -> u32 {
-        *self.current_max.lock().unwrap()
+        *self.current_max.lock()
     }
 
     /// 配置引用
@@ -949,7 +949,7 @@ impl PoolElasticController {
     }
 
     pub fn evaluate_and_scale(&self, stats: &PoolStats) -> Option<ScaleEvent> {
-        let mut current = self.current_size.lock().unwrap();
+        let mut current = self.current_size.lock();
         let start = Instant::now();
 
         // v10.12.0 T1.1: 采集多维负载信号
@@ -972,7 +972,7 @@ impl PoolElasticController {
                     elapsed: start.elapsed(),
                 };
                 *current = target;
-                self.scale_events.lock().unwrap().push(event.clone());
+                self.scale_events.lock().push(event.clone());
                 return Some(event);
             }
         }
@@ -988,7 +988,7 @@ impl PoolElasticController {
                     elapsed: start.elapsed(),
                 };
                 *current = target;
-                self.scale_events.lock().unwrap().push(event.clone());
+                self.scale_events.lock().push(event.clone());
                 return Some(event);
             }
         }
@@ -997,11 +997,11 @@ impl PoolElasticController {
     }
 
     pub fn scale_events(&self) -> Vec<ScaleEvent> {
-        self.scale_events.lock().unwrap().clone()
+        self.scale_events.lock().clone()
     }
 
     pub fn current_size(&self) -> u32 {
-        *self.current_size.lock().unwrap()
+        *self.current_size.lock()
     }
 
     pub fn circuit_breaker(&self) -> &TieredCircuitBreaker {
@@ -1042,7 +1042,7 @@ impl PoolElasticController {
     }
 
     pub fn prewarm(&self, target: u32) -> u32 {
-        let mut current = self.current_size.lock().unwrap();
+        let mut current = self.current_size.lock();
         let target = target
             .min(self.config.max_connections)
             .max(self.config.min_connections);
@@ -1199,7 +1199,7 @@ pub struct ShutdownResult {
 pub struct GracefulShutdown {
     config: GracefulShutdownConfig,
     /// 空闲时间追踪
-    idle_since: std::sync::Mutex<Option<Instant>>,
+    idle_since: parking_lot::Mutex<Option<Instant>>,
 }
 
 impl GracefulShutdown {
@@ -1207,7 +1207,7 @@ impl GracefulShutdown {
     pub fn new(config: GracefulShutdownConfig) -> Self {
         Self {
             config,
-            idle_since: std::sync::Mutex::new(None),
+            idle_since: parking_lot::Mutex::new(None),
         }
     }
 
@@ -1242,12 +1242,12 @@ impl GracefulShutdown {
 
     /// 标记空闲开始
     pub fn mark_idle(&self) {
-        *self.idle_since.lock().unwrap() = Some(Instant::now());
+        *self.idle_since.lock() = Some(Instant::now());
     }
 
     /// 检查是否应释放空闲连接
     pub fn should_release_idle(&self) -> bool {
-        let idle = self.idle_since.lock().unwrap();
+        let idle = self.idle_since.lock();
         if let Some(since) = *idle {
             since.elapsed() > self.config.idle_release_threshold
         } else {
@@ -1389,7 +1389,7 @@ mod tests {
             health_check_sql: "SELECT 1".to_string(),
         };
         let controller = PoolElasticController::new(config);
-        *controller.current_size.lock().unwrap() = 20;
+        *controller.current_size.lock() = 20;
         let stats = PoolStats {
             total_connections: 20,
             idle_connections: 18,
@@ -1414,7 +1414,7 @@ mod tests {
             health_check_sql: "SELECT 1".to_string(),
         };
         let controller = PoolElasticController::new(config);
-        *controller.current_size.lock().unwrap() = 10;
+        *controller.current_size.lock() = 10;
         let stats = PoolStats {
             total_connections: 10,
             idle_connections: 0,
@@ -1436,7 +1436,7 @@ mod tests {
             health_check_sql: "SELECT 1".to_string(),
         };
         let controller = PoolElasticController::new(config);
-        *controller.current_size.lock().unwrap() = 8;
+        *controller.current_size.lock() = 8;
         let stats = PoolStats {
             total_connections: 8,
             idle_connections: 7,
@@ -1687,7 +1687,7 @@ mod tests {
     #[test]
     fn t18_evaluate_scale_up_priority_over_down() {
         let controller = PoolElasticController::new(ElasticConfig::default());
-        *controller.current_size.lock().unwrap() = 10;
+        *controller.current_size.lock() = 10;
         let stats = PoolStats {
             total_connections: 30,
             idle_connections: 25,

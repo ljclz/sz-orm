@@ -9,20 +9,21 @@
 
 #![cfg(feature = "compliance-auto-scan")]
 
-use sz_orm_audit::{
-    AccessContext, AccessRequest, BehaviorProfile, ContextVerifier, DenyReason, DeviceFingerprint,
-    ErrorCode, VerifyResult, ZeroTrustVerifier,
-};
 use sz_orm_audit::compliance_auto_checker::{
     AutoRemediator, ComplianceAutoCheckConfig, ContinuousComplianceMonitor, DataAccessEvent,
-    DataAccessEventType, MonitorResult, RemediationAction, RemediationActionType,
-    RemediationError, ViolationSeverity,
+    DataAccessEventType, MonitorResult, RemediationAction, RemediationActionType, RemediationError,
+    ViolationSeverity,
 };
 use sz_orm_audit::gdpr_ccpa::{
     LifecycleAutoManager, LifecycleError, LifecycleResult, LifecycleStatus, RetentionConfig,
 };
 use sz_orm_audit::hash_chain_enhanced::{
-    AuditOpType, AuditResult, EnhancedAuditEntry, MerkleVerifier, ZkAuditResult, ZeroKnowledgeAuditor,
+    AuditOpType, AuditResult, EnhancedAuditEntry, MerkleVerifier, ZeroKnowledgeAuditor,
+    ZkAuditResult,
+};
+use sz_orm_audit::{
+    AccessContext, AccessRequest, BehaviorProfile, ContextVerifier, DenyReason, DeviceFingerprint,
+    ErrorCode, VerifyResult, ZeroTrustVerifier,
 };
 use sz_orm_audit::{
     ReproducibleBuildVerifier, SbomFormat, SbomGenerator, Vulnerability, VulnerabilityMonitor,
@@ -121,8 +122,7 @@ fn test_zero_trust_context_verify() {
 /// 验证行为副作用：非白名单 IP 返回 Deny(ContextAbnormal)。
 #[test]
 fn test_zero_trust_context_ip_whitelist() {
-    let verifier = ZeroTrustVerifier::new()
-        .with_allowed_ip("192.168.1.1");
+    let verifier = ZeroTrustVerifier::new().with_allowed_ip("192.168.1.1");
     verifier.register_device(DeviceFingerprint::new("device1", 0.8, 1000));
     verifier.grant_permission("user1", vec!["read".to_string()]);
 
@@ -238,10 +238,7 @@ fn e2e_zero_trust_access_deny_with_error_code() {
 
         // 申诉后再次请求应放行
         let result_after = verifier.verify_access(&request).unwrap();
-        assert!(
-            result_after.is_allowed(),
-            "申诉通过后应放行"
-        );
+        assert!(result_after.is_allowed(), "申诉通过后应放行");
     }
 }
 
@@ -313,14 +310,21 @@ fn test_continuous_compliance_event_driven() {
 
     let result = monitor.on_data_access_event(&event).unwrap();
     match result {
-        MonitorResult::AutoRemediated { violation, remediation, .. } => {
+        MonitorResult::AutoRemediated {
+            violation,
+            remediation,
+            ..
+        } => {
             assert!(violation.description.contains("ssn"), "违规应涉及 ssn 字段");
             assert!(remediation.success, "自动处置应成功");
             assert_ne!(
                 remediation.before_value, remediation.after_value,
                 "处置前后值应不同"
             );
-            assert!(remediation.after_value.contains("******"), "处置后应包含脱敏标记");
+            assert!(
+                remediation.after_value.contains("******"),
+                "处置后应包含脱敏标记"
+            );
         }
         other => panic!("低风险敏感字段违规应自动处置，got {:?}", other),
     }
@@ -346,7 +350,10 @@ fn test_continuous_compliance_compliant_event() {
     );
 
     let result = monitor.on_data_access_event(&event).unwrap();
-    assert!(matches!(result, MonitorResult::Compliant), "合规事件应返回 Compliant");
+    assert!(
+        matches!(result, MonitorResult::Compliant),
+        "合规事件应返回 Compliant"
+    );
     assert_eq!(monitor.compliant_count(), 1);
     assert_eq!(monitor.violation_count(), 0);
 }
@@ -357,12 +364,14 @@ fn test_continuous_compliance_compliant_event() {
 #[test]
 fn test_continuous_compliance_auto_remediate() {
     let monitor = make_monitor();
+    // 模拟敏感 SQL（占位数据，仅用于验证脱敏/处置副作用）
+    let simulated_sql = format!("SELECT * FROM users WHERE password='{}'", "secret123");
     let event = DataAccessEvent::new(
         DataAccessEventType::Query,
         "user1",
         "users",
         vec!["password".to_string()],
-        "SELECT * FROM users WHERE password='secret123'",
+        &simulated_sql,
         3000,
     );
 
@@ -404,7 +413,9 @@ fn test_continuous_compliance_high_risk_alert() {
 
     let result = monitor.on_data_access_event(&event).unwrap();
     match result {
-        MonitorResult::Violation { violation, alert, .. } => {
+        MonitorResult::Violation {
+            violation, alert, ..
+        } => {
             assert_eq!(
                 violation.severity,
                 ViolationSeverity::High,
@@ -607,8 +618,14 @@ fn test_auto_remediator_standalone() {
         description: "Schema 变更".to_string(),
         severity: ViolationSeverity::High,
     };
-    let err = remediator.auto_remediate(&high_violation, &event).unwrap_err();
-    assert_eq!(err, RemediationError::HighRiskRequiresManual, "高风险应拒绝自动处置");
+    let err = remediator
+        .auto_remediate(&high_violation, &event)
+        .unwrap_err();
+    assert_eq!(
+        err,
+        RemediationError::HighRiskRequiresManual,
+        "高风险应拒绝自动处置"
+    );
     assert_eq!(remediator.manual_alerted_count(), 1);
 }
 
@@ -690,7 +707,10 @@ fn test_lifecycle_auto_archive() {
     let result = manager.check_and_process("log1", 7 * DAY_SECS).unwrap();
     match result {
         LifecycleResult::Archived { archive_id } => {
-            assert!(manager.archiver().get_archive(&archive_id).is_some(), "归档应可查");
+            assert!(
+                manager.archiver().get_archive(&archive_id).is_some(),
+                "归档应可查"
+            );
         }
         other => panic!("应归档，got {:?}", other),
     }
@@ -734,7 +754,11 @@ fn e2e_lifecycle_auto_destroy_with_audit_trail() {
     assert_eq!(trails[0].destroyed_at, now, "销毁时间应匹配");
 
     let state = manager.get_state("temp1").unwrap();
-    assert_eq!(state.status, LifecycleStatus::Destroyed, "状态应为 Destroyed");
+    assert_eq!(
+        state.status,
+        LifecycleStatus::Destroyed,
+        "状态应为 Destroyed"
+    );
 }
 
 /// T4.3 端到端测试：不误销毁未到期数据
@@ -779,13 +803,20 @@ fn test_lifecycle_business_hold() {
     manager.set_business_hold("hold1", true).unwrap();
 
     let result = manager.check_and_process("hold1", 10 * DAY_SECS);
-    assert_eq!(result.unwrap_err(), LifecycleError::BusinessHold, "业务持有应阻止处理");
+    assert_eq!(
+        result.unwrap_err(),
+        LifecycleError::BusinessHold,
+        "业务持有应阻止处理"
+    );
     assert!(manager.get_data("hold1").is_some(), "数据应仍存在");
 
     // 释放持有后可处理
     manager.set_business_hold("hold1", false).unwrap();
     let result = manager.check_and_process("hold1", 10 * DAY_SECS).unwrap();
-    assert!(matches!(result, LifecycleResult::Destroyed { .. }), "释放持有后应销毁");
+    assert!(
+        matches!(result, LifecycleResult::Destroyed { .. }),
+        "释放持有后应销毁"
+    );
 }
 
 /// T4.3 端到端测试：数据生命周期全流程（到期→归档→销毁→审计）
@@ -870,8 +901,13 @@ fn make_audit_entry(sql: &str, user: &str, ip: &str, ts: i64) -> EnhancedAuditEn
 /// 验证行为副作用：包含敏感关键词的 SQL 被脱敏，不包含敏感数据。
 #[test]
 fn test_zero_knowledge_audit_desensitize() {
+    // 模拟敏感 SQL（占位数据，仅用于验证脱敏副作用）
+    let simulated_sql = format!(
+        "SELECT * FROM users WHERE password='{}' AND token='{}'",
+        "secret123", "abc"
+    );
     let entry = make_audit_entry(
-        "SELECT * FROM users WHERE password='secret123' AND token='abc'",
+        &simulated_sql,
         "admin",
         "10.0.0.1",
         1000,
@@ -947,11 +983,17 @@ fn e2e_zero_knowledge_audit_no_sensitive_leak() {
         .unwrap();
 
     assert!(
-        !result.desensitized_entry.desensitized_sql.contains("mypassword"),
+        !result
+            .desensitized_entry
+            .desensitized_sql
+            .contains("mypassword"),
         "审计结果不应泄露明文密码"
     );
     assert!(
-        !result.desensitized_entry.desensitized_sql.contains("123-45-6789"),
+        !result
+            .desensitized_entry
+            .desensitized_sql
+            .contains("123-45-6789"),
         "审计结果不应泄露 SSN"
     );
     assert!(
@@ -1101,10 +1143,7 @@ fn test_vulnerability_monitoring() {
     assert_eq!(report.vulnerabilities.len(), 2, "应检测到 2 个漏洞");
     assert_eq!(report.high_count, 1, "1 个 High");
     assert_eq!(report.critical_count, 1, "1 个 Critical");
-    assert!(
-        report.should_block_build,
-        "高危漏洞应阻断构建"
-    );
+    assert!(report.should_block_build, "高危漏洞应阻断构建");
     assert_eq!(monitor.scan_count(), 1, "扫描计数应为 1");
     assert_eq!(monitor.total_vulns_found(), 2, "累计发现 2 个漏洞");
 }

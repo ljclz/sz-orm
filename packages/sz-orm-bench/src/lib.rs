@@ -1,7 +1,13 @@
-//! # sz-orm-bench — 基准对标 crate（v6.9.0）
+//! # sz-orm-bench — 基准对标 crate（v6.9.0 起）
 //!
-//! 提供 sz-orm vs SeaORM vs Diesel vs SQLx 四框架基准对比，
+//! 提供 sz-orm vs SeaORM vs Diesel vs SQLx 真实 DB 基准对比，
 //! 包含 P50/P95/P99 延迟、吞吐量、内存指标、可复现保证。
+//!
+//! 历史说明：v10.13.0 移除了 v7.3.0 遗留的模拟延迟模型
+//! （`run_workload` / `workload_latency_profile` / `framework_latency_factor` /
+//! `run_full_benchmark` / `SeededRng` / `SimdComparisonResult::run`）。
+//! 全部基准测量一律通过 `real_db::run_workload_real`（`--features real-bench`）
+//! 连接真实 DB 执行（ADR-003：禁止回退模拟延迟）。
 
 use serde::{Deserialize, Serialize};
 
@@ -566,34 +572,6 @@ impl BenchReport {
     }
 }
 
-/// 确定性伪随机数生成器（可复现保证）
-pub struct SeededRng {
-    state: u64,
-}
-
-impl SeededRng {
-    pub fn new(seed: u64) -> Self {
-        Self {
-            state: seed.wrapping_mul(0x9E3779B97F4A7C15),
-        }
-    }
-
-    pub fn next_u64(&mut self) -> u64 {
-        self.state = self
-            .state
-            .wrapping_mul(6364136223846793005)
-            .wrapping_add(1442695040888963407);
-        self.state
-    }
-
-    pub fn next_range(&mut self, min: u64, max: u64) -> u64 {
-        if min >= max {
-            return min;
-        }
-        min + (self.next_u64() % (max - min))
-    }
-}
-
 /// 内存指标采集
 pub struct MemoryMetrics {
     pub peak_rss_kb: u64,
@@ -706,93 +684,6 @@ pub fn validate_db_connection(connection: &str) -> Result<DbBackend, BenchError>
     )))
 }
 
-/// 工作负载运行器：对指定框架和负载类型执行基准测试
-///
-/// **注意**：此函数使用模拟延迟模型（`workload_latency_profile`），非真实 DB 测量。
-/// 启用 `real-bench` feature 并使用 `run_workload_real` 可切换为真实 DB 基准。
-pub fn run_workload(
-    framework: FrameworkType,
-    workload: WorkloadType,
-    config: &BenchConfig,
-) -> BenchResult {
-    let mut rng = SeededRng::new(config.seed);
-
-    for _ in 0..config.warmup_rounds {
-        let _ = rng.next_u64();
-    }
-
-    let (base_latency_us, variance_us) = workload_latency_profile(workload);
-    let framework_factor = framework_latency_factor(framework);
-
-    let mut latencies = Vec::with_capacity(config.measure_rounds as usize);
-    for _ in 0..config.measure_rounds {
-        let noise = rng.next_range(0, variance_us);
-        let lat = (base_latency_us as f64 * framework_factor) as u64 + noise;
-        latencies.push(lat);
-    }
-
-    let mem = MemoryMetrics::capture();
-    BenchResult::from_latencies(
-        framework,
-        workload,
-        latencies,
-        mem.peak_rss_kb,
-        mem.alloc_count,
-        mem.alloc_bytes,
-        false,
-    )
-}
-
-fn workload_latency_profile(workload: WorkloadType) -> (u64, u64) {
-    match workload {
-        WorkloadType::SingleRowQuery => (50, 10),
-        WorkloadType::BatchQuery => (500, 100),
-        WorkloadType::ComplexJoin => (2000, 400),
-        WorkloadType::Transaction => (300, 50),
-        WorkloadType::PoolConcurrency => (20, 5),
-        WorkloadType::SimdCompare => (10, 2),
-        WorkloadType::ConcurrentReadWrite => (100, 20),
-        WorkloadType::PoolStress => (15, 3),
-        WorkloadType::LongTransaction => (500, 100),
-        WorkloadType::LargeResultSet => (1000, 200),
-    }
-}
-
-fn framework_latency_factor(framework: FrameworkType) -> f64 {
-    match framework {
-        FrameworkType::SzOrm => 1.0,
-        FrameworkType::SeaOrm => 1.15,
-        FrameworkType::Diesel => 1.08,
-        FrameworkType::Sqlx => 1.20,
-    }
-}
-
-/// 运行全量基准测试：四框架 × 五负载
-pub fn run_full_benchmark(config: &BenchConfig) -> Vec<BenchResult> {
-    let frameworks = [
-        FrameworkType::SzOrm,
-        FrameworkType::SeaOrm,
-        FrameworkType::Diesel,
-        FrameworkType::Sqlx,
-    ];
-    let workloads = [
-        WorkloadType::SingleRowQuery,
-        WorkloadType::BatchQuery,
-        WorkloadType::ComplexJoin,
-        WorkloadType::Transaction,
-        WorkloadType::PoolConcurrency,
-        WorkloadType::SimdCompare,
-    ];
-
-    let mut results = Vec::new();
-    for fw in &frameworks {
-        for wl in &workloads {
-            results.push(run_workload(*fw, *wl, config));
-        }
-    }
-    results
-}
-
 /// 生成带时间戳的报告文件名
 pub fn report_filename() -> String {
     let now = std::time::SystemTime::now()
@@ -812,41 +703,9 @@ pub struct SimdComparisonResult {
 }
 
 impl SimdComparisonResult {
-    /// 运行 SIMD vs 标量对比基准
-    pub fn run(row_count: usize) -> Self {
-        let simd_available = is_simd_available();
-        let simd_throughput = simulate_decode_throughput(row_count, true);
-        let scalar_throughput = simulate_decode_throughput(row_count, false);
-        let speedup = if scalar_throughput > 0.0 {
-            simd_throughput / scalar_throughput
-        } else {
-            1.0
-        };
-        Self {
-            simd_throughput_ops: simd_throughput,
-            scalar_throughput_ops: scalar_throughput,
-            speedup,
-            simd_available,
-        }
-    }
-
     /// 是否满足加速比阈值（≥ 1.5）
     pub fn meets_threshold(&self) -> bool {
         self.simd_available && self.speedup >= 1.5
-    }
-}
-
-fn is_simd_available() -> bool {
-    std::env::consts::ARCH.contains("x86_64")
-}
-
-fn simulate_decode_throughput(row_count: usize, use_simd: bool) -> f64 {
-    let base_ops = 100_000.0;
-    let row_factor = (row_count as f64).ln().max(1.0);
-    if use_simd {
-        base_ops * row_factor * 2.0
-    } else {
-        base_ops * row_factor
     }
 }
 
@@ -1016,75 +875,6 @@ mod tests {
     }
 
     #[test]
-    fn test_seeded_rng_reproducible() {
-        let mut rng1 = SeededRng::new(42);
-        let mut rng2 = SeededRng::new(42);
-        for _ in 0..10 {
-            assert_eq!(rng1.next_u64(), rng2.next_u64());
-        }
-    }
-
-    #[test]
-    fn test_seeded_rng_next_range() {
-        let mut rng = SeededRng::new(42);
-        for _ in 0..100 {
-            let v = rng.next_range(10, 20);
-            assert!((10..20).contains(&v));
-        }
-    }
-
-    #[test]
-    fn test_run_workload_single_row() {
-        let config = BenchConfig::new();
-        let result = run_workload(FrameworkType::SzOrm, WorkloadType::SingleRowQuery, &config);
-        assert_eq!(result.framework, FrameworkType::SzOrm);
-        assert_eq!(result.workload, WorkloadType::SingleRowQuery);
-        assert_eq!(result.raw_latencies.len(), config.measure_rounds as usize);
-        assert!(result.p50_us > 0.0);
-        assert!(result.throughput_ops > 0.0);
-    }
-
-    #[test]
-    fn test_run_workload_all_types() {
-        let config = BenchConfig::new();
-        for wl in [
-            WorkloadType::SingleRowQuery,
-            WorkloadType::BatchQuery,
-            WorkloadType::ComplexJoin,
-            WorkloadType::Transaction,
-            WorkloadType::PoolConcurrency,
-            WorkloadType::SimdCompare,
-        ] {
-            let result = run_workload(FrameworkType::SzOrm, wl, &config);
-            assert!(
-                result.p50_us > 0.0,
-                "workload {:?} should have positive latency",
-                wl
-            );
-        }
-    }
-
-    #[test]
-    fn test_run_full_benchmark() {
-        let config = BenchConfig::new();
-        let results = run_full_benchmark(&config);
-        assert_eq!(results.len(), 24);
-        let sz_orm_count = results
-            .iter()
-            .filter(|r| r.framework == FrameworkType::SzOrm)
-            .count();
-        assert_eq!(sz_orm_count, 6);
-    }
-
-    #[test]
-    fn test_workload_reproducibility() {
-        let config = BenchConfig::new();
-        let r1 = run_workload(FrameworkType::SzOrm, WorkloadType::BatchQuery, &config);
-        let r2 = run_workload(FrameworkType::SzOrm, WorkloadType::BatchQuery, &config);
-        assert_eq!(r1.raw_latencies, r2.raw_latencies);
-    }
-
-    #[test]
     fn test_report_filename() {
         let name = report_filename();
         assert!(name.starts_with("bench-results/"));
@@ -1095,20 +885,6 @@ mod tests {
     fn test_memory_metrics_capture() {
         let mem = MemoryMetrics::capture();
         assert!(mem.alloc_count == 0);
-    }
-
-    #[test]
-    fn test_simd_comparison_run() {
-        let result = SimdComparisonResult::run(1000);
-        assert!(result.simd_throughput_ops > 0.0);
-        assert!(result.scalar_throughput_ops > 0.0);
-        assert!(result.speedup > 1.0);
-    }
-
-    #[test]
-    fn test_simd_comparison_threshold() {
-        let result = SimdComparisonResult::run(1000);
-        assert!(result.meets_threshold() || !result.simd_available);
     }
 
     #[test]
@@ -1124,13 +900,20 @@ mod tests {
 
     #[test]
     fn test_bench_report_with_results() {
-        let config = BenchConfig::new();
-        let results = run_full_benchmark(&config);
+        let results = vec![BenchResult::from_latencies(
+            FrameworkType::SzOrm,
+            WorkloadType::SingleRowQuery,
+            vec![100, 200, 300],
+            1024,
+            10,
+            4096,
+            true,
+        )];
         let report = BenchReport::new(results);
         let json = report.to_json().unwrap();
         assert!(json.contains("sz-orm"));
         assert!(json.contains("single_row_query"));
-        assert!(json.contains("batch_query"));
+        assert!(json.contains("\"is_real_db\": true"));
     }
 }
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]

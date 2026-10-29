@@ -489,6 +489,69 @@ impl Value {
         }
     }
 
+    /// 若可能，返回 i32 形式的值
+    /// 浮点 → i32 为有损转换；超出 `i32` 范围的整数返回 `None`
+    pub fn as_i32(&self) -> Option<i32> {
+        match self {
+            Value::I8(v) => Some(*v as i32),
+            Value::I16(v) => Some(*v as i32),
+            Value::I32(v) => Some(*v),
+            Value::I64(v) => i32::try_from(*v).ok(),
+            Value::U8(v) => Some(*v as i32),
+            Value::U16(v) => Some(*v as i32),
+            Value::U32(v) => i32::try_from(*v).ok(),
+            Value::U64(v) => i32::try_from(*v).ok(),
+            Value::F32(v) => Some(*v as i32),
+            Value::F64(v) => Some(*v as i32),
+            Value::Bool(v) => Some(if *v { 1 } else { 0 }),
+            Value::String(s) => s.parse::<i32>().ok(),
+            Value::Decimal(s) => s.parse::<i32>().ok(),
+            _ => None,
+        }
+    }
+
+    /// 若可能，返回 u32 形式的值
+    /// 负数返回 `None`；浮点 → u32 为有损转换
+    pub fn as_u32(&self) -> Option<u32> {
+        match self {
+            Value::I8(v) => u32::try_from(*v).ok(),
+            Value::I16(v) => u32::try_from(*v).ok(),
+            Value::I32(v) => u32::try_from(*v).ok(),
+            Value::I64(v) => u32::try_from(*v).ok(),
+            Value::U8(v) => Some(*v as u32),
+            Value::U16(v) => Some(*v as u32),
+            Value::U32(v) => Some(*v),
+            Value::U64(v) => u32::try_from(*v).ok(),
+            Value::F32(v) => Some(*v as u32),
+            Value::F64(v) => Some(*v as u32),
+            Value::Bool(v) => Some(if *v { 1 } else { 0 }),
+            Value::String(s) => s.parse::<u32>().ok(),
+            Value::Decimal(s) => s.parse::<u32>().ok(),
+            _ => None,
+        }
+    }
+
+    /// 若可能，返回 u64 形式的值
+    /// 负数返回 `None`；浮点 → u64 为有损转换
+    pub fn as_u64(&self) -> Option<u64> {
+        match self {
+            Value::I8(v) => u64::try_from(*v).ok(),
+            Value::I16(v) => u64::try_from(*v).ok(),
+            Value::I32(v) => u64::try_from(*v).ok(),
+            Value::I64(v) => u64::try_from(*v).ok(),
+            Value::U8(v) => Some(*v as u64),
+            Value::U16(v) => Some(*v as u64),
+            Value::U32(v) => Some(*v as u64),
+            Value::U64(v) => Some(*v),
+            Value::F32(v) => Some(*v as u64),
+            Value::F64(v) => Some(*v as u64),
+            Value::Bool(v) => Some(if *v { 1 } else { 0 }),
+            Value::String(s) => s.parse::<u64>().ok(),
+            Value::Decimal(s) => s.parse::<u64>().ok(),
+            _ => None,
+        }
+    }
+
     /// 若可能，返回 f64 形式的值
     /// 支持整数类型 → f64 的转换
     pub fn as_f64(&self) -> Option<f64> {
@@ -1309,6 +1372,65 @@ mod tests {
         assert!(Value::Bytes(vec![1]).as_i64().is_none());
         assert!(Value::Array(vec![]).as_i64().is_none());
         assert!(Value::Date("d".to_string()).as_i64().is_none());
+    }
+
+    #[test]
+    fn t26v_as_i32_variants() {
+        assert_eq!(Value::I8(-1).as_i32(), Some(-1));
+        assert_eq!(Value::I16(-2).as_i32(), Some(-2));
+        assert_eq!(Value::I32(-3).as_i32(), Some(-3));
+        assert_eq!(Value::I64(42).as_i32(), Some(42));
+        assert_eq!(Value::U8(5).as_i32(), Some(5));
+        assert_eq!(Value::U16(6).as_i32(), Some(6));
+        assert_eq!(Value::U32(7).as_i32(), Some(7));
+        assert_eq!(Value::U64(8).as_i32(), Some(8));
+        assert_eq!(Value::String("42".to_string()).as_i32(), Some(42));
+        assert!(Value::String("x".to_string()).as_i32().is_none());
+        assert!(Value::Null.as_i32().is_none());
+    }
+
+    #[test]
+    fn t26v_as_i32_out_of_range() {
+        assert_eq!(Value::I64(i64::MAX).as_i32(), None);
+        assert_eq!(Value::U32(u32::MAX).as_i32(), None);
+        assert_eq!(Value::U64(u64::MAX).as_i32(), None);
+    }
+
+    #[test]
+    fn t26v_as_u32_variants() {
+        assert_eq!(Value::U8(5).as_u32(), Some(5));
+        assert_eq!(Value::U16(6).as_u32(), Some(6));
+        assert_eq!(Value::U32(7).as_u32(), Some(7));
+        assert_eq!(Value::U64(8).as_u32(), Some(8));
+        assert_eq!(Value::I32(42).as_u32(), Some(42));
+        assert_eq!(Value::String("42".to_string()).as_u32(), Some(42));
+        assert!(Value::String("x".to_string()).as_u32().is_none());
+        assert!(Value::Null.as_u32().is_none());
+    }
+
+    #[test]
+    fn t26v_as_u32_rejects_negative_and_overflow() {
+        assert_eq!(Value::I32(-1).as_u32(), None);
+        assert_eq!(Value::I64(-1).as_u32(), None);
+        assert_eq!(Value::U64(u64::MAX).as_u32(), None);
+    }
+
+    #[test]
+    fn t26v_as_u64_variants() {
+        assert_eq!(Value::U8(5).as_u64(), Some(5));
+        assert_eq!(Value::U16(6).as_u64(), Some(6));
+        assert_eq!(Value::U32(7).as_u64(), Some(7));
+        assert_eq!(Value::U64(u64::MAX).as_u64(), Some(u64::MAX));
+        assert_eq!(Value::I32(42).as_u64(), Some(42));
+        assert_eq!(Value::String("42".to_string()).as_u64(), Some(42));
+        assert!(Value::String("x".to_string()).as_u64().is_none());
+        assert!(Value::Null.as_u64().is_none());
+    }
+
+    #[test]
+    fn t26v_as_u64_rejects_negative() {
+        assert_eq!(Value::I64(-1).as_u64(), None);
+        assert_eq!(Value::I8(-1).as_u64(), None);
     }
 
     #[test]

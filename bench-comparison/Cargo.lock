@@ -3060,7 +3060,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-core"
-version = "9.4.0"
+version = "10.13.0"
 dependencies = [
  "async-trait",
  "bytes",
@@ -3082,7 +3082,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-macros"
-version = "9.4.0"
+version = "10.13.0"
 dependencies = [
  "proc-macro2",
  "quote",
@@ -3091,7 +3091,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-oracle"
-version = "9.4.0"
+version = "10.13.0"
 dependencies = [
  "async-stream",
  "async-trait",
@@ -3105,7 +3105,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-sql-validator"
-version = "9.4.0"
+version = "10.13.0"
 dependencies = [
  "regex",
  "thiserror",
@@ -3113,7 +3113,7 @@ dependencies = [
 
 [[package]]
 name = "sz-orm-sqlx"
-version = "9.4.0"
+version = "10.13.0"
 dependencies = [
  "async-stream",
  "async-trait",

@@ -4,6 +4,11 @@
 //! on sensitive keywords such as password/token/credit_card, ensuring that
 //! audit logs never leak sensitive information.
 //!
+//! v10.13.0（2026-10-27 H-4）：脱敏覆盖"关键词 + `=` + 引号值"整体
+//! （`password='hunter2'` → `******='******'`），敏感值不再明文落盘；
+//! `INSERT ... VALUES ('字面量')` 的位置关联值为已知残留限制（项目强制参数化
+//! 查询，SQL 文本以占位符承载值）。
+//!
 //! ## Main Types
 //!
 //! - [`SqlAuditContext`] — Audit context (SQL/user/timestamp)
@@ -29,22 +34,22 @@ pub mod evidence_chain;
 
 pub mod autonomous_audit;
 
+#[cfg(feature = "compliance-auto-scan")]
+pub mod compliance_auto_checker;
 #[cfg(feature = "compliance-report-auto")]
 pub mod compliance_report_auto_generator;
 #[cfg(feature = "compliance-auto-scan")]
 pub mod compliance_scan_desensitizer;
 #[cfg(feature = "compliance-auto-scan")]
 pub mod compliance_scan_engine;
-#[cfg(feature = "compliance-auto-scan")]
-pub mod zero_trust_access;
-#[cfg(feature = "compliance-auto-scan")]
-pub mod compliance_auto_checker;
+#[cfg(feature = "evidence-auto-archive")]
+pub mod evidence_auto_archive_scheduler;
 #[cfg(feature = "compliance-auto-scan")]
 pub mod gdpr_ccpa;
 #[cfg(feature = "compliance-auto-scan")]
 pub mod supply_chain_security;
-#[cfg(feature = "evidence-auto-archive")]
-pub mod evidence_auto_archive_scheduler;
+#[cfg(feature = "compliance-auto-scan")]
+pub mod zero_trust_access;
 
 #[cfg(feature = "compliance-auto-check")]
 pub use compliance_report::{
@@ -72,8 +77,8 @@ pub use compliance_scan_engine::{
 // v10.11.0 T4.1：零信任访问验证导出
 #[cfg(feature = "compliance-auto-scan")]
 pub use zero_trust_access::{
-    AccessContext, AccessRequest, BehaviorProfile, DenyReason, DeviceFingerprint, DeviceVerifier,
-    DynamicPermission, ContextVerifier, ErrorCode, VerifyError, VerifyResult, ZeroTrustVerifier,
+    AccessContext, AccessRequest, BehaviorProfile, ContextVerifier, DenyReason, DeviceFingerprint,
+    DeviceVerifier, DynamicPermission, ErrorCode, VerifyError, VerifyResult, ZeroTrustVerifier,
 };
 // v10.11.0 T4.2：持续合规监控导出
 #[cfg(feature = "compliance-auto-scan")]
@@ -92,18 +97,18 @@ pub use gdpr_ccpa::{
 #[cfg(feature = "hash-chain-enhanced")]
 pub use hash_chain_enhanced::{
     AuditDesensitizer, DesensitizedEntry, MerkleNode, MerkleProof, MerkleProofGenerator,
-    MerkleVerifier, ZkAuditError, ZkAuditResult, ZeroKnowledgeAuditor,
+    MerkleVerifier, ZeroKnowledgeAuditor, ZkAuditError, ZkAuditResult,
 };
 // v10.11.0 T4.5：供应链安全导出
+#[cfg(feature = "evidence-auto-archive")]
+pub use evidence_auto_archive_scheduler::{
+    ArchiveRecord, EvidenceArchiveError, EvidenceAutoArchiveScheduler,
+};
 #[cfg(feature = "compliance-auto-scan")]
 pub use supply_chain_security::{
     MonitorError as SupplyChainMonitorError, ReproducibleBuildVerifier, ReproducibleResult, Sbom,
     SbomComponent, SbomError, SbomFormat, SbomGenerator, VerifyError as SupplyChainVerifyError,
     Vulnerability, VulnerabilityMonitor, VulnerabilityReport, VulnerabilitySeverity,
-};
-#[cfg(feature = "evidence-auto-archive")]
-pub use evidence_auto_archive_scheduler::{
-    ArchiveRecord, EvidenceArchiveError, EvidenceAutoArchiveScheduler,
 };
 
 #[cfg(feature = "audit-evidence-chain")]
@@ -210,6 +215,15 @@ impl Default for SqlAuditor {
 
 /// Mask all sensitive keywords in `sql` with `******`. Matching is
 /// case-insensitive over the ASCII bytes of the string.
+///
+/// v10.13.0（2026-10-27 H-4 修复）：关键词后的 `= '值'` / `= "值"` 引号值一并掩码。
+/// 旧行为仅替换关键词本身（`password='hunter2'` → `******='hunter2'`），
+/// 敏感值仍明文留在审计日志中；本实现与 `hash_chain_enhanced.rs` 的
+/// `zk_mask_sql` 值级掩码语义对齐。
+///
+/// 已知残留限制（与 zk_mask_sql 一致）：`INSERT ... VALUES ('字面量')` 的位置关联值
+/// 无法通过字符串启发式关联到列名，不做掩码；项目强制参数化查询（值以 `?`/`$N`
+/// 占位符出现），该场景下 SQL 文本本身不含字面量值。
 pub(crate) fn mask_sensitive(sql: &str) -> String {
     let lower = sql.to_ascii_lowercase();
     let mut result = String::with_capacity(sql.len());
@@ -236,6 +250,37 @@ pub(crate) fn mask_sensitive(sql: &str) -> String {
         if let Some(kw_len) = matched_len {
             result.push_str("******");
             i += kw_len;
+            // v10.13.0 (H-4)：跟随 `=` 掩码引号值
+            while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+                result.push(bytes[i] as char);
+                i += 1;
+            }
+            if i < bytes.len() && bytes[i] == b'=' {
+                result.push('=');
+                i += 1;
+                while i < bytes.len() && (bytes[i] == b' ' || bytes[i] == b'\t') {
+                    result.push(bytes[i] as char);
+                    i += 1;
+                }
+                if i < bytes.len() && (bytes[i] == b'\'' || bytes[i] == b'"') {
+                    let quote = bytes[i];
+                    result.push(quote as char);
+                    i += 1;
+                    // 消费引号内内容；反斜杠转义的引号（\"）不终止值
+                    while i < bytes.len() && bytes[i] != quote {
+                        if bytes[i] == b'\\' && i + 1 < bytes.len() {
+                            i += 2;
+                            continue;
+                        }
+                        i += 1;
+                    }
+                    result.push_str("******");
+                    if i < bytes.len() {
+                        result.push(quote as char);
+                        i += 1;
+                    }
+                }
+            }
         } else {
             // Push one char (handles UTF-8 properly since we step by char).
             let ch = sql[i..]
@@ -1202,6 +1247,47 @@ mod tests {
         // Verify there are at least 2 mask replacements
         let count = masked.matches("******").count();
         assert!(count >= 2, "expected at least 2 masks, got: {}", masked);
+    }
+
+    // ===== v10.13.0 (H-4) 值级脱敏回归测试 =====
+
+    #[test]
+    fn test_mask_sensitive_masks_quoted_value_after_eq() {
+        // H-4 PoC：旧行为 `******='hunter2'`（值明文），新行为值一并掩码
+        let a = SqlAuditor::new();
+        let masked = a.mask_sensitive("SELECT * FROM users WHERE password='hunter2'");
+        assert_eq!(
+            masked, "SELECT * FROM users WHERE ******='******'",
+            "关键词后的引号值应一并掩码: {}",
+            masked
+        );
+        assert!(!masked.contains("hunter2"));
+    }
+
+    #[test]
+    fn test_mask_sensitive_masks_double_quoted_value_with_spaces() {
+        let a = SqlAuditor::new();
+        let masked = a.mask_sensitive("UPDATE t SET api_key = \"sk-1234567890abcdef\" WHERE id=1");
+        assert_eq!(
+            masked, "UPDATE t SET ****** = \"******\" WHERE id=1",
+            "double-quoted 值应掩码: {}",
+            masked
+        );
+    }
+
+    #[test]
+    fn test_mask_sensitive_values_clause_residual_limitation() {
+        // 已知残留限制（与 zk_mask_sql 语义一致）：VALUES 的位置关联值不做掩码。
+        // 参数化查询下 SQL 文本不含字面量值，此测试固定当前行为防止静默回退。
+        let a = SqlAuditor::new();
+        let masked = a.mask_sensitive("INSERT INTO t (token, user_id) VALUES ('p1', 't1')");
+        let lower = masked.to_lowercase();
+        assert!(!lower.contains("token"), "关键词应被掩码: {}", masked);
+        assert!(
+            masked.contains("'p1'"),
+            "VALUES 位置关联值为已知残留限制，当前不掩码: {}",
+            masked
+        );
     }
 
     #[test]

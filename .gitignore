@@ -62,3 +62,19 @@ node_modules/
 # llvm-cov 覆盖率产物（本机采集）
 lcov.info
 *.lcov
+
+# 本地凭据 / 临时 SSH 传输脚本（2026-10-28 安全整改：禁止入库）
+/tmp_ssh_key2
+/tmp_ssh_check.js
+/tmp_ssh_run.js
+/transfer2.js
+/upload.js
+/run_test.js
+/scripts/v870_sftp_upload.js
+/scripts/v870_sftp_download.js
+/scripts/e2e_ssh_probe.js
+/scripts/v870_gate_remote.js
+*.pem
+*.key
+id_rsa*
+id_ed25519*

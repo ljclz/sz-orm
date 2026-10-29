@@ -55,6 +55,9 @@ impl OpenAIEmbeddingClient {
     /// 创建客户端实例
     ///
     /// 使用默认 api_base / model / dimension，仅传入 API key。
+    ///
+    /// > ⚠ v10.13.0 (L-2)：直接传入字符串的 API key 会进入二进制/日志/错误消息的
+    /// > 泄露面。生产环境推荐使用 [`OpenAIEmbeddingClient::from_env`] 从环境变量读取。
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_base: Self::DEFAULT_API_BASE.to_string(),
@@ -63,6 +66,15 @@ impl OpenAIEmbeddingClient {
             dimension: Self::DEFAULT_DIMENSION,
             http_client: reqwest::Client::new(),
         }
+    }
+
+    /// 从环境变量 `OPENAI_API_KEY` 创建客户端实例（v10.13.0 / L-2 推荐入口）
+    ///
+    /// 密钥由运行环境注入（环境变量 / 密钥管理下发），不进入源码与二进制。
+    pub fn from_env() -> Result<Self, String> {
+        let api_key =
+            std::env::var("OPENAI_API_KEY").map_err(|_| "OPENAI_API_KEY not set".to_string())?;
+        Ok(Self::new(api_key))
     }
 
     /// 设置 API base URL（例如自托管 OpenAI 兼容服务、Azure OpenAI 等）

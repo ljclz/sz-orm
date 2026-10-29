@@ -6,6 +6,7 @@ on:
     paths:
       - 'packages/sz-orm-python/**'
       - 'packages/sz-orm-js/**'
+      - 'packages/sz-orm-cabi/**'
       - 'packages/sz-orm-core/**'
       - '.github/workflows/bindings.yml'
   pull_request:
@@ -13,6 +14,7 @@ on:
     paths:
       - 'packages/sz-orm-python/**'
       - 'packages/sz-orm-js/**'
+      - 'packages/sz-orm-cabi/**'
       - 'packages/sz-orm-core/**'
       - '.github/workflows/bindings.yml'
   workflow_dispatch:
@@ -125,10 +127,37 @@ jobs:
           cd packages/sz-orm-js
           npx jest tests/ --verbose
 
+  # ── C# 绑定构建 + 端到端测试（C ABI 契约：UTF-8 字符串 / 仅 SQLite） ──
+  # SzOrmTest 含非 ASCII 往返断言，用于防住 LPStr/PtrToStringAnsi 回归。
+  csharp-binding:
+    name: C# Binding (windows)
+    needs: rust-core
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: ". -> target"
+
+      - uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: '9.0.x'
+
+      - name: Build C ABI dll
+        run: cargo build -p sz-orm-cabi
+
+      - name: Run C# end-to-end test
+        run: dotnet run --project packages/sz-orm-cabi/csharp/SzOrmTest/SzOrmTest.csproj
+        env:
+          SzOrmCabiDll: ${{ github.workspace }}\target\debug\sz_orm_cabi.dll
+
   # ── 绑定层等价性验证 ──
   binding-verification:
     name: Binding Verification
-    needs: [python-binding, node-binding]
+    needs: [python-binding, node-binding, csharp-binding]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4

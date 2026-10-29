@@ -1,8 +1,9 @@
 # 通用 Soak 自托管工具使用指南
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 > 版本：2.0
 > 适用：任何需要长时间稳定性测试的 Web 项目
-> 服务器：122.51.216.76（Ubuntu 24.04，8 核 15GB）
+> 服务器：<legacy-server-ip>（Ubuntu 24.04，8 核 15GB）
 > 工具部署位置：`/www/rust/soak-toolkit/`
 
 ---
@@ -77,7 +78,7 @@ bash /www/rust/soak-toolkit/soak-runner.sh \
 
 ```bash
 # SSH 登录服务器
-ssh root@122.51.216.76
+ssh root@<legacy-server-ip>
 
 # 创建工作目录
 mkdir -p /www/rust/my-project-soak

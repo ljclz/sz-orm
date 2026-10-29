@@ -44,16 +44,47 @@ jobs:
 
       - name: Run cargo-audit
         run: |
+          # v10.13.0 (M-1)：--ignore 列表必须与 deny.toml [advisories].ignore 保持一致，
+          # 否则锁文件中已登记豁免的 advisory 会让本 job 假红。
+          # v10.13.0 更新：webpki-root-certs/ctutils/tokio/zstd 已升级消除（0383/0385/0386/0391/0398/0403 移除）。
+          # v10.13.0 (2026-10-28 P0-1 复核)：rustls 0.21 线退出锁文件，0346/0349 ignore 移除（deny.toml 同步）。
           cargo audit \
             --no-yanked \
             --ignore RUSTSEC-2026-0049 \
             --ignore RUSTSEC-2026-0098 \
             --ignore RUSTSEC-2026-0099 \
             --ignore RUSTSEC-2026-0104 \
+            --ignore RUSTSEC-2026-0382 \
             --ignore RUSTSEC-2026-0194 \
             --ignore RUSTSEC-2026-0195 \
             --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2024-0436
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2026-0097 \
+            --ignore RUSTSEC-2026-0221 \
+            --ignore RUSTSEC-2026-0235 \
+            --ignore RUSTSEC-2025-0020 \
+            --ignore RUSTSEC-2026-0177 \
+            --ignore RUSTSEC-2026-0258 \
+            --ignore RUSTSEC-2026-0367 \
+            --ignore RUSTSEC-2026-0368 \
+            --ignore RUSTSEC-2026-0369
+
+  # ============================================================================
+  # Job 3: secrets 凭据泄露扫描（v10.13.0 / 2026-10-27 H-3 整改接入）
+  # ============================================================================
+  secret-scanning:
+    name: secret-scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run check-secrets
+        run: python scripts/check-secrets.py
 
   # ============================================================================
   # Job 2: cargo-deny 综合检查 (advisories / bans / licenses / sources)

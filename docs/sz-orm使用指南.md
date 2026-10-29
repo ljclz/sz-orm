@@ -1,10 +1,10 @@
 # SZ-ORM 使用指南
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v7.7.0（覆盖 v7.4.0~v7.7.0 演进：真实 DB 基准对标深化 + AI 能力深化 + 性能优化深化 + 生产稳定性加固 + 性能继续优化 + 自愈协调；72 个工作空间成员）
-> 适用版本：SZ-ORM **v7.7.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
-> 更新日期：2026-09-20
-> 项目状态：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io，当前工作空间版本 7.7.0
+> 文档版本：随仓库更新（本文档主体编写于 v7.4.0~v7.7.0 演进期，示例 API 以当前源码为准；最新版本见 [CHANGELOG](../CHANGELOG.md)）
+> 适用版本：SZ-ORM **v10.13.0+**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 更新日期：2026-10-27
+> 项目状态：生产可用（内部项目），sz-orm-core 已发布到 crates.io，当前工作空间版本 10.13.0
 > 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
 > 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"
 
@@ -77,10 +77,12 @@ tokio = { version = "1.40", features = ["full"] }
 ### 2.3 最小示例：生成 SQL
 
 ```rust
-use sz_orm_core::*;
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, Model, QueryBuilder, Value};
 
 // 1. 定义模型
-#[derive(Clone)]
+#[derive(Clone, Default)]
+#[allow(dead_code)]
 struct User {
     id: i64,
     name: String,
@@ -98,11 +100,12 @@ fn main() {
     let dialect = get_dialect(DbType::MySQL).unwrap();
     let sql = QueryBuilder::<User>::new(dialect)
         .table("users")
-        .select(vec!["id", "name", "email"])?
+        .select(vec!["id", "name", "email"])
+        .expect("valid columns")     // select() 返回 Result，需处理
         .where_eq("status", Value::String("active".to_string()))
         .order_desc("id")
         .limit(10)
-        .build_select();
+        .sql();                      // 返回 SQL 字符串（`?` 参数占位）
     // SELECT `id`, `name`, `email` FROM `users`
     // WHERE `status` = ? ORDER BY `id` DESC LIMIT 10
     println!("{sql}");
@@ -732,7 +735,7 @@ let update = JsonUpdate::new(DbType::MySQL, "prefs")
 rbatis 风格的 XML 模板 + 命名参数绑定，支持 `<if>`、`<where>`、`<set>`、`<foreach>`、`<choose>`、`<trim>` 等标签。
 
 ```rust
-use sz_orm_core::dynamic_sql::{DynamicSqlParser, SqlParams};
+use sz_orm_core::dynamic_sql::{DynamicSqlParser, ParamValue, SqlParams};
 
 let xml = r#"
 <select id="find_users">
@@ -768,7 +771,7 @@ let xml_foreach = r#"
 "#;
 let parser = DynamicSqlParser::from_xml(xml_foreach);
 let mut params = SqlParams::new();
-params.set_list("ids", vec![1, 2, 3]);
+params.set_array("ids", vec![ParamValue::Int(1), ParamValue::Int(2), ParamValue::Int(3)]);
 let sql = parser.build("find_by_ids", &params)?;
 // SELECT * FROM users WHERE id IN (?, ?, ?)
 ```
@@ -1186,20 +1189,24 @@ reg.disable("active")?;
 定义实体关联图，通过 BatchLoader 批量加载关联数据，避免 N+1 查询。
 
 ```rust
-use sz_orm_core::entity_graph::{EntityGraph, BatchLoaderFn};
+use sz_orm_core::entity_graph::{BatchLoader, EntityGraph};
 
-// 闭包风格的批量加载器：根据 user_id 列表一次性加载部门信息
-let dept_loader = BatchLoaderFn::new(|keys: &[i64]| -> std::collections::HashMap<i64, String> {
-    // SELECT dept_id, dept_name FROM depts WHERE dept_id IN (?, ?, ?)
-    keys.iter().map(|&k| (k, format!("dept_{}", k))).collect()
-});
+// 1. 定义实体关联图（描述 user → dept 的关联）
+let mut graph = EntityGraph::new();
+graph.add_edge("user", "dept");
 
-let graph = EntityGraph::new()
-    .edge("user", "dept", dept_loader);
+// 2. 批量加载器：根据 user_id 列表一次性加载部门信息（batch_size=100）
+let dept_loader: BatchLoader<i64, String> = BatchLoader::new(
+    100,
+    Box::new(|keys: &[i64]| -> std::collections::HashMap<i64, String> {
+        // SELECT dept_id, dept_name FROM depts WHERE dept_id IN (?, ?, ?)
+        keys.iter().map(|&k| (k, format!("dept_{}", k))).collect()
+    }),
+);
 
-// 一次性加载 100 个用户的部门，避免 100 次 SQL
+// 3. 一次性加载 100 个用户的部门，避免 100 次 SQL
 let user_ids: Vec<i64> = vec![1, 2, 3, 4, 5];
-let depts = graph.load_batch("user", "dept", &user_ids);
+let depts = dept_loader.load_many(&user_ids);
 ```
 
 #### 3.7.7 guard — SQL 安全守卫
@@ -1287,17 +1294,24 @@ cache.invalidate_table("users");
 MyBatis-Plus 风格 Lambda 查询包装器，通过 `User::age` 形式引用列名，编译期检查列名错误。
 
 ```rust
-use sz_orm_core::lambda::{LambdaWrapper, define_columns};
+use sz_orm_core::lambda::{define_columns, Column, LambdaWrapper};
+use sz_orm_core::Value;
 
-define_columns! { User { id, name, age } }
+define_columns! {
+    UserColumns for User table = "users" {
+        Id => "id",
+        Name => "name",
+        Age => "age",
+    }
+}
 
-let wrapper = LambdaWrapper::<User>::new()
-    .eq(User::age, 18)
-    .like(User::name, "Ali%")
-    .order_desc(User::id)
+let mut wrapper = LambdaWrapper::<User>::new("users")
+    .eq(UserColumns::Age, Value::I64(18))
+    .like(UserColumns::Name, "Ali%")
+    .order_by_desc(UserColumns::Id)
     .page(1, 20);
 
-let where_sql = wrapper.build_where();
+let sql = wrapper.build_select();
 // → WHERE age = ? AND name LIKE ? ORDER BY id DESC LIMIT 20 OFFSET 0
 ```
 
@@ -1356,14 +1370,15 @@ let result = retry(|| {
 Phinx 风格的链式建表 API，14 种列类型 + 索引 + 外键。
 
 ```rust
-use sz_orm_core::phinx_migration::{PhinxTable, ColumnType, ColumnOptions, IndexOptions, ForeignKeyOptions};
+use sz_orm_core::DbType;
+use sz_orm_core::phinx_migration::{ColumnOptions, ColumnType, ForeignKeyOptions, IndexOptions, PhinxTable};
 
 let table = PhinxTable::new("users")
     .add_column("id", ColumnType::Bigint, ColumnOptions::new().primary().auto_increment())
     .add_column("name", ColumnType::String, ColumnOptions::new().length(255).not_null())
     .add_column("email", ColumnType::String, ColumnOptions::new().length(255).unique())
     .add_column("dept_id", ColumnType::Bigint, ColumnOptions::new().not_null())
-    .add_column("created_at", ColumnType::DateTime, ColumnOptions::new().default_current_timestamp())
+    .add_column("created_at", ColumnType::DateTime, ColumnOptions::new().default_value("CURRENT_TIMESTAMP"))
     .add_index(IndexOptions::new().columns(&["email"]).unique())
     .add_foreign_key(
         ForeignKeyOptions::new("dept_id")
@@ -1371,7 +1386,7 @@ let table = PhinxTable::new("users")
             .on_delete_cascade()
     );
 
-let sql = table.create_sql(&*dialect);
+let sql = table.create(DbType::MySQL)?;
 // → CREATE TABLE users (...) + CREATE INDEX + ALTER TABLE ADD CONSTRAINT
 ```
 
@@ -1409,7 +1424,7 @@ use sz_orm_core::DbType;
 let (sql, params) = Db::new(DbType::PostgreSQL)
     .name("users")
     .select(&["id", "name", "email"])
-    .where_gte("age", 18)
+    .where_ge("age", 18)
     .where_in("status", &["active", "verified"])
     .order_desc("created_at")
     .page(1, 20)
@@ -1919,7 +1934,7 @@ let hit_rate = cache.parse_hit_rate();
 use sz_orm_core::perf_metrics::PerfMetrics;
 
 let metrics = PerfMetrics::global();
-metrics.record_query_latency(Duration::from_millis(5));
+metrics.record_pool_acquire();   // 记录一次连接池获取（真实 API 示例）
 let snapshot = metrics.snapshot();
 let prometheus_text = snapshot.to_prometheus();
 ```
@@ -2533,7 +2548,8 @@ SoA（Structure of Arrays）布局 + 分块对齐，目标聚合加速比 ≥ 2.
 use sz_orm_core::simd::SimdAggregator;
 
 let aggregator = SimdAggregator::new();
-let result = aggregator.batch_sum_soa(&columns)?;
+let data: &[f32] = &[1.0, 2.0, 3.0, 4.0];
+let result = aggregator.batch_sum_f32(data);
 ```
 
 生产调用点：`packages/sz-orm-core/src/simd.rs:130`
@@ -2758,9 +2774,11 @@ println!("兼容率: {:.1}%", report.compat_rate() * 100);
 提供 `SelfHealCoordinator` 组件（需手动接入），协调自动恢复决策。
 
 ```rust
+use sz_orm_health::self_heal::FaultType;
 use sz_orm_health::SelfHealCoordinator;
+
 let coordinator = SelfHealCoordinator::new();
-let result = coordinator.check_and_heal().await?;
+let result = coordinator.heal(&FaultType::ConnectionLeak).await?;
 ```
 
 生产调用点：[self_heal.rs:1](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-health/src/self_heal.rs#L1)

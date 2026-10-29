@@ -35,7 +35,7 @@ use sz_orm_core::dialect::get_dialect;
 use sz_orm_core::{
     Connection, DbType, FileMigrationResolver, MigrationContext, MigrationResolver, Migrator,
 };
-use sz_orm_sql_validator::validate;
+use sz_orm_sql_validator::{validate_with_depth, ValidationDepth};
 
 mod phantom1_wiring;
 
@@ -54,7 +54,8 @@ const HELP: &str = r#"SZ-ORM 命令行工具
     make:migration <name>         生成迁移文件骨架（_up.sql / _down.sql）
     migrate:derive-down --up <f>  从 up SQL 自动推导 down SQL
     make:model:idempotent <names> 生成幂等 Model 代码（逗号分隔多个模型名）
-    make:model <name>             生成 Model 骨架代码（--pk-type 可指定主键类型）
+    make:model <name>             生成 Model 骨架代码（--pk-type 可指定主键类型；
+                                  --fields "name:String,age:i32" 可直接生成业务字段四件套）
     make:seeder <name>            生成 Seeder 文件骨架（SQL 数据填充脚本）
     make:fixture <name>           生成 Fixture YAML 模板（需 data-seeding feature）
     seed                          执行所有 Seeder（需 --dsn）
@@ -293,31 +294,35 @@ fn run(args: Vec<String>) -> Result<(), String> {
 // =====================================================================
 
 fn cmd_info() -> Result<(), String> {
-    println!("SZ-ORM {} — 鲜视达 ORM", VERSION);
-    println!("工作空间: 31 个包");
-    println!("数据库方言: 11 种");
-    println!();
-    println!("支持数据库:");
-    let all = [
-        DbType::MySQL,
-        DbType::PostgreSQL,
-        DbType::Sqlite,
-        DbType::Redis,
-        DbType::MongoDB,
-        DbType::ClickHouse,
-        DbType::Oracle,
-        DbType::OceanBase,
-        DbType::SqlServer,
-        DbType::VectorDb,
-        DbType::PureJsDb,
-    ];
-    for db in &all {
-        println!("  - {:<12} (默认端口 {})", db.as_str(), db.default_port());
-    }
-    println!();
-    println!("核心特性: 异步、ACID 事务、连接池、迁移系统、多级缓存、钩子系统");
-    println!("生产等级: L4 金融级");
+    print!("{}", build_info());
     Ok(())
+}
+
+/// 构建 `info` 命令输出（纯函数，便于测试断言方言数自洽）
+fn build_info() -> String {
+    let mut out = String::new();
+    out.push_str(&format!("SZ-ORM {} — 鲜视达 ORM\n", VERSION));
+    let sql_count = DbType::ALL.iter().filter(|d| !d.is_nosql()).count();
+    let nosql_count = DbType::ALL.len() - sql_count;
+    out.push_str(&format!(
+        "数据库方言: {} 种（{} SQL + {} NoSQL）\n",
+        DbType::ALL.len(),
+        sql_count,
+        nosql_count
+    ));
+    out.push('\n');
+    out.push_str("支持数据库:\n");
+    for db in DbType::ALL {
+        out.push_str(&format!(
+            "  - {:<12} (默认端口 {})\n",
+            db.as_str(),
+            db.default_port()
+        ));
+    }
+    out.push('\n');
+    out.push_str("核心特性: 异步、ACID 事务、连接池、迁移系统、多级缓存、钩子系统\n");
+    out.push_str("工作空间成员与版本信息见 README.md（crates.io 发布版本可能滞后于仓库）\n");
+    out
 }
 
 // =====================================================================
@@ -736,7 +741,10 @@ fn cmd_make_model_idempotent(args: &[&str], config: &Option<CliConfig>) -> Resul
 
 fn cmd_make_model(args: &[&str], config: &Option<CliConfig>) -> Result<(), String> {
     if args.is_empty() || args[0].starts_with("--") {
-        return Err("用法: sz-orm make:model <Name> [--output <dir>] [--pk-type <type>]".into());
+        return Err(
+            "用法: sz-orm make:model <Name> [--output <dir>] [--pk-type <type>] [--fields <spec>]"
+                .into(),
+        );
     }
     let name = args[0];
     let output_dir = resolve_option(args, "--output", config, |c| &c.output_dir)
@@ -751,32 +759,162 @@ fn cmd_make_model(args: &[&str], config: &Option<CliConfig>) -> Result<(), Strin
             valid_types.join(", ")
         ));
     }
+    // 业务字段（可选）：--fields "name:String,age:i32,active:bool"
+    let fields = parse_field_specs(parse_option(args, "--fields"))?;
 
     fs::create_dir_all(&output_dir).map_err(|e| format!("创建目录 {} 失败: {}", output_dir, e))?;
 
     let snake = to_snake_case(name);
     let table = pluralize(&snake);
-    let code = render_skeleton_model(name, &table, &pk_type);
+    let code = render_skeleton_model(name, &table, &pk_type, &fields);
 
     let path = PathBuf::from(&output_dir).join(format!("{}.rs", snake));
     fs::write(&path, code).map_err(|e| format!("写入 {} 失败: {}", path.display(), e))?;
 
     println!("已生成 Model:");
     println!(
-        "  - {} (表: {}, 主键类型: {})",
+        "  - {} (表: {}, 主键类型: {}, 业务字段: {})",
         path.display(),
         table,
-        pk_type
+        pk_type,
+        fields.len()
     );
     Ok(())
 }
 
-/// 根据 pk_type 渲染 make:model 骨架代码
+/// make:model 业务字段规格
+#[derive(Debug, Clone, PartialEq)]
+struct FieldSpec {
+    /// 字段名（snake_case Rust 标识符）
+    field: String,
+    /// struct 中的 Rust 类型
+    ty: &'static str,
+    /// 对应的 Value 变体
+    variant: &'static str,
+    /// Value 上的取值访问器
+    accessor: &'static str,
+    /// get_column_value 时是否需要 clone
+    needs_clone: bool,
+}
+
+/// 解析 --fields 规格（"name:String,age:i32,active:bool"）
+///
+/// 支持类型：String / uuid / i32 / i64 / u32 / u64 / f64 / bool / Decimal
+/// （uuid 与 Decimal 以 String 字段承载；不支持的类型返回明确错误）
+fn parse_field_specs(spec: Option<String>) -> Result<Vec<FieldSpec>, String> {
+    let supported = "String, uuid, i32, i64, u32, u64, f64, bool, Decimal";
+    let mut specs = Vec::new();
+    let raw = match spec {
+        Some(s) => s,
+        None => return Ok(specs),
+    };
+    for part in raw.split(',') {
+        let part = part.trim();
+        if part.is_empty() {
+            continue;
+        }
+        let (field, ty) = part
+            .split_once(':')
+            .ok_or_else(|| format!("无效的字段规格 \"{}\"（应为 name:Type）", part))?;
+        let field = field.trim();
+        let ty = ty.trim();
+        let valid_ident = !field.is_empty()
+            && field.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')
+            && !field
+                .chars()
+                .next()
+                .map(|c| c.is_ascii_digit())
+                .unwrap_or(false);
+        if !valid_ident {
+            return Err(format!(
+                "无效的字段名 \"{}\"（须为合法 Rust 标识符）",
+                field
+            ));
+        }
+        let spec = match ty {
+            "String" => FieldSpec {
+                field: field.to_string(),
+                ty: "String",
+                variant: "Value::String",
+                accessor: "as_str",
+                needs_clone: true,
+            },
+            "uuid" => FieldSpec {
+                field: field.to_string(),
+                ty: "String",
+                variant: "Value::String",
+                accessor: "as_str",
+                needs_clone: true,
+            },
+            "Decimal" => FieldSpec {
+                field: field.to_string(),
+                ty: "String",
+                variant: "Value::Decimal",
+                accessor: "as_str",
+                needs_clone: true,
+            },
+            "i32" => FieldSpec {
+                field: field.to_string(),
+                ty: "i32",
+                variant: "Value::I32",
+                accessor: "as_i32",
+                needs_clone: false,
+            },
+            "i64" => FieldSpec {
+                field: field.to_string(),
+                ty: "i64",
+                variant: "Value::I64",
+                accessor: "as_i64",
+                needs_clone: false,
+            },
+            "u32" => FieldSpec {
+                field: field.to_string(),
+                ty: "u32",
+                variant: "Value::U32",
+                accessor: "as_u32",
+                needs_clone: false,
+            },
+            "u64" => FieldSpec {
+                field: field.to_string(),
+                ty: "u64",
+                variant: "Value::U64",
+                accessor: "as_u64",
+                needs_clone: false,
+            },
+            "f64" => FieldSpec {
+                field: field.to_string(),
+                ty: "f64",
+                variant: "Value::F64",
+                accessor: "as_f64",
+                needs_clone: false,
+            },
+            "bool" => FieldSpec {
+                field: field.to_string(),
+                ty: "bool",
+                variant: "Value::Bool",
+                accessor: "as_bool",
+                needs_clone: false,
+            },
+            other => {
+                return Err(format!(
+                    "无效的字段类型 \"{}\"（字段 {}). 支持的类型: {}",
+                    other, field, supported
+                ))
+            }
+        };
+        specs.push(spec);
+    }
+    Ok(specs)
+}
+
+/// 根据 pk_type 与业务字段渲染 make:model 骨架代码
 ///
 /// pk_type 支持：i32 / i64 / u32 / u64 / String / uuid
-fn render_skeleton_model(name: &str, table: &str, pk_type: &str) -> String {
+/// fields 非空时直接生成"开箱可编译"的完整四件套（columns/fillable/get_column_value/from_value），
+/// 无需再手动在四处补字段。
+fn render_skeleton_model(name: &str, table: &str, pk_type: &str, fields: &[FieldSpec]) -> String {
     // id 字段类型、Value 变体、as_xxx 访问器
-    // uuid 使用 String 字段承载
+    // uuid 使用 String 字段承载；PrimaryKey 类型同样映射为 String（uuid 不是 Rust 内置类型）
     let (field_type, value_variant, as_accessor) = match pk_type {
         "i32" => ("i32", "Value::I32", "as_i32"),
         "u32" => ("u32", "Value::U32", "as_u32"),
@@ -785,6 +923,7 @@ fn render_skeleton_model(name: &str, table: &str, pk_type: &str) -> String {
         "uuid" => ("String", "Value::String", "as_str"),
         _ => ("i64", "Value::I64", "as_i64"), // 默认 i64
     };
+    let pk_type_display = if pk_type == "uuid" { "String" } else { pk_type };
 
     let is_string_pk = pk_type == "String" || pk_type == "uuid";
 
@@ -811,23 +950,58 @@ fn render_skeleton_model(name: &str, table: &str, pk_type: &str) -> String {
         )
     };
 
+    // 业务字段的四件套代码段（struct 字段 / columns / fillable / get / from）
+    let mut struct_lines = String::new();
+    let mut column_lines = String::new();
+    let mut fillable_lines = String::new();
+    let mut get_lines = String::new();
+    let mut set_lines = String::new();
+    for f in fields {
+        struct_lines.push_str(&format!("    pub {}: {},\n", f.field, f.ty));
+        column_lines.push_str(&format!("        \"{}\",\n", f.field));
+        fillable_lines.push_str(&format!("        \"{}\",\n", f.field));
+        let clone_suffix = if f.needs_clone { ".clone()" } else { "" };
+        get_lines.push_str(&format!(
+            "            \"{}\" => Some({}(self.{}{})),\n",
+            f.field, f.variant, f.field, clone_suffix
+        ));
+        let assign = if f.ty == "String" {
+            "x.to_string()"
+        } else {
+            "x"
+        };
+        set_lines.push_str(&format!(
+            "                \"{}\" => {{ if let Some(x) = v.{}() {{ self.{} = {} }} }},\n",
+            f.field, f.accessor, f.field, assign
+        ));
+    }
+    let struct_block = if fields.is_empty() {
+        "    // TODO: 在此添加业务字段\n".to_string()
+    } else {
+        struct_lines
+    };
+    let fillable_block = if fields.is_empty() {
+        "        vec![]".to_string()
+    } else {
+        format!("        vec![\n{}    ]", fillable_lines)
+    };
+
     format!(
         r#"//! Model: {name}
 
-use sz_orm_core::model::{{Model, ModelExt, TimestampFields}};
-use sz_orm_core::value::Value;
+use sz_orm_core::{{Model, ModelExt, TimestampFields}};
+use sz_orm_core::Value;
 
 /// {name} 模型
 #[derive(Debug, Clone, Default)]
 pub struct {name} {{
     pub id: {field_type},
-    // TODO: 在此添加业务字段
-    pub created_at: Option<String>,
+{struct_block}    pub created_at: Option<String>,
     pub updated_at: Option<String>,
 }}
 
 impl Model for {name} {{
-    type PrimaryKey = {pk_type};
+    type PrimaryKey = {pk_type_display};
 
     fn table_name() -> &'static str {{
         "{table}"
@@ -856,17 +1030,21 @@ impl Model for {name} {{
 
 impl ModelExt for {name} {{
     fn columns() -> Vec<&'static str> {{
-        vec!["id", "created_at", "updated_at"]
+        vec![
+            "id",
+{column_lines}            "created_at",
+            "updated_at",
+        ]
     }}
 
     fn fillable() -> Vec<&'static str> {{
-        vec![]
+{fillable_block}
     }}
 
     fn get_column_value(&self, column: &str) -> Option<Value> {{
         match column {{
 {id_get_expr}
-            "created_at" => self.created_at.clone().map(Value::String),
+{get_lines}            "created_at" => self.created_at.clone().map(Value::String),
             "updated_at" => self.updated_at.clone().map(Value::String),
             _ => None,
         }}
@@ -876,7 +1054,7 @@ impl ModelExt for {name} {{
         for (k, v) in map {{
             match k.as_str() {{
 {id_set_expr}
-                "created_at" => {{ if let Some(s) = v.as_str() {{ self.created_at = Some(s.to_string()); }} }},
+{set_lines}                "created_at" => {{ if let Some(s) = v.as_str() {{ self.created_at = Some(s.to_string()); }} }},
                 "updated_at" => {{ if let Some(s) = v.as_str() {{ self.updated_at = Some(s.to_string()); }} }},
                 _ => {{}}
             }}
@@ -886,10 +1064,15 @@ impl ModelExt for {name} {{
 "#,
         name = name,
         table = table,
-        pk_type = pk_type,
+        pk_type_display = pk_type_display,
         field_type = field_type,
         id_get_expr = id_get_expr,
         id_set_expr = id_set_expr,
+        struct_block = struct_block,
+        column_lines = column_lines,
+        fillable_block = fillable_block,
+        get_lines = get_lines,
+        set_lines = set_lines,
     )
 }
 
@@ -1604,9 +1787,21 @@ fn cmd_sql_validate(args: &[&str]) -> Result<(), String> {
         return Err("用法: sz-orm sql:validate <sql>".into());
     }
     let sql = args.join(" ");
-    match validate(&sql) {
-        Ok(()) => {
-            println!("✓ SQL 校验通过");
+    match validate_with_depth(&sql) {
+        Ok(depth) => {
+            // v10.13.0 (2026-10-28 架构评测 P0-4 假绿修复)：DDL/DCL 等未支持语句类型
+            // 仅执行注入模式扫描，必须向用户明示"非完整校验"，不得输出与完整校验相同的"✓ 通过"
+            match depth {
+                ValidationDepth::Full => {
+                    println!(
+                        "✓ SQL 校验通过（SELECT/INSERT/UPDATE/DELETE 完整语法校验 + 注入检测）"
+                    );
+                }
+                ValidationDepth::InjectionScanOnly => {
+                    println!("⚠️ 未识别的语句类型（DDL/DCL 等）：未做该类型专属语法校验");
+                    println!("⚠️ 仅通过：括号配平 + 字面量闭合 + 注入模式扫描（非完整 SQL 校验）");
+                }
+            }
             Ok(())
         }
         Err(e) => {
@@ -1627,26 +1822,9 @@ fn cmd_dialect(args: &[&str]) -> Result<(), String> {
     }
     match args[0] {
         "list" => {
-            println!("支持的数据库方言:");
-            let all = [
-                DbType::MySQL,
-                DbType::PostgreSQL,
-                DbType::Sqlite,
-                DbType::Oracle,
-                DbType::ClickHouse,
-                DbType::OceanBase,
-                DbType::SqlServer,
-                DbType::Redis,
-                DbType::MongoDB,
-                DbType::VectorDb,
-                DbType::PureJsDb,
-            ];
-            for db in &all {
-                let status = if get_dialect(*db).is_ok() {
-                    "SQL"
-                } else {
-                    "NoSQL"
-                };
+            println!("支持的数据库方言（{} 种）:", DbType::ALL.len());
+            for db in DbType::ALL {
+                let status = if db.is_nosql() { "NoSQL" } else { "SQL" };
                 println!(
                     "  - {:<12} [{}]  默认端口 {}  事务: {}  外键: {}",
                     db.as_str(),
@@ -2867,6 +3045,67 @@ mod tests {
     }
 
     #[test]
+    fn test_parse_field_specs_ok() {
+        let specs = parse_field_specs(Some("name:String, age:i32 ,active:bool".to_string()))
+            .expect("合法规格应解析成功");
+        assert_eq!(specs.len(), 3);
+        assert_eq!(specs[0].field, "name");
+        assert_eq!(specs[0].ty, "String");
+        assert_eq!(specs[1].ty, "i32");
+        assert_eq!(specs[2].variant, "Value::Bool");
+        assert!(parse_field_specs(None).unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_parse_field_specs_rejects_bad_input() {
+        assert!(parse_field_specs(Some("name:UnknownType".to_string())).is_err());
+        assert!(parse_field_specs(Some("1bad:String".to_string())).is_err());
+        assert!(parse_field_specs(Some("nocolon".to_string())).is_err());
+    }
+
+    #[test]
+    fn test_render_skeleton_model_with_fields() {
+        let fields = parse_field_specs(Some("name:String,age:i32,active:bool".to_string()))
+            .expect("合法规格应解析成功");
+        let code = render_skeleton_model("User", "users", "i64", &fields);
+        // 四件套齐全：struct / columns / fillable / get_column_value / from_value
+        assert!(code.contains("pub name: String,"));
+        assert!(code.contains("pub age: i32,"));
+        assert!(code.contains("pub active: bool,"));
+        assert!(code.contains("\"name\" => Some(Value::String(self.name.clone())),"));
+        assert!(code.contains("\"age\" => Some(Value::I32(self.age)),"));
+        assert!(code.contains("\"active\" => Some(Value::Bool(self.active)),"));
+        assert!(code.contains("self.name = x.to_string()"));
+        assert!(code.contains("self.age = x"));
+        assert!(code.contains("\"name\",\n        \"age\",\n        \"active\","));
+        // 无 TODO 占位残留
+        assert!(!code.contains("TODO: 在此添加业务字段"));
+    }
+
+    #[test]
+    fn test_render_skeleton_model_without_fields_keeps_todo() {
+        let code = render_skeleton_model("User", "users", "i64", &[]);
+        assert!(code.contains("TODO: 在此添加业务字段"));
+        assert!(code.contains("vec![]"));
+    }
+
+    #[test]
+    fn test_render_skeleton_model_pk_accessors_use_real_value_api() {
+        // pk-type i32/u32/u64 生成的访问器必须真实存在于 Value（防回归：
+        // 曾生成过不存在的 as_i32/as_u32/as_u64 导致产物无法编译）
+        for pk in ["i32", "u32", "u64"] {
+            let code = render_skeleton_model("T", "ts", pk, &[]);
+            assert!(
+                code.contains("v.as_i32()")
+                    || code.contains("v.as_u32()")
+                    || code.contains("v.as_u64()"),
+                "pk={} 缺少访问器",
+                pk
+            );
+        }
+    }
+
+    #[test]
     fn test_cli_no_args_returns_ok() {
         assert!(run(argv(&["sz-orm"])).is_ok());
     }
@@ -2884,6 +3123,27 @@ mod tests {
     #[test]
     fn test_cli_info_returns_ok() {
         assert!(run(argv(&["sz-orm", "info"])).is_ok());
+    }
+
+    #[test]
+    fn test_cli_info_dialect_count_matches_source() {
+        // G29（2026-10-27）：info 输出的方言数必须等于 DbType::ALL.len()，
+        // 防止将来有人把动态枚举改回硬编码数组导致 CLI 自述失真。
+        let out = build_info();
+        let total = DbType::ALL.len().to_string();
+        assert!(
+            out.contains(&total),
+            "info 输出应包含方言总数 {}，实际输出:\n{}",
+            total,
+            out
+        );
+        let sql_count = DbType::ALL.iter().filter(|d| !d.is_nosql()).count();
+        assert!(out.contains(&format!("{} SQL", sql_count)));
+        assert!(out.contains(&format!("{} NoSQL", DbType::ALL.len() - sql_count)));
+        // 每个方言都应出现在列表中
+        for db in DbType::ALL {
+            assert!(out.contains(db.as_str()), "info 应列出方言 {}", db.as_str());
+        }
     }
 
     #[test]

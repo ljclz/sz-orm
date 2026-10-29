@@ -24,6 +24,8 @@ tower-http = { version = "0.6", features = ["cors", "trace"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
 parking_lot = { workspace = true }
+# v10.13.0（2026-10-27）：真实 SQLite 数据源支持（版本与 sz-orm-core 一致避免 libsqlite3-sys 链接冲突）
+rusqlite = { version = "0.32", features = ["bundled"] }
 
 [dev-dependencies]
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }

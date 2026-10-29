@@ -7,8 +7,9 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Mutex;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 /// 故障检测器
 ///
@@ -96,7 +97,7 @@ impl FailoverConfirm {
 
     /// 记录一次故障，返回是否达到确认阈值
     pub fn record_failure(&self, node: &str) -> bool {
-        let mut failures = self.consecutive_failures.lock().unwrap();
+        let mut failures = self.consecutive_failures.lock();
         let count = failures.entry(node.to_string()).or_insert(0);
         *count += 1;
         *count >= self.threshold
@@ -104,13 +105,13 @@ impl FailoverConfirm {
 
     /// 重置节点故障计数
     pub fn reset(&self, node: &str) {
-        let mut failures = self.consecutive_failures.lock().unwrap();
+        let mut failures = self.consecutive_failures.lock();
         failures.remove(node);
     }
 
     /// 获取节点当前连续故障次数
     pub fn failure_count(&self, node: &str) -> u32 {
-        let failures = self.consecutive_failures.lock().unwrap();
+        let failures = self.consecutive_failures.lock();
         *failures.get(node).unwrap_or(&0)
     }
 }
@@ -181,19 +182,19 @@ impl FailoverController {
 
     /// 设置节点健康状态（供管理和测试使用）
     pub fn set_node_health(&self, node: &str, healthy: bool) {
-        let mut health = self.node_health.lock().unwrap();
+        let mut health = self.node_health.lock();
         health.insert(node.to_string(), healthy);
     }
 
     /// 设置初始主节点
     pub fn set_master(&self, master: &str) {
-        let mut current = self.current_master.lock().unwrap();
+        let mut current = self.current_master.lock();
         *current = master.to_string();
     }
 
     /// 添加从节点
     pub fn add_slave(&self, slave: &str) {
-        let mut slaves = self.slaves.lock().unwrap();
+        let mut slaves = self.slaves.lock();
         if !slaves.contains(&slave.to_string()) {
             slaves.push(slave.to_string());
         }
@@ -201,12 +202,12 @@ impl FailoverController {
 
     /// 当前主节点
     pub fn current_master(&self) -> String {
-        self.current_master.lock().unwrap().clone()
+        self.current_master.lock().clone()
     }
 
     /// 当前阶段
     pub fn phase(&self) -> FailoverPhase {
-        *self.phase.lock().unwrap()
+        *self.phase.lock()
     }
 
     /// 检测器引用
@@ -228,12 +229,12 @@ impl FailoverController {
     ///
     /// 返回 Ok(true) 表示检测到故障，Ok(false) 表示健康。
     pub async fn detect_failure(&self, master: &str) -> Result<bool, String> {
-        let health = self.node_health.lock().unwrap();
+        let health = self.node_health.lock();
         let is_healthy = *health.get(master).unwrap_or(&true);
         drop(health);
 
         if !is_healthy {
-            *self.phase.lock().unwrap() = FailoverPhase::Detecting;
+            *self.phase.lock() = FailoverPhase::Detecting;
         }
 
         Ok(!is_healthy)
@@ -247,7 +248,7 @@ impl FailoverController {
         if detected {
             let confirmed = self.confirm.record_failure(master);
             if confirmed {
-                *self.phase.lock().unwrap() = FailoverPhase::Confirmed;
+                *self.phase.lock() = FailoverPhase::Confirmed;
             }
             Ok(confirmed)
         } else {
@@ -260,13 +261,13 @@ impl FailoverController {
     ///
     /// 返回 Ok(new_master) 表示转移成功。
     pub async fn failover(&self, slave: &str) -> Result<String, String> {
-        let slaves = self.slaves.lock().unwrap();
+        let slaves = self.slaves.lock();
         if !slaves.contains(&slave.to_string()) {
             return Err(format!("从节点 {} 不在从节点列表中", slave));
         }
         drop(slaves);
 
-        let health = self.node_health.lock().unwrap();
+        let health = self.node_health.lock();
         let slave_healthy = *health.get(slave).unwrap_or(&true);
         drop(health);
 
@@ -274,10 +275,10 @@ impl FailoverController {
             return Err(format!("从节点 {} 不健康，无法提升为主", slave));
         }
 
-        let old_master = self.current_master.lock().unwrap().clone();
-        *self.current_master.lock().unwrap() = slave.to_string();
-        *self.phase.lock().unwrap() = FailoverPhase::FailedOver;
-        *self.failover_time.lock().unwrap() = Some(Instant::now());
+        let old_master = self.current_master.lock().clone();
+        *self.current_master.lock() = slave.to_string();
+        *self.phase.lock() = FailoverPhase::FailedOver;
+        *self.failover_time.lock() = Some(Instant::now());
 
         self.confirm.reset(&old_master);
 
@@ -290,7 +291,7 @@ impl FailoverController {
     /// 当恢复协调器启用时，标记切换完成并触发旧主剔除。
     pub async fn recover(&self, original_master: &str) -> Result<(), String> {
         let is_healthy = {
-            let health = self.node_health.lock().unwrap();
+            let health = self.node_health.lock();
             *health.get(original_master).unwrap_or(&false)
         };
 
@@ -305,11 +306,11 @@ impl FailoverController {
             RecoveryStrategy::RejoinAsSlave => {
                 self.add_slave(original_master);
                 self.confirm.reset(original_master);
-                *self.phase.lock().unwrap() = FailoverPhase::Normal;
+                *self.phase.lock() = FailoverPhase::Normal;
             }
         }
 
-        let current_master = self.current_master.lock().unwrap().clone();
+        let current_master = self.current_master.lock().clone();
         if let Some(ref coordinator) = self.recovery_coordinator {
             coordinator
                 .on_switch_completed(&current_master, original_master)
@@ -322,23 +323,23 @@ impl FailoverController {
 
     /// 故障转移耗时（从转移时刻到现在）
     pub fn failover_elapsed(&self) -> Option<Duration> {
-        let time = self.failover_time.lock().unwrap();
+        let time = self.failover_time.lock();
         time.map(|t| t.elapsed())
     }
 
     /// 从节点列表
     pub fn slaves(&self) -> Vec<String> {
-        self.slaves.lock().unwrap().clone()
+        self.slaves.lock().clone()
     }
 
     /// v10.11.0 T2.1：设置区域拓扑
     pub fn set_region_topology(&self, topology: RegionTopology) {
-        *self.region_topology.lock().unwrap() = Some(topology);
+        *self.region_topology.lock() = Some(topology);
     }
 
     /// v10.11.0 T2.1：获取当前区域拓扑
     pub fn region_topology(&self) -> Option<RegionTopology> {
-        self.region_topology.lock().unwrap().clone()
+        self.region_topology.lock().clone()
     }
 }
 
@@ -954,22 +955,19 @@ impl FastSwitchCoordinator {
 
     /// 设置节点健康状态（由并行心跳检测结果更新）
     pub fn set_node_health(&self, node: &str, healthy: bool) {
-        self.node_health
-            .lock()
-            .unwrap()
-            .insert(node.to_string(), healthy);
+        self.node_health.lock().insert(node.to_string(), healthy);
     }
 
     /// 预选备节点：从健康节点中选出 Top-N 作为快速切换候选
     pub fn preselect_backups(&self, candidates: &[String], exclude: &str) {
-        let health = self.node_health.lock().unwrap();
+        let health = self.node_health.lock();
         let mut backups: Vec<String> = candidates
             .iter()
             .filter(|c| c.as_str() != exclude && *health.get(*c).unwrap_or(&false))
             .cloned()
             .collect();
         backups.truncate(self.config.max_candidates);
-        *self.preselected_backups.lock().unwrap() = backups;
+        *self.preselected_backups.lock() = backups;
     }
 
     /// 执行快速切换（目标 <100ms）
@@ -978,7 +976,7 @@ impl FastSwitchCoordinator {
     /// 若预选列表为空则返回失败。
     pub fn fast_switch(&self, failed_primary: &str) -> SwitchResult {
         let start = Instant::now();
-        let backups = self.preselected_backups.lock().unwrap();
+        let backups = self.preselected_backups.lock();
 
         if backups.is_empty() {
             return SwitchResult {
@@ -992,11 +990,10 @@ impl FastSwitchCoordinator {
         drop(backups);
 
         let elapsed = start.elapsed();
-        *self.last_switch_time.lock().unwrap() = Some(Instant::now());
+        *self.last_switch_time.lock() = Some(Instant::now());
 
         self.node_health
             .lock()
-            .unwrap()
             .insert(failed_primary.to_string(), false);
 
         SwitchResult {
@@ -1008,7 +1005,7 @@ impl FastSwitchCoordinator {
 
     /// 获取预选备节点列表
     pub fn preselected_backups(&self) -> Vec<String> {
-        self.preselected_backups.lock().unwrap().clone()
+        self.preselected_backups.lock().clone()
     }
 
     /// 获取配置
@@ -1018,7 +1015,7 @@ impl FastSwitchCoordinator {
 
     /// 模拟并行心跳检测（更新所有候选节点健康状态）
     pub fn parallel_heartbeat(&self, nodes: &[(&str, bool)]) {
-        let mut health = self.node_health.lock().unwrap();
+        let mut health = self.node_health.lock();
         for (node, alive) in nodes {
             health.insert(node.to_string(), *alive);
         }
@@ -1046,17 +1043,17 @@ impl PreselectedRegion {
 
     /// 设置预选区域
     pub fn set(&self, region_id: &str) {
-        *self.preselected.lock().unwrap() = Some(region_id.to_string());
+        *self.preselected.lock() = Some(region_id.to_string());
     }
 
     /// 获取预选区域
     pub fn get(&self) -> Option<String> {
-        self.preselected.lock().unwrap().clone()
+        self.preselected.lock().clone()
     }
 
     /// 清除预选
     pub fn clear(&self) {
-        *self.preselected.lock().unwrap() = None;
+        *self.preselected.lock() = None;
     }
 }
 
@@ -1289,7 +1286,7 @@ impl RtoOptimizer {
             verify_passed: true,
             used_preselected,
         };
-        *self.last_result.lock().unwrap() = Some(result.clone());
+        *self.last_result.lock() = Some(result.clone());
         Ok(result)
     }
 
@@ -1336,7 +1333,7 @@ impl RtoOptimizer {
             verify_passed,
             used_preselected,
         };
-        *self.last_result.lock().unwrap() = Some(result.clone());
+        *self.last_result.lock() = Some(result.clone());
 
         if verify_passed {
             Ok(result)
@@ -1374,7 +1371,7 @@ impl RtoOptimizer {
 
     /// 最近的 RTO 结果（反幻影验证）
     pub fn last_result(&self) -> Option<RtoResult> {
-        self.last_result.lock().unwrap().clone()
+        self.last_result.lock().clone()
     }
 }
 

@@ -1,6 +1,22 @@
 //! 数据库类型定义
 //!
 //! 定义所有支持的数据库类型
+//!
+//! ## 方言口径（2026-10-29 P3-1 显式标注，避免"28 种方言"被读作"28 种可直接连接"）
+//!
+//! - **枚举变体总数 28**：21 个无条件编译 + 7 个 `dialect-*` feature 门控
+//!   （`dialect-cockroachdb` / `dialect-yugabytedb` / `dialect-snowflake` /
+//!   `dialect-redshift` / `dialect-informix` / `dialect-saphana` /
+//!   `dialect-firebird`）。默认构建下这 7 个变体不存在，因此
+//!   `cargo build`（不加 feature）实际可用方言为 **21**（17 SQL + 4 NoSQL）；
+//!   `--all-features` 下为 **28**（24 SQL + 4 NoSQL）。
+//! - **本枚举描述的是 SQL 生成/转义方言**，不是连接驱动：真实驱动面为
+//!   sqlx 的 MySQL/PostgreSQL/SQLite、独立包 `sz-orm-oracle` 与 `sz-orm-mssql`，
+//!   以及 `dialect-saphana-driver` 门控的 SAP HANA 桥接；其余方言只保证
+//!   生成的 SQL 文本符合该数据库的语法家族（多归入 MySQL/PostgreSQL/Oracle
+//!   兼容族，见 [`DbType::is_mysql_family`] 等），未经对应服务器实测。
+//! - 门禁 18（`scripts/check-metrics-real.py`）按**枚举变体总数**取 28，
+//!   README 的"28"与此口径一致；区分默认/门控的表述见 README 方言小节。
 
 use serde::{Deserialize, Serialize};
 use std::fmt;
@@ -76,6 +92,56 @@ pub enum DbType {
 }
 
 impl DbType {
+    /// 所有方言变体（与枚举声明顺序一致）
+    ///
+    /// feature 门控变体（`dialect-*` features）仅在对应 feature 启用时才包含，
+    /// 因此 `ALL.len()` 与实际编译出的变体数一致，可直接用于枚举展示与遍历。
+    pub const ALL: &'static [DbType] = &[
+        DbType::MySQL,
+        DbType::PostgreSQL,
+        DbType::Sqlite,
+        DbType::Redis,
+        DbType::MongoDB,
+        DbType::ClickHouse,
+        DbType::Oracle,
+        DbType::OceanBase,
+        DbType::SqlServer,
+        DbType::VectorDb,
+        DbType::PureJsDb,
+        DbType::Dameng,
+        DbType::Kingbase,
+        DbType::Db2,
+        DbType::MariaDB,
+        DbType::TiDB,
+        DbType::PolarDB,
+        DbType::GaussDB,
+        DbType::GBase,
+        DbType::Sybase,
+        DbType::DuckDB,
+        #[cfg(feature = "dialect-cockroachdb")]
+        DbType::CockroachDB,
+        #[cfg(feature = "dialect-yugabytedb")]
+        DbType::YugabyteDB,
+        #[cfg(feature = "dialect-snowflake")]
+        DbType::Snowflake,
+        #[cfg(feature = "dialect-redshift")]
+        DbType::Redshift,
+        #[cfg(feature = "dialect-informix")]
+        DbType::Informix,
+        #[cfg(feature = "dialect-saphana")]
+        DbType::SapHana,
+        #[cfg(feature = "dialect-firebird")]
+        DbType::Firebird,
+    ];
+
+    /// 是否为 NoSQL 类型（无 SQL 方言，不支持 SQL 生成与执行）
+    pub fn is_nosql(&self) -> bool {
+        matches!(
+            self,
+            DbType::Redis | DbType::MongoDB | DbType::VectorDb | DbType::PureJsDb
+        )
+    }
+
     /// 返回数据库类型名称的字符串形式
     pub fn as_str(&self) -> &'static str {
         match self {
@@ -284,6 +350,53 @@ mod tests {
     fn test_db_type_as_str() {
         assert_eq!(DbType::MySQL.as_str(), "mysql");
         assert_eq!(DbType::PostgreSQL.as_str(), "postgres");
+    }
+
+    #[test]
+    fn test_db_type_all_covers_every_variant() {
+        // ALL 必须覆盖枚举全部变体：每个变体的 as_str 在 ALL 中都能找到（名称唯一）
+        let names: std::collections::HashSet<&str> =
+            DbType::ALL.iter().map(|d| d.as_str()).collect();
+        assert_eq!(
+            names.len(),
+            DbType::ALL.len(),
+            "as_str 存在重名，ALL 可能遗漏变体"
+        );
+        for name in [
+            "mysql",
+            "postgres",
+            "sqlite",
+            "redis",
+            "mongodb",
+            "clickhouse",
+            "oracle",
+            "oceanbase",
+            "mssql",
+            "vectordb",
+            "purejsdb",
+            "dameng",
+            "kingbase",
+            "db2",
+            "mariadb",
+            "tidb",
+            "polardb",
+            "gaussdb",
+            "gbase",
+            "sybase",
+            "duckdb",
+        ] {
+            assert!(names.contains(name), "ALL 缺少变体 {}", name);
+        }
+    }
+
+    #[test]
+    fn test_db_type_is_nosql() {
+        assert!(DbType::Redis.is_nosql());
+        assert!(DbType::MongoDB.is_nosql());
+        assert!(DbType::VectorDb.is_nosql());
+        assert!(DbType::PureJsDb.is_nosql());
+        assert!(!DbType::MySQL.is_nosql());
+        assert!(!DbType::ClickHouse.is_nosql());
     }
 
     #[test]

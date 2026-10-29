@@ -56,6 +56,13 @@ use std::sync::Arc;
 pub mod slo;
 pub mod summary;
 
+// v10.13.0 ROI-4（2026-10-27 性能评测整改）：告警/仪表盘指标注册表对齐
+pub mod alert_metrics;
+pub use alert_metrics::{
+    register_alert_metrics, AlertMetricDef, AlertMetricHandles, AlertMetricKind,
+    ALERT_LATENCY_BUCKETS, ALERT_LATENCY_HISTOGRAM, ALERT_METRIC_DEFS,
+};
+
 #[cfg(feature = "service-mesh")]
 pub mod service_mesh;
 

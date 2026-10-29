@@ -18,6 +18,7 @@ BASELINE="70"
 FAIL_UNDER="70"
 JSON_OUTPUT=""
 INCLUDE_IGNORED="0"
+JOBS=40
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -26,6 +27,7 @@ while [ $# -gt 0 ]; do
         --baseline) BASELINE="$2"; shift 2 ;;
         --fail-under) FAIL_UNDER="$2"; shift 2 ;;
         --json) JSON_OUTPUT="$2"; shift 2 ;;
+        --jobs) JOBS="$2"; shift 2 ;;
         --include-ignored) INCLUDE_IGNORED="1"; shift ;;
         *) shift ;;
     esac
@@ -49,6 +51,7 @@ echo "OS: $OS_INFO"
 echo "Packages: $PACKAGES"
 echo "Fail-under: ${FAIL_UNDER}%"
 echo "Include-ignored: ${INCLUDE_IGNORED}"
+echo "Jobs: ${JOBS}"
 echo ""
 
 # ignored 车道：真 DB 测试参与杀变异体（消灭 DB-gated 存活，见 2026-09-25 审计：
@@ -69,11 +72,12 @@ PKG_RESULTS=""
 echo "Running cargo-mutants..."
 for pkg in "${PKG_ARRAY[@]}"; do
     echo "  Testing $pkg..."
-    # 移除 || true，cargo-mutants 失败时仍继续测试其他包但记录失败
-    cargo mutants --package "$pkg" --in-place "${MUTANT_ARGS[@]}" 2>&1 || echo "  WARNING: $pkg had mutants errors"
+    # 使用并行（-j）+ 独立输出目录（-o），不修改源码（非 --in-place）。
+    # 相比串行 --in-place，并行可大幅缩短全量变异时间，且无源码残留风险。
+    cargo mutants --package "$pkg" -j "$JOBS" -o "mutants-out-$pkg" "${MUTANT_ARGS[@]}" 2>&1 || echo "  WARNING: $pkg had mutants errors"
 
-    # 解析 mutants.out/ 目录
-    MUTANTS_DIR="mutants.out"
+    # 解析 mutants-out-$pkg/ 目录
+    MUTANTS_DIR="mutants-out-$pkg"
     if [ -d "$MUTANTS_DIR" ]; then
         # cargo-mutants 输出 mutants.json 含每个变异体状态
         if [ -f "$MUTANTS_DIR/mutants.json" ]; then
@@ -123,10 +127,6 @@ print(sum(1 for m in data if m.get('status') == 'Timeout'))
     echo "    $pkg: total=$PKG_TOTAL killed=$PKG_KILLED survived=$PKG_SURVIVED timeout=$PKG_TIMEOUT"
 
     PKG_RESULTS="${PKG_RESULTS}  {\"package\": \"$pkg\", \"total\": $PKG_TOTAL, \"killed\": $PKG_KILLED, \"survived\": $PKG_SURVIVED, \"timeout\": $PKG_TIMEOUT},\n"
-
-    # 每个包测试后恢复源码
-    git checkout -- packages/ 2>/dev/null || true
-    git clean -fd packages/ 2>/dev/null || true
 done
 
 echo ""
@@ -158,7 +158,7 @@ if [ "$PASS" = "false" ]; then
     echo ""
     echo "Survived mutants:"
     for pkg in "${PKG_ARRAY[@]}"; do
-        MUTANTS_DIR="mutants.out"
+        MUTANTS_DIR="mutants-out-$pkg"
         if [ -d "$MUTANTS_DIR" ]; then
             if [ -f "$MUTANTS_DIR/mutants.json" ]; then
                 python3 -c "
@@ -174,25 +174,13 @@ for m in data:
     done
 fi
 
-# 源码残留校验
-echo ""
-echo "Restoring source code..."
-git checkout -- packages/ 2>/dev/null || true
-git clean -fd packages/ 2>/dev/null || true
-
-# 验证源码无残留
-if ! git diff --quiet -- packages/ 2>/dev/null; then
-    echo "ERROR: Source code has residual changes after git checkout"
-    echo "Residual diff:"
-    git diff -- packages/ 2>/dev/null | head -50
-    exit 1
-fi
-
-echo "Source code restored (no residual)."
-
 if [ "$PASS" = "false" ]; then
     exit 1
 fi
+
+# 本脚本使用 -o 独立输出目录（非 --in-place），不修改源码，无需恢复。
+echo ""
+echo "Mutation test collection complete (no source modification)."
 
 echo "PASS: Kill rate ${KILL_RATE}% >= threshold ${FAIL_UNDER}%"
 

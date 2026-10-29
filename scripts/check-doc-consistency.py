@@ -1,5 +1,10 @@
 #!/usr/bin/env python3
 # -*- coding: utf-8 -*-
+# 2026-10-27：`from __future__ import annotations` 使 `tuple[int, list[str]]`
+# 等 3.9+ 注解在本机 Python 3.8 上延迟求值，门禁 12 可在本机执行（行为不变，
+# CI 的 3.11+ 亦兼容）。
+from __future__ import annotations
+
 """
 SZ-ORM 文档与代码一致性校验脚本（门禁 12）
 
@@ -163,6 +168,20 @@ def main():
         ("workspace 包数量", str(pkg_count), PRACTICES_MD,
          re.compile(r'(\D*?)(\d+) workspace 包'),
          re.compile(r'(\D*?)(\d+) workspace 包')),
+        # R9（2026-10-27 TW 评测）：README 双语版本号纳入门禁——此前 G12 只查
+        # AGENTS.md/engineering-practices，README 顶部版本漂移（10.12.0 vs 10.13.0）无门禁拦截
+        ("README.md 顶部版本号", version, ROOT / "README.md",
+         re.compile(r'(> v)(\d+\.\d+\.\d+)'),
+         re.compile(r'(> v)(\d+\.\d+\.\d+)')),
+        ("README.md 版本徽章", version, ROOT / "README.md",
+         re.compile(r'(version-)(\d+\.\d+\.\d+)'),
+         re.compile(r'(version-)(\d+\.\d+\.\d+)')),
+        ("README.zh.md 顶部版本号", version, ROOT / "README.zh.md",
+         re.compile(r'(> v)(\d+\.\d+\.\d+)'),
+         re.compile(r'(> v)(\d+\.\d+\.\d+)')),
+        ("README.zh.md 版本徽章", version, ROOT / "README.zh.md",
+         re.compile(r'(version-)(\d+\.\d+\.\d+)'),
+         re.compile(r'(version-)(\d+\.\d+\.\d+)')),
     ]
 
     # 先做一轮检查

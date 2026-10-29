@@ -3,6 +3,9 @@
 //! 流程：PR 触发 → BenchProdDbGuard 校验非生产 DB → 连接真实 DB（不可用报错 `BENCH_DB_UNAVAILABLE`，
 //! 禁止回退模拟延迟 ADR-003）→ 执行基准 workload → BenchRepeatabilityGuard 校验偏差 →
 //! RegressionBaseline 对比基线 → 退化 ≥ 10% 阻断合入 → 产出 CiBenchReport。
+//!
+//! v10.13.0 ROI-2（2026-10-27 性能评测整改）：基线缺失从"放行"改为
+//! `BlockError`（fail-closed）——无基线时退化门禁形同虚设。
 
 use serde::{Deserialize, Serialize};
 
@@ -177,10 +180,11 @@ impl<E: BenchExecutor> CiBenchIntegration<E> {
                 None => (
                     None,
                     None,
-                    CiBenchDecision::Pass,
+                    CiBenchDecision::BlockError,
                     format!(
-                        "基线 `{}` 缺失，跳过对比，标记 BENCH_BASELINE_MISSING 放行",
-                        self.baseline_ref
+                        "基线 `{}` 缺失，无法对比，fail-closed 阻断合入（BENCH_BASELINE_MISSING）。\
+                         请先在基准分支运行 --save-baseline {} 建立基线",
+                        self.baseline_ref, self.baseline_ref
                     ),
                     "BENCH_BASELINE_MISSING".to_string(),
                 ),
@@ -353,14 +357,16 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn test_pass_when_no_regression_and_baseline_missing() {
+    async fn test_block_when_baseline_missing_fail_closed() {
         let executor = MockExecutor::new(vec![make_result(200.0, 10000.0); 5]);
         let ci = CiBenchIntegration::with_defaults(executor, "nonexistent-ref");
         let report = ci
             .run_ci_bench(&make_test_db_config(), &make_workload_def())
             .await
             .unwrap();
-        assert_eq!(report.decision, CiBenchDecision::Pass);
+        // v10.13.0 ROI-2：基线缺失从"放行"改为"阻断"（fail-closed）。
+        // 无基线时退化门禁形同虚设，必须阻断并要求先建立基线。
+        assert_eq!(report.decision, CiBenchDecision::BlockError);
         assert_eq!(report.alert_code, "BENCH_BASELINE_MISSING");
         assert!(report.repeatability.unwrap().stable);
     }

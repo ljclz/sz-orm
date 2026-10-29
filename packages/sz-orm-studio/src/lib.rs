@@ -4,6 +4,7 @@
 //!
 //! ## REST 端点
 //!
+//! - `GET /` — 浏览器页面
 //! - `GET /tables` — 表列表
 //! - `GET /tables/:name/data` — 表数据
 //! - `PUT /tables/:name/data/:id` — 编辑记录
@@ -31,9 +32,22 @@ pub fn parse_args(argv: &[String]) -> ServerConfig {
     ServerConfig::new(addr, port)
 }
 
+/// 解析 `--db=` 参数：`memory`（默认）或 SQLite 文件路径
+pub fn parse_db_arg(argv: &[String]) -> Option<String> {
+    argv.iter()
+        .skip(1)
+        .find(|a| a.starts_with("--db="))
+        .and_then(|a| a.strip_prefix("--db=").map(|s| s.to_string()))
+}
+
 pub fn parse_args_and_run(argv: Vec<String>) -> std::process::ExitCode {
     let config = parse_args(&argv);
-    println!("sz-orm-studio 启动于 http://{}", config.bind_addr());
+    let db = parse_db_arg(&argv);
+    println!(
+        "sz-orm-studio 启动于 http://{}（数据源: {}）",
+        config.bind_addr(),
+        db.as_deref().unwrap_or("memory")
+    );
     let runtime = match tokio::runtime::Runtime::new() {
         Ok(rt) => rt,
         Err(e) => {
@@ -41,7 +55,17 @@ pub fn parse_args_and_run(argv: Vec<String>) -> std::process::ExitCode {
             return std::process::ExitCode::FAILURE;
         }
     };
-    match runtime.block_on(WebGuiServer::new(config).start()) {
+    let server = match db.as_deref() {
+        Some("memory") | None => WebGuiServer::new(config),
+        Some(path) => match rusqlite::Connection::open(path) {
+            Ok(conn) => WebGuiServer::with_sqlite(config, conn),
+            Err(e) => {
+                eprintln!("打开数据库 {} 失败: {}", path, e);
+                return std::process::ExitCode::FAILURE;
+            }
+        },
+    };
+    match runtime.block_on(server.start()) {
         Ok(()) => std::process::ExitCode::SUCCESS,
         Err(e) => {
             eprintln!("服务器错误: {}", e);

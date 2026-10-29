@@ -438,6 +438,7 @@ pub mod circuit_breaker;
 #[cfg(feature = "circuit-breaker")]
 #[allow(missing_docs)]
 pub mod degradation;
+pub mod metrics_hook;
 #[cfg(feature = "binding-perf-align")]
 pub use binding_coverage::{BindingLanguage, BindingPerfAligner, PerfAlignResult};
 #[cfg(feature = "type-safe-columns")]
@@ -595,6 +596,8 @@ pub mod timeseries_adapter;
 #[cfg(feature = "distributed-tracing")]
 pub mod tracing_adapter;
 
+/// Arena 分配器（bump allocation，批量行处理）
+pub mod arena;
 #[cfg(feature = "migration-branch")]
 pub mod migration_branch;
 #[cfg(feature = "l1-cache")]
@@ -620,8 +623,6 @@ pub mod schema_sync;
 pub mod seeding;
 pub mod select_types;
 pub mod shadow;
-/// Arena 分配器（bump allocation，批量行处理）
-pub mod arena;
 #[cfg(feature = "simd")]
 pub mod simd;
 // v10.11.0 T1.2：编译期查询特化（const generics）
@@ -725,6 +726,7 @@ pub use sz_orm_macros::typed_query;
 #[cfg(feature = "n1-lint")]
 pub use sz_orm_macros::detect_n_plus_one;
 pub use sz_orm_macros::FromQueryResult;
+pub use sz_orm_macros::Model;
 pub use sz_orm_macros::RelationTrait;
 #[cfg(feature = "data-validation")]
 pub use sz_orm_macros::Validate;

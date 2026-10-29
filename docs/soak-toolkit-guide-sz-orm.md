@@ -1,8 +1,9 @@
 # SZ-ORM Soak 测试使用指南
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 > 版本：1.0
 > 适用：SZ-ORM 库项目长时间稳定性测试
-> 服务器：122.51.216.76（Ubuntu 24.04，8 核 15GB）
+> 服务器：<legacy-server-ip>（Ubuntu 24.04，8 核 15GB）
 > 工具部署位置：`/www/rust/soak-toolkit/`
 > 项目工作目录：`/www/rust/sz-orm-soak`
 > 日期：2026-08-09
@@ -50,7 +51,7 @@ SZ-ORM 是 Rust ORM 库项目（非 Web 服务），soak 测试方式与 Web 服
 
 ```bash
 # 服务器信息
-# 地址：122.51.216.76
+# 地址：<legacy-server-ip>
 # 用户：ubuntu
 # SSH 端口：22
 # 认证：SSH 密钥（deploy_key）
@@ -71,7 +72,7 @@ cd /www/rust && git clone <sz-orm-repo> sz-orm
 
 # 方式 2：rsync 上传（从本地）
 rsync -avz --exclude target --exclude node_modules \
-  ./ ubuntu@122.51.216.76:/www/rust/sz-orm/
+  ./ ubuntu@<legacy-server-ip>:/www/rust/sz-orm/
 ```
 
 ### 步骤 4：构建 sz-orm

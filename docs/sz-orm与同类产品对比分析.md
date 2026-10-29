@@ -1,9 +1,9 @@
 # SZ-ORM 与同类产品深度对比分析
 # doc-sync-skip
 
-> 版本：v8.8.0 | 评估日期：2026-09-25 | 基于实际代码全量审计
+> 版本：v10.13.0 | 评估日期：2026-10-27 | 基于实际代码全量审计
 > 对比对象（不限于 Rust）：Diesel 2.2.x / SeaORM 1.1.x / SQLx 0.8.x / Hibernate 6.6.x / Entity Framework Core 8.x / SQLAlchemy 2.0.x / Django ORM 4.2.x
-> 代码基线：`Cargo.toml` workspace.package.version = "8.8.0"（[Cargo.toml:6](file:///E:/vue/test/鲜视达/rust/sz-orm/Cargo.toml#L6)）
+> 代码基线：`Cargo.toml` workspace.package.version = "10.13.0"（[Cargo.toml:6](../Cargo.toml#L6)）
 >
 > **评估方法**：对 72 个工作空间成员逐包审计（LOC / `#[test]` 数 / `pub fn` 数 / `pub struct` 数），每条 SZ-ORM 能力结论附真实 `file:line` 证据；竞品能力基于其官方文档 / crates.io / GitHub 最新公开信息。性能数据基于 `bench-comparison` 套件历史实测 + v8.7.0 `sz-orm-bench/real_db.rs` 四数据库基准 + v8.8.0 连接池优化实测。
 
@@ -231,14 +231,14 @@
 
 | 绑定 | SZ-ORM | Diesel | SeaORM | SQLx | Hibernate | EF Core | SQLAlchemy | Django ORM |
 |------|--------|--------|--------|------|-----------|---------|------------|------------|
-| C ABI | ✅ [cabi](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cabi/src/lib.rs) 36 `#[no_mangle]` 导出（含事务 `begin/commit/rollback/execute/free`、model 事务变体 `insert_tx/update_tx/delete_tx/find_tx`、批量 `execute_batch`） | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
-| Java/JNI | ✅ [java](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-java/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
-| Go/CGO | ✅ [go](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-go/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
-| C++/extern-C | ✅ [cpp](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cpp/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
-| Python/PyO3 | ✅ [python](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-python/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
-| JS/WASM | ✅ [js](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-js/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
+| C ABI | ✅ [cabi](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cabi/src/lib.rs) 36 `#[no_mangle]` 导出（含事务 `begin/commit/rollback/execute/free`、model 事务变体 `insert_tx/update_tx/delete_tx/find_tx`、批量 `execute_batch`；`sz_orm_pool_new` 仅接受 SQLite DSN） | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
+| Java/JNI | ⚠️ 部分可用（仅池级 CRUD；JNI 导出在 Rust 侧齐全，Java 侧尚无封装类）[java](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-java/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
+| Go/syscall | ⚠️ 部分可用（仅 Windows；经 syscall 加载 dll，8 个基础符号，Unix dlopen 暂未提供）[go](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-go/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
+| C++/extern-C | ⚠️ 部分可用（仅 RAII 池封装，无 Transaction/Model 类，无 C++ 侧测试）[cpp](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cpp/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
+| Python/PyO3 | ✅ 真实（SQLite；Model/ActiveModel/Repository 为内存值对象）[python](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-python/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
+| JS/napi-rs | ✅ 真实（SQLite；Model 为值对象）[js](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-js/src/lib.rs) | ❌ | ❌ | ❌ | N/A | N/A | N/A | N/A |
 
-> v7.2.0 7 绑定全部 ≥97% 覆盖率（35 核心外部 API 清单）
+> 绑定状态矩阵（2026-10-27 评定，详见 README.zh.md「跨语言绑定」）：六语言绑定矩阵——C#/Python/JS 真实可用（C# 覆盖面窄），Java/Go/C++ 部分可用；v7.2.0 历史覆盖率基线为 7 绑定 ≥97%（35 核心外部 API 清单，指 Rust 侧导出面）
 
 ### 4.2 工具链 / IDE 支持
 
@@ -302,7 +302,7 @@ sz-pay（`E:\vue\test\sz-pay\server\sz-rust`）实际依赖 **29 个** sz-orm �
 |------|--------|--------|--------|------|-----------|---------|------------|------------|
 | 生产就绪检查器 | ✅ [prod_ready_check.rs:133](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/prod_ready_check.rs#L133) ProdReadyChecker | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 | JSON 报告输出 | ✅ [prod_ready_check.rs:104](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/prod_ready_check.rs#L104) | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
-| CI/CD 集成 | ✅ 23 道门禁 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
+| CI/CD 集成 | ✅ 24 道门禁 | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ | ❌ |
 
 ### 6.2 测试覆盖
 
@@ -349,7 +349,7 @@ sz-pay（`E:\vue\test\sz-pay\server\sz-rust`）实际依赖 **29 个** sz-orm �
 | **分布式全栈（Saga/TCC/XA + 分片 + 读写分离 + 多区域多活 + 流处理）** | [saga.rs:377](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-dtx/src/saga.rs#L377) + [region_topology.rs:133](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-fusion/src/region_topology.rs#L133) + [unified_job.rs:109](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-stream/src/unified_job.rs#L109) | 仅 Hibernate JTA 有分布式事务，无多区域/流处理 |
 | **TDE 透明数据加密 + KMS + 列级策略** | [field_cipher.rs:275](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/field_cipher.rs#L275) + [kms_client.rs:62](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-crypto/src/kms_client.rs#L62) | EF Core Always Encrypted 有类似能力，无 KMS 降级管理 |
 | **生产就绪检查器（15 项 + JSON 报告 + CI/CD）** | [prod_ready_check.rs:133](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/prod_ready_check.rs#L133) | 独有 |
-| **6 种多语言绑定（C/Java/Go/C++/Python/JS）** | [cabi](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cabi/src/lib.rs) 等 6 包 | 独有（Rust ORM 中） |
+| **6 种多语言绑定（C/Java/Go/C++/Python/JS）** | [cabi](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-cabi/src/lib.rs) 等 6 包；六语言绑定矩阵：C#/Python/JS 真实可用（C# 覆盖面窄），Java/Go/C++ 部分可用 | 独有（Rust ORM 中） |
 | **无锁连接池（crossbeam ArrayQueue）** | [pool.rs:797](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/pool.rs#L797) | 竞品均用 Mutex |
 | **可组合性插件系统（签名 + 中间件链 + 扩展点）** | [plugin.rs:277](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/plugin.rs#L277) PanicSafeRegistry | 独有 |
 | **Serverless 冷启动优化 + 按需计费** | [prewarm.rs:282](file:///E:/vue/test/鲜视达/rust/sz-orm/packages/sz-orm-core/src/prewarm.rs#L282) | 独有 |
@@ -375,8 +375,8 @@ SZ-ORM v8.8.0 是一个 **功能覆盖面极广** 的 Rust 异步 ORM 工作空�
 - **AI 全栈**（NL2SQL / 多 LLM / RAG / 向量 / 索引顾问 / 自动调优 / MCP + 查询优化 / 索引生命周期 / 异常预测 / 意图理解 / 复杂查询分解，无竞品有等价能力）
 - **分布式全栈**（Saga/TCC/XA + 分片 + 读写分离 + 多区域多活 + 流处理 + CDC + 跨事务一致性校验 / 冲突自动解决 / 故障转移增强）
 - **安全全栈**（TDE + KMS + 脱敏 + 审计哈希链 + lineage + OWASP 85 测试 + SQL 注入自动化审查 + 脱敏审计联动 / 合规自动检查 / 绑定性能对齐）
-- **生产就绪检查**（15 项 + JSON 报告 + CI/CD 23 道门禁，独有）
-- **多语言绑定**（C/Java/Go/C++/Python/JS 6 种，v7.2.0 全部 ≥97% 覆盖）
+- **生产就绪检查**（15 项 + JSON 报告 + CI/CD 24 道门禁，独有）
+- **多语言绑定**（C/Java/Go/C++/Python/JS 6 种；六语言绑定矩阵：C#/Python/JS 真实可用，Java/Go/C++ 部分可用；v7.2.0 历史覆盖率基线 ≥97%）
 - **全栈工具链**（LSP + 设计器 + Studio + 火焰图 + 解释 + 诊断，独有）
 - **连接池性能**（无锁队列，比 sqlx 快 12.8x，比 sea-orm 快 25.7x；v8.8.0 ping 采样/条件 notify/预分配进一步优化）
 - **N+1 消除**（编译期检测 + smart_eager 56000x 加速）
@@ -393,9 +393,9 @@ SZ-ORM v8.8.0 是一个 **功能覆盖面极广** 的 Rust 异步 ORM 工作空�
 - Rust 异步 ORM 需求，且需要 28 种方言支持（含国产信创）
 - 需要 AI 全栈、分布式全栈、安全/可观测全栈的场景
 - 需要编译期类型安全 DSL + N+1 检测的场景
-- 需要多语言绑定（C/Java/Go/C++/Python/JS）的场景
+- 需要多语言绑定（C/Java/Go/C++/Python/JS；C#/Python/JS 真实可用，Java/Go/C++ 部分可用）的场景
 - 需要高性能连接池 + 极低延迟 SQL 构建的场景
-- 需要生产就绪检查 + 23 道门禁的场景
+- 需要生产就绪检查 + 24 道门禁的场景
 - 需要自适应批量分批（BatchSizeAdvisor）的场景
 - 需要真实质量基线保障（覆盖率/变异杀率/四数据库基准）的场景
 

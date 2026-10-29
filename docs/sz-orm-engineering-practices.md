@@ -1,7 +1,7 @@
 # SZ-ORM 工程化实践规范
 
-> **目标项目**：SZ-ORM（鲜视达 ORM 框架，72 workspace 包，20424 测试（2026-10-06 实测））
-> **项目版本**：v10.12.0
+> **目标项目**：SZ-ORM（鲜视达 ORM 框架，72 workspace 包，21161+ 测试标注（2026-10-27 G18 实测））
+> **项目版本**：v10.13.0
 > **文档用途**：锁定已有工程质量，防止后续修改引入退化
 > **维护规则**：任何修改 CI/CD 或新增门禁的 PR 必须同步更新本文档
 > **文档版本**：v3.1（2026-08-01）
@@ -11,12 +11,13 @@
 ## 目录
 
 1. [核心原则（ADR-0001）](#0-核心原则adr-0001)
-2. [标准 7 道门禁（已实现）](#1-标准-7-道门禁已实现)
-3. [SZ-ORM 特殊强化门禁（新增）](#2-sz-orm-特殊强化门禁新增)
-4. [五维审查增强](#3-五维审查增强)
-5. [测试金字塔](#4-测试金字塔)
-6. [CI/CD 工作流约束](#5-cicd-工作流约束)
-7. [附录：SZ-ORM 教训 → 防御追溯表](#6-附录sz-orm-教训--防御追溯表)
+2. [当前门禁总表（34 道）](#1-当前门禁总表34-道)
+3. [标准 7 道门禁 CI 配置（G1-G7，历史演进）](#2-标准-7-道门禁-ci-配置g1-g7历史演进)
+4. [特殊强化门禁 CI 配置（G8-G14，历史演进）](#3-sz-orm-特殊强化门禁-ci-配置g8-g14历史演进)
+5. [五维审查增强](#4-五维审查增强)
+6. [测试金字塔](#5-测试金字塔)
+7. [CI/CD 工作流约束](#6-cicd-工作流约束)
+8. [附录：SZ-ORM 教训 → 防御追溯表](#7-附录sz-orm-教训--防御追溯表)
 
 ---
 
@@ -39,7 +40,52 @@ sz-orm 作为上游基础库，其代码由独立团队维护。下游项目（�
 
 ---
 
-## 1. 标准 7 道门禁（已实现）
+## 1. 当前门禁总表（34 道）
+
+> 权威门禁清单与命令详见根目录 [AGENTS.md](../AGENTS.md)。以下为当前 34 道门禁总表（2026-10-28 P0-2 与 AGENTS.md 逐行同步），任何提交/PR 必须全数通过。后续章节 G1-G14 的详细 CI 配置为历史演进说明；G15-G34 的命令以 AGENTS.md 与 `scripts/` 为准。
+
+| # | 门禁 | 命令 |
+|---|------|------|
+| 1 | fmt 格式检查 | `cargo fmt --all -- --check` |
+| 2 | check 编译检查 | `cargo check --workspace --all-targets` |
+| 3 | clippy 静态分析 | `cargo clippy --workspace --all-targets -- -D warnings` |
+| 4 | test 单元/集成测试 | `cargo test --workspace` |
+| 5 | doc 文档构建 | `cargo doc --workspace --no-deps --all-features` |
+| 6 | audit 安全审计 | `cargo audit` + `cargo deny check` |
+| 7 | integration 真实服务集成 | `cargo test --workspace -- --ignored` |
+| 8 | 禁止占位实现 + unsafe 合规审计 | `grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs'` + `scripts/check-unsafe-audit.py`（v10.13.0 起双口径 SAFETY：块级 `// SAFETY:` 或函数级 `/// # Safety`，皆缺才红牌；L-3 裁决落地） |
+| 9 | SQL 注入扫描 + 自测 | `scripts/check-sql-injection-auto.py`（--strict；自测脚本 `scripts/test_check_sql_injection_auto.py` 并入本关卡） + `scripts/check-secrets.py` 凭据扫描 |
+| 10 | Feature 全组合编译 | `cargo check --workspace --all-targets --all-features` |
+| 11 | 上游仓库未修改检查 | `git diff --name-only HEAD`（ADR-0001） |
+| 12 | 文档与代码一致性检查 | `python scripts/check-doc-consistency.py` |
+| 13 | 审计证据验证 | `bash scripts/audit-verify.sh <审计报告.md>` |
+| 14 | 文档同步更新检查 | `python scripts/check-doc-sync.py --diff HEAD` |
+| 15 | 幻影交付检查 | `python scripts/check-phantom-delivery.py` |
+| 16 | 语义反模式扫描 | `python scripts/check-semantic-patterns.py` |
+| 17 | 架构一致性扫描 | `python scripts/check-architecture.py` |
+| 18 | 度量真实性扫描 | `python scripts/check-metrics-real.py`（--fix 可自动修正） |
+| 19 | 发布一致性扫描 | `python scripts/check-publish-consistency.py` |
+| 20 | 变异测试杀率 | `bash scripts/collect-mutation-diff.sh`（日常）/ `bash scripts/collect-mutation-linux.sh --fail-under 70`（发布前） |
+| 21 | 安全攻击测试 | `cargo test -p sz-orm-auth --test security_attacks && cargo test -p sz-orm-crypto --test kat && cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks` + OWASP 套件（`--features owasp-pentest-suite`） |
+| 22 | 覆盖率门禁 | `bash scripts/collect-coverage-linux.sh --fail-under 60` |
+| 23 | 未用依赖扫描 | `python scripts/check-unused-deps.py` |
+| 24 | 示例清单同步检查 | `python scripts/check-examples-readme.py` |
+| 25 | 文档代码可编译性检查 | `python scripts/check-doc-code-compiles.py` |
+| 26 | CI 与 deny.toml ignore 一致性 | `python scripts/check-ci-deny-sync.py` |
+| 27 | 门禁脚本自检 | `python scripts/check-gate-scripts.py` |
+| 28 | 安全文档版本一致性 | `python scripts/check-security-doc-version.py` |
+| 29 | 幻影测试引用检测 | `python scripts/check-test-symbols.py`（警告级） |
+| 30 | 幻影测试扫描 | `python scripts/check-phantom-tests.py` |
+| 31 | CI 阻断语义审计 | `python scripts/check-ci-blocking.py` |
+| 32 | 文件名编码合法性 | `python scripts/check-filename-encoding.py` |
+| 33 | 文档版本声明一致性 | `python scripts/check-doc-version-consistency.py` |
+| 34 | 代码生成器产物编译验证 | `python scripts/check-generated-code-compiles.py` |
+
+---
+
+## 2. 标准 7 道门禁 CI 配置（G1-G7，历史演进）
+
+> 以下小节编号沿用历史 1.x，是 G1-G7 的详细 CI 配置说明；当前门禁清单以第 1 章总表为准。
 
 以下门禁已完整实现在 CI 配置中，任何提交/PR 必须通过全部门禁。
 
@@ -122,7 +168,9 @@ CI 配置中还包含以下扩展 Job：
 
 ---
 
-## 2. SZ-ORM 特殊强化门禁（新增）
+## 3. SZ-ORM 特殊强化门禁 CI 配置（G8-G14，历史演进）
+
+> 以下小节以"门禁 N"为标题，是 G8-G14 的详细 CI 配置说明；当前门禁清单以第 1 章总表为准。
 
 以下三道门禁基于 SZ-ORM 审查报告中的血泪教训制定，必须补充到 gate.ps1 和 CI 中。
 
@@ -343,7 +391,7 @@ python scripts/check-doc-consistency.py --fix
 
 ---
 
-## 3. 五维审查增强
+## 4. 五维审查增强
 
 ### 3.1 审查维度
 
@@ -391,7 +439,7 @@ python scripts/check-doc-consistency.py --fix
 
 ---
 
-## 4. 测试金字塔
+## 5. 测试金字塔
 
 SZ-ORM 当前测试数据：
 
@@ -403,7 +451,7 @@ SZ-ORM 当前测试数据：
 | **T4 — 属性测试** | 100+ | Property-Based Testing（proptest）覆盖 Value 序列化/SQL 生成 |
 | **T5 — Fuzz 测试** | 40+ | 模糊测试（SQL 解析、Value 反序列化、标识符注入抵抗） |
 | **T6 — Soak 测试** | 12+ | 长时稳定性测试（10s 冒烟 / 6h 完整） |
-| **合计** | **5,442+** | 覆盖全部 43 个 workspace 包 |
+| **合计** | **21,161+**（2026-10-27 G18 实测测试标注数） | 覆盖全部 72 个工作空间成员 |
 
 ### 4.1 T1：单元测试
 
@@ -450,7 +498,7 @@ SZ-ORM 当前测试数据：
 
 ---
 
-## 5. CI/CD 工作流约束
+## 6. CI/CD 工作流约束
 
 ### 5.1 本地开发流程
 
@@ -469,7 +517,7 @@ flowchart LR
 2. **`cargo test -p <affected-package>`** — 运行受影响包的测试
 3. **`cargo test -p sz-orm-core --test contracts`** — 运行契约测试（API 变更时必做）
 4. **`cargo clippy --workspace --all-targets --all-features -- -D warnings`** — 严格 lint
-5. **`./scripts/gate.ps1`** — 本地门禁全关卡验证（7 道关卡 + 新增 4 道）
+5. **`./scripts/gate.ps1`** — 本地门禁全关卡验证（对应 34 道门禁，具体以 `AGENTS.md` 门禁表为准）
 6. **`git commit`** — 通过后提交
 
 **紧急修复**：使用 `./scripts/gate.ps1 -Fast` 只跑前 3 关（fmt + check + clippy）
@@ -512,7 +560,7 @@ cargo build --features sz-orm-macros/db-verify
 部署前必须逐项确认以下检查全部通过：
 
 - [ ] **门禁检查**
-  - [ ] 10 道门禁全部通过（含增强门禁 8-11）
+  - [ ] 34 道门禁全部通过（见 AGENTS.md 门禁表）
   - [ ] 所有 feature 组合编译通过
 
 - [ ] **测试检查**
@@ -533,7 +581,7 @@ cargo build --features sz-orm-macros/db-verify
 
 ---
 
-## 6. 附录：SZ-ORM 教训 → 防御追溯表
+## 7. 附录：SZ-ORM 教训 → 防御追溯表
 
 本表将 SZ-ORM 审查报告中识别的每类问题映射到对应的防御门禁。任何后续修改必须确保不会重蹈覆辙。
 
@@ -608,7 +656,7 @@ cargo build --features sz-orm-macros/db-verify
 - [`AGENTS.md`](../AGENTS.md) 定义 **AI 工作指南与项目架构**，是本规范的前置阅读材料；
 - [`docs/audit/`](audit/) 存放 **审计报告与基线文档**，本规范是其工程化审计结论的落地；
 - [`docs/adr/`](adr/) 是 ADR 索引，包含 ADR-0001（严禁修改上游仓库）等架构决策；
-- 本规范与 sz-rust 的 [`sz-rust-engineering-practices.md`](../sz-rust/docs/sz-rust-engineering-practices.md) 对齐，共享门禁 8-10 的设计理念。
+- 本规范与 sz-rust 的工程实践规范（`sz-rust/docs/sz-rust-engineering-practices.md`，独立仓库）对齐，共享门禁 8-10 的设计理念。
 
 ---
 

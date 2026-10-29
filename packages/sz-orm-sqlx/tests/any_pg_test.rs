@@ -408,8 +408,28 @@ async fn test_pg_query_numeric_type() {
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    let val = rows[0].get("val").unwrap();
-    assert!(!val.is_null());
+    // R2：NUMERIC 必须解码为任意精度 Decimal 字符串（不允许 f64/rust_decimal 截断）
+    match rows[0].get("val").unwrap() {
+        Value::Decimal(s) => assert_eq!(s, "123456789.99"),
+        other => panic!("expected Value::Decimal, got {other:?}"),
+    }
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_query_numeric_38_digit_is_exact() {
+    let pool = AnyPool::connect(dsn()).await.unwrap();
+    let mut conn = pool.create().await.unwrap();
+    let rows = conn
+        .query("SELECT 12345678901234567890123456789012345678::NUMERIC(38,0) AS val")
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    // R2：38 位有效数字必须逐位保真（rust_decimal 上限 28 位会静默截断）
+    match rows[0].get("val").unwrap() {
+        Value::Decimal(s) => assert_eq!(s, "12345678901234567890123456789012345678"),
+        other => panic!("expected Value::Decimal, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -463,8 +483,11 @@ async fn test_pg_query_date_type() {
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    let val = rows[0].get("val").unwrap();
-    assert!(val.is_string() || val.is_null());
+    // R1：DATE 必须解码为 Value::Date，禁止静默 NULL
+    match rows[0].get("val").unwrap() {
+        Value::Date(s) => assert_eq!(s, "2026-09-27"),
+        other => panic!("expected Value::Date, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -477,8 +500,11 @@ async fn test_pg_query_timestamp_type() {
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    let val = rows[0].get("val").unwrap();
-    assert!(val.is_string() || val.is_null());
+    // R1：TIMESTAMP 必须解码为 Value::DateTime
+    match rows[0].get("val").unwrap() {
+        Value::DateTime(s) => assert_eq!(s, "2026-09-27 12:30:00"),
+        other => panic!("expected Value::DateTime, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -491,8 +517,11 @@ async fn test_pg_query_timestamptz_type() {
         .await
         .unwrap();
     assert_eq!(rows.len(), 1);
-    let val = rows[0].get("val").unwrap();
-    assert!(val.is_string() || val.is_null());
+    // R1：TIMESTAMPTZ 统一归一化到 UTC 微秒精度
+    match rows[0].get("val").unwrap() {
+        Value::DateTime(s) => assert_eq!(s, "2026-09-27T12:30:00.000000Z"),
+        other => panic!("expected Value::DateTime, got {other:?}"),
+    }
 }
 
 #[tokio::test]
@@ -709,4 +738,106 @@ async fn test_pg_rollback_without_begin_is_noop() {
     let mut conn = pool.create().await.unwrap();
     conn.rollback().await.unwrap();
     assert!(!conn.in_transaction());
+}
+
+// ===================== D5: PG 占位符 `?` → `$n` 重写（sz-rust 反馈专项） =====================
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_execute_with_params_question_mark_rewritten() {
+    let pool = AnyPool::connect(dsn()).await.unwrap();
+    let mut conn = pool.create().await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS t_d5_qmark")
+        .await
+        .unwrap();
+    conn.execute("CREATE TABLE t_d5_qmark (id INT PRIMARY KEY, name TEXT)")
+        .await
+        .unwrap();
+    let affected = conn
+        .execute_with_params(
+            "INSERT INTO t_d5_qmark (id, name) VALUES (?, ?)",
+            &[Value::I32(1), Value::String("d5".to_string())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(affected, 1);
+    let rows = conn
+        .query("SELECT name FROM t_d5_qmark WHERE id = 1")
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].get("name").unwrap(),
+        &Value::String("d5".to_string())
+    );
+    conn.execute("DROP TABLE IF EXISTS t_d5_qmark")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_query_with_params_question_mark_rewritten() {
+    let pool = AnyPool::connect(dsn()).await.unwrap();
+    let mut conn = pool.create().await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS t_d5_qsel")
+        .await
+        .unwrap();
+    conn.execute("CREATE TABLE t_d5_qsel (id INT PRIMARY KEY, name TEXT)")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_d5_qsel VALUES (1, 'alice'), (2, 'bob')")
+        .await
+        .unwrap();
+    let rows = conn
+        .query_with_params(
+            "SELECT id, name FROM t_d5_qsel WHERE id >= ? AND name <> ? ORDER BY id",
+            &[Value::I32(1), Value::String("bob".to_string())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("id").unwrap(), &Value::I32(1));
+    conn.execute("DROP TABLE IF EXISTS t_d5_qsel")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_query_with_params_dollar_in_literal_and_question() {
+    // 字符串字面量中的 `$1` 不是原生占位符，真实的 `?` 必须被重写为 `$1`
+    let pool = AnyPool::connect(dsn()).await.unwrap();
+    let mut conn = pool.create().await.unwrap();
+    let rows = conn
+        .query_with_params("SELECT '$1' AS lit, ? AS val", &[Value::I32(42)])
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(
+        rows[0].get("lit").unwrap(),
+        &Value::String("$1".to_string())
+    );
+    assert_eq!(rows[0].get("val").unwrap(), &Value::I32(42));
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_pg_query_with_params_dollar_quoted_literal_and_question() {
+    // dollar-quote 内的 `?` 是字面量，真实参数占位符 `?` 仍被重写
+    let pool = AnyPool::connect(dsn()).await.unwrap();
+    let mut conn = pool.create().await.unwrap();
+    let rows = conn
+        .query_with_params(
+            "SELECT $$?$$ AS lit, ? AS val",
+            &[Value::String("hello".to_string())],
+        )
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert_eq!(rows[0].get("lit").unwrap(), &Value::String("?".to_string()));
+    assert_eq!(
+        rows[0].get("val").unwrap(),
+        &Value::String("hello".to_string())
+    );
 }

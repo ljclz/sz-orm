@@ -46,7 +46,10 @@ impl DesignerCodeGenerator {
 
         for table in &design.tables {
             let struct_name = to_pascal_case(&table.name);
+            // R5（2026-10-27）：`#[derive(sz_orm_core::Model)]` 现为真实宏；
+            // 生成 #[table] 表名与 #[column(primary_key)] 主键标记，产物可直接编译。
             code.push_str("#[derive(Debug, Clone, sz_orm_core::Model)]\n");
+            code.push_str(&format!("#[table(name = \"{}\")]\n", table.name));
             code.push_str(&format!("pub struct {} {{\n", struct_name));
 
             for col in &table.columns {
@@ -56,6 +59,9 @@ impl DesignerCodeGenerator {
                 } else {
                     base_type.to_string()
                 };
+                if col.is_primary_key {
+                    code.push_str("    #[column(primary_key)]\n");
+                }
                 code.push_str(&format!("    pub {}: {},\n", col.name, field_type));
             }
 
@@ -105,6 +111,8 @@ mod tests {
         assert!(code.contains("pub name: String"));
         assert!(code.contains("pub email: Option<String>"));
         assert!(code.contains("sz_orm_core::Model"));
+        assert!(code.contains("#[table(name = \"users\")]"));
+        assert!(code.contains("#[column(primary_key)]"));
     }
 
     #[test]

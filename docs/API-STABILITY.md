@@ -42,7 +42,7 @@ SZ-ORM 将公共 API 按稳定性分为三层：
 - **覆盖范围**：
   - `sz-orm-core`：`Model` trait、`QueryBuilder`、`Value`、`DbError`、`Pool`、`PoolConfig`、`Connection` trait（已有方法）、`Dialect` trait、`L2Cache`、`ResultMap`、`Schema` trait
   - `sz-orm-sqlx`：`SqlitePoolHandle`、`MySqlPoolHandle`、`PgPoolHandle` 及对应 `ConnectionFactory`
-  - `sz-orm-macros`：`typed_query!`、`schema!`、`sql_string!`、`#[derive(Schema)]`、`#[derive(Model)]`、`#[derive(FromQueryResult)]`
+  - `sz-orm-macros`：`typed_query!`、`schema!`、`sql_string!`、`#[derive(Schema)]`、`#[derive(FromQueryResult)]`（注意：`#[derive(Model)]` 尚不存在，属规划中 API，请勿在文档/示例中引用）
   - CLI 命令行接口（`sz-orm-cli`）
   - v3.4.0 新增 Tier 1 API（feature gate 隔离，默认关闭）：`Column<T>` 类型安全列引用（`typed-column`）、`#[derive(Schema)]` 列名常量（`typed-schema`）、typed_ast Diesel 风格 DSL（`typed-dsl`）
 

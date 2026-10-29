@@ -14,8 +14,10 @@
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::hash::{Hash, Hasher};
-use std::sync::{Arc, Mutex};
+use std::sync::Arc;
 use std::time::{Duration, Instant};
+
+use parking_lot::Mutex;
 
 use crate::pool::QueryRows;
 
@@ -181,7 +183,7 @@ impl QueryResultCache {
     ///
     /// 返回 `Some(rows)` 表示命中（未过期），`None` 表示未命中。
     pub fn get(&self, key: &CacheKey) -> Option<QueryRows> {
-        let entries = self.entries.lock().unwrap();
+        let entries = self.entries.lock();
         let entry = match entries.get(key) {
             Some(e) => e,
             None => {
@@ -209,19 +211,19 @@ impl QueryResultCache {
     pub fn put(&self, key: CacheKey, rows: QueryRows, depends_on: HashSet<String>) {
         let result = CachedResult::new(rows, self.config.ttl, depends_on.clone());
         {
-            let mut entries = self.entries.lock().unwrap();
+            let mut entries = self.entries.lock();
             if entries.len() >= self.config.capacity && !entries.contains_key(&key) {
                 self.evict_lru(&mut entries);
             }
             entries.insert(key.clone(), result);
         }
         {
-            let mut order = self.access_order.lock().unwrap();
+            let mut order = self.access_order.lock();
             order.retain(|k| k != &key);
             order.push_back(key.clone());
         }
         {
-            let mut idx = self.table_index.lock().unwrap();
+            let mut idx = self.table_index.lock();
             for table in depends_on {
                 idx.entry(table).or_default().insert(key.clone());
             }
@@ -234,7 +236,7 @@ impl QueryResultCache {
     /// INSERT/UPDATE/DELETE 后调用，避免返回脏数据。
     pub fn invalidate_table(&self, table: &str) -> usize {
         let keys_to_remove: Vec<CacheKey> = {
-            let idx = self.table_index.lock().unwrap();
+            let idx = self.table_index.lock();
             idx.get(table)
                 .cloned()
                 .unwrap_or_default()
@@ -246,23 +248,23 @@ impl QueryResultCache {
             return 0;
         }
         {
-            let mut entries = self.entries.lock().unwrap();
+            let mut entries = self.entries.lock();
             for key in &keys_to_remove {
                 entries.remove(key);
             }
         }
         {
-            let mut order = self.access_order.lock().unwrap();
+            let mut order = self.access_order.lock();
             order.retain(|k| !keys_to_remove.contains(k));
         }
         {
-            let mut idx = self.table_index.lock().unwrap();
+            let mut idx = self.table_index.lock();
             if let Some(keys) = idx.get_mut(table) {
                 keys.clear();
             }
         }
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock();
             stats.invalidations += count as u64;
         }
         self.update_entry_count();
@@ -272,15 +274,15 @@ impl QueryResultCache {
     /// 清空所有缓存
     pub fn clear(&self) {
         {
-            let mut entries = self.entries.lock().unwrap();
+            let mut entries = self.entries.lock();
             entries.clear();
         }
         {
-            let mut order = self.access_order.lock().unwrap();
+            let mut order = self.access_order.lock();
             order.clear();
         }
         {
-            let mut idx = self.table_index.lock().unwrap();
+            let mut idx = self.table_index.lock();
             idx.clear();
         }
         self.update_entry_count();
@@ -288,7 +290,7 @@ impl QueryResultCache {
 
     /// 获取统计信息
     pub fn stats(&self) -> CacheStats {
-        self.stats.lock().unwrap().clone()
+        self.stats.lock().clone()
     }
 
     /// 清理所有过期条目
@@ -297,7 +299,7 @@ impl QueryResultCache {
     pub fn purge_expired(&self) -> usize {
         let now = Instant::now();
         let expired_keys: Vec<CacheKey> = {
-            let entries = self.entries.lock().unwrap();
+            let entries = self.entries.lock();
             entries
                 .iter()
                 .filter(|(_, v)| now >= v.expires_at)
@@ -312,64 +314,64 @@ impl QueryResultCache {
     }
 
     fn touch_access(&self, key: &CacheKey) {
-        let mut order = self.access_order.lock().unwrap();
+        let mut order = self.access_order.lock();
         order.retain(|k| k != key);
         order.push_back(key.clone());
     }
 
     fn evict_lru(&self, entries: &mut HashMap<CacheKey, CachedResult>) {
         let key_to_evict = {
-            let order = self.access_order.lock().unwrap();
+            let order = self.access_order.lock();
             order.front().cloned()
         };
         if let Some(key) = key_to_evict {
             entries.remove(&key);
-            let mut order = self.access_order.lock().unwrap();
+            let mut order = self.access_order.lock();
             order.pop_front();
-            let mut idx = self.table_index.lock().unwrap();
+            let mut idx = self.table_index.lock();
             for keys in idx.values_mut() {
                 keys.remove(&key);
             }
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock();
             stats.evictions += 1;
         }
     }
 
     fn remove_expired(&self, key: &CacheKey) {
         {
-            let mut entries = self.entries.lock().unwrap();
+            let mut entries = self.entries.lock();
             entries.remove(key);
         }
         {
-            let mut order = self.access_order.lock().unwrap();
+            let mut order = self.access_order.lock();
             order.retain(|k| k != key);
         }
         {
-            let mut idx = self.table_index.lock().unwrap();
+            let mut idx = self.table_index.lock();
             for keys in idx.values_mut() {
                 keys.remove(key);
             }
         }
         {
-            let mut stats = self.stats.lock().unwrap();
+            let mut stats = self.stats.lock();
             stats.evictions += 1;
         }
         self.update_entry_count();
     }
 
     fn record_hit(&self) {
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock();
         stats.hits += 1;
     }
 
     fn record_miss(&self) {
-        let mut stats = self.stats.lock().unwrap();
+        let mut stats = self.stats.lock();
         stats.misses += 1;
     }
 
     fn update_entry_count(&self) {
-        let entries = self.entries.lock().unwrap();
-        let mut stats = self.stats.lock().unwrap();
+        let entries = self.entries.lock();
+        let mut stats = self.stats.lock();
         stats.entry_count = entries.len();
     }
 }

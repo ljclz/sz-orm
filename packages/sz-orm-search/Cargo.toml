@@ -12,7 +12,9 @@ description = "SZ-ORM Search Extension - Multi-provider full-text search (ES/Ope
 
 [features]
 default = []
-real-es = ["elasticsearch"]
+# v10.13.0 安全修复（H-1）：real-es 由 elasticsearch crate（reqwest 0.11 → rustls 0.21.12
+# 传递依赖）迁移为 reqwest 0.12（rustls 0.23 线）直连 ES REST API
+real-es = ["dep:reqwest"]
 real-opensearch = ["opensearch", "url"]
 real-meilisearch = ["meilisearch-sdk"]
 
@@ -26,7 +28,8 @@ thiserror = "2.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
 chrono = { version = "0.4", features = ["serde"] }
-elasticsearch = { version = "8.5.0-alpha.1", optional = true, default-features = false, features = ["rustls-tls"] }
+# v10.13.0：替代 elasticsearch crate（与 sz-orm-ai / sz-orm-crypto 的 reqwest 声明保持同版本同 feature）
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"], optional = true }
 opensearch = { version = "2.2.0", optional = true, default-features = false, features = ["rustls-tls"] }
 meilisearch-sdk = { version = "0.27.1", optional = true }
 url = { version = "2.5", optional = true }

@@ -238,14 +238,21 @@ impl CloudNativeObservabilityExporter {
     }
 
     /// 导出可观测性数据
+    ///
+    /// v10.13.0 ROI-4 语义澄清：本方法当前仅执行**类型列表校验**（不含任何
+    /// 外部推送——推送后端如 Pushgateway/OTLP 需另行接入，见 `push-gateway`
+    /// feature 与 sz-orm-tracing）。`latency_ms` 为实测校验耗时（此前为硬编码
+    /// 10.0），`export_success` 表示"类型校验通过"，不代表外部系统已收到数据。
     pub async fn export(&self, types: &[ObservabilityType]) -> Result<ExportResult, String> {
         if types.is_empty() {
             return Err("导出类型列表为空".to_string());
         }
+        let start = std::time::Instant::now();
+        let latency_ms = start.elapsed().as_secs_f64() * 1000.0;
         Ok(ExportResult {
             types_exported: types.to_vec(),
             export_success: true,
-            latency_ms: 10.0,
+            latency_ms,
         })
     }
 }

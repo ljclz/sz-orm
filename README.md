@@ -1,14 +1,14 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v10.12.0 · 72 workspace members · 21133+ tests · 28 SQL dialects · sz-orm-core published on crates.io
+> v10.13.0 · 72 workspace members · 21274+ tests · 28 dialects (21 by default, 7 feature-gated) · sz-orm-core published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-21134+-green.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-21274+-green.svg)](#tests)
 [![Dialects](https://img.shields.io/badge/dialects-28-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#workspace-structure)
-[![Version](https://img.shields.io/badge/version-9.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-10.13.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#overview)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#security-audit)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -41,7 +41,7 @@
 
 ## Overview
 
-SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.12.0 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 517 feature gates for modular composition.
+SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.13.0 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 509 feature gates for modular composition.
 
 ### v5.1.0 AI Application Optimization (34 tasks, 293 new tests)
 
@@ -93,17 +93,31 @@ SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featu
 
 > **⚠️ Honesty disclaimer**: This project is a single-author engineering practice project, **early production ready (internal project)**. The sz-pay project uses sz-orm-core/sqlx/config/auth/macros/queue/scheduler 7 packages in production (297 references, 5139 tests zero regression). For in-depth comparison with Diesel/SeaORM/SQLx, see [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md).
 
-### Production Readiness Check (v3.8.0)
+> **📌 Production readiness positioning (2026-10-16 architecture review, gate count resynced 2026-10-28)**: This workspace is **early production ready for internal pilots** — the engineering quality system (34 gates, 94.4% line coverage, evidence-based auditing) is production-grade, but production adoption is currently limited to the **sz-pay internal pilot** (7 packages). Known limitations to review before external adoption: ① mutation-testing gate (G20) full 2352-mutant subset requires CI/Linux runtime and is not yet a daily gate; ② `--all-features` combination compile needs periodic verification (see `scripts/check-all-features.sh`); ③ feature-gated transitive dependency chain (e.g. rustls 0.21 via `real-es` feature) is tracked in `deny.toml` with ignore + upgrade plan; ④ cross-package mutation coverage (core logic tested from `sz-orm-sqlx`) requires `--test-package` wiring (see `scripts/collect-mutation-diff.sh`).
 
-Enable the `prod-ready` feature to use `ProdReadyChecker` for 15 production readiness checks:
+### Production Readiness Check (v3.8.0, config-driven since v10.13.0)
+
+Enable the `prod-ready` feature to use `ProdReadyChecker` for 15 production readiness checks.
+**The checker validates the production configuration you provide** — fields left as `None`
+are reported as `Skipped` (manual integration required), not auto-passed:
 
 ```rust
 use sz_orm_core::prod_ready_check::{ProdReadyChecker, ProdReadyCheckerConfig};
 
-let checker = ProdReadyChecker::new(ProdReadyCheckerConfig::default());
-let report = checker.run();
+let config = ProdReadyCheckerConfig {
+    config_masking_enabled: Some(true),
+    redis_tls_enabled: Some(true),
+    jwt_key_rotation_days: Some(30),       // 合法窗口 1..=90
+    log_level: Some("warn".to_string()),   // debug/trace 生产不合格
+    shutdown_timeout_secs: Some(30),       // 合法窗口 1..=3600
+    pool_max_connections: Some(50),
+    pool_min_idle: Some(5),
+    sql_injection_scan_passed: Some(true), // 由门禁 9 扫描结果喂入
+    ..Default::default()
+};
+let report = ProdReadyChecker::new(config).run();
 println!("{}", report.to_json().unwrap());
-// 15 checks (REQ-PROD-001~015), each with file:line evidence
+// report.all_pass_strict(): 无 FAIL 且无 SKIPPED —— 全部检查真实执行且通过
 ```
 
 | Feature | Description |
@@ -118,8 +132,8 @@ println!("{}", report.to_json().unwrap());
 | Dimension | Data |
 |------|------|
 | Workspace members | **72** (70 sz-orm-* libs + cli + examples) |
-| Supported DB dialects | **28 SQL dialects** |
-| Test cases | **21134 passed, 0 failed** |
+| Supported DB dialects | **28 dialects** — 21 compiled by default, 7 behind `dialect-*` features (at `--all-features`: 24 SQL + 4 NoSQL); dialect layer = SQL generation, not a connection driver (drivers: sqlx MySQL/PostgreSQL/SQLite + `sz-orm-oracle` + `sz-orm-mssql`) |
+| Test cases | **21274 passed, 0 failed** |
 | Code size | **~639,200 LOC** (src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |
@@ -131,7 +145,7 @@ println!("{}", report.to_json().unwrap());
 
 ## Historical: v3.4.0 New Features (2026-08-09)
 
-> **Note**: This section describes the v3.4.0 release features. For the latest features (v10.12.0), see [CHANGELOG.md](CHANGELOG.md). Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
+> **Note**: This section describes the v3.4.0 release features. For the latest features (v10.13.0), see [CHANGELOG.md](CHANGELOG.md). Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
 
 ### Test Coverage Backfill (`test-coverage`)
 
@@ -350,7 +364,7 @@ See [CHANGELOG.md](CHANGELOG.md) and [Upgrade Guide](docs/v3.3.0-upgrade-guide.m
 ## Core Features
 
 - **Asynchronous**: based on Tokio, full `async/await`
-- **Multi-database dialects**: 17 SQL dialects (8 native: MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB + 9 delegated: MariaDB/TiDB/OceanBase/Dameng/Kingbase/PolarDB/GaussDB/GBase/Sybase)
+- **Multi-database dialects**: 28 database dialects (24 SQL: MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB/MariaDB/TiDB/OceanBase/Dameng/Kingbase/PolarDB/GaussDB/GBase/Sybase/CockroachDB/YugabyteDB/Snowflake/Redshift/Informix/SAP HANA/Firebird + 4 NoSQL: Redis/MongoDB/VectorDB/PureJsDb)
 - **Chained QueryBuilder**: ThinkORM-style fluent API
 - **ACID transactions**: isolation levels, savepoints (default 8 levels nesting, `DEFAULT_MAX_NESTING_DEPTH = 8`, configurable), `TransactionManager` multi-transaction management
 - **Connection pool**: configurable size, timeout, idle reaping, health check, max lifetime
@@ -423,9 +437,9 @@ sz-orm/
 │   └── sz-orm-back/                 # Backup and recovery
 │
 ├── cli/                             # CLI tool (sz-orm)
-├── examples/                        # 9 runnable examples
+├── examples/                        # 38 runnable examples
 ├── grafana/                         # Grafana dashboard JSON
-├── docs/                            # 22 docs (including adr/ subdir 11 ADRs)
+├── docs/                            # Docs center (quickstart / usage guide / API reference / migration guides / assessments + adr/ subdir with 11 ADRs)
 ├── scripts/                         # gate.ps1/sh, install-hooks, audit-api-changes
 ├── Cargo.toml                       # Workspace manifest (version.workspace = true)
 ├── audit.toml                       # cargo-audit config (7 ignore items)
@@ -436,22 +450,42 @@ sz-orm/
 
 ## Quick Start
 
+> ⚡ 5-minute tutorial with runnable examples: [docs/quickstart.md](docs/quickstart.md)
+> （零依赖路径：`cargo run -p sz-orm-examples --bin real_db_crud`，SQLite 内存库即可跑通 CRUD）
+
 ### 1. Add Dependencies
 
 ```toml
 [dependencies]
-# Install from crates.io (recommended)
-sz-orm-core = "1.4"
-sz-orm-sqlx = "1.4"
+# 推荐：path 依赖（与生产试点 sz-pay 一致，始终使用仓库当前版本）
+sz-orm-core = { path = "packages/sz-orm-core" }
+sz-orm-sqlx = { path = "packages/sz-orm-sqlx" }
 
-# Local dev (path dependency)
-# sz-orm-core = { version = "1.5", path = "packages/sz-orm-core" }
-# sz-orm-sqlx = { version = "1.5", path = "packages/sz-orm-sqlx" }
+# 备选：crates.io（published version may trail the repo, see CHANGELOG.md; use path deps above for the latest）
+# sz-orm-core = "10.7"
+# sz-orm-sqlx = "10.7"
 
 tokio = { version = "1.40", features = ["full"] }
 ```
 
 ### 2. Define Model
+
+**方式 A（推荐）：`#[derive(Model)]` 自动生成 `impl Model` + `impl ModelExt`（R5，零样板）**
+
+```rust
+use sz_orm_core::Model;
+
+#[derive(Debug, Clone, Default, Model)]
+#[table(name = "users")]
+struct User {
+    #[column(primary_key)]
+    id: i64,
+    name: String,
+    email: String,
+}
+```
+
+**方式 B（手写）：完全掌控 trait 行为（进阶）**
 
 ```rust
 use sz_orm_core::{Model, TimestampFields};
@@ -478,16 +512,38 @@ impl Model for User {
 
 ```rust
 use sz_orm_core::dialect::get_dialect;
-use sz_orm_core::{DbType, QueryBuilder, Value};
+use sz_orm_core::{DbType, Model, QueryBuilder, TimestampFields, Value};
 
-let dialect = get_dialect(DbType::MySQL)?;
-let sql = QueryBuilder::<User>::new(dialect)
-    .table("users")
-    .select(vec!["id", "name", "email"])
-    .where_eq("status", Value::String("active".to_string()))
-    .order_by("created_at")
-    .limit(10)
-    .build_select();
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+struct User {
+    id: i64,
+    name: String,
+    email: String,
+}
+
+impl Model for User {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str { "users" }
+    fn pk(&self) -> Self::PrimaryKey { self.id }
+    fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+    fn timestamp_fields() -> Option<TimestampFields> {
+        Some(TimestampFields::with_both("created_at", "updated_at"))
+    }
+}
+
+fn main() {
+    let dialect = get_dialect(DbType::MySQL).expect("MySQL dialect available");
+    let sql = QueryBuilder::<User>::new(dialect)
+        .table("users")
+        .select(vec!["id", "name", "email"])
+        .expect("valid columns")                 // select() returns Result
+        .where_eq("status", Value::String("active".to_string()))
+        .order_by("created_at")
+        .limit(10)
+        .sql();                                  // returns the SQL string (`?` placeholders)
+    println!("{sql}");
+}
 ```
 
 ### 4. Connect to Real Database (sz-orm-sqlx)
@@ -546,6 +602,38 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 
 Use `get_dialect(DbType::MySQL)` to get a dialect instance.
 
+## Cross-Language Bindings
+
+sz-orm exposes a unified C ABI (`packages/sz-orm-cabi`) consumed by language bindings. All
+exported functions are `#[no_mangle] extern "C"`; cross-ABI structs are `#[repr(C)]`; the
+ABI contract is the cbindgen-generated header `packages/sz-orm-cabi/include/sz_orm_cabi.h`
+(single declaration source). Memory is allocated and freed on the Rust side with a
+track/untrack registry providing double-free protection, and panics are caught at the
+boundary (never propagated across FFI). Every string crossing the boundary is **UTF-8** and
+NUL-terminated — callers must not decode it with the system ANSI code page — and
+`sz_orm_pool_new` accepts **SQLite DSNs only** (other backends return a null handle instead
+of a half-working pool). Both rules are stated in the ABI banner at the top of
+`sz_orm_cabi.h`.
+
+**Binding status matrix** (assessed 2026-10-27, see
+`docs/assessment/2026-10-26-fullstack-review.md`):
+
+| Binding | Status | Scope |
+|---------|--------|-------|
+| C# (`packages/sz-orm-cabi/csharp/`) | ⚠️ Real but narrow (9 of the 37 C ABI exports, 7 public methods) | P/Invoke pool/query/execute, UTF-8 marshalling (`LPUTF8Str`/`PtrToStringUTF8`), atomic `IDisposable` handle wrapper, structs mirror `#[repr(C)]`; an E2E suite (incl. a non-ASCII round-trip) is wired into the `csharp-binding` CI job added 2026-10-28 — that job has not been observed green from this machine, and no .NET SDK is available locally — no NuGet package, no transaction/model/querybuilder surface yet |
+| Python (`packages/sz-orm-python/`, PyO3) | ✅ Real (SQLite) | `Pool` / `QueryBuilder` / `Transaction` real; `Model`/`ActiveModel`/`Repository` are in-memory value objects |
+| JavaScript (`packages/sz-orm-js/`, napi-rs) | ✅ Real (SQLite) | `Pool` (requires `connect(dsn)` first) / `QueryBuilder` / transactions real; `Model` is a value object; TypeScript definitions in `index.d.ts` |
+| Java (`packages/sz-orm-java/`, JNI) | ⚠️ Partial | Pool-level CRUD only; transaction/model/QueryBuilder JNI exports exist on the Rust side but have no Java-side wrapper classes yet |
+| Go (`packages/sz-orm-go/`) | ⚠️ Partial, **Windows only** | Loads `sz_orm_go.dll` via `syscall` (8 basic symbols); Unix `dlopen` requires a cgo variant that is **not provided yet** (`go/szorm/dll_unix.go`) |
+| C++ (`packages/sz-orm-cpp/`) | ⚠️ Partial | RAII `szorm::Pool` wrapper (`cpp/szorm.h`); no Transaction/Model classes; no C++-side tests |
+
+The FFI layer runs a shared tokio runtime; its worker count can be tuned before the first
+pool creation via `sz_orm_set_runtime_workers(n)` (declared in `sz_orm_cabi.h`).
+
+> **Publishing note**: crates.io releases lag the main branch. For the latest capabilities,
+> prefer a git/path dependency — the Quick Start above already recommends the path-based
+> setup used by the production pilot.
+
 ## Core API
 
 ### QueryBuilder Chained API
@@ -554,6 +642,7 @@ Use `get_dialect(DbType::MySQL)` to get a dialect instance.
 QueryBuilder::<M>::new(dialect)
     .table("users")
     .select(vec!["id", "name"])
+    .expect("valid columns")                                   // select() returns Result
     .where_eq("status", Value::String("active".to_string()))  // AND
     .or_where_eq("role", Value::String("admin".to_string()))   // OR
     .where_in("id", vec![Value::I64(1), Value::I64(2)])
@@ -631,7 +720,7 @@ tx.commit().await?;
 ### Migration System
 
 ```rust
-use sz_orm_core::migration::{FileMigrationResolver, MigrationContext, Migrator, SchemaBuilder};
+use sz_orm_core::migration::{ColumnDef, FileMigrationResolver, ForeignKeyDef, IndexDef, MigrationContext, Migrator, SchemaBuilder};
 use sz_orm_core::{MigrationResolver, DbType};
 
 // File migrations: <version>_<name>_up.sql / <version>_<name>_down.sql
@@ -842,18 +931,48 @@ sz-orm sql:validate "SELECT * FROM users"  # SQL validation
 
 ## Examples
 
-The `examples/` directory provides 8 runnable examples:
+The `examples/` directory provides 38 runnable examples:
 
 | Example | Description | Run |
 |------|------|------|
+| `ai_integration_demo` | AI deep integration end-to-end demo | `cargo run -p sz-orm-examples --bin ai_integration_demo` |
+| `backpressure_stream_demo` | Stream backpressure demo | `cargo run -p sz-orm-examples --bin backpressure_stream_demo` |
+| `batch_parallel_demo` | Batch parallel execution demo | `cargo run -p sz-orm-examples --bin batch_parallel_demo` |
+| `cdc_realtime_sync_demo` | CDC realtime sync demo | `cargo run -p sz-orm-examples --bin cdc_realtime_sync_demo` |
+| `composable_plugin_demo` | Composable plugin system full usage | `cargo run -p sz-orm-examples --bin composable_plugin_demo` |
+| `db_verify_test` | Compile-time DB verification (`query!` db-verify) | `cargo run -p sz-orm-examples --bin db_verify_test` |
+| `dist_coordination_demo` | Distributed coordination demo | `cargo run -p sz-orm-examples --bin dist_coordination_demo` |
+| `eco_extension_demo` | Eco extension end-to-end demo | `cargo run -p sz-orm-examples --bin eco_extension_demo` |
+| `graph_traversal_demo` | Graph traversal API demo | `cargo run -p sz-orm-examples --bin graph_traversal_demo` |
+| `ha_failover_demo` | High-availability failover demo | `cargo run -p sz-orm-examples --bin ha_failover_demo` |
+| `hooks_soft_delete` | Hook system — soft delete + global scope | `cargo run -p sz-orm-examples --bin hooks_soft_delete` |
+| `l2_cache_singleflight_demo` | L2Cache SingleFlight cache protection demo | `cargo run -p sz-orm-examples --bin l2_cache_singleflight_demo` |
+| `migration` | Migration system — file migration + SchemaBuilder | `cargo run -p sz-orm-examples --bin migration` |
+| `model_definition` | Model definition — Model + ModelExt traits | `cargo run -p sz-orm-examples --bin model_definition` |
+| `multi_region_demo` | Multi-region active-active demo | `cargo run -p sz-orm-examples --bin multi_region_demo` |
+| `multi_tenant` | Multi-tenant — TenantModel + TenantScope | `cargo run -p sz-orm-examples --bin multi_tenant` |
+| `nl_query_demo` | AI natural language query demo | `cargo run -p sz-orm-examples --bin nl_query_demo` |
+| `olap_vectorized_demo` | OLAP vectorized query demo | `cargo run -p sz-orm-examples --bin olap_vectorized_demo` |
+| `parallel_join_demo` | `parallel_join!` macro demo | `cargo run -p sz-orm-examples --bin parallel_join_demo` |
+| `parallel_queries_demo` | `parallel_queries` demo | `cargo run -p sz-orm-examples --bin parallel_queries_demo` |
+| `perf_accel_demo` | Performance acceleration end-to-end demo | `cargo run -p sz-orm-examples --bin perf_accel_demo` |
+| `prepared_cache_demo` | `prepared_cache` demo | `cargo run -p sz-orm-examples --bin prepared_cache_demo` |
+| `production_app` | Production e-commerce order system (6 extension packages) | `cargo run -p sz-orm-examples --bin production_app` |
+| `production_dtx` | Production cross-shard distributed order system | `cargo run -p sz-orm-examples --bin production_dtx` |
+| `query_auto_tuning_demo` | Query auto-tuning demo | `cargo run -p sz-orm-examples --bin query_auto_tuning_demo` |
 | `quick_start` | QueryBuilder basics | `cargo run -p sz-orm-examples --bin quick_start` |
-| `model_definition` | Model + ModelExt full implementation | `cargo run -p sz-orm-examples --bin model_definition` |
-| `transaction` | Transaction + savepoint | `cargo run -p sz-orm-examples --bin transaction` |
-| `migration` | SchemaBuilder DDL | `cargo run -p sz-orm-examples --bin migration` |
-| `hooks_soft_delete` | Hooks + soft delete | `cargo run -p sz-orm-examples --bin hooks_soft_delete` |
-| `multi_tenant` | Multi-tenant isolation | `cargo run -p sz-orm-examples --bin multi_tenant` |
-| `production_app` | Production app pattern | `cargo run -p sz-orm-examples --bin production_app` |
-| `production_dtx` | Distributed transaction pattern | `cargo run -p sz-orm-examples --bin production_dtx` |
+| `rbac_abac_demo` | RBAC + ABAC permission model demo | `cargo run -p sz-orm-examples --bin rbac_abac_demo` |
+| `real_db_crud` | Real DB end-to-end — pool + CRUD + transactions | `cargo run -p sz-orm-examples --bin real_db_crud` |
+| `serverless_demo` | Serverless adaptation demo | `cargo run -p sz-orm-examples --bin serverless_demo` |
+| `stream_processing_demo` | Realtime stream processing demo | `cargo run -p sz-orm-examples --bin stream_processing_demo` |
+| `stream_unified_demo` | `stream_unified` demo | `cargo run -p sz-orm-examples --bin stream_unified_demo` |
+| `sz_pay_pattern` | SZ-PAY production usage pattern (desensitized) | `cargo run -p sz-orm-examples --bin sz_pay_pattern` |
+| `sz_rust_integration_example` | sz-rust co-integration — transparent multi-backend access | `cargo run -p sz-orm-examples --bin sz_rust_integration_example` |
+| `tde_demo` | TDE transparent data encryption complete example | `cargo run -p sz-orm-examples --bin tde_demo` |
+| `transaction` | Transactions — ACID transaction + savepoint | `cargo run -p sz-orm-examples --bin transaction` |
+| `transaction_run_demo` | `run_transaction` / `run_savepoint` closure templates | `cargo run -p sz-orm-examples --bin transaction_run_demo` |
+| `v900_perf_demo` | v9.0.0 performance optimization demo | `cargo run -p sz-orm-examples --bin v900_perf_demo` |
+| `wiring_smoke` | Production entry wiring demo (Gate 15 evidence) | `cargo run -p sz-orm-examples --bin wiring_smoke` |
 
 ## Tests
 
@@ -868,8 +987,6 @@ SZ-ORM ensures quality through a **7-line verification system**:
 | **Stress** | Performance/stress | `stress.rs`, `core_bench.rs` |
 | **Chaos** | Fault robustness | `chaos.rs` |
 | **Formal** | Formal invariant verification | `formal.rs` |
-
-**Total: 9905 tests, 0 failed** (some tests require real DB/cloud credentials)
 
 ### Running Tests
 
@@ -954,11 +1071,11 @@ cargo deny check advisories bans licenses sources
 |------|------|--------|
 | Oracle integration tests | ✅ Completed | `tests/integration_oracle.rs` added 7 scenario types, 10 tests passed |
 | SQL Server integration tests | ✅ Completed | `tests/integration_mssql.rs` created 8 scenario types, 5 dialect assertions passed |
-| Python bindings (PyO3) | ✅ Completed | `packages/sz-orm-python/`, exposes PyModel/PyQueryBuilder/PyPool/PyTransaction |
-| JavaScript bindings (napi-rs) | ✅ Completed | `packages/sz-orm-js/`, exposes Model/QueryBuilder/Pool/Transaction |
+| Python bindings (PyO3) | ✅ Real (SQLite) | `packages/sz-orm-python/`: PyPool/PyQueryBuilder/PyTransaction real (SQLite, transactions via `Pool.create_transaction()`); PyModel/ActiveModel/Repository are in-memory value objects |
+| JavaScript bindings (napi-rs) | ✅ Real (SQLite) | `packages/sz-orm-js/`: Pool/QueryBuilder real (SQLite, transactions via `Pool.async_begin/commit/rollback`); Model is a value object |
 | Security audit | ✅ Completed | `docs/assessment/2026-08-14-security-audit.md`, 7 dimensions covered |
 
-### Gate Verification
+### Gate Verification (historical record at v2.0.0 — 11 gates at that time, see current gate table above)
 
 9 of 11 gates passed, 2 environment limitations (`cargo audit` network restricted, `--all-features` missing protoc).
 
@@ -1001,7 +1118,7 @@ criterion benchmarks (sample_size=10, measurement_time=3s, warm_up=1s, Windows; 
 |---------|--------|--------|
 | parallel_queries (3 tables) | speedup | ≥ 2.1× (3 × 70%) |
 | parallel_queries (10 tables) | speedup | ≥ 3.0× |
-| PreparedStatementCache | hit benefit | ≥ 50% latency reduction |
+| PreparedStatementCache | p50 latency, cache off→on (Oracle 23ai point query, local, measured) | 25%–32% (see `docs/assessment/2026-10-28-db-review.md` §11.6) |
 | AsyncRowStream (1M rows) | peak memory | ~1 row (streaming, no accumulation) |
 | BackpressureRowStream | threshold trigger | pending >= threshold → pause |
 
@@ -1012,10 +1129,10 @@ criterion benchmarks (sample_size=10, measurement_time=3s, warm_up=1s, Windows; 
 | [Learning Tutorial](docs/sz-orm学习路线图.md) | Concrete learning tutorial for PHP/ThinkPHP engineers (includes Rust quick-start + AI collaboration patterns) |
 | [Usage Guide](docs/sz-orm使用指南.md) | End-to-end usage guide (v5.0, covers all 21 advanced modules) |
 | [API Reference](docs/sz-ormAPI参考.md) | Type signatures and parameter docs (v5.0) |
-| [Architecture Design](docs/sz-orm架构设计.md) | 39-package architecture overview |
+| [Architecture Design](docs/sz-orm架构设计.md) | Workspace architecture overview |
 | [Engineering Practices](docs/sz-orm-engineering-practices.md) | Gate 1-10 + test pyramid T1-T6 |
 | [API Contracts](docs/api-contracts.md) | Public API stability contracts |
-| [ADR Index](docs/adr/README.md) | Architecture Decision Records (9 ADRs) |
+| [ADR Index](docs/adr/README.md) | Architecture Decision Records (11 ADRs) |
 | [ADR and Bug Localization Spec](docs/ADR与生产Bug定位规范.md) | Reusable spec: ADR writing + four-layer bug localization flow + validity verification (v1.0) |
 
 ## License

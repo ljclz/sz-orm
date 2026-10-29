@@ -39,6 +39,18 @@ fn test_stability_matrix_real_chaos_flag() {
     }
 }
 
+/// v10.13.0 ROI-3：run() 产出的全部条目必须标注 is_simulated（固定参考值，非真实混沌测量）
+#[test]
+fn test_stability_matrix_run_entries_marked_simulated() {
+    let runner = StabilityMatrixRunner::new();
+    let report = runner.run();
+    assert!(
+        report.entries.iter().all(|e| e.is_simulated),
+        "run() 的全部 {} 条 entry 必须标注 is_simulated=true",
+        report.entries.len()
+    );
+}
+
 #[test]
 fn test_stability_matrix_json_output() {
     let runner = StabilityMatrixRunner::new();

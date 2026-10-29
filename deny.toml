@@ -34,28 +34,22 @@ version = 2
 db-path = "$CARGO_HOME/advisory-dbs"
 db-urls = ["https://github.com/rustsec/advisory-db"]
 ignore = [
-    # rustls-webpki 0.101.7 / 0.102.8: CRL distributionPoint 解析漏洞 (RUSTSEC-2026-0049)
-    # 来源 1: sz-orm-search (real-es feature) → elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21 → rustls-webpki 0.101.7
-    # 来源 2: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-webpki 0.102.8
-    # 影响: 仅在启用 real-es / real-broker feature 时引入；CRL 验证在默认编译中不参与；上游 rustls-webpki 0.103 为不兼容大版本
-    # 跟踪: 待 rumqttc / elasticsearch 升级至依赖 rustls-webpki 0.103+ 后自动移除
-    { id = "RUSTSEC-2026-0049", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-webpki 0.102.8/0.101.7，上游 0.103 为不兼容大版本；仅影响 real-broker / real-es feature" },
+    # rustls-webpki 0.102.8: CRL distributionPoint 解析漏洞 (RUSTSEC-2026-0049)
+    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-webpki 0.102.8
+    # v10.13.0 (2026-10-28 P0-1 复核): elasticsearch 来源已随 sz-orm-search 迁移 reqwest 0.12 而消除，
+    # rustls 0.21 线与 rustls-webpki 0.101.7 已退出锁文件；本条仅剩余 rumqttc → 0.102.8 来源
+    { id = "RUSTSEC-2026-0049", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游修复线 0.103 为不兼容大版本；仅影响 real-broker feature" },
     # rustls-webpki: URI name constraints 漏洞 (RUSTSEC-2026-0098)
-    { id = "RUSTSEC-2026-0098", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-webpki 0.102.8/0.101.7，上游 0.103 为不兼容大版本；仅影响 real-broker / real-es feature" },
+    { id = "RUSTSEC-2026-0098", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游修复线 0.103 为不兼容大版本；仅影响 real-broker feature" },
     # rustls-webpki: wildcard name constraints 漏洞 (RUSTSEC-2026-0099)
-    { id = "RUSTSEC-2026-0099", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-webpki 0.102.8/0.101.7，上游 0.103 为不兼容大版本；仅影响 real-broker / real-es feature" },
+    { id = "RUSTSEC-2026-0099", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游修复线 0.103 为不兼容大版本；仅影响 real-broker feature" },
     # rustls-webpki: CRL parsing panic 漏洞 (RUSTSEC-2026-0104)
-    { id = "RUSTSEC-2026-0104", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-webpki 0.102.8/0.101.7，上游 0.103 为不兼容大版本；仅影响 real-broker / real-es feature" },
-    # rustls 0.21.12: Debug impl 泄露 TLS 会话密钥 (RUSTSEC-2026-0346)
-    # 来源: sz-orm-search (real-es feature) → elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12
-    # 影响: 仅在启用 real-es feature 时引入；Debug 泄露需自定义 ClientSessionStore 并格式化输出才会触发，默认编译不参与；工作区 rustls 0.23 线已升级 0.23.46（修复版）
-    # 跟踪: 待 elasticsearch 升级至依赖 reqwest 0.12 / rustls 0.23+ 后自动移除
-    { id = "RUSTSEC-2026-0346", reason = "elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12 传递依赖，上游 reqwest 0.12 / rustls 0.23 为不兼容大版本；仅影响 real-es feature；工作区 rustls 0.23 线已升级 0.23.46" },
-    # rustls 0.21.12: ServerHello 降级攻击 (RUSTSEC-2026-0349)
-    # 来源: sz-orm-search (real-es feature) → elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12
-    # 影响: 仅在启用 real-es feature 时引入；后量子机密性降级（harvest now, decrypt later），无密钥泄露/认证绕过；默认编译不参与
-    # 跟踪: 待 elasticsearch 升级至依赖 reqwest 0.12 / rustls 0.23+ 后自动移除
-    { id = "RUSTSEC-2026-0349", reason = "elasticsearch 8.5.0-alpha.1 → reqwest 0.11 → rustls 0.21.12 传递依赖，上游 reqwest 0.12 / rustls 0.23 为不兼容大版本；仅影响 real-es feature；工作区 rustls 0.23 线已升级 0.23.46" },
+    { id = "RUSTSEC-2026-0104", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，上游修复线 0.103 为不兼容大版本；仅影响 real-broker feature" },
+    # rustls-webpki 0.102.8: 证书验证可能接受不受信任的 emSign 中间证书 (RUSTSEC-2026-0382)
+    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-webpki 0.102.8
+    # v10.13.0 (2026-10-28 P0-1 复核): elasticsearch/rustls 0.21 来源已消除；
+    # rustls 0.23 线的 rustls-webpki 已升级 0.103.16（修复版），本条仅剩余 rumqttc → 0.102.8 来源
+    { id = "RUSTSEC-2026-0382", reason = "rumqttc 0.25 传递依赖 rustls-webpki 0.102.8，修复线 0.103.16+ 对 0.102 为不兼容大版本；仅影响 real-broker feature" },
     # quick-xml 0.38.4: 二次时间复杂度解析漏洞 (RUSTSEC-2026-0194)
     # 来源: sz-orm-storage (s3-sdk feature) → rust-s3 0.37.2 → aws-creds 0.39.1 → quick-xml 0.38.4
     # 影响: 仅在启用 s3-sdk feature 时引入；服务端可控输入；上游 rust-s3 0.37.2 / aws-creds 0.39.1 均为最新版，尚未升级 quick-xml
@@ -63,12 +57,10 @@ ignore = [
     { id = "RUSTSEC-2026-0194", reason = "rust-s3 0.37.2 / aws-creds 0.39.1 传递依赖 quick-xml 0.38.4，上游尚无修复版本；仅影响 s3-sdk feature；服务端可控输入" },
     # quick-xml 0.38.4: 内存耗尽漏洞 (RUSTSEC-2026-0195)
     { id = "RUSTSEC-2026-0195", reason = "rust-s3 0.37.2 / aws-creds 0.39.1 传递依赖 quick-xml 0.38.4，上游尚无修复版本；仅影响 s3-sdk feature；服务端可控输入" },
-    # rustls-pemfile 1.0.4 / 2.2.0: 未维护 (RUSTSEC-2025-0134)
-    # 来源 1: sz-orm-search (real-es feature) → elasticsearch → reqwest 0.11 → rustls-pemfile 1.0.4
-    # 来源 2: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-pemfile 2.2.0
-    # 影响: 仅在启用 real-es / real-broker feature 时引入；功能已被 rustls 0.23 内置替代
-    # 跟踪: 待 rumqttc / elasticsearch 升级至不依赖 rustls-pemfile 后自动移除
-    { id = "RUSTSEC-2025-0134", reason = "rumqttc 0.25 / elasticsearch 传递依赖 rustls-pemfile 2.2.0/1.0.4 unmaintained；仅影响 real-broker / real-es feature；功能已被 rustls 0.23 内置替代" },
+    # rustls-pemfile 2.2.0: 未维护 (RUSTSEC-2025-0134)
+    # 来源: sz-orm-mqtt (real-broker feature) → rumqttc 0.25 → rustls-pemfile 2.2.0
+    # v10.13.0 (2026-10-28 P0-1 复核): elasticsearch 来源已消除，锁文件仅剩 2.2.0
+    { id = "RUSTSEC-2025-0134", reason = "rumqttc 0.25 传递依赖 rustls-pemfile 2.2.0 unmaintained；仅影响 real-broker feature；功能已被 rustls 0.23 内置替代" },
     # paste 1.0.15: 未维护 (RUSTSEC-2024-0436)
     # 来源: 传递依赖（proc-macro 工具 crate），不进入运行时，无安全风险
     { id = "RUSTSEC-2024-0436", reason = "paste 是编译期 proc-macro 工具，不进入运行时；功能完整，无安全风险；待上游升级后移除" },
@@ -103,10 +95,10 @@ ignore = [
     # 跟踪: 待 sz-orm-python 升级 pyo3 后自动移除
     { id = "RUSTSEC-2026-0177", reason = "sz-orm-python → pyo3 0.20.3 绑定层；new_closure 闭包 Sync 缺失仅在跨线程共享场景触发；待 pyo3 升级后移除" },
     # h2 0.3.27: unbounded empty DATA frames (RUSTSEC-2026-0258)
-    # 来源: sz-orm-actix → actix-web v4.14.1 → actix-http v3.13.3 → h2 v0.3.27
+    # 来源: sz-orm-actix → actix-web v4.14.1 → actix-http v3.20.0 → h2 v0.3.27
     # 影响: actix-web v4.x 依赖 h2 v0.3.x，无法升级到 0.4.x（上游 major.minor 限制）
     # 跟踪: 待 actix-web 升级到使用 h2 v0.4.x 后自动移除
-    # 注: h2 v0.4.15 已升级到 v0.4.16（修复），仅 h2 v0.3.27 受影响
+    # 注: h2 v0.4.16（修复版）已因其他依赖进入锁文件，仅 h2 v0.3.27 受本条影响
     { id = "RUSTSEC-2026-0258", reason = "actix-web v4.14.1 → h2 v0.3.27，actix-web v4.x 依赖 h2 v0.3.x 无法升级到 0.4.x；待 actix-web 升级后移除" },
     # zip 6.0.0: SUID/SGID 权限提升 (RUSTSEC-2026-0367)
     # 来源: libduckdb-sys v1.10505.0 [build-dependencies] → zip v6.0.0

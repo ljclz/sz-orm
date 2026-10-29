@@ -1,12 +1,12 @@
 # SZ-ORM API 参考手册
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
-> 文档版本：v7.7.0（v7.3.0~v7.7.0 全量演进：性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展 + 生产稳定性加固 + 自愈协调；72 个工作空间成员）
-> 适用版本：SZ-ORM **v7.7.0**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
-> 代码规模：519,067 LOC（src/ 432,358 + tests/ 86,709，2026-09-20 实测）
-> 成熟度：生产可用（内部项目），sz-orm-core 1.0.0 已发布到 crates.io
+> 文档版本：随仓库更新（本文档主体编写于 v7.3.0~v7.7.0 演进期，类型签名以当前源码为准）
+> 适用版本：SZ-ORM **v10.13.0+**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 代码规模：~639,200 LOC（以根 [README](../README.md) 质量基线为准，随版本更新）
+> 成熟度：生产可用（内部项目），sz-orm-core 已发布到 crates.io
 > 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
-> 更新日期：2026-09-20
+> 更新日期：2026-10-27
 > 文档定位：核心 trait/结构体说明 + 各包公开 API 速查 + 错误处理指南
 > **配套使用文档**：场景示例与端到端串联请查阅 [SZ-ORM 使用指南](sz-orm使用指南.md)；本文聚焦于类型签名与参数说明
 > **v7.3.0 新增 API**：PerfConfig/HaConfig/AiConfig/EcoConfig 配置聚合 + SIMD 向量化 + AutoFailoverCoordinator + AnnAccelerated + WarpAdapter + SourceOrmParser
@@ -953,7 +953,9 @@ let dialect = get_dialect(DbType::MySQL).unwrap();
 let sql = find_with_related_join(
     &*dialect, "users", "orders", "user_id", "id", true,
 )
-    .where_cond("users.id = 1")
+    .expect("join 构建失败")
+    .order_desc("created_at")
+    .limit(10)
     .build();
 ```
 

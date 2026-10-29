@@ -6,6 +6,8 @@
 > 关联任务：M6-T5.1
 > 关联设计：design.md §5.1.6 M6-T8
 
+> ⚠️ **版本适用性**：本指南示例基于 v3.5.0（2026-08-09）编写，SZ-ORM API 迭代较快；若示例与当前版本冲突，以 [packages/sz-orm-core/src](../packages/sz-orm-core/src/) 源码为准。§3.8 给出当前版本已验证的真实执行链路。
+
 本指南帮助 SQLx 用户迁移到 SZ-ORM，包含概念映射表、API 对照表、示例代码和常见陷阱。
 
 ---
@@ -54,9 +56,8 @@ let users = sqlx::query!("SELECT id, name FROM users WHERE id = $1", 1)
 
 **SZ-ORM（启用 `db-verify` feature）:**
 ```rust
-let users = sz_orm_core::query!("SELECT id, name FROM users WHERE id = ?", 1)
-    .fetch_all(&pool)
-    .await?;
+let q = sz_orm_core::query!("SELECT id, name FROM users WHERE id = ?");
+let users = q.fetch_all(&mut *conn).await?;
 ```
 
 ### 2.3 结果映射
@@ -76,6 +77,8 @@ let users = sqlx::query_as::<_, User>("SELECT id, name FROM users")
 
 **SZ-ORM:**
 ```rust
+use sz_orm_core::FromQueryResult;
+
 #[derive(FromQueryResult)]
 struct User {
     id: i32,
@@ -83,7 +86,10 @@ struct User {
 }
 
 let rows = conn.query("SELECT id, name FROM users").await?;
-let users: Vec<User> = User::from_rows(&rows)?;
+let users: Vec<User> = rows
+    .iter()
+    .map(User::from_row)
+    .collect::<Result<Vec<User>, _>>()?;
 ```
 
 ### 2.4 INSERT
@@ -141,7 +147,8 @@ tx.commit().await?;
 
 **SZ-ORM:**
 ```rust
-let mut tx = pool.begin().await?;
+// conn: 从连接池获取的连接（Connection trait 提供 begin_transaction）
+let mut tx = conn.begin_transaction().await?;
 tx.execute("INSERT INTO users (name) VALUES (?)").await?;
 tx.commit().await?;
 ```
@@ -155,10 +162,26 @@ sqlx::migrate!("./migrations").run(&pool).await?;
 
 **SZ-ORM:**
 ```rust
-let mut migrator = Migrator::new();
-migrator.add_migration("001_create_users", "CREATE TABLE users (...)", "");
-migrator.run(&pool).await?;
+use sz_orm_core::migration::{Migration, MigrationContext, Migrator};
+use sz_orm_core::DbType;
+
+// conn: 实现了 Connection trait 的数据库连接（如从连接池获取）
+let mut context = MigrationContext::default();
+context.db_type = Some(DbType::MySQL);
+context.connection = Some(Box::new(conn));
+
+let mut migrator = Migrator::new(context).add_migrations(vec![
+    Migration::new(
+        "001",
+        "create_users",
+        "CREATE TABLE users (id BIGINT PRIMARY KEY AUTO_INCREMENT, name VARCHAR(255))",
+        "DROP TABLE users",
+    ),
+]);
+let applied = migrator.migrate().await?; // 返回已应用的版本列表
 ```
+
+> 也可以用 `FileMigrationResolver::new("./migrations".into()).resolve(DbType::MySQL)?` 从目录解析 `<version>_<name>_up.sql` / `_down.sql` 文件迁移（见 [README](../README.md) 迁移系统一节）。
 
 ---
 
@@ -189,7 +212,7 @@ SZ-ORM 统一使用 `?` 占位符，方言层自动转换（PG 方言将 `?` 转
 ### 3.4 方言支持
 
 - SQLx 支持 MySQL/PostgreSQL/SQLite/MSSQL/Oracle（5 种）
-- SZ-ORM 支持 18 种方言（含国产信创 + v3.5.0 新增 CockroachDB/YugabyteDB）
+- SZ-ORM 支持 28 种数据库方言（24 种 SQL + 4 种 NoSQL，含国产信创；以 `DbType` 枚举为准）
 
 ### 3.5 类型映射
 
@@ -211,8 +234,29 @@ SZ-ORM 统一使用 `?` 占位符，方言层自动转换（PG 方言将 `?` 转
 ### 3.7 SQL 注入防护
 
 - SQLx 通过参数绑定防护
-- SZ-ORM 强制参数化（`where_eq`/`or_where_eq`），`where_cond`/`or_where` 已 deprecated
+- SZ-ORM 强制参数化（`where_eq`/`or_where_eq` 等）；字符串拼接方法 `where_cond`/`or_where` 已于 **v5.0.0 移除**，不要在新代码中使用
 - 迁移时将字符串拼接的 WHERE 改为参数化方法
+
+### 3.8 真实执行链路（当前版本已验证）
+
+构建查询 → 执行的标准链路如下（与 `QueryBuilder::build_select()` 返回 `(String, Vec<Value>)` 的签名一致）：
+
+```rust
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, QueryBuilder, Value};
+
+let dialect = get_dialect(DbType::PostgreSQL)?;
+let (sql, params) = QueryBuilder::<User>::new(dialect)
+    .table("users")
+    .select(vec!["id", "name"])
+    .expect("valid columns")
+    .where_eq("status", Value::String("active".to_string()))
+    .limit(10)
+    .build_select_with_params(); // (String, Vec<Value>)
+
+// 参数化执行（占位符由方言层自动转换：PG 的 ? 会被转为 $1/$2/...）
+let rows = conn.query_with_params(&sql, &params).await?;
+```
 
 ---
 

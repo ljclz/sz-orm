@@ -17,7 +17,9 @@ use std::future::Future;
 use std::pin::Pin;
 use std::str::FromStr;
 use std::sync::Arc;
-use sz_orm_core::{ColType, Connection, ConnectionFactory, DbError, QueryRows, QueryValues, Value};
+use sz_orm_core::{
+    ColType, Connection, ConnectionFactory, DbError, DbType, QueryRows, QueryValues, Value,
+};
 
 use crate::error::map_sqlx_error;
 
@@ -155,6 +157,17 @@ pub struct SqlitePoolHandle {
 
 impl SqlitePoolHandle {
     pub async fn connect(url: &str) -> Result<Self, DbError> {
+        // 默认容量 10（向后兼容）；上层应用 `connect_with_max` 对齐外层 PoolConfig::max_size
+        Self::connect_with_max(url, 10).await
+    }
+
+    /// 容量显式版 connect（2026-10-28 P3-4，PERFV2-03）。
+    ///
+    /// sz-orm 外层 `PoolConfig::max_size` 与内层 sqlx 池容量不一致时，
+    /// 实际并发 = min(max_size, 内层容量) 而外层按 max_size 记账——
+    /// `max_size > 内层容量` 时会确定性出现 acquire 超时。
+    /// 创建 handle 时用本方法把内层容量对齐到外层 max_size。
+    pub async fn connect_with_max(url: &str, max_connections: u32) -> Result<Self, DbError> {
         // SQLite 生产配置：WAL + NORMAL 同步 + 5s 忙等 + 256MB mmap
         // - WAL：写不阻塞读，崩溃后通过 WAL 恢复，远比 DELETE 模式安全
         // - Synchronous=Normal：WAL 模式下仅在 checkpoint 时 fsync，性能 ~2x 于 Full
@@ -167,7 +180,7 @@ impl SqlitePoolHandle {
             .busy_timeout(std::time::Duration::from_secs(5))
             .pragma("mmap_size", "268435456");
         let pool = sqlx::sqlite::SqlitePoolOptions::new()
-            .max_connections(10)
+            .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
             .idle_timeout(Some(std::time::Duration::from_secs(600)))
             .max_lifetime(Some(std::time::Duration::from_secs(1800)))
@@ -200,11 +213,14 @@ impl SqlxSqliteConnectionFactory {
 impl ConnectionFactory for SqlxSqliteConnectionFactory {
     async fn create(&self) -> Result<Box<dyn Connection>, DbError> {
         let conn = self.pool.pool.acquire().await.map_err(map_sqlx_error)?;
-        Ok(Box::new(SqlxSqliteConnection {
-            conn: Some(conn),
-            connected: true,
-            in_transaction: false,
-        }))
+        // 2026-10-28 P1-3：MetricsConn 包装统一上报查询指标（ops/latency/errors）
+        Ok(Box::new(crate::metrics_conn::MetricsConn::new(Box::new(
+            SqlxSqliteConnection {
+                conn: Some(conn),
+                connected: true,
+                in_transaction: false,
+            },
+        ))))
     }
 }
 
@@ -215,6 +231,10 @@ pub struct SqlxSqliteConnection {
 }
 
 impl Connection for SqlxSqliteConnection {
+    fn db_type(&self) -> Option<DbType> {
+        Some(DbType::Sqlite)
+    }
+
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,
@@ -405,6 +425,13 @@ impl Connection for SqlxSqliteConnection {
                     Value::String(s) => q.bind(s.as_str()),
                     Value::Decimal(s) => q.bind(s.as_str()),
                     Value::Bytes(b) => q.bind(b.as_slice()),
+                    // 字符串类变体直接按文本绑定：`Value::Display` 会给字符串加引号，
+                    // 走 `to_string()` 会把 '2026-01-01 00:00:00' 连同引号一起写入
+                    Value::Uuid(s)
+                    | Value::Date(s)
+                    | Value::DateTime(s)
+                    | Value::Time(s)
+                    | Value::Json(s) => q.bind(s.as_str()),
                     other => q.bind(other.to_string()),
                 };
             }
@@ -458,6 +485,13 @@ impl Connection for SqlxSqliteConnection {
                     Value::String(s) => q.bind(s.as_str()),
                     Value::Decimal(s) => q.bind(s.as_str()),
                     Value::Bytes(b) => q.bind(b.as_slice()),
+                    // 字符串类变体直接按文本绑定：`Value::Display` 会给字符串加引号，
+                    // 走 `to_string()` 会把 '2026-01-01 00:00:00' 连同引号一起写入
+                    Value::Uuid(s)
+                    | Value::Date(s)
+                    | Value::DateTime(s)
+                    | Value::Time(s)
+                    | Value::Json(s) => q.bind(s.as_str()),
                     other => q.bind(other.to_string()),
                 };
             }
@@ -565,6 +599,13 @@ impl Connection for SqlxSqliteConnection {
                     Value::String(s) => q.bind(s.as_str()),
                     Value::Decimal(s) => q.bind(s.as_str()),
                     Value::Bytes(b) => q.bind(b.as_slice()),
+                    // 字符串类变体直接按文本绑定：`Value::Display` 会给字符串加引号，
+                    // 走 `to_string()` 会把 '2026-01-01 00:00:00' 连同引号一起写入
+                    Value::Uuid(s)
+                    | Value::Date(s)
+                    | Value::DateTime(s)
+                    | Value::Time(s)
+                    | Value::Json(s) => q.bind(s.as_str()),
                     other => q.bind(other.to_string()),
                 };
             }
@@ -721,17 +762,43 @@ fn row_to_value_mysql(row: &sqlx::mysql::MySqlRow, ordinal: usize) -> Value {
                 Err(_) => Value::Null,
             }
         }
-        // DECIMAL/NUMERIC 使用 rust_decimal 解码，以字符串形式保留精度
+        // DECIMAL/NUMERIC 使用任意精度 BigDecimal 解码，38 位不截断
         "DECIMAL" | "NUMERIC" | "NEWDECIMAL" => {
-            match row.try_get::<Option<rust_decimal::Decimal>, usize>(ordinal) {
+            match row.try_get::<Option<bigdecimal::BigDecimal>, usize>(ordinal) {
                 Ok(Some(v)) => Value::Decimal(v.to_string()),
                 Ok(None) => Value::Null,
+                Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
+                    Ok(v) => v.map(Value::Decimal).unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                },
+            }
+        }
+        // 时间类型必须按 chrono 解码：MySQL 二进制协议下按 String 解码必然失败 → 静默 NULL
+        "DATE" => match row.try_get::<Option<sqlx::types::chrono::NaiveDate>, usize>(ordinal) {
+            Ok(v) => v.map(|d| Value::Date(d.to_string())).unwrap_or(Value::Null),
+            Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
+                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            },
+        },
+        "DATETIME" | "TIMESTAMP" => {
+            match row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, usize>(ordinal) {
+                Ok(v) => v
+                    .map(|d| Value::DateTime(d.to_string()))
+                    .unwrap_or(Value::Null),
                 Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
                     Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
                     Err(_) => Value::Null,
                 },
             }
         }
+        "TIME" => match row.try_get::<Option<sqlx::types::chrono::NaiveTime>, usize>(ordinal) {
+            Ok(v) => v.map(|t| Value::Time(t.to_string())).unwrap_or(Value::Null),
+            Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
+                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            },
+        },
         _ => {
             // 未知类型回退：i64 → f64 → bool → String
             if let Ok(v) = row.try_get::<Option<i64>, usize>(ordinal) {
@@ -820,12 +887,12 @@ fn row_to_value_with_coltype_mysql(
             Ok(v) => v.map(Value::F64).unwrap_or(Value::Null),
             Err(_) => Value::Null,
         },
-        // DECIMAL/NUMERIC 使用 rust_decimal 解码，以字符串形式保留精度
-        ColType::Decimal => match row.try_get::<Option<rust_decimal::Decimal>, usize>(ordinal) {
+        // DECIMAL/NUMERIC 使用任意精度 BigDecimal 解码，38 位不截断
+        ColType::Decimal => match row.try_get::<Option<bigdecimal::BigDecimal>, usize>(ordinal) {
             Ok(Some(v)) => Value::Decimal(v.to_string()),
             Ok(None) => Value::Null,
             Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
-                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+                Ok(v) => v.map(Value::Decimal).unwrap_or(Value::Null),
                 Err(_) => Value::Null,
             },
         },
@@ -837,13 +904,41 @@ fn row_to_value_with_coltype_mysql(
             Ok(v) => v.map(Value::Bytes).unwrap_or(Value::Null),
             Err(_) => Value::Null,
         },
-        // DATE/DATETIME/TIME/JSON/UUID 在 MySQL 中通常以字符串解码
-        ColType::Date | ColType::DateTime | ColType::Time | ColType::Json | ColType::Uuid => {
-            match row.try_get::<Option<String>, usize>(ordinal) {
-                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
-                Err(_) => Value::Null,
+        // 时间类型必须按 chrono 解码：MySQL 二进制协议下按 String 解码必然失败 → 静默 NULL
+        ColType::Date => {
+            match row.try_get::<Option<sqlx::types::chrono::NaiveDate>, usize>(ordinal) {
+                Ok(v) => v.map(|d| Value::Date(d.to_string())).unwrap_or(Value::Null),
+                Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
+                    Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                },
             }
         }
+        ColType::DateTime => {
+            match row.try_get::<Option<sqlx::types::chrono::NaiveDateTime>, usize>(ordinal) {
+                Ok(v) => v
+                    .map(|d| Value::DateTime(d.to_string()))
+                    .unwrap_or(Value::Null),
+                Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
+                    Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                },
+            }
+        }
+        ColType::Time => {
+            match row.try_get::<Option<sqlx::types::chrono::NaiveTime>, usize>(ordinal) {
+                Ok(v) => v.map(|t| Value::Time(t.to_string())).unwrap_or(Value::Null),
+                Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
+                    Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+                    Err(_) => Value::Null,
+                },
+            }
+        }
+        // JSON/UUID 在 MySQL 协议下以文本传输
+        ColType::Json | ColType::Uuid => match row.try_get::<Option<String>, usize>(ordinal) {
+            Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+            Err(_) => Value::Null,
+        },
         ColType::Unknown => {
             // 未知类型回退：i64 → f64 → bool → String
             if let Ok(v) = row.try_get::<Option<i64>, usize>(ordinal) {
@@ -871,8 +966,15 @@ pub struct MySqlPoolHandle {
 
 impl MySqlPoolHandle {
     pub async fn connect(url: &str) -> Result<Self, DbError> {
+        // 默认容量 10（向后兼容）；上层应用 `connect_with_max` 对齐外层 PoolConfig::max_size
+        Self::connect_with_max(url, 10).await
+    }
+
+    /// 容量显式版 connect（2026-10-28 P3-4，PERFV2-03）：与外层 `PoolConfig::max_size` 对齐，
+    /// 避免"外层按 max_size 记账、内层硬编码 10"的双层上限不一致（详见 SqlitePoolHandle::connect_with_max）。
+    pub async fn connect_with_max(url: &str, max_connections: u32) -> Result<Self, DbError> {
         let pool = sqlx::pool::PoolOptions::<sqlx::MySql>::new()
-            .max_connections(10)
+            .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
             .idle_timeout(Some(std::time::Duration::from_secs(600)))
             .max_lifetime(Some(std::time::Duration::from_secs(1800)))
@@ -905,11 +1007,14 @@ impl SqlxMySqlConnectionFactory {
 impl ConnectionFactory for SqlxMySqlConnectionFactory {
     async fn create(&self) -> Result<Box<dyn Connection>, DbError> {
         let conn = self.pool.pool.acquire().await.map_err(map_sqlx_error)?;
-        Ok(Box::new(SqlxMySqlConnection {
-            conn: Some(conn),
-            connected: true,
-            in_transaction: false,
-        }))
+        // 2026-10-28 P1-3：MetricsConn 包装统一上报查询指标（ops/latency/errors）
+        Ok(Box::new(crate::metrics_conn::MetricsConn::new(Box::new(
+            SqlxMySqlConnection {
+                conn: Some(conn),
+                connected: true,
+                in_transaction: false,
+            },
+        ))))
     }
 }
 
@@ -920,6 +1025,26 @@ pub struct SqlxMySqlConnection {
 }
 
 impl Connection for SqlxMySqlConnection {
+    fn db_type(&self) -> Option<DbType> {
+        Some(DbType::MySQL)
+    }
+
+    /// MySQL 的 `COM_RESET_CONNECTION` 是协议命令而非 SQL 语句（sqlx 未暴露），
+    /// 归还连接时用单条 `SET SESSION` 复位关键会话变量。必须保持单语句且
+    /// 版本无关：`transaction_isolation`/`max_execution_time` 在 MySQL 5.7、
+    /// MariaDB 上名称为 `tx_isolation`/`max_statement_time`，故不在此复位；
+    /// 隔离级别由事务层按“下一事务”作用域下发（R3），不会残留到会话。
+    fn session_reset_sql(&self) -> Option<&'static str> {
+        Some(
+            "SET SESSION sql_mode = DEFAULT, \
+             SESSION character_set_client = @@GLOBAL.character_set_client, \
+             SESSION character_set_results = @@GLOBAL.character_set_results, \
+             SESSION character_set_connection = @@GLOBAL.character_set_connection, \
+             SESSION time_zone = @@GLOBAL.time_zone, \
+             SESSION autocommit = 1",
+        )
+    }
+
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,
@@ -1110,6 +1235,13 @@ impl Connection for SqlxMySqlConnection {
                     Value::String(s) => q.bind(s.as_str()),
                     Value::Decimal(s) => q.bind(s.as_str()),
                     Value::Bytes(b) => q.bind(b.as_slice()),
+                    // 字符串类变体直接按文本绑定：`Value::Display` 会给字符串加引号，
+                    // 走 `to_string()` 会把 '2026-01-01 00:00:00' 连同引号一起写入
+                    Value::Uuid(s)
+                    | Value::Date(s)
+                    | Value::DateTime(s)
+                    | Value::Time(s)
+                    | Value::Json(s) => q.bind(s.as_str()),
                     other => q.bind(other.to_string()),
                 };
             }
@@ -1160,6 +1292,13 @@ impl Connection for SqlxMySqlConnection {
                     Value::String(s) => q.bind(s.as_str()),
                     Value::Decimal(s) => q.bind(s.as_str()),
                     Value::Bytes(b) => q.bind(b.as_slice()),
+                    // 字符串类变体直接按文本绑定：`Value::Display` 会给字符串加引号，
+                    // 走 `to_string()` 会把 '2026-01-01 00:00:00' 连同引号一起写入
+                    Value::Uuid(s)
+                    | Value::Date(s)
+                    | Value::DateTime(s)
+                    | Value::Time(s)
+                    | Value::Json(s) => q.bind(s.as_str()),
                     other => q.bind(other.to_string()),
                 };
             }
@@ -1256,6 +1395,13 @@ impl Connection for SqlxMySqlConnection {
                     Value::String(s) => q.bind(s.as_str()),
                     Value::Decimal(s) => q.bind(s.as_str()),
                     Value::Bytes(b) => q.bind(b.as_slice()),
+                    // 字符串类变体直接按文本绑定：`Value::Display` 会给字符串加引号，
+                    // 走 `to_string()` 会把 '2026-01-01 00:00:00' 连同引号一起写入
+                    Value::Uuid(s)
+                    | Value::Date(s)
+                    | Value::DateTime(s)
+                    | Value::Time(s)
+                    | Value::Json(s) => q.bind(s.as_str()),
                     other => q.bind(other.to_string()),
                 };
             }
@@ -1374,76 +1520,84 @@ pub async fn mysql_bulk_insert(
 // 注：sqlx 0.9 起 Executor trait 要求 'static lifetime，
 // 原先的 execute_pg_boxed / query_pg_boxed 已内联到调用点。
 
-fn row_to_value_pg(row: &sqlx::postgres::PgRow, ordinal: usize) -> Value {
+/// 构造带列名的解码错误：时间类型解码失败必须上抛，不得静默变成 NULL
+fn pg_decode_err(
+    row: &sqlx::postgres::PgRow,
+    ordinal: usize,
+    type_name: &str,
+    err: sqlx::Error,
+) -> DbError {
+    let column = row
+        .columns()
+        .get(ordinal)
+        .map(|c| c.name().to_string())
+        .unwrap_or_else(|| format!("#{ordinal}"));
+    DbError::QueryError(format!(
+        "PostgreSQL 列 `{column}`（类型 {type_name}，序号 {ordinal}）解码失败：{err}；\
+         已拒绝以 NULL 代替真实值"
+    ))
+}
+
+fn row_to_value_pg(row: &sqlx::postgres::PgRow, ordinal: usize) -> Result<Value, DbError> {
     use sqlx::TypeInfo;
     let type_name = row.columns()[ordinal].type_info().name();
+    macro_rules! dec {
+        ($ty:ty) => {
+            row.try_get::<Option<$ty>, usize>(ordinal)
+                .map_err(|e| pg_decode_err(row, ordinal, type_name, e))
+        };
+    }
     match type_name {
-        "BOOL" => match row.try_get::<Option<bool>, usize>(ordinal) {
-            Ok(v) => v.map(Value::Bool).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "INT2" => match row.try_get::<Option<i16>, usize>(ordinal) {
-            Ok(v) => v.map(Value::I16).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "INT4" | "OID" => match row.try_get::<Option<i32>, usize>(ordinal) {
-            Ok(v) => v.map(Value::I32).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "INT8" => match row.try_get::<Option<i64>, usize>(ordinal) {
-            Ok(v) => v.map(Value::I64).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "FLOAT4" => match row.try_get::<Option<f32>, usize>(ordinal) {
-            Ok(v) => v.map(Value::F32).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "FLOAT8" => match row.try_get::<Option<f64>, usize>(ordinal) {
-            Ok(v) => v.map(Value::F64).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "TEXT" | "VARCHAR" | "CHAR" | "NAME" => match row.try_get::<Option<String>, usize>(ordinal)
-        {
-            Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "BYTEA" => match row.try_get::<Option<Vec<u8>>, usize>(ordinal) {
-            Ok(v) => v.map(Value::Bytes).unwrap_or(Value::Null),
-            Err(_) => Value::Null,
-        },
-        "NUMERIC" => match row.try_get::<Option<rust_decimal::Decimal>, usize>(ordinal) {
-            Ok(Some(v)) => Value::Decimal(v.to_string()),
-            Ok(None) => Value::Null,
-            Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
-                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
-                Err(_) => Value::Null,
-            },
-        },
-        // UUID：使用 sqlx::types::Uuid（16 字节）解码，避免 36 字符字符串的内存浪费
-        "UUID" => match row.try_get::<Option<sqlx::types::Uuid>, usize>(ordinal) {
-            Ok(v) => v
-                .map(|uuid| Value::String(uuid.to_string()))
+        "BOOL" => Ok(dec!(bool)?.map(Value::Bool).unwrap_or(Value::Null)),
+        "INT2" => Ok(dec!(i16)?.map(Value::I16).unwrap_or(Value::Null)),
+        "INT4" | "OID" => Ok(dec!(i32)?.map(Value::I32).unwrap_or(Value::Null)),
+        "INT8" => Ok(dec!(i64)?.map(Value::I64).unwrap_or(Value::Null)),
+        "FLOAT4" => Ok(dec!(f32)?.map(Value::F32).unwrap_or(Value::Null)),
+        "FLOAT8" => Ok(dec!(f64)?.map(Value::F64).unwrap_or(Value::Null)),
+        "TEXT" | "VARCHAR" | "CHAR" | "NAME" | "BPCHAR" => {
+            Ok(dec!(String)?.map(Value::String).unwrap_or(Value::Null))
+        }
+        "BYTEA" => Ok(dec!(Vec<u8>)?.map(Value::Bytes).unwrap_or(Value::Null)),
+        // R2：NUMERIC 用任意精度 BigDecimal 解码，38 位不截断
+        "NUMERIC" => Ok(dec!(bigdecimal::BigDecimal)?
+            .map(|v| Value::Decimal(v.to_string()))
+            .unwrap_or(Value::Null)),
+        "UUID" => Ok(dec!(sqlx::types::Uuid)?
+            .map(|uuid| Value::String(uuid.to_string()))
+            .unwrap_or(Value::Null)),
+        // R1：时间类型此前落入未知分支 → 静默 NULL
+        "TIMESTAMP" => Ok(dec!(sqlx::types::chrono::NaiveDateTime)?
+            .map(|v| Value::DateTime(v.to_string()))
+            .unwrap_or(Value::Null)),
+        "TIMESTAMPTZ" => Ok(
+            dec!(sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>)?
+                .map(|v| Value::DateTime(v.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()))
                 .unwrap_or(Value::Null),
-            Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
-                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
-                Err(_) => Value::Null,
-            },
-        },
+        ),
+        "DATE" => Ok(dec!(sqlx::types::chrono::NaiveDate)?
+            .map(|v| Value::Date(v.to_string()))
+            .unwrap_or(Value::Null)),
+        "TIME" => Ok(dec!(sqlx::types::chrono::NaiveTime)?
+            .map(|v| Value::Time(v.to_string()))
+            .unwrap_or(Value::Null)),
+        "JSON" | "JSONB" => Ok(dec!(serde_json::Value)?
+            .map(|v| Value::Json(v.to_string()))
+            .unwrap_or(Value::Null)),
         _ => {
-            // 未知类型回退
+            // 未知类型回退：i64 → f64 → bool → String；全部失败则报错（不再静默 NULL）
             if let Ok(v) = row.try_get::<Option<i64>, usize>(ordinal) {
-                return v.map(Value::I64).unwrap_or(Value::Null);
+                return Ok(v.map(Value::I64).unwrap_or(Value::Null));
             }
             if let Ok(v) = row.try_get::<Option<f64>, usize>(ordinal) {
-                return v.map(Value::F64).unwrap_or(Value::Null);
+                return Ok(v.map(Value::F64).unwrap_or(Value::Null));
             }
             if let Ok(v) = row.try_get::<Option<bool>, usize>(ordinal) {
-                return v.map(Value::Bool).unwrap_or(Value::Null);
+                return Ok(v.map(Value::Bool).unwrap_or(Value::Null));
             }
-            if let Ok(v) = row.try_get::<Option<String>, usize>(ordinal) {
-                return v.map(Value::String).unwrap_or(Value::Null);
+            match row.try_get::<Option<String>, usize>(ordinal) {
+                Ok(v) => Ok(v.map(Value::String).unwrap_or(Value::Null)),
+                Err(e) => Err(pg_decode_err(row, ordinal, type_name, e)),
             }
-            Value::Null
         }
     }
 }
@@ -1511,12 +1665,13 @@ fn row_to_value_with_coltype_pg(
             Ok(v) => v.map(Value::F64).unwrap_or(Value::Null),
             Err(_) => Value::Null,
         },
-        // NUMERIC/DECIMAL/MONEY 使用 rust_decimal 解码，以字符串形式保留精度
-        ColType::Decimal => match row.try_get::<Option<rust_decimal::Decimal>, usize>(ordinal) {
+        // NUMERIC/DECIMAL/MONEY 使用任意精度 BigDecimal 解码，避免 38 位精度截断
+        ColType::Decimal => match row.try_get::<Option<bigdecimal::BigDecimal>, usize>(ordinal) {
             Ok(Some(v)) => Value::Decimal(v.to_string()),
             Ok(None) => Value::Null,
-            Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
-                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+            Err(_) => match row.try_get::<Option<rust_decimal::Decimal>, usize>(ordinal) {
+                Ok(Some(v)) => Value::Decimal(v.to_string()),
+                Ok(None) => Value::Null,
                 Err(_) => Value::Null,
             },
         },
@@ -1528,13 +1683,42 @@ fn row_to_value_with_coltype_pg(
             Ok(v) => v.map(Value::Bytes).unwrap_or(Value::Null),
             Err(_) => Value::Null,
         },
-        // DATE/DATETIME/TIME/JSON 在 PostgreSQL 中通常以字符串解码
-        ColType::Date | ColType::DateTime | ColType::Time | ColType::Json => {
-            match row.try_get::<Option<String>, usize>(ordinal) {
-                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+        // 时间类型必须按 chrono 解码：PG 二进制协议下按 String 解码必然失败
+        ColType::Date => {
+            match row.try_get::<Option<sqlx::types::chrono::NaiveDate>, usize>(ordinal) {
+                Ok(v) => v.map(|d| Value::Date(d.to_string())).unwrap_or(Value::Null),
                 Err(_) => Value::Null,
             }
         }
+        ColType::DateTime => match row
+            .try_get::<Option<sqlx::types::chrono::NaiveDateTime>, usize>(ordinal)
+        {
+            Ok(v) => v
+                .map(|d| Value::DateTime(d.to_string()))
+                .unwrap_or(Value::Null),
+            Err(_) => match row
+                .try_get::<Option<sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>>, usize>(
+                    ordinal,
+                ) {
+                Ok(v) => v
+                    .map(|d| Value::DateTime(d.format("%Y-%m-%dT%H:%M:%S%.6fZ").to_string()))
+                    .unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            },
+        },
+        ColType::Time => {
+            match row.try_get::<Option<sqlx::types::chrono::NaiveTime>, usize>(ordinal) {
+                Ok(v) => v.map(|t| Value::Time(t.to_string())).unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            }
+        }
+        ColType::Json => match row.try_get::<Option<serde_json::Value>, usize>(ordinal) {
+            Ok(v) => v.map(|j| Value::Json(j.to_string())).unwrap_or(Value::Null),
+            Err(_) => match row.try_get::<Option<String>, usize>(ordinal) {
+                Ok(v) => v.map(Value::String).unwrap_or(Value::Null),
+                Err(_) => Value::Null,
+            },
+        },
         // UUID：使用 sqlx::types::Uuid（16 字节）解码，避免 36 字符字符串的内存浪费
         ColType::Uuid => match row.try_get::<Option<sqlx::types::Uuid>, usize>(ordinal) {
             Ok(v) => v
@@ -1566,14 +1750,352 @@ fn row_to_value_with_coltype_pg(
     }
 }
 
+/// 将 SQL 中的 `?` 占位符重写为 PostgreSQL 原生 `$1..$n`
+///
+/// 仅改写字符串字面量、标识符引号、注释、dollar-quote（`$$...$$` / `$tag$...$tag$`）之外，
+/// 且不属于 JSON 运算符（`?`、`?|`、`?&`、`@?`）的 `?`。
+///
+/// 若 SQL 在字符串/注释/dollar-quote 之外已包含 `$n` 形式原生占位符，则原样返回，
+/// 避免混用导致编号错乱；字符串字面量内部的 `$1`（如 `'$1'`）不视为原生占位符，
+/// 真实的 `?` 仍会被重写。
+fn pg_rewrite_placeholders(sql: &str) -> std::borrow::Cow<'_, str> {
+    if !sql.as_bytes().contains(&b'?') {
+        return std::borrow::Cow::Borrowed(sql);
+    }
+    let mut out = String::with_capacity(sql.len() + 8);
+    let mut chars = sql.chars().peekable();
+    let mut in_single = false;
+    let mut in_double = false;
+    let mut in_line_comment = false;
+    let mut in_block_comment = false;
+    let mut dollar_tag: Option<String> = None;
+    let mut prev = '\0';
+    let mut n = 0usize;
+    let mut saw_native = false;
+    while let Some(c) = chars.next() {
+        if in_line_comment {
+            out.push(c);
+            if c == '\n' {
+                in_line_comment = false;
+            }
+            prev = c;
+            continue;
+        }
+        if in_block_comment {
+            out.push(c);
+            if c == '*' && chars.peek() == Some(&'/') {
+                out.push(chars.next().unwrap_or('/'));
+                in_block_comment = false;
+            }
+            prev = c;
+            continue;
+        }
+        if in_single {
+            out.push(c);
+            if c == '\'' {
+                if chars.peek() == Some(&'\'') {
+                    out.push(chars.next().unwrap_or('\''));
+                } else {
+                    in_single = false;
+                }
+            }
+            prev = c;
+            continue;
+        }
+        if in_double {
+            out.push(c);
+            if c == '"' {
+                if chars.peek() == Some(&'"') {
+                    out.push(chars.next().unwrap_or('"'));
+                } else {
+                    in_double = false;
+                }
+            }
+            prev = c;
+            continue;
+        }
+        if let Some(tag) = dollar_tag.as_deref() {
+            // dollar-quote 内部：除结束定界符 `$tag$` 外原样输出
+            if c == '$' {
+                if let Some(extra) = pg_try_close_dollar_quote(&chars, tag) {
+                    out.push(c);
+                    for _ in 0..extra {
+                        out.push(chars.next().unwrap_or('$'));
+                    }
+                    dollar_tag = None;
+                } else {
+                    out.push(c);
+                }
+            } else {
+                out.push(c);
+            }
+            prev = c;
+            continue;
+        }
+        match c {
+            '\'' => {
+                in_single = true;
+                out.push(c);
+            }
+            '"' => {
+                in_double = true;
+                out.push(c);
+            }
+            '-' if chars.peek() == Some(&'-') => {
+                out.push(c);
+                out.push(chars.next().unwrap_or('-'));
+                in_line_comment = true;
+            }
+            '/' if chars.peek() == Some(&'*') => {
+                out.push(c);
+                out.push(chars.next().unwrap_or('*'));
+                in_block_comment = true;
+            }
+            '$' => {
+                // 尝试解析 dollar-quote 开始定界符（`$$` 或 `$tag$`）
+                if let Some(rest) = pg_peek_dollar_quote_rest(&chars) {
+                    out.push('$');
+                    for ch in rest.chars() {
+                        out.push(ch);
+                        chars.next();
+                    }
+                    dollar_tag = Some(rest[..rest.len() - 1].to_string());
+                } else if chars.peek().is_some_and(|next| next.is_ascii_digit()) {
+                    // 字符串外的 `$数字` 是 PG 原生占位符：整体不再重写任何 `?`
+                    saw_native = true;
+                    out.push(c);
+                } else {
+                    out.push(c);
+                }
+            }
+            '?' if prev != '@'
+                && !matches!(chars.peek(), Some('|') | Some('&'))
+                && !pg_question_is_json_operator(&chars) =>
+            {
+                n += 1;
+                out.push('$');
+                out.push_str(&n.to_string());
+            }
+            _ => out.push(c),
+        }
+        prev = c;
+    }
+    if saw_native {
+        return std::borrow::Cow::Borrowed(sql);
+    }
+    std::borrow::Cow::Owned(out)
+}
+
+/// 判断当前 `?` 是否 PostgreSQL JSON 存在运算符（如 `doc ? 'k'`）而非占位符。
+///
+/// JSON 运算符右侧必然是字符串字面量/标识符，占位符右侧不会是引号。
+fn pg_question_is_json_operator(chars: &std::iter::Peekable<std::str::Chars<'_>>) -> bool {
+    let mut lookahead = chars.clone();
+    while let Some(&c) = lookahead.peek() {
+        match c {
+            ' ' | '\t' => {
+                lookahead.next();
+            }
+            '\'' | '"' => return true,
+            _ => return false,
+        }
+    }
+    false
+}
+
+/// 解析 dollar-quote 开始定界符：`chars` 指向当前 `$` 之后的字符。
+///
+/// 返回 `Some(rest)` 表示命中，`rest` 为 `$` 之后的定界符片段：
+/// - `$$` → `Some("$")`（空 tag）
+/// - `$tag$` → `Some("tag$")`
+///
+/// 返回 `None` 表示不是 dollar-quote（如 `$1` 原生占位符、普通 `$`）。
+fn pg_peek_dollar_quote_rest(chars: &std::iter::Peekable<std::str::Chars<'_>>) -> Option<String> {
+    let mut lookahead = chars.clone();
+    if lookahead.peek() == Some(&'$') {
+        return Some("$".to_string());
+    }
+    let first = *lookahead.peek()?;
+    if !(first.is_ascii_alphabetic() || first == '_') {
+        return None;
+    }
+    let mut rest = String::new();
+    while let Some(&c) = lookahead.peek() {
+        match c {
+            '$' => {
+                rest.push('$');
+                return Some(rest);
+            }
+            c if c.is_ascii_alphanumeric() || c == '_' => {
+                rest.push(c);
+                lookahead.next();
+            }
+            _ => return None,
+        }
+    }
+    None
+}
+
+/// 在 dollar-quote 内部遇到 `$` 时，检查是否为 `$tag$` 结束定界符。
+///
+/// `chars` 指向当前 `$` 之后的字符；返回需要额外消费的字符数（tag 字符加结束 `$`），
+/// 不是结束定界符时返回 `None`。
+fn pg_try_close_dollar_quote(
+    chars: &std::iter::Peekable<std::str::Chars<'_>>,
+    tag: &str,
+) -> Option<usize> {
+    let mut lookahead = chars.clone();
+    for expected in tag.chars() {
+        if lookahead.next() != Some(expected) {
+            return None;
+        }
+    }
+    if lookahead.next() == Some('$') {
+        Some(tag.chars().count() + 1)
+    } else {
+        None
+    }
+}
+
+/// PostgreSQL 参数化查询语句类型别名
+type PgQuery<'q> = sqlx::query::Query<'q, sqlx::Postgres, sqlx::postgres::PgArguments>;
+
+/// 按 `Value` 变体绑定 PostgreSQL 参数
+///
+/// 字符串类变体优先转换为对应的原生类型（DECIMAL/DATE/TIMESTAMP/TIME/UUID/JSONB），
+/// 转换失败时回退为 TEXT 绑定，避免参数类型不匹配导致整条语句失败。
+fn bind_pg_value<'q>(q: PgQuery<'q>, v: &'q Value) -> PgQuery<'q> {
+    match v {
+        Value::Null => q.bind(None::<i64>),
+        Value::Bool(b) => q.bind(*b),
+        Value::I8(n) => q.bind(*n),
+        Value::I16(n) => q.bind(*n),
+        Value::I32(n) => q.bind(*n),
+        Value::I64(n) => q.bind(*n),
+        // PostgreSQL 无 u8/u16/u32/u64：按最小可容纳有符号类型转换
+        Value::U8(n) => q.bind(*n as i16),
+        Value::U16(n) => q.bind(*n as i32),
+        Value::U32(n) => q.bind(*n as i64),
+        Value::U64(n) => q.bind(*n as i64),
+        Value::F32(f) => q.bind(*f),
+        Value::F64(f) => q.bind(*f),
+        Value::String(s) => q.bind(s.as_str()),
+        // R2：以任意精度 BigDecimal 绑定，避免 38 位 DECIMAL 被 rust_decimal 截断
+        Value::Decimal(s) => match s.parse::<bigdecimal::BigDecimal>() {
+            Ok(d) => q.bind(d),
+            Err(_) => q.bind(s.as_str()),
+        },
+        Value::Uuid(s) => match sqlx::types::Uuid::parse_str(s) {
+            Ok(u) => q.bind(u),
+            Err(_) => q.bind(s.as_str()),
+        },
+        Value::Date(s) => match parse_pg_date(s) {
+            Some(d) => q.bind(d),
+            None => q.bind(s.as_str()),
+        },
+        Value::DateTime(s) => match parse_pg_datetime(s) {
+            // 带时区偏移的输入必须绑定为 TIMESTAMPTZ，否则 PG 会按会话时区解释
+            Some(PgDateTime::Zoned(d)) => q.bind(d),
+            Some(PgDateTime::Naive(d)) => q.bind(d),
+            None => q.bind(s.as_str()),
+        },
+        Value::Time(s) => match parse_pg_time(s) {
+            Some(t) => q.bind(t),
+            None => q.bind(s.as_str()),
+        },
+        Value::Json(s) => match serde_json::from_str::<serde_json::Value>(s) {
+            Ok(j) => q.bind(j),
+            Err(_) => q.bind(s.as_str()),
+        },
+        Value::Bytes(b) => q.bind(b.as_slice()),
+        other => q.bind(other.to_string()),
+    }
+}
+
+/// 解析 DATE：`YYYY-MM-DD`
+fn parse_pg_date(s: &str) -> Option<sqlx::types::chrono::NaiveDate> {
+    use sqlx::types::chrono::NaiveDate;
+    let head = s.get(..10)?;
+    NaiveDate::parse_from_str(head, "%Y-%m-%d").ok()
+}
+
+/// TIMESTAMP/TIMESTAMPTZ 的绑定形态
+enum PgDateTime {
+    /// 无时区：绑定 TIMESTAMP
+    Naive(sqlx::types::chrono::NaiveDateTime),
+    /// 带时区偏移：绑定 TIMESTAMPTZ（UTC 时刻）
+    Zoned(sqlx::types::chrono::DateTime<sqlx::types::chrono::Utc>),
+}
+
+/// 解析 TIMESTAMP/TIMESTAMPTZ：
+/// - 带 `Z` 或 ±HH:MM 偏移 → [`PgDateTime::Zoned`]
+/// - 其余 → [`PgDateTime::Naive`]
+fn parse_pg_datetime(s: &str) -> Option<PgDateTime> {
+    use sqlx::types::chrono::{DateTime, NaiveDateTime, Utc};
+    let has_offset = s.ends_with('Z')
+        || s.ends_with('z')
+        || s.get(10..).is_some_and(|rest| {
+            rest.char_indices().any(|(i, c)| {
+                (c == '+' || c == '-')
+                    && rest[..i].chars().any(|p| p == ':')
+                    // 排除日期部分本身的 '-'（位置 4/7 已在 get(10..) 之外）
+                    && i > 0
+            })
+        });
+    if has_offset {
+        if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+            return Some(PgDateTime::Zoned(dt.with_timezone(&Utc)));
+        }
+        for fmt in [
+            "%Y-%m-%d %H:%M:%S%.f%:z",
+            "%Y-%m-%d %H:%M:%S%:z",
+            "%Y-%m-%dT%H:%M:%S%.f%:z",
+            "%Y-%m-%dT%H:%M:%S%:z",
+            "%Y-%m-%d %H:%M:%S%.f%z",
+        ] {
+            if let Ok(dt) = DateTime::parse_from_str(s, fmt) {
+                return Some(PgDateTime::Zoned(dt.with_timezone(&Utc)));
+            }
+        }
+    }
+    for fmt in ["%Y-%m-%d %H:%M:%S", "%Y-%m-%dT%H:%M:%S"] {
+        if let Ok(dt) = NaiveDateTime::parse_from_str(s, fmt) {
+            return Some(PgDateTime::Naive(dt));
+        }
+        let with_frac = format!("{fmt}%.f");
+        if let Ok(dt) = NaiveDateTime::parse_from_str(s, &with_frac) {
+            return Some(PgDateTime::Naive(dt));
+        }
+    }
+    if let Ok(dt) = DateTime::parse_from_rfc3339(s) {
+        return Some(PgDateTime::Zoned(dt.with_timezone(&Utc)));
+    }
+    None
+}
+
+/// 解析 TIME：支持 `HH:MM:SS` 与 `HH:MM:SS.f`
+fn parse_pg_time(s: &str) -> Option<sqlx::types::chrono::NaiveTime> {
+    use sqlx::types::chrono::NaiveTime;
+    NaiveTime::parse_from_str(s, "%H:%M:%S")
+        .or_else(|_| NaiveTime::parse_from_str(s, "%H:%M:%S%.f"))
+        .ok()
+}
+
 pub struct PgPoolHandle {
     pool: sqlx::PgPool,
 }
 
 impl PgPoolHandle {
     pub async fn connect(url: &str) -> Result<Self, DbError> {
+        // 默认容量 10（向后兼容）；上层应用 `connect_with_max` 对齐外层 PoolConfig::max_size
+        Self::connect_with_max(url, 10).await
+    }
+
+    /// 容量显式版 connect（2026-10-28 P3-4，PERFV2-03）：与外层 `PoolConfig::max_size` 对齐，
+    /// 避免"外层按 max_size 记账、内层硬编码 10"的双层上限不一致（详见 SqlitePoolHandle::connect_with_max）。
+    pub async fn connect_with_max(url: &str, max_connections: u32) -> Result<Self, DbError> {
         let pool = sqlx::pool::PoolOptions::<sqlx::Postgres>::new()
-            .max_connections(10)
+            .max_connections(max_connections)
             .acquire_timeout(std::time::Duration::from_secs(30))
             .idle_timeout(Some(std::time::Duration::from_secs(600)))
             .max_lifetime(Some(std::time::Duration::from_secs(1800)))
@@ -1606,11 +2128,14 @@ impl SqlxPgConnectionFactory {
 impl ConnectionFactory for SqlxPgConnectionFactory {
     async fn create(&self) -> Result<Box<dyn Connection>, DbError> {
         let conn = self.pool.pool.acquire().await.map_err(map_sqlx_error)?;
-        Ok(Box::new(SqlxPgConnection {
-            conn: Some(conn),
-            connected: true,
-            in_transaction: false,
-        }))
+        // 2026-10-28 P1-3：MetricsConn 包装统一上报查询指标（ops/latency/errors）
+        Ok(Box::new(crate::metrics_conn::MetricsConn::new(Box::new(
+            SqlxPgConnection {
+                conn: Some(conn),
+                connected: true,
+                in_transaction: false,
+            },
+        ))))
     }
 }
 
@@ -1621,6 +2146,17 @@ pub struct SqlxPgConnection {
 }
 
 impl Connection for SqlxPgConnection {
+    fn db_type(&self) -> Option<DbType> {
+        Some(DbType::PostgreSQL)
+    }
+
+    /// PostgreSQL 的 `DISCARD ALL` 复位全部会话状态：`SET` 参数、
+    /// `search_path`、临时表、预备语句、游标、监听频道、序列缓存。
+    /// 必须在事务外执行（连接池已在复位前回滚未提交事务）。
+    fn session_reset_sql(&self) -> Option<&'static str> {
+        Some("DISCARD ALL")
+    }
+
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,
@@ -1777,7 +2313,9 @@ impl Connection for SqlxPgConnection {
 
     /// PostgreSQL 参数绑定执行（INSERT/UPDATE/DELETE）
     ///
-    /// 使用 sqlx prepared statement 绑定参数。PostgreSQL 协议使用 `$1, $2, ...` 占位符。
+    /// 使用 sqlx prepared statement 绑定参数。PostgreSQL 协议使用 `$1, $2, ...` 占位符，
+    /// 调用方传入的 `?` 占位符会由 [`pg_rewrite_placeholders`] 自动改写；
+    /// 已使用 `$n` 的 SQL 不会被二次改写。
     ///
     /// # 类型映射说明
     ///
@@ -1788,7 +2326,8 @@ impl Connection for SqlxPgConnection {
     /// - `U32` → `i64`（PostgreSQL `BIGINT`）
     /// - `U64` → `i64`（可能截断，仅适用于 < `i64::MAX` 的值）
     ///
-    /// 其他类型直接 bind；未知类型回退为 `to_string()` 后以 TEXT 绑定。
+    /// `Decimal`/`Uuid`/`Date`/`DateTime`/`Time`/`Json` 会按各自原生类型绑定，
+    /// 解析失败时回退为 TEXT 绑定；未知类型回退为 `to_string()` 后以 TEXT 绑定。
     fn execute_with_params<'a>(
         &'a mut self,
         sql: &'a str,
@@ -1802,27 +2341,10 @@ impl Connection for SqlxPgConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+            let rewritten = pg_rewrite_placeholders(sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(rewritten.as_ref()));
             for v in params {
-                q = match v {
-                    Value::Null => q.bind(None::<i64>),
-                    Value::Bool(b) => q.bind(*b),
-                    Value::I8(n) => q.bind(*n),
-                    Value::I16(n) => q.bind(*n),
-                    Value::I32(n) => q.bind(*n),
-                    Value::I64(n) => q.bind(*n),
-                    // PostgreSQL 无 u8/u16/u32/u64：按最小可容纳有符号类型转换
-                    Value::U8(n) => q.bind(*n as i16),
-                    Value::U16(n) => q.bind(*n as i32),
-                    Value::U32(n) => q.bind(*n as i64),
-                    Value::U64(n) => q.bind(*n as i64),
-                    Value::F32(f) => q.bind(*f),
-                    Value::F64(f) => q.bind(*f),
-                    Value::String(s) => q.bind(s.as_str()),
-                    Value::Decimal(s) => q.bind(s.as_str()),
-                    Value::Bytes(b) => q.bind(b.as_slice()),
-                    other => q.bind(other.to_string()),
-                };
+                q = bind_pg_value(q, v);
             }
             let result = q.execute(&mut *pool_conn).await;
             self.conn = Some(pool_conn);
@@ -1855,26 +2377,10 @@ impl Connection for SqlxPgConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+            let rewritten = pg_rewrite_placeholders(sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(rewritten.as_ref()));
             for v in params {
-                q = match v {
-                    Value::Null => q.bind(None::<i64>),
-                    Value::Bool(b) => q.bind(*b),
-                    Value::I8(n) => q.bind(*n),
-                    Value::I16(n) => q.bind(*n),
-                    Value::I32(n) => q.bind(*n),
-                    Value::I64(n) => q.bind(*n),
-                    Value::U8(n) => q.bind(*n as i16),
-                    Value::U16(n) => q.bind(*n as i32),
-                    Value::U32(n) => q.bind(*n as i64),
-                    Value::U64(n) => q.bind(*n as i64),
-                    Value::F32(f) => q.bind(*f),
-                    Value::F64(f) => q.bind(*f),
-                    Value::String(s) => q.bind(s.as_str()),
-                    Value::Decimal(s) => q.bind(s.as_str()),
-                    Value::Bytes(b) => q.bind(b.as_slice()),
-                    other => q.bind(other.to_string()),
-                };
+                q = bind_pg_value(q, v);
             }
             let rows_result = q.fetch_all(&mut *pool_conn).await;
             self.conn = Some(pool_conn);
@@ -1959,26 +2465,10 @@ impl Connection for SqlxPgConnection {
                 .conn
                 .take()
                 .ok_or_else(|| DbError::Internal("connection already closed".to_string()))?;
-            let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+            let rewritten = pg_rewrite_placeholders(sql);
+            let mut q = sqlx::query(sqlx::AssertSqlSafe(rewritten.as_ref()));
             for v in params {
-                q = match v {
-                    Value::Null => q.bind(None::<i64>),
-                    Value::Bool(b) => q.bind(*b),
-                    Value::I8(n) => q.bind(*n),
-                    Value::I16(n) => q.bind(*n),
-                    Value::I32(n) => q.bind(*n),
-                    Value::I64(n) => q.bind(*n),
-                    Value::U8(n) => q.bind(*n as i16),
-                    Value::U16(n) => q.bind(*n as i32),
-                    Value::U32(n) => q.bind(*n as i64),
-                    Value::U64(n) => q.bind(*n as i64),
-                    Value::F32(f) => q.bind(*f),
-                    Value::F64(f) => q.bind(*f),
-                    Value::String(s) => q.bind(s.as_str()),
-                    Value::Decimal(s) => q.bind(s.as_str()),
-                    Value::Bytes(b) => q.bind(b.as_slice()),
-                    other => q.bind(other.to_string()),
-                };
+                q = bind_pg_value(q, v);
             }
             let rows_result = q.fetch_all(&mut *pool_conn).await;
             self.conn = Some(pool_conn);
@@ -1996,7 +2486,7 @@ impl Connection for SqlxPgConnection {
                 let mut row_values: Vec<Value> = Vec::with_capacity(col_names.len());
                 for (idx, _) in col_names.iter().enumerate() {
                     let ordinal = row.columns()[idx].ordinal();
-                    row_values.push(row_to_value_pg(&row, ordinal));
+                    row_values.push(row_to_value_pg(&row, ordinal)?);
                 }
                 result_rows.push(row_values);
             }
@@ -2033,7 +2523,7 @@ impl Connection for SqlxPgConnection {
                 for (i, col) in cols.iter().enumerate() {
                     let name = col.name().to_string();
                     // 流式场景下每行都解析 ColType 反而增加开销，直接使用 row_to_value_pg
-                    let value = row_to_value_pg(&row, i);
+                    let value = row_to_value_pg(&row, i)?;
                     record.insert(name, value);
                 }
                 yield record;
@@ -2226,6 +2716,103 @@ pub async fn pg_bulk_insert(
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_pg_rewrite_placeholders_basic() {
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM t WHERE a = ? AND b = ?"),
+            "SELECT * FROM t WHERE a = $1 AND b = $2"
+        );
+    }
+
+    #[test]
+    fn test_pg_rewrite_placeholders_skips_native() {
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM t WHERE a = $1"),
+            "SELECT * FROM t WHERE a = $1"
+        );
+    }
+
+    #[test]
+    fn test_pg_rewrite_placeholders_skips_literals_and_comments() {
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT '?' AS q -- ?\nFROM t WHERE id = ?"),
+            "SELECT '?' AS q -- ?\nFROM t WHERE id = $1"
+        );
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT /* ? */ \"a?\" FROM t WHERE id = ?"),
+            "SELECT /* ? */ \"a?\" FROM t WHERE id = $1"
+        );
+    }
+
+    #[test]
+    fn test_pg_rewrite_placeholders_keeps_json_operators() {
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM t WHERE doc ? 'k' AND b = ?"),
+            "SELECT * FROM t WHERE doc ? 'k' AND b = $1"
+        );
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM t WHERE doc ?| array['a'] AND b = ?"),
+            "SELECT * FROM t WHERE doc ?| array['a'] AND b = $1"
+        );
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM t WHERE doc ?& array['a', 'b'] AND b = ?"),
+            "SELECT * FROM t WHERE doc ?& array['a', 'b'] AND b = $1"
+        );
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM t WHERE doc @? '$.a' AND b = ?"),
+            "SELECT * FROM t WHERE doc @? '$.a' AND b = $1"
+        );
+    }
+
+    #[test]
+    fn test_pg_rewrite_placeholders_dollar_in_literal_still_rewrites() {
+        // 字符串字面量里的 `$1` 不是原生占位符，真实的 `?` 必须被重写
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT '$1' AS lit, ? AS val"),
+            "SELECT '$1' AS lit, $1 AS val"
+        );
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT 'price: $2' AS note FROM t WHERE id = ? AND code = ?"),
+            "SELECT 'price: $2' AS note FROM t WHERE id = $1 AND code = $2"
+        );
+    }
+
+    #[test]
+    fn test_pg_rewrite_placeholders_skips_dollar_quoted_strings() {
+        // dollar-quote 内的 `?` 是字面量，不得改写
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT $$?$$ AS lit, ? AS val"),
+            "SELECT $$?$$ AS lit, $1 AS val"
+        );
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT $tag$a ? b$tag$ AS lit, ? AS val"),
+            "SELECT $tag$a ? b$tag$ AS lit, $1 AS val"
+        );
+        // 函数体（plpgsql）使用 dollar-quote，体内的 `?` 保持原样
+        let func = "CREATE FUNCTION f() RETURNS int AS $$ BEGIN RETURN (SELECT count(*) FROM t WHERE x = ?); END; $$ LANGUAGE plpgsql";
+        assert_eq!(pg_rewrite_placeholders(func), func);
+    }
+
+    #[test]
+    fn test_pg_rewrite_placeholders_native_skips_even_with_question() {
+        // 字符串外存在真实 `$n` 时整体不重写，`?` 保持原样（避免编号错乱）
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM t WHERE a = $1 AND doc ? 'k'"),
+            "SELECT * FROM t WHERE a = $1 AND doc ? 'k'"
+        );
+    }
+
+    #[test]
+    fn test_parse_pg_date_and_datetime() {
+        assert!(parse_pg_date("2026-10-28").is_some());
+        assert!(parse_pg_date("2026-10-28 12:00:00").is_some());
+        assert!(parse_pg_date("not-a-date").is_none());
+        assert!(parse_pg_datetime("2026-10-28 12:00:00").is_some());
+        assert!(parse_pg_datetime("2026-10-28T12:00:00").is_some());
+        assert!(parse_pg_datetime("2026-10-28T12:00:00Z").is_some());
+        assert!(parse_pg_datetime("bad").is_none());
+    }
 
     #[test]
     fn test_needs_raw_sql_begin() {
@@ -2773,5 +3360,66 @@ mod tests {
         let rows = vec![vec![Value::I64(1), Value::String("x".to_string())]];
         let result = pg_bulk_insert(&mut c, "t", &["a", "b"], &rows).await;
         assert!(result.is_err());
+    }
+
+    // ---- R1：TIMESTAMP/TIMESTAMPTZ 绑定解析 ----
+
+    #[test]
+    fn test_parse_pg_datetime_naive() {
+        match parse_pg_datetime("2026-10-28 13:14:15.123456") {
+            Some(PgDateTime::Naive(dt)) => {
+                assert_eq!(
+                    dt.format("%Y-%m-%d %H:%M:%S%.6f").to_string(),
+                    "2026-10-28 13:14:15.123456"
+                );
+            }
+            _ => panic!("无偏移输入必须解析为 Naive"),
+        }
+    }
+
+    #[test]
+    fn test_parse_pg_datetime_zoned_forms() {
+        // RFC3339 / 空格分隔 + 偏移 / 无冒号偏移 都必须识别为 Zoned
+        for s in [
+            "2026-10-28T13:14:15+08:00",
+            "2026-10-28 13:14:15+08:00",
+            "2026-10-28 13:14:15 +0800",
+            "2026-10-28T05:14:15Z",
+        ] {
+            match parse_pg_datetime(s) {
+                Some(PgDateTime::Zoned(dt)) => {
+                    // 同一时刻的 UTC 表示
+                    assert_eq!(
+                        dt.format("%Y-%m-%d %H:%M:%S").to_string(),
+                        "2026-10-28 05:14:15",
+                        "输入 {s}"
+                    );
+                }
+                other => panic!("{s} 必须解析为 Zoned，实际 {:?}", other.is_some()),
+            }
+        }
+    }
+
+    #[test]
+    fn test_parse_pg_time_fractional() {
+        assert!(parse_pg_time("13:14:15").is_some());
+        assert!(parse_pg_time("13:14:15.123456").is_some());
+        assert!(parse_pg_time("13:14").is_none());
+    }
+
+    // ---- R2：DECIMAL 38 位无损 ----
+
+    #[test]
+    fn test_bigdecimal_38_digits_no_truncation() {
+        let s = "1234567890123456789012345678.9012345678"; // 38 位有效数字
+        let d: bigdecimal::BigDecimal = s.parse().unwrap();
+        assert_eq!(d.to_string(), s, "BigDecimal 往返必须逐位一致");
+        // 反证：rust_decimal 在 96 位尾数处截断（记录回归动机）
+        assert!(
+            s.parse::<rust_decimal::Decimal>().is_err() || {
+                let rd: rust_decimal::Decimal = s.parse().unwrap();
+                rd.to_string() != s
+            }
+        );
     }
 }

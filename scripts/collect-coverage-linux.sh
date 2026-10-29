@@ -31,7 +31,7 @@ if ! command -v cargo-llvm-cov &>/dev/null; then
     exit 1
 fi
 
-TOOL_VERSION=$(cargo-llvm-cov --version)
+TOOL_VERSION=$(cargo llvm-cov --version)
 DATE_UTC=$(date -u '+%Y-%m-%d %H:%M:%S UTC')
 OS_INFO=$(uname -a)
 

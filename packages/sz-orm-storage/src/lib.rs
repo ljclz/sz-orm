@@ -420,8 +420,9 @@ mod tests {
             bucket: "my-bucket".to_string(),
             region: "us-east-1".to_string(),
             endpoint: Some("https://example.com".to_string()),
-            access_key: Some("AKIAIOSFODNN7EXAMPLE".to_string()),
-            secret_key: Some("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY".to_string()),
+            // 占位凭据（非真实密钥；仅用于验证 Debug 输出脱敏）
+            access_key: Some("test-access-key-placeholder".to_string()),
+            secret_key: Some("test-secret-key-placeholder".to_string()),
             path_prefix: Some("prefix/".to_string()),
             base_path: Some("/tmp".to_string()),
         };
@@ -433,8 +434,8 @@ mod tests {
         assert!(debug_output.contains("us-east-1"));
         // 敏感字段必须被遮掩
         assert!(debug_output.contains("\"***\""));
-        assert!(!debug_output.contains("AKIAIOSFODNN7EXAMPLE"));
-        assert!(!debug_output.contains("wJalrXUtnFEMI"));
+        assert!(!debug_output.contains("test-access-key-placeholder"));
+        assert!(!debug_output.contains("test-secret-key-placeholder"));
     }
 
     #[cfg(feature = "real-cloud")]

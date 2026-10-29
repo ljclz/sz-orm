@@ -46,9 +46,37 @@ def main():
             print(f"✓ 版本: {manifest.get('sz_orm_version')}")
         print(f"✓ 统一导航: {manifest.get('has_unified_nav')}")
         print(f"✓ 跨包搜索: {manifest.get('has_cross_pkg_search')}")
+        print(f"✓ Markdown 全文搜索: {manifest.get('has_markdown_search')}（{manifest.get('markdown_doc_count', 0)} 份文档）")
+        print(f"✓ 版本归档: {manifest.get('has_version_archive')}（{manifest.get('version_archive_count', 0)} 个版本）")
+        print(f"✓ 版本历程链接: {manifest.get('version_history_linked')}")
         print(f"✓ 敏感信息扫描: {'通过' if manifest.get('sensitive_info_scan_passed') else '未通过'}")
     else:
         print("警告: manifest.json 不存在")
+
+    # 3.5 检查 Markdown 全文搜索产物（R10）
+    md_index_path = doc_path / "markdown-search.json"
+    md_page_path = doc_path / "search.html"
+    if md_index_path.exists() and md_page_path.exists():
+        md_index = json.loads(md_index_path.read_text(encoding="utf-8"))
+        md_docs = md_index.get("docs", [])
+        if not md_docs:
+            print("失败: markdown-search.json 为空")
+            sys.exit(1)
+        print(f"✓ Markdown 搜索索引: {len(md_docs)} 份文档, search.html 存在")
+    else:
+        print("警告: markdown-search.json / search.html 不存在（R10 之前的构建产物）")
+
+    # 3.6 检查版本归档产物（R10）
+    versions_page = doc_path / "versions.html"
+    versions_dir = doc_path / "versions"
+    if versions_page.exists() and versions_dir.is_dir():
+        vcount = len(list(versions_dir.glob("*.html")))
+        if vcount == 0:
+            print("失败: versions/ 目录为空")
+            sys.exit(1)
+        print(f"✓ 版本归档: versions.html + {vcount} 个版本详情页")
+    else:
+        print("警告: versions.html / versions/ 不存在（R10 之前的构建产物）")
 
     # 3. 检查搜索索引
     search_index_path = doc_path / "search-index.json"

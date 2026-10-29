@@ -61,6 +61,98 @@ def is_safety_comment(line: str) -> bool:
     return "SAFETY" in line and ("非 SQL" in line or "not SQL" in line.lower() or "错误消息" in line or "报告" in line)
 
 
+def _split_top_level(s: str):
+    """按顶层逗号切分（引号与嵌套括号内不切分）。"""
+    parts, buf = [], []
+    depth = 0
+    quote = None
+    i = 0
+    while i < len(s):
+        ch = s[i]
+        if quote:
+            buf.append(ch)
+            if ch == '\\' and i + 1 < len(s):
+                buf.append(s[i + 1])
+                i += 2
+                continue
+            if ch == quote:
+                quote = None
+            i += 1
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            buf.append(ch)
+            i += 1
+            continue
+        if ch in '([{':
+            depth += 1
+        elif ch in ')]}':
+            depth -= 1
+        if ch == ',' and depth == 0:
+            parts.append(''.join(buf))
+            buf = []
+            i += 1
+            continue
+        buf.append(ch)
+        i += 1
+    if buf:
+        parts.append(''.join(buf))
+    return parts
+
+
+def _extract_format_args(line: str):
+    """从单行中提取 format!(...) 的位置参数表达式列表。
+
+    按括号配对定位 format! 自身的收尾 ')'，容忍外层包裹
+    （如 ``sql.push_str(&format!(" WHERE id={}", input));``）。
+
+    返回值：
+    - None：行内没有 format! 调用，或格式串中没有 ``{}`` 位置占位符
+    - list[str]：位置参数表达式
+    """
+    idx = line.find('format!')
+    if idx == -1:
+        return None
+    rest = line[idx + len('format!'):].lstrip()
+    if not rest.startswith('('):
+        return None
+    depth = 0
+    end = -1
+    quote = None
+    j = 0
+    while j < len(rest):
+        ch = rest[j]
+        if quote:
+            if ch == '\\':
+                j += 2
+                continue
+            if ch == quote:
+                quote = None
+            j += 1
+            continue
+        if ch in ('"', "'"):
+            quote = ch
+            j += 1
+            continue
+        if ch == '(':
+            depth += 1
+        elif ch == ')':
+            depth -= 1
+            if depth == 0:
+                end = j
+                break
+        j += 1
+    if end == -1:
+        return None
+    inner = rest[1:end]
+    if '{}' not in inner:
+        return None
+    parts = _split_top_level(inner)
+    if len(parts) < 2:
+        return []
+    return [p.strip() for p in parts[1:] if p.strip()]
+
+
 def judge_injection_risk(file_path: str, line_num: int, line_content: str, category: str) -> tuple:
     """Judge injection risk for a single line.
 
@@ -146,12 +238,22 @@ def judge_injection_risk(file_path: str, line_num: int, line_content: str, categ
         return JudgeResult.SAFE, "R2: ROWNUM 分页限制常量"
 
     # R2: Error message format (non-SQL execution)
-    if 'Err(' in stripped or 'return Err' in stripped or 'push_str' in stripped:
+    # v10.13.0 (M-2)：仅 Err/return Err 上下文豁免；裸 push_str 是字符串构建（可能是 SQL），
+    # 不得豁免——由下方 push_str 规则按插值参数判定
+    if 'Err(' in stripped or 'return Err' in stripped:
         return JudgeResult.SAFE, "R4: 错误消息拼接，非 SQL 执行"
 
     # R2: push_str with WHERE clause -> Safe (building SQL string with pre-built clause)
     if 'push_str' in stripped and 'WHERE' in stripped:
-        return JudgeResult.SAFE, "R2: push_str 拼接预构建 WHERE 子句"
+        # v10.13.0 (M-2)：仅当推入内容不含 {} 插值、或插值参数均为白名单变量名时判 Safe；
+        # 否则降级 ManualReview（防止 push_str(&format!(" WHERE id={}", input)) 被误判 Safe）
+        fmt_args = _extract_format_args(stripped)
+        if fmt_args is None:
+            return JudgeResult.SAFE, "R2: push_str 拼接预构建 WHERE 子句（无插值）"
+        args_clean = [a.replace('self.', '').strip().rstrip(',') for a in fmt_args]
+        if args_clean and all(a in safe_var_names for a in args_clean):
+            return JudgeResult.SAFE, "R2: push_str 拼接预构建 WHERE 子句（白名单变量）"
+        return JudgeResult.MANUAL_REVIEW, "R5: push_str + format! 插值参数非白名单，需人工审查"
 
     # R1: format! with '{}' in WHERE condition binding user input -> check context
     # If in src/ (non-test) and has '{}' in WHERE with user-like variable -> Unsafe
@@ -204,10 +306,18 @@ def scan_workspace(root: str) -> ScanReport:
             except Exception:
                 continue
 
+            # v10.13.0 (M-3)：`#[cfg(test)]` 之后的行视为测试上下文（src 内联测试模块），
+            # 与 tests/ 目录同等对待——测试代码不是生产 SQL 执行路径。
+            in_test_module = False
+
             for i, line in enumerate(lines):
                 stripped = line.strip()
+                if stripped.startswith("#[cfg(test)]"):
+                    in_test_module = True
                 if stripped.startswith("//") or stripped.startswith("!"):
                     continue
+
+                is_test_context = is_test_file(str(rs_file)) or in_test_module
 
                 # Check deprecated where_cond/or_where
                 if re.search(r'\.where_cond\(|\.or_where\(', line) and "test" not in rs_file.name:
@@ -226,19 +336,20 @@ def scan_workspace(root: str) -> ScanReport:
                 if re.search(r'format!.*WHERE.*\{.*\}', line) and not re.search(
                     r'columns\[|conditions\[|tables\[|updates\[', line
                 ):
-                    item = InjectionItem(
-                        file=str(rs_file),
-                        line_num=i + 1,
-                        line_content=line.rstrip(),
-                        category="format_concat",
-                    )
-                    judge, reason = judge_injection_risk(item.file, item.line_num, item.line_content, "format_concat")
-                    item.judge = judge.value
-                    item.reason = reason
-                    report.items.append(item)
+                    if not is_test_context:
+                        item = InjectionItem(
+                            file=str(rs_file),
+                            line_num=i + 1,
+                            line_content=line.rstrip(),
+                            category="format_concat",
+                        )
+                        judge, reason = judge_injection_risk(item.file, item.line_num, item.line_content, "format_concat")
+                        item.judge = judge.value
+                        item.reason = reason
+                        report.items.append(item)
 
                 # R6/R7: Check ${} interpolation in dynamic SQL (non-test files only)
-                if not is_test_file(str(rs_file)):
+                if not is_test_context:
                     if re.search(r'\$\{[a-zA-Z_]\w*\}', line) and 'push_str' not in stripped and '//' not in stripped.split('${')[0] and 'assert' not in stripped and '#[test]' not in stripped:
                         item = InjectionItem(
                             file=str(rs_file),

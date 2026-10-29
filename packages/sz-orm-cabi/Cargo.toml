@@ -21,5 +21,8 @@ tokio = { workspace = true }
 serde_json = { workspace = true }
 parking_lot.workspace = true
 
+[build-dependencies]
+cbindgen = "0.26"
+
 [lints]
 workspace = true

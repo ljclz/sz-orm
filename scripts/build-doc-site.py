@@ -19,6 +19,10 @@
         --scan-only
 """
 
+# 2026-10-28：`from __future__ import annotations` 使 `list[dict]` 等 3.9+ 注解
+# 延迟求值，本机 Python 3.8 可执行（行为不变，CI 的 3.11+ 亦兼容）。
+from __future__ import annotations
+
 import argparse
 import html
 import json
@@ -154,7 +158,206 @@ def scan_sensitive_info(doc_site: str) -> list[dict]:
     return findings
 
 
-def generate_manifest(crate_count: int, version: str, git_commit: str, output: str) -> None:
+MARKDOWN_SCAN_DIRS = ["docs/adr", "docs/migration"]
+# R10（2026-10-28 TW 评测）：核心用户文档全文搜索索引范围
+MARKDOWN_DOC_FILES = ["README.md", "README.zh.md", "README.en.md", "CHANGELOG.md"]
+
+
+def parse_changelog_versions(repo_root: str) -> list[dict]:
+    """解析 CHANGELOG.md 的 `## [x.y.z] — 日期` 版本头，返回倒序版本列表。"""
+    path = Path(repo_root) / "CHANGELOG.md"
+    versions = []
+    if path.exists():
+        for line in path.read_text(encoding="utf-8", errors="replace").splitlines():
+            m = re.match(r"^##\s*\[([\d.]+)\]\s*(?:—|-)\s*([\d-]+)?", line.strip())
+            if m:
+                versions.append({"version": m.group(1), "date": m.group(2) or ""})
+    return versions
+
+
+def write_version_archive(repo_root: str, doc_site: str) -> int:
+    """生成历史版本归档（R10）：versions.html 版本索引页 + versions/<ver>.html 详情页。"""
+    versions = parse_changelog_versions(repo_root)
+    out = Path(doc_site)
+    versions_dir = out / "versions"
+    versions_dir.mkdir(exist_ok=True)
+
+    rows = []
+    for v in versions:
+        safe = v["version"].replace(".", "-")
+        rows.append(
+            f'<li><a href="versions/{safe}.html">{v["version"]}</a>'
+            + (f' <span class="date">（{v["date"]}）</span>' if v["date"] else " <span class=\"date\">（日期待考）</span>")
+            + '</li>'
+        )
+        detail = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>sz-orm {v['version']} 归档</title></head>
+<body><h1>sz-orm {v['version']}</h1>
+<p>发布日期：{v['date'] or '待考（补录条目，见 CHANGELOG 补录声明）'}</p>
+<ul>
+<li><a href="../../CHANGELOG.md">CHANGELOG 对应条目</a></li>
+<li><a href="../../docs/README.md">文档索引（含版本历程）</a></li>
+<li><a href="../../docs/assessment/">交付/审计报告</a></li>
+</ul>
+<p><em>历史文档快照：当前仓库为最新版（10.13.0+）；如需某版本的完整源码与文档快照，请通过 git tag / commit 检出。</em></p>
+</body></html>"""
+        (versions_dir / f"{safe}.html").write_text(detail, encoding="utf-8")
+
+    index_page = f"""<!DOCTYPE html>
+<html lang="zh-CN"><head><meta charset="utf-8"><title>sz-orm 版本归档</title>
+<style>body{{font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif;margin:0}}
+header{{padding:12px 20px;background:#f0f0f0;border-bottom:1px solid #ccc}}
+li{{margin:4px 0}}</style></head>
+<body><header><strong>sz-orm 版本归档（共 {len(versions)} 个版本）</strong> · <a href="../index.html">返回文档站</a> · <a href="../../CHANGELOG.md">CHANGELOG</a></header>
+<ul>{''.join(rows)}</ul></body></html>"""
+    (out / "versions.html").write_text(index_page, encoding="utf-8")
+    return len(versions)
+
+
+def collect_markdown_docs(repo_root: str) -> list[dict]:
+    """收集核心用户 Markdown 文档（根级入口 + docs 根 + adr + migration）。"""
+    root = Path(repo_root)
+    files: list[Path] = []
+    for name in MARKDOWN_DOC_FILES:
+        p = root / name
+        if p.exists():
+            files.append(p)
+    docs_dir = root / "docs"
+    if docs_dir.exists():
+        files.extend(sorted(docs_dir.glob("*.md")))
+    for sub in MARKDOWN_SCAN_DIRS:
+        sub_dir = root / sub
+        if sub_dir.exists():
+            files.extend(sorted(sub_dir.glob("*.md")))
+
+    docs = []
+    for p in files:
+        try:
+            lines = p.read_text(encoding="utf-8", errors="replace").splitlines()
+        except OSError:
+            continue
+        rel = p.relative_to(root).as_posix()
+        title = ""
+        sections = []
+        for i, ln in enumerate(lines, 1):
+            if ln.startswith("# ") and not title:
+                title = ln[2:].strip()
+            elif re.match(r"^#{2,3} ", ln):
+                sections.append({"line": i, "text": ln.lstrip("#").strip()})
+        excerpt_lines = [ln.strip() for ln in lines if ln.strip() and not ln.startswith("#")]
+        docs.append({
+            "path": rel,
+            "title": title or rel,
+            "excerpt": " ".join(excerpt_lines)[:200],
+            "sections": sections,
+        })
+    return docs
+
+
+def build_markdown_search_index(repo_root: str, doc_site: str, version: str) -> int:
+    """生成 Markdown 全文搜索索引 markdown-search.json（R10）。"""
+    docs = collect_markdown_docs(repo_root)
+    payload = {
+        "generated_for_version": version,
+        "note": "标题 + 章节标题 + 首段摘要索引；完整正文见仓库源文件（结果链接相对文档站目录回仓库根）",
+        "docs": docs,
+    }
+    out = Path(doc_site) / "markdown-search.json"
+    out.write_text(json.dumps(payload, ensure_ascii=False), encoding="utf-8")
+    return len(docs)
+
+
+def write_markdown_search_page(doc_site: str) -> None:
+    """生成纯静态搜索页 search.html（原生 JS，无第三方依赖）。"""
+    page = """<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>sz-orm 文档全文搜索</title>
+<style>
+ body { font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif; margin: 0; }
+ header { padding: 12px 20px; background: #f0f0f0; border-bottom: 1px solid #ccc; }
+ input { width: 60%; padding: 8px; font-size: 15px; }
+ #status { color: #666; margin-left: 10px; }
+ li.doc { margin: 14px 0; }
+ .path { color: #888; font-size: 12px; }
+ .hit { background: #fff3cd; }
+ ul { margin: 4px 0 0 16px; padding: 0; }
+</style>
+</head>
+<body>
+<header>
+ <strong>sz-orm 文档全文搜索</strong>
+ <input id="q" type="search" placeholder="输入关键词（标题 / 章节标题 / 摘要）…" autofocus>
+ <span id="status"></span>
+</header>
+<main><ul id="results"></ul></main>
+<script>
+let DATA = null;
+const results = document.getElementById('results');
+const status = document.getElementById('status');
+fetch('markdown-search.json').then(r => r.json()).then(d => {
+  DATA = d.docs;
+  status.textContent = `已索引 ${DATA.length} 份文档`;
+});
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+function mark(text, q) {
+  const i = text.toLowerCase().indexOf(q);
+  if (i < 0) return esc(text);
+  return esc(text.slice(0, i)) + '<span class="hit">' + esc(text.slice(i, i + q.length)) + '</span>' + esc(text.slice(i + q.length));
+}
+document.getElementById('q').addEventListener('input', e => {
+  const q = e.target.value.trim().toLowerCase();
+  results.innerHTML = '';
+  if (!q || !DATA) { if (DATA) status.textContent = `已索引 ${DATA.length} 份文档`; return; }
+  const hits = [];
+  for (const doc of DATA) {
+    let score = 0; const sectionHits = [];
+    if (doc.title.toLowerCase().includes(q)) score += 10;
+    if (doc.excerpt.toLowerCase().includes(q)) score += 1;
+    for (const s of doc.sections) {
+      if (s.text.toLowerCase().includes(q)) { score += 3; sectionHits.push(s); }
+    }
+    if (score > 0) hits.push({ doc, score, sectionHits: sectionHits.slice(0, 3) });
+  }
+  hits.sort((a, b) => b.score - a.score);
+  status.textContent = `${hits.length} 份文档命中`;
+  for (const h of hits.slice(0, 20)) {
+    const li = document.createElement('li');
+    li.className = 'doc';
+    li.innerHTML = `<a href="../../${esc(h.doc.path)}">${mark(h.doc.title, q)}</a>` +
+      ` <span class="path">${esc(h.doc.path)}</span>` +
+      (h.sectionHits.length ? '<ul>' + h.sectionHits.map(s => `<li>L${s.line}: ${mark(s.text, q)}</li>`).join('') + '</ul>' : '');
+    results.appendChild(li);
+  }
+});
+</script>
+</body>
+</html>
+"""
+    out = Path(doc_site) / "search.html"
+    out.write_text(page, encoding="utf-8")
+
+
+def inject_version_history(doc_site: str, version: str) -> None:
+    """首页注入版本历程链接（R10 版本化最小实现：CHANGELOG + 文档索引版本历程表）。"""
+    doc_path = Path(doc_site)
+    index_file = doc_path / "index.html"
+    banner = (
+        f'<div id="version-history" style="padding:10px;background:#e3f2fd;border-bottom:1px solid #ccc">'
+        f'<strong>版本历程（当前 {html.escape(version)}）：</strong> '
+        f'<a href="../../CHANGELOG.md">完整版本线（Keep a Changelog）</a> · '
+        f'<a href="../../docs/README.md">文档索引（含版本历程表）</a></div>'
+    )
+    if index_file.exists():
+        content = index_file.read_text(encoding="utf-8", errors="ignore")
+        if "version-history" not in content:
+            content = content.replace("<body>", f"<body>{banner}", 1)
+            index_file.write_text(content, encoding="utf-8")
+
+
+def generate_manifest(crate_count: int, version: str, git_commit: str, output: str,
+                      markdown_doc_count: int = 0, version_archive_count: int = 0) -> None:
     """生成 DocSiteManifest。"""
     manifest = {
         "crate_count": crate_count,
@@ -162,6 +365,11 @@ def generate_manifest(crate_count: int, version: str, git_commit: str, output: s
         "git_commit": git_commit,
         "has_unified_nav": True,
         "has_cross_pkg_search": True,
+        "has_markdown_search": markdown_doc_count > 0,
+        "markdown_doc_count": markdown_doc_count,
+        "has_version_archive": version_archive_count > 0,
+        "version_archive_count": version_archive_count,
+        "version_history_linked": True,
         "sensitive_info_scan_passed": True,
     }
     manifest_path = Path(output) / "manifest.json"
@@ -175,6 +383,8 @@ def main():
     parser.add_argument("--version", default="unknown", help="sz-orm 版本")
     parser.add_argument("--git-commit", default="unknown", help="git commit hash")
     parser.add_argument("--output", required=True, help="输出目录")
+    parser.add_argument("--repo-root", default=str(Path(__file__).resolve().parent.parent),
+                        help="仓库根目录（用于 Markdown 全文搜索索引，默认脚本上级目录）")
     parser.add_argument("--scan-only", action="store_true", help="仅执行敏感信息扫描")
     args = parser.parse_args()
 
@@ -212,6 +422,14 @@ def main():
     inject_version_annotation(args.output, args.version, args.git_commit)
     print(f"版本标注已注入: sz-orm {args.version}")
 
+    # 4.5 Markdown 全文搜索索引 + 静态搜索页 + 版本历程链接（R10）
+    md_count = build_markdown_search_index(args.repo_root, args.output, args.version)
+    write_markdown_search_page(args.output)
+    inject_version_history(args.output, args.version)
+    version_count = write_version_archive(args.repo_root, args.output)
+    print(f"Markdown 全文搜索: {md_count} 份文档已索引（search.html + markdown-search.json）")
+    print(f"版本归档: {version_count} 个版本（versions.html + versions/<ver>.html）")
+
     # 5. 敏感信息扫描
     findings = scan_sensitive_info(args.output)
     if findings:
@@ -222,7 +440,7 @@ def main():
         print("敏感信息扫描通过")
 
     # 6. 生成 manifest
-    generate_manifest(crate_count, args.version, args.git_commit, args.output)
+    generate_manifest(crate_count, args.version, args.git_commit, args.output, md_count, version_count)
     print(f"manifest.json 已生成")
 
     print(f"\n文档站构建完成: {args.output} ({crate_count} 个 crate)")

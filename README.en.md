@@ -2,6 +2,12 @@
 
 > Rust async ORM workspace (production-ready) with ThinkORM-style fluent API.
 
+> **Stale-snapshot notice (2026-10-28).** This is the legacy English mirror from the i18n
+> deliverable; its badges and counts below lag the workspace. The maintained entry point is
+> [`README.md`](README.md) (English, kept honest by gates G18/G19/G33), with the Chinese edition
+> at [`README.zh.md`](README.zh.md). Cross-language binding status lives there too, and this file
+> only links to it so that no second, drifting source of truth is created.
+
 [![Rust](https://img.shields.io/badge/rust-1.94.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
 [![Tests](https://img.shields.io/badge/tests-5442+-green.svg)](#testing)
@@ -21,6 +27,7 @@
 - [Workspace Structure](#workspace-structure)
 - [Quick Start](#quick-start)
 - [Supported Databases](#supported-databases)
+- [Language Bindings](#language-bindings)
 - [Core API](#core-api)
 - [Advanced Modules (21 in sz-orm-core)](#advanced-modules-21-in-sz-orm-core)
 - [Hook System (Soft Delete + Multi-Tenancy)](#hook-system-soft-delete--multi-tenancy)
@@ -249,6 +256,24 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 | PureJsDb | JS-engine DB | — | — |
 
 Use `get_dialect(DbType::MySQL)` to get a dialect instance.
+
+## Language Bindings
+
+All bindings consume one shared C ABI (`packages/sz-orm-cabi`): `#[no_mangle] extern "C"`
+functions, `#[repr(C)]` structs, the cbindgen header
+`packages/sz-orm-cabi/include/sz_orm_cabi.h` as the single ABI contract, Rust-side allocation
+with a track/untrack registry for double-free protection, and `catch_unwind` at the boundary.
+Two contract rules are stated in the banner at the top of that header: every string crossing
+the boundary is UTF-8 (NUL-terminated), and `sz_orm_pool_new` accepts SQLite DSNs only.
+
+Covered bindings: C# (`packages/sz-orm-cabi/csharp/`, P/Invoke — narrow surface, no NuGet
+package), Python (PyO3), JavaScript (napi-rs), Java (JNI, pool-level CRUD only), Go
+(Windows `syscall` only), C++ (RAII pool wrapper only). Per-binding status and scope are
+tabulated in the "Cross-language bindings" section of
+[`README.md`](README.md) / [`README.zh.md`](README.zh.md); CI coverage for them is defined in
+`.github/workflows/bindings.yml` (rust-core, python-binding, node-binding, csharp-binding,
+binding-verification). The `csharp-binding` job was added during the 2026-10-28 remediation and
+has not yet been observed green from this machine (no .NET SDK available locally).
 
 ## Core API
 
@@ -689,7 +714,7 @@ SZ-ORM wins INSERT/DELETE; SELECT lags due to `format!()` SQL construction (Conn
 
 **Fuzz Testing**: 3 targets (query_builder SQL injection, value_escape, pool_config overflow) via `cargo-fuzz` + libfuzzer, 60s per target in CI.
 
-See [Performance Benchmark Report](docs/sz-orm性能基准.md) for full details, and [ORM Comparison Report](bench-comparison/BENCHMARK_REPORT.md) for v0.4 comparison.
+See [Performance Benchmark Report](bench-comparison/BENCHMARK_REPORT.md) for full details, and the [Performance Benchmarks](README.md#performance-benchmarks) section of the main README for the latest results.
 
 ## Project Documentation
 
@@ -697,17 +722,12 @@ See [Performance Benchmark Report](docs/sz-orm性能基准.md) for full details,
 |----------|-------------|
 | [Usage Guide](docs/sz-orm使用指南.md) | End-to-end usage guide (v5.0, covers all 21 advanced modules) |
 | [API Reference](docs/sz-ormAPI参考.md) | Type signatures and parameter docs (v5.0) |
-| [Performance Benchmark](docs/sz-orm性能基准.md) | criterion + real-DB + soak test (v4.0) |
-| [Maturity Assessment](docs/sz-orm项目成熟度评估报告.md) | 7-dimension maturity scoring (4.98/5) |
-| [Production Readiness](docs/sz-orm生产就绪报告.md) | Production deployment checklist |
-| [Architecture Design](docs/sz-orm架构设计.md) | 39-package architecture overview |
-| [Implementation Progress](docs/sz-orm项目实施进度表.md) | Milestones and stage tracking |
-| [Engineering Practices](docs/sz-orm-engineering-practices.md) | Gate 1-10 + test pyramid T1-T6 |
-| [Comparison with Mainstream ORMs](docs/SZ-ORM%20与主流%20ORM%20对比.md) | Diesel / SeaORM / SQLx comparison |
-| [Technical Deep Dive](docs/sz-orm技术实现深度评估.md) | Design specs and architecture decisions |
+| [Performance Benchmark](bench-comparison/BENCHMARK_REPORT.md) | Framework comparison benchmark report |
+| [Architecture Design](docs/sz-orm架构设计.md) | Workspace architecture overview |
+| [Engineering Practices](docs/sz-orm-engineering-practices.md) | 25 gates + test pyramid T1-T6 |
+| [Comparison with Mainstream ORMs](docs/sz-orm与同类产品对比分析.md) | Diesel / SeaORM / SQLx comparison |
 | [Security](docs/Security.md) | Security baseline and threat model |
 | [API Contracts](docs/api-contracts.md) | Public API stability contracts |
-| [Comprehensive Review](docs/sz-orm全面审查报告v1.md) | Multi-dimensional code review |
 
 ## License
 

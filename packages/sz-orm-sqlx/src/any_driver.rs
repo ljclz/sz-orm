@@ -417,6 +417,16 @@ impl AnyConnection {
 }
 
 impl Connection for AnyConnection {
+    fn db_type(&self) -> Option<DbType> {
+        Some(match self.backend {
+            AnyBackend::MySql => DbType::MySQL,
+            AnyBackend::Postgres => DbType::PostgreSQL,
+            AnyBackend::Sqlite => DbType::Sqlite,
+            AnyBackend::Oracle => DbType::Oracle,
+            AnyBackend::Mssql => DbType::SqlServer,
+        })
+    }
+
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,
@@ -449,6 +459,10 @@ impl Connection for AnyConnection {
 
     fn in_transaction(&self) -> bool {
         self.inner.in_transaction()
+    }
+
+    fn session_reset_sql(&self) -> Option<&'static str> {
+        self.inner.session_reset_sql()
     }
 
     fn is_connected(&self) -> bool {

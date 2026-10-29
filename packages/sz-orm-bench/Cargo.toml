@@ -42,7 +42,8 @@ real-bench = ["dep:sz-orm-core", "dep:sz-orm-sqlx", "dep:sz-orm-oracle", "dep:sq
 # diesel 基准（diesel 不在本地缓存，暂不启用）
 real-bench-diesel = ["real-bench"]
 
-perf-bench-real = ["bench-real-db", "perf-regression-ci", "perf-budget-alert"]
+# v10.13.0 ROI-3：perf-bench-real 引入 real-bench，接线测试使用真实 SQLite 执行器（禁止硬编码延迟）
+perf-bench-real = ["bench-real-db", "perf-regression-ci", "perf-budget-alert", "real-bench"]
 bench-real-db = []
 perf-regression-ci = ["bench-real-db"]
 perf-budget-alert = []

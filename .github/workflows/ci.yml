@@ -43,6 +43,74 @@ jobs:
         run: cargo clippy --workspace --all-targets -- -D warnings
 
   # ============================================================================
+  # Job 1.4: 度量真实性扫描（门禁 18，2026-10-27 整改 P0-2 固化进 CI）
+  #
+  # README 双语的测试数/feature 数/方言数必须与源码统计一致。
+  # 背景：21134→21136→21153 三次漂移均因手写数字未随提交重算；
+  # 本 job 先以 --fix 自动同步数字，再用 git diff 强制提交修正，阻断漂移 PR。
+  # ============================================================================
+  metrics-real:
+    name: Metrics Real (Gate 18)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Run metrics-real check (auto-fix then verify)
+        run: |
+          python3 scripts/check-metrics-real.py --fix
+          git diff --exit-code
+
+  # ============================================================================
+  # Job 1.9: 门禁脚本自测（2026-10-27 SDET 评测 ROI-3 整改）
+  #
+  # 背景：24 道门禁的"检查器"此前只有 2 个有自测（check-doc-sync /
+  # check-sql-injection-auto），且唯一入库的自测未在 CI 运行。
+  # 本 job 使门禁脚本自身的回归直接阻断 PR（audit the checkers）。
+  # ============================================================================
+  checker-self-tests:
+    name: Checker Self Tests (pytest)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.x'
+
+      - name: Install pytest + PyYAML
+        run: pip install pytest pyyaml
+
+      - name: Run checker self-tests (pytest)
+        run: python -m pytest tests/test_check_doc_sync.py tests/test_gate_scripts.py tests/test_gate_scripts_ci.py tests/test_check_phantom_tests.py tests/test_check_ci_blocking.py tests/test_check_coverage.py tests/test_audit_verify_ps1.py tests/test_check_csharp_abi_surface.py -v
+
+      - name: Run C# ABI surface gate (P1-5 alignment, no .NET SDK required)
+        run: python scripts/check-csharp-abi-surface.py
+
+      - name: Run SQL injection scanner self-test (standalone runner)
+        run: python scripts/test_check_sql_injection_auto.py
+
+      - name: Run G25 doc-code-compiles self-test
+        run: python scripts/test_check_doc_code_compiles.py
+
+      - name: Run G32 filename-encoding gate on real repo
+        run: python3 scripts/check-filename-encoding.py
+
+      - name: Run G33 doc-version-consistency gate on real repo
+        run: python3 scripts/check-doc-version-consistency.py
+
+      - name: Run phantom-tests gate on real repo (Gate 30 smoke)
+        run: python3 scripts/check-phantom-tests.py
+
+      - name: Run CI-blocking gate on real repo (Gate 31 smoke)
+        run: python3 scripts/check-ci-blocking.py
+
+  # ============================================================================
   # Job 1.5: ADR-0001 上游仓库未修改检查
   #
   # 确保核心包（sz-orm-core / sz-orm-auth / sz-orm-config 等）的修改
@@ -71,6 +139,9 @@ jobs:
       - name: Run doc consistency check
         run: python3 scripts/check-doc-consistency.py
 
+      - name: Run G34 generated-code compile gate
+        run: python3 scripts/check-generated-code-compiles.py
+
   # ============================================================================
   # Job 1.6: 文档与代码一致性检查（独立 job，快速失败）
   #
@@ -93,6 +164,14 @@ jobs:
 
       - name: Run doc consistency check
         run: python3 scripts/check-doc-consistency.py
+
+      # Gate 24：README Examples 表格 ↔ examples/src/bin 双向一致
+      - name: Run G24 examples-list gate
+        run: python3 scripts/check-examples-readme.py
+
+      # Gate 25：文档示例代码引用的 API/宏必须真实存在
+      - name: Run G25 doc-code-compiles gate
+        run: python3 scripts/check-doc-code-compiles.py
 
   # ============================================================================
   # Job 1.7: 文档同步更新检查（门禁 14）
@@ -380,12 +459,15 @@ jobs:
 
   # ============================================================================
   # Job 5: 真实服务集成测试（真实 DB + 云服务，全部 #[ignore] 用例）
+  # v10.13.0（SDET ROI-5 决策，2026-10-28）：对 main 分支阻断。
+  # PR 分支 continue-on-error=true（真实服务偶发不稳定不阻塞开发）；
+  # main 分支 continue-on-error=false，集成失败即阻断合入。
   # ============================================================================
   integration:
     name: Real Service Integration (MySQL ${{ matrix.mysql }}, PG ${{ matrix.pg }})
     runs-on: ubuntu-latest
     needs: [test]
-    continue-on-error: true
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     strategy:
       fail-fast: false
       matrix:
@@ -511,12 +593,13 @@ jobs:
   # 使用 service container 启动 5 种 MQ broker，运行 sz-orm-queue 的真实客户端测试。
   # 覆盖 publish/consume/ack/subscribe 全流程。
   # Pulsar 需 protoc，Kafka 需 cmake（Linux 已预装）。
+  # v10.13.0（SDET ROI-5 决策，2026-10-28）：对 main 分支阻断。
   # ============================================================================
   mq-integration:
     name: Real MQ Integration (RabbitMQ + NATS + Kafka + ActiveMQ + Pulsar)
     runs-on: ubuntu-latest
     needs: [test]
-    continue-on-error: true
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     services:
       # RabbitMQ: AMQP 0.9.1（lapin 客户端）
       rabbitmq:
@@ -668,52 +751,21 @@ jobs:
         run: cargo check --package sz-orm-queue --features "all-real" --verbose
 
   # ============================================================================
-  # Job 6: 性能基准测试（v8.6.0：sz-orm-bench --features real-bench 四数据库）
-  # 性能波动不阻断 PR（continue-on-error: true，ADR-005）
+  # Job 6: 性能基准测试（v10.13.0 ROI-2 + SDET ROI-5 整改）
+  # 2026-10-27 性能评测发现旧 job continue-on-error + `|| echo WARNING` 吞错，
+  # 且 `cargo bench` 对无 [[bench]] 目标的包为空转，性能门禁形同虚设。
+  # 现改为：真实 DB 基准二进制必须成功执行 + 回归决策门禁测试必须通过。
+  # v10.13.0（SDET ROI-5 决策，2026-10-28）：对 main 分支阻断——
+  # PR 分支 continue-on-error=true（性能波动不阻塞开发，ADR-005 原意）；
+  # main 分支 continue-on-error=false，基准失败或退化 ≥10% 即阻断合入。
+  # 基线产物按 90 天留存供跨运行对比。
   # ============================================================================
   benchmark:
-    name: Performance Benchmarks (4 DB)
+    name: Performance Benchmarks (real DB, main-gated)
     runs-on: ubuntu-latest
     needs: [test]
-    continue-on-error: true
     timeout-minutes: 60
-    services:
-      mysql:
-        image: mysql:8.0
-        env:
-          MYSQL_ROOT_PASSWORD: ${{ secrets.MYSQL_TEST_PASSWORD }}
-          MYSQL_DATABASE: sz_orm_test
-        ports:
-          - 3306:3306
-        options: >-
-          --health-cmd="mysqladmin ping -h 127.0.0.1 -P 3306"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-      postgres:
-        image: postgres:16
-        env:
-          POSTGRES_PASSWORD: ${{ secrets.PG_TEST_PASSWORD }}
-          POSTGRES_DB: sz_orm_test
-        ports:
-          - 5432:5432
-        options: >-
-          --health-cmd="pg_isready -h 127.0.0.1 -p 5432"
-          --health-interval=10s
-          --health-timeout=5s
-          --health-retries=10
-      oracle:
-        image: gvenzl/oracle-free:23ai
-        env:
-          ORACLE_PASSWORD: ${{ secrets.ORACLE_TEST_PASSWORD }}
-        ports:
-          - 1521:1521
-        options: >-
-          --health-cmd="healthcheck.sh"
-          --health-interval=15s
-          --health-timeout=10s
-          --health-retries=20
-          --health-start-period=60s
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
 
@@ -731,22 +783,44 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-bench-
 
-      - name: Run 4-DB benchmark (sz-orm-bench --features real-bench)
-        env:
-          MYSQL_URL: mysql://root:${{ secrets.MYSQL_TEST_PASSWORD }}@127.0.0.1:3306/sz_orm_test
-          PG_URL: postgres://postgres:${{ secrets.PG_TEST_PASSWORD }}@127.0.0.1:5432/sz_orm_test
-          ORACLE_URL: oracle://sys:${{ secrets.ORACLE_TEST_PASSWORD }}@127.0.0.1:1521/freepdb1
-        run: |
-          cargo bench -p sz-orm-bench --features real-bench -- --nocapture || echo "WARNING: benchmark had errors (non-blocking)"
+      - name: Restore baseline (rolling, 2026-10-28 P1-4)
+        uses: actions/cache@v4
+        with:
+          path: bench-results
+          key: bench-baseline-ci-sqlite
 
-      - name: Upload benchmark results
+      - name: Run real-DB benchmark (SQLite, fail-closed)
+        run: |
+          # 2026-10-28 P1-4（PERFV2-01 闭环）：
+          # - 存在上一轮基线 → --compare-baseline 先比对（≥10% 退化或缺 workload 即阻断），
+          #   再 --save-baseline 更新滚动基线（Rust 侧 handle_baseline 已改为先比后存）
+          # - 首次运行无基线 → 仅建立基线（下一轮起启用回归门禁）
+          if [ -f bench-results/baseline_ci-sqlite.json ]; then
+            cargo run --release -p sz-orm-bench --features real-bench -- \
+              --db-backend sqlite \
+              --db-connection "sqlite://bench-ci.sqlite?mode=rwc" \
+              --dataset-size 500 --pool-size 5 --rounds 10 \
+              --save-baseline ci-sqlite --compare-baseline ci-sqlite
+          else
+            echo "首次运行：仅建立基线（下一轮起启用 ≥10% 回归门禁）"
+            cargo run --release -p sz-orm-bench --features real-bench -- \
+              --db-backend sqlite \
+              --db-connection "sqlite://bench-ci.sqlite?mode=rwc" \
+              --dataset-size 500 --pool-size 5 --rounds 10 \
+              --save-baseline ci-sqlite
+          fi
+
+      - name: Regression decision gate (>=10% degradation blocks)
+        run: |
+          cargo test -p sz-orm-bench --features perf-bench-real \
+            --test perf_bench_real_wiring -- --nocapture
+
+      - name: Upload benchmark results & baseline
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: benchmark-4db-${{ github.sha }}
-          path: |
-            target/criterion/
-            benchmark-report.json
+          name: benchmark-${{ github.sha }}
+          path: bench-results/
           retention-days: 90
 
   # ============================================================================
@@ -808,16 +882,46 @@ jobs:
 
       - name: Run security audit
         run: |
+          # v10.13.0 (M-1)：--ignore 列表必须与 deny.toml [advisories].ignore 保持一致
+          # v10.13.0 更新：0383/0385/0386/0391/0398/0403 已通过升级消除
+          # v10.13.0 (2026-10-28 P0-1 复核)：rustls 0.21 线退出锁文件，0346/0349 ignore 移除（deny.toml 同步）
           cargo audit \
             --no-yanked \
             --ignore RUSTSEC-2026-0049 \
             --ignore RUSTSEC-2026-0098 \
             --ignore RUSTSEC-2026-0099 \
             --ignore RUSTSEC-2026-0104 \
+            --ignore RUSTSEC-2026-0382 \
             --ignore RUSTSEC-2026-0194 \
             --ignore RUSTSEC-2026-0195 \
             --ignore RUSTSEC-2025-0134 \
-            --ignore RUSTSEC-2024-0436
+            --ignore RUSTSEC-2024-0436 \
+            --ignore RUSTSEC-2023-0071 \
+            --ignore RUSTSEC-2026-0097 \
+            --ignore RUSTSEC-2026-0221 \
+            --ignore RUSTSEC-2026-0235 \
+            --ignore RUSTSEC-2025-0020 \
+            --ignore RUSTSEC-2026-0177 \
+            --ignore RUSTSEC-2026-0258 \
+            --ignore RUSTSEC-2026-0367 \
+            --ignore RUSTSEC-2026-0368 \
+            --ignore RUSTSEC-2026-0369
+
+  # ============================================================================
+  # Job 7.5: secrets 凭据泄露扫描（v10.13.0 / 2026-10-27 H-3 整改接入）
+  # ============================================================================
+  secret-scanning:
+    name: Secret Scanning
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Run check-secrets
+        run: python scripts/check-secrets.py
 
   # ============================================================================
   # Job 8: 覆盖率报告（v8.6.0：cargo-llvm-cov，阻断 PR）
@@ -899,6 +1003,9 @@ jobs:
           --health-retries=10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # 需要完整历史以计算 PR/push 的增量 diff（Gate 20 增量变异）
+          fetch-depth: 0
 
       - name: Install Rust toolchain (stable)
         uses: dtolnay/rust-toolchain@stable
@@ -920,8 +1027,28 @@ jobs:
       - name: Kill residual cargo-mutants processes
         run: pkill -f cargo-mutants || true
 
-      - name: Run mutation testing (fail-under 70, DB-gated lane)
-        run: bash scripts/collect-mutation-linux.sh --include-ignored --output mutation-report.md --json mutation-report.json --fail-under 70
+      - name: Generate PR diff
+        run: |
+          if [ "${{ github.event_name }}" = "pull_request" ]; then
+            BASE="${{ github.event.pull_request.base.sha }}"
+          else
+            BASE="${{ github.event.before }}"
+          fi
+          git diff "$BASE"...HEAD > /tmp/pr.diff || true
+          echo "diff lines: $(wc -l < /tmp/pr.diff)"
+
+      # 日常门禁：增量变异（分钟级）。全量变异（collect-mutation-linux.sh）
+      # 作为发布前门禁分层执行（见 architecture review 风险 2 修复记录）。
+      - name: Run incremental mutation (Gate 20 daily, fail-under 70)
+        run: |
+          if [ -s /tmp/pr.diff ]; then
+            # --test-package sz-orm-sqlx：core 的 pool/事务回归测试位于 sz-orm-sqlx 包
+            # （如 test_known_good_fast_path_e2e），不指定会造成跨包变异盲区
+            # （2026-10-27 SDET 评测 ROI-4：能力已在 collect-mutation-diff.sh 就位，此处启用）。
+            bash scripts/collect-mutation-diff.sh --diff /tmp/pr.diff --fail-under 70 --test-package sz-orm-sqlx
+          else
+            echo "No diff for this run → skip incremental mutation"
+          fi
         env:
           SZ_ORM_MYSQL_URL: mysql://root:test123@127.0.0.1:3306/sz_orm_test
           SZ_ORM_PG_URL: postgres://postgres:test123@127.0.0.1:5432/sz_orm_test
@@ -932,8 +1059,7 @@ jobs:
         with:
           name: mutation-${{ github.sha }}
           path: |
-            mutation-report.md
-            mutation-report.json
+            mutants-diff-out/
           retention-days: 30
 
   # ============================================================================
@@ -970,12 +1096,13 @@ jobs:
   # nightly 工具链（sanitizer 需要 -Zsanitizer=address）。
   # 每个 target 运行 60 秒，发现 panic/crash 即失败。
   # 目标：至少 3 个 fuzz target（query_builder / value_escape / pool_config）。
+  # v10.13.0（SDET ROI-5 决策，2026-10-28）：对 main 分支阻断。
   # ============================================================================
   fuzz:
     name: Fuzz Testing (60s per target)
     runs-on: ubuntu-latest
     needs: [test]
-    continue-on-error: true
+    continue-on-error: ${{ github.ref != 'refs/heads/main' }}
     steps:
       - uses: actions/checkout@v4
 

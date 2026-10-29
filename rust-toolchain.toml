@@ -1,0 +1,15 @@
+# 开发/门禁工具链钉子（2026-10-27 整改 P0-1b）
+#
+# 背景：G3（cargo clippy --workspace -D warnings）结果随工具链漂移——
+# rustc 1.99.0 引入的 clippy::double_must_use 曾在 9 个包上产生 51 处
+# 宏生成代码（async-trait 0.1.91）的误报，导致"服务器 PASS / 本机 FAIL"并存。
+# 根因已通过 async-trait 0.1.92 升级消除（Cargo.lock），此处钉住已验证的
+# 工具链使 24 道门禁在任意环境可复现。
+#
+# 注意：这是"开发门禁工具链"，不改变 Cargo.toml 的 rust-version = "1.81"（MSRV，
+# 面向下游用户）。rustup 在缺少该版本时会自动安装；CI 的 dtolnay/rust-toolchain
+# action 与本文件兼容。
+[toolchain]
+channel = "1.99.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]

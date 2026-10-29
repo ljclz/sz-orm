@@ -25,8 +25,25 @@ pub mod ffi_memory;
 pub mod panic_guard;
 
 use std::ffi::{c_char, c_void, CStr, CString};
+use std::sync::atomic::{AtomicU32, Ordering};
 use std::sync::Arc;
 use std::sync::OnceLock;
+
+use crate::ffi_memory::FfiMemoryManager;
+
+/// 全局 FFI 内存注册表：跟踪 `Box::into_raw` / `CString::into_raw`
+/// 产生的活跃指针，提供 double-free 防护与泄漏计数。
+static MEMORY: OnceLock<FfiMemoryManager> = OnceLock::new();
+
+/// 登记 FFI 指针（见 [`FfiMemoryManager::track`]）
+fn memory_track(ptr: *mut c_void, size: usize) {
+    MEMORY.get_or_init(FfiMemoryManager::new).track(ptr, size);
+}
+
+/// 注销 FFI 指针并返回是否成功（见 [`FfiMemoryManager::untrack`]）
+fn memory_untrack(ptr: *mut c_void) -> bool {
+    MEMORY.get_or_init(FfiMemoryManager::new).untrack(ptr)
+}
 
 use sz_orm_core::{
     get_dialect, DbType, Model, Pool, PoolConfig, PoolConfigBuilder, PooledConnection,
@@ -152,7 +169,11 @@ impl QueryResultC {
 }
 
 /// Query rows JSON result (allocated on the Rust side; freed via
-/// `sz_orm_query_free`)
+/// `sz_orm_query_result_free`)
+///
+/// This struct is dereferenced by C/Go/Java/C# callers, so its field layout
+/// must be stable across compilers: `#[repr(C)]` guarantees that.
+#[repr(C)]
 pub struct QueryJsonResult {
     pub success: i32,
     pub error_code: i32,
@@ -160,17 +181,57 @@ pub struct QueryJsonResult {
     pub json: *mut c_char,
 }
 
+/// 全局 runtime 期望 worker 数（0 = 使用默认值 2）。
+/// 由 `sz_orm_set_runtime_workers` 在 runtime 首次构建前写入。
+static RUNTIME_WORKERS: AtomicU32 = AtomicU32::new(0);
+
+/// 默认 worker 数与上限（历史行为：2 worker；上限防误配拖垮宿主进程）
+const RUNTIME_WORKERS_DEFAULT: u32 = 2;
+const RUNTIME_WORKERS_MAX: u32 = 64;
+
+/// 解析期望 worker 数：0 → 默认值，超过上限截断到上限，其余原样。
+fn resolve_worker_count(requested: u32) -> usize {
+    if requested == 0 {
+        RUNTIME_WORKERS_DEFAULT as usize
+    } else {
+        requested.min(RUNTIME_WORKERS_MAX) as usize
+    }
+}
+
+/// 构建全局 runtime（独立函数便于测试验证 worker 数配置路径可执行）
+fn build_runtime(workers: usize) -> tokio::runtime::Runtime {
+    tokio::runtime::Builder::new_multi_thread()
+        .worker_threads(workers)
+        .enable_all()
+        .build()
+        .expect("failed to build tokio runtime")
+}
+
 /// Global tokio runtime (the C ABI synchronous interface needs block_on to
 /// execute async pool operations)
 fn runtime() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| {
-        tokio::runtime::Builder::new_multi_thread()
-            .worker_threads(2)
-            .enable_all()
-            .build()
-            .expect("failed to build tokio runtime")
+        let workers = resolve_worker_count(RUNTIME_WORKERS.load(Ordering::Acquire));
+        build_runtime(workers)
     })
+}
+
+/// 设置全局 FFI runtime 的 worker 数（仅在下一次 runtime 构建前生效）。
+///
+/// 应在任何 `sz_orm_pool_new` 之前调用；runtime 已构建后调用不报错但设置
+/// 不再生效（OnceLock 已就绪）。0 按 1 处理；超过 64 截断到 64（`build_runtime`
+/// 侧经 `resolve_worker_count` 统一钳制）。
+///
+/// # Safety
+///
+/// SAFETY: 本函数不解引用任何指针，可为任意线程任意时机调用。
+///
+/// 返回：恒为 0（登记语义；预留非 0 错误码扩展位）。
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_set_runtime_workers(workers: u32) -> i32 {
+    RUNTIME_WORKERS.store(workers.max(1), Ordering::Release);
+    0
 }
 
 /// Convert `PoolConfigC` to the `PoolConfig` of sz-orm-core
@@ -185,7 +246,9 @@ fn to_core_config(c: &PoolConfigC) -> Result<PoolConfig, sz_orm_core::PoolError>
 
 /// Create a connection pool (SQLite backend; real creation)
 ///
-/// `dsn` supports SQLite URLs: `sqlite::memory:`, `sqlite://path/to/db.sqlite`
+/// `dsn` supports SQLite URLs: `sqlite::memory:`, `sqlite://path/to/db.sqlite`.
+/// All strings are NUL-terminated UTF-8. Non-SQLite DSNs are rejected
+/// explicitly (returns null) instead of failing deep inside the driver.
 ///
 /// # Safety
 ///
@@ -213,6 +276,11 @@ pub unsafe extern "C" fn sz_orm_pool_new(
         Ok(s) => s.to_string(),
         Err(_) => return std::ptr::null_mut(),
     };
+    // 当前 C ABI 仅有 SQLite 后端；显式拒绝其他 DSN，避免调用方误以为支持
+    // MySQL/PostgreSQL 而在运行期拿到难以定位的连接错误。
+    if !dsn.starts_with("sqlite:") {
+        return std::ptr::null_mut();
+    }
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         runtime().block_on(async {
@@ -223,7 +291,11 @@ pub unsafe extern "C" fn sz_orm_pool_new(
             };
             let factory = Arc::new(sz_orm_sqlx::SqlxSqliteConnectionFactory::new(handle));
             match Pool::new(core_cfg, factory) {
-                Ok(pool) => Ok(Box::into_raw(Box::new(pool)) as SzOrmPoolHandle),
+                Ok(pool) => {
+                    let handle = Box::into_raw(Box::new(pool)) as SzOrmPoolHandle;
+                    memory_track(handle, std::mem::size_of::<Pool>());
+                    Ok(handle)
+                }
                 Err(_) => Err(()),
             }
         })
@@ -250,6 +322,10 @@ pub unsafe extern "C" fn sz_orm_pool_free(handle: SzOrmPoolHandle) {
     // 通过 tokio::runtime::Handle::try_current() spawn 归还任务，
     // 若无 runtime 上下文 sqlx 连接 Drop 会 panic。
     let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // double-free 防护：仅释放已登记的句柄
+        if !memory_untrack(handle) {
+            return;
+        }
         runtime().block_on(async {
             // SAFETY: 调用方保证 handle 有效；此处消费 Box 触发 Drop
             unsafe {
@@ -334,12 +410,17 @@ pub unsafe extern "C" fn sz_orm_query(
         Ok(c) => c,
         Err(_) => return err_result(SzOrmErrorCode::QueryFailed),
     };
+    let json_len = json_c.as_bytes_with_nul().len();
+    let json_ptr = json_c.into_raw();
+    memory_track(json_ptr as *mut c_void, json_len);
     let result = Box::new(QueryJsonResult {
         success,
         error_code,
-        json: json_c.into_raw(),
+        json: json_ptr,
     });
-    Box::into_raw(result)
+    let ptr = Box::into_raw(result);
+    memory_track(ptr as *mut c_void, std::mem::size_of::<QueryJsonResult>());
+    ptr
 }
 
 fn err_result(code: SzOrmErrorCode) -> *mut QueryJsonResult {
@@ -348,7 +429,9 @@ fn err_result(code: SzOrmErrorCode) -> *mut QueryJsonResult {
         error_code: code.as_i32(),
         json: std::ptr::null_mut(),
     });
-    Box::into_raw(result)
+    let ptr = Box::into_raw(result);
+    memory_track(ptr as *mut c_void, std::mem::size_of::<QueryJsonResult>());
+    ptr
 }
 
 /// Free a query result
@@ -361,14 +444,22 @@ pub unsafe extern "C" fn sz_orm_query_result_free(result: *mut QueryJsonResult) 
     if result.is_null() {
         return;
     }
-    // SAFETY: 调用方保证 result 来自 sz_orm_query 且未释放
-    let result = unsafe { Box::from_raw(result) };
-    if !result.json.is_null() {
-        // SAFETY: json 由 CString::into_raw 分配，此处配对释放
-        unsafe {
-            drop(CString::from_raw(result.json));
+    // 与其余导出函数保持一致：捕获 Drop 实现未来可能的 panic，避免跨 FFI 传播
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // double-free 防护：仅释放已登记的指针
+        if !memory_untrack(result as *mut c_void) {
+            return;
         }
-    }
+        // SAFETY: 调用方保证 result 来自 sz_orm_query 且未释放
+        let result = unsafe { Box::from_raw(result) };
+        if !result.json.is_null() {
+            // SAFETY: json 由 CString::into_raw 分配，此处配对释放
+            memory_untrack(result.json as *mut c_void);
+            unsafe {
+                drop(CString::from_raw(result.json));
+            }
+        }
+    }));
 }
 
 /// Execute a write statement (INSERT/UPDATE/DELETE) and return the number of
@@ -604,7 +695,9 @@ pub unsafe extern "C" fn sz_orm_query_one(
             error_code: SzOrmErrorCode::Ok.as_i32(),
             json: std::ptr::null_mut(),
         });
-        return Box::into_raw(result);
+        let ptr = Box::into_raw(result);
+        memory_track(ptr as *mut c_void, std::mem::size_of::<QueryJsonResult>());
+        return ptr;
     }
 
     let json = match serde_json::to_string(&rows[0]) {
@@ -616,13 +709,17 @@ pub unsafe extern "C" fn sz_orm_query_one(
         Ok(c) => c,
         Err(_) => return err_result(SzOrmErrorCode::QueryFailed),
     };
-
+    let json_len = json_c.as_bytes_with_nul().len();
+    let json_ptr = json_c.into_raw();
+    memory_track(json_ptr as *mut c_void, json_len);
     let result = Box::new(QueryJsonResult {
         success: 1,
         error_code: SzOrmErrorCode::Ok.as_i32(),
-        json: json_c.into_raw(),
+        json: json_ptr,
     });
-    Box::into_raw(result)
+    let ptr = Box::into_raw(result);
+    memory_track(ptr as *mut c_void, std::mem::size_of::<QueryJsonResult>());
+    ptr
 }
 
 /// Check whether a table exists (SQLite backend)
@@ -645,6 +742,11 @@ pub unsafe extern "C" fn sz_orm_table_exists(handle: SzOrmPoolHandle, table: *co
         Ok(s) => s.to_string(),
         Err(_) => return -1,
     };
+
+    // 表名属于 SQL 标识符，必须经 validate_identifier 校验（防标识符注入）
+    if validate_identifier(&table).is_err() {
+        return -1;
+    }
 
     let sql = format!(
         "SELECT name FROM sqlite_master WHERE type='table' AND name='{}'",
@@ -688,14 +790,29 @@ pub unsafe extern "C" fn sz_orm_count(handle: SzOrmPoolHandle, table: *const c_c
         Err(_) => return -1,
     };
 
-    let sql = format!("SELECT * FROM {}", table);
+    // 表名属于 SQL 标识符，必须经 validate_identifier 校验（防标识符注入）
+    if validate_identifier(&table).is_err() {
+        return -1;
+    }
+
+    let sql = format!("SELECT COUNT(*) AS cnt FROM {table}");
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         runtime().block_on(async { pool.query_with_timeout(&sql).await })
     }));
 
     match result {
-        Ok(Ok(rows)) => rows.len() as i64,
+        Ok(Ok(rows)) => {
+            if rows.is_empty() {
+                return -1;
+            }
+            match rows[0].get("cnt") {
+                Some(Value::I64(n)) => *n,
+                Some(Value::U64(n)) => *n as i64,
+                Some(Value::F64(n)) => *n as i64,
+                _ => -1,
+            }
+        }
         _ => -1,
     }
 }
@@ -734,7 +851,11 @@ pub unsafe extern "C" fn sz_orm_transaction_begin(
     }));
 
     match result {
-        Ok(Ok(tx)) => Box::into_raw(Box::new(tx)) as SzOrmTransactionHandle,
+        Ok(Ok(tx)) => {
+            let handle = Box::into_raw(Box::new(tx)) as SzOrmTransactionHandle;
+            memory_track(handle, std::mem::size_of::<CabiTransaction>());
+            handle
+        }
         _ => std::ptr::null_mut(),
     }
 }
@@ -869,6 +990,10 @@ pub unsafe extern "C" fn sz_orm_transaction_free(tx_handle: SzOrmTransactionHand
     if tx_handle.is_null() {
         return;
     }
+    // double-free 防护：仅释放已登记的句柄
+    if !memory_untrack(tx_handle) {
+        return;
+    }
     // SAFETY: 调用方保证 tx_handle 有效；此处消费 Box
     let mut tx = unsafe { Box::from_raw(tx_handle as *mut CabiTransaction) };
     // 在 tokio runtime 上下文中执行 rollback + drop 连接，
@@ -897,7 +1022,12 @@ pub unsafe extern "C" fn sz_orm_transaction_free(tx_handle: SzOrmTransactionHand
 pub unsafe extern "C" fn sz_orm_error_description(code: i32) -> *mut c_char {
     let desc = SzOrmErrorCode::from_i32(code).description();
     match CString::new(desc) {
-        Ok(c) => c.into_raw(),
+        Ok(c) => {
+            let len = c.as_bytes_with_nul().len();
+            let ptr = c.into_raw();
+            memory_track(ptr as *mut c_void, len);
+            ptr
+        }
         Err(_) => std::ptr::null_mut(),
     }
 }
@@ -913,10 +1043,17 @@ pub unsafe extern "C" fn sz_orm_string_free(s: *mut c_char) {
     if s.is_null() {
         return;
     }
-    // SAFETY: 调用方保证 s 来自 sz_orm_error_description 且未释放
-    unsafe {
-        drop(CString::from_raw(s));
-    }
+    // 与其余导出函数保持一致：捕获潜在 panic，避免跨 FFI 传播
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // double-free 防护：仅释放已登记的字符串
+        if !memory_untrack(s as *mut c_void) {
+            return;
+        }
+        // SAFETY: 调用方保证 s 来自 sz_orm_error_description 且未释放
+        unsafe {
+            drop(CString::from_raw(s));
+        }
+    }));
 }
 
 // ============================================================================
@@ -1091,9 +1228,11 @@ pub unsafe extern "C" fn sz_orm_model_insert(
         let table_s = unsafe { CStr::from_ptr(table) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        // SAFETY: 调用方保证 fields_json 有效
         let fields_s = unsafe { CStr::from_ptr(fields_json) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        // SAFETY: 调用方保证 values_json 有效
         let values_s = unsafe { CStr::from_ptr(values_json) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
@@ -1159,12 +1298,14 @@ pub unsafe extern "C" fn sz_orm_model_update(
         let table_s = unsafe { CStr::from_ptr(table) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        // SAFETY: 调用方保证 set_json 有效
         let set_s = unsafe { CStr::from_ptr(set_json) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
         let where_s = if where_clause.is_null() {
             String::new()
         } else {
+            // SAFETY: 调用方保证 where_clause 有效
             unsafe { CStr::from_ptr(where_clause) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1173,6 +1314,7 @@ pub unsafe extern "C" fn sz_orm_model_update(
         let where_params_s = if where_params_json.is_null() {
             "[]"
         } else {
+            // SAFETY: 调用方保证 where_params_json 有效
             unsafe { CStr::from_ptr(where_params_json) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1237,6 +1379,7 @@ pub unsafe extern "C" fn sz_orm_model_delete(
         let where_s = if where_clause.is_null() {
             String::new()
         } else {
+            // SAFETY: 调用方保证 where_clause 有效
             unsafe { CStr::from_ptr(where_clause) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1245,6 +1388,7 @@ pub unsafe extern "C" fn sz_orm_model_delete(
         let where_params_s = if where_params_json.is_null() {
             "[]"
         } else {
+            // SAFETY: 调用方保证 where_params_json 有效
             unsafe { CStr::from_ptr(where_params_json) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1310,6 +1454,7 @@ pub unsafe extern "C" fn sz_orm_model_find(
         let where_s = if where_clause.is_null() {
             String::new()
         } else {
+            // SAFETY: 调用方保证 where_clause 有效
             unsafe { CStr::from_ptr(where_clause) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1318,6 +1463,7 @@ pub unsafe extern "C" fn sz_orm_model_find(
         let where_params_s = if where_params_json.is_null() {
             "[]"
         } else {
+            // SAFETY: 调用方保证 where_params_json 有效
             unsafe { CStr::from_ptr(where_params_json) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1348,7 +1494,12 @@ pub unsafe extern "C" fn sz_orm_model_find(
         Err(_) => return std::ptr::null_mut(),
     };
     match CString::new(json) {
-        Ok(c) => c.into_raw(),
+        Ok(c) => {
+            let len = c.as_bytes_with_nul().len();
+            let ptr = c.into_raw();
+            memory_track(ptr as *mut c_void, len);
+            ptr
+        }
         Err(_) => std::ptr::null_mut(),
     }
 }
@@ -1380,9 +1531,11 @@ pub unsafe extern "C" fn sz_orm_model_insert_tx(
         let table_s = unsafe { CStr::from_ptr(table) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        // SAFETY: 调用方保证 fields_json 有效
         let fields_s = unsafe { CStr::from_ptr(fields_json) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        // SAFETY: 调用方保证 values_json 有效
         let values_s = unsafe { CStr::from_ptr(values_json) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
@@ -1445,12 +1598,14 @@ pub unsafe extern "C" fn sz_orm_model_update_tx(
         let table_s = unsafe { CStr::from_ptr(table) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
+        // SAFETY: 调用方保证 set_json 有效
         let set_s = unsafe { CStr::from_ptr(set_json) }
             .to_str()
             .map_err(|_| SzOrmErrorCode::InvalidArgument)?;
         let where_s = if where_clause.is_null() {
             String::new()
         } else {
+            // SAFETY: 调用方保证 where_clause 有效
             unsafe { CStr::from_ptr(where_clause) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1459,6 +1614,7 @@ pub unsafe extern "C" fn sz_orm_model_update_tx(
         let where_params_s = if where_params_json.is_null() {
             "[]"
         } else {
+            // SAFETY: 调用方保证 where_params_json 有效
             unsafe { CStr::from_ptr(where_params_json) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1523,6 +1679,7 @@ pub unsafe extern "C" fn sz_orm_model_delete_tx(
         let where_s = if where_clause.is_null() {
             String::new()
         } else {
+            // SAFETY: 调用方保证 where_clause 有效
             unsafe { CStr::from_ptr(where_clause) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1531,6 +1688,7 @@ pub unsafe extern "C" fn sz_orm_model_delete_tx(
         let where_params_s = if where_params_json.is_null() {
             "[]"
         } else {
+            // SAFETY: 调用方保证 where_params_json 有效
             unsafe { CStr::from_ptr(where_params_json) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1595,6 +1753,7 @@ pub unsafe extern "C" fn sz_orm_model_find_tx(
         let where_s = if where_clause.is_null() {
             String::new()
         } else {
+            // SAFETY: 调用方保证 where_clause 有效
             unsafe { CStr::from_ptr(where_clause) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1603,6 +1762,7 @@ pub unsafe extern "C" fn sz_orm_model_find_tx(
         let where_params_s = if where_params_json.is_null() {
             "[]"
         } else {
+            // SAFETY: 调用方保证 where_params_json 有效
             unsafe { CStr::from_ptr(where_params_json) }
                 .to_str()
                 .map_err(|_| SzOrmErrorCode::InvalidArgument)?
@@ -1630,7 +1790,12 @@ pub unsafe extern "C" fn sz_orm_model_find_tx(
         Err(_) => return std::ptr::null_mut(),
     };
     match CString::new(json) {
-        Ok(c) => c.into_raw(),
+        Ok(c) => {
+            let len = c.as_bytes_with_nul().len();
+            let ptr = c.into_raw();
+            memory_track(ptr as *mut c_void, len);
+            ptr
+        }
         Err(_) => std::ptr::null_mut(),
     }
 }
@@ -1700,7 +1865,9 @@ pub unsafe extern "C" fn sz_orm_qb_new(db_type: u32) -> SzOrmQueryBuilderHandle 
     let wrapper = CabiQueryBuilder {
         builder: Some(builder),
     };
-    Box::into_raw(Box::new(wrapper)) as SzOrmQueryBuilderHandle
+    let handle = Box::into_raw(Box::new(wrapper)) as SzOrmQueryBuilderHandle;
+    memory_track(handle, std::mem::size_of::<CabiQueryBuilder>());
+    handle
 }
 
 /// 设置表名。
@@ -1716,6 +1883,7 @@ pub unsafe extern "C" fn sz_orm_qb_table(qb: SzOrmQueryBuilderHandle, table: *co
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // SAFETY: 调用方保证 qb 和 table 有效
         let wrapper = unsafe { &mut *(qb as *mut CabiQueryBuilder) };
+        // SAFETY: 调用方保证 table 有效
         let table_str = unsafe { CStr::from_ptr(table) }.to_str().ok()?;
         if let Some(builder) = wrapper.builder.take() {
             wrapper.builder = Some(builder.table(table_str.to_string()));
@@ -1750,7 +1918,9 @@ pub unsafe extern "C" fn sz_orm_qb_where_eq(
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // SAFETY: 调用方保证 qb/field/value_json 有效
         let wrapper = unsafe { &mut *(qb as *mut CabiQueryBuilder) };
+        // SAFETY: 调用方保证 field 有效
         let field_str = unsafe { CStr::from_ptr(field) }.to_str().ok()?;
+        // SAFETY: 调用方保证 value_json 有效
         let value_str = unsafe { CStr::from_ptr(value_json) }.to_str().ok()?;
         let json_val: serde_json::Value = serde_json::from_str(value_str).ok()?;
         let value = json_to_value(&json_val);
@@ -1787,6 +1957,7 @@ pub unsafe extern "C" fn sz_orm_qb_order_by(
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         // SAFETY: 调用方保证 qb/field 有效
         let wrapper = unsafe { &mut *(qb as *mut CabiQueryBuilder) };
+        // SAFETY: 调用方保证 field 有效
         let field_str = unsafe { CStr::from_ptr(field) }.to_str().ok()?;
         if let Some(builder) = wrapper.builder.take() {
             let new_builder = if desc != 0 {
@@ -1857,7 +2028,12 @@ pub unsafe extern "C" fn sz_orm_qb_build(qb: SzOrmQueryBuilderHandle) -> *mut c_
             "params": params,
         });
         let json_str = serde_json::to_string(&json).ok()?;
-        CString::new(json_str).ok().map(|c| c.into_raw())
+        CString::new(json_str).ok().map(|c| {
+            let len = c.as_bytes_with_nul().len();
+            let ptr = c.into_raw();
+            memory_track(ptr as *mut c_void, len);
+            ptr
+        })
     }));
     match result {
         Ok(Some(ptr)) => ptr,
@@ -1876,10 +2052,17 @@ pub unsafe extern "C" fn sz_orm_qb_free(qb: SzOrmQueryBuilderHandle) {
     if qb.is_null() {
         return;
     }
-    // SAFETY: 调用方保证 qb 有效；此处消费 Box 触发 Drop
-    unsafe {
-        drop(Box::from_raw(qb as *mut CabiQueryBuilder));
-    }
+    // 与其余导出函数保持一致：QueryBuilder 的 Drop 可能触发 panic，需捕获
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // double-free 防护：仅释放已登记的句柄
+        if !memory_untrack(qb) {
+            return;
+        }
+        // SAFETY: 调用方保证 qb 有效；此处消费 Box 触发 Drop
+        unsafe {
+            drop(Box::from_raw(qb as *mut CabiQueryBuilder));
+        }
+    }));
 }
 
 /// 释放 `sz_orm_qb_build` 返回的字符串。
@@ -1892,16 +2075,43 @@ pub unsafe extern "C" fn sz_orm_qb_result_free(result: *mut c_char) {
     if result.is_null() {
         return;
     }
-    // SAFETY: 调用方保证 result 有效；此处消费 CString 触发 Drop
-    unsafe {
-        drop(CString::from_raw(result));
-    }
+    // 与其余导出函数保持一致：捕获潜在 panic，避免跨 FFI 传播
+    let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        // double-free 防护：仅释放已登记的字符串
+        if !memory_untrack(result as *mut c_void) {
+            return;
+        }
+        // SAFETY: 调用方保证 result 有效；此处消费 CString 触发 Drop
+        unsafe {
+            drop(CString::from_raw(result));
+        }
+    }));
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use std::ffi::CString;
+
+    #[test]
+    fn test_resolve_worker_count_semantics() {
+        assert_eq!(resolve_worker_count(0), RUNTIME_WORKERS_DEFAULT as usize);
+        assert_eq!(resolve_worker_count(1), 1);
+        assert_eq!(resolve_worker_count(3), 3);
+        assert_eq!(
+            resolve_worker_count(RUNTIME_WORKERS_MAX + 1),
+            RUNTIME_WORKERS_MAX as usize,
+            "超上限必须钳制"
+        );
+    }
+
+    #[test]
+    fn test_build_runtime_with_configured_workers_functions() {
+        // 行为验证：按 resolve_worker_count 产出的配置能构建可运行的多线程 runtime
+        let rt = build_runtime(resolve_worker_count(3));
+        let answer = rt.block_on(async { tokio::spawn(async move { 40 + 2 }).await.unwrap() });
+        assert_eq!(answer, 42);
+    }
 
     fn test_pool() -> SzOrmPoolHandle {
         let dsn = CString::new("sqlite::memory:").unwrap();
@@ -1972,6 +2182,24 @@ mod tests {
         // SAFETY: pool 有效
         let healthy = unsafe { sz_orm_ping(pool) };
         assert_eq!(healthy, 1, "fresh pool should be healthy");
+        // SAFETY: pool 有效
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn test_double_free_protected() {
+        // 验证 FfiMemoryManager 注册表：对同一指针连续释放两次，
+        // 第二次应静默返回而不触发 UB/崩溃。
+        let pool = test_pool();
+        assert!(!pool.is_null());
+        let q = CString::new("SELECT 1 AS one").unwrap();
+        // SAFETY: pool/sql 有效
+        let result = unsafe { sz_orm_query(pool, q.as_ptr()) };
+        assert!(!result.is_null(), "query should return a result");
+        // SAFETY: 第一次配对释放
+        unsafe { sz_orm_query_result_free(result) };
+        // SAFETY: 第二次释放应被注册表拦截（静默返回）
+        unsafe { sz_orm_query_result_free(result) };
         // SAFETY: pool 有效
         unsafe { sz_orm_pool_free(pool) };
     }
@@ -2052,6 +2280,22 @@ mod tests {
         // SAFETY: null 指针合法调用，应返回 null
         let pool = unsafe { sz_orm_pool_new(std::ptr::null(), std::ptr::null()) };
         assert!(pool.is_null());
+    }
+
+    #[test]
+    fn test_pool_new_rejects_non_sqlite_dsn() {
+        // C ABI 目前只有 SQLite 后端；其它 DSN 必须显式拒绝（返回 null），
+        // 而不是创建出一个连不上却"看似成功"的池。
+        for dsn in [
+            "mysql://root@127.0.0.1:3306/db",
+            "postgres://postgres@127.0.0.1:5432/db",
+            "",
+        ] {
+            let dsn = CString::new(dsn).unwrap();
+            // SAFETY: dsn 是有效 C 字符串；config 传 null 表示默认配置
+            let pool = unsafe { sz_orm_pool_new(dsn.as_ptr(), std::ptr::null()) };
+            assert!(pool.is_null(), "非 SQLite DSN 必须被拒绝: {dsn:?}");
+        }
     }
 
     #[test]
@@ -2597,6 +2841,9 @@ mod tests {
     }
 
     /// Free the string pointer returned by model_find
+    /// # Safety
+    ///
+    /// SAFETY: `ptr` 必须是 `model_find` 返回且未释放的字符串指针（或 null）。
     unsafe fn free_find_str(ptr: *mut c_char) -> String {
         if ptr.is_null() {
             return String::new();

@@ -1,14 +1,14 @@
 ﻿# SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v9.4.0 · 72 工作空间成员 · 20424+ 测试 · 28 SQL 方言 · 已发布 crates.io
+> v10.13.0 · 72 工作空间成员 · 21274+ 测试 · 28 SQL 方言 · 已发布 crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-20424+-green.svg)](#测试)
+[![Tests](https://img.shields.io/badge/tests-21274+-green.svg)](#测试)
 [![Dialects](https://img.shields.io/badge/dialects-28-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-9.4.0-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-10.13.0-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -41,7 +41,7 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。v4.3.0 版本包含 56 个工作空间成员（v4.3.0 新增 sz-orm-explain/sz-orm-flamegraph/sz-orm-adaptive/sz-orm-fusion/sz-orm-n1-lint），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，新增 9 项数据治理与运维增强能力。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。包含 72 个工作空间成员（70 个 sz-orm-* lib + cli + examples），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，提供 508 个 feature gate 用于模块化组合。
 
 ### v4.1.0 新增能力（9 个 feature gate，默认关闭）
 
@@ -97,13 +97,13 @@ println!("{}", report.to_json().unwrap());
 
 | 维度 | 数据 |
 |------|------|
-| 工作空间成员 | **60**（58 个 sz-orm-* lib + cli + examples） |
-| 支持数据库方言 | **17 种 SQL 方言**（8 原生 + 9 委派，含国产信创 6 种） |
-| 测试用例 | **9905 passed, 0 failed** |
-| 代码规模 | **~139,000 LOC**（深度优化后，src ~115,000 + tests ~20,000 + cli/examples/benches ~4,000） |
+| 工作空间成员 | **72**（70 个 sz-orm-* lib + cli + examples） |
+| 支持数据库方言 | **28 种数据库方言**（默认编译 21 种，另 7 种由 `dialect-*` feature 门控；`--all-features` 下为 24 种 SQL + 4 种 NoSQL，含国产信创 6 种。方言层指 SQL 生成/转义，不等于连接驱动：真实驱动为 sqlx 的 MySQL/PostgreSQL/SQLite + `sz-orm-oracle` + `sz-orm-mssql`） |
+| 测试用例 | **21274 passed, 0 failed** |
+| 代码规模 | **~639,200 LOC**（src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200） |
 | 项目成熟度 | **早期生产可用（内部项目）**（sz-pay 生产试点，crates.io 已发布 sz-orm-core） |
 | 异步运行时 | Tokio 1.40+ |
-| Rust 最低版本 | 1.94.0+（sqlx 0.9.0 要求） |
+| Rust 最低版本 | 1.81.0+（Cargo.toml rust-version = "1.81"） |
 | sqlx 版本 | 0.9.0 |
 | 已知 Bug | **0** |
 | `panic!`/`unimplemented!`/`todo!`/`unreachable!` | **0**（生产代码） |
@@ -330,7 +330,7 @@ sz-orm-ai = { version = "2.4", features = ["ai-nl2sql-enhanced", "ai-index-advis
 ## 核心特性
 
 - **异步**：基于 Tokio，全程 `async/await`
-- **多数据库方言**：17 种 SQL 方言（8 原生：MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB + 9 委派：MariaDB/TiDB/OceanBase/达梦/金仓/PolarDB/GaussDB/GBase/Sybase）
+- **多数据库方言**：28 种数据库方言（24 种 SQL：MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB/MariaDB/TiDB/OceanBase/达梦/金仓/PolarDB/GaussDB/GBase/Sybase/CockroachDB/YugabyteDB/Snowflake/Redshift/Informix/SAP HANA/Firebird + 4 种 NoSQL：Redis/MongoDB/VectorDB/PureJsDb）
 - **链式 QueryBuilder**：仿 ThinkORM 风格的 fluent API
 - **ACID 事务**：隔离级别、保存点（默认 8 层嵌套，`DEFAULT_MAX_NESTING_DEPTH = 8`，可配置）、`TransactionManager` 多事务管理
 - **连接池**：可配置大小、超时、空闲回收、健康检查、最大生命周期
@@ -403,9 +403,9 @@ sz-orm/
 │   └── sz-orm-back/                 # 备份与恢复
 │
 ├── cli/                             # CLI 工具（sz-orm）
-├── examples/                        # 9 个可运行示例
+├── examples/                        # 38 个可运行示例
 ├── grafana/                         # Grafana 仪表盘 JSON
-├── docs/                            # 22 份文档（含 adr/ 子目录 11 份 ADR）
+├── docs/                            # 文档中心（快速开始 / 使用指南 / API 参考 / 迁移指南 / 评估报告 + adr/ 子目录 11 份 ADR）
 ├── scripts/                         # gate.ps1/sh, install-hooks, audit-api-changes
 ├── Cargo.toml                       # 工作空间清单（version.workspace = true）
 ├── audit.toml                       # cargo-audit 配置（7 个忽略项）
@@ -416,17 +416,20 @@ sz-orm/
 
 ## 快速开始
 
+> ⚡ 5 分钟图文教程：[docs/quickstart.md](docs/quickstart.md)
+> （零依赖路径：`cargo run -p sz-orm-examples --bin real_db_crud`，SQLite 内存库即可跑通 CRUD）
+
 ### 1. 添加依赖
 
 ```toml
 [dependencies]
-# 从 crates.io 安装（推荐）
-sz-orm-core = "1.4"
-sz-orm-sqlx = "1.4"
+# 推荐：path 依赖（与生产试点 sz-pay 一致，始终使用仓库当前版本）
+sz-orm-core = { path = "packages/sz-orm-core" }
+sz-orm-sqlx = { path = "packages/sz-orm-sqlx" }
 
-# 本地开发（path 依赖）
-# sz-orm-core = { version = "1.5", path = "packages/sz-orm-core" }
-# sz-orm-sqlx = { version = "1.5", path = "packages/sz-orm-sqlx" }
+# 备选：crates.io（实际发布版本可能滞后于仓库，以 CHANGELOG.md 为准；最新能力请用上方 path 依赖）
+# sz-orm-core = "10.7"
+# sz-orm-sqlx = "10.7"
 
 tokio = { version = "1.40", features = ["full"] }
 ```
@@ -458,16 +461,38 @@ impl Model for User {
 
 ```rust
 use sz_orm_core::dialect::get_dialect;
-use sz_orm_core::{DbType, QueryBuilder, Value};
+use sz_orm_core::{DbType, Model, QueryBuilder, TimestampFields, Value};
 
-let dialect = get_dialect(DbType::MySQL)?;
-let sql = QueryBuilder::<User>::new(dialect)
-    .table("users")
-    .select(vec!["id", "name", "email"])
-    .where_eq("status", Value::String("active".to_string()))
-    .order_by("created_at")
-    .limit(10)
-    .build_select();
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
+struct User {
+    id: i64,
+    name: String,
+    email: String,
+}
+
+impl Model for User {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str { "users" }
+    fn pk(&self) -> Self::PrimaryKey { self.id }
+    fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+    fn timestamp_fields() -> Option<TimestampFields> {
+        Some(TimestampFields::with_both("created_at", "updated_at"))
+    }
+}
+
+fn main() {
+    let dialect = get_dialect(DbType::MySQL).expect("MySQL 方言可用");
+    let sql = QueryBuilder::<User>::new(dialect)
+        .table("users")
+        .select(vec!["id", "name", "email"])
+        .expect("valid columns")                 // select() 返回 Result
+        .where_eq("status", Value::String("active".to_string()))
+        .order_by("created_at")
+        .limit(10)
+        .sql();                                  // 返回 SQL 字符串（`?` 参数占位）
+    println!("{sql}");
+}
 ```
 
 ### 4. 连接真实数据库（sz-orm-sqlx）
@@ -526,6 +551,35 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 
 使用 `get_dialect(DbType::MySQL)` 获取方言实例。
 
+## 跨语言绑定
+
+sz-orm 通过统一 C ABI（`packages/sz-orm-cabi`）对外导出能力，由各语言绑定消费。
+全部导出函数均为 `#[no_mangle] extern "C"`；跨 ABI 结构体均标注 `#[repr(C)]`；
+ABI 契约为 cbindgen 生成的头文件 `packages/sz-orm-cabi/include/sz_orm_cabi.h`
+（单一声明源）。内存由 Rust 侧分配/释放并经 track/untrack 注册表提供 double-free
+防护；panic 在边界处捕获，绝不跨 FFI 传播。跨界字符串一律为 **UTF-8** 且以 NUL 结尾
+（调用方不得按系统 ANSI 代码页解码）；`sz_orm_pool_new` **仅接受 SQLite DSN**，
+其它后端返回空句柄而非半可用连接池。两条约定同时写在 `sz_orm_cabi.h` 顶部的
+ABI 契约横幅中。
+
+**绑定状态矩阵**（2026-10-27 评定，详见
+`docs/assessment/2026-10-26-fullstack-review.md`）：
+
+| 绑定 | 状态 | 覆盖范围 |
+|------|------|---------|
+| C#（`packages/sz-orm-cabi/csharp/`） | ⚠️ 真实但覆盖面窄（37 个 C ABI 导出中封装 9 个，公开方法 7 个） | P/Invoke 建池/查询/执行，UTF-8 编解码（`LPUTF8Str`/`PtrToStringUTF8`），原子化 `IDisposable` 句柄封装，结构体镜像 `#[repr(C)]` 布局；E2E 套件（含非 ASCII 往返断言）已接入 2026-10-28 新增的 CI `csharp-binding` job——该 job 尚未在本机观察到绿色（本机无 .NET SDK，未实跑）——暂无 NuGet 包，事务/模型/QueryBuilder 面未封装 |
+| Python（`packages/sz-orm-python/`，PyO3） | ✅ 真实（SQLite） | `Pool`/`QueryBuilder`/`Transaction` 真实；`Model`/`ActiveModel`/`Repository` 为内存值对象 |
+| JavaScript（`packages/sz-orm-js/`，napi-rs） | ✅ 真实（SQLite） | `Pool`（须先 `connect(dsn)`）/`QueryBuilder`/事务真实；`Model` 为值对象；类型声明见 `index.d.ts` |
+| Java（`packages/sz-orm-java/`，JNI） | ⚠️ 部分可用 | 仅 Pool 级 CRUD；事务/模型/QueryBuilder 的 JNI 导出在 Rust 侧齐全，但 Java 侧尚无封装类 |
+| Go（`packages/sz-orm-go/`） | ⚠️ 部分可用，**仅 Windows** | 经 `syscall` 加载 `sz_orm_go.dll`（8 个基础符号）；Unix `dlopen` 需 cgo 变体，**暂未提供**（`go/szorm/dll_unix.go`） |
+| C++（`packages/sz-orm-cpp/`） | ⚠️ 部分可用 | RAII `szorm::Pool` 封装（`cpp/szorm.h`）；暂无 Transaction/Model 类；无 C++ 侧测试 |
+
+FFI 层共享一个 tokio runtime；可在首次建池前通过
+`sz_orm_set_runtime_workers(n)` 调整其 worker 数（声明见 `sz_orm_cabi.h`）。
+
+> **发布说明**：crates.io 发布滞后于主分支。如需最新能力，请使用 git/path 依赖
+> ——上方 Quick Start 已推荐与生产试点一致的 path 依赖方式。
+
 ## 核心 API
 
 ### QueryBuilder 链式 API
@@ -534,6 +588,7 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 QueryBuilder::<M>::new(dialect)
     .table("users")
     .select(vec!["id", "name"])
+    .expect("valid columns")                                   // select() 返回 Result
     .where_eq("status", Value::String("active".to_string()))  // AND
     .or_where_eq("role", Value::String("admin".to_string()))   // OR
     .where_in("id", vec![Value::I64(1), Value::I64(2)])
@@ -611,7 +666,7 @@ tx.commit().await?;
 ### 迁移系统
 
 ```rust
-use sz_orm_core::migration::{FileMigrationResolver, MigrationContext, Migrator, SchemaBuilder};
+use sz_orm_core::migration::{ColumnDef, FileMigrationResolver, ForeignKeyDef, IndexDef, MigrationContext, Migrator, SchemaBuilder};
 use sz_orm_core::{MigrationResolver, DbType};
 
 // 文件迁移：<version>_<name>_up.sql / <version>_<name>_down.sql
@@ -822,18 +877,48 @@ sz-orm sql:validate "SELECT * FROM users"  # SQL 校验
 
 ## 示例
 
-`examples/` 目录提供 8 个可运行示例：
+`examples/` 目录提供 38 个可运行示例：
 
 | 示例 | 描述 | 运行 |
 |------|------|------|
-| `quick_start` | QueryBuilder 基础 | `cargo run -p sz-orm-examples --bin quick_start` |
-| `model_definition` | Model + ModelExt 完整实现 | `cargo run -p sz-orm-examples --bin model_definition` |
-| `transaction` | 事务 + 保存点 | `cargo run -p sz-orm-examples --bin transaction` |
-| `migration` | SchemaBuilder DDL | `cargo run -p sz-orm-examples --bin migration` |
-| `hooks_soft_delete` | 钩子 + 软删除 | `cargo run -p sz-orm-examples --bin hooks_soft_delete` |
-| `multi_tenant` | 多租户隔离 | `cargo run -p sz-orm-examples --bin multi_tenant` |
-| `production_app` | 生产应用模式 | `cargo run -p sz-orm-examples --bin production_app` |
-| `production_dtx` | 分布式事务模式 | `cargo run -p sz-orm-examples --bin production_dtx` |
+| `ai_integration_demo` | AI 深度集成端到端演示 | `cargo run -p sz-orm-examples --bin ai_integration_demo` |
+| `backpressure_stream_demo` | 流背压演示 | `cargo run -p sz-orm-examples --bin backpressure_stream_demo` |
+| `batch_parallel_demo` | 批量并行执行演示 | `cargo run -p sz-orm-examples --bin batch_parallel_demo` |
+| `cdc_realtime_sync_demo` | CDC 实时数据同步演示 | `cargo run -p sz-orm-examples --bin cdc_realtime_sync_demo` |
+| `composable_plugin_demo` | 可组合插件系统完整使用 | `cargo run -p sz-orm-examples --bin composable_plugin_demo` |
+| `db_verify_test` | 编译期连真 DB 验证（`query!` db-verify） | `cargo run -p sz-orm-examples --bin db_verify_test` |
+| `dist_coordination_demo` | 分布式协调演示 | `cargo run -p sz-orm-examples --bin dist_coordination_demo` |
+| `eco_extension_demo` | 生态扩展端到端演示 | `cargo run -p sz-orm-examples --bin eco_extension_demo` |
+| `graph_traversal_demo` | 图遍历 API 演示 | `cargo run -p sz-orm-examples --bin graph_traversal_demo` |
+| `ha_failover_demo` | 高可用故障转移演示 | `cargo run -p sz-orm-examples --bin ha_failover_demo` |
+| `hooks_soft_delete` | 钩子系统 — 软删除 + 全局作用域 | `cargo run -p sz-orm-examples --bin hooks_soft_delete` |
+| `l2_cache_singleflight_demo` | L2Cache SingleFlight 缓存击穿防护演示 | `cargo run -p sz-orm-examples --bin l2_cache_singleflight_demo` |
+| `migration` | 迁移系统 — 文件迁移 + SchemaBuilder | `cargo run -p sz-orm-examples --bin migration` |
+| `model_definition` | Model 定义 — Model + ModelExt traits | `cargo run -p sz-orm-examples --bin model_definition` |
+| `multi_region_demo` | 多区域多活演示 | `cargo run -p sz-orm-examples --bin multi_region_demo` |
+| `multi_tenant` | 多租户 — TenantModel + TenantScope | `cargo run -p sz-orm-examples --bin multi_tenant` |
+| `nl_query_demo` | AI 自然语言查询演示 | `cargo run -p sz-orm-examples --bin nl_query_demo` |
+| `olap_vectorized_demo` | OLAP 向量化分析查询演示 | `cargo run -p sz-orm-examples --bin olap_vectorized_demo` |
+| `parallel_join_demo` | `parallel_join!` 宏演示 | `cargo run -p sz-orm-examples --bin parallel_join_demo` |
+| `parallel_queries_demo` | `parallel_queries` 并行查询演示 | `cargo run -p sz-orm-examples --bin parallel_queries_demo` |
+| `perf_accel_demo` | 性能加速端到端示例 | `cargo run -p sz-orm-examples --bin perf_accel_demo` |
+| `prepared_cache_demo` | `prepared_cache` 预编译缓存演示 | `cargo run -p sz-orm-examples --bin prepared_cache_demo` |
+| `production_app` | 生产案例 — 电商订单管理系统（集成 6 个扩展包） | `cargo run -p sz-orm-examples --bin production_app` |
+| `production_dtx` | 生产案例 — 跨分片分布式订单系统 | `cargo run -p sz-orm-examples --bin production_dtx` |
+| `query_auto_tuning_demo` | 查询自调优演示 | `cargo run -p sz-orm-examples --bin query_auto_tuning_demo` |
+| `quick_start` | 快速入门 — QueryBuilder 基础用法 | `cargo run -p sz-orm-examples --bin quick_start` |
+| `rbac_abac_demo` | RBAC + ABAC 权限模型演示 | `cargo run -p sz-orm-examples --bin rbac_abac_demo` |
+| `real_db_crud` | 真实数据库端到端 — 连接池 + CRUD + 事务 | `cargo run -p sz-orm-examples --bin real_db_crud` |
+| `serverless_demo` | Serverless 适配示例 | `cargo run -p sz-orm-examples --bin serverless_demo` |
+| `stream_processing_demo` | 实时流处理示例 | `cargo run -p sz-orm-examples --bin stream_processing_demo` |
+| `stream_unified_demo` | `stream_unified` 统一流演示 | `cargo run -p sz-orm-examples --bin stream_unified_demo` |
+| `sz_pay_pattern` | SZ-PAY 生产使用模式示例（脱敏版） | `cargo run -p sz-orm-examples --bin sz_pay_pattern` |
+| `sz_rust_integration_example` | sz-rust 协同集成 — 多后端透明访问 | `cargo run -p sz-orm-examples --bin sz_rust_integration_example` |
+| `tde_demo` | TDE 透明数据加密完整示例 | `cargo run -p sz-orm-examples --bin tde_demo` |
+| `transaction` | 事务 — ACID 事务与保存点用法 | `cargo run -p sz-orm-examples --bin transaction` |
+| `transaction_run_demo` | `run_transaction` / `run_savepoint` 闭包模板演示 | `cargo run -p sz-orm-examples --bin transaction_run_demo` |
+| `v900_perf_demo` | v9.0.0 性能优化示例 | `cargo run -p sz-orm-examples --bin v900_perf_demo` |
+| `wiring_smoke` | 接线冒烟示例 — 生产入口（门禁 15 证据） | `cargo run -p sz-orm-examples --bin wiring_smoke` |
 
 ## 测试
 
@@ -849,7 +934,7 @@ SZ-ORM 通过 **7 线验证体系**保障质量：
 | **Chaos** | 故障鲁棒性 | `chaos.rs` |
 | **Formal** | 形式化不变量验证 | `formal.rs` |
 
-**总计：9905 tests, 0 failed**（部分测试需真实 DB/云凭证）
+**总计：21274 tests, 0 failed**（部分测试需真实 DB/云凭证）
 
 ### 运行测试
 
@@ -934,17 +1019,17 @@ cargo deny check advisories bans licenses sources
 |------|------|--------|
 | Oracle 集成测试 | ✅ 完成 | `tests/integration_oracle.rs` 追加 7 类场景，10 测试通过 |
 | SQL Server 集成测试 | ✅ 完成 | `tests/integration_mssql.rs` 新建 8 类场景，5 方言断言通过 |
-| Python 绑定（PyO3） | ✅ 完成 | `packages/sz-orm-python/`，暴露 PyModel/PyQueryBuilder/PyPool/PyTransaction |
-| JavaScript 绑定（napi-rs） | ✅ 完成 | `packages/sz-orm-js/`，暴露 Model/QueryBuilder/Pool/Transaction |
+| Python 绑定（PyO3） | ✅ 真实（SQLite） | `packages/sz-orm-python/`：PyPool/PyQueryBuilder/PyTransaction 真实（SQLite，事务经 `Pool.create_transaction()`）；PyModel/ActiveModel/Repository 为内存值对象 |
+| JavaScript 绑定（napi-rs） | ✅ 真实（SQLite） | `packages/sz-orm-js/`：Pool/QueryBuilder 真实（SQLite，事务经 `Pool.async_begin/commit/rollback`）；Model 为值对象 |
 | 安全专项审计 | ✅ 完成 | `docs/assessment/2026-08-05-security-audit-report.md`，7 维度覆盖 |
 
-### 门禁验证
+### 门禁验证（v2.0.0 历史记录——当时共 11 道门禁，当前门禁总表见上文）
 
 11 道门禁中 9 项通过，2 项环境限制（`cargo audit` 网络受限、`--all-features` 缺 protoc）。
 
 ### 审计结论
 
-🟡 中等风险：3 处已废弃 `where_cond`/`or_where` 需在 v2.0.0 移除，unwrap/expect 需补齐 SAFETY 注释。详见 [安全审计报告](docs/assessment/2026-08-05-security-audit-report.md)。
+🟡 中等风险：3 处已废弃 `where_cond`/`or_where` 需在 v2.0.0 移除，unwrap/expect 需补齐 SAFETY 注释。详见 [安全审计报告](docs/assessment/2026-08-14-security-audit.md)。
 
 ---
 
@@ -982,10 +1067,10 @@ criterion 基准（sample_size=10, measurement_time=3s, warm_up=1s, Windows；�
 | [学习教程](docs/sz-orm学习路线图.md) | 面向 PHP/ThinkPHP 工程师的具体学习教程（含 Rust 速通 + AI 协作姿势） |
 | [使用指南](docs/sz-orm使用指南.md) | 端到端使用指南（v5.0，覆盖全部 21 个高级模块） |
 | [API 参考](docs/sz-ormAPI参考.md) | 类型签名与参数文档（v5.0） |
-| [架构设计](docs/sz-orm架构设计.md) | 39 包架构概览 |
+| [架构设计](docs/sz-orm架构设计.md) | 工作空间架构概览 |
 | [工程实践](docs/sz-orm-engineering-practices.md) | Gate 1-10 + 测试金字塔 T1-T6 |
 | [API 契约](docs/api-contracts.md) | 公共 API 稳定性契约 |
-| [ADR 索引](docs/adr/README.md) | 架构决策记录（9 条 ADR） |
+| [ADR 索引](docs/adr/README.md) | 架构决策记录（11 条 ADR） |
 | [ADR 与 Bug 定位规范](docs/ADR与生产Bug定位规范.md) | 可复用规范：ADR 写作 + 四层 bug 定位流程 + 有效性验证（v1.0） |
 
 ## 许可证

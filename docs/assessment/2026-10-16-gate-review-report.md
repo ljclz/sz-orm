@@ -1,4 +1,5 @@
 # 门禁审查报告（2026-10-16）
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 - 分支 / commit：`main` @ `100eddfe`（工作区含未提交改动，版本 10.6.0）
 - 范围：G1~G23 全量审查（`/sz-orm-review`）
@@ -38,7 +39,7 @@
 
 ## G20 专项说明（变异测试杀率）
 
-**结论：Windows 本地无法在合理时间完成全量/大子集变异测试；已利用第二台服务器（121.204.253.75，Linux）执行定向变异验证。完整 10 文件子集（2352 变异体）需数小时，建议在 CI/服务器空闲时段运行 `collect-mutation-linux.sh --fail-under 70` 复跑确认。**
+**结论：Windows 本地无法在合理时间完成全量/大子集变异测试；已利用第二台服务器（<remote-server-ip>，Linux）执行定向变异验证。完整 10 文件子集（2352 变异体）需数小时，建议在 CI/服务器空闲时段运行 `collect-mutation-linux.sh --fail-under 70` 复跑确认。**
 
 ### 本机尝试（Windows）
 
@@ -48,7 +49,7 @@
 
 ### 第二台服务器执行（Linux 定向变异）
 
-- 服务器：`121.204.253.75`（root:32，40 核 62GB，cargo 1.98.1，cargo-mutants 27.1.0），代码已同步为本地工作区（v10.7.0）。
+- 服务器：`<remote-server-ip>`（root:32，40 核 62GB，cargo 1.98.1，cargo-mutants 27.1.0），代码已同步为本地工作区（v10.7.0）。
 - **全量 10 文件子集**：cargo-mutants 检出 2352 变异体；因服务器上同时运行 szrsql 项目（load 79+），并行 16 worker 严重过载且独立 build 目录编译依赖极慢，数小时内无法完成，已停止。
 - **定向最小 diff**（仅 known_good 快速路径 hunk，`pool.rs:2698-2718`）：cargo-mutants 生成 **1 个变异体，判定 unviable**——变异为 `Pool::acquire` 返回类型替换 `Ok(Default::default())`，因 `PooledConnection` 不实现 `Default` 编译失败（`pool.rs:2696`）。该变异体与 known_good 清除逻辑无关，且**无存活有害变异体**。
 - 服务器源码已确认无 cargo-mutants 残留（`grep 'changed by cargo-mutants'` 0 命中），临时文件已清理。

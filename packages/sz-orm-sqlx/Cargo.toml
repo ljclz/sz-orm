@@ -16,8 +16,10 @@ async-trait.workspace = true
 tokio = { workspace = true, features = ["sync"] }
 serde = { workspace = true }
 serde_json = { workspace = true }
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal", "uuid"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "rust_decimal", "bigdecimal", "uuid"] }
 rust_decimal = "1.36"
+# R2：NUMERIC/DECIMAL(38) 无损解码（rust_decimal 仅 96 位尾数，会在 29 位有效数字处截断）
+bigdecimal = "0.4"
 # 流式查询：try_stream! 宏实现 Connection::query_stream
 async-stream = "0.3"
 # Stream trait 与 StreamExt::next（fetch 流式结果迭代）
@@ -59,6 +61,8 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 proptest = { workspace = true }
 # 流式查询测试：StreamExt::next（与主依赖同一 workspace 版本，零额外编译）
 futures.workspace = true
+# 2026-10-28 P1-3：查询指标接线测试（install_query_metrics + 全局 AlertMetricHandles）
+sz-orm-observability = { path = "../sz-orm-observability" }
 
 [lib]
 name = "sz_orm_sqlx"

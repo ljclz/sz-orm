@@ -1,4 +1,5 @@
 # 本机集成测试服务补齐评估（2026-10-06）
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 - 评估范围：G7 集成测试排除清单中三套件依赖服务 —— ClickHouse / SQL Server / Redis
 - 评估目标：确认本机是否可补齐上述服务，消除排除项，扩大 G7 本机可执行范围
@@ -73,9 +74,9 @@
 
 - **本机现状**：9004 端口未监听，无 `clickhouse` 命令，无 Docker，WSL 无发行版。
 - **障碍**：官方 release 与安装文档均不提供 Windows 原生二进制；社区第三方 Windows 构建来源不可控，不建议用于测试基线。
-- **已验证路径（2026-10-06，成本低）**：使用 122 服务器（122.51.216.76）上的 `szorm-clickhouse` Docker 容器（`clickhouse/clickhouse-server:latest`，MySQL 兼容端口 `9004`），经 SSH 隧道映射到本机：
+- **已验证路径（2026-10-06，成本低）**：使用 122 服务器（<legacy-server-ip>）上的 `szorm-clickhouse` Docker 容器（`clickhouse/clickhouse-server:latest`，MySQL 兼容端口 `9004`），经 SSH 隧道映射到本机：
   ```bash
-  ssh -i ~/.ssh/szorm_server_122 -f -N -L 19004:127.0.0.1:9004 root@122.51.216.76
+  ssh -i ~/.ssh/szorm_server_122 -f -N -L 19004:127.0.0.1:9004 root@<legacy-server-ip>
   SZ_ORM_CLICKHOUSE_URL="mysql://default:@127.0.0.1:19004/default" \
     cargo test -p sz-orm-core --test integration_clickhouse -- --ignored --nocapture
   # 输出：test result: ok. 3 passed; 0 failed
@@ -93,7 +94,7 @@
   - LocalDB 默认仅支持**命名管道**连接，不监听 TCP 1433；
   - 集成测试硬编码 TCP `127.0.0.1:1433` + `AuthMethod::sql_server(user, password)`（SQL 认证），LocalDB 默认 Windows 认证，不匹配。
 - **云数据库路径（已失效）**：历史使用的腾讯云 MSSQL 实例 `sh-mssql-adrul9nm.sql.tencentcdb.com`（`docs/assessment/2026-09-25-gate-block-report.md:157`）实测 `nslookup` 返回 NXDOMAIN、`socket.gethostbyname` 报 `getaddrinfo failed` —— **实例已下线**。
-- **服务器 Docker 路径（已尝试，失败）**：在 121.204.253.75 与 122.51.216.76 两台服务器上 `docker pull mcr.microsoft.com/mssql/server:2019-latest`：
+- **服务器 Docker 路径（已尝试，失败）**：在 <remote-server-ip> 与 <legacy-server-ip> 两台服务器上 `docker pull mcr.microsoft.com/mssql/server:2019-latest`：
   - manifest 小请求可达（HTTP 200），但大 blob 传输（约 530MB，最大层 413MB）反复 `connection reset by peer` 中断；
   - 各镜像加速源（mcr.azk8s.cn / docker.m.daocloud.io / mcr.dockerproxy.com / docker.1panel.live / dockerproxy.net）分别返回 401/403/404/无响应，均不可用。
 - **可补齐路径（成本高）**：
@@ -132,7 +133,7 @@ cargo test -p sz-orm-core --test integration_redis -- --ignored --nocapture
 curl -sI --max-time 15 https://packages.clickhouse.com/tgz/stable/
 
 # ClickHouse 经 122 服务器 Docker + SSH 隧道（G7，实测 3/3 通过）
-ssh -i ~/.ssh/szorm_server_122 -f -N -L 19004:127.0.0.1:9004 root@122.51.216.76
+ssh -i ~/.ssh/szorm_server_122 -f -N -L 19004:127.0.0.1:9004 root@<legacy-server-ip>
 SZ_ORM_CLICKHOUSE_URL="mysql://default:@127.0.0.1:19004/default" \
   cargo test -p sz-orm-core --test integration_clickhouse -- --ignored --nocapture
 

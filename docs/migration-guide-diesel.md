@@ -6,6 +6,8 @@
 > 关联任务：M6-T3.1
 > 关联设计：design.md §5.1.6 M6-T6
 
+> ⚠️ **版本适用性**：本指南示例基于 v3.5.0（2026-08-09）编写，SZ-ORM API 迭代较快；若示例与当前版本冲突，以 [packages/sz-orm-core/src](../packages/sz-orm-core/src/) 源码为准。真实执行链路见 [SQLx 指南 §3.8](migration-guide-sqlx.md#38-真实执行链路当前版本已验证)（三份迁移指南共用同一套执行 API）。
+
 本指南帮助 Diesel 用户迁移到 SZ-ORM，包含概念映射表、API 对照表、示例代码和常见陷阱。
 
 ---
@@ -72,11 +74,18 @@ let users: Vec<User> = users::table
 
 **SZ-ORM:**
 ```rust
-let users: Vec<User> = User::query(&pool)
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, QueryBuilder, Value};
+
+let dialect = get_dialect(DbType::PostgreSQL)?;
+let (sql, params) = QueryBuilder::<User>::new(dialect)
+    .table("users")
+    .select(vec!["id", "name"])
+    .expect("valid columns")
     .where_eq("id", Value::I32(1))
     .limit(10)
-    .find_all()
-    .await?;
+    .build_select_with_params();
+// 执行：conn.query_with_params(&sql, &params).await?;
 ```
 
 ### 2.3 类型安全查询（启用 `type-safe-columns` feature）
@@ -90,11 +99,18 @@ let users = users::table
 
 **SZ-ORM:**
 ```rust
-let expr = UsersId.eq(1i64).and(UsersName.like("%Alice%"));
-let users: Vec<User> = User::query(&pool)
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, QueryBuilder, Value};
+
+let dialect = get_dialect(DbType::PostgreSQL)?;
+let (sql, params) = QueryBuilder::<User>::new(dialect)
+    .table("users")
+    .select(vec!["id", "name"])
+    .expect("valid columns")
     .where_expr(expr)
-    .find_all()
-    .await?;
+    .limit(10)
+    .build_select_with_params();
+// 执行：conn.query_with_params(&sql, &params).await?;
 ```
 
 ### 2.4 INSERT
@@ -108,10 +124,18 @@ diesel::insert_into(users::table)
 
 **SZ-ORM:**
 ```rust
-let mut user = User::new();
-user.set("name", "Alice");
-user.set("email", Value::Null);
-user.save(&pool).await?;
+use std::collections::HashMap;
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, QueryBuilder, Value};
+
+let dialect = get_dialect(DbType::PostgreSQL)?;
+let mut data = HashMap::new();
+data.insert("name".to_string(), Value::String("Alice".into()));
+data.insert("email".to_string(), Value::Null);
+let sql = QueryBuilder::<User>::new(dialect)
+    .table("users")
+    .sql_insert(&data);
+// 执行：conn.execute(&sql).await?;
 ```
 
 ### 2.5 UPDATE
@@ -125,9 +149,18 @@ diesel::update(users::table.filter(users::id.eq(1)))
 
 **SZ-ORM:**
 ```rust
-let mut user = User::find(&pool, 1).await?.unwrap();
-user.set("name", "Bob");
-user.save(&pool).await?;
+use std::collections::HashMap;
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, QueryBuilder, Value};
+
+let dialect = get_dialect(DbType::PostgreSQL)?;
+let mut data = HashMap::new();
+data.insert("name".to_string(), Value::String("Bob".into()));
+let (sql, params) = QueryBuilder::<User>::new(dialect)
+    .table("users")
+    .where_eq("id", Value::I64(1))
+    .build_update_with_params(&data);
+// 执行：conn.query_with_params(&sql, &params).await?;
 ```
 
 ### 2.6 DELETE
@@ -140,7 +173,15 @@ diesel::delete(users::table.filter(users::id.eq(1)))
 
 **SZ-ORM:**
 ```rust
-User::delete_by_id(&pool, 1).await?;
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, QueryBuilder, Value};
+
+let dialect = get_dialect(DbType::PostgreSQL)?;
+let (sql, params) = QueryBuilder::<User>::new(dialect)
+    .table("users")
+    .where_eq("id", Value::I64(1))
+    .build_delete();
+// 执行：conn.query_with_params(&sql, &params).await?;
 ```
 
 ### 2.7 关联查询
@@ -154,11 +195,17 @@ let users_with_posts: Vec<(User, Vec<Post>)> = users::table
 
 **SZ-ORM:**
 ```rust
-let users: Vec<User> = User::query(&pool)
-    .with("posts")  // 预加载关联
-    .find_all()
-    .await?;
-// 通过 user.posts() 访问关联
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, QueryBuilder};
+
+let dialect = get_dialect(DbType::PostgreSQL)?;
+let (sql, params) = QueryBuilder::<User>::new(dialect)
+    .table("users")
+    .select(vec!["id", "name"])
+    .expect("valid columns")
+    .join_left("posts", "users.id", "posts.user_id")
+    .build_select_with_params();
+// 执行：conn.query_with_params(&sql, &params).await?;  // 关联列在返回行中
 ```
 
 ### 2.8 事务
@@ -174,7 +221,8 @@ conn.transaction(|conn| {
 
 **SZ-ORM:**
 ```rust
-let mut tx = pool.begin().await?;
+// conn: 从连接池获取的连接（Connection trait 提供 begin_transaction）
+let mut tx = conn.begin_transaction().await?;
 tx.execute(&insert_sql).await?;
 tx.execute(&update_sql).await?;
 tx.commit().await?;
@@ -201,16 +249,17 @@ Diesel 是同步的，SZ-ORM 是异步的（基于 tokio）。迁移时需要：
 | `Varchar` | `String` / `Value::String` | 一致 |
 | `Nullable<T>` | `Option<T>` / `Value::Null` | SZ-ORM 用 `Value::Null` 表示 NULL |
 | `Timestamp` | `chrono::DateTime` | 需要 chrono feature |
-| `Decimal` | `f64` / `Value::F64` | SZ-ORM 用 f64 近似 |
+| `Decimal` | `Value::Decimal(String)` | 以字符串承载小数，**避免 f64 精度丢失**；Rust 侧可用 `rust_decimal`/`bigdecimal` 解析 |
 
 ### 3.3 方言差异
 
-Diesel 默认使用 PostgreSQL 方言，SZ-ORM 支持 18 种方言：
+Diesel 默认使用 PostgreSQL 方言，SZ-ORM 支持 28 种数据库方言（24 种 SQL + 4 种 NoSQL）：
 - MySQL（反引号 `` ` `` 引用标识符）
 - PostgreSQL（双引号 `"` 引用标识符）
 - SQLite、Oracle、MSSQL、ClickHouse、DuckDB、DB2
 - 国产信创（DM/Kingbase/PolarDB/GaussDB/GBase/Sybase）
-- v3.5.0 新增：CockroachDB、YugabyteDB
+- 云原生与新数据源：CockroachDB、YugabyteDB、Snowflake、Redshift、Informix、SAP HANA、Firebird
+- 完整清单以 `DbType` 枚举（`packages/sz-orm-core/src/db_type.rs`）为准
 
 迁移时注意标识符引用方式不同。
 
@@ -231,7 +280,8 @@ Diesel 使用 `r2d2` 连接池（同步），SZ-ORM 使用自研无锁连接池�
 
 Diesel 使用 `diesel migration` CLI，SZ-ORM 使用 `Migrator`：
 - SZ-ORM 迁移文件格式与 Diesel 类似（版本号 + up/down SQL）
-- 支持 `Migrator::new()` + `migrator.run(&pool).await?`
+- 迁移 API：`Migrator::new(MigrationContext::default()).add_migrations(vec![Migration::new("001", "name", up_sql, down_sql)])` 后调用 `migrator.migrate().await?`
+- 目录迁移用 `FileMigrationResolver::new("./migrations".into()).resolve(DbType::MySQL)?` 加载 `<version>_<name>_up.sql` / `_down.sql`
 
 ---
 
@@ -240,45 +290,77 @@ Diesel 使用 `diesel migration` CLI，SZ-ORM 使用 `Migrator`：
 1. **添加依赖**：`cargo add sz-orm-core sz-orm-macros tokio`
 2. **选择方言**：`use sz_orm_core::DbType;` + `get_dialect(DbType::PostgreSQL)?`
 3. **定义 Model**：将 `table!` 宏改为 `#[derive(Schema)]`
-4. **替换查询**：将 `diesel::` 调用改为 `QueryBuilder<M>` 或 `Model::query()`
+4. **替换查询**：将 `diesel::` 调用改为 `QueryBuilder<M>`（`.build_select_with_params()` 得到 `(sql, params)` 后执行）
 5. **异步化**：添加 `.await` + `#[tokio::main]`
 6. **测试**：运行 `cargo test` 确保行为不变
 
 ---
 
-## 5. 完整示例
+## 5. 完整示例（真实 API）
+
+> 本示例基于当前仓库（v10.x）真实存在的 API，可直接放入 tokio 项目编译运行（数据库连接需按环境调整）。
 
 ```rust
-use sz_orm_core::{DbType, Value, get_dialect};
+use std::collections::HashMap;
+use std::sync::Arc;
 
-#[derive(Schema, FromQueryResult)]
-#[table(name = "users")]
+use sz_orm_core::dialect::get_dialect;
+use sz_orm_core::{DbType, Model, Pool, PoolConfigBuilder, QueryBuilder, TimestampFields, Value};
+use sz_orm_sqlx::{SqlitePoolHandle, SqlxSqliteConnectionFactory};
+
+#[derive(Debug, Clone, Default)]
+#[allow(dead_code)]
 struct User {
-    #[column(primary_key)]
-    id: i32,
+    id: i64,
     name: String,
     email: Option<String>,
 }
 
+impl Model for User {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str { "users" }
+    fn pk(&self) -> Self::PrimaryKey { self.id }
+    fn set_pk(&mut self, pk: Self::PrimaryKey) { self.id = pk; }
+    fn timestamp_fields() -> Option<TimestampFields> {
+        Some(TimestampFields::with_both("created_at", "updated_at"))
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let pool = Pool::builder()
-        .max_size(10)
-        .build(&factory)
-        .await?;
+    // 连接池（SQLite 内存库，免安装）
+    let handle = SqlitePoolHandle::connect("sqlite::memory:").await?;
+    let factory = Arc::new(SqlxSqliteConnectionFactory::new(Arc::new(handle)));
+    let config = PoolConfigBuilder::new().max_size(10).build()?;
+    let pool = Pool::new(config, factory)?;
 
-    // SELECT
-    let users: Vec<User> = User::query(&pool)
-        .where_eq("name", Value::String("Alice".into()))
+    let mut conn = pool.acquire().await?;
+
+    // 建表（示例用；迁移项目建议用迁移系统）
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS users (id INTEGER PRIMARY KEY AUTOINCREMENT, name TEXT NOT NULL, email TEXT)",
+    )
+    .await?;
+
+    // SELECT WHERE + LIMIT
+    let (sql, params) = QueryBuilder::<User>::new(get_dialect(DbType::Sqlite)?)
+        .table("users")
+        .select(vec!["id", "name", "email"])
+        .expect("valid columns")
+        .where_eq("name", Value::String("Alice".to_string()))
         .limit(10)
-        .find_all()
-        .await?;
+        .build_select_with_params();
+    let rows = conn.query_with_params(&sql, &params).await?;
+    println!("rows = {}", rows.len());
 
     // INSERT
-    let mut user = User::new();
-    user.set("name", "Bob");
-    user.set("email", Value::Null);
-    user.save(&pool).await?;
+    let mut data = HashMap::new();
+    data.insert("name".to_string(), Value::String("Bob".to_string()));
+    data.insert("email".to_string(), Value::Null);
+    let insert_sql = QueryBuilder::<User>::new(get_dialect(DbType::Sqlite)?)
+        .table("users")
+        .sql_insert(&data);
+    conn.execute(&insert_sql).await?;
 
     Ok(())
 }

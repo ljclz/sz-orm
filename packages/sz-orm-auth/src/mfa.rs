@@ -142,6 +142,31 @@ impl TotpVerifier {
         false
     }
 
+    /// 带失败退避的验证（v10.13.0 / M-8）
+    ///
+    /// 语义：
+    /// - `key` 处于退避期 → 直接拒绝（不消耗验证尝试）
+    /// - 验证成功 → 清零失败计数并返回 true
+    /// - 验证失败 → 记录失败并返回 false
+    pub fn verify_with_guard(
+        &self,
+        guard: &TotpAttemptGuard,
+        key: &str,
+        base32_secret: &str,
+        code: &str,
+    ) -> bool {
+        if guard.is_blocked(key) {
+            return false;
+        }
+        if self.verify(base32_secret, code) {
+            guard.record_success(key);
+            true
+        } else {
+            guard.record_failure(key);
+            false
+        }
+    }
+
     /// HOTP 算法（RFC 4226）
     fn generate_hotp(&self, base32_secret: &str, counter: u64) -> String {
         let key = base32_decode(base32_secret).unwrap_or_default();
@@ -173,6 +198,86 @@ impl TotpVerifier {
 impl Default for TotpVerifier {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+/// TOTP 验证失败尝试跟踪器（v10.13.0 / M-8：防在线暴力破解）
+///
+/// 6 位 TOTP 码空间仅 10^6，且允许 ±drift 窗口；无尝试限制时可被在线爆破。
+/// 本组件为**可选**防护：应用层在验证前调用 [`is_blocked`](Self::is_blocked)，
+/// 失败后调用 [`record_failure`](Self::record_failure)，成功后调用
+/// [`record_success`](Self::record_success) 清零。连续失败达 `max_attempts`
+/// 次后，该 key 在 `backoff` 时间内拒绝验证。
+///
+/// 便捷入口：[`TotpVerifier::verify_with_guard`]。
+pub struct TotpAttemptGuard {
+    max_attempts: u32,
+    backoff: std::time::Duration,
+    attempts: parking_lot::Mutex<std::collections::HashMap<String, AttemptRecord>>,
+}
+
+#[derive(Clone, Copy)]
+struct AttemptRecord {
+    count: u32,
+    last_failure_ms: u128,
+}
+
+impl TotpAttemptGuard {
+    /// 创建跟踪器：连续失败 `max_attempts` 次后进入 `backoff` 退避期
+    pub fn new(max_attempts: u32, backoff: std::time::Duration) -> Self {
+        Self {
+            max_attempts: max_attempts.max(1),
+            backoff,
+            attempts: parking_lot::Mutex::new(std::collections::HashMap::new()),
+        }
+    }
+
+    fn now_ms() -> u128 {
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_millis())
+            .unwrap_or(0)
+    }
+
+    /// 该 key 当前是否处于退避期（应拒绝验证）
+    pub fn is_blocked(&self, key: &str) -> bool {
+        let map = self.attempts.lock();
+        match map.get(key) {
+            Some(r) => {
+                r.count >= self.max_attempts
+                    && Self::now_ms().saturating_sub(r.last_failure_ms) < self.backoff.as_millis()
+            }
+            None => false,
+        }
+    }
+
+    /// 记录一次验证失败
+    pub fn record_failure(&self, key: &str) {
+        let mut map = self.attempts.lock();
+        let now = Self::now_ms();
+        let entry = map.entry(key.to_string()).or_insert(AttemptRecord {
+            count: 0,
+            last_failure_ms: now,
+        });
+        entry.count = entry.count.saturating_add(1);
+        entry.last_failure_ms = now;
+    }
+
+    /// 验证成功：清零该 key 的失败计数
+    pub fn record_success(&self, key: &str) {
+        self.attempts.lock().remove(key);
+    }
+
+    /// 当前被跟踪的 key 数（监控/测试用）
+    pub fn tracked_keys(&self) -> usize {
+        self.attempts.lock().len()
+    }
+}
+
+impl Default for TotpAttemptGuard {
+    /// 默认策略：5 次失败后退避 5 分钟
+    fn default() -> Self {
+        Self::new(5, std::time::Duration::from_secs(300))
     }
 }
 
@@ -331,6 +436,58 @@ fn constant_time_eq(a: &[u8], b: &[u8]) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn test_attempt_guard_blocks_after_max_failures() {
+        // v10.13.0 (M-8)：连续失败达上限后进入退避期，其他 key 不受影响
+        let guard = TotpAttemptGuard::new(3, std::time::Duration::from_secs(60));
+        assert!(!guard.is_blocked("user1"));
+        guard.record_failure("user1");
+        guard.record_failure("user1");
+        assert!(!guard.is_blocked("user1"), "未达上限不应退避");
+        guard.record_failure("user1");
+        assert!(guard.is_blocked("user1"), "3 次失败后应进入退避期");
+        assert!(!guard.is_blocked("user2"), "其他 key 不受影响");
+    }
+
+    #[test]
+    fn test_attempt_guard_success_clears() {
+        let guard = TotpAttemptGuard::new(2, std::time::Duration::from_secs(60));
+        guard.record_failure("u");
+        guard.record_failure("u");
+        assert!(guard.is_blocked("u"));
+        guard.record_success("u");
+        assert!(!guard.is_blocked("u"), "成功后应清零失败计数");
+        assert_eq!(guard.tracked_keys(), 0);
+    }
+
+    #[test]
+    fn test_verify_with_guard_blocks_brute_force() {
+        let verifier = TotpVerifier::new();
+        let guard = TotpAttemptGuard::new(3, std::time::Duration::from_secs(60));
+        let secret = MfaSecret::new("acct", "issuer").base32_secret;
+        let good = verifier.generate_now(&secret);
+        // 确定性错误码：与正确码必然不同
+        let wrong = if good == "000000" { "000001" } else { "000000" };
+
+        for _ in 0..3 {
+            assert!(
+                !verifier.verify_with_guard(&guard, "user1", &secret, wrong),
+                "错误码应验证失败"
+            );
+        }
+        // 退避期内即使提交正确码也被拒绝（防爆破核心语义）
+        assert!(
+            !verifier.verify_with_guard(&guard, "user1", &secret, &good),
+            "退避期内正确码也应被拒绝"
+        );
+        // 管理侧清零（如用户完成邮箱二次验证）后恢复
+        guard.record_success("user1");
+        assert!(
+            verifier.verify_with_guard(&guard, "user1", &secret, &good),
+            "清零后正确码应通过"
+        );
+    }
 
     #[test]
     fn test_base32_encode_decode_roundtrip() {

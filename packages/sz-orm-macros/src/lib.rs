@@ -1586,7 +1586,7 @@ fn is_sql_function(name: &str) -> bool {
 /// Oracle compile-time verification: runs EXPLAIN PLAN FOR via the sqlplus command-line tool
 ///
 /// DSN format: `oracle://user:pass@host:port/service` (optional `?sysdba=1`)
-/// e.g.: `oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1`
+/// e.g.: `oracle://sys:test123@127.0.0.1:1521/freepdb1?sysdba=1`
 #[cfg(feature = "db-verify")]
 fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let parsed = parse_oracle_dsn(dsn)?;
@@ -1637,7 +1637,8 @@ fn verify_oracle(dsn: &str, explain_sql: &str) -> Result<(), String> {
 /// SQL Server compile-time verification: runs SET SHOWPLAN_TEXT ON via the sqlcmd command-line tool
 ///
 /// DSN format: `sqlserver://user:pass@host:port/db`
-/// e.g.: `sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test`
+/// e.g.: `sqlserver://test:<your-password>@db.example.com:1433/test`
+/// （2026-10-27 安全整改 H-3：文档中的真实 MSSQL 凭据已替换为占位符）
 #[cfg(feature = "db-verify")]
 fn verify_sqlserver(dsn: &str, explain_sql: &str) -> Result<(), String> {
     let parsed = parse_sqlserver_dsn(dsn)?;
@@ -2782,6 +2783,42 @@ pub fn derive_entity(input: TokenStream) -> TokenStream {
 }
 
 // ---------------------------------------------------------------------------
+// `#[derive(Model)]` — auto-generate `impl Model + ModelExt` (R5, 2026-10-27)
+// ---------------------------------------------------------------------------
+
+/// Derive macro: auto-generates `impl Model` + `impl ModelExt` for a struct.
+///
+/// Replaces the hand-written `impl Model for X { ... }` + `impl ModelExt for X { ... }`
+/// boilerplate (see `packages/sz-orm-core/src/model.rs`).
+///
+/// # Supported attributes
+///
+/// - `#[table(name = "...")]` — table name (defaults to the snake_case struct name)
+/// - `#[column(primary_key)]` — primary key field (defaults to the field named `id`)
+/// - `#[column(name = "...")]` — column name override (defaults to field name)
+/// - `#[column(skip)]` — excludes the field from columns/fillable/value mapping
+///
+/// # Example
+///
+/// ```ignore
+/// use sz_orm_macros::Model;
+///
+/// #[derive(Debug, Clone, Default, Model)]
+/// #[table(name = "users")]
+/// struct User {
+///     #[column(primary_key)]
+///     id: i64,
+///     name: String,
+///     email: Option<String>,
+/// }
+/// ```
+#[proc_macro_derive(Model, attributes(table, column))]
+pub fn derive_model(input: TokenStream) -> TokenStream {
+    let input = parse_macro_input!(input as syn::DeriveInput);
+    derive::derive_model_impl(input).into()
+}
+
+// ---------------------------------------------------------------------------
 // `#[derive(FromQueryResult)]` — auto-generate `impl FromQueryResult for Struct`
 // ---------------------------------------------------------------------------
 
@@ -3510,7 +3547,7 @@ mod tests {
     #[test]
     fn test_detect_db_kind_oracle() {
         assert_eq!(
-            detect_db_kind("oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1").unwrap(),
+            detect_db_kind("oracle://sys:test123@127.0.0.1:1521/freepdb1?sysdba=1").unwrap(),
             DbKind::Oracle
         );
         assert_eq!(
@@ -3546,13 +3583,13 @@ mod tests {
     #[cfg(feature = "db-verify")]
     #[test]
     fn test_parse_oracle_dsn_basic() {
-        let dsn = "oracle://sys:test123@127.0.0.1:1521/freepdb1.FALSE?sysdba=1";
+        let dsn = "oracle://sys:test123@127.0.0.1:1521/freepdb1?sysdba=1";
         let p = parse_oracle_dsn(dsn).unwrap();
         assert_eq!(p.user, "sys");
         assert_eq!(p.password, "test123");
         assert_eq!(p.host, "127.0.0.1");
         assert_eq!(p.port, 1521);
-        assert_eq!(p.service, "freepdb1.FALSE");
+        assert_eq!(p.service, "freepdb1");
         assert!(p.sysdba);
     }
 
@@ -3570,13 +3607,13 @@ mod tests {
     #[cfg(feature = "db-verify")]
     #[test]
     fn test_parse_sqlserver_dsn_basic() {
-        let dsn =
-            "sqlserver://test:JkbC2jsaWAYDe2Gz@sh-mssql-adrul9nm.sql.tencentcdb.com:22527/test";
+        // 2026-10-27 安全整改 H-3：测试夹具改用非真实凭据
+        let dsn = "sqlserver://test:ExamplePwdOnly4Test@db.example.com:1433/test";
         let p = parse_sqlserver_dsn(dsn).unwrap();
         assert_eq!(p.user, "test");
-        assert_eq!(p.password, "JkbC2jsaWAYDe2Gz");
-        assert_eq!(p.host, "sh-mssql-adrul9nm.sql.tencentcdb.com");
-        assert_eq!(p.port, 22527);
+        assert_eq!(p.password, "ExamplePwdOnly4Test");
+        assert_eq!(p.host, "db.example.com");
+        assert_eq!(p.port, 1433);
         assert_eq!(p.database, "test");
     }
 

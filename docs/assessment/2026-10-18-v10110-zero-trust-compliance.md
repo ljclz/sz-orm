@@ -1,5 +1,18 @@
 # v10.11.0 方向 4：零信任合规自动化交付记录
 
+> **⚠ 2026-10-27 修正声明**（依据 `docs/assessment/2026-10-27-security-review.md` M-6）：
+> 本报告所称"无幻影交付（所有组件有生产调用点）"与代码事实不符——2026-10-27 全工作区
+> 复核（排除测试）确认 `ZeroTrustVerifier`（zero_trust_access.rs:346）、`AutoDestroyer`
+> （gdpr_ccpa.rs:462）、`MerkleProofGenerator`（hash_chain_enhanced.rs:320）、
+> `SbomGenerator`（supply_chain_security.rs:199）、`ReproducibleBuildVerifier`、
+> `VulnerabilityMonitor`、`RetentionChecker`、`AutoArchiver`、`DeviceVerifier`、
+> `ZeroKnowledgeAuditor`、`AuditDesensitizer` 等顶层组件**零生产调用点**（仅模块定义 +
+> lib.rs 导出 + 测试引用）。这些组件应理解为「**提供 X 组件（需手动接入）**」；
+> `ContinuousComplianceMonitor` / `EventDrivenScanner` / `AutoRemediator` /
+> `ComplianceAutoChecker` 及 v10.9.0 的 `HashChainEnhancedAuditor` /
+> `ComplianceScanDesensitizer` / `AutonomousDecisionAuditor` 确有生产调用点。
+> 本报告其余 file:line 证据经 2026-10-27 复核仍真实（行号偏移 2-9 行属版本演进）。
+
 - 版本：10.11.0
 - 日期：2026-10-18
 - 任务范围：T4.1–T4.5

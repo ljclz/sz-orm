@@ -10,11 +10,31 @@
         --threshold 0.9
 """
 
+from __future__ import annotations
+
 import argparse
 import json
 import re
 import sys
 from pathlib import Path
+
+ROOT = Path(__file__).resolve().parent.parent
+
+
+def _safe_output_path(path: str) -> Path:
+    """将报告输出路径限制在仓库内（防路径穿越）。
+
+    - 相对路径以仓库根为基准；
+    - 绝对路径必须位于仓库根内，否则报错。
+    """
+    p = Path(path)
+    if not p.is_absolute():
+        p = ROOT / p
+    p = p.resolve()
+    root = ROOT.resolve()
+    if p != root and root not in p.parents:
+        raise ValueError(f"输出路径超出仓库范围（仅允许写入 {root} 内）: {path}")
+    return p
 
 
 def extract_core_apis(core_dir: str) -> set[str]:
@@ -234,7 +254,7 @@ def main():
         status = "达标" if coverage_ratio >= args.threshold else "不达标"
         print(f"  {binding_name}: {covered_count}/{total_core} = {coverage_ratio:.2%} [{status}]")
 
-    output_path = Path(args.output)
+    output_path = _safe_output_path(args.output)
     output_path.parent.mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as f:
         json.dump(report, f, indent=2, ensure_ascii=False)

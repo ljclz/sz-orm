@@ -1,6 +1,6 @@
 # SZ-ORM 审查执行指南（sz-orm-pr-review runbook）
 
-> **执行入口**：23 道门禁逐关执行（`scripts/` 各脚本）+ 可选 AI 评审环节
+> **执行入口**：24 道门禁逐关执行（`scripts/` 各脚本）+ 可选 AI 评审环节
 > **Skill**：`C:\Users\Administrator\.zcode\skills\sz-orm-review\SKILL.md`（ZCode 内 `/sz-orm-review`）
 > **参考**：`sz-rust/docs/pr-review-执行指南.md`（2026-08-16 提交 `7c53bc2`，含 AI 评审环节）
 > **适用版本**：v4.9.0（命令与门禁编号以仓库 `AGENTS.md` 为准）
@@ -10,7 +10,7 @@
 
 ## 一、用途
 
-提交/PR 变更集的全量质量审查：**diff 扫描 → 静态检查 → 安全门禁 → 23 道门禁 → 可选 AI 评审**，生成带状态机与严重度模型的汇总报告。任一硬门禁失败即红牌停止（fail-closed）。
+提交/PR 变更集的全量质量审查：**diff 扫描 → 静态检查 → 安全门禁 → 24 道门禁 → 可选 AI 评审**，生成带状态机与严重度模型的汇总报告。任一硬门禁失败即红牌停止（fail-closed）。
 
 ## 二、前置条件
 
@@ -34,7 +34,7 @@ export PATH="$HOME/.cargo/bin:$PATH"
 .\scripts\gate.ps1 -Fast        # 前 3 关（fmt/check/clippy）
 .\scripts\gate.ps1 -SkipTests   # 跳过测试
 
-# 2. 全量 23 道门禁（红牌即停，逐关执行，见第四节命令表）
+# 2. 全量 24 道门禁（红牌即停，逐关执行，见第四节命令表）
 
 # 3. 静态审查 + AI 评审（ZCode 方式，推荐）
 #    对当前工作区执行完整审查并让 AI 评审 diff + 问题清单：
@@ -45,7 +45,7 @@ export AI_API_KEY=sk-xxx
 bash scripts/ai-review-manual.sh  # 或按第六节 curl 模板
 ```
 
-## 四、全量 23 道门禁与严重度模型
+## 四、全量 24 道门禁与严重度模型
 
 | G# | 门禁 | 命令 | 失败严重度 |
 |----|------|------|-----------|
@@ -69,9 +69,14 @@ bash scripts/ai-review-manual.sh  # 或按第六节 curl 模板
 | 18 | 度量真实性扫描 | `python scripts/check-metrics-real.py`（`--fix` 自动修正） | medium（fake-metrics） |
 | 19 | 发布一致性扫描 | `python scripts/check-publish-consistency.py` | high（publish-mismatch） |
 | 20 | 变异测试杀率 | `python scripts/check-mutation-coverage.py`（杀率 <70%） | high（mutation-killrate） |
-| 21 | 安全攻击测试 | 见 4.1（JWT/密码学/租户 + OWASP 85 测试 + A06） | **critical**（security-test） |
+| 21 | 安全攻击测试 | 见 4.1（JWT/密码学/租户 + OWASP 49 门控测试（命名相关共 145）+ A06，v10.13.0 实测） | **critical**（security-test） |
 | 22 | 覆盖率门禁 | `python scripts/check-coverage.py`（行覆盖 <60%） | high（coverage） |
 | 23 | 未用依赖扫描 | `python scripts/check-unused-deps.py` | low（unused-dep，警告级） |
+| 24 | 示例清单同步检查 | `python scripts/check-examples-readme.py`（README Examples/示例 表格与实际 bin 双向一致） | low（example-sync） |
+| 26 | CI 与 deny.toml ignore 一致性 | `python scripts/check-ci-deny-sync.py`（2026-10-27 安全评测 M-1 防复发：CI `--ignore` 集合 == deny.toml ignore 集合） | **critical**（ci-deny-drift） |
+| 27 | 门禁脚本自检 | `python scripts/check-gate-scripts.py`（2026-10-27 安全评测 M-4 防复发：硬编码 PASS / `\|\|` 假 PASS / 关键脚本接入） | **critical**（gate-bypass） |
+| 28 | 安全文档版本一致性 | `python scripts/check-security-doc-version.py`（2026-10-27 安全评测 M-5 防复发：Security.md 版本 == workspace 版本） | high（doc-drift） |
+| 29 | 幻影测试引用检测 | `python scripts/check-test-symbols.py`（2026-10-27 安全评测 H-2 防复发，警告级：`detected_patterns` 规则名必须在 src 中存在） | medium（phantom-symbol） |
 
 **阻塞规则**：任何硬门禁失败 → 状态 `failed`，立即停止后续门禁（fail-closed），禁止合入；修复后从失败关重跑。
 
@@ -90,7 +95,7 @@ bash scripts/ai-review-manual.sh  # 或按第六节 curl 模板
 cargo test -p sz-orm-auth --test security_attacks
 cargo test -p sz-orm-crypto --test kat
 cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks
-cargo test --workspace --features owasp-pentest-suite    # OWASP A01~A10，85 测试，分布于 12 个包
+cargo test --workspace --features owasp-pentest-suite    # OWASP A01~A10，49 门控测试（命名相关共 145），分布于 12 个包（v10.13.0 实测）
 scripts/owasp_a06_vulnerable_components.ps1
 ```
 
@@ -98,9 +103,9 @@ scripts/owasp_a06_vulnerable_components.ps1
 
 | G# | 门禁 | 触发条件 | 命令 | 失败严重度 |
 |----|------|---------|------|-----------|
-| 24 | 契约测试（T2） | **API 变更时必做** | `cargo test -p sz-orm-core --test contracts` | critical（api-contract） |
-| 25 | 密钥/凭据预检 | **发布前必做** | `python scripts/check-secrets.py` | critical（secret-exposed） |
-| 26 | 废弃 API 保留期 | 有 `#[deprecated]` 标注时 | `python scripts/check-deprecation-period.py` | high（deprecation-period） |
+| 25 | 契约测试（T2） | **API 变更时必做** | `cargo test -p sz-orm-core --test contracts` | critical（api-contract） |
+| 26 | 密钥/凭据预检 | **发布前必做** | `python scripts/check-secrets.py` | critical（secret-exposed） |
+| 27 | 废弃 API 保留期 | 有 `#[deprecated]` 标注时 | `python scripts/check-deprecation-period.py` | high（deprecation-period） |
 
 ### 4.3 CQO 质量官工作流（sz-orm-qa 五步，G20/G21 的深化）
 

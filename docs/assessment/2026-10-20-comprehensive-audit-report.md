@@ -123,9 +123,9 @@
 **5 个漏洞及处理方式**：
 - `rustls 0.21.12` — RUSTSEC-2026-0346（medium）→ **deny.toml:53 已 ignore**（elasticsearch 传递依赖，仅影响 real-es feature）
 - `rustls 0.21.12` — RUSTSEC-2026-0349（low）→ **deny.toml:58 已 ignore**（同上）
-- `zip 6.0.0` — RUSTSEC-2026-0367（high）→ **deny.toml:115 已 ignore**（libduckdb-sys 构建依赖，可信输入）
-- `zip 6.0.0` — RUSTSEC-2026-0368（medium）→ **deny.toml:117 已 ignore**（同上）
-- `zip 6.0.0` — RUSTSEC-2026-0369（critical）→ **deny.toml:119 已 ignore**（同上）
+- `zip 6.0.0` — RUSTSEC-2026-0367（high）→ **已 ignore**，deny.toml:107 [must-contain: RUSTSEC-2026-0367]（libduckdb-sys 构建依赖，可信输入）
+- `zip 6.0.0` — RUSTSEC-2026-0368（medium）→ **已 ignore**，deny.toml:109 [must-contain: RUSTSEC-2026-0368]（同上）
+- `zip 6.0.0` — RUSTSEC-2026-0369（critical）→ **已 ignore**，deny.toml:111 [must-contain: RUSTSEC-2026-0369]（同上）
 
 **2 个警告**：
 - `unsafe-libyaml 0.2.11` — unmaintained（RUSTSEC-2024-0449）→ deny.toml `unmaintained = "none"` 不阻断

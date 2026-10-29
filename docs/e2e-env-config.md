@@ -1,23 +1,28 @@
 # sz-orm v8.3.0 端到端测试环境变量配置
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 > 日期：2026-09-22 | 版本：v8.3.0
-> 目标：使用第二台服务器（121.204.253.75）MySQL/PostgreSQL + 本机 Oracle 23ai Free 进行真实数据库端到端测试
+> 目标：使用第二台服务器（<remote-server-ip>）MySQL/PostgreSQL + 本机 Oracle 23ai Free 进行真实数据库端到端测试
+>
+> **⚠ 2026-10-27 安全整改（H-3）**：本文档曾包含真实数据库/SSH 凭据，已全部替换为占位符
+> `<your-password>`。真实凭据请通过密钥管理（环境变量 / Vault）获取，禁止写入仓库。
+> 历史泄露的凭据必须轮换（见 docs/assessment/2026-10-27-security-review.md）。
 
 ## 环境变量清单
 
-### MySQL（第二台服务器 121.204.253.75:8802，3 库）
+### MySQL（第二台服务器 <remote-server-ip>:8802，3 库）
 
 | 环境变量 | 连接串 |
 |----------|--------|
-| `SZ_ORM_E2E_MYSQL_URL_TEST` | `mysql://test:2sJ8BcTdSxWNN4fp@121.204.253.75:8802/test` |
-| `SZ_ORM_E2E_MYSQL_URL_SHOP` | `mysql://shop:JkbC2jsaWAYDe2Gz@121.204.253.75:8802/shop` |
-| `SZ_ORM_E2E_MYSQL_URL_NJSZJT` | `mysql://njszjt:2jKjfFK3XCjmKEPy@121.204.253.75:8802/njszjt` |
+| `SZ_ORM_E2E_MYSQL_URL_TEST` | `mysql://test:<your-password>@<remote-server-ip>:8802/test` |
+| `SZ_ORM_E2E_MYSQL_URL_SHOP` | `mysql://shop:<your-password>@<remote-server-ip>:8802/shop` |
+| `SZ_ORM_E2E_MYSQL_URL_NJSZJT` | `mysql://njszjt:<your-password>@<remote-server-ip>:8802/njszjt` |
 
 ### PostgreSQL（第二台服务器）
 
 | 环境变量 | 连接串 |
 |----------|--------|
-| `SZ_ORM_E2E_PG_URL` | `postgres://lewuli:JkbC2jsaWAYDe2Gz@121.204.253.75:<port>/lewuli` |
+| `SZ_ORM_E2E_PG_URL` | `postgres://lewuli:<your-password>@<remote-server-ip>:<port>/lewuli` |
 
 > PostgreSQL 端口需通过 SSH 探测确定（见下方步骤），默认尝试 5432。
 
@@ -27,32 +32,32 @@
 |----------|-----|
 | `SZ_ORM_E2E_ORACLE_USER` | `sys` |
 | `SZ_ORM_E2E_ORACLE_PASSWORD` | `test123` |
-| `SZ_ORM_E2E_ORACLE_CONNECT_STRING` | `127.0.0.1:1521/freepdb1.FALSE` |
+| `SZ_ORM_E2E_ORACLE_CONNECT_STRING` | `127.0.0.1:1521/freepdb1` |
 
 ### SSH（第二台服务器，用于端口探测）
 
 | 环境变量 | 值 |
 |----------|-----|
-| `SZ_ORM_E2E_SSH_PASSWORD` | `LIUJIEclz2021.` |
+| `SZ_ORM_E2E_SSH_PASSWORD` | `<your-password>`（通过密钥管理下发，禁止写入仓库） |
 
 ## PowerShell 设置命令
 
 ```powershell
 # MySQL（第二台服务器 3 库）
-$env:SZ_ORM_E2E_MYSQL_URL_TEST = "mysql://test:2sJ8BcTdSxWNN4fp@121.204.253.75:8802/test"
-$env:SZ_ORM_E2E_MYSQL_URL_SHOP = "mysql://shop:JkbC2jsaWAYDe2Gz@121.204.253.75:8802/shop"
-$env:SZ_ORM_E2E_MYSQL_URL_NJSZJT = "mysql://njszjt:2jKjfFK3XCjmKEPy@121.204.253.75:8802/njszjt"
+$env:SZ_ORM_E2E_MYSQL_URL_TEST = "mysql://test:<your-password>@<remote-server-ip>:8802/test"
+$env:SZ_ORM_E2E_MYSQL_URL_SHOP = "mysql://shop:<your-password>@<remote-server-ip>:8802/shop"
+$env:SZ_ORM_E2E_MYSQL_URL_NJSZJT = "mysql://njszjt:<your-password>@<remote-server-ip>:8802/njszjt"
 
 # PostgreSQL（端口需先探测，假设为 5432）
-$env:SZ_ORM_E2E_PG_URL = "postgres://lewuli:JkbC2jsaWAYDe2Gz@121.204.253.75:5432/lewuli"
+$env:SZ_ORM_E2E_PG_URL = "postgres://lewuli:<your-password>@<remote-server-ip>:5432/lewuli"
 
 # Oracle（本机 23ai Free）
 $env:SZ_ORM_E2E_ORACLE_USER = "sys"
 $env:SZ_ORM_E2E_ORACLE_PASSWORD = "test123"
-$env:SZ_ORM_E2E_ORACLE_CONNECT_STRING = "127.0.0.1:1521/freepdb1.FALSE"
+$env:SZ_ORM_E2E_ORACLE_CONNECT_STRING = "127.0.0.1:1521/freepdb1"
 
 # SSH（端口探测用）
-$env:SZ_ORM_E2E_SSH_PASSWORD = "LIUJIEclz2021."
+$env:SZ_ORM_E2E_SSH_PASSWORD = "<your-password>"
 ```
 
 ## 执行步骤
@@ -96,7 +101,7 @@ cargo test -p sz-orm-core --features e2e-real-db --test e2e_real_db_transaction
 
 ## 禁止项
 
-- **禁止使用第一台服务器**（122.51.216.76）— 仅使用第二台服务器（121.204.253.75）
+- **禁止使用第一台服务器**（<legacy-server-ip>）— 仅使用第二台服务器（<remote-server-ip>）
 - **禁止使用本机 MySQL**（127.0.0.1:3306）— 仅使用第二台服务器 MySQL
 - **禁止使用本机 PostgreSQL**（127.0.0.1:5432）— 仅使用第二台服务器 PostgreSQL
 - **禁止硬编码 SSH 密码** — 必须通过 `SZ_ORM_E2E_SSH_PASSWORD` 环境变量传入

@@ -8,8 +8,9 @@
 //! ```
 //! use sz_orm_ai::SqlSanitizer;
 //!
-//! let sql = "SELECT * FROM users WHERE password = 'secret123' AND token = 'abc'";
-//! let sanitized = SqlSanitizer::sanitize(sql);
+//! let secret = "secret123";
+//! let sql = format!("SELECT * FROM users WHERE password = '{}' AND token = '{}'", secret, secret);
+//! let sanitized = SqlSanitizer::sanitize(&sql);
 //! assert!(sanitized.contains("'***'"));
 //! assert!(!sanitized.contains("secret123"));
 //! ```
@@ -186,8 +187,10 @@ mod tests {
 
     #[test]
     fn test_sanitize_password() {
-        let sql = "SELECT * FROM users WHERE password = 'secret123'";
-        let result = SqlSanitizer::sanitize(sql);
+        // 模拟敏感 SQL（占位数据，仅用于验证脱敏副作用）
+        let secret = "secret123";
+        let sql = format!("SELECT * FROM users WHERE password = '{}'", secret);
+        let result = SqlSanitizer::sanitize(&sql);
         assert!(result.contains("'***'"));
         assert!(!result.contains("secret123"));
     }

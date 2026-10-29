@@ -339,7 +339,7 @@
 - 所有 builder 方法返回 `Self`（链式）
 - `new(dialect)` 创建空 builder
 - `table(name)` 设置表名
-- `select(cols)`/`where_cond(s)`/`or_where(s)`/`where_in(col, vals)`/`where_between(col, a, b)`/`where_null(col)` 条件构造
+- `select(cols)`/`where_eq(col, val)`/`or_where_eq(col, val)`/`where_ne`/`where_gt`/`where_lt`/`where_in(col, vals)`/`where_between(col, a, b)`/`where_null(col)` 条件构造（v5.0.0 起 `where_cond`/`or_where` 等字符串拼接方法已移除，一律使用参数化方法）
 - `order_by(col)`/`order_desc(col)`/`group_by(col)`/`having(s)` 排序分组
 - `limit(n)`/`offset(n)`/`page(n, size)` 分页
 - `join_inner(table, left, right)`/`join_left(table, left, right)` 连接

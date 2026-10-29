@@ -272,12 +272,13 @@ impl DefaultHealthChecker {
     fn read_snapshot(&self, pool: &str) -> HealthSnapshot {
         // Check provider first (no holding locks across calls).
         // lock poisoned 时返回 Unknown，避免级联 panic。
-        if let Some(provider) = {
-            match self.providers.read() {
-                Ok(providers) => providers.get(pool).cloned(),
-                Err(_) => None,
-            }
-        } {
+        // 先绑定局部变量：避免 block-wrapped scrutinee（clippy::block_scrutinee，
+        // rustc 1.99.0 新增 lint），读锁临时值在 if let 语句前释放（值已 clone，无影响）。
+        let provider = match self.providers.read() {
+            Ok(providers) => providers.get(pool).cloned(),
+            Err(_) => None,
+        };
+        if let Some(provider) = provider {
             return provider.snapshot(pool);
         }
 

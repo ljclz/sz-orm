@@ -3003,16 +3003,290 @@ pub mod zero_copy {
         }
     }
 
-    /// 零拷贝序列化 `Value` 为字节（使用 BorrowedValue 中间表示）
+    /// 零拷贝序列化 `Value` 为紧凑二进制字节。
+    ///
+    /// 编码格式：1 字节类型标记 + payload。字符串/字节类变长值以
+    /// `u32 LE 长度 + 原始字节` 直接写入（数据来自借用视图，无中间拷贝）；
+    /// 定长数值以小端字节序写入。仅输出 `Vec<u8>` 本身产生一次分配。
+    /// 反序列化见 [`deserialize_zero_copy`]。
     pub fn serialize_zero_copy(value: &Value) -> Vec<u8> {
         let borrowed = to_borrowed(value);
-        format!("{:?}", borrowed).into_bytes()
+        let mut out = Vec::new();
+        write_borrowed(&mut out, &borrowed);
+        out
     }
 
-    /// 零拷贝反序列化（简化实现，实际应使用二进制格式）
+    /// 零拷贝反序列化（与 [`serialize_zero_copy`] 对称）。
     pub fn deserialize_zero_copy(data: &[u8]) -> Result<Value, String> {
-        let s = std::str::from_utf8(data).map_err(|e| e.to_string())?;
-        Ok(Value::String(s.to_string()))
+        let mut cursor = std::io::Cursor::new(data);
+        read_value(&mut cursor)
+    }
+
+    fn write_bytes(out: &mut Vec<u8>, b: &[u8]) {
+        out.extend_from_slice(&(b.len() as u32).to_le_bytes());
+        out.extend_from_slice(b);
+    }
+
+    fn write_borrowed(out: &mut Vec<u8>, v: &BorrowedValue<'_>) {
+        match v {
+            BorrowedValue::Null => out.push(0),
+            BorrowedValue::Bool(b) => {
+                out.push(1);
+                out.push(*b as u8);
+            }
+            BorrowedValue::I8(n) => {
+                out.push(2);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::I16(n) => {
+                out.push(3);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::I32(n) => {
+                out.push(4);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::I64(n) => {
+                out.push(5);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::U8(n) => {
+                out.push(6);
+                out.push(*n);
+            }
+            BorrowedValue::U16(n) => {
+                out.push(7);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::U32(n) => {
+                out.push(8);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::U64(n) => {
+                out.push(9);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::F32(n) => {
+                out.push(10);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::F64(n) => {
+                out.push(11);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::Decimal(s) => {
+                out.push(12);
+                write_bytes(out, s.as_bytes());
+            }
+            BorrowedValue::String(s) => {
+                out.push(13);
+                write_bytes(out, s.as_bytes());
+            }
+            BorrowedValue::Bytes(b) => {
+                out.push(14);
+                write_bytes(out, b);
+            }
+            BorrowedValue::Uuid(s) => {
+                out.push(15);
+                write_bytes(out, s.as_bytes());
+            }
+            BorrowedValue::Date(s) => {
+                out.push(16);
+                write_bytes(out, s.as_bytes());
+            }
+            BorrowedValue::DateTime(s) => {
+                out.push(17);
+                write_bytes(out, s.as_bytes());
+            }
+            BorrowedValue::Time(s) => {
+                out.push(18);
+                write_bytes(out, s.as_bytes());
+            }
+            BorrowedValue::Json(s) => {
+                out.push(19);
+                write_bytes(out, s.as_bytes());
+            }
+            BorrowedValue::DecimalBytes(b) => {
+                out.push(20);
+                write_bytes(out, b);
+            }
+            BorrowedValue::JsonBytes(b) => {
+                out.push(21);
+                write_bytes(out, b);
+            }
+            BorrowedValue::BytesRef(b) => {
+                out.push(22);
+                write_bytes(out, b);
+            }
+            BorrowedValue::DateTimeInt(n) => {
+                out.push(23);
+                out.extend_from_slice(&n.to_le_bytes());
+            }
+            BorrowedValue::Array(arr) => {
+                out.push(24);
+                out.extend_from_slice(&(arr.len() as u32).to_le_bytes());
+                for item in arr {
+                    write_borrowed(out, item);
+                }
+            }
+            BorrowedValue::Object(obj) => {
+                out.push(25);
+                out.extend_from_slice(&(obj.len() as u32).to_le_bytes());
+                for (k, v) in obj {
+                    write_bytes(out, k.as_bytes());
+                    write_borrowed(out, v);
+                }
+            }
+            BorrowedValue::ArrayRef(arr) => {
+                out.push(26);
+                out.extend_from_slice(&(arr.len() as u32).to_le_bytes());
+                for item in *arr {
+                    write_borrowed(out, item);
+                }
+            }
+            BorrowedValue::ObjectRef(obj) => {
+                out.push(27);
+                out.extend_from_slice(&(obj.len() as u32).to_le_bytes());
+                for (k, v) in obj.iter() {
+                    write_bytes(out, k.as_bytes());
+                    write_borrowed(out, v);
+                }
+            }
+        }
+    }
+
+    fn read_bytes(cursor: &mut std::io::Cursor<&[u8]>) -> Result<Vec<u8>, String> {
+        use std::io::Read;
+        let mut len_buf = [0u8; 4];
+        cursor.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
+        let len = u32::from_le_bytes(len_buf) as usize;
+        let mut buf = vec![0u8; len];
+        cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+        Ok(buf)
+    }
+
+    fn read_value(cursor: &mut std::io::Cursor<&[u8]>) -> Result<Value, String> {
+        use std::io::Read;
+        let mut tag = [0u8; 1];
+        cursor.read_exact(&mut tag).map_err(|e| e.to_string())?;
+        match tag[0] {
+            0 => Ok(Value::Null),
+            1 => {
+                let mut b = [0u8; 1];
+                cursor.read_exact(&mut b).map_err(|e| e.to_string())?;
+                Ok(Value::Bool(b[0] != 0))
+            }
+            2 => {
+                let mut buf = [0u8; 1];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::I8(buf[0] as i8))
+            }
+            3 => {
+                let mut buf = [0u8; 2];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::I16(i16::from_le_bytes(buf)))
+            }
+            4 => {
+                let mut buf = [0u8; 4];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::I32(i32::from_le_bytes(buf)))
+            }
+            5 => {
+                let mut buf = [0u8; 8];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::I64(i64::from_le_bytes(buf)))
+            }
+            6 => {
+                let mut buf = [0u8; 1];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::U8(buf[0]))
+            }
+            7 => {
+                let mut buf = [0u8; 2];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::U16(u16::from_le_bytes(buf)))
+            }
+            8 => {
+                let mut buf = [0u8; 4];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::U32(u32::from_le_bytes(buf)))
+            }
+            9 => {
+                let mut buf = [0u8; 8];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::U64(u64::from_le_bytes(buf)))
+            }
+            10 => {
+                let mut buf = [0u8; 4];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::F32(f32::from_le_bytes(buf)))
+            }
+            11 => {
+                let mut buf = [0u8; 8];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::F64(f64::from_le_bytes(buf)))
+            }
+            12 | 20 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::Decimal(String::from_utf8_lossy(&b).to_string()))
+            }
+            13 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::String(String::from_utf8_lossy(&b).to_string()))
+            }
+            14 | 22 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::Bytes(b))
+            }
+            15 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::Uuid(String::from_utf8_lossy(&b).to_string()))
+            }
+            16 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::Date(String::from_utf8_lossy(&b).to_string()))
+            }
+            17 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::DateTime(String::from_utf8_lossy(&b).to_string()))
+            }
+            23 => {
+                let mut buf = [0u8; 8];
+                cursor.read_exact(&mut buf).map_err(|e| e.to_string())?;
+                Ok(Value::DateTime(i64::from_le_bytes(buf).to_string()))
+            }
+            18 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::Time(String::from_utf8_lossy(&b).to_string()))
+            }
+            19 | 21 => {
+                let b = read_bytes(cursor)?;
+                Ok(Value::Json(String::from_utf8_lossy(&b).to_string()))
+            }
+            24 | 26 => {
+                let mut len_buf = [0u8; 4];
+                cursor.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
+                let len = u32::from_le_bytes(len_buf) as usize;
+                let mut arr = Vec::with_capacity(len);
+                for _ in 0..len {
+                    arr.push(read_value(cursor)?);
+                }
+                Ok(Value::Array(arr))
+            }
+            25 | 27 => {
+                let mut len_buf = [0u8; 4];
+                cursor.read_exact(&mut len_buf).map_err(|e| e.to_string())?;
+                let len = u32::from_le_bytes(len_buf) as usize;
+                let mut map = std::collections::HashMap::new();
+                for _ in 0..len {
+                    let k = read_bytes(cursor)?;
+                    let v = read_value(cursor)?;
+                    map.insert(String::from_utf8_lossy(&k).to_string(), v);
+                }
+                Ok(Value::Object(map))
+            }
+            other => Err(format!("unknown type tag: {other}")),
+        }
     }
 }
 
@@ -3041,10 +3315,23 @@ mod zero_copy_tests {
     }
 
     #[test]
-    fn test_serialize_deserialize() {
-        let v = Value::String("test".to_string());
-        let data = serialize_zero_copy(&v);
-        assert!(!data.is_empty());
+    fn test_serialize_deserialize_roundtrip() {
+        let values = vec![
+            Value::Null,
+            Value::Bool(true),
+            Value::I64(-42),
+            Value::U64(42),
+            Value::F64(3.25),
+            Value::String("hello".to_string()),
+            Value::Bytes(vec![1, 2, 3]),
+            Value::Date("2026-10-25".to_string()),
+            Value::Array(vec![Value::I64(1), Value::String("x".to_string())]),
+        ];
+        for v in &values {
+            let data = serialize_zero_copy(v);
+            let restored = deserialize_zero_copy(&data).unwrap();
+            assert_eq!(*v, restored, "roundtrip failed for {v:?}");
+        }
     }
 
     #[test]

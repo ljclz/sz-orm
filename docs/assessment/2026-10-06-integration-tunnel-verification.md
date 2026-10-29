@@ -1,4 +1,5 @@
 # 集成测试隧道实测记录（2026-10-06）
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 - 目标：验证 G7 集成测试可通过「服务器 Docker + SSH 隧道」与「云数据库直连」在本机跑通，修正 AGENTS.md 排除清单与评估文档认知
 - 版本：v9.4.0
@@ -11,11 +12,11 @@
 ### 1.1 Redis（✅ 实测通过 4/4）
 
 - 本机 `127.0.0.1:6379` 已有 Redis 服务（`E:\vue\test\new-wxapp\rust\.local\redis\redis-server.exe`）。
-- 同时验证服务器 Docker 路径：122.51.216.76 上 `szorm-redis-ext` 容器（映射 `6380->6379`），经 SSH 隧道 `127.0.0.1:6380 -> 服务器 6380` 访问。
+- 同时验证服务器 Docker 路径：<legacy-server-ip> 上 `szorm-redis-ext` 容器（映射 `6380->6379`），经 SSH 隧道 `127.0.0.1:6380 -> 服务器 6380` 访问。
 - 实测命令与结果：
 
 ```bash
-ssh -i ~/.ssh/szorm_server_122 -f -N -L 6380:127.0.0.1:6380 root@122.51.216.76
+ssh -i ~/.ssh/szorm_server_122 -f -N -L 6380:127.0.0.1:6380 root@<legacy-server-ip>
 SZ_ORM_REDIS_URL="redis://127.0.0.1:6380/0" \
   cargo test -p sz-orm-core --test integration_redis -- --ignored --nocapture
 # test result: ok. 4 passed; 0 failed
@@ -29,7 +30,7 @@ SZ_ORM_REDIS_URL="redis://127.0.0.1:6380/0" \
 - 实测命令与结果：
 
 ```bash
-ssh -i ~/.ssh/szorm_server_122 -f -N -L 19004:127.0.0.1:9004 root@122.51.216.76
+ssh -i ~/.ssh/szorm_server_122 -f -N -L 19004:127.0.0.1:9004 root@<legacy-server-ip>
 SZ_ORM_CLICKHOUSE_URL="mysql://default:@127.0.0.1:19004/default" \
   cargo test -p sz-orm-core --test integration_clickhouse -- --ignored --nocapture
 # test result: ok. 3 passed; 0 failed
@@ -48,7 +49,7 @@ SZ_ORM_CLICKHOUSE_URL="mysql://default:@127.0.0.1:19004/default" \
 
 #### 服务器 Docker 部署尝试（失败原因）
 
-- 在 121.204.253.75 与 122.51.216.76 两台服务器上尝试拉取 `mcr.microsoft.com/mssql/server:2019-latest`：
+- 在 <remote-server-ip> 与 <legacy-server-ip> 两台服务器上尝试拉取 `mcr.microsoft.com/mssql/server:2019-latest`：
   - `curl https://mcr.microsoft.com/v2/mssql/server/manifests/2019-latest` → HTTP 200（小请求可达）
   - `docker pull` → 卡死在 `Pulling fs layer`（大 blob 传输被 `connection reset by peer` 中断）
   - 代理源测试：`mcr.azk8s.cn`（403）、`docker.m.daocloud.io`（401/403）、`mcr.dockerproxy.com`（无响应）、`docker.1panel.live`（403）、`dockerproxy.net`（404）
@@ -66,8 +67,8 @@ SZ_ORM_CLICKHOUSE_URL="mysql://default:@127.0.0.1:19004/default" \
 
 | 项目 | 值 |
 |------|-----|
-| 122 服务器 | 122.51.216.76:22（SSH 密钥 `~/.ssh/szorm_server_122`） |
-| 第二台服务器 | 121.204.253.75:32（SSH 密钥 `~/.ssh/id_ed25519_s253_lf`） |
+| 122 服务器 | <legacy-server-ip>:22（SSH 密钥 `~/.ssh/szorm_server_122`） |
+| 第二台服务器 | <remote-server-ip>:32（SSH 密钥 `~/.ssh/id_ed25519_s253_lf`） |
 | Redis 容器 | `szorm-redis-ext`（`0.0.0.0:6380->6379/tcp`） |
 | ClickHouse 容器 | `szorm-clickhouse`（`0.0.0.0:9004->9004/tcp`，镜像 `clickhouse/clickhouse-server:latest`） |
 | ClickHouse 挂载 | `/tmp/ch_users.xml` → `/etc/clickhouse-server/users.d/custom-users.xml` |
@@ -76,10 +77,10 @@ SZ_ORM_CLICKHOUSE_URL="mysql://default:@127.0.0.1:19004/default" \
 
 ```bash
 # Redis（本机 6380 -> 服务器 6380）
-ssh -i ~/.ssh/szorm_server_122 -o ExitOnForwardFailure=yes -f -N -L 6380:127.0.0.1:6380 root@122.51.216.76
+ssh -i ~/.ssh/szorm_server_122 -o ExitOnForwardFailure=yes -f -N -L 6380:127.0.0.1:6380 root@<legacy-server-ip>
 
 # ClickHouse（本机 19004 -> 服务器 9004）
-ssh -i ~/.ssh/szorm_server_122 -o ExitOnForwardFailure=yes -f -N -L 19004:127.0.0.1:9004 root@122.51.216.76
+ssh -i ~/.ssh/szorm_server_122 -o ExitOnForwardFailure=yes -f -N -L 19004:127.0.0.1:9004 root@<legacy-server-ip>
 ```
 
 注意：本机 `6379` 已被本机 Redis 占用、`9004` 被本地 node 进程占用，隧道需避开（用 6380/19004）。

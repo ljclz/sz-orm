@@ -288,6 +288,40 @@ impl DbError {
         self.root_cause_is_retryable()
     }
 
+    /// 生产环境安全摘要（v10.13.0 / M-7 修复 Security.md R-M03）
+    ///
+    /// [`Display`](std::fmt::Display) 保留完整细节（含数据库原始错误串）供日志/调试；
+    /// 将错误返回给最终用户时应改用本方法，避免泄露数据库类型/版本、表名/列名、
+    /// SQL 语句片段等内部信息。
+    pub fn redacted_summary(&self) -> String {
+        match self {
+            DbError::QueryError(_) => "query failed".to_string(),
+            DbError::ConnectionError(_)
+            | DbError::ConnectionRefused(_)
+            | DbError::ConnectionTimeout(_) => "database connection failed".to_string(),
+            DbError::PoolError(_) => "connection pool error".to_string(),
+            DbError::CacheError(_) => "cache error".to_string(),
+            DbError::TxError(_) => "transaction error".to_string(),
+            DbError::MigrationError(_) => "migration failed".to_string(),
+            DbError::Unsupported(_) => "unsupported operation".to_string(),
+            DbError::ConfigError(_) => "invalid configuration".to_string(),
+            DbError::SerdeError(_) => "serialization error".to_string(),
+            DbError::NotFound(_) => "resource not found".to_string(),
+            DbError::AlreadyExists(_) => "resource already exists".to_string(),
+            DbError::ConstraintViolation(_)
+            | DbError::UniqueViolation(_)
+            | DbError::ForeignKeyViolation(_) => "constraint violation".to_string(),
+            DbError::NullValue(_) => "null value in non-null column".to_string(),
+            DbError::InvalidInput(_) => "invalid input".to_string(),
+            DbError::Internal(_) => "internal error".to_string(),
+            DbError::IoError(_) => "io error".to_string(),
+            DbError::Hook(_) => "hook execution failed".to_string(),
+            DbError::TenantError(_) => "tenant access denied".to_string(),
+            DbError::Validation(_) => "validation failed".to_string(),
+            DbError::Contextual { source, .. } => source.redacted_summary(),
+        }
+    }
+
     /// 内部方法：检查根错误是否可重试
     fn root_cause_is_retryable(&self) -> bool {
         match self {
@@ -706,6 +740,10 @@ pub enum TxError {
         /// 最大重试次数
         max_attempts: u32,
     },
+
+    /// 当前方言不支持请求的事务特性（如 SQLite 的 `SET TRANSACTION ISOLATION LEVEL`、
+    /// PostgreSQL 的 SNAPSHOT 隔离级别）
+    UnsupportedFeature(String),
 }
 
 impl fmt::Display for TxError {
@@ -744,6 +782,9 @@ impl fmt::Display for TxError {
                 "Deadlock detected on attempt {} of {}",
                 attempt, max_attempts
             ),
+            TxError::UnsupportedFeature(msg) => {
+                write!(f, "Unsupported transaction feature: {}", msg)
+            }
         }
     }
 }
@@ -766,6 +807,22 @@ mod tests {
 
         let err = DbError::not_found("user");
         assert_eq!(format!("{}", err), "Not found: user");
+    }
+
+    #[test]
+    fn test_db_error_redacted_summary_hides_internal_details() {
+        // v10.13.0 (M-7)：Display 保留细节，redacted_summary 不含内部信息
+        let err = DbError::query("SELECT secret_sql_fragment FROM t");
+        assert_eq!(err.redacted_summary(), "query failed");
+        assert!(!err.redacted_summary().contains("secret_sql_fragment"));
+
+        let ctx_err = DbError::query("raw db error").with_context("fetching user by id");
+        assert_eq!(ctx_err.redacted_summary(), "query failed");
+        assert!(!ctx_err.redacted_summary().contains("raw db error"));
+
+        let err = DbError::TenantError("tenant 42 cross-access".to_string());
+        assert_eq!(err.redacted_summary(), "tenant access denied");
+        assert!(!err.redacted_summary().contains("42"));
     }
 
     #[test]

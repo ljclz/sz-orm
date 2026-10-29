@@ -1,0 +1,30 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net9.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>SzOrmTest</RootNamespace>
+    <AssemblyName>SzOrmTest</AssemblyName>
+  </PropertyGroup>
+
+  <!-- sz_orm_cabi.dll 路径：优先 CARGO_TARGET_DIR 环境变量，否则默认相对路径 -->
+  <PropertyGroup>
+    <SzOrmCabiDll Condition="'$(SzOrmCabiDll)' == '' and '$(CARGO_TARGET_DIR)' != ''">$(CARGO_TARGET_DIR)\debug\sz_orm_cabi.dll</SzOrmCabiDll>
+    <SzOrmCabiDll Condition="'$(SzOrmCabiDll)' == ''">..\..\..\..\target\debug\sz_orm_cabi.dll</SzOrmCabiDll>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Include="..\SzOrm.cs" Link="SzOrm.cs" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- 构建后把 sz_orm_cabi.dll 复制到输出目录（需先 cargo build -p sz-orm-cabi） -->
+    <None Include="$(SzOrmCabiDll)"
+          Link="sz_orm_cabi.dll"
+          CopyToOutputDirectory="PreserveNewest"
+          Condition="Exists('$(SzOrmCabiDll)')" />
+  </ItemGroup>
+
+</Project>

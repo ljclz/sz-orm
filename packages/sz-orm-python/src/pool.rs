@@ -7,8 +7,12 @@ use std::sync::OnceLock;
 
 use sz_orm_core::{DbType, Pool, PoolConfigBuilder};
 
-/// 全局 tokio runtime（PyO3 同步方法需要 block_on 执行异步池操作）
-fn runtime() -> &'static tokio::runtime::Runtime {
+use crate::transaction::{create_transaction, PyTransaction};
+
+/// 全局 tokio runtime（PyO3 同步方法需要 block_on 执行异步池操作）。
+/// 全绑定层共享同一 runtime（`transaction.rs` 也引用此函数），
+/// 避免 sqlx 连接池与事务操作跨 runtime 导致丢失 Tokio context。
+pub(crate) fn runtime() -> &'static tokio::runtime::Runtime {
     static RT: OnceLock<tokio::runtime::Runtime> = OnceLock::new();
     RT.get_or_init(|| {
         tokio::runtime::Builder::new_multi_thread()
@@ -288,6 +292,18 @@ impl PyPool {
         }
     }
 
+    /// 创建真实事务（获取独占连接并 BEGIN）。
+    ///
+    /// 返回的 `Transaction` 对象提供 `execute/commit/rollback/savepoint`，
+    /// 连接在 commit/rollback 或对象被 GC 时归还连接池。
+    fn create_transaction(&self) -> PyResult<PyTransaction> {
+        let pool = self
+            .inner
+            .as_ref()
+            .ok_or_else(|| PyRuntimeError::new_err("pool not connected"))?;
+        create_transaction(pool)
+    }
+
     /// 开启事务（返回事务标识符，0 表示失败）
     fn begin_transaction(&self) -> PyResult<bool> {
         let pool = self
@@ -445,6 +461,26 @@ impl PyPool {
     }
 }
 
+impl Drop for PyPool {
+    fn drop(&mut self) {
+        // 防止用户忘记调用 close()：在 Drop 中关闭连接池。
+        // 连接池的 idle 队列持有 PooledConnection，其 Drop 需要 tokio
+        // 上下文来归还 sqlx 连接；若无 runtime 上下文则用全局 runtime。
+        let pool = self.inner.take();
+        if let Some(pool) = pool {
+            if let Ok(handle) = tokio::runtime::Handle::try_current() {
+                handle.spawn(async move {
+                    pool.close_all().await;
+                });
+            } else {
+                runtime().block_on(async move {
+                    pool.close_all().await;
+                });
+            }
+        }
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -518,6 +554,70 @@ mod tests {
             assert!(module.getattr("Pool").is_ok());
             assert!(module.getattr("Model").is_ok());
             assert!(module.getattr("QueryBuilder").is_ok());
+        });
+    }
+
+    #[test]
+    fn test_transaction_real_commit() {
+        init_python();
+        pyo3::Python::with_gil(|_py| {
+            let mut pool =
+                PyPool::new(Some("sqlite".to_string()), Some(4), None, None, None, None).unwrap();
+            pool.connect("sqlite::memory:".to_string()).unwrap();
+            pool.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+                .unwrap();
+
+            let mut tx = pool.create_transaction().unwrap();
+            assert!(tx.is_active(), "transaction should be active");
+            let n = tx.execute("INSERT INTO t (v) VALUES ('x')").unwrap();
+            assert_eq!(n, 1, "1 row inserted in transaction");
+            assert!(tx.commit().unwrap(), "commit should succeed");
+            assert!(
+                !tx.is_active(),
+                "transaction should be inactive after commit"
+            );
+
+            let json = pool.query("SELECT COUNT(*) AS cnt FROM t").unwrap();
+            assert!(
+                json.contains("\"cnt\":{\"I64\":1}"),
+                "1 row after commit: {json}"
+            );
+        });
+    }
+
+    #[test]
+    fn test_transaction_real_rollback() {
+        init_python();
+        pyo3::Python::with_gil(|_py| {
+            let mut pool =
+                PyPool::new(Some("sqlite".to_string()), Some(4), None, None, None, None).unwrap();
+            pool.connect("sqlite::memory:".to_string()).unwrap();
+            pool.execute("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)")
+                .unwrap();
+
+            let mut tx = pool.create_transaction().unwrap();
+            tx.execute("INSERT INTO t (v) VALUES ('x')").unwrap();
+            assert!(tx.rollback().unwrap(), "rollback should succeed");
+
+            let json = pool.query("SELECT COUNT(*) AS cnt FROM t").unwrap();
+            assert!(
+                json.contains("\"cnt\":{\"I64\":0}"),
+                "0 rows after rollback: {json}"
+            );
+        });
+    }
+
+    #[test]
+    fn test_transaction_direct_constructor_has_no_connection() {
+        init_python();
+        pyo3::Python::with_gil(|_py| {
+            let mut tx = PyTransaction::new(None, None);
+            assert!(!tx.is_active());
+            let err = tx.execute("SELECT 1");
+            assert!(
+                err.is_err(),
+                "execute on unconnected transaction should error"
+            );
         });
     }
 }

@@ -1,9 +1,17 @@
 //! v3.2.0 SIMD 加速 — 批量整数解码 + 列比较
 //!
-//! 使用 `wide` crate（stable Rust）提供 SIMD 向量化加速：
-//! - `batch_decode_integers`：批量整数解码（i64x4 向量并行）
-//! - `batch_compare_eq`：批量相等比较（i64x4 并行比较）
-//! - `batch_compare_in`：批量 IN 过滤（向量比较 + 布尔掩码）
+//! # 实现说明（2026-10-25 修正）
+//!
+//! 当前实现采用**标量路径 + 编译器自动向量化**，不使用显式 SIMD intrinsic
+//! （`std::arch::*_simd`），也不依赖 `wide` crate。理由：LLVM 自动向量化
+//! 对这些循环已足够快（2026-08-19 实测），显式 SIMD 收益有限且增加 unsafe
+//! 面。`SimdAvailability` 检测保留用于：① 运行时判断是否值得走向量化分支；
+//! ② 作为未来接入显式 SIMD（`wide` crate 或 `std::simd`）的扩展点。
+//!
+//! 提供的能力（全部为标量实现）：
+//! - `batch_decode_integers`：批量整数解码
+//! - `batch_compare_eq`：批量相等比较
+//! - `batch_compare_in`：批量 IN 过滤（HashSet/二分/线性）
 //!
 //! # 自动降级
 //!
@@ -163,7 +171,7 @@ pub fn scalar_compare_eq(values: &[i64], target: i64) -> Vec<bool> {
 /// - `set.len() >= 3`：排序 + 二分查找 O(log n)
 /// - 小集合：线性扫描 + 预分配结果
 ///
-/// v10.11.0 T1.1 分支消除：小集合线性扫描提取为 #[cold] 冷分支，
+/// v10.11.0 T1.1 分支消除：小集合线性扫描提取为 `#[cold]` 冷分支，
 /// 高频分支（大集合 HashSet）前置，减少分支预测失败。
 #[inline]
 pub fn batch_compare_in(values: &[i64], set: &[i64], _avail: SimdAvailability) -> Vec<bool> {

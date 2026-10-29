@@ -556,7 +556,16 @@ impl SchemaAutoApplier {
         }
 
         // 3. LlmSecurityAuditor
-        let mut llm_auditor = LlmSecurityAuditor::rule_only();
+        // 输入为程序生成的低风险 DDL（ALTER TABLE ADD COLUMN / PARTITION BY / CREATE INDEX），
+        // 排除 DDL 动词与敏感列名规则，仅保留注入类规则（or/union/stacked/comment）
+        let mut llm_auditor = LlmSecurityAuditor::rule_only_excluding(&[
+            "privilege_escalation_alter",
+            "privilege_escalation_drop",
+            "privilege_escalation_grant",
+            "sensitive_data_password",
+            "sensitive_data_secret",
+            "sensitive_data_token",
+        ]);
         let audit_result = llm_auditor
             .audit(ddl)
             .await
@@ -710,9 +719,14 @@ impl AutoSchemaEvolver {
         }
 
         // 兼容性验证：低风险变更不破坏应用兼容性
-        let compatibility_verified = applied
-            .iter()
-            .all(|c| matches!(c.change_type, SchemaChangeType::AddColumn | SchemaChangeType::AddPartition | SchemaChangeType::AddIndex));
+        let compatibility_verified = applied.iter().all(|c| {
+            matches!(
+                c.change_type,
+                SchemaChangeType::AddColumn
+                    | SchemaChangeType::AddPartition
+                    | SchemaChangeType::AddIndex
+            )
+        });
 
         // 决策可解释性
         #[cfg(feature = "ai-config")]

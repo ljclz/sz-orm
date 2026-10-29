@@ -22,8 +22,9 @@ mark() { echo "$2" > "$STATUS_DIR/gate_$1.status"; log "Gate $1: $2"; }
 
 log "===== v10.12.0 全量门禁开始 ====="
 
-# Gate 1: fmt（已通过，直接标记）
-mark 1 PASS
+# Gate 1: fmt（v10.13.0 / M-4 整改：改为真实执行，不再硬编码 PASS）
+mark 1 RUNNING
+if cargo fmt --all -- --check >> "$LOG" 2>&1; then mark 1 PASS; else mark 1 FAIL; fi
 
 # Gate 2: check
 mark 2 RUNNING
@@ -54,15 +55,26 @@ log "Gate 6 audit rc=$AUDIT_RC deny rc=$DENY_RC"
 mark 7 RUNNING
 if cargo test --workspace --tests -j 8 -- --ignored --skip clickhouse --skip mssql >> "$LOG" 2>&1; then mark 7 PASS; else mark 7 FAIL; fi
 
-# Gate 8: 禁止占位实现
+# Gate 8: 禁止占位实现 + unsafe 合规审计
+# v10.13.0 (2026-10-27): 并入 check-unsafe-audit.py（L-3 裁决：块级/函数级双口径 SAFETY 覆盖）
 mark 8 RUNNING
+G8_OK=1
 PLACEHOLDERS=$(grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs' packages/ | grep -v 'tests/' | grep -v '\.md' | wc -l)
-if [ "$PLACEHOLDERS" -eq 0 ]; then mark 8 PASS; else mark 8 FAIL; fi
+if [ "$PLACEHOLDERS" -ne 0 ]; then G8_OK=0; fi
+if ! python3 scripts/check-unsafe-audit.py >> "$LOG" 2>&1; then G8_OK=0; fi
+if [ $G8_OK -eq 1 ]; then mark 8 PASS; else mark 8 FAIL; fi
 log "Gate 8 placeholders found: $PLACEHOLDERS"
 
-# Gate 9: SQL 注入扫描
+# Gate 9: SQL 注入扫描 + secrets 扫描 + G9 扫描器自测
+# v10.13.0 (2026-10-27): 并入 check-secrets.py（H-3 整改），加 --strict（M-4 整改：
+# 原 Gate 9 未用 --strict，Unsafe>0 时脚本退出码仍为 0 导致假 PASS）
+# v10.13.0 (2026-10-27): 并入 test_check_sql_injection_auto.py（M-3 教训：扫描器自测必须接入门禁）
 mark 9 RUNNING
-if python3 scripts/check-sql-injection-auto.py >> "$LOG" 2>&1; then mark 9 PASS; else mark 9 FAIL; fi
+G9_OK=1
+if ! python3 scripts/check-sql-injection-auto.py --strict >> "$LOG" 2>&1; then G9_OK=0; fi
+if ! python3 scripts/test_check_sql_injection_auto.py >> "$LOG" 2>&1; then G9_OK=0; fi
+if ! python3 scripts/check-secrets.py >> "$LOG" 2>&1; then G9_OK=0; fi
+if [ $G9_OK -eq 1 ]; then mark 9 PASS; else mark 9 FAIL; fi
 
 # Gate 10: Feature 全组合编译（可能因 protoc 缺失失败）
 mark 10 RUNNING
@@ -116,6 +128,8 @@ if python3 scripts/check-publish-consistency.py >> "$LOG" 2>&1; then mark 19 PAS
 mark 20 SKIP
 
 # Gate 21: 安全攻击测试
+# v10.13.0 (M-4 整改)：在 3 个核心攻击测试之外，纳入 owasp-pentest-suite 门控套件
+# （12 个定义该 feature 的包逐一执行，对齐 docs/sz-orm-review-runbook.md §4.1）
 mark 21 RUNNING
 SEC_PASS=0
 SEC_TOTAL=0
@@ -124,6 +138,16 @@ for t in "cargo test -p sz-orm-auth --test security_attacks -j 8" \
          "cargo test -p sz-orm-core --features multi-tenant-enhanced --test security_attacks -j 8"; do
   SEC_TOTAL=$((SEC_TOTAL+1))
   if $t >> "$LOG" 2>&1; then SEC_PASS=$((SEC_PASS+1)); fi
+done
+for p in sz-orm-audit sz-orm-auth sz-orm-config sz-orm-core sz-orm-crypto \
+         sz-orm-dtx sz-orm-grpc sz-orm-lc sz-orm-masking sz-orm-storage \
+         sz-orm-swagger sz-orm-wasm; do
+  SEC_TOTAL=$((SEC_TOTAL+1))
+  if cargo test -p "$p" --features owasp-pentest-suite -j 8 >> "$LOG" 2>&1; then
+    SEC_PASS=$((SEC_PASS+1))
+  else
+    log "Gate 21 owasp suite failed: $p"
+  fi
 done
 if [ $SEC_PASS -eq $SEC_TOTAL ]; then mark 21 PASS; else mark 21 FAIL; fi
 log "Gate 21 security tests: $SEC_PASS/$SEC_TOTAL passed"
@@ -134,6 +158,53 @@ mark 22 SKIP
 # Gate 23: 未用依赖扫描
 mark 23 RUNNING
 if python3 scripts/check-unused-deps.py >> "$LOG" 2>&1; then mark 23 PASS; else mark 23 FAIL; fi
+
+# Gate 24: 示例清单同步（README Examples 表格 ↔ examples/src/bin 双向一致）
+mark 24 RUNNING
+if python3 scripts/check-examples-readme.py >> "$LOG" 2>&1; then mark 24 PASS; else mark 24 FAIL; fi
+
+# Gate 25: 文档代码可编译性（文档示例引用的 API/宏必须真实存在）
+mark 25 RUNNING
+if python3 scripts/check-doc-code-compiles.py >> "$LOG" 2>&1; then mark 25 PASS; else mark 25 FAIL; fi
+
+# Gate 26: CI 与 deny.toml ignore 一致性（v10.13.0 / M-1 防复发）
+mark 26 RUNNING
+if python3 scripts/check-ci-deny-sync.py >> "$LOG" 2>&1; then mark 26 PASS; else mark 26 FAIL; fi
+
+# Gate 27: 门禁脚本自检（v10.13.0 / M-4 防复发：硬编码 PASS / || 假 PASS / 关键脚本接入）
+mark 27 RUNNING
+if python3 scripts/check-gate-scripts.py >> "$LOG" 2>&1; then mark 27 PASS; else mark 27 FAIL; fi
+
+# Gate 28: 安全文档版本一致性（v10.13.0 / M-5 防复发：Security.md 与 workspace 版本漂移）
+mark 28 RUNNING
+if python3 scripts/check-security-doc-version.py >> "$LOG" 2>&1; then mark 28 PASS; else mark 28 FAIL; fi
+
+# Gate 29: 幻影测试引用检测（v10.13.0 / H-2 防复发，警告级，strict 时阻断）
+mark 29 RUNNING
+if python3 scripts/check-test-symbols.py >> "$LOG" 2>&1; then mark 29 PASS; else mark 29 FAIL; fi
+
+# Gate 30: 幻影测试扫描（v10.13.0 / 2026-10-27 SDET 评测新增：永真断言/字面量断言/
+# 零断言测试函数/差分命名规范）
+mark 30 RUNNING
+if python3 scripts/check-phantom-tests.py >> "$LOG" 2>&1; then mark 30 PASS; else mark 30 FAIL; fi
+
+# Gate 31: CI 阻断语义审计（v10.13.0 / 2026-10-27 SDET 评测新增：continue-on-error
+# job 必须登记豁免表，否则 fail-closed）
+mark 31 RUNNING
+if python3 scripts/check-ci-blocking.py >> "$LOG" 2>&1; then mark 31 PASS; else mark 31 FAIL; fi
+
+# Gate 32: 文件名编码合法性（2026-10-28 编号统一：此前与 Gate 26 重号）
+mark 32 RUNNING
+if python3 scripts/check-filename-encoding.py >> "$LOG" 2>&1; then mark 32 PASS; else mark 32 FAIL; fi
+
+# Gate 33: 文档版本声明一致性（2026-10-28 编号统一：此前与 Gate 27 重号）
+mark 33 RUNNING
+if python3 scripts/check-doc-version-consistency.py >> "$LOG" 2>&1; then mark 33 PASS; else mark 33 FAIL; fi
+
+# Gate 34: 代码生成器产物编译验证（2026-10-28 编号统一：此前与 Gate 28 重号；
+# cargo 缺失时脚本内部跳过）
+mark 34 RUNNING
+if python3 scripts/check-generated-code-compiles.py >> "$LOG" 2>&1; then mark 34 PASS; else mark 34 FAIL; fi
 
 log "===== 全量门禁结束 ====="
 

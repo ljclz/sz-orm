@@ -23,6 +23,39 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::sync::Notify;
 
+#[cfg(feature = "prepared-stmt-cache")]
+use crate::prepared_cache::{
+    ConnId, PreparedLookup, PreparedStatementCache, PreparedStatementCacheStatsSnapshot,
+};
+
+/// R8：分配给每个 `PooledConnection` 的唯一连接标识
+///
+/// 句柄绑定物理连接，缓存按连接分桶，因此不能沿用 `ConnectionExt::conn_id`
+/// 的默认值 0（会让所有连接共用一个桶）。池为每个借出连接分配独立 ID。
+#[cfg(feature = "prepared-stmt-cache")]
+static NEXT_POOLED_CONN_ID: AtomicU64 = AtomicU64::new(1);
+
+/// R8：按环境变量构造池级预处理缓存
+///
+/// - `SZ_ORM_PREPARED_CACHE=0|off|false`：关闭（用于 A/B 对照与排障）
+/// - `SZ_ORM_PREPARED_CACHE_SIZE`：每连接句柄上限（默认 256，0 视为默认）
+#[cfg(feature = "prepared-stmt-cache")]
+fn prepared_cache_from_env() -> Option<Arc<PreparedStatementCache>> {
+    let disabled = matches!(
+        std::env::var("SZ_ORM_PREPARED_CACHE").ok().as_deref(),
+        Some("0") | Some("off") | Some("false") | Some("FALSE") | Some("OFF")
+    );
+    if disabled {
+        return None;
+    }
+    let size = std::env::var("SZ_ORM_PREPARED_CACHE_SIZE")
+        .ok()
+        .and_then(|v| v.trim().parse::<usize>().ok())
+        .filter(|n| *n > 0)
+        .unwrap_or(256);
+    Some(Arc::new(PreparedStatementCache::new(size)))
+}
+
 // ============================================================================
 // v10.11.0 T1.4：连接池快速路径深化
 // CachePadded 64B 对齐避免 false sharing + FastPathStats 取/还连接分离统计
@@ -197,6 +230,18 @@ pub trait Connection: Send + Sync {
         &'a mut self,
     ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>>;
 
+    /// 连接所属数据库类型（方言）
+    ///
+    /// 事务层据此决定隔离级别下发时机（MySQL/MSSQL 需在 BEGIN 前，PG/Oracle 在
+    /// BEGIN 后，SQLite 不支持 `SET TRANSACTION`）；连接池据此选择归还时的会话
+    /// 复位语句（`RESET CONNECTION` / `DISCARD ALL`）。
+    ///
+    /// 默认返回 `None`：适配器未声明方言时，事务层退回“BEGIN 后下发”的旧行为，
+    /// 池跳过会话复位（仅回滚未提交事务）。**真实适配器必须覆盖**。
+    fn db_type(&self) -> Option<crate::DbType> {
+        None
+    }
+
     /// 连接是否处于未提交事务中
     ///
     /// 连接池在归还连接（显式 `release` 或 Drop 自动归还）时据此自动回滚
@@ -206,6 +251,22 @@ pub trait Connection: Send + Sync {
     /// 应覆盖此方法，并在 `begin_transaction`/`commit`/`rollback` 中维护状态。
     fn in_transaction(&self) -> bool {
         false
+    }
+
+    /// 归还连接时用于复位会话状态的 SQL 语句（`None` = 该适配器无复位语句）
+    ///
+    /// 连接池在 `release` / `return_raw` 回滚未提交事务后执行该语句，
+    /// 防止会话级污染（`sql_mode`、时区、隔离级别、`search_path`、临时表、
+    /// 用户变量等）随连接复用到下一个租用方。
+    ///
+    /// - MySQL：服务端没有 SQL 形式的 `COM_RESET_CONNECTION`，使用
+    ///   `SET SESSION ...` 复位关键会话变量
+    /// - PostgreSQL：`DISCARD ALL`
+    /// - SQLite / Oracle / SQL Server：无对应语句，返回 `None`
+    ///
+    /// 复位失败或超时的连接状态不可信，连接池会直接关闭而不是放回空闲队列。
+    fn session_reset_sql(&self) -> Option<&'static str> {
+        None
     }
 
     /// 参数绑定执行（INSERT/UPDATE/DELETE）
@@ -378,6 +439,9 @@ pub struct PooledConnection {
     /// v9.0.0 M5：已知可用标记，release 时置 true，acquire 快速路径跳过 is_connected/ping
     #[doc(hidden)]
     pub known_good: bool,
+    /// R8：连接级唯一标识（PreparedStatementCache 分桶键，句柄绑定物理连接）
+    #[cfg(feature = "prepared-stmt-cache")]
+    conn_id: ConnId,
 }
 
 impl PooledConnection {
@@ -389,6 +453,8 @@ impl PooledConnection {
             last_used_at: now,
             pool: Some(pool),
             known_good: false,
+            #[cfg(feature = "prepared-stmt-cache")]
+            conn_id: NEXT_POOLED_CONN_ID.fetch_add(1, Ordering::Relaxed),
         }
     }
 
@@ -424,6 +490,36 @@ impl PooledConnection {
         // （pool 已置 None，Drop 不会重复递减）
         std::mem::replace(&mut self.conn, Box::new(ClosedConnection))
     }
+
+    /// R8：连接级唯一标识（PreparedStatementCache 分桶键）
+    #[cfg(feature = "prepared-stmt-cache")]
+    pub fn prepared_conn_id(&self) -> ConnId {
+        self.conn_id
+    }
+
+    /// R8：经由池级预处理缓存执行参数化查询
+    ///
+    /// 流程：查缓存（命中直接返回）→ 未命中委托 `Connection::query_with_params`。
+    /// 缓存未启用（`SZ_ORM_PREPARED_CACHE=0`）时等价于一次普通参数化查询。
+    ///
+    /// 句柄由适配器层存入（`PreparedStatementCache::store_handle`，以
+    /// [`Self::prepared_conn_id`] 为桶键）；未实现句柄存储的适配器恒为未命中，
+    /// 语义仍正确（只是没有缓存收益）。
+    #[cfg(feature = "prepared-stmt-cache")]
+    pub async fn query_prepared(
+        &mut self,
+        sql: &str,
+        params: &[crate::value::Value],
+    ) -> Result<QueryRows, crate::DbError> {
+        let cache = self.pool.as_ref().and_then(|p| p.prepared_cache.clone());
+        match cache {
+            Some(cache) => match cache.get_or_prepare(self.conn_id, sql, params).await? {
+                PreparedLookup::Hit(rows) => Ok(rows),
+                PreparedLookup::Miss => self.conn.query_with_params(sql, params).await,
+            },
+            None => self.conn.query_with_params(sql, params).await,
+        }
+    }
 }
 
 /// PooledConnection 的 Drop 实现：自动归还连接到池中
@@ -442,13 +538,44 @@ impl Drop for PooledConnection {
         if let Some(pool) = self.pool.take() {
             // 取出原始连接，放入占位符（避免重复 close）
             let conn = std::mem::replace(&mut self.conn, Box::new(ClosedConnection));
-            let pooled = PooledConnection {
+            let mut pooled = PooledConnection {
                 conn,
                 created_at: self.created_at,
                 last_used_at: self.last_used_at,
                 pool: None,
-                known_good: false,
+                known_good: true,
+                #[cfg(feature = "prepared-stmt-cache")]
+                conn_id: self.conn_id,
             };
+            // 2026-10-28 P3-4（PERFV2-03 Drop 归还优化）：同步快路径。
+            // 池未关闭、连接不在未提交事务中、无需会话复位时，归还只需
+            // "入 idle 队列 + 条件唤醒等待者"——两者均为同步操作，无需 spawn 任务。
+            // spawn 会引入一次调度往返，实测低并发下 Drop 归还比显式 release 慢数倍。
+            // 存在异步卫生工作（回滚/会话复位/池关闭）时仍走下方 spawn/兜底路径，
+            // 语义与显式 `release()` 完全一致。
+            let needs_async_hygiene = pool.closed.load(Ordering::Acquire)
+                || pooled.conn.in_transaction()
+                || pooled.conn.session_reset_sql().is_some();
+            if !needs_async_hygiene {
+                pooled.last_used_at = Instant::now();
+                pool.fast_path_stats.record_release();
+                pool.release_count.fetch_add(1, Ordering::Relaxed);
+                if let Err(rejected) = pool.idle.push(pooled) {
+                    // 队列满（极端并发竞态）：sync Drop 无法 await close()；
+                    // 直接丢弃（底层连接 Drop 关闭物理连接）并对齐容量与统计计数
+                    drop(rejected);
+                    pool.total_count.fetch_sub(1, Ordering::SeqCst);
+                    pool.connection_closed_count.fetch_add(1, Ordering::Relaxed);
+                    pool.emit_event(PoolEvent::ConnectionClosed);
+                } else {
+                    pool.emit_event(PoolEvent::ConnectionReleased);
+                }
+                // v8.8.0 条件唤醒：仅在有等待者时 notify（与 release 同规则）
+                if pool.waiters_count.load(Ordering::Acquire) > 0 {
+                    pool.notify.notify_one();
+                }
+                return;
+            }
             // 尝试在 tokio runtime 中异步归还
             if let Ok(handle) = tokio::runtime::Handle::try_current() {
                 handle.spawn(async move {
@@ -1154,6 +1281,44 @@ pub trait ConnectionFactory: Send + Sync {
     async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError>;
 }
 
+/// 槽位预留守卫（P1 HA 演练回馈修复，2026-10-29）
+///
+/// `acquire`/`prewarm` 在 CAS 递增 `total_count` 后 await `factory.create()`；
+/// 若该 future 在 await 点被取消（调用方超时、任务 abort、`select!` 分支丢弃等），
+/// 原先只有 `Ok(Err)` / `Err(_)` 分支才执行的 `fetch_sub` 不会运行，导致槽位
+/// 永久泄漏：`total_count` 卡在 `max_connections` 而实际 TCP 连接为 0，
+/// 池容量耗尽，后续 acquire 全部挂起，只能重启进程恢复。
+///
+/// 守卫在 CAS 成功后创建（armed = true）；连接成功移交 `PooledConnection` 时
+/// 调用 [`SlotGuard::defuse`] 解除，之后槽位由连接的 Drop 生命周期负责；
+/// 其余任何退出路径（失败/超时/取消/panic）都会在 Drop 中回退 `total_count`。
+struct SlotGuard {
+    total_count: Arc<AtomicU32>,
+    armed: bool,
+}
+
+impl SlotGuard {
+    fn new(total_count: Arc<AtomicU32>) -> Self {
+        Self {
+            total_count,
+            armed: true,
+        }
+    }
+
+    /// 连接已成功移交，槽位由连接生命周期接管，Drop 不再回退计数。
+    fn defuse(&mut self) {
+        self.armed = false;
+    }
+}
+
+impl Drop for SlotGuard {
+    fn drop(&mut self) {
+        if self.armed {
+            self.total_count.fetch_sub(1, Ordering::SeqCst);
+        }
+    }
+}
+
 /// 连接池核心实现
 ///
 /// 所有字段均为 `Arc` 或内部含 `Arc`（`Notify`、`PoolConfig` 可 clone），
@@ -1225,6 +1390,13 @@ pub struct Pool {
     connection_closed_count: Arc<AtomicU64>,
     /// v10.11.0 T1.4：快速路径统计（CachePadded 64B 对齐，取/还连接分离统计）
     fast_path_stats: Arc<FastPathStats>,
+    /// R8：池级预处理语句句柄缓存（`prepared-stmt-cache` feature，默认启用）
+    ///
+    /// 生产执行入口为 [`Pool::query_prepared`] / [`PooledConnection::query_prepared`]。
+    /// `SZ_ORM_PREPARED_CACHE=0|off|false` 关闭，`SZ_ORM_PREPARED_CACHE_SIZE`
+    /// 设定每连接句柄上限（默认 256）。
+    #[cfg(feature = "prepared-stmt-cache")]
+    prepared_cache: Option<Arc<PreparedStatementCache>>,
 }
 
 /// Pool 克隆：仅增加 Arc 引用计数，成本极低
@@ -1256,6 +1428,8 @@ impl Clone for Pool {
             connection_created_count: self.connection_created_count.clone(),
             connection_closed_count: self.connection_closed_count.clone(),
             fast_path_stats: Arc::clone(&self.fast_path_stats),
+            #[cfg(feature = "prepared-stmt-cache")]
+            prepared_cache: self.prepared_cache.clone(),
         }
     }
 }
@@ -1321,6 +1495,8 @@ impl Pool {
             connection_created_count: Arc::new(AtomicU64::new(0)),
             connection_closed_count: Arc::new(AtomicU64::new(0)),
             fast_path_stats: Arc::new(FastPathStats::new()),
+            #[cfg(feature = "prepared-stmt-cache")]
+            prepared_cache: prepared_cache_from_env(),
         })
     }
 
@@ -1341,8 +1517,45 @@ impl Pool {
         Ok(pool)
     }
 
-    /// 连接池预热（TASK-021）
+    /// R8：池级预处理缓存的统计快照（未启用时返回 None）
+    #[cfg(feature = "prepared-stmt-cache")]
+    pub fn prepared_cache_stats(&self) -> Option<PreparedStatementCacheStatsSnapshot> {
+        self.prepared_cache.as_ref().map(|c| c.stats())
+    }
+
+    /// R8：池级预处理缓存引用（未启用时为 None）
+    #[cfg(feature = "prepared-stmt-cache")]
+    pub fn prepared_cache(&self) -> Option<&Arc<PreparedStatementCache>> {
+        self.prepared_cache.as_ref()
+    }
+
+    /// R8：表结构变更（DDL）后失效该表关联的所有句柄
     ///
+    /// 返回实际失效的条目数。未启用缓存时返回 0。
+    #[cfg(feature = "prepared-stmt-cache")]
+    pub fn invalidate_prepared_table(&self, table: &str) -> usize {
+        self.prepared_cache
+            .as_ref()
+            .map(|c| c.invalidate_table(table))
+            .unwrap_or(0)
+    }
+
+    /// R8：经池级预处理缓存执行参数化查询（acquire → 查缓存/执行 → 归还）
+    ///
+    /// 这是预处理缓存的生产执行入口；等价于手动 `acquire()` +
+    /// [`PooledConnection::query_prepared`]，但自动归还连接。
+    #[cfg(feature = "prepared-stmt-cache")]
+    pub async fn query_prepared(
+        &self,
+        sql: &str,
+        params: &[crate::value::Value],
+    ) -> Result<QueryRows, crate::DbError> {
+        let mut pooled = self.acquire().await.map_err(crate::DbError::PoolError)?;
+        // 借出连接不显式 release：PooledConnection::Drop 自动归还（含会话复位）
+        pooled.query_prepared(sql, params).await
+    }
+
+    /// 连接池预热（TASK-021）
     /// 当 `PoolConfig::prewarm` 为 `true` 时，调用此方法会立即建立 `min_idle` 个连接
     /// 并放入空闲队列。预热失败不阻断池创建（仅记录 `tracing::warn!`）。
     ///
@@ -1396,6 +1609,8 @@ impl Pool {
             };
 
             if created.is_some() {
+                // P1 HA 演练回馈：槽位预留守卫，预热任务被取消时回退计数
+                let mut slot = SlotGuard::new(self.total_count.clone());
                 match tokio::time::timeout(self.config.connection_timeout, self.factory.create())
                     .await
                 {
@@ -1406,6 +1621,8 @@ impl Pool {
                         }
                         self.emit_event(PoolEvent::ConnectionCreated);
                         let pooled = PooledConnection::new(conn, self.clone());
+                        // 连接已移交，槽位由连接生命周期接管
+                        slot.defuse();
                         // 放入空闲队列
                         if self.idle.push(pooled).is_err() {
                             // 队列满（不应该发生），关闭连接
@@ -1421,7 +1638,7 @@ impl Pool {
                         }
                     }
                     Ok(Err(e)) => {
-                        let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        // 槽位由守卫 Drop 回退
                         #[cfg(feature = "circuit-breaker")]
                         {
                             self.circuit_breaker.lock().record_failure();
@@ -1434,7 +1651,7 @@ impl Pool {
                         );
                     }
                     Err(_) => {
-                        let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        // 槽位由守卫 Drop 回退
                         #[cfg(feature = "circuit-breaker")]
                         {
                             self.circuit_breaker.lock().record_failure();
@@ -1525,6 +1742,8 @@ impl Pool {
                 };
 
                 if created.is_some() {
+                    // P1 HA 演练回馈：槽位预留守卫，渐进预热任务被取消时回退计数
+                    let mut slot = SlotGuard::new(self.total_count.clone());
                     match tokio::time::timeout(
                         self.config.connection_timeout,
                         self.factory.create(),
@@ -1538,6 +1757,8 @@ impl Pool {
                             }
                             self.emit_event(PoolEvent::ConnectionCreated);
                             let pooled = PooledConnection::new(conn, self.clone());
+                            // 连接已移交，槽位由连接生命周期接管
+                            slot.defuse();
                             if self.idle.push(pooled).is_err() {
                                 let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
                                 progress.record_failure();
@@ -1548,7 +1769,7 @@ impl Pool {
                             }
                         }
                         Ok(Err(_)) => {
-                            let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                            // 槽位由守卫 Drop 回退
                             progress.record_failure();
                             #[cfg(feature = "circuit-breaker")]
                             {
@@ -1556,7 +1777,7 @@ impl Pool {
                             }
                         }
                         Err(_) => {
-                            let _ = self.total_count.fetch_sub(1, Ordering::SeqCst);
+                            // 槽位由守卫 Drop 回退
                             progress.record_failure();
                             #[cfg(feature = "circuit-breaker")]
                             {
@@ -1727,6 +1948,11 @@ impl Pool {
     /// 与 `total_count` 递减的统计口径一致。
     async fn close_connection(&self, mut pooled: PooledConnection) {
         pooled.pool = None;
+        // R8：连接即将销毁，其分桶内的句柄随连接失效（避免缓存泄漏）
+        #[cfg(feature = "prepared-stmt-cache")]
+        if let Some(cache) = &self.prepared_cache {
+            cache.invalidate_conn(pooled.conn_id);
+        }
         let _ = pooled.conn.close().await;
         self.connection_closed_count.fetch_add(1, Ordering::Relaxed);
     }
@@ -1916,6 +2142,11 @@ impl Pool {
                     self.total_count.fetch_sub(1, Ordering::SeqCst);
                     return Err(PoolError::Closed);
                 }
+                // P1 HA 演练回馈（2026-10-29）：槽位预留守卫。
+                // CAS 已把 total_count +1；若 create() 的 future 在 await 点被取消
+                // （调用方超时/任务 abort/select! 丢弃），守卫 Drop 会回退计数，
+                // 避免槽位永久泄漏导致池容量耗尽（created=closed=max 而 TCP=0）。
+                let mut slot = SlotGuard::new(self.total_count.clone());
                 match tokio::time::timeout(self.config.connection_timeout, self.factory.create())
                     .await
                 {
@@ -1929,11 +2160,13 @@ impl Pool {
                         self.emit_event(PoolEvent::ConnectionCreated);
                         self.emit_event(PoolEvent::ConnectionAcquired);
                         self.acquire_count.fetch_add(1, Ordering::Relaxed);
-                        return Ok(PooledConnection::new(conn, self.clone()));
+                        let pooled = PooledConnection::new(conn, self.clone());
+                        // 连接已移交，槽位由连接生命周期接管
+                        slot.defuse();
+                        return Ok(pooled);
                     }
                     Ok(Err(e)) => {
-                        // 创建失败，回退计数
-                        self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        // 创建失败：槽位由守卫 Drop 回退
                         // #88 修复：连接创建失败，记录到断路器
                         // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
                         #[cfg(feature = "circuit-breaker")]
@@ -1944,8 +2177,7 @@ impl Pool {
                         return Err(PoolError::ConnectionFailed(e.to_string()));
                     }
                     Err(_) => {
-                        // tokio::time::timeout 的 Err 必为超时
-                        self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        // tokio::time::timeout 的 Err 必为超时：槽位由守卫 Drop 回退
                         // #88 修复：连接创建超时，记录到断路器
                         // P1-4 修复：parking_lot::Mutex::lock 直接返回 guard，无 PoisonError
                         #[cfg(feature = "circuit-breaker")]
@@ -1967,6 +2199,10 @@ impl Pool {
                 return Err(PoolError::Timeout);
             }
             // 增加等待者计数
+            // 注意：登记发生在本轮 `idle.pop()` 尝试**之后**，因此"刚检查完队列就有人归还"
+            // 的交错会让那次归还的 notify 被抑制（`waiters_count` 当时仍为 0）。这是有意为之，
+            // 由下面的有界 `backoff` 超时兜底——合并/抑制只增加 ≤100ms 的唤醒延迟。
+            // 完整不变量见 `release` 的"唤醒语义不变量"注释。
             self.waiters_count.fetch_add(1, Ordering::SeqCst);
             let wait = std::cmp::min(backoff, *dl - now);
             match tokio::time::timeout(wait, self.notify.notified()).await {
@@ -2084,6 +2320,42 @@ impl Pool {
             }
         }
 
+        // R5：会话状态复位。连接复用前清除会话级污染（sql_mode/时区/
+        // 隔离级别/search_path/临时表/用户变量），避免下一个租用方继承
+        // 上一个租用方的会话设置。复位失败/超时的连接状态不可信，直接关闭。
+        if let Some(reset_sql) = pooled.conn.session_reset_sql() {
+            match tokio::time::timeout(
+                self.config.connection_timeout,
+                pooled.conn.execute(reset_sql),
+            )
+            .await
+            {
+                Ok(Ok(_)) => {
+                    tracing::trace!(
+                        target: "sz_orm::pool",
+                        "session state reset on connection return"
+                    );
+                }
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        target: "sz_orm::pool",
+                        "session reset on release failed: {}", e
+                    );
+                    self.close_connection(pooled).await;
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    self.emit_event(PoolEvent::ConnectionClosed);
+                    return;
+                }
+                Err(_) => {
+                    tracing::warn!(target: "sz_orm::pool", "session reset on release timed out");
+                    self.close_connection(pooled).await;
+                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    self.emit_event(PoolEvent::ConnectionClosed);
+                    return;
+                }
+            }
+        }
+
         // v1.1.0 优化 2：无锁 push 替换 Mutex<VecDeque>::push_back
         //
         // `ArrayQueue::push` 返回 `Result<(), T>`，失败表示队列满。
@@ -2099,6 +2371,26 @@ impl Pool {
         }
         // v8.8.0 优化：条件 notify_one。
         // 仅在有等待者时唤醒，避免无等待者时的无谓内核 futex 系统调用。
+        //
+        // 唤醒语义不变量（2026-10-29 全栈评测 P3-2 显式化，后续改动不得破坏）：
+        // `tokio::sync::Notify::notify_one` 是**合并**的——没有等待者时最多只存 1 个许可，
+        // 连续两次 release 也只剩 1 个许可；再叠加这里的 `waiters_count > 0` 前置判断，
+        // 还存在"释放瞬间无人登记等待 → 本次完全不发通知"的窗口（等待者是在 `idle.pop()`
+        // 失败之后才把 `waiters_count` 加一，见 acquire 的 park 段）。
+        // 所以本池的**正确性不依赖"每次 release 必对应一次唤醒"**，而依赖两条更强的保证：
+        //   1. 等待循环顶部每轮都重查 `closed` 与 `idle.pop()`，被唤醒/超时/从未被唤醒
+        //      走的是同一条路径；
+        //   2. `notified()` 的等待被 `backoff` 强制限时（上限 `MAX_BACKOFF` = 100ms），
+        //      即使一个通知都没收到，等待者最迟 100ms 也会自行重查空闲队列。
+        // 结论：上述竞态只造成**有界**的唤醒延迟，不会死锁、不会丢连接、不会永久饥饿。
+        // 若将来改成无限等待（`self.notify.notified().await` 去掉 timeout），必须先删掉
+        // 这里的 `waiters_count > 0` 抑制并保证每个归还路径无条件 notify，否则那个
+        // "完全不发通知"的窗口会立刻从"多等 100ms"变成"永久饥饿"。
+        // 回归测试：tests/pool_acquire_release_test.rs 的
+        // test_pool_consecutive_releases_coalesced_all_waiters_served（两次连续归还 +
+        // 多个等待者，全部必须在有界时间内取得连接）与
+        // test_pool_suppressed_notify_late_acquirer_still_served（无等待者时抑制通知，
+        // 后到的等待者仍能取到连接）。
         if self.waiters_count.load(Ordering::Acquire) > 0 {
             self.notify.notify_one();
         }
@@ -2143,6 +2435,30 @@ impl Pool {
                     let _ = conn.close().await;
                     return Err(PoolError::ConnectionFailed(
                         "rollback on return_raw timed out".to_string(),
+                    ));
+                }
+            }
+        }
+
+        // R5：会话状态复位（与 release 同规则）
+        if let Some(reset_sql) = conn.session_reset_sql() {
+            match tokio::time::timeout(self.config.connection_timeout, conn.execute(reset_sql))
+                .await
+            {
+                Ok(Ok(_)) => {}
+                Ok(Err(e)) => {
+                    tracing::warn!(
+                        target: "sz_orm::pool",
+                        "session reset on return_raw failed: {}", e
+                    );
+                    let _ = conn.close().await;
+                    return Err(PoolError::ConnectionFailed(e.to_string()));
+                }
+                Err(_) => {
+                    tracing::warn!(target: "sz_orm::pool", "session reset on return_raw timed out");
+                    let _ = conn.close().await;
+                    return Err(PoolError::ConnectionFailed(
+                        "session reset on return_raw timed out".to_string(),
                     ));
                 }
             }
@@ -2534,6 +2850,8 @@ impl Pool {
                 Ok(_) => {}
                 Err(_) => continue, // 并发竞争，跳过本次
             }
+            // P1 HA 演练回馈（2026-10-29）：槽位预留守卫，warmup 被取消时回退计数
+            let mut slot = SlotGuard::new(self.total_count.clone());
             match self.factory.create().await {
                 Ok(conn) => {
                     let now = Instant::now();
@@ -2543,17 +2861,21 @@ impl Pool {
                         last_used_at: now,
                         pool: None,
                         known_good: false,
+                        #[cfg(feature = "prepared-stmt-cache")]
+                        conn_id: NEXT_POOLED_CONN_ID.fetch_add(1, Ordering::Relaxed),
                     };
                     if let Err(rejected) = self.idle.push(pooled) {
                         // 队列满（不应发生，因为 total_count 限制了），关闭并递减
                         self.close_connection(rejected).await;
                         self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    } else {
+                        self.emit_event(PoolEvent::ConnectionCreated);
                     }
-                    self.emit_event(PoolEvent::ConnectionCreated);
+                    // 连接已入空闲队列或已关闭，槽位由连接生命周期/手动递减接管
+                    slot.defuse();
                 }
                 Err(_) => {
-                    // 创建失败，回退计数器并停止预热
-                    self.total_count.fetch_sub(1, Ordering::SeqCst);
+                    // 创建失败：槽位由守卫 Drop 回退，停止预热
                     break;
                 }
             }
@@ -2823,6 +3145,28 @@ mod tests {
             Box::pin(async move { Ok(1) })
         }
 
+        fn query_with_params<'a>(
+            &'a mut self,
+            _sql: &'a str,
+            _params: &'a [crate::value::Value],
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<std::collections::HashMap<String, crate::value::Value>>,
+                            crate::DbError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move {
+                let mut row = std::collections::HashMap::new();
+                row.insert("id".to_string(), crate::value::Value::I64(1));
+                Ok(vec![row])
+            })
+        }
+
         fn query<'a>(
             &'a mut self,
             _sql: &'a str,
@@ -2900,6 +3244,290 @@ mod tests {
     fn test_closed_connection_is_connected_false() {
         let closed = ClosedConnection;
         assert!(!closed.is_connected());
+    }
+
+    // === P1 HA 演练回馈（2026-10-29）：acquire 在 create() await 点被取消时槽位必须回退 ===
+
+    /// 阻塞工厂：create() 挂起直到 gate 被 notify，用于制造取消窗口
+    struct BlockingConnectionFactory {
+        gate: Arc<tokio::sync::Notify>,
+    }
+
+    #[async_trait]
+    impl ConnectionFactory for BlockingConnectionFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            self.gate.notified().await;
+            Ok(Box::new(MockConnection::new()))
+        }
+    }
+
+    /// CAS 递增 total_count 后，若 acquire 的 future 在 create() 的 await 点被取消
+    /// （调用方超时/任务 abort），槽位必须回退；否则 total_count 卡在 max、
+    /// 实际 TCP 连接为 0，池容量被永久耗尽，只能重启进程恢复。
+    #[tokio::test]
+    async fn test_acquire_cancelled_during_create_releases_slot() {
+        let gate = Arc::new(tokio::sync::Notify::new());
+        let factory = Arc::new(BlockingConnectionFactory { gate: gate.clone() });
+        let config = PoolConfigBuilder::new().max_size(5).build().unwrap();
+        let pool = Pool::new(config, factory).unwrap();
+
+        // 发起 acquire，等待 CAS 槽位被占用（create 阻塞在 gate 上）
+        let acquiring_pool = pool.clone();
+        let handle = tokio::spawn(async move { acquiring_pool.acquire().await });
+        let mut attempts = 0;
+        while pool.status().await.active == 0 && attempts < 100 {
+            tokio::time::sleep(std::time::Duration::from_millis(10)).await;
+            attempts += 1;
+        }
+        assert_eq!(pool.status().await.active, 1, "槽位应已预留");
+
+        // 取消 acquire 任务：future 在 create() 的 await 点被 drop
+        handle.abort();
+        let _ = handle.await;
+
+        // 槽位必须回退，池容量不泄漏
+        assert_eq!(pool.status().await.active, 0, "取消后槽位必须回退为 0");
+
+        // 池仍可用：放行阻塞的 create 后，acquire 应能正常建立连接
+        gate.notify_one();
+        let pooled = tokio::time::timeout(std::time::Duration::from_secs(2), pool.acquire())
+            .await
+            .expect("取消修复后 acquire 不应超时")
+            .expect("acquire 应成功");
+        assert_eq!(pool.status().await.active, 1, "重新 acquire 后槽位应占用");
+        drop(pooled);
+        // 归还后连接进入 idle，槽位仍由该连接占用（total_count 不降）
+        assert_eq!(pool.status().await.active, 1, "连接在 idle 中仍占用槽位");
+    }
+
+    // === R5：归还连接时会话状态复位 ===
+    /// 默认 `session_reset_sql` 为 None：未声明复位语句的适配器不做任何额外操作
+    #[test]
+    fn test_default_session_reset_sql_is_none() {
+        assert!(MockConnection::new().session_reset_sql().is_none());
+    }
+
+    // === R8：池级预处理缓存接线 ===
+
+    /// 默认启用的池持有预处理缓存（stats 可读、初始为空）
+    #[tokio::test]
+    async fn test_pool_prepared_cache_wired_by_default() {
+        let pool = Pool::new(PoolConfig::default(), Arc::new(MockConnectionFactory)).unwrap();
+        let cache = pool.prepared_cache().expect("默认应启用预处理缓存");
+        assert_eq!(cache.len(), 0);
+        let stats = pool.prepared_cache_stats().unwrap();
+        assert_eq!((stats.hits, stats.misses), (0, 0));
+        assert_eq!(stats.size, 0);
+    }
+
+    /// 每个借出连接获得独立桶键（句柄绑定物理连接，不能共用 bucket 0）
+    #[tokio::test]
+    async fn test_pooled_connection_ids_are_unique() {
+        let pool = Pool::new(PoolConfig::default(), Arc::new(MockConnectionFactory)).unwrap();
+        let a = pool.acquire().await.unwrap();
+        let b = pool.acquire().await.unwrap();
+        assert_ne!(a.prepared_conn_id(), b.prepared_conn_id());
+        assert_ne!(a.prepared_conn_id(), 0);
+    }
+
+    /// 未实现句柄存储的适配器：查询正常执行，两次均记未命中（语义正确、零收益）
+    #[tokio::test]
+    async fn test_pool_query_prepared_without_handle_store_counts_misses() {
+        let pool = Pool::new(PoolConfig::default(), Arc::new(MockConnectionFactory)).unwrap();
+        let params = [crate::value::Value::I64(1)];
+        let sql = "SELECT id FROM users WHERE id = ?";
+
+        pool.query_prepared(sql, &params).await.unwrap();
+        pool.query_prepared(sql, &params).await.unwrap();
+
+        let stats = pool.prepared_cache_stats().unwrap();
+        assert_eq!(stats.misses, 2, "无句柄存储时应每次未命中");
+        assert_eq!(stats.hits, 0);
+        assert_eq!(pool.invalidate_prepared_table("users"), 0);
+    }
+
+    /// 句柄存入后，pooled 查询走命中路径（证明接线不是装饰）
+    #[tokio::test]
+    async fn test_pooled_query_prepared_hits_stored_handle() {
+        let pool = Pool::new(PoolConfig::default(), Arc::new(MockConnectionFactory)).unwrap();
+        let mut pooled = pool.acquire().await.unwrap();
+        let sql = "SELECT id FROM users WHERE id = ?";
+
+        let execute_fn: crate::prepared_cache::ExecuteFn = Arc::new(|_params| {
+            Box::pin(async {
+                let mut row = std::collections::HashMap::new();
+                row.insert("id".to_string(), crate::value::Value::I64(7));
+                Ok(vec![row])
+            })
+        });
+        pool.prepared_cache().unwrap().store_handle(
+            pooled.prepared_conn_id(),
+            sql,
+            vec!["users".to_string()],
+            execute_fn,
+        );
+
+        let rows = pooled
+            .query_prepared(sql, &[crate::value::Value::I64(1)])
+            .await
+            .unwrap();
+        assert_eq!(rows.len(), 1);
+        assert_eq!(
+            rows[0].get("id"),
+            Some(&crate::value::Value::I64(7)),
+            "命中路径应返回句柄执行结果"
+        );
+
+        let stats = pool.prepared_cache_stats().unwrap();
+        assert_eq!(stats.hits, 1);
+        assert_eq!(stats.misses, 0);
+
+        // DDL 后按表失效
+        assert_eq!(pool.invalidate_prepared_table("users"), 1);
+        assert_eq!(pool.prepared_cache_stats().unwrap().size, 0);
+    }
+
+    /// 记录复位执行情况的连接
+    struct ResettingConnection {
+        connected: bool,
+        log: Arc<std::sync::Mutex<Vec<String>>>,
+        fail_reset: bool,
+    }
+
+    impl Connection for ResettingConnection {
+        fn execute<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.log.lock().unwrap().push(sql.to_string());
+                if self.fail_reset && sql == "DISCARD ALL" {
+                    return Err(crate::DbError::QueryError("reset failed".to_string()));
+                }
+                Ok(0)
+            })
+        }
+
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<std::collections::HashMap<String, crate::value::Value>>,
+                            crate::DbError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move { Ok(vec![]) })
+        }
+
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn is_connected(&self) -> bool {
+            self.connected
+        }
+
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move {
+                self.connected = false;
+                Ok(())
+            })
+        }
+
+        fn session_reset_sql(&self) -> Option<&'static str> {
+            Some("DISCARD ALL")
+        }
+    }
+
+    struct ResettingConnectionFactory {
+        log: Arc<std::sync::Mutex<Vec<String>>>,
+        fail_reset: bool,
+        created: Arc<AtomicU32>,
+    }
+
+    #[async_trait]
+    impl ConnectionFactory for ResettingConnectionFactory {
+        async fn create(&self) -> Result<Box<dyn Connection>, crate::DbError> {
+            self.created.fetch_add(1, Ordering::SeqCst);
+            Ok(Box::new(ResettingConnection {
+                connected: true,
+                log: self.log.clone(),
+                fail_reset: self.fail_reset,
+            }))
+        }
+    }
+
+    /// 归还连接必须执行适配器声明的会话复位语句
+    #[tokio::test]
+    async fn test_r5_release_executes_session_reset() {
+        let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let factory = Arc::new(ResettingConnectionFactory {
+            log: log.clone(),
+            fail_reset: false,
+            created: Arc::new(AtomicU32::new(0)),
+        });
+        let pool = Pool::new(PoolConfig::default(), factory).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+
+        let entries = log.lock().unwrap().clone();
+        assert_eq!(entries, vec!["DISCARD ALL".to_string()]);
+        // 复位成功 → 连接回到空闲队列
+        assert_eq!(pool.status().await.idle, 1);
+        pool.close_all().await;
+    }
+
+    /// 复位失败 → 连接状态不可信，必须关闭且不入池
+    #[tokio::test]
+    async fn test_r5_reset_failure_closes_connection() {
+        let log = Arc::new(std::sync::Mutex::new(Vec::new()));
+        let created = Arc::new(AtomicU32::new(0));
+        let factory = Arc::new(ResettingConnectionFactory {
+            log: log.clone(),
+            fail_reset: true,
+            created: created.clone(),
+        });
+        let pool = Pool::new(PoolConfig::default(), factory).unwrap();
+        let conn = pool.acquire().await.unwrap();
+        pool.release(conn).await;
+
+        assert_eq!(log.lock().unwrap().len(), 1);
+        assert_eq!(
+            pool.status().await.idle,
+            0,
+            "复位失败的连接不得回到空闲队列"
+        );
+        // 下一次 acquire 必须新建连接
+        let conn2 = pool.acquire().await.unwrap();
+        assert_eq!(created.load(Ordering::SeqCst), 2);
+        drop(conn2);
+        pool.close_all().await;
     }
 
     /// 固定影响行数连接：execute_with_params 恒返回 3，用于验证

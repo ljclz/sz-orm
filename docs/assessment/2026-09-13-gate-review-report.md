@@ -1,4 +1,5 @@
 # 门禁审查报告（2026-09-13）
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 - 分支 / commit：`main` @ `6dc47d1`（工作区含 v7.0.0 在途变更，110 个未提交文件基线）
 - 范围：G1~G23 全量 + 条件触发 G24（API 变更）+ G25（secrets）+ G26（deprecated 保留期）
@@ -52,7 +53,7 @@
 
 **2026-09-14 环境补齐后复跑：167 通过 / 1 失败（唯一失败为设计占位 `cargo_mutants_baseline`），全部真实集成测试通过**（MySQL 系 + PG + Oracle + SQLite + DuckDB + MSSQL 8+7 + Redis 4 + ClickHouse 2）。环境路径：
 
-- Redis/ClickHouse 跑在服务器 `122.51.216.76` Docker（`szorm-redis-ext` 6380→6379、`szorm-clickhouse` 9004），安全组未开放，经 SSH 隧道 `127.0.0.1:6379`/`127.0.0.1:9004` 访问；ClickHouse 挂载的 `/tmp/ch_users.xml` 随服务器重启丢失已重建。
+- Redis/ClickHouse 跑在服务器 `<legacy-server-ip>` Docker（`szorm-redis-ext` 6380→6379、`szorm-clickhouse` 9004），安全组未开放，经 SSH 隧道 `127.0.0.1:6379`/`127.0.0.1:9004` 访问；ClickHouse 挂载的 `/tmp/ch_users.xml` 随服务器重启丢失已重建。
 - MSSQL 为腾讯云实例（此前网络不可达，本次可达）。
 - 复跑命令（`--tests` 选择器排除 doctest）：`cargo test --workspace --tests --no-fail-fast -- --ignored --test-threads=4`，凭据经 `SZ_ORM_MYSQL_URL`/`SZ_ORM_PG_URL`/`SZ_ORM_REDIS_URL`/`SZ_ORM_CLICKHOUSE_URL`/`SZ_ORM_MSSQL_*` 注入。
 

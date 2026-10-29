@@ -1,6 +1,11 @@
 //! v7.5.0 稳定性压测矩阵（feature gate: `stability-matrix`，默认关闭）
 //!
 //! 编排 6 种工作负载 × N 种故障类型的压测矩阵，产出 `StabilityMatrixReport`。
+//!
+//! v10.13.0 ROI-3（2026-10-27 性能评测整改）：`MatrixEntry` 新增 `is_simulated`
+//! 字段——`run()` 产出的 availability/recovery 为固定参考值（非真实混沌测量），
+//! 必须标注 `is_simulated: true`；真实混沌数据只来自 `run_with_injector`
+//! （`sz-orm-fusion::ChaosInjector`）。
 
 use crate::WorkloadType;
 use serde::{Deserialize, Serialize};
@@ -14,6 +19,9 @@ pub struct MatrixEntry {
     pub degradation_triggered: bool,
     pub degradation_correct: bool,
     pub is_real_chaos: bool,
+    /// 该条目数据是否为模拟参考值（run() 恒为 true；run_with_injector 取决于注入器）
+    #[serde(default)]
+    pub is_simulated: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -62,6 +70,11 @@ impl StabilityMatrixRunner {
         self
     }
 
+    /// 运行稳定性矩阵（模拟参考值）
+    ///
+    /// **注意**：本方法不执行任何真实故障注入，availability/recovery 为固定参考值，
+    /// 仅用于验证矩阵编排与 JSON 结构。每条 entry 均标注 `is_simulated: true`。
+    /// 真实混沌压测请使用 [`StabilityMatrixRunner::run_with_injector`]。
     pub fn run(&self) -> StabilityMatrixReport {
         let mut entries = Vec::new();
         let mut total_availability = 0.0_f64;
@@ -82,6 +95,7 @@ impl StabilityMatrixRunner {
                     degradation_triggered: true,
                     degradation_correct: true,
                     is_real_chaos: is_real,
+                    is_simulated: true,
                 });
 
                 total_availability += availability;
@@ -128,6 +142,7 @@ impl StabilityMatrixRunner {
                     degradation_triggered: report.degradation_triggered,
                     degradation_correct: report.degradation_correct,
                     is_real_chaos: report.is_real_chaos,
+                    is_simulated: !report.is_real_chaos,
                 });
                 total_availability += report.availability_during_fault;
                 if report.recovery_time_secs > max_recovery {

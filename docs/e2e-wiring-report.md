@@ -1,4 +1,5 @@
 # sz-orm v8.3.0 生产接线验证报告
+> **安全说明（2026-10-28 占位化）**：本文档中的服务器 IP 已替换为占位符；实际主机地址与凭据由运维在对应测试服务器的环境变量中提供，禁止提交真实地址/密码到仓库。
 
 > 日期：2026-09-22 | 版本：v8.3.0
 > 验证范围：13 项功能 × 3 数据库 = 39 格覆盖矩阵
@@ -71,8 +72,8 @@
 
 ## 5. 测试环境
 
-- MySQL: 121.204.253.75:8802（3 库 test/shop/njszjt）
-- PostgreSQL: 121.204.253.75:5432（lewuli）
+- MySQL: <remote-server-ip>:8802（3 库 test/shop/njszjt）
+- PostgreSQL: <remote-server-ip>:5432（lewuli）
 - Oracle: 127.0.0.1:1521/freepdb1（sys/Sysdba）
-- 禁止使用 122.51.216.76（第一台服务器）
+- 禁止使用 <legacy-server-ip>（第一台服务器）
 - 禁止使用本机 MySQL/PostgreSQL

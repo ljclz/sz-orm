@@ -2,8 +2,8 @@
 
 > **读者画像**：PHP 工程师，擅长 ThinkPHP，没接触过 Rust，现在用 AI 驱动开发 sz-orm 项目
 > **目标**：从零基础到能用 AI 协作维护 sz-orm 代码
-> **更新日期**：2026-09-20 · 适用版本：v7.7.0+
-> **项目状态**：生产可用，sz-orm-core 已发布到 crates.io，当前工作空间版本 7.7.0（72 个成员：70 个 lib 包 + cli + examples）
+> **更新日期**：2026-10-27 · 适用版本：v10.13.0+
+> **项目状态**：生产可用，sz-orm-core 已发布到 crates.io，当前工作空间版本 10.13.0（72 个成员：70 个 lib 包 + cli + examples）
 > **生产案例**：sz-pay 支付中台后端依赖 6 个核心 sz-orm 包（core/sqlx/config/auth/macros/queue）+ 16 个 optional 扩展包；new-wxapp（刘姐菜篮子）为第二个下游消费者
 
 ---
@@ -445,6 +445,7 @@ sz-orm 提供运行时校验，防止 SQL 注入：
 let result = QueryBuilder::<User>::new(dialect)
     .table("users")
     .select(vec!["id", "name"])
+    .expect("valid columns")
     .where_eq("id", Value::I64(1))
     .validate();   // 返回 Result<(), DbError>
 ```
@@ -969,7 +970,9 @@ fn cancel_order(&self, user: &str, order_id: i64) -> Result<String, String> {
     let mut data = HashMap::new();
     data.insert("deleted_at".to_string(), Value::String("2026-07-19 12:00:00".to_string()));
     data.insert("status".to_string(), Value::String("cancelled".to_string()));
-    let sql = QueryBuilder::<Order>::new(self.new_dialect())
+    let sql = QueryBuilder::<Order>::new(
+            sz_orm_core::dialect::get_dialect(sz_orm_core::DbType::MySQL).expect("MySQL 方言可用")
+        )
         .table("orders")
         .where_eq("id", Value::I64(order_id))
         .build_update(&data);
@@ -1105,6 +1108,7 @@ let sql = sql_string!("SELECT * FROM users WHERE name = ?"; params: "Alice");
 let result = QueryBuilder::<User>::new(dialect)
     .table("users")
     .select(vec!["id", "name"])
+    .expect("valid columns")
     .where_eq("id", Value::I64(1))
     .validate()?;   // 返回 Result<(), DbError>
 ```

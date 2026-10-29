@@ -31,18 +31,7 @@ use benchmark_reporter::{
     BenchmarkRecord, BenchmarkReporter, CriterionConfig, EnvironmentMetadata,
 };
 
-use criterion::{criterion_group, criterion_main, Criterion};
-
-/// Drop guard：程序退出时生成基准报告文件
-struct ReportGuard;
-impl Drop for ReportGuard {
-    fn drop(&mut self) {
-        let dialects = detect_dialects();
-        let records: Vec<BenchmarkRecord> = Vec::new();
-        generate_report_files(&records, &dialects);
-        eprintln!("基准报告已生成（方言: {dialects:?}）");
-    }
-}
+use criterion::Criterion;
 
 // ============================================================================
 // 多方言检测（T-B-009）
@@ -79,6 +68,98 @@ fn active_dialect() -> &'static str {
     } else {
         "sqlite"
     }
+}
+
+/// Criterion estimates.json 结构（mean/median 点估计，单位 ns）
+#[derive(serde::Deserialize)]
+struct CriterionEstimates {
+    mean: CriterionPoint,
+    median: CriterionPoint,
+}
+
+#[derive(serde::Deserialize)]
+struct CriterionPoint {
+    point_estimate: f64,
+}
+
+/// Criterion samples.json 结构（原始采样）
+#[derive(serde::Deserialize)]
+struct CriterionSamples {
+    iters: Vec<f64>,
+    times: Vec<f64>,
+}
+
+impl CriterionSamples {
+    /// 每次迭代耗时（ns）的 P95
+    fn p95_per_iter_ns(&self) -> Option<f64> {
+        let mut per_iter: Vec<f64> = self
+            .iters
+            .iter()
+            .zip(self.times.iter())
+            .filter(|(iters, _)| **iters > 0.0)
+            .map(|(iters, times)| times / iters)
+            .collect();
+        if per_iter.is_empty() {
+            return None;
+        }
+        per_iter.sort_by(|a, b| a.partial_cmp(b).unwrap_or(std::cmp::Ordering::Equal));
+        let rank = ((per_iter.len() - 1) as f64 * 0.95).round() as usize;
+        Some(per_iter[rank])
+    }
+}
+
+/// v10.13.0 ROI-5：从 Criterion 落盘的真实测量数据生成基准报告。
+///
+/// 原 ReportGuard 用空 records 生成空报告且因 `Box::leak` 从未执行（双重幻影）。
+/// 现改为在全部 bench 完成后解析 `target/criterion/<id>/new/{estimates,samples}.json`
+/// ——数据 100% 来自本次运行的真实测量，无测量数据时明确跳过并告警。
+fn generate_report_from_criterion(dialects: &[String]) {
+    let root = std::path::Path::new("target/criterion");
+    let Ok(entries) = std::fs::read_dir(root) else {
+        eprintln!("⚠ 未找到 target/criterion 测量数据，报告生成跳过");
+        return;
+    };
+
+    let mut records: Vec<BenchmarkRecord> = Vec::new();
+    for entry in entries.flatten() {
+        let id = entry.file_name().to_string_lossy().to_string();
+        // bench id 格式：dimension/competitor/dialect/size
+        let parts: Vec<&str> = id.split('/').collect();
+        if parts.len() < 4 {
+            continue;
+        }
+        let estimates_path = entry.path().join("new").join("estimates.json");
+        let samples_path = entry.path().join("new").join("samples.json");
+        let Ok(est_raw) = std::fs::read_to_string(&estimates_path) else {
+            continue;
+        };
+        let Ok(estimates) = serde_json::from_str::<CriterionEstimates>(&est_raw) else {
+            continue;
+        };
+        let p95_ns = std::fs::read_to_string(&samples_path)
+            .ok()
+            .and_then(|raw| serde_json::from_str::<CriterionSamples>(&raw).ok())
+            .and_then(|s| s.p95_per_iter_ns())
+            .unwrap_or(estimates.median.point_estimate);
+
+        records.push(BenchmarkRecord {
+            dimension: parts[0].to_string(),
+            dialect: parts[2].to_string(),
+            competitor: parts[1].to_string(),
+            mean_ns: estimates.mean.point_estimate,
+            median_ns: estimates.median.point_estimate,
+            p95_ns,
+            throughput_ops_per_sec: 1e9 / estimates.mean.point_estimate.max(1.0),
+            dataset_size: parts[3].parse().unwrap_or(0),
+        });
+    }
+
+    if records.is_empty() {
+        eprintln!("⚠ Criterion 数据为空，跳过基准报告生成");
+        return;
+    }
+    generate_report_files(&records, dialects);
+    eprintln!("基准报告已生成（{} 条真实测量记录，方言: {dialects:?}）", records.len());
 }
 
 /// 生成基准报告文件（T-B-009：benchmark-report.md + benchmark-data.csv + benchmark-data.json）
@@ -416,7 +497,6 @@ fn bench_pagination(c: &mut Criterion) {
 fn configure_criterion() -> Criterion {
     let dialects = detect_dialects();
     eprintln!("基准运行方言: {dialects:?}");
-    let _guard = Box::leak(Box::new(ReportGuard));
     Criterion::default()
         .sample_size(100)
         .warm_up_time(std::time::Duration::from_secs(3))
@@ -425,19 +505,19 @@ fn configure_criterion() -> Criterion {
         .noise_threshold(0.05)
 }
 
-criterion_group! {
-    name = benches;
-    config = configure_criterion();
-    targets =
-        bench_crud_single,
-        bench_crud_find,
-        bench_crud_batch,
-        bench_relation_has_one,
-        bench_relation_has_many,
-        bench_relation_m2m,
-        bench_transaction,
-        bench_pool,
-        bench_pagination
+fn main() {
+    let mut c = configure_criterion();
+    bench_crud_single(&mut c);
+    bench_crud_find(&mut c);
+    bench_crud_batch(&mut c);
+    bench_relation_has_one(&mut c);
+    bench_relation_has_many(&mut c);
+    bench_relation_m2m(&mut c);
+    bench_transaction(&mut c);
+    bench_pool(&mut c);
+    bench_pagination(&mut c);
+    c.final_summary();
+    // 全部 bench 完成后，Criterion 已将真实测量写入 target/criterion，
+    // 此时基于落盘数据生成报告（v10.13.0 ROI-5）
+    generate_report_from_criterion(&detect_dialects());
 }
-
-criterion_main!(benches);

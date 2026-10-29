@@ -1,7 +1,7 @@
 # SZ-ORM 中英术语对照表
 
-> 版本：v4.9.0
-> 日期：2026-08-19
+> 版本：v4.9.1
+> 日期：2026-10-27
 > 用途：确保英文文档翻译术语一致性（REQ-I18N-001~003）
 > 规则：翻译时必须查阅本表，同一中文术语在所有英文文档中统一译法
 
@@ -54,8 +54,9 @@
 | 行锁 | row lock | |
 | 查询缓存 | query cache | |
 | 缓存一致性 | cache coherence | |
-| 击穿 | cache penetration | |
-| 雪崩 | cache stampede | |
+| 穿透 | cache penetration | 查询不存在的数据绕过缓存直达 DB |
+| 击穿 | cache breakdown | 单个热点 key 失效导致请求打到 DB；英文文献亦称 cache stampede |
+| 雪崩 | cache avalanche | 大量 key 同时失效 |
 | 失效 | invalidation | 缓存失效 |
 | 写穿透 | write-through | |
 | 写后 | write-behind | |
@@ -125,6 +126,6 @@
 
 ## 术语统计
 
-- 术语映射总数：75（≥ 50，满足 REQ-I18N-001）
+- 术语映射总数：90（≥ 50，满足 REQ-I18N-001）
 - 品牌名保留：鲜视达（Xianshida）
 - 保留原文：ThinkORM

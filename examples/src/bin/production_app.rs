@@ -292,10 +292,14 @@ struct AppState {
 impl AppState {
     fn new() -> Self {
         let timeout_handler = Arc::new(CounterJobHandler::new());
+        // v10.13.0 (L-1)：JWT 密钥改从环境变量读取，禁止硬编码进源码/二进制。
+        // 生产环境应通过密钥管理（Vault / KMS）注入，长度 ≥ 32 字节。
+        let jwt_secret = std::env::var("SZ_ORM_EXAMPLE_JWT_SECRET")
+            .expect("set SZ_ORM_EXAMPLE_JWT_SECRET (>= 32 bytes) before running this example");
         Self {
             dialect_factory: get_dialect(DbType::MySQL).expect("MySQL 方言可用"),
             hasher: Pbkdf2Hasher::new(),
-            jwt: JwtAuthenticator::new("production-app-secret", "shop.example.com", 3600),
+            jwt: JwtAuthenticator::new(jwt_secret, "shop.example.com", 3600),
             limiter: SlidingWindowRateLimiter::new(5, Duration::from_secs(60)),
             scheduler: CronScheduler::new(),
             auditor: SqlAuditor::new(),

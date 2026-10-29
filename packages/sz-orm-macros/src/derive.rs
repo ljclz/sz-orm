@@ -3206,3 +3206,481 @@ mod tests {
         assert!(extract_option_inner(&ty2).is_none());
     }
 }
+// ---------------------------------------------------------------------------
+// `#[derive(Model)]` — auto-generate `impl Model + ModelExt` (R5, 2026-10-27)
+// ---------------------------------------------------------------------------
+
+/// 为字段生成 `get_column_value` / `from_value` 分支。
+///
+/// 返回 `(get_plain, set_plain, get_option, set_option)`：
+/// - `get_plain` / `set_plain`：字段为非 `Option<T>` 时使用；
+/// - `get_option` / `set_option`：字段为 `Option<T>` 时使用。
+fn model_value_arms(
+    field: &syn::Ident,
+    ty: &syn::Type,
+    col_name: &str,
+) -> (TokenStream2, TokenStream2, TokenStream2, TokenStream2) {
+    let base = extract_option_inner(ty)
+        .cloned()
+        .unwrap_or_else(|| ty.clone());
+    let type_str = quote!(#base).to_string().replace(" ", "");
+    let lower = type_str.to_lowercase();
+    let col = proc_macro2::Literal::string(col_name);
+
+    // 每种类型提供四段代码。`f` 为 Option 分支 map 闭包中的值，`x` 为访问器解包值。
+    let (g, s, go, so): (TokenStream2, TokenStream2, TokenStream2, TokenStream2) = if lower
+        .starts_with("i8")
+    {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::I8(self.#field))),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = x as i8; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::I8)),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = ::std::option::Option::Some(x as i8); }),
+        )
+    } else if lower.starts_with("i16") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::I16(self.#field))),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = x as i16; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::I16)),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = ::std::option::Option::Some(x as i16); }),
+        )
+    } else if lower.starts_with("i32") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::I32(self.#field))),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = x as i32; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::I32)),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = ::std::option::Option::Some(x as i32); }),
+        )
+    } else if lower.starts_with("i64") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::I64(self.#field))),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = x; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::I64)),
+            quote!(#col => if let Some(x) = v.as_i64() { self.#field = ::std::option::Option::Some(x); }),
+        )
+    } else if lower.starts_with("u8") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::U8(self.#field))),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = x as u8; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::U8)),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = ::std::option::Option::Some(x as u8); }),
+        )
+    } else if lower.starts_with("u16") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::U16(self.#field))),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = x as u16; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::U16)),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = ::std::option::Option::Some(x as u16); }),
+        )
+    } else if lower.starts_with("u32") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::U32(self.#field))),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = x as u32; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::U32)),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = ::std::option::Option::Some(x as u32); }),
+        )
+    } else if lower.starts_with("u64") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::U64(self.#field))),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = x; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::U64)),
+            quote!(#col => if let Some(x) = v.as_u64() { self.#field = ::std::option::Option::Some(x); }),
+        )
+    } else if lower.starts_with("f32") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::F32(self.#field))),
+            quote!(#col => if let Some(x) = v.as_f64() { self.#field = x as f32; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::F32)),
+            quote!(#col => if let Some(x) = v.as_f64() { self.#field = ::std::option::Option::Some(x as f32); }),
+        )
+    } else if lower.starts_with("f64") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::F64(self.#field))),
+            quote!(#col => if let Some(x) = v.as_f64() { self.#field = x; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::F64)),
+            quote!(#col => if let Some(x) = v.as_f64() { self.#field = ::std::option::Option::Some(x); }),
+        )
+    } else if lower.starts_with("bool") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::Bool(self.#field))),
+            quote!(#col => if let Some(x) = v.as_bool() { self.#field = x; }),
+            quote!(#col => self.#field.map(::sz_orm_core::Value::Bool)),
+            quote!(#col => if let Some(x) = v.as_bool() { self.#field = ::std::option::Option::Some(x); }),
+        )
+    } else if lower.starts_with("vec<u8>") || lower == "vec<u8>" {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::Bytes(self.#field.clone()))),
+            quote!(#col => if let Some(x) = v.as_bytes() { self.#field = x.to_vec(); }),
+            quote!(#col => self.#field.clone().map(::sz_orm_core::Value::Bytes)),
+            quote!(#col => if let Some(x) = v.as_bytes() { self.#field = ::std::option::Option::Some(x.to_vec()); }),
+        )
+    } else if lower.starts_with("string") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::String(self.#field.clone()))),
+            quote!(#col => if let Some(x) = v.as_str() { self.#field = x.to_string(); }),
+            quote!(#col => self.#field.clone().map(::sz_orm_core::Value::String)),
+            quote!(#col => if let Some(x) = v.as_str() { self.#field = ::std::option::Option::Some(x.to_string()); }),
+        )
+    } else if lower.contains("naivedatetime")
+        || lower.contains("chrono::datetime")
+        || lower.contains("datetime")
+    {
+        // DateTime 在 Value 中以字符串存储
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::DateTime(self.#field.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::DateTime(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = parsed; } }),
+            quote!(#col => self.#field.as_ref().map(|f| ::sz_orm_core::Value::DateTime(f.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::DateTime(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = ::std::option::Option::Some(parsed); } }),
+        )
+    } else if lower == "uuid::uuid" || lower.starts_with("uuid") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::Uuid(self.#field.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::Uuid(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = parsed; } }),
+            quote!(#col => self.#field.as_ref().map(|f| ::sz_orm_core::Value::Uuid(f.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::Uuid(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = ::std::option::Option::Some(parsed); } }),
+        )
+    } else if lower.contains("decimal") {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::Decimal(self.#field.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::Decimal(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = parsed; } }),
+            quote!(#col => self.#field.as_ref().map(|f| ::sz_orm_core::Value::Decimal(f.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::Decimal(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = ::std::option::Option::Some(parsed); } }),
+        )
+    } else if lower.contains("serde_json::value") || lower == "serde_json::value" {
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::Json(self.#field.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::Json(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = parsed; } }),
+            quote!(#col => self.#field.as_ref().map(|f| ::sz_orm_core::Value::Json(f.to_string()))),
+            quote!(#col => if let ::sz_orm_core::Value::Json(s) = v { if let Ok(parsed) = s.parse::<#base>() { self.#field = ::std::option::Option::Some(parsed); } }),
+        )
+    } else {
+        // 未知类型兜底：以字符串形式存取（至少保证编译通过）
+        (
+            quote!(#col => ::std::option::Option::Some(::sz_orm_core::Value::String(format!("{:?}", self.#field)))),
+            quote!(#col => if let ::sz_orm_core::Value::String(s) = v { self.#field = s.parse::<#base>().unwrap_or_default(); }),
+            quote!(#col => self.#field.as_ref().map(|f| ::sz_orm_core::Value::String(format!("{:?}", f)))),
+            quote!(#col => if let ::sz_orm_core::Value::String(s) = v { self.#field = ::std::option::Option::Some(s.parse::<#base>().unwrap_or_default()); }),
+        )
+    };
+
+    (g, s, go, so)
+}
+
+/// `#[derive(Model)]` 派生宏入口（R5）
+///
+/// 为结构体自动生成 `impl Model` + `impl ModelExt`，替代手写样板代码。
+///
+/// # 支持属性
+///
+/// - `#[table(name = "...")]` — 表名（默认结构体名转 snake_case）
+/// - `#[column(primary_key)]` — 主键字段（默认取名为 `id` 的字段）
+/// - `#[column(name = "...")]` — 列名覆盖（默认字段名）
+/// - `#[column(skip)]` — 跳过该字段（不参与 columns/fillable/值转换）
+///
+/// # 示例
+///
+/// ```ignore
+/// use sz_orm_macros::Model;
+///
+/// #[derive(Debug, Clone, Default, Model)]
+/// #[table(name = "users")]
+/// struct User {
+///     #[column(primary_key)]
+///     id: i64,
+///     name: String,
+///     email: Option<String>,
+/// }
+/// ```
+pub fn derive_model_impl(input: DeriveInput) -> TokenStream2 {
+    trace_diag("derive(Model)", &format!("target struct: {}", input.ident));
+
+    let struct_name = &input.ident;
+
+    let fields = match &input.data {
+        Data::Struct(data) => match &data.fields {
+            Fields::Named(named) => &named.named,
+            _ => {
+                return syn_error_to_compile_error(syn::Error::new_spanned(
+                    struct_name,
+                    "Model 仅支持命名字段结构体（struct Foo { a: T }）",
+                ))
+            }
+        },
+        _ => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "Model 仅支持 struct，不支持 enum / union",
+            ))
+        }
+    };
+
+    let table_name =
+        parse_table_attr(&input.attrs).unwrap_or_else(|| to_snake_case(&struct_name.to_string()));
+    let table_lit = proc_macro2::Literal::string(&table_name);
+
+    let mut pk_field: Option<(syn::Ident, String, syn::Type)> = None;
+    let mut explicit_pk = false;
+    for field in fields.iter() {
+        let field_ident = field.ident.as_ref().unwrap();
+        let col_attr = parse_column_attr(&field.attrs);
+        if col_attr.primary_key {
+            pk_field = Some((
+                field_ident.clone(),
+                col_attr
+                    .name
+                    .clone()
+                    .unwrap_or_else(|| field_ident.to_string()),
+                field.ty.clone(),
+            ));
+            explicit_pk = true;
+        }
+    }
+    if !explicit_pk {
+        for field in fields.iter() {
+            let field_ident = field.ident.as_ref().unwrap();
+            if field_ident == "id" {
+                let col_attr = parse_column_attr(&field.attrs);
+                pk_field = Some((
+                    field_ident.clone(),
+                    col_attr
+                        .name
+                        .clone()
+                        .unwrap_or_else(|| field_ident.to_string()),
+                    field.ty.clone(),
+                ));
+                break;
+            }
+        }
+    }
+    let (pk_ident, pk_col_name, pk_ty) = match pk_field {
+        Some((i, c, t)) => (i, c, t),
+        None => {
+            return syn_error_to_compile_error(syn::Error::new_spanned(
+                struct_name,
+                "Model 需要恰好一个 #[column(primary_key)] 字段（或名为 id 的字段）",
+            ))
+        }
+    };
+    let pk_col_lit = proc_macro2::Literal::string(&pk_col_name);
+
+    let mut col_lits: Vec<TokenStream2> = Vec::new();
+    let mut fill_lits: Vec<TokenStream2> = Vec::new();
+    let mut get_arms: Vec<TokenStream2> = Vec::new();
+    let mut set_arms: Vec<TokenStream2> = Vec::new();
+    let mut has_created_at = false;
+    let mut has_updated_at = false;
+    let mut has_deleted_at = false;
+
+    for field in fields.iter() {
+        let field_ident = field.ident.as_ref().unwrap();
+        let field_name = field_ident.to_string();
+        let col_attr = parse_column_attr(&field.attrs);
+        if col_attr.skip {
+            continue;
+        }
+        let col_name = col_attr.name.clone().unwrap_or_else(|| field_name.clone());
+        col_lits.push(quote! { #col_name });
+        if field_name == "created_at" {
+            has_created_at = true;
+        }
+        if field_name == "updated_at" {
+            has_updated_at = true;
+        }
+        if field_name == "deleted_at" {
+            has_deleted_at = true;
+        }
+        if field_ident != &pk_ident {
+            fill_lits.push(quote! { #col_name });
+        }
+        let is_option = extract_option_inner(&field.ty).is_some();
+        let (g, s, go, so) = model_value_arms(field_ident, &field.ty, &col_name);
+        if is_option {
+            get_arms.push(go);
+            set_arms.push(so);
+        } else {
+            get_arms.push(g);
+            set_arms.push(s);
+        }
+    }
+
+    let timestamp_fn = if has_created_at || has_updated_at {
+        let ca: TokenStream2 = if has_created_at {
+            quote!(::std::option::Option::Some("created_at"))
+        } else {
+            quote!(::std::option::Option::None)
+        };
+        let ua: TokenStream2 = if has_updated_at {
+            quote!(::std::option::Option::Some("updated_at"))
+        } else {
+            quote!(::std::option::Option::None)
+        };
+        quote! {
+            fn timestamp_fields() -> ::std::option::Option<::sz_orm_core::TimestampFields> {
+                ::std::option::Option::Some(::sz_orm_core::TimestampFields::new(#ca, #ua))
+            }
+        }
+    } else {
+        TokenStream2::new()
+    };
+    let soft_delete_fn = if has_deleted_at {
+        quote! {
+            fn soft_delete_field() -> ::std::option::Option<&'static str> {
+                ::std::option::Option::Some("deleted_at")
+            }
+        }
+    } else {
+        TokenStream2::new()
+    };
+
+    quote! {
+        impl ::sz_orm_core::Model for #struct_name {
+            type PrimaryKey = #pk_ty;
+
+            fn table_name() -> &'static str {
+                #table_lit
+            }
+
+            fn pk_name() -> &'static str {
+                #pk_col_lit
+            }
+
+            fn pk(&self) -> Self::PrimaryKey {
+                self.#pk_ident.clone()
+            }
+
+            fn set_pk(&mut self, pk: Self::PrimaryKey) {
+                self.#pk_ident = pk;
+            }
+
+            #timestamp_fn
+            #soft_delete_fn
+        }
+
+        impl ::sz_orm_core::ModelExt for #struct_name {
+            fn columns() -> ::std::vec::Vec<&'static str> {
+                ::std::vec![#(#col_lits,)*]
+            }
+
+            fn fillable() -> ::std::vec::Vec<&'static str> {
+                ::std::vec![#(#fill_lits,)*]
+            }
+
+            fn get_column_value(&self, column: &str) -> ::std::option::Option<::sz_orm_core::Value> {
+                match column {
+                    #(#get_arms,)*
+                    _ => ::std::option::Option::None,
+                }
+            }
+
+            fn from_value(&mut self, map: ::std::collections::HashMap<String, ::sz_orm_core::Value>) {
+                for (k, v) in map {
+                    match k.as_str() {
+                        #(#set_arms,)*
+                        _ => {}
+                    }
+                }
+            }
+        }
+    }
+}
+
+#[cfg(test)]
+mod model_derive_tests {
+    use super::*;
+
+    fn parse_struct(src: &str) -> DeriveInput {
+        syn::parse_str(src).expect("应能解析结构体")
+    }
+
+    #[test]
+    fn test_derive_model_generates_impl() {
+        let input = parse_struct(
+            r#"
+            #[derive(Debug, Clone, Default, Model)]
+            #[table(name = "users")]
+            struct User {
+                #[column(primary_key)]
+                id: i64,
+                name: String,
+                email: Option<String>,
+            }
+            "#,
+        );
+        let out = derive_model_impl(input).to_string();
+        println!("=== EXPANDED ===\n{}\n=== END ===", out);
+        assert!(out.contains("Model for User"));
+        assert!(out.contains("type PrimaryKey = i64"));
+        assert!(out.contains("users"));
+        assert!(out.contains("fn table_name"));
+        assert!(out.contains("fn pk_name"));
+        assert!(out.contains("fn get_column_value"));
+        assert!(out.contains("fn from_value"));
+        assert!(out.contains("\"id\""));
+        assert!(out.contains("I64"));
+        assert!(out.contains("name"));
+        assert!(out.contains("clone"));
+    }
+
+    #[test]
+    fn test_derive_model_default_id_pk() {
+        let input = parse_struct(
+            r#"
+            struct Product {
+                id: i64,
+                sku: String,
+            }
+            "#,
+        );
+        let out = derive_model_impl(input).to_string();
+        assert!(out.contains("fn pk_name"));
+        assert!(out.contains("\"id\""));
+        assert!(out.contains("Product"));
+    }
+
+    #[test]
+    fn test_derive_model_requires_pk() {
+        let input = parse_struct(
+            r#"
+            struct NoPk {
+                name: String,
+            }
+            "#,
+        );
+        let out = derive_model_impl(input).to_string();
+        assert!(out.contains("需要恰好一个"));
+    }
+
+    #[test]
+    fn test_derive_model_timestamp_softdelete() {
+        let input = parse_struct(
+            r#"
+            struct Article {
+                id: i64,
+                created_at: Option<String>,
+                updated_at: Option<String>,
+                deleted_at: Option<String>,
+            }
+            "#,
+        );
+        let out = derive_model_impl(input).to_string();
+        assert!(out.contains("timestamp_fields"));
+        assert!(out.contains("soft_delete_field"));
+        assert!(out.contains("deleted_at"));
+    }
+
+    #[test]
+    fn test_derive_model_option_handling() {
+        let input = parse_struct(
+            r#"
+            struct Profile {
+                id: i64,
+                bio: Option<String>,
+                active: bool,
+            }
+            "#,
+        );
+        let out = derive_model_impl(input).to_string();
+        assert!(out.contains("bio"));
+        assert!(out.contains("active = x"));
+    }
+}
