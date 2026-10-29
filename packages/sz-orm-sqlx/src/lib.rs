@@ -40,9 +40,12 @@ pub mod slow_query_guard;
 pub mod sql_repository;
 pub mod unified_pool;
 
+/// 查询指标装饰器连接（2026-10-28 P1-3 可观测性接线；工厂 create() 统一包装）
+pub mod metrics_conn;
+
+pub use batch_executor::BatchExecutor;
 #[cfg(feature = "slow-query-capture")]
 pub use slow_query_guard::SlowQueryGuard;
-pub use batch_executor::BatchExecutor;
 pub use sql_repository::SqlRepository;
 
 pub use any::{

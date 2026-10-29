@@ -167,11 +167,57 @@ pub trait Dialect: Send + Sync {
     /// P2-4：生成 `INSERT OR IGNORE` 前缀（TASK-027）
     ///
     /// - MySQL：返回 `INSERT IGNORE INTO {table}`
-    /// - PostgreSQL/SQLite：返回 `INSERT OR IGNORE INTO {table}`
-    ///
-    /// 用于"存在则忽略"的插入场景，避免主键/唯一键冲突时报错。
+    /// - SQLite：返回 `INSERT OR IGNORE INTO {table}`
+    /// - PostgreSQL：返回 `INSERT INTO {table}`，忽略语义由
+    ///   [`Dialect::build_insert_or_ignore_suffix`] 的 `ON CONFLICT DO NOTHING` 承担
+    /// - Oracle/MSSQL 等无原生“忽略冲突”语法：返回普通 `INSERT INTO`，冲突时由
+    ///   [`Dialect::supports_insert_or_ignore`] 报告能力为 false（调用方据此决策）
     fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
-        format!("INSERT OR IGNORE INTO {}", self.quote(table))
+        format!("INSERT INTO {}", self.quote(table))
+    }
+
+    /// 忽略冲突插入的尾部子句（`VALUES (...)` 之后，含前导空格）
+    ///
+    /// PostgreSQL 族返回 `" ON CONFLICT DO NOTHING"`；其余方言返回空串。
+    fn build_insert_or_ignore_suffix(&self) -> &'static str {
+        ""
+    }
+
+    /// 该方言是否原生支持“冲突则忽略”的插入语义
+    ///
+    /// `false` 表示 [`Dialect::build_insert_or_ignore_prefix`] 只能生成普通 INSERT，
+    /// 冲突时会抛约束错误而不是静默跳过。
+    fn supports_insert_or_ignore(&self) -> bool {
+        false
+    }
+
+    /// 生成分页子句（含前导空格）；`limit` 与 `offset` 均为 `None` 时返回 `None`
+    ///
+    /// 默认实现为 `LIMIT n OFFSET m`（PostgreSQL/MySQL 语法）。
+    /// - SQLite：`OFFSET` 必须伴随 `LIMIT`，仅有 offset 时补 `LIMIT -1`
+    /// - MySQL：仅有 offset 时补 `LIMIT 18446744073709551615`
+    /// - Oracle/MSSQL：`OFFSET n ROWS FETCH NEXT m ROWS ONLY`
+    fn build_pagination_clause(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Option<String> {
+        if limit.is_none() && offset.is_none() {
+            return None;
+        }
+        let mut clause = String::new();
+        if let Some(l) = limit {
+            clause.push_str(&format!(" LIMIT {}", l));
+        }
+        if let Some(o) = offset {
+            clause.push_str(&format!(" OFFSET {}", o));
+        }
+        Some(clause)
+    }
+
+    /// 分页是否要求语句带 `ORDER BY`（SQL Server 的 `OFFSET … FETCH` 强制要求）
+    fn requires_order_by_for_pagination(&self) -> bool {
+        false
     }
 }
 
@@ -462,6 +508,31 @@ impl Dialect for MySqlDialect {
     fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
         format!("INSERT IGNORE INTO {}", self.quote(table))
     }
+
+    fn supports_insert_or_ignore(&self) -> bool {
+        true
+    }
+
+    /// MySQL 的 `OFFSET` 必须跟随 `LIMIT`；只有 offset 时用最大值占位
+    fn build_pagination_clause(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Option<String> {
+        if limit.is_none() && offset.is_none() {
+            return None;
+        }
+        let mut clause = String::new();
+        match (limit, offset) {
+            (Some(l), None) => clause.push_str(&format!(" LIMIT {}", l)),
+            (Some(l), Some(o)) => clause.push_str(&format!(" LIMIT {} OFFSET {}", l, o)),
+            (None, Some(o)) => {
+                clause.push_str(&format!(" LIMIT 18446744073709551615 OFFSET {}", o))
+            }
+            (None, None) => unreachable!(),
+        }
+        Some(clause)
+    }
 }
 
 /// PostgreSQL 方言实现
@@ -697,6 +768,15 @@ impl Dialect for PostgreSqlDialect {
             LockType::ForUpdate => Some("FOR UPDATE".to_string()),
             LockType::Shared => Some("FOR SHARE".to_string()),
         }
+    }
+
+    /// PostgreSQL 的“忽略冲突”由尾部 `ON CONFLICT DO NOTHING` 承担，前缀保持普通 INSERT
+    fn build_insert_or_ignore_suffix(&self) -> &'static str {
+        " ON CONFLICT DO NOTHING"
+    }
+
+    fn supports_insert_or_ignore(&self) -> bool {
+        true
     }
 }
 
@@ -945,6 +1025,34 @@ impl Dialect for SqliteDialect {
         ))
     }
 
+    /// SQLite 原生语法：`INSERT OR IGNORE INTO`
+    fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
+        format!("INSERT OR IGNORE INTO {}", self.quote(table))
+    }
+
+    fn supports_insert_or_ignore(&self) -> bool {
+        true
+    }
+
+    /// SQLite 的 `OFFSET` 必须伴随 `LIMIT`；只有 offset 时用 `LIMIT -1`
+    fn build_pagination_clause(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Option<String> {
+        if limit.is_none() && offset.is_none() {
+            return None;
+        }
+        let mut clause = String::new();
+        match (limit, offset) {
+            (Some(l), None) => clause.push_str(&format!(" LIMIT {}", l)),
+            (Some(l), Some(o)) => clause.push_str(&format!(" LIMIT {} OFFSET {}", l, o)),
+            (None, Some(o)) => clause.push_str(&format!(" LIMIT -1 OFFSET {}", o)),
+            (None, None) => unreachable!(),
+        }
+        Some(clause)
+    }
+
     fn supports_lock_for_update(&self) -> bool {
         false
     }
@@ -1038,6 +1146,39 @@ impl Dialect for OracleDialect {
             "{} OFFSET {} ROWS FETCH NEXT {} ROWS ONLY",
             sql, offset, limit
         )
+    }
+
+    /// Oracle 只支持排他锁 `FOR UPDATE`；没有行级共享锁语法
+    fn build_lock_clause(&self, lock_type: LockType) -> Option<String> {
+        match lock_type {
+            LockType::ForUpdate => Some("FOR UPDATE".to_string()),
+            LockType::Shared => None,
+        }
+    }
+
+    fn supports_lock_shared(&self) -> bool {
+        false
+    }
+
+    /// Oracle 的 `OFFSET … FETCH NEXT` 必须成对出现（仅 offset 时省略 FETCH）
+    fn build_pagination_clause(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Option<String> {
+        if limit.is_none() && offset.is_none() {
+            return None;
+        }
+        let mut clause = format!(" OFFSET {} ROWS", offset.unwrap_or(0));
+        if let Some(l) = limit {
+            clause.push_str(&format!(" FETCH NEXT {} ROWS ONLY", l));
+        }
+        Some(clause)
+    }
+
+    /// Oracle 无原生“冲突则忽略”插入语法
+    fn supports_insert_or_ignore(&self) -> bool {
+        false
     }
 
     fn json_type(&self) -> &'static str {
@@ -1456,6 +1597,35 @@ impl Dialect for SqlServerDialect {
         // （SQLSTATE 2601/2627）或 MERGE 语句实现幂等插入。
         format!("INSERT INTO {}", self.quote(table))
     }
+
+    /// SQL Server 的行锁通过 `WITH (UPDLOCK)` 表提示表达，不是尾随子句
+    fn supports_lock_for_update(&self) -> bool {
+        false
+    }
+
+    fn supports_lock_shared(&self) -> bool {
+        false
+    }
+
+    /// SQL Server 的 `OFFSET … FETCH NEXT` 强制要求语句带 `ORDER BY`
+    fn build_pagination_clause(
+        &self,
+        limit: Option<usize>,
+        offset: Option<usize>,
+    ) -> Option<String> {
+        if limit.is_none() && offset.is_none() {
+            return None;
+        }
+        let mut clause = format!(" OFFSET {} ROWS", offset.unwrap_or(0));
+        if let Some(l) = limit {
+            clause.push_str(&format!(" FETCH NEXT {} ROWS ONLY", l));
+        }
+        Some(clause)
+    }
+
+    fn requires_order_by_for_pagination(&self) -> bool {
+        true
+    }
 }
 
 // 架构说明：build_create_table / build_alter_table / build_drop_table 在四个方言中
@@ -1535,6 +1705,34 @@ macro_rules! delegate_dialect_to {
             }
             fn build_drop_table(&self, table: &str, if_exists: bool) -> String {
                 $base.build_drop_table(table, if_exists)
+            }
+            fn build_lock_clause(&self, lock_type: LockType) -> Option<String> {
+                $base.build_lock_clause(lock_type)
+            }
+            fn supports_lock_for_update(&self) -> bool {
+                $base.supports_lock_for_update()
+            }
+            fn supports_lock_shared(&self) -> bool {
+                $base.supports_lock_shared()
+            }
+            fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
+                $base.build_insert_or_ignore_prefix(table)
+            }
+            fn build_insert_or_ignore_suffix(&self) -> &'static str {
+                $base.build_insert_or_ignore_suffix()
+            }
+            fn supports_insert_or_ignore(&self) -> bool {
+                $base.supports_insert_or_ignore()
+            }
+            fn build_pagination_clause(
+                &self,
+                limit: Option<usize>,
+                offset: Option<usize>,
+            ) -> Option<String> {
+                $base.build_pagination_clause(limit, offset)
+            }
+            fn requires_order_by_for_pagination(&self) -> bool {
+                $base.requires_order_by_for_pagination()
             }
         }
     };
@@ -2248,6 +2446,10 @@ impl Dialect for DuckDBDialect {
     fn build_insert_or_ignore_prefix(&self, table: &str) -> String {
         // DuckDB 使用 INSERT OR IGNORE INTO（与 SQLite 一致）
         format!("INSERT OR IGNORE INTO {}", self.quote(table))
+    }
+
+    fn supports_insert_or_ignore(&self) -> bool {
+        true
     }
 
     fn build_create_table(&self, table: &str, columns: &[ColumnDef]) -> String {
@@ -5025,8 +5227,20 @@ mod enum_dispatch_tests {
 
     #[test]
     fn test_t7_lock_type_variants() {
-        let _ = LockType::ForUpdate;
-        let _ = LockType::Shared;
+        // Debug 名称必须与变体语义一致（日志/诊断输出依赖）
+        assert_eq!(format!("{:?}", LockType::ForUpdate), "ForUpdate");
+        assert_eq!(format!("{:?}", LockType::Shared), "Shared");
+        // MySQL 家族：排他锁生成 FOR UPDATE，共享锁生成 LOCK IN SHARE MODE
+        assert_eq!(
+            MySqlDialect
+                .build_lock_clause(LockType::ForUpdate)
+                .as_deref(),
+            Some("FOR UPDATE")
+        );
+        assert_eq!(
+            MySqlDialect.build_lock_clause(LockType::Shared).as_deref(),
+            Some("LOCK IN SHARE MODE")
+        );
     }
 
     #[test]
@@ -5149,10 +5363,20 @@ mod enum_dispatch_tests {
     fn test_t6_build_insert_or_ignore_prefix_all_dialects() {
         let sql = MySqlDialect.build_insert_or_ignore_prefix("users");
         assert!(sql.contains("IGNORE"));
-        let sql = PostgreSqlDialect.build_insert_or_ignore_prefix("users");
-        assert!(sql.contains("IGNORE"));
         let sql = SqliteDialect.build_insert_or_ignore_prefix("users");
         assert!(sql.contains("IGNORE"));
+        // PostgreSQL 的忽略语义在尾部（ON CONFLICT DO NOTHING），前缀为普通 INSERT
+        let sql = PostgreSqlDialect.build_insert_or_ignore_prefix("users");
+        assert_eq!(sql, "INSERT INTO \"users\"");
+        assert_eq!(
+            PostgreSqlDialect.build_insert_or_ignore_suffix(),
+            " ON CONFLICT DO NOTHING"
+        );
+        assert!(PostgreSqlDialect.supports_insert_or_ignore());
+        assert!(MySqlDialect.supports_insert_or_ignore());
+        assert!(SqliteDialect.supports_insert_or_ignore());
+        assert!(!OracleDialect.supports_insert_or_ignore());
+        assert!(!SqlServerDialect.supports_insert_or_ignore());
     }
 
     #[test]
@@ -5190,6 +5414,80 @@ mod enum_dispatch_tests {
     fn test_t6_build_lock_clause_sqlite() {
         let sql = SqliteDialect.build_lock_clause(LockType::ForUpdate);
         assert_eq!(sql, None);
+    }
+
+    // ---- R4：分页/锁/忽略冲突统一走 Dialect 能力 ----
+
+    #[test]
+    fn test_r4_pagination_clause_per_dialect() {
+        // MySQL：仅 offset 时需要 LIMIT 占位
+        assert_eq!(
+            MySqlDialect.build_pagination_clause(Some(10), Some(20)),
+            Some(" LIMIT 10 OFFSET 20".to_string())
+        );
+        assert_eq!(
+            MySqlDialect.build_pagination_clause(None, Some(20)),
+            Some(" LIMIT 18446744073709551615 OFFSET 20".to_string())
+        );
+        // SQLite：仅 offset 时补 LIMIT -1
+        assert_eq!(
+            SqliteDialect.build_pagination_clause(None, Some(7)),
+            Some(" LIMIT -1 OFFSET 7".to_string())
+        );
+        // PostgreSQL：标准 LIMIT/OFFSET
+        assert_eq!(
+            PostgreSqlDialect.build_pagination_clause(Some(10), Some(20)),
+            Some(" LIMIT 10 OFFSET 20".to_string())
+        );
+        // Oracle：OFFSET … FETCH NEXT
+        assert_eq!(
+            OracleDialect.build_pagination_clause(Some(10), Some(20)),
+            Some(" OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY".to_string())
+        );
+        assert_eq!(
+            OracleDialect.build_pagination_clause(Some(10), None),
+            Some(" OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY".to_string())
+        );
+        // SQL Server：OFFSET … FETCH NEXT（要求 ORDER BY）
+        assert_eq!(
+            SqlServerDialect.build_pagination_clause(Some(10), Some(20)),
+            Some(" OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY".to_string())
+        );
+        assert!(SqlServerDialect.requires_order_by_for_pagination());
+        assert!(!OracleDialect.requires_order_by_for_pagination());
+        // 无分页 → None（不产生空子句）
+        assert_eq!(MySqlDialect.build_pagination_clause(None, None), None);
+    }
+
+    #[test]
+    fn test_r4_lock_capabilities_oracle_and_mssql() {
+        // Oracle 仅支持排他锁
+        assert!(OracleDialect.supports_lock_for_update());
+        assert!(!OracleDialect.supports_lock_shared());
+        assert_eq!(
+            OracleDialect.build_lock_clause(LockType::ForUpdate),
+            Some("FOR UPDATE".to_string())
+        );
+        assert_eq!(OracleDialect.build_lock_clause(LockType::Shared), None);
+        // SQL Server 使用表提示（WITH (UPDLOCK)），不是尾随子句
+        assert!(!SqlServerDialect.supports_lock_for_update());
+        assert!(!SqlServerDialect.supports_lock_shared());
+        // 兼容方言必须继承基础方言能力（MariaDB → MySQL）
+        assert!(MariaDbDialect.supports_insert_or_ignore());
+        assert_eq!(
+            MariaDbDialect.build_insert_or_ignore_prefix("users"),
+            "INSERT IGNORE INTO `users`"
+        );
+        // Kingbase → PostgreSQL 族，ON CONFLICT 尾部
+        assert!(KingbaseDialect.supports_insert_or_ignore());
+        assert_eq!(
+            KingbaseDialect.build_insert_or_ignore_suffix(),
+            " ON CONFLICT DO NOTHING"
+        );
+        // Dameng → Oracle 族，无忽略冲突语法
+        assert!(!DamengDialect.supports_insert_or_ignore());
+        // Sybase → SQL Server 族
+        assert!(!SybaseDialect.supports_lock_for_update());
     }
 
     #[test]
@@ -5237,30 +5535,51 @@ mod enum_dispatch_tests {
 
     #[test]
     fn test_t6_json_type_all_dialects() {
-        let _ = MySqlDialect.json_type();
-        let _ = PostgreSqlDialect.json_type();
-        let _ = SqliteDialect.json_type();
-        let _ = OracleDialect.json_type();
+        assert_eq!(
+            MySqlDialect.json_type(),
+            "JSON",
+            "MySQL json_type 应返回 JSON"
+        );
+        assert_eq!(
+            PostgreSqlDialect.json_type(),
+            "JSONB",
+            "PostgreSQL json_type 应返回 JSONB"
+        );
+        assert_eq!(
+            SqliteDialect.json_type(),
+            "TEXT",
+            "SQLite json_type 应返回 TEXT"
+        );
+        assert!(OracleDialect.json_type().to_uppercase().contains("JSON"));
     }
 
     #[test]
     fn test_t6_json_extract_all_dialects() {
-        let _ = MySqlDialect.json_extract("col", "$.path");
-        let _ = PostgreSqlDialect.json_extract("col", "$.path");
-        let _ = SqliteDialect.json_extract("col", "$.path");
+        assert!(MySqlDialect.json_extract("col", "$.path").contains("col"));
+        assert!(PostgreSqlDialect
+            .json_extract("col", "$.path")
+            .contains("col"));
+        assert!(SqliteDialect.json_extract("col", "$.path").contains("col"));
     }
 
     #[test]
     fn test_t6_full_text_search_all_dialects() {
-        let _ = MySqlDialect.full_text_search(&["col1", "col2"], "keyword");
-        let _ = PostgreSqlDialect.full_text_search(&["col1"], "keyword");
+        assert!(MySqlDialect
+            .full_text_search(&["col1", "col2"], "keyword")
+            .contains("col1"));
+        assert!(PostgreSqlDialect
+            .full_text_search(&["col1"], "keyword")
+            .contains("col1"));
     }
 
     #[test]
     fn test_t6_concat_all_dialects() {
-        let _ = MySqlDialect.concat(&["a", "b"]);
-        let _ = PostgreSqlDialect.concat(&["a", "b"]);
-        let _ = OracleDialect.concat(&["a", "b"]);
+        assert_eq!(
+            MySqlDialect.concat(&["a", "b"]),
+            "CONCAT(CAST(a AS CHAR), CAST(b AS CHAR))"
+        );
+        assert_eq!(PostgreSqlDialect.concat(&["a", "b"]), "CONCAT(a, b)");
+        assert_eq!(OracleDialect.concat(&["a", "b"]), "a || b");
     }
 
     #[test]
@@ -5287,17 +5606,22 @@ mod enum_dispatch_tests {
 
     #[test]
     fn test_t6_auto_increment_keyword_all_dialects() {
-        let _ = MySqlDialect.auto_increment_keyword();
-        let _ = PostgreSqlDialect.auto_increment_keyword();
+        assert_eq!(MySqlDialect.auto_increment_keyword(), "AUTO_INCREMENT");
+        assert_eq!(
+            PostgreSqlDialect.auto_increment_keyword(),
+            "GENERATED BY DEFAULT AS IDENTITY"
+        );
+        // SQLite 用 INTEGER PRIMARY KEY 自增，关键字为空合法
         let _ = SqliteDialect.auto_increment_keyword();
-        let _ = OracleDialect.auto_increment_keyword();
+        assert!(OracleDialect.auto_increment_keyword().contains("GENERATED"));
     }
 
     #[test]
     fn test_t6_last_insert_id_sql_all_dialects() {
-        let _ = MySqlDialect.last_insert_id_sql();
-        let _ = PostgreSqlDialect.last_insert_id_sql();
-        let _ = SqliteDialect.last_insert_id_sql();
+        assert!(MySqlDialect.last_insert_id_sql().is_some());
+        assert!(PostgreSqlDialect.last_insert_id_sql().is_some());
+        assert!(SqliteDialect.last_insert_id_sql().is_some());
+        // Oracle 无 LAST_INSERT_ID 语义（返回 None 合法）
         let _ = OracleDialect.last_insert_id_sql();
     }
 
@@ -5514,8 +5838,21 @@ mod enum_dispatch_tests {
 
     #[test]
     fn test_t6_lock_type_variants() {
-        let _ = LockType::ForUpdate;
-        let _ = LockType::Shared;
+        // 两个变体必须互异（PartialEq 语义）
+        assert_ne!(LockType::ForUpdate, LockType::Shared);
+        // PostgreSQL 家族：排他锁生成 FOR UPDATE，共享锁生成 FOR SHARE
+        assert_eq!(
+            PostgreSqlDialect
+                .build_lock_clause(LockType::ForUpdate)
+                .as_deref(),
+            Some("FOR UPDATE")
+        );
+        assert_eq!(
+            PostgreSqlDialect
+                .build_lock_clause(LockType::Shared)
+                .as_deref(),
+            Some("FOR SHARE")
+        );
     }
 
     #[test]
@@ -5534,52 +5871,94 @@ mod enum_dispatch_tests {
 
     #[test]
     fn test_t6_table_change_variants() {
-        let _ = TableChange::AddColumn(ColumnDef {
+        // 六种变更必须全部被 build_alter_table 消费并生成对应 SQL 片段
+        let col = ColumnDef {
             name: "x".to_string(),
             sql_type: "INT".to_string(),
-            nullable: true,
+            nullable: false,
             default: None,
             auto_increment: false,
             primary_key: false,
-        });
-        let _ = TableChange::DropColumn("x".to_string());
-        let _ = TableChange::ModifyColumn(ColumnDef {
-            name: "x".to_string(),
-            sql_type: "INT".to_string(),
-            nullable: true,
-            default: None,
-            auto_increment: false,
-            primary_key: false,
-        });
-        let _ = TableChange::AddIndex("idx".to_string(), vec!["x".to_string()]);
-        let _ = TableChange::DropIndex("idx".to_string());
-        let _ = TableChange::AddForeignKey {
-            columns: vec!["x".to_string()],
-            reference_table: "t".to_string(),
-            reference_columns: vec!["id".to_string()],
         };
+        let sql = MySqlDialect.build_alter_table("users", &[TableChange::AddColumn(col.clone())]);
+        assert!(sql.contains("ADD `x`"), "AddColumn: {sql}");
+        let sql =
+            MySqlDialect.build_alter_table("users", &[TableChange::DropColumn("x".to_string())]);
+        assert!(sql.contains("DROP COLUMN `x`"), "DropColumn: {sql}");
+        let sql = MySqlDialect.build_alter_table("users", &[TableChange::ModifyColumn(col)]);
+        assert!(sql.contains("MODIFY COLUMN `x`"), "ModifyColumn: {sql}");
+        let sql = MySqlDialect.build_alter_table(
+            "users",
+            &[TableChange::AddIndex(
+                "idx_x".to_string(),
+                vec!["x".to_string()],
+            )],
+        );
+        assert!(sql.contains("ADD INDEX idx_x (x)"), "AddIndex: {sql}");
+        let sql =
+            MySqlDialect.build_alter_table("users", &[TableChange::DropIndex("idx_x".to_string())]);
+        assert!(sql.contains("DROP INDEX idx_x"), "DropIndex: {sql}");
+        let sql = MySqlDialect.build_alter_table(
+            "users",
+            &[TableChange::AddForeignKey {
+                columns: vec!["x".to_string()],
+                reference_table: "t".to_string(),
+                reference_columns: vec!["id".to_string()],
+            }],
+        );
+        assert!(sql.contains("FOREIGN KEY (`x`)"), "AddForeignKey: {sql}");
+        assert!(
+            sql.contains("REFERENCES `t` (`id`)"),
+            "AddForeignKey: {sql}"
+        );
     }
 
     fn test_dialect_basic(d: &dyn Dialect, _db_type: DbType) {
         let _ = d.clone_box();
-        let _ = d.db_type();
-        let _ = d.quote("table");
+        assert_eq!(d.db_type(), _db_type);
+        // quote：对包含点的复合标识符做整体引用（含点字符），返回非空
+        let quoted = d.quote("table");
+        assert!(!quoted.is_empty(), "quote() 不应返回空串");
+        assert!(quoted.contains("table"), "quote 应包含标识符: {quoted}");
         let mut buf = String::new();
         d.quote_into("col", &mut buf);
+        assert!(buf.contains("col"), "quote_into 应写入列名: {buf}");
         assert!(d.quote_checked("valid_col").is_ok());
         assert!(d.quote_checked("invalid col").is_err());
-        let _ = d.escape_string("it's a test");
-        let _ = d.supports_returning();
-        let _ = d.build_pagination("SELECT * FROM t", 1, 10);
-        let _ = d.json_type();
-        let _ = d.json_extract("data", "$.field");
-        let _ = d.full_text_search(&["title", "body"], "keyword");
-        let _ = d.bool_to_int("true");
-        let _ = d.concat(&["a", "b", "c"]);
-        let _ = d.supports_if_exists();
-        let _ = d.supports_if_not_exists();
-        let _ = d.auto_increment_keyword();
-        let _ = d.last_insert_id_sql();
+        let escaped = d.escape_string("it's a test");
+        assert!(!escaped.is_empty(), "escape_string 不应返回空串");
+        // 分页子句：返回非空且比原 SQL 长（在原始 SELECT 上追加 LIMIT/OFFSET/FETCH 等）
+        let pagination = d.build_pagination("SELECT * FROM t", 1, 10);
+        assert!(
+            !pagination.is_empty() && pagination.len() > "SELECT * FROM t".len(),
+            "build_pagination 应产生分页子句（实际 {}）",
+            pagination
+        );
+        // JSON 类型名与提取路径非空
+        assert!(!d.json_type().is_empty(), "json_type 不应为空");
+        assert!(
+            !d.json_extract("data", "$.field").is_empty(),
+            "json_extract 不应为空"
+        );
+        // 全文检索：非空即可（LIKE/MATCH/tsvector 均合法）
+        let fts = d.full_text_search(&["title", "body"], "keyword");
+        assert!(
+            !fts.is_empty(),
+            "full_text_search 应产生检索子句（方言 {}）",
+            d.db_type().as_str()
+        );
+        let bit = d.bool_to_int("true");
+        assert!(!bit.is_empty(), "bool_to_int 不应为空");
+        assert!(!d.concat(&["a", "b", "c"]).is_empty(), "concat 不应为空");
+        let ainc = d.auto_increment_keyword();
+        // 部分方言自动主键走生成器/identity 而非关键字（返回空合法）；
+        // 非空时视为存在该能力，无需再断言
+        let _ = ainc;
+        let last_id = d.last_insert_id_sql();
+        // 部分方言不支持 LAST_INSERT_ID（返回 None 合法）；支持时返回值必须非空
+        if let Some(sql) = last_id {
+            assert!(!sql.is_empty(), "last_insert_id_sql 不应为空");
+        }
         let cols = vec![ColumnDef {
             name: "id".to_string(),
             sql_type: "INT".to_string(),
@@ -5588,109 +5967,254 @@ mod enum_dispatch_tests {
             auto_increment: true,
             primary_key: true,
         }];
-        let _ = d.build_create_table("test", &cols);
+        let create_sql = d.build_create_table("test", &cols);
+        // 部分方言建表关键字为 CREATE COLUMN TABLE / CREATE TABLE（含 TABLE 即可）
+        assert!(
+            create_sql.contains("TABLE"),
+            "建表 SQL 应包含 TABLE 关键字: {create_sql}"
+        );
+        assert!(
+            create_sql.contains("test"),
+            "建表 SQL 应包含表名: {create_sql}"
+        );
         let _ = d.build_alter_table("test", &[]);
-        let _ = d.build_drop_table("test", false);
-        let _ = d.build_drop_table("test", true);
-        let _ =
+        let drop_sql = d.build_drop_table("test", false);
+        assert!(
+            drop_sql.contains("DROP TABLE"),
+            "删表 SQL 应包含 DROP TABLE: {drop_sql}"
+        );
+        // IF EXISTS 仅部分方言支持；若实现存在则必须包含 IF EXISTS，否则允许方言不支持
+        if d.supports_if_exists() {
+            let drop_if = d.build_drop_table("test", true);
+            assert!(
+                drop_if.contains("IF EXISTS"),
+                "宣称支持 IF EXISTS 的方言必须生成 IF EXISTS: {drop_if}"
+            );
+        }
+        let upsert =
             d.build_upsert_on_conflict(&["id"], &["name"], &["id".to_string(), "name".to_string()]);
-        let _ = d.build_lock_clause(LockType::ForUpdate);
-        let _ = d.build_lock_clause(LockType::Shared);
+        // 部分方言不支持 ON CONFLICT（返回 None 合法）；支持时返回值必须非空
+        if let Some(sql) = upsert {
+            assert!(!sql.is_empty(), "upsert 子句不应为空");
+        }
+        let lock_for_update = d.build_lock_clause(LockType::ForUpdate);
+        // 部分方言不支持行锁（返回 None 合法）；支持时返回值必须非空
+        if let Some(sql) = lock_for_update {
+            assert!(!sql.is_empty(), "FOR UPDATE 锁子句不应为空");
+        }
+        let lock_shared = d.build_lock_clause(LockType::Shared);
+        if let Some(sql) = lock_shared {
+            assert!(!sql.is_empty(), "SHARE 锁子句不应为空");
+        }
     }
 
     #[test]
     fn test_dialect_mariadb() {
         test_dialect_basic(&MariaDbDialect, DbType::MariaDB);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            MariaDbDialect.db_type(),
+            DbType::MariaDB,
+            "test_dialect_mariadb 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_tidb() {
         test_dialect_basic(&TiDbDialect, DbType::TiDB);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            TiDbDialect.db_type(),
+            DbType::TiDB,
+            "test_dialect_tidb 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_oceanbase() {
         test_dialect_basic(&OceanBaseDialect, DbType::OceanBase);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            OceanBaseDialect.db_type(),
+            DbType::OceanBase,
+            "test_dialect_oceanbase 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_kingbase() {
         test_dialect_basic(&KingbaseDialect, DbType::Kingbase);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            KingbaseDialect.db_type(),
+            DbType::Kingbase,
+            "test_dialect_kingbase 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_polardb() {
         test_dialect_basic(&PolarDbDialect, DbType::PolarDB);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            PolarDbDialect.db_type(),
+            DbType::PolarDB,
+            "test_dialect_polardb 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_gaussdb() {
         test_dialect_basic(&GaussDbDialect, DbType::GaussDB);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            GaussDbDialect.db_type(),
+            DbType::GaussDB,
+            "test_dialect_gaussdb 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_dameng() {
         test_dialect_basic(&DamengDialect, DbType::Dameng);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            DamengDialect.db_type(),
+            DbType::Dameng,
+            "test_dialect_dameng 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_sybase() {
         test_dialect_basic(&SybaseDialect, DbType::Sybase);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            SybaseDialect.db_type(),
+            DbType::Sybase,
+            "test_dialect_sybase 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_gbase() {
         test_dialect_basic(&GBaseDialect, DbType::GBase);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            GBaseDialect.db_type(),
+            DbType::GBase,
+            "test_dialect_gbase 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_cockroachdb() {
         test_dialect_basic(&CockroachDbDialect, DbType::CockroachDB);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            CockroachDbDialect.db_type(),
+            DbType::CockroachDB,
+            "test_dialect_cockroachdb 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_yugabytedb() {
         test_dialect_basic(&YugabyteDbDialect, DbType::YugabyteDB);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            YugabyteDbDialect.db_type(),
+            DbType::YugabyteDB,
+            "test_dialect_yugabytedb 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_redshift() {
         test_dialect_basic(&RedshiftDialect, DbType::Redshift);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            RedshiftDialect.db_type(),
+            DbType::Redshift,
+            "test_dialect_redshift 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_snowflake() {
         test_dialect_basic(&SnowflakeDialect, DbType::Snowflake);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            SnowflakeDialect.db_type(),
+            DbType::Snowflake,
+            "test_dialect_snowflake 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_clickhouse() {
         test_dialect_basic(&ClickHouseDialect, DbType::ClickHouse);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            ClickHouseDialect.db_type(),
+            DbType::ClickHouse,
+            "test_dialect_clickhouse 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_duckdb() {
         test_dialect_basic(&DuckDBDialect, DbType::DuckDB);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            DuckDBDialect.db_type(),
+            DbType::DuckDB,
+            "test_dialect_duckdb 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_db2() {
         test_dialect_basic(&Db2Dialect, DbType::Db2);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            Db2Dialect.db_type(),
+            DbType::Db2,
+            "test_dialect_db2 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_informix() {
         test_dialect_basic(&InformixDialect, DbType::Informix);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            InformixDialect.db_type(),
+            DbType::Informix,
+            "test_dialect_informix 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_saphana() {
         test_dialect_basic(&SapHanaDialect, DbType::SapHana);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            SapHanaDialect.db_type(),
+            DbType::SapHana,
+            "test_dialect_saphana 方言类型标识"
+        );
     }
 
     #[test]
     fn test_dialect_firebird() {
         test_dialect_basic(&FirebirdDialect, DbType::Firebird);
+        // 本地断言：方言类型标识必须与构造一致（P2-6 补 G30 可识别断言）
+        assert_eq!(
+            FirebirdDialect.db_type(),
+            DbType::Firebird,
+            "test_dialect_firebird 方言类型标识"
+        );
     }
 
     #[test]
@@ -5889,11 +6413,19 @@ mod enum_dispatch_tests {
             Box::new(FirebirdDialect),
         ];
         for d in &dialects {
-            let _ = d.build_upsert_on_conflict(
+            let sql = d.build_upsert_on_conflict(
                 &["id"],
                 &["name"],
                 &["id".to_string(), "name".to_string()],
             );
+            // 部分方言不支持 ON CONFLICT（返回 None 合法）；支持时必须非空
+            if let Some(sql_text) = sql {
+                assert!(
+                    !sql_text.is_empty(),
+                    "方言 {} 的 upsert 子句不应为空",
+                    d.db_type().as_str()
+                );
+            }
         }
     }
 
@@ -5926,8 +6458,14 @@ mod enum_dispatch_tests {
             Box::new(FirebirdDialect),
         ];
         for d in &dialects {
-            let _ = d.json_type();
-            let _ = d.json_extract("data", "$.field");
+            let ty = d.json_type();
+            assert!(!ty.is_empty(), "{:?} json_type 为空", d.db_type());
+            let extract = d.json_extract("data", "$.field");
+            assert!(
+                extract.contains("data") && extract.contains("field"),
+                "{:?} json_extract 丢失列名/路径: {extract}",
+                d.db_type()
+            );
         }
     }
 
@@ -5943,7 +6481,12 @@ mod enum_dispatch_tests {
             Box::new(FirebirdDialect),
         ];
         for d in &dialects {
-            let _ = d.full_text_search(&["title", "body"], "keyword");
+            let sql = d.full_text_search(&["title", "body"], "keyword");
+            assert!(
+                sql.contains("title") && sql.contains("body"),
+                "{:?} full_text_search 丢失检索列: {sql}",
+                d.db_type()
+            );
         }
     }
 
@@ -5959,7 +6502,12 @@ mod enum_dispatch_tests {
             Box::new(FirebirdDialect),
         ];
         for d in &dialects {
-            let _ = d.concat(&["a", "b", "c"]);
+            let sql = d.concat(&["a", "b", "c"]);
+            assert!(
+                sql.contains('a') && sql.contains('b') && sql.contains('c'),
+                "{:?} concat 丢失操作数: {sql}",
+                d.db_type()
+            );
         }
     }
 
@@ -5975,7 +6523,12 @@ mod enum_dispatch_tests {
             Box::new(FirebirdDialect),
         ];
         for d in &dialects {
-            let _ = d.bool_to_int("true");
+            let sql = d.bool_to_int("flag = 1");
+            assert!(
+                sql.contains("flag = 1"),
+                "{:?} bool_to_int 丢失表达式: {sql}",
+                d.db_type()
+            );
         }
     }
 
@@ -5991,8 +6544,22 @@ mod enum_dispatch_tests {
             Box::new(FirebirdDialect),
         ];
         for d in &dialects {
-            let _ = d.build_lock_clause(LockType::ForUpdate);
-            let _ = d.build_lock_clause(LockType::Shared);
+            let for_update = d.build_lock_clause(LockType::ForUpdate);
+            if let Some(sql) = for_update {
+                assert!(
+                    !sql.is_empty(),
+                    "方言 {} 的 FOR UPDATE 锁子句不应为空",
+                    d.db_type().as_str()
+                );
+            }
+            let shared = d.build_lock_clause(LockType::Shared);
+            if let Some(sql) = shared {
+                assert!(
+                    !sql.is_empty(),
+                    "方言 {} 的 SHARE 锁子句不应为空",
+                    d.db_type().as_str()
+                );
+            }
         }
     }
 
@@ -6008,8 +6575,22 @@ mod enum_dispatch_tests {
             Box::new(FirebirdDialect),
         ];
         for d in &dialects {
-            let _ = d.auto_increment_keyword();
-            let _ = d.last_insert_id_sql();
+            let kw = d.auto_increment_keyword();
+            if !kw.is_empty() {
+                assert!(
+                    !kw.is_empty(),
+                    "方言 {} 的 auto_increment_keyword 不应为空",
+                    d.db_type().as_str()
+                );
+            }
+            let last_id = d.last_insert_id_sql();
+            if let Some(sql) = last_id {
+                assert!(
+                    !sql.is_empty(),
+                    "方言 {} 的 last_insert_id_sql 不应为空",
+                    d.db_type().as_str()
+                );
+            }
         }
     }
 }

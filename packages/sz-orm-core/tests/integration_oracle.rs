@@ -20,15 +20,22 @@ use sz_orm_core::Value;
 /// 默认 Oracle 连接参数（本机 23ai Free）；可通过环境变量覆盖。
 /// 使用专用测试用户 sz_orm_test（已授予 DBA 权限），避免 sys/SYSDBA 特权。
 const ORACLE_USER_DEFAULT: &str = "sz_orm_test";
-const ORACLE_PASSWORD_DEFAULT: &str = "SzOrmTest2026";
-const ORACLE_CONNECT_STRING_DEFAULT: &str = "127.0.0.1:1521/freepdb1.FALSE";
+// 凭据不入库（2026-10-28 P0-3）：默认空串，运行时必须设置对应 SZ_ORM_*_PASSWORD 环境变量
+const ORACLE_PASSWORD_DEFAULT: &str = "";
+const ORACLE_CONNECT_STRING_DEFAULT: &str = "127.0.0.1:1521/freepdb1";
 
 fn oracle_user() -> String {
     std::env::var("SZ_ORM_ORACLE_USER").unwrap_or_else(|_| ORACLE_USER_DEFAULT.to_string())
 }
 
 fn oracle_password() -> String {
-    std::env::var("SZ_ORM_ORACLE_PASSWORD").unwrap_or_else(|_| ORACLE_PASSWORD_DEFAULT.to_string())
+    let pw = std::env::var("SZ_ORM_ORACLE_PASSWORD")
+        .unwrap_or_else(|_| ORACLE_PASSWORD_DEFAULT.to_string());
+    assert!(
+        !pw.is_empty(),
+        "缺少 SZ_ORM_ORACLE_PASSWORD 环境变量（本机数据库测试密码，见 AGENTS.md「本机数据库」小节；2026-10-28 P0-3 起凭据不入库）"
+    );
+    pw
 }
 
 fn oracle_connect_string() -> String {
@@ -365,10 +372,11 @@ fn test_oracle_parameterized_insert_query() {
 fn test_oracle_insert_or_ignore_dialect_sql() {
     let dialect = get_dialect(DbType::Oracle).expect("oracle dialect");
     let sql = dialect.build_insert_or_ignore_prefix("my_table");
+    // Oracle 不原生支持 INSERT OR IGNORE 语法：方言实现应退化为普通 INSERT，
+    // "存在则忽略"语义由上层用 MERGE INTO 或先查后插实现（见 test_oracle_merge_into_ignore_semantics）。
     assert_eq!(
-        sql, "INSERT OR IGNORE INTO \"my_table\"",
-        "OracleDialect 沿用 Dialect 默认实现生成 INSERT OR IGNORE INTO；\
-         Oracle 不原生支持此语法，真实执行需用 MERGE INTO 替代"
+        sql, "INSERT INTO \"my_table\"",
+        "OracleDialect 应生成普通 INSERT INTO（不含 OR IGNORE）"
     );
 }
 

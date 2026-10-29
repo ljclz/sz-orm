@@ -724,7 +724,7 @@ See [Performance Benchmark Report](bench-comparison/BENCHMARK_REPORT.md) for ful
 | [API Reference](docs/sz-ormAPI参考.md) | Type signatures and parameter docs (v5.0) |
 | [Performance Benchmark](bench-comparison/BENCHMARK_REPORT.md) | Framework comparison benchmark report |
 | [Architecture Design](docs/sz-orm架构设计.md) | Workspace architecture overview |
-| [Engineering Practices](docs/sz-orm-engineering-practices.md) | 25 gates + test pyramid T1-T6 |
+| [Engineering Practices](docs/sz-orm-engineering-practices.md) | 34 gates + test pyramid T1-T6 |
 | [Comparison with Mainstream ORMs](docs/sz-orm与同类产品对比分析.md) | Diesel / SeaORM / SQLx comparison |
 | [Security](docs/Security.md) | Security baseline and threat model |
 | [API Contracts](docs/api-contracts.md) | Public API stability contracts |

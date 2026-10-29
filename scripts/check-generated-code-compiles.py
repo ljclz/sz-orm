@@ -49,8 +49,26 @@ def to_snake(name: str) -> str:
 
 
 def run(cmd: list[str], cwd: Path | None = None, env: dict | None = None):
-    print("  $ " + " ".join(str(c) for c in cmd))
+    # 列表形式调用 subprocess（shell=False 默认），cmd 来自脚本内硬编码参数，非用户输入
+    print("  $ ", *map(str, cmd))
     return subprocess.run(cmd, cwd=str(cwd) if cwd else None, env=env)
+
+
+def run_with_retry(cmd: list[str], retries: int = 1, cwd: Path | None = None, env: dict | None = None):
+    """复用 run() 执行命令，瞬时失败（退出码非 0）时重试。
+
+    v10.13.0 (2026-10-28 架构评测 P0-5 门禁确定性治理)：共享 target 目录下被强杀的
+    并行 cargo 进程可能残留陈旧增量产物，导致门禁偶发瞬时红；隔离 target + 单次重试
+    将此类基础设施竞态与真实回归区分开。
+    """
+    r = None
+    for attempt in range(retries + 1):
+        r = run(cmd, cwd=cwd, env=env)
+        if r.returncode == 0:
+            return r
+        if attempt < retries:
+            print(f"    ↳ 第 {attempt + 1} 次失败（退出码 {r.returncode}），重试一次（瞬时 cargo 构建竞态缓解）")
+    return r
 
 
 def main() -> int:
@@ -88,11 +106,14 @@ sz-orm-core = {{ path = "{ROOT.as_posix()}/packages/sz-orm-core" }}
     )
 
     # 2. 生成 5 种主键类型模型
+    # v10.13.0 (2026-10-28 P0-5)：整条流水线使用独立 CARGO_TARGET_DIR（target/g28-target），
+    # 与工作空间构建、并行评测会话的 cargo 进程完全隔离——共享 target 目录下不同
+    # feature 统一化的交错构建曾产生陈旧增量产物，导致本门禁瞬时红（E0308）。
     env = os.environ.copy()
-    env["CARGO_TARGET_DIR"] = str(ROOT / "target")
+    env["CARGO_TARGET_DIR"] = str(ROOT / "target" / "g28-target")
     gen_ok = True
     for name, pk in MODELS:
-        r = run(
+        r = run_with_retry(
             [cargo, "run", "-p", "sz-orm-cli", "--", "make:model", name,
              "--pk-type", pk, "--fields", FIELDS, "--output", str(TMP / "src")],
             cwd=ROOT,

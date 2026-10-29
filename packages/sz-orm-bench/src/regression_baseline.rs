@@ -31,6 +31,8 @@ pub struct BaselineComparison {
     pub baseline_name: String,
     /// 逐工作负载对比结果
     pub workload_comparisons: Vec<WorkloadComparison>,
+    /// 基线中存在但当前结果缺失的工作负载（fail-closed：视为退化，2026-10-28 P1-4）
+    pub missing_workloads: Vec<WorkloadType>,
     /// 是否有退化告警
     pub has_regression: bool,
 }
@@ -91,6 +93,7 @@ impl RegressionBaseline {
     /// 对比当前结果与基线，P95 退化 ≥10% 输出告警
     pub fn compare(&self, current_results: &[BenchResult]) -> BaselineComparison {
         let mut comparisons = Vec::new();
+        let mut missing_workloads = Vec::new();
         let mut has_regression = false;
 
         for baseline_result in &self.results {
@@ -115,12 +118,18 @@ impl RegressionBaseline {
                     degradation_pct,
                     is_regression,
                 });
+            } else {
+                // 2026-10-28 P1-4（PERFV2-01 修复）：基线 workload 在当前结果中缺失
+                // （被删除/静默跳过）必须判失败，防止"少跑 workload 绕过门禁"
+                missing_workloads.push(baseline_result.workload);
+                has_regression = true;
             }
         }
 
         BaselineComparison {
             baseline_name: self.baseline_name.clone(),
             workload_comparisons: comparisons,
+            missing_workloads,
             has_regression,
         }
     }
@@ -205,7 +214,13 @@ mod tests {
         let current_results = vec![make_test_result(WorkloadType::BatchQuery, 200.0)];
         let comparison = baseline.compare(&current_results);
 
-        assert!(!comparison.has_regression);
+        // 2026-10-28 P1-4：缺失 workload fail-closed 判失败（防"少跑 workload 绕过门禁"）
+        assert!(comparison.has_regression);
+        assert_eq!(comparison.missing_workloads.len(), 1);
+        assert!(matches!(
+            comparison.missing_workloads[0],
+            WorkloadType::SingleRowQuery
+        ));
         assert_eq!(comparison.workload_comparisons.len(), 0);
     }
 }

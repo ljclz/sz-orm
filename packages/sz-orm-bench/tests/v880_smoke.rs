@@ -10,7 +10,15 @@ use sz_orm_bench::{BenchConfig, DbBackend, FrameworkType, WorkloadType};
 
 const MYSQL_URL: &str = "mysql://root:test123@127.0.0.1:3306/sz_orm_test";
 const POSTGRES_URL: &str = "postgres://postgres:test123@127.0.0.1:5432/sz_orm_test";
-const ORACLE_URL: &str = "oracle://sz_orm_test:SzOrmTest2026@127.0.0.1:1521/freepdb1.FALSE";
+/// Oracle 连接串（凭据不入库，2026-10-28 P0-3）：密码经 SZ_ORM_ORACLE_PASSWORD 环境变量注入
+fn oracle_url() -> String {
+    let pw = std::env::var("SZ_ORM_ORACLE_PASSWORD").unwrap_or_default();
+    assert!(
+        !pw.is_empty(),
+        "缺少 SZ_ORM_ORACLE_PASSWORD 环境变量（本机数据库测试密码，见 AGENTS.md「本机数据库」小节；2026-10-28 P0-3 起凭据不入库）"
+    );
+    format!("oracle://sz_orm_test:{pw}@127.0.0.1:1521/freepdb1")
+}
 
 static SQLITE_COUNTER: AtomicU64 = AtomicU64::new(0);
 
@@ -89,9 +97,9 @@ async fn smoke_postgres_full_chain() {
 }
 
 #[tokio::test]
-#[ignore = "需要 Oracle: oracle://sz_orm_test:SzOrmTest2026@127.0.0.1:1521/freepdb1.FALSE"]
+#[ignore = "需要 Oracle：设置 SZ_ORM_ORACLE_PASSWORD 后运行（凭据不入库，2026-10-28 P0-3）"]
 async fn smoke_oracle_full_chain() {
-    run_smoke_chain(DbBackend::Oracle, ORACLE_URL).await;
+    run_smoke_chain(DbBackend::Oracle, &oracle_url()).await;
 }
 
 #[tokio::test]

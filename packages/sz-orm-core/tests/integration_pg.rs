@@ -10,6 +10,7 @@
 //! 运行方式：cargo test --package sz-orm-core --test integration_pg -- --ignored --nocapture
 
 use sqlx::postgres::{PgPool, PgPoolOptions};
+use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
@@ -1035,6 +1036,179 @@ async fn test_pg_upsert_unicode_and_special_chars() {
     assert_eq!(
         email, "test'with`special\"chars",
         "特殊字符应通过参数化查询正确存储"
+    );
+
+    drop_table(&pool, &table).await;
+}
+
+// ============================================================================
+// OWASP A01/A03 真实 DB 行为断言（2026-10-28 架构评测 P1-5，SDET ROI-6 闭环）
+// ============================================================================
+
+/// 建带租户列的表（A01 越权用例）
+async fn create_tenant_table_pg(pool: &PgPool, table: &str) {
+    let sql = format!(
+        "CREATE TABLE \"{}\" (id BIGSERIAL PRIMARY KEY, \
+         tenant_id BIGINT NOT NULL, name VARCHAR(255) NOT NULL)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .execute(pool)
+        .await
+        .expect("create tenant table");
+}
+
+/// 执行参数化 SELECT（复用 bind_value_pg），返回全部行
+///
+/// core 生成的占位符是 `?`；真实驱动层的 `? → $n` 重写在 sz-orm-sqlx
+/// （pg_rewrite_placeholders）。本测试直连 sqlx，需要本地等价重写
+/// （含单/双引号状态机，避免字面量内的 `?` 被误改写）。
+fn pg_rewrite_placeholders_for_test(sql: &str) -> String {
+    let mut out = String::with_capacity(sql.len() + 8);
+    let mut n = 0usize;
+    let mut in_squote = false;
+    let mut in_dquote = false;
+    for ch in sql.chars() {
+        match ch {
+            '\'' if !in_dquote => {
+                in_squote = !in_squote;
+                out.push(ch);
+            }
+            '"' if !in_squote => {
+                in_dquote = !in_dquote;
+                out.push(ch);
+            }
+            '?' if !in_squote && !in_dquote => {
+                n += 1;
+                out.push_str(&format!("${}", n));
+            }
+            _ => out.push(ch),
+        }
+    }
+    out
+}
+
+async fn fetch_scoped_rows_pg(
+    pool: &PgPool,
+    sql: &str,
+    params: &[Value],
+) -> Vec<sqlx::postgres::PgRow> {
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(
+        pg_rewrite_placeholders_for_test(sql).as_str(),
+    ));
+    for v in params {
+        q = bind_value_pg(q, v);
+    }
+    q.fetch_all(pool).await.expect("scoped select")
+}
+
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 18 运行于 127.0.0.1:5432（OWASP A01 行为断言）"]
+async fn owasp_a01_tenant_scoping_returns_empty_set_on_cross_tenant() {
+    // A01 验收：越权查询必须返回空集（OWASP A01 真实 DB 行为）
+    let pool = setup_pool().await;
+    let table = unique_table("t_owasp_a01");
+    create_tenant_table_pg(&pool, &table).await;
+
+    for (tenant, name) in [(1i64, "t1_row"), (2i64, "t2_row")] {
+        let insert_sql = format!(
+            "INSERT INTO \"{}\" (tenant_id, name) VALUES ($1, $2)",
+            table
+        );
+        sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+            .bind(tenant)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .expect("insert tenant rows");
+    }
+
+    // 租户 1 作用域：只能看到自己的行
+    let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("tenant_id", Value::I64(1))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_pg(&pool, &sql, &params).await;
+    assert_eq!(rows.len(), 1, "租户 1 作用域应只返回自己的 1 行");
+    let own_name: String = rows[0].get("name");
+    assert_eq!(own_name, "t1_row");
+
+    // 越权模拟：租户 1 作用域下按名取租户 2 的行 → 必须空集
+    let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("tenant_id", Value::I64(1))
+        .where_eq("name", Value::String("t2_row".to_string()))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_pg(&pool, &sql, &params).await;
+    assert_eq!(
+        rows.len(),
+        0,
+        "越权访问租户 2 的行必须返回空集（OWASP A01 真实 DB 行为）"
+    );
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 18 运行于 127.0.0.1:5432（OWASP A03 行为断言）"]
+async fn owasp_a03_injection_payload_via_parameter_is_inert() {
+    // A03 验收：注入 payload 经绑定参数时是惰性字面量
+    let pool = setup_pool().await;
+    let table = unique_table("t_owasp_a03");
+    create_test_table(&pool, &table).await;
+
+    let insert_sql = format!("INSERT INTO \"{}\" (name, value) VALUES ($1, $2)", table);
+    for name in ["Alice", "Bob"] {
+        sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+            .bind(name)
+            .bind(1i64)
+            .execute(&pool)
+            .await
+            .expect("insert seed rows");
+    }
+
+    // ① 恒真 payload 作为参数 → 0 行（不是全表 2 行）
+    let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("name", Value::String("' OR '1'='1".to_string()))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_pg(&pool, &sql, &params).await;
+    assert_eq!(
+        rows.len(),
+        0,
+        "恒真 payload 作为绑定参数必须按字面量匹配（0 行），不得全表返回"
+    );
+
+    // ②③ 堆叠 DROP payload：入库为字面量 → 精确参数匹配往返 → 表未被删
+    let payload = format!("x'; DROP TABLE \"{}\"; --", table);
+    sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+        .bind(&payload)
+        .bind(2i64)
+        .execute(&pool)
+        .await
+        .expect("insert payload row");
+
+    let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("name", Value::String(payload.clone()))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_pg(&pool, &sql, &params).await;
+    assert_eq!(rows.len(), 1, "payload 应作为普通字面量精确匹配到 1 行");
+
+    let count_sql = format!("SELECT COUNT(*) AS c FROM \"{}\"", table);
+    let row = sqlx::query(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .expect("count after payload");
+    let count: i64 = row.get("c");
+    assert_eq!(
+        count, 3,
+        "堆叠 DROP payload 不得执行（表仍应有 3 行），实际 {} 行",
+        count
     );
 
     drop_table(&pool, &table).await;

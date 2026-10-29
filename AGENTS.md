@@ -137,9 +137,11 @@ cargo build --features sz-orm-macros/db-verify
 
 ## 本机数据库（用于测试和 db-verify）
 
-- MySQL 9.6：`mysql://root:test123@127.0.0.1:3306/sz_orm_test`
+> 2026-10-28 勘误：本机 MySQL 实为**宝塔 MySQL 8.0.29**（端口 **8802**），非 9.6/3306（3306 被 Docker Desktop 端口代理占用，不可用）；Oracle 实为 **26ai Free**（Release 23.26.3.0.0）。凭据一律经环境变量注入，不入库。
+
+- MySQL（宝塔 8.0.29，端口 8802）：root 密码记录在宝塔面板安装日志 `D:/BtSoft/panel/logs/install/`（搜索"MySQL root 密码"）。运行集成测试前设置 `SZ_ORM_MYSQL_URL`（`root` 用户 + 该密码 + 主机 `127.0.0.1:8802/sz_orm_test`，格式见 integration_mysql.rs 的 `mysql_url()`），密码不入库
 - PostgreSQL 18：`postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`
-- Oracle 23ai Free：`127.0.0.1:1521/freepdb1`（用户 sz_orm_test，密码经 `SZ_ORM_ORACLE_PASSWORD` 环境变量注入——2026-10-28 P0-3 起凭据不入库，运行 Oracle 集成测试前先 `export SZ_ORM_ORACLE_PASSWORD=<本机密码>`；MSSQL 同理用 `SZ_ORM_MSSQL_PASSWORD`）
+- Oracle 26ai Free：`127.0.0.1:1521/freepdb1`（用户 sz_orm_test，密码经 `SZ_ORM_ORACLE_PASSWORD` 环境变量注入——2026-10-28 P0-3 起凭据不入库；运行前先 `export PATH="/d/oracle/product/26ai/dbhomeFree/bin:$PATH"` 提供 OCI 客户端库，再 `export SZ_ORM_ORACLE_PASSWORD=<sz_orm_test 密码>`；MSSQL 同理用 `SZ_ORM_MSSQL_PASSWORD`）
 
 ### G7 集成测试本机排除清单（2026-10-06 评估更新；初版 2026-09-26 审计核定）
 

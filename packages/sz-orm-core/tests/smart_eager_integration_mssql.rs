@@ -21,7 +21,8 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 const MSSQL_HOST_DEFAULT: &str = "127.0.0.1";
 const MSSQL_PORT_DEFAULT: u16 = 1433;
 const MSSQL_USER_DEFAULT: &str = "sa";
-const MSSQL_PASS_DEFAULT: &str = "SzOrmTest2026";
+// 凭据不入库（2026-10-28 P0-3）：默认空串，运行时必须设置对应 SZ_ORM_*_PASSWORD 环境变量
+const MSSQL_PASS_DEFAULT: &str = "";
 const MSSQL_DB_DEFAULT: &str = "sz_orm_test";
 
 fn mssql_host() -> String {
@@ -40,7 +41,13 @@ fn mssql_user() -> String {
 }
 
 fn mssql_pass() -> String {
-    std::env::var("SZ_ORM_MSSQL_PASSWORD").unwrap_or_else(|_| MSSQL_PASS_DEFAULT.to_string())
+    let pw =
+        std::env::var("SZ_ORM_MSSQL_PASSWORD").unwrap_or_else(|_| MSSQL_PASS_DEFAULT.to_string());
+    assert!(
+        !pw.is_empty(),
+        "缺少 SZ_ORM_MSSQL_PASSWORD 环境变量（本机数据库测试密码，见 AGENTS.md「本机数据库」小节；2026-10-28 P0-3 起凭据不入库）"
+    );
+    pw
 }
 
 fn mssql_db() -> String {

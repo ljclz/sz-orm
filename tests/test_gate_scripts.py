@@ -42,6 +42,7 @@ coverage = _load("check_coverage", SCRIPTS / "check-coverage.py")
 mutation = _load("check_mutation_coverage", SCRIPTS / "check-mutation-coverage.py")
 phantom = _load("check_phantom_delivery", SCRIPTS / "check-phantom-delivery.py")
 gate_auditor = _load("check_gate_scripts", SCRIPTS / "check-gate-scripts.py")
+secrets_scanner = _load("check_secrets", SCRIPTS / "check-secrets.py")
 
 
 def _metrics(**overrides):
@@ -103,21 +104,30 @@ class TestMetricsRealClaims:
         assert any(it[3] == "顶部测试数(英文)" for it in issues)
 
     def test_fix_readme_repairs_version_and_counts(self, tmp_path):
-        readme = tmp_path / "README.md"
+        # 2026-10-28 起 check-metrics-real._safe_write 拒绝写仓库外路径（防路径穿越），
+        # 合成 README 需放在仓库内（target/ 已被 gitignore），测后清理。
+        fix_dir = ROOT / "target" / "g18-self-test"
+        fix_dir.mkdir(parents=True, exist_ok=True)
+        readme = fix_dir / "README.md"
         readme.write_text(
             "> v10.12.0 · 72 workspace members\n"
             "[![Version](https://img.shields.io/badge/version-10.12.0-blue.svg)]\n",
             encoding="utf-8",
         )
-        issues = metrics_real.scan_readme(_metrics(), str(readme))
-        assert issues
-        fixed, lines = metrics_real.fix_readme(
-            _metrics(), str(readme), {it[0] for it in issues}
-        )
-        assert fixed >= 2
-        text = "\n".join(lines)
-        assert "v10.13.0" in text and "version-10.13.0" in text
-        assert r"\g<" not in text, "修复后不得残留模板占位符"
+        try:
+            issues = metrics_real.scan_readme(_metrics(), str(readme))
+            assert issues
+            fixed, lines = metrics_real.fix_readme(
+                _metrics(), str(readme), {it[0] for it in issues}
+            )
+            assert fixed >= 2
+            text = "\n".join(lines)
+            assert "v10.13.0" in text and "version-10.13.0" in text
+            assert r"\g<" not in text, "修复后不得残留模板占位符"
+        finally:
+            import shutil
+
+            shutil.rmtree(fix_dir, ignore_errors=True)
 
     def test_workspace_version_is_semver(self):
         version = metrics_real.read_workspace_version()
@@ -245,7 +255,6 @@ EXEMPT_SCRIPTS = {
     "check-glossary-consistency",       # 存量：术语表一致性，无自测
     "check-panic-safety",               # 存量：panic 安全扫描，无自测
     "check-publish-consistency",        # 存量：发布一致性，无自测
-    "check-secrets",                    # 存量：密钥泄露扫描，无自测
     "check-security-doc-version",       # 存量：安全文档版本漂移，无自测
     "check-tech-debt",                  # 存量：技术债扫描，无自测
     "check-unsafe-audit",               # 存量：unsafe/SAFETY 审计，无自测
@@ -313,6 +322,33 @@ class TestNewGateScriptsSmoke:
         pat = mod.CHECKS["README.md"][0][0]
         m = re.search(pat, "v10.13.0 · 21,183+ tests")
         assert m is not None and m.group(1) == "10.13.0"
+
+    def test_check_doc_version_consistency_gate_count_logic(self, tmp_path):
+        """2026-10-28 P0-2：门禁数声称校验——漂移注入红牌 + 历史章节豁免。"""
+        mod = _load(
+            "check_doc_version_consistency",
+            SCRIPTS / "check-doc-version-consistency.py",
+        )
+        # 真实仓库：权威门禁数 34，当前文档零漂移
+        assert mod.count_agents_gates() == 34
+        assert mod.check_gate_count_claims(34) == []
+        # 反向注入：声称 25 → 红牌；历史标题下的 11（中英文）→ 豁免
+        (tmp_path / "FAKE.md").write_text(
+            "# head\n当前 25 道门禁\n"
+            "### 门禁验证（v2.0.0 历史记录——当时共 11 道门禁）\n"
+            "11 道门禁中 9 项通过\n"
+            "### Gate Verification (historical record)\n"
+            "9 of 11 gates passed\n",
+            encoding="utf-8",
+        )
+        saved = (mod.ROOT, list(mod.GATE_COUNT_DOCS))
+        mod.ROOT = tmp_path
+        mod.GATE_COUNT_DOCS = ["FAKE.md"]
+        try:
+            issues = mod.check_gate_count_claims(34)
+        finally:
+            mod.ROOT, mod.GATE_COUNT_DOCS = saved
+        assert len(issues) == 1 and "25" in issues[0] and "FAKE.md:2" in issues[0]
 
     def test_check_generated_code_compiles_importable(self):
         mod = _load(
@@ -440,6 +476,53 @@ class TestGateAuditorRules:
             ],
         )
         assert problems == [], problems
+
+
+# ========== check-secrets.py（2026-10-28 P0-3：legacy 凭据路径豁免作用域） ==========
+
+# 夹具凭据用相邻字面量拼接 + 运行时 format 构造，避免本文件被密钥扫描自命中
+_LEGACY_PW = "SzOrm" "Test2026"
+_NEW_PW = "RealNew" "Secret99"
+
+
+class TestSecretsLegacyExemptionScope:
+    """路径豁免只作用于 docs/assessment/ 历史审计记录，代码路径与新凭据不豁免。"""
+
+    def test_legacy_doc_exempt_but_new_secret_reported(self, tmp_path):
+        root = tmp_path
+        legacy = root / "docs" / "assessment"
+        legacy.mkdir(parents=True)
+        # 历史审计文档中的 legacy 凭据 → 豁免
+        (legacy / "old_report.md").write_text(
+            "oracle://sz_orm_test:{}@127.0.0.1:1521/freepdb1\n".format(_LEGACY_PW),
+            encoding="utf-8",
+        )
+        # 历史审计文档中的新真实凭据 → 必须报告
+        (legacy / "new_leak.md").write_text(
+            "mysql://admin:{}@10.0.0.1/db\n".format(_NEW_PW), encoding="utf-8"
+        )
+        # 代码路径中的 legacy 凭据 → 必须报告（豁免不覆盖代码）
+        (root / "leak.rs").write_text(
+            'let u = "oracle://sz_orm_test:{}@127.0.0.1:1521/freepdb1";\n'.format(_LEGACY_PW),
+            encoding="utf-8",
+        )
+        findings: list = []
+        for p in root.rglob("*"):
+            if p.is_file():
+                findings.extend(secrets_scanner.scan_file(p, root))
+        files = {f.file.name for f in findings}
+        assert "old_report.md" not in files, "legacy 凭据在历史审计文档中应被豁免"
+        assert "new_leak.md" in files, "历史审计文档中的新凭据不得豁免"
+        assert "leak.rs" in files, "代码路径中的 legacy 凭据不得豁免"
+
+    def test_dsn_template_placeholder_whitelisted(self, tmp_path):
+        """format! DSN 模板中的 {pw} 变量占位符不误报。"""
+        p = tmp_path / "dsn.rs"
+        p.write_text(
+            'fn u() -> String { format!("oracle://sz_orm_test:{pw}@127.0.0.1:1521/freepdb1") }\n',
+            encoding="utf-8",
+        )
+        assert secrets_scanner.scan_file(p, tmp_path) == []
 
 
 if __name__ == "__main__":

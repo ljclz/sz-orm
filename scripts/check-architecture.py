@@ -201,13 +201,27 @@ def main():
 
     orphans = [] if args.skip_orphans else check_orphans()
     print(f"\n[3/3] 孤儿包（{len(orphans)} 个，生产依赖图不可达）")
+    unregistered = []
     if orphans:
         print("  ⚠️  " + ", ".join(orphans[:12]) + ("..." if len(orphans) > 12 else ""))
         print("     ↳ 独立库包属正常形态；若文档宣称「集成/自动」能力则违反门禁 15")
+        # 2026-10-28 P2-1：孤儿包必须在 docs/orphan-packages-registry.md 登记状态
+        registry = os.path.join(ROOT, "docs", "orphan-packages-registry.md")
+        registry_text = ""
+        if os.path.exists(registry):
+            with open(registry, encoding="utf-8") as f:
+                registry_text = f.read()
+        for o in orphans:
+            if f"| {o} |" not in registry_text:
+                unregistered.append(o)
+        if unregistered:
+            print(f"  ❌ 未登记孤儿包（需登记到 docs/orphan-packages-registry.md）: {', '.join(unregistered)}")
+        else:
+            print("  ✅ 全部孤儿包已在 docs/orphan-packages-registry.md 登记")
 
     print("\n" + "=" * 60)
-    ok = not active and not extra
-    print(f"  结果: {'✅ 通过' if ok else '❌ 存在硬问题（重复实现/依赖越界）'}")
+    ok = not active and not extra and not unregistered
+    print(f"  结果: {'✅ 通过' if ok else '❌ 存在硬问题（重复实现/依赖越界/孤儿未登记）'}")
     print("=" * 60)
     return 0 if ok else 1
 

@@ -174,6 +174,19 @@ fn run_benchmark_real(config: &BenchConfig) {
     }
 
     let rt = tokio::runtime::Runtime::new().expect("创建 tokio runtime 失败");
+
+    // v10.13.0 metrics-wiring：在真实基准查询路径接入 QueryPathMetrics（应用层接入参考实现）
+    #[cfg(feature = "metrics-wiring")]
+    let metrics_registry = {
+        use sz_orm_observability::MetricsRegistry;
+        std::sync::Arc::new(MetricsRegistry::new())
+    };
+    #[cfg(feature = "metrics-wiring")]
+    let metrics = {
+        use sz_orm_observability::{register_alert_metrics, QueryPathMetrics};
+        QueryPathMetrics::new(register_alert_metrics(&metrics_registry))
+    };
+
     let results = rt.block_on(async {
         let frameworks = [
             FrameworkType::SzOrm,
@@ -193,7 +206,14 @@ fn run_benchmark_real(config: &BenchConfig) {
         let mut results = Vec::new();
         for fw in &frameworks {
             for wl in &workloads {
-                match run_workload_real(*fw, *wl, &effective_config).await {
+                let start = std::time::Instant::now();
+                let outcome = run_workload_real(*fw, *wl, &effective_config).await;
+                #[cfg(feature = "metrics-wiring")]
+                metrics.observe_query(
+                    start,
+                    if outcome.is_ok() { Ok(()) } else { Err(()) },
+                );
+                match outcome {
                     Ok(r) => {
                         println!(
                             "  {} / {} → P50={:.0}μs P95={:.0}μs P99={:.0}μs",
@@ -233,6 +253,17 @@ fn run_benchmark_real(config: &BenchConfig) {
     }
 
     handle_baseline(&effective_config, &results);
+
+    // v10.13.0 metrics-wiring：渲染查询路径指标（Prometheus 文本格式）
+    #[cfg(feature = "metrics-wiring")]
+    {
+        println!("\n=== 查询路径指标（metrics-wiring）===");
+        println!("{}", metrics_registry.render());
+        println!(
+            "生产接入参考：将 registry 交给 sz_orm_observability::start_metrics_server \
+             即可暴露 HTTP /metrics（见 examples/query_path_metrics.rs）"
+        );
+    }
 
     println!("\n框架版本:");
     for (fw, ver) in &report.framework_versions {

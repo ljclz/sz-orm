@@ -5,7 +5,7 @@
 //!
 //! 环境要求：
 //! - SQL Server 2019+ 运行于 127.0.0.1:1433
-//! - 测试数据库 `sz_orm_test`，用户 `sa`，密码 `SzOrmTest2026`
+//! - 测试数据库 `sz_orm_test`，用户 `sa`，密码经 `SZ_ORM_MSSQL_PASSWORD` 环境变量注入
 //! - 可通过环境变量 `SZ_ORM_MSSQL_*` 覆盖默认连接参数
 //!
 //! v2.0.0 任务 1.2：覆盖 8 类场景（5 个方言断言 + 8 个真实 DB）。
@@ -22,7 +22,8 @@ use tokio_util::compat::TokioAsyncWriteCompatExt;
 const MSSQL_HOST_DEFAULT: &str = "127.0.0.1";
 const MSSQL_PORT_DEFAULT: u16 = 1433;
 const MSSQL_USER_DEFAULT: &str = "sa";
-const MSSQL_PASSWORD_DEFAULT: &str = "SzOrmTest2026";
+// 凭据不入库（2026-10-28 P0-3）：默认空串，运行时必须设置对应 SZ_ORM_*_PASSWORD 环境变量
+const MSSQL_PASSWORD_DEFAULT: &str = "";
 const MSSQL_DATABASE_DEFAULT: &str = "sz_orm_test";
 
 fn mssql_host() -> String {
@@ -41,7 +42,13 @@ fn mssql_user() -> String {
 }
 
 fn mssql_password() -> String {
-    std::env::var("SZ_ORM_MSSQL_PASSWORD").unwrap_or_else(|_| MSSQL_PASSWORD_DEFAULT.to_string())
+    let pw = std::env::var("SZ_ORM_MSSQL_PASSWORD")
+        .unwrap_or_else(|_| MSSQL_PASSWORD_DEFAULT.to_string());
+    assert!(
+        !pw.is_empty(),
+        "缺少 SZ_ORM_MSSQL_PASSWORD 环境变量（本机数据库测试密码，见 AGENTS.md「本机数据库」小节；2026-10-28 P0-3 起凭据不入库）"
+    );
+    pw
 }
 
 fn mssql_database() -> String {

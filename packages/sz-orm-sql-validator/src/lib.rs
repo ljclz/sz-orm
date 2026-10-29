@@ -65,6 +65,22 @@ pub enum SqlStatementType {
     Other,
 }
 
+/// 校验深度（v10.13.0 / 2026-10-28 架构评测 P0-4 假绿修复）
+///
+/// 区分"完整语法校验"与"仅注入模式扫描"：`validate_sql` 对 CREATE/DROP/ALTER/
+/// TRUNCATE/GRANT 等未支持语句类型只做括号配平 + 字面量闭合 + 注入模式扫描，
+/// 历史上 CLI 对这些语句同样输出"✓ SQL 校验通过"，构成假绿。调用方应通过
+/// [`validate_sql_with_depth`] / [`validate_with_depth`] 获知实际校验深度，
+/// 对 `InjectionScanOnly` 结果向用户明示"非完整校验"。
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ValidationDepth {
+    /// 按语句类型执行了完整语法校验（SELECT/INSERT/UPDATE/DELETE）
+    Full,
+    /// 未识别的语句类型，仅执行括号配平 + 字面量闭合 + 注入模式扫描，
+    /// 未做该类型专属语法校验
+    InjectionScanOnly,
+}
+
 /// Validate a SQL SELECT statement
 pub fn validate_select(sql: &str) -> ValidationResult {
     let sql_upper = sql.to_uppercase();
@@ -155,6 +171,14 @@ pub fn validate_delete(sql: &str) -> ValidationResult {
 
 /// Validate any SQL statement by detecting its type and applying appropriate rules
 pub fn validate_sql(sql: &str) -> ValidationResult {
+    validate_sql_with_depth(sql).map(|_| ())
+}
+
+/// 校验任意 SQL 并返回实际执行的校验深度（2026-10-28 P0-4 假绿修复）
+///
+/// SELECT/INSERT/UPDATE/DELETE 走类型专属完整校验（`Full`）；
+/// 其余语句类型仅做括号配平/字面量/注入模式扫描（`InjectionScanOnly`）。
+pub fn validate_sql_with_depth(sql: &str) -> Result<ValidationDepth, SqlValidationError> {
     let trimmed = sql.trim();
     if trimmed.is_empty() {
         return Err(SqlValidationError::SyntaxError(
@@ -164,15 +188,27 @@ pub fn validate_sql(sql: &str) -> ValidationResult {
 
     let sql_type = detect_statement_type(trimmed);
     match sql_type {
-        SqlStatementType::Select => validate_select(trimmed),
-        SqlStatementType::Insert => validate_insert(trimmed),
-        SqlStatementType::Update => validate_update(trimmed),
-        SqlStatementType::Delete => validate_delete(trimmed),
+        SqlStatementType::Select => {
+            validate_select(trimmed)?;
+            Ok(ValidationDepth::Full)
+        }
+        SqlStatementType::Insert => {
+            validate_insert(trimmed)?;
+            Ok(ValidationDepth::Full)
+        }
+        SqlStatementType::Update => {
+            validate_update(trimmed)?;
+            Ok(ValidationDepth::Full)
+        }
+        SqlStatementType::Delete => {
+            validate_delete(trimmed)?;
+            Ok(ValidationDepth::Full)
+        }
         _ => {
             validate_balanced_parentheses(trimmed)?;
             validate_string_literals(trimmed)?;
             validate_no_injection_patterns(trimmed)?;
-            Ok(())
+            Ok(ValidationDepth::InjectionScanOnly)
         }
     }
 }
@@ -364,18 +400,22 @@ pub fn validate_column_name(name: &str) -> ValidationResult {
 
 /// Entry-level validation that runs all checks
 pub fn validate(sql: &str) -> ValidationResult {
+    validate_with_depth(sql).map(|_| ())
+}
+
+/// 校验任意 SQL（含注入检测）并返回实际执行的校验深度（2026-10-28 P0-4 假绿修复）
+pub fn validate_with_depth(sql: &str) -> Result<ValidationDepth, SqlValidationError> {
     if sql.trim().is_empty() {
         return Err(SqlValidationError::SyntaxError(
             "Empty SQL statement".to_string(),
         ));
     }
 
-    validate_sql(sql)?;
+    let depth = validate_sql_with_depth(sql)?;
     validate_balanced_parentheses(sql)?;
     validate_string_literals(sql)?;
     validate_no_injection_patterns(sql)?;
-
-    Ok(())
+    Ok(depth)
 }
 
 // ============================================================================
@@ -1086,6 +1126,61 @@ impl DdlPolicy {
 mod tests {
     use super::*;
 
+    // ===== 2026-10-28 P0-4：校验深度区分（假绿修复） =====
+
+    #[test]
+    fn test_depth_full_for_supported_statement_types() {
+        assert_eq!(
+            validate_with_depth("SELECT * FROM users WHERE id = 1").unwrap(),
+            ValidationDepth::Full
+        );
+        assert_eq!(
+            validate_with_depth("INSERT INTO users (id) VALUES (1)").unwrap(),
+            ValidationDepth::Full
+        );
+        assert_eq!(
+            validate_with_depth("UPDATE users SET name = 'a' WHERE id = 1").unwrap(),
+            ValidationDepth::Full
+        );
+        assert_eq!(
+            validate_with_depth("DELETE FROM users WHERE id = 1").unwrap(),
+            ValidationDepth::Full
+        );
+    }
+
+    #[test]
+    fn test_depth_injection_scan_only_for_ddl_dcl() {
+        // DDL/DCL 等未支持类型不得假绿为"完整校验"（2026-10-28 UXR H1 修复）
+        assert_eq!(
+            validate_with_depth("DROP TABLE users").unwrap(),
+            ValidationDepth::InjectionScanOnly
+        );
+        assert_eq!(
+            validate_with_depth("GRANT ALL ON users TO admin").unwrap(),
+            ValidationDepth::InjectionScanOnly
+        );
+        assert_eq!(
+            validate_with_depth("CREATE TABLE users (id INT)").unwrap(),
+            ValidationDepth::InjectionScanOnly
+        );
+        assert_eq!(
+            validate_with_depth("TRUNCATE TABLE users").unwrap(),
+            ValidationDepth::InjectionScanOnly
+        );
+    }
+
+    #[test]
+    fn test_validate_sql_backcompat_ok_on_ddl() {
+        // 既有 API 行为保持：validate_sql/validate 对 DDL 仍返回 Ok（仅深度不同）
+        assert!(validate_sql("CREATE TABLE users (id INT PRIMARY KEY)").is_ok());
+        assert!(validate("DROP TABLE users").is_ok());
+    }
+
+    #[test]
+    fn test_injection_still_detected_in_scan_only_mode() {
+        // 仅扫描模式下注入模式检测仍然生效
+        assert!(validate_with_depth("DROP TABLE users; DELETE FROM users").is_err());
+    }
     #[test]
     fn test_validate_select_basic() {
         assert!(validate_select("SELECT * FROM users").is_ok());

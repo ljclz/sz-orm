@@ -1,0 +1,5 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Discussions 讨论区
+    url: https://github.com/ljclz/sz-orm/discussions
+    about: 使用疑问、答疑、设计讨论与经验分享请到 Discussions，不占用 Issue 列表；安全漏洞请勿公开发布，参见仓库根目录 SECURITY.md。

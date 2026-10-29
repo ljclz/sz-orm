@@ -1,513 +1,105 @@
-# Contributing to SZ-ORM
+# 贡献指南（CONTRIBUTING）
 
-> Thank you for considering a contribution to SZ-ORM! This document describes the workflow, coding standards, and review process for all contributors.
-
-> 适用版本：SZ-ORM v9.4.0（72 工作空间成员 / 20424+ 测试 / 生产阶段）
-> 更新日期：2026-10-06
-
----
-
-## Table of Contents
-
-- [Code of Conduct](#code-of-conduct)
-- [Getting Started](#getting-started)
-- [Development Workflow](#development-workflow)
-- [Coding Standards](#coding-standards)
-- [Testing Requirements](#testing-requirements)
-- [The 23-Gate CI Pipeline](#the-23-gate-ci-pipeline)
-- [Five-Dimensional Code Review](#five-dimensional-code-review)
-- [Commit Message Convention](#commit-message-convention)
-- [Pull Request Process](#pull-request-process)
-- [Release Process](#release-process)
-- [RFC Process](#rfc-process)
-- [Security Vulnerability Reporting](#security-vulnerability-reporting)
-- [Production Incident Runbook](#production-incident-runbook)
-- [License](#license)
+> 感谢关注并贡献 SZ-ORM！本文档是贡献流程的**摘要**，完整规范以 [AGENTS.md](AGENTS.md) 与 [docs/sz-orm-engineering-practices.md](docs/sz-orm-engineering-practices.md) 为准。
+>
+> 适用版本：SZ-ORM v10.13.0（workspace 72 成员：70 lib 包 + cli + examples）| 更新日期：2026-10-29
 
 ---
 
-## Code of Conduct
+## 1. ADR-0001 铁律：上游仓库不可直接修改
 
-Be respectful, constructive, and inclusive. We follow the [Rust Code of Conduct](https://www.rust-lang.org/policies/code-of-conduct).
+**严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。** 任何改动必须通过 PR 贡献到上游。
 
-## Getting Started
+- 违反此原则会导致审计记录与事实不符，**直接红牌拒绝入库**。
+- 门禁 11（`git diff --name-only HEAD`）会自动检查上游文件是否被越权修改。
+- 本仓库自身的架构级决策记录见 `docs/adr/`（如 [docs/adr/0001-连接池用-AtomicU32-而非-Mutex.md](docs/adr/0001-连接池用-AtomicU32-而非-Mutex.md)）。
 
-### Prerequisites
+完整背景见 [docs/sz-orm-engineering-practices.md](docs/sz-orm-engineering-practices.md)。
 
-- **Rust toolchain**: 1.94.0+ (sqlx 0.9.0 requires, edition 2021); stable channel recommended
-- **Operating system**: Linux / Windows / macOS (CI runs all three)
-- **Databases (optional, for integration tests)**: MySQL 8+/9.x, PostgreSQL 14+/18, SQLite 3.35+, Oracle 23ai Free
-- **Cloud services (optional, for ignored tests)**: MQTT broker, RabbitMQ, MinIO/S3, OpenAI API key
+## 2. 开发环境要求
 
-### Fork & Clone
+| 依赖 | 要求 | 说明 |
+|------|------|------|
+| Rust | **1.81+**（workspace `rust-version = "1.81"`，Edition 2021） | 版本由根 `Cargo.toml` 的 `workspace.package.version` 统一管理（当前 10.13.0），子包一律 `version.workspace = true`，禁止手写版本号 |
+| Python | **3.8+** | 门禁与扫描脚本（`scripts/check-*.py`）依赖 |
+| 数据库（可选） | MySQL / PostgreSQL / Oracle / SQLite | 仅集成测试与 `db-verify` 需要；本机参考配置：MySQL 9.6、PostgreSQL 18、Oracle 23ai Free |
 
-```bash
-# Fork the repo on GitHub, then:
-git clone https://github.com/<your-username>/sz-orm.git
-cd sz-orm
-git remote add upstream https://github.com/ljclz/sz-orm.git
-git fetch upstream
-```
+**凭据安全**：数据库凭据一律经环境变量注入（如 `SZ_ORM_ORACLE_PASSWORD`、`SZ_ORM_MYSQL_PASSWORD`、`DATABASE_URL` 等，命名约定见 [docs/e2e-env-config.md](docs/e2e-env-config.md)），**严禁写入仓库**——门禁 9 的 `scripts/check-secrets.py` 会扫描提交内容。
 
-### Build
+## 3. 提交前门禁（34 道）
 
-```bash
-# Full workspace build
-cargo build --workspace
+完整 34 道门禁清单见 [AGENTS.md](AGENTS.md)「门禁清单」一节，CI 侧由 `scripts/run-gates-v10120-server.sh` 等执行增强门禁（26~34）。
 
-# Specific package
-cargo build -p sz-orm-core
-```
-
-### Run Tests
+**本地最小集（每次提交前必跑）**：
 
 ```bash
-# Full workspace (skip ignored tests)
-cargo test --workspace
-
-# Core package only
-cargo test -p sz-orm-core
-
-# Run ignored integration tests (requires real DBs)
-cargo test -p sz-orm-sqlx -- --ignored
-```
-
-## Development Workflow
-
-1. **Pick an issue**: Look for `good-first-issue` or `help-wanted` labels, or open a new issue describing what you want to change.
-2. **Create a branch**: `git checkout -b feat/<short-description>` (or `fix/` / `docs/` / `refactor/`).
-3. **Write code + tests**: Follow the [Testing Requirements](#testing-requirements). TDD is strongly recommended.
-4. **Run gates locally**: `./scripts/gate.ps1` (Windows) or `./scripts/gate.sh` (Linux/macOS) — runs fmt, clippy, test, build, doc, audit, deny.
-5. **Commit**: Follow the [Commit Message Convention](#commit-message-convention).
-6. **Push & open PR**: Fill in the PR template; link the issue.
-7. **Address review feedback**: Push additional commits (do not squash until merge).
-8. **CI must pass**: All 23 gates must pass on the PR before merge.
-
-## Coding Standards
-
-### Rust Style
-
-- **Format**: `cargo fmt --all` (enforced in CI, gate 1)
-- **Lint**: `cargo clippy --workspace --all-targets -- -D warnings` (enforced in CI, gate 3)
-- **Edition**: 2021
-- **No `panic!`/`unimplemented!`/`todo!` in production code** — return `Result<T, DbError>` instead
-- **Zero warnings**: `RUSTFLAGS="-D warnings"` (enforced in CI, gate 2)
-- **Async**: Use `tokio` 1.40+ with `async/await`; do not block in async contexts
-- **Error handling**: Use `thiserror` for error enums; propagate with `?`; never `unwrap()` in production paths
-- **Naming**: Descriptive names; no abbreviations except well-known ones (`i`, `j`, `ctx`, `tx`)
-- **Comments**: Chinese comments are acceptable in non-public code; public API docs must be in English or bilingual
-
-### Workspace Conventions
-
-- **Version**: Managed centrally via `workspace.package.version` in root `Cargo.toml`; sub-packages use `version.workspace = true`. **Never** hard-code version numbers in sub-packages.
-- **Dependencies**: Use `workspace.dependencies` for shared deps; sub-packages reference with `dependency.workspace = true`.
-- **New packages**: Add to `members` array in root `Cargo.toml`; create `packages/sz-orm-<name>/` with `Cargo.toml` + `src/lib.rs`.
-
-### File Organization
-
-- One responsibility per file; files should not exceed ~1000 lines.
-- Tests live in `tests/` (integration) or inline `#[cfg(test)]` modules (unit).
-- Benchmarks live in `benches/` with `harness = false` for criterion.
-- Examples live in `examples/src/bin/`.
-
-### Memory & Performance
-
-- Avoid unnecessary allocations; prefer `Cow<str>`, `&str`, `Arc<T>`.
-- Use appropriate data structures (`HashMap` for O(1) lookup, `Vec` for iteration).
-- Lazy evaluation: do not compute until needed.
-- Hot paths must be benchmarked (add to `benches/core_bench.rs` if core).
-
-## Testing Requirements
-
-### Test Pyramid
-
-| Tier | Type | Location | Coverage |
-|------|------|----------|----------|
-| T1 | Unit (inline `#[cfg(test)]`) | `src/*.rs` | Each public function |
-| T2 | Integration | `tests/*.rs` | End-to-end flows |
-| T3 | Property-based | `tests/property.rs` | Invariants with `proptest` |
-| T4 | Fuzz | `tests/fuzz.rs` | Edge cases with `proptest` fuzz mode |
-| T5 | Stress | `tests/stress.rs` | High concurrency / load |
-| T6 | Soak | `tests/soak.rs` | 6h long-running degradation |
-
-### TDD Cycle (RED → GREEN → REFACTOR)
-
-1. **RED**: Write a failing test that captures the desired behavior.
-2. **GREEN**: Write the minimum code to pass the test.
-3. **REFACTOR**: Clean up while keeping tests green.
-
-### Test Coverage Rules
-
-- Every new public function MUST have at least one test.
-- Every bug fix MUST include a regression test that fails before the fix.
-- Edge cases (empty input, max values, concurrent access) MUST be tested.
-- DML operation sequences (not just individual ops) MUST be tested to catch state pollution.
-- Tests must validate **behavior under boundary/extreme conditions**, not just "happy path works".
-
-### Soak Test Acceptance
-
-6h soak test must meet all criteria:
-- RSS growth < 50 MB
-- fd_count growth < 10
-- pool_active terminal value == pool_idle (no leak)
-- ops_per_sec decay < 10%
-- p99_latency growth < 2x
-- error_count == 0
-
-## The 23-Gate CI Pipeline
-
-All PRs must pass these 23 gates before merge:
-
-| # | Gate | Command | Blocking |
-|---|------|---------|----------|
-| 1 | fmt | `cargo fmt --all -- --check` | ✅ |
-| 2 | check | `cargo check --workspace --all-targets` | ✅ |
-| 3 | clippy | `cargo clippy --workspace --all-targets -- -D warnings` | ✅ |
-| 4 | test | `cargo test --workspace` | ✅ |
-| 5 | doc | `cargo doc --workspace --no-deps --all-features` | ✅ |
-| 6 | audit | `cargo audit` + `cargo deny check` | ✅ |
-| 7 | integration | `cargo test --workspace -- --ignored` | ✅ |
-| 8 | no-placeholder | `grep -rn 'todo!\|unimplemented!\|unreachable!' --include='*.rs'` | ✅ |
-| 9 | sql-injection | `scripts/check-sql-injection.ps1` | ✅ |
-| 10 | all-features | `cargo check --workspace --all-targets --all-features` | ✅ |
-| 11 | upstream-unchanged | `git diff --name-only HEAD` (ADR-0001) | ✅ |
-| 12 | doc-consistency | `python scripts/check-doc-consistency.py` | ✅ |
-| 13 | audit-verify | `bash scripts/audit-verify.sh <report.md>` | ✅ |
-| 14 | doc-sync | `python scripts/check-doc-sync.py --diff HEAD` | ✅ |
-| 15 | phantom-delivery | `python scripts/check-phantom-delivery.py` | ✅ |
-| 16 | semantic-patterns | `python scripts/check-semantic-patterns.py` | ✅ |
-| 17 | architecture | `python scripts/check-architecture.py` | ✅ |
-| 18 | metrics-real | `python scripts/check-metrics-real.py` | ✅ |
-| 19 | publish-consistency | `python scripts/check-publish-consistency.py` | ✅ |
-| 20 | mutation-coverage | `python scripts/check-mutation-coverage.py` (≥ 70%) | ✅ |
-| 21 | security-attacks | OWASP Top 10 + JWT + KAT + tenant tests | ✅ |
-| 22 | coverage | `python scripts/check-coverage.py` (≥ 60%) | ✅ |
-| 23 | unused-deps | `python scripts/check-unused-deps.py` | ⚠️ warn |
-
-### Local Gate Script
-
-```bash
-# Windows
-./scripts/gate.ps1
-
-# Linux/macOS
-./scripts/gate.sh
-```
-
-This runs gates 1-7 locally. Gates 8-23 require additional tooling (Python scripts, cargo-mutants, cargo-llvm-cov) and run in CI.
-
-## Five-Dimensional Code Review
-
-Every PR must complete an explicit five-dimensional review checklist. Do NOT rely on automated gates alone.
-
-| Dimension | What to check |
-|-----------|---------------|
-| **1. Correctness (正确性)** | Does the code do what it claims? Are edge cases handled? Are error paths correct? Do tests cover the behavior? |
-| **2. Readability (可读性)** | Is the code clear? Are names descriptive? Is the abstraction level appropriate? Are comments helpful (not redundant)? |
-| **3. Architecture (架构)** | Does the change fit the existing module boundaries? Does it introduce circular deps? Is the layering correct (core → sqlx → extensions)? |
-| **4. Security (安全性)** | Does it handle untrusted input safely? Does it introduce SQL injection risks? Are credentials leaked? Are new dependencies audited? |
-| **5. Performance (性能)** | Does it allocate unnecessarily? Does it hold locks too long? Does it have O(n²) where O(n) suffices? Is the hot path still fast? |
-
-Record the review result in the PR description or in `docs/附录H-五维审查清单.md` for major phases.
-
-## Commit Message Convention
-
-We follow [Conventional Commits](https://www.conventionalcommits.org/):
-
-```
-<type>(<scope>): <subject>
-
-<body>
-
-<footer>
-```
-
-### Types
-
-| Type | Use for |
-|------|---------|
-| `feat` | New feature |
-| `fix` | Bug fix |
-| `docs` | Documentation only |
-| `style` | Formatting, no code change |
-| `refactor` | Code change that neither fixes a bug nor adds a feature |
-| `perf` | Performance improvement |
-| `test` | Adding or correcting tests |
-| `build` | Build system or dependencies |
-| `ci` | CI configuration |
-| `chore` | Other maintenance tasks |
-| `revert` | Revert a previous commit |
-
-### Scope
-
-Use the package name, e.g., `sz-orm-core`, `sz-orm-sqlx`, `sz-orm-vector`, `docs`, `ci`.
-
-### Subject
-
-- Imperative mood: "add" not "added"; "fix" not "fixed"
-- Lowercase, no period at end
-- Max 72 characters
-
-### Body
-
-- Explain **why** the change is needed, not just **what** changed
-- Wrap at 80 characters
-- Use bullet points for multiple changes
-
-### Footer
-
-- `BREAKING CHANGE: <description>` for breaking changes (bump major version)
-- `Closes #123` / `Fixes #123` to link issues
-- `Co-Authored-By: <name> <email>` for pair contributions
-
-### Example
-
-```
-feat(sz-orm-core): add optimistic_lock module
-
-- Add OptimisticLock trait with version field auto-increment
-- Add retry_on_conflict() function with exponential backoff
-- 12 unit tests + 4 integration tests with concurrent update scenarios
-- Closes #142
-
-Co-Authored-By: Jane Doe <jane@example.com>
-```
-
-## Pull Request Process
-
-1. **Open PR**: Use the PR template (`.github/pull_request_template.md`).
-2. **Fill template**:
-   - Summary of changes
-   - Related issue (e.g., `Closes #123`)
-   - Test plan (what tests were added/modified)
-   - Five-dimensional review checklist
-   - Breaking changes (if any)
-3. **CI runs**: All 23 gates must pass.
-4. **Review**: At least one maintainer approval required for merge.
-5. **Address feedback**: Push additional commits; do not force-push during review.
-6. **Squash & merge**: Maintainer squashes commits on merge (keeps history clean).
-7. **Delete branch**: Delete the feature branch after merge.
-
-### PR Size
-
-- **Small PRs** (< 300 lines): Preferred, faster review
-- **Medium PRs** (300–1000 lines): Acceptable, may take longer
-- **Large PRs** (> 1000 lines): Break into multiple PRs unless explicitly justified
-
-## Release Process
-
-Releases are managed by maintainers. Version numbers follow [Semantic Versioning](https://semver.org/):
-
-- **Major (x.0.0)**: Breaking API changes
-- **Minor (1.x.0)**: New features, backward compatible
-- **Patch (1.0.x)**: Bug fixes only
-
-### Release Steps
-
-1. Update `workspace.package.version` in root `Cargo.toml` (single source of truth).
-2. Update `CHANGELOG.md` with all changes since last release.
-3. Update documentation version references (`docs/*.md` headers).
-4. Run full gate suite locally: `./scripts/gate.ps1`.
-5. Create annotated tag: `git tag -a v1.0.0 -m "v1.0.0 release"`.
-6. Push tag: `git push origin v1.0.0`.
-7. CI auto-publishes to crates.io on tag push (if configured).
-8. Create GitHub Release with changelog notes.
-
-### Version Management Rules
-
-- **Never** hard-code version numbers in sub-package `Cargo.toml` files. Always use `version.workspace = true`.
-- **Never** update version in multiple places. The root `Cargo.toml` `[workspace.package]` section is the single source of truth.
-- **Always** update `CHANGELOG.md` when bumping version.
-
-## RFC Process
-
-For significant changes (new features, breaking API changes, architecture decisions), follow the RFC (Request for Comments) process:
-
-### When to Write an RFC
-
-| Change type | RFC required? |
-|-------------|---------------|
-| New package in workspace | ✅ Yes |
-| Breaking API change | ✅ Yes |
-| New feature gate (feature flag) | ✅ Yes |
-| Architecture decision (ADR) | ✅ Yes |
-| Bug fix | ❌ No (PR with regression test) |
-| Documentation improvement | ❌ No (direct PR) |
-| Performance optimization | ❌ No (PR with benchmark) |
-
-### RFC Workflow
-
-1. **Write RFC**: Copy `docs/rfc/template.md` to `docs/rfc/XXXX-<short-name>.md` (XXXX = next number, zero-padded).
-2. **Fill sections**: Summary, Motivation, Design, Alternatives, Risks, Open Questions.
-3. **Open PR**: Label `rfc` + `discussion`. The RFC PR is for discussion only — no code changes.
-4. **Review period**: Minimum 7 days for community feedback.
-5. **Decision**: Maintainer accepts (→ `accepted` label) or rejects (→ `rejected` label, close PR).
-6. **Implementation**: After acceptance, open a separate PR with code + tests, referencing the RFC number.
-7. **Archive**: Accepted RFCs move to `docs/rfc/accepted/`; rejected to `docs/rfc/rejected/`.
-
-### RFC Template
-
-```markdown
-# RFC-XXXX: <Title>
-
-- **Status**: draft | accepted | rejected
-- **Created**: YYYY-MM-DD
-- **Accepted**: YYYY-MM-DD (if accepted)
-
-## Summary
-<One paragraph describing the change>
-
-## Motivation
-<Why is this change needed? What problem does it solve?>
-
-## Design
-<How will the change be implemented? Include API sketches, data structures, etc.>
-
-## Alternatives
-<What other approaches were considered? Why were they rejected?>
-
-## Risks
-<What could go wrong? How do we mitigate?>
-
-## Open Questions
-<What needs to be resolved before acceptance?>
-```
-
-### ADR (Architecture Decision Records)
-
-For architecture-level decisions that don't need a full RFC, use ADRs:
-
-1. Copy `docs/adr/template.md` to `docs/adr/XXXX-<short-name>.md`.
-2. Fill: Context, Decision, Consequences.
-3. Open PR with the ADR file (no code changes needed).
-4. Maintainer review + merge.
-
-**ADR-0001 (铁律)**: 严禁下游项目修改上游 sz-orm / sz-rust 仓库的任何文件。任何改动必须通过 PR 贡献到上游。
-
-## Security Vulnerability Reporting
-
-**Do NOT open a public GitHub issue for security vulnerabilities.**
-
-Instead, email the maintainers at `***REMOVED***` with:
-- Description of the vulnerability
-- Steps to reproduce
-- Affected versions
-- Suggested fix (if any)
-
-We will acknowledge within 48 hours and aim to release a fix within 7 days for Critical/High severity.
-
-### Security Audit Baseline
-
-- `cargo audit` runs on every push/PR (gate 6)
-- `cargo deny check` runs on every push/PR (gate 7)
-- 7 RUSTSEC advisories are currently ignored with documented reasons (see `audit.toml`)
-- License whitelist: 14 permissive licenses only; copyleft (GPL/AGPL/LGPL) is forbidden
-- Dependency sources: only crates.io official registry; no git/path sources
-
-## Production Incident Runbook
-
-> 本节为生产环境 bug 应急流程。当生产环境出现异常时，按此流程操作，避免盲目修改。
-
-### 1. 复现
-
-```bash
-# 用 soak test 的 SoakMonitor 复现高并发/资源泄漏类问题
-SOAK_DURATION=60s cargo test -p sz-orm-core --test soak -- --ignored
-
-# 用 property test 复现边界条件类问题
-cargo test -p sz-orm-core --test property -- --ignored
-
-# 用 fuzz test 复现随机输入类问题
-cargo test -p sz-orm-core --test fuzz -- --ignored
-```
-
-### 2. 定位
-
-**指标定位法**（依赖可观测性）：
-
-| 指标 | 异常表现 | 可能原因 |
-|------|---------|---------|
-| `pool_active` 持续上升不回落 | 连接泄漏 | 未 release / RAII guard 丢失 |
-| `p99_latency` 突增 | 慢查询或锁竞争 | SQL 缺索引 / 事务持有锁过久 |
-| `error_rate` > 0.1% | 批量错误 | 连接池耗尽 / 数据库故障 |
-| `rss_bytes` 持续增长 | 内存泄漏 | 未释放的 Vec / 缓存无淘汰 |
-| `fd_count` 持续增长 | 句柄泄漏 | 连接未关闭 / 文件未关闭 |
-
-**代码定位法**：
-
-```bash
-# git bisect 找到回归 commit
-git bisect start
-git bisect bad <bad-commit>
-git bisect good <last-known-good-commit>
-# 每步运行测试验证
-cargo test -p sz-orm-core
-git bisect run cargo test -p sz-orm-core
-```
-
-**ADR 查阅**：修改前先读 `docs/adr/` 中的相关决策记录，理解"为什么这么写"，避免误改。
-
-### 3. 隔离
-
-- 如果是连接池问题：降低 `max_size`，重启服务
-- 如果是慢查询：添加查询超时 `with_timeout()`
-- 如果是内存泄漏：重启服务（临时），同时排查根因
-- 如果是分片问题：调整 `chunk_size`
-
-### 4. 修复
-
-1. **先写失败测试**（RED）：构造一个能复现 bug 的测试
-2. **再改代码**（GREEN）：最小改动让测试通过
-3. **重构**（REFACTOR）：清理代码，保持测试绿色
-4. **五维审查**：正确性 / 可读性 / 架构 / 安全性 / 性能
-
-### 5. 验证
-
-```bash
-# 基础门禁
-cargo fmt --all --check
+cargo fmt --all -- --check
 cargo clippy --workspace --all-targets -- -D warnings
 cargo test --workspace
 
-# 1 小时 soak test（验证资源泄漏已修复）
-SOAK_DURATION=1h cargo test -p sz-orm-core --test soak -- --ignored
+# Windows 一键门禁（Linux/macOS 用 ./scripts/gate.sh）
+./scripts/gate.ps1
 ```
 
-### 6. 上线后观察
+涉及真实数据库的集成测试：`cargo test --workspace --tests -- --ignored`（未就绪的服务按 AGENTS.md「G7 集成测试本机排除清单」跳过）。
 
-- 观察 Prometheus 指标至少 30 分钟
-- 确认 `error_rate` 回归 0
-- 确认 `p99_latency` 回归正常水位
-- 确认 `pool_active` 能正常回落到 `pool_idle`
+## 4. 硬约束（摘要）
 
-### 7. 记录
+以下为 AGENTS.md「AI 辅助开发 11 条硬约束」中与本仓库最相关的红线，全文见 [AGENTS.md](AGENTS.md)：
 
-- 在 `CHANGELOG.md` 记录修复内容
-- 如果是架构层面的问题，在 `docs/adr/` 新增 ADR
-- 在 `project_memory.md` 记录教训（AI 维护项目的"长期记忆"）
+1. **禁止占位实现**：生产代码不得出现 `todo!` / `unimplemented!` / `unreachable!`（门禁 8）。
+2. **SQL 必须参数化**：WHERE 条件一律用 `where_eq` / `or_where_eq` 等参数化 API；禁止字符串拼接；`where_cond` / `or_where` 已标记 deprecated；默认禁止 `SELECT *`（门禁 9 SQL 注入扫描）。
+3. **unsafe 零容忍**：每个 unsafe 块必须附 `// SAFETY:` 块级注释，或函数附 `/// # Safety` 文档（双口径，见 `scripts/check-unsafe-audit.py`）。
+4. **禁止幻影交付**：宣称"自动 / 强制 / 默认 / 集成"的能力必须附生产调用点 `file:line` 证据；"模块存在 + 测试通过" ≠ "已交付"（门禁 15）。
+5. **禁止幻影测试**：测试必须验证行为副作用，禁止永真断言、丢弃返回结果、只验证初始值/配置值。
+6. **API 兼容性**：签名变更必须同步更新所有调用方与测试。
+
+任何审计/审查结论必须附带可验证的 `file:line` 代码证据（详见 [docs/sz-orm-engineering-practices.md](docs/sz-orm-engineering-practices.md)「审计合规铁律」），修复后必须实际运行 `cargo test` 并附输出。
+
+## 5. PR 流程
+
+1. **Fork** 本仓库，`git clone` 你的 fork 并配置 upstream。
+2. **建分支**：`feat/<短描述>`、`fix/...`、`docs/...`、`refactor/...`。
+3. **开发 + 测试**：新公共函数至少一个测试；bug 修复必须附带修复前失败的回归测试；重大变更（新包 / 破坏性 API / 新 feature gate / 架构决策）请先走 RFC 流程（模板见 [docs/rfc/template.md](docs/rfc/template.md)）。
+4. **门禁全绿**：跑完第 3 节本地最小集及相关脚本门禁。
+5. **提交 PR**：使用 [.github/pull_request_template.md](.github/pull_request_template.md) 模板填写变更摘要、关联 Issue、测试计划；Bug 请用 [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE) 模板先行建 Issue。
+6. **五维审查**（每个 PR 必做，逐项过，不能只依赖自动化门禁）：
+
+   **正确性 → 可读性 → 架构 → 安全性 → 性能**
+
+7. CI 全部门禁通过且至少一名维护者批准后合并。
+
+## 6. 行为准则（简条）
+
+- **尊重**：保持友善、耐心与包容，认真对待每一份贡献。
+- **专业**：讨论对事不对人——**指错不指人**，批评代码不批评作者。
+- **无骚扰**：人身攻击、贬低、骚扰性言论零容忍，维护者有权移除并处置。
+- **讲证据**：技术分歧以事实与可验证证据（`file:line`、测试输出、基准数据）为裁决依据。
+
+完整社区规范可参考 [Rust Code of Conduct](https://www.rust-lang.org/policies/code-of-conduct)。
+
+**安全漏洞**：请勿公开提 Issue，按 [SECURITY.md](SECURITY.md) 的负责任披露流程报告。
 
 ---
 
-## License
+## English Summary
 
-By contributing, you agree that your contributions will be licensed under the [MIT License](LICENSE).
+- **ADR-0001 (iron rule)**: Never modify upstream sz-orm / sz-rust files from downstream projects — all changes must land upstream via PR. Enforced by gate 11. See [docs/sz-orm-engineering-practices.md](docs/sz-orm-engineering-practices.md).
+- **Toolchain**: Rust 1.81+ (edition 2021, workspace-managed version 10.13.0), Python 3.8+ for gate scripts. DB credentials go through environment variables (`SZ_ORM_ORACLE_PASSWORD` etc.) — never commit secrets.
+- **Gates**: 34 pre-merge gates (full table in [AGENTS.md](AGENTS.md)). Local minimum: `cargo fmt --all -- --check`, `cargo clippy --workspace --all-targets -- -D warnings`, `cargo test --workspace`, plus `./scripts/gate.ps1` (Windows) / `./scripts/gate.sh` (Linux/macOS).
+- **Hard constraints**: no `todo!`/`unimplemented!`; parameterized SQL only (`where_eq`...); `unsafe` requires `// SAFETY:` comments; no phantom delivery (claims of "automatic/default integration" need `file:line` production call-site evidence) and no phantom tests (tests must assert behavioral side effects).
+- **PR flow**: fork → branch → gates green → PR (use the template) → five-dimensional review (correctness / readability / architecture / security / performance).
+- **Conduct**: be respectful and professional, criticize code not people, zero tolerance for harassment. Report security vulnerabilities privately per [SECURITY.md](SECURITY.md).
 
----
+The detailed guide is written in Chinese above; for the full engineering rules read [AGENTS.md](AGENTS.md).
 
-## Quick Reference
+## 参考文档
 
-| Task | Command |
-|------|---------|
-| Format code | `cargo fmt --all` |
-| Lint | `cargo clippy --workspace --all-targets -- -D warnings` |
-| Test (fast) | `cargo test --workspace` |
-| Test (ignored, needs DB) | `cargo test --workspace -- --ignored` |
-| Bench | `cargo bench -p sz-orm-core` |
-| Soak (10s smoke) | `cargo test -p sz-orm-core --test soak -- --ignored` |
-| Soak (6h) | `SOAK_DURATION=6h cargo test -p sz-orm-core --test soak -- --ignored` |
-| Security audit | `cargo audit` (with 7 `--ignore` flags, see CI config) |
-| Deny check | `cargo deny check advisories bans licenses sources` |
-| Full local gate | `./scripts/gate.ps1` or `./scripts/gate.sh` |
-| Generate docs | `cargo doc --workspace --no-deps --open` |
+- [AGENTS.md](AGENTS.md) —— 34 道门禁清单与硬约束全文
+- [docs/sz-orm-engineering-practices.md](docs/sz-orm-engineering-practices.md) —— 工程化审查规范（ADR-0001 / 五维审查 / 审计合规铁律）
+- [docs/e2e-env-config.md](docs/e2e-env-config.md) —— 集成测试环境变量约定
+- [docs/rfc/](docs/rfc/) / [docs/adr/](docs/adr/) —— RFC 与架构决策记录
+- [SECURITY.md](SECURITY.md) —— 安全漏洞披露流程
+- [CHANGELOG.md](CHANGELOG.md) —— 版本历史
 
-Thank you for contributing to SZ-ORM!
+感谢你为 SZ-ORM 做出贡献！

@@ -863,3 +863,35 @@ async fn chaos_pool_shutdown_race_no_new_connection() {
     drop(conn_a);
     drop(conn_b);
 }
+
+// ===================== 场景 14：Drop 同步快路径（2026-10-28 P3-4） =====================
+
+/// Drop 快路径行为验证（PERFV2-03 Drop 归还优化）
+///
+/// 干净连接（不在事务中、无需会话复位）被 drop 时必须**同步**归还：
+/// drop 返回后 idle 立即可见，无需 yield/await 让 spawn 任务执行——
+/// 旧实现依赖 `handle.spawn(release)`，测试必须让出调度才能观察到归还。
+#[tokio::test]
+async fn chaos_drop_clean_connection_returns_synchronously() {
+    let (pool, _factory) = make_pool(2, 5);
+
+    let conn = pool.acquire().await.expect("acquire 应成功");
+    let status_held = pool.status().await;
+    assert_eq!(status_held.active, 1, "持有期 active=1");
+    drop(conn); // 干净连接：走同步快路径
+
+    // 关键断言：不 await/不 yield，drop 返回后立即查询——
+    // 若仍走 spawn 异步归还，此处 idle=0（任务尚未执行）。
+    // active 语义 = 池持有的总连接数（归还后连接仍归池所有，故为 1）。
+    let status = pool.status().await;
+    assert_eq!(
+        status.idle, 1,
+        "Drop 快路径：idle 应同步 +1（实际 {}）",
+        status.idle
+    );
+    assert_eq!(status.active, 1, "归还后连接仍归池持有（active=总连接数）");
+
+    // 归还后的连接立即可被 acquire 复用
+    let conn2 = pool.acquire().await.expect("复用应成功");
+    drop(conn2);
+}

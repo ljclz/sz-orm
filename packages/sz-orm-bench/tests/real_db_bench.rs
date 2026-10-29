@@ -237,9 +237,31 @@ async fn test_bench_result_completeness() {
 static ORACLE_TEST_LOCK: std::sync::LazyLock<tokio::sync::Mutex<()>> =
     std::sync::LazyLock::new(|| tokio::sync::Mutex::new(()));
 
-/// Oracle 连接串（本机 23ai Free 监听器以 freepdb1.FALSE 注册）
+/// Oracle 测试密码（凭据不入库，2026-10-28 P0-3）：经 SZ_ORM_ORACLE_PASSWORD 环境变量注入
+fn oracle_test_password() -> String {
+    let pw = std::env::var("SZ_ORM_ORACLE_PASSWORD").unwrap_or_default();
+    assert!(
+        !pw.is_empty(),
+        "缺少 SZ_ORM_ORACLE_PASSWORD 环境变量（本机数据库测试密码，见 AGENTS.md「本机数据库」小节；2026-10-28 P0-3 起凭据不入库）"
+    );
+    pw
+}
+
+/// Oracle 明文三元组（user/password/connect_string），供 OraclePoolHandle::connect 使用
+fn oracle_credential() -> (String, String, String) {
+    (
+        "sz_orm_test".to_string(),
+        oracle_test_password(),
+        "127.0.0.1:1521/freepdb1".to_string(),
+    )
+}
+
+/// Oracle 连接串（本机 23ai Free 监听器以 freepdb1 注册；凭据不入库，2026-10-28 P0-3）
 fn oracle_test_connection() -> String {
-    "oracle://sz_orm_test:SzOrmTest2026@127.0.0.1:1521/freepdb1.FALSE".to_string()
+    format!(
+        "oracle://sz_orm_test:{}@127.0.0.1:1521/freepdb1",
+        oracle_test_password()
+    )
 }
 
 /// 计算百分位数
@@ -252,7 +274,7 @@ fn percentile(sorted: &[u64], p: f64) -> f64 {
 }
 
 #[tokio::test]
-#[ignore = "需要 Oracle 23ai Free: oracle://sz_orm_test:SzOrmTest2026@127.0.0.1:1521/freepdb1.FALSE"]
+#[ignore = "需要 Oracle：设置 SZ_ORM_ORACLE_PASSWORD 后运行（凭据不入库，2026-10-28 P0-3）"]
 async fn test_oracle_init_and_crud() {
     use sz_orm_bench::DatasetInitializer;
 
@@ -271,12 +293,9 @@ async fn test_oracle_init_and_crud() {
     use sz_orm_core::Value;
     use sz_orm_oracle::{OracleConnectionFactory, OraclePoolHandle};
 
-    let handle = OraclePoolHandle::connect(
-        "sz_orm_test",
-        "SzOrmTest2026",
-        "127.0.0.1:1521/freepdb1.FALSE",
-    )
-    .expect("Oracle 连接池创建应成功");
+    let (ora_user, ora_password, ora_cs) = oracle_credential();
+    let handle = OraclePoolHandle::connect(&ora_user, &ora_password, &ora_cs)
+        .expect("Oracle 连接池创建应成功");
     let handle = Arc::new(handle);
     let factory = OracleConnectionFactory::new(handle);
     let mut conn_obj = factory.create().await.expect("Oracle 连接创建应成功");
@@ -380,7 +399,7 @@ async fn test_oracle_init_and_crud() {
 }
 
 #[tokio::test]
-#[ignore = "需要 Oracle 23ai Free: oracle://sz_orm_test:SzOrmTest2026@127.0.0.1:1521/freepdb1.FALSE"]
+#[ignore = "需要 Oracle：设置 SZ_ORM_ORACLE_PASSWORD 后运行（凭据不入库，2026-10-28 P0-3）"]
 async fn test_oracle_transaction_commit_rollback() {
     use std::sync::Arc;
     use sz_orm_bench::DatasetInitializer;
@@ -394,12 +413,9 @@ async fn test_oracle_transaction_commit_rollback() {
         .await
         .expect("Oracle 数据集初始化应成功");
 
-    let handle = OraclePoolHandle::connect(
-        "sz_orm_test",
-        "SzOrmTest2026",
-        "127.0.0.1:1521/freepdb1.FALSE",
-    )
-    .expect("Oracle 连接池创建应成功");
+    let (ora_user, ora_password, ora_cs) = oracle_credential();
+    let handle = OraclePoolHandle::connect(&ora_user, &ora_password, &ora_cs)
+        .expect("Oracle 连接池创建应成功");
     let handle = Arc::new(handle);
     let factory = OracleConnectionFactory::new(handle);
 
@@ -465,7 +481,7 @@ async fn test_oracle_transaction_commit_rollback() {
 }
 
 #[tokio::test]
-#[ignore = "需要 Oracle 23ai Free: oracle://sz_orm_test:SzOrmTest2026@127.0.0.1:1521/freepdb1.FALSE"]
+#[ignore = "需要 Oracle：设置 SZ_ORM_ORACLE_PASSWORD 后运行（凭据不入库，2026-10-28 P0-3）"]
 async fn test_oracle_aggregate_query() {
     use std::sync::Arc;
     use sz_orm_bench::DatasetInitializer;
@@ -479,12 +495,9 @@ async fn test_oracle_aggregate_query() {
         .await
         .expect("Oracle 数据集初始化应成功");
 
-    let handle = OraclePoolHandle::connect(
-        "sz_orm_test",
-        "SzOrmTest2026",
-        "127.0.0.1:1521/freepdb1.FALSE",
-    )
-    .expect("Oracle 连接池创建应成功");
+    let (ora_user, ora_password, ora_cs) = oracle_credential();
+    let handle = OraclePoolHandle::connect(&ora_user, &ora_password, &ora_cs)
+        .expect("Oracle 连接池创建应成功");
     let handle = Arc::new(handle);
     let factory = OracleConnectionFactory::new(handle);
     let mut conn_obj = factory.create().await.expect("连接创建应成功");

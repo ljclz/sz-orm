@@ -1329,3 +1329,145 @@ async fn test_mysql_insert_or_ignore_new_row() {
 
     drop_table(&pool, &table).await;
 }
+
+// ============================================================================
+// OWASP A01/A03 真实 DB 行为断言（2026-10-28 架构评测 P1-5，SDET ROI-6 闭环）
+// 历史缺口：OWASP 测试只断言 SQL 文本形态，无"真实 DB 执行后"的行为断言。
+// ============================================================================
+
+/// 建带租户列的表（A01 越权用例）
+async fn create_tenant_table_mysql(pool: &MySqlPool, table: &str) {
+    let sql = format!(
+        "CREATE TABLE `{}` (id BIGINT AUTO_INCREMENT PRIMARY KEY, \
+         tenant_id BIGINT NOT NULL, name VARCHAR(255) NOT NULL)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(sql.as_str()))
+        .execute(pool)
+        .await
+        .expect("create tenant table");
+}
+
+/// 执行参数化 SELECT（复用 bind_value_mysql），返回全部行
+async fn fetch_scoped_rows_mysql(
+    pool: &MySqlPool,
+    sql: &str,
+    params: &[Value],
+) -> Vec<sqlx::mysql::MySqlRow> {
+    let mut q = sqlx::query(sqlx::AssertSqlSafe(sql));
+    for v in params {
+        q = bind_value_mysql(q, v);
+    }
+    q.fetch_all(pool).await.expect("scoped select")
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306（OWASP A01 行为断言）"]
+async fn owasp_a01_tenant_scoping_returns_empty_set_on_cross_tenant() {
+    // A01 验收：越权查询（以租户 1 的作用域触碰租户 2 的行）必须返回**空集**，
+    // 而非"不报错但返回他人数据"。过滤只允许参数化 where（AGENTS 铁律 2）。
+    let pool = setup_pool().await;
+    let table = unique_table("t_owasp_a01");
+    create_tenant_table_mysql(&pool, &table).await;
+
+    for (tenant, name) in [(1i64, "t1_row"), (2i64, "t2_row")] {
+        let insert_sql = format!("INSERT INTO `{}` (tenant_id, name) VALUES (?, ?)", table);
+        sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+            .bind(tenant)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .expect("insert tenant rows");
+    }
+
+    // 租户 1 作用域：只能看到自己的行
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("tenant_id", Value::I64(1))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_mysql(&pool, &sql, &params).await;
+    assert_eq!(rows.len(), 1, "租户 1 作用域应只返回自己的 1 行");
+    let own_name: String = rows[0].get("name");
+    assert_eq!(own_name, "t1_row");
+
+    // 越权模拟：租户 1 作用域下按名取租户 2 的行 → 必须空集
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("tenant_id", Value::I64(1))
+        .where_eq("name", Value::String("t2_row".to_string()))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_mysql(&pool, &sql, &params).await;
+    assert_eq!(
+        rows.len(),
+        0,
+        "越权访问租户 2 的行必须返回空集（OWASP A01 真实 DB 行为）"
+    );
+
+    drop_table(&pool, &table).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 运行于 127.0.0.1:3306（OWASP A03 行为断言）"]
+async fn owasp_a03_injection_payload_via_parameter_is_inert() {
+    // A03 验收：注入 payload 经绑定参数时是**惰性字面量**——
+    // ① 恒真 payload 不放大结果集；② 堆叠 DROP payload 不执行；③ payload 可按字面量往返。
+    let pool = setup_pool().await;
+    let table = unique_table("t_owasp_a03");
+    create_test_table(&pool, &table).await;
+
+    let insert_sql = format!("INSERT INTO `{}` (name, value) VALUES (?, ?)", table);
+    for name in ["Alice", "Bob"] {
+        sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+            .bind(name)
+            .bind(1i64)
+            .execute(&pool)
+            .await
+            .expect("insert seed rows");
+    }
+
+    // ① 恒真 payload 作为参数 → 0 行（不是全表 2 行）
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("name", Value::String("' OR '1'='1".to_string()))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_mysql(&pool, &sql, &params).await;
+    assert_eq!(
+        rows.len(),
+        0,
+        "恒真 payload 作为绑定参数必须按字面量匹配（0 行），不得全表返回"
+    );
+
+    // ②③ 堆叠 DROP payload：入库为字面量 → 精确参数匹配往返 → 表未被删
+    let payload = format!("x'; DROP TABLE `{}`; --", table);
+    sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+        .bind(&payload)
+        .bind(2i64)
+        .execute(&pool)
+        .await
+        .expect("insert payload row");
+
+    let dialect = get_dialect(DbType::MySQL).expect("mysql dialect");
+    let (sql, params) = QueryBuilder::<DummyModel>::new(dialect)
+        .table(&table)
+        .where_eq("name", Value::String(payload.clone()))
+        .build_select_with_params();
+    let rows = fetch_scoped_rows_mysql(&pool, &sql, &params).await;
+    assert_eq!(rows.len(), 1, "payload 应作为普通字面量精确匹配到 1 行");
+
+    let count_sql = format!("SELECT COUNT(*) AS c FROM `{}`", table);
+    let row = sqlx::query(sqlx::AssertSqlSafe(count_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .expect("count after payload");
+    let count: i64 = row.get("c");
+    assert_eq!(
+        count, 3,
+        "堆叠 DROP payload 不得执行（表仍应有 3 行），实际 {} 行",
+        count
+    );
+
+    drop_table(&pool, &table).await;
+}

@@ -1,6 +1,6 @@
 //! T23: OraclePoolHandle 池操作集成测试（4 tests，#[ignore]）
 //!
-//! 需要本机 Oracle 23ai Free: 127.0.0.1:1521/freepdb1.FALSE (sz_orm_test/SzOrmTest2026)
+//! 需要本机 Oracle 23ai Free: 127.0.0.1:1521/freepdb1 (sz_orm_test/<密码经 SZ_ORM_ORACLE_PASSWORD 环境变量注入>)
 //! 运行: cargo test -p sz-orm-oracle --test oracle_pool_test -- --ignored
 
 use sz_orm_oracle::{OracleBlockingPoolConfig, OraclePoolHandle};
@@ -10,12 +10,17 @@ fn user() -> String {
 }
 
 fn pwd() -> String {
-    std::env::var("SZ_ORM_ORACLE_PASSWORD").unwrap_or_else(|_| "SzOrmTest2026".to_string())
+    let pw = std::env::var("SZ_ORM_ORACLE_PASSWORD").unwrap_or_default();
+    assert!(
+        !pw.is_empty(),
+        "缺少 SZ_ORM_ORACLE_PASSWORD 环境变量（本机数据库测试密码，见 AGENTS.md「本机数据库」小节；2026-10-28 P0-3 起凭据不入库）"
+    );
+    pw
 }
 
 fn cs() -> String {
     std::env::var("SZ_ORM_ORACLE_CONNECT_STRING")
-        .unwrap_or_else(|_| "127.0.0.1:1521/freepdb1.FALSE".to_string())
+        .unwrap_or_else(|_| "127.0.0.1:1521/freepdb1".to_string())
 }
 
 #[test]
