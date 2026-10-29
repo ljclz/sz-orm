@@ -87,7 +87,7 @@ jobs:
         run: pip install pytest pyyaml
 
       - name: Run checker self-tests (pytest)
-        run: python -m pytest tests/test_check_doc_sync.py tests/test_gate_scripts.py tests/test_gate_scripts_ci.py tests/test_check_phantom_tests.py tests/test_check_ci_blocking.py tests/test_check_coverage.py tests/test_audit_verify_ps1.py tests/test_check_csharp_abi_surface.py -v
+        run: python -m pytest tests/test_check_doc_sync.py tests/test_gate_scripts.py tests/test_gate_scripts_ci.py tests/test_audit_verify_sh_v4.py tests/test_check_phantom_tests.py tests/test_check_ci_blocking.py tests/test_check_coverage.py tests/test_audit_verify_ps1.py tests/test_check_csharp_abi_surface.py -v
 
       - name: Run C# ABI surface gate (P1-5 alignment, no .NET SDK required)
         run: python scripts/check-csharp-abi-surface.py
