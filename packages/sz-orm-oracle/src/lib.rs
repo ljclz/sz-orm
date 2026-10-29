@@ -20,7 +20,7 @@
 //!
 //! # Tested environment
 //!
-//! - Oracle 23ai Free (127.0.0.1:1521/freepdb1.FALSE, user sz_orm_test)
+//! - Oracle 23ai Free (127.0.0.1:1521/freepdb1, user sz_orm_test)
 //! - CRUD all-scenario benchmark passed (see docs/sz-orm/2026-07-25-performance-test-report.md)
 
 pub mod bulk_operations;
@@ -51,9 +51,9 @@ use std::pin::Pin;
 use std::sync::{Arc, Condvar, Mutex};
 
 use oracle::sql_type::OracleType;
-use oracle::{Connection as OracleConn, Row as OracleRow};
+use oracle::{Connection as OracleConn, Connector, Row as OracleRow};
 use sz_orm_core::{
-    Connection, ConnectionFactory, DbError, QueryRows, QueryStreamItem, QueryValues, Value,
+    Connection, ConnectionFactory, DbError, DbType, QueryRows, QueryStreamItem, QueryValues, Value,
 };
 
 // ============================================================================
@@ -484,6 +484,44 @@ struct OraclePoolInner {
     total: usize,
 }
 
+/// OCI 语句缓存默认大小（与 rust-oracle/OCI 默认值一致）
+pub const DEFAULT_STMT_CACHE_SIZE: u32 = 20;
+
+/// 解析 OCI 语句缓存大小（预处理语句复用开关）
+///
+/// 优先级：
+/// 1. `SZ_ORM_ORACLE_STMT_CACHE_SIZE`（适配器级显式覆盖，0 = 关闭）
+/// 2. `SZ_ORM_PREPARED_CACHE=0|off|false`：与池级预处理缓存共用同一开关，
+///    关闭时一并关闭 OCI 语句缓存（A/B 对照时两层同时关闭）
+/// 3. 默认 [`DEFAULT_STMT_CACHE_SIZE`]（20，OCI 默认值）
+pub fn stmt_cache_size_from_env() -> u32 {
+    if let Ok(raw) = std::env::var("SZ_ORM_ORACLE_STMT_CACHE_SIZE") {
+        if let Ok(size) = raw.trim().parse::<u32>() {
+            return size;
+        }
+    }
+    let disabled = matches!(
+        std::env::var("SZ_ORM_PREPARED_CACHE").ok().as_deref(),
+        Some("0") | Some("off") | Some("false") | Some("FALSE") | Some("OFF")
+    );
+    if disabled {
+        return 0;
+    }
+    DEFAULT_STMT_CACHE_SIZE
+}
+
+/// 以指定语句缓存大小建立一条 Oracle 连接
+fn open_conn_with_stmt_cache(
+    username: &str,
+    password: &str,
+    connect_string: &str,
+    stmt_cache_size: u32,
+) -> Result<OracleConn, DbError> {
+    let mut connector = Connector::new(username, password, connect_string);
+    connector.stmt_cache_size(stmt_cache_size);
+    connector.connect().map_err(map_oracle_error)
+}
+
 /// Oracle connection pool handle
 ///
 /// v1.2.0 P0 fix: changed from a single-connection pseudo-pool
@@ -509,6 +547,12 @@ pub struct OraclePoolHandle {
     username: String,
     password: String,
     connect_string: String,
+    /// R8：OCI 会话语句缓存大小（预处理语句复用，0 = 关闭）
+    ///
+    /// OCI 语句缓存是 Oracle 客户端唯一真实的预处理语句复用机制：
+    /// 命中时不重复向服务器解析 SQL。取值来自
+    /// [`stmt_cache_size_from_env`]（未显式指定时）。
+    stmt_cache_size: u32,
     /// Connection pool internal state (idle connections + total)
     inner: Mutex<OraclePoolInner>,
     /// Connection return notification: `acquire()` waits here when the pool
@@ -566,15 +610,56 @@ impl OraclePoolHandle {
         pool_config: OracleBlockingPoolConfig,
         max_size: usize,
     ) -> Result<Self, DbError> {
+        Self::connect_full(
+            username,
+            password,
+            connect_string,
+            pool_config,
+            max_size,
+            None,
+        )
+    }
+
+    /// Create a pool with an explicit OCI statement cache size
+    ///
+    /// `stmt_cache_size = 0` disables prepared-statement reuse (A/B baseline);
+    /// a positive value keeps that many parsed statements per physical
+    /// connection. This is the switch behind the R8 prepared-cache A/B: no
+    /// other layer can reuse prepared statements on the raw OCI path.
+    pub fn connect_with_stmt_cache(
+        username: &str,
+        password: &str,
+        connect_string: &str,
+        stmt_cache_size: u32,
+    ) -> Result<Self, DbError> {
+        Self::connect_full(
+            username,
+            password,
+            connect_string,
+            OracleBlockingPoolConfig::default(),
+            10,
+            Some(stmt_cache_size),
+        )
+    }
+
+    fn connect_full(
+        username: &str,
+        password: &str,
+        connect_string: &str,
+        pool_config: OracleBlockingPoolConfig,
+        max_size: usize,
+        stmt_cache_size: Option<u32>,
+    ) -> Result<Self, DbError> {
+        let stmt_cache_size = stmt_cache_size.unwrap_or_else(stmt_cache_size_from_env);
         // 建立首个连接，同时校验账号/连接串可用性
-        let conn =
-            OracleConn::connect(username, password, connect_string).map_err(map_oracle_error)?;
+        let conn = open_conn_with_stmt_cache(username, password, connect_string, stmt_cache_size)?;
         let blocking_pool = OracleBlockingPool::new(pool_config);
         let max_size = if max_size == 0 { 10 } else { max_size };
         Ok(Self {
             username: username.to_string(),
             password: password.to_string(),
             connect_string: connect_string.to_string(),
+            stmt_cache_size,
             inner: Mutex::new(OraclePoolInner {
                 idle: vec![conn],
                 total: 1,
@@ -583,6 +668,21 @@ impl OraclePoolHandle {
             max_size,
             blocking_pool,
         })
+    }
+
+    /// 建立一条新连接（复用本池的语句缓存设置）
+    fn open_connection(&self) -> Result<OracleConn, DbError> {
+        open_conn_with_stmt_cache(
+            &self.username,
+            &self.password,
+            &self.connect_string,
+            self.stmt_cache_size,
+        )
+    }
+
+    /// OCI 语句缓存大小（0 = 关闭预处理语句复用）
+    pub fn stmt_cache_size(&self) -> u32 {
+        self.stmt_cache_size
     }
 
     /// Acquire an idle connection from the pool (for exclusive use,
@@ -622,7 +722,7 @@ impl OraclePoolHandle {
                 // 在锁内同步建连：oracle::Connection::connect 是阻塞调用，
                 // 持锁时间 ≈ 一次 TCP+认证耗时（毫秒级），可接受。
                 // 若建连失败需回滚 total 并唤醒一个等待者，避免其空等。
-                match OracleConn::connect(&self.username, &self.password, &self.connect_string) {
+                match self.open_connection() {
                     Ok(conn) => {
                         return Ok(OracleConnGuard {
                             conn: Some(conn),
@@ -632,7 +732,7 @@ impl OraclePoolHandle {
                     Err(e) => {
                         inner.total -= 1;
                         self.condvar.notify_one();
-                        return Err(map_oracle_error(e));
+                        return Err(e);
                     }
                 }
             }
@@ -741,6 +841,10 @@ impl OracleConnection {
 }
 
 impl Connection for OracleConnection {
+    fn db_type(&self) -> Option<DbType> {
+        Some(DbType::Oracle)
+    }
+
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,
@@ -1927,12 +2031,23 @@ mod tests {
         assert!(cfg.max_blocking_threads > 0);
     }
 
-    #[test]
-    fn test_blocking_pool_new_and_drop() {
+    #[tokio::test]
+    async fn test_blocking_pool_new_and_drop() {
         let cfg = OracleBlockingPoolConfig::default();
         let pool = OracleBlockingPool::new(cfg);
-        // 未连接时 spawn_blocking 仍可排队（真实连接需 Oracle 服务，此处仅验证结构）
-        let _ = pool;
+        // 未连接时 spawn_blocking 仍可执行：断言任务计算结果与专用线程名
+        let (value, thread_name) = pool
+            .spawn_blocking(|| (40 + 2, std::thread::current().name().map(|s| s.to_string())))
+            .await
+            .unwrap();
+        assert_eq!(value, 42, "spawn_blocking 应返回任务计算结果");
+        assert_eq!(
+            thread_name.as_deref(),
+            Some("sz-orm-oracle-blocking"),
+            "任务应在 Oracle 专用阻塞线程池线程上执行（而非主 runtime）"
+        );
+        // 在 async 上下文 drop：Drop 应将 runtime 转移到独立线程销毁而不 panic
+        drop(pool);
     }
 
     // ===== 连接串解析测试 =====

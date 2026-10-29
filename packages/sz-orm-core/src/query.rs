@@ -160,6 +160,17 @@ impl AggExpr {
     }
 }
 
+/// 将条件 SQL 中的 `?` 占位符按顺序替换为内联字面量
+///
+/// 用于无参数绑定的 SQL 构建路径（`build_select` 等）。`values` 为空时
+/// 原样返回（如 R9 默认拒绝的恒假条件 `1 = 0`）。
+fn inline_condition_values(mut sql: String, values: &[Value], dialect: &dyn Dialect) -> String {
+    for value in values {
+        sql = sql.replacen('?', &value.to_param_with_dialect(dialect), 1);
+    }
+    sql
+}
+
 /// HAVING 比较运算符（审计 M-5）
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HavingOp {
@@ -715,15 +726,21 @@ impl<M: Model> QueryBuilder<M> {
 
     /// P0-3：构造租户过滤条件（SQL 片段 + 参数值）
     ///
-    /// 返回 `None` 表示无需过滤；返回 `Some((sql, value))` 表示追加 `AND {sql}` 到 WHERE 子句，
-    /// 并将 `value` 加入参数列表。
-    fn build_tenant_condition(&self) -> Option<(String, Value)> {
+    /// 返回 `None` 表示无需过滤（模型无租户字段或显式 `without_tenant()`）；
+    /// 返回 `Some((sql, values))` 表示追加 `AND {sql}` 并把 `values` 加入参数列表。
+    ///
+    /// R9（默认拒绝）：模型声明了租户字段但未提供租户上下文时，追加恒假条件
+    /// `1 = 0`，查询返回空集，避免越权读全表。跨租户管理查询必须显式
+    /// [`QueryBuilder::without_tenant`]。
+    fn build_tenant_condition(&self) -> Option<(String, Vec<Value>)> {
         let field = self.tenant_field()?;
-        let tid = self.tenant_id_value()?;
-        Some((
-            format!("{} = ?", self.dialect.quote(field)),
-            Value::I64(tid),
-        ))
+        match self.tenant_id_value() {
+            Some(tid) => Some((
+                format!("{} = ?", self.dialect.quote(field)),
+                vec![Value::I64(tid)],
+            )),
+            None => Some(("1 = 0".to_string(), Vec::new())),
+        }
     }
 
     /// v3.3.0 `multi-tenant-enhanced`：强制要求租户上下文，未设置时返回错误
@@ -732,7 +749,7 @@ impl<M: Model> QueryBuilder<M> {
     /// 未显式 `with_tenant_id` 且未 `without_tenant` 且上下文未设置时，
     /// 返回 `DbError::TenantError("TenantContextRequired")`。
     #[cfg(feature = "multi-tenant-enhanced")]
-    fn require_tenant_condition(&self) -> Result<Option<(String, Value)>, crate::DbError> {
+    fn require_tenant_condition(&self) -> Result<Option<(String, Vec<Value>)>, crate::DbError> {
         if self.tenant_field().is_none() {
             return Ok(None);
         }
@@ -1649,14 +1666,25 @@ impl<M: Model> QueryBuilder<M> {
             sql.push_str(&order_cols.join(", "));
         }
 
-        if let Some(limit) = self.limit_value {
-            sql.push_str(" LIMIT ");
-            push_usize_to_string(limit, &mut sql);
+        if self.limit_value.is_some() || self.offset_value.is_some() {
+            // SQL Server 的 OFFSET…FETCH 强制要求 ORDER BY；无排序时补占位排序
+            if self.dialect.requires_order_by_for_pagination() && self.order_by.is_empty() {
+                sql.push_str(" ORDER BY (SELECT NULL)");
+            }
+            if let Some(clause) = self
+                .dialect
+                .build_pagination_clause(self.limit_value, self.offset_value)
+            {
+                sql.push_str(&clause);
+            }
         }
 
-        if let Some(offset) = self.offset_value {
-            sql.push_str(" OFFSET ");
-            push_usize_to_string(offset, &mut sql);
+        // 行锁子句统一走方言能力
+        if let Some(lock_type) = &self.lock_type {
+            if let Some(lock_clause) = self.dialect.build_lock_clause(*lock_type) {
+                sql.push(' ');
+                sql.push_str(&lock_clause);
+            }
         }
 
         sql.into_string()
@@ -1692,13 +1720,11 @@ impl<M: Model> QueryBuilder<M> {
         let tenant_cond = self
             .require_tenant_condition()
             .expect("TenantContextRequired: multi-tenant-enhanced feature enabled but no tenant context set")
-            .map(|(sql, value)| {
-                sql.replacen('?', &value.to_param_with_dialect(&*self.dialect), 1)
-            });
+            .map(|(sql, values)| inline_condition_values(sql, &values, &*self.dialect));
         #[cfg(not(feature = "multi-tenant-enhanced"))]
         let tenant_cond = self
             .build_tenant_condition()
-            .map(|(sql, value)| sql.replacen('?', &value.to_param_with_dialect(&*self.dialect), 1));
+            .map(|(sql, values)| inline_condition_values(sql, &values, &*self.dialect));
 
         // 无用户条件且无软删除条件且无租户条件且无 keyset 游标 → 空 WHERE
         if self.where_conditions.is_empty()
@@ -2459,9 +2485,9 @@ impl<M: Model> QueryBuilder<M> {
         }
 
         // P0-3：追加租户条件（在软删除之后，参数化绑定）
-        if let Some((t_sql, t_value)) = tenant_cond {
+        if let Some((t_sql, t_values)) = tenant_cond {
             conditions.push(t_sql);
-            params.push(t_value);
+            params.extend(t_values);
         }
 
         // v4.7.0 REQ-V47-006：追加增强 RLS 条件（在租户条件之后，参数化绑定）
@@ -2695,11 +2721,9 @@ impl<M: Model> QueryBuilder<M> {
         // v9.3.0 安全修复：multi-tenant-enhanced 下禁止快速路径绕过强制租户上下文检查。
         // 未禁用且模型有 tenant_field 时必须走慢速路径调用 require_tenant_condition()，
         // 否则无租户上下文的查询会在快速路径中被静默构建（绕过 v9.2.0 强制要求）。
-        #[cfg(feature = "multi-tenant-enhanced")]
+        // R9：非增强模式同样如此——有租户字段就必须走慢速路径，由
+        // `build_tenant_condition` 追加 `1 = 0` 实现默认拒绝，不得走快速路径放行全表。
         let no_tenant = self.tenant_disabled || M::tenant_field().is_none();
-        #[cfg(not(feature = "multi-tenant-enhanced"))]
-        let no_tenant =
-            self.tenant_disabled || M::tenant_field().is_none() || self.tenant_id_value().is_none();
         #[cfg(feature = "tenant-quota-rls-enhanced")]
         let no_rls = self.rls_enhancer.is_none();
         #[cfg(not(feature = "tenant-quota-rls-enhanced"))]
@@ -2883,13 +2907,17 @@ impl<M: Model> QueryBuilder<M> {
             }
         }
 
-        if let Some(limit) = self.limit_value {
-            sql.push_str(" LIMIT ");
-            push_usize_to_string(limit, &mut sql);
-        }
-        if let Some(offset) = self.offset_value {
-            sql.push_str(" OFFSET ");
-            push_usize_to_string(offset, &mut sql);
+        if self.limit_value.is_some() || self.offset_value.is_some() {
+            // SQL Server 的 OFFSET…FETCH 强制要求 ORDER BY；无排序时补占位排序
+            if self.dialect.requires_order_by_for_pagination() && self.order_by.is_empty() {
+                sql.push_str(" ORDER BY (SELECT NULL)");
+            }
+            if let Some(clause) = self
+                .dialect
+                .build_pagination_clause(self.limit_value, self.offset_value)
+            {
+                sql.push_str(&clause);
+            }
         }
 
         // P2-3：追加行锁子句（TASK-025/026）
@@ -2941,6 +2969,10 @@ impl<M: Model> QueryBuilder<M> {
             sql.push('?');
         }
         sql.push(')');
+        if self.insert_or_ignore {
+            // PostgreSQL 族的忽略语义在尾部：ON CONFLICT DO NOTHING
+            sql.push_str(self.dialect.build_insert_or_ignore_suffix());
+        }
         (sql, params)
     }
 
@@ -4550,20 +4582,44 @@ mod tests {
         Ok(())
     }
 
-    /// 行为级测试 L3-28：多租户模型未设置 tenant_id 时不追加条件
+    /// 行为级测试 L3-28：多租户模型未设置 tenant_id 时默认拒绝（R9）
     ///
-    /// 用户视角：未设置租户 ID 时，查询不追加租户过滤（允许跨租户，需调用方保证安全）。
+    /// R9：模型声明租户字段但无租户上下文时，追加恒假条件 `1 = 0`，
+    /// 查询返回空集（不再放行全表）。跨租户查询须显式 `without_tenant()`。
     /// v9.2.0 安全修复 #4：multi-tenant-enhanced feature 下改为强制要求上下文（见 test_mt_no_context_panics）
     #[cfg(not(feature = "multi-tenant-enhanced"))]
     #[test]
-    fn test_p03_tenant_no_id_no_filter() -> Result<(), crate::DbError> {
+    fn test_p03_tenant_no_id_default_deny() -> Result<(), crate::DbError> {
         let dialect = get_dialect(DbType::MySQL)?;
         let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
             .table("orders")
             .build_select_with_params();
         assert!(
-            !sql.contains("tenant_id"),
-            "未设置 tenant_id 时不应追加过滤: {}",
+            sql.contains("1 = 0"),
+            "未设置 tenant_id 时应追加恒假条件（默认拒绝）: {}",
+            sql
+        );
+        assert!(
+            !sql.contains("tenant_id` = ?"),
+            "默认拒绝路径不应绑定租户参数: {}",
+            sql
+        );
+        assert_eq!(params.len(), 0);
+        Ok(())
+    }
+
+    /// R9：显式 `without_tenant()` 才能跨租户查询（管理场景）
+    #[cfg(not(feature = "multi-tenant-enhanced"))]
+    #[test]
+    fn test_p03_tenant_no_id_without_tenant_allows() -> Result<(), crate::DbError> {
+        let dialect = get_dialect(DbType::MySQL)?;
+        let (sql, params) = QueryBuilder::<TenantModel>::new(dialect)
+            .table("orders")
+            .without_tenant()
+            .build_select_with_params();
+        assert!(
+            !sql.contains("1 = 0"),
+            "without_tenant 后不应默认拒绝: {}",
             sql
         );
         assert_eq!(params.len(), 0);
@@ -4986,7 +5042,17 @@ mod tests {
             .table("users")
             .insert_or_ignore()
             .build_insert_with_params(&data);
-        assert!(sql.contains("INSERT OR IGNORE INTO \"users\""));
+        assert!(sql.starts_with("INSERT INTO \"users\""));
+        assert!(
+            sql.ends_with("ON CONFLICT DO NOTHING"),
+            "PostgreSQL 必须使用 ON CONFLICT DO NOTHING 实现忽略语义: {}",
+            sql
+        );
+        assert!(
+            !sql.contains("OR IGNORE"),
+            "PG 不支持 INSERT OR IGNORE: {}",
+            sql
+        );
         assert!(sql.contains("(\"name\")"));
         assert!(sql.contains("VALUES (?)"));
         assert_eq!(params.len(), 1);
@@ -5088,6 +5154,83 @@ mod tests {
             "ClickHouse 是列式 OLAP，不应支持共享锁"
         );
         assert!(!duckdb.supports_lock_shared(), "DuckDB 不应支持共享锁");
+        assert!(
+            !get_dialect(DbType::Oracle)?.supports_lock_shared(),
+            "Oracle 无行级共享锁语法"
+        );
+        assert!(
+            !get_dialect(DbType::SqlServer)?.supports_lock_for_update(),
+            "SQL Server 行锁使用表提示，不支持尾随 FOR UPDATE"
+        );
+        Ok(())
+    }
+
+    // ---- R4：QueryBuilder 分页/锁子句方言化 ----
+
+    #[test]
+    fn test_r4_query_builder_oracle_pagination_uses_offset_fetch() -> Result<(), crate::DbError> {
+        let qb = QueryBuilder::<TestModel>::new(get_dialect(DbType::Oracle)?)
+            .table("users")
+            .limit(10)
+            .offset(20);
+        let (sql, _) = qb.build_select_with_params();
+        assert!(
+            sql.contains("OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"),
+            "Oracle 分页必须使用 OFFSET…FETCH: {}",
+            sql
+        );
+        assert!(!sql.contains("LIMIT"), "Oracle 不应出现 LIMIT: {}", sql);
+        Ok(())
+    }
+
+    #[test]
+    fn test_r4_query_builder_mssql_pagination_requires_order_by() -> Result<(), crate::DbError> {
+        let qb = QueryBuilder::<TestModel>::new(get_dialect(DbType::SqlServer)?)
+            .table("users")
+            .limit(10)
+            .offset(20);
+        let (sql, _) = qb.build_select_with_params();
+        assert!(
+            sql.contains("ORDER BY (SELECT NULL) OFFSET 20 ROWS FETCH NEXT 10 ROWS ONLY"),
+            "SQL Server 分页必须带 ORDER BY + OFFSET/FETCH: {}",
+            sql
+        );
+
+        // 已有显式排序时不注入占位排序
+        let qb = QueryBuilder::<TestModel>::new(get_dialect(DbType::SqlServer)?)
+            .table("users")
+            .order_by("id")
+            .limit(10);
+        let (sql, _) = qb.build_select_with_params();
+        assert!(sql.contains("ORDER BY [id] ASC OFFSET 0 ROWS FETCH NEXT 10 ROWS ONLY"));
+        assert_eq!(sql.matches("ORDER BY").count(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn test_r4_lock_clause_emitted_only_when_supported() -> Result<(), crate::DbError> {
+        // Oracle：FOR UPDATE 支持
+        let qb = QueryBuilder::<TestModel>::new(get_dialect(DbType::Oracle)?)
+            .table("users")
+            .lock_for_update()?;
+        let (sql, _) = qb.build_select_with_params();
+        assert!(
+            sql.ends_with("FOR UPDATE"),
+            "Oracle 应输出 FOR UPDATE: {}",
+            sql
+        );
+
+        // Oracle：共享锁不支持 → 构建阶段必须报错
+        let err = QueryBuilder::<TestModel>::new(get_dialect(DbType::Oracle)?)
+            .table("users")
+            .lock_shared();
+        assert!(err.is_err(), "Oracle 共享锁应在构建阶段被拒绝");
+
+        // SQLite：不支持 FOR UPDATE → 构建阶段报错
+        assert!(QueryBuilder::<TestModel>::new(get_dialect(DbType::Sqlite)?)
+            .table("users")
+            .lock_for_update()
+            .is_err());
         Ok(())
     }
 

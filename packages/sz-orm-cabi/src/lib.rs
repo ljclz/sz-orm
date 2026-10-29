@@ -166,6 +166,12 @@ impl QueryResultC {
             last_insert_id: 0,
         }
     }
+
+    /// 失败结果，同时把详细错误文本写入线程局部错误通道
+    fn error_with(code: SzOrmErrorCode, detail: impl AsRef<str>) -> Self {
+        set_last_error(format!("{}: {}", code.description(), detail.as_ref()));
+        Self::error(code)
+    }
 }
 
 /// Query rows JSON result (allocated on the Rust side; freed via
@@ -379,15 +385,18 @@ pub unsafe extern "C" fn sz_orm_query(
     handle: SzOrmPoolHandle,
     sql: *const c_char,
 ) -> *mut QueryJsonResult {
+    clear_last_error();
     if handle.is_null() || sql.is_null() {
-        return std::ptr::null_mut();
+        return err_result_with(SzOrmErrorCode::InvalidArgument, "null pool handle or sql");
     }
     // SAFETY: 调用方保证 handle 有效
     let pool = unsafe { &*(handle as *const Pool) };
     // SAFETY: 调用方保证 sql 有效
     let sql = match unsafe { CStr::from_ptr(sql) }.to_str() {
         Ok(s) => s.to_string(),
-        Err(_) => return std::ptr::null_mut(),
+        Err(_) => {
+            return err_result_with(SzOrmErrorCode::InvalidArgument, "sql is not valid UTF-8")
+        }
     };
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
@@ -398,17 +407,27 @@ pub unsafe extern "C" fn sz_orm_query(
         Ok(Ok(rows)) => {
             let json = match serde_json::to_string(&rows) {
                 Ok(j) => j,
-                Err(_) => return err_result(SzOrmErrorCode::QueryFailed),
+                Err(e) => {
+                    return err_result_with(
+                        SzOrmErrorCode::QueryFailed,
+                        format!("row serialization failed: {e}"),
+                    )
+                }
             };
             (1, SzOrmErrorCode::Ok.as_i32(), json)
         }
-        Ok(Err(_)) => return err_result(SzOrmErrorCode::QueryFailed),
-        Err(_) => return err_result(SzOrmErrorCode::Panic),
+        Ok(Err(e)) => return err_result_with(SzOrmErrorCode::QueryFailed, e.to_string()),
+        Err(_) => return err_result_with(SzOrmErrorCode::Panic, "panic while executing query"),
     };
 
     let json_c = match CString::new(rows_json) {
         Ok(c) => c,
-        Err(_) => return err_result(SzOrmErrorCode::QueryFailed),
+        Err(_) => {
+            return err_result_with(
+                SzOrmErrorCode::QueryFailed,
+                "query result JSON contains a NUL byte",
+            )
+        }
     };
     let json_len = json_c.as_bytes_with_nul().len();
     let json_ptr = json_c.into_raw();
@@ -432,6 +451,74 @@ fn err_result(code: SzOrmErrorCode) -> *mut QueryJsonResult {
     let ptr = Box::into_raw(result);
     memory_track(ptr as *mut c_void, std::mem::size_of::<QueryJsonResult>());
     ptr
+}
+
+// ============================================================================
+// R10：错误文本通道
+//
+// 错误码只能表达类别，数据库返回的具体错误信息（约束名、列名、SQL 片段）
+// 必须另有通道返回。这里用线程局部变量保存最近一次失败文本，调用方在拿到
+// 非 Ok 错误码后调用 `sz_orm_last_error_message` 读取。
+// ============================================================================
+
+thread_local! {
+    static LAST_ERROR_TEXT: std::cell::RefCell<Option<String>> =
+        const { std::cell::RefCell::new(None) };
+}
+
+/// 记录最近一次失败的详细错误文本（线程内隔离）
+fn set_last_error(text: impl Into<String>) {
+    LAST_ERROR_TEXT.with(|cell| *cell.borrow_mut() = Some(text.into()));
+}
+
+/// 清空最近一次失败的详细错误文本
+fn clear_last_error() {
+    LAST_ERROR_TEXT.with(|cell| *cell.borrow_mut() = None);
+}
+
+/// 读取最近一次失败的详细错误文本（不清理）
+fn last_error_text() -> Option<String> {
+    LAST_ERROR_TEXT.with(|cell| cell.borrow().clone())
+}
+
+/// 记录错误文本并构造失败结果
+fn err_result_with(code: SzOrmErrorCode, detail: impl AsRef<str>) -> *mut QueryJsonResult {
+    set_last_error(format!("{}: {}", code.description(), detail.as_ref()));
+    err_result(code)
+}
+
+/// Read a detailed error text for the most recent failure **on the calling
+/// thread**, e.g. `query execution failed: table users has no column named x`.
+///
+/// Returns a NUL-terminated UTF-8 string owned by the caller (free it with
+/// `sz_orm_string_free`), or nullptr when no failure has been recorded on this
+/// thread. The text is a copy: the channel is not cleared by reading, use
+/// `sz_orm_last_error_clear` for that.
+///
+/// # Safety
+///
+/// SAFETY: the returned pointer must be freed via `sz_orm_string_free`.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_last_error_message() -> *mut c_char {
+    let text = match last_error_text() {
+        Some(t) => t,
+        None => return std::ptr::null_mut(),
+    };
+    match CString::new(text) {
+        Ok(c) => {
+            let len = c.as_bytes_with_nul().len();
+            let ptr = c.into_raw();
+            memory_track(ptr as *mut c_void, len);
+            ptr
+        }
+        Err(_) => std::ptr::null_mut(),
+    }
+}
+
+/// Clear the detailed error text recorded for the calling thread.
+#[no_mangle]
+pub extern "C" fn sz_orm_last_error_clear() {
+    clear_last_error();
 }
 
 /// Free a query result
@@ -474,22 +561,33 @@ pub unsafe extern "C" fn sz_orm_execute(
     handle: SzOrmPoolHandle,
     sql: *const c_char,
 ) -> QueryResultC {
+    clear_last_error();
     if handle.is_null() || sql.is_null() {
-        return QueryResultC::error(SzOrmErrorCode::InvalidArgument);
+        return QueryResultC::error_with(
+            SzOrmErrorCode::InvalidArgument,
+            "null pool handle or sql",
+        );
     }
     // SAFETY: 调用方保证 handle 有效
     let pool = unsafe { &*(handle as *const Pool) };
     // SAFETY: 调用方保证 sql 有效
     let sql = match unsafe { CStr::from_ptr(sql) }.to_str() {
         Ok(s) => s.to_string(),
-        Err(_) => return QueryResultC::error(SzOrmErrorCode::InvalidArgument),
+        Err(_) => {
+            return QueryResultC::error_with(
+                SzOrmErrorCode::InvalidArgument,
+                "sql is not valid UTF-8",
+            )
+        }
     };
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         runtime().block_on(async {
             let mut conn = match pool.acquire().await {
                 Ok(c) => c,
-                Err(_) => return QueryResultC::error(SzOrmErrorCode::PoolExhausted),
+                Err(e) => {
+                    return QueryResultC::error_with(SzOrmErrorCode::PoolExhausted, e.to_string())
+                }
             };
             match conn.execute(&sql).await {
                 Ok(rows) => QueryResultC {
@@ -498,15 +596,197 @@ pub unsafe extern "C" fn sz_orm_execute(
                     rows_affected: rows,
                     last_insert_id: 0,
                 },
-                Err(_) => QueryResultC::error(SzOrmErrorCode::QueryFailed),
+                Err(e) => QueryResultC::error_with(SzOrmErrorCode::QueryFailed, e.to_string()),
             }
         })
     }));
 
     match result {
         Ok(r) => r,
-        Err(_) => QueryResultC::error(SzOrmErrorCode::Panic),
+        Err(_) => {
+            QueryResultC::error_with(SzOrmErrorCode::Panic, "panic while executing statement")
+        }
     }
+}
+
+/// Execute a parameterized query and return rows as JSON.
+///
+/// `params_json` is a JSON array of bound parameters (`[1,"a",null]`). Typed
+/// objects map to the corresponding `Value` variants so no precision is lost:
+/// `{"$type":"decimal","value":"123.45600000000000000000000000000000000001"}`,
+/// `{"$type":"datetime"|"date"|"time"|"uuid","value":"..."}`. A null
+/// `params_json` means "no parameters" (same as `sz_orm_query`).
+///
+/// Parameters are always bound as `?` placeholders — never interpolated into
+/// the SQL text, so injection payloads inside parameter values stay inert.
+///
+/// On failure returns a non-null result whose `error_code` is set; read the
+/// database's own message via `sz_orm_last_error_message`.
+///
+/// # Safety
+///
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` (and `params_json`, when non-null) must be valid NUL-terminated C
+/// strings.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_query_params(
+    handle: SzOrmPoolHandle,
+    sql: *const c_char,
+    params_json: *const c_char,
+) -> *mut QueryJsonResult {
+    clear_last_error();
+    if handle.is_null() || sql.is_null() {
+        return err_result_with(SzOrmErrorCode::InvalidArgument, "null pool handle or sql");
+    }
+    // SAFETY: 调用方保证 handle 有效
+    let pool = unsafe { &*(handle as *const Pool) };
+    // SAFETY: 调用方保证 sql 有效
+    let sql = match unsafe { CStr::from_ptr(sql) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            return err_result_with(SzOrmErrorCode::InvalidArgument, "sql is not valid UTF-8")
+        }
+    };
+    let params = match unsafe { parse_optional_params(params_json) } {
+        Ok(p) => p,
+        Err(e) => return err_result_with(SzOrmErrorCode::InvalidArgument, e),
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime().block_on(async {
+            let mut conn = match pool.acquire().await {
+                Ok(c) => c,
+                Err(e) => return Err(format!("pool exhausted: {e}")),
+            };
+            conn.query_with_params(&sql, &params)
+                .await
+                .map_err(|e| e.to_string())
+        })
+    }));
+
+    match result {
+        Ok(Ok(rows)) => query_rows_result(rows),
+        Ok(Err(e)) => err_result_with(SzOrmErrorCode::QueryFailed, e),
+        Err(_) => err_result_with(SzOrmErrorCode::Panic, "panic while executing query"),
+    }
+}
+
+/// Execute a parameterized write statement (INSERT/UPDATE/DELETE) and return
+/// the number of affected rows.
+///
+/// Parameter encoding is identical to [`sz_orm_query_params`]; values are
+/// bound as `?` placeholders and never concatenated into the SQL text.
+///
+/// # Safety
+///
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` (and `params_json`, when non-null) must be valid NUL-terminated C
+/// strings.
+#[no_mangle]
+pub unsafe extern "C" fn sz_orm_execute_params(
+    handle: SzOrmPoolHandle,
+    sql: *const c_char,
+    params_json: *const c_char,
+) -> QueryResultC {
+    clear_last_error();
+    if handle.is_null() || sql.is_null() {
+        return QueryResultC::error_with(
+            SzOrmErrorCode::InvalidArgument,
+            "null pool handle or sql",
+        );
+    }
+    // SAFETY: 调用方保证 handle 有效
+    let pool = unsafe { &*(handle as *const Pool) };
+    // SAFETY: 调用方保证 sql 有效
+    let sql = match unsafe { CStr::from_ptr(sql) }.to_str() {
+        Ok(s) => s.to_string(),
+        Err(_) => {
+            return QueryResultC::error_with(
+                SzOrmErrorCode::InvalidArgument,
+                "sql is not valid UTF-8",
+            )
+        }
+    };
+    let params = match unsafe { parse_optional_params(params_json) } {
+        Ok(p) => p,
+        Err(e) => return QueryResultC::error_with(SzOrmErrorCode::InvalidArgument, e),
+    };
+
+    let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+        runtime().block_on(async {
+            let mut conn = match pool.acquire().await {
+                Ok(c) => c,
+                Err(e) => {
+                    return QueryResultC::error_with(SzOrmErrorCode::PoolExhausted, e.to_string())
+                }
+            };
+            match conn.execute_with_params(&sql, &params).await {
+                Ok(rows) => QueryResultC {
+                    success: 1,
+                    error_code: SzOrmErrorCode::Ok.as_i32(),
+                    rows_affected: rows,
+                    last_insert_id: 0,
+                },
+                Err(e) => QueryResultC::error_with(SzOrmErrorCode::QueryFailed, e.to_string()),
+            }
+        })
+    }));
+
+    match result {
+        Ok(r) => r,
+        Err(_) => {
+            QueryResultC::error_with(SzOrmErrorCode::Panic, "panic while executing statement")
+        }
+    }
+}
+
+/// Serialize query rows into a `QueryJsonResult`.
+fn query_rows_result(rows: sz_orm_core::QueryRows) -> *mut QueryJsonResult {
+    let json = match serde_json::to_string(&rows) {
+        Ok(j) => j,
+        Err(e) => {
+            return err_result_with(
+                SzOrmErrorCode::QueryFailed,
+                format!("row serialization failed: {e}"),
+            )
+        }
+    };
+    let json_c = match CString::new(json) {
+        Ok(c) => c,
+        Err(_) => {
+            return err_result_with(
+                SzOrmErrorCode::QueryFailed,
+                "query result JSON contains a NUL byte",
+            )
+        }
+    };
+    let json_len = json_c.as_bytes_with_nul().len();
+    let json_ptr = json_c.into_raw();
+    memory_track(json_ptr as *mut c_void, json_len);
+    let result = Box::new(QueryJsonResult {
+        success: 1,
+        error_code: SzOrmErrorCode::Ok.as_i32(),
+        json: json_ptr,
+    });
+    let ptr = Box::into_raw(result);
+    memory_track(ptr as *mut c_void, std::mem::size_of::<QueryJsonResult>());
+    ptr
+}
+
+/// Parse the optional `params_json` argument into bound values.
+///
+/// # Safety
+///
+/// SAFETY: `params_json` must be null or a valid NUL-terminated C string.
+unsafe fn parse_optional_params(params_json: *const c_char) -> Result<Vec<Value>, String> {
+    if params_json.is_null() {
+        return Ok(Vec::new());
+    }
+    // SAFETY: 调用方保证 params_json 为 null 或有效 C 字符串
+    let raw = unsafe { CStr::from_ptr(params_json) }
+        .to_str()
+        .map_err(|_| "params_json is not valid UTF-8".to_string())?;
+    parse_values_json(raw).map_err(|_| "params_json must be a JSON array of values".to_string())
 }
 
 /// Get the version number
@@ -1131,11 +1411,41 @@ fn parse_fields_json(json: &str) -> Result<Vec<String>, SzOrmErrorCode> {
     Ok(arr)
 }
 
+/// Convert a `serde_json::Value` to an `sz_orm_core::Value` for binding.
+///
+/// Typed objects (`{"$type":"decimal","value":"..."}` etc.) map to the
+/// dedicated `Value` variants so JSON's lossy number representation is not
+/// used for types that need exactness — a 38-digit DECIMAL sent as a JSON
+/// number would round to double, so callers pass it as a string in a `$type`
+/// object. Plain objects without `$type` still become `Value::Object`.
+fn json_to_param_value(v: &serde_json::Value) -> Value {
+    if let serde_json::Value::Object(obj) = v {
+        let typed = obj.get("$type").and_then(|t| t.as_str());
+        if let Some(kind) = typed {
+            let payload = match obj.get("value") {
+                Some(serde_json::Value::String(s)) => Some(s.clone()),
+                Some(serde_json::Value::Number(n)) => Some(n.to_string()),
+                _ => None,
+            };
+            match (kind, payload) {
+                ("decimal", Some(s)) => return Value::Decimal(s),
+                ("datetime", Some(s)) | ("timestamp", Some(s)) => return Value::DateTime(s),
+                ("date", Some(s)) => return Value::Date(s),
+                ("time", Some(s)) => return Value::Time(s),
+                ("uuid", Some(s)) => return Value::Uuid(s),
+                // 未知 $type 或缺 value：按普通对象处理，避免静默丢参
+                _ => {}
+            }
+        }
+    }
+    json_to_value(v)
+}
+
 /// Parse a values JSON array `[v1,v2]` → `Vec<Value>`.
 fn parse_values_json(json: &str) -> Result<Vec<Value>, SzOrmErrorCode> {
     let arr: Vec<serde_json::Value> =
         serde_json::from_str(json).map_err(|_| SzOrmErrorCode::InvalidArgument)?;
-    Ok(arr.iter().map(json_to_value).collect())
+    Ok(arr.iter().map(json_to_param_value).collect())
 }
 
 /// Parse a set JSON object `{"f":v}` → `Vec<(String, Value)>` and validate
@@ -3514,5 +3824,246 @@ mod tests {
             sz_orm_qb_result_free(ptr);
             sz_orm_qb_free(qb);
         }
+    }
+
+    // ==================== R10：参数化接口 + 错误文本 ====================
+
+    /// 执行（可选带参数）查询，返回 (error_code, rows_json)
+    fn query_json(pool: SzOrmPoolHandle, sql: &str, params: Option<&str>) -> (i32, String) {
+        let c_sql = CString::new(sql).unwrap();
+        let c_params = params.map(|p| CString::new(p).unwrap());
+        // SAFETY: pool 有效；c_sql/c_params 均为有效 C 字符串
+        let ptr = unsafe {
+            match &c_params {
+                Some(p) => sz_orm_query_params(pool, c_sql.as_ptr(), p.as_ptr()),
+                None => sz_orm_query(pool, c_sql.as_ptr()),
+            }
+        };
+        assert!(!ptr.is_null(), "query result must not be null");
+        // SAFETY: ptr 由上面创建
+        let (code, json) = unsafe {
+            let r = &*ptr;
+            let json = if r.json.is_null() {
+                String::new()
+            } else {
+                CStr::from_ptr(r.json).to_str().unwrap().to_string()
+            };
+            (r.error_code, json)
+        };
+        // SAFETY: ptr 与上面的创建配对释放
+        unsafe { sz_orm_query_result_free(ptr) };
+        (code, json)
+    }
+
+    /// 执行（可选带参数）写语句
+    fn exec_params(pool: SzOrmPoolHandle, sql: &str, params: Option<&str>) -> QueryResultC {
+        let c_sql = CString::new(sql).unwrap();
+        let c_params = params.map(|p| CString::new(p).unwrap());
+        // SAFETY: pool 有效；c_sql/c_params 均为有效 C 字符串
+        unsafe {
+            match &c_params {
+                Some(p) => sz_orm_execute_params(pool, c_sql.as_ptr(), p.as_ptr()),
+                None => sz_orm_execute(pool, c_sql.as_ptr()),
+            }
+        }
+    }
+
+    /// 读取线程内错误文本（读取后清理）
+    fn take_last_error() -> Option<String> {
+        // SAFETY: 返回指针由本函数释放
+        let ptr = unsafe { sz_orm_last_error_message() };
+        if ptr.is_null() {
+            return None;
+        }
+        // SAFETY: ptr 来自 sz_orm_last_error_message
+        let text = unsafe { CStr::from_ptr(ptr) }.to_str().unwrap().to_string();
+        // SAFETY: ptr 与上面的创建配对释放
+        unsafe { sz_orm_string_free(ptr) };
+        Some(text)
+    }
+
+    #[test]
+    fn r10_execute_params_binds_values_and_reports_affected_rows() {
+        let pool = test_pool();
+        assert!(!pool.is_null());
+        let created = exec_params(
+            pool,
+            "CREATE TABLE r10_users (id INTEGER PRIMARY KEY, name TEXT, age INTEGER)",
+            None,
+        );
+        assert_eq!(created.success, 1);
+
+        let inserted = exec_params(
+            pool,
+            "INSERT INTO r10_users (name, age) VALUES (?, ?)",
+            Some(r#"["Alice", 30]"#),
+        );
+        assert_eq!(inserted.success, 1, "parameterized insert must succeed");
+        assert_eq!(inserted.rows_affected, 1);
+
+        let (code, json) = query_json(
+            pool,
+            "SELECT name FROM r10_users WHERE age = ?",
+            Some("[30]"),
+        );
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert!(
+            json.contains("Alice"),
+            "bound param must select the row: {json}"
+        );
+
+        // SAFETY: pool 由 test_pool 创建
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn r10_query_params_injection_payload_stays_inert() {
+        let pool = test_pool();
+        assert!(!pool.is_null());
+        exec_params(
+            pool,
+            "CREATE TABLE r10_inj (id INTEGER PRIMARY KEY, name TEXT)",
+            None,
+        );
+
+        let payload = r#"O'Brien"; DROP TABLE r10_inj; --"#;
+        let params = serde_json::to_string(&vec![payload]).unwrap();
+        let inserted = exec_params(pool, "INSERT INTO r10_inj (name) VALUES (?)", Some(&params));
+        assert_eq!(inserted.success, 1);
+
+        // 注入串作为值查回来，说明它没有被当作 SQL 解析
+        let (code, json) = query_json(
+            pool,
+            "SELECT name FROM r10_inj WHERE name = ?",
+            Some(&params),
+        );
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert!(
+            json.contains("DROP TABLE r10_inj"),
+            "payload must round-trip as data: {json}"
+        );
+
+        // 经典恒真注入串作为参数 → 0 行（未被解释为条件）
+        let (code, json) = query_json(
+            pool,
+            "SELECT name FROM r10_inj WHERE name = ?",
+            Some(r#"["' OR '1'='1"]"#),
+        );
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert_eq!(json, "[]", "tautology payload must not match rows: {json}");
+
+        // 表仍存在（未被 DROP）
+        let (code, json) = query_json(pool, "SELECT COUNT(*) AS c FROM r10_inj", None);
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert!(json.contains('1'), "table must survive: {json}");
+
+        // SAFETY: pool 由 test_pool 创建
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn r10_decimal_38_digit_roundtrip_is_exact() {
+        let pool = test_pool();
+        assert!(!pool.is_null());
+        // TEXT 列避免 SQLite 数值亲和性把精确小数转成 REAL
+        exec_params(pool, "CREATE TABLE r10_dec (v TEXT)", None);
+
+        let exact = "12345678901234567890123456789012345678";
+        let params = format!(r#"[{{"$type":"decimal","value":"{exact}"}}]"#);
+        let inserted = exec_params(pool, "INSERT INTO r10_dec (v) VALUES (?)", Some(&params));
+        assert_eq!(inserted.success, 1, "typed decimal bind must succeed");
+
+        let (code, json) = query_json(pool, "SELECT v FROM r10_dec", None);
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert!(
+            json.contains(exact),
+            "38-digit decimal must round-trip without precision loss: {json}"
+        );
+
+        // SAFETY: pool 由 test_pool 创建
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn r10_datetime_and_null_params_are_typed() {
+        let pool = test_pool();
+        assert!(!pool.is_null());
+        exec_params(
+            pool,
+            "CREATE TABLE r10_dt (id INTEGER PRIMARY KEY, at TEXT, note TEXT)",
+            None,
+        );
+
+        let inserted = exec_params(
+            pool,
+            "INSERT INTO r10_dt (id, at, note) VALUES (?, ?, ?)",
+            Some(r#"[1, {"$type":"datetime","value":"2026-10-28T12:34:56.123456"}, null]"#),
+        );
+        assert_eq!(inserted.success, 1);
+
+        let (code, json) = query_json(
+            pool,
+            "SELECT at FROM r10_dt WHERE at = ? AND note IS NULL",
+            Some(r#"[{"$type":"datetime","value":"2026-10-28T12:34:56.123456"}]"#),
+        );
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert!(
+            json.contains("2026-10-28T12:34:56.123456"),
+            "datetime must round-trip: {json}"
+        );
+
+        // SAFETY: pool 由 test_pool 创建
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn r10_error_text_channel_reports_db_message() {
+        let pool = test_pool();
+        assert!(!pool.is_null());
+
+        // 安全函数：清空线程内错误文本
+        sz_orm_last_error_clear();
+        let (code, json) = query_json(pool, "SELECT * FROM r10_missing_table", None);
+        assert_eq!(code, SzOrmErrorCode::QueryFailed.as_i32());
+        assert!(json.is_empty(), "failed query has no rows JSON");
+
+        let text = take_last_error().expect("failure must record error text");
+        assert!(
+            text.contains("r10_missing_table"),
+            "error text should name the offending table: {text}"
+        );
+
+        // 成功的调用会清空错误通道
+        let (code, _) = query_json(pool, "SELECT 1 AS one", None);
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert!(
+            take_last_error().is_none(),
+            "successful call must clear the error text"
+        );
+
+        // SAFETY: pool 由 test_pool 创建
+        unsafe { sz_orm_pool_free(pool) };
+    }
+
+    #[test]
+    fn r10_params_json_rejects_malformed_input() {
+        let pool = test_pool();
+        assert!(!pool.is_null());
+
+        let (code, _) = query_json(pool, "SELECT 1", Some("not-json"));
+        assert_eq!(code, SzOrmErrorCode::InvalidArgument.as_i32());
+        let text = take_last_error().expect("invalid params must record error text");
+        assert!(
+            text.contains("params_json"),
+            "error text should mention params_json: {text}"
+        );
+
+        // null 参数指针等价于无参数
+        let (code, json) = query_json(pool, "SELECT 1 AS one", None);
+        assert_eq!(code, SzOrmErrorCode::Ok.as_i32());
+        assert!(json.contains("one"), "{json}");
+
+        // SAFETY: pool 由 test_pool 创建
+        unsafe { sz_orm_pool_free(pool) };
     }
 }

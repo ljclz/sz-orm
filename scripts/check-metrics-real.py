@@ -143,6 +143,11 @@ CLAIM_PATTERNS = [
     # "(9 feature gates, off by default)" 不含该后缀，不会误报）
     (r"(\d[\d,]*)\s*feature gates for modular composition", "features",
      "feature 总数(Overview)", r"\g<1> feature gates for modular composition"),
+    # 2026-10-29 补盲区：中文 Overview 同一句 "N 个 feature gate 用于模块化组合"。
+    # 此前只匹配英文措辞，导致英文修到 509 而中文仍写 508 却能通过门禁；
+    # 历史版本日志的 "（9 个 feature gate，默认关闭）" 不含该后缀，不会误报。
+    (r"(\d[\d,]*)\s*个 feature gate 用于模块化组合", "features",
+     "feature 总数(Overview, 中文)", r"\g<1> 个 feature gate 用于模块化组合"),
     # 2026-10-27 SDET 评测 ROI-2 补盲区：README "当前版本"声称与
     # workspace.package.version 比对。仅匹配当前声称的四处锚点——顶部概览行
     # （"> vX.Y.Z ·"）、版本徽章（version-X.Y.Z）、Overview 行（"vX.Y.Z includes"）

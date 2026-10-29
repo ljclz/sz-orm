@@ -63,7 +63,7 @@ use tokio::sync::Notify;
 use tokio_util::compat::TokioAsyncReadCompatExt;
 
 use sz_orm_core::{
-    Connection, ConnectionFactory, DbError, QueryRows, QueryStreamItem, QueryValues, Value,
+    Connection, ConnectionFactory, DbError, DbType, QueryRows, QueryStreamItem, QueryValues, Value,
 };
 use tiberius::{ColumnData, Row as MssqlRow, ToSql};
 
@@ -511,6 +511,10 @@ impl MssqlConnection {
 }
 
 impl Connection for MssqlConnection {
+    fn db_type(&self) -> Option<DbType> {
+        Some(DbType::SqlServer)
+    }
+
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,

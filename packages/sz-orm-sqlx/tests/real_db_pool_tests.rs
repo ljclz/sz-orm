@@ -932,3 +932,220 @@ async fn pg_bulk_insert_100k_via_pool() {
     let _ = conn.execute(&format!("DROP TABLE {}", table)).await;
     pool.release(conn).await;
 }
+
+// ===================== R3：隔离级别在 BEGIN 前后正确下发（真库回归） =====================
+
+/// MySQL：`SET TRANSACTION ISOLATION LEVEL` 必须在 BEGIN 之前生效。
+///
+/// 回归背景（2026-10-28 DBA 评测 R3）：旧实现把 `SET TRANSACTION` 放在 BEGIN 之后，
+/// MySQL 语义是“作用于下一个事务”，导致显式隔离级别的**当前**事务 100% 失败。
+/// 会话变量 `@@transaction_isolation` 不随一次性 `SET TRANSACTION` 变化，故用可观察
+/// 行为断言：READ COMMITTED 事务内第二次读必须看到外部已提交的新行；默认
+/// REPEATABLE READ 则必须保持快照。两条路径构成差分。
+async fn iso_count(
+    tx: &mut sz_orm_core::Transaction,
+    table: &str,
+) -> Result<i64, sz_orm_core::TxError> {
+    let rows = tx
+        .query(&format!("SELECT COUNT(*) AS c FROM {}", table))
+        .await?;
+    Ok(rows[0].get("c").and_then(|v| v.as_i64()).unwrap_or(-1))
+}
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
+async fn mysql_isolation_level_applied_before_begin() {
+    use sz_orm_core::{run_transaction, IsolationLevel, TransactOptions};
+    use tokio::sync::Mutex;
+
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
+    let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle));
+    let config = PoolConfigBuilder::new().max_size(4).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let table = unique_table("mysql_iso_rc");
+    let writer = Arc::new(Mutex::new(pool.acquire().await.unwrap()));
+    {
+        let mut w = writer.lock().await;
+        w.execute(&format!("CREATE TABLE {} (id INT PRIMARY KEY)", table))
+            .await
+            .unwrap();
+        w.execute(&format!("INSERT INTO {} (id) VALUES (1)", table))
+            .await
+            .unwrap();
+    }
+
+    // 默认（REPEATABLE READ）：事务内第二次读仍是首读快照 (1, 1)
+    let reader = pool.acquire().await.unwrap();
+    let default_pair = {
+        let writer = writer.clone();
+        let table = table.clone();
+        run_transaction(reader.into_inner(), TransactOptions::default(), move |tx| {
+            Box::pin(async move {
+                let first = iso_count(tx, &table).await?;
+                {
+                    let mut w = writer.lock().await;
+                    w.execute(&format!("INSERT INTO {} (id) VALUES (2)", table))
+                        .await
+                        .map_err(|e| sz_orm_core::TxError::CommitFailed(e.to_string()))?;
+                }
+                let second = iso_count(tx, &table).await?;
+                Ok((first, second))
+            })
+        })
+        .await
+        .expect("默认事务应成功")
+    };
+    assert_eq!(
+        default_pair,
+        (1, 1),
+        "默认 REPEATABLE READ 下事务内快照不应看到外部新提交"
+    );
+
+    // READ COMMITTED：BEGIN 前下发后，第二次读必须看到外部新提交 (2, 3)
+    let reader = pool.acquire().await.unwrap();
+    let rc_pair = {
+        let writer = writer.clone();
+        let table = table.clone();
+        run_transaction(
+            reader.into_inner(),
+            TransactOptions::default().with_isolation(IsolationLevel::ReadCommitted),
+            move |tx| {
+                Box::pin(async move {
+                    let first = iso_count(tx, &table).await?;
+                    {
+                        let mut w = writer.lock().await;
+                        w.execute(&format!("INSERT INTO {} (id) VALUES (3)", table))
+                            .await
+                            .map_err(|e| sz_orm_core::TxError::CommitFailed(e.to_string()))?;
+                    }
+                    let second = iso_count(tx, &table).await?;
+                    Ok((first, second))
+                })
+            },
+        )
+        .await
+        .expect("READ COMMITTED 事务应成功")
+    };
+    assert_eq!(
+        rc_pair,
+        (2, 3),
+        "READ COMMITTED 事务内第二次读必须看到外部新提交（SET 在 BEGIN 之前下发）"
+    );
+
+    let mut w = writer.lock().await;
+    w.execute(&format!("DROP TABLE IF EXISTS {}", table))
+        .await
+        .ok();
+}
+
+/// PostgreSQL：`SET TRANSACTION ISOLATION LEVEL` 必须在事务内部下发（PG 语义要求）。
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
+async fn pg_isolation_level_applied_inside_transaction() {
+    use sz_orm_core::{run_transaction, IsolationLevel, TransactOptions};
+
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
+    let factory = Arc::new(SqlxPgConnectionFactory::new(pool_handle));
+    let config = PoolConfigBuilder::new().max_size(2).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let conn = pool.acquire().await.unwrap();
+    let level = run_transaction(
+        conn.into_inner(),
+        TransactOptions::default().with_isolation(IsolationLevel::Serializable),
+        |tx| {
+            Box::pin(async move {
+                let rows = tx
+                    .query("SELECT current_setting('transaction_isolation') AS lvl")
+                    .await?;
+                let lvl = rows[0]
+                    .get("lvl")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("")
+                    .to_string();
+                Ok(lvl)
+            })
+        },
+    )
+    .await
+    .expect("显式隔离级别事务应成功");
+
+    assert_eq!(
+        level.to_ascii_lowercase(),
+        "serializable",
+        "事务内隔离级别必须是 serializable（SET TRANSACTION 在 BEGIN 之后下发）"
+    );
+}
+
+// ===================== R5：归还连接时会话状态复位（真库回归） =====================
+
+#[tokio::test]
+#[ignore = "需要 MySQL 9.6.0 在 127.0.0.1:3306"]
+async fn mysql_release_resets_session_state() {
+    let pool_handle = Arc::new(MySqlPoolHandle::connect(&mysql_url()).await.unwrap());
+    let factory = Arc::new(SqlxMySqlConnectionFactory::new(pool_handle));
+    // max_size(1)：确保归还后重新借出的是同一条物理连接
+    let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute("SET SESSION sql_mode = 'ANSI_QUOTES'")
+        .await
+        .unwrap();
+    let dirty = conn.query("SELECT @@SESSION.sql_mode AS m").await.unwrap();
+    let dirty_mode = dirty[0]
+        .get("m")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_uppercase();
+    assert!(dirty_mode.contains("ANSI_QUOTES"), "前置条件：会话已被污染");
+    pool.release(conn).await;
+
+    let mut reused = pool.acquire().await.unwrap();
+    let clean = reused
+        .query("SELECT @@SESSION.sql_mode AS m")
+        .await
+        .unwrap();
+    let clean_mode = clean[0]
+        .get("m")
+        .and_then(|v| v.as_str())
+        .unwrap_or("")
+        .to_uppercase();
+    assert!(
+        !clean_mode.contains("ANSI_QUOTES"),
+        "归还时必须复位 sql_mode（R5），实际仍为 {clean_mode}"
+    );
+    pool.release(reused).await;
+}
+
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 18 在 127.0.0.1:5432"]
+async fn pg_release_resets_session_state() {
+    let pool_handle = Arc::new(PgPoolHandle::connect(&pg_url()).await.unwrap());
+    let factory = Arc::new(SqlxPgConnectionFactory::new(pool_handle));
+    let config = PoolConfigBuilder::new().max_size(1).build().unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute("SET search_path TO pg_catalog").await.unwrap();
+    let dirty = conn.query("SHOW search_path").await.unwrap();
+    assert_eq!(
+        dirty[0].get("search_path").and_then(|v| v.as_str()),
+        Some("pg_catalog"),
+        "前置条件：会话已被污染"
+    );
+    pool.release(conn).await;
+
+    let mut reused = pool.acquire().await.unwrap();
+    let clean = reused.query("SHOW search_path").await.unwrap();
+    let path = clean[0]
+        .get("search_path")
+        .and_then(|v| v.as_str())
+        .unwrap_or("");
+    assert_ne!(
+        path, "pg_catalog",
+        "归还时必须执行 DISCARD ALL 复位 search_path（R5）"
+    );
+    pool.release(reused).await;
+}

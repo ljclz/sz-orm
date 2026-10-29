@@ -516,6 +516,81 @@ where
     }))
 }
 
+/// 隔离级别下发计划
+///
+/// 不同数据库对 `SET TRANSACTION ISOLATION LEVEL` 的位置与支持范围不同：
+/// - MySQL 族：只作用于**下一个**事务，必须在 `BEGIN` **之前**执行
+/// - SQL Server 族：会话级，可在 `BEGIN` 前执行
+/// - PostgreSQL 族：`SET TRANSACTION` 必须在事务**内部**执行；无 SNAPSHOT 级别
+/// - Oracle 族：仅接受 READ COMMITTED / SERIALIZABLE，且在事务开始后执行
+/// - SQLite：不支持 `SET TRANSACTION`（始终 SERIALIZABLE）
+#[derive(Debug, Default)]
+pub(crate) struct IsolationPlan {
+    /// BEGIN 之前必须执行的语句
+    pre_begin: Option<String>,
+    /// BEGIN 之后必须执行的语句
+    post_begin: Option<String>,
+}
+
+/// 根据方言与请求级别生成下发计划；不支持的组合直接报错而不是静默降级
+pub(crate) fn plan_isolation(
+    db: Option<crate::db_type::DbType>,
+    level: &IsolationLevel,
+) -> Result<IsolationPlan, TxError> {
+    use crate::db_type::DbType;
+    let stmt = format!("SET TRANSACTION ISOLATION LEVEL {}", level);
+    match db {
+        // 未声明方言的适配器：保持历史行为（BEGIN 后下发）
+        None => Ok(IsolationPlan {
+            pre_begin: None,
+            post_begin: Some(stmt),
+        }),
+        Some(DbType::Sqlite) => Err(TxError::UnsupportedFeature(format!(
+            "SQLite 不支持 SET TRANSACTION（固定为 SERIALIZABLE），请求的隔离级别 {} 无法生效；\
+             请留空 TransactOptions::isolation_level",
+            level
+        ))),
+        Some(DbType::MySQL)
+        | Some(DbType::MariaDB)
+        | Some(DbType::TiDB)
+        | Some(DbType::OceanBase) => Ok(IsolationPlan {
+            pre_begin: Some(stmt),
+            post_begin: None,
+        }),
+        Some(DbType::SqlServer) | Some(DbType::Sybase) | Some(DbType::GBase) => Ok(IsolationPlan {
+            pre_begin: Some(stmt),
+            post_begin: None,
+        }),
+        Some(DbType::PostgreSQL)
+        | Some(DbType::Kingbase)
+        | Some(DbType::PolarDB)
+        | Some(DbType::GaussDB) => match level {
+            IsolationLevel::Snapshot => Err(TxError::UnsupportedFeature(
+                "PostgreSQL 族没有 SNAPSHOT 隔离级别，请改用 REPEATABLE READ".to_string(),
+            )),
+            _ => Ok(IsolationPlan {
+                pre_begin: None,
+                post_begin: Some(stmt),
+            }),
+        },
+        Some(DbType::Oracle) | Some(DbType::Dameng) => match level {
+            IsolationLevel::ReadCommitted | IsolationLevel::Serializable => Ok(IsolationPlan {
+                pre_begin: None,
+                post_begin: Some(stmt),
+            }),
+            _ => Err(TxError::UnsupportedFeature(format!(
+                "Oracle 族仅支持 READ COMMITTED / SERIALIZABLE，请求的 {} 会被 ORA-02179 拒绝",
+                level
+            ))),
+        },
+        // 其余方言（ClickHouse/DuckDB/DB2 等）无真实事务适配器，沿用历史行为
+        Some(_) => Ok(IsolationPlan {
+            pre_begin: None,
+            post_begin: Some(stmt),
+        }),
+    }
+}
+
 /// v9.3.0：事务闭包模板（panic 安全回滚）
 ///
 /// 自动 begin_transaction + 应用隔离级别/只读 + `catch_unwind` 执行闭包；
@@ -536,19 +611,40 @@ pub async fn run_transaction<T>(
         Box<dyn std::future::Future<Output = Result<T, TxError>> + Send + 'a>,
     >,
 ) -> Result<T, TxError> {
+    let isolation_plan = match options.isolation_level {
+        Some(ref level) => Some(plan_isolation(conn.db_type(), level)?),
+        None => None,
+    };
+
+    // MySQL/MSSQL：隔离级别必须在 BEGIN 之前下发（BEGIN 之后设置会作用于下一个事务）
+    if let Some(sql) = isolation_plan.as_ref().and_then(|p| p.pre_begin.as_ref()) {
+        conn.execute(sql).await.map_err(|e| {
+            TxError::CommitFailed(format!("SET ISOLATION LEVEL (pre-BEGIN) failed: {}", e))
+        })?;
+    }
+
     conn.begin_transaction()
         .await
         .map_err(|e| TxError::CommitFailed(e.to_string()))?;
-    if let Some(ref level) = options.isolation_level {
-        let sql = format!("SET TRANSACTION ISOLATION LEVEL {}", level);
-        conn.execute(&sql)
-            .await
-            .map_err(|e| TxError::CommitFailed(format!("SET ISOLATION LEVEL failed: {}", e)))?;
+
+    // PG/Oracle：SET TRANSACTION 必须在事务内部；失败必须回滚，不能把半开事务还给池
+    if let Some(sql) = isolation_plan.as_ref().and_then(|p| p.post_begin.as_ref()) {
+        if let Err(e) = conn.execute(sql).await {
+            let _ = conn.rollback().await;
+            return Err(TxError::CommitFailed(format!(
+                "SET ISOLATION LEVEL failed: {}",
+                e
+            )));
+        }
     }
     if options.read_only {
-        conn.execute("SET TRANSACTION READ ONLY")
-            .await
-            .map_err(|e| TxError::CommitFailed(format!("SET READ ONLY failed: {}", e)))?;
+        if let Err(e) = conn.execute("SET TRANSACTION READ ONLY").await {
+            let _ = conn.rollback().await;
+            return Err(TxError::CommitFailed(format!(
+                "SET READ ONLY failed: {}",
+                e
+            )));
+        }
     }
 
     let mut tx = Transaction::new(conn, options);
@@ -660,22 +756,41 @@ impl TransactionManager {
         options: TransactOptions,
     ) -> Result<(), TxError> {
         let mut conn = conn;
+        let isolation_plan = match options.isolation_level {
+            Some(ref level) => Some(plan_isolation(conn.db_type(), level)?),
+            None => None,
+        };
+
+        // MySQL/MSSQL：BEGIN 之前下发
+        if let Some(sql) = isolation_plan.as_ref().and_then(|p| p.pre_begin.as_ref()) {
+            conn.execute(sql).await.map_err(|e| {
+                TxError::CommitFailed(format!("SET ISOLATION LEVEL (pre-BEGIN) failed: {}", e))
+            })?;
+        }
+
         conn.begin_transaction()
             .await
             .map_err(|e| TxError::CommitFailed(e.to_string()))?;
 
-        // v9.2.0 安全修复 #2：应用隔离级别（之前 TransactOptions.isolation_level 被静默忽略）
-        if let Some(ref level) = options.isolation_level {
-            let sql = format!("SET TRANSACTION ISOLATION LEVEL {}", level);
-            conn.execute(&sql)
-                .await
-                .map_err(|e| TxError::CommitFailed(format!("SET ISOLATION LEVEL failed: {}", e)))?;
+        // v9.2.0 安全修复 #2：应用隔离级别（PG/Oracle 在 BEGIN 后；失败必须回滚）
+        if let Some(sql) = isolation_plan.as_ref().and_then(|p| p.post_begin.as_ref()) {
+            if let Err(e) = conn.execute(sql).await {
+                let _ = conn.rollback().await;
+                return Err(TxError::CommitFailed(format!(
+                    "SET ISOLATION LEVEL failed: {}",
+                    e
+                )));
+            }
         }
-        // v9.2.0 安全修复 #2：应用只读设置（之前 TransactOptions.read_only 被静默忽略）
+        // v9.2.0 安全修复 #2：应用只读设置
         if options.read_only {
-            conn.execute("SET TRANSACTION READ ONLY")
-                .await
-                .map_err(|e| TxError::CommitFailed(format!("SET READ ONLY failed: {}", e)))?;
+            if let Err(e) = conn.execute("SET TRANSACTION READ ONLY").await {
+                let _ = conn.rollback().await;
+                return Err(TxError::CommitFailed(format!(
+                    "SET READ ONLY failed: {}",
+                    e
+                )));
+            }
         }
 
         let tx = Transaction::new(conn, options);
@@ -1872,5 +1987,168 @@ mod tests {
         tx.rollback_to_savepoint("_sp_1").await?;
         tx.release_savepoint("_sp_2").await?;
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod isolation_plan_tests {
+    use super::*;
+    use crate::db_type::DbType;
+    use std::future::Future;
+    use std::pin::Pin;
+    use std::sync::{Arc, Mutex};
+
+    /// 记录执行顺序的连接：用于断言 SET TRANSACTION 与 BEGIN 的相对位置
+    struct RecordingConn {
+        db: Option<DbType>,
+        log: Arc<Mutex<Vec<String>>>,
+    }
+
+    impl Connection for RecordingConn {
+        fn db_type(&self) -> Option<DbType> {
+            self.db
+        }
+        fn execute<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> Pin<Box<dyn Future<Output = Result<u64, crate::DbError>> + Send + 'a>> {
+            self.log.lock().unwrap().push(format!("exec:{sql}"));
+            Box::pin(async move { Ok(0) })
+        }
+        fn query<'a>(
+            &'a mut self,
+            _sql: &'a str,
+        ) -> Pin<
+            Box<
+                dyn Future<
+                        Output = Result<
+                            Vec<std::collections::HashMap<String, crate::value::Value>>,
+                            crate::DbError,
+                        >,
+                    > + Send
+                    + 'a,
+            >,
+        > {
+            Box::pin(async move { Ok(vec![]) })
+        }
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            self.log.lock().unwrap().push("begin".into());
+            Box::pin(async move { Ok(()) })
+        }
+        fn commit<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            self.log.lock().unwrap().push("commit".into());
+            Box::pin(async move { Ok(()) })
+        }
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            self.log.lock().unwrap().push("rollback".into());
+            Box::pin(async move { Ok(()) })
+        }
+        fn is_connected(&self) -> bool {
+            true
+        }
+        fn ping<'a>(&'a mut self) -> Pin<Box<dyn Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+        fn close<'a>(
+            &'a mut self,
+        ) -> Pin<Box<dyn Future<Output = Result<(), crate::DbError>> + Send + 'a>> {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    async fn run_with(
+        db: Option<DbType>,
+        level: IsolationLevel,
+    ) -> (Result<(), TxError>, Vec<String>) {
+        let log = Arc::new(Mutex::new(Vec::new()));
+        let conn = Box::new(RecordingConn {
+            db,
+            log: log.clone(),
+        });
+        let opts = TransactOptions {
+            isolation_level: Some(level),
+            ..TransactOptions::default()
+        };
+        let res = run_transaction(conn, opts, |_tx| Box::pin(async { Ok(()) })).await;
+        let entries = log.lock().unwrap().clone();
+        (res, entries)
+    }
+
+    #[tokio::test]
+    async fn mysql_isolation_is_sent_before_begin() {
+        let (res, log) = run_with(Some(DbType::MySQL), IsolationLevel::ReadCommitted).await;
+        assert!(res.is_ok(), "{res:?}");
+        assert_eq!(
+            log,
+            vec![
+                "exec:SET TRANSACTION ISOLATION LEVEL READ COMMITTED".to_string(),
+                "begin".to_string(),
+                "commit".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_isolation_is_sent_inside_transaction() {
+        let (res, log) = run_with(Some(DbType::PostgreSQL), IsolationLevel::Serializable).await;
+        assert!(res.is_ok(), "{res:?}");
+        assert_eq!(
+            log,
+            vec![
+                "begin".to_string(),
+                "exec:SET TRANSACTION ISOLATION LEVEL SERIALIZABLE".to_string(),
+                "commit".to_string(),
+            ]
+        );
+    }
+
+    #[tokio::test]
+    async fn pg_snapshot_is_rejected_without_opening_transaction() {
+        let (res, log) = run_with(Some(DbType::PostgreSQL), IsolationLevel::Snapshot).await;
+        assert!(
+            matches!(res, Err(TxError::UnsupportedFeature(_))),
+            "{res:?}"
+        );
+        assert!(log.is_empty(), "拒绝时不得 BEGIN：{log:?}");
+    }
+
+    #[tokio::test]
+    async fn sqlite_any_isolation_is_rejected() {
+        let (res, log) = run_with(Some(DbType::Sqlite), IsolationLevel::ReadCommitted).await;
+        assert!(
+            matches!(res, Err(TxError::UnsupportedFeature(_))),
+            "{res:?}"
+        );
+        assert!(log.is_empty(), "{log:?}");
+    }
+
+    #[tokio::test]
+    async fn oracle_read_uncommitted_is_rejected() {
+        let (res, _) = run_with(Some(DbType::Oracle), IsolationLevel::ReadUncommitted).await;
+        assert!(
+            matches!(res, Err(TxError::UnsupportedFeature(_))),
+            "{res:?}"
+        );
+    }
+
+    #[tokio::test]
+    async fn oracle_serializable_is_accepted_after_begin() {
+        let (res, log) = run_with(Some(DbType::Oracle), IsolationLevel::Serializable).await;
+        assert!(res.is_ok(), "{res:?}");
+        assert_eq!(log[0], "begin");
+        assert_eq!(log[1], "exec:SET TRANSACTION ISOLATION LEVEL SERIALIZABLE");
+    }
+
+    #[tokio::test]
+    async fn unknown_dialect_keeps_legacy_post_begin_behavior() {
+        let (res, log) = run_with(None, IsolationLevel::ReadCommitted).await;
+        assert!(res.is_ok(), "{res:?}");
+        assert_eq!(log[0], "begin");
     }
 }

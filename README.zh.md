@@ -41,7 +41,7 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。包含 72 个工作空间成员（70 个 sz-orm-* lib + cli + examples），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，提供 508 个 feature gate 用于模块化组合。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。包含 72 个工作空间成员（70 个 sz-orm-* lib + cli + examples），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，提供 509 个 feature gate 用于模块化组合。
 
 ### v4.1.0 新增能力（9 个 feature gate，默认关闭）
 

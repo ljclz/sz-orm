@@ -306,7 +306,10 @@ impl QuotaEnforcer {
 
     /// v10.11.0 T2.3：获取区域配额
     pub fn region_quotas(&self) -> Option<HashMap<String, RegionQuota>> {
-        self.region_quotas.lock().unwrap_or_else(|e| e.into_inner()).clone()
+        self.region_quotas
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
     }
 
     /// 检查并记录（原子操作）
@@ -765,7 +768,12 @@ pub struct RegionQuota {
 
 impl RegionQuota {
     /// 创建区域配额
-    pub fn new(region_id: impl Into<String>, max_connections: u64, max_queries: u64, max_memory: u64) -> Self {
+    pub fn new(
+        region_id: impl Into<String>,
+        max_connections: u64,
+        max_queries: u64,
+        max_memory: u64,
+    ) -> Self {
         Self {
             region_id: region_id.into(),
             max_connections,
@@ -858,7 +866,8 @@ impl RegionQuota {
 
     /// 可借出连接数
     pub fn available_for_borrow_connections(&self) -> u64 {
-        self.max_connections.saturating_sub(self.current_connections)
+        self.max_connections
+            .saturating_sub(self.current_connections)
     }
 }
 
@@ -967,7 +976,11 @@ impl QuotaBorrower {
         if !limit.can_borrow(available, amount) {
             return Err(format!(
                 "区域 {} 无法借出 {} 配额（可用 {}，最大借出 {}，最低保留 {}）",
-                from_region, amount, available, limit.max_borrow(), limit.min_reserve()
+                from_region,
+                amount,
+                available,
+                limit.max_borrow(),
+                limit.min_reserve()
             ));
         }
 

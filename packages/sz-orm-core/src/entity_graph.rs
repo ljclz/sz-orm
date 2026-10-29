@@ -44,7 +44,8 @@
 
 use std::collections::HashMap;
 use std::hash::Hash;
-use std::sync::{Arc, RwLock};
+use std::sync::{Arc, OnceLock, RwLock};
+use std::time::Instant;
 
 // ============================================================================
 // EntityGraph — 实体图
@@ -517,14 +518,28 @@ where
     /// # 参数
     /// - `batch_size`：每批数量
     /// - `loader`：实际加载函数，接收一批 key，返回 key→value 的 HashMap
+    ///
+    /// R8：默认接入进程级 N+1 检测器（[`default_n1_detector`]），relation 名为
+    /// `"batch_loader"`；`SZ_ORM_N1_DETECT=0|off|false` 时不接入。
+    /// 需要独立检测窗口/自定义 relation 时可用 [`Self::with_detector`] 覆盖。
     pub fn new(batch_size: usize, loader: BatchLoaderFn<K, V>) -> Self {
         Self {
             batch_size,
             loader,
             cache: RwLock::new(HashMap::new()),
-            detector: None,
-            relation_name: String::new(),
+            detector: default_batch_loader_detector(),
+            relation_name: "batch_loader".to_string(),
         }
+    }
+
+    /// R8：当前接入的 N+1 检测器（None 表示未接入）
+    pub fn detector(&self) -> Option<&Arc<N1QueryDetector>> {
+        self.detector.as_ref()
+    }
+
+    /// R8：当前接入检测器的 relation 名（未接入时返回 None）
+    pub fn detector_relation(&self) -> Option<&str> {
+        self.detector.as_ref().map(|_| self.relation_name.as_str())
     }
 
     /// 设置 N+1 查询检测器（v4.7.0 幻影交付修复接线）
@@ -685,6 +700,8 @@ pub struct N1QueryDetector {
     /// v3.8.0: 拦截次数
     #[cfg(feature = "prod-n1-tuning")]
     block_count: std::sync::atomic::AtomicU64,
+    /// R8：自动滚动窗口的起始时刻（`auto_window` 生效时维护）
+    auto_window_started_at: RwLock<Option<Instant>>,
 }
 
 /// N+1 检测配置
@@ -698,6 +715,11 @@ pub struct N1DetectionConfig {
     pub window: std::time::Duration,
     /// v3.8.0: 是否拦截（true=拦截，false=仅告警）
     pub block: bool,
+    /// R8：自动滚动窗口（默认 false）
+    ///
+    /// true 时 `record_*` 在窗口未开启时自动开启，窗口超时后自动结算上一窗口
+    /// 告警并开启新窗口——无需调用方手动 `start_window`/`end_window`。
+    pub auto_window: bool,
 }
 
 impl Default for N1DetectionConfig {
@@ -707,6 +729,7 @@ impl Default for N1DetectionConfig {
             enabled: true,
             window: std::time::Duration::from_secs(1),
             block: false,
+            auto_window: false,
         }
     }
 }
@@ -740,6 +763,12 @@ impl N1DetectionConfig {
     #[cfg(feature = "prod-n1-tuning")]
     pub fn with_block(mut self, block: bool) -> Self {
         self.block = block;
+        self
+    }
+
+    /// R8: 自动滚动检测窗口
+    pub fn with_auto_window(mut self, auto_window: bool) -> Self {
+        self.auto_window = auto_window;
         self
     }
 }
@@ -791,6 +820,7 @@ impl N1QueryDetector {
             trigger_count: std::sync::atomic::AtomicU64::new(0),
             #[cfg(feature = "prod-n1-tuning")]
             block_count: std::sync::atomic::AtomicU64::new(0),
+            auto_window_started_at: RwLock::new(None),
         }
     }
 
@@ -838,6 +868,42 @@ impl N1QueryDetector {
         }
         if let Ok(mut window_active) = self.window_active.write() {
             *window_active = true;
+        }
+        if let Ok(mut started) = self.auto_window_started_at.write() {
+            *started = Some(Instant::now());
+        }
+    }
+
+    /// R8：自动滚动窗口维护
+    ///
+    /// `auto_window` 关闭时为 no-op（行为与历史一致：需手动 start/end）。
+    /// 开启时：窗口未激活则自动开启；已超时则结算上一窗口（写入 `alerts`）
+    /// 后开启新窗口。
+    fn ensure_auto_window(&self) {
+        if !self.config.enabled || !self.config.auto_window {
+            return;
+        }
+        let active = self.window_active.read().map(|g| *g).unwrap_or(false);
+        if !active {
+            self.start_window();
+            return;
+        }
+        let elapsed = self
+            .auto_window_started_at
+            .read()
+            .ok()
+            .and_then(|g| *g)
+            .map(|t| t.elapsed());
+        if matches!(elapsed, Some(e) if e >= self.config.window) {
+            // start_window 会清空 alerts，先结算再开窗，最后回填上一个窗口的告警，
+            // 使 `alerts()` 始终反映最近一个已结算窗口。
+            let produced = self.end_window();
+            self.start_window();
+            if !produced.is_empty() {
+                if let Ok(mut alerts) = self.alerts.write() {
+                    *alerts = produced;
+                }
+            }
         }
     }
 
@@ -889,6 +955,7 @@ impl N1QueryDetector {
         if !self.config.enabled {
             return;
         }
+        self.ensure_auto_window();
         {
             let active = self.window_active.read().map(|g| *g).unwrap_or(false);
             if !active {
@@ -908,6 +975,7 @@ impl N1QueryDetector {
         if !self.config.enabled {
             return;
         }
+        self.ensure_auto_window();
         {
             let active = self.window_active.read().map(|g| *g).unwrap_or(false);
             if !active {
@@ -954,6 +1022,36 @@ impl N1QueryDetector {
 impl Default for N1QueryDetector {
     fn default() -> Self {
         Self::with_defaults()
+    }
+}
+
+/// R8：进程级默认 N+1 检测器（`BatchLoader::new` 默认接入）
+///
+/// 使用自动滚动窗口（[`N1DetectionConfig::with_auto_window`]），调用方
+/// 无需手动 `start_window`/`end_window`；最近一次结算的告警通过
+/// [`N1QueryDetector::alerts`] 读取。窗口长度默认 1s。
+pub fn default_n1_detector() -> Arc<N1QueryDetector> {
+    static DEFAULT: OnceLock<Arc<N1QueryDetector>> = OnceLock::new();
+    Arc::clone(DEFAULT.get_or_init(|| {
+        Arc::new(N1QueryDetector::new(
+            N1DetectionConfig::default().with_auto_window(true),
+        ))
+    }))
+}
+
+/// R8：`BatchLoader::new` 的默认检测器
+///
+/// `SZ_ORM_N1_DETECT=0|off|false` 关闭默认接入（此时 `BatchLoader` 与历史
+/// 行为一致，不产生任何检测开销）。
+fn default_batch_loader_detector() -> Option<Arc<N1QueryDetector>> {
+    let disabled = matches!(
+        std::env::var("SZ_ORM_N1_DETECT").ok().as_deref(),
+        Some("0") | Some("off") | Some("false") | Some("FALSE") | Some("OFF")
+    );
+    if disabled {
+        None
+    } else {
+        Some(default_n1_detector())
     }
 }
 
@@ -1884,5 +1982,91 @@ mod n1_prod_tests {
         assert!(config.enabled);
         assert_eq!(config.window, std::time::Duration::from_secs(1));
         assert!(!config.block);
+    }
+
+    // === R8：BatchLoader 默认接入 N+1 检测器 ===
+
+    fn r8_load_users(ids: &[i64]) -> HashMap<i64, String> {
+        ids.iter().map(|id| (*id, format!("user_{id}"))).collect()
+    }
+
+    /// 默认配置不自动滚动窗口（历史行为不变）
+    #[test]
+    fn r8_auto_window_default_off() {
+        assert!(!N1DetectionConfig::default().auto_window);
+        let detector = N1QueryDetector::new(N1DetectionConfig::default());
+        for _ in 0..10 {
+            detector.record_single_load("posts");
+        }
+        assert_eq!(
+            detector.current_count("posts"),
+            0,
+            "未开启窗口且未启用 auto_window 时不应计数"
+        );
+    }
+
+    /// auto_window 开启后无需手动 start_window，窗口超时自动结算告警
+    #[test]
+    fn r8_auto_window_rolls_and_emits_alerts() {
+        let detector = N1QueryDetector::new(
+            N1DetectionConfig::default()
+                .with_threshold(3)
+                .with_window(std::time::Duration::from_millis(20))
+                .with_auto_window(true),
+        );
+
+        for _ in 0..3 {
+            detector.record_single_load("posts");
+        }
+        assert!(detector.alerts().is_empty(), "窗口未结算时不应有告警");
+
+        std::thread::sleep(std::time::Duration::from_millis(30));
+        // 下一次记录触发窗口滚动：结算上一窗口（3 次单条加载 ≥ 阈值 3）
+        detector.record_single_load("comments");
+
+        let alerts = detector.alerts();
+        let posts = alerts
+            .iter()
+            .find(|a| a.relation == "posts")
+            .expect("滚动结算应产出 posts 的 N+1 告警");
+        assert_eq!(posts.query_count, 3);
+        assert_eq!(posts.batch_count, 0);
+        assert!(posts.no_batch_used());
+    }
+
+    /// BatchLoader::new 默认接入检测器，且 relation 名为 batch_loader
+    #[test]
+    fn r8_batch_loader_default_detector_attached() {
+        let loader = BatchLoader::<i64, String>::new(10, Box::new(r8_load_users));
+        assert!(
+            loader.detector().is_some(),
+            "BatchLoader::new 应默认接入 N+1 检测器"
+        );
+        assert_eq!(loader.detector_relation(), Some("batch_loader"));
+    }
+
+    /// 默认检测器上，循环 load_one 无需手动接线即可产出 N+1 告警
+    #[test]
+    fn r8_batch_loader_load_one_triggers_default_detector_alert() {
+        static SERIAL: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        let _guard = SERIAL.lock().unwrap_or_else(|e| e.into_inner());
+
+        let detector = default_n1_detector();
+        // 显式开窗：避免依赖全局窗口的自动滚动时刻，保证用例确定性
+        detector.start_window();
+
+        let loader = BatchLoader::<i64, String>::new(10, Box::new(r8_load_users));
+        for i in 0..6 {
+            loader.load_one(&i);
+        }
+
+        let alerts = detector.end_window();
+        let alert = alerts
+            .iter()
+            .find(|a| a.relation == "batch_loader")
+            .expect("循环 load_one 应触发 batch_loader 的 N+1 告警");
+        // 允许 >=：进程级检测器可能同时被其它用例的默认 BatchLoader 计入
+        assert!(alert.query_count >= 6, "单条计数 {}", alert.query_count);
+        assert!(alert.batch_count >= 6, "批量计数 {}", alert.batch_count);
     }
 }

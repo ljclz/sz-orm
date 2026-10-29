@@ -47,6 +47,38 @@ impl Migration {
         self.executed_at = Some(time);
         self
     }
+
+    /// R7：迁移内容 checksum（128 位，32 位小写十六进制）
+    ///
+    /// 由 `sql_up` 与 `sql_down` 共同决定，用于检测“已执行迁移被事后篡改”。
+    /// 修改已执行迁移的历史版本必须被拒绝——正确做法是新增加一个迁移版本。
+    pub fn checksum(&self) -> String {
+        migration_checksum(&self.sql_up, &self.sql_down)
+    }
+}
+
+/// R7：计算迁移内容 checksum
+///
+/// 采用双路 FNV-1a（128 位输出），与 Flyway 的 CRC32 同属“漂移检测”定位：
+/// 能发现内容被改动，但不作为密码学防篡改依据（拥有迁移表写权限者可同时改写记录）。
+pub fn migration_checksum(sql_up: &str, sql_down: &str) -> String {
+    fn fnv1a(data: &[u8], mut hash: u64) -> u64 {
+        for &byte in data {
+            hash ^= byte as u64;
+            hash = hash.wrapping_mul(0x0000_0100_0000_01b3);
+        }
+        hash
+    }
+    const PRINTABLE_SEED_LO: u64 = 0xcbf2_9ce4_8422_2325;
+    const PRINTABLE_SEED_HI: u64 = 0x9e37_79b9_7f4a_7c15;
+    let mut lo = PRINTABLE_SEED_LO;
+    let mut hi = PRINTABLE_SEED_HI;
+    // 三个分段串接，插入分隔符避免 up/down 拼接歧义
+    for part in [sql_up.as_bytes(), b"\x00", sql_down.as_bytes()] {
+        lo = fnv1a(part, lo);
+        hi = fnv1a(part, hi ^ 0xff51_afd7_ed55_8ccd);
+    }
+    format!("{lo:016x}{hi:016x}")
 }
 
 impl std::fmt::Debug for Migration {
@@ -94,8 +126,6 @@ impl MigrationResolver for FileMigrationResolver {
             }
         };
 
-        let _ = db_type; // 当前实现不区分数据库类型
-
         // 收集所有 .sql 文件
         let mut sql_files: Vec<std::path::PathBuf> = Vec::new();
         for entry in entries {
@@ -113,15 +143,41 @@ impl MigrationResolver for FileMigrationResolver {
 
         // 解析文件名格式：<version>_<name>_up.sql 或 <version>_<name>_down.sql
         // 也支持简单的 <name>.sql（不区分 up/down）
+        //
+        // 方言后缀（`_mysql` / `_pg` / `_postgres` / `_sqlite` / `_oracle` / `_mssql`）：
+        // - 与目标方言一致：去掉后缀后参与版本归并
+        // - 与目标方言不一致：跳过该文件
+        // - 同一版本同时存在通用文件与方言专用文件时，方言专用文件优先
         let mut version_map: std::collections::HashMap<
             String,
             (Option<String>, Option<String>, String),
         > = std::collections::HashMap::new();
+        let mut version_specific: std::collections::HashMap<String, bool> =
+            std::collections::HashMap::new();
 
         for path in sql_files {
             let filename = match path.file_stem().and_then(|s| s.to_str()) {
                 Some(name) => name.to_string(),
                 None => continue,
+            };
+
+            // 先剥离 up/down 后缀，再识别方言后缀（`001_init_pg_up` → `001_init`）
+            let (kind, base_stem) = if filename.ends_with("_up") {
+                (Some(true), &filename[..filename.len() - 3])
+            } else if filename.ends_with("_down") {
+                (Some(false), &filename[..filename.len() - 5])
+            } else {
+                (None, filename.as_str())
+            };
+
+            let (base, specific) = match split_dialect_suffix(base_stem) {
+                Some((dialect, stripped)) => {
+                    if dialect != db_type {
+                        continue;
+                    }
+                    (stripped.to_string(), true)
+                }
+                None => (base_stem.to_string(), false),
             };
 
             let content = std::fs::read_to_string(&path).map_err(|e| {
@@ -132,31 +188,35 @@ impl MigrationResolver for FileMigrationResolver {
                 ))
             })?;
 
-            // 尝试解析文件名
-            if filename.ends_with("_up") {
-                let base = &filename[..filename.len() - 3];
-                let (version, name) = parse_migration_filename(base);
-                let entry = version_map
-                    .entry(version.clone())
-                    .or_insert((None, None, name));
-                entry.0 = Some(content);
-            } else if filename.ends_with("_down") {
-                let base = &filename[..filename.len() - 5];
-                let (version, name) = parse_migration_filename(base);
-                let entry = version_map
-                    .entry(version.clone())
-                    .or_insert((None, None, name));
-                entry.1 = Some(content);
-            } else {
-                // 简单格式：整个文件作为 up SQL，down 为空
-                let (version, name) = parse_migration_filename(&filename);
-                let entry = version_map
-                    .entry(version.clone())
-                    .or_insert((None, None, name));
-                if entry.0.is_none() {
-                    entry.0 = Some(content);
+            let (version, name) = parse_migration_filename(&base);
+
+            let existing_specific = version_specific.get(&version).copied().unwrap_or(false);
+            if version_map.contains_key(&version) {
+                // 通用文件不得覆盖已收集的方言专用文件
+                if existing_specific && !specific {
+                    continue;
+                }
+                if specific && !existing_specific {
+                    if let Some(entry) = version_map.get_mut(&version) {
+                        let keep_name = std::mem::take(&mut entry.2);
+                        *entry = (None, None, keep_name);
+                    }
                 }
             }
+
+            let entry = version_map
+                .entry(version.clone())
+                .or_insert((None, None, name));
+            match kind {
+                Some(true) => entry.0 = Some(content),
+                Some(false) => entry.1 = Some(content),
+                None => {
+                    if entry.0.is_none() {
+                        entry.0 = Some(content);
+                    }
+                }
+            }
+            version_specific.insert(version, specific);
         }
 
         // 转换为 Migration 列表并按 version 排序
@@ -178,16 +238,47 @@ impl MigrationResolver for FileMigrationResolver {
     }
 }
 
-/// 解析迁移文件名：格式 <version>_<name>，如 "001_create_users"
+/// 识别迁移文件名中的方言后缀
+///
+/// 返回 `(方言, 去掉后缀的文件名主干)`；无方言后缀时返回 `None`。
+/// 例：`001_init_pg` → `(PostgreSQL, "001_init")`。
+fn split_dialect_suffix(stem: &str) -> Option<(DbType, &str)> {
+    const SUFFIXES: &[(&str, DbType)] = &[
+        ("_postgres", DbType::PostgreSQL),
+        ("_pgsql", DbType::PostgreSQL),
+        ("_pg", DbType::PostgreSQL),
+        ("_mysql", DbType::MySQL),
+        ("_sqlite", DbType::Sqlite),
+        ("_sqlserver", DbType::SqlServer),
+        ("_mssql", DbType::SqlServer),
+        ("_oracle", DbType::Oracle),
+    ];
+    for (suffix, ty) in SUFFIXES {
+        if let Some(base) = stem.strip_suffix(suffix) {
+            if !base.is_empty() {
+                return Some((*ty, base));
+            }
+        }
+    }
+    None
+}
+
+/// 解析迁移文件名：格式 `<version>_<name>`，如 `001_create_users`
+///
+/// `version` 必须是以数字开头的编号；不含数字编号的文件名（如
+/// `add_alert_history`）整体作为 `version`，避免多个无编号文件被错误归并到
+/// 同一个版本号下而互相覆盖。
 fn parse_migration_filename(filename: &str) -> (String, String) {
     if let Some(underscore_pos) = filename.find('_') {
-        let version = filename[..underscore_pos].to_string();
-        let name = filename[underscore_pos + 1..].to_string();
-        (version, name)
-    } else {
-        // 没有下划线，整个作为 version，name 为空
-        (filename.to_string(), filename.to_string())
+        let version = &filename[..underscore_pos];
+        if !version.is_empty() && version.chars().all(|c| c.is_ascii_digit()) {
+            return (
+                version.to_string(),
+                filename[underscore_pos + 1..].to_string(),
+            );
+        }
     }
+    (filename.to_string(), filename.to_string())
 }
 
 /// 迁移上下文
@@ -262,6 +353,100 @@ fn validate_migration_version(version: &str) -> Result<(), DbError> {
 /// - 其他：❌ 默认不支持
 fn supports_ddl_transactions(db_type: DbType) -> bool {
     matches!(db_type, DbType::PostgreSQL | DbType::Sqlite)
+}
+
+// ==================== R7：跨进程迁移锁 ====================
+
+/// 迁移锁默认等待上限（秒）；可用 `SZ_ORM_MIGRATION_LOCK_TIMEOUT_SECS` 覆盖
+const DEFAULT_MIGRATION_LOCK_TIMEOUT_SECS: u64 = 30;
+
+/// 各数据库的跨进程迁移锁实现族
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum MigrationLockKind {
+    /// `GET_LOCK` / `RELEASE_LOCK`（会话级命名锁）
+    MySql,
+    /// `pg_try_advisory_lock` / `pg_advisory_unlock`（会话级建议锁）
+    Postgres,
+    /// `sp_getapplock` / `sp_releaseapplock`（会话级应用锁）
+    SqlServer,
+}
+
+/// 返回该方言的迁移锁实现；`None` 表示未实现（多实例并发需由部署侧串行化）
+fn migration_lock_kind(db_type: DbType) -> Option<MigrationLockKind> {
+    match db_type {
+        DbType::MySQL | DbType::MariaDB | DbType::TiDB | DbType::OceanBase | DbType::PolarDB => {
+            Some(MigrationLockKind::MySql)
+        }
+        DbType::PostgreSQL | DbType::Kingbase | DbType::GaussDB => {
+            Some(MigrationLockKind::Postgres)
+        }
+        DbType::SqlServer | DbType::Sybase => Some(MigrationLockKind::SqlServer),
+        _ => None,
+    }
+}
+
+/// 迁移锁 key（跟随迁移表名隔离；非字母数字字符替换为下划线，杜绝注入）
+fn migration_lock_key(table_name: &str) -> String {
+    let sanitized: String = table_name
+        .chars()
+        .map(|c| {
+            if c.is_ascii_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
+        .collect();
+    format!("szorm_migrate_{sanitized}")
+}
+
+/// 读取锁等待超时（秒）
+fn migration_lock_timeout() -> std::time::Duration {
+    let secs = std::env::var("SZ_ORM_MIGRATION_LOCK_TIMEOUT_SECS")
+        .ok()
+        .and_then(|v| v.trim().parse::<u64>().ok())
+        .filter(|v| *v > 0)
+        .unwrap_or(DEFAULT_MIGRATION_LOCK_TIMEOUT_SECS);
+    std::time::Duration::from_secs(secs)
+}
+
+/// 判定“是否已获得锁”的返回值语义
+///
+/// - MySQL `GET_LOCK`：1 = 获得，0 = 超时，NULL = 错误
+/// - PG `pg_try_advisory_lock`：true / false
+/// - SQL Server `sp_getapplock`：>= 0 获得，< 0 失败
+#[derive(Debug, Clone, Copy)]
+enum LockValueSemantics {
+    Boolean,
+    /// 非负数即视为获得（SQL Server 返回码）
+    ReturnCode,
+}
+
+fn lock_value_acquired(value: Option<&crate::Value>, semantics: LockValueSemantics) -> bool {
+    match (value, semantics) {
+        (Some(crate::Value::Bool(b)), _) => *b,
+        (Some(crate::Value::I8(v)), LockValueSemantics::Boolean) => *v == 1,
+        (Some(crate::Value::I16(v)), LockValueSemantics::Boolean) => *v == 1,
+        (Some(crate::Value::I32(v)), LockValueSemantics::Boolean) => *v == 1,
+        (Some(crate::Value::I64(v)), LockValueSemantics::Boolean) => *v == 1,
+        (Some(crate::Value::I8(v)), LockValueSemantics::ReturnCode) => *v >= 0,
+        (Some(crate::Value::I16(v)), LockValueSemantics::ReturnCode) => *v >= 0,
+        (Some(crate::Value::I32(v)), LockValueSemantics::ReturnCode) => *v >= 0,
+        (Some(crate::Value::I64(v)), LockValueSemantics::ReturnCode) => *v >= 0,
+        (Some(crate::Value::U32(v)), _) => *v == 1,
+        (Some(crate::Value::U64(v)), _) => *v == 1,
+        (Some(crate::Value::F64(v)), LockValueSemantics::Boolean) => {
+            (*v - 1.0).abs() < f64::EPSILON
+        }
+        (Some(crate::Value::F64(v)), LockValueSemantics::ReturnCode) => *v >= 0.0,
+        (Some(crate::Value::String(s)), LockValueSemantics::Boolean) => {
+            matches!(s.trim(), "1" | "true" | "TRUE" | "t")
+        }
+        (Some(crate::Value::String(s)), LockValueSemantics::ReturnCode) => {
+            s.trim().parse::<i64>().map(|v| v >= 0).unwrap_or(false)
+        }
+        _ => false,
+    }
 }
 
 /// 迁移方向
@@ -352,6 +537,7 @@ impl Migrator {
     ///     version VARCHAR(255) NOT NULL PRIMARY KEY,
     ///     name VARCHAR(255),
     ///     batch INTEGER NOT NULL,
+    ///     checksum VARCHAR(32),
     ///     executed_at TIMESTAMP NOT NULL DEFAULT CURRENT_TIMESTAMP
     /// );
     /// ```
@@ -372,6 +558,7 @@ impl Migrator {
                 version VARCHAR(255) NOT NULL PRIMARY KEY, \
                 name VARCHAR(255), \
                 batch INTEGER NOT NULL, \
+                checksum VARCHAR(32), \
                 executed_at {ts}\
             )",
             table,
@@ -390,21 +577,150 @@ impl Migrator {
         if let Some(ref mut conn) = self.context.connection {
             conn.execute(&sql).await?;
         }
+        self.ensure_checksum_column().await
+    }
+
+    /// R7：确保 `checksum` 列存在（旧版本迁移表升级路径）
+    ///
+    /// 先探测列是否存在（`WHERE 1 = 0` 不产生数据），缺失时执行 ALTER。
+    /// Oracle 的列添加语法不带 `COLUMN` 关键字。
+    async fn ensure_checksum_column(&mut self) -> Result<(), DbError> {
+        let Some(ref mut conn) = self.context.connection else {
+            return Ok(());
+        };
+        let probe = format!(
+            "SELECT checksum FROM {} WHERE 1 = 0",
+            self.context.table_name
+        );
+        if conn.query(&probe).await.is_ok() {
+            return Ok(());
+        }
+        let alter = match self.context.db_type {
+            Some(DbType::Oracle) | Some(DbType::Dameng) => format!(
+                "ALTER TABLE {} ADD (checksum VARCHAR(32))",
+                self.context.table_name
+            ),
+            _ => format!(
+                "ALTER TABLE {} ADD COLUMN checksum VARCHAR(32)",
+                self.context.table_name
+            ),
+        };
+        conn.execute(&alter).await?;
         Ok(())
+    }
+
+    /// R7：回填旧记录的 checksum（历史版本表无该列时的兼容升级）
+    async fn backfill_checksum(&mut self, version: &str, checksum: &str) -> Result<(), DbError> {
+        if let Some(ref mut conn) = self.context.connection {
+            let sql = format!(
+                "UPDATE {} SET checksum = '{}' WHERE version = '{}' AND (checksum IS NULL OR checksum = '')",
+                self.context.table_name, checksum, version
+            );
+            conn.execute(&sql).await?;
+        }
+        Ok(())
+    }
+
+    /// R7：获取跨进程迁移锁
+    ///
+    /// 返回用于释放的 SQL；`None` 表示未取锁（纯内存模式、或该方言未实现锁）。
+    /// 未实现锁的方言（Oracle/SQLite 等）打 WARN 日志，多实例部署需由部署侧串行化。
+    async fn acquire_migration_lock(&mut self) -> Result<Option<String>, DbError> {
+        let Some(db_type) = self.context.db_type else {
+            return Ok(None);
+        };
+        let Some(kind) = migration_lock_kind(db_type) else {
+            tracing::warn!(
+                db_type = ?db_type,
+                "该方言未实现跨进程迁移锁：多实例并发 migrate 需由部署侧串行化"
+            );
+            return Ok(None);
+        };
+        let Some(ref mut conn) = self.context.connection else {
+            return Ok(None);
+        };
+
+        let key = migration_lock_key(&self.context.table_name);
+        let (try_sql, release_sql, semantics) = match kind {
+            MigrationLockKind::MySql => (
+                format!("SELECT GET_LOCK('{key}', 0) AS acquired"),
+                format!("SELECT RELEASE_LOCK('{key}')"),
+                LockValueSemantics::Boolean,
+            ),
+            MigrationLockKind::Postgres => (
+                format!("SELECT pg_try_advisory_lock(hashtext('{key}')) AS acquired"),
+                format!("SELECT pg_advisory_unlock(hashtext('{key}'))"),
+                LockValueSemantics::Boolean,
+            ),
+            MigrationLockKind::SqlServer => (
+                format!(
+                    "DECLARE @rc INT; EXEC @rc = sp_getapplock @Resource = '{key}', \
+                     @LockMode = 'Exclusive', @LockOwner = 'Session', @LockTimeout = 0; \
+                     SELECT @rc AS acquired;"
+                ),
+                format!("EXEC sp_releaseapplock @Resource = '{key}', @LockOwner = 'Session';"),
+                LockValueSemantics::ReturnCode,
+            ),
+        };
+
+        let timeout = migration_lock_timeout();
+        let deadline = std::time::Instant::now() + timeout;
+        loop {
+            let rows = conn.query(&try_sql).await?;
+            if rows.is_empty() {
+                // 驱动未返回锁状态（测试替身 / 不支持该语句的连接实现）：
+                // 无法判定，按“已获取”继续，但显式告警，避免伪装成已串行化。
+                tracing::warn!(
+                    key = %key,
+                    "迁移锁语句未返回锁状态，跳过串行化判定（当前连接实现不支持迁移锁）"
+                );
+                return Ok(Some(release_sql));
+            }
+            let acquired = rows
+                .first()
+                .and_then(|row| row.get("acquired"))
+                .map(|v| lock_value_acquired(Some(v), semantics))
+                .unwrap_or(false);
+            if acquired {
+                return Ok(Some(release_sql));
+            }
+            if std::time::Instant::now() >= deadline {
+                return Err(DbError::MigrationError(format!(
+                    "等待迁移锁超时（{}s）：另一实例正在执行迁移（key={key}）",
+                    timeout.as_secs()
+                )));
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+        }
+    }
+
+    /// R7：释放跨进程迁移锁（失败仅告警：会话结束/连接归还时数据库自动释放）
+    async fn release_migration_lock(&mut self, release_sql: Option<String>) {
+        let Some(sql) = release_sql else {
+            return;
+        };
+        if let Some(ref mut conn) = self.context.connection {
+            if let Err(e) = conn.execute(&sql).await {
+                tracing::warn!(error = %e, "释放迁移锁失败");
+            }
+        }
     }
 
     /// P1-4：从 `__migrations` 表加载已执行的迁移记录
     ///
-    /// 返回 `HashMap<version, batch>`，表示每个已执行迁移的版本号和批次号。
+    /// 返回 `HashMap<version, (batch, checksum)>`，表示每个已执行迁移的批次号和内容 checksum。
     /// 调用方应根据返回值更新 `self.migrations` 中对应迁移的 `batch` 字段。
     ///
     /// 若 `context.connection` 为 None，返回空 map（纯内存模式）。
     async fn load_applied_migrations(
         &mut self,
-    ) -> Result<std::collections::HashMap<String, i32>, DbError> {
+    ) -> Result<std::collections::HashMap<String, (i32, Option<String>)>, DbError> {
         let mut applied = std::collections::HashMap::new();
         if let Some(ref mut conn) = self.context.connection {
-            let sql = format!("SELECT version, batch FROM {}", self.context.table_name);
+            let sql = format!(
+                "SELECT version, batch, checksum FROM {}",
+                self.context.table_name
+            );
             let rows = conn.query(&sql).await?;
             for row in rows {
                 if let Some(crate::Value::String(version)) = row.get("version") {
@@ -413,7 +729,11 @@ impl Migrator {
                         Some(crate::Value::I64(b)) => *b as i32,
                         _ => 0,
                     };
-                    applied.insert(version.clone(), batch);
+                    let checksum = match row.get("checksum") {
+                        Some(crate::Value::String(s)) if !s.is_empty() => Some(s.clone()),
+                        _ => None,
+                    };
+                    applied.insert(version.clone(), (batch, checksum));
                 }
             }
         }
@@ -423,16 +743,35 @@ impl Migrator {
     /// P1-4：根据 `__migrations` 表的记录同步内存中的迁移状态
     ///
     /// 在 `migrate`/`up`/`down` 等方法入口处调用，确保内存状态与数据库持久化状态一致。
+    ///
+    /// R7：同时校验 checksum——已执行迁移的内容被改动时直接报错并拒绝执行；
+    /// 旧版本记录（无 checksum）按当前内容回填，作为一次性兼容升级。
     async fn sync_state_from_db(&mut self) -> Result<(), DbError> {
         let applied = self.load_applied_migrations().await?;
+        let mut backfill: Vec<(String, String)> = Vec::new();
         for migration in &mut self.migrations {
-            if let Some(batch) = applied.get(&migration.version) {
+            if let Some((batch, stored_checksum)) = applied.get(&migration.version) {
+                let expected = migration.checksum();
+                match stored_checksum.as_deref() {
+                    Some(stored) if stored != expected => {
+                        return Err(DbError::MigrationError(format!(
+                            "迁移 checksum 不匹配：版本 {} 已执行内容与当前迁移定义不一致（记录 {}，当前 {}）；\
+                             禁止修改已执行的迁移，请新增一个迁移版本",
+                            migration.version, stored, expected
+                        )));
+                    }
+                    Some(_) => {}
+                    None => backfill.push((migration.version.clone(), expected)),
+                }
                 migration.batch = *batch;
                 migration.executed_at = Some(chrono::Utc::now());
             } else {
                 migration.batch = 0;
                 migration.executed_at = None;
             }
+        }
+        for (version, checksum) in backfill {
+            self.backfill_checksum(&version, &checksum).await?;
         }
         Ok(())
     }
@@ -454,10 +793,16 @@ impl Migrator {
             if name.contains('\'') || name.contains(';') {
                 return Err(DbError::MigrationError(format!("非法迁移名称: {}", name)));
             }
+            let checksum = self
+                .migrations
+                .iter()
+                .find(|m| m.version == version)
+                .map(|m| m.checksum())
+                .unwrap_or_default();
             let now = chrono::Utc::now().format("%Y-%m-%d %H:%M:%S");
             let sql = format!(
-                "INSERT INTO {} (version, name, batch, executed_at) VALUES ('{}', '{}', {}, '{}')",
-                self.context.table_name, version, name, batch, now
+                "INSERT INTO {} (version, name, batch, checksum, executed_at) VALUES ('{}', '{}', {}, '{}', '{}')",
+                self.context.table_name, version, name, batch, checksum, now
             );
             conn.execute(&sql).await?;
         }
@@ -487,7 +832,17 @@ impl Migrator {
     ///
     /// P1-4：若连接可用，会自动创建 `__migrations` 持久化表，并在执行前从表中
     /// 同步已执行记录、执行后向表插入新记录。
+    ///
+    /// R7：执行期间持有跨进程迁移锁（MySQL `GET_LOCK` / PG 建议锁 / SQL Server `sp_getapplock`），
+    /// 多实例并发调用时只有一个实例执行 DDL，其余实例等待。
     pub async fn migrate(&mut self) -> Result<Vec<String>, DbError> {
+        let release = self.acquire_migration_lock().await?;
+        let result = self.migrate_locked().await;
+        self.release_migration_lock(release).await;
+        result
+    }
+
+    async fn migrate_locked(&mut self) -> Result<Vec<String>, DbError> {
         // 版本冲突检测
         self.check_version_conflicts()?;
 
@@ -586,6 +941,13 @@ impl Migrator {
     ///
     /// P1-4：若连接可用，会自动创建 `__migrations` 表，并在回滚后从表中删除记录。
     pub async fn rollback(&mut self, version: &str) -> Result<(), DbError> {
+        let release = self.acquire_migration_lock().await?;
+        let result = self.rollback_locked(version).await;
+        self.release_migration_lock(release).await;
+        result
+    }
+
+    async fn rollback_locked(&mut self, version: &str) -> Result<(), DbError> {
         // P1-4：确保 __migrations 表存在并同步状态
         self.ensure_migrations_table().await?;
         self.sync_state_from_db().await?;
@@ -625,6 +987,13 @@ impl Migrator {
     /// P1-4：若连接可用，会自动创建 `__migrations` 表，并在执行前从表中
     /// 同步已执行记录、执行后向表插入新记录。
     pub async fn up(&mut self, target_version: Option<&str>) -> Result<Vec<String>, DbError> {
+        let release = self.acquire_migration_lock().await?;
+        let result = self.up_locked(target_version).await;
+        self.release_migration_lock(release).await;
+        result
+    }
+
+    async fn up_locked(&mut self, target_version: Option<&str>) -> Result<Vec<String>, DbError> {
         // 版本冲突检测
         self.check_version_conflicts()?;
 
@@ -676,6 +1045,13 @@ impl Migrator {
     ///
     /// P1-4：若连接可用，会自动创建 `__migrations` 表，并在回滚后从表中删除记录。
     pub async fn down(&mut self, target_version: Option<&str>) -> Result<Vec<String>, DbError> {
+        let release = self.acquire_migration_lock().await?;
+        let result = self.down_locked(target_version).await;
+        self.release_migration_lock(release).await;
+        result
+    }
+
+    async fn down_locked(&mut self, target_version: Option<&str>) -> Result<Vec<String>, DbError> {
         // 版本冲突检测
         self.check_version_conflicts()?;
 
@@ -723,11 +1099,17 @@ impl Migrator {
     }
 
     /// 重置：回滚所有已执行的迁移，然后重新执行
+    ///
+    /// R7：整个“回滚 + 重放”在同一个迁移锁内完成，避免其他实例插入执行。
     pub async fn reset(&mut self) -> Result<Vec<String>, DbError> {
-        // 先全部回滚
-        self.down(None).await?;
-        // 再全部执行
-        self.migrate().await
+        let release = self.acquire_migration_lock().await?;
+        let result = async {
+            self.down_locked(None).await?;
+            self.migrate_locked().await
+        }
+        .await;
+        self.release_migration_lock(release).await;
+        result
     }
 
     /// 刷新：回滚所有已执行的迁移，然后重新执行
@@ -1207,7 +1589,10 @@ mod tests {
     // ==================== T26a 新增测试 ====================
     use crate::mock::FallbackBehavior;
     use crate::mock::MockConnection;
+    use crate::pool::Connection;
+    use crate::pool::QueryRows;
     use crate::Value;
+    use std::collections::HashMap;
     use std::fs;
     use std::path::PathBuf;
 
@@ -1251,6 +1636,68 @@ mod tests {
         let (v2, n2) = parse_migration_filename("init");
         assert_eq!(v2, "init");
         assert_eq!(n2, "init");
+    }
+
+    #[test]
+    fn t26m_parse_filename_unversioned_not_collapsed() {
+        // 无数字编号的文件必须各自独立成版本，不能都归并到 "add"
+        let (v1, n1) = parse_migration_filename("add_alert_history");
+        assert_eq!(v1, "add_alert_history");
+        assert_eq!(n1, "add_alert_history");
+        let (v2, _) = parse_migration_filename("add_config_version");
+        assert_ne!(v1, v2);
+    }
+
+    #[test]
+    fn t26m_split_dialect_suffix() {
+        assert_eq!(
+            split_dialect_suffix("001_init_pg"),
+            Some((DbType::PostgreSQL, "001_init"))
+        );
+        assert_eq!(
+            split_dialect_suffix("001_init_mysql"),
+            Some((DbType::MySQL, "001_init"))
+        );
+        assert_eq!(
+            split_dialect_suffix("001_init_postgres"),
+            Some((DbType::PostgreSQL, "001_init"))
+        );
+        assert_eq!(split_dialect_suffix("001_init"), None);
+    }
+
+    #[test]
+    fn t26m_file_resolver_dialect_aware() {
+        let dir = t26m_temp_dir("dialect");
+        fs::write(dir.join("001_init.sql"), "MYSQL-ISH").unwrap();
+        fs::write(dir.join("001_init_pg.sql"), "PG-SPECIFIC").unwrap();
+        fs::write(dir.join("002_add_x.sql"), "X").unwrap();
+        fs::write(dir.join("002_add_x_mysql.sql"), "X-MYSQL").unwrap();
+        fs::write(dir.join("002_add_x_oracle.sql"), "X-ORACLE").unwrap();
+        let resolver = FileMigrationResolver::new(dir.clone());
+
+        let pg = resolver.resolve(DbType::PostgreSQL).unwrap();
+        assert_eq!(pg.len(), 2);
+        assert_eq!(pg[0].version, "001");
+        assert_eq!(pg[0].sql_up, "PG-SPECIFIC");
+        assert_eq!(pg[1].sql_up, "X");
+
+        let mysql = resolver.resolve(DbType::MySQL).unwrap();
+        assert_eq!(mysql.len(), 2);
+        assert_eq!(mysql[0].sql_up, "MYSQL-ISH");
+        assert_eq!(mysql[1].sql_up, "X-MYSQL");
+
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn t26m_file_resolver_keeps_multiple_unversioned_files() {
+        let dir = t26m_temp_dir("unversioned");
+        fs::write(dir.join("add_alert_history.sql"), "A").unwrap();
+        fs::write(dir.join("add_config_version.sql"), "B").unwrap();
+        let resolver = FileMigrationResolver::new(dir.clone());
+        let list = resolver.resolve(DbType::MySQL).unwrap();
+        assert_eq!(list.len(), 2);
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
@@ -1393,7 +1840,7 @@ mod tests {
     #[tokio::test]
     async fn t26m_down_with_mock_connection() {
         let mut mock = MockConnection::new();
-        mock.expect_query("SELECT version, batch FROM __migrations")
+        mock.expect_query("SELECT version, batch, checksum FROM __migrations")
             .with_rows(vec![
                 vec![
                     ("version", Value::from("001")),
@@ -1492,7 +1939,7 @@ mod tests {
             .build_create_migrations_table_sql();
         let mut mock = MockConnection::new().with_fallback(FallbackBehavior::Error);
         mock.expect_execute(&create_sql, 0);
-        mock.expect_query("SELECT version, batch FROM __migrations")
+        mock.expect_query("SELECT version, batch, checksum FROM __migrations")
             .with_rows(vec![]);
         let ctx = MigrationContext {
             table_name: "__migrations".to_string(),
@@ -1512,10 +1959,11 @@ mod tests {
     #[tokio::test]
     async fn t26m_rollback_with_mock_connection() {
         let mut mock = MockConnection::new();
-        mock.expect_query("SELECT version, batch FROM __migrations")
+        mock.expect_query("SELECT version, batch, checksum FROM __migrations")
             .with_rows(vec![vec![
                 ("version", Value::from("001")),
                 ("batch", Value::from(1i32)),
+                ("checksum", Value::from("")),
             ]]);
         let ctx = MigrationContext {
             table_name: "__migrations".to_string(),
@@ -1682,5 +2130,344 @@ mod tests {
         assert_eq!(MigrationDirection::Up, MigrationDirection::Up);
         assert_ne!(MigrationDirection::Up, MigrationDirection::Down);
         assert_eq!(MigrationDirection::Down, MigrationDirection::Down);
+    }
+
+    // ==================== R7：checksum + 跨进程迁移锁 ====================
+
+    /// 可编排返回值的连接：记录全部 SQL，按子串匹配返回预设行
+    struct ScriptedConnection {
+        log: std::sync::Arc<std::sync::Mutex<Vec<String>>>,
+        rows_for: Vec<(&'static str, Vec<HashMap<String, Value>>)>,
+    }
+
+    impl Connection for ScriptedConnection {
+        fn execute<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<u64, DbError>> + Send + 'a>>
+        {
+            Box::pin(async move {
+                self.log.lock().unwrap().push(sql.to_string());
+                Ok(1)
+            })
+        }
+
+        fn query<'a>(
+            &'a mut self,
+            sql: &'a str,
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<QueryRows, DbError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                self.log.lock().unwrap().push(sql.to_string());
+                Ok(self
+                    .rows_for
+                    .iter()
+                    .find(|(needle, _)| sql.contains(needle))
+                    .map(|(_, rows)| rows.clone())
+                    .unwrap_or_default())
+            })
+        }
+
+        fn begin_transaction<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn commit<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn rollback<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move { Ok(()) })
+        }
+
+        fn is_connected(&self) -> bool {
+            true
+        }
+
+        fn ping<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+            Box::pin(async move { true })
+        }
+
+        fn close<'a>(
+            &'a mut self,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+        {
+            Box::pin(async move { Ok(()) })
+        }
+    }
+
+    fn lock_row(acquired: Value) -> HashMap<String, Value> {
+        let mut row = HashMap::new();
+        row.insert("acquired".to_string(), acquired);
+        row
+    }
+
+    fn applied_row(version: &str, batch: i32, checksum: Option<&str>) -> HashMap<String, Value> {
+        let mut row = HashMap::new();
+        row.insert("version".to_string(), Value::String(version.to_string()));
+        row.insert("batch".to_string(), Value::I64(batch as i64));
+        row.insert(
+            "checksum".to_string(),
+            checksum
+                .map(|c| Value::String(c.to_string()))
+                .unwrap_or(Value::Null),
+        );
+        row
+    }
+
+    fn scripted_migrator(
+        db_type: DbType,
+        rows_for: Vec<(&'static str, Vec<HashMap<String, Value>>)>,
+    ) -> (Migrator, std::sync::Arc<std::sync::Mutex<Vec<String>>>) {
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let ctx = MigrationContext {
+            table_name: "__migrations_r7".to_string(),
+            connection: Some(Box::new(ScriptedConnection {
+                log: log.clone(),
+                rows_for,
+            })),
+            db_type: Some(db_type),
+        };
+        (
+            Migrator::new(ctx).add_migration(Migration::new(
+                "r7_001",
+                "create_t",
+                "CREATE TABLE t_r7 (id INT)",
+                "DROP TABLE t_r7",
+            )),
+            log,
+        )
+    }
+
+    #[test]
+    fn r7_checksum_is_stable_and_sensitive_to_content() {
+        let base = migration_checksum("CREATE TABLE a (id INT)", "DROP TABLE a");
+        assert_eq!(base.len(), 32, "checksum 应为 32 位十六进制");
+        assert!(base.chars().all(|c| c.is_ascii_hexdigit()));
+        assert_eq!(
+            base,
+            migration_checksum("CREATE TABLE a (id INT)", "DROP TABLE a"),
+            "同内容必须得到同 checksum"
+        );
+        assert_ne!(
+            base,
+            migration_checksum("CREATE TABLE a (id BIGINT)", "DROP TABLE a"),
+            "up 内容变化必须改变 checksum"
+        );
+        assert_ne!(
+            base,
+            migration_checksum("CREATE TABLE a (id INT)", "DROP TABLE a CASCADE"),
+            "down 内容变化必须改变 checksum"
+        );
+        // 拼接歧义防护：不同的 up/down 切分不得产生同一 checksum
+        assert_ne!(migration_checksum("AB", "C"), migration_checksum("A", "BC"));
+        assert_eq!(
+            Migration::new("1", "n", "UP", "DOWN").checksum(),
+            migration_checksum("UP", "DOWN")
+        );
+    }
+
+    #[tokio::test]
+    async fn r7_checksum_mismatch_rejected() {
+        let (mut migrator, _log) = scripted_migrator(
+            DbType::PostgreSQL,
+            vec![
+                ("pg_try_advisory_lock", vec![lock_row(Value::Bool(true))]),
+                (
+                    "SELECT version, batch, checksum",
+                    vec![applied_row(
+                        "r7_001",
+                        1,
+                        Some("deadbeefdeadbeefdeadbeefdeadbeef"),
+                    )],
+                ),
+            ],
+        );
+        let err = migrator.migrate().await.unwrap_err();
+        let msg = err.to_string();
+        assert!(msg.contains("checksum 不匹配"), "实际错误：{msg}");
+        assert!(msg.contains("r7_001"), "错误必须指明版本：{msg}");
+    }
+
+    #[tokio::test]
+    async fn r7_missing_checksum_is_backfilled() {
+        let (mut migrator, log) = scripted_migrator(
+            DbType::PostgreSQL,
+            vec![
+                ("pg_try_advisory_lock", vec![lock_row(Value::Bool(true))]),
+                (
+                    "SELECT version, batch, checksum",
+                    vec![applied_row("r7_001", 1, None)],
+                ),
+            ],
+        );
+        let applied = migrator.migrate().await.unwrap();
+        assert!(applied.is_empty(), "已执行迁移不应重复执行");
+        let expected = Migration::new(
+            "r7_001",
+            "create_t",
+            "CREATE TABLE t_r7 (id INT)",
+            "DROP TABLE t_r7",
+        )
+        .checksum();
+        let log = log.lock().unwrap();
+        assert!(
+            log.iter()
+                .any(|sql| sql.contains("UPDATE __migrations_r7 SET checksum")
+                    && sql.contains(&expected)),
+            "旧记录必须回填 checksum，日志：{log:?}"
+        );
+        assert!(
+            !log.iter().any(|sql| sql.contains("CREATE TABLE t_r7")),
+            "已执行迁移不得重复执行 DDL"
+        );
+    }
+
+    #[tokio::test]
+    async fn r7_mysql_lock_acquired_and_released() {
+        let (mut migrator, log) = scripted_migrator(
+            DbType::MySQL,
+            vec![("GET_LOCK", vec![lock_row(Value::I64(1))])],
+        );
+        let applied = migrator.migrate().await.unwrap();
+        assert_eq!(applied, vec!["r7_001".to_string()]);
+        let log = log.lock().unwrap();
+        let get_pos = log
+            .iter()
+            .position(|sql| sql.contains("GET_LOCK('szorm_migrate___migrations_r7', 0)"))
+            .expect("必须申请 GET_LOCK");
+        let release_pos = log
+            .iter()
+            .position(|sql| sql.contains("RELEASE_LOCK('szorm_migrate___migrations_r7')"))
+            .expect("必须释放 RELEASE_LOCK");
+        let ddl_pos = log
+            .iter()
+            .position(|sql| sql.contains("CREATE TABLE t_r7"))
+            .expect("必须执行迁移 DDL");
+        assert!(get_pos < ddl_pos, "锁必须在 DDL 之前获取");
+        assert!(ddl_pos < release_pos, "锁必须在 DDL 之后释放");
+    }
+
+    #[tokio::test]
+    async fn r7_postgres_lock_sql_shape() {
+        let (mut migrator, log) = scripted_migrator(
+            DbType::PostgreSQL,
+            vec![("pg_try_advisory_lock", vec![lock_row(Value::Bool(true))])],
+        );
+        migrator.migrate().await.unwrap();
+        let log = log.lock().unwrap();
+        assert!(log
+            .iter()
+            .any(|sql| sql
+                .contains("pg_try_advisory_lock(hashtext('szorm_migrate___migrations_r7'))")));
+        assert!(log.iter().any(
+            |sql| sql.contains("pg_advisory_unlock(hashtext('szorm_migrate___migrations_r7'))")
+        ));
+    }
+
+    #[tokio::test]
+    async fn r7_lock_contention_times_out() {
+        // GET_LOCK 返回 0 表示锁被其他会话持有
+        let (mut migrator, _log) = scripted_migrator(
+            DbType::MySQL,
+            vec![("GET_LOCK", vec![lock_row(Value::I64(0))])],
+        );
+        // 无全局参数可改，使用 1s 超时的环境变量（本用例独占该变量）
+        std::env::set_var("SZ_ORM_MIGRATION_LOCK_TIMEOUT_SECS", "1");
+        let err = migrator.migrate().await.unwrap_err();
+        std::env::remove_var("SZ_ORM_MIGRATION_LOCK_TIMEOUT_SECS");
+        let msg = err.to_string();
+        assert!(msg.contains("等待迁移锁超时"), "实际错误：{msg}");
+    }
+
+    #[test]
+    fn r7_lock_value_semantics_per_backend() {
+        let one = Value::I64(1);
+        let zero = Value::I64(0);
+        let negative = Value::I64(-1);
+        let truthy = Value::Bool(true);
+        let falsy = Value::Bool(false);
+        assert!(lock_value_acquired(Some(&one), LockValueSemantics::Boolean));
+        assert!(!lock_value_acquired(
+            Some(&zero),
+            LockValueSemantics::Boolean
+        ));
+        assert!(lock_value_acquired(
+            Some(&truthy),
+            LockValueSemantics::Boolean
+        ));
+        assert!(!lock_value_acquired(
+            Some(&falsy),
+            LockValueSemantics::Boolean
+        ));
+        // SQL Server sp_getapplock：0/1 获得，负数失败
+        assert!(lock_value_acquired(
+            Some(&zero),
+            LockValueSemantics::ReturnCode
+        ));
+        assert!(lock_value_acquired(
+            Some(&one),
+            LockValueSemantics::ReturnCode
+        ));
+        assert!(!lock_value_acquired(
+            Some(&negative),
+            LockValueSemantics::ReturnCode
+        ));
+        // MySQL GET_LOCK 返回 NULL（内部错误）不得视为已获锁
+        assert!(!lock_value_acquired(None, LockValueSemantics::Boolean));
+    }
+
+    #[test]
+    fn r7_lock_kind_and_key_per_dialect() {
+        assert_eq!(
+            migration_lock_kind(DbType::MySQL),
+            Some(MigrationLockKind::MySql)
+        );
+        assert_eq!(
+            migration_lock_kind(DbType::MariaDB),
+            Some(MigrationLockKind::MySql)
+        );
+        assert_eq!(
+            migration_lock_kind(DbType::PostgreSQL),
+            Some(MigrationLockKind::Postgres)
+        );
+        assert_eq!(
+            migration_lock_kind(DbType::Kingbase),
+            Some(MigrationLockKind::Postgres)
+        );
+        assert_eq!(
+            migration_lock_kind(DbType::SqlServer),
+            Some(MigrationLockKind::SqlServer)
+        );
+        assert_eq!(migration_lock_kind(DbType::Oracle), None);
+        assert_eq!(migration_lock_kind(DbType::Sqlite), None);
+        // key 必须剔除可能的注入字符
+        assert_eq!(
+            migration_lock_key("__migrations"),
+            "szorm_migrate___migrations"
+        );
+        assert_eq!(
+            migration_lock_key("m'; DROP TABLE x; --"),
+            "szorm_migrate_m___DROP_TABLE_x____"
+        );
+    }
+
+    #[test]
+    fn r7_migrations_table_ddl_contains_checksum() {
+        let migrator = Migrator::new(MigrationContext::default());
+        let ddl = migrator.build_create_migrations_table_sql();
+        assert!(ddl.contains("checksum VARCHAR(32)"), "DDL：{ddl}");
     }
 }

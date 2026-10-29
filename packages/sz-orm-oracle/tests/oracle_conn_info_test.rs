@@ -4,10 +4,10 @@ use sz_orm_oracle::parse_connect_string;
 
 #[test]
 fn test_parse_connect_string_full_format() {
-    let info = parse_connect_string("127.0.0.1:1521/freepdb1.FALSE").unwrap();
+    let info = parse_connect_string("127.0.0.1:1521/freepdb1").unwrap();
     assert_eq!(info.host(), "127.0.0.1");
     assert_eq!(info.port(), 1521);
-    assert_eq!(info.service_name(), "freepdb1.FALSE");
+    assert_eq!(info.service_name(), "freepdb1");
     assert_eq!(info.username(), "");
     assert_eq!(info.password(), "");
 }

@@ -86,7 +86,9 @@ int32_t sz_orm_set_runtime_workers(uint32_t workers);
 
 /// Create a connection pool (SQLite backend; real creation)
 ///
-/// `dsn` supports SQLite URLs: `sqlite::memory:`, `sqlite://path/to/db.sqlite`
+/// `dsn` supports SQLite URLs: `sqlite::memory:`, `sqlite://path/to/db.sqlite`.
+/// All strings are NUL-terminated UTF-8. Non-SQLite DSNs are rejected
+/// explicitly (returns null) instead of failing deep inside the driver.
 ///
 /// # Safety
 ///
@@ -122,6 +124,22 @@ int32_t sz_orm_ping(SzOrmPoolHandle handle);
 /// `sql` must be a valid NUL-terminated C string.
 QueryJsonResult *sz_orm_query(SzOrmPoolHandle handle, const char *sql);
 
+/// Read a detailed error text for the most recent failure **on the calling
+/// thread**, e.g. `query execution failed: table users has no column named x`.
+///
+/// Returns a NUL-terminated UTF-8 string owned by the caller (free it with
+/// `sz_orm_string_free`), or nullptr when no failure has been recorded on this
+/// thread. The text is a copy: the channel is not cleared by reading, use
+/// `sz_orm_last_error_clear` for that.
+///
+/// # Safety
+///
+/// SAFETY: the returned pointer must be freed via `sz_orm_string_free`.
+char *sz_orm_last_error_message();
+
+/// Clear the detailed error text recorded for the calling thread.
+void sz_orm_last_error_clear();
+
 /// Free a query result
 ///
 /// # Safety
@@ -137,6 +155,44 @@ void sz_orm_query_result_free(QueryJsonResult *result);
 /// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
 /// `sql` must be a valid NUL-terminated C string.
 QueryResultC sz_orm_execute(SzOrmPoolHandle handle, const char *sql);
+
+/// Execute a parameterized query and return rows as JSON.
+///
+/// `params_json` is a JSON array of bound parameters (`[1,"a",null]`). Typed
+/// objects map to the corresponding `Value` variants so no precision is lost:
+/// `{"$type":"decimal","value":"123.45600000000000000000000000000000000001"}`,
+/// `{"$type":"datetime"|"date"|"time"|"uuid","value":"..."}`. A null
+/// `params_json` means "no parameters" (same as `sz_orm_query`).
+///
+/// Parameters are always bound as `?` placeholders — never interpolated into
+/// the SQL text, so injection payloads inside parameter values stay inert.
+///
+/// On failure returns a non-null result whose `error_code` is set; read the
+/// database's own message via `sz_orm_last_error_message`.
+///
+/// # Safety
+///
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` (and `params_json`, when non-null) must be valid NUL-terminated C
+/// strings.
+QueryJsonResult *sz_orm_query_params(SzOrmPoolHandle handle,
+                                     const char *sql,
+                                     const char *params_json);
+
+/// Execute a parameterized write statement (INSERT/UPDATE/DELETE) and return
+/// the number of affected rows.
+///
+/// Parameter encoding is identical to [`sz_orm_query_params`]; values are
+/// bound as `?` placeholders and never concatenated into the SQL text.
+///
+/// # Safety
+///
+/// SAFETY: `handle` must be a valid handle returned by `sz_orm_pool_new`;
+/// `sql` (and `params_json`, when non-null) must be valid NUL-terminated C
+/// strings.
+QueryResultC sz_orm_execute_params(SzOrmPoolHandle handle,
+                                   const char *sql,
+                                   const char *params_json);
 
 /// Get the version number
 uint32_t sz_orm_version();

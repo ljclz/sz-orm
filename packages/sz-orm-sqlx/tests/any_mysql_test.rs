@@ -291,9 +291,38 @@ async fn test_mysql_query_decimal() {
         .unwrap();
     let rows = conn.query("SELECT a FROM t_v920_dec").await.unwrap();
     assert_eq!(rows.len(), 1);
-    let val = rows[0].get("a").unwrap();
-    assert!(!val.is_null());
+    // R2：DECIMAL 必须解码为任意精度 Decimal 字符串（不允许 f64/rust_decimal 截断）
+    match rows[0].get("a").unwrap() {
+        Value::Decimal(s) => assert_eq!(s, "123456789.99"),
+        other => panic!("expected Value::Decimal, got {other:?}"),
+    }
     conn.execute("DROP TABLE IF EXISTS t_v920_dec")
+        .await
+        .unwrap();
+}
+
+#[tokio::test]
+#[ignore]
+async fn test_mysql_query_decimal_38_digit_is_exact() {
+    let pool = AnyPool::connect(dsn()).await.unwrap();
+    let mut conn = pool.create().await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS t_v920_dec38")
+        .await
+        .unwrap();
+    conn.execute("CREATE TABLE t_v920_dec38 (a DECIMAL(38,0))")
+        .await
+        .unwrap();
+    conn.execute("INSERT INTO t_v920_dec38 VALUES (12345678901234567890123456789012345678)")
+        .await
+        .unwrap();
+    let rows = conn.query("SELECT a FROM t_v920_dec38").await.unwrap();
+    assert_eq!(rows.len(), 1);
+    // R2：38 位有效数字逐位保真
+    match rows[0].get("a").unwrap() {
+        Value::Decimal(s) => assert_eq!(s, "12345678901234567890123456789012345678"),
+        other => panic!("expected Value::Decimal, got {other:?}"),
+    }
+    conn.execute("DROP TABLE IF EXISTS t_v920_dec38")
         .await
         .unwrap();
 }
@@ -316,7 +345,19 @@ async fn test_mysql_query_date_datetime_time() {
     .unwrap();
     let rows = conn.query("SELECT a, b, c FROM t_v920_date").await.unwrap();
     assert_eq!(rows.len(), 1);
-
+    // R1：时间类型不得静默返回 NULL，必须按 chrono 解码为对应 Value 变体
+    match rows[0].get("a").unwrap() {
+        Value::Date(s) => assert_eq!(s, "2026-09-27"),
+        other => panic!("expected Value::Date, got {other:?}"),
+    }
+    match rows[0].get("b").unwrap() {
+        Value::DateTime(s) => assert_eq!(s, "2026-09-27 12:30:00"),
+        other => panic!("expected Value::DateTime, got {other:?}"),
+    }
+    match rows[0].get("c").unwrap() {
+        Value::Time(s) => assert_eq!(s, "08:00:00"),
+        other => panic!("expected Value::Time, got {other:?}"),
+    }
     conn.execute("DROP TABLE IF EXISTS t_v920_date")
         .await
         .unwrap();
