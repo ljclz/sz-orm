@@ -21,7 +21,7 @@
 - **P1-1 ProdReadyChecker 真实化**：15 项检查从"硬编码 PASS"改为配置驱动真实验证（`config_masking_enabled`/`redis_tls_enabled`/`jwt_key_rotation_days` 等）；默认配置全 Skipped，`all_pass_strict()` 判定；README 示例改为配置驱动
 - **P1-3 可观测性接线**：新增 `sz-orm-core::metrics_hook`（进程级钩子槽位）+ `sz-orm-sqlx::metrics_conn`（三后端工厂连接统一包装，语句执行后上报）；`sz-orm-observability::install_global_alert_metrics()/install_query_metrics()` 桥接 13 个告警指标；新增端到端测试 `metrics_wiring_test`（ops/latency/errors 真实产生）
 - **P1-4 CI 性能基线比对闭环**：`RegressionBaseline::compare` 缺失 workload 判失败（fail-closed）；`handle_baseline` 改为**先比对后保存**；CI benchmark job 增加基线缓存恢复 + `--compare-baseline ci-sqlite`
-- **P1-5 OWASP 真实 DB 行为断言**：MySQL/PG 集成测试新增 `owasp_a01_tenant_scoping_returns_empty_set_on_cross_tenant` 与 `owasp_a03_injection_payload_via_parameter_is_inert`（越权空集 + 注入 payload 惰性字面量 + 堆叠 DROP 不执行）；PG 本机实测 2/2 通过，MySQL 待 CI 集成
+- **P1-5 OWASP 真实 DB 行为断言**：MySQL/PG 集成测试新增 `owasp_a01_tenant_scoping_returns_empty_set_on_cross_tenant` 与 `owasp_a03_injection_payload_via_parameter_is_inert`（越权空集 + 注入 payload 惰性字面量 + 堆叠 DROP 不执行）；**PG 2/2 与 MySQL 2/2 本机实测通过（2026-10-29，MySQL 使用宝塔 8802 实例），MySQL 全套集成测试 25/25 通过**
 - **P2-1 孤儿包登记册**：新增 `docs/orphan-packages-registry.md`（17 个孤儿包逐个体裁：6 个绑定/基准保留、6 个实验性保留、5 个冻结）；G17 校验登记覆盖
 - **P2-2 PHANTOM-2 豁免登记**：`check-phantom-delivery.py` 新增 `PHANTOM2_EXEMPT`（283 feature/308 组合全覆盖，分类理由），PHANTOM-2 未登记警告 **308 → 0**；--strict fail-closed 实测有效
 - **P2-3 gate.ps1 补齐**：补 G14-G19/G21/G23（27 → 35 步），PowerShell 解析校验通过
@@ -29,7 +29,7 @@
 - **P2-5 覆盖率实测**：cargo-llvm-cov 实测 `sz-orm-core` **行覆盖 90.67% / region 87.40%**（2026-10-28 新鲜基线）
 - **P2-6 幻影测试治理**：dialect.rs 35 个 P3 豁免测试全部补真实断言（方言 db_type/quote/分页/json/全文/锁子句），observability `query_path_metrics` 零断言测试补行为断言；豁免清单 229 → 191 行（4 个 all_* 因 G30 仅识别函数体顶层 assert 暂保留豁免并注明）
 - **P3-1 发布准备**：`publish-crates.sh` 修复 Windows python3 Store 桩检测；`--dry-run` 输出拓扑发布顺序 40+ 包
-- **P3-2 C# 绑定补齐**：新增强类型异常体系（`SzOrmException`/`SzOrmQueryException`/`SzOrmConnectionException`/`SzOrmTransactionException`）、`SzOrmTransaction`（Execute/Commit/Rollback/Dispose 隐式回滚）、`ExecuteBatch`、`GetStats`/`GetMetrics`、`SetRuntimeWorkers`；E2E 新增 5 个扩展用例
+- **P3-2 C# 绑定补齐**：新增强类型异常体系（`SzOrmException`/`SzOrmQueryException`/`SzOrmConnectionException`/`SzOrmTransactionException`）、`SzOrmTransaction`（Execute/Commit/Rollback/Dispose 隐式回滚）、`ExecuteBatch`、`GetStats`/`GetMetrics`、`SetRuntimeWorkers`；E2E 新增 5 个扩展用例；**2026-10-29 安装 .NET SDK 9.0.100 后本机实跑 E2E 全绿**（含强类型异常、事务提交/回滚/Dispose 隐式回滚、批量、池统计、中文 UTF-8 往返、注入惰性字面量）
 - **P3-3 社区文件**：新增 `CONTRIBUTING.md`（ADR-0001/门禁 34/硬约束/PR 流程/行为准则）+ `.github/ISSUE_TEMPLATE/`（bug/feature/config）
 - **P3-4 连接池容量接线**：三后端 `connect_with_max(url, max)`（对齐外层 `PoolConfig::max_size`，消除"内层硬编码 10 的双层上限"）；`PooledConnection::Drop` 新增同步快路径（干净连接不入队 spawn，直接入 idle + 条件唤醒），新增 `chaos_drop_clean_connection_returns_synchronously` 回归测试；chaos_pool 15/15、池 lib 147 测试全绿
 - **clippy 修复**：sz-orm-studio `handlers.rs`（derive Default + 冗余闭包）清零
@@ -146,8 +146,23 @@
 - **本机 Oracle 复现配置**：本机 Oracle 为 **26ai Free**（Release 23.26.3.0.0，127.0.0.1:1521/freepdb1）。OCI 客户端库位于 `/d/oracle/product/26ai/dbhomeFree/bin`（运行前加入 PATH 即可被 ODPI-C 找到）。`integration_oracle` 全套（设置 `SZ_ORM_ORACLE_PASSWORD`）实测 **10 passed / 0 failed**（含 bulk_insert_100k）
 - **AGENTS.md 勘误**：本机数据库小节更新为宝塔 MySQL 8.0.29（8802）+ Oracle 26ai Free + 凭据环境变量注入方式（不写明文密码）
 - **crates.io token**：用户确认已轮换为新 token，遗留项关闭
-- **供应链核查**：网络恢复后补跑 `cargo deny check advisories`（结果见当日命令输出）；`cargo-audit` 等价验证 0 已知漏洞
-- **验证**：生产就绪度报告遗留项 4/6 已更新为闭环（`docs/assessment/2026-10-28-production-readiness-report.md`）
+- **供应链核查**：经本机 SOCKS5 代理（127.0.0.1:1080）补跑 `cargo deny check advisories` 成功拉取 advisory-db → **`advisories ok`（0 漏洞）**；`cargo-audit`（本地库 + CI 风格 19 条 ignore）等价验证 0 已知漏洞。cargo deny 输出若干 `advisory-not-detected` 提示，经核查为 **advisory 未命中当前依赖**（rustls-pemfile/rand/event-listener/rkyv 仍在 Cargo.lock 中），`check-lockfile-ignore-relevance.py --strict` PASS，ignore 条目无需清理；G26 确认 CI `--ignore` 与 deny.toml（各 19 条）完全一致
+- **可观测性指标真实生产调用点**：`sz-orm-bench` 新增 `metrics-wiring` feature（`packages/sz-orm-bench/Cargo.toml`），在真实基准查询路径接入 `QueryPathMetrics`（`packages/sz-orm-bench/src/main.rs`）——每次 `run_workload_real` 记录延迟/操作/错误，运行结束后渲染 Prometheus 文本；实测 `sz_orm_latency_us_count 24`、直方图 bucket 正确累计。该实现是"应用层接入可观测性指标"的参考模板（feature 默认关闭，不影响默认基准与既有测试）
+- **验证**：生产就绪度报告遗留项 2/4/5/6 已更新为闭环（`docs/assessment/2026-10-28-production-readiness-report.md`）
+
+#### 2026-10-28 补充整改（v10.13.0 发布到 crates.io）
+
+- **发布核心包**：sz-pay 使用的 6 包（`sz-orm-core` / `sz-orm-sqlx` / `sz-orm-config` / `sz-orm-auth` / `sz-orm-macros` / `sz-orm-queue`）及全部上游依赖链（`sz-orm-adaptive` / `sz-orm-anomaly` / `sz-orm-masking` / `sz-orm-audit` / `sz-orm-health` / `sz-orm-limit` / `sz-orm-logger` / `sz-orm-tracing` / `sz-orm-n1-lint` / `sz-orm-search` / `sz-orm-timeseries` / `sz-orm-postgis` / `sz-orm-rw` / `sz-orm-graph` / `sz-orm-graphql` / `sz-orm-crypto` / `sz-orm-query-builder` / `sz-orm-sql-validator` / `sz-orm-observability` / `sz-orm-oracle` / `sz-orm-mssql` / `sz-orm-explain` / `sz-orm-flamegraph` 等 23+ 包）以 **10.13.0** 发布到 crates.io，官方索引可见
+- **发布方式**：crates.io token 从 `鲜视达/服务器信息.md` 读取并 `cargo login --registry crates-io` 配置（不入库）；`cargo publish --no-verify --allow-dirty` 按依赖图顺序逐包发布（自动检测并先发缺失依赖）；crates.io 上传网络不稳定时经本机 SOCKS5 代理（127.0.0.1:1080）成功
+- **门禁**：G19 发布一致性、G18/G12/G27/check-secrets/幻影交付 全部通过；cargo 全局 TUNA 镜像配置已恢复
+
+#### 2026-10-28 补充整改（sz-pay 真实应用查询路径接入可观测性指标）
+
+- **下游生产应用接入**：在 sz-pay（`D:\www\test\sz-pay\server\sz-rust`）真实查询路径接入 `QueryPathMetrics`——
+  - `src/sz_orm_obs.rs`：`MetricsHandles` 新增 `query_path: QueryPathMetrics` 字段（注册 `monitoring/alerts.yml` 引用的 `sz_orm_*` 告警指标），新增 `record_query_path(start, result)`（feature 启用/未启用双 cfg 版本）
+  - `src/repositories/base.rs`：`find_by_id` / `find_all` / `find_by` / `find_one_by` 四个通用查询方法在 `conn.query_with_params` 执行后调用 `record_query_path`，真实记录每次查询的延迟/操作/错误
+  - 验证：`cargo check --lib`（默认）与 `--features anomaly-remediation-rca`（指标生效）均编译通过
+- ⚠️ **下游既有问题**：sz-pay 与 sz-rust 上游存在版本未同步（sz-pay 声明 `sz-rust-* = ^1.7.0`，上游已升 2.0.0），导致 sz-pay 默认 `cargo check --all-targets` 在 `tests/wiring_e2e.rs` 失败（`AutoHealer` / `AnyPool::factory` API 不匹配）。本次未改动下游版本声明，需 sz-pay 侧升级适配后即可完整编译运行
 
 #### 2026-10-28 补充整改（D5：PG 占位符 `?` → `$n`，sz-rust 反馈专项）
 

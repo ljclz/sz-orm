@@ -375,6 +375,8 @@
 | P1-3 | `cargo test -p sz-orm-sqlx --test metrics_wiring_test` | ✅ 1 passed（ops/latency/errors 真实产生） |
 | P1-4 | `cargo test -p sz-orm-bench --lib regression_baseline` | ✅ 4 passed（缺 workload 判失败） |
 | P1-5 | `cargo test -p sz-orm-core --test integration_pg -- --ignored owasp` | ✅ 2 passed（越权空集 + 注入惰性字面量） |
+| P1-5 | `cargo test -p sz-orm-core --test integration_mysql -- --ignored owasp`（SZ_ORM_MYSQL_URL 指向宝塔 8802） | ✅ 2 passed（2026-10-29 本机补跑） |
+| P1-5 | `cargo test -p sz-orm-core --test integration_mysql -- --ignored`（同上） | ✅ 25 passed / 0 failed（MySQL 全套含 OWASP） |
 | P2-1 | `check-architecture.py` | ✅ 通过（17 个孤儿包全部登记） |
 | P2-2 | `check-phantom-delivery.py` | ✅ PHANTOM-2 未登记警告 **0**（豁免 308） |
 | P2-3 | PowerShell 解析 gate.ps1 | ✅ parse OK（35 步） |
@@ -382,7 +384,7 @@
 | P2-5 | `cargo llvm-cov -p sz-orm-core --lib` | ✅ **行 90.67% / region 87.40%** |
 | P2-6 | `check-phantom-tests.py` | ✅ 硬规则 0 命中（豁免 191） |
 | P3-1 | `bash scripts/publish-crates.sh --dry-run` | ✅ 输出拓扑顺序 40+ 包 |
-| P3-2 | C# E2E | ⚠️ 本机无 .NET SDK，扩展用例待 CI `csharp-binding` job 实跑 |
+| P3-2 | C# E2E | ✅ 2026-10-29 安装 .NET SDK 9.0.100 后本机实跑全绿（`dotnet run --project packages/sz-orm-cabi/csharp/SzOrmTest/SzOrmTest.csproj`，含扩展用例） |
 | P3-4 | `cargo test -p sz-orm-core --test chaos_pool` | ✅ 15 passed（含 Drop 同步快路径） |
 | 门禁 | `cargo clippy --workspace --all-targets -- -D warnings` | ✅ exit 0 |
 | 门禁 | `python -m pytest tests/` | ✅ 113 passed |
