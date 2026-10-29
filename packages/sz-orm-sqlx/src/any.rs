@@ -2314,7 +2314,7 @@ impl Connection for SqlxPgConnection {
     /// PostgreSQL 参数绑定执行（INSERT/UPDATE/DELETE）
     ///
     /// 使用 sqlx prepared statement 绑定参数。PostgreSQL 协议使用 `$1, $2, ...` 占位符，
-    /// 调用方传入的 `?` 占位符会由 [`pg_rewrite_placeholders`] 自动改写；
+    /// 调用方传入的 `?` 占位符会由 `pg_rewrite_placeholders` 自动改写；
     /// 已使用 `$n` 的 SQL 不会被二次改写。
     ///
     /// # 类型映射说明

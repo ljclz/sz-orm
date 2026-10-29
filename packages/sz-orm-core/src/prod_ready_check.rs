@@ -185,7 +185,7 @@ pub struct ProdReadyCheckerConfig {
     /// REQ-PROD-012：连接泄漏检测已启用
     #[serde(default)]
     pub leak_detection_enabled: Option<bool>,
-    /// REQ-PROD-013：N+1 检测已接入（N1QueryDetector 或 #[detect_n_plus_one]）
+    /// REQ-PROD-013：N+1 检测已接入（N1QueryDetector 或 `#[detect_n_plus_one]`）
     #[serde(default)]
     pub n1_detection_enabled: Option<bool>,
     /// REQ-PROD-014：连接池最大连接数
