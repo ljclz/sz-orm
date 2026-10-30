@@ -44,11 +44,13 @@ set -euo pipefail
 
 STRICT=0
 HEAD_MODE=0
+REQUIRE_EVIDENCE=0
 REPORT=""
 for arg in "$@"; do
   case "$arg" in
     --strict) STRICT=1 ;;
     --at-head|--athead) HEAD_MODE=1 ;;
+    --require-evidence) REQUIRE_EVIDENCE=1 ;;
     *) REPORT="$arg" ;;
   esac
 done
@@ -301,6 +303,13 @@ re_root='(^|[^A-Za-z0-9_.-])(([^:[:space:]`]*\/)?(deny\.toml|Cargo\.toml|Cargo\.
 # 路径字符类用 *（不是 +）：`.gitignore:67` 这类点文件在扩展名前没有字符，
 # 用 + 会让 sh 静默跳过而 .ps1 校验——正是本轮量到的 9 处口径差。
 re_any='(^|[^A-Za-z0-9_.:/\\-])([A-Za-z0-9_./@一-鿿-]*\.(rs|py|md|markdown|yml|yaml|toml|json|h|hpp|cs|sh|ps1|js|ts|java|go|cpp|txt|ini|nix|cfg|gitignore))(:)([0-9]+)'
+# 上面的 `一-鿿` 是多字节区间：部分 glibc collation 环境下 [[ =~ ]] 直接报
+# "Invalid collation character"，re_any 分支会静默失效（CI 上 14 个自测变红）。
+# 探测一次；失败则退化为仅 ASCII 路径字符类，保证其余校验照常生效。
+re_any_ascii='(^|[^A-Za-z0-9_.:/\\-])([A-Za-z0-9_./@-]*\.(rs|py|md|markdown|yml|yaml|toml|json|h|hpp|cs|sh|ps1|js|ts|java|go|cpp|txt|ini|nix|cfg|gitignore))(:)([0-9]+)'
+if ! { [[ "probe一.rs:1" =~ $re_any ]]; } 2>/dev/null; then
+  re_any=$re_any_ascii
+fi
 
 in_fence=0
 while IFS= read -r line || [[ -n "$line" ]]; do
@@ -397,8 +406,19 @@ if (( FAIL > 0 )); then
   echo "❌ 审计证据验证未通过 — 存在 $FAIL 处无效引用"
   exit 1
 elif (( PASS == 0 )); then
-  echo "⚠️  未找到任何 file:line 证据 — 报告可能未遵循审计规范"
-  exit 1
+  # legacy-citation-ledger 建议 3：零可校验引用报告治理。
+  # 豁免清单：评测提示词（*-prompt.md）与验证规范（*-verification-spec.md）本就不含结论性引用。
+  if [[ "$REPORT" =~ (-prompt\.md$|-verification-spec\.md$|-prompt\.json$) ]]; then
+    echo "ℹ️  零引用豁免（$(basename "$REPORT") 属提示词/验证规范类）"
+    echo "✅ 审计证据验证通过"
+    exit 0
+  fi
+  if (( REQUIRE_EVIDENCE )); then
+    echo "❌ 未找到任何 file:line 证据 — 非提示词类报告必须含可校验引用（--require-evidence）"
+    exit 1
+  fi
+  echo "⚠️  未找到任何 file:line 证据 — 报告可能未遵循审计规范（可用 --require-evidence 阻断）"
+  exit 0
 else
   echo "✅ 审计证据验证通过"
   exit 0

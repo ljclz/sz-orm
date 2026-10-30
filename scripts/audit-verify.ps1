@@ -60,7 +60,11 @@ param(
 
     [switch]$Strict,
 
-    [switch]$AtHead
+    [switch]$AtHead,
+
+    # 2026-10-30 legacy-citation-ledger 建议 3：显式要求"非提示词类报告必须含可校验引用"。
+    # 启用后，若报告 0 处可校验引用且不属于豁免清单（评测提示词/验证规范），判失败。
+    [switch]$RequireEvidence
 )
 
 $ErrorActionPreference = "Stop"
@@ -383,8 +387,21 @@ if ($Fail -gt 0) {
     Write-Host "❌ 审计证据验证未通过 — 存在 $Fail 处无效引用" -ForegroundColor Red
     exit 1
 } elseif ($Pass -eq 0) {
-    Write-Host "⚠️  未找到任何 file:line 证据 — 报告可能未遵循审计规范" -ForegroundColor Yellow
-    exit 1
+    # legacy-citation-ledger 建议 3：零可校验引用报告治理。
+    # 豁免清单：评测提示词（*-prompt.md）与验证规范（*-verification-spec.md）本就不含结论性引用。
+    $ReportName = Split-Path -Leaf $ReportPath
+    $isExemptZeroEvidence = ($ReportName -match '(-prompt\.md$|-verification-spec\.md$|-prompt\.json$)')
+    if ($isExemptZeroEvidence) {
+        Write-Host "ℹ️  零引用豁免（$ReportName 属提示词/验证规范类，无需 file:line）" -ForegroundColor Cyan
+        Write-Host "✅ 审计证据验证通过" -ForegroundColor Green
+        exit 0
+    }
+    if ($RequireEvidence) {
+        Write-Host "❌ 未找到任何 file:line 证据 — 非提示词类报告必须含可校验引用（-RequireEvidence）" -ForegroundColor Red
+        exit 1
+    }
+    Write-Host "⚠️  未找到任何 file:line 证据 — 报告可能未遵循审计规范（可用 -RequireEvidence 阻断）" -ForegroundColor Yellow
+    exit 0
 } else {
     Write-Host "✅ 审计证据验证通过" -ForegroundColor Green
     exit 0
