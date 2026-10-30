@@ -136,10 +136,7 @@ impl ComplianceAutoChecker {
     // ==================== v10.10.0 T4.2: 定期扫描 + 报告 + 告警 + 整改 ====================
 
     /// v10.10.0：定期扫描合规规则
-    pub fn scheduled_scan(
-        &self,
-        _interval: Duration,
-    ) -> Result<ScanResult, ComplianceError> {
+    pub fn scheduled_scan(&self, _interval: Duration) -> Result<ScanResult, ComplianceError> {
         let result = self.last_result();
         let violations: Vec<Violation> = result
             .as_ref()
@@ -220,10 +217,7 @@ impl ComplianceAutoChecker {
     }
 
     /// v10.10.0：整改建议
-    pub fn remediation_suggest(
-        &self,
-        violation: &Violation,
-    ) -> Vec<RemediationSuggestion> {
+    pub fn remediation_suggest(&self, violation: &Violation) -> Vec<RemediationSuggestion> {
         let mut suggestions = Vec::new();
 
         if violation.description.contains("not encrypted") {
@@ -649,10 +643,7 @@ impl EventDrivenScanner {
                 stats.violations_found += 1;
                 return Some(Violation {
                     id: format!("V-BLOCKED-{}-{}", event.event_id, event.table),
-                    description: format!(
-                        "访问阻断表 '{}'（user={}）",
-                        event.table, event.user
-                    ),
+                    description: format!("访问阻断表 '{}'（user={}）", event.table, event.user),
                     severity: ViolationSeverity::High,
                 });
             }
@@ -675,11 +666,17 @@ impl EventDrivenScanner {
     }
 
     pub fn events_scanned(&self) -> u64 {
-        self.stats.lock().expect("scanner stats lock").events_scanned
+        self.stats
+            .lock()
+            .expect("scanner stats lock")
+            .events_scanned
     }
 
     pub fn violations_found(&self) -> u64 {
-        self.stats.lock().expect("scanner stats lock").violations_found
+        self.stats
+            .lock()
+            .expect("scanner stats lock")
+            .violations_found
     }
 }
 
@@ -746,7 +743,10 @@ impl AutoRemediator {
     ) -> Result<RemediationResult, RemediationError> {
         match violation.severity {
             ViolationSeverity::Critical | ViolationSeverity::High => {
-                self.stats.lock().expect("remediator stats lock").manual_alerted += 1;
+                self.stats
+                    .lock()
+                    .expect("remediator stats lock")
+                    .manual_alerted += 1;
                 Err(RemediationError::HighRiskRequiresManual)
             }
             ViolationSeverity::Medium | ViolationSeverity::Low => {
@@ -780,18 +780,27 @@ impl AutoRemediator {
                     timestamp: event.timestamp,
                 };
 
-                self.stats.lock().expect("remediator stats lock").auto_remediated += 1;
+                self.stats
+                    .lock()
+                    .expect("remediator stats lock")
+                    .auto_remediated += 1;
                 Ok(result)
             }
         }
     }
 
     pub fn auto_remediated_count(&self) -> u64 {
-        self.stats.lock().expect("remediator stats lock").auto_remediated
+        self.stats
+            .lock()
+            .expect("remediator stats lock")
+            .auto_remediated
     }
 
     pub fn manual_alerted_count(&self) -> u64 {
-        self.stats.lock().expect("remediator stats lock").manual_alerted
+        self.stats
+            .lock()
+            .expect("remediator stats lock")
+            .manual_alerted
     }
 }
 
@@ -889,7 +898,10 @@ impl ContinuousComplianceMonitor {
                 if violation.severity.level() < self.alert_threshold.level() {
                     match self.remediator.auto_remediate(&violation, event) {
                         Ok(remediation) => {
-                            self.stats.lock().expect("monitor stats lock").auto_remediated += 1;
+                            self.stats
+                                .lock()
+                                .expect("monitor stats lock")
+                                .auto_remediated += 1;
                             Ok(MonitorResult::AutoRemediated {
                                 violation,
                                 remediation,
@@ -897,7 +909,10 @@ impl ContinuousComplianceMonitor {
                             })
                         }
                         Err(e) => {
-                            self.stats.lock().expect("monitor stats lock").manual_alerted += 1;
+                            self.stats
+                                .lock()
+                                .expect("monitor stats lock")
+                                .manual_alerted += 1;
                             let alert = Alert {
                                 level: AlertLevel::High,
                                 message: format!(
@@ -914,7 +929,10 @@ impl ContinuousComplianceMonitor {
                         }
                     }
                 } else {
-                    self.stats.lock().expect("monitor stats lock").manual_alerted += 1;
+                    self.stats
+                        .lock()
+                        .expect("monitor stats lock")
+                        .manual_alerted += 1;
                     let alert = Alert {
                         level: match violation.severity {
                             ViolationSeverity::Critical => AlertLevel::Critical,
@@ -965,19 +983,31 @@ impl ContinuousComplianceMonitor {
     }
 
     pub fn auto_remediated_count(&self) -> u64 {
-        self.stats.lock().expect("monitor stats lock").auto_remediated
+        self.stats
+            .lock()
+            .expect("monitor stats lock")
+            .auto_remediated
     }
 
     pub fn manual_alerted_count(&self) -> u64 {
-        self.stats.lock().expect("monitor stats lock").manual_alerted
+        self.stats
+            .lock()
+            .expect("monitor stats lock")
+            .manual_alerted
     }
 
     pub fn last_alert_latency_ms(&self) -> u64 {
-        self.stats.lock().expect("monitor stats lock").last_alert_latency_ms
+        self.stats
+            .lock()
+            .expect("monitor stats lock")
+            .last_alert_latency_ms
     }
 
     pub fn max_alert_latency_ms(&self) -> u64 {
-        self.stats.lock().expect("monitor stats lock").max_alert_latency_ms
+        self.stats
+            .lock()
+            .expect("monitor stats lock")
+            .max_alert_latency_ms
     }
 
     pub fn checker(&self) -> &ComplianceAutoChecker {

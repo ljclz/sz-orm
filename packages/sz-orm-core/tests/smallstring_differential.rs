@@ -1,7 +1,10 @@
-//! M3-T2: SmallString 差分测试
+//! SmallString 场景下的 SQL 构造行为测试
 //!
-//! 验证 `perf-smallstring` feature 启用/禁用时，SQL 构造输出完全一致。
-//! 覆盖 SELECT/INSERT/UPDATE/DELETE + 短/长字符串场景。
+//! 2026-10-27 SDET 整改：原头注释声称"验证 `perf-smallstring` feature 启用/禁用时
+//! SQL 构造输出完全一致"，但 feature 是编译期开关，单一测试二进制内无法对拍
+//! 开/关两种编译产物，原 `diff_*` 命名构成名义差分。现更正为 SQL 构造行为验证，
+//! 覆盖 SELECT/INSERT/UPDATE/DELETE + 短/长字符串场景与 SqlBuffer 往返。
+//! 文件名保留 `smallstring_differential`（CQO 差分测试工作流按此名调用）。
 
 #[cfg(test)]
 mod tests {
@@ -30,10 +33,10 @@ mod tests {
         QueryBuilder::new(sz_orm_core::get_dialect(DbType::MySQL).unwrap())
     }
 
-    // ========== SELECT 差分测试 ==========
+    // ========== SELECT 构造测试 ==========
 
     #[test]
-    fn diff_select_basic() {
+    fn build_select_basic() {
         let q = make_query();
         let (sql, _params) = q.build_select();
         assert!(sql.contains("SELECT"));
@@ -41,7 +44,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_select_columns() {
+    fn build_select_columns() {
         let q = make_query()
             .select(vec!["id", "name", "email"])
             .expect("valid columns");
@@ -52,7 +55,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_select_where() {
+    fn build_select_where() {
         let q = make_query().where_eq("id", Value::I64(1));
         let (sql, params) = q.build_select();
         assert!(sql.contains("SELECT"));
@@ -61,7 +64,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_select_order_limit_offset() {
+    fn build_select_order_limit_offset() {
         let q = make_query().order_desc("id").limit(10).offset(20);
         let (sql, _params) = q.build_select();
         assert!(sql.contains("ORDER BY"));
@@ -71,7 +74,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_select_long_string() {
+    fn build_select_long_string() {
         let long_name = "a".repeat(100);
         let q = make_query().where_eq("name", Value::String(long_name.clone()));
         let (_sql, params) = q.build_select();
@@ -79,16 +82,16 @@ mod tests {
     }
 
     #[test]
-    fn diff_select_short_string() {
+    fn build_select_short_string() {
         let q = make_query().where_eq("name", Value::String("abc".to_string()));
         let (_sql, params) = q.build_select();
         assert!(params.contains(&Value::String("abc".to_string())));
     }
 
-    // ========== INSERT 差分测试 ==========
+    // ========== INSERT 构造测试 ==========
 
     #[test]
-    fn diff_insert_basic() {
+    fn build_insert_basic() {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("test".to_string()));
         let q = make_query();
@@ -99,7 +102,7 @@ mod tests {
     }
 
     #[test]
-    fn diff_insert_multiple() {
+    fn build_insert_multiple() {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("alice".to_string()));
         data.insert("age".to_string(), Value::I64(30));
@@ -111,10 +114,10 @@ mod tests {
         assert!(params.contains(&Value::I64(30)));
     }
 
-    // ========== UPDATE 差分测试 ==========
+    // ========== UPDATE 构造测试 ==========
 
     #[test]
-    fn diff_update_basic() {
+    fn build_update_basic() {
         let mut data = HashMap::new();
         data.insert("name".to_string(), Value::String("updated".to_string()));
         let q = make_query().where_eq("id", Value::I64(1));
@@ -125,10 +128,10 @@ mod tests {
         assert!(sql.contains("id"));
     }
 
-    // ========== DELETE 差分测试 ==========
+    // ========== DELETE 构造测试 ==========
 
     #[test]
-    fn diff_delete_basic() {
+    fn build_delete_basic() {
         let q = make_query().where_eq("id", Value::I64(1));
         let (sql, _params) = q.build_delete();
         assert!(sql.contains("DELETE"));
@@ -136,10 +139,10 @@ mod tests {
         assert!(sql.contains("id"));
     }
 
-    // ========== 聚合查询差分测试 ==========
+    // ========== 聚合查询构造测试 ==========
 
     #[test]
-    fn diff_count() {
+    fn build_count_aggregate() {
         let q = make_query();
         let sql = q.build_count();
         assert!(sql.contains("COUNT(*)"));
@@ -147,14 +150,14 @@ mod tests {
     }
 
     #[test]
-    fn diff_exists() {
+    fn build_exists_subquery() {
         let q = make_query();
         let sql = q.build_exists();
         assert!(sql.contains("EXISTS"));
     }
 
     #[test]
-    fn diff_max_min_sum_avg() {
+    fn build_max_min_sum_avg() {
         let q = make_query();
         let max_sql = q.build_max("age");
         assert!(max_sql.contains("MAX"));

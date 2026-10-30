@@ -35,7 +35,10 @@ pub enum DataSubjectRight {
     /// 访问权：获取数据主体相关的所有个人数据。
     Access { subject_id: String },
     /// 可携权：以指定格式导出数据主体相关数据。
-    Portability { subject_id: String, format: DataFormat },
+    Portability {
+        subject_id: String,
+        format: DataFormat,
+    },
     /// 删除权（被遗忘权）：删除数据主体相关业务数据，审计记录脱敏后保留。
     Deletion { subject_id: String },
     /// 更正权：更正数据主体相关数据。
@@ -55,10 +58,7 @@ pub struct CrossBorderTransferControl {
 }
 
 impl CrossBorderTransferControl {
-    pub fn new(
-        allowed: Vec<ComplianceRegion>,
-        denied: Vec<ComplianceRegion>,
-    ) -> Self {
+    pub fn new(allowed: Vec<ComplianceRegion>, denied: Vec<ComplianceRegion>) -> Self {
         Self {
             allowed_regions: allowed,
             denied_regions: denied,
@@ -145,10 +145,7 @@ impl GdprCcpaProcessor {
                     audit_preserved: true,
                 })
             }
-            DataSubjectRight::Portability {
-                subject_id,
-                format,
-            } => {
+            DataSubjectRight::Portability { subject_id, format } => {
                 let data_map = self.subject_data.lock().expect("subject_data lock");
                 let data = data_map
                     .get(&subject_id)
@@ -216,11 +213,12 @@ impl GdprCcpaProcessor {
     /// - 目标区域在 denied 列表中 → `Err(TransferDenied)`
     /// - 目标区域在 allowed 列表中 → `Ok(true)`
     /// - 目标区域不在任何列表中 → `Ok(false)`（未明确允许）
-    pub fn check_transfer(
-        &self,
-        target_region: ComplianceRegion,
-    ) -> Result<bool, GdprError> {
-        if self.transfer_control.denied_regions.contains(&target_region) {
+    pub fn check_transfer(&self, target_region: ComplianceRegion) -> Result<bool, GdprError> {
+        if self
+            .transfer_control
+            .denied_regions
+            .contains(&target_region)
+        {
             return Err(GdprError::TransferDenied(format!(
                 "{:?} is in denied regions",
                 target_region
@@ -425,11 +423,7 @@ impl AutoArchiver {
         }
     }
 
-    pub fn archive(
-        &self,
-        state: &LifecycleState,
-        data: &str,
-    ) -> Result<String, LifecycleError> {
+    pub fn archive(&self, state: &LifecycleState, data: &str) -> Result<String, LifecycleError> {
         if state.status == LifecycleStatus::Archived {
             return Err(LifecycleError::AlreadyArchived);
         }
@@ -509,10 +503,7 @@ impl AutoDestroyer {
     }
 
     pub fn audit_trails(&self) -> Vec<DestroyAuditTrail> {
-        self.audit_trails
-            .lock()
-            .expect("audit_trails lock")
-            .clone()
+        self.audit_trails.lock().expect("audit_trails lock").clone()
     }
 
     pub fn destroy_count(&self) -> u64 {
@@ -564,15 +555,9 @@ impl LifecycleAutoManager {
     }
 
     /// 设置业务持有
-    pub fn set_business_hold(
-        &self,
-        data_id: &str,
-        hold: bool,
-    ) -> Result<(), LifecycleError> {
+    pub fn set_business_hold(&self, data_id: &str, hold: bool) -> Result<(), LifecycleError> {
         let mut states = self.states.lock().expect("states lock");
-        let state = states
-            .get_mut(data_id)
-            .ok_or(LifecycleError::NotFound)?;
+        let state = states.get_mut(data_id).ok_or(LifecycleError::NotFound)?;
         state.business_hold = hold;
         Ok(())
     }
@@ -595,12 +580,9 @@ impl LifecycleAutoManager {
             LifecycleStatus::Destroyed => Err(LifecycleError::AlreadyDestroyed),
             LifecycleStatus::Archived => {
                 if self.retention_checker.config.auto_destroy {
-                    let trail = self.destroyer.destroy(
-                        &state,
-                        &self.retention_checker,
-                        now,
-                        "system",
-                    )?;
+                    let trail =
+                        self.destroyer
+                            .destroy(&state, &self.retention_checker, now, "system")?;
                     self.update_status(data_id, LifecycleStatus::Destroyed);
                     self.data_store
                         .lock()
@@ -634,7 +616,11 @@ impl LifecycleAutoManager {
                         .cloned()
                         .unwrap_or_default();
                     let archive_id = self.archiver.archive(&state, &data)?;
-                    self.update_status_with_archive(data_id, LifecycleStatus::Archived, &archive_id);
+                    self.update_status_with_archive(
+                        data_id,
+                        LifecycleStatus::Archived,
+                        &archive_id,
+                    );
 
                     if self.retention_checker.config.auto_destroy {
                         let new_state = {
@@ -659,9 +645,7 @@ impl LifecycleAutoManager {
 
                     Ok(LifecycleResult::Archived { archive_id })
                 } else {
-                    Ok(LifecycleResult::Retained {
-                        remaining_days: 0,
-                    })
+                    Ok(LifecycleResult::Retained { remaining_days: 0 })
                 }
             }
         }
@@ -674,12 +658,7 @@ impl LifecycleAutoManager {
         }
     }
 
-    fn update_status_with_archive(
-        &self,
-        data_id: &str,
-        status: LifecycleStatus,
-        archive_id: &str,
-    ) {
+    fn update_status_with_archive(&self, data_id: &str, status: LifecycleStatus, archive_id: &str) {
         let mut states = self.states.lock().expect("states lock");
         if let Some(state) = states.get_mut(data_id) {
             state.status = status;

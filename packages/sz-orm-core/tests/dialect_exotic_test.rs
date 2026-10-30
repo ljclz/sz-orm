@@ -85,7 +85,10 @@ fn test_duckdb_build_create_table() {
 #[test]
 fn test_duckdb_supports_returning() {
     let d = DuckDBDialect;
-    assert!(d.supports_returning() || !d.supports_returning());
+    assert!(
+        !d.supports_returning(),
+        "DuckDB 方言应返回不支持 RETURNING（与 dialect.rs test_duckdb_supports 一致）"
+    );
 }
 
 // --- Db2 ---

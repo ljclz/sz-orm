@@ -62,7 +62,10 @@ fn test_owasp_v10100_a03_injection_boundary_null_byte_variant() {
 fn test_owasp_v10100_a03_injection_boundary_super_long_variant() {
     let auditor = SqlAuditor::new();
     let padding = "A".repeat(1_000_000);
-    let malicious = format!("SELECT * FROM users WHERE id = '{}' UNION SELECT col FROM secrets--", padding);
+    let malicious = format!(
+        "SELECT * FROM users WHERE id = '{}' UNION SELECT col FROM secrets--",
+        padding
+    );
     auditor.log(&ctx(&malicious, "attacker", 1000));
     let logs = auditor.get_logs();
     assert_eq!(logs.len(), 1);

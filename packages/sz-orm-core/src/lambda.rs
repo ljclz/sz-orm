@@ -629,12 +629,17 @@ impl<M> LambdaWrapper<M> {
             sql.push_str(&orders.join(", "));
         }
 
-        // LIMIT / OFFSET
-        if let Some(l) = self.limit {
-            sql.push_str(&format!(" LIMIT {}", l));
-        }
-        if let Some(o) = self.offset {
-            sql.push_str(&format!(" OFFSET {}", o));
+        // LIMIT / OFFSET（方言化：Oracle/MSSQL 使用 OFFSET…FETCH）
+        if self.limit.is_some() || self.offset.is_some() {
+            if self.dialect.requires_order_by_for_pagination() && self.orders.is_empty() {
+                sql.push_str(" ORDER BY (SELECT NULL)");
+            }
+            if let Some(clause) = self.dialect.build_pagination_clause(
+                self.limit.map(|v| v as usize),
+                self.offset.map(|v| v as usize),
+            ) {
+                sql.push_str(&clause);
+            }
         }
 
         sql

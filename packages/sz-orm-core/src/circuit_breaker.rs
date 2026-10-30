@@ -317,7 +317,6 @@ impl BreakerStateSyncer {
         }
     }
 
-
     /// 发布本地状态
     pub fn publish(&self, state: CircuitState) -> Result<(), SyncError> {
         let global_state = GlobalBreakerState {

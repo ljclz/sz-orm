@@ -173,8 +173,8 @@ fn e2e_region_failover_within_sla() {
         },
     ];
 
-    let topology = RegionTopology::new(regions, "primary")
-        .with_priority_strategy(PriorityStrategy::GeoNear);
+    let topology =
+        RegionTopology::new(regions, "primary").with_priority_strategy(PriorityStrategy::GeoNear);
 
     let mut checker = RegionHealthChecker::new(Duration::from_secs(3), 0.5, 3);
     let mut switcher = CrossRegionSwitcher::new(PriorityStrategy::GeoNear);
@@ -188,12 +188,7 @@ fn e2e_region_failover_within_sla() {
     }
     let detect_elapsed = detect_start.elapsed();
 
-    assert_eq!(
-        health,
-        RegionHealthStatus::Failed {
-            confirm_count: 3
-        }
-    );
+    assert_eq!(health, RegionHealthStatus::Failed { confirm_count: 3 });
     assert!(
         detect_elapsed <= Duration::from_secs(5),
         "区域故障检测应 ≤ 5 秒，实际 {:?}",
@@ -336,7 +331,9 @@ fn test_priority_strategy_capacity_redundant() {
         .with_priority_strategy(PriorityStrategy::CapacityRedundant);
 
     let mut switcher = CrossRegionSwitcher::new(PriorityStrategy::CapacityRedundant);
-    let new_region = switcher.switch(&topology, &["high-cap", "mid-cap"]).unwrap();
+    let new_region = switcher
+        .switch(&topology, &["high-cap", "mid-cap"])
+        .unwrap();
     assert_eq!(new_region, "high-cap");
 }
 // ============================================================================
@@ -386,7 +383,10 @@ fn test_partition_strategy_list() {
         mapping: list_mapping,
     });
 
-    assert_eq!(mapping.resolve_region("vip-users").unwrap(), "region-primary");
+    assert_eq!(
+        mapping.resolve_region("vip-users").unwrap(),
+        "region-primary"
+    );
     assert_eq!(mapping.resolve_region("eu-users").unwrap(), "region-eu");
     assert!(mapping.resolve_region("unknown").is_none());
 }
@@ -397,9 +397,15 @@ fn test_partition_strategy_list() {
 #[test]
 fn e2e_multi_active_write_consistency() {
     let mut router = MultiActiveRouter::new(PartitionStrategy::Hash { buckets: 3 });
-    router.region_master_resolver_mut().register("region-0", "master-0");
-    router.region_master_resolver_mut().register("region-1", "master-1");
-    router.region_master_resolver_mut().register("region-2", "master-2");
+    router
+        .region_master_resolver_mut()
+        .register("region-0", "master-0");
+    router
+        .region_master_resolver_mut()
+        .register("region-1", "master-1");
+    router
+        .region_master_resolver_mut()
+        .register("region-2", "master-2");
 
     let key = "user-42";
     let first = router.route_write(key, "INSERT INTO orders").unwrap();
@@ -418,11 +424,13 @@ fn test_multi_active_routing_integration() {
     list_map.insert("us-users".to_string(), "us-east".to_string());
     list_map.insert("eu-users".to_string(), "eu-west".to_string());
 
-    let mut router = MultiActiveRouter::new(PartitionStrategy::List {
-        mapping: list_map,
-    });
-    router.region_master_resolver_mut().register("us-east", "us-master:3306");
-    router.region_master_resolver_mut().register("eu-west", "eu-master:3306");
+    let mut router = MultiActiveRouter::new(PartitionStrategy::List { mapping: list_map });
+    router
+        .region_master_resolver_mut()
+        .register("us-east", "us-master:3306");
+    router
+        .region_master_resolver_mut()
+        .register("eu-west", "eu-master:3306");
 
     let us_master = router.route_write("us-users", "INSERT ...").unwrap();
     assert_eq!(us_master.region_id, "us-east");
@@ -439,8 +447,12 @@ fn test_multi_active_routing_integration() {
 #[test]
 fn test_multi_active_router_partition_consistency() {
     let mut router = MultiActiveRouter::new(PartitionStrategy::Hash { buckets: 2 });
-    router.region_master_resolver_mut().register("region-0", "m0");
-    router.region_master_resolver_mut().register("region-1", "m1");
+    router
+        .region_master_resolver_mut()
+        .register("region-0", "m0");
+    router
+        .region_master_resolver_mut()
+        .register("region-1", "m1");
 
     let key = "test-key";
     assert!(router.validate_partition_consistency(key));
@@ -460,16 +472,21 @@ fn test_multi_active_write_conflict_detection() {
     let mut list_map = std::collections::HashMap::new();
     list_map.insert("key-1".to_string(), "region-a".to_string());
 
-    let mut router = MultiActiveRouter::new(PartitionStrategy::List {
-        mapping: list_map,
-    });
-    router.region_master_resolver_mut().register("region-a", "master-a");
-    router.region_master_resolver_mut().register("region-b", "master-b");
+    let mut router = MultiActiveRouter::new(PartitionStrategy::List { mapping: list_map });
+    router
+        .region_master_resolver_mut()
+        .register("region-a", "master-a");
+    router
+        .region_master_resolver_mut()
+        .register("region-b", "master-b");
 
     let first = router.route_write("key-1", "write-1").unwrap();
     assert_eq!(first.region_id, "region-a");
 
-    router.partition_router_mut().mapping_mut().register("key-1", "region-b");
+    router
+        .partition_router_mut()
+        .mapping_mut()
+        .register("key-1", "region-b");
 
     let conflict = router.route_write("key-1", "write-2").unwrap_err();
     assert!(matches!(
@@ -487,7 +504,10 @@ fn test_multi_active_write_conflict_detection() {
 fn test_route_error_unmapped_key() {
     let mut router = MultiActiveRouter::new(PartitionStrategy::Hash { buckets: 0 });
     let err = router.route_write("unknown-key", "write").unwrap_err();
-    assert_eq!(err, RouteError::UnmappedPartitionKey("unknown-key".to_string()));
+    assert_eq!(
+        err,
+        RouteError::UnmappedPartitionKey("unknown-key".to_string())
+    );
 }
 
 /// T2.2 测试：区域无主节点错误
@@ -496,9 +516,7 @@ fn test_route_error_no_master() {
     let mut list_map = std::collections::HashMap::new();
     list_map.insert("key-1".to_string(), "region-x".to_string());
 
-    let mut router = MultiActiveRouter::new(PartitionStrategy::List {
-        mapping: list_map,
-    });
+    let mut router = MultiActiveRouter::new(PartitionStrategy::List { mapping: list_map });
 
     let err = router.route_write("key-1", "write").unwrap_err();
     assert_eq!(err, RouteError::NoMasterForRegion("region-x".to_string()));
@@ -547,8 +565,7 @@ fn test_region_quota_isolation() {
 #[test]
 fn test_region_quota_borrow_limit() {
     let mut isolator = RegionQuotaIsolator::new();
-    let r1 = RegionQuota::new("r1", 20, 100, 1024)
-        .with_borrow_limit(BorrowLimit::new(8, 5));
+    let r1 = RegionQuota::new("r1", 20, 100, 1024).with_borrow_limit(BorrowLimit::new(8, 5));
     let r2 = RegionQuota::new("r2", 10, 50, 512);
     isolator.register(r1);
     isolator.register(r2);
@@ -567,7 +584,10 @@ fn test_region_quota_borrow_limit() {
     assert!(err.contains("无法借出"));
 
     let err = borrower.borrow(&mut isolator, "r1", "r2", 6).unwrap_err();
-    assert!(err.contains("无法借出"), "已借 5 + 新借 6 = 11 > max_borrow 8");
+    assert!(
+        err.contains("无法借出"),
+        "已借 5 + 新借 6 = 11 > max_borrow 8"
+    );
 
     borrower.return_borrow("r1", "r2", 3);
     assert_eq!(borrower.borrowed_amount("r1", "r2"), 2);
@@ -616,7 +636,8 @@ use sz_orm_core::circuit_breaker::{
 /// 验证行为副作用：实例 A 熔断后，实例 B 通过 sync 感知 A 的熔断状态。
 #[test]
 fn test_global_breaker_state_sync() {
-    let channel = std::sync::Arc::new(RedisBreakerChannel::new()) as std::sync::Arc<dyn BreakerChannel>;
+    let channel =
+        std::sync::Arc::new(RedisBreakerChannel::new()) as std::sync::Arc<dyn BreakerChannel>;
 
     let mut breaker_a = GlobalBreakerCoordinator::new(
         DefaultCircuitBreaker::new(2, Duration::from_secs(60)),
@@ -643,7 +664,8 @@ fn test_global_breaker_state_sync() {
 /// 验证行为副作用：实例 A 熔断后发布状态，实例 B 通过 allow_request 感知并拒绝。
 #[test]
 fn e2e_global_breaker_all_instances_aware() {
-    let channel = std::sync::Arc::new(RedisBreakerChannel::new()) as std::sync::Arc<dyn BreakerChannel>;
+    let channel =
+        std::sync::Arc::new(RedisBreakerChannel::new()) as std::sync::Arc<dyn BreakerChannel>;
 
     let mut breaker_a = GlobalBreakerCoordinator::new(
         DefaultCircuitBreaker::new(2, Duration::from_secs(60)),
@@ -671,7 +693,8 @@ fn e2e_global_breaker_all_instances_aware() {
 /// 验证行为副作用：一实例探测成功，全实例协调恢复。
 #[test]
 fn test_global_breaker_coordinated_recovery() {
-    let channel = std::sync::Arc::new(RedisBreakerChannel::new()) as std::sync::Arc<dyn BreakerChannel>;
+    let channel =
+        std::sync::Arc::new(RedisBreakerChannel::new()) as std::sync::Arc<dyn BreakerChannel>;
 
     let mut breaker_a = GlobalBreakerCoordinator::new(
         DefaultCircuitBreaker::new(1, Duration::from_millis(1)),
@@ -786,7 +809,9 @@ fn e2e_switch_verify_rollback_on_inconsistency() {
     let master_pos = ReplicationPosition::empty().with_gtid("uuid:1-100");
     let slave_pos = ReplicationPosition::empty().with_gtid("uuid:1-90");
 
-    let result = checker.verify_after_switch(&master_pos, &slave_pos).unwrap();
+    let result = checker
+        .verify_after_switch(&master_pos, &slave_pos)
+        .unwrap();
     assert!(matches!(result, VerifyResult::Inconsistent { .. }));
 
     let mut rollback = SwitchRollback::new("GTID 不一致：master=uuid:1-100, slave=uuid:1-90");
@@ -802,11 +827,15 @@ fn test_switch_verify_consistent() {
     let master_pos = ReplicationPosition::empty().with_lsn(10000);
     let slave_pos = ReplicationPosition::empty().with_lsn(10000);
 
-    let result = checker.verify_after_switch(&master_pos, &slave_pos).unwrap();
+    let result = checker
+        .verify_after_switch(&master_pos, &slave_pos)
+        .unwrap();
     assert!(matches!(result, VerifyResult::Consistent { .. }));
 
     let slave_ahead = ReplicationPosition::empty().with_lsn(10001);
-    let result = checker.verify_after_switch(&master_pos, &slave_ahead).unwrap();
+    let result = checker
+        .verify_after_switch(&master_pos, &slave_ahead)
+        .unwrap();
     assert!(matches!(result, VerifyResult::Consistent { .. }));
 }
 
@@ -817,7 +846,9 @@ fn test_switch_verify_position_not_available() {
     let master_pos = ReplicationPosition::empty().with_scn(100);
     let slave_pos = ReplicationPosition::empty();
 
-    let err = checker.verify_after_switch(&master_pos, &slave_pos).unwrap_err();
+    let err = checker
+        .verify_after_switch(&master_pos, &slave_pos)
+        .unwrap_err();
     assert!(matches!(err, VerifyError::PositionNotAvailable(_)));
 }
 
@@ -830,6 +861,3 @@ fn test_switch_rollback_manual_intervention() {
     assert!(rollback.need_manual_intervention());
     assert_eq!(rollback.reason(), "回滚失败：原主不可用");
 }
-
-
-

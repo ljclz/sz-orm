@@ -1460,9 +1460,7 @@ pub struct RewriteBenefitVerifier {
 
 impl RewriteBenefitVerifier {
     pub fn new() -> Self {
-        Self {
-            threshold: 1.0,
-        }
+        Self { threshold: 1.0 }
     }
 
     /// 设置收益阈值
@@ -1594,8 +1592,8 @@ impl AutoRewriteEngine {
         }
 
         // 2. PermissionAuditor 权限审计
-        let account = DbAccount::new("auto_rewrite_engine")
-            .with_privileges(vec!["SELECT".to_string()]);
+        let account =
+            DbAccount::new("auto_rewrite_engine").with_privileges(vec!["SELECT".to_string()]);
         let usage = QueryUsage::from_sql(sql);
         let auditor = PermissionAuditor::new();
         let perm_result = auditor.audit_permissions(&account, &usage);
@@ -1632,10 +1630,7 @@ impl AutoRewriteEngine {
     /// 5. 安全审计三重检查（需 ai-security-audit feature）
     /// 6. 回滚方案：恢复原查询
     /// 7. 决策可解释性（需 ai-config feature）
-    pub async fn rewrite(
-        &mut self,
-        original_sql: &str,
-    ) -> Result<AutoRewriteResult, RewriteError> {
+    pub async fn rewrite(&mut self, original_sql: &str) -> Result<AutoRewriteResult, RewriteError> {
         if original_sql.trim().is_empty() {
             return Err(RewriteError::ParseError("SQL 不能为空".to_string()));
         }

@@ -19,7 +19,14 @@ fn test_owasp_v10100_a01_bypass_role_manipulation_variant() {
     az.grant("admin", "delete:users");
     az.grant("admin", "read:all");
 
-    let variants = ["Admin", "ADMIN", " admin", "admin ", "admin\x00", "administrator"];
+    let variants = [
+        "Admin",
+        "ADMIN",
+        " admin",
+        "admin ",
+        "admin\x00",
+        "administrator",
+    ];
     for variant in &variants {
         let attacker = User::new(1, "attacker").with_roles(vec![variant.to_string()]);
         assert!(
@@ -71,18 +78,18 @@ fn test_owasp_v10100_a01_bypass_timing_attack_variant() {
     let tampered_tokens = [
         format!("{}.{}.{}", "invalid", "invalid", "invalid"),
         valid_token[..valid_token.len() - 1].to_string(),
-        format!("{}.{}.x", valid_token.split('.').next().unwrap(), valid_token.split('.').nth(1).unwrap()),
+        format!(
+            "{}.{}.x",
+            valid_token.split('.').next().unwrap(),
+            valid_token.split('.').nth(1).unwrap()
+        ),
         String::new(),
         "a.b.c.d".to_string(),
     ];
 
     for tampered in &tampered_tokens {
         let result = encoder.decode(tampered);
-        assert!(
-            result.is_err(),
-            "篡改 token 必须被拒绝: {}",
-            tampered
-        );
+        assert!(result.is_err(), "篡改 token 必须被拒绝: {}", tampered);
     }
 
     assert!(encoder.decode(&valid_token).is_ok(), "合法 token 必须通过");

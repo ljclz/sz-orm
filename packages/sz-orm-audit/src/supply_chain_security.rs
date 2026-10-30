@@ -83,7 +83,12 @@ pub struct Vulnerability {
 }
 
 impl Vulnerability {
-    pub fn new(id: &str, package: &str, severity: VulnerabilitySeverity, description: &str) -> Self {
+    pub fn new(
+        id: &str,
+        package: &str,
+        severity: VulnerabilitySeverity,
+        description: &str,
+    ) -> Self {
         Self {
             id: id.to_string(),
             package: package.to_string(),

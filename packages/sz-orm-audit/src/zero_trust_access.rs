@@ -263,9 +263,7 @@ impl ContextVerifier {
     /// 验证上下文
     pub fn verify(&self, context: &AccessContext) -> Option<DenyReason> {
         // IP 白名单检查
-        if !self.allowed_ips.is_empty()
-            && !self.allowed_ips.contains(&context.source_ip)
-        {
+        if !self.allowed_ips.is_empty() && !self.allowed_ips.contains(&context.source_ip) {
             return Some(DenyReason::ContextAbnormal);
         }
 
@@ -387,7 +385,8 @@ impl ZeroTrustVerifier {
 
     /// 申诉通过后加入白名单
     pub fn appeal_approve(&self, identity: impl Into<String>, permissions: Vec<String>) {
-        self.permission_verifier.appeal_approve(identity, permissions);
+        self.permission_verifier
+            .appeal_approve(identity, permissions);
     }
 
     /// 验证访问

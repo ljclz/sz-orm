@@ -67,7 +67,14 @@ macro_rules! test_json_extract {
             let d = $dialect;
             let with_dollar = d.json_extract("data", "$.user.name");
             let without_dollar = d.json_extract("data", "user.name");
-            assert!(!with_dollar.is_empty() || !without_dollar.is_empty());
+            assert!(
+                !with_dollar.is_empty() && !without_dollar.is_empty(),
+                "json_extract 两种路径写法都应产出 SQL"
+            );
+            assert!(
+                with_dollar.contains("data") && without_dollar.contains("data"),
+                "json_extract 输出必须引用目标列: {with_dollar} / {without_dollar}"
+            );
         }
     };
 }
@@ -80,26 +87,67 @@ test_json_extract!(test_firebird_json_extract, FirebirdDialect);
 test_json_extract!(test_duckdb_json_extract, DuckDBDialect);
 test_json_extract!(test_snowflake_json_extract, SnowflakeDialect);
 
+/// 空列输入的降级输出与方言专属片段由各实现决定（dialect.rs 各 Dialect 的
+/// full_text_search），宏按方言参数化断言，避免"恒真式"空洞检查。
 macro_rules! test_full_text_search {
-    ($name:ident, $dialect:expr) => {
+    ($name:ident, $dialect:expr, $empty:expr, $fragment:expr) => {
         #[test]
         fn $name() {
             let d = $dialect;
-            let non_empty = d.full_text_search(&["title", "body"], "keyword");
-            let empty = d.full_text_search(&[], "keyword");
-            assert!(non_empty.is_empty() || !non_empty.is_empty());
-            assert!(empty.is_empty() || !empty.is_empty());
+            let fts = d.full_text_search(&["title", "body"], "keyword");
+            assert_eq!(
+                d.full_text_search(&[], "keyword"),
+                $empty,
+                "空列输入应有确定的方言降级输出"
+            );
+            assert!(fts.contains($fragment), "FTS 输出缺少方言专属片段: {fts}");
+            assert!(fts.contains(" OR "), "多列检索应以 OR 连接: {fts}");
         }
     };
 }
 
-test_full_text_search!(test_clickhouse_fts, ClickHouseDialect);
-test_full_text_search!(test_db2_fts, Db2Dialect);
-test_full_text_search!(test_informix_fts, InformixDialect);
-test_full_text_search!(test_saphana_fts, SapHanaDialect);
-test_full_text_search!(test_firebird_fts, FirebirdDialect);
-test_full_text_search!(test_duckdb_fts, DuckDBDialect);
-test_full_text_search!(test_snowflake_fts, SnowflakeDialect);
+test_full_text_search!(
+    test_clickhouse_fts,
+    ClickHouseDialect,
+    "0",
+    "position(title, 'keyword') > 0"
+);
+test_full_text_search!(
+    test_db2_fts,
+    Db2Dialect,
+    "0",
+    "CONTAINS(title, 'keyword') > 0"
+);
+test_full_text_search!(
+    test_informix_fts,
+    InformixDialect,
+    "0",
+    "CONTAINS(title, 'keyword') > 0"
+);
+test_full_text_search!(
+    test_saphana_fts,
+    SapHanaDialect,
+    "0",
+    "CONTAINS(title, 'keyword') > 0"
+);
+test_full_text_search!(
+    test_firebird_fts,
+    FirebirdDialect,
+    "0",
+    "CONTAINING(title, 'keyword')"
+);
+test_full_text_search!(
+    test_duckdb_fts,
+    DuckDBDialect,
+    "0",
+    "title LIKE '%keyword%'"
+);
+test_full_text_search!(
+    test_snowflake_fts,
+    SnowflakeDialect,
+    "FALSE",
+    "title ILIKE '%keyword%'"
+);
 
 macro_rules! test_bool_to_int {
     ($name:ident, $dialect:expr) => {
@@ -107,7 +155,11 @@ macro_rules! test_bool_to_int {
         fn $name() {
             let d = $dialect;
             let sql = d.bool_to_int("active");
-            assert!(sql.contains("active") || sql.is_empty());
+            assert!(!sql.is_empty(), "bool_to_int 不应返回空串");
+            assert!(
+                sql.contains("active"),
+                "bool_to_int 输出必须保留表达式: {sql}"
+            );
         }
     };
 }
@@ -177,8 +229,11 @@ fn test_firebird_last_insert_id() {
 #[test]
 fn test_saphana_supports_if() {
     let d = SapHanaDialect;
-    let _ = d.supports_if_exists();
-    let _ = d.supports_if_not_exists();
+    assert!(d.supports_if_exists(), "SAP HANA 支持 IF EXISTS 语义");
+    assert!(
+        d.supports_if_not_exists(),
+        "SAP HANA 支持 IF NOT EXISTS 语义"
+    );
 }
 
 #[test]

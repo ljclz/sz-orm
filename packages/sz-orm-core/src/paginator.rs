@@ -189,7 +189,19 @@ where
         };
         let limit = self.page_size as usize;
 
-        let select_sql = format!("{} LIMIT {} OFFSET {}", self.sql, limit, offset);
+        // 分页子句按连接方言生成（Oracle/MSSQL 使用 OFFSET…FETCH）
+        let dialect = self
+            .conn
+            .db_type()
+            .and_then(|db| crate::dialect::get_dialect(db).ok());
+        let select_sql = match dialect {
+            Some(d) => match d.build_pagination_clause(Some(limit), Some(offset)) {
+                Some(clause) => format!("{}{}", self.sql, clause),
+                None => self.sql.clone(),
+            },
+            // 未知方言保持历史行为
+            None => format!("{} LIMIT {} OFFSET {}", self.sql, limit, offset),
+        };
 
         let rows = self
             .conn

@@ -202,7 +202,10 @@ fn test_cache_layout_stats_default() {
     let optimizer = CacheLayoutOptimizer::new(64).with_pad_strategy(PadStrategy::ToCacheLine);
     let mut entries: Vec<u64> = vec![0; 10];
     let stats_after = optimizer.optimize_layout(&mut entries);
-    assert_eq!(stats_after.optimized_entries, 10, "优化后 entries 计数应更新");
+    assert_eq!(
+        stats_after.optimized_entries, 10,
+        "优化后 entries 计数应更新"
+    );
     assert!(stats_after.pad_bytes > 0, "ToCacheLine 策略应产生填充字节");
 }
 

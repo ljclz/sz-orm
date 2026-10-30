@@ -8,6 +8,7 @@
 
 #![cfg(all(feature = "compliance-auto-scan", feature = "hash-chain-enhanced"))]
 
+use std::time::Duration;
 use sz_orm_audit::autonomous_audit::{AutonomousAuditEntry, AutonomousDecisionAuditor};
 use sz_orm_audit::compliance_scan_desensitizer::ComplianceScanDesensitizer;
 use sz_orm_audit::compliance_scan_engine::{
@@ -17,7 +18,6 @@ use sz_orm_audit::compliance_scan_engine::{
 use sz_orm_audit::hash_chain_enhanced::{
     AuditOpType, AuditResult, EnhancedAuditEntry, HashChainEnhancedAuditor,
 };
-use std::time::Duration;
 
 fn make_entry(sql: &str, user: &str, ts: i64) -> EnhancedAuditEntry {
     EnhancedAuditEntry {
@@ -55,9 +55,19 @@ fn make_report() -> ComplianceScanReport {
 #[test]
 fn test_hash_chain_integrity_after_log() {
     let auditor = HashChainEnhancedAuditor::new();
-    auditor.log(make_entry("SELECT * FROM users", "admin", 1000)).unwrap();
-    auditor.log(make_entry("INSERT INTO logs VALUES(1)", "admin", 1001)).unwrap();
-    auditor.log(make_entry("UPDATE users SET name='x' WHERE id=1", "admin", 1002)).unwrap();
+    auditor
+        .log(make_entry("SELECT * FROM users", "admin", 1000))
+        .unwrap();
+    auditor
+        .log(make_entry("INSERT INTO logs VALUES(1)", "admin", 1001))
+        .unwrap();
+    auditor
+        .log(make_entry(
+            "UPDATE users SET name='x' WHERE id=1",
+            "admin",
+            1002,
+        ))
+        .unwrap();
 
     assert!(
         auditor.verify_chain(),
@@ -70,21 +80,19 @@ fn test_hash_chain_integrity_after_log() {
 #[test]
 fn test_hash_chain_tamper_detected() {
     let auditor = HashChainEnhancedAuditor::new();
-    auditor.log(make_entry("SELECT * FROM users", "admin", 1000)).unwrap();
-    auditor.log(make_entry("DROP TABLE users", "attacker", 1001)).unwrap();
+    auditor
+        .log(make_entry("SELECT * FROM users", "admin", 1000))
+        .unwrap();
+    auditor
+        .log(make_entry("DROP TABLE users", "attacker", 1001))
+        .unwrap();
 
-    assert!(
-        auditor.verify_chain(),
-        "未篡改时 verify_chain 应返回 true"
-    );
+    assert!(auditor.verify_chain(), "未篡改时 verify_chain 应返回 true");
 
     let entries = auditor.get_entries();
     let e1 = &entries[0];
     let e2 = &entries[1];
-    assert_ne!(
-        e1.hash, e2.hash,
-        "不同记录应产生不同哈希"
-    );
+    assert_ne!(e1.hash, e2.hash, "不同记录应产生不同哈希");
     assert_eq!(
         e2.prev_hash, e1.hash,
         "链式哈希：第二条的 prev_hash 应等于第一条的 hash"
@@ -174,10 +182,7 @@ fn test_autonomous_audit_unavailable_rejects_record() {
     };
 
     let result = auditor.record(entry);
-    assert!(
-        result.is_err(),
-        "不可用时 record 应返回错误"
-    );
+    assert!(result.is_err(), "不可用时 record 应返回错误");
     assert_eq!(
         auditor.entry_count(),
         0,

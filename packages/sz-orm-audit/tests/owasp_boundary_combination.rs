@@ -71,11 +71,7 @@ fn owasp_a03_injection_boundary_super_long_input() {
     auditor.log(&audit_ctx);
     let logs = auditor.get_logs();
     assert_eq!(logs.len(), 1);
-    assert_eq!(
-        logs[0].sql.len(),
-        long_payload.len(),
-        "超长输入应完整记录"
-    );
+    assert_eq!(logs[0].sql.len(), long_payload.len(), "超长输入应完整记录");
 }
 
 /// 边界-4：空字符串审计记录
@@ -102,7 +98,10 @@ fn owasp_a03_injection_boundary_mixed_encoding() {
     auditor.log(&audit_ctx);
     let logs = auditor.get_logs();
     assert_eq!(logs.len(), 1);
-    assert!(logs[0].sql.contains("%20OR%201%3D1"), "混合编码应被完整记录");
+    assert!(
+        logs[0].sql.contains("%20OR%201%3D1"),
+        "混合编码应被完整记录"
+    );
 }
 
 // ==================== 组合攻击向量测试 ====================
@@ -119,7 +118,8 @@ fn owasp_a03_injection_combination_union_and_stacked() {
     let entries = auditor.get_entries();
     assert_eq!(entries.len(), 1);
     assert!(
-        entries[0].entry.sql.contains("UNION SELECT") && entries[0].entry.sql.contains("DROP TABLE"),
+        entries[0].entry.sql.contains("UNION SELECT")
+            && entries[0].entry.sql.contains("DROP TABLE"),
         "组合攻击向量应被完整记录"
     );
 }
@@ -163,9 +163,7 @@ fn owasp_a03_injection_combination_or_and_comment() {
 /// deny 规则应拦截危险操作（should_audit 返回 false 表示被 deny 排除）。
 #[test]
 fn owasp_a03_injection_combination_drop_and_alter() {
-    let rules = AuditRules::new()
-        .deny("drop table")
-        .deny("alter table");
+    let rules = AuditRules::new().deny("drop table").deny("alter table");
     assert!(rules.should_audit("SELECT * FROM users"));
     assert!(!rules.should_audit("DROP TABLE users; ALTER TABLE logs ADD col int"));
 }
@@ -280,10 +278,7 @@ fn owasp_a09_logging_bypass_rotation_still_audits() {
         "应发生轮转: {}",
         auditor.rotation_count()
     );
-    assert!(
-        !auditor.is_empty(),
-        "轮转后审计系统应仍有记录"
-    );
+    assert!(!auditor.is_empty(), "轮转后审计系统应仍有记录");
 }
 
 /// 绕过-6：哈希链重放——相同记录在不同位置产生不同哈希

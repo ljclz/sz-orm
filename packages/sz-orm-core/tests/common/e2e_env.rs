@@ -30,6 +30,14 @@ impl E2eMysqlDb {
         }
     }
 
+    /// 共享库（Test）可回退到 CI/本机通用变量
+    fn fallback_vars(&self) -> &'static [&'static str] {
+        match self {
+            E2eMysqlDb::Test => &["SZ_ORM_MYSQL_URL", "MYSQL_URL"],
+            _ => &[],
+        }
+    }
+
     fn label(&self) -> &'static str {
         match self {
             E2eMysqlDb::Test => "test",
@@ -39,66 +47,83 @@ impl E2eMysqlDb {
     }
 }
 
-/// 获取 MySQL 连接池（第二台服务器 121.204.253.75:8802）
+/// 获取 MySQL 连接池（第二台服务器 <remote-server-ip>:8802）
 ///
-/// 读取 `SZ_ORM_E2E_MYSQL_URL_{DB}` 环境变量。
-/// 环境变量未设置或连接失败返回 `None`（跳过测试，非 panic）。
+/// 读取 `SZ_ORM_E2E_MYSQL_URL_{DB}` 环境变量（Test 库可回退
+/// `SZ_ORM_MYSQL_URL` / `MYSQL_URL`）。
+/// 未配置或连接失败时走 `e2e_skip` 记账（`SZ_ORM_E2E_STRICT=1` 下 panic）。
 pub async fn e2e_mysql_pool(db: E2eMysqlDb) -> Option<sqlx::MySqlPool> {
-    let url = match std::env::var(db.env_var()) {
-        Ok(u) => u,
-        Err(_) => {
-            eprintln!(
-                "E2E_MYSQL_UNREACHABLE: 环境变量 {} 未设置，跳过 MySQL {} 库 e2e 测试",
-                db.env_var(),
-                db.label()
-            );
-            return None;
+    let mut keys: Vec<&str> = vec![db.env_var()];
+    keys.extend_from_slice(db.fallback_vars());
+    let mut found: Option<(String, &str)> = None;
+    for key in keys {
+        if let Ok(v) = std::env::var(key) {
+            if !v.trim().is_empty() {
+                found = Some((v, key));
+                break;
+            }
+        }
+    }
+    // service 名细化到库：CI 只准备 test 库，shop/njszjt 库允许跳过（仍记账）
+    let service = format!("mysql-{}", db.label());
+    let (url, key) = match found {
+        Some(x) => x,
+        None => {
+            return super::e2e_skip::skip_for(
+                &service,
+                &format!(
+                    "环境变量 {} 未设置，MySQL {} 库 e2e 未执行",
+                    db.env_var(),
+                    db.label()
+                ),
+            )
         }
     };
     match sqlx::MySqlPool::connect(&url).await {
         Ok(pool) => Some(pool),
-        Err(e) => {
-            eprintln!(
-                "E2E_MYSQL_UNREACHABLE: MySQL {} 库连接失败 ({}): {}",
-                db.label(),
-                db.env_var(),
-                e
-            );
-            None
-        }
+        Err(e) => super::e2e_skip::skip_for(
+            &service,
+            &format!("MySQL {} 库连接失败（{}）: {}", db.label(), key, e),
+        ),
     }
 }
 
 /// 获取 PostgreSQL 连接池（第二台服务器）
 ///
-/// 读取 `SZ_ORM_E2E_PG_URL` 环境变量，回退到 `POSTGRES_URL`。
-/// 环境变量未设置或连接失败返回 `None`（跳过测试，非 panic）。
+/// 读取 `SZ_ORM_E2E_PG_URL`，回退 `SZ_ORM_PG_URL` / `POSTGRES_URL`。
+/// 未配置或连接失败时走 `e2e_skip` 记账（`SZ_ORM_E2E_STRICT=1` 下 panic）。
 pub async fn e2e_pg_pool() -> Option<sqlx::PgPool> {
-    let url = std::env::var("SZ_ORM_E2E_PG_URL")
-        .or_else(|_| std::env::var("POSTGRES_URL"))
-        .ok();
-    let url = match url {
-        Some(u) => u,
+    let mut found: Option<(String, &str)> = None;
+    for key in ["SZ_ORM_E2E_PG_URL", "SZ_ORM_PG_URL", "POSTGRES_URL"] {
+        if let Ok(v) = std::env::var(key) {
+            if !v.trim().is_empty() {
+                found = Some((v, key));
+                break;
+            }
+        }
+    }
+    let (url, key) = match found {
+        Some(x) => x,
         None => {
-            eprintln!(
-                "E2E_PG_UNREACHABLE: 环境变量 SZ_ORM_E2E_PG_URL / POSTGRES_URL 均未设置，跳过 PostgreSQL e2e 测试"
-            );
-            return None;
+            return super::e2e_skip::skip_for(
+                "postgres",
+                "环境变量 SZ_ORM_E2E_PG_URL / SZ_ORM_PG_URL / POSTGRES_URL 均未设置，PostgreSQL e2e 未执行",
+            )
         }
     };
     match sqlx::PgPool::connect(&url).await {
         Ok(pool) => Some(pool),
-        Err(e) => {
-            eprintln!("E2E_PG_UNREACHABLE: PostgreSQL 连接失败: {}", e);
-            None
-        }
+        Err(e) => super::e2e_skip::skip_for(
+            "postgres",
+            &format!("PostgreSQL 连接失败（{}）: {}", key, e),
+        ),
     }
 }
 
 /// 获取 Oracle 连接（本机 23ai Free，sys/Sysdba）
 ///
 /// 读取 `SZ_ORM_E2E_ORACLE_USER` / `SZ_ORM_E2E_ORACLE_PASSWORD` / `SZ_ORM_E2E_ORACLE_CONNECT_STRING`，
-/// 回退到 `SZ_ORM_ORACLE_*` 旧变量，再回退到默认值 `sys` / `test123` / `127.0.0.1:1521/freepdb1.FALSE`。
+/// 回退到 `SZ_ORM_ORACLE_*` 旧变量，再回退到默认值 `sys` / `test123` / `127.0.0.1:1521/freepdb1`。
 ///
 /// 当用户为 `sys` 时自动使用 `Privilege::Sysdba`，否则使用普通连接。
 pub fn e2e_oracle_conn() -> Option<OracleConn> {
@@ -110,9 +135,10 @@ pub fn e2e_oracle_conn() -> Option<OracleConn> {
         .unwrap_or_else(|_| "test123".to_string());
     let connect_string = std::env::var("SZ_ORM_E2E_ORACLE_CONNECT_STRING")
         .or_else(|_| std::env::var("SZ_ORM_ORACLE_CONNECT_STRING"))
-        .unwrap_or_else(|_| "127.0.0.1:1521/freepdb1.FALSE".to_string());
+        .unwrap_or_else(|_| "127.0.0.1:1521/freepdb1".to_string());
 
     let is_sys = user.eq_ignore_ascii_case("sys");
+    let dsn_label = connect_string.clone();
     let result = if is_sys {
         Connector::new(user, password, connect_string)
             .privilege(Privilege::Sysdba)
@@ -123,11 +149,7 @@ pub fn e2e_oracle_conn() -> Option<OracleConn> {
     match result {
         Ok(conn) => Some(conn),
         Err(e) => {
-            eprintln!(
-                "E2E_ORACLE_UNREACHABLE: Oracle 连接失败 (127.0.0.1:1521): {}",
-                e
-            );
-            None
+            super::e2e_skip::skip_for("oracle", &format!("Oracle 连接失败 ({}): {}", dsn_label, e))
         }
     }
 }

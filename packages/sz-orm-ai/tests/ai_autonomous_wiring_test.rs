@@ -10,8 +10,8 @@
 #![cfg(feature = "ai-config")]
 
 use sz_orm_ai::{
-    AiDecision, AiDecisionType, AuditEntry, DecisionExplainer, DecisionPath, DecisionStep,
-    FeatureImportance, RiskAssessment, RiskFactor, AiRiskLevel, RollbackPlan, RollbackStep,
+    AiDecision, AiDecisionType, AiRiskLevel, AuditEntry, DecisionExplainer, DecisionPath,
+    DecisionStep, FeatureImportance, RiskAssessment, RiskFactor, RollbackPlan, RollbackStep,
     VerifyCondition,
 };
 
@@ -162,10 +162,7 @@ fn test_decision_explain_audit_trail() {
         audit.rollback_plan.verify.condition,
         "query_latency_returned_to_baseline"
     );
-    assert!(
-        audit.timestamp_ms > 0,
-        "时间戳应实际采集（UNIX 毫秒 > 0）"
-    );
+    assert!(audit.timestamp_ms > 0, "时间戳应实际采集（UNIX 毫秒 > 0）");
 }
 
 /// T3.5 端到端测试：决策可解释性审计可追溯
@@ -191,10 +188,12 @@ fn e2e_decision_explain_audit_traceable() {
     assert!(json.contains("predicate_pushdown") || json.contains("Rewrite"));
     assert!(json.contains("query_frequency"));
 
-    let restored: AuditEntry =
-        serde_json::from_str(&json).expect("审计条目反序列化");
+    let restored: AuditEntry = serde_json::from_str(&json).expect("审计条目反序列化");
     assert_eq!(restored.decision_type, audit.decision_type);
-    assert_eq!(restored.feature_importance.len(), audit.feature_importance.len());
+    assert_eq!(
+        restored.feature_importance.len(),
+        audit.feature_importance.len()
+    );
     assert_eq!(
         restored.rollback_plan.verify.condition,
         audit.rollback_plan.verify.condition
@@ -346,10 +345,7 @@ mod t31_auto_index_tests {
             IndexRiskLevel::Low,
             "整体风险等级应为 Low"
         );
-        assert!(
-            !result.rollback_plans.is_empty(),
-            "应有回滚方案"
-        );
+        assert!(!result.rollback_plans.is_empty(), "应有回滚方案");
 
         // 验证行为副作用：applied_indexes 实际包含 DDL
         let applied = decider.applied_indexes();
@@ -361,10 +357,7 @@ mod t31_auto_index_tests {
 
         // 验证回滚注册表有待回滚条目
         let registry = decider.rollback_registry();
-        assert!(
-            registry.has_pending(),
-            "回滚注册表应有未回滚的决策"
-        );
+        assert!(registry.has_pending(), "回滚注册表应有未回滚的决策");
     }
 
     /// T3.1 测试：高风险索引待人工确认
@@ -423,10 +416,7 @@ mod t31_auto_index_tests {
         let decision_id = first_entry.decision_id.clone();
 
         let rollback_sql = decider.rollback(&decision_id);
-        assert!(
-            rollback_sql.is_some(),
-            "回滚应返回回滚 SQL"
-        );
+        assert!(rollback_sql.is_some(), "回滚应返回回滚 SQL");
         let rollback_sql = rollback_sql.unwrap();
         assert!(
             rollback_sql.contains("DROP INDEX"),
@@ -435,10 +425,7 @@ mod t31_auto_index_tests {
 
         // 3. 验证行为副作用：回滚后 applied_indexes 变空
         let applied_after = decider.applied_indexes();
-        assert!(
-            applied_after.is_empty(),
-            "回滚后 applied_indexes 应为空"
-        );
+        assert!(applied_after.is_empty(), "回滚后 applied_indexes 应为空");
 
         // 4. 验证回滚注册表标记已回滚
         let registry = decider.rollback_registry();
@@ -448,10 +435,7 @@ mod t31_auto_index_tests {
             .find(|e| e.decision_id == decision_id)
             .unwrap();
         assert!(entry.rolled_back, "回滚条目应标记为已回滚");
-        assert!(
-            !registry.has_pending(),
-            "回滚后不应有待回滚条目"
-        );
+        assert!(!registry.has_pending(), "回滚后不应有待回滚条目");
     }
 
     /// T3.1 测试：自主索引决策经安全审计三重检查
@@ -473,14 +457,8 @@ mod t31_auto_index_tests {
 
         // 验证应用的 DDL 是合法的 CREATE INDEX
         for ddl in &result.applied {
-            assert!(
-                ddl.to_uppercase().contains("CREATE"),
-                "DDL 应包含 CREATE"
-            );
-            assert!(
-                ddl.to_uppercase().contains("INDEX"),
-                "DDL 应包含 INDEX"
-            );
+            assert!(ddl.to_uppercase().contains("CREATE"), "DDL 应包含 CREATE");
+            assert!(ddl.to_uppercase().contains("INDEX"), "DDL 应包含 INDEX");
         }
     }
 
@@ -534,10 +512,7 @@ mod t31_auto_index_tests {
         let result = decider.decide_and_apply(&profile).await;
         assert!(result.is_err(), "空负载画像应返回错误");
         let err = result.unwrap_err();
-        assert!(
-            err.to_string().contains("空"),
-            "错误信息应提及空负载画像"
-        );
+        assert!(err.to_string().contains("空"), "错误信息应提及空负载画像");
     }
 
     /// T3.1 测试：决策可解释性附在自主索引决策上
@@ -551,27 +526,12 @@ mod t31_auto_index_tests {
         let result = decider.decide_and_apply(&profile).await.unwrap();
 
         // explainer 应存在（ai-config feature 已启用）
-        assert!(
-            result.explainer.is_some(),
-            "自主索引决策应附可解释性"
-        );
+        assert!(result.explainer.is_some(), "自主索引决策应附可解释性");
         let explainer = result.explainer.as_ref().unwrap();
-        assert!(
-            explainer.verify_completeness(),
-            "可解释性完整性校验应通过"
-        );
-        assert!(
-            !explainer.feature_importance.is_empty(),
-            "特征重要性非空"
-        );
-        assert!(
-            !explainer.decision_path.steps.is_empty(),
-            "决策路径非空"
-        );
-        assert!(
-            !explainer.rollback_plan.steps.is_empty(),
-            "回滚方案非空"
-        );
+        assert!(explainer.verify_completeness(), "可解释性完整性校验应通过");
+        assert!(!explainer.feature_importance.is_empty(), "特征重要性非空");
+        assert!(!explainer.decision_path.steps.is_empty(), "决策路径非空");
+        assert!(!explainer.rollback_plan.steps.is_empty(), "回滚方案非空");
     }
 }
 // ============================================================================
@@ -600,18 +560,9 @@ mod t32_auto_rewrite_tests {
         assert!(result.is_ok(), "重写应成功: {:?}", result.err());
         let result = result.unwrap();
 
-        assert!(
-            result.equivalence.is_equivalent,
-            "语义等价校验应通过"
-        );
-        assert!(
-            result.equivalence.verified,
-            "等价性应已自动验证"
-        );
-        assert!(
-            !result.equivalence.proof_text.is_empty(),
-            "论证文本非空"
-        );
+        assert!(result.equivalence.is_equivalent, "语义等价校验应通过");
+        assert!(result.equivalence.verified, "等价性应已自动验证");
+        assert!(!result.equivalence.proof_text.is_empty(), "论证文本非空");
     }
 
     /// T3.2 测试：收益验证
@@ -625,19 +576,13 @@ mod t32_auto_rewrite_tests {
 
         let result = engine.rewrite(sql).await.unwrap();
 
-        assert!(
-            result.benefit.has_benefit,
-            "收益验证应通过"
-        );
+        assert!(result.benefit.has_benefit, "收益验证应通过");
         assert!(
             result.benefit.speedup_ratio > 1.0,
             "加速比应 > 1.0, 实际: {}",
             result.benefit.speedup_ratio
         );
-        assert!(
-            result.benefit.confidence > 0.0,
-            "置信度应 > 0.0"
-        );
+        assert!(result.benefit.confidence > 0.0, "置信度应 > 0.0");
     }
 
     /// T3.2 测试：重写后查询结果与原查询一致
@@ -651,22 +596,10 @@ mod t32_auto_rewrite_tests {
 
         let result = engine.rewrite(sql).await.unwrap();
 
-        assert_eq!(
-            result.original_sql, sql,
-            "原 SQL 应保持不变"
-        );
-        assert!(
-            result.rewritten_sql != sql,
-            "重写后 SQL 应与原 SQL 不同"
-        );
-        assert_eq!(
-            result.rollback_sql, sql,
-            "回滚 SQL 应为原 SQL"
-        );
-        assert!(
-            result.equivalence.is_equivalent,
-            "重写后应与原查询语义等价"
-        );
+        assert_eq!(result.original_sql, sql, "原 SQL 应保持不变");
+        assert!(result.rewritten_sql != sql, "重写后 SQL 应与原 SQL 不同");
+        assert_eq!(result.rollback_sql, sql, "回滚 SQL 应为原 SQL");
+        assert!(result.equivalence.is_equivalent, "重写后应与原查询语义等价");
     }
 
     /// T3.2 端到端测试：重写后查询结果等价性
@@ -682,22 +615,13 @@ mod t32_auto_rewrite_tests {
 
         // 1. 重写
         let result = engine.rewrite(sql).await.unwrap();
-        assert!(
-            result.equivalence.is_equivalent,
-            "语义等价校验应通过"
-        );
+        assert!(result.equivalence.is_equivalent, "语义等价校验应通过");
 
         // 2. 验证行为副作用：低风险重写自动应用
         if result.applied {
             let applied = engine.applied_rewrites();
-            assert!(
-                !applied.is_empty(),
-                "applied_rewrites 应非空"
-            );
-            assert_eq!(
-                applied[0].0, sql,
-                "applied_rewrites[0].0 应为原 SQL"
-            );
+            assert!(!applied.is_empty(), "applied_rewrites 应非空");
+            assert_eq!(applied[0].0, sql, "applied_rewrites[0].0 应为原 SQL");
             assert_eq!(
                 applied[0].1, result.rewritten_sql,
                 "applied_rewrites[0].1 应为重写后 SQL"
@@ -705,22 +629,12 @@ mod t32_auto_rewrite_tests {
 
             // 3. 回滚
             let rollback = engine.rollback(&result.rewritten_sql);
-            assert!(
-                rollback.is_some(),
-                "回滚应返回原 SQL"
-            );
-            assert_eq!(
-                rollback.unwrap(),
-                sql,
-                "回滚返回的应为原 SQL"
-            );
+            assert!(rollback.is_some(), "回滚应返回原 SQL");
+            assert_eq!(rollback.unwrap(), sql, "回滚返回的应为原 SQL");
 
             // 4. 验证行为副作用：回滚后 applied_rewrites 为空
             let applied_after = engine.applied_rewrites();
-            assert!(
-                applied_after.is_empty(),
-                "回滚后 applied_rewrites 应为空"
-            );
+            assert!(applied_after.is_empty(), "回滚后 applied_rewrites 应为空");
         }
     }
 
@@ -744,19 +658,10 @@ mod t32_auto_rewrite_tests {
 
         let result = engine.rewrite(sql).await.unwrap();
 
-        assert!(
-            result.explainer.is_some(),
-            "自主重写应附可解释性"
-        );
+        assert!(result.explainer.is_some(), "自主重写应附可解释性");
         let explainer = result.explainer.as_ref().unwrap();
-        assert!(
-            explainer.verify_completeness(),
-            "可解释性完整性校验应通过"
-        );
-        assert!(
-            !explainer.feature_importance.is_empty(),
-            "特征重要性非空"
-        );
+        assert!(explainer.verify_completeness(), "可解释性完整性校验应通过");
+        assert!(!explainer.feature_importance.is_empty(), "特征重要性非空");
         assert!(
             explainer.decision_path.steps.len() >= 4,
             "决策路径应至少 4 步"
@@ -774,11 +679,7 @@ mod t32_auto_rewrite_tests {
         let sql = make_optimizable_sql();
 
         let result = engine.rewrite(sql).await;
-        assert!(
-            result.is_ok(),
-            "正常重写应通过安全审计: {:?}",
-            result.err()
-        );
+        assert!(result.is_ok(), "正常重写应通过安全审计: {:?}", result.err());
     }
 }
 // ============================================================================
@@ -801,10 +702,7 @@ mod t33_auto_heal_tests {
         let result = engine.detect_and_heal("CapacityBottleneck", None);
         assert!(result.is_ok(), "应成功生成方案");
         let result = result.unwrap();
-        assert!(
-            !result.plan.actions.is_empty(),
-            "方案 actions 应非空"
-        );
+        assert!(!result.plan.actions.is_empty(), "方案 actions 应非空");
         assert!(
             result.plan.actions.contains(&HealAction::RateLimitDegrade),
             "容量瓶颈方案应包含限流降级"
@@ -843,10 +741,7 @@ mod t33_auto_heal_tests {
             HealRiskLevel::Low,
             "容量瓶颈方案应为低风险"
         );
-        assert!(
-            result.executed,
-            "低风险方案应自动执行"
-        );
+        assert!(result.executed, "低风险方案应自动执行");
 
         // FailurePrecursor → 高风险（切换主节点）
         let result2 = engine.detect_and_heal("FailurePrecursor", None).unwrap();
@@ -855,14 +750,8 @@ mod t33_auto_heal_tests {
             HealRiskLevel::High,
             "故障前兆方案应为高风险"
         );
-        assert!(
-            result2.pending_manual,
-            "高风险方案应待人工确认"
-        );
-        assert!(
-            !result2.executed,
-            "高风险方案不应自动执行"
-        );
+        assert!(result2.pending_manual, "高风险方案应待人工确认");
+        assert!(!result2.executed, "高风险方案不应自动执行");
     }
 
     /// T3.3 测试：自愈后异常消除或缓解
@@ -877,18 +766,9 @@ mod t33_auto_heal_tests {
             .detect_and_heal("CapacityBottleneck", Some(metrics_before))
             .unwrap();
 
-        assert!(
-            result.executed,
-            "低风险方案应自动执行"
-        );
-        assert!(
-            result.metrics_before.is_some(),
-            "执行前指标应记录"
-        );
-        assert!(
-            result.metrics_after.is_some(),
-            "执行后指标应记录"
-        );
+        assert!(result.executed, "低风险方案应自动执行");
+        assert!(result.metrics_before.is_some(), "执行前指标应记录");
+        assert!(result.metrics_after.is_some(), "执行后指标应记录");
 
         let before = result.metrics_before.as_ref().unwrap();
         let after = result.metrics_after.as_ref().unwrap();
@@ -898,10 +778,7 @@ mod t33_auto_heal_tests {
             before.health_score(),
             after.health_score()
         );
-        assert!(
-            !result.rolled_back,
-            "指标改善不应回滚"
-        );
+        assert!(!result.rolled_back, "指标改善不应回滚");
     }
 
     /// T3.3 端到端测试：自愈后异常消除
@@ -924,21 +801,12 @@ mod t33_auto_heal_tests {
 
         // 2. 验证行为副作用：executor 有执行记录
         let executor = engine.executor();
-        assert!(
-            executor.has_executed(),
-            "executor 应有执行记录"
-        );
-        assert!(
-            executor.executed_count() > 0,
-            "executed_count 应 > 0"
-        );
+        assert!(executor.has_executed(), "executor 应有执行记录");
+        assert!(executor.executed_count() > 0, "executed_count 应 > 0");
 
         // 3. 指标改善
         let after = result.metrics_after.as_ref().unwrap();
-        assert!(
-            after.error_rate < metrics_before.error_rate,
-            "错误率应下降"
-        );
+        assert!(after.error_rate < metrics_before.error_rate, "错误率应下降");
         assert!(
             after.avg_latency_ms < metrics_before.avg_latency_ms,
             "延迟应下降"
@@ -965,23 +833,14 @@ mod t33_auto_heal_tests {
         // 但如果 metrics_after 比 metrics_before 更差，则回滚
         // 在我们的实现中，metrics_after 是改善的，所以不会回滚
         // 这里验证不回滚的情况
-        assert!(
-            result.executed,
-            "低风险方案应执行"
-        );
+        assert!(result.executed, "低风险方案应执行");
 
         // 验证行为副作用：如果没有恶化，不回滚
         if let Some(after) = &result.metrics_after {
             if after.is_worse_than(&metrics_before) {
-                assert!(
-                    result.rolled_back,
-                    "恶化应自动回滚"
-                );
+                assert!(result.rolled_back, "恶化应自动回滚");
             } else {
-                assert!(
-                    !result.rolled_back,
-                    "无恶化不应回滚"
-                );
+                assert!(!result.rolled_back, "无恶化不应回滚");
             }
         }
     }
@@ -1001,16 +860,8 @@ mod t33_auto_heal_tests {
         engine.register_custom_plan("CustomAnomaly", custom_plan.clone());
 
         let result = engine.detect_and_heal("CustomAnomaly", None).unwrap();
-        assert_eq!(
-            result.plan.actions,
-            custom_plan.actions,
-            "应使用自定义方案"
-        );
-        assert_eq!(
-            result.plan.description,
-            "自定义处置方案",
-            "方案描述应匹配"
-        );
+        assert_eq!(result.plan.actions, custom_plan.actions, "应使用自定义方案");
+        assert_eq!(result.plan.description, "自定义处置方案", "方案描述应匹配");
     }
 
     /// T3.3 测试：未检测到异常拒绝自愈
@@ -1031,15 +882,9 @@ mod t33_auto_heal_tests {
         let mut engine = AutoHealEngine::new();
         let result = engine.detect_and_heal("CapacityBottleneck", None).unwrap();
 
-        assert!(
-            result.explainer.is_some(),
-            "自愈决策应附可解释性"
-        );
+        assert!(result.explainer.is_some(), "自愈决策应附可解释性");
         let explainer = result.explainer.as_ref().unwrap();
-        assert!(
-            explainer.verify_completeness(),
-            "可解释性完整性校验应通过"
-        );
+        assert!(explainer.verify_completeness(), "可解释性完整性校验应通过");
         assert!(
             explainer.decision_path.steps.len() >= 4,
             "决策路径应至少 4 步"
@@ -1086,10 +931,7 @@ mod t34_auto_schema_tests {
             !result.applied.is_empty(),
             "低风险变更应自动应用，applied 非空"
         );
-        assert!(
-            result.compatibility_verified,
-            "低风险变更应通过兼容性验证"
-        );
+        assert!(result.compatibility_verified, "低风险变更应通过兼容性验证");
 
         // 验证行为副作用：applied_changes 实际包含变更
         let applied = evolver.applied_changes();
@@ -1123,10 +965,7 @@ mod t34_auto_schema_tests {
         // 当前实现只生成低风险变更（AddIndex/AddPartition），
         // 高风险变更需要外部触发（如用户请求删列）
         // 这里验证低风险变更被应用
-        assert!(
-            !result.applied.is_empty(),
-            "应有自动应用的变更"
-        );
+        assert!(!result.applied.is_empty(), "应有自动应用的变更");
     }
 
     /// T3.4 测试：Schema 演进不破坏应用兼容性
@@ -1140,10 +979,7 @@ mod t34_auto_schema_tests {
 
         let result = evolver.evolve(&state).await.unwrap();
 
-        assert!(
-            result.compatibility_verified,
-            "Schema 演进应通过兼容性验证"
-        );
+        assert!(result.compatibility_verified, "Schema 演进应通过兼容性验证");
 
         // 所有已应用变更应为向后兼容类型
         for change in &result.applied {
@@ -1169,23 +1005,14 @@ mod t34_auto_schema_tests {
 
         let result = evolver.evolve(&state).await.unwrap();
         assert!(!result.applied.is_empty(), "应有已应用变更");
-        assert!(
-            !result.rollback_plans.is_empty(),
-            "应有回滚方案"
-        );
+        assert!(!result.rollback_plans.is_empty(), "应有回滚方案");
 
         // 回滚第一个变更
         let first_ddl = result.applied[0].ddl.clone();
         let rollback = evolver.rollback(&first_ddl);
-        assert!(
-            rollback.is_some(),
-            "回滚应返回回滚 DDL"
-        );
+        assert!(rollback.is_some(), "回滚应返回回滚 DDL");
         let rollback_ddl = rollback.unwrap();
-        assert!(
-            !rollback_ddl.is_empty(),
-            "回滚 DDL 应非空"
-        );
+        assert!(!rollback_ddl.is_empty(), "回滚 DDL 应非空");
 
         // 验证行为副作用：回滚后 applied_changes 减少
         let applied_after = evolver.applied_changes();
@@ -1217,19 +1044,10 @@ mod t34_auto_schema_tests {
 
         let result = evolver.evolve(&state).await.unwrap();
 
-        assert!(
-            result.explainer.is_some(),
-            "Schema 演进应附可解释性"
-        );
+        assert!(result.explainer.is_some(), "Schema 演进应附可解释性");
         let explainer = result.explainer.as_ref().unwrap();
-        assert!(
-            explainer.verify_completeness(),
-            "可解释性完整性校验应通过"
-        );
-        assert!(
-            !explainer.feature_importance.is_empty(),
-            "特征重要性非空"
-        );
+        assert!(explainer.verify_completeness(), "可解释性完整性校验应通过");
+        assert!(!explainer.feature_importance.is_empty(), "特征重要性非空");
         assert!(
             explainer.decision_path.steps.len() >= 3,
             "决策路径应至少 3 步"

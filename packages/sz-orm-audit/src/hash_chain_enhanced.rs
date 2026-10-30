@@ -228,9 +228,7 @@ impl DesensitizedEntry {
 
     pub fn contains_sensitive(&self) -> bool {
         let lower = self.desensitized_sql.to_ascii_lowercase();
-        ZK_SENSITIVE_KEYWORDS
-            .iter()
-            .any(|kw| lower.contains(kw))
+        ZK_SENSITIVE_KEYWORDS.iter().any(|kw| lower.contains(kw))
     }
 }
 

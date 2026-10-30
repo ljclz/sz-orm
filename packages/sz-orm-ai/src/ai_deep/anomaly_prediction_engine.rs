@@ -405,7 +405,9 @@ impl HealPlanGenerator {
             "FailurePrecursor" => Some(HealPlan {
                 actions: vec![HealAction::SwitchMaster],
                 description: "切换主节点预防故障（高风险）".to_string(),
-                rollback_actions: vec![HealAction::Custom("switch_back_to_original_master".to_string())],
+                rollback_actions: vec![HealAction::Custom(
+                    "switch_back_to_original_master".to_string(),
+                )],
             }),
             _ => None,
         }
@@ -430,7 +432,11 @@ impl HealRiskAssessor {
     ///
     /// 包含 SwitchMaster → 高风险；否则 → 低风险。
     pub fn assess(&self, plan: &HealPlan) -> HealRiskLevel {
-        if plan.actions.iter().any(|a| matches!(a, HealAction::SwitchMaster)) {
+        if plan
+            .actions
+            .iter()
+            .any(|a| matches!(a, HealAction::SwitchMaster))
+        {
             HealRiskLevel::High
         } else {
             HealRiskLevel::Low
@@ -569,7 +575,9 @@ impl AutoHealEngine {
         let risk_level = self.risk_assessor.assess(&plan);
 
         // 3. 执行
-        let executed = self.executor.execute(anomaly_type, plan.clone(), risk_level)?;
+        let executed = self
+            .executor
+            .execute(anomaly_type, plan.clone(), risk_level)?;
         let pending_manual = !executed;
 
         // 4. 恶化监控（如果有执行后指标）
@@ -597,7 +605,8 @@ impl AutoHealEngine {
 
         // 5. 决策可解释性
         #[cfg(feature = "ai-config")]
-        let explainer = self.build_explainer(anomaly_type, &plan, risk_level, executed, rolled_back);
+        let explainer =
+            self.build_explainer(anomaly_type, &plan, risk_level, executed, rolled_back);
 
         Ok(HealResult {
             anomaly_type: anomaly_type.to_string(),

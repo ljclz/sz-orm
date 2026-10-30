@@ -220,8 +220,7 @@ pub use index_advisor::{AiIndexApplyResult, IndexApplyExecutor, RollbackRecord};
 #[cfg(all(feature = "ai-index-advisor", feature = "ai-config"))]
 pub use index_advisor::{
     AutoDecisionResult, AutoIndexDecider, DecisionError, DecisionRollbackEntry,
-    DecisionRollbackRegistry, IndexAutoApplier, IndexRiskAssessor, IndexRiskLevel,
-    WorkloadProfile,
+    DecisionRollbackRegistry, IndexAutoApplier, IndexRiskAssessor, IndexRiskLevel, WorkloadProfile,
 };
 
 // v10.11.0 T3.2：AI 自主查询重写导出（复用 ai-rewrite-advisor + ai-config feature gate）
@@ -295,8 +294,8 @@ pub use ai_deep::{SchemaDesignAdvisor, SchemaDesignConfig};
 // v10.11.0 T3.4：AI Schema 自主演进导出（复用 ai-deep + ai-config feature gate）
 #[cfg(all(feature = "ai-deep", feature = "ai-config"))]
 pub use ai_deep::schema_design_advisor::{
-    AutoSchemaEvolver, EvolveError, EvolveResult, SchemaAutoApplier, SchemaChange, SchemaChangeType,
-    SchemaRiskAssessor, SchemaRiskLevel, SchemaState,
+    AutoSchemaEvolver, EvolveError, EvolveResult, SchemaAutoApplier, SchemaChange,
+    SchemaChangeType, SchemaRiskAssessor, SchemaRiskLevel, SchemaState,
 };
 // v8.1.0 组3：AI 闭环自治生产化顶层导出
 #[cfg(feature = "ai-ab-testing")]

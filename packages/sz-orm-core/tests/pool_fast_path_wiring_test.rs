@@ -158,8 +158,8 @@ async fn e2e_pool_fast_path_under_concurrency() {
 /// 确保 acquire_count 和 release_count 不共享 cache line。
 #[test]
 fn test_pool_fast_path_cache_padded_alignment() {
-    use sz_orm_core::CachePadded;
     use std::sync::atomic::AtomicU64;
+    use sz_orm_core::CachePadded;
 
     let padded = CachePadded::new(AtomicU64::new(42));
     let addr = padded.get() as *const AtomicU64 as usize;

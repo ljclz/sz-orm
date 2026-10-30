@@ -176,9 +176,17 @@ fn test_oauth2_authorization_request() {
 }
 
 #[test]
-fn test_token_store_new() {
-    let store = TokenStore::new();
-    let _ = store.with_refresh_lifetime(3600);
+fn test_token_store_new_with_refresh_lifetime() {
+    // 2026-10-28 P3 存量整改：原测试只构造 + 丢弃（零断言）。
+    // 现验证 with_refresh_lifetime 的行为副作用：配置的有效期反映在
+    // 签发令牌的过期时间差上。
+    let store = TokenStore::new().with_refresh_lifetime(3600);
+    let token = store.issue_family("refresh_token_1", 42).unwrap();
+    assert_eq!(
+        token.expires_at - token.created_at,
+        3600,
+        "刷新令牌有效期应使用配置的 3600 秒"
+    );
 }
 
 #[test]

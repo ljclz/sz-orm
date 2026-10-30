@@ -13,10 +13,9 @@ use std::time::Instant;
 
 use sz_orm_core::simd::{
     batch_aggregate_f32, batch_aggregate_f64, batch_compare_eq, batch_compare_in,
-    batch_decode_integers, batch_filter_f32, batch_filter_f64, batch_filter_bool,
-    batch_max_f32, batch_min_f32, batch_sum_f32, detect, scalar_compare_eq,
-    scalar_compare_in, scalar_decode_integers, scalar_filter_f32, scalar_filter_f64,
-    SimdAggOp, SimdCmpOp,
+    batch_decode_integers, batch_filter_bool, batch_filter_f32, batch_filter_f64, batch_max_f32,
+    batch_min_f32, batch_sum_f32, detect, scalar_compare_eq, scalar_compare_in,
+    scalar_decode_integers, scalar_filter_f32, scalar_filter_f64, SimdAggOp, SimdCmpOp,
 };
 
 /// T1.1 测试：向量化与标量结果一致性
@@ -170,11 +169,17 @@ fn test_simd_cold_branch_correctness() {
 
     let single_set: Vec<i64> = vec![3];
     let result = batch_compare_in(&values, &single_set, avail);
-    assert_eq!(result, vec![false, false, true, false, false, false, false, true]);
+    assert_eq!(
+        result,
+        vec![false, false, true, false, false, false, false, true]
+    );
 
     let two_set: Vec<i64> = vec![1, 5];
     let result = batch_compare_in(&values, &two_set, avail);
-    assert_eq!(result, vec![true, false, false, false, true, true, false, false]);
+    assert_eq!(
+        result,
+        vec![true, false, false, false, true, true, false, false]
+    );
 }
 // ============================================================================
 // T1.2 编译期查询特化（const generics）端到端测试
@@ -246,7 +251,12 @@ fn test_query_specialize_vs_generic_consistency() {
     let table_size = 1200;
 
     let specialized = specialize_execute(&shape, &params, table_size);
-    let generic = generic_execute(&shape.column_types, shape.where_pattern, &params, table_size);
+    let generic = generic_execute(
+        &shape.column_types,
+        shape.where_pattern,
+        &params,
+        table_size,
+    );
 
     assert_eq!(specialized.rows_returned, generic.rows_returned);
     assert_eq!(specialized.cols, generic.cols);
@@ -291,10 +301,7 @@ fn e2e_query_specialize_latency_benefit() {
 
     assert!(result.specialized);
     assert_eq!(result.rows_returned, 2500);
-    assert!(
-        specialize_latency.as_nanos() > 0,
-        "特化路径延迟应非零"
-    );
+    assert!(specialize_latency.as_nanos() > 0, "特化路径延迟应非零");
 
     let start = Instant::now();
     let auto_result = auto_execute(&shape, &params, 10_000);
@@ -482,10 +489,7 @@ fn e2e_zero_copy_decode_allocation_reduction() {
     let big_data = vec![b'x'; 100];
     let buf = build_mysql_row(&[&big_data]);
     let _row = mysql_row_decode_zero_copy(&buf, &mut small_arena, &stats).unwrap();
-    assert!(
-        small_arena.allocation_count() >= 1,
-        "容量不足时应触发扩容"
-    );
+    assert!(small_arena.allocation_count() >= 1, "容量不足时应触发扩容");
 }
 
 /// T1.3 测试：解码错误处理

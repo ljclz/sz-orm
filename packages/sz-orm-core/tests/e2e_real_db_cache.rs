@@ -19,8 +19,7 @@ use sqlx::Row;
 
 /// 获取 PostgreSQL 连接池
 async fn pg_pool() -> Option<sqlx::PgPool> {
-    let url = std::env::var("POSTGRES_URL").ok()?;
-    sqlx::PgPool::connect(&url).await.ok()
+    common::e2e_skip::pg_pool().await
 }
 
 // ==================== L1Cache 测试 ====================

@@ -167,11 +167,16 @@ impl<'a> FindWithRelated<'a> {
             sql.push_str(&parts.join(", "));
         }
 
-        if let Some(n) = self.limit {
-            sql.push_str(&format!(" LIMIT {}", n));
-        }
-        if let Some(n) = self.offset {
-            sql.push_str(&format!(" OFFSET {}", n));
+        if self.limit.is_some() || self.offset.is_some() {
+            if self.dialect.requires_order_by_for_pagination() && self.order_by.is_empty() {
+                sql.push_str(" ORDER BY (SELECT NULL)");
+            }
+            if let Some(clause) = self
+                .dialect
+                .build_pagination_clause(self.limit, self.offset)
+            {
+                sql.push_str(&clause);
+            }
         }
 
         sql

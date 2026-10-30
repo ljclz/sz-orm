@@ -238,12 +238,16 @@ impl LinqQuery {
             sql.push_str(&orders.join(", "));
         }
 
-        if let Some(limit) = self.limit {
-            sql.push_str(&format!(" LIMIT {}", limit));
-        }
-
-        if let Some(offset) = self.offset {
-            sql.push_str(&format!(" OFFSET {}", offset));
+        if self.limit.is_some() || self.offset.is_some() {
+            if self.dialect.requires_order_by_for_pagination() && self.order_by.is_empty() {
+                sql.push_str(" ORDER BY (SELECT NULL)");
+            }
+            if let Some(clause) = self
+                .dialect
+                .build_pagination_clause(self.limit, self.offset)
+            {
+                sql.push_str(&clause);
+            }
         }
 
         sql

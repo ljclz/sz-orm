@@ -11,17 +11,15 @@ mod common;
 use common::cleanup::unique_table_name;
 
 async fn mysql_pool() -> Option<sqlx::MySqlPool> {
-    let url = std::env::var("MYSQL_URL").ok()?;
-    sqlx::MySqlPool::connect(&url).await.ok()
+    common::e2e_skip::mysql_pool().await
 }
 
 async fn pg_pool() -> Option<sqlx::PgPool> {
-    let url = std::env::var("POSTGRES_URL").ok()?;
-    sqlx::PgPool::connect(&url).await.ok()
+    common::e2e_skip::pg_pool().await
 }
 
 async fn sqlite_pool() -> Option<sqlx::SqlitePool> {
-    sqlx::SqlitePool::connect("sqlite::memory:").await.ok()
+    common::e2e_skip::sqlite_pool().await
 }
 
 // ==================== UPSERT ====================

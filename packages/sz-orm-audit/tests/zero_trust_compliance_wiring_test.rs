@@ -906,12 +906,7 @@ fn test_zero_knowledge_audit_desensitize() {
         "SELECT * FROM users WHERE password='{}' AND token='{}'",
         "secret123", "abc"
     );
-    let entry = make_audit_entry(
-        &simulated_sql,
-        "admin",
-        "10.0.0.1",
-        1000,
-    );
+    let entry = make_audit_entry(&simulated_sql, "admin", "10.0.0.1", 1000);
 
     let desensitized = sz_orm_audit::AuditDesensitizer::desensitize(&entry);
     assert!(

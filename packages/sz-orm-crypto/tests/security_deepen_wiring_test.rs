@@ -11,11 +11,8 @@ use sz_orm_crypto::key_rotation_enhanced::KeyRotationEnhanced;
 #[test]
 fn test_auto_rotate_by_period_rotates_key() {
     let mgr = KeyRotationEnhanced::new("k1", b"key-v1".to_vec());
-    let result = mgr.auto_rotate_by_period(
-        std::time::Duration::from_secs(0),
-        "k2",
-        b"key-v2".to_vec(),
-    );
+    let result =
+        mgr.auto_rotate_by_period(std::time::Duration::from_secs(0), "k2", b"key-v2".to_vec());
 
     assert!(result.is_ok(), "周期为 0 时应立即轮换");
     assert_eq!(mgr.write_key_id(), "k2");
@@ -52,10 +49,7 @@ fn test_version_history_records_rotations() {
     mgr.rotate_key("k3", b"key-v3".to_vec()).unwrap();
 
     let history = mgr.version_history();
-    assert!(
-        history.versions.len() >= 3,
-        "版本历史应记录至少 3 个版本"
-    );
+    assert!(history.versions.len() >= 3, "版本历史应记录至少 3 个版本");
     assert!(
         history.versions.iter().any(|e| e.key_id == "k1"),
         "历史应包含 k1"
@@ -79,10 +73,7 @@ fn test_old_data_decryptable_after_rotation() {
     mgr.rotate_key("k2", b"key-v2".to_vec()).unwrap();
 
     let decrypted = mgr.decrypt_with_any_active_key("k1", &old_ct).unwrap();
-    assert_eq!(
-        decrypted, b"sensitive-data",
-        "轮换后旧数据应仍可解密"
-    );
+    assert_eq!(decrypted, b"sensitive-data", "轮换后旧数据应仍可解密");
 }
 
 #[test]

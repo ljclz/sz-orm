@@ -10,6 +10,8 @@
 pub mod cleanup;
 #[allow(dead_code)]
 pub mod e2e_env;
+#[allow(dead_code)]
+pub mod e2e_skip;
 pub mod equivalence;
 pub mod pool_mock;
 pub mod rusqlite_adapter;

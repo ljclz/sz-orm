@@ -109,11 +109,7 @@ pub fn specialize_execute<const COLS: usize, const PARAMS: usize>(
     params: &[String],
     table_size: usize,
 ) -> SpecializeResult {
-    debug_assert_eq!(
-        params.len(),
-        PARAMS,
-        "params 长度必须与 const PARAMS 一致"
-    );
+    debug_assert_eq!(params.len(), PARAMS, "params 长度必须与 const PARAMS 一致");
     let specialized = is_high_frequency_shape::<COLS, PARAMS>();
     let rows_returned = estimate_rows(shape.where_pattern, PARAMS, table_size);
     SpecializeResult {

@@ -23,15 +23,14 @@ fn test_owasp_v10100_a02_crypto_weak_key_attempt() {
     ];
     for (i, hasher) in weak_iter_hashes.iter().enumerate() {
         let result = hasher.hash("test_password");
-        assert!(
-            result.is_err(),
-            "弱迭代次数[{}] 必须被拒绝（< 100_000）",
-            i
-        );
+        assert!(result.is_err(), "弱迭代次数[{}] 必须被拒绝（< 100_000）", i);
     }
 
     let strong_hasher = Pbkdf2Hasher::new();
-    assert!(strong_hasher.hash("test_password").is_ok(), "默认迭代必须通过");
+    assert!(
+        strong_hasher.hash("test_password").is_ok(),
+        "默认迭代必须通过"
+    );
 
     let zero_key = [0u8; 32];
     let crypter = AesGcmCrypter::new(&zero_key);
@@ -48,25 +47,16 @@ fn test_owasp_v10100_a02_crypto_key_rotation_race() {
     let mgr = KeyRotationEnhanced::new("key-v1", b"initial-key".to_vec());
 
     let result = mgr.rotate_key("key-v1", b"duplicate-key".to_vec());
-    assert!(
-        result.is_err(),
-        "重复 key_id 必须被拒绝"
-    );
+    assert!(result.is_err(), "重复 key_id 必须被拒绝");
 
     mgr.rotate_key("key-v2", b"second-key".to_vec()).unwrap();
     let result2 = mgr.rotate_key("key-v2", b"another-duplicate".to_vec());
-    assert!(
-        result2.is_err(),
-        "已存在的 key_id 必须被拒绝"
-    );
+    assert!(result2.is_err(), "已存在的 key_id 必须被拒绝");
 
     mgr.record_usage();
     mgr.record_usage();
     let history = mgr.version_history();
-    assert!(
-        !history.versions.is_empty(),
-        "版本历史应记录轮换操作"
-    );
+    assert!(!history.versions.is_empty(), "版本历史应记录轮换操作");
 }
 
 /// 密码学-3：版本回滚攻击变体
@@ -80,16 +70,10 @@ fn test_owasp_v10100_a02_crypto_version_rollback_attack() {
     mgr.rotate_key("key-v3", b"third-key".to_vec()).unwrap();
 
     let rollback_result = mgr.key_rollback("nonexistent-key");
-    assert!(
-        rollback_result.is_err(),
-        "回滚到不存在的密钥版本必须被拒绝"
-    );
+    assert!(rollback_result.is_err(), "回滚到不存在的密钥版本必须被拒绝");
 
     let rollback_empty = mgr.key_rollback("");
-    assert!(
-        rollback_empty.is_err(),
-        "回滚到空 key_id 必须被拒绝"
-    );
+    assert!(rollback_empty.is_err(), "回滚到空 key_id 必须被拒绝");
 }
 
 /// 密码学-4：nonce 重用尝试变体

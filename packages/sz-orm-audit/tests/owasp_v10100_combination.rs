@@ -31,10 +31,14 @@ fn test_owasp_v10100_a03_injection_combination_union_stacked_variant() {
     for attack in &attacks {
         assert!(
             !rules.should_audit(attack),
-            "UNION + 堆叠组合攻击应被 deny 规则拦截: {}", attack
+            "UNION + 堆叠组合攻击应被 deny 规则拦截: {}",
+            attack
         );
     }
-    assert!(rules.should_audit("SELECT * FROM products"), "正常查询应通过");
+    assert!(
+        rules.should_audit("SELECT * FROM products"),
+        "正常查询应通过"
+    );
 }
 
 /// 组合-2：编码 + 注释组合变体（双重编码 + 行注释）
