@@ -486,15 +486,100 @@ pub struct EnvMetadata {
 impl Default for EnvMetadata {
     fn default() -> Self {
         Self {
-            cpu_model: "unknown".to_string(),
+            cpu_model: capture_cpu_model(),
             cpu_cores: num_cpus(),
-            memory_total_kb: 0,
+            memory_total_kb: capture_memory_total_kb(),
             os_version: std::env::consts::OS.to_string(),
-            rust_version: env!("CARGO_PKG_RUST_VERSION", "unknown").to_string(),
-            feature_flags: vec![],
+            rust_version: capture_rust_version(),
+            feature_flags: capture_feature_flags(),
             git_commit: capture_git_commit(),
         }
     }
+}
+
+/// 采集 CPU 型号（Windows: PROCESSOR_IDENTIFIER；Linux: /proc/cpuinfo）。
+fn capture_cpu_model() -> String {
+    #[cfg(windows)]
+    {
+        if let Ok(v) = std::env::var("PROCESSOR_IDENTIFIER") {
+            let v = v.trim().to_string();
+            if !v.is_empty() {
+                return v;
+            }
+        }
+    }
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(text) = std::fs::read_to_string("/proc/cpuinfo") {
+            for line in text.lines() {
+                if let Some(v) = line.strip_prefix("model name") {
+                    return v.split(':').nth(1).map(str::trim).unwrap_or("").to_string();
+                }
+            }
+        }
+    }
+    "unknown".to_string()
+}
+
+/// 采集物理内存总量（KB）。Linux: /proc/meminfo；Windows: wmic。
+fn capture_memory_total_kb() -> u64 {
+    #[cfg(target_os = "linux")]
+    {
+        if let Ok(text) = std::fs::read_to_string("/proc/meminfo") {
+            for line in text.lines() {
+                if let Some(v) = line.strip_prefix("MemTotal:") {
+                    if let Some(kb) = v.trim().split_whitespace().next() {
+                        return kb.parse().unwrap_or(0);
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        if let Ok(out) = std::process::Command::new("wmic")
+            .args(["ComputerSystem", "get", "TotalPhysicalMemory", "/value"])
+            .output()
+        {
+            if out.status.success() {
+                let text = String::from_utf8_lossy(&out.stdout);
+                for line in text.lines() {
+                    if let Some(v) = line.trim().strip_prefix("TotalPhysicalMemory=") {
+                        if let Ok(bytes) = v.trim().parse::<u64>() {
+                            return bytes / 1024;
+                        }
+                    }
+                }
+            }
+        }
+    }
+    0
+}
+
+/// 采集 rustc 版本（如 "1.99.1"）。
+fn capture_rust_version() -> String {
+    let rustc = std::env::var("RUSTC").unwrap_or_else(|_| "rustc".to_string());
+    if let Ok(out) = std::process::Command::new(&rustc).arg("--version").output() {
+        if out.status.success() {
+            let text = String::from_utf8_lossy(&out.stdout);
+            let parts: Vec<&str> = text.split_whitespace().collect();
+            if parts.len() >= 2 {
+                return parts[1].to_string();
+            }
+        }
+    }
+    "unknown".to_string()
+}
+
+/// 收集 cargo 构建时启用的 feature 标志（CARGO_FEATURE_* 环境变量）。
+fn capture_feature_flags() -> Vec<String> {
+    let mut flags: Vec<String> = std::env::vars()
+        .filter(|(k, _)| k.starts_with("CARGO_FEATURE_"))
+        .map(|(k, _)| k.trim_start_matches("CARGO_FEATURE_").to_lowercase())
+        .collect();
+    flags.sort();
+    flags.dedup();
+    flags
 }
 
 fn capture_git_commit() -> String {

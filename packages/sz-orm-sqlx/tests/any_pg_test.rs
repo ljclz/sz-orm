@@ -456,7 +456,7 @@ async fn test_pg_query_jsonb_type() {
         .unwrap();
     assert_eq!(rows.len(), 1);
     let val = rows[0].get("val").unwrap();
-    assert!(val.is_string() || val.is_null());
+    assert!(val.is_json() || val.is_null());
 }
 
 #[tokio::test]

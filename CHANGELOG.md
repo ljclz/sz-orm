@@ -2838,6 +2838,14 @@ CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+
 - **integration.yml 独立工作流**：手动触发 + 每日定时
 - **test job 解耦**：test 不再依赖 build
 
+#### 2026-10-29 加固期推进（性能元数据 + 校验器归一化 + 孤儿包治理清单）
+
+- **性能基准元数据真实采集**：`packages/sz-orm-bench/src/lib.rs` 的 `EnvMetadata` 由硬编码 `unknown/0/""` 改为真实采集——CPU 型号（Windows `PROCESSOR_IDENTIFIER` / Linux `/proc/cpuinfo`）、物理内存（`wmic` / `/proc/meminfo`）、rustc 版本（运行时 `rustc --version`）、feature 标志（`CARGO_FEATURE_*` 环境变量）；实测生成报告含 `Intel64 ... / 40 cores / 66,994,108 KB / 1.99.1 / git commit`
+- **audit-verify 路径归一化**：`scripts/audit-verify.ps1` 在 `Get-PhysicalLines` 中识别旧克隆根前缀（`E:/vue/...` 与 `/vue/...`，正则匹配吞盘符形式）和开头斜杠（`/packages/...`），归一化为仓库相对路径后校验——消除 `legacy-citation-ledger.md` 指出的 69.3% 红牌噪声；自测 10 passed，实测旧路径引用转绿
+- **孤儿包治理清单**：新增 `docs/assessment/2026-10-29-orphan-package-ledger.md`——30 个无下游依赖包分类（9 个独立交付物非孤儿 + 21 个扩展包待裁定），对齐架构路线图 P2
+- **顺带修复**：`packages/sz-orm-core/src/value.rs` 新增 `Value::is_json()`，`packages/sz-orm-sqlx/tests/any_pg_test.rs` JSONB 断言改用 `is_json()`（此前 JSONB 已解码为 `Value::Json` 但测试仍断言 `is_string`，导致 `test_pg_query_jsonb_type` 失败）；PG 集成测试 46 passed
+- **验证**：门禁 13 项全过、门禁自测 + audit-verify 自测 46 passed、PG 46 / MySQL 21 / cabi / clippy 通过
+
 [1.2.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.0.0

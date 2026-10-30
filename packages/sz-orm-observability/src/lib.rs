@@ -63,6 +63,10 @@ pub use alert_metrics::{
     ALERT_LATENCY_BUCKETS, ALERT_LATENCY_HISTOGRAM, ALERT_METRIC_DEFS,
 };
 
+// v10.13.0（2026-10-28 可观测性遗留项落地）：查询路径指标接入器（需手动接入查询路径）
+pub mod query_path_metrics;
+pub use query_path_metrics::QueryPathMetrics;
+
 #[cfg(feature = "service-mesh")]
 pub mod service_mesh;
 

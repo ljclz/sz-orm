@@ -28,6 +28,8 @@ tokio = { workspace = true, optional = true }
 sea-orm = { version = "1.1", optional = true, features = ["runtime-tokio-rustls", "sqlx-sqlite", "sqlx-mysql", "sqlx-postgres"] }
 # v7.5.0 stability-matrix 依赖
 sz-orm-fusion = { path = "../sz-orm-fusion", version = "10.11.0", optional = true }
+# v10.13.0 metrics-wiring：查询路径指标接入参考实现（真实生产调用点，feature 默认关闭）
+sz-orm-observability = { path = "../sz-orm-observability", version = "10.11.0", features = ["perf-budget-alert"], optional = true }
 
 [dev-dependencies]
 tokio = { workspace = true }
@@ -47,6 +49,8 @@ perf-bench-real = ["bench-real-db", "perf-regression-ci", "perf-budget-alert", "
 bench-real-db = []
 perf-regression-ci = ["bench-real-db"]
 perf-budget-alert = []
+# v10.13.0 查询路径指标接入参考实现：真实基准查询 + QueryPathMetrics 埋点 + Prometheus 文本渲染
+metrics-wiring = ["dep:sz-orm-observability", "real-bench"]
 [lints]
 workspace = true
 [[test]]

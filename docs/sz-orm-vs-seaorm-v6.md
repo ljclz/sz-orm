@@ -20,7 +20,7 @@
 | 数据治理 | ❌ 无 | ✅ 血缘/合规/质量规则 | `sz-orm-governance/src/` |
 | 编译期 SQL 验证 | ✅ sqlx query! 宏 | ✅ sz-orm-macros query! 宏 (db-verify) | `sz-orm-macros/` |
 | 多语言绑定 | ❌ 无 | ✅ C/Java/Go/C++/Python/JS | `sz-orm-cabi/java/go/cpp/python/js` |
-| 23 道门禁 | ❌ 无 | ✅ 幻影交付/语义反模式/架构一致性等 | `scripts/check-*.py` |
+| 24 道门禁 | ❌ 无 | ✅ 幻影交付/语义反模式/架构一致性等 | `scripts/check-*.py` |
 
 ## 结论
 

@@ -105,6 +105,18 @@ $StopTokens = @(
 function Get-PhysicalLines([string]$Path) {
     if ($LineCache.ContainsKey($Path)) { return $LineCache[$Path] }
     $gitRepoPath = $Path -replace '\\', '/'
+    # 路径归一化（2026-10-29 legacy-citation-ledger 建议 1）：
+    # 1) 旧克隆根前缀（E:/vue/... 或 /vue/...，正则匹配可能吞掉盘符）→ 仓库相对路径
+    $legacyRootRe = '^/?[A-Za-z]?:?/vue/test/鲜视达/rust/sz-orm'
+    if ($gitRepoPath -match $legacyRootRe) {
+        $gitRepoPath = ($gitRepoPath -replace $legacyRootRe, '').TrimStart('/')
+        $Path = $gitRepoPath
+    }
+    # 2) 以 / 开头的仓库相对路径（/packages/...）→ 去掉开头斜杠
+    if ($Path.StartsWith('/') -and -not ($Path -match '^/[A-Za-z]:/')) {
+        $Path = $Path.TrimStart('/')
+        $gitRepoPath = $Path
+    }
     if ($AtHead -and -not [System.IO.Path]::IsPathRooted($Path)) {
         # 已提交内容为准。用 Start-Process 直接重定向子进程 stdout 到临时文件，
         # 拿到的是原始字节再按 UTF-8 解析，避免 PowerShell 用控制台代码页

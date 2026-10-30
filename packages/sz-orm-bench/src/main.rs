@@ -209,10 +209,7 @@ fn run_benchmark_real(config: &BenchConfig) {
                 let start = std::time::Instant::now();
                 let outcome = run_workload_real(*fw, *wl, &effective_config).await;
                 #[cfg(feature = "metrics-wiring")]
-                metrics.observe_query(
-                    start,
-                    if outcome.is_ok() { Ok(()) } else { Err(()) },
-                );
+                metrics.observe_query(start, if outcome.is_ok() { Ok(()) } else { Err(()) });
                 match outcome {
                     Ok(r) => {
                         println!(

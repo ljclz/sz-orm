@@ -139,6 +139,25 @@ jobs:
       - name: Run real DB jepsen-style tests (sz-orm-sqlx)
         run: cargo test --package sz-orm-sqlx --test real_db_jepsen -- --ignored --nocapture --test-threads=1
 
+      # R6：e2e 套件缺库不再静默通过。CI 只准备了 MySQL(test 库)/PG，故用
+      # SZ_ORM_E2E_REQUIRED 强制这些 service 真实可用；shop/njszjt/Oracle 等未准备的服务
+      # 允许跳过但仍输出 `E2E_SKIP[...]` 记账行。必需 service 出现跳过即失败。
+      - name: Run real DB e2e suites in strict skip-accounting mode
+        run: |
+          set -euo pipefail
+          : > e2e-strict.log
+          for t in $(cd packages/sz-orm-core/tests && ls e2e_*.rs | sed 's/\.rs$//'); do
+            echo "=== $t ==="
+            SZ_ORM_E2E_STRICT=1 SZ_ORM_E2E_REQUIRED=mysql,mysql-test,postgres \
+            SZ_ORM_E2E_MYSQL_URL_TEST="$SZ_ORM_MYSQL_URL" \
+              cargo test --package sz-orm-core --features e2e-real-db --test "$t" \
+                -- --nocapture --test-threads=1 2>&1 | tee -a e2e-strict.log
+          done
+          if grep -E 'E2E_SKIP\[(mysql|mysql-test|postgres)\]' e2e-strict.log; then
+            echo "::error::e2e 必需服务被跳过（MySQL test 库 / PostgreSQL），测试可信度不成立"
+            exit 1
+          fi
+
       - name: Run real MQTT broker tests (sz-orm-mqtt, real-broker)
         run: cargo test --package sz-orm-mqtt --features real-broker -- --ignored --nocapture
 

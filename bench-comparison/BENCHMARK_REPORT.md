@@ -166,7 +166,7 @@ cargo bench --bench orm_comparison -- --sample-size 10 --measurement-time 2 --wa
 
 ```bash
 cd bench-comparison
-cargo run --release -- --mysql "mysql://root:***MASKED***@122.51.216.76:8802/lewuli" --trials 3
+cargo run --release -- --mysql "mysql://root:***MASKED***@<legacy-server-ip>:8802/lewuli" --trials 3
 ```
 
 结果输出到 stdout，可重定向至文件：`bench-real-db-results.txt`
@@ -187,7 +187,7 @@ cargo run --release -- --postgres "postgres://postgres:postgres@localhost:5432/b
 | 项目 | 说明 |
 |------|------|
 | 数据库 | MySQL（远程云服务器） |
-| 连接 URL | `mysql://root:***@122.51.216.76:8802/lewuli` |
+| 连接 URL | `mysql://root:***@<legacy-server-ip>:8802/lewuli` |
 | 网络环境 | 远程 WAN，每行 INSERT 约 19ms RTT |
 | 连接池 | max_connections=10（与 SQLite benchmark 一致） |
 | SeaORM 配置 | 默认 cache（与 SQLite 一致） |
@@ -343,7 +343,7 @@ cargo run --release -- --postgres "postgres://postgres:postgres@localhost:5432/b
 
 ### 8.5 历史背景
 
-此前 v0.5 版本曾尝试连接远程 PostgreSQL 服务器 `122.51.216.76:5432`，因密码认证失败（错误码 28P01）未完成。本次改用本机 PostgreSQL 18.2（trusted auth），完成公平环境下的对比测试。
+此前 v0.5 版本曾尝试连接远程 PostgreSQL 服务器 `<legacy-server-ip>:5432`，因密码认证失败（错误码 28P01）未完成。本次改用本机 PostgreSQL 18.2（trusted auth），完成公平环境下的对比测试。
 
 ## 9. SQLite vs MySQL vs PostgreSQL 三库对比分析
 

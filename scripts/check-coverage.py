@@ -117,7 +117,19 @@ def find_cargo_bin(name):
                  os.path.join(home, ".cargo", "bin", name + ".exe")):
         if os.path.isfile(cand):
             return cand
-    return name
+    return None
+
+
+def require_tool(name, install_hint):
+    """检查外部工具是否存在，缺失时返回错误信息字符串，存在时返回 None。
+
+    2026-10-27 SDET 评测 G26-C 整改：此前 find_cargo_bin 找不到工具时返回
+    字面量名，subprocess.run 直接抛 FileNotFoundError traceback（WinError 2）。
+    现在所有门禁脚本调用外部二进制前必须显式预检，缺失时优雅失败。
+    """
+    if find_cargo_bin(name) is None:
+        return f"{name} 未安装（安装命令: {install_hint}）"
+    return None
 
 
 def get_crate_features(crate_name):
@@ -192,6 +204,10 @@ def main():
         crate_modules = {k: v for k, v in crate_modules.items() if k == args.package}
 
     llvm_cov = find_cargo_bin("cargo-llvm-cov")
+    if llvm_cov is None:
+        print("  ❌ cargo-llvm-cov 未安装（安装命令: cargo install cargo-llvm-cov --locked）")
+        print("  ❌ 门禁 22 未通过 — 外部工具缺失，请先安装后重跑")
+        return 1
     all_missing = []
     total_covered = 0
     total_regions = 0

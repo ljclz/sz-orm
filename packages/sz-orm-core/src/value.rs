@@ -453,6 +453,11 @@ impl Value {
         matches!(self, Value::Object(_))
     }
 
+    /// 判断是否为 JSON 值
+    pub fn is_json(&self) -> bool {
+        matches!(self, Value::Json(_))
+    }
+
     /// 从 HashMap 构造 Value
     pub fn from_map(map: std::collections::HashMap<String, Value>) -> Self {
         Value::Object(map)

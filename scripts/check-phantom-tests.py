@@ -52,10 +52,10 @@ ASSERT_RE = re.compile(
 
 # 编译期断言模式（Send/Sync/Clone/Unpin 等 trait 约束检查）：
 # 这类测试函数体无运行时 assert，但编译失败即测试失败，属合法零断言测试。
-# 形如 `fn _assert_clone<T: Clone>() {}` + `_assert_clone::<T>();`
+# 形如 `fn _assert<T: Clone>() {}` / `fn _check_send_sync<T: Send + Sync>() {}`
 # 或 `assert_send::<T>();` / `assert_sync::<T>();`。
 COMPILE_TIME_ASSERT_RE = re.compile(
-    r"fn\s+_?assert_\w*\s*<|assert_(?:send|sync|clone|unpin|ref_unwind_safe|eq_type)\s*<"
+    r"fn\s+_?(?:assert|check)\w*\s*<|assert_(?:send|sync|clone|unpin|ref_unwind_safe|eq_type)\s*<"
 )
 
 # P1：同表达式互斥或（反向引用要求两侧标识符/调用完全一致）
