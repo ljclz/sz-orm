@@ -86,4 +86,16 @@
 
 ---
 
-*报告生成：2026-10-29。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*
+## 五、2026-10-30 复跑记录（大量更新后重验）
+
+| 检查 | 结果 |
+|------|------|
+| 门禁 17 项（G18/G12/G27/G33/G32/G26/G19/G15/G16/G17/G25/G9/check-secrets/CI-deny/lockfile/gate-scripts/幻影测试） | 全部通过（exit 0） |
+| 门禁脚本自测 `pytest tests/` | **158 passed / 1 skipped** |
+| `cargo test -p sz-orm-bench -p sz-orm-observability` | 通过 |
+| `any_pg_test`（PG 18 真库，--ignored） | **46 passed** |
+| `any_mysql_test`（本机 8802，--ignored） | **21 passed** |
+| `cargo test -p sz-orm-cabi` | **88 passed**（87 lib + 1 integration） |
+| 环境处置 | 本机 PG 密码被外部变更（非 test123），已按项目约定恢复为 `test123`（临时 trust 重置 + 恢复 pg_hba.conf，AGENTS.md 默认值），PG 测试恢复全绿 |
+
+*报告生成：2026-10-29（2026-10-30 复跑更新）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*

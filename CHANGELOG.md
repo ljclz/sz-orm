@@ -2855,6 +2855,13 @@ CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+
 - **变异门禁 G20 复测**：⚠️ 本机 Windows + 大 diff 触发 `cargo-mutants` diff 解析错误（`invalid escaped character`，工具兼容性）；建议在 CI/Linux 环境复测
 - **C# SafeHandle**：本机无 dotnet SDK，`SzOrm.cs` 裸 IntPtr + 手工 Dispose 的 SafeHandle 改造无法编译验证，登记为待 .NET SDK 环境的 P3 项
 
+#### 2026-10-30 复跑验证（大量更新后全量重验）
+
+- **门禁 17 项全过**（G18/G12/G27/G33/G32/G26/G19/G15/G16/G17/G25/G9/check-secrets/CI-deny/lockfile/gate-scripts/幻影测试）
+- **门禁脚本自测 `pytest tests/`**：158 passed / 1 skipped
+- **真库测试**：PG 46 passed、MySQL 21 passed、cabi 88 passed、sz-orm-bench + observability 通过
+- **环境处置**：本机 PostgreSQL 密码被外部变更导致 PG 测试全红（0/46），已按项目约定（AGENTS.md `postgres:test123`）临时 trust 重置密码并恢复 `pg_hba.conf`，PG 恢复全绿——环境配置说明见 `docs/assessment/2026-10-29-production-readiness-report.md` §五
+
 [1.2.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.0.0
