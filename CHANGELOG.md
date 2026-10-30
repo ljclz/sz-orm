@@ -7,6 +7,21 @@
 
 > **补录说明（2026-10-28，TW 评测 R8）**：历史交付存在中间版本未入册的缺口。本轮依据 `docs/assessment/` 交付记录与 AGENTS.md 明文记载补录 22 个版本的条目（各条目均标注证据来源；其中 7 个版本无独立交付记录，日期为基于相邻版本时间线的推断区间）；仍无交付证据的版本（1.3.0/1.4.0、3.1.0、7.1.0、7.7.0、8.3.0、10.0.0、10.4.0、10.5.0 等）不作编造，完整交付链以 `docs/assessment/` 为准。
 
+## [Unreleased]
+
+### Added
+
+- **API 稳定性承诺文档**：新增 `docs/API-STABILITY.md`，明确 SemVer 承诺、API 稳定性三层分级（Stable/Experimental/Internal）、废弃流程（2 个 MINOR 版本保留期）、破坏性变更条件
+- **端到端真实 DB 示例**：新增 `examples/src/bin/real_db_crud.rs`，使用 SQLite 内存数据库演示完整连接池 + CRUD + 事务（提交/回滚）流程
+- **Prometheus 告警规则**：新增 `monitoring/alerts.yml`，覆盖错误率/延迟/连接池/SLO 燃烧率告警
+- **文档清理**：删除 33 份开发期文档（审计报告/调研文档/重复副本），保留 19 份核心文档
+
+### Fixed
+
+- **sz-orm-search unreachable!() 消除**：将 `TokenizerType::Keyword` 的 `unreachable!()` 替换为正确的 `vec![text]`（整个文本作为单个 token）
+- **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
+- **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
+
 ## [10.13.0] — 2026-10-27
 
 ### v10.13.0 架构评测路线图执行（2026-10-28 TA 评测 P0-P3 修复）
@@ -2699,75 +2714,6 @@ v3.0.0 是 SZ-ORM 的长期目标迭代版本，包含 6 大方向交付物，�
 - **crates.io**：sz-orm-core 发布 **1.5.0**（依赖 sz-orm-sql-validator 1.4.0 / sz-orm-macros 1.4.0）
 - **测试规模**：全 workspace 5,809 passed, 0 failed
 
-## [1.0.0] — 2026-07-19
-
-### Added
-
-- **核心引擎 (sz-orm-core)**：Model trait、QueryBuilder、多数据库方言（MySQL/PostgreSQL/SQLite/Oracle 23ai）、异步连接池、ACID 事务、文件迁移系统、多级缓存、统一值类型（20 种变体）、错误类型体系
-- **数据库适配器**：sz-orm-sqlx（MySQL/PostgreSQL/SQLite/Oracle）、sz-orm-sql-validator（SQL 注入检测）
-- **扩展生态包 (18 个)**：
-  - sz-orm-crypto：AES-256-GCM、PBKDF2、HMAC-SHA256
-  - sz-orm-auth：认证与授权
-  - sz-orm-batch：批量 INSERT/UPDATE/UPSERT
-  - sz-orm-dtx：分布式事务
-  - sz-orm-mig：迁移工具
-  - sz-orm-sharding：分库分表
-  - sz-orm-cache：多级缓存（注：实现在 sz-orm-core/src/cache.rs 与 l2_cache.rs 内，非独立 crate）
-  - sz-orm-queue：消息队列
-  - sz-orm-scheduler：任务调度
-  - sz-orm-graphql：GraphQL 接口
-  - sz-orm-grpc：gRPC 接口
-  - sz-orm-ai：NL→SQL（自然语言转 SQL）
-  - sz-orm-vector：pgvector 向量搜索
-  - sz-orm-search：Meilisearch/Elasticsearch/OpenSearch 集成
-  - sz-orm-storage：S3 兼容对象存储
-  - sz-orm-postgis：PostGIS 地理空间
-  - sz-orm-timeseries：时序数据
-  - sz-orm-observability：Prometheus 指标 + OpenTelemetry tracing
-  - sz-orm-tracing：分布式追踪（W3C TraceContext）
-- **CLI (sz-orm-cli)**：命令行工具
-- **DevTools**：sz-orm-swagger（OpenAPI）、sz-orm-health（健康检查）
-- **测试体系**：2,271 个单元/集成测试（1,635 `#[test]` + 636 `#[tokio::test]`）、proptest 属性测试、fuzz 模糊测试、chaos 混沌测试（16 项）、6h soak test
-- **CI/CD**：GitHub Actions 多 workflow（CI/安全/soak test/依赖更新）
-- **文档**：15 份中文文档 + README.en.md 英文文档 + CONTRIBUTING.md 贡献指南
-
-### Security
-
-- cargo audit 通过（1 allowed warning: paste unmaintained）
-- cargo deny check advisories bans licenses sources 全部通过
-- 6h Linux CI Soak Test（2026-07-21 立即触发）
-
-### Performance
-
-- 1h soak test：13.8 亿 operations，0 errors，1.16% throughput decay，43μs→41μs P99 latency
-- 7 组 criterion 基准测试
-
-<!-- 
-版本缺口说明（2026-10-18 记录）：
-CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+ 个版本规格。
-以下版本有 specs 但无 CHANGELOG 条目（多为小版本/修复版本，特性详见对应 specs/design.md）：
-- v7.1.0, v7.2.0, v7.3.0, v7.5.0, v7.6.0, v7.7.0
-- v8.3.0-v8.8.0, v8.4.0-v8.7.0
-- v9.5.0, v9.6.0, v9.7.0, v9.9.0
-- v10.0.0, v10.1.0, v10.4.0, v10.5.0
-后续版本迭代时逐步补充。
--->
-
-## [Unreleased]
-
-### Added
-
-- **API 稳定性承诺文档**：新增 `docs/API-STABILITY.md`，明确 SemVer 承诺、API 稳定性三层分级（Stable/Experimental/Internal）、废弃流程（2 个 MINOR 版本保留期）、破坏性变更条件
-- **端到端真实 DB 示例**：新增 `examples/src/bin/real_db_crud.rs`，使用 SQLite 内存数据库演示完整连接池 + CRUD + 事务（提交/回滚）流程
-- **Prometheus 告警规则**：新增 `monitoring/alerts.yml`，覆盖错误率/延迟/连接池/SLO 燃烧率告警
-- **文档清理**：删除 33 份开发期文档（审计报告/调研文档/重复副本），保留 19 份核心文档
-
-### Fixed
-
-- **sz-orm-search unreachable!() 消除**：将 `TokenizerType::Keyword` 的 `unreachable!()` 替换为正确的 `vec![text]`（整个文本作为单个 token）
-- **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
-- **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
-
 ## [1.2.0] — 2026-07-26
 
 ### Added
@@ -2865,3 +2811,57 @@ CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+
 [1.2.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.0.0
+## [1.0.0] — 2026-07-19
+
+### Added
+
+- **核心引擎 (sz-orm-core)**：Model trait、QueryBuilder、多数据库方言（MySQL/PostgreSQL/SQLite/Oracle 23ai）、异步连接池、ACID 事务、文件迁移系统、多级缓存、统一值类型（20 种变体）、错误类型体系
+- **数据库适配器**：sz-orm-sqlx（MySQL/PostgreSQL/SQLite/Oracle）、sz-orm-sql-validator（SQL 注入检测）
+- **扩展生态包 (18 个)**：
+  - sz-orm-crypto：AES-256-GCM、PBKDF2、HMAC-SHA256
+  - sz-orm-auth：认证与授权
+  - sz-orm-batch：批量 INSERT/UPDATE/UPSERT
+  - sz-orm-dtx：分布式事务
+  - sz-orm-mig：迁移工具
+  - sz-orm-sharding：分库分表
+  - sz-orm-cache：多级缓存（注：实现在 sz-orm-core/src/cache.rs 与 l2_cache.rs 内，非独立 crate）
+  - sz-orm-queue：消息队列
+  - sz-orm-scheduler：任务调度
+  - sz-orm-graphql：GraphQL 接口
+  - sz-orm-grpc：gRPC 接口
+  - sz-orm-ai：NL→SQL（自然语言转 SQL）
+  - sz-orm-vector：pgvector 向量搜索
+  - sz-orm-search：Meilisearch/Elasticsearch/OpenSearch 集成
+  - sz-orm-storage：S3 兼容对象存储
+  - sz-orm-postgis：PostGIS 地理空间
+  - sz-orm-timeseries：时序数据
+  - sz-orm-observability：Prometheus 指标 + OpenTelemetry tracing
+  - sz-orm-tracing：分布式追踪（W3C TraceContext）
+- **CLI (sz-orm-cli)**：命令行工具
+- **DevTools**：sz-orm-swagger（OpenAPI）、sz-orm-health（健康检查）
+- **测试体系**：2,271 个单元/集成测试（1,635 `#[test]` + 636 `#[tokio::test]`）、proptest 属性测试、fuzz 模糊测试、chaos 混沌测试（16 项）、6h soak test
+- **CI/CD**：GitHub Actions 多 workflow（CI/安全/soak test/依赖更新）
+- **文档**：15 份中文文档 + README.en.md 英文文档 + CONTRIBUTING.md 贡献指南
+
+### Security
+
+- cargo audit 通过（1 allowed warning: paste unmaintained）
+- cargo deny check advisories bans licenses sources 全部通过
+- 6h Linux CI Soak Test（2026-07-21 立即触发）
+
+### Performance
+
+- 1h soak test：13.8 亿 operations，0 errors，1.16% throughput decay，43μs→41μs P99 latency
+- 7 组 criterion 基准测试
+
+<!-- 
+版本缺口说明（2026-10-18 记录）：
+CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+ 个版本规格。
+以下版本有 specs 但无 CHANGELOG 条目（多为小版本/修复版本，特性详见对应 specs/design.md）：
+- v7.1.0, v7.2.0, v7.3.0, v7.5.0, v7.6.0, v7.7.0
+- v8.3.0-v8.8.0, v8.4.0-v8.7.0
+- v9.5.0, v9.6.0, v9.7.0, v9.9.0
+- v10.0.0, v10.1.0, v10.4.0, v10.5.0
+后续版本迭代时逐步补充。
+-->
+

@@ -7,7 +7,7 @@
 - 绑定层依赖：sz-orm-cabi/sz-orm-java/sz-orm-go/sz-orm-cpp 依赖 sz-orm-sqlx（SQLite 后端）+ jni 0.22（Java）；sz-orm-python 依赖 sz-orm-sqlx + pyo3 0.20（PyPool 真实连接）；sz-orm-stream dev-dependencies 含 tokio/futures（集成测试）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
-- 已发布：sz-orm-core 在 crates.io 已发布 30 个版本，最新为 **10.7.0**（2026-10-28 经 crates.io sparse index `index.crates.io/sz/-o/sz-orm-core` 核实；1.0.0 首发于 2026-07-23）；当前代码版本 10.13.0 尚未发布，需要最新能力请用 git/path 依赖（README 安装小节已如此提示）（v10.13.0 详见 CHANGELOG.md；v10.12.0 性能+稳定性深化：连接池自适应调优 + 查询计划缓存增强 + 故障恢复加速；v9.4.0 审计修复闭环：G7 缓存收益测试模型修正 + G22 覆盖率 94.7% + 23 关门禁全部通过；v9.3.0 安全加固深化：SingleFlight 缓存击穿防护 + 事务 panic 安全回滚 + 52 测试；v9.2.0 覆盖率战役：829 新增测试 + Oracle XE 21c 集成 + 安全审查修复；v9.1.0 覆盖率提升：240 新增测试 + AnyConnection 委托修复；v9.0.0 覆盖率战役 M1~M21：361 新增测试 + 连接池 known_good 快速路径引入后经审计撤销 + reap_idle 选择性回收 + Value clonecheap + 工作空间版本升级；v8.8.0 连接池优化 + 精确容量估算 + BatchSizeAdvisor + crates.io 全量发布 8.8.0；v8.7.0 真实质量基线采集：覆盖率 88.59% + 杀率 100% + 四数据库基准 8/8 PASS；v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate）
+- 已发布：sz-orm-core 在 crates.io 已发布 31 个版本，最新为 **10.13.0**（2026-10-30 经 crates.io sparse index `index.crates.io/sz/-o/sz-orm-core` 核实，未 yank；1.0.0 首发于 2026-07-23）；但 70 个包中仅 29 个同步到 10.13.0，37 个仍停在 10.7.0（`sz-orm-ai`/`sz-orm-cpp` 未发布，`sz-orm-js`/`sz-orm-python` 走独立 0.1.0 版本线），跨包组合升级需逐包核实 crates.io 版本（v10.13.0 详见 CHANGELOG.md；v10.12.0 性能+稳定性深化：连接池自适应调优 + 查询计划缓存增强 + 故障恢复加速；v9.4.0 审计修复闭环：G7 缓存收益测试模型修正 + G22 覆盖率 94.7% + 23 关门禁全部通过；v9.3.0 安全加固深化：SingleFlight 缓存击穿防护 + 事务 panic 安全回滚 + 52 测试；v9.2.0 覆盖率战役：829 新增测试 + Oracle XE 21c 集成 + 安全审查修复；v9.1.0 覆盖率提升：240 新增测试 + AnyConnection 委托修复；v9.0.0 覆盖率战役 M1~M21：361 新增测试 + 连接池 known_good 快速路径引入后经审计撤销 + reap_idle 选择性回收 + Value clonecheap + 工作空间版本升级；v8.8.0 连接池优化 + 精确容量估算 + BatchSizeAdvisor + crates.io 全量发布 8.8.0；v8.7.0 真实质量基线采集：覆盖率 88.59% + 杀率 100% + 四数据库基准 8/8 PASS；v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate）
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 防护：编译期 `#[detect_n_plus_one]` 静态检测（n1-lint）+ 运行时 `N1QueryDetector` 检测组件（需手动接入，未自动拦截）。
 
@@ -59,6 +59,8 @@
 | 32 | 文件名编码合法性 | `python scripts/check-filename-encoding.py`（2026-10-27 UXR 评测第三轮新增，2026-10-28 由 26 改号：遍历仓库检测乱码文件名——含 U+FFFD 替换字符、`_md` 结尾丢失扩展名、非 ASCII 名无法按 UTF-8 无损解码均红牌，防止中文文档链接在 GitHub 上 404） |
 | 33 | 文档版本声明一致性 | `python scripts/check-doc-version-consistency.py`（2026-10-27 UXR 评测第三轮新增，2026-10-28 由 27 改号：扫描 README/README.zh/使用指南/学习路线图/AGENTS.md 的"当前版本声明"行（顶部版本/徽章/适用版本/当前工作空间版本/当前代码版本），与 workspace 版本不一致即红牌；历史版本日志与迁移指南等标注历史性的文档不在检查范围） |
 | 34 | 代码生成器产物编译验证 | `python scripts/check-generated-code-compiles.py`（2026-10-27 UXR 评测第三轮新增，2026-10-28 由 28 改号：调用 CLI `make:model` 生成 5 种主键类型（i64/u32/u64/String/uuid）的模型产物，在临时 crate 中 `cargo check` 编译验证，防止生成器产出引用不存在宏/私有模块的坏代码；cargo 不可用时跳过） |
+| 35 | 文档链接健康检查 | `python scripts/check-doc-links.py`（2026-10-30 TW 评测收尾新增：遍历根 README×3/CHANGELOG + docs 根/adr/migration/assessment/delivery 共 265 份核心文档的相对链接，剥离 `#anchor` 与代码块围栏，目标文件不存在即红牌，防止死链复发；含 `--self-test`） |
+| 36 | CHANGELOG 版本线一致性 | `python scripts/check-changelog-consistency.py`（2026-10-30 TW 评测收尾新增：解析 `## [x.y.z]` 版本头，校验 semver 合法性、无重复版本、最新版本 == workspace 版本、日期沿文件从新到旧（补录/推断区间豁免）；含 `--self-test`） |
 
 ### 五维审查（每次 PR 必做）
 

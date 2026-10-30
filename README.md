@@ -41,7 +41,7 @@
 
 ## Overview
 
-SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.13.0 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 509 feature gates for modular composition.
+SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.13.0 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 510 feature gates for modular composition.
 
 ### v5.1.0 AI Application Optimization (34 tasks, 293 new tests)
 
@@ -93,7 +93,7 @@ SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featu
 
 > **⚠️ Honesty disclaimer**: This project is a single-author engineering practice project, **early production ready (internal project)**. The sz-pay project uses sz-orm-core/sqlx/config/auth/macros/queue/scheduler 7 packages in production (297 references, 5139 tests zero regression). For in-depth comparison with Diesel/SeaORM/SQLx, see [docs/sz-orm与同类产品对比分析.md](docs/sz-orm与同类产品对比分析.md).
 
-> **📌 Production readiness positioning (2026-10-16 architecture review, gate count resynced 2026-10-28)**: This workspace is **early production ready for internal pilots** — the engineering quality system (34 gates, 94.4% line coverage, evidence-based auditing) is production-grade, but production adoption is currently limited to the **sz-pay internal pilot** (7 packages). Known limitations to review before external adoption: ① mutation-testing gate (G20) full 2352-mutant subset requires CI/Linux runtime and is not yet a daily gate; ② `--all-features` combination compile needs periodic verification (see `scripts/check-all-features.sh`); ③ feature-gated transitive dependency chain (e.g. rustls 0.21 via `real-es` feature) is tracked in `deny.toml` with ignore + upgrade plan; ④ cross-package mutation coverage (core logic tested from `sz-orm-sqlx`) requires `--test-package` wiring (see `scripts/collect-mutation-diff.sh`).
+> **📌 Production readiness positioning (2026-10-16 architecture review, gate count resynced 2026-10-28)**: This workspace is **early production ready for internal pilots** — the engineering quality system (36 gates, 94.4% line coverage, evidence-based auditing) is production-grade, but production adoption is currently limited to the **sz-pay internal pilot** (7 packages). Known limitations to review before external adoption: ① mutation-testing gate (G20) full 2352-mutant subset requires CI/Linux runtime and is not yet a daily gate; ② `--all-features` combination compile needs periodic verification (see `scripts/check-all-features.sh`); ③ feature-gated transitive dependency chain (e.g. rustls 0.21 via `real-es` feature) is tracked in `deny.toml` with ignore + upgrade plan; ④ cross-package mutation coverage (core logic tested from `sz-orm-sqlx`) requires `--test-package` wiring (see `scripts/collect-mutation-diff.sh`).
 
 ### Production Readiness Check (v3.8.0, config-driven since v10.13.0)
 
@@ -461,9 +461,9 @@ sz-orm/
 sz-orm-core = { path = "packages/sz-orm-core" }
 sz-orm-sqlx = { path = "packages/sz-orm-sqlx" }
 
-# 备选：crates.io（published version may trail the repo, see CHANGELOG.md; use path deps above for the latest）
-# sz-orm-core = "10.7"
-# sz-orm-sqlx = "10.7"
+# 备选：crates.io（core/sqlx/macros/config 已发布 10.13.0；其余包是否同步见 AGENTS.md 发布状态）
+# sz-orm-core = "10.13"
+# sz-orm-sqlx = "10.13"
 
 tokio = { version = "1.40", features = ["full"] }
 ```
@@ -630,9 +630,11 @@ of a half-working pool). Both rules are stated in the ABI banner at the top of
 The FFI layer runs a shared tokio runtime; its worker count can be tuned before the first
 pool creation via `sz_orm_set_runtime_workers(n)` (declared in `sz_orm_cabi.h`).
 
-> **Publishing note**: crates.io releases lag the main branch. For the latest capabilities,
-> prefer a git/path dependency — the Quick Start above already recommends the path-based
-> setup used by the production pilot.
+> **Publishing note** (verified 2026-10-30 against the crates.io sparse index): 29 of the 70
+> workspace packages are published at 10.13.0 (core, sqlx, macros, config, auth, crypto, ...),
+> 37 are still at 10.7.0, `sz-orm-ai`/`sz-orm-cpp` are unpublished, and `sz-orm-js`/
+> `sz-orm-python` follow a separate 0.1.0 line. Check each package before mixing versions;
+> prefer path dependencies when you need capabilities not yet released.
 
 ## Core API
 

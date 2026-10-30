@@ -21,7 +21,7 @@
   - 门禁 G5（文档构建）、G12（`check-doc-consistency.py` 文档与代码一致）、G14（`check-doc-sync.py` + `doc-sync-rules.yaml` 变更→文档映射）、G18（`check-metrics-real.py` 数字度量真实）、G24（`check-examples-readme.py` 示例清单同步）；
   - `missing_docs_scan.txt`（rustdoc missing docs 警告扫描产物）。
 
-> **实时状态提示**：当前 `Cargo.toml` 版本已是 `10.13.0`（[Cargo.toml:6](Cargo.toml#L6)），但 `README.md` 多处仍声称 `v10.12.0`（[README.md:4](README.md#L4)、[README.md:11](README.md#L11)、[README.md:448](README.md#L448)）——这是正在发生的文档漂移，请作为重点复核项。
+> **实时状态提示**：当前 `Cargo.toml` 版本已是 `10.13.0`（[Cargo.toml:6](../../Cargo.toml#L6)），但 `README.md` 多处仍声称 `v10.12.0`（[README.md:4](../../README.md#L4)、[README.md:11](../../README.md#L11)、[README.md:448](../../README.md#L448)）——这是正在发生的文档漂移，请作为重点复核项。
 
 ## 二、必读文档（先读再评测）
 
