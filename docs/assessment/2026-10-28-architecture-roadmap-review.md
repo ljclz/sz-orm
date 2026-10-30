@@ -41,7 +41,7 @@
 | 2 | 五份中文文档乱码文件名（UXR U2） | 🟢 已修复。G26 `check-filename-encoding.py` 实测全绿；磁盘已是规范中文名。 | 低（GitHub 死链已消除） | 保持 G32 常驻 |
 | 3 | 版本号动物园（UXR U3 + TW-01） | 🟡 主体修复、边缘漂移仍在。`README.md:4`/`README.zh.md:4` 均为 v10.13.0；但 **README.md:96 与 docs/README.md:33、engineering-practices.md:45 仍写"25 道门禁"，与 AGENTS.md 的 34 道不一致**——门禁数口径漂移。 | 中（用户/审计按文档执行错误门禁集） | P0-2 统一门禁数 |
 | 4 | 安全整改 H-1~H-4（安全评测） | 🟡 H-1 部分复发：elasticsearch 链已移除，但 **CHANGELOG:43-44 声称的锁文件升级未落地**（`Cargo.lock` 仍是旧版）。H-2/H-3/H-4 代码层已落地（14 条 LLM 规则、`error.rs:296` redacted_summary、`mfa.rs:213` TotpAttemptGuard、audit `mask_sensitive`）。 | 高（供应链声明失真 + 真实漏洞版本仍在锁文件） | P0-1 |
-| 5 | 凭据轮换与 git 历史清理（安全评测遗留） | 🟡 工作区仍含 `SzOrmTest2026`（`AGENTS.md:141` + 15 个测试/文档文件），靠 `check-secrets.py:163` 白名单放过；git 历史未清理（fixes 报告已降级为可选，`security-review-fixes.md:182-186`）。 | 中（凭据已声明失效，但"白名单假绿"模式危险） | P0-3 收敛白名单 |
+| 5 | 凭据轮换与 git 历史清理（安全评测遗留） | 🟢 已闭环。P0-3 已把 `SzOrmTest2026` 从全部源码/AGENTS 移除（改环境变量注入），`scripts/check-secrets.py:192` 的 `LEGACY_AUDIT_PATHS` 对历史审计记录按路径豁免；git 历史未重写（fixes 报告已降级为可选，`security-review-fixes.md:182-186`，凭据已失效）。 | 低（历史文档残留已失效凭据，路径豁免防误报） | 保持豁免登记 |
 | 6 | SIMD/零拷贝名实不符（全栈 F-5/F-6） | 🟢 已修复。`simd.rs` 文档已降级为诚实描述；`l2_cache.rs` 改为紧凑二进制编码。F-7 `acquire_zero_copy` 命名残留（L3 低危）。 | 低 | 可带病运行 |
 | 7 | 绑定层完成度不齐（全栈 F-14~F-19） | 🟡 JS/Python/C# 已真实化（`sz-orm-js/src/pool.rs:101` connect、`transaction.rs:78` execute）；Java 仍只 6 个 native 方法（`SzOrmPool.java:19-24`）；Go Unix 仍不可用（`dll_unix.go:13-17`）；C++ 仍仅 RAII pool wrapper（125 行）。README.en 已如实降级（`README.en.md:260-275`）。 | 中（用户按"支持"字样接入后发现半成品） | P1-2 锁定降级宣称 |
 | 8 | 无 cbindgen 头文件（全栈 F-12） | 🟢 已修复。`packages/sz-orm-cabi/include/sz_orm_cabi.h` 存在；build.rs 含离线回退（V3-11 修复）。 | 低 | 保持 |
@@ -298,8 +298,8 @@
 - `README.zh.md:4` — v10.13.0
 - `docs/README.md:33` — "25 道门禁"
 - `docs/sz-orm-engineering-practices.md:45,511,554` — "25 道门禁"
-- `AGENTS.md:141` — SzOrmTest2026
-- `scripts/check-secrets.py:144,163` — 白名单含 SzOrmTest2026
+- `scripts/check-secrets.py:192` — LEGACY_AUDIT_PATHS 历史审计记录路径豁免（凭据已移出源码）
+- `scripts/check-secrets.py:144` — 白名单移除 SzOrmTest2026 后的说明
 - `Cargo.lock:9243,1995,10209,30,10863` — tokio 1.53.1 / ctutils 0.4.2 / webpki-root-certs 1.0.9 / actix-http 3.13.5 / zstd 0.13.3
 - `CHANGELOG.md:43-44,46` — 声称 tokio 1.54.1 / ctutils 0.4.6 / webpki 1.0.11 / actix-http 3.20.0 / 0 vulnerabilities
 - `deny.toml:56,62,68` — 0382/0346/0349 ignore reason 仍引用 elasticsearch
@@ -323,7 +323,7 @@
 - `docs/sz-orm-maturity-roadmap.md:4-8` — v4.9.0 已过时
 - `docs/sz-orm架构设计.md` — 实际架构文档（任务清单中的 `sz-orm-架构设计.md` 不存在）
 - `packages/sz-orm-ai/src/nl2sql.rs:1013-1020` — 解释文本插值未转义（L-5 仍存在）
-- `scripts/audit-verify.ps1:96-112` — 仅校验行存在/非空（语义空转）
+- `scripts/audit-verify.sh:23` — 弱语义校验说明（v3；.ps1 亦由并行会话升级为 v4 符号断言，语义空转已闭环）
 - `docs/assessment/2026-10-27-security-review-fixes.md:182-186` — git filter-repo 降级为可选
 
 ### 10.3 audit-verify 脚本输出
