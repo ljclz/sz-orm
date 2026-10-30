@@ -299,14 +299,16 @@ mod half_open_probe {
 
     #[test]
     fn test_half_open_probe_should_probe_after_interval() {
+        // 1ms 间隔在并行测试 + 覆盖率插桩下会被调度抖动吃掉，"刚探测完"的
+        // 断言会偶发失败（2026-10-30 全量覆盖率复跑实测），这里放大到 100ms
         let config = ProbeAliveConfig {
-            probe_interval: Duration::from_millis(1),
+            probe_interval: Duration::from_millis(100),
             ..ProbeAliveConfig::default()
         };
         let probe = HalfOpenProbe::new(config);
         probe.probe_alive("conn-1", true);
         assert!(!probe.should_probe("conn-1"));
-        std::thread::sleep(Duration::from_millis(2));
+        std::thread::sleep(Duration::from_millis(150));
         assert!(probe.should_probe("conn-1"));
     }
 }

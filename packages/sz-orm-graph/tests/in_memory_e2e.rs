@@ -36,7 +36,16 @@ async fn test_neo4j_connect_rejected() {
     let mut conn = GraphConnection::new(GraphConfig::new("neo4j://neo4j:pass@127.0.0.1:7687"));
     let result = conn.connect();
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), GraphError::DriverError(_)));
+    // 未启用 neo4j-driver：DriverError（缺驱动）；启用后走真实 TCP，端口不可达为
+    // ConnectionError。两者都表示"远程后端不可用"，--all-features 下断言不能只认一种
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            GraphError::DriverError(_) | GraphError::ConnectionError(_)
+        ),
+        "unexpected error variant: {err:?}"
+    );
     assert!(!conn.is_connected());
 }
 
@@ -45,7 +54,14 @@ async fn test_bolt_connect_rejected() {
     let mut conn = GraphConnection::new(GraphConfig::new("bolt://neo4j:pass@127.0.0.1:7687"));
     let result = conn.connect();
     assert!(result.is_err());
-    assert!(matches!(result.unwrap_err(), GraphError::DriverError(_)));
+    let err = result.unwrap_err();
+    assert!(
+        matches!(
+            err,
+            GraphError::DriverError(_) | GraphError::ConnectionError(_)
+        ),
+        "unexpected error variant: {err:?}"
+    );
     assert!(!conn.is_connected());
 }
 

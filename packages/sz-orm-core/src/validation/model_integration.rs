@@ -126,6 +126,18 @@ mod tests {
     }
 
     impl Connection for MockConnection {
+        fn execute_with_params<'a>(
+            &'a mut self,
+            sql: &'a str,
+            _params: &'a [Value],
+        ) -> std::pin::Pin<
+            Box<dyn std::future::Future<Output = Result<u64, crate::DbError>> + Send + 'a>,
+        > {
+            Box::pin(async move {
+                self.executed.lock().unwrap().push(sql.to_string());
+                Ok(1)
+            })
+        }
         fn execute<'a>(
             &'a mut self,
             sql: &'a str,
@@ -198,7 +210,7 @@ mod tests {
         let qb = QueryBuilder::<TestUser>::new(Box::new(MySqlDialect));
         let mut conn = MockConnection::new();
         let result = qb.insert_validated(&user, &mut conn).await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "insert_validated failed: {result:?}");
         assert_eq!(result.unwrap(), 1);
     }
 
@@ -241,7 +253,9 @@ mod tests {
         let qb = QueryBuilder::<TestUser>::new(Box::new(MySqlDialect));
         let mut conn = MockConnection::new();
         let result = qb.update_validated(&user, &mut conn).await;
-        assert!(result.is_ok());
+        assert!(result.is_ok(), "update_validated failed: {result:?}");
+        assert_eq!(result.unwrap(), 1);
+        assert_eq!(conn.executed.lock().unwrap().len(), 1);
     }
 
     #[tokio::test]

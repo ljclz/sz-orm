@@ -35,10 +35,35 @@ pytestmark = pytest.mark.skipif(
     POWERSHELL is None or not SCRIPT.is_file(), reason="powershell.exe 或脚本不可用"
 )
 
-# 稳定锚点：本仓库内不随并行开发漂移的干净文件与真实非空行
+# 锚点：不随并行开发漂移——按符号定位行号，禁止硬编码（文件增删行会让固定行号失效，
+# -AtHead 读取的是 HEAD 内容，两者一旦错位就会产生与代码无关的假红）
 CITED_FILE = "scripts/check-secrets.py"
-CITED_LINE = 219  # def is_sensitive_filename(filename: str) -> bool:
 CITED_TOKEN = "is_sensitive_filename"
+
+
+def _line_of(lines: list[str], token: str) -> int:
+    for i, line in enumerate(lines, 1):
+        if token in line:
+            return i
+    return 0
+
+
+def _head_text() -> str:
+    proc = subprocess.run(
+        ["git", "show", f"HEAD:{CITED_FILE}"], capture_output=True, cwd=str(ROOT)
+    )
+    return proc.stdout.decode("utf-8", "replace")
+
+
+def _worktree_text() -> str:
+    return (ROOT / CITED_FILE).read_text(encoding="utf-8", errors="replace")
+
+
+CITED_LINE = _line_of(_worktree_text().splitlines(), CITED_TOKEN) or 1
+# 第二条引用（docstring 行）：与 def 行相隔 2 行，同样以符号定位保证稳定
+CITED_LINE_2 = CITED_LINE + 2
+# -AtHead 读的是 HEAD 提交内容，行号必须按 HEAD 内容解析
+HEAD_CITED_LINE = _line_of(_head_text().splitlines(), CITED_TOKEN) or CITED_LINE
 
 
 def run_verify(tmp_path: Path, body: str, strict: bool = False, at_head: bool = False) -> subprocess.CompletedProcess:
@@ -176,23 +201,23 @@ def test_marker_binds_only_to_preceding_citation(tmp_path):
         "| 结论 | 证据 |\n"
         "|------|------|\n"
         f"| 判定函数 | `{CITED_FILE}:{CITED_LINE}` [must-contain: protobuf] 与 "
-        f"`{CITED_FILE}:221` |\n"
+        f"`{CITED_FILE}:{CITED_LINE_2}` |\n"
     )
     proc = run_verify(tmp_path, body)
     assert proc.returncode == 1, proc.stdout + proc.stderr
     assert proc.stdout.count("断言失败") == 1, proc.stdout
     assert f"{CITED_FILE}:{CITED_LINE} — 断言失败" in proc.stdout, proc.stdout
     # 第二条引用仍被独立评估（不得因第一条的断言而消失）
-    assert f"{CITED_FILE}:221" in proc.stdout, proc.stdout
+    assert f"{CITED_FILE}:{CITED_LINE_2}" in proc.stdout, proc.stdout
 
 
 def test_at_head_ignores_worktree_drift(tmp_path):
-    """-AtHead 读已提交内容：工作区被并行改动推移的行号不再产生假阳性。"""
+    """-AtHead 读已提交内容：行号按 HEAD 内容解析，不受工作区漂移影响。"""
     proc = run_verify(
         tmp_path,
         PROBE_BASE.format(
             claim="敏感文件名判定函数",
-            path=f"{CITED_FILE}:{CITED_LINE}",
+            path=f"{CITED_FILE}:{HEAD_CITED_LINE}",
             markers=f"[must-contain: {CITED_TOKEN}]",
         ),
         at_head=True,

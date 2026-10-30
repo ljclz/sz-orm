@@ -528,7 +528,7 @@ fn capture_memory_total_kb() -> u64 {
         if let Ok(text) = std::fs::read_to_string("/proc/meminfo") {
             for line in text.lines() {
                 if let Some(v) = line.strip_prefix("MemTotal:") {
-                    if let Some(kb) = v.trim().split_whitespace().next() {
+                    if let Some(kb) = v.split_whitespace().next() {
                         return kb.parse().unwrap_or(0);
                     }
                 }

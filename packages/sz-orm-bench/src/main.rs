@@ -206,6 +206,7 @@ fn run_benchmark_real(config: &BenchConfig) {
         let mut results = Vec::new();
         for fw in &frameworks {
             for wl in &workloads {
+                #[cfg(feature = "metrics-wiring")]
                 let start = std::time::Instant::now();
                 let outcome = run_workload_real(*fw, *wl, &effective_config).await;
                 #[cfg(feature = "metrics-wiring")]
