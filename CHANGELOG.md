@@ -2797,7 +2797,9 @@ v3.0.0 是 SZ-ORM 的长期目标迭代版本，包含 6 大方向交付物，�
 - **CI 性能基线比对已闭环**（并行会话）：`.github/workflows/ci.yml:795-812` 存在基线时 `--compare-baseline ci-sqlite`（≥10% 退化阻断）后 `--save-baseline` 滚动更新，首次仅建基线；`actions/cache` 恢复滚动基线（PERFV2-01）
 - **PHANTOM-2 警告已收敛**：`check-phantom-delivery.py` 实测 PHANTOM-2 **0**（未登记警告 0），308 个门控未启用警告全部处理
 - **audit-verify.sh 路径归一化**：`scripts/audit-verify.sh` `resolve_file` 识别旧克隆根 `E:/vue/...`/`/vue/...` 前缀与 `/packages/...` 开头斜杠，与 `.ps1` 双入口口径一致；`tests/test_audit_verify_sh_v4.py` 14 passed，实测旧路径引用 2 通过 0 失败（提交 `3e9a32d`）
-- **覆盖率门禁 G22 复测通过**：`cargo-llvm-cov 0.9.1` 全工作空间 **86.45%**（69 包 / 40,276 行 / 34,819 命中）≥ 60% 门槛
+- **覆盖率门禁 G22 复测（2026-10-30 全量重采）**：`cargo-llvm-cov 0.9.1` `--workspace --all-features` 行覆盖 **85.20%**（`src/` 946 文件 / 311,563 行 / 265,452 命中），含测试代码的仓库总口径 83.31%（405,273 行），72 个包全部有插桩数据 ≥ 60% 门槛；此前记录的 `86.45%（69 包 / 40,276 行）` 是局部 lcov 合并口径（漏掉 sz-orm-core），已由本次全量结果取代
+- **三条基线重采**：真库统一入口 `scripts/run-real-db-tests.sh pg mysql` 实跑 6 组全绿（PG 18 + MySQL 20 passed，含 `pg_drop_uncommitted_tx_auto_rollback_on_release` 归还路径）；sqlite 性能基线 `--pool-size 20 --dataset-size 1000` 已保存为 `bench-results/baseline_local-20261030-pool20.json`；增量变异本轮无生产代码改动（0 变异体）；明细见 `docs/assessment/2026-10-30-baseline-recollection.md`
+- **全特性测试修正**：`--all-features` 下 `sz-orm-graph` 的 bolt/neo4j 连接失败断言只认 `DriverError`，启用 `neo4j-driver` 后真实 TCP 拒绝返回 `ConnectionError`——三处改为两者皆可；`v10120_failover_integration` 的半开探测用例 1ms 间隔在插桩+并行下偶发超时，放宽到 100ms
 - **变异门禁 G20 复测**：⚠️ 本机 Windows + 大 diff 触发 `cargo-mutants` diff 解析错误（`invalid escaped character`，工具兼容性）；建议在 CI/Linux 环境复测
 - **C# SafeHandle**：本机无 dotnet SDK，`SzOrm.cs` 裸 IntPtr + 手工 Dispose 的 SafeHandle 改造无法编译验证，登记为待 .NET SDK 环境的 P3 项
 

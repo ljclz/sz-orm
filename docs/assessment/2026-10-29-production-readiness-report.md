@@ -64,7 +64,7 @@
 | 4 | PHANTOM-2 警告收敛 | ✅ 已收敛 | `check-phantom-delivery.py` 实测 PHANTOM-2 **0**（未登记警告 0），308 个门控未启用警告已全部处理 |
 | 5 | 历史报告引用清账 | 🟡 部分完成 | `legacy-citation-ledger.md`：648 处红牌 0 造假；**校验器路径归一化已完成**（`.ps1`+`.sh` 双入口，自测 25 passed）；**零引用治理已实现**：`--require-evidence`（提示词/验证规范豁免，非提示词类 0 引用即阻断，提交 `466a438`）；待做：45 份清单（附录 A）中 39 份真报告逐份补证据（需团队决策，避免编造） |
 | 6 | C# SafeHandle | ⏳ 待 .NET SDK 环境 | `SzOrm.cs` 仍用裸 IntPtr + 手工 Dispose；本机无 dotnet SDK，SafeHandle 改造无法编译验证（P3，非阻断） |
-| 7 | 覆盖率/变异基线复测 | 🟡 复测进行中 | 本会话安装 cargo-mutants 并启动增量变异 + cargo-llvm-cov 覆盖率复测（G22/G20） |
+| 7 | 覆盖率/变异基线复测 | ✅ 已完成 | 覆盖率 `src/` 口径 **85.20%**（LF 311,563 / LH 265,452，72/72 包有插桩）；含测试代码总口径 83.31%；增量变异本轮无生产代码改动（0 变异体）；真库 6 组 38 passed；sqlite pool-size 20 性能基线已入库——明细见 `docs/assessment/2026-10-30-baseline-recollection.md` |
 | 8 | sz-pay 下游版本 | 下游待办 | sz-pay 声明 `sz-rust-* ^1.7.0`，上游已 2.0.0，需下游升级适配后完整编译 |
 | 9 | 其余包发布 | 可选 | 核心 6 包 + 依赖链已发布 crates.io 10.13.0；其余 workspace 包可扩展发布 |
 
