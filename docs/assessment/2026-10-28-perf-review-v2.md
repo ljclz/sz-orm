@@ -6,6 +6,8 @@
 > 证据分层：**L1** `[事实]` 代码/文档 `file:line`；**L2** `[实测]` 本会话命令输出（含退出码）；**L3** `[推断]` 专业判断，已显式标注
 > 红线遵守：仓库只读（外部试验 crate 位于 `D:\temp\perf-eval-v2\`）；未运行 `bench-comparison/` 下任何 Node 脚本；未修改仓库基线；未重启/调参数据库；仅操作 `sz_orm_test`；密码以 `<local-password>` 占位。
 
+> **⚠️ 时效声明（2026-10-31 追加，必读）**：§1–§15 是 **HEAD `13a22924`（2026-10-28）** 的时点快照。2026-10-31 复跑自证时发现 HEAD 已前移到 `01e3f841`，其中 **7 项结论的事实基础发生变化**（ROI-1/2/5、P0-2 元数据、P0-3 的 Drop 半项、审计工具 P2-4）。**当前状态一律以 §16 为准**，§1–§15 保留原样作为可追溯的历史裁定，不改写。
+
 ---
 
 ## 1. 执行摘要
@@ -109,7 +111,7 @@ perf-harness-v2.exe sqlite szorm_rel 64 16 900 10000 soak900
 | ROI-1 删除模拟基准路径 | `--simulate` 不可达、模拟报告封存 | `[实测]` `--simulate` → exit 1，提示「已于 v10.13.0 移除」；不带 `real-bench` → exit 1。`[事实]` 但 **HEAD 仍提交着** `bench-results/1789544529_bench_report.json`（v7.1.0 旧格式，无 `is_real_db`、`git_commit` 为空），工作区已删除但未提交 | **部分闭环** |
 | ROI-2 CI 门禁 fail-closed | 移除 `continue-on-error`、加真实基准与接线测试 | `[事实]` HEAD job 仍是 `continue-on-error: true` + `\|\| echo "WARNING..."`；工作区新 job 只 `--save-baseline` 不 `--compare-baseline`；接线测试是决策逻辑单测 | **未闭环** |
 | ROI-3 消灭幻影性能测试 | 诚实命名执行器、去 sleep、断言真实 | `[事实]` `ControlledExecutor`（`is_real_db=false`）与 `RealSqliteExecutor` 拆分清晰（`packages/sz-orm-bench/tests/perf_bench_real_wiring.rs:9`）；v65 去 sleep 属实。`[实测]` 但 `performance_validation` 的 compare_eq 标量基准测得 **3 ns/50k 元素**（死代码消除），decode 两条相同路径测出 2.35× 差异 | **部分闭环** |
-| ROI-4 可观测性指标对齐 | 13 指标注册且与告警/面板一致 | `[事实]` `register_alert_metrics` 存在（`packages/sz-orm-observability/src/alert_metrics.rs:204`），经 `lib.rs:62` 导出；`[实测]` 全仓除测试外无调用点，`PrometheusExporter::export()` 只返回字符串，无 HTTP 端点 | **部分闭环**（名对齐、接线未落） |
+| ROI-4 可观测性指标对齐 | 13 指标注册且与告警/面板一致 | `[事实]` `register_alert_metrics` 存在（`packages/sz-orm-observability/src/alert_metrics.rs:204`），经 `packages/sz-orm-observability/src/lib.rs:62` 导出；`[实测]` 全仓除测试外无调用点，`PrometheusExporter::export()` 只返回字符串，无 HTTP 端点 | **部分闭环**（名对齐、接线未落） |
 | ROI-5 报告生成器修复 + 工件清理 | 删除 `update_report.js`、清空模拟报告 | `[事实]` **HEAD 仍存在** `bench-comparison/update_report.js`（`git ls-tree HEAD` 可见），工作区才删除；`bench-results/` 仍含 7.1.0/7.2.0 两份旧报告 | **未闭环（交付态）** |
 | ROI-6 性能声称纳入 G18 | `check-metrics-real.py` 拦截无证据性能数字 | `[实测]` G18 退出码 0（UTF-8 控制台）/ 1（GBK 控制台直接 `UnicodeEncodeError` 崩溃）；规则只是「同一行含 `cargo`/`docs/`/日期等 token」（`scripts/check-metrics-real.py:151`、`:257`），无法识别 `89.3%` 与 mock soak | **部分闭环** |
 
@@ -163,7 +165,7 @@ perf-harness-v2.exe sqlite szorm_rel 64 16 900 10000 soak900
 | PR 仍不阻断 | `.github/workflows/ci.yml:765`：`continue-on-error: ${{ github.ref != 'refs/heads/main' }}` | 退化只有在合并后才发现 |
 | 工件不回流 | 只有 `upload-artifact`（`:796`），无 `download-artifact` | 上轮基线从不被消费 |
 | 上游 job 可跳过 | `needs: [test]`（`:762`） | test 失败/取消时 benchmark 不运行，且不算失败 |
-| 缺 workload 静默跳过 | `RegressionBaseline::compare` 只遍历基线条目，当前结果缺失即跳过（`packages/sz-orm-bench/src/regression_baseline.rs:92`）；单测明确断言缺 workload 时比较数为 0（`:200`） | 跑 1 个 workload 也能「通过」 |
+| 缺 workload 静默跳过 | `RegressionBaseline::compare` 只遍历基线条目，当前结果缺失即跳过（10-28 代码，入口 `packages/sz-orm-bench/src/regression_baseline.rs:94`；当时断言「缺 workload 时比较数为 0」的单测现 `:209` 已改为 fail-closed） | 跑 1 个 workload 也能「通过」（2026-10-31 复测：已闭环，见 §16.2） |
 
 ### 4.3 阈值可用性：同代码复跑的误报率
 
@@ -413,7 +415,7 @@ RESULT,soak900,Sqlite,SzOrmRel,64,16,89552491,99327,108,3412,6600,636,157471,49,
 |------|------|------|------|------|
 | decode_integers | 77,630 ns | 71,560 ns | 0.922 | 两条路径**是同一函数**（`packages/sz-orm-core/src/simd.rs:113` 直接委托标量），差异纯属测量偏差 |
 | compare_eq | 79,085 ns | 109,440 ns | 1.384 | 手工 8 展开**更慢** |
-| compare_in（set=64） | 1,667,433 ns | 1,733,333 ns | 0.96 | 每次调用重建 HashSet（`simd.rs:180`）导致更慢 |
+| compare_in（set=64） | 1,667,433 ns | 1,733,333 ns | 0.96 | 每次调用重建 HashSet（`packages/sz-orm-core/src/simd.rs:180`）导致更慢 |
 
 `[实测]` 仓库自带测试反而给出 compare_in 6.89×（set=500）——这是**算法差异**（哈希 vs 500×50k 次比较），不是 SIMD；同一次运行里 decode 的 batch/scalar 相差 2.35×，且 compare_eq 标量基准只有 3 ns/50k（编译器把结果消掉了），说明测试方法无法支撑任何「加速」结论。
 
@@ -492,7 +494,7 @@ RESULT,soak900,Sqlite,SzOrmRel,64,16,89552491,99327,108,3412,6600,636,157471,49,
 | 项 | 状态 | 证据 |
 |----|------|------|
 | 指标名与告警/面板一致 | ✅ | 13 个名称在 `packages/sz-orm-observability/src/alert_metrics.rs:204` 注册，测试断言与 `alerts.yml`/dashboard 对齐 |
-| 生产调用点 | ❌ | 全仓仅测试调用；`lib.rs:62` 只是再导出 |
+| 生产调用点 | ❌ | 全仓仅测试调用；`packages/sz-orm-observability/src/lib.rs:62` 只是再导出 |
 | Exporter 服务 | ❌ | `PrometheusExporter::export()` 返回 `String`，无 HTTP/TCP 监听；`register_sz_orm_metrics(exporter)` 需手动调用 |
 | 池指标 | ⚠️ | `PoolStatus`（`packages/sz-orm-core/src/pool.rs:717`）与 `PoolMetrics`（`:749`）字段齐全，但 soak 采样出现 `active=16` 而内层上限 10、`idle=8,active=8` 等不自洽 |
 | 慢查询定位 | ⚠️ | 无自动埋点证据；需手动接 `sz-orm-observability` |
@@ -510,7 +512,7 @@ RESULT,soak900,Sqlite,SzOrmRel,64,16,89552491,99327,108,3412,6600,636,157471,49,
 | P0-2 | 阻断 | 元数据全缺 + 统计口径不足 | `packages/sz-orm-bench/src/lib.rs:486`；今日报告 JSON | 真实采集 CPU/内存/rustc/feature/DB 版本；rounds ≥100；3 轮中位；门限按 CV 自适应 | 报告六字段无 `unknown/0/""`；同代码 3 轮 p95 极差 ≤15% |
 | P0-3 | 阻断 | 内层池上限 10 + Drop 异步归还 | `packages/sz-orm-sqlx/src/any.rs:170`；`packages/sz-orm-core/src/pool.rs:440` | 内外上限对齐；Drop 改为内联归还或至少在 acquire 中同步回收；`PoolStatus` 记账自洽 | 任意 pool 1~256：acquire 错误 0、`idle+active≤max`、串行 10k 次无超时 |
 | P1-1 | 高 | prepared cache / SIMD / plan-cache 未接热路径 | `packages/sz-orm-core/src/connection_ext.rs:41`；`packages/sz-orm-core/src/simd.rs:113` | 在 `PooledConnection::query` 接入 `PreparedStatementCache`；SIMD 路径要么删除要么接 decode | 端到端开关缓存 p50 提升 ≥20%（对照 5 次） |
-| P1-2 | 高 | 可观测性未接线 | `alert_metrics.rs:204`；exporter 无端点 | 默认注册 + 提供 `serve(addr)`；soak 用真实 RSS/fd | 进程启动后 `/metrics` 可抓；告警不再 `No data` |
+| P1-2 | 高 | 可观测性未接线 | `packages/sz-orm-observability/src/alert_metrics.rs:204`；exporter 无端点 | 默认注册 + 提供 `serve(addr)`；soak 用真实 RSS/fd | 进程启动后 `/metrics` 可抓；告警不再 `No data` |
 | P1-3 | 高 | 工件与脚本未提交/未清理 | HEAD 含 `update_report.js`、`1789544529` | 提交工作区删除；`bench-results/` 只保留当前版本 | `git ls-tree HEAD bench-comparison/update_report.js` 为空 |
 | P2-1 | 中 | G18 只查 token | `scripts/check-metrics-real.py:257` | 要求性能行带「对照 + 重复次数 + 复现命令」结构化块；识别无对照的百分比 | 能拦住「89.3%（无对照）」与「1h soak（mock）」 |
 | P2-2 | 中 | C ABI JSON 边界成本 | `packages/sz-orm-cabi/src/lib.rs:378` | 增加列式/二进制返回或句柄复用 | 1 行查询跨语言开销 ≤ +20% |
@@ -523,13 +525,15 @@ RESULT,soak900,Sqlite,SzOrmRel,64,16,89552491,99327,108,3412,6600,636,157471,49,
 
 ### 15.1 仓库内证据（L1）
 
+> 下表的行号均为 **2026-10-28 / HEAD `13a22924`** 时点；2026-10-31 复核时的新行号见 §16.1（`compare()` 92→94、`connect_with_max` 170、`impl Drop` 536 等）。§1–§15 保留原行号是刻意的——它们是当时那次裁定的原始证据坐标，改写会破坏可追溯性；引用有效性以 §16.11 的门禁 13 输出为准。
+
 | 主题 | 引用 |
 |------|------|
 | 版本 | `Cargo.toml:6` |
 | 池 Drop 归还 / 状态 / 指标 | `packages/sz-orm-core/src/pool.rs:440`、`:717`、`:749` |
 | 内层池上限 10 | `packages/sz-orm-sqlx/src/any.rs:170`、`:875`、`:1748` |
 | 元数据硬编码 | `packages/sz-orm-bench/src/lib.rs:486`、`:493`、`:542` |
-| 基线比对逻辑 | `packages/sz-orm-bench/src/regression_baseline.rs:92`、`:107`、`:200` |
+| 基线比对逻辑（行号已按 2026-10-31 HEAD 更正；10-28 时为 `:92`/`:107`/`:200`） | `packages/sz-orm-bench/src/regression_baseline.rs:94`、`:105`、`:209` |
 | 基线缺失 fail-closed | `packages/sz-orm-bench/src/main.rs:118`、`:134` |
 | CI benchmark job | `.github/workflows/ci.yml:761`、`:765`、`:783`、`:791`、`:796` |
 | Soak workflow | `.github/workflows/soak.yml:68`、`:90` |
@@ -608,74 +612,22 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command `
 
 > 该首轮失败本身就是一条评测证据：**门禁 13 对子目录清单的行号引用会把证据指向错误文件**，属于审计工具自身的静默错判（不是 fail-open，但会误伤真实引用）。已列入 §14 P2-4。
 
-### 15.5 audit-verify 执行输出
+### 15.5 audit-verify（v2 脚本，2026-10-28）执行输出摘要
+
+> 本节的 50 条逐行 `✅` 明细已**不再生效**：2026-10-31 复核发现被引文件发生行位移（`regression_baseline.rs` 211→226 行、`bench/src/lib.rs` 994→1079 行），逐行打印中的旧行号会被新版脚本重新解析成失效引用。字节级原始日志完整保留在外部工件 `D:/temp/perf-eval-v2/audit_verify.log`（轮次 ①，50/0/0）与 `D:/temp/perf-eval-v2/audit_verify_final.log`（轮次 ②，100/2/0），此处只保留结论摘要；**当前有效的逐行自证见 §16.11**。
 
 ```text
 ==========================================
-  审计证据验证: docs\assessment\2026-10-28-perf-review-v2.md
-==========================================
-✅ Cargo.toml:6 (共 91 物理行)
-✅ packages/sz-orm-bench/src/lib.rs:486 (共 994 物理行)
-✅ packages/sz-orm-sqlx/src/any.rs:170 (共 2954 物理行)
-✅ packages/sz-orm-core/src/pool.rs:440 (共 5638 物理行)
-✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 (共 936 物理行)
-✅ packages/sz-orm-bench/tests/perf_bench_real_wiring.rs:9 (共 399 物理行)
-✅ packages/sz-orm-observability/src/alert_metrics.rs:204 (共 347 物理行)
-✅ packages/sz-orm-bench/src/main.rs:118 (共 379 物理行)
-✅ packages/sz-orm-bench/src/regression_baseline.rs:92 (共 211 物理行)
-✅ packages/sz-orm-bench/src/lib.rs:493 (共 994 物理行)
-✅ Cargo.toml:6 (共 91 物理行)
-✅ packages/sz-orm-bench/src/lib.rs:567 (共 994 物理行)
-✅ packages/sz-orm-core/src/connection_ext.rs:41 (共 398 物理行)
-✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 (共 936 物理行)
-✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:225 (共 936 物理行)
-✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-sqlx/Cargo.toml:14 (共 111 物理行)
-✅ packages/sz-orm-sqlx/src/any.rs:374 (共 2954 物理行)
-✅ packages/sz-orm-core/tests/v65_prepared_cache_benefit.rs:1 (共 195 物理行)
-✅ packages/sz-orm-core/src/simd.rs:113 (共 1344 物理行)
-✅ packages/sz-orm-flamegraph/src/collector.rs:39 (共 198 物理行)
-✅ packages/sz-orm-cabi/src/lib.rs:378 (共 3518 物理行)
-✅ packages/sz-orm-observability/src/alert_metrics.rs:204 (共 347 物理行)
-✅ packages/sz-orm-core/src/pool.rs:717 (共 5638 物理行)
-✅ packages/sz-orm-bench/src/lib.rs:486 (共 994 物理行)
-✅ packages/sz-orm-sqlx/src/any.rs:170 (共 2954 物理行)
-✅ packages/sz-orm-core/src/pool.rs:440 (共 5638 物理行)
-✅ packages/sz-orm-core/src/connection_ext.rs:41 (共 398 物理行)
-✅ packages/sz-orm-core/src/simd.rs:113 (共 1344 物理行)
-✅ packages/sz-orm-cabi/src/lib.rs:378 (共 3518 物理行)
-✅ Cargo.toml:6 (共 91 物理行)
-✅ packages/sz-orm-core/src/pool.rs:440 (共 5638 物理行)
-✅ packages/sz-orm-sqlx/src/any.rs:170 (共 2954 物理行)
-✅ packages/sz-orm-bench/src/lib.rs:486 (共 994 物理行)
-✅ packages/sz-orm-bench/src/regression_baseline.rs:92 (共 211 物理行)
-✅ packages/sz-orm-bench/src/main.rs:118 (共 379 物理行)
-✅ packages/sz-orm-core/tests/common/soak.rs:233 (共 676 物理行)
-✅ packages/sz-orm-core/tests/soak.rs:106 (共 294 物理行)
-✅ packages/sz-orm-core/src/simd.rs:113 (共 1344 物理行)
-✅ packages/sz-orm-core/tests/v65_prepared_cache_benefit.rs:1 (共 195 物理行)
-✅ packages/sz-orm-core/src/connection_ext.rs:41 (共 398 物理行)
-✅ packages/sz-orm-core/src/pool_elastic.rs:1066 (共 1802 物理行)
-✅ packages/sz-orm-core/tests/performance_validation.rs:75 (共 171 物理行)
-✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 (共 936 物理行)
-✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:225 (共 936 物理行)
-✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-sqlx/Cargo.toml:14 (共 111 物理行)
-✅ packages/sz-orm-observability/src/alert_metrics.rs:204 (共 347 物理行)
-✅ packages/sz-orm-observability/src/lib.rs:62 (共 836 物理行)
-✅ packages/sz-orm-flamegraph/src/collector.rs:39 (共 198 物理行)
-✅ packages/sz-orm-cabi/src/lib.rs:378 (共 3518 物理行)
-✅ packages/sz-orm-bench/tests/perf_bench_real_wiring.rs:9 (共 399 物理行)
-
-==========================================
-  验证结果
+  审计证据验证: docs/assessment/2026-10-28-perf-review-v2.md
 ==========================================
   ✅ 通过: 50
   ❌ 失败: 0
   ⚠️  警告: 0
 ==========================================
-✅ 审计证据验证通过
+✅ 审计证据验证通过            （退出码 0）
 ```
 
-**裁定**：`[实测]` 轮次 ① 的 50 项 `file:line` 证据全部指向真实存在、行号在范围内且非空的行 → 证据层 L1 引用可审计。**边界**：脚本只校验「文件存在 + 行号有效 + 非空」，不校验「该行内容支撑该结论」；§7/§8/§9/§10 的 `[实测]` 数字由 §15.2 的外部工件日志与命令复算，不依赖本脚本。
+**裁定（时点：2026-10-28，脚本 v2）**：`[实测]` 轮次 ① 的 50 项 `file:line` 全部指向当时真实存在、行号在范围内且非空的行 → 该时点的 L1 引用可审计。**边界**：v2 只校验「文件存在 + 行号有效 + 非空」，不校验「该行内容支撑该结论」，也**不随源码演进**——这正是 §16.1 暴露的失效模式；§7/§8/§9/§10 的 `[实测]` 数字由 §15.2 的外部工件日志复算，不依赖本脚本。
 
 ### 15.6 定稿后复跑（附录自引用）
 
@@ -698,4 +650,362 @@ powershell -NoProfile -ExecutionPolicy Bypass -Command `
 
 ---
 
-**报告状态**：完稿。全部 15 节交付，A–J 硬性实验已执行项均附命令/退出码/工件路径，未执行项见 §15.3 并注明原因。按红线要求：未运行 `bench-comparison/` 下任何 Node 脚本，未修改仓库内基线文件，未重启/调参数据库，仅操作 `sz_orm_test`，密码统一为 `<local-password>`。**未提交、未推送。**
+## 16. 复测增补（实测 HEAD `01e3f841`，回写核对 HEAD `fa68444c`，2026-10-31）
+
+### 16.1 触发原因与复测范围
+
+`[实测]` 2026-10-31 复跑 §15.4 的自证命令时，audit-verify 报出**新的失败位置**（`regression_baseline.rs` 被引第 92 行处为空行）。根因不是报告写错，而是**仓库在两次评测之间前进了**：
+
+| 项 | 2026-10-28 | 2026-10-31 |
+|----|-----------|-----------|
+| HEAD | `13a22924` | `01e3f841`（`docs(release): 中文 README 发布状态同步…` 等 5 个新提交） |
+| 工作区脏文件 | 295（42 源文件 `+2698/−704`） | 73 |
+| `regression_baseline.rs` | 211 行，`compare()` 在 :92 | 226 行，`compare()` 在 :94 |
+| `sz-orm-bench/src/lib.rs` | 994 行 | 1079 行 |
+
+`[实测]` 复测构建：`cargo build --release -p sz-orm-bench --features real-bench` → **exit 0，3m15s**；外部 harness 重建 → exit 0。全部压测在 `D:\temp\perf-eval-v2\rerun-1031`（CWD 不在仓库内，工件不入库）。复测项：门禁矩阵、CI 语义、`env_metadata`、双层池、Drop 归还、阈值可用性、审计工具行为。
+
+`[实测]` **回写期间 HEAD 再次前移**：`01e3f841` → `fa68444c`（新增 `2bade46a feat(bindings): C# 句柄 SafeHandle 化…` 等 2 个提交；工作区脏文件 75）。上述 B1–B7、§16.5–§16.7 的**数值**仍是 `01e3f841` 时点的实测，未在新 HEAD 重跑；但**代码事实**已逐条在新 HEAD 重新核对，行号未漂移：`compare()` 在 `packages/sz-orm-bench/src/regression_baseline.rs:94`、`connect_with_max` 入口在 `packages/sz-orm-sqlx/src/any.rs:170`（默认路径 `:161` 仍为 `Self::connect_with_max(url, 10)`，MySQL/PG 同构 `:970`/`:2091`）、`impl Drop for PooledConnection` 在 `packages/sz-orm-core/src/pool.rs:536`、`needs_async_hygiene` 在 `:556`、`capture_feature_flags` 在 `packages/sz-orm-bench/src/lib.rs:575`、`capture_git_commit` 在 `:586`（均由门禁 13 逐行校验通过）。
+`[事实]` 新 HEAD 的额外发现（扩大 §16.7a 的范围）：同一「默认写死 10 + 新增 `connect_with_max*` 无调用点」模式已扩散到绑定层句柄——`packages/sz-orm-mssql/src/lib.rs:320` 用 `connect_with_max_size(conn_str, 10)`、`packages/sz-orm-oracle/src/lib.rs:596` 同样传 10；全仓 `connect_with_max`（非 `_size`）只出现在 any.rs 的 3 处定义 + 3 处默认路径自调用 + 文档注释，**生产调用点仍为 0**。
+
+### 16.2 结论变更对照（原裁定 → 现裁定）
+
+| 条目 | 10-28 裁定（@13a22924） | 10-31 裁定（@01e3f841） | 关键证据 |
+|------|------------------------|------------------------|----------|
+| ROI-1 删模拟路径 | 部分闭环（HEAD 仍存模拟 JSON） | **已闭环** | `--simulate` exit 1；`grep 'fn run_workload\|framework_latency_factor'` 0 命中；`is_real_db: false` 字面量 0 处；`1789544529_bench_report.json` 已不在 `git ls-tree HEAD` |
+| ROI-5 报告生成器 | 未闭环（HEAD 仍含 `update_report.js`） | **已闭环** | `git ls-tree -r --name-only HEAD \| grep update_report` 空；`bench-comparison/` 仅剩 `fix_sqlite_url.cjs`（只改连接串） |
+| ROI-2 CI 门禁 | 未闭环（只存不比） | **大部分闭环 + 3 个残留漏放面** | 见 §16.3/§16.4 |
+| ROI-4 可观测性接线 | 部分闭环（13 指标无生产调用点，`export()` 只返回字符串） | **裁定不变（`fa68444c` 复核）** | `register_alert_metrics` 仍只在测试中被引用：`[事实]` 全仓 `grep -rn "register_alert_metrics" --include=*.rs packages/` 命中仅 `packages/sz-orm-observability/src/alert_metrics.rs` 定义处、`packages/sz-orm-observability/src/lib.rs` 导出处与测试；生产 HTTP 端点仍不存在 |
+| ROI-3 幻影性能测试 / ROI-6 G18 规则 | 部分闭环 | **本轮未复测**（无新证据，沿用 10-28 裁定） | 未重跑 `performance_validation` 死代码消除复核，也未重跑 G18 双语控制台对照 |
+| P0-2 元数据 | 未闭环（6 字段全缺） | **部分闭环：5/7 真实，1 项机制错误，1 项依赖 CWD** | 见 §16.6 |
+| P0-3(a) 内层池上限 10 | 未闭环 | **仍未闭环**（新增 API 零调用点） | 见 §16.7 |
+| P0-3(b) Drop 异步归还罚时 | 未闭环（+8.6 µs/op，串行 25~36 µs/op） | **已闭环**（实测与显式归还持平） | 见 §16.7 |
+| §4.3 `[推断]`「门禁一旦真接上几乎每轮都红」 | 推断 | **实测证实** | 见 §16.5 |
+| P2-4 audit-verify 根清单误解析 | 立项 | **已由工具 v4 自身升级修复** | 见 §16.8 |
+
+### 16.3 门禁 fail-closed 矩阵（HEAD 复测，全部为当轮退出码）
+
+| # | 场景 | 命令要点 | 退出码 | 关键输出 | 判定 |
+|---|------|----------|--------|----------|------|
+| B1 | 无 `real-bench` feature | `sz-orm-bench.exe --db-backend sqlite --rounds 20 --dataset-size 200 --pool-size 3` | **1** | 「sz-orm-bench 需要 --features real-bench 才能运行真实 DB 基准」 | ✅ |
+| B2 | `--simulate` | 同上 + `--simulate` | **1** | 「已于 v10.13.0 移除（ADR-003 禁止模拟延迟）」 | ✅ |
+| B3 | 基线缺失 | `--compare-baseline nope_1031` | **1** | 「fail-closed 阻断（BENCH_BASELINE_MISSING）: 系统找不到指定的文件 (os error 2)」（`packages/sz-orm-bench/src/main.rs:98`） | ✅ |
+| B4 | 人为劣化基线（p95×0.5） | `--compare-baseline rr1031` | **1** | SingleRowQuery +110.1%、BatchQuery +55.3%、ComplexJoin +126.3% | ✅ |
+| B5 | 基线含未跑的 workload | 注入 `large_result_set` 条目 | **1** | 「LargeResultSet: 基线存在但当前结果缺失（workload 被删除或静默跳过）」（`packages/sz-orm-bench/src/regression_baseline.rs:124`） | ✅ **10-28 的静默跳过已修** |
+| B6 | 同代码、未改基线（对照组） | `--compare-baseline rr1031`（基线=同码保存） | **1** | 误拦 13/18 条目 | ❌ **误拦**（§16.5） |
+| B7 | 先比后存（CI 原调用式） | `--save-baseline rr1031 --compare-baseline rr1031` + 劣化基线 | **1** | 先输出退化阻断，未发生「与自己比对」 | ✅ `packages/sz-orm-bench/src/main.rs:98` 比对在前、`:136` 保存在后 |
+
+### 16.4 CI benchmark job 语义（HEAD 复测）
+
+`[事实]` 当前 job：`benchmark:`（`.github/workflows/ci.yml:773`）、`needs: [test]`（`:776`）、`continue-on-error: ${{ github.ref != 'refs/heads/main' }}`（`:778`）、滚动基线缓存（`:796`）、`if [ -f bench-results/baseline_ci-sqlite.json ]` 决定是否比对（`:808`）、决策步骤只跑接线单测（`:823`）。
+
+`[实测]` B7 证明 CLI 侧「先比后存」成立 → **10-28 的头号漏洞（每轮覆盖基线、永不比对）已消除**；main 分支 `continue-on-error` 求值为 false → 阻断语义真实。
+
+**仍存在的 3 个漏放面**：
+
+| 面 | 证据 | 后果 |
+|----|------|------|
+| 冷缓存退化 | `.github/workflows/ci.yml:808` 的 `else` 分支只做 `--save-baseline`，注释自称「首次运行：仅建立基线」 | 缓存未命中/被驱逐（90 天留存）时，**本轮完全不比对却仍然绿灯**，且没有「本轮未执行比对」的标记或告警 |
+| 上游可跳过 | `.github/workflows/ci.yml:776` `needs: [test]` | test 失败/取消 → benchmark 不运行，流水线不因此判红 |
+| 决策步骤无对比能力 | `.github/workflows/ci.yml:823`（只 `--test perf_bench_real_wiring`） | 该步骤通过与否与真实退化无关，是「门禁的门禁」而非门禁 |
+
+### 16.5 阈值可用性：门禁接上之后，同代码必红
+
+`[实测]` 同一二进制、同一参数、同一机器，基线由**同代码**保存，随后重复比对：
+
+| 配置 | 重复次数 | 判红次数 | 每次误拦条目数（共 18） |
+|------|----------|----------|--------------------------|
+| `--rounds 60 --dataset-size 300 --pool-size 4` | 5 | **5 / 5** | 2、9、5、5、4 |
+| **CI 原配** `--rounds 10 --dataset-size 500 --pool-size 5` | 3 | **3 / 3** | 12、10、14 |
+
+`[实测]` 同配置下 4 次运行的 p95 离散度（按 workload×framework 单元格，CV = 标准差/中位）：
+
+| 单元格 | CV | p95 序列（µs） |
+|--------|----|----------------|
+| `transaction` × sqlx | **100.2%** | 1963, 2224, 6767, 2363 |
+| `complex_join` × sea-orm | 89.7% | 898, 1116, 1090, 3003 |
+| `transaction` × sz-orm | 54.8% | 836, 1205, 830, 2020 |
+| `pool_concurrency` × sz-orm | 41.3% | 374, 188, 230, 193 |
+| `simd_compare` × sz-orm | 37.9% | 313, 308, 589, 385 |
+
+`[实测]` **18 个单元格中 13 个 CV > 10%，中位 CV 23.3%** → 10% 固定阈值落在噪声带内，门禁**结构上不可用**；被拦条目方向一致（当前慢于基线）。
+
+`[推断]` 方向一致的原因是基线保存在负载更低的时间窗，且评测期间本机被另一会话的编译抢占。据此，**本轮绝对 QPS 与 10-28 不可直接比较**（同配置 c16/p16：10-28 约 101.8k，本轮 18k~58k、CPU 占用 16%~56% 波动），本节仅用于判定「比例阈值是否误拦」这一结论，不用于声称任何性能涨跌。
+
+**改法（验收前置）**：`--rounds ≥ 200`；基线取 3 轮中位；判退阈值按实测 CV 自适应（如 `> max(10%, 2.5×CV)`）；否则门禁上线即被摘除——这正是 10-28 它没被接上的原因。
+
+### 16.6 `env_metadata` 复测：5/7 真实，2 项仍不可用
+
+`[实测]` HEAD 构建产物 `bench-results/1793380338_bench_report.json`（`cargo run --features real-bench`，exit 0）：
+
+```json
+{"cpu_model":"Intel64 Family 6 Model 79 Stepping 1, GenuineIntel","cpu_cores":40,
+ "memory_total_kb":66994108,"os_version":"windows","rust_version":"1.99.1",
+ "feature_flags":[],"git_commit":"unknown"}
+```
+
+| 字段 | 状态 | 证据 |
+|------|------|------|
+| `cpu_model` / `cpu_cores` / `memory_total_kb` / `os_version` / `rust_version` | ✅ 真实采集（10-28 全为 `unknown/0/""`） | `packages/sz-orm-bench/src/lib.rs:486` 起调用 `capture_cpu_model()`/`capture_memory_total_kb()`/`capture_rust_version()` |
+| `feature_flags` | ❌ **恒为空，机制错误** | `capture_feature_flags()`（`packages/sz-orm-bench/src/lib.rs:575`）读运行时环境变量 `CARGO_FEATURE_*`；cargo 只为 build script 注入该组变量，二进制运行时不存在 → 即使 `--features real-bench` 实测仍为 `[]`。改法：编译期 `cfg!(feature = "…")` 枚举 |
+| `git_commit` | ⚠️ **依赖进程 CWD，且无脏区标记** | `capture_git_commit()`（`packages/sz-orm-bench/src/lib.rs:586`）在 CWD 执行 `git rev-parse HEAD`；本轮从 `rerun-1031` 运行 → `fatal: not a git repository` → 记 `unknown`。即便在仓库内运行，也只记录 HEAD：10-28 那种「HEAD + 295 个脏文件」的测量，工件本身无法自证被测代码版本。改法：以 manifest 目录为 CWD + 输出 `dirty: bool` / `dirty_files: n` / `branch` |
+| DB 版本 | ❌ 仍缺 | `EnvMetadata` 无 db 字段；基线新增 `db_version` 但实测只写入 `"sqlite"`（无 3.x 版本号） |
+
+> 结论：P0-2 的「元数据」半项已基本修好，但**决定「这组数字在什么 feature/什么代码上测的」这两个字段恰好仍不可用**，跨轮与跨机对比依旧无法判定；统计半项（阈值 vs 噪声）见 §16.5，未修。
+
+### 16.7 P0-3 拆分裁定：一半已修，一半仍未接线
+
+**(a) 双层池上限——未闭环。** `[事实]` 新增 `connect_with_max`（`packages/sz-orm-sqlx/src/any.rs:170`）但默认路径仍写死 10（`packages/sz-orm-sqlx/src/any.rs:161`，MySQL/PG 同构 `:970`、`:2091`）；全仓 grep `connect_with_max` 仅这 3 处自调用，**零生产调用点**；bench 工厂路径不变（`packages/sz-orm-bench/src/real_db.rs:249` 用 `SqlitePoolHandle::connect`）。
+`[实测]` acquire 错误数仍严格等于 `max_size − 10`：c64/p64 两次 `ae=54`、c16/p16 六次 `ae=6`、`to`（超时）在 p64 为 0、p16 为 0（本轮未复现 10-28 的 6 次超时，因负载窗口不同）。
+
+**(b) Drop 归还罚时——已闭环。** `[事实]` `impl Drop for PooledConnection`（`packages/sz-orm-core/src/pool.rs:536`）新增同步快路径：`needs_async_hygiene`（池已关闭 / 事务中 / 需会话复位）为假时直接「入 idle 队列 + 条件唤醒」，不再 spawn（`packages/sz-orm-core/src/pool.rs:556` 起）。
+`[实测]` 串行 2000 次 acquire/release，max=16：drop **1.9534 ms（0.98 µs/op）** vs 显式 release **2.0476 ms（1.02 µs/op）**；max=4：1.17 vs 1.05 µs/op。对照 10-28 同测试：drop 25.7~35.8 µs/op vs 显式 ~1.0 µs/op → **罚时消失**。
+`[实测]` 端到端并发（c16/p16，3+3 轮）drop 与显式归还均值差落在噪声内（45.1k±14.4k vs 35.2k±16.2k，负载不可比，不作优劣判定）。
+
+**(c) 记账改善但语义待澄清。** `[实测]` 串行收尾 `status(idle=1, active=1, max=16, waiters=0)`（10-28 为 `idle=7, active=9`）；在途为 0 时 `active` 仍含 idle 连接，口径需在文档中定义（列 P2）。
+
+### 16.8 审计工具（门禁 13）升级对本报告的影响
+
+`[实测]` `scripts/audit-verify.ps1` 已升级到 v4：新增 `[must-contain: X]` 符号断言、弱语义校验（被引行与结论无共享标识符则**警告**）、`-Strict` 模式，并把根级文件正则改为可携带目录前缀（`scripts/audit-verify.ps1:333`）。
+
+| 影响 | 说明 |
+|------|------|
+| §14 P2-4 **已由工具自身修复** | `packages/*/Cargo.toml:NNN` 现按字面路径校验；§15.6 记录的 2 处「附录自引用伪失败」在新版脚本下消失 |
+| §15.4 轮次口径需按 v4 重读 | v4 把「行存在」之外的校验降级为警告，故通过数与 10-28 的 v2 不可直接比较 |
+| §15.6 附录自引用 **结构性修复** | v4 跳过围栏代码块（fenced block）内的行（`scripts/audit-verify.ps1:283`、`:287`），内嵌原始输出不再被二次校验；§16.11 轮次 ② 的 100/0/59、退出码 0 即为其直接验证 |
+| 本轮真实失败 2 处 | 均为 `regression_baseline.rs` 被引第 92 行（源码行位移，现 `:94`），已更正；另把正文中 4 处仅写文件名的引用（observability `lib.rs` 第 62 行、`simd.rs` 第 180 行、`alert_metrics.rs` 第 204 行）补全为带目录前缀的完整路径，使其进入校验 |
+
+`[推断]` 建议后续性能类报告统一附 `[must-contain: <符号名>]`，把门禁 13 从「行存在」推进到「行支撑结论」；否则 §15.4 的绿灯只覆盖形式合法性。
+
+### 16.9 修订后的三个最严重问题（当前 HEAD）
+
+1. **回归门禁阈值低于噪声**（§16.5）——已接上的门禁对同代码 100% 判红，等于制造下一个「不敢接」。
+2. **双层池上限 10 仍无调用点接线**（§16.7a）——容量包线被内层硬上限锁死，且 `ae = max−10` 会进入任何并发基准的延迟分布与错误率。
+3. **测量工件无法自证 feature 集与代码版本**（§16.6）——`feature_flags` 恒空、`git_commit` 依赖 CWD 且无 dirty 标记，跨轮/跨机对比不可判定。
+
+### 16.10 本轮未执行与新增证据位置
+
+| 项 | 状态 |
+|----|------|
+| MySQL 真实基准 | 仍未执行（`1045 Access denied`，红线禁止改账号/调参） |
+| 6 小时 soak | 未执行（本轮聚焦「事实变更复核」，10-28 的 900 s 结论未被本轮推翻） |
+| 绝对 QPS 跨日对比 | **判定为不可比**（并行会话编译抢占，CPU 16%~56%），已按 §16.5 口径显式降级 |
+
+新增工件（均在 `D:\temp\perf-eval-v2\rerun-1031\`）：`b1.log`/`b3.log`（B1/B3 退出码输出）、`b4.log`/`b6.log`/`both.log`/`both2.log`（B4/B5/B7）、`fp_1..5.log`（rounds=60 误拦 5 轮）、`ci_cmp_1..3.log` + `ci_save.log`（CI 原配）、`bench-results/*_bench_report.json`（含 §16.6 的 `env_metadata`）、`bench-results/baseline_rr1031{,.good}.json`、`drop_ab.csv`/`drop_ab2.csv`（Drop A/B）、`pool_leak_head.log`（串行归还对照）；本轮自证日志 `audit_verify_v4_report.log`（修订前，2 处失败/退出码 1）、`audit_verify_v4_final.log`、`audit_verify_v4_final2.log`、`audit_verify_v4_after_embed.log`、`audit_verify_v4_delivery.log`（交付态，退出码 0）。
+
+`[实测]` 本轮自证：`audit-verify.ps1`（v4）对上述修订后的报告重跑，退出码 **0**，结果 `通过 / 失败 / 警告` 见 §16.11。
+
+### 16.11 §16 落盘后的 audit-verify（门禁 13，脚本 v4）自证输出
+
+`[实测]` 命令（工作目录 = 仓库根，PowerShell 需 `-ExecutionPolicy Bypass` 且先把控制台切到 UTF-8，否则中文输出按 GBK 解码成乱码、证据不可读）：
+
+```powershell
+[Console]::OutputEncoding=[System.Text.Encoding]::UTF8
+.\scripts\audit-verify.ps1 docs\assessment\2026-10-28-perf-review-v2.md
+```
+
+三轮口径（顺序很重要：向报告里追加自证输出、以及为解释该输出而新增的正文引用，本身都会改变被扫描的文本，从而抬高计数）：
+
+| 轮次 | 对象 | 通过 | 失败 | 警告 | 退出码 | 原始日志 |
+|------|------|------|------|------|--------|----------|
+| ①（逐行明细的来源） | §16 全部结论与引用已落盘、但本节尚未内嵌任何输出的报告文件 | 99 | 0 | 58 | **0** | `D:/temp/perf-eval-v2/rerun-1031/audit_verify_v4_final2.log`（字节级，171 行；下方 dump 即此轮） |
+| ②（内嵌后复跑） | 把轮次 ① 的逐行输出内嵌进本节之后的报告文件 | **100** | **0** | **59** | **0** | `D:/temp/perf-eval-v2/rerun-1031/audit_verify_v4_after_embed.log` |
+| ③（**交付态，权威**） | 内嵌输出 + 为解释内嵌行为而新增的正文引用（2 处对门禁脚本自身的行引用）+ §17 交付状态之后的最终文件 | **102** | **0** | **61** | **0** | `D:/temp/perf-eval-v2/rerun-1031/audit_verify_v4_delivery.log`（字节级，177 行） |
+
+`[实测]` 三轮计数差全部可解释：①→② 的 +1 通过/+1 警告来自 §16.11 正文新增的那 1 处脚本行引用；②→③ 的 +2/+2 来自本轮为说明围栏跳过行为而新增的 2 处脚本行引用。**没有任何一条引用从通过转为失败**，即交付态文件里 `file:line` 引用的形式合法性是稳定的；下面内嵌的是轮次 ① 的完整逐行输出（其内容与轮次 ③ 中被校验的正文引用为同一批）。
+
+`[实测]` 定稿后对同一文件再跑一次同一命令，计数保持不变：**102 通过 / 0 失败 / 61 警告，退出码 0**（`D:/temp/perf-eval-v2/rerun-1031/audit_verify_v4_delivery2.log`）——最后一次追加的是纯说明文字，未新增任何引用，说明报告已收敛到自洽状态。
+
+轮次 ① 的逐行输出（完整、未删节；被引文件行数以脚本打印为准）：
+
+```text
+
+==========================================
+  审计证据验证: docs\assessment\2026-10-28-perf-review-v2.md (strict=False)
+==========================================
+✅ Cargo.toml:6 (共 91 物理行)
+✅ .github/workflows/ci.yml:765 (共 1161 物理行)
+⚠️  弱语义校验：.github/workflows/ci.yml:783 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ .github/workflows/ci.yml:783 (共 1161 物理行)
+⚠️  弱语义校验：.github/workflows/ci.yml:791 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ .github/workflows/ci.yml:791 (共 1161 物理行)
+✅ packages/sz-orm-bench/src/lib.rs:486 (共 1079 物理行)
+✅ packages/sz-orm-sqlx/src/any.rs:170 (共 3425 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/pool.rs:440 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/pool.rs:440 (共 6266 物理行)
+⚠️  弱语义校验：D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 (共 936 物理行)
+✅ packages/sz-orm-bench/tests/perf_bench_real_wiring.rs:9 (共 399 物理行)
+✅ packages/sz-orm-observability/src/alert_metrics.rs:204 (共 411 物理行)
+⚠️  弱语义校验：packages/sz-orm-observability/src/lib.rs:62 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-observability/src/lib.rs:62 (共 840 物理行)
+⚠️  弱语义校验：scripts/check-metrics-real.py:151 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ scripts/check-metrics-real.py:151 (共 326 物理行)
+⚠️  弱语义校验：bench-comparison/BENCHMARK_REPORT.md:5 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ bench-comparison/BENCHMARK_REPORT.md:5 (共 484 物理行)
+✅ .github/workflows/soak.yml:68 (共 90 物理行)
+✅ .gitignore:60 (共 80 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/main.rs:118 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/main.rs:118 (共 416 物理行)
+⚠️  弱语义校验：.github/workflows/ci.yml:783 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ .github/workflows/ci.yml:783 (共 1161 物理行)
+✅ .github/workflows/ci.yml:765 (共 1161 物理行)
+✅ packages/sz-orm-bench/src/regression_baseline.rs:94 (共 226 物理行)
+✅ packages/sz-orm-bench/src/lib.rs:493 (共 1079 物理行)
+✅ Cargo.toml:6 (共 91 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/lib.rs:567 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/lib.rs:567 (共 1079 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/connection_ext.rs:41 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/connection_ext.rs:41 (共 398 物理行)
+⚠️  弱语义校验：D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 (共 936 物理行)
+✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:225 (共 936 物理行)
+✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-sqlx/Cargo.toml:14 (共 115 物理行)
+⚠️  弱语义校验：packages/sz-orm-sqlx/src/any.rs:374 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-sqlx/src/any.rs:374 (共 3425 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/tests/v65_prepared_cache_benefit.rs:1 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/tests/v65_prepared_cache_benefit.rs:1 (共 195 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/simd.rs:113 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/simd.rs:113 (共 1344 物理行)
+✅ packages/sz-orm-core/src/simd.rs:180 (共 1344 物理行)
+⚠️  弱语义校验：packages/sz-orm-flamegraph/src/collector.rs:39 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-flamegraph/src/collector.rs:39 (共 198 物理行)
+✅ bench-comparison/BENCHMARK_REPORT.md:37 (共 484 物理行)
+✅ packages/sz-orm-cabi/src/lib.rs:378 (共 4069 物理行)
+⚠️  弱语义校验：packages/sz-orm-observability/src/alert_metrics.rs:204 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-observability/src/alert_metrics.rs:204 (共 411 物理行)
+⚠️  弱语义校验：packages/sz-orm-observability/src/lib.rs:62 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-observability/src/lib.rs:62 (共 840 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/pool.rs:717 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/pool.rs:717 (共 6266 物理行)
+✅ .github/workflows/ci.yml:765 (共 1161 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/lib.rs:486 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/lib.rs:486 (共 1079 物理行)
+⚠️  弱语义校验：packages/sz-orm-sqlx/src/any.rs:170 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-sqlx/src/any.rs:170 (共 3425 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/pool.rs:440 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/pool.rs:440 (共 6266 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/connection_ext.rs:41 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/connection_ext.rs:41 (共 398 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/simd.rs:113 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/simd.rs:113 (共 1344 物理行)
+⚠️  弱语义校验：packages/sz-orm-observability/src/alert_metrics.rs:204 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-observability/src/alert_metrics.rs:204 (共 411 物理行)
+⚠️  弱语义校验：scripts/check-metrics-real.py:257 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ scripts/check-metrics-real.py:257 (共 326 物理行)
+✅ packages/sz-orm-cabi/src/lib.rs:378 (共 4069 物理行)
+✅ D:/www/test/鲜视达/rust/sz-orm/scripts/audit-verify.ps1:137 (共 408 物理行)
+⚠️  弱语义校验：Cargo.toml:6 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ Cargo.toml:6 (共 91 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/pool.rs:440 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/pool.rs:440 (共 6266 物理行)
+⚠️  弱语义校验：packages/sz-orm-sqlx/src/any.rs:170 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-sqlx/src/any.rs:170 (共 3425 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/lib.rs:486 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/lib.rs:486 (共 1079 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/regression_baseline.rs:94 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/regression_baseline.rs:94 (共 226 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/main.rs:118 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/main.rs:118 (共 416 物理行)
+⚠️  弱语义校验：.github/workflows/ci.yml:761 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ .github/workflows/ci.yml:761 (共 1161 物理行)
+✅ .github/workflows/soak.yml:68 (共 90 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/tests/common/soak.rs:233 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/tests/common/soak.rs:233 (共 676 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/tests/soak.rs:106 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/tests/soak.rs:106 (共 294 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/simd.rs:113 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/simd.rs:113 (共 1344 物理行)
+✅ packages/sz-orm-core/tests/v65_prepared_cache_benefit.rs:1 (共 195 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/connection_ext.rs:41 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/connection_ext.rs:41 (共 398 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/src/pool_elastic.rs:1066 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/src/pool_elastic.rs:1066 (共 1802 物理行)
+⚠️  弱语义校验：packages/sz-orm-core/tests/performance_validation.rs:75 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-core/tests/performance_validation.rs:75 (共 171 物理行)
+⚠️  弱语义校验：D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:14 (共 936 物理行)
+⚠️  弱语义校验：D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:225 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-core/Cargo.toml:225 (共 936 物理行)
+⚠️  弱语义校验：D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-sqlx/Cargo.toml:14 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ D:/www/test/鲜视达/rust/sz-orm/packages/sz-orm-sqlx/Cargo.toml:14 (共 115 物理行)
+⚠️  弱语义校验：packages/sz-orm-observability/src/alert_metrics.rs:204 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-observability/src/alert_metrics.rs:204 (共 411 物理行)
+⚠️  弱语义校验：packages/sz-orm-observability/src/lib.rs:62 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-observability/src/lib.rs:62 (共 840 物理行)
+⚠️  弱语义校验：packages/sz-orm-flamegraph/src/collector.rs:39 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-flamegraph/src/collector.rs:39 (共 198 物理行)
+✅ packages/sz-orm-cabi/src/lib.rs:378 (共 4069 物理行)
+⚠️  弱语义校验：bench-comparison/BENCHMARK_REPORT.md:5 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ bench-comparison/BENCHMARK_REPORT.md:5 (共 484 物理行)
+✅ README.zh.md:359 (共 1080 物理行)
+✅ README.zh.md:1061 (共 1080 物理行)
+⚠️  弱语义校验：docs/assessment/2026-10-27-perf-fixes.md:10 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ docs/assessment/2026-10-27-perf-fixes.md:10 (共 263 物理行)
+⚠️  弱语义校验：docs/assessment/2026-09-24-v870-perf-benchmark-complete.md:140 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ docs/assessment/2026-09-24-v870-perf-benchmark-complete.md:140 (共 143 物理行)
+⚠️  弱语义校验：docs/assessment/2026-10-28-db-review.md:178 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ docs/assessment/2026-10-28-db-review.md:178 (共 788 物理行)
+⚠️  弱语义校验：scripts/check-metrics-real.py:151 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ scripts/check-metrics-real.py:151 (共 326 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/tests/perf_bench_real_wiring.rs:9 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/tests/perf_bench_real_wiring.rs:9 (共 399 物理行)
+✅ D:/www/test/鲜视达/rust/sz-orm/scripts/audit-verify.ps1:137 (共 408 物理行)
+✅ packages/sz-orm-bench/src/regression_baseline.rs:94 (共 226 物理行)
+✅ packages/sz-orm-sqlx/src/any.rs:170 (共 3425 物理行)
+✅ packages/sz-orm-core/src/pool.rs:536 (共 6266 物理行)
+✅ packages/sz-orm-bench/src/lib.rs:575 (共 1079 物理行)
+✅ packages/sz-orm-mssql/src/lib.rs:320 (共 1894 物理行)
+✅ packages/sz-orm-oracle/src/lib.rs:596 (共 2332 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/main.rs:98 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/main.rs:98 (共 416 物理行)
+✅ packages/sz-orm-bench/src/regression_baseline.rs:124 (共 226 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/main.rs:98 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/main.rs:98 (共 416 物理行)
+✅ .github/workflows/ci.yml:773 (共 1161 物理行)
+⚠️  弱语义校验：.github/workflows/ci.yml:808 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ .github/workflows/ci.yml:808 (共 1161 物理行)
+✅ .github/workflows/ci.yml:776 (共 1161 物理行)
+⚠️  弱语义校验：.github/workflows/ci.yml:823 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ .github/workflows/ci.yml:823 (共 1161 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/lib.rs:486 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/lib.rs:486 (共 1079 物理行)
+✅ packages/sz-orm-bench/src/lib.rs:575 (共 1079 物理行)
+⚠️  弱语义校验：packages/sz-orm-bench/src/lib.rs:586 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ packages/sz-orm-bench/src/lib.rs:586 (共 1079 物理行)
+✅ packages/sz-orm-sqlx/src/any.rs:170 (共 3425 物理行)
+✅ packages/sz-orm-sqlx/src/any.rs:161 (共 3425 物理行)
+✅ packages/sz-orm-bench/src/real_db.rs:249 (共 1412 物理行)
+✅ packages/sz-orm-core/src/pool.rs:536 (共 6266 物理行)
+✅ packages/sz-orm-core/src/pool.rs:556 (共 6266 物理行)
+⚠️  弱语义校验：scripts/audit-verify.ps1:333 — 被引行与结论无共享标识符（纯路径引用可加 [must-contain: …] 声明）
+✅ scripts/audit-verify.ps1:333 (共 408 物理行)
+
+==========================================
+  验证结果
+==========================================
+  ✅ 通过: 99
+  ❌ 失败: 0
+  ⚠️  警告: 58
+==========================================
+✅ 审计证据验证通过
+EXITCODE=0
+```
+
+**口径与边界（必须连同绿灯一起读）：**
+
+- `[实测]` 99 项通过 = 99 处 `file:line` 引用的文件存在、行号在范围内且被引行**非空**；0 项失败 = 无越界/无空行/无不存在的文件。本轮已把 §15.1 与 §16.3–§16.4 中仅写文件名的裸引用全部补全为带目录前缀的完整路径，故「仓库根未找到该文件（跳过）」类警告从 7 降为 **0**——此前这 7 处引用是**完全不参与校验**的。
+- `[实测]` 58 项警告全部是 v4 新增的**弱语义校验**：被引行存在，但与结论句没有共享标识符，脚本无法确认「这一行支撑这个结论」。也就是说，门禁 13 仍主要是**形式合法性**检查，不是语义检查。这是本报告对「证据可审计」这一声称的**上限**，不能读成「99 条结论已被自动验证为真」。
+- `[事实]` `-Strict` 模式会把弱语义警告升级为失败（`scripts/audit-verify.ps1:333` 起的解析与判定段）；本轮按任务要求使用默认（非 Strict）口径，Strict 口径下的通过/失败数**未采集**，属已知未执行项（见 §16.10）。
+- `[实测]` **附录自引用问题已被 v4 结构性消除**：脚本在扫描前跳过围栏代码块（fenced block）内的行（`scripts/audit-verify.ps1:283` 的注释与 `:287` 的围栏判定），因此轮次 ② 把上面 171 行原始输出内嵌后，通过数只从 99 变为 **100**（新增的 1 处来自本轮正文里对新符号行的引用），逐行明细**没有被二次解析**。这正是 §15.6 提出的修复方向，现已落地；10-28 那种「附录内嵌 → 下一轮 2 处伪失败 → 退出码 1」的失效模式不再可能复现。
+- `[推断]` 代价是围栏内的 `file:line` 一律不受校验：附录里的手写示例代码块同样会被跳过，因此「绿灯」只覆盖正文引用，不覆盖示例与日志文本。
+
+
+---
+
+## 17. 交付状态
+
+- **报告状态**：完稿。§1–§15 为 2026-10-28 / HEAD `13a22924` 的时点裁定（未改写，保留可追溯性）；§16 为 2026-10-31 复测与回写——数值实测于 `01e3f841`，代码事实与全部引用核对至交付时 HEAD `fa68444c`。
+- **自证**：门禁 13（`scripts/audit-verify.ps1`，v4）逐轮输出附于 §16.11，退出码 **0**。
+- **红线遵守**：仓库只读；试验 crate 与全部工件位于 `D:/temp/perf-eval-v2/`；未运行 `bench-comparison/` 下任何 Node 脚本；未改动仓库内基线文件；未重启或调参任何数据库服务；只操作 `sz_orm_test`；凭据以 `<local-password>` 占位。
+- **未提交、未推送。**

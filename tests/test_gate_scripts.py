@@ -328,9 +328,9 @@ class TestNewGateScriptsSmoke:
             "check_doc_version_consistency",
             SCRIPTS / "check-doc-version-consistency.py",
         )
-        # 真实仓库：权威门禁数 34，当前文档零漂移
-        assert mod.count_agents_gates() == 34
-        assert mod.check_gate_count_claims(34) == []
+        # 真实仓库：权威门禁数 36（2026-10-30 新增 G35/G36），当前文档零漂移
+        assert mod.count_agents_gates() == 36
+        assert mod.check_gate_count_claims(36) == []
         # 反向注入：声称 25 → 红牌；历史标题下的 11（中英文）→ 豁免
         (tmp_path / "FAKE.md").write_text(
             "# head\n当前 25 道门禁\n"
@@ -561,6 +561,25 @@ class TestPublishConsistencySemanticVersion:
         monkeypatch.setattr(mod, "fetch_crates_io_max_version", fake_fetch)
         # 注入一个比实际更高的声称：直接构造 claims 验证比较逻辑
         assert mod._ver_key("10.14") > mod._ver_key("10.13.0")
+
+
+# ========== G35/G36 门禁自测（2026-10-31 复跑修复：新门禁脚本必须有自测） ==========
+
+
+class TestGate35_36SelfTest:
+    """check-doc-links（G35 文档链接健康检查）与 check-changelog-consistency
+    （G36 版本线一致性）自带 --self-test，本类把两者纳入自测覆盖。"""
+
+    def test_doc_links_self_test(self):
+        mod = _load("check_doc_links", SCRIPTS / "check-doc-links.py")
+        assert mod.self_test() == 0, "check-doc-links --self-test 应通过"
+
+    def test_changelog_consistency_self_test(self):
+        mod = _load(
+            "check_changelog_consistency",
+            SCRIPTS / "check-changelog-consistency.py",
+        )
+        assert mod.self_test() == 0, "check-changelog-consistency --self-test 应通过"
 
 
 if __name__ == "__main__":
