@@ -162,7 +162,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 **风险**
 
 - **P0｜凭据扫描器假绿（已复现）。** `scripts/check-secrets.py` 扫描 2975 文件报"OK: no secrets detected"（exit 0），但 `git ls-files` 中 7 个文件命中私钥头特征，且 `.gitignore` 未覆盖 `tmp_ssh_key2`。根因：`SCAN_EXTENSIONS`（`scripts/check-secrets.py:62`）不含 `.js`，`should_scan_file` 对无扩展名文件放行（`scripts/check-secrets.py:202`），`SENSITIVE_FILE_PATTERNS`（`scripts/check-secrets.py:81`）也不匹配该文件名。另：`.git/config` 的 remote URL 内嵌凭据（仅记录风险类型，未打印内容）。
-- **P0/P1｜证据校验器语义空转（已复现）。** `scripts/audit-verify.ps1:96` 起的 `Test-Citation` 只做三件事：文件存在、行号 ≤ 物理行数、被引行非空。本次用两条**纯虚构断言**（"连接池内置量子随机数生成器""零拷贝 protobuf 编码"）引用真实行，脚本输出"通过 2 / 失败 0"、**exit 0**。（本轮**未整改**——属高成本项，列入 §10.7 遗留项，结论仍然有效。）
+- **P0/P1｜证据校验器语义空转（已复现）。** `scripts/audit-verify.ps1:203` [must-contain: function Test-Citation] 起的 `Test-Citation`（v2 时位于第 96 行，v4 后前移）只做三件事：文件存在、行号 ≤ 物理行数、被引行非空。本次用两条**纯虚构断言**（"连接池内置量子随机数生成器""零拷贝 protobuf 编码"）引用真实行，脚本输出"通过 2 / 失败 0"、**exit 0**。（本轮**未整改**——属高成本项，列入 §10.7 遗留项，结论仍然有效。）
 - **P1｜G24/G25 从未接线。** `check-examples-readme.py`、`check-doc-code-compiles.py` 在 `run-gates-v10120-server.sh`、`gate.ps1`、`.github/workflows/` 中**均无任何引用**；AGENTS 却把它们登记为门禁 24/25。（已整改：三处执行器均已接线，见 §10.4。）
 - **P1｜门禁编号重复掩盖覆盖缺口。** `AGENTS.md:51` 起同表内出现两套 26/27/28（`AGENTS.md:51`–`AGENTS.md:61` 区间），真实唯一编号 31 道；`run-gates-v10120-server.sh` 接线 27 道（20/22 外部执行，24/25 缺失）。（已整改：编号统一为 1–34 唯一，UXR 三兄弟改为 32/33/34，见 §10.4。）
 - **P1｜本地门禁 `gate.ps1` 只覆盖 19 步。** 缺 G14/G15/G16/G17/G18/G19/G21/G23/G24/G25/G30/G31（`grep "Invoke-Step"` 计数 19），Windows 开发者"本地全过"≠"服务器全过"。（部分整改：补齐 G24/G25/G30–G34；G14–G19/G21/G23 仍缺，见 §10.4 遗留项。）
@@ -238,7 +238,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 
 - 所有权模型正确但"只靠约定"：池句柄/查询结果/字符串都必须由调用方显式释放（`packages/sz-orm-cabi/src/lib.rs:443` 的 `query_result_free`、`packages/sz-orm-cabi/src/lib.rs:317` 的 `pool_free`）。Rust 侧有 track/untrack 注册表拦截 double-free，但 C# 侧没有 `SafeHandle`，无法防 use-after-free。
 - 异常语义：Rust panic 被 `catch_unwind` 拦截（如 `packages/sz-orm-cabi/src/lib.rs:346` 的 ping），C# 侧统一抛 `InvalidOperationException`（错误码拼进消息），**异常类型粒度不足**（连接失败/语法错误/约束冲突都是同一种异常），不利于上层重试策略。
-- **P1｜终结器竞态。** `packages/sz-orm-cabi/csharp/SzOrm.cs:192` 的 `~SzOrmPool()` 调 `Dispose()`，而 `Dispose` 非线程安全且未对 `_handle` 做原子交换；在进程退出/GC 并发时存在 double-dispose 窗口（Rust 侧注册表会拦截，但会返回错误码被忽略）。（已整改：`Dispose`/终结器均改为 `Interlocked.Exchange` 原子摘取句柄 + `volatile` 已释放标记，见 §10.3；`SafeHandle` 与强类型异常仍未做，列入 §10.7。）
+- **P1｜终结器竞态。** `packages/sz-orm-cabi/csharp/SzOrm.cs:192` 的 `~SzOrmPool()` 调 `Dispose()`，而 `Dispose` 非线程安全且未对 `_handle` 做原子交换；在进程退出/GC 并发时存在 double-dispose 窗口（Rust 侧注册表会拦截，但会返回错误码被忽略）。（已整改：第一轮为 `Dispose`/终结器改用 `Interlocked.Exchange` 原子摘取句柄 + `volatile` 已释放标记，见 §10.3；2026-10-30 并行会话进一步改为 `SzOrmPoolHandle : SafeHandleZeroOrMinusOneIsInvalid`（`2bade46a`），本会话未复核其实机行为。`SzOrmTransaction` 等结构体句柄仍用 `Interlocked.Exchange` 模式，强类型异常已在 `37a21343` 落地。）
 
 ### 5.4 线程安全
 
@@ -299,7 +299,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 | cabi runtime worker 可配置 | `packages/sz-orm-cabi/src/lib.rs:239` | ✅ 成立（但 C# 未暴露） |
 | cabi SAFETY 紧邻化 | 316 条 SAFETY / 278 块 | ✅ 成立 |
 | "C# 绑定 E2E tested"（`README.md:607`） | 全量 grep `.github/workflows/` | ❌ **不可验证**：无任何 dotnet/C# job；`verify_bindings.ps1` 也不含 cabi |
-| 覆盖率 90.2%（v9.0.0，2026-09-26） | 工具缺失 | ⚠️ 无法复验；且为 **9.0.0** 数据，外推到 10.13.0 无依据（`AGENTS.md:176`） |
+| 覆盖率 90.2%（v9.0.0，2026-09-26） | 工具缺失 | ⚠️ 无法复验；且为 **9.0.0** 数据，外推到 10.13.0 无依据（`AGENTS.md:181` [must-contain: 90.2%]） |
 | 变异杀率 75%（v9.0.0） | 工具缺失 | ⚠️ 无法复验（同上） |
 | "sz-orm-core 1.0.0 已发布"（`AGENTS.md:10`） | crates.io API | ❌ 不成立：现为 10.7.0（2026-10-16） |
 | CHANGELOG "24 条 ignore"（`CHANGELOG.md:34`） | deny.toml vs CI diff | ❌ 数字陈旧：实际 21 条（集合一致） |
@@ -318,7 +318,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 | **P1-1** | cabi 构建去网络化（header 已存在则跳过 cbindgen） | 离线/受限网络可构建 | 1 人日 | `packages/sz-orm-cabi/build.rs:14` |
 | **P1-2** | C# 编码修复 + 中文用例 + CI job | 打开中文市场，消除乱码 | 1.5 人日 | `packages/sz-orm-cabi/csharp/SzOrm.cs:64`、`:135` |
 | **P1-3** | 接线 G24/G25（或删除登记）+ 统一门禁编号 | 消除"登记即完成"幻觉 | 1 人日 | `AGENTS.md:51`、`AGENTS.md:61` |
-| **P1-4** | audit-verify 增加符号级断言 | 让审计结论可被机器检验 | 1 人日 | `scripts/audit-verify.ps1:96` |
+| **P1-4** | audit-verify 增加符号级断言 | 让审计结论可被机器检验 | 1 人日 | `scripts/audit-verify.ps1:203` [must-contain: function Test-Citation] |
 | **P1-5** | C# 暴露事务/参数化 CRUD/SafeHandle | 消除注入面与 use-after-free | 4–6 人日 | `packages/sz-orm-cabi/src/lib.rs:1109` [must-contain: fn sz_orm_transaction_begin] |
 | **P2-1** | crates.io 发版追平 + README 安装示例同步 | 用户装到的不是 6 个版本前的代码 | 1 人日 | `README.md:453` |
 | **P2-2** | 基准产物入库 / artifact 持久化 | 性能结论可复验 | 1 人日 | §3.3 |
@@ -373,7 +373,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 **R2｜audit-verify 语义空转（P0/P1）— 整改状态：未整改，缺陷仍然成立（§10.7 第 2 项）**
 
 - 复现：构造探针报告，用真实行号承载虚构断言（"量子随机数生成器"、"零拷贝 protobuf"）→ 脚本 `通过 2 / 失败 0`、exit 0。
-- 根因：`scripts/audit-verify.ps1:96` 起只检查"文件存在 / 行号范围 / 非空行"。
+- 根因：`scripts/audit-verify.ps1:203` [must-contain: function Test-Citation] 起只检查"文件存在 / 行号范围 / 非空行"（v2 时为第 96 行）。
 - 影响：审计合规铁律"每条结论必须有 file:line 证据"退化为"每条结论必须有**存在的** file:line"。**本报告的第十节自身同样受此约束**，故 §10.11 明确写出"91 条通过"证明的是什么、不证明什么。
 
 **R3｜cabi 离线构建失败（P0）— 整改状态：已闭环（§10.2，离线 `cargo test -p sz-orm-cabi` exit 0）**
@@ -431,12 +431,12 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 | C# 终结器 | `packages/sz-orm-cabi/csharp/SzOrm.cs:192` |
 | C# E2E 用例入口 | `packages/sz-orm-cabi/csharp/SzOrmTest/Program.cs:4` |
 | 门禁编号重复 | `AGENTS.md:51`、`AGENTS.md:61` |
-| 覆盖率历史数据 | `AGENTS.md:176` |
+| 覆盖率历史数据 | `AGENTS.md:181` [must-contain: 90.2%] |
 | 发布状态陈旧 | `AGENTS.md:10` |
 | CHANGELOG 24 vs 21 | `CHANGELOG.md:34` |
 | README 安装版本 | `README.md:453` |
-| README C# 宣称 | `README.md:623`（2026-10-29 更正，原记第 607 行是该节的引言行） |
-| README.zh C# 宣称 | `README.zh.md:570` |
+| README C# 宣称 | `README.md:623` [must-contain: 22 of the 41 C ABI exports]（2026-10-29 更正原记第 607 行是该节的引言行；2026-10-31 该行文案已由"37 导出封装 9 个"改为"41 导出封装 22 个"，见 §12.5 补记） |
+| README.zh C# 宣称 | `README.zh.md:570` [must-contain: 41 个 C ABI 导出中封装 22 个] |
 | 扫描器扩展名白名单 | `scripts/check-secrets.py:62` |
 | 扫描器敏感文件名规则 | `scripts/check-secrets.py:81` |
 | 扫描器放行逻辑 | `scripts/check-secrets.py:202` |
@@ -686,23 +686,23 @@ EXIT=0
 
 | 改动 | 证据位置 |
 |---|---|
-| 入参 UTF-8 序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:141` [must-contain: UnmanagedType.LPUTF8Str]、`packages/sz-orm-cabi/csharp/SzOrm.cs:152` [must-contain: UnmanagedType.LPUTF8Str]、`packages/sz-orm-cabi/csharp/SzOrm.cs:159` [must-contain: UnmanagedType.LPUTF8Str] |
-| 出参 UTF-8 反序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:280` [must-contain: Marshal.PtrToStringUTF8]、`packages/sz-orm-cabi/csharp/SzOrm.cs:360` [must-contain: Marshal.PtrToStringUTF8] |
-| 已释放标记 | `packages/sz-orm-cabi/csharp/SzOrm.cs:135` [must-contain: volatile bool _disposed] |
-| 句柄原子摘取（Dispose/终结器互斥） | `packages/sz-orm-cabi/csharp/SzOrm.cs:402` [must-contain: Interlocked.Exchange]、`packages/sz-orm-cabi/csharp/SzOrm.cs:413` [must-contain: Interlocked.Exchange]，说明注释见 `packages/sz-orm-cabi/csharp/SzOrm.cs:400` [must-contain: 抢走句柄] |
+| 入参 UTF-8 序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:162` [must-contain: UnmanagedType.LPUTF8Str]、`packages/sz-orm-cabi/csharp/SzOrm.cs:173` [must-contain: UnmanagedType.LPUTF8Str]、`packages/sz-orm-cabi/csharp/SzOrm.cs:180` [must-contain: UnmanagedType.LPUTF8Str] |
+| 出参 UTF-8 反序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:301` [must-contain: Marshal.PtrToStringUTF8]、`packages/sz-orm-cabi/csharp/SzOrm.cs:381` [must-contain: Marshal.PtrToStringUTF8] |
+| 已释放标记 | `packages/sz-orm-cabi/csharp/SzOrm.cs:156` [must-contain: volatile bool _disposed] |
+| 句柄原子摘取（Dispose/终结器互斥） | `packages/sz-orm-cabi/csharp/SzOrm.cs:422` [must-contain: Interlocked.Exchange]、`packages/sz-orm-cabi/csharp/SzOrm.cs:430` [must-contain: Interlocked.Exchange]，说明注释见 `packages/sz-orm-cabi/csharp/SzOrm.cs:421` [must-contain: 句柄改为 SafeHandle] |
 | 中文往返 E2E 用例 | `packages/sz-orm-cabi/csharp/SzOrmTest/Program.cs:31`（"4. UTF-8 往返"）、`:34`（插入 `张三`/`李四`）、`:42`（断言 JSON 原样含中文，否则 `exit 1`） |
 | CI 触发路径 | `.github/workflows/bindings.yml:9`、`:17`（`packages/sz-orm-cabi/**` 纳入 push/pr 触发） |
 | 新增 `csharp-binding` job | `.github/workflows/bindings.yml:132`（windows-latest）、`:145`（`actions/setup-dotnet@v4`，9.0.x）、`:150`（`cargo build -p sz-orm-cabi`）、`:153`（`dotnet run --project …/SzOrmTest.csproj`）、`:155`（`SzOrmCabiDll` 指向 `target\debug\sz_orm_cabi.dll`） |
 | 验证链前置 | `.github/workflows/bindings.yml:160`（`binding-verification` 的 `needs` 加入 `csharp-binding`） |
 | 工作流语法自证 | `python -c "yaml.safe_load(...)"`：`bindings.yml OK jobs=6 [binding-verification, csharp-binding, node-binding, publish, python-binding, rust-core]`；`ci.yml OK jobs=22` |
 
-> **本节 `SzOrm.cs` 的钉行于 2026-10-29 重钉过**（第三轮，§12.5）。原钉 `:65`/`:76`/`:83`（入参）、`:136`/`:167`（出参）、`:59`（已释放标记）、`:182`/`:193`/`:180`（句柄摘取）在 `37a21343` 给该文件插入 `PoolStatsSnapshot` / `SzOrmException` 等类型后整体下移：`:136`、`:182` 变成空行（双口径红牌），`:65`/`:76`/`:83` 落到结构体字段、`:59` 落到文档注释、`:193` 落到 `sz_orm_transaction_execute` 的 DllImport——**内容全错但只有 2 处被校验器看见**，其余 6 处是裸 `:NN` 续写、天然逃检（账本建议 5 的实证）。重钉后每条都带 `[must-contain:]`，行号再漂会直接转红而不是静默假绿。归属说明：报告作者不因"改动不是自己做的"而豁免，漂移由引用方负责重钉。
+> **本节 `SzOrm.cs` 的钉行已重钉两次**。首次（2026-10-29，第三轮，§12.5）：原钉 `:65`/`:76`/`:83`（入参）、`:136`/`:167`（出参）、`:59`（已释放标记）、`:182`/`:193`/`:180`（句柄摘取）在 `37a21343` 给该文件插入 `PoolStatsSnapshot` / `SzOrmException` 等类型后整体下移：`:136`、`:182` 变成空行（双口径红牌），`:65`/`:76`/`:83` 落到结构体字段、`:59` 落到文档注释、`:193` 落到 `sz_orm_transaction_execute` 的 DllImport——**内容全错但只有 2 处被校验器看见**，其余 6 处是裸 `:NN` 续写、天然逃检（账本建议 5 的实证）。第二次（2026-10-31，第四轮）：并行会话落 `2bade46a`（C# 句柄 `SafeHandle` 化，文件 729→742 行），上表九个行号再次整体漂移，双口径各报 9 处红牌后按新行号重钉为表中的值；原来的"抢走句柄"注释已被 `SafeHandle` 改造替换，needle 相应改为 `句柄改为 SafeHandle`。重钉后每条都带 `[must-contain:]`，行号再漂会直接转红而不是静默假绿。归属说明：报告作者不因"改动不是自己做的"而豁免，漂移由引用方负责重钉。
 
 **未执行 / 不可信声明（必须读）**：
 
 - `dotnet build` / `dotnet run` 本机**未运行**——`dotnet --list-sdks` → exit 127（`command not found`），按用户约束未安装 SDK。因此"中文乱码已消除"目前只有**静态证据**（marshalling 特性与 Rust 侧 `CStr::to_str` 的 UTF-8 语义对齐）+ **一条尚未被任何执行器跑过的断言**，不构成运行时证明。
-- `csharp-binding` job 的 YAML 有效、依赖链已挂上，但**尚未在 Actions 上观察到运行结果**；README/README.zh/README.en 对这一点已按"已接入、未见绿色"措辞写明（`README.md:611`、`README.zh.md:570`、`README.en.md:274`）。
-- 计数勘误：`SzOrm.cs` 实测 9 个 `static extern`/`DllImport`、`SzOrmPool` 7 个公开方法（`grep -c 'static extern'` = 9），§5.5 原写"7 个"为漏算静态方法；C ABI 侧 `#[no_mangle]` 为 37（`grep -c '#\[no_mangle\]' packages/sz-orm-cabi/src/lib.rs` = 37）。缺口结论不变：事务、参数化 CRUD、QueryBuilder、批量、池统计、runtime worker 配置仍未封装。
+- `csharp-binding` job 的 YAML 有效、依赖链已挂上，但**尚未在 Actions 上观察到运行结果**。⚠️ 2026-10-31 复核发现事实冲突：并行会话在 `01e3f841` 把两份 README 的措辞改为"**已于 2026-10-29 在本机实测通过（dotnet 9.0.100）**"（`README.md:623` [must-contain: dotnet 9.0.100]、`README.zh.md:570` [must-contain: dotnet 9.0.100]），而本会话此刻实测 `dotnet --list-sdks` 仍是 `command not found`——**同一台机器上两种陈述无法同时成立**。本报告不为他人未经本会话复核的运行时声明背书：E2E 结果按"他人声称、本会话未复验"记账（用户约束：不得擅自安装 SDK）。
+- 计数勘误（2026-10-29 测量时点）：`SzOrm.cs` 实测 9 个 `static extern`/`DllImport`、`SzOrmPool` 7 个公开方法，§5.5 原写"7 个"为漏算静态方法；C ABI 侧 `#[no_mangle]` 为 37。**2026-10-31 复核（HEAD `01e3f841`）**：并行会话的 `SzOrm.cs` 重写（`37a21343`）与 README 同步（`01e3f841`）后，`DllImport` 为 22、`#[no_mangle]` 为 41，`python scripts/check-csharp-abi-surface.py` 输出 `实测：Rust 导出 41，头文件声明 41，C# 导入 22` / `OK` / EXIT=0。缺口结论不变：QueryBuilder/模型面仍未封装，`sz_orm_model_*` 等 19 个导出未导入。
 
 ### 10.4 P1-3｜G24/G25 真实接线与门禁编号统一
 
@@ -763,6 +763,8 @@ $ python scripts/check-gate-scripts.py            → ✅ PASS     EXIT=0   # �
 | UTF-8 / 仅 SQLite 的 ABI 契约写入文档 | `README.md`、`README.zh.md` 绑定章节引言 | 与 `build.rs` 横幅、`lib.rs:281` 守卫一致 |
 | 英文镜像过期声明 + 绑定章节 | `README.en.md:5`（stale-snapshot notice）、`README.en.md:260`（`## Language Bindings`）、`:274`（CI job 现状限定语） | 消除"英文文档零绑定信息"（评测实测 `cabi`/`C#`/`binding` 出现 0 次） |
 | `--ignore` 条数修正 | `CHANGELOG.md:34` | 24 条 → 21 条，注明"2026-10-28 复核，`check-ci-deny-sync.py` 实测 CI 21 / deny.toml 21 一致" |
+
+> **2026-10-31 复核备注**：上表"C# 状态如实降级"一行的文案已被并行会话在 `01e3f841` 再次改写（导出数 37→41、封装 9→22，并新增"2026-10-29 本机实测通过（dotnet 9.0.100）"的措辞）。本行保留为 2026-10-29 那一次的改动记录；两条运行时声明之间的冲突见 §10.3 末尾，本报告不为本会话未复验的 E2E 结论背书。
 | README 测试数自动回写 | `python scripts/check-metrics-real.py --fix` | 21183 → **21193**（本轮 cabi 新增 DSN 拒绝测试所致）；复跑 `实际统计: 包=70 成员=72 测试标注=21193 feature=508 版本=10.13.0 / ✅ README 数字声称与源码统计一致` EXIT=0 |
 
 **未执行**：`cargo publish` / crates.io 发版（10.13.0 仍未上线，P2-1 的"追平"只做到了文档口径诚实化）；`check-publish-consistency.py --check-crates-io` 因本机 crates.io API 不可达（`curl` 直连 API 返回 403/HTTP 000，改走 sparse index 才成功）未纳入阻断。
@@ -884,12 +886,12 @@ $ git log -1 --oneline → 13a22924（本轮未产生任何新提交）
 
 | # | 强化 | 证据位置 |
 |---|---|---|
-| 1 | `[must-contain: X]` / `[must-not-contain: X]` 符号级断言：被引区间必须（不）真的含有 X | `scripts/audit-verify.ps1:164`（标记解析，且标记只绑定紧邻的前一条引用）、`scripts/audit-verify.ps1:223`–`236`（逐条断言，不满足即红牌） |
-| 2 | 共享 token 提取**含中文词块**（≥2 字），堵掉"纯中文虚构断言零 token → 跳过校验"的旁路 | `scripts/audit-verify.ps1:140` |
-| 3 | **通配覆盖**：任意 `path.ext:NN` 进入校验（此前仅 `.rs` + 6 个根级文件名） | `scripts/audit-verify.ps1:341` [must-contain: rs|py|md] |
-| 4 | `-AtHead`：被引文件按 `git show HEAD:<path>` 的字节读取，消除"报告钉在提交上、校验跑在漂移工作区上"的假红牌 | `scripts/audit-verify.ps1:63`、`scripts/audit-verify.ps1:108`–`118`（`Start-Process` 重定向，跨平台，不依赖控制台代码页） |
-| 5 | 代码块围栏跳过（附录内嵌日志不再被二次校验）+ crate 前缀映射 + 子目录根级文件，与 `.sh` v3 对齐 | `scripts/audit-verify.ps1:267`–`275` |
-| 6 | `-Strict`：无共享 token 且无断言标记即红牌 | `scripts/audit-verify.ps1:61`、`scripts/audit-verify.ps1:246` |
+| 1 | `[must-contain: X]` / `[must-not-contain: X]` 符号级断言：被引区间必须（不）真的含有 X | `scripts/audit-verify.ps1:180` [must-contain: function Get-TrailingAssertions]（标记解析，且标记只绑定紧邻的前一条引用）、`scripts/audit-verify.ps1:241` [must-contain: 断言失败：被引区间不含 must-contain]（逐条断言，不满足即红牌） |
+| 2 | 共享 token 提取**含中文词块**（≥2 字），堵掉"纯中文虚构断言零 token → 跳过校验"的旁路 | `scripts/audit-verify.ps1:156` [must-contain: function Get-ComparableTokens] |
+| 3 | **通配覆盖**：任意 `path.ext:NN` 进入校验（此前仅 `.rs` + 6 个根级文件名） | `scripts/audit-verify.ps1:357` [must-contain: gitignore]（扩展名白名单含 `rs`/`py`/`md`/`cs`/`gitignore` 等） |
+| 4 | `-AtHead`：被引文件按 `git show HEAD:<path>` 的字节读取，消除"报告钉在提交上、校验跑在漂移工作区上"的假红牌 | `scripts/audit-verify.ps1:63` [must-contain: AtHead]、`scripts/audit-verify.ps1:130` [must-contain: Start-Process]（重定向子进程 stdout，跨平台，不依赖控制台代码页） |
+| 5 | 代码块围栏跳过（附录内嵌日志不再被二次校验）+ crate 前缀映射 + 子目录根级文件，与 `.sh` v3 对齐 | `scripts/audit-verify.ps1:284` [must-contain: inFence]、`scripts/audit-verify.ps1:314` [must-contain: packages/] |
+| 6 | `-Strict`：无共享 token 且无断言标记即红牌 | `scripts/audit-verify.ps1:61` [must-contain: Strict]、`scripts/audit-verify.ps1:262` [must-contain: Strict：语义校验失败] |
 | 7 | 自测（含"虚构中文断言在默认模式只警告、在 `-Strict` 下红牌"等负例） | `tests/test_audit_verify_ps1.py`（10 个用例，219 行） |
 
 **本轮量出的更大窟窿——校验范围本身在空转**（这是 §8.2 R2 的延伸，评测时未量化）：对 `docs/assessment/` 全部 **154 份**报告，用 HEAD 版校验器（v2）与本轮 v4 各跑一遍，比较"通过+失败"合计即被静默跳过的引用数：
@@ -942,7 +944,7 @@ pub unsafe extern "C" fn sz_orm_transaction_begin(          # HEAD 有内容；�
 | 类别 | 处数 | 说明 |
 |---|---|---|
 | 指向本轮未提交文件的行号 | 5 + 9 = **14** | `scripts/audit-verify.ps1` 的 v4 行号超出 HEAD 那 176 行旧版；`scripts/check-csharp-abi-surface.py` 整体不在 HEAD | 
-| `[must-contain:]` 断言在 HEAD 旧文案上不成立 | **4** | `README.md:4`、`README.md:135`、`README.zh.md:101`（新方言口径）、`.github/workflows/ci.yml:93`（新门禁步骤） |
+| `[must-contain:]` 断言在 HEAD 旧文案上不成立 | **4** | `README.md:4`、`README.md:135`、`README.zh.md:101`（新方言口径）、`.github/workflows/ci.yml:97` [must-contain: check-csharp-abi-surface]（新门禁步骤；原记第 93 行，2026-10-31 复测已后移） |
 
 第二类**不是错误，是断言机制在真实工作**——HEAD 的 README 确实还没有"21 by default / not a connection driver"这些字样，v4 就拒绝让报告用旧行承载新结论。落库后同一命令预期 0 失败（验收命令：`.\scripts\audit-verify.ps1 docs/assessment/2026-10-28-fullstack-review-v3.md -AtHead`）——**已实测兑现**：本组改动落库为 `7358e49e` 后重跑同一条命令得到 **通过 210 / 失败 0 / 警告 115 → EXIT=0**，18 处失败如预测全部归零，无一处需要改行号迁就（警告数随报告正文增长而变动，属 §11.7 风险 5 的同一现象，不作通过判据）。
 
@@ -955,7 +957,7 @@ pub unsafe extern "C" fn sz_orm_transaction_begin(          # HEAD 有内容；�
 
 ### 11.3 P1-5｜C# ABI 表面对齐门禁（不需要 .NET SDK 的那一半）
 
-P1-5 全量（事务 / 参数化 CRUD / 批量 / 统计 / `SafeHandle` / 强类型异常 / NuGet）估 4–6 人日且必须实机验证；本机无 SDK（用户约束下不安装），且 `lib.rs`、`SzOrm.cs` 正被并行会话编辑。本轮交付**可立即机械化执行的前半**：一个静态"三方对齐"门禁，把 §5.5 的 API 面缺口从"人读表格"变成"机器红牌"。
+P1-5 全量（事务 / 参数化 CRUD / 批量 / 统计 / `SafeHandle` / 强类型异常 / NuGet）估 4–6 人日且必须实机验证；本机无 SDK（用户约束下不安装），且 `lib.rs`、`SzOrm.cs` 正被并行会话编辑（后由 `37a21343`/`2bade46a` 落地事务、批量、统计、强类型异常与 `SafeHandle`，本会话未复核）。本轮交付**可立即机械化执行的前半**：一个静态"三方对齐"门禁，把 §5.5 的 API 面缺口从"人读表格"变成"机器红牌"。
 
 `scripts/check-csharp-abi-surface.py`（211 行）规则：
 
@@ -990,11 +992,11 @@ $ python scripts/check-csharp-abi-surface.py                    # EXIT=1（并�
 FAIL: 2 项违规
 ```
 
-工作区的 R5 红牌**不是缺陷而是设计**：谁改了导出数，README 就必须同批改。README 侧当前宣称位置为 `README.md:623` [must-contain: 37 C ABI exports]、`README.zh.md:570` [must-contain: 37 个 C ABI 导出]（§8.3 原记为 README.md 第 607 行，现按实际行号更正），并行会话落库那 4 个新导出时必须同步——本轮不代做，因为那两个数字属于他人的在制品。
+工作区的 R5 红牌**不是缺陷而是设计**：谁改了导出数，README 就必须同批改。本轮复核（HEAD `01e3f841`）：并行会话已在 `01e3f841` 把两份 README 同步到 41 导出 / 22 封装，`python scripts/check-csharp-abi-surface.py` 现输出 `实测：Rust 导出 41，头文件声明 41，C# 导入 22` / `OK` / EXIT=0——上文那段 FAIL 输出是 2026-10-29 测量时点的快照，保留不改。当前宣称位置为 `README.md:623` [must-contain: 22 of the 41 C ABI exports]、`README.zh.md:570` [must-contain: 41 个 C ABI 导出中封装 22 个]（§8.3 原记为 README.md 第 607 行，后按实际行号更正）。
 
-自测：`tests/test_check_csharp_abi_surface.py`（8 个用例，合成仓库夹具覆盖 R1–R5 + fail-closed + 真仓库 `--at-head` 冒烟）。CI 接线：`.github/workflows/ci.yml:90`（两份自测并入 pytest 清单）、`.github/workflows/ci.yml:93` [must-contain: check-csharp-abi-surface]（新增门禁步骤）。
+自测：`tests/test_check_csharp_abi_surface.py`（8 个用例，合成仓库夹具覆盖 R1–R5 + fail-closed + 真仓库 `--at-head` 冒烟）。CI 接线：`.github/workflows/ci.yml:94`（两份自测并入 pytest 清单）、`.github/workflows/ci.yml:97` [must-contain: check-csharp-abi-surface]（新增门禁步骤）。
 
-**未做**：`SafeHandle`、事务/参数化 CRUD 的 C# 侧实现，以及任何 `dotnet` 实机运行——三者均需要 `SzOrm.cs`/`lib.rs` 的写权与 SDK，本轮排除。
+**本轮未做**：`SafeHandle`（后由并行会话 `2bade46a` 落地，本会话未复核）、事务/参数化 CRUD 的 C# 侧实现，以及任何 `dotnet` 实机运行——需要 `SzOrm.cs`/`lib.rs` 的写权与 SDK，本轮排除。
 
 ### 11.4 P3-1（前半）｜"28 种方言"口径标注
 
@@ -1025,7 +1027,7 @@ P3-1 的"默认编译标注"半边完成，"golden SQL 快照"半边受阻（`pa
 | 13 | `git remote get-url origin` | **0** | `https://github.com/ljclz/sz-orm.git`（无内嵌凭据） |
 | 14 | `git log --oneline origin/main..HEAD \| wc -l` | **0** | **23** 个未推送提交（含并行会话提交；推送需用户授权 + 交互式登录） |
 
-**注①（门禁 18 末次复跑转红的归因，非本轮改动）**：本轮对两份 README 的全部改动只有"方言口径"三行，未增删任何数字（`git diff HEAD -- README.md README.zh.md` 中被改的 3 行仍保留 `21272+ tests` 与 `28 种数据库方言`/`28 dialects` 原值，已逐行核对）。转红的原因是计数函数 `scripts/check-metrics-real.py:47` [must-contain: count_test_annotations] 按 `#\[(tokio::)?test\]` 对 `packages/**` 全量扫描，而并行会话提交 `84d132a6`（"补齐 metrics_hook 自动埋点链路文件"）新增的 `packages/sz-orm-sqlx/tests/metrics_wiring_test.rs` 恰含 1 个 `#[tokio::test]`——标注总数 21272 → 21273，README 未同批同步。校验该数字的真伪只需重跑门禁 18；把它改绿是**该提交的收尾**，本轮不代改他人产生的数字（同 §11.3 R5 红牌的处置原则）。
+**注①（门禁 18 末次复跑转红的归因，非本轮改动）**：本轮对两份 README 的全部改动只有"方言口径"三行，未增删任何数字（`git diff HEAD -- README.md README.zh.md` 中被改的 3 行仍保留 `21272+ tests` 与 `28 种数据库方言`/`28 dialects` 原值，已逐行核对）。转红的原因是计数函数 `scripts/check-metrics-real.py:54` [must-contain: count_test_annotations] 按 `#\[(tokio::)?test\]` 对 `packages/**` 全量扫描，而并行会话提交 `84d132a6`（"补齐 metrics_hook 自动埋点链路文件"）新增的 `packages/sz-orm-sqlx/tests/metrics_wiring_test.rs` 恰含 1 个 `#[tokio::test]`——标注总数 21272 → 21273，README 未同批同步。校验该数字的真伪只需重跑门禁 18；把它改绿是**该提交的收尾**，本轮不代改他人产生的数字（同 §11.3 R5 红牌的处置原则）。
 **未执行**（不表述为通过）：`cargo test --workspace`、G7 `--ignored`、`cargo clippy --workspace --all-targets`、覆盖率 G22、变异 G20、`dotnet` 系命令、`bash scripts/audit-verify.sh` 的 v4 对齐验证。原因依次为：长跑与并行会话编译资源竞争、依赖真实服务、本机无 SDK、`.sh` 属他人在制品。
 
 ### 11.6 本轮未做 / 受阻项（按风险排序，含归属）
@@ -1039,7 +1041,7 @@ P3-1 的"默认编译标注"半边完成，"golden SQL 快照"半边受阻（`pa
 | P2-2 基准产物入库 | P2-2 | `bench-comparison/benches/full_comparison.rs` 与 `BENCHMARK_REPORT.md` 均为并行会话未提交改动——此时提交基准数字等于把他人代码产生的结论记在自己账上 | 中：性能结论仍不可复验 |
 | P3-1 golden SQL 快照 | P3-1 后半 | `packages/sz-orm-core/src/dialect.rs` 为在制品 | 中：方言能力宣称仍缺逐条证据 |
 | P3-2 `pool` notify 许可合并注释 + 回归测试 | P3-2 | `packages/sz-orm-core/src/pool.rs` 为在制品 | 低 |
-| P1-5 C# 实现侧（`SafeHandle`/事务/参数化 CRUD）+ E2E 实机 | P1-5 后半 | `lib.rs`/`SzOrm.cs` 为在制品 + 本机无 SDK（用户约束） | 中：C# 侧仍有手写 SQL 注入面与 use-after-free 软约束（现由 WARN 常驻记账） |
+| P1-5 C# 实现侧（`SafeHandle`/事务/参数化 CRUD）+ E2E 实机 | P1-5 后半 | `lib.rs`/`SzOrm.cs` 为在制品 + 本机无 SDK（用户约束） | 中：C# 侧仍有手写 SQL 注入面与 use-after-free 软约束（现由 WARN 常驻记账）；2026-10-31 复核：`SafeHandle` 已由 `2bade46a` 落地、事务/参数化 CRUD 已在 `37a21343` 封装 |
 | P2-1 crates.io 发布 10.13.0 | P2-1 | 发布是不可逆外部动作，需单独授权 | 中：用户装到的仍是 10.7.0（§8.1 #22） |
 | P2-4 文档收口（`AGENTS.md` 版本行、`README.en.md` 绑定章节、`CHANGELOG.md`） | P2-4 | 三个文件均为在制品；本轮只完成 README 双语方言口径半边（§11.4） | 低 |
 
@@ -1087,16 +1089,16 @@ P3-2 的反幻影证明（上一轮做过、结论仍成立，此处不重复变
 
 | 能力 | 落点 | 语义约束 |
 |---|---|---|
-| 符号级断言 | `scripts/audit-verify.sh:160` [must-contain: extract_assertions()]、执行处 `:226` [must-contain: 断言失败：被引区间不含]、绑定入口 `:272` [must-contain: check_cite()] | needle 是**一个字面子串**（逗号不分割），多条必须重复 `[must-contain: …]`；标记只绑定紧邻的前一条引用 |
-| `--at-head` 内容口径 | `scripts/audit-verify.sh:46` [must-contain: HEAD_MODE=0]、`:109` [must-contain: resolve_file()] | 被引内容取 `git show HEAD:<path>`；路径在 HEAD 不存在 → "文件不存在（HEAD 提交内容中）"，fail-closed，不静默退回工作区 |
-| 任意扩展名通配覆盖 | `scripts/audit-verify.sh:292` [must-contain: re_any=] | `scripts/*.py:NN`、`docs/*.md:NN`、`.github/*.yml:NN`、`*.cs`/`*.h` 进入校验；带目录的未知路径判红牌，纯文件名找不到才记警告 |
-| CJK 词块参与语义比对 | `scripts/audit-verify.sh:78` [must-contain: x{4e00}]、`:146` [must-contain: ident_tokens()] | 纯中文结论不再因"ASCII 标识符集合为空"整体跳过校验 |
+| 符号级断言 | `scripts/audit-verify.sh:173` [must-contain: extract_assertions()]、执行处 `scripts/audit-verify.sh:239` [must-contain: 断言失败：被引区间不含]、绑定入口 `scripts/audit-verify.sh:285` [must-contain: check_cite()] | needle 是**一个字面子串**（逗号不分割），多条必须重复 `[must-contain: …]`；标记只绑定紧邻的前一条引用 |
+| `--at-head` 内容口径 | `scripts/audit-verify.sh:46` [must-contain: HEAD_MODE=0]、`scripts/audit-verify.sh:111` [must-contain: resolve_file()] | 被引内容取 `git show HEAD:<path>`；路径在 HEAD 不存在 → "文件不存在（HEAD 提交内容中）"，fail-closed，不静默退回工作区 |
+| 任意扩展名通配覆盖 | `scripts/audit-verify.sh:305` [must-contain: re_any=] | `scripts/*.py:NN`、`docs/*.md:NN`、`.github/*.yml:NN`、`*.cs`/`*.h` 进入校验；带目录的未知路径判红牌，纯文件名找不到才记警告 |
+| CJK 词块参与语义比对 | `scripts/audit-verify.sh:79` [must-contain: x{4e00}]、`scripts/audit-verify.sh:159` [must-contain: ident_tokens()] | 纯中文结论不再因"ASCII 标识符集合为空"整体跳过校验 |
 
 **本轮自己写出的三个 bug（前两个由自测抓住，第三个靠双入口对表抓住，都不是理论风险）**：
 
 1. `{ grep -oE …; grep -oP …; }` 让两条 grep **共享同一个 stdin**——第一条读到 EOF，
    第二条永远拿到空输入。表现是 CJK 分支静默失效、退化成纯 ASCII 比对，且**默认
-   用例照样全绿**。修法是两次 `printf` 分别喂给两个 grep（`:146` 的函数体）。
+   用例照样全绿**。修法是两次 `printf` 分别喂给两个 grep（`scripts/audit-verify.sh:159` 的函数体，原因注释在 `scripts/audit-verify.sh:158` [must-contain: 共享 stdin]）。
    这条只有在我补了"共享中文词块必须放行"的反向用例
    （`tests/test_audit_verify_sh_v4.py:157` [must-contain: test_pure_chinese_shared_run_no_warning]）
    之后才暴露——正向用例（"不共享就警告"）在这个 bug 下也是绿的，因为它靠 ASCII
@@ -1104,7 +1106,7 @@ P3-2 的反幻影证明（上一轮做过、结论仍成立，此处不重复变
 2. `trap cleanup EXIT` 里写 `[[ -n "$TMPD" ]] && rm -rf "$TMPD"`：条件为假时 **trap 的
    退出码覆盖了脚本自身的 `exit 0`**，于是所有"校验通过"的运行都返回 1。
    现象是别人那套 v3 用例 4 个红、1 个绿——而那 1 个绿的恰恰是期望返回 1 的
-   `--strict` 用例。改成 `if` 形式（`:109` 上方注释已记录原因）。
+   `--strict` 用例。改成 `if` 形式（原因注释见 `scripts/audit-verify.sh:100` [must-contain: trap 的退出码]）。
 3. **点文件被静默跳过**（与 `.ps1` 逐条对表才抓到，不是自测发现的）：通配路径字符类
    原先用 `+` 量词，"扩展名前的路径字符"至少一个；`.gitignore:67` 在扩展名前没有字符，
    于是 `.sh` 当它不存在、`.ps1` 照常校验。同一份本报告，`.ps1` 比 `.sh` 多校验 9 条
@@ -1124,20 +1126,20 @@ P3-2 的反幻影证明（上一轮做过、结论仍成立，此处不重复变
 - `python -m pytest tests/test_audit_verify.py`（另一会话维护的 v3 套件）→ **5 passed**
   ——我的 v4 是其严格超集，未删任何 v3 能力（`.sh` 的 diff 里 25 行删除全部是被等价
   加强形式替换掉的旧行，逐行核对）
-- CI 的 pytest 全列表（9 个文件）→ **149 passed / 1 failed / 1 skipped**。失败项是
-  `tests/test_check_csharp_abi_surface.py::test_real_repository_at_head_is_consistent`，
-  原因是工作区 `lib.rs` 现有 **41** 个 Rust 导出、`README.zh.md` 仍宣称 37——是并行会话
-  正在扩 ABI 造成的**在制品漂移**，不是本轮引入（本轮只动 `.sh` 与 `.sh` 的测试）。按
-  "不代改他人账"原则只记账；跳过的是本轮 at-head 用例的"HEAD==工作区"前置条件。
+- CI 的 pytest 全列表（9 个文件）→ **155 passed / 0 failed / 1 skipped**（2026-10-31 复测）。
+  上一轮记录的 1 处失败（`tests/test_check_csharp_abi_surface.py::test_real_repository_at_head_is_consistent`，
+  工作区 `lib.rs` 41 导出 vs `README.zh.md` 宣称 37）已随 `01e3f841` 把 README 同步到 41 而消失，
+  该文件现 8/8 通过；跳过的是本轮 at-head 用例的"HEAD==工作区"前置条件。
 - 服务器目标报告 `docs/assessment/2026-10-20-comprehensive-audit-report.md`：
   旧 `.sh`（v2）24 通过 / 0 失败 / 0 警告 → 新 `.sh`（v4）**24 / 0 / 11**
   ——新增覆盖面只带来警告，**不会让服务器转红**，这是敢在同一批里合进来的前提
-- 本报告（`8d4c1eb` 之后、§12 定稿口径）：工作区 **232 / 2 / 111**，
+- 本报告第三轮定稿（`8d4c1eb` 之后）：工作区 **232 / 2 / 111**，
   `--at-head` **234 / 0 / 113**。工作区那 2 处失败**全部**是 `.ps1` 被别人改造成的漂移
   （见 §12.5），HEAD 口径 0 失败。修复点文件前的同一份文件是 219 / 3 / 112 与 222 / 0 / 119
   （`.sh` 少校验 9 条 `.gitignore` 引用，与 `.ps1` 的 228 差 9）
-- 账本：`.sh` 与 `.ps1` 两个入口在 `--at-head` 下都是 **10 / 0 / 0**（口径一致，可互为
-  复核）；工作区口径 8 / 2 / 0，2 失败同源于他人改 `.ps1`（§12.5 倒数第二条）
+- **第四轮复跑（2026-10-31，HEAD `01e3f841`）**：重钉前 `.sh`/`.ps1` 双入口均为
+  工作区 **210 / 24 / 109**、`--at-head` **219 / 15 / 109**（两入口逐项一致）；重钉后
+  见 §12.9 的终值。账本重钉前 6 / 4 / 0，重钉后 **11 / 0 / 0**，四口径全 EXIT=0
 - 134 份入库评测报告的 `.sh` v4 聚合：1271 通过 / 560 失败。**只报绝对数**：
   v3 基线的同口径聚合本轮未跑（会话预算），因此不给"覆盖率提升 X%"这类差值宣称
 - `python scripts/check-secrets.py` → EXIT=0（Scanned 2605 files, no secrets）
@@ -1192,50 +1194,57 @@ P3-2 的反幻影证明（上一轮做过、结论仍成立，此处不重复变
   - 教训要写成规则：**`--at-head` 绿不是持久属性**。他人提交的那一刻，"他人漂移"会
     原地转化为"自己的红牌"，所以每轮必须双口径各跑一次、分别归因（项目记忆里的成对
     口径要求）。机制层解法仍是给校验器加 per-citation `@<commit>` 锚点（§11.7 #5，未做）。
-- **本轮量到自己报告里的装饰性证据**：全文有 50 处形如"…`path.py:156`、`:58`、
-  `:183`"的**裸 `:NN` 续引**（§10.3 重钉后从 52 降到 50），其中 3 行后面还挂着
-  `[must-contain: …]`。校验器（`.sh` 与 `.ps1` 都是）只认"带文件名和扩展名的路径 +
-  冒号行号"，裸 `:NN` **根本不进入校验**，于是那些 needle 是写了等于没写——断言看着在、
-  实际无人执行。§10.3 的 `SzOrm.cs` 行组是这条结论的**实证**：8 个行号里 6 个已经漂到
-  完全无关的代码（结构体字段、文档注释、另一个函数的 DllImport），校验器只报出 2 处空行，
-  其余 6 处因为写成续引而静默假绿。本轮已把 §12.1 与 §10.3 两处续引改写成完整路径使其
-  真正受校验；§八/§十一的存量续引**本轮未改**（属历史清账范畴，见账本 §四建议 3
+- **本轮量到自己报告里的装饰性证据**：按"顿号/逗号分隔 + 反引号内 `:NN`"的口径，全文仍有
+  **51 处裸 `:NN` 续引**（第三轮记 50 处；第四轮把 §11.2/§12.2 两表的续引改成完整路径后，
+  由 `SzOrm.cs` 漂移注记等历史行补回 1 处），其中 1 行仍挂着 `[must-contain: …]`（§10.3 的
+  "原钉"注记，本身是历史说明，不承载现行断言）。校验器（`.sh` 与 `.ps1` 都是）只认
+  "带文件名和扩展名的路径 + 冒号行号"，裸 `:NN` **根本不进入校验**，于是那些 needle 是写了
+  等于没写——断言看着在、实际无人执行。§10.3 的 `SzOrm.cs` 行组是这条结论的**实证**：8 个
+  行号里 6 个已经漂到完全无关的代码（结构体字段、文档注释、另一个函数的 DllImport），
+  校验器只报出 2 处空行，其余 6 处因为写成续引而静默假绿。本轮已把 §12.1、§10.3、
+  §11.2、§12.2 四处的续引改写成完整路径使其真正受校验；§八/§十一的存量续引**未改**
+  （属历史清账范畴，见账本 §四建议 3
   "门禁 13 增加 `--require-evidence`/裸引用告警"，未实现）。
-- 门禁 14 `check-doc-sync.py --diff HEAD` → **EXIT=1**，触发的唯一规则是 Rule 10
-  （cargo-dependency：sz-orm-bench 的 Cargo.toml 改了依赖，要求同步 `AGENTS.md`）。
-  该 Cargo.toml 属 `37a21343`，`AGENTS.md` 也在别人手里——与门禁 18 上一轮那处
-  feature 数残留同源（`metrics-wiring`）。本轮按 §11.3 R5 的原则**不代改他人账**，
-  只把归属写清楚。
-- **`.ps1` 正在被别人改，本轮我的 ps1 钉行工作区口径转红 2 处**：`scripts/audit-verify.ps1`
-  是未提交的 `M`（+12 行），内容是账本建议 1 的**路径归一化**（旧克隆根前缀与开头斜杠
-  映射回仓库相对路径）。插入点在 `Get-PhysicalLines` 内，导致其后所有行号 +12：被引的
-  `:164`（标记解析）变成空行、`:341`（扩展名列表）变成 `src/*.rs` 映射分支，于是在
-  工作区口径转红；HEAD 口径仍是绿。处置口径：**钉 HEAD 内容为准**，等他们落地后再按
-  新行号重钉，不在他们编辑中途抢改（`lib.rs` 就是这样：等他们提交后 829 才真正变空行，
-  本轮随即重钉到 `:1109`/`:893`）。顺带记一条正面事实：
-  账本 §四建议 1（路径归一化，449 处红牌中的 69.3%）**已经在被实现**，本轮不作为。
-  同一原因，账本自己的两条 ps1 钉行（`:183`、`:374`）也在工作区口径转红、
-  `--at-head` 10 / 0 / 0 —— 双口径在这里恰好给出"谁是漂移源"的判决。
-- 本轮 README 未动；门禁 18 现状 EXIT=0（21274 测试标注 / 509 feature 与源码一致，
-  `scripts/check-metrics-real.py:47` [must-contain: def count_test_annotations] 的口径是**工作区**，
-  与 `git grep HEAD` 的 21209 差 65——这 65 全在他人在制品里，所以"数字未经手写"
+- 门禁 14 `check-doc-sync.py --diff HEAD`：第三轮为 **EXIT=1**（Rule 10：sz-orm-bench 的
+  Cargo.toml 改了依赖，要求同步 `AGENTS.md`）；**2026-10-31 第四轮复测已转 EXIT=0**
+  （"no code changes triggered doc-sync rules"）——那处 Cargo.toml 改动已随
+  `37a21343` 进入 HEAD，工作区与 HEAD 的差异只剩文档，故不再触发。这条同时说明
+  第三轮的判断（"红牌属他人账，不代改"）是对的：等对方落库后自己就绿了。
+- **`.ps1` 的路径归一化已落库，ps1/sh 钉行随之整体漂移——第四轮复跑的主要工作就是重钉**：
+  并行会话先落 `3716c236`（`Get-PhysicalLines` 加旧克隆根前缀 + 开头斜杠映射，+12 行），
+  随后 `3e9a32df` 在 `.sh` 侧做同口径归一化，`466a4382` 又给两个入口加 `--require-evidence`
+  再一次后移。2026-10-31 第一次复跑（HEAD `01e3f841`）：本报告 `.sh`/`.ps1` 双入口
+  **工作区 210 / 24 / 109**、**`--at-head` 219 / 15 / 109**（两个入口逐项一致）；24 处工作区失败 =
+  15 处真漂移（本报告钉行）+ 9 处 `SzOrm.cs` 工作区在制品（该时点 `-AtHead` 下 0 处）。
+  15 处重钉后双口径同变 **232 / 9 / 101**——因为其间 HEAD 又前进到 `2bade46a`
+  （并行会话把 C# 句柄 `SafeHandle` 化，`SzOrm.cs` 729→742 行），`SzOrm.cs` 九个钉行
+  **再次整体漂移，这次连 `--at-head` 也红**。二次重钉后见 §12.9。这印证了上一轮定下的处置
+  口径是对的：**钉 HEAD 内容为准，等对方落库后按新行号重钉，不在编辑中途抢改**；同时补充一条
+  更硬的事实——**`--at-head` 绿不是持久属性**：别人一提交，你的钉行就变成你的红牌（`lib.rs`
+  的 `:829`→`:1109`、`SzOrm.cs` 两次整组漂移、本轮的 ps1/sh 全表都是这条规则的实例）。
+  账本 §四建议 1（路径归一化，449 处红牌中的 69.3%）已由上述三个提交闭环；账本自身
+  从 6 / 4 / 0 重钉到 **11 / 0 / 0**，四口径（`sh`/`ps1` × 工作区/`--at-head`）全 EXIT=0。
+- 本轮 README 未动；门禁 18 现状 EXIT=0（第四轮复测：21274 测试标注 / **510** feature 与源码一致，
+  `scripts/check-metrics-real.py:54` [must-contain: def count_test_annotations] 的口径是**工作区**，
+  与 `git grep HEAD` 的测试标注数存在差值——差值全部来自他人在制品，所以"数字未经手写"
   这句话只在干净工作区成立）。
 
-### 12.6 本轮回归矩阵
+### 12.6 本轮回归矩阵（左列为第三轮口径，**粗体**为 2026-10-31 第四轮复跑值）
 
 | 检查 | 结果 |
 |---|---|
-| `pytest tests/test_audit_verify_sh_v4.py tests/test_audit_verify.py` | 19 passed / 1 skipped |
-| CI pytest 全列表（9 文件，含本轮新接线） | 149 passed / 1 failed / 1 skipped（失败项是他人 ABI 在制品，见 §12.2） |
-| `python scripts/check-gate-scripts.py`（门禁 27） | EXIT=0 |
-| `cargo test -p sz-orm-core --test pool_acquire_release_test` | 29 passed / 0 failed |
-| 门禁 13（`.sh` v4，工作区）本报告 | **232 / 2 / 111**（2 处均为他人改 `.ps1` 造成的漂移） |
-| 门禁 13（`.sh` v4，`--at-head`）本报告 | **234 / 0 / 113** |
-| 门禁 13（`.ps1` v4，工作区 / `-AtHead`）本报告 | **232 / 2 / 111** / **234 / 0 / 113**（与 `.sh` 逐项一致） |
-| 门禁 13 账本（`.sh` 与 `.ps1` 双入口，`--at-head`） | 各 10 / 0 / 0；工作区口径 8 / 2 / 0（同上 ps1 漂移） |
-| 门禁 13 服务器目标报告 | 24 / 0 / 11（旧口径 24 / 0 / 0，未转红） |
-| 门禁 18 / 24 / 25 / 33 / 12 / 32 | EXIT=0 |
-| 门禁 14（`--diff HEAD`） | **EXIT=1**（Rule 10，归属见 §12.5） |
+| `pytest tests/test_audit_verify_sh_v4.py tests/test_audit_verify.py` | 19 passed / 1 skipped；第四轮复跑 **19 passed / 1 skipped**（未变） |
+| CI pytest 全列表（9 文件，含本轮新接线） | 第三轮 149 passed / 1 failed / 1 skipped（失败项是他人 ABI 在制品）；第四轮 **155 passed / 0 failed / 1 skipped**（README 同步后失败项消失） |
+| `python scripts/check-gate-scripts.py`（门禁 27） | EXIT=0（第四轮复测仍 EXIT=0） |
+| `cargo test -p sz-orm-core --test pool_acquire_release_test` | 29 passed / 0 failed（第三轮实测，第四轮未复跑） |
+| 门禁 13（`.sh` v4，工作区）本报告 | 第三轮 232 / 2 / 111（2 处均为他人改 `.ps1` 造成的漂移）→ 第四轮重钉后 **247 / 0 / 102** |
+| 门禁 13（`.sh` v4，`--at-head`）本报告 | 第三轮 234 / 0 / 113 → 第四轮 **247 / 0 / 102** |
+| 门禁 13（`.ps1` v4，工作区 / `-AtHead`）本报告 | 第三轮 232 / 2 / 111 / 234 / 0 / 113 → 第四轮 **247 / 0 / 102** / **247 / 0 / 102**（与 `.sh` 逐项一致） |
+| 门禁 13 账本（`.sh` 与 `.ps1` 双入口） | 第三轮 at-head 各 10 / 0 / 0、工作区 8 / 2 / 0 → 第四轮重钉后 **四口径均 11 / 0 / 0** |
+| 门禁 13 服务器目标报告 | 24 / 0 / 11（旧口径 24 / 0 / 0，未转红；第四轮未复跑） |
+| 门禁 18 / 24 / 25 / 33 / 12 / 32 | 第三轮 EXIT=0；第四轮复测 18/24/25 **EXIT=0**（feature 数 509→**510**） |
+| 门禁 14（`--diff HEAD`） | 第三轮 **EXIT=1**（Rule 10）→ 第四轮 **EXIT=0**（触发项已随 `37a21343` 进 HEAD，见 §12.5） |
+| `python scripts/check-csharp-abi-surface.py` | 第三轮 EXIT=1（37 vs 41）→ 第四轮 **EXIT=0**（41 导出 / 41 头文件声明 / 22 C# 导入） |
 | `python scripts/check-secrets.py` | EXIT=0（2605 文件） |
 
 **未执行**（不表述为通过）：`cargo test --workspace`、`cargo clippy --workspace --all-targets`、
@@ -1248,16 +1257,16 @@ v3-vs-v4 同口径聚合、C# E2E（本机无 SDK，用户约束）、`.github/w
 
 | 行 | 状态 | 备注 |
 |---|---|---|
-| `audit-verify.sh` v4 对齐 | **闭合**（§12.2，`361f53bf`；点文件口径差由 `8d4c1eb` 补齐，双入口实测同数） | 路径归一化：`.ps1` 侧已被并行会话实现（未提交），`.sh` 侧仍挂账（§12.4 #5） |
+| `audit-verify.sh` v4 对齐 | **闭合**（§12.2，`361f53bf`；点文件口径差由 `8d4c1eb` 补齐，双入口实测同数） | 路径归一化两侧均已落库：`.ps1` `3716c236`、`.sh` `3e9a32df`（§12.5）；第四轮复跑双入口仍逐项一致 |
 | 9 个凭据文件密钥轮换 + 历史清除 | 仍未做 | 需授权；且现存 3 条备份 ref 使"清除"必须先删 ref + gc（§12.4 #3） |
 | 历史 154 份报告引用清账 | **转为已分诊**（§12.3） | 存量债性质从"未知红牌"变成"94.3% 噪声 / 0 编造 / 45 份零证据"，后续动作是门禁 13 加 `--require-evidence`，本轮未实现 |
 | 门禁 27 CI 登记盲区 | 闭合（上一轮） | 本轮复测 EXIT=0 |
 | P2-2 基准产物入库 | 大部分闭合 | `bench-comparison/benches/full_comparison.rs` 与 `bench-comparison/BENCHMARK_REPORT.md` 已在 HEAD；`packages/sz-orm-bench/benches/` 下无该文件（该包的 benches 目录未入库）——README 性能声称的证据标记由门禁 18 校验通过，故不再单独追 |
 | P3-1 golden SQL 快照 | 未做 | `dialect.rs` 的 +733 行刚随 `37a21343` 落库，本轮未验证其方言能力宣称是否已有逐条快照 |
 | P3-2 pool 注释 + 回归测试 | 闭合 | §12.1 |
-| P1-5 C# 实现侧 + E2E | 部分 | `SzOrm.cs` 的 +537 行已落库，ABI 面检查器在 CI；E2E 仍因本机无 SDK **未执行** |
+| P1-5 C# 实现侧 + E2E | 部分 | `SzOrm.cs` 的重写已落库（`37a21343`），ABI 面检查器已绿（41 导出 / 22 封装）；E2E 本会话仍**未执行**（`dotnet` 不在 PATH），README 的"本机实测通过"属他人声明，见 §10.3 冲突记录 |
 | P2-1 crates.io 发布 10.13.0 | 未做 | 不可逆外部动作，需授权；另有他人 staged→已提交的 `scripts/publish-crates.sh`（`37a21343`）可作执行入口 |
-| P2-4 文档收口 | 未闭合 | `AGENTS.md` 版本行/绑定章节仍在别人手里；本轮门禁 14 的 Rule 10 红正是这条的机器可读证据 |
+| P2-4 文档收口 | **已由并行会话推进，仍未闭合** | `AGENTS.md` 版本行已同步 10.13.0；门禁 14 现 EXIT=0（第四轮复测），但绑定章节归属仍在他人手里 |
 
 ### 12.8 一句话结论（第三轮后）
 
@@ -1270,6 +1279,73 @@ v3-vs-v4 同口径聚合、C# E2E（本机无 SDK，用户约束）、`.github/w
 套件**、**双入口逐条对表**抓住的，没有一个是正向用例能抓住的。可信度债最硬的两块
 ——旧密钥仍在历史里、备份 ref 让"清除"无从谈起——依旧是授权与他人文件的问题，本轮
 如实记账，不认领。
+
+
+---
+
+### 12.9 第四轮（2026-10-31）复跑：只做验证与重钉，不改结论
+
+**触发**：用户要求"再复跑一次"。本轮没有新增任何代码结论，全部工作是把第三轮的数字与行号
+在新 HEAD 下重新测量、重新锚定，并如实记录这期间别人改了什么。
+
+**测量时点**：起跑时 HEAD = `01e3f841`，跑完时 HEAD = **`2bade46a`**（并行会话在复跑进行中
+提交了 C# 句柄 `SafeHandle` 化，`SzOrm.cs` 729→742 行）。本轮两次重钉就是被这两次 HEAD 前进逼出来的。
+
+**这期间落库的他方改动（按时间顺序，均非本会话提交）**：
+
+| 提交 | 内容 | 对本文档的影响 |
+|---|---|---|
+| `30c3e0b0` | 门禁收尾（GBK 控制台编码 / G19 语义版本 / soak IP） | `check-metrics-real.py` 新增函数前置，`count_test_annotations` `:47`→`:54` |
+| `3716c236` | `audit-verify.ps1` 路径归一化（+12 行） | ps1 全表后移：`Test-Citation` `:96`→`:203`、`Test-RepoFile` `:183`→`:199`、扩展名表 `:341`→`:357` 等 |
+| `3e9a32df` | `audit-verify.sh` 路径归一化（同口径） | sh 全表后移：`extract_assertions()` `:160`→`:173`、`re_any=` `:292`→`:305`、`ident_tokens()` `:146`→`:159` 等 |
+| `466a4382` | 两个入口加 `--require-evidence` | 再+13 行，ps1 `Get-PhysicalLines` `:105`→`:109`、`未找到任何 file:line 证据` `:374`→`:403` |
+| `01e3f841` | 中文 README 发布状态同步 | README 导出数 **37→41、封装 9→22**（本文 §8.3/§10.3 的旧数字由此失效，已更新）；`ci.yml` 门禁步骤 `:93`→`:97` |
+| `2bade46a` | C# 句柄 `SafeHandle` 化 | `SzOrm.cs` 九个钉行**第二次**整体漂移；"抢走句柄"注释被替换为"句柄改为 SafeHandle" |
+
+**本轮重钉清单（原行 → 现行，全部保留 `[must-contain:]`）**：§11.2 表 6 行（12 条 ps1 引用）、
+§12.2 表 4 行（8 条 sh 引用）、§10.3 表 4 行（9 条 `SzOrm.cs` 引用）、§七 与 §8.3 的
+`scripts/audit-verify.ps1:203` [must-contain: function Test-Citation]（×3，原第 96 行）、
+`AGENTS.md:181` [must-contain: 90.2%]（×2，原第 176 行）、`README.md:623`、`README.zh.md:570`、
+`.github/workflows/ci.yml:97` [must-contain: check-csharp-abi-surface]（原第 93 行）、
+`scripts/check-metrics-real.py:54` [must-contain: def count_test_annotations]（×2，原第 47 行）；
+账本 §七 3 条 ps1 + 1 条 metrics 引用。
+合计 **41 条引用重新锚定**，未删任何原行号说明。
+
+**最终四口径（同一份报告，`sh` 与 `ps1` 两个入口 × 工作区与 HEAD 两种内容口径）**：
+
+| 入口 | 工作区 | `--at-head` / `-AtHead` |
+|---|---|---|
+| `scripts/audit-verify.sh` | **247 / 0 / 102 → EXIT=0** | **247 / 0 / 102 → EXIT=0** |
+| `scripts/audit-verify.ps1` | **247 / 0 / 102 → EXIT=0** | **247 / 0 / 102 → EXIT=0** |
+| 账本（同上四格） | **11 / 0 / 0 → EXIT=0** | **11 / 0 / 0 → EXIT=0** |
+
+（格式为"通过 / 失败 / 警告"。第三轮同口径是 232/2/111 与 234/0/113；差值来自重钉与
+他的 README 同步，不是能力变化。`-Strict` 未跑——当前 102 条弱语义警告会全部转红，属已知的
+纯路径引用形态，本报告不以 `-Strict` 作为通过判据，这一点在第三轮已声明。）
+
+**收口时又抓到两处自己造成的问题（一并记账）**：
+
+1. §12.9 首次插入时把文末 `**评测人结语：**` 标记连同分隔线一起吞掉，已补回。
+2. §12.9 内的"重钉清单"这句本身也在漂移：它仍按旧行号指向 `AGENTS.md` 第 176 行（HEAD 上
+   该行是空行，直接判红），以及以仓库根为基准的 `ci.yml` 第 93 行、`check-metrics-real.py`
+   第 47 行（这两个相对路径在仓库根下不存在，只算"跳过"警告，等于零证据）。已改写为带
+   `[must-contain:]` 的现行行号。因此最终计数由 241 / 0 / 101 变为 **247 / 0 / 102**——多出的
+   通过项来自这 4 条新加断言的清单引用，不是能力变化，也不是把警告藏起来。
+
+**本轮新记录的两条事实（均属他方声明，本会话只做交叉核对，不代其背书）**：
+
+1. README 双语在 `01e3f841` 声称"C# E2E 已于 2026-10-29 在本机实测通过（dotnet 9.0.100）"，
+   而本会话此刻 `dotnet --list-sdks` 仍是 `command not found`。两者在同一台机器上无法同时成立——
+   可能对方用了非 PATH 的 SDK 或另一台环境。本文按"他人声称、本会话未复验"记账（详见 §10.3）。
+2. `check-csharp-abi-surface.py` 现 EXIT=0（41 导出 / 41 头文件声明 / 22 C# 导入），
+   第三轮记的那处 CI pytest 失败已消失；`test_check_csharp_abi_surface.py` 8/8 通过。
+
+**仍未做的（不表述为通过）**：C# E2E 实机（无 SDK + 用户约束）、`cargo test/clippy` 全量、
+G7/G20/G22、154 份历史报告的 v3-vs-v4 聚合、密钥轮换与历史清除（需授权）、crates.io 发布（需授权）。
+
+**本轮的方法论收获**：钉行与计数都是**易腐资产**，`--at-head` 绿也不是持久属性——别人一提交，
+它就变成你的红牌。因此"复跑"不是重复劳动，而是这套证据链唯一的保鲜手段；而每次保鲜都必须
+写清"谁改的、改了什么、原行是几"，不能靠改数字把漂移伪装成一直正确。
 
 
 ---

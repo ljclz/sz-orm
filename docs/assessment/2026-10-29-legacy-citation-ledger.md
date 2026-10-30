@@ -85,7 +85,7 @@ D3 的 48 处再分（按"同名文件在全历史中的候选数"）：
 2. **报告规范：禁止把仓库绝对路径写进证据。** AGENTS.md 的"审计合规铁律"只要求 `file:line`，没说必须仓库相对。本轮之后新写的所有报告一律用仓库相对路径；旧报告不改写，但在下一轮修订时在页首加"本报告的 `E:/...` 前缀写作旧克隆路径"一行说明。
 3. **45 份"零可校验引用"报告是更大的洞。** 其中 5 份是评测提示词（`*-review-prompt.md`）、1 份是验证规范（`2026-08-15-old-coder-verification-spec.md`），本就不该有引用；其余 **39 份**是自称给出结论的报告却没有任何 `file:line`。门禁 13 对它们**返回通过**（0 失败），这才是"看起来在工作"的形态。建议给校验器加 `--require-evidence`：非提示词类报告若 0 处可校验引用即判失败。完整清单见附录 A。
 4. **红牌噪声会让门禁失效。** 69.3% 的噪声意味着：只要有人真跑了全量门禁 13，看到 76 份红牌，最理性的反应就是不看它。存量债的正确清偿顺序是**先降噪声（建议 1）、再谈清账**，反过来的话清账成果会被噪声淹没。
-5. **裸 `:NN` 续引是"装饰性证据"，校验器读不到。** 两个入口（`.ps1` 与 `.sh`）都只识别"带文件名与扩展名的路径 + 冒号行号"，形如"…`<脚本路径>:156`、`:58`、`:183`"里后两个**根本不进入校验**；如果它们后面还挂着 `[must-contain: …]`，那条断言写了等于没写。本轮在自己刚交付的报告里量到 50 处续引、其中 3 行挂 needle（见 `2026-10-28-fullstack-review-v3.md` §12.5 第 2 条，属本轮自查发现）。建议：①写报告规范时明确"每条引用必须自带完整路径"；②校验器对"同行出现 `:NN` 却无前置文件名"给警告，必要时并入建议 3 的 `--require-evidence`。存量续引不做批量改写（与本报告"不批量改行号"的立场一致）。
+5. **裸 `:NN` 续引是"装饰性证据"，校验器读不到。** 两个入口（`.ps1` 与 `.sh`）都只识别"带文件名与扩展名的路径 + 冒号行号"，形如"…`<脚本路径>:156`、`:58`、`:183`"里后两个**根本不进入校验**；如果它们后面还挂着 `[must-contain: …]`，那条断言写了等于没写。本轮在自己刚交付的报告里量到 51 处续引、其中 1 行挂 needle（见 `2026-10-28-fullstack-review-v3.md` §12.5 第 2 条，属本轮自查发现；2026-10-31 第四轮把两处表格续引改成完整路径后重测的口径值）。建议：①写报告规范时明确"每条引用必须自带完整路径"；②校验器对"同行出现 `:NN` 却无前置文件名"给警告，必要时并入建议 3 的 `--require-evidence`。存量续引不做批量改写（与本报告"不批量改行号"的立场一致）。
 
 ## 五、本轮顺带验证到的两件事（机制有效，不是只记账）
 
@@ -100,7 +100,7 @@ D3 的 48 处再分（按"同名文件在全历史中的候选数"）：
 - 已逐项核实**内容未丢**：`CI_FAIL_EXEMPT`（在 `scripts/check-gate-scripts.py` 中）、`tests/test_gate_scripts_ci.py`、`pool.rs` 的 notify 不变量注释、两个池回归测试、README 双语测试数 21274，均在 `d395f31b` 的树里。
 - 这把 §11.7 风险 5 从"行号会漂"升级为**"提交号也会漂"**：报告引用 commit SHA 作为证据锚点时，锚点本身可以是悬空对象。本轮不在本账本里修补这个缺陷（修法应是校验器支持"引用 SHA 必须可达"检查），只把它记成事实。
 - **本账本落库前后该事实又前进两次**（同一台机器、同一工作树）：`d395f31b` 之后被 `bce170be`（聚合 29 个提交）取代，随后并行会话把压在索引里的 42 文件 / 4581 行在制品批次落为 `37a21343`，本轮 `.sh` v4 为 `361f53bf`。也就是说上面那批"悬空 SHA"的**上一手**（`d395f31b`）现在同样悬空——§二"测量时点 HEAD = `d395f31b`"作为测量事实保留不改，但复现本账本数字时必须知道：**当时的 HEAD 已不可达，逐 SHA 复现只能靠本地对象库尚未 gc**。这与建议 5 属于同一类问题：锚点写得越具体，越要声明它对哪一次提交负责。
-- **本轮末复测时，建议 1 已经在被实现**：并行会话给 `scripts/audit-verify.ps1` 的 `Get-PhysicalLines` 加了路径归一化（旧克隆根前缀 + 开头斜杠映射回仓库相对路径，+12 行，未提交）。后果是本账本自己的两条 ps1 钉行（§七 的 `:183`、`:374`）在工作区口径转红、`--at-head` 仍 10 / 0 / 0——**双口径在这里正好把"谁是漂移源"指出来**：内容没变，只是他们插入的位置在我引用的行之前。处置：钉 HEAD 内容为准，等其落地后按新行号重钉，不在编辑中途抢改。
+- **建议 1 已由并行会话落地，本账本的 ps1/sh 钉行随之整体漂移**：路径归一化先出现在 `scripts/audit-verify.ps1`（`Get-PhysicalLines` 加旧克隆根前缀 + 开头斜杠映射，+12 行）后出现在 `scripts/audit-verify.sh`（`resolve_file` 同口径），两次分别落库为 `3716c236` 与 `3e9a32df`；随后 `466a4382` 又给两个入口加了 `--require-evidence`，再一次整体后移。处置按事先定的规则执行：**不在他人编辑中途抢改，等落库后按新行号重钉**。本轮末（HEAD `01e3f841`）实测：本账本工作区与 `--at-head` 双口径均为 **通过 6 / 失败 4 / 警告 0**，4 处全是上述漂移（3 条 ps1 钉行 + 1 条 `check-metrics-real.py` 因新增函数前置而 `:47`→`:54`），已在 §七 重钉并保留"原为哪一行、因何漂移"。这条同时把"钉行只在被引文件不动时成立"写成账本的常设风险，而不是偶发事故。
 
 ## 七、本账本自身的证据索引（门禁 13 可校验）
 
@@ -110,13 +110,13 @@ D3 的 48 处再分（按"同名文件在全历史中的候选数"）：
 |---|---|
 | 断言机制抓到本轮自己的漂移：`release` 的条件唤醒注释现位于此 | `packages/sz-orm-core/src/pool.rs:2372` [must-contain: 条件 notify_one] |
 | 被本轮重钉的第二处 | `packages/sz-orm-core/src/pool.rs:2766` [must-contain: pub async fn shutdown] |
-| §四 建议 1（路径归一化）的落点：所有被引路径都经这一个函数判存在性，归一化只能加在这里 | `scripts/audit-verify.ps1:183` [must-contain: function Test-RepoFile] |
-| 它背后的读取入口（工作区口径 vs `-AtHead` 口径在此分叉） | `scripts/audit-verify.ps1:105` [must-contain: function Get-PhysicalLines] |
-| §四 建议 3 的缺口实证：校验器对"零引用报告"只给警告级提示、不改退出码 | `scripts/audit-verify.ps1:374` [must-contain: 未找到任何 file:line 证据] |
+| §四 建议 1（路径归一化）的落点：所有被引路径都经这一个函数判存在性，归一化只能加在这里 | `scripts/audit-verify.ps1:199` [must-contain: function Test-RepoFile]（原钉第 183 行，`3716c236` 归一化 +12 行后漂移） |
+| 它背后的读取入口（工作区口径 vs `-AtHead` 口径在此分叉） | `scripts/audit-verify.ps1:109` [must-contain: function Get-PhysicalLines]（原钉第 105 行） |
+| §四 建议 3 的缺口实证：校验器对"零引用报告"只给警告级提示、不改退出码 | `scripts/audit-verify.ps1:403` [must-contain: 未找到任何 file:line 证据]（原钉第 374 行；`466a4382` 起同一处还有 `-RequireEvidence` 阻断分支，见 `scripts/audit-verify.ps1:400` [must-contain: 非提示词类报告]） |
 | §四 建议 2（禁止绝对路径）要约束的正是这类历史写法 | `docs/assessment/2026-08-13-production-zero-call-audit.md:1` [must-contain: 生产路径零调用审计]（本批红牌最集中的报告，90 处） |
 | D3 中"漏写包前缀"的两个样例，其真实目标文件确实存在 | `packages/sz-orm-graphql/src/query_ir.rs:37` [must-contain: pub struct GraphQLDirective]、`packages/sz-orm-queue/src/cdc/capturer.rs:15` [must-contain: async fn start_capture] |
 | §六 提到的 CI 豁免登记表（本轮新增，验证内容未因历史聚合而丢） | `scripts/check-gate-scripts.py:58` [must-contain: CI_FAIL_EXEMPT] |
-| §11.5 注① 归因所用的计数函数（README 数字的唯一口径） | `scripts/check-metrics-real.py:47` [must-contain: def count_test_annotations] |
+| §11.5 注① 归因所用的计数函数（README 数字的唯一口径） | `scripts/check-metrics-real.py:54` [must-contain: def count_test_annotations]（原钉第 47 行，`30c3e0b0` 前后新增函数前置导致漂移） |
 
 > 说明：本表刻意**不**为"被删文件"（D1 类 16 处）编造行号——`packages/sz-orm-sqlx/tests/wiring_e2e.rs` 与 `examples/wiring_sz_pay.rs` 今天已不存在，任何指向它们的 `file:line` 都只能是假的，故只在 §三 以路径形式记账并标注"已删除"。同理，下游项目 `E:/vue/test/sz-pay/...` 的 12 处属仓库外证据，本账本不给出任何仓库内行号。
 
