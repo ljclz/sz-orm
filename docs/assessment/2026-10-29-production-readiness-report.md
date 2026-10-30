@@ -66,7 +66,7 @@
 | 6 | C# SafeHandle | ✅ 已闭环 | `SzOrm.cs` 引入 `SzOrmPoolHandle`（`SafeHandleZeroOrMinusOneIsInvalid`），裸 IntPtr + 手工 Dispose → SafeHandle 保证只释放一次；本机安装 .NET SDK 9.0.320 编译 **0 警告 0 错误**（提交 `c0628ec`） |
 | 7 | 覆盖率/变异基线复测 | ✅ 已完成 | 覆盖率 `src/` 口径 **85.20%**（LF 311,563 / LH 265,452，72/72 包有插桩）；**容器化 CI 已执行 G20 增量门禁**（rust:1.99 挂载仓库）：近期无 sz-orm-core 生产代码改动（0 变异目标），脚本因工作区 806K 行大 diff（含 `.inscode` 删除）触发 cargo-mutants diff 解析错误——结论：**容器化 CI 就绪**，全量变异（11668 变异体）由 CI 发布前门禁负责（长跑任务） |
 | 8 | sz-pay 下游版本 | ✅ 已升级 | sz-pay `Cargo.toml` 10 处 `sz-rust-* ^1.7.0 → ^2.0.0`，lib 编译通过（下游提交 `ac3f64d`；`tests/wiring_e2e.rs` API 适配登记后续） |
-| 9 | 其余包发布 | 🟡 批量发布进行中 | 核心 6 包 + 依赖链已发布 10.13.0；追加发布 `sz-orm-actix` / `sz-orm-axum` / `sz-orm-mqtt` 等；批量脚本 `D:/tmp/publish_all_remaining.py`（代理上传 + 失败快速继续）后台运行中，完成后更新清单 |
+| 9 | 其余包发布 | ✅ **全部发布完成** | 三轮批量发布累计新增 **33 个包**（首轮 19 + 依赖链补齐后 14），核心 6 包 + 依赖链此前已发布；crates.io 上 sz-orm-* 全部为 10.13.0（sz-orm-js/python 独立 0.1.0 版本线除外），**零失败**（官方索引 + 代理上传） |
 
 ---
 
