@@ -287,7 +287,9 @@ re_fence='^[[:space:]]*```'
 re_crate='(^|[^A-Za-z0-9_.-])((sz-orm-[a-z0-9-]+|cli|examples)/src/([a-zA-Z0-9_/-]+\.rs)):([0-9]+)'
 re_root='(^|[^A-Za-z0-9_.-])(([^:[:space:]`]*\/)?(deny\.toml|Cargo\.toml|Cargo\.lock|AGENTS\.md|rust-toolchain\.toml|CHANGELOG\.md)):([0-9]+)'
 # v4 通配覆盖：任意仓库相对路径 + 常见扩展名 + :行号
-re_any='(^|[^A-Za-z0-9_.:/\\-])([A-Za-z0-9_./@一-鿿-]+\.(rs|py|md|markdown|yml|yaml|toml|json|h|hpp|cs|sh|ps1|js|ts|java|go|cpp|txt|ini|nix|cfg|gitignore))(:)([0-9]+)'
+# 路径字符类用 *（不是 +）：`.gitignore:67` 这类点文件在扩展名前没有字符，
+# 用 + 会让 sh 静默跳过而 .ps1 校验——正是本轮量到的 9 处口径差。
+re_any='(^|[^A-Za-z0-9_.:/\\-])([A-Za-z0-9_./@一-鿿-]*\.(rs|py|md|markdown|yml|yaml|toml|json|h|hpp|cs|sh|ps1|js|ts|java|go|cpp|txt|ini|nix|cfg|gitignore))(:)([0-9]+)'
 
 in_fence=0
 while IFS= read -r line || [[ -n "$line" ]]; do
