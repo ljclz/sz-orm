@@ -31,6 +31,13 @@ import re
 import sys
 from pathlib import Path
 
+# Windows 默认 GBK 控制台下 emoji 输出会抛 UnicodeEncodeError；统一 UTF-8。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = Path(__file__).resolve().parent.parent
 
 # (文件, [(正则, 说明)]) —— 仅匹配"当前版本声明"行，避免历史段落误报

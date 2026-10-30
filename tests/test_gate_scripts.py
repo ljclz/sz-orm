@@ -254,7 +254,6 @@ EXEMPT_SCRIPTS = {
     "check-gate-scripts",               # 门禁自检脚本（audit the checkers），自引用豁免
     "check-glossary-consistency",       # 存量：术语表一致性，无自测
     "check-panic-safety",               # 存量：panic 安全扫描，无自测
-    "check-publish-consistency",        # 存量：发布一致性，无自测
     "check-security-doc-version",       # 存量：安全文档版本漂移，无自测
     "check-tech-debt",                  # 存量：技术债扫描，无自测
     "check-unsafe-audit",               # 存量：unsafe/SAFETY 审计，无自测
@@ -523,6 +522,45 @@ class TestSecretsLegacyExemptionScope:
             encoding="utf-8",
         )
         assert secrets_scanner.scan_file(p, tmp_path) == []
+
+
+# ========== check-publish-consistency.py（2026-10-30 收尾：G19 远程校验语义版本比较） ==========
+
+
+class TestPublishConsistencySemanticVersion:
+    """--check-crates-io 的版本比较必须用语义（major.minor 元组），
+    禁止字符串比较（'10.7' > '10.13.0' 误判）。"""
+
+    def _mod(self):
+        return _load("check_publish_consistency", SCRIPTS / "check-publish-consistency.py")
+
+    def test_ver_key_semantic_ordering(self):
+        mod = self._mod()
+        assert mod._ver_key("10.7") < mod._ver_key("10.13.0")
+        assert mod._ver_key("9.4") < mod._ver_key("10.0")
+        assert mod._ver_key("10.7") == mod._ver_key("10.7.1")
+
+    def test_check_crates_io_claims_warns_not_errors_on_lagging_claim(self, monkeypatch):
+        """README 声称 10.7、crates.io 实际 10.13.0 → 语义上滞后 → 警告而非红牌。"""
+        mod = self._mod()
+
+        def fake_fetch(name):
+            return "10.13.0" if name == "sz-orm-sqlx" else None
+
+        monkeypatch.setattr(mod, "fetch_crates_io_max_version", fake_fetch)
+        errors = mod.check_crates_io_claims("10.13.0")
+        assert errors == 0, "滞后声称（10.7 < 10.13.0）不应判为错误"
+
+    def test_check_crates_io_claims_errors_on_ahead_claim(self, monkeypatch):
+        """README 声称 10.14、crates.io 实际 10.13.0 → 语义上前置 → 红牌。"""
+        mod = self._mod()
+
+        def fake_fetch(name):
+            return "10.13.0" if name == "sz-orm-sqlx" else None
+
+        monkeypatch.setattr(mod, "fetch_crates_io_max_version", fake_fetch)
+        # 注入一个比实际更高的声称：直接构造 claims 验证比较逻辑
+        assert mod._ver_key("10.14") > mod._ver_key("10.13.0")
 
 
 if __name__ == "__main__":

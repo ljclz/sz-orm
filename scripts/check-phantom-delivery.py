@@ -36,6 +36,13 @@ import os
 import re
 import sys
 
+# Windows 默认 GBK 控制台下 emoji 输出会抛 UnicodeEncodeError；统一 UTF-8。
+for _stream in (sys.stdout, sys.stderr):
+    try:
+        _stream.reconfigure(encoding="utf-8")
+    except (AttributeError, ValueError):
+        pass
+
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PACKAGES = os.path.join(ROOT, "packages")
 CLI = os.path.join(ROOT, "cli", "Cargo.toml")
@@ -222,6 +229,7 @@ PHANTOM2_EXEMPT: dict[str, str] = {
     "perf-regression-ci": _P2_TEST,
     "query-auto-tuning": _P2_TEST,
     "rbac-abac-enhanced": _P2_TEST,
+    "metrics-wiring": "参考实现：packages/sz-orm-bench/examples/query_path_metrics.rs 按需启用（v10.13.0 新增）",
     "real-bench": _P2_TEST,
     "real-bench-diesel": _P2_TEST,
     "real-db": _P2_TEST,
@@ -779,7 +787,7 @@ def main():
     if n1_real > 0 or matrix_fail or wiring_fail > 0:
         print("❌ 门禁 15 未通过 — 存在幻影交付或接线断言失败（请接线、登记断言或修正文档措辞）")
         return 1
-    print("✅ 门禁 15 通过（PHANTOM-2 未登记警告 0；豁免登记见 PHANTOM2_EXEMPT，--strict 升级为失败）")
+    print(f"✅ 门禁 15 通过（PHANTOM-2 未登记警告 {len(p2_warn)}；豁免登记见 PHANTOM2_EXEMPT，--strict 升级为失败）")
     return 0
 
 

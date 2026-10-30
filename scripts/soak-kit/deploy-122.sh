@@ -1,11 +1,18 @@
 #!/bin/bash
 # deploy-122.sh — 在本机（Windows/Git Bash）执行：把三个仓库 + soak-kit 推送到
-# 第二服务器（122.51.216.76），全程 SSH，不经过 GitHub。
+# 第二服务器（地址经环境变量 SZORM_SERVER_122 配置，v10.13.0 起不再硬编码真实 IP），
+# 全程 SSH，不经过 GitHub。
 # 用法: bash deploy-122.sh [all|sz-orm|szrsql|sz-rust|kit]
 set -euo pipefail
 
 KEY="$HOME/.ssh/szorm_server_122"
-HOST="root@122.51.216.76"
+# 服务器地址必须显式配置（例如 SZORM_SERVER_122="root@your-server-ip"），
+# 避免仓库内残留真实主机地址。
+HOST="${SZORM_SERVER_122:-}"
+if [ -z "$HOST" ]; then
+    echo "错误: 请设置环境变量 SZORM_SERVER_122（例如 root@your-server-ip）" >&2
+    exit 1
+fi
 SSH_OPTS="-i $KEY -o BatchMode=yes -o StrictHostKeyChecking=no"
 SZORM="/e/vue/test/鲜视达/rust/sz-orm"
 SZRSQL="/e/vue/test/鲜视达/rust/szrsql"

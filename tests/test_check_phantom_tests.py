@@ -250,6 +250,18 @@ class TestP6NoProductSymbols:
         hits = _scan_text(tmp_path, LITERAL_SAMPLE)
         assert any(r == "P6" for r, _, _ in hits)
 
+    def test_other_product_crate_not_flagged(self, tmp_path):
+        # 引用 sz_orm_advisor 等其他产品包的集成测试不应被 P6 误报
+        text = (
+            "use sz_orm_advisor::{AutoTuningGateway, OptimizationAdvisor};\n"
+            "#[test]\nfn test_gateway() {\n"
+            "    let gw = AutoTuningGateway::new(advisor());\n"
+            "    assert!(gw.run_loop(\"q1\", None, None, 1.0, 2.0).is_ok());\n"
+            "}\n"
+        )
+        hits = _scan_text(tmp_path, text)
+        assert all(r != "P6" for r, _, _ in hits)
+
     def test_current_connection_tenant_file_zero_hits(self):
         hits = cpt.scan_file(str(ROOT / "packages" / "sz-orm-core" / "tests" / "connection_tenant_security_test.rs"))
         assert all(r != "P6" for r, _, _ in hits), "修复后的 connection_tenant 测试应引用产品 crate"
