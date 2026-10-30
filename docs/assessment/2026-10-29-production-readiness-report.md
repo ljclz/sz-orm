@@ -60,9 +60,9 @@
 |---|--------|--------|------|
 | 1 | 性能基准元数据未采集 | ✅ 已修复 | `EnvMetadata` 真实采集 CPU 型号/内存/rustc 版本/feature/git（`packages/sz-orm-bench/src/lib.rs`），实测生成报告含 `Intel64 ... / 40 cores / 66,994,108 KB / 1.99.1` |
 | 2 | CI 性能基线比对未闭环 | ✅ 已闭环 | `.github/workflows/ci.yml:795-812`：存在基线时 `--compare-baseline ci-sqlite`（≥10% 退化阻断）后 `--save-baseline` 滚动更新，首次仅建基线；`actions/cache` 恢复滚动基线 |
-| 3 | 孤儿包治理 | 🟡 清单已产出 | `docs/assessment/2026-10-29-orphan-package-ledger.md`：30 个无下游依赖包分类（9 个独立交付物非孤儿 + 21 个扩展包待裁定） |
+| 3 | 孤儿包治理 | ✅ 已完成 | `2026-10-29-orphan-package-ledger.md`：30 包分类（9 独立交付物非孤儿）；**§四 21 个扩展包逐包裁定完成**（普查测试/examples/源码行数，统一裁定"可选组件（需手动接入）"，无自动集成宣称） |
 | 4 | PHANTOM-2 警告收敛 | ✅ 已收敛 | `check-phantom-delivery.py` 实测 PHANTOM-2 **0**（未登记警告 0），308 个门控未启用警告已全部处理 |
-| 5 | 历史报告引用清账 | 🟡 部分完成 | `legacy-citation-ledger.md`：648 处红牌 0 造假；**校验器路径归一化已完成**（`scripts/audit-verify.ps1` 识别旧克隆根 `E:/vue/...` 与 `/packages/...`，自测 10 passed）；待做：45 份零可校验引用报告治理 + `.sh` 同步 |
+| 5 | 历史报告引用清账 | 🟡 部分完成 | `legacy-citation-ledger.md`：648 处红牌 0 造假；**校验器路径归一化已完成**（`.ps1`+`.sh` 双入口，自测 25 passed）；**零引用治理已实现**：`--require-evidence`（提示词/验证规范豁免，非提示词类 0 引用即阻断，提交 `466a438`）；待做：45 份清单（附录 A）中 39 份真报告逐份补证据（需团队决策，避免编造） |
 | 6 | C# SafeHandle | ⏳ 待 .NET SDK 环境 | `SzOrm.cs` 仍用裸 IntPtr + 手工 Dispose；本机无 dotnet SDK，SafeHandle 改造无法编译验证（P3，非阻断） |
 | 7 | 覆盖率/变异基线复测 | 🟡 复测进行中 | 本会话安装 cargo-mutants 并启动增量变异 + cargo-llvm-cov 覆盖率复测（G22/G20） |
 | 8 | sz-pay 下游版本 | 下游待办 | sz-pay 声明 `sz-rust-* ^1.7.0`，上游已 2.0.0，需下游升级适配后完整编译 |
