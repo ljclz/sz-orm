@@ -262,14 +262,14 @@ namespace SzOrm
         public bool IsHealthy()
         {
             EnsureNotDisposed();
-            return sz_orm_ping(_handle.DangerousGetHandle()) == 1;
+            return sz_orm_ping(_handle!.DangerousGetHandle()) == 1;
         }
 
         /// <summary>执行查询，返回 JSON 行数组字符串</summary>
         public string Query(string sql)
         {
             EnsureNotDisposed();
-            return QueryCore(sz_orm_query(_handle.DangerousGetHandle(), sql));
+            return QueryCore(sz_orm_query(_handle!.DangerousGetHandle(), sql));
         }
 
         /// <summary>
@@ -281,7 +281,7 @@ namespace SzOrm
         {
             EnsureNotDisposed();
             string paramsJson = SzOrmParam.Encode(parameters);
-            return QueryCore(sz_orm_query_params(_handle.DangerousGetHandle(), sql, paramsJson));
+            return QueryCore(sz_orm_query_params(_handle!.DangerousGetHandle(), sql, paramsJson));
         }
 
         private string QueryCore(IntPtr result)
@@ -310,14 +310,14 @@ namespace SzOrm
         public ulong Execute(string sql)
         {
             EnsureNotDisposed();
-            return ExecuteCore(sz_orm_execute(_handle.DangerousGetHandle(), sql));
+            return ExecuteCore(sz_orm_execute(_handle!.DangerousGetHandle(), sql));
         }
 
         /// <summary>执行参数化写语句，返回影响行数（参数绑定规则同 <see cref="QueryParams"/>）</summary>
         public ulong ExecuteParams(string sql, params object?[] parameters)
         {
             EnsureNotDisposed();
-            return ExecuteCore(sz_orm_execute_params(_handle.DangerousGetHandle(), sql, SzOrmParam.Encode(parameters)));
+            return ExecuteCore(sz_orm_execute_params(_handle!.DangerousGetHandle(), sql, SzOrmParam.Encode(parameters)));
         }
 
         internal static ulong ExecuteCore(QueryResult r)
@@ -334,7 +334,7 @@ namespace SzOrm
         public ulong ExecuteBatch(string sql)
         {
             EnsureNotDisposed();
-            return ExecuteCore(sz_orm_execute_batch(_handle.DangerousGetHandle(), sql));
+            return ExecuteCore(sz_orm_execute_batch(_handle!.DangerousGetHandle(), sql));
         }
 
         /// <summary>开启事务（独占连接；Dispose 未提交时自动回滚——Rust 侧 transaction_free 语义）。
@@ -342,7 +342,7 @@ namespace SzOrm
         public SzOrmTransaction BeginTransaction()
         {
             EnsureNotDisposed();
-            IntPtr tx = sz_orm_transaction_begin(_handle.DangerousGetHandle());
+            IntPtr tx = sz_orm_transaction_begin(_handle!.DangerousGetHandle());
             if (tx == IntPtr.Zero)
             {
                 throw new SzOrmConnectionException(SzOrmError.ConnectionFailed,
@@ -355,14 +355,14 @@ namespace SzOrm
         public PoolStatsSnapshot GetStats()
         {
             EnsureNotDisposed();
-            return sz_orm_pool_stats(_handle.DangerousGetHandle());
+            return sz_orm_pool_stats(_handle!.DangerousGetHandle());
         }
 
         /// <summary>连接池累计指标（acquire/release/created/closed 计数）</summary>
         public PoolMetricsSnapshot GetMetrics()
         {
             EnsureNotDisposed();
-            return sz_orm_pool_metrics(_handle.DangerousGetHandle());
+            return sz_orm_pool_metrics(_handle!.DangerousGetHandle());
         }
 
         /// <summary>
