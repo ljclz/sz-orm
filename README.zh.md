@@ -567,7 +567,7 @@ ABI 契约横幅中。
 
 | 绑定 | 状态 | 覆盖范围 |
 |------|------|---------|
-| C#（`packages/sz-orm-cabi/csharp/`） | ⚠️ 真实但覆盖面窄（37 个 C ABI 导出中封装 9 个，公开方法 7 个） | P/Invoke 建池/查询/执行，UTF-8 编解码（`LPUTF8Str`/`PtrToStringUTF8`），原子化 `IDisposable` 句柄封装，结构体镜像 `#[repr(C)]` 布局；E2E 套件（含非 ASCII 往返断言）已接入 2026-10-28 新增的 CI `csharp-binding` job——该 job 尚未在本机观察到绿色（本机无 .NET SDK，未实跑）——暂无 NuGet 包，事务/模型/QueryBuilder 面未封装 |
+| C#（`packages/sz-orm-cabi/csharp/`） | ⚠️ 真实但覆盖面窄（41 个 C ABI 导出中封装 22 个，强类型异常） | P/Invoke 建池/查询/执行 + 事务/批量/统计（`SzOrmTransaction`/`ExecuteBatch`/`GetStats`/`GetMetrics`），UTF-8 编解码（`LPUTF8Str`/`PtrToStringUTF8`），`SzOrmException` 强类型异常体系，原子化 `IDisposable` 句柄封装，结构体镜像 `#[repr(C)]` 布局；E2E 套件（含非 ASCII 往返与事务/回滚/批量/统计用例）已于 **2026-10-29 在本机实测通过（dotnet 9.0.100）**，并接入 2026-10-28 新增的 CI `csharp-binding` job——暂无 NuGet 包，模型/QueryBuilder 面未封装 |
 | Python（`packages/sz-orm-python/`，PyO3） | ✅ 真实（SQLite） | `Pool`/`QueryBuilder`/`Transaction` 真实；`Model`/`ActiveModel`/`Repository` 为内存值对象 |
 | JavaScript（`packages/sz-orm-js/`，napi-rs） | ✅ 真实（SQLite） | `Pool`（须先 `connect(dsn)`）/`QueryBuilder`/事务真实；`Model` 为值对象；类型声明见 `index.d.ts` |
 | Java（`packages/sz-orm-java/`，JNI） | ⚠️ 部分可用 | 仅 Pool 级 CRUD；事务/模型/QueryBuilder 的 JNI 导出在 Rust 侧齐全，但 Java 侧尚无封装类 |
