@@ -16,6 +16,7 @@ using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
 using System.Threading;
+using Microsoft.Win32.SafeHandles;
 
 namespace SzOrm
 {
@@ -128,10 +129,30 @@ namespace SzOrm
         };
     }
 
+    /// <summary>
+    /// sz-orm-cabi 连接池句柄的 SafeHandle 包装（2026-10-30 P3-2：裸 IntPtr → SafeHandle）。
+    /// 释放时调用 sz_orm_pool_free；Dispose/终结器由 .NET SafeHandle 基础设施保证只执行一次。
+    /// </summary>
+    internal sealed class SzOrmPoolHandle : SafeHandleZeroOrMinusOneIsInvalid
+    {
+        private SzOrmPoolHandle() : base(ownsHandle: true) { }
+
+        internal SzOrmPoolHandle(IntPtr handle, bool ownsHandle) : base(ownsHandle)
+        {
+            SetHandle(handle);
+        }
+
+        protected override bool ReleaseHandle()
+        {
+            SzOrmPool.sz_orm_pool_free(handle);
+            return true;
+        }
+    }
+
     /// <summary>sz-orm-cabi 的 C# 封装：连接池 + 查询 + 执行 + 事务</summary>
     public sealed class SzOrmPool : IDisposable
     {
-        private IntPtr _handle;
+        private SzOrmPoolHandle? _handle;
         private volatile bool _disposed;
 
         private const string Lib = "sz_orm_cabi";
@@ -142,7 +163,7 @@ namespace SzOrm
             ref PoolConfig config);
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
-        private static extern void sz_orm_pool_free(IntPtr handle);
+        internal static extern void sz_orm_pool_free(IntPtr handle);
 
         [DllImport(Lib, CallingConvention = CallingConvention.Cdecl)]
         private static extern int sz_orm_ping(IntPtr handle);
@@ -220,7 +241,7 @@ namespace SzOrm
 
         private SzOrmPool(IntPtr handle)
         {
-            _handle = handle;
+            _handle = new SzOrmPoolHandle(handle, ownsHandle: true);
         }
 
         /// <summary>创建 SQLite 连接池（dsn 如 "sqlite::memory:" 或 "sqlite://path/to.db"）</summary>
@@ -241,14 +262,14 @@ namespace SzOrm
         public bool IsHealthy()
         {
             EnsureNotDisposed();
-            return sz_orm_ping(_handle) == 1;
+            return sz_orm_ping(_handle.DangerousGetHandle()) == 1;
         }
 
         /// <summary>执行查询，返回 JSON 行数组字符串</summary>
         public string Query(string sql)
         {
             EnsureNotDisposed();
-            return QueryCore(sz_orm_query(_handle, sql));
+            return QueryCore(sz_orm_query(_handle.DangerousGetHandle(), sql));
         }
 
         /// <summary>
@@ -260,7 +281,7 @@ namespace SzOrm
         {
             EnsureNotDisposed();
             string paramsJson = SzOrmParam.Encode(parameters);
-            return QueryCore(sz_orm_query_params(_handle, sql, paramsJson));
+            return QueryCore(sz_orm_query_params(_handle.DangerousGetHandle(), sql, paramsJson));
         }
 
         private string QueryCore(IntPtr result)
@@ -289,14 +310,14 @@ namespace SzOrm
         public ulong Execute(string sql)
         {
             EnsureNotDisposed();
-            return ExecuteCore(sz_orm_execute(_handle, sql));
+            return ExecuteCore(sz_orm_execute(_handle.DangerousGetHandle(), sql));
         }
 
         /// <summary>执行参数化写语句，返回影响行数（参数绑定规则同 <see cref="QueryParams"/>）</summary>
         public ulong ExecuteParams(string sql, params object?[] parameters)
         {
             EnsureNotDisposed();
-            return ExecuteCore(sz_orm_execute_params(_handle, sql, SzOrmParam.Encode(parameters)));
+            return ExecuteCore(sz_orm_execute_params(_handle.DangerousGetHandle(), sql, SzOrmParam.Encode(parameters)));
         }
 
         internal static ulong ExecuteCore(QueryResult r)
@@ -313,7 +334,7 @@ namespace SzOrm
         public ulong ExecuteBatch(string sql)
         {
             EnsureNotDisposed();
-            return ExecuteCore(sz_orm_execute_batch(_handle, sql));
+            return ExecuteCore(sz_orm_execute_batch(_handle.DangerousGetHandle(), sql));
         }
 
         /// <summary>开启事务（独占连接；Dispose 未提交时自动回滚——Rust 侧 transaction_free 语义）。
@@ -321,7 +342,7 @@ namespace SzOrm
         public SzOrmTransaction BeginTransaction()
         {
             EnsureNotDisposed();
-            IntPtr tx = sz_orm_transaction_begin(_handle);
+            IntPtr tx = sz_orm_transaction_begin(_handle.DangerousGetHandle());
             if (tx == IntPtr.Zero)
             {
                 throw new SzOrmConnectionException(SzOrmError.ConnectionFailed,
@@ -334,14 +355,14 @@ namespace SzOrm
         public PoolStatsSnapshot GetStats()
         {
             EnsureNotDisposed();
-            return sz_orm_pool_stats(_handle);
+            return sz_orm_pool_stats(_handle.DangerousGetHandle());
         }
 
         /// <summary>连接池累计指标（acquire/release/created/closed 计数）</summary>
         public PoolMetricsSnapshot GetMetrics()
         {
             EnsureNotDisposed();
-            return sz_orm_pool_metrics(_handle);
+            return sz_orm_pool_metrics(_handle.DangerousGetHandle());
         }
 
         /// <summary>
@@ -397,29 +418,22 @@ namespace SzOrm
 
         public void Dispose()
         {
-            // 用 Interlocked.Exchange 抢走句柄：Dispose 与终结器并发时只有一方
-            // 真正调用 sz_orm_pool_free，避免双重释放。
-            IntPtr handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
+            // 2026-10-30 P3-2：句柄改为 SafeHandle，Dispose/终结器由 .NET 保证只释放一次。
+            var h = Interlocked.Exchange(ref _handle, null);
             _disposed = true;
-            if (handle != IntPtr.Zero)
-            {
-                sz_orm_pool_free(handle);
-            }
+            h?.Dispose();
             GC.SuppressFinalize(this);
         }
 
         ~SzOrmPool()
         {
-            IntPtr handle = Interlocked.Exchange(ref _handle, IntPtr.Zero);
-            if (handle != IntPtr.Zero)
-            {
-                sz_orm_pool_free(handle);
-            }
+            var h = Interlocked.Exchange(ref _handle, null);
+            h?.Dispose();
         }
 
         private void EnsureNotDisposed()
         {
-            if (_disposed || _handle == IntPtr.Zero)
+            if (_disposed || _handle == null || _handle.IsInvalid)
             {
                 throw new ObjectDisposedException(nameof(SzOrmPool));
             }
