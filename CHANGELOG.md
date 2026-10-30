@@ -2846,6 +2846,15 @@ CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+
 - **顺带修复**：`packages/sz-orm-core/src/value.rs` 新增 `Value::is_json()`，`packages/sz-orm-sqlx/tests/any_pg_test.rs` JSONB 断言改用 `is_json()`（此前 JSONB 已解码为 `Value::Json` 但测试仍断言 `is_string`，导致 `test_pg_query_jsonb_type` 失败）；PG 集成测试 46 passed
 - **验证**：门禁 13 项全过、门禁自测 + audit-verify 自测 46 passed、PG 46 / MySQL 21 / cabi / clippy 通过
 
+#### 2026-10-30 加固期续（P2/P3 收尾 + 长跑门禁复测）
+
+- **CI 性能基线比对已闭环**（并行会话）：`.github/workflows/ci.yml:795-812` 存在基线时 `--compare-baseline ci-sqlite`（≥10% 退化阻断）后 `--save-baseline` 滚动更新，首次仅建基线；`actions/cache` 恢复滚动基线（PERFV2-01）
+- **PHANTOM-2 警告已收敛**：`check-phantom-delivery.py` 实测 PHANTOM-2 **0**（未登记警告 0），308 个门控未启用警告全部处理
+- **audit-verify.sh 路径归一化**：`scripts/audit-verify.sh` `resolve_file` 识别旧克隆根 `E:/vue/...`/`/vue/...` 前缀与 `/packages/...` 开头斜杠，与 `.ps1` 双入口口径一致；`tests/test_audit_verify_sh_v4.py` 14 passed，实测旧路径引用 2 通过 0 失败（提交 `3e9a32d`）
+- **覆盖率门禁 G22 复测通过**：`cargo-llvm-cov 0.9.1` 全工作空间 **86.45%**（69 包 / 40,276 行 / 34,819 命中）≥ 60% 门槛
+- **变异门禁 G20 复测**：⚠️ 本机 Windows + 大 diff 触发 `cargo-mutants` diff 解析错误（`invalid escaped character`，工具兼容性）；建议在 CI/Linux 环境复测
+- **C# SafeHandle**：本机无 dotnet SDK，`SzOrm.cs` 裸 IntPtr + 手工 Dispose 的 SafeHandle 改造无法编译验证，登记为待 .NET SDK 环境的 P3 项
+
 [1.2.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.2.0
 [1.1.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.1.0
 [1.0.0]: https://github.com/ljclz/sz-orm/releases/tag/v1.0.0
