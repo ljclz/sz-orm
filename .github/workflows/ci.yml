@@ -76,7 +76,11 @@ jobs:
     name: Checker Self Tests (pytest)
     runs-on: ubuntu-latest
     steps:
+      # tests/test_check_doc_sync.py 直接解析 HEAD~1..HEAD，浅克隆下 git 报
+      # "ambiguous argument" → 必须拉全历史
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: Install Python
         uses: actions/setup-python@v5
@@ -213,6 +217,12 @@ jobs:
         rust: [stable]
     steps:
       - uses: actions/checkout@v4
+
+      # pyo3 0.20 仅支持 Python ≤3.12；runner 默认 3.14 会让 sz-orm-python 构建失败
+      - name: Install Python 3.12 (pyo3 0.20 upper bound)
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@master

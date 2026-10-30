@@ -17,4 +17,8 @@ classifiers = [
 ]
 
 [tool.maturin]
-features = ["pyo3/extension-module"]
+# extension-module 必须是本 crate 的 feature（构建脚本据此跳过 libpython 链接）
+features = ["extension-module"]
+# #[pymodule] fn sz_orm 导出的是 PyInit_sz_orm；不声明的话 maturin 按 lib 名
+# sz_orm_python 找 PyInit_sz_orm_python，产出模块与 Python 侧 import sz_orm 不一致
+module-name = "sz_orm"

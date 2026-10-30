@@ -118,6 +118,7 @@ _P2_TEST = "测试专用：仅集成测试/示例演示启用（owasp-pentest-su
 _P2_AI = "AI/智能增强开关：按需启用（llm/nl2sql/agent/anomaly 等智能特性）"
 _P2_GOV = "治理/合规/安全能力开关：按需启用（governance/compliance/lineage/security 等增强）"
 _P2_CAP = "能力扩展开关：按需启用（由下游按场景选择，默认不编译属正常形态）"
+_P2_BUILD = "构建形态开关：由打包工具启用（maturin pyproject / CI 工作流），默认构建不编译属正常形态"
 
 PHANTOM2_EXEMPT: dict[str, str] = {
     # —— 用户侧驱动开关（real-* / dialect-* / server / client 类）（24）——
@@ -411,6 +412,8 @@ PHANTOM2_EXEMPT: dict[str, str] = {
     "xa": _P2_CAP,
     "zero-downtime-evolve": _P2_CAP,
     "zero-downtime-mig": _P2_CAP,
+    # —— 构建形态开关（交给打包工具启用，不进默认构建）——
+    "extension-module": _P2_BUILD,
 }
 
 

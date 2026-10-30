@@ -1,0 +1,7 @@
+# napi-rs 的 cdylib 在 macOS 上必须用 dynamic_lookup 解析 Node 运行时导出的符号
+# （napi_*、node_api_*），否则链接阶段报 "referenced from ... but not found"。
+[target.x86_64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]
+
+[target.aarch64-apple-darwin]
+rustflags = ["-C", "link-arg=-undefined", "-C", "link-arg=dynamic_lookup"]

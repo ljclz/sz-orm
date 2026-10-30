@@ -16,6 +16,9 @@ crate-type = ["cdylib", "rlib"]
 
 [features]
 default = []
+# 构建 wheel（maturin）时启用：pyo3 不再链接 libpython，扩展模块才能通过 manylinux 审计。
+# 不默认开启——cargo test 构建的是测试可执行文件，反而需要链接 libpython（见 build.rs）。
+extension-module = ["pyo3/extension-module"]
 # v8.0.0：生态扩展聚合
 eco-extend = []
 binding-async-stream = ["eco-extend"]
@@ -25,7 +28,7 @@ ignored = ['pyo3-asyncio']
 [dependencies]
 sz-orm-core = { workspace = true }
 sz-orm-sqlx = { path = "../sz-orm-sqlx" }
-pyo3 = { version = "0.20", features = ["extension-module"] }
+pyo3 = { version = "0.20" }
 pyo3-asyncio = "0.20"
 tokio = { workspace = true }
 serde_json = { workspace = true }
