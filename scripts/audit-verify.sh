@@ -108,6 +108,17 @@ AV_IDX=0
 # resolve_file <cited path> → 打印一个可直接 sed 的本地可读路径；不存在则返回 1
 resolve_file() {
   local p="$1"
+  # 路径归一化（与 audit-verify.ps1 同口径，2026-10-29 legacy-citation-ledger 建议 1）：
+  # 1) 旧克隆根前缀（E:/vue/... 或 /vue/...，正则可能吞掉盘符）→ 仓库相对路径
+  local legacy_re='^/?[A-Za-z]?:?/vue/test/鲜视达/rust/sz-orm'
+  if [[ "$p" =~ $legacy_re ]]; then
+    p="${p#${BASH_REMATCH[0]}}"
+    p="${p#/}"
+  fi
+  # 2) 以 / 开头的仓库相对路径（/packages/...）→ 去掉开头斜杠
+  if [[ "$p" == /* && ! "$p" =~ ^/[A-Za-z]:/ ]]; then
+    p="${p#/}"
+  fi
   if [[ -n "${RESOLVED[$p]+set}" ]]; then
     [[ -n "${RESOLVED[$p]}" ]] && printf '%s' "${RESOLVED[$p]}" && return 0
     return 1
