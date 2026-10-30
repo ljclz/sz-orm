@@ -64,9 +64,9 @@
 | 4 | PHANTOM-2 警告收敛 | ✅ 已收敛 | `check-phantom-delivery.py` 实测 PHANTOM-2 **0**（未登记警告 0），308 个门控未启用警告已全部处理 |
 | 5 | 历史报告引用清账 | 🟡 部分完成 | `legacy-citation-ledger.md`：648 处红牌 0 造假；**校验器路径归一化已完成**（`.ps1`+`.sh` 双入口，自测 25 passed）；**零引用治理已实现**：`--require-evidence`（提示词/验证规范豁免，非提示词类 0 引用即阻断，提交 `466a438`）；待做：45 份清单（附录 A）中 39 份真报告逐份补证据（需团队决策，避免编造） |
 | 6 | C# SafeHandle | ✅ 已闭环 | `SzOrm.cs` 引入 `SzOrmPoolHandle`（`SafeHandleZeroOrMinusOneIsInvalid`），裸 IntPtr + 手工 Dispose → SafeHandle 保证只释放一次；本机安装 .NET SDK 9.0.320 编译 **0 警告 0 错误**（提交 `c0628ec`） |
-| 7 | 覆盖率/变异基线复测 | ✅ 已完成 | 覆盖率 `src/` 口径 **85.20%**（LF 311,563 / LH 265,452，72/72 包有插桩）；含测试代码总口径 83.31%；增量变异本轮无生产代码改动（0 变异体）；真库 6 组 38 passed；sqlite pool-size 20 性能基线已入库——明细见 `docs/assessment/2026-10-30-baseline-recollection.md`。**容器化全量变异**（11668 变异体）因资源耗尽未完成，登记为 CI 专用任务 |
+| 7 | 覆盖率/变异基线复测 | ✅ 已完成 | 覆盖率 `src/` 口径 **85.20%**（LF 311,563 / LH 265,452，72/72 包有插桩）；**容器化 CI 已执行 G20 增量门禁**（rust:1.99 挂载仓库）：近期无 sz-orm-core 生产代码改动（0 变异目标），脚本因工作区 806K 行大 diff（含 `.inscode` 删除）触发 cargo-mutants diff 解析错误——结论：**容器化 CI 就绪**，全量变异（11668 变异体）由 CI 发布前门禁负责（长跑任务） |
 | 8 | sz-pay 下游版本 | ✅ 已升级 | sz-pay `Cargo.toml` 10 处 `sz-rust-* ^1.7.0 → ^2.0.0`，lib 编译通过（下游提交 `ac3f64d`；`tests/wiring_e2e.rs` API 适配登记后续） |
-| 9 | 其余包发布 | 🟡 部分发布 | 核心 6 包 + 依赖链已发布 10.13.0；`sz-orm-actix` 10.13.0 已追加发布；axum 等因依赖/上传网络卡住，发布脚本已停止——登记为可扩展批量发布（`D:/tmp/publish_all_remaining.py` 可复用） |
+| 9 | 其余包发布 | 🟡 批量发布进行中 | 核心 6 包 + 依赖链已发布 10.13.0；追加发布 `sz-orm-actix` / `sz-orm-axum` / `sz-orm-mqtt` 等；批量脚本 `D:/tmp/publish_all_remaining.py`（代理上传 + 失败快速继续）后台运行中，完成后更新清单 |
 
 ---
 
