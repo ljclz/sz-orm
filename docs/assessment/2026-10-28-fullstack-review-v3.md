@@ -55,7 +55,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 
 **亮点（有证据）**
 
-- 核心连接池实现是"真代码"而非包装：`packages/sz-orm-core/src/pool.rs:1980` [must-contain: pub async fn acquire] 的 `acquire` 是完整的状态机，包含 CAS 计数（`packages/sz-orm-core/src/pool.rs:2118` [must-contain: AtomicU32]）、CAS 之后的 closed 二次检查（`packages/sz-orm-core/src/pool.rs:2140` [must-contain: 收窄]）、等待循环顶部的关池唤醒（`packages/sz-orm-core/src/pool.rs:2037` [must-contain: closed.load]）、释放路径的条件 `notify_one`（`packages/sz-orm-core/src/pool.rs:2371` [must-contain: notify_one]）与 `shutdown`（`packages/sz-orm-core/src/pool.rs:2742` [must-contain: pub async fn shutdown]）。shutdown 竞态还有专门回归测试：`packages/sz-orm-core/tests/chaos_pool.rs:819`。
+- 核心连接池实现是"真代码"而非包装：`packages/sz-orm-core/src/pool.rs:1980` [must-contain: pub async fn acquire] 的 `acquire` 是完整的状态机，包含 CAS 计数（`packages/sz-orm-core/src/pool.rs:2118` [must-contain: AtomicU32]）、CAS 之后的 closed 二次检查（`packages/sz-orm-core/src/pool.rs:2140` [must-contain: 收窄]）、等待循环顶部的关池唤醒（`packages/sz-orm-core/src/pool.rs:2037` [must-contain: closed.load]）、释放路径的条件 `notify_one`（`packages/sz-orm-core/src/pool.rs:2372` [must-contain: 条件 notify_one]）与 `shutdown`（`packages/sz-orm-core/src/pool.rs:2766` [must-contain: pub async fn shutdown]）。shutdown 竞态还有专门回归测试：`packages/sz-orm-core/tests/chaos_pool.rs:819`。
 - 实测 `CARGO_NET_OFFLINE=true cargo test -p sz-orm-core --lib` → **exit 0，3228 passed / 0 failed**（见 §8.1）。
 - unsafe 治理是本次评测**少数完全达标**的项：`python scripts/check-unsafe-audit.py` → exit 0，17 个含 unsafe 关键字文件、**0 个缺 SAFETY 覆盖**；cabi 内 `// SAFETY:` 注释 316 处对应 278 个 unsafe 块（注释多于块，说明覆盖到语句级）。
 - 工具链钉子真实存在：`rust-toolchain.toml:13` 为 `channel = "1.99.1"`；`async-trait` 已升至 0.1.92（`Cargo.lock:892`）。
@@ -115,7 +115,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 
 - ABI 设计规范：`#[repr(C)]` 结构体（`packages/sz-orm-cabi/src/lib.rs:121` 的 `PoolConfigC`）、`#[no_mangle] extern "C"` 导出 37 个、`catch_unwind` 33 处（panic 不跨越 FFI 边界）、cbindgen 头文件作为单一声明源（`packages/sz-orm-cabi/include/sz_orm_cabi.h:18` 说明了 Rust 侧分配/释放语义）。
 - 内存所有权有运行时防线：`packages/sz-orm-cabi/src/ffi_memory.rs:29` 的 `track` 与 `:40` 的 `untrack` 构成 double-free 注册表，释放路径统一走注册表。
-- 能力面不薄：除池/查询/执行外，还导出事务（`packages/sz-orm-cabi/src/lib.rs:829` 起）、模型 CRUD、查询构建器、批量执行（`packages/sz-orm-cabi/src/lib.rs:613`），头文件明确标注参数化条件（`REQ-BND-007`）。
+- 能力面不薄：除池/查询/执行外，还导出事务（`packages/sz-orm-cabi/src/lib.rs:1109` [must-contain: fn sz_orm_transaction_begin] 起）、模型 CRUD、查询构建器、批量执行（`packages/sz-orm-cabi/src/lib.rs:893` [must-contain: fn sz_orm_execute_batch]），头文件明确标注参数化条件（`REQ-BND-007`）。
 - ABI 演进是追加式的：`sz_orm_set_runtime_workers`（`packages/sz-orm-cabi/src/lib.rs:239`）未改动任何既有结构体布局。
 
 **风险**
@@ -251,10 +251,10 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 | 能力 | C ABI | C# 封装 | 影响 |
 |------|-------|---------|------|
 | 连接池/查询/执行/版本/错误描述 | 有 | **有（9 个 P/Invoke 导入）** | 基础可用 |
-| 事务 begin/execute/commit/rollback/free | 有（`packages/sz-orm-cabi/src/lib.rs:829` 起） | 无 | 无法做事务 |
+| 事务 begin/execute/commit/rollback/free | 有（`packages/sz-orm-cabi/src/lib.rs:1109` [must-contain: fn sz_orm_transaction_begin] 起） | 无 | 无法做事务 |
 | 模型 CRUD（参数化） | 有（头文件 `REQ-BND-007`） | 无 | 只能手写 SQL 字符串（注入面） |
 | QueryBuilder（where_eq/order/limit/build） | 有 | 无 | 无 |
-| 批量执行 | 有（`packages/sz-orm-cabi/src/lib.rs:613`） | 无 | 无 |
+| 批量执行 | 有（`packages/sz-orm-cabi/src/lib.rs:893` [must-contain: fn sz_orm_execute_batch]） | 无 | 无 |
 | 池统计/指标 | 有（`packages/sz-orm-cabi/src/lib.rs:556`） | 无 | 无可观测 |
 | runtime worker 配置 | 有（`packages/sz-orm-cabi/src/lib.rs:239`） | 无 | 无法调优 |
 
@@ -319,13 +319,13 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 | **P1-2** | C# 编码修复 + 中文用例 + CI job | 打开中文市场，消除乱码 | 1.5 人日 | `packages/sz-orm-cabi/csharp/SzOrm.cs:64`、`:135` |
 | **P1-3** | 接线 G24/G25（或删除登记）+ 统一门禁编号 | 消除"登记即完成"幻觉 | 1 人日 | `AGENTS.md:51`、`AGENTS.md:61` |
 | **P1-4** | audit-verify 增加符号级断言 | 让审计结论可被机器检验 | 1 人日 | `scripts/audit-verify.ps1:96` |
-| **P1-5** | C# 暴露事务/参数化 CRUD/SafeHandle | 消除注入面与 use-after-free | 4–6 人日 | `packages/sz-orm-cabi/src/lib.rs:829` |
+| **P1-5** | C# 暴露事务/参数化 CRUD/SafeHandle | 消除注入面与 use-after-free | 4–6 人日 | `packages/sz-orm-cabi/src/lib.rs:1109` [must-contain: fn sz_orm_transaction_begin] |
 | **P2-1** | crates.io 发版追平 + README 安装示例同步 | 用户装到的不是 6 个版本前的代码 | 1 人日 | `README.md:453` |
 | **P2-2** | 基准产物入库 / artifact 持久化 | 性能结论可复验 | 1 人日 | §3.3 |
 | **P2-3** | `check-gate-scripts.py` 规则结构化 | 防假绿 | 0.5 人日 | §8.2 R4 |
 | **P2-4** | README.en 补绑定章节；AGENTS 版本修正 | 国际化与一致性 | 0.5 人日 | `AGENTS.md:10` |
 | **P3-1** | 方言"默认编译"标注 + golden SQL 快照 | 降低 28 方言的宣称风险 | 3–5 人日 | `packages/sz-orm-core/src/db_type.rs:11` |
-| **P3-2** | pool notify 许可合并注释 + 回归测试 | 降低长尾误改风险 | 0.5 人日 | `packages/sz-orm-core/src/pool.rs:2368` [must-contain: 条件 notify_one] |
+| **P3-2** | pool notify 许可合并注释 + 回归测试 | 降低长尾误改风险 | 0.5 人日 | `packages/sz-orm-core/src/pool.rs:2372` [must-contain: 条件 notify_one]（2026-10-29 第三轮按 `019f545b` 重钉，原 `:2368`/`:2371` 因本轮向 pool.rs 插入 24 行注释而后移） |
 
 **建议顺序：** P0 全部（1.2 人日）→ P1-3/P1-4（让门禁可信）→ P1-1/P1-2 → P2 → P3。**先修"可信度"，再修"能力"。**
 
@@ -411,7 +411,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 | async-trait 0.1.92 | `Cargo.lock:892` |
 | deny 豁免集合 | `deny.toml:31` |
 | clippy 红灯 | `packages/sz-orm-core/tests/v65_prepared_cache_benefit.rs:10` |
-| 连接池 acquire / CAS / 竞态 / notify / shutdown | `packages/sz-orm-core/src/pool.rs:1980`、`:2118`、`:2037`、`:2140`、`:2371`、`:2742`（2026-10-29 按 `c72d90a1` 重钉，原 1754/1901/1808/1914/2100/2450 因该提交向 pool.rs 插入 634 行而漂移） |
+| 连接池 acquire / CAS / 竞态 / notify / shutdown | `packages/sz-orm-core/src/pool.rs:1980`、`:2118`、`:2037`、`:2140`、`:2372`、`:2766`（2026-10-29 第二轮按 `c72d90a1` 重钉，原 1754/1901/1808/1914/2100/2450 因该提交向 pool.rs 插入 634 行而漂移；同日第三轮本会话自己向 pool.rs 插入 24 行注释，又把 notify/shutdown 两条推为 2372/2766——**连"本轮刚重钉的行号"也逃不过下一次改动**，见 §12.3） |
 | shutdown 竞态回归测试 | `packages/sz-orm-core/tests/chaos_pool.rs:819` |
 | 语句缓存入口 | `packages/sz-orm-core/src/prepared_cache.rs:182` |
 | 方言枚举 | `packages/sz-orm-core/src/db_type.rs:11` |
@@ -424,7 +424,7 @@ sz-orm 的**技术骨架**（自研连接池、C ABI 设计、28 方言抽象、
 | pool_free | `packages/sz-orm-cabi/src/lib.rs:317` |
 | ping（panic 边界） | `packages/sz-orm-cabi/src/lib.rs:346` |
 | query / result_free / execute | `packages/sz-orm-cabi/src/lib.rs:378`、`:443`、`:473` |
-| 批量执行导出 | `packages/sz-orm-cabi/src/lib.rs:613` |
+| 批量执行导出 | `packages/sz-orm-cabi/src/lib.rs:893` [must-contain: fn sz_orm_execute_batch] |
 | 内存注册表 track / untrack | `packages/sz-orm-cabi/src/ffi_memory.rs:29`、`:40` |
 | 头文件所有权说明 | `packages/sz-orm-cabi/include/sz_orm_cabi.h:18` |
 | C# 编码入参 / 出参 | `packages/sz-orm-cabi/csharp/SzOrm.cs:64`、`:82`、`:135`、`:166` |
@@ -686,15 +686,17 @@ EXIT=0
 
 | 改动 | 证据位置 |
 |---|---|
-| 入参 UTF-8 序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:65`、`:76`、`:83`（`UnmanagedType.LPUTF8Str`） |
-| 出参 UTF-8 反序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:136`、`:167`（`Marshal.PtrToStringUTF8`） |
-| 已释放标记 | `packages/sz-orm-cabi/csharp/SzOrm.cs:59`（`private volatile bool _disposed;`） |
-| 句柄原子摘取（Dispose/终结器互斥） | `packages/sz-orm-cabi/csharp/SzOrm.cs:182`、`:193`（`Interlocked.Exchange(ref _handle, IntPtr.Zero)`，注释见 `:180`） |
+| 入参 UTF-8 序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:141` [must-contain: UnmanagedType.LPUTF8Str]、`packages/sz-orm-cabi/csharp/SzOrm.cs:152` [must-contain: UnmanagedType.LPUTF8Str]、`packages/sz-orm-cabi/csharp/SzOrm.cs:159` [must-contain: UnmanagedType.LPUTF8Str] |
+| 出参 UTF-8 反序列化 | `packages/sz-orm-cabi/csharp/SzOrm.cs:280` [must-contain: Marshal.PtrToStringUTF8]、`packages/sz-orm-cabi/csharp/SzOrm.cs:360` [must-contain: Marshal.PtrToStringUTF8] |
+| 已释放标记 | `packages/sz-orm-cabi/csharp/SzOrm.cs:135` [must-contain: volatile bool _disposed] |
+| 句柄原子摘取（Dispose/终结器互斥） | `packages/sz-orm-cabi/csharp/SzOrm.cs:402` [must-contain: Interlocked.Exchange]、`packages/sz-orm-cabi/csharp/SzOrm.cs:413` [must-contain: Interlocked.Exchange]，说明注释见 `packages/sz-orm-cabi/csharp/SzOrm.cs:400` [must-contain: 抢走句柄] |
 | 中文往返 E2E 用例 | `packages/sz-orm-cabi/csharp/SzOrmTest/Program.cs:31`（"4. UTF-8 往返"）、`:34`（插入 `张三`/`李四`）、`:42`（断言 JSON 原样含中文，否则 `exit 1`） |
 | CI 触发路径 | `.github/workflows/bindings.yml:9`、`:17`（`packages/sz-orm-cabi/**` 纳入 push/pr 触发） |
 | 新增 `csharp-binding` job | `.github/workflows/bindings.yml:132`（windows-latest）、`:145`（`actions/setup-dotnet@v4`，9.0.x）、`:150`（`cargo build -p sz-orm-cabi`）、`:153`（`dotnet run --project …/SzOrmTest.csproj`）、`:155`（`SzOrmCabiDll` 指向 `target\debug\sz_orm_cabi.dll`） |
 | 验证链前置 | `.github/workflows/bindings.yml:160`（`binding-verification` 的 `needs` 加入 `csharp-binding`） |
 | 工作流语法自证 | `python -c "yaml.safe_load(...)"`：`bindings.yml OK jobs=6 [binding-verification, csharp-binding, node-binding, publish, python-binding, rust-core]`；`ci.yml OK jobs=22` |
+
+> **本节 `SzOrm.cs` 的钉行于 2026-10-29 重钉过**（第三轮，§12.5）。原钉 `:65`/`:76`/`:83`（入参）、`:136`/`:167`（出参）、`:59`（已释放标记）、`:182`/`:193`/`:180`（句柄摘取）在 `37a21343` 给该文件插入 `PoolStatsSnapshot` / `SzOrmException` 等类型后整体下移：`:136`、`:182` 变成空行（双口径红牌），`:65`/`:76`/`:83` 落到结构体字段、`:59` 落到文档注释、`:193` 落到 `sz_orm_transaction_execute` 的 DllImport——**内容全错但只有 2 处被校验器看见**，其余 6 处是裸 `:NN` 续写、天然逃检（账本建议 5 的实证）。重钉后每条都带 `[must-contain:]`，行号再漂会直接转红而不是静默假绿。归属说明：报告作者不因"改动不是自己做的"而豁免，漂移由引用方负责重钉。
 
 **未执行 / 不可信声明（必须读）**：
 
@@ -732,11 +734,11 @@ $ python scripts/check-gate-scripts.py        → ✅ PASS：… 关键安全脚
 
 | 新增规则 | 位置 | 针对的历史漏检 |
 |---|---|---|
-| 逻辑行合并（反斜杠续行） | `scripts/check-gate-scripts.py:47`（`_logical_lines`） | 多行 `if a \|\| b; then mark N PASS` |
-| 恒真条件直接 `mark PASS` | `scripts/check-gate-scripts.py:80`–`82` | `if true; then mark 24 PASS; fi`、`if [ true ]; …`、`if :; …` |
-| 命令与 `mark N PASS` 同链顺序执行 | `scripts/check-gate-scripts.py:84`–`85` | `cmd; mark 24 PASS`（命令失败也放行） |
-| PowerShell 关卡判据检查 | `scripts/gate.ps1` 侧规则实现于 `scripts/check-gate-scripts.py:92`–`105`（按 `$ok = Invoke-Step` 切段，段内必须出现 `if (…$ok)`） | `Write-Host … PASS` 式的无条件放行 |
-| 关键脚本接入清单扩展 | `scripts/check-gate-scripts.py:39`（`REQUIRED_CHECKS` 加入 `check-examples-readme.py`、`check-doc-code-compiles.py`、`check-filename-encoding.py`、`check-doc-version-consistency.py`、`check-generated-code-compiles.py`） | 新增强门禁不再被静默漏接 |
+| 逻辑行合并（反斜杠续行） | `scripts/check-gate-scripts.py:73` [must-contain: _logical_lines]（`_logical_lines`） | 多行 `if a \|\| b; then mark N PASS` |
+| 恒真条件直接 `mark PASS` | `scripts/check-gate-scripts.py:106`–`108` [must-contain: 恒真条件] | `if true; then mark 24 PASS; fi`、`if [ true ]; …`、`if :; …` |
+| 命令与 `mark N PASS` 同链顺序执行 | `scripts/check-gate-scripts.py:110`–`111` [must-contain: 同链顺序执行] | `cmd; mark 24 PASS`（命令失败也放行） |
+| PowerShell 关卡判据检查 | `scripts/gate.ps1` 侧规则实现于 `scripts/check-gate-scripts.py:125`–`127` [must-contain: Invoke-Step]（按 `$ok = Invoke-Step` 切段，段内必须出现 `if (…$ok)`） | `Write-Host … PASS` 式的无条件放行 |
+| 关键脚本接入清单扩展 | `scripts/check-gate-scripts.py:36` [must-contain: REQUIRED_CHECKS]（`REQUIRED_CHECKS` 加入 `check-examples-readme.py`、`check-doc-code-compiles.py`、`check-filename-encoding.py`、`check-doc-version-consistency.py`、`check-generated-code-compiles.py`） | 新增强门禁不再被静默漏接 |
 
 常驻回归（不是"手工验一次"，已入库为 pytest）：
 
@@ -1033,7 +1035,7 @@ P3-1 的"默认编译标注"半边完成，"golden SQL 快照"半边受阻（`pa
 | `audit-verify.sh` 与 `.ps1` v4 对齐（符号断言 + 通配覆盖 + `-AtHead` + CJK token） | P1-4 后半 | 该文件正被并行会话大改（`git diff --stat` → 88 插入）；双写必冲突 | **高**：服务器门禁 13 仍是旧口径（分母 2038） |
 | 9 个凭据文件的密钥轮换 + git 历史清除 | P0-1 后半 | 需仓库管理员权限与 force-push 授权 | **高**：历史 blob 与旧 PAT 仍可用 |
 | 历史 154 份报告的引用清账（651 处失败 / 77 份红牌） | 新增（§11.2 量出） | 属存量债，非本轮范围；每份都要人工判断"漂移"还是"编造" | 中：门禁 13 只校验固定一份，历史红牌继续隐形 |
-| 门禁 27 的登记盲区：`check_required_scripts()` 只拼 `run-gates-v10120-server.sh` + `gate.ps1` 两个脚本文本（`scripts/check-gate-scripts.py:118` [must-contain: SERVER_GATE, PS_GATE]），**不读 `.github/workflows/ci.yml`** | P2-3 后半 | 扩规则要同时动 `check-gate-scripts.py` 与 `gate.ps1`（后者为在制品），且新增编号需改 `AGENTS.md` 门禁表（也在他人手里） | 中：只接入 CI 的检查器（含本轮 `check-csharp-abi-surface.py`）被删掉步骤也不会报警 |
+| 门禁 27 的登记盲区：`check_required_scripts()` 只拼 `run-gates-v10120-server.sh` + `gate.ps1` 两个脚本文本（`scripts/check-gate-scripts.py:191` [must-contain: SERVER_GATE][must-contain: PS_GATE]），**不读 `.github/workflows/ci.yml`** | P2-3 后半 | 扩规则要同时动 `check-gate-scripts.py` 与 `gate.ps1`（后者为在制品），且新增编号需改 `AGENTS.md` 门禁表（也在他人手里） | 中：只接入 CI 的检查器（含本轮 `check-csharp-abi-surface.py`）被删掉步骤也不会报警 |
 | P2-2 基准产物入库 | P2-2 | `bench-comparison/benches/full_comparison.rs` 与 `BENCHMARK_REPORT.md` 均为并行会话未提交改动——此时提交基准数字等于把他人代码产生的结论记在自己账上 | 中：性能结论仍不可复验 |
 | P3-1 golden SQL 快照 | P3-1 后半 | `packages/sz-orm-core/src/dialect.rs` 为在制品 | 中：方言能力宣称仍缺逐条证据 |
 | P3-2 `pool` notify 许可合并注释 + 回归测试 | P3-2 | `packages/sz-orm-core/src/pool.rs` 为在制品 | 低 |
@@ -1052,6 +1054,222 @@ P3-1 的"默认编译标注"半边完成，"golden SQL 快照"半边受阻（`pa
 ### 11.8 一句话结论（第二轮后）
 
 第七节的"先修可信度"路线走到这里：**审计校验器（P1-4）与 C# ABI 面（P1-5 前半）第一次具备了机器可判的语义约束**，凭据的**入库面与 remote URL 都干净了**，方言宣称口径不再会被读成"28 种可连"。但可信度债的三块最硬的——**旧密钥仍在历史里、`.sh` 入口仍是旧口径、651 处历史引用无人清账**——都需要授权或他人文件让位，本轮如实记账，不认领。
+
+## 十二、第三轮整改执行记录（2026-10-29，§11.6 遗留项按风险序推进）
+
+本轮起点是 §11.6 那十行"未做/受阻"。执行期间仓库历史又被并行会话推进两次：
+`bce170be`（把 29 个交织提交聚合为可编译基线）与 `37a21343`（把 42 个文件的在制品
+批次落库），本轮自己的改动落在 `361f53bf`。因此本节每条结论都按
+**当前 HEAD + 当前工作区双口径复测**，第十一节的旧数不再沿用；两口径不成对跑
+就会得出误导性结论（§11.7 #5 的警告在本轮第三次被验证，见 §12.4）。
+
+### 12.1 上一轮已闭合、本轮复测仍绿的两行
+
+| §11.6 行 | 落点 | 本轮复测（2026-10-29 HEAD `361f53bf`） |
+|---|---|---|
+| 门禁 27 的登记盲区（只拼服务器脚本 + `gate.ps1`，不读 CI） | `scripts/check-gate-scripts.py:156` [must-contain: def check_ci_gate]、`scripts/check-gate-scripts.py:58` [must-contain: CI_FAIL_EXEMPT]、`scripts/check-gate-scripts.py:183` [must-contain: def check_required_scripts]、`scripts/check-gate-scripts.py:68` [must-contain: CI_ONLY_EXEMPT] | `python scripts/check-gate-scripts.py` → EXIT=0，输出"记账：CI `\|\| true` 豁免 5 条 / 仅 CI 接入的检查器 1 条"；自测 `tests/test_gate_scripts_ci.py` 10 passed |
+| P3-2 pool 的 notify 许可合并契约无人写进代码 | `packages/sz-orm-core/src/pool.rs:2372` [must-contain: 条件 notify_one]、`packages/sz-orm-core/src/pool.rs:2394` [must-contain: waiters_count.load(Ordering::Acquire)]、退避上限依据 `packages/sz-orm-core/src/pool.rs:2207` [must-contain: std::cmp::min(backoff] | `cargo test -p sz-orm-core --test pool_acquire_release_test` → **29 passed / 0 failed**；两条新回归测试在 `packages/sz-orm-core/tests/pool_acquire_release_test.rs:90` [must-contain: test_pool_consecutive_releases_coalesced_all_waiters_served] 与 `packages/sz-orm-core/tests/pool_acquire_release_test.rs:144` [must-contain: test_pool_suppressed_notify_late_acquirer_still_served] |
+
+P3-2 的反幻影证明（上一轮做过、结论仍成立，此处不重复变异过程）：把守卫改成
+无条件抑制通知 → 29 passed（契约本就是"零通知也不饿死"）；再叠上去掉退避上限
+→ **1 FAILED**，报错即落在 `pool_acquire_release_test.rs:104` [must-contain: acquire_timeout 内取得连接]。
+也就是说这两条测试能区分"有界唤醒延迟"与"永久饥饿"，不是恒真断言。
+
+### 12.2 本轮闭合：P1-4 后半——`audit-verify.sh` 与 `.ps1` v4 对齐（§11.6 第一风险行）
+
+**做这件事的理由**：门禁 13 在服务器上是 `bash scripts/audit-verify.sh <报告>`
+（`scripts/run-gates-v10120-server.sh:98` [must-contain: audit-verify.sh]），
+本地是 `scripts/audit-verify.ps1`。`.ps1` 已到 v4，而 `.sh` 仍停在 **v2**
+（HEAD 里的版本没有 `--strict`、没有代码块跳过、读不懂符号断言）。结果是
+**同一条"证据链"在两个平台上给出两种强度不同的判决**，而服务器恰恰是最后把关的那个。
+
+本轮把 `.sh` 提到 v4，四项能力与 `.ps1` 对齐：
+
+| 能力 | 落点 | 语义约束 |
+|---|---|---|
+| 符号级断言 | `scripts/audit-verify.sh:160` [must-contain: extract_assertions()]、执行处 `:226` [must-contain: 断言失败：被引区间不含]、绑定入口 `:272` [must-contain: check_cite()] | needle 是**一个字面子串**（逗号不分割），多条必须重复 `[must-contain: …]`；标记只绑定紧邻的前一条引用 |
+| `--at-head` 内容口径 | `scripts/audit-verify.sh:46` [must-contain: HEAD_MODE=0]、`:109` [must-contain: resolve_file()] | 被引内容取 `git show HEAD:<path>`；路径在 HEAD 不存在 → "文件不存在（HEAD 提交内容中）"，fail-closed，不静默退回工作区 |
+| 任意扩展名通配覆盖 | `scripts/audit-verify.sh:292` [must-contain: re_any=] | `scripts/*.py:NN`、`docs/*.md:NN`、`.github/*.yml:NN`、`*.cs`/`*.h` 进入校验；带目录的未知路径判红牌，纯文件名找不到才记警告 |
+| CJK 词块参与语义比对 | `scripts/audit-verify.sh:78` [must-contain: x{4e00}]、`:146` [must-contain: ident_tokens()] | 纯中文结论不再因"ASCII 标识符集合为空"整体跳过校验 |
+
+**本轮自己写出的三个 bug（前两个由自测抓住，第三个靠双入口对表抓住，都不是理论风险）**：
+
+1. `{ grep -oE …; grep -oP …; }` 让两条 grep **共享同一个 stdin**——第一条读到 EOF，
+   第二条永远拿到空输入。表现是 CJK 分支静默失效、退化成纯 ASCII 比对，且**默认
+   用例照样全绿**。修法是两次 `printf` 分别喂给两个 grep（`:146` 的函数体）。
+   这条只有在我补了"共享中文词块必须放行"的反向用例
+   （`tests/test_audit_verify_sh_v4.py:157` [must-contain: test_pure_chinese_shared_run_no_warning]）
+   之后才暴露——正向用例（"不共享就警告"）在这个 bug 下也是绿的，因为它靠 ASCII
+   差异就能触发。
+2. `trap cleanup EXIT` 里写 `[[ -n "$TMPD" ]] && rm -rf "$TMPD"`：条件为假时 **trap 的
+   退出码覆盖了脚本自身的 `exit 0`**，于是所有"校验通过"的运行都返回 1。
+   现象是别人那套 v3 用例 4 个红、1 个绿——而那 1 个绿的恰恰是期望返回 1 的
+   `--strict` 用例。改成 `if` 形式（`:109` 上方注释已记录原因）。
+3. **点文件被静默跳过**（与 `.ps1` 逐条对表才抓到，不是自测发现的）：通配路径字符类
+   原先用 `+` 量词，"扩展名前的路径字符"至少一个；`.gitignore:67` 在扩展名前没有字符，
+   于是 `.sh` 当它不存在、`.ps1` 照常校验。同一份本报告，`.ps1` 比 `.sh` 多校验 9 条
+   （两者 312 条判决行**逐条一致**，只有总数差 9，差额恰好是 `.gitignore` 那组）。
+   修法是把 `:292` 的字符类改成 `*`，并补两条用例
+   （`tests/test_audit_verify_sh_v4.py:89` [must-contain: test_dotfile_ref_is_validated]、
+   `tests/test_audit_verify_sh_v4.py:96` [must-contain: test_dotfile_wrong_needle_fails]）。
+   教训：**"逐条判决一致"不等于"覆盖面一致"**——只比总数会误判成计数差，只比判决会误判成
+   完全对齐，必须同时比"哪些条目进了校验"。修复后同一份 `dot.md` 探针在两个入口给出
+   逐字相同的判决（含 `[must-contain:]` 断言不符时同样转红）。
+
+**验证输出**（全部本轮实跑）：
+
+- `python -m pytest tests/test_audit_verify_sh_v4.py` → **14 passed / 1 skipped**
+  （15 个用例；跳过的是"HEAD 与工作区一致时才跑"的 at-head 用例。`8d4c1eb` 的提交
+  消息写成 "15 passed" 是笔误，以本行为准，不改写已提交消息）
+- `python -m pytest tests/test_audit_verify.py`（另一会话维护的 v3 套件）→ **5 passed**
+  ——我的 v4 是其严格超集，未删任何 v3 能力（`.sh` 的 diff 里 25 行删除全部是被等价
+  加强形式替换掉的旧行，逐行核对）
+- CI 的 pytest 全列表（9 个文件）→ **149 passed / 1 failed / 1 skipped**。失败项是
+  `tests/test_check_csharp_abi_surface.py::test_real_repository_at_head_is_consistent`，
+  原因是工作区 `lib.rs` 现有 **41** 个 Rust 导出、`README.zh.md` 仍宣称 37——是并行会话
+  正在扩 ABI 造成的**在制品漂移**，不是本轮引入（本轮只动 `.sh` 与 `.sh` 的测试）。按
+  "不代改他人账"原则只记账；跳过的是本轮 at-head 用例的"HEAD==工作区"前置条件。
+- 服务器目标报告 `docs/assessment/2026-10-20-comprehensive-audit-report.md`：
+  旧 `.sh`（v2）24 通过 / 0 失败 / 0 警告 → 新 `.sh`（v4）**24 / 0 / 11**
+  ——新增覆盖面只带来警告，**不会让服务器转红**，这是敢在同一批里合进来的前提
+- 本报告（`8d4c1eb` 之后、§12 定稿口径）：工作区 **232 / 2 / 111**，
+  `--at-head` **234 / 0 / 113**。工作区那 2 处失败**全部**是 `.ps1` 被别人改造成的漂移
+  （见 §12.5），HEAD 口径 0 失败。修复点文件前的同一份文件是 219 / 3 / 112 与 222 / 0 / 119
+  （`.sh` 少校验 9 条 `.gitignore` 引用，与 `.ps1` 的 228 差 9）
+- 账本：`.sh` 与 `.ps1` 两个入口在 `--at-head` 下都是 **10 / 0 / 0**（口径一致，可互为
+  复核）；工作区口径 8 / 2 / 0，2 失败同源于他人改 `.ps1`（§12.5 倒数第二条）
+- 134 份入库评测报告的 `.sh` v4 聚合：1271 通过 / 560 失败。**只报绝对数**：
+  v3 基线的同口径聚合本轮未跑（会话预算），因此不给"覆盖率提升 X%"这类差值宣称
+- `python scripts/check-secrets.py` → EXIT=0（Scanned 2605 files, no secrets）
+
+### 12.3 本轮闭合：§11.6 第三行——历史引用红牌的分诊账本
+
+交付 `docs/assessment/2026-10-29-legacy-citation-ledger.md`（本轮提交入库）。要点重述：
+154 份历史报告、"文件不存在"里 **94.3% 是路径记法噪声**而非造假，可确认的编造证据
+**0 处**；真正的空洞是 **45 份报告一条可校验引用都没有**却能通过门禁 13。
+本轮没有批量改写任何历史行号——那等于把编造证据洗成结构合规证据。
+
+### 12.4 本轮新量到的共享状态事实（只记账，不动别人的东西）
+
+1. **`git diff` 单独看会误判"没人动这个文件"**。`.sh`、`dialect.rs`、`README.en.md`、
+   `CHANGELOG.md` 一度显示 `0/0`，我据此判定"并行改动已落库、可以动手"；提交前查
+   `git diff --cached` 才发现索引里压着**别人 42 个文件、4581 行**未提交的批次，
+   `.sh` 的 v3 就在其中（HEAD 还是 v2）。真实结论是：**worktree == index 不等于干净**。
+   后续凡是判断"某文件是否他人在制品"，必须 `git diff` + `git diff --cached` 成对查。
+2. **我的提交消息里有一处不准确，留此更正**：`361f53bf` 写的是"另一会话 staged 的 v3
+   由本提交一并落库"。实际上他们在那之前几分钟已用 `37a21343` 把 v3 提交了。
+   不影响内容正确性（我的 v4 仍覆盖并领先于 v3），但"谁落库了谁的东西"这句话归属记错，
+   按审计铁律必须显式更正而不是让错话留在历史里。
+3. **凭据历史可达性复测（只看路径与命中次数，未读任何内容）**：`tmp_ssh_key2`、
+   `upload.js`、`transfer2.js`、`run_test.js`、`tmp_ssh_run.js`、`tmp_ssh_check.js`、
+   `scripts/v870_sftp_upload.js` 七个路径**每一个仍出现在 HEAD 历史的 2 个提交里**
+   （全部 ref 为 3 个）。更要紧的是库里现存 `refs/heads/backup/local-history-2026-10-29`、
+   `refs/original/refs/heads/main`、`refs/stash` 三条备份 ref 把重写前的历史整体钉住——
+   **即便再做一次 rewrite，不删这三条 ref 并 gc，"历史清除"这个说法就不成立**。
+   这三条 ref 是别人整理历史时建的，我不删（删 ref 不可逆，属需授权动作）。
+4. 9 个路径中 `missing_docs_scan.txt`、`phantom_check.txt` **仍被 HEAD 跟踪且未被
+   `.gitignore` 覆盖**。风险类型是"运行产物入库"，不是密钥（`check-secrets.py` 对
+   2605 个文件 EXIT=0）；其余 7 个真凭据路径已 untracked 且 ignored ✓。
+5. `docs/assessment/2026-10-29-legacy-citation-ledger.md` §四 第 1 条建议（把路径归一化
+   同时做进 `.ps1` 与 `.sh`）**本轮未做**——只对齐了四项 v4 能力，归一化会让两个入口
+   的判定同时改变、需要重跑全部 154 份，超出单轮预算。账本里那条建议继续挂着。
+
+### 12.5 残留红的归因（本轮不代改）
+
+- 门禁 13 工作区口径最初的 5 处失败，**本轮复核后拆成两类**（此前"5 处全部是他人
+  在制品 + `--at-head` 0 失败"的归因是错的，实测 HEAD 口径有 2 处失败，予以更正）：
+  - `sz-orm-cabi` 的 `src/lib.rs` 第 829 行 ×3：本轮开头看到的是"工作区红、`--at-head` 绿"
+    （当时该文件是别人未提交的 `M`，829 在 HEAD 上还是 `sz_orm_transaction_begin` 签名行）；
+    **随后他们提交了，829 在 HEAD 上也变成空行**——同一处引用在半天内完成了"他人漂移 →
+    自己的红牌"的转化，正好实证了上一条规则。现在 `sz_orm_transaction_begin` 在 `:1109`、
+    `sz_orm_execute_batch` 在 `:893`，本轮已按新行号重钉并补 `[must-contain:]`（原钉 `:829`
+    与 `:613` 全部作废，不是覆盖成"看起来一直对"的行号）。
+  - `sz-orm-cabi/csharp/SzOrm.cs` 第 136、182 行：**双口径皆红**。原因是 `37a21343`
+    已经把这批改动提交进 HEAD，"别人工作区里的漂移"当场变成了"本报告自己的过期引用"
+    ——文件干净、行号确实错了，没有任何在制品可以归因。已按新行号重钉 §10.3 的四行，
+    并把该行组从裸 `:NN` 续引改成完整路径 + 逐条 `[must-contain:]`（见 §10.3 表下注记）；
+    重钉后本报告为工作区 **219 / 3 / 112**、`--at-head` **222 / 0 / 119**。
+  - 教训要写成规则：**`--at-head` 绿不是持久属性**。他人提交的那一刻，"他人漂移"会
+    原地转化为"自己的红牌"，所以每轮必须双口径各跑一次、分别归因（项目记忆里的成对
+    口径要求）。机制层解法仍是给校验器加 per-citation `@<commit>` 锚点（§11.7 #5，未做）。
+- **本轮量到自己报告里的装饰性证据**：全文有 50 处形如"…`path.py:156`、`:58`、
+  `:183`"的**裸 `:NN` 续引**（§10.3 重钉后从 52 降到 50），其中 3 行后面还挂着
+  `[must-contain: …]`。校验器（`.sh` 与 `.ps1` 都是）只认"带文件名和扩展名的路径 +
+  冒号行号"，裸 `:NN` **根本不进入校验**，于是那些 needle 是写了等于没写——断言看着在、
+  实际无人执行。§10.3 的 `SzOrm.cs` 行组是这条结论的**实证**：8 个行号里 6 个已经漂到
+  完全无关的代码（结构体字段、文档注释、另一个函数的 DllImport），校验器只报出 2 处空行，
+  其余 6 处因为写成续引而静默假绿。本轮已把 §12.1 与 §10.3 两处续引改写成完整路径使其
+  真正受校验；§八/§十一的存量续引**本轮未改**（属历史清账范畴，见账本 §四建议 3
+  "门禁 13 增加 `--require-evidence`/裸引用告警"，未实现）。
+- 门禁 14 `check-doc-sync.py --diff HEAD` → **EXIT=1**，触发的唯一规则是 Rule 10
+  （cargo-dependency：sz-orm-bench 的 Cargo.toml 改了依赖，要求同步 `AGENTS.md`）。
+  该 Cargo.toml 属 `37a21343`，`AGENTS.md` 也在别人手里——与门禁 18 上一轮那处
+  feature 数残留同源（`metrics-wiring`）。本轮按 §11.3 R5 的原则**不代改他人账**，
+  只把归属写清楚。
+- **`.ps1` 正在被别人改，本轮我的 ps1 钉行工作区口径转红 2 处**：`scripts/audit-verify.ps1`
+  是未提交的 `M`（+12 行），内容是账本建议 1 的**路径归一化**（旧克隆根前缀与开头斜杠
+  映射回仓库相对路径）。插入点在 `Get-PhysicalLines` 内，导致其后所有行号 +12：被引的
+  `:164`（标记解析）变成空行、`:341`（扩展名列表）变成 `src/*.rs` 映射分支，于是在
+  工作区口径转红；HEAD 口径仍是绿。处置口径：**钉 HEAD 内容为准**，等他们落地后再按
+  新行号重钉，不在他们编辑中途抢改（`lib.rs` 就是这样：等他们提交后 829 才真正变空行，
+  本轮随即重钉到 `:1109`/`:893`）。顺带记一条正面事实：
+  账本 §四建议 1（路径归一化，449 处红牌中的 69.3%）**已经在被实现**，本轮不作为。
+  同一原因，账本自己的两条 ps1 钉行（`:183`、`:374`）也在工作区口径转红、
+  `--at-head` 10 / 0 / 0 —— 双口径在这里恰好给出"谁是漂移源"的判决。
+- 本轮 README 未动；门禁 18 现状 EXIT=0（21274 测试标注 / 509 feature 与源码一致，
+  `scripts/check-metrics-real.py:47` [must-contain: def count_test_annotations] 的口径是**工作区**，
+  与 `git grep HEAD` 的 21209 差 65——这 65 全在他人在制品里，所以"数字未经手写"
+  这句话只在干净工作区成立）。
+
+### 12.6 本轮回归矩阵
+
+| 检查 | 结果 |
+|---|---|
+| `pytest tests/test_audit_verify_sh_v4.py tests/test_audit_verify.py` | 19 passed / 1 skipped |
+| CI pytest 全列表（9 文件，含本轮新接线） | 149 passed / 1 failed / 1 skipped（失败项是他人 ABI 在制品，见 §12.2） |
+| `python scripts/check-gate-scripts.py`（门禁 27） | EXIT=0 |
+| `cargo test -p sz-orm-core --test pool_acquire_release_test` | 29 passed / 0 failed |
+| 门禁 13（`.sh` v4，工作区）本报告 | **232 / 2 / 111**（2 处均为他人改 `.ps1` 造成的漂移） |
+| 门禁 13（`.sh` v4，`--at-head`）本报告 | **234 / 0 / 113** |
+| 门禁 13（`.ps1` v4，工作区 / `-AtHead`）本报告 | **232 / 2 / 111** / **234 / 0 / 113**（与 `.sh` 逐项一致） |
+| 门禁 13 账本（`.sh` 与 `.ps1` 双入口，`--at-head`） | 各 10 / 0 / 0；工作区口径 8 / 2 / 0（同上 ps1 漂移） |
+| 门禁 13 服务器目标报告 | 24 / 0 / 11（旧口径 24 / 0 / 0，未转红） |
+| 门禁 18 / 24 / 25 / 33 / 12 / 32 | EXIT=0 |
+| 门禁 14（`--diff HEAD`） | **EXIT=1**（Rule 10，归属见 §12.5） |
+| `python scripts/check-secrets.py` | EXIT=0（2605 文件） |
+
+**未执行**（不表述为通过）：`cargo test --workspace`、`cargo clippy --workspace --all-targets`、
+G7 `--ignored`、G22 覆盖率、G20 变异、`.ps1` 全量重写对齐（只补 `.sh`）、154 份历史报告的
+v3-vs-v4 同口径聚合、C# E2E（本机无 SDK，用户约束）、`.github/workflows/integration.yml`
+相关作业（他人在制品）。原因依次为：与并行会话抢编译资源、依赖真实服务、会话预算、
+需授权动作。
+
+### 12.7 §11.6 十行的当前账（第三轮后）
+
+| 行 | 状态 | 备注 |
+|---|---|---|
+| `audit-verify.sh` v4 对齐 | **闭合**（§12.2，`361f53bf`；点文件口径差由 `8d4c1eb` 补齐，双入口实测同数） | 路径归一化：`.ps1` 侧已被并行会话实现（未提交），`.sh` 侧仍挂账（§12.4 #5） |
+| 9 个凭据文件密钥轮换 + 历史清除 | 仍未做 | 需授权；且现存 3 条备份 ref 使"清除"必须先删 ref + gc（§12.4 #3） |
+| 历史 154 份报告引用清账 | **转为已分诊**（§12.3） | 存量债性质从"未知红牌"变成"94.3% 噪声 / 0 编造 / 45 份零证据"，后续动作是门禁 13 加 `--require-evidence`，本轮未实现 |
+| 门禁 27 CI 登记盲区 | 闭合（上一轮） | 本轮复测 EXIT=0 |
+| P2-2 基准产物入库 | 大部分闭合 | `bench-comparison/benches/full_comparison.rs` 与 `bench-comparison/BENCHMARK_REPORT.md` 已在 HEAD；`packages/sz-orm-bench/benches/` 下无该文件（该包的 benches 目录未入库）——README 性能声称的证据标记由门禁 18 校验通过，故不再单独追 |
+| P3-1 golden SQL 快照 | 未做 | `dialect.rs` 的 +733 行刚随 `37a21343` 落库，本轮未验证其方言能力宣称是否已有逐条快照 |
+| P3-2 pool 注释 + 回归测试 | 闭合 | §12.1 |
+| P1-5 C# 实现侧 + E2E | 部分 | `SzOrm.cs` 的 +537 行已落库，ABI 面检查器在 CI；E2E 仍因本机无 SDK **未执行** |
+| P2-1 crates.io 发布 10.13.0 | 未做 | 不可逆外部动作，需授权；另有他人 staged→已提交的 `scripts/publish-crates.sh`（`37a21343`）可作执行入口 |
+| P2-4 文档收口 | 未闭合 | `AGENTS.md` 版本行/绑定章节仍在别人手里；本轮门禁 14 的 Rule 10 红正是这条的机器可读证据 |
+
+### 12.8 一句话结论（第三轮后）
+
+本轮真正做完的是**三行**：`audit-verify.sh` 第一次和 `.ps1` 说同一种语言（服务器
+门禁 13 不再是旧口径，且新口径不会让服务器转红）、历史 651 处红牌从"无人清的债"
+变成带分类的账本、上一轮的门禁 27 与 P3-2 在新 HEAD 下复测仍绿。同时本轮把
+"共享索引"这个此前误判的机制事实写进了记录——**一次 `git diff 0/0` 让我以为文件
+是干净的，实际别人 4581 行在制品正压在索引里**；而我自己写出的三个 bug（stdin
+共享、trap 退出码覆盖、点文件被 `+` 量词静默吃掉）分别被**反向用例**、**他人那套 v3
+套件**、**双入口逐条对表**抓住的，没有一个是正向用例能抓住的。可信度债最硬的两块
+——旧密钥仍在历史里、备份 ref 让"清除"无从谈起——依旧是授权与他人文件的问题，本轮
+如实记账，不认领。
 
 
 ---
