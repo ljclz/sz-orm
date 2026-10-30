@@ -41,7 +41,7 @@
 
 ## 概览
 
-SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。包含 72 个工作空间成员（70 个 sz-orm-* lib + cli + examples），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，提供 509 个 feature gate 用于模块化组合。
+SZ-ORM 是一个纯 Rust 实现的异步 ORM 工作空间，目标是为 Rust 生态提供一个功能完整的数据库访问层。包含 72 个工作空间成员（70 个 sz-orm-* lib + cli + examples），覆盖 ORM 核心引擎、真实数据库适配、AI 向量搜索、分布式事务、可观测性等全栈能力，提供 510 个 feature gate 用于模块化组合。
 
 ### v4.1.0 新增能力（9 个 feature gate，默认关闭）
 
@@ -427,9 +427,9 @@ sz-orm/
 sz-orm-core = { path = "packages/sz-orm-core" }
 sz-orm-sqlx = { path = "packages/sz-orm-sqlx" }
 
-# 备选：crates.io（实际发布版本可能滞后于仓库，以 CHANGELOG.md 为准；最新能力请用上方 path 依赖）
-# sz-orm-core = "10.7"
-# sz-orm-sqlx = "10.7"
+# 备选：crates.io（core/sqlx/macros/config 已发布 10.13.0；其余包是否同步见 AGENTS.md 发布状态）
+# sz-orm-core = "10.13"
+# sz-orm-sqlx = "10.13"
 
 tokio = { version = "1.40", features = ["full"] }
 ```
@@ -577,8 +577,10 @@ ABI 契约横幅中。
 FFI 层共享一个 tokio runtime；可在首次建池前通过
 `sz_orm_set_runtime_workers(n)` 调整其 worker 数（声明见 `sz_orm_cabi.h`）。
 
-> **发布说明**：crates.io 发布滞后于主分支。如需最新能力，请使用 git/path 依赖
-> ——上方 Quick Start 已推荐与生产试点一致的 path 依赖方式。
+> **发布说明**（2026-10-30 经 crates.io sparse index 核实）：70 个包中 29 个已发布 10.13.0
+> （core/sqlx/macros/config/auth/crypto 等），37 个仍停在 10.7.0，`sz-orm-ai`/`sz-orm-cpp`
+> 未发布，`sz-orm-js`/`sz-orm-python` 走独立 0.1.0 版本线。跨包组合前请逐包核实版本；
+> 需要尚未发布的能力时请使用 path 依赖（上方 Quick Start 已推荐与生产试点一致的 path 方式）。
 
 ## 核心 API
 
