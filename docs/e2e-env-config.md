@@ -106,3 +106,28 @@ cargo test -p sz-orm-core --features e2e-real-db --test e2e_real_db_transaction
 - **禁止使用本机 PostgreSQL**（127.0.0.1:5432）— 仅使用第二台服务器 PostgreSQL
 - **禁止硬编码 SSH 密码** — 必须通过 `SZ_ORM_E2E_SSH_PASSWORD` 环境变量传入
 - **禁止使用 sshpass** — SSH 操作使用 Node.js ssh2 包
+
+## 统一入口（2026-10-30）
+
+仓库里长期存在两族凭据入口，此前没有单一入口，容易"配了 A 跑 B"：
+
+| 变量族 | 消费方 | 未配置时的行为 |
+|--------|--------|----------------|
+| `SZ_ORM_PG_URL` / `SZ_ORM_MYSQL_URL` | `sz-orm-sqlx/tests/{real_db_pool_tests,real_db_jepsen,any_pg_test,any_mysql_test}`、`sz-orm-core/tests/{prewarm_integration,smart_eager_integration_pg,smart_eager_integration_mysql}` | 回退到源码内默认连接串（`test123`），连不上即测试失败——**不**跳过 |
+| `SZ_ORM_E2E_PG_URL` / `SZ_ORM_E2E_MYSQL_URL_{TEST,SHOP,NJSZJT}` / `SZ_ORM_E2E_ORACLE_*` | `sz-orm-core/tests/e2e_*.rs`（18 个文件，经 `tests/common/e2e_env.rs`） | 输出 `E2E_SKIP[<service>]: <原因>` 并跳过；`SZ_ORM_E2E_STRICT=1` 或 `SZ_ORM_E2E_REQUIRED=...` 下跳过即 panic |
+| `SZ_ORM_ORACLE_PASSWORD` / `SZ_ORM_MSSQL_PASSWORD` | `sz-orm-oracle` / `sz-orm-mssql` 的 `--ignored` 套件 | 缺变量即连接失败 |
+
+统一入口（推荐）：
+
+```bash
+cp docs/env.real-db.example .env.real-db   # 填入真实连接串；.env.* 已被 .gitignore 覆盖
+bash scripts/run-real-db-tests.sh pg mysql e2e oracle
+```
+
+脚本先把套件按变量存在性分类：**缺变量 = 显式 SKIP 并记账**，有变量才运行，最后输出
+`运行 N 组 / 失败 F / 跳过 S`，全跳过时退出码 2（禁止把"什么都没跑"当作通过）。
+日志默认写入 `docs/assessment/real-db-run-<UTC 时间戳>.log`。
+
+> **2026-10-30 口径更正**：下方「禁止使用本机 MySQL/PostgreSQL」是 v8.3.0 阶段的临时约束，
+> 已被 `AGENTS.md`「本机数据库」小节取代——本机 MySQL 8.0.29:8802、PostgreSQL 18:5432、
+> Oracle 26ai:1521、Redis:6379 均可用于本地验证；凭据只能经环境变量注入，不得入库。
