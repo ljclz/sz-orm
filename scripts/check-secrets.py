@@ -177,6 +177,8 @@ KNOWN_FALSE_POSITIVES = {
     "<user>",  # 文档占位符（尖括号形式）
     "{pw}",  # DSN 构造中的变量占位符（format!("...:{pw}@...")，凭据经环境变量注入）
     "mypassword",  # 测试夹具假密码
+    "FAKE_VALUE_1",  # pentest 评测夹具假密码（2026-10-31-pentest-review.md SQL 注入样例）
+    "FAKE_VALUE_3",  # pentest 评测夹具假 token（同上）
     "ExamplePwdOnly4Test",  # sz-orm-macros DSN 解析测试夹具假密码（db-verify feature）
     "shop_pwd",  # quickstart 示例占位密码（2026-10-27 已替换为 <your-password>）
     "szorm_pwd",  # quickstart 示例占位密码（同上）
