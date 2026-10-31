@@ -22,6 +22,24 @@
 - **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
 - **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
 
+## [10.13.1] — 2026-10-31
+
+### 红队渗透测试评测 P0/P1/P2 加固（2026-10-31）
+
+依据 `docs/assessment/2026-10-31-pentest-review.md`（顶级渗透测试工程师 / 红队视角独立评测）实施全部加固建议：
+
+- **P0-1 查询构建 SELECT 列注入修复**：`QueryBuilder::column()/columns()/column_as()` 三个方法原样拼接列名/别名且未校验（`select()` 校验但三者不校验），攻击者可注入子查询/堆叠语句。现统一接入 `sql_safety::validate_identifier` 并按方言引用，返回 `Result<Self, DbError>`；新增 `partial_model_test::test_column_injection_rejected`
+- **P0-2 DDL 注入修复**：`schema_sync` 全部 DDL 生成器与 `migration.rs` 的 `CreateTableStmt/ColumnDef/IndexDef` 构建器此前不校验表名/列名/类型/默认值（仅 FK 校验）。新增共享校验原语 `sql_safety::validate_sql_type` / `validate_default_value`（拒绝分号、注释元字符与 DDL/DML 动词），全部 DDL 生成器接入；新增 `schema_sync_test::test_ddl_injection_rejected` 与 `t26m_schema_builder_rejects_ddl_injection`
+- **P1-3 LLM 安全审计敏感数据变体**：`llm_security_audit` 内置规则由 14 条扩至 20 条，新增 `passwd`/`pwd`/`client_secret`/`credential`/`access_key`/`private_key` 变体关键词（绕过仅匹配 `password`/`secret`/`token` 的旧规则）
+- **P1-4 密钥材料零化与 Debug 隐藏**：`KeyEntry.material` 由 `Vec<u8>` 改为 `zeroize::Zeroizing<Vec<u8>>`（Drop 清零），移除 `#[derive(Debug)]` 并自定义 `Debug` 输出 `<redacted>`；`sz-orm-crypto` 将 `zeroize` 由可选依赖改为正式依赖
+- **P1-5 历史凭据清理**：历史审计文档中的 Oracle 测试密码串全部替换为 `<your-password>` 占位符；`check-secrets.py` 的 `LEGACY_AUDIT_STRINGS` 豁免集清空（不再豁免任何串）
+- **P2-6 stale ignore 清理**：`deny.toml` 移除两条不再匹配锁文件受影响版本的 ignore（`RUSTSEC-2026-0221` event-listener / `RUSTSEC-2026-0235` rkyv），CI `--ignore` 同步为 17 条
+- **P2-7 G9 扫描器 `{table}` 字面量盲区**：`check-sql-injection-auto.py` 对"`{table}` 字面量 + 非白名单位置参数"不再无条件判 Safe，降级 ManualReview；自测新增 2 个用例（15/15）
+- **P2-8 nl2sql 解释文本注入**：`nl2sql` 解释性文本插值前经 `escape_explanation_param` 转义（引号/反斜杠/换行），防日志/UI 注入
+- **P2-9 审计日志 VALUES 位置关联值掩码**：`mask_sensitive` 新增 `mask_insert_values` 预掩码，`INSERT INTO t (token, ...) VALUES ('明文', ...)` 的敏感列位置关联值一并掩码，消除"关键词掩码但值明文"残留
+
+**验证**：`cargo test -p sz-orm-core -p sz-orm-ai -p sz-orm-crypto -p sz-orm-audit` 全绿；clippy `-D warnings` 通过；G9 工作区 46/46 Safe、自测 15/15；check-secrets 0 findings；`audit-verify` 206 通过 / 0 失败 / 147 警告。
+
 ## [10.13.0] — 2026-10-27
 
 ### v10.13.0 架构评测路线图执行（2026-10-28 TA 评测 P0-P3 修复）

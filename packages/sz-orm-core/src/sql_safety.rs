@@ -271,7 +271,9 @@ mod tests {
         assert!(validate_default_value(&format!("'x' {} DROP TABLE t", semi)).is_err());
         // 注释元字符 → 拒绝
         let dash = '-';
-        assert!(validate_default_value(&format!("0 {} x", format_args!("{}{}", dash, dash))).is_err());
+        assert!(
+            validate_default_value(&format!("0 {} x", format_args!("{}{}", dash, dash))).is_err()
+        );
         // DDL/DML 动词 → 拒绝（大小写不敏感）
         assert!(validate_default_value("0 drop x").is_err());
         assert!(validate_default_value("0 DELETE x").is_err());
