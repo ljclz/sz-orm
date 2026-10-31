@@ -102,7 +102,7 @@ sz-orm 的核心数据访问层安全设计（强制参数化查询、集中式 
   - `docs/e2e-env-config.md:12-14,20,42-47,55`（同上连接串 + `SZ_ORM_E2E_SSH_PASSWORD = "****REDACTED"`）
   - `docs/e2e-execution-guide.md:12-15`
   - `docs/quickstart.md:72,84`（`mysql://shop:shop_pwd@...`）
-  - `docs/assessment/2026-09-28-v920-coverage-report.md:41`（`SZ_ORM_ORACLE_PASSWORD="SzOrmTest2026"`）
+  - `docs/assessment/2026-09-28-v920-coverage-report.md:41`（`SZ_ORM_ORACLE_PASSWORD="<your-password>"`）
   - `.github/workflows/ci.yml:736-737`（`mysql://root:${{ secrets.MYSQL_TEST_PASSWORD }}@...` — 使用 Secrets 上下文，风险低，但连接串格式仍被检出）
   - 相关脚本：`scripts/check-secrets.py:94-107`（检测正则）、`scripts/check-secrets.py:110-139`（已知假阳性表）
 - **漏洞类型**：CWE-798

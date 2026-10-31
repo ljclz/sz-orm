@@ -365,6 +365,34 @@ pub trait DdlGenerator: Send + Sync {
     fn generate(&self, diff: &SchemaDiff) -> Result<Vec<String>, DbError>;
 }
 
+/// 校验 schema 标识符（表名/列名），复用 `sql_safety::validate_identifier`。
+fn validate_schema_identifier(name: &str, kind: &str) -> Result<(), DbError> {
+    crate::sql_safety::validate_identifier(name, kind)
+}
+
+/// 校验单个列定义（列名 + 类型 + 默认值）。
+fn validate_column_def(col: &ColumnDef) -> Result<(), DbError> {
+    validate_schema_identifier(&col.name, "column")?;
+    crate::sql_safety::validate_sql_type(&col.sql_type)?;
+    if let Some(d) = &col.default {
+        crate::sql_safety::validate_default_value(d)?;
+    }
+    Ok(())
+}
+
+/// 校验新增列条目（表名 + 列定义）。
+fn validate_added_column(table: &str, col: &ColumnDef) -> Result<(), DbError> {
+    validate_schema_identifier(table, "table")?;
+    validate_column_def(col)
+}
+
+/// 校验重命名列条目（表名 + 新旧列名）。
+fn validate_renamed_column(table: &str, old: &str, new: &str) -> Result<(), DbError> {
+    validate_schema_identifier(table, "table")?;
+    validate_schema_identifier(old, "column")?;
+    validate_schema_identifier(new, "column")
+}
+
 /// MySQL DDL 生成器
 pub struct MySqlDdlGenerator;
 
@@ -374,11 +402,12 @@ impl DdlGenerator for MySqlDdlGenerator {
 
         // 新增表
         for table in &diff.added_tables {
-            ddl.push(generate_create_table_mysql(table));
+            ddl.push(generate_create_table_mysql(table)?);
         }
 
         // 新增列
         for (table, col) in &diff.added_columns {
+            validate_added_column(table, col)?;
             ddl.push(format!(
                 "ALTER TABLE {} ADD COLUMN {} {}{}{}",
                 table,
@@ -391,6 +420,7 @@ impl DdlGenerator for MySqlDdlGenerator {
 
         // 类型变更
         for (table, _old, new) in &diff.type_changed_columns {
+            validate_added_column(table, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} MODIFY COLUMN {} {}{}",
                 table,
@@ -402,6 +432,7 @@ impl DdlGenerator for MySqlDdlGenerator {
 
         // 重命名
         for (table, old, new) in &diff.renamed_columns {
+            validate_renamed_column(table, old, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} RENAME COLUMN {} TO {}",
                 table, old, new
@@ -412,13 +443,15 @@ impl DdlGenerator for MySqlDdlGenerator {
     }
 }
 
-/// 生成 MySQL CREATE TABLE
-fn generate_create_table_mysql(table: &TableDef) -> String {
+/// 生成 MySQL CREATE TABLE（含标识符/类型/默认值校验）
+fn generate_create_table_mysql(table: &TableDef) -> Result<String, DbError> {
+    validate_schema_identifier(&table.name, "table")?;
     let columns: Vec<String> = table
         .columns
         .iter()
         .map(|c| {
-            format!(
+            validate_column_def(c)?;
+            Ok(format!(
                 "{} {}{}{}{}",
                 c.name,
                 c.sql_type,
@@ -428,11 +461,15 @@ fn generate_create_table_mysql(table: &TableDef) -> String {
                     .as_ref()
                     .map(|d| format!(" DEFAULT {}", d))
                     .unwrap_or_default()
-            )
+            ))
         })
-        .collect();
+        .collect::<Result<Vec<String>, DbError>>()?;
 
-    format!("CREATE TABLE {} ({})", table.name, columns.join(", "))
+    Ok(format!(
+        "CREATE TABLE {} ({})",
+        table.name,
+        columns.join(", ")
+    ))
 }
 
 /// PostgreSQL DDL 生成器
@@ -443,10 +480,11 @@ impl DdlGenerator for PgDdlGenerator {
         let mut ddl = Vec::new();
 
         for table in &diff.added_tables {
-            ddl.push(generate_create_table_mysql(table)); // PG 语法与 MySQL 类似
+            ddl.push(generate_create_table_mysql(table)?); // PG 语法与 MySQL 类似
         }
 
         for (table, col) in &diff.added_columns {
+            validate_added_column(table, col)?;
             ddl.push(format!(
                 "ALTER TABLE {} ADD COLUMN {} {}{}{}",
                 table,
@@ -458,6 +496,7 @@ impl DdlGenerator for PgDdlGenerator {
         }
 
         for (table, _old, new) in &diff.type_changed_columns {
+            validate_added_column(table, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} ALTER COLUMN {} TYPE {}",
                 table, new.name, new.sql_type
@@ -465,6 +504,7 @@ impl DdlGenerator for PgDdlGenerator {
         }
 
         for (table, old, new) in &diff.renamed_columns {
+            validate_renamed_column(table, old, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} RENAME COLUMN {} TO {}",
                 table, old, new
@@ -483,10 +523,11 @@ impl DdlGenerator for SqliteDdlGenerator {
         let mut ddl = Vec::new();
 
         for table in &diff.added_tables {
-            ddl.push(generate_create_table_mysql(table));
+            ddl.push(generate_create_table_mysql(table)?);
         }
 
         for (table, col) in &diff.added_columns {
+            validate_added_column(table, col)?;
             // SQLite 新增列必须允许 NULL 或有默认值
             ddl.push(format!(
                 "ALTER TABLE {} ADD COLUMN {} {}{}",
@@ -508,6 +549,7 @@ impl DdlGenerator for SqliteDdlGenerator {
         }
 
         for (table, old, new) in &diff.renamed_columns {
+            validate_renamed_column(table, old, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} RENAME COLUMN {} TO {}",
                 table, old, new
@@ -526,10 +568,11 @@ impl DdlGenerator for OracleDdlGenerator {
         let mut ddl = Vec::new();
 
         for table in &diff.added_tables {
-            ddl.push(generate_create_table_mysql(table));
+            ddl.push(generate_create_table_mysql(table)?);
         }
 
         for (table, col) in &diff.added_columns {
+            validate_added_column(table, col)?;
             ddl.push(format!(
                 "ALTER TABLE {} ADD ({} {}{}{})",
                 table,
@@ -541,6 +584,7 @@ impl DdlGenerator for OracleDdlGenerator {
         }
 
         for (table, _old, new) in &diff.type_changed_columns {
+            validate_added_column(table, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} MODIFY ({} {}{})",
                 table,
@@ -551,6 +595,7 @@ impl DdlGenerator for OracleDdlGenerator {
         }
 
         for (table, old, new) in &diff.renamed_columns {
+            validate_renamed_column(table, old, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} RENAME COLUMN {} TO {}",
                 table, old, new
@@ -569,10 +614,11 @@ impl DdlGenerator for MssqlDdlGenerator {
         let mut ddl = Vec::new();
 
         for table in &diff.added_tables {
-            ddl.push(generate_create_table_mysql(table));
+            ddl.push(generate_create_table_mysql(table)?);
         }
 
         for (table, col) in &diff.added_columns {
+            validate_added_column(table, col)?;
             ddl.push(format!(
                 "ALTER TABLE {} ADD {} {}{}{}",
                 table,
@@ -584,6 +630,7 @@ impl DdlGenerator for MssqlDdlGenerator {
         }
 
         for (table, _old, new) in &diff.type_changed_columns {
+            validate_added_column(table, new)?;
             ddl.push(format!(
                 "ALTER TABLE {} ALTER COLUMN {} {}{}",
                 table,
@@ -594,6 +641,7 @@ impl DdlGenerator for MssqlDdlGenerator {
         }
 
         for (table, old, new) in &diff.renamed_columns {
+            validate_renamed_column(table, old, new)?;
             ddl.push(format!(
                 "EXEC sp_rename '{}.{}', '{}', 'COLUMN'",
                 table, old, new

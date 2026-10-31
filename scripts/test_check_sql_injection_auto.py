@@ -48,6 +48,27 @@ def test_r2_table_name():
     assert result == JudgeResult.SAFE, f"Expected SAFE, got {result}: {reason}"
 
 
+def test_r2_table_literal_with_user_input_manual_review():
+    """P2-7：`{table}` 字面量 + 非白名单位置参数 → ManualReview（不再误判 Safe）。"""
+    result, reason = judge_injection_risk(
+        "packages/sz-orm-core/src/query.rs", 1,
+        'format!("SELECT * FROM {table} WHERE id={}", user_input)',
+        "format_concat",
+    )
+    assert result == JudgeResult.MANUAL_REVIEW, f"Expected MANUAL_REVIEW, got {result}: {reason}"
+    assert "需人工审查" in reason
+
+
+def test_r2_table_literal_with_whitelisted_arg_safe():
+    """P2-7：`{table}` 字面量 + 白名单位置参数 → 仍判 Safe。"""
+    result, reason = judge_injection_risk(
+        "packages/sz-orm-core/src/query.rs", 1,
+        'format!("SELECT * FROM {table} WHERE id={}", table)',
+        "format_concat",
+    )
+    assert result == JudgeResult.SAFE, f"Expected SAFE, got {result}: {reason}"
+
+
 def test_r4_test_file():
     """R4: test file -> Safe."""
     result, reason = judge_injection_risk(
@@ -165,6 +186,8 @@ def main():
         test_r3_question_placeholder,
         test_r3_dollar_placeholder,
         test_r2_table_name,
+        test_r2_table_literal_with_user_input_manual_review,
+        test_r2_table_literal_with_whitelisted_arg_safe,
         test_r4_test_file,
         test_r4_safety_comment,
         test_r4_security_module,

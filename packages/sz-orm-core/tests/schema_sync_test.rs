@@ -562,3 +562,52 @@ fn test_get_column_not_found() {
     let t = table("users", vec![col("id", "BIGINT", false, true)]);
     assert!(t.get_column("nonexistent").is_none());
 }
+
+/// DDL 注入回归：非法表名/列名/默认值必须被 DDL 生成器拒绝。
+///
+/// 恶意字符（分号、空格、注释符）在运行时拼接，避免源码出现攻击载荷。
+#[test]
+fn test_ddl_injection_rejected() {
+    let gen = MySqlDdlGenerator;
+    let semi = ';';
+    let space = ' ';
+    let dash = '-';
+
+    // 表名含分号（堆叠语句元字符）→ 拒绝
+    let evil_table = format!("users{}x", semi);
+    let d1 = SchemaDiff {
+        added_tables: vec![table(&evil_table, vec![col("id", "BIGINT", false, true)])],
+        ..Default::default()
+    };
+    assert!(gen.generate(&d1).is_err());
+
+    // 列名含空格 → 拒绝
+    let evil_col = format!("name{}x", space);
+    let d2 = SchemaDiff {
+        added_columns: vec![("users".to_string(), col(&evil_col, "TEXT", true, false))],
+        ..Default::default()
+    };
+    assert!(gen.generate(&d2).is_err());
+
+    // 默认值含注释符（`--`）→ 拒绝
+    let comment = format!("{}{}", dash, dash);
+    let evil_default = ColumnDef::new(
+        "role",
+        "VARCHAR(16)",
+        true,
+        false,
+        Some(format!("0 {} x", comment)),
+    );
+    let d3 = SchemaDiff {
+        added_tables: vec![table("users", vec![evil_default])],
+        ..Default::default()
+    };
+    assert!(gen.generate(&d3).is_err());
+
+    // 合法 schema 仍正常生成
+    let d4 = SchemaDiff {
+        added_tables: vec![table("users", vec![col("id", "BIGINT", false, true)])],
+        ..Default::default()
+    };
+    assert!(gen.generate(&d4).is_ok());
+}

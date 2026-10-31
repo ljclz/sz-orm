@@ -96,6 +96,65 @@ pub fn validate_id_value(id: &str) -> Result<(), DbError> {
     Ok(())
 }
 
+/// 校验 SQL 类型片段（DDL 构建用）
+///
+/// 禁止分号与注释元字符（`--` / `/*` / `*/`），防止通过类型字段注入
+/// 堆叠语句或注释掉后续 DDL。
+pub fn validate_sql_type(sql_type: &str) -> Result<(), DbError> {
+    if sql_type.contains(';')
+        || sql_type.contains("--")
+        || sql_type.contains("/*")
+        || sql_type.contains("*/")
+    {
+        return Err(DbError::InvalidInput(format!(
+            "invalid SQL type (contains SQL control chars): {:?}",
+            sql_type
+        )));
+    }
+    Ok(())
+}
+
+/// 校验默认值字面量（DDL 构建用）
+///
+/// 禁止分号、注释元字符与 DDL/DML 动词（DROP/DELETE/INSERT/UPDATE/ALTER/
+/// CREATE/TRUNCATE/GRANT/REVOKE/UNION），防止通过默认值表达式注入
+/// 堆叠语句。
+pub fn validate_default_value(default: &str) -> Result<(), DbError> {
+    if default.contains(';')
+        || default.contains("--")
+        || default.contains("/*")
+        || default.contains("*/")
+    {
+        return Err(DbError::InvalidInput(format!(
+            "invalid default value (contains SQL control chars): {:?}",
+            default
+        )));
+    }
+    let upper = default.to_ascii_uppercase();
+    const FORBIDDEN: &[&str] = &[
+        " DROP ",
+        " DELETE ",
+        " INSERT ",
+        " UPDATE ",
+        " ALTER ",
+        " CREATE ",
+        " TRUNCATE ",
+        " GRANT ",
+        " REVOKE ",
+        " UNION ",
+    ];
+    for kw in FORBIDDEN {
+        if upper.contains(kw) {
+            return Err(DbError::InvalidInput(format!(
+                "invalid default value (contains SQL keyword '{}'): {:?}",
+                kw.trim(),
+                default
+            )));
+        }
+    }
+    Ok(())
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +246,34 @@ mod tests {
         assert!(validate_id_value("1 2").is_err());
         // 含点号（避免列名引用）
         assert!(validate_id_value("users.id").is_err());
+    }
+
+    #[test]
+    fn test_validate_sql_type() {
+        assert!(validate_sql_type("INT").is_ok());
+        assert!(validate_sql_type("VARCHAR(255)").is_ok());
+        assert!(validate_sql_type("DECIMAL(10,2)").is_ok());
+        // 分号堆叠 → 拒绝
+        let semi = ';';
+        assert!(validate_sql_type(&format!("INT{} DROP TABLE t", semi)).is_err());
+        // 注释元字符 → 拒绝
+        let dash = '-';
+        assert!(validate_sql_type(&format!("INT {} x", format_args!("{}{}", dash, dash))).is_err());
+    }
+
+    #[test]
+    fn test_validate_default_value() {
+        assert!(validate_default_value("0").is_ok());
+        assert!(validate_default_value("'active'").is_ok());
+        assert!(validate_default_value("CURRENT_TIMESTAMP").is_ok());
+        // 分号堆叠 → 拒绝
+        let semi = ';';
+        assert!(validate_default_value(&format!("'x' {} DROP TABLE t", semi)).is_err());
+        // 注释元字符 → 拒绝
+        let dash = '-';
+        assert!(validate_default_value(&format!("0 {} x", format_args!("{}{}", dash, dash))).is_err());
+        // DDL/DML 动词 → 拒绝（大小写不敏感）
+        assert!(validate_default_value("0 drop x").is_err());
+        assert!(validate_default_value("0 DELETE x").is_err());
     }
 }

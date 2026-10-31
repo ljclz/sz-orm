@@ -231,6 +231,51 @@ impl InjectionPatternStore {
                 discovered_at: 0,
                 hit_count: 0,
             },
+            // —— v10.13.1 新增敏感数据关键词变体（2026-10-31 红队评测 P1-3）——
+            // 攻击者常使用 passwd/pwd/client_secret/credential/access_key/private_key
+            // 等变体关键词绕过仅匹配 password/secret/token 的规则。
+            InjectionPattern {
+                name: "sensitive_data_password_variant".to_string(),
+                pattern: "passwd".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_pwd".to_string(),
+                pattern: "pwd".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_client_secret".to_string(),
+                pattern: "client_secret".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_credential".to_string(),
+                pattern: "credential".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_access_key".to_string(),
+                pattern: "access_key".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
+            InjectionPattern {
+                name: "sensitive_data_private_key".to_string(),
+                pattern: "private_key".to_string(),
+                risk_level: RiskLevel::High,
+                discovered_at: 0,
+                hit_count: 0,
+            },
         ]
     }
 

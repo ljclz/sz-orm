@@ -1477,20 +1477,38 @@ impl<M: Model> QueryBuilder<M> {
     /// 添加查询列（P-F-3, v2.1.0）
     ///
     /// 在 `select_only()` 模式下添加列到 SELECT 子句。
-    pub fn column(mut self, column: impl Into<String>) -> Self {
-        self.select_columns.push(column.into());
-        self
+    ///
+    /// 与 [`QueryBuilder::select`] 一致：列名先经 `sql_safety::validate_identifier`
+    /// 校验，再按方言引用（`quote`），杜绝标识符注入。需要原始 SQL 表达式
+    /// （`COUNT(*)`、`*`、`a + b` 等）时请使用 [`QueryBuilder::select_expr`]。
+    ///
+    /// # 错误
+    ///
+    /// 列名非法（含 SQL 元字符、以数字开头、空串、超长）时返回 `DbError::InvalidInput`。
+    pub fn column(mut self, column: impl Into<String>) -> Result<Self, crate::DbError> {
+        let column = column.into();
+        crate::sql_safety::validate_identifier(&column, "select column")?;
+        self.select_columns.push(self.dialect.quote(&column));
+        Ok(self)
     }
 
     /// 批量添加查询列（P-F-3, v2.1.0）
-    pub fn columns(mut self, cols: Vec<impl Into<String>>) -> Self {
-        self.select_columns.extend(cols.into_iter().map(Into::into));
-        self
+    ///
+    /// 与 [`QueryBuilder::select`] 一致：每个列名先校验再引用。需要原始 SQL
+    /// 表达式时请使用 [`QueryBuilder::select_expr`]。
+    pub fn columns(mut self, cols: Vec<impl Into<String>>) -> Result<Self, crate::DbError> {
+        for col in cols {
+            let col = col.into();
+            crate::sql_safety::validate_identifier(&col, "select column")?;
+            self.select_columns.push(self.dialect.quote(&col));
+        }
+        Ok(self)
     }
 
     /// 添加聚合表达式列（P-F-3, v2.1.0）
     ///
-    /// 将聚合表达式渲染为 `FUNC(col) AS alias` 推入 SELECT 子句。
+    /// 将聚合表达式渲染为 `FUNC(col) AS alias` 推入 SELECT 子句。别名先经
+    /// `sql_safety::validate_identifier` 校验并按方言引用，杜绝别名注入。
     ///
     /// # 示例
     ///
@@ -1501,11 +1519,21 @@ impl<M: Model> QueryBuilder<M> {
     ///     .select_only()
     ///     .column_as(Expr::count("id"), "total")
     ///     .build_select();
-    /// // SELECT COUNT(id) AS total FROM users
+    /// // SELECT COUNT(id) AS `total` FROM users
     /// ```
-    pub fn column_as(mut self, expr: crate::partial_model::Expr, alias: impl Into<String>) -> Self {
-        self.select_columns.push(expr.render_as(&alias.into()));
-        self
+    pub fn column_as(
+        mut self,
+        expr: crate::partial_model::Expr,
+        alias: impl Into<String>,
+    ) -> Result<Self, crate::DbError> {
+        let alias = alias.into();
+        crate::sql_safety::validate_identifier(&alias, "select alias")?;
+        self.select_columns.push(format!(
+            "{} AS {}",
+            expr.render(),
+            self.dialect.quote(&alias)
+        ));
+        Ok(self)
     }
     #[api_stable]
 
@@ -6105,9 +6133,10 @@ mod tests {
         let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
             .table("users")
             .select_only()
-            .column("name");
+            .column("name")
+            .expect("valid column");
         let sql = qb.build_select();
-        assert!(sql.0.contains("name"));
+        assert!(sql.0.contains("`name`"));
     }
 
     #[test]
@@ -6115,10 +6144,11 @@ mod tests {
         let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
             .table("users")
             .select_only()
-            .columns(vec!["name", "email"]);
+            .columns(vec!["name", "email"])
+            .expect("valid columns");
         let sql = qb.build_select();
-        assert!(sql.0.contains("name"));
-        assert!(sql.0.contains("email"));
+        assert!(sql.0.contains("`name`"));
+        assert!(sql.0.contains("`email`"));
     }
 
     #[test]

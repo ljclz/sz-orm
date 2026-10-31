@@ -231,7 +231,11 @@ fn test_having_with_all_ops() {
 
 #[test]
 fn test_select_only_with_column() {
-    let (sql, _) = builder().select_only().column("name").build_select();
+    let (sql, _) = builder()
+        .select_only()
+        .column("name")
+        .expect("valid column")
+        .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.contains("name"));
 }
@@ -241,6 +245,7 @@ fn test_select_only_with_columns() {
     let (sql, _) = builder()
         .select_only()
         .columns(vec!["id", "name"])
+        .expect("valid columns")
         .build_select();
     assert!(sql.contains("id") || sql.contains("name"));
 }

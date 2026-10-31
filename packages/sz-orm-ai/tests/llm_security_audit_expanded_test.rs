@@ -117,6 +117,57 @@ async fn test_llm_audit_sensitive_data_token_detected() {
 }
 
 #[tokio::test]
+async fn test_llm_audit_sensitive_data_password_variant_detected() {
+    let mut auditor = LlmSecurityAuditor::rule_only();
+    // 变体关键词 passwd（红队评测 P1-3：绕过仅匹配 password 的规则）
+    let result = auditor
+        .audit("SELECT * FROM users WHERE passwd = 'abc'")
+        .await
+        .unwrap();
+    assert!(
+        result.risk_level.is_dangerous(),
+        "passwd 变体应被检测为危险: {:?}",
+        result.risk_level
+    );
+    assert!(
+        result
+            .detected_patterns
+            .iter()
+            .any(|p| p == "sensitive_data_password_variant"),
+        "应匹配 sensitive_data_password_variant 规则: {:?}",
+        result.detected_patterns
+    );
+}
+
+#[tokio::test]
+async fn test_llm_audit_sensitive_data_client_secret_detected() {
+    let mut auditor = LlmSecurityAuditor::rule_only();
+    let result = auditor
+        .audit("SELECT * FROM oauth WHERE client_secret = 'xyz'")
+        .await
+        .unwrap();
+    assert!(
+        result.risk_level.is_dangerous(),
+        "client_secret 变体应被检测为危险: {:?}",
+        result.risk_level
+    );
+}
+
+#[tokio::test]
+async fn test_llm_audit_sensitive_data_private_key_detected() {
+    let mut auditor = LlmSecurityAuditor::rule_only();
+    let result = auditor
+        .audit("SELECT * FROM keys WHERE private_key = 'xyz'")
+        .await
+        .unwrap();
+    assert!(
+        result.risk_level.is_dangerous(),
+        "private_key 变体应被检测为危险: {:?}",
+        result.risk_level
+    );
+}
+
+#[tokio::test]
 async fn test_llm_audit_privilege_escalation_drop_detected() {
     let mut auditor = LlmSecurityAuditor::rule_only();
     let result = auditor.audit("DROP TABLE users").await.unwrap();
@@ -177,12 +228,12 @@ async fn test_llm_audit_safe_input_not_flagged() {
 }
 
 #[tokio::test]
-async fn test_llm_audit_builtin_pattern_count_is_14() {
+async fn test_llm_audit_builtin_pattern_count_is_20() {
     let auditor = LlmSecurityAuditor::rule_only();
     let count = auditor.pattern_store().len();
     assert_eq!(
-        count, 14,
-        "内置规则数应为 14（4 既有 + 10 新增）: 实际 {}",
+        count, 20,
+        "内置规则数应为 20（14 既有 + 6 敏感数据变体）: 实际 {}",
         count
     );
 }

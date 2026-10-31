@@ -190,17 +190,34 @@ def judge_injection_risk(file_path: str, line_num: int, line_content: str, categ
         r'\{self\.filter_sql\}', r'\{base\}', r'\{trimmed\}', r'\{sep\}',
         r'\{after\}', r'\{n\}', r'\{end\}',
     ]
-    for pattern in table_col_patterns:
-        if re.search(pattern, stripped):
-            return JudgeResult.SAFE, f"R2: 表名/列名/WHERE 子句占位符 ({pattern})"
-
-    # R2: Positional args {} with safe variable names in format! args
     safe_var_names = {
         'table', 'table_q', 'pk_q', 'fk', 'fk_key', 'pk_col', 'alias', 'filter',
         'where_clause', 'w', 'combined', 'child_table', 'base', 'trimmed', 'sep',
         'after', 'n', 'end', 'group_strs', 'all_conds', 'clauses', 'conditions',
         'filter_sql', 'sql',
     }
+    for pattern in table_col_patterns:
+        if re.search(pattern, stripped):
+            # v10.13.1 (2026-10-31 红队评测 P2-7)：同一行存在未绑定位置参数 `{}`
+            # 时，`{table}` 可能是模板字面量而非命名参数占位符——若插值参数非白名单，
+            # 不得再无条件判 Safe（防止 `{table}` 字面量掩护真实用户输入注入）。
+            if '{}' in stripped:
+                fmt_args = _extract_format_args(stripped)
+                if fmt_args is not None:
+                    args_clean = [a.replace('self.', '').strip().rstrip(',') for a in fmt_args]
+                    if args_clean and all(a in safe_var_names for a in args_clean):
+                        return JudgeResult.SAFE, f"R2: 表名/列名占位符 ({pattern}) + 白名单位置参数"
+                    if args_clean:
+                        return JudgeResult.MANUAL_REVIEW, (
+                            f"R5: {pattern} 字面量 + 非白名单位置参数，需人工审查"
+                        )
+                # 有 `{}` 但无法解析 format! 参数：保守降级人工审查
+                return JudgeResult.MANUAL_REVIEW, (
+                    f"R5: {pattern} 字面量 + 未解析的位置参数 `{{}}`，需人工审查"
+                )
+            return JudgeResult.SAFE, f"R2: 表名/列名/WHERE 子句占位符 ({pattern})"
+
+    # R2: Positional args {} with safe variable names in format! args
     fmt_match = re.search(r'format!\s*\((.*?)(?:,\s*(.*?))?\)\s*;?\s*$', stripped, re.DOTALL)
     if fmt_match and '{}' in fmt_match.group(1):
         args_part = fmt_match.group(2) if fmt_match.group(2) else ""

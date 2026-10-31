@@ -41,7 +41,7 @@
 | 2 | 五份中文文档乱码文件名（UXR U2） | 🟢 已修复。G26 `check-filename-encoding.py` 实测全绿；磁盘已是规范中文名。 | 低（GitHub 死链已消除） | 保持 G32 常驻 |
 | 3 | 版本号动物园（UXR U3 + TW-01） | 🟡 主体修复、边缘漂移仍在。`README.md:4`/`README.zh.md:4` 均为 v10.13.0；但 **README.md:96 与 docs/README.md:33、engineering-practices.md:45 仍写"25 道门禁"，与 AGENTS.md 的 34 道不一致**——门禁数口径漂移。 | 中（用户/审计按文档执行错误门禁集） | P0-2 统一门禁数 |
 | 4 | 安全整改 H-1~H-4（安全评测） | 🟡 H-1 部分复发：elasticsearch 链已移除，但 **CHANGELOG:43-44 声称的锁文件升级未落地**（`Cargo.lock` 仍是旧版）。H-2/H-3/H-4 代码层已落地（14 条 LLM 规则、`error.rs:296` redacted_summary、`mfa.rs:213` TotpAttemptGuard、audit `mask_sensitive`）。 | 高（供应链声明失真 + 真实漏洞版本仍在锁文件） | P0-1 |
-| 5 | 凭据轮换与 git 历史清理（安全评测遗留） | 🟢 已闭环。P0-3 已把 `SzOrmTest2026` 从全部源码/AGENTS 移除（改环境变量注入），`scripts/check-secrets.py:192` 的 `LEGACY_AUDIT_PATHS` 对历史审计记录按路径豁免；git 历史未重写（fixes 报告已降级为可选，`security-review-fixes.md:182-186`，凭据已失效）。 | 低（历史文档残留已失效凭据，路径豁免防误报） | 保持豁免登记 |
+| 5 | 凭据轮换与 git 历史清理（安全评测遗留） | 🟢 已闭环。P0-3 已把 `<your-password>` 从全部源码/AGENTS 移除（改环境变量注入），`scripts/check-secrets.py:192` 的 `LEGACY_AUDIT_PATHS` 对历史审计记录按路径豁免；git 历史未重写（fixes 报告已降级为可选，`security-review-fixes.md:182-186`，凭据已失效）。 | 低（历史文档残留已失效凭据，路径豁免防误报） | 保持豁免登记 |
 | 6 | SIMD/零拷贝名实不符（全栈 F-5/F-6） | 🟢 已修复。`simd.rs` 文档已降级为诚实描述；`l2_cache.rs` 改为紧凑二进制编码。F-7 `acquire_zero_copy` 命名残留（L3 低危）。 | 低 | 可带病运行 |
 | 7 | 绑定层完成度不齐（全栈 F-14~F-19） | 🟡 JS/Python/C# 已真实化（`sz-orm-js/src/pool.rs:101` connect、`transaction.rs:78` execute）；Java 仍只 6 个 native 方法（`SzOrmPool.java:19-24`）；Go Unix 仍不可用（`dll_unix.go:13-17`）；C++ 仍仅 RAII pool wrapper（125 行）。README.en 已如实降级（`README.en.md:260-275`）。 | 中（用户按"支持"字样接入后发现半成品） | P1-2 锁定降级宣称 |
 | 8 | 无 cbindgen 头文件（全栈 F-12） | 🟢 已修复。`packages/sz-orm-cabi/include/sz_orm_cabi.h` 存在；build.rs 含离线回退（V3-11 修复）。 | 低 | 保持 |
@@ -119,7 +119,7 @@
 |--------|---------|---------|-----|------------------|
 | P0-1 供应链真相修复 | 二选一：① `cargo update -p tokio -p ctutils -p webpki-root-certs -p webpki-roots -p actix-http -p zstd` 刷新锁文件，复跑 `cargo audit` 至 0 漏洞；② 若升级受阻，恢复 deny ignore 并**同步修改 CHANGELOG:43-46 的虚假声称**。 | `cargo audit` 0 vulnerabilities；`CHANGELOG.md` 与 `Cargo.lock` 完全一致；`check-ci-deny-sync.py` 仍 PASS | 2 | 供应链声明失真被外部审计发现 = 信任归零 |
 | P0-2 门禁数口径统一 | 将 `README.md:96`、`docs/README.md:33`、`engineering-practices.md:45/511/554` 的"25 道门禁"改为 34（或反向收敛 AGENTS）；在 G27/G33 中增加门禁数声明检查。 | `grep -rn "25 道门禁\|25 gates"` 在 README/practices/docs-README 中 0 命中；G33 覆盖门禁数 | 1 | 用户/审计按错误门禁清单执行 |
-| P0-3 凭据白名单收敛 | 将 `SzOrmTest2026` 从源码/测试改为环境变量注入（`SZ_ORM_ORACLE_PASSWORD`），或从 `check-secrets.py:163` 白名单移除并清空文件内命中；在 AGENTS 注明本机 Oracle 密码改环境变量。 | `check-secrets.py` 在无白名单情况下 0 命中；`integration_oracle.rs` 等改用环境变量 | 2 | 真实凭据随仓库分发（即使已失效，也是坏示范） |
+| P0-3 凭据白名单收敛 | 将 `<your-password>` 从源码/测试改为环境变量注入（`SZ_ORM_ORACLE_PASSWORD`），或从 `check-secrets.py:163` 白名单移除并清空文件内命中；在 AGENTS 注明本机 Oracle 密码改环境变量。 | `check-secrets.py` 在无白名单情况下 0 命中；`integration_oracle.rs` 等改用环境变量 | 2 | 真实凭据随仓库分发（即使已失效，也是坏示范） |
 | P0-4 `sql:validate` 假绿修复 | `packages/sz-orm-sql-validator/src/lib.rs:174-183` 对非 SELECT/INSERT/UPDATE/DELETE 的语句返回 `Unknown` 状态；[cli/src/main.rs:1788](file:///D:/www/test/鲜视达/rust/sz-orm/cli/src/main.rs#L1788) 对 Unknown 输出"⚠️ 未识别的语句类型，仅执行注入模式扫描"，不输出"✓ 通过"。 | `sz-orm sql:validate "DROP TABLE users"` 不再输出 ✓ | 1 | 用户把 DDL/DCL 当作"已校验"执行 |
 | P0-5 G34 门禁确定性治理 | 定位共享 `target/` 目录下临时 crate 与工作空间 cargo 的增量编译竞态（E0308 瞬时错误）；临时 crate 使用独立 `CARGO_TARGET_DIR`。 | `check-generated-code-compiles.py` 连续 5 次全绿 | 1 | CI 随机红/绿，门禁失效 |
 
@@ -263,7 +263,7 @@
 | `python scripts/check-metrics-real.py` | ✅ PASS（README 10.13.0/72/21193/508 与源码一致） |
 | `python scripts/check-phantom-delivery.py` | ✅ PASS（PHANTOM-1=0，PHANTOM-2=308 警告，接线 4/4） |
 | `python scripts/check-doc-sync.py --diff HEAD` | ✅ PASS（3 规则 SYNCED） |
-| `python scripts/check-secrets.py` | ✅ 0 secrets（但 SzOrmTest2026 在白名单） |
+| `python scripts/check-secrets.py` | ✅ 0 secrets（但 <your-password> 在白名单） |
 | `python scripts/check-doc-consistency.py` | ✅ PASS |
 | `python scripts/check-doc-code-compiles.py` | ✅ PASS |
 | `python scripts/check-filename-encoding.py` | ✅ PASS |
@@ -299,7 +299,7 @@
 - `docs/README.md:33` — "25 道门禁"
 - `docs/sz-orm-engineering-practices.md:45,511,554` — "25 道门禁"
 - `scripts/check-secrets.py:192` — LEGACY_AUDIT_PATHS 历史审计记录路径豁免（凭据已移出源码）
-- `scripts/check-secrets.py:144` — 白名单移除 SzOrmTest2026 后的说明
+- `scripts/check-secrets.py:144` — 白名单移除 <your-password> 后的说明
 - `Cargo.lock:9243,1995,10209,30,10863` — tokio 1.53.1 / ctutils 0.4.2 / webpki-root-certs 1.0.9 / actix-http 3.13.5 / zstd 0.13.3
 - `CHANGELOG.md:43-44,46` — 声称 tokio 1.54.1 / ctutils 0.4.6 / webpki 1.0.11 / actix-http 3.20.0 / 0 vulnerabilities
 - `deny.toml:56,62,68` — 0382/0346/0349 ignore reason 仍引用 elasticsearch

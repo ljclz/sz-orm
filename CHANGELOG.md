@@ -30,7 +30,7 @@
 
 - **P0-1 供应链真相**：`cargo update` 刷新锁文件（tokio 1.54.1 / ctutils 0.4.6 / webpki-root-certs 1.0.11 / webpki-roots 1.0.11 / actix-http 3.20.0 / pulldown-cmark 0.13.5 / rustls-webpki 0.103.16，zstd 0.13 线退出）；deny.toml ignore 由 21 收敛至 19（rustls 0.21 线已退出，移除 RUSTSEC-2026-0346/0349；0382 等 reason 修正为 rumqttc 来源）；`cargo audit` 实测 **0 vulnerabilities**；CHANGELOG 供应链声称与锁文件事实对齐
 - **P0-2 门禁数口径统一**：README/README.zh/README.en/docs/README/practices 的"25 道门禁"全部更新为 **34 道**；G33 新增门禁数声明校验（`check-doc-version-consistency.py`），历史章节豁免；反向注入自测通过
-- **P0-3 凭据不入库**：`SzOrmTest2026` 从全部源码/测试移除（改 `SZ_ORM_ORACLE_PASSWORD`/`SZ_ORM_MSSQL_PASSWORD` 环境变量注入 + 空串断言）；check-secrets 白名单移除该串，历史审计记录（docs/assessment/）按路径豁免；DSN 模板 `{pw}` 占位符加入白名单；新增豁免作用域自测
+- **P0-3 凭据不入库**：`<your-password>` 从全部源码/测试移除（改 `SZ_ORM_ORACLE_PASSWORD`/`SZ_ORM_MSSQL_PASSWORD` 环境变量注入 + 空串断言）；check-secrets 白名单移除该串，历史审计记录（docs/assessment/）按路径豁免；DSN 模板 `{pw}` 占位符加入白名单；新增豁免作用域自测
 - **P0-4 sql:validate 假绿修复**：`ValidationDepth`（Full/InjectionScanOnly）+ `validate_sql_with_depth`/`validate_with_depth`；CLI 对 DDL/DCL 输出"⚠️ 未识别的语句类型…非完整校验"而非"✓ 通过"
 - **P0-5 G34 确定性治理**：`check-generated-code-compiles.py` 使用独立 CARGO_TARGET_DIR（target/g28-target）+ 单次重试；连续 5 次运行全绿
 - **P1-1 ProdReadyChecker 真实化**：15 项检查从"硬编码 PASS"改为配置驱动真实验证（`config_masking_enabled`/`redis_tls_enabled`/`jwt_key_rotation_days` 等）；默认配置全 Skipped，`all_pass_strict()` 判定；README 示例改为配置驱动

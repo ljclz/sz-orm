@@ -322,6 +322,7 @@ fn test_column_as_count() {
     let (sql, _) = builder()
         .select_only()
         .column_as(Expr::count("id"), "total")
+        .expect("valid alias")
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("COUNT("));
@@ -333,6 +334,7 @@ fn test_column_as_sum() {
     let (sql, _) = builder()
         .select_only()
         .column_as(Expr::sum("age"), "total_age")
+        .expect("valid alias")
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("SUM("));
@@ -344,6 +346,7 @@ fn test_column_as_avg() {
     let (sql, _) = builder()
         .select_only()
         .column_as(Expr::avg("age"), "avg_age")
+        .expect("valid alias")
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("AVG("));
@@ -354,6 +357,7 @@ fn test_column_as_max() {
     let (sql, _) = builder()
         .select_only()
         .column_as(Expr::max("age"), "max_age")
+        .expect("valid alias")
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("MAX("));
@@ -364,6 +368,7 @@ fn test_column_as_min() {
     let (sql, _) = builder()
         .select_only()
         .column_as(Expr::min("age"), "min_age")
+        .expect("valid alias")
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.to_uppercase().contains("MIN("));
@@ -613,7 +618,9 @@ fn test_select_only_then_columns() {
     let (sql, _) = builder()
         .select_only()
         .column("id")
+        .expect("valid column")
         .column("name")
+        .expect("valid column")
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.contains("id"));
@@ -626,6 +633,7 @@ fn test_select_only_then_columns_vec() {
     let (sql, _) = builder()
         .select_only()
         .columns(vec!["id", "name", "age"])
+        .expect("valid columns")
         .build_select();
     let clean = sql.replace('`', "");
     assert!(clean.contains("id"));

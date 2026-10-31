@@ -39,7 +39,7 @@ export CARGO_TARGET_DIR=/www/rust/cov-target-m17c
 export RUST_MIN_STACK=33554432 CARGO_INCREMENTAL=0
 export LD_LIBRARY_PATH="/usr/lib/oracle/23/client64/lib:$LD_LIBRARY_PATH"
 export SZ_ORM_ORACLE_CONNECT_STRING="127.0.0.1:1521/XEPDB1"
-export SZ_ORM_ORACLE_USER="sz_orm_test" SZ_ORM_ORACLE_PASSWORD="SzOrmTest2026"
+export SZ_ORM_ORACLE_USER="sz_orm_test" SZ_ORM_ORACLE_PASSWORD="<your-password>"
 export MYSQL_HOST=127.0.0.1 MYSQL_PORT=8802 MYSQL_USER=root MYSQL_PASSWORD=test123 MYSQL_DATABASE=sz_orm_test
 export DATABASE_URL="mysql://root:test123@127.0.0.1:8802/sz_orm_test"
 export PG_HOST=127.0.0.1 PG_PORT=5432 PG_USER=postgres PG_PASSWORD=test123 PG_DATABASE=sz_orm_test
@@ -128,7 +128,7 @@ cargo llvm-cov --workspace --ignore-run-fail \
 ## 7. Oracle 集成测试状态
 
 - **服务器 Docker**：Oracle XE 21c（ghcr.io/gvenzl/oracle-xe:21），端口 1521，PDB XEPDB1
-- **测试用户**：sz_orm_test / SzOrmTest2026（APP_USER 自动创建）
+- **测试用户**：sz_orm_test / <your-password>（APP_USER 自动创建）
 - **连接字符串**：`SZ_ORM_ORACLE_CONNECT_STRING=127.0.0.1:1521/XEPDB1`
 - **测试结果**：26 passed（22 connection + 4 pool），0 failed
 - **测试文件修改**：oracle_connection_test/oracle_pool_test/integration_test 添加 `SZ_ORM_ORACLE_*` 环境变量支持

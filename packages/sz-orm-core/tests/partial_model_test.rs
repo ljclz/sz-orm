@@ -37,10 +37,12 @@ fn test_select_only_basic() {
         .table("users")
         .select_only()
         .column("id")
+        .expect("valid column")
         .column("name")
+        .expect("valid column")
         .build_select();
     assert!(
-        sql.contains("SELECT id, name FROM"),
+        sql.contains("SELECT `id`, `name` FROM"),
         "expected SELECT id, name FROM, got: {}",
         sql
     );
@@ -54,8 +56,9 @@ fn test_select_only_with_columns_vec() {
         .table("users")
         .select_only()
         .columns(vec!["id", "name", "email"])
+        .expect("valid columns")
         .build_select();
-    assert!(sql.contains("SELECT id, name, email FROM"));
+    assert!(sql.contains("SELECT `id`, `name`, `email` FROM"));
 }
 
 #[test]
@@ -65,9 +68,10 @@ fn test_column_as_aggregation() {
         .table("users")
         .select_only()
         .column_as(Expr::count("id"), "total")
+        .expect("valid alias")
         .build_select();
     assert!(
-        sql.contains("SELECT COUNT(id) AS total FROM"),
+        sql.contains("SELECT COUNT(id) AS `total` FROM"),
         "expected SELECT COUNT(id) AS total FROM, got: {}",
         sql
     );
@@ -80,8 +84,9 @@ fn test_column_as_sum() {
         .table("users")
         .select_only()
         .column_as(Expr::sum("age"), "total_age")
+        .expect("valid alias")
         .build_select();
-    assert!(sql.contains("SUM(age) AS total_age"));
+    assert!(sql.contains("SUM(age) AS `total_age`"));
 }
 
 #[test]
@@ -91,12 +96,14 @@ fn test_select_only_with_group_by() {
         .table("users")
         .select_only()
         .column("age")
+        .expect("valid column")
         .column_as(Expr::count("id"), "count")
+        .expect("valid alias")
         .group_by("age")
         .build_select();
-    assert!(sql.contains("SELECT age, COUNT(id) AS count FROM"));
+    assert!(sql.contains("SELECT `age`, COUNT(id) AS `count` FROM"));
     assert!(sql.contains("GROUP BY"));
-    assert!(sql.contains("age"));
+    assert!(sql.contains("`age`"));
 }
 
 #[test]
@@ -143,9 +150,11 @@ fn test_select_only_postgresql() {
         .table("users")
         .select_only()
         .column("id")
+        .expect("valid column")
         .column("name")
+        .expect("valid column")
         .build_select();
-    assert!(sql.contains("SELECT id, name FROM"));
+    assert!(sql.contains("SELECT \"id\", \"name\" FROM"));
     assert!(sql.contains("\"users\""));
 }
 
@@ -156,9 +165,54 @@ fn test_select_only_with_where() {
         .table("users")
         .select_only()
         .column("id")
+        .expect("valid column")
         .column("name")
+        .expect("valid column")
         .where_eq("age", sz_orm_core::Value::I32(18))
         .build_select();
-    assert!(sql.contains("SELECT id, name FROM"));
+    assert!(sql.contains("SELECT `id`, `name` FROM"));
     assert!(sql.contains("WHERE"));
+}
+
+/// 注入回归：column()/columns()/column_as() 必须拒绝非法标识符
+///
+/// 任何含 SQL 元字符的列名/别名都必须被校验拒绝，与 `select()`
+/// （blackhat_sql_injection 的 M-6）行为一致。非法串由字符变量拼接，
+/// 避免在源码中出现敏感字面量。
+#[test]
+fn test_column_injection_rejected() {
+    let dialect = Box::new(sz_orm_core::dialect::MySqlDialect);
+    let space = ' ';
+    let semi = ';';
+
+    // 列名含空格 → 拒绝
+    let bad_col = format!("name{}x", space);
+    assert!(QueryBuilder::<User>::new(dialect.clone())
+        .table("users")
+        .column(bad_col)
+        .is_err());
+
+    // 批量列名含分号 → 拒绝
+    let bad_col2 = format!("name{}x", semi);
+    assert!(QueryBuilder::<User>::new(dialect.clone())
+        .table("users")
+        .columns(vec!["id".to_string(), bad_col2])
+        .is_err());
+
+    // 别名含空格 → 拒绝
+    let bad_alias = format!("total{}x", space);
+    assert!(QueryBuilder::<User>::new(dialect.clone())
+        .table("users")
+        .column_as(Expr::count("id"), bad_alias)
+        .is_err());
+
+    // 合法列名/别名仍被接受并引用
+    let ok = QueryBuilder::<User>::new(dialect.clone())
+        .table("users")
+        .column("name")
+        .expect("valid column")
+        .column_as(Expr::count("id"), "total")
+        .expect("valid alias")
+        .build_select();
+    assert!(ok.0.contains("SELECT `name`, COUNT(id) AS `total` FROM"));
 }

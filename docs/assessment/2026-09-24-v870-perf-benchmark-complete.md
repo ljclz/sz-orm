@@ -27,7 +27,7 @@
 | 1 | [packages/sz-orm-bench/Cargo.toml:28](file:///packages/sz-orm-bench/Cargo.toml#L28) | sea-orm features 添加 `sqlx-mysql`, `sqlx-postgres` | sea-orm 仅启用 sqlx-sqlite，MySQL/PG 连接串无驱动 |
 | 2 | [packages/sz-orm-bench/src/real_db.rs:131](file:///packages/sz-orm-bench/src/real_db.rs#L131) | `SERIAL` → `BIGSERIAL` | PostgreSQL SERIAL=INT4，代码按 i64(INT8) 解码 |
 | 3 | [packages/sz-orm-bench/tests/real_db_bench.rs:237](file:///packages/sz-orm-bench/tests/real_db_bench.rs#L237) | `freepdb1` → `freepdb1.FALSE` | Oracle 23ai 监听器以 `freepdb1.FALSE` 注册服务 |
-| 4 | [packages/sz-orm-bench/tests/real_db_bench.rs:237](file:///packages/sz-orm-bench/tests/real_db_bench.rs#L237) | `sys/test123` → `sz_orm_test/SzOrmTest2026` | SYS 用户需 SYSDBA 权限，OraclePoolHandle 不支持 |
+| 4 | [packages/sz-orm-bench/tests/real_db_bench.rs:237](file:///packages/sz-orm-bench/tests/real_db_bench.rs#L237) | `sys/test123` → `sz_orm_test/<your-password>` | SYS 用户需 SYSDBA 权限，OraclePoolHandle 不支持 |
 | 5 | [packages/sz-orm-oracle/src/lib.rs:123](file:///packages/sz-orm-oracle/src/lib.rs#L123) | `_runtime: Runtime` → `Option<Runtime>` + 自定义 Drop 在独立线程释放 | tokio runtime 在 async 上下文中 drop 触发 "Cannot drop a runtime in a context where blocking is not allowed" |
 | 6 | [packages/sz-orm-bench/src/real_db.rs:233](file:///packages/sz-orm-bench/src/real_db.rs#L233) | `init_oracle` 添加 `conn.commit()` | oracle crate 默认 auto-commit OFF，未 commit 就 close 导致数据回滚 |
 | 7 | [packages/sz-orm-oracle/src/lib.rs:1146](file:///packages/sz-orm-oracle/src/lib.rs#L1146) | `begin_transaction` 不再执行 `BEGIN` SQL | Oracle 中 `BEGIN` 是 PL/SQL 块起始，单独执行报 ORA-06550；Oracle 事务隐式启动 |
@@ -83,7 +83,7 @@
 | test_oracle_transaction_commit_rollback | ✅ PASS |
 | test_oracle_aggregate_query | ✅ PASS |
 | 总耗时 | 7.29s |
-| 连接串 | oracle://sz_orm_test:SzOrmTest2026@127.0.0.1:1521/freepdb1.FALSE |
+| 连接串 | oracle://sz_orm_test:<your-password>@127.0.0.1:1521/freepdb1.FALSE |
 | 框架 | sz-orm-oracle (oracle crate ODPI-C) |
 | 负载 | CRUD + 事务 commit/rollback + 聚合查询 |
 | 数据集 | 100-1000 行 |

@@ -160,9 +160,11 @@ KNOWN_FALSE_POSITIVES = {
     "AKIAIOSFODNN7EXAMPLE",  # AWS 官方文档示例 Access Key
     "[REDACTED]",  # 用户提供的 crates.io 发布 token（在脚本示例中引用）
     "szormtestpwd",  # 测试数据库密码
-    # v10.13.0 (2026-10-28 P0-3)：SzOrmTest2026 已从全局白名单移除——
+    # v10.13.0 (2026-10-28 P0-3)：Oracle 测试密码已从全局白名单移除——
     # 源码/测试一律改经 SZ_ORM_ORACLE_PASSWORD 环境变量注入；历史审计记录
-    # （docs/assessment/）中的残留由 LEGACY_AUDIT_PATHS 按路径豁免，不再全局放行。
+    # （docs/assessment/）中的残留曾由 LEGACY_AUDIT_PATHS 按路径豁免。
+    # v10.13.1 (2026-10-31 红队评测 P1-5)：历史文档中的该密码串已全部替换为
+    # <your-password> 占位符，LEGACY_AUDIT_STRINGS 豁免集已清空（不再有豁免）。
     "secret123",  # SQL 注入测试中的示例密码
     "postgres",  # 文档示例中 postgres 用户密码同为 postgres
     "pwd",  # OWASP 测试夹具占位密码（mysql://user:pwd@ / postgres://user:pwd@）
@@ -188,11 +190,12 @@ KNOWN_FALSE_POSITIVES = {
 # SQL 语句前缀（用于过滤变量名含 secret/password 但值是 SQL 的假阳性）
 SQL_PREFIXES = ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", "CREATE ", "DROP ", "ALTER ", "WITH ")
 
-# v10.13.0 (2026-10-28 P0-3)：历史审计记录路径豁免。
-# docs/assessment/ 下的历史评测报告是审计证据链（含当年实测记录），不得为去凭据而改写历史；
-# 其中残留的"已失效本机测试凭据"按路径豁免（源码/测试不在豁免范围，必须环境变量注入）。
+# v10.13.0 (2026-10-28 P0-3)：历史审计记录路径豁免机制。
+# docs/assessment/ 下的历史评测报告是审计证据链；其中残留的"已失效本机测试凭据"
+# 曾按路径豁免（源码/测试不在豁免范围，必须环境变量注入）。
+# v10.13.1 (2026-10-31 红队评测 P1-5)：残留凭据串已全部占位符化，豁免集已清空。
 LEGACY_AUDIT_PATHS = ("docs/assessment/",)
-LEGACY_AUDIT_STRINGS = {"SzOrmTest2026"}
+LEGACY_AUDIT_STRINGS: frozenset[str] = frozenset()
 
 
 @dataclass
@@ -327,7 +330,7 @@ def scan_file(path: Path, root: Path) -> list[Finding]:
     except OSError:
         return findings
 
-    # 历史审计记录路径豁免（仅限 LEGACY_AUDIT_STRINGS 中的已失效凭据）
+    # 历史审计记录路径豁免机制（LEGACY_AUDIT_STRINGS 已清空，当前无任何豁免）
     try:
         rel = str(path.relative_to(root)).replace("\\", "/")
     except ValueError:

@@ -74,16 +74,10 @@ ignore = [
     # 影响: 仅在启用 MSSQL 认证时引入 winauth；rand 0.7.3 不安全仅在自定义 logger 场景
     # 跟踪: 待 tiberius 升级 winauth 依赖后自动移除
     { id = "RUSTSEC-2026-0097", reason = "tiberius 0.12 → winauth 0.0.4 → rand 0.7.3；仅影响 MSSQL 认证场景；待 tiberius 升级后移除" },
-    # event-listener 5.4.1: !Send 标签跨线程 (RUSTSEC-2026-0221)
-    # 来源: sz-orm-sqlx → sqlx-core 0.9.0 → event-listener 5.4.1
-    # 影响: sqlx 连接池内部使用，不影响 sz-orm 自研连接池
-    # 跟踪: 待 sqlx 升级 event-listener 依赖后自动移除
-    { id = "RUSTSEC-2026-0221", reason = "sqlx-core 0.9.0 → event-listener 5.4.1；sqlx 连接池内部使用，不影响 sz-orm 自研连接池；待 sqlx 升级后移除" },
-    # rkyv 0.7.46: Rc/Arc 越界读取 (RUSTSEC-2026-0235)
-    # 来源: 某些可选 feature 的传递依赖，不在默认编译中引入
-    # 影响: 仅在特定 feature 组合下引入；rkyv 用于零拷贝序列化
-    # 跟踪: 待上游修复后自动移除
-    { id = "RUSTSEC-2026-0235", reason = "rkyv 0.7.46 在特定 feature 组合下引入；Rc/Arc 越界读取仅在恶意构造的 archive 中触发；待上游修复后移除" },
+    # v10.13.1 (2026-10-31 红队评测 P2-6)：移除两条 stale ignore——
+    # RUSTSEC-2026-0221（event-listener 5.4.1）与 RUSTSEC-2026-0235（rkyv 0.7.46）
+    # 已不再匹配当前锁文件中的受影响版本（cargo deny 报 advisory-not-detected），
+    # 且 cargo audit 不报告二者；保留会导致未来重新引入受影响版本时被静默忽略。
     # pyo3 0.20.3: PyString buffer overflow (RUSTSEC-2025-0020)
     # 来源: sz-orm-python → pyo3 0.20.3
     # 影响: 仅 sz-orm-python 绑定层；pyo3 0.20 为当前绑定版本，升级 0.21+ 需评估 API 兼容（2026-08-16 全量审查 G6 登记豁免）

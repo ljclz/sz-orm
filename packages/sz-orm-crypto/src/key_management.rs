@@ -29,6 +29,7 @@ use std::collections::HashMap;
 use std::fmt;
 use std::sync::RwLock;
 use std::time::{Duration, SystemTime};
+use zeroize::Zeroizing;
 
 // ============================================================================
 // 密钥算法与用途
@@ -261,14 +262,27 @@ impl KeyMetadata {
 }
 
 /// 密钥条目，包含元数据与密钥材料
-#[derive(Debug, Clone)]
+///
+/// 密钥材料使用 `zeroize::Zeroizing` 包装，Drop 时自动清零。不派生 `Debug`，
+/// 自定义 `Debug` 实现只输出元数据与指纹，避免密钥材料经日志泄露。
+#[derive(Clone)]
 pub struct KeyEntry {
     /// 密钥元数据
     pub metadata: KeyMetadata,
-    /// 密钥材料（字节）
-    pub material: Vec<u8>,
+    /// 密钥材料（字节，Drop 清零）
+    pub material: Zeroizing<Vec<u8>>,
     /// 密钥指纹（SHA-256 十六进制，用于无泄露标识）
     pub fingerprint: String,
+}
+
+impl std::fmt::Debug for KeyEntry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("KeyEntry")
+            .field("metadata", &self.metadata)
+            .field("material", &"<redacted>")
+            .field("fingerprint", &self.fingerprint)
+            .finish()
+    }
 }
 
 impl KeyEntry {
@@ -282,7 +296,7 @@ impl KeyEntry {
 
     /// 验证密钥材料与指纹是否匹配
     pub fn verify_fingerprint(&self) -> bool {
-        Self::compute_fingerprint(&self.material) == self.fingerprint
+        Self::compute_fingerprint(self.material.as_slice()) == self.fingerprint
     }
 }
 
@@ -321,7 +335,7 @@ impl KeyGenerator {
         let metadata = KeyMetadata::new(key_id, name.into(), algorithm, purpose, version);
         KeyEntry {
             metadata,
-            material,
+            material: Zeroizing::new(material),
             fingerprint,
         }
     }
@@ -1403,7 +1417,7 @@ mod tests {
                 KeyPurpose::Encryption,
                 1,
             ),
-            material: material.to_vec(),
+            material: Zeroizing::new(material.to_vec()),
             fingerprint: KeyEntry::compute_fingerprint(material),
         };
         assert!(entry.verify_fingerprint());
@@ -1419,11 +1433,33 @@ mod tests {
                 KeyPurpose::Encryption,
                 1,
             ),
-            material: b"actual-material".to_vec(),
+            material: Zeroizing::new(b"actual-material".to_vec()),
             fingerprint: "0000000000000000000000000000000000000000000000000000000000000000"
                 .to_string(),
         };
         assert!(!entry.verify_fingerprint());
+    }
+
+    #[test]
+    fn test_key_entry_debug_hides_material() {
+        let entry = KeyEntry {
+            metadata: KeyMetadata::new(
+                "id1".to_string(),
+                "test".to_string(),
+                KeyAlgorithm::Aes256Gcm,
+                KeyPurpose::Encryption,
+                1,
+            ),
+            material: Zeroizing::new(b"super-secret-material".to_vec()),
+            fingerprint: KeyEntry::compute_fingerprint(b"super-secret-material"),
+        };
+        let dbg = format!("{:?}", entry);
+        assert!(
+            !dbg.contains("super-secret-material"),
+            "Debug 输出不得包含密钥材料: {}",
+            dbg
+        );
+        assert!(dbg.contains("fingerprint"));
     }
 
     // ---- KeyGenerator 测试 ----

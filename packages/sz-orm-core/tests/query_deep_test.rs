@@ -290,7 +290,9 @@ fn test_select_only_and_column() {
         .table("t")
         .select_only()
         .column("a")
+        .expect("valid column")
         .column("b")
+        .expect("valid column")
         .build_select();
     assert!(sql.contains("a"));
     assert!(sql.contains("b"));
@@ -302,6 +304,7 @@ fn test_columns_method() {
         .table("t")
         .select_only()
         .columns(vec!["a", "b", "c"])
+        .expect("valid columns")
         .build_select();
     assert!(sql.contains("a"));
     assert!(sql.contains("c"));

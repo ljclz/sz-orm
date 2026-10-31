@@ -1010,7 +1010,10 @@ impl Nl2SqlEngine for SimpleNl2SqlEngine {
                 .enumerate()
                 .map(|(i, cond)| {
                     if i < params.len() {
-                        cond.replace(&format!("${}", i + 1), &format!("'{}'", params[i]))
+                        cond.replace(
+                            &format!("${}", i + 1),
+                            &format!("'{}'", escape_explanation_param(&params[i])),
+                        )
                     } else {
                         cond.clone()
                     }
@@ -1023,7 +1026,7 @@ impl Nl2SqlEngine for SimpleNl2SqlEngine {
                 "参数: [{}]",
                 params
                     .iter()
-                    .map(|p| format!("'{}'", p))
+                    .map(|p| format!("'{}'", escape_explanation_param(p)))
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
@@ -3199,6 +3202,24 @@ impl ComplexSqlGenerator {
     }
 }
 
+/// 转义解释文本中的参数值（引号/反斜杠/控制字符），防止日志注入与 UI 文本污染。
+///
+/// 仅用于 `nl2sql` 生成的人类可读解释（非执行 SQL）；执行 SQL 始终走 `$N` 参数化。
+fn escape_explanation_param(p: &str) -> String {
+    let mut out = String::with_capacity(p.len() + 2);
+    for c in p.chars() {
+        match c {
+            '\'' => out.push_str("''"),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            _ => out.push(c),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod v760_complex_sql_tests {
     use super::*;
@@ -3569,6 +3590,14 @@ mod v770_intent_understander_tests {
         assert_eq!(IntentType::Select.as_str(), "select");
         assert_eq!(IntentType::Join.as_str(), "join");
         assert_eq!(IntentType::Complex.as_str(), "complex");
+    }
+
+    #[test]
+    fn test_escape_explanation_param() {
+        assert_eq!(escape_explanation_param("plain"), "plain");
+        assert_eq!(escape_explanation_param("O'Reilly"), "O''Reilly");
+        assert_eq!(escape_explanation_param("a\nb"), "a\\nb");
+        assert_eq!(escape_explanation_param("a'b\\c"), "a''b\\\\c");
     }
 
     #[test]

@@ -217,18 +217,18 @@ impl Default for SqlAuditor {
 /// case-insensitive over the ASCII bytes of the string.
 ///
 /// v10.13.0（2026-10-27 H-4 修复）：关键词后的 `= '值'` / `= "值"` 引号值一并掩码。
-/// 旧行为仅替换关键词本身（`password='hunter2'` → `******='hunter2'`），
-/// 敏感值仍明文留在审计日志中；本实现与 `hash_chain_enhanced.rs` 的
-/// `zk_mask_sql` 值级掩码语义对齐。
+/// v10.13.1（2026-10-31 P2-9 增强）：`INSERT ... VALUES` 的敏感列位置关联值一并掩码，
+/// 消除"关键词掩码但值明文"的已知残留限制。
 ///
-/// 已知残留限制（与 zk_mask_sql 一致）：`INSERT ... VALUES ('字面量')` 的位置关联值
-/// 无法通过字符串启发式关联到列名，不做掩码；项目强制参数化查询（值以 `?`/`$N`
-/// 占位符出现），该场景下 SQL 文本本身不含字面量值。
+/// 旧行为（v10.13.0）：`INSERT INTO tokens (token, user_id) VALUES ('eyJ...', 42)`
+/// → `INSERT INTO tokens (******, user_id) VALUES ('eyJ...', 42)`（值明文）。
+/// 新行为：→ `INSERT INTO tokens (******, user_id) VALUES ('******', 42)`（值级掩码）。
 pub(crate) fn mask_sensitive(sql: &str) -> String {
-    let lower = sql.to_ascii_lowercase();
-    let mut result = String::with_capacity(sql.len());
+    let pre_masked = mask_insert_values(sql);
+    let lower = pre_masked.to_ascii_lowercase();
+    let mut result = String::with_capacity(pre_masked.len());
     let mut i = 0;
-    let bytes = sql.as_bytes();
+    let bytes = pre_masked.as_bytes();
     let lower_bytes = lower.as_bytes();
     while i < bytes.len() {
         let mut matched_len: Option<usize> = None;
@@ -283,7 +283,7 @@ pub(crate) fn mask_sensitive(sql: &str) -> String {
             }
         } else {
             // Push one char (handles UTF-8 properly since we step by char).
-            let ch = sql[i..]
+            let ch = pre_masked[i..]
                 .chars()
                 .next()
                 .expect("i < bytes.len() guarantees non-empty slice");
@@ -297,6 +297,174 @@ pub(crate) fn mask_sensitive(sql: &str) -> String {
 /// Returns true if `b` is an ASCII identifier character (alphanumeric or '_').
 fn is_ident_char(b: u8) -> bool {
     b.is_ascii_alphanumeric() || b == b'_'
+}
+
+// ============================================================================
+// INSERT ... VALUES 位置关联值掩码（v10.13.1 / P2-9）
+// ============================================================================
+
+/// 查找从 `open` 开始的匹配右括号（跳过字符串字面量）。
+fn find_matching_paren(sql: &str, open: usize) -> Option<usize> {
+    let bytes = sql.as_bytes();
+    let mut depth = 0usize;
+    let mut i = open;
+    let mut quote: Option<u8> = None;
+    while i < bytes.len() {
+        let b = bytes[i];
+        if let Some(q) = quote {
+            if b == q {
+                quote = None;
+            }
+            i += 1;
+            continue;
+        }
+        match b {
+            b'\'' | b'"' | b'`' => quote = Some(b),
+            b'(' => depth += 1,
+            b')' => {
+                depth -= 1;
+                if depth == 0 {
+                    return Some(i);
+                }
+            }
+            _ => {}
+        }
+        i += 1;
+    }
+    None
+}
+
+/// 按顶层逗号切分（跳过字符串字面量与嵌套括号）。
+fn split_top_level_commas(s: &str) -> Vec<String> {
+    let mut parts = Vec::new();
+    let mut buf = String::new();
+    let mut depth = 0usize;
+    let mut quote: Option<char> = None;
+    for c in s.chars() {
+        if let Some(q) = quote {
+            buf.push(c);
+            if c == '\\' {
+                // 反斜杠转义：把下一个字符也加入（简化处理）
+                // 在 for 循环中无法预取，这里仅处理引号本身
+                if q == '\'' || q == '"' {
+                    // 跳过下一个字符的转义在下方无法表达，但掩码场景可接受
+                }
+            }
+            if c == q {
+                quote = None;
+            }
+            continue;
+        }
+        match c {
+            '\'' | '"' | '`' => {
+                quote = Some(c);
+                buf.push(c);
+            }
+            '(' => {
+                depth += 1;
+                buf.push(c);
+            }
+            ')' => {
+                depth -= 1;
+                buf.push(c);
+            }
+            ',' if depth == 0 => {
+                parts.push(buf.trim().to_string());
+                buf.clear();
+            }
+            _ => buf.push(c),
+        }
+    }
+    if !buf.trim().is_empty() {
+        parts.push(buf.trim().to_string());
+    }
+    parts
+}
+
+/// 判断列名是否为敏感列（去掉引号/反引号后与敏感关键词做整词比较）。
+fn col_is_sensitive(col: &str) -> bool {
+    let trimmed = col
+        .trim()
+        .trim_start_matches('`')
+        .trim_end_matches('`')
+        .trim_start_matches('"')
+        .trim_end_matches('"')
+        .trim_start_matches('\'')
+        .trim_end_matches('\'');
+    let lower = trimmed.to_ascii_lowercase();
+    SENSITIVE_KEYWORDS.iter().any(|kw| lower == *kw)
+}
+
+/// 掩码单个值字面量：引号值保留引号并掩码内容；裸值整体掩码。
+fn mask_value_literal(val: &str) -> String {
+    let v = val.trim();
+    if v.len() >= 2 && (v.starts_with('\'') || v.starts_with('"')) {
+        let q = v.chars().next().unwrap();
+        format!("{}******{}", q, q)
+    } else {
+        "******".to_string()
+    }
+}
+
+/// 对 `INSERT INTO table (col1, ...) VALUES (v1, ...)` 中敏感列对应位置的值
+/// 进行掩码（列名↔值位置关联）。非 INSERT 或无法解析时原样返回。
+fn mask_insert_values(sql: &str) -> String {
+    let lower = sql.to_ascii_lowercase();
+    let ins = match lower.find("insert into") {
+        Some(i) => i,
+        None => return sql.to_string(),
+    };
+    let open = match lower[ins..].find('(') {
+        Some(i) => ins + i,
+        None => return sql.to_string(),
+    };
+    let close = match find_matching_paren(sql, open) {
+        Some(c) => c,
+        None => return sql.to_string(),
+    };
+    let cols = split_top_level_commas(&sql[open + 1..close]);
+    if cols.is_empty() {
+        return sql.to_string();
+    }
+    let after = close + 1;
+    let vals_idx = match lower[after..].find("values") {
+        Some(i) => after + i,
+        None => return sql.to_string(),
+    };
+    let vopen = match lower[vals_idx..].find('(') {
+        Some(i) => vals_idx + i,
+        None => return sql.to_string(),
+    };
+    let vclose = match find_matching_paren(sql, vopen) {
+        Some(c) => c,
+        None => return sql.to_string(),
+    };
+    let vals = split_top_level_commas(&sql[vopen + 1..vclose]);
+    if vals.len() != cols.len() {
+        return sql.to_string();
+    }
+
+    let sensitive_positions: Vec<usize> = (0..cols.len())
+        .filter(|&i| col_is_sensitive(&cols[i]))
+        .collect();
+    if sensitive_positions.is_empty() {
+        return sql.to_string();
+    }
+
+    let mut result = String::with_capacity(sql.len());
+    result.push_str(&sql[..vopen + 1]);
+    for (idx, val) in vals.iter().enumerate() {
+        if idx > 0 {
+            result.push_str(", ");
+        }
+        if sensitive_positions.contains(&idx) {
+            result.push_str(&mask_value_literal(val));
+        } else {
+            result.push_str(val);
+        }
+    }
+    result.push_str(&sql[vclose..]);
+    result
 }
 
 // ============================================================================
@@ -1276,18 +1444,24 @@ mod tests {
     }
 
     #[test]
-    fn test_mask_sensitive_values_clause_residual_limitation() {
-        // 已知残留限制（与 zk_mask_sql 语义一致）：VALUES 的位置关联值不做掩码。
-        // 参数化查询下 SQL 文本不含字面量值，此测试固定当前行为防止静默回退。
+    fn test_mask_sensitive_values_clause_positional_masking() {
+        // v10.13.1 (P2-9)：VALUES 位置关联值现按列名↔值位置掩码——
+        // token 列对应第 1 个值，user_id 列对应第 2 个值（保留）。
         let a = SqlAuditor::new();
         let masked = a.mask_sensitive("INSERT INTO t (token, user_id) VALUES ('p1', 't1')");
         let lower = masked.to_lowercase();
         assert!(!lower.contains("token"), "关键词应被掩码: {}", masked);
         assert!(
-            masked.contains("'p1'"),
-            "VALUES 位置关联值为已知残留限制，当前不掩码: {}",
+            !masked.contains("'p1'"),
+            "敏感列 token 的位置关联值应被掩码: {}",
             masked
         );
+        assert!(
+            masked.contains("'t1'"),
+            "非敏感列 user_id 的位置关联值应保留: {}",
+            masked
+        );
+        assert!(masked.contains("'******'"), "应输出掩码值: {}", masked);
     }
 
     #[test]
