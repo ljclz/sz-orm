@@ -485,13 +485,14 @@ _NEW_PW = "RealNew" "Secret99"
 
 
 class TestSecretsLegacyExemptionScope:
-    """路径豁免只作用于 docs/assessment/ 历史审计记录，代码路径与新凭据不豁免。"""
+    """2026-10-30 红队加固后语义：LEGACY_AUDIT_STRINGS 豁免集已清空——
+    历史审计文档（docs/assessment/）中的凭据**不再豁免**，全部必须报告。"""
 
     def test_legacy_doc_exempt_but_new_secret_reported(self, tmp_path):
         root = tmp_path
         legacy = root / "docs" / "assessment"
         legacy.mkdir(parents=True)
-        # 历史审计文档中的 legacy 凭据 → 豁免
+        # 历史审计文档中的 legacy 凭据 → 也必须报告（豁免集已清空）
         (legacy / "old_report.md").write_text(
             "oracle://sz_orm_test:{}@127.0.0.1:1521/freepdb1\n".format(_LEGACY_PW),
             encoding="utf-8",
@@ -500,7 +501,7 @@ class TestSecretsLegacyExemptionScope:
         (legacy / "new_leak.md").write_text(
             "mysql://admin:{}@10.0.0.1/db\n".format(_NEW_PW), encoding="utf-8"
         )
-        # 代码路径中的 legacy 凭据 → 必须报告（豁免不覆盖代码）
+        # 代码路径中的 legacy 凭据 → 必须报告
         (root / "leak.rs").write_text(
             'let u = "oracle://sz_orm_test:{}@127.0.0.1:1521/freepdb1";\n'.format(_LEGACY_PW),
             encoding="utf-8",
@@ -510,7 +511,7 @@ class TestSecretsLegacyExemptionScope:
             if p.is_file():
                 findings.extend(secrets_scanner.scan_file(p, root))
         files = {f.file.name for f in findings}
-        assert "old_report.md" not in files, "legacy 凭据在历史审计文档中应被豁免"
+        assert "old_report.md" in files, "legacy 凭据在历史审计文档中也必须报告（豁免集已清空）"
         assert "new_leak.md" in files, "历史审计文档中的新凭据不得豁免"
         assert "leak.rs" in files, "代码路径中的 legacy 凭据不得豁免"
 
