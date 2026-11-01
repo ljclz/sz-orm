@@ -177,6 +177,7 @@ KNOWN_FALSE_POSITIVES = {
     "{user}",  # 格式化占位符
     "<password>",  # 文档占位符（尖括号形式）
     "<user>",  # 文档占位符（尖括号形式）
+    "<pw>",  # 文档占位符（尖括号短形式，handoff 提示词等）
     "{pw}",  # DSN 构造中的变量占位符（format!("...:{pw}@...")，凭据经环境变量注入）
     "mypassword",  # 测试夹具假密码
     "FAKE_VALUE_1",  # pentest 评测夹具假密码（2026-10-31-pentest-review.md SQL 注入样例）
