@@ -66,7 +66,7 @@
 | 6 | C# SafeHandle | ✅ 已闭环 | `SzOrm.cs` 引入 `SzOrmPoolHandle`（`SafeHandleZeroOrMinusOneIsInvalid`），裸 IntPtr + 手工 Dispose → SafeHandle 保证只释放一次；本机安装 .NET SDK 9.0.320 编译 **0 警告 0 错误**（提交 `c0628ec`） |
 | 7 | 覆盖率/变异基线复测 | ✅ 已完成 | 覆盖率 `src/` 口径 **85.20%**；**容器化 CI 链路已验证就绪**（rust:1.99 + TUNA 镜像挂载 + CRLF 处理 + jobs 8）；**全量变异实际运行验证**：cargo-mutants 27.1.0 安装成功、**基线通过（11680 变异体）**、变异开始测试；单个变异体测试即超时（3974s ≈ 66 分钟），**全量需数天**——**结论：全量变异由 CI 发布前门禁执行**（长跑任务），本机容器化 CI 仅验证链路可用（非代码缺陷）；期间顺带修复 `sz-orm-crypto` Zeroizing 依赖（并行会话已加 `zeroize` workspace 依赖） |
 | 8 | sz-pay 下游版本 | ✅ 已升级 | sz-pay `Cargo.toml` 10 处 `sz-rust-* ^1.7.0 → ^2.0.0`，lib 编译通过（下游提交 `ac3f64d`；`tests/wiring_e2e.rs` API 适配登记后续） |
-| 9 | 其余包发布 | ✅ **全部发布完成** | 三轮批量发布累计新增 **33 个包**（首轮 19 + 依赖链补齐后 14），核心 6 包 + 依赖链此前已发布；crates.io 上 sz-orm-* 全部为 10.13.0（sz-orm-js/python 独立 0.1.0 版本线除外），**零失败**（官方索引 + 代理上传） |
+| 9 | 其余包发布 | ✅ **v10.13.1 全量发布完成** | 2026-11-01：红队加固后 **v10.13.1 全量发布到 crates.io**（69 包，crates.io 索引验证 core/sqlx/websocket 等 = 10.13.1），期间经历 crates.io 429 滚动限流（延迟重试解决）；此前 10.13.0 已三轮发布 33 个包。**sz-orm-core 10.13.1 含红队 SQLi 修复，已对外可用** |
 
 ---
 
@@ -98,4 +98,28 @@
 | `cargo test -p sz-orm-cabi` | **88 passed**（87 lib + 1 integration） |
 | 环境处置 | 本机 PG 密码被外部变更（非 test123），已按项目约定恢复为 `test123`（临时 trust 重置 + 恢复 pg_hba.conf，AGENTS.md 默认值），PG 测试恢复全绿 |
 
-*报告生成：2026-10-29（2026-10-30 复跑更新）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*
+---
+
+## 六、2026-11-01 复跑 + v10.13.1 发布记录（红队加固后全量重验）
+
+红队渗透测试评测（`2026-10-31-pentest-review.md`：QueryBuilder column()/schema_sync DDL 注入两条新 SQLi）P0/P1/P2 全项加固（提交 `5309785f`）后，全量复跑验证：
+
+| 检查 | 结果 |
+|------|------|
+| 门禁 17 项 | 全部通过 |
+| 门禁脚本自测 `pytest tests/` | **160 passed**（顺带修复豁免语义测试：红队加固后 `LEGACY_AUDIT_STRINGS` 已清空，历史文档凭据不再豁免——提交 `d362add`） |
+| G9 SQL 注入扫描 --strict | **46/46 Safe** |
+| clippy（core+sqlx，-D warnings） | 通过 |
+| `security_attacks`（multi-tenant-enhanced） | 4 passed |
+| PG 真库集成 `any_pg_test` | **46 passed** |
+| MySQL 真库集成 `any_mysql_test` | **21 passed** |
+| `cargo test -p sz-orm-cabi` / `-p sz-orm-bench` | 3 组 / 12 组全过 |
+
+### v10.13.1 发布（crates.io）
+
+- **全部 workspace 包发布 10.13.1**（69 包，sz-orm-js/python 独立版本线除外），crates.io 索引验证 `sz-orm-core` / `sz-orm-sqlx` / `sz-orm-websocket` 等 = **10.13.1**
+- **sz-orm-core 10.13.1 含红队 SQLi 修复，已对外可用**
+- 发布过程处理：crates.io 429 滚动限流（延迟重试）、cargo-home 被清理后重新 `cargo login`（token 来自服务器信息文档）
+- 发布脚本：`D:/tmp/publish_all_remaining.py`（依赖优先递归、代理上传、失败快速继续，可复用）
+
+*报告生成：2026-10-29（2026-10-30 复跑、2026-11-01 复跑 + v10.13.1 发布更新）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*
