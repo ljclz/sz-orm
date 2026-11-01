@@ -406,15 +406,23 @@ if (( FAIL > 0 )); then
   echo "❌ 审计证据验证未通过 — 存在 $FAIL 处无效引用"
   exit 1
 elif (( PASS == 0 )); then
-  # legacy-citation-ledger 建议 3：零可校验引用报告治理。
-  # 豁免清单：评测提示词（*-prompt.md）与验证规范（*-verification-spec.md）本就不含结论性引用。
+  # legacy-citation-ledger 建议 3：零可校验引用报告治理（2026-11-02 fail-closed 落地）。
+  # 豁免 1：评测提示词（*-prompt.md）与验证规范（*-verification-spec.md）本就不含结论性引用。
+  # 豁免 2：docs/assessment/archive/ 归档报告——页首已标注"历史存档声明"，不作为证据来源。
+  # fail-closed：docs/assessment/ 活跃报告零引用默认红牌（无需 --require-evidence），
+  #   堵住账本指出的"39 份零引用报告返回通过"漏洞；其余目录保留警告行为。
   if [[ "$REPORT" =~ (-prompt\.md$|-verification-spec\.md$|-prompt\.json$) ]]; then
     echo "ℹ️  零引用豁免（$(basename "$REPORT") 属提示词/验证规范类）"
     echo "✅ 审计证据验证通过"
     exit 0
   fi
-  if (( REQUIRE_EVIDENCE )); then
-    echo "❌ 未找到任何 file:line 证据 — 非提示词类报告必须含可校验引用（--require-evidence）"
+  if [[ "$REPORT" =~ docs[/\\]assessment[/\\]archive[/\\] ]]; then
+    echo "ℹ️  零引用豁免（$(basename "$REPORT") 属 archive/ 历史存档，页首已标注存档声明）"
+    echo "✅ 审计证据验证通过"
+    exit 0
+  fi
+  if (( REQUIRE_EVIDENCE )) || [[ "$REPORT" =~ docs[/\\]assessment[/\\] ]]; then
+    echo "❌ 未找到任何 file:line 证据 — docs/assessment/ 活跃报告必须含可校验引用（fail-closed；历史无证据报告请归档至 docs/assessment/archive/）"
     exit 1
   fi
   echo "⚠️  未找到任何 file:line 证据 — 报告可能未遵循审计规范（可用 --require-evidence 阻断）"

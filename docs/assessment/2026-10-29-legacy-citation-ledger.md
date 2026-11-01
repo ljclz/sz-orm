@@ -112,7 +112,7 @@ D3 的 48 处再分（按"同名文件在全历史中的候选数"）：
 | 被本轮重钉的第二处 | `packages/sz-orm-core/src/pool.rs:2766` [must-contain: pub async fn shutdown] |
 | §四 建议 1（路径归一化）的落点：所有被引路径都经这一个函数判存在性，归一化只能加在这里 | `scripts/audit-verify.ps1:199` [must-contain: function Test-RepoFile]（原钉第 183 行，`3716c236` 归一化 +12 行后漂移） |
 | 它背后的读取入口（工作区口径 vs `-AtHead` 口径在此分叉） | `scripts/audit-verify.ps1:109` [must-contain: function Get-PhysicalLines]（原钉第 105 行） |
-| §四 建议 3 的缺口实证：校验器对"零引用报告"只给警告级提示、不改退出码 | `scripts/audit-verify.ps1:403` [must-contain: 未找到任何 file:line 证据]（原钉第 374 行；`466a4382` 起同一处还有 `-RequireEvidence` 阻断分支，见 `scripts/audit-verify.ps1:400` [must-contain: 非提示词类报告]） |
+| §四 建议 3 的缺口已于 2026-11-02 修复：`docs/assessment/` 活跃报告零引用默认红牌，`archive/` 归档豁免 | `scripts/audit-verify.ps1:409` [must-contain: 活跃报告必须含可校验引用]（原钉第 403 行 `未找到任何 file:line 证据`/第 400 行 `非提示词类报告`——fail-closed 落地时零引用分支整体改写：原 RequireEvidence 可选分支并入默认红牌，archive 豁免现位于 :403；处置见附录 A 头部记录） |
 | §四 建议 2（禁止绝对路径）要约束的正是这类历史写法 | `docs/assessment/2026-08-13-production-zero-call-audit.md:1` [must-contain: 生产路径零调用审计]（本批红牌最集中的报告，90 处） |
 | D3 中"漏写包前缀"的两个样例，其真实目标文件确实存在 | `packages/sz-orm-graphql/src/query_ir.rs:37` [must-contain: pub struct GraphQLDirective]、`packages/sz-orm-queue/src/cdc/capturer.rs:15` [must-contain: async fn start_capture] |
 | §六 提到的 CI 豁免登记表（本轮新增，验证内容未因历史聚合而丢） | `scripts/check-gate-scripts.py:58` [must-contain: CI_FAIL_EXEMPT] |
@@ -123,6 +123,14 @@ D3 的 48 处再分（按"同名文件在全历史中的候选数"）：
 ## 附录 A：45 份"零可校验引用"报告
 
 其中带 `prompt`/`spec` 的 6 份本就不承载代码证据，其余 39 份应纳入 §四 建议 3 的 `--require-evidence` 判定。
+
+> **✅ 处置记录（2026-11-02 自动化落地，不采信"留人工评审"）**：39 份非 prompt/spec 报告已由
+> `scripts/archive-zero-evidence-reports.py` 机械归档至 `docs/assessment/archive/`（页首插入
+> "历史存档声明"，85 个指向它们的 markdown 链接同步改写，G35 复跑 0 死链）。**未触碰任何正文、
+> 未生成任何新证据**——内容真伪保持"不可复核存档"状态如实暴露。同时 `audit-verify.ps1/sh`
+> 零引用分支升级为 fail-closed：`docs/assessment/` 活跃报告零引用默认红牌（无需 --require-evidence），
+> `archive/` 报告自动豁免——账本指出的"对零引用报告返回通过"漏洞就此关闭，三语义实测
+> （archive 豁免 exit 0 / 活跃零引用 canary exit 1 / 正常报告 exit 0）。
 
 ```text
 2026-08-14-blackhat-security-audit.md

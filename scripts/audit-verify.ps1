@@ -387,17 +387,26 @@ if ($Fail -gt 0) {
     Write-Host "❌ 审计证据验证未通过 — 存在 $Fail 处无效引用" -ForegroundColor Red
     exit 1
 } elseif ($Pass -eq 0) {
-    # legacy-citation-ledger 建议 3：零可校验引用报告治理。
-    # 豁免清单：评测提示词（*-prompt.md）与验证规范（*-verification-spec.md）本就不含结论性引用。
+    # legacy-citation-ledger 建议 3：零可校验引用报告治理（2026-11-02 fail-closed 落地）。
+    # 豁免 1：评测提示词（*-prompt.md）与验证规范（*-verification-spec.md）本就不含结论性引用。
+    # 豁免 2：docs/assessment/archive/ 归档报告——页首已标注"历史存档声明"，不作为证据来源。
+    # fail-closed：docs/assessment/ 活跃报告零引用默认红牌（无需 -RequireEvidence），
+    #   堵住账本指出的"39 份零引用报告返回通过"漏洞；其余目录保留警告行为。
     $ReportName = Split-Path -Leaf $ReportPath
-    $isExemptZeroEvidence = ($ReportName -match '(-prompt\.md$|-verification-spec\.md$|-prompt\.json$)')
-    if ($isExemptZeroEvidence) {
+    $ReportFull = (Resolve-Path -LiteralPath $ReportPath).Path -replace '/', '\'
+    if ($ReportName -match '(-prompt\.md$|-verification-spec\.md$|-prompt\.json$)') {
         Write-Host "ℹ️  零引用豁免（$ReportName 属提示词/验证规范类，无需 file:line）" -ForegroundColor Cyan
         Write-Host "✅ 审计证据验证通过" -ForegroundColor Green
         exit 0
     }
-    if ($RequireEvidence) {
-        Write-Host "❌ 未找到任何 file:line 证据 — 非提示词类报告必须含可校验引用（-RequireEvidence）" -ForegroundColor Red
+    if ($ReportFull -match 'docs\\assessment\\archive\\') {
+        Write-Host "ℹ️  零引用豁免（$ReportName 属 archive/ 历史存档，页首已标注存档声明）" -ForegroundColor Cyan
+        Write-Host "✅ 审计证据验证通过" -ForegroundColor Green
+        exit 0
+    }
+    $isActiveAssessment = ($ReportFull -match 'docs\\assessment\\')
+    if ($RequireEvidence -or $isActiveAssessment) {
+        Write-Host "❌ 未找到任何 file:line 证据 — docs/assessment/ 活跃报告必须含可校验引用（fail-closed；历史无证据报告请归档至 docs/assessment/archive/）" -ForegroundColor Red
         exit 1
     }
     Write-Host "⚠️  未找到任何 file:line 证据 — 报告可能未遵循审计规范（可用 -RequireEvidence 阻断）" -ForegroundColor Yellow
