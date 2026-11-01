@@ -100,6 +100,11 @@ print("\n".join(order))
 PY
 )"
 
+# v10.13.1（2026-11-01）：Windows 原生 Python stdout 为文本模式，print 输出的
+# \n 会被转换为 \r\n，命令替换捕获后每个包名尾部残留 \r，导致
+# cargo publish -p "<name>\r" 报 invalid character。此处统一剥离 \r。
+ORDER=$(printf '%s' "$ORDER" | tr -d '\r')
+
 echo "发布顺序（依赖优先）："
 echo "$ORDER" | sed 's/^/  - /'
 
