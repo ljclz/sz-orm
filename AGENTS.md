@@ -160,41 +160,6 @@ cargo build --features sz-orm-macros/db-verify
 
 已知坑：`cargo test -- --ignored` 会让 rustdoc 尝试编译 ```ignore 标注的示意 doc 块（feature 统一暴露后数量大）；G7 全量跑用 `cargo test --workspace --tests -- --ignored ...` 规避，不可编译的示意文档块用 ```text 标注。
 
-### CI 镜像与容器化配置（2026-11-02 新增）
-
-CI 环境使用预构建镜像与 GitHub Actions service container 提供工具链与数据库，与本机数据库配置互补。本节与门禁 12（文档同步）/门禁 14（文档与代码一致性）对齐。
-
-**CI 镜像**：`ghcr.io/ljclz/sz-orm-ci:latest`
-- 定义于 `Dockerfile.ci`（多阶段构建 base→tools→ci），构建流水线 `.github/workflows/ci-image.yml`（push main / workflow_dispatch / 每周一 03:00 定时触发，推送 latest+sha+date 标签至 GHCR）
-- 预装 Rust stable+nightly 工具链 + 6 个 cargo 工具（cargo-hack/cargo-udeps/cargo-audit/cargo-llvm-cov/cargo-mutants/cargo-fuzz）+ Python 3.12（pytest/pyyaml/tomli）+ protoc/cmake/libssl-dev 等系统依赖，最终镜像含非 root 用户 `ciuser`
-- `ci.yml` 中 lint/metrics-real/checker-self-tests/security/mutation/fuzz/feature-matrix/unused-deps 等 job 以 `container:` 字段引用该镜像，省去逐 job 重复安装工具的 step
-
-**新增 DB service container**（对应新增 job）：
-
-| job | 镜像 | 集成测试 | 说明 |
-|-----|------|---------|------|
-| `db-integration-oracle` | `gvenzl/oracle-free:23ai-faststart` | `integration_oracle` | Oracle 23ai Free |
-| `db-integration-mssql` | `mcr.microsoft.com/mssql/server:2022-latest` | `integration_mssql` | MSSQL 2022 |
-| `db-integration-clickhouse` | `clickhouse/clickhouse-server:latest` | `integration_clickhouse` | ClickHouse MySQL 兼容协议 port 9004 |
-
-3 个 job 均 `continue-on-error: ${{ github.ref != 'refs/heads/main' }}`（非 main 分支允许失败），`needs: [test]`。
-
-**GitHub Secrets 清单**（须在仓库 Settings → Secrets and variables → Actions 配置）：
-
-| Secret 名 | 用途 |
-|-----------|------|
-| `CI_MYSQL_PASSWORD` | MySQL root 密码 |
-| `CI_POSTGRES_PASSWORD` | PostgreSQL 密码 |
-| `CI_ORACLE_PASSWORD` | Oracle sz_orm_test 用户密码 |
-| `CI_MSSQL_PASSWORD` | MSSQL sa 密码 |
-
-> ClickHouse 默认无密码（`default` 用户），不需要 Secret。
-
-**凭据注入机制**（双层展开须变量名一致）：
-- service container `env`：用 `${{ secrets.XXX }}`（GitHub Actions 展开层，工作流 YAML 解析时替换）
-- healthcheck `--health-cmd`：用 `$VAR`（容器内 shell 展开层，容器执行时读取环境变量）
-- 两层展开须变量名一致：`env` 注入 `MYSQL_ROOT_PASSWORD: ${{ secrets.CI_MYSQL_PASSWORD }}`，healthcheck 用 `mysqladmin ping -p$$MYSQL_ROOT_PASSWORD`（`$$` 在 YAML 中转义为容器内 `$`）
-
 ## 质量基线（v8.7.0 实测；v9.0.0 审计复测见下）
 
 > 所有数值均为实测采集，非手写。采集命令和日期见对应报告。
