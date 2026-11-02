@@ -60,12 +60,25 @@ python D:/tmp/publish_all_remaining.py    # 遍历全部包（排除 js/python�
 
 ## 五、当前待办（按优先级）
 
-1. **G20 全量变异收尾**：WSL 容器后台运行中（11680 变异体，`--jobs 8`，日志 `/root/mutation.log`）。
-   完成后：读日志取杀率（≥70% 门槛）、`git status` 确认源码恢复、更新生产就绪度报告项 7。
-   ⚠️ 本机已两次因 jobs=40 / 资源问题中断——jobs≤8；若再次中断，登记为 CI 专用任务不再本机重试。
-2. **39 份零引用历史报告补证据**：校验器已支持 `--require-evidence` + 提示词豁免
-   （`docs/assessment/2026-10-29-legacy-citation-ledger.md` 附录 A 有清单）。**禁止批量自动化补行号（=编造证据）**，需逐份人工核实，属团队评审任务。
-3. **Docker Desktop 引擎**：C 盘清理后需手动启动（`cmd /c start "" "C:\Program Files\Docker\Docker\Docker Desktop.exe"`）；
+> **2026-11-02 核实：以下三项均已落地**，本节保留历史描述供追溯。
+
+1. **✅ G20 全量变异——已登记为 CI 专用任务**：
+   生产就绪度报告 `docs/assessment/2026-10-29-production-readiness-report.md:67` 项 7 已标记 ✅ 已完成，
+   结论"全量变异由 CI 发布前门禁执行（长跑任务），本机容器化 CI 仅验证链路可用（非代码缺陷）"。
+   日志 `/root/mutation.log` 实测：cargo-mutants 27.1.0 安装成功、baseline 通过（11680 变异体）、
+   首个变异体即 TIMEOUT（3974s ≈ 66 分钟），全量需数天——本机不再重试。
+   源码无 `changed by cargo-mutants` 残留（WSL `/root/sz-orm` 与 Windows 工作树双口径核实）。
+   ⚠️ 历史：本机两次因 jobs=40 / 资源问题中断；WSL 通信层曾 WSAETIMEDOUT，已 `wsl --shutdown` 终止残留进程。
+2. **✅ 39 份零引用历史报告——已归档 + fail-closed 落地**：
+   `docs/assessment/archive/` 实测 **39 份归档报告**（精确匹配 ledger 附录 A 清单），
+   由 `scripts/archive-zero-evidence-reports.py` 机械归档（页首插入历史存档声明，85 个链接同步改写，G35 复跑 0 死链）。
+   **未触碰正文、未生成新证据**——内容真伪保持"不可复核存档"状态如实暴露。
+   `audit-verify.sh:53` / `.ps1` 支持 `--require-evidence`，零引用分支已升级 **fail-closed**：
+   `docs/assessment/` 活跃报告零引用默认红牌，`archive/` 归档报告自动豁免。
+   处置记录见 `docs/assessment/2026-10-29-legacy-citation-ledger.md:127` 附录 A。
+   ⚠️ 禁止批量自动化补行号（=编造证据）；存量正文真伪属历史评审范畴，不在本机自动化范围。
+3. **✅ Docker Desktop 引擎——已在运行**：
+   `tasklist` 实测多个 `Docker Desktop.exe` + `com.docker.backend.exe` 进程在运行，无需手动启动。
    WSL 内 docker 独立可用。MySQL 容器 `sz-orm-mysql96`（13307）/ `sz300-gzip-mysql`（3308）如需恢复。
 
 ## 六、已知坑位（血泪教训）
