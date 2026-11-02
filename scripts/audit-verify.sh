@@ -75,9 +75,15 @@ if (( HEAD_MODE )) && ! command -v git >/dev/null 2>&1; then
   exit 2
 fi
 
-# CJK 词块提取：优先 grep -P，老 grep / busybox 退回 C locale 字节规则
+# CJK 词块提取：优先 grep -P；不可用时退回 python（跨平台，Git Bash 的 grep -P
+# 不支持 \x{4e00} 高 Unicode 值，且 python3 可能是 Windows Store 别名需实测执行）；
+# python 不可用时退回 C locale 字节规则（最后兜底）。
 if printf '测' | grep -oP '[\x{4e00}-\x{9fff}]' >/dev/null 2>&1; then
   re_cjk() { grep -oP '[\x{4e00}-\x{9fff}]{2,}'; }
+elif python -c "import re" >/dev/null 2>&1; then
+  re_cjk() { python -c "import sys,re;[print(t) for t in re.findall(r'[\u4e00-\u9fff]{2,}', sys.stdin.read())]"; }
+elif python3 -c "import re" >/dev/null 2>&1; then
+  re_cjk() { python3 -c "import sys,re;[print(t) for t in re.findall(r'[\u4e00-\u9fff]{2,}', sys.stdin.read())]"; }
 else
   re_cjk() { LC_ALL=C grep -oE '[^ -~]{6,}'; }
 fi
