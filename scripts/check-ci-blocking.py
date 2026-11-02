@@ -38,6 +38,9 @@ EXEMPT_JOBS = {
     "mq-integration": "5 种 MQ broker 服务容器依赖较重，偶发环境问题不阻断",
     "feature-matrix": "cargo-hack 全 feature 编译矩阵，存在已知原生依赖环境问题",
     "unused-deps": "cargo-udeps 需 nightly，结果为参考性警告",
+    "db-integration-oracle": "Oracle 23ai Free 服务容器依赖较重，偶发环境问题不阻断 PR（main 阻断）",
+    "db-integration-mssql": "MSSQL 2022 服务容器依赖较重，偶发环境问题不阻断 PR（main 阻断）",
+    "db-integration-clickhouse": "ClickHouse 服务容器偶发环境问题不阻断 PR（main 阻断）",
 }
 
 
