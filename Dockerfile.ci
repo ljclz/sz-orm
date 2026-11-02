@@ -1,0 +1,94 @@
+# SZ-ORM CI 镜像定义 (C-CI-IMAGE-DEF@1)
+#
+# 用途：为 sz-orm 项目 GitHub Actions workflow 提供统一容器环境，
+#   预装全部 CI 工具链（Rust stable+nightly、6 个 cargo 工具、Python+pytest、
+#   protoc/cmake/libssl-dev 系统依赖），加速 CI、保证环境一致性。
+#
+# 构建命令：
+#   docker build -f Dockerfile.ci -t sz-orm-ci:latest .
+#   docker build -f Dockerfile.ci -t sz-orm-ci:local . --check   # 语法检查
+#
+# 引用方：
+#   .github/workflows/*.yml 中 job 的 container 字段
+#   （源码通过 actions/checkout 挂载到 WORKDIR /workspace，镜像本身不含项目源码）
+#
+# 镜像内可执行：
+#   cargo fmt --check / cargo clippy / cargo test / cargo audit
+#   cargo llvm-cov / cargo mutants / cargo +nightly fuzz
+#   python -m pytest / protoc --version / cmake --version
+#
+# Python 说明：bookworm 自带 python3 (3.11) 已满足 pytest/pyyaml/tomli 需求，
+#   故采用 python3 + python3-pip + python3-venv 稳妥方案，避免 deadsnakes PPA
+#   依赖外部源导致构建不可复现。若未来强制要求 3.12，可改用
+#   python3.12 python3.12-venv（需 bookworm-backports 或源码编译）。
+#
+# 多阶段：base（系统依赖）→ tools（工具链）→ ci（运行环境）
+
+# ---------- Stage 1：base 系统依赖 ----------
+FROM rust:1.82-bookworm AS base
+
+# 安装构建与 CI 所需系统依赖：
+#   pkg-config        - 库探测
+#   libssl-dev        - OpenSSL 头文件（sqlx/tls）
+#   ca-certificates   - TLS 根证书（cargo install/crates.io 拉取）
+#   cmake             - 部分 C 依赖构建（如 libsqlite3-sys 可选）
+#   protobuf-compiler - protoc（prost-build）
+#   build-essential   - gcc/g++/make
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        pkg-config \
+        libssl-dev \
+        ca-certificates \
+        cmake \
+        protobuf-compiler \
+        build-essential \
+    && rm -rf /var/lib/apt/lists/*
+
+# ---------- Stage 2：tools 工具链 ----------
+FROM base AS tools
+
+# 安装 Rust stable 工具链 + rustfmt/clippy/rust-src
+RUN rustup toolchain install stable --profile minimal \
+        --component rustfmt,clippy,rust-src
+
+# 安装 Rust nightly 工具链 + rust-src（cargo-fuzz 需要 nightly）
+RUN rustup toolchain install nightly --profile minimal \
+        --component rust-src
+
+# 安装 6 个 cargo 子命令工具（--locked 保证可复现构建）
+RUN cargo install --locked \
+        cargo-hack \
+        cargo-udeps \
+        cargo-audit \
+        cargo-llvm-cov \
+        cargo-mutants \
+        cargo-fuzz
+
+# 安装 Python 3 + pip + venv（bookworm 自带 3.11，满足 pytest 需求）
+# --break-system-packages: 绕过 PEP 668 externally-managed-environment 限制
+RUN apt-get update && apt-get install -y --no-install-recommends \
+        python3 \
+        python3-pip \
+        python3-venv \
+    && rm -rf /var/lib/apt/lists/* \
+    && pip3 install --break-system-packages pytest pyyaml tomli
+
+# ---------- Stage 3：ci 运行环境 ----------
+FROM tools AS ci
+
+# 工作目录（源码由 actions/checkout 挂载至此）
+WORKDIR /workspace
+
+# 显式声明 CARGO_HOME（rust:1.82-bookworm 默认即此值，此处固化以便 workflow 引用）
+ENV CARGO_HOME=/usr/local/cargo
+
+# 创建非 root 用户 ciuser（uid 1000），并授予 CARGO_HOME 与 WORKDIR 写权限
+# （cargo 运行时需在 CARGO_HOME/registry 写缓存；ciuser 需对 /workspace 有写权限）
+RUN useradd -m -u 1000 ciuser \
+    && chown -R ciuser:ciuser /usr/local/cargo \
+    && chown -R ciuser:ciuser /workspace
+
+# 切换到非 root 用户
+USER ciuser
+
+# 清空 ENTRYPOINT，让 workflow step 直接 run 命令
+ENTRYPOINT []
