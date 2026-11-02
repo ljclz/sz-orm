@@ -103,6 +103,8 @@ ignore = [
     { id = "RUSTSEC-2026-0368", reason = "libduckdb-sys build-dep → zip 6.0.0，仅解压 DuckDB 官方源码包（可信输入），不接受攻击者控制 ZIP；待 libduckdb-sys 升级 zip 至 9.0+ 后移除" },
     # zip 6.0.0: Unix 权限通过符号链接 (RUSTSEC-2026-0369)
     { id = "RUSTSEC-2026-0369", reason = "libduckdb-sys build-dep → zip 6.0.0，仅解压 DuckDB 官方源码包（可信输入），不接受攻击者控制 ZIP；待 libduckdb-sys 升级 zip 至 9.0+ 后移除" },
+    # zip 6.0.0: 大尺寸 symlink 条目 abort (RUSTSEC-2026-0429)
+    { id = "RUSTSEC-2026-0429", reason = "libduckdb-sys build-dep → zip 6.0.0，仅解压 DuckDB 官方源码包（可信输入），不接受攻击者控制 ZIP；待 libduckdb-sys 升级 zip 至 9.0+ 后移除" },
 ]
 # 未维护的依赖不报告（避免 CI 因传递依赖的 unmaintained 而失败）
 unmaintained = "none"
