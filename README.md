@@ -1,11 +1,11 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v10.13.1 · 72 workspace members · 21284+ tests · 28 dialects (21 by default, 7 feature-gated) · sz-orm-core published on crates.io
+> v10.13.1 · 72 workspace members · 21290+ tests · 28 dialects (21 by default, 7 feature-gated) · sz-orm-core published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-21284+-green.svg)](#tests)
+[![Tests](https://img.shields.io/badge/tests-21290+-green.svg)](#tests)
 [![Dialects](https://img.shields.io/badge/dialects-28-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#workspace-structure)
 [![Version](https://img.shields.io/badge/version-10.13.1-blue.svg)](CHANGELOG.md)
@@ -133,7 +133,7 @@ println!("{}", report.to_json().unwrap());
 |------|------|
 | Workspace members | **72** (70 sz-orm-* libs + cli + examples) |
 | Supported DB dialects | **28 dialects** — 21 compiled by default, 7 behind `dialect-*` features (at `--all-features`: 24 SQL + 4 NoSQL); dialect layer = SQL generation, not a connection driver (drivers: sqlx MySQL/PostgreSQL/SQLite + `sz-orm-oracle` + `sz-orm-mssql`) |
-| Test cases | **21284 passed, 0 failed** |
+| Test cases | **21290 passed, 0 failed** |
 | Code size | **~639,200 LOC** (src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |
