@@ -111,3 +111,13 @@ cargo test -p sz-orm-observability --test adaptive_loop_bench -- --ignored --noc
 - 所有新增类型为独立 pub struct/enum，不修改既有 API 签名
 - `start_adaptive_resize` / `adjustment_history` 为 Pool 新增方法，不破坏既有调用方
 - sz-pay 编译通过，5,159 passed, 0 failed，无 API 破坏
+
+---
+
+## 红队审计交叉引用
+
+本报告相关安全结论经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全
