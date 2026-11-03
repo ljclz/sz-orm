@@ -122,4 +122,36 @@
 - 发布过程处理：crates.io 429 滚动限流（延迟重试）、cargo-home 被清理后重新 `cargo login`（token 来自服务器信息文档）
 - 发布脚本：`D:/tmp/publish_all_remaining.py`（依赖优先递归、代理上传、失败快速继续，可复用）
 
-*报告生成：2026-10-29（2026-10-30 复跑、2026-11-01 复跑 + v10.13.1 发布更新）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*
+---
+
+## 七、2026-11-03 WSL2 Docker DB 集成测试记录
+
+> 在 WSL2 Ubuntu + Docker 29.1.3 内启动 DB 容器，编译并运行 `sz-orm-core` 的真实 DB 集成测试（`--ignored`）。
+> 项目路径 `/root/sz-orm`（ext4 原生），cargo registry 3.7GB + target/debug 21GB 缓存复用。
+
+| DB | 镜像 | 真实 DB 测试（#[ignore]） | 方言断言（非 ignore） | 结果 |
+|----|------|--------------------------|----------------------|------|
+| ClickHouse | `clickhouse/clickhouse-server:latest`（MySQL 兼容协议 9004） | 3 passed / 0 failed（crud/pagination/sql_injection_protection） | 8（被 --ignored 过滤） | ✅ |
+| MSSQL | `mcr.microsoft.com/mssql/server:2022-latest`（TCP 1433，`--init` + forceencryption=0） | 8 passed / 0 failed（alter_table/drop_table/escape/merge_into/pagination/parameterized_insert/transaction_commit/transaction_rollback） | 5（被 --ignored 过滤） | ✅ |
+| Oracle | `gvenzl/oracle-free:latest`（26ai，1521/freepdb1） | ❌ SIGSEGV（26ai OCI 库与 oracle crate 0.6.3 不兼容） | 5 passed / 0 failed | 🟡 方言通过，真实 DB 受限 |
+
+**总计**：16 passed / 0 failed（ClickHouse 3 + MSSQL 8 + Oracle 方言 5），Oracle 真实 DB 10 项因 OCI 库兼容性受限。
+
+### Oracle 真实 DB 测试受限原因
+
+- `oracle` 0.6.3 crate 内嵌 ODPI-C，调用 `OCIEnvNlsCreate` 失败后 `OCIErrorGet` → `kpeORAMessageGet` → `__intel_avx_rep_memcpy` SIGSEGV（空指针解引用，`si_addr=NULL`）
+- 26ai OCI 库（`libclntsh.so.23.1`，从容器复制到 WSL）在 WSL（Ubuntu 22.04, glibc 2.35）上不兼容
+- 已尝试：安装 libnuma1、设置 ORACLE_HOME/TZ/NLS_LANG、下载 19c/21c Instant Client（URL 404）、Oracle 官方 registry（需认证）、容器内运行（glibc 不兼容）、rust:1.99 容器（容器持续退出）
+- **结论**：Oracle 真实 DB 集成测试需在 CI 环境（有正确配置的 19c/21c OCI 库）中运行；本机限制非代码缺陷
+
+### 环境问题与解决
+
+| 问题 | 解决 |
+|------|------|
+| MSSQL 容器 ExitCode 255 | 加 `--init` 参数（PID 1 信号处理） |
+| tiberius TLS 被重置 | `mssql-conf set network.forceencryption 0`（未改源码） |
+| sqlcmd 路径变更 | `/opt/mssql-tools18/bin/sqlcmd`（v18，默认加密需 -N o -C） |
+| daocloud 对 `gvenzl/oracle-free:23ai` 返回 403 | 用 `latest` tag（指向 26ai） |
+| Oracle 容器首次启动失败 | 第二次启动成功 + `--restart unless-stopped` |
+
+*报告生成：2026-10-29（2026-10-30 复跑、2026-11-01 复跑 + v10.13.1 发布更新、2026-11-03 WSL2 Docker DB 集成测试）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*

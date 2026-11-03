@@ -80,6 +80,12 @@ python D:/tmp/publish_all_remaining.py    # 遍历全部包（排除 js/python�
 3. **✅ Docker Desktop 引擎——已在运行**：
    `tasklist` 实测多个 `Docker Desktop.exe` + `com.docker.backend.exe` 进程在运行，无需手动启动。
    WSL 内 docker 独立可用。MySQL 容器 `sz-orm-mysql96`（13307）/ `sz300-gzip-mysql`（3308）如需恢复。
+4. **✅ WSL2 Docker DB 集成测试（2026-11-03）**：
+   在 WSL2 Ubuntu + Docker 29.1.3 内启动 DB 容器跑 `sz-orm-core` 真实 DB 集成测试（`--ignored`）：
+   - **ClickHouse** 3 passed / 0 failed（`clickhouse/clickhouse-server:latest`，MySQL 兼容协议 9004）
+   - **MSSQL** 8 passed / 0 failed（`mcr.microsoft.com/mssql/server:2022-latest`，`--init` + forceencryption=0）
+   - **Oracle** 方言断言 5 passed / 0 failed；真实 DB 10 项 ❌ SIGSEGV（26ai OCI 库与 oracle crate 0.6.3 不兼容，需 CI 环境跑）
+   - 总计 **16 passed / 0 failed**，详见 `docs/assessment/2026-10-29-production-readiness-report.md` §七
 
 ## 六、已知坑位（血泪教训）
 
