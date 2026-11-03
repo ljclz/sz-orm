@@ -269,6 +269,28 @@ pub trait Connection: Send + Sync {
         None
     }
 
+    /// R5 优化（v10.13.1）：连接自报「本次租用是否污染过会话状态」，池据此决定
+    /// 是否执行 `session_reset_sql`。默认 `true`（保守：始终复位，与旧行为一致）。
+    ///
+    /// 语义约定：
+    /// - 实现方只在**执行成功**的、可能改变会话级状态的语句（`SET`（除
+    ///   `SET TRANSACTION`——按 R3 仅作用下一事务）、`USE` 等）之后置脏；
+    /// - 事务语句（`START TRANSACTION`/`COMMIT`/`ROLLBACK`）不置脏：
+    ///   事务结束后 autocommit 语义自动恢复，且池在归还时本就回滚未提交事务；
+    /// - 只读语句（`SELECT`/`SHOW`）不置脏。
+    /// - 本方法读取并清除脏标记（take 语义）。
+    ///
+    /// 返回 `false` 时池跳过复位，省下每次借用的 1 条语句 + 1 个往返
+    /// （c=1 实测占每请求语句量的 46–48%，见 sz-rust 验证记录 §18.3）。
+    fn take_session_dirty(&mut self) -> bool {
+        true
+    }
+
+    /// 复位语句执行成功后由池调用：清除脏标记。
+    /// 注意复位 SQL 本身是 `SET ...`，实现方的执行路径会再次置脏，
+    /// 必须依赖本方法统一复位。
+    fn mark_session_clean(&mut self) {}
+
     /// 参数绑定执行（INSERT/UPDATE/DELETE）
     ///
     /// 使用真实 prepared statement 绑定参数，避免 SQL 注入。
@@ -2323,35 +2345,44 @@ impl Pool {
         // R5：会话状态复位。连接复用前清除会话级污染（sql_mode/时区/
         // 隔离级别/search_path/临时表/用户变量），避免下一个租用方继承
         // 上一个租用方的会话设置。复位失败/超时的连接状态不可信，直接关闭。
-        if let Some(reset_sql) = pooled.conn.session_reset_sql() {
-            match tokio::time::timeout(
-                self.config.connection_timeout,
-                pooled.conn.execute(reset_sql),
-            )
-            .await
-            {
-                Ok(Ok(_)) => {
-                    tracing::trace!(
-                        target: "sz_orm::pool",
-                        "session state reset on connection return"
-                    );
-                }
-                Ok(Err(e)) => {
-                    tracing::warn!(
-                        target: "sz_orm::pool",
-                        "session reset on release failed: {}", e
-                    );
-                    self.close_connection(pooled).await;
-                    self.total_count.fetch_sub(1, Ordering::SeqCst);
-                    self.emit_event(PoolEvent::ConnectionClosed);
-                    return;
-                }
-                Err(_) => {
-                    tracing::warn!(target: "sz_orm::pool", "session reset on release timed out");
-                    self.close_connection(pooled).await;
-                    self.total_count.fetch_sub(1, Ordering::SeqCst);
-                    self.emit_event(PoolEvent::ConnectionClosed);
-                    return;
+        // v10.13.1 优化：连接自报本次租用未执行过会话级语句（脏标记为假）
+        // 时跳过复位——新连接天然干净，只读/事务语句不复位语义。
+        let session_dirty = pooled.conn.take_session_dirty();
+        if session_dirty {
+            if let Some(reset_sql) = pooled.conn.session_reset_sql() {
+                match tokio::time::timeout(
+                    self.config.connection_timeout,
+                    pooled.conn.execute(reset_sql),
+                )
+                .await
+                {
+                    Ok(Ok(_)) => {
+                        pooled.conn.mark_session_clean();
+                        tracing::trace!(
+                            target: "sz_orm::pool",
+                            "session state reset on connection return"
+                        );
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(
+                            target: "sz_orm::pool",
+                            "session reset on release failed: {}", e
+                        );
+                        self.close_connection(pooled).await;
+                        self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        self.emit_event(PoolEvent::ConnectionClosed);
+                        return;
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            target: "sz_orm::pool",
+                            "session reset on release timed out"
+                        );
+                        self.close_connection(pooled).await;
+                        self.total_count.fetch_sub(1, Ordering::SeqCst);
+                        self.emit_event(PoolEvent::ConnectionClosed);
+                        return;
+                    }
                 }
             }
         }
@@ -2440,26 +2471,34 @@ impl Pool {
             }
         }
 
-        // R5：会话状态复位（与 release 同规则）
-        if let Some(reset_sql) = conn.session_reset_sql() {
-            match tokio::time::timeout(self.config.connection_timeout, conn.execute(reset_sql))
-                .await
-            {
-                Ok(Ok(_)) => {}
-                Ok(Err(e)) => {
-                    tracing::warn!(
-                        target: "sz_orm::pool",
-                        "session reset on return_raw failed: {}", e
-                    );
-                    let _ = conn.close().await;
-                    return Err(PoolError::ConnectionFailed(e.to_string()));
-                }
-                Err(_) => {
-                    tracing::warn!(target: "sz_orm::pool", "session reset on return_raw timed out");
-                    let _ = conn.close().await;
-                    return Err(PoolError::ConnectionFailed(
-                        "session reset on return_raw timed out".to_string(),
-                    ));
+        // R5：会话状态复位（与 release 同规则，含 v10.13.1 脏标记跳过）
+        let session_dirty = conn.take_session_dirty();
+        if session_dirty {
+            if let Some(reset_sql) = conn.session_reset_sql() {
+                match tokio::time::timeout(self.config.connection_timeout, conn.execute(reset_sql))
+                    .await
+                {
+                    Ok(Ok(_)) => {
+                        conn.mark_session_clean();
+                    }
+                    Ok(Err(e)) => {
+                        tracing::warn!(
+                            target: "sz_orm::pool",
+                            "session reset on return_raw failed: {}", e
+                        );
+                        let _ = conn.close().await;
+                        return Err(PoolError::ConnectionFailed(e.to_string()));
+                    }
+                    Err(_) => {
+                        tracing::warn!(
+                            target: "sz_orm::pool",
+                            "session reset on return_raw timed out"
+                        );
+                        let _ = conn.close().await;
+                        return Err(PoolError::ConnectionFailed(
+                            "session reset on return_raw timed out".to_string(),
+                        ));
+                    }
                 }
             }
         }

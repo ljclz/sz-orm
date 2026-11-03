@@ -40,6 +40,12 @@
 
 **验证**：`cargo test -p sz-orm-core -p sz-orm-ai -p sz-orm-crypto -p sz-orm-audit` 全绿；clippy `-D warnings` 通过；G9 工作区 46/46 Safe、自测 15/15；check-secrets 0 findings；`audit-verify` 206 通过 / 0 失败 / 147 警告。
 
+### 性能 — 连接池归还按脏标记跳过会话复位（2026-11-04，sz-rust 验证记录 §18.3/§21）
+
+- **缺陷（实测，sz-rust 侧 `general_log` 逐条枚举）**：`release`/`return_raw` 每次借用无条件执行 `SET SESSION …` 会话复位，占每业务请求语句量的 **46–48%**（c=1 pre 腿 3.000 条/请求、post 腿 1.241 条/请求）——即使本次租用只跑过 `SELECT`，复位照付。
+- **修复**：`Connection` trait 新增 `take_session_dirty()`（默认 `true` 保持保守）与 `mark_session_clean()`；`SqlxMySqlConnection` 跟踪会话级语句（`SET`（除 `SET TRANSACTION`，按 R3 仅作用下一事务）与 `USE` 成功执行后置脏，take 语义读清），`MetricsConn` 透传两方法；池两处 R5 复位点在脏标记为假时跳过复位。只读/事务语句（`START TRANSACTION`/`COMMIT`/`ROLLBACK`）不置脏——autocommit 语义自动恢复且池本就回滚未提交事务。
+- **验证**：`cargo test -p sz-orm-sqlx --lib` = **212 passed**（含 5 个新 `marks_session_dirty` 单测：SET 置脏 / USE 置脏 / SET TRANSACTION 豁免 / `SET TRANSACTIONX` 词边界 / 只读与事务语句豁免）；`-p sz-orm-core --lib` = 3270 passed；clippy 0 warning；fmt 无差异。端到端 A/B 见 sz-rust 验证记录 §21。
+
 ## [10.13.0] — 2026-10-27
 
 ### v10.13.0 架构评测路线图执行（2026-10-28 TA 评测 P0-P3 修复）
@@ -2884,4 +2890,3 @@ CHANGELOG 当前记录 49 个版本（1.0.0 → 10.10.0），specs 目录有 57+
 - v10.0.0, v10.1.0, v10.4.0, v10.5.0
 后续版本迭代时逐步补充。
 -->
-

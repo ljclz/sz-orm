@@ -1013,6 +1013,8 @@ impl ConnectionFactory for SqlxMySqlConnectionFactory {
                 conn: Some(conn),
                 connected: true,
                 in_transaction: false,
+                // 新连接会话天然处于默认状态：干净（R5 脏标记跳过复位）
+                session_dirty: false,
             },
         ))))
     }
@@ -1022,6 +1024,47 @@ pub struct SqlxMySqlConnection {
     conn: Option<sqlx::pool::PoolConnection<sqlx::MySql>>,
     connected: bool,
     in_transaction: bool,
+    /// R5 优化（v10.13.1）：本次租用是否执行过会话级语句（SET/USE）。
+    /// 连接池归还时据此跳过无条件复位（省 1 条语句 + 1 个往返/借用）。
+    session_dirty: bool,
+}
+
+/// 判断一条 SQL 是否可能在成功执行后改变会话级状态（R5 脏标记依据）。
+///
+/// 置脏：`SET`（含 `SET SESSION`/`SET NAMES`/`SET autocommit`/用户变量）与 `USE`。
+/// 不置脏：`SET TRANSACTION`（按 R3 仅作用下一事务，事务结束不残留）、
+/// 只读语句（`SELECT`/`SHOW`/`EXPLAIN`/`DESC`）、事务语句
+/// （`START TRANSACTION`/`BEGIN`/`COMMIT`/`ROLLBACK`——autocommit 语义自动恢复，
+/// 且池在归还时本就回滚未提交事务）。
+pub(crate) fn marks_session_dirty(sql: &str) -> bool {
+    // 大小写不敏感地截取语句头部比较（32 字符足够覆盖前两个词）
+    let trimmed = sql.trim_start();
+    let mut upper = String::with_capacity(32);
+    for ch in trimmed.chars() {
+        if upper.len() >= 32 {
+            break;
+        }
+        upper.push(ch.to_ascii_uppercase());
+    }
+    if upper.starts_with("USE ") || upper.starts_with("USE\t") || upper == "USE" {
+        return true;
+    }
+    if !upper.starts_with("SET") {
+        return false;
+    }
+    // "SET" 后必须跟词边界（排除 "SETUP..." 这类误判）
+    let after_set = &upper[3..];
+    if !(after_set.is_empty() || after_set.starts_with(' ') || after_set.starts_with('\t')) {
+        return false;
+    }
+    let rest = after_set.trim_start();
+    // `SET TRANSACTION ...` 仅作用下一事务；`SET TRANSACTIONX` 是标识符语境，置脏
+    !(rest.starts_with("TRANSACTION")
+        && rest["TRANSACTION".len()..]
+            .chars()
+            .next()
+            .map(|c| c.is_whitespace() || c == ';')
+            .unwrap_or(true))
 }
 
 impl Connection for SqlxMySqlConnection {
@@ -1045,6 +1088,17 @@ impl Connection for SqlxMySqlConnection {
         )
     }
 
+    /// R5 脏标记（v10.13.1）：读取并清除脏标记（take 语义）。
+    /// 返回 false 时池跳过复位语句——连接从未执行过 SET/USE，会话仍是默认状态。
+    fn take_session_dirty(&mut self) -> bool {
+        std::mem::take(&mut self.session_dirty)
+    }
+
+    /// 复位语句执行成功后由池调用；复位 SQL 是 SET，执行路径会置脏，这里统一清零
+    fn mark_session_clean(&mut self) {
+        self.session_dirty = false;
+    }
+
     fn execute<'a>(
         &'a mut self,
         sql: &'a str,
@@ -1066,7 +1120,13 @@ impl Connection for SqlxMySqlConnection {
             self.conn = Some(pool_conn);
 
             match result {
-                Ok(r) => Ok(r.rows_affected()),
+                Ok(r) => {
+                    // R5 脏标记（v10.13.1）：仅执行成功的语句才可能改变会话状态
+                    if marks_session_dirty(sql) {
+                        self.session_dirty = true;
+                    }
+                    Ok(r.rows_affected())
+                }
                 Err(e) => {
                     let db_err = map_sqlx_error(e);
                     if matches!(db_err, DbError::ConnectionError(_) | DbError::IoError(_)) {
@@ -1248,7 +1308,13 @@ impl Connection for SqlxMySqlConnection {
             let result = q.execute(&mut *pool_conn).await;
             self.conn = Some(pool_conn);
             match result {
-                Ok(r) => Ok(r.rows_affected()),
+                Ok(r) => {
+                    // R5 脏标记（v10.13.1）：参数化路径同样可能执行 SET（如 SET x = ?）
+                    if marks_session_dirty(sql) {
+                        self.session_dirty = true;
+                    }
+                    Ok(r.rows_affected())
+                }
                 Err(e) => {
                     let db_err = map_sqlx_error(e);
                     if matches!(db_err, DbError::ConnectionError(_) | DbError::IoError(_)) {
@@ -3057,6 +3123,7 @@ mod tests {
             conn: None,
             connected: false,
             in_transaction: false,
+            session_dirty: false,
         }
     }
 
@@ -3103,6 +3170,7 @@ mod tests {
             conn: None,
             connected: false,
             in_transaction: true,
+            session_dirty: false,
         };
         let result = c.begin_transaction().await;
         assert!(result.is_err());
@@ -3421,5 +3489,63 @@ mod tests {
                 rd.to_string() != s
             }
         );
+    }
+}
+
+#[cfg(test)]
+mod session_dirty_tests {
+    use super::marks_session_dirty;
+
+    #[test]
+    fn set_statements_mark_dirty() {
+        assert!(marks_session_dirty("SET SESSION sql_mode = DEFAULT"));
+        assert!(marks_session_dirty("set names utf8mb4"));
+        assert!(marks_session_dirty("SET autocommit = 0"));
+        assert!(marks_session_dirty("SET @my_var = 1"));
+        assert!(marks_session_dirty("  set\tsql_mode='x'"));
+    }
+
+    #[test]
+    fn use_marks_dirty() {
+        assert!(marks_session_dirty("USE sz_orm_test"));
+        assert!(marks_session_dirty("use other_db;"));
+    }
+
+    #[test]
+    fn set_transaction_not_dirty() {
+        assert!(!marks_session_dirty(
+            "SET TRANSACTION ISOLATION LEVEL REPEATABLE READ"
+        ));
+        assert!(!marks_session_dirty("set transaction read only"));
+        assert!(!marks_session_dirty("SET TRANSACTION;"));
+    }
+
+    #[test]
+    fn set_transaction_identifier_still_dirty() {
+        // `SET TRANSACTIONX` 不是 SET TRANSACTION 语句
+        assert!(marks_session_dirty("SET TRANSACTIONX = 1"));
+    }
+
+    #[test]
+    fn read_and_tx_statements_not_dirty() {
+        assert!(!marks_session_dirty("SELECT 1"));
+        assert!(!marks_session_dirty("select * from t where a=1"));
+        assert!(!marks_session_dirty("SHOW TABLES"));
+        assert!(!marks_session_dirty("EXPLAIN SELECT 1"));
+        assert!(!marks_session_dirty("START TRANSACTION"));
+        assert!(!marks_session_dirty("BEGIN"));
+        assert!(!marks_session_dirty("COMMIT"));
+        assert!(!marks_session_dirty("ROLLBACK"));
+        assert!(!marks_session_dirty("INSERT INTO t VALUES (1)"));
+        assert!(!marks_session_dirty("UPDATE t SET a = 1 WHERE id = 1"));
+        assert!(!marks_session_dirty("DELETE FROM t WHERE id = 1"));
+    }
+
+    #[test]
+    fn word_boundary_no_false_positive() {
+        // "SETUP..." 不是 SET 语句
+        assert!(!marks_session_dirty("SETUP_CHECK = 1"));
+        // "USER" 表名查询不是 USE 语句
+        assert!(!marks_session_dirty("SELECT * FROM USER"));
     }
 }

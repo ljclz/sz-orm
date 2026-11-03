@@ -109,6 +109,15 @@ impl Connection for MetricsConn {
         self.inner.session_reset_sql()
     }
 
+    // R5 脏标记（v10.13.1）：必须透传，否则包装层默认 true 会让复位跳过优化失效
+    fn take_session_dirty(&mut self) -> bool {
+        self.inner.take_session_dirty()
+    }
+
+    fn mark_session_clean(&mut self) {
+        self.inner.mark_session_clean()
+    }
+
     fn execute_with_params<'a>(
         &'a mut self,
         sql: &'a str,
