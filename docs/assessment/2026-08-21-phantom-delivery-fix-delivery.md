@@ -199,3 +199,13 @@
 1. **测试失败**：5 个测试失败（3+2），为环境相关失败（数据库连接等），非本次修改导致
 2. **循环依赖**：sz-orm-ai 和 sz-orm-vector 因循环依赖无法接入 core，改为 cli B 模式
 3. **实验性包**：es/wasm/lc/mqtt/websocket 标记为实验性，未接入 core 或 cli
+
+---
+
+## 红队审计交叉引用
+
+幻影交付/测试防护经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

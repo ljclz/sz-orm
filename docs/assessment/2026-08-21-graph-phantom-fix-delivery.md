@@ -139,3 +139,13 @@ sz-orm-core --features graph --test graph_adapter_e2e:
 | packages/sz-orm-core/src/lib.rs | 修改（graph_adapter 模块声明） |
 | packages/sz-orm-core/src/graph_adapter.rs | 新增 |
 | packages/sz-orm-core/tests/graph_adapter_e2e.rs | 新增 |
+
+---
+
+## 红队审计交叉引用
+
+幻影交付/测试防护经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

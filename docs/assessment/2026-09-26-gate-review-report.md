@@ -73,3 +73,13 @@
 - 阻断报告：docs/assessment/2026-09-25-gate-block-report.md（59655e7 轮，G4 门控缺失）、docs/assessment/2026-09-26-m5-regression-block-report.md（0f21d46 轮，M5 回归）
 - 事件：docs/audit/events.jsonl（GateFailed ×2 → ReviewCompleted）
 - 审计 worktree：F:/sz-orm-audit-wt（含全部修复，可直接 commit 或 diff 应用回主仓）
+
+---
+
+## 红队审计交叉引用
+
+门禁审查结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

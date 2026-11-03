@@ -83,3 +83,13 @@
 - 阻断报告：docs/assessment/2026-10-05-gate-block-report.md（G7 轮，已由本报告取代）
 - 事件：docs/audit/events.jsonl（GateFailed → FixApplied → FixVerified → ReviewCompleted）
 - 本报告：docs/assessment/2026-10-05-gate-review-report.md
+
+---
+
+## 红队审计交叉引用
+
+门禁审查结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

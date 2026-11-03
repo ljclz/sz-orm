@@ -173,3 +173,12 @@ G7 第 6 轮执行中（2026-09-25 22:33 前后），仓库工作区被**并行�
 - **建议**：待并行 v9.0.0 会话完成其工作并落定后，在新 HEAD 上重跑 `/sz-orm-review 全面审计`（预计可通：本次全部拦截项均已定位且无代码缺陷）
 - **遗留待办**（移交维护者）：① AGENTS.md 补 G7 本机排除清单或补齐 ClickHouse/MSSQL/Redis 服务；② gbase 云凭据移出源码；③ jepsen/pool_tests 占位符 URL 与兄弟测试统一默认值；④ soak/prepared_cache 阈值抗负载化（如取中位数样本）
 
+---
+
+## 红队审计交叉引用
+
+门禁审查结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

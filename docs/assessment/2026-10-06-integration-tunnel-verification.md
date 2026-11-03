@@ -90,3 +90,13 @@ ssh -i ~/.ssh/szorm_server_122 -o ExitOnForwardFailure=yes -f -N -L 19004:127.0.
 1. `AGENTS.md` G7 排除清单：`integration_clickhouse` 从「仅 WSL 路径」更新为「服务器 Docker + SSH 隧道可跑通（实测 3/3）」；`integration_mssql` 原因更新为「腾讯云实例已下线 + mcr 网络不可达 + 本机无完整 SQL Server」。
 2. 评估文档 `2026-10-06-local-integration-services-evaluation.md` 的「可补齐路径」补充服务器隧道实测结论。
 3. `integration_redis` 已确认从排除清单移除（本机与服务器隧道双路径均验证）。
+
+---
+
+## 红队审计交叉引用
+
+安全结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

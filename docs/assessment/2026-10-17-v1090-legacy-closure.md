@@ -152,3 +152,13 @@ test result: ok. 5159 passed; 0 failed; 13 ignored  ✅
 **向后兼容性**：无破坏性变更，10 处 deprecated 全部保留，sz-pay 编译和测试通过。
 **unsafe 零容忍**：无新增 unsafe 代码。
 **不新增 crate/feature/依赖**：72 包不变。
+
+---
+
+## 红队审计交叉引用
+
+交付安全性经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

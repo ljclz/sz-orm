@@ -223,3 +223,13 @@ v7.9.0 定位为 v7.8.0 六大能力的**生产化深化版本**——从"能力
 - 无幻影交付：22/22 组件附 file:line 证据 + e2e 测试
 - 无幻影测试：19/19 e2e 测试真实调用组件并验证行为
 - ImpactAnalyzer e2e 缺口已修复（safety_net_wiring.rs:103-121）
+
+---
+
+## 红队审计交叉引用
+
+审计结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

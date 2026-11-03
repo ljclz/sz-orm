@@ -137,3 +137,13 @@ file:line 证据存在 → 绿灯
 ---
 
 *本文档与 [2026-08-13-production-zero-call-audit.md](2026-08-13-production-zero-call-audit.md) 构成完整证据链：审计报告=发生了什么，本文档=为什么发生、怎么解决、怎么防范。*
+
+---
+
+## 红队审计交叉引用
+
+幻影交付/测试防护经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

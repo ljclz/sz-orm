@@ -141,3 +141,13 @@ test result: ok. 207 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out; fi
 - **Oracle 三处 bug 修复**：runtime drop panic + 未 commit 数据回滚 + BEGIN 语法错误
 - **PostgreSQL 并行竞态修复**：Mutex 串行化 init 调用
 - **v8.7.0 性能基准采集任务（M1-T3）完成度**：4/4 数据库完整采集 ✅
+
+---
+
+## 红队审计交叉引用
+
+本报告相关安全结论经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

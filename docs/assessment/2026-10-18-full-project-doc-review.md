@@ -288,3 +288,13 @@ find packages -path "*/tests/*.rs" -not -path "*/target/*" -print0 | xargs -0 gr
 # 8. 边界/fuzz 测试文件统计（tests/ 下文件名含 boundary/fuzz/chaos 的 .rs，实测 19）
 find packages -path "*/tests/*.rs" \( -name "*boundary*" -o -name "*fuzz*" -o -name "*chaos*" \) -not -path "*/target/*" | wc -l
 ```
+
+---
+
+## 红队审计交叉引用
+
+交付安全性经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

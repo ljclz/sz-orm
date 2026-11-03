@@ -88,3 +88,13 @@ python scripts/check-metrics-real.py --fix    # 自动修正后再次运行应 P
 | M4 变异门禁分层 | G20 本地不可全量落地 | 持续 | P2 |
 
 **终态验收标准**：`python scripts/check-metrics-real.py` 对 README.md/README.zh.md 零告警；README 三处测试数字一致；Quick Start 按文档可 5 分钟跑通真库；新增示例未登记时门禁失败。
+
+---
+
+## 红队审计交叉引用
+
+评测结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

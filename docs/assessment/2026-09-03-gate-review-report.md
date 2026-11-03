@@ -70,3 +70,13 @@
 - 本轮因并行 cargo 进程争锁/内存多次出现测试进程被杀（G20 反复 resume），最终以串行测试模式（`--test-threads=1`）稳定通过
 - cargo-mutants `--in-place` 运行期间严禁对目标包执行 `git checkout`（会同时破坏变异实验与本地修改），本轮已踩坑 3 次并全部重应用修复
 - G22 首轮因 `cargo clean` 后全量重编译超出 30 分钟超时，本轮预热缓存后通过
+
+---
+
+## 红队审计交叉引用
+
+门禁审查结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

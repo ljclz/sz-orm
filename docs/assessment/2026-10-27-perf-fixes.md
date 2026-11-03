@@ -261,3 +261,13 @@ cd bench-comparison && cargo check --bench full_comparison → OK
 - 本机 git 安装于 `D:\Git\cmd\git.exe`（git 2.56.0），未加入 PATH；调用需用完整路径或临时 `$env:PATH += ';D:\Git\cmd'`。
 - 依赖 git 的门禁（`scripts/check-doc-sync.py --diff HEAD`、`check-upstream-unmodified.sh`）在临时加入 PATH 后正常运行通过。
 - 本机 MySQL `root:test123` 凭据失效（`Access denied`）且缺少 Oracle ODPI-C 客户端库，故 `real_db_bench -- --ignored` 的 MySQL/Oracle 用例无法本机复现（环境问题，非测试缺陷）。
+
+---
+
+## 红队审计交叉引用
+
+评测结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

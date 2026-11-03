@@ -101,3 +101,13 @@
 
 - `docs/assessment/2026-08-15-old-coder-verification-evidence.md`：EVIDENCE 报告（功能→测试映射、每层门禁命令+实际数字、变异证明记录、baseline 记录、可复现入口）
 - 全部数字来自最后一次编辑后的 fresh run
+
+---
+
+## 红队审计交叉引用
+
+安全结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

@@ -86,3 +86,13 @@
 
 - `cargo test -p sz-orm-core --features "auto-failover,tenant-quota-rls-enhanced" --test multi_region_ha_wiring_test`：32 passed
 - 合计：**32 passed / 0 failed**
+
+---
+
+## 红队审计交叉引用
+
+交付安全性经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

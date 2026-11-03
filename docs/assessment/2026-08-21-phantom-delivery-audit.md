@@ -82,3 +82,13 @@ sz-orm-core, sz-orm-sqlx, sz-orm-macros, sz-orm-sql-validator, sz-orm-n1-lint, s
 | P2 间接零调用 | 6 | diagnosis, adaptive, flamegraph, tracing, ai, vector |
 | P3 模块级/违规 | 5 | observability::query_logger, grpc, oracle, mssql, macros/diagnostic.rs |
 | 总计 | 29 | |
+
+---
+
+## 红队审计交叉引用
+
+幻影交付/测试防护经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

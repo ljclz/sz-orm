@@ -94,3 +94,13 @@
 - **22/23 关通过**（G1-G19、G21-G23）。
 - **G20 未完整执行**（Windows 本地环境限制，样本杀率 58.3% < 70% 阈值），需在 CI/Linux 环境运行 `collect-mutation-linux.sh --fail-under 70` 复跑确认。
 - 无阻塞性代码缺陷遗留；本次审查产生的 5 项修复均已验证。
+
+---
+
+## 红队审计交叉引用
+
+门禁审查结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

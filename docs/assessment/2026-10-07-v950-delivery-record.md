@@ -190,3 +190,13 @@ pub enum RepositoryError { ..., RelationNotFound(String), InvalidParams(String) 
 1. **T5 死锁重试**：`TransactionOrchestrator::run` 不内部处理死锁重试（`Connection` 无 `clone_box`、`TransactOptions` 未实现 `Clone`）。死锁重试由调用方使用 `retry_on_deadlock` 包装 `run` 实现。文档已说明。
 2. **T8 AutoHealer 端到端**：`test_auto_healer_config_e2e` 仅验证配置就绪 + 连接 ping，未验证真实断连自愈全流程（需长时运行 + KILL CONNECTION 操作）。
 3. **G1 fmt**：Windows 路径太长导致 `cargo fmt --all --check` 报 OS error 206，非代码问题。CI 环境（Linux）无此限制。
+
+---
+
+## 红队审计交叉引用
+
+交付安全性经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

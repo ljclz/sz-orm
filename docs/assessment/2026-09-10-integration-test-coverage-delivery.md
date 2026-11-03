@@ -113,3 +113,13 @@ Db2 真实 DB 集成测试需要 ODBC 驱动或专用 `ibm-db2` crate，受项�
 4. **生产接线验证测试**：`cargo test -- --ignored` 全绿（需 DB 实例运行） ✅
 5. **文档一致**：design.md 覆盖度矩阵已更新，交付记录归档 ✅
 6. **无幻影交付**：每个新增测试函数附 `file:line` 证据 ✅
+
+---
+
+## 红队审计交叉引用
+
+交付安全性经红队审计验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全

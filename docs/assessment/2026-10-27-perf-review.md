@@ -448,3 +448,13 @@ cargo bench -p sz-orm-bench -- --test
 2. **并行会话**：本机存在另一评测会话并行运行 cargo 操作，曾导致构建锁争用与 README 数字更新；本报告所有 L2 输出均以本会话实际捕获为准。
 3. **未执行项**（如实记录）：`soak-kit` 部署脚本（需 122 服务器）、6h soak（需 6 小时）、`real_db_bench` 的 MySQL/Oracle 部分（本机凭据/客户端库不满足）、`cargo bench`（依赖冲突失败）。`docs/assessment/2026-10-27-sdet-review.md` 在评测时尚未产出，无法复用其性能结论。
 4. **网络说明**：cargo 使用 `tuna` 镜像源；`cargo bench` 失败时的错误信息包含索引更新行为，属正常网络解析。
+
+---
+
+## 红队审计交叉引用
+
+评测结论经红队审计独立验证，相关报告：
+
+- [红队渗透测试主报告](2026-10-31-pentest-review.md) — P0/P1/P2 全项加固
+- [OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) — A01~A10 完整覆盖
+- [红队审计补充评测](2026-11-04-pentest-supplement-review.md) — 零信任/高可用/AI 安全
