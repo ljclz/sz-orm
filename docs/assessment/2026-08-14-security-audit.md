@@ -217,3 +217,9 @@ pub fn new(proxy_url: &str, ...) -> Result<Self, WasmRealDbError> {
 | FIND-002 | 生产代码 `.lock().unwrap()` 替换为 `parking_lot::Mutex` 或忽略 poisoning | `sz-orm-core`, `sz-orm-queue`, `sz-orm-storage`, `sz-orm-observability`, `sz-orm-fusion` |
 | FIND-003 | 编译期验证改用环境变量/stdin 传递密码 | `sz-orm-macros` |
 | FIND-004 | `WasmRealDbConnection::new` 添加 URL 验证 | `sz-orm-wasm` |
+
+## 红队审计交叉引用
+
+本报告的早期白帽安全审计发现已被后续红队审计报告独立验证/扩展：
+- [2026-10-31 红队视角渗透测试](2026-10-31-pentest-review.md) 覆盖了本报告的攻击面并扩展了新发现
+- [2026-08-15 OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) 覆盖 OWASP Top 10

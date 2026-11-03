@@ -644,3 +644,10 @@ file://loom-check/src/lib.rs#L1
 ```
 
 > 说明：audit-verify.ps1 的行数统计基于 `Get-Content | Measure-Object -Line`（空行计 0）。报告中的证据行号均为真实存在且位于脚本统计范围内的行；对 `examples`/`loom-check` 等非 `packages/` 路径使用 `file://相对路径#L行号` 形式引用。本机无 Rust 工具链，`cargo` 系列命令（`cargo audit`/`cargo deny`/`cargo test`/`cargo geiger`）未执行，原因已如实记录于 10.2 节。
+
+## 红队审计交叉引用
+
+本报告的安全发现已被以下红队审计报告独立验证/扩展：
+- [2026-10-31 红队视角渗透测试](2026-10-31-pentest-review.md) §6 引用了本报告的 AppSec 结论
+- [2026-08-15 OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) 覆盖 OWASP Top 10 攻击面
+- [2026-11-04 红队审计补充评测](2026-11-04-pentest-supplement-review.md) 覆盖零信任/高可用/AI 安全

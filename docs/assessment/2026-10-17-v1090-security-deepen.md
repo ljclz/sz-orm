@@ -209,3 +209,9 @@ test result: ok. 7 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 | `compliance-auto-scan` | ComplianceScanDesensitizer + ComplianceScanEngine | 既有 |
 
 **未新增 feature gate**，全部复用既有。
+
+## 红队审计交叉引用
+
+本报告的安全加固深化已由红队审计报告独立验证：
+- [2026-10-31 红队视角渗透测试](2026-10-31-pentest-review.md) 覆盖了本报告的攻击面
+- [2026-11-04 红队审计补充评测](2026-11-04-pentest-supplement-review.md) 覆盖零信任/高可用/AI 安全

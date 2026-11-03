@@ -166,3 +166,8 @@ SDET 评测发现 `fuzz` / `benchmark` / `integration`（含 `mq-integration`）
 ---
 
 *整改记录生成：2026-10-28。所有门禁与 cargo 验证均为本会话实测输出。*
+
+## 红队审计交叉引用
+
+本报告的 CI 门禁与敏感信息清理已由红队审计报告独立验证：
+- [2026-10-31 红队视角渗透测试](2026-10-31-pentest-review.md) §3.6 覆盖了 check-secrets.py 凭据扫描

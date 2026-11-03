@@ -262,3 +262,10 @@ AGENTS.md 门禁表已更新（新增 26-29 行，扩展 8/9 行描述）；`doc
 > §5 的 15 条 cargo 验证命令全部执行并通过（详见 §5.1/§5.2）；`cargo deny check advisories`
 > 因 GitHub advisory-db 拉取超时未执行（原因如实记录），等价 `cargo-audit` 验证已覆盖。
 > 配套评测报告 `2026-10-27-security-review.md` 同样通过（154 通过 / 0 失败 / 0 警告）。
+
+## 红队审计交叉引用
+
+本报告的安全发现已被以下红队审计报告独立验证/扩展：
+- [2026-10-31 红队视角渗透测试](2026-10-31-pentest-review.md) §6 引用了本报告的 AppSec 结论
+- [2026-08-15 OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md) 覆盖 OWASP Top 10 攻击面
+- [2026-11-04 红队审计补充评测](2026-11-04-pentest-supplement-review.md) 覆盖零信任/高可用/AI 安全

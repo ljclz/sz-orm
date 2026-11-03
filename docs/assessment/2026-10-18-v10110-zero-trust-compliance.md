@@ -113,3 +113,8 @@
 
 - `cargo test -p sz-orm-audit --features "compliance-auto-scan" --test zero_trust_compliance_wiring_test`：41 passed
 - 合计：**41 passed / 0 failed**
+
+## 红队审计交叉引用
+
+本报告的零信任合规自动化已由红队审计补充报告覆盖：
+- [2026-11-04 红队审计补充评测](2026-11-04-pentest-supplement-review.md) §2 零信任合规自动化安全审查
