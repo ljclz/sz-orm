@@ -133,16 +133,17 @@
 |----|------|--------------------------|----------------------|------|
 | ClickHouse | `clickhouse/clickhouse-server:latest`（MySQL 兼容协议 9004） | 3 passed / 0 failed（crud/pagination/sql_injection_protection） | 8（被 --ignored 过滤） | ✅ |
 | MSSQL | `mcr.microsoft.com/mssql/server:2022-latest`（TCP 1433，`--init` + forceencryption=0） | 8 passed / 0 failed（alter_table/drop_table/escape/merge_into/pagination/parameterized_insert/transaction_commit/transaction_rollback） | 5（被 --ignored 过滤） | ✅ |
-| Oracle | `gvenzl/oracle-free:latest`（26ai，1521/freepdb1） | ❌ SIGSEGV（26ai OCI 库与 oracle crate 0.6.3 不兼容） | 5 passed / 0 failed | 🟡 方言通过，真实 DB 受限 |
+| Oracle | `gvenzl/oracle-free:latest`（26ai，1521/freepdb1）+ 19c Instant Client | 10 passed / 0 failed（alter_table/bulk_insert_100k/create_insert_select/drop_table/escape/merge_into/pagination/parameterized_insert/transaction_commit/transaction_rollback） | 5 passed / 0 failed | ✅ |
 
-**总计**：16 passed / 0 failed（ClickHouse 3 + MSSQL 8 + Oracle 方言 5），Oracle 真实 DB 10 项因 OCI 库兼容性受限。
+**总计**：26 passed / 0 failed（ClickHouse 3 + MSSQL 8 + Oracle 真实 DB 10 + Oracle 方言 5），全部通过。
 
-### Oracle 真实 DB 测试受限原因
+### Oracle 真实 DB 测试解决方案
 
-- `oracle` 0.6.3 crate 内嵌 ODPI-C，调用 `OCIEnvNlsCreate` 失败后 `OCIErrorGet` → `kpeORAMessageGet` → `__intel_avx_rep_memcpy` SIGSEGV（空指针解引用，`si_addr=NULL`）
-- 26ai OCI 库（`libclntsh.so.23.1`，从容器复制到 WSL）在 WSL（Ubuntu 22.04, glibc 2.35）上不兼容
-- 已尝试：安装 libnuma1、设置 ORACLE_HOME/TZ/NLS_LANG、下载 19c/21c Instant Client（URL 404）、Oracle 官方 registry（需认证）、容器内运行（glibc 不兼容）、rust:1.99 容器（容器持续退出）
-- **结论**：Oracle 真实 DB 集成测试需在 CI 环境（有正确配置的 19c/21c OCI 库）中运行；本机限制非代码缺陷
+- **问题**：`oracle` 0.6.3 crate 内嵌 ODPI-C，调用 26ai OCI 库的 `OCIEnvNlsCreate` 失败后 `OCIErrorGet` → `kpeORAMessageGet` → `__intel_avx_rep_memcpy` SIGSEGV（空指针解引用）
+- **根因**：26ai OCI 库（`libclntsh.so.23.1`）与 `oracle` crate 0.6.3 不兼容
+- **解决**：下载并安装 **19c Instant Client**（`instantclient-basic-linux.x64-19.3.0.0.0dbru.zip`，72MB）到 `/opt/oracle/instantclient19c`，修复 `libclntsh.so` 符号链接（zip 不保留符号链接，需 `rm libclntsh.so && ln -s libclntsh.so.19.1 libclntsh.so`）
+- **验证**：26ai 容器（`gvenzl/oracle-free:latest`，端口 1522）+ 19c OCI 库 → 10/10 真实 DB 测试全绿，bulk insert 100k rows 2453 rows/s
+- **容器稳定性**：gvenzl Oracle 容器在 Docker Desktop/WSL2 下会不定期重启（收到 SIGTERM），需 `--init --restart=always` + 容器内 SQL 脚本（避免 WSL 多层 shell heredoc 引号问题）+ 轮询等待就绪窗口
 
 ### 环境问题与解决
 
