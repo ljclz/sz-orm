@@ -129,3 +129,11 @@ if [ $AUDIT_RC -eq 0 ] || [ $DENY_RC -eq 0 ]; then mark 6 PASS; else mark 6 FAIL
 - ⏳ **cargo geiger 安装**：依赖 crates.io 网络（当前环境不稳定），以 `scripts/check-unsafe-audit.py` 作为离线等价替代；网络可用后可安装并交叉验证。
 - ⏳ **连接池并发不变量属性测试**：已由 `loom-check/` 的模型不变量覆盖（total ≤ max、计数守恒），主工作区属性测试仍可扩展。
 - ✅ **门禁脚本硬编码 PASS 排查**：`run-gates-v10120-server.sh` Gate 1 仍为直接标记 PASS（注释说明 fmt 已手工通过）；Gate 6/11 已修复。
+
+## 红队审计独立验证
+
+本报告涉及的安全门禁（G6 安全审计、G9 SQL 注入扫描、G21 安全攻击测试）已由以下红队审计报告提供独立验证证据：
+
+- [2026-10-31 红队视角渗透测试](2026-10-31-pentest-review.md)：覆盖 SQL 注入/FFI 内存安全/认证授权/审计日志脱敏/供应链安全/LLM 安全审计
+- [2026-08-15 OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md)：覆盖 OWASP Top 10 A01~A10 + XSS/CSRF/文件上传/竞态条件
+- [2026-11-04 红队审计补充评测](2026-11-04-pentest-supplement-review.md)：覆盖零信任合规/多区域高可用/AI 自主决策安全

@@ -402,3 +402,11 @@ C# 接入是**值得做且可行**的（P/Invoke + `#[repr(C)]` 结构体映射 
 
 - 服务器上 `sz-orm-python` 修复后 39 tests passed（与本地一致）。
 - 服务器上 `cargo test --workspace` 全量通过（G4 EXIT=0），证明第一轮/第二轮修复在 Linux 工具链下无回归。
+
+## 红队审计独立验证
+
+本报告涉及的安全门禁（G6 安全审计、G9 SQL 注入扫描、G21 安全攻击测试）已由以下红队审计报告提供独立验证证据：
+
+- [2026-10-31 红队视角渗透测试](2026-10-31-pentest-review.md)：覆盖 SQL 注入/FFI 内存安全/认证授权/审计日志脱敏/供应链安全/LLM 安全审计
+- [2026-08-15 OWASP Top 10 渗透测试](2026-08-15-owasp-pentest-report.md)：覆盖 OWASP Top 10 A01~A10 + XSS/CSRF/文件上传/竞态条件
+- [2026-11-04 红队审计补充评测](2026-11-04-pentest-supplement-review.md)：覆盖零信任合规/多区域高可用/AI 自主决策安全
