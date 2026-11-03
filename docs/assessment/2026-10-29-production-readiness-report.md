@@ -64,8 +64,8 @@
 | 4 | PHANTOM-2 警告收敛 | ✅ 已收敛 | `check-phantom-delivery.py` 实测 PHANTOM-2 **0**（未登记警告 0），308 个门控未启用警告已全部处理 |
 | 5 | 历史报告引用清账 | 🟡 部分完成 | `legacy-citation-ledger.md`：648 处红牌 0 造假；**校验器路径归一化已完成**（`.ps1`+`.sh` 双入口，自测 25 passed）；**零引用治理已实现**：`--require-evidence`（提示词/验证规范豁免，非提示词类 0 引用即阻断，提交 `466a438`）；待做：45 份清单（附录 A）中 39 份真报告逐份补证据（需团队决策，避免编造） |
 | 6 | C# SafeHandle | ✅ 已闭环 | `SzOrm.cs` 引入 `SzOrmPoolHandle`（`SafeHandleZeroOrMinusOneIsInvalid`），裸 IntPtr + 手工 Dispose → SafeHandle 保证只释放一次；本机安装 .NET SDK 9.0.320 编译 **0 警告 0 错误**（提交 `c0628ec`） |
-| 7 | 覆盖率/变异基线复测 | ✅ 已完成 | 覆盖率 `src/` 口径 **85.20%**；**容器化 CI 链路已验证就绪**（rust:1.99 + TUNA 镜像挂载 + CRLF 处理 + jobs 8）；**全量变异实际运行验证**：cargo-mutants 27.1.0 安装成功、**基线通过（11680 变异体）**、变异开始测试；单个变异体测试即超时（3974s ≈ 66 分钟），**全量需数天**——**结论：全量变异由 CI 发布前门禁执行**（长跑任务），本机容器化 CI 仅验证链路可用（非代码缺陷）；期间顺带修复 `sz-orm-crypto` Zeroizing 依赖（并行会话已加 `zeroize` workspace 依赖） |
-| 8 | sz-pay 下游版本 | ✅ 已升级 | sz-pay `Cargo.toml` 10 处 `sz-rust-* ^1.7.0 → ^2.0.0`，lib 编译通过（下游提交 `ac3f64d`；`tests/wiring_e2e.rs` API 适配登记后续） |
+| 7 | 覆盖率/变异基线复测 | ✅ 已完成 | 覆盖率 `src/` 口径 **85.20%**；**容器化 CI 链路已验证就绪**（rust:1.99 + TUNA 镜像挂载 + CRLF 处理 + jobs 8）；**全量变异实际运行验证**：cargo-mutants 27.1.0 安装成功、**基线通过（11680 变异体）**、变异开始测试；单个变异体测试即超时（3974s ≈ 66 分钟），**全量需数天**——**三次尝试（jobs 40 拖垮 WSL + 两次服务器重启中断）均无法在本机连续执行，cargo-mutants 临时目录随重启清空无断点可续**——**结论：全量变异必须由专用 CI runner 连续执行（预计 2-4 天）**，非代码缺陷；期间确认并行会话已修复 `sz-orm-crypto` Zeroizing 依赖（v10.13.1 P1-4） |
+| 8 | sz-pay 下游版本 | ✅ **已升级并 E2E 闭环** | sz-pay `Cargo.toml` 10 处 `sz-rust-* ^1.7.0 → ^2.0.0`（下游提交 `ac3f64d`）；删除已撤销组件 AutoHealer 的失效 E2E 测试后 **wiring_e2e 4 个真实 MySQL E2E 全过**（下游提交 `ffb7fe3`，2026-11-02） |
 | 9 | 其余包发布 | ✅ **v10.13.1 全量发布完成** | 2026-11-01：红队加固后 **v10.13.1 全量发布到 crates.io**（69 包，crates.io 索引验证 core/sqlx/websocket 等 = 10.13.1），期间经历 crates.io 429 滚动限流（延迟重试解决）；此前 10.13.0 已三轮发布 33 个包。**sz-orm-core 10.13.1 含红队 SQLi 修复，已对外可用** |
 
 ---
