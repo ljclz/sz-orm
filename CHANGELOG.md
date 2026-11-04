@@ -18,6 +18,10 @@
 
 ### Fixed
 
+- **供应链安全：zip 6.0 4 个漏洞消除**：duckdb 1.10505.0→1.20000.1，libduckdb-sys 不再依赖 zip 6.0.0，消除 RUSTSEC-2026-0367/0368/0369/0429（SUID/SGID 权限提升 + 符号链接逃逸 + Unix 权限 + 大尺寸 abort）。deny.toml + CI ci.yml/security.yml 同步移除 4 个 ignore；G26 CI-deny 一致性验证通过
+- **G35 文档链接死链修复**：TW 复跑报告测试描述中的假链接 `no-such-target-file.md` 用 HTML 实体转义括号避免误扫描
+- **测试行号偏移修复**：`test_audit_verify_sh_v4.py` 中 pool.rs:2372→2403、.gitignore:77→84（源码变更导致行号偏移）
+- **README 测试数字同步**：check-metrics-real --fix 21284→21290（测试数增长后 README 数字过时）
 - **sz-orm-search unreachable!() 消除**：将 `TokenizerType::Keyword` 的 `unreachable!()` 替换为正确的 `vec![text]`（整个文本作为单个 token）
 - **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
 - **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
