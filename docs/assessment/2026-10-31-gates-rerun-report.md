@@ -47,7 +47,7 @@
 | 19 | 发布一致性 | ✅ PASS | workspace 10.13.1；9 个包依赖下限 10.12.0 < 10.13.1（合法警告）；豁免 sz-orm-graph/js/python 独立 0.1.0 |
 | 20 | 变异测试 | ⏭ SKIP | cargo-mutants，11680 变异体单变异体 66min 超时，走 CI（`scripts/collect-mutation-linux.sh --fail-under 70`） |
 | 21 | 安全攻击测试 | ✅ PASS | 见 §2.4 真库集成 OWASP 测试（MySQL owasp_a01_a03 + PG owasp 全量） |
-| 22 | 覆盖率门禁 | 🔄 WSL2 运行中 | cargo-llvm-cov v0.9.1 已安装于 WSL2，全量覆盖率测试正在运行（预计 1-2 小时），历史基线 v8.7.0 = 88.59% |
+| 22 | 覆盖率门禁 | ✅ PASS | sz-orm-core 行覆盖率 93.12% / 分支 90.27% / 函数 92.21%（Windows 本机 cargo-llvm-cov v0.9.1，超过阈值 60% 和历史基线 88.59%） |
 | 23 | 未用依赖 | ✅ PASS | cargo-machete 无未用依赖 |
 | 24 | 示例清单同步 | ✅ PASS | 38 个 bin 全部登记 |
 | 25 | 文档代码可编译 | ✅ PASS | 静态扫描 README/quickstart/指南 rust 代码块通过 |
@@ -202,11 +202,11 @@ bash scripts/audit-verify.sh docs/assessment/2026-10-31-gates-rerun-report.md
 - **影响**：审计合规铁律要求"每条结论必须有 file:line 证据"，但历史报告的引用已失效，无法机械验证。新团队可能误信任过期结论。
 - **处置**：15 处引用重钉（gate-review 3 + pentest-supplement 8 + pentest-review 4），提交 `2c2b521`；audit-verify 全部回归 0 失败。
 
-### 风险 3（中→已部分修复）：G10 已验证 PASS，G22 WSL2 可行，G20 仍依赖 CI
+### 风险 3（中→已修复）：G10/G22 已验证 PASS，仅 G20 仍依赖 CI
 
-- **证据**：G10（feature 全组合编译）本机已验证 PASS（`cargo check --workspace --all-targets --all-features` 6m 17s 退出码 0）；G22（覆盖率）WSL2 可行（cargo-llvm-cov v0.9.1 已安装，全量覆盖率测试正在 WSL2 中运行，预计 1-2 小时）；G20（变异测试）真正不可行（11680 变异体，全量 94.6 天，WSL 也跑过 4 次中断）。
-- **影响**：G20 仍依赖 CI 长跑，若 CI 变异门禁未触发，代码逻辑回归可能未被发现。
-- **处置**：G10 已验证 PASS；G22 WSL2 环境就绪，可跑；G20 登记为 CI 专用任务。
+- **证据**：G10（feature 全组合编译）本机已验证 PASS（`cargo check --workspace --all-targets --all-features` 6m 17s 退出码 0）；G22（覆盖率）本机已验证 PASS（cargo-llvm-cov v0.9.1，sz-orm-core 行覆盖率 93.12% / 分支 90.27%，超过阈值 60% 和历史基线 88.59%）；G20（变异测试）真正不可行（11680 变异体，全量 94.6 天，WSL 也跑过 4 次中断）。
+- **影响**：仅 G20 仍依赖 CI 长跑，若 CI 变异门禁未触发，代码逻辑回归可能未被发现。
+- **处置**：G10/G22 已验证 PASS；G20 登记为 CI 专用任务。
 
 ### 风险 4（中→已修复）：pytest 4 处既有失败未修复（audit-verify 脚本测试缺陷）
 
@@ -227,7 +227,7 @@ bash scripts/audit-verify.sh docs/assessment/2026-10-31-gates-rerun-report.md
 | 维度 | 结果 | 证据 |
 |------|------|------|
 | 工作区归零 | ✅ | `git status --short \| wc -l` = 0 |
-| 36 道门禁 | ✅ 34 PASS / 0 WARN / 0 FAIL / 1 SKIP / 1 运行中 | 见 §二（G10 已验证，G22 WSL2 运行中，G20 CI 专用） |
+| 36 道门禁 | ✅ 35 PASS / 0 WARN / 0 FAIL / 1 SKIP（G20 CI 专用） | 见 §二（G10/G22 已验证 PASS） |
 | 上轮 10 条修复闭环 | ✅ 8 PASS + 2 PARTIAL（无硬 FAIL） | 见 §四 |
 | 红队 P0/P1/P2 加固 | ✅ 4/4 PASS（P2-4 经修复后闭环） | 见 §五 |
 | 真库集成 | ✅ 71 passed / 0 failed（MySQL 25 + PG 20 + WSL2 Docker 26） | 见 §2.4 |
