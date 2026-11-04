@@ -910,11 +910,7 @@ jobs:
             --ignore RUSTSEC-2026-0097 \
             --ignore RUSTSEC-2025-0020 \
             --ignore RUSTSEC-2026-0177 \
-            --ignore RUSTSEC-2026-0258 \
-            --ignore RUSTSEC-2026-0367 \
-            --ignore RUSTSEC-2026-0368 \
-            --ignore RUSTSEC-2026-0369 \
-            --ignore RUSTSEC-2026-0429
+            --ignore RUSTSEC-2026-0258
 
   # ============================================================================
   # Job 7.5: secrets 凭据泄露扫描（v10.13.0 / 2026-10-27 H-3 整改接入）
