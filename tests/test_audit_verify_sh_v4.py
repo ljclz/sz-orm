@@ -63,7 +63,7 @@ def run_verify(report: Path, *extra: str) -> subprocess.CompletedProcess:
 # 稳定的仓库内锚点：check-gate-scripts.py 的 CI 检查函数定义行
 PY_REF = "scripts/check-gate-scripts.py:156"
 PY_NEEDLE = "def check_ci_gate"
-POOL_REF = "packages/sz-orm-core/src/pool.rs:2372"
+POOL_REF = "packages/sz-orm-core/src/pool.rs:2403"
 POOL_NEEDLE = "条件 notify_one"
 
 
@@ -89,9 +89,9 @@ class TestWildcardCoverage:
     def test_dotfile_ref_is_validated(self, tmp_path):
         """点文件（`.gitignore`）扩展名前没有字符：通配路径字符类若用 `+` 量词，
         `.sh` 会静默跳过而 `.ps1` 照常校验——实测同一份报告差 9 条。锁定 `*`。"""
-        r = run_verify(write(tmp_path, "凭据屏蔽规则见 `.gitignore:77` [must-contain: *.pem]\n"))
+        r = run_verify(write(tmp_path, "凭据屏蔽规则见 `.gitignore:84` [must-contain: *.pem]\n"))
         assert r.returncode == 0, r.stdout + r.stderr
-        assert "✅ .gitignore:77" in r.stdout, "点文件引用必须进入校验"
+        assert "✅ .gitignore:84" in r.stdout, "点文件引用必须进入校验"
 
     def test_dotfile_wrong_needle_fails(self, tmp_path):
         r = run_verify(write(tmp_path, "凭据屏蔽规则见 `.gitignore:77` [must-contain: def nope]\n"))
