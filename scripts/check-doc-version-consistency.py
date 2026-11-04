@@ -84,6 +84,15 @@ CHECKS = {
     "docs/sz-orm-review-runbook.md": [
         (r'\*\*适用版本\*\*[:：]\s*v(\d+\.\d+\.\d+)', "适用版本"),
     ],
+    "CONTRIBUTING.md": [
+        (r'适用版本[:：]\s*SZ-ORM\s*v(\d+\.\d+\.\d+)', "适用版本"),
+    ],
+    "docs/orphan-packages-registry.md": [
+        (r'版本[:：]\s*v(\d+\.\d+\.\d+)', "文档版本"),
+    ],
+    "docs/sz-orm与同类产品对比分析.md": [
+        (r'版本[:：]\s*v(\d+\.\d+\.\d+)', "文档版本"),
+    ],
 }
 
 # 门禁数声称扫描范围（"当前"文档；历史演进章节行含"历史"字样自动豁免）
