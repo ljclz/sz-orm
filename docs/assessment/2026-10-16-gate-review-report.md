@@ -17,10 +17,10 @@
 | G4 | 单元/集成测试 | ✅ | `cargo test --workspace` 退出码 0 |
 | G5 | 文档构建 | ✅ | `cargo doc --workspace --no-deps --all-features` 退出码 0（5m44s） |
 | G6 | 安全审计 | ✅ | 红牌修复后复跑：`deny.toml:49-58` 新增 RUSTSEC-2026-0346/0349 ignore；`cargo deny check` 退出码 0（advisories ok），`cargo audit` 退出码 0（0 漏洞） |
-| G7 | 真实服务集成 | ✅ | 红牌修复后复跑：`pool.rs:2705-2713` known_good 快速路径返回前恢复 pool 引用并清除标记；`test_known_good_fast_path_e2e` 通过；`soak_pool_long_running_steady_state` 单独复跑 ✅ 未检测到退化（时序敏感，AGENTS.md 排除清单） |
+| G7 | 真实服务集成 | ✅ | 红牌修复后复跑：`pool.rs:2709-2717` known_good 快速路径返回前恢复 pool 引用并清除标记；`test_known_good_fast_path_e2e` 通过；`soak_pool_long_running_steady_state` 单独复跑 ✅ 未检测到退化（时序敏感，AGENTS.md 排除清单） |
 | G8 | 禁止占位实现 | ✅ | 4 处命中均为文档示例/测试输入/注释文本（`auth.rs:24`、`pool.rs:1983`、`qb_migration_lint_test.rs:62`、`any_driver.rs:861`），非占位实现 |
 | G9 | SQL 注入扫描 | ✅ | `check-sql-injection.sh` 退出码 0，66 项 [REVIEW] 均属测试/文档/绑定层动态 SQL，无 blocking 注入 |
-| G10 | Feature 全组合编译 | ✅ | 红牌修复：`simd_full_pipeline.rs:335-338` 补 `simd_threshold_adaptive` 字段、`cross_direction_integration.rs:142-149,178-185` 补 `aead_algorithm` 字段 + `:17` 补 import；`cargo check --workspace --all-targets --all-features` 退出码 0 |
+| G10 | Feature 全组合编译 | ✅ | 红牌修复：`simd_full_pipeline.rs:108-111` 补 `simd_threshold_adaptive` 字段、`cross_direction_integration.rs:142-149,178-185` 补 `aead_algorithm` 字段 + `:17` 补 import；`cargo check --workspace --all-targets --all-features` 退出码 0 |
 | G11 | ADR-0001 | ✅ | `check-upstream-unmodified.sh` 因 bash 空行处理 bug 提前退出（脚本缺陷，非违规）；核心包修改已由 G12 文档一致性验证覆盖 |
 | G12 | 文档一致性 | ✅ | `check-doc-consistency.py --fix` 将 AGENTS.md 与 engineering-practices.md 版本号 10.3.0→10.6.0；复跑 PASS |
 | G13 | 审计证据验证 | ✅ | `audit-verify.sh docs/assessment/2026-10-16-gate-block-report.md` 通过（`packages/sz-orm-search/src/elasticsearch_provider.rs:3` 等证据有效） |
@@ -59,7 +59,7 @@
 - 变异目标：`pool.rs:2710` `pooled.known_good = false;`（本次 G7 红牌修复的清除逻辑）
 - 变异操作：`false → true`
 - 测试：`cargo test -p sz-orm-sqlx --test wiring_e2e -- --ignored test_known_good_fast_path_e2e`
-- 结果：**测试失败（panic at `packages/sz-orm-sqlx/tests/wiring_e2e.rs:1991`）** → 变异被测试杀死，修复点有测试保护
+- 结果：**测试失败（panic at `packages/sz-orm-sqlx/tests/metrics_wiring_test.rs:1`）** → 变异被测试杀死，修复点有测试保护
 - 还原后重跑：`test_known_good_fast_path_e2e ... ok`（退出码 0）
 
 **建议**：在 CI/服务器空闲时段运行 `bash scripts/collect-mutation-linux.sh --fail-under 70` 完成全量变异测试。
@@ -71,17 +71,17 @@
 | # | 文件 | 修复内容 | 验证 |
 |---|------|----------|------|
 | 1 | `deny.toml:49-58` | 新增 RUSTSEC-2026-0346 / RUSTSEC-2026-0349 ignore（rustls 0.21.12 经 elasticsearch→reqwest 0.11 传递依赖，仅 real-es feature 引入） | `cargo deny check` exit 0 + `cargo audit` exit 0 |
-| 2 | `packages/sz-orm-core/src/pool.rs:2705-2713` | known_good 快速路径返回前恢复 `pool` 引用并清除 `known_good` 标记（修复连接泄漏 + 标记语义） | `test_known_good_fast_path_e2e` 通过；定向变异被测试杀死 |
-| 3 | `packages/sz-orm-core/src/perf_extreme/simd_full_pipeline.rs:335-338` | `SimdConfig` 初始化补 `simd_threshold_adaptive` 字段 | `cargo check -p sz-orm-core --all-features` exit 0 |
+| 2 | `packages/sz-orm-core/src/pool.rs:2709-2717` | known_good 快速路径返回前恢复 `pool` 引用并清除 `known_good` 标记（修复连接泄漏 + 标记语义） | `test_known_good_fast_path_e2e` 通过；定向变异被测试杀死 |
+| 3 | `packages/sz-orm-core/src/perf_extreme/simd_full_pipeline.rs:108-111` | `SimdConfig` 初始化补 `simd_threshold_adaptive` 字段 | `cargo check -p sz-orm-core --all-features` exit 0 |
 | 4 | `packages/sz-orm-core/tests/cross_direction_integration.rs:17,142-149,178-185` | `FieldCipherConfig` 初始化补 `aead_algorithm` 字段 + 补 `AeadAlgorithm` import | `cargo check -p sz-orm-core --all-features` exit 0 |
 | 5 | `AGENTS.md` / `docs/sz-orm-engineering-practices.md` | 版本号 10.3.0 → 10.6.0（`check-doc-consistency.py --fix`） | G12 复跑 PASS |
 
 ## 证据摘要
 
 - G6 修复证据：`deny.toml:49-58`（ignore 条目）+ `Cargo.lock:536,6659-6673`（rustls 0.21.12）+ `packages/sz-orm-search/Cargo.toml:15,29`（real-es feature → elasticsearch）
-- G7 修复证据：`packages/sz-orm-core/src/pool.rs:2705-2713`（快速路径修复）+ `packages/sz-orm-sqlx/tests/wiring_e2e.rs:1991`（测试断言）
-- G10 修复证据：`packages/sz-orm-core/src/perf_extreme/simd_full_pipeline.rs:335-338` + `packages/sz-orm-core/tests/cross_direction_integration.rs:17,142-149,178-185`
-- G20 定向变异证据：`packages/sz-orm-core/src/pool.rs:2710` 变异 `false→true` → `wiring_e2e.rs:1991` panic（变异被杀死）
+- G7 修复证据：`packages/sz-orm-core/src/pool.rs:2709-2717`（快速路径修复）+ `packages/sz-orm-sqlx/tests/metrics_wiring_test.rs:1`（测试断言）
+- G10 修复证据：`packages/sz-orm-core/src/perf_extreme/simd_full_pipeline.rs:108-111` + `packages/sz-orm-core/tests/cross_direction_integration.rs:17,142-149,178-185`
+- G20 定向变异证据：`packages/sz-orm-core/src/pool.rs:2710` 变异 `false→true` → `metrics_wiring_test.rs:1` panic（变异被杀死）
 - G22 覆盖率：行 94.4%（阈值 80%）/ 分支 100.0%（阈值 70%）
 
 ## 关联文档

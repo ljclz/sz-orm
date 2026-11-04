@@ -216,7 +216,7 @@ bash scripts/audit-verify.sh docs/assessment/2026-10-31-gates-rerun-report.md
 
 ### 风险 5（低）：凭据扫描中文占位符误报，check-secrets.py 豁免集不完整
 
-- **证据**：`check-secrets.py` 对 `docs/assessment/2026-10-31-gates-rerun-prompt.md:45` 的中文占位符 `<密码>` 误报为凭据（正则 `mysql://[^:]+:([^@]+)@` 匹配，但中文占位符不在豁免集 `<your-password>`/`{password}`/`<password>` 中）。
+- **证据**：`check-secrets.py` 对 `docs/assessment/2026-10-31-gates-rerun-prompt.md:45` 的中文占位符 `<密码>` 误报为凭据（连接串正则匹配 `mysql://user:pwd@` 形式，但中文占位符不在豁免集 `<your-password>`/`{password}`/`<password>` 中）。
 - **影响**：G9 门禁持续 WARN，可能掩盖真实凭据泄露。
 - **建议**：接手团队应将中文占位符 `<密码>` 加入 `LEGACY_AUDIT_STRINGS` 豁免集，或统一文档中的占位符为英文 `<your-password>`。
 
