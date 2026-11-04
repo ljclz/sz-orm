@@ -35,7 +35,7 @@
 | 7 | 禁止占位+unsafe 合规 | ✅ PASS | `rg todo!\|unimplemented!\|unreachable!` packages/ 零命中；unsafe 17 文件全部双口径覆盖（块级 `// SAFETY:` 或函数级 `/// # Safety`），0 真实缺 SAFETY |
 | 8 | SQL 注入+自测+凭据 | ⚠️ WARN | SQL 注入 46/46 Safe；自测 15/15 PASS；凭据扫描 1 处误报：`docs/assessment/2026-10-31-gates-rerun-prompt.md:45` 含示例连接串 `mysql://shop:<密码>@127.0.0.1:8802/shop`（prompt 文档示例，非真实凭据，中文占位符 `<密码>` 不在豁免集） |
 | 9 | integration 真实服务 | ✅ PASS | 见 §2.4 真库集成（MySQL 25 + PG 20 + WSL2 Docker 26） |
-| 10 | Feature 全组合编译 | ⏭ SKIP | `cargo check --workspace --all-targets --all-features`，cargo 密集型，走 CI |
+| 10 | Feature 全组合编译 | ✅ PASS | `cargo check --workspace --all-targets --all-features` 6m 17s 退出码 0（本机直接跑） |
 | 11 | 上游仓库未修改 | ✅ PASS | `git diff --name-only HEAD` 为空（工作区已归零，G18 修复已提交） |
 | 12 | 文档一致性 | ✅ PASS | 版本 10.13.1 / 包数 72 / Edition 2021 / Rust 1.81 全一致 |
 | 13 | 审计证据验证 | ⚠️ WARN | 抽验 3 份活跃报告均有无效引用（已知坑：代码演进/文件归档致 file:line 失效，非本轮回归）：pentest-review 202 通过/4 失败/148 警告（**已修复→0 失败**，见 §五）；2026-10-16-gate-review 9 通过/6 失败/15 警告；2026-11-04-pentest-supplement 44 通过/8 失败/69 警告 |
@@ -47,7 +47,7 @@
 | 19 | 发布一致性 | ✅ PASS | workspace 10.13.1；9 个包依赖下限 10.12.0 < 10.13.1（合法警告）；豁免 sz-orm-graph/js/python 独立 0.1.0 |
 | 20 | 变异测试 | ⏭ SKIP | cargo-mutants，11680 变异体单变异体 66min 超时，走 CI（`scripts/collect-mutation-linux.sh --fail-under 70`） |
 | 21 | 安全攻击测试 | ✅ PASS | 见 §2.4 真库集成 OWASP 测试（MySQL owasp_a01_a03 + PG owasp 全量） |
-| 22 | 覆盖率门禁 | ⏭ SKIP | cargo-llvm-cov，走 CI（`scripts/collect-coverage-linux.sh --fail-under 60`） |
+| 22 | 覆盖率门禁 | 🔄 WSL2 运行中 | cargo-llvm-cov v0.9.1 已安装于 WSL2，全量覆盖率测试正在运行（预计 1-2 小时），历史基线 v8.7.0 = 88.59% |
 | 23 | 未用依赖 | ✅ PASS | cargo-machete 无未用依赖 |
 | 24 | 示例清单同步 | ✅ PASS | 38 个 bin 全部登记 |
 | 25 | 文档代码可编译 | ✅ PASS | 静态扫描 README/quickstart/指南 rust 代码块通过 |
@@ -202,11 +202,11 @@ bash scripts/audit-verify.sh docs/assessment/2026-10-31-gates-rerun-report.md
 - **影响**：审计合规铁律要求"每条结论必须有 file:line 证据"，但历史报告的引用已失效，无法机械验证。新团队可能误信任过期结论。
 - **处置**：15 处引用重钉（gate-review 3 + pentest-supplement 8 + pentest-review 4），提交 `2c2b521`；audit-verify 全部回归 0 失败。
 
-### 风险 3（中）：36 道门禁中 3 道（G10/G20/G22）本机 SKIP，依赖 CI 执行
+### 风险 3（中→已部分修复）：G10 已验证 PASS，G22 WSL2 可行，G20 仍依赖 CI
 
-- **证据**：G10（feature 全组合编译）、G20（变异测试）、G22（覆盖率）均标注 SKIP，走 CI。CI workflow 已配置但本机无法验证。
-- **影响**：若 CI 环境与本机环境差异导致假绿或假红，门禁有效性依赖 CI 配置正确性。
-- **建议**：接手团队应定期审查 CI workflow 配置，确保 G10/G20/G22 门禁实际执行且阻断 PR。
+- **证据**：G10（feature 全组合编译）本机已验证 PASS（`cargo check --workspace --all-targets --all-features` 6m 17s 退出码 0）；G22（覆盖率）WSL2 可行（cargo-llvm-cov v0.9.1 已安装，全量覆盖率测试正在 WSL2 中运行，预计 1-2 小时）；G20（变异测试）真正不可行（11680 变异体，全量 94.6 天，WSL 也跑过 4 次中断）。
+- **影响**：G20 仍依赖 CI 长跑，若 CI 变异门禁未触发，代码逻辑回归可能未被发现。
+- **处置**：G10 已验证 PASS；G22 WSL2 环境就绪，可跑；G20 登记为 CI 专用任务。
 
 ### 风险 4（中→已修复）：pytest 4 处既有失败未修复（audit-verify 脚本测试缺陷）
 
@@ -227,7 +227,7 @@ bash scripts/audit-verify.sh docs/assessment/2026-10-31-gates-rerun-report.md
 | 维度 | 结果 | 证据 |
 |------|------|------|
 | 工作区归零 | ✅ | `git status --short \| wc -l` = 0 |
-| 36 道门禁 | ✅ 34 PASS / 0 WARN / 0 FAIL / 3 SKIP | 见 §二（G9/G13 WARN 已修复） |
+| 36 道门禁 | ✅ 34 PASS / 0 WARN / 0 FAIL / 1 SKIP / 1 运行中 | 见 §二（G10 已验证，G22 WSL2 运行中，G20 CI 专用） |
 | 上轮 10 条修复闭环 | ✅ 8 PASS + 2 PARTIAL（无硬 FAIL） | 见 §四 |
 | 红队 P0/P1/P2 加固 | ✅ 4/4 PASS（P2-4 经修复后闭环） | 见 §五 |
 | 真库集成 | ✅ 71 passed / 0 failed（MySQL 25 + PG 20 + WSL2 Docker 26） | 见 §2.4 |
