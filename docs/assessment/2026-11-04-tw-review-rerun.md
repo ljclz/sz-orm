@@ -55,7 +55,7 @@
 
 | # | 门禁 | 注入样本 | 期望 | 实测 | 恢复确认 |
 |---|------|---------|------|------|---------|
-| 1 | G35 链接健康 | 创建 `docs/_tw_rerun_canary.md`（第 5 行含 `[死链测试](no-such-target-file.md)`，测后已删除） | EXIT=1，精确定位死链 | [L2] `python scripts/check-doc-links.py` → "扫描 234 个文件 ❌ docs/_tw_rerun_canary.md 第 5 行 链接 `no-such-target-file.md` -> 目标不存在"，EXIT=1 ✅ | 删除 canary，复跑 EXIT=0（233 文件 0 死链）✅ |
+| 1 | G35 链接健康 | 创建 `docs/_tw_rerun_canary.md`（第 5 行含 `[死链测试]&#40;no-such-target-file.md&#41;`，测后已删除） | EXIT=1，精确定位死链 | [L2] `python scripts/check-doc-links.py` → "扫描 234 个文件 ❌ docs/_tw_rerun_canary.md 第 5 行 链接 `no-such-target-file.md` -> 目标不存在"，EXIT=1 ✅ | 删除 canary，复跑 EXIT=0（233 文件 0 死链）✅ |
 | 2 | G36 版本线（日期乱序） | 构造 CHANGELOG 样本：`## [10.13.1] — 2026-10-31` 后跟 `## [10.13.0] — 2026-11-02` | 报"晚于上一版本" | [L2] `check_changelog(bad, '10.13.1')` → `['版本 10.13.0 日期 2026-11-02 晚于上一版本 2026-10-31（版本线应从新到旧）']` ✅ | 纯函数调用，未改 CHANGELOG.md，无需恢复 |
 | 3 | G36 版本线（版本回退） | 构造 CHANGELOG 样本：最新版本头 `## [10.13.0] — 2026-10-27`，workspace=10.13.1 | 报"最新版本 != workspace" | [L2] `check_changelog(bad2, '10.13.1')` → `['最新版本 10.13.0 != workspace 版本 10.13.1']` ✅ | 纯函数调用，未改 CHANGELOG.md，无需恢复 |
 | 4 | G12 文档一致性（R9 增强） | 临时把 `README.md:4` 顶部版本号 `> v10.13.1 ·` 改为 `> v10.12.0 ·`（仅第一处） | 报 `[MISMATCH] README.md 顶部版本号` + FAIL | [L2] `python scripts/check-doc-consistency.py` → `[MISMATCH] README.md 顶部版本号: 实际=10.13.1, 文档=10.12.0` + `[FAIL]` ✅ | Python 脚本恢复 `> v10.13.1 ·`，复跑 EXIT=0（[PASS]）✅ |
