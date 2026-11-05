@@ -1,0 +1,94 @@
+# G20 全量变异门禁（发布前 CI 长跑）
+#
+# 用途：对核心包（sz-orm-core / sz-orm-sqlx）执行 cargo-mutants 全量变异测试，
+#       杀率 < fail-under 即红牌。这是发布前门禁（G20），与日常增量变异（ci.yml 的
+#       mutation job，--in-diff 分钟级）互补。
+#
+# 运行时长警告（2026-10-30 实测）：
+#   sz-orm-core 单包即 11680 个变异体，单变异体测试可达 66 分钟（超时上限）。
+#   GitHub 托管 runner（2-4 核、单 job 上限 360 分钟）**无法完成全量**。
+#   推荐执行方式（二选一）：
+#   A. **self-hosted runner**（推荐）：把 40 核/64G 本机注册为仓库 runner
+#      （Settings → Actions → Runners → New self-hosted runner），workflow 自动路由。
+#      本机 40 核 + jobs=32 预计 30-48 小时连续运行。
+#   B. 分批 + --resume：手动触发多次，每次 job 内使用持久化 output 目录 + cargo-mutants
+#      --resume 续跑（self-hosted runner 工作目录持久，重启不丢失）。
+#
+# 触发：workflow_dispatch 手动；如挂 self-hosted runner 后可加 schedule 周末长跑。
+# 依赖：TUNA 镜像配置（runner 侧 ~/.cargo/config.toml）加速依赖下载。
+
+name: Mutation Full (G20 release gate)
+
+on:
+  workflow_dispatch:
+    inputs:
+      packages:
+        description: '变异目标包（逗号分隔）'
+        default: 'sz-orm-core,sz-orm-sqlx'
+        required: false
+      fail_under:
+        description: '杀率门槛（%）'
+        default: '70'
+        required: false
+      jobs:
+        description: 'cargo-mutants 并行度（≤ runner 核数）'
+        default: '8'
+        required: false
+
+jobs:
+  mutation:
+    name: Full mutation (${{ matrix.package }})
+    runs-on: self-hosted
+    timeout-minutes: 4320 # self-hosted 可设 3 天；GitHub 托管 runner 上限 360 请勿照搬
+    strategy:
+      fail-fast: false
+      matrix:
+        package: [sz-orm-core, sz-orm-sqlx]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Rust 1.99 toolchain
+        uses: dtolnay/rust-toolchain@1.99.1
+
+      - name: Configure crates.io mirror (TUNA, runner 侧网络加速)
+        run: |
+          mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
+          if [ ! -f "${CARGO_HOME:-$HOME/.cargo}/config.toml" ]; then
+            printf '[source.crates-io]\nreplace-with = "tuna"\n\n[source.tuna]\nregistry = "sparse+https://mirrors.tuna.tsinghua.edu.cn/crates.io-index/"\n' \
+              > "${CARGO_HOME:-$HOME/.cargo}/config.toml"
+          fi
+
+      - name: Install cargo-mutants
+        run: cargo install cargo-mutants --locked
+
+      - name: Run full mutation (${{ matrix.package }})
+        run: |
+          bash scripts/collect-mutation-linux.sh \
+            --packages "${{ matrix.package }}" \
+            --fail-under "${{ github.event.inputs.fail_under || '70' }}" \
+            --jobs "${{ github.event.inputs.jobs || '8' }}" \
+            --json "mutation-result-${{ matrix.package }}.json"
+
+      - name: Upload mutation report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mutation-${{ matrix.package }}
+          path: |
+            mutation-result-${{ matrix.package }}.json
+            mutants-out-*/
+
+  # 汇总：双包杀率均达门槛才算通过（脚本各自 exit 0/1，fail-fast: false 保证都跑完）
+  gate:
+    name: G20 Gate (all packages >= fail-under)
+    needs: mutation
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Evaluate gate
+        run: |
+          if [ "${{ needs.mutation.result }}" != "success" ]; then
+            echo "❌ G20 全量变异门禁未通过（某包杀率 < 门槛或执行失败）"
+            exit 1
+          fi
+          echo "✅ G20 全量变异门禁通过"
