@@ -145,6 +145,17 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 **复测结论**：6 项遗留中 4 项（SAVEPOINT/游标/ALTER/SCRAM）全通，2 项（COPY/NOTIFY 异步帧）为 szrsql pgwire 子协议与 sqlx 驱动的帧语义差异——均不触达 sz-orm 已宣称的 Szrsql 支持面（CRUD/参数化/事务/分页/元数据/池），无需修改 sz-orm 代码；两项差异如实登记为本报告 D-5/D-6，供 szrsql 上游参考。
 
+### 7.1 D-5/D-6 上游修复闭环（2026-11-08 第二轮，szrsql 修复 commit `3261c7dd`）
+
+szrsql 侧按反馈提示词独立会话完成修复并落盘报告 `szrsql/docs/governance/evaluation/2026-11-08-szorm反馈-copy-notify-修复.md`（HEAD 基线 `08c71541`）。sz-orm 侧以新二进制（含修复）重建 6543 服务后真连复核：
+
+| 项 | 上游定性（差分对拍结论） | sz-orm 侧复核结果 |
+|----|------------------------|------------------|
+| **D-5 COPY** | **非 szrsql 协议缺陷**——裸 socket 帧对拍（`H d d c C Z` / `G … C Z`）与 PG18 字节级一致；重定性为「sqlx 需走 `PgCopyIn`/`copy_out_raw` 专用 API」 | `sqlx::Pool::copy_in_raw` → send → finish = **2 rows**，`COUNT=2`；`copy_out_raw` 流式读回 `1\talpha\n2\tbeta\n`（15 字节）——**全通** |
+| **D-6 NOTIFY** | **真实协议缺陷（已修复）**——PG18 差分证明跨会话通知应在监听方空闲 socket 上**主动推送**（1.5 表）；szrsql 修复前只在监听方下一条查询响应里附带送达，`PgListener::recv` 永久阻塞。修复 commit `3261c7dd`：async/sync 两条主循环在阻塞读前 drain pending 通知编码 `A` 帧主动推送（sync 路径 100ms 短周期轮询） | `execute("NOTIFY …")` 不再报 unexpected message；`PgListener`（独立连接 LISTEN，无查询）跨会话 recv **收到** `channel=ch_d6x payload=cross-session`——**全通** |
+
+**闭环结论**：D-5 无需 sz-orm 改代码（与首轮「影响为零」结论一致，验收线 `PgCopyIn` 已通过）；D-6 szrsql 已修复并经 sz-orm 侧真连复核通过。szrsql 侧补充的差分事实：**自听 NOTIFY 时 PG18 也把 `A` 回显给自身**（首轮报告 L-4 的"仅 PgListener 路径消费"表述需修正为"sqlx 普通 execute 路径不消费异步 `A` 帧，自听场景 PG 同样如此"）。sz-orm 仍不在 Szrsql 文档中宣称 LISTEN/NOTIFY 能力（可用但非 ORM 宣称面，无幻影交付）。
+
 ## 6. 结论
 
 按提示词输出要求 3 如实报告：**szrsql 经 pgwire v3.0 暴露标准 PG 语义，sz-orm 复用既有 PG 适配、以最小 diff（枚举变体 + 1 行方言宏 + scheme 识别）完成支持**，未过度抽象；8 项真连集成测试 + 全部门禁（本批适用项）通过。

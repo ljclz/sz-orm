@@ -42,6 +42,8 @@
 
 **验证**：`cargo test -p sz-orm-sqlx --test integration_szrsql -- --ignored` = **8 passed**（真连 szrsql v1.0.0-rc.2）；`cargo check --workspace --all-targets` 0 error；clippy `-D warnings` 0 error；G1 fmt 72 包通过；G9 46/46 Safe（--strict）；G12/G15/G16/G19/G33/G35/G36 PASS；pytest 160 passed。
 
+**遗留项收口与上游修复闭环（同日第二轮）**：6 项扩展场景真连复测（SAVEPOINT 嵌套/游标/ALTER 全变体/SCRAM 认证全通；COPY/NOTIFY 登记为 szrsql 上游差异 D-5/D-6）。szrsql 侧按反馈提示词修复 D-6（跨会话 NOTIFY 主动异步推送，commit `3261c7dd`）并对拍证明 D-5 非 szrsql 协议缺陷（sqlx 需走 `PgCopyIn` 专用 API）；sz-orm 侧以修复后二进制真连复核：`PgCopyIn`/`copy_out_raw` 与 `PgListener` 跨会话收发全通（详见 `docs/assessment/2026-11-08-szrsql-integration.md` §7.1）。
+
 ## [10.13.1] — 2026-10-31
 
 ### 红队渗透测试评测 P0/P1/P2 加固（2026-10-31）
