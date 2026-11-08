@@ -2,7 +2,7 @@
 
 > 感谢关注并贡献 SZ-ORM！本文档是贡献流程的**摘要**，完整规范以 [AGENTS.md](AGENTS.md) 与 [docs/sz-orm-engineering-practices.md](docs/sz-orm-engineering-practices.md) 为准。
 >
-> 适用版本：SZ-ORM v10.13.1（workspace 72 成员：70 lib 包 + cli + examples）| 更新日期：2026-11-04
+> 适用版本：SZ-ORM v10.13.2（workspace 72 成员：70 lib 包 + cli + examples）| 更新日期：2026-11-04
 
 ---
 

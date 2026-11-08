@@ -1,14 +1,14 @@
 ﻿# SZ-ORM — 鲜视达 ORM
 
 > **Rust 异步 ORM 工作空间（生产就绪）**，兼容 ThinkORM 风格 API
-> v10.13.1 · 72 工作空间成员 · 21290+ 测试 · 28 SQL 方言 · 已发布 crates.io
+> v10.13.2 · 72 工作空间成员 · 21298+ 测试 · 29 种方言 · 已发布 crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-21290+-green.svg)](#测试)
-[![Dialects](https://img.shields.io/badge/dialects-28-red.svg)](#支持的数据库)
+[![Tests](https://img.shields.io/badge/tests-21298+-green.svg)](#测试)
+[![Dialects](https://img.shields.io/badge/dialects-29-red.svg)](#支持的数据库)
 [![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#工作空间结构)
-[![Version](https://img.shields.io/badge/version-10.13.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-10.13.2-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#概览)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#安全审计)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -98,8 +98,8 @@ println!("{}", report.to_json().unwrap());
 | 维度 | 数据 |
 |------|------|
 | 工作空间成员 | **72**（70 个 sz-orm-* lib + cli + examples） |
-| 支持数据库方言 | **28 种数据库方言**（默认编译 21 种，另 7 种由 `dialect-*` feature 门控；`--all-features` 下为 24 种 SQL + 4 种 NoSQL，含国产信创 6 种。方言层指 SQL 生成/转义，不等于连接驱动：真实驱动为 sqlx 的 MySQL/PostgreSQL/SQLite + `sz-orm-oracle` + `sz-orm-mssql`） |
-| 测试用例 | **21290 passed, 0 failed** |
+| 支持数据库方言 | **29 种数据库方言**（默认编译 22 种，另 7 种由 `dialect-*` feature 门控；`--all-features` 下为 25 种 SQL + 4 种 NoSQL，含国产信创 6 种。方言层指 SQL 生成/转义，不等于连接驱动：真实驱动为 sqlx 的 MySQL/PostgreSQL/SQLite + `sz-orm-oracle` + `sz-orm-mssql`） |
+| 测试用例 | **21298 passed, 0 failed** |
 | 代码规模 | **~639,200 LOC**（src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200） |
 | 项目成熟度 | **早期生产可用（内部项目）**（sz-pay 生产试点，crates.io 已发布 sz-orm-core） |
 | 异步运行时 | Tokio 1.40+ |
@@ -330,7 +330,7 @@ sz-orm-ai = { version = "2.4", features = ["ai-nl2sql-enhanced", "ai-index-advis
 ## 核心特性
 
 - **异步**：基于 Tokio，全程 `async/await`
-- **多数据库方言**：28 种数据库方言（24 种 SQL：MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB/MariaDB/TiDB/OceanBase/达梦/金仓/PolarDB/GaussDB/GBase/Sybase/CockroachDB/YugabyteDB/Snowflake/Redshift/Informix/SAP HANA/Firebird + 4 种 NoSQL：Redis/MongoDB/VectorDB/PureJsDb）
+- **多数据库方言**：29 种数据库方言（25 种 SQL：MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB/MariaDB/TiDB/OceanBase/达梦/金仓/PolarDB/GaussDB/GBase/Sybase/CockroachDB/YugabyteDB/Snowflake/Redshift/Informix/SAP HANA/Firebird/SzRSQL + 4 种 NoSQL：Redis/MongoDB/VectorDB/PureJsDb）
 - **链式 QueryBuilder**：仿 ThinkORM 风格的 fluent API
 - **ACID 事务**：隔离级别、保存点（默认 8 层嵌套，`DEFAULT_MAX_NESTING_DEPTH = 8`，可配置）、`TransactionManager` 多事务管理
 - **连接池**：可配置大小、超时、空闲回收、健康检查、最大生命周期
@@ -548,6 +548,7 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 | Informix | `InformixDialect`（SKIP FIRST 分页） | SQL generation only: 仅 SQL 生成，无真实驱动连接 | 9088 |
 | SAP HANA | `SapHanaDialect`（计算列 + CE 函数） | sz-orm-sqlx（`dialect-saphana-driver` feature，基于 `hdbconnect_async` v0.32.0） | 39015 |
 | Firebird | `FirebirdDialect`（GENERATOR/SEQUENCE + EXECUTE BLOCK） | SQL generation only: 仅 SQL 生成，无真实驱动连接 | 3050 |
+| SzRSQL | `SzrsqlDialect`（委托 `PostgreSqlDialect`，pgwire v3.0） | sz-orm-sqlx（`szrsql://` scheme，复用 sqlx PostgreSQL 驱动；已对 SzRSQL v1.0.0-rc.2 真连集成测试 8/8 验证） | 6543 |
 
 使用 `get_dialect(DbType::MySQL)` 获取方言实例。
 
@@ -936,7 +937,7 @@ SZ-ORM 通过 **7 线验证体系**保障质量：
 | **Chaos** | 故障鲁棒性 | `chaos.rs` |
 | **Formal** | 形式化不变量验证 | `formal.rs` |
 
-**总计：21290 tests, 0 failed**（部分测试需真实 DB/云凭证）
+**总计：21298 tests, 0 failed**（部分测试需真实 DB/云凭证）
 
 ### 运行测试
 

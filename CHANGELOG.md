@@ -26,6 +26,22 @@
 - **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
 - **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
 
+## [10.13.2] — 2026-11-08
+
+### Added — SzRSQL 数据库支持（2026-11-08）
+
+依据 `docs/assessment/2026-11-08-szrsql-integration-prompt.md` 两阶段实施（阶段一 szrsql 只读探索 + 本机真连实测；阶段二 sz-orm 侧最小 diff 集成）：
+
+- **`DbType::Szrsql` 新变体**（`packages/sz-orm-core/src/db_type.rs`）：`as_str()="szrsql"` / `from_str("szrsql")` / `default_port()=6543`（避开 PG 5432）/ `is_postgres_family()=true` / `supports_stored_procedure()=true`，`DbType::ALL` 同步收录（枚举变体 28→29，默认编译 22）
+- **`SzrsqlDialect` 方言**（`packages/sz-orm-core/src/dialect.rs`）：经 `delegate_dialect_to!` 委托 `PostgreSqlDialect`（依据：szrsql 六前端经同一 PG 语义 ExecutorService 执行，README「协议」节 + AGENTS.md「架构速览」）；`get_dialect`/`DialectKind::from_db_type` 同步分发
+- **`szrsql://` DSN scheme**（`packages/sz-orm-sqlx/src/any_driver.rs`）：`AnyBackend::from_dsn` 识别 `szrsql://` → Postgres 后端（复用 sqlx PostgreSQL 驱动，禁止为 szrsql 新写 wire 协议——szrsql 自带 pgwire v3.0）；`normalize_dsn_scheme` 将 `szrsql://` 改写回 `postgres://` 连接
+- **PG 家族 match 补齐**：`typed_ast.rs`（ILIKE/DISTINCT ON/CAST 三处 PG 特化分支）与 `migration.rs`（Postgres 迁移锁）纳入 Szrsql
+- **集成测试** `packages/sz-orm-sqlx/tests/integration_szrsql.rs`（8 项 `#[ignore]`，凭据经 `SZ_ORM_SZRSQL_URL` 环境变量注入，未启动自动跳过）：连接/后端识别、CRUD + RETURNING、参数化查询（`execute_with_params`/`query_with_params` 真实 prepared statement）、事务提交/回滚、类型往返（BIGINT/TEXT/BOOLEAN/TIMESTAMP/NULL）、LIMIT/OFFSET 分页、`information_schema.columns` 探测、自研连接池 acquire/release
+
+**阶段一兼容性实测结论**（szrsql v1.0.0-rc.2 @ 127.0.0.1:6543 `--auth-mode trust`，全部为 L2 实测证据）：pgwire v3.0 扩展协议 Parse/Bind/Execute 完整（`crates/szrsql-protocol/src/pgwire/server.rs:13`）；`$n` 占位符参数化 INSERT/SELECT/UPDATE/DELETE 全通；RETURNING 支持；事务 BEGIN/COMMIT/ROLLBACK 正确（回滚后 COUNT 不变）；LIMIT/OFFSET 分页正常；`information_schema.columns` 返回真实列元数据；EXPLAIN/SHOW server_version 可用；类型 BIGSERIAL/TEXT/BIGINT/BOOLEAN/TIMESTAMP 往返正常。**已知差异 1 项**：无参数占位的裸 SQL 文本含 `$1` 字面量时 szrsql 拒绝执行（M1 guard，`parameter substitution does not cover this statement form`）——sz-orm 参数化路径不受影响（占位符与参数一一对应）。
+
+**验证**：`cargo test -p sz-orm-sqlx --test integration_szrsql -- --ignored` = **8 passed**（真连 szrsql v1.0.0-rc.2）；`cargo check --workspace --all-targets` 0 error；clippy `-D warnings` 0 error；G1 fmt 72 包通过；G9 46/46 Safe（--strict）；G12/G15/G16/G19/G33/G35/G36 PASS；pytest 160 passed。
+
 ## [10.13.1] — 2026-10-31
 
 ### 红队渗透测试评测 P0/P1/P2 加固（2026-10-31）

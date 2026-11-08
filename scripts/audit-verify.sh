@@ -368,10 +368,11 @@ while IFS= read -r line || [[ -n "$line" ]]; do
       rel_path="packages/sz-orm-core/src/${BASH_REMATCH[1]}"
       lineno="${BASH_REMATCH[2]}"
       m="${BASH_REMATCH[0]}"
+      shorthand="${BASH_REMATCH[1]}"
       if resolve_file "$rel_path" >/dev/null; then
         check_cite "$rel_path" "$lineno" "$lineno" "$line" "$m"
       else
-        echo "⚠️  src/${BASH_REMATCH[1]}:$lineno — 未找到对应文件（跳过）"
+        echo "⚠️  src/${shorthand}:$lineno — 未找到对应文件（跳过）"
         WARN=$((WARN + 1))
       fi
       line="${line#*"$m"}"

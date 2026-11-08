@@ -1,13 +1,13 @@
 # sz-orm 项目 AI 工作指南
 
-- 版本：10.13.1（workspace.package.version 集中管理）
+- 版本：10.13.2（workspace.package.version 集中管理）
 - 语言：Rust 2021 Edition（rust-version = "1.81"）
 - 工作空间：72（70 lib 包 + cli + examples）；v5.1.0 新增 sz-orm-studio / sz-orm-lsp；v4.3.0 新增 sz-orm-explain / sz-orm-flamegraph / sz-orm-adaptive / sz-orm-fusion / sz-orm-n1-lint；v4.4.0 新增 sz-orm-advisor / sz-orm-diagnosis；v4.5.0 新增 sz-orm-parallel / sz-orm-stream；v4.6.0 不新增包，7 个 feature gate 扩展既有包；v4.7.0 不新增包，7 个 feature gate 扩展既有包；v7.3.0 不新增包，10 个 feature gate 扩展既有包，3 个默认启用 perf-accel/ha-events/health-subitems，7 个按需启用 auto-failover/limit-queue-timeout/tracing-db-attrs/ai-config/ann-accel/eco-config/warp-adapt）
 - 核心依赖：tokio（异步运行时）、sqlx（DB 驱动）、crossbeam-queue（连接池无锁队列）、serde/serde_json（序列化）
 - 绑定层依赖：sz-orm-cabi/sz-orm-java/sz-orm-go/sz-orm-cpp 依赖 sz-orm-sqlx（SQLite 后端）+ jni 0.22（Java）；sz-orm-python 依赖 sz-orm-sqlx + pyo3 0.20（PyPool 真实连接）；sz-orm-stream dev-dependencies 含 tokio/futures（集成测试）
 - 连接池：自研（AtomicU32 + crossbeam-queue ArrayQueue + Notify），非 deadpool（deadpool-postgres 仅 dev-dependency 用于 chaos-pool 测试）
 - 模块路径：`packages/sz-orm-core/src/{query,model,pool,migration,transaction,hooks,repository,...}.rs`（扁平模块，非嵌套目录）
-- 已发布：sz-orm-core 在 crates.io 已发布 32 个版本，最新为 **10.13.1**（2026-11-02 经 crates.io API 逐包核实：**70 个发布包全部同步到 10.13.1**，`sz-orm-js`/`sz-orm-python` 走独立 0.1.0 版本线，examples 不发布；1.0.0 首发于 2026-07-23）。v10.13.1 为红队渗透测试评测加固版（2026-10-31 评测 → 2026-11-01 发布，详见 CHANGELOG.md 与 `docs/assessment/2026-10-31-pentest-review.md`；v10.13.0 架构评测路线图执行 + 全量发布；v10.12.0 性能+稳定性深化：连接池自适应调优 + 查询计划缓存增强 + 故障恢复加速；v9.4.0 审计修复闭环：G7 缓存收益测试模型修正 + G22 覆盖率 94.7% + 23 关门禁全部通过；v9.3.0 安全加固深化：SingleFlight 缓存击穿防护 + 事务 panic 安全回滚 + 52 测试；v9.2.0 覆盖率战役：829 新增测试 + Oracle XE 21c 集成 + 安全审查修复；v9.1.0 覆盖率提升：240 新增测试 + AnyConnection 委托修复；v9.0.0 覆盖率战役 M1~M21：361 新增测试 + 连接池 known_good 快速路径引入后经审计撤销 + reap_idle 选择性回收 + Value clonecheap + 工作空间版本升级；v8.8.0 连接池优化 + 精确容量估算 + BatchSizeAdvisor + crates.io 全量发布 8.8.0；v8.7.0 真实质量基线采集：覆盖率 88.59% + 杀率 100% + 四数据库基准 8/8 PASS；v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate）
+- 已发布：sz-orm-core 在 crates.io 已发布 32 个版本，最新工作空间版本为 **10.13.2**（2026-11-08 新增 SzRSQL 数据库支持——`DbType::Szrsql` + PG 方言族委托 + `szrsql://` scheme + 8 项真连集成测试，详见 CHANGELOG.md 与 `docs/assessment/2026-11-08-szrsql-integration.md`；**10.13.2 尚未发布 crates.io，crates.io 最新仍为 10.13.1**：2026-11-02 经 crates.io API 逐包核实 **70 个发布包全部同步到 10.13.1**，`sz-orm-js`/`sz-orm-python` 走独立 0.1.0 版本线，examples 不发布；1.0.0 首发于 2026-07-23）。v10.13.1 为红队渗透测试评测加固版（2026-10-31 评测 → 2026-11-01 发布，详见 CHANGELOG.md 与 `docs/assessment/2026-10-31-pentest-review.md`；v10.13.0 架构评测路线图执行 + 全量发布；v10.12.0 性能+稳定性深化：连接池自适应调优 + 查询计划缓存增强 + 故障恢复加速；v9.4.0 审计修复闭环：G7 缓存收益测试模型修正 + G22 覆盖率 94.7% + 23 关门禁全部通过；v9.3.0 安全加固深化：SingleFlight 缓存击穿防护 + 事务 panic 安全回滚 + 52 测试；v9.2.0 覆盖率战役：829 新增测试 + Oracle XE 21c 集成 + 安全审查修复；v9.1.0 覆盖率提升：240 新增测试 + AnyConnection 委托修复；v9.0.0 覆盖率战役 M1~M21：361 新增测试 + 连接池 known_good 快速路径引入后经审计撤销 + reap_idle 选择性回收 + Value clonecheap + 工作空间版本升级；v8.8.0 连接池优化 + 精确容量估算 + BatchSizeAdvisor + crates.io 全量发布 8.8.0；v8.7.0 真实质量基线采集：覆盖率 88.59% + 杀率 100% + 四数据库基准 8/8 PASS；v7.3.0 性能极致优化 + 企业级高可用 + AI 深度集成 + 生态扩展完整交付：28 个任务，187 个新增测试，10 个 feature gate）
 - 外部生产试点：sz-pay 项目（`E:\vue\test\sz-pay\server\sz-rust`）已使用 sz-orm-core/sqlx/config/auth/macros/queue 6 个包
 - 约束：任何 WHERE 条件必须参数化（`where_eq`/`or_where_eq` 等），`where_cond`/`or_where` 已标记 deprecated；默认禁止 `SELECT *`；N+1 防护：编译期 `#[detect_n_plus_one]` 静态检测（n1-lint）+ 运行时 `N1QueryDetector` 检测组件（需手动接入，未自动拦截）。
 
@@ -162,6 +162,7 @@ cargo build --features sz-orm-macros/db-verify
 - MySQL（宝塔 8.0.29，端口 8802）：root 密码记录在宝塔面板安装日志 `D:/BtSoft/panel/logs/install/`（搜索"MySQL root 密码"）。运行集成测试前设置 `SZ_ORM_MYSQL_URL`（`root` 用户 + 该密码 + 主机 `127.0.0.1:8802/sz_orm_test`，格式见 integration_mysql.rs 的 `mysql_url()`），密码不入库
 - PostgreSQL 18：`postgres://postgres:test123@127.0.0.1:5432/sz_orm_test`
 - Oracle 26ai Free：`127.0.0.1:1521/freepdb1`（用户 sz_orm_test，密码经 `SZ_ORM_ORACLE_PASSWORD` 环境变量注入——2026-10-28 P0-3 起凭据不入库；运行前先 `export PATH="/d/oracle/product/26ai/dbhomeFree/bin:$PATH"` 提供 OCI 客户端库，再 `export SZ_ORM_ORACLE_PASSWORD=<sz_orm_test 密码>`；MSSQL 同理用 `SZ_ORM_MSSQL_PASSWORD`）
+- SzRSQL（自研，v1.0.0-rc.2，仓库 `D:\www\test\鲜视达\rust\szrsql`，只读——ADR-0001 同样适用）：pgwire v3.0 协议，默认端口 6543。启动：`cargo run -p szrsql-bin -- --port 6543 --auth-mode trust --data-dir <dir>`（trust 仅限本地测试）。sz-orm 集成测试 `integration_szrsql.rs` 经 `SZ_ORM_SZRSQL_URL`（`szrsql://` 或 `postgres://` 均可，指向 6543）注入，未启动自动跳过
 
 ### G7 集成测试本机排除清单（2026-10-06 评估更新；初版 2026-09-26 审计核定）
 

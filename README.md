@@ -1,14 +1,14 @@
 ﻿# SZ-ORM — Xianshida ORM
 
 > **Rust asynchronous ORM workspace (production ready)**, ThinkORM-style API compatible
-> v10.13.1 · 72 workspace members · 21290+ tests · 28 dialects (21 by default, 7 feature-gated) · sz-orm-core published on crates.io
+> v10.13.2 · 72 workspace members · 21298+ tests · 29 dialects (22 by default, 7 feature-gated) · sz-orm-core published on crates.io
 
 [![Rust](https://img.shields.io/badge/rust-1.81.0+-orange.svg)](https://www.rust-lang.org/)
 [![License](https://img.shields.io/badge/license-MIT-blue.svg)](LICENSE)
-[![Tests](https://img.shields.io/badge/tests-21290+-green.svg)](#tests)
-[![Dialects](https://img.shields.io/badge/dialects-28-red.svg)](#supported-databases)
+[![Tests](https://img.shields.io/badge/tests-21298+-green.svg)](#tests)
+[![Dialects](https://img.shields.io/badge/dialects-29-red.svg)](#supported-databases)
 [![Packages](https://img.shields.io/badge/packages-72-purple.svg)](#workspace-structure)
-[![Version](https://img.shields.io/badge/version-10.13.1-blue.svg)](CHANGELOG.md)
+[![Version](https://img.shields.io/badge/version-10.13.2-blue.svg)](CHANGELOG.md)
 [![Maturity](https://img.shields.io/badge/maturity-production--ready-brightgreen.svg)](#overview)
 [![Security](https://img.shields.io/badge/security-audit%2Fdeny-brightgreen.svg)](#security-audit)
 [![Coverage](https://img.shields.io/codecov/c/github/ljclz/sz-orm)](https://codecov.io/gh/ljclz/sz-orm)
@@ -41,7 +41,7 @@
 
 ## Overview
 
-SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.13.1 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 510 feature gates for modular composition.
+SZ-ORM is a pure Rust asynchronous ORM workspace, aiming to provide a full-featured database access layer for the Rust ecosystem. v10.13.2 includes 72 workspace members (70 sz-orm-* libs + cli + examples), covering ORM core engine, real database adapters, AI vector search, distributed transactions, observability, and other full-stack capabilities, with 510 feature gates for modular composition.
 
 ### v5.1.0 AI Application Optimization (34 tasks, 293 new tests)
 
@@ -132,8 +132,8 @@ println!("{}", report.to_json().unwrap());
 | Dimension | Data |
 |------|------|
 | Workspace members | **72** (70 sz-orm-* libs + cli + examples) |
-| Supported DB dialects | **28 dialects** — 21 compiled by default, 7 behind `dialect-*` features (at `--all-features`: 24 SQL + 4 NoSQL); dialect layer = SQL generation, not a connection driver (drivers: sqlx MySQL/PostgreSQL/SQLite + `sz-orm-oracle` + `sz-orm-mssql`) |
-| Test cases | **21290 passed, 0 failed** |
+| Supported DB dialects | **29 dialects** — 22 compiled by default, 7 behind `dialect-*` features (at `--all-features`: 25 SQL + 4 NoSQL); dialect layer = SQL generation, not a connection driver (drivers: sqlx MySQL/PostgreSQL/SQLite + `sz-orm-oracle` + `sz-orm-mssql`) |
+| Test cases | **21298 passed, 0 failed** |
 | Code size | **~639,200 LOC** (src ~504,900 + tests ~131,400 + benches ~2,700 + examples ~200) |
 | Project maturity | **Early production ready (internal project)** (sz-pay production pilot, crates.io has published sz-orm-core) |
 | Async runtime | Tokio 1.40+ |
@@ -145,7 +145,7 @@ println!("{}", report.to_json().unwrap());
 
 ## Historical: v3.4.0 New Features (2026-08-09)
 
-> **Note**: This section describes the v3.4.0 release features. For the latest features (v10.13.1), see [CHANGELOG.md](CHANGELOG.md). Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
+> **Note**: This section describes the v3.4.0 release features. For the latest features (v10.13.2), see [CHANGELOG.md](CHANGELOG.md). Quality deepening release: test coverage backfill + architecture improvements + performance optimization + compile-time type safety + documentation ecosystem + sz-pay production case deepening. 10 feature gates all off by default, no breaking changes. 44 main tasks / 160 subtasks all completed, five-dialect integration tests 83 all passed.
 
 ### Test Coverage Backfill (`test-coverage`)
 
@@ -364,7 +364,7 @@ See [CHANGELOG.md](CHANGELOG.md) and [Upgrade Guide](docs/v3.3.0-upgrade-guide.m
 ## Core Features
 
 - **Asynchronous**: based on Tokio, full `async/await`
-- **Multi-database dialects**: 28 database dialects (24 SQL: MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB/MariaDB/TiDB/OceanBase/Dameng/Kingbase/PolarDB/GaussDB/GBase/Sybase/CockroachDB/YugabyteDB/Snowflake/Redshift/Informix/SAP HANA/Firebird + 4 NoSQL: Redis/MongoDB/VectorDB/PureJsDb)
+- **Multi-database dialects**: 29 database dialects (25 SQL: MySQL/PostgreSQL/SQLite/Oracle/SQL Server/ClickHouse/DB2/DuckDB/MariaDB/TiDB/OceanBase/Dameng/Kingbase/PolarDB/GaussDB/GBase/Sybase/CockroachDB/YugabyteDB/Snowflake/Redshift/Informix/SAP HANA/Firebird/SzRSQL + 4 NoSQL: Redis/MongoDB/VectorDB/PureJsDb)
 - **Chained QueryBuilder**: ThinkORM-style fluent API
 - **ACID transactions**: isolation levels, savepoints (default 8 levels nesting, `DEFAULT_MAX_NESTING_DEPTH = 8`, configurable), `TransactionManager` multi-transaction management
 - **Connection pool**: configurable size, timeout, idle reaping, health check, max lifetime
@@ -599,6 +599,7 @@ let sql = sql_string!("SELECT * FROM users WHERE id = ?"; params: 1); // OK — 
 | Informix | `InformixDialect` (SKIP FIRST pagination) | SQL generation only: SQL generation only, no real driver connection | 9088 |
 | SAP HANA | `SapHanaDialect` (computed columns + CE functions) | sz-orm-sqlx (`dialect-saphana-driver` feature, based on `hdbconnect_async` v0.32.0) | 39015 |
 | Firebird | `FirebirdDialect` (GENERATOR/SEQUENCE + EXECUTE BLOCK) | SQL generation only: SQL generation only, no real driver connection | 3050 |
+| SzRSQL | `SzrsqlDialect` (delegates to `PostgreSqlDialect`, pgwire v3.0) | sz-orm-sqlx (`szrsql://` scheme, reuses sqlx PostgreSQL driver; verified against SzRSQL v1.0.0-rc.2 real-connection integration tests 8/8) | 6543 |
 
 Use `get_dialect(DbType::MySQL)` to get a dialect instance.
 
