@@ -11,6 +11,12 @@
 
 ### Added
 
+- **SzRSQL 全功能矩阵差分评测**：M1~M9 九大能力块 × PG18 双库对拍（报告 `docs/assessment/2026-11-09-szrsql-matrix-differential.md`）；新增 `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs` 14 项矩阵集成测试（11 项真连通过 + 3 项 szrsql 上游缺陷 `#[ignore]` 留档）；上游反馈提示词 `docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`（P0×2：RR/SERIALIZABLE 非真快照语义、IS [NOT] DISTINCT FROM 被优化器误裁列；P2×2：bool↔int cast、int 溢出静默回绕；P3×5）
+
+### Fixed
+
+- **迁移锁探测失败降级**（`packages/sz-orm-core/src/migration.rs`）：Szrsql 缺 `pg_try_advisory_lock`/`hashtext` 时 `acquire_migration_lock` 以 Err 上抛导致整个 `Migrator::migrate()` 失败；现降级为无锁迁移 + 显式告警（多实例并发需部署侧串行化），与既有「rows 为空跳过串行化」分支语义对齐；新增回归测试 `r7_lock_query_error_degrades_to_unlocked_migration`（cargo test -p sz-orm-core --lib 3272 passed）
+
 - **API 稳定性承诺文档**：新增 `docs/API-STABILITY.md`，明确 SemVer 承诺、API 稳定性三层分级（Stable/Experimental/Internal）、废弃流程（2 个 MINOR 版本保留期）、破坏性变更条件
 - **端到端真实 DB 示例**：新增 `examples/src/bin/real_db_crud.rs`，使用 SQLite 内存数据库演示完整连接池 + CRUD + 事务（提交/回滚）流程
 - **Prometheus 告警规则**：新增 `monitoring/alerts.yml`，覆盖错误率/延迟/连接池/SLO 燃烧率告警
