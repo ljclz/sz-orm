@@ -666,7 +666,21 @@ impl Migrator {
         let timeout = migration_lock_timeout();
         let deadline = std::time::Instant::now() + timeout;
         loop {
-            let rows = conn.query(&try_sql).await?;
+            let rows = match conn.query(&try_sql).await {
+                Ok(rows) => rows,
+                Err(err) => {
+                    // 锁语句执行失败（方言声明支持但后端缺函数，如 Szrsql 无
+                    // pg_try_advisory_lock/hashtext）：降级为「无锁迁移」并显式
+                    // 告警，避免整个 migrate 因锁探测失败而阻断。多实例并发
+                    // 串行化需由部署侧保证。
+                    tracing::warn!(
+                        key = %key,
+                        error = %err,
+                        "迁移锁语句执行失败，降级为无锁迁移（多实例并发需部署侧串行化）"
+                    );
+                    return Ok(None);
+                }
+            };
             if rows.is_empty() {
                 // 驱动未返回锁状态（测试替身 / 不支持该语句的连接实现）：
                 // 无法判定，按“已获取”继续，但显式告警，避免伪装成已串行化。
@@ -2437,6 +2451,106 @@ mod tests {
         assert!(log.iter().any(
             |sql| sql.contains("pg_advisory_unlock(hashtext('szorm_migrate___migrations_r7'))")
         ));
+    }
+
+    /// 锁语句执行失败（方言声明支持但后端缺函数，如 Szrsql 无
+    /// pg_try_advisory_lock）→ 降级为无锁迁移，migrate 不得整体失败
+    #[tokio::test]
+    async fn r7_lock_query_error_degrades_to_unlocked_migration() {
+        struct FailingLockConn {
+            inner: ScriptedConnection,
+        }
+        impl Connection for FailingLockConn {
+            fn execute<'a>(
+                &'a mut self,
+                sql: &'a str,
+            ) -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<u64, DbError>> + Send + 'a>,
+            > {
+                self.inner.execute(sql)
+            }
+            fn query<'a>(
+                &'a mut self,
+                sql: &'a str,
+            ) -> std::pin::Pin<
+                Box<dyn std::future::Future<Output = Result<QueryRows, DbError>> + Send + 'a>,
+            > {
+                Box::pin(async move {
+                    if sql.contains("pg_try_advisory_lock") {
+                        // 模拟 Szrsql：pg_try_advisory_lock 函数不存在
+                        return Err(DbError::InvalidInput(
+                            "function not found: pg_try_advisory_lock".to_string(),
+                        ));
+                    }
+                    self.inner.query(sql).await
+                })
+            }
+            fn begin_transaction<'a>(
+                &'a mut self,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+            {
+                self.inner.begin_transaction()
+            }
+            fn commit<'a>(
+                &'a mut self,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+            {
+                self.inner.commit()
+            }
+            fn rollback<'a>(
+                &'a mut self,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+            {
+                self.inner.rollback()
+            }
+            fn is_connected(&self) -> bool {
+                self.inner.is_connected()
+            }
+            fn ping<'a>(
+                &'a mut self,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+                self.inner.ping()
+            }
+            fn close<'a>(
+                &'a mut self,
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Result<(), DbError>> + Send + 'a>>
+            {
+                self.inner.close()
+            }
+        }
+        let log = std::sync::Arc::new(std::sync::Mutex::new(Vec::new()));
+        let ctx = MigrationContext {
+            table_name: "__migrations_r7".to_string(),
+            connection: Some(Box::new(FailingLockConn {
+                inner: ScriptedConnection {
+                    log: log.clone(),
+                    rows_for: Vec::new(),
+                },
+            })),
+            db_type: Some(DbType::Szrsql),
+        };
+        let mut migrator = Migrator::new(ctx).add_migration(Migration::new(
+            "r7_001",
+            "create_t",
+            "CREATE TABLE t_r7 (id INT)",
+            "DROP TABLE t_r7",
+        ));
+        // 锁探测失败 → 降级无锁迁移，DDL 正常执行
+        let applied = migrator.migrate().await.unwrap();
+        assert_eq!(applied, vec!["r7_001".to_string()], "DDL 应正常执行");
+        let logged = log.lock().unwrap();
+        assert!(
+            logged
+                .iter()
+                .any(|sql| sql.contains("CREATE TABLE t_r7")),
+            "迁移 DDL 必须已执行，日志：{logged:?}"
+        );
+        assert!(
+            !logged
+                .iter()
+                .any(|sql| sql.contains("pg_advisory_unlock")),
+            "降级路径不得尝试释放未持有的锁，日志：{logged:?}"
+        );
     }
 
     #[tokio::test]
