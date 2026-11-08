@@ -1756,6 +1756,9 @@ delegate_dialect_to!(PolarDbDialect, PostgreSqlDialect, DbType::PolarDB);
 // GaussDB：华为云，PostgreSQL 兼容分布式数据库
 delegate_dialect_to!(GaussDbDialect, PostgreSqlDialect, DbType::GaussDB);
 
+// SzRSQL：自研 Rust 数据库，pgwire v3.0 协议级兼容（PG 语义执行器，默认端口 6543）
+delegate_dialect_to!(SzrsqlDialect, PostgreSqlDialect, DbType::Szrsql);
+
 // Dameng：达梦 DM8，Oracle 兼容方言
 delegate_dialect_to!(DamengDialect, OracleDialect, DbType::Dameng);
 
@@ -2838,6 +2841,7 @@ pub fn get_dialect(db_type: DbType) -> Result<Box<dyn Dialect>, DbError> {
         DbType::TiDB => Ok(Box::new(TiDbDialect)),
         DbType::PolarDB => Ok(Box::new(PolarDbDialect)),
         DbType::GaussDB => Ok(Box::new(GaussDbDialect)),
+        DbType::Szrsql => Ok(Box::new(SzrsqlDialect)),
         DbType::GBase => Ok(Box::new(GBaseDialect)),
         DbType::Sybase => Ok(Box::new(SybaseDialect)),
         DbType::DuckDB => Ok(Box::new(DuckDBDialect)),
@@ -4870,6 +4874,7 @@ impl DialectKind {
             DbType::PostgreSQL | DbType::Kingbase | DbType::PolarDB | DbType::GaussDB => {
                 Some(Self::PostgreSQL)
             }
+            DbType::Szrsql => Some(Self::PostgreSQL),
             DbType::Sqlite => Some(Self::SQLite),
             DbType::Oracle | DbType::Dameng => Some(Self::Oracle),
             DbType::SqlServer | DbType::Sybase | DbType::GBase => Some(Self::MSSQL),

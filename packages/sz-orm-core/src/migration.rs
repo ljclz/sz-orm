@@ -377,7 +377,7 @@ fn migration_lock_kind(db_type: DbType) -> Option<MigrationLockKind> {
         DbType::MySQL | DbType::MariaDB | DbType::TiDB | DbType::OceanBase | DbType::PolarDB => {
             Some(MigrationLockKind::MySql)
         }
-        DbType::PostgreSQL | DbType::Kingbase | DbType::GaussDB => {
+        DbType::PostgreSQL | DbType::Kingbase | DbType::GaussDB | DbType::Szrsql => {
             Some(MigrationLockKind::Postgres)
         }
         DbType::SqlServer | DbType::Sybase => Some(MigrationLockKind::SqlServer),

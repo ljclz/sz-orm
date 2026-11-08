@@ -77,6 +77,7 @@ impl AnyBackend {
     ///
     /// - `mysql://` / `mariadb://` → MySQL
     /// - `postgres://` / `postgresql://` → Postgres
+    /// - `szrsql://` → Postgres（szrsql pgwire v3.0 协议，v10.13.2 新增）
     /// - `sqlite://` / `sqlite:` → Sqlite
     /// - `oracle://` → Oracle（v2.2.0 新增）
     /// - `mssql://` / `sqlserver://` → Mssql（v2.2.0 新增）
@@ -84,6 +85,10 @@ impl AnyBackend {
         if dsn.starts_with("mysql://") || dsn.starts_with("mariadb://") {
             Ok(AnyBackend::MySql)
         } else if dsn.starts_with("postgres://") || dsn.starts_with("postgresql://") {
+            Ok(AnyBackend::Postgres)
+        } else if dsn.starts_with("szrsql://") {
+            // szrsql pgwire v3.0 走 PG 线协议：复用 sqlx Postgres 驱动，
+            // scheme 仅作识别标记，连接前改写回 postgres://
             Ok(AnyBackend::Postgres)
         } else if dsn.starts_with("sqlite://") || dsn.starts_with("sqlite:") {
             Ok(AnyBackend::Sqlite)
@@ -117,9 +122,11 @@ impl AnyBackend {
             DbType::MySQL | DbType::MariaDB | DbType::TiDB | DbType::OceanBase => {
                 Some(AnyBackend::MySql)
             }
-            DbType::PostgreSQL | DbType::Kingbase | DbType::PolarDB | DbType::GaussDB => {
-                Some(AnyBackend::Postgres)
-            }
+            DbType::PostgreSQL
+            | DbType::Kingbase
+            | DbType::PolarDB
+            | DbType::GaussDB
+            | DbType::Szrsql => Some(AnyBackend::Postgres),
             DbType::Sqlite => Some(AnyBackend::Sqlite),
             DbType::Oracle | DbType::Dameng => Some(AnyBackend::Oracle),
             DbType::SqlServer | DbType::Sybase | DbType::GBase => Some(AnyBackend::Mssql),
@@ -335,6 +342,7 @@ fn normalize_dsn_scheme(backend: AnyBackend, dsn: &str) -> String {
         "mariadb://",
         "postgres://",
         "postgresql://",
+        "szrsql://",
         "sqlite://",
         "sqlite:",
         "oracle://",

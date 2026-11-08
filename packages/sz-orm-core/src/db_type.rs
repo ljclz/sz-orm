@@ -89,6 +89,9 @@ pub enum DbType {
     /// Firebird（Firebird6 数据库，v3.7.0 新增，SQL generation only: 仅 SQL 生成，无真实驱动连接，GENERATOR/SEQUENCE + EXECUTE BLOCK）
     #[cfg(feature = "dialect-firebird")]
     Firebird,
+    /// SzRSQL（自研 Rust 数据库 v1.0.0-rc.2，pgwire v3.0 协议级兼容，默认端口 6543，
+    /// v10.13.2 新增；语义层为 PG 语义，连接复用 PostgreSQL 驱动）
+    Szrsql,
 }
 
 impl DbType {
@@ -132,6 +135,7 @@ impl DbType {
         DbType::SapHana,
         #[cfg(feature = "dialect-firebird")]
         DbType::Firebird,
+        DbType::Szrsql,
     ];
 
     /// 是否为 NoSQL 类型（无 SQL 方言，不支持 SQL 生成与执行）
@@ -180,6 +184,7 @@ impl DbType {
             DbType::SapHana => "saphana",
             #[cfg(feature = "dialect-firebird")]
             DbType::Firebird => "firebird",
+            DbType::Szrsql => "szrsql",
         }
     }
 
@@ -223,6 +228,7 @@ impl DbType {
             "saphana" | "hana" => Some(DbType::SapHana),
             #[cfg(feature = "dialect-firebird")]
             "firebird" | "firebirdsql" => Some(DbType::Firebird),
+            "szrsql" => Some(DbType::Szrsql),
             _ => None,
         }
     }
@@ -263,6 +269,7 @@ impl DbType {
                 | DbType::GaussDB
                 | DbType::GBase
                 | DbType::Sybase
+                | DbType::Szrsql
         )
     }
 
@@ -305,6 +312,7 @@ impl DbType {
             DbType::SapHana => 39015, // SAP HANA 默认端口（systemdb）
             #[cfg(feature = "dialect-firebird")]
             DbType::Firebird => 3050, // Firebird 默认端口
+            DbType::Szrsql => 6543, // szrsql 默认 pgwire 端口（避开 PG 5432）
         }
     }
 
@@ -316,10 +324,14 @@ impl DbType {
         )
     }
 
-    /// 判断该数据库是否为 PostgreSQL 方言家族（PostgreSQL/Kingbase/PolarDB-PG/GaussDB）
+    /// 判断该数据库是否为 PostgreSQL 方言家族（PostgreSQL/Kingbase/PolarDB-PG/GaussDB/SzRSQL）
     pub fn is_postgres_family(&self) -> bool {
         match self {
-            DbType::PostgreSQL | DbType::Kingbase | DbType::GaussDB | DbType::PolarDB => true,
+            DbType::PostgreSQL
+            | DbType::Kingbase
+            | DbType::GaussDB
+            | DbType::PolarDB
+            | DbType::Szrsql => true,
             #[cfg(feature = "dialect-cockroachdb")]
             DbType::CockroachDB => true,
             #[cfg(feature = "dialect-yugabytedb")]

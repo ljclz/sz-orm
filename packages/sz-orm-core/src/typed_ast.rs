@@ -1167,9 +1167,11 @@ mod typed_dsl_ext {
         fn to_sql(&self, dialect: &dyn Dialect) -> (String, Vec<String>) {
             let col_sql = dialect.quote(C::NAME);
             match dialect.db_type() {
-                DbType::PostgreSQL | DbType::Kingbase | DbType::PolarDB | DbType::GaussDB => {
-                    (format!("{} ILIKE ?", col_sql), Vec::new())
-                }
+                DbType::PostgreSQL
+                | DbType::Kingbase
+                | DbType::PolarDB
+                | DbType::GaussDB
+                | DbType::Szrsql => (format!("{} ILIKE ?", col_sql), Vec::new()),
                 _ => (format!("LOWER({}) LIKE LOWER(?)", col_sql), Vec::new()),
             }
         }
@@ -1808,9 +1810,11 @@ mod typed_dsl_ext {
         fn to_sql(&self, dialect: &dyn Dialect) -> (String, Vec<String>) {
             let col_sql = dialect.quote(C::NAME);
             match dialect.db_type() {
-                DbType::PostgreSQL | DbType::Kingbase | DbType::PolarDB | DbType::GaussDB => {
-                    (format!("{}::{}", col_sql, U::NAME), Vec::new())
-                }
+                DbType::PostgreSQL
+                | DbType::Kingbase
+                | DbType::PolarDB
+                | DbType::GaussDB
+                | DbType::Szrsql => (format!("{}::{}", col_sql, U::NAME), Vec::new()),
                 _ => (format!("CAST({} AS {})", col_sql, U::NAME), Vec::new()),
             }
         }
