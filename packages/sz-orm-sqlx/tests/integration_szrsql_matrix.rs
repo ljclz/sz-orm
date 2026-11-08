@@ -7,7 +7,10 @@
 //! 运行：cargo test -p sz-orm-sqlx --test integration_szrsql_matrix -- --ignored
 //! 凭据经环境变量 `SZ_ORM_SZRSQL_URL` 注入（默认本机 trust 6543）。
 
-use sz_orm_core::{Connection, Value};
+use std::sync::Arc;
+
+use sz_orm_core::{Connection, Pool, PoolConfigBuilder, Value};
+use sz_orm_sqlx::{PgPoolHandle, SqlxPgConnectionFactory};
 
 /// 默认 szrsql 连接 URL；`SZ_ORM_SZRSQL_URL` 覆盖。
 const SZRSQL_URL_DEFAULT: &str = "szrsql://postgres:trust@127.0.0.1:6543/postgres";
@@ -546,7 +549,6 @@ async fn matrix_m9d_three_valued_null() {
 #[tokio::test]
 #[ignore = "szrsql 上游：REPEATABLE READ/SERIALIZABLE 非真快照语义（2026-11-09 矩阵差分 M4-P0）"]
 async fn matrix_m4_repeatable_read_snapshot() {
-    use std::sync::Arc;
     let Some(pool) = try_pool().await else {
         eprintln!("skip: szrsql 未启动");
         return;
@@ -605,6 +607,61 @@ async fn matrix_m4_repeatable_read_snapshot() {
     );
     let mut c = pool.create().await.unwrap();
     c.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+}
+
+/// M5b：DISCARD ALL 池路径降级验证 —— szrsql 不支持 DISCARD ALL（上游缺陷留档），
+/// 本测试验证 sz-orm 池对该失败的容错：复位失败的连接被关闭重建（pool.rs release
+/// 路径 Ok(Err) 分支），池不挂死、污染不扩散、后续租用正常。
+#[tokio::test]
+#[ignore = "需要 szrsql 服务在 127.0.0.1:6543"]
+async fn matrix_m5b_session_reset_failure_degrades_gracefully() {
+    let url = szrsql_url();
+    if try_pool().await.is_none() {
+        eprintln!("skip: szrsql 未启动");
+        return;
+    }
+    let pg_url = url.replacen("szrsql://", "postgres://", 1);
+    let handle = Arc::new(PgPoolHandle::connect(&pg_url).await.unwrap());
+    let factory = Arc::new(SqlxPgConnectionFactory::new(handle));
+    let config = PoolConfigBuilder::new()
+        .max_size(2)
+        .min_idle(0)
+        .acquire_timeout(10)
+        .build()
+        .unwrap();
+    let pool = Pool::new(config, factory).unwrap();
+
+    let table = unique_table("mx_m5b");
+    // 1) 租用连接做会话级污染（SET 会话变量 → 脏标记）后归还，
+    //    触发 release 路径的 DISCARD ALL → szrsql 解析失败 → 连接被关闭
+    {
+        let mut conn = pool.acquire().await.unwrap();
+        conn.execute("SET application_name = 'm5b_probe'")
+            .await
+            .unwrap();
+        conn.execute(&format!("CREATE TABLE IF NOT EXISTS {table} (id INT)"))
+            .await
+            .unwrap();
+        pool.release(conn).await;
+    }
+    // 2) 再次租用：应拿到新建连接，正常工作；循环验证池稳定
+    for i in 0..5u32 {
+        let mut conn = pool.acquire().await.unwrap();
+        let sql = format!("SELECT {i} AS n");
+        let rows = conn.query(&sql).await.unwrap();
+        assert_eq!(rows.len(), 1, "复位失败关闭连接后第 {i} 次租用应正常");
+        pool.release(conn).await;
+    }
+    let status = pool.status().await;
+    assert!(
+        status.active <= 2,
+        "DISCARD 失败关闭连接后池容量应收敛，active={}",
+        status.active
+    );
+    let mut conn = pool.acquire().await.unwrap();
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
         .await
         .unwrap();
 }

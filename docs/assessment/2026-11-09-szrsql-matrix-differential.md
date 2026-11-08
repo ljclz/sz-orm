@@ -73,6 +73,7 @@ MVCC 代码存在（`scan_from_row_store` 走 `mvcc.is_visible`），但 SELECT 
 - `DISCARD ALL`（sz-orm session_reset 默认路径之一）：`unsupported statement: Discard { object_type: ALL }`；SEQUENCES/PLANS/TEMP 同样不支持。
 - `RESET ALL`：sqlparser 解析错误（`Expected: an SQL statement, found: RESET`）。
 - 连接池 acquire/release 往返（matrix 测试 + 既有 pool 测试）：✅。
+- **DISCARD 失败的池容错（补测，matrix_m5b_session_reset_failure_degrades_gracefully 通过）**：会话污染连接归还时 `session_reset_sql()`（PG 族 = `DISCARD ALL`，`packages/sz-orm-sqlx/src/any.rs:2222`）在 szrsql 失败 → 池按 `packages/sz-orm-core/src/pool.rs` release 路径 Ok(Err) 分支关闭该连接并重建；循环 5 次租用正常、池容量收敛（active ≤ max_size）——**池不挂死、污染不扩散，但代价是 szrsql 后端下每次脏归还都重建连接**（性能税，非正确性问题）。
 - 中途 kill szrsql 二进制的池恢复实验：**未执行**——评测中途 szrsql 进程曾静默退出一次（日志无 panic 记录，重启后继续），恰构成一次真实断连观察：sz-orm 侧重连即恢复，未复现池挂死；正式的 kill-recover 矩阵用例因属稳定性长测未纳入本批，如实登记未验证。
 
 ### M6 批量与流式 —— 通过（1 缺陷）
@@ -81,7 +82,7 @@ MVCC 代码存在（`scan_from_row_store` 走 `mvcc.is_visible`），但 SELECT 
 - 1000 行批量 INSERT（`INSERT...SELECT generate_series`）：✅
 - 服务端游标 DECLARE/FETCH/CLOSE（含分次 FETCH 3+2）：✅（matrix_m6_batch_and_cursor 通过）
 - SQL 级 `PREPARE`：✅ 接受；`EXECUTE psel(7)`：❌ `SQL blocked by firewall: blocked command: EXEC`（[UP-6] P3，防火墙规则误伤合法 EXECUTE 语句；sqlx 协议级 prepared statement 不受影响，既有参数化测试通过）
-- >10 万行流式读稳定性：列为超范围长测，未执行，如实登记。
+- **20 万行流式读（补测，单会话 21 次 FETCH 10000 服务端游标）**：szrsql 与 PG18 均**完整返回 200,000 行、无丢行无错**——正确性通过；性能差距显著（szrsql 44.7s vs PG18 1.8s，约 25×，debug 构建游标逐批物化路径），正确性结论不受影响，性能差距登记为观察项非缺陷。
 
 ### M7 多租户与 N+1 —— 通过（1 措辞项）
 
@@ -176,7 +177,7 @@ EXPLAIN SELECT id FROM t WHERE v IS NOT DISTINCT FROM 10;
 - **维持**：v10.13.2 既有声明「`DbType::Szrsql` + PG 方言族委托 + `szrsql://` scheme + 8 项真连集成测试」不变。
 - **新增可信声明**：QueryBuilder 同型 SQL（M1 12 项）、表达式层（M2 12 项）、DDL 变体、RETURNING、游标、10 万行级 generate_series、批量 INSERT、错误恢复——在 szrsql 与 PG18 行为一致（矩阵 14 项测试，11 真连通过 + 3 项上游缺陷留档 `#[ignore]`）。
 - **不可声明**（防幻影）：「szrsql 支持可序列化/可重复读事务」「szrsql 支持 advisory lock 迁移锁」「szrsql 支持 session 复位（DISCARD/RESET）」——均不成立或未验证。
-- 遗留风险：①`nested_active_model` 的 `LAST_INSERT_ID()` 历史缺陷（PG 族后端均不可用）；②M5 kill-recover 长测与 M6 >10 万行流式长测未执行；③szrsql 并行会话高频变动，缺陷复现以其基线 `f937e474` 为准。
+- 遗留风险：①`nested_active_model` 的 `LAST_INSERT_ID()` 历史缺陷（PG 族后端均不可用）；②M5 kill-recover 长测未执行（DISCARD 失败池容错已补测通过，见 §1 M5）；③szrsql 20 万行流式读正确性已验证（200,000 行完整返回）但性能约 25× 慢于 PG（debug 构建，登记观察项）；④szrsql 并行会话高频变动，缺陷复现以其基线 `f937e474` 为准。
 
 ## 6. 验收清单执行记录
 
