@@ -113,7 +113,7 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 ## 3. 版本与发布
 
 - workspace 版本 10.13.1 → **10.13.2**（Cargo.toml:6）；Cargo.lock 随动。
-- **10.13.2 尚未发布 crates.io**（本批仅本地集成；发布需另行执行 publish 流程，crates.io 最新仍为 10.13.1——AGENTS.md「已发布」行已如实标注双口径）。
+- **10.13.2 已于 2026-11-08 全量发布 crates.io**（publish-crates.sh 拓扑发布 + SOCKS5 代理；期间 429 限流 1 次、already-exists 假失败 1 次，续发消化；发布后经 crates.io API 逐包核实：**69 个库包 + cli 全部 max_version=10.13.2**，`sz-orm-js`/`sz-orm-python` 独立 0.1.0 版本线不动，examples 不发布）。
 
 ## 4. 文档同步清单
 
@@ -128,7 +128,7 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 1. ~~**未实测项**：SAVEPOINT 嵌套、游标、COPY、LISTEN/NOTIFY、ALTER TABLE 大规模变更、`--auth-mode scram` 路径~~ → **已于同日收口实测（见 §7 遗留项复测）**。
 2. **szrsql 并行会话**：szrsql 仓库同日高频变更（分区 spec/ColumnRef 性能线），后续复测应以最新 commit 重建。复测时点 HEAD=`2a0285db`（流式 GROUP BY 聚合）。
-3. **crates.io 未发布**：10.13.2 待发布流程（publish-crates.sh + SOCKS5 代理配方，见记忆 server-info-doc-and-proxy）。
+3. ~~**crates.io 未发布**~~ → **已于 2026-11-08 全量发布并逐包核实（§3）**。
 
 ## 7. 遗留项复测（2026-11-08 同日收口，szrsql HEAD=2a0285db，全部 L2 真连证据）
 
