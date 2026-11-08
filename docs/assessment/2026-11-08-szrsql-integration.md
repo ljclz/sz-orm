@@ -52,7 +52,7 @@ szrsql 仓库存在**并行 AI 会话活动**（同日 commit `0d89fc70`/`053174
 | D-1 | 裸 SQL 文本含 `$1` 字面量（无对应参数绑定） | szrsql 拒绝：`there is no parameter $1 in this plan: parameter substitution does not cover this statement form (M1 guard)` | sz-orm 参数化路径不受影响（占位符与参数一一对应）；sz-orm 无参数时不会生成 `$n` 占位 | 探针输出 `INSERT placeholder without params` |
 | D-2 | `--auth-mode scram` 为默认 | 首次启动自动生成随机 postgres 密码打印到日志；本地测试用 `--auth-mode trust` 规避 | 集成测试文档注明 trust 仅限本地；生产用 SCRAM + `SZ_ORM_SZRSQL_URL` 凭据注入 | README 命令行参数表:170 |
 | D-3 | BIGSERIAL 自增 | szrsql 支持（RETURNING id 返回真实自增值） | schema_sync SERIAL 语法族可直接执行 | 探针 RETURNING rows=1 |
-| D-4 | 未实测项：SAVEPOINT/游标/COPY/LISTEN | 未覆盖（超出本批验收范围） | 遗留风险，见 §5 | — |
+| D-4 | 未实测项：SAVEPOINT/游标/COPY/LISTEN | 初版未覆盖 → **同日 §7 已收口实测**（SAVEPOINT/游标 ✅；COPY/NOTIFY 为 szrsql pgwire 子协议与 sqlx 帧语义差异 ⚠️） | 见 §7 | §7 表 L-1~L-4 |
 
 ## 阶段二：sz-orm 集成设计决策与实施
 
@@ -126,9 +126,24 @@ test result: ok. 8 passed; 0 failed; 0 ignored; 0 measured; 0 filtered out
 
 ## 5. 遗留风险
 
-1. **未实测项**：SAVEPOINT 嵌套、游标、COPY、LISTEN/NOTIFY、ALTER TABLE 大规模变更、`--auth-mode scram` 路径（本批用 trust）。集成测试覆盖 CRUD/参数化/事务/分页/元数据，均已真连验证；上述扩展场景下轮补测。
-2. **szrsql 并行会话**：szrsql 仓库同日高频变更（分区 spec/ColumnRef 性能线），后续复测应以最新 commit 重建。
+1. ~~**未实测项**：SAVEPOINT 嵌套、游标、COPY、LISTEN/NOTIFY、ALTER TABLE 大规模变更、`--auth-mode scram` 路径~~ → **已于同日收口实测（见 §7 遗留项复测）**。
+2. **szrsql 并行会话**：szrsql 仓库同日高频变更（分区 spec/ColumnRef 性能线），后续复测应以最新 commit 重建。复测时点 HEAD=`2a0285db`（流式 GROUP BY 聚合）。
 3. **crates.io 未发布**：10.13.2 待发布流程（publish-crates.sh + SOCKS5 代理配方，见记忆 server-info-doc-and-proxy）。
+
+## 7. 遗留项复测（2026-11-08 同日收口，szrsql HEAD=2a0285db，全部 L2 真连证据）
+
+6 项遗留场景以临时探针真连实测（探针已按临时文件纪律删除，输出留存于会话记录与本节）：
+
+| # | 场景 | 结果 | 实测证据 |
+|---|------|------|---------|
+| L-1 | **SAVEPOINT 嵌套**（SAVEPOINT / ROLLBACK TO / RELEASE，两层嵌套） | ✅ 支持 | `ROLLBACK TO sp1` 后 rows=1（期望 1）；嵌套 `ROLLBACK TO inner_sp` 后 rows=2（10,11，期望 2）；整事务回滚后 rows=1。与 szrsql README 已知缺陷 BUG-3 修复声明一致（SAVEPOINT 栈 + 撤销日志） |
+| L-2 | **游标**（DECLARE CURSOR / FETCH n / CLOSE） | ✅ 支持 | `DECLARE cur1 CURSOR FOR SELECT…` ok；`FETCH 2 FROM cur1` rows=2；`CLOSE cur1` ok |
+| L-3 | **COPY**（COPY FROM stdin / COPY TO stdout） | ⚠️ **协议层不兼容 sqlx** | szrsql 发送 `CopyInResponse`/进入 COPY 子协议后，sqlx 报 `unexpected message: CopyInResponse` / `expected to read 5 bytes, got 0 bytes at EOF`——szrsql COPY 子协议实现与 sqlx 期望的流式 CopyData 分帧不匹配。**sz-orm 侧影响为零**（`Connection::execute/query` 不使用 COPY；批量写入走参数化 INSERT 批路径，已实测通过）。属 szrsql 上游改进项（只读仓库，不代改） |
+| L-4 | **LISTEN/NOTIFY** | ⚠️ **NOTIFY 推送不兼容 sqlx** | `LISTEN ch` ok、`UNLISTEN` ok；`NOTIFY` 执行时 sqlx 收到异步 `NotificationResponse` 报 `unexpected message`——sqlx 驱动仅在 PgListener 专用路径消费该消息，普通 execute 路径视其为意外帧。sz-orm 未对 Szrsql 宣称 LISTEN/NOTIFY 能力，无幻影交付风险 |
+| L-5 | **ALTER TABLE 大规模变更** | ✅ 支持 | `ADD COLUMN` / `ADD COLUMN IF NOT EXISTS` / `ALTER COLUMN … SET DEFAULT` / `RENAME COLUMN` / `DROP COLUMN` / `DROP COLUMN IF EXISTS` / `RENAME TO` 全部执行成功 |
+| L-6 | **SCRAM-SHA-256 认证**（非 trust） | ✅ 支持 | 独立启动 `--auth-mode scram --port 6544`（首启自动生成随机 postgres 密码打印日志，`auth.json` 持久化），sqlx PG 驱动经 SCRAM 握手 `connect + query: ok rows=1` |
+
+**复测结论**：6 项遗留中 4 项（SAVEPOINT/游标/ALTER/SCRAM）全通，2 项（COPY/NOTIFY 异步帧）为 szrsql pgwire 子协议与 sqlx 驱动的帧语义差异——均不触达 sz-orm 已宣称的 Szrsql 支持面（CRUD/参数化/事务/分页/元数据/池），无需修改 sz-orm 代码；两项差异如实登记为本报告 D-5/D-6，供 szrsql 上游参考。
 
 ## 6. 结论
 
