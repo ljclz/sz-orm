@@ -2508,7 +2508,8 @@ mod tests {
             }
             fn ping<'a>(
                 &'a mut self,
-            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>> {
+            ) -> std::pin::Pin<Box<dyn std::future::Future<Output = bool> + Send + 'a>>
+            {
                 self.inner.ping()
             }
             fn close<'a>(
@@ -2540,15 +2541,11 @@ mod tests {
         assert_eq!(applied, vec!["r7_001".to_string()], "DDL 应正常执行");
         let logged = log.lock().unwrap();
         assert!(
-            logged
-                .iter()
-                .any(|sql| sql.contains("CREATE TABLE t_r7")),
+            logged.iter().any(|sql| sql.contains("CREATE TABLE t_r7")),
             "迁移 DDL 必须已执行，日志：{logged:?}"
         );
         assert!(
-            !logged
-                .iter()
-                .any(|sql| sql.contains("pg_advisory_unlock")),
+            !logged.iter().any(|sql| sql.contains("pg_advisory_unlock")),
             "降级路径不得尝试释放未持有的锁，日志：{logged:?}"
         );
     }

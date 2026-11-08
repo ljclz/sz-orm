@@ -221,7 +221,10 @@ async fn matrix_m3b_savepoint_stack() {
     conn.execute("ROLLBACK TO SAVEPOINT sp1").await.unwrap();
     conn.commit().await.unwrap();
 
-    let rows = conn.query(&format!("SELECT id FROM {table}")).await.unwrap();
+    let rows = conn
+        .query(&format!("SELECT id FROM {table}"))
+        .await
+        .unwrap();
     assert_eq!(rows.len(), 1, "ROLLBACK TO sp1 后应只剩 1 行");
 
     conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
@@ -347,7 +350,9 @@ async fn matrix_m8_returning() {
     .unwrap();
 
     let rows = conn
-        .query(&format!("INSERT INTO {table} (v) VALUES ('a') RETURNING id"))
+        .query(&format!(
+            "INSERT INTO {table} (v) VALUES ('a') RETURNING id"
+        ))
         .await
         .unwrap();
     assert_eq!(rows.len(), 1, "INSERT..RETURNING 应回填主键");
@@ -399,11 +404,9 @@ async fn matrix_m9_is_distinct_from() {
     conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
         .await
         .unwrap();
-    conn.execute(&format!(
-        "CREATE TABLE {table} (id INT PRIMARY KEY, v INT)"
-    ))
-    .await
-    .unwrap();
+    conn.execute(&format!("CREATE TABLE {table} (id INT PRIMARY KEY, v INT)"))
+        .await
+        .unwrap();
     conn.execute(&format!("INSERT INTO {table} VALUES (1, 10), (2, NULL)"))
         .await
         .unwrap();
@@ -445,7 +448,9 @@ async fn matrix_m9c_quoted_identifiers() {
     };
     let mut conn = pool.create().await.unwrap();
     // 保留字表名/列名（加引号）
-    conn.execute("DROP TABLE IF EXISTS \"order\"").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS \"order\"")
+        .await
+        .unwrap();
     conn.execute("CREATE TABLE \"order\" (\"select\" INT PRIMARY KEY)")
         .await
         .unwrap();
@@ -478,7 +483,9 @@ async fn matrix_m9c_quoted_identifiers() {
     assert_eq!(rows.len(), 1);
 
     conn.execute("DROP TABLE IF EXISTS 表_测试").await.unwrap();
-    conn.execute("DROP TABLE IF EXISTS \"order\"").await.unwrap();
+    conn.execute("DROP TABLE IF EXISTS \"order\"")
+        .await
+        .unwrap();
 }
 
 /// M9d：三值 NULL 边界（= NULL 恒空 / NOT (val>10) 不含 NULL 行 / 聚合空集 NULL）——差分一致项沉淀
