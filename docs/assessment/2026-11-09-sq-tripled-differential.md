@@ -13,7 +13,7 @@
 |------|------|------|
 | szrsql 上游缺陷（新） | **0** | szrsql 与 PG18 在本批全部载荷上**一致**——包括上批 P0/P2 修复后的溢出/除零报错行为（新 HEAD 已对齐 PG） |
 | sz-orm 集成缺口（已修复） | **1** | [FIX-1] `typed_ast::Concat` 对 SQLite 生成 `CONCAT()` 而该函数 3.44 才内置（sqlx 捆绑 3.46 有，但低版本兼容面不足）→ SQLite 分支归入 `\|\|` 拼接族 |
-| 必然差异（SQLite 方言本质） | **8** | 见 §3 表 |
+| 必然差异（SQLite 方言本质） | **7**（初报 8，红队勘误撤销 D-5 NULLS 错判，见 §3 勘误行） | 见 §3 表 |
 
 **核心结论**：szrsql 在本批覆盖面内**未发现新缺陷**——上批 UP-2/UP-4（IS NOT DISTINCT FROM、整数溢出）在新 HEAD 复验已与 PG18 一致（上游修复生效确认）。SQLite 与 szrsql 的差异全部属于异族方言本质（ILIKE/GREATEST/LEAST/CONCAT（低版本）/NULLS 排序键/IS NOT DISTINCT FROM（<3.39）/弱类型/除零 NULL/RETURNING（<3.35）），无「szrsql 宣称 PG 语义但偏离」的新增证据。
 
@@ -31,7 +31,7 @@
 
 | 载荷 | szrsql | SQLite | 分类 |
 |------|--------|--------|------|
-| ILIKE | ✅=PG | ❌ 无 ILIKE；sz-orm [typed_ast.rs:1176](../../packages/sz-orm-core/src/typed_ast.rs#L1176) fallback `LOWER(x) LIKE LOWER(?)` **实测可执行且语义正确** | 必然差异（fallback 已闭环） |
+| ILIKE | ✅=PG | ❌ 无 ILIKE；sz-orm [typed_ast.rs:1178](../../packages/sz-orm-core/src/typed_ast.rs#L1178) fallback `LOWER(x) LIKE LOWER(?)` **实测可执行且语义正确** | 必然差异（fallback 已闭环） |
 | GREATEST/LEAST | ✅=PG | ❌ 无此函数 | 必然差异（sz-orm typed_ast 未定义 Greatest/Least 表达式，无生成面——不支持即不受影响，如实登记） |
 | SUBSTRING(FROM..FOR) | ✅=PG | ❌ 语法不识别；SUBSTR(s,i,n) 等价形式可执行 | 必然差异 |
 | EXTRACT(YEAR FROM d) | ✅=PG | ❌ 语法不识别；strftime 等价（**注意 strftime 在 PG/szrsql 均不存在**——双向均需方言层转换） | 必然差异 |
@@ -90,10 +90,12 @@
 | D-2 | 无 GREATEST/LEAST/SUBSTRING..FROM/EXTRACT..FROM（等价形式 SUBSTR/strftime/CASE 需方言转换） | round1 S2-2/3/4/6 |
 | D-3 | **引擎版本分裂**：sqlx 捆绑 3.46（RETURNING/INDF 可用）vs 系统 python sqlite3 3.32（均不可用）——文档与对拍必须标注引擎来源 | 集成测试 s5 头注释 + libsqlite3-sys 0.30.1 sqlite3.h:149 |
 | D-4 | `::` cast 语法不支持（CASE 等价） | round1 S2-5 |
-| D-5 | NULLS FIRST/LAST 关键字不支持（默认 NULL 最小） | round1 S1-1/2 |
+| D-5 | ~~NULLS FIRST/LAST 关键字不支持~~ **红队复核勘误（缺陷-1）：本项为报告错判，撤销**——SQLite 3.30 起即支持 NULLS FIRST/LAST；本机 python 3.32 重放 round1 S1-1 载荷成功且输出与 PG 基准一致（3,1,2,4）；round1 原始输出中 sqlite 列的 3\n1\n2\n4 实为**正确**结果而非「默认 NULL 最小」的差异——首轮三方脚本将其标 SZ=PG≠SQ 是 SQLite 列换行符/空值文本格式差异造成的假阳性 | 红队复核 R-4 + 本会话独立复放 |
 | D-6 | 动态类型：溢出静默、除零 NULL、bool=int 弱类型成立 | round1/2 S6-5/6/8 |
 | D-7 | 无 COMMENT ON | round2 S4-3 |
 | D-8 | RETURNING/IS NOT DISTINCT FROM 仅 ≥3.35/3.39（sqlx 捆绑 3.46 已覆盖） | 集成测试 s5/s6 |
+
+> **红队复核记录（第 5 环，2026-11-09）**：独立 Agent 六项复核 R-1~R-6，五项 PASS、R-4 发现 D-5 错判（NULLS FIRST/LAST 实为 SQLite 3.30+ 支持项，round1 的"差异"是输出格式假阳性），**放行入库**（附缺陷清单：缺陷-1 本项勘误随第 6 环登记修正；缺陷-2 环境性 szrsql 不可复跑已在 §5 标注）。复核报告：`D:\tmp\redteam-sq-tripled.md`（会话外临时文件，结论摘录于本节）。
 
 ## 4. sz-orm 集成缺口修复记录
 
