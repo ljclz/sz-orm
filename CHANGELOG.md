@@ -48,6 +48,17 @@
 
 **验证**：`cargo test -p sz-orm-sqlx --test integration_szrsql -- --ignored` = **8 passed**（真连 szrsql v1.0.0-rc.2）；`cargo check --workspace --all-targets` 0 error；clippy `-D warnings` 0 error；G1 fmt 72 包通过；G9 46/46 Safe（--strict）；G12/G15/G16/G19/G33/G35/G36 PASS；pytest 160 passed。
 
+
+### 评测 — SzRSQL × SQLite × PG18 三方对拍（2026-11-09）
+
+依据 `docs/assessment/2026-11-09-sq-tripled-differential-prompt.md` 执行三方对拍（szrsql 基线 `54dc5631`，PG18 仲裁）：
+
+- **szrsql 零新增缺陷**：上批 UP-2（IS [NOT] DISTINCT FROM 误裁列）/UP-4（整数溢出静默）修复在上游 HEAD 复验生效（溢出/除零/INDF 均与 PG18 一致）；事务内语句错误 → COMMIT 全回滚行为与 PG 一致
+- **SQLite 引擎版本事实（D-3）**：sqlx 捆绑 libsqlite3-sys 0.30.1 = SQLite 3.46.0（RETURNING/IS NOT DISTINCT FROM 可用），与系统 python sqlite3 3.32.3 行为分裂——对拍口径必须区分引擎来源
+- **[FIX-1] sz-orm 集成缺口修复**：`typed_ast::Concat` SQLite 分支由 `CONCAT()` 改 `||` 拼接（SQLite 3.44 前无 CONCAT 函数；`||` 与 PG 语义一致，NULL 传播），见 `packages/sz-orm-core/src/typed_ast.rs`
+- **新增** `packages/sz-orm-sqlx/tests/integration_sq_differential.rs`：S1~S7 三方载荷沉淀 7 项 SQLite 必跑 + 1 项 szrsql smoke（未启动跳过）；8 项必然差异登记（ILIKE/GREATEST/NULLS 排序/`::`/COMMENT ON/弱类型等，方言本质非缺陷）
+- **验证**：integration_sq_differential 7 passed + szrsql smoke passed；G9 46/46 Safe（自测 15/15）；G12/G15/G16/G18/G19/G33/G35/G36 全 PASS；fmt 72 包；clippy 0 error；pytest 160 passed；`cargo test --workspace`（PYTHONHOME 注入）0 failed
+
 **遗留项收口与上游修复闭环（同日第二轮）**：6 项扩展场景真连复测（SAVEPOINT 嵌套/游标/ALTER 全变体/SCRAM 认证全通；COPY/NOTIFY 登记为 szrsql 上游差异 D-5/D-6）。szrsql 侧按反馈提示词修复 D-6（跨会话 NOTIFY 主动异步推送，commit `3261c7dd`）并对拍证明 D-5 非 szrsql 协议缺陷（sqlx 需走 `PgCopyIn` 专用 API）；sz-orm 侧以修复后二进制真连复核：`PgCopyIn`/`copy_out_raw` 与 `PgListener` 跨会话收发全通（详见 `docs/assessment/2026-11-08-szrsql-integration.md` §7.1）。
 
 ## [10.13.1] — 2026-10-31
