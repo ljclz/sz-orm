@@ -1145,7 +1145,10 @@ mod typed_dsl_ext {
                 | DbType::Dameng
                 | DbType::Kingbase
                 | DbType::PolarDB
-                | DbType::GaussDB => (format!("({} || {})", l_sql, r_sql), l_params),
+                | DbType::GaussDB
+                // SQLite 无 CONCAT 函数（3.44 才有），但 || 拼接语义同 PG（任一参数
+                // NULL 结果为 NULL——与 MySQL CONCAT 填空串语义不同，按 PG 语义对齐）
+                | DbType::Sqlite => (format!("({} || {})", l_sql, r_sql), l_params),
                 _ => (format!("CONCAT({}, {})", l_sql, r_sql), l_params),
             }
         }
