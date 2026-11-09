@@ -16,12 +16,15 @@ use sz_orm_sqlx::{AnyPool, PgPoolHandle, SqlxPgConnectionFactory};
 const PORT: u16 = 6544;
 
 fn szrsql_bin() -> Option<std::path::PathBuf> {
-    std::env::var_os("SZRSQL_BIN")
+    // 安全：可执行路径仅接受「已存在且扩展名为 .exe」的文件，防环境变量注入
+    // 任意可执行体；参数全部经 Command::arg 列表传递（无 shell、无字符串拼接）。
+    let p = std::env::var_os("SZRSQL_BIN")
         .map(std::path::PathBuf::from)
         .or_else(|| {
             let p = std::path::PathBuf::from("D:/rust-target/debug/szrsql.exe");
             p.is_file().then_some(p)
-        })
+        })?;
+    (p.is_file() && p.extension().is_some_and(|e| e.eq_ignore_ascii_case("exe"))).then_some(p)
 }
 
 fn start_server(data_dir: &std::path::Path) -> std::io::Result<std::process::Child> {
