@@ -379,18 +379,47 @@ async fn matrix_m8_returning() {
         .unwrap();
 }
 
-/// M8b：lastval() —— szrsql 上游缺陷（函数未实现），active_model 主键回填
-/// 若依赖 lastval 路径会失败；sz-orm 侧 PG 族走 RETURNING 故不受影响（留档）。
+/// M8b：lastval() —— 上批留档项；上游 UP-5 已修复（df878ad5），现按 PG 语义
+/// 验证正序用法（先 nextval 触碰序列再 lastval，未触碰即调 lastval 与 PG 一样
+/// 报 currval/lastval not yet defined——本测试验证合法路径而非留档失败）。
 #[tokio::test]
-#[ignore = "szrsql 上游：lastval()/pg_advisory_lock 函数未实现（2026-11-09 矩阵差分 M8/M3）"]
+#[ignore = "需要 szrsql 服务在 127.0.0.1:6543"]
 async fn matrix_m8b_lastval() {
     let Some(pool) = try_pool().await else {
         eprintln!("skip: szrsql 未启动");
         return;
     };
     let mut conn = pool.create().await.unwrap();
+    let table = unique_table("mx_m8b");
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    conn.execute(&format!(
+        "CREATE TABLE {table} (id BIGSERIAL PRIMARY KEY, v TEXT)"
+    ))
+    .await
+    .unwrap();
+    conn.execute(&format!("INSERT INTO {table} (v) VALUES ('a')"))
+        .await
+        .unwrap();
+    // 序列已被 INSERT 触碰 → lastval 合法且应返回刚插入行的序列值
     let rows = conn.query("SELECT lastval()").await.unwrap();
-    assert!(!rows.is_empty());
+    assert!(!rows.is_empty(), "INSERT 后 lastval() 应返回值");
+    assert_eq!(
+        rows.len(),
+        1,
+        "lastval() 应返回 1 行（BIGSERIAL 序列已被 INSERT 触碰）"
+    );
+    // 未触碰序列前 lastval 报错也应与 PG 一致（新连接上先调 lastval）
+    let mut conn2 = pool.create().await.unwrap();
+    let err = conn2.query("SELECT lastval()").await;
+    assert!(
+        err.is_err(),
+        "未触碰序列时 lastval() 应报错（与 PG lastval is not yet defined 一致）"
+    );
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
 }
 
 /// M9：IS NOT DISTINCT FROM —— szrsql 上游 P0 缺陷（ProjectionPruning 误裁
