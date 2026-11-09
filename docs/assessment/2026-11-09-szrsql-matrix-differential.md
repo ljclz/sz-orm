@@ -74,7 +74,7 @@ MVCC 代码存在（`scan_from_row_store` 走 `mvcc.is_visible`），但 SELECT 
 - `RESET ALL`：sqlparser 解析错误（`Expected: an SQL statement, found: RESET`）。
 - 连接池 acquire/release 往返（matrix 测试 + 既有 pool 测试）：✅。
 - **DISCARD 失败的池容错（补测，matrix_m5b_session_reset_failure_degrades_gracefully 通过）**：会话污染连接归还时 `session_reset_sql()`（PG 族 = `DISCARD ALL`，`packages/sz-orm-sqlx/src/any.rs:2222`）在 szrsql 失败 → 池按 `packages/sz-orm-core/src/pool.rs` release 路径 Ok(Err) 分支关闭该连接并重建；循环 5 次租用正常、池容量收敛（active ≤ max_size）——**池不挂死、污染不扩散，但代价是 szrsql 后端下每次脏归还都重建连接**（性能税，非正确性问题）。
-- 中途 kill szrsql 二进制的池恢复实验：**未执行**——评测中途 szrsql 进程曾静默退出一次（日志无 panic 记录，重启后继续），恰构成一次真实断连观察：sz-orm 侧重连即恢复，未复现池挂死；正式的 kill-recover 矩阵用例因属稳定性长测未纳入本批，如实登记未验证。
+- **kill-recover 池恢复（补测，`integration_szrsql_kill_recover.rs::kill_recover_pool_survives_backend_restart` 通过）**：独立 szrsql 实例（6544 端口临时数据目录，不干扰主实例）→ 基线查询 → kill 服务进程 → 租用以 Connection acquire timeout 失败（15s 内不挂死）→ 重启服务（同数据目录）→ 池恢复，循环 3 次租用查询成功、容量收敛。全程 szrsql 仓库零改动（ADR-0001）。
 
 ### M6 批量与流式 —— 通过（1 缺陷）
 
@@ -177,7 +177,7 @@ EXPLAIN SELECT id FROM t WHERE v IS NOT DISTINCT FROM 10;
 - **维持**：v10.13.2 既有声明「`DbType::Szrsql` + PG 方言族委托 + `szrsql://` scheme + 8 项真连集成测试」不变。
 - **新增可信声明**：QueryBuilder 同型 SQL（M1 12 项）、表达式层（M2 12 项）、DDL 变体、RETURNING、游标、10 万行级 generate_series、批量 INSERT、错误恢复——在 szrsql 与 PG18 行为一致（矩阵 14 项测试，11 真连通过 + 3 项上游缺陷留档 `#[ignore]`）。
 - **不可声明**（防幻影）：「szrsql 支持可序列化/可重复读事务」「szrsql 支持 advisory lock 迁移锁」「szrsql 支持 session 复位（DISCARD/RESET）」——均不成立或未验证。
-- 遗留风险：①`nested_active_model` 的 `LAST_INSERT_ID()` 历史缺陷（PG 族后端均不可用）；②M5 kill-recover 长测未执行（DISCARD 失败池容错已补测通过，见 §1 M5）；③szrsql 20 万行流式读正确性已验证（200,000 行完整返回）但性能约 25× 慢于 PG（debug 构建，登记观察项）；④szrsql 并行会话高频变动，缺陷复现以其基线 `f937e474` 为准。
+- 遗留风险：①`nested_active_model` 的 `LAST_INSERT_ID()` 历史缺陷（PG 族后端均不可用）；②szrsql 20 万行流式读正确性已验证（200,000 行完整返回）但性能约 25× 慢于 PG（debug 构建，登记观察项）；③szrsql 并行会话高频变动，缺陷复现以其基线 `f937e474` 为准。（评测时三项登记未执行项——M5 kill-recover、M5b DISCARD 池容错、M6b 20 万行流式——已于当日全部补测闭环，见 §1 M5/M6。）
 
 ## 6. 验收清单执行记录
 
