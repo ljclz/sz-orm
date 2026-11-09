@@ -12,6 +12,8 @@
 ### Added
 
 - **SzRSQL 全功能矩阵差分评测**：M1~M9 九大能力块 × PG18 双库对拍（报告 `docs/assessment/2026-11-09-szrsql-matrix-differential.md`）；新增 `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs` 15 项矩阵集成测试（12 项真连通过 + 3 项 szrsql 上游缺陷 `#[ignore]` 留档）+ `integration_szrsql_kill_recover.rs` 1 项池故障恢复测试；上游反馈提示词 `docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`（P0×2：RR/SERIALIZABLE 非真快照语义、IS [NOT] DISTINCT FROM 被优化器误裁列；P2×2：bool↔int cast、int 溢出静默回绕；P3×5）；第 5 环红队复核通过（`docs/assessment/2026-11-09-szrsql-matrix-redteam-review.md`，放行入库）
+- **SzRSQL × SQLite × PG18 三方对拍评测**：S1~S7 七能力块三方对照（报告 `docs/assessment/2026-11-09-sq-tripled-differential.md`，红队放行 700e0c50）；szrsql 零新增缺陷（上批 UP-2/UP-4 修复生效确认）；sz-orm FIX-1（`typed_ast::Concat` SQLite 分支 `CONCAT()`→`||` 拼接）；新增 `integration_sq_differential.rs` 7+1 项；关键版本事实 D-3：sqlx 捆绑 SQLite 3.46 vs 系统 python sqlite3 3.32 引擎分裂
+- **SzRSQL 上游 UP-1~UP-9 修复闭环复测**：上游 5 commit（96c6dc72/45d05bb8/977da2f7/df2a1d57/df878ad5）修复全部 9 项后，sz-orm 重建 HEAD 二进制三方对照独立复测（`docs/assessment/2026-11-09-up-fixes-closure-retest.md`）：9/10 PASS（UP-1 RR 快照 sz=pg=[100,100]、UP-7 hashtext 与 PG 逐位一致、UP-9 20 位精度）；DISCARD 不在修复范围维持上游缺口登记；m8b_lastval 留档断言已更新为 PG 正序语义转绿（matrix 套件 14 passed + 1 failed，仅剩 m5_discard 留档）
 
 ### Fixed
 
@@ -31,6 +33,22 @@
 - **sz-orm-search unreachable!() 消除**：将 `TokenizerType::Keyword` 的 `unreachable!()` 替换为正确的 `vec![text]`（整个文本作为单个 token）
 - **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
 - **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
+
+## [10.13.3] — 2026-11-10
+
+### Fixed — typed_ast Concat SQLite 方言缺口（FIX-1，随三方对拍发现）
+
+- **`typed_ast::Concat` SQLite 分支**（`packages/sz-orm-core/src/typed_ast.rs`）：SQLite 走 `_ =>` 兜底生成 `CONCAT(a, b)`——SQLite 3.44 前无此函数，低版本兼容面不足。SQLite 分支归入 `||` 拼接族（与 PostgreSQL/Oracle/Kingbase/PolarDB/GaussDB 同族；`||` 在 SQLite 与 PG 语义一致：任一参数 NULL 结果 NULL）
+- 三方对拍（szrsql × SQLite × PG18，报告 `docs/assessment/2026-11-09-sq-tripled-differential.md`，六环闭环）发现并修复；新增 `packages/sz-orm-sqlx/tests/integration_sq_differential.rs`（S1~S7 三方载荷 7 项 SQLite 必跑 + 1 项 szrsql smoke）
+- 关键版本事实（D-3）：sqlx 捆绑 libsqlite3-sys 0.30.1 = SQLite 3.46.0（RETURNING/IS NOT DISTINCT FROM/CONCAT 可用），与系统 python sqlite3 3.32 行为分裂
+
+### 矩阵测试复活 — szrsql 上游 9 项缺陷全部修复确认（2026-11-10）
+
+szrsql 侧按反馈提示词（`docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`）修复全部 9 项（UP-1~UP-9）并双库差分验证；sz-orm 侧对运行中服务真连逐项复验：RR/SERIALIZABLE 快照（UP-1）、IS NOT DISTINCT FROM（UP-2）、bool↔int cast（UP-3）、整数溢出报错（UP-4）、lastval PG 语义（UP-5）、EXECUTE 防火墙（UP-6）、advisory lock（UP-7）、GUC SET+SHOW 读回（UP-8）、numeric 20 位精度（UP-9）全部与 PG18 一致。
+
+- `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs`：M4（RR 快照）/M9（INDF）两项 P0 留档测试复活，回归常规 `--ignored` 轮换（14 项通过）；DISCARD ALL（M5，非 9 项之列）维持上游留档
+
+**验证**：`cargo test -p sz-orm-sqlx --test integration_szrsql_matrix -- --ignored --skip m5_discard` = 14 passed；integration_sq_differential 7 passed；fmt 72 包；clippy 0 error；G9/G12/G15/G16/G18/G19/G33/G35/G36 PASS；pytest 160 passed。
 
 ## [10.13.2] — 2026-11-08
 

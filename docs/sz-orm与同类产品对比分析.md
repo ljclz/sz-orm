@@ -1,9 +1,9 @@
 # SZ-ORM 与同类产品深度对比分析
 # doc-sync-skip
 
-> 版本：v10.13.2 | 评估日期：2026-10-27 | 基于实际代码全量审计
+> 版本：v10.13.3 | 评估日期：2026-10-27 | 基于实际代码全量审计
 > 对比对象（不限于 Rust）：Diesel 2.2.x / SeaORM 1.1.x / SQLx 0.8.x / Hibernate 6.6.x / Entity Framework Core 8.x / SQLAlchemy 2.0.x / Django ORM 4.2.x
-> 代码基线：`Cargo.toml` workspace.package.version = "10.13.2"（[Cargo.toml:6](../Cargo.toml#L6)）
+> 代码基线：`Cargo.toml` workspace.package.version = "10.13.3"（[Cargo.toml:6](../Cargo.toml#L6)）
 >
 > **评估方法**：对 72 个工作空间成员逐包审计（LOC / `#[test]` 数 / `pub fn` 数 / `pub struct` 数），每条 SZ-ORM 能力结论附真实 `file:line` 证据；竞品能力基于其官方文档 / crates.io / GitHub 最新公开信息。性能数据基于 `bench-comparison` 套件历史实测 + v8.7.0 `sz-orm-bench/real_db.rs` 四数据库基准 + v8.8.0 连接池优化实测。
 

@@ -422,10 +422,10 @@ async fn matrix_m8b_lastval() {
         .unwrap();
 }
 
-/// M9：IS NOT DISTINCT FROM —— szrsql 上游 P0 缺陷（ProjectionPruning 误裁
-/// IsDistinctFrom 引用列 → ColumnNotFound），差分评测已定位，留档防误判。
+/// M9：IS NOT DISTINCT FROM —— 上游 P0 缺陷已修复（szrsql 侧差分验证 + 2026-11-10
+/// sz-orm 侧真连复验通过），恢复正常回归面。
 #[tokio::test]
-#[ignore = "szrsql 上游：IS [NOT] DISTINCT FROM 被 ProjectionPruning 误裁列（2026-11-09 矩阵差分 M9-P0）"]
+#[ignore = "需要 szrsql 服务在 127.0.0.1:6543"]
 async fn matrix_m9_is_distinct_from() {
     let Some(pool) = try_pool().await else {
         eprintln!("skip: szrsql 未启动");
@@ -573,10 +573,10 @@ async fn matrix_m9d_three_valued_null() {
         .unwrap();
 }
 
-/// M4：隔离级别真语义 —— szrsql 上游缺陷（RR/SERIALIZABLE 仍出现不可重复读），
-/// 差分实验已定性，留档。
+/// M4：隔离级别真语义 —— 上游缺陷已修复（szrsql 侧差分验证 + 2026-11-10
+/// sz-orm 侧真连复验通过），恢复正常回归面。
 #[tokio::test]
-#[ignore = "szrsql 上游：REPEATABLE READ/SERIALIZABLE 非真快照语义（2026-11-09 矩阵差分 M4-P0）"]
+#[ignore = "需要 szrsql 服务在 127.0.0.1:6543"]
 async fn matrix_m4_repeatable_read_snapshot() {
     let Some(pool) = try_pool().await else {
         eprintln!("skip: szrsql 未启动");

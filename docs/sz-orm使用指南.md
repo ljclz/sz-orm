@@ -2,9 +2,9 @@
 
 > 项目名称：SZ-ORM（鲜视达 ORM）
 > 文档版本：随仓库更新（本文档主体编写于 v7.4.0~v7.7.0 演进期，示例 API 以当前源码为准；最新版本见 [CHANGELOG](../CHANGELOG.md)）
-> 适用版本：SZ-ORM **v10.13.2+**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
+> 适用版本：SZ-ORM **v10.13.3+**（工作空间 72 个成员：70 个 sz-orm-* lib + cli + examples）
 > 更新日期：2026-10-27
-> 项目状态：生产可用（内部项目），sz-orm-core 已发布到 crates.io，当前工作空间版本 10.13.2
+> 项目状态：生产可用（内部项目），sz-orm-core 已发布到 crates.io，当前工作空间版本 10.13.3
 > 生产案例：sz-pay 支付中台后端依赖 sz-orm-core/sqlx/config/auth/macros/queue 6 个包；new-wxapp/rust 为第二个下游消费者
 > 文档定位：面向使用者的完整上手指南，**所有 trait/结构体/函数签名详见 [API 参考手册](sz-ormAPI参考.md)**；本指南聚焦于"什么场景用什么包/模块、怎么用"
 
