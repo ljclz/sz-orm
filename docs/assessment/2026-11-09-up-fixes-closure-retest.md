@@ -27,10 +27,10 @@
   - `matrix_m5_discard_reset`：仍失败于 `unsupported statement: Discard`——DISCARD 不在上游修复范围，留档理由不变
   - `matrix_m8b_lastval`（[integration_szrsql_matrix.rs:392](../../packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs#L392)）：失败信息**已变化**——从 `function not found: lastval` 变为 `currval of sequence lastval is not yet defined in this session`。这实为**修复后更贴近 PG 语义**（PG 中未执行 nextval/setval 前 `lastval()` 同样报 `lastval is not yet defined in this session`），留档断言需更新为「先 nextval 再 lastval」的正确用法
 
-## 三、后续动作建议（随下一批文档/测试触碰执行）
+## 三、后续动作建议（已执行，2026-11-10）
 
-1. `matrix_m8b_lastval` 留档注记更新：改为「UP-5 已修复；当前失败于未先 nextval 即调 lastval（与 PG 语义一致），断言应改为 nextval→lastval 正序用法」
-2. `matrix_m5_discard_reset` 留档理由维持（DISCARD/RESET 仍为上游缺口）
+1. ~~`matrix_m8b_lastval` 留档注记更新~~ → **已完成**：断言更新为双段正序验证（INSERT 触碰后 lastval 有值 + 新连接未触碰时报错与 PG 一致），测试转绿（commit 记录：matrix 套件 14 passed + 1 failed）
+2. `matrix_m5_discard_reset` 留档理由维持（DISCARD/RESET 仍为上游缺口，2026-11-10 于新 HEAD 复验仍报 `unsupported statement: Discard`）
 3. 上游修复报告由 szrsql 侧六环登记（`e5d8fe02`），sz-orm 侧本记录为跨仓库证据链闭环
 
 ## 验证
