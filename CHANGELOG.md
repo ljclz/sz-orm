@@ -11,7 +11,7 @@
 
 ### Added
 
-- **SzRSQL 全功能矩阵差分评测**：M1~M9 九大能力块 × PG18 双库对拍（报告 `docs/assessment/2026-11-09-szrsql-matrix-differential.md`）；新增 `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs` 14 项矩阵集成测试（11 项真连通过 + 3 项 szrsql 上游缺陷 `#[ignore]` 留档）；上游反馈提示词 `docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`（P0×2：RR/SERIALIZABLE 非真快照语义、IS [NOT] DISTINCT FROM 被优化器误裁列；P2×2：bool↔int cast、int 溢出静默回绕；P3×5）
+- **SzRSQL 全功能矩阵差分评测**：M1~M9 九大能力块 × PG18 双库对拍（报告 `docs/assessment/2026-11-09-szrsql-matrix-differential.md`）；新增 `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs` 15 项矩阵集成测试（12 项真连通过 + 3 项 szrsql 上游缺陷 `#[ignore]` 留档）+ `integration_szrsql_kill_recover.rs` 1 项池故障恢复测试；上游反馈提示词 `docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`（P0×2：RR/SERIALIZABLE 非真快照语义、IS [NOT] DISTINCT FROM 被优化器误裁列；P2×2：bool↔int cast、int 溢出静默回绕；P3×5）；第 5 环红队复核通过（`docs/assessment/2026-11-09-szrsql-matrix-redteam-review.md`，放行入库）
 
 ### Fixed
 

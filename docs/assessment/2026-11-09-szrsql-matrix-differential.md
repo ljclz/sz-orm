@@ -125,14 +125,14 @@ EXPLAIN SELECT id FROM t WHERE v IS NOT DISTINCT FROM 10;
 -- 对照 IS NULL 版本 Scan width=8（v 保留）
 ```
 
-定位线索（只读核实）：
-- 求值器实现完好：`crates/szrsql-sql/src/expr.rs:2703`（`eval_is_distinct_from` NULL 语义正确）、`crates/szrsql-sql/src/expr.rs:1230`（eval 分派）、`crates/szrsql-sql/src/expr.rs:9783`（precompile 递归）。
+定位线索（只读核实，行号以基线 f937e474 为准；R-1/R-2 行号勘误见红队复核报告 §2）：
+- 求值器实现完好：`crates/szrsql-sql/src/expr.rs:2703`（`eval_is_distinct_from` NULL 语义正确）、`crates/szrsql-sql/src/expr.rs:1230`（eval 分派）；precompile 递归处理 IsDistinctFrom 属实（基线 `precompile_column_refs` @ expr.rs:10176，IsDistinctFrom arm @ :10292——红队 R-2 勘误：本报告初版误引 9783）。
 - 根因在优化器 ProjectionPruning 的三个列引用收集器**均未递归 `Expr::IsDistinctFrom`**（落入 `_ => {}`）：
   - `crates/szrsql-optimizer/src/rule.rs:1768`（`collect_expr_unqualified_refs`——非限定列收集，缺失即被裁剪）；
   - `crates/szrsql-optimizer/src/rule.rs:1597`（`collect_expr_column_refs_grouped`）；
   - `crates/szrsql-optimizer/src/rule.rs:435`（`collect_column_refs_recursive`）。
 - 该 crate 全文 0 处 `IsDistinctFrom`（`grep -c` = 0），Phase F-9 加入该表达式时未同步优化器。同构对照：`IsNull` 在三处收集器均有递归 arm，故 `IS NULL` 正常。
-- 触发链：pgwire 会话优化管线 `crates/szrsql-protocol/src/pgwire/session.rs:7028/7471`（`ProjectionPruning::apply`）→ Scan schema 被裁至投影列 → Filter 逐行 eval 时 `v` 列不存在。
+- 触发链：pgwire 会话优化管线 `crates/szrsql-protocol/src/pgwire/session.rs` 的 `ProjectionPruning::apply` 调用点（基线实为 :7049/:7495——红队 R-1 勘误：本报告初版误引 7028/7471）→ Scan schema 被裁至投影列 → Filter 逐行 eval 时 `v` 列不存在。
 - 旁证：`id < 5 AND v IS NOT DISTINCT FROM 10` 走 IndexScan（IndexSelection 保留完整谓词、schema 未裁剪）即返回正确结果 1；`v IS NOT DISTINCT FROM 10 AND id < 5` 走 Filter+ParallelScan 即失败——失败与否完全由走没走 ProjectionPruning 裁剪决定。
 - 推论：所有「仅出现在谓词中、不在投影中」且收集器缺 arm 的表达式类型都有同类风险（`Substring`/`SimilarTo` 在 rule.rs 同样缺 arm，未逐一验证，建议上游一并排查）。
 
@@ -175,7 +175,7 @@ EXPLAIN SELECT id FROM t WHERE v IS NOT DISTINCT FROM 10;
 ## 5. 支持面扩张结论（宁窄勿宽）
 
 - **维持**：v10.13.2 既有声明「`DbType::Szrsql` + PG 方言族委托 + `szrsql://` scheme + 8 项真连集成测试」不变。
-- **新增可信声明**：QueryBuilder 同型 SQL（M1 12 项）、表达式层（M2 12 项）、DDL 变体、RETURNING、游标、10 万行级 generate_series、批量 INSERT、错误恢复——在 szrsql 与 PG18 行为一致（矩阵 14 项测试，11 真连通过 + 3 项上游缺陷留档 `#[ignore]`）。
+- **新增可信声明**：QueryBuilder 同型 SQL（M1 12 项）、表达式层（M2 12 项）、DDL 变体、RETURNING、游标、10 万行级 generate_series、批量 INSERT、错误恢复——在 szrsql 与 PG18 行为一致（矩阵 15 项测试（红队 R-3 计数勘误：初版写 14 项，补测 M5b 后实为 15 项），12 真连通过 + 3 项上游缺陷留档 `#[ignore]`）。
 - **不可声明**（防幻影）：「szrsql 支持可序列化/可重复读事务」「szrsql 支持 advisory lock 迁移锁」「szrsql 支持 session 复位（DISCARD/RESET）」——均不成立或未验证。
 - 遗留风险：①`nested_active_model` 的 `LAST_INSERT_ID()` 历史缺陷（PG 族后端均不可用）；②szrsql 20 万行流式读正确性已验证（200,000 行完整返回）但性能约 25× 慢于 PG（debug 构建，登记观察项）；③szrsql 并行会话高频变动，缺陷复现以其基线 `f937e474` 为准。（评测时三项登记未执行项——M5 kill-recover、M5b DISCARD 池容错、M6b 20 万行流式——已于当日全部补测闭环，见 §1 M5/M6。）
 
