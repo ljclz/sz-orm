@@ -63,9 +63,12 @@ impl PyPool {
         })
     }
 
-    /// 建立真实连接（SQLite 后端）
+    /// 建立真实连接（SQLite 基准后端；v10.13.3+ 支持 SzRSQL：`szrsql://` 经
+    /// pgwire v3.0 走 PG 线协议，DSN 改写回 `postgres://` 复用 sqlx PG 驱动建池，
+    /// 与 `DbType::Szrsql`=PG 方言族口径一致）
     ///
-    /// dsn 示例："sqlite::memory:" 或 "sqlite://path/to/db.sqlite"
+    /// dsn 示例："sqlite::memory:" / "sqlite://path/to/db.sqlite" /
+    /// "szrsql://postgres:<pwd>@127.0.0.1:6543/postgres"
     #[pyo3(signature = (dsn="sqlite::memory:".to_string()))]
     fn connect(&mut self, dsn: String) -> PyResult<()> {
         if self.inner.is_some() {
@@ -81,6 +84,18 @@ impl PyPool {
 
         let pool = runtime()
             .block_on(async {
+                if dsn.to_lowercase().starts_with("szrsql://") {
+                    // SzRSQL：改写回 postgres://，用 sqlx Pg 驱动建真实连接池
+                    let pg = format!("postgres://{}", &dsn["szrsql://".len()..]);
+                    let handle = Arc::new(
+                        sz_orm_sqlx::PgPoolHandle::connect(&pg)
+                            .await
+                            .map_err(|e| PyRuntimeError::new_err(format!("connect: {e}")))?,
+                    );
+                    let factory = Arc::new(sz_orm_sqlx::SqlxPgConnectionFactory::new(handle));
+                    return Pool::new(cfg, factory)
+                        .map_err(|e| PyRuntimeError::new_err(format!("pool: {e}")));
+                }
                 let handle = Arc::new(
                     sz_orm_sqlx::SqlitePoolHandle::connect(&dsn)
                         .await
