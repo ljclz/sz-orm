@@ -1,6 +1,9 @@
 #!/bin/bash
 # 批量跑非 cargo 门禁脚本
-cd /mnt/d/www/test/鲜视达/rust/sz-orm
+# 兼容两种调用方式：直接用 wsl -d Ubuntu -u root 时 cwd 已是仓库根；容器内挂载到 /w 时用 $ROOT
+ROOT="${1:-$(pwd)}"
+cd "$ROOT" 2>/dev/null || cd /mnt/d/www/test/鲜视达/rust/sz-orm 2>/dev/null || exit 1
+echo "运行目录: $(pwd)"
 
 scripts=(
   check-sql-injection-auto.py
