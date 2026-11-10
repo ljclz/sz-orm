@@ -569,6 +569,40 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 
 For MySQL / PostgreSQL, replace with `MySqlPoolHandle` / `PgPoolHandle` and `SqlxMySqlConnectionFactory` / `SqlxPgConnectionFactory`.
 
+#### SzRSQL (pgwire v3.0, v10.13.3+)
+
+[SzRSQL](https://github.com/ljclz/szrsql) is a self-developed Rust SQL database exposing the standard PostgreSQL wire protocol (default port **6543**). sz-orm treats it as a first-class `DbType::Szrsql` in the PostgreSQL dialect family — connections reuse the sqlx PostgreSQL driver via the `szrsql://` scheme (no extra wire implementation):
+
+```rust,no_run
+use sz_orm_core::{Pool, PoolConfigBuilder};
+use sz_orm_sqlx::{AnyPool, PgPoolHandle, SqlxPgConnectionFactory};
+use std::sync::Arc;
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 方式一：AnyPool 一行（szrsql:// 自动识别 → PG 驱动）
+    let pool = AnyPool::connect("szrsql://postgres:<password>@127.0.0.1:6543/postgres").await?;
+    let backend = pool.backend(); // Postgres（驱动层复用）
+
+    // 方式二：自研连接池 + PgPoolHandle（URL 用 postgres:// 直指 6543 亦可）
+    let handle = PgPoolHandle::connect("szrsql://postgres:<password>@127.0.0.1:6543/postgres").await?;
+    let factory = Arc::new(SqlxPgConnectionFactory::new(Arc::new(handle)));
+    let config = PoolConfigBuilder::new().max_size(10).build()?;
+    let pool = Pool::new(config, factory)?;
+
+    let mut conn = pool.acquire().await?;
+    let rows = conn.query("SELECT 1 AS one").await?;
+    println!("rows = {}", rows.len());
+    Ok(())
+}
+```
+
+Start the server (local test uses `--auth-mode trust`; production uses SCRAM):
+
+```bash
+cargo run -p szrsql-bin -- --port 6543 --auth-mode scram --data-dir <dir>
+```
+
 ### 5. Compile-Time SQL Validation (sql_string!)
 
 ```rust
