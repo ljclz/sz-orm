@@ -235,18 +235,30 @@ async fn matrix_m3b_savepoint_stack() {
         .unwrap();
 }
 
-/// M5：DISCARD ALL / RESET ALL —— szrsql 上游缺陷（session 复位 SQL 不可用），
-/// 已在差分评测中定性为「szrsql 上游缺陷」，此处留档防回归误判为集成缺口。
+/// M5：DISCARD ALL / RESET ALL —— 上游分项处置（2026-11-10）：
+/// - DISCARD ALL/SEQUENCES/PLANS/TEMP：上游已修复（0d16260c），此处断言通过
+/// - RESET ALL：上游仍未实现，但**非 sz-orm 连接池依赖路径**（PG 族
+///   session_reset_sql = "DISCARD ALL"，不依赖 RESET），登记为次要上游缺口留档
 #[tokio::test]
-#[ignore = "szrsql 上游：DISCARD ALL/RESET ALL 解析不支持（2026-11-09 矩阵差分 M5）"]
+#[ignore = "需要 szrsql 服务在 127.0.0.1:6543"]
 async fn matrix_m5_discard_reset() {
     let Some(pool) = try_pool().await else {
         eprintln!("skip: szrsql 未启动");
         return;
     };
     let mut conn = pool.create().await.unwrap();
+    // DISCARD 各族已修复
     conn.execute("DISCARD ALL").await.unwrap();
-    conn.execute("RESET ALL").await.unwrap();
+    conn.execute("DISCARD SEQUENCES").await.unwrap();
+    conn.execute("DISCARD PLANS").await.unwrap();
+    conn.execute("DISCARD TEMP").await.unwrap();
+    // RESET ALL 尚未实现：非连接池依赖路径，留档为次要上游缺口（不阻断）
+    // 若上游后续实现，可在此补断言；当前断言其解析失败以维持缺口登记可见。
+    let err = conn.execute("RESET ALL").await;
+    assert!(
+        err.is_err(),
+        "RESET ALL 上游未实现，预期解析失败（维持上游缺口登记）"
+    );
 }
 
 /// M6：批量 1000 行 INSERT + 游标（DECLARE/FETCH）
