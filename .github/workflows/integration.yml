@@ -53,6 +53,17 @@ jobs:
           --health-interval=10s
           --health-timeout=5s
           --health-retries=10
+      # SzRSQL（自研 pgwire v3.0 数据库，v1.0.0-rc.2+；上游 9 项 UP-x + DISCARD 修复均已合入）。
+      # 镜像由前置 build-szrsql 步骤在 checkout 的 szrsql 仓库用自带 Dockerfile 构建为 szrsql:ci。
+      # --port 6543 避开 PG 5432；--auth-mode trust 仅本地测试；--connection-idle-timeout 0 防长测切断。
+      # 测试经 SZ_ORM_SZRSQL_URL（postgres://…6543/postgres）注入；未启动则集成测试自动跳过（可信度由 build 步骤把关）
+      szrsql:
+        image: szrsql:ci
+        ports:
+          - 6543:6543
+        options: >-
+          --entrypoint szrsql
+          --host 0.0.0.0 --port 6543 --auth-mode trust --connection-idle-timeout=0
       rabbitmq:
         image: rabbitmq:3.13
         ports:
@@ -82,6 +93,8 @@ jobs:
     env:
       SZ_ORM_MYSQL_URL: mysql://root:szormtestpwd@127.0.0.1:3306/sz_orm_test
       SZ_ORM_PG_URL: postgres://postgres:szormtestpwd@127.0.0.1:5432/sz_orm_test
+      # szrsql 集成套件（integration_szrsql / _matrix / _kill_recover / _sq_differential smoke）
+      SZ_ORM_SZRSQL_URL: postgres://postgres:trust@127.0.0.1:6543/postgres
       S3_TEST_ENDPOINT: http://127.0.0.1:9000
       S3_TEST_BUCKET: test-bucket
       S3_TEST_REGION: us-east-1
@@ -104,6 +117,22 @@ jobs:
           key: ${{ runner.os }}-cargo-integration-all-${{ hashFiles('**/Cargo.lock') }}
           restore-keys: |
             ${{ runner.os }}-cargo-integration-all-
+
+      # 构建 SzRSQL 镜像（ci service 引用）。szrsql 是自研仓库（独立 git 仓库，
+      # ADR-0001 只读遵守——构建需在 szrsql 仓库根执行；此 job 只 checkout 到
+      # 工作目录子路径，不修改文件）。失败即阻断后续 szrsql 集成测试（可信度把关）。
+      - name: Checkout SzRSQL repo
+        uses: actions/checkout@v4
+        with:
+          repository: ljclz/szrsql
+          path: szrsql
+
+      - name: Build SzRSQL Docker image (szrsql:ci)
+        run: |
+          cd szrsql
+          # 用 szrsql 自带 Dockerfile 构建（多阶段 release）。缓存不可重复利用时尝试
+          # --push=false；镜像名 szrsql:ci 供上方 services.szrsql 引用。
+          docker build -t szrsql:ci .
 
       - name: Wait for MQTT broker (port 1883)
         run: |
@@ -138,6 +167,27 @@ jobs:
 
       - name: Run real DB jepsen-style tests (sz-orm-sqlx)
         run: cargo test --package sz-orm-sqlx --test real_db_jepsen -- --ignored --nocapture --test-threads=1
+
+      - name: Run SzRSQL integration tests (sz-orm-sqlx, pgwire 6543)
+        run: |
+          SZ_ORM_SZRSQL_URL="$SZ_ORM_SZRSQL_URL" cargo test --package sz-orm-sqlx \
+            --test integration_szrsql -- --ignored --nocapture --test-threads=1
+
+      - name: Run SzRSQL matrix integration tests (M1~M9 + M4/M5/M9 revived)
+        run: |
+          SZ_ORM_SZRSQL_URL="$SZ_ORM_SZRSQL_URL" cargo test --package sz-orm-sqlx \
+            --test integration_szrsql_matrix -- --ignored --nocapture --test-threads=1
+
+      - name: Run SzRSQL kill-recover pool tests (故障恢复)
+        run: |
+          SZ_ORM_SZRSQL_URL="$SZ_ORM_SZRSQL_URL" cargo test --package sz-orm-sqlx \
+            --test integration_szrsql_kill_recover -- --ignored --nocapture --test-threads=1
+
+      - name: Run SzRSQL × SQLite tripled smoke (szrsql 非 SQLite 项)
+        run: |
+          SZ_ORM_SZRSQL_URL="$SZ_ORM_SZRSQL_URL" cargo test --package sz-orm-sqlx \
+            --test integration_sq_differential szrsql_matrix_smoke_regression \
+            -- --ignored --nocapture --test-threads=1
 
       # R6：e2e 套件缺库不再静默通过。CI 只准备了 MySQL(test 库)/PG，故用
       # SZ_ORM_E2E_REQUIRED 强制这些 service 真实可用；shop/njszjt/Oracle 等未准备的服务

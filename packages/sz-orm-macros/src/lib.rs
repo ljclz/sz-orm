@@ -631,11 +631,16 @@ fn strip_string_literal(raw: &str) -> Option<&str> {
 
 #[cfg(feature = "db-verify")]
 fn verify_with_real_db(sql: &str) -> Result<Vec<(String, String)>, String> {
-    let dsn = std::env::var("DATABASE_URL")
+    let mut dsn = std::env::var("DATABASE_URL")
         .map_err(|_| "DATABASE_URL environment variable not set".to_string())?;
 
     let db_kind =
         detect_db_kind(&dsn).map_err(|e| format!("Failed to detect DB kind from DSN: {}", e))?;
+    // szrsql:// 仅是识别标记，连接与 EXPLAIN 都走 PG 线协议 → 改写回 postgres://
+    // （与 sz-orm-sqlx `normalize_dsn_scheme` 同口径）。
+    if dsn.to_lowercase().starts_with("szrsql://") && db_kind == DbKind::Postgres {
+        dsn = format!("postgres://{}", &dsn["szrsql://".len()..]);
+    }
 
     // 将 ? 占位符替换为 NULL，使 EXPLAIN 无需绑定参数即可执行。
     // EXPLAIN 不实际执行查询，NULL 对所有列类型都合法。
@@ -936,6 +941,10 @@ fn detect_db_kind(dsn: &str) -> Result<DbKind, String> {
     if lower.starts_with("mysql://") {
         Ok(DbKind::MySql)
     } else if lower.starts_with("postgres://") || lower.starts_with("postgresql://") {
+        Ok(DbKind::Postgres)
+    } else if lower.starts_with("szrsql://") {
+        // szrsql 对外是 pgwire v3.0 线协议（PG 语义 + EXPLAIN 同构；sz-orm 侧
+        // `DbType::Szrsql` = PG 方言族委托），复用 sqlx PostgreSQL 驱动与 EXPLAIN 解析路径。
         Ok(DbKind::Postgres)
     } else if lower.starts_with("sqlite://") || lower.starts_with("sqlite:") {
         Ok(DbKind::Sqlite)

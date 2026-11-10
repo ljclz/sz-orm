@@ -129,7 +129,7 @@ bash scripts/audit-verify.sh <审计报告.md>
 sz-orm-macros 提供 `query!` 宏，支持连真 DB 验证（类似 SQLx 的 `query!` 宏）：
 
 ```bash
-# 启用连真 DB 验证（支持 MySQL/PostgreSQL/SQLite）
+# 启用连真 DB 验证（支持 MySQL/PostgreSQL/SQLite/SzRSQL）
 export DATABASE_URL="mysql://root:test123@127.0.0.1:3306/sz_orm_test"
 export SZ_ORM_QUERY_VERIFY=1
 cargo build --features sz-orm-macros/db-verify
@@ -138,6 +138,7 @@ cargo build --features sz-orm-macros/db-verify
 - 默认仅语法校验（`validate_sql_content`）
 - 启用 `db-verify` feature + `SZ_ORM_QUERY_VERIFY=1` 后，编译时连真 DB 执行 `EXPLAIN` 验证
 - 支持 MySQL（`EXPLAIN`）、PostgreSQL（`EXPLAIN`）、SQLite（`EXPLAIN QUERY PLAN`）
+- SzRSQL（`szrsql://` scheme，v10.13.3+）：识别为 PG 方言族并复用 `EXPLAIN` 路径；DSN 内部改写回 `postgres://` 直连（szrsql pgwire v3.0 兼容 PG 引擎，见 `DbType::Szrsql`）
 
 ## 质量官智能体（sz-orm-qa）
 

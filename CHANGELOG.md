@@ -38,6 +38,7 @@
 
 ### Fixed — typed_ast Concat SQLite 方言缺口（FIX-1，随三方对拍发现）
 
+- **db-verify 支持 SzRSQL**（`sz-orm-macros`，v10.13.3 同批增补）：`detect_db_kind` 识别 `szrsql://` 为 PG 方言族并复用 `EXPLAIN` 路径，DSN 内部改写回 `postgres://` 直连（szrsql pgwire v3.0 兼容 PG 引擎）；`SZ_ORM_QUERY_VERIFY=1` + `DATABASE_URL="szrsql://…6543/postgres"` 即编译期真连验证
 - **`typed_ast::Concat` SQLite 分支**（`packages/sz-orm-core/src/typed_ast.rs`）：SQLite 走 `_ =>` 兜底生成 `CONCAT(a, b)`——SQLite 3.44 前无此函数，低版本兼容面不足。SQLite 分支归入 `||` 拼接族（与 PostgreSQL/Oracle/Kingbase/PolarDB/GaussDB 同族；`||` 在 SQLite 与 PG 语义一致：任一参数 NULL 结果 NULL）
 - 三方对拍（szrsql × SQLite × PG18，报告 `docs/assessment/2026-11-09-sq-tripled-differential.md`，六环闭环）发现并修复；新增 `packages/sz-orm-sqlx/tests/integration_sq_differential.rs`（S1~S7 三方载荷 7 项 SQLite 必跑 + 1 项 szrsql smoke）
 - 关键版本事实（D-3）：sqlx 捆绑 libsqlite3-sys 0.30.1 = SQLite 3.46.0（RETURNING/IS NOT DISTINCT FROM/CONCAT 可用），与系统 python sqlite3 3.32 行为分裂
