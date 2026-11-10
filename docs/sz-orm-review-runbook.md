@@ -3,7 +3,7 @@
 > **执行入口**：24 道门禁逐关执行（`scripts/` 各脚本）+ 可选 AI 评审环节
 > **Skill**：`C:\Users\Administrator\.zcode\skills\sz-orm-review\SKILL.md`（ZCode 内 `/sz-orm-review`）
 > **参考**：`sz-rust/docs/pr-review-执行指南.md`（2026-08-16 提交 `7c53bc2`，含 AI 评审环节）
-> **适用版本**：v10.13.3（命令与门禁编号以仓库 `AGENTS.md` 为准）
+> **适用版本**：v10.13.4（命令与门禁编号以仓库 `AGENTS.md` 为准）
 > **项目根目录**：`E:\vue\test\鲜视达\rust\sz-orm`
 
 ---

@@ -34,12 +34,23 @@
 - **README 测试数字不一致**：统一 README/README.en.md 中测试数从 2,271/4,959 → 5,404，版本号从 1.0.0 → 1.2.0
 - **CI minio:latest 可变标签**：固定为 `minio/minio:RELEASE.2024-10-13T13-34-11Z`
 
+## [10.13.4] — 2026-11-11
+
+### Added — SzRSQL 一等公民工程面补齐（绑定层 ×4 + db-verify + CI 回归 + 文档）
+
+> 提交链：`3514b107`（A1 db-verify + A3 CI）→ `fff51ad9`（A2 cabi/go/java）→ `e1ce6b09`（A4 README）→ `32aa04e8`（A2 python 收官）。以上代码改动晚于 10.13.3 发布（089232e1），随本版发布 crates.io。
+
+- **四绑定层全部认 `szrsql://`**：`sz_orm_pool_new`（C ABI 唯一网关，go/java/cpp 经其转发）与 PyPool::connect（python 独立 pyo3）新增 szrsql:// 路由——DSN 改写回 `postgres://` 用 `PgPoolHandle`/`SqlxPgConnectionFactory` 建真实连接池（PG 线协议，与 `DbType::Szrsql`=PG 方言族一致）；其余 DB DSN 仍显式拒绝（防"看似成功实为连不上"）。测试：cabi `test_pool_new` 4 passed + python --lib 39 passed
+- **db-verify 支持 SzRSQL**（`sz-orm-macros`）：`detect_db_kind` 识别 `szrsql://` 为 PG 方言族并复用 `EXPLAIN` 路径，DSN 内部改写回 `postgres://` 直连；`SZ_ORM_QUERY_VERIFY=1` + `DATABASE_URL="szrsql://…6543/postgres"` 即编译期真连验证
+- **CI 集成回归 job**（`.github/workflows/integration.yml`）：新增 szrsql service（前置 checkout 上游 szrsql 仓库——主分支为 master，显式 `ref: master`——+ docker build 自带 Dockerfile 为 `szrsql:ci`，`--port 6543 --auth-mode trust --connection-idle-timeout 0`）+ 4 个 szrsql 集成测试步骤（integration_szrsql / _matrix / _kill_recover / _sq_differential smoke）+ `SZ_ORM_SZRSQL_URL` 注入；镜像构建失败即阻断
+- **文档**：README ×2 新增 SzRSQL 连接示例（AnyPool 一行 + PgPoolHandle 双方式 + 启动命令 + 能力边界）；`scripts/wsl-gates-check.sh` 收录并支持容器内挂载路径（ROOT 参数）
+
+**验证**：fmt 72 包 / clippy 0 error / G9 46/46（--strict）/ G36 / pytest 160 passed / `cargo check --workspace --all-targets` 0 error；integration_szrsql_matrix 15/15（上游 DISCARD 修复 `0d16260c` 复验）。
+
 ## [10.13.3] — 2026-11-10
 
 ### Fixed — typed_ast Concat SQLite 方言缺口（FIX-1，随三方对拍发现）
 
-- **C ABI / go / java 绑定层支持 SzRSQL**（`packages/sz-orm-cabi/src/lib.rs`，v10.13.3 同批）：`sz_orm_pool_new` 新增 `szrsql://` 路由——DSN 改写回 `postgres://` 用 `PgPoolHandle`/`SqlxPgConnectionFactory` 建真实连接池（PG 线协议，与 `DbType::Szrsql`=PG 方言族一致）；go/java 绑定经本函数转发故同口径；其余 DB DSN 仍显式拒绝。新增 `test_pool_new_szrsql_dsn_normalized_to_pg`（4 passed）
-- **db-verify 支持 SzRSQL**（`sz-orm-macros`，v10.13.3 同批增补）：`detect_db_kind` 识别 `szrsql://` 为 PG 方言族并复用 `EXPLAIN` 路径，DSN 内部改写回 `postgres://` 直连（szrsql pgwire v3.0 兼容 PG 引擎）；`SZ_ORM_QUERY_VERIFY=1` + `DATABASE_URL="szrsql://…6543/postgres"` 即编译期真连验证
 - **`typed_ast::Concat` SQLite 分支**（`packages/sz-orm-core/src/typed_ast.rs`）：SQLite 走 `_ =>` 兜底生成 `CONCAT(a, b)`——SQLite 3.44 前无此函数，低版本兼容面不足。SQLite 分支归入 `||` 拼接族（与 PostgreSQL/Oracle/Kingbase/PolarDB/GaussDB 同族；`||` 在 SQLite 与 PG 语义一致：任一参数 NULL 结果 NULL）
 - 三方对拍（szrsql × SQLite × PG18，报告 `docs/assessment/2026-11-09-sq-tripled-differential.md`，六环闭环）发现并修复；新增 `packages/sz-orm-sqlx/tests/integration_sq_differential.rs`（S1~S7 三方载荷 7 项 SQLite 必跑 + 1 项 szrsql smoke）
 - 关键版本事实（D-3）：sqlx 捆绑 libsqlite3-sys 0.30.1 = SQLite 3.46.0（RETURNING/IS NOT DISTINCT FROM/CONCAT 可用），与系统 python sqlite3 3.32 行为分裂
