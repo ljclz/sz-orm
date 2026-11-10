@@ -118,13 +118,14 @@ jobs:
           restore-keys: |
             ${{ runner.os }}-cargo-integration-all-
 
-      # 构建 SzRSQL 镜像（ci service 引用）。szrsql 是自研仓库（独立 git 仓库，
-      # ADR-0001 只读遵守——构建需在 szrsql 仓库根执行；此 job 只 checkout 到
-      # 工作目录子路径，不修改文件）。失败即阻断后续 szrsql 集成测试（可信度把关）。
+      # 构建 SzRSQL 镜像（ci service 引用）。szrsql 是自研仓库（独立 git 仓库，主分支为 master；
+      # ADR-0001 只读遵守——构建需在 szrsql 仓库根执行；此 job 只 checkout 到工作目录子路径，不修改文件）。
+      # 失败即阻断后续 szrsql 集成测试（可信度把关）。
       - name: Checkout SzRSQL repo
         uses: actions/checkout@v4
         with:
           repository: ljclz/szrsql
+          ref: master
           path: szrsql
 
       - name: Build SzRSQL Docker image (szrsql:ci)
