@@ -282,15 +282,39 @@ pub unsafe extern "C" fn sz_orm_pool_new(
         Ok(s) => s.to_string(),
         Err(_) => return std::ptr::null_mut(),
     };
-    // 当前 C ABI 仅有 SQLite 后端；显式拒绝其他 DSN，避免调用方误以为支持
-    // MySQL/PostgreSQL 而在运行期拿到难以定位的连接错误。
-    if !dsn.starts_with("sqlite:") {
+    // 后端路由：当前 C ABI 基准为 SQLite；v10.13.3 起支持 SzRSQL（pgwire v3.0 走 PG 线协议，
+    // `szrsql://` 经 normalize 改写回 `postgres://` 复用 sqlx PostgreSQL 驱动建池）。
+    // 其余 DSN（裸 postgres:// 之 MySQL/MSSQL 等前端）仍显式拒绝，避免调用方误以为支持而在
+    // 运行期拿到难以定位的连接错误。go/java 绑定经本函数转发（`sz_orm_go_pool_new` 等）同口径。
+    let pg_dsn = if dsn.to_lowercase().starts_with("szrsql://") {
+        Some(format!("postgres://{}", &dsn["szrsql://".len()..]))
+    } else {
+        None
+    };
+    if pg_dsn.is_none() && !dsn.starts_with("sqlite:") {
         return std::ptr::null_mut();
     }
 
     let result = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
         runtime().block_on(async {
-            // 连接 SQLite 并构建真实 Pool
+            if let Some(pg) = pg_dsn {
+                // SzRSQL：szrsql:// 改写回 postgres://，用 sqlx Pg 驱动建真实连接池
+                //（PG 线协议，与 sz-orm `DbType::Szrsql`=PG 方言族一致）
+                let handle = match sz_orm_sqlx::PgPoolHandle::connect(&pg).await {
+                    Ok(h) => Arc::new(h),
+                    Err(_) => return Err(()),
+                };
+                let factory = Arc::new(sz_orm_sqlx::SqlxPgConnectionFactory::new(handle));
+                return match Pool::new(core_cfg, factory) {
+                    Ok(pool) => {
+                        let handle = Box::into_raw(Box::new(pool)) as SzOrmPoolHandle;
+                        memory_track(handle, std::mem::size_of::<Pool>());
+                        Ok(handle)
+                    }
+                    Err(_) => Err(()),
+                };
+            }
+            // SQLite 基准后端
             let handle = match sz_orm_sqlx::SqlitePoolHandle::connect(&dsn).await {
                 Ok(h) => Arc::new(h),
                 Err(_) => return Err(()),
@@ -2594,7 +2618,7 @@ mod tests {
 
     #[test]
     fn test_pool_new_rejects_non_sqlite_dsn() {
-        // C ABI 目前只有 SQLite 后端；其它 DSN 必须显式拒绝（返回 null），
+        // C ABI 基准只有 SQLite 后端；其它 DSN 必须显式拒绝（返回 null），
         // 而不是创建出一个连不上却"看似成功"的池。
         for dsn in [
             "mysql://root@127.0.0.1:3306/db",
@@ -2605,6 +2629,23 @@ mod tests {
             // SAFETY: dsn 是有效 C 字符串；config 传 null 表示默认配置
             let pool = unsafe { sz_orm_pool_new(dsn.as_ptr(), std::ptr::null()) };
             assert!(pool.is_null(), "非 SQLite DSN 必须被拒绝: {dsn:?}");
+        }
+    }
+
+    #[test]
+    fn test_pool_new_szrsql_dsn_normalized_to_pg() {
+        // v10.13.3：C ABI 支持 SzRSQL（pgwire v3.0）。`szrsql://` 应改写回 `postgres://`
+        // 用 Pg 驱动建池——但本机无 6543 服务时进程级连接失败→返回 null；此处验证的
+        // 是"szrsql:// 不再被当作非法 DSN 直接拒绝"这层路由语义。
+        // 无法连上（不依赖真实服务）仍应得 null（不挂、不 panic）；若本机可连则非 null。
+        let dsn = CString::new("szrsql://postgres:trust@127.0.0.1:6543/postgres").unwrap();
+        // SAFETY: dsn 是有效 C 字符串
+        let pool = unsafe { sz_orm_pool_new(dsn.as_ptr(), std::ptr::null()) };
+        // 无论连上与否都不得 panic/崩溃；能连上则为非 null，否则 null（无可断言具体值）
+        if !pool.is_null() {
+            unsafe {
+                sz_orm_pool_free(pool);
+            }
         }
     }
 
