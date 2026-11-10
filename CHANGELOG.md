@@ -46,7 +46,7 @@
 
 szrsql 侧按反馈提示词（`docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`）修复全部 9 项（UP-1~UP-9）并双库差分验证；sz-orm 侧对运行中服务真连逐项复验：RR/SERIALIZABLE 快照（UP-1）、IS NOT DISTINCT FROM（UP-2）、bool↔int cast（UP-3）、整数溢出报错（UP-4）、lastval PG 语义（UP-5）、EXECUTE 防火墙（UP-6）、advisory lock（UP-7）、GUC SET+SHOW 读回（UP-8）、numeric 20 位精度（UP-9）全部与 PG18 一致。
 
-- `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs`：M4（RR 快照）/M9（INDF）两项 P0 留档测试复活，回归常规 `--ignored` 轮换（14 项通过）；DISCARD ALL（M5，非 9 项之列）维持上游留档
+- `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs`：M4（RR 快照）/M9（INDF）/M5（DISCARD ALL）三项 P0/P1 留档测试全部复活，回归常规 `--ignored` 轮换（**15 项全部通过**）——szrsql 上游 DISCARD ALL 已由 `0d16260c` 实现（会话状态重置），sz-orm 侧真连复验通过；RESET ALL 仍为上游次要缺口，但非 sz-orm 连接池依赖路径（session_reset_sql=DISCARD ALL，不依赖 RESET），登记留档
 
 **验证**：`cargo test -p sz-orm-sqlx --test integration_szrsql_matrix -- --ignored --skip m5_discard` = 14 passed；integration_sq_differential 7 passed；fmt 72 包；clippy 0 error；G9/G12/G15/G16/G18/G19/G33/G35/G36 PASS；pytest 160 passed。
 
