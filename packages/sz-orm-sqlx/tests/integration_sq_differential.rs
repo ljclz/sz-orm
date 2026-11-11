@@ -349,9 +349,10 @@ async fn szrsql_matrix_smoke_regression() {
         return;
     };
     let mut conn = pool.create().await.unwrap();
+    // szrsql 服务重启后无持久化测试表，先按三库同构 seed 再探活
+    seed(&pool).await;
     // 上批 UP-2（IS NOT DISTINCT FROM 误裁列）回归哨兵——上游已修复则通过
-    let r = conn.query("SELECT id FROM sq_tripled WHERE 1 = 0").await;
-    let _ = r; // 仅探活
+    let _r = conn.query("SELECT id FROM sq_tripled WHERE 1 = 0").await;
     let rows = conn
         .query("SELECT COUNT(*) AS c FROM sq_tripled")
         .await

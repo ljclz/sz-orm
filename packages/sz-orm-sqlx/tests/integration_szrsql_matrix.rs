@@ -235,10 +235,12 @@ async fn matrix_m3b_savepoint_stack() {
         .unwrap();
 }
 
-/// M5：DISCARD ALL / RESET ALL —— 上游分项处置（2026-11-10）：
+/// M5：DISCARD ALL / RESET ALL —— 上游分项处置（2026-11-10→11-11）：
 /// - DISCARD ALL/SEQUENCES/PLANS/TEMP：上游已修复（0d16260c），此处断言通过
-/// - RESET ALL：上游仍未实现，但**非 sz-orm 连接池依赖路径**（PG 族
-///   session_reset_sql = "DISCARD ALL"，不依赖 RESET），登记为次要上游缺口留档
+/// - RESET [ALL|name]：上游已于 239e1502 实现（会话 GUC 复位）；本测试
+///   最初留档为"次要上游缺口"（PG 族 session_reset_sql = DISCARD ALL，不依赖
+///   RESET），2026-11-11 用户确认该缺口实际已于上游闭环、早前复测系旧二进制
+///   （16:29 前构建，见 szrsql eafd3e80 回执），故恢复正断言。
 #[tokio::test]
 #[ignore = "需要 szrsql 服务在 127.0.0.1:6543"]
 async fn matrix_m5_discard_reset() {
@@ -252,13 +254,23 @@ async fn matrix_m5_discard_reset() {
     conn.execute("DISCARD SEQUENCES").await.unwrap();
     conn.execute("DISCARD PLANS").await.unwrap();
     conn.execute("DISCARD TEMP").await.unwrap();
-    // RESET ALL 尚未实现：非连接池依赖路径，留档为次要上游缺口（不阻断）
-    // 若上游后续实现，可在此补断言；当前断言其解析失败以维持缺口登记可见。
-    let err = conn.execute("RESET ALL").await;
-    assert!(
-        err.is_err(),
-        "RESET ALL 上游未实现，预期解析失败（维持上游缺口登记）"
-    );
+    // RESET ALL 复位全部会话 GUC（上游 239e1502 实现 → LogicalPlan::Reset{name:None}）
+    conn.execute("RESET ALL").await.unwrap();
+    // RESET <单段 GUC> 复位单个会话变量
+    conn.execute("SET application_name = 'sz-orm-test'")
+        .await
+        .unwrap();
+    conn.execute("RESET application_name").await.unwrap();
+    let rows = conn
+        .query("SELECT current_setting('application_name')")
+        .await
+        .unwrap();
+    let val = match rows[0].get("current_setting") {
+        Some(sz_orm_core::Value::String(s)) => s.as_str(),
+        _ => "",
+    };
+    // RESET 后 application_name 复位到缺省值（空串）
+    assert_eq!(val, "", "RESET application_name 后应复位到缺省值");
 }
 
 /// M6：批量 1000 行 INSERT + 游标（DECLARE/FETCH）
