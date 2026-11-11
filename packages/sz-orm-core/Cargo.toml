@@ -942,6 +942,11 @@ required-features = ["plan-cache"]
 name = "clonecheap_parity"
 path = "tests/clonecheap_parity.rs"
 
+# 2026-11-11 证人维度深化 批②：L3 随机生成器（递归生成 SQL，双跑对拍 + 归一化）
+[[test]]
+name = "random_sql_differential"
+path = "tests/random_sql_differential.rs"
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
