@@ -359,6 +359,11 @@ path = "tests/integration_pg.rs"
 name = "integration_oracle"
 path = "tests/integration_oracle.rs"
 
+# 2026-11-11 Oracle 方言矩阵真连验证（OR1~OR6）
+[[test]]
+name = "integration_oracle_matrix"
+path = "tests/integration_oracle_matrix.rs"
+
 # v2.0.0 任务 1.2：SQL Server 集成测试入口
 [[test]]
 name = "integration_mssql"
