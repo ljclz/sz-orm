@@ -947,6 +947,16 @@ path = "tests/clonecheap_parity.rs"
 name = "random_sql_differential"
 path = "tests/random_sql_differential.rs"
 
+# 2026-11-11 证人维度深化 批③：L4 语义不变量（INV-N1~N7 + PBT 回滚快照）
+[[test]]
+name = "semantic_invariants"
+path = "tests/semantic_invariants.rs"
+
+# 2026-11-11 证人维度深化 批③：L4 语义不变量 PG 真连深化（ignored + 环境变量门控）
+[[test]]
+name = "semantic_invariants_pg"
+path = "tests/semantic_invariants_pg.rs"
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
