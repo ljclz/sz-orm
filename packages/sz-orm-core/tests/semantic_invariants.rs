@@ -73,7 +73,7 @@ async fn agg(conn: &mut RusqliteConnection, expr: &str) -> HashMap<String, Value
     let rows = conn.query(&sql).await.expect("agg query");
     rows.into_iter()
         .next()
-        .map(|mut r| r.drain().collect())
+        .map(|r| r.into_iter().collect())
         .unwrap_or_default()
 }
 

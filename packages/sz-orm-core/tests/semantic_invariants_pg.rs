@@ -11,9 +11,6 @@
 
 #![cfg(feature = "simd")] // 复用 core dev-deps 中 sqlx 的 feature 组合
 
-use std::collections::HashMap;
-
-use sz_orm_core::Value;
 
 fn pg_url() -> Option<String> {
     std::env::var("SZ_ORM_INV_PG_URL").ok().filter(|s| !s.is_empty())
@@ -53,20 +50,6 @@ async fn snapshot(pool: &sqlx::PgPool) -> Vec<Row> {
             .await
             .expect("snapshot");
     rows
-}
-
-fn normalize(rows: &[HashMap<String, Value>]) -> Vec<Vec<(String, String)>> {
-    let mut out: Vec<Vec<(String, String)>> = rows
-        .iter()
-        .map(|r| {
-            let mut kv: Vec<(String, String)> =
-                r.iter().map(|(k, v)| (k.clone(), format!("{:?}", v))).collect();
-            kv.sort();
-            kv
-        })
-        .collect();
-    out.sort();
-    out
 }
 
 /// INV-N5 PG 版：事务内 DML + ROLLBACK 全状态还原
