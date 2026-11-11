@@ -1321,30 +1321,38 @@ impl Dialect for OracleDialect {
                     sql
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // OR2 方言矩阵修复：索引名与列名必须 quote——混合大小写列
+                    // 裸拼被折叠为大写与引号列不匹配（真库 ORA-00904）、保留字列
+                    // 裸拼被解析为关键字（真库 ORA-00936）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "CREATE INDEX {} ON {} ({})",
-                        name,
+                        self.quote(name),
                         self.quote(table),
-                        cols.join(", ")
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    format!("DROP INDEX {}", name)
+                    // 与 AddIndex 的 quote 形态保持一致（引号小写索引名往返）
+                    format!("DROP INDEX {}", self.quote(name))
                 }
                 TableChange::AddForeignKey {
                     columns,
                     reference_table,
                     reference_columns,
                 } => {
-                    format!(
-                        "ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
+                    // OR2 方言矩阵修复：约束名同样 quote，防特殊字符/大小写折叠破坏 DDL
+                    let fk_name = format!("fk_{}_{}", table, columns.join("_"));
+                    format!("ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
-                        table,
-                        columns.join("_"),
+                        self.quote(&fk_name),
                         columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
                         self.quote(reference_table),
-                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", ")
-                    )
+                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "))
                 }
             })
             .collect();
@@ -3994,6 +4002,54 @@ mod tests {
             dialect.build_alter_table("users", &[TableChange::DropColumn("email".to_string())]);
         assert!(sql.contains("DROP COLUMN"));
         assert!(sql.contains("\"email\""));
+    }
+
+    #[test]
+    fn test_oracle_alter_table_index_fk_quoting() {
+        // OR2 方言矩阵修复：索引名/索引列/约束名必须 quote——
+        // 混合大小写列裸拼被真库折叠为大写与引号列不匹配（ORA-00904）、
+        // 保留字列裸拼被解析为关键字（ORA-00936），见
+        // tests/integration_oracle_matrix.rs or2_add_index_unquoted_mixed_case_and_reserved_columns
+        let dialect = OracleDialect;
+
+        // AddIndex：索引名 + 列名均 quote（混合大小写列）
+        let sql = dialect.build_alter_table(
+            "users",
+            &[TableChange::AddIndex(
+                "user_name_idx".to_string(),
+                vec!["userId".to_string()],
+            )],
+        );
+        assert_eq!(
+            sql,
+            "CREATE INDEX \"user_name_idx\" ON \"users\" (\"userId\")",
+            "AddIndex 应 quote 索引名与列名: {sql}"
+        );
+
+        // DropIndex：与 AddIndex 的 quote 形态一致（引号小写索引名往返）
+        let sql = dialect.build_alter_table(
+            "users",
+            &[TableChange::DropIndex("user_name_idx".to_string())],
+        );
+        assert_eq!(
+            sql, "DROP INDEX \"user_name_idx\"",
+            "DropIndex 应 quote 索引名: {sql}"
+        );
+
+        // AddForeignKey：约束名 quote（防大小写折叠/特殊字符破坏 DDL）
+        let sql = dialect.build_alter_table(
+            "orders",
+            &[TableChange::AddForeignKey {
+                columns: vec!["userId".to_string()],
+                reference_table: "users".to_string(),
+                reference_columns: vec!["id".to_string()],
+            }],
+        );
+        assert_eq!(
+            sql,
+            "ALTER TABLE \"orders\" ADD CONSTRAINT \"fk_orders_userId\" FOREIGN KEY (\"userId\") REFERENCES \"users\" (\"id\")",
+            "AddForeignKey 应 quote 约束名与列名: {sql}"
+        );
     }
 
     // ===================== SQLite concat 修复测试 =====================

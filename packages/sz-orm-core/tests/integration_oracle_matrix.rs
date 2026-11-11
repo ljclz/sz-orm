@@ -494,11 +494,13 @@ fn or2_identifier_length_limit_128() {
 
 #[test]
 #[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
-fn or2_add_index_unquoted_mixed_case_and_reserved_columns() {
+fn or2_add_index_mixed_case_and_reserved_columns() {
     let conn = open_conn();
     let dialect = get_dialect(DbType::Oracle).unwrap();
 
-    // ---- 载荷 1：混合大小写列上建索引（方言生成面：AddIndex 列名裸拼接）----
+    // ---- 载荷 1：混合大小写列上建索引（方言修复后：索引名/列名均 quote）----
+    // 修复前缺口留档（commit 00760ab）：AddIndex 列名裸拼 userName 被折叠为
+    // USERNAME 与引号列不匹配 → 真库 ORA-00904
     let table = unique_table("or2idx");
     drop_table_if_exists(&conn, &table);
     let columns = vec![
@@ -522,21 +524,31 @@ fn or2_add_index_unquoted_mixed_case_and_reserved_columns() {
     let create_sql = dialect.build_create_table(&table, &columns);
     conn.execute(&create_sql, &[]).expect("create table");
 
-    // 方言生成：AddIndex("idx_or2_mixed", ["userName"]) —— 列名未经 quote
+    // 方言生成：AddIndex——修复后索引名与列名均 quote
+    let idx_name = format!("idx_{}_mixed", table);
     let alter_sql = dialect.build_alter_table(
         &table,
         &[sz_orm_core::dialect::TableChange::AddIndex(
-            format!("idx_{}_mixed", table).as_str().to_string(),
+            idx_name.clone(),
             vec!["userName".to_string()],
         )],
     );
-    // 真库执行：裸拼 userName 被折叠为 USERNAME，与区分大小写的 "userName" 列不匹配
-    let err = conn
-        .execute(&alter_sql, &[])
-        .expect_err("裸拼混合大小写列建索引应被真库拒绝");
-    assert_ora_code(&err, 904, "混合大小写列建索引");
+    assert!(
+        alter_sql.contains(&dialect.quote("userName")),
+        "AddIndex 生成应 quote 列名: {alter_sql}"
+    );
+    // 真库执行：quote 形态应成功
+    conn.execute(&alter_sql, &[]).expect("quote 后混合大小写列建索引应成功");
+    let idx_n: i64 = conn
+        .query_row_as::<i64>(
+            "SELECT COUNT(*) FROM user_indexes WHERE table_name = :1 AND index_name = :2",
+            &[&table, &idx_name],
+        )
+        .expect("check index exists");
+    assert_eq!(idx_n, 1, "索引应按引号原样登记");
 
-    // ---- 载荷 2：保留字列上建索引（方言生成面同缺口）----
+    // ---- 载荷 2：保留字列上建索引（修复后 quote 形态应成功）----
+    // 修复前缺口留档：裸拼 order 被解析为关键字 → 真库 ORA-00936
     let rsv_table = unique_table("or2rsv");
     drop_table_if_exists(&conn, &rsv_table);
     let rsv_columns = vec![
@@ -561,34 +573,41 @@ fn or2_add_index_unquoted_mixed_case_and_reserved_columns() {
     conn.execute(&rsv_create_sql, &[])
         .expect("create reserved-word column table");
 
-    // 方言生成：AddIndex 列名裸拼 order（保留字）→ 真库语法层拒绝
+    let rsv_idx_name = format!("idx_{}_rsv", rsv_table);
     let rsv_alter_sql = dialect.build_alter_table(
         &rsv_table,
         &[sz_orm_core::dialect::TableChange::AddIndex(
-            format!("idx_{}_rsv", rsv_table).as_str().to_string(),
+            rsv_idx_name.clone(),
             vec!["order".to_string()],
         )],
     );
-    let rsv_err = conn
-        .execute(&rsv_alter_sql, &[])
-        .expect_err("裸拼保留字列建索引应被真库拒绝");
-    assert_ora_code(&rsv_err, 936, "保留字列建索引（order 被解析为关键字→缺表达式）");
-
-    // ---- 对照：quote 后的等价 DDL 在真库可执行（修复目标形态）----
-    let fixed_sql = format!(
-        "CREATE INDEX {} ON {} ({})",
-        dialect.quote(&format!("idx_{}_fixed", table)),
-        dialect.quote(&table),
-        dialect.quote("userName"),
-    );
-    conn.execute(&fixed_sql, &[]).expect("quote 后建索引应成功");
-    let idx_n: i64 = conn
+    conn.execute(&rsv_alter_sql, &[])
+        .expect("quote 后保留字列建索引应成功");
+    let rsv_n: i64 = conn
         .query_row_as::<i64>(
             "SELECT COUNT(*) FROM user_indexes WHERE table_name = :1 AND index_name = :2",
-            &[&table, &format!("idx_{}_fixed", table)],
+            &[&rsv_table, &rsv_idx_name],
         )
-        .expect("check index exists");
-    assert_eq!(idx_n, 1, "quote 生成的索引应按原样登记");
+        .expect("check reserved index exists");
+    assert_eq!(rsv_n, 1, "保留字列索引应成功登记");
+
+    // ---- 生成面 3：DropIndex 往返（与 AddIndex 的 quote 形态一致）----
+    let drop_sql = dialect.build_alter_table(
+        &table,
+        &[sz_orm_core::dialect::TableChange::DropIndex(idx_name.clone())],
+    );
+    assert!(
+        drop_sql.contains(&dialect.quote(&idx_name)),
+        "DropIndex 生成应 quote 索引名: {drop_sql}"
+    );
+    conn.execute(&drop_sql, &[]).expect("quote 后删索引应成功");
+    let gone: i64 = conn
+        .query_row_as::<i64>(
+            "SELECT COUNT(*) FROM user_indexes WHERE table_name = :1 AND index_name = :2",
+            &[&table, &idx_name],
+        )
+        .expect("check index dropped");
+    assert_eq!(gone, 0, "DropIndex 往返后索引应不存在");
 
     drop_table_if_exists(&conn, &table);
     drop_table_if_exists(&conn, &rsv_table);
