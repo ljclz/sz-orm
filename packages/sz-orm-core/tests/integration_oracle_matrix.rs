@@ -293,3 +293,278 @@ fn or1_concat_null_propagates_as_empty() {
         .expect("concat b");
     assert_eq!(v_b, "abc");
 }
+
+// ============================================================================
+// OR2 标识符大小写折叠 —— 未加引号 → 大写；双引号 → 原样保留
+//
+// OracleDialect.quote() 恒用双引号包裹（dialect.rs:1109），因此 sz-orm 生成的
+// 标识符按原样（区分大小写）存储。本块验证：
+//   - 未引号混合大小写标识符在真库折叠为大写
+//   - 引号包裹的小写标识符按原样存储 + ALL_TAB_COLUMNS 元数据探测面
+//   - 128 字节标识符上限（12.2+）；129 字节 ORA-00972
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or2_unquoted_identifier_folds_to_uppercase() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+
+    // 载荷：未加引号的混合大小写标识符（不经 dialect.quote，直接拼接）
+    let pid = std::process::id() % 10000;
+    let raw_name = format!("Or2_Fold_{}", pid);
+    let upper_name = raw_name.to_uppercase();
+
+    // 清理残留（大写折叠后的名字）
+    let _ = conn.execute(&format!("DROP TABLE {} PURGE", upper_name), &[]);
+
+    conn.execute(&format!("CREATE TABLE {} (id NUMBER)", raw_name), &[])
+        .expect("create unquoted table");
+
+    // 行为断言：user_tables 中按大写存储
+    let count_sql = "SELECT COUNT(*) FROM user_tables WHERE table_name = :1";
+    let n: i64 = conn
+        .query_row_as::<i64>(count_sql, &[&upper_name])
+        .expect("check user_tables");
+    assert_eq!(n, 1, "未引号标识符 {raw_name} 应在真库折叠为大写 {upper_name}");
+
+    // 行为断言：未引号 SELECT 可用（再次折叠回大写）
+    let sel_sql = format!("SELECT COUNT(*) FROM {}", raw_name);
+    let c: i64 = conn
+        .query_row_as::<i64>(&sel_sql, &[])
+        .expect("unquoted select");
+    assert_eq!(c, 0);
+
+    // 行为断言：小写双引号 SELECT 不可用（ORA-00942：引号保留原样，小写名不存在）
+    let quoted_lower_sql = format!("SELECT COUNT(*) FROM \"{}\"", raw_name);
+    let err = conn
+        .query_row_as::<i64>(&quoted_lower_sql, &[])
+        .expect_err("小写引号名应不存在");
+    assert_ora_code(&err, 942, "小写引号标识符查询");
+
+    conn.execute(&format!("DROP TABLE {} PURGE", upper_name), &[])
+        .expect("drop folded table");
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or2_quoted_lowercase_roundtrip_and_metadata_probe() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+
+    // 载荷：sz-orm 生成面——quote() 双引号包裹的小写混合标识符
+    let table = unique_table("or2mixed");
+    drop_table_if_exists(&conn, &table);
+    let columns = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "NUMBER".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "userName".to_string(), // 混合大小写列名
+            sql_type: "VARCHAR2(100)".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+    let create_sql = dialect.build_create_table(&table, &columns);
+    conn.execute(&create_sql, &[]).expect("create quoted table");
+
+    // 行为断言 1：quote 往返——混合大小写列名插入/查询按原样工作
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES (:1)",
+        dialect.quote(&table),
+        dialect.quote("userName"),
+    );
+    conn.execute(&insert_sql, &[&"alice"]).expect("insert");
+    conn.commit().expect("commit");
+    let sel_sql = format!(
+        "SELECT {} FROM {} WHERE {} IS NOT NULL",
+        dialect.quote("userName"),
+        dialect.quote(&table),
+        dialect.quote("userName"),
+    );
+    let v: String = conn
+        .query_row_as::<String>(&sel_sql, &[])
+        .expect("select mixed case");
+    assert_eq!(v, "alice", "混合大小写引号标识符应按原样往返");
+
+    // 行为断言 2：user_tables 按原样（小写）存储引号名
+    let n: i64 = conn
+        .query_row_as::<i64>(
+            "SELECT COUNT(*) FROM user_tables WHERE table_name = :1",
+            &[&table],
+        )
+        .expect("check exact name");
+    assert_eq!(n, 1, "引号小写表名应在 user_tables 按【原样】存储");
+
+    // 行为断言 3：元数据探测面——UPPER() 匹配（调用方按大写探测时的正确姿势）
+    let n_up: i64 = conn
+        .query_row_as::<i64>(
+            "SELECT COUNT(*) FROM user_tables WHERE UPPER(table_name) = :1",
+            &[&table.to_uppercase()],
+        )
+        .expect("check upper match");
+    assert_eq!(n_up, 1, "UPPER(table_name) 探测应命中");
+
+    // 行为断言 4：ALL_TAB_COLUMNS 元数据列可见性——表名按存储原样匹配，
+    // 列名经 UPPER() 折叠探测（引号小写表名的正确探测姿势）
+    let n_col: i64 = conn
+        .query_row_as::<i64>(
+            "SELECT COUNT(*) FROM all_tab_columns WHERE owner = :1 AND table_name = :2 AND UPPER(column_name) = :3",
+            &[&"SZ_ORM_TEST", &table, &"USERNAME"],
+        )
+        .expect("check all_tab_columns");
+    assert_eq!(n_col, 1, "ALL_TAB_COLUMNS 探测应命中混合大小写列");
+
+    // 行为断言 5：不带引号的小写名查询不可用（ORA-00942）
+    let unquoted_sql = format!("SELECT COUNT(*) FROM {}", table);
+    let err = conn
+        .query_row_as::<i64>(&unquoted_sql, &[])
+        .expect_err("不带引号小写名应折叠为大写而查无此表");
+    assert_ora_code(&err, 942, "不带引号小写表名查询");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or2_identifier_length_limit_128() {
+    let conn = open_conn();
+
+    // 载荷 1：128 字节引号标识符（12.2+ 上限）——应成功
+    let name_128 = format!("a{}", "b".repeat(127)); // 恰好 128 字节
+    assert_eq!(name_128.len(), 128);
+    let _ = conn.execute(&format!("DROP TABLE \"{}\" PURGE", name_128), &[]);
+
+    conn.execute(&format!("CREATE TABLE \"{}\" (id NUMBER)", name_128), &[])
+        .expect("128 字节标识符应被接受（12.2+ 上限）");
+
+    // 行为断言：按原样存储
+    let n: i64 = conn
+        .query_row_as::<i64>(
+            "SELECT COUNT(*) FROM user_tables WHERE table_name = :1",
+            &[&name_128],
+        )
+        .expect("check 128-byte name");
+    assert_eq!(n, 1, "128 字节引号标识符应按原样存储");
+
+    conn.execute(&format!("DROP TABLE \"{}\" PURGE", name_128), &[])
+        .expect("drop 128");
+
+    // 载荷 2：129 字节——ORA-00972（标识符过长）
+    let name_129 = format!("a{}", "b".repeat(128));
+    assert_eq!(name_129.len(), 129);
+    let err = conn
+        .execute(&format!("CREATE TABLE \"{}\" (id NUMBER)", name_129), &[])
+        .expect_err("129 字节标识符应被 ORA-00972 拒绝");
+    assert_ora_code(&err, 972, "129 字节标识符");
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or2_add_index_unquoted_mixed_case_and_reserved_columns() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+
+    // ---- 载荷 1：混合大小写列上建索引（方言生成面：AddIndex 列名裸拼接）----
+    let table = unique_table("or2idx");
+    drop_table_if_exists(&conn, &table);
+    let columns = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "NUMBER".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "userName".to_string(), // 混合大小写列（quote 创建，区分大小写存储）
+            sql_type: "VARCHAR2(100)".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+    let create_sql = dialect.build_create_table(&table, &columns);
+    conn.execute(&create_sql, &[]).expect("create table");
+
+    // 方言生成：AddIndex("idx_or2_mixed", ["userName"]) —— 列名未经 quote
+    let alter_sql = dialect.build_alter_table(
+        &table,
+        &[sz_orm_core::dialect::TableChange::AddIndex(
+            format!("idx_{}_mixed", table).as_str().to_string(),
+            vec!["userName".to_string()],
+        )],
+    );
+    // 真库执行：裸拼 userName 被折叠为 USERNAME，与区分大小写的 "userName" 列不匹配
+    let err = conn
+        .execute(&alter_sql, &[])
+        .expect_err("裸拼混合大小写列建索引应被真库拒绝");
+    assert_ora_code(&err, 904, "混合大小写列建索引");
+
+    // ---- 载荷 2：保留字列上建索引（方言生成面同缺口）----
+    let rsv_table = unique_table("or2rsv");
+    drop_table_if_exists(&conn, &rsv_table);
+    let rsv_columns = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "NUMBER".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "order".to_string(), // Oracle 保留字列（quote 创建合法）
+            sql_type: "NUMBER".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+    let rsv_create_sql = dialect.build_create_table(&rsv_table, &rsv_columns);
+    conn.execute(&rsv_create_sql, &[])
+        .expect("create reserved-word column table");
+
+    // 方言生成：AddIndex 列名裸拼 order（保留字）→ 真库语法层拒绝
+    let rsv_alter_sql = dialect.build_alter_table(
+        &rsv_table,
+        &[sz_orm_core::dialect::TableChange::AddIndex(
+            format!("idx_{}_rsv", rsv_table).as_str().to_string(),
+            vec!["order".to_string()],
+        )],
+    );
+    let rsv_err = conn
+        .execute(&rsv_alter_sql, &[])
+        .expect_err("裸拼保留字列建索引应被真库拒绝");
+    assert_ora_code(&rsv_err, 936, "保留字列建索引（order 被解析为关键字→缺表达式）");
+
+    // ---- 对照：quote 后的等价 DDL 在真库可执行（修复目标形态）----
+    let fixed_sql = format!(
+        "CREATE INDEX {} ON {} ({})",
+        dialect.quote(&format!("idx_{}_fixed", table)),
+        dialect.quote(&table),
+        dialect.quote("userName"),
+    );
+    conn.execute(&fixed_sql, &[]).expect("quote 后建索引应成功");
+    let idx_n: i64 = conn
+        .query_row_as::<i64>(
+            "SELECT COUNT(*) FROM user_indexes WHERE table_name = :1 AND index_name = :2",
+            &[&table, &format!("idx_{}_fixed", table)],
+        )
+        .expect("check index exists");
+    assert_eq!(idx_n, 1, "quote 生成的索引应按原样登记");
+
+    drop_table_if_exists(&conn, &table);
+    drop_table_if_exists(&conn, &rsv_table);
+}
