@@ -9,6 +9,18 @@
 
 ## [Unreleased]
 
+### Added — 证人维度测试深化（L2 路径对标 / L3 随机生成器 / L4 语义不变量 / L5 时序交错）
+
+- **批① L2 路径对标**（commit 35d90833）：7 个对拍套件——`path_parity`（quote enum-dispatch 快路径 vs vtable 慢路径）、`simd_enhanced_parity`（增强聚合 vs 基础聚合，Min/Max 严格 + Sum/Avg 相对容差 1e-9/1e-6）、`plan_cache_ast_parity`（计划缓存命中 vs 直解析 AST 等价，proptest 300 轮）、`clonecheap_parity`（clonecheap vs Clone 全变体边界集）、`prepared_cache_parity`（sz-orm-sqlx，预处理缓存 on/off 结果集对拍）、`vectorized_parity`（sz-orm-parallel，向量化执行器 vs 标量直算，PBT 300 轮）、`path-parity.test.js`（sz-orm-js，QueryBuilder 同步 vs 异步构建，fast-check 300 轮 seeded）
+- **批② L3 随机生成器**（commit edd2ab55）：`random_sql_differential`（白名单递归生成随机 WHERE 条件树，3 类 × 300 轮 = 900 轮，mulberry32 seeded RNG，占位数==参数数自检断言，失败收集不早退，归一化口径先行）+ `random-query.test.js`（JS 同步/异步构建 900 轮差分）
+- **批③ L4 语义不变量**：`semantic_invariants`（SQLite 内存常驻 31 测试——INV-N1 缓存↔基 / N2 重放确定 / N3 聚合分解 / N4 交换律 / N5 回滚快照 / N6 可恢复性 / N7 计数一致 + proptest 随机 DML 序列驱动回滚快照）+ `semantic_invariants_pg`（PG@5432 真连深化 4 测试，`#[ignore]` + `SZ_ORM_INV_PG_URL` 门控，未配置干净 SKIP）
+- **批④ L5 时序交错**：`interleaving_injection`（28 测试，SQLite 双连接共享库——同行/异行写-写交错穷举 C(6,3)=20 全排列 + 30 组 seeded 随机，脏读免疫探针，双层计时守护不挂起）
+
+### Fixed
+
+- **QueryBuilder::quote_into 无限递归栈溢出（P0）**（`packages/sz-orm-core/src/query.rs` quote_into 回退分支）：`perf-enum-dispatch` 启用时回退分支误写为 `self.quote_into(...)` 自递归，非枚举方言（DuckDB/ClickHouse/Firebird 等任何 `DialectKind::from_db_type` 返回 None 的方言）走 `build_select_with_params`（表名/JOIN/WHERE 列名渲染）即 `STATUS_STACK_OVERFLOW` 崩溃；修复为 `self.dialect.quote_into(...)`（vtable 回退）。绕过测试：`path_parity_quote_fallback_non_enum_dialect`（修复前对拍必挂）。由 L2 路径对拍机制发现——快慢路径一致性测试直接命中该缺陷
+- **sz-orm-js core.node 二进制与源码脱节**：仓库内 core.node 停留在 2026-08-07（v3.x 时期，缺全部 async*/connect 方法），经 `napi build --release` 重编译对齐 10.13.4 源码；`packages/sz-orm-js/index.d.ts`（手写，332 行）在 napi build 时被自动生成覆盖，已还原并保留
+
 ### Added
 
 - **SzRSQL 全功能矩阵差分评测**：M1~M9 九大能力块 × PG18 双库对拍（报告 `docs/assessment/2026-11-09-szrsql-matrix-differential.md`）；新增 `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs` 15 项矩阵集成测试（12 项真连通过 + 3 项 szrsql 上游缺陷 `#[ignore]` 留档）+ `integration_szrsql_kill_recover.rs` 1 项池故障恢复测试；上游反馈提示词 `docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`（P0×2：RR/SERIALIZABLE 非真快照语义、IS [NOT] DISTINCT FROM 被优化器误裁列；P2×2：bool↔int cast、int 溢出静默回绕；P3×5）；第 5 环红队复核通过（`docs/assessment/2026-11-09-szrsql-matrix-redteam-review.md`，放行入库）
