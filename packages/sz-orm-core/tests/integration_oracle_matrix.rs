@@ -930,15 +930,13 @@ fn or4_nulls_first_last_and_default_null_ordering() {
     );
 
     // 生成面：NULLS FIRST 透传——真库执行 + 行序断言
-    let nulls_first_sql = format!(
-        "{} NULLS FIRST",
-        format!(
-            "SELECT {} FROM {} ORDER BY {}",
-            dialect.quote("value"),
-            dialect.quote(&table),
-            dialect.quote("value"),
-        )
+    let order_base = format!(
+        "SELECT {} FROM {} ORDER BY {}",
+        dialect.quote("value"),
+        dialect.quote(&table),
+        dialect.quote("value"),
     );
+    let nulls_first_sql = format!("{} NULLS FIRST", order_base);
     let rows_nf: Vec<Option<i64>> = conn
         .query_as::<Option<i64>>(&nulls_first_sql, &[])
         .expect("query nulls first")
