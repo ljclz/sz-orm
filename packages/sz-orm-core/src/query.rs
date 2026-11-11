@@ -343,7 +343,10 @@ impl<M: Model> QueryBuilder<M> {
             kind.quote_into(identifier, buf);
             return;
         }
-        self.quote_into(identifier, buf);
+        // 回退必须调用 `self.dialect.quote_into`（vtable）。调用 `self.quote_into`
+        // 会在 dialect_kind == None（DuckDB/ClickHouse/Firebird 等非枚举方言）时
+        // 无限递归栈溢出（2026-11-11 L2 路径对拍发现，tests/path_parity.rs 绕过测试）。
+        self.dialect.quote_into(identifier, buf);
     }
 
     /// 设置查询表名

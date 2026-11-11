@@ -30,7 +30,18 @@ futures = { version = "0.3", optional = true }
 
 [lints]
 workspace = true
+
+[dev-dependencies]
+# 2026-11-11 证人维度深化 批①：vectorized_parity PBT 对拍
+proptest = { workspace = true }
+
 [[test]]
 name = "vectorized_wiring"
 path = "tests/vectorized_wiring.rs"
+required-features = ["olap-vectorized"]
+
+# 2026-11-11 证人维度深化 批①：L2 路径对标（向量化 vs 标量直算）
+[[test]]
+name = "vectorized_parity"
+path = "tests/vectorized_parity.rs"
 required-features = ["olap-vectorized"]

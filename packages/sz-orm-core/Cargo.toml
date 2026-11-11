@@ -923,6 +923,24 @@ path = "tests/v900_whitehat.rs"
 name = "v900_clonecheap"
 path = "tests/v900_clonecheap.rs"
 
+# 2026-11-11 证人维度深化 批①：L2 路径对标（快路径 vs 普通路径语义一致性）
+[[test]]
+name = "path_parity"
+path = "tests/path_parity.rs"
+
+[[test]]
+name = "simd_enhanced_parity"
+path = "tests/simd_enhanced_parity.rs"
+required-features = ["simd"]
+
+[[test]]
+name = "plan_cache_ast_parity"
+path = "tests/plan_cache_ast_parity.rs"
+required-features = ["plan-cache"]
+
+[[test]]
+name = "clonecheap_parity"
+path = "tests/clonecheap_parity.rs"
 
 [package.metadata.docs.rs]
 all-features = true

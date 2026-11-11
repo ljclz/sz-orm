@@ -8715,6 +8715,7 @@ name = "sz-orm-parallel"
 version = "10.13.4"
 dependencies = [
  "futures 0.3.34",
+ "proptest",
  "serde",
  "serde_json",
  "sz-orm-adaptive",

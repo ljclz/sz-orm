@@ -111,5 +111,10 @@ path = "tests/distributed_db_compat_report_test.rs"
 name = "unified_pool_test"
 path = "tests/unified_pool_test.rs"
 
+# 2026-11-11 证人维度深化 批①：L2 路径对标（prepared 缓存开关 on/off 结果集对拍）
+[[test]]
+name = "prepared_cache_parity"
+path = "tests/prepared_cache_parity.rs"
+
 [lints]
 workspace = true
