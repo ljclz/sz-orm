@@ -1347,12 +1347,22 @@ impl Dialect for OracleDialect {
                 } => {
                     // OR2 方言矩阵修复：约束名同样 quote，防特殊字符/大小写折叠破坏 DDL
                     let fk_name = format!("fk_{}_{}", table, columns.join("_"));
-                    format!("ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
+                    format!(
+                        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
                         self.quote(&fk_name),
-                        columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
+                        columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         self.quote(reference_table),
-                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "))
+                        reference_columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    )
                 }
             })
             .collect();
@@ -4021,8 +4031,7 @@ mod tests {
             )],
         );
         assert_eq!(
-            sql,
-            "CREATE INDEX \"user_name_idx\" ON \"users\" (\"userId\")",
+            sql, "CREATE INDEX \"user_name_idx\" ON \"users\" (\"userId\")",
             "AddIndex 应 quote 索引名与列名: {sql}"
         );
 
