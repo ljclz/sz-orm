@@ -957,6 +957,11 @@ path = "tests/semantic_invariants.rs"
 name = "semantic_invariants_pg"
 path = "tests/semantic_invariants_pg.rs"
 
+# 2026-11-11 证人维度深化 批④：L5 时序交错（双会话交错序列 + 计时守护）
+[[test]]
+name = "interleaving_injection"
+path = "tests/interleaving_injection.rs"
+
 [package.metadata.docs.rs]
 all-features = true
 rustdoc-args = ["--cfg", "docsrs"]
