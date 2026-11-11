@@ -12,9 +12,9 @@
 ### Added — 证人维度测试深化（L2 路径对标 / L3 随机生成器 / L4 语义不变量 / L5 时序交错）
 
 - **批① L2 路径对标**（commit 35d90833）：7 个对拍套件——`path_parity`（quote enum-dispatch 快路径 vs vtable 慢路径）、`simd_enhanced_parity`（增强聚合 vs 基础聚合，Min/Max 严格 + Sum/Avg 相对容差 1e-9/1e-6）、`plan_cache_ast_parity`（计划缓存命中 vs 直解析 AST 等价，proptest 300 轮）、`clonecheap_parity`（clonecheap vs Clone 全变体边界集）、`prepared_cache_parity`（sz-orm-sqlx，预处理缓存 on/off 结果集对拍）、`vectorized_parity`（sz-orm-parallel，向量化执行器 vs 标量直算，PBT 300 轮）、`path-parity.test.js`（sz-orm-js，QueryBuilder 同步 vs 异步构建，fast-check 300 轮 seeded）
-- **批② L3 随机生成器**（commit edd2ab55）：`random_sql_differential`（白名单递归生成随机 WHERE 条件树，3 类 × 300 轮 = 900 轮，mulberry32 seeded RNG，占位数==参数数自检断言，失败收集不早退，归一化口径先行）+ `random-query.test.js`（JS 同步/异步构建 900 轮差分）
-- **批③ L4 语义不变量**：`semantic_invariants`（SQLite 内存常驻 31 测试——INV-N1 缓存↔基 / N2 重放确定 / N3 聚合分解 / N4 交换律 / N5 回滚快照 / N6 可恢复性 / N7 计数一致 + proptest 随机 DML 序列驱动回滚快照）+ `semantic_invariants_pg`（PG@5432 真连深化 4 测试，`#[ignore]` + `SZ_ORM_INV_PG_URL` 门控，未配置干净 SKIP）
-- **批④ L5 时序交错**：`interleaving_injection`（28 测试，SQLite 双连接共享库——同行/异行写-写交错穷举 C(6,3)=20 全排列 + 30 组 seeded 随机，脏读免疫探针，双层计时守护不挂起）
+- **批② L3 随机生成器**（commit edd2ab55）：`random_sql_differential`（白名单递归生成随机 WHERE 条件树，3 类 × 300 轮 = 900 轮，mulberry32 seeded RNG，占位数==参数数自检断言，失败收集不早退，归一化口径先行；**红队复核定性：rusqlite 适配器单实现下「引擎 vs oracle」为同一实现双跑，差分价值限于重复执行确定性，已在源码注释如实声明**）+ `random-query.test.js`（JS 同步/异步构建 900 轮差分）
+- **批③ L4 语义不变量**：`semantic_invariants`（SQLite 内存常驻 31 测试——INV-N1 缓存↔基 / N2 重放确定 / N3 聚合分解 / N4 交换律 / N5 回滚快照 / N6 可恢复性 / N7 计数一致 + proptest 随机 DML 序列驱动回滚快照）+ `semantic_invariants_pg`（PG@5432 真连深化 4 测试，`#[ignore]` + `SZ_ORM_INV_PG_URL` 门控；红队复核发现初版 3/4 INT4/NUMERIC 解码错误未真连验证即入册，已修复（::bigint/::float8 cast）+ 每测试唯一表名消并行 42P07 竞态，连跑 3 轮全绿）
+- **批④ L5 时序交错**：`interleaving_injection`（5 个测试函数：同行写-写 20 全排列穷举 + 30 组 seeded 随机交错（红队复核后合法集断言 {0,1,10,11} 表述为「不挂起 + 值域封闭性」，语义由串行双成功 ==11 / 异行双成功 (5,7) / 脏读免疫探针强断言补强），SQLite 双连接共享库，双层计时守护不挂起）
 
 ### Fixed
 

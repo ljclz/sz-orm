@@ -110,29 +110,20 @@ fn path_parity_quote_fallback_non_enum_dialect() {
     }
 }
 
-/// 内联路径（sql()）与参数化路径（build_select_with_params()）对同一查询的
-/// SELECT 产物必须完全一致——两条渲染路径语义等价性对拍（表名 + JOIN + 排序）。
+/// P0 回归（红队 P2-3）：quote_into 回退分支自递归场景的常驻绕过测试。
+/// 原 P0：`perf-enum-dispatch` 启用时回退分支误写 `self.quote_into(...)` 自递归，
+/// 非枚举方言（DuckDB 等）任何走参数化路径 quote（WHERE 列名渲染）即栈溢出。
+/// 本测试覆盖该场景（where_eq → build_where_clause_with_params → quote_into）；
+/// 修复前本测试 STATUS_STACK_OVERFLOW（原 tmp_probe2 探针转正）。
 #[test]
-fn path_parity_inline_vs_parametrized_select_shape() {
-    for db in [DbType::MySQL, DbType::PostgreSQL, DbType::Sqlite] {
-        for table in TABLES {
-            let inline = QueryBuilder::<Row>::new(get_dialect(db).unwrap())
-                .table(*table)
-                .select_expr(vec!["id"])
-                .join_inner("o", "t.id", "o.tid")
-                .order_by("id")
-                .sql();
-            let parametrized = QueryBuilder::<Row>::new(get_dialect(db).unwrap())
-                .table(*table)
-                .select_expr(vec!["id"])
-                .join_inner("o", "t.id", "o.tid")
-                .order_by("id")
-                .sql();
-            assert_eq!(
-                inline, parametrized,
-                "db={:?} table={:?}: 内联与参数化路径 SELECT 产物不一致",
-                db, table
-            );
-        }
-    }
+fn regression_quote_into_fallback_no_recursion_in_param_where() {
+    let built = QueryBuilder::<Row>::new(get_dialect(DbType::DuckDB).unwrap())
+        .table("t")
+        .where_eq("id", sz_orm_core::Value::I64(1))
+        .build_select_with_params();
+    assert!(
+        built.0.contains("WHERE"),
+        "参数化 WHERE 渲染失败（回退分支异常）: {:?}",
+        built.0
+    );
 }
