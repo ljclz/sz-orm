@@ -12,10 +12,19 @@ use crate::error::DbError;
 /// 仅允许 ASCII 字母数字 + 下划线，不以数字开头，长度 1-63（PostgreSQL 限制）。
 /// 拒绝任何 SQL 元字符（引号、分号、空格、注释、引号转义等），杜绝 SQL 注入。
 pub fn validate_identifier(name: &str, kind: &str) -> Result<(), DbError> {
-    if name.is_empty() || name.len() > 63 {
+    validate_identifier_with_max(name, kind, 63)
+}
+
+/// 校验 SQL 标识符（方言感知长度上限版）
+///
+/// 与 [`validate_identifier`] 相同的字符白名单，但长度上限由调用方按方言传入：
+/// MySQL 上限 64 字符（MY2 方言矩阵 G4 修复——原先硬编码 PG 的 63，
+/// 导致 64 字符合法 MySQL 标识符被 sz-orm 侧错误拒绝），PostgreSQL 63（NAMEDATALEN-1）。
+pub fn validate_identifier_with_max(name: &str, kind: &str, max: usize) -> Result<(), DbError> {
+    if name.is_empty() || name.len() > max {
         return Err(DbError::InvalidInput(format!(
-            "invalid {}: empty or too long (max 63 chars): {:?}",
-            kind, name
+            "invalid {}: empty or too long (max {} chars): {:?}",
+            kind, max, name
         )));
     }
     let mut chars = name.chars();

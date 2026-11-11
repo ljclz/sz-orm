@@ -1721,6 +1721,35 @@ impl<M: Model> QueryBuilder<M> {
         sql.into_string()
     }
 
+    /// 三值 NULL 语义的 Eq/Ne 条件片段渲染（MY6 方言矩阵 G1 修复）。
+    ///
+    /// `where_eq(col, Value::Null)` 生成 `col IS NULL`（而非 `= NULL`/`= ?`——
+    /// SQL 三值逻辑下 `col = NULL` 恒为 UNKNOWN，结果恒空，属静默错误结果）；
+    /// `where_ne(col, Value::Null)` 相应生成 `col IS NOT NULL`。
+    /// 非 Null 值仍走参数化占位符（`= ?`/`!= ?`）。
+    ///
+    /// 返回 `(片段, 是否产生绑定参数)`：Null 时无参数。
+    fn render_eq_fragment(
+        &self,
+        field: &str,
+        value: &Value,
+        negated: bool,
+        or_prefix: bool,
+    ) -> (String, bool) {
+        let mut s = String::with_capacity(field.len() + 16);
+        if or_prefix {
+            s.push_str("OR ");
+        }
+        self.quote_into(field, &mut s);
+        if value.is_null() {
+            s.push_str(if negated { " IS NOT NULL" } else { " IS NULL" });
+            (s, false)
+        } else {
+            s.push_str(if negated { " != ?" } else { " = ?" });
+            (s, true)
+        }
+    }
+
     /// 构建 WHERE 子句（处理所有条件类型：And/Or/In/NotIn/Between/Null/Eq/Ne/Gt/Lt/Like 等）
     ///
     /// P0-1：自动追加软删除过滤条件（`AND {soft_delete_field} IS NULL`）
@@ -1774,16 +1803,23 @@ impl<M: Model> QueryBuilder<M> {
                 WhereCondition::And(c) => c.clone(),
                 WhereCondition::Or(c) => format!("OR {}", c),
                 // P0-2：参数化条件在无参数版本中直接 inline 值（用于 build_select 等无参数绑定场景）
-                WhereCondition::Eq(f, v) => format!(
-                    "{} = {}",
-                    self.dialect.quote(f),
-                    v.to_param_with_dialect(&*self.dialect)
-                ),
-                WhereCondition::Ne(f, v) => format!(
-                    "{} != {}",
-                    self.dialect.quote(f),
-                    v.to_param_with_dialect(&*self.dialect)
-                ),
+                // G1（MY6）：Eq/Ne 值为 Null 时生成 IS [NOT] NULL，杜绝三值逻辑恒空
+                WhereCondition::Eq(f, v) => {
+                    let col = self.dialect.quote(f);
+                    if v.is_null() {
+                        format!("{col} IS NULL")
+                    } else {
+                        format!("{} = {}", col, v.to_param_with_dialect(&*self.dialect))
+                    }
+                }
+                WhereCondition::Ne(f, v) => {
+                    let col = self.dialect.quote(f);
+                    if v.is_null() {
+                        format!("{col} IS NOT NULL")
+                    } else {
+                        format!("{} != {}", col, v.to_param_with_dialect(&*self.dialect))
+                    }
+                }
                 WhereCondition::Gt(f, v) => format!(
                     "{} > {}",
                     self.dialect.quote(f),
@@ -1809,16 +1845,22 @@ impl<M: Model> QueryBuilder<M> {
                     self.dialect.quote(f),
                     v.to_param_with_dialect(&*self.dialect)
                 ),
-                WhereCondition::OrEq(f, v) => format!(
-                    "OR {} = {}",
-                    self.dialect.quote(f),
-                    v.to_param_with_dialect(&*self.dialect)
-                ),
-                WhereCondition::OrNe(f, v) => format!(
-                    "OR {} != {}",
-                    self.dialect.quote(f),
-                    v.to_param_with_dialect(&*self.dialect)
-                ),
+                WhereCondition::OrEq(f, v) => {
+                    let col = self.dialect.quote(f);
+                    if v.is_null() {
+                        format!("OR {col} IS NULL")
+                    } else {
+                        format!("OR {} = {}", col, v.to_param_with_dialect(&*self.dialect))
+                    }
+                }
+                WhereCondition::OrNe(f, v) => {
+                    let col = self.dialect.quote(f);
+                    if v.is_null() {
+                        format!("OR {col} IS NOT NULL")
+                    } else {
+                        format!("OR {} != {}", col, v.to_param_with_dialect(&*self.dialect))
+                    }
+                }
                 WhereCondition::OrGt(f, v) => format!(
                     "OR {} > {}",
                     self.dialect.quote(f),
@@ -2217,14 +2259,18 @@ impl<M: Model> QueryBuilder<M> {
                     match cond {
                         WhereCondition::And(c) => result.push_str(c),
                         WhereCondition::Eq(f, v) => {
-                            params.push(v.clone());
-                            self.quote_into(f, &mut result);
-                            result.push_str(" = ?");
+                            let (frag, has_param) = self.render_eq_fragment(f, v, false, false);
+                            if has_param {
+                                params.push(v.clone());
+                            }
+                            result.push_str(&frag);
                         }
                         WhereCondition::Ne(f, v) => {
-                            params.push(v.clone());
-                            self.quote_into(f, &mut result);
-                            result.push_str(" != ?");
+                            let (frag, has_param) = self.render_eq_fragment(f, v, true, false);
+                            if has_param {
+                                params.push(v.clone());
+                            }
+                            result.push_str(&frag);
                         }
                         WhereCondition::Gt(f, v) => {
                             params.push(v.clone());
@@ -2328,18 +2374,18 @@ impl<M: Model> QueryBuilder<M> {
                     conditions.push(s);
                 }
                 WhereCondition::Eq(f, v) => {
-                    params.push(v.clone());
-                    let mut s = String::with_capacity(f.len() + 5);
-                    self.quote_into(f, &mut s);
-                    s.push_str(" = ?");
-                    conditions.push(s);
+                    let (frag, has_param) = self.render_eq_fragment(f, v, false, false);
+                    if has_param {
+                        params.push(v.clone());
+                    }
+                    conditions.push(frag);
                 }
                 WhereCondition::Ne(f, v) => {
-                    params.push(v.clone());
-                    let mut s = String::with_capacity(f.len() + 6);
-                    self.quote_into(f, &mut s);
-                    s.push_str(" != ?");
-                    conditions.push(s);
+                    let (frag, has_param) = self.render_eq_fragment(f, v, true, false);
+                    if has_param {
+                        params.push(v.clone());
+                    }
+                    conditions.push(frag);
                 }
                 WhereCondition::Gt(f, v) => {
                     params.push(v.clone());
@@ -2377,20 +2423,18 @@ impl<M: Model> QueryBuilder<M> {
                     conditions.push(s);
                 }
                 WhereCondition::OrEq(f, v) => {
-                    params.push(v.clone());
-                    let mut s = String::with_capacity(f.len() + 8);
-                    s.push_str("OR ");
-                    self.quote_into(f, &mut s);
-                    s.push_str(" = ?");
-                    conditions.push(s);
+                    let (frag, has_param) = self.render_eq_fragment(f, v, false, true);
+                    if has_param {
+                        params.push(v.clone());
+                    }
+                    conditions.push(frag);
                 }
                 WhereCondition::OrNe(f, v) => {
-                    params.push(v.clone());
-                    let mut s = String::with_capacity(f.len() + 9);
-                    s.push_str("OR ");
-                    self.quote_into(f, &mut s);
-                    s.push_str(" != ?");
-                    conditions.push(s);
+                    let (frag, has_param) = self.render_eq_fragment(f, v, true, true);
+                    if has_param {
+                        params.push(v.clone());
+                    }
+                    conditions.push(frag);
                 }
                 WhereCondition::OrGt(f, v) => {
                     params.push(v.clone());
@@ -2784,14 +2828,18 @@ impl<M: Model> QueryBuilder<M> {
                     match cond {
                         WhereCondition::And(c) => sql.push_str(c),
                         WhereCondition::Eq(f, v) => {
-                            params.push(v.clone());
-                            self.quote_into(f, &mut sql);
-                            sql.push_str(" = ?");
+                            let (frag, has_param) = self.render_eq_fragment(f, v, false, false);
+                            if has_param {
+                                params.push(v.clone());
+                            }
+                            sql.push_str(&frag);
                         }
                         WhereCondition::Ne(f, v) => {
-                            params.push(v.clone());
-                            self.quote_into(f, &mut sql);
-                            sql.push_str(" != ?");
+                            let (frag, has_param) = self.render_eq_fragment(f, v, true, false);
+                            if has_param {
+                                params.push(v.clone());
+                            }
+                            sql.push_str(&frag);
                         }
                         WhereCondition::Gt(f, v) => {
                             params.push(v.clone());

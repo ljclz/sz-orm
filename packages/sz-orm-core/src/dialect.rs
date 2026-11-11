@@ -42,15 +42,29 @@ pub trait Dialect: Send + Sync {
     ///
     /// 与 `quote()` 不同，此方法会先校验标识符：
     /// - 非空
-    /// - 长度 ≤ `MAX_IDENTIFIER_LEN` (63 chars)
+    /// - 长度 ≤ `max_identifier_len()`（方言感知，默认 63 = PostgreSQL 最严格值）
     /// - 不含 SQL 元字符（引号、分号、空格、注释等）
     ///
     /// 校验失败时返回 `DbError::InvalidInput`。
     ///
     /// 建议在调用方不可信的场景（如用户输入的表名/列名）使用此方法替代 `quote()`。
     fn quote_checked(&self, identifier: &str) -> Result<String, DbError> {
-        crate::sql_safety::validate_identifier(identifier, "identifier")?;
+        crate::sql_safety::validate_identifier_with_max(
+            identifier,
+            "identifier",
+            self.max_identifier_len(),
+        )?;
         Ok(self.quote(identifier))
+    }
+
+    /// 标识符长度上限（方言感知，MY2 方言矩阵 G4 修复）
+    ///
+    /// 默认 63（PostgreSQL NAMEDATALEN-1，最严格基线）；MySQL 为 64。
+    /// 仅影响 [`Dialect::quote_checked`] 的校验，不改变各迁移/权限模块直接调用
+    /// `validate_identifier` 的既有 63 上限（如需方言感知由调用方自行选择
+    /// `validate_identifier_with_max`）。
+    fn max_identifier_len(&self) -> usize {
+        63
     }
 
     /// 转义字符串字面量，确保可安全嵌入 SQL
@@ -294,6 +308,11 @@ impl Dialect for MySqlDialect {
         format!("`{}`", identifier.replace('`', "``"))
     }
 
+    /// MySQL 标识符上限 64 字符（PG 是 63；MY2 方言矩阵 G4 修复）
+    fn max_identifier_len(&self) -> usize {
+        64
+    }
+
     fn quote_into(&self, identifier: &str, buf: &mut String) {
         if identifier.contains('`') {
             buf.push_str(&self.quote(identifier));
@@ -421,50 +440,97 @@ impl Dialect for MySqlDialect {
     }
 
     fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
-        let stmts: Vec<String> = changes.iter().map(|change| {
-            match change {
-                TableChange::AddColumn(col) => {
-                    let mut sql = format!("ALTER TABLE {} ADD {}", self.quote(table), self.quote(&col.name));
-                    sql.push_str(&format!(" {}", col.sql_type));
-                    if !col.nullable {
-                        sql.push_str(" NOT NULL");
+        let stmts: Vec<String> = changes
+            .iter()
+            .map(|change| {
+                match change {
+                    TableChange::AddColumn(col) => {
+                        let mut sql = format!(
+                            "ALTER TABLE {} ADD {}",
+                            self.quote(table),
+                            self.quote(&col.name)
+                        );
+                        sql.push_str(&format!(" {}", col.sql_type));
+                        if !col.nullable {
+                            sql.push_str(" NOT NULL");
+                        }
+                        if let Some(default) = &col.default {
+                            sql.push_str(&format!(" DEFAULT {}", default));
+                        }
+                        sql
                     }
-                    if let Some(default) = &col.default {
-                        sql.push_str(&format!(" DEFAULT {}", default));
+                    TableChange::DropColumn(name) => {
+                        format!(
+                            "ALTER TABLE {} DROP COLUMN {}",
+                            self.quote(table),
+                            self.quote(name)
+                        )
                     }
-                    sql
-                }
-                TableChange::DropColumn(name) => {
-                    format!("ALTER TABLE {} DROP COLUMN {}", self.quote(table), self.quote(name))
-                }
-                TableChange::ModifyColumn(col) => {
-                    // MySQL 使用 MODIFY COLUMN
-                    let mut sql = format!("ALTER TABLE {} MODIFY COLUMN {} {}", self.quote(table), self.quote(&col.name), col.sql_type);
-                    if !col.nullable {
-                        sql.push_str(" NOT NULL");
+                    TableChange::ModifyColumn(col) => {
+                        // MySQL 使用 MODIFY COLUMN
+                        let mut sql = format!(
+                            "ALTER TABLE {} MODIFY COLUMN {} {}",
+                            self.quote(table),
+                            self.quote(&col.name),
+                            col.sql_type
+                        );
+                        if !col.nullable {
+                            sql.push_str(" NOT NULL");
+                        }
+                        if let Some(default) = &col.default {
+                            sql.push_str(&format!(" DEFAULT {}", default));
+                        }
+                        sql
                     }
-                    if let Some(default) = &col.default {
-                        sql.push_str(&format!(" DEFAULT {}", default));
+                    TableChange::AddIndex(name, cols) => {
+                        // MY2b 方言矩阵 G2 修复：索引名与列名必须 quote——保留字列名
+                        // （如 `order`）不加反引号会被真库以语法错误拒绝
+                        let quoted_cols = cols
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!(
+                            "ALTER TABLE {} ADD INDEX {} ({})",
+                            self.quote(table),
+                            self.quote(name),
+                            quoted_cols
+                        )
                     }
-                    sql
+                    TableChange::DropIndex(name) => {
+                        format!(
+                            "ALTER TABLE {} DROP INDEX {}",
+                            self.quote(table),
+                            self.quote(name)
+                        )
+                    }
+                    TableChange::AddForeignKey {
+                        columns,
+                        reference_table,
+                        reference_columns,
+                    } => {
+                        // MY2b 方言矩阵 G2 修复：约束名同样 quote，防特殊字符破坏 DDL
+                        let fk_name = format!("fk_{}_{}", table, columns.join("_"));
+                        format!(
+                            "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
+                            self.quote(table),
+                            self.quote(&fk_name),
+                            columns
+                                .iter()
+                                .map(|c| self.quote(c))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            self.quote(reference_table),
+                            reference_columns
+                                .iter()
+                                .map(|c| self.quote(c))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    }
                 }
-                TableChange::AddIndex(name, cols) => {
-                    format!("ALTER TABLE {} ADD INDEX {} ({})", self.quote(table), name, cols.join(", "))
-                }
-                TableChange::DropIndex(name) => {
-                    format!("ALTER TABLE {} DROP INDEX {}", self.quote(table), name)
-                }
-                TableChange::AddForeignKey { columns, reference_table, reference_columns } => {
-                    format!("ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
-                        self.quote(table),
-                        table,
-                        columns.join("_"),
-                        columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
-                        self.quote(reference_table),
-                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "))
-                }
-            }
-        }).collect();
+            })
+            .collect();
 
         stmts.join("; ")
     }
@@ -2263,15 +2329,25 @@ impl Dialect for ClickHouseDialect {
                     )
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // 同 MySQL 方言 G2 修复：索引名与列名必须 quote（保留字列防护）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "ALTER TABLE {} ADD INDEX {} ({})",
                         self.quote(table),
-                        name,
-                        cols.join(", ")
+                        self.quote(name),
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    format!("ALTER TABLE {} DROP INDEX {}", self.quote(table), name)
+                    format!(
+                        "ALTER TABLE {} DROP INDEX {}",
+                        self.quote(table),
+                        self.quote(name)
+                    )
                 }
                 TableChange::AddForeignKey { .. } => {
                     // ClickHouse 不支持外键，跳过
@@ -4722,12 +4798,16 @@ mod tests {
         // 边界：恰好 63 字符
         let name_63 = "a".repeat(63);
         assert!(dialect.quote_checked(&name_63).is_ok());
+        // MY2 方言矩阵 G4 修复：MySQL 上限 64（PG 是 63），64 字符合法标识符应放行
+        assert_eq!(dialect.max_identifier_len(), 64);
+        let name_64 = "a".repeat(64);
+        assert!(dialect.quote_checked(&name_64).is_ok());
     }
 
     #[test]
     fn test_l4_quote_checked_rejects_too_long() {
         let dialect = MySqlDialect;
-        let long_name = "a".repeat(64); // 64 > 63
+        let long_name = "a".repeat(65); // 65 > 64（MySQL 上限）
         let result = dialect.quote_checked(&long_name);
         assert!(result.is_err());
         match result {
@@ -5408,7 +5488,8 @@ mod enum_dispatch_tests {
 
     #[test]
     fn test_t6_quote_checked_invalid_too_long() {
-        let long = "a".repeat(64);
+        // G4 修复：MySQL 上限 64，64 字符合法；65 超限被拒
+        let long = "a".repeat(65);
         assert!(MySqlDialect.quote_checked(&long).is_err());
     }
 
@@ -5964,10 +6045,16 @@ mod enum_dispatch_tests {
                 vec!["x".to_string()],
             )],
         );
-        assert!(sql.contains("ADD INDEX idx_x (x)"), "AddIndex: {sql}");
+        assert!(
+            sql.contains("ADD INDEX `idx_x` (`x`)"),
+            "AddIndex 应 quote 索引名与列名（G2 修复）: {sql}"
+        );
         let sql =
             MySqlDialect.build_alter_table("users", &[TableChange::DropIndex("idx_x".to_string())]);
-        assert!(sql.contains("DROP INDEX idx_x"), "DropIndex: {sql}");
+        assert!(
+            sql.contains("DROP INDEX `idx_x`"),
+            "DropIndex 应 quote 索引名（G2 修复）: {sql}"
+        );
         let sql = MySqlDialect.build_alter_table(
             "users",
             &[TableChange::AddForeignKey {
