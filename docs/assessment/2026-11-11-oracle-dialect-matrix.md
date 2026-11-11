@@ -4,7 +4,7 @@
 > **语义基准**：Oracle 26ai Free（23ai 家族，Release 23.26.3.0.0）官方语义 + 真库实测；未拿 PG18/MySQL 当仲裁
 > **版本**：sz-orm v10.13.4（workspace.package.version）
 > **提示词**：[2026-11-11-oracle-dialect-matrix-prompt.md](2026-11-11-oracle-dialect-matrix-prompt.md)（第 1 环已闭环）
-> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅（含红队更正）/ 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅（FAIL→回执修复→条件 PASS）/ 第 6 环登记 ✅（10.13.5 本地版本线，crates.io 发布走标准流程）
+> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅（含红队更正）/ 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅（FAIL→回执修复→条件 PASS）/ 第 6 环登记 ✅（CHANGELOG [Unreleased] + AGENTS.md 已发布行，与同期 MySQL 批同模式；crates.io 发布随下版走标准流程）
 
 ---
 
@@ -152,7 +152,7 @@ test result: ok. 19 passed; 0 failed
 | R-3 | P2 | 门禁 30 幻影测试仓库级 EXIT=1（P3 零断言测试 packages/sz-orm-cabi/src/lib.rs:2636 [must-contain: test_pool_new_szrsql_dsn]，fff51ad9 先在；本批测试文件 0 命中） | ✅ 报告门禁表登记先在状态 |
 | R-4 | P2 | E-OR4 舍入/E-OR5 三值逻辑子项实为跨引擎 SQL 标准语义，「Oracle 环境特有」标签不精确 | ✅ 标签更正（处置「登记不修」不变） |
 | R-5 | P2 建议 | or6 探针可加对照组排除驱动 autocommit 泄漏替代解释 | ✅ commit `4d30e1c`：新增对照组（无 DDL 时 ROLLBACK → 第二连接 0 行断言） |
-| R-6 | P2 登记 | G-OR1 修复仅在 main，10.13.4 已发布 crates.io——须开新版本线承载修复 | ✅ 第 6 环按 10.13.5 本地版本线登记（crates.io 发布走标准流程） |
+| R-6 | P2 登记 | G-OR1 修复仅在 main，10.13.4 已发布 crates.io——须开新版本线承载修复 | ✅ 第 6 环按 CHANGELOG [Unreleased] 登记（与同期 MySQL 批同模式：修复随下版发布，crates.io 走标准流程） |
 | R-7 | 备注 | 测试注释中 dialect.rs 行号引用因并行提交移位漂移 | ✅ commit `4d30e1c`：5 处脆弱行号改函数名定位 |
 
 **裁决演进**：红队明示「阻断项均为机械可修，修复后本复核结论可升级为 PASS，无需重跑真连套件」；R-1/R-5/R-7 修复后真连套件仍 19/19（`4d30e1c` 提交前实测）。

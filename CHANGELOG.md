@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+### Added — Oracle 方言矩阵真连验证（OR1~OR6，六环闭环）
+
+- **Oracle 方言能力面真连矩阵**（报告 `docs/assessment/2026-11-11-oracle-dialect-matrix.md`，提示词 `2026-11-11-oracle-dialect-matrix-prompt.md`，实施批 8a83ed3a/00760ab6/9eb4f707/384a2caa/e3074efc/c5ed06a5）：新增 `packages/sz-orm-core/tests/integration_oracle_matrix.rs` **19 测试**（OR1 空串与 NULL / OR2 标识符大小写折叠与 128 字节上限 / OR3 IDENTITY BY DEFAULT/ALWAYS + RETURNING INTO 回填 + 序列触发器旧路径 / OR4 OFFSET/FETCH 成对 + NULLS FIRST/LAST / OR5 NUMBER 30 位整数无损 + VARCHAR2(4000) 边界 + CLOB/RAW/TIMESTAMP / OR6 三值 NULL + ORA-01476 除零 + 隐式转换 + DDL 隐式提交探针），被测 Oracle 26ai Free（Release 23.26.3.0.0）@ 1521/freepdb1，凭据经 `SZ_ORM_ORACLE_PASSWORD` 注入缺失 assert 拒跑；矩阵 19/19 全绿 + 既有 `integration_oracle` 10 项零回归；第 5 环红队独立复核初裁 FAIL→回执 R-1/R-5/R-7 修复（commit 4d30e1c9：rustfmt 单文件清零 + or6 探针对照组 + 注释函数名定位）→条件 PASS（红队明示机械修复后升级）
+- 三分类：**G-OR1 sz-orm 方言缺口 1 项修复**（见 Fixed）；**Oracle 环境特有 5 项登记**（E-OR1 空串绑定拒 NOT NULL ORA-01400、E-OR2 DDL 隐式提交——事务中 CREATE TABLE 提交先前 DML 且 ROLLBACK 无法撤销（第二连接交叉验证 + 无 DDL 对照组），migration/schema_sync 事务管理器影响登记、E-OR3 PL/SQL 触发器 ：NEW 引号形态 + END; 分号坑、E-OR4 ASC→NULLS LAST/DESC→NULLS FIRST 默认序、E-OR5 除零 ORA-01476 无宽容开关）；**文档措辞 1 项**（D-OR1：提示词「SELECT 无 FROM 须补 DUAL」假设在 23ai+ 过时——26ai 实测 FROM-less SELECT 原生支持，19c/21c 才 ORA-00923）
+- 环境事实：本机 `D:\tools\gate.env` 凭据模板曾被清理丢失，经本地 `sqlplus / AS SYSDBA`（OS 认证）重置 sz_orm_test 密码并重建 gate.env，凭据全程零入库
+
+### Fixed
+
+- **Oracle 方言矩阵 G-OR1——ALTER INDEX/FK 标识符未 quote**（`packages/sz-orm-core/src/dialect.rs` OracleDialect::build_alter_table，commit a37937a8）：`AddIndex` 索引名与列名未 quote——混合大小写列裸拼被折叠为大写与引号列不匹配（真库 ORA-00904）、保留字列 `order` 裸拼被解析为关键字（真库 ORA-00936）；`DropIndex` 与 `AddForeignKey` 约束名同样补 quote；新增单测 `test_oracle_alter_table_index_fk_quoting`（3 项生成形态逐字节断言）+ 矩阵真连断言转修复后行为（or2_add_index_mixed_case_and_reserved_columns：建索引成功 + user_indexes 登记 + DropIndex 往返）。与 MySQL 批 G2（206f5623）同型缺口各自独立发现、独立修复、hunk 级提交隔离
+
 ### Added — MySQL 方言矩阵真连验证（MY1~MY6，六环闭环）
 
 - **MySQL 方言能力面真连矩阵**（报告 `docs/assessment/2026-11-11-mysql-dialect-matrix.md`，实施批 commit 206f562）：新增 `packages/sz-orm-core/tests/integration_mysql_matrix.rs` **7 测试**（MY1 排序 NULL / MY2 标识符与保留字 / MY2b ALTER INDEX/FK quote / MY3 AUTO_INCREMENT 回填+类型往返 / MY4 ODKU+批量 65535 占位符极限探针 / MY5 分页+CTE+窗口+GROUP_CONCAT / MY6 三值 NULL+除零+弱类型），被测宝塔 MySQL 8.0.29 @ 8802，凭据经 `SZ_ORM_MYSQL_URL` 注入未配置自动跳过；预修复运行 1 过 6 败实证缺口，修复后 7/7 全绿；既有 `integration_mysql` 25 项无回归（25 passed, 1098s）；第 5 环红队复核放行（`docs/assessment/2026-11-11-mysql-dialect-matrix-redteam-review.md`，阻断 0 / 建议 4 全采纳）。注：commit 206f562 提交信息「8 测试」系笔误，实际 7 个
