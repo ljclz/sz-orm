@@ -12,9 +12,9 @@
 ### Added — 证人维度测试深化（L2 路径对标 / L3 随机生成器 / L4 语义不变量 / L5 时序交错）
 
 - **批① L2 路径对标**（commit 35d90833）：7 个对拍套件——`path_parity`（quote enum-dispatch 快路径 vs vtable 慢路径）、`simd_enhanced_parity`（增强聚合 vs 基础聚合，Min/Max 严格 + Sum/Avg 相对容差 1e-9/1e-6）、`plan_cache_ast_parity`（计划缓存命中 vs 直解析 AST 等价，proptest 300 轮）、`clonecheap_parity`（clonecheap vs Clone 全变体边界集）、`prepared_cache_parity`（sz-orm-sqlx，预处理缓存 on/off 结果集对拍）、`vectorized_parity`（sz-orm-parallel，向量化执行器 vs 标量直算，PBT 300 轮）、`path-parity.test.js`（sz-orm-js，QueryBuilder 同步 vs 异步构建，fast-check 300 轮 seeded）
-- **批② L3 随机生成器**（commit edd2ab55）：`random_sql_differential`（白名单递归生成随机 WHERE 条件树，3 类 × 300 轮 = 900 轮，mulberry32 seeded RNG，占位数==参数数自检断言，失败收集不早退，归一化口径先行；**红队复核定性：rusqlite 适配器单实现下「引擎 vs oracle」为同一实现双跑，差分价值限于重复执行确定性，已在源码注释如实声明**）+ `random-query.test.js`（JS 同步/异步构建 900 轮差分）
+- **批② L3 随机生成器**（commit edd2ab55）：`random_sql_differential`（白名单递归生成随机 WHERE 条件树，3 类 × 300 轮 = 900 轮，mulberry32 seeded RNG，占位数==参数数自检断言，失败收集不早退，归一化口径先行；**红队复核定性：rusqlite 适配器单实现下「引擎 vs oracle」为同一实现双跑，差分价值限于重复执行确定性**）+ random_sql_dual_engine（P2-2 结构性升级：真·双引擎交叉对拍——同一随机 (SQL, params) 对喂 SQLite（rusqlite 内存库）与 PostgreSQL（sqlx 真连），跨引擎语义等价性对拍 3 类 x 200 轮 = 600 轮，类型提升归一化 + 浮点相对容差 1e-9，#[ignore] + SZ_ORM_L3_PG_URL 门控未配置干净 SKIP，PG 占位符独立重写 + 占位数==参数数自检）+ `random-query.test.js`（JS 同步/异步构建 900 轮差分）
 - **批③ L4 语义不变量**：`semantic_invariants`（SQLite 内存常驻 31 测试——INV-N1 缓存↔基 / N2 重放确定 / N3 聚合分解 / N4 交换律 / N5 回滚快照 / N6 可恢复性 / N7 计数一致 + proptest 随机 DML 序列驱动回滚快照）+ `semantic_invariants_pg`（PG@5432 真连深化 4 测试，`#[ignore]` + `SZ_ORM_INV_PG_URL` 门控；红队复核发现初版 3/4 INT4/NUMERIC 解码错误未真连验证即入册，已修复（::bigint/::float8 cast）+ 每测试唯一表名消并行 42P07 竞态，连跑 3 轮全绿）
-- **批④ L5 时序交错**：`interleaving_injection`（5 个测试函数：同行写-写 20 全排列穷举 + 30 组 seeded 随机交错（红队复核后合法集断言 {0,1,10,11} 表述为「不挂起 + 值域封闭性」，语义由串行双成功 ==11 / 异行双成功 (5,7) / 脏读免疫探针强断言补强），SQLite 双连接共享库，双层计时守护不挂起）
+- **批④ L5 时序交错**：`interleaving_injection`（5 个测试函数：同行写-写 20 全排列穷举 + 30 组 seeded 随机交错；P2-4 结构性升级：精确不变量取代宽合法集——逐步追踪每事务 UPDATE/commit 成败，期望终值 v = a_applied + 10*b_applied 由执行结果精确推导，并断言「双成功 ⟺ 非重叠」「重叠下至少一方成功」；串行双成功 ==11 / 异行双成功 (5,7) / 脏读免疫探针保持，SQLite 双连接共享库，双层计时守护不挂起）
 
 ### Fixed
 
@@ -71,9 +71,9 @@
 
 szrsql 侧按反馈提示词（`docs/assessment/2026-11-09-szrsql-matrix-bugs-feedback-prompt.md`）修复全部 9 项（UP-1~UP-9）并双库差分验证；sz-orm 侧对运行中服务真连逐项复验：RR/SERIALIZABLE 快照（UP-1）、IS NOT DISTINCT FROM（UP-2）、bool↔int cast（UP-3）、整数溢出报错（UP-4）、lastval PG 语义（UP-5）、EXECUTE 防火墙（UP-6）、advisory lock（UP-7）、GUC SET+SHOW 读回（UP-8）、numeric 20 位精度（UP-9）全部与 PG18 一致。
 
-- `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs`：M4（RR 快照）/M9（INDF）/M5（DISCARD ALL）三项 P0/P1 留档测试全部复活，回归常规 `--ignored` 轮换（**15 项全部通过**）——szrsql 上游 DISCARD ALL 已由 `0d16260c` 实现（会话状态重置），sz-orm 侧真连复验通过；RESET ALL 仍为上游次要缺口，但非 sz-orm 连接池依赖路径（session_reset_sql=DISCARD ALL，不依赖 RESET），登记留档
+- `packages/sz-orm-sqlx/tests/integration_szrsql_matrix.rs`：M4（RR 快照）/M9（INDF）/M5（DISCARD ALL + **RESET ALL**）三项 P0/P1 留档测试全部复活，回归常规 `--ignored` 轮换（**15 项全部通过**）——szrsql 上游 DISCARD ALL 已由 `0d16260c` 实现（会话状态重置），**RESET [ALL|name] 已由 `239e1502` 实现（会话 GUC 复位）**；两者 sz-orm 侧真连复验通过。早前 CHANGELOG 曾登记 "RESET ALL 仍为次要上游缺口"，2026-11-11 用户确认该缺口实际已于上游闭环，旧复测系 16:29 前旧二进制所致（szrsql 回执 `eafd3e80`），特此更正为缺口已清零
 
-**验证**：`cargo test -p sz-orm-sqlx --test integration_szrsql_matrix -- --ignored --skip m5_discard` = 14 passed；integration_sq_differential 7 passed；fmt 72 包；clippy 0 error；G9/G12/G15/G16/G18/G19/G33/G35/G36 PASS；pytest 160 passed。
+**验证**：`cargo test -p sz-orm-sqlx --test integration_szrsql_matrix -- --ignored` = 15 passed（含 RESET ALL/name 正断言）；integration_sq_differential 7 passed；fmt 72 包；clippy 0 error；G9/G12/G15/G16/G18/G19/G33/G35/G36 PASS；pytest 160 passed。
 
 ## [10.13.2] — 2026-11-08
 

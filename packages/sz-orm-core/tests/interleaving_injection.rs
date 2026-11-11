@@ -173,6 +173,7 @@ async fn read_v(conn: &mut RusqliteConnection) -> i64 {
 
 /// 探针 1：同行写-写 全交错穷举——重叠事务恰一语义（终值 ∈ 合法集）+ 全程不挂起
 #[tokio::test]
+#[allow(clippy::identity_op)] // 1* 保留与 10* 项的推导公式对称性
 async fn l5_probe_same_row_write_write_overlapping() {
     let guard = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         let seqs = interleave_all(3, 3);
@@ -183,8 +184,12 @@ async fn l5_probe_same_row_write_write_overlapping() {
 
             let mut a_step = 0usize;
             let mut b_step = 0usize;
-            let _ = tx_intervals_overlap(seq); // 重叠分类记录（合法集判定依据）
             let overlap = tx_intervals_overlap(seq);
+            // 逐步执行结果追踪（P2-4 精确不变量）：UPDATE 成功且事务最终 commit 成功
+            let mut a_upd_ok = false;
+            let mut b_upd_ok = false;
+            let mut a_commit_ok = false;
+            let mut b_commit_ok = false;
             for step in seq {
                 let res = tokio::time::timeout(std::time::Duration::from_secs(5), async {
                     match step {
@@ -200,9 +205,19 @@ async fn l5_probe_same_row_write_write_overlapping() {
                                         let _ = a.rollback().await;
                                         return Err(format!("A upd busy: {}", e));
                                     }
+                                    a_upd_ok = true;
                                     Ok(())
                                 }
-                                _ => a.commit().await.map_err(|e| format!("A commit: {}", e)),
+                                _ => match a.commit().await {
+                                    Ok(()) => {
+                                        a_commit_ok = true;
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        let _ = a.rollback().await;
+                                        Err(format!("A commit: {}", e))
+                                    }
+                                },
                             }
                         }
                         Session::B => {
@@ -216,9 +231,19 @@ async fn l5_probe_same_row_write_write_overlapping() {
                                         let _ = b.rollback().await;
                                         return Err(format!("B upd busy: {}", e));
                                     }
+                                    b_upd_ok = true;
                                     Ok(())
                                 }
-                                _ => b.commit().await.map_err(|e| format!("B commit: {}", e)),
+                                _ => match b.commit().await {
+                                    Ok(()) => {
+                                        b_commit_ok = true;
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        let _ = b.rollback().await;
+                                        Err(format!("B commit: {}", e))
+                                    }
+                                },
                             }
                         }
                     }
@@ -228,16 +253,36 @@ async fn l5_probe_same_row_write_write_overlapping() {
                 let _ = res.unwrap(); // Err（busy 冲突）已在该步回滚，合法
             }
 
-            // 终值不变量：两事务都成功时 11；恰一成功（另一 busy 回滚）时 1 或 10；
-            // 两者都因 busy 失败时 0。任何值都必须 ∈ {0, 1, 10, 11} 且非负
+            // P2-4 升级：精确不变量——期望值由本交错的逐步执行结果精确推导，
+            // 不再用宽合法集。推导规则：
+            //   a_applied = A 的 UPDATE 成功且 A 最终 commit 成功
+            //   b_applied = B 的 UPDATE 成功且 B 最终 commit 成功
+            //   期望 v = 1*a_applied + 10*b_applied
+            // 同时断言「两事务都成功」⟺ 非重叠（overlap=false）；
+            // 「恰一成功」合法 ⟺ overlap=true（后到者 busy 回滚或等待串行化）
+            let a_applied = a_upd_ok && a_commit_ok;
+            let b_applied = b_upd_ok && b_commit_ok;
+            let expected = 1 * a_applied as i64 + 10 * b_applied as i64;
             let v = read_v(&mut a).await;
-            assert!(
-                [0i64, 1, 10, 11].contains(&v),
-                "交错 #{}（overlap={}）终值 {} 超出合法集 {{0,1,10,11}}",
-                i,
-                overlap,
-                v
+            assert_eq!(
+                v, expected,
+                "交错 #{}（overlap={}）终值 {} != 精确期望 {}（a_applied={} b_applied={}）",
+                i, overlap, v, expected, a_applied, b_applied
             );
+            if !overlap {
+                assert_eq!(
+                    (a_applied, b_applied),
+                    (true, true),
+                    "非重叠交错 #{} 双事务必须双成功（a={} b={}）",
+                    i, a_applied, b_applied
+                );
+            } else {
+                assert!(
+                    a_applied || b_applied,
+                    "重叠交错 #{} 不应双失败（busy_timeout 串行化下至少后提交者成功）",
+                    i
+                );
+            }
             TwoConns { a, b, path }.close().await;
         }
     });
@@ -322,6 +367,7 @@ async fn l5_inv_same_row_serial_both_commit() {
 
 /// 随机大规模：随机交错序列下全程不挂起 + 终态 ∈ 合法集
 #[tokio::test]
+#[allow(clippy::identity_op)] // 1* 保留与 10* 项的推导公式对称性
 async fn l5_inv_random_interleave_no_hang() {
     let guard = tokio::time::timeout(std::time::Duration::from_secs(60), async {
         for seed in 0..30u64 {
@@ -332,6 +378,11 @@ async fn l5_inv_random_interleave_no_hang() {
 
             let mut a_step = 0usize;
             let mut b_step = 0usize;
+            // P2-4 升级：逐步结果追踪 → 精确期望（与 probe1 同推导规则）
+            let mut a_upd_ok = false;
+            let mut b_upd_ok = false;
+            let mut a_commit_ok = false;
+            let mut b_commit_ok = false;
             for step in &seq {
                 let res = tokio::time::timeout(std::time::Duration::from_secs(5), async {
                     match step {
@@ -346,9 +397,19 @@ async fn l5_inv_random_interleave_no_hang() {
                                         let _ = a.rollback().await;
                                         return Err(format!("A busy: {}", e));
                                     }
+                                    a_upd_ok = true;
                                     Ok(())
                                 }
-                                _ => a.commit().await.map_err(|e| format!("A commit: {}", e)),
+                                _ => match a.commit().await {
+                                    Ok(()) => {
+                                        a_commit_ok = true;
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        let _ = a.rollback().await;
+                                        Err(format!("A commit: {}", e))
+                                    }
+                                },
                             }
                         }
                         Session::B => {
@@ -362,9 +423,19 @@ async fn l5_inv_random_interleave_no_hang() {
                                         let _ = b.rollback().await;
                                         return Err(format!("B busy: {}", e));
                                     }
+                                    b_upd_ok = true;
                                     Ok(())
                                 }
-                                _ => b.commit().await.map_err(|e| format!("B commit: {}", e)),
+                                _ => match b.commit().await {
+                                    Ok(()) => {
+                                        b_commit_ok = true;
+                                        Ok(())
+                                    }
+                                    Err(e) => {
+                                        let _ = b.rollback().await;
+                                        Err(format!("B commit: {}", e))
+                                    }
+                                },
                             }
                         }
                     }
@@ -374,12 +445,15 @@ async fn l5_inv_random_interleave_no_hang() {
                 let _ = res.unwrap();
             }
 
+            // 精确期望：v = a_applied + 10*b_applied（每事务 UPDATE 成功且 commit 成功才生效）
+            let a_applied = a_upd_ok && a_commit_ok;
+            let b_applied = b_upd_ok && b_commit_ok;
+            let expected = 1 * a_applied as i64 + 10 * b_applied as i64;
             let v = read_v(&mut a).await;
-            assert!(
-                [0i64, 1, 10, 11].contains(&v),
-                "seed={} 终值 {} 超出合法集 {{0,1,10,11}}",
-                seed,
-                v
+            assert_eq!(
+                v, expected,
+                "seed={} 终值 {} != 精确期望 {}（a_applied={} b_applied={}）",
+                seed, v, expected, a_applied, b_applied
             );
             TwoConns { a, b, path }.close().await;
         }
