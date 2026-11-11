@@ -9,6 +9,17 @@
 
 ## [Unreleased]
 
+### Added — MySQL 方言矩阵真连验证（MY1~MY6，六环闭环）
+
+- **MySQL 方言能力面真连矩阵**（报告 `docs/assessment/2026-11-11-mysql-dialect-matrix.md`，实施批 commit 206f562）：新增 `packages/sz-orm-core/tests/integration_mysql_matrix.rs` **7 测试**（MY1 排序 NULL / MY2 标识符与保留字 / MY2b ALTER INDEX/FK quote / MY3 AUTO_INCREMENT 回填+类型往返 / MY4 ODKU+批量 65535 占位符极限探针 / MY5 分页+CTE+窗口+GROUP_CONCAT / MY6 三值 NULL+除零+弱类型），被测宝塔 MySQL 8.0.29 @ 8802，凭据经 `SZ_ORM_MYSQL_URL` 注入未配置自动跳过；预修复运行 1 过 6 败实证缺口，修复后 7/7 全绿；既有 `integration_mysql` 25 项无回归（25 passed, 1098s）；第 5 环红队复核放行（`docs/assessment/2026-11-11-mysql-dialect-matrix-redteam-review.md`，阻断 0 / 建议 4 全采纳）。注：commit 206f562 提交信息「8 测试」系笔误，实际 7 个
+- 三分类：**A 类 sz-orm 方言缺口 3+1 项全修复**（G1/G2/G4 + G2-CH，见 Fixed）；**B 类 MySQL 环境特有 8 项登记**（GROUP_CONCAT 1024 截断、运行时 sql_mode `PIPES_AS_CONCAT,IGNORE_SPACE` 差异、除零 SELECT 恒 NULL、弱类型/空串语义、反斜杠转义依赖 NO_BACKSLASH_ESCAPES 关闭、BIGINT UNSIGNED 协议解码约定、65535 占位符协议极限、max_allowed_packet 1GiB）；**C 类文档措辞 2 项**（integration_mysql.rs 头注释 9.6.0@3306 过期、VALUES() ODKU 8.0.20+ 弃用维持兼容裁定）；建议项 S1~S4
+
+### Fixed
+
+- **MySQL 方言矩阵 G1——三值 NULL 静默空结果**（`packages/sz-orm-core/src/query.rs:1732`）：`where_eq(col, Value::Null)`/`where_ne` 原生成 `col = ?`/`col != ?`（内联路径 `= NULL`/`!= NULL`），SQL 三值逻辑下 `col = NULL` 恒为 UNKNOWN → 用户查询**静默空结果集**；新增 `render_eq_fragment` 统一 4 条渲染路径（含 OrEq/OrNe）：Null 生成 `IS [NOT] NULL` 且不产生绑定参数，非 Null 值参数化路径不变（红队对抗审查通过：SET 子句/keyset/having/typed_ast 均不受影响）。真库锚定：`= ?` 绑 NULL 恒空 vs `IS NULL` 命中 1 行（matrix_my6）
+- **MySQL 方言矩阵 G2——ALTER INDEX/FK 标识符未 quote**（`packages/sz-orm-core/src/dialect.rs:494`）：`AddIndex` 列名与索引名未 quote，保留字列生成 `ADD INDEX idx (order)` 被 MySQL 语法拒绝；`DropIndex` 与 `AddForeignKey` 约束名同样补 quote；ClickHouseDialect 同类缺陷顺手修复（dialect.rs:2339，矩阵外登记）。真库验证：保留字列 `order` 上建/删索引、加外键全部被真库接受（matrix_my2b）
+- **MySQL 方言矩阵 G4——quote_checked 硬编码 63 字符上限**（`packages/sz-orm-core/src/dialect.rs:66`、`packages/sz-orm-core/src/sql_safety.rs:23`）：MySQL 标识符上限 64 字符（PG 为 63），64 字符合法 MySQL 标识符被 sz-orm 侧错误拒绝（fail-closed 方向能力缺口）；新增 `Dialect::max_identifier_len()`（trait 默认 63，MySqlDialect 覆写 64）+ `validate_identifier_with_max`，`quote_checked` 接线方言上限；真库双向验证 64 放行/65 拒绝（matrix_my2）。迁移/权限模块直调 `validate_identifier` 的 63 上限维持（报告建议项 S2）
+
 ### Added — 证人维度测试深化（L2 路径对标 / L3 随机生成器 / L4 语义不变量 / L5 时序交错）
 
 - **批① L2 路径对标**（commit 35d90833）：7 个对拍套件——`path_parity`（quote enum-dispatch 快路径 vs vtable 慢路径）、`simd_enhanced_parity`（增强聚合 vs 基础聚合，Min/Max 严格 + Sum/Avg 相对容差 1e-9/1e-6）、`plan_cache_ast_parity`（计划缓存命中 vs 直解析 AST 等价，proptest 300 轮）、`clonecheap_parity`（clonecheap vs Clone 全变体边界集）、`prepared_cache_parity`（sz-orm-sqlx，预处理缓存 on/off 结果集对拍）、`vectorized_parity`（sz-orm-parallel，向量化执行器 vs 标量直算，PBT 300 轮）、`path-parity.test.js`（sz-orm-js，QueryBuilder 同步 vs 异步构建，fast-check 300 轮 seeded）

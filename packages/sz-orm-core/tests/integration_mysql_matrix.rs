@@ -247,8 +247,8 @@ async fn matrix_my1_order_by_null_semantics() {
         .build_select_with_params();
     let rows = q(&sql_multi).fetch_all(&pool).await.expect("multi execute");
     let ids: Vec<i64> = rows.iter().map(|r| r.get::<i64, _>("id")).collect();
-    // tag=a (id1 val=2, id2 val=NULL, id3 val=1 中 val DESC: 2, NULL, 1) 然后 tag=b (无)
-    // id2 val NULL：DESC 时 NULL 最后 → a 组内 id1, id2, id3
+    // 数据：id1(val=2,tag=a)、id2(val=NULL,tag=a)、id3(val=1,tag=b)。
+    // 多键 tag ASC, val DESC：a 组内 val DESC = 2 先 NULL 后 → id1, id2；随后 b 组 id3
     assert_eq!(ids, vec![1, 2, 3], "多键排序 MySQL 语义: {sql_multi}");
 
     drop_table(&pool, &table).await;
