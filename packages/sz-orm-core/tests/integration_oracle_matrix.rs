@@ -970,3 +970,275 @@ fn or4_nulls_first_last_and_default_null_ordering() {
 
     drop_table_if_exists(&conn, &table);
 }
+
+// ============================================================================
+// OR5 类型往返 —— NUMBER 精度 / VARCHAR2(4000) 边界 / CLOB / RAW / TIMESTAMP
+//
+// 方言生成面：map_to_oracle_type（dialect.rs:1060~）TEXT→CLOB、
+// BOOLEAN→NUMBER(1)、INTEGER→NUMBER(10)、VARCHAR→VARCHAR2。
+// 本块验证真库往返不丢位/不截断/不漂移。
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or5_number_precision_roundtrip() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or5num");
+    drop_table_if_exists(&conn, &table);
+
+    // NUMBER(38,0)：38 位整数精度上限
+    conn.execute(
+        &format!("CREATE TABLE {} ({} NUMBER(38,0), {} NUMBER(10,2))",
+            dialect.quote(&table),
+            dialect.quote("big_num"),
+            dialect.quote("dec_num"),
+        ),
+        &[],
+    )
+    .expect("create number table");
+
+    // 载荷 1：30 位整数（超 i64 范围）——经字符串绑定 + TO_NUMBER 往返，TO_CHAR 读回逐字节比对
+    let big_str = "123456789012345678901234567890"; // 30 位
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (TO_NUMBER(:1))",
+            dialect.quote(&table),
+            dialect.quote("big_num"),
+        ),
+        &[&big_str],
+    )
+    .expect("insert big number");
+    conn.commit().expect("commit");
+    let back: String = conn
+        .query_row_as::<String>(
+            &format!(
+                "SELECT TO_CHAR({}) FROM {}",
+                dialect.quote("big_num"),
+                dialect.quote(&table)
+            ),
+            &[],
+        )
+        .expect("read big number");
+    assert_eq!(back, big_str, "30 位整数 NUMBER 往返不应丢位");
+
+    // 载荷 2：i64::MAX 参数化往返（rust-oracle i64 绑定通道）
+    let i64_max: i64 = i64::MAX;
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&table),
+            dialect.quote("big_num"),
+        ),
+        &[&i64_max],
+    )
+    .expect("insert i64 max");
+    conn.commit().expect("commit i64");
+    let back_i64: i64 = conn
+        .query_row_as::<i64>(
+            &format!(
+                "SELECT {} FROM {} WHERE {} = :1",
+                dialect.quote("big_num"),
+                dialect.quote(&table),
+                dialect.quote("big_num"),
+            ),
+            &[&i64_max],
+        )
+        .expect("read i64 max");
+    assert_eq!(back_i64, i64::MAX, "i64::MAX 参数化往返应无损");
+
+    // 载荷 3：NUMBER(10,2) 定点舍入——插入 123.456 存储舍入为 123.46（Oracle 四舍五入）
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&table),
+            dialect.quote("dec_num"),
+        ),
+        &[&123.456f64],
+    )
+    .expect("insert decimal");
+    conn.commit().expect("commit dec");
+    let back_dec: String = conn
+        .query_row_as::<String>(
+            &format!(
+                "SELECT TO_CHAR({}) FROM {} WHERE {} IS NOT NULL AND {} IS NULL",
+                dialect.quote("dec_num"),
+                dialect.quote(&table),
+                dialect.quote("dec_num"),
+                dialect.quote("big_num"),
+            ),
+            &[],
+        )
+        .expect("read decimal");
+    assert_eq!(back_dec, "123.46", "NUMBER(10,2) 应存储舍入为 123.46");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or5_varchar2_4000_boundary() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or5var");
+    drop_table_if_exists(&conn, &table);
+
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} VARCHAR2(4000))",
+            dialect.quote(&table),
+            dialect.quote("payload"),
+        ),
+        &[],
+    )
+    .expect("create varchar table");
+
+    // 载荷 1：恰好 4000 字符——参数化绑定应成功且逐字节往返
+    let payload_4000 = "x".repeat(4000);
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&table),
+            dialect.quote("payload"),
+        ),
+        &[&payload_4000],
+    )
+    .expect("insert 4000 chars");
+    conn.commit().expect("commit");
+    let back: String = conn
+        .query_row_as::<String>(
+            &format!(
+                "SELECT {} FROM {}",
+                dialect.quote("payload"),
+                dialect.quote(&table)
+            ),
+            &[],
+        )
+        .expect("read 4000");
+    assert_eq!(back.len(), 4000, "4000 字符应完整往返");
+
+    // 载荷 2：4001 字符——ORA-12899（值大于列精度）
+    let payload_4001 = "x".repeat(4001);
+    let err = conn
+        .execute(
+            &format!(
+                "INSERT INTO {} ({}) VALUES (:1)",
+                dialect.quote(&table),
+                dialect.quote("payload"),
+            ),
+            &[&payload_4001],
+        )
+        .expect_err("4001 字符应被 ORA-12899 拒绝");
+    assert_ora_code(&err, 12899, "VARCHAR2(4000) 溢出");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or5_clob_raw_timestamp_roundtrip() {
+    use oracle::sql_type::Timestamp;
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or5lob");
+    drop_table_if_exists(&conn, &table);
+
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} CLOB, {} RAW(16), {} TIMESTAMP(6))",
+            dialect.quote(&table),
+            dialect.quote("doc"),
+            dialect.quote("fingerprint"),
+            dialect.quote("ts"),
+        ),
+        &[],
+    )
+    .expect("create lob table");
+
+    // 载荷 1：CLOB 10000 字符（方言映射面：TEXT→CLOB）参数化往返
+    let doc: String = (0..1000).map(|i| format!("[seg-{}]", i % 97)).collect();
+    assert!(doc.len() > 4000, "载荷应超 VARCHAR2 边界以证 CLOB 路径");
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&table),
+            dialect.quote("doc"),
+        ),
+        &[&doc],
+    )
+    .expect("insert clob");
+    conn.commit().expect("commit clob");
+    let back_doc: String = conn
+        .query_row_as::<String>(
+            &format!(
+                "SELECT {} FROM {}",
+                dialect.quote("doc"),
+                dialect.quote(&table)
+            ),
+            &[],
+        )
+        .expect("read clob");
+    assert_eq!(back_doc, doc, "CLOB 10000 字符应逐字节往返");
+
+    // 载荷 2：RAW(16) 二进制往返（Vec<u8> 绑定）
+    let raw_bytes: Vec<u8> = (0u8..=15).collect();
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&table),
+            dialect.quote("fingerprint"),
+        ),
+        &[&raw_bytes],
+    )
+    .expect("insert raw");
+    conn.commit().expect("commit raw");
+    let back_raw: Vec<u8> = conn
+        .query_row_as::<Vec<u8>>(
+            &format!(
+                "SELECT {} FROM {} WHERE {} IS NOT NULL",
+                dialect.quote("fingerprint"),
+                dialect.quote(&table),
+                dialect.quote("fingerprint"),
+            ),
+            &[],
+        )
+        .expect("read raw");
+    assert_eq!(back_raw, raw_bytes, "RAW(16) 二进制应逐字节往返");
+
+    // 载荷 3：TIMESTAMP(6) 亚秒精度往返（oracle::sql_type::Timestamp 绑定）
+    let ts = Timestamp::new(2026, 11, 11, 10, 30, 15, 123_456_000).expect("ts");
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&table),
+            dialect.quote("ts"),
+        ),
+        &[&ts],
+    )
+    .expect("insert timestamp");
+    conn.commit().expect("commit ts");
+    let back_ts: Timestamp = conn
+        .query_row_as::<Timestamp>(
+            &format!(
+                "SELECT {} FROM {} WHERE {} IS NOT NULL",
+                dialect.quote("ts"),
+                dialect.quote(&table),
+                dialect.quote("ts"),
+            ),
+            &[],
+        )
+        .expect("read timestamp");
+    assert_eq!(back_ts.year(), 2026);
+    assert_eq!(back_ts.month(), 11);
+    assert_eq!(back_ts.day(), 11);
+    assert_eq!(back_ts.hour(), 10);
+    assert_eq!(back_ts.minute(), 30);
+    assert_eq!(back_ts.second(), 15);
+    assert_eq!(
+        back_ts.nanosecond(),
+        123_456_000,
+        "TIMESTAMP(6) 亚秒精度应往返到微秒"
+    );
+
+    drop_table_if_exists(&conn, &table);
+}
