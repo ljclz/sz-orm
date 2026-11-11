@@ -333,7 +333,6 @@ fn or1_concat_null_propagates_as_empty() {
 #[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
 fn or2_unquoted_identifier_folds_to_uppercase() {
     let conn = open_conn();
-    let dialect = get_dialect(DbType::Oracle).unwrap();
 
     // 载荷：未加引号的混合大小写标识符（不经 dialect.quote，直接拼接）
     let pid = std::process::id() % 10000;
