@@ -1242,3 +1242,193 @@ fn or5_clob_raw_timestamp_roundtrip() {
 
     drop_table_if_exists(&conn, &table);
 }
+
+// ============================================================================
+// OR6 边缘语义 —— 三值 NULL / ORA-01476 除零 / 隐式转换 / DUAL / DDL 隐式提交
+//
+// 关键探针：Oracle DDL 语句（CREATE/ALTER/DROP）会**隐式提交**当前事务——
+// 与 MySQL/PG 可回滚 DDL 重大差异。对 sz-orm 事务管理器的影响：migration/
+// schema_sync 在事务中执行 DDL 时，此前未提交的 DML 一并落库且不可回滚。
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or6_three_valued_null_and_division_by_zero() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or6null");
+    drop_table_if_exists(&conn, &table);
+    create_value_only_table(&conn, &table);
+
+    // 插入 1 行 value=NULL、1 行 value=1
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES (:1)",
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let null_v: Option<i64> = None;
+    conn.execute(&insert_sql, &[&null_v]).expect("insert null");
+    conn.execute(&insert_sql, &[&1i64]).expect("insert 1");
+    conn.commit().expect("commit");
+
+    // 行为断言：= NULL 恒空（三值逻辑）——即使库中确有 NULL 行
+    let eq_null_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {} = :1",
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let n: i64 = conn
+        .query_row_as::<i64>(&eq_null_sql, &[&null_v])
+        .expect("count eq null");
+    assert_eq!(n, 0, "value = NULL 应恒命中 0 行（三值逻辑，须用 IS NULL）");
+
+    // 行为断言：NOT IN 含 NULL 时全空（经典三值陷阱）
+    let not_in_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {} NOT IN (:1, :2)",
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let n2: i64 = conn
+        .query_row_as::<i64>(&not_in_sql, &[&1i64, &null_v])
+        .expect("count not in");
+    assert_eq!(n2, 0, "NOT IN 含 NULL 时应恒空");
+
+    // 行为断言：除零 ORA-01476 报错（无 MySQL sql_mode 类开关，不可配置宽容）
+    let div_sql = "SELECT 1 / 0 FROM DUAL";
+    let err = conn
+        .query_row_as::<i64>(div_sql, &[])
+        .expect_err("除零应报 ORA-01476");
+    assert_ora_code(&err, 1476, "除零（无 sql_mode 类宽容开关）");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or6_implicit_conversion_varchar2_number() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or6conv");
+    drop_table_if_exists(&conn, &table);
+
+    // 纯数字 VARCHAR2 表（全部行可隐式转换）
+    conn.execute(
+        &format!("CREATE TABLE {} ({} VARCHAR2(20))", dialect.quote(&table), dialect.quote("v")),
+        &[],
+    )
+    .expect("create conv table");
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES (:1)",
+        dialect.quote(&table),
+        dialect.quote("v"),
+    );
+    conn.execute(&insert_sql, &[&"123"]).expect("insert 123");
+    conn.commit().expect("commit");
+
+    // 行为断言：VARCHAR2 数字列与 NUMBER 绑定比较——隐式 TO_NUMBER 转换命中
+    let hit_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {} = :1",
+        dialect.quote(&table),
+        dialect.quote("v"),
+    );
+    let n: i64 = conn
+        .query_row_as::<i64>(&hit_sql, &[&123i64])
+        .expect("implicit conversion hit");
+    assert_eq!(n, 1, "VARCHAR2 '123' 与 NUMBER 123 比较应经隐式转换命中");
+
+    // 载荷：混入不可转换行 'abc' → 同查询全表扫描触发 ORA-01722
+    conn.execute(&insert_sql, &[&"abc"]).expect("insert abc");
+    conn.commit().expect("commit abc");
+    let err = conn
+        .query_row_as::<i64>(&hit_sql, &[&123i64])
+        .expect_err("含不可转换行应报 ORA-01722");
+    assert_ora_code(&err, 1722, "VARCHAR2→NUMBER 隐式转换失败");
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or6_dual_and_fromless_select_semantics() {
+    let conn = open_conn();
+
+    // 行为断言 1：DUAL 表可执行标量 SELECT（传统形态，向后兼容保持）
+    let v: i64 = conn
+        .query_row_as::<i64>("SELECT :1 FROM DUAL", &[&42i64])
+        .expect("select from dual");
+    assert_eq!(v, 42, "SELECT :1 FROM DUAL 应正常执行");
+
+    // 行为断言 2：FROM-less SELECT 在 23ai+ 已原生支持（提示词假设过时——实测修正）
+    // Oracle Database 23ai 新特性：标量查询无需 FROM 子句（此前必须 FROM DUAL，
+    // 老版本 19c/21c 报 ORA-00923）。26ai（23.26.3.0.0）实测直接返回。
+    let fromless: i64 = conn
+        .query_row_as::<i64>("SELECT 1", &[])
+        .expect("FROM-less SELECT 应在 23ai+ 原生支持");
+    assert_eq!(fromless, 1, "SELECT 1（无 FROM）应返回 1");
+
+    // 行为断言 3：FROM-less 参数化标量查询同样可用
+    let fromless_bind: i64 = conn
+        .query_row_as::<i64>("SELECT :1", &[&99i64])
+        .expect("FROM-less 参数化");
+    assert_eq!(fromless_bind, 99);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or6_ddl_implicit_commit_probe() {
+    // 核心探针：事务中执行 DDL → 隐式提交此前未提交的 DML → ROLLBACK 无法回滚。
+    // 对 sz-orm 事务管理器的影响（登记项）：migration/schema_sync 在事务中
+    // 混合 DDL+DML 时，Oracle 上 DML 部分「已提交」，与 MySQL/PG 可回滚 DDL 语义相反。
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or6ddl");
+    drop_table_if_exists(&conn, &table);
+    create_value_only_table(&conn, &table);
+
+    // DDL 载荷：事务中途要建的辅助表
+    let aux_table = unique_table("or6aux");
+    drop_table_if_exists(&conn, &aux_table);
+
+    // 步骤 1：未提交 DML
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES (:1)",
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    conn.execute(&insert_sql, &[&777i64]).expect("insert uncommitted");
+
+    // 步骤 2：事务中途 DDL（Oracle 隐式提交点）
+    let create_aux_sql = dialect.build_create_table(
+        &aux_table,
+        &[ColumnDef {
+            name: "id".to_string(),
+            sql_type: "NUMBER".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: false,
+            primary_key: true,
+        }],
+    );
+    conn.execute(&create_aux_sql, &[]).expect("ddl in transaction");
+
+    // 步骤 3：ROLLBACK —— 若 DDL 隐式提交，此回滚无法撤销步骤 1 的插入
+    conn.rollback().expect("rollback");
+
+    // 行为断言（第二连接交叉验证）：插入行已随 DDL 提交，回滚无效
+    let conn2 = open_conn();
+    let count_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {} = :1",
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let n: i64 = conn2
+        .query_row_as::<i64>(&count_sql, &[&777i64])
+        .expect("count via second conn");
+    assert_eq!(
+        n, 1,
+        "DDL 隐式提交后 ROLLBACK 不应撤销先前 DML（第二连接可见 1 行）"
+    );
+
+    drop_table_if_exists(&conn, &aux_table);
+    drop_table_if_exists(&conn, &table);
+}
