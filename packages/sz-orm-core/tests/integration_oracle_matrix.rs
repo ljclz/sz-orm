@@ -130,6 +130,31 @@ fn drop_table_if_exists(conn: &OracleConn, table: &str) {
     let _ = conn.execute(&sql, &[]);
 }
 
+/// 轻量测试表：仅 id IDENTITY 主键 + 可空 value 列（OR4/OR6 排序与 NULL 语义用）
+fn create_value_only_table(conn: &OracleConn, table: &str) {
+    let dialect = get_dialect(DbType::Oracle).expect("oracle dialect");
+    let columns = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "NUMBER".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "value".to_string(),
+            sql_type: "NUMBER".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+    let sql = dialect.build_create_table(table, &columns);
+    conn.execute(&sql, &[]).expect("create value-only table");
+}
+
 // ============================================================================
 // OR1 空串与 NULL —— Oracle 空串即 NULL（与 MySQL/PG 相反）
 //
@@ -774,5 +799,174 @@ fn or3_sequence_trigger_legacy_path() {
     // 清理（DROP 顺序：触发器/序列 → 表）
     let _ = conn.execute(&format!("DROP TRIGGER {}", trig), &[]);
     let _ = conn.execute(&format!("DROP SEQUENCE {}", seq), &[]);
+    drop_table_if_exists(&conn, &table);
+}
+
+// ============================================================================
+// OR4 分页与排序 —— OFFSET/FETCH 成对生成 + NULLS FIRST/LAST 透传
+//
+// sz-orm 生成面：
+//   - build_pagination：`OFFSET n ROWS FETCH NEXT m ROWS ONLY`（dialect.rs:1141）
+//   - build_pagination_clause：仅 offset 时省略 FETCH（成对约束，dialect.rs:1163）
+//   - NULLS FIRST/LAST：Oracle 支持该语法（与 MySQL 不同），方言透传
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or4_pagination_clause_offset_only_executes() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or4page");
+    drop_table_if_exists(&conn, &table);
+    create_value_only_table(&conn, &table);
+
+    // 插入 12 行（value = 0..11）
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES (:1)",
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    for i in 0..12i64 {
+        conn.execute(&insert_sql, &[&i]).expect("insert");
+    }
+    conn.commit().expect("commit");
+
+    let base = format!(
+        "SELECT {} FROM {} ORDER BY {}",
+        dialect.quote("value"),
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+
+    // 生成面 1：仅 offset（limit=None）——省略 FETCH（成对约束）
+    let clause = dialect.build_pagination_clause(None, Some(10usize));
+    let sql = format!("{}{}", base, clause.expect("clause"));
+    assert!(
+        !sql.contains("FETCH"),
+        "仅 offset 时不应生成 FETCH，实际：{sql}"
+    );
+    let rows: Vec<i64> = conn
+        .query_as::<i64>(&sql, &[])
+        .expect("query offset only")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(rows.len(), 2, "OFFSET 10 ROWS 后应剩 2 行");
+    assert_eq!((rows[0], rows[1]), (10, 11), "仅 offset 分页应取末尾 2 行");
+
+    // 生成面 2：limit + offset 组合——OFFSET 与 FETCH 成对
+    let clause2 = dialect.build_pagination_clause(Some(3usize), Some(2usize));
+    let sql2 = format!("{}{}", base, clause2.expect("clause 2"));
+    assert!(sql2.contains("OFFSET 2 ROWS"), "sql = {sql2}");
+    assert!(sql2.contains("FETCH NEXT 3 ROWS ONLY"), "sql = {sql2}");
+    let rows2: Vec<i64> = conn
+        .query_as::<i64>(&sql2, &[])
+        .expect("query limit offset")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(rows2, vec![2, 3, 4], "OFFSET 2 + FETCH 3 应取 [2,3,4]");
+
+    // 生成面 3：limit None + offset None → 不生成子句
+    assert!(dialect.build_pagination_clause(None, None).is_none());
+
+    drop_table_if_exists(&conn, &table);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or4_nulls_first_last_and_default_null_ordering() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or4nulls");
+    drop_table_if_exists(&conn, &table);
+    create_value_only_table(&conn, &table);
+
+    // 插入：1、NULL、2（value 列可空）
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES (:1)",
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    conn.execute(&insert_sql, &[&1i64]).expect("insert 1");
+    let null_v: Option<i64> = None;
+    conn.execute(&insert_sql, &[&null_v]).expect("insert null");
+    conn.execute(&insert_sql, &[&2i64]).expect("insert 2");
+    conn.commit().expect("commit");
+
+    let asc_base = format!(
+        "SELECT {} FROM {} ORDER BY {}",
+        dialect.quote("value"),
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+
+    // 行为断言：Oracle 默认 ASC → NULLS LAST（与 PG 一致，与 MySQL NULL 排最前的直觉不同）
+    let rows: Vec<Option<i64>> = conn
+        .query_as::<Option<i64>>(&asc_base, &[])
+        .expect("query asc")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(
+        rows,
+        vec![Some(1), Some(2), None],
+        "Oracle ASC 默认 NULLS LAST"
+    );
+
+    // 生成面：NULLS FIRST 透传——真库执行 + 行序断言
+    let nulls_first_sql = format!(
+        "{} NULLS FIRST",
+        format!(
+            "SELECT {} FROM {} ORDER BY {}",
+            dialect.quote("value"),
+            dialect.quote(&table),
+            dialect.quote("value"),
+        )
+    );
+    let rows_nf: Vec<Option<i64>> = conn
+        .query_as::<Option<i64>>(&nulls_first_sql, &[])
+        .expect("query nulls first")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(
+        rows_nf,
+        vec![None, Some(1), Some(2)],
+        "NULLS FIRST 透传应把 NULL 排最前"
+    );
+
+    // 生成面：NULLS LAST 显式——与默认一致
+    let desc_nulls_last = format!(
+        "SELECT {} FROM {} ORDER BY {} DESC NULLS LAST",
+        dialect.quote("value"),
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let rows_dl: Vec<Option<i64>> = conn
+        .query_as::<Option<i64>>(&desc_nulls_last, &[])
+        .expect("query desc nulls last")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(
+        rows_dl,
+        vec![Some(2), Some(1), None],
+        "DESC NULLS LAST 应为 [2,1,NULL]"
+    );
+
+    // 行为断言：DESC 默认 → NULLS FIRST（Oracle 默认序：NULL 恒视作最大）
+    let desc_default = format!(
+        "SELECT {} FROM {} ORDER BY {} DESC",
+        dialect.quote("value"),
+        dialect.quote(&table),
+        dialect.quote("value"),
+    );
+    let rows_dd: Vec<Option<i64>> = conn
+        .query_as::<Option<i64>>(&desc_default, &[])
+        .expect("query desc default")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(
+        rows_dd,
+        vec![None, Some(2), Some(1)],
+        "Oracle DESC 默认 NULLS FIRST"
+    );
+
     drop_table_if_exists(&conn, &table);
 }
