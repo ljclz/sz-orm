@@ -6,6 +6,49 @@ pub use crate::db_type::DbType;
 use crate::error::DbError;
 use std::fmt;
 
+/// 建表表选项（MY7 边界补齐 B1：MySQL 方言此前不生成 CHARSET/COLLATE/ENGINE，
+/// 多租户建库场景依赖库级 utf8mb4 配置）
+///
+/// 仅 [`Dialect::build_create_table_with_options`] 消费；既有
+/// [`Dialect::build_create_table`] 行为不变（零破坏）。
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum TableOption {
+    /// 字符集（MySQL: `DEFAULT CHARSET=utf8mb4`）
+    Charset(String),
+    /// 排序规则（MySQL: `COLLATE=utf8mb4_unicode_ci`）
+    Collate(String),
+    /// 存储引擎（MySQL: `ENGINE=InnoDB`）
+    Engine(String),
+}
+
+/// 全文检索模式（MY9 边界补齐 B3：MySQL 方言此前固定 NATURAL LANGUAGE MODE）
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FullTextMode {
+    /// 自然语言模式（默认；MySQL `IN NATURAL LANGUAGE MODE`）
+    NaturalLanguage,
+    /// 布尔模式（MySQL `IN BOOLEAN MODE`，支持 `+`/`-`/`*` 操作符）
+    Boolean,
+    /// 查询扩展模式（MySQL `WITH QUERY EXPANSION`）
+    QueryExpansion,
+}
+
+/// 外键定义（MY8 边界补齐 B2：`TableChange::AddForeignKey` 不携带
+/// ON DELETE/ON UPDATE 动作，本结构经 [`Dialect::build_add_foreign_key`]
+/// 生成带动作的 DDL；动作必须能通过 `validate_fk_action` 校验）
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ForeignKeyDef {
+    /// 本表列
+    pub columns: Vec<String>,
+    /// 引用表名
+    pub reference_table: String,
+    /// 引用列
+    pub reference_columns: Vec<String>,
+    /// ON DELETE 动作（如 "CASCADE"/"SET NULL"/"RESTRICT"；None 不生成）
+    pub on_delete: Option<String>,
+    /// ON UPDATE 动作（同上）
+    pub on_update: Option<String>,
+}
+
 /// L-4 修复：SQL 标识符最大长度（取所有主流数据库最严格值）
 ///
 /// - PostgreSQL: 63 chars (NAMEDATALEN default 64, minus 1)
@@ -85,6 +128,15 @@ pub trait Dialect: Send + Sync {
     /// 生成全文检索 SQL
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String;
 
+    /// 生成指定模式的全文检索 SQL（MY9 边界补齐 B3）
+    ///
+    /// 默认实现委托 [`Dialect::full_text_search`]（忽略模式，保持既有行为）；
+    /// 支持模式的方言（MySQL）覆写本方法。
+    fn full_text_search_mode(&self, columns: &[&str], keyword: &str, mode: FullTextMode) -> String {
+        let _ = mode;
+        self.full_text_search(columns, keyword)
+    }
+
     /// 将布尔表达式转换为整型存储
     fn bool_to_int(&self, expr: &str) -> String;
 
@@ -110,8 +162,83 @@ pub trait Dialect: Send + Sync {
     /// 生成 CREATE TABLE 语句
     fn build_create_table(&self, table: &str, columns: &[ColumnDef]) -> String;
 
+    /// 生成带表选项的 CREATE TABLE 语句（MY7 边界补齐 B1）
+    ///
+    /// 默认实现：`build_create_table` 产物去掉收尾 `)` 后追加方言渲染的表选项。
+    /// `options` 为空时与 [`Dialect::build_create_table`] 完全一致。
+    /// 选项值经 `validate_identifier` 白名单校验（fail-closed），杜绝注入。
+    ///
+    /// MySQL 产物形如：`CREATE TABLE `t` (...) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    fn build_create_table_with_options(
+        &self,
+        table: &str,
+        columns: &[ColumnDef],
+        options: &[TableOption],
+    ) -> String {
+        let base = self.build_create_table(table, columns);
+        if options.is_empty() {
+            return base;
+        }
+        let opts = self.render_table_options(options);
+        if opts.is_empty() {
+            return base;
+        }
+        debug_assert!(
+            base.ends_with(')'),
+            "build_create_table 产物应以 ')' 收尾: {base}"
+        );
+        format!("{}) {}", &base[..base.len() - 1], opts)
+    }
+
+    /// 渲染方言表选项子句（不含前导空格；不支持时返回空串）
+    ///
+    /// 默认无表选项（各方言按需覆写；MY7 由 MySqlDialect 实现）。
+    /// 实现必须对选项值做白名单校验，禁止直接拼接调用方字符串。
+    fn render_table_options(&self, options: &[TableOption]) -> String {
+        let _ = options;
+        String::new()
+    }
+
     /// 生成 ALTER TABLE 语句
     fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String;
+
+    /// 生成带 ON DELETE/ON UPDATE 动作的外键 DDL（MY8 边界补齐 B2）
+    ///
+    /// 与 [`TableChange::AddForeignKey`]（无动作字段，维持既有行为）并行的
+    /// 动作能力路径。默认实现生成 ANSI 通用语法，MySQL/PostgreSQL/SQLite 等
+    /// 均接受；动作经 `validate_fk_action` 白名单校验，非法动作返回
+    /// `DbError::InvalidInput`（fail-closed，不静默丢弃）。
+    ///
+    /// 约束名沿用 `fk_{table}_{cols}` 惯例并 quote（同 G2 修复口径）。
+    fn build_add_foreign_key(&self, table: &str, fk: &ForeignKeyDef) -> Result<String, DbError> {
+        let mut actions = String::new();
+        if let Some(a) = &fk.on_delete {
+            crate::sql_safety::validate_fk_action(a)?;
+            actions.push_str(&format!(" ON DELETE {}", a.trim().to_uppercase()));
+        }
+        if let Some(a) = &fk.on_update {
+            crate::sql_safety::validate_fk_action(a)?;
+            actions.push_str(&format!(" ON UPDATE {}", a.trim().to_uppercase()));
+        }
+        let fk_name = format!("fk_{}_{}", table, fk.columns.join("_"));
+        Ok(format!(
+            "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}){}",
+            self.quote(table),
+            self.quote(&fk_name),
+            fk.columns
+                .iter()
+                .map(|c| self.quote(c))
+                .collect::<Vec<_>>()
+                .join(", "),
+            self.quote(&fk.reference_table),
+            fk.reference_columns
+                .iter()
+                .map(|c| self.quote(c))
+                .collect::<Vec<_>>()
+                .join(", "),
+            actions
+        ))
+    }
 
     /// 生成 DROP TABLE 语句
     ///
@@ -381,6 +508,47 @@ impl Dialect for MySqlDialect {
             "MATCH({}) AGAINST('{}' IN NATURAL LANGUAGE MODE)",
             cols, escaped
         )
+    }
+
+    /// MY9 边界补齐 B3：MySQL 全文检索三模式
+    fn full_text_search_mode(&self, columns: &[&str], keyword: &str, mode: FullTextMode) -> String {
+        let cols = columns.join(", ");
+        let escaped = self.escape_string(keyword);
+        let mode_clause = match mode {
+            FullTextMode::NaturalLanguage => "IN NATURAL LANGUAGE MODE",
+            FullTextMode::Boolean => "IN BOOLEAN MODE",
+            FullTextMode::QueryExpansion => "WITH QUERY EXPANSION",
+        };
+        format!("MATCH({}) AGAINST('{}' {})", cols, escaped, mode_clause)
+    }
+
+    /// MY7 边界补齐 B1：MySQL 表选项（ENGINE / DEFAULT CHARSET / COLLATE）
+    ///
+    /// 选项值经 `validate_identifier` 白名单校验（字符集/引擎名均为 ASCII
+    /// 标识符形态），fail-closed 杜绝选项值注入。
+    fn render_table_options(&self, options: &[TableOption]) -> String {
+        let mut parts: Vec<String> = Vec::with_capacity(options.len());
+        for opt in options {
+            match opt {
+                TableOption::Engine(name) => {
+                    crate::sql_safety::validate_identifier(name, "engine")
+                        .expect("invalid engine option (must pass validate_identifier)");
+                    parts.push(format!("ENGINE={}", name));
+                }
+                TableOption::Charset(name) => {
+                    crate::sql_safety::validate_identifier(name, "charset")
+                        .expect("invalid charset option (must pass validate_identifier)");
+                    parts.push(format!("DEFAULT CHARSET={}", name));
+                }
+                TableOption::Collate(name) => {
+                    // collation 名含下划线（utf8mb4_unicode_ci），validate_identifier 白名单覆盖
+                    crate::sql_safety::validate_identifier(name, "collate")
+                        .expect("invalid collate option (must pass validate_identifier)");
+                    parts.push(format!("COLLATE={}", name));
+                }
+            }
+        }
+        parts.join(" ")
     }
 
     fn bool_to_int(&self, expr: &str) -> String {
@@ -6067,6 +6235,141 @@ mod enum_dispatch_tests {
         assert!(
             sql.contains("REFERENCES `t` (`id`)"),
             "AddForeignKey: {sql}"
+        );
+    }
+
+    /// MY7（B1）：建表表选项——既有 build_create_table 零破坏 + 选项渲染 + fail-closed
+    #[test]
+    fn test_my7_build_create_table_with_options() {
+        let d = MySqlDialect;
+        let cols = vec![ColumnDef {
+            name: "id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        }];
+        let base = d.build_create_table("t", &cols);
+        assert!(
+            !base.contains("CHARSET") && !base.contains("ENGINE"),
+            "既有 build_create_table 不带表选项（零破坏）: {base}"
+        );
+        let sql = d.build_create_table_with_options(
+            "t",
+            &cols,
+            &[
+                TableOption::Charset("utf8mb4".to_string()),
+                TableOption::Collate("utf8mb4_unicode_ci".to_string()),
+                TableOption::Engine("InnoDB".to_string()),
+            ],
+        );
+        assert!(
+            sql.ends_with(") DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci ENGINE=InnoDB"),
+            "表选项按调用方给定顺序渲染: {sql}"
+        );
+        for clause in [
+            "DEFAULT CHARSET=utf8mb4",
+            "COLLATE=utf8mb4_unicode_ci",
+            "ENGINE=InnoDB",
+        ] {
+            assert!(sql.contains(clause), "缺 {clause}: {sql}");
+        }
+        // 空选项与 build_create_table 完全一致
+        assert_eq!(
+            d.build_create_table_with_options("t", &cols, &[]),
+            base,
+            "空表选项应等价既有行为"
+        );
+        // 默认方言（无 render_table_options 覆写）忽略选项 → 与 base 等价
+        let pg = PostgreSqlDialect;
+        assert_eq!(
+            pg.build_create_table_with_options(
+                "t",
+                &cols,
+                &[TableOption::Charset("utf8mb4".to_string())]
+            ),
+            pg.build_create_table("t", &cols),
+            "默认方言应忽略表选项（不改变行为）"
+        );
+        // 非法选项值 fail-closed（panic 为文档化契约：调用方必须传白名单值）
+        let cols_clone = cols.clone();
+        let result = std::panic::catch_unwind(move || {
+            let d = MySqlDialect;
+            let _ = d.build_create_table_with_options(
+                "t",
+                &cols_clone,
+                &[TableOption::Charset("utf8mb4; DROP TABLE t".to_string())],
+            );
+        });
+        assert!(result.is_err(), "含注入形态的 charset 值必须被拒绝");
+    }
+
+    /// MY8（B2）：外键动作——ANSI 生成 + validate_fk_action fail-closed
+    #[test]
+    fn test_my8_build_add_foreign_key_actions() {
+        let d = MySqlDialect;
+        let fk = ForeignKeyDef {
+            columns: vec!["user_id".to_string()],
+            reference_table: "users".to_string(),
+            reference_columns: vec!["id".to_string()],
+            on_delete: Some("CASCADE".to_string()),
+            on_update: Some("set null".to_string()),
+        };
+        let sql = d.build_add_foreign_key("orders", &fk).expect("valid fk");
+        assert!(
+            sql.contains("ALTER TABLE `orders` ADD CONSTRAINT `fk_orders_user_id`"),
+            "约束名沿用 fk_{{table}}_{{cols}} 惯例并 quote: {sql}"
+        );
+        assert!(
+            sql.contains("FOREIGN KEY (`user_id`) REFERENCES `users` (`id`)"),
+            "FK 列 quote: {sql}"
+        );
+        assert!(
+            sql.contains("ON DELETE CASCADE ON UPDATE SET NULL"),
+            "动作规范化为大写: {sql}"
+        );
+        // 非法动作 fail-closed（DbError::InvalidInput，非 panic）
+        let bad = ForeignKeyDef {
+            on_delete: Some("DROP TABLE users".to_string()),
+            ..fk.clone()
+        };
+        assert!(d.build_add_foreign_key("orders", &bad).is_err());
+        // None 动作 → 无动作子句
+        let plain = ForeignKeyDef {
+            columns: vec!["user_id".to_string()],
+            reference_table: "users".to_string(),
+            reference_columns: vec!["id".to_string()],
+            on_delete: None,
+            on_update: None,
+        };
+        let sql = d.build_add_foreign_key("orders", &plain).expect("valid");
+        assert!(
+            !sql.contains("ON DELETE") && !sql.contains("ON UPDATE"),
+            "{sql}"
+        );
+    }
+
+    /// MY9（B3）：全文检索三模式
+    #[test]
+    fn test_my9_full_text_search_modes() {
+        let d = MySqlDialect;
+        assert_eq!(
+            d.full_text_search_mode(&["title"], "kw", FullTextMode::NaturalLanguage),
+            "MATCH(title) AGAINST('kw' IN NATURAL LANGUAGE MODE)"
+        );
+        assert_eq!(
+            d.full_text_search_mode(&["title"], "kw", FullTextMode::Boolean),
+            "MATCH(title) AGAINST('kw' IN BOOLEAN MODE)"
+        );
+        assert_eq!(
+            d.full_text_search_mode(&["title", "body"], "kw", FullTextMode::QueryExpansion),
+            "MATCH(title, body) AGAINST('kw' WITH QUERY EXPANSION)"
+        );
+        // 旧行为委托一致（NaturalLanguage == 旧 full_text_search）
+        assert_eq!(
+            d.full_text_search(&["title"], "kw"),
+            d.full_text_search_mode(&["title"], "kw", FullTextMode::NaturalLanguage)
         );
     }
 
