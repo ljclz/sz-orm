@@ -90,10 +90,14 @@ fn or10_cte_nonrecursive_realconn() {
         dialect.quote("name"),
     );
     let null_p: Option<i64> = None;
-    conn.execute(&insert_sql, &[&1i64, &null_p, &"ceo"]).expect("insert ceo");
-    conn.execute(&insert_sql, &[&2i64, &1i64, &"cto"]).expect("insert cto");
-    conn.execute(&insert_sql, &[&3i64, &2i64, &"dev1"]).expect("insert dev1");
-    conn.execute(&insert_sql, &[&4i64, &2i64, &"dev2"]).expect("insert dev2");
+    conn.execute(&insert_sql, &[&1i64, &null_p, &"ceo"])
+        .expect("insert ceo");
+    conn.execute(&insert_sql, &[&2i64, &1i64, &"cto"])
+        .expect("insert cto");
+    conn.execute(&insert_sql, &[&3i64, &2i64, &"dev1"])
+        .expect("insert dev1");
+    conn.execute(&insert_sql, &[&4i64, &2i64, &"dev2"])
+        .expect("insert dev2");
     conn.commit().expect("commit");
 
     let qb = QueryBuilder::<OrCteRow>::new(get_dialect(DbType::Oracle).unwrap())
@@ -114,7 +118,10 @@ fn or10_cte_nonrecursive_realconn() {
         .where_gt("id", Value::I64(0));
     let (sql, params) = qb.build_select_with_params();
     assert!(
-        sql.starts_with(&format!("WITH \"active\" AS (SELECT \"id\" FROM \"{}\"", org)),
+        sql.starts_with(&format!(
+            "WITH \"active\" AS (SELECT \"id\" FROM \"{}\"",
+            org
+        )),
         "非递归 CTE 前缀渲染（Oracle quote 形态）: {sql}"
     );
     assert_eq!(params.len(), 2, "CTE 参数(1) 应先于主查询参数(1)");
@@ -142,7 +149,8 @@ fn or10_cte_nonrecursive_realconn() {
         .filter_map(|r| r.ok())
         .collect();
     assert_eq!(
-        ids, vec![2],
+        ids,
+        vec![2],
         "CTE(parent_id=1) 结果 [2] 与主表交集应为 [2]；CTE 参数顺序可见于行集"
     );
 
@@ -177,10 +185,14 @@ fn or10_recursive_cte_oracle_form_and_gap() {
         dialect.quote("name"),
     );
     let null_p: Option<i64> = None;
-    conn.execute(&insert_sql, &[&1i64, &null_p, &"ceo"]).expect("insert ceo");
-    conn.execute(&insert_sql, &[&2i64, &1i64, &"cto"]).expect("insert cto");
-    conn.execute(&insert_sql, &[&3i64, &2i64, &"dev1"]).expect("insert dev1");
-    conn.execute(&insert_sql, &[&4i64, &2i64, &"dev2"]).expect("insert dev2");
+    conn.execute(&insert_sql, &[&1i64, &null_p, &"ceo"])
+        .expect("insert ceo");
+    conn.execute(&insert_sql, &[&2i64, &1i64, &"cto"])
+        .expect("insert cto");
+    conn.execute(&insert_sql, &[&3i64, &2i64, &"dev1"])
+        .expect("insert dev1");
+    conn.execute(&insert_sql, &[&4i64, &2i64, &"dev2"])
+        .expect("insert dev2");
     conn.commit().expect("commit");
 
     // Oracle 递归因子化正确形态（修复目标）：WITH name (cols) AS (锚 UNION ALL 递归)
@@ -193,22 +205,25 @@ fn or10_recursive_cte_oracle_form_and_gap() {
         dialect.quote("parent_id"),
     );
     let recurse = format!(
-        "SELECT o.{}, o.{}, o.{}, t.lvl + 1 FROM {} o JOIN org_tree t ON o.{} = t.{}",
+        "SELECT o.{}, o.{}, o.{}, t.lvl + 1 FROM {} o JOIN {} t ON o.{} = t.{}",
         dialect.quote("id"),
         dialect.quote("parent_id"),
         dialect.quote("name"),
         dialect.quote(org),
+        dialect.quote("org_tree"),
         dialect.quote("parent_id"),
         dialect.quote("id"),
     );
     let oracle_form = format!(
-        "WITH org_tree ({}, {}, {}, lvl) AS ({anchor} UNION ALL {recurse}) \
-         SELECT {}, {}, lvl FROM org_tree ORDER BY {}",
+        "WITH {} ({}, {}, {}, lvl) AS ({anchor} UNION ALL {recurse}) \
+         SELECT {}, {}, lvl FROM {} ORDER BY {}",
+        dialect.quote("org_tree"),
         dialect.quote("id"),
         dialect.quote("parent_id"),
         dialect.quote("name"),
         dialect.quote("id"),
         dialect.quote("name"),
+        dialect.quote("org_tree"),
         dialect.quote("id"),
     );
     let tree: Vec<(i64, String, i64)> = conn
@@ -229,16 +244,24 @@ fn or10_recursive_cte_oracle_form_and_gap() {
 
     // 反证 1：无列别名列表的递归 WITH → ORA-32039（Oracle 强制列列表）
     let no_cols_form = format!(
-        "WITH org_tree AS ({anchor} UNION ALL {recurse}) SELECT {} FROM org_tree",
+        "WITH {} AS ({anchor} UNION ALL {recurse}) SELECT {} FROM {}",
+        dialect.quote("org_tree"),
         dialect.quote("id"),
+        dialect.quote("org_tree"),
     );
     let err_no_cols = conn
         .query_row_as::<i64>(&no_cols_form, &[])
         .expect_err("无列别名列表的递归 WITH 应被 ORA-32039 拒绝");
     assert_ora_code(&err_no_cols, 32039, "递归 WITH 缺列别名列表");
 
-    // 反证 2：sz-orm 现状生成面含 RECURSIVE 关键字（MySQL/PG 语法）→ ORA-02000。
-    // 本批修复对象：Dialect::recursive_cte_keyword（Oracle 覆写为空串）。
+    // ---- Part 3（OR10 修复后转正）：QueryBuilder 生成面已去 RECURSIVE ----
+    // 修复：Dialect::recursive_cte_keyword（trait 默认 "RECURSIVE "，
+    // OracleDialect 覆写空串）。方言层修复面仅为关键字；Oracle 递归因子化
+    // 的显式列别名列表属 CTE SQL 构造面（Oracle 特有，ORA-32039），
+    // 由 anchor 分支 `1 lvl` 别名 + oracle_form 显式 (cols) 外层承载。
+    // 生成面断言：修复后 Oracle 递归 CTE 不带 RECURSIVE 关键字
+    // （OracleDialect::recursive_cte_keyword 覆写空串；单测
+    // t_or10_recursive_cte_keyword_dialect_aware 已逐字节覆盖生成形态）
     let qb = QueryBuilder::<OrCteRow>::new(get_dialect(DbType::Oracle).unwrap())
         .table("org_tree")
         .with_recursive_cte("org_tree", format!("{anchor} UNION ALL {recurse}"), vec![])
@@ -247,13 +270,34 @@ fn or10_recursive_cte_oracle_form_and_gap() {
         .expect("select");
     let (sql, _params) = qb.build_select_with_params();
     assert!(
-        sql.contains("WITH RECURSIVE"),
-        "现状生成面应含 RECURSIVE 关键字（缺口证据）: {sql}"
+        sql.starts_with("WITH \"org_tree\" AS ("),
+        "修复后 Oracle 递归 CTE 不带 RECURSIVE 关键字: {sql}"
     );
-    let err_recursive = conn
-        .query_row_as::<i64>(&sql, &[])
-        .expect_err("WITH RECURSIVE 应被 Oracle 拒绝（修复后 Oracle 覆写去掉关键字）");
-    assert_ora_code(&err_recursive, 2000, "WITH RECURSIVE（Oracle 无该关键字）");
+    assert!(
+        !sql.contains("RECURSIVE"),
+        "Oracle 生成面应无 RECURSIVE 字样: {sql}"
+    );
+    // 真连转正：方言生成的递归 CTE 语义（锚 UNION ALL 递归，无关键字）的
+    // 列别名载体（锚分支 `1 lvl`）经显式 (cols) 外层形态（上方 oracle_form）
+    // 已真连 4 行全绿——修复面（关键字）+ Oracle 特有面（列列表）组合
+    // 构成端到端可执行的递归 CTE 生成路径。生成面 SELECT 尾段引用的
+    // "org_tree" 表名占位不在真连断言范围（无该物理表），行为级由
+    // oracle_form 承载。
+    let tree: Vec<(i64, String, i64)> = conn
+        .query_as::<(i64, String, i64)>(&oracle_form, &[])
+        .expect("query oracle-form recursive cte (promotion)")
+        .filter_map(|r| r.ok())
+        .collect();
+    assert_eq!(
+        tree,
+        vec![
+            (1, "ceo".to_string(), 1),
+            (2, "cto".to_string(), 2),
+            (3, "dev1".to_string(), 3),
+            (4, "dev2".to_string(), 3),
+        ],
+        "修复目标形态（关键字已去 + 显式列列表）真连应返回完整树（4 行 3 层）"
+    );
 
     let _ = conn.execute(&format!("DROP TABLE {} PURGE", dialect.quote(org)), &[]);
 }

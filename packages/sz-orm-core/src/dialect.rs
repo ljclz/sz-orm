@@ -110,6 +110,18 @@ pub trait Dialect: Send + Sync {
         63
     }
 
+    /// 递归 CTE 的 WITH 子句关键字（OR10 边界补齐）
+    ///
+    /// 默认 `"RECURSIVE "`（MySQL 8.0 / PostgreSQL 语法：`WITH RECURSIVE ...`）；
+    /// Oracle 递归子查询因子化**不带 RECURSIVE 关键字**（`WITH name (cols) AS (...)`，
+    /// 12.1+；带关键字被真库以 ORA-02000 拒绝）——OracleDialect 覆写为空串。
+    /// Dameng 经 `delegate_dialect_to!` 委托 OracleDialect 自动继承。
+    /// 注意：Oracle 递归因子化还要求显式列别名列表（缺失 ORA-32039），调用方
+    /// 在 CTE SQL 的锚分支中以列别名满足（见 OR10 真连测试）。
+    fn recursive_cte_keyword(&self) -> &'static str {
+        "RECURSIVE "
+    }
+
     /// 转义字符串字面量，确保可安全嵌入 SQL
     fn escape_string(&self, s: &str) -> String;
 
@@ -1351,6 +1363,15 @@ impl Dialect for OracleDialect {
 
     fn db_type(&self) -> DbType {
         DbType::Oracle
+    }
+
+    /// OR10 边界补齐：Oracle 递归子查询因子化**不带 RECURSIVE 关键字**
+    /// （12.1+ 语法 `WITH name (cols) AS (锚 UNION ALL 递归)`；带关键字被
+    /// 真库以 ORA-02000 拒绝，见 tests/integration_oracle_cte.rs OR10 反证 2）。
+    /// 递归语义由 UNION ALL 自引用承载；调用方须在锚分支提供列别名
+    /// （缺失 ORA-32039）。
+    fn recursive_cte_keyword(&self) -> &'static str {
+        ""
     }
 
     fn quote(&self, identifier: &str) -> String {
@@ -4287,8 +4308,7 @@ mod tests {
         // 多列 OR 连接
         let multi = dialect.full_text_search(&["title", "body"], "kw");
         assert_eq!(
-            multi,
-            "CONTAINS(\"title\", 'kw', 1) > 0 OR CONTAINS(\"body\", 'kw', 1) > 0",
+            multi, "CONTAINS(\"title\", 'kw', 1) > 0 OR CONTAINS(\"body\", 'kw', 1) > 0",
             "多列应以 OR 连接且均 quote: {multi}"
         );
         // 空列降级

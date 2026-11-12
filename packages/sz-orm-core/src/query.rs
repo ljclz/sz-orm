@@ -424,7 +424,9 @@ impl<M: Model> QueryBuilder<M> {
         }
         let mut prefix = String::from("WITH ");
         if self.ctes.iter().any(|c| c.recursive) {
-            prefix.push_str("RECURSIVE ");
+            // OR10 边界补齐：关键字方言感知——Oracle 递归因子化不带 RECURSIVE
+            // （recursive_cte_keyword 返回空串）；MySQL/PG 维持 "RECURSIVE "
+            prefix.push_str(self.dialect.recursive_cte_keyword());
         }
         for (i, cte) in self.ctes.iter().enumerate() {
             if i > 0 {
@@ -6229,6 +6231,40 @@ mod tests {
         let (sql, params) = qb.build_batch_insert_with_params(&[]);
         assert!(sql.is_empty());
         assert!(params.is_empty());
+    }
+
+    /// OR10（Oracle 边界补齐）：递归 CTE 关键字方言感知——Oracle 无 RECURSIVE
+    /// 关键字（递归子查询因子化），生成 `WITH "org_tree" AS (...)`；
+    /// MySQL 维持 `WITH RECURSIVE`（上方 t_my10_recursive_cte_prefix）。
+    #[test]
+    fn t_or10_recursive_cte_keyword_dialect_aware() {
+        // Oracle：不带 RECURSIVE（真库 ORA-02000 拒绝带关键字的形态）
+        let oracle_qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::OracleDialect))
+            .table("org_tree")
+            .with_recursive_cte(
+                "org_tree",
+                "SELECT id FROM org WHERE parent_id IS NULL",
+                vec![],
+            )
+            .unwrap()
+            .select(vec!["id"])
+            .unwrap();
+        let (oracle_sql, _) = oracle_qb.build_select_with_params();
+        assert!(
+            oracle_sql.starts_with("WITH \"org_tree\" AS ("),
+            "Oracle 递归 CTE 不应生成 RECURSIVE 关键字: {oracle_sql}"
+        );
+        assert!(
+            !oracle_sql.contains("RECURSIVE"),
+            "Oracle 生成面应无 RECURSIVE 字样: {oracle_sql}"
+        );
+
+        // 关键字覆写面：trait 默认 "RECURSIVE "，Oracle 空串
+        assert_eq!(
+            crate::dialect::MySqlDialect.recursive_cte_keyword(),
+            "RECURSIVE "
+        );
+        assert_eq!(crate::dialect::OracleDialect.recursive_cte_keyword(), "");
     }
 
     #[test]
