@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Added — ALTER INDEX/FK quote 横向修复批二（8 方言，六环闭环）
+
+- **G-OR1 同型缺口第五次发现横向收尾**（报告 `docs/assessment/2026-11-12-alter-index-fk-quote-sweep.md`，提示词 `2026-11-12-alter-index-fk-quote-sweep-prompt.md`，实施批 0554331/c544901 + 红队回执处置，红队 PASS 有条件→无条件）：PostgreSQL/SQLite/SqlServer/Snowflake/DB2/Informix/SapHana/Firebird 八方言 `build_alter_table` AddIndex 索引名+列名 quote、DropIndex 索引名 quote（SQLServer ON 表名结构保持）、AddForeignKey 约束名组装后 quote（MySQL 批 G2 口径）——混合大小写列/保留字列裸拼被真库折叠或语法拒绝；新增横向单测 `test_alter_index_fk_quoting_all_dialects`（8 方言 AddIndex/DropIndex/**FK** 逐字节）；**PG 行为级真连** `test_pg_alter_index_fk_quoted_realconn`（pg_indexes 1→0 往返 + 保留字列 order + FK CASCADE 约束名真库接受）；**红队 R-2 深挖修复**：Informix/SapHana/Firebird 三臂前在生成 `ADD CONSTRAINT FOREIGN KEY` 无约束名非法 DDL——补 fk_name + quote；真连覆盖 PG 22/22 + MySQL matrix 11/11 + Oracle matrix 24/24 + integration_oracle 10/10 零回归 + lib 3284 全过；越批登记：quote 缺口静态门禁自动化建议（`ADD CONSTRAINT FOREIGN KEY` 无名形态检测）
+
+### Fixed
+
+- **批二 R-2——Informix/SapHana/Firebird FK 臂无名非法 DDL**（`packages/sz-orm-core/src/dialect.rs`，红队回执深挖的前在缺陷）：三方言 AddForeignKey 臂生成 `ADD CONSTRAINT FOREIGN KEY (...)` 缺约束名（非合法 DDL）——补 `fk_{table}_{cols}` 组装 + `self.quote`（与批二其余 4 臂同口径），横向单测 8 方言 FK 臂逐字节断言兜底
+
 ### Added — FTS 列名 quote 横向修复批（12 方言一致化，六环闭环）
 
 - **G-OR9 同型缺口横向收尾**（报告 `docs/assessment/2026-11-12-fts-quote-sweep.md`，提示词 `2026-11-12-fts-quote-sweep-prompt.md`，实施批 58a71b7c/2564a43/5f80eb8/0b85758，红队 PASS 阻断 0/P2×1 处置 9db0133）：11 方言 `full_text_search`（+MySQL `full_text_search_mode`，与 NL 委托一致性耦合）列名裸拼 → 逐方言 quote 形态（MySQL/ClickHouse 反引号、SQLServer 方括号、PG `"col"::text`、其余双引号）——混合大小写列裸拼被真库折叠/注入面同 G-OR1→G2→G-OR9 第四次同型发现；既有断言同步（dialect_advanced_test 宏 7 处 + sqlite/sqlserver/my9 三处单测）+ 新增横向单测 `test_fts_column_quoting_all_dialects`（12 方言 × 混合大小写列逐字节）；**真连覆盖矩阵**：PG 新增行为级测试（混合大小写列 `titleText` to_tsvector 真连命中 2 行，`test_pg_full_text_search_quoted_column`）+ MySQL matrix 11/11 + Oracle matrix 24/24 + integration_oracle 10/10 零回归；8 方言（SQLServer/DB2/Informix/SapHana/ClickHouse/DuckDB/Snowflake/Firebird）无本机环境登记真连留 CI（生成面单测逐字节覆盖）；lib **3283 passed** + dialect_advanced 38 passed；红队机械验证：12 方言无第 13 实现遗漏（13 委托方言宏转发完好）、diff 无越界、遗留项 2（其余方言 AddIndex cols.join 裸拼）建议属实
