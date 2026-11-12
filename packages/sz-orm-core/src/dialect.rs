@@ -247,6 +247,7 @@ pub trait Dialect: Send + Sync {
         }
         let fk_name = format!("fk_{}_{}", table, fk.columns.join("_"));
         Ok(format!(
+            // quote-gate-safe: actions 经 validate_fk_action 白名单校验后大写（值非标识符）
             "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({}){}",
             self.quote(table),
             self.quote(&fk_name),
@@ -555,6 +556,7 @@ impl Dialect for MySqlDialect {
             FullTextMode::Boolean => "IN BOOLEAN MODE",
             FullTextMode::QueryExpansion => "WITH QUERY EXPANSION",
         };
+        // quote-gate-safe: mode_clause 为三选一常量字面量（IN NATURAL LANGUAGE MODE 等）
         format!("MATCH({}) AGAINST('{}' {})", cols, escaped, mode_clause)
     }
 
@@ -1302,6 +1304,7 @@ impl Dialect for SqliteDialect {
                         reference_columns: _,
                     } => {
                         // SQLite 不支持 ALTER TABLE ADD FOREIGN KEY，需重建表
+                        // quote-gate-safe: 生成 `--` SQL 注释提示串，非可执行 DDL
                         format!(
                             "-- SQLite 不支持 ADD FOREIGN KEY（{} -> {}），需重建表",
                             columns.join(","),

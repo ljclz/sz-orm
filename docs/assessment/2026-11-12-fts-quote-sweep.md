@@ -33,7 +33,7 @@
 ## 2. 测试同步与新增
 
 - **既有断言同步**（quote 形态）：[dialect_advanced_test.rs](../../packages/sz-orm-core/tests/dialect_advanced_test.rs) `test_full_text_search!` 宏 7 处 `$fragment` + [dialect.rs](../../packages/sz-orm-core/src/dialect.rs) tests 内 `test_sqlite_full_text_search`/`test_sqlserver_full_text_search`/`test_my9_full_text_search_modes` 三处（Lib 3283 全过实证无漏网断言）。
-- **新增横向单测**：`test_fts_column_quoting_all_dialects` `packages/sz-orm-core/src/dialect.rs:4165` [must-contain: fn test_fts_column_quoting_all_dialects]——12 方言 × 混合大小写列（`userName`）逐字节断言 quote 形态（1 passed）。
+- **新增横向单测**：`test_fts_column_quoting_all_dialects` `packages/sz-orm-core/src/dialect.rs:4180` [must-contain: fn test_fts_column_quoting_all_dialects]——12 方言 × 混合大小写列（`userName`）逐字节断言 quote 形态（1 passed）。
 
 ## 3. 真连覆盖矩阵
 

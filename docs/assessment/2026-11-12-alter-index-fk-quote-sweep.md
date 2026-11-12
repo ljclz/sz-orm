@@ -29,7 +29,7 @@
 
 ## 2. 测试同步与新增
 
-- **新增横向单测**：`test_alter_index_fk_quoting_all_dialects` `packages/sz-orm-core/src/dialect.rs:4496` [must-contain: fn test_alter_index_fk_quoting_all_dialects]——8 方言 AddIndex/DropIndex **+ FK 约束名**逐字节断言（FK 臂为红队回执 R-2 处置后补齐；初版未覆盖 FK 臂）。
+- **新增横向单测**：`test_alter_index_fk_quoting_all_dialects` `packages/sz-orm-core/src/dialect.rs:4499` [must-contain: fn test_alter_index_fk_quoting_all_dialects]——8 方言 AddIndex/DropIndex **+ FK 约束名**逐字节断言（FK 臂为红队回执 R-2 处置后补齐；初版未覆盖 FK 臂）。
 - **既有断言同步**：`test_sqlserver_alter_table` DropIndex 断言更新为 `[idx_name]` quote 形态（lib 3284 全过实证无其他漏网）。
 
 ## 3. 真连覆盖矩阵
