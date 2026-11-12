@@ -59,7 +59,7 @@ test result: ok. 19 passed; 0 failed
   - 保留字列 `order` 裸拼建索引 → 被解析器吞为关键字 → **ORA-00936**（missing expression）；
   - 对照组：quote 形态 DDL 真库执行成功并按原样登记 user_indexes。
 - **修复**：commit `a37937a8`——[packages/sz-orm-core/src/dialect.rs:1563-1595](../../packages/sz-orm-core/src/dialect.rs#L1390)：AddIndex 索引名+列名全 quote、DropIndex 与 AddIndex 形态一致、AddForeignKey 约束名 quote。
-- **单测**：`test_oracle_alter_table_index_fk_quoting` `packages/sz-orm-core/src/dialect.rs:4268` [must-contain: OR2]——3 项生成形态逐字节断言，通过。
+- **单测**：`test_oracle_alter_table_index_fk_quoting` `packages/sz-orm-core/src/dialect.rs:4427` [must-contain: OR2]——3 项生成形态逐字节断言，通过。
 - **真连断言（修复后）**：[tests:496](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L496)——混合大小写列/保留字列 AddIndex 真库成功 + user_indexes 登记 + DropIndex 往返后不存在。
 - **备注**：MySQL/ClickHouse 方言的同型缺口由并行会话（MySQL 方言矩阵批）同期修复，本报告只认领 Oracle 面。
 
@@ -161,4 +161,4 @@ test result: ok. 19 passed; 0 failed
 
 1. **构建绑定面真连**（建议，未纳入本批）：`sz-orm-sqlx` 统一池的 Oracle 通道（`OracleConnectionFactory`/`OraclePoolHandle`）真连矩阵建议另批执行（提示词环境面已含 `unified_pool.rs` 通道说明）；本批聚焦 sz-orm-core 方言生成面。
 2. **窗口函数/分析函数生成面**：OracleDialect 尚无 OVER 子句生成面，矩阵未覆盖（sz-orm 无该 API，非缺口）。
-3. **23ai 布尔类型**：Oracle 23ai 新增原生 BOOLEAN 类型，`map_to_oracle_type` 将 BOOLEAN 映射 NUMBER(1)（`packages/sz-orm-core/src/dialect.rs:1324` [must-contain: BOOLEAN]）仍为正确选择（26ai Free PDB 默认兼容级未启用 23.0.0 兼容行为时 BOOLEAN 可用性依赖 compat 设置），保持现状。
+3. **23ai 布尔类型**：Oracle 23ai 新增原生 BOOLEAN 类型，`map_to_oracle_type` 将 BOOLEAN 映射 NUMBER(1)（`packages/sz-orm-core/src/dialect.rs:1356` [must-contain: BOOLEAN]）仍为正确选择（26ai Free PDB 默认兼容级未启用 23.0.0 兼容行为时 BOOLEAN 可用性依赖 compat 设置），保持现状。
