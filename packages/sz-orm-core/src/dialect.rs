@@ -115,7 +115,7 @@ pub trait Dialect: Send + Sync {
     /// 默认 `"RECURSIVE "`（MySQL 8.0 / PostgreSQL 语法：`WITH RECURSIVE ...`）；
     /// Oracle 递归子查询因子化**不带 RECURSIVE 关键字**（`WITH name (cols) AS (...)`，
     /// 12.1+；带关键字被真库以 ORA-02000 拒绝）——OracleDialect 覆写为空串。
-    /// Dameng 经 `delegate_dialect_to!` 委托 OracleDialect 自动继承。
+    /// Dameng 等委托方言经 `delegate_dialect_to!` 显式转发本方法（随委托目标）。
     /// 注意：Oracle 递归因子化还要求显式列别名列表（缺失 ORA-32039），调用方
     /// 在 CTE SQL 的锚分支中以列别名满足（见 OR10 真连测试）。
     fn recursive_cte_keyword(&self) -> &'static str {
@@ -1969,6 +1969,19 @@ macro_rules! delegate_dialect_to {
             }
             fn bool_to_int(&self, expr: &str) -> String {
                 $base.bool_to_int(expr)
+            }
+            fn full_text_search_mode(
+                &self,
+                columns: &[&str],
+                keyword: &str,
+                mode: FullTextMode,
+            ) -> String {
+                // MY9 边界补齐随委托目标（MySQL 三模式等；默认委托同形）
+                $base.full_text_search_mode(columns, keyword, mode)
+            }
+            fn recursive_cte_keyword(&self) -> &'static str {
+                // OR10 边界补齐：递归 CTE 关键字随委托目标（Oracle 空串等）
+                $base.recursive_cte_keyword()
             }
             fn concat(&self, parts: &[&str]) -> String {
                 $base.concat(parts)
@@ -4244,6 +4257,28 @@ mod tests {
         assert!(dialect.supports_returning());
         // Oracle 没有 standalone 的 last_insert_id SQL
         assert_eq!(dialect.last_insert_id_sql(), None);
+    }
+
+    /// 红队回执 P2-1（Oracle 边界批）：delegate_dialect_to! 显式转发
+    /// recursive_cte_keyword——Dameng（委托 OracleDialect）应继承空串
+    /// （达梦 Oracle 兼容：WITH RECURSIVE 同样不被接受）；PG 系委托方言
+    /// 继承默认 "RECURSIVE "。
+    #[test]
+    fn test_delegate_recursive_cte_keyword_inheritance() {
+        // Dameng → OracleDialect 空串
+        let dameng = get_dialect(DbType::Dameng).expect("dameng dialect");
+        assert_eq!(
+            dameng.recursive_cte_keyword(),
+            "",
+            "Dameng 委托 Oracle 应继承空串关键字（无 RECURSIVE）"
+        );
+        // PolarDB → PostgreSqlDialect 默认 "RECURSIVE "
+        let polardb = get_dialect(DbType::PolarDB).expect("polardb dialect");
+        assert_eq!(
+            polardb.recursive_cte_keyword(),
+            "RECURSIVE ",
+            "PolarDB 委托 PG 应继承默认 RECURSIVE 关键字"
+        );
     }
 
     #[test]

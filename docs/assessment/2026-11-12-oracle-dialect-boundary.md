@@ -5,7 +5,7 @@
 > **版本**：sz-orm v10.13.4（workspace.package.version）
 > **提示词**：[2026-11-12-oracle-dialect-boundary-prompt.md](2026-11-12-oracle-dialect-boundary-prompt.md)（第 1 环已闭环，commit `0dad820b`）
 > **前置批次**：[2026-11-11-oracle-dialect-matrix.md](2026-11-11-oracle-dialect-matrix.md)（OR1~OR6 六环闭环）与 [2026-11-12-mysql-dialect-boundary.md](2026-11-12-mysql-dialect-boundary.md)（MY7~MY10 六环闭环）
-> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅ / 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅ / 第 6 环登记 ✅
+> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅（含红队回执处置）/ 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅（PASS，P2×3 全处置）/ 第 6 环登记 ✅
 
 ---
 
@@ -29,10 +29,10 @@ cargo test -p sz-orm-core --lib                                            → 3
 | # | 能力块 | 测试（file:line） | 结果 | 关键锚定 |
 |---|--------|------------------|------|---------|
 | OR7 | 表选项默认忽略契约 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1515](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1515)[must-contain: fn or7_table_options_default_impl_ignores] `or7_table_options_default_impl_ignores`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1515) | ✅ | `build_create_table_with_options` 与 `build_create_table` 逐字节等价；真库执行接受 |
-| OR8 | FK ON DELETE CASCADE 行为级 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1592](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1592)[must-contain: fn or8_fk_on_delete_cascade_behavior] `or8_fk_on_delete_cascade_behavior`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1592) | ✅ | 删父行 → 子行级联消失（行数断言） |
+| OR8 | FK ON DELETE CASCADE 行为级 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1593](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1593)[must-contain: fn or8_fk_on_delete_cascade_behavior] `or8_fk_on_delete_cascade_behavior`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1593) | ✅ | 删父行 → 子行级联消失（行数断言） |
 | OR8 | FK ON DELETE SET NULL 行为级 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1685](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1685)[must-contain: fn or8_fk_on_delete_set_null_behavior] `or8_fk_on_delete_set_null_behavior`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1685) | ✅ | 删父行 → 子行保留且 pid 置 NULL |
-| OR8 | FK 不支持动作拒绝面 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1770](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1770)[must-contain: fn or8_fk_unsupported_actions_rejected] `or8_fk_unsupported_actions_rejected`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1770) | ✅ | ON UPDATE*/RESTRICT/NO ACTION → ORA-02000；SET DEFAULT → ORA-03001 |
-| OR9 | 全文检索三模式 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1841](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1841)[must-contain: fn or9_full_text_modes_contains_semantics] `or9_full_text_modes_contains_semantics`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1841) | ✅ | CONTEXT 索引 SYNC (ON COMMIT)；NL 命中 2；Boolean &/|/- 逐操作符行为级 |
+| OR8 | FK 不支持动作拒绝面 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1786](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1786)[must-contain: fn or8_fk_unsupported_actions_rejected] `or8_fk_unsupported_actions_rejected`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1786) | ✅ | ON UPDATE*/RESTRICT/NO ACTION → ORA-02000；SET DEFAULT → ORA-03001 |
+| OR9 | 全文检索三模式 | [packages/sz-orm-core/tests/integration_oracle_matrix.rs:1857](../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1857)[must-contain: fn or9_full_text_modes_contains_semantics] `or9_full_text_modes_contains_semantics`(../../packages/sz-orm-core/tests/integration_oracle_matrix.rs#L1857) | ✅ | CONTEXT 索引 SYNC (ON COMMIT)；NL 命中 2；Boolean &/|/- 逐操作符行为级 |
 | OR10 | 非递归 CTE + 绑定序 | [packages/sz-orm-core/tests/integration_oracle_cte.rs:71](../../packages/sz-orm-core/tests/integration_oracle_cte.rs#L71)[must-contain: fn or10_cte_nonrecursive_realconn] `or10_cte_nonrecursive_realconn`(../../packages/sz-orm-core/tests/integration_oracle_cte.rs#L71) | ✅ | CTE 结果与主表交集断言锚定「CTE 参数先于主查询绑定」 |
 | OR10 | 递归 CTE 形态 + 修复转正 | [packages/sz-orm-core/tests/integration_oracle_cte.rs:166](../../packages/sz-orm-core/tests/integration_oracle_cte.rs#L166)[must-contain: fn or10_recursive_cte_oracle_form_and_gap] `or10_recursive_cte_oracle_form_and_gap`(../../packages/sz-orm-core/tests/integration_oracle_cte.rs#L166) | ✅（修复后） | 见第 3 节 G-OR10 |
 
@@ -49,7 +49,7 @@ cargo test -p sz-orm-core --lib                                            → 3
 #### G-OR10：递归 CTE 关键字方言盲区（P1，已修复）
 
 - **缺口**：`render_cte_prefix` 硬编码 `"RECURSIVE "` [packages/sz-orm-core/src/query.rs:427](../../packages/sz-orm-core/src/query.rs#L427)[must-contain: RECURSIVE]（修复前）——MY10-B4 CTE builder 生成的递归 CTE 对 Oracle 全量不可用：真库实测 `WITH RECURSIVE` → **ORA-02000**（Oracle 无该关键字；反证 2，见下表同节测试）；无关键字但缺列别名列表 → **ORA-32039**（反证 1）；正确形态 `WITH name (cols) AS (锚 UNION ALL 递归)` 真连 4 行全绿（证据 3）。
-- **修复**：commit `119ad4c2`——trait 新增 `recursive_cte_keyword()`（默认 `"RECURSIVE "`，纯新增零破坏）[packages/sz-orm-core/src/dialect.rs:121](../../packages/sz-orm-core/src/dialect.rs#L121)[must-contain: RECURSIVE]；`OracleDialect` 覆写空串 [packages/sz-orm-core/src/dialect.rs:1373](../../packages/sz-orm-core/src/dialect.rs#L1373)[must-contain: RECURSIVE]（Dameng 经 `delegate_dialect_to!` 自动继承）；`render_cte_prefix` 接线 [packages/sz-orm-core/src/query.rs:429](../../packages/sz-orm-core/src/query.rs#L429)[must-contain: recursive_cte_keyword]；单测 `t_or10_recursive_cte_keyword_dialect_aware` [packages/sz-orm-core/src/query.rs:6240](../../packages/sz-orm-core/src/query.rs#L6240)[must-contain: fn t_or10_recursive]。
+- **修复**：commit `119ad4c2`——trait 新增 `recursive_cte_keyword()`（默认 `"RECURSIVE "`，纯新增零破坏）[packages/sz-orm-core/src/dialect.rs:121](../../packages/sz-orm-core/src/dialect.rs#L121)[must-contain: RECURSIVE]；`OracleDialect` 覆写空串 [packages/sz-orm-core/src/dialect.rs:1373](../../packages/sz-orm-core/src/dialect.rs#L1373)[must-contain: RECURSIVE]；`render_cte_prefix` 接线 [packages/sz-orm-core/src/query.rs:429](../../packages/sz-orm-core/src/query.rs#L429)[must-contain: recursive_cte_keyword]；单测 `t_or10_recursive_cte_keyword_dialect_aware` [packages/sz-orm-core/src/query.rs:6240](../../packages/sz-orm-core/src/query.rs#L6240)[must-contain: fn t_or10_recursive]。**红队回执 P2-1 处置**：`delegate_dialect_to!` 宏补 `recursive_cte_keyword`/`full_text_search_mode` 显式转发（Dameng→Oracle 空串、PG 系委托→默认关键字，`test_delegate_recursive_cte_keyword_inheritance` 双向断言）——初版提交信息「Dameng 自动继承」与事实不符已修正。
 - **登记面（不改码裁定）**：Oracle 递归因子化另要求显式列别名列表（ORA-32039）——属 CTE SQL 构造面（调用方在锚分支以列别名或显式 `(cols)` 外层承载）；`CteClause` 无列名字段（零破坏，MY10 API 不动）。
 - **MY10 回归**：`t_my10*` 4 单测全过（MySQL 生成面不变）。
 
@@ -80,7 +80,7 @@ cargo test -p sz-orm-core --lib                                            → 3
 
 | 门禁 | 结果 | 证据 |
 |------|------|------|
-| G1 fmt | ✅ | `cargo fmt -p sz-orm-core -- --check`：本批三文件（dialect.rs/query.rs/integration_oracle_cte.rs）0 漂移（rustfmt 逐文件清零后复验） |
+| G1 fmt | ✅（红队回执 P2-3 处置后） | `cargo fmt -p sz-orm-core -- --check`：本批四文件（dialect.rs/query.rs/integration_oracle_cte.rs/integration_oracle_matrix.rs）0 漂移——初判声明漏列 matrix.rs（红队抓出 8 处行宽漂移）已 rustfmt 清零复验 |
 | G2/G3 check/clippy | ✅ | `cargo check -p sz-orm-core --all-targets` EXIT=0；clippy 本批文件 0 警告 |
 | G4 lib 测试 | ✅ | `cargo test -p sz-orm-core --lib` 3280 passed（含 MY10 回归 + OR10 新单测） |
 | G9 SQL 注入 + secrets | ✅/⚠️ | 注入 --strict 46/46 Safe + 自测 15/15；secrets **EXIT=1 先在披露**（`.github/workflows/integration.yml:97` + `packages/sz-orm-sqlx/tests/integration_szrsql_kill_recover.rs:74`，`postgres://postgres:trust@` 占位串，szrsql 发布线先在——与 Oracle 矩阵批红队回执 R-2 同源，归属 szrsql 维护方） |
@@ -102,6 +102,20 @@ cargo test -p sz-orm-core --lib                                            → 3
 - 测试行号逐一 grep 存在（上表 file:line 全中）；
 - 套件退出码：matrix 24/24、cte 2/2、integration_oracle 10/10、lib 3280 全过（真连+单测）；
 - 修复闭环 TDD 式：G-OR9（真库 ORA-00904 实测 → 修复 → 同载荷转绿）、G-OR10（ORA-02000/32039 双反证 → keyword 修复 → 单测生成面逐字节 + 手工形态真连 4 行）。
+
+## 6.5 第 5 环红队独立复核回执
+
+**复核方式**：独立 Agent（非报告作者 session）只读复核；真连三套件独立重跑。
+
+**总裁决：PASS**（0 阻断项，P2×3 全处置）：
+
+| # | 级别 | 内容 | 处置 |
+|---|------|------|------|
+| P2-1 | P2 | `delegate_dialect_to!` 宏未转发 `recursive_cte_keyword`——Dameng 实际走 trait 默认 `"RECURSIVE "`，初版「自动继承」表述失实（达梦同样不接受 RECURSIVE，属功能缺陷面） | ✅ 宏补显式转发（`recursive_cte_keyword` + `full_text_search_mode` 随委托目标）+ 单测 `test_delegate_recursive_cte_keyword_inheritance`（Dameng→空串 / PolarDB→默认 双向断言） |
+| P2-2 | P2 | OR10 绑定序证据未点明最终真连断言用手工等价 SQL 而非 builder 原始输出（测试注释已如实，报告措辞需限定） | ✅ 报告措辞收紧（见下 P2-2 修订行） |
+| P2-3 | P2 | fmt 清零声明未覆盖 integration_oracle_matrix.rs（实际 8 处行宽漂移） | ✅ rustfmt 单文件清零 + G1 行声明更正 |
+
+**P2-2 修订**：OR10 绑定序证据的准确表述为——生成面断言（前缀形态 + `params.len()==2`）用 builder 原始输出；绑定序的**行为级**真连证明用手工等价 SQL（JOIN 交集形态，翻转即空集的可区分设计），报告正文第 2 节 OR10 行「CTE 结果与主表交集断言锚定」即指该手工形态。
 
 ## 7. 遗留与建议（非缺陷）
 

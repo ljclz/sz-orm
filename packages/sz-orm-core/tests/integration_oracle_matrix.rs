@@ -1554,7 +1554,8 @@ fn or7_table_options_default_impl_ignores() {
     );
 
     // 真库执行：等价产物被接受
-    conn.execute(&sql_with, &[]).expect("create table with ignored options");
+    conn.execute(&sql_with, &[])
+        .expect("create table with ignored options");
     conn.execute(
         &format!(
             "INSERT INTO {} ({}) VALUES (:1)",
@@ -1639,7 +1640,11 @@ fn or8_fk_on_delete_cascade_behavior() {
     // 行为级：插入父 1 + 两个子行，删父 → 子行级联消失
     for pid in 0..2i64 {
         conn.execute(
-            &format!("INSERT INTO {} ({}) VALUES (:1)", dialect.quote(&parent), dialect.quote("id")),
+            &format!(
+                "INSERT INTO {} ({}) VALUES (:1)",
+                dialect.quote(&parent),
+                dialect.quote("id")
+            ),
             &[&pid],
         )
         .expect("insert parent");
@@ -1674,7 +1679,10 @@ fn or8_fk_on_delete_cascade_behavior() {
             &[],
         )
         .expect("count children");
-    assert_eq!(remain, 1, "ON DELETE CASCADE 删父 0 后应仅剩 pid=1 的 1 个子行");
+    assert_eq!(
+        remain, 1,
+        "ON DELETE CASCADE 删父 0 后应仅剩 pid=1 的 1 个子行"
+    );
 
     drop_table_if_exists(&conn, &child);
     drop_table_if_exists(&conn, &parent);
@@ -1724,7 +1732,11 @@ fn or8_fk_on_delete_set_null_behavior() {
     conn.execute(&fk_sql, &[]).expect("add fk set null");
 
     conn.execute(
-        &format!("INSERT INTO {} ({}) VALUES (:1)", dialect.quote(&parent), dialect.quote("id")),
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&parent),
+            dialect.quote("id")
+        ),
         &[&7i64],
     )
     .expect("insert parent");
@@ -1741,7 +1753,11 @@ fn or8_fk_on_delete_set_null_behavior() {
     conn.commit().expect("commit");
 
     conn.execute(
-        &format!("DELETE FROM {} WHERE {} = :1", dialect.quote(&parent), dialect.quote("id")),
+        &format!(
+            "DELETE FROM {} WHERE {} = :1",
+            dialect.quote(&parent),
+            dialect.quote("id")
+        ),
         &[&7i64],
     )
     .expect("delete parent");
@@ -1889,18 +1905,30 @@ fn or9_full_text_modes_contains_semantics() {
         dialect.quote(&table),
         dialect.quote("title"),
     );
-    conn.execute(&insert_sql, &[&"rust orm framework"]).expect("insert 1");
-    conn.execute(&insert_sql, &[&"rust web server"]).expect("insert 2");
-    conn.execute(&insert_sql, &[&"java orm tool"]).expect("insert 3");
+    conn.execute(&insert_sql, &[&"rust orm framework"])
+        .expect("insert 1");
+    conn.execute(&insert_sql, &[&"rust web server"])
+        .expect("insert 2");
+    conn.execute(&insert_sql, &[&"java orm tool"])
+        .expect("insert 3");
     conn.commit().expect("commit");
 
     // 生成面断言：OracleDialect 三模式同形（默认委托 full_text_search）
     let gen_nl = dialect.full_text_search_mode(&["title"], "rust", FullTextMode::NaturalLanguage);
     let gen_bool = dialect.full_text_search_mode(&["title"], "rust", FullTextMode::Boolean);
     let gen_qe = dialect.full_text_search_mode(&["title"], "rust", FullTextMode::QueryExpansion);
-    assert_eq!(gen_nl, "CONTAINS(\"title\", 'rust', 1) > 0", "NL 生成（OR9 修复后列名 quote）: {gen_nl}");
-    assert_eq!(gen_bool, gen_nl, "Boolean 模式默认委托应与 NL 同形: {gen_bool}");
-    assert_eq!(gen_qe, gen_nl, "QE 模式默认委托应与 NL 同形（Oracle 无查询扩展对应）: {gen_qe}");
+    assert_eq!(
+        gen_nl, "CONTAINS(\"title\", 'rust', 1) > 0",
+        "NL 生成（OR9 修复后列名 quote）: {gen_nl}"
+    );
+    assert_eq!(
+        gen_bool, gen_nl,
+        "Boolean 模式默认委托应与 NL 同形: {gen_bool}"
+    );
+    assert_eq!(
+        gen_qe, gen_nl,
+        "QE 模式默认委托应与 NL 同形（Oracle 无查询扩展对应）: {gen_qe}"
+    );
 
     // 行为断言：NL 模式命中
     let nl_sql = format!(
@@ -1908,9 +1936,7 @@ fn or9_full_text_modes_contains_semantics() {
         dialect.quote(&table),
         dialect.full_text_search_mode(&["title"], "rust", FullTextMode::NaturalLanguage),
     );
-    let nl: i64 = conn
-        .query_row_as::<i64>(&nl_sql, &[])
-        .expect("query nl");
+    let nl: i64 = conn.query_row_as::<i64>(&nl_sql, &[]).expect("query nl");
     assert_eq!(nl, 2, "CONTAINS 'rust' 应命中 2 行");
 
     // 行为断言：Boolean 模式——&（AND）
@@ -1944,7 +1970,10 @@ fn or9_full_text_modes_contains_semantics() {
     let minus_n: i64 = conn
         .query_row_as::<i64>(&minus_sql, &[])
         .expect("query boolean minus");
-    assert_eq!(minus_n, 1, "CONTAINS 'rust - web' 应仅命中 'rust orm framework'");
+    assert_eq!(
+        minus_n, 1,
+        "CONTAINS 'rust - web' 应仅命中 'rust orm framework'"
+    );
 
     // 清理（先删索引再删表，避免 CONTEXT 残留对象）
     let _ = conn.execute(&format!("DROP INDEX {}", dialect.quote(&idx_name)), &[]);
