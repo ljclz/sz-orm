@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added — FTS 列名 quote 横向修复批（12 方言一致化，六环闭环）
+
+- **G-OR9 同型缺口横向收尾**（报告 `docs/assessment/2026-11-12-fts-quote-sweep.md`，提示词 `2026-11-12-fts-quote-sweep-prompt.md`，实施批 58a71b7c/2564a43/5f80eb8/0b85758，红队 PASS 阻断 0/P2×1 处置 9db0133）：11 方言 `full_text_search`（+MySQL `full_text_search_mode`，与 NL 委托一致性耦合）列名裸拼 → 逐方言 quote 形态（MySQL/ClickHouse 反引号、SQLServer 方括号、PG `"col"::text`、其余双引号）——混合大小写列裸拼被真库折叠/注入面同 G-OR1→G2→G-OR9 第四次同型发现；既有断言同步（dialect_advanced_test 宏 7 处 + sqlite/sqlserver/my9 三处单测）+ 新增横向单测 `test_fts_column_quoting_all_dialects`（12 方言 × 混合大小写列逐字节）；**真连覆盖矩阵**：PG 新增行为级测试（混合大小写列 `titleText` to_tsvector 真连命中 2 行，`test_pg_full_text_search_quoted_column`）+ MySQL matrix 11/11 + Oracle matrix 24/24 + integration_oracle 10/10 零回归；8 方言（SQLServer/DB2/Informix/SapHana/ClickHouse/DuckDB/Snowflake/Firebird）无本机环境登记真连留 CI（生成面单测逐字节覆盖）；lib **3283 passed** + dialect_advanced 38 passed；红队机械验证：12 方言无第 13 实现遗漏（13 委托方言宏转发完好）、diff 无越界、遗留项 2（其余方言 AddIndex cols.join 裸拼）建议属实
+
 ### Added — Oracle 方言边界能力补齐（OR7~OR10，六环闭环）
 
 - **MY7~MY10 新能力 API 的 Oracle 侧对称真连验证**（报告 `docs/assessment/2026-11-12-oracle-dialect-boundary.md`，提示词 `2026-11-12-oracle-dialect-boundary-prompt.md`，实施批 0dad820b/014e7d13/0f7bf985/dfadd314/119ad4c2，红队 PASS 阻断 0/P2×3 全处置 commit 143a334）：**OR7 表选项**默认忽略契约真连验证（build_create_table_with_options 与 build_create_table 逐字节等价，MySQL 专属选项无 Oracle 映射不改码裁定）+ **OR8 外键动作**行为级矩阵（ON DELETE CASCADE 删父级联消失 / SET NULL 子行键置 NULL 真连证明；拒绝面锚定——ON UPDATE 任意动作全拒 ORA-02000、RESTRICT/NO ACTION→ORA-02000、SET DEFAULT→ORA-03001）+ **OR9 全文检索三模式**（CONTEXT 索引 SYNC (ON COMMIT) 真连，Boolean &/|/- 操作符逐个行为级，QE 无对应登记）+ **OR10 CTE builder**（非递归子查询因子化真连 + 绑定序契约 CTE 参数先于主查询；递归面修复见 Fixed）
