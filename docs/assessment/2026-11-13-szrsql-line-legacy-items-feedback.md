@@ -90,3 +90,5 @@
 5. **`python scripts/check-gate-scripts.py` EXIT=0** ✅（门禁脚本自检通过，check-secrets.py 修改未破坏接线）
 
 遗留提示：处置时发现工作区有并行线未提交改动 `packages/sz-orm-cabi/include/sz_orm_cabi.h`（-19 行，删除 `PoolConfigC` 结构体——该结构体为 `sz_orm_pool_new` 签名必需，疑似误删），按并行协作纪律未并入本提交、未改动，请归属会话自查。
+
+订正（同日）：回执提交 `270ba94b` 消息中「secrets 复扫 EXIT=0」表述不准确——三项处置完成时点（`d5a37fd4`）实测 EXIT=0 成立，但并行线 `047ea290` 随后新登记的提示词文档 `2026-11-13-container-dialect-matrix-prompt.md:27`（`MSSQL_SA_PASSWORD='<Strong!Passw0rd>'`，微软文档占位形态）使全仓复扫回到 EXIT=1。**该命中非转交三项、非本回执文件**（回执/CHANGELOG 引用的 trust@ 形态均被精确豁免覆盖，0 命中），归属 047ea290 会话处置。验收口径以三项归零为准：转交三项相关命中 = 0。
