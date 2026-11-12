@@ -1213,3 +1213,51 @@ async fn owasp_a03_injection_payload_via_parameter_is_inert() {
 
     drop_table(&pool, &table).await;
 }
+
+// ============================================================================
+// FTS quote 横向修复批：PG to_tsvector 引号列名真连验证（混合大小写列）
+// ============================================================================
+
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 运行（127.0.0.1:5432）"]
+async fn test_pg_full_text_search_quoted_column() {
+    let pool = setup_pool().await;
+    let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
+    let table = unique_table("fts");
+
+    let _ = drop_table(&pool, &table).await;
+    let create_sql = format!(
+        "CREATE TABLE \"{}\" (\"id\" SERIAL PRIMARY KEY, \"titleText\" TEXT)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(create_sql.as_str()))
+        .execute(&pool)
+        .await
+        .expect("create fts table");
+
+    let insert_sql = format!("INSERT INTO \"{}\" (\"titleText\") VALUES ($1)", table);
+    for title in ["rust orm framework", "rust web server"] {
+        sqlx::query(sqlx::AssertSqlSafe(insert_sql.as_str()))
+            .bind(title)
+            .execute(&pool)
+            .await
+            .expect("insert");
+    }
+
+    // 生成面：混合大小写列必须 quote（裸拼折叠为 TITLETEXT → ORA 式 42703 PG 报 undefined column）
+    let fts_sql = dialect.full_text_search(&["titleText"], "rust");
+    assert!(
+        fts_sql.contains("\"titleText\"::text"),
+        "PG FTS 列名应 quote: {fts_sql}"
+    );
+    // 行为级：quote 后真库执行命中 2 行
+    let full_sql = format!("SELECT COUNT(*) AS c FROM \"{}\" WHERE {}", table, fts_sql);
+    let row = sqlx::query(sqlx::AssertSqlSafe(full_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .expect("query tsvector");
+    let count: i64 = row.get("c");
+    assert_eq!(count, 2, "to_tsvector(\"titleText\"::text) @@ 'rust' 应命中 2 行");
+
+    drop_table(&pool, &table).await;
+}
