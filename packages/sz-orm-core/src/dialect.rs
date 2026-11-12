@@ -527,7 +527,12 @@ impl Dialect for MySqlDialect {
     }
 
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
-        let cols = columns.join(", ");
+        // FTS quote 横向修复批：列名逐个 quote（裸拼被真库折叠/注入面同 G-OR9）
+        let cols = columns
+            .iter()
+            .map(|c| self.quote(c))
+            .collect::<Vec<_>>()
+            .join(", ");
         let escaped = self.escape_string(keyword);
         format!(
             "MATCH({}) AGAINST('{}' IN NATURAL LANGUAGE MODE)",
@@ -537,7 +542,13 @@ impl Dialect for MySqlDialect {
 
     /// MY9 边界补齐 B3：MySQL 全文检索三模式
     fn full_text_search_mode(&self, columns: &[&str], keyword: &str, mode: FullTextMode) -> String {
-        let cols = columns.join(", ");
+        // FTS quote 横向修复批：列名逐个 quote（与 full_text_search 一致；
+        // NaturalLanguage 委托断言依赖两方法同形）
+        let cols = columns
+            .iter()
+            .map(|c| self.quote(c))
+            .collect::<Vec<_>>()
+            .join(", ");
         let escaped = self.escape_string(keyword);
         let mode_clause = match mode {
             FullTextMode::NaturalLanguage => "IN NATURAL LANGUAGE MODE",
@@ -874,9 +885,10 @@ impl Dialect for PostgreSqlDialect {
     }
 
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
+        // FTS quote 横向修复批：列名逐个 quote（to_tsquery 整串语法面维持）
         let cols = columns
             .iter()
-            .map(|c| format!("{}::text", c))
+            .map(|c| format!("{}::text", self.quote(c)))
             .collect::<Vec<_>>()
             .join(" || ' ' || ");
         let escaped = self.escape_string(keyword);
@@ -1114,7 +1126,7 @@ impl Dialect for SqliteDialect {
         let escaped = self.escape_string(keyword);
         columns
             .iter()
-            .map(|c| format!("{} LIKE '%{}%'", c.trim(), escaped))
+            .map(|c| format!("{} LIKE '%{}%'", self.quote(c.trim()), escaped))
             .collect::<Vec<_>>()
             .join(" OR ")
     }
@@ -1739,7 +1751,12 @@ impl Dialect for SqlServerDialect {
             return "0".to_string();
         }
         let escaped = self.escape_string(keyword);
-        let cols = columns.join(", ");
+        // FTS quote 横向修复批：列名逐个 [quote]（SQL Server 括号标识符）
+        let cols = columns
+            .iter()
+            .map(|c| self.quote(c))
+            .collect::<Vec<_>>()
+            .join(", ");
         format!("CONTAINS({}, '{}')", cols, escaped)
     }
 
@@ -2177,7 +2194,7 @@ impl Dialect for SnowflakeDialect {
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("{} ILIKE '%{}%'", c, escaped))
+            .map(|c| format!("{} ILIKE '%{}%'", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -2456,7 +2473,7 @@ impl Dialect for ClickHouseDialect {
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("position({}, '{}') > 0", c, escaped))
+            .map(|c| format!("position({}, '{}') > 0", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -2711,7 +2728,7 @@ impl Dialect for DuckDBDialect {
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("{} LIKE '%{}%'", c, escaped))
+            .map(|c| format!("{} LIKE '%{}%'", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -2925,7 +2942,7 @@ impl Dialect for Db2Dialect {
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("CONTAINS({}, '{}') > 0", c, escaped))
+            .map(|c| format!("CONTAINS({}, '{}') > 0", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -3260,7 +3277,7 @@ impl Dialect for InformixDialect {
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("CONTAINS({}, '{}') > 0", c, escaped))
+            .map(|c| format!("CONTAINS({}, '{}') > 0", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -3486,7 +3503,7 @@ impl Dialect for SapHanaDialect {
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("CONTAINS({}, '{}') > 0", c, escaped))
+            .map(|c| format!("CONTAINS({}, '{}') > 0", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -3724,7 +3741,7 @@ impl Dialect for FirebirdDialect {
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("CONTAINING({}, '{}')", c, escaped))
+            .map(|c| format!("CONTAINING({}, '{}')", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -3991,8 +4008,9 @@ mod tests {
         let sql = sqlite.full_text_search(&["title", "content"], "hello");
         // SQLite 接口只传入列名，无 FTS 表名，因此降级使用 LIKE
         assert!(sql.contains("LIKE"));
-        assert!(sql.contains("title LIKE '%hello%'"));
-        assert!(sql.contains("content LIKE '%hello%'"));
+        // FTS quote 横向修复批：列名双引号
+        assert!(sql.contains("\"title\" LIKE '%hello%'"));
+        assert!(sql.contains("\"content\" LIKE '%hello%'"));
         assert!(sql.contains(" OR "));
 
         // 空列列表返回 "0"（短路避免空 IN/OR）
@@ -4000,7 +4018,48 @@ mod tests {
 
         // 含单引号的关键字需正确转义（SQLite 双单引号）
         let sql = sqlite.full_text_search(&["title"], "it's");
-        assert!(sql.contains("title LIKE '%it''s%'"));
+        assert!(sql.contains("\"title\" LIKE '%it''s%'"));
+    }
+
+    /// FTS quote 横向修复批：11 方言列名 quote 一致化生成面断言
+    /// （混合大小写列场景——裸拼被真库折叠/破坏；真连覆盖矩阵见
+    /// docs/assessment/2026-11-12-fts-quote-sweep.md）
+    #[test]
+    fn test_fts_column_quoting_all_dialects() {
+        let cases: Vec<(Box<dyn Dialect>, &str)> = vec![
+            (Box::new(MySqlDialect), "MATCH(`userName`)"),
+            (
+                Box::new(PostgreSqlDialect),
+                "to_tsvector(\"userName\"::text)",
+            ),
+            (Box::new(SqliteDialect), "\"userName\" LIKE '%kw%'"),
+            (Box::new(SqlServerDialect), "CONTAINS([userName], 'kw')"),
+            (Box::new(SnowflakeDialect), "\"userName\" ILIKE '%kw%'"),
+            (
+                Box::new(ClickHouseDialect),
+                "position(`userName`, 'kw') > 0",
+            ),
+            (Box::new(DuckDBDialect), "\"userName\" LIKE '%kw%'"),
+            (Box::new(Db2Dialect), "CONTAINS(\"userName\", 'kw') > 0"),
+            (
+                Box::new(InformixDialect),
+                "CONTAINS(\"userName\", 'kw') > 0",
+            ),
+            (Box::new(SapHanaDialect), "CONTAINS(\"userName\", 'kw') > 0"),
+            (Box::new(FirebirdDialect), "CONTAINING(\"userName\", 'kw')"),
+            (
+                Box::new(OracleDialect),
+                "CONTAINS(\"userName\", 'kw', 1) > 0",
+            ),
+        ];
+        for (d, expect) in cases {
+            let sql = d.full_text_search(&["userName"], "kw");
+            assert!(
+                sql.contains(expect),
+                "{}: 期望含 `{expect}`，实际 `{sql}`",
+                d.db_type()
+            );
+        }
     }
 
     #[test]
@@ -4507,7 +4566,8 @@ mod tests {
     fn test_sqlserver_full_text_search() {
         let dialect = SqlServerDialect;
         let sql = dialect.full_text_search(&["title", "content"], "hello");
-        assert!(sql.starts_with("CONTAINS(title, content, 'hello')"));
+        // FTS quote 横向修复批：列名 [quote]
+        assert!(sql.starts_with("CONTAINS([title], [content], 'hello')"));
         // 空列列表
         assert_eq!(dialect.full_text_search(&[], "hello"), "0");
         // 单引号转义
@@ -6461,15 +6521,15 @@ mod enum_dispatch_tests {
         let d = MySqlDialect;
         assert_eq!(
             d.full_text_search_mode(&["title"], "kw", FullTextMode::NaturalLanguage),
-            "MATCH(title) AGAINST('kw' IN NATURAL LANGUAGE MODE)"
+            "MATCH(`title`) AGAINST('kw' IN NATURAL LANGUAGE MODE)"
         );
         assert_eq!(
             d.full_text_search_mode(&["title"], "kw", FullTextMode::Boolean),
-            "MATCH(title) AGAINST('kw' IN BOOLEAN MODE)"
+            "MATCH(`title`) AGAINST('kw' IN BOOLEAN MODE)"
         );
         assert_eq!(
             d.full_text_search_mode(&["title", "body"], "kw", FullTextMode::QueryExpansion),
-            "MATCH(title, body) AGAINST('kw' WITH QUERY EXPANSION)"
+            "MATCH(`title`, `body`) AGAINST('kw' WITH QUERY EXPANSION)"
         );
         // 旧行为委托一致（NaturalLanguage == 旧 full_text_search）
         assert_eq!(

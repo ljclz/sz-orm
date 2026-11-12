@@ -110,43 +110,43 @@ test_full_text_search!(
     test_clickhouse_fts,
     ClickHouseDialect,
     "0",
-    "position(title, 'keyword') > 0"
+    "position(`title`, 'keyword') > 0"
 );
 test_full_text_search!(
     test_db2_fts,
     Db2Dialect,
     "0",
-    "CONTAINS(title, 'keyword') > 0"
+    "CONTAINS(\"title\", 'keyword') > 0"
 );
 test_full_text_search!(
     test_informix_fts,
     InformixDialect,
     "0",
-    "CONTAINS(title, 'keyword') > 0"
+    "CONTAINS(\"title\", 'keyword') > 0"
 );
 test_full_text_search!(
     test_saphana_fts,
     SapHanaDialect,
     "0",
-    "CONTAINS(title, 'keyword') > 0"
+    "CONTAINS(\"title\", 'keyword') > 0"
 );
 test_full_text_search!(
     test_firebird_fts,
     FirebirdDialect,
     "0",
-    "CONTAINING(title, 'keyword')"
+    "CONTAINING(\"title\", 'keyword')"
 );
 test_full_text_search!(
     test_duckdb_fts,
     DuckDBDialect,
     "0",
-    "title LIKE '%keyword%'"
+    "\"title\" LIKE '%keyword%'"
 );
 test_full_text_search!(
     test_snowflake_fts,
     SnowflakeDialect,
     "FALSE",
-    "title ILIKE '%keyword%'"
+    "\"title\" ILIKE '%keyword%'"
 );
 
 macro_rules! test_bool_to_int {
