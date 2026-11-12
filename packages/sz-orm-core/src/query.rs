@@ -78,6 +78,11 @@ pub struct QueryBuilder<M: Model> {
     ///
     /// SQLite 不支持行锁，设置后会返回 `DbError::QueryError`。
     lock_type: Option<LockType>,
+    /// MY10 边界补齐 B4：CTE 子句（`WITH [RECURSIVE] name AS (...)` 前缀）
+    ///
+    /// 仅 `build_select_with_params` 与 `sql()` 渲染（UPDATE/DELETE 的 CTE
+    /// 语法各方言差异大，不在本能力范围）。CTE 参数先于主查询参数绑定。
+    ctes: Vec<CteClause>,
     /// P2-4：INSERT OR IGNORE 标志（TASK-028）
     ///
     /// 设置后，`build_insert` 会生成 `INSERT IGNORE INTO`（MySQL）或
@@ -91,6 +96,23 @@ pub struct QueryBuilder<M: Model> {
     rls_enhancer: Option<std::sync::Arc<crate::tenant_quota_rls::RlsPolicyEnhancer>>,
     #[allow(dead_code)]
     model: std::marker::PhantomData<M>,
+}
+
+/// MY10 边界补齐 B4：CTE 子句
+///
+/// 通过 [`QueryBuilder::with_cte`] / [`QueryBuilder::with_recursive_cte`] 添加；
+/// 仅 `build_select_with_params` 与 `sql()` 渲染。CTE 参数先于主查询参数绑定
+/// （MySQL 占位符从左到右对齐）。
+#[derive(Debug, Clone)]
+pub struct CteClause {
+    /// CTE 名称（经 validate_identifier_with_max 校验）
+    pub name: String,
+    /// CTE 查询体（调用方信任的逃生口，同 `select_expr` 口径；可含 `?` 占位符）
+    pub sql: String,
+    /// CTE 参数（先于主查询参数绑定）
+    pub params: Vec<Value>,
+    /// 是否递归（任一 CTE 递归时整条子句以 `WITH RECURSIVE` 开头——MySQL/PG 语法）
+    pub recursive: bool,
 }
 
 /// P2-5：Keyset 分页游标
@@ -328,11 +350,97 @@ impl<M: Model> QueryBuilder<M> {
             keyset_cursor: None,
             cache_ttl: None,
             lock_type: None,
+            ctes: Vec::new(),
             insert_or_ignore: false,
             #[cfg(feature = "tenant-quota-rls-enhanced")]
             rls_enhancer: None,
             model: std::marker::PhantomData,
         }
+    }
+
+    /// 添加 CTE（MY10 边界补齐 B4）——`WITH name AS (cte_sql) SELECT ...`
+    ///
+    /// - `name` 经方言感知标识符校验（非法即 `DbError::InvalidInput`）
+    /// - `cte_sql` 为**调用方信任的逃生口**（同 [`QueryBuilder::select_expr`]
+    ///   口径），可含 `?` 占位符，对应 `params` 按序绑定且**先于主查询参数**
+    /// - 仅 `build_select_with_params` / `sql()` 渲染
+    pub fn with_cte(
+        mut self,
+        name: impl Into<String>,
+        cte_sql: impl Into<String>,
+        params: Vec<Value>,
+    ) -> Result<Self, crate::DbError> {
+        self.push_cte(name, cte_sql, params, false)?;
+        Ok(self)
+    }
+
+    /// 添加递归 CTE——`WITH RECURSIVE name AS (cte_sql) SELECT ...`
+    ///
+    /// MySQL 8.0 / PostgreSQL 均要求递归子句使用 `RECURSIVE` 关键字；同一条
+    /// WITH 内混合非递归 CTE 时（任一递归）整条子句都带 `RECURSIVE`（两方言一致）。
+    pub fn with_recursive_cte(
+        mut self,
+        name: impl Into<String>,
+        cte_sql: impl Into<String>,
+        params: Vec<Value>,
+    ) -> Result<Self, crate::DbError> {
+        self.push_cte(name, cte_sql, params, true)?;
+        Ok(self)
+    }
+
+    fn push_cte(
+        &mut self,
+        name: impl Into<String>,
+        cte_sql: impl Into<String>,
+        params: Vec<Value>,
+        recursive: bool,
+    ) -> Result<(), crate::DbError> {
+        let name = name.into();
+        crate::sql_safety::validate_identifier_with_max(
+            &name,
+            "cte name",
+            self.dialect.max_identifier_len(),
+        )?;
+        self.ctes.push(CteClause {
+            name,
+            sql: cte_sql.into(),
+            params,
+            recursive,
+        });
+        Ok(())
+    }
+
+    /// 渲染 WITH 前缀（含尾随空格）：`WITH [RECURSIVE] `n` AS (sql), ... `
+    ///
+    /// `inline_params = true` 时（`sql()` 内联路径）CTE 参数内联渲染；
+    /// `false` 时原样保留 `?` 占位符（参数由调用方先于主查询绑定）。
+    fn render_cte_prefix(&self, inline_params: bool) -> String {
+        if self.ctes.is_empty() {
+            return String::new();
+        }
+        let mut prefix = String::from("WITH ");
+        if self.ctes.iter().any(|c| c.recursive) {
+            prefix.push_str("RECURSIVE ");
+        }
+        for (i, cte) in self.ctes.iter().enumerate() {
+            if i > 0 {
+                prefix.push_str(", ");
+            }
+            self.quote_into(&cte.name, &mut prefix);
+            prefix.push_str(" AS (");
+            if inline_params {
+                prefix.push_str(&inline_condition_values(
+                    cte.sql.clone(),
+                    &cte.params,
+                    &*self.dialect,
+                ));
+            } else {
+                prefix.push_str(&cte.sql);
+            }
+            prefix.push(')');
+        }
+        prefix.push(' ');
+        prefix
     }
 
     /// v6.4.0：引用标识符到 buf（优先 enum 分发，回退到 vtable）
@@ -603,6 +711,7 @@ impl<M: Model> QueryBuilder<M> {
             keyset_cursor: None,
             cache_ttl: None,         // COUNT 查询不缓存
             lock_type: None,         // COUNT 查询不加锁
+            ctes: self.ctes.clone(), // COUNT 保留 CTE（WITH 计数场景）
             insert_or_ignore: false, // COUNT 查询不使用 INSERT
             #[cfg(feature = "tenant-quota-rls-enhanced")]
             rls_enhancer: self.rls_enhancer.clone(),
@@ -1585,8 +1694,11 @@ impl<M: Model> QueryBuilder<M> {
             self.select_columns.join(", ")
         };
 
+        // MY10 B4：内联路径同样渲染 WITH 前缀（CTE 参数内联，P0-2 口径）
+        let cte_prefix = self.render_cte_prefix(true);
         let mut sql = crate::sql_buffer::SqlBuffer::from_str(&format!(
-            "SELECT {} FROM {}",
+            "{}SELECT {} FROM {}",
+            cte_prefix,
             columns,
             self.dialect.quote(&table)
         ));
@@ -2726,6 +2838,8 @@ impl<M: Model> QueryBuilder<M> {
             + order_by_len
             + 32;
         let mut sql = String::with_capacity(capacity);
+        // MY10 边界补齐 B4：WITH [RECURSIVE] ... 前缀（CTE 占位符先于主查询）
+        sql.push_str(&self.render_cte_prefix(false));
         sql.push_str("SELECT ");
         if self.select_columns.is_empty() {
             sql.push('*');
@@ -2789,7 +2903,12 @@ impl<M: Model> QueryBuilder<M> {
             }
         }
 
-        let mut params = Vec::new();
+        // MY10 B4：CTE 参数先于主查询参数绑定（占位符从左到右对齐）
+        let mut params: Vec<Value> = self
+            .ctes
+            .iter()
+            .flat_map(|c| c.params.iter().cloned())
+            .collect();
 
         // v6.3 快速路径：无软删除/租户/RLS/keyset + 无 OR → 直接写入 sql
         let no_soft_delete = self.soft_delete_disabled || M::soft_delete_field().is_none();
@@ -6143,6 +6262,84 @@ mod tests {
         let (sql, _) = result.unwrap();
         assert!(sql.contains("INSERT"));
         assert!(sql.contains("ON CONFLICT"));
+    }
+
+    /// MY10（B4）：CTE 前缀渲染 + 参数顺序（CTE 参数先于主查询参数）
+    #[test]
+    fn t_my10_cte_param_ordering() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("active")
+            .with_cte(
+                "active",
+                "SELECT `id` FROM `org` WHERE `parent_id` = ?",
+                vec![Value::I64(1)],
+            )
+            .unwrap()
+            .select(vec!["id"])
+            .unwrap()
+            .where_gt("id", Value::I64(2));
+        let (sql, params) = qb.build_select_with_params();
+        assert!(
+            sql.starts_with(
+                "WITH `active` AS (SELECT `id` FROM `org` WHERE `parent_id` = ?) SELECT"
+            ),
+            "CTE 前缀渲染: {sql}"
+        );
+        // 参数顺序：CTE 参数(1) 在前，主查询参数(2) 在后
+        assert_eq!(params, vec![Value::I64(1), Value::I64(2)]);
+    }
+
+    /// MY10（B4）：递归 CTE——任一递归时整条子句带 RECURSIVE（MySQL 语法）
+    #[test]
+    fn t_my10_recursive_cte_prefix() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("org_tree")
+            .with_recursive_cte(
+                "org_tree",
+                "SELECT `id`, 1 AS depth FROM `org` WHERE `parent_id` IS NULL",
+                vec![],
+            )
+            .unwrap()
+            .with_cte("aux", "SELECT 1", vec![])
+            .unwrap()
+            .select(vec!["id"])
+            .unwrap();
+        let (sql, params) = qb.build_select_with_params();
+        assert!(
+            sql.starts_with("WITH RECURSIVE `org_tree` AS (SELECT `id`, 1 AS depth FROM `org` WHERE `parent_id` IS NULL), `aux` AS (SELECT 1) SELECT"),
+            "混合 CTE 统一 RECURSIVE 前缀: {sql}"
+        );
+        assert!(params.is_empty());
+    }
+
+    /// MY10（B4）：sql() 内联路径——CTE 参数内联渲染
+    #[test]
+    fn t_my10_cte_inline_sql_path() {
+        let qb = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("active")
+            .with_cte(
+                "active",
+                "SELECT `id` FROM `org` WHERE `parent_id` = ?",
+                vec![Value::I64(1)],
+            )
+            .unwrap()
+            .select(vec!["id"])
+            .unwrap();
+        let sql = qb.sql();
+        assert!(
+            sql.contains("WITH `active` AS (SELECT `id` FROM `org` WHERE `parent_id` = 1) SELECT"),
+            "内联路径 CTE 参数内联: {sql}"
+        );
+        assert!(!sql.contains('?'), "内联路径不应残留占位符: {sql}");
+    }
+
+    /// MY10（B4）：CTE 名称非法 → fail-closed
+    #[test]
+    fn t_my10_cte_name_validation() {
+        let result = QueryBuilder::<TestModel>::new(Box::new(crate::dialect::MySqlDialect))
+            .table("t")
+            .with_cte("bad name; DROP TABLE x", "SELECT 1", vec![]);
+        assert!(result.is_err(), "CTE 名称含元字符必须被拒绝");
     }
 
     #[test]

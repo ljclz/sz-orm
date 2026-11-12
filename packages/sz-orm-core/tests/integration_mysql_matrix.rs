@@ -22,7 +22,9 @@ use sqlx::mysql::{MySqlPool, MySqlPoolOptions};
 use sqlx::Row;
 use std::collections::HashMap;
 use std::time::Duration;
-use sz_orm_core::dialect::{get_dialect, ColumnDef, Dialect, TableChange};
+use sz_orm_core::dialect::{
+    get_dialect, ColumnDef, Dialect, ForeignKeyDef, FullTextMode, TableChange, TableOption,
+};
 use sz_orm_core::{DbType, Model, ModelExt, QueryBuilder, Relation, Value};
 
 /// QueryBuilder 需要 Model 类型参数；矩阵载荷直接走 SQL 生成面，用最小占位模型
@@ -1131,4 +1133,360 @@ async fn matrix_my6_edge_semantics() {
     );
 
     drop_table(&pool, &table).await;
+}
+
+// ---------------------------------------------------------------------------
+// MY7 建表表选项（B1） / MY8 外键动作（B2） / MY9 全文检索三模式（B3） / MY10 CTE builder（B4）
+// ---------------------------------------------------------------------------
+
+/// MY7（B1）：`build_create_table_with_options`——CHARSET/COLLATE/ENGINE 落到
+/// 真库并经 information_schema 验证；既有 build_create_table 零破坏。
+#[tokio::test]
+#[ignore = "需要 MySQL 运行（SZ_ORM_MYSQL_URL 注入）"]
+async fn matrix_my7_create_table_options() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: SZ_ORM_MYSQL_URL 未配置或不可达");
+        return;
+    };
+    let dialect = mysql_dialect();
+    let table = unique_table("mx_my7");
+    let columns = vec![ColumnDef {
+        name: "id".to_string(),
+        sql_type: "BIGINT".to_string(),
+        nullable: false,
+        default: None,
+        auto_increment: true,
+        primary_key: true,
+    }];
+    // 零破坏基线：既有 build_create_table 产物不带表选项
+    let base = dialect.build_create_table(&table, &columns);
+    assert!(!base.contains("CHARSET"), "既有行为不变: {base}");
+
+    let ddl = dialect.build_create_table_with_options(
+        &table,
+        &columns,
+        &[
+            TableOption::Engine("InnoDB".to_string()),
+            TableOption::Charset("utf8mb4".to_string()),
+            TableOption::Collate("utf8mb4_unicode_ci".to_string()),
+        ],
+    );
+    sqlx::query(sqlx::AssertSqlSafe(ddl.as_str()))
+        .execute(&pool)
+        .await
+        .expect("带表选项建表被真库接受");
+
+    // 元数据面验证：ENGINE 与 COLLATION 真实生效
+    let row = sqlx::query(
+        "SELECT ENGINE, TABLE_COLLATION FROM information_schema.TABLES \
+         WHERE TABLE_SCHEMA = DATABASE() AND TABLE_NAME = ?",
+    )
+    .bind(&table)
+    .fetch_one(&pool)
+    .await
+    .expect("information_schema");
+    let engine: String = row.get("ENGINE");
+    let collation: String = row.get("TABLE_COLLATION");
+    assert_eq!(engine, "InnoDB", "ENGINE 选项生效");
+    assert_eq!(collation, "utf8mb4_unicode_ci", "COLLATE 选项生效");
+
+    drop_table(&pool, &table).await;
+}
+
+/// MY8（B2）：`build_add_foreign_key`——ON DELETE CASCADE 行为级证明
+/// （删除父行 → 子行级联消失；无动作时默认拒绝，行为即证据）。
+#[tokio::test]
+#[ignore = "需要 MySQL 运行（SZ_ORM_MYSQL_URL 注入）"]
+async fn matrix_my8_fk_actions() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: SZ_ORM_MYSQL_URL 未配置或不可达");
+        return;
+    };
+    let dialect = mysql_dialect();
+    let parent = unique_table("mx_my8_parent");
+    let child = unique_table("mx_my8_child");
+    let parent_cols = vec![ColumnDef {
+        name: "id".to_string(),
+        sql_type: "BIGINT".to_string(),
+        nullable: false,
+        default: None,
+        auto_increment: true,
+        primary_key: true,
+    }];
+    let child_cols = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "parent_id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+    sqlx::query(sqlx::AssertSqlSafe(
+        dialect.build_create_table(&parent, &parent_cols).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("create parent");
+    sqlx::query(sqlx::AssertSqlSafe(
+        dialect.build_create_table(&child, &child_cols).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("create child");
+
+    // 方言生成面：ON DELETE CASCADE 约束 DDL，真库接受
+    let fk = ForeignKeyDef {
+        columns: vec!["parent_id".to_string()],
+        reference_table: parent.clone(),
+        reference_columns: vec!["id".to_string()],
+        on_delete: Some("CASCADE".to_string()),
+        on_update: None,
+    };
+    let fk_ddl = dialect
+        .build_add_foreign_key(&child, &fk)
+        .expect("valid fk def");
+    assert!(
+        fk_ddl.contains("ON DELETE CASCADE"),
+        "生成面含动作: {fk_ddl}"
+    );
+    sqlx::query(sqlx::AssertSqlSafe(fk_ddl.as_str()))
+        .execute(&pool)
+        .await
+        .expect("ON DELETE CASCADE 外键被真库接受");
+
+    // 行为证明：删父 → 子级联消失
+    let ins_parent = format!("INSERT INTO {} () VALUES ()", dialect.quote(&parent));
+    sqlx::query(sqlx::AssertSqlSafe(ins_parent.as_str()))
+        .execute(&pool)
+        .await
+        .expect("insert parent");
+    let ins_child = format!(
+        "INSERT INTO {} (`parent_id`) VALUES (?)",
+        dialect.quote(&child)
+    );
+    q(&ins_child)
+        .bind(1i64)
+        .execute(&pool)
+        .await
+        .expect("insert child");
+    q(&ins_child)
+        .bind(1i64)
+        .execute(&pool)
+        .await
+        .expect("insert child 2");
+
+    let del = format!("DELETE FROM {} WHERE `id` = 1", dialect.quote(&parent));
+    sqlx::query(sqlx::AssertSqlSafe(del.as_str()))
+        .execute(&pool)
+        .await
+        .expect("delete parent");
+    let cnt_sql = format!("SELECT COUNT(*) AS c FROM {}", dialect.quote(&child));
+    let c: i64 = q(&cnt_sql).fetch_one(&pool).await.expect("count").get("c");
+    assert_eq!(c, 0, "ON DELETE CASCADE 行为级证明：子行已级联删除");
+
+    // 非法动作 fail-closed（生成侧拒绝，DDL 不出笼）
+    let bad = ForeignKeyDef {
+        columns: vec!["parent_id".to_string()],
+        reference_table: parent.clone(),
+        reference_columns: vec!["id".to_string()],
+        on_delete: Some("DROP TABLE x".to_string()),
+        on_update: None,
+    };
+    assert!(dialect.build_add_foreign_key(&child, &bad).is_err());
+
+    drop_table(&pool, &child).await;
+    drop_table(&pool, &parent).await;
+}
+
+/// MY9（B3）：`full_text_search_mode` 三模式真库执行
+/// （载荷用英文 token——InnoDB 默认分词器不切中文，中文全文检索需 ngram，登记不修）。
+#[tokio::test]
+#[ignore = "需要 MySQL 运行（SZ_ORM_MYSQL_URL 注入）"]
+async fn matrix_my9_fulltext_modes() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: SZ_ORM_MYSQL_URL 未配置或不可达");
+        return;
+    };
+    let dialect = mysql_dialect();
+    let table = unique_table("mx_my9");
+    let ddl = format!(
+        "CREATE TABLE {} (`id` BIGINT PRIMARY KEY AUTO_INCREMENT, `body` TEXT, \
+         FULLTEXT KEY `ft_body` (`body`)) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4",
+        dialect.quote(&table)
+    );
+    sqlx::query(sqlx::AssertSqlSafe(ddl.as_str()))
+        .execute(&pool)
+        .await
+        .expect("create fulltext table");
+    let insert = format!("INSERT INTO {} (`body`) VALUES (?)", dialect.quote(&table));
+    for body in [
+        "mysql database engine",
+        "rust programming language",
+        "database indexing performance",
+    ] {
+        q(&insert).bind(body).execute(&pool).await.expect("insert");
+    }
+
+    // 自然语言模式（旧行为等价路径）
+    let nl = dialect.full_text_search_mode(&["body"], "database", FullTextMode::NaturalLanguage);
+    let nl_sql = format!(
+        "SELECT COUNT(*) AS c FROM {} WHERE {}",
+        dialect.quote(&table),
+        nl
+    );
+    let c: i64 = q(&nl_sql).fetch_one(&pool).await.expect("nl").get("c");
+    assert_eq!(c, 2, "NATURAL LANGUAGE 命中 2 行（r1/r3 含 database）");
+
+    // 布尔模式：+database -mysql 操作符过滤
+    let boolean =
+        dialect.full_text_search_mode(&["body"], "+database -mysql", FullTextMode::Boolean);
+    let b_sql = format!(
+        "SELECT COUNT(*) AS c FROM {} WHERE {}",
+        dialect.quote(&table),
+        boolean
+    );
+    let c: i64 = q(&b_sql).fetch_one(&pool).await.expect("boolean").get("c");
+    assert_eq!(c, 1, "BOOLEAN MODE 操作符生效：database 且无 mysql → 仅 r3");
+
+    // 查询扩展模式：可执行且至少命中自然语言的结果
+    let qe = dialect.full_text_search_mode(&["body"], "database", FullTextMode::QueryExpansion);
+    let qe_sql = format!(
+        "SELECT COUNT(*) AS c FROM {} WHERE {}",
+        dialect.quote(&table),
+        qe
+    );
+    let c: i64 = q(&qe_sql).fetch_one(&pool).await.expect("qe").get("c");
+    assert!(c >= 2, "QUERY EXPANSION 可执行且不缩圈: {c}");
+
+    drop_table(&pool, &table).await;
+}
+
+/// MY10（B4）：QueryBuilder CTE builder——递归组织树行为验证 + 参数顺序证明。
+#[tokio::test]
+#[ignore = "需要 MySQL 运行（SZ_ORM_MYSQL_URL 注入）"]
+async fn matrix_my10_cte_builder() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: SZ_ORM_MYSQL_URL 未配置或不可达");
+        return;
+    };
+    let dialect = mysql_dialect();
+    let org = unique_table("mx_my10_org");
+    let columns = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "parent_id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+        ColumnDef {
+            name: "name".to_string(),
+            sql_type: "VARCHAR(50)".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+    sqlx::query(sqlx::AssertSqlSafe(
+        dialect.build_create_table(&org, &columns).as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("create org");
+    let insert = format!(
+        "INSERT INTO {} (`parent_id`, `name`) VALUES (?, ?)",
+        dialect.quote(&org)
+    );
+    // id1=root(depth0) id2=id4 挂 root(depth1) id3 挂 id2(depth2)
+    for (pid, name) in [
+        (None, "root"),
+        (Some(1i64), "a"),
+        (Some(2i64), "b"),
+        (Some(1i64), "c"),
+    ] {
+        q(&insert)
+            .bind(pid)
+            .bind(name)
+            .execute(&pool)
+            .await
+            .expect("insert");
+    }
+
+    // 递归 CTE（逃生口 SQL 引用 `org` 与自引用 `org_tree`）
+    let cte_sql = format!(
+        "SELECT `id`, `parent_id`, `name`, 1 AS depth FROM {} WHERE `parent_id` IS NULL \
+         UNION ALL \
+         SELECT c.`id`, c.`parent_id`, c.`name`, t.depth + 1 FROM {} c \
+         INNER JOIN `org_tree` t ON c.`parent_id` = t.id",
+        dialect.quote(&org),
+        dialect.quote(&org)
+    );
+    let (sql, params) = qb("org_tree")
+        .with_recursive_cte("org_tree", cte_sql, vec![])
+        .unwrap()
+        .select(vec!["id", "depth"])
+        .unwrap()
+        .order_by("id")
+        .build_select_with_params();
+    assert!(
+        sql.starts_with("WITH RECURSIVE `org_tree` AS ("),
+        "递归 CTE 前缀: {sql}"
+    );
+    let rows = bind_params!(q(&sql), params)
+        .fetch_all(&pool)
+        .await
+        .expect("recursive cte");
+    assert_eq!(rows.len(), 4, "整棵树 4 节点");
+    let depths: Vec<i64> = rows.iter().map(|r| r.get::<i64, _>("depth")).collect();
+    assert_eq!(
+        depths,
+        vec![1, 2, 3, 2],
+        "深度 root=1, a/c=2, b=3（行为级递归验证）"
+    );
+
+    // 参数顺序证明：CTE 参数(1) 先于主查询参数(2) 绑定
+    let kids_sql = format!(
+        "SELECT `id` FROM {} WHERE `parent_id` = ?",
+        dialect.quote(&org)
+    );
+    let (sql2, params2) = qb("kids")
+        .with_cte("kids", kids_sql, vec![Value::I64(1)])
+        .unwrap()
+        .select(vec!["id"])
+        .unwrap()
+        .where_gt("id", Value::I64(2))
+        .build_select_with_params();
+    assert_eq!(params2, vec![Value::I64(1), Value::I64(2)], "CTE 参数在前");
+    let rows = bind_params!(q(&sql2), params2)
+        .fetch_all(&pool)
+        .await
+        .expect("cte params");
+    let ids: Vec<i64> = rows.iter().map(|r| r.get::<i64, _>("id")).collect();
+    assert_eq!(
+        ids,
+        vec![4],
+        "root 子节点 2、4 且主查询 id > 2 → 仅 4（参数顺序行为证明）"
+    );
+
+    drop_table(&pool, &org).await;
 }
