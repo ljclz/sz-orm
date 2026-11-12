@@ -11,7 +11,7 @@
 ## 目录
 
 1. [核心原则（ADR-0001）](#0-核心原则adr-0001)
-2. [当前门禁总表（36 道）](#1-当前门禁总表36-道)
+2. [当前门禁总表（37 道）](#1-当前门禁总表36-道)
 3. [标准 7 道门禁 CI 配置（G1-G7，历史演进）](#2-标准-7-道门禁-ci-配置g1-g7历史演进)
 4. [特殊强化门禁 CI 配置（G8-G14，历史演进）](#3-sz-orm-特殊强化门禁-ci-配置g8-g14历史演进)
 5. [五维审查增强](#4-五维审查增强)
@@ -40,9 +40,9 @@ sz-orm 作为上游基础库，其代码由独立团队维护。下游项目（�
 
 ---
 
-## 1. 当前门禁总表（36 道）
+## 1. 当前门禁总表（37 道）
 
-> 权威门禁清单与命令详见根目录 [AGENTS.md](../AGENTS.md)。以下为当前 36 道门禁总表（与 AGENTS.md 逐行同步），任何提交/PR 必须全数通过。后续章节 G1-G14 的详细 CI 配置为历史演进说明；G15-G36 的命令以 AGENTS.md 与 `scripts/` 为准。
+> 权威门禁清单与命令详见根目录 [AGENTS.md](../AGENTS.md)。以下为当前 37 道门禁总表（与 AGENTS.md 逐行同步），任何提交/PR 必须全数通过。后续章节 G1-G14 的详细 CI 配置为历史演进说明；G15-G37 的命令以 AGENTS.md 与 `scripts/` 为准。
 
 | # | 门禁 | 命令 |
 |---|------|------|
@@ -82,6 +82,7 @@ sz-orm 作为上游基础库，其代码由独立团队维护。下游项目（�
 | 34 | 代码生成器产物编译验证 | `python scripts/check-generated-code-compiles.py` |
 | 35 | 文档链接健康检查 | `python scripts/check-doc-links.py`（2026-10-30 TW 评测收尾新增：遍历核心文档相对链接，目标不存在即红牌，防死链复发；含 `--self-test`） |
 | 36 | CHANGELOG 版本线一致性 | `python scripts/check-changelog-consistency.py`（2026-10-30 TW 评测收尾新增：校验版本头 semver 合法/无重复/最新==workspace/日期从新到旧，补录条目豁免；含 `--self-test`） |
+| 37 | dialect DDL/FTS 裸标识符检测 | `python scripts/check-dialect-ddl-quoting.py`（2026-11-12 ALTER INDEX/FK quote 批二 §7 遗留项 2 落地：quote 类缺口 5 批真连发现史 + R-2 无名 DDL 变体固化为机器门禁——Q1 `ADD CONSTRAINT FOREIGN KEY` 无名形态零容忍 + Q2 敏感模板裸标识符参数检测；安全赋值链判定 + `quote-gate-safe` 行内豁免登记制（同 G15/G17 豁免语义）+ 注释剥离防误报；自测 10/10；含 `--self-test`） |
 
 ---
 
@@ -519,7 +520,7 @@ flowchart LR
 2. **`cargo test -p <affected-package>`** — 运行受影响包的测试
 3. **`cargo test -p sz-orm-core --test contracts`** — 运行契约测试（API 变更时必做）
 4. **`cargo clippy --workspace --all-targets --all-features -- -D warnings`** — 严格 lint
-5. **`./scripts/gate.ps1`** — 本地门禁全关卡验证（对应 36 道门禁，具体以 `AGENTS.md` 门禁表为准）
+5. **`./scripts/gate.ps1`** — 本地门禁全关卡验证（对应 37 道门禁，具体以 `AGENTS.md` 门禁表为准）
 6. **`git commit`** — 通过后提交
 
 **紧急修复**：使用 `./scripts/gate.ps1 -Fast` 只跑前 3 关（fmt + check + clippy）
@@ -562,7 +563,7 @@ cargo build --features sz-orm-macros/db-verify
 部署前必须逐项确认以下检查全部通过：
 
 - [ ] **门禁检查**
-  - [ ] 36 道门禁全部通过（见 AGENTS.md 门禁表）
+  - [ ] 37 道门禁全部通过（见 AGENTS.md 门禁表）
   - [ ] 所有 feature 组合编译通过
 
 - [ ] **测试检查**

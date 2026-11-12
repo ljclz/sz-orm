@@ -30,7 +30,7 @@
 
 | 文档 | 说明 |
 |------|------|
-| [sz-orm-engineering-practices.md](sz-orm-engineering-practices.md) | 36 道门禁 + 五维审查 + AI 辅助开发约束 |
+| [sz-orm-engineering-practices.md](sz-orm-engineering-practices.md) | 37 道门禁 + 五维审查 + AI 辅助开发约束 |
 | [Security.md](Security.md) | 安全设计（SQL 注入防护、连接池安全、脱敏） |
 | [ADR与生产Bug定位规范.md](ADR与生产Bug定位规范.md) | ADR 编写规范与生产 Bug 定位流程 |
 

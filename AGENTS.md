@@ -61,6 +61,7 @@
 | 34 | 代码生成器产物编译验证 | `python scripts/check-generated-code-compiles.py`（2026-10-27 UXR 评测第三轮新增，2026-10-28 由 28 改号：调用 CLI `make:model` 生成 5 种主键类型（i64/u32/u64/String/uuid）的模型产物，在临时 crate 中 `cargo check` 编译验证，防止生成器产出引用不存在宏/私有模块的坏代码；cargo 不可用时跳过） |
 | 35 | 文档链接健康检查 | `python scripts/check-doc-links.py`（2026-10-30 TW 评测收尾新增：遍历根 README×3/CHANGELOG + docs 根/adr/migration/assessment/delivery 共 265 份核心文档的相对链接，剥离 `#anchor` 与代码块围栏，目标文件不存在即红牌，防止死链复发；含 `--self-test`） |
 | 36 | CHANGELOG 版本线一致性 | `python scripts/check-changelog-consistency.py`（2026-10-30 TW 评测收尾新增：解析 `## [x.y.z]` 版本头，校验 semver 合法性、无重复版本、最新版本 == workspace 版本、日期沿文件从新到旧（补录/推断区间豁免）；含 `--self-test`） |
+| 37 | dialect DDL/FTS 裸标识符检测 | `python scripts/check-dialect-ddl-quoting.py`（2026-11-12 ALTER INDEX/FK quote 批二 §7 遗留项 2 落地：quote 类缺口 5 批真连发现史（G-OR1/MY G2/G-OR9/FTS 批/批二）+ R-2 无名 DDL 变体固化为机器门禁——Q1 `ADD CONSTRAINT FOREIGN KEY` 无名形态零容忍 + Q2 敏感模板（CREATE/DROP INDEX、ADD CONSTRAINT、FOREIGN KEY、REFERENCES、CONTAINS/CONTAINING/MATCH/to_tsvector/position/ILIKE/LIKE）裸标识符参数检测；安全赋值链判定（quote/escape_string）+ `quote-gate-safe` 行内豁免登记制（同 G15/G17 豁免语义）+ 注释剥离防误报；自测 10/10（5 历史缺口形态必命中 + 5 已修复形态必不命中）；含 `--self-test`） |
 
 ### 五维审查（每次 PR 必做）
 
