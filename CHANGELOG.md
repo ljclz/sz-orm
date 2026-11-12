@@ -9,6 +9,13 @@
 
 ## [Unreleased]
 
+### Added — 容器化缺失实例供给 × 兼容方言族矩阵验证（MZ-*，六环闭环）
+
+- **Docker 供给 6 实例**（MSSQL 2022 CU28@1433 / MariaDB 11.8.9@3326 / TiDB v8.5.1@4400 / ClickHouse 26.10.3.7@9004 / DB2 Community@55000 / openGauss 6.0.0@15433）：供给脚本 `D:/tmp/docker-instances/supply.sh` 不入仓库；坑位登记——daocloud 不代理 mcr 路径（直连拉取）、openGauss 走 enmotech 镜像、宿主 5433 被 szrsql_soak 常驻占用改映射 15433、ClickHouse 默认 user 仅限本机（挂载 users.d 开放）、DB2 需手工建库
+- **六家族矩阵 24 测试全绿**（既有 `integration_<db>.rs` 各追加 4 个 `matrix_mz_*`，不新建文件；测试落点 commit `cc29f8a6` hunk 级隔离收纳）：MSSQL **12 passed**（OUTPUT INSERTED 回填/方括号 quoting/无 ORDER BY OFFSET Msg 102 契约——生产面 `requires_order_by_for_pagination` 守卫已覆盖/GETDATE+JSON_VALUE）+ MariaDB **11 passed**（原生 SEQUENCE/INSERT RETURNING 引擎扩展不反转委托/CHECK 4025 真执行/sql_mode 家族差异）+ TiDB **11 passed**（FK v6.6+ 真执行 1452/AUTO_RANDOM/无 RETURNING 1064/CHECK 版本行为）+ ClickHouse **11 passed**（MergeTree 子句/default_table_engine=MergeTree 26.x 契约修正/MySQL 协议通道不接受 prepared 绑定参数/LIMIT o,l）+ DB2 **15 passed**（SYSDUMMY1 通道/OFFSET FETCH NEXT/大写折叠/IDENTITY 双通道；真库断言经容器内 CLP——无 Rust 驱动为项目约束）+ openGauss **7 passed**（sql_compatibility=PG/RETURNING 支持/nextval 须字面量参数/双引号折叠）
+- **sz-orm 方言缺口 0 处**：六家族委托选择全部经真库行为验证正确（MariaDB/TiDB→MySQL 族、openGauss→PG 族、CH/DB2/SqlServer 独立实现）；G37 门禁 0 命中佐证
+- **引擎/环境特有登记 9 项**（B1~B9）+ 环境坑位 5 项；报告 `docs/assessment/2026-11-13-container-dialect-matrix.md`（audit-verify 22 通过 0 失败）；二波（OceanBase/PolarDB/Kingbase/Dameng/GBase）留待补批
+
 ### Added — SQLite 方言矩阵真连验证（SQ1~SQ7，六环闭环）
 
 - 新增 `packages/sz-orm-core/tests/integration_sqlite_matrix.rs`（10 测试，内存库免 env 无条件必跑，`cargo test -p sz-orm-core --test integration_sqlite_matrix` → **10 passed**）：SQ0 引擎版本契约（bundled 3.46.0）+ SQ1 STRICT/RETURNING/IS NOT DISTINCT FROM 方言暴露面 + SQ2 三种 quoting/G2 同型回归 + SQ3 Upsert 家族（ON CONFLICT/EXCLUDED、OR IGNORE、OR REPLACE 删后插 rowid 探针、混用形态跨引擎接受）+ SQ4 主键回填双通道 + WITHOUT ROWID last_insert_rowid 失效探针 + SQ5 PRAGMA 面 + SQ6 类型亲和性/JSON1 + SQ7 边缘语义/FTS quote 真库命中/SQLITE_BUSY 双连接探针 + DuckDB 同型回归。报告 `docs/assessment/2026-11-13-sqlite-dialect-matrix.md`（audit-verify 0 失败）
