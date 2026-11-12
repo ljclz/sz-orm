@@ -199,6 +199,21 @@ SQL_PREFIXES = ("SELECT ", "INSERT ", "UPDATE ", "DELETE ", "CREATE ", "DROP ", 
 LEGACY_AUDIT_PATHS = ("docs/assessment/",)
 LEGACY_AUDIT_STRINGS: frozenset[str] = frozenset()
 
+# v10.14.0 (2026-11-13 szrsql 线先在项转交项 1/2)：精确形态豁免集（跨文件，非路径限定）。
+# `trust` 是 szrsql 本地 trust 认证的「模式名」（非凭据；trust 模式本身无密码），
+# 但 URL userinfo 形态 postgres:trust@ 与「连接串内嵌凭据」规则形态匹配。
+# 按 2026-10-31 红队批先例（<pw>/FAKE_VALUE 精确豁免语义）登记**精确形态子串**
+# （用户名+密码段+@ 锚定），禁止把裸 "trust" 加入 KNOWN_FALSE_POSITIVES——
+# 那会让任意真实密码 "trust" 全仓漏检。匹配对 matched 小写化后子串判断。
+# 第二条为 CI 环境变量拼接形态（转交文档项 1 处置选项 2 的合规形态），
+# 同样带 userinfo+@ 锚定；变量引用非字面凭据。
+PRECISE_FORM_EXEMPTIONS: frozenset[str] = frozenset(
+    {
+        "postgres:trust@",
+        "postgres:${szrsql_test_auth}@",
+    }
+)
+
 
 @dataclass
 class Finding:
@@ -346,6 +361,10 @@ def scan_file(path: Path, root: Path) -> list[Finding]:
             # 历史审计记录豁免：matched 是完整匹配串（含捕获组文本），用子串判断
             # 可同时覆盖连接串形态与键值赋值形态
             if is_legacy_audit and any(s in matched for s in LEGACY_AUDIT_STRINGS):
+                continue
+            # 精确形态豁免（跨文件）：见 PRECISE_FORM_EXEMPTIONS 注释——
+            # matched 小写化后子串匹配，形态由用户名+密码段+@ 锚定，非宽泛放行
+            if any(s in matched.lower() for s in PRECISE_FORM_EXEMPTIONS):
                 continue
             findings.append(
                 Finding(

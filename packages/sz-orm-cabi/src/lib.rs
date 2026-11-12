@@ -260,6 +260,20 @@ fn to_core_config(c: &PoolConfigC) -> Result<PoolConfig, sz_orm_core::PoolError>
 ///
 /// SAFETY: `dsn` must be a valid NUL-terminated C string.
 #[no_mangle]
+/// szrsql:// DSN → postgres:// 归一化（非 szrsql 前缀返回 None）。
+///
+/// 2026-11-13（szrsql 线先在项转交项 3）：从 `sz_orm_pool_new` 内联逻辑提取为
+/// 独立纯函数（不依赖网络/运行时），使「`szrsql://` 路由语义」从仅集成面可观测
+/// 升级为单元面可回归；行为与原内联实现零变化。前缀匹配大小写不敏感
+/// （`SzRSQL://` 同样接受，与原 `to_lowercase().starts_with` 口径一致）。
+fn normalize_szrsql_dsn(dsn: &str) -> Option<String> {
+    if dsn.to_lowercase().starts_with("szrsql://") {
+        Some(format!("postgres://{}", &dsn["szrsql://".len()..]))
+    } else {
+        None
+    }
+}
+
 pub unsafe extern "C" fn sz_orm_pool_new(
     dsn: *const c_char,
     config: *const PoolConfigC,
@@ -286,11 +300,9 @@ pub unsafe extern "C" fn sz_orm_pool_new(
     // `szrsql://` 经 normalize 改写回 `postgres://` 复用 sqlx PostgreSQL 驱动建池）。
     // 其余 DSN（裸 postgres:// 之 MySQL/MSSQL 等前端）仍显式拒绝，避免调用方误以为支持而在
     // 运行期拿到难以定位的连接错误。go/java 绑定经本函数转发（`sz_orm_go_pool_new` 等）同口径。
-    let pg_dsn = if dsn.to_lowercase().starts_with("szrsql://") {
-        Some(format!("postgres://{}", &dsn["szrsql://".len()..]))
-    } else {
-        None
-    };
+    // 2026-11-13（转交项 3）：归一化逻辑提取为纯函数 `normalize_szrsql_dsn`（上方），
+    // 行为零变化；单元面回归见 `test_szrsql_dsn_normalization`。
+    let pg_dsn = normalize_szrsql_dsn(&dsn);
     if pg_dsn.is_none() && !dsn.starts_with("sqlite:") {
         return std::ptr::null_mut();
     }
@@ -2633,20 +2645,23 @@ mod tests {
     }
 
     #[test]
-    fn test_pool_new_szrsql_dsn_normalized_to_pg() {
-        // v10.13.3：C ABI 支持 SzRSQL（pgwire v3.0）。`szrsql://` 应改写回 `postgres://`
-        // 用 Pg 驱动建池——但本机无 6543 服务时进程级连接失败→返回 null；此处验证的
-        // 是"szrsql:// 不再被当作非法 DSN 直接拒绝"这层路由语义。
-        // 无法连上（不依赖真实服务）仍应得 null（不挂、不 panic）；若本机可连则非 null。
-        let dsn = CString::new("szrsql://postgres:trust@127.0.0.1:6543/postgres").unwrap();
-        // SAFETY: dsn 是有效 C 字符串
-        let pool = unsafe { sz_orm_pool_new(dsn.as_ptr(), std::ptr::null()) };
-        // 无论连上与否都不得 panic/崩溃；能连上则为非 null，否则 null（无可断言具体值）
-        if !pool.is_null() {
-            unsafe {
-                sz_orm_pool_free(pool);
-            }
-        }
+    fn test_szrsql_dsn_normalization() {
+        // 2026-11-13（szrsql 线先在项转交项 3）：原 `test_pool_new_szrsql_dsn_normalized_to_pg`
+        // 为零断言网络探针（无 6543 服务时不可判定，G30 P3「零断言」命中）。归一化逻辑已
+        // 提取为纯函数 `normalize_szrsql_dsn`，此处直接断言路由语义（真断言、零网络依赖）。
+        assert_eq!(
+            normalize_szrsql_dsn("szrsql://postgres:trust@127.0.0.1:6543/postgres"),
+            Some("postgres://postgres:trust@127.0.0.1:6543/postgres".to_string())
+        );
+        assert_eq!(normalize_szrsql_dsn("sqlite://x.db"), None);
+        assert_eq!(normalize_szrsql_dsn("mysql://x"), None);
+        assert_eq!(normalize_szrsql_dsn("postgres://x"), None);
+        // 大小写不敏感前缀（与原内联 to_lowercase 口径一致）
+        assert_eq!(
+            normalize_szrsql_dsn("SzRSQL://postgres@h/db"),
+            Some("postgres://postgres@h/db".to_string())
+        );
+        assert!(normalize_szrsql_dsn("SZRSQL://x").is_some());
     }
 
     #[test]
