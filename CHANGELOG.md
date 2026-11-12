@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Added — 门禁 37：dialect DDL/FTS 裸标识符静态检测（§7 遗留项 2 落地）
+
+- **quote 类缺口预防机制自动化**（实施 2026-11-12~13）：`scripts/check-dialect-ddl-quoting.py` 把 quote 类缺口 5 批真连发现史（G-OR1/MY G2/G-OR9/FTS 横向/ALTER 批二）+ 红队 R-2 无名 DDL 变体固化为机器门禁——**Q1** `ADD CONSTRAINT FOREIGN KEY` 无名形态零容忍（非法 DDL）+ **Q2** 敏感模板（CREATE/DROP INDEX、ADD CONSTRAINT、FOREIGN KEY、REFERENCES、CONTAINS/CONTAINING/MATCH/to_tsvector/position/ILIKE/LIKE 共 12 关键词）裸标识符参数检测；安全判定：quote/escape_string 包裹 + 安全赋值链追踪 + `quote-gate-safe` 行内豁免登记制（同 G15/G17 豁免语义，3 处登记：actions 白名单值/mode_clause 常量/SQLite 注释提示串）+ 注释剥离防误报（R-2 注释字样）；**自测 10/10**（5 历史缺口形态必命中 + 5 已修复形态必不命中）+ dialect.rs 全量扫描 0 命中；登记入 AGENTS.md 门禁表 37 号 + 全仓门禁数 36→37 同步（G33 实测抓出 51 处过时声明一并清零——G33 门禁自身设计用途的实证）；engineering-practices.md 总表追加 37 行
+
+### Added — szrsql 线先在项转交反馈（跨批转交说明）
+
+- **致 szrsql 维护方的可执行转交文档**（`docs/assessment/2026-11-13-szrsql-line-legacy-items-feedback.md`，audit-verify 4/0/0）：G9 secrets×2（CI integration.yml:97 + kill_recover.rs:74 的 `postgres:trust@` 形态——trust 为认证模式名非凭据；豁免登记/形态改写双方案）+ G30 cabi 零断言（`normalize_szrsql_dsn` 纯函数提取式结构化修复方案，含可直接采纳的代码形态）+ 修复验收清单（secrets/phantom-tests EXIT=0 口径）；转交理由：三项均位于 szrsql 发布线在途面，按硬约束 13 并行协作纪律不由方言批顺手修改
+
 ### Added — ALTER INDEX/FK quote 横向修复批二（8 方言，六环闭环）
 
 - **G-OR1 同型缺口第五次发现横向收尾**（报告 `docs/assessment/2026-11-12-alter-index-fk-quote-sweep.md`，提示词 `2026-11-12-alter-index-fk-quote-sweep-prompt.md`，实施批 0554331/c544901 + 红队回执处置，红队 PASS 有条件→无条件）：PostgreSQL/SQLite/SqlServer/Snowflake/DB2/Informix/SapHana/Firebird 八方言 `build_alter_table` AddIndex 索引名+列名 quote、DropIndex 索引名 quote（SQLServer ON 表名结构保持）、AddForeignKey 约束名组装后 quote（MySQL 批 G2 口径）——混合大小写列/保留字列裸拼被真库折叠或语法拒绝；新增横向单测 `test_alter_index_fk_quoting_all_dialects`（8 方言 AddIndex/DropIndex/**FK** 逐字节）；**PG 行为级真连** `test_pg_alter_index_fk_quoted_realconn`（pg_indexes 1→0 往返 + 保留字列 order + FK CASCADE 约束名真库接受）；**红队 R-2 深挖修复**：Informix/SapHana/Firebird 三臂前在生成 `ADD CONSTRAINT FOREIGN KEY` 无约束名非法 DDL——补 fk_name + quote；真连覆盖 PG 22/22 + MySQL matrix 11/11 + Oracle matrix 24/24 + integration_oracle 10/10 零回归 + lib 3284 全过；越批登记：quote 缺口静态门禁自动化建议（`ADD CONSTRAINT FOREIGN KEY` 无名形态检测）
