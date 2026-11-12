@@ -944,49 +944,101 @@ impl Dialect for PostgreSqlDialect {
     }
 
     fn build_alter_table(&self, table: &str, changes: &[TableChange]) -> String {
-        let stmts: Vec<String> = changes.iter().map(|change| {
-            match change {
-                TableChange::AddColumn(col) => {
-                    let mut sql = format!("ALTER TABLE {} ADD COLUMN {} {}", self.quote(table), self.quote(&col.name), col.sql_type);
-                    if !col.nullable {
-                        sql.push_str(" NOT NULL");
+        let stmts: Vec<String> = changes
+            .iter()
+            .map(|change| {
+                match change {
+                    TableChange::AddColumn(col) => {
+                        let mut sql = format!(
+                            "ALTER TABLE {} ADD COLUMN {} {}",
+                            self.quote(table),
+                            self.quote(&col.name),
+                            col.sql_type
+                        );
+                        if !col.nullable {
+                            sql.push_str(" NOT NULL");
+                        }
+                        if let Some(default) = &col.default {
+                            sql.push_str(&format!(" DEFAULT {}", default));
+                        }
+                        sql
                     }
-                    if let Some(default) = &col.default {
-                        sql.push_str(&format!(" DEFAULT {}", default));
+                    TableChange::DropColumn(name) => {
+                        format!(
+                            "ALTER TABLE {} DROP COLUMN {}",
+                            self.quote(table),
+                            self.quote(name)
+                        )
                     }
-                    sql
-                }
-                TableChange::DropColumn(name) => {
-                    format!("ALTER TABLE {} DROP COLUMN {}", self.quote(table), self.quote(name))
-                }
-                TableChange::ModifyColumn(col) => {
-                    // PostgreSQL 使用 ALTER COLUMN TYPE
-                    let mut sql = format!("ALTER TABLE {} ALTER COLUMN {} TYPE {}", self.quote(table), self.quote(&col.name), col.sql_type);
-                    if !col.nullable {
-                        sql.push_str(&format!(", ALTER COLUMN {} SET NOT NULL", self.quote(&col.name)));
+                    TableChange::ModifyColumn(col) => {
+                        // PostgreSQL 使用 ALTER COLUMN TYPE
+                        let mut sql = format!(
+                            "ALTER TABLE {} ALTER COLUMN {} TYPE {}",
+                            self.quote(table),
+                            self.quote(&col.name),
+                            col.sql_type
+                        );
+                        if !col.nullable {
+                            sql.push_str(&format!(
+                                ", ALTER COLUMN {} SET NOT NULL",
+                                self.quote(&col.name)
+                            ));
+                        }
+                        if let Some(default) = &col.default {
+                            sql.push_str(&format!(
+                                ", ALTER COLUMN {} SET DEFAULT {}",
+                                self.quote(&col.name),
+                                default
+                            ));
+                        }
+                        sql
                     }
-                    if let Some(default) = &col.default {
-                        sql.push_str(&format!(", ALTER COLUMN {} SET DEFAULT {}", self.quote(&col.name), default));
+                    TableChange::AddIndex(name, cols) => {
+                        // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                        // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                        let quoted_cols = cols
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ");
+                        format!(
+                            "CREATE INDEX {} ON {} ({})",
+                            self.quote(name),
+                            self.quote(table),
+                            quoted_cols
+                        )
                     }
-                    sql
+                    TableChange::DropIndex(name) => {
+                        // 与 AddIndex 的 quote 形态一致（引号索引名往返）
+                        format!("DROP INDEX {}", self.quote(name))
+                    }
+                    TableChange::AddForeignKey {
+                        columns,
+                        reference_table,
+                        reference_columns,
+                    } => {
+                        // 约束名组装后 quote（MySQL 批 G2 口径；防大小写折叠/特殊字符）
+                        let fk_name = format!("fk_{}_{}", table, columns.join("_"));
+                        format!(
+                            "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
+                            self.quote(table),
+                            self.quote(&fk_name),
+                            columns
+                                .iter()
+                                .map(|c| self.quote(c))
+                                .collect::<Vec<_>>()
+                                .join(", "),
+                            self.quote(reference_table),
+                            reference_columns
+                                .iter()
+                                .map(|c| self.quote(c))
+                                .collect::<Vec<_>>()
+                                .join(", ")
+                        )
+                    }
                 }
-                TableChange::AddIndex(name, cols) => {
-                    format!("CREATE INDEX {} ON {} ({})", name, self.quote(table), cols.join(", "))
-                }
-                TableChange::DropIndex(name) => {
-                    format!("DROP INDEX {}", name)
-                }
-                TableChange::AddForeignKey { columns, reference_table, reference_columns } => {
-                    format!("ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
-                        self.quote(table),
-                        table,
-                        columns.join("_"),
-                        columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
-                        self.quote(reference_table),
-                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "))
-                }
-            }
-        }).collect();
+            })
+            .collect();
 
         stmts.join("; ")
     }
@@ -1226,15 +1278,23 @@ impl Dialect for SqliteDialect {
                         )
                     }
                     TableChange::AddIndex(name, cols) => {
+                        // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                        // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                        let quoted_cols = cols
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ");
                         format!(
                             "CREATE INDEX {} ON {} ({})",
-                            name,
+                            self.quote(name),
                             self.quote(table),
-                            cols.join(", ")
+                            quoted_cols
                         )
                     }
                     TableChange::DropIndex(name) => {
-                        format!("DROP INDEX {}", name)
+                        // 与 AddIndex 的 quote 形态一致（引号索引名往返）
+                        format!("DROP INDEX {}", self.quote(name))
                     }
                     TableChange::AddForeignKey {
                         columns,
@@ -1862,30 +1922,47 @@ impl Dialect for SqlServerDialect {
                     sql
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                    // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "CREATE INDEX {} ON {} ({})",
-                        name,
+                        self.quote(name),
                         self.quote(table),
-                        cols.join(", ")
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    // SQL Server 的 DROP INDEX 必须指定表名
-                    format!("DROP INDEX {} ON {}", name, self.quote(table))
+                    // SQL Server 的 DROP INDEX 必须指定表名（索引名同步 quote）
+                    format!("DROP INDEX {} ON {}", self.quote(name), self.quote(table))
                 }
                 TableChange::AddForeignKey {
                     columns,
                     reference_table,
                     reference_columns,
                 } => {
+                    // ALTER INDEX/FK quote 横向修复批二：约束名组装后 quote
+                    // （MySQL 批 G2 口径；防大小写折叠/特殊字符破坏 DDL）
+                    let fk_name = format!("fk_{}_{}", table, columns.join("_"));
                     format!(
-                        "ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
+                        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
-                        table,
-                        columns.join("_"),
-                        columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
+                        self.quote(&fk_name),
+                        columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         self.quote(reference_table),
-                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", ")
+                        reference_columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )
                 }
             })
@@ -2284,29 +2361,47 @@ impl Dialect for SnowflakeDialect {
                     )
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                    // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "CREATE INDEX {} ON {} ({})",
-                        name,
+                        self.quote(name),
                         self.quote(table),
-                        cols.join(", ")
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    format!("DROP INDEX {}", name)
+                    // 与 AddIndex 的 quote 形态一致（引号索引名往返）
+                    format!("DROP INDEX {}", self.quote(name))
                 }
                 TableChange::AddForeignKey {
                     columns,
                     reference_table,
                     reference_columns,
                 } => {
+                    // ALTER INDEX/FK quote 横向修复批二：约束名组装后 quote
+                    // （MySQL 批 G2 口径；防大小写折叠/特殊字符破坏 DDL）
+                    let fk_name = format!("fk_{}_{}", table, columns.join("_"));
                     format!(
-                        "ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
+                        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
-                        table,
-                        columns.join("_"),
-                        columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
+                        self.quote(&fk_name),
+                        columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         self.quote(reference_table),
-                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", ")
+                        reference_columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )
                 }
             })
@@ -3042,29 +3137,47 @@ impl Dialect for Db2Dialect {
                     )
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                    // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "CREATE INDEX {} ON {} ({})",
-                        name,
+                        self.quote(name),
                         self.quote(table),
-                        cols.join(", ")
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    format!("DROP INDEX {}", name)
+                    // 与 AddIndex 的 quote 形态一致（引号索引名往返）
+                    format!("DROP INDEX {}", self.quote(name))
                 }
                 TableChange::AddForeignKey {
                     columns,
                     reference_table,
                     reference_columns,
                 } => {
+                    // ALTER INDEX/FK quote 横向修复批二：约束名组装后 quote
+                    // （MySQL 批 G2 口径；防大小写折叠/特殊字符破坏 DDL）
+                    let fk_name = format!("fk_{}_{}", table, columns.join("_"));
                     format!(
-                        "ALTER TABLE {} ADD CONSTRAINT fk_{}_{} FOREIGN KEY ({}) REFERENCES {} ({})",
+                        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
-                        table,
-                        columns.join("_"),
-                        columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", "),
+                        self.quote(&fk_name),
+                        columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", "),
                         self.quote(reference_table),
-                        reference_columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", ")
+                        reference_columns
+                            .iter()
+                            .map(|c| self.quote(c))
+                            .collect::<Vec<_>>()
+                            .join(", ")
                     )
                 }
             })
@@ -3368,15 +3481,23 @@ impl Dialect for InformixDialect {
                     )
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                    // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "CREATE INDEX {} ON {} ({})",
-                        name,
+                        self.quote(name),
                         self.quote(table),
-                        cols.join(", ")
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    format!("DROP INDEX {}", name)
+                    // 与 AddIndex 的 quote 形态一致（引号索引名往返）
+                    format!("DROP INDEX {}", self.quote(name))
                 }
                 TableChange::AddForeignKey {
                     columns,
@@ -3601,15 +3722,23 @@ impl Dialect for SapHanaDialect {
                     )
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                    // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "CREATE INDEX {} ON {} ({})",
-                        name,
+                        self.quote(name),
                         self.quote(table),
-                        cols.join(", ")
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    format!("DROP INDEX {}", name)
+                    // 与 AddIndex 的 quote 形态一致（引号索引名往返）
+                    format!("DROP INDEX {}", self.quote(name))
                 }
                 TableChange::AddForeignKey {
                     columns,
@@ -3835,15 +3964,23 @@ impl Dialect for FirebirdDialect {
                     )
                 }
                 TableChange::AddIndex(name, cols) => {
+                    // ALTER INDEX/FK quote 横向修复批二：索引名与列名必须 quote
+                    // （混合大小写列裸拼被真库折叠/注入面，同 G-OR1/G-OR9 类）
+                    let quoted_cols = cols
+                        .iter()
+                        .map(|c| self.quote(c))
+                        .collect::<Vec<_>>()
+                        .join(", ");
                     format!(
                         "CREATE INDEX {} ON {} ({})",
-                        name,
+                        self.quote(name),
                         self.quote(table),
-                        cols.join(", ")
+                        quoted_cols
                     )
                 }
                 TableChange::DropIndex(name) => {
-                    format!("DROP INDEX {}", name)
+                    // 与 AddIndex 的 quote 形态一致（引号索引名往返）
+                    format!("DROP INDEX {}", self.quote(name))
                 }
                 TableChange::AddForeignKey {
                     columns,
@@ -4340,6 +4477,69 @@ mod tests {
         );
     }
 
+    /// ALTER INDEX/FK quote 横向修复批二：8 方言 AddIndex/DropIndex/FK 约束名
+    /// quote 一致化生成面断言（混合大小写列场景；真连覆盖矩阵见
+    /// docs/assessment/2026-11-12-alter-index-fk-quote-sweep.md）
+    #[test]
+    fn test_alter_index_fk_quoting_all_dialects() {
+        let cases: Vec<(DbType, &str, &str)> = vec![
+            // (DbType, AddIndex 期望形态, DropIndex 期望形态)
+            (
+                DbType::PostgreSQL,
+                "CREATE INDEX \"idx_x\" ON \"t\" (\"userName\")",
+                "DROP INDEX \"idx_x\"",
+            ),
+            (
+                DbType::Sqlite,
+                "CREATE INDEX \"idx_x\" ON \"t\" (\"userName\")",
+                "DROP INDEX \"idx_x\"",
+            ),
+            (
+                DbType::SqlServer,
+                "CREATE INDEX [idx_x] ON [t] ([userName])",
+                "DROP INDEX [idx_x] ON [t]",
+            ),
+            (
+                DbType::Snowflake,
+                "CREATE INDEX \"idx_x\" ON \"t\" (\"userName\")",
+                "DROP INDEX \"idx_x\"",
+            ),
+            (
+                DbType::Db2,
+                "CREATE INDEX \"idx_x\" ON \"t\" (\"userName\")",
+                "DROP INDEX \"idx_x\"",
+            ),
+            (
+                DbType::Informix,
+                "CREATE INDEX \"idx_x\" ON \"t\" (\"userName\")",
+                "DROP INDEX \"idx_x\"",
+            ),
+            (
+                DbType::SapHana,
+                "CREATE INDEX \"idx_x\" ON \"t\" (\"userName\")",
+                "DROP INDEX \"idx_x\"",
+            ),
+            (
+                DbType::Firebird,
+                "CREATE INDEX \"idx_x\" ON \"t\" (\"userName\")",
+                "DROP INDEX \"idx_x\"",
+            ),
+        ];
+        for (db, add_expect, drop_expect) in cases {
+            let d = get_dialect(db).expect("dialect");
+            let add = d.build_alter_table(
+                "t",
+                &[TableChange::AddIndex(
+                    "idx_x".to_string(),
+                    vec!["userName".to_string()],
+                )],
+            );
+            assert_eq!(add, add_expect, "{} AddIndex: {add}", d.db_type());
+            let drop = d.build_alter_table("t", &[TableChange::DropIndex("idx_x".to_string())]);
+            assert_eq!(drop, drop_expect, "{} DropIndex: {drop}", d.db_type());
+        }
+    }
+
     #[test]
     fn test_oracle_drop_table() {
         let dialect = OracleDialect;
@@ -4697,7 +4897,8 @@ mod tests {
         // DROP INDEX 必须指定表名
         let sql =
             dialect.build_alter_table("users", &[TableChange::DropIndex("idx_name".to_string())]);
-        assert!(sql.contains("DROP INDEX idx_name ON [users]"));
+        // ALTER INDEX/FK quote 横向修复批二：索引名 [quote]
+        assert!(sql.contains("DROP INDEX [idx_name] ON [users]"));
     }
 
     #[test]
