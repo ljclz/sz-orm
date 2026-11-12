@@ -364,6 +364,11 @@ path = "tests/integration_oracle.rs"
 name = "integration_oracle_matrix"
 path = "tests/integration_oracle_matrix.rs"
 
+# 2026-11-12 Oracle 边界补齐 OR10：CTE builder 真连（独立 Model 马甲）
+[[test]]
+name = "integration_oracle_cte"
+path = "tests/integration_oracle_cte.rs"
+
 # v2.0.0 任务 1.2：SQL Server 集成测试入口
 [[test]]
 name = "integration_mssql"
