@@ -4,7 +4,7 @@
 > **语义基准**：各方言官方标识符引用语义 + 本机就绪服务真库实测
 > **版本**：sz-orm v10.13.4（workspace.package.version）
 > **提示词**：[2026-11-12-fts-quote-sweep-prompt.md](2026-11-12-fts-quote-sweep-prompt.md)（第 1 环已闭环，commit `58a71b7c`）
-> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅ / 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅ / 第 6 环登记 ✅
+> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅（含红队回执处置）/ 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅（PASS，P2×1 处置）/ 第 6 环登记 ✅
 
 ---
 
@@ -49,7 +49,7 @@
 
 | 门禁 | 结果 | 证据 |
 |------|------|------|
-| G1 fmt | ✅ | 本批 dialect.rs/dialect_advanced_test.rs/integration_pg.rs 0 漂移（rustfmt 单文件清零后 `--check` 计数 0） |
+| G1 fmt | ✅（红队回执 P2 处置后） | 红队抓出 integration_pg.rs（本批新增 `assert_eq!` 区段）1 处漂移（初判声明漏检）→ rustfmt 单文件清零复验：本批四文件（含 dialect_advanced_test.rs）0 漂移 |
 | G2/G3 | ✅ | `cargo check --all-targets` 0 error；clippy lib 0 警告 |
 | G4 lib | ✅ | `cargo test -p sz-orm-core --lib` **3283 passed**（含新横向单测 + 3 处同步断言） |
 | G9 | ✅/⚠️ | 注入 --strict 46/46 + 自测 15/15；secrets EXIT=1 **先在披露**（szrsql 线 2 处占位串命中，file:line 详证见 Oracle 矩阵批报告 G9 行与红队回执 R-2——本批不重复登记，与 OR1 批红队回执 R-2 同源，转交 szrsql 维护方） |
@@ -72,6 +72,18 @@
 - 修复闭环：12 方言生成面逐字节（横向单测）+ 3 服务真连行为级（PG 新增 / MySQL、Oracle 回归）；
 - 零破坏实证：lib 3283 + advanced 38 + 四套真连套件全绿；
 - audit-verify 三份活跃报告（本报告 + Oracle 矩阵 + Oracle 边界）全 0 失败。
+
+## 6.5 第 5 环红队独立复核回执
+
+**复核方式**：独立 Agent（非报告作者 session）只读复核；四套件真连独立重跑。
+
+**总裁决：PASS**（0 阻断项，P2×1 处置）：
+
+| # | 级别 | 内容 | 处置 |
+|---|------|------|------|
+| P2 | P2 | 报告 G1 fmt 声明失实：integration_pg.rs:1257 本批新增行 1 处漂移（初判单文件清单漏列该文件） | ✅ rustfmt 单文件清零 + 报告 G1 行更正 |
+
+**红队正向确认（机械验证）**：12 方言无第 13 个实现遗漏（13 个委托方言经宏转发完好，quote 随委托目标生效）；2564a43 diff 无越界/无并行会话 hunks；PG FTS 测试非空转（行为级判别力实证）；遗留项 2（其他方言 AddIndex cols.join 裸拼）建议属实非误报。
 
 ## 7. 遗留与建议（非缺陷）
 

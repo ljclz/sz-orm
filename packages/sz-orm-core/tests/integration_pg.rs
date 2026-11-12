@@ -1257,7 +1257,10 @@ async fn test_pg_full_text_search_quoted_column() {
         .await
         .expect("query tsvector");
     let count: i64 = row.get("c");
-    assert_eq!(count, 2, "to_tsvector(\"titleText\"::text) @@ 'rust' 应命中 2 行");
+    assert_eq!(
+        count, 2,
+        "to_tsvector(\"titleText\"::text) @@ 'rust' 应命中 2 行"
+    );
 
     drop_table(&pool, &table).await;
 }
