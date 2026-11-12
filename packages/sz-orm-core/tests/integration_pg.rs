@@ -14,7 +14,7 @@ use sqlx::Row;
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::time::{Duration, Instant};
-use sz_orm_core::dialect::{get_dialect, ColumnDef};
+use sz_orm_core::dialect::{get_dialect, ColumnDef, TableChange};
 use sz_orm_core::{DbType, Model, ModelExt, QueryBuilder, Value};
 
 /// 默认 PostgreSQL 连接 URL（本机）；可通过环境变量 `SZ_ORM_PG_URL` 覆盖以指向真实云数据库。
@@ -1262,5 +1262,118 @@ async fn test_pg_full_text_search_quoted_column() {
         "to_tsvector(\"titleText\"::text) @@ 'rust' 应命中 2 行"
     );
 
+    drop_table(&pool, &table).await;
+}
+
+// ============================================================================
+// ALTER INDEX/FK quote 横向修复批二：PG AddIndex/DropIndex/FK quote 行为级验证
+// （混合大小写列 + 保留字列——裸拼将被真库折叠或语法拒绝）
+// ============================================================================
+
+#[tokio::test]
+#[ignore = "需要 PostgreSQL 运行（127.0.0.1:5432）"]
+async fn test_pg_alter_index_fk_quoted_realconn() {
+    let pool = setup_pool().await;
+    let dialect = get_dialect(DbType::PostgreSQL).expect("pg dialect");
+    let table = unique_table("aidx");
+
+    let _ = drop_table(&pool, &table).await;
+    let create_sql = format!(
+        "CREATE TABLE \"{}\" (\"id\" SERIAL PRIMARY KEY, \"userName\" TEXT, \"order\" TEXT)",
+        table
+    );
+    sqlx::query(sqlx::AssertSqlSafe(create_sql.as_str()))
+        .execute(&pool)
+        .await
+        .expect("create table");
+
+    // 生成面 1：混合大小写列 AddIndex（方言修复后索引名+列名 quote）
+    let add_sql = dialect.build_alter_table(
+        &table,
+        &[TableChange::AddIndex(
+            format!("idx_{}_mixed", table),
+            vec!["userName".to_string()],
+        )],
+    );
+    assert!(
+        add_sql.contains("\"userName\""),
+        "AddIndex 生成应 quote 列名: {add_sql}"
+    );
+    sqlx::query(sqlx::AssertSqlSafe(add_sql.as_str()))
+        .execute(&pool)
+        .await
+        .expect("add index mixed-case (quoted)");
+
+    // 行为断言：索引登记（pg_indexes 精确名匹配）
+    let idx_name = format!("idx_{}_mixed", table);
+    let check_sql = format!(
+        "SELECT COUNT(*) AS c FROM pg_indexes WHERE indexname = '{}'",
+        idx_name
+    );
+    let n: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(check_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .expect("check index exists");
+    assert_eq!(n, 1, "quote 形态建索引应按原样登记");
+
+    // 生成面 2：保留字列 AddIndex（order 裸拼将语法拒绝）
+    let add_rsv = dialect.build_alter_table(
+        &table,
+        &[TableChange::AddIndex(
+            format!("idx_{}_rsv", table),
+            vec!["order".to_string()],
+        )],
+    );
+    sqlx::query(sqlx::AssertSqlSafe(add_rsv.as_str()))
+        .execute(&pool)
+        .await
+        .expect("add index reserved-word (quoted)");
+
+    // 生成面 3：DropIndex 往返（quote 索引名）
+    let drop_sql = dialect.build_alter_table(&table, &[TableChange::DropIndex(idx_name.clone())]);
+    assert!(
+        drop_sql.contains(&format!("\"{}\"", idx_name)),
+        "DropIndex 生成应 quote 索引名: {drop_sql}"
+    );
+    sqlx::query(sqlx::AssertSqlSafe(drop_sql.as_str()))
+        .execute(&pool)
+        .await
+        .expect("drop index (quoted)");
+    let n2: i64 = sqlx::query_scalar(sqlx::AssertSqlSafe(check_sql.as_str()))
+        .fetch_one(&pool)
+        .await
+        .expect("check index dropped");
+    assert_eq!(n2, 0, "DropIndex 往返后索引应不存在");
+
+    // 生成面 4：FK 约束名 quote——真库接受（约束名含混合大小写）
+    let child = unique_table("aidxc");
+    let _ = drop_table(&pool, &child).await;
+    let create_child = format!(
+        "CREATE TABLE \"{}\" (\"id\" SERIAL PRIMARY KEY, \"pid\" INT)",
+        child
+    );
+    sqlx::query(sqlx::AssertSqlSafe(create_child.as_str()))
+        .execute(&pool)
+        .await
+        .expect("create child");
+    let fk_sql = dialect
+        .build_add_foreign_key(
+            &child,
+            &sz_orm_core::dialect::ForeignKeyDef {
+                columns: vec!["pid".to_string()],
+                reference_table: table.clone(),
+                reference_columns: vec!["id".to_string()],
+                on_delete: Some("CASCADE".to_string()),
+                on_update: None,
+            },
+        )
+        .expect("build fk");
+    assert!(fk_sql.contains("CONSTRAINT"), "FK 生成应含约束名: {fk_sql}");
+    sqlx::query(sqlx::AssertSqlSafe(fk_sql.as_str()))
+        .execute(&pool)
+        .await
+        .expect("add fk (quoted constraint name)");
+
+    drop_table(&pool, &child).await;
     drop_table(&pool, &table).await;
 }
