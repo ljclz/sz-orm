@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+### Added — Oracle 方言边界能力补齐（OR7~OR10，六环闭环）
+
+- **MY7~MY10 新能力 API 的 Oracle 侧对称真连验证**（报告 `docs/assessment/2026-11-12-oracle-dialect-boundary.md`，提示词 `2026-11-12-oracle-dialect-boundary-prompt.md`，实施批 0dad820b/014e7d13/0f7bf985/dfadd314/119ad4c2，红队 PASS 阻断 0/P2×3 全处置 commit 143a334）：**OR7 表选项**默认忽略契约真连验证（build_create_table_with_options 与 build_create_table 逐字节等价，MySQL 专属选项无 Oracle 映射不改码裁定）+ **OR8 外键动作**行为级矩阵（ON DELETE CASCADE 删父级联消失 / SET NULL 子行键置 NULL 真连证明；拒绝面锚定——ON UPDATE 任意动作全拒 ORA-02000、RESTRICT/NO ACTION→ORA-02000、SET DEFAULT→ORA-03001）+ **OR9 全文检索三模式**（CONTEXT 索引 SYNC (ON COMMIT) 真连，Boolean &/|/- 操作符逐个行为级，QE 无对应登记）+ **OR10 CTE builder**（非递归子查询因子化真连 + 绑定序契约 CTE 参数先于主查询；递归面修复见 Fixed）
+- 三分类：**G-OR9/G-OR10 缺口修复 2 项**（见 Fixed）/**Oracle 环境特有 3 项登记**（E-OR7 表选项无映射、E-OR8 外键动作白名单 5 仅 2 可用——白名单为 ANSI 通用面真库拒绝即最终防线、E-OR9 Boolean 语义承载于查询串操作符非独立模式）/**D-OR10 提示词补充**（Oracle 递归因子化另强制显式列别名列表 ORA-32039，属 CTE SQL 构造面非方言层）；矩阵终态 matrix **24 passed** + cte **2 passed** + integration_oracle **10 passed** 零回归 + lib **3282 passed**；第 5 环红队独立复核 PASS（真连三套件独立重跑；P2-1 delegate 宏补 recursive_cte_keyword/full_text_search_mode 显式转发——Dameng→Oracle 空串、PG 系委托→默认 RECURSIVE，单测 test_delegate_recursive_cte_keyword_inheritance 双向断言；P2-2 绑定序证据措辞收紧；P2-3 matrix.rs fmt 清零）
+
+### Fixed
+
+- **Oracle 边界批 G-OR9——full_text_search 列名裸拼**（`packages/sz-orm-core/src/dialect.rs` OracleDialect，commit 0f7bf985）：CONTAINS 列名未 quote——混合大小写列被真库折叠为大写与引号列不匹配（ORA-00904 实测，G-OR1 AddIndex 同类缺口）；修复为 `self.quote(c)`；单测 `test_oracle_full_text_search_quoting`（quote 形态 + 多列 OR + 空列降级 + 三模式委托同形）。越批登记：SQLServer/DB2/Informix/SapHana FTS 同型裸拼残留留后续方言批次
+- **Oracle 边界批 G-OR10——递归 CTE 关键字方言盲区**（`packages/sz-orm-core/src/dialect.rs` + `packages/sz-orm-core/src/query.rs`，commit 119ad4c2 + 143a334）：`render_cte_prefix` 硬编码 `RECURSIVE`——MY10-B4 CTE builder 生成的递归 CTE 对 Oracle 全量不可用（`WITH RECURSIVE` 被真库 ORA-02000 拒绝，Oracle 递归子查询因子化 12.1+ 不带该关键字）；trait 新增 `recursive_cte_keyword()`（默认 `"RECURSIVE "` 纯新增零破坏），`OracleDialect` 覆写空串，`render_cte_prefix` 接线，`delegate_dialect_to!` 补显式转发（红队 P2-1）；单测 `t_or10_recursive_cte_keyword_dialect_aware` + `test_delegate_recursive_cte_keyword_inheritance`；登记面：Oracle 递归因子化另强制显式列别名列表（ORA-32039），属 CTE SQL 构造面（CteClause 无列名字段零破坏）；MY10 既有单测零回归
+
 ### Added — MySQL 方言边界能力补齐（MY7~MY10，六环闭环）
 
 - **边界→能力四项**（报告 `docs/assessment/2026-11-12-mysql-dialect-boundary.md`，实施批 commit 5161cdcf + 27be39db；承接 MySQL 矩阵报告的边界清单；与 szrsql 无关——均为 sz-orm 自己 MySQL 方言层未暴露的能力）：**B1 建表表选项** `TableOption`（Charset/Collate/Engine）+ `build_create_table_with_options`（空选项等价既有行为，选项值 `validate_identifier` 白名单 fail-closed）+ `MySqlDialect::render_table_options`（`# Panics` 契约文档化），MY7 真连 information_schema 实测 ENGINE/COLLATION 生效；**B2 外键动作** `ForeignKeyDef` + `Dialect::build_add_foreign_key` 默认实现（ANSI 语法 + `validate_fk_action` 白名单），MY8 真连 ON DELETE CASCADE 行为级证明（删父→子级联消失）；**B3 全文检索三模式** `FullTextMode` + `full_text_search_mode`（默认委托旧行为），MY9 真连 NL/BOOLEAN/QE 执行与操作符过滤；**B4 QueryBuilder CTE builder** `CteClause` + `with_cte`/`with_recursive_cte`（名称方言感知校验；CTE SQL 逃生口，已知限制：sql() 内联路径字符串字面量内不得含 `?`——doc 明示），CTE 参数先于主查询参数绑定，MY10 真连递归组织树深度 [1,2,3,2] + 参数顺序行为证明
