@@ -9,6 +9,13 @@
 
 ## [Unreleased]
 
+### Added — PostgreSQL 方言矩阵真连验证（PG1~PG7，六环闭环）
+
+- 新增 `packages/sz-orm-core/tests/integration_pg_matrix.rs`（20 测试，PG18.4@5432 宿主实例，`SZ_ORM_PG_URL` 注入；`cargo test -p sz-orm-core --features type-safe-columns --test integration_pg_matrix -- --ignored --test-threads=1` → **20 passed; 0 failed**）：PG1 标识符（双引号 quoting/大小写保留语义对照裸标识符折叠/63 字节上限 quote_checked 拦截/alter 三臂全 quote+FK 行为级）+ PG2 RETURNING 全家（INSERT/UPDATE/DELETE 回填）+ PG3 Upsert（`ON CONFLICT (col) DO UPDATE SET col=EXCLUDED.col` 行为级 + `ON CONFLICT DO NOTHING` 约束推断）+ PG4 类型与 JSONB（NUMERIC 38 位 BigDecimal 通道无损/JSONB serde 绑定/`@>`/TEXT[] 往返）+ PG5 索引（IF NOT EXISTS 幂等/**CONCURRENTLY 事务内真库拒绝探针**/部分+表达式+GIN）+ PG6 查询面（CTE builder 递归+非递归参数顺序证明/DISTINCT ON/窗口函数/NULLS LAST/ILIKE/FETCH FIRST/分页）+ PG7 边缘（三值 NULL IS NULL 真行为/空串≠NULL/除零 22012/aborted 25P02/FOR UPDATE+SKIP LOCKED 行为级/LISTEN+NOTIFY PgListener 行为级/FTS to_tsquery 真库命中）。报告 `docs/assessment/2026-11-13-pg-dialect-matrix.md`（audit-verify 24 通过 0 失败）
+- **sz-orm 方言缺口 0 处**：PG 生成面经此前五批 quote 横向修复（G-OR1/MY G2/G-OR9/FTS/批二）+ G1 IS NULL + G4 上限已系统性覆盖，G37 门禁 0 命中佐证；本批为七方言委托族（Szrsql/Kingbase/PolarDB/GaussDB/CockroachDB/YugabyteDB/Redshift）的委托基准补齐独立矩阵
+- **引擎特有登记 4 项**（CONCURRENTLY 事务禁区/Value::Array→PG 数组走 TEXT 兜底边界/SKIP LOCKED 未封装可透传/DISTINCT ON 经 select_expr 透传）+ 文档措辞核查 1 项（PgExtensions 措辞合规）；回归 integration_pg 22 + integration_szrsql_matrix 15 + integration_szrsql 8 全绿
+- 测试基建：sz-orm-core dev-dependencies 新增 `bigdecimal = "0.4"` + sqlx `uuid`/`bigdecimal` feature（`Value::Decimal` 38 位绑定通道与 sz-orm-sqlx bind_pg_value R2 口径一致）；测试证实该通道为**必要**（TEXT 兜底绑定被 NUMERIC 列拒绝）
+
 ### Added — 容器化缺失实例供给 × 兼容方言族矩阵验证（MZ-*，六环闭环）
 
 - **Docker 供给 6 实例**（MSSQL 2022 CU28@1433 / MariaDB 11.8.9@3326 / TiDB v8.5.1@4400 / ClickHouse 26.10.3.7@9004 / DB2 Community@55000 / openGauss 6.0.0@15433）：供给脚本 `D:/tmp/docker-instances/supply.sh` 不入仓库；坑位登记——daocloud 不代理 mcr 路径（直连拉取）、openGauss 走 enmotech 镜像、宿主 5433 被 szrsql_soak 常驻占用改映射 15433、ClickHouse 默认 user 仅限本机（挂载 users.d 开放）、DB2 需手工建库

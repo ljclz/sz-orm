@@ -8154,6 +8154,7 @@ name = "sz-orm-core"
 version = "10.13.4"
 dependencies = [
  "async-trait",
+ "bigdecimal",
  "bytes",
  "chrono",
  "compact_str 0.8.2",
