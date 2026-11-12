@@ -4,7 +4,7 @@
 > **语义基准**：各方言官方标识符引用语义 + 本机就绪服务真库实测
 > **版本**：sz-orm v10.13.4（workspace.package.version）
 > **提示词**：[2026-11-12-alter-index-fk-quote-sweep-prompt.md](2026-11-12-alter-index-fk-quote-sweep-prompt.md)（第 1 环已闭环）
-> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅（含红队回执处置）/ 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅ / 第 6 环登记 ✅
+> **六环状态**：第 1 环提示词 ✅ / 第 2 环本报告 ✅（含红队回执处置）/ 第 3 环实施批 ✅ / 第 4 环复评 ✅ / 第 5 环红队 ✅（PASS 有条件→回执处置后无条件）/ 第 6 环登记 ✅（本报告落盘后执行，commit 见 CHANGELOG/AGENTS.md）
 
 ---
 
@@ -19,9 +19,9 @@
 | SQL Server | `CREATE INDEX [idx] ON [t] ([col])`；`DROP INDEX [idx] ON [t]`（表名结构保持） | `0554331` |
 | Snowflake | 双引号 | `0554331` |
 | DB2 | 双引号 | `0554331` |
-| Informix | 双引号 | `0554331` |
-| SapHana | 双引号 | `0554331` |
-| Firebird | 双引号 | `0554331` |
+| Informix | 双引号（FK 臂**前在无名非法 DDL**——本批红队回执 R-2 补约束名 `0554331` 后续 commit） | `0554331` |
+| SapHana | 双引号（FK 臂同 Informix——前在无名 DDL 本批补名） | `0554331` |
+| Firebird | 双引号（FK 臂同 Informix——前在无名 DDL 本批补名） | `0554331` |
 | MySQL/Oracle/ClickHouse | **已修**（206f5623/a37937a8），本批核对不重改 | — |
 
 - **实现位置**：[packages/sz-orm-core/src/dialect.rs](../../packages/sz-orm-core/src/dialect.rs) 各 `impl Dialect` 的 `build_alter_table`；统一 `self.quote`（括号机制随方言自动）。
@@ -29,7 +29,7 @@
 
 ## 2. 测试同步与新增
 
-- **新增横向单测**：`test_alter_index_fk_quoting_all_dialects` `packages/sz-orm-core/src/dialect.rs:4484` [must-contain: fn test_alter_index_fk_quoting_all_dialects]——8 方言 AddIndex/DropIndex 逐字节断言（1 passed）。
+- **新增横向单测**：`test_alter_index_fk_quoting_all_dialects` `packages/sz-orm-core/src/dialect.rs:4496` [must-contain: fn test_alter_index_fk_quoting_all_dialects]——8 方言 AddIndex/DropIndex **+ FK 约束名**逐字节断言（FK 臂为红队回执 R-2 处置后补齐；初版未覆盖 FK 臂）。
 - **既有断言同步**：`test_sqlserver_alter_table` DropIndex 断言更新为 `[idx_name]` quote 形态（lib 3284 全过实证无其他漏网）。
 
 ## 3. 真连覆盖矩阵
@@ -70,8 +70,22 @@
 - 零破坏实证：lib 3284 + advanced 38 + 四套真连套件全绿；
 - audit-verify 四份活跃报告全 0 失败（本报告 + 前三批）。
 
+## 6.5 第 5 环红队独立复核回执
+
+**复核方式**：独立 Agent（非报告作者 session）只读复核；四套件真连独立重跑 + 全仓 fmt 核查。
+
+**总裁决：PASS（有条件）→ 回执处置后无条件 PASS**：
+
+| # | 级别 | 内容 | 处置 |
+|---|------|------|------|
+| R-1 | P2 | 报告落盘时第 6 环登记未发生（CHANGELOG/AGENTS 无本批条目），头部六环状态虚标 | ✅ 登记随本报告 commit 一并执行（本节落盘后第 6 环 commit），时序已如实标注 |
+| R-2 | P2 | §1 表高估 FK 修复面——实际 FK 臂仅改 4/8；**深挖出真缺陷**：Informix/SapHana/Firebird 三臂前在生成 `ADD CONSTRAINT FOREIGN KEY` 无约束名（非法 DDL）；横向单测初版未覆盖 FK 臂 | ✅ 三臂补 fk_name + quote（后续 commit）+ 横向单测补 8 方言 FK 臂逐字节断言 + 本表/本节如实更正 |
+| R-3 | P3 | AGENTS.md「自测 13/13」与实测 15/15 漂移（先在） | ✅ 登记时顺带校正 |
+
+**红队正向确认（机械验证）**：11 AddIndex 臂全 quote（3 前批 + 8 本批）、DropIndex 全臂 quote、diff 无越界（MySQL/Oracle/ClickHouse 零 hunk）、四套件真连独立重跑全中、**全仓 fmt 零漂移**。
+
 ## 7. 遗留与建议（非缺陷）
 
 1. **6 方言真连环境**：SQLServer/DB2/Informix/SapHana/Snowflake/Firebird 真连留 CI（生成面已逐字节覆盖；G7 既有口径）。
-2. **quote 类缺口预防机制**（建议）：quote 类缺口已在 5 批独立发现（G-OR1/MY G2/G-OR9/FTS 批/本批）——建议在 `check-gate-scripts.py` 或新增门禁中加静态规则：`dialect.rs` 内 `format!` 生成的 DDL 片段含裸标识符插值（非 `self.quote`）时警告，将「横向扫描」自动化。
+2. **quote 类缺口预防机制**（建议）：quote 类缺口已在 5 批独立发现（G-OR1/MY G2/G-OR9/FTS 批/本批）+ R-2 无名 DDL 变体——建议在 `check-gate-scripts.py` 或新增门禁中加静态规则：`dialect.rs` 内 `format!` 生成的 DDL 片段含裸标识符插值（非 `self.quote`）或 `ADD CONSTRAINT FOREIGN KEY` 无名形态时警告，将「横向扫描」自动化。
 3. **szrsql 线先在项**（转交）：G9 secrets 2 处 + G30 cabi 零断言（前批同源，归属 szrsql 维护方）。
