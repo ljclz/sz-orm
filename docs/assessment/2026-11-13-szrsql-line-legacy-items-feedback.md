@@ -76,3 +76,17 @@
 | OR7~OR10 边界 | [2026-11-12-oracle-dialect-boundary.md](2026-11-12-oracle-dialect-boundary.md) §4 | R-3 同源 |
 | FTS 横向 | [2026-11-12-fts-quote-sweep.md](2026-11-12-fts-quote-sweep.md) §4 | 同源持续披露 |
 | ALTER 批二 | [2026-11-12-alter-index-fk-quote-sweep.md](2026-11-12-alter-index-fk-quote-sweep.md) §4 | 同源持续披露 |
+
+## 回执（szrsql 维护方处置完成，2026-11-13，commit `d5a37fd4`）
+
+三项全部采纳推荐方案处置，验收清单逐项实测输出：
+
+1. **`python scripts/check-secrets.py` EXIT=0** ✅——项 1/2 走处置选项 1（豁免登记）：`check-secrets.py` 新增 `PRECISE_FORM_EXEMPTIONS` 精确形态豁免集（`postgres:trust@` + `postgres:${szrsql_test_auth}@`，matched 小写化子串、用户名+密码段+@ 锚定）。**未**采用裸 `trust` 进 `KNOWN_FALSE_POSITIVES`（防真密码 "trust" 全仓漏检，符合本清单"精确形态匹配"要求）。基线 EXIT=1（10 处：yml:97 + kill_recover.rs:74 源/CI 面 + 8 处 docs/assessment 证据链引用）→ 处置后 EXIT=0。
+   - **负向自检 6/6**（scan_file 层临时脚本，用后即删）：`postgres://postgres:trust@` 豁免 ✅ / `TrUsT` 大小写豁免 ✅ / **同形态真密码 `REAL_PWD_x9` 仍命中 ✅ / 非注册用户名 `admin:trust@` 仍命中 ✅ / mysql 形态仍命中 ✅ / CI 变量拼接形态豁免 ✅**
+   - 连带项（kill_recover.rs:74）经同一精确形态清除，测试断言语义零改动（符合"修复时勿动断言语义"附注）
+2. **`cargo test -p sz-orm-cabi --lib` 88/88 全过** ✅——项 3 走结构化修复：`normalize_szrsql_dsn` 纯函数提取（`sz_orm_pool_new` 内联逻辑转调，行为零变化）；零断言测试改造为 `test_szrsql_dsn_normalization` 真断言 6 例（szrsql:// 改写 / sqlite/mysql/postgres 拒绝 / 大小写不敏感前缀），零网络依赖
+3. **`python scripts/check-phantom-tests.py` EXIT=0** ✅（G30 红牌清除：硬规则 0 命中）
+4. kill_recover 行为不回归：测试文件零改动（仅豁免扫描形态），无需重跑（6543 服务未就绪，按清单条件项跳过）
+5. **`python scripts/check-gate-scripts.py` EXIT=0** ✅（门禁脚本自检通过，check-secrets.py 修改未破坏接线）
+
+遗留提示：处置时发现工作区有并行线未提交改动 `packages/sz-orm-cabi/include/sz_orm_cabi.h`（-19 行，删除 `PoolConfigC` 结构体——该结构体为 `sz_orm_pool_new` 签名必需，疑似误删），按并行协作纪律未并入本提交、未改动，请归属会话自查。

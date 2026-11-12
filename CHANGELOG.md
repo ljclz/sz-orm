@@ -24,6 +24,7 @@
 ### Fixed
 
 - **批二 R-2——Informix/SapHana/Firebird FK 臂无名非法 DDL**（`packages/sz-orm-core/src/dialect.rs`，红队回执深挖的前在缺陷）：三方言 AddForeignKey 臂生成 `ADD CONSTRAINT FOREIGN KEY (...)` 缺约束名（非合法 DDL）——补 `fk_{table}_{cols}` 组装 + `self.quote`（与批二其余 4 臂同口径），横向单测 8 方言 FK 臂逐字节断言兜底
+- **szrsql 线先在项转交三项处置（G9/G30 清零）**（commit `d5a37fd4`，回执见转交文档"回执"节）：**项 1/2 G9 secrets**——`scripts/check-secrets.py` 新增 `PRECISE_FORM_EXEMPTIONS` 精确形态豁免集（`postgres:trust@`：trust 为 szrsql trust 认证模式名非凭据；`postgres:${szrsql_test_auth}@`：CI 变量拼接合规形态），matched 小写化子串 + 用户名/密码段/@ 三重锚定，**未**将裸 `trust` 加入全局白名单（防真密码漏检），负向自检 6/6（同形态真密码/非注册用户名/mysql 形态均仍命中），扫描 EXIT 1→0（CI integration.yml:97 + kill_recover.rs:74 + 8 处 docs/assessment 证据链引用同形清除，kill_recover 断言语义零改动）；**项 3 G30 幻影测试**——`sz_orm_pool_new` 内联 `szrsql://` 归一化提取为纯函数 `normalize_szrsql_dsn`（行为零变化），零断言测试改造为 `test_szrsql_dsn_normalization` 真断言 6 例（零网络依赖），cabi lib 88/88 过 + check-phantom-tests EXIT=0（G30 红牌清除）+ check-gate-scripts EXIT=0
 
 ### Added — FTS 列名 quote 横向修复批（12 方言一致化，六环闭环）
 
