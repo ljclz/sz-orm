@@ -9,6 +9,11 @@
 
 ## [Unreleased]
 
+### Added — MySQL 方言边界能力补齐（MY7~MY10，六环闭环）
+
+- **边界→能力四项**（报告 `docs/assessment/2026-11-12-mysql-dialect-boundary.md`，实施批 commit 5161cdcf + 27be39db；承接 MySQL 矩阵报告的边界清单；与 szrsql 无关——均为 sz-orm 自己 MySQL 方言层未暴露的能力）：**B1 建表表选项** `TableOption`（Charset/Collate/Engine）+ `build_create_table_with_options`（空选项等价既有行为，选项值 `validate_identifier` 白名单 fail-closed）+ `MySqlDialect::render_table_options`（`# Panics` 契约文档化），MY7 真连 information_schema 实测 ENGINE/COLLATION 生效；**B2 外键动作** `ForeignKeyDef` + `Dialect::build_add_foreign_key` 默认实现（ANSI 语法 + `validate_fk_action` 白名单），MY8 真连 ON DELETE CASCADE 行为级证明（删父→子级联消失）；**B3 全文检索三模式** `FullTextMode` + `full_text_search_mode`（默认委托旧行为），MY9 真连 NL/BOOLEAN/QE 执行与操作符过滤；**B4 QueryBuilder CTE builder** `CteClause` + `with_cte`/`with_recursive_cte`（名称方言感知校验；CTE SQL 逃生口，已知限制：sql() 内联路径字符串字面量内不得含 `?`——doc 明示），CTE 参数先于主查询参数绑定，MY10 真连递归组织树深度 [1,2,3,2] + 参数顺序行为证明
+- 新增单测 7 个（dialect 3 + query 4）+ 真连矩阵 MY7~MY10；矩阵终态 **11 passed**（MY1~MY10）、lib **3279 passed**；三分类：A 类 4 项补齐 / B 类环境特有 2 项（InnoDB 默认分词器不切中文需 ngram、FK 约束需 InnoDB+索引）/ C 类措辞 2 项；**S4 裁定**：where_in 含 Null 恒不命中为 ANSI 正确语义不改码，空切片 `IN ()` 边界另行登记（fail-visible + 语义化属破坏性变更留后续）；第 5 环红队复核放行（`docs/assessment/2026-11-12-mysql-dialect-boundary-redteam-review.md`，阻断 0 / 建议 5 全采纳）
+
 ### Added — Oracle 方言矩阵真连验证（OR1~OR6，六环闭环）
 
 - **Oracle 方言能力面真连矩阵**（报告 `docs/assessment/2026-11-11-oracle-dialect-matrix.md`，提示词 `2026-11-11-oracle-dialect-matrix-prompt.md`，实施批 8a83ed3a/00760ab6/9eb4f707/384a2caa/e3074efc/c5ed06a5）：新增 `packages/sz-orm-core/tests/integration_oracle_matrix.rs` **19 测试**（OR1 空串与 NULL / OR2 标识符大小写折叠与 128 字节上限 / OR3 IDENTITY BY DEFAULT/ALWAYS + RETURNING INTO 回填 + 序列触发器旧路径 / OR4 OFFSET/FETCH 成对 + NULLS FIRST/LAST / OR5 NUMBER 30 位整数无损 + VARCHAR2(4000) 边界 + CLOB/RAW/TIMESTAMP / OR6 三值 NULL + ORA-01476 除零 + 隐式转换 + DDL 隐式提交探针），被测 Oracle 26ai Free（Release 23.26.3.0.0）@ 1521/freepdb1，凭据经 `SZ_ORM_ORACLE_PASSWORD` 注入缺失 assert 拒跑；矩阵 19/19 全绿 + 既有 `integration_oracle` 10 项零回归；第 5 环红队独立复核初裁 FAIL→回执 R-1/R-5/R-7 修复（commit 4d30e1c9：rustfmt 单文件清零 + or6 探针对照组 + 注释函数名定位）→条件 PASS（红队明示机械修复后升级）

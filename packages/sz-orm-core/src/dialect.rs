@@ -169,6 +169,13 @@ pub trait Dialect: Send + Sync {
     /// 选项值经 `validate_identifier` 白名单校验（fail-closed），杜绝注入。
     ///
     /// MySQL 产物形如：`CREATE TABLE `t` (...) ENGINE=InnoDB DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci`
+    ///
+    /// # Panics
+    ///
+    /// 当方言覆写了 `render_table_options` 且选项值未通过 `validate_identifier`
+    /// 白名单校验时（MySQL 实现）：非法的 Engine/Charset/Collate 值（含空格、
+    /// 引号、分号等元字符）会 panic——这是文档化的 fail-fast 契约，调用方
+    /// 必须传入白名单形态的选项值；默认实现（忽略选项）不 panic。
     fn build_create_table_with_options(
         &self,
         table: &str,
@@ -194,6 +201,12 @@ pub trait Dialect: Send + Sync {
     ///
     /// 默认无表选项（各方言按需覆写；MY7 由 MySqlDialect 实现）。
     /// 实现必须对选项值做白名单校验，禁止直接拼接调用方字符串。
+    ///
+    /// # Panics
+    ///
+    /// 覆写实现（MySQL）对未通过 `validate_identifier` 校验的选项值 panic；
+    /// 默认实现恒返回空串、不 panic。白名单口径与失败形态见
+    /// [`Dialect::build_create_table_with_options`] 的 `# Panics` 段。
     fn render_table_options(&self, options: &[TableOption]) -> String {
         let _ = options;
         String::new()

@@ -363,6 +363,10 @@ impl<M: Model> QueryBuilder<M> {
     /// - `name` 经方言感知标识符校验（非法即 `DbError::InvalidInput`）
     /// - `cte_sql` 为**调用方信任的逃生口**（同 [`QueryBuilder::select_expr`]
     ///   口径），可含 `?` 占位符，对应 `params` 按序绑定且**先于主查询参数**
+    /// - **已知限制**（红队复核缺陷 3）：`sql()` 内联路径的参数内联工具
+    ///   `inline_condition_values` 不感知字符串字面量——CTE SQL 的字符串
+    ///   字面量内不得含 `?` 字符，否则内联替换会错位；参数化路径
+    ///   （`build_select_with_params`）不受此限制
     /// - 仅 `build_select_with_params` / `sql()` 渲染
     pub fn with_cte(
         mut self,

@@ -36,9 +36,11 @@
 | D3 | `TableChange::AddForeignKey`（无动作）与 `build_add_foreign_key`（带动作）并存——后续批次可评估将 enum 变体迁移到 ForeignKeyDef 统一 API（涉及 ~25 处调用点，非本批范围） |
 | D4 | `full_text_search` 旧方法的 doc 注释可补充指向 `full_text_search_mode`（本批未动，避免注释面回归风险） |
 
-## 3. S4 裁定（where_in Null）
+## 3. S4 裁定（where_in Null）与空 IN 边界登记
 
-**不改码**。`WHERE col IN (?, NULL)` 中对 NULL 行的比较结果为 UNKNOWN → 不命中——这是 ANSI SQL 三值逻辑的正确语义（PostgreSQL/SQLite 同样如此），改写会造成跨方言语义分裂。`where_null`/`where_not_null` 才是 NULL 查询通道。2026-11-11 批次红队建议「评估语义化处理」，本批裁定为**按 SQL 标准语义维持**，登记于此闭环该项。
+**S4 主体：不改码**。`WHERE col IN (?, NULL)` 中对 NULL 行的比较结果为 UNKNOWN → 不命中——这是 ANSI SQL 三值逻辑的正确语义（PostgreSQL/SQLite 同样如此），改写会造成跨方言语义分裂。`where_null`/`where_not_null` 才是 NULL 查询通道。2026-11-11 批次红队建议「评估语义化处理」，本批裁定为**按 SQL 标准语义维持**，登记于此闭环该项。
+
+**空切片边界（红队复核缺陷 4 采纳登记）**：`where_in(col, [])` 空切片生成 `IN ()`（query.rs 无守卫），MySQL 执行期报 1064 语法错误（fail-visible 不静默）；既有测试 `t26q_where_in_empty_with_params` 将其断言为既定行为，语义化改写（恒假/恒真）属破坏性变更。该边界与 S4 NULL 主体不同源、无矛盾，登记留后续批次评估。
 
 ## 4. 设计决策（供红队对抗审查）
 
@@ -51,21 +53,21 @@
 
 1. **check/clippy/fmt**：`cargo check --workspace --all-targets` 0 error；`cargo clippy -p sz-orm-core --lib --test integration_mysql_matrix -- -D warnings` 通过；本批 3 文件 rustfmt 后零漂移
 2. **矩阵真连**：`cargo test -p sz-orm-core --test integration_mysql_matrix -- --ignored` → **11 passed**（MY1~MY10，含新增 MY7~MY10）
-3. **lib 单测**：`cargo test -p sz-orm-core --lib` → **3279 passed; 0 failed**（含新增 12 个：MY7~MY9 8 个 + MY10 4 个）
+3. **lib 单测**：`cargo test -p sz-orm-core --lib` → **3279 passed; 0 failed**（新增 7 个：MY7~MY9 方言单测 3 个 + MY10 QueryBuilder 单测 4 个；红队 `--list` 枚举核实，初稿误记 12 已更正；矩阵另增 4 个，合计 11）
 4. **门禁**：G9 --strict 46/46 Safe；G15 PASS；G16 PASS；G35 PASS（0 死链）；G36 PASS；G33 PASS（登记提交后复跑）
 
-## 5. 六环闭环状态
+## 6. 六环闭环状态
 
 | 环 | 状态 |
 |----|------|
 | 1 提示词 | ✅ `2026-11-12-mysql-dialect-boundary-prompt.md` |
-| 2 报告 | ✅ 本文件；audit-verify 输出见 §6 |
+| 2 报告 | ✅ 本文件；audit-verify 输出见 §7 |
 | 3 实施批 | ✅ commit 5161cdcf + 27be39db |
 | 4 复评 | ✅ 矩阵 11/11 真连重跑 + lib 3279 + 门禁逐项退出码 |
-| 5 红队复核 | ⏳ 独立 Agent 复核（回执 `2026-11-12-mysql-dialect-boundary-redteam-review.md`） |
-| 5→6 | 登记于复核放行后落地 |
+| 5 红队复核 | ✅ **放行**（阻断 0 / 建议 5 全采纳）：回执 `2026-11-12-mysql-dialect-boundary-redteam-review.md`；rustdoc `# Panics`、`with_cte` 已知限制 doc、报告计数更正、空 IN 边界登记均已在环 6 落实 |
+| 6 登记 | ✅ CHANGELOG.md [Unreleased] 条目 + AGENTS.md「已发布」行 + 登记 commit |
 
-## 6. audit-verify 自证
+## 7. audit-verify 自证
 
 报告落盘后执行 `bash scripts/audit-verify.sh docs/assessment/2026-11-12-mysql-dialect-boundary.md`，终态输出：
 
@@ -75,7 +77,7 @@
 ==========================================
   ✅ 通过: 15
   ❌ 失败: 0
-  ⚠️  警告: 6
+  ⚠️  警告: 7
 ==========================================
 ✅ 审计证据验证通过
 ```
