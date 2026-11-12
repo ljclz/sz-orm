@@ -3504,9 +3504,13 @@ impl Dialect for InformixDialect {
                     reference_table,
                     reference_columns,
                 } => {
+                    // 红队回执 R-2（批二）：前在生成无约束名的非法 DDL
+                    // （ADD CONSTRAINT FOREIGN KEY 缺名称）——补 fk_name + quote
+                    let fk_name = format!("fk_{}_{}", table, columns.join("_"));
                     format!(
-                        "ALTER TABLE {} ADD CONSTRAINT FOREIGN KEY ({}) REFERENCES {} ({})",
+                        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
+                        self.quote(&fk_name),
                         columns
                             .iter()
                             .map(|c| self.quote(c))
@@ -3745,9 +3749,13 @@ impl Dialect for SapHanaDialect {
                     reference_table,
                     reference_columns,
                 } => {
+                    // 红队回执 R-2（批二）：前在生成无约束名的非法 DDL
+                    // （ADD CONSTRAINT FOREIGN KEY 缺名称）——补 fk_name + quote
+                    let fk_name = format!("fk_{}_{}", table, columns.join("_"));
                     format!(
-                        "ALTER TABLE {} ADD CONSTRAINT FOREIGN KEY ({}) REFERENCES {} ({})",
+                        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
+                        self.quote(&fk_name),
                         columns
                             .iter()
                             .map(|c| self.quote(c))
@@ -3987,9 +3995,13 @@ impl Dialect for FirebirdDialect {
                     reference_table,
                     reference_columns,
                 } => {
+                    // 红队回执 R-2（批二）：前在生成无约束名的非法 DDL
+                    // （ADD CONSTRAINT FOREIGN KEY 缺名称）——补 fk_name + quote
+                    let fk_name = format!("fk_{}_{}", table, columns.join("_"));
                     format!(
-                        "ALTER TABLE {} ADD CONSTRAINT FOREIGN KEY ({}) REFERENCES {} ({})",
+                        "ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({}) REFERENCES {} ({})",
                         self.quote(table),
+                        self.quote(&fk_name),
                         columns
                             .iter()
                             .map(|c| self.quote(c))
@@ -4537,6 +4549,32 @@ mod tests {
             assert_eq!(add, add_expect, "{} AddIndex: {add}", d.db_type());
             let drop = d.build_alter_table("t", &[TableChange::DropIndex("idx_x".to_string())]);
             assert_eq!(drop, drop_expect, "{} DropIndex: {drop}", d.db_type());
+            // FK 臂：约束名组装 + quote（红队回执 R-2——含前在无名非法 DDL 的
+            // Informix/SapHana/Firebird 三臂；q 为该方言 quote 包裹的 fk 名）
+            let fk = d.build_add_foreign_key(
+                "t",
+                &ForeignKeyDef {
+                    columns: vec!["userName".to_string()],
+                    reference_table: "parent".to_string(),
+                    reference_columns: vec!["id".to_string()],
+                    on_delete: None,
+                    on_update: None,
+                },
+            );
+            let q = d.quote("fk_t_userName");
+            let expect_fk = if db == DbType::SqlServer {
+                format!("ALTER TABLE [t] ADD CONSTRAINT {q} FOREIGN KEY ([userName]) REFERENCES [parent] ([id])")
+            } else {
+                format!(
+                    "ALTER TABLE {} ADD CONSTRAINT {q} FOREIGN KEY ({}) REFERENCES {} ({})",
+                    d.quote("t"),
+                    d.quote("userName"),
+                    d.quote("parent"),
+                    d.quote("id"),
+                )
+            };
+            let fk_sql = fk.expect("fk");
+            assert_eq!(fk_sql, expect_fk, "{} FK: {fk_sql}", d.db_type());
         }
     }
 
