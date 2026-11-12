@@ -207,10 +207,14 @@ LEGACY_AUDIT_STRINGS: frozenset[str] = frozenset()
 # 那会让任意真实密码 "trust" 全仓漏检。匹配对 matched 小写化后子串判断。
 # 第二条为 CI 环境变量拼接形态（转交文档项 1 处置选项 2 的合规形态），
 # 同样带 userinfo+@ 锚定；变量引用非字面凭据。
+# 第三条为微软官方文档占位示例形态（2026-11-13 转交复核登记）：尖括号占位符
+# `<Strong!Passw0rd>` 是 MSSQL 容器启动命令的标准占位（docs/assessment 提示词
+# 与转交反馈文档引用同形态）；尖括号锚定=文档占位约定，非真实凭据。
 PRECISE_FORM_EXEMPTIONS: frozenset[str] = frozenset(
     {
         "postgres:trust@",
         "postgres:${szrsql_test_auth}@",
+        "password='<strong!passw0rd>'",
     }
 )
 

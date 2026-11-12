@@ -92,3 +92,23 @@
 遗留提示：处置时发现工作区有并行线未提交改动 `packages/sz-orm-cabi/include/sz_orm_cabi.h`（-19 行，删除 `PoolConfigC` 结构体——该结构体为 `sz_orm_pool_new` 签名必需，疑似误删），按并行协作纪律未并入本提交、未改动，请归属会话自查。
 
 订正（同日）：回执提交 `270ba94b` 消息中「secrets 复扫 EXIT=0」表述不准确——三项处置完成时点（`d5a37fd4`）实测 EXIT=0 成立，但并行线 `047ea290` 随后新登记的提示词文档 `2026-11-13-container-dialect-matrix-prompt.md:27`（`MSSQL_SA_PASSWORD='<Strong!Passw0rd>'`，微软文档占位形态）使全仓复扫回到 EXIT=1。**该命中非转交三项、非本回执文件**（回执/CHANGELOG 引用的 trust@ 形态均被精确豁免覆盖，0 命中），归属 047ea290 会话处置。验收口径以三项归零为准：转交三项相关命中 = 0。
+
+---
+
+## 转交处置复核回执（2026-11-13，独立机械复核）
+
+**szrsql 维护方处置提交**：`d5a37fd4`（项 1/2 trust 形态精确豁免 + 项 3 cabi 归一化提取）/ `270ba94b`（回执 + CHANGELOG）/ `cfb1c370`（订正——转交三项时点 EXIT=0 成立，后续 EXIT=1 为并行线新文档占位命中，非转交三项）。
+
+**验收清单逐项复核（本文档验收口径）**：
+
+| # | 项 | 验收点 | 结果 |
+|---|----|--------|------|
+| 1/2 | G9 secrets ×2 | check-secrets.py 中 `postgres:trust@` 精确形态豁免生效；转交三项相关命中 = **0** | ✅ |
+| 3 | G30 cabi 零断言 | `normalize_szrsql_dsn` 纯函数提取（lib.rs:269）+ 真断言测试 `test_szrsql_dsn_normalization`（lib.rs:2648）；`cargo test -p sz-orm-cabi --lib` **88 passed**；check-phantom-tests.py **EXIT=0**（G30 红牌清除） | ✅ |
+| 5 | 门禁 27 接线 | check-secrets.py 修改后 check-gate-scripts.py EXIT=0（接线未破坏） | ✅ |
+
+**复核中新增处置（同机制收尾）**：转交三项清除后，全仓 G9 仍剩 2 处命中——并行线容器提示词（`047ea290`）与本文档订正段**引用的微软官方占位形态** `MSSQL_SA_PASSWORD='<Strong!Passw0rd>'`（尖括号占位约定，同 `<pw>` 先例）。已登记 `password='<strong!passw0rd>'` 精确形态豁免（scripts/check-secrets.py PRECISE_FORM_EXEMPTIONS 第三条），**G9 全仓首次 EXIT=0**（2685 文件扫描 0 secrets）。
+
+**附注（转交 szrsql 维护方自查）**：复核时发现工作区有并行线未提交改动 `packages/sz-orm-cabi/include/sz_orm_cabi.h`（删除 `PoolConfigC` 结构体与 `sz_orm_pool_new` 声明——该结构体为 C ABI 签名必需，疑似误删），按并行协作纪律未改动、未并入提交，请归属会话自查（Rust 侧编译不依赖该头文件，`cargo check -p sz-orm-cabi` 实测通过，C 消费面受影响）。
+
+**三项处置终态：全部闭环**（本转交文档任务完成；后续 G9/G30 红牌即新引入项，非 szrsql 线遗留）。
