@@ -1825,3 +1825,128 @@ fn or8_fk_unsupported_actions_rejected() {
     drop_table_if_exists(&conn, &child);
     drop_table_if_exists(&conn, &parent);
 }
+
+// ============================================================================
+// OR9 全文检索三模式（对 MY9-B3）—— full_text_search_mode 默认委托 CONTAINS
+//
+// OracleDialect::full_text_search 恒生成 CONTAINS(col, 'kw', 1) > 0；
+// 默认委托使三模式同形。真库语义锚定（CONTEXT 索引 SYNC (ON COMMIT)）：
+//   - NL：CONTAINS 默认命中
+//   - Boolean：CONTAINS 查询串操作符 &（AND）/ |（OR）/ -（MINUS）
+//   - QE：Oracle 无查询扩展对应（登记差异，委托维持）
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or9_full_text_modes_contains_semantics() {
+    use sz_orm_core::dialect::FullTextMode;
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or9ft");
+    drop_table_if_exists(&conn, &table);
+
+    conn.execute(
+        &dialect.build_create_table(
+            &table,
+            &[
+                ColumnDef {
+                    name: "id".to_string(),
+                    sql_type: "NUMBER".to_string(),
+                    nullable: false,
+                    default: None,
+                    auto_increment: true,
+                    primary_key: true,
+                },
+                ColumnDef {
+                    name: "title".to_string(),
+                    sql_type: "VARCHAR2(200)".to_string(),
+                    nullable: false,
+                    default: None,
+                    auto_increment: false,
+                    primary_key: false,
+                },
+            ],
+        ),
+        &[],
+    )
+    .expect("create ft table");
+
+    // CONTEXT 索引 + SYNC (ON COMMIT)：提交后立即可检索（索引名与表同批清理）
+    let idx_name = format!("ctx_{}", table);
+    conn.execute(
+        &format!(
+            "CREATE INDEX {} ON {} ({}) INDEXTYPE IS CTXSYS.CONTEXT PARAMETERS ('SYNC (ON COMMIT)')",
+            dialect.quote(&idx_name),
+            dialect.quote(&table),
+            dialect.quote("title"),
+        ),
+        &[],
+    )
+    .expect("create context index");
+
+    let insert_sql = format!(
+        "INSERT INTO {} ({}) VALUES (:1)",
+        dialect.quote(&table),
+        dialect.quote("title"),
+    );
+    conn.execute(&insert_sql, &[&"rust orm framework"]).expect("insert 1");
+    conn.execute(&insert_sql, &[&"rust web server"]).expect("insert 2");
+    conn.execute(&insert_sql, &[&"java orm tool"]).expect("insert 3");
+    conn.commit().expect("commit");
+
+    // 生成面断言：OracleDialect 三模式同形（默认委托 full_text_search）
+    let gen_nl = dialect.full_text_search_mode(&["title"], "rust", FullTextMode::NaturalLanguage);
+    let gen_bool = dialect.full_text_search_mode(&["title"], "rust", FullTextMode::Boolean);
+    let gen_qe = dialect.full_text_search_mode(&["title"], "rust", FullTextMode::QueryExpansion);
+    assert_eq!(gen_nl, "CONTAINS(\"title\", 'rust', 1) > 0", "NL 生成（OR9 修复后列名 quote）: {gen_nl}");
+    assert_eq!(gen_bool, gen_nl, "Boolean 模式默认委托应与 NL 同形: {gen_bool}");
+    assert_eq!(gen_qe, gen_nl, "QE 模式默认委托应与 NL 同形（Oracle 无查询扩展对应）: {gen_qe}");
+
+    // 行为断言：NL 模式命中
+    let nl_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {}",
+        dialect.quote(&table),
+        dialect.full_text_search_mode(&["title"], "rust", FullTextMode::NaturalLanguage),
+    );
+    let nl: i64 = conn
+        .query_row_as::<i64>(&nl_sql, &[])
+        .expect("query nl");
+    assert_eq!(nl, 2, "CONTAINS 'rust' 应命中 2 行");
+
+    // 行为断言：Boolean 模式——&（AND）
+    let and_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {}",
+        dialect.quote(&table),
+        dialect.full_text_search_mode(&["title"], "rust & web", FullTextMode::Boolean),
+    );
+    let and_n: i64 = conn
+        .query_row_as::<i64>(&and_sql, &[])
+        .expect("query boolean and");
+    assert_eq!(and_n, 1, "CONTAINS 'rust & web' 应仅命中 'rust web server'");
+
+    // 行为断言：Boolean 模式——|（OR）
+    let or_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {}",
+        dialect.quote(&table),
+        dialect.full_text_search_mode(&["title"], "rust | java", FullTextMode::Boolean),
+    );
+    let or_n: i64 = conn
+        .query_row_as::<i64>(&or_sql, &[])
+        .expect("query boolean or");
+    assert_eq!(or_n, 3, "CONTAINS 'rust | java' 应命中全部 3 行");
+
+    // 行为断言：Boolean 模式——-（MINUS）
+    let minus_sql = format!(
+        "SELECT COUNT(*) FROM {} WHERE {}",
+        dialect.quote(&table),
+        dialect.full_text_search_mode(&["title"], "rust - web", FullTextMode::Boolean),
+    );
+    let minus_n: i64 = conn
+        .query_row_as::<i64>(&minus_sql, &[])
+        .expect("query boolean minus");
+    assert_eq!(minus_n, 1, "CONTAINS 'rust - web' 应仅命中 'rust orm framework'");
+
+    // 清理（先删索引再删表，避免 CONTEXT 残留对象）
+    let _ = conn.execute(&format!("DROP INDEX {}", dialect.quote(&idx_name)), &[]);
+    drop_table_if_exists(&conn, &table);
+}

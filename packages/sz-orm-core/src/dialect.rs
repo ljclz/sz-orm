@@ -1450,13 +1450,15 @@ impl Dialect for OracleDialect {
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
         // Oracle 使用 CONTAINS 函数（需要 CONTEXT 索引）
         // CONTAINS(column, keyword, 1) > 0
+        // OR9 方言矩阵修复：列名必须 quote——裸拼混合大小写列被折叠为大写与
+        // 引号列不匹配（真库 ORA-00904，同 G-OR1 AddIndex 缺口类）
         if columns.is_empty() {
             return "0".to_string();
         }
         let escaped = self.escape_string(keyword);
         let parts: Vec<String> = columns
             .iter()
-            .map(|c| format!("CONTAINS({}, '{}', 1) > 0", c, escaped))
+            .map(|c| format!("CONTAINS({}, '{}', 1) > 0", self.quote(c), escaped))
             .collect();
         parts.join(" OR ")
     }
@@ -4269,6 +4271,41 @@ mod tests {
             dialect.build_alter_table("users", &[TableChange::DropColumn("email".to_string())]);
         assert!(sql.contains("DROP COLUMN"));
         assert!(sql.contains("\"email\""));
+    }
+
+    #[test]
+    fn test_oracle_full_text_search_quoting() {
+        // OR9 方言矩阵修复：CONTAINS 列名必须 quote（同 G-OR1 类）——
+        // 裸拼混合大小写列被真库折叠为大写与引号列不匹配（ORA-00904），
+        // 见 tests/integration_oracle_matrix.rs or9_full_text_modes_contains_semantics
+        let dialect = OracleDialect;
+        let sql = dialect.full_text_search(&["userName"], "kw");
+        assert_eq!(
+            sql, "CONTAINS(\"userName\", 'kw', 1) > 0",
+            "full_text_search 应 quote 列名: {sql}"
+        );
+        // 多列 OR 连接
+        let multi = dialect.full_text_search(&["title", "body"], "kw");
+        assert_eq!(
+            multi,
+            "CONTAINS(\"title\", 'kw', 1) > 0 OR CONTAINS(\"body\", 'kw', 1) > 0",
+            "多列应以 OR 连接且均 quote: {multi}"
+        );
+        // 空列降级
+        assert_eq!(dialect.full_text_search(&[], "kw"), "0");
+        // 三模式默认委托同形（Oracle 无查询扩展对应）
+        use super::FullTextMode;
+        for mode in [
+            FullTextMode::NaturalLanguage,
+            FullTextMode::Boolean,
+            FullTextMode::QueryExpansion,
+        ] {
+            assert_eq!(
+                dialect.full_text_search_mode(&["title"], "kw", mode),
+                dialect.full_text_search(&["title"], "kw"),
+                "默认委托三模式应同形"
+            );
+        }
     }
 
     #[test]
