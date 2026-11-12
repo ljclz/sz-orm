@@ -46,11 +46,7 @@ fn boundary_values() -> Vec<Value> {
         Value::Time("12:34:56".into()),
         Value::Json("{\"a\":1}".into()),
         Value::Array(vec![Value::I64(1), Value::String("x".into())]),
-        Value::Object(
-            [("k".to_string(), Value::Bool(true))]
-                .into_iter()
-                .collect(),
-        ),
+        Value::Object([("k".to_string(), Value::Bool(true))].into_iter().collect()),
     ]
 }
 
@@ -61,11 +57,16 @@ fn parity_clonecheap_vs_clone_boundary() {
         let slow = v.clone();
         // 双口径：PartialEq（变体+载荷相等） + Debug 表示逐字节一致
         assert_eq!(
-            cheap, slow,
+            cheap,
+            slow,
             "clonecheap 与 clone 语义不一致: {:?}",
             std::mem::discriminant(&v)
         );
-        assert_eq!(format!("{:?}", cheap), format!("{:?}", slow), "Debug 表示不一致");
+        assert_eq!(
+            format!("{:?}", cheap),
+            format!("{:?}", slow),
+            "Debug 表示不一致"
+        );
     }
 }
 

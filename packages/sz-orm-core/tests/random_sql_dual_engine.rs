@@ -81,7 +81,11 @@ fn gen_leaf(rng: &mut Mulberry32) -> Cond {
         Value::I64((rng.below(200) as i64) - 100)
     }
     match rng.below(3) {
-        0 => Cond::Cmp(rng.pick(COLS), rng.pick(&["<", ">", "<=", ">=", "="]), int_val(rng)),
+        0 => Cond::Cmp(
+            rng.pick(COLS),
+            rng.pick(&["<", ">", "<=", ">=", "="]),
+            int_val(rng),
+        ),
         1 => {
             let a = (rng.below(150) as i64) - 75;
             let b = a + rng.below(100) as i64;
@@ -202,14 +206,12 @@ async fn setup_sqlite(rows: &[(i64, String, i64, f64)]) -> RusqliteConnection {
         .await
         .expect("sqlite create");
     for (id, name, age, score) in rows {
-        conn.execute(
-            &format!(
-                // 种子行值域封闭（name 由生成器产出 u\d+，i64/f64 文本化精确），
-                // 不构成注入面；主查询路径全程参数绑定
-                "INSERT INTO dual_t (id, name, age, score) VALUES ({}, '{}', {}, {:?})",
-                id, name, age, score
-            ),
-        )
+        conn.execute(&format!(
+            // 种子行值域封闭（name 由生成器产出 u\d+，i64/f64 文本化精确），
+            // 不构成注入面；主查询路径全程参数绑定
+            "INSERT INTO dual_t (id, name, age, score) VALUES ({}, '{}', {}, {:?})",
+            id, name, age, score
+        ))
         .await
         .expect("sqlite seed");
     }
@@ -217,10 +219,13 @@ async fn setup_sqlite(rows: &[(i64, String, i64, f64)]) -> RusqliteConnection {
 }
 
 async fn setup_pg(pool: &sqlx::PgPool, table: &str, rows: &[(i64, String, i64, f64)]) {
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP TABLE IF EXISTS {}", table)))
-        .execute(pool)
-        .await
-        .expect("pg drop");
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP TABLE IF EXISTS {}",
+        table
+    )))
+    .execute(pool)
+    .await
+    .expect("pg drop");
     sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE TABLE {} (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER NOT NULL, score DOUBLE PRECISION NOT NULL)",
         table
@@ -273,8 +278,10 @@ fn rows_equal_cross_engine(
     let norm = |rows: &[std::collections::HashMap<String, Value>]| -> Vec<Vec<(String, NVal)>> {
         rows.iter()
             .map(|row| {
-                let mut kv: Vec<(String, NVal)> =
-                    row.iter().map(|(k, v)| (k.clone(), norm_value(v))).collect();
+                let mut kv: Vec<(String, NVal)> = row
+                    .iter()
+                    .map(|(k, v)| (k.clone(), norm_value(v)))
+                    .collect();
                 kv.sort_by(|x, y| x.0.cmp(&y.0));
                 kv
             })
@@ -433,17 +440,26 @@ async fn run_pg_query(
             other => return Err(format!("不支持参数类型: {:?}", other)),
         }
     }
-    let rows = q
-        .fetch_all(pool)
-        .await
-        .map_err(|e| e.to_string())?;
+    let rows = q.fetch_all(pool).await.map_err(|e| e.to_string())?;
     let mut out = Vec::with_capacity(rows.len());
     for r in rows {
         let mut m = std::collections::HashMap::new();
-        m.insert("id".into(), Value::I64(r.try_get::<i32, _>("id").map_err(|e| e.to_string())? as i64));
-        m.insert("name".into(), Value::String(r.try_get::<String, _>("name").map_err(|e| e.to_string())?));
-        m.insert("age".into(), Value::I64(r.try_get::<i32, _>("age").map_err(|e| e.to_string())? as i64));
-        m.insert("score".into(), Value::F64(r.try_get::<f64, _>("score").map_err(|e| e.to_string())?));
+        m.insert(
+            "id".into(),
+            Value::I64(r.try_get::<i32, _>("id").map_err(|e| e.to_string())? as i64),
+        );
+        m.insert(
+            "name".into(),
+            Value::String(r.try_get::<String, _>("name").map_err(|e| e.to_string())?),
+        );
+        m.insert(
+            "age".into(),
+            Value::I64(r.try_get::<i32, _>("age").map_err(|e| e.to_string())? as i64),
+        );
+        m.insert(
+            "score".into(),
+            Value::F64(r.try_get::<f64, _>("score").map_err(|e| e.to_string())?),
+        );
         out.push(m);
     }
     Ok(out)

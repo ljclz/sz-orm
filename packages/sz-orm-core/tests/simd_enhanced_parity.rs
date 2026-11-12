@@ -43,9 +43,9 @@ fn boundary_sets_f64() -> Vec<Vec<f64>> {
         vec![1.0],
         vec![-1.5, 2.5, 3.0],
         vec![f64::MAX, f64::MIN, 0.0],
-        vec![1e308, 1e308, -1e308], // 溢出敏感
-        vec![0.1; 1024],            // 精度敏感重复值
-        vec![-0.0, 0.0],            // ±0
+        vec![1e308, 1e308, -1e308],                  // 溢出敏感
+        vec![0.1; 1024],                             // 精度敏感重复值
+        vec![-0.0, 0.0],                             // ±0
         (0..1025).map(|i| i as f64 * 0.5).collect(), // 跨 64 块边界
     ]
 }
@@ -53,7 +53,12 @@ fn boundary_sets_f64() -> Vec<Vec<f64>> {
 #[test]
 fn parity_enhanced_f64_vs_baseline() {
     for data in boundary_sets_f64() {
-        for op in [SimdAggOp::Sum, SimdAggOp::Min, SimdAggOp::Max, SimdAggOp::Avg] {
+        for op in [
+            SimdAggOp::Sum,
+            SimdAggOp::Min,
+            SimdAggOp::Max,
+            SimdAggOp::Avg,
+        ] {
             let fast = batch_aggregate_enhanced_f64(&data, op);
             let slow = batch_aggregate_f64(&data, op);
             match op {
@@ -93,7 +98,12 @@ fn parity_enhanced_f32_vs_baseline() {
         (0..1025).map(|i| i as f32 * 0.5).collect(),
     ];
     for data in sets {
-        for op in [SimdAggOp::Sum, SimdAggOp::Min, SimdAggOp::Max, SimdAggOp::Avg] {
+        for op in [
+            SimdAggOp::Sum,
+            SimdAggOp::Min,
+            SimdAggOp::Max,
+            SimdAggOp::Avg,
+        ] {
             let fast = batch_aggregate_enhanced_f32(&data, op);
             let slow = batch_aggregate_f32(&data, op);
             match op {
@@ -127,7 +137,12 @@ fn parity_enhanced_f32_vs_baseline() {
 #[test]
 fn probe_non_finite_stability() {
     let data = vec![f64::NAN, 1.0, f64::INFINITY, -1.0];
-    for op in [SimdAggOp::Sum, SimdAggOp::Min, SimdAggOp::Max, SimdAggOp::Avg] {
+    for op in [
+        SimdAggOp::Sum,
+        SimdAggOp::Min,
+        SimdAggOp::Max,
+        SimdAggOp::Avg,
+    ] {
         let a = batch_aggregate_enhanced_f64(&data, op);
         let b = batch_aggregate_enhanced_f64(&data, op);
         assert_eq!(a.to_bits(), b.to_bits(), "快路径自身不稳定 op={:?}", op);

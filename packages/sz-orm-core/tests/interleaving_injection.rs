@@ -140,7 +140,11 @@ async fn open_two_conns() -> TwoConns {
     a.execute("CREATE TABLE IF NOT EXISTS l5_t (id INTEGER PRIMARY KEY, v INTEGER NOT NULL)")
         .await
         .expect("create");
-    TwoConns { a, b, path: path.clone() }
+    TwoConns {
+        a,
+        b,
+        path: path.clone(),
+    }
 }
 
 /// 事务区间重叠判定：按交错序列模拟语句执行，计算两事务是否重叠
@@ -180,7 +184,9 @@ async fn l5_probe_same_row_write_write_overlapping() {
         for (i, seq) in seqs.iter().enumerate() {
             let TwoConns { mut a, mut b, path } = open_two_conns().await;
             a.execute("DELETE FROM l5_t").await.expect("clear");
-        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)").await.expect("seed");
+            a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)")
+                .await
+                .expect("seed");
 
             let mut a_step = 0usize;
             let mut b_step = 0usize;
@@ -196,7 +202,10 @@ async fn l5_probe_same_row_write_write_overlapping() {
                         Session::A => {
                             a_step += 1;
                             match a_step {
-                                1 => a.begin_transaction().await.map_err(|e| format!("A begin: {}", e)),
+                                1 => a
+                                    .begin_transaction()
+                                    .await
+                                    .map_err(|e| format!("A begin: {}", e)),
                                 2 => {
                                     // 重叠时 B 可能持锁——busy 冲突按回滚处理
                                     if let Err(e) =
@@ -223,7 +232,10 @@ async fn l5_probe_same_row_write_write_overlapping() {
                         Session::B => {
                             b_step += 1;
                             match b_step {
-                                1 => b.begin_transaction().await.map_err(|e| format!("B begin: {}", e)),
+                                1 => b
+                                    .begin_transaction()
+                                    .await
+                                    .map_err(|e| format!("B begin: {}", e)),
                                 2 => {
                                     if let Err(e) =
                                         b.execute("UPDATE l5_t SET v = v + 10 WHERE id = 1").await
@@ -274,7 +286,9 @@ async fn l5_probe_same_row_write_write_overlapping() {
                     (a_applied, b_applied),
                     (true, true),
                     "非重叠交错 #{} 双事务必须双成功（a={} b={}）",
-                    i, a_applied, b_applied
+                    i,
+                    a_applied,
+                    b_applied
                 );
             } else {
                 assert!(
@@ -296,9 +310,13 @@ async fn l5_probe_rollback_isolation() {
         let TwoConns { mut a, mut b, path } = open_two_conns().await;
 
         a.execute("DELETE FROM l5_t").await.expect("clear");
-        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)").await.expect("seed");
+        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)")
+            .await
+            .expect("seed");
         a.begin_transaction().await.expect("A begin");
-        a.execute("UPDATE l5_t SET v = 99 WHERE id = 1").await.expect("A update");
+        a.execute("UPDATE l5_t SET v = 99 WHERE id = 1")
+            .await
+            .expect("A update");
 
         // B 在 A 未提交时读：恒见旧值 0（SQLite journal 隔离）
         let v = read_v(&mut b).await;
@@ -318,17 +336,28 @@ async fn l5_inv_different_row_both_commit() {
     let guard = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         let TwoConns { mut a, mut b, path } = open_two_conns().await;
         a.execute("DELETE FROM l5_t").await.expect("clear");
-        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)").await.expect("seed 1");
-        a.execute("INSERT INTO l5_t (id, v) VALUES (2, 0)").await.expect("seed 2");
+        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)")
+            .await
+            .expect("seed 1");
+        a.execute("INSERT INTO l5_t (id, v) VALUES (2, 0)")
+            .await
+            .expect("seed 2");
 
         a.begin_transaction().await.expect("A begin");
-        a.execute("UPDATE l5_t SET v = 5 WHERE id = 1").await.expect("A upd");
+        a.execute("UPDATE l5_t SET v = 5 WHERE id = 1")
+            .await
+            .expect("A upd");
         a.commit().await.expect("A commit");
         b.begin_transaction().await.expect("B begin");
-        b.execute("UPDATE l5_t SET v = 7 WHERE id = 2").await.expect("B upd");
+        b.execute("UPDATE l5_t SET v = 7 WHERE id = 2")
+            .await
+            .expect("B upd");
         b.commit().await.expect("B commit");
 
-        let rows = a.query("SELECT id, v FROM l5_t ORDER BY id").await.expect("final");
+        let rows = a
+            .query("SELECT id, v FROM l5_t ORDER BY id")
+            .await
+            .expect("final");
         let v1 = match rows[0].get("v") {
             Some(Value::I64(v)) => *v,
             other => panic!("类型: {:?}", other),
@@ -349,13 +378,19 @@ async fn l5_inv_same_row_serial_both_commit() {
     let guard = tokio::time::timeout(std::time::Duration::from_secs(15), async {
         let TwoConns { mut a, mut b, path } = open_two_conns().await;
         a.execute("DELETE FROM l5_t").await.expect("clear");
-        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)").await.expect("seed");
+        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)")
+            .await
+            .expect("seed");
 
         a.begin_transaction().await.expect("A begin");
-        a.execute("UPDATE l5_t SET v = v + 1 WHERE id = 1").await.expect("A upd");
+        a.execute("UPDATE l5_t SET v = v + 1 WHERE id = 1")
+            .await
+            .expect("A upd");
         a.commit().await.expect("A commit");
         b.begin_transaction().await.expect("B begin");
-        b.execute("UPDATE l5_t SET v = v + 10 WHERE id = 1").await.expect("B upd");
+        b.execute("UPDATE l5_t SET v = v + 10 WHERE id = 1")
+            .await
+            .expect("B upd");
         b.commit().await.expect("B commit");
 
         let v = read_v(&mut a).await;
@@ -374,7 +409,9 @@ async fn l5_inv_random_interleave_no_hang() {
             let seq = interleave(3, 3, seed);
             let TwoConns { mut a, mut b, path } = open_two_conns().await;
             a.execute("DELETE FROM l5_t").await.expect("clear");
-        a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)").await.expect("seed");
+            a.execute("INSERT INTO l5_t (id, v) VALUES (1, 0)")
+                .await
+                .expect("seed");
 
             let mut a_step = 0usize;
             let mut b_step = 0usize;
@@ -389,7 +426,10 @@ async fn l5_inv_random_interleave_no_hang() {
                         Session::A => {
                             a_step += 1;
                             match a_step {
-                                1 => a.begin_transaction().await.map_err(|e| format!("A begin: {}", e)),
+                                1 => a
+                                    .begin_transaction()
+                                    .await
+                                    .map_err(|e| format!("A begin: {}", e)),
                                 2 => {
                                     if let Err(e) =
                                         a.execute("UPDATE l5_t SET v = v + 1 WHERE id = 1").await
@@ -415,7 +455,10 @@ async fn l5_inv_random_interleave_no_hang() {
                         Session::B => {
                             b_step += 1;
                             match b_step {
-                                1 => b.begin_transaction().await.map_err(|e| format!("B begin: {}", e)),
+                                1 => b
+                                    .begin_transaction()
+                                    .await
+                                    .map_err(|e| format!("B begin: {}", e)),
                                 2 => {
                                     if let Err(e) =
                                         b.execute("UPDATE l5_t SET v = v + 10 WHERE id = 1").await

@@ -321,7 +321,9 @@ tokio = { workspace = true, features = ["full", "test-util"] }
 sz-orm-query-builder = { path = "../sz-orm-query-builder" }
 # v4.3.0 M2：N+1 静态检测交叉验证（静态分析 ↔ 运行时 N1QueryDetector）
 sz-orm-n1-lint = { path = "../sz-orm-n1-lint", features = ["n1-lint"] }
-sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json"] }
+sqlx = { version = "0.9", default-features = false, features = ["runtime-tokio", "tls-rustls", "mysql", "postgres", "sqlite", "chrono", "json", "uuid", "bigdecimal"] }
+# PG 方言矩阵 NUMERIC 38 位绑定（Decimal → BigDecimal，同 sz-orm-sqlx bind_pg_value R2 口径）
+bigdecimal = "0.4"
 rusqlite = { version = "0.32", features = ["bundled"] }
 # DuckDB 真实集成测试（bundled：编译 DuckDB 源码，需 MSVC + CMake）
 duckdb = { version = "1", features = ["bundled"] }
@@ -354,6 +356,12 @@ path = "tests/integration_mysql.rs"
 [[test]]
 name = "integration_pg"
 path = "tests/integration_pg.rs"
+
+# 2026-11-13 PG 方言矩阵真连验证（PG1~PG7）
+[[test]]
+name = "integration_pg_matrix"
+path = "tests/integration_pg_matrix.rs"
+required-features = ["type-safe-columns"]
 
 [[test]]
 name = "integration_oracle"

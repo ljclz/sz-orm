@@ -9,6 +9,13 @@
 
 ## [Unreleased]
 
+### Added — SQLite 方言矩阵真连验证（SQ1~SQ7，六环闭环）
+
+- 新增 `packages/sz-orm-core/tests/integration_sqlite_matrix.rs`（10 测试，内存库免 env 无条件必跑，`cargo test -p sz-orm-core --test integration_sqlite_matrix` → **10 passed**）：SQ0 引擎版本契约（bundled 3.46.0）+ SQ1 STRICT/RETURNING/IS NOT DISTINCT FROM 方言暴露面 + SQ2 三种 quoting/G2 同型回归 + SQ3 Upsert 家族（ON CONFLICT/EXCLUDED、OR IGNORE、OR REPLACE 删后插 rowid 探针、混用形态跨引擎接受）+ SQ4 主键回填双通道 + WITHOUT ROWID last_insert_rowid 失效探针 + SQ5 PRAGMA 面 + SQ6 类型亲和性/JSON1 + SQ7 边缘语义/FTS quote 真库命中/SQLITE_BUSY 双连接探针 + DuckDB 同型回归。报告 `docs/assessment/2026-11-13-sqlite-dialect-matrix.md`（audit-verify 0 失败）
+- **引擎编译配置事实（登记）**：libsqlite3-sys 0.30.1 bundled 编译带 `-DSQLITE_DEFAULT_FOREIGN_KEYS=1`（build.rs 旗标）——bundled 引擎默认 foreign_keys=**ON**（上游默认 OFF）；行为级证据：孤儿外键默认被拒/OFF 后放过/重新 ON 再拒。sz-pay 类业务 FK 静默丢约束风险在 bundled 构建天然规避；**非 bundled 链接系统库仍默认 OFF**（python 3.32 CLI 探针佐证），换构建形态需显式 `PRAGMA foreign_keys=ON`
+- **sz-orm 方言缺口 0 处**：FTS LIKE 降级列名 quote（横向批）/AddIndex quote（批二）/concat COALESCE/ON CONFLICT 生成面均经真库行为验证无缺口；G37 门禁 0 命中佐证；引擎事实 4 类 + 文档措辞 1 项登记（WITHOUT ROWID 下 `last_insert_id_sql()` 仅 rowid 表有效——主键回填走 RETURNING）
+- **并行会话门禁转绿最小修复**（hunk 级隔离，归属并行线）：`integration_pg_matrix` 注册补 `required-features = ["type-safe-columns"]`（`packages/sz-orm-core/Cargo.toml:364`，修复 G2 全量编译）+ integration_mssql/integration_tidb/integration_mariadb 三处 `.err().expect()` → match+panic（修复 G3 clippy -D warnings）+ sz-orm-parallel/sz-orm-core fmt 漂移修复（G1 72 包全绿）
+
 ### Fixed — szrsql 线先在项三项闭环（G9/G30 红牌清除）+ G9 全仓首次 EXIT=0
 
 - **szrsql 维护方处置落地**（`d5a37fd4` trust 形态精确豁免 + cabi `normalize_szrsql_dsn` 纯函数提取 / `270ba94b` 回执 / `cfb1c370` 订正）——转交文档（`2026-11-13-szrsql-line-legacy-items-feedback.md`）验收清单独立复核**逐项通过**：cabi **88 passed**（含新真断言测试 `test_szrsql_dsn_normalization`）+ check-phantom-tests.py **EXIT=0**（G30 红牌清除）+ trust 豁免生效（转交三项相关命中 0）

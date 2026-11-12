@@ -630,3 +630,274 @@ async fn test_mssql_drop_table_executes() {
     let result = client.simple_query(&drop_again_sql).await;
     assert!(result.is_ok(), "DROP TABLE IF EXISTS 对不存在的表应不报错");
 }
+
+// ============================================================================
+// 容器化方言矩阵（2026-11-13，MZ-MSSQL × MSSQL 2022 容器 @1433）
+// 与既有 13 项不重复：聚焦 sz-orm 方言生成面 × 真库行为契约
+// ============================================================================
+
+/// MZ-MSSQL-1: OUTPUT INSERTED 主键回填通道（sz-orm supports_returning()=true 的语义基础）
+#[tokio::test]
+#[ignore = "需要 SQL Server 运行于 127.0.0.1:1433"]
+async fn matrix_mz_mssql1_output_inserted_id_backfill() {
+    let mut client = open_client().await;
+    let table = unique_table("mzm1");
+    drop_table_if_exists(&mut client, &table).await;
+    create_test_table(&mut client, &table).await;
+
+    let dialect = get_dialect(DbType::SqlServer).unwrap();
+    // sz-orm 方言生成面：supports_returning() = true（OUTPUT 等价通道）
+    assert!(
+        dialect.supports_returning(),
+        "SqlServerDialect.supports_returning 必须为 true（OUTPUT INSERTED 通道）"
+    );
+
+    // 真库行为：INSERT ... OUTPUT INSERTED.[id] 返回自增主键
+    let insert_sql = format!(
+        "INSERT INTO {} ([name], [value]) OUTPUT INSERTED.[id] VALUES (@p1, @p2)",
+        dialect.quote(&table)
+    );
+    let stream = client
+        .query(&insert_sql, &[&"mz_a", &1i32])
+        .await
+        .expect("insert with OUTPUT");
+    let rows: Vec<tiberius::Row> = stream
+        .into_first_result()
+        .await
+        .expect("OUTPUT INSERTED results");
+    assert_eq!(rows.len(), 1, "OUTPUT INSERTED 应返回 1 行");
+    let backfilled: i64 = rows[0].get::<i64, _>(0).expect("id");
+    assert!(
+        backfilled >= 1,
+        "OUTPUT INSERTED.id 应回填自增值，got {backfilled}"
+    );
+
+    // 行为断言：回填值与表内实际行一致
+    let verify_sql = format!(
+        "SELECT [name] FROM {} WHERE [id] = @p1",
+        dialect.quote(&table)
+    );
+    let stream = client
+        .query(&verify_sql, &[&backfilled])
+        .await
+        .expect("verify");
+    let rows: Vec<tiberius::Row> = stream.into_first_result().await.expect("verify results");
+    let name: &str = rows[0].get::<&str, _>(0).expect("name");
+    assert_eq!(name, "mz_a", "回填 id 对应行应存在");
+
+    drop_table_if_exists(&mut client, &table).await;
+}
+
+/// MZ-MSSQL-2: [方括号] quoting × 真库（保留字列名 + 含 ] 标识符转义）
+#[tokio::test]
+#[ignore = "需要 SQL Server 运行于 127.0.0.1:1433"]
+async fn matrix_mz_mssql2_bracket_quoting_reserved_words() {
+    let mut client = open_client().await;
+    let dialect = get_dialect(DbType::SqlServer).unwrap();
+    // 方言生成面断言
+    assert_eq!(dialect.quote("order"), "[order]");
+    assert_eq!(dialect.quote("we]ird"), "[we]]ird]");
+
+    // 真库行为：保留字列名 [order] 与含 ] 列名建表 + CRUD 往返
+    let table = unique_table("mzm2");
+    drop_table_if_exists(&mut client, &table).await;
+    let create_sql = format!(
+        "CREATE TABLE {} ([id] INT IDENTITY(1,1) PRIMARY KEY, {} NVARCHAR(50) NOT NULL, {} NVARCHAR(50) NULL)",
+        dialect.quote(&table),
+        dialect.quote("order"),
+        dialect.quote("we]ird")
+    );
+    client
+        .simple_query(&create_sql)
+        .await
+        .expect("create table with reserved-word column");
+
+    let insert_sql = format!(
+        "INSERT INTO {} ({}, {}) VALUES (@p1, @p2)",
+        dialect.quote(&table),
+        dialect.quote("order"),
+        dialect.quote("we]ird")
+    );
+    client
+        .query(&insert_sql, &[&"r1", &"w1"])
+        .await
+        .expect("insert reserved-word cols")
+        .into_first_result()
+        .await
+        .expect("insert results");
+
+    let select_sql = format!(
+        "SELECT {}, {} FROM {} WHERE {} = @p1",
+        dialect.quote("order"),
+        dialect.quote("we]ird"),
+        dialect.quote(&table),
+        dialect.quote("order")
+    );
+    let stream = client
+        .query(&select_sql, &[&"r1"])
+        .await
+        .expect("select reserved-word cols");
+    let rows: Vec<tiberius::Row> = stream.into_first_result().await.expect("select results");
+    assert_eq!(rows.len(), 1);
+    let order_val: &str = rows[0].get::<&str, _>(0).expect("order");
+    let weird_val: &str = rows[0].get::<&str, _>(1).expect("weird");
+    assert_eq!(
+        (order_val, weird_val),
+        ("r1", "w1"),
+        "保留字/含]列名往返应无损"
+    );
+
+    drop_table_if_exists(&mut client, &table).await;
+}
+
+/// MZ-MSSQL-3: TOP n vs OFFSET..FETCH 分页（无 ORDER BY 的 OFFSET 必须被真库拒绝——契约登记）
+#[tokio::test]
+#[ignore = "需要 SQL Server 运行于 127.0.0.1:1433"]
+async fn matrix_mz_mssql3_pagination_offset_fetch_orderby_contract() {
+    let mut client = open_client().await;
+    let dialect = get_dialect(DbType::SqlServer).unwrap();
+
+    let table = unique_table("mzm3");
+    drop_table_if_exists(&mut client, &table).await;
+    create_test_table(&mut client, &table).await;
+    for i in 0..5i32 {
+        let insert_sql = format!(
+            "INSERT INTO {} ([name], [value]) VALUES (@p1, @p2)",
+            dialect.quote(&table)
+        );
+        client
+            .query(&insert_sql, &[&"n", &i])
+            .await
+            .expect("seed")
+            .into_first_result()
+            .await
+            .expect("seed results");
+    }
+
+    // TOP n 真库可用
+    let top_sql = format!("SELECT TOP 2 [id] FROM {}", dialect.quote(&table));
+    let rows: Vec<tiberius::Row> = client
+        .simple_query(&top_sql)
+        .await
+        .expect("TOP n")
+        .into_first_result()
+        .await
+        .expect("TOP results");
+    assert_eq!(rows.len(), 2, "TOP 2 应返回 2 行");
+
+    // sz-orm build_pagination 生成 OFFSET..FETCH：真库要求前置 ORDER BY
+    let paginated =
+        dialect.build_pagination(&format!("SELECT [id] FROM {}", dialect.quote(&table)), 2, 2);
+    assert!(paginated.contains("OFFSET 2 ROWS"), "sql = {paginated}");
+
+    // 契约探针 A：无 ORDER BY 的 OFFSET..FETCH 被真库拒绝（Msg 102）
+    let no_order = format!("SELECT [id] FROM {} OFFSET 0 ROWS", dialect.quote(&table));
+    let err = match client.simple_query(&no_order).await {
+        Err(e) => e,
+        Ok(_) => panic!("无 ORDER BY 的 OFFSET 必须报错（MSSQL 契约）"),
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("102") || msg.to_lowercase().contains("incorrect syntax"),
+        "期望 Msg 102 Incorrect syntax，got: {msg}"
+    );
+
+    // 契约探针 B：前置 ORDER BY 后 sz-orm 生成面可用
+    let with_order = dialect.build_pagination(
+        &format!("SELECT [id] FROM {} ORDER BY [id]", dialect.quote(&table)),
+        2,
+        2,
+    );
+    let rows: Vec<tiberius::Row> = client
+        .simple_query(&with_order)
+        .await
+        .expect("OFFSET..FETCH with ORDER BY")
+        .into_first_result()
+        .await
+        .expect("pagination results");
+    assert_eq!(rows.len(), 2, "第 2 页（page=2, limit=2）应返回 2 行");
+    let first: i64 = rows[0].get::<i64, _>(0).expect("id");
+    assert!(
+        first >= 3,
+        "第 2 页首行 id 应 >= 3（1..5 正序），got {first}"
+    );
+
+    drop_table_if_exists(&mut client, &table).await;
+}
+
+/// MZ-MSSQL-4: GETDATE() / NVARCHAR(MAX) / JSON_VALUE 类型面 × 真库
+#[tokio::test]
+#[ignore = "需要 SQL Server 运行于 127.0.0.1:1433"]
+async fn matrix_mz_mssql4_getdate_nvarchar_json_value() {
+    let mut client = open_client().await;
+    let dialect = get_dialect(DbType::SqlServer).unwrap();
+
+    // json_type 声明 NVARCHAR(MAX)——真库可用该类型建列
+    assert_eq!(dialect.json_type(), "NVARCHAR(MAX)");
+    let table = unique_table("mzm4");
+    drop_table_if_exists(&mut client, &table).await;
+    let create_sql = format!(
+        "CREATE TABLE {} ([id] INT IDENTITY(1,1) PRIMARY KEY, [payload] {} NOT NULL, [created_at] DATETIME NOT NULL DEFAULT GETDATE())",
+        dialect.quote(&table),
+        dialect.json_type()
+    );
+    client
+        .simple_query(&create_sql)
+        .await
+        .expect("create table with NVARCHAR(MAX) + GETDATE default");
+
+    // JSON_VALUE 提取（方言生成面 × 真库）
+    let extract_expr = dialect.json_extract("payload", "user.name");
+    assert!(
+        extract_expr.starts_with("JSON_VALUE(payload"),
+        "expr = {extract_expr}"
+    );
+    let insert_sql = format!(
+        "INSERT INTO {} ([payload]) VALUES (@p1)",
+        dialect.quote(&table)
+    );
+    client
+        .query(&insert_sql, &[&r#"{"user":{"name":"mz"}}"#])
+        .await
+        .expect("insert json")
+        .into_first_result()
+        .await
+        .expect("insert results");
+
+    let select_sql = format!(
+        "SELECT {}, [created_at] FROM {} WHERE [id] = SCOPE_IDENTITY() + 0 OR [id] = (SELECT MAX([id]) FROM {})",
+        extract_expr,
+        dialect.quote(&table),
+        dialect.quote(&table)
+    );
+    let rows: Vec<tiberius::Row> = client
+        .simple_query(&select_sql)
+        .await
+        .expect("select json_value")
+        .into_first_result()
+        .await
+        .expect("select results");
+    assert_eq!(rows.len(), 1);
+    let name: &str = rows[0].get::<&str, _>(0).expect("extracted name");
+    assert_eq!(name, "mz", "JSON_VALUE 提取应无损");
+    // GETDATE() 默认值列存在且非 NULL：用 NVARCHAR 转换探针避免跨驱动类型耦合
+    let dt_sql = format!(
+        "SELECT CONVERT(NVARCHAR(23), [created_at], 121) FROM {} WHERE [id] = (SELECT MAX([id]) FROM {})",
+        dialect.quote(&table),
+        dialect.quote(&table)
+    );
+    let rows: Vec<tiberius::Row> = client
+        .simple_query(&dt_sql)
+        .await
+        .expect("select created_at")
+        .into_first_result()
+        .await
+        .expect("created_at results");
+    let dt: &str = rows[0].get::<&str, _>(0).expect("created_at string");
+    assert!(
+        dt.len() >= 19 && dt.as_bytes()[4] == b'-',
+        "GETDATE() 默认值应填充合法 DATETIME 字符串，got {dt}"
+    );
+
+    drop_table_if_exists(&mut client, &table).await;
+}

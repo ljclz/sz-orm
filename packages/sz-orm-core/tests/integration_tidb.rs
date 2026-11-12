@@ -231,3 +231,219 @@ async fn test_tidb_sql_injection_protection() {
     .await
     .expect("drop table");
 }
+
+// ============================================================================
+// 容器化方言矩阵（2026-11-13，MZ-TiDB × TiDB v8.5.1 容器 @4400，MySQL 协议）
+// 与既有 8 项不重复：聚焦家族偏差点（FK 真执行 / AUTO_RANDOM / RETURNING 缺失 / CHECK）
+// ============================================================================
+
+/// MZ-TiDB-1: 外键 v6.6+ 真执行——sz-orm FK 生成面（build_add_foreign_key）在 TiDB 行为契约
+#[tokio::test]
+#[ignore]
+async fn matrix_mz_tidb1_foreign_key_enforced() {
+    let pool = setup_pool().await;
+    let dialect = get_dialect(DbType::TiDB).unwrap();
+
+    // 委托正确性：TiDbDialect 委派 MySqlDialect
+    assert_eq!(dialect.db_type(), DbType::TiDB);
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        "CREATE TABLE IF NOT EXISTS `mz_tidb_parent` (id INT PRIMARY KEY)",
+    ))
+    .execute(&pool)
+    .await
+    .expect("create parent");
+
+    let child = unique_table("mzt1child");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("CREATE TABLE `{child}` (id INT PRIMARY KEY, pid INT, FOREIGN KEY (pid) REFERENCES `mz_tidb_parent`(id))").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("create child with FK");
+
+    // 幂等 seed：重复运行时 1062 忽略
+    let _ = sqlx::query(sqlx::AssertSqlSafe(
+        "INSERT INTO `mz_tidb_parent` VALUES (1)",
+    ))
+    .execute(&pool)
+    .await;
+
+    // 合法引用插入成功
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{child}` VALUES (1, 1)").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("valid FK insert");
+
+    // 行为断言：孤儿引用被 TiDB 拒绝（v6.6+ FK 真执行，错误码 1452——旧版静默忽略）
+    let err = match sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{child}` VALUES (2, 99)").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    {
+        Err(e) => e,
+        Ok(_) => panic!("TiDB v8.5 FK 必须拒绝孤儿引用"),
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("1452") || msg.to_lowercase().contains("foreign key"),
+        "期望 TiDB FK 违反（1452），got: {msg}"
+    );
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{child}`").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("drop child");
+}
+
+/// MZ-TiDB-2: AUTO_RANDOM 分布式主键（替代 AUTO_INCREMENT——家族扩展；sz-orm 默认生成
+/// AUTO_INCREMENT 仍可用，AUTO_RANDOM 属引擎特有登记）
+#[tokio::test]
+#[ignore]
+async fn matrix_mz_tidb2_auto_random_extension() {
+    let pool = setup_pool().await;
+    let dialect = get_dialect(DbType::TiDB).unwrap();
+
+    // sz-orm 生成面：默认 AUTO_INCREMENT 关键字（TiDB 兼容）
+    assert_eq!(
+        dialect.auto_increment_keyword(),
+        "AUTO_INCREMENT",
+        "TiDbDialect 委派 MySqlDialect，自增关键字应为 AUTO_INCREMENT"
+    );
+
+    // 引擎特有：AUTO_RANDOM 建表 + 插入回填非确定性分布式 id
+    let table = unique_table("mzt2ar");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("CREATE TABLE `{table}` (id BIGINT AUTO_RANDOM PRIMARY KEY, v VARCHAR(20))")
+            .as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("create AUTO_RANDOM table（TiDB 特有）");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{table}` (v) VALUES ('a')").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("insert into AUTO_RANDOM");
+
+    let row = sqlx::query(sqlx::AssertSqlSafe(
+        format!("SELECT id FROM `{table}`").as_str(),
+    ))
+    .fetch_one(&pool)
+    .await
+    .expect("select auto random id");
+    let id: i64 = row.get("id");
+    assert!(id != 0, "AUTO_RANDOM 应生成非零分布式 id，got {id}");
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{table}`").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("drop table");
+    // 注意：mz_tidb_parent 由 mz_tidb1 创建并在该测试末尾随 child 一同清理；
+    // 此处不在 mz_tidb2 中删 parent（FK 依赖，3730）
+}
+
+/// MZ-TiDB-3: INSERT ... RETURNING 不支持（MySQL 家族缺失项——LAST_INSERT_ID() 通道契约）
+#[tokio::test]
+#[ignore]
+async fn matrix_mz_tidb3_no_insert_returning() {
+    let pool = setup_pool().await;
+    let dialect = get_dialect(DbType::TiDB).unwrap();
+
+    // sz-orm 委托面：supports_returning=false → 走 LAST_INSERT_ID() 通道（正确委托）
+    assert!(!dialect.supports_returning());
+    assert_eq!(dialect.last_insert_id_sql(), Some("LAST_INSERT_ID()"));
+
+    // 真库行为：RETURNING 语法被 TiDB v8.5 拒绝（1064）
+    let table = unique_table("mzt3ret");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("CREATE TABLE `{table}` (id INT PRIMARY KEY, v VARCHAR(5))").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("create table");
+
+    let err = match sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{table}` VALUES (1,'a') RETURNING id").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    {
+        Err(e) => e,
+        Ok(_) => panic!("TiDB 不支持 INSERT RETURNING，必须报错"),
+    };
+    let msg = err.to_string();
+    assert!(
+        msg.contains("1064") || msg.to_lowercase().contains("syntax"),
+        "期望 TiDB 1064 语法错误，got: {msg}"
+    );
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{table}`").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("drop table");
+}
+
+/// MZ-TiDB-4: CHECK 约束执行面（v8.5 解析但不执行违规拦截探针——登记引擎行为）
+#[tokio::test]
+#[ignore]
+async fn matrix_mz_tidb4_check_constraint_behavior() {
+    let pool = setup_pool().await;
+
+    let table = unique_table("mzt4ck");
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("CREATE TABLE `{table}` (v INT CHECK (v > 0))").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("create table with CHECK（TiDB 可建）");
+
+    // 行为探针：v8.5 CHECK 违反是否被拒绝（真库实测登记，不预设）
+    let violation = sqlx::query(sqlx::AssertSqlSafe(
+        format!("INSERT INTO `{table}` (v) VALUES (-1)").as_str(),
+    ))
+    .execute(&pool)
+    .await;
+
+    match violation {
+        Err(e) => {
+            let msg = e.to_string();
+            assert!(
+                msg.contains("3819") || msg.to_lowercase().contains("check"),
+                "若拒绝应为 CHECK 违反（3819），got: {msg}"
+            );
+        }
+        Ok(_) => {
+            // TiDB 部分版本解析 CHECK 但不执行——登记为引擎特有（合法结果，测试记录事实）
+            let count = sqlx::query(sqlx::AssertSqlSafe(
+                format!("SELECT COUNT(*) AS c FROM `{table}` WHERE v = -1").as_str(),
+            ))
+            .fetch_one(&pool)
+            .await
+            .expect("count");
+            let c: i64 = count.get("c");
+            assert_eq!(
+                c, 1,
+                "静默路径下 -1 应已入库（TiDB CHECK 未执行的引擎行为登记）"
+            );
+        }
+    }
+
+    sqlx::query(sqlx::AssertSqlSafe(
+        format!("DROP TABLE `{table}`").as_str(),
+    ))
+    .execute(&pool)
+    .await
+    .expect("drop table");
+}

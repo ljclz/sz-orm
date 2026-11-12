@@ -243,10 +243,7 @@ fn rows_equal(a: &[HashMap<String, Value>], b: &[HashMap<String, Value>]) -> Res
                 }
                 _ => {
                     if va != vb {
-                        return Err(format!(
-                            "第 {} 行 {} 值不一致: {:?} vs {:?}",
-                            i, ka, va, vb
-                        ));
+                        return Err(format!("第 {} 行 {} 值不一致: {:?} vs {:?}", i, ka, va, vb));
                     }
                 }
             }

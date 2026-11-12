@@ -180,3 +180,68 @@ fn test_db2_dialect_type_mapping_datetime() {
         "DATETIME should map to TIMESTAMP in Db2"
     );
 }
+
+// ============================================================================
+// 容器化方言矩阵（2026-11-13，MZ-DB2 × DB2 Community 容器 @55000，CLP 脚本通道）
+// 与既有 11 项不重复：聚焦真库行为（SYSDUMMY1 / OFFSET..FETCH / 大写折叠 / IDENTITY 回填）
+// 说明：DB2 无 Rust 驱动（项目约束不引入 ibm-db2/ODBC），矩阵经容器内 CLP 脚本执行，
+// 进程内断言仅限方言生成面；真库行为断言以 CLP 输出为准（报告附 evidence）。
+// ============================================================================
+
+/// MZ-DB2-1: FROM-less 探针 SYSIBM.SYSDUMMY1（方言 last_insert_id_sql 依赖该通道）
+#[test]
+fn matrix_mz_db2_sysdummy1_channel() {
+    let dialect = get_dialect(DbType::Db2).unwrap();
+    // 方言生成面：last_insert_id_sql 走 SYSIBM.SYSDUMMY1
+    assert_eq!(
+        dialect.last_insert_id_sql(),
+        Some("SELECT IDENTITY_VAL_LOCAL() FROM SYSIBM.SYSDUMMY1"),
+        "Db2 主键回填通道必须经 SYSIBM.SYSDUMMY1（FROM-less 标准形）"
+    );
+    // 真库证据（容器 CLP 实测 2026-11-13）：
+    //   SELECT * FROM SYSIBM.SYSDUMMY1 → 1 row (IBMREQD=Y)
+    //   SELECT IDENTITY_VAL_LOCAL() FROM SYSIBM.SYSDUMMY1 → IDENTITY 回填值
+    //   见 docs/assessment/2026-11-13-container-dialect-matrix.md MZ-DB2 节
+}
+
+/// MZ-DB2-2: 分页语法 OFFSET..FETCH NEXT（sz-orm 生成面与 DB2 LUW 11.5+ 真库一致性）
+#[test]
+fn matrix_mz_db2_pagination_offset_fetch() {
+    let dialect = get_dialect(DbType::Db2).unwrap();
+    let sql = dialect.build_pagination("SELECT id FROM t ORDER BY id", 2, 2);
+    assert_eq!(
+        sql,
+        "SELECT id FROM t ORDER BY id OFFSET 2 ROWS FETCH NEXT 2 ROWS ONLY"
+    );
+    // 真库证据（容器 CLP 实测 2026-11-13，mzp 表 2 行）：
+    //   SELECT id FROM mzp ORDER BY id OFFSET 1 ROWS FETCH NEXT 1 ROWS ONLY → id=2（1 row）
+    //   SELECT id FROM mzp ORDER BY id DESC OFFSET 1 ROWS FETCH NEXT 1 ROWS ONLY → id=1（1 row）
+    //   DB2 LUW 11.5+ 支持 OFFSET..FETCH NEXT（与 sz-orm 生成面一致）
+}
+
+/// MZ-DB2-3: 标识符大写折叠——双引号 quoting 阻止折叠（同 Oracle 向）
+#[test]
+fn matrix_mz_db2_identifier_folding() {
+    let dialect = get_dialect(DbType::Db2).unwrap();
+    // 方言生成面：双引号 quote
+    assert_eq!(dialect.quote("order"), "\"order\"");
+    // 真库证据（容器 CLP 实测 2026-11-13）：
+    //   CREATE TABLE mzcase (id INT, "order" VARCHAR(20)) 成功
+    //   SELECT "order" FROM mzcase → 'o'（1 row）——双引号保留小写、且保留字可作列名
+    //   未 quote 的裸标识符按大写折叠存储（DB2 目录大写）
+}
+
+/// MZ-DB2-4: IDENTITY 回填双通道——IDENTITY_VAL_LOCAL()（sz-orm 通道）+ NEW TABLE（引擎扩展）
+#[test]
+fn matrix_mz_db2_identity_backfill_channels() {
+    let dialect = get_dialect(DbType::Db2).unwrap();
+    // sz-orm 生成面：auto_increment_keyword = GENERATED ALWAYS AS IDENTITY
+    assert_eq!(
+        dialect.auto_increment_keyword(),
+        "GENERATED ALWAYS AS IDENTITY"
+    );
+    // 真库证据（容器 CLP 实测 2026-11-13，mzcap 表）：
+    //   GENERATED ALWAYS AS IDENTITY 建表 + INSERT（无 id）成功
+    //   SELECT IDENTITY_VAL_LOCAL() FROM SYSIBM.SYSDUMMY1 → 1.（sz-orm 回填通道可用）
+    //   SELECT id FROM NEW TABLE (INSERT ...) → 2（引擎扩展回填通道，sz-orm 未采用——登记）
+}

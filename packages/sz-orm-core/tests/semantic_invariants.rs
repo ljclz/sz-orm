@@ -26,7 +26,9 @@ type Row = (i64, String, i64);
 // ===================== 基础设施 =====================
 
 async fn setup(conn: &mut RusqliteConnection, rows: &[Row]) {
-    conn.execute("DROP TABLE IF EXISTS inv_t").await.expect("drop");
+    conn.execute("DROP TABLE IF EXISTS inv_t")
+        .await
+        .expect("drop");
     conn.execute(
         "CREATE TABLE inv_t (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER NOT NULL)",
     )
@@ -156,11 +158,13 @@ async fn inv_n7_count_forms_agree() {
     let c_one = agg(&mut conn, "COUNT(1)").await;
     let c_col = agg(&mut conn, "COUNT(id)").await; // id 非空（PK）
     assert_eq!(
-        c_star.get("v"), c_one.get("v"),
+        c_star.get("v"),
+        c_one.get("v"),
         "COUNT(*) 与 COUNT(1) 必须一致"
     );
     assert_eq!(
-        c_star.get("v"), c_col.get("v"),
+        c_star.get("v"),
+        c_col.get("v"),
         "COUNT(*) 与 COUNT(非空列) 必须一致"
     );
 }
@@ -170,7 +174,15 @@ async fn inv_n7_count_forms_agree() {
 #[tokio::test]
 async fn inv_n3_aggregate_decomposition() {
     let mut conn = RusqliteConnection::open_in_memory();
-    setup(&mut conn, &[(1, "a".into(), 10), (2, "b".into(), 20), (3, "a".into(), 30)]).await;
+    setup(
+        &mut conn,
+        &[
+            (1, "a".into(), 10),
+            (2, "b".into(), 20),
+            (3, "a".into(), 30),
+        ],
+    )
+    .await;
 
     // 全局 SUM vs 分组 SUM 再聚合
     let global_sum = match agg(&mut conn, "SUM(age)").await.get("v") {
@@ -245,9 +257,15 @@ async fn inv_n4_commutative_dml_pairs() {
         .execute("INSERT INTO inv_t (id, name, age) VALUES (3, 'c', 30)")
         .await
         .expect("insert 3");
-    conn_a.execute("DELETE FROM inv_t WHERE id = 2").await.expect("delete 2");
+    conn_a
+        .execute("DELETE FROM inv_t WHERE id = 2")
+        .await
+        .expect("delete 2");
     // B∘A：先删 2 后插 3
-    conn_b.execute("DELETE FROM inv_t WHERE id = 2").await.expect("delete 2");
+    conn_b
+        .execute("DELETE FROM inv_t WHERE id = 2")
+        .await
+        .expect("delete 2");
     conn_b
         .execute("INSERT INTO inv_t (id, name, age) VALUES (3, 'c', 30)")
         .await
@@ -263,8 +281,8 @@ async fn inv_n4_commutative_dml_pairs() {
 #[cfg(feature = "query-result-cache")]
 #[tokio::test]
 async fn inv_n1_cache_matches_recompute_after_dml() {
-    use sz_orm_core::query_result_cache::{CacheKey, QueryResultCache, QueryResultCacheConfig};
     use std::time::Duration;
+    use sz_orm_core::query_result_cache::{CacheKey, QueryResultCache, QueryResultCacheConfig};
 
     let mut conn = RusqliteConnection::open_in_memory();
     setup(&mut conn, &[(1, "a".into(), 10), (2, "b".into(), 20)]).await;
@@ -285,15 +303,23 @@ async fn inv_n1_cache_matches_recompute_after_dml() {
     conn.execute("INSERT INTO inv_t (id, name, age) VALUES (3, 'c', 30)")
         .await
         .expect("dml 1");
-    conn.execute("UPDATE inv_t SET age = 25 WHERE id = 1").await.expect("dml 2");
-    conn.execute("DELETE FROM inv_t WHERE id = 2").await.expect("dml 3");
+    conn.execute("UPDATE inv_t SET age = 25 WHERE id = 1")
+        .await
+        .expect("dml 2");
+    conn.execute("DELETE FROM inv_t WHERE id = 2")
+        .await
+        .expect("dml 3");
 
     // 表失效
     cache.invalidate_table("inv_t");
 
     // 重新计算基数据 → 回填 → 命中读取必须 == 重新计算
     let recomputed = conn.query(sql).await.expect("recompute");
-    cache.put(key.clone(), recomputed.clone(), ["inv_t".to_string()].into());
+    cache.put(
+        key.clone(),
+        recomputed.clone(),
+        ["inv_t".to_string()].into(),
+    );
     let cached = cache.get(&key).expect("缓存应在 TTL 内命中");
     assert_eq!(
         recomputed, cached,
@@ -314,7 +340,11 @@ enum Dml {
 fn arb_dml_seq() -> impl Strategy<Value = Vec<Dml>> {
     prop::collection::vec(
         prop_oneof![
-            (1i64..=6, any::<u8>(), -50i64..50).prop_map(|(id, n, age)| Dml::Insert(id, n % 26, age)),
+            (1i64..=6, any::<u8>(), -50i64..50).prop_map(|(id, n, age)| Dml::Insert(
+                id,
+                n % 26,
+                age
+            )),
             (1i64..=6, -50i64..50).prop_map(|(id, age)| Dml::Update(id, age)),
             (1i64..=6).prop_map(Dml::Delete),
         ],

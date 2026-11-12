@@ -30,28 +30,29 @@ fn parse_direct(sql: &str) -> Option<Statement> {
 fn arb_sql() -> impl Strategy<Value = String> {
     prop_oneof![
         // SELECT 等值
-        (prop_oneof!["users", "orders", "items"], prop_oneof!["id", "name", "age"], any::<i64>()).prop_map(
-            |(t, c, v)| format!("SELECT * FROM {} WHERE {} = {}", t, c, v),
-        ),
+        (
+            prop_oneof!["users", "orders", "items"],
+            prop_oneof!["id", "name", "age"],
+            any::<i64>()
+        )
+            .prop_map(|(t, c, v)| format!("SELECT * FROM {} WHERE {} = {}", t, c, v),),
         // SELECT 投影
-        (prop_oneof!["users", "orders"], prop_oneof!["id", "id, name", "id, name, age"]).prop_map(
-            |(t, cols)| format!("SELECT {} FROM {}", cols, t),
-        ),
+        (
+            prop_oneof!["users", "orders"],
+            prop_oneof!["id", "id, name", "id, name, age"]
+        )
+            .prop_map(|(t, cols)| format!("SELECT {} FROM {}", cols, t),),
         // INSERT
         (prop_oneof!["users", "items"], any::<i64>(), "[a-z]{1,8}").prop_map(|(t, id, n)| format!(
             "INSERT INTO {} (id, name) VALUES ({}, '{}')",
             t, id, n
         )),
         // UPDATE
-        (prop_oneof!["users", "orders"], any::<i64>(), any::<i64>()).prop_map(|(t, id, v)| format!(
-            "UPDATE {} SET age = {} WHERE id = {}",
-            t, v, id
-        )),
+        (prop_oneof!["users", "orders"], any::<i64>(), any::<i64>())
+            .prop_map(|(t, id, v)| format!("UPDATE {} SET age = {} WHERE id = {}", t, v, id)),
         // DELETE
-        (prop_oneof!["users", "orders"], any::<i64>()).prop_map(|(t, id)| format!(
-            "DELETE FROM {} WHERE id = {}",
-            t, id
-        )),
+        (prop_oneof!["users", "orders"], any::<i64>())
+            .prop_map(|(t, id)| format!("DELETE FROM {} WHERE id = {}", t, id)),
         // 聚合（字面字符串避免 regex 语义：proptest 字符串字面量按 regex 解析）
         (
             prop_oneof!["users", "orders"],

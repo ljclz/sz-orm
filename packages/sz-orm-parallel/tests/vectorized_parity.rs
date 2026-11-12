@@ -70,12 +70,25 @@ fn parity_boundary_sets() {
         );
         // Min/Max：严格
         let fast_min = executor.execute(&VectorizedOp::Min { column: "v".into() }, &batch);
-        assert_eq!(fast_min.values[0], scalar::min(data), "Min 严格相等 len={}", data.len());
+        assert_eq!(
+            fast_min.values[0],
+            scalar::min(data),
+            "Min 严格相等 len={}",
+            data.len()
+        );
         let fast_max = executor.execute(&VectorizedOp::Max { column: "v".into() }, &batch);
-        assert_eq!(fast_max.values[0], scalar::max(data), "Max 严格相等 len={}", data.len());
+        assert_eq!(
+            fast_max.values[0],
+            scalar::max(data),
+            "Max 严格相等 len={}",
+            data.len()
+        );
         // Filter count：严格（整数计数）
         let fast_f = executor.execute(
-            &VectorizedOp::Filter { column: "v".into(), threshold: 0.0 },
+            &VectorizedOp::Filter {
+                column: "v".into(),
+                threshold: 0.0,
+            },
             &batch,
         );
         assert_eq!(

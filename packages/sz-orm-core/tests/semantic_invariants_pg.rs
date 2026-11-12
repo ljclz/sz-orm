@@ -11,9 +11,10 @@
 
 #![cfg(feature = "simd")] // 复用 core dev-deps 中 sqlx 的 feature 组合
 
-
 fn pg_url() -> Option<String> {
-    std::env::var("SZ_ORM_INV_PG_URL").ok().filter(|s| !s.is_empty())
+    std::env::var("SZ_ORM_INV_PG_URL")
+        .ok()
+        .filter(|s| !s.is_empty())
 }
 
 type Row = (i64, String, i64);
@@ -35,10 +36,13 @@ fn table_name() -> String {
 }
 
 async fn setup(pool: &sqlx::PgPool, table: &str, rows: &[Row]) {
-    sqlx::query(sqlx::AssertSqlSafe(format!("DROP TABLE IF EXISTS {}", table)))
-        .execute(pool)
-        .await
-        .expect("drop");
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DROP TABLE IF EXISTS {}",
+        table
+    )))
+    .execute(pool)
+    .await
+    .expect("drop");
     sqlx::query(sqlx::AssertSqlSafe(format!(
         "CREATE TABLE {} (id INTEGER PRIMARY KEY, name TEXT NOT NULL, age INTEGER NOT NULL)",
         table
@@ -52,20 +56,22 @@ async fn setup(pool: &sqlx::PgPool, table: &str, rows: &[Row]) {
             table
         )))
         .bind(*id)
-            .bind(name)
-            .bind(*age)
-            .execute(pool)
-            .await
-            .expect("seed");
+        .bind(name)
+        .bind(*age)
+        .execute(pool)
+        .await
+        .expect("seed");
     }
 }
 
 async fn snapshot(pool: &sqlx::PgPool, table: &str) -> Vec<Row> {
-    let rows: Vec<(i64, String, i64)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id::bigint, name, age::bigint FROM {} ORDER BY id", table)))
-            .fetch_all(pool)
-            .await
-            .expect("snapshot");
+    let rows: Vec<(i64, String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id::bigint, name, age::bigint FROM {} ORDER BY id",
+        table
+    )))
+    .fetch_all(pool)
+    .await
+    .expect("snapshot");
     rows
 }
 
@@ -83,18 +89,27 @@ async fn pg_inv_n5_rollback_snapshot() {
     let before = snapshot(&pool, &t).await;
 
     let mut tx = pool.begin().await.expect("begin");
-    sqlx::query(sqlx::AssertSqlSafe(format!("INSERT INTO {} (id, name, age) VALUES (3, 'c', 30)", t)))
-        .execute(&mut *tx)
-        .await
-        .expect("tx insert");
-    sqlx::query(sqlx::AssertSqlSafe(format!("UPDATE {} SET age = 99 WHERE id = 1", t)))
-        .execute(&mut *tx)
-        .await
-        .expect("tx update");
-    sqlx::query(sqlx::AssertSqlSafe(format!("DELETE FROM {} WHERE id = 2", t)))
-        .execute(&mut *tx)
-        .await
-        .expect("tx delete");
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "INSERT INTO {} (id, name, age) VALUES (3, 'c', 30)",
+        t
+    )))
+    .execute(&mut *tx)
+    .await
+    .expect("tx insert");
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "UPDATE {} SET age = 99 WHERE id = 1",
+        t
+    )))
+    .execute(&mut *tx)
+    .await
+    .expect("tx update");
+    sqlx::query(sqlx::AssertSqlSafe(format!(
+        "DELETE FROM {} WHERE id = 2",
+        t
+    )))
+    .execute(&mut *tx)
+    .await
+    .expect("tx delete");
     tx.rollback().await.expect("rollback");
 
     let after = snapshot(&pool, &t).await;
@@ -114,61 +129,81 @@ async fn pg_inv_n3_aggregate_decomposition() {
     setup(
         &pool,
         &t,
-        &[(1, "a".into(), 10), (2, "b".into(), 20), (3, "a".into(), 30)],
+        &[
+            (1, "a".into(), 10),
+            (2, "b".into(), 20),
+            (3, "a".into(), 30),
+        ],
     )
     .await;
 
     // COUNT 分解
-    let (gc,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT COUNT(*)::bigint FROM {}", t)))
-        .fetch_one(&pool)
-        .await
-        .expect("global count");
-    let groups: Vec<(String, i64)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT name, COUNT(*)::bigint FROM {} GROUP BY name", t)))
-            .fetch_all(&pool)
-            .await
-            .expect("group count");
+    let (gc,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT COUNT(*)::bigint FROM {}",
+        t
+    )))
+    .fetch_one(&pool)
+    .await
+    .expect("global count");
+    let groups: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT name, COUNT(*)::bigint FROM {} GROUP BY name",
+        t
+    )))
+    .fetch_all(&pool)
+    .await
+    .expect("group count");
     assert_eq!(gc, groups.iter().map(|(_, c)| *c).sum::<i64>());
 
     // SUM 分解
-    let (gs,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT SUM(age)::bigint FROM {}", t)))
-        .fetch_one(&pool)
-        .await
-        .expect("global sum");
-    let sgroups: Vec<(String, i64)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT name, SUM(age)::bigint FROM {} GROUP BY name", t)))
-            .fetch_all(&pool)
-            .await
-            .expect("group sum");
+    let (gs,): (i64,) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT SUM(age)::bigint FROM {}",
+        t
+    )))
+    .fetch_one(&pool)
+    .await
+    .expect("global sum");
+    let sgroups: Vec<(String, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT name, SUM(age)::bigint FROM {} GROUP BY name",
+        t
+    )))
+    .fetch_all(&pool)
+    .await
+    .expect("group sum");
     assert_eq!(gs, sgroups.iter().map(|(_, s)| *s).sum::<i64>());
 
     // MIN/MAX 分解
-    let (gmin, gmax): (i64, i64) =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT MIN(age)::bigint, MAX(age)::bigint FROM {}", t)))
-            .fetch_one(&pool)
-            .await
-            .expect("global minmax");
-    let mgroups: Vec<(String, i64, i64)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT name, MIN(age)::bigint, MAX(age)::bigint FROM {} GROUP BY name", t)))
-            .fetch_all(&pool)
-            .await
-            .expect("group minmax");
+    let (gmin, gmax): (i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT MIN(age)::bigint, MAX(age)::bigint FROM {}",
+        t
+    )))
+    .fetch_one(&pool)
+    .await
+    .expect("global minmax");
+    let mgroups: Vec<(String, i64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT name, MIN(age)::bigint, MAX(age)::bigint FROM {} GROUP BY name",
+        t
+    )))
+    .fetch_all(&pool)
+    .await
+    .expect("group minmax");
     assert_eq!(gmin, mgroups.iter().map(|(_, m, _)| *m).min().unwrap());
     assert_eq!(gmax, mgroups.iter().map(|(_, _, x)| *x).max().unwrap());
 
     // AVG 分解（容差）：全局 AVG == 分组 AVG 的加权和 / 总数
-    let (gavg,): (f64,) = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT AVG(age)::float8 FROM {}", t)))
-        .fetch_one(&pool)
-        .await
-        .expect("global avg");
-    let agroups: Vec<(String, f64, i64)> =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!(
-            "SELECT name, AVG(age)::float8, COUNT(*)::bigint FROM {} GROUP BY name",
-            t
-        )))
-        .fetch_all(&pool)
-        .await
-        .expect("group avg");
+    let (gavg,): (f64,) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT AVG(age)::float8 FROM {}",
+        t
+    )))
+    .fetch_one(&pool)
+    .await
+    .expect("global avg");
+    let agroups: Vec<(String, f64, i64)> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT name, AVG(age)::float8, COUNT(*)::bigint FROM {} GROUP BY name",
+        t
+    )))
+    .fetch_all(&pool)
+    .await
+    .expect("group avg");
     let n: i64 = agroups.iter().map(|(_, _, c)| *c).sum();
     let wavg: f64 = agroups.iter().map(|(_, a, c)| a * (*c as f64)).sum::<f64>() / n as f64;
     assert!(
@@ -190,11 +225,13 @@ async fn pg_inv_n7_count_forms_agree() {
     let pool = make_pool().await;
     let t = table_name();
     setup(&pool, &t, &[(1, "a".into(), 10), (2, "b".into(), 20)]).await;
-    let (c_star, c_one, c_col): (i64, i64, i64) =
-        sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT COUNT(*)::bigint, COUNT(1)::bigint, COUNT(id)::bigint FROM {}", t)))
-            .fetch_one(&pool)
-            .await
-            .expect("counts");
+    let (c_star, c_one, c_col): (i64, i64, i64) = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT COUNT(*)::bigint, COUNT(1)::bigint, COUNT(id)::bigint FROM {}",
+        t
+    )))
+    .fetch_one(&pool)
+    .await
+    .expect("counts");
     assert_eq!(c_star, c_one, "COUNT(*) == COUNT(1)");
     assert_eq!(c_star, c_col, "COUNT(*) == COUNT(非空列)");
 }
@@ -212,27 +249,32 @@ async fn pg_inv_n2_repeatable_read_replay() {
     setup(&pool, &t, &[(1, "a".into(), 10), (2, "b".into(), 20)]).await;
 
     // RR 事务内两次读同一结果（确定性）
-    let mut tx = pool
-        .begin()
-        .await
-        .expect("begin");
+    let mut tx = pool.begin().await.expect("begin");
     sqlx::query("SET TRANSACTION ISOLATION LEVEL REPEATABLE READ")
         .execute(&mut *tx)
         .await
         .expect("set iso");
-    let r1: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id::bigint, name, age::bigint FROM {} ORDER BY id", t)))
-        .fetch_all(&mut *tx)
-        .await
-        .expect("read 1");
-    let r2: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!("SELECT id::bigint, name, age::bigint FROM {} ORDER BY id", t)))
-        .fetch_all(&mut *tx)
-        .await
-        .expect("read 2");
+    let r1: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id::bigint, name, age::bigint FROM {} ORDER BY id",
+        t
+    )))
+    .fetch_all(&mut *tx)
+    .await
+    .expect("read 1");
+    let r2: Vec<Row> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
+        "SELECT id::bigint, name, age::bigint FROM {} ORDER BY id",
+        t
+    )))
+    .fetch_all(&mut *tx)
+    .await
+    .expect("read 2");
     tx.commit().await.expect("commit");
     assert_eq!(r1, r2, "RR 快照内重放必须确定");
     assert_eq!(normalize_rows_probe(&r1), normalize_rows_probe(&r2));
 }
 
 fn normalize_rows_probe(rows: &[Row]) -> Vec<String> {
-    rows.iter().map(|(i, n, a)| format!("{}|{}|{}", i, n, a)).collect()
+    rows.iter()
+        .map(|(i, n, a)| format!("{}|{}|{}", i, n, a))
+        .collect()
 }

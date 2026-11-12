@@ -86,7 +86,11 @@ async fn parity_prepared_on_off_boundary() {
             (i64::MAX, "max".into(), i64::MAX),
             (i64::MIN, "min".into(), i64::MIN),
         ],
-        vec![(7, "dup".into(), 5), (8, "dup".into(), 5), (9, "dup".into(), 5)],
+        vec![
+            (7, "dup".into(), 5),
+            (8, "dup".into(), 5),
+            (9, "dup".into(), 5),
+        ],
     ];
     for users in &cases {
         // 关缓存（慢路径基准）
@@ -173,11 +177,15 @@ async fn parity_prepared_on_off_random_rows() {
     let sql = "SELECT id, name, age FROM parity_t WHERE age >= ? ORDER BY id";
     let rows_on_1 = {
         let mut conn = pool_on.acquire().await.expect("acquire");
-        conn.query_prepared(sql, &[Value::I64(50)]).await.expect("q1")
+        conn.query_prepared(sql, &[Value::I64(50)])
+            .await
+            .expect("q1")
     };
     let rows_on_2 = {
         let mut conn = pool_on.acquire().await.expect("acquire");
-        conn.query_prepared(sql, &[Value::I64(50)]).await.expect("q2")
+        conn.query_prepared(sql, &[Value::I64(50)])
+            .await
+            .expect("q2")
     };
 
     assert_eq!(

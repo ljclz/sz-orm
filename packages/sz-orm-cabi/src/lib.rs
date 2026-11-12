@@ -250,16 +250,6 @@ fn to_core_config(c: &PoolConfigC) -> Result<PoolConfig, sz_orm_core::PoolError>
         .build()
 }
 
-/// Create a connection pool (SQLite backend; real creation)
-///
-/// `dsn` supports SQLite URLs: `sqlite::memory:`, `sqlite://path/to/db.sqlite`.
-/// All strings are NUL-terminated UTF-8. Non-SQLite DSNs are rejected
-/// explicitly (returns null) instead of failing deep inside the driver.
-///
-/// # Safety
-///
-/// SAFETY: `dsn` must be a valid NUL-terminated C string.
-#[no_mangle]
 /// szrsql:// DSN → postgres:// 归一化（非 szrsql 前缀返回 None）。
 ///
 /// 2026-11-13（szrsql 线先在项转交项 3）：从 `sz_orm_pool_new` 内联逻辑提取为
@@ -274,6 +264,16 @@ fn normalize_szrsql_dsn(dsn: &str) -> Option<String> {
     }
 }
 
+/// Create a connection pool (SQLite backend; real creation)
+///
+/// `dsn` supports SQLite URLs: `sqlite::memory:`, `sqlite://path/to/db.sqlite`.
+/// All strings are NUL-terminated UTF-8. Non-SQLite DSNs are rejected
+/// explicitly (returns null) instead of failing deep inside the driver.
+///
+/// # Safety
+///
+/// SAFETY: `dsn` must be a valid NUL-terminated C string.
+#[no_mangle]
 pub unsafe extern "C" fn sz_orm_pool_new(
     dsn: *const c_char,
     config: *const PoolConfigC,
