@@ -22,7 +22,7 @@
 
 use oracle::Connection as OracleConn;
 use std::sync::atomic::{AtomicU64, Ordering};
-use sz_orm_core::dialect::{get_dialect, ColumnDef};
+use sz_orm_core::dialect::{get_dialect, ColumnDef, ForeignKeyDef, TableOption};
 use sz_orm_core::DbType;
 
 /// 默认 Oracle 连接参数（本机 26ai Free）；可通过环境变量覆盖。
@@ -1500,4 +1500,328 @@ fn or6_ddl_implicit_commit_probe() {
     drop_table_if_exists(&conn, &ctrl_table);
     drop_table_if_exists(&conn, &aux_table);
     drop_table_if_exists(&conn, &table);
+}
+
+// ============================================================================
+// OR7 表选项（对 MY7-B1）—— TableOption 为 MySQL 专属面，Oracle 默认实现忽略
+//
+// 文档化契约（Dialect::render_table_options 默认实现）：不支持表选项的方言
+// 返回空串 → build_create_table_with_options 与 build_create_table 逐字节等价，
+// 不 panic。Oracle 无库表级 ENGINE/CHARSET/COLLATE（字符集为库级 AL32UTF8）。
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or7_table_options_default_impl_ignores() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let table = unique_table("or7opt");
+    drop_table_if_exists(&conn, &table);
+
+    let columns = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "NUMBER".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: true,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "name".to_string(),
+            sql_type: "VARCHAR2(50)".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+
+    // 生成面断言：带 MySQL 专属选项与不带逐字节等价（默认实现忽略，不 panic）
+    let sql_with = dialect.build_create_table_with_options(
+        &table,
+        &columns,
+        &[
+            TableOption::Engine("InnoDB".to_string()),
+            TableOption::Charset("utf8mb4".to_string()),
+            TableOption::Collate("utf8mb4_unicode_ci".to_string()),
+        ],
+    );
+    let sql_without = dialect.build_create_table(&table, &columns);
+    assert_eq!(
+        sql_with, sql_without,
+        "Oracle 默认实现应忽略 MySQL 专属表选项（render_table_options 返回空串）"
+    );
+
+    // 真库执行：等价产物被接受
+    conn.execute(&sql_with, &[]).expect("create table with ignored options");
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}) VALUES (:1)",
+            dialect.quote(&table),
+            dialect.quote("name"),
+        ),
+        &[&"opt_ignored"],
+    )
+    .expect("insert");
+    conn.commit().expect("commit");
+    let n: i64 = conn
+        .query_row_as::<i64>(
+            &format!("SELECT COUNT(*) FROM {}", dialect.quote(&table)),
+            &[],
+        )
+        .expect("count");
+    assert_eq!(n, 1);
+
+    drop_table_if_exists(&conn, &table);
+}
+
+// ============================================================================
+// OR8 外键动作（对 MY8-B2）—— build_add_foreign_key ANSI 默认实现在 Oracle 的
+// 真库行为矩阵
+//
+// sqlplus 实测（26ai 23.26.3.0.0）：
+//   - ON DELETE {CASCADE | SET NULL} 接受
+//   - ON UPDATE <任意动作> → ORA-02000（缺失 DELETE 关键字）
+//   - ON DELETE RESTRICT / NO ACTION → ORA-02000（缺失 CASCADE 关键字）
+//   - ON DELETE SET DEFAULT → ORA-03001（未实施的功能）
+// ============================================================================
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or8_fk_on_delete_cascade_behavior() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let parent = unique_table("or8p");
+    let child = unique_table("or8c");
+    drop_table_if_exists(&conn, &child);
+    drop_table_if_exists(&conn, &parent);
+
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} NUMBER PRIMARY KEY)",
+            dialect.quote(&parent),
+            dialect.quote("id"),
+        ),
+        &[],
+    )
+    .expect("create parent");
+
+    // 子表：外键列可空 + 由方言 build_add_foreign_key 生成带动作 DDL
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} NUMBER PRIMARY KEY, {} NUMBER)",
+            dialect.quote(&child),
+            dialect.quote("id"),
+            dialect.quote("pid"),
+        ),
+        &[],
+    )
+    .expect("create child");
+    let fk_sql = dialect
+        .build_add_foreign_key(
+            &child,
+            &ForeignKeyDef {
+                columns: vec!["pid".to_string()],
+                reference_table: parent.clone(),
+                reference_columns: vec!["id".to_string()],
+                on_delete: Some("CASCADE".to_string()),
+                on_update: None,
+            },
+        )
+        .expect("build fk");
+    assert!(
+        fk_sql.contains("ON DELETE CASCADE"),
+        "生成应含 ON DELETE CASCADE: {fk_sql}"
+    );
+    conn.execute(&fk_sql, &[]).expect("add fk cascade");
+
+    // 行为级：插入父 1 + 两个子行，删父 → 子行级联消失
+    for pid in 0..2i64 {
+        conn.execute(
+            &format!("INSERT INTO {} ({}) VALUES (:1)", dialect.quote(&parent), dialect.quote("id")),
+            &[&pid],
+        )
+        .expect("insert parent");
+    }
+    for (cid, pid) in [(10i64, 0i64), (11, 0), (12, 1)] {
+        conn.execute(
+            &format!(
+                "INSERT INTO {} ({}, {}) VALUES (:1, :2)",
+                dialect.quote(&child),
+                dialect.quote("id"),
+                dialect.quote("pid"),
+            ),
+            &[&cid, &pid],
+        )
+        .expect("insert child");
+    }
+    conn.commit().expect("commit");
+    conn.execute(
+        &format!(
+            "DELETE FROM {} WHERE {} = :1",
+            dialect.quote(&parent),
+            dialect.quote("id"),
+        ),
+        &[&0i64],
+    )
+    .expect("delete parent 0");
+    conn.commit().expect("commit cascade");
+
+    let remain: i64 = conn
+        .query_row_as::<i64>(
+            &format!("SELECT COUNT(*) FROM {}", dialect.quote(&child)),
+            &[],
+        )
+        .expect("count children");
+    assert_eq!(remain, 1, "ON DELETE CASCADE 删父 0 后应仅剩 pid=1 的 1 个子行");
+
+    drop_table_if_exists(&conn, &child);
+    drop_table_if_exists(&conn, &parent);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or8_fk_on_delete_set_null_behavior() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let parent = unique_table("or8pn");
+    let child = unique_table("or8cn");
+    drop_table_if_exists(&conn, &child);
+    drop_table_if_exists(&conn, &parent);
+
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} NUMBER PRIMARY KEY)",
+            dialect.quote(&parent),
+            dialect.quote("id"),
+        ),
+        &[],
+    )
+    .expect("create parent");
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} NUMBER PRIMARY KEY, {} NUMBER)",
+            dialect.quote(&child),
+            dialect.quote("id"),
+            dialect.quote("pid"),
+        ),
+        &[],
+    )
+    .expect("create child");
+    let fk_sql = dialect
+        .build_add_foreign_key(
+            &child,
+            &ForeignKeyDef {
+                columns: vec!["pid".to_string()],
+                reference_table: parent.clone(),
+                reference_columns: vec!["id".to_string()],
+                on_delete: Some("SET NULL".to_string()),
+                on_update: None,
+            },
+        )
+        .expect("build fk set null");
+    conn.execute(&fk_sql, &[]).expect("add fk set null");
+
+    conn.execute(
+        &format!("INSERT INTO {} ({}) VALUES (:1)", dialect.quote(&parent), dialect.quote("id")),
+        &[&7i64],
+    )
+    .expect("insert parent");
+    conn.execute(
+        &format!(
+            "INSERT INTO {} ({}, {}) VALUES (:1, :2)",
+            dialect.quote(&child),
+            dialect.quote("id"),
+            dialect.quote("pid"),
+        ),
+        &[&70i64, &7i64],
+    )
+    .expect("insert child");
+    conn.commit().expect("commit");
+
+    conn.execute(
+        &format!("DELETE FROM {} WHERE {} = :1", dialect.quote(&parent), dialect.quote("id")),
+        &[&7i64],
+    )
+    .expect("delete parent");
+    conn.commit().expect("commit set null");
+
+    // 行为断言：子行保留且 pid 被置 NULL
+    let (cnt, null_cnt): (i64, i64) = conn
+        .query_row_as::<(i64, i64)>(
+            &format!(
+                "SELECT COUNT(*), SUM(CASE WHEN {} IS NULL THEN 1 ELSE 0 END) FROM {}",
+                dialect.quote("pid"),
+                dialect.quote(&child),
+            ),
+            &[],
+        )
+        .expect("count set null");
+    assert_eq!(cnt, 1, "SET NULL 下子行应保留");
+    assert_eq!(null_cnt, 1, "子行 pid 应被置 NULL");
+
+    drop_table_if_exists(&conn, &child);
+    drop_table_if_exists(&conn, &parent);
+}
+
+#[test]
+#[ignore = "需要 Oracle 26ai 运行于 127.0.0.1:1521（设置 SZ_ORM_ORACLE_* 环境变量覆盖）"]
+fn or8_fk_unsupported_actions_rejected() {
+    let conn = open_conn();
+    let dialect = get_dialect(DbType::Oracle).unwrap();
+    let parent = unique_table("or8px");
+    let child = unique_table("or8cx");
+    drop_table_if_exists(&conn, &child);
+    drop_table_if_exists(&conn, &parent);
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} NUMBER PRIMARY KEY)",
+            dialect.quote(&parent),
+            dialect.quote("id"),
+        ),
+        &[],
+    )
+    .expect("create parent");
+    conn.execute(
+        &format!(
+            "CREATE TABLE {} ({} NUMBER PRIMARY KEY, {} NUMBER)",
+            dialect.quote(&child),
+            dialect.quote("id"),
+            dialect.quote("pid"),
+        ),
+        &[],
+    )
+    .expect("create child");
+
+    // Oracle 环境特有拒绝面（sqlplus 实测码，行为级锚定）：
+    // ON UPDATE <任意> → ORA-02000；ON DELETE RESTRICT/NO ACTION → ORA-02000；
+    // ON DELETE SET DEFAULT → ORA-03001
+    let cases: [(&str, Option<&str>, Option<&str>, i32); 4] = [
+        ("on_update_cascade", None, Some("CASCADE"), 2000),
+        ("on_delete_restrict", Some("RESTRICT"), None, 2000),
+        ("on_delete_no_action", Some("NO ACTION"), None, 2000),
+        ("on_delete_set_default", Some("SET DEFAULT"), None, 3001),
+    ];
+    for (tag, on_delete, on_update, code) in cases {
+        let fk_sql = dialect
+            .build_add_foreign_key(
+                &child,
+                &ForeignKeyDef {
+                    columns: vec!["pid".to_string()],
+                    reference_table: parent.clone(),
+                    reference_columns: vec!["id".to_string()],
+                    on_delete: on_delete.map(|s| s.to_string()),
+                    on_update: on_update.map(|s| s.to_string()),
+                },
+            )
+            .expect("build fk sql");
+        match conn.execute(&fk_sql, &[]) {
+            Err(e) => assert_ora_code(&e, code, tag),
+            Ok(_) => panic!("{tag}: 期望真库拒绝，实际成功: {fk_sql}"),
+        }
+    }
+
+    drop_table_if_exists(&conn, &child);
+    drop_table_if_exists(&conn, &parent);
 }
