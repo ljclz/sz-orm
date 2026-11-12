@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+### Fixed — szrsql 线先在项三项闭环（G9/G30 红牌清除）+ G9 全仓首次 EXIT=0
+
+- **szrsql 维护方处置落地**（`d5a37fd4` trust 形态精确豁免 + cabi `normalize_szrsql_dsn` 纯函数提取 / `270ba94b` 回执 / `cfb1c370` 订正）——转交文档（`2026-11-13-szrsql-line-legacy-items-feedback.md`）验收清单独立复核**逐项通过**：cabi **88 passed**（含新真断言测试 `test_szrsql_dsn_normalization`）+ check-phantom-tests.py **EXIT=0**（G30 红牌清除）+ trust 豁免生效（转交三项相关命中 0）
+- **G9 全仓首次 EXIT=0**（2685 文件扫描 0 secrets）：复核中新增 `password='<strong!passw0rd>'` 精确形态豁免（微软 MSSQL 容器文档占位约定，尖括号锚定；覆盖并行线容器提示词 + 转交文档订正段引用的同形态命中）；门禁 27 接线复验 EXIT=0
+- 附注转述：复核时发现工作区并行线未提交改动 `sz_orm_cabi.h`（删 PoolConfigC/sz_orm_pool_new 声明，疑似误删）——按并行协作纪律未改动，留归属会话自查
+
 ### Added — 门禁 37：dialect DDL/FTS 裸标识符静态检测（§7 遗留项 2 落地）
 
 - **quote 类缺口预防机制自动化**（实施 2026-11-12~13）：`scripts/check-dialect-ddl-quoting.py` 把 quote 类缺口 5 批真连发现史（G-OR1/MY G2/G-OR9/FTS 横向/ALTER 批二）+ 红队 R-2 无名 DDL 变体固化为机器门禁——**Q1** `ADD CONSTRAINT FOREIGN KEY` 无名形态零容忍（非法 DDL）+ **Q2** 敏感模板（CREATE/DROP INDEX、ADD CONSTRAINT、FOREIGN KEY、REFERENCES、CONTAINS/CONTAINING/MATCH/to_tsvector/position/ILIKE/LIKE 共 12 关键词）裸标识符参数检测；安全判定：quote/escape_string 包裹 + 安全赋值链追踪 + `quote-gate-safe` 行内豁免登记制（同 G15/G17 豁免语义，3 处登记：actions 白名单值/mode_clause 常量/SQLite 注释提示串）+ 注释剥离防误报（R-2 注释字样）；**自测 10/10**（5 历史缺口形态必命中 + 5 已修复形态必不命中）+ dialect.rs 全量扫描 0 命中；登记入 AGENTS.md 门禁表 37 号 + 全仓门禁数 36→37 同步（G33 实测抓出 51 处过时声明一并清零——G33 门禁自身设计用途的实证）；engineering-practices.md 总表追加 37 行
