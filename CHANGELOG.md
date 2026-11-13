@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Added — 二波三实例真连验证（Kingbase/GBase 8s/Dameng，供给结论纠正）
+
+- **供给结论纠正**（用户指正成立，报告 `docs/assessment/2026-11-14-wave2-three-vendor-matrix.md`，audit-verify 0 失败，实施批 70db9577+eab60aa3）：此前「人工供给门槛」结论系 `docker search` 直连 index.docker.io 被 GFW 超时的假阴性——daemon mirror（1panel/1ms/daocloud）pull 通道可用，三家社区镜像均可自动供给：KingbaseES `haloking/kingbase:v8r3`（license 有效，SYSTEM/SYSTEM，PG 协议 15435）/ GBase 8s `liaosnet/gbase8s:v8.8_3503x1_x64`（AEE 3.5.0，dbaccess CLI）/ DM8 `sizx/dm8`（内置 license 14 天至 2026-11-27，disql CLI）
+- **KB1~KB4 × KingbaseES V8R3 真连全过**（`integration_kingbase.rs` 追加，sqlx pg 直连）：引擎身份/upsert ON CONFLICT..EXCLUDED 行为级/FK CASCADE 行为级/NUMERIC(38,6) 大数无损——**OC 批 delegate 转发修复的 KB 通道证据**；坑位：sqlx INT4 列须 i32 解码
+- **GB1~GB3 × GBase 8s 真连全过**（`integration_gbase.rs` 追加，dbaccess CLI——MZ DB2 CLP 同型）：引擎身份/**[bracket] 拒 vs 双引号收（引擎事实：GBaseDialect→SqlServerDialect 委托仅 TDS 网关企业实例可执行，纯 Informix 社区版不可执行——使用边界登记）**/8s 原生 SKIP..FIRST（前置）分页对照
+- **DM1~DM3 × DM8 真连全过**（`integration_dameng.rs` 追加，disql CLI）：引擎身份/Oracle 风格 NUMBER/VARCHAR2 DDL+INSERT COMMIT 读回/delegate 生成面（Oracle 族 upsert None 契约登记）；套件全量 12/12（含既有 Oracle 直测零回归）
+- 坑位登记：disql 无分号进续行模式（SQL> 2 静默挂起）/DM8 默认非自动提交/**SQL 经 stdin 直喂 disql（零转义）**（echo 引号嵌套 wsl 默认 shell 层 $ 丢失）/DM8 entrypoint 五 env 全给/GB 四层嵌套引号一次性成形（二次 replace 层错）/docker search 被墙假阴性教训（pull 通道 ≠ search 通道）
+
 ### Added — SzRSQL 委托链补验（SZ1~SZ3，OC 批 delegate 修复的 SzRSQL 通道真连闭环）
 
 - 报告 `docs/assessment/2026-11-13-szrsql-delegate-recheck.md`（audit-verify 0 失败）：OC 批（8230561d）delegate 宏 4 转发修复影响面中 SzRSQL 通道补验——M1~M9 既有矩阵未覆盖 upsert/表选项/FK 三个新转发 API
