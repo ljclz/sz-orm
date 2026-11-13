@@ -312,15 +312,34 @@ fn dm_container() -> String {
 
 /// 容器内 disql 执行 helper（单条 SQL；MZ 批 DB2 CLP 同型）
 fn run_dm_sql(sql: &str) -> String {
-    let escaped = sql.replace('"', "\\\"");
-    let full = format!(
-        "docker exec {} bash -c \"echo \\\"{}\\\" | /opt/dmdbms/bin/disql SYSDBA/SYSDBA001@localhost:5236\"",
-        dm_container(),
-        escaped
-    );
+    // 零转义方案：SQL 经 stdin 直喂 disql（echo+引号嵌套层数失控——wsl 不带
+    // -e 时默认 shell 还会展开一层，V$VERSION 的 $ 屡次丢失，GB 线四层嵌套
+    // 同型教训升级版）。disql 登录串经 argv 明传（无元字符）。
     let script = std::process::Command::new("wsl")
-        .args(["bash", "-c", &full])
-        .output()
+        .args([
+            "docker",
+            "exec",
+            "-i",
+            &dm_container(),
+            "bash",
+            "-c",
+            "export LD_LIBRARY_PATH=/home/dmdba/dmdbms/bin; /home/dmdba/dmdbms/bin/disql SYSDBA/SYSDBA001@localhost:5236",
+        ])
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::piped())
+        .spawn()
+        .and_then(|mut child| {
+            use std::io::Write;
+            // disql 以分号界定语句；方言产物（build_create_table 等）不带分号，
+            // 缺失会进续行模式（SQL> 2）静默挂起——补齐
+            let mut text = sql.to_string();
+            if !text.trim_end().ends_with(';') {
+                text.push(';');
+            }
+            child.stdin.take().unwrap().write_all(text.as_bytes())?;
+            child.wait_with_output()
+        })
         .expect("docker exec dm8");
     String::from_utf8_lossy(&script.stdout).to_string()
         + String::from_utf8_lossy(&script.stderr).trim()
@@ -374,12 +393,17 @@ fn matrix_dm2_oracle_types_roundtrip() {
     let r1 = run_dm_sql(&format!("DROP TABLE DM_PROBE CASCADE;"));
     let _ = r1;
     let out = run_dm_sql(&sql);
+    eprintln!("=== DDL 产物 ===\n{sql}\n=== 真库执行输出 ===\n{out}");
     assert!(
-        !out.contains("syntax error") && !out.contains("错误"),
+        out.contains("executed successfully"),
         "Oracle 风格 DDL（NUMBER/VARCHAR2 + 双引号 quote）被 DM8 接受: {out}"
     );
-    let out = run_dm_sql("INSERT INTO \"DM_PROBE\" (\"ID\", \"NAME\") VALUES (1, 'dm8');");
-    assert!(!out.contains("error"), "insert: {out}");
+    // disql 每次调用独立会话且 DM8 默认非自动提交——INSERT 后须同会话 COMMIT，
+    // 否则下一会话 SELECT "no rows"
+    let out = run_dm_sql("INSERT INTO \"DM_PROBE\" (\"ID\", \"NAME\") VALUES (1, 'dm8');\nCOMMIT;");
+    eprintln!("=== INSERT 输出 ===\n{out}");
+    // DM8 INSERT 成功输出 "affect rows 1"（DDL 才是 executed successfully）
+    assert!(out.contains("affect rows"), "insert: {out}");
     let out = run_dm_sql("SELECT \"NAME\" FROM \"DM_PROBE\" WHERE \"ID\" = 1;");
     assert!(out.contains("dm8"), "往返读回: {out}");
     let _ = run_dm_sql("DROP TABLE \"DM_PROBE\" CASCADE;");
