@@ -9,6 +9,12 @@
 
 ## [Unreleased]
 
+### Added — SzRSQL 委托链补验（SZ1~SZ3，OC 批 delegate 修复的 SzRSQL 通道真连闭环）
+
+- 报告 `docs/assessment/2026-11-13-szrsql-delegate-recheck.md`（audit-verify 0 失败）：OC 批（8230561d）delegate 宏 4 转发修复影响面中 SzRSQL 通道补验——M1~M9 既有矩阵未覆盖 upsert/表选项/FK 三个新转发 API
+- `integration_szrsql_matrix.rs` 追加 `matrix_sz_*` 3 测试，套件 **18/18**（SZ 3 + M1~M9 15）+ `integration_szrsql` 8/8 零回归：SZ1 upsert EXCLUDED 渲染+冲突更新行为级 / SZ2 PG 族表选项忽略契约（反向断言封死 MySQL 语法注入回归面）/ SZ3 FK CASCADE 级联行为级
+- 实例：szrsql release 二进制 `D:/cargo-target/release/szrsql.exe` @6543 trust（源码仓 HEAD 编译坏——既有登记事实延续）
+
 ### Fixed — OceanBase 方言矩阵二波补批（OC1~OC6，六环闭环）+ 委托宏转发缺口修复
 
 - **sz-orm 方言缺口修复（影响 7 委托方言族，大于 OB 单族）**（报告 `docs/assessment/2026-11-13-oceanbase-dialect-matrix.md`，提示词 `*-prompt.md`，实施批 8230561d，红队条件 PASS 8bfc163d——P0/P1=0）：`delegate_dialect_to!` 宏补 4 个转发（`build_upsert_on_conflict`/`build_create_table_with_options`/`render_table_options`/`build_add_foreign_key`，`packages/sz-orm-core/src/dialect.rs:2147-2172`）——此前委托方言（MariaDB/TiDB/OceanBase/Kingbase/PolarDB/GaussDB/Szrsql 等）落到 trait 默认实现：upsert 恒 None（`build_batch_upsert_with_params` 不可用）/ MY7 表选项被静默忽略 / FK 走 ANSI 默认而非委托目标形态；红队对照 trait 全方法逐项 grep 证实无其他转发遗漏 + 追加 3 个行为级单测（lib 264 全绿）收编

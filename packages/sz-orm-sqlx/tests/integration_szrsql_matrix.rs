@@ -718,3 +718,214 @@ async fn matrix_m5b_session_reset_failure_degrades_gracefully() {
         .await
         .unwrap();
 }
+
+// ============================================================================
+// SZ 批（2026-11-13）：delegate 宏转发缺口修复（OC 批 dialect.rs:2147-2172）的
+// SzRSQL 通道真连验证——SZ1~SZ3。M1~M9 既有载荷未覆盖 upsert/表选项/FK 三个
+// OC 批新转发 API 在委托方言上的行为；本批补齐。
+// ============================================================================
+
+use sz_orm_core::dialect::{get_dialect, ColumnDef, ForeignKeyDef, TableOption};
+
+/// SzRSQL 方言（委托 PG）：生成面 helper
+fn szrsql_dialect() -> Box<dyn sz_orm_core::dialect::Dialect> {
+    get_dialect(DbType2::Szrsql).expect("Szrsql 方言可用")
+}
+
+use sz_orm_core::DbType as DbType2;
+
+/// SZ1：upsert 委托链——SzrsqlDialect.build_upsert_on_conflict 非 None（修复前
+/// 落 trait 默认返回 None，build_batch_upsert_with_params 对 SzRSQL 不可用），
+/// 渲染 PG 形态 ON CONFLICT..EXCLUDED，并真库执行行为级验证
+#[tokio::test]
+#[ignore = "需要 szrsql 运行（SZ_ORM_SZRSQL_URL 注入）"]
+async fn matrix_sz1_delegate_upsert_forwarded() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: szrsql 未启动");
+        return;
+    };
+    let pool = Arc::new(pool);
+    let d = szrsql_dialect();
+    let table = unique_table("mx_sz1");
+
+    // 生成面：委托 PG 的 EXCLUDED 渲染（修复前 None）
+    let clause = d
+        .build_upsert_on_conflict(&["id"], &["v"], &["id".to_string(), "v".to_string()])
+        .expect("委托修复后 SzRSQL 支持 upsert 渲染");
+    assert!(
+        clause.contains("ON CONFLICT") && clause.contains("EXCLUDED"),
+        "PG 形态渲染: {clause}"
+    );
+
+    let mut conn = pool.create().await.unwrap();
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    conn.execute(&format!("CREATE TABLE {table} (id INT PRIMARY KEY, v INT)"))
+        .await
+        .unwrap();
+    // 真库执行：upsert 插入 + 冲突更新
+    conn.execute(&format!(
+        "INSERT INTO {table} (id, v) VALUES (1, 10) {clause}"
+    ))
+    .await
+    .unwrap();
+    conn.execute(&format!(
+        "INSERT INTO {table} (id, v) VALUES (1, 99) {clause}"
+    ))
+    .await
+    .unwrap();
+    let rows = conn
+        .query(&format!("SELECT v FROM {table} WHERE id = 1"))
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        matches!(rows[0].get("v"), Some(Value::I64(99))),
+        "冲突更新生效（EXCLUDED 通道）"
+    );
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+}
+
+/// SZ2：表选项委托链——build_create_table_with_options 随 PG（修复前落 trait
+/// 默认 render_table_options 空串=静默忽略）；PG 方言默认实现忽略选项（登记
+/// 契约：PG 族无表选项渲染，产物与 build_create_table 一致）——本载荷验证
+/// 「转发存在 + 产物合法可执行」，契约差异登记
+#[tokio::test]
+#[ignore = "需要 szrsql 运行"]
+async fn matrix_sz2_delegate_table_options_forwarded() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: szrsql 未启动");
+        return;
+    };
+    let pool = Arc::new(pool);
+    let d = szrsql_dialect();
+    let table = unique_table("mx_sz2");
+    let cols = vec![ColumnDef {
+        name: "id".to_string(),
+        sql_type: "INT".to_string(),
+        nullable: false,
+        default: None,
+        auto_increment: false,
+        primary_key: true,
+    }];
+
+    // 修复前：委托方言调用该方法与 build_create_table 等价（选项被静默忽略）——
+    // 修复后经转发走 PG 的 render_table_options（PG 亦无表选项渲染，产物一致）
+    let base = d.build_create_table(&table, &cols);
+    let with_opts = d.build_create_table_with_options(
+        &table,
+        &cols,
+        &[
+            TableOption::Engine("InnoDB".to_string()),
+            TableOption::Charset("utf8mb4".to_string()),
+        ],
+    );
+    assert_eq!(
+        base, with_opts,
+        "PG 族契约：表选项忽略，产物与 base 一致（转发到位且不注入 MySQL 语法）"
+    );
+    let mut conn = pool.create().await.unwrap();
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    conn.execute(&with_opts).await.expect("产物可执行");
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+}
+
+/// SZ3：FK 动作委托链——build_add_foreign_key 随 PG（修复前走 trait 默认 ANSI）；
+/// SzRSQL 对 ADD CONSTRAINT FK 的接受度真库验证（PG 语法族）
+#[tokio::test]
+#[ignore = "需要 szrsql 运行"]
+async fn matrix_sz3_delegate_fk_forwarded() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: szrsql 未启动");
+        return;
+    };
+    let pool = Arc::new(pool);
+    let d = szrsql_dialect();
+    let parent = unique_table("mx_sz3_p");
+    let child = unique_table("mx_sz3_c");
+    let parent_cols = vec![ColumnDef {
+        name: "id".to_string(),
+        sql_type: "INT".to_string(),
+        nullable: false,
+        default: None,
+        auto_increment: false,
+        primary_key: true,
+    }];
+    let child_cols = vec![
+        ColumnDef {
+            name: "id".to_string(),
+            sql_type: "INT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: false,
+            primary_key: true,
+        },
+        ColumnDef {
+            name: "pid".to_string(),
+            sql_type: "INT".to_string(),
+            nullable: true,
+            default: None,
+            auto_increment: false,
+            primary_key: false,
+        },
+    ];
+
+    let mut conn = pool.create().await.unwrap();
+    conn.execute(&format!("DROP TABLE IF EXISTS {child}"))
+        .await
+        .ok();
+    conn.execute(&format!("DROP TABLE IF EXISTS {parent}"))
+        .await
+        .ok();
+    conn.execute(&d.build_create_table(&parent, &parent_cols))
+        .await
+        .expect("parent create");
+    conn.execute(&d.build_create_table(&child, &child_cols))
+        .await
+        .expect("child create");
+
+    // 生成面：委托 PG 的 FK DDL（约束名 quote + ON DELETE CASCADE 白名单校验）
+    let fk = ForeignKeyDef {
+        columns: vec!["pid".to_string()],
+        reference_table: parent.clone(),
+        reference_columns: vec!["id".to_string()],
+        on_delete: Some("CASCADE".to_string()),
+        on_update: None,
+    };
+    let ddl = d.build_add_foreign_key(&child, &fk).expect("FK DDL 生成");
+    assert!(
+        ddl.contains("\"pid\"") && ddl.contains("CASCADE"),
+        "形态: {ddl}"
+    );
+    conn.execute(&ddl).await.expect("ADD CONSTRAINT FK 被接受");
+
+    // 行为级：CASCADE 生效（删父行 → 子行级联消失）
+    conn.execute(&format!("INSERT INTO {parent} (id) VALUES (1)"))
+        .await
+        .unwrap();
+    conn.execute(&format!("INSERT INTO {child} (id, pid) VALUES (10, 1)"))
+        .await
+        .unwrap();
+    conn.execute(&format!("DELETE FROM {parent} WHERE id = 1"))
+        .await
+        .unwrap();
+    let rows = conn
+        .query(&format!("SELECT id FROM {child} WHERE pid = 1"))
+        .await
+        .unwrap();
+    assert_eq!(rows.len(), 0, "ON DELETE CASCADE 级联生效");
+
+    conn.execute(&format!("DROP TABLE IF EXISTS {child}"))
+        .await
+        .ok();
+    conn.execute(&format!("DROP TABLE IF EXISTS {parent}"))
+        .await
+        .ok();
+}
