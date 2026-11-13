@@ -24,6 +24,14 @@
 - **引擎/环境特有登记 9 项**（B1~B9）+ 环境坑位 5 项；报告 `docs/assessment/2026-11-13-container-dialect-matrix.md`（audit-verify 22 通过 0 失败）；二波（OceanBase/PolarDB/Kingbase/Dameng/GBase）留待补批
 - **第 5 环红队独立复核：无条件放行**（回执 `docs/assessment/2026-11-13-container-dialect-matrix-redteam-review.md`，audit-verify 通过 10/失败 0）——A~F 六项全 PASS：24 matrix 测试真实存在 + 真连可信（**负向验证**：MariaDB/MSSQL 错误凭据 → 全红，证明非跳过即绿）+ 报告 file:line 语义属实 + 三项裁定源码核对成立 + DB2 CLP 容器内独立复现 + G9/G35/G36/G37 EXIT=0 + 登记与事实一致；P0/P1=0。**P2×2 已处置**：P2-1 复跑 env 口径说明补入报告 §2（复跑必须注入对应 SZ_ORM_* env，默认指向 8802 非本批容器）；P2-2 DB2 CLP 证据附档落盘 `2026-11-13-container-dialect-matrix-db2-clp-evidence.md`（audit-verify 通过，脱离容器 /tmp 生命周期）
 
+### Fixed — SQLite 方言矩阵红队复核（条件 PASS）三项放行条件处置
+
+- **红队独立复核**（2026-11-13 第 5 环，`docs/assessment/2026-11-13-sqlite-dialect-matrix-redteam-review.md`，commit 89396f3，audit-verify 7/0/4）：裁决**条件 PASS**（P2×3 + P3×2，阻断 0）——机械复跑全绿（矩阵 10/10 + 四回归套件 + G37/G9）+ 独立探针（非被测套件）证实 6 项引擎事实 + 「方言缺口 0 处」成立 + cabi lib.rs 复位无缺陷
+- **R-P2-2 fmt 漂移**（放行条件 1）：`integration_gaussdb.rs` 随 cc29f8a6 入库即带 fmt 漂移致 G1「72 包通过」不可复现——修复提交 327f3ad，`check-fmt-all.sh` 72/72 复绿实测
+- **R-P2-1 报告引用形态**（放行条件 2）：SQLite 矩阵报告 13/14 引用为省略包前缀短路径（机检跳过）——报告 §1/§4 引用已补全路径重跑 audit-verify 全通过（本节同提交）
+- **R-P2-3 dev-deps 归属错位勘误**（放行条件 3）：`bigdecimal 0.4` + sqlx uuid/bigdecimal feature 的物理 hunk 实际落在 cc29f8a6（SQLite 矩阵批，`git log -S` 唯一命中），但归属登记在 PG 矩阵 commit a2e5762b 的 CHANGELOG 条目且 cc29f8a6 零提及——**归属勘误：该依赖变更归 cc29f8a6 批**，PG 矩阵条目引用的 Cargo.toml 行为该批顺带入库形态；不改历史 commit，以本节登记为准
+- P3×2（MZ-* 容器矩阵 6 文件 1141 行收纳于 cc29f8a6 但 message 零提及——05a2380a 已补说明；json_extract column 参数全方言裸拼为既有共同约定）登记留档，json_extract quote 横向扫描列入下批候选
+
 ### Added — SQLite 方言矩阵真连验证（SQ1~SQ7，六环闭环）
 
 - 新增 `packages/sz-orm-core/tests/integration_sqlite_matrix.rs`（10 测试，内存库免 env 无条件必跑，`cargo test -p sz-orm-core --test integration_sqlite_matrix` → **10 passed**）：SQ0 引擎版本契约（bundled 3.46.0）+ SQ1 STRICT/RETURNING/IS NOT DISTINCT FROM 方言暴露面 + SQ2 三种 quoting/G2 同型回归 + SQ3 Upsert 家族（ON CONFLICT/EXCLUDED、OR IGNORE、OR REPLACE 删后插 rowid 探针、混用形态跨引擎接受）+ SQ4 主键回填双通道 + WITHOUT ROWID last_insert_rowid 失效探针 + SQ5 PRAGMA 面 + SQ6 类型亲和性/JSON1 + SQ7 边缘语义/FTS quote 真库命中/SQLITE_BUSY 双连接探针 + DuckDB 同型回归。报告 `docs/assessment/2026-11-13-sqlite-dialect-matrix.md`（audit-verify 0 失败）
