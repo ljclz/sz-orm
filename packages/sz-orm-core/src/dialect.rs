@@ -7568,4 +7568,131 @@ mod enum_dispatch_tests {
             }
         }
     }
+
+    // ====================================================================
+    // 红队第 5 环（2026-11-13 OceanBase 方言矩阵批复核）：委托宏新补 4 转发的
+    // 行为级验证（不连库）——证明 OC 批 8230561d 的修复确实改变了 wrapper 行为，
+    // 而非仅"宏体新增代码行"。此前 wrapper 落 trait 默认实现：
+    // upsert=None / render_table_options 空串 / build_create_table_with_options
+    // 与 build_create_table 相同（表选项被静默忽略）。
+    // ====================================================================
+
+    #[test]
+    fn test_redteam_delegate_upsert_not_none() {
+        // 委托 MySQL 族的 wrapper：upsert 必须转发 MySqlDialect 的
+        // ON DUPLICATE KEY UPDATE 渲染（修复前 None）
+        let ob = OceanBaseDialect;
+        let clause = ob
+            .build_upsert_on_conflict(
+                &["id"],
+                &["value"],
+                &["id".to_string(), "value".to_string()],
+            )
+            .expect("OceanBase 委托 MySQL，upsert 不应为 None");
+        assert!(
+            clause.contains("ON DUPLICATE KEY UPDATE") && clause.contains("VALUES("),
+            "OB wrapper upsert 渲染形态: {clause}"
+        );
+        let maria = MariaDbDialect;
+        assert!(maria
+            .build_upsert_on_conflict(&["id"], &["v"], &["id".to_string(), "v".to_string()])
+            .is_some());
+        let tidb = TiDbDialect;
+        assert!(tidb
+            .build_upsert_on_conflict(&["id"], &["v"], &["id".to_string(), "v".to_string()])
+            .is_some());
+
+        // 委托 PG 族的 wrapper：ON CONFLICT DO UPDATE 渲染
+        let king = KingbaseDialect;
+        let clause = king
+            .build_upsert_on_conflict(
+                &["id"],
+                &["value"],
+                &["id".to_string(), "value".to_string()],
+            )
+            .expect("Kingbase 委托 PG，upsert 不应为 None");
+        assert!(
+            clause.contains("ON CONFLICT") && clause.contains("DO UPDATE"),
+            "PG 族 wrapper upsert 渲染形态: {clause}"
+        );
+
+        // 对照组：真不支持 upsert 的基础方言仍为 None（转发不越权）
+        // （ClickHouse 非 wrapper，此处验证委托目标语义未被改变）
+        let dameng = DamengDialect;
+        // Dameng 委托 Oracle——Oracle 无 upsert 子句（P2-6 默认 None）
+        assert!(
+            dameng
+                .build_upsert_on_conflict(
+                    &["id"],
+                    &["value"],
+                    &["id".to_string(), "value".to_string()]
+                )
+                .is_none(),
+            "Dameng 委托 Oracle，upsert 应为 None（对照）"
+        );
+    }
+
+    #[test]
+    fn test_redteam_delegate_table_options_rendered() {
+        use crate::dialect::TableOption;
+        let ob = OceanBaseDialect;
+        let cols = vec![ColumnDef {
+            name: "id".to_string(),
+            sql_type: "BIGINT".to_string(),
+            nullable: false,
+            default: None,
+            auto_increment: false,
+            primary_key: true,
+        }];
+        let opts = vec![
+            TableOption::Engine("InnoDB".to_string()),
+            TableOption::Charset("utf8mb4".to_string()),
+        ];
+        let with = ob.build_create_table_with_options("t_rt", &cols, &opts);
+        let plain = ob.build_create_table("t_rt", &cols);
+        assert!(
+            with.contains("ENGINE=InnoDB") && with.contains("CHARSET=utf8mb4"),
+            "OB wrapper 表选项必须渲染（修复前被忽略）: {with}"
+        );
+        assert_ne!(with, plain, "带选项产物须不同于无选项产物");
+        // render_table_options 直测：修复前空串
+        assert!(
+            !ob.render_table_options(&opts).is_empty(),
+            "OB wrapper render_table_options 不应为空串"
+        );
+        // MariaDB/TiDB 同族抽验
+        assert!(MariaDbDialect
+            .build_create_table_with_options("t_rt", &cols, &opts)
+            .contains("ENGINE=InnoDB"));
+    }
+
+    #[test]
+    fn test_redteam_delegate_fk_action_forwarded() {
+        use crate::dialect::ForeignKeyDef;
+        let ob = OceanBaseDialect;
+        let fk = ForeignKeyDef {
+            columns: vec!["uid".to_string()],
+            reference_table: "users".to_string(),
+            reference_columns: vec!["id".to_string()],
+            on_delete: Some("CASCADE".to_string()),
+            on_update: None,
+        };
+        let sql = ob.build_add_foreign_key("t_rt", &fk).expect("fk ddl");
+        assert!(
+            sql.contains("ON DELETE CASCADE"),
+            "OB wrapper FK 动作必须随委托目标渲染（修复前 ANSI 默认同形——本断言锁行为）: {sql}"
+        );
+        // 非法动作 fail-closed 语义随委托目标保持
+        let bad = ForeignKeyDef {
+            columns: vec!["uid".to_string()],
+            reference_table: "users".to_string(),
+            reference_columns: vec!["id".to_string()],
+            on_delete: Some("NO ACTION; DROP TABLE users".to_string()),
+            on_update: None,
+        };
+        assert!(
+            ob.build_add_foreign_key("t_rt", &bad).is_err(),
+            "非法 FK 动作必须被白名单拒绝（fail-closed 随委托目标）"
+        );
+    }
 }

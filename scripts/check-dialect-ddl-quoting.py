@@ -313,6 +313,10 @@ def self_test() -> int:
 
 
 def main() -> int:
+    # P2-2（2026-11-13 OB 矩阵红队回执）：Windows GBK 控制台默认 env 下输出 ✅/❌
+    # emoji 抛 UnicodeEncodeError 假红——stdout 显式 reconfigure 为 UTF-8
+    if hasattr(sys.stdout, "reconfigure"):
+        sys.stdout.reconfigure(encoding="utf-8")
     if "--self-test" in sys.argv:
         return self_test()
 

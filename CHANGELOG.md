@@ -9,6 +9,14 @@
 
 ## [Unreleased]
 
+### Fixed — OceanBase 方言矩阵二波补批（OC1~OC6，六环闭环）+ 委托宏转发缺口修复
+
+- **sz-orm 方言缺口修复（影响 7 委托方言族，大于 OB 单族）**（报告 `docs/assessment/2026-11-13-oceanbase-dialect-matrix.md`，提示词 `*-prompt.md`，实施批 8230561d，红队条件 PASS 8bfc163d——P0/P1=0）：`delegate_dialect_to!` 宏补 4 个转发（`build_upsert_on_conflict`/`build_create_table_with_options`/`render_table_options`/`build_add_foreign_key`，`packages/sz-orm-core/src/dialect.rs:2147-2172`）——此前委托方言（MariaDB/TiDB/OceanBase/Kingbase/PolarDB/GaussDB/Szrsql 等）落到 trait 默认实现：upsert 恒 None（`build_batch_upsert_with_params` 不可用）/ MY7 表选项被静默忽略 / FK 走 ANSI 默认而非委托目标形态；红队对照 trait 全方法逐项 grep 证实无其他转发遗漏 + 追加 3 个行为级单测（lib 264 全绿）收编
+- **OceanBase CE 4.4.2.1 真连矩阵 OC1~OC6**（`integration_oceanbase.rs` 追加 `matrix_oc_*` 6 项，套件 14 项，守门探活后 **14/14 全绿**）：OC1 引擎身份（`ob_compatibility_mode=MYSQL` 实测）/ OC2 DDL 表选项 `information_schema.TABLE_COLLATION` 生效 / OC3 upsert ON DUPLICATE KEY+INSERT IGNORE / OC4 U64 顶格+DECIMAL(38,6)+UNIQUE 1062 / OC5 ob_ 变量+HASH 分区表 / OC6 注入惰性+分页
+- **引擎事实登记**：daemon 模式容器 ~2min 退出循环（exit 255，非 OOM——restart=always 兜底 + 守门探活纪律）；TEXT 列不可作 PK（错误 1167，同 MySQL）；UNIQUE 冲突 1062 与 MySQL 映射一致；HASH 分区表语法可用（非方言生成面）
+- **供给边界（二波剩余）**：Kingbase（官网 docker tar 需验证码表单）/ Dameng（eco 站无公开 docker 入口）/ GBase（开发版需登录）——人工供给门槛，留待补批
+- **红队回执处置**：P2-1 登记补齐（本节 + AGENTS.md）；P2-2 G37 脚本 Windows GBK 控制台 emoji 假红——`sys.stdout.reconfigure(encoding="utf-8")` 修复（默认 env 自测 19/19 通过）；P3-1 MySQL 族 wrapper 未转发 `max_identifier_len`（63 非 64，trait 契约内）登记留档
+
 ### Fixed — json_extract 列名 quote 横向修复批（12 方言一致化，六环闭环）
 
 - **G-OR1 家族第七次同型发现横向收尾**（报告 `docs/assessment/2026-11-13-json-extract-quote-sweep.md`，提示词 `*-prompt.md`，实施批 3c2c18ae + 红队条件 PASS 362aa7e6 + 回执处置 dafc9859）：11 方言 `Dialect::json_extract` 列名裸拼 → `self.quote(column)`（MySQL/SQLite/Oracle/SqlServer/Snowflake/ClickHouse/DuckDB/DB2/Informix/SapHana/Firebird；PG 已随 PG 矩阵批修复）；委托族经 delegate 宏转发自动惠及；quote 形态方言感知（反引号/双引号/方括号）
