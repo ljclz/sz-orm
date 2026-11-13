@@ -4,6 +4,8 @@
 >
 > **来源**：PG 方言矩阵批红队 §3.3 抓出 `PostgreSqlDialect::json_extract` 列名裸拼（已随 624974c9 修复）并实证 G37 Q2 敏感模板未含 JSON 函数面属预期内盲区；SQLite 批红队 P3-2 裁定「全方言裸拼为既有共同约定」并登记下批候选——本批即该候选落地。
 >
+> **定级口径（红队 P2-2 勘误）**：本批修复分两档——**真缺陷修复**（Oracle/PG 等折叠语义方言：裸拼列名被折叠为与引号列不匹配，ORA-00904 类真库拒绝）与**防御性一致化**（MySQL/SQLite：裸标识符大小写不敏感，红队真库证伪两形态等价命中——quote 一致化消除方言间行为漂移，非修复真错位）。G37 JSON 函数面门禁增补对两档均有效（防第八形态复发）。
+>
 > **范围**：`Dialect::json_extract` trait 面 12 直接实现列名 quote 一致化 + G37 敏感模板增补 JSON 函数面。`json_query.rs`（think-orm 风格 JsonQuery，自带手写 quote 混合形态）与 `typed_ast.rs` JSON 表达式（**已各自 quote**，`col = dialect.quote(C::NAME)`）不在本批范围——前者另行评估，见 §5。
 
 ## 1. 交付物
@@ -52,7 +54,7 @@ Oracle/SqlServer/Snowflake/ClickHouse/DuckDB/DB2/Informix/SapHana/Firebird：
   本机无实例，横向单测形态断言覆盖（12 方言全量逐字节）
 ```
 
-**坑位登记（MySQL 凭据）**：`D:\tools\gate.env` 的 `SZ_ORM_MYSQL_URL` 缺密码段（`mysql://root@127.0.0.1:8802/...`，2026-11-12 重建时遗漏），真连报 1045 `using password: NO`；实测凭据经宝塔安装日志 `D:/BtSoft/panel/logs/install/b59c8640d3d6b94dba44a53f75f9c07c.log:492`（`MySQL 安装完成，root 密码为 661e8579d937`，AGENTS.md 指引路径）找回并跑通全套。**gate.env 待修正**（属本机环境文件不入仓库，留档于此）。
+**坑位登记（MySQL 凭据）**：`D:\tools\gate.env` 的 `SZ_ORM_MYSQL_URL` 缺密码段（`mysql://root@127.0.0.1:8802/...`，2026-11-12 重建时遗漏），真连报 1045 `using password: NO`；实测凭据经宝塔安装日志 `D:/BtSoft/panel/logs/install/b59c8640d3d6b94dba44a53f75f9c07c.log:492`（"MySQL 安装完成，root 密码为 <password>"——按凭据不入库铁律不在本报告回显，AGENTS.md 指引路径）找回并跑通全套。**gate.env 待修正**（属本机环境文件不入仓库，留档于此；P1-1 处置：3c2c18ae 首次入库时曾误将密码明文写入本行，已随回执提交清除，历史提交经 filter 分支/说明登记处理——凭据已在轮换清单）。
 
 ## 4. 门禁输出（逐项 EXIT）
 

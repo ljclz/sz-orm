@@ -2273,6 +2273,7 @@ impl Dialect for SnowflakeDialect {
         // Snowflake 使用 : 路径访问或 GET_PATH 函数
         let normalized = path.trim_start_matches("$.");
         // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+        // quote-gate-safe: normalized 为路径片段（path 去前缀，非标识符），列名已走 self.quote
         format!("{}:{}", self.quote(column), normalized)
     }
 
@@ -2826,6 +2827,7 @@ impl Dialect for DuckDBDialect {
         } else {
             path.to_string()
         };
+        // quote-gate-safe: normalized 为路径片段（非标识符），列名已走 self.quote
         format!("{} -> '{}'", self.quote(column), normalized)
     }
 
@@ -4256,11 +4258,17 @@ mod tests {
                 "{}: 期望含 `{expect}`，实际 `{sql}`",
                 d.db_type()
             );
-            // 反向断言：混合大小写列名不得以裸拼形态出现（quote 必要性）
-            let bare = format!(" {}", "MetaCol");
-            assert!(
-                !sql.contains(&bare) || sql.contains(expect),
-                "{}: 列名应 quote：{sql}",
+            // 反向断言（红队 P2-1 修正版）：裸拼形态 `(\s*MetaCol[,)]`（裸标识符参数）
+            // 不得出现——列名参数位置必须带方言引号前缀（首字符为引号而非字母）
+            let first_char = sql
+                .trim_start_matches(|c: char| !c.is_ascii_graphic() || c == '(')
+                .chars()
+                .next();
+            let expect_open = expect.chars().next().unwrap_or('\'');
+            assert_eq!(
+                first_char,
+                Some(expect_open),
+                "{}: 列名参数必须以方言引号开头（反 quote 破坏面）：{sql}",
                 d.db_type()
             );
         }

@@ -59,6 +59,10 @@ SENSITIVE_PATTERNS = [
     r"JSONExtract",
     r"JSON_GET\s*\(",
     r"#>>",
+    # 红队 P2-3 增补两臂（Snowflake `{}:{}` / DuckDB `{} -> ` 模板字面形态；
+    # 泛关键词 `->`/`:` 会误报普通 Rust 代码，故锚定 format! 模板形态）
+    r"\{\}\s*:\s*\{\}",
+    r"\{\}\s*->",
 ]
 
 # Q1：无名约束（非法 DDL 变体，零容忍）
@@ -265,6 +269,10 @@ def self_test() -> int:
         'format!("JSON_VALUE({}, \'{}\')", column, self.escape_string(&normalized))',
         # json_extract quote 批：#>> 列裸拼（PG 形态）
         'format!("{}#>>\'{{{}}}\'", column, path_lit)',
+        # json_extract quote 批（红队 P2-3）：Snowflake 裸拼臂
+        'format!("{}:{}", column, normalized)',
+        # json_extract quote 批（红队 P2-3）：DuckDB 裸拼臂
+        'format!("{} -> \'{}\'", column, normalized)',
     ]
     for sample in hit_samples:
         if scan(sample):
@@ -289,6 +297,9 @@ def self_test() -> int:
         'format!("JSON_EXTRACT({}, \'{}\')", self.quote(column), self.escape_string(&normalized))',
         # json_extract quote 批修复形态（PG #>> + 路径字面量豁免登记）
         '// quote-gate-safe: 列名已走 self.quote；path_lit_escaped 为路径字面量（非标识符）\nformat!("{}#>>\'{{{}}}\'", self.quote(column), path_lit_escaped)',
+        # json_extract quote 批修复形态（红队 P2-3 两臂 quote 后 + 路径片段豁免登记）
+        '// quote-gate-safe: normalized 为路径片段（非标识符），列名已走 self.quote\nformat!("{}:{}", self.quote(column), normalized)',
+        '// quote-gate-safe: normalized 为路径片段（非标识符），列名已走 self.quote\nformat!("{} -> \'{}\'", self.quote(column), normalized)',
     ]
     for sample in safe_samples:
         if scan(sample):
