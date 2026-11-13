@@ -37,7 +37,7 @@ from pathlib import Path
 
 TARGET = "packages/sz-orm-core/src/dialect.rs"
 
-# 敏感模板关键词（DDL 索引/约束面 + FTS 函数面）
+# 敏感模板关键词（DDL 索引/约束面 + FTS 函数面 + JSON 函数面）
 SENSITIVE_PATTERNS = [
     r"CREATE\s+INDEX",
     r"DROP\s+INDEX",
@@ -51,6 +51,14 @@ SENSITIVE_PATTERNS = [
     r"position\s*\(",
     r"ILIKE",
     r"LIKE\s*'",
+    # json_extract quote 横向修复批（2026-11-13，G-OR1 家族第七形态后增补）：
+    # JSON 函数面——PG 批红队 §3.3 实证 json_extract 列名裸拼为 G37 盲区
+    r"JSON_EXTRACT\s*\(",
+    r"json_extract\s*\(",
+    r"JSON_VALUE\s*\(",
+    r"JSONExtract",
+    r"JSON_GET\s*\(",
+    r"#>>",
 ]
 
 # Q1：无名约束（非法 DDL 变体，零容忍）
@@ -251,6 +259,12 @@ def self_test() -> int:
         '.map(|c| format!("CONTAINS({}, \'{}\', 1) > 0", c, escaped))',
         # FTS：LIKE 列裸拼
         '.map(|c| format!("{} LIKE \'%{}%\'", c, escaped))',
+        # json_extract quote 批（2026-11-13 增补 JSON 函数面）：JSON_EXTRACT 列裸拼
+        'format!("JSON_EXTRACT({}, \'{}\')", column, self.escape_string(&normalized))',
+        # json_extract quote 批：JSON_VALUE 列裸拼
+        'format!("JSON_VALUE({}, \'{}\')", column, self.escape_string(&normalized))',
+        # json_extract quote 批：#>> 列裸拼（PG 形态）
+        'format!("{}#>>\'{{{}}}\'", column, path_lit)',
     ]
     for sample in hit_samples:
         if scan(sample):
@@ -271,6 +285,10 @@ def self_test() -> int:
         'let cols = columns.iter().map(|c| self.quote(c)).collect::<Vec<_>>().join(", ");\nlet fk_name = format!("fk_{}_{}", table, columns.join("_"));\nformat!("ALTER TABLE {} ADD CONSTRAINT {} FOREIGN KEY ({})", self.quote(table), self.quote(&fk_name), cols)',
         # 非敏感模板不受限（cols 裸也不命中——模板无敏感关键词）
         'format!("INSERT INTO {} ({}) VALUES (:1, :2)", self.quote(table), cols)',
+        # json_extract quote 批修复形态（列名走 self.quote）
+        'format!("JSON_EXTRACT({}, \'{}\')", self.quote(column), self.escape_string(&normalized))',
+        # json_extract quote 批修复形态（PG #>> + 路径字面量豁免登记）
+        '// quote-gate-safe: 列名已走 self.quote；path_lit_escaped 为路径字面量（非标识符）\nformat!("{}#>>\'{{{}}}\'", self.quote(column), path_lit_escaped)',
     ]
     for sample in safe_samples:
         if scan(sample):

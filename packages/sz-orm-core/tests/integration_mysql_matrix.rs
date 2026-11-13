@@ -608,7 +608,8 @@ async fn matrix_my3_autoinc_and_type_roundtrip() {
     );
 
     // 方言 json_extract 生成面被真库接受（JSON_EXTRACT 返回 JSON 类型，测试侧 CAST 解码）
-    let je = dialect.json_extract(&dialect.quote("meta"), "$.n");
+    // json_extract quote 横向修复批：列名 quote（此处传裸名，方言内 quote——调用方不再预 quote）
+    let je = dialect.json_extract("meta", "$.n");
     assert_eq!(je, "JSON_EXTRACT(`meta`, '$.n')");
     let je_sql = format!(
         "SELECT CAST({je} AS SIGNED) AS n FROM {}",

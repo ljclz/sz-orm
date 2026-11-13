@@ -522,7 +522,9 @@ impl Dialect for MySqlDialect {
         };
         format!(
             "JSON_EXTRACT({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+            // （混合大小写列裸拼被折叠语义方言错位/保留语义方言报 column does not exist）
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -885,8 +887,8 @@ impl Dialect for PostgreSqlDialect {
         let path_lit_escaped = path_lit.replace('\'', "''");
         // G-OR1 家族第六形态（2026-11-13 PG 矩阵红队 §3.3）：列名裸拼在混合大小写列上
         // 被 PG 折叠为小写（metacol → column does not exist）——与 FTS/ALTER quote 批同型，逐方言 quote
+        // quote-gate-safe: 列名已走 self.quote；path_lit_escaped 为路径字面量（已单引号转义，非标识符）
         format!("{}#>>'{{{}}}'", self.quote(column), path_lit_escaped)
-        // quote-gate-safe: self.quote 为安全赋值链（G-OR1 家族第六形态修复）
     }
 
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
@@ -1168,7 +1170,8 @@ impl Dialect for SqliteDialect {
         };
         format!(
             "json_extract({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -1541,7 +1544,9 @@ impl Dialect for OracleDialect {
         };
         format!(
             "JSON_VALUE({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+            // （Oracle 裸拼折叠大写，与引号列不匹配 ORA-00904 同 G-OR9 类）
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -1806,7 +1811,8 @@ impl Dialect for SqlServerDialect {
         };
         format!(
             "JSON_VALUE({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote（方括号）
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -2266,7 +2272,8 @@ impl Dialect for SnowflakeDialect {
     fn json_extract(&self, column: &str, path: &str) -> String {
         // Snowflake 使用 : 路径访问或 GET_PATH 函数
         let normalized = path.trim_start_matches("$.");
-        format!("{}:{}", column, normalized)
+        // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+        format!("{}:{}", self.quote(column), normalized)
     }
 
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
@@ -2561,7 +2568,8 @@ impl Dialect for ClickHouseDialect {
         };
         format!(
             "JSONExtractString({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote（反引号）
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -2818,7 +2826,7 @@ impl Dialect for DuckDBDialect {
         } else {
             path.to_string()
         };
-        format!("{} -> '{}'", column, normalized)
+        format!("{} -> '{}'", self.quote(column), normalized)
     }
 
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
@@ -3030,7 +3038,8 @@ impl Dialect for Db2Dialect {
         };
         format!(
             "JSON_VALUE({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -3384,7 +3393,8 @@ impl Dialect for InformixDialect {
         };
         format!(
             "JSONExtract({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -3622,7 +3632,8 @@ impl Dialect for SapHanaDialect {
         };
         format!(
             "JSON_VALUE({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -3872,7 +3883,8 @@ impl Dialect for FirebirdDialect {
         };
         format!(
             "JSON_GET({}, '{}')",
-            column,
+            // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名 quote
+            self.quote(column),
             self.escape_string(&normalized)
         )
     }
@@ -4217,6 +4229,60 @@ mod tests {
         }
     }
 
+    /// json_extract quote 横向修复批（G-OR1 家族第七次同型收尾，2026-11-13）：
+    /// 12 方言列名 quote 一致化生成面断言（混合大小写列 `MetaCol`——裸拼被折叠语义
+    /// 方言错位/保留语义方言报 column does not exist；PG 已随 PG 矩阵批 624974c9 修复，
+    /// 本批横向收尾其余 11 方言 + 委托族经 delegate 宏自动惠及）
+    #[test]
+    fn test_json_extract_column_quoting_all_dialects() {
+        let cases: Vec<(Box<dyn Dialect>, &str)> = vec![
+            (Box::new(MySqlDialect), "JSON_EXTRACT(`MetaCol`, "),
+            (Box::new(PostgreSqlDialect), "\"MetaCol\"#>>"),
+            (Box::new(SqliteDialect), "json_extract(\"MetaCol\", "),
+            (Box::new(OracleDialect), "JSON_VALUE(\"MetaCol\", "),
+            (Box::new(SqlServerDialect), "JSON_VALUE([MetaCol], "),
+            (Box::new(SnowflakeDialect), "\"MetaCol\":"),
+            (Box::new(ClickHouseDialect), "JSONExtractString(`MetaCol`, "),
+            (Box::new(DuckDBDialect), "\"MetaCol\" -> '"),
+            (Box::new(Db2Dialect), "JSON_VALUE(\"MetaCol\", "),
+            (Box::new(InformixDialect), "JSONExtract(\"MetaCol\", "),
+            (Box::new(SapHanaDialect), "JSON_VALUE(\"MetaCol\", "),
+            (Box::new(FirebirdDialect), "JSON_GET(\"MetaCol\", "),
+        ];
+        for (d, expect) in cases {
+            let sql = d.json_extract("MetaCol", "user.name");
+            assert!(
+                sql.contains(expect),
+                "{}: 期望含 `{expect}`，实际 `{sql}`",
+                d.db_type()
+            );
+            // 反向断言：混合大小写列名不得以裸拼形态出现（quote 必要性）
+            let bare = format!(" {}", "MetaCol");
+            assert!(
+                !sql.contains(&bare) || sql.contains(expect),
+                "{}: 列名应 quote：{sql}",
+                d.db_type()
+            );
+        }
+        // 委托族抽验：delegate 宏转发随目标方言 quote（Szrsql→PG、Dameng→Oracle）
+        let szrsql = crate::dialect::get_dialect(crate::DbType::Szrsql).unwrap();
+        assert!(
+            szrsql
+                .json_extract("MetaCol", "a.b")
+                .contains("\"MetaCol\"#>>"),
+            "委托族应随 PG quote：{}",
+            szrsql.json_extract("MetaCol", "a.b")
+        );
+        let dameng = crate::dialect::get_dialect(crate::DbType::Dameng).unwrap();
+        assert!(
+            dameng
+                .json_extract("MetaCol", "a.b")
+                .contains("JSON_VALUE(\"MetaCol\", "),
+            "委托族应随 Oracle quote：{}",
+            dameng.json_extract("MetaCol", "a.b")
+        );
+    }
+
     #[test]
     fn test_alter_table_modify_column() {
         let mysql = MySqlDialect;
@@ -4337,7 +4403,8 @@ mod tests {
         let sql = dialect.json_extract("data", "$.user.name");
         assert!(sql.contains("JSON_VALUE"));
         assert!(sql.contains("$.user.name"));
-        assert!(sql.starts_with("JSON_VALUE(data, '$.user.name')"));
+        // json_extract quote 横向修复批：列名 quote 后形态
+        assert!(sql.starts_with("JSON_VALUE(\"data\", '$.user.name')"));
 
         // 自动补全 $. 前缀
         let sql = dialect.json_extract("data", "user.name");
@@ -4796,7 +4863,8 @@ mod tests {
     fn test_sqlserver_json_extract() {
         let dialect = SqlServerDialect;
         let sql = dialect.json_extract("data", "$.user.name");
-        assert!(sql.starts_with("JSON_VALUE(data, '$.user.name')"));
+        // json_extract quote 横向修复批：列名 quote 后形态（方括号）
+        assert!(sql.starts_with("JSON_VALUE([data], '$.user.name')"));
         // 自动补 $. 前缀
         let sql = dialect.json_extract("data", "user.name");
         assert!(sql.contains("$.user.name"));

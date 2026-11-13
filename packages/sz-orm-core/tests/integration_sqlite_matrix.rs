@@ -497,8 +497,9 @@ fn sq6_type_affinity_roundtrip() {
     );
 
     // JSON1 函数生成面：方言 json_extract 产物真库执行
+    // （json_extract quote 横向修复批：列名 quote 后形态，真库往返同义）
     let expr = d.json_extract("j", "$.k");
-    assert_eq!(expr, "json_extract(j, '$.k')");
+    assert_eq!(expr, "json_extract(\"j\", '$.k')");
     let k: i64 = conn
         .query_row(&format!("SELECT {} FROM sq6", expr), [], |r| r.get(0))
         .expect("方言 json_extract 产物可执行（JSON1）");
