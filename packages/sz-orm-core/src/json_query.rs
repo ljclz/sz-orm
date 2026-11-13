@@ -40,18 +40,44 @@ impl JsonQuery {
     ///
     /// - `db_type`：目标数据库类型
     /// - `column`：JSON 列名
+    ///
+    /// # Panics
+    ///
+    /// 列名非法（非 `[A-Za-z_][A-Za-z0-9_]*`，超出 63 字节）时 panic——
+    /// `JsonQuery` 全 API 返回 `String`（无 Result 通道），构造期快速失败
+    /// 优于静默生成含注入面的 SQL（quote-sweep 越批登记项接线，2026-11-13）。
     pub fn new(db_type: DbType, column: impl Into<String>) -> Self {
+        let column = column.into();
+        // 构造期标识符校验（同 QueryBuilder::select 口径）：
+        // 全部生成臂（build_extract/has_key/json_type_eq/contains/array_length/JsonSet 等）
+        // 均以手写引号包裹 self.column，校验是引号逃逸的唯一防线
+        crate::sql_safety::validate_identifier(&column, "json_query column")
+            .expect("JsonQuery: invalid column identifier");
         Self {
             db_type,
-            column: column.into(),
+            column,
             path: None,
         }
     }
 
     /// 指定 JSON 路径（如 `theme` 或 `a.b.c`）
+    ///
+    /// # Panics
+    ///
+    /// 路径段非法（非 `[A-Za-z0-9_]+`，`.` 分隔）时 panic——路径段直接嵌入
+    /// `'$.{}'`/`'{}'` 字面量（无转义），构造期校验是注入面的唯一防线
+    /// （quote-sweep 越批登记项接线，2026-11-13）。
     #[must_use]
     pub fn path(mut self, path: impl Into<String>) -> Self {
-        self.path = Some(path.into());
+        let path = path.into();
+        for seg in path.split('.') {
+            if seg.is_empty() || !seg.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+                panic!(
+                    "JsonQuery::path: invalid path segment `{seg}` (only [A-Za-z0-9_] allowed, dot-separated)"
+                );
+            }
+        }
+        self.path = Some(path);
         self
     }
 
@@ -367,10 +393,17 @@ pub struct JsonUpdate {
 
 impl JsonUpdate {
     /// 创建 JSON 更新构造器
+    ///
+    /// # Panics
+    ///
+    /// 列名非法时 panic（同 [`JsonQuery::new`]——手写引号包裹的唯一防线）。
     pub fn new(db_type: DbType, column: impl Into<String>) -> Self {
+        let column = column.into();
+        crate::sql_safety::validate_identifier(&column, "json_update column")
+            .expect("JsonUpdate: invalid column identifier");
         Self {
             db_type,
-            column: column.into(),
+            column,
             sets: Vec::new(),
             array_appends: Vec::new(),
             removes: Vec::new(),
@@ -378,25 +411,39 @@ impl JsonUpdate {
     }
 
     /// 添加一个 SET 项（key → value，value 为字符串）
+    ///
+    /// # Panics
+    ///
+    /// key 非法（非 `[A-Za-z0-9_]+`）时 panic——key 直接嵌入 `'$.{}'`/`'{}'` 路径字面量。
     #[must_use]
     pub fn set_str(mut self, key: impl Into<String>, value: &str) -> Self {
-        self.sets
-            .push((key.into(), format!("'{}'", escape_sql_str(value))));
+        self.sets.push((
+            Self::validate_key(key),
+            format!("'{}'", escape_sql_str(value)),
+        ));
         self
     }
 
     /// 添加一个 SET 项（key → value，value 为 i64）
+    ///
+    /// # Panics
+    ///
+    /// key 非法时 panic（同 [`Self::set_str`]）。
     #[must_use]
     pub fn set_i64(mut self, key: impl Into<String>, value: i64) -> Self {
-        self.sets.push((key.into(), value.to_string()));
+        self.sets.push((Self::validate_key(key), value.to_string()));
         self
     }
 
     /// 添加一个 SET 项（key → value，value 为 bool）
+    ///
+    /// # Panics
+    ///
+    /// key 非法时 panic（同 [`Self::set_str`]）。
     #[must_use]
     pub fn set_bool(mut self, key: impl Into<String>, value: bool) -> Self {
         self.sets.push((
-            key.into(),
+            Self::validate_key(key),
             if value {
                 "true".to_string()
             } else {
@@ -413,20 +460,28 @@ impl JsonUpdate {
     /// - SQLite: `col = json_set(col, '$.path', json_insert(col->'$.path', '$[#]', 'v'))`
     ///
     /// 注：追加多个元素请多次调用。
+    ///
+    /// # Panics
+    ///
+    /// key 非法时 panic（同 [`Self::set_str`]）。
     #[must_use]
     pub fn array_append_str(mut self, key: impl Into<String>, value: &str) -> Self {
         // 复用 sets，但用特殊标记区分；这里直接构建为完整 SQL 表达式存入
         // 改为：在 build_set 时用专门的处理逻辑
-        let k = key.into();
+        let k = Self::validate_key(key);
         let v = format!("'{}'", escape_sql_str(value));
         self.array_appends.push((k, v));
         self
     }
 
     /// 数组追加元素（整数）
+    ///
+    /// # Panics
+    ///
+    /// key 非法时 panic（同 [`Self::set_str`]）。
     #[must_use]
     pub fn array_append_i64(mut self, key: impl Into<String>, value: i64) -> Self {
-        let k = key.into();
+        let k = Self::validate_key(key);
         let v = value.to_string();
         self.array_appends.push((k, v));
         self
@@ -437,10 +492,25 @@ impl JsonUpdate {
     /// - MySQL: `col = JSON_REMOVE(col, '$.key')`
     /// - PG: `col = col - 'key'`
     /// - SQLite: `col = json_remove(col, '$.key')`
+    ///
+    /// # Panics
+    ///
+    /// key 非法时 panic（同 [`Self::set_str`]）。
     #[must_use]
     pub fn remove_key(mut self, key: impl Into<String>) -> Self {
-        self.removes.push(key.into());
+        self.removes.push(Self::validate_key(key));
         self
+    }
+
+    /// key 校验（路径字面量注入防线）：仅允许 `[A-Za-z0-9_]+`
+    fn validate_key(key: impl Into<String>) -> String {
+        let key = key.into();
+        if key.is_empty() || !key.chars().all(|c| c.is_ascii_alphanumeric() || c == '_') {
+            panic!(
+                "JsonUpdate: invalid key `{key}` (only [A-Za-z0-9_] allowed — key embeds into JSON path literal)"
+            );
+        }
+        key
     }
 
     /// 构建 SET 子句片段（不含 `SET` 关键字）
@@ -565,6 +635,52 @@ fn escape_sql_str(s: &str) -> String {
 #[allow(deprecated)]
 mod tests {
     use super::*;
+
+    // ===== 构造期校验接线测试（quote-sweep 越批登记项，2026-11-13）=====
+
+    #[test]
+    #[should_panic(expected = "invalid column identifier")]
+    fn rejects_column_with_quote_escape() {
+        // 双引号逃逸手写引号包裹（"`col`"→"`co``l`" 或 "col` ->注入"）
+        let _ = JsonQuery::new(DbType::MySQL, "col`->'$.x' = 'y' OR 1=1");
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid column identifier")]
+    fn rejects_column_with_double_quote() {
+        let _ = JsonQuery::new(DbType::PostgreSQL, "col\"#>>'{a}' IS NOT NULL");
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid path segment")]
+    fn rejects_path_with_quote_injection() {
+        // 路径段单引号逃逸（'$.a' , 'b）注入
+        let _ = JsonQuery::new(DbType::MySQL, "col").path("a' , 'b");
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid key")]
+    fn rejects_update_key_injection() {
+        let _ = JsonUpdate::new(DbType::MySQL, "col").set_str("k', 'x", "v");
+    }
+
+    #[test]
+    #[should_panic(expected = "invalid column identifier")]
+    fn rejects_update_column_injection() {
+        let _ = JsonUpdate::new(DbType::MySQL, "col` = `pw`");
+    }
+
+    #[test]
+    fn valid_identifiers_pass() {
+        // 合法标识符/路径/键不受影响（行为回归）
+        let q = JsonQuery::new(DbType::PostgreSQL, "Meta_Col1").path("a.b_2.c");
+        assert!(q.build_extract().contains("\"Meta_Col1\""));
+        let u = JsonUpdate::new(DbType::MySQL, "meta")
+            .set_str("theme_1", "dark")
+            .array_append_i64("tags_2", 1)
+            .remove_key("tmp_3");
+        assert!(u.build_set().contains("`meta`"));
+    }
 
     // ===== JsonQuery::build_extract 三方言测试 =====
 
