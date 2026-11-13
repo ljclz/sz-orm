@@ -9,6 +9,16 @@
 
 ## [Unreleased]
 
+### Fixed — json_extract 列名 quote 横向修复批（12 方言一致化，六环闭环）
+
+- **G-OR1 家族第七次同型发现横向收尾**（报告 `docs/assessment/2026-11-13-json-extract-quote-sweep.md`，提示词 `*-prompt.md`，实施批 3c2c18ae + 红队条件 PASS 362aa7e6 + 回执处置 dafc9859）：11 方言 `Dialect::json_extract` 列名裸拼 → `self.quote(column)`（MySQL/SQLite/Oracle/SqlServer/Snowflake/ClickHouse/DuckDB/DB2/Informix/SapHana/Firebird；PG 已随 PG 矩阵批修复）；委托族经 delegate 宏转发自动惠及；quote 形态方言感知（反引号/双引号/方括号）
+- **定级两档（红队 P2-2 勘误）**：Oracle/PG 等折叠语义方言为**真缺陷修复**（裸拼被折叠与引号列不匹配）；MySQL/SQLite（裸标识符大小写不敏感）经红队真库证伪两形态等价命中，属**防御性一致化**（消除方言间行为漂移）
+- **调用方契约变化（语义级）**：`json_extract` 现接受**裸列名**并在方言内 quote——调用方预 quote 后传入会产生双重引号被真库拒绝；既有调用点已同步（Oracle/SqlServer 单测 starts_with + SQLite 矩阵 SQ6 + MySQL 矩阵 MY3），外部调用方如有同形态需同步
+- 新增横向单测 `test_json_extract_column_quoting_all_dialects`（12 方言混合大小写列逐字节 + 首字符引号反向断言 + 委托族 Szrsql/Dameng 抽验）；G37 `SENSITIVE_PATTERNS` 增补 JSON 函数面 8 关键词（含红队 P2-3 两臂 Snowflake `{}:{}`/DuckDB `{} -> ` 模板形态），self-test 10→**19**，全仓 0 命中
+- 回归（真连）：lib **3285 全过** + PG matrix 20 + integration_pg 22 + SQLite matrix 10 + integration_sqlite 25 + MySQL matrix 11 + integration_mysql 25 全绿；门禁 fmt 72 包/check/clippy/G9 --strict 46 Safe/G15/G30 EXIT=0
+- 红队回执 P1-1（凭据不入库）：实施报告明文密码已清除（<password> 占位）；泄露提交未推送远程（origin 历史零命中），密码属宝塔本机安装日志公开面，轮换由用户决定；坑位：gate.env `SZ_ORM_MYSQL_URL` 缺密码段（2026-11-12 重建遗漏），实测凭据经宝塔安装日志找回（路径见报告，密码不回显）
+- 越批登记：`json_query.rs`（think-orm 风格）无标识符校验待下批接线；SqlServer JSON_VALUE 真库补验留 CI
+
 ### Added — PostgreSQL 方言矩阵真连验证（PG1~PG7，六环闭环）
 
 - 新增 `packages/sz-orm-core/tests/integration_pg_matrix.rs`（20 测试，PG18.4@5432 宿主实例，`SZ_ORM_PG_URL` 注入；`cargo test -p sz-orm-core --features type-safe-columns --test integration_pg_matrix -- --ignored --test-threads=1` → **20 passed; 0 failed**）：PG1 标识符（双引号 quoting/大小写保留语义对照裸标识符折叠/63 字节上限 quote_checked 拦截/alter 三臂全 quote+FK 行为级）+ PG2 RETURNING 全家（INSERT/UPDATE/DELETE 回填）+ PG3 Upsert（`ON CONFLICT (col) DO UPDATE SET col=EXCLUDED.col` 行为级 + `ON CONFLICT DO NOTHING` 约束推断）+ PG4 类型与 JSONB（NUMERIC 38 位 BigDecimal 通道无损/JSONB serde 绑定/`@>`/TEXT[] 往返）+ PG5 索引（IF NOT EXISTS 幂等/**CONCURRENTLY 事务内真库拒绝探针**/部分+表达式+GIN）+ PG6 查询面（CTE builder 递归+非递归参数顺序证明/DISTINCT ON/窗口函数/NULLS LAST/ILIKE/FETCH FIRST/分页）+ PG7 边缘（三值 NULL IS NULL 真行为/空串≠NULL/除零 22012/aborted 25P02/FOR UPDATE+SKIP LOCKED 行为级/LISTEN+NOTIFY PgListener 行为级/FTS to_tsquery 真库命中）。报告 `docs/assessment/2026-11-13-pg-dialect-matrix.md`（audit-verify 24 通过 0 失败）
