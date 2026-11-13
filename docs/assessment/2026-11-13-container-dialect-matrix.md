@@ -28,6 +28,8 @@
 
 测试落点 commit：**cc29f8a6**（并行 SQLite 矩阵线按 hunk 级隔离规则一并收纳提交，报告归属本线）。
 
+> **复跑 env 口径说明**（红队回执 P2-1 处置）：§2 各套件 passed 数为「指定 env 全量」口径，复跑必须注入对应 env——MariaDB/TiDB：`SZ_ORM_MYSQL_URL` 分别指向 3326/4400（默认指向 8802 宝塔 MySQL，非本批容器）；ClickHouse：`SZ_ORM_CLICKHOUSE_URL` 指向 9004；openGauss：`SZ_ORM_PG_URL` 指向 15433；MSSQL：`SZ_ORM_MSSQL_PASSWORD`。DB2 套件为进程内方言面断言（非 ignored，默认 env 可跑），其真库证据经容器内 CLP——附档 `2026-11-13-container-dialect-matrix-db2-clp-evidence.md`（红队回执 P2-2 处置，原仅留容器 /tmp）。
+
 ## 2. 矩阵结果逐载荷（三步 = 方言生成面 + 真库执行 + 行为断言）
 
 ### MZ-MSSQL × 2022 CU28 @1433（SqlServerDialect）

@@ -22,6 +22,7 @@
 - **六家族矩阵 24 测试全绿**（既有 `integration_<db>.rs` 各追加 4 个 `matrix_mz_*`，不新建文件；测试落点 commit `cc29f8a6` hunk 级隔离收纳）：MSSQL **12 passed**（OUTPUT INSERTED 回填/方括号 quoting/无 ORDER BY OFFSET Msg 102 契约——生产面 `requires_order_by_for_pagination` 守卫已覆盖/GETDATE+JSON_VALUE）+ MariaDB **11 passed**（原生 SEQUENCE/INSERT RETURNING 引擎扩展不反转委托/CHECK 4025 真执行/sql_mode 家族差异）+ TiDB **11 passed**（FK v6.6+ 真执行 1452/AUTO_RANDOM/无 RETURNING 1064/CHECK 版本行为）+ ClickHouse **11 passed**（MergeTree 子句/default_table_engine=MergeTree 26.x 契约修正/MySQL 协议通道不接受 prepared 绑定参数/LIMIT o,l）+ DB2 **15 passed**（SYSDUMMY1 通道/OFFSET FETCH NEXT/大写折叠/IDENTITY 双通道；真库断言经容器内 CLP——无 Rust 驱动为项目约束）+ openGauss **7 passed**（sql_compatibility=PG/RETURNING 支持/nextval 须字面量参数/双引号折叠）
 - **sz-orm 方言缺口 0 处**：六家族委托选择全部经真库行为验证正确（MariaDB/TiDB→MySQL 族、openGauss→PG 族、CH/DB2/SqlServer 独立实现）；G37 门禁 0 命中佐证
 - **引擎/环境特有登记 9 项**（B1~B9）+ 环境坑位 5 项；报告 `docs/assessment/2026-11-13-container-dialect-matrix.md`（audit-verify 22 通过 0 失败）；二波（OceanBase/PolarDB/Kingbase/Dameng/GBase）留待补批
+- **第 5 环红队独立复核：无条件放行**（回执 `docs/assessment/2026-11-13-container-dialect-matrix-redteam-review.md`，audit-verify 通过 10/失败 0）——A~F 六项全 PASS：24 matrix 测试真实存在 + 真连可信（**负向验证**：MariaDB/MSSQL 错误凭据 → 全红，证明非跳过即绿）+ 报告 file:line 语义属实 + 三项裁定源码核对成立 + DB2 CLP 容器内独立复现 + G9/G35/G36/G37 EXIT=0 + 登记与事实一致；P0/P1=0。**P2×2 已处置**：P2-1 复跑 env 口径说明补入报告 §2（复跑必须注入对应 SZ_ORM_* env，默认指向 8802 非本批容器）；P2-2 DB2 CLP 证据附档落盘 `2026-11-13-container-dialect-matrix-db2-clp-evidence.md`（audit-verify 通过，脱离容器 /tmp 生命周期）
 
 ### Added — SQLite 方言矩阵真连验证（SQ1~SQ7，六环闭环）
 
