@@ -883,8 +883,13 @@ impl Dialect for PostgreSqlDialect {
             .join(",");
         // 转义 SQL 字符串字面量中的单引号（PG 使用双单引号转义）
         let path_lit_escaped = path_lit.replace('\'', "''");
-        format!("{}#>>'{{{}}}'", column, path_lit_escaped)
+        // G-OR1 家族第六形态（2026-11-13 PG 矩阵红队 §3.3）：列名裸拼在混合大小写列上
+        // 被 PG 折叠为小写（metacol → column does not exist）——与 FTS/ALTER quote 批同型，逐方言 quote
+        format!("{}#>>'{{{}}}'", self.quote(column), path_lit_escaped)
     }
+
+    /// PG json_extract 的 quote 形态探针锚点：混合大小写列必须保留
+    /// （quote-gate-safe: self.quote 为安全赋值链）
 
     fn full_text_search(&self, columns: &[&str], keyword: &str) -> String {
         // FTS quote 横向修复批：列名逐个 quote（to_tsquery 整串语法面维持）

@@ -262,12 +262,11 @@ async fn matrix_mz_gaussdb1_compatibility_mode_pg() {
 
     // openGauss SHOW 在 extended protocol 下经 sqlx 返回空/TEXT 不稳定（实测 2026-11-13）——
     // 改走 pg_settings 目录查询（确定性标量 TEXT），真库值 PG（gsql -a 实测）
-    let mode_raw: String =
-        sqlx::query_scalar("SELECT setting FROM pg_settings WHERE name = $1")
-            .bind("sql_compatibility")
-            .fetch_one(&pool)
-            .await
-            .expect("read sql_compatibility via pg_settings");
+    let mode_raw: String = sqlx::query_scalar("SELECT setting FROM pg_settings WHERE name = $1")
+        .bind("sql_compatibility")
+        .fetch_one(&pool)
+        .await
+        .expect("read sql_compatibility via pg_settings");
     let mode = mode_raw.trim().to_uppercase();
     assert_eq!(
         mode, "PG",

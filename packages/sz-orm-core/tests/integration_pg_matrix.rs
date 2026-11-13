@@ -392,7 +392,7 @@ async fn pg1_alter_table_arms_quoted() {
         &pool,
         &dialect.build_create_table(
             &parent,
-            &vec![col("refId", "BIGINT PRIMARY KEY"), col("refName", "TEXT")],
+            &[col("refId", "BIGINT PRIMARY KEY"), col("refName", "TEXT")],
         ),
     )
     .await;
@@ -400,7 +400,7 @@ async fn pg1_alter_table_arms_quoted() {
         &pool,
         &dialect.build_create_table(
             &table,
-            &vec![col("orderId", "BIGINT PRIMARY KEY"), col("refId", "BIGINT")],
+            &[col("orderId", "BIGINT PRIMARY KEY"), col("refId", "BIGINT")],
         ),
     )
     .await;
@@ -725,6 +725,25 @@ async fn pg4_cast_and_numeric_precision() {
     );
     let rows = fetch_scalars(&pool, &sql, &[]).await;
     assert_eq!(rows[0], "ok", "json_extract #>> 生成面真库应可用：{}", expr);
+
+    // G-OR1 家族第六形态（红队 §3.3 回执）：混合大小写列名必须 quote 保留
+    // （裸拼被 PG 折叠为小写 → column "metacol" does not exist）
+    let expr_mixed = dialect.json_extract("metaCol", "$.a");
+    assert!(
+        expr_mixed.contains("\"metaCol\""),
+        "json_extract 列名应 quote：{}",
+        expr_mixed
+    );
+    let sql_mixed = format!(
+        "SELECT {} FROM (SELECT '{{\"a\":\"mix\"}}'::jsonb AS \"metaCol\") t",
+        expr_mixed
+    );
+    let rows_mixed = fetch_scalars(&pool, &sql_mixed, &[]).await;
+    assert_eq!(
+        rows_mixed[0], "mix",
+        "混合大小写列 json_extract 真库往返应保留：{}",
+        expr_mixed
+    );
 }
 
 /// PG4-b：JSONB 参数往返（Value::Json 经 bind_pg_value 绑定 serde_json）+ @> 操作符透传
