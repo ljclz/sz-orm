@@ -12,7 +12,7 @@
 |---|------|------|
 | 测试 | `packages/sz-orm-core/tests/integration_pg_matrix.rs`（PG1~PG7 共 20 测试，1265 行） | `cargo test -p sz-orm-core --features type-safe-columns --test integration_pg_matrix -- --ignored --test-threads=1` → **20 passed; 0 failed**（2026-11-13 实测，EXIT=0） |
 | 方言缺口修复 | **0 处**（见 §3 三分类——PG 生成面经 12 方言 FTS quote 批 + ALTER INDEX/FK quote 批二 + G1/G2/G4 同型修复后无裸拼残留；G37 门禁 0 命中佐证） | `python scripts/check-dialect-ddl-quoting.py`（G37）→ self-test 10/10 + 全仓 0 命中 |
-| 测试基建 | `packages/sz-orm-core/Cargo.toml` dev-dependencies 新增 `bigdecimal = "0.4"` + sqlx `uuid`/`bigdecimal` feature（NUMERIC 38 位/UUID 绑定通道，与 sz-orm-sqlx `bind_pg_value` R2 口径一致）；`[[test]] integration_pg_matrix` 登记 + `required-features = ["type-safe-columns"]`（where_expr 通道需要） | `packages/sz-orm-core/Cargo.toml:324-326,362-364`；`cargo check --workspace --all-targets` EXIT=0 |
+| 测试基建 | `packages/sz-orm-core/Cargo.toml` dev-dependencies 新增 `bigdecimal = "0.4"` + sqlx `uuid`/`bigdecimal` feature（NUMERIC 38 位/UUID 绑定通道，与 sz-orm-sqlx `bind_pg_value` R2 口径一致）；`[[test]] integration_pg_matrix` 登记 + `required-features = ["type-safe-columns"]`（where_expr 通道需要）。**归属注记（红队 D-3）**：Cargo.toml 测试基建实际落点为并行线提交 `cc29f8a6`（hunk 级隔离收纳），本批提交 `a2e5762` 仅含 Cargo.lock | `packages/sz-orm-core/Cargo.toml:324-326,362-364`；`cargo check --workspace --all-targets` EXIT=0 |
 | 登记 | CHANGELOG.md `[Unreleased]` 新增条目 + AGENTS.md「已发布」行追加 | 本报告 §6 |
 
 ## 2. 矩阵结果逐载荷
