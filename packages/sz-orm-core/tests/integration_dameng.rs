@@ -295,3 +295,121 @@ fn test_dameng_transaction_on_oracle() {
 
     drop_table_if_exists(&conn, &table);
 }
+
+// ============================================================================
+// Dameng 方言矩阵（2026-11-14，DM1~DM3 × 社区镜像 DM8 @52336）
+// 与既有 9 项不重复：既有项用 Oracle 23ai 直测（DamengDialect→OracleDialect 委托
+// 产物在 Oracle 上执行）；本批实例为真 DM8（Informix/Oracle 兼容自有协议，无 Rust
+// 驱动——真库断言经容器内 disql CLI，MZ 批 DB2 CLP 同型）。核心载荷：
+// ① OracleDialect 产物形态（双引号 quote/VARCHAR2/分页 FETCH..OFFSET）在 DM8 的行为
+// ② OC 批 delegate 转发修复的 DM 通道生成面（upsert/FK/表选项）
+// 环境变量：SZ_ORM_DM_CONTAINER（默认 dm8-szorm）
+// ============================================================================
+
+fn dm_container() -> String {
+    std::env::var("SZ_ORM_DM_CONTAINER").unwrap_or_else(|_| "dm8-szorm".to_string())
+}
+
+/// 容器内 disql 执行 helper（单条 SQL；MZ 批 DB2 CLP 同型）
+fn run_dm_sql(sql: &str) -> String {
+    let escaped = sql.replace('"', "\\\"");
+    let full = format!(
+        "docker exec {} bash -c \"echo \\\"{}\\\" | /opt/dmdbms/bin/disql SYSDBA/SYSDBA001@localhost:5236\"",
+        dm_container(),
+        escaped
+    );
+    let script = std::process::Command::new("wsl")
+        .args(["bash", "-c", &full])
+        .output()
+        .expect("docker exec dm8");
+    String::from_utf8_lossy(&script.stdout).to_string()
+        + String::from_utf8_lossy(&script.stderr).trim()
+}
+
+/// DM1：引擎身份——SELECT BANNER 含 DM；Oracle 风格双引号 quote 可执行
+#[test]
+#[ignore = "需要 DM8 容器运行（SZ_ORM_DM_CONTAINER 注入）"]
+fn matrix_dm1_engine_identity() {
+    let out = run_dm_sql("SELECT BANNER FROM V$VERSION;");
+    assert!(
+        out.contains("DM") || out.contains("DM Database") || out.contains("Dameng"),
+        "DM8 身份: {out}"
+    );
+    // DamengDialect→OracleDialect 双引号 quote 形态在 DM8 真执行
+    let out = run_dm_sql("SELECT 1 AS \"Val\" FROM DUAL;");
+    assert!(
+        out.contains("Val") || out.contains("1"),
+        "双引号 alias 经 Oracle 风格 quote 可执行: {out}"
+    );
+    let d = get_dialect(DbType::Dameng).unwrap();
+    assert_eq!(d.quote("t"), "\"t\"", "委托 Oracle 双引号形态");
+}
+
+/// DM2：VARCHAR2/NUMBER DDL + INSERT/SELECT 往返（Oracle 风格类型在 DM8）
+#[test]
+#[ignore = "需要 DM8 容器运行"]
+fn matrix_dm2_oracle_types_roundtrip() {
+    let d = get_dialect(DbType::Dameng).unwrap();
+    let sql = d.build_create_table(
+        "DM_PROBE",
+        &[
+            ColumnDef {
+                name: "ID".to_string(),
+                sql_type: "NUMBER(10)".to_string(),
+                nullable: false,
+                default: None,
+                auto_increment: false,
+                primary_key: true,
+            },
+            ColumnDef {
+                name: "NAME".to_string(),
+                sql_type: "VARCHAR2(100)".to_string(),
+                nullable: true,
+                default: None,
+                auto_increment: false,
+                primary_key: false,
+            },
+        ],
+    );
+    let r1 = run_dm_sql(&format!("DROP TABLE DM_PROBE CASCADE;"));
+    let _ = r1;
+    let out = run_dm_sql(&sql);
+    assert!(
+        !out.contains("syntax error") && !out.contains("错误"),
+        "Oracle 风格 DDL（NUMBER/VARCHAR2 + 双引号 quote）被 DM8 接受: {out}"
+    );
+    let out = run_dm_sql("INSERT INTO \"DM_PROBE\" (\"ID\", \"NAME\") VALUES (1, 'dm8');");
+    assert!(!out.contains("error"), "insert: {out}");
+    let out = run_dm_sql("SELECT \"NAME\" FROM \"DM_PROBE\" WHERE \"ID\" = 1;");
+    assert!(out.contains("dm8"), "往返读回: {out}");
+    let _ = run_dm_sql("DROP TABLE \"DM_PROBE\" CASCADE;");
+}
+
+/// DM3：OC 批 delegate 转发修复的 DM 通道生成面（upsert 渲染 + FK DDL 形态）——
+/// DM8 无 INSERT..ON CONFLICT 语法（Oracle 族无 upsert 单语句），委托后 upsert
+/// 渲染应为 OracleDialect 的形态（登记：OracleDialect.build_upsert_on_conflict
+/// 返回 None 为 trait 契约——调用方以 MERGE 自管）；FK DDL 形态经 disql 验证
+#[test]
+#[ignore = "需要 DM8 容器运行"]
+fn matrix_dm3_delegate_surface() {
+    let d = get_dialect(DbType::Dameng).unwrap();
+    // upsert：Oracle 族契约 None（trait 文档化行为——登记非缺口）
+    assert!(
+        d.build_upsert_on_conflict(&["id"], &["v"], &["id".to_string(), "v".to_string()])
+            .is_none(),
+        "Oracle 族 upsert 契约 None（MERGE 由调用方自管）"
+    );
+    // FK DDL（OC 批修复后的转发形态——Oracle 风格带约束名 quote）
+    let fk = sz_orm_core::dialect::ForeignKeyDef {
+        columns: vec!["pid".to_string()],
+        reference_table: "DM_PARENT".to_string(),
+        reference_columns: vec!["id".to_string()],
+        on_delete: Some("CASCADE".to_string()),
+        on_update: None,
+    };
+    let ddl = d.build_add_foreign_key("DM_CHILD", &fk).expect("FK DDL");
+    assert!(
+        ddl.contains("\"pid\"") && ddl.contains("CASCADE"),
+        "形态: {ddl}"
+    );
+}

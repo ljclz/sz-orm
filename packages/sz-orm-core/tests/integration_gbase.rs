@@ -287,3 +287,77 @@ async fn test_gbase_pagination_on_mssql() {
 
     drop_table_if_exists(&mut client, &table).await;
 }
+
+// ============================================================================
+// GBase 8s 方言矩阵（2026-11-14，GB1~GB3 × liaosnet/gbase8s V8.8 AEE 3.5.0 @19088）
+// 与既有 TDS 用例不重复：本批实例为 Informix 协议社区镜像（无 TDS 网关、无 Rust
+// 驱动——真库断言经容器内 dbaccess CLI，MZ 批 DB2 CLP 同型）。核心载荷是
+// **GBaseDialect 委托 SqlServerDialect 的 T-SQL 形态在纯 8s 引擎上的行为边界**。
+// ============================================================================
+
+/// GB1：引擎身份——sysmaster 直连裸 SQL（无方言 quote）可执行
+#[test]
+#[ignore = "需要 GBase 8s 容器运行（docker exec gb8s）"]
+fn matrix_gb1_engine_identity_bare_sql() {
+    let out = run_gb8s_sql("select first 1 tabname from systables;", "sysmaster");
+    assert!(
+        out.contains("SYSTABLES") || out.contains("row(s) retrieved"),
+        "8s 裸 SQL 可执行且引擎在位: {out}"
+    );
+}
+
+/// GB2：方言 quote 形态行为级——SqlServerDialect 的 [bracket] 在纯 8s 被拒
+/// （201 syntax error），双引号 delimited identifier 被接受——**引擎事实登记：
+/// GBaseDialect→SqlServerDialect 委托仅在带 TDS 网关的企业实例上可执行，
+/// 纯 Informix 协议社区版不可执行**（文档措辞登记项）
+#[test]
+#[ignore = "需要 GBase 8s 容器运行"]
+fn matrix_gb2_quote_forms_on_pure_8s() {
+    // 方言形态：[id]（SqlServerDialect quote）→ 8s 拒绝
+    let bracket = run_gb8s_sql("select [id] from t_probe;", "szorm_test");
+    assert!(
+        bracket.contains("201") || bracket.contains("syntax"),
+        "[bracket] 在纯 8s 应被拒: {bracket}"
+    );
+    // 双引号 delimited identifier：8s 接受（对照证据）
+    let quoted = run_gb8s_sql("select \"id\" from t_probe;", "szorm_test");
+    assert!(
+        quoted.contains("row(s) retrieved"),
+        "双引号 delimited identifier 被接受: {quoted}"
+    );
+}
+
+/// GB3：委托选择正确性边界——GBaseDialect 生成面（T-SQL 形态）与 8s Informix
+/// 语法的差异清单（产物对比登记，非行为断言）
+#[test]
+fn matrix_gb3_dialect_shape_vs_8s_syntax() {
+    let gbase = get_dialect(DbType::GBase).unwrap();
+    // SqlServerDialect 形态（委托产物）
+    assert_eq!(gbase.quote("t"), "[t]");
+    assert!(gbase.build_pagination("SELECT 1", 1, 1).contains("OFFSET"));
+    // 纯 8s（Informix 语法）对照：SKIP..FIRST 分页语法（SKIP 在前 FIRST 在后，
+    let out = run_gb8s_sql("select skip 0 first 1 id from t_probe;", "szorm_test");
+    assert!(
+        out.contains("row") || out.contains("retrieved"),
+        "8s 原生 SKIP/FIRST 分页语法可执行: {out}"
+    );
+}
+
+/// GBase 8s 容器内 dbaccess 执行 helper（MZ 批 DB2 CLP 同型）
+///
+/// sql 内不得含 "database x;" 前缀（库名经 dbaccess 参数传入，避免双重选择）；
+/// sql 不得含单引号（su -c 单引号层）；双引号按四层嵌套手工构造（一次性成形，
+/// 禁止二次 replace——GB2 初版教训）。
+fn run_gb8s_sql(sql: &str, db: &str) -> String {
+    let escaped = sql.replace('"', "\\\""); // Rust → 实参为 \" ，docker bash -c 解析后为 "
+    let full = format!(
+        "docker exec gb8s bash -c \"su - gbasedbt -c 'echo \\\"{}\\\" | dbaccess {}'\"",
+        escaped, db
+    );
+    let script = std::process::Command::new("wsl")
+        .args(["bash", "-c", &full])
+        .output()
+        .expect("docker exec gb8s");
+    String::from_utf8_lossy(&script.stdout).to_string()
+        + String::from_utf8_lossy(&script.stderr).trim()
+}
