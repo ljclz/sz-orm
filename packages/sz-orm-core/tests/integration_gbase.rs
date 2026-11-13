@@ -313,6 +313,9 @@ fn matrix_gb1_engine_identity_bare_sql() {
 #[test]
 #[ignore = "需要 GBase 8s 容器运行"]
 fn matrix_gb2_quote_forms_on_pure_8s() {
+    // 自建依赖表（红队 R-P2-2：不依赖手工预建——容器重建即自足）
+    let _ = run_gb8s_sql("create table t_probe(id integer, nameId varchar(50));", "szorm_test");
+    let _ = run_gb8s_sql("insert into t_probe values (1);", "szorm_test");
     // 方言形态：[id]（SqlServerDialect quote）→ 8s 拒绝
     let bracket = run_gb8s_sql("select [id] from t_probe;", "szorm_test");
     assert!(
@@ -325,22 +328,29 @@ fn matrix_gb2_quote_forms_on_pure_8s() {
         quoted.contains("row(s) retrieved"),
         "双引号 delimited identifier 被接受: {quoted}"
     );
+    let _ = run_gb8s_sql("drop table t_probe;", "szorm_test");
 }
 
 /// GB3：委托选择正确性边界——GBaseDialect 生成面（T-SQL 形态）与 8s Informix
 /// 语法的差异清单（产物对比登记，非行为断言）
+/// 红队 R-P1：CLI 断言臂依赖 wsl+docker 容器——与 GB1/GB2 同标 #[ignore]，
+/// 防容器依赖泄漏进默认套件（Linux CI Command::new("wsl") 必 panic）
 #[test]
+#[ignore = "需要 GBase 8s 容器运行"]
 fn matrix_gb3_dialect_shape_vs_8s_syntax() {
     let gbase = get_dialect(DbType::GBase).unwrap();
-    // SqlServerDialect 形态（委托产物）
+    // SqlServerDialect 形态（委托产物）——纯生成面断言（无容器依赖）
     assert_eq!(gbase.quote("t"), "[t]");
     assert!(gbase.build_pagination("SELECT 1", 1, 1).contains("OFFSET"));
     // 纯 8s（Informix 语法）对照：SKIP..FIRST 分页语法（SKIP 在前 FIRST 在后，
+    let _ = run_gb8s_sql("create table t_probe(id integer, nameId varchar(50));", "szorm_test");
+    let _ = run_gb8s_sql("insert into t_probe values (1);", "szorm_test");
     let out = run_gb8s_sql("select skip 0 first 1 id from t_probe;", "szorm_test");
     assert!(
         out.contains("row") || out.contains("retrieved"),
         "8s 原生 SKIP/FIRST 分页语法可执行: {out}"
     );
+    let _ = run_gb8s_sql("drop table t_probe;", "szorm_test");
 }
 
 /// GBase 8s 容器内 dbaccess 执行 helper（MZ 批 DB2 CLP 同型）

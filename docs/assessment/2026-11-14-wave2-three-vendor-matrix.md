@@ -64,8 +64,8 @@ DM8 容器启动要点（登记）：entrypoint **五个 env 全给**（PAGE_SIZ
 | 2 | 引擎特有（Kingbase） | sqlx INT4→i32 解码约束；V8R3 与 PG 行为一致（EXCLUDED/CASCADE/NUMERIC） | 登记 |
 | 3 | **引擎特有（GBase 8s，重要）** | GBaseDialect→SqlServerDialect 委托仅 TDS 网关企业实例可执行；纯 Informix 社区版 [bracket] 拒/双引号收/SKIP..FIRST 前置 | 登记使用边界（文档措辞级） |
 | 4 | 引擎特有（Dameng） | disql 续行模式/非自动提交/stdin 零转义；Oracle 族 upsert None 契约；DM8 兼容 Oracle 风格 DDL/双引号 quote | 登记 |
-| 5 | sz-orm 方言缺口 | **0 处**——KB/DM 通道 delegate 转发修复（OC 批）真连行为级验证成立 | 无需改码 |
+| 5 | sz-orm 方言缺口 | **0 处**——KB2 upsert 为唯一行为级差异化证据（EXCLUDED 真库生效）；DM/GB 为转发到位+产物合法执行级（FK/表选项无覆写，输出与默认实现零差异） | 无需改码 |
 
 ## 5. 结论
 
-二波三实例全部真连验证通过（KB 4 + GB 3 + DM 3 = 10 载荷），delegate 宏转发修复（OC 批）在三个新通道（Kingbase/GBase/Dameng——后两者经 CLI 生成面）证据齐备。方言矩阵系列至此覆盖：MySQL/Oracle/PG/SQLite/容器六实例/OceanBase/SzRSQL/Kingbase/GBase 8s/Dameng。
+二波三实例全部真连验证通过（KB 4 + GB 3 + DM 3 = 10 载荷），delegate 宏转发修复（OC 批）行为级差异化证据在 KB2（upsert 是 4 转发中唯一有基础方言覆写的——PG EXCLUDED vs None）；DM/GB 通道为转发到位 + 产物合法执行证据（FK/表选项无覆写、输出与默认实现零差异，GB 经 CLI 生成面）。方言矩阵系列至此覆盖：MySQL/Oracle/PG/SQLite/容器六实例/OceanBase/SzRSQL/Kingbase/GBase 8s/Dameng。
