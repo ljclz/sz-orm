@@ -2141,6 +2141,35 @@ macro_rules! delegate_dialect_to {
             fn requires_order_by_for_pagination(&self) -> bool {
                 $base.requires_order_by_for_pagination()
             }
+            // OC3 方言矩阵（2026-11-13）：P2-6 upsert / MY7 表选项 / MY8 FK 动作
+            // 补齐委托转发——此前三个 API 在委托方言上直接落到 trait 默认实现
+            // （upsert=None / 忽略表选项 / ANSI FK），与委托目标的真实能力不一致。
+            fn build_upsert_on_conflict(
+                &self,
+                conflict_columns: &[&str],
+                update_columns: &[&str],
+                all_columns: &[String],
+            ) -> Option<String> {
+                $base.build_upsert_on_conflict(conflict_columns, update_columns, all_columns)
+            }
+            fn build_create_table_with_options(
+                &self,
+                table: &str,
+                columns: &[ColumnDef],
+                options: &[TableOption],
+            ) -> String {
+                $base.build_create_table_with_options(table, columns, options)
+            }
+            fn render_table_options(&self, options: &[TableOption]) -> String {
+                $base.render_table_options(options)
+            }
+            fn build_add_foreign_key(
+                &self,
+                table: &str,
+                fk: &ForeignKeyDef,
+            ) -> Result<String, crate::DbError> {
+                $base.build_add_foreign_key(table, fk)
+            }
         }
     };
 }
