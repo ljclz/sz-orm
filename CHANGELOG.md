@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added — SzRSQL 边界能力对称补验（SZ4/SZ5，2026-11-14）
+
+- **CTE builder + FTS 生成面 szrsql 通道真连钉死**（报告 `docs/assessment/2026-11-14-szrsql-boundary-symmetry.md`，audit-verify 0 失败）：对照 MY10(B4)/PG6 CTE 与 PG7 FTS，在 `integration_szrsql_matrix.rs` 追加 `matrix_sz4`（with_cte/with_recursive_cte，CTE 参数先于主查询参数契约 + 递归计数 1..5）+ `matrix_sz5`（full_text_search 混合大小写列 quote + to_tsquery 操作符透传真库命中）——「委托族自动惠及」对 szrsql 的落地证据；套件 18→**20/20 零留档**，sz-orm 方言缺口 0 处
+
 ### Added — 二波三实例真连验证（Kingbase/GBase 8s/Dameng，供给结论纠正）
 
 - **供给结论纠正**（用户指正成立，报告 `docs/assessment/2026-11-14-wave2-three-vendor-matrix.md`，audit-verify 0 失败，实施批 70db9577+eab60aa3）：此前「人工供给门槛」结论系 `docker search` 直连 index.docker.io 被 GFW 超时的假阴性——daemon mirror（1panel/1ms/daocloud）pull 通道可用，三家社区镜像均可自动供给：KingbaseES `haloking/kingbase:v8r3`（license 有效，SYSTEM/SYSTEM，PG 协议 15435）/ GBase 8s `liaosnet/gbase8s:v8.8_3503x1_x64`（AEE 3.5.0，dbaccess CLI）/ DM8 `sizx/dm8`（内置 license 14 天至 2026-11-27，disql CLI）
