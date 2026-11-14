@@ -119,17 +119,20 @@ impl PipelineParallelismAdapter {
             .sum::<f64>()
             / self.load_history.len() as f64;
 
-        self.smoothed_load = self.smoothing_factor * self.smoothed_load
-            + (1.0 - self.smoothing_factor) * avg_load;
+        self.smoothed_load =
+            self.smoothing_factor * self.smoothed_load + (1.0 - self.smoothing_factor) * avg_load;
 
         let load = self.smoothed_load;
         if load > 0.7 {
             let decrease = ((load - 0.7) * 10.0).ceil() as usize;
-            self.current_parallelism =
-                self.current_parallelism.saturating_sub(decrease).max(self.min_parallelism);
+            self.current_parallelism = self
+                .current_parallelism
+                .saturating_sub(decrease)
+                .max(self.min_parallelism);
         } else if load < 0.3 {
             let increase = ((0.3 - load) * 10.0).ceil() as usize;
-            self.current_parallelism = (self.current_parallelism + increase).min(self.max_parallelism);
+            self.current_parallelism =
+                (self.current_parallelism + increase).min(self.max_parallelism);
         }
 
         self.current_parallelism
@@ -155,7 +158,10 @@ mod tests {
         let signal = LoadSignal::new(0.8, 50, 0.2);
         let load = signal.composite_load();
         assert!(load > 0.0 && load <= 1.0, "综合负载应在 0-1 范围内");
-        assert!((load - 0.56).abs() < 0.01, "0.8*0.5 + 0.2*0.3 + 0.5*0.2 = 0.56");
+        assert!(
+            (load - 0.56).abs() < 0.01,
+            "0.8*0.5 + 0.2*0.3 + 0.5*0.2 = 0.56"
+        );
     }
 
     #[test]
@@ -168,7 +174,11 @@ mod tests {
     #[test]
     fn test_pipeline_parallelism_initial() {
         let adapter = PipelineParallelismAdapter::new(2, 16);
-        assert_eq!(adapter.current_parallelism(), 9, "初始并行度 = (2+16)/2 = 9");
+        assert_eq!(
+            adapter.current_parallelism(),
+            9,
+            "初始并行度 = (2+16)/2 = 9"
+        );
     }
 
     #[test]
@@ -258,10 +268,7 @@ mod tests {
         let mut adapter = PipelineParallelismAdapter::new(2, 16);
         let initial = adapter.current_parallelism();
         let adjusted = adapter.adjust_parallelism();
-        assert_eq!(
-            adjusted, initial,
-            "无负载历史时并行度不应变化"
-        );
+        assert_eq!(adjusted, initial, "无负载历史时并行度不应变化");
     }
 
     #[test]

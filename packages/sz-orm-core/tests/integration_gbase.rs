@@ -314,7 +314,10 @@ fn matrix_gb1_engine_identity_bare_sql() {
 #[ignore = "需要 GBase 8s 容器运行"]
 fn matrix_gb2_quote_forms_on_pure_8s() {
     // 自建依赖表（红队 R-P2-2：不依赖手工预建——容器重建即自足）
-    let _ = run_gb8s_sql("create table t_probe(id integer, nameId varchar(50));", "szorm_test");
+    let _ = run_gb8s_sql(
+        "create table t_probe(id integer, nameId varchar(50));",
+        "szorm_test",
+    );
     let _ = run_gb8s_sql("insert into t_probe values (1);", "szorm_test");
     // 方言形态：[id]（SqlServerDialect quote）→ 8s 拒绝
     let bracket = run_gb8s_sql("select [id] from t_probe;", "szorm_test");
@@ -343,7 +346,10 @@ fn matrix_gb3_dialect_shape_vs_8s_syntax() {
     assert_eq!(gbase.quote("t"), "[t]");
     assert!(gbase.build_pagination("SELECT 1", 1, 1).contains("OFFSET"));
     // 纯 8s（Informix 语法）对照：SKIP..FIRST 分页语法（SKIP 在前 FIRST 在后，
-    let _ = run_gb8s_sql("create table t_probe(id integer, nameId varchar(50));", "szorm_test");
+    let _ = run_gb8s_sql(
+        "create table t_probe(id integer, nameId varchar(50));",
+        "szorm_test",
+    );
     let _ = run_gb8s_sql("insert into t_probe values (1);", "szorm_test");
     let out = run_gb8s_sql("select skip 0 first 1 id from t_probe;", "szorm_test");
     assert!(

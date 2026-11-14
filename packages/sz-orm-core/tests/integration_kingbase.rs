@@ -271,7 +271,8 @@ async fn test_kingbase_sql_injection_protection() {
 }
 
 // ============================================================================
-// Kingbase 方言矩阵（2026-11-14，KB1~KB4 × 社区镜像 KingbaseES @15434）
+// Kingbase 方言矩阵（2026-11-14，KB1~KB4 × 社区镜像 KingbaseES，本批载荷容器 kb4@15435
+// ——15434 为 license 已过期的 kb2 容器；经 SZ_ORM_KB_URL 注入连接，勿依赖固定端口）
 // 与既有 8 项不重复：KB2/KB3 覆盖 OC 批 delegate 宏转发修复（dialect.rs:2147-2172）
 // 在 Kingbase 通道的行为——既有 8 项用 PostgreSQL 18 直测，未覆盖委托方言链。
 // 环境变量：SZ_ORM_KB_URL（独立变量，避免与宿主 PG 18 的 SZ_ORM_PG_URL 混淆）

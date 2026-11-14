@@ -315,6 +315,10 @@ fn run_dm_sql(sql: &str) -> String {
     // 零转义方案：SQL 经 stdin 直喂 disql（echo+引号嵌套层数失控——wsl 不带
     // -e 时默认 shell 还会展开一层，V$VERSION 的 $ 屡次丢失，GB 线四层嵌套
     // 同型教训升级版）。disql 登录串经 argv 明传（无元字符）。
+    // R-6 处置：口令经 SZ_ORM_DM_PASSWORD env 注入（社区镜像默认口令
+    // SYSDBA001 为兜底，与 P0-3 凭据 env 注入惯例对齐）。
+    let dm_password =
+        std::env::var("SZ_ORM_DM_PASSWORD").unwrap_or_else(|_| "SYSDBA001".to_string());
     let script = std::process::Command::new("wsl")
         .args([
             "docker",
@@ -323,7 +327,11 @@ fn run_dm_sql(sql: &str) -> String {
             &dm_container(),
             "bash",
             "-c",
-            "export LD_LIBRARY_PATH=/home/dmdba/dmdbms/bin; /home/dmdba/dmdbms/bin/disql SYSDBA/SYSDBA001@localhost:5236",
+            &format!(
+                "export LD_LIBRARY_PATH=/home/dmdba/dmdbms/bin; \
+                 /home/dmdba/dmdbms/bin/disql SYSDBA/{}@localhost:5236",
+                dm_password
+            ),
         ])
         .stdin(std::process::Stdio::piped())
         .stdout(std::process::Stdio::piped())
@@ -412,7 +420,9 @@ fn matrix_dm2_oracle_types_roundtrip() {
 /// DM3：OC 批 delegate 转发修复的 DM 通道生成面（upsert 渲染 + FK DDL 形态）——
 /// DM8 无 INSERT..ON CONFLICT 语法（Oracle 族无 upsert 单语句），委托后 upsert
 /// 渲染应为 OracleDialect 的形态（登记：OracleDialect.build_upsert_on_conflict
-/// 返回 None 为 trait 契约——调用方以 MERGE 自管）；FK DDL 形态经 disql 验证
+/// 返回 None 为 trait 契约——调用方以 MERGE 自管）；FK DDL 为**形态断言**
+/// （真库接受性 + CASCADE 级联 N=0 已由红队在测试外经 disql 独立复现，
+/// 见 wave2 红队回执 §4.3-R6——R-4 处置：docstring 不再声称测试内含 disql 验证）
 #[test]
 #[ignore = "需要 DM8 容器运行"]
 fn matrix_dm3_delegate_surface() {
