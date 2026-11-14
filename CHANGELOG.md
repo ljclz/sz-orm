@@ -48,7 +48,7 @@
 - 新增横向单测 `test_json_extract_column_quoting_all_dialects`（12 方言混合大小写列逐字节 + 首字符引号反向断言 + 委托族 Szrsql/Dameng 抽验）；G37 `SENSITIVE_PATTERNS` 增补 JSON 函数面 8 关键词（含红队 P2-3 两臂 Snowflake `{}:{}`/DuckDB `{} -> ` 模板形态），self-test 10→**19**，全仓 0 命中
 - 回归（真连）：lib **3285 全过** + PG matrix 20 + integration_pg 22 + SQLite matrix 10 + integration_sqlite 25 + MySQL matrix 11 + integration_mysql 25 全绿；门禁 fmt 72 包/check/clippy/G9 --strict 46 Safe/G15/G30 EXIT=0
 - 红队回执 P1-1（凭据不入库）：实施报告明文密码已清除（<password> 占位）；泄露提交未推送远程（origin 历史零命中），密码属宝塔本机安装日志公开面，轮换由用户决定；坑位：gate.env `SZ_ORM_MYSQL_URL` 缺密码段（2026-11-12 重建遗漏），实测凭据经宝塔安装日志找回（路径见报告，密码不回显）
-- 越批登记：`json_query.rs`（think-orm 风格）无标识符校验待下批接线；SqlServer JSON_VALUE 真库补验留 CI
+- 越批登记：`json_query.rs`（think-orm 风格）无标识符校验待下批接线；~~SqlServer JSON_VALUE 真库补验留 CI~~ **已闭环（2026-11-15 e8505a73）**——MSSQL 2022 CU27 真库 12 passed（matrix_mz_mssql4 断言随 quote 横向批同步为方括号形态）+ sqlcmd 独立复现提取无损
 - **越批登记项 1 已落地**（`1dd1bbee`）：`JsonQuery::new`/`JsonUpdate::new` 列名接线 `validate_identifier` + `path()` 路径段校验 + JsonUpdate 六个 set/append/remove 方法 key 校验（构造期 panic 快速失败——手写引号包裹的唯一防线）+ 7 校验测试（引号/路径/key 注入形态必拦 + 合法标识符回归）；json_query 模块 63 passed + lib 3291 全过 + G9 --strict 46 Safe
 
 ### Added — PostgreSQL 方言矩阵真连验证（PG1~PG7，六环闭环）
