@@ -398,7 +398,7 @@ fn matrix_dm2_oracle_types_roundtrip() {
             },
         ],
     );
-    let r1 = run_dm_sql(&format!("DROP TABLE DM_PROBE CASCADE;"));
+    let r1 = run_dm_sql("DROP TABLE DM_PROBE CASCADE;");
     let _ = r1;
     let out = run_dm_sql(&sql);
     eprintln!("=== DDL 产物 ===\n{sql}\n=== 真库执行输出 ===\n{out}");

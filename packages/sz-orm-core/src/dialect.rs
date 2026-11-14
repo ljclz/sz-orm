@@ -2186,7 +2186,10 @@ delegate_dialect_to!(OceanBaseDialect, MySqlDialect, DbType::OceanBase);
 // KingbaseES：人大金仓，PostgreSQL 兼容方言
 delegate_dialect_to!(KingbaseDialect, PostgreSqlDialect, DbType::Kingbase);
 
-// PolarDB：阿里云，PostgreSQL 兼容（PG 版本）
+// PolarDB：阿里云，PostgreSQL 兼容（PolarDB for PostgreSQL）。
+// 适用边界（2026-11-14 PolarDB-X 矩阵批登记）：本方言委托 PG 方言族，仅适用于
+// PolarDB for PostgreSQL 实例；PolarDB-X（MySQL 协议族，开源 polardbx 容器）用户
+// 应选 `DbType::MySQL`（真连验证见 tests/integration_polardbx.rs）。
 delegate_dialect_to!(PolarDbDialect, PostgreSqlDialect, DbType::PolarDB);
 
 // GaussDB：华为云，PostgreSQL 兼容分布式数据库

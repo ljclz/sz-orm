@@ -2170,7 +2170,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 | TiDB | MySQL 兼容 | `?` | `LIMIT n OFFSET m` | 反引号 `` ` `` | ✅ dialect 级 |
 | OceanBase | MySQL 兼容 | `?` | `LIMIT n OFFSET m` | 反引号 `` ` `` | ✅ dialect 级 |
 | Kingbase | PG 兼容 | `$1, $2, ...` | `LIMIT n OFFSET m` | 双引号 `"` | ✅ dialect 级 |
-| PolarDB | PG/MySQL 兼容 | `$1` / `?` | `LIMIT n OFFSET m` | 双引号/反引号 | ✅ dialect 级 |
+| PolarDB | PG 兼容（PolarDB for PostgreSQL）；PolarDB-X（MySQL 族）请选 `DbType::MySQL` | `$1` | `LIMIT n OFFSET m` | 双引号 `"` | ✅ dialect 级 |
 | GaussDB | PG 兼容 | `$1, $2, ...` | `LIMIT n OFFSET m` | 双引号 `"` | ✅ dialect 级 |
 | Dameng | Oracle 兼容 | `:1, :2, ...` | `OFFSET n ROWS FETCH NEXT m ROWS ONLY` | 双引号 `"` | ✅ dialect 级 |
 | GBase | Informix 兼容 | `?` | `SKIP n FIRST m` | 双引号 `"` | ✅ dialect 级 |
