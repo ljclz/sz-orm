@@ -846,10 +846,10 @@ async fn matrix_mz_mssql4_getdate_nvarchar_json_value() {
         .await
         .expect("create table with NVARCHAR(MAX) + GETDATE default");
 
-    // JSON_VALUE 提取（方言生成面 × 真库）
+    // JSON_VALUE 提取（方言生成面 × 真库）——quote 横向批后列名为方括号形态
     let extract_expr = dialect.json_extract("payload", "user.name");
     assert!(
-        extract_expr.starts_with("JSON_VALUE(payload"),
+        extract_expr.starts_with("JSON_VALUE([payload]"),
         "expr = {extract_expr}"
     );
     let insert_sql = format!(
