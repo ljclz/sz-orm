@@ -11,7 +11,7 @@
 
 ### Added — PolarDB 方言矩阵真连验证（PL 批，2026-11-14）
 
-- **供给/方言匹配裁定 + PolarDB-X 真连矩阵**（报告 `docs/assessment/2026-11-14-polardb-dialect-matrix.md`，audit-verify 10 通过 0 失败，实施批 fe3161fa）：`PolarDbDialect` 委托 PG 方言族仅适用 **PolarDB for PostgreSQL**（社区无 PG 版容器镜像，PG 语义通道留云实例补批）；可自动供给的是 **PolarDB-X（MySQL 协议族）** 一键镜像 `polardbx/polardb-x:latest`——新增 `integration_polardbx.rs` 六测试（PLX1 引擎身份 PXC/InnoDB、PLX2 quoting+幂等+保留字、PLX3 upsert 行为级、PLX4 排序分页、PLX5 注入惰性、PLX6 PARTITION BY 拒绝探针 PXC-4500 登记），env 门控 `SZ_ORM_POLARDBX_URL` 未配置自动跳过；**sz-orm 方言缺口 0 处**（MySqlDialect 生成面在 PolarDB-X 全部真库验证通过）。边界登记三处：dialect.rs:2190 注释块 + 使用指南 PolarDB 行精确化 + integration_polardbx.rs 模块 doc；越批项：integration_dameng.rs:401 useless_format（clippy 抓出历史遗留，hunk 级隔离）。门禁 G1/G3/G9/G12/G14/G37 全过 + lib 3294 全过
+- **供给/方言匹配裁定 + PolarDB-X 真连矩阵**（报告 `docs/assessment/2026-11-14-polardb-dialect-matrix.md`，audit-verify 10 通过 0 失败，实施批 fe3161fa）：`PolarDbDialect` 委托 PG 方言族仅适用 **PolarDB for PostgreSQL**（社区无 PG 版容器镜像，PG 语义通道留云实例补批）；可自动供给的是 **PolarDB-X（MySQL 协议族）** 一键镜像 `polardbx/polardb-x:latest`——新增 `integration_polardbx.rs` 六测试（PLX1 引擎身份 PXC/InnoDB、PLX2 quoting+幂等+保留字、PLX3 upsert 行为级、PLX4 排序分页、PLX5 注入惰性、PLX6 PARTITION BY 拒绝探针 PXC-4500 登记），env 门控 `SZ_ORM_POLARDBX_URL` 未配置自动跳过；**sz-orm 方言缺口 0 处**（MySqlDialect 生成面在 PolarDB-X 全部真库验证通过）。边界登记三处：dialect.rs:2190 注释块 + 使用指南 PolarDB 行精确化 + integration_polardbx.rs 模块 doc；越批项：integration_dameng.rs:401 useless_format（clippy 抓出历史遗留，hunk 级隔离）。门禁 G1/G3/G9/G12/G14/G37 全过 + lib 3294 全过；**第 5 环红队独立复核无条件放行**（回执 `docs/assessment/2026-11-14-polardb-dialect-matrix-redteam-review.md`：A~F 全 PASS，P0=P1=P2=P3=0，matrix 6/6 真连独立复现 + 无 env 门控 6 ignored 不假红实测）
 
 ### Added — SzRSQL 边界能力对称补验（SZ4/SZ5，2026-11-14）
 
