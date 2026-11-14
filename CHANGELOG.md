@@ -9,6 +9,10 @@
 
 ## [Unreleased]
 
+### Added — quote 横向批六方言真连补验（SQ 收口批，2026-11-15）
+
+- **批二/FTS 批「6/8 方言真连留 CI」缺口 6→2**（报告 `docs/assessment/2026-11-15-quote-sweep-six-dialect-verification.md`，audit-verify 9 通过 0 失败，commit cadb205d）：容器供给成功 **4 引擎**并跑 quote 行为级探针全绿——SQLServer 2022 CU27（`-p` 映射修复 + sys.indexes/sys.foreign_keys 目录往返）/ DB2 **12.1.5**（`icr.io/db2_community` 直连可拉，SYSCAT 引号名大小写保留证据）/ **SapHana Express**（`saplabs/hanaexpress`，须 `--privileged --security-opt seccomp=unconfined`——`move_pages` syscall 对 uid=12000 被 WSL2 默认 seccomp 拒绝；SYS.INDEXES/REFERENTIAL_CONSTRAINTS 目录往返）/ **Firebird 5.0**（`firebirdsql/firebird`，RDB$ 目录往返）。**sz-orm 方言缺口 0 处**（批二 8 方言 quote 生成面在 4 新引擎全部被接受且目录名无损）；Snowflake/Informix 无社区镜像维持 CI 登记。供给坑位 4 项登记（MSSQL `-p` 缺失/HXE seccomp/DB2 DBI1264E 自愈/Firebird pull 层死锁 kill 重拉）
+
 ### Added — PolarDB 方言矩阵真连验证（PL 批，2026-11-14）
 
 - **供给/方言匹配裁定 + PolarDB-X 真连矩阵**（报告 `docs/assessment/2026-11-14-polardb-dialect-matrix.md`，audit-verify 10 通过 0 失败，实施批 fe3161fa）：`PolarDbDialect` 委托 PG 方言族仅适用 **PolarDB for PostgreSQL**（社区无 PG 版容器镜像，PG 语义通道留云实例补批）；可自动供给的是 **PolarDB-X（MySQL 协议族）** 一键镜像 `polardbx/polardb-x:latest`——新增 `integration_polardbx.rs` 六测试（PLX1 引擎身份 PXC/InnoDB、PLX2 quoting+幂等+保留字、PLX3 upsert 行为级、PLX4 排序分页、PLX5 注入惰性、PLX6 PARTITION BY 拒绝探针 PXC-4500 登记），env 门控 `SZ_ORM_POLARDBX_URL` 未配置自动跳过；**sz-orm 方言缺口 0 处**（MySqlDialect 生成面在 PolarDB-X 全部真库验证通过）。边界登记三处：dialect.rs:2190 注释块 + 使用指南 PolarDB 行精确化 + integration_polardbx.rs 模块 doc；越批项：integration_dameng.rs:401 useless_format（clippy 抓出历史遗留，hunk 级隔离）。门禁 G1/G3/G9/G12/G14/G37 全过 + lib 3294 全过；**第 5 环红队独立复核无条件放行**（回执 `docs/assessment/2026-11-14-polardb-dialect-matrix-redteam-review.md`：A~F 全 PASS，P0=P1=P2=P3=0，matrix 6/6 真连独立复现 + 无 env 门控 6 ignored 不假红实测）
