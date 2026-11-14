@@ -76,7 +76,7 @@
 | GBase 8s | 3（GB1~GB3） | 同上 | ✅ | 0（使用边界登记：TDS 网关限定） | 独立族 |
 | Dameng DM8 | 3（DM1~DM3） | 同上 | ✅ | 0 | Oracle 风格族 |
 | DuckDB | 7（嵌入式） | —（既有套件） | —（随常规跑） | 0 | 嵌入式对照 |
-| PolarDB | —（待补批） | — | — | — | MySQL 族委托，无实例 |
+| PolarDB-X（MySQL 族） | 6（PLX1~PLX6） | polardb-dialect-matrix | ✅ | 0（PolarDbDialect→PG 边界登记：PG 版无镜像留云实例） | 一键镜像 polardb-x:latest（真连走 DbType::MySQL） |
 | TiDB/others 既有功能测试 | 22/25/17/15/12/12/12/11/11（pg/sqlite/mssql/ck/mariadb/tidb/db2/gaussdb/oceanbase） | — | — | — | 功能面（非矩阵） |
 
 **横向批（跨引擎同型修复，szrsql 自动惠及）**：FTS quote 12 方言（批四）→ ALTER INDEX/FK quote 8 方言（批五）→ json_extract quote 11 方言（批七）→ ALTER 系收尾；机器门禁 **G37**（dialect DDL/FTS/JSON 裸标识符检测，self-test 19）固化防线。
@@ -87,7 +87,7 @@
 
 ## 五、遗留与边界（诚实登记）
 
-1. **PolarDB**：MySQL 族委托，无容器实例——矩阵待补批（供给复杂度：镜像链），风险低（同 MariaDB/TiDB 已验证委托正确）。
+1. ~~**PolarDB**：MySQL 族委托，无容器实例——矩阵待补批~~ **已闭环（2026-11-14 PL 批）**：PolarDB-X 一键镜像供给，PLX1~PLX6 真连全绿，缺口 0 处；PolarDbDialect（PG 委托）边界登记，PG 版实例留云补批。见 `2026-11-14-polardb-dialect-matrix.md`。
 2. **szrsql 性能面**：20 万行流式游标 44.7s vs PG 1.8s（debug 构建，11-09 观察项）——性能专项不在方言矩阵范围，登记观察。
 3. **szrsql 上游后续版本**：矩阵基于 11-10 前后 HEAD；上游快速演进（Bolt 协议/perf 批）后的回归由 CI（A3 已接线 szrsql service）承接。
 4. **db2/gaussdb 等容器实例**：矩阵完成后容器保留（docker stop 不 rm），复跑用 `docker start`。
