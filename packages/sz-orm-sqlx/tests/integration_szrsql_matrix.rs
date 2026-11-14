@@ -929,3 +929,176 @@ async fn matrix_sz3_delegate_fk_forwarded() {
         .await
         .ok();
 }
+
+// ============================================================================
+// SZ4~SZ5：边界能力对称补验（2026-11-14 增量）——MY10(B4)/PG6 CTE builder 与
+// PG7 FTS 生成面在 szrsql 通道的真连钉死（「委托族自动惠及」对 szrsql 的落地证据）
+// ============================================================================
+
+use std::collections::HashMap;
+
+use sz_orm_core::{Model, ModelExt, QueryBuilder};
+
+struct SzDummyModel;
+impl Model for SzDummyModel {
+    type PrimaryKey = i64;
+    fn table_name() -> &'static str {
+        "dummy"
+    }
+    fn pk(&self) -> Self::PrimaryKey {
+        0
+    }
+    fn set_pk(&mut self, _pk: Self::PrimaryKey) {}
+}
+impl ModelExt for SzDummyModel {
+    fn columns() -> Vec<&'static str> {
+        vec!["id", "name", "value"]
+    }
+    fn fillable() -> Vec<&'static str> {
+        vec!["name", "value"]
+    }
+    fn guarded() -> Vec<&'static str> {
+        vec!["id"]
+    }
+    fn hidden() -> Vec<&'static str> {
+        vec![]
+    }
+    fn relations() -> HashMap<&'static str, sz_orm_core::Relation> {
+        HashMap::new()
+    }
+    fn fill(&mut self, _data: HashMap<String, Value>) {}
+    fn to_json(&self) -> serde_json::Value {
+        serde_json::json!({})
+    }
+}
+
+/// SZ4：CTE builder 委托链——with_cte / with_recursive_cte 经 SzrsqlDialect
+/// （PG 族委托）真库执行：非递归半连接（CTE 参数先于主查询参数）+ 递归计数。
+/// MY10(B4)/PG6 的 szrsql 通道对称验证——此前仅 PG 侧验证，本测试钉死 szrsql 通道。
+#[tokio::test]
+#[ignore = "需要 szrsql 运行（SZ_ORM_SZRSQL_URL 注入）"]
+async fn matrix_sz4_cte_builder_forwarded() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: szrsql 未启动");
+        return;
+    };
+    let pool = Arc::new(pool);
+    let table = unique_table("mx_sz4");
+
+    let mut conn = pool.create().await.unwrap();
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    conn.execute(&format!(
+        "CREATE TABLE {table} (id INT PRIMARY KEY, name TEXT, v INT)"
+    ))
+    .await
+    .unwrap();
+    conn.execute(&format!(
+        "INSERT INTO {table} (id, name, v) VALUES (1, 'a', 1), (2, 'b', 2), (3, 'c', 3)"
+    ))
+    .await
+    .unwrap();
+
+    // 非递归：WITH kids AS (SELECT ...) 主查询 FROM kids 计数
+    let kids_sql = format!("SELECT \"id\" FROM \"{table}\" WHERE \"v\" > ?");
+    let (sql, params) = QueryBuilder::<SzDummyModel>::new(szrsql_dialect())
+        .table("kids")
+        .with_cte("kids", kids_sql, vec![Value::I64(1)])
+        .expect("with_cte 委托链可用")
+        .select_expr(vec!["count(*)"])
+        .build_select_with_params();
+    assert!(
+        sql.starts_with("WITH "),
+        "CTE 前缀应渲染（委托 PG 族）：{sql}"
+    );
+    assert_eq!(
+        params,
+        vec![Value::I64(1)],
+        "CTE 参数应先于主查询参数（MY10 绑定序契约）"
+    );
+    let rows = conn.query_with_params(&sql, &params).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        matches!(rows[0].get("count"), Some(Value::I64(2))),
+        "CTE 过滤 v>1 应命中 2 行"
+    );
+
+    // 递归：WITH RECURSIVE seq AS (锚 UNION ALL 递归) 计数 1..=5（主查询 FROM seq）
+    let seq_sql = "SELECT 1 AS n UNION ALL SELECT n+1 FROM seq WHERE n < 5";
+    let (sql2, params2) = QueryBuilder::<SzDummyModel>::new(szrsql_dialect())
+        .table("seq")
+        .with_recursive_cte("seq", seq_sql, vec![])
+        .expect("with_recursive_cte 委托链可用")
+        .select_expr(vec!["count(*)"])
+        .build_select_with_params();
+    assert!(sql2.contains("WITH RECURSIVE"), "递归 CTE 前缀：{sql2}");
+    assert!(params2.is_empty(), "递归 CTE 无参数");
+    let rows2 = conn.query(&sql2).await.unwrap();
+    assert_eq!(rows2.len(), 1);
+    assert!(
+        matches!(rows2[0].get("count"), Some(Value::I64(5))),
+        "递归 CTE 1..5 应计 5 行"
+    );
+
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+}
+
+/// SZ5：FTS 生成面委托链——full_text_search（PG 族 to_tsvector @@ to_tsquery，
+/// 列名 quote 由 G-OR9 家族横向修复保证）真库执行命中；to_tsquery 操作符透传。
+#[tokio::test]
+#[ignore = "需要 szrsql 运行（SZ_ORM_SZRSQL_URL 注入）"]
+async fn matrix_sz5_fts_to_tsquery_forwarded() {
+    let Some(pool) = try_pool().await else {
+        eprintln!("skip: szrsql 未启动");
+        return;
+    };
+    let pool = Arc::new(pool);
+    let table = unique_table("mx_sz5");
+    let d = szrsql_dialect();
+
+    let mut conn = pool.create().await.unwrap();
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+    conn.execute(&format!(
+        "CREATE TABLE {table} (id INT PRIMARY KEY, \"titleText\" TEXT NOT NULL)"
+    ))
+    .await
+    .unwrap();
+    conn.execute(&format!(
+        "INSERT INTO {table} (\"titleText\") VALUES ('quick brown fox'),('lazy dog')"
+    ))
+    .await
+    .unwrap();
+
+    // 混合大小写列名 quote 往返（G-OR9 家族）+ 真库命中
+    let expr = d.full_text_search(&["titleText"], "fox");
+    assert!(
+        expr.contains("\"titleText\""),
+        "FTS 列应 quote（G-OR9 家族修复）：{expr}"
+    );
+    let s = format!("SELECT count(*) AS c FROM {table} WHERE {expr}");
+    let rows = conn.query(&s).await.unwrap();
+    assert_eq!(rows.len(), 1);
+    assert!(
+        matches!(rows[0].get("c"), Some(Value::I64(1))),
+        "to_tsvector @@ to_tsquery('fox') 应命中 1 行"
+    );
+
+    // to_tsquery 操作符透传（'quick & fox'）
+    let expr2 = d.full_text_search(&["titleText"], "quick & fox");
+    let s2 = format!("SELECT count(*) AS c FROM {table} WHERE {expr2}");
+    let rows2 = conn.query(&s2).await.unwrap();
+    assert_eq!(rows2.len(), 1);
+    assert!(
+        matches!(rows2[0].get("c"), Some(Value::I64(1))),
+        "to_tsquery 操作符 '&' 应生效"
+    );
+
+    conn.execute(&format!("DROP TABLE IF EXISTS {table}"))
+        .await
+        .unwrap();
+}
