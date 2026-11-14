@@ -16,6 +16,7 @@
 - **GB1~GB3 × GBase 8s 真连全过**（`integration_gbase.rs` 追加，dbaccess CLI——MZ DB2 CLP 同型）：引擎身份/**[bracket] 拒 vs 双引号收（引擎事实：GBaseDialect→SqlServerDialect 委托仅 TDS 网关企业实例可执行，纯 Informix 社区版不可执行——使用边界登记）**/8s 原生 SKIP..FIRST（前置）分页对照
 - **DM1~DM3 × DM8 真连全过**（`integration_dameng.rs` 追加，disql CLI）：引擎身份/Oracle 风格 NUMBER/VARCHAR2 DDL+INSERT COMMIT 读回/delegate 生成面（Oracle 族 upsert None 契约登记）；套件全量 12/12（含既有 Oracle 直测零回归）
 - 坑位登记：disql 无分号进续行模式（SQL> 2 静默挂起）/DM8 默认非自动提交/**SQL 经 stdin 直喂 disql（零转义）**（echo 引号嵌套 wsl 默认 shell 层 $ 丢失）/DM8 entrypoint 五 env 全给/GB 四层嵌套引号一次性成形（二次 replace 层错）/docker search 被墙假阴性教训（pull 通道 ≠ search 通道）
+- **第 5 环红队独立复核：条件 PASS**（回执 `docs/assessment/2026-11-14-wave2-three-vendor-redteam-review.md`，commit bdb1acd4，audit-verify 29 通过 0 失败，P0=0/P1=1/P2=2/P3=4）；**回执处置 2312550e**——R-P1（放行条件）`matrix_gb3` 补 `#[ignore]`（CLI 断言臂依赖 wsl+docker 容器，此前泄漏进默认套件 Linux CI 必 panic）+ GB2 自建 t_probe 自足（R-P2-2）+ R-P2-3 措辞精确化（KB2 为 4 转发中唯一行为级差异化证据——upsert 唯一有基础方言覆写；DM/GB 为转发到位+产物合法执行级）；P3×4 择机处置登记；GB 3/3（--include-ignored）+ 默认套件 6 passed 无容器依赖复验
 
 ### Added — SzRSQL 委托链补验（SZ1~SZ3，OC 批 delegate 修复的 SzRSQL 通道真连闭环）
 
