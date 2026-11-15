@@ -60,6 +60,7 @@ jobs:
           fi
 
       - name: Install cargo-mutants
+        shell: bash
         run: cargo install cargo-mutants --locked
 
       - name: Run full mutation (${{ matrix.package }})
