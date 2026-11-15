@@ -51,6 +51,7 @@ jobs:
         uses: dtolnay/rust-toolchain@1.99.1
 
       - name: Configure crates.io mirror (TUNA, runner 侧网络加速)
+        shell: bash
         run: |
           mkdir -p "${CARGO_HOME:-$HOME/.cargo}"
           if [ ! -f "${CARGO_HOME:-$HOME/.cargo}/config.toml" ]; then
@@ -62,6 +63,7 @@ jobs:
         run: cargo install cargo-mutants --locked
 
       - name: Run full mutation (${{ matrix.package }})
+        shell: bash
         run: |
           bash scripts/collect-mutation-linux.sh \
             --packages "${{ matrix.package }}" \
