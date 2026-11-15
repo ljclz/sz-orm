@@ -27,8 +27,8 @@
 | integration_db2 | 15 passed; 0 failed（进程内方言面，非 ignored） |
 
 负向验证（证明"非跳过即绿"）：
-1. `SZ_ORM_MYSQL_URL=mysql://root:wrongpass@127.0.0.1:3326/...` → integration_mariadb **0 passed; 7 failed**。
-2. `SZ_ORM_MSSQL_PASSWORD='WrongPass!x'` → integration_mssql **0 passed; 12 failed**；恢复正确密码后 12 passed。
+1. `SZ_ORM_MYSQL_URL=mysql://root:<pw>@127.0.0.1:3326/...` → integration_mariadb **0 passed; 7 failed**。
+2. `SZ_ORM_MSSQL_PASSWORD='<pw>'` → integration_mssql **0 passed; 12 failed**；恢复正确密码后 12 passed。
 
 结论：测试确实连接容器、凭据错误即红，真绿可信。
 

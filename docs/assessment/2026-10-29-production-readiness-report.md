@@ -61,7 +61,7 @@
 | # | 遗留项 | 优先级 | 状态与说明 |
 |---|--------|--------|------|
 | 1 | 性能基准元数据未采集 | ✅ 已修复 | `EnvMetadata` 真实采集 CPU 型号/内存/rustc 版本/feature/git（`packages/sz-orm-bench/src/lib.rs`），实测生成报告含 `Intel64 ... / 40 cores / 66,994,108 KB / 1.99.1` |
-| 2 | CI 性能基线比对未闭环 | ✅ 已闭环 | `.github/workflows/ci.yml:795-812`：存在基线时 `--compare-baseline ci-sqlite`（≥10% 退化阻断）后 `--save-baseline` 滚动更新，首次仅建基线；`actions/cache` 恢复滚动基线 |
+| 2 | CI 性能基线比对未闭环 | ✅ 已闭环 | `.github/workflows/ci.yml:813`（`--save-baseline ci-sqlite --compare-baseline ci-sqlite`）：存在基线时 `--compare-baseline ci-sqlite`（≥10% 退化阻断）后 `--save-baseline` 滚动更新，首次仅建基线；`actions/cache` 恢复滚动基线 |
 | 3 | 孤儿包治理 | ✅ 已完成 | `2026-10-29-orphan-package-ledger.md`：30 包分类（9 独立交付物非孤儿）；**§四 21 个扩展包逐包裁定完成**（普查测试/examples/源码行数，统一裁定"可选组件（需手动接入）"，无自动集成宣称） |
 | 4 | PHANTOM-2 警告收敛 | ✅ 已收敛 | `check-phantom-delivery.py` 实测 PHANTOM-2 **0**（未登记警告 0），308 个门控未启用警告已全部处理 |
 | 5 | 历史报告引用清账 | 🟡 部分完成 | `legacy-citation-ledger.md`：648 处红牌 0 造假；**校验器路径归一化已完成**（`.ps1`+`.sh` 双入口，自测 25 passed）；**零引用治理已实现**：`--require-evidence`（提示词/验证规范豁免，非提示词类 0 引用即阻断，提交 `466a438`）；待做：45 份清单（附录 A）中 39 份真报告逐份补证据（需团队决策，避免编造） |
@@ -157,7 +157,25 @@
 | daocloud 对 `gvenzl/oracle-free:23ai` 返回 403 | 用 `latest` tag（指向 26ai） |
 | Oracle 容器首次启动失败 | 第二次启动成功 + `--restart unless-stopped` |
 
-*报告生成：2026-10-29（2026-10-30 复跑、2026-11-01 复跑 + v10.13.1 发布更新、2026-11-03 WSL2 Docker DB 集成测试）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*
+## 八、2026-11-15 复跑记录（方言矩阵多批大量更新后全量重验）
+
+> 评估对象：v10.13.4（`Cargo.toml:6`），HEAD `310eee95`。期间落地 2026-11-08~11-15 共 12+ 评测批次（SzRSQL 集成与五链收官 / MySQL·Oracle·PG·SQLite·容器六实例·OceanBase·PolarDB·quote 六方言等方言矩阵批）。
+
+| 检查 | 结果 |
+|------|------|
+| 门禁 18 项（含 G37 dialect DDL/FTS quoting） | 初跑 16/18：**G18 度量漂移**（README 测试数 21324 → 实测 21500，`--fix` 自动修正 7 处）、**G9 凭据 6 处**（OceanBase `Szorm2026`/Kingbase `SYSTEM:SYSTEM`/MSSQL 假密码样例进入文档与测试注释）→ 全部占位符化 `<pw>` 后 **18/18 全绿** |
+| 门禁脚本自测 `pytest tests/` | 初跑 2 failed（G37 脚本未登记自测覆盖 + 门禁数断言 36 滞后于 G37 新增）→ 修复后 **160 passed / 1 skipped** |
+| `cargo test -p sz-orm-core --lib` | **3294 passed** |
+| `any_pg_test`（PG 18 真库，--ignored） | **46 passed** |
+| `any_mysql_test`（本机 8802，--ignored） | **21 passed**（gate.env MySQL 密码已陈旧 → 按宝塔安装日志恢复后全绿；gate.env 已同步更新） |
+| `integration_oracle_matrix`（Oracle 26ai 真库，--ignored） | **24 passed** |
+| `cargo clippy -p sz-orm-core -p sz-orm-sqlx --all-targets -- -D warnings` | 通过（0 warning） |
+| `cargo test -p sz-orm-cabi` | 通过 |
+| SzRSQL 6543 | 实例未启动（端口 DOWN），integration_szrsql* 按 env 门控跳过（非缺陷） |
+
+**结论：就绪度维持 🟢 对外生产就绪。** 本轮发现的 2 处门禁红灯均为文档/测试元数据漂移（非代码缺陷），当日修复闭环；G20 全量变异仍走 CI 长跑（`mutation-full.yml`，self-hosted runner 待注册）。
+
+*报告生成：2026-10-29（2026-10-30 复跑、2026-11-01 复跑 + v10.13.1 发布更新、2026-11-03 WSL2 Docker DB 集成测试、2026-11-15 复跑 v10.13.4）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*
 
 ## 红队审计独立验证
 

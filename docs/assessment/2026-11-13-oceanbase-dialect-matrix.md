@@ -16,7 +16,7 @@
 ## 1. 环境事实（重要坑位，登记）
 
 - **daemon 模式容器死亡循环**：entrypoint `start.sh` 在 boot success 后约 2 分钟容器退出（exit 255，`OOM=false`、cgroup `memory.events` 全零、内核 dmesg 无 OOM——非资源问题，疑似 entrypoint 脚本退出语义与容器 daemon 模式交互缺陷）；`--restart=always` 兜底自动拉起，每次拉起后 observer 需约 2~4 分钟可连（`ERROR 8001 Server is initializing` → 可连）。**跑测试必须守门探活**（循环 `SELECT 1` 至 ALIVE 再触发套件）；活窗口约 2~4 分钟，单线程 14 项 5.4s 可全过。既有 3 项 `setup_pool` 无守门（30s acquire 超时）会撞死点报 PoolTimedOut——**该失败模式是环境产物，不是方言缺陷**（同套件守门后全过可证）。
-- 连接 URL：`mysql://root%40szorm:Szorm2026@127.0.0.1:12881/sz_orm_test`（`root@szorm` 租户用户 `@` 须编码 `%40`）。
+- 连接 URL：`mysql://root%40szorm:<pw>@127.0.0.1:12881/sz_orm_test`（`root@szorm` 租户用户 `@` 须编码 `%40`）。
 - 快照镜像 `ob-szorm-v2:latest`（`docker commit`，含租户密码与 sz_orm_test 库）——容器重建可从快照起。
 
 ## 2. 交付物

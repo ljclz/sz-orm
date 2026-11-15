@@ -4,7 +4,7 @@
 > **背景**：sz-orm v10.13.4。方言矩阵一/二波已闭环：MySQL(MY)/Oracle(OR)/PG(PG)/SQLite(SQ)/容器六实例(MZ-*，MSSQL/MariaDB/TiDB/ClickHouse/DB2/openGauss)。本批为容器化二波登记（`2026-11-13-container-dialect-matrix.md` §B9）的首个可自动供给实例——**OceanBase CE 4.4.2.1**（MySQL 兼容族，委托 MySqlDialect）。
 > **供给事实（本机已就绪）**：
 > - 镜像 `oceanbase/oceanbase-ce:latest`（2.05GB，4.4.2.1）已拉取；实例容器 `ob-final2` 运行中，宿主端口 **12881**
-> - 连接：`mysql://root%40szorm:Szorm2026@127.0.0.1:12881/sz_orm_test`（注意 `root@szorm` 是**租户用户**，URL 里 `@` 要编码为 `%40`）；`ob_compatibility_mode=MYSQL`（已实测）
+> - 连接：`mysql://root%40szorm:<pw>@127.0.0.1:12881/sz_orm_test`（注意 `root@szorm` 是**租户用户**，URL 里 `@` 要编码为 `%40`）；`ob_compatibility_mode=MYSQL`（已实测）
 > - **容器特性（重要坑位）**：daemon 模式下 entrypoint boot 后约 2 分钟容器退出（exit 255，非 OOM），`--restart=always` 已配置自动拉起；每次拉起后 observer 需要 **约 2~2.5 分钟**才可连（`ERROR 8001 Server is initializing` → 可连）。跑测试前用「守门探活」：循环 `mysql SELECT 1` 直到成功再触发测试套件（一次性成功窗口约 2 分钟，integration_oceanbase 8 项约 0.7s 可全过）
 > - 可选更稳路径：`docker commit ob-final2 ob-szorm-v2:latest` 已有快照镜像（含 szorm 租户密码 + sz_orm_test 库），新容器从快照起只需等 observer 可连
 > - python 侧无 mysql 客户端；容器内有 obclient：`docker exec ob-final2 obclient -h127.1 -uroot@szorm -pSzorm2026 -P2881 -e "..."`

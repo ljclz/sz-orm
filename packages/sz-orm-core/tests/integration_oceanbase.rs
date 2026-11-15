@@ -5,7 +5,7 @@
 //! 2026-11-13 方言矩阵批）；`matrix_oc_*` 为矩阵载荷，既有 8 项为基线。
 //!
 //! 运行方式：cargo test -p sz-orm-core --test integration_oceanbase -- --ignored --nocapture
-//! 环境变量：SZ_ORM_MYSQL_URL（例：mysql://root%40szorm:Szorm2026@127.0.0.1:12881/sz_orm_test）
+//! 环境变量：SZ_ORM_MYSQL_URL（例：mysql://root%40szorm:<pw>@127.0.0.1:12881/sz_orm_test）
 //! 注意：daemon 容器约 2min 退出重启循环，跑前须守门探活（见报告 §1）。
 
 use sqlx::mysql::{MySqlPool, MySqlPoolOptions};

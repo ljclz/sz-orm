@@ -245,6 +245,7 @@ EXEMPT_SCRIPTS = {
     "check-binding-coverage",           # 存量：绑定层覆盖率扫描，无自测
     "check-ci-deny-sync",               # 存量：CI 与 deny.toml 同步，无自测
     "check-deprecated-downstream",      # 存量：下游废弃 API 扫描，无自测
+    "check-dialect-ddl-quoting",        # G37：内置 --self-test 19 用例（2026-11-12 批二 §7 落地），pytest 侧由门禁直接执行
     "check-deprecation-period",         # 存量：废弃 API 保留期，无自测
     "check-doc-code-compiles",          # 存量：文档代码可编译性，无自测
     "check-doc-consistency",            # 存量：文档与代码一致性，无自测
@@ -328,9 +329,9 @@ class TestNewGateScriptsSmoke:
             "check_doc_version_consistency",
             SCRIPTS / "check-doc-version-consistency.py",
         )
-        # 真实仓库：权威门禁数 36（2026-10-30 新增 G35/G36），当前文档零漂移
-        assert mod.count_agents_gates() == 36
-        assert mod.check_gate_count_claims(36) == []
+        # 真实仓库：权威门禁数 37（2026-11-12 新增 G37 dialect DDL/FTS quoting 门禁），当前文档零漂移
+        assert mod.count_agents_gates() == 37
+        assert mod.check_gate_count_claims(37) == []
         # 反向注入：声称 25 → 红牌；历史标题下的 11（中英文）→ 豁免
         (tmp_path / "FAKE.md").write_text(
             "# head\n当前 25 道门禁\n"

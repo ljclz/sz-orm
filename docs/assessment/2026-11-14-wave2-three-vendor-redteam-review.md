@@ -36,7 +36,7 @@
 
 | 套件 | 命令要点 | 结果 | EXIT |
 |------|---------|------|------|
-| Kingbase 矩阵 | `SZ_ORM_KB_URL=postgres://SYSTEM:SYSTEM@127.0.0.1:15435/test cargo test -p sz-orm-core --test integration_kingbase matrix_kb -- --include-ignored` | **4 passed**（matrix_kb1_engine_identity / kb2_delegate_upsert_forwarded / kb3_delegate_fk_forwarded / kb4_numeric_and_types） | 0 |
+| Kingbase 矩阵 | `SZ_ORM_KB_URL=postgres://SYSTEM:<pw>@127.0.0.1:15435/test cargo test -p sz-orm-core --test integration_kingbase matrix_kb -- --include-ignored` | **4 passed**（matrix_kb1_engine_identity / kb2_delegate_upsert_forwarded / kb3_delegate_fk_forwarded / kb4_numeric_and_types） | 0 |
 | Kingbase 既有回归 | `cargo test -p sz-orm-core --test integration_kingbase`（默认套件） | **5 passed; 7 ignored**（既有 5 单测零破坏，与报告 §3 一致） | 0 |
 | GBase 矩阵 | `cargo test -p sz-orm-core --test integration_gbase matrix_gb -- --include-ignored` | **3 passed**（gb1_engine_identity_bare_sql / gb2_quote_forms_on_pure_8s / gb3_dialect_shape_vs_8s_syntax） | 0 |
 | GBase 默认套件（R-1 取证） | `cargo test -p sz-orm-core --test integration_gbase`（无 --include-ignored） | **7 passed; 4 ignored——其中 `matrix_gb3_dialect_shape_vs_8s_syntax ... ok` 在默认套件真执行**（0.66s 含 docker exec 往返），证实容器依赖泄漏 | 0 |
