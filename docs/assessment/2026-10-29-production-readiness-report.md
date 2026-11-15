@@ -171,7 +171,7 @@
 | `integration_oracle_matrix`（Oracle 26ai 真库，--ignored） | **24 passed** |
 | `cargo clippy -p sz-orm-core -p sz-orm-sqlx --all-targets -- -D warnings` | 通过（0 warning） |
 | `cargo test -p sz-orm-cabi` | 通过 |
-| SzRSQL 6543 | 实例未启动（端口 DOWN），integration_szrsql* 按 env 门控跳过（非缺陷） |
+| SzRSQL 6543 | 补跑（同日）：本地启动 szrsql v1.0.0-rc.2（trust 模式）后 `integration_szrsql` 8 passed + `integration_szrsql_matrix` 20 passed + `kill_recover` 1 passed——**29/29 全绿**，此前跳过项清零 |
 
 **结论：就绪度维持 🟢 对外生产就绪。** 本轮发现的 2 处门禁红灯均为文档/测试元数据漂移（非代码缺陷），当日修复闭环；G20 全量变异仍走 CI 长跑（`mutation-full.yml`，self-hosted runner 待注册）。
 
