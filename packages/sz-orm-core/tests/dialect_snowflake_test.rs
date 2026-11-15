@@ -52,7 +52,8 @@ fn test_snowflake_json_type() {
 fn test_snowflake_json_extract() {
     let dialect = SnowflakeDialect;
     let sql = dialect.json_extract("data", "$.name");
-    assert_eq!(sql, "data:name");
+    // json_extract quote 横向修复批（G-OR1 家族第七次同型收尾）：列名经 self.quote → "data":name
+    assert_eq!(sql, "\"data\":name");
 }
 
 #[test]
