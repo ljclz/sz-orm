@@ -85,12 +85,16 @@
 
 `integration_szrsql_matrix.rs` 实测 20 个 `#[tokio::test]`：M1~M9 主载荷 13（M1/M2/M3/M3b/M4/M5/M5b/M6/M7/M8/M8b/M9/M9b/M9c/M9d 中若干合并）+ M5c 在独立文件 kill_recover + SZ1~SZ5 5 项。以 `cargo test --test integration_szrsql_matrix -- --ignored` 输出 **20 passed 0 failed** 为准（2026-11-14 实测）；历史叙述中的 15/18 为各阶段快照。
 
-## 五、遗留与边界（诚实登记）
+## 五、遗留与边界（诚实登记 + 2026-11-15 状态实查更新）
 
 1. ~~**PolarDB**：MySQL 族委托，无容器实例——矩阵待补批~~ **已闭环（2026-11-14 PL 批）**：PolarDB-X 一键镜像供给，PLX1~PLX6 真连全绿，缺口 0 处；PolarDbDialect（PG 委托）边界登记，PG 版实例留云补批。见 `2026-11-14-polardb-dialect-matrix.md`。
+   - （状态实查 2026-11-15：PL 批报告/红队放行/登记均已落盘；历史 pdbx-* 裸镜像攻坚容器 16 个全部 Exited——并行会话最终改用一键镜像 `polardb-x:latest` 成功，教训已登记至 [2026-11-14-polardb-dialect-matrix.md](2026-11-14-polardb-dialect-matrix.md)。）
 2. **szrsql 性能面**：20 万行流式游标 44.7s vs PG 1.8s（debug 构建，11-09 观察项）——性能专项不在方言矩阵范围，登记观察。
+   - （状态实查 2026-11-15：**归 szrsql 侧并行线处理中**——szrsql 仓库 11-13 以来 11 个 perf 提交（parser 快路径/INSERT bulk 序列化/bench 埋点）+ PERF-7 根因排查提示词（`6ee275e4`，v24 段13 现场捕获）；本线不动，待上游 perf 批稳定后以 release 构建复测该观察项。）
 3. **szrsql 上游后续版本**：矩阵基于 11-10 前后 HEAD；上游快速演进（Bolt 协议/perf 批）后的回归由 CI（A3 已接线 szrsql service）承接。
+   - （状态实查 2026-11-15：szrsql 上游演进极快——11-13 以来 60+ 提交（五大能力审计/lineage 接线/TDS 修复/perf 批）；A3 CI 通道不变，矩阵回归随 CI 节奏自动覆盖。）
 4. **db2/gaussdb 等容器实例**：矩阵完成后容器保留（docker stop 不 rm），复跑用 `docker start`。
+   - （状态实查 2026-11-15：Docker Desktop 侧 6 容器 Up 32h+（opengauss/db2/clickhouse26/mssql22/tidb85/mariadb11），复跑就绪；WSL 侧 wave2 三厂容器 dm8-szorm Exited（255，宿主重启后未自启——`docker start dm8-szorm` 即可）、ob-final2 存活。）
 
 ## 六、证据索引（全部 audit-verify 通过）
 
