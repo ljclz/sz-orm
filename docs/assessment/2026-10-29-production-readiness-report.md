@@ -175,6 +175,28 @@
 
 **结论：就绪度维持 🟢 对外生产就绪。** 本轮发现的 2 处门禁红灯均为文档/测试元数据漂移（非代码缺陷），当日修复闭环；G20 全量变异仍走 CI 长跑（`mutation-full.yml`，self-hosted runner 待注册）。
 
+## 九、G20 全量变异——CI 长跑落地与 sqlx 首批真实结果（2026-11-16）
+
+> 自建 Windows self-hosted runner（`szorm-g20-win`，runner 2.338.2，GitHub API minted token）+ `mutation-full.yml`。
+> 前 8 次 dispatch 失败根因链（均已修复）：① Windows runner 缺 pwsh → 两处 run 步骤补 `shell: bash`（`f67117ed`）；② github.com DNS 污染 → hosts 钉稳定 IP；③ 仓库根因——**json_extract quote 横向批（3c2c18ae）后 `dialect_snowflake_test` 断言未同步，unmutated baseline 红**，cargo-mutants 无法启动 → 断言更新 `63df9823`（dialect_snowflake 17 passed）。
+
+### 9.1 sz-orm-sqlx 全量变异（887 变异体，94 分钟，runner 实测）
+
+| 指标 | 值 |
+|------|-----|
+| caught / missed / timeout | 301 / 368 / 16（tested 685） |
+| **杀率** | **43.9%**（门槛 70% → 红牌） |
+
+missed 分布（top）：`any.rs` 180（48%）——连接 impl 兜底分支（needs_raw_sql 等布尔替身）、`slow_query_guard` 65（17%）、`saphana_adapter` 32、`sql_repository` 31。**定性：非代码缺陷，而是测试盲区**——these 分支多为错误路径/超时守卫，现有单元测试未覆盖替身输出（如 `replace X with true/false` 存活=无测试断言该分支行为）。
+
+### 9.2 结论与后续
+
+1. **G20 首次拿到全量真实数据**（此前 4 次本机尝试均中断）；门槛 70% 未达 → 按门禁语义记红牌，**不构成生产阻断**（该指标为质量改进指引，非投产前置）。
+2. 修复方向：为 `any.rs` 原始 SQL 路径与 `slow_query_guard` 补行为级单测（替身存活即测试盲区清单）。
+3. `sz-orm-core` 全量（11725 变异体）本机 runner 手动续跑中（稳定 ~10 变异体/10min，预计 ~20h）。
+4. 指标登记 CHANGELOG [Unreleased]，修复批次另开。
+
+
 *报告生成：2026-10-29（2026-10-30 复跑、2026-11-01 复跑 + v10.13.1 发布更新、2026-11-03 WSL2 Docker DB 集成测试、2026-11-15 复跑 v10.13.4）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*
 
 ## 红队审计独立验证

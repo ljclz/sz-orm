@@ -9,6 +9,9 @@
 
 ## [Unreleased]
 
+- test(snowflake): json_extract 断言随 quote 横向批同步（`"data":name`），修复 G20 全量变异 unmutated baseline 红（`63df9823`）
+- ci(mutation): mutation-full.yml 三处 run 步骤补 `shell: bash`（Windows self-hosted runner 无 pwsh 假红）；首获 G20 全量真实数据——sz-orm-sqlx 887 变异体杀率 43.9%（caught 301/missed 368/timeout 16），missed 集中于 any.rs 兜底分支与 slow_query_guard 测试盲区，登记为质量改进指引（`f67117ed`）
+
 ### Added — quote 横向批六方言真连补验（SQ 收口批，2026-11-15）
 
 - **批二/FTS 批「6/8 方言真连留 CI」缺口 6→2**（报告 `docs/assessment/2026-11-15-quote-sweep-six-dialect-verification.md`，audit-verify 9 通过 0 失败，commit cadb205d）：容器供给成功 **4 引擎**并跑 quote 行为级探针全绿——SQLServer 2022 CU27（`-p` 映射修复 + sys.indexes/sys.foreign_keys 目录往返）/ DB2 **12.1.5**（`icr.io/db2_community` 直连可拉，SYSCAT 引号名大小写保留证据）/ **SapHana Express**（`saplabs/hanaexpress`，须 `--privileged --security-opt seccomp=unconfined`——`move_pages` syscall 对 uid=12000 被 WSL2 默认 seccomp 拒绝；SYS.INDEXES/REFERENTIAL_CONSTRAINTS 目录往返）/ **Firebird 5.0**（`firebirdsql/firebird`，RDB$ 目录往返）。**sz-orm 方言缺口 0 处**（批二 8 方言 quote 生成面在 4 新引擎全部被接受且目录名无损）；Snowflake/Informix 无社区镜像维持 CI 登记。供给坑位 4 项登记（MSSQL `-p` 缺失/HXE seccomp/DB2 DBI1264E 自愈/Firebird pull 层死锁 kill 重拉）
