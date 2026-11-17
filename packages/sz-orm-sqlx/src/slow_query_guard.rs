@@ -324,7 +324,10 @@ mod tests {
         // 的 += 替换与 176/162 的替换值突变）
         assert_eq!(normalize_fingerprint("WHERE id = 1"), "WHERE id = ?");
         assert_eq!(normalize_fingerprint("x = 'ab'"), "x = ?");
-        assert_eq!(normalize_fingerprint("a = $1 AND b = $12"), "a = ? AND b = ?");
+        assert_eq!(
+            normalize_fingerprint("a = $1 AND b = $12"),
+            "a = ? AND b = ?"
+        );
         // 尾随数字后跟字母（如列名 col1）不归一为完整 ?——按当前实现 `col?`（数字位归一），
         // 精确钉死以防 + → -/* 突变改变消费步数（176:37/62）
         assert_eq!(normalize_fingerprint("col1"), "col?");
@@ -395,8 +398,7 @@ mod tests {
         // 构造耗时恰在阈值两侧——用极大阈值证明"耗时不慢"，再归零证明"即快也记 slow"
         let mut mock = MockConnection::new();
         mock.expect_any().with_rows_affected(1);
-        let mut guard =
-            SlowQueryGuard::new(mock).with_slow_threshold(Duration::from_secs(3600));
+        let mut guard = SlowQueryGuard::new(mock).with_slow_threshold(Duration::from_secs(3600));
         guard.execute_with_logging("SELECT 1", &[]).await.unwrap();
         assert!(!guard.logged_entries()[0].slow);
     }

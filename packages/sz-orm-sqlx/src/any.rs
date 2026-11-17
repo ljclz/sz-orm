@@ -3630,7 +3630,9 @@ mod row_decode_tests {
     use sqlx::Executor;
 
     async fn sqlite_row(sql: &str) -> sqlx::sqlite::SqliteRow {
-        let pool = sqlx::sqlite::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        let pool = sqlx::sqlite::SqlitePool::connect("sqlite::memory:")
+            .await
+            .unwrap();
         // sql.to_owned()：sqlx::query 要求 'static 绑定（E0521）
         let row = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()))
             .fetch_one(&pool)
@@ -3720,6 +3722,9 @@ mod row_decode_tests {
         // 该 63 个存活由 CI --ignored 真库回归承担（any_mysql_test/any_pg_test 已覆盖
         // 全类型臂）；此处登记为 CI 车道责任，避免误以为离线可测。
         // （占位断言防止本 mod 意外清空被误报零断言）
-        assert_eq!(row_to_value_with_coltype_sqlite(&sqlite_row("SELECT 7 AS x").await, 0, ColType::I32), Value::I32(7));
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&sqlite_row("SELECT 7 AS x").await, 0, ColType::I32),
+            Value::I32(7)
+        );
     }
 }
