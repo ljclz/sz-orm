@@ -388,6 +388,10 @@ mod tests {
         guard.execute_with_logging("SELECT 1", &[]).await.unwrap();
         assert_eq!(guard.logged_jsons().len(), guard.logged_entries().len());
         assert_eq!(guard.logged_jsons().len(), 1);
+        // 内容断言（杀 105 的 Vec::leak(vec![String::new()]) / vec!["xyzzy"] 突变——
+        // 长度都是 1，必须校验 JSON 载荷含真 SQL 与表名）
+        assert!(guard.logged_jsons()[0].contains("\"SELECT 1\""));
+        assert!(guard.logged_jsons()[0].contains("query_key"));
         // inner_mut 返回真内部连接（杀 120 的 Box::leak 突变——改配置必须可见）
         assert_eq!(guard.inner_mut().db_type(), None);
     }
