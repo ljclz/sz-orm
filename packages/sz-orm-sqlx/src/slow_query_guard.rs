@@ -313,4 +313,91 @@ mod tests {
         assert!(!guard.logged_entries().is_empty());
         assert!(guard.logged_entries()[0].slow);
     }
+
+    // ---- G20 变异测试盲区修复批（2026-11-17）：逐 mutant 行为级断言 ----
+    // 依据 mutants.out missed.txt：normalize_fingerprint 41 + guard 方法 24 存活，
+    // 根因是既有测试只断言"归一化后相等/非空"，未钉死精确输出与逐分支行为。
+
+    #[test]
+    fn test_fingerprint_exact_output_literals_and_placeholders() {
+        // 精确输出钉死：字面量/数字/$n 全部归一为 ?；文本原样保留（杀 169/171/174/178/180
+        // 的 += 替换与 176/162 的替换值突变）
+        assert_eq!(normalize_fingerprint("WHERE id = 1"), "WHERE id = ?");
+        assert_eq!(normalize_fingerprint("x = 'ab'"), "x = ?");
+        assert_eq!(normalize_fingerprint("a = $1 AND b = $12"), "a = ? AND b = ?");
+        // 尾随数字后跟字母（如列名 col1）不归一为完整 ?——按当前实现 `col?`（数字位归一），
+        // 精确钉死以防 + → -/* 突变改变消费步数（176:37/62）
+        assert_eq!(normalize_fingerprint("col1"), "col?");
+        assert_eq!(normalize_fingerprint("v2x = 3"), "v2x = ?");
+        // 空串与无参语句原样（杀 162 的 String::new()/"xyzzy" 返回值突变）
+        assert_eq!(normalize_fingerprint(""), "");
+        assert_eq!(normalize_fingerprint("SELECT 1"), "SELECT ?");
+    }
+
+    #[test]
+    fn test_fingerprint_boundary_and_multibyte() {
+        // 数字在末尾（j == chars.len() 分支，杀 176 的边界比较 < 变体）
+        assert_eq!(normalize_fingerprint("id = 42"), "id = ?");
+        // 多字节字符：按 char 而非 byte 推进（杀 170 的 && → || 与 i+1 越界比较）
+        assert_eq!(normalize_fingerprint("名 = 1"), "名 = ?");
+        // $ 后跟非数字不是占位符（杀 170 的 chars[i+1].is_ascii_digit 分支）
+        assert_eq!(normalize_fingerprint("$tag"), "$tag");
+        // 单引号未闭合：吞到串尾不 panic（杀 173 的 while < 边界变体）
+        assert_eq!(normalize_fingerprint("x = 'abc"), "x = ?");
+        // 空引号 ''（杀 169/171 的 i += 1/2 步进突变）
+        assert_eq!(normalize_fingerprint("x = ''"), "x = ?");
+    }
+
+    #[test]
+    fn test_sample_rate_boundary_values_not_degraded() {
+        // 0.0 与 1.0 合法（杀 71:17 的 < → <= 与 71:31 的 > → >= 边界突变）；
+        // -0.1/1.1 降级（杀 71:17/31 的 < → == 与 > → < 变体——必须双向钉死）
+        for rate in [0.0f64, 1.0] {
+            let guard = SlowQueryGuard::new(MockConnection::new()).with_sample_rate(rate);
+            assert!(!guard.is_degraded(), "rate {rate} should be legal");
+        }
+        for rate in [-0.1f64, 1.1] {
+            let guard = SlowQueryGuard::new(MockConnection::new()).with_sample_rate(rate);
+            assert!(guard.is_degraded(), "rate {rate} should degrade");
+        }
+    }
+
+    #[tokio::test]
+    async fn test_with_slow_threshold_effective() {
+        // with_slow_threshold 真实生效（杀 65 的 Default::default() 突变：默认阈值 200ms
+        // 会让快查询不被记为 slow，阈值归零后才记）
+        let mut mock = MockConnection::new();
+        mock.expect_any().with_rows_affected(1);
+        let mut guard = SlowQueryGuard::new(mock).with_slow_threshold(Duration::from_millis(0));
+        guard.execute_with_logging("SELECT 1", &[]).await.unwrap();
+        assert!(guard.logged_entries()[0].slow);
+    }
+
+    #[tokio::test]
+    async fn test_with_level_effective_and_jsons_accessor() {
+        // with_level 真实生效（杀 81 的 Default::default() 突变）：Debug 级别才产出 JSON；
+        // logged_jsons 精确对应 entries（杀 105/110 的 Vec::leak 突变）
+        let mut mock = MockConnection::new();
+        mock.expect_any().with_rows_affected(1);
+        let mut guard = SlowQueryGuard::new(mock)
+            .with_slow_threshold(Duration::from_millis(0))
+            .with_level(LogLevel::Debug);
+        guard.execute_with_logging("SELECT 1", &[]).await.unwrap();
+        assert_eq!(guard.logged_jsons().len(), guard.logged_entries().len());
+        assert_eq!(guard.logged_jsons().len(), 1);
+        // inner_mut 返回真内部连接（杀 120 的 Box::leak 突变——改配置必须可见）
+        assert_eq!(guard.inner_mut().db_type(), None);
+    }
+
+    #[tokio::test]
+    async fn test_slow_threshold_boundary_ge() {
+        // is_slow = elapsed >= threshold（杀 97:31 的 >= → < 突变）：
+        // 构造耗时恰在阈值两侧——用极大阈值证明"耗时不慢"，再归零证明"即快也记 slow"
+        let mut mock = MockConnection::new();
+        mock.expect_any().with_rows_affected(1);
+        let mut guard =
+            SlowQueryGuard::new(mock).with_slow_threshold(Duration::from_secs(3600));
+        guard.execute_with_logging("SELECT 1", &[]).await.unwrap();
+        assert!(!guard.logged_entries()[0].slow);
+    }
 }

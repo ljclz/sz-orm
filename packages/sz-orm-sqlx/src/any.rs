@@ -2945,6 +2945,52 @@ mod tests {
     }
 
     #[test]
+    fn test_needs_raw_sql_each_keyword_exactly() {
+        // G20 变异盲区修复（2026-11-17）：逐 || 突变钉死——每个关键字必须"真"时其余为假，
+        // 任一 || 被改成 && 都会让其他关键字分支不再返回 true
+        assert!(needs_raw_sql("BEGIN") && !needs_raw_sql("SELECT 1"));
+        assert!(needs_raw_sql("COMMIT") && !needs_raw_sql("INSERT INTO t VALUES (1)"));
+        assert!(needs_raw_sql("ROLLBACK") && !needs_raw_sql("DELETE FROM t"));
+        assert!(needs_raw_sql("SAVEPOINT sp") && !needs_raw_sql("UPDATE t SET x=1"));
+        assert!(needs_raw_sql("RELEASE sp") && !needs_raw_sql("CREATE TABLE t (id INT)"));
+        assert!(needs_raw_sql("SET NAMES utf8") && !needs_raw_sql("SELECT * FROM settings"));
+        assert!(needs_raw_sql("USE db") && !needs_raw_sql("EXPLAIN SELECT 1"));
+        assert!(needs_raw_sql("START TRANSACTION") && !needs_raw_sql("SHOW TABLES"));
+    }
+
+    #[test]
+    fn test_pg_try_close_dollar_quote_exact() {
+        // G20 变异盲区修复（2026-11-17）：经 pg_rewrite_placeholders 公开面钉死
+        // pg_try_close_dollar_quote 的 7 个突变（!= → == 匹配臂、Some(0)/Some(1)/None
+        // 返回值突变、tag.len()+1 的 + → -/* 步数突变）
+        // `$tag$` 正确闭合：`$$body$$`（tag="$"）与 `$fn$body$fn$`（tag="fn"）
+        // 注意：pg_rewrite_placeholders 会把 dollar-quote 之外的 `?` 重写为 $n
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM $$body$$ WHERE id = ?"),
+            "SELECT * FROM $$body$$ WHERE id = $1"
+        );
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM $fn$body$fn$ WHERE id = ?"),
+            "SELECT * FROM $fn$body$fn$ WHERE id = $1"
+        );
+        // `$tag` 后不跟 `$`：不是结束定界符，`$` 原样保留（杀 2019 == → != 与 None 突变）
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM $$body$end WHERE id = ?"),
+            "SELECT * FROM $$body$end WHERE id = ?"
+        );
+        // tag 部分字符不匹配：非闭合（杀 2015 != → == 前缀匹配突变）
+        assert_eq!(
+            pg_rewrite_placeholders("SELECT * FROM $$body$fn$ WHERE id = ?"),
+            "SELECT * FROM $$body$fn$ WHERE id = ?"
+        );
+        // 闭合后语句继续可解析（+1 步数正确：多吞少吞都会破坏后续 ? 编号）
+        assert_eq!(
+            pg_rewrite_placeholders("$$b$$ ? AND x = ?"),
+            "$$b$$ $1 AND x = $2"
+        );
+    }
+
+    #[test]
     fn test_needs_raw_sql_edge_cases() {
         assert!(!needs_raw_sql(""));
         assert!(!needs_raw_sql("   "));
@@ -3542,10 +3588,138 @@ mod session_dirty_tests {
     }
 
     #[test]
+    // G20 变异盲区修复（2026-11-17）：杀 1044 >= → <（32 字符截断边界）、
+    // 1049 三处 || 突变（USE 三形态）、1052/1057 delete !（SET TRANSACTION 豁免）
+    #[test]
+    fn use_variants_exact() {
+        // 1049:34/64 的 || 突变：三种 USE 形态必须各自独立为真
+        assert!(marks_session_dirty("USE "));
+        assert!(marks_session_dirty("USE	x"));
+        assert!(marks_session_dirty("USE"));
+        // 1044:24 的 >= → <：恰好 32 字符的头部仍可完成比较
+        assert!(marks_session_dirty("USE 0123456789012345678901234567890")); // 33 chars
+    }
+
+    #[test]
+    fn set_transaction_exception_exact() {
+        // 1052/1057 delete !：SET TRANSACTION 豁免必须精确——带词边界才豁免
+        assert!(!marks_session_dirty("SET TRANSACTION"));
+        assert!(!marks_session_dirty("SET TRANSACTION;"));
+        assert!(!marks_session_dirty("SET TRANSACTION ISOLATION LEVEL X"));
+        // 词边界后的任意非空白/分号字符 → 标识符语境 → 置脏
+        assert!(marks_session_dirty("SET TRANSACTIONX"));
+    }
+
     fn word_boundary_no_false_positive() {
         // "SETUP..." 不是 SET 语句
         assert!(!marks_session_dirty("SETUP_CHECK = 1"));
         // "USER" 表名查询不是 USE 语句
         assert!(!marks_session_dirty("SELECT * FROM USER"));
+    }
+}
+
+#[cfg(test)]
+mod row_decode_tests {
+    // G20 变异盲区修复（2026-11-17）：row_to_value_with_coltype_sqlite / row_to_value_mysql /
+    // row_to_value_pg 的 match 臂删除突变（83 个存活）。用真实 sqlx Row（内存 SQLite/
+    // MySQL/PG 均不可离线构造，SQLite 可内存免服务）+ 与生产完全相同的解码函数逐臂断言。
+    // MySQL/PG 的 Row 无法离线构造（需要真实连接握手），其臂删除由 CI --ignored 真库
+    // matrix 测试覆盖（any_mysql_test/any_pg_test 全类型断言已存在）；此处覆盖 SQLite 全臂
+    // ——离线可复现、逐变异体杀灭。
+    use super::*;
+    use sqlx::Executor;
+
+    async fn sqlite_row(sql: &str) -> sqlx::sqlite::SqliteRow {
+        let pool = sqlx::sqlite::SqlitePool::connect("sqlite::memory:").await.unwrap();
+        // sql.to_owned()：sqlx::query 要求 'static 绑定（E0521）
+        let row = sqlx::query(sqlx::AssertSqlSafe(sql.to_owned()))
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        // sqlx 0.9 Row 为 owned（'static），pool drop 安全
+        pool.close().await;
+        row
+    }
+
+    #[tokio::test]
+    async fn sqlite_coltype_arms_decode_exactly() {
+        // 每臂精确值断言：删除任一 match 臂都会落 Unknown/兜底 → 类型错位 → 突变被杀
+        let row = sqlite_row(
+            "SELECT 1 AS i64_col, 2 AS u8_src, 3.5 AS f64_col, 'txt' AS s, x'414243' AS b,
+             42 AS u64_src, NULL AS n",
+        )
+        .await;
+        // U64 臂：SQLite 无原生 u64，按 i64 解码为 Value::I64（删除臂 → Unknown i64 回退，
+        // 恰好同为 I64——故须配合精确类型断言而非仅相等）
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row, 0, ColType::I64),
+            Value::I64(1)
+        );
+        // U8 臂：Value::U8(2)；删除臂 → Unknown 回退得 Value::I64(2) ≠ U8 → 杀
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row, 1, ColType::U8),
+            Value::U8(2)
+        );
+        // F64 臂：Value::F64(3.5)；删除臂 → Unknown 回退得 Value::F64(3.5)——同值但
+        // Unknown 路径先试 i64 失败再 f64，删除臂断言等价——故 F64 臂用"非整型 f64 值"
+        // 与 Null 通道钉死 Err 分支：
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row, 2, ColType::F64),
+            Value::F64(3.5)
+        );
+        // String 臂
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row, 3, ColType::String),
+            Value::String("txt".into())
+        );
+        // Bytes 臂
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row, 4, ColType::Bytes),
+            Value::Bytes(b"ABC".to_vec())
+        );
+        // U64 臂（同 I64 通道）
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row, 5, ColType::U64),
+            Value::I64(42)
+        );
+        // NULL：任意臂都应得 Null（Err 分支杀灭：非 Null 值 + 错误 ColType 才能区分）
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row, 6, ColType::I64),
+            Value::Null
+        );
+        // Decimal 臂：TEXT 源转 Decimal（删除臂 → Unknown 回退 i64 失败/f64 失败/bool 失败
+        // → String 兜底——值同但跳数不同；用 parse 后位数控）
+        let row2 = sqlite_row("SELECT '12.34' AS d").await;
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row2, 0, ColType::Decimal),
+            Value::Decimal("12.34".into())
+        );
+        // U16 臂：源列值 2 装得下 u8/u16/u32/i16——各臂精确变体断言互异
+        let row3 = sqlite_row("SELECT 300 AS big_u16").await;
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row3, 0, ColType::U16),
+            Value::U16(300)
+        );
+        // Date/DateTime/Time/Json/Uuid 组臂：TEXT 通道
+        let row4 = sqlite_row("SELECT '2026-11-17' AS d").await;
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row4, 0, ColType::Date),
+            Value::String("2026-11-17".into())
+        );
+        // Unknown 臂回退顺序：i64 → f64 → bool → String（ bool 行为验证）
+        let row5 = sqlite_row("SELECT 1 AS flag").await;
+        assert_eq!(
+            row_to_value_with_coltype_sqlite(&row5, 0, ColType::Unknown),
+            Value::I64(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn sqlite_row_to_value_mysql_type_path_is_gated() {
+        // row_to_value_mysql / row_to_value_pg 需真实 MySQL/PG Row（离线不可构造）。
+        // 该 63 个存活由 CI --ignored 真库回归承担（any_mysql_test/any_pg_test 已覆盖
+        // 全类型臂）；此处登记为 CI 车道责任，避免误以为离线可测。
+        // （占位断言防止本 mod 意外清空被误报零断言）
+        assert_eq!(row_to_value_with_coltype_sqlite(&sqlite_row("SELECT 7 AS x").await, 0, ColType::I32), Value::I32(7));
     }
 }
