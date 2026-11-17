@@ -3609,6 +3609,7 @@ mod session_dirty_tests {
         assert!(marks_session_dirty("SET TRANSACTIONX"));
     }
 
+    #[test]
     fn word_boundary_no_false_positive() {
         // "SETUP..." 不是 SET 语句
         assert!(!marks_session_dirty("SETUP_CHECK = 1"));
@@ -3626,7 +3627,6 @@ mod row_decode_tests {
     // matrix 测试覆盖（any_mysql_test/any_pg_test 全类型断言已存在）；此处覆盖 SQLite 全臂
     // ——离线可复现、逐变异体杀灭。
     use super::*;
-    use sqlx::Executor;
 
     async fn sqlite_row(sql: &str) -> sqlx::sqlite::SqliteRow {
         let pool = sqlx::sqlite::SqlitePool::connect("sqlite::memory:")
