@@ -3587,7 +3587,6 @@ mod session_dirty_tests {
         assert!(!marks_session_dirty("DELETE FROM t WHERE id = 1"));
     }
 
-    #[test]
     // G20 变异盲区修复（2026-11-17）：杀 1044 >= → <（32 字符截断边界）、
     // 1049 三处 || 突变（USE 三形态）、1052/1057 delete !（SET TRANSACTION 豁免）
     #[test]
