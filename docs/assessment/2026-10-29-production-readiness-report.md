@@ -193,8 +193,20 @@ missed 分布（top）：`any.rs` 180（48%）——连接 impl 兜底分支（n
 
 1. **G20 首次拿到全量真实数据**（此前 4 次本机尝试均中断）；门槛 70% 未达 → 按门禁语义记红牌，**不构成生产阻断**（该指标为质量改进指引，非投产前置）。
 2. 修复方向：为 `any.rs` 原始 SQL 路径与 `slow_query_guard` 补行为级单测（替身存活即测试盲区清单）。
-3. `sz-orm-core` 全量（11725 变异体）本机 runner 手动续跑中（稳定 ~10 变异体/10min，预计 ~20h）。
-4. 指标登记 CHANGELOG [Unreleased]，修复批次另开。
+3. `sz-orm-core` 全量（11725 变异体）：CI 路径（-j8）复现 cargo-mutants 27.1.0 **Windows 临时树竞态 bug**——worker 线程向 temp copy 写文件报 `accessors.rs does not exist, refusing to create`（~87min/60 变异体即死）； workaround：**-j2 串行化规避**（本机手动跑实测 0 ERROR）。
+4. 矩阵 workflow 的 checkout 会清扫共享 workdir——sqlx 结果须在其完成与 core checkout 之间即时快照（已在 §9.1 完成）。
+
+### 9.3 口径重定义裁决（2026-11-17，用户确认）
+
+core 全量单次执行算术不可行（j2 ~40 天 / j8 ~12 天但竞态必死），G20 重定义为**三口径**：
+
+| 口径 | 内容 | 时长 | 频率 |
+|------|------|------|------|
+| A. 发布 diff 变异（主门禁） | `--diff-ref <base>` 对发布 diff 改动行全量变异 | 分钟级 | 每次发布必跑 |
+| B. 模块滚动全量（纵深） | `--modules m1,m2,...` 每次 2-3 个 core 模块 | 数小时~隔夜 | 滚动覆盖，季度轮完 |
+| C. 全包全量 | 仅 sqlx 可行（887 个 94min 实测） | 94 分钟 | 每次发布 |
+
+落地：`collect-mutation-linux.sh` 新增 `--modules` / `--diff-ref` / `--iterate` 三参数；`mutation-full.yml` 新增 `mode` 输入（默认 diff）+ 结果目录 mode 前缀改名（防矩阵 checkout 清扫）+ artifact 路径兜底；AGENTS.md G20 行同步更新（G12/G27/G33 复跑通过）。core 的 j2 `--iterate` 续跑不停——作为 B 层首批数据持续产出（昨夜静默死亡后已用 PowerShell 分离进程 + `--iterate` 跳过已 caught 变异体重启，旧 30 caught 在 `mutants.out.old` 保留）。
 
 
 *报告生成：2026-10-29（2026-10-30 复跑、2026-11-01 复跑 + v10.13.1 发布更新、2026-11-03 WSL2 Docker DB 集成测试、2026-11-15 复跑 v10.13.4）。本报告所有 `file:line` 引用经 `scripts/audit-verify.ps1` 校验（见文末输出）。*

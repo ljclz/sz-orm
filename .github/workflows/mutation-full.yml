@@ -1,38 +1,48 @@
-# G20 全量变异门禁（发布前 CI 长跑）
+# G20 变异门禁（发布前）——三口径（2026-11-16 重定义，依据报告 §九 节奏算术）
 #
-# 用途：对核心包（sz-orm-core / sz-orm-sqlx）执行 cargo-mutants 全量变异测试，
-#       杀率 < fail-under 即红牌。这是发布前门禁（G20），与日常增量变异（ci.yml 的
-#       mutation job，--in-diff 分钟级）互补。
+# 用途：对核心包（sz-orm-core / sz-orm-sqlx）执行 cargo-mutants 变异测试，杀率 < fail-under 即红牌。
 #
-# 运行时长警告（2026-10-30 实测）：
-#   sz-orm-core 单包即 11680 个变异体，单变异体测试可达 66 分钟（超时上限）。
-#   GitHub 托管 runner（2-4 核、单 job 上限 360 分钟）**无法完成全量**。
-#   推荐执行方式（二选一）：
-#   A. **self-hosted runner**（推荐）：把 40 核/64G 本机注册为仓库 runner
-#      （Settings → Actions → Runners → New self-hosted runner），workflow 自动路由。
-#      本机 40 核 + jobs=32 预计 30-48 小时连续运行。
-#   B. 分批 + --resume：手动触发多次，每次 job 内使用持久化 output 目录 + cargo-mutants
-#      --resume 续跑（self-hosted runner 工作目录持久，重启不丢失）。
+# 三口径（workflow_dispatch inputs.mode）：
+#   A. diff（默认，主门禁）    ：--diff-ref <base> 对发布 diff 改动行全量变异——分钟级，每次发布必跑
+#   B. modules（纵深）        ：--modules <m1,m2> 模块滚动全量——数小时/批，滚动覆盖 core 大模块
+#   C. full（全包全量）        ：仅 sqlx 可行（887 变异体 94min 实测 43.9%）；
+#                               core 11725 变异体 ×10min/个 ≈ 12 天+（j2）——**禁用于 core**。
+#                               另：cargo-mutants 27.1.0 Windows tmp 竞态 bug（j>2 必死），
+#                               self-hosted Windows runner 须 jobs=2，详见
+#                               docs/assessment/2026-10-29-production-readiness-report.md §九。
 #
-# 触发：workflow_dispatch 手动；如挂 self-hosted runner 后可加 schedule 周末长跑。
-# 依赖：TUNA 镜像配置（runner 侧 ~/.cargo/config.toml）加速依赖下载。
+# 运行方式：self-hosted runner（szorm-g20-win，Windows）。GitHub 托管 runner（360min 上限）无法承载 C。
+# 触发：workflow_dispatch 手动。矩阵双 job 共享 workdir——checkout 会清扫前 job 结果，
+#       结果目录已按 mode 前缀改名 + `if: always()` artifact 上传兜底。
 
 name: Mutation Full (G20 release gate)
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: '口径：full=全包全量（仅 sqlx 可行）/ modules=模块滚动全量 / diff=发布 diff 变异（主门禁）'
+        default: 'diff'
+        required: false
       packages:
         description: '变异目标包（逗号分隔）'
         default: 'sz-orm-core,sz-orm-sqlx'
+        required: false
+      modules:
+        description: 'mode=modules 时：模块名（逗号分隔，如 dialect,query,pool）'
+        default: 'dialect,query,pool'
+        required: false
+      diff_ref:
+        description: 'mode=diff 时：diff 基线（git ref，如上个发布 tag）'
+        default: 'HEAD~1'
         required: false
       fail_under:
         description: '杀率门槛（%）'
         default: '70'
         required: false
       jobs:
-        description: 'cargo-mutants 并行度（≤ runner 核数）'
-        default: '8'
+        description: 'cargo-mutants 并行度（Windows runner 须 ≤2 规避 tmp 竞态 bug，见报告 §九）'
+        default: '2'
         required: false
 
 jobs:
@@ -63,14 +73,32 @@ jobs:
         shell: bash
         run: cargo install cargo-mutants --locked
 
-      - name: Run full mutation (${{ matrix.package }})
+      - name: Run mutation (${{ matrix.package }}, mode=${{ github.event.inputs.mode || 'diff' }})
         shell: bash
         run: |
+          MODE="${{ github.event.inputs.mode || 'diff' }}"
+          ARGS=(--packages "${{ matrix.package }}")
+          case "$MODE" in
+            modules) ARGS+=(--modules "${{ github.event.inputs.modules || 'dialect,query,pool' }}") ;;
+            diff)    ARGS+=(--diff-ref "${{ github.event.inputs.diff_ref || 'HEAD~1' }}") ;;
+            full)    : ;; # 全包全量（仅 sqlx 可行，core 见报告 §九节奏算术）
+          esac
           bash scripts/collect-mutation-linux.sh \
-            --packages "${{ matrix.package }}" \
+            "${ARGS[@]}" \
             --fail-under "${{ github.event.inputs.fail_under || '70' }}" \
-            --jobs "${{ github.event.inputs.jobs || '8' }}" \
+            --jobs "${{ github.event.inputs.jobs || '2' }}" \
             --json "mutation-result-${{ matrix.package }}.json"
+
+      - name: Rename output dir by mode (avoid matrix checkout wiping sibling job results)
+        if: always()
+        shell: bash
+        run: |
+          # 矩阵双 job 共享 workdir：后跑的 job checkout 会清扫前 job 的 mutants-out-*。
+          # 将结果目录改名为带模式前缀，并在 Upload 步骤按名收取（[ -d ] 守卫已保证只处理现存目录）。
+          for d in mutants-out-*; do
+            [ -d "$d" ] || continue
+            mv "$d" "${{ github.event.inputs.mode || 'diff' }}-$d"
+          done
 
       - name: Upload mutation report
         if: always()
@@ -79,7 +107,7 @@ jobs:
           name: mutation-${{ matrix.package }}
           path: |
             mutation-result-${{ matrix.package }}.json
-            mutants-out-*/
+            *mutants-out-*/
 
   # 汇总：双包杀率均达门槛才算通过（脚本各自 exit 0/1，fail-fast: false 保证都跑完）
   gate:

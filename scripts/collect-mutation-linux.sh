@@ -19,6 +19,9 @@ FAIL_UNDER="70"
 JSON_OUTPUT=""
 INCLUDE_IGNORED="0"
 JOBS=40
+MODULES=""
+DIFF_REF=""
+ITERATE="0"
 
 while [ $# -gt 0 ]; do
     case "$1" in
@@ -29,6 +32,9 @@ while [ $# -gt 0 ]; do
         --json) JSON_OUTPUT="$2"; shift 2 ;;
         --jobs) JOBS="$2"; shift 2 ;;
         --include-ignored) INCLUDE_IGNORED="1"; shift ;;
+        --modules) MODULES="$2"; shift 2 ;;
+        --diff-ref) DIFF_REF="$2"; shift 2 ;;
+        --iterate) ITERATE="1"; shift ;;
         *) shift ;;
     esac
 done
@@ -49,6 +55,9 @@ echo "Tool version: $TOOL_VERSION"
 echo "Date: $DATE_UTC"
 echo "OS: $OS_INFO"
 echo "Packages: $PACKAGES"
+echo "Modules: ${MODULES:-<all>}"
+echo "Diff-ref: ${DIFF_REF:-<none>}"
+echo "Iterate: ${ITERATE}"
 echo "Fail-under: ${FAIL_UNDER}%"
 echo "Include-ignored: ${INCLUDE_IGNORED}"
 echo "Jobs: ${JOBS}"
@@ -61,7 +70,32 @@ if [ "$INCLUDE_IGNORED" = "1" ]; then
     MUTANT_ARGS=(-- --include-ignored)
 fi
 
+# 口径三（2026-11-16 G20 重定义）：
+#   A. --diff-ref <git-ref>   发布 diff 变异：对 base..HEAD 改动行全量变异（分钟级，主门禁）
+#   B. --modules <m1,m2,...>  模块滚动全量：仅对指定模块文件全量变异（数小时，纵深层）
+#   C. 全包全量（默认）        仅对测试快的包可行（sqlx 887 个 94min；core 11725 个 ≈ 12 天+，不可行）
 IFS=',' read -ra PKG_ARRAY <<< "$PACKAGES"
+IFS=',' read -ra MOD_ARRAY <<< "$MODULES"
+for pkg in "${PKG_ARRAY[@]:-}"; do
+    [ -n "$pkg" ] || continue
+    for mod in "${MOD_ARRAY[@]:-}"; do
+        [ -n "$mod" ] || continue
+        MUTANT_ARGS+=(--file "packages/$pkg/src/$mod.rs")
+    done
+done
+
+if [ -n "$DIFF_REF" ]; then
+    DIFF_FILE="$(mktemp -t szorm-release-diff-XXXXXX.diff)"
+    git diff "${DIFF_REF}...HEAD" > "$DIFF_FILE"
+    DIFF_LINES=$(wc -l < "$DIFF_FILE")
+    echo "Diff vs ${DIFF_REF}: ${DIFF_LINES} lines -> $(basename "$DIFF_FILE")"
+    MUTANT_ARGS+=(--in-diff "$DIFF_FILE")
+fi
+
+if [ "$ITERATE" = "1" ]; then
+    # 续跑：跳过输出目录中此前已 caught/unviable 的变异体（中断恢复语义）
+    MUTANT_ARGS+=(--iterate)
+fi
 
 TOTAL_MUTANTS=0
 KILLED_MUTANTS=0
@@ -194,6 +228,9 @@ if [ -n "$OUTPUT" ]; then
         echo "- Tool: $TOOL_VERSION"
         echo "- OS: $OS_INFO"
         echo "- Packages: $PACKAGES"
+        echo "- Modules: ${MODULES:-<all>}"
+        echo "- Diff-ref: ${DIFF_REF:-<none>}"
+        echo "- Iterate: ${ITERATE}"
         echo "- Include-ignored: ${INCLUDE_IGNORED}"
         echo "- Baseline: ${BASELINE}%"
         echo "- Threshold: ${FAIL_UNDER}%"

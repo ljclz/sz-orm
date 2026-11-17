@@ -9,6 +9,7 @@
 
 ## [Unreleased]
 
+- ci(mutation): G20 口径重定义为三档（用户确认）——A 发布 diff 变异（主门禁，分钟级）/ B 模块滚动全量（纵深）/ C 全包全量（仅 sqlx 可行）；collect-mutation-linux.sh 新增 --modules/--diff-ref/--iterate，mutation-full.yml 新增 mode 输入 + 结果目录改名防矩阵清扫 + jobs 默认 2（Windows tmp 竞态 bug）
 - test(snowflake): json_extract 断言随 quote 横向批同步（`"data":name`），修复 G20 全量变异 unmutated baseline 红（`63df9823`）
 - ci(mutation): mutation-full.yml 三处 run 步骤补 `shell: bash`（Windows self-hosted runner 无 pwsh 假红）；首获 G20 全量真实数据——sz-orm-sqlx 887 变异体杀率 43.9%（caught 301/missed 368/timeout 16），missed 集中于 any.rs 兜底分支与 slow_query_guard 测试盲区，登记为质量改进指引（`f67117ed`）
 
